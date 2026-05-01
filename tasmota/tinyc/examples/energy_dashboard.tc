@@ -41,7 +41,6 @@ global float t_gh   = 0.0;     // Solar Gartenhaus total (kWh)
 global float t_gg   = 0.0;     // Solar Garten total (kWh)
 global float t_wb   = 0.0;     // Wallbox total (kWh)
 global float t_ws   = 0.0;     // Wasser total (m³)
-global float t_gs   = 0.0;     // Gas total (m³)
 global float avgt   = 0.0;     // gleitender Tagesmittel (°C)
 global float zwzi   = 0.0;     // 2-Richtungszähler in (kWh)
 global float zwzo   = 0.0;     // 2-Richtungszähler out (kWh)
@@ -244,7 +243,6 @@ void EverySecond() {
             if (days_pos >= 31) days_pos = 0;
 
             // Snapshot meter values so today-counters reset.
-            gas_m  = t_gs;
             was_m  = t_ws;
             hwp_m  = t_hwp;
             zrz_m  = zwzi;
@@ -256,7 +254,6 @@ void EverySecond() {
     }
 
     // Today-deltas always recomputed (cheap, used in WebCall).
-    gas_c = t_gs - gas_m;
     was_c = t_ws - was_m;
 
     // 15-minute slot index 0..95 → daily heat-pump kWh trace.
@@ -439,17 +436,17 @@ void WebCall() {
 
     // ── Solar Garage (2.42/3.45 KW) ─────────────────────────────
     web_section("Solar Garage, 2.42/3.45 KW");
-    row_i ("aktuell", (int)wrga, "W");
+    row_i ("aktuell", (int)-wrga, "W");
     row_f3("Total",   t_ga,      "kWh");
 
     // ── Solar Gartenhaus (1.96/2.8 KW) ──────────────────────────
     web_section("Solar Gartenhaus, 1.96/2.8 KW");
-    row_i ("aktuell", (int)wrgh, "W");
+    row_i ("aktuell", (int)-wrgh, "W");
     row_f3("Total",   t_gh,      "kWh");
 
     // ── Solar Garten (2.87/4.1 KW) ──────────────────────────────
     web_section("Solar Garten, 2.87/4.1 KW");
-    row_i ("aktuell", (int)wrgg, "W");
+    row_i ("aktuell", (int)-wrgg, "W");
     row_f3("Total",   t_gg,      "kWh");
 
     // ── Solar Gesamt ────────────────────────────────────────────
@@ -459,7 +456,16 @@ void WebCall() {
     // ── Powerwall — colored per metric ──────────────────────────
     web_section("Powerwall");
     sprintf(scratch,
-            "{s}Batterie Füllstand{m}<span style='color:yellow;'>%d%% (%.2f kWh)</span>{e}",
+            // `&#37;` is HTML for `%`. Workaround for a TinyC firmware
+            // bug (fixed in 1.3.22): when `%%` falls inside a float-typed
+            // sprintf segment's prefix, `tc_sprintf_float` copied the
+            // bytes verbatim instead of unescaping → "85 %% (...)" in
+            // the rendered page. The HTML entity sidesteps the
+            // formatter and renders as `%` in the browser. Other `%%`
+            // sites in the example scripts are unaffected (they fall
+            // in the trailing-text or int-typed segments, which
+            // already unescape correctly).
+            "{s}Batterie Füllstand{m}<span style='color:yellow;'>%d&#37; (%.2f kWh)</span>{e}",
             (int)pwl, pwl / 100.0 * 13.5);
     webSend(scratch);
     sprintf(scratch, "{s}Netz{m}<span style='color:yellow;'>%d W</span>{e}", (int)sip);
