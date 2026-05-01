@@ -736,8 +736,14 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   log_line("safeboot migrator booting");
-  log_line("running from offset 0x" + String(OLD_APP1_OFFSET, HEX) +
-           " (will write safeboot to 0x" + String(SAFEBOOT_DST_OFFSET, HEX) + ")");
+  // Print the ACTUAL runtime running offset (not the compile-time
+  // constant — that was confusing). The handle_root() page also shows
+  // this, but having it in the log too makes serial-only debug easier.
+  RunningSlot rs = detect_running_slot();
+  log_line(String("running from ") + rs.label +
+           " @ 0x" + String(rs.offset, HEX) +
+           (rs.safe ? " (SAFE — migrate is allowed)"
+                    : " (UNSAFE for this layout — migrate would self-corrupt)"));
 
   connect_or_softap();
 
