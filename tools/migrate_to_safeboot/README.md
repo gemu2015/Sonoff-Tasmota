@@ -108,12 +108,40 @@ cd tools/migrate_to_safeboot/embedded
 # CHIP=tasmota32s3   ./build_blobs.sh   # for an ESP32-S3 target
 # CHIP=tasmota32c3   ./build_blobs.sh   # for an ESP32-C3 target
 
-# 2. Build the migrator firmware
-pio run -d tools/migrate_to_safeboot
+# 2. Build the migrator firmware — bake your home Wi-Fi creds in at
+#    build time so the device joins your network straight away after
+#    OTA, no SoftAP / setup-form dance:
+cd ..
+MIGRATOR_WIFI_SSID="YourSSID" \
+MIGRATOR_WIFI_PASS="YourPassword" \
+pio run
+
+# Or build without baked-in creds — the device will come up as a
+# SoftAP `safeboot-migrate-XXXX` (password `safeboot1`) with a
+# Wi-Fi setup form. Enter creds there, the device saves them to NVS
+# and reboots into STA mode.
+pio run
 ```
 
 The output at `tools/migrate_to_safeboot/.pio/build/migrator/firmware.bin`
 is ≤ 1.9 MB and OTAs cleanly into the old `app1` slot.
+
+## Wi-Fi credential resolution
+
+On boot the migrator tries credentials in this order:
+
+1. **Build-time** — `MIGRATOR_WIFI_SSID` / `MIGRATOR_WIFI_PASS` baked
+   in via env vars (simplest path; recommended for one-shot use).
+2. **NVS-saved** — credentials persisted from a previous SoftAP setup
+   form submission. Survives reboots.
+3. **SoftAP fallback** — `safeboot-migrate-<MAC>` AP comes up with a
+   simple Wi-Fi setup form on the migrator's root page. Enter creds,
+   they get saved (path 2 above) and the device reboots to try STA.
+
+The migrator does NOT read existing Tasmota Wi-Fi credentials. Tasmota
+stores those in a Tasmota-version-specific binary settings sector, not
+portable to read from outside its source tree. If you don't bake creds
+in at build time, the SoftAP path takes about 30 seconds extra.
 
 ## Workflow recommendation
 

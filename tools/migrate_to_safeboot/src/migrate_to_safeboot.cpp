@@ -48,6 +48,12 @@ static const char *AP_PASS   = "safeboot1";   // change before publishing
 static WebServer server(80);
 static String last_log;
 
+// True while SoftAP is up (no STA connect succeeded). Drives the root
+// page to show a Wi-Fi setup form instead of the migrate UI. Defined
+// up here because handle_root() reads it; the actual STA→SoftAP logic
+// that sets it lives further down.
+static bool g_softap_mode = false;
+
 static void log_line(const String &s) {
   Serial.println(s);
   last_log += s + "\n";
@@ -223,18 +229,41 @@ static void handle_root() {
   bool can_migrate  = layout_ok && rslot.safe;
 
   String html;
-  html += F("<!doctype html><html><head><title>safeboot migrator</title>"
-            "<style>body{font-family:sans-serif;max-width:42em;margin:1em auto;"
-            "padding:1em}h1{color:#1fa3ec}pre{background:#222;color:#0f0;"
-            "padding:.5em;overflow:auto}button{font-size:1.2em;padding:.5em 1em;"
-            "background:#d43535;color:#fff;border:0;border-radius:.3em;"
-            "cursor:pointer}button:disabled{background:#666;cursor:not-allowed}"
-            ".warn{background:#fff3cd;border-left:.4em solid #ffc107;"
-            "padding:.5em 1em;margin:1em 0}"
-            ".bad{background:#f8d7da;border-left:.4em solid #d43535;"
-            "padding:.5em 1em;margin:1em 0}"
-            "</style></head><body>");
+  html += "<!doctype html><html><head><title>safeboot migrator</title>"
+          "<style>body{font-family:sans-serif;max-width:42em;margin:1em auto;"
+          "padding:1em}h1{color:#1fa3ec}pre{background:#222;color:#0f0;"
+          "padding:.5em;overflow:auto}button{font-size:1.2em;padding:.5em 1em;"
+          "background:#d43535;color:#fff;border:0;border-radius:.3em;"
+          "cursor:pointer}button:disabled{background:#666;cursor:not-allowed}"
+          "input{font-size:1.1em;padding:.4em;margin:.2em 0;width:100%;"
+          "box-sizing:border-box}label{display:block;margin-top:.5em}"
+          ".warn{background:#fff3cd;border-left:.4em solid #ffc107;"
+          "padding:.5em 1em;margin:1em 0}"
+          ".bad{background:#f8d7da;border-left:.4em solid #d43535;"
+          "padding:.5em 1em;margin:1em 0}"
+          "</style></head><body>";
   html += "<h1>safeboot migrator</h1>";
+
+  // SoftAP mode — show the Wi-Fi setup form ONLY. Migration is gated
+  // behind a working STA connection so the device is still reachable
+  // after the post-migration reboot.
+  if (g_softap_mode) {
+    html += "<div class='warn'><b>Setup required.</b> The migrator is "
+            "running its own Wi-Fi access point because no STA "
+            "credentials are configured. Enter your home Wi-Fi below — "
+            "credentials get saved to the migrator's NVS and the "
+            "device reboots to join your network. After it connects, "
+            "browse to its new IP to do the actual migration.</div>"
+            "<form method='POST' action='/wifi'>"
+            "<label>SSID<input name='ssid' required></label>"
+            "<label>Password<input name='pass' type='password'></label>"
+            "<button type='submit' style='background:#1fa3ec'>"
+            "Save and reboot</button></form>"
+            "<h3>Log</h3><pre>" + last_log + "</pre>"
+            "</body></html>";
+    server.send(200, "text/html", html);
+    return;
+  }
 
   // ── Status block ──
   html += "<p>Detected layout: <b>" + String(info.name) + "</b> "
@@ -473,15 +502,27 @@ static void handle_log() {
 }
 
 // ── Wi-Fi setup ─────────────────────────────────────────────────────────
-//    Read existing Tasmota Wi-Fi creds from NVS if present, else SoftAP.
-static bool try_sta() {
-  Preferences prefs;
-  if (!prefs.begin("Tasmota", true)) return false;
-  String ssid = prefs.getString("Settings.sta_ssid1", "");
-  String pass = prefs.getString("Settings.sta_pwd1", "");
-  prefs.end();
-  if (ssid.length() == 0) return false;
+//
+// Cred sources, tried in order:
+//   1. Build-time -DMIGRATOR_WIFI_SSID=... -DMIGRATOR_WIFI_PASS=...
+//      (set in platformio.ini; simplest path for one-shot use).
+//   2. Migrator's own NVS namespace ("migrator"), persisted from a previous
+//      SoftAP setup form submission. Survives reboots.
+//   3. SoftAP fallback with a Wi-Fi setup form on the migrator's root.
+//
+// We do NOT try to read the existing Tasmota credentials — those live in
+// a flash settings sector with a Tasmota-version-specific binary layout,
+// not portable to read from outside the Tasmota source tree.
+#ifndef MIGRATOR_WIFI_SSID
+#define MIGRATOR_WIFI_SSID ""
+#endif
+#ifndef MIGRATOR_WIFI_PASS
+#define MIGRATOR_WIFI_PASS ""
+#endif
 
+// Try to connect to STA with the given creds. Returns true on success.
+static bool try_connect(const String &ssid, const String &pass) {
+  if (ssid.length() == 0) return false;
   log_line("STA: connecting to " + ssid);
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), pass.c_str());
@@ -492,7 +533,32 @@ static bool try_sta() {
     }
     delay(500);
   }
+  log_line("STA: no connect after 15 s");
+  WiFi.disconnect(true);
   return false;
+}
+
+// Read SSID/password saved by a previous SoftAP setup. Returns true on
+// success and fills out the args.
+static bool load_saved_creds(String &ssid, String &pass) {
+  Preferences prefs;
+  if (!prefs.begin("migrator", true)) return false;   // namespace "migrator"
+  ssid = prefs.getString("ssid", "");
+  pass = prefs.getString("pass", "");
+  prefs.end();
+  return ssid.length() > 0;
+}
+
+static void save_creds(const String &ssid, const String &pass) {
+  Preferences prefs;
+  if (!prefs.begin("migrator", false)) {
+    log_line("save_creds: NVS open failed");
+    return;
+  }
+  prefs.putString("ssid", ssid);
+  prefs.putString("pass", pass);
+  prefs.end();
+  log_line("save_creds: saved " + ssid);
 }
 
 static void start_softap() {
@@ -501,8 +567,45 @@ static void start_softap() {
   snprintf(ssid, sizeof(ssid), "%s%04X", AP_PREFIX, (uint16_t)mac);
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid, AP_PASS);
+  g_softap_mode = true;
   log_line("AP: " + String(ssid) + " / " + String(AP_PASS) +
            " @ " + WiFi.softAPIP().toString());
+}
+
+// Connection orchestration: build-time → saved → SoftAP. Called on boot.
+static void connect_or_softap() {
+  // 1) Build-time creds
+  String ssid = MIGRATOR_WIFI_SSID;
+  String pass = MIGRATOR_WIFI_PASS;
+  if (ssid.length() > 0 && try_connect(ssid, pass)) return;
+
+  // 2) NVS-saved creds
+  String s, p;
+  if (load_saved_creds(s, p) && try_connect(s, p)) return;
+
+  // 3) SoftAP with setup form
+  log_line("STA failed, starting SoftAP");
+  start_softap();
+}
+
+// POST handler: /wifi — accepts an SSID/password form submission, saves
+// to NVS, and reboots so the next boot can try STA with the new creds.
+static void handle_wifi_save() {
+  String ssid = server.arg("ssid");
+  String pass = server.arg("pass");
+  if (ssid.length() == 0) {
+    server.send(400, "text/plain", "ssid required");
+    return;
+  }
+  save_creds(ssid, pass);
+  server.send(200, "text/html",
+              "<!doctype html><title>saving</title>"
+              "<p>Credentials saved. Rebooting in 2 s — the migrator will "
+              "try STA with the new SSID. If it works, browse to the "
+              "device's new IP. If it doesn't, the SoftAP comes back "
+              "up at the same address as before for another try.</p>");
+  delay(2000);
+  ESP.restart();
 }
 
 void setup() {
@@ -512,16 +615,14 @@ void setup() {
   log_line("running from offset 0x" + String(OLD_APP1_OFFSET, HEX) +
            " (will write safeboot to 0x" + String(SAFEBOOT_DST_OFFSET, HEX) + ")");
 
-  if (!try_sta()) {
-    log_line("STA failed, starting SoftAP");
-    start_softap();
-  }
+  connect_or_softap();
 
-  server.on("/",        handle_root);
-  server.on("/go",      HTTP_POST, handle_go);
-  server.on("/log",     handle_log);
+  server.on("/",         handle_root);
+  server.on("/go",       HTTP_POST, handle_go);
+  server.on("/log",      handle_log);
   server.on("/flipslot", HTTP_POST, handle_flipslot);
-  server.on("/selfota", HTTP_POST, handle_selfota_done, handle_selfota_upload);
+  server.on("/selfota",  HTTP_POST, handle_selfota_done, handle_selfota_upload);
+  server.on("/wifi",     HTTP_POST, handle_wifi_save);
   server.begin();
   log_line("web UI ready");
 }
