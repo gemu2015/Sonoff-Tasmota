@@ -259,18 +259,23 @@ static void handle_root() {
               "hidden SSID, range). CONNECT_FAILED = the AP rejected the "
               "auth (wrong password, MAC filter, or WPA3-only).</small></div>";
     }
-    html += "<div class='warn'><b>Setup required.</b> The migrator is "
-            "running its own Wi-Fi access point because no STA "
-            "credentials are configured (or the last attempt failed). "
-            "Enter your home Wi-Fi below — credentials get saved to "
-            "the migrator's NVS and the device reboots to join your "
-            "network. After it connects, browse to its new IP to do "
-            "the actual migration.</div>"
+    html += "<div class='warn'><b>Setup required.</b> Enter your home "
+            "Wi-Fi below. The <b>Test now</b> button tries the creds "
+            "<i>without saving</i> so you can iterate quickly — if it "
+            "works, click <b>Save and reboot</b> to commit. The "
+            "credentials get saved to the migrator's own NVS, the "
+            "device reboots, joins your network, and you continue with "
+            "the migration from its new IP.</div>"
             "<form method='POST' action='/wifi'>"
             "<label>SSID<input name='ssid' required></label>"
-            "<label>Password<input name='pass' type='password'></label>"
-            "<button type='submit' style='background:#1fa3ec'>"
-            "Save and reboot</button></form>"
+            "<label>Password<input name='pass'></label>"
+            "<small>(unmasked so you can verify; submit either button)</small>"
+            "<div style='margin-top:.5em'>"
+            "<button type='submit' formaction='/wifi_test' "
+            "style='background:#28a745'>Test now</button> "
+            "<button type='submit' formaction='/wifi' "
+            "style='background:#1fa3ec'>Save and reboot</button>"
+            "</div></form>"
             "<h3>Log</h3><pre>" + last_log + "</pre>"
             "</body></html>";
     server.send(200, "text/html", html);
@@ -662,6 +667,51 @@ static void connect_or_softap() {
   start_softap();
 }
 
+// POST handler: /wifi_test — try the submitted creds in-place WITHOUT
+// saving to NVS or rebooting. Lets the user iterate quickly. On success,
+// SoftAP comes back up and the user clicks "Save and reboot" to commit.
+// On failure, g_last_sta_error gets set and the form re-renders the
+// red banner with the specific WL_ status.
+static void handle_wifi_test() {
+  String ssid = server.arg("ssid");
+  String pass = server.arg("pass");
+  if (ssid.length() == 0) {
+    server.send(400, "text/plain", "ssid required");
+    return;
+  }
+  // Send the response BEFORE we tear down SoftAP — once we kill the AP
+  // the client's TCP connection drops mid-write.
+  server.send(200, "text/html",
+              "<!doctype html><meta http-equiv='refresh' content='25;url=/'>"
+              "<title>testing</title><body>"
+              "<h2>testing creds, ~25 s</h2>"
+              "<p>Tearing down SoftAP and trying STA. If it works, this "
+              "page WILL fail to refresh (different network). If it "
+              "fails, SoftAP comes back up and this page reloads with "
+              "the failure reason in red.</p>"
+              "<p>While testing, the migrator's IP is unreachable. "
+              "Either way, just wait for the auto-redirect.</p></body>");
+  // Give the response a moment to flush before we drop the radio.
+  delay(500);
+  WiFi.softAPdisconnect(true);
+  delay(200);
+
+  bool ok = try_connect(ssid, pass);
+  if (ok) {
+    // STA up — tell the user via log, but they're already moved to a
+    // different network. Keep STA up; if they reload at the new IP
+    // they'll see the migrate UI.
+    g_softap_mode = false;
+    log_line("test: STA OK — browse to " + WiFi.localIP().toString() +
+             " to continue.");
+    return;
+  }
+  // STA failed — bring the SoftAP back up so the user can retry.
+  // g_last_sta_error is already set by try_connect().
+  log_line("test: STA failed, re-enabling SoftAP for retry");
+  start_softap();
+}
+
 // POST handler: /wifi — accepts an SSID/password form submission, saves
 // to NVS, and reboots so the next boot can try STA with the new creds.
 static void handle_wifi_save() {
@@ -696,7 +746,8 @@ void setup() {
   server.on("/log",      handle_log);
   server.on("/flipslot", HTTP_POST, handle_flipslot);
   server.on("/selfota",  HTTP_POST, handle_selfota_done, handle_selfota_upload);
-  server.on("/wifi",     HTTP_POST, handle_wifi_save);
+  server.on("/wifi",      HTTP_POST, handle_wifi_save);
+  server.on("/wifi_test", HTTP_POST, handle_wifi_test);
   server.begin();
   log_line("web UI ready");
 }
