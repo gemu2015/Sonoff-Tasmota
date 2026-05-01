@@ -54,6 +54,10 @@ static String last_log;
 // that sets it lives further down.
 static bool g_softap_mode = false;
 
+// Last STA-attempt result, surfaced in the SoftAP web UI so the user
+// can tell whether the issue was bad creds vs. AP not visible vs. etc.
+static String g_last_sta_error;
+
 static void log_line(const String &s) {
   Serial.println(s);
   last_log += s + "\n";
@@ -248,12 +252,20 @@ static void handle_root() {
   // behind a working STA connection so the device is still reachable
   // after the post-migration reboot.
   if (g_softap_mode) {
+    if (g_last_sta_error.length() > 0) {
+      html += "<div class='bad'><b>Last STA attempt failed.</b><br>" +
+              g_last_sta_error +
+              "<br><small>NO_SSID_AVAIL = AP not visible (check 2.4 GHz, "
+              "hidden SSID, range). CONNECT_FAILED = the AP rejected the "
+              "auth (wrong password, MAC filter, or WPA3-only).</small></div>";
+    }
     html += "<div class='warn'><b>Setup required.</b> The migrator is "
             "running its own Wi-Fi access point because no STA "
-            "credentials are configured. Enter your home Wi-Fi below — "
-            "credentials get saved to the migrator's NVS and the "
-            "device reboots to join your network. After it connects, "
-            "browse to its new IP to do the actual migration.</div>"
+            "credentials are configured (or the last attempt failed). "
+            "Enter your home Wi-Fi below — credentials get saved to "
+            "the migrator's NVS and the device reboots to join your "
+            "network. After it connects, browse to its new IP to do "
+            "the actual migration.</div>"
             "<form method='POST' action='/wifi'>"
             "<label>SSID<input name='ssid' required></label>"
             "<label>Password<input name='pass' type='password'></label>"
@@ -520,20 +532,82 @@ static void handle_log() {
 #define MIGRATOR_WIFI_PASS ""
 #endif
 
+// Map a WiFi.status() code to a human-readable string. The Arduino-ESP32
+// stack only surfaces a coarse enum, but distinguishing
+// "AP not visible" (WL_NO_SSID_AVAIL) from "auth failed" (WL_CONNECT_FAILED)
+// is the difference between "router is off / 5 GHz only / hidden SSID"
+// and "wrong password / MAC filter / WPA3-only" — actionable for the user.
+static const char *wifi_status_str(wl_status_t s) {
+  switch (s) {
+    case WL_IDLE_STATUS:     return "IDLE";
+    case WL_NO_SSID_AVAIL:   return "NO_SSID_AVAIL (AP not visible — 5 GHz only? hidden? out of range?)";
+    case WL_SCAN_COMPLETED:  return "SCAN_COMPLETED";
+    case WL_CONNECTED:       return "CONNECTED";
+    case WL_CONNECT_FAILED:  return "CONNECT_FAILED (wrong password? MAC filter? WPA3 only?)";
+    case WL_CONNECTION_LOST: return "CONNECTION_LOST";
+    case WL_DISCONNECTED:    return "DISCONNECTED (still trying)";
+    case WL_NO_SHIELD:       return "NO_SHIELD";
+    default:                 return "?";
+  }
+}
+
 // Try to connect to STA with the given creds. Returns true on success.
 static bool try_connect(const String &ssid, const String &pass) {
   if (ssid.length() == 0) return false;
-  log_line("STA: connecting to " + ssid);
+
+  // 30 s timeout. Some networks take longer than 15 s for first
+  // association — mesh roaming, slow auth, multiple BSSIDs.
+  constexpr int total_ticks = 60;
+  constexpr int tick_ms     = 500;
+
+  log_line("STA: SSID=" + ssid + " pass-len=" + String((int)pass.length()));
+
+  // Defensive reset before every attempt — clears any leftover SoftAP
+  // state from earlier in this same boot, and any failed STA attempt
+  // residue from a previous iteration.
+  WiFi.persistent(false);          // don't write creds to NVS-backed flash
+  WiFi.disconnect(true, true);
+  delay(100);
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+
+  // Optional: a quick scan first so we know whether the AP is
+  // even visible. Helps the user distinguish "wrong network" from
+  // "router off". Scan takes ~2 s.
+  int n = WiFi.scanNetworks();
+  bool seen = false;
+  for (int i = 0; i < n; i++) {
+    if (WiFi.SSID(i) == ssid) { seen = true; break; }
+  }
+  if (!seen) {
+    log_line("STA: scan: " + ssid + " NOT in " + String(n) + " visible APs");
+  } else {
+    log_line("STA: scan: " + ssid + " visible");
+  }
+  WiFi.scanDelete();
+
   WiFi.begin(ssid.c_str(), pass.c_str());
-  for (int i = 0; i < 30; i++) {
-    if (WiFi.status() == WL_CONNECTED) {
+  wl_status_t last = WL_IDLE_STATUS;
+  for (int i = 0; i < total_ticks; i++) {
+    wl_status_t s = WiFi.status();
+    if (s != last) {
+      log_line(String("STA: status ") + wifi_status_str(s) +
+               " (after " + String(i * tick_ms) + " ms)");
+      last = s;
+    }
+    if (s == WL_CONNECTED) {
+      g_last_sta_error = "";
       log_line("STA: " + WiFi.localIP().toString());
       return true;
     }
-    delay(500);
+    // CONNECT_FAILED is terminal — don't bother waiting the rest of
+    // the timeout, the password is wrong (or the AP rejected us).
+    if (s == WL_CONNECT_FAILED) break;
+    delay(tick_ms);
   }
-  log_line("STA: no connect after 15 s");
+  g_last_sta_error = "STA: connect failed — final status: " +
+                     String(wifi_status_str(WiFi.status()));
+  log_line(g_last_sta_error);
   WiFi.disconnect(true);
   return false;
 }
