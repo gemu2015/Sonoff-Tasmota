@@ -214,7 +214,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.20"    // Symmetric crypto syscalls (360–365): aesEcb / aesCbc (AES-128, in-place on TinyC char[] buffers), hmacSha256, sha256, plus hex2bin / bin2hex byte-twiddling helpers. ESP32-only via mbedtls (already linked for HTTPS/MQTT-TLS); ESP8266 path stubs return 0/no-op. Motivating use case: TinyC scripts speaking the Tuya local protocol (v3.3 = AES-128-ECB) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip or a separate bridge. Also enables custom signed REST APIs (HMAC-SHA256), encrypted SML decoders not covered by AmsLib, and per-device MQTT-TLS fingerprinting. Buffers follow TinyC convention (one byte per int32 slot, low 8 bits used); lengths are in bytes and must fit the ref's allocated capacity. AES-CBC stack-allocates up to 4 KB per call, falls back to malloc above; HMAC/SHA bounded at 1024 B key / 4 KB data — bigger payloads should be hashed in chunks via repeated SHA-256 of a hash-state buffer (future enhancement). Tuya v3.4 (ECDH+AES-GCM) not exposed yet — most Smart-Life devices are still v3.3. IDE BUILTINS + symbol-table entries for the 6 functions are wired (refArgs[] / strArgs[] / intArgs[] in tinyc_ide.html.gz) — first user is examples/pool_pump.tc, validated end-to-end on ESP32-S3. Previous: "1.3.19" — Cross-VM share table + PSRAM-backed bytecode + IDE strcmp/sprintf fixes. (1) New 8-syscall `share*` API (340–347) lets two TinyC slots exchange named scalars/strings via a driver-global 32-entry table (~2.6 KB DRAM, mutex-protected on ESP32). Use this when one program outgrows a single slot and is split across two — e.g. Andreas's BYD/Speedwire/EEBus stack. Missing-key reads return 0/0.0/"" without error; `shareHas`/`shareDelete` complete the model. (2) `TC_MAX_PROGRAM` 65536 → 131072 with PSRAM fallback: `s->program` and `vm->const_data` allocate from internal DRAM first, only spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` on OOM (ESP32 only). Small/normal programs stay in fast static RAM; only edge-case 100+ KB scripts (or scripts on devices with fragmented heap) reach PSRAM. AddLog INFO line emitted when PSRAM path is taken. (3) IDE: 4-site emitByte-truncation bug fixed — `emit(Op.SYSCALL); emitByte(Syscall.X)` truncated ids ≥256 to `id & 0xFF`, silently rerouting STRCMP_CONST=275 to SYS_MATH_POW=19 (so `strcmp(arr,"literal")` returned NaN bits 0x7FC00000 = 2143289344, breaking every `if (strcmp(...) == 0)` branch). Same bug hit FILE_WRITE_STR=276, LOG_LEVEL=269, LOG_LEVEL_STR=270. All four sites now use the existing `emitSyscall(id)` helper which auto-picks SYSCALL2 (u16) for ids ≥256. (4) IDE: `inferType(CallExpr)` had a hardcoded float-builtin list (sqrt/sin/cos/.../atof) and ignored the symbol-table `returnFloat: true` flag, so `sprintf(buf,"%.2f",shareGetFloat(...))` saw valType='int' and emitted I2F → reinterpreted bits → printed 1056964608.00 (= 0.5f bit-pattern). Now also returns 'float' when `BUILTINS[name].returnFloat === true`; future float-returning builtins work automatically.   Previous: "1.3.18" — Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). "1.3.17" — TC_ERR_BOUNDS rich log + RET-time SP-balance check + compiler float→int narrowing warning.
+#define TC_RELEASE         "1.3.21"    // UDP `global` send-side self-heal: when WiFi degrades, Arduino UDP can wedge multicast `endPacket()` while the upper-layer `udp_connected` flag stays true — silencing all `global` broadcasts from a slot until that slot is restarted. Symptom seen on a heat-pump device .31 whose `hp_in/hp_out/hp_at/hp_run` UDP globals stopped reaching subscriber slots even though the VM kept executing and `store_reg()` kept assigning. Receive side already auto-recovered via inactivity watchdog (`tc_udp_poll`); send side now mirrors that — `tc_udp_send/_array/_str` check `endPacket()`'s return value and on failure call `tc_udp_send_fail_recover()` which throttle-rebinds the multicast socket (`tc_udp_init()`). Throttle is `TC_UDP_REINIT_THROTTLE_MS = 5000` so a genuinely-down network can't cause continuous re-bind churn (every assignment to a UDP global would otherwise trigger). Logs at INFO when a re-init fires. Same logic transparently helps any future scripted-UDP/`udpSend` path that goes through these helpers. Previous: "1.3.20" — Symmetric crypto syscalls (360–365): aesEcb / aesCbc (AES-128, in-place on TinyC char[] buffers), hmacSha256, sha256, plus hex2bin / bin2hex byte-twiddling helpers. ESP32-only via mbedtls (already linked for HTTPS/MQTT-TLS); ESP8266 path stubs return 0/no-op. Motivating use case: TinyC scripts speaking the Tuya local protocol (v3.3 = AES-128-ECB) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip or a separate bridge. Also enables custom signed REST APIs (HMAC-SHA256), encrypted SML decoders not covered by AmsLib, and per-device MQTT-TLS fingerprinting. Buffers follow TinyC convention (one byte per int32 slot, low 8 bits used); lengths are in bytes and must fit the ref's allocated capacity. AES-CBC stack-allocates up to 4 KB per call, falls back to malloc above; HMAC/SHA bounded at 1024 B key / 4 KB data — bigger payloads should be hashed in chunks via repeated SHA-256 of a hash-state buffer (future enhancement). Tuya v3.4 (ECDH+AES-GCM) not exposed yet — most Smart-Life devices are still v3.3. IDE BUILTINS + symbol-table entries for the 6 functions are wired (refArgs[] / strArgs[] / intArgs[] in tinyc_ide.html.gz) — first user is examples/pool_pump.tc, validated end-to-end on ESP32-S3. Previous: "1.3.19" — Cross-VM share table + PSRAM-backed bytecode + IDE strcmp/sprintf fixes. (1) New 8-syscall `share*` API (340–347) lets two TinyC slots exchange named scalars/strings via a driver-global 32-entry table (~2.6 KB DRAM, mutex-protected on ESP32). Use this when one program outgrows a single slot and is split across two — e.g. Andreas's BYD/Speedwire/EEBus stack. Missing-key reads return 0/0.0/"" without error; `shareHas`/`shareDelete` complete the model. (2) `TC_MAX_PROGRAM` 65536 → 131072 with PSRAM fallback: `s->program` and `vm->const_data` allocate from internal DRAM first, only spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` on OOM (ESP32 only). Small/normal programs stay in fast static RAM; only edge-case 100+ KB scripts (or scripts on devices with fragmented heap) reach PSRAM. AddLog INFO line emitted when PSRAM path is taken. (3) IDE: 4-site emitByte-truncation bug fixed — `emit(Op.SYSCALL); emitByte(Syscall.X)` truncated ids ≥256 to `id & 0xFF`, silently rerouting STRCMP_CONST=275 to SYS_MATH_POW=19 (so `strcmp(arr,"literal")` returned NaN bits 0x7FC00000 = 2143289344, breaking every `if (strcmp(...) == 0)` branch). Same bug hit FILE_WRITE_STR=276, LOG_LEVEL=269, LOG_LEVEL_STR=270. All four sites now use the existing `emitSyscall(id)` helper which auto-picks SYSCALL2 (u16) for ids ≥256. (4) IDE: `inferType(CallExpr)` had a hardcoded float-builtin list (sqrt/sin/cos/.../atof) and ignored the symbol-table `returnFloat: true` flag, so `sprintf(buf,"%.2f",shareGetFloat(...))` saw valType='int' and emitted I2F → reinterpreted bits → printed 1056964608.00 (= 0.5f bit-pattern). Now also returns 'float' when `BUILTINS[name].returnFloat === true`; future float-returning builtins work automatically.   Previous: "1.3.18" — Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). "1.3.17" — TC_ERR_BOUNDS rich log + RET-time SP-balance check + compiler float→int narrowing warning.
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -259,6 +259,7 @@ static FS *tc_file_path(char *path) {
 #define TC_UDP_BUF_SIZE      320        // receive buffer (max: 2+16+1+2+64*4 = 277)
 #define TC_UDP_MAX_ARRAY     64         // max float array elements per UDP variable
 #define TC_UDP_TIMEOUT_SEC   60         // default inactivity timeout (seconds), 0 = disabled
+#define TC_UDP_REINIT_THROTTLE_MS 5000  // min interval between auto-reinit attempts after a failed send
 
 /*********************************************************************************************\
  * VM Opcodes
@@ -2323,6 +2324,29 @@ static void tc_udp_free_arrays(void) {
   Tinyc->udp_vars = nullptr;
 }
 
+// Self-heal: when WiFi degrades the multicast send socket can wedge while
+// `udp_connected` stays true (Arduino UDP doesn't notify the upper layer of
+// lower-level failures). The receive side already auto-recovers via an
+// inactivity watchdog (tc_udp_poll); the send side had no equivalent until
+// now — meaning a transient WiFi blip could permanently silence a slot's
+// `global` broadcasts. This helper is called when `endPacket()` returns 0.
+// Throttled to TC_UDP_REINIT_THROTTLE_MS so a genuinely-down network can't
+// cause continuous re-bind churn (every assignment to a UDP global would
+// otherwise re-init).
+static void tc_udp_init(void);  // forward decl (defined below)
+static uint32_t tc_udp_send_reinit_last = 0;
+static void tc_udp_send_fail_recover(void) {
+  if (!Tinyc) return;
+  uint32_t now = millis();
+  if (now - tc_udp_send_reinit_last < TC_UDP_REINIT_THROTTLE_MS) return;
+  tc_udp_send_reinit_last = now;
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP send failed — re-init multicast socket"));
+  Tinyc->udp.flush();
+  Tinyc->udp.stop();
+  Tinyc->udp_connected = false;
+  tc_udp_init();
+}
+
 // Send a float variable via binary multicast
 static void tc_udp_send(const char *name, float value) {
   if (!Tinyc || !Tinyc->udp_connected) return;
@@ -2335,7 +2359,7 @@ static void tc_udp_send(const char *name, float value) {
   Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
   Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
   Tinyc->udp.write((const uint8_t*)&value, sizeof(float));
-  Tinyc->udp.endPacket();
+  if (!Tinyc->udp.endPacket()) tc_udp_send_fail_recover();
 }
 
 // Send a float array via binary multicast: =>name:[2-byte LE count][N × 4-byte float]
@@ -2358,7 +2382,7 @@ static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
   for (uint16_t i = 0; i < count; i++) {
     Tinyc->udp.write((const uint8_t*)&values[i], sizeof(float));
   }
-  Tinyc->udp.endPacket();
+  if (!Tinyc->udp.endPacket()) tc_udp_send_fail_recover();
 }
 
 // Send a string variable via ASCII multicast: =>name=string
@@ -2373,7 +2397,7 @@ static void tc_udp_send_str(const char *name, const char *str) {
   Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
   Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
   Tinyc->udp.write((const uint8_t*)str, strlen(str));
-  Tinyc->udp.endPacket();
+  if (!Tinyc->udp.endPacket()) tc_udp_send_fail_recover();
 }
 
 // ── UDP socket management (TinyC always owns its own multicast socket) ──
@@ -8399,7 +8423,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           "<style>"
           ".google-visualization-table-table{background:#fff;color:#000;border-collapse:collapse;}"
           ".google-visualization-table-table td,.google-visualization-table-table th{padding:4px 8px;border:1px solid #ccc;}"
-          ".google-visualization-table-th{background:#e8e8e8;font-weight:bold;}"
+          // Header row: stronger blue accent (was a flat light grey).
+          ".google-visualization-table-th{background:#1fa3ec;color:#fff;font-weight:bold;}"
+          // First column (row label) in each row — distinct tint so the
+          // table reads as label/data instead of one undifferentiated grid.
+          ".google-visualization-table-tr-odd td:first-child,.google-visualization-table-tr-even td:first-child{background:#dceefb;font-weight:bold;}"
           ".google-visualization-table-tr-odd{background:#f5f5f5;}"
           ".google-visualization-table-tr-even{background:#fff;}"
           "</style>"
@@ -8470,12 +8498,27 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                   "}else{sr[j]={targetAxisIndex:0};}"
                 "}"
                 "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].u,viewWindow:{min:c.s[0].mn,max:c.s[0].mx}};}"
-                "var o={title:c.t,colors:colors,chartArea:{width:'75%%',height:'65%%'}};"
+                // Light-grey chart area background — matches the
+                // surrounding card style on Tasmota's themed pages and
+                // gives the data lines more visual weight than a flat
+                // white. `chartArea.backgroundColor` only paints the
+                // plot rectangle; the outer `backgroundColor` keeps the
+                // legend / titles on the page's own background.
+                "var o={title:c.t,colors:colors,chartArea:{width:'75%%',height:'65%%',backgroundColor:'#f0f2f5'}};"
                 "if(!isCol){"
                   "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
                   "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
+                  // X-axis padding: half of the inter-sample step rather
+                  // than a fixed 15 min. The old +900000 ms value was
+                  // sized for daily (15-min slot) charts and produced a
+                  // huge empty band on the right of the 1-min "letzte
+                  // 60 min" chart, making the data look centered instead
+                  // of right-aligned. Floor at 30 s so two-point charts
+                  // still get visible padding.
+                  "var step=c.s[0].d.length>1?Math.abs(c.s[0].d[1][0]-c.s[0].d[0][0]):1;"
+                  "var pad=Math.max(30000,step*30000);"
                   "o.curveType=c.sm?'function':'none';"
-                  "o.hAxis={format:'HH:mm',viewWindow:{min:new Date(N.getTime()+dw-900000),max:new Date(N.getTime()+dwe+900000)}};"
+                  "o.hAxis={format:'HH:mm',viewWindow:{min:new Date(N.getTime()+dw-pad),max:new Date(N.getTime()+dwe+pad)}};"
                   "if((dwe-dw)>172800000){var tks=[];var nd=c.s[0].d.length;if(nd>10&&(dwe-dw)>6048e5){for(var ti=0;ti<nd;ti++){tks.push({v:new Date(N.getTime()+c.s[0].d[ti][0]*60000),f:''+ti});}o.hAxis.ticks=tks;}else{var wd=['So','Mo','Di','Mi','Do','Fr','Sa'];var ds=new Date(N.getTime()+dw);ds.setHours(0,0,0,0);ds.setDate(ds.getDate()+1);var de=new Date(N.getTime()+dwe);while(ds<=de){tks.push({v:new Date(ds),f:wd[ds.getDay()]});ds=new Date(ds.getTime()+86400000);}o.hAxis.ticks=tks;}}"
                   "o.lineWidth=1;o.pointSize=0;"
                 "}"

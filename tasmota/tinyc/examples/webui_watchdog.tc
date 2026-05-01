@@ -1,0 +1,162 @@
+// ─────────────────────────────────────────────────────────────────────
+// webui_watchdog.tc — auto-recover from the "Tasmota WebUI dies but
+// the rest of the firmware keeps running" failure mode.
+//
+// Symptom: device's UDP/MQTT/scripts all keep working, but `/`, `/cm`
+// and `/cs` stop responding. ICMP may or may not still answer. Predates
+// TinyC and is a known long-running issue in the Tasmota community —
+// the HTTP server task wedges (heap fragmentation, leaked WebSocket,
+// stuck buffer) without bringing down the rest of the firmware. Days
+// later it sometimes recovers; sometimes only a power cycle fixes it.
+//
+// This script runs as its own slot and watches for two things:
+//
+//   1. Free heap dropping below a threshold — heap exhaustion is the
+//      most common root cause; rebooting BEFORE the WebUI dies is
+//      better than rebooting after.
+//
+//   2. The WebUI's own TCP port 80 refusing local outbound connections.
+//      We open a TCP client to the device's own IP:80; if that fails N
+//      consecutive times the WebUI is presumed dead and we reboot.
+//
+// On any trigger, `tasmCmd("Restart 1")` does a clean Tasmota reboot.
+//
+// Deploy as a SEPARATE TinyC slot (e.g. slot 5) so a watchdog crash
+// can't take down the device's primary script. Pairs nicely with
+// energy_dashboard / heatpump_map / pool_pump on the same device.
+// ─────────────────────────────────────────────────────────────────────
+
+// ── Tunables ─────────────────────────────────────────────────────────
+// Min heap (bytes) below which we proactively reboot. ESP32 with WiFi
+// + a typical Tasmota build comfortably runs at >100 KB free heap;
+// dropping below 25 KB is a strong "leak in progress" indicator.
+int  HEAP_FLOOR_BYTES = 25000;
+
+// How often to run the WebUI probe (in WebUI ticks). EveryMinute fires
+// every 60 s; we probe every PROBE_EVERY_MIN minutes.
+int  PROBE_EVERY_MIN  = 5;
+
+// Consecutive WebUI-probe failures before we trigger reboot. Three
+// failures over ~15 min is enough confidence that the WebUI is really
+// stuck and not just transient packet loss.
+int  PROBE_FAIL_TRIGGER = 3;
+
+// TCP connect timeout per probe attempt (seconds). Short — if the
+// WebUI is responsive at all it'll accept the SYN within ms.
+int  PROBE_TIMEOUT_SEC = 3;
+
+// Don't reboot more than once per N hours, even if conditions persist.
+// Prevents reboot loops if something's fundamentally wrong with the
+// device's state.
+int  REBOOT_COOLDOWN_MIN = 60;
+
+// ── State ────────────────────────────────────────────────────────────
+int probe_minute_counter = 0;     // counts up to PROBE_EVERY_MIN
+int probe_fail_count     = 0;     // resets on success
+int last_reboot_min      = -9999; // monotonic minute counter; used for cooldown
+int monotonic_min        = 0;     // EveryMinute counter
+
+char self_ip[24];                 // own IP, looked up via tasmInfo
+char log_buf[128];
+
+// ── Helpers ──────────────────────────────────────────────────────────
+//
+// Pull the device's own IP. tasmInfo(idx, dst) writes a Tasmota status
+// string into dst; idx 7 is the IP per Tasmota's INFO table. (If the
+// idx differs on your build, change to whatever returns the local
+// IPv4. We avoid hard-coding the IP so the same .tcb runs on any
+// device on any subnet.)
+void refresh_self_ip() {
+    self_ip[0] = 0;
+    tasmInfo(7, self_ip);
+    if (strlen(self_ip) < 7) {
+        // Fallback: if tasmInfo didn't give us a usable address,
+        // skip the probe (heap watchdog still runs).
+        self_ip[0] = 0;
+    }
+}
+
+// Try to TCP-connect to ourselves on port 80, briefly. Returns 1 on
+// success, 0 on failure. Uses tcpSelect slot 0 (single client) — make
+// sure no other slot in the same device is mid-TCP when this fires
+// (or move to a dedicated slot).
+int probe_webui() {
+    if (strlen(self_ip) == 0) return 1;   // can't probe; assume fine
+    tcpSelect(0);
+    int rc = tcpConnect(self_ip, 80);
+    if (rc != 0) {
+        sprintf(log_buf, "watchdog: probe %s:80 connect failed rc=%d", self_ip, rc);
+        addLog(log_buf);
+        return 0;
+    }
+    // Connected. Don't bother sending a request; the SYN+ACK is enough
+    // to show the WebUI is at least listening. Drop the connection.
+    tcpDisconnect();
+    return 1;
+}
+
+void log_state(char reason[]) {
+    sprintf(log_buf, "watchdog: heap=%d probe_fails=%d reason=%s",
+            tasm_heap, probe_fail_count, reason);
+    addLog(log_buf);
+}
+
+void trigger_reboot(char reason[]) {
+    if (monotonic_min - last_reboot_min < REBOOT_COOLDOWN_MIN) {
+        sprintf(log_buf, "watchdog: would reboot (%s) but cooldown active", reason);
+        addLog(log_buf);
+        return;
+    }
+    sprintf(log_buf, "watchdog: REBOOTING — %s (heap=%d)", reason, tasm_heap);
+    addLog(log_buf);
+    last_reboot_min = monotonic_min;
+    // Settings save before reboot so any persist data isn't lost.
+    saveVars();
+    char resp[64];
+    tasmCmd("Restart 1", resp);
+}
+
+// ── Tasmota callback ────────────────────────────────────────────────
+//
+// EveryMinute is the natural cadence: low overhead, forgiving timing,
+// and Tasmota guarantees it fires regardless of HTTP traffic.
+void EveryMinute() {
+    monotonic_min = monotonic_min + 1;
+
+    // ── Heap watchdog: the cheapest, fastest signal of a leak ──
+    if (tasm_heap < HEAP_FLOOR_BYTES) {
+        log_state("low_heap");
+        trigger_reboot("low heap");
+        return;
+    }
+
+    // ── WebUI probe: every PROBE_EVERY_MIN minutes ──
+    probe_minute_counter = probe_minute_counter + 1;
+    if (probe_minute_counter < PROBE_EVERY_MIN) return;
+    probe_minute_counter = 0;
+
+    refresh_self_ip();
+    if (probe_webui()) {
+        if (probe_fail_count > 0) {
+            sprintf(log_buf, "watchdog: WebUI back (was %d fails)", probe_fail_count);
+            addLog(log_buf);
+        }
+        probe_fail_count = 0;
+        return;
+    }
+
+    probe_fail_count = probe_fail_count + 1;
+    log_state("webui_probe_fail");
+    if (probe_fail_count >= PROBE_FAIL_TRIGGER) {
+        trigger_reboot("WebUI dead (probe failed N times)");
+    }
+}
+
+int main() {
+    addLog("watchdog: starting; will probe WebUI and watch heap");
+    refresh_self_ip();
+    sprintf(log_buf, "watchdog: own IP %s, heap floor %d, probe every %d min",
+            self_ip, HEAP_FLOOR_BYTES, PROBE_EVERY_MIN);
+    addLog(log_buf);
+    return 0;
+}

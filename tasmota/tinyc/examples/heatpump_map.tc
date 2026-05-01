@@ -192,6 +192,7 @@ int  last_req_qty  = 0;
 // ------------------------------------------------------------
 void store_reg(int addr, int val) {
     if (addr < 0 || addr >= 500) return;
+    reg_writes = reg_writes + 1;   // life-indicator counter (read in WebCall)
     if (known[addr] == 0) {
         known[addr] = 1;
         registers_known = registers_known + 1;
@@ -617,10 +618,24 @@ void wd_send_alert(char subj_part[]) {
 // Tasmota main-page sensor rows. Outputs "{s}label{m}value{e}" lines
 // which the main web view renders as a clean sensor table.
 // ------------------------------------------------------------
+int  web_tick = 0;     // increments each WebCall poll — live indicator
+int  parse_tick_at_last_web = 0;  // reg-store activity sampled per poll
+int  reg_writes = 0;   // total store_reg() invocations since boot
 void WebCall() {
     // Use global g_row instead of `char row[200]` (heap handle leak fix).
     // Tiny scratch strings (<=16) stay local since they don't use a handle.
     char st[16];
+
+    // ── Life indicator: web_tick proves the AJAX poll is firing,
+    //    Δreg_writes proves the Modbus parser is still seeing frames.
+    //    A flat web_tick = WebUI dead. A flat Δreg_writes with web_tick
+    //    advancing = sniffer wedged but firmware still alive.
+    web_tick = web_tick + 1;
+    int dreg = reg_writes - parse_tick_at_last_web;
+    parse_tick_at_last_web = reg_writes;
+    sprintf(g_row, "{s}<b style='color:#0a8;'>HP-Map</b> tick %d{m}%d Modbus reg/poll{e}", web_tick, dreg);
+    webSend(g_row);
+
     if (known[217]) {
         int v = reg[217] & 0xFFFF;
         if      (v == 0) strcpy(st, "booting");

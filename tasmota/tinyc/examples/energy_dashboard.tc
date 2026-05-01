@@ -138,6 +138,13 @@ char  scratch[256];             // sprintf workspace — sized for the
                                 // longest row in WebPage's 31-day table
                                 // (~169 chars/row with inline styles)
 
+// ── Life indicator ───────────────────────────────────────────────
+// Increments every WebCall (~every 2 s, on the AJAX `/?m=1` poll
+// that drives the live block re-render). Rendered next to the
+// clock so a stuck WebUI is visually obvious — clock alone isn't
+// enough since time-of-day can jump backwards or stall on RTC drift.
+int   web_tick = 0;
+
 // ── Helpers ────────────────────────────────────────────────────────
 //
 // Append a single line to /log.txt with a timestamp. The original
@@ -256,12 +263,14 @@ void EverySecond() {
     int m15 = (tasm_hour * 60 + tasm_minute) / 15;   // 0..95
     if (m15 != last_m15) {
         if (last_m15 >= 0) {
-            // The Scripter version did `c_hwp = t_hwp - dsel*4`. dsel
-            // captures the previous boundary's t_hwp, *4 because the
-            // slot is 15 minutes (¼ hour) and we want kWh in that
-            // window. This reads as "kWh in this slot" assuming hwp
-            // power was reasonably constant.
-            c_hwp = t_hwp - dsel * 4.0;
+            // kWh consumed *in this 15-min slot* = (current meter total)
+            // minus (meter total at last slot boundary). The Scripter
+            // version (and the comment that lived here) had a misplaced
+            // `*4` outside the parens which produced (t_hwp - 4·dsel) —
+            // a meaningless near-(-3·t_hwp) figure that drove the chart
+            // to wild negative values like -39 632 kWh in a 15-min slot.
+            // ymax=4.0 is fine for kWh-per-slot at typical HP loads.
+            c_hwp = t_hwp - dsel;
             dvals[m15] = c_hwp;
             dvals_pos  = m15;
             dsel       = t_hwp;
@@ -274,12 +283,18 @@ void EverySecond() {
         last_m15 = m15;
     }
 
-    // Per-minute fast trace (heat-pump current power).
+    // Per-minute fast trace (heat-pump current power) — sliding window.
+    // Instead of a ring buffer (which makes a partially-filled chart
+    // appear "centered" because zero-padding lives at indices not yet
+    // visited), we shift the array left by one slot every minute and
+    // append the latest sample at slot 59. Then slot 0 is always the
+    // oldest reading, slot 59 is "now", and pre-fill shows up as
+    // zero-padding on the LEFT side of the chart (right-aligned data).
     int mn = tasm_minute;
     if (mn != last_minute) {
-        fast_h[fast_pos] = hwp;
-        fast_pos = fast_pos + 1;
-        if (fast_pos >= 60) fast_pos = 0;
+        for (int i = 0; i < 59; i = i + 1) fast_h[i] = fast_h[i + 1];
+        fast_h[59] = hwp;
+        fast_pos = 60;     // sentinel — tells WebChart "render slots 0..59"
         last_minute = mn;
     }
 }
@@ -335,10 +350,11 @@ void WebCall() {
     else if (mo == 11) { strcpy(mo_label, "Nov"); }
     else               { strcpy(mo_label, "Dez"); }
 
+    web_tick = web_tick + 1;
     sprintf(scratch,
-            "{s}<center><h1 style='color:green;font-size:40px;'>%02d:%02d:%02d</h1>{m}%s %d. %s <br>%d{e}",
+            "{s}<center><h1 style='color:green;font-size:40px;'>%02d:%02d:%02d</h1>{m}%s %d. %s <br>%d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span>{e}",
             tasm_hour, tasm_minute, tasm_second,
-            wd_label, tasm_day, mo_label, tasm_year);
+            wd_label, tasm_day, mo_label, tasm_year, web_tick);
     webSend(scratch);
 
     // Sunrise/sunset row with day-length.
@@ -526,7 +542,12 @@ void WebCall() {
 // in the energy block — it triggers location.reload() so WebPage()
 // runs again.
 void WebPage() {
-    // 24h heat-pump kWh
+    // ── decimals encoding: low 3 bits = decimal places, bit 3 (=+8) =
+    //    enable curve smoothing. So 2 decimals + smoothing = 2|8 = 10.
+    //    Used everywhere below to avoid the angular zig-zag look.
+
+    // 24h heat-pump kWh (column-style chart with smoothing irrelevant for
+    // bars — keep decimals=2, no smooth bit).
     WebChartSize(640, 280);
     WebChart(0, "Heizungs-WP 24h", "kWh",
              0xe74c3c, dvals_pos, 96, dvals,
@@ -542,11 +563,27 @@ void WebPage() {
              0x3498db, days_pos, 31, days_t,
              1, 1440, -10.0, 40.0);
 
-    // 60-minute heat-pump current power
-    WebChartSize(640, 200);
+    // 60-minute heat-pump current power — line chart with smoothing.
+    // fast_pos=60 is a sentinel set by EverySecond's shift-append code;
+    // it tells WebChart's ring-unwind to read slots 0..59 in order, so
+    // partial-fill leaves zero-padding at the left and real data lines
+    // up against the right edge of the chart.
+    //
+    // Compute the data-driven y-axis range explicitly. Pure auto-scale
+    // (passing 0,0) lets Google Charts pick a "nice" round-number
+    // bottom which — combined with `curveType:'function'` smoothing —
+    // overshoots into negatives (saw "-50 W" on the rendered chart).
+    // Power can't be negative, so anchor min at 0 and give the top
+    // 20% headroom over the observed peak. Floor max at 100 W so an
+    // idle pump still renders a visible line instead of flat-on-axis.
+    float fmax = 100.0;
+    for (int i = 0; i < 60; i = i + 1) {
+        if (fast_h[i] > fmax) fmax = fast_h[i];
+    }
+    WebChartSize(640, 280);                // match 24h / 31d height
     WebChart(0, "Heizungs-WP letzte 60 min", "W",
              0xe74c3c, fast_pos, 60, fast_h,
-             0, 1, 0.0, 0.0);          // auto-scale
+             0 | 8, 1, 0.0, fmax * 1.2);   // smooth, fixed y from 0 to peak+20%
 
     // ── 31-day table — Google Charts Table renderer (`'t'` = type
     //    116). Pattern lifted from core2_energy.tc:
@@ -566,7 +603,93 @@ void WebPage() {
              days_pos, 31, days_t, 1, 0, 0.0, 0.0);
 }
 
+// ── Test data presets (console-triggered) ───────────────────────────
+// Both `dvals[96]` (24-hour 15-min trace) and `days_w[31]`/`days_t[31]`
+// (31-day trace) take real-world time to fill — 24 h and 31 days
+// respectively. To eyeball chart styling without waiting, the `ED`
+// command prefix exposes synthetic-data presets:
+//
+//   DASHFILL24     synthetic bimodal HP daily-energy pattern in dvals[]
+//   DASHFILL31     synthetic warming-month pattern in days_w[]/days_t[]
+//   DASHFILLALL    both
+//   DASHCLEAR      zero out all three preview arrays
+//
+// Each preset writes through the persist layer (saveVars()) so a
+// reload preserves the preview data — handy when iterating on chart
+// styles. Real readings overwrite the synthetic data on the next
+// 15-min boundary / midnight rollover.
+//
+// Why register these instead of auto-firing in main(): main() runs
+// on every boot. Auto-fill would clobber real accumulated data if
+// the device reboots after running for a week.
+//
+// Prefix is `DASH` (NOT `ED`) — Tasmota has built-in `ED…` console
+// commands (e.g. EDPlay/EDExtended) that shadow ours, returning
+// `{"Command":"Unknown"}` even though our handler ran the matcher.
+void Command(char cmd[]) {
+    if (strcmp(cmd, "FILL24") == 0) {
+        // Bimodal Gaussian: morning peak around 7:00, evening around 19:00.
+        // Floor 0.3 kWh (standby), peaks 2.0–2.5 kWh per 15-min slot.
+        for (int i = 0; i < 96; i = i + 1) {
+            float h = i * 0.25;        // hour-of-day, 0..23.75
+            float dm = h - 7.0;        // distance from morning peak
+            float de = h - 19.0;       // distance from evening peak
+            float morn = 2.5 * exp(-dm * dm / 8.0);
+            float even = 2.0 * exp(-de * de / 12.0);
+            dvals[i] = 0.3 + morn + even;
+        }
+        dvals_pos = 95;
+        saveVars();
+        responseCmnd("ED: 24h chart filled (synthetic bimodal HP day)");
+    }
+    else if (strcmp(cmd, "FILL31") == 0) {
+        // Linear warming month: kWh trends 45 → 15, °C trends -3 → +19.
+        // Slight weekly sinusoidal jitter so the line isn't a ruler.
+        for (int i = 0; i < 31; i = i + 1) {
+            float frac = i / 30.0;
+            float wkl  = sin(i * 0.9);  // weekly-ish bumpiness
+            days_w[i] = 45.0 - 30.0 * frac + 5.0 * wkl;
+            days_t[i] = -3.0 + 22.0 * frac + 2.0 * wkl;
+        }
+        days_pos = 30;
+        saveVars();
+        responseCmnd("ED: 31d chart filled (warming month)");
+    }
+    else if (strcmp(cmd, "FILLALL") == 0) {
+        for (int i = 0; i < 96; i = i + 1) {
+            float h = i * 0.25;
+            float dm = h - 7.0;
+            float de = h - 19.0;
+            dvals[i] = 0.3 + 2.5 * exp(-dm * dm / 8.0)
+                          + 2.0 * exp(-de * de / 12.0);
+        }
+        dvals_pos = 95;
+        for (int i = 0; i < 31; i = i + 1) {
+            float frac = i / 30.0;
+            float wkl  = sin(i * 0.9);
+            days_w[i] = 45.0 - 30.0 * frac + 5.0 * wkl;
+            days_t[i] = -3.0 + 22.0 * frac + 2.0 * wkl;
+        }
+        days_pos = 30;
+        saveVars();
+        responseCmnd("ED: 24h + 31d charts filled");
+    }
+    else if (strcmp(cmd, "CLEAR") == 0) {
+        for (int i = 0; i < 96; i = i + 1) dvals[i]  = 0.0;
+        for (int i = 0; i < 31; i = i + 1) days_w[i] = 0.0;
+        for (int i = 0; i < 31; i = i + 1) days_t[i] = 0.0;
+        dvals_pos = 0;
+        days_pos  = 0;
+        saveVars();
+        responseCmnd("ED: cleared dvals + days_w + days_t");
+    }
+    else {
+        responseCmnd("ED: FILL24 | FILL31 | FILLALL | CLEAR");
+    }
+}
+
 int main() {
     addLog("ENERGY: dashboard starting");
+    addCommand("DASH");         // DASHFILL24 / DASHFILL31 / DASHFILLALL / DASHCLEAR
     return 0;
 }
