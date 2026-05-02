@@ -104,6 +104,17 @@ persist float auto_m  = 0.0;
 persist float dvals[96];
 persist int   dvals_pos = 0;
 
+// Display-only scratch — 24 hourly averages computed from dvals[]
+// for the "Heizungs-WP 24h" chart. Each entry is the sum of 4
+// consecutive 15-min kWh slots, which equals the average kW over
+// that hour (since 1 h = 4 × 15 min and ∑kWh / 1h = kW). Filled
+// fresh each WebPage() render. NOT persisted.
+float dvals_kw[24];
+
+// Display-only scratch — fast_h[] is W; chart shows kW. Conversion
+// is fast_h[i] / 1000.0. Filled fresh each WebPage() render.
+float fast_h_kw[60];
+
 // 31-day historical: parallel arrays of (heat-pump kWh, average temp).
 persist float days_w[31];
 persist float days_t[31];
@@ -532,48 +543,72 @@ void WebCall() {
 // in the energy block — it triggers location.reload() so WebPage()
 // runs again.
 void WebPage() {
-    // ── decimals encoding: low 3 bits = decimal places, bit 3 (=+8) =
-    //    enable curve smoothing. So 2 decimals + smoothing = 2|8 = 10.
-    //    Used everywhere below to avoid the angular zig-zag look.
+    // Order (top→bottom): 60-min chart (W), 24-hour chart (kW),
+    // 31-day chart (kWh + avg temp dual-axis), 31-day table.
+    // Rationale: shortest timeframe at the top, longest at the
+    // bottom; same horizontal scale (640×280) so they line up; the
+    // table closes the page as a precise read-out of the same data
+    // the dual-axis chart visualizes.
+    //
+    // ── decimals encoding: low 3 bits = decimal places, bit 3 (=+8)
+    //    = enable curve smoothing. So 1 decimal + smoothing = 1|8 = 9.
 
-    // 24h heat-pump kWh (column-style chart with smoothing irrelevant for
-    // bars — keep decimals=2, no smooth bit).
+    // ── 60-minute heat-pump current power (kW, 1-min samples).
+    // fast_h[] holds the raw W readings; convert to kW for display
+    // so the unit matches the 24-h chart below. fast_pos=60 is a
+    // sentinel set by EverySecond's shift-append code; it tells
+    // WebChart's ring-unwind to read slots 0..59 in order, so
+    // partial-fill leaves zero-padding at the left and real data
+    // lines up against the right edge of the chart.
+    //
+    // y-axis: anchor at 0, top = max(observed) × 1.2, floor 0.1 kW
+    // so an idle pump still renders a visible line instead of
+    // flat-on-axis. Fixed lower bound prevents Google Charts'
+    // smoothing curve from overshooting into negatives.
+    float fmax = 0.1;
+    for (int i = 0; i < 60; i = i + 1) {
+        fast_h_kw[i] = fast_h[i] / 1000.0;
+        if (fast_h_kw[i] > fmax) fmax = fast_h_kw[i];
+    }
     WebChartSize(640, 280);
-    WebChart(0, "Heizungs-WP 24h", "kWh",
-             0xe74c3c, dvals_pos, 96, dvals,
-             2, 15, 0.0, 4.0);
+    WebChart(0, "Heizungs-WP letzte 60 min", "kW",
+             0xe74c3c, fast_pos, 60, fast_h_kw,
+             1 | 8, 1, 0.0, fmax * 1.2);
 
-    // 31-day combined: WP kWh + outdoor temp on dual axis
+    // ── 24-hour heat-pump average power (kW, hourly averages).
+    // Each chart point = average over 1 hour (4 × 15-min slots).
+    // The raw kWh in dvals[] sums per hour to exactly the kW for
+    // that hour (since 1 h = 4 × ¼-h, ∑kWh ÷ 1 h = kW). 24 smooth
+    // data points instead of 96 jagged ones, lines up cleanly with
+    // the 60-min view above.
+    //
+    // Ring-buffer cursor: dvals_pos points at the next 15-min slot
+    // to write (0..95); the equivalent hour cursor is dvals_pos/4.
+    // The current hour is partial — it averages real new data with
+    // old data from this hour 24 hours ago. Self-corrects within an
+    // hour as new quarters overwrite old ones.
+    float kwmax = 1.0;             // floor 1 kW so a low-load day still shows
+    for (int i = 0; i < 24; i = i + 1) {
+        int b = i * 4;
+        dvals_kw[i] = dvals[b] + dvals[b + 1] + dvals[b + 2] + dvals[b + 3];
+        if (dvals_kw[i] > kwmax) kwmax = dvals_kw[i];
+    }
+    WebChartSize(640, 280);
+    WebChart(0, "Heizungs-WP 24h", "kW",
+             0xe74c3c, dvals_pos / 4, 24, dvals_kw,
+             1 | 8, 60, 0.0, kwmax * 1.2);
+
+    // ── 31-day combined: WP kWh + outdoor temp on dual axis.
+    // Daily totals so kWh (not kW) is the right unit — each row is
+    // an integral over 24 h.
     WebChartSize(640, 280);
     WebChart(0, "Wärmepumpe + Aussen 31 Tage", "kWh",
              0xe74c3c, days_pos, 31, days_w,
-             2, 1440, 0.0, 60.0);
+             1, 1440, 0.0, 60.0);
     // Second series — empty title means "add to previous chart"
     WebChart(0, "", "°C",
              0x3498db, days_pos, 31, days_t,
              1, 1440, -10.0, 40.0);
-
-    // 60-minute heat-pump current power — line chart with smoothing.
-    // fast_pos=60 is a sentinel set by EverySecond's shift-append code;
-    // it tells WebChart's ring-unwind to read slots 0..59 in order, so
-    // partial-fill leaves zero-padding at the left and real data lines
-    // up against the right edge of the chart.
-    //
-    // Compute the data-driven y-axis range explicitly. Pure auto-scale
-    // (passing 0,0) lets Google Charts pick a "nice" round-number
-    // bottom which — combined with `curveType:'function'` smoothing —
-    // overshoots into negatives (saw "-50 W" on the rendered chart).
-    // Power can't be negative, so anchor min at 0 and give the top
-    // 20% headroom over the observed peak. Floor max at 100 W so an
-    // idle pump still renders a visible line instead of flat-on-axis.
-    float fmax = 100.0;
-    for (int i = 0; i < 60; i = i + 1) {
-        if (fast_h[i] > fmax) fmax = fast_h[i];
-    }
-    WebChartSize(640, 280);                // match 24h / 31d height
-    WebChart(0, "Heizungs-WP letzte 60 min", "W",
-             0xe74c3c, fast_pos, 60, fast_h,
-             0 | 8, 1, 0.0, fmax * 1.2);   // smooth, fixed y from 0 to peak+20%
 
     // ── 31-day table — Google Charts Table renderer (`'t'` = type
     //    116). Pattern lifted from core2_energy.tc:
@@ -588,7 +623,7 @@ void WebPage() {
     //    oldest. Re-ordering would need an extra display buffer; for
     //    now leaving the natural ring-order display.
     WebChart('t', "Tag", "WPV (kWh)", 0xe74c3c,
-             days_pos, 31, days_w, 2, 0, 0.0, 0.0);
+             days_pos, 31, days_w, 1, 0, 0.0, 0.0);
     WebChart('t', "",    "D-Temp (°C)", 0x3498db,
              days_pos, 31, days_t, 1, 0, 0.0, 0.0);
 }

@@ -1357,6 +1357,24 @@ void Command(char cmd[]) {
 
 // ------------------------------------------------------------
 int main() {
+    // Autoexec fires main() during Tasmota's boot before serial-using
+    // drivers have finished init. If we serialBegin() too early our
+    // handle attaches to the UART but a later init (SerialBridge,
+    // console, OTA) reconfigures the same pins out from under us —
+    // script keeps running with a "valid" handle but no bytes arrive.
+    // Manual TinyCRun after boot works because by then everything has
+    // settled. A 3-second delay was not enough; 15 s reliably covers
+    // the full WiFi-up + driver-init window. main() runs in a
+    // FreeRTOS task so delay() blocks for real (per CLAUDE.md), no
+    // impact on other Tasmota subsystems. Uptime log lets us see
+    // exactly when the claim happens — useful if a future board
+    // needs longer.
+    delay(15000);
+
+    char m0[80];
+    sprintf(m0, "heatpump_map: opening serial at uptime %d s", tasm_uptime);
+    addLog(m0);
+
     ser = serialBegin(rx_pin, tx_pin, baud, cfg, 1024);
     if (ser < 0) {
         addLog("heatpump_map: serialBegin FAILED");
