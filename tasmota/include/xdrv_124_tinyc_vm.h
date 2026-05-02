@@ -214,7 +214,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.22"    // sprintf %%-escape fix in `tc_sprintf_float`. The custom Arduino-safe float formatter (which bypasses libc snprintf because Arduino strips %f support) hand-walks the format string and copies prefix/suffix bytes verbatim around the float-spec replacement. The hunt loop correctly *skips* `%%` while searching for the active spec, but the prefix/suffix copy loops were emitting `%%` literally — producing e.g. "85 %% (12.98 kWh)" instead of "85 % (12.98 kWh)" on `sprintf(buf,"%d %% (%.2f kWh)",pct,kwh)`. Visible in any TinyC sprintf with `%%` adjacent to a float spec; the int path uses real snprintf and was already correct. Fixed both the prefix and suffix byte-walk loops to detect `%%` pairs and emit a single `%` (one extra `c++` per pair). No format-string semantic change for existing call sites that didn't use `%%`. Previous: "1.3.21" — UDP `global` send-side self-heal: when WiFi degrades, Arduino UDP can wedge multicast `endPacket()` while the upper-layer `udp_connected` flag stays true — silencing all `global` broadcasts from a slot until that slot is restarted. Symptom seen on a heat-pump device .31 whose `hp_in/hp_out/hp_at/hp_run` UDP globals stopped reaching subscriber slots even though the VM kept executing and `store_reg()` kept assigning. Receive side already auto-recovered via inactivity watchdog (`tc_udp_poll`); send side now mirrors that — `tc_udp_send/_array/_str` check `endPacket()`'s return value and on failure call `tc_udp_send_fail_recover()` which throttle-rebinds the multicast socket (`tc_udp_init()`). Throttle is `TC_UDP_REINIT_THROTTLE_MS = 5000` so a genuinely-down network can't cause continuous re-bind churn (every assignment to a UDP global would otherwise trigger). Logs at INFO when a re-init fires. Same logic transparently helps any future scripted-UDP/`udpSend` path that goes through these helpers. Previous: "1.3.20" — Symmetric crypto syscalls (360–365): aesEcb / aesCbc (AES-128, in-place on TinyC char[] buffers), hmacSha256, sha256, plus hex2bin / bin2hex byte-twiddling helpers. ESP32-only via mbedtls (already linked for HTTPS/MQTT-TLS); ESP8266 path stubs return 0/no-op. Motivating use case: TinyC scripts speaking the Tuya local protocol (v3.3 = AES-128-ECB) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip or a separate bridge. Also enables custom signed REST APIs (HMAC-SHA256), encrypted SML decoders not covered by AmsLib, and per-device MQTT-TLS fingerprinting. Buffers follow TinyC convention (one byte per int32 slot, low 8 bits used); lengths are in bytes and must fit the ref's allocated capacity. AES-CBC stack-allocates up to 4 KB per call, falls back to malloc above; HMAC/SHA bounded at 1024 B key / 4 KB data — bigger payloads should be hashed in chunks via repeated SHA-256 of a hash-state buffer (future enhancement). Tuya v3.4 (ECDH+AES-GCM) not exposed yet — most Smart-Life devices are still v3.3. IDE BUILTINS + symbol-table entries for the 6 functions are wired (refArgs[] / strArgs[] / intArgs[] in tinyc_ide.html.gz) — first user is examples/pool_pump.tc, validated end-to-end on ESP32-S3. Previous: "1.3.19" — Cross-VM share table + PSRAM-backed bytecode + IDE strcmp/sprintf fixes. (1) New 8-syscall `share*` API (340–347) lets two TinyC slots exchange named scalars/strings via a driver-global 32-entry table (~2.6 KB DRAM, mutex-protected on ESP32). Use this when one program outgrows a single slot and is split across two — e.g. Andreas's BYD/Speedwire/EEBus stack. Missing-key reads return 0/0.0/"" without error; `shareHas`/`shareDelete` complete the model. (2) `TC_MAX_PROGRAM` 65536 → 131072 with PSRAM fallback: `s->program` and `vm->const_data` allocate from internal DRAM first, only spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` on OOM (ESP32 only). Small/normal programs stay in fast static RAM; only edge-case 100+ KB scripts (or scripts on devices with fragmented heap) reach PSRAM. AddLog INFO line emitted when PSRAM path is taken. (3) IDE: 4-site emitByte-truncation bug fixed — `emit(Op.SYSCALL); emitByte(Syscall.X)` truncated ids ≥256 to `id & 0xFF`, silently rerouting STRCMP_CONST=275 to SYS_MATH_POW=19 (so `strcmp(arr,"literal")` returned NaN bits 0x7FC00000 = 2143289344, breaking every `if (strcmp(...) == 0)` branch). Same bug hit FILE_WRITE_STR=276, LOG_LEVEL=269, LOG_LEVEL_STR=270. All four sites now use the existing `emitSyscall(id)` helper which auto-picks SYSCALL2 (u16) for ids ≥256. (4) IDE: `inferType(CallExpr)` had a hardcoded float-builtin list (sqrt/sin/cos/.../atof) and ignored the symbol-table `returnFloat: true` flag, so `sprintf(buf,"%.2f",shareGetFloat(...))` saw valType='int' and emitted I2F → reinterpreted bits → printed 1056964608.00 (= 0.5f bit-pattern). Now also returns 'float' when `BUILTINS[name].returnFloat === true`; future float-returning builtins work automatically.   Previous: "1.3.18" — Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). "1.3.17" — TC_ERR_BOUNDS rich log + RET-time SP-balance check + compiler float→int narrowing warning.
+#define TC_RELEASE         "1.3.27"    // pwlRequest("@R") — SSL reset without device reboot. Adds a new `@R` command to tc_call2pwl that tears down the BSSL_TCP_Client session AND the underlying WiFiClient socket, briefly pauses for lwIP to release, then re-binds and re-inits ssl config + buffer sizes + insecure mode, and clears the auth cookie. Lets the powerwall.tc script recover from a stuck BearSSL state (the recurring failure mode where every pwlRequest times out at 6 s regardless of Powerwall reachability) without escalating to `tasmCmd("Restart 1")`. The script's circuit breaker now does @R at PWL_RESET_THRESHOLD (3 consecutive FAST fails) and only escalates to chip reboot at PWL_REBOOT_THRESHOLD (6 fails) if @R didn't help. Existing `@D` (config), `@C` (cts serials), `@N` (clear cookie) commands unchanged. Previous: "1.3.26" — pwlRequest connect() with explicit timeout. 1.3.24+25 set tc_basic_client.setTimeout(3) AND tc_ssl_client.setHandshakeTimeout(3) — but neither reliably caps the BSSL_TCP_Client `connect(host, port)` call on Arduino-ESP32 core 3.x. Observed 37-second hangs on a single failed call despite both timeouts. Switched to the explicit 3-arg `connect(host, port, timeout_ms)` overload (BSSL_TCP_Client.h line 130) which bounds the whole connect+handshake phase. Worst-case stuck window per failed call now ~3 s × TC_PWL_RETRIES = 6 s instead of 37 s. The setTimeout/setHandshakeTimeout calls stay (they bound read/write phases) but the connect cap is now what it always should have been. Combined with the script-side circuit breaker (cookie wipe + 4× backoff + skip-remaining), Powerwall wobblers now cause one ~3 s mutex hold instead of cascading multi-call freezes — device stays HTTP-responsive throughout. Previous: "1.3.25" — pwlRequest SSL-handshake timeout cap. 1.3.24 capped TCP connect (`tc_basic_client.setTimeout(3)`) which dropped the worst-case stuck window from ~60 s to ~36 s — but the SSL handshake itself has its own ~30 s default in BSSL_TCP_Client and was now the dominant cost (observed 36.6 s timeout per failed call). Now also calls `tc_ssl_client.setHandshakeTimeout(3)` (BSSL_TCP_Client API, seconds) to bound the handshake phase. Combined: TCP connect 3 s + SSL handshake 3 s + read/write 3-5 s; with TC_PWL_RETRIES=2 on connect, worst case ~6 s per failed pwlRequest call instead of 36+ s. Pairs with the script-side circuit breaker in examples/powerwall.tc — single failed call now causes ~6 s mutex hold (HTTP server recovers between calls), cookie wipe + 4× backoff prevents repeated hits, device stays usable through Powerwall wobblers. Previous: "1.3.24" — pwlRequest TCP connect-timeout cap. tc_pwl_get_cookie / tc_pwl_get_request both call `tc_ssl_client.connect()` which on Arduino-ESP32 inherits a ~30-s default TCP-connect timeout — the `setTimeout(3000)` set on the SSL client right above only bounds read/write. Combined with TC_PWL_RETRIES=2 + delay(100), worst case = ~60 s of held VM mutex when the Powerwall is unresponsive. During that hold the device looks completely "stuck" from the LAN side: HTTP server can't respond, multiple cadences pile up in TaskLoop, cascade of 3× 60-s timeouts froze a test device for ~3 minutes. Now also calls `tc_basic_client.setTimeout(3)` (Arduino WiFiClient API, seconds) which DOES bound the connect phase. Worst case drops to ~6 s (2 retries × 3 s). Pairs well with the script-side circuit breaker in examples/powerwall.tc which now backs off + clears the auth cookie on consecutive failures. Previous: "1.3.23" — pwlRequest now accepts a runtime char[] buffer (was: string-literal only). The SYS_PWL_REQUEST handler used to call `tc_get_const_str(vm, ci)` which only reads from the bytecode constant pool — meaning the whole credential string ("@Dip,email,password") had to be hardcoded in the .tc source. That forced either committing credentials or sprinkling `<POWERWALL_IP>` placeholders that broke the build for everyone else. Now uses the same dual-source `tc_ref_to_cstr` pattern that SPRINTF_STR was fixed to use a few releases back: copies up to 160 chars (fits @D ip,email,password) into a stack buffer regardless of whether the ref is a const-pool string literal or a heap/local char[]. IDE BUILTIN tinyc_ide.html.gz updated in lock-step (pwlRequest's `constArgs: [0]` → `strArgs: [0]`) so the compiler stops rejecting non-literal first arguments. Net effect: scripts can now do `char cmd[160]; sprintf(cmd, "@D%s,%s,%s", ip, email, pw); pwlRequest(cmd);` with credentials read at runtime from /powerwall.cfg — no more TESLA_EMAIL/PASSWORD/IP defines needed in user_config_override.h, no more credentials in the firmware binary, no more credentials in the .tc source. Pattern is identical to /pool_pump.cfg loading in examples/pool_pump.tc — see examples/powerwall.tc's load_pwl_config() for the canonical implementation. String-literal callsites (the existing `pwlRequest("/api/meters/aggregates")` etc) keep working unchanged because tc_ref_to_cstr handles const-pool refs transparently. Previous: "1.3.22" — sprintf %%-escape fix in `tc_sprintf_float`. The custom Arduino-safe float formatter (which bypasses libc snprintf because Arduino strips %f support) hand-walks the format string and copies prefix/suffix bytes verbatim around the float-spec replacement. The hunt loop correctly *skips* `%%` while searching for the active spec, but the prefix/suffix copy loops were emitting `%%` literally — producing e.g. "85 %% (12.98 kWh)" instead of "85 % (12.98 kWh)" on `sprintf(buf,"%d %% (%.2f kWh)",pct,kwh)`. Visible in any TinyC sprintf with `%%` adjacent to a float spec; the int path uses real snprintf and was already correct. Fixed both the prefix and suffix byte-walk loops to detect `%%` pairs and emit a single `%` (one extra `c++` per pair). No format-string semantic change for existing call sites that didn't use `%%`. Previous: "1.3.21" — UDP `global` send-side self-heal: when WiFi degrades, Arduino UDP can wedge multicast `endPacket()` while the upper-layer `udp_connected` flag stays true — silencing all `global` broadcasts from a slot until that slot is restarted. Symptom seen on a heat-pump device .31 whose `hp_in/hp_out/hp_at/hp_run` UDP globals stopped reaching subscriber slots even though the VM kept executing and `store_reg()` kept assigning. Receive side already auto-recovered via inactivity watchdog (`tc_udp_poll`); send side now mirrors that — `tc_udp_send/_array/_str` check `endPacket()`'s return value and on failure call `tc_udp_send_fail_recover()` which throttle-rebinds the multicast socket (`tc_udp_init()`). Throttle is `TC_UDP_REINIT_THROTTLE_MS = 5000` so a genuinely-down network can't cause continuous re-bind churn (every assignment to a UDP global would otherwise trigger). Logs at INFO when a re-init fires. Same logic transparently helps any future scripted-UDP/`udpSend` path that goes through these helpers. Previous: "1.3.20" — Symmetric crypto syscalls (360–365): aesEcb / aesCbc (AES-128, in-place on TinyC char[] buffers), hmacSha256, sha256, plus hex2bin / bin2hex byte-twiddling helpers. ESP32-only via mbedtls (already linked for HTTPS/MQTT-TLS); ESP8266 path stubs return 0/no-op. Motivating use case: TinyC scripts speaking the Tuya local protocol (v3.3 = AES-128-ECB) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip or a separate bridge. Also enables custom signed REST APIs (HMAC-SHA256), encrypted SML decoders not covered by AmsLib, and per-device MQTT-TLS fingerprinting. Buffers follow TinyC convention (one byte per int32 slot, low 8 bits used); lengths are in bytes and must fit the ref's allocated capacity. AES-CBC stack-allocates up to 4 KB per call, falls back to malloc above; HMAC/SHA bounded at 1024 B key / 4 KB data — bigger payloads should be hashed in chunks via repeated SHA-256 of a hash-state buffer (future enhancement). Tuya v3.4 (ECDH+AES-GCM) not exposed yet — most Smart-Life devices are still v3.3. IDE BUILTINS + symbol-table entries for the 6 functions are wired (refArgs[] / strArgs[] / intArgs[] in tinyc_ide.html.gz) — first user is examples/pool_pump.tc, validated end-to-end on ESP32-S3. Previous: "1.3.19" — Cross-VM share table + PSRAM-backed bytecode + IDE strcmp/sprintf fixes. (1) New 8-syscall `share*` API (340–347) lets two TinyC slots exchange named scalars/strings via a driver-global 32-entry table (~2.6 KB DRAM, mutex-protected on ESP32). Use this when one program outgrows a single slot and is split across two — e.g. Andreas's BYD/Speedwire/EEBus stack. Missing-key reads return 0/0.0/"" without error; `shareHas`/`shareDelete` complete the model. (2) `TC_MAX_PROGRAM` 65536 → 131072 with PSRAM fallback: `s->program` and `vm->const_data` allocate from internal DRAM first, only spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` on OOM (ESP32 only). Small/normal programs stay in fast static RAM; only edge-case 100+ KB scripts (or scripts on devices with fragmented heap) reach PSRAM. AddLog INFO line emitted when PSRAM path is taken. (3) IDE: 4-site emitByte-truncation bug fixed — `emit(Op.SYSCALL); emitByte(Syscall.X)` truncated ids ≥256 to `id & 0xFF`, silently rerouting STRCMP_CONST=275 to SYS_MATH_POW=19 (so `strcmp(arr,"literal")` returned NaN bits 0x7FC00000 = 2143289344, breaking every `if (strcmp(...) == 0)` branch). Same bug hit FILE_WRITE_STR=276, LOG_LEVEL=269, LOG_LEVEL_STR=270. All four sites now use the existing `emitSyscall(id)` helper which auto-picks SYSCALL2 (u16) for ids ≥256. (4) IDE: `inferType(CallExpr)` had a hardcoded float-builtin list (sqrt/sin/cos/.../atof) and ignored the symbol-table `returnFloat: true` flag, so `sprintf(buf,"%.2f",shareGetFloat(...))` saw valType='int' and emitted I2F → reinterpreted bits → printed 1056964608.00 (= 0.5f bit-pattern). Now also returns 'float' when `BUILTINS[name].returnFloat === true`; future float-returning builtins work automatically.   Previous: "1.3.18" — Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). "1.3.17" — TC_ERR_BOUNDS rich log + RET-time SP-balance check + compiler float→int narrowing warning.
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -1935,10 +1935,23 @@ static void tc_send_web(const char *buf, int len) {
     tc_ssl_client.setTimeout(3000);
     tc_ssl_client.setClient(&tc_basic_client);
     tc_ssl_client.setDebugLevel(0);
+    // Three separate timeouts to bound the worst-case stuck window:
+    //   setTimeout(3000)        ── ms, SSL read/write
+    //   tc_basic_client.setTimeout(3) ── s, underlying TCP connect
+    //   setHandshakeTimeout(3)  ── s, SSL handshake (BSSL default 30 s)
+    // Without all three the worst case is ~60 s (TCP) or ~36 s (SSL
+    // handshake) of held VM mutex on an unresponsive Powerwall. With
+    // all three: ~3 s per attempt, ~6 s total with retry.
+    tc_basic_client.setTimeout(3);
+    tc_ssl_client.setHandshakeTimeout(3);  // seconds — BSSL_TCP_Client API
 
     int retry = 0;
     while (retry < TC_PWL_RETRIES) {
-      if (tc_ssl_client.connect(tc_pwl_ip.c_str(), 443)) break;
+      // Use the 3-arg connect overload (ms timeout) — neither
+      // tc_basic_client.setTimeout nor tc_ssl_client.setHandshakeTimeout
+      // alone reliably bound this on Arduino-ESP32 core 3.x. With this,
+      // worst-case is ~3 s per attempt, bounded.
+      if (tc_ssl_client.connect(tc_pwl_ip.c_str(), 443, 3000)) break;
       delay(100);
       retry++;
     }
@@ -1997,6 +2010,11 @@ static void tc_send_web(const char *buf, int len) {
     tc_ssl_client.setTimeout(5000);
     tc_ssl_client.setClient(&tc_basic_client);
     tc_ssl_client.setBufferSizes(16384, 512);
+    // See tc_pwl_get_cookie for the rationale — both TCP-connect AND
+    // SSL-handshake need explicit caps; setTimeout(5000) covers only
+    // read/write phases.
+    tc_basic_client.setTimeout(3);         // seconds, TCP connect
+    tc_ssl_client.setHandshakeTimeout(3);  // seconds, SSL handshake
 
     // Get cookie if empty
     if (tc_pwl_cookie.length() == 0) {
@@ -2006,7 +2024,11 @@ static void tc_send_web(const char *buf, int len) {
 
     int retry = 0;
     while (retry < TC_PWL_RETRIES) {
-      if (tc_ssl_client.connect(tc_pwl_ip.c_str(), 443)) break;
+      // Use the 3-arg connect overload (ms timeout) — neither
+      // tc_basic_client.setTimeout nor tc_ssl_client.setHandshakeTimeout
+      // alone reliably bound this on Arduino-ESP32 core 3.x. With this,
+      // worst-case is ~3 s per attempt, bounded.
+      if (tc_ssl_client.connect(tc_pwl_ip.c_str(), 443, 3000)) break;
       delay(100);
       retry++;
     }
@@ -2110,6 +2132,39 @@ static void tc_send_web(const char *buf, int len) {
         return 0;
       }
       if (url[1] == 'N') {
+        tc_pwl_cookie = "";
+        return 0;
+      }
+      if (url[1] == 'R') {
+        // Full SSL reset — best-effort clearing of BearSSL session
+        // state without rebooting the chip. After consecutive
+        // pwlRequest failures the BSSL_TCP_Client (ESP_SSLClient
+        // from the email library — see the "standard ssl does not
+        // work at all" note at the static instance declaration)
+        // can get into a sticky state where every connect() returns
+        // false. `stop()` on the ssl client alone only flushes the
+        // current connection — the underlying WiFiClient socket and
+        // BearSSL's internal session state may still be wedged.
+        //
+        // This sequence is the cheapest soft-reset we have:
+        //   - flush + stop the SSL client
+        //   - explicit stop on the underlying basic client
+        //   - 50 ms pause so lwIP can release the socket
+        //   - re-init the ssl config (insecure mode, base client,
+        //     buffer sizes) and wipe the auth cookie
+        //
+        // It may not always be enough — BearSSL state is opaque
+        // and a chip reboot remains the guaranteed clear-out. The
+        // script-side circuit breaker calls @R at fail #3 and only
+        // escalates to `Restart 1` at fail #6 if @R didn't help.
+        AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: SSL reset — tearing down session"));
+        tc_ssl_client.flush();
+        tc_ssl_client.stop();
+        tc_basic_client.stop();
+        delay(50);
+        tc_ssl_client.setInsecure();
+        tc_ssl_client.setClient(&tc_basic_client);
+        tc_ssl_client.setBufferSizes(16384, 512);
         tc_pwl_cookie = "";
         return 0;
       }
@@ -11229,10 +11284,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     // ── Tesla Powerwall (requires TESLA_POWERWALL) ───
 #if defined(ESP32) && defined(TESLA_POWERWALL)
     case SYS_PWL_REQUEST: {
-      // pwlRequest("url") → int (0=ok, -1=fail)
-      int32_t ci = TC_POP(vm);
-      const char *url = tc_get_const_str(vm, ci);
-      if (url) {
+      // pwlRequest("url") → int (0=ok, -1=fail). Accepts EITHER a
+      // string literal (compiler emits a const-pool ref) OR a
+      // runtime char[] buffer built up by the script (e.g. via
+      // sprintf-of-credentials read from /powerwall.cfg). The
+      // dual-source path lets the example keep credentials out of
+      // the firmware build entirely — no TESLA_EMAIL/PASSWORD/IP
+      // #defines needed in user_config_override.h. Same dual-ref
+      // pattern as SPRINTF_STR (see tc_ref_to_cstr).
+      int32_t ref = TC_POP(vm);
+      char url[160];                          // fits @D ip,email,password
+      tc_ref_to_cstr(vm, ref, url, sizeof(url));
+      if (url[0]) {
         TC_PUSH(vm, tc_call2pwl(vm, url));
       } else {
         TC_PUSH(vm, -1);

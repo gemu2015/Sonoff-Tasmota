@@ -4808,7 +4808,11 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
         }
 #endif //SCRIPT_GET_HTTPS_JP
 
-#if defined(ESP32) && defined(TESLA_POWERWALL)
+// gpwl() requires SCRIPT_GET_HTTPS_JP because that's the gate the
+// `call2pwl` definition (line ~14392) uses too — the bare
+// TESLA_POWERWALL gate here causes a link error when one is defined
+// but not the other.
+#if defined(ESP32) && defined(TESLA_POWERWALL) && defined(SCRIPT_GET_HTTPS_JP)
         if (!strncmp_XP(lp, XPSTR("gpwl("), 5)) {
           char *path;
           //lp = GetStringArgument(lp + 5, OPER_EQU, path, 0);
