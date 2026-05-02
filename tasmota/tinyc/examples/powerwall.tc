@@ -25,6 +25,108 @@ global float p3w = 0.0;    // solar power phase 3
 // State
 int cnt = 0;
 char buf[128];
+char scratch[256];                  // sized for sprintf into webSend (clock header)
+int  lcd_initialized = 0;           // labels drawn once at boot
+int  lcd_last_update = -10;         // throttle LCD value refresh (uptime sec)
+
+// ═══════════════ BEGIN CLOCK HEADER BLOCK (from examples/clock_header.tc) ═════
+// Reusable WebUI clock header — big green HH:MM:SS + German weekday/date
+// + sunrise/sunset + live-tick "spinner". Codified pattern, lifted 1:1
+// from the original Scripter `>W` block. See examples/clock_header.tc
+// for the standalone reference + paste-ready block markers. The only
+// external requirement is a `char scratch[256]` buffer in scope.
+int web_clock_tick = 0;
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    // Indexed lookup via the built-in strToken(dst, src, delim, n) —
+    // 1-based, lines up directly with tasm_wday (1=Sun..7=Sat) and
+    // tasm_month (1..12). Replaces what used to be a 14-branch
+    // if/else cascade.
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    // Single dark-grey rounded card spanning both columns. Two
+    // sprintfs because the full card exceeds 256-byte scratch.
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
+// ═══════════════ END CLOCK HEADER BLOCK ════════════════════════════════════
+
+// ── LCD layout (ported from Scripter labels block, lines 41-49 of the
+//    original .tas). Title centered, two short horizontal rules either
+//    side, then 13 labels at x=15 starting y=60, increment 20. Values
+//    rendered separately in lcd_update_values(), at x=150 with p-10
+//    right-padding so they line up. Anti-pattern §5 in CLAUDE.md says
+//    don't split position+pad+text into multiple dsp* calls — pad
+//    bleeds across labels — so each value goes out as ONE inline
+//    `[Cixxxxxxx]value` dspText call.
+//
+//    Display target: any panel that the firmware's display driver has
+//    turned on. If no display is configured (DisplayMode=0 and no LCD
+//    on the I²C/SPI bus), all dspText() calls are silent no-ops. So
+//    safe to leave in even on devices without a screen.
+void lcd_init_labels() {
+    // Wipe whatever the previous program (or boot splash) left on
+    // screen. Without this, old labels/values bleed through into the
+    // empty regions of our layout. Safe no-op if no display attached.
+    dspClear();
+
+    // Title bar with horizontal lines around it.
+    dspText("[Ci5x0y20h70x170h70]");                  // two short rules at y=20
+    dspText("[Ci16f1s1y18x90]Powerwall");             // big title at top
+
+    // Draw the 13 row labels, color index 16 (white-ish), font 1 size 1.
+    dspText("[f1s1Ci16]");
+    dspText("[x15y60]Battery %:");
+    dspText("[x15y80]Grid:");
+    dspText("[x15y100]Solar:");
+    dspText("[x15y120]Battery:");
+    dspText("[x15y140]Home:");
+    dspText("[x15y160]Tot Cap:");
+    dspText("[x15y180]Rem Cap:");
+    dspText("[x15y200]Rcap Lim:");
+    dspText("[x15y220]Solar 1:");
+    dspText("[x15y240]Solar 2:");
+    dspText("[x15y260]Phase 1:");
+    dspText("[x15y280]Phase 2:");
+    dspText("[x15y300]Phase 3:");
+}
+
+void lcd_update_values() {
+    // Render each value as `[Ci5x150y<row>p-10]<value> <unit>` — one
+    // inline dspText per row keeps the p-10 right-padding scoped to
+    // that single column write (otherwise the pad clobbers labels).
+    sprintf(buf, "[Ci5x150y60p-10]%.2f %%", pwl);                 dspText(buf);
+    sprintf(buf, "[Ci5x150y80p-10]%.0f W",   sip);                dspText(buf);
+    sprintf(buf, "[Ci5x150y100p-10]%.0f W",  sop);                dspText(buf);
+    sprintf(buf, "[Ci5x150y120p-10]%.0f W",  bip);                dspText(buf);
+    sprintf(buf, "[Ci5x150y140p-10]%.0f W",  hip);                dspText(buf);
+    sprintf(buf, "[Ci5x150y160p-10]%.0f W",  tcap);               dspText(buf);
+    sprintf(buf, "[Ci5x150y180p-10]%.0f W",  rcap);               dspText(buf);
+    sprintf(buf, "[Ci5x150y200p-10]%.0f %%", rper);               dspText(buf);
+    sprintf(buf, "[Ci5x150y220p-10]%.0f W",  p1w);                dspText(buf);
+    sprintf(buf, "[Ci5x150y240p-10]%.0f W",  p2w);                dspText(buf);
+    sprintf(buf, "[Ci5x150y260p-10]%.0f W",  phs1);               dspText(buf);
+    sprintf(buf, "[Ci5x150y280p-10]%.0f W",  phs2);               dspText(buf);
+    sprintf(buf, "[Ci5x150y300p-10]%.0f W",  phs3);               dspText(buf);
+}
 
 // Background task — one request per cycle, long delay between
 void TaskLoop() {
@@ -94,7 +196,25 @@ void TaskLoop() {
 }
 
 void EverySecond() {
-    // Only print status — no blocking calls here
+    // First-tick: draw the static labels on the LCD. Done once,
+    // because the labels never change. main() can't reliably do this
+    // because the display driver isn't always ready by the time main
+    // runs — EverySecond gives the driver a few seconds of grace.
+    if (lcd_initialized == 0 && tasm_uptime > 3) {
+        lcd_init_labels();
+        lcd_initialized = 1;
+    }
+
+    // Refresh LCD values every 5s — matches the Scripter cadence and
+    // is plenty for a glance-able status screen. We throttle off
+    // tasm_uptime instead of `% 5 == 0` so a missed second doesn't
+    // skip the update for another 5s.
+    if (lcd_initialized && (tasm_uptime - lcd_last_update) >= 5) {
+        lcd_update_values();
+        lcd_last_update = tasm_uptime;
+    }
+
+    // Console heartbeat (every 30 s) — same as before
     if (tasm_uptime % 30 == 0) {
         sprintf(buf, "PWL: Bat=%.1f%%", pwl);
         printString(buf);
@@ -108,6 +228,9 @@ void EverySecond() {
 }
 
 void WebCall() {
+    // Clock header (big green clock + sunrise/sunset row + live tick)
+    web_clock_header();
+
     sprintf(buf, "{s}Battery{m}%.1f %%{e}", pwl);
     webSend(buf);
     sprintf(buf, "{s}Grid{m}%.0f W{e}", sip);

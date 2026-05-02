@@ -233,11 +233,7 @@ int db_rows;       // total rows in database
 // ─── String buffers ───
 char buf[256];
 char str[128];
-// Weekday/month lookup strings (German)
-// wdays: 3 chars each (2-char name + separator), indexed by (wday-1)*3, extract 2
-// mons: 3 chars each, indexed by (month-1)*3, extract 3
-char wdays[22];  // "So Mo Di Mi Do Fr Sa"
-char mons[37];   // "JanFebMrzAprMaiJunJulAugSepOktNovDez"
+char scratch[256];   // sprintf workspace for the clock header BLOCK below
 char s1[32];
 char s2[32];
 char sx1[32];
@@ -332,52 +328,47 @@ void collectDaily() {
     if (d_cnt < 96) { d_cnt = d_cnt + 1; }
 }
 
+// ═══════════════ BEGIN CLOCK HEADER BLOCK (from examples/clock_header.tc) ═════
+// Reusable WebUI clock header — big green HH:MM:SS + German weekday/date
+// + sunrise/sunset + live-tick "spinner", wrapped in a dark-grey
+// rounded card spanning both columns. See examples/clock_header.tc
+// for the standalone reference. Requires `char scratch[256]` in scope.
+int web_clock_tick = 0;
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    // Single dark-grey rounded card spanning both columns. Two
+    // sprintfs because the full card exceeds 256-byte scratch.
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
+// ═══════════════ END CLOCK HEADER BLOCK ════════════════════════════════════
+
 // ═══════════════════════════════════════════════════════════════════
 // WEB — Main page sensor display (WebPage callback)
 // ═══════════════════════════════════════════════════════════════════
 // ─── WebCall: AJAX refresh callback (runs every ~2 seconds) ───
 void WebCall() {
-    int sr;
-    int ss;
-    int dl;
-    sr = tasm_sunrise;
-    ss = tasm_sunset;
-    dl = ss - sr;
-
-    // ─── Clock / Date / Sunrise header (as table row) ───
-    webSend("<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'>");
-    webSend("<span style='color:green;font-size:40px;font-weight:bold'>");
-    sprintf(buf, "%02d:", tasm_hour);
-    webSend(buf);
-    sprintf(buf, "%02d:", tasm_minute);
-    webSend(buf);
-    sprintf(buf, "%02d", tasm_second);
-    webSend(buf);
-    webSend("</span><br>");
-    // Date: weekday day. month year
-    strSub(s1, wdays, (tasm_wday - 1) * 3, 2);
-    strSub(s2, mons, (tasm_month - 1) * 3, 3);
-    sprintf(buf, "%s %d. %s %d", s1, tasm_day, s2, tasm_year);
-    webSend(buf);
-    webSend("<br>");
-    // Sunrise --- daylight duration --- Sunset
-    webSend("&#127774; ");
-    sprintf(buf, "%02d:", sr / 60);
-    webSend(buf);
-    sprintf(buf, "%02d", sr % 60);
-    webSend(buf);
-    webSend(" &lt;--- ");
-    sprintf(buf, "%d:", dl / 60);
-    webSend(buf);
-    sprintf(buf, "%02d", dl % 60);
-    webSend(buf);
-    webSend(" ---&gt; ");
-    sprintf(buf, "%02d:", ss / 60);
-    webSend(buf);
-    sprintf(buf, "%02d", ss % 60);
-    webSend(buf);
-    webSend(" &#127769;");
-    webSend("</td></tr>");
+    web_clock_header();
 
     // ═══════════════════════════════════════════════════════════════
     // Sensor rows — use {s}/{m}/{e} tags for Tasmota table integration
@@ -1683,11 +1674,6 @@ int main() {
     db_loaded = 0;
 
     d_day_cached[0] = 0;  // no cached day data yet
-
-    // Weekday names: 3 chars each (2-letter + space), tasm_wday 1=Sun..7=Sat
-    wdays = "So Mo Di Mi Do Fr Sa";
-    // Month names: 3 chars each, tasm_month 1-12
-    mons = "JanFebMrzAprMaiJunJulAugSepOktNovDez";
 
     // Register web chart pages (buttons appear on main page)
     webPageLabel(0, "Tages Verlauf");

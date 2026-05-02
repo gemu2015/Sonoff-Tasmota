@@ -178,6 +178,14 @@ void WebPage() {
     dl = ss - sr;
 
     // ─── Clock with JS auto-update + move to top of page ───
+    // NOTE: this is deliberately NOT the shared `web_clock_header()`
+    // subroutine from examples/clock_header.tc — that one re-renders
+    // server-side on every WebCall poll (1–2s cadence). sml_ebus uses
+    // a JS setInterval to tick the seconds smoothly *client-side*
+    // without a server hit, important on a Modbus-heavy script where
+    // every spare ms helps. If smoothness matters less than
+    // consistency for your use case, replace this whole block with
+    // a single `web_clock_header()` call (see clock_header.tc).
     webSend("<div id='tc_clock' style='text-align:center;background:#333;padding:8px;border-radius:8px;margin:8px 0'>");
     webSend("<span id='tc_clk' style='color:green;font-size:40px;font-weight:bold'></span><br>");
     webSend("<span id='tc_dat'></span><br>");
