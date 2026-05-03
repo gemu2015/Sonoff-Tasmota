@@ -318,23 +318,47 @@ static void TinyCLoadSettings(void) {
     slot++;
   }
   f.close();
+  // NOTE: autoexec slots are NOT started here. They're started later
+  // from the first FUNC_LOOP via TinyCStartAutoexec() — see comment
+  // in the FUNC_LOOP handler. Doing it here (during FUNC_INIT) caused
+  // a race against the rest of Tasmota's driver-init chain: main()
+  // runs in its own FreeRTOS task, gets scheduled when loopTask
+  // yields, and ends up executing serialBegin (etc.) concurrently
+  // with other drivers' FUNC_INIT and the Wi-Fi/RF coex init. UART
+  // claim "succeeds" but the GPIO matrix routing gets clobbered →
+  // no bytes ever arrive. By deferring to first FUNC_LOOP, all
+  // FUNC_INITs are done before tc_vm_task even spawns.
+}
+#endif  // USE_UFILESYS
 
-  // Auto-run slots with autoexec flag — lazy-load + start
+// ── Deferred autoexec starter ──────────────────────────────────
+// Called once on the first non-paused FUNC_LOOP. By this point
+// every other driver's FUNC_INIT has run and hardware is settled,
+// so user `serialBegin`/`i2cBegin`/`spiBegin` calls inside the
+// script's main() can't race Tasmota's own peripheral setup.
+//
+// Keeps the original 100 ms stagger between successive slot starts
+// (prevents heap/stack exhaustion from spawning multiple VM tasks
+// back-to-back). Honors TasmotaGlobal.no_autoexec for boot-loop
+// recovery, same as before.
+static void TinyCStartAutoexec(void) {
+  if (!Tinyc) return;
+#ifdef USE_UFILESYS
   if (TasmotaGlobal.no_autoexec) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Boot loop detected — autoexec disabled"));
-  } else {
-    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-      if (Tinyc->slot_config[i].autoexec && Tinyc->slot_config[i].filename[0]) {
-        if (TinyCLoadFile(Tinyc->slot_config[i].filename, i)) {
-          TinyCStartVM(Tinyc->slots[i]);
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d"), i);
-          delay(100);  // stagger VM starts to avoid heap/stack exhaustion
-        }
+    return;
+  }
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slot_config[i].autoexec && Tinyc->slot_config[i].filename[0]) {
+      if (TinyCLoadFile(Tinyc->slot_config[i].filename, i)) {
+        TinyCStartVM(Tinyc->slots[i]);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d (deferred from FUNC_INIT)"), i);
+        delay(100);  // stagger VM starts to avoid heap/stack exhaustion
       }
     }
   }
+#endif
 }
-#endif  // USE_UFILESYS
 
 /*********************************************************************************************\
  * Tasmota: Init
@@ -3775,6 +3799,17 @@ void tc_spawn_task_cleanup_slot(uint8_t slot_idx) {
 // Event callback edge-detection flags
 static bool tc_init_done = false;
 static bool tc_wifi_up = false;
+// One-shot for the deferred autoexec spawner. Fires on the first
+// non-paused FUNC_LOOP — at that point every other Tasmota driver's
+// FUNC_INIT has run and peripherals are settled, so user main()
+// (which spawns in tc_vm_task) doesn't race the platform's own
+// init. See TinyCStartAutoexec().
+static bool tc_autoexec_started = false;
+// BootInit() fires per-slot, gated by s->boot_init_pending (set in
+// TinyCStartVM, cleared after dispatch). Scanned in FUNC_LOOP. Kept
+// as an opt-in convenience for users who want hardware init separate
+// from main() — but with the deferred autoexec above, plain main()
+// works without any BootInit/delay workarounds.
 
 bool Xdrv124(uint32_t function) {
   bool result = false;
@@ -3819,6 +3854,60 @@ bool Xdrv124(uint32_t function) {
   switch (function) {
     case FUNC_LOOP:
       if (tc_paused) { break; }
+      // Deferred autoexec start — one-shot, gated on uptime so we
+      // wait through Wi-Fi/RF coex bring-up. Spawning tc_vm_task at
+      // FUNC_INIT (the historical timing) raced Tasmota's own driver
+      // init AND the Wi-Fi/RF coex phase. main() runs in its own
+      // FreeRTOS task so its serialBegin / i2cBegin / spiBegin would
+      // execute concurrently with platform peripheral init — UART
+      // claim "succeeds" but the GPIO matrix routing gets clobbered,
+      // 0 bytes ever arrive on RX. Same root cause as the historical
+      // 15-second delay() workaround at the top of main().
+      //
+      // Two-stage fix:
+      //   (a) Defer the spawn from FUNC_INIT to FUNC_LOOP — by then
+      //       every other driver's FUNC_INIT is done.
+      //   (b) Additionally wait for `TasmotaGlobal.uptime >=
+      //       TC_AUTOEXEC_MIN_UPTIME` so Wi-Fi/RF coex has had time
+      //       to stabilize. Without (b), main() runs at uptime
+      //       ~250 ms — still within the Wi-Fi bring-up window —
+      //       and serialBegin still silently fails to receive bytes.
+      //       3 s covers a typical Wi-Fi-up window. Override via
+      //       `-DTC_AUTOEXEC_MIN_UPTIME=N` for slow networks.
+      if (!tc_autoexec_started &&
+          TasmotaGlobal.uptime >= TC_AUTOEXEC_MIN_UPTIME) {
+        tc_autoexec_started = true;
+        TinyCStartAutoexec();
+      }
+      // Per-slot BootInit dispatch. `boot_init_pending` is set in
+      // TinyCStartVM and cleared after dispatch. Mutex held across
+      // {check vm.halted, fire callback, clear flag} to serialize
+      // against TaskLoop callbacks running concurrently in the slot's
+      // task (TaskLoop momentarily sets halted=false per iteration).
+      // Note: with the deferred autoexec above, main() itself is the
+      // natural place for hardware init — BootInit is now an opt-in
+      // convenience for users who want to separate it out, not a
+      // workaround for a timing bug.
+      for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+        TcSlot *s = Tinyc->slots[i];
+        if (!s || !s->loaded || !s->boot_init_pending) continue;
+        if (s->vm.cb_index[TC_CB_BOOT_INIT] < 0) {
+          s->boot_init_pending = false;
+          continue;
+        }
+#ifdef ESP32
+        if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+        if (s->vm.halted && s->vm.error == TC_OK) {
+          tc_current_slot = s;
+          tc_vm_call_callback_id(&s->vm, TC_CB_BOOT_INIT);
+          tc_current_slot = nullptr;
+          s->boot_init_pending = false;
+        }
+#ifdef ESP32
+        if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+      }
       // Poll UDP multicast for incoming variables
       tc_udp_poll();
 #ifdef ESP32

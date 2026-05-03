@@ -76,6 +76,12 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **`BootInit()` callback** (1.3.31) — fires once on the first FUNC_LOOP,
+  after every other Tasmota driver's FUNC_INIT has run and template GPIOs
+  are configured. Use this instead of `main()` for `serialBegin` /
+  `i2cBegin` / `spiBegin` / peripheral-config writes. Equivalent of
+  Scripter's `>BS` section. Removes the historical "needs a multi-second
+  `delay()` at the top of main" workaround.
 - **Variadic `sprintf`** — `sprintf(buf, "x=%d t=%.1f s=%s", x, t, name)` works
   (compiler splits the format at compile time). Do **not** copy the older
   `sprintfInt + strcat` chaining idiom into new code.
@@ -135,6 +141,7 @@ no registration needed. Full table in `TinyC_Reference.md §Callback Functions`.
 
 Common:
 `EveryLoop`, `Every50ms`, `Every100ms`, `EverySecond` — periodic ticks.
+`BootInit` — fires **once** on the first FUNC_LOOP, after every Tasmota driver's FUNC_INIT has run and all template-defined GPIOs are configured. Use this — **not** `main()` — for `serialBegin`/`i2cBegin`/`spiBegin`/peripheral-config writes. `main()` runs in its own task immediately at FUNC_INIT and races other drivers' init; calling `serialBegin` from `main` historically required a multi-second `delay()` workaround. Equivalent of Scripter's `>BS` section. WiFi may or may not be up when BootInit fires — for WiFi-ready semantics use `OnWifiConnect` / `OnInit`.
 `Command(char cmd[])` — custom console command; requires `addCommand("PFX")` in `main`.
 `JsonCall` — append to MQTT telemetry (use `responseAppend`).
 `WebUI`, `WebCall`, `WebPage`, `WebOn` — custom web UI / REST endpoints.
@@ -191,6 +198,13 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 1. **`delay()` in a tick callback** — stalls the Tasmota main loop. Ticks run
    with an instruction budget; if you need to wait, use state + next tick, or
    `TaskLoop`/`spawnTask`.
+1a. **`serialBegin` / `i2cBegin` / `spiBegin` in `main()`** — `main()` runs
+    in a FreeRTOS task spawned during FUNC_INIT, concurrently with other
+    Tasmota drivers' init. Peripheral binds can race the platform's own
+    pin-mux setup and silently fail, hang, or crash. Put hardware init in
+    `void BootInit() { ... }` instead — it fires once on the first FUNC_LOOP,
+    after all FUNC_INITs are done. (The old workaround was a multi-second
+    `delay()` at the top of main; not needed any more.)
 2. **Missing `responseCmnd()` in a `Command()` branch** — including the
    `else`/unknown-subcommand path. Tasmota will emit
    `{"Command":"Error",...}` even though your code ran.
