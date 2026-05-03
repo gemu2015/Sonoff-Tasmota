@@ -942,9 +942,11 @@ void WebCall() {
 
     // Section header — visually frames this slot's output as a
     // distinct block on the shared / page when running alongside
-    // other TinyC slots. Style mirrors what `examples/energy_dashboard.tc`
-    // emits for its own header (rounded blue card, full-row colspan).
-    webSend("{s}<hr>{m}<hr>{e}<tr><td colspan=2 style='text-align:center;background:#1fa3ec;color:#fff;padding:8px;border-radius:8px;font-size:1.4em;font-weight:bold;'>Pool-Wärmepumpe</td></tr>");
+    // other TinyC slots. Section-banner style (dark slate +
+    // orange left accent) — distinct from the Tasmota blue
+    // (#1fa3ec) button color so users don't try to tap it. Same
+    // style as energy_dashboard.tc.
+    webSend("{s}<hr>{m}<hr>{e}<tr><td colspan=2 style='text-align:left;background:#34495e;color:#fff;padding:8px 12px;border-left:6px solid #e67e22;border-radius:2px;font-size:1.4em;font-weight:bold;letter-spacing:0.5px;'>Pool-Wärmepumpe</td></tr>");
 
     // Four sensor rows in standard Tasmota {s}label{m}value{e} format
     sprintf(resp_msg, "{s}Pool Mode{m}%s%s{e}", pump_mode, stale);

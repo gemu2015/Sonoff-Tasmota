@@ -334,7 +334,11 @@ void WebCall() {
     //    `<tr><td colspan=2 style='background:#333...'>` rounded card.
     //    Sister script pool_pump.tc emits its own header to keep the
     //    two slots cleanly separated on the shared / page.
-    webSend("{s}<hr>{m}<hr>{e}<tr><td colspan=2 style='text-align:center;background:#1fa3ec;color:#fff;padding:8px;border-radius:8px;font-size:1.4em;font-weight:bold;'>Energie-Dashboard</td></tr>");
+    // Section banner — distinct from the Tasmota blue (#1fa3ec)
+    // button color so it doesn't read as tappable. Dark slate fill,
+    // orange left-accent bar, sharp corners → "section divider", not
+    // "button". Same style used in pool_pump.tc.
+    webSend("{s}<hr>{m}<hr>{e}<tr><td colspan=2 style='text-align:left;background:#34495e;color:#fff;padding:8px 12px;border-left:6px solid #e67e22;border-radius:2px;font-size:1.4em;font-weight:bold;letter-spacing:0.5px;'>Energie-Dashboard</td></tr>");
 
     // ── Top: time, weekday, date, sunrise/sunset ─────────────────
     // Day-of-week abbreviation (de). tasm_wday is 1=Sun..7=Sat.
