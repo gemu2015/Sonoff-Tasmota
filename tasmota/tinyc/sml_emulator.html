@@ -143,6 +143,7 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <option value="ehz363">EHZ363W — Easymeter 1-phase (SML)</option>
         <option value="emh_ehz">EMH eHZ — 1-phase (SML)</option>
         <option value="lgz_e220">Landis+Gyr E220 — 1-phase (SML)</option>
+        <option value="lgz_e450">Landis+Gyr E450 — encrypted DLMS push (mode 7)</option>
         <option value="ehz363_3ph">3-phase SML (generic)</option>
         <option value="iskra_mt174">ISKRA MT174 — 3-phase (OBIS)</option>
         <option value="obis_1ph">Generic OBIS 1-phase</option>
@@ -157,6 +158,7 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <label>Protocol</label>
         <select id="selProto">
           <option value="sml">SML Binary</option>
+          <option value="sml_enc">DLMS push (encrypted, mode 7)</option>
           <option value="obis">OBIS ASCII</option>
           <option value="modbus">Modbus RTU (slave)</option>
         </select>
@@ -196,6 +198,27 @@ input:focus, select:focus { border-color: #7eb8f7; }
     <div class="fi">
       <label>Meter Serial Number</label>
       <input type="text" id="inpSerial" value="12345678" maxlength="18">
+    </div>
+    <!-- Encrypted DLMS push config — only shown when proto = sml_enc.
+         AES key: 16 bytes hex (32 chars). System title: 8 ASCII bytes
+         (e.g. vendor 3 + serial 5).  Frame counter increments per push;
+         init value lets you re-sync if the consumer device persists it. -->
+    <div id="cryptPanel" style="display:none;border:1px solid #2d4566;background:#13283e;padding:8px;border-radius:4px;margin-top:6px">
+      <div style="color:#7a9cbf;font-size:11px;margin-bottom:4px">DLMS encryption (mode 7) — test values; mirror these in the Tasmota meter descriptor</div>
+      <div class="fi">
+        <label>AES-128 Key (32 hex chars)</label>
+        <input type="text" id="inpAesKey" value="0123456789ABCDEF0123456789ABCDEF" maxlength="32" style="font-family:monospace">
+      </div>
+      <div class="f2">
+        <div>
+          <label>System Title (8 ASCII bytes)</label>
+          <input type="text" id="inpSysTitle" value="LGZTEST1" maxlength="8" style="font-family:monospace">
+        </div>
+        <div>
+          <label>Frame Counter (starts at)</label>
+          <input type="number" id="inpFrameCnt" value="1" min="0" max="4294967295">
+        </div>
+      </div>
     </div>
   </div>
 
@@ -609,6 +632,10 @@ async function sendFrame() {
     if (proto === 'sml') {
       const bytes = buildSMLFrame();
       data = new Uint8Array(bytes);
+    } else if (proto === 'sml_enc') {
+      // buildSMLEncFrame is async (Web Crypto API)
+      const bytes = await buildSMLEncFrame();
+      data = new Uint8Array(bytes);
     } else {
       data = new TextEncoder().encode(buildOBISAscii());
     }
@@ -621,7 +648,7 @@ async function sendFrame() {
     document.getElementById('statL').textContent = data.length + ' B';
 
     // Preview
-    if (proto === 'sml') {
+    if (proto === 'sml' || proto === 'sml_enc') {
       document.getElementById('framePreview').textContent = hexDump(data);
     } else {
       document.getElementById('framePreview').textContent = new TextDecoder().decode(data);
@@ -1262,6 +1289,164 @@ function buildSMLFrame() {
   return [...forCRC, crc & 0xFF, (crc >> 8) & 0xFF];
 }
 
+// ─── ENCRYPTED DLMS PUSH BUILDER (Landis+Gyr E450 style, mode 7) ─────────────
+//
+// Wire format produced (matches lib/lib_div/ams/GcmParser.cpp expectations):
+//
+//   0xDB                          general-glo-ciphering APDU tag (DATA_TAG_GCM)
+//   0x08                          system-title length
+//   <8 bytes>                     system title (vendor 3 + serial 5 typically)
+//   0x82 LL LL                    length-of-rest as 2-byte BE
+//   0x20                          security byte: encryption ONLY, no auth
+//                                 (set 0x10 for auth-only, 0x30 for both;
+//                                  we use 0x20 — simplest and what test
+//                                  vectors normally use, no GCM tag suffix)
+//   FC FC FC FC                   4-byte BE frame counter (incremented per push)
+//   <ciphertext>                  AES-128-GCM encrypted DLMS Data-Notification
+//
+// IV for AES-GCM = systemTitle (8) || frameCounter (4) = 12 bytes
+//
+// Inner plaintext layout (chosen to match what Tasmota's pm() pattern matcher
+// scans for):
+//
+//   for each OBIS entry:
+//     01 00 <C> <D> <E> FF        full 6-byte OBIS code (A=1, B=0, F=255 always)
+//     06 <4 bytes BE>             CosemTypeDLongUnsigned + 32-bit value
+//
+// pm(C.D.E) builds pattern <C> <D> <E> FF (4 bytes — see xsns_53_sml.ino
+// line 2208) and scans the buffer for it. Once found, cp points at the
+// next byte (our 0x06 type tag) and sml_get_obis_value reads the value.
+//
+// Browser implementation note: AES-GCM with 16-byte tag is the only mode
+// Web Crypto offers natively; for our security=0x20 (encrypt-only, no
+// tag) we run AES-GCM and DISCARD the tag. The Tasmota GCMParser, when
+// it sees sec & 0x10 == 0, does the same — never reads/checks the tag.
+async function buildSMLEncFrame() {
+  // Read AES key from UI (32 hex chars = 16 bytes)
+  const keyHex = (document.getElementById('inpAesKey').value || '').trim();
+  if (keyHex.length !== 32 || !/^[0-9A-Fa-f]+$/.test(keyHex)) {
+    throw new Error('AES key must be exactly 32 hex chars');
+  }
+  const key = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) key[i] = parseInt(keyHex.substr(i * 2, 2), 16);
+
+  // System title — pad/truncate to 8 ASCII bytes
+  const stStr = (document.getElementById('inpSysTitle').value || 'LGZTEST1');
+  const sysTitle = new Uint8Array(8);
+  for (let i = 0; i < 8; i++) sysTitle[i] = i < stStr.length ? stStr.charCodeAt(i) & 0xFF : 0x00;
+
+  // Frame counter — increments per send. Persisted across calls via the
+  // input field's value. Wraps at 32-bit unsigned.
+  const fcEl = document.getElementById('inpFrameCnt');
+  let fc = (parseInt(fcEl.value, 10) || 1) >>> 0;
+  fcEl.value = ((fc + 1) >>> 0).toString();   // bump for next send
+
+  // ── Build the inner plaintext (DLMS Data-Notification) ─────────────────
+  //
+  // Values come from the UI sliders. We map them to OBIS codes that
+  // match the user's `>M 1` descriptor for the L+G E450:
+  //   1.8.0  total energy import (Wh, scaler 1)  ← vEnergyIn × 1000
+  //   1.8.1  tariff 1                              ← split (60/40 of total)
+  //   1.8.2  tariff 2
+  //   1.7.0  instantaneous power (W)              ← live.pNet
+  //   3.8.0  reactive energy import (varh)        ← derived
+  //   3.7.0  reactive instantaneous (var)         ← 0 (placeholder)
+  //   4.8.0  reactive energy export (varh)
+  //   4.7.0  reactive instantaneous export (var)
+  // Values are 32-bit unsigned (CosemTypeDLongUnsigned, 4-byte BE).
+  const eInWh   = Math.max(0, Math.round(+document.getElementById('vEnergyIn').value  * 1000));
+  const eOutWh  = Math.max(0, Math.round(+document.getElementById('vEnergyOut').value * 1000));
+  const pNet    = Math.max(0, Math.trunc(live.pNet));
+  // Tariff split — purely synthetic, just so T1/T2 differ
+  const eT1 = Math.round(eInWh * 0.6);
+  const eT2 = eInWh - eT1;
+  // Reactive — simple constant offset so the values aren't all-zero
+  const reactIn  = Math.round(eInWh * 0.05);
+  const reactOut = Math.round(eOutWh * 0.05);
+
+  // OBIS C, D, E, value
+  const obisEntries = [
+    { c:1, d:8, e:0, v: eInWh    },
+    { c:1, d:8, e:1, v: eT1      },
+    { c:1, d:8, e:2, v: eT2      },
+    { c:1, d:7, e:0, v: pNet     },
+    { c:3, d:8, e:0, v: reactIn  },
+    { c:3, d:8, e:1, v: Math.round(reactIn * 0.6)  },
+    { c:3, d:8, e:2, v: reactIn - Math.round(reactIn * 0.6) },
+    { c:3, d:7, e:0, v: 0        },
+    { c:4, d:8, e:0, v: reactOut },
+    { c:4, d:8, e:1, v: Math.round(reactOut * 0.6) },
+    { c:4, d:8, e:2, v: reactOut - Math.round(reactOut * 0.6) },
+    { c:4, d:7, e:0, v: 0        },
+  ];
+
+  // Estimate plaintext size: per entry = 6 (OBIS) + 5 (0x06 + 4-byte val) = 11.
+  // Plus a small DLMS header at the front to keep the parser happy if
+  // anything beyond pm() peeks at it (Tasmota's pm() doesn't care, but
+  // any future strict-DLMS parser would). 16 entries × 11 = 176 max.
+  const plaintext = [];
+  // Optional DLMS Data-Notification preamble — Tasmota's pm() scans the
+  // whole buffer so this is decorative, but it makes wireshark/analyzers
+  // recognise the frame as a Data-Notification.
+  plaintext.push(0x0F);                    // DLMS Data-Notification APDU tag
+  plaintext.push(0x00, 0x00, 0x00, fc & 0xFF);  // long-invoke-id-and-priority (low byte = fc)
+  plaintext.push(0x00);                    // no date-time
+  plaintext.push(0x01, obisEntries.length); // notification-body: choice = array, N items
+
+  for (const o of obisEntries) {
+    // OBIS structure as { OctetString[6], DLongUnsigned } pair, encoded as
+    // a 2-element structure (choice = structure 0x02, length 2):
+    plaintext.push(0x02, 0x02);
+    // OctetString length 6 with full OBIS code
+    plaintext.push(0x09, 0x06, 1, 0, o.c, o.d, o.e, 0xFF);
+    // CosemTypeDLongUnsigned (0x06) + 4-byte BE value
+    plaintext.push(0x06,
+                   (o.v >>> 24) & 0xFF,
+                   (o.v >>> 16) & 0xFF,
+                   (o.v >>>  8) & 0xFF,
+                   (o.v       ) & 0xFF);
+  }
+  const ptBytes = new Uint8Array(plaintext);
+
+  // ── AES-GCM encrypt ──────────────────────────────────────────────────
+  // IV = systemTitle || frameCounter (12 bytes total)
+  const iv = new Uint8Array(12);
+  iv.set(sysTitle, 0);
+  iv[8]  = (fc >>> 24) & 0xFF;
+  iv[9]  = (fc >>> 16) & 0xFF;
+  iv[10] = (fc >>>  8) & 0xFF;
+  iv[11] = (fc       ) & 0xFF;
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', key, { name:'AES-GCM' }, false, ['encrypt']
+  );
+  // Web Crypto AES-GCM always appends a tag (default 128 bits = 16 bytes).
+  // For our security=0x20 (encrypt-only) we strip the tag — Tasmota's
+  // GCMParser doesn't read it. Length sanity: result = ptBytes.length + 16.
+  const ctWithTag = new Uint8Array(await crypto.subtle.encrypt(
+    { name:'AES-GCM', iv: iv, tagLength: 128 }, cryptoKey, ptBytes
+  ));
+  const ciphertext = ctWithTag.slice(0, ctWithTag.length - 16);
+
+  // ── Assemble outer GCM frame ─────────────────────────────────────────
+  // Length-of-rest = 1 (sec) + 4 (frame counter) + ciphertext.length
+  // We always use the 0x82 NN NN encoding (2-byte BE length) for
+  // simplicity and to match what L+G E450 emits in practice.
+  const lenOfRest = 1 + 4 + ciphertext.length;
+  const out = [];
+  out.push(0xDB);                                // GCM tag
+  out.push(0x08);                                // sysTitle length
+  for (let i = 0; i < 8; i++) out.push(sysTitle[i]);
+  out.push(0x82, (lenOfRest >> 8) & 0xFF, lenOfRest & 0xFF);  // length 2-byte BE
+  out.push(0x20);                                // security byte (encrypt only)
+  out.push((fc >>> 24) & 0xFF,
+           (fc >>> 16) & 0xFF,
+           (fc >>>  8) & 0xFF,
+           (fc       ) & 0xFF);                  // frame counter
+  for (let i = 0; i < ciphertext.length; i++) out.push(ciphertext[i]);
+  return out;
+}
+
 // ─── OBIS ASCII BUILDER ───────────────────────────────────────────────────────
 // Format: IEC 62056-21 / D0 telegram (processed line-by-line by Tasmota type 'o')
 function buildOBISAscii() {
@@ -1388,6 +1573,12 @@ function applyProfile() {
     ehz363:     { proto:'sml',    baud:'9600', ser:'8N1', serial:'EHZ00123456' },
     emh_ehz:    { proto:'sml',    baud:'9600', ser:'8N1', serial:'EMH00654321' },
     lgz_e220:   { proto:'sml',    baud:'9600', ser:'8N1', serial:'LGZ00112233' },
+    // L+G E450: encrypted DLMS push (mode 7), wired M-Bus interface.
+    // 2400 baud / 8E1 is the typical wired-MBUS push config; the AES key
+    // and system title default to test values that match cryptPanel
+    // defaults — mirror them in the Tasmota meter descriptor's
+    // `1,=so4,GUEK` directive (firmware reads it as the 16-byte key).
+    lgz_e450:   { proto:'sml_enc', baud:'2400', ser:'8E1', serial:'LGZ45A0001' },
     ehz363_3ph: { proto:'sml',    baud:'9600', ser:'8N1', serial:'EHZ3P000001' },
     iskra_mt174:{ proto:'obis',   baud:'9600', ser:'7E1', serial:'ISK00987654' },
     obis_1ph:   { proto:'obis',   baud:'9600', ser:'7E1', serial:'12345678'    },
@@ -1448,10 +1639,12 @@ function applyTxPanel() {
   const mb = isModbusRtu();
   const t5 = isT510();
   const showWreg = mb || isTcpProfile();
+  const enc = document.getElementById('selProto').value === 'sml_enc';
   document.getElementById('txIntervalRow').style.display  = (mb || t5) ? 'none' : '';
   document.getElementById('txTimerPanel').style.display   = (mb || t5) ? 'none' : '';
   document.getElementById('txModbusPanel').style.display  = (mb || t5) ? '' : 'none';
   document.getElementById('wregPanel').style.display      = showWreg ? '' : 'none';
+  document.getElementById('cryptPanel').style.display     = enc ? '' : 'none';
   if (showWreg) buildWregRows();
 }
 
@@ -1541,6 +1734,7 @@ function buildMeterDefContent() {
     ehz363:      'EHZ363W',
     emh_ehz:     'EMHeHZ',
     lgz_e220:    'LGZE220',
+    lgz_e450:    'LGZE450',
     ehz363_3ph:  'EHZ3PH',
     iskra_mt174: 'ISKRA',
     obis_1ph:    'OBIS1PH',
@@ -1555,6 +1749,38 @@ function buildMeterDefContent() {
   // ── T510: meter def + embedded TinyC baud-switching code ────────────────────
   // TinyC IDE extracts the TinyC functions below and compiles them alongside
   // the SML driver. Every100ms() replaces scripter >F (100ms tick).
+  // ── L+G E450 encrypted DLMS push ────────────────────────────────────────
+  // Mirrors the user's wired-MBUS push descriptor exactly. Type 'r' = raw
+  // (the AMS HAN reader handles framing); =so3,512 sets the serial buffer
+  // size hint; =so4,GUEK injects the AES key. The pm() patterns match
+  // what buildSMLEncFrame() encodes inside the encrypted payload.
+  //
+  // The AES key in =so4,GUEK is the literal text that Tasmota's parser
+  // converts to 16 bytes via hex-nibble decode, so the value here MUST
+  // match `inpAesKey` (32 hex chars). We pull it from the UI to keep
+  // them in sync.
+  if (profileKey === 'lgz_e450') {
+    const aesKey = (document.getElementById('inpAesKey')?.value || '0123456789ABCDEF0123456789ABCDEF').trim();
+    let s = `>M 1\n`;
+    s += `+1,${gpio},r,0,${baud},${meterName}\n`;
+    s += `1,=so3,512\n`;
+    s += `1,=so4,${aesKey}\n`;
+    s += `1,pm(1.8.0)@1000,kWh_IN,kWh,kWh_IN,3;Wirkenergie Lieferung (+A)\n`;
+    s += `1,pm(1.8.1)@1000,kWh_IN_T1,kWh,kWh_IN_T1,3;Wirkenergie Lieferung (+A) Tarif 1\n`;
+    s += `1,pm(1.8.2)@1000,kWh_IN_T2,kWh,kWh_IN_T2,3;Wirkenergie Lieferung (+A) Tarif 2\n`;
+    s += `1,pm(1.7.0)@1000,kW_IN,kW,kW_IN,3;Momentane Wirkleistung Lieferung (+A)\n`;
+    s += `1,pm(3.8.0)@1000,kvarh_IN,kvarh,kvarh_IN,3;Blindenergie Lieferung (+R)\n`;
+    s += `1,pm(.3.8.1)@1000,kvarh_IN_T1,kvarh,kvarh_IN_T1,3;Blindenergie Lieferung (+R) Tarif 1\n`;
+    s += `1,pm(.3.8.2)@1000,kvarh_IN_T2,kvarh,kvarh_IN_T2,3;Blindenergie Lieferung (+R) Tarif 2\n`;
+    s += `1,pm(.3.7.0)@1000,kvar_IN,kvar,kvar_IN,3;Momentane Blindleistung Lieferung (+R)\n`;
+    s += `1,pm(4.8.0)@1000,kvarh_OUT,kvarh,kvarh_OUT,3;Blindenergie Bezug (-R)\n`;
+    s += `1,pm(.4.8.1)@1000,kvarh_OUT_T1,kvarh,kvarh_OUT_T1,3;Blindenergie Bezug (-R) Tarif 1\n`;
+    s += `1,pm(.4.8.2)@1000,kvarh_OUT_T2,kvarh,kvarh_OUT_T2,3;Blindenergie Bezug (-R) Tarif 2\n`;
+    s += `1,pm(.4.7.0)@1000,kvar_OUT,kvar,kvar_OUT,3;Momentane Blindleistung Bezug (-R)\n`;
+    s += `#\n`;
+    return s;
+  }
+
   if (profileKey === 't510') {
     const txPin = +document.getElementById('inpTxPin').value || 43;
     let s = `>M 1\n`;
@@ -1844,7 +2070,8 @@ function updateFSLink() {}
 
 
 // ─── PERSIST ──────────────────────────────────────────────────────────────────
-const PERSIST_FIELDS = ['selProfile', 'inpDeviceIP', 'inpBridgeIP', 'inpBridgePort', 'inpRxPin', 'inpTxPin'];
+const PERSIST_FIELDS = ['selProfile', 'inpDeviceIP', 'inpBridgeIP', 'inpBridgePort', 'inpRxPin', 'inpTxPin',
+                        'inpAesKey', 'inpSysTitle', 'inpFrameCnt'];
 
 function persistSave() {
   PERSIST_FIELDS.forEach(id => {
