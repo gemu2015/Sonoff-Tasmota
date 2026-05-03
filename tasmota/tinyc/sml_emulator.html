@@ -144,6 +144,9 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <option value="emh_ehz">EMH eHZ — 1-phase (SML)</option>
         <option value="lgz_e220">Landis+Gyr E220 — 1-phase (SML)</option>
         <option value="lgz_e450">Landis+Gyr E450 — encrypted DLMS push (mode 7)</option>
+        <option value="resol_bsplus">Resol Deltasol BS Plus — solar controller (VBus)</option>
+        <option value="wolf_csz">Wolf CSZ 11/300 — heater (EBus)</option>
+        <option value="sensus_polf">Sensus Pollucom F — heat meter (M-Bus)</option>
         <option value="ehz363_3ph">3-phase SML (generic)</option>
         <option value="iskra_mt174">ISKRA MT174 — 3-phase (OBIS)</option>
         <option value="obis_1ph">Generic OBIS 1-phase</option>
@@ -159,6 +162,9 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <select id="selProto">
           <option value="sml">SML Binary</option>
           <option value="sml_enc">DLMS push (encrypted, mode 7)</option>
+          <option value="vbus">Resol VBus</option>
+          <option value="ebus">EBus (heater bus)</option>
+          <option value="mbus">M-Bus (heat meter)</option>
           <option value="obis">OBIS ASCII</option>
           <option value="modbus">Modbus RTU (slave)</option>
         </select>
@@ -636,6 +642,15 @@ async function sendFrame() {
       // buildSMLEncFrame is async (Web Crypto API)
       const bytes = await buildSMLEncFrame();
       data = new Uint8Array(bytes);
+    } else if (proto === 'vbus') {
+      const bytes = buildVBusFrame();
+      data = new Uint8Array(bytes);
+    } else if (proto === 'ebus') {
+      const bytes = buildEBusFrame();
+      data = new Uint8Array(bytes);
+    } else if (proto === 'mbus') {
+      const bytes = buildMBusFrame();
+      data = new Uint8Array(bytes);
     } else {
       data = new TextEncoder().encode(buildOBISAscii());
     }
@@ -648,7 +663,7 @@ async function sendFrame() {
     document.getElementById('statL').textContent = data.length + ' B';
 
     // Preview
-    if (proto === 'sml' || proto === 'sml_enc') {
+    if (proto === 'sml' || proto === 'sml_enc' || proto === 'vbus' || proto === 'ebus' || proto === 'mbus') {
       document.getElementById('framePreview').textContent = hexDump(data);
     } else {
       document.getElementById('framePreview').textContent = new TextDecoder().decode(data);
@@ -1447,6 +1462,375 @@ async function buildSMLEncFrame() {
   return out;
 }
 
+// ─── RESOL VBUS BUILDER (Deltasol BS Plus, solar thermal controller) ─────────
+//
+// Wire format (Resol VBus protocol v1.0, broadcast push):
+//
+//   Header (10 bytes — all 7-bit, top bit always 0):
+//     0xAA                          sync byte
+//     dest_lo dest_hi               16-bit LE destination (0x0010 = broadcast)
+//     src_lo  src_hi                16-bit LE source (0x4221 = Deltasol BS Plus)
+//     0x10                          protocol version 1.0
+//     cmd_lo  cmd_hi                16-bit LE command (0x0100 = data packet)
+//     frame_count                   N = number of 4-byte data groups (here 7)
+//     header_crc                    7-bit checksum (see below)
+//
+//   Then N × 6 bytes of frame data:
+//     data[0..3]                    4 data bytes, top-bit cleared (7-bit)
+//     septet                        bit i = original top-bit of data[i] (i=0..3)
+//     frame_crc                     7-bit checksum of the preceding 5 bytes
+//
+// Top-bit packing: VBus uses 7-bit data on the wire (top bit reserved as
+// frame marker). The septet byte preserves the original 8th bits so the
+// receiver can reconstruct full 8-bit values via `vbus_get_septet()` —
+// see xsns_53_sml.ino line ~1887.
+//
+// CRC algorithm (per Resol spec, also used by xsns_53_sml.ino):
+//     crc = 0x7F
+//     for b in bytes:                 # bytes between sync and crc, exclusive
+//         crc = (crc - b) & 0x7F
+//
+// Verified against the user's request frame:
+//     AA 1000 2142 10 0001 07 [74]    → CRC 0x74 ✓
+//
+// The user's descriptor (Deltasol BS Plus pinout) declares 28 bytes of
+// payload (frame_count = 7). Field map by offset into the unpacked
+// 28-byte stream (which is what `vo<N>` extracts in the Tasmota decoder):
+//
+//   0-1   sw  S1 COL temp        ÷10  °C
+//   2-3   sw  S2 TST1 temp       ÷10  °C
+//   4-5   sw  S3 TST2 temp       ÷10  °C
+//   6-7   sw  S4 TR  temp        ÷10  °C
+//   8     ub  Pump 1 speed             %
+//   9     ub  Pump 2 speed             %
+//   10    ub  Relay status         bit0=R1 PUMP, bit1=R2 VALVE
+//   12    ut  Time (hh:mm encoded)
+//   15    ub  Status flags         bit0=Col Max, bit1=Min, bit2=Frost,
+//                                  bit3=Opt, bit4=Rueck, bit5=WMZ
+//   20-21 uw  Energy p1            Wh
+//   22-23 uw  Energy ×1000         Wh   (multiplied tally → 1 unit = 1 kWh)
+//   24-25 uw  Energy ×1000000      Wh   (multiplied tally → 1 unit = 1 MWh)
+function buildVBusFrame() {
+  // ── Build the 28-byte unpacked payload ───────────────────────────
+  // Test values — vary slightly each tick so the receiver can see updates.
+  // Temperatures use signed-word ÷10 → 1234 = 123.4 °C; meaningful range
+  // for solar thermal is roughly -100..+1500 (-10..+150 °C).
+  const tick = Math.floor(Date.now() / 1000);
+  const wobble = Math.sin(tick / 30) * 5;            // ±5 °C cycle every ~3 min
+  const t1 = Math.round((75.0 + wobble * 2) * 10);   // collector ~65-85 °C
+  const t2 = Math.round((50.0 + wobble) * 10);       // storage 1
+  const t3 = Math.round((35.0 + wobble) * 10);       // storage 2
+  const t4 = Math.round((30.0 + wobble * 0.5) * 10); // return
+  const pump1 = (t1 > 700) ? 100 : 0;                // pump on when collector hot
+  const pump2 = 0;
+  const relays = (pump1 ? 0x01 : 0x00);              // bit0 = R1 PUMP follows pump1
+  const tNow = new Date();
+  const minutes = tNow.getHours() * 60 + tNow.getMinutes();   // hh*60+mm
+  const flags = 0x01;                                // Col Max active (bit 0)
+  // Energy: 3 half-words counter system (1 + 1000 + 1,000,000 weighting)
+  const totalWh = 57234 + Math.floor(tick / 60);     // ~1 Wh per minute increment
+  const p1 =  totalWh        % 1000;
+  const p2 = (totalWh / 1000 | 0) % 1000;
+  const p3 = (totalWh / 1000000 | 0);
+
+  const payload = new Uint8Array(28);
+  // signed-word helper (LE, two's complement)
+  const wrSW = (off, v) => {
+    const u = v < 0 ? (v + 0x10000) & 0xFFFF : v & 0xFFFF;
+    payload[off]     = u        & 0xFF;
+    payload[off + 1] = (u >> 8) & 0xFF;
+  };
+  // unsigned-word helper (LE)
+  const wrUW = (off, v) => {
+    payload[off]     =  v        & 0xFF;
+    payload[off + 1] = (v >>  8) & 0xFF;
+  };
+  wrSW( 0, t1);
+  wrSW( 2, t2);
+  wrSW( 4, t3);
+  wrSW( 6, t4);
+  payload[ 8] = pump1;
+  payload[ 9] = pump2;
+  payload[10] = relays;
+  // offset 11 unused
+  // Time field (vo12 ut @#) — the parser reads a 16-bit LE minutes-of-day
+  // value at offset 12 (lower 16 bits of the get_septet result, see
+  // xsns_53_sml.ino line ~2540) and formats as HH:MM. We only need to
+  // populate offsets 12-13 with the LE minute count.
+  payload[12] = minutes        & 0xFF;
+  payload[13] = (minutes >> 8) & 0xFF;
+  // offsets 14 unused
+  payload[15] = flags;
+  // offsets 16-19 unused
+  wrUW(20, p1);
+  wrUW(22, p2);
+  wrUW(24, p3);
+  // offsets 26-27 unused (zero-fill)
+
+  // ── Assemble the wire frame ─────────────────────────────────────
+  // CRC = 0x7F minus each byte (mod 0x80) — Resol's standard footer.
+  const crc = (bytes) => {
+    let c = 0x7F;
+    for (const b of bytes) c = (c - b) & 0x7F;
+    return c;
+  };
+
+  const out = [];
+  // Header: sync + dest(0x0010 LE) + src(0x4221 LE) + proto + cmd(0x0100 LE) + framecount + CRC
+  out.push(0xAA);
+  const hdr = [0x10, 0x00,        // dest 0x0010 (broadcast, LE)
+               0x21, 0x42,        // src  0x4221 (Deltasol BS Plus, LE)
+               0x10,              // protocol v1.0
+               0x00, 0x01,        // cmd 0x0100 (data, LE)
+               0x07];             // frame_count = 7 (= 28 bytes payload / 4)
+  for (const b of hdr) out.push(b);
+  out.push(crc(hdr));
+
+  // Pack payload into 7 frames × (4 data + septet + frame_crc):
+  for (let g = 0; g < 7; g++) {
+    const base = g * 4;
+    let septet = 0;
+    const f4 = [];
+    for (let i = 0; i < 4; i++) {
+      const v = payload[base + i];
+      if (v & 0x80) septet |= (1 << i);
+      f4.push(v & 0x7F);
+    }
+    f4.push(septet);
+    f4.push(crc(f4));
+    for (const b of f4) out.push(b);
+  }
+  return out;
+}
+
+// ─── EBUS BUILDER (Wolf / Vaillant heater bus) ──────────────────────────────
+//
+// EBus is a half-duplex 2400-baud 8N1 master/slave bus used by gas/oil
+// heaters and their satellite devices (room thermostats, solar circuits).
+//
+// Frame layout (Tasmota's `e` type expects this):
+//   QQ  source address                     (1 byte)
+//   ZZ  destination address                (1 byte)
+//   PB  primary command byte               (1 byte)
+//   SB  secondary command byte             (1 byte)
+//   NN  data length                        (1 byte, value of N)
+//   data[N]                                (N bytes)
+//   CRC over QQ..data[N-1] inclusive       (1 byte)
+//   AA  sync byte terminating the frame    (1 byte)
+//
+// Byte stuffing — 0xAA and 0xA9 in payload (or CRC) are escaped on wire:
+//   0xAA → 0xA9 0x01    (decoded back via A9 + 01 = AA)
+//   0xA9 → 0xA9 0x00
+// CRC algorithm: bit-wise XOR with polynom 0x9B when MSB set, init 0.
+//   See xsns_53_sml.ino ebus_crc8 / ebus_CalculateCRC.
+//
+// Emulator pushes 3 frames per cycle to populate the Wolf CSZ 11/300
+// descriptor's three families:
+//   PB=05 SB=03  heater status   (incl. burner bit, outside/warmwater/boiler temps)
+//   PB=50 SB=14  room thermostat (room temp)
+//   PB=50 SB=17  solar circuit   (collector/storage temp + pump bit)
+function buildVBusEbusCRC8(data, crcInit) {
+  // EBus polynomial 0x9B, MSB-first, init given by caller (typically 0).
+  let crc = crcInit;
+  for (let i = 0; i < 8; i++) {
+    const polynom = (crc & 0x80) ? 0x9B : 0;
+    crc = ((crc & 0x7F) << 1) & 0xFF;
+    if (data & 0x80) crc |= 1;
+    crc ^= polynom;
+    data = (data << 1) & 0xFF;
+  }
+  return crc;
+}
+function ebusFrameCRC(bytes) {
+  let c = 0;
+  for (const b of bytes) c = buildVBusEbusCRC8(b, c);
+  return c;
+}
+function ebusEscape(bytes) {
+  // Replace each 0xAA with 0xA9 0x01 and each 0xA9 with 0xA9 0x00.
+  // Apply to payload+CRC (sync byte itself is appended unescaped after).
+  const out = [];
+  for (const b of bytes) {
+    if (b === 0xAA) { out.push(0xA9, 0x01); }
+    else if (b === 0xA9) { out.push(0xA9, 0x00); }
+    else out.push(b);
+  }
+  return out;
+}
+function buildEbusOneFrame(qq, zz, pb, sb, data) {
+  // Build a single EBus telegram (no ACK choreography — emulator
+  // pretends it's a master broadcast). Returns an array of bytes
+  // ready to push onto the wire (escaped payload + CRC + sync).
+  const headerAndPayload = [qq, zz, pb, sb, data.length, ...data];
+  const crc = ebusFrameCRC(headerAndPayload);
+  const wire = ebusEscape([...headerAndPayload, crc]);
+  wire.push(0xAA);  // sync — terminates the frame, NOT escaped
+  return wire;
+}
+
+function buildEBusFrame() {
+  // Test values — vary slightly each tick for visible movement.
+  const tick = Math.floor(Date.now() / 1000);
+  const wobble = Math.sin(tick / 30) * 5;
+  const outside  = Math.round(15 + wobble);                 // signed °C, -100..127
+  const room     = Math.max(0, Math.round(22 + wobble * 0.3)); // unsigned °C
+  const warmwat  = Math.round(55 + wobble);                 // unsigned °C
+  const boiler   = Math.round(60 + wobble);                 // unsigned °C
+  const returns  = Math.round(45 + wobble * 0.5);
+  const status   = 0x01;                  // arbitrary status byte
+  const burnerOn = wobble > 0 ? 1 : 0;    // burner-on bit (b3 of byte 7)
+  const collector = Math.round(80 + wobble * 4);            // unsigned word °C×1
+  const storage   = Math.round(50 + wobble * 2);
+  const solarPump = collector > 700 ? 1 : 0;
+  const burnerByte = burnerOn ? 0x08 : 0x00;                // b3 = burner
+
+  // Frame 1 — heater status (QQ=03, ZZ=FE, PB=05, SB=03, NN=10).
+  // Layout chosen so descriptor patterns match at expected offsets:
+  //   data[1] (offset 6)  = status              (xxxx0503xxxxuu     = "Status")
+  //   data[2] (offset 7)  = burner-bits         (xxxx0503xxxxxxuu@b3:1)
+  //   data[7] (offset 12) = outside temp signed (xxxx0503xxxxxxxxxxxxxxxxss)
+  //   data[8] (offset 13) = warmwater unsigned  (xxxx0503xxxxxxxxxxxxxxxxxxuu)
+  //   data[9] (offset 14) = boiler unsigned     (xxxx0503xxxxxxxxxxxxxxxxxxxxuu)
+  //   data[8] (offset 13) ALSO matches "Returns" pattern 03fe0503xxxxxxxxxxxxxxxxxxuu
+  //                       — we set returns separately and overwrite warmwater
+  //                         below; descriptor labels them as different fields
+  //                         even though they share the same byte. Real frames
+  //                         from Wolf use distinct frames per field; this is
+  //                         a deliberate emulator simplification.
+  const heaterData = [
+    0x00,            // data[0]  reserved / leading byte
+    status,          // data[1]  status (offset 6)
+    burnerByte,      // data[2]  bits incl. burner b3 (offset 7)
+    0x00, 0x00, 0x00, 0x00,  // data[3..6] padding (offsets 8..11)
+    outside & 0xFF,  // data[7]  outside temp signed (offset 12)
+    warmwat,         // data[8]  warmwater (offset 13) — also reads as "Returns"
+    boiler,          // data[9]  boiler (offset 14)
+  ];
+  const f1 = buildEbusOneFrame(0x03, 0xFE, 0x05, 0x03, heaterData);
+
+  // Frame 2 — room thermostat (PB=50 SB=14, NN=10).
+  // Descriptor pattern: xxxx5014xxxxxxxxxxxxxxxxuu  → uu at offset 12.
+  const roomData = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, room, 0x00, 0x00];
+  const f2 = buildEbusOneFrame(0x10, 0xFE, 0x50, 0x14, roomData);
+
+  // Frame 3 — solar circuit (PB=50 SB=17, NN=12).
+  // Patterns:
+  //   xxxx5017xxxuu@b0:1            → solar pump bit (b0 of byte at offset 5)
+  //   xxxx5017xxxxxxxxuuuu          → collector temp word (offset 12-13)
+  //   xxxx5017xxxxxxxxxxxxxxuuuu    → storage temp word (offset 16-17, but our NN is 12 → too short)
+  //                                    For storage we'd need NN >= 14. Enlarge.
+  // NN=14 places: offsets 5 (data[0])..18 (data[13]).
+  //   data[0] (offset 5)  = pump bit byte
+  //   data[7..8] (offsets 12-13) = collector LE word
+  //   data[11..12] (offsets 16-17) = storage LE word
+  const solarData = new Array(14).fill(0x00);
+  solarData[0] = solarPump;            // bit 0 = pump
+  solarData[7] = collector & 0xFF;
+  solarData[8] = (collector >> 8) & 0xFF;
+  solarData[11] = storage & 0xFF;
+  solarData[12] = (storage >> 8) & 0xFF;
+  const f3 = buildEbusOneFrame(0x07, 0xFE, 0x50, 0x17, solarData);
+
+  return [...f1, ...f2, ...f3];
+}
+
+// ─── M-BUS BUILDER (Sensus Pollucom F heat meter) ────────────────────────────
+//
+// Standard wired M-Bus long frame (per EN 13757-3):
+//
+//   0x68 LEN LEN 0x68      start sequence (LEN = number of bytes from C-field
+//                          through last data byte, inclusive)
+//   0x08                   C-field: RSP_UD (response with user data)
+//   <addr>                 primary address (slave id)
+//   0x72                   CI-field: variable-data response, mode 1 (LE)
+//   <12-byte header>       4-byte ID + 2-byte mfr + 1-byte version + 1-byte
+//                          medium + 1-byte access-no + 1-byte status +
+//                          2-byte signature
+//   <data records>         each record = DIB byte(s) + VIB byte(s) + value
+//   <checksum>             sum of bytes from C-field..last data byte mod 256
+//   0x16                   stop byte
+//
+// Sensus Pollucom F descriptor matches data records by their DIB+VIB:
+//   0C 06 [BCD8 4B]   total energy (Wh)              → kWh after @1 scale
+//   0C 13 [BCD8 4B]   total volume (×0.001 m³)       → m³ after @1000
+//   0C 2B [BCD8 4B]   instantaneous power (W)
+//   0B 3B [BCD6 3B]   flow rate (×0.001 m³/h)        → m³/h after @1000
+//   0A 5A [BCD4 2B]   flow temp (×0.1 °C)            → °C after @10
+//   0A 5E [BCD4 2B]   return temp (×0.1 °C)
+//   0A 62 [BCD4 2B]   temperature difference (×0.01 K) → °C after @10
+//
+// Tasmota's 'r' type (raw with shift) slides the buffer byte-by-byte, so each
+// DIB+VIB sequence eventually lands at sbuff[0] and gets matched. We don't
+// need pm() pattern scanning — just push the M-Bus frame and the parser sees
+// each record as it shifts through.
+function bcd(value, byteCount) {
+  // Encode `value` as little-endian BCD across `byteCount` bytes.
+  // Each byte holds 2 BCD digits (lower nibble = lower digit).
+  // Example: bcd(12345, 4) → [0x45, 0x23, 0x01, 0x00]
+  const out = new Array(byteCount).fill(0);
+  let v = Math.max(0, Math.floor(value));
+  for (let i = 0; i < byteCount; i++) {
+    const lo = v % 10; v = Math.floor(v / 10);
+    const hi = v % 10; v = Math.floor(v / 10);
+    out[i] = (hi << 4) | lo;
+  }
+  return out;
+}
+
+function buildMBusFrame() {
+  // Test values — slightly varying so Tasmota picks up changes
+  const tick = Math.floor(Date.now() / 1000);
+  const wobble = Math.sin(tick / 60);                      // ±1 cycle / minute
+  const totalE = 12345 + Math.floor(tick / 10);            // Wh,  ↑ slowly
+  const totalV = 1234567 + Math.floor(tick * 5);           // ×0.001 m³
+  const power  = Math.max(0, Math.round(1500 + wobble * 200));
+  const flow   = Math.max(0, Math.round(120 + wobble * 30));
+  const tFlow  = Math.round((75 + wobble * 2) * 10);       // ×0.1 °C
+  const tRet   = Math.round((25 + wobble * 1) * 10);
+  const tDiff  = Math.max(0, Math.round((50 + wobble * 5) * 10)); // ×0.01 K
+
+  // Header (12 bytes after C/A/CI):
+  //   ID (4 BCD bytes), Mfr (2), Version (1), Medium (1),
+  //   AccessNo (1), Status (1), Signature (2)
+  // Manufacturer "SEN" (Sensus) → 3 letters → encoded in 2 bytes per
+  // M-Bus formula: ((L1-64)<<10) | ((L2-64)<<5) | (L3-64), LE.
+  // For "SEN": (S=19, E=5, N=14) → 19*1024 + 5*32 + 14 = 19630 = 0x4CAE
+  // → bytes 0xAE, 0x4C (LE).
+  const header = [
+    ...bcd(12345678, 4),  // ID = serial 12345678 BCD
+    0xAE, 0x4C,           // mfr "SEN" 0x4CAE LE
+    0x01,                 // version
+    0x04,                 // medium 0x04 = heat (per EN 13757)
+    0x00,                 // access counter
+    0x00,                 // status
+    0x00, 0x00            // signature
+  ];
+
+  // Data records (each = DIB + VIB + value bytes)
+  const records = [];
+  records.push(0x0C, 0x06, ...bcd(totalE, 4));    // total energy Wh
+  records.push(0x0C, 0x13, ...bcd(totalV, 4));    // total volume ×0.001 m³
+  records.push(0x0C, 0x2B, ...bcd(power, 4));     // instantaneous power W
+  records.push(0x0B, 0x3B, ...bcd(flow, 3));      // flow rate ×0.001 m³/h (BCD6)
+  records.push(0x0A, 0x5A, ...bcd(tFlow, 2));     // flow temp ×0.1 °C (BCD4)
+  records.push(0x0A, 0x5E, ...bcd(tRet, 2));      // return temp ×0.1 °C
+  records.push(0x0A, 0x62, ...bcd(tDiff, 2));     // temperature diff ×0.01 K
+
+  // Body = C-field + Address + CI-field + header + records
+  const cField = 0x08;       // RSP_UD
+  const address = 0x01;      // primary address — must match descriptor
+  const ciField = 0x72;      // variable-data response mode 1
+  const body = [cField, address, ciField, ...header, ...records];
+
+  // CRC = sum of body bytes mod 256
+  let cs = 0;
+  for (const b of body) cs = (cs + b) & 0xFF;
+
+  // Assemble wire frame: 68 LEN LEN 68 / body / CRC / 16
+  const len = body.length;   // = 3 (C/A/CI) + 12 (header) + 7 records × ~6 ≈ 56
+  return [0x68, len, len, 0x68, ...body, cs, 0x16];
+}
+
 // ─── OBIS ASCII BUILDER ───────────────────────────────────────────────────────
 // Format: IEC 62056-21 / D0 telegram (processed line-by-line by Tasmota type 'o')
 function buildOBISAscii() {
@@ -1579,6 +1963,27 @@ function applyProfile() {
     // defaults — mirror them in the Tasmota meter descriptor's
     // `1,=so4,GUEK` directive (firmware reads it as the 16-byte key).
     lgz_e450:   { proto:'sml_enc', baud:'2400', ser:'8E1', serial:'LGZ45A0001' },
+    // Resol Deltasol BS Plus — solar thermal controller. Broadcasts a
+    // VBus data frame (sync 0xAA + header + 7 septet-packed 4-byte
+    // groups) at 9600 8N1. Fields: 4 temp sensors + 2 pump speeds +
+    // 2 relays + time + status flags + 3 energy half-words.
+    resol_bsplus:{ proto:'vbus',   baud:'9600', ser:'8N1', serial:'Solar' },
+    // Wolf CSZ 11/300 — gas heater bus (Vaillant/Wolf style). 2400 baud
+    // 8N1, half-duplex shared bus. Emulator pushes 3 frame types
+    // periodically: heater status (PB=05 SB=03 from QQ=03 ZZ=FE),
+    // room thermostat (PB=50 SB=14), solar circuit (PB=50 SB=17).
+    // CRC algo: bit-wise polynom 0x9B, init 0; 0xAA in payload escaped
+    // as A9 01, 0xA9 escaped as A9 00.
+    wolf_csz:    { proto:'ebus',   baud:'2400', ser:'8N1', serial:'EBUS' },
+    // Sensus Pollucom F — wired M-Bus heat meter (Wärmemengenzähler).
+    // 2400 baud 8E1 (heat-meter standard). Emulator pushes a long-frame
+    // M-Bus telegram with 7 data records (DIB+VIB+BCD value): total
+    // energy (Wh), total volume (×0.001 m³), instantaneous power (W),
+    // flow rate (×0.001 m³/h), flow/return temp (×0.1 °C), temp diff
+    // (×0.01 K). Frame: 68 LEN LEN 68 / 08 01 72 / [12-byte header] /
+    // [data records] / CRC / 16. Tasmota's 'r' type with shift_mode
+    // catches each record header (e.g. 0C 06) as the buffer slides.
+    sensus_polf: { proto:'mbus',   baud:'2400', ser:'8E1', serial:'WAERME' },
     ehz363_3ph: { proto:'sml',    baud:'9600', ser:'8N1', serial:'EHZ3P000001' },
     iskra_mt174:{ proto:'obis',   baud:'9600', ser:'7E1', serial:'ISK00987654' },
     obis_1ph:   { proto:'obis',   baud:'9600', ser:'7E1', serial:'12345678'    },
@@ -1735,6 +2140,9 @@ function buildMeterDefContent() {
     emh_ehz:     'EMHeHZ',
     lgz_e220:    'LGZE220',
     lgz_e450:    'LGZE450',
+    resol_bsplus:'Solar',
+    wolf_csz:    'EBUS',
+    sensus_polf: 'WAERME',
     ehz363_3ph:  'EHZ3PH',
     iskra_mt174: 'ISKRA',
     obis_1ph:    'OBIS1PH',
@@ -1759,6 +2167,86 @@ function buildMeterDefContent() {
   // converts to 16 bytes via hex-nibble decode, so the value here MUST
   // match `inpAesKey` (32 hex chars). We pull it from the UI to keep
   // them in sync.
+  // ── Wolf CSZ 11/300 — EBus heater bus ──────────────────────────────────
+  // Three pattern families: heater status (PB=05 SB=03), room thermostat
+  // (PB=50 SB=14), solar circuit (PB=50 SB=17). Some patterns use wildcard
+  // src/dst (`xxxx`) to match regardless of which device sent the frame;
+  // others nail QQ=03 ZZ=FE specifically. Burner state is bit 3 of a
+  // byte in the heater-status frame; solar pump is bit 0 of a byte in
+  // the solar-circuit frame.
+  if (profileKey === 'wolf_csz') {
+    let s = `>M 1\n`;
+    s += `+1,${gpio},e,0,2400,${meterName}\n`;
+    s += `1,xxxx0503xxxxxxxxxxxxxxxxss@1,Outside temperature,C,Outsidetemp,0\n`;
+    s += `1,xxxx5014xxxxxxxxxxxxxxxxuu@1,Room temperature,C,Roomtemp,0\n`;
+    s += `1,xxxx0503xxxxxxxxxxxxxxxxxxuu@1,Warmwater,C,Warmwater,0\n`;
+    s += `1,xxxx0503xxxxxxxxxxxxxxxxxxxxuu@1,Boiler,C,Boiler,0\n`;
+    s += `1,03fe0503xxxxxxxxxxxxxxxxxxuu@1,Returns,C,Returns,0\n`;
+    s += `1,03fe0503xxxxuu@1,Status,,Status,0\n`;
+    s += `1,03fe0503xxxxxxuu@b3:1,Burner on,,Burner,0\n`;
+    s += `1,xxxx5017xxxxxxxxuuuu@16,Solar collektor,C,Collector,1\n`;
+    s += `1,xxxx5017xxxxxxxxxxxxxxuuuu@16,Solar storage,C,Solarstorage,1\n`;
+    s += `1,xxxx5017xxxuu@b0:1,Solar pump on,,Solarpump,0\n`;
+    s += `#\n`;
+    return s;
+  }
+
+  // ── Sensus Pollucom F — M-Bus heat meter ───────────────────────────────
+  // Type 'r' (raw with shift) so the buffer slides byte-by-byte; each
+  // M-Bus data record (DIB+VIB+value) gets matched as it arrives at
+  // sbuff[0]. No request/response choreography in the emulator — the
+  // real meter does need a wakeup sequence (see mini-scripter pattern
+  // for Elster Sharky 775), but Sensus auto-sends so we just push
+  // periodic frames.
+  if (profileKey === 'sensus_polf') {
+    let s = `>M 1\n`;
+    s += `+1,${gpio},rE1,0,2400,${meterName},1\n`;
+    s += `1,0C06bcd8@1,Total Energy,kWh,w_total,0\n`;
+    s += `1,0C13bcd8@1000,Total volume,m³,v_total,2\n`;
+    s += `1,0C2Bbcd8@1,Current power,W,p_act,0\n`;
+    s += `1,0B3Bbcd6@1000,Current flow,m³/h,F_flow,3\n`;
+    s += `1,0A5Abcd4@10,Flow temp,°C,t_flow,1\n`;
+    s += `1,0A5Ebcd4@10,Return temp,°C,t_return,1\n`;
+    s += `1,0A62bcd4@10,Temp diff,°C,t_diff,2\n`;
+    s += `#\n`;
+    return s;
+  }
+
+  // ── Resol Deltasol BS Plus — VBus solar controller ─────────────────────
+  // Tasmota's SML driver needs each pattern line to carry the request /
+  // sync-pattern hex inline. Scripter shortens this with a `%r%`
+  // variable substitution; TinyC's mini-scripter doesn't support that,
+  // so we inline `1,AA100021421000010774` (meter prefix + VBus request
+  // bytes) into every line. Adds a few hundred bytes to the descriptor
+  // but keeps it 1:1 portable to TinyC + mini-scripter loaders.
+  // The %% in unit fields stays escaped — Tasmota's parser turns it
+  // back into a single % at render time.
+  if (profileKey === 'resol_bsplus') {
+    const R = `1,AA100021421000010774`;     // meter idx + VBus request hex
+    let s = `>M 1\n`;
+    s += `+1,${gpio},v,0,9600,${meterName}\n`;
+    s += `${R}vo12ut@#,time,,zeit,1\n`;
+    s += `${R}vo0sw@10,S1 COL,°C,sens1,1\n`;
+    s += `${R}vo2sw@10,S2 TST1,°C,sens2,1\n`;
+    s += `${R}vo4sw@10,S3 TST2,°C,sens3,1\n`;
+    s += `${R}vo6sw@10,S4 TR,°C,sens4,1\n`;
+    s += `${R}vo10ub@b0:1,R1 PUMP,,relay1,0\n`;
+    s += `${R}vo10ub@b1:1,R2 VALVE,,relay2,0\n`;
+    s += `${R}vo8ub@1,Pump1 speed,%%,pump1,0\n`;
+    s += `${R}vo9ub@1,Pump2 speed,%%,pump2,0\n`;
+    s += `${R}vo20uw@1,p1,Wh,p1,0\n`;
+    s += `${R}vo22uw@1,p1000,Wh,p2,0\n`;
+    s += `${R}vo24uw@1,p1000000,Wh,p3,0\n`;
+    s += `${R}vo15ub@b0:1,Col Max,,col1,0\n`;
+    s += `${R}vo15ub@b1:1,Col Min,,col2,0\n`;
+    s += `${R}vo15ub@b2:1,Col Frost,,col3,0\n`;
+    s += `${R}vo15ub@b3:1,Col Opt,,col4,0\n`;
+    s += `${R}vo15ub@b4:1,Col Rueck,,col5,0\n`;
+    s += `${R}vo15ub@b5:1,Col WMZ,,col6,0\n`;
+    s += `#\n`;
+    return s;
+  }
+
   if (profileKey === 'lgz_e450') {
     const aesKey = (document.getElementById('inpAesKey')?.value || '0123456789ABCDEF0123456789ABCDEF').trim();
     let s = `>M 1\n`;
