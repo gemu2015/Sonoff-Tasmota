@@ -2721,7 +2721,22 @@ nextsect:
 
 //"1-0:1.8.0*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
 void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
-  if (!sml_globs.dvalid[index]) return;
+  // NOTE: SML_Immediate_MQTT is by definition called immediately after a
+  // fresh value has just been parsed and stored in meter_vars[index].
+  // The "dvalid" flag is for the *periodic* TelePeriod path (SML_Show)
+  // which needs to suppress slots that haven't seen any data yet — not
+  // here. PR #24587 added an early-bail `if (!dvalid) return;` here
+  // which was wrong:
+  //   • the math `@`-chain branch (2094) sets dvalid AFTER calling
+  //     this function → first emission lost on every meter
+  //   • the Modbus/eBus/PZEM/VBus/raw value branch never sets dvalid
+  //     in this code path at all → those meters lost ALL immediate-MQTT
+  //     emissions
+  //   • encrypted SML decoders feed SML_Decode → match fires →
+  //     SML_Immediate_MQTT, but encrypted descriptors may not hit the
+  //     same dvalid-set sites that PR #24587 assumed
+  // SML_Show (TelePeriod JSON) keeps its dvalid gate — that's correct
+  // since it fires regardless of whether new data arrived in this cycle.
 
   char tpowstr[32];
   char jname[24];
