@@ -2200,20 +2200,29 @@ function buildMeterDefContent() {
   // periodic frames.
   if (profileKey === 'sensus_polf') {
     let s = `>M 1\n`;
-    s += `+1,${gpio},rE1,0,2400,${meterName},1\n`;
-    // Bigger receive buffer — defensive. The full M-Bus long frame is
-    // 56 bytes; default 48-byte sbsiz works for shift_mode pattern
-    // matching but leaves no slack. Bumping to 128 also ensures the
-    // pattern matcher has enough context window to catch all 7 record
-    // headers reliably across frame boundaries.
-    s += `1,=so3,128\n`;
-    s += `1,0C06bcd8@1,Total Energy,kWh,w_total,0\n`;
-    s += `1,0C13bcd8@1000,Total volume,m³,v_total,2\n`;
-    s += `1,0C2Bbcd8@1,Current power,W,p_act,0\n`;
-    s += `1,0B3Bbcd6@1000,Current flow,m³/h,F_flow,3\n`;
-    s += `1,0A5Abcd4@10,Flow temp,°C,t_flow,1\n`;
-    s += `1,0A5Ebcd4@10,Return temp,°C,t_return,1\n`;
-    s += `1,0A62bcd4@10,Temp diff,°C,t_diff,2\n`;
+    // M-Bus has no dedicated type letter in xsns_53 — it rides on the
+    // raw shift-mode parser ('r') with explicit serial mode 'E1' (8E1).
+    // No trxpin: the emulator pushes frames continuously, so the meter
+    // entry stays receive-only (avoids GPIO 1 / UART0-TX conflict).
+    s += `+1,${gpio},rE1,0,2400,${meterName}\n`;
+    // Tiny buffer is correct here, NOT large. The shift-mode matcher
+    // anchors patterns at sbuff[0] (oldest byte), so each new byte
+    // shifts the buffer left and re-tries the match. A small 8-byte
+    // window means each record header (`0C 06` + 4 BCD bytes = 6 B)
+    // aligns at sbuff[0..5] just two bytes after it lands — every
+    // record matches in turn within its own frame. Larger buffers
+    // (e.g. 128 B) push the alignment so far back that the next
+    // frame overwrites the pattern bytes before they reach sbuff[0],
+    // and nothing decodes. 8 is the value used by the official
+    // Sensus PolluCom F descriptor in the Tasmota docs.
+    s += `1,=so3,8\n`;
+    s += `1,0c06bcd8@1,Total Energy,kWh,w_total,0\n`;
+    s += `1,0c13bcd8@1000,Total volume,m³,v_total,2\n`;
+    s += `1,0c2bbcd8@1,Current power,W,p_act,0\n`;
+    s += `1,0b3bbcd6@1000,Current flow,m³/h,F_flow,3\n`;
+    s += `1,0a5abcd4@10,Flow temp,°C,t_flow,1\n`;
+    s += `1,0a5ebcd4@10,Return temp,°C,t_return,1\n`;
+    s += `1,0a62bcd4@10,Temp diff,°C,t_diff,2\n`;
     s += `#\n`;
     return s;
   }
