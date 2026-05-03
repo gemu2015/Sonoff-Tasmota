@@ -162,6 +162,19 @@ persist int   wd_grace_min        = 15;     // minutes of sustained alert before
 persist int   wd_cooldown_min     = 60;     // minutes of silence after a recovery cycle
 persist char  wd_email_to[64];              // recipient — empty means email disabled
 
+// ── 4-hour temperature historian (1-minute granularity) ──────
+// Two ring buffers feeding the WebPage charts: pump buffer tank
+// (r188 Puffer) and supply water out (r191 Ausgangstemp). 240
+// slots × 1 min = 4 h. Persist'd so a quick restart preserves
+// the trend; on cold boot the slots default to 0.0 and WebPage
+// hides those (treats 0.0 as "no sample") to avoid a fake
+// baseline drop. Cursor advances each new minute (edge-detected
+// on `tasm_minute`) and wraps modulo 240.
+persist float pf_hist[240];                 // Puffer °C ring (r188 / 10)
+persist float ow_hist[240];                 // Ausgang °C ring (r191 / 10)
+persist int   chart_pos = 0;                // next slot to write (0..239)
+int last_sample_min = -1;                   // edge-detect for the 1-min sampler
+
 // Watchdog state machine (in-RAM, resets on reboot — that's fine)
 int wd_state              = 0;   // 0=monitor 1=alerted 2=just-sent-OFF 3=cooldown
 int wd_alert_started_ms   = 0;
@@ -636,6 +649,17 @@ void WebCall() {
     sprintf(g_row, "{s}<b style='color:#0a8;'>HP-Map</b> tick %d{m}%d Modbus reg/poll{e}", web_tick, dreg);
     webSend(g_row);
 
+    // ── Free-heap row — this is a low-heap device (EPD-47 ESP32),
+    //    keep an eye on it. Colour the value red when it dips below
+    //    8 KB (close-to-OOM range for further allocations).
+    float fh_kb = tasm_heap / 1024.0;
+    if (fh_kb < 8.0) {
+        sprintf(g_row, "{s}Free heap{m}<b style='color:#e74c3c;'>%.1f KB</b>{e}", fh_kb);
+    } else {
+        sprintf(g_row, "{s}Free heap{m}%.1f KB{e}", fh_kb);
+    }
+    webSend(g_row);
+
     if (known[217]) {
         int v = reg[217] & 0xFFFF;
         if      (v == 0) strcpy(st, "booting");
@@ -993,6 +1017,27 @@ void WebUI() {
 // Edge-detect form buttons each second
 // ------------------------------------------------------------
 void EverySecond() {
+    // ── 1-minute historian for the 4-hour Puffer / Ausgang charts ──
+    // Edge-detect on tasm_minute so we sample exactly once per minute
+    // regardless of how the EverySecond ticks line up with the wall
+    // clock. The 60-minute wrap (59→0) is naturally a "different
+    // value" so it triggers a sample like every other minute change.
+    // Skip when the register is unknown (warm-up period); leaves the
+    // ring slot at its previous value rather than poisoning with 0.0.
+    int cur_min = tasm_minute;
+    if (cur_min != last_sample_min) {
+        last_sample_min = cur_min;
+        if (known[188]) {
+            int u188 = reg[188] & 0xFFFF; int s188 = u188; if (s188 >= 32768) s188 = s188 - 65536;
+            pf_hist[chart_pos] = s188 / 10.0;
+        }
+        if (known[191]) {
+            int u191 = reg[191] & 0xFFFF; int s191 = u191; if (s191 >= 32768) s191 = s191 - 65536;
+            ow_hist[chart_pos] = s191 / 10.0;
+        }
+        chart_pos = (chart_pos + 1) % 240;
+    }
+
     if (snap_btn == 1 && prev_snap == 0) {
         take_snapshot();
         snap_btn = 0;
@@ -1112,6 +1157,61 @@ void EverySecond() {
             }
         }
     }
+}
+
+// ------------------------------------------------------------
+// Charts (rendered once on full page load — must live in WebPage,
+// not WebCall, because Tasmota's `?m=1` AJAX poll setting
+// innerHTML PARSES <script> tags but does NOT execute them, so
+// Google-Charts containers placed in WebCall would render empty.
+// Same trick energy_dashboard.tc uses.
+// ------------------------------------------------------------
+void WebPage() {
+    // Auto-fit y-axis from non-zero samples (0.0 = "no data yet"
+    // because cold-boot fills persist with zeros and the sampler
+    // refuses to write when the reg is unknown). If no samples yet,
+    // fall back to a sensible heat-pump range so the empty chart
+    // still has labelled axes.
+    float pf_min = 999.0; float pf_max = -999.0;
+    float ow_min = 999.0; float ow_max = -999.0;
+    int   pf_n = 0;       int   ow_n = 0;
+    for (int i = 0; i < 240; i = i + 1) {
+        if (pf_hist[i] != 0.0) {
+            if (pf_hist[i] < pf_min) pf_min = pf_hist[i];
+            if (pf_hist[i] > pf_max) pf_max = pf_hist[i];
+            pf_n = pf_n + 1;
+        }
+        if (ow_hist[i] != 0.0) {
+            if (ow_hist[i] < ow_min) ow_min = ow_hist[i];
+            if (ow_hist[i] > ow_max) ow_max = ow_hist[i];
+            ow_n = ow_n + 1;
+        }
+    }
+    if (pf_n == 0) { pf_min = 20.0; pf_max = 50.0; }
+    if (ow_n == 0) { ow_min = 20.0; ow_max = 50.0; }
+
+    // Pad the y-range by 10 % on each side so the curve doesn't
+    // glue itself to the chart edges. Floor the span at 5 °C so a
+    // very steady-state pump still has a legible y-axis.
+    float pf_span = pf_max - pf_min; if (pf_span < 5.0) pf_span = 5.0;
+    float ow_span = ow_max - ow_min; if (ow_span < 5.0) ow_span = 5.0;
+    float pf_lo = pf_min - pf_span * 0.1;
+    float pf_hi = pf_max + pf_span * 0.1;
+    float ow_lo = ow_min - ow_span * 0.1;
+    float ow_hi = ow_max + ow_span * 0.1;
+
+    // Both charts at 640×240 — same width as energy_dashboard's
+    // charts so they line up if both slots run on the same device.
+    // decimals=1, smoothing on (1|8). Time-step = 1 minute.
+    WebChartSize(640, 240);
+    WebChart(0, "HP Puffer letzte 4h", "°C",
+             0x3498db, chart_pos, 240, pf_hist,
+             1 | 8, 1, pf_lo, pf_hi);
+
+    WebChartSize(640, 240);
+    WebChart(0, "HP Ausgang letzte 4h", "°C",
+             0xe67e22, chart_pos, 240, ow_hist,
+             1 | 8, 1, ow_lo, ow_hi);
 }
 
 // ------------------------------------------------------------
@@ -1357,20 +1457,13 @@ void Command(char cmd[]) {
 
 // ------------------------------------------------------------
 int main() {
-    // Autoexec fires main() during Tasmota's boot before serial-using
-    // drivers have finished init. If we serialBegin() too early our
-    // handle attaches to the UART but a later init (SerialBridge,
-    // console, OTA) reconfigures the same pins out from under us —
-    // script keeps running with a "valid" handle but no bytes arrive.
-    // Manual TinyCRun after boot works because by then everything has
-    // settled. A 3-second delay was not enough; 15 s reliably covers
-    // the full WiFi-up + driver-init window. main() runs in a
-    // FreeRTOS task so delay() blocks for real (per CLAUDE.md), no
-    // impact on other Tasmota subsystems. Uptime log lets us see
-    // exactly when the claim happens — useful if a future board
-    // needs longer.
-    delay(15000);
-
+    // Plain main() — no startup delay needed since TinyC 1.3.36.
+    // The runtime defers autoexec slot spawn from FUNC_INIT to a
+    // FUNC_LOOP iteration gated on TasmotaGlobal.uptime ≥ 3 s, so
+    // by the time main() runs Tasmota's Wi-Fi / RF coex / late
+    // driver init has fully settled. `serialBegin` here works the
+    // same as in any in-tree Tasmota driver — no race, no
+    // `delay(15000)` workaround, no separate BootInit hook needed.
     char m0[80];
     sprintf(m0, "heatpump_map: opening serial at uptime %d s", tasm_uptime);
     addLog(m0);
