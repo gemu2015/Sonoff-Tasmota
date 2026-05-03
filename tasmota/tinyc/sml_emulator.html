@@ -2201,6 +2201,12 @@ function buildMeterDefContent() {
   if (profileKey === 'sensus_polf') {
     let s = `>M 1\n`;
     s += `+1,${gpio},rE1,0,2400,${meterName},1\n`;
+    // Bigger receive buffer — defensive. The full M-Bus long frame is
+    // 56 bytes; default 48-byte sbsiz works for shift_mode pattern
+    // matching but leaves no slack. Bumping to 128 also ensures the
+    // pattern matcher has enough context window to catch all 7 record
+    // headers reliably across frame boundaries.
+    s += `1,=so3,128\n`;
     s += `1,0C06bcd8@1,Total Energy,kWh,w_total,0\n`;
     s += `1,0C13bcd8@1000,Total volume,m³,v_total,2\n`;
     s += `1,0C2Bbcd8@1,Current power,W,p_act,0\n`;
@@ -2225,6 +2231,10 @@ function buildMeterDefContent() {
     const R = `1,AA100021421000010774`;     // meter idx + VBus request hex
     let s = `>M 1\n`;
     s += `+1,${gpio},v,0,9600,${meterName}\n`;
+    // VBus frames for BS Plus run 52 bytes (8-B header + 7×6-B septet groups
+    // + extra). Default sbsiz = 48 → trailing groups overflow and decode as
+    // zeros. Bump to 128 for slack across firmware variants.
+    s += `1,=so3,128\n`;
     s += `${R}vo12ut@#,time,,zeit,1\n`;
     s += `${R}vo0sw@10,S1 COL,°C,sens1,1\n`;
     s += `${R}vo2sw@10,S2 TST1,°C,sens2,1\n`;
