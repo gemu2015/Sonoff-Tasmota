@@ -268,21 +268,29 @@ void EverySecond() {
     was_c = t_ws - was_m;
 
     // 15-minute slot index 0..95 → daily heat-pump kWh trace.
+    // Guarded by `t_hwp > 0.0` — if the heat-pump UDP global hasn't
+    // arrived yet (fresh boot, sender device down), we MUST NOT
+    // baseline `dsel` to 0, otherwise the next slot rollover does
+    // `c_hwp = real_lifetime_kWh - 0` = a huge spurious value (a
+    // visible "13 kWh peak" with everything else getting auto-scaled
+    // into the noise floor). Wait until t_hwp is real.
     int m15 = (tasm_hour * 60 + tasm_minute) / 15;   // 0..95
-    if (m15 != last_m15) {
+    if (m15 != last_m15 && t_hwp > 0.0) {
         if (last_m15 >= 0) {
-            // kWh consumed *in this 15-min slot* = (current meter total)
-            // minus (meter total at last slot boundary). The Scripter
-            // version (and the comment that lived here) had a misplaced
-            // `*4` outside the parens which produced (t_hwp - 4·dsel) —
-            // a meaningless near-(-3·t_hwp) figure that drove the chart
-            // to wild negative values like -39 632 kWh in a 15-min slot.
-            // ymax=4.0 is fine for kWh-per-slot at typical HP loads.
-            c_hwp = t_hwp - dsel;
-            dvals[m15] = c_hwp;
-            dvals_pos  = m15;
-            dsel       = t_hwp;
-            saveVars();   // 15-min cadence is fine for flash wear
+            // kWh consumed *in this 15-min slot*.
+            // Sanity-clamp: heat-pump physical max is ~4 kW, so per
+            // 15-min slot can't exceed 1 kWh; we cap at 2 kWh
+            // (covers double-pump / future bigger units). Negative
+            // (meter wrap / sensor reset) or out-of-range deltas
+            // are dropped — the slot keeps its previous value.
+            float delta = t_hwp - dsel;
+            if (delta >= 0.0 && delta < 2.0) {
+                c_hwp = delta;
+                dvals[m15] = c_hwp;
+                dvals_pos  = m15;
+                saveVars();   // 15-min cadence is fine for flash wear
+            }
+            dsel = t_hwp;
         } else {
             // First observation since boot — just establish baseline.
             dsel = t_hwp;
@@ -587,10 +595,16 @@ void WebPage() {
     // The current hour is partial — it averages real new data with
     // old data from this hour 24 hours ago. Self-corrects within an
     // hour as new quarters overwrite old ones.
+    // Same physical-max sanity clamp as the writer — drops any
+    // pre-existing poisoned slot to 0 at render time so the chart
+    // self-heals on the next page reload, not after 24 h. 8 kWh/h
+    // ceiling = pump physical max × 2 = generous.
     float kwmax = 1.0;             // floor 1 kW so a low-load day still shows
     for (int i = 0; i < 24; i = i + 1) {
         int b = i * 4;
-        dvals_kw[i] = dvals[b] + dvals[b + 1] + dvals[b + 2] + dvals[b + 3];
+        float h = dvals[b] + dvals[b + 1] + dvals[b + 2] + dvals[b + 3];
+        if (h < 0.0 || h > 8.0) h = 0.0;
+        dvals_kw[i] = h;
         if (dvals_kw[i] > kwmax) kwmax = dvals_kw[i];
     }
     WebChartSize(640, 280);
