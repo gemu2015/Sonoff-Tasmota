@@ -4,25 +4,70 @@
 //
 // Requires: TESLA_POWERWALL enabled in firmware build
 
-// ─── Powerwall data (shared via UDP) ───
-global float pwl  = 8.0;    // battery percentage
-global float sip  = 0.0;    // site/grid import power (W)
-global float sop  = 0.0;    // solar output power (W)
-global float bip  = 0.0;    // battery import power (W)
-global float hip  = 0.0;    // home/load power (W)
-global float tcap = 0.0;    // total capacity (Wh)
-global float rcap = 0.0;    // remaining capacity (Wh)
-global float rper = 0.0;    // reserve percent
-
-global float phs1 = 0.0;    // grid phase 1
-global float phs2 = 0.0;    // grid phase 2
-global float phs3 = 0.0;    // grid phase 3
+// ─── Powerwall data — local-only (no UDP broadcast for now) ───
+// UDP `global` broadcasts (and even batched at one cnt slot) appear
+// to corrupt BearSSL state when interleaved with SSL operations on
+// this firmware. Stripped to local-only for rock-stable baseline;
+// once we have that, we'll re-add LAN publication via the Scripter's
+// pattern (WebSend to a relay device) instead of UDP globals.
+//
+// Receivers that previously subscribed to UDP global names continue
+// to read those names from the original Scripter device — same data,
+// just sourced from .47 (or wherever the Scripter runs) rather than
+// .140. No breakage on the receiver side.
+float l_pwl  = 8.0;
+float l_sip  = 0.0;
+float l_sop  = 0.0;
+float l_bip  = 0.0;
+float l_hip  = 0.0;
+float l_tcap = 0.0;
+float l_rcap = 0.0;
+float l_rper = 0.0;
+float l_phs1 = 0.0;
+float l_phs2 = 0.0;
+float l_phs3 = 0.0;
 
 // Solar string powers — only two strings exposed by the Powerwall;
-// p_W[3] and p_W[5] are skipped intermediates (matches Scripter
-// convention). UI labels "Solar Phase 1/2" map to p1w / p3w.
-global float p1w = 0.0;    // solar string 1 — p_W[2]
-global float p3w = 0.0;    // solar string 2 — p_W[4]
+// p_W[3] and p_W[5] are skipped intermediates. UI labels
+// "Solar Phase 1/2" map to l_p1w / l_p3w.
+float l_p1w = 0.0;
+float l_p3w = 0.0;
+
+// Per-CTS error strings — captured from the readings JSON each cycle
+// (Scripter's `str=PW_CTS1#error; perr=str` pattern). Empty string
+// means OK. Displayed in WebCall so we can spot CT-clamp problems.
+char l_cts1_err[16];
+char l_cts2_err[16];
+
+// ─── WebSend publisher (Scripter-style relay, currently OFF) ───
+// Direct port of the Scripter line:
+//   if upsecs%30==0 {
+//     =>websend [192.168.188.76]Script>pwl=...;sip=...;...
+//   }
+// .76 is a Scripter-running device that parses `Script>...` and
+// re-broadcasts via UDP globals. This bypasses our own UDP broadcast
+// (which seems to corrupt BearSSL on this firmware) — the Scripter
+// at .76 has a different SSL-state lifecycle, no contention.
+//
+// Currently DISABLED — flip WS_ENABLE to 1 once the local-only loop
+// has proven rock-stable, then we test if this WebSend path also
+// stays clean.
+int  WS_ENABLE     = 1;
+int  WS_TARGET[]   = "192.168.188.76";  // Scripter device that re-broadcasts
+char ws_url[256];
+char ws_resp[64];
+
+void pwl_websend_publish() {
+    // Build URL: http://<target>/cm?cmnd=Script>pwl=...;sip=...;...
+    // %% in sprintf format → literal %; %3E = >, %3D = =, %3B = ;
+    // — Tasmota's HTTP server URL-decodes the cmnd before passing
+    // to the Scripter `Script>...` handler.
+    sprintf(ws_url,
+        "http://%s/cm?cmnd=Script%%3Epwl%%3D%.2f%%3Bsip%%3D%.2f%%3Bsop%%3D%.2f%%3Bbip%%3D%.2f%%3Bhip%%3D%.2f%%3Btcap%%3D%.0f%%3Brcap%%3D%.2f%%3Brper%%3D%.1f%%3Bphs1%%3D%.2f%%3Bphs2%%3D%.2f%%3Bphs3%%3D%.2f",
+        WS_TARGET,
+        l_pwl, l_sip, l_sop, l_bip, l_hip, l_tcap, l_rcap, l_rper, l_phs1, l_phs2, l_phs3);
+    httpGet(ws_url, ws_resp);
+}
 
 // State
 char buf[128];
@@ -114,47 +159,45 @@ void lcd_update_values() {
     // Render each value as `[Ci5x150y<row>p-10]<value> <unit>` — one
     // inline dspText per row keeps the p-10 right-padding scoped to
     // that single column write (otherwise the pad clobbers labels).
-    sprintf(buf, "[Ci5x150y60p-10]%.2f %%", pwl);                 dspText(buf);
-    sprintf(buf, "[Ci5x150y80p-10]%.0f W",   sip);                dspText(buf);
-    sprintf(buf, "[Ci5x150y100p-10]%.0f W",  sop);                dspText(buf);
-    sprintf(buf, "[Ci5x150y120p-10]%.0f W",  bip);                dspText(buf);
-    sprintf(buf, "[Ci5x150y140p-10]%.0f W",  hip);                dspText(buf);
-    sprintf(buf, "[Ci5x150y160p-10]%.0f W",  tcap);               dspText(buf);
-    sprintf(buf, "[Ci5x150y180p-10]%.0f W",  rcap);               dspText(buf);
-    sprintf(buf, "[Ci5x150y200p-10]%.0f %%", rper);               dspText(buf);
-    sprintf(buf, "[Ci5x150y220p-10]%.0f W",  p1w);                dspText(buf);
-    sprintf(buf, "[Ci5x150y240p-10]%.0f W",  p3w);                dspText(buf);
-    sprintf(buf, "[Ci5x150y260p-10]%.0f W",  phs1);               dspText(buf);
-    sprintf(buf, "[Ci5x150y280p-10]%.0f W",  phs2);               dspText(buf);
-    sprintf(buf, "[Ci5x150y300p-10]%.0f W",  phs3);               dspText(buf);
+    sprintf(buf, "[Ci5x150y60p-10]%.2f %%", l_pwl);                 dspText(buf);
+    sprintf(buf, "[Ci5x150y80p-10]%.0f W",   l_sip);                dspText(buf);
+    sprintf(buf, "[Ci5x150y100p-10]%.0f W",  l_sop);                dspText(buf);
+    sprintf(buf, "[Ci5x150y120p-10]%.0f W",  l_bip);                dspText(buf);
+    sprintf(buf, "[Ci5x150y140p-10]%.0f W",  l_hip);                dspText(buf);
+    sprintf(buf, "[Ci5x150y160p-10]%.0f W",  l_tcap);               dspText(buf);
+    sprintf(buf, "[Ci5x150y180p-10]%.0f W",  l_rcap);               dspText(buf);
+    sprintf(buf, "[Ci5x150y200p-10]%.0f %%", l_rper);               dspText(buf);
+    sprintf(buf, "[Ci5x150y220p-10]%.0f W",  l_p1w);                dspText(buf);
+    sprintf(buf, "[Ci5x150y240p-10]%.0f W",  l_p3w);                dspText(buf);
+    sprintf(buf, "[Ci5x150y260p-10]%.0f W",  l_phs1);               dspText(buf);
+    sprintf(buf, "[Ci5x150y280p-10]%.0f W",  l_phs2);               dspText(buf);
+    sprintf(buf, "[Ci5x150y300p-10]%.0f W",  l_phs3);               dspText(buf);
 }
 
-// ── Multi-cadence dispatch ─────────────────────────────────────────
-// Profile data (taken on a clean .140 with TESLA_POWERWALL enabled)
-// showed each pwlRequest costs ~520-590 ms steady-state for small
-// endpoints, ~1600 ms for `readings` (large body). The dominant cost
-// is TLS handshake — `tc_pwl_get_request` opens a fresh SSL socket
-// per call (no keep-alive). Pushing past ~1 Hz triggers Powerwall
-// throttling: we observed two ~37 s timeouts after sustained 1-Hz
-// polling.
+// ── Faithful Scripter-equivalent sequential dispatch ───────────────
+// Direct port of the original Scripter's `>S` cnt-machine, which has
+// run on a sister device for months without a single stuck or reboot.
+// Scripter pattern (one endpoint per second, cycle every 19 seconds):
 //
-// So we split into four cadences, each backed off enough to stay
-// well under the throttle ceiling while still getting near-real-time
-// updates on the four most-watched values:
+//   cnt==0   /api/meters/aggregates  → sip/bip/hip/sop
+//   cnt==4   /api/system_status/soe  → pwl
+//   cnt==8   /api/system_status      → tcap/rcap
+//   cnt==12  /api/operation          → rper
+//   cnt==14  /api/meters/readings    → phs1..3 + p1w/p3w (with error gate)
+//   cnt==18  reset to -1 (next tick → 0)
 //
-//   FAST    every  2 s   aggregates  → sip/bip/hip/sop
-//   MEDIUM  every 10 s   readings    → per-phase (phs1..3, p1w, p3w)
-//   SLOW    every 60 s   soe + sysst → pwl/tcap/rcap
-//   VSLOW   every  5 m   operation   → reserve %
+// 5 calls per 19 s ≈ 16 calls/min, with >3 s between calls — well
+// below BearSSL's per-burst limit. Earlier multi-cadence dispatch
+// (FAST 2 s + MEDIUM 10 s + SLOW 60 s + VSLOW 5 min) had similar
+// total rate but bursty wake patterns; appears to have crossed
+// some BearSSL state boundary the Scripter cycle stays under.
 //
-// Total network busy: ~27 s per minute (45% duty cycle). Below the
-// throttle threshold; ~100× faster latency on the four flow values
-// vs the original 60 s round-robin.
-//
-// All loop bodies still log timings via prof_log() — useful while
-// validating the new cadence on a fresh device. Once stable, the
-// prof_log calls (and the /pwl_prof.log file) can be removed; the
-// dispatch loop itself is the production code.
+// All complex circuit-breaker / preventive-@R / multi-cadence-state
+// machinery dropped — Scripter doesn't have any of that and runs
+// for months. If individual calls fail, values just stay stale until
+// the next successful call. A separate slow watchdog reboots the
+// device if pwl hasn't updated in 5 minutes (matches Scripter's
+// `upd[pwl]` + fcnt>5 logic).
 char prof_buf[120];
 
 // Append a profile line to /pwl_prof.log so we can grab it via
@@ -174,279 +217,111 @@ void prof_log(char msg[]) {
     fileClose(h);
 }
 
-// ── Circuit breaker / backoff ──────────────────────────────────────
-// The Powerwall web server occasionally throws a wobbler — refuses
-// connections for 30-60 s, even when polled at modest cadence. When
-// that happens, `tc_pwl_get_request` blocks the VM mutex inside the
-// SSL connect timeout (~30 s × N retries), which cascades across all
-// queued cadences and makes the device look "stuck" from the LAN
-// side for 1-3 minutes.
+// Watchdog: if pwl (battery %) hasn't been updated in 5 minutes,
+// something deeper is wrong — reboot the device. Direct equivalent
+// of the Scripter's `tres=upd[pwl]; if tres==0 fcnt+=1; if fcnt>5
+// ->Restart 1` pattern. Each cycle is ~19 s; 5 minutes ≈ 16 cycles.
+float pwl_last_seen   = -1.0;     // sentinel — first assignment matches
+int   pwl_stale_count = 0;        // cycles since pwl last changed
+int   PWL_STALE_LIMIT = 16;       // ~5 min — match Scripter
+
+// Cycle counter — Scripter's `cnt`. Walks 0..18 then resets to -1.
+// One pwlRequest at specific values, plain loop body otherwise.
+int   pwl_cnt = 0;
+
+// Faithful Scripter port. Runs in a 16-KB-stack worker task spawned
+// from main(); the default TaskLoop stack (12 KB tc_vm_task) is too
+// small for BearSSL ECDSA + JSON parsing — corrupts adjacent memory
+// after ~30 connect cycles, manifesting as the "stuck after a
+// minute" symptom we chased through 1.3.24..1.3.30. CLAUDE.md
+// anti-pattern §6 recommends 16 KB for TLS + JSON workers.
 //
-// Two defenses:
-//
-//   1. **Cookie wipe on first failure**: a stale auth cookie often
-//      survives a Powerwall restart and triggers cascading 401s.
-//      `pwlRequest("@N")` clears the cookie so the next call does a
-//      fresh /api/login/Basic. Cheap, no backoff cost on success.
-//
-//   2. **Per-cadence exponential backoff**: each cadence carries its
-//      own consecutive-fail counter. On fail, the cadence interval
-//      multiplies by 4 (capped at 5 minutes). On success, it resets
-//      to nominal. So one bad call costs at most one extra interval
-//      slot before recovery; sustained badness silently drops to
-//      polling every 5 minutes per cadence until the Powerwall is
-//      reachable again.
-//
-//   3. **Skip-remaining on wake fail**: if any cadence fails inside
-//      a single TaskLoop wake, the remaining cadences in that wake
-//      are skipped. Prevents the "all four queued, all four
-//      timeout" cascade we observed (3× 60-s SSL timeouts → 3 min
-//      device freeze).
-
-int      pwl_fails[4];          // [0]=fast [1]=med [2]=slow [3]=vslow
-uint32_t pwl_intervals[4];      // current cadence (ms), grows on fail
-uint32_t pwl_nominals[4];       // nominal cadence (ms), restored on success
-
-// Auto-recovery: ESP32's BearSSL stack occasionally gets into a stuck
-// state (typically after many cookie-clear/relogin cycles) where every
-// pwlRequest fails with the bounded ~6 s timeout regardless of whether
-// the Powerwall is actually responsive.
-//
-// Two tiers of recovery, escalating:
-//
-//   PWL_RESET_THRESHOLD  (3 fails): pwlRequest("@R") tears down and
-//     rebinds the SSL session in firmware (without rebooting the
-//     chip). Clears the BSSL_TCP_Client + underlying WiFiClient
-//     socket + pending auth cookie. Cheap (~50 ms), no impact on
-//     other slots / Tasmota state.
-//
-//   PWL_REBOOT_THRESHOLD (6 fails): if @R didn't unstick the SSL
-//     stack, fall back to `Restart 1`. Slot autoexec brings the
-//     device back in ~30 s.
-//
-// Backoff curve makes each threshold a meaningful test: by fail #3
-// we've waited ~2+8+32 = 42 s, ample time for a transient Powerwall
-// hiccup to clear naturally. By fail #6 we've waited ~13 min total —
-// enough that we're confident the SSL stack itself is the problem.
-int  PWL_RESET_THRESHOLD  = 3;
-int  PWL_REBOOT_THRESHOLD = 6;
-char pwl_reboot_buf[64];
-
-void pwl_init_state() {
-    pwl_nominals[0] = 2000;     // fast    : aggregates
-    pwl_nominals[1] = 10000;    // medium  : readings
-    pwl_nominals[2] = 60000;    // slow    : soe + system_status
-    pwl_nominals[3] = 300000;   // vslow   : operation
-    for (int i = 0; i < 4; i = i + 1) {
-        pwl_fails[i] = 0;
-        pwl_intervals[i] = pwl_nominals[i];
-    }
-}
-
-// Update the fail counter + interval for cadence `idx`. Called by each
-// pwl_*() helper after pwlRequest returns.
-void pwl_handle_result(int idx, int res, char name[]) {
-    if (res == 0) {
-        if (pwl_fails[idx] > 0) {
-            sprintf(prof_buf, "  recovery: %s after %d fails — cadence reset to %u ms",
-                    name, pwl_fails[idx], pwl_nominals[idx]);
-            prof_log(prof_buf);
-        }
-        pwl_fails[idx] = 0;
-        pwl_intervals[idx] = pwl_nominals[idx];
-        return;
-    }
-    pwl_fails[idx] = pwl_fails[idx] + 1;
-
-    // First failure: wipe cookie. Forces fresh /api/login/Basic on
-    // next call, recovers from "stale-session" cascades. The @N
-    // command (firmware-side: tc_call2pwl branch in xdrv_124_tinyc_vm.h)
-    // returns immediately, no network roundtrip.
-    if (pwl_fails[idx] == 1) {
-        pwlRequest("@N");
-        prof_log("  cookie cleared (will re-login on next call)");
-    }
-
-    // Exponential backoff: 4 ^ fail_count, capped at 256× nominal,
-    // and at 5 minutes absolute. Cap of 256 prevents int32 overflow
-    // for cadences of ~16 ms (none here, but defensive).
-    uint32_t mult = 1;
-    for (int i = 0; i < pwl_fails[idx]; i = i + 1) {
-        mult = mult * 4;
-        if (mult >= 256) { mult = 256; break; }
-    }
-    uint32_t newint = pwl_nominals[idx] * mult;
-    if (newint > 300000) newint = 300000;
-    pwl_intervals[idx] = newint;
-
-    sprintf(prof_buf, "  backoff: %s fails=%d → interval=%u ms",
-            name, pwl_fails[idx], newint);
-    prof_log(prof_buf);
-
-    // Escalating SSL-stack recovery, gated on FAST cadence (idx 0)
-    // since that's the most-frequent canary:
-    //
-    //   Tier 1 — pwlRequest("@R"): firmware-level SSL reset (tears
-    //   down + rebinds tc_ssl_client + tc_basic_client without a
-    //   reboot). Fast (~50 ms), no impact on other slots. Fires
-    //   ONCE at exactly PWL_RESET_THRESHOLD so we don't spam.
-    //
-    //   Tier 2 — tasmCmd("Restart 1"): chip reboot if @R didn't
-    //   unstick anything. By this point we've been failing for
-    //   ~13 min so a 30-s reboot window is fine.
-    if (idx == 0 && pwl_fails[idx] == PWL_RESET_THRESHOLD) {
-        sprintf(pwl_reboot_buf,
-                "PWL: %d consecutive FAST fails — SSL reset (@R)",
-                pwl_fails[idx]);
-        addLog(pwl_reboot_buf);
-        prof_log(pwl_reboot_buf);
-        pwlRequest("@R");
-    }
-    if (idx == 0 && pwl_fails[idx] >= PWL_REBOOT_THRESHOLD) {
-        sprintf(pwl_reboot_buf,
-                "PWL: %d consecutive FAST fails — @R didn't unstick, rebooting",
-                pwl_fails[idx]);
-        addLog(pwl_reboot_buf);
-        prof_log(pwl_reboot_buf);
-        char resp[64];
-        tasmCmd("Restart 1", resp);
-    }
-}
-
-// FAST cadence (every 2 s): the four headline power flows. One call,
-// four pwlGet extractions. Cost ~550 ms steady-state. Returns the
-// pwlRequest result (0=ok, -1=fail) so TaskLoop can short-circuit.
-int pwl_fast() {
-    uint32_t t0 = millis();
-    int res = pwlRequest("/api/meters/aggregates");
-    if (res == 0) {
-        sip = pwlGet("site#instant_power");
-        bip = pwlGet("battery#instant_power");
-        hip = pwlGet("load#instant_power");
-        sop = pwlGet("solar#instant_power");
-    }
-    sprintf(prof_buf, "fast aggregates  %4u ms (res=%d)", millis() - t0, res);
-    prof_log(prof_buf);
-    pwl_handle_result(0, res, "fast");
-    return res;
-}
-
-// MEDIUM cadence (every 10 s): per-CT decomposition (phases + per-string
-// solar). Larger JSON, ~1600 ms. Already-aggregated values are covered
-// by FAST so this is bonus detail.
-int pwl_medium() {
-    uint32_t t0 = millis();
-    int res = pwlRequest("/api/meters/readings");
-    if (res == 0) {
-        // Off-by-one vs the original Scripter `gwr("p_W", N)` —
-        // Scripter index N returns the substring between the (N-1)th
-        // and Nth p_W, i.e. the value following the (N-1)th
-        // occurrence; TinyC `pwlGet("p_W[N]")` returns the value
-        // following the Nth occurrence directly. So Scripter's
-        // p1w/p3w/p5w/p6w/p7w map to our p_W[1]/[3]/[5]/[6]/[7].
-        // Reading p_W[2] / [4] (off-by-one) lands on slots the
-        // Scripter intentionally skipped — both report 0 for solar
-        // because those slots are empty on this CTS layout.
-        p1w  = pwlGet("p_W[1]");    // solar string 1 (CTS1 channel 1)
-        p3w  = pwlGet("p_W[3]");    // solar string 2 (CTS1 channel 3)
-        phs1 = pwlGet("p_W[5]");    // grid phase 1 (CTS2 channel 1)
-        phs2 = pwlGet("p_W[6]");    // grid phase 2
-        phs3 = pwlGet("p_W[7]");    // grid phase 3
-    }
-    sprintf(prof_buf, "med  readings    %4u ms (res=%d)", millis() - t0, res);
-    prof_log(prof_buf);
-    pwl_handle_result(1, res, "med ");
-    return res;
-}
-
-// SLOW cadence (every 60 s): battery state-of-energy + capacity totals.
-// Two calls back-to-back, ~1100 ms total. Returns the WORSE of the
-// two results so a single fail trips the cadence's backoff.
-int pwl_slow() {
-    uint32_t t0 = millis();
-    int res1 = pwlRequest("/api/system_status/soe");
-    if (res1 == 0) pwl = pwlGet("percentage");
-    sprintf(prof_buf, "slow soe         %4u ms (res=%d)", millis() - t0, res1);
-    prof_log(prof_buf);
-
-    t0 = millis();
-    int res2 = pwlRequest("/api/system_status");
-    if (res2 == 0) {
-        tcap = pwlGet("nominal_full_pack_energy");
-        rcap = pwlGet("nominal_energy_remaining");
-    }
-    sprintf(prof_buf, "slow status      %4u ms (res=%d)", millis() - t0, res2);
-    prof_log(prof_buf);
-
-    int worst = (res1 != 0) ? res1 : res2;
-    pwl_handle_result(2, worst, "slow");
-    return worst;
-}
-
-// VSLOW cadence (every 5 min): backup reserve %. Only changes when
-// the user adjusts it in the Tesla app — 5-min poll is cheap insurance.
-int pwl_vslow() {
-    uint32_t t0 = millis();
-    int res = pwlRequest("/api/operation");
-    if (res == 0) rper = pwlGet("backup_reserve_percent");
-    sprintf(prof_buf, "vslow operation  %4u ms (res=%d)", millis() - t0, res);
-    prof_log(prof_buf);
-    pwl_handle_result(3, res, "vslow");
-    return res;
-}
-
-void TaskLoop() {
-    // Initial delay so Wi-Fi / network / display driver settle and
-    // load_pwl_config() in main() has run.
-    delay(10000);
-    fileDelete("/pwl_prof.log");
-    pwl_init_state();
-    prof_log("multi-cadence loop starting (fast 2s / med 10s / slow 60s / vslow 300s)");
-    addLog("PWL: multi-cadence loop running — see /pwl_prof.log");
-
-    // Stagger initial fires by ~1 s each so we don't burn a 4-second
-    // network burst at startup. After this initial round all four
-    // cadences run on their own clocks.
-    uint32_t now = millis();
-    uint32_t next_fast   = now;
-    uint32_t next_medium = now + 1000;
-    uint32_t next_slow   = now + 3000;
-    uint32_t next_vslow  = now + 5000;
+// One pwlRequest call per second max, total ~16 calls/min — exact
+// Scripter pattern that runs for months on a sister device.
+void PwlWorker() {
+    // Initial wait for Tasmota subsystems to settle (matches the
+    // heatpump_map autoexec-delay pattern). 15 s is generous.
+    delay(15000);
+    addLog("PWL: Scripter-equivalent loop running (16 calls/min)");
 
     while (1) {
-        now = millis();
-        int wake_failed = 0;
-
-        // Fire each cadence that's due. Setting next_* AFTER the
-        // call (millis() + interval) measures gap from end-of-call,
-        // and the interval comes from pwl_intervals[] (mutated by
-        // pwl_handle_result on each call). When a call fails,
-        // wake_failed shorts out the remaining cadences in this
-        // wake — prevents the 4-call cascade observed in profiling
-        // when the Powerwall briefly refuses connections.
-        if (now >= next_fast) {
-            int r = pwl_fast();
-            next_fast = millis() + pwl_intervals[0];
-            if (r != 0) wake_failed = 1;
+        if (pwl_cnt == 0) {
+            int res = pwlRequest("/api/meters/aggregates");
+            if (res == 0) {
+                l_sip = pwlGet("site#instant_power");
+                l_bip = pwlGet("battery#instant_power");
+                l_hip = pwlGet("load#instant_power");
+                l_sop = pwlGet("solar#instant_power");
+            }
         }
-        if (!wake_failed && now >= next_medium) {
-            int r = pwl_medium();
-            next_medium = millis() + pwl_intervals[1];
-            if (r != 0) wake_failed = 1;
+        else if (pwl_cnt == 4) {
+            int res = pwlRequest("/api/system_status/soe");
+            if (res == 0) {
+                l_pwl = pwlGet("percentage");
+                // Watchdog refresh — record that we got a value.
+                if (l_pwl != pwl_last_seen) {
+                    pwl_last_seen = l_pwl;
+                    pwl_stale_count = 0;
+                } else {
+                    pwl_stale_count = pwl_stale_count + 1;
+                    if (pwl_stale_count >= PWL_STALE_LIMIT) {
+                        addLog("PWL: pwl stale > 5 min — Restart 1");
+                        char r[16];
+                        tasmCmd("Restart 1", r);
+                    }
+                }
+            }
         }
-        if (!wake_failed && now >= next_slow) {
-            int r = pwl_slow();
-            next_slow = millis() + pwl_intervals[2];
-            if (r != 0) wake_failed = 1;
+        else if (pwl_cnt == 8) {
+            int res = pwlRequest("/api/system_status");
+            if (res == 0) {
+                l_tcap = pwlGet("nominal_full_pack_energy");
+                l_rcap = pwlGet("nominal_energy_remaining");
+            }
         }
-        if (!wake_failed && now >= next_vslow) {
-            int r = pwl_vslow();
-            next_vslow = millis() + pwl_intervals[3];
+        else if (pwl_cnt == 12) {
+            int res = pwlRequest("/api/operation");
+            if (res == 0) {
+                l_rper = pwlGet("backup_reserve_percent");
+            }
         }
-
-        // 250 ms wake granularity. Fine for cadences ≥ 2 s — the
-        // worst-case jitter on FAST is +12%, on the others negligible.
-        delay(250);
+        else if (pwl_cnt == 14) {
+            int res = pwlRequest("/api/meters/readings");
+            if (res == 0) {
+                // Per-CT error gate — keep last good values when
+                // a CTS reports an error. Also captures the error
+                // string for the WebUI's CTS Error rows.
+                pwlStr("PW_CTS1#error", l_cts1_err);
+                if (l_cts1_err[0] == 0) {
+                    l_p1w = pwlGet("p_W[1]");
+                    l_p3w = pwlGet("p_W[3]");
+                }
+                pwlStr("PW_CTS2#error", l_cts2_err);
+                if (l_cts2_err[0] == 0) {
+                    // Read into temporaries first so we can sanity-
+                    // check before overwriting the last good values.
+                    // Powerwall's CT clamps occasionally return all
+                    // three phases as 0 W without setting the error
+                    // flag — looks like a momentary CTS readout
+                    // glitch. Real "all 3 phases = 0" is grid-off,
+                    // not a normal operating state, so we treat it
+                    // as a glitch and keep the last good readings.
+                    float new_phs1 = pwlGet("p_W[5]");
+                    float new_phs2 = pwlGet("p_W[6]");
+                    float new_phs3 = pwlGet("p_W[7]");
+                    if (new_phs1 != 0.0 || new_phs2 != 0.0 || new_phs3 != 0.0) {
+                        l_phs1 = new_phs1;
+                        l_phs2 = new_phs2;
+                        l_phs3 = new_phs3;
+                    }
+                }
+            }
+        }
+        else if (pwl_cnt == 18) {
+            pwl_cnt = -1;                        // next ++ → 0
+        }
+        pwl_cnt = pwl_cnt + 1;
+        delay(1000);                             // 1 s between iterations — Scripter `>S`
     }
 }
 
@@ -481,15 +356,23 @@ void EverySecond() {
         lcd_last_update = tasm_uptime;
     }
 
+    // WebSend publisher — gated by WS_ENABLE (default 0). When
+    // enabled, fires every 30 s exactly like the Scripter. Runs in
+    // loopTask (EverySecond's home task), separate from PwlWorker's
+    // tc_vm_task — so the HTTP-GET shouldn't contend with SSL state.
+    if (WS_ENABLE && (tasm_uptime % 30 == 0)) {
+        pwl_websend_publish();
+    }
+
     // Console heartbeat (every 30 s) — same as before
     if (tasm_uptime % 30 == 0) {
-        sprintf(buf, "PWL: Bat=%.1f%%", pwl);
+        sprintf(buf, "PWL: Bat=%.1f%%", l_pwl);
         printString(buf);
-        sprintf(buf, " Grid=%.0fW", sip);
+        sprintf(buf, " Grid=%.0fW", l_sip);
         printString(buf);
-        sprintf(buf, " Sol=%.0fW", sop);
+        sprintf(buf, " Sol=%.0fW", l_sop);
         printString(buf);
-        sprintf(buf, " Home=%.0fW\n", hip);
+        sprintf(buf, " Home=%.0fW\n", l_hip);
         printString(buf);
     }
 }
@@ -498,48 +381,65 @@ void WebCall() {
     // Clock header (big green clock + sunrise/sunset row + live tick)
     web_clock_header();
 
-    sprintf(buf, "{s}Battery{m}%.1f %%{e}", pwl);
+    sprintf(buf, "{s}Battery{m}%.1f %%{e}", l_pwl);
     webSend(buf);
-    sprintf(buf, "{s}Grid{m}%.0f W{e}", sip);
+    sprintf(buf, "{s}Grid{m}%.0f W{e}", l_sip);
     webSend(buf);
-    sprintf(buf, "{s}Solar{m}%.0f W{e}", sop);
+    sprintf(buf, "{s}Solar{m}%.0f W{e}", l_sop);
     webSend(buf);
-    sprintf(buf, "{s}Battery Power{m}%.0f W{e}", bip);
+    sprintf(buf, "{s}Battery Power{m}%.0f W{e}", l_bip);
     webSend(buf);
-    sprintf(buf, "{s}Home{m}%.0f W{e}", hip);
+    sprintf(buf, "{s}Home{m}%.0f W{e}", l_hip);
     webSend(buf);
-    sprintf(buf, "{s}Total Capacity{m}%.1f kWh{e}", tcap / 1000.0);
+    sprintf(buf, "{s}Total Capacity{m}%.1f kWh{e}", l_tcap / 1000.0);
     webSend(buf);
-    sprintf(buf, "{s}Remaining{m}%.1f kWh{e}", rcap / 1000.0);
+    sprintf(buf, "{s}Remaining{m}%.1f kWh{e}", l_rcap / 1000.0);
     webSend(buf);
-    sprintf(buf, "{s}Reserve{m}%.0f %%{e}", rper);
-    webSend(buf);
-	
-    sprintf(buf, "{s}Solar Phase 1{m}%.0f W{e}", p1w);
-    webSend(buf);
-    sprintf(buf, "{s}Solar Phase 2{m}%.0f W{e}", p3w);
+    sprintf(buf, "{s}Reserve{m}%.0f %%{e}", l_rper);
     webSend(buf);
 	
-    sprintf(buf, "{s}Phase 1{m}%.0f W{e}", phs1);
+    sprintf(buf, "{s}Solar Phase 1{m}%.0f W{e}", l_p1w);
     webSend(buf);
-    sprintf(buf, "{s}Phase 2{m}%.0f W{e}", phs2);
+    sprintf(buf, "{s}Solar Phase 2{m}%.0f W{e}", l_p3w);
     webSend(buf);
-    sprintf(buf, "{s}Phase 3{m}%.0f W{e}", phs3);
+	
+    sprintf(buf, "{s}Phase 1{m}%.0f W{e}", l_phs1);
     webSend(buf);
+    sprintf(buf, "{s}Phase 2{m}%.0f W{e}", l_phs2);
+    webSend(buf);
+    sprintf(buf, "{s}Phase 3{m}%.0f W{e}", l_phs3);
+    webSend(buf);
+
+    // CTS error rows — green "OK" when the readings JSON's CT error
+    // field is empty, red <error string> otherwise. Mirrors the
+    // Scripter's `CTS Error` row but split per-CTS for clarity.
+    if (l_cts1_err[0] == 0) {
+        webSend("{s}CTS1 Error{m}<span style='color:green;'>OK</span>{e}");
+    } else {
+        sprintf(buf, "{s}CTS1 Error{m}<span style='color:red;'>%s</span>{e}", l_cts1_err);
+        webSend(buf);
+    }
+    if (l_cts2_err[0] == 0) {
+        webSend("{s}CTS2 Error{m}<span style='color:green;'>OK</span>{e}");
+    } else {
+        sprintf(buf, "{s}CTS2 Error{m}<span style='color:red;'>%s</span>{e}", l_cts2_err);
+        webSend(buf);
+    }
+
     sprintf(buf, "{s}Heap{m}%d kb{e}", tasm_heap / 1024);
     webSend(buf);
 }
 
 void JsonCall() {
-    sprintf(buf, ",\"PWL\":{\"Battery\":%.1f", pwl);
+    sprintf(buf, ",\"PWL\":{\"Battery\":%.1f", l_pwl);
     responseAppend(buf);
-    sprintf(buf, ",\"Grid\":%.0f", sip);
+    sprintf(buf, ",\"Grid\":%.0f", l_sip);
     responseAppend(buf);
-    sprintf(buf, ",\"Solar\":%.0f", sop);
+    sprintf(buf, ",\"Solar\":%.0f", l_sop);
     responseAppend(buf);
-    sprintf(buf, ",\"BattPwr\":%.0f", bip);
+    sprintf(buf, ",\"BattPwr\":%.0f", l_bip);
     responseAppend(buf);
-    sprintf(buf, ",\"Home\":%.0f}", hip);
+    sprintf(buf, ",\"Home\":%.0f}", l_hip);
     responseAppend(buf);
 }
 
@@ -625,5 +525,9 @@ int main() {
     } else {
         addLog("PWL: credentials loaded from /powerwall.cfg");
     }
+    // Spawn the polling worker with an explicit 16-KB stack — the
+    // default tc_vm_task (12 KB) is too small for BearSSL ECDSA +
+    // JSON parsing on this Powerwall cert. Per CLAUDE.md §7-#6.
+    spawnTask("PwlWorker", 16);
     return 0;
 }
