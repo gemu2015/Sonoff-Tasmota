@@ -1796,29 +1796,34 @@ function buildMeterDefContent() {
     s += `1,51.7.0(@1,Strom L2,A,Current_L2,2\n`;
     s += `1,71.7.0(@1,Strom L3,A,Current_L3,2\n`;
     s += `#\n`;
-    // TinyC IDE reads Every100ms() from here and injects its body into the TinyC program.
-    // scnt: static int — persists across calls, zero-initialised on first entry.
-    // wake_hex / ack_hex: plain locals — re-initialised each 100ms call (fine).
+    // ── Mini-Scripter section (loaded via smlScripterLoad in the SML
+    //    driver). Replaces the old TinyC `void Every100ms()` —
+    //    semantically identical, but goes inline in the SML descriptor
+    //    instead of needing a TinyC IDE compile.
+    //
+    // State machine for IEC 62056-21 mode-A handshake:
+    //   tick 6   → set 300 bd, send wake "/?!\r\n"
+    //   tick 18  → send ACK "\x06 0 5 0 \r\n" (request mode 5 = 9600 bd)
+    //   tick 20  → switch port to 9600 bd
+    //   tick 50  → reset counter (5-second cycle)
+    // Mini-scripter subset doc: xdrv_124_tinyc_vm.h §SYS_SML_SCRIPTER_LOAD
+    //   - lnv0..lnv9 are the only variables (int32, zeroed at load)
+    //   - sml(m, 0, baud)  → SML_SetBaud
+    //   - sml(m, 1, "HEX") → SML_Write hex string
     s += `\n`;
-    s += `void Every100ms() {\n`;
-    s += `    static int scnt = 0;\n`;
-    s += `    char wake_hex[] = "2F3F210D0A";\n`;
-    s += `    char ack_hex[]  = "063035300D0A";\n`;
-    s += `    scnt = scnt + 1;\n`;
-    s += `    if (scnt == 6) {\n`;
-    s += `        smlSetBaud(1, 300);\n`;
-    s += `        smlWrite(1, wake_hex);\n`;
-    s += `    }\n`;
-    s += `    if (scnt == 18) {\n`;
-    s += `        smlWrite(1, ack_hex);\n`;
-    s += `    }\n`;
-    s += `    if (scnt == 20) {\n`;
-    s += `        smlSetBaud(1, 9600);\n`;
-    s += `    }\n`;
-    s += `    if (scnt == 50) {\n`;
-    s += `        scnt = 0;\n`;
-    s += `    }\n`;
-    s += `}\n`;
+    s += `>F\n`;
+    s += `lnv0+=1\n`;
+    s += `switch lnv0\n`;
+    s += `case 6\n`;
+    s += `sml(1 0 300)\n`;
+    s += `sml(1 1 "2F3F210D0A")\n`;
+    s += `case 18\n`;
+    s += `sml(1 1 "063035300D0A")\n`;
+    s += `case 20\n`;
+    s += `sml(1 0 9600)\n`;
+    s += `case 50\n`;
+    s += `lnv0=0\n`;
+    s += `ends\n`;
     return s;
   }
 
