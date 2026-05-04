@@ -243,9 +243,22 @@ persist char  wd_email_to[64];              // recipient — empty means email d
 // hides those (treats 0.0 as "no sample") to avoid a fake
 // baseline drop. Cursor advances each new minute (edge-detected
 // on `tasm_minute`) and wraps modulo 240.
-persist float pf_hist[240];                 // Puffer °C ring (r188 / 10)
-persist float ow_hist[240];                 // Ausgang °C ring (r191 / 10)
-persist int   chart_pos = 0;                // next slot to write (0..239)
+// Chart data — kept OUTSIDE persist on purpose. The persist file is
+// keyed by layout-hash and gets discarded on any persist-var add/move/
+// remove; that nukes hours of accumulated chart history every time we
+// edit anything else in this script. Instead, store charts in a
+// dedicated /heatpump_map.charts file via simple subroutines (see
+// load_charts / save_charts below). Saved once per new sample (~1×/min)
+// so a hard reboot loses at most ~60 s of history.
+//
+// On-disk format (binary, little-endian, ~962 bytes):
+//   [240 × int16 pf_hist ×10°C]   [240 × int16 ow_hist ×10°C]   [u16 chart_pos]
+// Float in RAM (WebChart renders °C); int16-scaled on flash to halve
+// the size and dodge the missing floatBitsToInt builtin.
+float pf_hist[240];                 // Puffer °C ring (r188 / 10)
+float ow_hist[240];                 // Ausgang °C ring (r191 / 10)
+int   chart_pos = 0;                // next slot to write (0..239)
+char  chart_io[480];                // shared I/O scratch (480 B = 240×int16)
 int last_sample_min = -1;                   // edge-detect for the 1-min sampler
 
 // Watchdog state machine (in-RAM, resets on reboot — that's fine)
@@ -548,6 +561,104 @@ void Every50ms() {
 // ------------------------------------------------------------
 // Snapshot current registers as baseline (for diff highlighting)
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// Chart persistence — write/read all chart rings to a single file
+// (/heatpump_map.charts), independent of TinyC's persist mechanism.
+//
+// Why not `persist`: the .pvs file is keyed by an FNV-1a hash of the
+// persist-var layout (count + index + slot count). Adding any new
+// `persist int x` elsewhere in the script changes that hash → the
+// whole file is discarded → all chart history zeroed. Storing
+// charts in a NAMED, dedicated file (read by position) makes them
+// survive any unrelated persist-var edits.
+//
+// File layout (little-endian, total 962 B):
+//   [0..479]    240 × int16  pf_hist ×10 °C
+//   [480..959]  240 × int16  ow_hist ×10 °C
+//   [960..961]  u16          chart_pos
+//
+// int16 encoding gives ±3276.7 °C resolution 0.1 — plenty for a
+// heat-pump buffer/output temp. Halves file size vs raw float.
+// Sampling cadence is once per minute (240 slots = 4 hours), so the
+// save also runs ~1×/min — roughly 50 KB/day of LittleFS writes,
+// well within wear budget.
+//
+// Pattern is reusable: copy these two functions to any script that
+// has chart arrays, change the array names + count + filename, done.
+// ------------------------------------------------------------
+void save_charts() {
+    int h = fileOpen("/heatpump_map.charts", "w");
+    if (h < 0) {
+        addLog("save_charts: fileOpen failed");
+        return;
+    }
+    // pf_hist → int16 LE
+    for (int i = 0; i < 240; i = i + 1) {
+        int v = pf_hist[i] * 10.0;
+        if (v < -32768) v = -32768;
+        if (v >  32767) v =  32767;
+        chart_io[i*2]     = v & 0xFF;
+        chart_io[i*2 + 1] = (v >> 8) & 0xFF;
+    }
+    fileWrite(h, chart_io, 480);
+    // ow_hist → int16 LE
+    for (int i = 0; i < 240; i = i + 1) {
+        int v = ow_hist[i] * 10.0;
+        if (v < -32768) v = -32768;
+        if (v >  32767) v =  32767;
+        chart_io[i*2]     = v & 0xFF;
+        chart_io[i*2 + 1] = (v >> 8) & 0xFF;
+    }
+    fileWrite(h, chart_io, 480);
+    // chart_pos as u16 LE
+    chart_io[0] = chart_pos & 0xFF;
+    chart_io[1] = (chart_pos >> 8) & 0xFF;
+    fileWrite(h, chart_io, 2);
+    fileClose(h);
+}
+
+void load_charts() {
+    int sz = fileSize("/heatpump_map.charts");
+    if (sz < 962) {
+        // Missing or truncated — leave arrays at their zero-init state.
+        addLog("load_charts: no/short file, starting fresh");
+        return;
+    }
+    int h = fileOpen("/heatpump_map.charts", "r");
+    if (h < 0) {
+        addLog("load_charts: fileOpen failed");
+        return;
+    }
+    int n = fileRead(h, chart_io, 480);
+    if (n == 480) {
+        for (int i = 0; i < 240; i = i + 1) {
+            int b0 = chart_io[i*2]     & 0xFF;
+            int b1 = chart_io[i*2 + 1] & 0xFF;
+            int v  = b0 | (b1 << 8);
+            if (v >= 32768) v = v - 65536;     // sign-extend int16
+            pf_hist[i] = v / 10.0;
+        }
+    }
+    n = fileRead(h, chart_io, 480);
+    if (n == 480) {
+        for (int i = 0; i < 240; i = i + 1) {
+            int b0 = chart_io[i*2]     & 0xFF;
+            int b1 = chart_io[i*2 + 1] & 0xFF;
+            int v  = b0 | (b1 << 8);
+            if (v >= 32768) v = v - 65536;
+            ow_hist[i] = v / 10.0;
+        }
+    }
+    n = fileRead(h, chart_io, 2);
+    if (n == 2) {
+        chart_pos = (chart_io[0] & 0xFF) | ((chart_io[1] & 0xFF) << 8);
+        if (chart_pos < 0 || chart_pos >= 240) chart_pos = 0;
+    }
+    fileClose(h);
+    sprintf(g_tmp, "load_charts: restored %d B from /heatpump_map.charts", sz);
+    addLog(g_tmp);
+}
+
 void take_snapshot() {
     int n = 0;
     for (int i = 0; i < 500; i++) {
@@ -1239,6 +1350,12 @@ void EverySecond() {
             ow_hist[chart_pos] = s191 / 10.0;
         }
         chart_pos = (chart_pos + 1) % 240;
+        // Flush charts to /heatpump_map.charts after each new sample.
+        // ~1×/min ≈ 50 KB/day of LittleFS writes. Cheap, and a hard
+        // reboot now loses at most one minute of history instead of
+        // everything since the last persist save (which only happened
+        // on TinyCStop / OTA).
+        save_charts();
     }
 
     if (snap_btn == 1 && prev_snap == 0) {
@@ -1764,6 +1881,13 @@ int main() {
     addLog(m);
     addCommand("MBUS");
     webPageLabel(0, "Heat-pump map");
+
+    // Restore chart history from /heatpump_map.charts. Independent of
+    // TinyC's persist mechanism, so it survives unrelated persist-var
+    // edits (the persist file's layout-hash invalidation kept blowing
+    // away hours of data on every script edit). See save_charts /
+    // load_charts comments for the on-disk format.
+    load_charts();
 
     // Sniffing happens in Every50ms — no task needed. main() exits and
     // the VM halts; the tick callback gets the bytes from TasmotaSerial's
