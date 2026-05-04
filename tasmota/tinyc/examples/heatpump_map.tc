@@ -251,14 +251,15 @@ persist char  wd_email_to[64];              // recipient — empty means email d
 // load_charts / save_charts below). Saved once per new sample (~1×/min)
 // so a hard reboot loses at most ~60 s of history.
 //
-// On-disk format (binary, little-endian, ~962 bytes):
-//   [240 × int16 pf_hist ×10°C]   [240 × int16 ow_hist ×10°C]   [u16 chart_pos]
-// Float in RAM (WebChart renders °C); int16-scaled on flash to halve
-// the size and dodge the missing floatBitsToInt builtin.
+// On-disk format (binary, little-endian, 1924 bytes):
+//   [240 × float32 pf_hist]   [240 × float32 ow_hist]   [int32 chart_pos]
+// Uses the binary array I/O syscalls fileReadBin / fileWriteBin
+// (TC_RELEASE 1.3.37+) — same syscall serves int[] and float[] alike
+// since both are int32 in memory. No manual byte-pack/unpack needed.
 float pf_hist[240];                 // Puffer °C ring (r188 / 10)
 float ow_hist[240];                 // Ausgang °C ring (r191 / 10)
 int   chart_pos = 0;                // next slot to write (0..239)
-char  chart_io[480];                // shared I/O scratch (480 B = 240×int16)
+int   chart_pos_arr[1];             // 1-elem buffer for fileReadBin/WriteBin
 int last_sample_min = -1;                   // edge-detect for the 1-min sampler
 
 // Watchdog state machine (in-RAM, resets on reboot — that's fine)
@@ -572,16 +573,19 @@ void Every50ms() {
 // charts in a NAMED, dedicated file (read by position) makes them
 // survive any unrelated persist-var edits.
 //
-// File layout (little-endian, total 962 B):
-//   [0..479]    240 × int16  pf_hist ×10 °C
-//   [480..959]  240 × int16  ow_hist ×10 °C
-//   [960..961]  u16          chart_pos
+// File layout (little-endian, total 1924 B):
+//   [0..959]      240 × float32  pf_hist (°C)
+//   [960..1919]   240 × float32  ow_hist (°C)
+//   [1920..1923]  int32          chart_pos
 //
-// int16 encoding gives ±3276.7 °C resolution 0.1 — plenty for a
-// heat-pump buffer/output temp. Halves file size vs raw float.
 // Sampling cadence is once per minute (240 slots = 4 hours), so the
-// save also runs ~1×/min — roughly 50 KB/day of LittleFS writes,
-// well within wear budget.
+// save runs ~1×/min — roughly 100 KB/day of LittleFS writes, well
+// within wear budget.
+//
+// Uses the binary array file I/O syscalls fileReadBin / fileWriteBin
+// (TC_RELEASE 1.3.37+). Same syscall handles int[] and float[] alike
+// since both are int32 in memory; the on-disk bit pattern is the
+// same. No manual byte-pack/unpack needed.
 //
 // Pattern is reusable: copy these two functions to any script that
 // has chart arrays, change the array names + count + filename, done.
@@ -592,36 +596,22 @@ void save_charts() {
         addLog("save_charts: fileOpen failed");
         return;
     }
-    // pf_hist → int16 LE
-    for (int i = 0; i < 240; i = i + 1) {
-        int v = pf_hist[i] * 10.0;
-        if (v < -32768) v = -32768;
-        if (v >  32767) v =  32767;
-        chart_io[i*2]     = v & 0xFF;
-        chart_io[i*2 + 1] = (v >> 8) & 0xFF;
-    }
-    fileWrite(h, chart_io, 480);
-    // ow_hist → int16 LE
-    for (int i = 0; i < 240; i = i + 1) {
-        int v = ow_hist[i] * 10.0;
-        if (v < -32768) v = -32768;
-        if (v >  32767) v =  32767;
-        chart_io[i*2]     = v & 0xFF;
-        chart_io[i*2 + 1] = (v >> 8) & 0xFF;
-    }
-    fileWrite(h, chart_io, 480);
-    // chart_pos as u16 LE
-    chart_io[0] = chart_pos & 0xFF;
-    chart_io[1] = (chart_pos >> 8) & 0xFF;
-    fileWrite(h, chart_io, 2);
+    fileWriteBin(h, pf_hist, 240);
+    fileWriteBin(h, ow_hist, 240);
+    chart_pos_arr[0] = chart_pos;
+    fileWriteBin(h, chart_pos_arr, 1);
     fileClose(h);
 }
 
 void load_charts() {
     int sz = fileSize("/heatpump_map.charts");
-    if (sz < 962) {
-        // Missing or truncated — leave arrays at their zero-init state.
-        addLog("load_charts: no/short file, starting fresh");
+    if (sz < 1924) {
+        // Missing or wrong-size file — could be a fresh install OR an
+        // older int16-format file from before TC_RELEASE 1.3.37. Either
+        // way, leave arrays zero-initialized; new samples will start
+        // populating from chart_pos=0.
+        sprintf(g_tmp, "load_charts: file size %d != 1924, starting fresh", sz);
+        addLog(g_tmp);
         return;
     }
     int h = fileOpen("/heatpump_map.charts", "r");
@@ -629,29 +619,10 @@ void load_charts() {
         addLog("load_charts: fileOpen failed");
         return;
     }
-    int n = fileRead(h, chart_io, 480);
-    if (n == 480) {
-        for (int i = 0; i < 240; i = i + 1) {
-            int b0 = chart_io[i*2]     & 0xFF;
-            int b1 = chart_io[i*2 + 1] & 0xFF;
-            int v  = b0 | (b1 << 8);
-            if (v >= 32768) v = v - 65536;     // sign-extend int16
-            pf_hist[i] = v / 10.0;
-        }
-    }
-    n = fileRead(h, chart_io, 480);
-    if (n == 480) {
-        for (int i = 0; i < 240; i = i + 1) {
-            int b0 = chart_io[i*2]     & 0xFF;
-            int b1 = chart_io[i*2 + 1] & 0xFF;
-            int v  = b0 | (b1 << 8);
-            if (v >= 32768) v = v - 65536;
-            ow_hist[i] = v / 10.0;
-        }
-    }
-    n = fileRead(h, chart_io, 2);
-    if (n == 2) {
-        chart_pos = (chart_io[0] & 0xFF) | ((chart_io[1] & 0xFF) << 8);
+    fileReadBin(h, pf_hist, 240);
+    fileReadBin(h, ow_hist, 240);
+    if (fileReadBin(h, chart_pos_arr, 1) == 1) {
+        chart_pos = chart_pos_arr[0];
         if (chart_pos < 0 || chart_pos >= 240) chart_pos = 0;
     }
     fileClose(h);
