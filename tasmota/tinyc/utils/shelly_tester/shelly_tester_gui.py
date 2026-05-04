@@ -526,18 +526,24 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .hint { color: #888; font-size: 11px; }
   .banner { background: linear-gradient(90deg, #1a3a4a, #2d2d2d);
             border-left: 4px solid #009688; padding: 10px 14px;
-            border-radius: 4px; margin-bottom: 14px; }
+            border-radius: 4px; margin-bottom: 14px; position: relative; }
   .banner-title { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 3px; }
   .banner-ver { font-size: 11px; color: #888; font-weight: 400; margin-left: 6px; }
   .banner-credit { font-size: 12px; color: #b4b4b4; }
   .banner-credit a { color: #64b4ff; text-decoration: none; font-weight: 600; }
   .banner-credit a:hover { text-decoration: underline; }
+  .banner-exit { position: absolute; top: 10px; right: 12px;
+                 background: #c83c3c; color: #fff; border: 0; padding: 6px 12px;
+                 border-radius: 3px; cursor: pointer; font: inherit; font-size: 12px;
+                 font-weight: 600; }
+  .banner-exit:hover { background: #d44848; }
 </style>
 </head>
 <body>
 
 <!-- Header / credit banner -->
 <div class="banner">
+  <button id="btnExit" class="banner-exit" title="Server beenden und Fenster schliessen">&times; Beenden</button>
   <div class="banner-title">Shelly / EcoTracker Tester <span class="banner-ver">__VERSION__</span></div>
   <div class="banner-credit">
     Cross-platform port of the Windows PowerShell tool by
@@ -1025,6 +1031,28 @@ async function pollPing() {
 // ── Clear ──────────────────────────────────────────────────────────────────
 $('btnClearLog').addEventListener('click', () => { $('log').textContent = ''; setStatus('Log geleert.'); });
 $('btnClearJson').addEventListener('click', () => { $('json').textContent = ''; });
+
+// ── Exit button ────────────────────────────────────────────────────────────
+// The Python server runs independently of the browser tab; closing the
+// tab leaves the server (and any active ping loop / UDP listener) alive.
+// This button POSTs /api/shutdown — the server schedules os._exit after
+// a 300 ms grace, and we replace the body with a goodbye page.
+$('btnExit').addEventListener('click', async () => {
+  if (!confirm('Shelly Tester Server beenden?')) return;
+  // Stop any running ping loop / listener cleanly first (cosmetic — the
+  // os._exit below would kill them anyway, but this avoids stale state
+  // if shutdown ever fails).
+  try { await api('/api/ping/stop',     {}); } catch(_) {}
+  try { await api('/api/udp/listener',  { action: 'stop' }); } catch(_) {}
+  try { await fetch('/api/shutdown', { method: 'POST' }); } catch(_) {}
+  document.body.innerHTML =
+    '<div style="font:1.2em sans-serif;padding:60px;text-align:center;color:#b4b4b4;background:#1e1e1e;height:100vh;margin:-14px;">' +
+    '<h2 style="color:#fff">Shelly / EcoTracker Tester beendet.</h2>' +
+    '<p>Du kannst dieses Fenster schliessen.</p>' +
+    '<p style="margin-top:30px;font-size:0.85em;opacity:0.6;">' +
+    'Ursprung: <a href="https://ottelo.jimdofree.com/" target="_blank" style="color:#64b4ff">ottelo.jimdofree.com</a>' +
+    '</p></div>';
+});
 
 // ── Init ───────────────────────────────────────────────────────────────────
 // Load saved values first so updateMode() sees the right radio-button
