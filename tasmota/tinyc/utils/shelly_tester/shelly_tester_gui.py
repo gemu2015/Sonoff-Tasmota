@@ -2,10 +2,29 @@
 # -*- coding: utf-8 -*-
 """Shelly / EcoTracker Tester — cross-platform browser GUI.
 
-Cross-platform port of the original Windows-only PowerShell GUI by ottelo
-(https://ottelo.jimdofree.com/). Drives the same protocols the Shelly and
-EcoTracker devices speak — UDP-RPC on port 1010, HTTP GET on port 80,
-plus an ICMP ping mode for connectivity testing.
+============================================================================
+ORIGIN / CREDIT
+============================================================================
+
+This tool is a cross-platform PORT of the original Windows-only
+PowerShell GUI by **ottelo**:
+
+    https://ottelo.jimdofree.com/
+
+The UI layout, German labels, color-coded log, JSON pretty-printer, the
+persistent UDP listener concept, and the overall workflow are all from
+the original PowerShell version. This file is just a Python rewrite of
+the same tool so it runs on macOS, Linux, and Windows.
+
+All design credit goes to ottelo. The credit banner rendered at the top
+of the running app links back to https://ottelo.jimdofree.com/ — please
+leave it visible if you distribute modified copies.
+
+============================================================================
+
+Drives the same protocols the Shelly and EcoTracker devices speak —
+UDP-RPC on port 1010, HTTP GET on port 80, plus an ICMP ping mode for
+connectivity testing.
 
 Architecture: tiny stdlib HTTP server on localhost serves a single HTML
 page; UDP send/receive, HTTP GET, and ping happen in the Python backend
@@ -455,7 +474,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<title>Shelly / EcoTracker Tester __VERSION__</title>
+<title>Shelly / EcoTracker Tester __VERSION__ &mdash; based on ottelo's PowerShell tool</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #1e1e1e; color: #fff;
@@ -505,9 +524,27 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .listener { color: #b482ff; }
   input[type="checkbox"] { accent-color: #009688; }
   .hint { color: #888; font-size: 11px; }
+  .banner { background: linear-gradient(90deg, #1a3a4a, #2d2d2d);
+            border-left: 4px solid #009688; padding: 10px 14px;
+            border-radius: 4px; margin-bottom: 14px; }
+  .banner-title { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 3px; }
+  .banner-ver { font-size: 11px; color: #888; font-weight: 400; margin-left: 6px; }
+  .banner-credit { font-size: 12px; color: #b4b4b4; }
+  .banner-credit a { color: #64b4ff; text-decoration: none; font-weight: 600; }
+  .banner-credit a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+
+<!-- Header / credit banner -->
+<div class="banner">
+  <div class="banner-title">Shelly / EcoTracker Tester <span class="banner-ver">__VERSION__</span></div>
+  <div class="banner-credit">
+    Cross-platform port of the Windows PowerShell tool by
+    <a href="https://ottelo.jimdofree.com/" target="_blank">ottelo</a>
+    &mdash; original code &amp; UI design © ottelo.jimdofree.com
+  </div>
+</div>
 
 <!-- Protokoll -->
 <div class="row">

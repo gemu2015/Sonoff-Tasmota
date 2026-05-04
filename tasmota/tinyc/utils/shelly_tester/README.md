@@ -1,15 +1,21 @@
 # Shelly / EcoTracker Tester
 
-Cross-platform browser GUI for poking at Shelly and EcoTracker devices
-on the local network. Sends UDP-RPC commands on port 1010, HTTP GET
-requests on port 80, and runs ICMP ping loops with statistics — all
-from the same dark-themed UI.
+> **Origin / credit.** This tool is a cross-platform port of the
+> original Windows-only PowerShell GUI by **ottelo**
+> (<https://ottelo.jimdofree.com/>). The UI layout, German labels,
+> color-coded log, JSON pretty-printer, and the persistent UDP
+> listener concept are all from the original. This rewrite is just
+> the same tool ported to Python so it runs on macOS and Linux too —
+> all design credit goes to ottelo.
 
-This is a port of the original Windows-only PowerShell GUI by **ottelo**
-(<https://ottelo.jimdofree.com/>). The Python rewrite keeps the German
-labels, color-coded log, JSON pretty-printer, and persistent UDP
-listener — everything works the same — but runs on macOS, Linux, and
-Windows.
+Browser GUI for poking at Shelly and EcoTracker devices on the local
+network. Sends UDP-RPC commands on port 1010, HTTP GET requests on
+port 80, and runs ICMP ping loops with statistics — all from the same
+dark-themed UI.
+
+The credit banner at the top of the running app links back to
+<https://ottelo.jimdofree.com/>; please leave it visible if you
+distribute modified copies.
 
 ## What it does
 
