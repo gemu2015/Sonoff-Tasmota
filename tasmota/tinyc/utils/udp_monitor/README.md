@@ -124,11 +124,14 @@ treated as a single float32.
 
 ## Distribution layout
 
+`UDP_Monitor.zip` contains three platform copies sharing identical
+Python sources:
+
 ```
 UDP Monitor.app/                  macOS app bundle
   Contents/
     Info.plist
-    MacOS/UDP_Monitor             launcher script
+    MacOS/run                     launcher (calls python3 on the bundled .py)
     Resources/
       udp_monitor_gui.py          GUI version (canonical)
       udp_monitor.py              CLI version
@@ -137,12 +140,41 @@ UDP Monitor.app/                  macOS app bundle
 UDP_Monitor_Linux/                Linux folder
   udp_monitor.sh                  launcher
   udp_monitor_gui.py
+  udp_monitor.py
   README.txt                      (en)
 
 UDP_Monitor_Win/                  Windows folder
   UDP_Monitor.bat                 launcher
   udp_monitor_gui.py
+  udp_monitor.py
   LIESMICH.txt                    (de)
+```
+
+## Rebuilding the zip after a source edit
+
+When you edit `udp_monitor_gui.py` or `udp_monitor.py` in the source
+tree, sync the three platform copies inside the zip and re-pack:
+
+```bash
+cd /tmp && rm -rf UDP_Monitor_build && mkdir UDP_Monitor_build && cd UDP_Monitor_build
+unzip -q /path/to/tasmota/tinyc/utils/udp_monitor/UDP_Monitor.zip
+
+SRC=/path/to/tasmota/tinyc/utils/udp_monitor
+for dest in "UDP Monitor.app/Contents/Resources" "UDP_Monitor_Linux" "UDP_Monitor_Win"; do
+  cp "$SRC/udp_monitor_gui.py" "$dest/"
+  cp "$SRC/udp_monitor.py"     "$dest/"
+done
+
+zip -qry /path/to/tasmota/tinyc/utils/udp_monitor/UDP_Monitor.zip \
+  "UDP Monitor.app" "UDP_Monitor_Linux" "UDP_Monitor_Win"
+```
+
+If you have the live `UDP Monitor.app` open on your desktop, sync the
+running bundle so changes take effect on the next launch:
+
+```bash
+cp $SRC/udp_monitor_gui.py "/Users/<you>/Desktop/UDP Monitor.app/Contents/Resources/"
+cp $SRC/udp_monitor.py     "/Users/<you>/Desktop/UDP Monitor.app/Contents/Resources/"
 ```
 
 ## Implementation notes
@@ -162,11 +194,12 @@ UDP_Monitor_Win/                  Windows folder
 
 ## Files in this directory
 
-| File                  | Role                                |
-| --------------------- | ----------------------------------- |
-| `udp_monitor_gui.py`  | Browser-UI version (default)        |
-| `udp_monitor.py`      | CLI version                         |
-| `README.md`           | This file                           |
+| File                  | Role                                                 |
+| --------------------- | ---------------------------------------------------- |
+| `udp_monitor_gui.py`  | Browser-UI version (default)                         |
+| `udp_monitor.py`      | CLI version                                          |
+| `UDP_Monitor.zip`     | Pre-built distribution for macOS / Linux / Windows   |
+| `README.md`           | This file                                            |
 
 ## See also
 
