@@ -2426,10 +2426,23 @@ function buildMeterDefContent() {
     const trxPin = +document.getElementById('inpTxPin').value || 43;
     let s = `>M 1\n`;
     // type 'k' = Kamstrup; 9600 8N1; trxpin REQUIRED (driver TX-es polls);
-    // tsecs=10 (driver poll cadence); 1 request frame `3F100100010001`
-    // (count=1, request reg 0001) — emulator ignores it but driver needs
-    // at least one TX entry to validate the descriptor.
-    s += `+1,${gpio},k,0,9600,${meterName},${trxPin},10,3F100100010001\n`;
+    // tsecs=10 (driver poll cadence). The TX request payload has format
+    //   3F 10 [count] [reg_hi reg_lo] × count
+    // so for 4 registers we send count=04 followed by all 4 addresses.
+    // The server's _ks_decode_poll reads the count byte and replies with
+    // exactly that many registers, in the order the device requested
+    // them — which MUST be the order the descriptor's pattern offsets
+    // expect (EnergyIn → VoltageP1 → CurrentP1 → PowerIN). A shorter
+    // request like `3F100100010001` would make the server return only
+    // 1 register, leaving patterns 2/3/4 unmatched.
+    // Hex breakdown:
+    //   3F 10 = header
+    //   04    = count (4 registers requested)
+    //   00 01 = EnergyIn   reg 0x0001
+    //   04 1E = VoltageP1  reg 0x041E
+    //   04 34 = CurrentP1  reg 0x0434
+    //   03 FF = PowerIN    reg 0x03FF
+    s += `+1,${gpio},k,0,9600,${meterName},${trxPin},10,3F10040001041E043403FF\n`;
     // Divisors compensate for the integer-mantissa pre-scaling done by
     // buildKSFrame (kstr exp is always 0 to dodge the driver's negative-
     // exponent bug at xsns_53_sml.ino:2431). See kstrEncode comment.
