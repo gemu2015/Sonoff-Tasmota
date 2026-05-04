@@ -148,11 +148,22 @@ int  wdog_loop_enable    = 1;        // 1 = active, 0 = off (toggle via cmd)
 // restart. saveVars() called explicitly in the wdog handler before the
 // Restart 1 fires — without that, the auto-save-on-stop path doesn't
 // run because Tasmota's restart-shutdown is dispatched on the (hung)
-// loop task. Last-trip timestamp + duration give us a record of WHEN
-// each freeze happened so we can correlate with user activity.
+// loop task. Last-trip + ring-buffer history give us a record of WHEN
+// each freeze happened so we can correlate with periodic events.
 persist int wdog_loop_trips        = 0;   // total trips since deploy
 persist int wdog_last_silent_ms    = 0;   // duration of the last detected silence
-persist int wdog_last_trip_uptime  = 0;   // tasm_uptime at last trip (seconds since boot of THAT boot — informational)
+persist int wdog_last_trip_uptime  = 0;   // tasm_uptime at last trip
+// Ring buffer of last 8 trips — each trip records:
+//   *_freeze_start_unix   wall-clock time (s since 1970) when freeze BEGAN
+//                         (= tasm_time - silent_ms/1000, computed at trip)
+//   *_silent_ms           how long the loop task was silent
+//   *_freeze_uptime_s     uptime at start of freeze (≈ freeze-causing event)
+// idx points to the NEXT slot to write (so most-recent is at idx-1 mod 8).
+#define WDOG_HIST  8
+persist int wdog_hist_idx              = 0;
+persist int wdog_hist_freeze_unix[8]   = {0,0,0,0,0,0,0,0};
+persist int wdog_hist_silent_ms[8]     = {0,0,0,0,0,0,0,0};
+persist int wdog_hist_uptime_s[8]      = {0,0,0,0,0,0,0,0};
 
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
@@ -695,6 +706,17 @@ void TaskLoop() {
             wdog_loop_trips       = wdog_loop_trips + 1;
             wdog_last_silent_ms   = loop_silent_ms;
             wdog_last_trip_uptime = tasm_uptime;
+            // Record into ring buffer. freeze_unix and freeze_uptime are
+            // BACK-DATED to when the freeze actually began (= now minus
+            // silent duration). That makes the histogram reflect the
+            // triggering event, not when we noticed.
+            int silent_s = loop_silent_ms / 1000;
+            int slot = wdog_hist_idx;
+            if (slot < 0 || slot >= WDOG_HIST) slot = 0;
+            wdog_hist_freeze_unix[slot] = tasm_time - silent_s;
+            wdog_hist_silent_ms[slot]   = loop_silent_ms;
+            wdog_hist_uptime_s[slot]    = tasm_uptime - silent_s;
+            wdog_hist_idx = (slot + 1) & 7;     // wrap at 8
             // Persist updated counters BEFORE forcing the reboot — the
             // auto-save-on-stop path won't run because Tasmota's
             // shutdown dispatches on the (hung) loop task.
@@ -1435,6 +1457,30 @@ void Command(char cmd[]) {
                 tick_gap_max_ms, cb_50_max_ms, cb_sec_max_ms, cb_web_max_ms,
                 cb_json_max_ms, mb_max_ms, mb_calls, mail_max_ms, mail_calls,
                 long_call_warns, wdog_loop_enable, wdog_loop_trips);
+        responseCmnd(g_resp);
+        return;
+    }
+    // MBUSHIST — dump the wdog trip ring buffer (last up-to-8 freezes).
+    // For each slot, prints freeze-start unix time + uptime-into-boot +
+    // freeze duration (ms). Most-recent first. Helps spot a periodic
+    // schedule (e.g. always at xx:00, every 3h, every X seconds of uptime).
+    if (strFind(cmd, "HIST") == 0 && strlen(cmd) == 4) {
+        responseCmnd("freeze history (most recent first):");
+        // Walk backwards from idx-1 (newest) through 8 slots
+        for (int n = 0; n < WDOG_HIST; n = n + 1) {
+            int slot = (wdog_hist_idx - 1 - n) & 7;
+            int unix_t   = wdog_hist_freeze_unix[slot];
+            int silent_m = wdog_hist_silent_ms[slot];
+            int uptime_s = wdog_hist_uptime_s[slot];
+            if (unix_t == 0 && silent_m == 0) continue;     // unused slot
+            // Format unix as HH:MM:SS DD.MM (local-ish, simple modulo).
+            // Don't import strftime to keep this minimal — for a spec
+            // diagnostic the seconds-since-1970 is fine and grep-able.
+            sprintf(g_resp, "  [%d] unix=%d uptime=%ds silent=%dms",
+                    n, unix_t, uptime_s, silent_m);
+            addLog(g_resp);
+        }
+        sprintf(g_resp, "(total trips since deploy: %d)", wdog_loop_trips);
         responseCmnd(g_resp);
         return;
     }
