@@ -1264,7 +1264,32 @@ static void HandleTinyCPage(void) {
         "</div></form></p></fieldset>"));
 
       // --- Remote repository selector ---
-      // Read repo URL from /tinyc_repo.cfg, fall back to default repo
+      // Read repo URL from /tinyc_repo.cfg, fall back to default repo.
+      //
+      // The HTTPS GET to fetch index.txt runs synchronously on the loop
+      // task — on weak WiFi (RSSI worse than ~-75 dBm) it has been
+      // observed to take 50+ seconds, starving Tasmota's main loop and
+      // crashing the device via the RTC watchdog. Two safeguards:
+      //
+      //   1. Cache the index across visits (TC_REPO_CACHE_MS, default
+      //      60 s). Re-rendering from cache is instant; only the first
+      //      visit per minute hits the network. Force a refresh by
+      //      adding ?refresh=1 to /tc.
+      //   2. Cap any single fetch at TC_REPO_FETCH_MS (default 2000 ms).
+      //      `setTimeout()` is interpreted differently across
+      //      Arduino-ESP32 versions (sometimes seconds, sometimes ms);
+      //      `setConnectTimeout()` is the unambiguous one. We set both,
+      //      narrow, so the worst-case loop-task block is bounded.
+      //
+      // Override at build time: -DTC_REPO_CACHE_MS=N -DTC_REPO_FETCH_MS=N
+      #ifndef TC_REPO_CACHE_MS
+      #define TC_REPO_CACHE_MS  60000
+      #endif
+      #ifndef TC_REPO_FETCH_MS
+      #define TC_REPO_FETCH_MS   2000
+      #endif
+      static String   tc_repo_index;        // last successful index.txt body
+      static uint32_t tc_repo_index_ms = 0; // millis() of last successful fetch
       {
         char repo_url[200] = {};
         File rcfg = ufsp->open("/tinyc_repo.cfg", "r");
@@ -1277,59 +1302,84 @@ static void HandleTinyCPage(void) {
           strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
         }
         if (repo_url[0]) {
-          // Fetch index.txt from repo
-          String idx_url = String(repo_url);
-          if (!idx_url.endsWith("/")) idx_url += "/";
-          idx_url += "index.txt";
+          bool cache_fresh = tc_repo_index.length() > 0 &&
+                             (millis() - tc_repo_index_ms) < TC_REPO_CACHE_MS;
+          bool force_refresh = Webserver->hasArg(F("refresh"));
+          if (!cache_fresh || force_refresh) {
+            // Fetch index.txt from repo (bounded by TC_REPO_FETCH_MS)
+            String idx_url = String(repo_url);
+            if (!idx_url.endsWith("/")) idx_url += "/";
+            idx_url += "index.txt";
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-          HTTPClientLight http;
+            HTTPClientLight http;
 #else
-          WiFiClient http_client;
-          HTTPClient http;
+            WiFiClient http_client;
+            HTTPClient http;
 #endif
-          http.setTimeout(5000);
+            http.setConnectTimeout(TC_REPO_FETCH_MS);
+            http.setTimeout(TC_REPO_FETCH_MS);
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-          bool begun = http.begin(idx_url);
+            bool begun = http.begin(idx_url);
 #else
-          bool begun = http.begin(http_client, idx_url);
+            bool begun = http.begin(http_client, idx_url);
 #endif
-          if (begun) {
-            int httpCode = http.GET();
-            if (httpCode == HTTP_CODE_OK) {
-              String body = http.getString();
-              if (body.length() > 0) {
-                WSContentSend_P(PSTR(
-                  "<fieldset><legend><b> Repository </b></legend>"
-                  "<p><form action='/tc' method='get'>"
-                  "<div style='display:flex;gap:8px;align-items:center'>"
-                  "<select name='rfile' style='flex:1'>"));
-                // Parse index.txt: one filename per line
-                int pos = 0;
-                while (pos < (int)body.length()) {
-                  int nl = body.indexOf('\n', pos);
-                  if (nl < 0) nl = body.length();
-                  String line = body.substring(pos, nl);
-                  line.trim();
-                  if (line.length() > 0 && line.endsWith(".tcb")) {
-                    WSContentSend_P(PSTR("<option value='%s'>%s</option>"),
-                      line.c_str(), line.c_str());
-                  }
-                  pos = nl + 1;
+            uint32_t fetch_t0 = millis();
+            if (begun) {
+              int httpCode = http.GET();
+              if (httpCode == HTTP_CODE_OK) {
+                String body = http.getString();
+                if (body.length() > 0) {
+                  tc_repo_index    = body;
+                  tc_repo_index_ms = millis();
                 }
-                WSContentSend_P(PSTR(
-                  "</select>"
-                  "<select name='slot' style='width:auto'>"));
-                for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-                  WSContentSend_P(PSTR("<option value='%d'>Slot %d</option>"), i, i);
-                }
-                WSContentSend_P(PSTR(
-                  "</select></div>"
-                  "<br><button name='cmd' value='download' class='button bgrn'>"
-                  "Download &amp; Load</button>"
-                  "</form></p></fieldset>"));
               }
+              http.end();
             }
-            http.end();
+            uint32_t fetch_dt = millis() - fetch_t0;
+            if (fetch_dt > TC_REPO_FETCH_MS + 500) {
+              AddLog(LOG_LEVEL_INFO,
+                PSTR("TCC: repo index.txt fetch took %u ms (cap %u) — slow link?"),
+                (unsigned)fetch_dt, (unsigned)TC_REPO_FETCH_MS);
+            }
+          }
+          // Render from cache (whether just-fetched or older). If empty
+          // (first-ever visit failed), the section is silently omitted —
+          // a subsequent visit will retry and populate it.
+          if (tc_repo_index.length() > 0) {
+            WSContentSend_P(PSTR(
+              "<fieldset><legend><b> Repository </b></legend>"
+              "<p><form action='/tc' method='get'>"
+              "<div style='display:flex;gap:8px;align-items:center'>"
+              "<select name='rfile' style='flex:1'>"));
+            // Parse index.txt: one filename per line
+            int pos = 0;
+            while (pos < (int)tc_repo_index.length()) {
+              int nl = tc_repo_index.indexOf('\n', pos);
+              if (nl < 0) nl = tc_repo_index.length();
+              String line = tc_repo_index.substring(pos, nl);
+              line.trim();
+              if (line.length() > 0 && line.endsWith(".tcb")) {
+                WSContentSend_P(PSTR("<option value='%s'>%s</option>"),
+                  line.c_str(), line.c_str());
+              }
+              pos = nl + 1;
+            }
+            WSContentSend_P(PSTR(
+              "</select>"
+              "<select name='slot' style='width:auto'>"));
+            for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+              WSContentSend_P(PSTR("<option value='%d'>Slot %d</option>"), i, i);
+            }
+            // Include a "Refresh" button so the user can force a fresh
+            // GET when they've added a new .tcb to the repo.
+            uint32_t age_s = (millis() - tc_repo_index_ms) / 1000;
+            WSContentSend_P(PSTR(
+              "</select></div>"
+              "<br><button name='cmd' value='download' class='button bgrn'>"
+              "Download &amp; Load</button>"
+              " <a href='/tc?refresh=1' class='button' style='background:#888;padding:4px 10px'>"
+              "&#x21bb; Refresh list (cached %us)</a>"
+              "</form></p></fieldset>"), (unsigned)age_s);
           }
         }
       }
