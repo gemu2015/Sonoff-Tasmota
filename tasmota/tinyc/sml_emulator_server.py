@@ -109,9 +109,13 @@ def serial_reader():
                 continue
             with state_lock:
                 rx_buf.extend(data)
-            # In T510 mode the dedicated state machine consumes rx_buf; do not
-            # try to parse it as Modbus RTU.
-            if not t510_running:
+            # T510 and Kamstrup each have a dedicated state machine that
+            # consumes rx_buf. Don't let _process_modbus_rtu() touch it in
+            # those modes — it byte-walks the buffer when frames don't
+            # validate (line ~155: `rx_buf = rx_buf[1:]`), silently dropping
+            # every byte of a non-Modbus protocol before the state machine
+            # ever wakes up to read it.
+            if not (t510_running or ks_running):
                 _process_modbus_rtu()
         except Exception as e:
             log_entry('err', f'Serial read: {e}')
