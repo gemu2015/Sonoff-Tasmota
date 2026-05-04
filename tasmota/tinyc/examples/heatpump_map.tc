@@ -125,6 +125,27 @@ int  long_call_warns    = 0;   // count of >1 s events of any kind
 #define LONG_CALL_WARN_MS  1000   // 1 s — log a warning
 #define LONG_CALL_CRIT_MS  4000   // 4 s — log CRITICAL (1 s shy of WDT)
 
+// ── Loop-task watchdog (via TaskLoop) ───────────────────────────────
+// Loop task can hang for minutes inside Tasmota web handlers / lwIP /
+// other subsystems we can't instrument from script-side. Observed twice
+// on .31: 250 s and 270 s gaps after web-menu navigation — heap fine,
+// stack fine, no chip-WDT fire (some IDLE thread keeps feeding it),
+// device looks alive on the wire but every HTTP request times out.
+//
+// TaskLoop runs in tc_vm_task — a SEPARATE FreeRTOS task from the loop
+// task — so it keeps running while the loop task is hung. We use it as
+// an external watchdog: every iteration it compares millis() against
+// last_50ms_run_ms (set by Every50ms which runs ON the loop task). If
+// the loop task hasn't ticked Every50ms in WDOG_LOOP_REBOOT_MS (default
+// 60 s), force a chip restart via tasmCmd("Restart 1"). Recovery time
+// drops from ~4 min stuck to ~10 s reboot.
+//
+// Disable from console: MBUSWDOG OFF (sets wdog_loop_enable=0).
+// Enable:               MBUSWDOG ON
+#define WDOG_LOOP_REBOOT_MS 60000   // 60 s — well past any legit blocker
+int wdog_loop_enable    = 1;        // 1 = active, 0 = off (toggle via cmd)
+int wdog_loop_trips     = 0;        // count of restarts forced by this wdog
+
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
 int  reg[500];
@@ -654,6 +675,31 @@ int hp_send_modbus(int fc, int regaddr, int val) {
 // Polls the mail_pending flag set by wd_send_alert and runs mailSend when
 // triggered. delay() yields the vm_mutex so other callbacks can interleave.
 void TaskLoop() {
+    // ── Loop-task watchdog ──────────────────────────────────────────
+    // TaskLoop runs in tc_vm_task, separate from Tasmota's loop task.
+    // If the loop task is hung, last_50ms_run_ms stays frozen. We catch
+    // that and force a reboot rather than wait minutes for self-recovery.
+    // Skip until the loop task has run at least once (last_50ms_run_ms>0)
+    // so we don't trip during early boot before Every50ms ever fires.
+    if (wdog_loop_enable && last_50ms_run_ms > 0) {
+        int loop_silent_ms = millis() - last_50ms_run_ms;
+        if (loop_silent_ms > WDOG_LOOP_REBOOT_MS) {
+            wdog_loop_trips = wdog_loop_trips + 1;
+            // addLog will succeed (runs on this task); log + restart.
+            sprintf(g_tmp, "WDOG ⚠ loop task silent for %d ms — forcing Restart 1 (trips=%d)",
+                    loop_silent_ms, wdog_loop_trips);
+            addLog(g_tmp);
+            // Brief delay so the log message has a chance to flush over
+            // serial before reboot. Web/MQTT are dead anyway during the
+            // hang so log access goes only via console UART.
+            delay(200);
+            char wdog_resp[16];
+            tasmCmd("Restart 1", wdog_resp);
+            // Restart 1 is async; sleep until it actually fires.
+            delay(5000);
+        }
+    }
+
     if (mail_pending) {
         mail_pending = 0;
         addLog("MAILER: starting send");
@@ -1372,12 +1418,37 @@ void Command(char cmd[]) {
     }
     // HPLAT — print one-line latency snapshot to console + responseCmnd
     if (strFind(cmd, "LAT") == 0 && strlen(cmd) == 3) {
-        sprintf(g_resp, "gap=%d e50=%d e1s=%d web=%d json=%d mb=%d/%d mail=%d/%d warns=%d",
+        sprintf(g_resp, "gap=%d e50=%d e1s=%d web=%d json=%d mb=%d/%d mail=%d/%d warns=%d wdog=%d/%d",
                 tick_gap_max_ms, cb_50_max_ms, cb_sec_max_ms, cb_web_max_ms,
                 cb_json_max_ms, mb_max_ms, mb_calls, mail_max_ms, mail_calls,
-                long_call_warns);
+                long_call_warns, wdog_loop_enable, wdog_loop_trips);
         responseCmnd(g_resp);
         return;
+    }
+    // MBUSWDOG ON|OFF — toggle the loop-task watchdog (TaskLoop-driven
+    // emergency restart when loop task is silent for 60 s). Disable
+    // temporarily during long debug ops you don't want to be killed by
+    // the watchdog.
+    if (strFind(cmd, "WDOG") == 0) {
+        if (strFind(cmd, "WDOG ON") == 0) {
+            wdog_loop_enable = 1;
+            responseCmnd("WDOG enabled");
+            return;
+        } else if (strFind(cmd, "WDOG OFF") == 0) {
+            wdog_loop_enable = 0;
+            responseCmnd("WDOG disabled");
+            return;
+        } else if (strlen(cmd) == 4) {
+            char wlabel[8];
+            if (wdog_loop_enable) strcpy(wlabel, "ON");
+            else                  strcpy(wlabel, "OFF");
+            int silent = -1;
+            if (last_50ms_run_ms > 0) silent = millis() - last_50ms_run_ms;
+            sprintf(g_resp, "WDOG %s, trips=%d, last_loop_silent_ms=%d",
+                    wlabel, wdog_loop_trips, silent);
+            responseCmnd(g_resp);
+            return;
+        }
     }
 
     if (strFind(cmd, "ON") == 0 && strlen(cmd) == 2) {
