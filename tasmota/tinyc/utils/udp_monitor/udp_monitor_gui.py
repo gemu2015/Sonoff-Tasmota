@@ -54,6 +54,9 @@ button { padding: 8px 24px; border: none; border-radius: 6px; font-size: 1em;
 .btn-export { background: #47c266; color: #fff; }
 .btn-export:hover { background: #5aaf6f; }
 .btn-export:disabled { background: #333; color: #666; cursor: default; }
+.btn-exit { background: #c83c3c; color: #fff; margin-left: auto; font-weight: 600; }
+.btn-exit:hover { background: #d44848; }
+.controls { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .progress-bar { height: 6px; background: #16213e; border-radius: 3px;
                 margin-bottom: 10px; overflow: hidden; }
 .progress-fill { height: 100%; background: #1fa3ec; transition: width 0.5s; width: 0%; }
@@ -81,6 +84,7 @@ tr.clash td { background: #3d1515; }
   <button id="scanBtn" class="btn-start" onclick="toggleScan()">Start Scan</button>
   <button id="exportBtn" class="btn-export" onclick="exportCSV()" disabled>Export CSV</button>
   <span class="status" id="status">Ready</span>
+  <button id="exitBtn" class="btn-exit" onclick="exitServer()" title="Stop the server and close the window">&times; Exit</button>
 </div>
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
 <div class="table-wrap">
@@ -166,6 +170,17 @@ function showResults(d) {
 }
 
 function exportCSV() { window.open('/api/csv'); }
+
+function exitServer() {
+  if (!confirm('Stop the UDP Monitor server?')) return;
+  // Stop any running scan first (cosmetic — the server will exit anyway)
+  fetch('/api/stop').catch(() => {});
+  fetch('/api/shutdown').catch(() => {});
+  document.body.innerHTML =
+    '<div style="font:1.2em sans-serif;padding:60px;text-align:center;color:#888;background:#1e1e1e;height:100vh;margin:0;">' +
+    '<h2 style="color:#fff">UDP Monitor stopped.</h2>' +
+    '<p>You can close this tab.</p></div>';
+}
 
 function sortBy(col) {
   let tb = document.getElementById('tbody');
@@ -442,6 +457,19 @@ class Handler(BaseHTTPRequestHandler):
                 'summary': scan_state['summary'],
             }
             self.wfile.write(json.dumps(resp).encode())
+
+        elif self.path == '/api/shutdown':
+            # Clean exit triggered from the browser "× Exit" button.
+            # Reply 200 so the JS keep-alive doesn't show an error,
+            # then schedule os._exit so the response actually flushes
+            # before the process disappears.
+            scan_state['stop_flag'] = True
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+            import os as _os
+            threading.Timer(0.3, lambda: _os._exit(0)).start()
 
         elif self.path == '/api/csv':
             self.send_response(200)
