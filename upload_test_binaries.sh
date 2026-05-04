@@ -103,6 +103,18 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- **Binary array file I/O syscalls (TC_RELEASE 1.3.37)** —
+  \`fileReadBin(handle, arr, count)\` and \`fileWriteBin(handle, arr, count)\`
+  move int32/float arrays between memory and flash as raw 4-byte
+  little-endian. Same syscall serves int[] and float[] alike (both
+  are int32 in memory; on-disk bit pattern is identical). Motivating
+  use case: chart-history files that survive \`persist\`'s layout-hash
+  invalidation. The .pvs file gets discarded on every persist-var
+  add/remove, blowing away accumulated chart history; with these
+  syscalls a script can keep its chart arrays in regular globals and
+  save/load them to a dedicated named file via simple subroutines,
+  independent of persist. Pattern is reusable for any binary blob —
+  calibration tables, lookup tables, time series. New IDs 286/287.
 - **\`/tc\` page no longer hangs the device on weak WiFi** — every visit to
   the TinyC Console page (or the "TinyC Console" button in Tasmota's
   Tools menu) used to do a synchronous HTTPS GET to GitHub for the
