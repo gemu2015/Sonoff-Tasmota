@@ -649,6 +649,75 @@ HTML_PAGE = r"""<!DOCTYPE html>
 const $ = id => document.getElementById(id);
 const setStatus = (s) => { $('status').textContent = s; };
 
+// ── Settings persistence via localStorage ──────────────────────────────────
+// All user-tunable fields restore from localStorage on load and re-save on
+// every change. Mode-specific defaults (port=1010 for UDP, port=80 for HTTP)
+// only override if the user hasn't explicitly typed a port for that mode —
+// see updateMode() below.
+const LS_PREFIX = 'shellytester:';
+const PERSIST_FIELDS = [
+  // [id, type]   type ∈ { 'value', 'checked' }
+  // port is intentionally NOT here — it's managed per-mode by
+  // portSaveCurrent / portRestoreForMode (one stored value per UDP/HTTP).
+  ['host', 'value'],
+  ['cmd',  'value'],
+  ['interval',     'value'],
+  ['pingInterval', 'value'],
+  ['pingDuration', 'value'],
+  ['chkListener',       'checked'],
+  ['chkPingLog',        'checked'],
+  ['chkPingErrorsOnly', 'checked'],
+];
+function lsLoad() {
+  for (const [id, kind] of PERSIST_FIELDS) {
+    const el = $(id); if (!el) continue;
+    const raw = localStorage.getItem(LS_PREFIX + id);
+    if (raw === null) continue;
+    if (kind === 'checked') el.checked = (raw === '1');
+    else el.value = raw;
+  }
+  // Active proto radio
+  const proto = localStorage.getItem(LS_PREFIX + 'proto') || 'udp';
+  const radioId = {udp:'protoUdp', http:'protoHttp', ping:'protoPing'}[proto] || 'protoUdp';
+  $(radioId).checked = true;
+}
+// Per-mode port memory: when the user switches UDP↔HTTP, restore the port
+// they last used for THAT mode (default 1010 for UDP, 80 for HTTP) instead
+// of always clobbering with the canonical default.
+function portKey() { return $('protoUdp').checked ? 'port_udp'
+                         : $('protoHttp').checked ? 'port_http'
+                         : null; }
+function portSaveCurrent() {
+  const k = portKey(); if (k) {
+    try { localStorage.setItem(LS_PREFIX + k, $('port').value); } catch (e) {}
+  }
+}
+function portRestoreForMode() {
+  const isUdp = $('protoUdp').checked;
+  const isHttp = $('protoHttp').checked;
+  if (!isUdp && !isHttp) return;          // ping mode: port hidden, don't touch
+  const k = isUdp ? 'port_udp' : 'port_http';
+  const def = isUdp ? '1010' : '80';
+  $('port').value = localStorage.getItem(LS_PREFIX + k) || def;
+}
+function lsSave(id, kind) {
+  const el = $(id); if (!el) return;
+  const v = (kind === 'checked') ? (el.checked ? '1' : '0') : el.value;
+  try { localStorage.setItem(LS_PREFIX + id, v); } catch (e) { /* quota / private mode */ }
+}
+function lsAttachAll() {
+  for (const [id, kind] of PERSIST_FIELDS) {
+    const el = $(id); if (!el) continue;
+    el.addEventListener(kind === 'checked' ? 'change' : 'input', () => lsSave(id, kind));
+  }
+  for (const id of ['protoUdp','protoHttp','protoPing']) {
+    $(id).addEventListener('change', () => {
+      const m = $('protoUdp').checked ? 'udp' : ($('protoHttp').checked ? 'http' : 'ping');
+      try { localStorage.setItem(LS_PREFIX + 'proto', m); } catch (e) {}
+    });
+  }
+}
+
 function nowStamp() {
   const d = new Date();
   const pad = (n, w) => String(n).padStart(w, '0');
@@ -686,10 +755,25 @@ async function api(path, body = null) {
 }
 
 // ── Mode switch ────────────────────────────────────────────────────────────
+// Track what mode is currently active so we know which "port_<mode>"
+// localStorage key the live port input belongs to. Whenever the proto
+// changes, we save the OLD mode's port first, then restore the NEW
+// mode's port — so a user-typed port survives switches and reloads.
+let _lastMode = null;     // 'udp' | 'http' | 'ping' | null
+function currentMode() {
+  return $('protoUdp').checked  ? 'udp'
+       : $('protoHttp').checked ? 'http'
+       : 'ping';
+}
 function updateMode() {
-  const isUdp  = $('protoUdp').checked;
-  const isHttp = $('protoHttp').checked;
-  const isPing = $('protoPing').checked;
+  const newMode = currentMode();
+  // Save the port we were just on (if it was a port-bearing mode) before
+  // we restore the new mode's value into the same input field.
+  if (_lastMode === 'udp' || _lastMode === 'http') portSaveCurrent();
+
+  const isUdp  = newMode === 'udp';
+  const isHttp = newMode === 'http';
+  const isPing = newMode === 'ping';
   $('panelUdpHttp').classList.toggle('active', !isPing);
   $('panelPing').classList.toggle('active', isPing);
   $('lblPort').style.display = isPing ? 'none' : '';
@@ -705,7 +789,7 @@ function updateMode() {
     $('udpPresets').style.display = '';
     $('httpPresets').style.display = 'none';
     $('lblListener').style.display = '';
-    $('port').value = '1010';
+    portRestoreForMode();
     document.title = `Shelly / EcoTracker Tester — UDP`;
   } else if (isHttp) {
     ind.textContent = '[ HTTP-Modus ]';
@@ -720,7 +804,7 @@ function updateMode() {
       $('chkListener').checked = false;
       api('/api/udp/listener', { action: 'stop' });
     }
-    $('port').value = '80';
+    portRestoreForMode();
     document.title = `Shelly / EcoTracker Tester — HTTP GET`;
   } else {
     ind.textContent = '[ Ping-Modus ]';
@@ -731,8 +815,12 @@ function updateMode() {
     }
     document.title = `Shelly / EcoTracker Tester — Ping`;
   }
+  _lastMode = newMode;
 }
 ['protoUdp','protoHttp','protoPing'].forEach(id => $(id).addEventListener('change', updateMode));
+// Save port on every keystroke too (so even switching tabs without
+// mode change preserves the typed value).
+$('port').addEventListener('input', portSaveCurrent);
 
 // ── Presets ────────────────────────────────────────────────────────────────
 document.querySelectorAll('button.preset').forEach(btn => {
@@ -938,8 +1026,14 @@ async function pollPing() {
 $('btnClearLog').addEventListener('click', () => { $('log').textContent = ''; setStatus('Log geleert.'); });
 $('btnClearJson').addEventListener('click', () => { $('json').textContent = ''; });
 
-// Initial mode
+// ── Init ───────────────────────────────────────────────────────────────────
+// Load saved values first so updateMode() sees the right radio-button
+// state and the right per-mode port. Then call updateMode() to render
+// the correct panel + presets, then attach listeners that save on any
+// further change.
+lsLoad();
 updateMode();
+lsAttachAll();
 </script>
 </body>
 </html>
