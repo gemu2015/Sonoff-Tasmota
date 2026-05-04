@@ -103,6 +103,35 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- **\`/tc\` page no longer hangs the device on weak WiFi** — every visit to
+  the TinyC Console page (or the "TinyC Console" button in Tasmota's
+  Tools menu) used to do a synchronous HTTPS GET to GitHub for the
+  precompiled-bytecode index. With \`http.setTimeout(5000)\` only and no
+  connect-timeout cap, this could block the loop task for **50+ seconds**
+  on RSSI worse than ~-75 dBm — long enough to starve
+  FUNC_EVERY_50_MSECOND and trigger the RTC watchdog. Now: cache index.txt
+  for 60 s (force-refresh button on the page), cap any single fetch at
+  2 s via both setConnectTimeout() and setTimeout(). Worst-case loop-task
+  block per /tc visit dropped from ~50 s to ~2 s. Override at build time
+  via \`-DTC_REPO_CACHE_MS=N -DTC_REPO_FETCH_MS=N\`.
+- **Race-free autoexec start (TC_RELEASE 1.3.36)** — removes the historical
+  \`delay(15000)\` workaround at the top of \`main()\`. Autoexec slot main()
+  now spawns on the first FUNC_LOOP iteration once
+  \`TasmotaGlobal.uptime ≥ TC_AUTOEXEC_MIN_UPTIME\` (default 3 s). Previously
+  main() spawned during FUNC_INIT and raced Tasmota's own driver init
+  + Wi-Fi/RF coex bring-up — \`serialBegin\` there silently failed to
+  receive bytes. Plain \`serialBegin\` in \`main()\` now works without any
+  delay or BootInit hook, same as in any in-tree Tasmota driver.
+  Override via \`-DTC_AUTOEXEC_MIN_UPTIME=N\` for slow networks.
+- **Optional \`BootInit()\` callback** — fires once after main() returns. Kept
+  as opt-in convenience for users who prefer hardware init separated
+  from main(); not required for correctness now that 1.3.36 fixed the
+  underlying race.
+- **\`sprintf\` \`%%\` escape fix in float path (1.3.22)** — \`sprintf(buf,
+  "%d %% (%.2f kWh)", pct, kwh)\` used to render \`"85 %% (12.98 kWh)"\`
+  on float-path formatters because the byte-walk loop didn't collapse
+  \`%%\` pairs to a single \`%\`. Fixed in both prefix and suffix copy
+  loops. Int-only paths were already correct.
 - **WebCall / JsonCall no longer skipped during spawnTask busy windows** —
   TinyCShow had a racy \`s->vm.halted\` pre-check that returned without
   invoking the callback when a worker was mid-syscall (e.g. tcpConnect
@@ -113,6 +142,23 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
   and halted check correctly, so the response now waits briefly for
   the worker's next \`delay()\` to release the mutex and renders all
   rows / keys.
+- **Latency-watchdog idiom in \`heatpump_map.tc\`** — new template pattern
+  for catching multi-second loop-task blockers from outside the script.
+  Records max gap between consecutive Every50ms ticks plus per-callback
+  durations; surfaces them via a "WDT-hunt" row in the WebUI and via
+  console commands \`MBUSLAT\` / \`MBUSLATRESET\`. TaskLoop-driven backstop
+  forces \`Restart 1\` if loop task goes silent for 60 s — turns a
+  multi-minute hang into a 70 s reboot. Persist counters survive the
+  forced reboot for trip statistics. Copy this pattern to any
+  long-running script that's susceptible to firmware-side hangs.
+- **\`utils/\` directory for desktop helpers** — \`utils/sml_emulator/\` and
+  \`utils/udp_monitor/\` each ship a ready-to-run macOS .app + Linux/Win
+  folder bundle (.zip), their canonical Python sources, and full
+  README per tool. SML Emulator now covers SML, encrypted DLMS push,
+  OBIS ASCII, VBus, EBus, M-Bus, **Kamstrup OMNIPOWER (poll/response)**,
+  Modbus RTU+TCP, T510 IEC 62056-21. UDP Monitor decodes TinyC \`global\`
+  + Scripter \`=>\` multicast variables on \`239.255.255.250:1999\` with
+  CSV export.
 - **\`watch\` + \`webButton\`/\`webSlider\` work end-to-end** — historically broken
   combo. URL handler (\`?sv=N_V\`) now mirrors STORE_WATCH side effects so
   \`written(var)\` / \`changed(var)\` fire correctly. VM scans bytecode at load
