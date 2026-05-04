@@ -567,7 +567,10 @@ function setConn(ok) {
 // ─── TRANSMISSION CONTROL ────────────────────────────────────────────────────
 function startSending() {
   if (sendTimer || modbusRunning || t510Running) return;
-  if (isTcpProfile() || isModbusRtu() || isT510()) return;  // handled by setConn / auto-slave
+  // Kamstrup (in bridge mode) also runs server-side — the Python state
+  // machine watches the RX stream for poll frames and answers them. Browser
+  // doesn't push frames here.
+  if (isTcpProfile() || isModbusRtu() || isT510() || isKamstrup()) return;
   const proto = document.getElementById('selProto').value;
   const iv = +document.getElementById('selInterval').value;
   sendFrame();
@@ -1887,33 +1890,41 @@ function ksCRC(bytes) {
   return crc & 0xFFFF;
 }
 
-// Encode a numeric value into Kamstrup kstr bytes [unit, len, exp, mantissa…].
-// Picks an exponent that captures up to 6 decimal places without overflowing
-// the configured mantissa byte count.
-function kstrEncode(value, mantLen) {
-  const negVal = value < 0;
-  let v = Math.abs(value);
-  let exp = 0;
-  // Scale up via negative exponent until value is integral (or exp floor hit).
-  while (v > 0 && Math.abs(v - Math.round(v)) > 1e-9 && exp > -6) {
-    v *= 10;
-    exp -= 1;
-  }
-  let mant = Math.round(v);
-  // Overflow guard: if mantissa won't fit in mantLen bytes, scale down.
+// Encode an INTEGER mantissa into Kamstrup kstr bytes [unit, len, exp=0, mant…].
+//
+// IMPORTANT: we always use exp=0 here (positive only). The Tasmota kstr decoder
+// at xsns_53_sml.ino:2431 has a bug:
+//
+//     int32_t i = cp[2] & 0x3f;
+//     if (cp[2] & 0x40) i = -i;            // ← i now signed (can be negative)
+//     float ifl = 1;
+//     for (uint16_t x = 1; x <= i; ++x)    // ← `1 <= i` is FALSE when i<0
+//       ifl *= 10;                         // ← loop runs 0 times for negative exp
+//
+// Negative exponents are silently dropped — `ifl` stays at 1, so a value
+// encoded as mantissa=2304 / exp=-1 (intended 230.4 V) decodes as 2304.
+// To stay correct, encode the actual integer mantissa with exp=0 and let
+// the descriptor's `@i0:DIVISOR` handle the scaling. Convention used here:
+//   • EnergyIn:  Wh integer    → divisor 1000  → kWh
+//   • VoltageP1: dV integer    → divisor 10    → V
+//   • CurrentP1: cA integer    → divisor 100   → A
+//   • PowerIN:   W integer     → divisor 1     → W
+function kstrEncode(intMant, mantLen) {
+  const negVal = intMant < 0;
+  const mant = (Math.abs(Math.round(intMant)) >>> 0);
   const maxMant = Math.pow(2, mantLen * 8);
-  while (mant >= maxMant) {
-    mant = Math.floor(mant / 10);
-    exp += 1;
+  if (mant >= maxMant) {
+    // Overflow guard: clamp to maxMant-1 rather than crash; caller should
+    // pick a larger mantLen. Returning a clamped value is bad enough to
+    // notice (huge meter reading) without breaking the wire frame.
+    console.warn(`kstrEncode overflow: ${intMant} > ${maxMant - 1} for mantLen=${mantLen}`);
   }
-  let expByte = Math.abs(exp) & 0x3F;
-  if (exp < 0)  expByte |= 0x40;   // negative exponent → bit 6
-  if (negVal)   expByte |= 0x80;   // negative value    → bit 7
+  const clamped = Math.min(mant, maxMant - 1);
+  let expByte = 0x00;                 // exp = 0 (avoid driver's neg-exp bug)
+  if (negVal) expByte |= 0x80;        // value sign  → bit 7
   const mantBytes = [];
-  for (let i = mantLen - 1; i >= 0; i--) {
-    mantBytes.push((mant >>> (i * 8)) & 0xFF);
-  }
-  return [0x00, mantLen, expByte, ...mantBytes];   // unit byte = 0 (driver ignores it)
+  for (let i = mantLen - 1; i >= 0; i--) mantBytes.push((clamped >>> (i * 8)) & 0xFF);
+  return [0x00, mantLen, expByte, ...mantBytes];
 }
 
 // Apply Kamstrup byte-stuffing to a payload (before wrapping with 0x40/0x0d).
@@ -1931,35 +1942,42 @@ function ksStuff(bytes) {
 
 function buildKSFrame() {
   // Test values — slightly varying so the receiver's MQTT shows movement.
+  // Pre-scaled to integer-mantissa form (descriptor divisor brings them
+  // back to physical units): see kstrEncode comment for the bug-avoidance
+  // rationale.
   const tick = Math.floor(Date.now() / 1000);
   const wobble = Math.sin(tick / 30);                                // ±1 cycle / 30 s
   const energyKwh = 12345.678 + Math.floor(tick / 60) / 1000;        // creeps up ~1 Wh/min
   const voltageL1 = 230.0 + wobble * 1.5;                            // 228.5 .. 231.5 V
   const currentL1 = Math.max(0.05, 1.20 + wobble * 0.10);            // ~1.10 .. 1.30 A
-  const powerW    = Math.round(currentL1 * voltageL1 * Math.cos(0)); // ~270 .. 290 W
+  const powerW    = Math.round(currentL1 * voltageL1);               // ~270 .. 290 W
 
-  // Build the payload: 0x3F 0x10 + 4 register blocks (all 4-byte mantissa
-  // for uniform 9-byte-per-register layout, which simplifies the descriptor's
-  // skip arithmetic). Register order MUST match the descriptor's pattern
-  // skip indices (reg N at sbuff[2 + 9*N]).
+  // Build the payload: 0x3F 0x10 + 4 register blocks. All 4-byte mantissas
+  // for uniform 9-byte-per-register layout (simplifies descriptor skip
+  // arithmetic). Register order MUST match the descriptor: reg N starts at
+  // sbuff[2 + 9*N].
+  //
+  // Mantissa pre-scaling (integer, exp=0, divisor in descriptor):
+  //   EnergyIn  → Wh        (descriptor /1000 → kWh)
+  //   VoltageP1 → dV ×0.1   (descriptor /10   → V)
+  //   CurrentP1 → cA ×0.01  (descriptor /100  → A)
+  //   PowerIN   → W         (descriptor /1    → W)
   const payload = [0x3F, 0x10];
   const registers = [
-    { addr: 0x0001, value: energyKwh,  mantLen: 4 },   // EnergyIn   (kWh)
-    { addr: 0x041E, value: voltageL1,  mantLen: 4 },   // VoltageP1  (V)
-    { addr: 0x0434, value: currentL1,  mantLen: 4 },   // CurrentP1  (A)
-    { addr: 0x03FF, value: powerW,     mantLen: 4 },   // PowerIN    (W, signed)
+    { addr: 0x0001, mant: Math.round(energyKwh * 1000), mantLen: 4 },   // Wh
+    { addr: 0x041E, mant: Math.round(voltageL1 * 10),   mantLen: 4 },   // dV
+    { addr: 0x0434, mant: Math.round(currentL1 * 100),  mantLen: 4 },   // cA
+    { addr: 0x03FF, mant: Math.round(powerW),           mantLen: 4 },   // W (signed)
   ];
   for (const r of registers) {
     payload.push((r.addr >> 8) & 0xFF, r.addr & 0xFF);
-    payload.push(...kstrEncode(r.value, r.mantLen));
+    payload.push(...kstrEncode(r.mant, r.mantLen));
   }
 
-  // Append CRC: driver's KS_calculateCRC consumes (payload + 2 zero bytes)
-  // and we replace those 2 placeholders with the CRC big-endian.
+  // CRC: driver's KS_calculateCRC consumes (payload + 2 zero bytes); we
+  // replace those placeholders with the CRC big-endian.
   const crc = ksCRC([...payload, 0x00, 0x00]);
   payload.push((crc >> 8) & 0xFF, crc & 0xFF);
-
-  // Stuff + frame-wrap.
   return [0x40, ...ksStuff(payload), 0x0d];
 }
 
@@ -2176,6 +2194,7 @@ function get3ph() {
 }
 
 function isT510() { return document.getElementById('selProfile').value === 't510'; }
+function isKamstrup() { return document.getElementById('selProfile').value === 'kamstrup_kx7'; }
 
 function isTcpProfile() {
   return document.getElementById('selProfile').value.endsWith('_tcp');
@@ -2188,11 +2207,17 @@ function isModbusRtu() {
 function applyTxPanel() {
   const mb = isModbusRtu();
   const t5 = isT510();
+  const ks = isKamstrup();
+  // Kamstrup, like T510, runs entirely server-side (poll/response state
+  // machine in sml_emulator_server.py). Browser only pushes register values
+  // via /api/regs — no manual interval push, no Start button → swap to the
+  // status panel that says "Python state machine active".
+  const auto = mb || t5 || ks;
   const showWreg = mb || isTcpProfile();
   const enc = document.getElementById('selProto').value === 'sml_enc';
-  document.getElementById('txIntervalRow').style.display  = (mb || t5) ? 'none' : '';
-  document.getElementById('txTimerPanel').style.display   = (mb || t5) ? 'none' : '';
-  document.getElementById('txModbusPanel').style.display  = (mb || t5) ? '' : 'none';
+  document.getElementById('txIntervalRow').style.display  = auto ? 'none' : '';
+  document.getElementById('txTimerPanel').style.display   = auto ? 'none' : '';
+  document.getElementById('txModbusPanel').style.display  = auto ? '' : 'none';
   document.getElementById('wregPanel').style.display      = showWreg ? '' : 'none';
   document.getElementById('cryptPanel').style.display     = enc ? '' : 'none';
   if (showWreg) buildWregRows();
@@ -2405,9 +2430,12 @@ function buildMeterDefContent() {
     // (count=1, request reg 0001) — emulator ignores it but driver needs
     // at least one TX entry to validate the descriptor.
     s += `+1,${gpio},k,0,9600,${meterName},${trxPin},10,3F100100010001\n`;
-    s += `1,3F100001kstr@i0:1,EnergyIn,kWh,EnergyIn,3\n`;
-    s += `1,3F10x8xx041Ekstr@i0:1,VoltageP1,V,VoltageP1,1\n`;
-    s += `1,3F10x17xx0434kstr@i0:1,CurrentP1,A,CurrentP1,2\n`;
+    // Divisors compensate for the integer-mantissa pre-scaling done by
+    // buildKSFrame (kstr exp is always 0 to dodge the driver's negative-
+    // exponent bug at xsns_53_sml.ino:2431). See kstrEncode comment.
+    s += `1,3F100001kstr@i0:1000,EnergyIn,kWh,EnergyIn,3\n`;
+    s += `1,3F10x8xx041Ekstr@i0:10,VoltageP1,V,VoltageP1,1\n`;
+    s += `1,3F10x17xx0434kstr@i0:100,CurrentP1,A,CurrentP1,2\n`;
     s += `1,3F10x26xx03FFkstr@i0:1,PowerIN,W,PowerIN,0\n`;
     s += `#\n`;
     return s;

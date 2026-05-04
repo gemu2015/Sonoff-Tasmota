@@ -86,6 +86,14 @@ t510_serial  = 'T510001'
 t510_thread  = None
 t510_stop    = False
 
+# Kamstrup mode (similar to T510 but for Kamstrup OMNIPOWER / K382 / Kx7
+# poll/response protocol). The browser-side `port.readable.getReader()` is
+# unavailable under the bridge, and Kamstrup REQUIRES request/response, so
+# we run the entire protocol server-side.
+ks_running = False
+ks_thread  = None
+ks_stop    = False
+
 def serial_reader():
     global serial_port
     while True:
@@ -395,6 +403,208 @@ def t510_stop_runner():
     t510_running = False
     # Thread exits at its next wait/poll boundary; daemon flag cleans up on exit.
 
+# ── Kamstrup OMNIPOWER (Kx7) poll/response state machine ─────────────────────
+#
+# Real Kamstrup electric meters speak a proprietary request/response protocol.
+# The Tasmota driver TX-es a poll like 3F100100010001... every `tsecs` seconds
+# (descriptor's `,10,...` field). The meter answers with a frame containing the
+# requested register values. We mirror that dialog here so the emulator looks
+# like a real meter on the wire.
+#
+# Wire framing (both directions):
+#   master → meter:   0x80 [stuffed payload] 0x0d
+#   meter → master:   0x40 [stuffed payload] 0x0d
+# Byte stuffing (any byte in {0x80, 0x40, 0x0d, 0x06, 0x1b}):
+#                     b   →   0x1b  (b XOR 0xff)
+# CRC: CRC-16, polynomial 0x1021, init 0, augmented mode (computed over
+#      payload + 2 zero placeholders, then those placeholders are replaced
+#      with the CRC big-endian).
+#
+# kstr value encoding (per register in payload after [reg_hi reg_lo]):
+#   [unit] [mantLen] [exp_signs] [mant_BE × mantLen]
+#   exp_signs bits:  7 = value sign,  6 = exp sign,  5..0 = |exp|
+# IMPORTANT: We always emit exp=0 because Tasmota's kstr decoder
+# (xsns_53_sml.ino:2431) silently drops negative exponents — its loop
+# `for (uint16_t x = 1; x <= i; ++x)` runs 0 times when i<0, so ifl stays
+# at 1 and the negative scaling is lost. By emitting integer mantissa with
+# exp=0 and letting the descriptor's `@i0:DIVISOR` rescale, we sidestep
+# the bug entirely.
+
+# Register address → (browser-supplied reg_bank key, scale_int_factor)
+# scale_int_factor pre-multiplies the float value to make an integer mantissa
+# matching the descriptor's divisor. Voltage 230.4 V × 10 = 2304 (dV);
+# descriptor `@i0:10` brings it back to 230.4 V.
+KS_REGS = {
+    0x0001: ('ks_energy_kWh', 1000),  # kWh × 1000 → mWh integer; descriptor /1000
+    0x041E: ('ks_vL1',        10),    # V × 10     → dV integer;   descriptor /10
+    0x0434: ('ks_iL1',        100),   # A × 100    → cA integer;   descriptor /100
+    0x03FF: ('ks_powerW',     1),     # W           → W integer;    descriptor /1
+}
+
+def _ks_crc(data):
+    """CRC-16 (poly 0x1021, init 0, no XOR-out, augmented). Matches the C
+    KS_calculateCRC at xsns_53_sml.ino:4985 byte-for-byte."""
+    crc = 0
+    for b in data:
+        mask = 0x80
+        while mask:
+            crc <<= 1
+            if b & mask:
+                crc |= 1
+            mask >>= 1
+            if crc & 0x10000:
+                crc &= 0xFFFF
+                crc ^= 0x1021
+        crc &= 0xFFFFFFFF
+    return crc & 0xFFFF
+
+def _ks_unstuff(stuffed):
+    """Undo byte stuffing: 0x1b XX → (XX XOR 0xff)."""
+    out = bytearray()
+    i = 0
+    while i < len(stuffed):
+        if stuffed[i] == 0x1b and i + 1 < len(stuffed):
+            out.append(stuffed[i + 1] ^ 0xFF)
+            i += 2
+        else:
+            out.append(stuffed[i])
+            i += 1
+    return bytes(out)
+
+def _ks_stuff(raw):
+    out = bytearray()
+    for b in raw:
+        if b in (0x80, 0x40, 0x0d, 0x06, 0x1b):
+            out.append(0x1b)
+            out.append(b ^ 0xFF)
+        else:
+            out.append(b)
+    return bytes(out)
+
+def _ks_kstr_encode_int(int_mant, mant_len=4):
+    """Encode integer mantissa with exp=0 (works around C decoder neg-exp bug).
+    Returns [unit, len, exp_byte, mant_BE...]."""
+    neg = int_mant < 0
+    m   = abs(int(round(int_mant)))
+    cap = (1 << (mant_len * 8)) - 1
+    if m > cap:
+        log_entry('warn', f'KS: mantissa {int_mant} exceeds {cap} for {mant_len}B — clamping')
+        m = cap
+    exp_byte = 0x80 if neg else 0x00
+    out = [0x00, mant_len, exp_byte]
+    for i in range(mant_len - 1, -1, -1):
+        out.append((m >> (i * 8)) & 0xFF)
+    return out
+
+def _ks_get_value(reg_addr):
+    """Look up a register's integer mantissa from the browser-pushed reg_bank.
+    Returns 0 if the register hasn't been mapped or the bank entry is missing."""
+    spec = KS_REGS.get(reg_addr)
+    if not spec:
+        return 0
+    key, scale = spec
+    with state_lock:
+        v = float(reg_bank.get(key, 0.0))
+    return int(round(v * scale))
+
+def _ks_build_response(reg_addrs):
+    """Build a meter→master response for the given list of register addresses.
+    The wire format is [0x40] [stuffed payload] [0x0d] where payload =
+    [3F 10] [reg_hi reg_lo + kstr] × N + [crc_hi crc_lo]."""
+    payload = bytearray([0x3F, 0x10])
+    for addr in reg_addrs:
+        payload.append((addr >> 8) & 0xFF)
+        payload.append(addr & 0xFF)
+        payload.extend(_ks_kstr_encode_int(_ks_get_value(addr), 4))
+    crc = _ks_crc(bytes(payload) + b'\x00\x00')
+    payload.append((crc >> 8) & 0xFF)
+    payload.append(crc & 0xFF)
+    return bytes([0x40]) + _ks_stuff(bytes(payload)) + bytes([0x0d])
+
+def _ks_decode_poll(stuffed_body):
+    """Decode a master→meter poll body (already stripped of 0x80/0x0d framing).
+    Returns list of requested register addresses, or None on CRC failure.
+
+    Poll payload structure:  3F 10 [count] [reg_hi reg_lo] × count [crc_hi crc_lo]
+    """
+    body = _ks_unstuff(stuffed_body)
+    if len(body) < 6 or body[0] != 0x3F or body[1] != 0x10:
+        return None
+    if _ks_crc(body) != 0:
+        return None
+    count = body[2]
+    if len(body) < 3 + count * 2 + 2:
+        return None
+    addrs = []
+    for i in range(count):
+        hi = body[3 + i * 2]
+        lo = body[4 + i * 2]
+        addrs.append((hi << 8) | lo)
+    return addrs
+
+def _ks_runner():
+    """Watch rx_buf for 0x80...0x0d poll frames, decode, respond."""
+    global rx_buf
+    log_entry('info', 'Kamstrup state machine started (push reg values via /api/regs)')
+    accum = bytearray()       # bytes between current 0x80 and 0x0d
+    in_frame = False
+    try:
+        while not ks_stop:
+            with state_lock:
+                chunk = bytes(rx_buf)
+                rx_buf.clear()
+            if not chunk:
+                time.sleep(0.02)
+                continue
+            for b in chunk:
+                if b == 0x80:           # frame start (master → meter)
+                    in_frame = True
+                    accum.clear()
+                elif b == 0x0d and in_frame:
+                    body = bytes(accum)
+                    accum.clear()
+                    in_frame = False
+                    log_entry('rx', f'KS poll  {len(body)+2}B  80 {body.hex(" ")} 0d')
+                    addrs = _ks_decode_poll(body)
+                    if addrs is None:
+                        log_entry('warn', 'KS poll: CRC fail or malformed — ignoring')
+                        continue
+                    log_entry('info', f'KS poll: {len(addrs)} reg(s) requested: '
+                              + ', '.join(f'0x{a:04X}' for a in addrs))
+                    resp = _ks_build_response(addrs)
+                    with state_lock:
+                        p = serial_port
+                    if p and p.is_open:
+                        try:
+                            p.write(resp)
+                            log_entry('tx', f'KS resp  {len(resp)}B  {resp.hex(" ")}')
+                        except Exception as e:
+                            log_entry('err', f'KS write: {e}')
+                elif in_frame:
+                    accum.append(b)
+                # else: byte outside any frame (could be device's own echo
+                # or noise) — silently dropped
+    except Exception as e:
+        log_entry('err', f'KS runner exception: {e}')
+    finally:
+        log_entry('info', 'Kamstrup state machine stopped')
+
+def kamstrup_start():
+    global ks_running, ks_thread, ks_stop
+    if ks_running:
+        return
+    ks_stop    = False
+    ks_running = True
+    ks_thread  = threading.Thread(target=_ks_runner, daemon=True)
+    ks_thread.start()
+
+def kamstrup_stop_runner():
+    global ks_running, ks_stop
+    if not ks_running:
+        return
+    ks_stop    = True
+    ks_running = False
+
 # ── Modbus TCP slave ───────────────────────────────────────────────────────────
 def modbus_tcp_server():
     global tcp_clients
@@ -635,7 +845,8 @@ stopSending = function() {
   _origStopSending();
   // Original sets btnStart.disabled=(port===null); port is always null in bridge.
   // Re-enable Start if still connected (writer set) and not in auto-slave mode.
-  if (writer && !isModbusRtu() && !isT510()) {
+  // Kamstrup also auto-runs server-side — keep Start disabled there.
+  if (writer && !isModbusRtu() && !isT510() && !isKamstrup()) {
     document.getElementById('btnStart').disabled = false;
   }
 };
@@ -668,11 +879,12 @@ computeLiveValues = function() {
   const pOut    = Math.max(0, _numVal('vPowerOut'));
   const fBase   = _numVal('vFreq') || 50;
   const pct     = +document.getElementById('selFluct').value || 0;
+  const iL1 = vL1Base > 0 ? pL1 / vL1Base : 0;
   const regs = {
     0x0000: vL1Base,
     0x0002: vL2Base,
     0x0004: vL3Base,
-    0x0006: vL1Base > 0 ? pL1 / vL1Base : 0,
+    0x0006: iL1,
     0x0008: vL2Base > 0 ? pL2 / vL2Base : 0,
     0x000A: vL3Base > 0 ? pL3 / vL3Base : 0,
     0x000C: pL1,
@@ -683,6 +895,15 @@ computeLiveValues = function() {
     0x0046: Math.sqrt(3) * vL1Base,
     0x0048: live.energyIn,   // energy accumulates — passed through, no jitter
     0x004A: live.energyOut,
+    // Kamstrup state machine (server-side _ks_runner) reads these named
+    // keys when assembling poll responses. Storing alongside Modbus regs
+    // (which use numeric keys) — Python /api/regs handler routes by key
+    // type. Values are float; the server converts to integer mantissa using
+    // KS_REGS scale factors.
+    'ks_energy_kWh': live.energyIn,
+    'ks_vL1':        vL1Base,
+    'ks_iL1':        iL1,
+    'ks_powerW':     pIn - pOut,
     _fluct_pct: pct
   };
   fetch(BASE + '/api/regs', {
@@ -698,8 +919,9 @@ computeLiveValues = function() {
 // build OBIS telegrams, so we must keep pushing base values for it to see.
 setInterval(() => {
   if (isTcpProfile()
-      || (typeof isModbusRtu === 'function' && isModbusRtu())
-      || (typeof isT510     === 'function' && isT510())) {
+      || (typeof isModbusRtu  === 'function' && isModbusRtu())
+      || (typeof isT510       === 'function' && isT510())
+      || (typeof isKamstrup   === 'function' && isKamstrup())) {
     computeLiveValues();
   }
 }, 1000);
@@ -884,8 +1106,11 @@ class Handler(BaseHTTPRequestHandler):
             # the port (see BRIDGE_SCRIPT btnConnect override).
             if body.get('profile') == 't510':
                 t510_start(body.get('serial') or 'T510001')
+            elif body.get('profile') == 'kamstrup_kx7':
+                kamstrup_start()
         elif path == '/api/close':
             t510_stop_runner()
+            kamstrup_stop_runner()
             self._close_serial()
             self._json({'ok': True})
         elif path == '/api/send':
@@ -900,7 +1125,15 @@ class Handler(BaseHTTPRequestHandler):
                     if k == '_fluct_pct':
                         fluct_pct = float(v) if v is not None else 0.0
                         continue
-                    reg_bank[int(k)] = float(v) if v is not None else 0.0
+                    fv = float(v) if v is not None else 0.0
+                    # Modbus uses int register addresses; Kamstrup (and any
+                    # future named-register bank) uses string keys. Accept
+                    # both — int-coerce numeric strings, fall back to string
+                    # storage for non-numeric keys.
+                    try:
+                        reg_bank[int(k)] = fv
+                    except (ValueError, TypeError):
+                        reg_bank[k] = fv
             self._json({'ok': True})
         elif path == '/api/shutdown':
             self._json({'ok': True})
