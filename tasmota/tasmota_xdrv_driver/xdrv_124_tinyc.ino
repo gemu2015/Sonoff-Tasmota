@@ -1316,7 +1316,14 @@ static void HandleTinyCPage(void) {
             WiFiClient http_client;
             HTTPClient http;
 #endif
+#ifdef ESP32
+            // ESP32 HTTPClient + HTTPClientLight both expose setConnectTimeout
+            // (bounds the TCP connect + TLS handshake phase). ESP8266's
+            // ESP8266HTTPClient class doesn't have it, so we rely on
+            // setTimeout alone there — sufficient since ESP8266 builds
+            // generally use plain HTTP (no TLS handshake to bound).
             http.setConnectTimeout(TC_REPO_FETCH_MS);
+#endif
             http.setTimeout(TC_REPO_FETCH_MS);
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
             bool begun = http.begin(idx_url);

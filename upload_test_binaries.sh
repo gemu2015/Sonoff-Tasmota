@@ -127,11 +127,13 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
   as opt-in convenience for users who prefer hardware init separated
   from main(); not required for correctness now that 1.3.36 fixed the
   underlying race.
-- **\`sprintf\` \`%%\` escape fix in float path (1.3.22)** — \`sprintf(buf,
-  "%d %% (%.2f kWh)", pct, kwh)\` used to render \`"85 %% (12.98 kWh)"\`
-  on float-path formatters because the byte-walk loop didn't collapse
-  \`%%\` pairs to a single \`%\`. Fixed in both prefix and suffix copy
-  loops. Int-only paths were already correct.
+- **\`sprintf\` \`%%\` escape fix in float path (1.3.22)** — a format string
+  with \`%%\` adjacent to a float spec used to render the literal pair
+  unescaped (e.g. \`85 %% (12.98 kWh)\` instead of \`85 % (12.98 kWh)\`).
+  The byte-walk loop in tc_sprintf_float copies prefix/suffix bytes
+  verbatim around the float-spec replacement; both copy loops now
+  collapse \`%%\` pairs to a single \`%\`. Int-only paths were already
+  correct (they use real snprintf).
 - **WebCall / JsonCall no longer skipped during spawnTask busy windows** —
   TinyCShow had a racy \`s->vm.halted\` pre-check that returned without
   invoking the callback when a worker was mid-syscall (e.g. tcpConnect
