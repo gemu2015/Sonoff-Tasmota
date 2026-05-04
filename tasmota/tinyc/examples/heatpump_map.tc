@@ -143,8 +143,16 @@ int  long_call_warns    = 0;   // count of >1 s events of any kind
 // Disable from console: MBUSWDOG OFF (sets wdog_loop_enable=0).
 // Enable:               MBUSWDOG ON
 #define WDOG_LOOP_REBOOT_MS 60000   // 60 s — well past any legit blocker
-int wdog_loop_enable    = 1;        // 1 = active, 0 = off (toggle via cmd)
-int wdog_loop_trips     = 0;        // count of restarts forced by this wdog
+int  wdog_loop_enable    = 1;        // 1 = active, 0 = off (toggle via cmd)
+// Persist across reboots so the trip counter survives our own forced
+// restart. saveVars() called explicitly in the wdog handler before the
+// Restart 1 fires — without that, the auto-save-on-stop path doesn't
+// run because Tasmota's restart-shutdown is dispatched on the (hung)
+// loop task. Last-trip timestamp + duration give us a record of WHEN
+// each freeze happened so we can correlate with user activity.
+persist int wdog_loop_trips        = 0;   // total trips since deploy
+persist int wdog_last_silent_ms    = 0;   // duration of the last detected silence
+persist int wdog_last_trip_uptime  = 0;   // tasm_uptime at last trip (seconds since boot of THAT boot — informational)
 
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
@@ -684,15 +692,20 @@ void TaskLoop() {
     if (wdog_loop_enable && last_50ms_run_ms > 0) {
         int loop_silent_ms = millis() - last_50ms_run_ms;
         if (loop_silent_ms > WDOG_LOOP_REBOOT_MS) {
-            wdog_loop_trips = wdog_loop_trips + 1;
-            // addLog will succeed (runs on this task); log + restart.
+            wdog_loop_trips       = wdog_loop_trips + 1;
+            wdog_last_silent_ms   = loop_silent_ms;
+            wdog_last_trip_uptime = tasm_uptime;
+            // Persist updated counters BEFORE forcing the reboot — the
+            // auto-save-on-stop path won't run because Tasmota's
+            // shutdown dispatches on the (hung) loop task.
+            saveVars();
             sprintf(g_tmp, "WDOG ⚠ loop task silent for %d ms — forcing Restart 1 (trips=%d)",
                     loop_silent_ms, wdog_loop_trips);
             addLog(g_tmp);
-            // Brief delay so the log message has a chance to flush over
-            // serial before reboot. Web/MQTT are dead anyway during the
-            // hang so log access goes only via console UART.
-            delay(200);
+            // Longer delay so the log message has a chance to reach
+            // serial console (web log is RAM-only and doesn't survive
+            // the reboot — only serial console captures these warnings).
+            delay(500);
             char wdog_resp[16];
             tasmCmd("Restart 1", wdog_resp);
             // Restart 1 is async; sleep until it actually fires.
@@ -1444,8 +1457,12 @@ void Command(char cmd[]) {
             else                  strcpy(wlabel, "OFF");
             int silent = -1;
             if (last_50ms_run_ms > 0) silent = millis() - last_50ms_run_ms;
-            sprintf(g_resp, "WDOG %s, trips=%d, last_loop_silent_ms=%d",
-                    wlabel, wdog_loop_trips, silent);
+            // wdog_last_trip_uptime is from the BOOT THAT TRIPPED, so
+            // showing seconds-into-boot tells us "how long was the
+            // device alive before the trip" historically.
+            sprintf(g_resp, "WDOG %s, trips=%d, current_silent_ms=%d, last_trip: silent=%d ms after %d s of uptime",
+                    wlabel, wdog_loop_trips, silent,
+                    wdog_last_silent_ms, wdog_last_trip_uptime);
             responseCmnd(g_resp);
             return;
         }
