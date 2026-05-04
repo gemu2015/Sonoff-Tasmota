@@ -147,6 +147,7 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <option value="resol_bsplus">Resol Deltasol BS Plus — solar controller (VBus)</option>
         <option value="wolf_csz">Wolf CSZ 11/300 — heater (EBus)</option>
         <option value="sensus_polf">Sensus Pollucom F — heat meter (M-Bus)</option>
+        <option value="kamstrup_kx7">Kamstrup OMNIPOWER (Kx7) — electric meter (Kamstrup poll/resp)</option>
         <option value="ehz363_3ph">3-phase SML (generic)</option>
         <option value="iskra_mt174">ISKRA MT174 — 3-phase (OBIS)</option>
         <option value="obis_1ph">Generic OBIS 1-phase</option>
@@ -650,6 +651,9 @@ async function sendFrame() {
       data = new Uint8Array(bytes);
     } else if (proto === 'mbus') {
       const bytes = buildMBusFrame();
+      data = new Uint8Array(bytes);
+    } else if (proto === 'kamstrup') {
+      const bytes = buildKSFrame();
       data = new Uint8Array(bytes);
     } else {
       data = new TextEncoder().encode(buildOBISAscii());
@@ -1831,6 +1835,134 @@ function buildMBusFrame() {
   return [0x68, len, len, 0x68, ...body, cs, 0x16];
 }
 
+// ─── KAMSTRUP BUILDER (OMNIPOWER / K382 / Kx7 electric meter) ────────────────
+//
+// Kamstrup uses a proprietary poll/response protocol. Each meter→device frame:
+//
+//   0x40                 start byte (resets driver's receive buffer)
+//   <stuffed payload>    0x80/40/0d/06/1b → 0x1b + (b XOR 0xff)
+//   0x0d                 end byte (triggers driver's SML_Decode)
+//
+// Pre-stuffing payload structure for our response frame:
+//
+//   3F 10                 standard response header
+//   For each register:
+//     [reg_hi reg_lo]     2-byte register address (big-endian)
+//     [unit len exp mant…] kstr value (see below)
+//   [crc_hi crc_lo]       CRC-16 (poly 0x1021, init 0) over (payload+0x00 0x00),
+//                         appended big-endian
+//
+// kstr value codec (per xsns_53_sml.ino:2416-2437 reverse-engineered):
+//   cp[0]      unit/register-type byte (Tasmota ignores its value)
+//   cp[1]      mantissa byte count (1..4 typical)
+//   cp[2]      exponent byte:
+//                bit 7 = value sign (1 → negate result)
+//                bit 6 = exponent sign (1 → negate exponent)
+//                bits 5..0 = |exponent|
+//   cp[3..]    mantissa bytes, big-endian
+//   value = (-1)^cp[2].b7 × mantissa × 10^((-1)^cp[2].b6 × |exp|)
+//
+// Push-only operation: the device's polls (sent on its trxpin every `tsecs`
+// per the descriptor) go unanswered — we just push response frames at our
+// own cadence. The `@i0:1` patterns in the descriptor only match when the
+// device's request-cycle index == 0; with a single-request descriptor
+// (max_index=1) the index is pinned at 0 forever, so every push gets parsed.
+
+// CRC-16 (poly 0x1021, init 0, no XOR-out, no reflection) — port of
+// KS_calculateCRC at xsns_53_sml.ino:4985.
+function ksCRC(bytes) {
+  let crc = 0;
+  for (const b of bytes) {
+    let mask = 0x80;
+    while (mask) {
+      crc = (crc << 1) >>> 0;
+      if (b & mask) crc |= 1;
+      mask >>= 1;
+      if (crc & 0x10000) {
+        crc &= 0xFFFF;
+        crc ^= 0x1021;
+      }
+    }
+  }
+  return crc & 0xFFFF;
+}
+
+// Encode a numeric value into Kamstrup kstr bytes [unit, len, exp, mantissa…].
+// Picks an exponent that captures up to 6 decimal places without overflowing
+// the configured mantissa byte count.
+function kstrEncode(value, mantLen) {
+  const negVal = value < 0;
+  let v = Math.abs(value);
+  let exp = 0;
+  // Scale up via negative exponent until value is integral (or exp floor hit).
+  while (v > 0 && Math.abs(v - Math.round(v)) > 1e-9 && exp > -6) {
+    v *= 10;
+    exp -= 1;
+  }
+  let mant = Math.round(v);
+  // Overflow guard: if mantissa won't fit in mantLen bytes, scale down.
+  const maxMant = Math.pow(2, mantLen * 8);
+  while (mant >= maxMant) {
+    mant = Math.floor(mant / 10);
+    exp += 1;
+  }
+  let expByte = Math.abs(exp) & 0x3F;
+  if (exp < 0)  expByte |= 0x40;   // negative exponent → bit 6
+  if (negVal)   expByte |= 0x80;   // negative value    → bit 7
+  const mantBytes = [];
+  for (let i = mantLen - 1; i >= 0; i--) {
+    mantBytes.push((mant >>> (i * 8)) & 0xFF);
+  }
+  return [0x00, mantLen, expByte, ...mantBytes];   // unit byte = 0 (driver ignores it)
+}
+
+// Apply Kamstrup byte-stuffing to a payload (before wrapping with 0x40/0x0d).
+function ksStuff(bytes) {
+  const out = [];
+  for (const b of bytes) {
+    if (b === 0x80 || b === 0x40 || b === 0x0d || b === 0x06 || b === 0x1b) {
+      out.push(0x1b, b ^ 0xff);
+    } else {
+      out.push(b);
+    }
+  }
+  return out;
+}
+
+function buildKSFrame() {
+  // Test values — slightly varying so the receiver's MQTT shows movement.
+  const tick = Math.floor(Date.now() / 1000);
+  const wobble = Math.sin(tick / 30);                                // ±1 cycle / 30 s
+  const energyKwh = 12345.678 + Math.floor(tick / 60) / 1000;        // creeps up ~1 Wh/min
+  const voltageL1 = 230.0 + wobble * 1.5;                            // 228.5 .. 231.5 V
+  const currentL1 = Math.max(0.05, 1.20 + wobble * 0.10);            // ~1.10 .. 1.30 A
+  const powerW    = Math.round(currentL1 * voltageL1 * Math.cos(0)); // ~270 .. 290 W
+
+  // Build the payload: 0x3F 0x10 + 4 register blocks (all 4-byte mantissa
+  // for uniform 9-byte-per-register layout, which simplifies the descriptor's
+  // skip arithmetic). Register order MUST match the descriptor's pattern
+  // skip indices (reg N at sbuff[2 + 9*N]).
+  const payload = [0x3F, 0x10];
+  const registers = [
+    { addr: 0x0001, value: energyKwh,  mantLen: 4 },   // EnergyIn   (kWh)
+    { addr: 0x041E, value: voltageL1,  mantLen: 4 },   // VoltageP1  (V)
+    { addr: 0x0434, value: currentL1,  mantLen: 4 },   // CurrentP1  (A)
+    { addr: 0x03FF, value: powerW,     mantLen: 4 },   // PowerIN    (W, signed)
+  ];
+  for (const r of registers) {
+    payload.push((r.addr >> 8) & 0xFF, r.addr & 0xFF);
+    payload.push(...kstrEncode(r.value, r.mantLen));
+  }
+
+  // Append CRC: driver's KS_calculateCRC consumes (payload + 2 zero bytes)
+  // and we replace those 2 placeholders with the CRC big-endian.
+  const crc = ksCRC([...payload, 0x00, 0x00]);
+  payload.push((crc >> 8) & 0xFF, crc & 0xFF);
+
+  // Stuff + frame-wrap.
+  return [0x40, ...ksStuff(payload), 0x0d];
+}
+
 // ─── OBIS ASCII BUILDER ───────────────────────────────────────────────────────
 // Format: IEC 62056-21 / D0 telegram (processed line-by-line by Tasmota type 'o')
 function buildOBISAscii() {
@@ -1984,6 +2116,19 @@ function applyProfile() {
     // [data records] / CRC / 16. Tasmota's 'r' type with shift_mode
     // catches each record header (e.g. 0C 06) as the buffer slides.
     sensus_polf: { proto:'mbus',   baud:'2400', ser:'8E1', serial:'WAERME' },
+    // Kamstrup OMNIPOWER / K382 / Kx7 series — electric meter using
+    // Kamstrup's proprietary poll/response protocol (NOT MBus or DLMS).
+    // Wire framing: 0x40 start, 0x0d end, byte-stuff 0x80/40/0d/06/1b
+    // → 0x1b XOR 0xff. Values encoded as kstr (mantissa+exponent BE).
+    // CRC-16 poly 0x1021. The real meter is poll/response: device sends
+    // a 3F10... request, meter replies with matching response. The
+    // emulator skips the poll matching entirely (Path B: push-only) —
+    // the device's polls go to /dev/null, our unsolicited response
+    // frames are decoded as if they answered. Works because the driver's
+    // case 'k' reset/process logic triggers on 0x40/0x0d framing alone.
+    // Single-request descriptor (max_index=1) keeps the device's
+    // request-cycle index pinned at 0 so all `@i0:` patterns always fire.
+    kamstrup_kx7:{ proto:'kamstrup', baud:'9600', ser:'8N1', serial:'KAMSTRUP' },
     ehz363_3ph: { proto:'sml',    baud:'9600', ser:'8N1', serial:'EHZ3P000001' },
     iskra_mt174:{ proto:'obis',   baud:'9600', ser:'7E1', serial:'ISK00987654' },
     obis_1ph:   { proto:'obis',   baud:'9600', ser:'7E1', serial:'12345678'    },
@@ -2143,6 +2288,7 @@ function buildMeterDefContent() {
     resol_bsplus:'Solar',
     wolf_csz:    'EBUS',
     sensus_polf: 'WAERME',
+    kamstrup_kx7:'KAMKx7',
     ehz363_3ph:  'EHZ3PH',
     iskra_mt174: 'ISKRA',
     obis_1ph:    'OBIS1PH',
@@ -2223,6 +2369,46 @@ function buildMeterDefContent() {
     s += `1,0a5abcd4@10,Flow temp,°C,t_flow,1\n`;
     s += `1,0a5ebcd4@10,Return temp,°C,t_return,1\n`;
     s += `1,0a62bcd4@10,Temp diff,°C,t_diff,2\n`;
+    s += `#\n`;
+    return s;
+  }
+
+  // ── Kamstrup OMNIPOWER / Kx7 — proprietary poll/response electric meter ──
+  //
+  // Single-request descriptor: max_index=1 keeps the driver's request-cycle
+  // index pinned at 0 → every `@i0:` pattern always fires when our pushed
+  // response frame is received. The trxpin (TX) is required by the driver
+  // because it WILL send the request bytes every `tsecs` seconds; the
+  // emulator just ignores them. User picks any free GPIO for trxpin via
+  // the existing TX-pin field.
+  //
+  // Response frame layout (built by buildKSFrame, 9 bytes per register):
+  //   [0..1]   3F 10                      header
+  //   [2..3]   00 01                      reg 0 addr (EnergyIn)
+  //   [4..10]  unit len exp mant×4        reg 0 kstr (4-byte mantissa)
+  //   [11..12] 04 1E                      reg 1 addr (VoltageP1)
+  //   [13..19] kstr                       reg 1 value
+  //   [20..21] 04 34                      reg 2 addr (CurrentP1)
+  //   [22..28] kstr                       reg 2 value
+  //   [29..30] 03 FF                      reg 3 addr (PowerIN)
+  //   [31..37] kstr                       reg 3 value
+  //   [38..39] CRC (BE)
+  //
+  // Skip values for pattern N (N≥1): `x{9N-1}xx` → cp += 9N total. The
+  // trailing `xx` is needed to terminate the decimal-skip count so the
+  // following hex bytes (the next register's address) parse cleanly.
+  if (profileKey === 'kamstrup_kx7') {
+    const trxPin = +document.getElementById('inpTxPin').value || 43;
+    let s = `>M 1\n`;
+    // type 'k' = Kamstrup; 9600 8N1; trxpin REQUIRED (driver TX-es polls);
+    // tsecs=10 (driver poll cadence); 1 request frame `3F100100010001`
+    // (count=1, request reg 0001) — emulator ignores it but driver needs
+    // at least one TX entry to validate the descriptor.
+    s += `+1,${gpio},k,0,9600,${meterName},${trxPin},10,3F100100010001\n`;
+    s += `1,3F100001kstr@i0:1,EnergyIn,kWh,EnergyIn,3\n`;
+    s += `1,3F10x8xx041Ekstr@i0:1,VoltageP1,V,VoltageP1,1\n`;
+    s += `1,3F10x17xx0434kstr@i0:1,CurrentP1,A,CurrentP1,2\n`;
+    s += `1,3F10x26xx03FFkstr@i0:1,PowerIN,W,PowerIN,0\n`;
     s += `#\n`;
     return s;
   }
