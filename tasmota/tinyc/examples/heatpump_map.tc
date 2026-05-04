@@ -92,6 +92,39 @@ char g_hdr[120];        // block header for render_block
 char mailer_params[140];   // full sendmail params "[*:*:*:*:*:to:subject]body"
 int  mail_pending = 0;     // 1 = TaskLoop should send, then clear
 
+// ── Watchdog-hunt instrumentation (2026-05-04) ────────────────────────────
+//
+// Mail watchdog ruled out (never fired in this user's deployment), so the
+// >5 s blocker that triggers the ESP32 RTC WDT must be elsewhere. To find
+// it we measure two complementary signals and surface the worst values
+// seen since boot in the WebCall row list:
+//
+//   1. Per-callback duration: time each hot callback (Every50ms, EverySecond,
+//      WebCall, JsonCall, TaskLoop's mailSend, hp_send_modbus). We keep the
+//      max ever seen of each — so the row that shows "Every50ms max=4321 ms"
+//      tells us exactly which callback blocked.
+//
+//   2. Inter-tick gap: time between consecutive Every50ms invocations. If
+//      that gap is >1 s, *something* held the VM mutex (or hogged CPU on
+//      the loop task) for that long. Catches blockers we forgot to wrap.
+//
+// Console command  HPLATRESET  zeros all maxima for a clean window.
+int  cb_50_max_ms       = 0;   // max duration of a single Every50ms() call
+int  cb_sec_max_ms      = 0;   // max duration of a single EverySecond() call
+int  cb_web_max_ms      = 0;   // max duration of a single WebCall() call
+int  cb_json_max_ms     = 0;   // max duration of a single JsonCall() call
+int  mail_last_ms       = 0;   // most recent mailSend duration
+int  mail_max_ms        = 0;   // longest mailSend ever
+int  mail_calls         = 0;
+int  mb_last_ms         = 0;   // most recent hp_send_modbus duration
+int  mb_max_ms          = 0;   // longest hp_send_modbus ever
+int  mb_calls           = 0;
+int  tick_gap_max_ms    = 0;   // max gap between two Every50ms invocations
+int  last_50ms_run_ms   = 0;   // when Every50ms last ran (set at TOP of fn)
+int  long_call_warns    = 0;   // count of >1 s events of any kind
+#define LONG_CALL_WARN_MS  1000   // 1 s — log a warning
+#define LONG_CALL_CRIT_MS  4000   // 4 s — log CRITICAL (1 s shy of WDT)
+
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
 int  reg[500];
@@ -418,7 +451,31 @@ void flush_frame() {
 //   1 KB UART RX buffer handles that easily.
 // ------------------------------------------------------------
 void Every50ms() {
-    if (ser < 0) return;
+    int t_50 = millis();
+    // Detect inter-tick gaps. Any value > 1000 ms tells us the VM was
+    // blocked (e.g. a long syscall, a held mutex, or another callback
+    // ran long). last_50ms_run_ms == 0 on the first invocation; skip.
+    if (last_50ms_run_ms > 0) {
+        int gap = t_50 - last_50ms_run_ms;
+        if (gap > tick_gap_max_ms) tick_gap_max_ms = gap;
+        if (gap > LONG_CALL_CRIT_MS) {
+            long_call_warns = long_call_warns + 1;
+            sprintf(g_tmp, "TICK ⚠ CRIT gap=%d ms (within %d ms of WDT)",
+                    gap, 5000 - gap);
+            addLog(g_tmp);
+        } else if (gap > LONG_CALL_WARN_MS) {
+            long_call_warns = long_call_warns + 1;
+            sprintf(g_tmp, "TICK ⚠ slow gap=%d ms", gap);
+            addLog(g_tmp);
+        }
+    }
+    last_50ms_run_ms = t_50;
+
+    if (ser < 0) {
+        int dt0 = millis() - t_50;
+        if (dt0 > cb_50_max_ms) cb_50_max_ms = dt0;
+        return;
+    }
     // Auto-disable temporary capture window
     if (log_until_ms > 0 && millis() >= log_until_ms) {
         log_on = 0;
@@ -444,6 +501,8 @@ void Every50ms() {
         flush_frame();
         buf_len = 0;
     }
+    int dt_50 = millis() - t_50;
+    if (dt_50 > cb_50_max_ms) cb_50_max_ms = dt_50;
 }
 
 // ------------------------------------------------------------
@@ -514,6 +573,8 @@ int modbus_crc16(char b[], int len) {
 // fc6=0x06 to write a holding register, fc5=0x05 to write a single coil.
 // Same 8-byte wire format, just different fc byte.
 int hp_send_modbus(int fc, int regaddr, int val) {
+    int t_mb = millis();   // instrumentation: time the whole call
+
     // Build the 8-byte FC05 / FC06 frame
     char frame[8];
     frame[0] = 1;                          // slave id
@@ -562,9 +623,20 @@ int hp_send_modbus(int fc, int regaddr, int val) {
     // recognises the frame end (8 B × ~0.6 ms = ~5 ms + 5 ms margin).
     delay(10);
     wlog_push(regaddr, val, 'M');
+
+    int dt_mb = millis() - t_mb;
+    mb_last_ms = dt_mb;
+    if (dt_mb > mb_max_ms) mb_max_ms = dt_mb;
+    mb_calls = mb_calls + 1;
+    if (dt_mb > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+    } else if (dt_mb > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+    }
+
     char m[120];
-    sprintf(m, "hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x)",
-            fc, regaddr, val, val);
+    sprintf(m, "hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x) in %d ms",
+            fc, regaddr, val, val, dt_mb);
     addLog(m);
     return 1;
 }
@@ -586,9 +658,25 @@ void TaskLoop() {
         mail_pending = 0;
         addLog("MAILER: starting send");
         addLog(mailer_params);
+        int t_mail = millis();
         int rc = mailSend(mailer_params);
-        sprintf(g_tmp, "MAILER: mailSend rc=%d", rc);
-        addLog(g_tmp);
+        int dt = millis() - t_mail;
+        mail_last_ms = dt;
+        if (dt > mail_max_ms) mail_max_ms = dt;
+        mail_calls = mail_calls + 1;
+        if (dt > LONG_CALL_CRIT_MS) {
+            long_call_warns = long_call_warns + 1;
+            sprintf(g_tmp, "MAILER ⚠ CRITICAL: mailSend took %d ms (rc=%d) — within %d ms of WDT",
+                    dt, rc, 5000 - dt);
+            addLog(g_tmp);
+        } else if (dt > LONG_CALL_WARN_MS) {
+            long_call_warns = long_call_warns + 1;
+            sprintf(g_tmp, "MAILER ⚠ slow: mailSend took %d ms (rc=%d)", dt, rc);
+            addLog(g_tmp);
+        } else {
+            sprintf(g_tmp, "MAILER: mailSend rc=%d in %d ms", rc, dt);
+            addLog(g_tmp);
+        }
     }
     delay(100);   // yield + lighten the polling load
 }
@@ -635,9 +723,19 @@ int  web_tick = 0;     // increments each WebCall poll — live indicator
 int  parse_tick_at_last_web = 0;  // reg-store activity sampled per poll
 int  reg_writes = 0;   // total store_reg() invocations since boot
 void WebCall() {
+    int t_web = millis();
     // Use global g_row instead of `char row[200]` (heap handle leak fix).
     // Tiny scratch strings (<=16) stay local since they don't use a handle.
     char st[16];
+
+    // ── Latency tripwire ROW — first thing rendered so it's always visible
+    //    even if some later sprintf throws. Maxima persist across page
+    //    refreshes and are only zeroed by HPLATRESET console command.
+    //    Each value is "max ms (last ms / total calls)" where applicable.
+    sprintf(g_row, "{s}<b style='color:#a85;'>WDT-hunt</b>{m}gap=%d  e50=%d  e1s=%d  web=%d  json=%d  mb=%d  mail=%d  warns=%d{e}",
+            tick_gap_max_ms, cb_50_max_ms, cb_sec_max_ms, cb_web_max_ms,
+            cb_json_max_ms, mb_max_ms, mail_max_ms, long_call_warns);
+    webSend(g_row);
 
     // ── Life indicator: web_tick proves the AJAX poll is firing,
     //    Δreg_writes proves the Modbus parser is still seeing frames.
@@ -746,6 +844,17 @@ void WebCall() {
         sprintf(g_row, "{s}HP Watchdog{m}%s (%d trips){e}", wst, wd_trigger_count);
         webSend(g_row);
     }
+    int dt_web = millis() - t_web;
+    if (dt_web > cb_web_max_ms) cb_web_max_ms = dt_web;
+    if (dt_web > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "WebCall ⚠ CRIT %d ms", dt_web);
+        addLog(g_tmp);
+    } else if (dt_web > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "WebCall ⚠ slow %d ms", dt_web);
+        addLog(g_tmp);
+    }
 }
 
 // ------------------------------------------------------------
@@ -753,6 +862,7 @@ void WebCall() {
 // machine-readable shape.
 // ------------------------------------------------------------
 void JsonCall() {
+    int t_json = millis();
     if (registers_known < 5) return;   // not warmed up yet
     // using global g_buf
     char sep[2];
@@ -815,6 +925,17 @@ void JsonCall() {
     sprintf(g_buf, "%s\"WdState\":%d,\"WdTrips\":%d", sep, wd_state, wd_trigger_count);
     responseAppend(g_buf);
     responseAppend("}");
+    int dt_json = millis() - t_json;
+    if (dt_json > cb_json_max_ms) cb_json_max_ms = dt_json;
+    if (dt_json > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "JsonCall ⚠ CRIT %d ms", dt_json);
+        addLog(g_tmp);
+    } else if (dt_json > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "JsonCall ⚠ slow %d ms", dt_json);
+        addLog(g_tmp);
+    }
 }
 
 // ------------------------------------------------------------
@@ -1017,6 +1138,7 @@ void WebUI() {
 // Edge-detect form buttons each second
 // ------------------------------------------------------------
 void EverySecond() {
+    int t_sec = millis();
     // ── 1-minute historian for the 4-hour Puffer / Ausgang charts ──
     // Edge-detect on tasm_minute so we sample exactly once per minute
     // regardless of how the EverySecond ticks line up with the wall
@@ -1157,6 +1279,17 @@ void EverySecond() {
             }
         }
     }
+    int dt_sec = millis() - t_sec;
+    if (dt_sec > cb_sec_max_ms) cb_sec_max_ms = dt_sec;
+    if (dt_sec > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "EverySecond ⚠ CRIT %d ms", dt_sec);
+        addLog(g_tmp);
+    } else if (dt_sec > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "EverySecond ⚠ slow %d ms", dt_sec);
+        addLog(g_tmp);
+    }
 }
 
 // ------------------------------------------------------------
@@ -1229,6 +1362,24 @@ void Command(char cmd[]) {
     // cloud's commands. r217 is just a read-only status reflection.
     //   coil 40 = 0xFF00  → pump ON
     //   coil 40 = 0x0000  → pump OFF
+    // HPLATRESET — zero all watchdog-hunt latency maxima for a fresh window
+    if (strFind(cmd, "LATRESET") == 0 && strlen(cmd) == 8) {
+        cb_50_max_ms = 0; cb_sec_max_ms = 0; cb_web_max_ms = 0;
+        cb_json_max_ms = 0; mail_max_ms = 0; mb_max_ms = 0;
+        tick_gap_max_ms = 0; long_call_warns = 0;
+        responseCmnd("LAT maxima reset");
+        return;
+    }
+    // HPLAT — print one-line latency snapshot to console + responseCmnd
+    if (strFind(cmd, "LAT") == 0 && strlen(cmd) == 3) {
+        sprintf(g_resp, "gap=%d e50=%d e1s=%d web=%d json=%d mb=%d/%d mail=%d/%d warns=%d",
+                tick_gap_max_ms, cb_50_max_ms, cb_sec_max_ms, cb_web_max_ms,
+                cb_json_max_ms, mb_max_ms, mb_calls, mail_max_ms, mail_calls,
+                long_call_warns);
+        responseCmnd(g_resp);
+        return;
+    }
+
     if (strFind(cmd, "ON") == 0 && strlen(cmd) == 2) {
         if (hp_send_modbus(0x05, 40, 0xFF00)) {
             responseCmnd("HP ON sent (FC05 coil 40 = 0xFF00)");
