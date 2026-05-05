@@ -1,0 +1,57 @@
+// test_2d_phase2.tc — Phase 2 additions over Phase 1
+//
+// Adds:
+//   • int / float 2D arrays
+//   • sprintf("...%s...", arr[i]) for 2D char arrays
+//   • passing 2D row to a UDF expecting int[]
+
+// ── int 2D — a 5×4 lookup table ──
+int   ltab[5][4];
+char  buf[64];
+
+// ── float 2D — calibration coefficients ──
+float coef[3][2];
+
+// ── char 2D (Phase 1 still works) ──
+char  msgs[3][16];
+
+void show_ints(int row[], int n) {
+    char tmp[64];
+    sprintf(tmp, "ints n=%d first=%d last=%d", n, row[0], row[n-1]);
+    addLog(tmp);
+}
+
+int main() {
+    // Fill int 2D row by row
+    for (int r = 0; r < 5; r = r + 1) {
+        for (int c = 0; c < 4; c = c + 1) {
+            ltab[r][c] = r * 10 + c;
+        }
+    }
+    sprintf(buf, "ltab[2][3]=%d ltab[4][0]=%d", ltab[2][3], ltab[4][0]);
+    addLog(buf);                       // expect 23, 40
+
+    // Pass int row to a UDF
+    show_ints(ltab[3], 4);             // 30 ... 33
+
+    // Float 2D
+    coef[0][0] = 1.5;
+    coef[0][1] = -0.25;
+    coef[1][0] = 2.0;
+    coef[1][1] = 0.5;
+    coef[2][0] = -1.0;
+    coef[2][1] = 0.125;
+    sprintf(buf, "coef[1][1]=%.3f coef[2][0]=%.3f", coef[1][1], coef[2][0]);
+    addLog(buf);                       // 0.500, -1.000
+
+    // Char 2D + sprintf %s — the main Phase 2 fix
+    strcpy(msgs[0], "alpha");
+    strcpy(msgs[1], "beta");
+    strcpy(msgs[2], "gamma");
+    for (int i = 0; i < 3; i = i + 1) {
+        sprintf(buf, "msgs[%d] = %s (len=%d)", i, msgs[i], strlen(msgs[i]));
+        addLog(buf);
+    }
+
+    return 0;
+}

@@ -1,0 +1,54 @@
+// test_2d.tc — Phase 1 2D-char-array smoke test
+//
+// Exercises:
+//   • declaration: char names[7][16]
+//   • element access: names[i][j]
+//   • row reference passed to a UDF char[] parameter (show_row)
+//   • row reference passed to strcpy / strcat / strcmp
+//
+// Out of scope (Phase 2): sprintf("%s", names[i]) — needs %s recognizer
+// to route through emitArrayRef. Use a UDF as a workaround.
+
+char names[7][16];      // 7 day names, 16 chars each = 112 chars (heap)
+char tmp[32];           // 1D control buffer
+
+void show_row(char s[]) {
+    addLog(s);          // pass row to a function expecting char[]
+}
+
+int main() {
+    strcpy(names[0], "Sonntag");
+    strcpy(names[1], "Montag");
+    strcpy(names[2], "Dienstag");
+    strcpy(names[3], "Mittwoch");
+    strcpy(names[4], "Donnerstag");
+    strcpy(names[5], "Freitag");
+    strcpy(names[6], "Samstag");
+
+    // Element-by-element access
+    char first = names[1][0];        // = 'M'
+    char third = names[1][2];        // = 'n'
+    sprintf(tmp, "names[1][0]=%c names[1][2]=%c", first, third);
+    addLog(tmp);
+
+    // Pass row (constant index) to UDF
+    show_row(names[3]);              // → "Mittwoch"
+    show_row(names[6]);              // → "Samstag"
+
+    // Pass row (variable index) to UDF in a loop
+    for (int i = 0; i < 7; i = i + 1) {
+        show_row(names[i]);
+    }
+
+    // strcat to a row
+    strcpy(tmp, "today: ");
+    strcat(tmp, names[2]);           // pass row to strcat
+    addLog(tmp);
+
+    // strcmp comparing two rows
+    int cmp = strcmp(names[1], names[2]);
+    sprintf(tmp, "Mo vs Di cmp=%d", cmp);
+    addLog(tmp);
+
+    return 0;
+}
