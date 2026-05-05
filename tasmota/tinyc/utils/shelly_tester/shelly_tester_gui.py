@@ -476,67 +476,91 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <title>Shelly / EcoTracker Tester __VERSION__ &mdash; based on ottelo's PowerShell tool</title>
 <style>
+  /* Palette aligned with sml_emulator (deep navy / blue accents).
+     Body + panels: #1a1a2e / #16213e / #0f3460 / #1a4a7a border.
+     Inputs: #0a1628 with #1a4a7a border.
+     Headlines: #7eb8f7. Subtle text: #9bb8d4 / #7a9cbf.
+     Log + JSON pane: #0a0a1a near-black. */
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #1e1e1e; color: #fff;
+  html, body { margin: 0; padding: 0; background: #1a1a2e; color: #e0e0e0;
                font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; }
   body { padding: 14px; }
   .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-  .row label { color: #b4b4b4; min-width: 110px; }
+  .row label { color: #9bb8d4; min-width: 110px; }
   input[type=text], input[type=number], textarea, select {
-    background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 5px 8px;
-    border-radius: 3px; font-family: inherit; font-size: 13px;
+    background: #0a1628; color: #e0e0e0; border: 1px solid #1a4a7a; padding: 5px 8px;
+    border-radius: 4px; font-family: inherit; font-size: 13px; outline: none;
   }
+  input:focus, select:focus, textarea:focus { border-color: #7eb8f7; }
   input.short { width: 80px; }
   input.tiny  { width: 60px; text-align: center; }
   textarea { width: 100%; min-height: 26px; }
-  button { background: #3c3c3c; color: #fff; border: 0; padding: 6px 12px;
-           border-radius: 3px; cursor: pointer; font: inherit; }
-  button:hover:not(:disabled) { background: #4a4a4a; }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  button.send  { background: #009688; }   /* UDP green */
-  button.http  { background: #3c78c8; }
-  button.ping  { background: #c8a000; }
-  button.stop  { background: #c83c3c; }
-  .indicator { font-weight: bold; color: #009688; }
-  .indicator.http { color: #3c78c8; }
-  .indicator.ping { color: #c8a000; }
-  fieldset { border: 1px solid #404040; border-radius: 4px; margin: 10px 0; padding: 10px; }
-  legend { color: #b4b4b4; padding: 0 6px; }
+  button { background: #1a2a4a; color: #9bb8d4; border: 0; padding: 6px 12px;
+           border-radius: 5px; cursor: pointer; font: inherit; font-weight: 600;
+           transition: background 0.15s; }
+  button:hover:not(:disabled) { background: #243560; }
+  button:disabled { background: #2a2a3e; color: #555; cursor: not-allowed; opacity: 1; }
+  /* Action button colours match SML emulator's btn-go/btn-primary/btn-warn/btn-stop */
+  button.send  { background: #2e7d32; color: #fff; }   /* UDP — green */
+  button.send:hover:not(:disabled)  { background: #388e3c; }
+  button.http  { background: #1565c0; color: #fff; }   /* HTTP — blue */
+  button.http:hover:not(:disabled)  { background: #1976d2; }
+  button.ping  { background: #e65100; color: #fff; }   /* Ping — orange */
+  button.ping:hover:not(:disabled)  { background: #f57c00; }
+  button.stop  { background: #b71c1c; color: #fff; }   /* Stop — red */
+  button.stop:hover:not(:disabled)  { background: #c62828; }
+  .indicator { font-weight: bold; color: #4caf50; }
+  .indicator.http { color: #4fc3f7; }
+  .indicator.ping { color: #ffb74d; }
+  fieldset { border: 1px solid #1a4a7a; border-radius: 6px; margin: 10px 0; padding: 10px;
+             background: #0f3460; }
+  legend { color: #9bb8d4; padding: 0 6px; font-weight: 600;
+           text-transform: uppercase; font-size: 0.78em; letter-spacing: 0.06em; }
   .panel { display: none; }
   .panel.active { display: block; }
-  hr { border: 0; border-top: 1px solid #464646; margin: 12px 0; }
-  .log { background: #2d2d2d; color: #64ffb4; font-family: Consolas, monospace;
-         font-size: 12.5px; padding: 8px; border-radius: 3px; height: 240px;
+  hr { border: 0; border-top: 1px solid #1a3a6a; margin: 12px 0; }
+  .log { background: #0a0a1a; color: #b2ff59; font-family: Consolas, monospace;
+         font-size: 12.5px; padding: 8px; border: 1px solid #1a3a6a;
+         border-radius: 4px; height: 240px;
          overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
-  .log .ok    { color: #64ffb4; }
-  .log .err   { color: #ff5050; }
-  .log .warn  { color: #ffdc64; }
-  .log .dup   { color: #ffa532; }
+  .log .ok    { color: #b2ff59; }
+  .log .err   { color: #f44336; }
+  .log .warn  { color: #ffd54f; }
+  .log .dup   { color: #ffb74d; }
   .log .listen{ color: #b482ff; }
-  .json { background: #2d2d2d; color: #82b4ff; font-family: Consolas, monospace;
-          font-size: 12.5px; padding: 8px; border-radius: 3px; height: 270px;
+  .json { background: #0a0a1a; color: #4fc3f7; font-family: Consolas, monospace;
+          font-size: 12.5px; padding: 8px; border: 1px solid #1a3a6a;
+          border-radius: 4px; height: 270px;
           overflow: auto; white-space: pre; }
-  .status { background: #2d2d2d; color: #b4b4b4; padding: 4px 8px; margin-top: 10px;
-            border-radius: 3px; font-size: 12px; }
+  .status { background: #16213e; color: #9bb8d4; padding: 5px 10px; margin-top: 10px;
+            border: 1px solid #1a3a6a; border-radius: 4px; font-size: 12px; }
   .right { margin-left: auto; }
-  a { color: #64b4ff; }
-  .preset { background: #3c3c3c; }
+  a { color: #7eb8f7; }
+  .preset { background: #1a2a4a; color: #9bb8d4; }
+  .preset:hover:not(:disabled) { background: #243560; }
   .listener { color: #b482ff; }
-  input[type="checkbox"] { accent-color: #009688; }
-  .hint { color: #888; font-size: 11px; }
-  .banner { background: linear-gradient(90deg, #1a3a4a, #2d2d2d);
-            border-left: 4px solid #009688; padding: 10px 14px;
-            border-radius: 4px; margin-bottom: 14px; position: relative; }
-  .banner-title { font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 3px; }
-  .banner-ver { font-size: 11px; color: #888; font-weight: 400; margin-left: 6px; }
-  .banner-credit { font-size: 12px; color: #b4b4b4; }
-  .banner-credit a { color: #64b4ff; text-decoration: none; font-weight: 600; }
+  input[type="checkbox"] { accent-color: #1976d2; }
+  .hint { color: #7a9cbf; font-size: 11px; }
+  /* Banner: sml topbar look (flat #16213e with blue accent bar) */
+  .banner { background: #16213e; border: 1px solid #0f3460;
+            border-left: 4px solid #1565c0; padding: 10px 14px;
+            border-radius: 6px; margin-bottom: 14px; position: relative; }
+  .banner-title { font-size: 15px; font-weight: 600; color: #7eb8f7;
+                  letter-spacing: 0.04em; margin-bottom: 3px; }
+  .banner-ver { font-size: 11px; color: #7a9cbf; font-weight: 400; margin-left: 6px; }
+  .banner-credit { font-size: 12px; color: #9bb8d4; }
+  .banner-credit a { color: #7eb8f7; text-decoration: none; font-weight: 600; }
   .banner-credit a:hover { text-decoration: underline; }
   .banner-exit { position: absolute; top: 10px; right: 12px;
-                 background: #c83c3c; color: #fff; border: 0; padding: 6px 12px;
-                 border-radius: 3px; cursor: pointer; font: inherit; font-size: 12px;
-                 font-weight: 600; }
-  .banner-exit:hover { background: #d44848; }
+                 background: #b71c1c; color: #fff; border: 0; padding: 6px 12px;
+                 border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px;
+                 font-weight: 600; opacity: 0.85; }
+  .banner-exit:hover { background: #c62828; opacity: 1; }
+  /* Scrollbar — match sml */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0a1628; }
+  ::-webkit-scrollbar-thumb { background: #1a4a7a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #1565c0; }
 </style>
 </head>
 <body>
@@ -730,7 +754,15 @@ function nowStamp() {
   return `${d.getFullYear()}-${pad(d.getMonth()+1,2)}-${pad(d.getDate(),2)} ${pad(d.getHours(),2)}:${pad(d.getMinutes(),2)}:${pad(d.getSeconds(),2)}.${pad(d.getMilliseconds(),3)}`;
 }
 
+// `_logClearedAt` is bumped whenever the user hits "Log leeren". Entries
+// that arrive within 500 ms after a clear are dropped — covers polling
+// callbacks (UDP listener / ping) and in-flight Send responses that
+// would otherwise repopulate the log immediately and look like the
+// clear did nothing.
+let _logClearedAt = 0;
+
 function logEntry(text, cls = 'ok') {
+  if (Date.now() - _logClearedAt < 500) return;
   const el = document.createElement('span');
   el.className = cls;
   el.textContent = text;
@@ -1029,7 +1061,23 @@ async function pollPing() {
 }
 
 // ── Clear ──────────────────────────────────────────────────────────────────
-$('btnClearLog').addEventListener('click', () => { $('log').textContent = ''; setStatus('Log geleert.'); });
+// textContent='' on a <pre> with hundreds of <span> children is a single
+// synchronous DOM operation, but the *visible* effect can lag if other
+// pending JS keeps prepending entries (UDP listener poll @250 ms, ping
+// poll @200 ms, in-flight Send responses). We:
+//   1. Mark the clear timestamp so logEntry() drops new entries for 500 ms.
+//   2. Remove every child explicitly (defensive — guarantees no stragglers
+//      survive even on browsers that defer textContent reflow).
+//   3. Reset scroll so the empty pane is at the top.
+function clearLog() {
+  _logClearedAt = Date.now();
+  const log = $('log');
+  while (log.firstChild) log.removeChild(log.firstChild);
+  log.textContent = '';
+  log.scrollTop = 0;
+  setStatus('Log geleert.');
+}
+$('btnClearLog').addEventListener('click', clearLog);
 $('btnClearJson').addEventListener('click', () => { $('json').textContent = ''; });
 
 // ── Exit button ────────────────────────────────────────────────────────────
