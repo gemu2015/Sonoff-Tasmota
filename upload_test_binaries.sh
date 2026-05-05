@@ -262,6 +262,15 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Full documentation included (README + Reference EN/DE)
 "
 
+# --- write notes to a file (--notes-file is bulletproof; --notes "$NOTES"
+#     is fragile when the body contains backticks + apostrophes + multi-line
+#     content, which can leave the release with an empty body and let GitHub
+#     fall back to rendering the tagged commit's message instead) ---
+NOTES_FILE=$(mktemp /tmp/release_notes.XXXXXX.md)
+printf '%s' "$NOTES" > "$NOTES_FILE"
+trap "rm -f $NOTES_FILE" EXIT
+info "Notes written to $NOTES_FILE ($(wc -c < "$NOTES_FILE") bytes)"
+
 # --- delete old release if exists ---
 info "Removing old '$TAG' release (if any)..."
 gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
@@ -271,7 +280,7 @@ info "Creating release '$TAG' with ${#FILES[@]} files..."
 gh release create "$TAG" \
   --repo "$REPO" \
   --title "$TITLE" \
-  --notes "$NOTES" \
+  --notes-file "$NOTES_FILE" \
   --prerelease \
   "${FILES[@]}"
 
