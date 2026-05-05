@@ -1,5 +1,5 @@
 /********************************************************************
-** Copyright (c) 2018-2020 Guan Wenliang
+** Copyright (c) 2018-2026 Guan Wenliang
 ** This file is part of the Berry default interpreter.
 ** skiars@qq.com, https://github.com/Skiars/berry
 ** See Copyright Notice in the LICENSE file or at
@@ -128,7 +128,7 @@
  * Increase is you need to solidify functions.
  * Default: 50
  **/
-#define BE_CONST_SEARCH_SIZE            150
+#define BE_CONST_SEARCH_SIZE            250
 
 /* Macro: BE_STACK_FREE_MIN
  * The short string will hold the hash value when the value is
@@ -184,6 +184,26 @@
  * Default: 1
  **/
 #define BE_USE_OVERLOAD_HASH            1
+
+/* Macro: BE_USE_PREPROCESSOR
+ * Enable the preprocessor for conditional compilation
+ * (#if/#else/#elif/#endif/#define/#undef) and translatable
+ * string expressions ("text"#MACRO). Set to 0 to exclude
+ * all preprocessor code from compilation.
+ * Default: 1
+ **/
+#ifdef TASMOTA
+#define BE_USE_PREPROCESSOR             0   /* Berry preprocessor not included in Tasmota firmwares */
+#else
+#define BE_USE_PREPROCESSOR             1   /* Berry preprocessor only used in standalone for solidification */
+#endif
+
+/* Macro: BE_PREPROC_MAX_DEPTH
+ * Maximum nesting depth for preprocessor conditional blocks.
+ * Only used when BE_USE_PREPROCESSOR is enabled.
+ * Default: 8
+ **/
+#define BE_PREPROC_MAX_DEPTH            8
 
 /* Macro: BE_USE_DEBUG_HOOK
  * Berry debug hook switch.

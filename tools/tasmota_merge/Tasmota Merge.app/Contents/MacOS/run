@@ -1,0 +1,41 @@
+#!/bin/bash
+# Tasmota Merge — macOS .app launcher.
+#
+# Stdlib-only. Logs to ~/Library/Logs/TasmotaMerge.log so we can
+# diagnose Finder-launch issues (no TTY → silent failures otherwise).
+
+LOG="$HOME/Library/Logs/TasmotaMerge.log"
+mkdir -p "$(dirname "$LOG")"
+exec > >(tee -a "$LOG") 2>&1
+echo "[$(date '+%F %T')] launcher starting (pid=$$ argv0=$0)"
+
+export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
+
+# Resolve the Resources dir even when $0 is reached via a symlink chain.
+# Finder/launchd sometimes invoke the launcher with $0 already absolute.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+DIR="$(cd "${SCRIPT_DIR}/../Resources" && pwd -P)"
+echo "  SCRIPT_DIR=$SCRIPT_DIR"
+echo "  RESOURCES =$DIR"
+echo "  PATH      =$PATH"
+echo "  PWD       =$(pwd)"
+
+PYTHON=""
+for p in /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
+    [ -x "$p" ] && PYTHON="$p" && break
+done
+echo "  PYTHON    =$PYTHON"
+
+if [ -z "$PYTHON" ]; then
+    osascript -e 'display alert "Tasmota Merge" message "Python 3 not found. Please install Python 3 from python.org or via Homebrew (brew install python3)."'
+    exit 1
+fi
+
+if [ ! -f "${DIR}/tasmota_merge_server.py" ]; then
+    osascript -e "display alert \"Tasmota Merge\" message \"Server script not found at: ${DIR}/tasmota_merge_server.py\""
+    echo "  ERROR: server.py missing at ${DIR}/tasmota_merge_server.py"
+    exit 1
+fi
+
+echo "  exec: $PYTHON ${DIR}/tasmota_merge_server.py"
+exec "$PYTHON" "${DIR}/tasmota_merge_server.py"

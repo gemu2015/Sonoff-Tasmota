@@ -487,9 +487,14 @@ production. Options:
 
 ## 4. Upstream Tasmota merges — manual, painful, no tooling
 
-**Status:** ⚠ wishlist / build-this. Not a bug — a recurring chore
-that's been done manually for years and would benefit from purpose-
-built tooling.
+**Status:** 🟡 partial — MVP built 2026-05-05 as
+`tools/tasmota_merge/` (downloads upstream ZIP, file-by-file
+side-by-side diff, per-file Keep/Take/Merge decisions, applies with
+backups). See `tools/tasmota_merge/README.md`. This handles the
+"bulk file-by-file pass" from the wishlist below; hunk-level merging,
+manifest-based auto-resolve, and AI-assisted hunk suggestions are
+still wishlist polish. Original problem statement preserved below
+for the polish phase.
 
 ### Symptom
 

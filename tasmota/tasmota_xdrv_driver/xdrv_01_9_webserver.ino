@@ -3454,10 +3454,6 @@ void HandleUpgradeFirmwareStart(void) {
 /*-------------------------------------------------------------------------------------------*/
 
 void HandleUploadDone(void) {
-#ifdef USE_TINYC
-  extern bool tc_global_pause;
-  tc_global_pause = false;
-#endif
   if (!HttpCheckPriviledgedAccess()) { return; }
 
 #if defined(USE_ZIGBEE_EZSP)
@@ -3538,11 +3534,6 @@ void HandleUploadLoop(void) {
   // Based on ESP8266HTTPUpdateServer.cpp uses ESP8266WebServer Parsing.cpp and Cores Updater.cpp (Update)
   static uint32_t upload_size;
   static bool upload_error_signalled;
-
-#ifdef USE_TINYC
-  extern bool tc_global_pause;
-  tc_global_pause = true;
-#endif
 
   if (HTTP_USER == Web.state) { return; }
 
@@ -4161,6 +4152,7 @@ int WebQuery(char *buffer, int query_function = 0) {
   if (url) {
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
     if (http.begin(UrlEncode(url))) {
+      http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);  // Follow redirects (e.g. Google Apps Script exec URLs redirect 302 -> 200)
 #else // HTTP only
     if (http.begin(http_client, UrlEncode(url))) {
 #endif

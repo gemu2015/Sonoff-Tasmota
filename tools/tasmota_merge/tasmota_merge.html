@@ -1,0 +1,1078 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tasmota Merge</title>
+<style>
+  :root {
+    --bg:        #1a1a2e;
+    --panel:    #16213e;
+    --panel-2:  #0f3460;
+    --accent:   #1565c0;
+    --accent-h: #1976d2;
+    --good:     #2e7d32;
+    --warn:     #ef6c00;
+    --bad:      #c62828;
+    --text:     #e8eaf0;
+    --muted:    #9aa3b6;
+    --border:   #2a3556;
+    --code-bg:  #0b1220;
+    --diff-add-bg: #14342b;
+    --diff-add-fg: #b9f6ca;
+    --diff-rm-bg:  #3a1a1f;
+    --diff-rm-fg:  #ff8a8a;
+    --diff-hl-bg:  #243a5e;
+    --row-hover:   #1f2a4a;
+    --row-keep:    rgba(46,125,50,0.15);
+    --row-take:    rgba(21,101,192,0.22);
+    --row-merge:   rgba(239,108,0,0.18);
+    --row-resolve: rgba(154,163,182,0.18);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  }
+  a { color: var(--accent-h); text-decoration: none; }
+  button {
+    font: inherit; padding: 7px 14px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); border-radius: 6px;
+    cursor: pointer;
+  }
+  button:hover { background: #134075; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); }
+  button.primary:hover { background: var(--accent-h); }
+  button.good    { background: var(--good); border-color: var(--good); }
+  button.warn    { background: var(--warn); border-color: var(--warn); }
+  button.bad     { background: var(--bad);  border-color: var(--bad);  }
+  input[type=text] {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    background: var(--code-bg); color: var(--text); border-radius: 6px;
+    width: 100%;
+  }
+  textarea {
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+    border: 1px solid var(--border); background: var(--code-bg);
+    color: var(--text); border-radius: 6px; padding: 8px; width: 100%;
+  }
+
+  header {
+    background: var(--panel); padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 14px;
+  }
+  header h1 {
+    margin: 0; font-size: 17px; letter-spacing: 0.4px;
+    color: var(--text); font-weight: 600;
+  }
+  header .badge {
+    font-size: 11px; padding: 3px 8px; border-radius: 10px;
+    background: var(--panel-2); color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  header .spacer { flex: 1; }
+  header .phase {
+    font-size: 12px; color: var(--muted); padding: 4px 10px;
+    border-radius: 12px; background: var(--code-bg);
+    border: 1px solid var(--border);
+  }
+  header .phase.ready { color: var(--diff-add-fg); border-color: var(--good); }
+  header .phase.error { color: #ff8a8a; border-color: var(--bad); }
+
+  main { padding: 18px; max-width: 1600px; margin: 0 auto; }
+
+  /* ═══════════ SETUP VIEW ═══════════════════════════════════════════════ */
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px; margin-bottom: 14px;
+  }
+  .card h2 {
+    margin: 0 0 14px; font-size: 15px; color: var(--text); font-weight: 600;
+  }
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px;
+  }
+  .field .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; }
+  .row > .fixed { flex: 0 0 auto; }
+
+  /* ═══════════ PROGRESS BAR ═════════════════════════════════════════════ */
+  .progress {
+    margin: 12px 0; height: 18px; background: var(--code-bg);
+    border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
+    position: relative;
+  }
+  .progress .fill {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-h));
+    transition: width 0.25s ease;
+  }
+  .progress .label {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; color: var(--text);
+    text-shadow: 0 0 3px rgba(0,0,0,0.6);
+  }
+
+  /* ═══════════ FILE LIST VIEW ═══════════════════════════════════════════ */
+  .toolbar {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 10px;
+  }
+  .toolbar .filter {
+    flex: 1; min-width: 220px;
+  }
+  .stats {
+    display: flex; gap: 14px; font-size: 12px; color: var(--muted);
+    margin: 8px 0 4px;
+  }
+  .stats span b { color: var(--text); font-weight: 600; }
+
+  table.files {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden;
+  }
+  table.files th, table.files td {
+    padding: 7px 10px; text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  table.files th {
+    background: var(--panel-2); color: var(--muted); font-weight: 600;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  table.files tr:hover { background: var(--row-hover); cursor: pointer; }
+  table.files tr.has-keep    { background: var(--row-keep); }
+  table.files tr.has-take    { background: var(--row-take); }
+  table.files tr.has-merge   { background: var(--row-merge); }
+  table.files tr.has-resolve { background: var(--row-resolve); }
+  td.cat {
+    font-size: 11px; padding: 2px 7px; border-radius: 8px; display: inline-block;
+  }
+  .cat-modified     { background: var(--warn);   color: #fff; }
+  .cat-upstream_new { background: var(--accent); color: #fff; }
+  .cat-fork_only    { background: var(--muted);  color: #000; }
+  .decision-pill {
+    font-size: 10px; padding: 2px 7px; border-radius: 8px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .decision-keep    { background: var(--good);   color: #fff; }
+  .decision-take    { background: var(--accent); color: #fff; }
+  .decision-merge   { background: var(--warn);   color: #fff; }
+  .decision-resolve { background: var(--muted);  color: #000; }
+  td.size { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+
+  /* ── Inline row action buttons (Keep/Take/Clear without opening diff) ── */
+  td.actions-cell {
+    white-space: nowrap; text-align: right; padding-right: 8px;
+  }
+  button.row-act {
+    font: 600 11px ui-monospace, Menlo, Consolas, monospace;
+    padding: 3px 8px; min-width: 28px; margin-left: 3px;
+    border-radius: 4px; cursor: pointer; border: 1px solid var(--border);
+    background: var(--code-bg); color: var(--text);
+  }
+  button.row-act:hover { background: var(--row-hover); border-color: var(--accent-h); }
+  button.row-act.keep:hover { background: var(--good); border-color: var(--good); color: #fff; }
+  button.row-act.take:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.row-act.reset:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
+  button.row-act.active.keep { background: var(--good); border-color: var(--good); color: #fff; }
+  button.row-act.active.take { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.row-act.active.resolve { background: var(--muted); border-color: var(--muted); color: #000; }
+
+  /* ═══════════ DIFF VIEW ═══════════════════════════════════════════════ */
+  .diff-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .diff-pane {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+    height: calc(100vh - 260px); min-height: 400px;
+  }
+  .diff-pane .head {
+    background: var(--panel-2); padding: 8px 12px; font-size: 12px;
+    color: var(--muted); display: flex; gap: 10px; align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .diff-pane .head b { color: var(--text); }
+  .diff-pane pre, .diff-pane textarea {
+    flex: 1; margin: 0; padding: 10px 12px; overflow: auto;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+    background: transparent; border: 0; border-radius: 0;
+    color: var(--text); white-space: pre; tab-size: 4;
+    width: 100%;
+  }
+  .diff-pane .ln {
+    display: inline-block; min-width: 4ch; padding-right: 10px;
+    color: var(--muted); user-select: none; text-align: right;
+  }
+  .diff-pane .line.add { background: var(--diff-add-bg); color: var(--diff-add-fg); }
+  .diff-pane .line.rm  { background: var(--diff-rm-bg);  color: var(--diff-rm-fg); }
+  .diff-pane .line.hl  { background: var(--diff-hl-bg); }
+  .diff-pane .line     { display: block; padding: 0 8px; }
+
+  .actions {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin: 10px 0;
+  }
+  .actions .spacer { flex: 1; }
+
+  /* ═══════════ MISC ════════════════════════════════════════════════════ */
+  .hidden { display: none !important; }
+  .pill {
+    display: inline-block; padding: 1px 8px; border-radius: 8px;
+    font-size: 11px; background: var(--panel-2); color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .err {
+    color: #ff8a8a; background: rgba(198,40,40,0.18); padding: 8px 12px;
+    border: 1px solid var(--bad); border-radius: 6px; margin: 10px 0;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  }
+  .ok {
+    color: var(--diff-add-fg); background: rgba(46,125,50,0.18);
+    padding: 8px 12px; border: 1px solid var(--good); border-radius: 6px;
+    margin: 10px 0; font-size: 13px;
+  }
+  details summary {
+    cursor: pointer; padding: 6px 0; color: var(--muted); font-size: 12px;
+  }
+  textarea[readonly] { color: var(--muted); }
+  .small { font-size: 11px; color: var(--muted); }
+
+  /* ═══════════ MODAL ═══════════════════════════════════════════════════ */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 100; display: none; align-items: center; justify-content: center;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; width: min(900px, 95vw);
+    max-height: 90vh; display: flex; flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  }
+  .modal-head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .modal-head h2 { margin: 0; font-size: 16px; }
+  .modal-body { padding: 14px 18px; overflow: auto; flex: 1; }
+  .modal-foot {
+    padding: 12px 18px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .modal-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .policy-tA {
+    width: 100%; height: 280px; resize: vertical;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  }
+  .badge-keep   { background: var(--good); color: #fff;
+                  padding: 1px 8px; border-radius: 8px; font-size: 11px; }
+  .badge-take   { background: var(--accent); color: #fff;
+                  padding: 1px 8px; border-radius: 8px; font-size: 11px; }
+  .row.has-policy { opacity: 0.55; }
+  .stat-pill {
+    display: inline-block; padding: 1px 8px; border-radius: 8px;
+    font-size: 11px; background: var(--code-bg); color: var(--text);
+    border: 1px solid var(--border); margin-right: 4px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Tasmota Merge</h1>
+  <span class="badge" id="versionBadge">v1.4 · row actions</span>
+  <span class="spacer"></span>
+  <span class="phase" id="phaseBadge">setup</span>
+  <button id="btnRestart" class="warn" title="Reset session">Restart</button>
+  <button id="btnQuit" class="bad" title="Stop the server and close this app">Quit</button>
+</header>
+
+<main>
+
+  <!-- ════════════ SETUP VIEW ════════════════════════════════════════ -->
+  <section id="viewSetup" class="card">
+    <h2>1. Configure</h2>
+
+    <div class="field">
+      <label>Fork path (your local Tasmota fork)</label>
+      <input id="fld_fork" type="text" placeholder="/path/to/Sonoff-Tasmota" />
+      <div class="hint">Must contain <code>tasmota/</code> and <code>platformio.ini</code>. Auto-detected from this script's location.</div>
+    </div>
+
+    <div class="field">
+      <label>Upstream ZIP URL</label>
+      <input id="fld_url" type="text" />
+      <div class="hint">Default: arendst/Tasmota <b>development</b> branch. Switch to a release tag URL for stable comparisons.</div>
+    </div>
+
+    <details>
+      <summary>Advanced filters (include / exclude)</summary>
+      <div class="field" style="margin-top: 10px;">
+        <label>Include prefixes (one per line)</label>
+        <textarea id="fld_includes" rows="6"></textarea>
+        <div class="hint">Only paths starting with one of these are compared. Trailing <code>/</code> means directory.</div>
+      </div>
+      <div class="field">
+        <label>Exclude globs (one per line)</label>
+        <textarea id="fld_excludes" rows="6"></textarea>
+        <div class="hint">Glob patterns matched against the relative path. <code>fnmatch</code> rules.</div>
+      </div>
+    </details>
+
+    <div class="actions" style="margin-top: 14px;">
+      <label class="small"><input type="checkbox" id="chk_skip_dl" /> Reuse cached ZIP if present</label>
+      <span id="cacheInfo" class="small" style="color: var(--muted);"></span>
+      <span class="spacer"></span>
+      <button id="btnStart" class="primary">Download &amp; Compare</button>
+    </div>
+
+    <div id="setupErr" class="err hidden"></div>
+  </section>
+
+  <!-- ════════════ PROGRESS VIEW (visible during long ops) ═══════════ -->
+  <section id="viewProgress" class="card hidden">
+    <h2 id="progressTitle">Working…</h2>
+    <div class="progress"><div class="fill" id="progressFill" style="width: 0%"></div>
+      <div class="label" id="progressLabel">0%</div></div>
+    <div class="small" id="progressMsg" style="margin-top: 6px;"></div>
+  </section>
+
+  <!-- ════════════ TCC WARNING BANNER ═══════════════════════════════ -->
+  <section id="tccBanner" class="card hidden" style="border-color: var(--bad); background: rgba(198,40,40,0.18);">
+    <h2 style="color: #ff8a8a;">⚠ macOS denied file reads (TCC sandbox)</h2>
+    <p>The server got <code>Operation not permitted</code> on <span id="tccCount">0</span>
+       file read(s). This means the diff list is <b>not reliable</b> — files flagged as
+       "modified" may actually be identical.</p>
+    <p><b>Fix:</b> Quit this app and re-launch using
+       <code>Tasmota Merge.command</code> instead of <code>Tasmota Merge.app</code>.
+       The .command file opens in Terminal, which inherits your user permissions and
+       can read files in <code>~/Desktop</code> / <code>~/Documents</code> / <code>~/Downloads</code>.</p>
+    <details>
+      <summary>Why this happens</summary>
+      <p style="font-size: 12px; color: var(--muted);">
+        macOS sandboxes Finder-launched .app bundles. Unsigned apps don't trigger the
+        Files-and-Folders permission prompt and silently fail to read your fork tree if
+        it's in a protected user folder. Terminal.app already has the permission you
+        granted it once for development, so launching from there sidesteps the issue.
+      </p>
+      <p style="font-size: 12px; color: var(--muted);">
+        Alternative permanent fix: System Settings → Privacy &amp; Security →
+        Full Disk Access → add the .app bundle.
+      </p>
+    </details>
+    <div id="tccSamples" class="small" style="margin-top: 8px; font-family: ui-monospace, Menlo, Consolas, monospace;"></div>
+  </section>
+
+  <!-- ════════════ FILE LIST VIEW ════════════════════════════════════ -->
+  <section id="viewFiles" class="hidden">
+    <div class="card">
+      <h2>2. Review files</h2>
+      <div class="toolbar">
+        <input id="fld_filter" class="filter" type="text"
+               placeholder="Filter by path (substring) — e.g. xdrv_124, lib_display, .ino" />
+        <select id="fld_cat">
+          <option value="">All categories</option>
+          <option value="modified">Modified only</option>
+          <option value="upstream_new">Upstream-new only</option>
+          <option value="fork_only">Fork-only</option>
+        </select>
+        <select id="fld_decision">
+          <option value="">Any status</option>
+          <option value="undecided">Undecided (review needed)</option>
+          <option value="keep">Keep mine</option>
+          <option value="take">Take theirs</option>
+          <option value="merge">Custom merge</option>
+          <option value="resolve">Marked resolved</option>
+        </select>
+        <label class="small" title="Show only files that genuinely need a decision: hides files auto-decided by your policy lists AND fork-only files (your additions, never overwritten).">
+          <input type="checkbox" id="chk_hide_policy" checked />
+          Review queue only
+        </label>
+        <button id="btnEditPolicies" title="Edit always-keep / always-take glob lists">Edit policies</button>
+        <button id="btnApply" class="good">Apply decisions</button>
+        <button id="btnClearDecisions" class="warn" title="Reset all manual decisions for this fork (policies are kept)">Clear decisions</button>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div id="applyMsg"></div>
+    </div>
+
+    <div class="card" style="padding: 0;">
+      <table class="files">
+        <thead><tr>
+          <th style="width: 110px;">Category</th>
+          <th>Path <span class="small" style="font-weight: 400; text-transform: none; color: var(--muted); margin-left: 8px;">(click to compare)</span></th>
+          <th style="width: 70px;">Fork</th>
+          <th style="width: 70px;">Up</th>
+          <th style="width: 90px;">Decision</th>
+          <th style="width: 145px; text-align: right;">Quick decide</th>
+        </tr></thead>
+        <tbody id="filesTbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ════════════ DIFF VIEW ═════════════════════════════════════════ -->
+  <section id="viewDiff" class="hidden">
+    <div class="card">
+      <div class="row" style="align-items: flex-start;">
+        <div style="flex: 4;">
+          <h2 style="margin:0;" id="diffTitle">…</h2>
+          <div class="small" id="diffSubtitle"></div>
+        </div>
+        <div class="fixed">
+          <button id="btnBack">&larr; Back to list</button>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 12px;">
+        <button id="btnKeep"   class="good">Keep mine</button>
+        <button id="btnTake"   class="primary">Take theirs</button>
+        <button id="btnMerge"  class="warn">Save custom merge</button>
+        <button id="btnResolve">Mark resolved (no write)</button>
+        <span class="spacer"></span>
+        <span class="small" id="currentDecision"></span>
+      </div>
+    </div>
+
+    <div class="diff-wrap">
+      <div class="diff-pane">
+        <div class="head">
+          <b>Fork (yours)</b>
+          <span class="pill" id="forkInfo"></span>
+        </div>
+        <pre id="forkPane"></pre>
+      </div>
+      <div class="diff-pane">
+        <div class="head">
+          <b>Upstream</b>
+          <span class="pill" id="upstreamInfo"></span>
+        </div>
+        <pre id="upstreamPane"></pre>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 12px;">
+      <details>
+        <summary>Unified diff (read-only) — what would change if you "take theirs"</summary>
+        <pre id="unifiedPane" style="max-height: 300px; overflow: auto;
+                                     background: var(--code-bg); padding: 10px;
+                                     border-radius: 6px; margin-top: 8px;"></pre>
+      </details>
+      <details>
+        <summary>Custom merge editor — write the final fork content here, then click "Save custom merge"</summary>
+        <textarea id="mergeBox" rows="20" style="margin-top: 8px;"></textarea>
+        <div class="actions" style="margin-top: 8px;">
+          <button id="btnLoadFork">Load fork as starting point</button>
+          <button id="btnLoadUpstream">Load upstream as starting point</button>
+        </div>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<!-- ════════════ POLICIES MODAL ═════════════════════════════════════════ -->
+<div id="policiesModal" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>📋 Merge policies</h2>
+      <span class="small">One glob per line — files matching get an automatic decision.</span>
+    </div>
+    <div class="modal-body">
+      <div class="modal-cols">
+        <div>
+          <label><b>Always keep mine</b> <span class="badge-keep">keep</span>
+                 <span class="small" id="hits_keep_total" style="margin-left: 8px;"></span></label>
+          <div class="small" style="margin: 4px 0 6px;">
+            Files the fork OWNS — never overwrite from upstream.
+          </div>
+          <textarea id="pol_keep" class="policy-tA"
+            placeholder="tasmota/tinyc/**
+tasmota/UNSOLVED.md
+tasmota/Plugins/xdrv_14_mp3*
+# comments and blank lines are ignored"></textarea>
+          <div id="hits_keep" class="small" style="margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace;"></div>
+        </div>
+        <div>
+          <label><b>Always take theirs</b> <span class="badge-take">take</span>
+                 <span class="small" id="hits_take_total" style="margin-left: 8px;"></span></label>
+          <div class="small" style="margin: 4px 0 6px;">
+            Files the fork doesn't modify — always take upstream as-is.
+          </div>
+          <textarea id="pol_take" class="policy-tA"
+            placeholder="tasmota/berry/**
+tasmota/lvgl_*/**
+lib/libesp32/**"></textarea>
+          <div id="hits_take" class="small" style="margin-top: 4px; font-family: ui-monospace, Menlo, Consolas, monospace;"></div>
+        </div>
+      </div>
+      <div class="small" style="margin-top: 8px; color: var(--muted);">
+        Patterns are tested against the diff list as you type. <b style="color: var(--bad);">0 matches</b>
+        on a line usually means a typo or the wrong glob shape (try <code>dir/**</code>).
+      </div>
+      <details style="margin-top: 12px;">
+        <summary>Glob syntax</summary>
+        <ul class="small" style="line-height: 1.7;">
+          <li><code>tasmota/tinyc/**</code> — everything under <code>tasmota/tinyc/</code> (any depth)</li>
+          <li><code>tasmota/UNSOLVED.md</code> — exact path</li>
+          <li><code>tasmota/Plugins/xdrv_14_mp3*</code> — wildcard within a known directory</li>
+          <li><code>__pycache__/*</code> — directory name appearing at any depth</li>
+          <li><code>**/.DS_Store</code> — basename match at any depth (no leading <code>**/</code> needed for bare basenames)</li>
+          <li>If a file matches BOTH lists, <b>always_keep wins</b> (safer default).</li>
+          <li>Saved to <code>&lt;fork&gt;/.tasmota_merge_policies.json</code>.</li>
+        </ul>
+      </details>
+      <div id="policyValidate" class="small" style="margin-top: 10px;"></div>
+    </div>
+    <div class="modal-foot">
+      <button id="btnPolReset" class="warn" title="Restore the default seed policies">Reset to defaults</button>
+      <span style="flex: 1;"></span>
+      <button id="btnPolCancel">Cancel</button>
+      <button id="btnPolSave" class="primary">Save &amp; apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Tasmota Merge — frontend logic
+// ═══════════════════════════════════════════════════════════════════════════
+
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+let state = {
+  defaults: null,
+  files:    [],
+  filtered: [],
+  current:  null,    // currently-open file rel path
+  pollTimer: null,
+};
+
+// ── Network helpers ────────────────────────────────────────────────────────
+async function api(path, opts={}) {
+  const r = await fetch(path, Object.assign({cache: 'no-store'}, opts));
+  if (!r.ok) {
+    let msg = `${r.status} ${r.statusText}`;
+    try { const j = await r.json(); if (j.error) msg += ` — ${j.error}`; } catch(_) {}
+    throw new Error(msg);
+  }
+  const ct = r.headers.get('content-type') || '';
+  return ct.includes('application/json') ? r.json() : r.text();
+}
+async function postJson(path, body) {
+  return api(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {}),
+  });
+}
+
+// ── Setup view ─────────────────────────────────────────────────────────────
+async function loadDefaults() {
+  state.defaults = await api('/api/defaults');
+  $('#fld_fork').value      = state.defaults.fork_root;
+  $('#fld_url').value       = state.defaults.upstream_url;
+  $('#fld_includes').value  = state.defaults.include_prefixes.join('\n');
+  $('#fld_excludes').value  = state.defaults.exclude_globs.join('\n');
+  $('#chk_skip_dl').checked = state.defaults.has_cached_zip;
+  if (state.defaults.has_cached_zip) {
+    const sz = state.defaults.cached_zip_size;
+    const mt = state.defaults.cached_zip_mtime;
+    const ageMin = Math.floor((Date.now()/1000 - mt) / 60);
+    let ageStr;
+    if (ageMin < 60)        ageStr = `${ageMin} min ago`;
+    else if (ageMin < 1440) ageStr = `${Math.floor(ageMin/60)} h ago`;
+    else                    ageStr = `${Math.floor(ageMin/1440)} d ago`;
+    $('#cacheInfo').textContent =
+      `(cached: ${(sz/1e6).toFixed(1)} MB, ${ageStr})`;
+    $('#chk_skip_dl').parentElement.title =
+      `${state.defaults.cache_dir}/upstream.zip`;
+  } else {
+    $('#cacheInfo').textContent = '(no cache yet — first run will download ~80 MB)';
+  }
+}
+
+$('#btnStart').addEventListener('click', async () => {
+  $('#setupErr').classList.add('hidden');
+  const includes = $('#fld_includes').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const excludes = $('#fld_excludes').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const body = {
+    upstream_url:     $('#fld_url').value.trim(),
+    fork_root:        $('#fld_fork').value.trim(),
+    include_prefixes: includes,
+    exclude_globs:    excludes,
+    skip_download:    $('#chk_skip_dl').checked,
+  };
+  try {
+    await postJson('/api/start', body);
+    showProgress();
+  } catch (e) {
+    $('#setupErr').textContent = `Could not start: ${e.message}`;
+    $('#setupErr').classList.remove('hidden');
+  }
+});
+
+// ── Phase polling ──────────────────────────────────────────────────────────
+function showSetup()    { switchView('setup'); }
+function showProgress() { switchView('progress'); }
+function showFiles()    { switchView('files');    refreshFiles(); }
+function showDiff()     { switchView('diff'); }
+
+function switchView(v) {
+  $('#viewSetup').classList.toggle('hidden',    v!=='setup');
+  $('#viewProgress').classList.toggle('hidden', v!=='progress');
+  $('#viewFiles').classList.toggle('hidden',    v!=='files');
+  $('#viewDiff').classList.toggle('hidden',     v!=='diff');
+}
+
+async function pollStatus() {
+  try {
+    const s = await api('/api/status');
+    const badge = $('#phaseBadge');
+    badge.textContent = s.phase;
+    badge.classList.remove('ready','error');
+    if (s.phase === 'ready' || s.phase === 'done') badge.classList.add('ready');
+    if (s.phase === 'error')                      badge.classList.add('error');
+
+    // TCC sandbox warning — surface immediately if any read got
+    // "Operation not permitted" during the diff pass.
+    const banner = $('#tccBanner');
+    if (s.tcc_denied || (s.read_failures || 0) > 0) {
+      banner.classList.remove('hidden');
+      $('#tccCount').textContent = s.read_failures;
+      const samples = (s.read_failure_sample || [])
+        .map(x => `${x.path}\n    → ${x.err}`).join('\n');
+      $('#tccSamples').textContent = samples ? `Examples:\n${samples}` : '';
+    } else {
+      banner.classList.add('hidden');
+    }
+
+    if (s.phase === 'downloading' || s.phase === 'extracting'
+        || s.phase === 'diffing'  || s.phase === 'applying') {
+      if (!$('#viewProgress').classList.contains('hidden')
+          || !$('#viewSetup').classList.contains('hidden')) {
+        showProgress();
+      }
+      $('#progressTitle').textContent = phaseTitle(s.phase);
+      $('#progressFill').style.width = (s.progress_pct || 0) + '%';
+      $('#progressLabel').textContent = (s.progress_pct || 0) + '%';
+      $('#progressMsg').textContent = s.progress_msg || '';
+    } else if (s.phase === 'ready') {
+      if ($('#viewSetup').classList.contains('hidden') === false
+          || $('#viewProgress').classList.contains('hidden') === false) {
+        // We just arrived at ready — show file list
+        if ($('#viewDiff').classList.contains('hidden')) showFiles();
+      }
+      // Don't override the diff view if user is reviewing a file
+    } else if (s.phase === 'done') {
+      $('#applyMsg').innerHTML =
+        `<div class="ok">${escapeHtml(s.progress_msg || 'Done.')}</div>`;
+      // After apply we still want to be in files view to see results
+      if ($('#viewProgress').classList.contains('hidden') === false) showFiles();
+    } else if (s.phase === 'error') {
+      $('#setupErr').textContent = s.error || s.progress_msg || 'Unknown error';
+      $('#setupErr').classList.remove('hidden');
+      showSetup();
+    } else if (s.phase === 'setup') {
+      // initial state — no-op
+    }
+  } catch (e) {
+    // Server may be quitting — just stop polling
+  }
+}
+
+function phaseTitle(p) {
+  return ({
+    downloading: 'Downloading upstream ZIP…',
+    extracting:  'Extracting upstream ZIP…',
+    diffing:     'Comparing fork against upstream…',
+    applying:    'Writing decisions to disk…',
+  })[p] || 'Working…';
+}
+
+// ── File list view ─────────────────────────────────────────────────────────
+async function refreshFiles() {
+  const r = await api('/api/files');
+  state.files = r.files || [];
+  applyFilter();
+}
+
+function applyFilter() {
+  const q             = $('#fld_filter').value.trim().toLowerCase();
+  const cat           = $('#fld_cat').value;
+  const dec           = $('#fld_decision').value;
+  const reviewOnly    = $('#chk_hide_policy').checked;
+  state.filtered = state.files.filter(f => {
+    // "Review queue only" hides:
+    //  - files auto-decided by policy (no review needed)
+    //  - fork-only files (your additions, never overwritten upstream)
+    // unless the user explicitly filters by category=fork_only.
+    if (reviewOnly && f.decision_source === 'policy')         return false;
+    if (reviewOnly && f.category === 'fork_only' && cat !== 'fork_only') return false;
+    if (cat && f.category !== cat) return false;
+    if (dec === 'undecided' && f.decision)  return false;
+    if (dec && dec !== 'undecided' && f.decision !== dec) return false;
+    if (q && !f.path.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  renderFiles();
+  renderStats();
+}
+
+function renderStats() {
+  const n   = state.files.length;
+  const nv  = state.filtered.length;
+  const c   = key => state.files.filter(f=>f.category===key).length;
+  const ds  = (dec, src) => state.files.filter(
+                f => f.decision===dec && (src ? f.decision_source===src : true)
+              ).length;
+  // "Review needed" = files that are still undecided AFTER policies applied.
+  // Excluding fork_only because those never get overwritten.
+  const reviewNeeded = state.files.filter(
+    f => !f.decision && f.category !== 'fork_only'
+  ).length;
+  const polKeep = ds('keep', 'policy');
+  const polTake = ds('take', 'policy');
+  $('#stats').innerHTML = `
+    <span class="stat-pill"><b>${reviewNeeded}</b> need review</span>
+    <span class="stat-pill" style="background: var(--good); border-color: var(--good); color: #fff;">
+      <b>${polKeep + polTake}</b> auto by policy (${polKeep} keep + ${polTake} take)</span>
+    <span class="stat-pill"><b>${nv}</b> shown / <b>${n}</b> total</span>
+    <span>·</span>
+    <span>Modified: <b>${c('modified')}</b></span>
+    <span>Upstream-new: <b>${c('upstream_new')}</b></span>
+    <span>Fork-only: <b>${c('fork_only')}</b></span>
+    <span>·</span>
+    <span>Manual: keep <b>${ds('keep','manual')}</b> ·
+                  take <b>${ds('take','manual')}</b> ·
+                  merge <b>${ds('merge','manual')}</b> ·
+                  resolved <b>${ds('resolve','manual')}</b></span>
+  `;
+}
+
+function renderFiles() {
+  const tb = $('#filesTbody');
+  tb.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const f of state.filtered) {
+    const tr = document.createElement('tr');
+    if (f.decision) tr.classList.add(`has-${f.decision}`);
+    if (f.decision_source === 'policy') tr.classList.add('has-policy');
+    const sourceTag = f.decision_source === 'policy' ? ' <span class="small">(policy)</span>'
+                    : f.decision_source === 'manual' ? ''
+                    : '';
+    const aKeep = f.decision === 'keep' ? ' active' : '';
+    const aTake = f.decision === 'take' ? ' active' : '';
+    const aRes  = f.decision === 'resolve' ? ' active' : '';
+    tr.innerHTML = `
+      <td><span class="cat cat-${f.category}">${categoryLabel(f.category)}</span></td>
+      <td class="path-cell" style="font-family: ui-monospace, Menlo, Consolas, monospace;">${escapeHtml(f.path)}</td>
+      <td class="size">${sizeStr(f.fork_size)}</td>
+      <td class="size">${sizeStr(f.upstream_size)}</td>
+      <td>${f.decision ? `<span class="decision-pill decision-${f.decision}">${f.decision}</span>${sourceTag}` : ''}</td>
+      <td class="actions-cell">
+        <button class="row-act keep${aKeep}"   data-act="keep"    title="Keep mine (don't overwrite)">Keep</button>
+        <button class="row-act take${aTake}"   data-act="take"    title="Take theirs (overwrite fork file)">Take</button>
+        <button class="row-act reset"          data-act="reset"   title="Clear decision (back to undecided / policy default)">×</button>
+      </td>
+    `;
+    // Row click → open diff (only when not clicking an action button)
+    tr.querySelector('.path-cell').addEventListener('click', () => openDiff(f.path));
+    tr.querySelector('.cat').addEventListener('click', () => openDiff(f.path));
+    // Each action button decides without opening the diff
+    tr.querySelectorAll('button.row-act').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        await decideForFile(f.path, btn.dataset.act);
+      });
+    });
+    frag.appendChild(tr);
+  }
+  tb.appendChild(frag);
+}
+
+function categoryLabel(c) {
+  return ({
+    modified:     'Modified',
+    upstream_new: 'New (up)',
+    fork_only:    'Fork-only',
+  })[c] || c;
+}
+function sizeStr(n) {
+  if (n < 0) return '—';
+  if (n < 1024)         return n + ' B';
+  if (n < 1024*1024)    return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(2) + ' MB';
+}
+function escapeHtml(s) {
+  return (s||'').replace(/[&<>"']/g, m => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+$('#fld_filter').addEventListener('input',    applyFilter);
+$('#fld_cat').addEventListener('change',      applyFilter);
+$('#fld_decision').addEventListener('change', applyFilter);
+$('#chk_hide_policy').addEventListener('change', applyFilter);
+
+// ── Policies modal ────────────────────────────────────────────────────────
+async function openPoliciesModal() {
+  const pol = await api('/api/policies');
+  $('#pol_keep').value = (pol.always_keep || []).join('\n');
+  $('#pol_take').value = (pol.always_take || []).join('\n');
+  renderHits(pol.always_keep_hits, pol.always_take_hits);
+  $('#policyValidate').textContent = '';
+  $('#policiesModal').classList.add('show');
+}
+function closePoliciesModal() { $('#policiesModal').classList.remove('show'); }
+
+function renderHits(keepHits, takeHits) {
+  const fmt = arr => {
+    let total = 0;
+    const lines = (arr || []).map(h => {
+      if (h.count < 0) {
+        return `<span style="color: var(--muted);">${escapeHtml(h.pattern || '(blank)')}</span>`;
+      }
+      total += h.count;
+      const colour = h.count === 0 ? 'var(--bad)'
+                                   : 'var(--diff-add-fg)';
+      const cnt = h.count === 0 ? '0 matches ⚠' : `${h.count}`;
+      return `<span style="color: ${colour};">[${cnt}]</span> ${escapeHtml(h.pattern)}`;
+    });
+    return {html: lines.join('<br>'), total};
+  };
+  const k = fmt(keepHits);
+  const t = fmt(takeHits);
+  $('#hits_keep').innerHTML = k.html;
+  $('#hits_take').innerHTML = t.html;
+  $('#hits_keep_total').textContent = `→ ${k.total} files`;
+  $('#hits_take_total').textContent = `→ ${t.total} files`;
+}
+
+// Live preview: test the patterns currently in the textareas without saving.
+let _testTimer = null;
+function scheduleTest() {
+  clearTimeout(_testTimer);
+  _testTimer = setTimeout(async () => {
+    const ak = $('#pol_keep').value.split('\n');
+    const at = $('#pol_take').value.split('\n');
+    try {
+      const r = await postJson('/api/test_policies',
+                               {always_keep: ak, always_take: at});
+      renderHits(r.always_keep_hits, r.always_take_hits);
+    } catch (_) {}
+  }, 250);
+}
+$('#pol_keep').addEventListener('input', scheduleTest);
+$('#pol_take').addEventListener('input', scheduleTest);
+
+$('#btnEditPolicies').addEventListener('click', openPoliciesModal);
+$('#btnPolCancel').addEventListener('click',    closePoliciesModal);
+
+$('#btnPolSave').addEventListener('click', async () => {
+  const ak = $('#pol_keep').value.split('\n');
+  const at = $('#pol_take').value.split('\n');
+  try {
+    const r = await postJson('/api/policies',
+                             {always_keep: ak, always_take: at});
+    closePoliciesModal();
+    await refreshFiles();
+    // Surface the result on the file-list view itself so the user gets
+    // confirmation even though the modal is gone.
+    $('#applyMsg').innerHTML =
+      `<div class="ok">Policies saved — ${r.total_keep_files} files match keep, ` +
+      `${r.total_take_files} match take. File list updated.</div>`;
+    setTimeout(() => { $('#applyMsg').innerHTML = ''; }, 4000);
+  } catch (e) {
+    $('#policyValidate').innerHTML = `<span style="color: #ff8a8a;">${escapeHtml(e.message)}</span>`;
+  }
+});
+
+$('#btnPolReset').addEventListener('click', async () => {
+  if (!confirm('Reset to the default seed policies? Your edits will be overwritten.')) return;
+  const r = await postJson('/api/reset_policies');
+  $('#pol_keep').value = (r.policies.always_keep || []).join('\n');
+  $('#pol_take').value = (r.policies.always_take || []).join('\n');
+  scheduleTest();
+});
+
+// Click outside the modal panel to close
+$('#policiesModal').addEventListener('click', e => {
+  if (e.target === $('#policiesModal')) closePoliciesModal();
+});
+
+// ── Diff view ─────────────────────────────────────────────────────────────
+async function openDiff(rel) {
+  state.current = rel;
+  showDiff();
+  $('#diffTitle').textContent = rel;
+  $('#diffSubtitle').textContent = 'Loading…';
+  $('#forkPane').textContent = '';
+  $('#upstreamPane').textContent = '';
+  $('#unifiedPane').textContent = '';
+  $('#mergeBox').value = '';
+  $('#currentDecision').textContent = '';
+
+  const f = state.files.find(x => x.path === rel);
+  if (f) $('#diffSubtitle').textContent =
+    `${categoryLabel(f.category)} · fork ${sizeStr(f.fork_size)} → upstream ${sizeStr(f.upstream_size)}`;
+  if (f && f.decision)
+    $('#currentDecision').textContent = `Current decision: ${f.decision}`;
+
+  const data = await api('/api/file?path=' + encodeURIComponent(rel));
+  $('#forkInfo').textContent     = data.fork_status;
+  $('#upstreamInfo').textContent = data.upstream_status;
+  renderColored($('#forkPane'),     data.fork_text,     data.upstream_text, 'fork');
+  renderColored($('#upstreamPane'), data.upstream_text, data.fork_text,     'upstream');
+
+  // Unified diff (separate request — cheap, plain text)
+  try {
+    const diff = await api('/api/diff?path=' + encodeURIComponent(rel));
+    $('#unifiedPane').textContent = diff || '(no diff — files identical or non-text)';
+  } catch (e) {
+    $('#unifiedPane').textContent = `(diff failed: ${e.message})`;
+  }
+}
+
+// Side-by-side line coloring: a line is "added" / "removed" relative to the
+// other pane. Uses difflib.SequenceMatcher equivalent in JS — for simplicity
+// we do a per-line set diff which is good enough for review (the unified
+// diff section below is the authoritative view).
+function renderColored(target, text, otherText, side) {
+  target.innerHTML = '';
+  if (!text) {
+    target.textContent = '(empty / unavailable)';
+    return;
+  }
+  const myLines    = text.split('\n');
+  const otherSet   = new Set((otherText || '').split('\n'));
+  const frag = document.createDocumentFragment();
+  const pad  = String(myLines.length).length;
+  myLines.forEach((line, i) => {
+    const span = document.createElement('span');
+    const cls  = otherSet.has(line) ? 'line' : ('line ' + (side === 'fork' ? 'rm' : 'add'));
+    span.className = cls;
+    span.innerHTML = `<span class="ln">${(i+1).toString().padStart(pad,' ')}</span>` +
+                     escapeHtml(line || ' ');
+    frag.appendChild(span);
+  });
+  target.appendChild(frag);
+}
+
+$('#btnBack').addEventListener('click', () => { state.current = null; showFiles(); });
+
+// Set/clear a decision for an arbitrary file. Used by both the diff-view
+// action buttons (which pass `state.current`) and the per-row quick-action
+// buttons (which pass the path directly without opening the diff).
+async function decideForFile(rel, action, opts={}) {
+  const body = {path: rel, action};
+  if (action === 'merge' && opts.merged_content)
+    body.merged_content = opts.merged_content;
+  await postJson('/api/decide', body);
+  // Update local cache so the table re-renders without a refetch round-trip
+  const f = state.files.find(x => x.path === rel);
+  if (f) {
+    if (action === 'reset') {
+      f.decision = '';
+      // After a reset, recompute whether a policy now applies. Rather than
+      // re-evaluate client-side, just refetch the single record's status.
+      const r = await api('/api/files');
+      const nf = (r.files || []).find(x => x.path === rel);
+      if (nf) {
+        f.decision        = nf.decision;
+        f.decision_source = nf.decision_source;
+      }
+    } else {
+      f.decision        = action;
+      f.decision_source = 'manual';
+    }
+  }
+  applyFilter();
+}
+
+async function decide(action, mergedContent) {
+  if (!state.current) return;
+  await decideForFile(state.current, action,
+                      action === 'merge'
+                        ? {merged_content: mergedContent || $('#mergeBox').value}
+                        : {});
+  $('#currentDecision').textContent = `Current decision: ${action}`;
+}
+
+$('#btnKeep').addEventListener('click',    () => decide('keep'));
+$('#btnTake').addEventListener('click',    () => decide('take'));
+$('#btnResolve').addEventListener('click', () => decide('resolve'));
+$('#btnMerge').addEventListener('click',   () => {
+  const v = $('#mergeBox').value;
+  if (!v) { alert('Custom merge editor is empty. Click "Load fork as starting point" first.'); return; }
+  decide('merge', v);
+});
+
+$('#btnLoadFork').addEventListener('click', async () => {
+  if (!state.current) return;
+  const data = await api('/api/file?path=' + encodeURIComponent(state.current));
+  $('#mergeBox').value = data.fork_text || '';
+});
+$('#btnLoadUpstream').addEventListener('click', async () => {
+  if (!state.current) return;
+  const data = await api('/api/file?path=' + encodeURIComponent(state.current));
+  $('#mergeBox').value = data.upstream_text || '';
+});
+
+// ── Apply / clear ──────────────────────────────────────────────────────────
+$('#btnApply').addEventListener('click', async () => {
+  $('#applyMsg').innerHTML = '';
+  const decided = state.files.filter(f => f.decision && f.decision !== 'keep' && f.decision !== 'resolve');
+  if (decided.length === 0) {
+    if (!confirm('No "Take theirs" or "Custom merge" decisions to apply. Continue anyway?')) return;
+  } else {
+    const ok = confirm(`Apply ${decided.length} write decision(s)?\n\n` +
+                       `Backups will be saved to .tasmota_merge_backups/<timestamp>/.\n\n` +
+                       `Files will be written but NOT git-committed — review with \`git diff\` after.`);
+    if (!ok) return;
+  }
+  try {
+    await postJson('/api/apply');
+    showProgress();
+  } catch (e) {
+    $('#applyMsg').innerHTML = `<div class="err">${escapeHtml(e.message)}</div>`;
+  }
+});
+
+$('#btnClearDecisions').addEventListener('click', async () => {
+  if (!confirm('Clear ALL decisions for this fork? (the on-disk decisions file will be wiped)')) return;
+  await postJson('/api/clear_decisions');
+  await refreshFiles();
+});
+
+$('#btnRestart').addEventListener('click', () => {
+  if (!confirm('Reset to setup screen? In-progress work is preserved on disk.')) return;
+  showSetup();
+});
+
+$('#btnQuit').addEventListener('click', async () => {
+  if (!confirm('Quit Tasmota Merge? The local server will stop.')) return;
+  try { await postJson('/api/shutdown'); } catch(_) {}
+  document.body.innerHTML = '<div style="padding:40px;text-align:center;font-size:16px;color:#9aa3b6">' +
+    'Server stopped. You can close this tab.</div>';
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+(async function init() {
+  try {
+    await loadDefaults();
+  } catch (e) {
+    $('#setupErr').textContent = 'Cannot reach server: ' + e.message;
+    $('#setupErr').classList.remove('hidden');
+  }
+  state.pollTimer = setInterval(pollStatus, 700);
+  pollStatus();
+})();
+</script>
+
+</body>
+</html>

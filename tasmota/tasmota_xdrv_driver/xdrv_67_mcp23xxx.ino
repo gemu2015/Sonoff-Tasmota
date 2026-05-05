@@ -664,7 +664,7 @@ void MCP23xModuleInit(void) {
   } else {
 #endif  // USE_SPI
 #ifdef USE_I2C
-    for (uint32_t bus = 0; bus < 2; bus++) {
+    for (uint32_t bus = 0; bus < MAX_I2C; bus++) {
       uint8_t mcp23xxx_address = MCP23XXX_ADDR_START;
       while ((Mcp23x.max_devices < MCP23XXX_MAX_DEVICES) && (mcp23xxx_address < MCP23XXX_ADDR_END)) {
         Mcp23x.chip = Mcp23x.max_devices;

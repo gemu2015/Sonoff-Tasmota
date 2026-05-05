@@ -616,10 +616,9 @@ void SetPulseTimer(uint32_t index, uint32_t time)
 
 uint32_t GetPulseTimer(uint32_t index)
 {
-  long time = TimePassedSince(TasmotaGlobal.pulse_timer[index]);
-  if (time < 0) {
-    time *= -1;
-    return (time > 11100) ? (time / 1000) + 100 : (time > 0) ? time / 100 : 0;
+  int32_t time = -TimePassedSince(TasmotaGlobal.pulse_timer[index]);
+  if (TasmotaGlobal.pulse_timer[index] && time > 0) {
+      return (time > 11100) ? (time / 1000) + 100 : time / 100;
   }
   return 0;
 }
@@ -2304,11 +2303,7 @@ void GpioInit(void)
   }
 
 #ifdef USE_I2C
-  uint32_t max_bus = 1;
-#ifdef USE_I2C_BUS2
-  max_bus = 2;
-#endif  // USE_I2C_BUS2
-  for (uint32_t bus = 0; bus < max_bus; bus++) {
+  for (uint32_t bus = 0; bus < MAX_I2C; bus++) {
     if (PinUsed(GPIO_I2C_SCL, bus) && PinUsed(GPIO_I2C_SDA, bus)) {
       if (I2cBegin(Pin(GPIO_I2C_SDA, bus), Pin(GPIO_I2C_SCL, bus), bus)) {
         TasmotaGlobal.i2c_enabled[bus] = true;

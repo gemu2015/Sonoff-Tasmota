@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tasmota-merge",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/tasmota_merge/tasmota_merge_server.py", "--port", "8500", "--no-browser"],
+      "port": 8500
+    }
+  ]
+}

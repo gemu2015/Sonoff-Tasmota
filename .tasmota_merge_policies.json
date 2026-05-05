@@ -1,0 +1,28 @@
+{
+  "saved_at": "2026-05-05 16:45:01",
+  "always_keep": [
+    "tasmota/tinyc/**",
+    "tasmota/include/xdrv_124_tinyc_vm.h",
+    "tasmota/tasmota_xdrv_driver/xdrv_124_tinyc.ino",
+    "tasmota/UNSOLVED.md",
+    "tools/tasmota_merge/**",
+    "lib/lib_display/UDisplay_legacy/**",
+    "tasmota/Plugins/xdrv_14_mp3*",
+    "tinyc_docs/**"
+  ],
+  "always_take": [
+    "tasmota/berry/**",
+    "lib/lib_basic/*",
+    "lib/lib_deprecated/*",
+    "lib/lib_audio/*",
+    "lib/lib_i2c/*",
+    "lib/lib_rf/*",
+    "lib/lib_ssl/*",
+    "lib/libeps32_audio/*",
+    "lib/libesp32_lvgl/*",
+    "lib/libesp32_ml/*",
+    "lib/libesp32/berry**",
+    "lib/default/*",
+    "tasmota/tasmota_support/*"
+  ]
+}

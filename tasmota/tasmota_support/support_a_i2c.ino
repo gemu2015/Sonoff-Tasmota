@@ -11,44 +11,38 @@
  * Basic I2C routines supporting two busses
 \*********************************************************************************************/
 
-#ifdef ESP8266
-#ifdef USE_I2C_BUS2
-TwoWire Wire1;
-#endif  // USE_I2C_BUS2
-#endif  // ESP8266
-
 const uint8_t I2C_RETRY_COUNTER = 3;
 
 struct I2Ct {
   uint32_t buffer;
-  uint32_t frequency[2];
-#ifdef USE_I2C_BUS2
-  uint32_t active[2][4];
-#else
-  uint32_t active[1][4];
-#endif  // No USE_I2C_BUS2
+  uint32_t frequency[MAX_I2C];
+  uint32_t active[MAX_I2C][4];
 } I2C;
 
 bool I2cBegin(int sda, int scl, uint32_t bus = 0, uint32_t frequency = 100000);
 bool I2cBegin(int sda, int scl, uint32_t bus, uint32_t frequency) {
   I2C.frequency[bus] = frequency;
   bool result = true;
-#ifdef USE_I2C_BUS2
+
+#if MAX_I2C > 1
   TwoWire& myWire = (0 == bus) ? Wire : Wire1;
 #else
   if (bus > 0) { return false; }
   TwoWire& myWire = Wire;
-#endif
+#endif  // MAX_I2C
+
 #ifdef ESP8266
   myWire.begin(sda, scl);
-  myWire.setClock(I2C.frequency[bus]);
+  myWire.setClock(frequency);
 #endif  // ESP8266
+
 #ifdef ESP32
   static bool reinit = false;
   if (reinit) { myWire.end(); }
   result = myWire.begin(sda, scl, frequency);
   reinit = result;
 #endif  // ESP32
+
 //  AddLog(LOG_LEVEL_DEBUG, PSTR("I2C: Bus%d %d"), bus +1, result);
   return result;
 }
@@ -63,15 +57,17 @@ TwoWire& I2cGetWire(uint8_t bus = 0) {
     return Wire;
 #endif // USE_I2C_SERIAL
   }
-#ifdef USE_I2C_BUS2
+
+#if MAX_I2C > 1
   else if ((1 == bus) && TasmotaGlobal.i2c_enabled[1]) {
 #ifdef USE_I2C_SERIAL
     return I2CSerialGetWire(Wire1, bus);
 #else
     return Wire1;
-#endif // USE_I2C_SERIAL
+#endif  // USE_I2C_SERIAL
   }
-#endif  // USE_I2C_BUS2
+#endif  // MAX_I2C
+
   else {
 //    AddLog(LOG_LEVEL_ERROR, PSTR("I2C: bus%d not initialized"), bus +1);
     return *(TwoWire*)nullptr;
@@ -83,16 +79,17 @@ bool I2cSetClock(uint32_t frequency, uint32_t bus) {
   TwoWire& myWire = I2cGetWire(bus);
   if (&myWire == nullptr) { return false; }               // No valid I2c bus
 
-  if (0 == frequency) {
-    if (0 == I2C.frequency[bus]) {
-      I2C.frequency[bus] = 100000;                        // Tasmota default I2C bus speed
-    }
-  } else {
-    I2C.frequency[bus] = frequency;
+  if (frequency < 1000) {
+    frequency = 100000;                                   // Tasmota default I2C bus speed (100kHz)
+  }
+  if (I2C.frequency[bus] < 1000) {
+    I2C.frequency[bus] = 100000;                          // Tasmota default I2C bus speed (100kHz)
   }
   if (frequency != I2C.frequency[bus]) {
+    I2C.frequency[bus] = frequency;
     myWire.setClock(I2C.frequency[bus]);
   }
+
   return true;
 }
 
