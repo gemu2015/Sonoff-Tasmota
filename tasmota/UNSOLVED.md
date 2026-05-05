@@ -239,16 +239,123 @@ docs guidance in §1 of this file):
 
 ### Open questions
 
-- [ ] Which exact Waveshare model(s)? (4.2", 2.9", 2.13"…) — affects
-      which LUT format / opcode set is involved.
-- [ ] Which `.ini` descriptor file are you using? Path under
-      `tasmota/displaydesc/`. Knowing the descriptor lets me trace
-      its parse path through the new loader.
-- [ ] Did you see ANY behaviour with the new driver — full refresh
-      OK but partial broken, or both broken, or other?
 - [ ] Is the contributor who reworked the driver responsive? They'd
       know what got moved where during the refactor; a 5-minute Q&A
       with them is probably worth more than 5 hours of source diving.
+
+### Specific scope (refined 2026-05-05)
+
+- **Three Waveshare descriptors in tree**:
+  - `tasmota/displaydesc/WS_epaper29_v1_display.ini` (2.9" v1, ep_mode=1)
+  - `tasmota/displaydesc/WS_epaper29_v2_display.ini` (2.9" v2, ep_mode=1)
+  - `tasmota/displaydesc/WS_epaper42_display.ini`    (4.2", ep_mode=2)
+- **Tested with new driver:** only **WS_epaper29_v2** — partial refresh
+  fails. v1 untested. 4.2 untested.
+- **4.2 is multi-LUT (ep_mode=2) and only does full refresh anyway** —
+  separate code path (`displayFrame_42()` in `uDisplay_EPD_panel.cpp:504`).
+  Not relevant to the partial-refresh failure.
+
+### Sharper hypothesis (after source comparison 2026-05-05)
+
+**Most likely root cause:** the new driver expects the descriptor's
+`:I` section to include an `EP_LUT_PARTIAL` (0x62) pseudo-opcode —
+that's how it knows when to call `setLut(lut_partial_data)`. But
+**WS_epaper29_v2's `:I` section does NOT contain EP_LUT_PARTIAL**.
+The legacy driver worked because its partial-refresh code path had
+a HARDCODED `SetLut(lut_partial)` call (legacy `uDisplay.cpp:1455`)
+that ran regardless of what the descriptor said.
+
+```
+Legacy partial-init flow (uDisplay.cpp:1450-1456):
+    if (p == DISPLAY_INIT_PARTIAL) {
+        SetLut(lut_partial);          // ← hardcoded, no descriptor opcode needed
+        Updateframe_EPD();
+    }
+
+New driver (uDisplay.cpp:1051-1054, EP_LUT_PARTIAL handler):
+    case EP_LUT_PARTIAL:
+        epd->setLut(epd->cfg.lut_partial_data, epd->cfg.lutpsize);
+        epd->setUpdateMode(DISPLAY_INIT_PARTIAL);
+        // ← only fires if descriptor's :I contains EP_LUT_PARTIAL (0x62)
+```
+
+Result: with the new driver, after `:I` runs, the panel is left
+loaded with the FULL LUT (or no LUT, depending on chip state). The
+first partial-refresh request then runs against the wrong LUT and
+silently produces no visible update.
+
+The new driver source comment at `uDisplay.cpp:1268-1270` actually
+admits this assumption:
+
+> "ep_mode 1/3 rely on :I's own trailing 24,0 + 66,0 + MASTER_ACTIVATION
+>  + EP_LUT_PARTIAL to leave the chip ready for partial updates."
+
+— but WS_epaper29_v2 (and probably v1) does not include EP_LUT_PARTIAL
+in `:I`.
+
+### Two equally valid fixes
+
+**A. Driver-side (preferred — preserves all existing descriptors):**
+
+In `lib/lib_display/UDisplay/src/uDisplay.cpp` around line 1271,
+inside the `if (ep_mode == 2)` block (or alongside, for ep_mode 1/3):
+mimic the legacy hardcoded behaviour by automatically calling
+`epd->setLut(...)` and `epd->setUpdateMode(DISPLAY_INIT_PARTIAL)`
+after `send_spi_cmds(0, dsp_ncmds)` for ep_mode 1/3 IF the descriptor
+parsed a partial LUT. Roughly:
+
+```cpp
+} else if (ep_mode == 1 || ep_mode == 3) {
+    if (epd->cfg.lut_partial_data && epd->cfg.lutpsize > 0) {
+        epd->setLut(epd->cfg.lut_partial_data, epd->cfg.lutpsize);
+        epd->setUpdateMode(DISPLAY_INIT_PARTIAL);
+    }
+}
+```
+
+This restores the legacy "auto-init to partial" semantics. All
+existing descriptors that worked under legacy will work under the
+new driver without modification.
+
+**B. Descriptor-side (fragile — needs to update every existing file):**
+
+Append an `EP_LUT_PARTIAL` pseudo-opcode to every Waveshare descriptor's
+`:I` section:
+
+```ini
+:I
+…existing init bytes…
+62,0          # EP_LUT_PARTIAL — load partial LUT, set DISPLAY_INIT_PARTIAL
+```
+
+Risk: every user with a custom descriptor must edit it. Discoverable
+only from this entry / source comment. Not portable.
+
+### Recommended next step
+
+Before patching: **enable the diagnostic trace** to confirm the LUT
+isn't loading at runtime.
+
+1. Add `#define UDSP_EPD_TRACE 1` near the top of
+   `lib/lib_display/UDisplay/src/uDisplay_EPD_panel.cpp` and
+   `lib/lib_display/UDisplay/src/uDisplay.cpp`. (Already-existing
+   gates around `AddLog` calls fire at LOG_LEVEL_INFO.)
+2. Build + flash a 2.9" v2 device with the new driver.
+3. Trigger a partial refresh, capture WebLog or serial log.
+4. Look for `"setLut SKIP lut=0 len=0"` (= LUT never loaded), or
+   absence of any `setLut cmd=…` line during the partial sequence.
+
+If the log confirms the hypothesis, apply fix A (10 lines, low risk),
+verify partial refresh works on .v2, then test v1 + 4.2 to make sure
+nothing else broke.
+
+### Open questions
+
+- [ ] Did the trace confirm `setLut SKIP` during the partial-refresh
+      attempt?
+- [ ] Should the new driver behave identically to legacy by default,
+      OR is moving the LUT-init-into-descriptor an intentional
+      design choice we should respect (and update descriptors)?
 
 ---
 
