@@ -120,58 +120,135 @@ fails, candidates:
 
 ---
 
-## 2. New epaper driver — currently broken
+## 2. New universal display driver — Waveshare epaper partial refresh broken
 
-**Status:** ⚠ blocked / details TBD.
-
-> **User input needed before this entry is useful — please fill in the
-> sections below or paste any notes you have. Without this we can't
-> meaningfully prepare for the deep session.**
+**Status:** ⚠ workaround in place (legacy library via PIO env), root
+cause not identified. New `UDisplay` library (refactored by another
+contributor) breaks partial refresh on Waveshare e-paper panels;
+legacy `UDisplay_legacy` library still works.
 
 ### Symptom
 
-- _Which epaper driver?_ Candidates in the tree:
-  - `lib/libesp32_epdiy/` — Vroman1's epdiy port
-  - `lib/libesp32_eink/epdiy/` — bundled epdiy
-  - `lib/libesp32_eink/M5EPD47/` — M5Stack 4.7" specifically
-  - `lib/libesp32_eink/<other>` — TBD
-- _Concrete failure mode:_ no display update, ghosting, partial-refresh
-  fails, panel-init returns OK but draw is silent, etc.
-- _Hardware:_ which board, which panel module, supply voltage, ribbon
-  count, …
-- _When did it start failing:_ after a specific Tasmota / library
-  bump? Or first-time bring-up of new hardware?
+- Universal Display driver was reworked into a modular structure (one
+  file per panel type) by another contributor. Since that rework,
+  Waveshare e-paper displays (gerhard's units) **don't refresh
+  correctly with the new driver**. Specifically:
+  - **Partial refresh does not work** — confirmed.
+  - Whether full refresh also fails or "just" looks degraded is open.
+- Workaround: build with the **legacy** library (`UDisplay_legacy/`)
+  via a dedicated PIO env (`tinyc32c3-epd`, `tinyc32s3-epd`).
 
 ### History (what's been tried)
 
-- _List attempts so far with outcomes — even "tried X, no change" is
-  useful for narrowing._
+- Multiple attempts to update / port the partial-refresh path in the
+  new modular driver — none succeeded.
+- Currently shipping the legacy driver as a parallel option in
+  `platformio_override.ini` (lines 134–138 + ~738+ for the EPD env
+  overrides). Default builds use the new driver; epaper variants
+  switch via `lib_ignore` swap.
 
 ### Current best hypothesis
 
-- _One short paragraph if you have one._
+The legacy and new drivers BOTH recognise the special epaper opcodes
+`EP_LUT_FULL` (0x61), `EP_LUT_PARTIAL` (0x62), `EP_SEND_FRAME` (0x68),
+etc. — confirmed by symbol-grep in both. But the IMPLEMENTATIONS
+diverge in subtle ways:
+
+```
+Legacy (UDisplay_legacy/uDisplay.cpp:970)
+    case EP_LUT_PARTIAL:
+        SetLut(lut_partial);                           // direct member
+        ep_update_mode = DISPLAY_INIT_PARTIAL;
+
+New (UDisplay/src/uDisplay.cpp:1051)
+    case EP_LUT_PARTIAL:
+        epd->setLut(epd->cfg.lut_partial_data,         // through cfg ptr
+                    epd->cfg.lutpsize);
+        epd->setUpdateMode(DISPLAY_INIT_PARTIAL);
+```
+
+Likely root-cause candidates (highest priority first):
+
+1. **`cfg.lut_partial_data` / `cfg.lutpsize` not populated during
+   descriptor parse.** If the new driver's config-loader doesn't copy
+   these fields from the descriptor's `:partial` section into the
+   `EPDPanel::cfg` struct, the SetLut at runtime gets `(NULL, 0)` and
+   silently does nothing. Partial refresh then runs against whatever
+   LUT was last loaded (typically the full-refresh LUT) → wrong /
+   no update.
+2. **`updateFrame()` partial-mode dispatch silent no-op when
+   `epc_part_cnt == 0`** (`UDisplay_EPD_panel.cpp:439`). Possible if
+   partial-command list isn't parsed from the descriptor in the new
+   loader, even though the LUT itself is.
+3. **`ep_mode` not reaching the panel object.** New driver's switch
+   at line 436 requires `cfg.ep_mode == 1 || == 3`. If the modular
+   refactor split panel-init across files and `ep_mode` was forgotten
+   in the cfg copy, the entire partial branch is unreachable.
+4. **Timing / WAITIDLE differences.** New driver might not honour
+   `EP_WAITIDLE` (0x63) at the right point in the sequence — Waveshare
+   panels need explicit busy-wait between commands or the partial LUT
+   gets clobbered.
 
 ### Data points
 
-- _Crash logs, bytes-on-the-wire from a logic analyzer, GPIO traces,
-  drive-strength measurements, anything._
+- New driver location: `lib/lib_display/UDisplay/` (modular, ~14
+  files). New EPD-specific code: `src/uDisplay_EPD_panel.cpp` +
+  `include/uDisplay_EPD_panel.h`.
+- Legacy driver: `lib/lib_display/UDisplay_legacy/uDisplay.cpp` (single
+  ~1500 line file, working).
+- The new driver has compile-time tracing built in:
+  `#define UDSP_EPD_TRACE 1` enables `AddLog`-style diagnostics in
+  partial-refresh dispatch. Lines 427–432 + 1031–1037. Useful for the
+  next investigation — just enable + reproduce + capture log.
 
 ### Files involved
 
-- _Driver source path(s) + any patch files in `tasmota/include/` or
-  `tasmota/tasmota_xdrv_driver/` that touch the panel._
+| File | Role |
+|---|---|
+| `lib/lib_display/UDisplay/src/uDisplay.cpp` | Main descriptor parser + command dispatcher (new) |
+| `lib/lib_display/UDisplay/src/uDisplay_EPD_panel.cpp` | EPD panel object — `updateFrame`, `setLut`, `displayFrame` (new) |
+| `lib/lib_display/UDisplay/include/uDisplay_EPD_panel.h` | EPD panel cfg struct definition |
+| `lib/lib_display/UDisplay/include/uDisplay_config.h` | EP_LUT_FULL / EP_LUT_PARTIAL / EP_SEND_FRAME constants |
+| `lib/lib_display/UDisplay_legacy/uDisplay.cpp` | Legacy reference — known working partial refresh (lines 970–1456) |
+| `platformio_override.ini` | Build-env switch (default: new; `*-epd`: legacy) |
 
 ### Suggested next steps
 
-- _Empty until we know the failure mode._
+For a deep-dive session (deserves max-effort + 1M context — see the
+docs guidance in §1 of this file):
+
+1. **Enable `UDSP_EPD_TRACE`** in the new driver, build with the
+   default (new) library, flash, attempt partial refresh, capture
+   the AddLog output. The trace prints `epcoffs_part`, `epc_part_cnt`,
+   and per-opcode dispatch — should immediately show which of the
+   four hypotheses above is in play.
+2. **Side-by-side cfg dump.** Add a one-time `AddLog` call in both
+   driver's panel-init that prints `lut_partial_data ptr / lutpsize /
+   epcoffs_part / epc_part_cnt / ep_mode` after descriptor parse.
+   Compare same descriptor against legacy + new — anything that's
+   non-zero in legacy and zero in new is the bug.
+3. **Diff the descriptor parser sections.** The legacy parser has
+   `lut_partial = (uint8_t*)malloc(lut_siz_partial)` at line 273 +
+   per-byte fill at 589. Find the equivalent in the new parser
+   (presumably split out of `uDisplay.cpp`). Verify both code paths
+   actually run.
+4. **Logic-analyzer the SPI traffic.** Capture the full command/data
+   stream during a partial refresh on legacy (working) vs new
+   (broken). The first byte that differs is the fault site. Fast
+   disambiguation if the source-side comparison is ambiguous.
 
 ### Open questions
 
-- [ ] Which driver / panel?
-- [ ] Working reference: do you have ANY epaper driver currently
-      working on the same board, even if it's an older library?
-- [ ] Is there a reference repo / vendor demo that DOES work? Compare
-      pin map / init sequence / temp-comp tables.
+- [ ] Which exact Waveshare model(s)? (4.2", 2.9", 2.13"…) — affects
+      which LUT format / opcode set is involved.
+- [ ] Which `.ini` descriptor file are you using? Path under
+      `tasmota/displaydesc/`. Knowing the descriptor lets me trace
+      its parse path through the new loader.
+- [ ] Did you see ANY behaviour with the new driver — full refresh
+      OK but partial broken, or both broken, or other?
+- [ ] Is the contributor who reworked the driver responsive? They'd
+      know what got moved where during the refactor; a 5-minute Q&A
+      with them is probably worth more than 5 hours of source diving.
 
 ---
 
