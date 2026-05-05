@@ -841,6 +841,77 @@ Sowohl Inline- als auch Heap-Arrays unterstuetzen alle gleichen Operationen: Ele
 | ESP32     | 8.192 (32 KB)   | 16           |
 | Browser   | 16.384 (64 KB)  | 32           |
 
+### 2D-Arrays *(seit 1.3.38)*
+
+Zweidimensionale Arrays fuer `char`, `int` und `float` arbeiten wie in
+Standard-C, mit zeilenweiser flacher Speicherung im Heap:
+
+```c
+char names[7][16];           //   7 Zeilen × 16 Spalten   (char  → Heap)
+int  ltab[5][4];             //   5 Zeilen ×  4 Spalten   (int   → Heap)
+float coef[3][2];            //   3 Zeilen ×  2 Spalten   (float → Heap)
+
+int main() {
+    // Element-Zugriff
+    ltab[2][3] = 42;
+    int v = ltab[r][c];
+    float k = coef[i][j];
+
+    // String-Operationen auf Char-Zeilen
+    strcpy(names[0], "Sonntag");
+    strcat(names[1], " ergaenzt");
+    int eq = strcmp(names[0], names[1]);
+
+    // Zeile an eine Funktion uebergeben, die ein 1D-Array erwartet
+    show_row_int(ltab[3], 4);
+    show_row_str(names[i]);
+
+    // sprintf %s mit einer 2D-Char-Zeile (konstanter oder variabler Index)
+    char buf[64];
+    sprintf(buf, "name=%s laenge=%d", names[i], strlen(names[i]));
+    return 0;
+}
+
+void show_row_int(int row[], int n) { /* row ist die i-te Zeile des Aufrufers */ }
+void show_row_str(char s[])         { addLog(s); }
+```
+
+**Speicher & Grenzen:**
+
+- Gesamte flache Groesse = `Zeilen × Spalten`. Unterliegt denselben Heap-
+  Obergrenzen wie 1D-Arrays in der obigen Tabelle. `char buf[8][32]` =
+  256 Elemente (Heap).
+- **Zeilenreferenzen erfordern Heap-Speicherung.** Automatische
+  Heap-Promotion erfolgt bei >16 Gesamtelementen (die uebliche 1D-
+  Schwelle), also qualifiziert sich praktisch jede 2D-Groesse. Wer ein
+  winziges 2D wie `char buf[2][3]` (= 6 Elemente, bleibt inline)
+  schreibt und `func(buf[0])` versucht, bekommt vom Compiler eine
+  klare Fehlermeldung — Array vergroessern oder Zeile manuell zusammen-
+  setzen.
+- **`buf` (ohne Index)** an eine Funktion uebergeben, die ein Array
+  dieses Typs erwartet, wird als gesamter flacher Datenblock behandelt
+  (Laenge `Zeilen × Spalten`).
+- **`buf[i]` (ein Index)** an eine Funktion uebergeben, die ein 1D-
+  Array erwartet, ist die i-te Zeile (Laenge `Spalten`).
+- **`buf[i][j]`** ist ein einzelnes Element.
+
+**Einschraenkungen:**
+
+- 3D und hoehere Dimensionen werden nicht unterstuetzt. Fuer die
+  wenigen Faelle, die das brauchen, manuelle Stride-Arithmetik mit
+  einem 2D-Array verwenden.
+- Gemischte Typen-Promotion in 2D-Elementausdruecken folgt denselben
+  Regeln wie 1D — int↔float-Konvertierung erfolgt automatisch.
+- Initialisierungs-Literale fuer 2D werden noch nicht akzeptiert
+  (`int m[2][3] = {{1,2,3},{4,5,6}};` wirft derzeit einen Fehler).
+  In `main()` per Schleife oder Element-fuer-Element initialisieren.
+
+**Intern:** die Laufzeit ist unveraendert — der Compiler flacht
+`buf[i][j]` zu `buf[i*cols + j]` an den vorhandenen 1D-Heap-Array-
+Opcodes ab und emittiert in Zeilenuebergabe-Kontexten eine offset-
+behaftete Referenz (`ADDR_HEAP_OFF`) fuer `buf[i]`. 2D ist also rein
+eine ergonomische Schicht ueber dem 1D-Heap; keine neuen VM-Features.
+
 ---
 
 ## Zeichenketten

@@ -32,7 +32,7 @@ After compiling and flashing Tasmota, upload the IDE file to the device filesyst
 
 ## Language
 
-Standard C subset: `int`, `float`, `char`, `void`, `bool` types. Control flow with `if/else`, `while`, `for`, `switch/case`, `break`, `continue`. Functions, arrays (local up to 64 elements, heap-allocated for larger), `#define` preprocessor, `// line` and `/* block */` comments. No pointers, no structs.
+Standard C subset: `int`, `float`, `char`, `void`, `bool` types. Control flow with `if/else`, `while`, `for`, `switch/case`, `break`, `continue`. Functions, 1D and 2D arrays (`char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]` — auto-promoted to heap above 16 elements), structs, `#define` preprocessor, `// line` and `/* block */` comments. No pointers.
 
 ## Tasmota Integration
 

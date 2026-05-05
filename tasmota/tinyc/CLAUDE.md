@@ -76,6 +76,15 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **2D arrays** (1.3.38) — `char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]`.
+  Element access `arr[i][j]`, write `arr[i][j] = …`, row passing `func(arr[i])`
+  to 1D array params, `strcpy/strcat/strcmp` on rows, `sprintf("%s", arr[i])`
+  for 2D char. Pure compiler change — VM unchanged (flattens to existing
+  1D heap-array opcodes via `i*cols + j`; row refs use `ADDR_HEAP_OFF`).
+  Row passing requires heap storage (auto-promoted at >16 total elements,
+  so any practical 2D qualifies). 3D+ not supported. Initialisers for 2D
+  literals (`int m[2][3] = {{1,2,3},{4,5,6}}`) not accepted yet — initialise
+  in `main()` instead.
 - **Race-free autoexec start** (1.3.36) — autoexec slot main() now spawns
   on a FUNC_LOOP iteration once `TasmotaGlobal.uptime ≥ 3 s` (override:
   `-DTC_AUTOEXEC_MIN_UPTIME=N`). Previously main() spawned during FUNC_INIT
@@ -342,6 +351,7 @@ void OnMqttData(char topic[], char payload[]) {
 **Cross-VM share (ESP32)** — `share_writer.tc` (slot 0 EverySecond writer) + `share_reader.tc` (slot 1 Command reader)
 **HomeKit (ESP32)** — `homekit_demo.tc`, `homekit_office.tc`
 **Strings / sort** — `strings.tc`, `sort.tc`, `file_io.tc`
+**2D arrays** — `test_2d.tc` (char 2D), `test_2d_phase2.tc` (int + float 2D + sprintf %s)
 **Benchmarks / diag** — `benchmark.tc`, `crash_test.tc`, `sizeof_demo.tc`
 
 When a user asks for X, prefer to start from the closest example and adapt —

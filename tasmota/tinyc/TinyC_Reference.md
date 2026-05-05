@@ -890,6 +890,72 @@ Both inline and heap arrays support all the same operations: element access, str
 | ESP32    | 8,192 (32 KB) | 16          |
 | Browser  | 16,384 (64 KB)| 32          |
 
+### 2D Arrays *(since 1.3.38)*
+
+Two-dimensional arrays for `char`, `int`, and `float` work like in
+standard C, with row-major flat storage in the heap:
+
+```c
+char names[7][16];           //   7 rows × 16 cols   (char  → heap)
+int  ltab[5][4];             //   5 rows ×  4 cols   (int   → heap)
+float coef[3][2];            //   3 rows ×  2 cols   (float → heap)
+
+int main() {
+    // Element access
+    ltab[2][3] = 42;
+    int v = ltab[r][c];
+    float k = coef[i][j];
+
+    // String ops on char rows
+    strcpy(names[0], "Sonntag");
+    strcat(names[1], " ergänzt");
+    int eq = strcmp(names[0], names[1]);
+
+    // Pass a row to a function expecting a 1D array of the same type
+    show_row_int(ltab[3], 4);
+    show_row_str(names[i]);
+
+    // sprintf %s with a 2D char row works with constant or variable index
+    char buf[64];
+    sprintf(buf, "name=%s len=%d", names[i], strlen(names[i]));
+    return 0;
+}
+
+void show_row_int(int row[], int n) { /* row is the i-th row of the caller */ }
+void show_row_str(char s[])         { addLog(s); }
+```
+
+**Memory & limits:**
+
+- Total flat size = `rows × cols`. Subject to the same heap caps as 1D
+  arrays in the table above. `char buf[8][32]` = 256 elements (heap).
+- **Row references require heap storage.** Auto-promotion happens at
+  >16 total elements (the regular 1D threshold), so any practical 2D
+  size qualifies. If you write a tiny 2D like `char buf[2][3]` (= 6
+  elements, stays inline) and try `func(buf[0])`, the compiler emits
+  a clear error — make the array bigger or assemble the row manually.
+- **`buf` (no index)** passed to a function expecting that type's array
+  is treated as the entire flat data (length `rows × cols`).
+- **`buf[i]` (one index)** passed to a function expecting a 1D array
+  is the i-th row (length `cols`).
+- **`buf[i][j]`** is one element.
+
+**Limitations:**
+
+- 3D and higher dimensions are not supported. Use a 2D array with
+  manual stride math for the few cases that need it.
+- Mixed-type promotion in 2D element expressions follows the same
+  rules as 1D — int↔float coercion happens automatically.
+- Initialiser literals for 2D are not yet accepted (`int m[2][3] =
+  {{1,2,3},{4,5,6}};` currently errors). Initialise in `main()` with
+  a loop or per-element assignments.
+
+**Internals:** the runtime is unchanged — the compiler flattens
+`buf[i][j]` to `buf[i*cols + j]` at the existing 1D heap-array opcodes,
+and emits an offset-bearing reference (`ADDR_HEAP_OFF`) for `buf[i]`
+in row-passing contexts. So 2D is purely an ergonomic layer on top of
+the 1D heap; no new VM features.
+
 ---
 
 ## Strings

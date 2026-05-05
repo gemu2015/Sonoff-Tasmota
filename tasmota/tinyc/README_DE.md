@@ -19,7 +19,7 @@ In `user_config_override.h` hinzufuegen:
 
 ## Sprache
 
-Standard-C-Subset: `int`, `float`, `char`, `void`, `bool` Datentypen. Kontrollfluss mit `if/else`, `while`, `for`, `switch/case`, `break`, `continue`. Funktionen, Arrays (Stack bis 255, Heap fuer groessere), `#define` Praeprozessor, `// Zeile` und `/* Block */` Kommentare. Keine Pointer, keine Structs.
+Standard-C-Subset: `int`, `float`, `char`, `void`, `bool` Datentypen. Kontrollfluss mit `if/else`, `while`, `for`, `switch/case`, `break`, `continue`. Funktionen, 1D- und 2D-Arrays (`char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]` — automatische Heap-Promotion ueber 16 Elementen), Structs, `#define`-Praeprozessor, `// Zeile` und `/* Block */` Kommentare. Keine Pointer.
 
 ## Tasmota-Integration
 
