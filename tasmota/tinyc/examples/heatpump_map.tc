@@ -125,6 +125,30 @@ int  long_call_warns    = 0;   // count of >1 s events of any kind
 #define LONG_CALL_WARN_MS  1000   // 1 s — log a warning
 #define LONG_CALL_CRIT_MS  4000   // 4 s — log CRITICAL (1 s shy of WDT)
 
+// Cap bytes drained from UART per Every50ms tick. At 19200 baud max
+// ~95 bytes can arrive in 50 ms, so 192 leaves 2× headroom while still
+// preventing a single tick from doing many-100s-of-bytes of work after
+// the loop unfreezes from elsewhere (which would itself add ~100 ms+
+// of parse work on top of whatever caused the original freeze, possibly
+// triggering the watchdog by itself in a feedback loop).
+#define E50_MAX_BYTES_PER_TICK  192
+int  e50_bytes_max      = 0;   // diagnostic: peak bytes processed in one tick
+
+// ── Currently-running-callback tracker (for watchdog post-mortem) ────
+// Each callback sets cb_active_id at its TOP and clears at its bottom.
+// On a watchdog trip the loop task is hung — whatever value is here is
+// the most-recently-entered callback that hasn't returned, i.e. the
+// likely culprit. Captured into the ring buffer pre-Restart.
+//   0 = idle / between callbacks
+//   1 = Every50ms
+//   2 = EverySecond
+//   3 = WebCall
+//   4 = JsonCall
+//   5 = Command
+//   6 = OnMqttData (unused here but reserved)
+//   7 = TaskLoop (won't show — runs in tc_vm_task)
+int  cb_active_id      = 0;
+
 // ── Loop-task watchdog (via TaskLoop) ───────────────────────────────
 // Loop task can hang for minutes inside Tasmota web handlers / lwIP /
 // other subsystems we can't instrument from script-side. Observed twice
@@ -136,13 +160,21 @@ int  long_call_warns    = 0;   // count of >1 s events of any kind
 // task — so it keeps running while the loop task is hung. We use it as
 // an external watchdog: every iteration it compares millis() against
 // last_50ms_run_ms (set by Every50ms which runs ON the loop task). If
-// the loop task hasn't ticked Every50ms in WDOG_LOOP_REBOOT_MS (default
-// 60 s), force a chip restart via tasmCmd("Restart 1"). Recovery time
-// drops from ~4 min stuck to ~10 s reboot.
+// the loop task hasn't ticked Every50ms in WDOG_LOOP_REBOOT_MS, force
+// a chip restart via tasmCmd("Restart 1"). Recovery time drops from
+// "stuck for minutes" to ~10 s reboot.
+//
+// Threshold history:
+//   60 s → 20 s (2026-05-04). At 60 s a 36-second freeze (observed via
+//   gap=36361 in MBUSLAT) self-recovered before tripping, so the ring
+//   buffer never captured the cb_active_id snapshot. 20 s catches the
+//   30–60 s freezes the user feels as "stuck" while still leaving 4×
+//   headroom over the longest legitimate callback (peak EverySecond
+//   ~600 ms, peak Every50ms 21 ms, web/json single-digit ms).
 //
 // Disable from console: MBUSWDOG OFF (sets wdog_loop_enable=0).
 // Enable:               MBUSWDOG ON
-#define WDOG_LOOP_REBOOT_MS 60000   // 60 s — well past any legit blocker
+#define WDOG_LOOP_REBOOT_MS 20000   // 20 s
 int  wdog_loop_enable    = 1;        // 1 = active, 0 = off (toggle via cmd)
 // Persist across reboots so the trip counter survives our own forced
 // restart. saveVars() called explicitly in the wdog handler before the
@@ -154,16 +186,49 @@ persist int wdog_loop_trips        = 0;   // total trips since deploy
 persist int wdog_last_silent_ms    = 0;   // duration of the last detected silence
 persist int wdog_last_trip_uptime  = 0;   // tasm_uptime at last trip
 // Ring buffer of last 8 trips — each trip records:
-//   *_freeze_start_unix   wall-clock time (s since 1970) when freeze BEGAN
-//                         (= tasm_time - silent_ms/1000, computed at trip)
-//   *_silent_ms           how long the loop task was silent
-//   *_freeze_uptime_s     uptime at start of freeze (≈ freeze-causing event)
+//   *_freeze_start_unix   tasm_time (minutes-since-midnight) at trip — kept
+//                         for back-compat; freeze-start computation is bogus
+//                         (subtracts seconds from minutes), use *_taskloop_ms
+//                         + *_uptime_s to characterise the trip instead.
+//   *_silent_ms           how long the loop task was silent (Every50ms gap)
+//   *_freeze_uptime_s     uptime at start of freeze (≈ triggering event)
+//   *_active_cb           cb_active_id at trip time (which callback was hung;
+//                         0 = no TinyC loop-task callback was running)
+//   *_taskloop_ms         millis()-since last TaskLoop body iteration:
+//                           small value (< 200 ms) → TaskLoop healthy →
+//                                                    freeze is in Tasmota
+//                           ≈ silent_ms              → TaskLoop stuck →
+//                                                    freeze is in a TinyC
+//                                                    syscall holding vm_mutex
+//   *_e50/e1s/web/json/mb peak callback durations at trip time
+//
+// IMPORTANT: declared WITHOUT `= {0,0,...}` initializers. TinyC's array
+// initializer is emitted as runtime store-loop code that runs at script
+// start AFTER tc_persist_load — so an explicit `={...}` would zero the
+// arrays *every boot* and discard the persisted trip data. Bare
+// declarations get zero-init at heap allocation time (one-time, before
+// persist load), which is exactly what we want.
+//
 // idx points to the NEXT slot to write (so most-recent is at idx-1 mod 8).
 #define WDOG_HIST  8
-persist int wdog_hist_idx              = 0;
-persist int wdog_hist_freeze_unix[8]   = {0,0,0,0,0,0,0,0};
-persist int wdog_hist_silent_ms[8]     = {0,0,0,0,0,0,0,0};
-persist int wdog_hist_uptime_s[8]      = {0,0,0,0,0,0,0,0};
+persist int wdog_hist_idx;
+persist int wdog_hist_freeze_unix[8];
+persist int wdog_hist_silent_ms[8];
+persist int wdog_hist_uptime_s[8];
+persist int wdog_hist_active_cb[8];
+persist int wdog_hist_e50_max[8];
+persist int wdog_hist_e1s_max[8];
+persist int wdog_hist_web_max[8];
+persist int wdog_hist_json_max[8];
+persist int wdog_hist_mb_max[8];
+persist int wdog_hist_taskloop_ms[8];   // 1.x: TaskLoop liveness at trip
+
+// TaskLoop liveness: updated at top of every TaskLoop iteration. The trip
+// handler captures (millis() - last_task_loop_run_ms) into the ring buffer
+// to tell apart "TaskLoop stuck (TinyC syscall holding mutex)" vs
+// "Tasmota loop-task stuck (freeze outside TinyC)". Non-persist — fresh
+// on every boot.
+int  last_task_loop_run_ms = 0;
 
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
@@ -328,6 +393,36 @@ void parse_frame() {
     if (buf_len < 5) return;
     int sl = buf[0] & 0xFF;
     int fc = buf[1] & 0xFF;
+    // ── Fast-path: pure FC03 read frame → skip the 248-iteration embedded
+    //    write scan below. The scan exists to catch FC05/06/15/16 writes
+    //    embedded within MERGED frames (cloud sends FC06 within <4 ms of a
+    //    prior FC03 poll tail). For a clean FC03 REQ (8 bytes) or merged
+    //    FC03 REQ+RSP (size matches exactly), there's no embedded write
+    //    to find — running the scan anyway costs ~120 ms on a 256-byte
+    //    buffer for nothing.
+    //
+    //    Heuristic: if we start with `01 03` AND the size matches one
+    //    of the three valid FC03 patterns exactly, we know there's no
+    //    write piggy-backing. If size is off, fall through to the full
+    //    scan (which catches merged-with-write or partial-frame cases).
+    int skip_write_scan = 0;
+    if (sl == 1 && fc == 0x03) {
+        // Lone REQ: 8 bytes
+        if (buf_len == 8) skip_write_scan = 1;
+        else if (buf_len >= 5) {
+            // Lone RSP: 5 + byte_count
+            int bc_rsp = buf[2] & 0xFF;
+            if (buf_len == 5 + bc_rsp) skip_write_scan = 1;
+            // Merged REQ + RSP: 8 + 5 + bc, where bc = req_qty*2
+            else if (buf_len >= 16) {
+                int req_qty = ((buf[4] & 0xFF) << 8) | (buf[5] & 0xFF);
+                int bc_merged = (buf[10] & 0xFF);
+                if (buf_len == 13 + bc_merged && bc_merged == req_qty * 2) {
+                    skip_write_scan = 1;
+                }
+            }
+        }
+    }
     // ── Scan the WHOLE buffer for any embedded WRITE function code ──
     // FC05 = write single coil    (8 bytes: 01 05 addr_hi addr_lo val_hi val_lo crc crc;
     //                               val=FF00 means ON, 0000 means OFF)
@@ -340,7 +435,7 @@ void parse_frame() {
     // poll tail). CRC validation eliminates byte-pattern false positives
     // that would otherwise appear at random within FC03 response data.
     char crc_buf[6];
-    for (int i = 0; i + 8 <= buf_len; i++) {
+    for (int i = 0; !skip_write_scan && i + 8 <= buf_len; i++) {
         int s2 = buf[i] & 0xFF;
         int f2 = buf[i+1] & 0xFF;
         if (s2 != 1) continue;                  // only slave 1 commands matter
@@ -505,6 +600,7 @@ void flush_frame() {
 //   1 KB UART RX buffer handles that easily.
 // ------------------------------------------------------------
 void Every50ms() {
+    cb_active_id = 1;
     int t_50 = millis();
     // Detect inter-tick gaps. Any value > 1000 ms tells us the VM was
     // blocked (e.g. a long syscall, a held mutex, or another callback
@@ -528,6 +624,7 @@ void Every50ms() {
     if (ser < 0) {
         int dt0 = millis() - t_50;
         if (dt0 > cb_50_max_ms) cb_50_max_ms = dt0;
+        cb_active_id = 0;
         return;
     }
     // Auto-disable temporary capture window
@@ -539,7 +636,7 @@ void Every50ms() {
     int avail = serialAvailable(ser);
     int got = 0;
     int b;
-    while (avail > 0) {
+    while (avail > 0 && got < E50_MAX_BYTES_PER_TICK) {
         b = serialRead(ser);
         if (b < 0) break;
         if (buf_len < 256) {
@@ -550,6 +647,7 @@ void Every50ms() {
         got = got + 1;
         if (buf_len >= 256) break;
     }
+    if (got > e50_bytes_max) e50_bytes_max = got;
     if (got == 0 && buf_len > 0) {
         // No new bytes this tick + we have data → end of frame
         flush_frame();
@@ -557,6 +655,7 @@ void Every50ms() {
     }
     int dt_50 = millis() - t_50;
     if (dt_50 > cb_50_max_ms) cb_50_max_ms = dt_50;
+    cb_active_id = 0;
 }
 
 // ------------------------------------------------------------
@@ -776,6 +875,12 @@ int hp_send_modbus(int fc, int regaddr, int val) {
 // Polls the mail_pending flag set by wd_send_alert and runs mailSend when
 // triggered. delay() yields the vm_mutex so other callbacks can interleave.
 void TaskLoop() {
+    // Liveness beacon — read by the trip handler to compute taskloop_ms
+    // (small = TaskLoop healthy, large = TaskLoop itself was stuck inside
+    // a long syscall holding vm_mutex). Set FIRST so the value reflects
+    // the current iteration even if a syscall later in this body hangs.
+    last_task_loop_run_ms = millis();
+
     // ── Loop-task watchdog ──────────────────────────────────────────
     // TaskLoop runs in tc_vm_task, separate from Tasmota's loop task.
     // If the loop task is hung, last_50ms_run_ms stays frozen. We catch
@@ -798,6 +903,28 @@ void TaskLoop() {
             wdog_hist_freeze_unix[slot] = tasm_time - silent_s;
             wdog_hist_silent_ms[slot]   = loop_silent_ms;
             wdog_hist_uptime_s[slot]    = tasm_uptime - silent_s;
+            // Diagnostic snapshot — captured BEFORE Restart 1 so we
+            // can identify the culprit on next boot. cb_active_id of
+            //   1=Every50ms 2=EverySecond 3=WebCall 4=JsonCall
+            //   0=between callbacks (suggests a non-VM stall, e.g.
+            //     Tasmota's lwIP / web / MQTT layer holding the loop)
+            // The peaks are this-boot maxima; if one is huge, that's
+            // the recurring slow path.
+            wdog_hist_active_cb[slot] = cb_active_id;
+            wdog_hist_e50_max[slot]   = cb_50_max_ms;
+            wdog_hist_e1s_max[slot]   = cb_sec_max_ms;
+            wdog_hist_web_max[slot]   = cb_web_max_ms;
+            wdog_hist_json_max[slot]  = cb_json_max_ms;
+            wdog_hist_mb_max[slot]    = mb_max_ms;
+            // TaskLoop liveness: how long since last TaskLoop iteration.
+            // Should always be SMALL when this code runs (we're literally
+            // inside TaskLoop right now and updated last_task_loop_run_ms
+            // at the top), unless something earlier in this iteration
+            // (a syscall that holds the mutex without yielding) blocked
+            // for the full silent window. Practically:
+            //   small (< 200 ms) → freeze is OUTSIDE TinyC (Tasmota stuck)
+            //   ≈ silent_ms       → freeze is IN a TinyC syscall (TaskLoop's)
+            wdog_hist_taskloop_ms[slot] = millis() - last_task_loop_run_ms;
             wdog_hist_idx = (slot + 1) & 7;     // wrap at 8
             // Persist updated counters BEFORE forcing the reboot — the
             // auto-save-on-stop path won't run because Tasmota's
@@ -886,6 +1013,7 @@ int  web_tick = 0;     // increments each WebCall poll — live indicator
 int  parse_tick_at_last_web = 0;  // reg-store activity sampled per poll
 int  reg_writes = 0;   // total store_reg() invocations since boot
 void WebCall() {
+    cb_active_id = 3;
     int t_web = millis();
     // Use global g_row instead of `char row[200]` (heap handle leak fix).
     // Tiny scratch strings (<=16) stay local since they don't use a handle.
@@ -1018,6 +1146,7 @@ void WebCall() {
         sprintf(g_tmp, "WebCall ⚠ slow %d ms", dt_web);
         addLog(g_tmp);
     }
+    cb_active_id = 0;
 }
 
 // ------------------------------------------------------------
@@ -1025,8 +1154,9 @@ void WebCall() {
 // machine-readable shape.
 // ------------------------------------------------------------
 void JsonCall() {
+    cb_active_id = 4;
     int t_json = millis();
-    if (registers_known < 5) return;   // not warmed up yet
+    if (registers_known < 5) { cb_active_id = 0; return; }   // not warmed up yet
     // using global g_buf
     char sep[2];
     int n = 0;
@@ -1099,6 +1229,7 @@ void JsonCall() {
         sprintf(g_tmp, "JsonCall ⚠ slow %d ms", dt_json);
         addLog(g_tmp);
     }
+    cb_active_id = 0;
 }
 
 // ------------------------------------------------------------
@@ -1301,6 +1432,7 @@ void WebUI() {
 // Edge-detect form buttons each second
 // ------------------------------------------------------------
 void EverySecond() {
+    cb_active_id = 2;
     int t_sec = millis();
     // ── 1-minute historian for the 4-hour Puffer / Ausgang charts ──
     // Edge-detect on tasm_minute so we sample exactly once per minute
@@ -1459,6 +1591,7 @@ void EverySecond() {
         sprintf(g_tmp, "EverySecond ⚠ slow %d ms", dt_sec);
         addLog(g_tmp);
     }
+    cb_active_id = 0;
 }
 
 // ------------------------------------------------------------
@@ -1520,6 +1653,11 @@ void WebPage() {
 // Console commands
 // ------------------------------------------------------------
 void Command(char cmd[]) {
+    // Command tracking deliberately omitted — many `return;` paths
+    // make a clean clear-on-exit fragile, and Command is rarely the
+    // multi-minute-freeze culprit (only runs on user-issued console
+    // commands). The four periodic callbacks (Every50ms / EverySecond
+    // / WebCall / JsonCall) are the main suspects.
     // using global g_resp
 
     // DIAG: log the exact cmd string seen so we can verify dispatch
@@ -1536,13 +1674,15 @@ void Command(char cmd[]) {
         cb_50_max_ms = 0; cb_sec_max_ms = 0; cb_web_max_ms = 0;
         cb_json_max_ms = 0; mail_max_ms = 0; mb_max_ms = 0;
         tick_gap_max_ms = 0; long_call_warns = 0;
+        e50_bytes_max = 0;
         responseCmnd("LAT maxima reset");
         return;
     }
     // HPLAT — print one-line latency snapshot to console + responseCmnd
     if (strFind(cmd, "LAT") == 0 && strlen(cmd) == 3) {
-        sprintf(g_resp, "gap=%d e50=%d e1s=%d web=%d json=%d mb=%d/%d mail=%d/%d warns=%d wdog=%d/%d",
-                tick_gap_max_ms, cb_50_max_ms, cb_sec_max_ms, cb_web_max_ms,
+        sprintf(g_resp, "gap=%d e50=%d e50b=%d e1s=%d web=%d json=%d mb=%d/%d mail=%d/%d warns=%d wdog=%d/%d",
+                tick_gap_max_ms, cb_50_max_ms, e50_bytes_max,
+                cb_sec_max_ms, cb_web_max_ms,
                 cb_json_max_ms, mb_max_ms, mb_calls, mail_max_ms, mail_calls,
                 long_call_warns, wdog_loop_enable, wdog_loop_trips);
         responseCmnd(g_resp);
@@ -1550,10 +1690,22 @@ void Command(char cmd[]) {
     }
     // MBUSHIST — dump the wdog trip ring buffer (last up-to-8 freezes).
     // For each slot, prints freeze-start unix time + uptime-into-boot +
-    // freeze duration (ms). Most-recent first. Helps spot a periodic
-    // schedule (e.g. always at xx:00, every 3h, every X seconds of uptime).
+    // freeze duration (ms) + which callback was running + peak callback
+    // durations at trip time. Most-recent first.
+    //
+    // Output goes BOTH via responseCmnd (for /cm HTTP API consumers)
+    // AND via addLog (for the web console at /cs). The /cm response
+    // is built into hbuf — capped at 700 bytes for Tasmota's MQTT
+    // payload limit, so on a heavily-tripped buffer the older slots
+    // may truncate; the addLog calls always produce the full set.
     if (strFind(cmd, "HIST") == 0 && strlen(cmd) == 4) {
-        responseCmnd("freeze history (most recent first):");
+        char hbuf[720];
+        // Header line including raw idx + trips so we can distinguish
+        // "no trips recorded" (idx=0, trips=0) from "persist failed to
+        // load" (would be ambiguous without this) and from "trip just
+        // happened, idx=1, trips=1".
+        sprintf(hbuf, "freeze history (idx=%d, trips=%d):\n",
+                wdog_hist_idx, wdog_loop_trips);
         // Walk backwards from idx-1 (newest) through 8 slots
         for (int n = 0; n < WDOG_HIST; n = n + 1) {
             int slot = (wdog_hist_idx - 1 - n) & 7;
@@ -1561,15 +1713,34 @@ void Command(char cmd[]) {
             int silent_m = wdog_hist_silent_ms[slot];
             int uptime_s = wdog_hist_uptime_s[slot];
             if (unix_t == 0 && silent_m == 0) continue;     // unused slot
-            // Format unix as HH:MM:SS DD.MM (local-ish, simple modulo).
-            // Don't import strftime to keep this minimal — for a spec
-            // diagnostic the seconds-since-1970 is fine and grep-able.
-            sprintf(g_resp, "  [%d] unix=%d uptime=%ds silent=%dms",
-                    n, unix_t, uptime_s, silent_m);
+            int cb       = wdog_hist_active_cb[slot];
+            // Map cb_id to a readable name (kept short for line budget)
+            char cbname[12];
+            if (cb == 1) strcpy(cbname, "Every50ms");
+            else if (cb == 2) strcpy(cbname, "EverySec");
+            else if (cb == 3) strcpy(cbname, "WebCall");
+            else if (cb == 4) strcpy(cbname, "JsonCall");
+            else if (cb == 5) strcpy(cbname, "Command");
+            else if (cb == 0) strcpy(cbname, "idle/other");
+            else              strcpy(cbname, "?");
+            // tlms = "TaskLoop ms ago" at trip; small = TaskLoop healthy
+            // (freeze is in Tasmota), large = TaskLoop itself was stuck.
+            sprintf(g_resp,
+                "  [%d] up=%ds sil=%dms tlms=%d in=%s e50=%d e1s=%d web=%d json=%d mb=%d",
+                n, uptime_s, silent_m, wdog_hist_taskloop_ms[slot], cbname,
+                wdog_hist_e50_max[slot], wdog_hist_e1s_max[slot],
+                wdog_hist_web_max[slot], wdog_hist_json_max[slot],
+                wdog_hist_mb_max[slot]);
             addLog(g_resp);
+            // Also append to /cm response (truncates older slots if oversized)
+            if (strlen(hbuf) + strlen(g_resp) + 2 < 700) {
+                strcat(hbuf, g_resp);
+                strcat(hbuf, "\n");
+            }
         }
-        sprintf(g_resp, "(total trips since deploy: %d)", wdog_loop_trips);
-        responseCmnd(g_resp);
+        sprintf(g_tmp, "(total trips since deploy: %d)", wdog_loop_trips);
+        if (strlen(hbuf) + strlen(g_tmp) + 1 < 720) strcat(hbuf, g_tmp);
+        responseCmnd(hbuf);
         return;
     }
     // MBUSWDOG ON|OFF — toggle the loop-task watchdog (TaskLoop-driven
