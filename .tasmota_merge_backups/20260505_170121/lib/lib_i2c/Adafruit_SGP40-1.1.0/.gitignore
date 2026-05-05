@@ -1,9 +1,0 @@
-*~
-doxygen_sqlite3.db
-html# osx
-.DS_Store
-
-# doxygen
-doxygen_sqlite3.db
-html
-*.tmp

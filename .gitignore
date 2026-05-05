@@ -30,6 +30,11 @@ build_output/*
 firmware.map
 firmware.asm
 tasmota/tasmota.ino.cpp
+tasmota/tasmota_defines_for_berry.h
+tasmota/tasmota_defines_for_berry.be
+.tasmota_merge_state.json
+.tasmota_merge_policies.json
+.tasmota_merge_backups/
 platformio_override.ini
 platformio_tasmota_cenv.ini
 platformio_tasmota_user_env.ini
