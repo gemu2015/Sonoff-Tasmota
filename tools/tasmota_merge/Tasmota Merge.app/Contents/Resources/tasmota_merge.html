@@ -189,8 +189,23 @@
   .diff-pane {
     background: var(--code-bg); border: 1px solid var(--border);
     border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
-    height: calc(100vh - 260px); min-height: 400px;
+    height: calc(60vh - 130px); min-height: 280px;
   }
+  .unified-pane {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+    height: calc(40vh - 80px); min-height: 200px; margin-top: 10px;
+  }
+  .unified-pane pre {
+    margin: 0; padding: 10px 12px; overflow: auto; flex: 1;
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+    background: transparent; color: var(--text); white-space: pre; tab-size: 4;
+  }
+  .unified-pane .uline       { display: block; padding: 0 8px; }
+  .unified-pane .uline.add   { background: var(--diff-add-bg); color: var(--diff-add-fg); }
+  .unified-pane .uline.rm    { background: var(--diff-rm-bg);  color: var(--diff-rm-fg); }
+  .unified-pane .uline.hunk  { background: var(--panel-2); color: var(--accent-h); font-weight: 600; }
+  .unified-pane .uline.head  { color: var(--muted); }
   .diff-pane .head {
     background: var(--panel-2); padding: 8px 12px; font-size: 12px;
     color: var(--muted); display: flex; gap: 10px; align-items: center;
@@ -285,7 +300,7 @@
 
 <header>
   <h1>Tasmota Merge</h1>
-  <span class="badge" id="versionBadge">v1.4 · row actions</span>
+  <span class="badge" id="versionBadge">v1.5 · 3-pane diff</span>
   <span class="spacer"></span>
   <span class="phase" id="phaseBadge">setup</span>
   <button id="btnRestart" class="warn" title="Reset session">Restart</button>
@@ -455,13 +470,15 @@
       </div>
     </div>
 
+    <div class="unified-pane">
+      <div class="head" style="background: var(--panel-2); padding: 8px 12px; font-size: 12px; color: var(--muted); display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--border);">
+        <b style="color: var(--text);">Unified diff</b>
+        <span class="small">— what would change if you "take theirs"</span>
+      </div>
+      <pre id="unifiedPane"></pre>
+    </div>
+
     <div class="card" style="margin-top: 12px;">
-      <details>
-        <summary>Unified diff (read-only) — what would change if you "take theirs"</summary>
-        <pre id="unifiedPane" style="max-height: 300px; overflow: auto;
-                                     background: var(--code-bg); padding: 10px;
-                                     border-radius: 6px; margin-top: 8px;"></pre>
-      </details>
       <details>
         <summary>Custom merge editor — write the final fork content here, then click "Save custom merge"</summary>
         <textarea id="mergeBox" rows="20" style="margin-top: 8px;"></textarea>
@@ -932,10 +949,37 @@ async function openDiff(rel) {
   // Unified diff (separate request — cheap, plain text)
   try {
     const diff = await api('/api/diff?path=' + encodeURIComponent(rel));
-    $('#unifiedPane').textContent = diff || '(no diff — files identical or non-text)';
+    renderUnifiedDiff(diff);
   } catch (e) {
     $('#unifiedPane').textContent = `(diff failed: ${e.message})`;
   }
+}
+
+// Render a unified diff string with per-line coloring:
+//   "+" → green, "-" → red, "@@ ..." → blue hunk header,
+//   "--- a/x" / "+++ b/x" → muted file header,
+//   anything else → plain context line.
+function renderUnifiedDiff(diff) {
+  const pane = $('#unifiedPane');
+  pane.innerHTML = '';
+  if (!diff) {
+    pane.textContent = '(no diff — files identical or non-text)';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const raw of diff.split('\n')) {
+    const span = document.createElement('span');
+    span.className = 'uline';
+    let cls = '';
+    if (raw.startsWith('+++ ') || raw.startsWith('--- '))      cls = 'head';
+    else if (raw.startsWith('@@'))                              cls = 'hunk';
+    else if (raw.startsWith('+'))                               cls = 'add';
+    else if (raw.startsWith('-'))                               cls = 'rm';
+    if (cls) span.classList.add(cls);
+    span.textContent = raw || ' ';
+    frag.appendChild(span);
+  }
+  pane.appendChild(frag);
 }
 
 // Side-by-side line coloring: a line is "added" / "removed" relative to the
