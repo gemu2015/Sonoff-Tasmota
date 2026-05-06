@@ -210,18 +210,36 @@ persist int wdog_last_trip_uptime  = 0;   // tasm_uptime at last trip
 // persist load), which is exactly what we want.
 //
 // idx points to the NEXT slot to write (so most-recent is at idx-1 mod 8).
+//
+// Refactored to a struct in TinyC 1.4.0+: replaces 10 parallel persist
+// `int wdog_hist_X[8]` arrays with a single `persist WdogTrip wdog_hist[8]`.
+// Same on-disk size (10 × 8 × 4 bytes), but ONE persist-layout entry
+// instead of ten — and impossible to forget to add the matching `[slot]=`
+// line when introducing a new field, since every read/write goes through
+// the struct.
+//
+// NOTE on persist hash and field reordering: the v1.4 persist hash
+// includes the struct's slotCount but NOT field-name list, so silently
+// reordering fields in WdogTrip after persist data exists won't
+// invalidate the .pvs file (the saved bytes would be loaded with shifted
+// field offsets). Workaround if you reorder: bump WDOG_HIST or rename
+// the var briefly to force re-init. v2 persist hash will include field
+// names.
 #define WDOG_HIST  8
-persist int wdog_hist_idx;
-persist int wdog_hist_freeze_unix[8];
-persist int wdog_hist_silent_ms[8];
-persist int wdog_hist_uptime_s[8];
-persist int wdog_hist_active_cb[8];
-persist int wdog_hist_e50_max[8];
-persist int wdog_hist_e1s_max[8];
-persist int wdog_hist_web_max[8];
-persist int wdog_hist_json_max[8];
-persist int wdog_hist_mb_max[8];
-persist int wdog_hist_taskloop_ms[8];   // 1.x: TaskLoop liveness at trip
+struct WdogTrip {
+    int freeze_unix;     // tasm_time at the start of the silent window (back-dated)
+    int silent_ms;       // duration of the loop-task silence
+    int uptime_s;        // tasm_uptime at the start of the silent window
+    int active_cb;       // cb_active_id captured pre-Restart (1=Every50ms 2=EverySecond …)
+    int e50_max;         // peak Every50ms duration this boot
+    int e1s_max;         // peak EverySecond duration
+    int web_max;         // peak WebCall duration
+    int json_max;        // peak JsonCall duration
+    int mb_max;          // peak hp_send_modbus duration
+    int taskloop_ms;     // 1.x: TaskLoop liveness (ms since last TaskLoop tick)
+}
+persist int       wdog_hist_idx;
+persist WdogTrip  wdog_hist[8];
 
 // TaskLoop liveness: updated at top of every TaskLoop iteration. The trip
 // handler captures (millis() - last_task_loop_run_ms) into the ring buffer
@@ -253,11 +271,22 @@ int  last_write_val  = 0;
 int  last_write_ms   = 0;
 
 // Circular buffer of last 16 write events (own + observed). Small footprint
-// (16 × 3 ints = ~192 B), enough to catch a complete cloud on/off interaction.
-int  wlog_addr[16];
-int  wlog_val[16];
-int  wlog_ms[16];
-char wlog_src[16];     // 'O' = observed (cloud/external), 'M' = me (this script's send)
+// (16 × 4 ints = ~256 B), enough to catch a complete cloud on/off interaction.
+//
+// Refactored to a struct in TinyC 1.4.0+: replaces the four parallel
+// int wlog_addr[16] / int wlog_val[16] / int wlog_ms[16] / char wlog_src[16]
+// arrays with a single array of WriteEvent records — eliminates the
+// "arrays got out of sync" bug class entirely (e.g. miss adding a
+// wlog_addr[p]= line and the slot's address silently stays from the
+// previous occupant of the slot).
+struct WriteEvent {
+    int  addr;     // Modbus register / coil address
+    int  val;      // value written
+    int  ms;       // millis() at capture
+    char src;      // 'O' = observed (cloud/external), 'M' = me (this script's send)
+}
+
+WriteEvent wlog[16];
 int  wlog_pos = 0;     // next slot to write
 int  wlog_count = 0;
 
@@ -338,10 +367,10 @@ int wd_test_active        = 0;   // 1 = next cooldown is shortened (test mode)
 
 void wlog_push(int addr, int val, char src) {
     int p = wlog_pos;
-    wlog_addr[p] = addr;
-    wlog_val[p]  = val;
-    wlog_ms[p]   = millis();
-    wlog_src[p]  = src;
+    wlog[p].addr = addr;
+    wlog[p].val  = val;
+    wlog[p].ms   = millis();
+    wlog[p].src  = src;
     wlog_pos = (p + 1) % 16;
     if (wlog_count < 16) wlog_count = wlog_count + 1;
 }
@@ -900,9 +929,9 @@ void TaskLoop() {
             int silent_s = loop_silent_ms / 1000;
             int slot = wdog_hist_idx;
             if (slot < 0 || slot >= WDOG_HIST) slot = 0;
-            wdog_hist_freeze_unix[slot] = tasm_time - silent_s;
-            wdog_hist_silent_ms[slot]   = loop_silent_ms;
-            wdog_hist_uptime_s[slot]    = tasm_uptime - silent_s;
+            wdog_hist[slot].freeze_unix = tasm_time - silent_s;
+            wdog_hist[slot].silent_ms   = loop_silent_ms;
+            wdog_hist[slot].uptime_s    = tasm_uptime - silent_s;
             // Diagnostic snapshot — captured BEFORE Restart 1 so we
             // can identify the culprit on next boot. cb_active_id of
             //   1=Every50ms 2=EverySecond 3=WebCall 4=JsonCall
@@ -910,12 +939,12 @@ void TaskLoop() {
             //     Tasmota's lwIP / web / MQTT layer holding the loop)
             // The peaks are this-boot maxima; if one is huge, that's
             // the recurring slow path.
-            wdog_hist_active_cb[slot] = cb_active_id;
-            wdog_hist_e50_max[slot]   = cb_50_max_ms;
-            wdog_hist_e1s_max[slot]   = cb_sec_max_ms;
-            wdog_hist_web_max[slot]   = cb_web_max_ms;
-            wdog_hist_json_max[slot]  = cb_json_max_ms;
-            wdog_hist_mb_max[slot]    = mb_max_ms;
+            wdog_hist[slot].active_cb = cb_active_id;
+            wdog_hist[slot].e50_max   = cb_50_max_ms;
+            wdog_hist[slot].e1s_max   = cb_sec_max_ms;
+            wdog_hist[slot].web_max   = cb_web_max_ms;
+            wdog_hist[slot].json_max  = cb_json_max_ms;
+            wdog_hist[slot].mb_max    = mb_max_ms;
             // TaskLoop liveness: how long since last TaskLoop iteration.
             // Should always be SMALL when this code runs (we're literally
             // inside TaskLoop right now and updated last_task_loop_run_ms
@@ -924,7 +953,7 @@ void TaskLoop() {
             // for the full silent window. Practically:
             //   small (< 200 ms) → freeze is OUTSIDE TinyC (Tasmota stuck)
             //   ≈ silent_ms       → freeze is IN a TinyC syscall (TaskLoop's)
-            wdog_hist_taskloop_ms[slot] = millis() - last_task_loop_run_ms;
+            wdog_hist[slot].taskloop_ms = millis() - last_task_loop_run_ms;
             wdog_hist_idx = (slot + 1) & 7;     // wrap at 8
             // Persist updated counters BEFORE forcing the reboot — the
             // auto-save-on-stop path won't run because Tasmota's
@@ -1709,11 +1738,11 @@ void Command(char cmd[]) {
         // Walk backwards from idx-1 (newest) through 8 slots
         for (int n = 0; n < WDOG_HIST; n = n + 1) {
             int slot = (wdog_hist_idx - 1 - n) & 7;
-            int unix_t   = wdog_hist_freeze_unix[slot];
-            int silent_m = wdog_hist_silent_ms[slot];
-            int uptime_s = wdog_hist_uptime_s[slot];
+            int unix_t   = wdog_hist[slot].freeze_unix;
+            int silent_m = wdog_hist[slot].silent_ms;
+            int uptime_s = wdog_hist[slot].uptime_s;
             if (unix_t == 0 && silent_m == 0) continue;     // unused slot
-            int cb       = wdog_hist_active_cb[slot];
+            int cb       = wdog_hist[slot].active_cb;
             // Map cb_id to a readable name (kept short for line budget)
             char cbname[12];
             if (cb == 1) strcpy(cbname, "Every50ms");
@@ -1727,10 +1756,10 @@ void Command(char cmd[]) {
             // (freeze is in Tasmota), large = TaskLoop itself was stuck.
             sprintf(g_resp,
                 "  [%d] up=%ds sil=%dms tlms=%d in=%s e50=%d e1s=%d web=%d json=%d mb=%d",
-                n, uptime_s, silent_m, wdog_hist_taskloop_ms[slot], cbname,
-                wdog_hist_e50_max[slot], wdog_hist_e1s_max[slot],
-                wdog_hist_web_max[slot], wdog_hist_json_max[slot],
-                wdog_hist_mb_max[slot]);
+                n, uptime_s, silent_m, wdog_hist[slot].taskloop_ms, cbname,
+                wdog_hist[slot].e50_max, wdog_hist[slot].e1s_max,
+                wdog_hist[slot].web_max, wdog_hist[slot].json_max,
+                wdog_hist[slot].mb_max);
             addLog(g_resp);
             // Also append to /cm response (truncates older slots if oversized)
             if (strlen(hbuf) + strlen(g_resp) + 2 < 700) {
@@ -1944,13 +1973,13 @@ void Command(char cmd[]) {
             if (wlog_count == 16) start = wlog_pos;
             for (int k = 0; k < wlog_count; k++) {
                 int idx = (start + k) % 16;
-                int age_s = (now - wlog_ms[idx]) / 1000;
+                int age_s = (now - wlog[idx].ms) / 1000;
                 char src_label[12];
-                if (wlog_src[idx] == 'M') strcpy(src_label, "OWN ");
+                if (wlog[idx].src == 'M') strcpy(src_label, "OWN ");
                 else                       strcpy(src_label, "OBS ");
                 sprintf(line, "  %s addr=%d (0x%04x) val=%d (0x%04x)  %ds ago",
-                        src_label, wlog_addr[idx], wlog_addr[idx],
-                        wlog_val[idx], wlog_val[idx], age_s);
+                        src_label, wlog[idx].addr, wlog[idx].addr,
+                        wlog[idx].val, wlog[idx].val, age_s);
                 addLog(line);
             }
             sprintf(line, "%d events dumped to log", wlog_count);
