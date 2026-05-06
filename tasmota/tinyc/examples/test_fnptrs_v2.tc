@@ -1,0 +1,39 @@
+// =================================================================
+// test_fnptrs_v2.tc — fn-ptrs as struct fields (Phase B v2 probe)
+// =================================================================
+
+typedef void (*cmd_handler)(char args[]);
+
+void do_on(char args[])  { addLog("DO_ON"); }
+void do_off(char args[]) { addLog("DO_OFF"); }
+void do_set(char args[]) {
+    char m[80];
+    sprintf(m, "DO_SET args=[%s]", args);
+    addLog(m);
+}
+
+struct CmdEntry {
+    char         name[12];
+    cmd_handler  handler;
+}
+
+CmdEntry  cmds[3];
+
+int main() {
+    addLog("=== fnptrs v2 probe start ===");
+
+    // Populate the table
+    strcpy(cmds[0].name, "ON");   cmds[0].handler = do_on;
+    strcpy(cmds[1].name, "OFF");  cmds[1].handler = do_off;
+    strcpy(cmds[2].name, "SET");  cmds[2].handler = do_set;
+
+    // Lookup + indirect call through struct field
+    char arg[16];
+    strcpy(arg, "42");
+    for (int i = 0; i < 3; i = i + 1) {
+        cmds[i].handler(arg);
+    }
+
+    addLog("=== fnptrs v2 probe end ===");
+    return 0;
+}

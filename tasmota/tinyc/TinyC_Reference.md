@@ -1272,9 +1272,8 @@ void Command(char cmd[]) {
 }
 ```
 
-> **Note:** function-pointer fields inside structs are not yet supported
-> in v1.4.1 (typedef-based fn-ptrs work as struct field types but call
-> sites aren't routed correctly). Track [Phase B v2] in CLAUDE.md.
+*(Function-pointer fields inside structs work in 1.4.2+ — the call site
+`cmds[i].handler(args)` routes through `OP_CALL_INDIRECT` correctly.)*
 
 ### How it works
 
@@ -1295,9 +1294,9 @@ handle returns transparently.
 
 | Feature                                     | Status |
 |---------------------------------------------|--------|
+| Function pointers as struct fields          | ✅ since 1.4.2 |
 | Inline `void (*p)(int)` without typedef     | not in v1 |
 | `&fn` (explicit address-of) syntax          | not in v1 (use bare `fn`) |
-| Function pointers as struct fields          | not in v1 |
 | Comparison `fn1 == fn2`                     | not in v1 |
 | Returning a fn-ptr from a function          | not in v1 |
 | Anonymous function literals (lambdas)       | never (no closure mechanism) |
