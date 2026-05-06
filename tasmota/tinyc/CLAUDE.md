@@ -76,6 +76,16 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **Reference parameters** (1.4.3) — `void swap(int& a, int& b)` declares
+  scalar pass-by-reference params (int, float, char). Callee reads/writes
+  through the ref, mutations visible to the caller. Multi-out
+  (`void parse(int x, int& lo, int& hi)`), in-place compound (`n += 5` on
+  a ref param), and globals-as-ref-args all work. Caller arg must be a
+  plain Identifier of a local or global; array elements / struct fields
+  / heap-arrays yield a clear compile error. **Zero new VM opcodes** —
+  reuses ADDR_LOCAL/ADDR_GLOBAL + LOAD_REF_ARR/STORE_REF_ARR (already in
+  the VM for `int arr[]` array refs); scalar refs are "array refs always
+  at index 0". See `examples/test_refparams_v1.tc`.
 - **Function pointers** (1.4.1, struct fields in 1.4.2) —
   `typedef int (*cmp_fn)(int, int);` declares a fn-ptr type;
   `cmp_fn fn;` is a variable; `fn = my_function;` assigns the bare
@@ -380,6 +390,7 @@ void OnMqttData(char topic[], char payload[]) {
 **2D arrays** — `test_2d.tc` (char 2D), `test_2d_phase2.tc` (int + float 2D + sprintf %s)
 **Structs** — `structs_demo.tc` (real-world wlog-ring + sizeof + struct return), `test_structs_v1.tc` (smoke tests across all v1 patterns)
 **Function pointers** — `test_fnptrs_v1.tc` (typedef'd fn-ptrs as locals, globals, parameters, dispatch-by-id), `test_fnptrs_v2.tc` (fn-ptrs as struct fields → dispatch table)
+**Reference parameters** — `test_refparams_v1.tc` (swap, multi-out, compound `n += 5`, globals as refs)
 **Benchmarks / diag** — `benchmark.tc`, `crash_test.tc`, `sizeof_demo.tc`
 
 When a user asks for X, prefer to start from the closest example and adapt —

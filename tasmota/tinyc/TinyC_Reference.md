@@ -1304,6 +1304,135 @@ handle returns transparently.
 
 ---
 
+## Reference Parameters *(since 1.4.3)*
+
+Function parameters declared with `&` after the type are **passed by
+reference** — the callee's reads and writes go directly to the caller's
+variable. Mutations are visible after the call returns.
+
+### Syntax
+
+```c
+void swap(int& a, int& b) {
+    int tmp = a;
+    a = b;
+    b = tmp;
+}
+
+int x = 5;
+int y = 7;
+swap(x, y);
+// x is now 7, y is now 5
+```
+
+The `&` goes after the type, before the parameter name. Same syntax as C++.
+
+### Use cases
+
+**Multi-out parsers** — return multiple values without packaging into an array:
+
+```c
+void parse_pair(int input, int& low, int& high) {
+    low  = input & 0xFF;
+    high = (input >> 8) & 0xFF;
+}
+
+int lo = 0;
+int hi = 0;
+parse_pair(0xABCD, lo, hi);
+// lo == 0xCD, hi == 0xAB
+```
+
+**In-place mutation with compound operators**:
+
+```c
+void inc_by(int& n, int amount) {
+    n += amount;          // compound assignment on a ref param works
+}
+
+int counter = 10;
+inc_by(counter, 5);
+inc_by(counter, 5);
+inc_by(counter, 5);
+// counter == 25
+```
+
+**Globals as ref args** — safe pattern for accumulators:
+
+```c
+int g_count = 0;
+int g_total = 0;
+
+void accumulate(int& count, int& total, int sample) {
+    count += 1;
+    total += sample;
+}
+
+accumulate(g_count, g_total, 100);
+accumulate(g_count, g_total, 200);
+// g_count == 2, g_total == 300
+```
+
+### What can be passed as a ref arg
+
+The argument expression must be a **plain variable name** — a local or
+global. Anything else gets a clear compile error:
+
+| Expression                              | Allowed? |
+| --------------------------------------- | -------- |
+| `swap(x, y)` — locals                   | ✅       |
+| `swap(g_count, g_total)` — globals      | ✅       |
+| `swap(g_count, x)` — mix                | ✅       |
+| `swap(arr[i], y)` — array element       | ❌ (v1 not yet) |
+| `swap(obj.field, y)` — struct field     | ❌ (v1 not yet) |
+| `swap(some_int_array, y)` — int[] var   | ❌ (heap arrays disallowed in v1) |
+
+For array elements and struct fields, you currently need to copy into a
+temporary local, pass that, then copy back. Future v2 polish will
+remove this restriction.
+
+### Type compatibility
+
+The ref parameter's declared type must match the argument's type. Today
+the compiler doesn't enforce this strictly — silent miscompilation is
+possible if you pass `float` to `int&`. v1 limitation.
+
+### What about arrays?
+
+Array parameters (`int arr[]`, `char buf[]`) are already pass-by-
+reference in TinyC — that's how they've always worked. The new `&` is
+specifically for **scalars** (int, float, char). For an array, just use
+`int arr[]` like before.
+
+### How it works (no new VM opcodes)
+
+The implementation reuses the existing reference-encoding machinery:
+
+- Caller emits `ADDR_LOCAL <slot>` (or `ADDR_GLOBAL <gindex>`) — these
+  push an encoded reference value onto the stack.
+- Callee stores the encoded reference in a 1-slot local with an
+  internal `isScalarRef` flag.
+- Inside the body, reading the ref param compiles to
+  `PUSH_I8 0; LOAD_REF_ARR <slot>` (load index 0 of the referenced
+  variable). Writing compiles to `PUSH_I8 0; <value>; STORE_REF_ARR <slot>`.
+
+Scalar refs are conceptually "array refs always accessed at index 0",
+which is why no new opcodes were needed — TinyC has had array refs
+since day one.
+
+### Out of v1
+
+| Feature                                  | Status |
+| ---------------------------------------- | ------ |
+| `int&` / `float&` / `char&`              | ✅ since 1.4.3 |
+| `swap(arr[i], y)` (array element as ref) | not in v1 |
+| `swap(obj.field, y)` (struct field as ref) | not in v1 |
+| Heap-array variable as ref arg           | not in v1 |
+| Signature mismatch detection             | not in v1 |
+| Reference to a struct (`Point& p`)       | not in v1 (use `Point` by value or `Point arr[]`) |
+
+---
+
 ## Strings
 
 Strings in TinyC are `char` arrays with null termination.
