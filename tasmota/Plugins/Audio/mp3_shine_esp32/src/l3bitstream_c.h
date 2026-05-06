@@ -3,7 +3,13 @@
 
 
 void p_shine_HuffmanCode(bitstream_t *bs, int32_t table_select, int32_t x, int32_t y);
-void p_shine_huffman_coder_count1(bitstream_t *bs, struct p_huffcodetab h, int32_t v, int32_t w, int32_t x, int32_t y);
+// PIC-CROSS-ARCH FIX: parameter `h` was struct-by-value — passing a struct
+// across function calls causes GCC to emit a `memcpy()` to copy it onto the
+// callee's stack, and the absolute address of memcpy gets baked into the
+// plugin's literal pool. PIC loader can't relocate that absolute address,
+// so on a different chip it crashes (InstrFetchProhibited, junk PC).
+// Switched to const pointer — no struct copy, no compiler-emitted memcpy.
+void p_shine_huffman_coder_count1(bitstream_t *bs, const struct p_huffcodetab *h, int32_t v, int32_t w, int32_t x, int32_t y);
 
 void p_encodeSideInfo( shine_global_config *config );
 void p_encodeMainData( shine_global_config *config );
@@ -22,8 +28,6 @@ void p_Huffmancodebits( shine_global_config *config, int32_t *ix, gr_info *gi);
 
 MODULE_PART void p_shine_format_bitstream(shine_global_config *config) {
 SETMEMREGS
-  /* BISECT22 - return immediately, skip everything */
-  return;
   int32_t gr, ch, i;
 
   for ( ch =  0; ch < config->wave.channels; ch++ ) {
@@ -146,7 +150,9 @@ SETMEMREGS
   int32_t region1Start, region2Start;
   int32_t i, bigvalues, count1End;
   int32_t v, w, x, y;
-  struct p_huffcodetab h;
+  // Use a const pointer into the huffman table instead of a struct copy —
+  // see PIC-CROSS-ARCH FIX comment on p_shine_huffman_coder_count1's decl.
+  const struct p_huffcodetab *hp;
   int32_t bits;
 
   bits = p_shine_get_bits_count(&config->bs);
@@ -172,14 +178,14 @@ SETMEMREGS
   }
 
   /* 2: Write count1 area */
-  h = GHUFF(gi->count1table_select + 32);
+  hp = &GHUFF(gi->count1table_select + 32);
   count1End = bigvalues + (gi->count1 <<2);
   for ( i = bigvalues; i < count1End; i += 4 ) {
       v = ix[i];
       w = ix[i+1];
       x = ix[i+2];
       y = ix[i+3];
-      p_shine_huffman_coder_count1( &config->bs, h, v, w, x, y );
+      p_shine_huffman_coder_count1( &config->bs, hp, v, w, x, y );
   }
 
   bits = p_shine_get_bits_count(&config->bs) - bits;
@@ -202,7 +208,7 @@ static inline int32_t shine_abs_and_sign( int32_t *x ) {
   return 1;
 }
 
-MODULE_PART void p_shine_huffman_coder_count1( bitstream_t *bs, struct p_huffcodetab h, int32_t v, int32_t w, int32_t x, int32_t y ) {
+MODULE_PART void p_shine_huffman_coder_count1( bitstream_t *bs, const struct p_huffcodetab *h, int32_t v, int32_t w, int32_t x, int32_t y ) {
 SETMEMREGS
   uint32_t signv, signw, signx, signy;
   uint32_t code = 0;
@@ -214,7 +220,7 @@ SETMEMREGS
   signy = shine_abs_and_sign( &y );
 
   p = v + (w << 1) + (x << 2) + (y << 3);
-  p_shine_putbits( bs, GHUFF_TABLE(h, p), GHUFF_HLEN(h, p) );
+  p_shine_putbits( bs, GHUFF_TABLE(*h, p), GHUFF_HLEN(*h, p) );
 
   if ( v ) {
     code = signv;
@@ -241,17 +247,20 @@ SETMEMREGS
   int32_t cbits = 0, xbits = 0;
   uint32_t code = 0, ext = 0;
   unsigned signx, signy, ylen, idx;
-  struct p_huffcodetab h;
+  // PIC-CROSS-ARCH FIX: was `struct p_huffcodetab h; h = GHUFF(...)` — the
+  // struct-by-value copy emits a memcpy() with absolute (firmware) address
+  // baked into the literal pool. Use a const pointer instead.
+  const struct p_huffcodetab *hp;
 
   signx = shine_abs_and_sign( &x );
   signy = shine_abs_and_sign( &y );
 
-  h = GHUFF(table_select);
-  ylen = h.ylen;
+  hp = &GHUFF(table_select);
+  ylen = hp->ylen;
 
   if ( table_select > 15 ) {
      /* ESC-table is used */
-      unsigned linbitsx = 0, linbitsy = 0, linbits = h.linbits;
+      unsigned linbitsx = 0, linbitsy = 0, linbits = hp->linbits;
 
       if ( x > 14 ) {
           linbitsx = x - 15;
@@ -263,8 +272,8 @@ SETMEMREGS
       }
 
       idx = (x * ylen) + y;
-      code  = GHUFF_TABLE(h, idx);
-      cbits = GHUFF_HLEN(h, idx);
+      code  = GHUFF_TABLE(*hp, idx);
+      cbits = GHUFF_HLEN(*hp, idx);
       if ( x > 14 ) {
           ext   |= linbitsx;
           xbits += linbits;
@@ -290,8 +299,8 @@ SETMEMREGS
     } else {
     /* No ESC-words */
       idx = (x * ylen) + y;
-      code = GHUFF_TABLE(h, idx);
-      cbits = GHUFF_HLEN(h, idx);
+      code = GHUFF_TABLE(*hp, idx);
+      cbits = GHUFF_HLEN(*hp, idx);
       if ( x != 0 ) {
           code <<= 1;
           code |= signx;

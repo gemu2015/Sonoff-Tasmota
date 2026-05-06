@@ -58,7 +58,22 @@ SETMEMREGS
 #ifdef SHINE_BIG_ENDIAN
 		*(uint32_t*)(bs->data + bs->data_position) = bs->cache;
 #else
-		*(unsigned int*)(bs->data + bs->data_position) = SWAB32(bs->cache);
+		// PIC-CROSS-ARCH FIX: was `SWAB32(bs->cache)` which expands to
+		// `__builtin_bswap32(...)`. At the optimization level this MODULE_PART
+		// is built with, GCC emits a CALL to libgcc's `__bswapsi2` helper
+		// instead of inlining the swap. The literal pool stores the absolute
+		// firmware address of `__bswapsi2`, which the PIC loader cannot
+		// relocate — on a different chip the indirect call lands at junk PC.
+		// Spelling the swap out explicitly keeps it inline (4 shifts + 4 ors)
+		// with zero external function references.
+		{
+		  uint32_t _v = bs->cache;
+		  uint32_t _swabbed = ((_v >> 24) & 0x000000FF) |
+		                      ((_v >>  8) & 0x0000FF00) |
+		                      ((_v <<  8) & 0x00FF0000) |
+		                      ((_v << 24) & 0xFF000000);
+		  *(unsigned int*)(bs->data + bs->data_position) = _swabbed;
+		}
 #endif
 		bs->data_position += sizeof(uint32_t);
 		bs->cache_bits = 32 - N;

@@ -25,7 +25,16 @@ SETMEMREGS
       else
         modff(fdiff(filter, FLTC(4)), &filter);
       /* scale and convert to fixed point before storing */
-      config->subband.fl[i][j] = fixsfti(fmul(filter, FLTC(11)));
+      /* TRANSLATOR-BUG FIX: original Shine code was (int32_t)(filter * 0x7fffffff)
+       * — that's filter * 2147483647 (large number). The translator generated
+       * FLTC(11) = 2.147483647e-9 (~1/2^31, eighteen orders of magnitude too
+       * small) instead of FLTC(13) = 2.147483647e9 (= 0x7fffffff as float).
+       * Result: filter * 2e-9 → fixsfti → 0 for every cell, so subband.fl[][]
+       * was effectively all zeros, the polyphase synthesis stage produced
+       * near-zero output, MDCT had no signal, encoded MP3 was silent.
+       * (FLTC(11) is no longer referenced anywhere; safe to leave in table.)
+       */
+      config->subband.fl[i][j] = fixsfti(fmul(filter, FLTC(13)));
     }
 }
 

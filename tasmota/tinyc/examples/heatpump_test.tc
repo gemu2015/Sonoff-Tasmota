@@ -13,14 +13,17 @@
 //   • Loop-task watchdog in TaskLoop: if Every50ms hasn't fired for
 //     WDOG_LOOP_REBOOT_MS, log a banner and force `Restart 1`.
 //
-// Explicitly REMOVED for this test build:
-//   • global float UDP-broadcast publishing (no neighbour visibility)
+// Re-added incrementally now that the watchdog hunt is done (.31 stable):
+//   • UDP-shared globals (aztemp/wtemp/ktmp/rtemp/hwp from other devices)
+//   • UDP-broadcast publishing of HP state (hp_run/hp_in/hp_out/hp_at)
+//   • Five neighbour-reading rows on the main page
+//
+// Still REMOVED from the original full version:
 //   • JsonCall (no MQTT telemetry)
 //   • Command(MBUS …) (no console control — no FC05/FC06 writes)
 //   • Embedded-write scanner (FC05/06/15/16 detection in parse_frame)
 //   • /tc_ui custom WebPage + chart history + diff snapshot
 //   • Mailer / SendMail
-//   • UDP-shared globals (aztemp, wtemp, ktmp, rtemp, hwp)
 //   • Pump-stuck heating watchdog (off/on cycling)
 //   • All persist'd diagnostic ring buffers
 //   • Frame logging
@@ -84,6 +87,25 @@ int  last_task_loop_run_ms = 0;
 int  wdog_loop_trips       = 0;
 int  wdog_last_silent_ms   = 0;
 
+// ── UDP-shared globals from other Tasmota devices ────────────
+// `global float` = auto-syncs via UDP multicast 239.255.255.250:1999.
+// Initial values are sane defaults until first packet arrives. Names must
+// match exactly what the publishing devices send.
+global float aztemp = 20.0;   // Schlafzimmer (sleeping room) °C
+global float wtemp  = 20.0;   // Wohnzimmer (living room) °C
+global float ktmp   = 14.0;   // Keller (cellar — typically colder) °C
+global float rtemp  = 10.0;   // Außentemperatur (Bresser sensor) °C
+global float hwp    =  0.0;   // Heat-pump current power consumption (W)
+
+// Heat-pump live state — broadcast when store_reg() lands a value on
+// the matching Modbus register. Lets other devices on the LAN
+// (energy_dashboard, sub-displays, etc.) show the heat-pump's own
+// readings without each having to talk Modbus.
+global float hp_run  = 0.0;   // 1.0 = running, 0.0 = off  (from r217 enum)
+global float hp_in   = 0.0;   // Water back from heating circuit / Puffer (°C, r188)
+global float hp_out  = 0.0;   // Supply water / Ausgangstemp (°C, r191)
+global float hp_at   = 0.0;   // Outside-air sensor on the HP itself (°C, r190)
+
 // ── Modbus CRC16 (poly 0xA001) ────────────────────────────
 int modbus_crc16(char b[], int len) {
     int crc = 0xFFFF;
@@ -102,6 +124,22 @@ void store_reg(int addr, int val) {
     if (addr < 0 || addr >= 500) return;
     known[addr] = 1;
     reg[addr]   = val;
+
+    // Mirror the four headline registers onto UDP-broadcast globals so
+    // neighbour scripts (energy_dashboard, sub-displays, etc.) see fresh
+    // values without polling Modbus themselves. Sign-extension matches
+    // the parsing in WebCall: r188 / r190 / r191 are signed ×10 °C;
+    // r217 is an enum (0=boot, 1=running, 6=remote-off).
+    if (addr == 188 || addr == 190 || addr == 191) {
+        int s = val & 0xFFFF;
+        if (s >= 32768) s = s - 65536;
+        float t = s / 10.0;
+        if      (addr == 188) hp_in  = t;
+        else if (addr == 190) hp_at  = t;
+        else if (addr == 191) hp_out = t;
+    } else if (addr == 217) {
+        hp_run = ((val & 0xFFFF) == 1) ? 1.0 : 0.0;
+    }
 }
 
 // ── Parse one frame (FC03 only, no embedded-write scan) ───
@@ -289,6 +327,15 @@ void WebCall() {
     fmt_signed_x10(206, "°C",  val); sprintf(row, "{s}Verdampfer{m}%s{e}",    val); webSend(row);
     fmt_unsigned_x10(193, "bar", val); sprintf(row, "{s}Saugdruck{m}%s{e}",   val); webSend(row);
     fmt_unsigned_x10(194, "bar", val); sprintf(row, "{s}Auslassdruck{m}%s{e}",val); webSend(row);
+
+    // ── Neighbour-device readings (UDP-shared globals) ───────
+    // Refresh from whatever has been received via the UDP multicast
+    // bus since boot. Defaults stay until the first packet arrives.
+    sprintf(row, "{s}Wohnzimmer{m}%.1f &deg;C{e}",   wtemp);  webSend(row);
+    sprintf(row, "{s}Schlafzimmer{m}%.1f &deg;C{e}", aztemp); webSend(row);
+    sprintf(row, "{s}Keller{m}%.1f &deg;C{e}",       ktmp);   webSend(row);
+    sprintf(row, "{s}Au&szlig;en (Bresser){m}%.1f &deg;C{e}", rtemp); webSend(row);
+    sprintf(row, "{s}HP Leistung{m}%.0f W{e}",       hwp);    webSend(row);
 
     // Diagnostic row — frames seen, RSP parsed, RSP failed, watchdog trips,
     // ms since last Every50ms tick. The last value should always be tiny

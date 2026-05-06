@@ -143,14 +143,17 @@ SETMEMREGS
     goto init_fail;
   }
 
+#ifdef SHINE_DEBUG
   // Sanity log: confirm pointers are sane before encode loop touches them.
   // If any of these prints a wild address (high bit set, not in PSRAM 0x3c.. or
   // DRAM 0x3fc.. range), the heap got clobbered between malloc and now —
   // points at stack-overflow-into-heap as the corruption source.
+  // Production: silent. Define SHINE_DEBUG to bring this back.
   AddLog(LOG_LEVEL_INFO, PSTR("SHINE: init OK l3_enc=%p,%p,%p,%p l3loop=%p xrsq=%p xrabs=%p"),
          config->l3_enc[0][0], config->l3_enc[0][1],
          config->l3_enc[1][0], config->l3_enc[1][1],
          config->l3loop, config->l3loop->xrsq, config->l3loop->xrabs);
+#endif
 
   p_shine_subband_initialise(config);
   p_shine_mdct_initialise(config);

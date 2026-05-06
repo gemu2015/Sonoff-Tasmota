@@ -144,7 +144,14 @@ MODULE_PART int32_t p_shine_outer_loop( int32_t max_bits,
  * shine_iteration_loop:
  * ------------------
  */
-MODULE_PART void p_shine_iteration_loop(shine_global_config *config) {
+// SHINE_NOOPT instead of MODULE_PART: this function does heavy array indexing
+// on `config->l3loop->{xr,xrsq,xrabs}[i]` in a hot loop, which at -O2 the
+// xtensa-esp32-elf (LX6) toolchain compiles to the `addx4` trick that faults
+// on LX7 (S3) cores when the PIC plugin .bin is loaded cross-architecture.
+// At -O0 GCC emits straightforward `slli` + `add` which is LX7-safe.
+// Cost: small — iteration_loop is called once per frame, dominated by the
+// helpers it invokes (which are already SHINE_NOOPT).
+SHINE_NOOPT void p_shine_iteration_loop(shine_global_config *config) {
 SETMEMREGS
   shine_psy_xmin_t l3_xmin;
   gr_info *cod_info;
@@ -472,8 +479,22 @@ SETMEMREGS
  * ix_max:
  * -------
  * Function: Calculate the maximum of ix from 0 to 575
+ *
+ * PIC-CROSS-ARCH FIX: was `static inline` — fine at -O2 (got inlined into
+ * new_choose_table) but not at -O0. Under SHINE_NOOPT new_choose_table
+ * runs at -O0; GCC emits ix_max as a separate (default-section) function,
+ * then in the caller emits `l32r a8, =&ix_max ; callx8 a8` — an INDIRECT
+ * call through an ABSOLUTE function address baked into the literal pool.
+ * In PIC mode the loader can't relocate that absolute address, so on S3 it
+ * points at firmware ROM padding (0x400d2aac was the LX6 ix_max address;
+ * unmapped on S3) → callx8 jumps to zeros → IllegalInstruction.
+ *
+ * SHINE_NOOPT places ix_max in `.plugin.mod_part` AND keeps it self-
+ * contained relative to the caller — so GCC emits a PC-relative `call8`
+ * which the plugin loader DOES relocate. `noinline` is intentional here:
+ * forcing inlining instead would balloon every caller's literal pool.
  */
-static inline int32_t ix_max( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
+SHINE_NOOPT int32_t ix_max( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
   int32_t i;
   int32_t max = 0;
 
@@ -489,28 +510,37 @@ static inline int32_t ix_max( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t
  * Function: Calculation of rzero, count1, big_values
  * (Partitions ix into big values, quadruples and zeros).
  */
+// PIC-CROSS-ARCH FIX: rewritten with pointer arithmetic instead of `ix[i-N]`
+// indexing. Reason: with `int32_t i` and `ix[i-N]`, GCC encodes `(i-N)*4` via
+// the literal `0x3fffffff` + add + slli trick (uses the 30-bit overflow to
+// avoid an explicit subtract). That literal lives in the compiler-default
+// `.literal` section — NOT in `.plugin.mod_part.literal` — so when the plugin
+// .bin is loaded as PIC on a different chip, the PC-relative `l32r` reaches
+// out of the plugin's mapped region, returns garbage, and the resulting
+// address calculation faults (LoadProhibited at ~0x95XXXXXX, EXCVADDR matches
+// the bit-31-set pattern of unmapped flash).
+//
+// Pointer arithmetic with `p[-1]` / `p -= 2` compiles to `addi a8, a9, -4` /
+// `addi a9, a9, -8` — the immediates fit in addi's [-128,+127] range, so no
+// literal pool entry is needed at all. Plugin code becomes self-contained.
 SHINE_NOOPT void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
 SETMEMREGS
-  int32_t i;
+  int32_t i = (int32_t)INTC(8);
+  int32_t *p = ix + i;            // one-past-end
   int32_t rzero = 0;
 
-  for ( i = (int32_t)INTC(8); i > 1; i -= 2 )
-    if ( !ix[i-1] && !ix[i-2] )
-      rzero++;
-    else
-      break;
+  while (i > 1) {
+    if (p[-1] || p[-2]) break;
+    p -= 2; i -= 2; rzero++;
+  }
 
-  cod_info->count1 = 0 ;
-  for ( ; i > 3; i -= 4 )
-    if (   ix[i-1] <= 1
-        && ix[i-2] <= 1
-        && ix[i-3] <= 1
-        && ix[i-4] <= 1 )
-      cod_info->count1++;
-    else
-      break;
+  cod_info->count1 = 0;
+  while (i > 3) {
+    if (p[-1] > 1 || p[-2] > 1 || p[-3] > 1 || p[-4] > 1) break;
+    p -= 4; i -= 4; cod_info->count1++;
+  }
 
-    cod_info->big_values = i>>1;
+  cod_info->big_values = i >> 1;
 }
 
 /*
@@ -566,7 +596,16 @@ SETMEMREGS
  */
 MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
 SETMEMREGS
-  const int32_t *subdv = GTAB_I32(subdv_table_data);
+  // `volatile` blocks the compiler from "optimizing" `subdv[i] & 0xff`
+  // (low byte of a 32-bit word) into a byte-load (l8ui). On ESP32-S3 the
+  // strict MMU rejects byte/half-word loads from instruction-flash regions
+  // and triggers a LoadStoreError. With volatile the compiler emits an
+  // honest l32i, then the & 0xff mask happens in a register.
+  // (The packed-int layout was introduced in the plugin translation; the
+  //  original code used a struct of two `unsigned` fields, which the
+  //  compiler always loaded as 32-bit. Without volatile, ESP32 LX6 cache
+  //  papers over the difference; ESP32-S3 LX7 does not.)
+  const volatile int32_t *subdv = GTAB_I32(subdv_table_data);
 
   if (!cod_info->big_values)
   { /* no big_values region */
@@ -753,16 +792,25 @@ SETMEMREGS
   unsigned            linbits, ylen;
   int32_t        i, sum;
   int32_t        x,y;
-  struct p_huffcodetab h;
 
   if(!table)
     return 0;
 
-  h   = GHUFF(table);
+  // PIC-CROSS-ARCH FIX: was `struct p_huffcodetab h; h = GHUFF(table);` —
+  // the struct-by-value copy made GCC emit a real `memcpy()` call. memcpy
+  // resolves to the FIRMWARE'S libc memcpy at an absolute address that
+  // gets baked into the plugin's literal pool. PIC loader doesn't relocate
+  // that absolute address, so on a different chip the call lands at junk
+  // (the InstrFetchProhibited at 0x1d555555 we hit). Fix: use a pointer
+  // into the huffman table (no copy → no compiler-emitted memcpy). All
+  // existing field reads through `h.ylen`, `h.linbits`, and the
+  // `GHUFF_HLEN(h, …)` macro work the same on a const-pointer dereference
+  // since the macro just reads `h.hlen[i]`.
+  const struct p_huffcodetab *hp = &GHUFF(table);
   sum = 0;
 
-  ylen    = h.ylen;
-  linbits = h.linbits;
+  ylen    = hp->ylen;
+  linbits = hp->linbits;
 
   if(table>15)
   { /* ESC-table is used */
@@ -781,7 +829,7 @@ SETMEMREGS
         sum += linbits;
       }
 
-      sum += GHUFF_HLEN(h, (x*ylen)+y);
+      sum += GHUFF_HLEN(*hp, (x*ylen)+y);
       if(x)
         sum++;
       if(y)
@@ -795,7 +843,7 @@ SETMEMREGS
       x = ix[i];
       y = ix[i+1];
 
-      sum  += GHUFF_HLEN(h, (x*ylen)+y);
+      sum  += GHUFF_HLEN(*hp, (x*ylen)+y);
 
       if(x!=0)
         sum++;
