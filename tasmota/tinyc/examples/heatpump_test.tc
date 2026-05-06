@@ -1,0 +1,323 @@
+// =================================================================
+// heatpump_test.tc — bare-minimum sniffer for .31 watchdog hunt
+//
+// Strict subset of heatpump_map_full.tc — strip everything that could
+// possibly contribute to the multi-minute hangs we're chasing, leaving
+// only:
+//
+//   • Modbus-RTU passive sniffer on auto-dir RS485 (RX=14, TX=15,
+//     19200 8N2). Drains UART in Every50ms, frames on inter-byte
+//     silence, parses FC03 REQ + RSP + merged shapes only.
+//   • Known-register store (9 named regs) shown on Tasmota's main
+//     web page via WebCall.
+//   • Loop-task watchdog in TaskLoop: if Every50ms hasn't fired for
+//     WDOG_LOOP_REBOOT_MS, log a banner and force `Restart 1`.
+//
+// Explicitly REMOVED for this test build:
+//   • global float UDP-broadcast publishing (no neighbour visibility)
+//   • JsonCall (no MQTT telemetry)
+//   • Command(MBUS …) (no console control — no FC05/FC06 writes)
+//   • Embedded-write scanner (FC05/06/15/16 detection in parse_frame)
+//   • /tc_ui custom WebPage + chart history + diff snapshot
+//   • Mailer / SendMail
+//   • UDP-shared globals (aztemp, wtemp, ktmp, rtemp, hwp)
+//   • Pump-stuck heating watchdog (off/on cycling)
+//   • All persist'd diagnostic ring buffers
+//   • Frame logging
+//
+// If THIS build still hangs, the cause is in one of:
+//   (a) the 50 ms UART drain itself (TasmotaSerial / serialAvailable /
+//       serialRead),
+//   (b) the FC03 parser,
+//   (c) the WebCall row rendering,
+//   (d) something in Tasmota outside TinyC entirely.
+// And the watchdog catches all of those — Restart 1 within 60 s of
+// the loop task going silent. =====================================
+
+// ── UART / framing ─────────────────────────────────────────
+int  rx_pin     = 14;
+int  tx_pin     = 15;
+int  baud       = 19200;
+int  cfg        = 7;       // 8N2
+int  ser        = -1;
+
+// Frame buffer
+char buf[260];
+int  buf_len    = 0;
+
+// Per-tick byte cap — at 19200 8N2 max ~95 B can arrive in 50 ms;
+// 256 covers a single tick's worth even with PSRAM-driven jitter.
+int  E50_MAX_BYTES_PER_TICK = 256;
+
+// ── Register store ────────────────────────────────────────
+// 500 covers 0..338 + 432..493 with headroom (matches what the cloud
+// poll cycle reads — see heatpump_map_full.tc header for the block list).
+int  reg[500];
+int  known[500];
+
+// Counters (only the ones rendered on the main page or the watchdog
+// banner — skip the `bytes_seen / e50_bytes_max / long_call_warns`
+// instrumentation forest from the full version).
+int  frames_seen   = 0;
+int  rsp_parsed    = 0;
+int  rsp_failed    = 0;
+
+// Most recent FC03 REQ kept around to pair with a lone RSP that arrives
+// in the next tick's frame (the silence detector occasionally splits
+// REQ and RSP across ticks even though they're <1 ms apart on the wire).
+int  last_req_addr = -1;
+int  last_req_qty  = 0;
+
+// ── Watchdog ──────────────────────────────────────────────
+// last_50ms_run_ms is updated at the top of every Every50ms tick.
+// TaskLoop runs in tc_vm_task (a separate FreeRTOS task), so even
+// if the Tasmota loop task is hung — which is what stopped Every50ms
+// firing — TaskLoop keeps running and can act.
+//
+// 60 s is a long-enough silence to avoid false trips during e.g.
+// OTA, but short enough that .31's "stuck for minutes" failure mode
+// is recovered automatically rather than waiting for the user to
+// notice the device is unreachable.
+#define WDOG_LOOP_REBOOT_MS 60000
+int  last_50ms_run_ms      = 0;
+int  last_task_loop_run_ms = 0;
+int  wdog_loop_trips       = 0;
+int  wdog_last_silent_ms   = 0;
+
+// ── Modbus CRC16 (poly 0xA001) ────────────────────────────
+int modbus_crc16(char b[], int len) {
+    int crc = 0xFFFF;
+    for (int i = 0; i < len; i++) {
+        crc = crc ^ (b[i] & 0xFF);
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+            else         crc = (crc >> 1);
+        }
+    }
+    return crc & 0xFFFF;
+}
+
+// ── Store one register reading ────────────────────────────
+void store_reg(int addr, int val) {
+    if (addr < 0 || addr >= 500) return;
+    known[addr] = 1;
+    reg[addr]   = val;
+}
+
+// ── Parse one frame (FC03 only, no embedded-write scan) ───
+//
+// Three shapes for slave=1 fc=3 frames:
+//   A) Lone 8-byte REQ            → record addr/qty for next RSP
+//   B) Lone RSP (5 + 2N bytes)    → pair with last_req_*
+//   C) Merged REQ+RSP (8 + 5+2N)  → start with REQ, parse trailing RSP
+// Anything else is silently ignored.
+//
+// We skip CRC validation here — the frame already passed the silence-
+// based delimiter, so byte-pattern noise is rare. If we see corruption
+// it'll show up as rsp_failed climbing on the main page.
+void parse_frame() {
+    if (buf_len < 5) return;
+    int sl = buf[0] & 0xFF;
+    int fc = buf[1] & 0xFF;
+    if (sl != 1 || fc != 0x03) return;
+
+    // Case A: lone REQ
+    if (buf_len == 8) {
+        last_req_addr = ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
+        last_req_qty  = ((buf[4] & 0xFF) << 8) | (buf[5] & 0xFF);
+        return;
+    }
+
+    // Case C: merged REQ + RSP
+    if (buf_len >= 15) {
+        int req_addr = ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
+        int req_qty  = ((buf[4] & 0xFF) << 8) | (buf[5] & 0xFF);
+        int rsp_off  = 8;
+        if ((buf[rsp_off] & 0xFF) == 1 && (buf[rsp_off+1] & 0xFF) == 0x03) {
+            int bc = buf[rsp_off+2] & 0xFF;
+            if (bc == req_qty * 2 && buf_len >= rsp_off + 3 + bc) {
+                for (int r = 0; r < req_qty; r++) {
+                    int hi = buf[rsp_off + 3 + r*2] & 0xFF;
+                    int lo = buf[rsp_off + 4 + r*2] & 0xFF;
+                    store_reg(req_addr + r, (hi << 8) | lo);
+                }
+                rsp_parsed = rsp_parsed + 1;
+                return;
+            }
+        }
+    }
+
+    // Case B: lone RSP — pair with most recent REQ
+    if (last_req_addr >= 0 && buf_len >= 5) {
+        int bc = buf[2] & 0xFF;
+        if (bc == last_req_qty * 2 && buf_len >= 3 + bc) {
+            for (int r = 0; r < last_req_qty; r++) {
+                int hi = buf[3 + r*2] & 0xFF;
+                int lo = buf[4 + r*2] & 0xFF;
+                store_reg(last_req_addr + r, (hi << 8) | lo);
+            }
+            rsp_parsed    = rsp_parsed + 1;
+            last_req_addr = -1;
+            return;
+        }
+    }
+
+    rsp_failed = rsp_failed + 1;
+}
+
+// ── Flush completed frame ─────────────────────────────────
+void flush_frame() {
+    if (buf_len == 0) return;
+    frames_seen = frames_seen + 1;
+    parse_frame();
+    buf_len = 0;
+}
+
+// ── Every50ms — UART drain + silence-based framing ────────
+void Every50ms() {
+    last_50ms_run_ms = millis();
+
+    if (ser < 0) return;
+
+    int avail = serialAvailable(ser);
+    int got   = 0;
+    int b;
+    while (avail > 0 && got < E50_MAX_BYTES_PER_TICK) {
+        b = serialRead(ser);
+        if (b < 0) break;
+        if (buf_len < 256) {
+            buf[buf_len] = b;
+            buf_len = buf_len + 1;
+        }
+        avail = avail - 1;
+        got   = got + 1;
+        if (buf_len >= 256) break;
+    }
+    if (got == 0 && buf_len > 0) {
+        // No new bytes this tick + we have data → end of frame
+        flush_frame();
+    }
+}
+
+// ── TaskLoop — loop-task watchdog ─────────────────────────
+//
+// Runs in tc_vm_task (own FreeRTOS task). If Tasmota's main loop
+// hangs, Every50ms stops firing → last_50ms_run_ms goes stale →
+// after WDOG_LOOP_REBOOT_MS (60 s) we force `Restart 1`.
+//
+// delay() yields the vm_mutex, so other callbacks can interleave
+// during the 1 s sleep between checks.
+void TaskLoop() {
+    last_task_loop_run_ms = millis();
+
+    // Skip the watchdog until Every50ms has fired at least once
+    // (avoids tripping during very early boot before Tasmota's
+    // FUNC_EVERY_50_MSECOND dispatcher comes online).
+    if (last_50ms_run_ms > 0) {
+        int silent = millis() - last_50ms_run_ms;
+        if (silent > WDOG_LOOP_REBOOT_MS) {
+            wdog_loop_trips     = wdog_loop_trips + 1;
+            wdog_last_silent_ms = silent;
+            char m[120];
+            sprintf(m, "WDOG ⚠ loop task silent for %d ms — forcing Restart 1 (trips=%d)",
+                    silent, wdog_loop_trips);
+            addLog(m);
+            // Give the log a beat to reach serial console (web log
+            // is RAM-only — won't survive the reboot).
+            delay(500);
+            char resp[16];
+            tasmCmd("Restart 1", resp);
+            // Restart 1 is async; sleep so we don't loop on the trip.
+            delay(5000);
+        }
+    }
+
+    // 1 s cadence is plenty — the threshold is 60 s.
+    delay(1000);
+}
+
+// ── Helper: format signed ×10 register as "%.1f" ──────────
+void fmt_signed_x10(int addr, char unit[], char out[]) {
+    if (known[addr] == 0) {
+        strcpy(out, "—");
+        return;
+    }
+    int s = reg[addr] & 0xFFFF;
+    if (s >= 32768) s = s - 65536;
+    float v = s / 10.0;
+    sprintf(out, "%.1f %s", v, unit);
+}
+
+void fmt_unsigned_x10(int addr, char unit[], char out[]) {
+    if (known[addr] == 0) {
+        strcpy(out, "—");
+        return;
+    }
+    int u = reg[addr] & 0xFFFF;
+    float v = u / 10.0;
+    sprintf(out, "%.1f %s", v, unit);
+}
+
+// ── WebCall — render rows on Tasmota's main page ──────────
+//
+// Tasmota's main-page sensor list. webSend("{s}…{m}…{e}") wraps each
+// row in the standard table cells (label / value). One row per
+// known register; one diagnostic row at the bottom.
+void WebCall() {
+    char val[40];
+    char row[160];
+
+    // State (r217: 0=boot, 1=running, 6=remote-off)
+    if (known[217]) {
+        int st = reg[217] & 0xFFFF;
+        char label[16];
+        if      (st == 1) strcpy(label, "running");
+        else if (st == 6) strcpy(label, "remote-off");
+        else if (st == 0) strcpy(label, "boot");
+        else              sprintf(label, "%d", st);
+        sprintf(row, "{s}HP State{m}%s{e}", label);
+        webSend(row);
+    } else {
+        webSend("{s}HP State{m}—{e}");
+    }
+
+    fmt_signed_x10(1,   "°C",  val); sprintf(row, "{s}Zieltemp{m}%s{e}",      val); webSend(row);
+    fmt_signed_x10(188, "°C",  val); sprintf(row, "{s}Puffer{m}%s{e}",        val); webSend(row);
+    fmt_signed_x10(190, "°C",  val); sprintf(row, "{s}Aussen{m}%s{e}",        val); webSend(row);
+    fmt_signed_x10(191, "°C",  val); sprintf(row, "{s}Ausgang{m}%s{e}",       val); webSend(row);
+    fmt_signed_x10(192, "°C",  val); sprintf(row, "{s}Ansauggas{m}%s{e}",     val); webSend(row);
+    fmt_signed_x10(206, "°C",  val); sprintf(row, "{s}Verdampfer{m}%s{e}",    val); webSend(row);
+    fmt_unsigned_x10(193, "bar", val); sprintf(row, "{s}Saugdruck{m}%s{e}",   val); webSend(row);
+    fmt_unsigned_x10(194, "bar", val); sprintf(row, "{s}Auslassdruck{m}%s{e}",val); webSend(row);
+
+    // Diagnostic row — frames seen, RSP parsed, RSP failed, watchdog trips,
+    // ms since last Every50ms tick. The last value should always be tiny
+    // (<100 ms) when the device is healthy; a number creeping up means
+    // the loop task is stalling and we're heading toward a watchdog trip.
+    int silent = (last_50ms_run_ms > 0) ? (millis() - last_50ms_run_ms) : -1;
+    sprintf(row, "{s}MB diag{m}f=%d ok=%d bad=%d wdog=%d silent=%d ms{e}",
+            frames_seen, rsp_parsed, rsp_failed, wdog_loop_trips, silent);
+    webSend(row);
+}
+
+// ── main — open serial, exit ──────────────────────────────
+int main() {
+    char m0[80];
+    sprintf(m0, "heatpump_test: opening serial at uptime %d s", tasm_uptime);
+    addLog(m0);
+
+    ser = serialBegin(rx_pin, tx_pin, baud, cfg, 1024);
+    if (ser < 0) {
+        addLog("heatpump_test: serialBegin FAILED");
+        return 0;
+    }
+    char m[120];
+    sprintf(m, "heatpump_test ready: ser=%d rx=%d tx=%d baud=%d 8N2 watchdog=%d ms",
+            ser, rx_pin, tx_pin, baud, WDOG_LOOP_REBOOT_MS);
+    addLog(m);
+
+    // No commands, no UDP, no MQTT, no chart load. Just open serial,
+    // let Every50ms drain it, render rows on the main page when the
+    // user opens the device's web UI, and let TaskLoop watch the tick.
+    return 0;
+}
