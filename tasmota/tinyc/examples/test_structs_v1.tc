@@ -125,7 +125,43 @@ void test_whole_assign_var_to_arr() {
     addLog(m);
 }
 
-// — struct param + return deferred —
+void greet(Point p) {
+    char m[40];
+    sprintf(m, "test_param: got (%d,%d) (expect 99,11)", p.x, p.y);
+    addLog(m);
+}
+
+void test_struct_param() {
+    Point r;
+    r.x = 99;
+    r.y = 11;
+    greet(r);
+}
+
+Point make_point(int xx, int yy) {
+    Point p;
+    p.x = xx;
+    p.y = yy;
+    return p;
+}
+
+void test_struct_return() {
+    Point z = make_point(42, 84);
+    char m[40];
+    sprintf(m, "test_return: z=(%d,%d) (expect 42,84)", z.x, z.y);
+    addLog(m);
+}
+
+void test_sizeof() {
+    int sp = sizeof(Point);          // 2 slots
+    int sw = sizeof(WriteLog);       // 4 slots (3 ints + 1 char)
+    int ss = sizeof(Sample);         // 18 slots (1 int + 1 float + char[16])
+    int sr = sizeof(Rect);           // 4 slots (2× Point = 2 + 2)
+    char m[80];
+    sprintf(m, "test_sizeof: Point=%d WriteLog=%d Sample=%d Rect=%d",
+            sp, sw, ss, sr);
+    addLog(m);
+}
 
 int main() {
     addLog("=== struct v1 probe start ===");
@@ -138,6 +174,9 @@ int main() {
     test_whole_assign_var_to_var();
     test_whole_assign_arr_to_var();
     test_whole_assign_var_to_arr();
+    test_struct_param();
+    test_struct_return();
+    test_sizeof();
     addLog("=== struct v1 probe end ===");
     return 0;
 }

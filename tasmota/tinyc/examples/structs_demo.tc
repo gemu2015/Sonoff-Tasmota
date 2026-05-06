@@ -1,0 +1,135 @@
+// =================================================================
+// structs_demo.tc — practical struct patterns (TinyC 1.4.0+)
+//
+// Showcases the wlog-ring-buffer pattern from heatpump_map_full.tc
+// rewritten with structs. Compare:
+//
+//   • Old:  4 parallel arrays + manual per-field copy at every push site
+//   • New:  one struct + one array + one copy via `wlog[i] = ev`
+//
+// Plus: struct return value, sizeof(T), nested structs.
+// =================================================================
+
+// ── A "write event" record. Used for the ring buffer below + as a
+//    function return value to demonstrate struct return.
+struct WriteEvent {
+    int  addr;          // Modbus register address (or coil number for FC05)
+    int  val;           // Written value
+    int  ms;            // millis() at the time of capture
+    char src;           // 'O' = observed (cloud), 'M' = my own write
+}
+
+// ── A nested struct. Shows that structs can contain other structs;
+//    the layout flattens cleanly. sizeof(Sample) == 1 + 1 + 16 = 18.
+struct Stamp {
+    int  unix_s;
+    int  ms_offset;
+}
+
+struct Sample {
+    Stamp ts;
+    float value;
+    char  label[16];
+}
+
+// ── Ring buffer of 16 events. Auto-promoted to heap (16 × 4 = 64
+//    slots, well above the HEAP_THRESHOLD).
+WriteEvent wlog[16];
+int        wlog_pos   = 0;
+int        wlog_count = 0;
+
+// ── Push a new event. Shows whole-struct assignment into an array
+//    element from a local variable (`wlog[i] = ev`).
+void wlog_push(int addr, int val, char src) {
+    WriteEvent ev;
+    ev.addr = addr;
+    ev.val  = val;
+    ev.ms   = millis();
+    ev.src  = src;
+
+    int p = wlog_pos;
+    wlog[p] = ev;                  // ← single struct copy, no per-field write
+    wlog_pos = (p + 1) % 16;
+    if (wlog_count < 16) wlog_count = wlog_count + 1;
+}
+
+// ── Render one event as a log line. Struct passed by VALUE — the
+//    callee gets its own copy, mutations would not be visible to caller.
+void wlog_print(WriteEvent e, int slot) {
+    char m[80];
+    sprintf(m, "  [%d] addr=%-5d val=0x%04x src=%c at %d ms",
+            slot, e.addr, e.val, e.src, e.ms);
+    addLog(m);
+}
+
+// ── Return a struct by value — caller gets a copy on the stack.
+WriteEvent make_obs(int addr, int val) {
+    WriteEvent w;
+    w.addr = addr;
+    w.val  = val;
+    w.ms   = millis();
+    w.src  = 'O';
+    return w;
+}
+
+// ── A function that takes a struct param AND fills a sample's nested
+//    Stamp. Demonstrates field assignment inside a struct param.
+void set_label(Sample s, char l[]) {
+    // s is by-value: writes to s.label here are local. To actually
+    // mutate the caller's Sample, the caller assigns the returned
+    // struct (return-by-value pattern) — see make_sample below.
+    strcpy(s.label, l);
+    // s vanishes on return; this function would normally not exist.
+    // Shown here just to demonstrate the pass-by-value semantics.
+}
+
+Sample make_sample(int unix_s, float v, char l[]) {
+    Sample s;
+    s.ts.unix_s    = unix_s;          // nested field access
+    s.ts.ms_offset = 0;
+    s.value        = v;
+    strcpy(s.label, l);
+    return s;
+}
+
+int main() {
+    addLog("=== structs_demo start ===");
+
+    // sizeof reports slot count at compile time
+    char m[80];
+    sprintf(m, "slot counts: WriteEvent=%d Stamp=%d Sample=%d",
+            sizeof(WriteEvent), sizeof(Stamp), sizeof(Sample));
+    addLog(m);
+
+    // Push three events using the helper (literal args)
+    wlog_push(40, 0xFF00, 'M');       // I switched it ON
+    delay(5);
+    wlog_push(40, 0x0000, 'O');       // cloud switched it OFF
+    delay(5);
+    wlog_push(1,  300,    'M');       // I set target to 30.0 °C
+
+    // Push an event built via a struct-returning function. This goes
+    // through compiler-emitted N-slot push + the local's $ret_tmp
+    // for the offset/value swap on receive.
+    WriteEvent obs = make_obs(217, 1);
+    wlog[wlog_pos] = obs;
+    wlog_pos = (wlog_pos + 1) % 16;
+    if (wlog_count < 16) wlog_count = wlog_count + 1;
+
+    // Read them back
+    sprintf(m, "wlog has %d events:", wlog_count);
+    addLog(m);
+    for (int i = 0; i < wlog_count; i = i + 1) {
+        // Pass an array element by value to a struct-param function
+        wlog_print(wlog[i], i);
+    }
+
+    // Nested struct + struct return composition
+    Sample s = make_sample(1714838400, 23.4, "puffer-temp");
+    sprintf(m, "Sample: ts.unix_s=%d ts.ms_off=%d value=%.1f label=%s",
+            s.ts.unix_s, s.ts.ms_offset, s.value, s.label);
+    addLog(m);
+
+    addLog("=== structs_demo end ===");
+    return 0;
+}

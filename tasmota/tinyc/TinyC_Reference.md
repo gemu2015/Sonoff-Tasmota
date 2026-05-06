@@ -958,6 +958,209 @@ the 1D heap; no new VM features.
 
 ---
 
+## Structs *(since 1.4.0)*
+
+Structs are records — composite values that group named fields. TinyC structs
+follow C-style by-value semantics: copying a struct copies all fields,
+passing one to a function gives the callee its own copy.
+
+### Definition
+
+```c
+struct Point {
+    int x;
+    int y;
+}
+
+struct WriteLog {
+    int  addr;
+    int  val;
+    int  ms;
+    char src;
+}
+
+struct Sample {
+    int   duration_ms;
+    float ratio;
+    char  label[16];          // char-array field
+}
+
+struct Rect {
+    Point tl;                 // nested struct field
+    Point br;
+}
+```
+
+- `struct` keyword introduces a type definition.
+- Field types: `int`, `float`, `char`, fixed-size 1D arrays of those, or
+  nested struct types declared earlier in the file.
+- Trailing semicolon after `}` is optional.
+
+### Variables and access
+
+```c
+Point p;                       // local, zero-initialized
+Point q = {3, 4};              // positional initializer
+Point arr[5];                  // array of struct
+WriteLog g_w;                  // global
+
+p.x = 10;
+int v = p.y;
+arr[i].x = i * 10;
+g_w.src = 'O';
+strcpy(g_w_or_other.label, "boost");
+
+// Nested
+Rect r;
+r.tl.x = 0;
+r.br.y = 200;
+```
+
+The `struct` keyword can be omitted when declaring a variable of an
+already-defined type (`Point p;` is equivalent to `struct Point p;`).
+
+### Whole-struct assignment
+
+```c
+Point a; a.x = 5; a.y = 7;
+Point b;
+b = a;                         // field-by-field copy
+
+WriteLog ev;
+ev.addr = 0x40; /* etc */
+wlog[i] = ev;                  // var → array element
+
+WriteLog x;
+x = wlog[3];                   // array element → var
+```
+
+The compiler unrolls the copy at compile time (one `LOAD`/`STORE` pair
+per slot). For a 4-slot WriteLog: 8 ops + a temp for the offset/value
+order. No new VM opcodes.
+
+### Functions
+
+Structs are passed **by value** — the callee gets its own copy.
+Mutations to a struct param do NOT propagate back to the caller.
+
+```c
+void log_write(WriteLog w) {
+    char m[80];
+    sprintf(m, "[%d] addr=%d val=%d", w.ms, w.addr, w.val);
+    addLog(m);
+}
+
+log_write(wlog[5]);            // passes a copy
+```
+
+Returning a struct also works — the callee pushes all field values,
+and the caller's local-decl initializer pops them via a per-function
+temp slot:
+
+```c
+WriteLog make_obs(int addr, int val) {
+    WriteLog w;
+    w.addr = addr;
+    w.val  = val;
+    w.ms   = millis();
+    w.src  = 'O';
+    return w;
+}
+
+WriteLog x = make_obs(0x40, 0xFF00);
+```
+
+### `sizeof(StructTag)`
+
+Returns the slot count at compile time:
+
+```c
+int n = sizeof(Point);          // 2
+int m = sizeof(Sample);         // 18  (1 + 1 + 16)
+int r = sizeof(Rect);           // 4   (2× Point inner struct = 2+2)
+```
+
+`sizeof(int)` / `sizeof(float)` / `sizeof(char)` return 1 (the slot count
+in TinyC's int32 model). Note: `sizeof(int)` requires the `int` keyword,
+which the parser accepts only in this position.
+
+### Memory & layout
+
+Each field occupies a fixed number of int32 slots:
+
+| Field type            | Slots                                 |
+| --------------------- | ------------------------------------- |
+| `int`, `char`, `bool` | 1                                     |
+| `float`               | 1                                     |
+| `int arr[N]`          | N                                     |
+| `char name[N]`        | N (one byte per slot, low 8 bits)     |
+| `float ys[N]`         | N                                     |
+| Nested struct         | inner struct's total slot count       |
+
+Total struct slots = sum of all field slots. Nested structs flatten — a
+`Rect` containing two `Point` (2 slots each) has total slot count 4
+with `br.x` at offset 2.
+
+Heap-promotion follows existing TinyC rules: a single struct value of
+≤16 slots lives in stack/globals; any struct array totaling >16 slots
+auto-promotes to heap (so almost all struct arrays are on heap).
+
+### Persist (durable globals)
+
+`persist WriteLog wlog[16];` works — the slot count is included in the
+persist hash, so adding/removing fields invalidates the `.pvs` file.
+
+**Limitation:** the v1 hash does NOT include field-name list, so silently
+**reordering** fields within a struct decl after persist data exists won't
+invalidate. The reordered layout reads the old data with shifted offsets.
+Workaround: add and remove a dummy field (which does change the hash), or
+manually delete `<name>.pvs`. Future v2 will include field names in the hash.
+
+### Forbidden in v1
+
+Each produces a clear compile-time error:
+
+- `struct Node { Node next; }` — self-referential structs need pointer support.
+- `struct B { struct B child; }` — same as above (mutual recursion via no-pointer self).
+- `struct S { int grid[3][3]; }` — 2D-array fields. Flatten or nest a struct.
+- `if (a == b)` for two structs — equality not implemented; compare fields manually.
+- `Foo a = { .x = 1, .y = 2 };` — designated initializers (use positional `{1, 2}`).
+
+### Real-world example
+
+The classic "ring buffer of records" pattern:
+
+```c
+struct WriteEvent {
+    int  addr;
+    int  val;
+    int  ms;
+    char src;
+}
+
+WriteEvent wlog[16];
+int        wlog_pos   = 0;
+int        wlog_count = 0;
+
+void wlog_push(int addr, int val, char src) {
+    WriteEvent ev;
+    ev.addr = addr;
+    ev.val  = val;
+    ev.ms   = millis();
+    ev.src  = src;
+    wlog[wlog_pos] = ev;          // single struct copy
+    wlog_pos = (wlog_pos + 1) % 16;
+    if (wlog_count < 16) wlog_count = wlog_count + 1;
+}
+```
+
+Compared to the pre-1.4 idiom (4 parallel arrays + 4 manual writes per
+push site), structs eliminate a class of "the arrays got out of sync"
+bugs entirely. See `examples/structs_demo.tc` for the full pattern + a
+nested-struct example.
+
+---
+
 ## Strings
 
 Strings in TinyC are `char` arrays with null termination.

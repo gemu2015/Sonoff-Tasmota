@@ -76,6 +76,23 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **Structs by value** (1.4.0) — `struct Tag { int x; float y; char name[16]; }`
+  defines a record type. Field access via `.` (`p.x`, `s.label`, `r.tl.x` for
+  nested), positional initializer (`Point p = {1, 2}`), array of struct
+  (`WriteLog wlog[16]`), whole-struct assignment (`b = a` between matching
+  tags) including array↔var both directions, struct as function parameter
+  (by value, the callee gets a copy), struct as return value, `sizeof(Tag)`
+  returns slot count at compile time. Uses existing 1D-array opcodes — VM
+  unchanged. Heap-promotion follows existing rules: structs of ≤16 slots
+  stack, arrays of struct >16 total slots auto-heap. Char-array field
+  patterns work: `strcpy(s.label, "x")`, `sprintf(buf, "%s", s.label)`,
+  `strcat`, `strcmp`. Nested struct field offsets correctly count inner
+  struct slots (no off-by-N). Persist'd struct globals work but the v1 hash
+  doesn't include field-name lists — silently reordering fields within a
+  struct decl after persist data exists won't invalidate `.pvs`. Workaround:
+  add+remove a field (which DOES invalidate) or delete `.pvs` manually.
+  Out of v1: self-referential structs (needs pointers), 2D-array fields,
+  struct equality `a==b`, designated initializers, function-pointer fields.
 - **2D arrays** (1.3.38) — `char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]`.
   Element access `arr[i][j]`, write `arr[i][j] = …`, row passing `func(arr[i])`
   to 1D array params, `strcpy/strcat/strcmp` on rows, `sprintf("%s", arr[i])`
@@ -352,6 +369,7 @@ void OnMqttData(char topic[], char payload[]) {
 **HomeKit (ESP32)** — `homekit_demo.tc`, `homekit_office.tc`
 **Strings / sort** — `strings.tc`, `sort.tc`, `file_io.tc`
 **2D arrays** — `test_2d.tc` (char 2D), `test_2d_phase2.tc` (int + float 2D + sprintf %s)
+**Structs** — `structs_demo.tc` (real-world wlog-ring + sizeof + struct return), `test_structs_v1.tc` (smoke tests across all v1 patterns)
 **Benchmarks / diag** — `benchmark.tc`, `crash_test.tc`, `sizeof_demo.tc`
 
 When a user asks for X, prefer to start from the closest example and adapt —

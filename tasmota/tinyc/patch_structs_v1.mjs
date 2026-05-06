@@ -482,6 +482,303 @@ patch('compileArrayAssign: detect struct array element, route to copy',
 `);
 
 // ─────────────────────────────────────────────────────────────────────
+// 11. Function param: accept struct types, reserve N slots, set isStruct.
+//     The pop loop now walks slots in reverse, so multi-slot params pop
+//     their fields in the order matching how the caller pushed them.
+// ─────────────────────────────────────────────────────────────────────
+patch('compileFunction: struct params reserve N slots + isStruct',
+`        // Register parameters as locals
+        for (const param of node.params) {
+            if (param.arraySize !== null) {
+                if (param.arraySize === 0) {
+                    // Array reference parameter (e.g., char cmd[])
+                    // Occupies 1 local slot to hold a runtime heap ref
+                    const info = this.scope.define(param.name, param.type, true, 1);
+                    info.isRef = true;
+                } else {
+                    this.scope.define(param.name, param.type, true, param.arraySize);
+                }
+            } else {
+                this.scope.define(param.name, param.type);
+            }
+        }
+
+        // Emit code to pop arguments from stack into locals (reverse order)
+        for (let i = node.params.length - 1; i >= 0; i--) {
+            const param = node.params[i];
+            const info = this.scope.lookup(param.name);
+            this.emit(Op.STORE_LOCAL);
+            this.emitByte(info.index);
+        }`,
+`        // Register parameters as locals
+        for (const param of node.params) {
+            // Struct-typed param: reserve memberSlotCount slots
+            if (typeof param.type === 'string' && param.type.startsWith('struct:')) {
+                const tag = param.type.slice(7);
+                const members = this.structTypes.get(tag);
+                if (!members) {
+                    throw new CodeGenError(\`Unknown struct '\${tag}' in parameter\`, node.line || 0);
+                }
+                const slots = this.memberSlotCount(members);
+                const info = this.scope.define(param.name, param.type, true, slots);
+                info.isStruct = true;
+                info.structTag = tag;
+                continue;
+            }
+            if (param.arraySize !== null) {
+                if (param.arraySize === 0) {
+                    // Array reference parameter (e.g., char cmd[])
+                    // Occupies 1 local slot to hold a runtime heap ref
+                    const info = this.scope.define(param.name, param.type, true, 1);
+                    info.isRef = true;
+                } else {
+                    this.scope.define(param.name, param.type, true, param.arraySize);
+                }
+            } else {
+                this.scope.define(param.name, param.type);
+            }
+        }
+
+        // Emit code to pop arguments from stack into locals.
+        // For multi-slot params (structs), each slot gets its own STORE_LOCAL.
+        // We walk slot indices in reverse so the order matches how the
+        // caller pushed (slot 0 first, slot N-1 last → pop slot N-1 first).
+        // Build flat slot list across all params.
+        const flatSlots = [];
+        for (const param of node.params) {
+            const info = this.scope.lookup(param.name);
+            if (info.isStruct) {
+                for (let s = 0; s < info.arraySize; s++) flatSlots.push(info.index + s);
+            } else if (info.isRef || info.isArray) {
+                flatSlots.push(info.index);   // array refs occupy 1 slot
+            } else {
+                flatSlots.push(info.index);
+            }
+        }
+        for (let i = flatSlots.length - 1; i >= 0; i--) {
+            this.emit(Op.STORE_LOCAL);
+            this.emitByte(flatSlots[i]);
+        }`);
+
+// ─────────────────────────────────────────────────────────────────────
+// 12. Caller side: when arg is a struct (Identifier or struct array
+//     element), push all N field values in order so the callee's
+//     reverse-pop loop binds them correctly.
+// ─────────────────────────────────────────────────────────────────────
+patch('compileCallExpr: push struct args slot-by-slot',
+`        // Push arguments (they become locals in the callee)
+        for (let i = 0; i < node.args.length; i++) {
+            const param = func.params[i];
+            const isArrayParam = param.arraySize !== undefined;`,
+`        // Push arguments (they become locals in the callee)
+        for (let i = 0; i < node.args.length; i++) {
+            const param = func.params[i];
+            // Struct-typed parameter: push N slot values from the arg.
+            if (typeof param.type === 'string' && param.type.startsWith('struct:')) {
+                const tag = param.type.slice(7);
+                const members = this.structTypes.get(tag);
+                if (!members) {
+                    throw new CodeGenError(\`Unknown struct '\${tag}' in call\`, node.line);
+                }
+                const slots = this.memberSlotCount(members);
+                const arg = node.args[i];
+                if (!this._isStructValueExpr(arg)) {
+                    throw new CodeGenError(
+                        \`Function '\${node.name}' arg \${i+1} expects struct '\${tag}'\`,
+                        node.line);
+                }
+                const rm = this._resolveStructAccess(arg);
+                if (rm.tag !== tag) {
+                    throw new CodeGenError(
+                        \`Function '\${node.name}' arg \${i+1}: struct '\${rm.tag}' is not '\${tag}'\`,
+                        node.line);
+                }
+                for (let s = 0; s < slots; s++) {
+                    this._pushStructSlotOffset(rm, s);
+                    this._emitStructSlotLoad(rm);
+                }
+                continue;
+            }
+            const isArrayParam = param.arraySize !== undefined;`);
+
+// ─────────────────────────────────────────────────────────────────────
+// 13. Parser: parseStructVarDecl accepts an expression initializer too
+//     (not just {...} list-init), so `Point z = make_point(...);` parses.
+// ─────────────────────────────────────────────────────────────────────
+patch('parseStructVarDecl: expression init in addition to {} list-init',
+`        // Positional initializer: struct Point p = {1, 2, 3.0};
+        let init = null;
+        if (this.match(TokenType.ASSIGN)) {
+            this.expect(TokenType.LBRACE);
+            init = [];
+            while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+                init.push(this.parseExpression());
+                if (!this.match(TokenType.COMMA)) break;
+            }
+            this.expect(TokenType.RBRACE);
+        }
+        this.expect(TokenType.SEMICOLON);
+        return { type: NodeType.StructVarDecl, structType, name, tag, isArray: false, arraySize: 0, init, line };`,
+`        // Initializer: positional list  Point p = {1, 2};
+        //         OR    expression       Point p = make_point(1, 2);
+        let init = null;
+        let initExpr = null;
+        if (this.match(TokenType.ASSIGN)) {
+            if (this.check(TokenType.LBRACE)) {
+                this.advance();
+                init = [];
+                while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+                    init.push(this.parseExpression());
+                    if (!this.match(TokenType.COMMA)) break;
+                }
+                this.expect(TokenType.RBRACE);
+            } else {
+                initExpr = this.parseExpression();
+            }
+        }
+        this.expect(TokenType.SEMICOLON);
+        return { type: NodeType.StructVarDecl, structType, name, tag, isArray: false, arraySize: 0, init, initExpr, line };`);
+
+// ─────────────────────────────────────────────────────────────────────
+// 14. compileStructVarDecl: when initExpr is set (call returning struct),
+//     compile the expression (which leaves N values on stack), then pop
+//     them into the local's slots using a temp-slot swap.
+// ─────────────────────────────────────────────────────────────────────
+patch('compileStructVarDecl: init from struct-returning expression',
+`        // Handle positional initializer: struct Point p = {1, 2};
+        // Array fields are skipped (cannot be initialized from a scalar list).
+        if (node.init && !node.isArray) {`,
+`        // Initializer from a struct-returning expression: Point z = make_point(...)
+        // The expression pushes N values; we pop them into z's slots in reverse
+        // (TOS = slot N-1 first), using a temp local for the offset/value swap.
+        if (node.initExpr && !node.isArray) {
+            // Compile the expression (callee will push N values onto data stack)
+            this.compileExpr(node.initExpr);
+            // Allocate a single-slot temp once per function (lazy)
+            if (this._structRetTmp == null) {
+                const t = this.scope.define('$ret_tmp', 'int');
+                this._structRetTmp = t.index;
+            }
+            const tmp = this._structRetTmp;
+            for (let off = totalSlots - 1; off >= 0; off--) {
+                // Stack now has [..., valOff] (valOff at TOS)
+                this.emit(Op.STORE_LOCAL); this.emitByte(tmp);   // val → tmp
+                this.emitPushInt(off);                            // offset on stack
+                this.emit(Op.LOAD_LOCAL);  this.emitByte(tmp);   // val back on top
+                // Stack: [..., offset, val]   ready for STORE_LOCAL_ARR
+                this.emit(Op.STORE_LOCAL_ARR); this.emitByte(info.index);
+            }
+            return;
+        }
+        // Handle positional initializer: struct Point p = {1, 2};
+        // Array fields are skipped (cannot be initialized from a scalar list).
+        if (node.init && !node.isArray) {`);
+
+// ─────────────────────────────────────────────────────────────────────
+// 15. compileReturn: when the function's declared return type is a struct
+//     and the return value is a struct expression, push N field values
+//     and emit Op.RET (not RET_VAL — Op.RET preserves data stack so the
+//     caller sees the N values after the call).
+// ─────────────────────────────────────────────────────────────────────
+patch('compileReturn: struct return pushes N values + RET',
+`    compileReturn(node) {
+        if (node.value) {
+            this.compileExpr(node.value);
+            this.emit(Op.RET_VAL);
+        } else {
+            this.emit(Op.RET);
+        }
+    }`,
+`    compileReturn(node) {
+        // Struct return: callee pushes all field slots, then Op.RET (which
+        // preserves data stack across frame teardown — see VM source).
+        const retType = this.currentFunction && this.currentFunction.returnType;
+        if (node.value && typeof retType === 'string' && retType.startsWith('struct:')) {
+            if (!this._isStructValueExpr(node.value)) {
+                throw new CodeGenError(
+                    \`Function returns struct '\${retType.slice(7)}' but value is not a struct\`,
+                    node.line);
+            }
+            const rm = this._resolveStructAccess(node.value);
+            if ('struct:' + rm.tag !== retType) {
+                throw new CodeGenError(
+                    \`Return type mismatch: expected '\${retType}', got 'struct:\${rm.tag}'\`,
+                    node.line);
+            }
+            const slots = rm.structSlots;
+            for (let off = 0; off < slots; off++) {
+                this._pushStructSlotOffset(rm, off);
+                this._emitStructSlotLoad(rm);
+            }
+            this.emit(Op.RET);
+            return;
+        }
+        if (node.value) {
+            this.compileExpr(node.value);
+            this.emit(Op.RET_VAL);
+        } else {
+            this.emit(Op.RET);
+        }
+    }`);
+
+// Reset $ret_tmp at function start so each function gets its own.
+patch('compileFunction: reset _structRetTmp on entry',
+`    compileFunction(node) {
+        const funcInfo = this.functions.get(node.name);
+        funcInfo.address = this.code.length;
+
+        this.currentFunction = funcInfo;
+        this.scope = new Scope();`,
+`    compileFunction(node) {
+        const funcInfo = this.functions.get(node.name);
+        funcInfo.address = this.code.length;
+
+        this.currentFunction = funcInfo;
+        this.scope = new Scope();
+        // Reset per-function temp slots used by struct-return receive.
+        this._structRetTmp = null;`);
+
+// ─────────────────────────────────────────────────────────────────────
+// 17. sizeof(StructTag) → int literal of slot count, computed at
+//     compile time. Also accepts primitive type names:
+//       sizeof(int) / sizeof(float) / sizeof(char) → 1 (slot)
+//
+// Hooked at the top of compileCallExpr so the parser doesn't need
+// changes — sizeof looks like a function call to the parser.
+// ─────────────────────────────────────────────────────────────────────
+patch('compileCallExpr: intercept sizeof(Tag) and emit int literal',
+`    compileCallExpr(node) {
+        // Check watch intrinsics (changed, delta, written, snapshot)`,
+`    compileCallExpr(node) {
+        // sizeof(Tag) — compile-time constant slot count.
+        if (node.name === 'sizeof' && node.args.length === 1
+                                   && node.args[0].type === NodeType.Identifier) {
+            const tag = node.args[0].name;
+            if (this.structTypes.has(tag)) {
+                const slots = this.memberSlotCount(this.structTypes.get(tag));
+                this.emitPushInt(slots);
+                return;
+            }
+            // Primitive type names → 1 (slot)
+            if (tag === 'int' || tag === 'float' || tag === 'char' || tag === 'bool') {
+                this.emitPushInt(1);
+                return;
+            }
+            throw new CodeGenError(\`sizeof: unknown type '\${tag}'\`, node.line);
+        }
+        // Check watch intrinsics (changed, delta, written, snapshot)`);
+
+// inferType: sizeof(Tag) → int, so users can mix with arithmetic without warnings.
+patch('inferType: sizeof returns int',
+`            case NodeType.CallExpr: {
+                // Watch intrinsics
+                if (node.name === 'delta' && node.args.length === 1 && node.args[0].type === NodeType.Identifier) {`,
+`            case NodeType.CallExpr: {
+                if (node.name === 'sizeof') return 'int';
+                // Watch intrinsics
+                if (node.name === 'delta' && node.args.length === 1 && node.args[0].type === NodeType.Identifier) {`);
+
+// ─────────────────────────────────────────────────────────────────────
 // Write back
 // ─────────────────────────────────────────────────────────────────────
 if (html === orig) {
