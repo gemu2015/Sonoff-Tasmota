@@ -15,112 +15,31 @@ Next-steps → Open questions. Skip sections that don't apply.
 
 ---
 
-## 1. Shine MP3 PIC plugin
+## ✅ Solved
 
-**Status:** ⚠ partially fixed (linker order, ICONST narrowing identified
-and patched 2026-02). Re-verify whether the encoder produces correct
-output end-to-end on real hardware after the documented fixes; if not,
-treat as still-broken and continue investigation.
-
-### Symptom
-
-Shine MP3 encoder shipped as a Tasmota PIC plugin (~82 KB compiled
-Xtensa) crashed at runtime with **"invalid mmu entry"** when attempting
-to read PROGMEM strings. Subsequent failure mode (after first fix):
-ICONST(A) narrowing incorrectly truncated values >4095 on the Xtensa
-target, producing wrong frame sizes / buffer offsets at runtime.
-
-### History (what's known + what's been tried)
-
-#### A. Linker section order — FIXED in patch_linker_file.py
-- **Wrong order** (before fix): `… → mod_part → mod_string`. PROGMEM
-  strings ended up beyond the flash-MMU mapping → "invalid mmu entry"
-  crash on first PSTR access.
-- **Correct order**: `mod_desc → mod_string → mod_part.literal →
-  mod_part → mod_end`.
-- **Why this matters**:
-  - PSTR/PROGMEM strings must stay in low flash addresses (within MMU
-    mapping).
-  - Literal pools must be immediately before the code that references
-    them (Xtensa `l32r` is PC-relative).
-  - Growing `mod_string` shifts literal+code by the same delta, so the
-    `l32r` offsets are preserved. Putting `mod_string` AFTER code would
-    invalidate every l32r in the plugin.
-- **File**: `tasmota/Plugins/patch_linker_file.py` lines 88–94.
-
-#### B. ICONST(A) narrowing — FIXED via INTC(idx) workaround
-- `ICONST(A)` on Xtensa compiles to `fixsfti(A)` which is **broken for
-  values > 4095** (silently truncates / produces wrong int32).
-- **Workaround**: use `INTC(idx)` against an `INT_CONST` PROGMEM array
-  the linker prepares.
-- **Shine specifics**: `INT_CONST` entries 14–19 hold sizeof values for
-  internal structs.
-
-### Current best hypothesis if still broken
-
-After the two fixes above, Shine should encode correctly. If it still
-fails, candidates:
-1. A third location where ICONST is hit on a value >4095 that wasn't
-   migrated to INTC. Audit Shine source for any constant ≥ 4096 that's
-   used in expressions reaching ICONST.
-2. Toolchain version drift — Xtensa GCC version after Tasmota updates
-   may have changed `fixsfti`/`fixsfdi` behaviour. Check
-   `xtensa-esp32-elf-gcc --version` against the version that produced
-   the working .lo.
-3. Static-init data not being relocated — Shine has a few large arrays
-   (Huffman tables) that need to land in PROGMEM. If the patch_linker
-   step doesn't catch them, they end up in RAM and inflate plugin size
-   beyond what the loader expects.
-4. Endianness or alignment trap — uncommon but possible if a struct
-   layout assumption differs between host gcc (used to compute
-   sizeof at PIC-build time) and target gcc.
-
-### Data points / measurements (from prior runs)
-
-- Compiled PIC code size: ~82 KB (Shine encoder, full)
-- INT_CONST table: 6 entries (indices 14–19 specifically, sizeof of
-  internal structs). Other indices unknown / unused.
-- Runtime behaviour with old (broken) section order: crashed within
-  a few hundred ms of first encoder call, addr2line pointed at a PSTR
-  read.
-
-### Files involved
-
-| File | Role |
-|---|---|
-| `tasmota/Plugins/xdrv_14_mp3.cpp` | Tasmota driver hosting the plugin |
-| `tasmota/Plugins/xdrv_14_mp3_test.cpp` | Test harness |
-| `tasmota/Plugins/patch_linker_file.py` | Section reorder + INT_CONST table inject (lines 88–94) |
-| `tasmota/Plugins/intrinsics.h` | INTC / ICONST macros |
-| Shine encoder sources | (location: TBD — paste in dossier) |
-
-### Suggested next steps for a deep-dive session
-
-1. Verify current state: build a fresh `xdrv_14_mp3.bin`, flash to a
-   test ESP32, run encoder on a known WAV file, compare output bytes
-   against a reference encoded by host Shine.
-2. If output is still wrong: dump the PIC plugin with
-   `xtensa-esp32-elf-objdump -dCx out.lo` and inspect every site that
-   loads a 32-bit constant. Confirm none use raw ICONST for values
-   ≥ 4096.
-3. If runtime crashes: addr2line the crash PC against the loaded
-   plugin's relocated address space. Verify which section the PC
-   landed in — should be `mod_part`, NOT `mod_string` or `mod_desc`.
-
-### Open questions / requests for the user
-
-- [ ] Where do the Shine encoder source files live exactly? Tasmota's
-      tree, vendor-bundled, or external?
-- [ ] What's the most recent symptom you're seeing? Crash, wrong
-      output, or partial success that fails after N seconds?
-- [ ] Do you have a reference reproducer (specific WAV/MP3 sample +
-      expected output bytes)?
-- [ ] What esp32 toolchain version does the working/broken build use?
-      (`pio_default.ini` / `platformio.ini`)
+- **Shine MP3 PIC plugin** — fixed end-to-end 2026-05-06, commit
+  `e71cfbdb` (`shine MP3 plugin: ESP32-S3 + PIC cross-arch fixes`).
+  Three categories of bugs ran in parallel: (a) encoder correctness
+  on any chip — `volatile` on `subdv` pointer (LX7 LoadStoreError),
+  removed leftover BISECT22 stub in `p_shine_format_bitstream`,
+  `FLTC(11)`→`FLTC(13)` in polyphase init (off-by-1e18 made all
+  filter coefficients zero so MP3 was silent); (b) PIC cross-arch on
+  S3 — `ix_max` static-inline forced via `SHINE_NOOPT` so callers
+  emit PC-relative `call8`, struct-by-value (`h = GHUFF(...)`,
+  `p_shine_huffman_coder_count1`'s parameter, etc.) replaced with
+  const pointers to avoid compiler-emitted `memcpy()` whose firmware
+  address can't be relocated, `SWAB32` replaced with inline shift/or
+  to avoid `__bswapsi2` libgcc helper with same problem; (c)
+  housekeeping — "init OK" sanity log moved under `#ifdef SHINE_DEBUG`,
+  CODEC magic `0x01000200`→`0x01000201` for the user's audio board.
+  Encoder now records clean MP3 in EXECUTE_FROM_BINARY mode AND in
+  PIC mode with the same .bin running across LX6/LX7. Buzz on quiet
+  recordings was vindicated as real ambient input (zero-PCM produces
+  silent MP3, upstream Shine produces same buzz).
 
 ---
 
-## 2. New universal display driver — Waveshare epaper partial refresh broken
+## 1. New universal display driver — Waveshare epaper partial refresh broken
 
 **Status:** ⚠ workaround in place (legacy library via PIO env), root
 cause not identified. New `UDisplay` library (refactored by another
@@ -359,7 +278,7 @@ nothing else broke.
 
 ---
 
-## 3. Heat-pump device .31 multi-minute hangs
+## 2. Heat-pump device .31 multi-minute hangs
 
 **Status:** ⚠ root cause narrowed to Tasmota loop task (NOT TinyC).
 Watchdog auto-recovers within ~5 min via `Restart 1`. Underlying cause
