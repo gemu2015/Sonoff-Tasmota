@@ -2066,8 +2066,12 @@ Structs cannot be passed by value to functions. Pass a scalar field, or use a gl
 - Field access `p.x` compiles to an array slot offset — no new VM opcodes
 - Scalar fields can be `int`, `float`, `char`, `bool`
 - Array fields declared as `type name[N]` within the struct body
-- No nested structs (struct as field type)
-- No pointer types
+- Nested structs **are supported** as field type — `struct Outer { Point tl; }`,
+  access via `o.tl.x`. Self-referential structs (`struct Node { Node next; }`)
+  are not, because they require pointers.
+- Function-pointer fields supported since 1.4.2 (typedef'd fn-ptr types) —
+  `cmds[i].handler(args)` routes through `OP_CALL_INDIRECT`.
+- No 2D-array fields. No unions. No bit-fields. No pointer types.
 
 ---
 
@@ -2355,6 +2359,8 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 | `int fileClose(handle)`                    | Close file handle, returns 0 or -1               |
 | `int fileRead(handle, char buf[], max)`    | Read up to max bytes into buf, returns count     |
 | `int fileWrite(handle, char buf[], len)`   | Write len bytes from buf, returns count          |
+| `int fileReadBin(handle, int arr[], count)`  | Read up to `count` int32 elements as 4-byte little-endian binary; returns elements actually read (or -1 on bad args). Works for both `int[]` and `float[]` since both are int32 in memory |
+| `int fileWriteBin(handle, int arr[], count)` | Write `count` int32 elements as 4-byte little-endian binary; returns elements actually written (or -1 on bad args). Same dual-type semantics as `fileReadBin` — useful for chart-history persistence and similar fixed-record formats |
 | `int fileExists("path")`                   | Check if file exists: 1=yes, 0=no                |
 | `int fileDelete("path")`                   | Delete file, returns 0=ok, -1=error              |
 | `int fileSize("path")`                     | Get file size in bytes, -1 on error              |
@@ -4942,15 +4948,17 @@ int main() {
 
 | Feature                  | Standard C     | TinyC                        |
 |--------------------------|----------------|------------------------------|
-| Pointers                 | Full support   | **Not supported**            |
-| Structs                  | Full support   | Supported: scalar fields, member access, initializer lists, compound assign. No nested structs, no union, no bit-fields |
+| Pointers (data)          | Full support   | **Not supported** (no `int *p`, no `&x` for scalars, no pointer arithmetic). Strings use `char arr[N]` instead of `char*`; arrays decay to pass-by-reference into function parameters; `int& a` reference parameters (since 1.4.3) cover the common multi-out / mutate-caller case |
+| Function pointers        | Full support   | **Supported since 1.4.1** — typedef-based: `typedef int (*cmp_fn)(int,int); cmp_fn fn = my_function; fn(a, b);`. As locals, globals, parameters, **and struct fields** (1.4.2). Out: inline `void (*p)(int)` decl without typedef, fn-ptr `==/!=`, returning fn-ptrs |
+| Structs                  | Full support   | Supported: scalar fields, member access (including nested struct fields with correct offset arithmetic), initializer lists, whole-struct assignment, struct as parameter / return, `sizeof(Tag)`, function-pointer fields. Out: self-referential structs (`struct Node { Node next; }` needs pointers), unions, bit-fields, designated initializers, struct equality `a == b` |
+| Reference parameters     | C++ feature    | **Supported since 1.4.3** — `void swap(int& a, int& b)` for scalar pass-by-reference (int, float, char). Multi-out, in-place compound (`n += 5` on a ref param), globals as ref args. Caller arg must be a plain identifier of a local or global; array elements / struct fields / heap arrays yield a clear compile error |
 | Enums                    | Full support   | Supported: named/anonymous, negative values, auto-increment, inline in functions |
 | Dynamic memory           | malloc/free    | Auto heap for arrays >16 elements (no explicit malloc) |
-| Multi-dimensional arrays | `int a[3][4]`  | **Not supported**            |
-| String type              | `char*`        | `char arr[N]` only — no pointer arithmetic |
+| Multi-dimensional arrays | Full support   | **2D supported since 1.3.38** — `char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]`. Element access `arr[i][j]`, row passing `func(arr[i])` to 1D array params, `strcpy/strcat/strcmp` on rows, `sprintf("%s", arr[i])` for 2D char. 3D+ **not supported**. 2D literal initialisers (`int m[2][3] = {{1,2,3},{4,5,6}}`) not accepted yet — initialise in `main()` instead |
+| String type              | `char*`        | `char arr[N]` only — no pointer arithmetic. `char name[] = "literal"` size-inferred (since 2026-03). String ops (replace/starts/ends/contains/upper/lower/trim) since 1.5.0 — see [String Operations](#string-operations) |
 | Preprocessor             | Full CPP       | `#define` (constants + function-like macros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef` (no `#include`) |
 | Header files             | `#include`     | **Not supported**            |
-| typedef                  | Full support   | Supported: primitive aliases, named struct aliases, anonymous struct typedef, chained aliases, local typedef |
+| typedef                  | Full support   | Supported: primitive aliases, named struct aliases, anonymous struct typedef, chained aliases, local typedef, function-pointer typedefs (1.4.1+) |
 | `const`                  | Type enforced  | Accepted (documentation hint, not enforced at runtime) |
 | `static` locals          | Full support   | Supported: zero-initialised, persists across calls. Non-zero initialisers not emitted |
 | sizeof                   | Full support   | Compile-time only: `sizeof(type)` and `sizeof(name)` supported; `sizeof(expr)` not supported. See [sizeof Operator](#sizeof-operator) |
@@ -4959,7 +4967,6 @@ int main() {
 | Compound assignments     | Full support   | Supported: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
 | Hex escape `\xNN`        | Full support   | Supported in string and char literals |
 | goto                     | Full support   | **Not supported**            |
-| Function pointers        | Full support   | **Not supported**            |
 | Variadic user functions  | `va_list` etc. | **Not supported** (only `sprintf`/`sprintfAppend` accept multiple args via compile-time expansion) |
 | Standard library         | stdio, stdlib  | Built-in functions only (see [Built-in Functions](#built-in-functions)) |
 
