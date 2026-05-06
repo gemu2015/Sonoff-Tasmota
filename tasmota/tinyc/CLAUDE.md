@@ -76,6 +76,13 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **Function pointers** (1.4.1) — `typedef int (*cmp_fn)(int, int);` declares a
+  fn-ptr type; `cmp_fn fn;` is a variable; `fn = my_function;` assigns the bare
+  function name (no `&`); `fn(a, b)` calls indirectly. Works for locals, globals,
+  and function parameters. One new VM opcode `OP_CALL_INDIRECT 0x56` (pops the
+  target address from data stack, then frame setup like OP_CALL). Out of v1:
+  fn-ptr as struct field, inline `void (*p)(int)` without typedef, fn-ptr
+  comparison `==/!=`, returning fn-ptrs. See `examples/test_fnptrs_v1.tc`.
 - **Structs by value** (1.4.0) — `struct Tag { int x; float y; char name[16]; }`
   defines a record type. Field access via `.` (`p.x`, `s.label`, `r.tl.x` for
   nested), positional initializer (`Point p = {1, 2}`), array of struct
@@ -370,6 +377,7 @@ void OnMqttData(char topic[], char payload[]) {
 **Strings / sort** — `strings.tc`, `sort.tc`, `file_io.tc`
 **2D arrays** — `test_2d.tc` (char 2D), `test_2d_phase2.tc` (int + float 2D + sprintf %s)
 **Structs** — `structs_demo.tc` (real-world wlog-ring + sizeof + struct return), `test_structs_v1.tc` (smoke tests across all v1 patterns)
+**Function pointers** — `test_fnptrs_v1.tc` (typedef'd fn-ptrs as locals, globals, parameters, dispatch-by-id)
 **Benchmarks / diag** — `benchmark.tc`, `crash_test.tc`, `sizeof_demo.tc`
 
 When a user asks for X, prefer to start from the closest example and adapt —

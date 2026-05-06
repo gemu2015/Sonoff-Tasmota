@@ -1,0 +1,87 @@
+// =================================================================
+// test_fnptrs_v1.tc — function pointers v1 (Phase B) probe
+// =================================================================
+
+// Local fn-ptr type via typedef
+typedef int (*int_op)(int, int);
+typedef void (*greet_fn)(char who[]);
+
+// Some named functions to point at
+int my_add(int a, int b) { return a + b; }
+int my_mul(int a, int b) { return a * b; }
+
+void hello(char who[]) {
+    char m[64];
+    sprintf(m, "Hello, %s!", who);
+    addLog(m);
+}
+
+void hi(char who[]) {
+    char m[64];
+    sprintf(m, "Hi %s.", who);
+    addLog(m);
+}
+
+// Test 1: local fn-ptr, assigned + called
+void test_local_int_op() {
+    int_op op;
+    op = my_add;
+    int s = op(3, 4);
+    int_op op2;
+    op2 = my_mul;
+    int p = op2(3, 4);
+    char m[64];
+    sprintf(m, "test_local_int_op: 3+4=%d (expect 7), 3*4=%d (expect 12)", s, p);
+    addLog(m);
+}
+
+// Test 2: reassign + dispatch by enum
+int OP_ADD = 0;
+int OP_MUL = 1;
+
+int dispatch(int op_id, int a, int b) {
+    int_op fn;
+    if (op_id == OP_ADD) fn = my_add;
+    else                 fn = my_mul;
+    return fn(a, b);
+}
+
+void test_dispatch() {
+    char m[64];
+    sprintf(m, "test_dispatch: add=%d mul=%d (expect 9, 20)",
+            dispatch(OP_ADD, 4, 5), dispatch(OP_MUL, 4, 5));
+    addLog(m);
+}
+
+// Test 3: global fn-ptr
+greet_fn g_greeter;
+
+void test_global_fnptr() {
+    g_greeter = hello;
+    g_greeter("world");
+    g_greeter = hi;
+    g_greeter("Tasmota");
+}
+
+// Test 4: pass fn-ptr-valued expression as arg via dispatch helper
+int run_op(int_op f, int a, int b) {
+    return f(a, b);
+}
+
+void test_fnptr_as_arg() {
+    int s = run_op(my_add, 10, 20);
+    int p = run_op(my_mul, 10, 20);
+    char m[64];
+    sprintf(m, "test_fnptr_as_arg: add=%d mul=%d (expect 30, 200)", s, p);
+    addLog(m);
+}
+
+int main() {
+    addLog("=== fnptrs v1 probe start ===");
+    test_local_int_op();
+    test_dispatch();
+    test_global_fnptr();
+    test_fnptr_as_arg();
+    addLog("=== fnptrs v1 probe end ===");
+    return 0;
+}

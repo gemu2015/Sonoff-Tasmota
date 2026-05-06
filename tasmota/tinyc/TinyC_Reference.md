@@ -1161,6 +1161,150 @@ nested-struct example.
 
 ---
 
+## Function Pointers *(since 1.4.1)*
+
+A function pointer holds the bytecode address of a function. Stored,
+passed, and called like an `int`-sized value, but invoked with the same
+syntax as a regular function call.
+
+### Declaring a fn-ptr type
+
+Function-pointer types **must** be introduced via `typedef`. Inline
+`void (*p)(int);` syntax is not supported in v1.
+
+```c
+typedef int  (*int_op)(int, int);              // signature: int(int, int)
+typedef void (*greet_fn)(char who[]);          // signature: void(char[])
+typedef int  (*cmp_fn)(char a[], char b[]);
+```
+
+The typedef syntax is identical to C: `typedef <retType> (*<alias>)(<params>);`.
+
+### Variables, assignment, calls
+
+```c
+int my_add(int a, int b) { return a + b; }
+int my_mul(int a, int b) { return a * b; }
+
+int_op op;
+op = my_add;            // assignment from a bare function name (no `&`)
+int s = op(3, 4);       // s = 7
+
+op = my_mul;            // reassign; same signature only
+int p = op(3, 4);       // p = 12
+```
+
+Three things to know:
+
+1. **Bare function name** is the address — no `&fn` syntax. `op = &my_add`
+   would be a parse error. Just `op = my_add`.
+2. **Reassignment is fine** as long as the new function's signature
+   matches the typedef. The compiler doesn't currently check this, so
+   wrong signatures will fail at runtime in unpredictable ways.
+3. **Forward references work** — you can assign or call a function
+   defined later in the source. Addresses are patched after the
+   function-compile pass.
+
+### As a function parameter
+
+```c
+int run_op(int_op f, int a, int b) {
+    return f(a, b);
+}
+
+int s = run_op(my_add, 10, 20);   // 30
+int p = run_op(my_mul, 10, 20);   // 200
+```
+
+Pass the bare name; the callee receives an address-valued local.
+
+### As a global
+
+```c
+greet_fn g_handler;
+
+void hello(char who[]) {
+    char m[64];
+    sprintf(m, "Hello, %s!", who);
+    addLog(m);
+}
+
+int main() {
+    g_handler = hello;
+    g_handler("world");
+    return 0;
+}
+```
+
+### Dispatch tables (the killer use case)
+
+The pattern that motivated this feature — clean command dispatch:
+
+```c
+typedef void (*cmd_handler)(char args[]);
+
+void do_on(char args[])  { addLog("ON");  /* ... */ }
+void do_off(char args[]) { addLog("OFF"); /* ... */ }
+void do_set(char args[]) { addLog("SET"); /* ... */ }
+
+struct CmdEntry {
+    char         name[12];
+    cmd_handler  handler;
+}
+CmdEntry cmds[3];
+
+int main() {
+    strcpy(cmds[0].name, "ON");   cmds[0].handler = do_on;
+    strcpy(cmds[1].name, "OFF");  cmds[1].handler = do_off;
+    strcpy(cmds[2].name, "SET");  cmds[2].handler = do_set;
+    return 0;
+}
+
+void Command(char cmd[]) {
+    for (int i = 0; i < 3; i = i + 1) {
+        if (strcmp(cmd, cmds[i].name) == 0) {
+            cmds[i].handler(cmd);
+            responseCmnd("ok");
+            return;
+        }
+    }
+    responseCmnd("unknown");
+}
+```
+
+> **Note:** function-pointer fields inside structs are not yet supported
+> in v1.4.1 (typedef-based fn-ptrs work as struct field types but call
+> sites aren't routed correctly). Track [Phase B v2] in CLAUDE.md.
+
+### How it works
+
+A fn-ptr value is just the function's bytecode address (16-bit, fits
+in an `int`). The compiler emits:
+
+- **Address-of**: `op = my_add;` → `PUSH_I32 <addr>; STORE_LOCAL/GLOBAL`. The
+  4-byte int32 holds the address in its low 16 bits.
+- **Indirect call**: `op(args)` → push args, push the var's value
+  (`LOAD_LOCAL`/`LOAD_GLOBAL`), then `OP_CALL_INDIRECT` (0x56). This new
+  opcode pops the address from the stack, sets up a frame, and jumps —
+  same semantics as `OP_CALL` minus the bytecode-embedded operand.
+
+Frame setup is identical to a direct call, so existing `RET` / `RET_VAL`
+handle returns transparently.
+
+### Out of v1
+
+| Feature                                     | Status |
+|---------------------------------------------|--------|
+| Inline `void (*p)(int)` without typedef     | not in v1 |
+| `&fn` (explicit address-of) syntax          | not in v1 (use bare `fn`) |
+| Function pointers as struct fields          | not in v1 |
+| Comparison `fn1 == fn2`                     | not in v1 |
+| Returning a fn-ptr from a function          | not in v1 |
+| Anonymous function literals (lambdas)       | never (no closure mechanism) |
+| Signature checking on assignment            | not in v1 (silent at compile time) |
+
+---
+
 ## Strings
 
 Strings in TinyC are `char` arrays with null termination.
