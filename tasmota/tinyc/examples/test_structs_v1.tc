@@ -1,0 +1,143 @@
+// =================================================================
+// test_structs_v1.tc — probe what works in the IDE's existing struct
+// scaffolding. Tests all v1 use cases; failures show us what's missing.
+// =================================================================
+
+// Test 1: simple struct definition + local var + field access
+struct Point {
+    int x;
+    int y;
+}
+
+// Test 2: bigger struct with mixed types
+struct WriteLog {
+    int  addr;
+    int  val;
+    int  ms;
+    char src;
+}
+
+// Test 3: char-array field
+struct Sample {
+    int  duration_ms;
+    float ratio;
+    char  label[16];
+}
+
+// Test 4: nested struct
+struct Rect {
+    Point tl;
+    Point br;
+}
+
+WriteLog g_w;
+Point    g_pts[5];        // array of struct, global
+
+void test_basic() {
+    Point p;
+    p.x = 10;
+    p.y = 20;
+    int sum = p.x + p.y;
+    char m[40];
+    sprintf(m, "test_basic: x=%d y=%d sum=%d", p.x, p.y, sum);
+    addLog(m);
+}
+
+void test_local_struct_with_init() {
+    Point q = {3, 4};
+    char m[40];
+    sprintf(m, "test_init: q.x=%d q.y=%d", q.x, q.y);
+    addLog(m);
+}
+
+void test_global() {
+    g_w.addr = 0x40;
+    g_w.val  = 0xFF00;
+    g_w.ms   = millis();
+    g_w.src  = 'O';
+    char m[80];
+    sprintf(m, "test_global: addr=%d val=%d src=%c", g_w.addr, g_w.val, g_w.src);
+    addLog(m);
+}
+
+void test_array_of_struct() {
+    for (int i = 0; i < 5; i = i + 1) {
+        g_pts[i].x = i * 10;
+        g_pts[i].y = i * 20;
+    }
+    char m[80];
+    sprintf(m, "test_array: g_pts[3]=(%d,%d)", g_pts[3].x, g_pts[3].y);
+    addLog(m);
+}
+
+void test_char_array_field() {
+    Sample s;
+    s.duration_ms = 1234;
+    s.ratio = 0.75;
+    strcpy(s.label, "boost");
+    char m[80];
+    sprintf(m, "test_chararr: duration=%d ratio=%.2f label=%s",
+            s.duration_ms, s.ratio, s.label);
+    addLog(m);
+}
+
+void test_nested_struct() {
+    Rect r;
+    r.tl.x = 0;
+    r.tl.y = 0;
+    r.br.x = 100;
+    r.br.y = 200;
+    char m[80];
+    sprintf(m, "test_nested: tl=(%d,%d) br=(%d,%d)",
+            r.tl.x, r.tl.y, r.br.x, r.br.y);
+    addLog(m);
+}
+
+void test_whole_assign_var_to_var() {
+    Point a;
+    a.x = 5;
+    a.y = 7;
+    Point b;
+    b = a;
+    char m[40];
+    sprintf(m, "test_assign: b=(%d,%d) (expect 5,7)", b.x, b.y);
+    addLog(m);
+}
+
+void test_whole_assign_arr_to_var() {
+    g_pts[2].x = 100;
+    g_pts[2].y = 200;
+    Point c;
+    c = g_pts[2];
+    char m[40];
+    sprintf(m, "test_a2v: c=(%d,%d) (expect 100,200)", c.x, c.y);
+    addLog(m);
+}
+
+void test_whole_assign_var_to_arr() {
+    Point d;
+    d.x = 33;
+    d.y = 44;
+    g_pts[4] = d;
+    char m[40];
+    sprintf(m, "test_v2a: g_pts[4]=(%d,%d) (expect 33,44)",
+            g_pts[4].x, g_pts[4].y);
+    addLog(m);
+}
+
+// — struct param + return deferred —
+
+int main() {
+    addLog("=== struct v1 probe start ===");
+    test_basic();
+    test_local_struct_with_init();
+    test_global();
+    test_array_of_struct();
+    test_char_array_field();
+    test_nested_struct();
+    test_whole_assign_var_to_var();
+    test_whole_assign_arr_to_var();
+    test_whole_assign_var_to_arr();
+    addLog("=== struct v1 probe end ===");
+    return 0;
+}
