@@ -76,6 +76,16 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **String ops** (1.5.0) — 7 new built-ins for in-place char[] manipulation
+  with literal-needle args:
+    `int n = strReplace(buf, "old", "new")` — find/replace all, returns count
+    `if (strStartsWith(buf, "MBUS"))` / `strEndsWith(buf, ".tcb")` /
+    `strContains(buf, "<error>")` — 1/0 prefix/suffix/substring tests
+    `strToUpper(buf)` / `strToLower(buf)` — in-place ASCII case
+    `int n = strTrim(buf)` — in-place whitespace strip, returns new length
+  All literal-needle (string-literal arg). Runtime-needle variants
+  intentionally not in v1 — uncommon in practice. See
+  `examples/test_strings_v15.tc`.
 - **Reference parameters** (1.4.3) — `void swap(int& a, int& b)` declares
   scalar pass-by-reference params (int, float, char). Callee reads/writes
   through the ref, mutations visible to the caller. Multi-out
@@ -391,6 +401,7 @@ void OnMqttData(char topic[], char payload[]) {
 **Structs** — `structs_demo.tc` (real-world wlog-ring + sizeof + struct return), `test_structs_v1.tc` (smoke tests across all v1 patterns)
 **Function pointers** — `test_fnptrs_v1.tc` (typedef'd fn-ptrs as locals, globals, parameters, dispatch-by-id), `test_fnptrs_v2.tc` (fn-ptrs as struct fields → dispatch table)
 **Reference parameters** — `test_refparams_v1.tc` (swap, multi-out, compound `n += 5`, globals as refs)
+**String ops** — `test_strings_v15.tc` (replace/starts/ends/contains/upper/lower/trim with grow+shrink edge cases)
 **Benchmarks / diag** — `benchmark.tc`, `crash_test.tc`, `sizeof_demo.tc`
 
 When a user asks for X, prefer to start from the closest example and adapt —

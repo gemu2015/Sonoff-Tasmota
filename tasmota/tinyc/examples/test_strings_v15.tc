@@ -1,0 +1,122 @@
+// =================================================================
+// test_strings_v15.tc — TinyC 1.5.0 string-ops probe
+// =================================================================
+
+void test_replace() {
+    char buf[80] = "v=23.4,unit=C,ts=1714838400,unit=C";
+    int n = strReplace(buf, "unit=C", "unit=°C");
+    char m[120];
+    sprintf(m, "test_replace: n=%d (expect 2) buf=[%s]", n, buf);
+    addLog(m);
+}
+
+void test_replace_grow() {
+    char buf[64] = "abc";
+    int n = strReplace(buf, "b", "BB");
+    char m[80];
+    sprintf(m, "test_replace_grow: n=%d (expect 1) buf=[%s] (expect aBBc)", n, buf);
+    addLog(m);
+}
+
+void test_replace_shrink() {
+    char buf[64] = "hello world hello";
+    int n = strReplace(buf, "hello", "hi");
+    char m[80];
+    sprintf(m, "test_replace_shrink: n=%d (expect 2) buf=[%s] (expect 'hi world hi')", n, buf);
+    addLog(m);
+}
+
+void test_starts() {
+    char buf[16] = "MBUSON";
+    int a = strStartsWith(buf, "MBUS");        // 1
+    int b = strStartsWith(buf, "ON");          // 0
+    int c = strStartsWith(buf, "MBUSONXX");    // 0 (longer than buf)
+    int d = strStartsWith(buf, "");            // 1 (empty matches anything)
+    char m[80];
+    sprintf(m, "test_starts: MBUS=%d ON=%d longer=%d empty=%d (expect 1,0,0,1)", a, b, c, d);
+    addLog(m);
+}
+
+void test_ends() {
+    char buf[16] = "report.tcb";
+    int a = strEndsWith(buf, ".tcb");          // 1
+    int b = strEndsWith(buf, ".be");           // 0
+    int c = strEndsWith(buf, "report.tcb");    // 1 (whole string)
+    int d = strEndsWith(buf, "extralong.tcb"); // 0
+    char m[80];
+    sprintf(m, "test_ends: tcb=%d be=%d whole=%d longer=%d (expect 1,0,1,0)", a, b, c, d);
+    addLog(m);
+}
+
+void test_contains() {
+    char buf[40] = "<error>connection lost</error>";
+    int a = strContains(buf, "error");         // 1
+    int b = strContains(buf, "warning");       // 0
+    int c = strContains(buf, "<error>");       // 1
+    int d = strContains(buf, "");              // 0 (empty needle = false)
+    char m[80];
+    sprintf(m, "test_contains: error=%d warning=%d tag=%d empty=%d (expect 1,0,1,0)", a, b, c, d);
+    addLog(m);
+}
+
+void test_case() {
+    char a[16] = "Hello World";
+    strToUpper(a);
+    char b[16] = "Hello World";
+    strToLower(b);
+    char m[80];
+    sprintf(m, "test_case: upper=[%s] lower=[%s]", a, b);
+    addLog(m);
+}
+
+void test_trim() {
+    char a[32] = "   hello   ";
+    int n = strTrim(a);
+    char b[32] = "\t\nfoo\r\n\t";
+    int m = strTrim(b);
+    char c[32] = "no whitespace";
+    int p = strTrim(c);
+    char d[32] = "       ";       // all whitespace
+    int q = strTrim(d);
+    char buf[120];
+    sprintf(buf, "test_trim: a=%d[%s] b=%d[%s] c=%d[%s] d=%d[%s] (expect 5,3,13,0)",
+            n, a, m, b, p, c, q, d);
+    addLog(buf);
+}
+
+// Real-world example: parse a key=value config line with whitespace
+void test_realworld_parse() {
+    char line[80] = "  TARGET_TEMP =   23.4   ";
+    strTrim(line);
+    char m1[80];
+    sprintf(m1, "  trimmed: [%s]", line);
+    addLog(m1);
+
+    if (strStartsWith(line, "TARGET_TEMP")) {
+        addLog("  matched TARGET_TEMP prefix");
+    }
+
+    // Replace = with : and trim again
+    strReplace(line, " = ", ":");
+    strReplace(line, "= ", ":");
+    strReplace(line, " =", ":");
+    strReplace(line, "=", ":");
+    char m2[80];
+    sprintf(m2, "  after norm: [%s]", line);
+    addLog(m2);
+}
+
+int main() {
+    addLog("=== strings v1.5 probe start ===");
+    test_replace();
+    test_replace_grow();
+    test_replace_shrink();
+    test_starts();
+    test_ends();
+    test_contains();
+    test_case();
+    test_trim();
+    test_realworld_parse();
+    addLog("=== strings v1.5 probe end ===");
+    return 0;
+}

@@ -1578,6 +1578,66 @@ greeting[0] = 'h';         // write: now "hello"
 | `\0`   | Null terminator|
 | `\xNN` | Hex character code (e.g. `\x41` = 'A') |
 
+### Higher-level string ops *(since 1.5.0)*
+
+Beyond the C-style `strcpy` / `strcat` / `strcmp` / `strlen` /
+`strFind` / `strSub` / `strToken` primitives, TinyC 1.5.0 adds 7
+built-ins for the most common text-handling patterns. All operate
+**in-place** on a `char[]` buffer; the second argument is always a
+**string literal** (compiled to a const-pool index — runtime-needle
+variants intentionally not exposed in v1).
+
+```c
+// Find/replace all occurrences of a literal old → literal new.
+// Handles both grow ("a"→"AA") and shrink ("hello"→"hi") with full
+// buffer-overflow guard. Returns the number of replacements made.
+int n = strReplace(buf, "old", "new");
+
+// Prefix / suffix / substring tests. Return 1 if true, 0 if false.
+// (Empty needle: startsWith returns 1, endsWith returns 1, contains returns 0.)
+if (strStartsWith(cmd, "MBUS"))    { /* dispatch MBUS… */ }
+if (strEndsWith(name, ".tcb"))     { /* it's a TinyC binary */ }
+if (strContains(html, "<error>"))  { /* something failed */ }
+
+// In-place ASCII case conversion. UTF-8 multi-byte chars (>=0x80) pass through.
+strToUpper(buf);
+strToLower(buf);
+
+// In-place whitespace trim (leading + trailing ' \t\n\r').
+// Shifts the buffer down so buf[0] is the first non-whitespace byte.
+// Returns the new length.
+int newlen = strTrim(buf);
+```
+
+**Real-world use case — config-line parsing:**
+
+```c
+char line[80] = "  TARGET_TEMP =   23.4   ";
+strTrim(line);                                   // "TARGET_TEMP =   23.4"
+if (strStartsWith(line, "TARGET_TEMP")) {
+    strReplace(line, " = ", "=");                // normalize space-around-equals
+    strReplace(line, "= ", "=");
+    strReplace(line, " =", "=");
+    // line is now "TARGET_TEMP=23.4"
+    int eq = strFind(line, "=");
+    char value[32];
+    strSub(value, line, eq + 1, 99);
+    float v = atof(value);
+}
+```
+
+**What's NOT included in v1** (deferred — sprintf + strToken cover
+their niches today):
+
+| Feature                           | Use what instead                       |
+| --------------------------------- | -------------------------------------- |
+| Runtime-needle variants           | Use literal needles or write a loop    |
+| `split` returning a list          | `strToken(dst, src, delim, n)`         |
+| `join` of an array                | `strcat` in a loop                     |
+| `padLeft` / `padRight`            | sprintf with `%-Ns` / `%Ns` formatters |
+| `repeat` (n × char)               | `strcat` in a loop, or pre-build       |
+| Regex                             | not planned                            |
+
 ---
 
 ## Preprocessor
