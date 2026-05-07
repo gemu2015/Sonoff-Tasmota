@@ -1,0 +1,155 @@
+// =====================================================================
+// sht31_publisher.tc — SHT31 sensor that publishes to UDP globals
+//
+// Variant of `examples/sht31.tc` for the multi-slot pattern: instead
+// of populating SensorJSON via JsonCall (which forces every consumer
+// to call `sensorGet()` → `MqttShowSensor()` → fan-out to all slots'
+// JsonCall), this script publishes the room values to two
+// `global float`s. Other slots — local or remote — just declare the
+// same names and receive updates via UDP loopback / multicast.
+//
+// Why a separate script: the upstream `sht31.tc` is the canonical I2C-
+// claim demo (i2cSetActiveFound, CRC-8, JsonCall + WebCall). Keeping
+// it intact preserves the teaching value. This file is the "pub-to-
+// globals" pattern, suitable for devices where:
+//   - Tasmota's USE_SHT3X is NOT compiled in
+//   - You want multiple slots reading the value cheaply
+//   - You want cross-device sharing automatic via UDP
+//
+// Differences from sht31.tc:
+//   - Adds `global float btemp; global float bhumi;` (UDP-shared)
+//   - EverySecond writes those globals on each successful read
+//   - Drops JsonCall (SensorJSON path is not used by consumers)
+//   - Drops WebCall (no display rows; consumers render their own)
+//   - delay(30) in EverySecond replaced with a 2-tick state machine
+//     (issue measurement on tick N, read result on tick N+1) so we
+//     never hold vm_mutex through the SHT31 conversion
+//
+// Naming: btemp/bhumi match the existing house-network convention
+// (see core2_energy.tc, epaper42_v2.tc). Tweak both ends if you use
+// different names elsewhere.
+// =====================================================================
+
+#define SHT_ADDR1  0x44
+#define SHT_ADDR2  0x45
+
+// ── House-network UDP globals (auto-broadcast on every change) ──
+global float btemp = 20.0;
+global float bhumi = 50.0;
+
+// ── Internal state ──
+char sht_data[6];
+int  sht_addr = 0;
+int  sht_bus  = 0;
+int  sht_ok   = 0;
+
+// 0 = idle (next tick: issue measurement)
+// 1 = waiting (next tick: read result)
+int  sht_state = 0;
+
+// CRC-8 for SHT31 (polynomial 0x31)
+int sht_crc8(int start, int len) {
+    int crc = 0xFF;
+    int i = 0;
+    while (i < len) {
+        crc = crc ^ sht_data[start + i];
+        int bit = 0;
+        while (bit < 8) {
+            if (crc & 0x80) { crc = (crc << 1) ^ 0x31; }
+            else            { crc = (crc << 1); }
+            crc = crc & 0xFF;
+            bit++;
+        }
+        i++;
+    }
+    return crc;
+}
+
+int sht_scan() {
+    int bus = 0;
+    while (bus < 2) {
+        if (i2cSetDevice(SHT_ADDR1, bus)) {
+            sht_addr = SHT_ADDR1;
+            sht_bus  = bus;
+            i2cSetActiveFound(sht_addr, "SHT3X", sht_bus);
+            return 1;
+        }
+        if (i2cSetDevice(SHT_ADDR2, bus)) {
+            sht_addr = SHT_ADDR2;
+            sht_bus  = bus;
+            i2cSetActiveFound(sht_addr, "SHT3X", sht_bus);
+            return 1;
+        }
+        bus++;
+    }
+    return 0;
+}
+
+void EverySecond() {
+    if (!sht_addr) {
+        if (!sht_scan()) {
+            sht_ok = 0;
+            return;
+        }
+        sht_state = 0;  // start fresh after scan
+    }
+
+    if (sht_state == 0) {
+        // Issue: clock-stretching, high-repeatability measurement command.
+        // Result is ready ~15 ms later — we read it on the NEXT tick.
+        if (!i2cWrite8(sht_addr, 0x2C, 0x06, sht_bus)) {
+            sht_ok    = 0;
+            sht_addr  = 0;
+            sht_state = 0;
+            return;
+        }
+        sht_state = 1;
+        return;
+    }
+
+    // sht_state == 1: read the result issued one tick ago.
+    sht_state = 0;
+    if (!i2cRead0(sht_addr, sht_data, 6, sht_bus)) {
+        sht_ok   = 0;
+        sht_addr = 0;
+        return;
+    }
+
+    if (sht_crc8(0, 2) != sht_data[2]) { sht_ok = 0; return; }
+    if (sht_crc8(3, 2) != sht_data[5]) { sht_ok = 0; return; }
+
+    int raw_t = (sht_data[0] << 8) | sht_data[1];
+    int raw_h = (sht_data[3] << 8) | sht_data[4];
+    float t = -45.0 + 175.0 * (float)raw_t / 65535.0;
+    float h = 100.0 * (float)raw_h / 65535.0;
+
+    // Publish to UDP-shared globals. Same-device readers (other TinyC
+    // slots that declare `global float btemp`) receive updates via the
+    // local loopback path; off-device readers receive via UDP multicast
+    // on the next ~2 s broadcast cycle.
+    btemp = t;
+    bhumi = h;
+    sht_ok = 1;
+}
+
+void OnExit() {
+    if (sht_addr) {
+        I2cResetActive(sht_addr, sht_bus);
+        sht_addr = 0;
+    }
+}
+
+int main() {
+    char buf[48];
+    sht_ok    = 0;
+    sht_addr  = 0;
+    sht_state = 0;
+
+    if (sht_scan()) {
+        sprintf(buf, "sht31_publisher: SHT3X at 0x%x on bus %d", sht_addr, sht_bus);
+        addLog(buf);
+    } else {
+        addLog("sht31_publisher: SHT3X not found on any bus");
+    }
+    return 0;
+}
