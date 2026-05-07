@@ -2369,6 +2369,7 @@ function buildMeterDefContent() {
     obis_3ph:    'OBIS3PH',
     sdm630:      'SDM630',
     sdm630_tcp:  'SDM630',
+    epever_tracer:'EPEVER',
     t510:        'T510',
   };
   const profileKey  = document.getElementById('selProfile').value;
@@ -2611,6 +2612,75 @@ function buildMeterDefContent() {
   }
 
   let s = `>M 1\n`;
+
+  // ── EPEVER Tracer-AN MPPT — solar charge controller ──────────────────────
+  // Subset descriptor: 5 headline live measurements (FC04) + 1 setting (FC03).
+  // The full register map is huge (~80 input regs + ~50 holding + 4 coils + 8
+  // discrete inputs); reading all of it would just clutter MQTT and waste
+  // Modbus airtime. Pick the values that matter on a daily-monitoring page:
+  // PV voltage, PV current, battery voltage, battery SOC, battery temperature
+  // — plus battery-type setting as one FC03 demo. Users add more lines by
+  // editing the textarea or pasting from the EPEVER Modbus PDF.
+  //
+  // Wire format reminder: each `01XX31YY` request is id+FC+reg_hi+reg_lo.
+  // Tasmota auto-appends count=2 (covers 2 consecutive 16-bit regs = 4 data
+  // bytes) and the CRC. Response prefix `010404` = id+FC+byte_count(4).
+  // Pattern `uuuu` reads the first 16-bit register; the second register in
+  // the response is unused here (we issue separate requests per value). For
+  // a more compact deployment, switch to grouped reads (one request 0x3100
+  // count=8) and use `xN` skip primitives — see the Kamstrup descriptor.
+  //
+  // FC01 coil reads (0x0002–0x0006) and FC02 discrete-input reads
+  // (0x2000–0x200F) ARE supported by xsns_53_sml.ino — pattern
+  // `0101 01 uu @ bN : iM : 1` matches the FC01 response prefix
+  // (addr fc bytecount=1), reads the data byte, then `bN` extracts
+  // bit N (0..7) and `iM` filters by request-cycle index. The `r`
+  // request prefix disables the auto-count append so the FC01 PDU
+  // is delivered verbatim. The emulator's RTU slave responds to
+  // FC01/FC02 reads and FC05/FC15 writes (round-trip validated).
+  if (profileKey === 'epever_tracer') {
+    const trxPin = +document.getElementById('inpTxPin').value || 43;
+    let s = `>M 1\n`;
+    // Request list (Tasmota indexes them 0..N as `@iN:`):
+    //   0..5  six register-style requests (FC03/FC04). Driver auto-appends
+    //         count=0002 → reads 2 consecutive 16-bit regs = 4 data bytes.
+    //         Pattern `010404uuuu` reads the FIRST 16-bit reg (the requested one).
+    //   6     `r0101000200005` raw FC01: read 5 coils starting at 0x0002.
+    //         The leading `r` flag in SML_Send_Seq disables the auto-count
+    //         append (otherwise 0002+0002 would corrupt the request). Response
+    //         is 1 byte with bits 0..4 = state of coils 0x0002..0x0006.
+    //   7     `r0102200000004` raw FC02: read 4 discrete inputs starting at 0x2000.
+    //         Response 1 byte, bits 0..3 = state of inputs 0x2000..0x2003.
+    s += `+1,${gpio},m,0,${baud},${meterName},${trxPin},5,`;
+    s += `01043100,01043101,01043104,0104311A,0104311B,01039000,`;
+    // Each raw entry: r + addr(01) + fc + start_hi + start_lo + qty_hi + qty_lo = 12 hex chars after the 'r'
+    s += `r010100020005,r010220000004\n`;
+    s += `1,010404uuuu@i0:100,PV Voltage,V,PV_V,2;EPEVER 0x3100 input reg, x100 V\n`;
+    s += `1,010404uuuu@i1:100,PV Current,A,PV_A,2;EPEVER 0x3101 input reg, x100 A\n`;
+    s += `1,010404uuuu@i2:100,Battery Voltage,V,Batt_V,2;EPEVER 0x3104 input reg, x100 V\n`;
+    s += `1,010404uuuu@i3:1,Battery SOC,%%,Batt_SOC,0;EPEVER 0x311A input reg, % integer\n`;
+    s += `1,010404uuus@i4:100,Battery Temperature,C,Batt_T,2;EPEVER 0x311B input reg, signed x100 C\n`;
+    s += `1,010304uuuu@i5:1,Battery Type,,Batt_Type,0;EPEVER 0x9000 holding reg, 0=user 1=sealed 2=gel 3=flooded\n`;
+    // Coils — pattern `010101uu` matches FC01 response prefix (addr fc bc=1)
+    // then `uu` reads the data byte. Then `@bN:` extracts bit N (0..7), then
+    // `iM:` checks the request-cycle index = M. Order matters: bN must come
+    // before iM per the parser at xsns_53_sml.ino:2646.
+    s += `1,010101uu@b0:i6:1,Manual load control,,Coil_LoadMan,0;EPEVER coil 0x0002 (0=auto 1=manual)\n`;
+    s += `1,010101uu@b1:i6:1,Default load on/off,,Coil_LoadDef,0;EPEVER coil 0x0003\n`;
+    s += `1,010101uu@b3:i6:1,Test mode,,Coil_TestMode,0;EPEVER coil 0x0005\n`;
+    s += `1,010101uu@b4:i6:1,Force load,,Coil_ForceLoad,0;EPEVER coil 0x0006 (0=off 1=on)\n`;
+    // Discrete inputs — same pattern as coils but FC02. Response prefix
+    // `010201` (addr fc bc=1), bit-field meaning per EPEVER spec:
+    s += `1,010201uu@b0:i7:1,Over-temperature,,DI_OverTemp,0;EPEVER 0x2000 (0=ok 1=alarm)\n`;
+    s += `1,010201uu@b3:i7:1,Day Night sensor,,DI_DayNight,0;EPEVER 0x2003 area (varies per model)\n`;
+    s += `#\n`;
+    // FC05/FC15 (writes) work via `sensor53 wN raw_hex` console / `MBUS` cmd
+    // — the driver-side fix at xsns_53_sml.ino:1777 now correctly recognises
+    // the 8-byte write-echo response. Examples to test interactively:
+    //   sensor53 w1 r0105000600FF00   (turn coil 0x0006 ON via FC05)
+    //   sensor53 w1 r0105000600 0000  (turn coil 0x0006 OFF)
+    return s;
+  }
 
   if (proto === 'modbus') {
     // SDM630 Modbus RTU or TCP — single float per request (2 registers = 4 bytes each).
