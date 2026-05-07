@@ -2674,6 +2674,15 @@ void SML_Decode(uint8_t index) {
               uint8_t shift = *mp&7;
               ebus_dval = (uint32_t)ebus_dval >> shift;
               ebus_dval = (uint32_t)ebus_dval & 1;
+              // Keep mbus_dval in sync so the @i-index path (line below) also
+              // sees the bit-extracted value. Without this, descriptors that
+              // combine bit-extract with mbus index filter, e.g.
+              // `010101uu@b0:i6:1` for FC01 coil reads, take dval=mbus_dval
+              // = the raw response byte (0x11 for "coils 0+4 set"), not the
+              // single bit. The @i path is the only way to dispatch reads
+              // across multiple coil/discrete-input requests in the same
+              // descriptor, so this combination matters.
+              mbus_dval = ebus_dval;
               mp+=2;
             }
             if (*mp == 'i') {
