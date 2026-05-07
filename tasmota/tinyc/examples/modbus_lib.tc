@@ -1,0 +1,264 @@
+// =====================================================================
+// modbus_lib.tc — Modbus TCP helpers for TinyC (v1.5.2+)
+// =====================================================================
+//
+// Provides clean wrappers around tcpWriteArray/tcpAvailable/tcpReadArray
+// for the most-used Modbus function codes:
+//   * mbFC03 — read holding registers (16-bit)
+//   * mbFC04 — read input registers (16-bit)
+//   * mbFC06 — write single holding register
+//   * mbFC16 — write multiple holding registers
+//
+// Design goals:
+//   - Caller picks the TCP slot (multi-meter setups need this)
+//   - TID is auto-incremented per call; response TID is checked
+//   - Modbus exception responses (high bit on FC) return -3
+//   - Wrong byte-count returns -4
+//   - Timeout returns -1, mismatched TID -2
+//   - Single source-of-truth for response framing
+//
+// Usage:
+//   #include "modbus_lib.tc"
+//
+//   void EverySecond() {
+//       char regs[8];                                  // 4 regs * 2 bytes
+//       int n = mbFC03(0, 1, 0x0010, 4, regs, 200);   // slot 0, slave 1
+//       if (n == 4) {
+//           int v0 = (regs[0] << 8) | regs[1];
+//           // ...
+//       }
+//   }
+//
+// Combine with the 1.5.1 TCP tuning syscalls for robust long-running
+// Modbus-TCP sessions:
+//   tcpSelect(0);
+//   if (tcpConnect("192.168.1.50", 502) == 0) {
+//       tcpKeepalive(30, 10, 3);   // SMA Tripower idle-timeout fix
+//   }
+//   // periodic reads via mbFC03/04 ...
+//   if (!tcpConnected()) {
+//       int reason = tcpDisconnectReason();
+//       // 4 = NETWORK error, back off harder
+//       // 2 = PEER_CLOSED, retry sooner
+//   }
+// =====================================================================
+
+// Auto-incremented transaction ID. Wraps at 0xFFFF (Modbus TCP spec
+// allows 0..65535; the actual value doesn't matter as long as request
+// and response match).
+int mb_tid = 0;
+
+// Internal: wait for `expected` bytes on the selected TCP slot OR
+// until `timeout_ms` elapses. Polls tcpAvailable() with vTaskDelay-ish
+// granularity (delay(2)) so other slots / TaskLoop workers can run.
+// Returns the number of bytes available (>= expected on success,
+// less than expected on timeout).
+int mb_wait_for(int expected, int timeout_ms) {
+    int t0 = millis();
+    int n = 0;
+    while (1) {
+        n = tcpAvailable();
+        if (n >= expected) return n;
+        if (millis() - t0 > timeout_ms) return n;
+        delay(2);
+    }
+    return n;
+}
+
+// FC03: Read Holding Registers
+//   slot         — TCP client slot (0..TC_TCP_CLI_SLOTS-1)
+//   slave        — Modbus slave/unit ID
+//   addr         — register start address
+//   qty          — number of 16-bit registers (1..125)
+//   dst          — char[] to receive raw bytes (length must be >= qty*2)
+//   timeout_ms   — max wait for response
+// Returns:
+//   qty          — success (dst contains qty*2 bytes, MSB first per reg)
+//   -1           — timeout / not connected
+//   -2           — TID mismatch
+//   -3           — Modbus exception response (dst[0] = exception code)
+//   -4           — byte-count mismatch
+int mbFC03(int slot, int slave, int addr, int qty, char dst[], int timeout_ms) {
+    char req[12];
+    char resp[260];                  // 9 header + 250 max payload
+    tcpSelect(slot);
+    if (!tcpConnected()) return -1;
+
+    mb_tid = (mb_tid + 1) & 0xFFFF;
+    req[0]  = (mb_tid >> 8) & 0xFF;
+    req[1]  =  mb_tid       & 0xFF;
+    req[2]  = 0; req[3]  = 0;        // protocol id = 0
+    req[4]  = 0; req[5]  = 6;        // length = 6 (unit + fc + addr + qty)
+    req[6]  = slave;
+    req[7]  = 0x03;                  // function code 03
+    req[8]  = (addr >> 8) & 0xFF;
+    req[9]  =  addr       & 0xFF;
+    req[10] = (qty  >> 8) & 0xFF;
+    req[11] =  qty        & 0xFF;
+    tcpWriteArray(req, 12, 0);
+
+    int min_resp = 9;                // 7 header + fc + byte_count
+    int n = mb_wait_for(min_resp, timeout_ms);
+    if (n < min_resp) return -1;
+
+    int got = tcpReadArray(resp);
+    if (got < min_resp) return -1;
+
+    // TID match
+    int rtid = (resp[0] << 8) | resp[1];
+    if (rtid != mb_tid) return -2;
+
+    // Modbus exception (high bit on FC)
+    if (resp[7] & 0x80) {
+        if (got > 8) dst[0] = resp[8];   // exception code
+        return -3;
+    }
+
+    // Byte count check
+    int bc = resp[8] & 0xFF;
+    if (bc != qty * 2) return -4;
+    if (got < 9 + bc) return -1;     // response truncated
+
+    // Copy payload
+    int i = 0;
+    while (i < bc) {
+        dst[i] = resp[9 + i];
+        i++;
+    }
+    return qty;
+}
+
+// FC04: Read Input Registers — identical wire format to FC03 but
+// the slave returns its INPUT register table instead of holding.
+// SMA Tripower exposes most live values via FC04.
+int mbFC04(int slot, int slave, int addr, int qty, char dst[], int timeout_ms) {
+    char req[12];
+    char resp[260];
+    tcpSelect(slot);
+    if (!tcpConnected()) return -1;
+
+    mb_tid = (mb_tid + 1) & 0xFFFF;
+    req[0]  = (mb_tid >> 8) & 0xFF;
+    req[1]  =  mb_tid       & 0xFF;
+    req[2]  = 0; req[3]  = 0;
+    req[4]  = 0; req[5]  = 6;
+    req[6]  = slave;
+    req[7]  = 0x04;                  // FC04
+    req[8]  = (addr >> 8) & 0xFF;
+    req[9]  =  addr       & 0xFF;
+    req[10] = (qty  >> 8) & 0xFF;
+    req[11] =  qty        & 0xFF;
+    tcpWriteArray(req, 12, 0);
+
+    int n = mb_wait_for(9, timeout_ms);
+    if (n < 9) return -1;
+    int got = tcpReadArray(resp);
+    if (got < 9) return -1;
+
+    int rtid = (resp[0] << 8) | resp[1];
+    if (rtid != mb_tid) return -2;
+    if (resp[7] & 0x80) {
+        if (got > 8) dst[0] = resp[8];
+        return -3;
+    }
+    int bc = resp[8] & 0xFF;
+    if (bc != qty * 2) return -4;
+    if (got < 9 + bc) return -1;
+    int i = 0;
+    while (i < bc) { dst[i] = resp[9 + i]; i++; }
+    return qty;
+}
+
+// FC06: Write Single Register
+//   value — 16-bit value to write to addr
+// Returns:
+//   1            — success
+//   -1/-2/-3     — same as FC03
+int mbFC06(int slot, int slave, int addr, int value, int timeout_ms) {
+    char req[12];
+    char resp[12];
+    tcpSelect(slot);
+    if (!tcpConnected()) return -1;
+
+    mb_tid = (mb_tid + 1) & 0xFFFF;
+    req[0]  = (mb_tid >> 8) & 0xFF;
+    req[1]  =  mb_tid       & 0xFF;
+    req[2]  = 0; req[3]  = 0;
+    req[4]  = 0; req[5]  = 6;
+    req[6]  = slave;
+    req[7]  = 0x06;                  // FC06
+    req[8]  = (addr  >> 8) & 0xFF;
+    req[9]  =  addr        & 0xFF;
+    req[10] = (value >> 8) & 0xFF;
+    req[11] =  value       & 0xFF;
+    tcpWriteArray(req, 12, 0);
+
+    int n = mb_wait_for(12, timeout_ms);
+    if (n < 12) return -1;
+    int got = tcpReadArray(resp);
+    if (got < 12) return -1;
+
+    int rtid = (resp[0] << 8) | resp[1];
+    if (rtid != mb_tid) return -2;
+    if (resp[7] & 0x80) return -3;   // exception
+    return 1;
+}
+
+// FC16: Write Multiple Registers
+//   src     — char[] containing qty*2 bytes (MSB first per reg)
+//   qty     — number of 16-bit registers (1..123)
+// Returns:
+//   qty     — success (number of registers written, echoed by slave)
+//   -1/-2/-3
+int mbFC16(int slot, int slave, int addr, int qty, char src[], int timeout_ms) {
+    char req[260];                   // 13 header + 246 max payload
+    char resp[12];
+    tcpSelect(slot);
+    if (!tcpConnected()) return -1;
+
+    mb_tid = (mb_tid + 1) & 0xFFFF;
+    int byte_cnt = qty * 2;
+    int frame_len = 7 + byte_cnt;    // unit + fc + addr + qty + bc + payload
+    req[0]  = (mb_tid >> 8) & 0xFF;
+    req[1]  =  mb_tid       & 0xFF;
+    req[2]  = 0; req[3]  = 0;
+    req[4]  = (frame_len >> 8) & 0xFF;
+    req[5]  =  frame_len       & 0xFF;
+    req[6]  = slave;
+    req[7]  = 0x10;                  // FC16
+    req[8]  = (addr >> 8) & 0xFF;
+    req[9]  =  addr       & 0xFF;
+    req[10] = (qty  >> 8) & 0xFF;
+    req[11] =  qty        & 0xFF;
+    req[12] = byte_cnt;
+    int i = 0;
+    while (i < byte_cnt) { req[13 + i] = src[i]; i++; }
+    tcpWriteArray(req, 13 + byte_cnt, 0);
+
+    int n = mb_wait_for(12, timeout_ms);
+    if (n < 12) return -1;
+    int got = tcpReadArray(resp);
+    if (got < 12) return -1;
+
+    int rtid = (resp[0] << 8) | resp[1];
+    if (rtid != mb_tid) return -2;
+    if (resp[7] & 0x80) return -3;   // exception
+    int echo_qty = (resp[10] << 8) | resp[11];
+    if (echo_qty != qty) return -4;
+    return qty;
+}
+
+// Convenience: parse an N×u16 (big-endian) byte buffer into an int[].
+// Useful right after mbFC03/04 to convert raw bytes to register values.
+//   src  — char[] with qty*2 bytes (output of mbFC03/04)
+//   dst  — int[] to receive qty register values (signed 16-bit, sign-extended)
+//   qty  — number of registers
+void mbParseU16(char src[], int dst[], int qty) {
+    int i = 0;
+    while (i < qty) {
+        int v = ((src[i*2] & 0xFF) << 8) | (src[i*2 + 1] & 0xFF);
+        if (v & 0x8000) v = v - 65536;     // sign-extend
+        dst[i] = v;
+        i++;
+    }
+}
