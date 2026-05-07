@@ -57,6 +57,27 @@ reg_bank   = {}
 # Polled by browser via GET /api/writeregs
 write_bank = {}
 
+# Coil banks for FC01/FC02/FC05/FC15 (Read Coils / Read Discrete Inputs /
+# Write Single Coil / Write Multiple Coils). Each maps absolute coil-address
+# (uint16) → 0/1.
+#
+# These were added when we introduced the EPEVER Tracer-AN MPPT profile —
+# that device exposes:
+#   • FC01 coils (writable on/off flags: manual load control, force-charge,
+#     factory-reset trigger)
+#   • FC02 discrete inputs (read-only flags: charging state bulk/absorb/
+#     float, over-temp alarm, day/night sensor, battery-low alarm)
+# Existing energy-meter profiles (SDM630 etc.) populate only reg_bank, so
+# both new banks stay empty for them — the FC01/FC02 handlers just respond
+# with zero coils, which is correct behaviour for "register doesn't exist".
+#
+# Browser pushes initial values (and any user-toggled values from the
+# emulator UI) via POST /api/coils and POST /api/dinputs. FC05/FC15 writes
+# update coil_bank in place; the browser polls (or a future websocket) to
+# observe master-driven coil changes.
+coil_bank      = {}   # addr → 0/1 (FC01 read, FC05/FC15 write)
+discrete_bank  = {}   # addr → 0/1 (FC02 read; read-only per spec — no FC for write)
+
 def log_entry(typ, msg):
     global log_seq
     with state_lock:
@@ -121,22 +142,28 @@ def serial_reader():
             log_entry('err', f'Serial read: {e}')
             time.sleep(0.1)
 
-_FC_NAMES = {0x03: 'FC03 read-holding', 0x04: 'FC04 read-input',
-             0x06: 'FC06 write-single',  0x10: 'FC16 write-multi'}
+_FC_NAMES = {0x01: 'FC01 read-coils',   0x02: 'FC02 read-disc-in',
+             0x03: 'FC03 read-holding', 0x04: 'FC04 read-input',
+             0x05: 'FC05 write-coil',   0x06: 'FC06 write-single',
+             0x0F: 'FC15 write-coils',  0x10: 'FC16 write-multi'}
 
 def _describe_rtu_request(req: bytes) -> str:
     if len(req) < 2: return ''
     addr, fc = req[0], req[1]
     name = _FC_NAMES.get(fc, f'FC{fc:02X}')
-    if fc in (0x03, 0x04, 0x06) and len(req) >= 6:
+    if fc in (0x01, 0x02, 0x03, 0x04, 0x06) and len(req) >= 6:
         reg = (req[2] << 8) | req[3]
         val = (req[4] << 8) | req[5]
-        tag = 'cnt' if fc in (0x03, 0x04) else 'val'
-        return f'id={addr} {name} reg=0x{reg:04X} {tag}={val}'
-    if fc == 0x10 and len(req) >= 7:
+        tag = 'cnt' if fc in (0x01, 0x02, 0x03, 0x04) else 'val'
+        return f'id={addr} {name} addr=0x{reg:04X} {tag}={val}'
+    if fc == 0x05 and len(req) >= 6:
+        coil = (req[2] << 8) | req[3]
+        on   = (req[4] == 0xFF)
+        return f'id={addr} {name} coil=0x{coil:04X} {"ON" if on else "OFF"}'
+    if fc in (0x0F, 0x10) and len(req) >= 7:
         reg  = (req[2] << 8) | req[3]
         cnt  = (req[4] << 8) | req[5]
-        return f'id={addr} {name} reg=0x{reg:04X} cnt={cnt}'
+        return f'id={addr} {name} addr=0x{reg:04X} cnt={cnt}'
     return f'id={addr} {name}'
 
 def _process_modbus_rtu():
@@ -158,6 +185,15 @@ def _process_modbus_rtu():
         else:
             rx_buf = rx_buf[1:]  # discard leading byte, re-scan
 
+def _pack_bits(values: list) -> bytes:
+    """Pack a list of 0/1 ints (LSB-first per Modbus FC01/FC02 spec) into bytes."""
+    n = len(values)
+    out = bytearray((n + 7) // 8)
+    for i, v in enumerate(values):
+        if v:
+            out[i // 8] |= (1 << (i % 8))
+    return bytes(out)
+
 def _handle_modbus_rtu_frame(buf: bytes):
     """Returns (response_bytes, bytes_consumed) or None if frame invalid/incomplete."""
     if len(buf) < 8:
@@ -166,6 +202,28 @@ def _handle_modbus_rtu_frame(buf: bytes):
     fc   = buf[1]
     if addr != 1:
         return None
+
+    # FC01 Read Coils / FC02 Read Discrete Inputs — both have identical wire
+    # format: request 8 bytes (addr, fc, reg_hi, reg_lo, cnt_hi, cnt_lo, crc_lo,
+    # crc_hi); response is (addr, fc, byte_count, packed_bits..., crc_lo, crc_hi)
+    # where byte_count = ceil(cnt/8) and bits are packed LSB-first within each
+    # byte. Coils respond from coil_bank, discrete inputs from discrete_bank.
+    # Master may request up to 2000 bits per Modbus spec; we cap at 2008 (251
+    # bytes) which fits the 256-byte ADU.
+    if fc in (0x01, 0x02):
+        if len(buf) < 8: return None
+        start = (buf[2] << 8) | buf[3]
+        cnt   = (buf[4] << 8) | buf[5]
+        crc_rx = buf[6] | (buf[7] << 8)
+        if crc16modbus(buf[:6]) != crc_rx: return None
+        if cnt < 1 or cnt > 2000: return None
+        bank = coil_bank if fc == 0x01 else discrete_bank
+        with state_lock:
+            bits = [(1 if bank.get(start + i, 0) else 0) for i in range(cnt)]
+        packed = _pack_bits(bits)
+        resp = bytes([addr, fc, len(packed)]) + packed
+        crc  = crc16modbus(resp)
+        return resp + bytes([crc & 0xFF, crc >> 8]), 8
 
     # FC03 / FC04 Read
     if fc in (0x03, 0x04):
@@ -181,6 +239,22 @@ def _handle_modbus_rtu_frame(buf: bytes):
         crc  = crc16modbus(resp)
         return resp + bytes([crc & 0xFF, crc >> 8]), 8
 
+    # FC05 Write Single Coil — value is 0xFF00 (ON) or 0x0000 (OFF).
+    # Response echoes the request verbatim (per Modbus spec).
+    if fc == 0x05:
+        if len(buf) < 8: return None
+        crc_rx = buf[6] | (buf[7] << 8)
+        if crc16modbus(buf[:6]) != crc_rx: return None
+        coil  = (buf[2] << 8) | buf[3]
+        valhi = buf[4]
+        # Spec is strict: only 0xFF00 (ON) or 0x0000 (OFF) accepted.
+        if (buf[4], buf[5]) not in ((0xFF, 0x00), (0x00, 0x00)):
+            return None
+        with state_lock:
+            coil_bank[coil] = 1 if valhi == 0xFF else 0
+        log_entry('info', f'WRITE coil 0x{coil:04X} = {"ON" if valhi == 0xFF else "OFF"}')
+        return bytes(buf[:8]), 8  # echo
+
     # FC06 Write Single Register
     if fc == 0x06:
         if len(buf) < 8: return None
@@ -190,6 +264,31 @@ def _handle_modbus_rtu_frame(buf: bytes):
         raw    = (buf[4] << 8) | buf[5]
         _write_reg_word(reg, raw)
         return bytes(buf[:8]), 8  # echo
+
+    # FC15 Write Multiple Coils — request frame:
+    #   addr, fc, start_hi, start_lo, qty_hi, qty_lo, byte_count, bits..., crc_lo, crc_hi
+    # Bits are packed LSB-first within each byte (same as FC01 response).
+    # Response echoes addr/fc/start/qty (8 bytes total + crc).
+    if fc == 0x0F:
+        if len(buf) < 9: return None
+        byte_count = buf[6]
+        frame_len  = 7 + byte_count + 2
+        if len(buf) < frame_len: return None
+        crc_rx = buf[frame_len-2] | (buf[frame_len-1] << 8)
+        if crc16modbus(buf[:frame_len-2]) != crc_rx: return None
+        start = (buf[2] << 8) | buf[3]
+        qty   = (buf[4] << 8) | buf[5]
+        if qty < 1 or qty > 1968 or byte_count != (qty + 7) // 8:
+            return None
+        with state_lock:
+            for i in range(qty):
+                bit_byte = buf[7 + (i // 8)]
+                bit      = (bit_byte >> (i % 8)) & 1
+                coil_bank[start + i] = bit
+        log_entry('info', f'WRITE coils 0x{start:04X}..0x{start+qty-1:04X} ({qty} bits)')
+        resp = bytes([addr, 0x0F, buf[2], buf[3], buf[4], buf[5]])
+        crc  = crc16modbus(resp)
+        return resp + bytes([crc & 0xFF, crc >> 8]), frame_len
 
     # FC16 Write Multiple Registers
     if fc == 0x10:
@@ -1138,6 +1237,33 @@ class Handler(BaseHTTPRequestHandler):
                         reg_bank[int(k)] = fv
                     except (ValueError, TypeError):
                         reg_bank[k] = fv
+            self._json({'ok': True})
+        elif path == '/api/coils':
+            # Browser pushes a {addr_str: 0|1} dict. Replaces existing entries
+            # at those addresses; doesn't clear addresses not in the body.
+            # FC05/FC15 master writes go to the same coil_bank, so the
+            # browser-side UI sees them on its next /api/writeregs-style poll
+            # (poll endpoint TODO when we wire UI).
+            body = self._read_json()
+            with state_lock:
+                for k, v in body.items():
+                    try:
+                        coil_bank[int(k)] = 1 if v else 0
+                    except (ValueError, TypeError):
+                        pass
+            self._json({'ok': True})
+        elif path == '/api/dinputs':
+            # Discrete inputs are read-only by Modbus spec — only the
+            # emulator (= the simulated device) can change them. Browser
+            # POSTs the current "physical state" (charging-state flags,
+            # day/night, alarm bits) so FC02 reads return realistic values.
+            body = self._read_json()
+            with state_lock:
+                for k, v in body.items():
+                    try:
+                        discrete_bank[int(k)] = 1 if v else 0
+                    except (ValueError, TypeError):
+                        pass
             self._json({'ok': True})
         elif path == '/api/shutdown':
             self._json({'ok': True})

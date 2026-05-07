@@ -154,6 +154,7 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <option value="obis_3ph">Generic OBIS 3-phase</option>
         <option value="sdm630">Eastron SDM630 — 3-phase (Modbus RTU)</option>
         <option value="sdm630_tcp">Eastron SDM630 — 3-phase (Modbus TCP)</option>
+        <option value="epever_tracer">EPEVER Tracer-AN — solar MPPT (Modbus RTU, FC01/02/03/04/05/15)</option>
         <option value="t510">T510 — 3-phase OBIS IEC 62056-21 (300→9600 baud)</option>
       </select>
     </div>
@@ -762,6 +763,49 @@ function wregSet(reg, rawHigh, rawLow) {
     setTimeout(() => el.classList.remove('wreg-written'), 800);
   }
   log('info', `Modbus WRITE reg=0x${(reg&~1).toString(16).toUpperCase()} "${wregStore[idx].name}" = ${val.toFixed(3)}`);
+}
+
+// ─── EPEVER Tracer-AN MPPT — bank seed for FC01/FC02/FC05/FC15 testing ───────
+// Real EPEVER charge controllers expose four address spaces. We seed the
+// server's coil_bank and discrete_bank with realistic snapshot values when
+// the profile is selected; FC03/FC04 numeric registers are populated via the
+// existing /api/regs path on the next computeLiveValues tick.
+//
+// EPEVER address map (subset — full table in the EPEVER Modbus PDF):
+//   FC02 Discrete Inputs (0x2000–0x200F, read-only)
+//     0x2000 Over-temperature inside the device      (0=normal, 1=alarm)
+//     0x200C Day/Night sensor                        (0=day,    1=night)
+//   FC01 Coils                  (0x0002–0x0006, read+FC05/FC15 write)
+//     0x0002 Manual control of load                  (0=auto, 1=manual)
+//     0x0003 Default load on/off in manual mode      (0=off,  1=on)
+//     0x0005 Enable test mode                        (0=off,  1=on)
+//     0x0006 Force the load on or off                (0=off,  1=on)
+//   FC04 Input Registers       (0x3100–0x311F, read-only live measurements)
+//     handled by computeLiveValues via /api/regs
+//   FC03 Holding Registers     (0x9000–0x9070, read+FC06/FC16 write — settings)
+//     handled by FC03 path against reg_bank
+function epeverSeedBanks() {
+  const coils = {
+    0x0002: 0,   // Manual load control: auto
+    0x0003: 0,   // Default load output:  off
+    0x0005: 0,   // Test mode:            off
+    0x0006: 0,   // Force load:           off
+  };
+  const dinputs = {
+    0x2000: 0,   // Over-temperature: normal
+    0x200C: 0,   // Day/Night:        day (0)
+  };
+  const post = (path, body) => fetch(BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).catch(e => log('warn', `${path} push failed: ${e}`));
+  // BASE may not yet be defined if running without the bridge; tolerate.
+  if (typeof BASE !== 'undefined') {
+    post('/api/coils',   coils);
+    post('/api/dinputs', dinputs);
+    log('info', 'EPEVER coils+discrete-inputs seeded — FC01/FC02/FC05/FC15 ready');
+  }
 }
 
 // ─── MODBUS RTU SLAVE (SDM630) ────────────────────────────────────────────────
@@ -2153,6 +2197,7 @@ function applyProfile() {
     obis_3ph:   { proto:'obis',   baud:'9600', ser:'7E1', serial:'12345678'    },
     sdm630:     { proto:'modbus', baud:'9600', ser:'8N1', serial:'SDM630'      },
     sdm630_tcp: { proto:'modbus', baud:'9600', ser:'8N1', serial:'SDM630', tcp: true },
+    epever_tracer:{ proto:'modbus', baud:'115200', ser:'8N1', serial:'EPEVER1'   },
     t510:       { proto:'obis',   baud:'300',  ser:'7E1', serial:'T510001'     },
   };
   const c = cfgs[p] || {};
@@ -2184,6 +2229,10 @@ function applyProfile() {
   } else if (p === 'sdm630') {
     document.getElementById('modbusStatus').style.color = '#7a9cbf';
     document.getElementById('modbusStatus').textContent = 'Connect serial port — slave starts automatically';
+  } else if (p === 'epever_tracer') {
+    document.getElementById('modbusStatus').style.color = '#7a9cbf';
+    document.getElementById('modbusStatus').textContent = 'EPEVER Tracer-AN MPPT — covers FC01 (coils), FC02 (discrete inputs), FC03 (settings), FC04 (live measurements), FC05/FC15 (coil writes). Test device for SML-driver coil support.';
+    epeverSeedBanks();
   }
 }
 
