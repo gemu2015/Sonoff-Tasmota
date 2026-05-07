@@ -17,15 +17,17 @@
 //   • UDP-shared globals (aztemp/wtemp/ktmp/rtemp/hwp from other devices)
 //   • UDP-broadcast publishing of HP state (hp_run/hp_in/hp_out/hp_at)
 //   • Five neighbour-reading rows on the main page
+//   • Embedded-write scanner (FC05/06/15/16 detection in parse_frame +
+//     16-slot wlog ring buffer of {addr,val,ms,src} events)
+//   • Command(MBUS …) — console control: MBUSON / MBUSOFF / MBUSSET <T> /
+//     MBUSWRITES (dump captured writes); uses hp_send_modbus() helper
 //
 // Still REMOVED from the original full version:
-//   • JsonCall (no MQTT telemetry)
-//   • Command(MBUS …) (no console control — no FC05/FC06 writes)
-//   • Embedded-write scanner (FC05/06/15/16 detection in parse_frame)
+//   • JsonCall (no MQTT telemetry — user uses UDP only, never re-add)
 //   • /tc_ui custom WebPage + chart history + diff snapshot
 //   • Mailer / SendMail
 //   • Pump-stuck heating watchdog (off/on cycling)
-//   • All persist'd diagnostic ring buffers
+//   • persist'd diagnostic ring buffers (HPHIST, latency maxima)
 //   • Frame logging
 //
 // If THIS build still hangs, the cause is in one of:
@@ -87,6 +89,41 @@ int  last_task_loop_run_ms = 0;
 int  wdog_loop_trips       = 0;
 int  wdog_last_silent_ms   = 0;
 
+// ── Embedded-write capture (FC05/06/15/16) ───────────────────
+// When the cloud (or a panel) writes to the heat pump, the register
+// address tells us what control we'd target ourselves. Cloud often
+// piggybacks an FC06 write within <4 ms of a prior FC03 poll tail —
+// our silence-based framer hands those to us as one merged buffer,
+// which is why the scan walks the WHOLE buffer in parse_frame, not
+// just the prefix.
+int  writes_seen     = 0;
+int  last_write_addr = -1;
+int  last_write_val  = 0;
+int  last_write_ms   = 0;
+
+// 16-slot circular log of write events (own + observed). Small
+// footprint (16 × 4 ints). 'src' = 'O' (observed off-bus), 'M' (me —
+// this script's hp_send_modbus call).
+struct WriteEvent {
+    int  addr;
+    int  val;
+    int  ms;
+    char src;
+}
+WriteEvent wlog[16];
+int  wlog_pos   = 0;
+int  wlog_count = 0;
+
+void wlog_push(int addr, int val, char src) {
+    int p = wlog_pos;
+    wlog[p].addr = addr;
+    wlog[p].val  = val;
+    wlog[p].ms   = millis();
+    wlog[p].src  = src;
+    wlog_pos = (p + 1) % 16;
+    if (wlog_count < 16) wlog_count = wlog_count + 1;
+}
+
 // ── UDP-shared globals from other Tasmota devices ────────────
 // `global float` = auto-syncs via UDP multicast 239.255.255.250:1999.
 // Initial values are sane defaults until first packet arrives. Names must
@@ -142,22 +179,129 @@ void store_reg(int addr, int val) {
     }
 }
 
-// ── Parse one frame (FC03 only, no embedded-write scan) ───
+// ── Parse one frame (FC03 read + embedded FC05/06/15/16 write scan) ─
 //
 // Three shapes for slave=1 fc=3 frames:
 //   A) Lone 8-byte REQ            → record addr/qty for next RSP
 //   B) Lone RSP (5 + 2N bytes)    → pair with last_req_*
 //   C) Merged REQ+RSP (8 + 5+2N)  → start with REQ, parse trailing RSP
-// Anything else is silently ignored.
+// Anything else is silently ignored on the FC03 path.
 //
-// We skip CRC validation here — the frame already passed the silence-
-// based delimiter, so byte-pattern noise is rare. If we see corruption
-// it'll show up as rsp_failed climbing on the main page.
+// In addition, the WHOLE buffer is scanned for embedded write frames
+// (FC05/06/15/16) because cloud writes often piggyback within <4 ms
+// of an FC03 poll tail and end up in the same merged buffer. CRC
+// validation on the fixed-length FC05/FC06 frames eliminates the
+// false positives that random bytes inside FC03 response payload
+// would otherwise produce. Variable-length FC15/FC16 frames keep a
+// weaker (qty range) sanity check.
+//
+// Fast-path: if the frame starts with `01 03` AND its size matches
+// one of the three valid pure-FC03 patterns exactly, skip the embedded
+// write scan — there's nothing piggybacking and the scan would be a
+// pointless 200+ iteration walk over response data.
+//
+// FC03 itself: skip CRC validation — the silence-based delimiter
+// already gates noise out. Corruption shows up as `rsp_failed` on
+// the main page.
 void parse_frame() {
     if (buf_len < 5) return;
     int sl = buf[0] & 0xFF;
     int fc = buf[1] & 0xFF;
-    if (sl != 1 || fc != 0x03) return;
+
+    // Fast-path heuristic for the embedded-write scan.
+    int skip_write_scan = 0;
+    if (sl == 1 && fc == 0x03) {
+        if (buf_len == 8) {
+            skip_write_scan = 1;            // lone REQ
+        } else if (buf_len >= 5) {
+            int bc_rsp = buf[2] & 0xFF;
+            if (buf_len == 5 + bc_rsp) {
+                skip_write_scan = 1;        // lone RSP
+            } else if (buf_len >= 16) {
+                int req_qty   = ((buf[4] & 0xFF) << 8) | (buf[5] & 0xFF);
+                int bc_merged = (buf[10] & 0xFF);
+                if (buf_len == 13 + bc_merged && bc_merged == req_qty * 2) {
+                    skip_write_scan = 1;    // merged REQ + RSP, exact size
+                }
+            }
+        }
+    }
+
+    // ── Embedded-write scan ───────────────────────────────────
+    char crc_buf[6];
+    for (int i = 0; !skip_write_scan && i + 8 <= buf_len; i++) {
+        int s2 = buf[i]   & 0xFF;
+        int f2 = buf[i+1] & 0xFF;
+        if (s2 != 1) continue;              // only slave 1 commands matter
+
+        // Validate CRC for fixed-length FC05/FC06 frames.
+        int crc_ok = 0;
+        if (f2 == 0x05 || f2 == 0x06) {
+            for (int k = 0; k < 6; k++) crc_buf[k] = buf[i+k] & 0xFF;
+            int expected = modbus_crc16(crc_buf, 6);
+            int got = ((buf[i+7] & 0xFF) << 8) | (buf[i+6] & 0xFF);
+            if (expected == got) crc_ok = 1;
+        }
+
+        if (f2 == 0x05 && crc_ok) {
+            // FC05: write single coil; val must be 0xFF00 or 0x0000
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wval  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000 && (wval == 0xFF00 || wval == 0x0000)) {
+                last_write_addr = waddr;
+                last_write_val  = wval;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wval, 'O');
+                char w[120];
+                char st[8];
+                if (wval == 0xFF00) strcpy(st, "ON"); else strcpy(st, "OFF");
+                sprintf(w, "*** WRITE FC05 (coil) *** addr=%d (0x%04x) -> %s",
+                        waddr, waddr, st);
+                addLog(w);
+            }
+        } else if (f2 == 0x06 && crc_ok) {
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wval  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000) {
+                last_write_addr = waddr;
+                last_write_val  = wval;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wval, 'O');
+                char w[120];
+                sprintf(w, "*** WRITE FC06 (reg) *** addr=%d (0x%04x) val=%d (0x%04x)",
+                        waddr, waddr, wval, wval);
+                addLog(w);
+            }
+        } else if (f2 == 0x0F && i + 9 <= buf_len) {
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wqty  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000 && wqty > 0 && wqty < 256) {
+                last_write_addr = waddr;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wqty, 'O');
+                char w[120];
+                sprintf(w, "*** WRITE FC15 (coils) *** addr=%d qty=%d", waddr, wqty);
+                addLog(w);
+            }
+        } else if (f2 == 0x10 && i + 9 <= buf_len) {
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wqty  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000 && wqty > 0 && wqty < 32) {
+                last_write_addr = waddr;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wqty, 'O');
+                char w[120];
+                sprintf(w, "*** WRITE FC16 (regs) *** addr=%d qty=%d", waddr, wqty);
+                addLog(w);
+            }
+        }
+    }
+
+    if (sl != 1 || fc != 0x03) return;      // only slave 1 FC03 carries our data
 
     // Case A: lone REQ
     if (buf_len == 8) {
@@ -296,6 +440,159 @@ void fmt_unsigned_x10(int addr, char unit[], char out[]) {
     sprintf(out, "%.1f %s", v, unit);
 }
 
+// ── hp_send_modbus — TX an FC05 / FC06 write frame ────────
+//
+// Build the 8-byte frame, listen-before-talk for ≥4 ms bus silence
+// (Modbus 3.5-char inter-frame gap at 19200 baud + margin), TX, then
+// wait ~10 ms for the TX FIFO to drain so the slave recognises the
+// frame end. Bus has a 1 Hz cadence (cloud polls one block per second;
+// each burst is ~50-100 ms followed by ~900 ms of silence) so the
+// quiet-window wait almost always returns within tens of ms.
+//
+// Return: 1 on success, 0 if serial isn't open. The wait-cap of 1500 ms
+// is per-call worst case; while we're inside this function the loop
+// task is blocked, so don't call it from a tick. It's only invoked from
+// Command (synchronous user-issued console command).
+int hp_send_modbus(int fc, int regaddr, int val) {
+    if (ser < 0) {
+        addLog("hp_send_modbus: serial not open");
+        return 0;
+    }
+
+    char frame[8];
+    frame[0] = 1;
+    frame[1] = fc & 0xFF;
+    frame[2] = (regaddr >> 8) & 0xFF;
+    frame[3] = regaddr & 0xFF;
+    frame[4] = (val >> 8) & 0xFF;
+    frame[5] = val & 0xFF;
+    int crc  = modbus_crc16(frame, 6);
+    frame[6] = crc & 0xFF;            // Modbus CRC: low byte first on wire
+    frame[7] = (crc >> 8) & 0xFF;
+
+    // Listen-before-talk: drain any in-flight bytes into the framing
+    // buffer (let Every50ms parse them next tick), reset the silence
+    // timer when activity is seen, exit when 4 ms quiet — capped at
+    // 1500 ms total.
+    int q_start  = millis();
+    int wait_cap = millis() + 1500;
+    while (millis() < wait_cap) {
+        if (serialAvailable(ser) > 0) {
+            while (serialAvailable(ser) > 0) {
+                int discard = serialRead(ser);
+                if (buf_len < 256) { buf[buf_len] = discard; buf_len = buf_len + 1; }
+            }
+            q_start = millis();
+        }
+        if (millis() - q_start >= 4) break;
+        delay(1);
+    }
+
+    for (int i = 0; i < 8; i++) {
+        serialWriteByte(ser, frame[i] & 0xFF);
+    }
+    delay(10);                        // TX FIFO drain + Modbus inter-frame gap
+
+    wlog_push(regaddr, val, 'M');
+    char m[120];
+    sprintf(m, "hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x)",
+            fc, regaddr, val, val);
+    addLog(m);
+    return 1;
+}
+
+// ── Command(MBUS …) — console control + write log dump ────
+//
+// Subcommands (all prefixed with "MBUS" by addCommand("MBUS") in main):
+//   MBUSON         FC05 coil 40 = 0xFF00   (heat-pump ON)
+//   MBUSOFF        FC05 coil 40 = 0x0000   (heat-pump OFF)
+//   MBUSSET <T>    FC06 r1 = T*10          (target water temp 10..60 °C)
+//   MBUSWRITES    Dump captured FC05/06/15/16 events (own + observed)
+//
+// Every branch (including the "?" fallback) MUST call responseCmnd —
+// otherwise Tasmota emits {"Command":"Error",...} regardless of what
+// the script actually did. (See TinyC CLAUDE.md anti-pattern #2.)
+void Command(char cmd[]) {
+    char resp[200];
+
+    if (strFind(cmd, "ON") == 0 && strlen(cmd) == 2) {
+        if (hp_send_modbus(0x05, 40, 0xFF00)) {
+            responseCmnd("HP ON sent (FC05 coil 40 = 0xFF00)");
+        } else {
+            responseCmnd("HP ON FAILED");
+        }
+        return;
+    }
+
+    if (strFind(cmd, "OFF") == 0 && strlen(cmd) == 3) {
+        if (hp_send_modbus(0x05, 40, 0x0000)) {
+            responseCmnd("HP OFF sent (FC05 coil 40 = 0x0000)");
+        } else {
+            responseCmnd("HP OFF FAILED");
+        }
+        return;
+    }
+
+    if (strFind(cmd, "SET ") == 0) {
+        // MBUSSET <T>  — write target water temp to r1, scaled ×10.
+        // TinyC atoi() needs a char[] (no pointer arithmetic); copy the
+        // digits after "SET " into a small buffer first.
+        char arg[16];
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 4; i < n; i++) {
+            if (j < 15) { arg[j] = cmd[i]; j = j + 1; }
+        }
+        arg[j] = 0;
+        int t10 = atoi(arg) * 10;
+        if (t10 < 100 || t10 > 600) {
+            sprintf(resp, "MBUSSET: out of range (10..60 C), got %d", t10/10);
+            responseCmnd(resp);
+        } else if (hp_send_modbus(0x06, 1, t10)) {
+            sprintf(resp, "HP target %d.0 C sent (FC06 r1=%d)", t10/10, t10);
+            responseCmnd(resp);
+        } else {
+            responseCmnd("MBUSSET FAILED");
+        }
+        return;
+    }
+
+    if (strFind(cmd, "WRITES") == 0 && strlen(cmd) == 6) {
+        // Dump the 16-slot wlog ring, newest first. Output goes BOTH via
+        // responseCmnd (for /cm HTTP API consumers, capped to ~700 B for
+        // Tasmota's MQTT payload limit even though we don't use MQTT —
+        // it's the same response buffer) AND via addLog (full set,
+        // visible at /cs).
+        char hbuf[720];
+        sprintf(hbuf, "writes seen=%d (last 16 events, newest first):\n", writes_seen);
+        if (wlog_count == 0) {
+            strcat(hbuf, "  (none)");
+            responseCmnd(hbuf);
+            return;
+        }
+        int now = millis();
+        for (int n = 0; n < wlog_count; n = n + 1) {
+            int slot = (wlog_pos - 1 - n) & 15;
+            int age = now - wlog[slot].ms;
+            char src_str[8];
+            if (wlog[slot].src == 'M') strcpy(src_str, "ME"); else strcpy(src_str, "OBS");
+            sprintf(resp, "  [%d] %s addr=%d val=%d (0x%04x) age=%dms",
+                    n, src_str, wlog[slot].addr, wlog[slot].val, wlog[slot].val, age);
+            addLog(resp);
+            if (strlen(hbuf) + strlen(resp) + 2 < 700) {
+                strcat(hbuf, resp);
+                strcat(hbuf, "\n");
+            }
+        }
+        responseCmnd(hbuf);
+        return;
+    }
+
+    // Unknown subcommand — ALWAYS respond, never silently fall through.
+    sprintf(resp, "MBUS: unknown subcmd '%s' (try ON/OFF/SET <T>/WRITES)", cmd);
+    responseCmnd(resp);
+}
+
 // ── WebCall — render rows on Tasmota's main page ──────────
 //
 // Tasmota's main-page sensor list. webSend("{s}…{m}…{e}") wraps each
@@ -337,13 +634,15 @@ void WebCall() {
     sprintf(row, "{s}Au&szlig;en (Bresser){m}%.1f &deg;C{e}", rtemp); webSend(row);
     sprintf(row, "{s}HP Leistung{m}%.0f W{e}",       hwp);    webSend(row);
 
-    // Diagnostic row — frames seen, RSP parsed, RSP failed, watchdog trips,
-    // ms since last Every50ms tick. The last value should always be tiny
-    // (<100 ms) when the device is healthy; a number creeping up means
-    // the loop task is stalling and we're heading toward a watchdog trip.
+    // Diagnostic row — frames seen, RSP parsed, RSP failed, write events
+    // seen, watchdog trips, ms since last Every50ms tick. The silent value
+    // should always be tiny (<100 ms) when the device is healthy; a number
+    // creeping up means the loop task is stalling and we're heading toward
+    // a watchdog trip.
     int silent = (last_50ms_run_ms > 0) ? (millis() - last_50ms_run_ms) : -1;
-    sprintf(row, "{s}MB diag{m}f=%d ok=%d bad=%d wdog=%d silent=%d ms{e}",
-            frames_seen, rsp_parsed, rsp_failed, wdog_loop_trips, silent);
+    sprintf(row, "{s}MB diag{m}f=%d ok=%d bad=%d w=%d wdog=%d silent=%d ms{e}",
+            frames_seen, rsp_parsed, rsp_failed, writes_seen,
+            wdog_loop_trips, silent);
     webSend(row);
 }
 
@@ -363,8 +662,13 @@ int main() {
             ser, rx_pin, tx_pin, baud, WDOG_LOOP_REBOOT_MS);
     addLog(m);
 
-    // No commands, no UDP, no MQTT, no chart load. Just open serial,
-    // let Every50ms drain it, render rows on the main page when the
-    // user opens the device's web UI, and let TaskLoop watch the tick.
+    // Register console-command prefix. With "MBUS" registered, Tasmota
+    // routes any command starting with MBUS to our Command(cmd) callback,
+    // passing the suffix as `cmd` (e.g. user types "MBUSSET 32" → cmd="SET 32").
+    addCommand("MBUS");
+
+    // UDP globals (aztemp/wtemp/...) auto-sync via the multicast bus —
+    // no setup call needed. WebCall renders the main page on demand.
+    // TaskLoop watches the tick from its own FreeRTOS task.
     return 0;
 }
