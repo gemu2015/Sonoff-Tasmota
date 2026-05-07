@@ -1497,7 +1497,11 @@ static void HandleTinyCPage(void) {
       #define TC_REPO_CACHE_MS  60000
       #endif
       #ifndef TC_REPO_FETCH_MS
-      #define TC_REPO_FETCH_MS   2000
+      // 2026-05-07: bumped 2000 → 5000. The 2 s cap was too tight for github's
+      // TLS handshake from devices with moderate WiFi (RSSI ~-66 dBm) — fetch
+      // silently timed out, repo section vanished from /tc. 5 s is still well
+      // under the ESP32 task watchdog (which is 5 s by default but bumpable).
+      #define TC_REPO_FETCH_MS   5000
       #endif
       static String   tc_repo_index;        // last successful index.txt body
       static uint32_t tc_repo_index_ms = 0; // millis() of last successful fetch
@@ -1542,11 +1546,14 @@ static void HandleTinyCPage(void) {
             bool begun = http.begin(http_client, idx_url);
 #endif
             uint32_t fetch_t0 = millis();
+            int httpCode = -1;
+            int body_len = 0;
             if (begun) {
-              int httpCode = http.GET();
+              httpCode = http.GET();
               if (httpCode == HTTP_CODE_OK) {
                 String body = http.getString();
-                if (body.length() > 0) {
+                body_len = body.length();
+                if (body_len > 0) {
                   tc_repo_index    = body;
                   tc_repo_index_ms = millis();
                 }
@@ -1554,7 +1561,23 @@ static void HandleTinyCPage(void) {
               http.end();
             }
             uint32_t fetch_dt = millis() - fetch_t0;
-            if (fetch_dt > TC_REPO_FETCH_MS + 500) {
+            // Log whenever the fetch fails OR took longer than the cap +
+            // some slack — so silent "Repository section disappeared from
+            // /tc" cases are diagnosable from the serial log.
+            if (!begun) {
+              AddLog(LOG_LEVEL_INFO,
+                PSTR("TCC: repo index.txt fetch — http.begin() failed for %s"),
+                idx_url.c_str());
+            } else if (httpCode != HTTP_CODE_OK) {
+              AddLog(LOG_LEVEL_INFO,
+                PSTR("TCC: repo index.txt fetch — HTTP %d after %u ms (cap %u, %s)"),
+                httpCode, (unsigned)fetch_dt, (unsigned)TC_REPO_FETCH_MS,
+                (httpCode < 0) ? "timeout/conn err" : "non-200");
+            } else if (body_len == 0) {
+              AddLog(LOG_LEVEL_INFO,
+                PSTR("TCC: repo index.txt fetch — empty body after %u ms"),
+                (unsigned)fetch_dt);
+            } else if (fetch_dt > TC_REPO_FETCH_MS + 500) {
               AddLog(LOG_LEVEL_INFO,
                 PSTR("TCC: repo index.txt fetch took %u ms (cap %u) — slow link?"),
                 (unsigned)fetch_dt, (unsigned)TC_REPO_FETCH_MS);
@@ -3147,13 +3170,19 @@ static void TinyCShow(bool json) {
           s->vm.instruction_count);
       }
       // Call user's JsonCall() on this slot (skip the slot that triggered sensorGet).
-      // No `s->vm.halted` pre-check: when a spawnTask worker is mid-syscall
-      // (e.g. tcpConnect blocking for ~500 ms) `halted=false`, and a racy
-      // pre-check would skip JsonCall entirely → MQTT telemetry loses the
-      // slot's values for that publish cycle. tc_slot_callback() already
-      // takes the mutex (waits for the worker to hit a delay() that
-      // releases it) and re-checks halted internally, so this is safe.
-      if (s != tc_sensor_get_slot) {
+      // Restored 2026-05-07: `s->loaded && s->vm.halted && error == TC_OK` pre-check.
+      // It was removed in 7be97b97b to fix a UI-disappear case (spawnTask worker
+      // mid-syscall has halted=false, the pre-check would skip its JsonCall and
+      // sensor rows would vanish from the /?m=1 poll). But removing it caused a
+      // reproducible HANG of the entire device when running multi-slot configs:
+      // sensorGet on slot 0 → MqttShowSensor → fan-out JsonCall to slot 5
+      // unconditionally takes slot 5's mutex with portMAX_DELAY. Bisected
+      // against the C3 baseline (commit 63a7e6535, Apr 20) which ran the same
+      // pattern stably for weeks. Multi-slot stability is more important than
+      // the cosmetic spawnTask UI-disappear case; if that case becomes a real
+      // problem, address it via xSemaphoreTake-with-timeout in tc_slot_callback
+      // rather than by removing the pre-check.
+      if (s->loaded && s->vm.halted && s->vm.error == TC_OK && s != tc_sensor_get_slot) {
         tc_slot_callback(s, "JsonCall");
       }
     }
@@ -3178,15 +3207,12 @@ static void TinyCShow(bool json) {
             i, status, s->program_size);
         }
       }
-      // Call user's WebCall() on this slot. No `s->vm.halted` pre-check:
-      // when a spawnTask worker is mid-syscall (e.g. tcpConnect blocking
-      // for ~500 ms) `halted=false`, and a racy pre-check would skip
-      // WebCall entirely → the script's sensor rows vanish from this
-      // /?m=1 poll's response, browser blanks them. tc_slot_callback()
-      // already takes the mutex (waits for the worker to hit a delay()
-      // that releases it) and re-checks halted internally, so the pre-
-      // check was a pure optimization with a UI-disappear failure mode.
-      tc_slot_callback(s, "WebCall");
+      // Call user's WebCall() on this slot — pre-check restored 2026-05-07,
+      // see JsonCall comment above. The /?m=1 polling path is the primary
+      // trigger for the multi-slot hang regression introduced by 7be97b97b.
+      if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
+        tc_slot_callback(s, "WebCall");
+      }
     }
   }
 #endif
