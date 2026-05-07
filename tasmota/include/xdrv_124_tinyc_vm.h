@@ -12092,14 +12092,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           tc_ref_maxlen(vm, data_ref) < len) {
         TC_PUSH(vm, 0); break;
       }
-      // Copy in. Stack alloc is fine for small TinyC payloads — the script
-      // task has 5 KB+ stack and CBC operates a chunk at a time. For very
-      // large payloads (> 4 KB) we malloc instead.
+      // Always heap-allocate the work buffer via special_malloc (prefers PSRAM
+      // when available, falls back to internal DRAM). A previous version
+      // stack-allocated a 4 KB scratch (`uint8_t stackbuf[4096]`) for small
+      // payloads, but GCC reserves the largest switch-case local at function
+      // entry — so every tc_vm_step() call inflated by 4 KB even when AES
+      // wasn't being used. Loop-task and web-server tasks (which dispatch
+      // TinyC callbacks via tc_slot_callback → tc_vm_step) have ~4–8 KB
+      // stacks and overflowed into adjacent heap, surfacing as
+      // StoreProhibited in WiFi RX (esf_buf_alloc). Heap alloc per call is
+      // fine — AES is never on a hot path.
       uint8_t k[16], iv[16];
-      uint8_t *buf = nullptr;
-      bool heap = (len > 4096);
-      uint8_t  stackbuf[4096];
-      buf = heap ? (uint8_t*)malloc(len) : stackbuf;
+      uint8_t *buf = (uint8_t*)special_malloc(len);
       if (!buf) { TC_PUSH(vm, 0); break; }
       for (int i = 0; i < 16;  i++) k[i]  = (uint8_t)(key_arr[i] & 0xFF);
       for (int i = 0; i < 16;  i++) iv[i] = (uint8_t)(iv_arr[i]  & 0xFF);
@@ -12121,7 +12125,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       } else {
         TC_PUSH(vm, 0);
       }
-      if (heap) free(buf);
+      free(buf);
 #else
       TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
       TC_PUSH(vm, 0);
@@ -12146,15 +12150,21 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           tc_ref_maxlen(vm, out_ref) < 32) {
         TC_PUSH(vm, 0); break;
       }
-      // Stack-local copies; HMAC keys/data are usually small. For pathological
-      // multi-KB key/data, callers can compute SHA-256 over chunks externally
-      // — for now require sane sizes (≤ 1024 each).
+      // Heap-allocate kbuf/dbuf via special_malloc — see SYS_AES_CBC note
+      // above. Previously these were `uint8_t kbuf[1024], dbuf[4096]` on
+      // the stack, adding 5 KB to tc_vm_step's frame at function entry and
+      // overflowing the loop/web-server task stacks. HMAC is never on a hot
+      // path. Bounds: 1024 B key / 4 KB data per call (chunk larger payloads).
       if (klen > 1024 || dlen > 4096) { TC_PUSH(vm, 0); break; }
-      uint8_t kbuf[1024], dbuf[4096], out[32];
+      uint8_t *kbuf = (uint8_t*)special_malloc(klen);
+      uint8_t *dbuf = (uint8_t*)special_malloc(dlen > 0 ? dlen : 1);
+      uint8_t out[32];
+      if (!kbuf || !dbuf) { free(kbuf); free(dbuf); TC_PUSH(vm, 0); break; }
       for (int i = 0; i < klen; i++) kbuf[i] = (uint8_t)(key_arr[i]  & 0xFF);
       for (int i = 0; i < dlen; i++) dbuf[i] = (uint8_t)(data_arr[i] & 0xFF);
       const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
       int rc = mbedtls_md_hmac(info, kbuf, klen, dbuf, dlen, out);
+      free(kbuf); free(dbuf);
       if (rc == 0) {
         for (int i = 0; i < 32; i++) out_arr[i] = (int32_t)out[i];
         TC_PUSH(vm, 1);
@@ -12181,10 +12191,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           dlen > 4096) {
         TC_PUSH(vm, 0); break;
       }
-      uint8_t dbuf[4096], out[32];
+      // Heap-allocate dbuf via special_malloc — see SYS_AES_CBC note above.
+      // Was `uint8_t dbuf[4096]` on the stack, contributing to the regression.
+      uint8_t *dbuf = (uint8_t*)special_malloc(dlen > 0 ? dlen : 1);
+      uint8_t out[32];
+      if (!dbuf) { TC_PUSH(vm, 0); break; }
       for (int i = 0; i < dlen; i++) dbuf[i] = (uint8_t)(data_arr[i] & 0xFF);
       // mbedtls_sha256(buf, len, out, is_sha224=0) — return 0 on success.
       int rc = mbedtls_sha256(dbuf, dlen, out, 0);
+      free(dbuf);
       if (rc == 0) {
         for (int i = 0; i < 32; i++) out_arr[i] = (int32_t)out[i];
         TC_PUSH(vm, 1);
@@ -12201,34 +12216,40 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_HEX2BIN: {
       // (hex_ref_or_const, hex_len, out_ref) → int bytes written (hex_len/2),
       // or -1 on bad input. Whitespace in hex is silently skipped.
+      // Heap-allocate the work buffer via special_malloc — see SYS_AES_CBC
+      // note above (~1 KB stack overhead unified into tc_vm_step's frame).
+      // Also fixes a pre-existing stack-imbalance bug: on bad-nibble the
+      // old code pushed -1 inside the for-loop and then ALSO pushed
+      // `written` after, leaving an extra slot on the VM stack. Refactored
+      // to a `bad` flag with one push at exit.
       int32_t out_ref = TC_POP(vm);
       int32_t hex_len = TC_POP(vm);
       int32_t hex_ref = TC_POP(vm);
       int32_t *out_arr = tc_resolve_ref(vm, out_ref);
       if (!out_arr || hex_len < 0) { TC_PUSH(vm, -1); break; }
-      // Accept either a const string (when caller passed a literal) or a TinyC
-      // char[] ref. Copy hex chars into a local buffer first.
-      char src[1024];
+      char *src = (char*)special_malloc(1024);
+      if (!src) { TC_PUSH(vm, -1); break; }
       int32_t src_len = 0;
       if (tc_is_const_ref(hex_ref)) {
         const char *cs = tc_get_const_str(vm, hex_ref);
-        if (!cs) { TC_PUSH(vm, -1); break; }
-        while (cs[src_len] && src_len < (int32_t)sizeof(src) - 1) {
+        if (!cs) { free(src); TC_PUSH(vm, -1); break; }
+        while (cs[src_len] && src_len < 1023) {
           src[src_len] = cs[src_len]; src_len++;
         }
         if (hex_len > 0 && hex_len < src_len) src_len = hex_len;
       } else {
         int32_t *hex_arr = tc_resolve_ref(vm, hex_ref);
-        if (!hex_arr) { TC_PUSH(vm, -1); break; }
+        if (!hex_arr) { free(src); TC_PUSH(vm, -1); break; }
         int32_t cap = tc_ref_maxlen(vm, hex_ref);
         if (hex_len > cap) hex_len = cap;
-        if (hex_len > (int32_t)sizeof(src)) hex_len = sizeof(src);
+        if (hex_len > 1024) hex_len = 1024;
         for (int i = 0; i < hex_len; i++) src[i] = (char)(hex_arr[i] & 0xFF);
         src_len = hex_len;
       }
       // Parse pairs of nibbles, skipping whitespace. Bail on malformed.
       int32_t out_cap = tc_ref_maxlen(vm, out_ref);
       int32_t written = 0;
+      int bad = 0;
       uint8_t hi = 0; int have_hi = 0;
       for (int i = 0; i < src_len; i++) {
         char c = src[i];
@@ -12237,7 +12258,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         if      (c >= '0' && c <= '9') v = c - '0';
         else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
         else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;
-        else { TC_PUSH(vm, -1); break; }
+        else { bad = 1; break; }
         if (!have_hi) { hi = v; have_hi = 1; }
         else {
           if (written >= out_cap) break;
@@ -12245,9 +12266,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           have_hi = 0;
         }
       }
-      // If we broke from the loop with `-1` already pushed, we'd have consumed
-      // the stack — but since `break` only exits the for-loop here, push now.
-      TC_PUSH(vm, written);
+      free(src);
+      TC_PUSH(vm, bad ? -1 : written);
       break;
     }
 
