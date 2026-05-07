@@ -262,6 +262,23 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
 
 #define TC_CFG_FILE "/tinyc.cfg"
 
+// Filesystem boot-loop marker. Created right before autoexec slots
+// start; deleted after `TC_BOOT_STABLE_S` seconds of uptime. If the
+// marker is still present at the start of the next boot, the previous
+// boot crashed before reaching steady state — autoexec is wiped.
+//
+// More robust than relying on `RtcReboot.fast_reboot_count`, which
+// Tasmota itself resets at uptime==BOOT_LOOP_TIME (10 s) via
+// RtcRebootReset() in support_tasmota.ino:1134. That makes the RTC
+// counter useless for any crash that happens >10 s into boot — the
+// counter is gone before the crash, so it never accumulates across
+// reboots and Tasmota's no_autoexec never fires.
+#define TC_BOOT_MARKER "/tinyc.boot.lock"
+#ifndef TC_BOOT_STABLE_S
+#define TC_BOOT_STABLE_S 30   // uptime at which boot is considered "succeeded"
+#endif
+static bool tc_boot_marker_cleared = false;
+
 #ifdef USE_UFILESYS
 // Save current slot configuration to /tinyc.cfg
 static void TinyCSaveSettings(void) {
@@ -279,29 +296,100 @@ static void TinyCSaveSettings(void) {
   AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Settings saved"));
 }
 
-// Boot-loop detector — independent of SetOption36.
+// Boot-loop detector — primary signal is filesystem-only.
 //
-// Tasmota's `TasmotaGlobal.no_autoexec` is gated on `Settings->param[
-// P_BOOT_LOOP_OFFSET] != 0` (SetOption36, default 1). On devices where
-// SetOption36 has been set to 0 — or where Tasmota's own boot-loop
-// block doesn't fire fast enough — `no_autoexec` stays false and a
-// crashing autoexec script can wedge the device indefinitely.
+// Three independent signals OR'd together:
 //
-// `RtcReboot.fast_reboot_count` is incremented unconditionally on every
-// boot (tasmota.ino:472) and saved to RTC memory before any driver
-// FUNC_INIT runs, so by the time we get here it accurately reflects
-// "how many recent fast reboots". Use it directly, with our own
-// threshold of 4 (matches Tasmota's no_autoexec trigger at default
-// SetOption36=1: `restart_count > offset+2` = `>3` = restart 4).
+//   1. **Marker file** (`TC_BOOT_MARKER`) — primary mechanism.
+//      Written right before autoexec slots start; deleted after
+//      `TC_BOOT_STABLE_S` seconds of stable uptime. Marker present
+//      at next boot ⇒ previous boot crashed before reaching steady
+//      state ⇒ disable autoexec. Independent of RtcReboot, SetOption36,
+//      and Tasmota's no_autoexec — works for crashes at ANY time
+//      within the protection window, including delayed callbacks
+//      (WebCall, EverySecond) that fire well after Tasmota's own
+//      RtcRebootReset() at uptime==BOOT_LOOP_TIME (10 s) zeroes the
+//      RTC counter.
 //
-// Override at compile time with `-DTC_BOOTLOOP_THRESHOLD=N`.
+//   2. **Tasmota's `no_autoexec`** — fallback for legacy boot-loop
+//      detection. Only fires when SetOption36 ≠ 0 AND fast_reboot_count
+//      exceeds the threshold (offset+2). Useful only for
+//      crashes-within-10-s-of-boot.
+//
+//   3. **Direct `RtcReboot.fast_reboot_count >= TC_BOOTLOOP_THRESHOLD`**
+//      (default 4) — bypasses SetOption36. Same crashes-within-10-s
+//      limitation as #2, but works even with SetOption36=0.
+//
+// All three return TRUE-on-trip; #1 is the only one that catches the
+// common case of "crash during WebCall / EverySecond several seconds
+// into the run".
 #ifndef TC_BOOTLOOP_THRESHOLD
 #define TC_BOOTLOOP_THRESHOLD 4
 #endif
+static bool tc_bootloop_marker_present(void) {
+  FS *fs = ufsp ? ufsp : ffsp;
+  if (!fs) return false;
+  return fs->exists(TC_BOOT_MARKER);
+}
+
+// QPC (Quick Power Cycle) counter — orthogonal to RtcReboot.
+// QPC is persisted in flash (not RTC) so it survives true power
+// cycles, including those that fully drain the RTC capacitor.
+// Tasmota itself increments this counter on each boot before
+// uptime==POWER_CYCLE_TIME (8 s); at counter==7 it does
+// SettingsErase(3) — which wipes Tasmota Settings but NOT the
+// LittleFS filesystem, so /tinyc.cfg with autoexec=1 stays put
+// even after Tasmota's "reset everything" trigger fires.
+//
+// We piggy-back on the same counter: at TC_BOOTLOOP_QPC_THRESHOLD
+// power cycles (default 4, well before Tasmota's wipe at 7),
+// rewrite /tinyc.cfg with autoexec=0 so the user has a clean,
+// recoverable device while keeping their WiFi/module config intact.
+//
+// ESP32-only — ESP8266 uses a different storage mechanism for QPC
+// (sector-level flashRead/Write, see UpdateQuickPowerCycle).
+#ifndef TC_BOOTLOOP_QPC_THRESHOLD
+#define TC_BOOTLOOP_QPC_THRESHOLD 4
+#endif
+static uint8_t tc_qpc_counter(void) {
+#ifdef ESP32
+  uint32_t pc_register = 0;
+  QPCRead(&pc_register, sizeof(pc_register));
+  // Format per UpdateQuickPowerCycle: 0xFFA55AF0 | (counter & 0xF).
+  // 0xFFFFFFFF = uninitialised flash → counter 0xF, treated as "no
+  // power-cycle activity yet". Anything else with the right top bits
+  // gives a valid counter.
+  if ((pc_register & 0xFFFFFFF0) != 0xFFA55AF0) return 0;
+  uint8_t counter = pc_register & 0xF;
+  if (counter == 0xF) return 0;  // uninitialised counter slot
+  return counter;
+#else
+  return 0;
+#endif
+}
+
 static bool tc_bootloop_detected(void) {
-  if (TasmotaGlobal.no_autoexec) return true;            // Tasmota's gate fired
+  if (tc_bootloop_marker_present()) return true;       // primary: filesystem marker
+  if (tc_qpc_counter() >= TC_BOOTLOOP_QPC_THRESHOLD) return true; // QPC: power-cycle storm
+  if (TasmotaGlobal.no_autoexec) return true;          // fallback: Tasmota's gate
   if (RtcReboot.fast_reboot_count >= TC_BOOTLOOP_THRESHOLD) return true;
   return false;
+}
+static void tc_bootloop_marker_write(void) {
+  FS *fs = ufsp ? ufsp : ffsp;
+  if (!fs) return;
+  File f = fs->open(TC_BOOT_MARKER, "w");
+  if (f) {
+    // 0-byte sentinel is enough; we only check for existence
+    f.close();
+  }
+}
+static void tc_bootloop_marker_delete(void) {
+  FS *fs = ufsp ? ufsp : ffsp;
+  if (!fs) return;
+  if (fs->exists(TC_BOOT_MARKER)) {
+    fs->remove(TC_BOOT_MARKER);
+  }
 }
 
 // Load slot configuration from /tinyc.cfg, load files, auto-run marked slots
@@ -424,15 +512,35 @@ static void TinyCStartAutoexec(void) {
 #ifdef USE_UFILESYS
   // Belt-and-braces: TinyCLoadSettings() already rewrote /tinyc.cfg
   // with autoexec=0 if a boot-loop was detected, so slot_config[i]
-  // .autoexec is already false. But re-check here in case some future
-  // code path skips the early rewrite — and to log the situation
-  // clearly when it does fire.
+  // .autoexec is already false. But re-check here so any signal that
+  // becomes true between FUNC_INIT and FUNC_LOOP (notably the marker
+  // file written by US a moment ago — but the early-rewrite already
+  // consumed it) still produces a clear log line.
   if (tc_bootloop_detected()) {
     AddLog(LOG_LEVEL_ERROR,
-           PSTR("TCC: Boot loop (count=%d, no_autoexec=%d) — autoexec skipped"),
-           RtcReboot.fast_reboot_count, TasmotaGlobal.no_autoexec ? 1 : 0);
+           PSTR("TCC: Boot loop (qpc=%d rtc=%d no_autoexec=%d marker=%d) — autoexec skipped"),
+           tc_qpc_counter(), RtcReboot.fast_reboot_count,
+           TasmotaGlobal.no_autoexec ? 1 : 0,
+           tc_bootloop_marker_present() ? 1 : 0);
     return;
   }
+
+  // Has any slot got autoexec to run? If so, drop the boot-marker file
+  // BEFORE starting any VM. Marker is deleted later in FUNC_LOOP once
+  // uptime crosses TC_BOOT_STABLE_S without a crash. If we crash before
+  // that — even at uptime=60s during the first WebCall — the marker
+  // stays and the next boot's tc_bootloop_detected() trips on it.
+  bool any_autoexec = false;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slot_config[i].autoexec && Tinyc->slot_config[i].filename[0]) {
+      any_autoexec = true;
+      break;
+    }
+  }
+  if (any_autoexec) {
+    tc_bootloop_marker_write();
+  }
+
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     if (Tinyc->slot_config[i].autoexec && Tinyc->slot_config[i].filename[0]) {
       if (TinyCLoadFile(Tinyc->slot_config[i].filename, i)) {
@@ -442,6 +550,24 @@ static void TinyCStartAutoexec(void) {
       }
     }
   }
+#endif
+}
+
+// Periodic check: once the device has been up for TC_BOOT_STABLE_S
+// seconds, we declare this boot "succeeded" and remove the marker
+// file. From this point on, any future crash starts a fresh count.
+//
+// Called from FUNC_EVERY_SECOND. tc_boot_marker_cleared is the
+// one-shot guard — file deletion is idempotent, but skipping the
+// existence check after the first successful clear saves a flash op
+// every second.
+static void TinyCCheckBootStable(void) {
+#ifdef USE_UFILESYS
+  if (tc_boot_marker_cleared) return;
+  if (TasmotaGlobal.uptime < TC_BOOT_STABLE_S) return;
+  tc_bootloop_marker_delete();
+  tc_boot_marker_cleared = true;
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Boot marker cleared (uptime=%lu s)"), TasmotaGlobal.uptime);
 #endif
 }
 
@@ -4082,6 +4208,11 @@ bool Xdrv124(uint32_t function) {
       tc_all_callbacks_id(TC_CB_EVERY_100_MSECOND);
       break;
     case FUNC_EVERY_SECOND:
+      // Boot-loop marker cleanup runs even when paused — the device
+      // is healthy enough to dispatch FUNC_EVERY_SECOND, so we want
+      // to declare the boot a success and clear the marker so future
+      // recovery cycles work.
+      TinyCCheckBootStable();
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
       tc_all_callbacks_id(TC_CB_EVERY_SECOND);
