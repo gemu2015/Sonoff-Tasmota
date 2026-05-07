@@ -113,6 +113,36 @@ tc_emit_notes_body() {
 
 ### Changes since last release:
 
+**TC_RELEASE 1.5.2** — `#include "file.tc"` directive (IDE-side preprocessor).
+The IDE compiler now recognizes `#include "file.tc"` and inlines the content
+before compile. Recursive (included files can themselves #include); first-
+include-only deduplication acts as an automatic header-guard (simple libraries
+don't need `#ifndef`/`#define` wrappers); cycle detection (max depth 16).
+Resolution order: (1) **local companion files** opened with the main script
+via the Open dialog (multi-select — pick `bat_ctrl.tc` plus `modbus_lib.tc`
+and any other helpers, the first becomes the main, the rest stash as #include
+sources), then (2) device UFS via `/tc_api?cmd=readfile`. PC-side iteration
+works without first uploading helpers to the device; if a file isn't in the
+local set, the IDE fetches it from the device automatically. No-op for
+sources without any #include directive — no network call, no IP needed.
+Firmware is byte-identical to 1.5.1 — purely an IDE/JS change.
+
+New example `examples/modbus_lib.tc` — drop-in Modbus TCP library with
+`mbFC03`/`mbFC04`/`mbFC06`/`mbFC16` helpers plus `mbParseU16`. Eliminates
+the per-script "12-byte request frame hand-assembly" boilerplate. Pattern:
+upload `modbus_lib.tc` once to the device's UFS, then in any main script:
+
+    #include "modbus_lib.tc"
+    void EverySecond() {
+        char regs[8];
+        int n = mbFC03(0, 1, 0x0010, 4, regs, 200);   // slot 0, slave 1
+        ...
+    }
+
+Combine with the v1.5.1 tcpKeepalive/tcpDisconnectReason syscalls for
+robust long-running multi-meter setups (BYD HVS BMU + SMA Tripower SE +
+HM2.0 + wallbox in parallel).
+
 **TC_RELEASE 1.5.1** — TCP-client tuning + 2 critical regression fixes (May 7).
 
 - **🆕 New per-slot TCP syscalls (1.5.1)** — three additions for outgoing
