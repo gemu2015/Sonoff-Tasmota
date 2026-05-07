@@ -78,6 +78,14 @@ write_bank = {}
 coil_bank      = {}   # addr → 0/1 (FC01 read, FC05/FC15 write)
 discrete_bank  = {}   # addr → 0/1 (FC02 read; read-only per spec — no FC for write)
 
+# Per-register encoding override for FC03/FC04 reads. By default, the FC03/04
+# handler responds with IEEE-754 float32 BE (legacy SDM630 behaviour). For
+# devices like EPEVER Tracer-AN that use plain scaled uint16/int16 per
+# register, set reg_format[addr] = 'u16' or 's16' so the wire bytes match
+# what xsns_53_sml.ino's `UUuu` / `SSss` patterns decode. Browser pushes via
+# POST /api/reg_format on profile-select.
+reg_format = {}       # addr → 'u16' | 's16' (absent → 'f32', the default)
+
 def log_entry(typ, msg):
     global log_seq
     with state_lock:
@@ -226,16 +234,43 @@ def _handle_modbus_rtu_frame(buf: bytes):
         return resp + bytes([crc & 0xFF, crc >> 8]), 8
 
     # FC03 / FC04 Read
+    # Default encoding is IEEE-754 float32 BE (4 bytes per request, ignores
+    # reg_count > 2) — that matches the SDM630 / generic-Modbus pattern where
+    # each "logical reading" is a 32-bit float spanning 2 consecutive
+    # 16-bit register slots. Real devices that use plain uint16/int16 per
+    # register (EPEVER, growatt, JK BMS, …) need per-register encoding so
+    # the response wire bytes line up with what the driver's `UUuu` / `SSss`
+    # patterns decode. reg_format[addr] = 'u16'|'s16' overrides the default
+    # for that address; the response then carries reg_count consecutive
+    # 16-bit registers (2 B each, BE) read from reg_bank.
     if fc in (0x03, 0x04):
         if len(buf) < 8: return None
         start_reg = (buf[2] << 8) | buf[3]
         reg_count = (buf[4] << 8) | buf[5]
         crc_rx    = buf[6] | (buf[7] << 8)
         if crc16modbus(buf[:6]) != crc_rx: return None
-        if reg_count != 2: return None
-        val        = _get_reg_value(start_reg)
-        float_bytes = struct.pack('>f', val)
-        resp = bytes([addr, fc, 4]) + float_bytes
+        if reg_count < 1 or reg_count > 125: return None
+        with state_lock:
+            fmt = reg_format.get(start_reg)
+        if fmt in ('u16', 's16'):
+            data_bytes = bytearray()
+            packer = '>h' if fmt == 's16' else '>H'
+            mask   = None if fmt == 's16' else 0xFFFF
+            for i in range(reg_count):
+                v = int(_get_reg_value(start_reg + i))
+                if mask is not None: v &= mask
+                # int16 wraparound for s16
+                if fmt == 's16':
+                    if v > 32767:  v -= 65536
+                    if v < -32768: v = -32768
+                data_bytes += struct.pack(packer, v)
+            resp = bytes([addr, fc, len(data_bytes)]) + bytes(data_bytes)
+        else:
+            # Legacy float32 BE (SDM630-style); requires reg_count == 2
+            if reg_count != 2: return None
+            val        = _get_reg_value(start_reg)
+            float_bytes = struct.pack('>f', val)
+            resp = bytes([addr, fc, 4]) + float_bytes
         crc  = crc16modbus(resp)
         return resp + bytes([crc & 0xFF, crc >> 8]), 8
 
@@ -1264,6 +1299,23 @@ class Handler(BaseHTTPRequestHandler):
                         discrete_bank[int(k)] = 1 if v else 0
                     except (ValueError, TypeError):
                         pass
+            self._json({'ok': True})
+        elif path == '/api/reg_format':
+            # Register encoding override for FC03/FC04. Body is
+            # {addr_int_or_str: 'u16'|'s16'|'f32'|null}. null/missing entries
+            # delete the override (back to default float32). Used by EPEVER
+            # and other scaled-int Modbus devices.
+            body = self._read_json()
+            with state_lock:
+                for k, v in body.items():
+                    try:
+                        addr = int(k)
+                    except (ValueError, TypeError):
+                        continue
+                    if v in ('u16', 's16'):
+                        reg_format[addr] = v
+                    else:
+                        reg_format.pop(addr, None)
             self._json({'ok': True})
         elif path == '/api/shutdown':
             self._json({'ok': True})

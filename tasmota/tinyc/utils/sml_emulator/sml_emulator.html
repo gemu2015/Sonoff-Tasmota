@@ -795,16 +795,51 @@ function epeverSeedBanks() {
     0x2000: 0,   // Over-temperature: normal
     0x200C: 0,   // Day/Night:        day (0)
   };
+  // Real EPEVER registers are scaled uint16 / int16 (high byte first), NOT
+  // float32. Browser pushes:
+  //   • register VALUES pre-scaled as integers (e.g. 24.5 V × 100 = 2450),
+  //   • register FORMATS so the server's FC03/FC04 handler responds with
+  //     2-byte BE words instead of the default 4-byte float32.
+  // Tasmota auto-appends count=2 to FC03/FC04 requests, so each request
+  // returns 2 consecutive registers (4 bytes data). The descriptor's
+  // `UUuu` pattern reads only the first register; the second-register slot
+  // is whatever happens to be at address+1 (often unset → zero, harmless).
+  const regs = {
+    [0x3100]: 2450,   // PV Voltage      24.50 V
+    [0x3101]: 320,    // PV Current       3.20 A
+    [0x3104]: 1380,   // Battery Voltage 13.80 V
+    [0x311A]: 87,     // Battery SOC     87 %
+    [0x311B]: 2150,   // Battery Temp    21.50 °C  (s16 → reg_format below)
+    [0x9000]: 2,      // Battery Type    2 = gel
+  };
+  const fmts = {
+    [0x3100]: 'u16',
+    [0x3101]: 'u16',
+    [0x3104]: 'u16',
+    [0x311A]: 'u16',
+    [0x311B]: 's16',  // signed: temperatures can go below 0
+    [0x9000]: 'u16',
+  };
   const post = (path, body) => fetch(BASE + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   }).catch(e => log('warn', `${path} push failed: ${e}`));
-  // BASE may not yet be defined if running without the bridge; tolerate.
+  // BASE may not yet be defined if applyProfile() runs before the bridge
+  // script has been injected (page load with EPEVER pre-selected). Retry on
+  // a short delay so the seeding still lands once the bridge is up. Without
+  // this the server's reg_bank stays empty → FC04 reads return all zeros.
+  const flush = () => {
+    post('/api/coils',      coils);
+    post('/api/dinputs',    dinputs);
+    post('/api/regs',       regs);
+    post('/api/reg_format', fmts);
+    log('info', 'EPEVER seeded: 4 coils + 2 disc-inputs + 6 regs (u16/s16) — FC01/FC02/FC03/FC04/FC05/FC15 ready');
+  };
   if (typeof BASE !== 'undefined') {
-    post('/api/coils',   coils);
-    post('/api/dinputs', dinputs);
-    log('info', 'EPEVER coils+discrete-inputs seeded — FC01/FC02/FC05/FC15 ready');
+    flush();
+  } else {
+    setTimeout(() => { if (typeof BASE !== 'undefined') flush(); }, 500);
   }
 }
 
@@ -2644,7 +2679,10 @@ function buildMeterDefContent() {
     // Request list (Tasmota indexes them 0..N as `@iN:`):
     //   0..5  six register-style requests (FC03/FC04). Driver auto-appends
     //         count=0002 → reads 2 consecutive 16-bit regs = 4 data bytes.
-    //         Pattern `010404uuuu` reads the FIRST 16-bit reg (the requested one).
+    //         Pattern `010404UUuu` reads the FIRST 16-bit reg as BE u16
+    //         (Modbus high-byte first). Driver-side: `UUuu` matches at
+    //         xsns_53_sml.ino:2339 — `uuuu` (lowercase) is NOT a literal
+    //         and falls through to two `uu` matches reading just one byte.
     //   6     `r0101000200005` raw FC01: read 5 coils starting at 0x0002.
     //         The leading `r` flag in SML_Send_Seq disables the auto-count
     //         append (otherwise 0002+0002 would corrupt the request). Response
@@ -2655,12 +2693,12 @@ function buildMeterDefContent() {
     s += `01043100,01043101,01043104,0104311A,0104311B,01039000,`;
     // Each raw entry: r + addr(01) + fc + start_hi + start_lo + qty_hi + qty_lo = 12 hex chars after the 'r'
     s += `r010100020005,r010220000004\n`;
-    s += `1,010404uuuu@i0:100,PV Voltage,V,PV_V,2;EPEVER 0x3100 input reg, x100 V\n`;
-    s += `1,010404uuuu@i1:100,PV Current,A,PV_A,2;EPEVER 0x3101 input reg, x100 A\n`;
-    s += `1,010404uuuu@i2:100,Battery Voltage,V,Batt_V,2;EPEVER 0x3104 input reg, x100 V\n`;
-    s += `1,010404uuuu@i3:1,Battery SOC,%%,Batt_SOC,0;EPEVER 0x311A input reg, % integer\n`;
-    s += `1,010404uuus@i4:100,Battery Temperature,C,Batt_T,2;EPEVER 0x311B input reg, signed x100 C\n`;
-    s += `1,010304uuuu@i5:1,Battery Type,,Batt_Type,0;EPEVER 0x9000 holding reg, 0=user 1=sealed 2=gel 3=flooded\n`;
+    s += `1,010404UUuu@i0:100,PV Voltage,V,PV_V,2;EPEVER 0x3100 input reg, x100 V\n`;
+    s += `1,010404UUuu@i1:100,PV Current,A,PV_A,2;EPEVER 0x3101 input reg, x100 A\n`;
+    s += `1,010404UUuu@i2:100,Battery Voltage,V,Batt_V,2;EPEVER 0x3104 input reg, x100 V\n`;
+    s += `1,010404UUuu@i3:1,Battery SOC,%%,Batt_SOC,0;EPEVER 0x311A input reg, % integer\n`;
+    s += `1,010404SSss@i4:100,Battery Temperature,C,Batt_T,2;EPEVER 0x311B input reg, signed x100 C\n`;
+    s += `1,010304UUuu@i5:1,Battery Type,,Batt_Type,0;EPEVER 0x9000 holding reg, 0=user 1=sealed 2=gel 3=flooded\n`;
     // Coils — pattern `010101uu` matches FC01 response prefix (addr fc bc=1)
     // then `uu` reads the data byte. Then `@bN:` extracts bit N (0..7), then
     // `iM:` checks the request-cycle index = M. Order matters: bN must come
