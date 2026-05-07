@@ -98,7 +98,13 @@ NOTES_HEADER="## TinyC Test Firmware — $DATE
 $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 "
 
-NOTES_BODY=$(cat <<'NOTES_BODY_EOF'
+tc_emit_notes_body() {
+  # Inside a function body, the heredoc is parsed at function-definition
+  # time and `cat << 'EOF'` is a self-contained command. This avoids the
+  # bash-parser quirk where `$(cat << 'EOF' ... EOF)` *still* tries to
+  # tokenize apostrophes inside the body — the function wrapper bypasses
+  # that re-tokenization entirely.
+  cat <<'NOTES_BODY_EOF'
 
 ### How to flash:
 - OTA: Firmware Upgrade → Upload `.bin` file
@@ -106,6 +112,32 @@ NOTES_BODY=$(cat <<'NOTES_BODY_EOF'
 - Upload `tinyc_ide.html.gz` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+
+**TC_RELEASE 1.5.1** — TCP-client tuning + 2 critical regression fixes (May 7).
+
+- **🆕 New per-slot TCP syscalls (1.5.1)** — three additions for outgoing
+  TCP clients, useful for Modbus-TCP, MQTT-TLS, REST clients facing peers
+  with aggressive idle-timeouts (SMA Tripower SE, Solar Edge etc.) or
+  where Nagle's algorithm slows down small request/response pairs.
+  - `tcpKeepalive(idle_sec, intvl_sec, count)` → int (1=ok, 0=err) —
+    sets SO_KEEPALIVE + TCP_KEEPIDLE/INTVL/CNT via direct setsockopt
+    on the LwIP fd. Solves the "connection silently drops after 60 s
+    idle" pattern. Typical: `tcpKeepalive(30, 10, 3)` — 30 s idle
+    threshold, 3 probes 10 s apart before declaring peer dead.
+  - `tcpNoDelay(on)` → void — toggles Nagle's algorithm. Off by default
+    after every successful connect; call this only to re-enable Nagle.
+  - `tcpDisconnectReason()` → int 0..5 — last-known disconnect reason
+    for the selected slot. 0=NEVER (slot never used), 1=CONNECTED,
+    2=PEER_CLOSED (RST/FIN — LwIP doesn't easily distinguish),
+    3=TIMEOUT (read/write returned 0 with !connected()), 4=NETWORK
+    (connect failed, no route), 5=USER_CLOSED (script called
+    tcpDisconnect). Lets a watchdog react intelligently — backoff
+    on NETWORK errors, immediate retry on PEER_CLOSED.
+- **TC_TCP_CLI_SLOTS bumped 4 → 8 (1.5.1)** — one Modbus-TCP user with
+  BYD HVS BMU + SMA Tripower SE + HM 2.0 Speedwire + Wallbox + future
+  modules ran out of slots at 4. Each slot ~80 B in the Tinyc struct
+  (WiFiClient object), so 8 is fine even on ESP8266. Override at build
+  time via `-DTC_TCP_CLI_SLOTS=N`.
 - **🛑 Critical fix #1 — AES syscall stack overflow corrupting WiFi heap (May 7)** —
   The 1.3.20 `add aes` commit introduced four large fixed-size local arrays
   inside `tc_vm_step()`'s switch-case handlers: `stackbuf[4096]` in
@@ -249,7 +281,8 @@ NOTES_BODY=$(cat <<'NOTES_BODY_EOF'
 - Portable bytecode — compile once in the browser, run on any ESP target.
 - Full documentation included (README + Reference EN/DE).
 NOTES_BODY_EOF
-)
+}
+NOTES_BODY=$(tc_emit_notes_body)
 
 NOTES="${NOTES_HEADER}${NOTES_BODY}"
 
