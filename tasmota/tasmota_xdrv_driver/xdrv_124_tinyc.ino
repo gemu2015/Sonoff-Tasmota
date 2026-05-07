@@ -345,7 +345,35 @@ static void TinyCStartAutoexec(void) {
   if (!Tinyc) return;
 #ifdef USE_UFILESYS
   if (TasmotaGlobal.no_autoexec) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Boot loop detected — autoexec disabled"));
+    // Boot-loop recovery: Tasmota set TasmotaGlobal.no_autoexec because
+    // fast_reboot_count exceeded the SetOption36 threshold (default 1
+    // → fires at restart 4). Skipping autoexec for THIS boot only would
+    // be useless: fast_reboot_count is in RTC memory and gets reset
+    // either by an uptime > BOOT_LOOP_TIME (10 s) clean run OR by a
+    // power-cycle long enough to drain the RTC cap. As soon as that
+    // happens the SAME broken /tinyc.cfg auto-runs again and the loop
+    // restarts.
+    //
+    // Persistently clear all autoexec flags so the disable sticks
+    // across subsequent boots. User regains control via the /tc_api
+    // (cmd=autoexec) or the IDE to re-enable autoexec for slots they've
+    // verified are healthy. This matches the user-facing "6 power-ups
+    // resets autoexec" expectation: at the same boot count where
+    // Tasmota wipes other risky settings (rules, GPIOs, fallback
+    // module), TinyC's autoexec also gets persistently cleared.
+    bool any_changed = false;
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      if (Tinyc->slot_config[i].autoexec) {
+        Tinyc->slot_config[i].autoexec = false;
+        any_changed = true;
+      }
+    }
+    if (any_changed) {
+      TinyCSaveSettings();
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Boot loop detected — autoexec CLEARED in " TC_CFG_FILE));
+    } else {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Boot loop detected — autoexec already off"));
+    }
     return;
   }
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
