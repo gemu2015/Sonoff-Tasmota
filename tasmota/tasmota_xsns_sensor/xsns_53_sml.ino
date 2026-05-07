@@ -1775,7 +1775,33 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       }
 
       if (mp->spos >= 3) {
-        uint32_t mlen = mp->sbuff[2] + 5;
+        // Modbus RTU response framing — the on-wire length depends on FC:
+        //   FC01/02/03/04 (reads):       addr fc bc data..  crcL crcH  → bc + 5
+        //   FC05/06       (write single): addr fc reg×2 val×2 crcL crcH → 8 fixed
+        //   FC15/16       (write multi echo): addr fc reg×2 qty×2 crcL crcH → 8 fixed
+        //   exception     (FC | 0x80, ec): addr (fc|0x80) ec crcL crcH    → 5 fixed
+        //
+        // Older code used `bc + 5` for ALL responses, treating sbuff[2] as a
+        // byte count. For FC03/04 reads that's correct; for write-FC echoes
+        // it interprets the high byte of the echoed register/coil address as
+        // a byte count, computes the wrong frame length, and either flushes
+        // 5 bytes early (leaving 3 bytes of next frame's prefix in the
+        // receive buffer = misaligned subsequent decode) or waits forever
+        // for bytes that never arrive (when reg_hi >= 4 → mlen ≥ 9).
+        //
+        // Without this special case writes worked only by accident — the
+        // post-write read happened to recover after a few cycles when the
+        // stale bytes finally got walked past. With coil/discrete-input
+        // FC01/FC02 reads coexisting with FC05 writes it broke loudly.
+        uint8_t fc = mp->sbuff[1];
+        uint32_t mlen;
+        if (fc & 0x80) {
+          mlen = 5;             // exception response (any FC|0x80)
+        } else if (fc == 0x05 || fc == 0x06 || fc == 0x0F || fc == 0x10) {
+          mlen = 8;             // write-FC echoes: fixed length, no byte_count
+        } else {
+          mlen = mp->sbuff[2] + 5;  // FC01-04 reads: byte_count is sbuff[2]
+        }
         if (mlen > mp->sbsiz) mlen = mp->sbsiz;
         if (mp->spos >= mlen) {
 #ifdef MODBUS_DEBUG
