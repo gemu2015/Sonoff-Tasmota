@@ -1055,7 +1055,15 @@ computeLiveValues = function() {
 // None of these runs the browser-side sendFrame loop that would normally call
 // computeLiveValues — for T510 the Python-side state machine reads reg_bank to
 // build OBIS telegrams, so we must keep pushing base values for it to see.
+//
+// The Auto-push dropdown (selAutoPush) gates this — switch Off when running a
+// custom descriptor that shares register addresses with SDM630 (e.g. polling
+// 0x001E for something other than frequency). Otherwise SDM630's freq=50 keeps
+// landing in your reg_bank every second and shows up as bleed-through in the
+// Tasmota JSON.
 setInterval(() => {
+  const autoPush = document.getElementById('selAutoPush');
+  if (autoPush && autoPush.value === '0') return;
   if (isTcpProfile()
       || (typeof isModbusRtu  === 'function' && isModbusRtu())
       || (typeof isT510       === 'function' && isT510())

@@ -322,6 +322,13 @@ input:focus, select:focus { border-color: #7eb8f7; }
           <option value="40">±40 %</option>
         </select>
       </div>
+      <div>
+        <label>Auto-push regs (SDM630)</label>
+        <select id="selAutoPush" title="When On (default), the emulator pushes SDM630-style register values (vL1/iL1/freq/…) to the server every second. Switch Off to keep reg_bank exactly as you seed it via curl/api — required for clean tests of custom descriptors that share register addresses with the SDM630 map (e.g. 0x001E).">
+          <option value="1" selected>On (SDM630 default)</option>
+          <option value="0">Off (passive — only seeded regs respond)</option>
+        </select>
+      </div>
     </div>
     <!-- shown for SML / OBIS -->
     <div id="txTimerPanel">
