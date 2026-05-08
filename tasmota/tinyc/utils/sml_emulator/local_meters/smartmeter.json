@@ -191,6 +191,30 @@
     {
       "label": "WOLF CSZ 11/300 Heater (EBus)",
       "filename": "WOLF/WOLF CSZ 11_300 Heater (EBus).tas"
+    },
+    {
+      "label": "EHZ363W (Easymeter, SML, 1-phase)",
+      "filename": "Easymeter/EHZ363W (Easymeter, SML, 1-phase).tas"
+    },
+    {
+      "label": "Landis+Gyr E450 (DLMS encrypted push, mode 7)",
+      "filename": "Landis+Gyr/Landis+Gyr E450 (DLMS encrypted push, mode 7).tas"
+    },
+    {
+      "label": "Sensus Pollucom F (M-Bus heat meter)",
+      "filename": "Sensus/Sensus Pollucom F (M-Bus heat meter).tas"
+    },
+    {
+      "label": "Kamstrup OMNIPOWER Kx7 (electric, poll-response)",
+      "filename": "Kamstrup/Kamstrup OMNIPOWER Kx7 (electric, poll-response).tas"
+    },
+    {
+      "label": "EPEVER Tracer-AN (Modbus MPPT)",
+      "filename": "EPEVER/EPEVER Tracer-AN (Modbus MPPT).tas"
+    },
+    {
+      "label": "T510 (OBIS IEC 62056-21, 300-9600 baud auto)",
+      "filename": "Elster/T510 (OBIS IEC 62056-21, 300-9600 baud auto).tas"
     }
   ]
 }
