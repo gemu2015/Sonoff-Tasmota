@@ -1260,11 +1260,21 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == '/':
             self._serve_html()
-        # ── Local meter descriptors (PDF-extracted, missing from upstream
-        #    ottelo9/tasmota-sml-script). Bundled inside the .app under
-        #    Contents/Resources/local_meters/. Two endpoints:
-        #      /local_meters.json        → index in smartmeter.json shape
-        #      /local_meters/<vendor>/<file>.tas → raw .tas content
+        # ── Local meter descriptors (PDF-extracted, formerly missing from
+        #    upstream ottelo9/tasmota-sml-script). All of our additions
+        #    have since been accepted upstream, so the local_meters/
+        #    folder is no longer shipped — these endpoints stay as
+        #    graceful no-ops:
+        #      * `/local_meters.json` returns an empty index (handled
+        #        in _serve_local_meter_index when the file is missing),
+        #        so the browser falls back to upstream-only without
+        #        showing an error.
+        #      * `/local_meters/<…>` 404s, which only matters if a user
+        #        has an old `local:`-prefixed selection cached in
+        #        localStorage; they re-pick from the dropdown and it
+        #        resolves cleanly to the upstream entry.
+        #    Kept (rather than removed) so future PDF-only additions
+        #    can be reintroduced without re-plumbing the routes.
         # ───────────────────────────────────────────────────────────────
         elif path == '/local_meters.json':
             self._serve_local_meter_index()
@@ -1446,10 +1456,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _serve_local_meter_index(self):
-        """Return the local_meters/smartmeter.json index. The browser merges
-        these with the upstream ottelo9 list so the dropdown shows both
-        sources. The index is a static file generated at build time from
-        the PDF-extracted descriptors."""
+        """Return the local_meters/smartmeter.json index. Originally the
+        browser merged this with the upstream ottelo9 list so the
+        dropdown could show PDF-only descriptors that hadn't yet made it
+        into the upstream repo. As of the upstream merge those have all
+        landed in ottelo9/tasmota-sml-script, so the local_meters/
+        folder is no longer shipped and this endpoint silently returns
+        an empty index — the browser then shows upstream entries only.
+        Kept on the route table so the no-prefix path resolves cleanly
+        and so future PDF-only additions are easy to reintroduce."""
         idx_path = os.path.join(os.path.dirname(HTML_FILE), 'local_meters', 'smartmeter.json')
         try:
             with open(idx_path, 'rb') as f:

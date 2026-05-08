@@ -758,10 +758,12 @@ async function loadRepoMeterList() {
     upstreamErr = e.message;
   }
 
-  // Local — PDF-extracted descriptors not in the upstream repo. Bundled
-  // inside the .app under Contents/Resources/local_meters/. Skipped
-  // silently if the server doesn't expose them (i.e. running the raw
-  // HTML standalone instead of via the .app's Python wrapper).
+  // Local — historically PDF-extracted descriptors that hadn't yet
+  // been merged into ottelo9/tasmota-sml-script. All of those have
+  // since been accepted upstream, so /local_meters.json now returns
+  // an empty index and this section is a no-op. Kept in place so
+  // future PDF-only additions can be reintroduced without re-plumbing
+  // the merge logic — same reason we kept the server endpoint.
   try {
     const resp = await fetch('/local_meters.json');
     if (resp.ok) {
