@@ -21,13 +21,20 @@
 //     16-slot wlog ring buffer of {addr,val,ms,src} events)
 //   • Command(MBUS …) — console control: MBUSON / MBUSOFF / MBUSSET <T> /
 //     MBUSWRITES (dump captured writes); uses hp_send_modbus() helper
+//   • LATENCY TRIPWIRE: per-callback this-boot peaks (cb_50_max_ms,
+//     cb_web_max_ms, mb_max_ms) plus tick_gap_max_ms (gap between
+//     consecutive Every50ms invocations) and long_call_warns counter.
+//     Visible as the WDT-hunt row at the top of the main page. Tells
+//     us *which* callback blocks before any real damage shows up. No
+//     persist (this-boot only — keeps the script lean and avoids the
+//     persist-hash invalidation pain of the full version).
 //
 // Still REMOVED from the original full version:
 //   • JsonCall (no MQTT telemetry — user uses UDP only, never re-add)
 //   • /tc_ui custom WebPage + chart history + diff snapshot
 //   • Mailer / SendMail
 //   • Pump-stuck heating watchdog (off/on cycling)
-//   • persist'd diagnostic ring buffers (HPHIST, latency maxima)
+//   • persist'd diagnostic ring buffers (HPHIST — full version's wdog_hist[8])
 //   • Frame logging
 //
 // If THIS build still hangs, the cause is in one of:
@@ -88,6 +95,44 @@ int  last_50ms_run_ms      = 0;
 int  last_task_loop_run_ms = 0;
 int  wdog_loop_trips       = 0;
 int  wdog_last_silent_ms   = 0;
+
+// ── Latency tripwire ──────────────────────────────────────
+// Per-callback this-boot peaks. Updated at the bottom of each
+// instrumented callback; never decrement → "max ever seen since
+// boot". Rendered on the main page as the first row so it's
+// always visible even if a later sprintf throws. Use HPLATRESET
+// console subcommand to zero them between experiments without
+// rebooting.
+//
+// tick_gap_max_ms is the OUTSIDE measure: how long between
+// consecutive Every50ms invocations. If it spikes while every
+// callback's own duration stays small, the blocker is *outside*
+// TinyC (Tasmota's own loop task held by lwIP / web / MQTT, OR
+// a long syscall holding vm_mutex). That's the signal that
+// caught the /tc HTTPS stall on .31 in the original hunt.
+int  cb_50_max_ms     = 0;     // Every50ms peak
+int  cb_web_max_ms    = 0;     // WebCall peak
+int  mb_max_ms        = 0;     // hp_send_modbus peak
+int  tick_gap_max_ms  = 0;     // gap between Every50ms ticks
+int  long_call_warns  = 0;     // count of CRIT / slow log lines emitted
+// cb_active_id is set at callback entry, cleared at exit. Not
+// rendered yet — it'll matter once EverySecond / JsonCall / WebUI
+// are re-added so a future trip handler can identify which
+// callback was holding the mutex when the freeze began.
+//   1=Every50ms  2=EverySecond  3=WebCall  4=JsonCall  0=between
+int  cb_active_id     = 0;
+
+// Warning thresholds. WARN logs once per occurrence + bumps
+// long_call_warns; CRIT does the same with a louder banner.
+// 5000 ms is Tasmota's RTC-WDT trip window — we want to see CRIT
+// log lines *before* hitting it.
+#define LONG_CALL_WARN_MS 1000
+#define LONG_CALL_CRIT_MS 3000
+
+// Scratch buffer for the latency log lines. Sized for the longest
+// expected message; reusing one global keeps sprintf out of the
+// stack at every callback exit.
+char g_tmp[120];
 
 // ── Embedded-write capture (FC05/06/15/16) ───────────────────
 // When the cloud (or a panel) writes to the heat pump, the register
@@ -357,9 +402,23 @@ void flush_frame() {
 
 // ── Every50ms — UART drain + silence-based framing ────────
 void Every50ms() {
-    last_50ms_run_ms = millis();
+    cb_active_id = 1;
+    int t_now = millis();
 
-    if (ser < 0) return;
+    // Tick-gap tripwire: in steady state Tasmota fires
+    // FUNC_EVERY_50_MSECOND every ~50 ms (give or take Wi-Fi
+    // jitter). A gap >> 50 ms means the loop task was held by
+    // *something* — possibly a syscall in this script holding
+    // vm_mutex, possibly a long Tasmota internal call. Captured
+    // here at callback entry so the peak survives even if the
+    // current tick itself runs fast.
+    if (last_50ms_run_ms > 0) {
+        int gap = t_now - last_50ms_run_ms;
+        if (gap > tick_gap_max_ms) tick_gap_max_ms = gap;
+    }
+    last_50ms_run_ms = t_now;
+
+    if (ser < 0) { cb_active_id = 0; return; }
 
     int avail = serialAvailable(ser);
     int got   = 0;
@@ -379,6 +438,22 @@ void Every50ms() {
         // No new bytes this tick + we have data → end of frame
         flush_frame();
     }
+
+    // Per-tick duration peak. parse_frame is the heavyweight here
+    // (256-byte embedded-write scan worst case) so a spike here
+    // points at a specific frame shape that's slow.
+    int dt = millis() - t_now;
+    if (dt > cb_50_max_ms) cb_50_max_ms = dt;
+    if (dt > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "Every50ms ⚠ CRIT %d ms", dt);
+        addLog(g_tmp);
+    } else if (dt > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "Every50ms ⚠ slow %d ms", dt);
+        addLog(g_tmp);
+    }
+    cb_active_id = 0;
 }
 
 // ── TaskLoop — loop-task watchdog ─────────────────────────
@@ -458,6 +533,7 @@ int hp_send_modbus(int fc, int regaddr, int val) {
         addLog("hp_send_modbus: serial not open");
         return 0;
     }
+    int t_mb = millis();
 
     char frame[8];
     frame[0] = 1;
@@ -498,16 +574,34 @@ int hp_send_modbus(int fc, int regaddr, int val) {
     sprintf(m, "hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x)",
             fc, regaddr, val, val);
     addLog(m);
+
+    // Listen-before-talk wait + TX FIFO drain can run up to ~1.5 s on
+    // a busy bus. Track the peak so we know whether MBUS commands are
+    // a viable WDT-trip suspect.
+    int dt_mb = millis() - t_mb;
+    if (dt_mb > mb_max_ms) mb_max_ms = dt_mb;
+    if (dt_mb > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "hp_send_modbus ⚠ CRIT %d ms", dt_mb);
+        addLog(g_tmp);
+    } else if (dt_mb > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "hp_send_modbus ⚠ slow %d ms", dt_mb);
+        addLog(g_tmp);
+    }
     return 1;
 }
 
 // ── Command(MBUS …) — console control + write log dump ────
 //
 // Subcommands (all prefixed with "MBUS" by addCommand("MBUS") in main):
-//   MBUSON         FC05 coil 40 = 0xFF00   (heat-pump ON)
-//   MBUSOFF        FC05 coil 40 = 0x0000   (heat-pump OFF)
-//   MBUSSET <T>    FC06 r1 = T*10          (target water temp 10..60 °C)
-//   MBUSWRITES    Dump captured FC05/06/15/16 events (own + observed)
+//   MBUSON          FC05 coil 40 = 0xFF00   (heat-pump ON)
+//   MBUSOFF         FC05 coil 40 = 0x0000   (heat-pump OFF)
+//   MBUSSET <T>     FC06 r1 = T*10          (target water temp 10..60 °C)
+//   MBUSWRITES      Dump captured FC05/06/15/16 events (own + observed)
+//   MBUSLATRESET    Zero the latency tripwire peaks (gap/e50/web/mb/warns).
+//                   Use between experiments so a brief earlier spike doesn't
+//                   stay pinned to the WDT-hunt row forever.
 //
 // Every branch (including the "?" fallback) MUST call responseCmnd —
 // otherwise Tasmota emits {"Command":"Error",...} regardless of what
@@ -557,6 +651,16 @@ void Command(char cmd[]) {
         return;
     }
 
+    if (strFind(cmd, "LATRESET") == 0 && strlen(cmd) == 8) {
+        cb_50_max_ms    = 0;
+        cb_web_max_ms   = 0;
+        mb_max_ms       = 0;
+        tick_gap_max_ms = 0;
+        long_call_warns = 0;
+        responseCmnd("latency peaks reset");
+        return;
+    }
+
     if (strFind(cmd, "WRITES") == 0 && strlen(cmd) == 6) {
         // Dump the 16-slot wlog ring, newest first. Output goes BOTH via
         // responseCmnd (for /cm HTTP API consumers, capped to ~700 B for
@@ -589,7 +693,7 @@ void Command(char cmd[]) {
     }
 
     // Unknown subcommand — ALWAYS respond, never silently fall through.
-    sprintf(resp, "MBUS: unknown subcmd '%s' (try ON/OFF/SET <T>/WRITES)", cmd);
+    sprintf(resp, "MBUS: unknown subcmd '%s' (try ON/OFF/SET <T>/WRITES/LATRESET)", cmd);
     responseCmnd(resp);
 }
 
@@ -599,8 +703,22 @@ void Command(char cmd[]) {
 // row in the standard table cells (label / value). One row per
 // known register; one diagnostic row at the bottom.
 void WebCall() {
+    cb_active_id = 3;
+    int t_web = millis();
     char val[40];
     char row[160];
+
+    // ── Latency tripwire ROW — first thing rendered so it's always visible.
+    //    Maxima persist across page refreshes (this-boot only — no persist).
+    //    Use HPLATRESET to zero them. Each value is the peak-ever observed:
+    //      gap   = longest interval between consecutive Every50ms ticks
+    //      e50   = slowest single Every50ms callback
+    //      web   = slowest single WebCall (incl. this row's own renders)
+    //      mb    = slowest hp_send_modbus (listen-before-talk + TX drain)
+    //      warns = total CRIT/slow log lines emitted since boot
+    sprintf(row, "{s}<b style='color:#a85;'>WDT-hunt</b>{m}gap=%d  e50=%d  web=%d  mb=%d  warns=%d{e}",
+            tick_gap_max_ms, cb_50_max_ms, cb_web_max_ms, mb_max_ms, long_call_warns);
+    webSend(row);
 
     // State (r217: 0=boot, 1=running, 6=remote-off)
     if (known[217]) {
@@ -644,6 +762,23 @@ void WebCall() {
             frames_seen, rsp_parsed, rsp_failed, writes_seen,
             wdog_loop_trips, silent);
     webSend(row);
+
+    // Per-WebCall duration peak. Tasmota's /tc?m=1 AJAX poll fires
+    // this at a few-Hz cadence — if web peak grows over time, it's
+    // either heap fragmentation slowing sprintf/webSend or one of
+    // the future features (charts, render_named) gone wrong.
+    int dt_web = millis() - t_web;
+    if (dt_web > cb_web_max_ms) cb_web_max_ms = dt_web;
+    if (dt_web > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "WebCall ⚠ CRIT %d ms", dt_web);
+        addLog(g_tmp);
+    } else if (dt_web > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "WebCall ⚠ slow %d ms", dt_web);
+        addLog(g_tmp);
+    }
+    cb_active_id = 0;
 }
 
 // ── main — open serial, exit ──────────────────────────────
