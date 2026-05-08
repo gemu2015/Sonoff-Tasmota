@@ -374,6 +374,14 @@ input:focus, select:focus { border-color: #7eb8f7; }
     </div>
   </div>
 
+  </div><!-- /builtinPanels — Transmission + Deploy + Stats below stay
+            visible in repo mode too. SML / OBIS meters from the repo
+            push frames continuously — same Start/Stop/Once flow as
+            built-in mode. The interval, auto-inc, fluctuation, and
+            auto-push selects show only in built-in mode (repo mode
+            uses fixed values from the descriptor + per-frame
+            re-render of the user-edited inputs). -->
+
   <!-- SEND -->
   <div class="panel">
     <h2>Transmission</h2>
@@ -388,14 +396,14 @@ input:focus, select:focus { border-color: #7eb8f7; }
           <option value="10000">10 s</option>
         </select>
       </div>
-      <div>
+      <div class="builtinOnly">
         <label>Auto-increment energy</label>
         <select id="selAutoInc">
           <option value="0">Off</option>
           <option value="1">Yes (simulate load)</option>
         </select>
       </div>
-      <div>
+      <div class="builtinOnly">
         <label>Fluctuation</label>
         <select id="selFluct">
           <option value="0">Off</option>
@@ -405,7 +413,7 @@ input:focus, select:focus { border-color: #7eb8f7; }
           <option value="40">±40 %</option>
         </select>
       </div>
-      <div>
+      <div class="builtinOnly">
         <label>Auto-push regs (SDM630)</label>
         <select id="selAutoPush" title="When On (default), the emulator pushes SDM630-style register values (vL1/iL1/freq/…) to the server every second. Switch Off to keep reg_bank exactly as you seed it via curl/api — required for clean tests of custom descriptors that share register addresses with the SDM630 map (e.g. 0x001E).">
           <option value="1" selected>On (SDM630 default)</option>
@@ -441,11 +449,6 @@ input:focus, select:focus { border-color: #7eb8f7; }
     </div>
     <div id="wregRows"></div>
   </div>
-
-  </div><!-- /builtinPanels — Deploy + Stats panels below stay visible
-            in repo mode too, so the user can upload the descriptor to a
-            real Tasmota device and watch the frames flow side-by-side
-            with built-in profiles. -->
 
   <!-- DEPLOY TO DEVICE -->
   <div class="panel">
@@ -598,6 +601,15 @@ function onEmuModeChange() {
   const btnReset = document.getElementById('btnResetToRepo');
   if (btnRegen) btnRegen.style.display = isRepo ? 'none' : '';
   if (btnReset) btnReset.style.display = isRepo ? '' : 'none';
+  // Hide built-in-mode-only Transmission selects (Auto-inc / Fluctuation /
+  // Auto-push) in repo mode — those drive built-in's value fluctuation /
+  // SDM630 register push, neither of which applies in repo mode (values
+  // come straight from the per-OBIS form). Interval and Start/Stop/Once
+  // stay visible since SML / OBIS repo meters push frames continuously
+  // just like built-in SML profiles.
+  document.querySelectorAll('.builtinOnly').forEach(el => {
+    el.style.display = isRepo ? 'none' : '';
+  });
   try { localStorage.setItem('sml_emu_mode', mode); } catch (e) {}
   // Switching INTO repo mode: refresh button-enabled state and re-paste
   // the descriptor into the SML Descriptor textarea (in case
@@ -2900,15 +2912,23 @@ function get3ph() {
       || p === 'sdm630' || p === 'sdm630_tcp' || p === 't510';
 }
 
-function isT510() { return document.getElementById('selProfile').value === 't510'; }
-function isKamstrup() { return document.getElementById('selProfile').value === 'kamstrup_kx7'; }
+// Mode-aware predicates: repo mode never reports as Modbus/T510/etc.
+// even if the user was in such a built-in profile before switching, so
+// setConn() / sendFrame() reliably take the Start/Stop/Once branch.
+// Defining a single inline check is cleaner than guarding every callsite.
+function isRepoMode() {
+  return document.getElementById('emuMode')?.value === 'repo';
+}
+
+function isT510() { return !isRepoMode() && document.getElementById('selProfile').value === 't510'; }
+function isKamstrup() { return !isRepoMode() && document.getElementById('selProfile').value === 'kamstrup_kx7'; }
 
 function isTcpProfile() {
-  return document.getElementById('selProfile').value.endsWith('_tcp');
+  return !isRepoMode() && document.getElementById('selProfile').value.endsWith('_tcp');
 }
 
 function isModbusRtu() {
-  return document.getElementById('selProto').value === 'modbus' && !isTcpProfile();
+  return !isRepoMode() && document.getElementById('selProto').value === 'modbus' && !isTcpProfile();
 }
 
 function applyTxPanel() {
