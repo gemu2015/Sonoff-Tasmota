@@ -809,12 +809,44 @@ function parseSmlDescriptor(text) {
       const scaleNum = parseFloat(scaleStr);
       if (!isNaN(scaleNum) && scaleNum > 0) scale = scaleNum;
     }
-    // OBIS bytes are typically 14 hex chars (7 bytes); skip non-hex patterns
-    // (those are sub-pattern matches not directly emittable as a single OBIS
-    // value — repo mode v1 doesn't support pattern-matched compound values).
-    if (!/^[0-9a-fA-F]{12,16}$/.test(obis.replace(/\s/g, ''))) continue;
+    // Pattern validity check is protocol-aware. v1 stored only the hex
+    // form (correct for SML, broken for everything else — empty value
+    // form for ~30% of repo meters). Now:
+    //   's' SML            — 12-16 hex chars, e.g. 77070100100700ff
+    //   'o' OBIS-ASCII     — dotted notation, e.g. 1.8.0, 1.8.0*00, 1.8.0(
+    //                        (strip optional *tariff and trailing `(`)
+    //   'r' M-Bus shift    — hex + lowercase wildcards u/U/x/X
+    //   'm'/'M' Modbus RTU — hex addr + value-format spec
+    //   'v' VBus, 'e' EBus, 'k' Kamstrup — accept any non-empty pattern
+    //                        (those builders aren't wired in repo mode yet,
+    //                        but listing the items lets the user see what's
+    //                        in the descriptor).
+    const obisCleaned = obis.replace(/\s/g, '');
+    let isValid = false;
+    let storedObis = obisCleaned;
+    if (state.proto === 's') {
+      isValid = /^[0-9a-fA-F]{12,16}$/.test(obisCleaned);
+      storedObis = obisCleaned.toLowerCase();
+    } else if (state.proto === 'o') {
+      // Strip Tasmota's optional *tariff suffix and trailing `(` so the
+      // emitter sees a clean dotted OBIS code (e.g. "1.8.0*00(" → "1.8.0").
+      const dottedClean = obisCleaned.replace(/[*(].*$/, '');
+      isValid = /^[0-9]+\.[0-9]+\.[0-9]+$/.test(dottedClean);
+      storedObis = dottedClean;
+    } else if (state.proto === 'r' || state.proto === 'm' || state.proto === 'M') {
+      // M-Bus / Modbus: hex bytes with optional wildcards. Length varies
+      // (M-Bus DIB+VIB = 4-12 hex; Modbus reg addr = 4 hex). Loose check.
+      isValid = /^[0-9a-fA-FuUxX]+$/.test(obisCleaned) && obisCleaned.length >= 4;
+    } else {
+      // VBus / EBus / Kamstrup / unknown: accept any non-empty pattern.
+      // Frame emit isn't wired for these in repo mode v1 — the user gets
+      // the unsupported-protocol warning above the form, but at least
+      // they can see what OBIS codes / addresses the descriptor lists.
+      isValid = obisCleaned.length > 0;
+    }
+    if (!isValid) continue;
     state.items.push({
-      obis: obis.replace(/\s/g, '').toLowerCase(),
+      obis: storedObis,
       scale,
       label:    (fields[1] || '').trim(),
       unit:     (fields[2] || '').trim(),
@@ -824,6 +856,33 @@ function parseSmlDescriptor(text) {
     });
   }
   return state;
+}
+
+// Extract C, D, E from an OBIS code regardless of input format.
+//   'o' (dotted) — "1.8.0" → {c:1, d:8, e:0}
+//   's' (hex)    — "77070100100700ff" → bytes 4..6 of the trailing 6 → {c:1, d:8, e:0}
+// Used by the OBIS-ASCII emitter so it works for both protocol families.
+function parseObisCDE(obisStr, proto) {
+  if (proto === 'o') {
+    const parts = obisStr.split('.');
+    if (parts.length >= 3) {
+      return {
+        c: parseInt(parts[0], 10) || 0,
+        d: parseInt(parts[1], 10) || 0,
+        e: parseInt(parts[2], 10) || 0,
+      };
+    }
+    return { c: 0, d: 0, e: 0 };
+  }
+  // SML hex — take the last 12 hex chars (6 bytes A B C D E F) and
+  // pull bytes 2..4.
+  const tail = obisStr.replace(/\s/g, '').toLowerCase().slice(-12);
+  if (tail.length < 12) return { c: 0, d: 0, e: 0 };
+  return {
+    c: parseInt(tail.substring(4, 6), 16),
+    d: parseInt(tail.substring(6, 8), 16),
+    e: parseInt(tail.substring(8, 10), 16),
+  };
 }
 
 // Render the parsed descriptor: serial config block + dynamic value form.
@@ -1919,10 +1978,11 @@ function buildOBISAsciiRepo() {
   const serial = (document.getElementById('inpSerial')?.value) || '12345678';
   let s = `/REP5\\@${serial}\r\n\r\n`;
   for (const it of repoState.items) {
-    const ob = obisHexToBytes(it.obis);
-    // OBIS code rendered as C-D-E (most descriptors use A=1, B=0, F=ff
-    // which the Tasmota driver matches with leading wildcards).
-    const code = `${ob[2]}.${ob[3]}.${ob[4]}`;
+    // it.obis is already in dotted form (e.g. "1.8.0") thanks to the
+    // protocol-aware parser; use it directly. parseObisCDE handles both
+    // dotted and hex inputs for forward-compat with mixed descriptors.
+    const cde = parseObisCDE(it.obis, 'o');
+    const code = `${cde.c}.${cde.d}.${cde.e}`;
     // Apply the descriptor's @scale: emitted text value = stored / scale.
     const v = (typeof it.value === 'number') ? (it.value / (it.scale || 1)) : 0;
     const dec = Math.max(0, Math.min(6, it.decimals || 3));
