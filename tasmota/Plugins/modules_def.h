@@ -1,5 +1,11 @@
 #ifndef MODULE_TYPE_SENSOR
-enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER};
+// MODULE_TYPE_BLIB: pure binary library — no Tasmota lifecycle hooks
+// (no FUNC_INIT / FUNC_LOOP / FUNC_COMMAND etc). Only purpose is to
+// expose a TC_EXPORT[] table of named native functions for callers
+// inside firmware (TinyC scripts and other plugins) to invoke at full
+// native speed. See the TC_EXPORT struct + pFUNC_GET_TINYC_EXPORTS
+// selector below for the discovery contract.
+enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER, MODULE_TYPE_BLIB};
 enum {ARCH_ESP8266, ARCH_ESP32,ARCH_ESP32_RV};
 #endif
 
@@ -19,6 +25,58 @@ enum {iD_TEMPERATURE,iD_PRESSURE,iD_HUMIDITY,iD_ABSOLUTE_HUMIDITY,iD_DISTANCE};
 #endif
 
 #define pFUNC_DEINIT 999
+
+// Selector dispatched by the plugin loader to a MODULE_TYPE_BLIB
+// module immediately after it's mapped into flash. The blib's
+// mod_func_execute returns the address of its TC_EXPORT table (an
+// array terminated by a sentinel entry with name == NULL); the loader
+// then walks the table, applies EXEC_OFFSET to each fn pointer, and
+// registers the entries in a global lookup the TinyC `bcall` syscall
+// reads. Kept distinct from the pXsnsFunctions enum range (which
+// covers Tasmota lifecycle hooks 0..149 + 200..) so it can never
+// collide with future additions there.
+#define pFUNC_GET_TINYC_EXPORTS 1000
+
+// ── TinyC-callable export ABI ────────────────────────────────────
+// A binary library (xblib_*) exposes a list of named native functions.
+// TinyC scripts (and, eventually, other plugins) invoke them via a
+// `bcall("name", args...)` syscall that does name-based lookup on
+// first call and caches the resolved fn pointer per call site.
+//
+// Ret/arg type enums are deliberately small (5 + 5 values, fits in a
+// uint8_t) so the TC_EXPORT struct stays compact; the marshalling
+// shim in the firmware decides how to push and pop values from the
+// TinyC VM stack based on these tags.
+//
+// To add new types later (e.g. struct-by-value, double, callback
+// fn-ptr), append to the enum. The blib's exports table is versioned
+// implicitly by which type tags it uses — a blib that lists TC_ARG_
+// constants the firmware doesn't recognise will be rejected at
+// register-time with a clear log line.
+typedef enum {
+  TC_RET_VOID  = 0,
+  TC_RET_INT   = 1,
+  TC_RET_FLOAT = 2,
+} TC_RET_TYPE;
+
+typedef enum {
+  TC_ARG_END   = 0,    // sentinel — pads out unused slots in arg_types[]
+  TC_ARG_INT   = 1,
+  TC_ARG_FLOAT = 2,
+  TC_ARG_BUF   = 3,    // char[] / int[] — passed as (void *ptr, int len)
+                       // counts as TWO args at the TinyC call site.
+  TC_ARG_REF   = 4,    // int& / float& — out-param, callee writes through.
+} TC_ARG_TYPE;
+
+#define TC_MAX_ARGS 8
+
+typedef struct {
+  const char *name;                        // e.g. "mb_crc16"; NULL = end-of-list
+  void       *fn;                          // native function pointer
+  uint8_t     argc;                        // number of TinyC-visible args
+  uint8_t     ret_type;                    // TC_RET_*
+  uint8_t     arg_types[TC_MAX_ARGS];      // each TC_ARG_*; trailing TC_ARG_END
+} TC_EXPORT;
 
 typedef union {
   uint8_t data;

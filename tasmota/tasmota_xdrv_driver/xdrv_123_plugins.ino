@@ -3466,6 +3466,119 @@ void Module_unlink(void) {
 }
 int32_t mod_func_execute(uint32_t sel);
 
+// ─── TinyC blib export registry ─────────────────────────────────
+// Modules of type MODULE_TYPE_BLIB expose a TC_EXPORT[] table via the
+// pFUNC_GET_TINYC_EXPORTS selector. After Init_module() runs the
+// plugin's pFUNC_INIT, we re-dispatch with pFUNC_GET_TINYC_EXPORTS
+// to fetch that table, EXEC_OFFSET-correct the function and name
+// pointers, and copy each entry into the global registry below.
+//
+// The TinyC bcall() syscall (xdrv_124_tinyc.ino) reads this registry
+// to resolve names at runtime. First call per call-site does a
+// linear scan and caches the result; subsequent calls are direct
+// indirect calls through the cached fn pointer.
+//
+// 64 entries is generous for the spike — single-digit blibs each
+// exposing a handful of functions. Bump TC_BLIB_REG_SIZE later if
+// the catalog grows.
+#define TC_BLIB_REG_SIZE 64
+
+typedef struct {
+  const char *name;        // EXEC_OFFSET-corrected, points into plugin flash
+  void       *fn;           // EXEC_OFFSET-corrected fn pointer
+  uint8_t     argc;
+  uint8_t     ret_type;
+  uint8_t     arg_types[TC_MAX_ARGS];
+  uint8_t     module_idx;   // for diagnostics + future unload
+} TC_BLIB_REG_ENTRY;
+
+static TC_BLIB_REG_ENTRY tc_blib_reg[TC_BLIB_REG_SIZE];
+static uint8_t tc_blib_reg_count = 0;
+
+// Public API used by the TinyC syscall: linear-search the registry
+// by name. Returns the entry pointer (caller dereferences for fn /
+// argc / type info) or NULL if unknown.
+extern "C" TC_BLIB_REG_ENTRY *tc_blib_lookup(const char *name) {
+  if (!name) return NULL;
+  for (uint8_t i = 0; i < tc_blib_reg_count; i++) {
+    if (tc_blib_reg[i].name && strcmp(tc_blib_reg[i].name, name) == 0) {
+      return &tc_blib_reg[i];
+    }
+  }
+  return NULL;
+}
+
+// Drop every export contributed by `module_idx` from the registry.
+// Used when a module is deinit'd / unlinked so stale fn pointers
+// don't linger.
+static void tc_blib_unregister_module(uint8_t module_idx) {
+  uint8_t w = 0;
+  for (uint8_t r = 0; r < tc_blib_reg_count; r++) {
+    if (tc_blib_reg[r].module_idx != module_idx) {
+      if (w != r) tc_blib_reg[w] = tc_blib_reg[r];
+      w++;
+    }
+  }
+  tc_blib_reg_count = w;
+}
+
+// Walk a freshly-loaded blib module's TC_EXPORT[] table and copy
+// each entry into tc_blib_reg with pointers EXEC_OFFSET-corrected
+// so the firmware's lookup + dispatch see absolute addresses.
+//
+// Bails on the first sentinel (name == NULL after EXEC_OFFSET fix).
+// Logs and skips if the registry is full or a slot would overflow
+// TC_MAX_ARGS — rather than truncate silently.
+static void tc_blib_register_module(uint8_t module_idx) {
+  if (!modules[module_idx].mod_addr) return;
+  const FLASH_MODULE *fm = (const FLASH_MODULE *)modules[module_idx].mod_addr;
+  if (fm->type != MODULE_TYPE_BLIB) return;
+
+  // mod_func_execute returns the address of the exports table cast
+  // through int32_t. The pointer is plugin-relative (a "raw" address
+  // valid before relocation); add execution_offset to convert into a
+  // real flash address we can dereference.
+  uint32_t raw = (uint32_t)fm->mod_func_execute(pFUNC_GET_TINYC_EXPORTS);
+  if (!raw) {
+    AddLog(LOG_LEVEL_INFO, PSTR("BLIB: module %d returned no exports"), module_idx + 1);
+    return;
+  }
+  const TC_EXPORT *tab = (const TC_EXPORT *)(raw + fm->execution_offset);
+
+  // The table itself sits in PROGMEM; on Xtensa we can read it via
+  // direct pointer access (mmap'd code partition is byte-addressable).
+  // Each `name` and `fn` field stores plugin-relative pointers, so
+  // they need the same EXEC_OFFSET correction before being cached.
+  uint16_t added = 0;
+  for (uint16_t i = 0; tab[i].name != NULL; i++) {
+    if (tc_blib_reg_count >= TC_BLIB_REG_SIZE) {
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("BLIB: registry full (%d), can't add more from module %d"),
+             TC_BLIB_REG_SIZE, module_idx + 1);
+      break;
+    }
+    if (tab[i].argc > TC_MAX_ARGS) {
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("BLIB: export %d argc=%d exceeds TC_MAX_ARGS=%d, skipping"),
+             i, tab[i].argc, TC_MAX_ARGS);
+      continue;
+    }
+    TC_BLIB_REG_ENTRY *r = &tc_blib_reg[tc_blib_reg_count];
+    r->name      = (const char *)((uint32_t)tab[i].name + fm->execution_offset);
+    r->fn        = (void *)((uint32_t)tab[i].fn        + fm->execution_offset);
+    r->argc      = tab[i].argc;
+    r->ret_type  = tab[i].ret_type;
+    memcpy(r->arg_types, tab[i].arg_types, TC_MAX_ARGS);
+    r->module_idx = module_idx;
+    tc_blib_reg_count++;
+    added++;
+    AddLog(LOG_LEVEL_INFO, PSTR("BLIB: registered '%s' (argc=%d ret=%d) from module %d"),
+           r->name, r->argc, r->ret_type, module_idx + 1);
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("BLIB: module %d added %d export(s); registry now %d/%d"),
+         module_idx + 1, added, tc_blib_reg_count, TC_BLIB_REG_SIZE);
+}
+
 int32_t Init_module(uint32_t module) {
   if (modules[module].mod_addr && !modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
@@ -3515,10 +3628,16 @@ int32_t Init_module(uint32_t module) {
       }
     }
     int32_t result = MOD_EXEC(pFUNC_INIT);
-    
+
     modules[module].flags.web_sensor = 1;
     modules[module].flags.json_append = 1;
     AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized: %08x"),module + 1, result);
+
+    // Blib plugins: scan their TC_EXPORT[] table after pFUNC_INIT and
+    // register each named function in the global TinyC blib registry.
+    // Other module types (driver / sensor / light / energy) ignore
+    // this — pFUNC_GET_TINYC_EXPORTS returns 0 from their dispatch.
+    tc_blib_register_module(module);
     return 1;
   }
   return 0;
@@ -3543,6 +3662,9 @@ void Deiniz_module(uint32_t module) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     int32_t result = MOD_EXEC(pFUNC_DEINIT);
     modules[module].flags.data = 0;
+    // Drop any blib exports contributed by this module so a subsequent
+    // bcall("...") doesn't jump into freed/reused memory.
+    tc_blib_unregister_module(module);
     AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
   }
 }
