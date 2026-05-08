@@ -38,11 +38,13 @@ to doo:
 #include <TasmotaSerial.h>
 #include "TimeLib.h"
 
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
 // Pull in the picotts header so PlatformIO's library dependency finder
 // picks up lib/libesp32_div/pico/ and links the SVOX engine sources
 // into the firmware. The actual API calls live in tmod_picotts_*
-// wrappers further down (jumptable slots 209-214).
+// wrappers further down (jumptable slots 209-214). ESP32-only — the
+// SVOX library doesn't build for ESP8266 / RP2040 / etc; jumptable
+// slots 209-214 stay reserved on those targets but resolve to stubs.
 extern "C" {
 #include "picotts.h"
 }
@@ -833,7 +835,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 // `picotts_output_cb_t` / `picotts_notify_cb_t` — the build will fail
 // with "type not declared" against the auto-generated prototype block.
 bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned count), int core) {
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
   return picotts_init(prio, cb, core);
 #else
   (void)prio; (void)cb; (void)core;
@@ -842,7 +844,7 @@ bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned coun
 }
 
 void tmod_picotts_add(const char *text, unsigned len) {
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
   picotts_add(text, len);
 #else
   (void)text; (void)len;
@@ -850,13 +852,13 @@ void tmod_picotts_add(const char *text, unsigned len) {
 }
 
 void tmod_picotts_shutdown(void) {
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
   picotts_shutdown();
 #endif
 }
 
 void tmod_picotts_set_idle_notify(void (*cb)(void)) {
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
   picotts_set_idle_notify(cb);
 #else
   (void)cb;
@@ -864,7 +866,7 @@ void tmod_picotts_set_idle_notify(void (*cb)(void)) {
 }
 
 void tmod_picotts_set_error_notify(void (*cb)(void)) {
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
   picotts_set_error_notify(cb);
 #else
   (void)cb;
@@ -872,7 +874,7 @@ void tmod_picotts_set_error_notify(void (*cb)(void)) {
 }
 
 void tmod_picotts_set_resources(const void *ta_ptr, const void *sg_ptr) {
-#ifdef USE_PICOTTS
+#if defined(USE_PICOTTS) && defined(ESP32)
   picotts_set_resources(ta_ptr, sg_ptr);
 #else
   (void)ta_ptr; (void)sg_ptr;
@@ -3250,7 +3252,7 @@ void AddModules(void) {
   }
 }
 
-const char mod_types[] PROGMEM = "xsns|xlgt|xnrg|xdrv|";
+const char mod_types[] PROGMEM = "xsns|xlgt|xnrg|xdrv|xblb|";
 
 // show all linked modules
 void Module_mdir(void) {

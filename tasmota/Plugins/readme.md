@@ -227,7 +227,10 @@ locate output) into one CLI/GUI tool.
 CLI:
     python3 tasmota/Plugins/build_plugin.py --list
     python3 tasmota/Plugins/build_plugin.py --plugin USE_CRC_BLIB_MOD --cpu esp32
-    python3 tasmota/Plugins/build_plugin.py --plugin USE_I2S_MOD --cpu esp8266 esp32 esp32_riscv
+    python3 tasmota/Plugins/build_plugin.py --plugin USE_I2S_MOD --cpu esp8266,esp32,esp32_riscv
+
+`--cpu` accepts a comma-separated list, or you can repeat the flag
+(`--cpu esp8266 --cpu esp32 --cpu esp32_riscv`).
 
 GUI (Tk, ships with system Python):
     python3 tasmota/Plugins/build_plugin.py --gui
