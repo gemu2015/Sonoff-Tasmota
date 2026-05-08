@@ -134,6 +134,62 @@ input:focus, select:focus { border-color: #7eb8f7; }
     ⚠️ Web Serial API not available. Use Chrome 89+ and open this file directly (file://) or via HTTPS/localhost.
   </div>
 
+  <!-- MODE TOGGLE — switches between hand-coded built-in profiles and
+       repository-driven mode (descriptor fetched from the same .tas file
+       library that the TinyC IDE uses, parsed for serial config + OBIS
+       codes). Built-in mode supports all 7 protocols with rich value
+       fluctuation; repo mode currently supports SML + OBIS ASCII with
+       per-value manual editing. -->
+  <div class="panel">
+    <h2>Emulator Mode</h2>
+    <div class="fi">
+      <label>Source</label>
+      <select id="emuMode" onchange="onEmuModeChange()">
+        <option value="builtin">Built-in profile (full feature set)</option>
+        <option value="repo">Repository meter (descriptor-driven, SML+OBIS)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- REPO MODE — meter list + descriptor display + dynamic value form.
+       Hidden in builtin mode. Source URL defaults to the same ottelo9
+       /tasmota-sml-script repo the TinyC IDE uses; can be overridden if
+       the user has a fork or a private mirror. -->
+  <div class="panel" id="repoPanel" style="display:none">
+    <h2>Repository Meter</h2>
+    <div class="fi">
+      <label>Source URL (folder containing smartmeter.json)</label>
+      <input type="text" id="inpRepoUrl"
+             value="https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/script-list-menu/meters/">
+    </div>
+    <div class="btn-row" style="margin-bottom:8px">
+      <button class="btn btn-ghost btn-sm" onclick="loadRepoMeterList()">Load Meter List</button>
+      <span id="repoListStatus" style="font-size:0.75em;color:#9bb8d4;align-self:center"></span>
+    </div>
+    <div class="fi">
+      <label>Meter</label>
+      <select id="selRepoMeter" onchange="loadRepoDescriptor(this.value)">
+        <option value="">(load list first)</option>
+      </select>
+    </div>
+    <div id="repoConfigDisplay" style="display:none;font-size:0.78em;background:#0a1628;border:1px solid #1a4a7a;border-radius:4px;padding:7px 9px;margin-bottom:8px;font-family:monospace">
+      <div id="repoConfigDisplayInner"></div>
+    </div>
+    <div id="repoValuesForm" style="display:none">
+      <h2 style="margin-top:8px">Live Values (editable)</h2>
+      <div id="repoValuesFormInner"></div>
+    </div>
+    <div id="repoUnsupported" style="display:none;color:#ff9b3d;font-size:0.78em;background:#3e1a00;border:1px solid #b45000;border-radius:6px;padding:9px 11px">
+      <strong>Protocol not supported in Repository mode (v1).</strong>
+      <div id="repoUnsupportedDetail" style="margin-top:4px"></div>
+      <div style="margin-top:6px">Switch to Built-in profile mode for this meter.</div>
+    </div>
+  </div>
+
+  <!-- BUILT-IN MODE PANELS — hidden in repo mode. The wrapping div is
+       referenced in onEmuModeChange() to bulk-toggle visibility. -->
+  <div id="builtinPanels">
+
   <!-- PROFILE -->
   <div class="panel">
     <h2>Meter Profile</h2>
@@ -401,6 +457,8 @@ input:focus, select:focus { border-color: #7eb8f7; }
     <div class="stat-row"><span class="stat-label">Last frame</span><span class="stat-value" id="statL">—</span></div>
   </div>
 
+  </div><!-- /builtinPanels — wrapper toggled by onEmuModeChange() -->
+
 </div><!-- /sidebar -->
 
 <div class="content">
@@ -457,6 +515,260 @@ let t510Running = false, t510Reader = null;
 
 // Live (fluctuated) values for the current frame — read by both frame builders
 const live = {};
+
+// ─── REPOSITORY MODE STATE ────────────────────────────────────────────────────
+// Populated when the user picks a meter from the dropdown. The descriptor file
+// is fetched from the source URL and parsed by parseSmlDescriptor() below.
+//
+// Shape:
+//   repoState.proto      — protocol char from the +line: 's' SML, 'o' OBIS,
+//                          'r' M-Bus shift, 'm'/'M' Modbus, 'v' VBus,
+//                          'e' EBus, 'k' Kamstrup
+//   repoState.baud       — integer (parsed from +line)
+//   repoState.serialFmt  — 8N1 / 7E1 / etc. derived from `=so` line if present,
+//                          else default for the protocol
+//   repoState.name       — meter label (from +line)
+//   repoState.items[]    — parsed value lines:
+//                          { obis: '77070100100700ff' (lowercase, no @scale),
+//                            scale: 1 | 1000 | ... (default 1),
+//                            label: 'Leistung',
+//                            unit:  'W',
+//                            varName: 'Power',
+//                            decimals: 16,
+//                            value: <user-edited number, default 0> }
+let repoState = null;
+const repoMeterListUrl = () => {
+  const base = (document.getElementById('inpRepoUrl').value || '').trim();
+  return (base.endsWith('/') ? base : base + '/') + 'smartmeter.json';
+};
+
+// Toggle which mode panels are visible. Called from the mode dropdown's
+// onchange handler. Persists the choice to localStorage so it survives
+// page reload.
+function onEmuModeChange() {
+  const mode = document.getElementById('emuMode').value;
+  const isRepo = (mode === 'repo');
+  document.getElementById('builtinPanels').style.display = isRepo ? 'none' : '';
+  document.getElementById('repoPanel').style.display     = isRepo ? '' : 'none';
+  try { localStorage.setItem('sml_emu_mode', mode); } catch (e) {}
+  // When switching INTO repo mode, ensure the Start/Stop buttons honour the
+  // current state (e.g. don't allow Start with no meter selected).
+  if (isRepo) {
+    repoUpdateStartButton();
+  }
+}
+
+// Restore mode + last-picked meter from localStorage on page load.
+function repoRestoreState() {
+  try {
+    const m = localStorage.getItem('sml_emu_mode');
+    if (m === 'repo') {
+      document.getElementById('emuMode').value = 'repo';
+      onEmuModeChange();
+      const last = localStorage.getItem('sml_repo_last_meter');
+      if (last) {
+        // Defer until the meter list loads, then auto-select.
+        loadRepoMeterList().then(() => {
+          const sel = document.getElementById('selRepoMeter');
+          if ([...sel.options].some(o => o.value === last)) {
+            sel.value = last;
+            loadRepoDescriptor(last);
+          }
+        });
+      }
+    }
+  } catch (e) {}
+}
+
+async function loadRepoMeterList() {
+  const sel    = document.getElementById('selRepoMeter');
+  const status = document.getElementById('repoListStatus');
+  const url    = repoMeterListUrl();
+  status.textContent = 'Loading…';
+  try {
+    const resp = await fetch(url, { mode: 'cors' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    sel.innerHTML = '<option value="">(pick a meter)</option>';
+    let count = 0;
+    (data.smartmeter || []).forEach(m => {
+      if (!m.filename) return;
+      const opt = document.createElement('option');
+      opt.value = m.filename;
+      opt.textContent = m.label;
+      sel.appendChild(opt);
+      count++;
+    });
+    status.textContent = `${count} meters loaded`;
+    status.style.color = '#7eb8f7';
+  } catch (e) {
+    status.textContent = `Failed: ${e.message}`;
+    status.style.color = '#f44336';
+  }
+}
+
+async function loadRepoDescriptor(filename) {
+  if (!filename) {
+    repoState = null;
+    document.getElementById('repoConfigDisplay').style.display = 'none';
+    document.getElementById('repoValuesForm').style.display    = 'none';
+    document.getElementById('repoUnsupported').style.display   = 'none';
+    repoUpdateStartButton();
+    return;
+  }
+  try { localStorage.setItem('sml_repo_last_meter', filename); } catch (e) {}
+  const base = (document.getElementById('inpRepoUrl').value || '').trim();
+  const url  = (base.endsWith('/') ? base : base + '/') +
+               filename.split('/').map(encodeURIComponent).join('/');
+  try {
+    const resp = await fetch(url, { mode: 'cors' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    repoState = parseSmlDescriptor(text);
+    repoRender();
+  } catch (e) {
+    log('err', `Repo descriptor fetch failed: ${e.message}`);
+    document.getElementById('repoConfigDisplayInner').textContent =
+      `Failed to load descriptor: ${e.message}`;
+    document.getElementById('repoConfigDisplay').style.display = '';
+  }
+}
+
+// Parse the Tasmota Scripter `>M` SML descriptor format. Returns the
+// repoState shape documented above. Tolerant of placeholders like
+// `%0rxpin%`, `%0txpin%`, `%0smlf%` (Tasmota fills these from script
+// hardware config — irrelevant for us; we own the serial port).
+function parseSmlDescriptor(text) {
+  const state = { proto: 's', baud: 9600, serialFmt: null, name: '', items: [] };
+  const lines = text.split('\n');
+  for (const raw of lines) {
+    const ln = raw.trim();
+    if (!ln || ln.startsWith('#')) continue;
+    if (ln.startsWith('>M')) continue;            // section header
+    if (ln.startsWith('+')) {
+      // +meter,rxpin,proto,txpin_or_smlf,baud,name[,extra]
+      const parts = ln.substring(1).split(',');
+      // parts[0] = meter num, parts[1] = rxpin, parts[2] = proto, etc.
+      state.proto = (parts[2] || 's').trim().toLowerCase().charAt(0);
+      const baudStr = (parts[4] || '9600').trim();
+      const baudNum = parseInt(baudStr, 10);
+      if (!isNaN(baudNum)) state.baud = baudNum;
+      state.name = (parts[5] || '').trim();
+      continue;
+    }
+    // Value or special line: starts with a digit (meter index), then `,`
+    const m = ln.match(/^(\d+),(.*)$/);
+    if (!m) continue;
+    const body = m[2];
+    // Sub-lines beginning with `=` are header / special-mode markers
+    // (e.g. `=h-------` for visual separator, `=so3,8` for sbsiz override).
+    if (body.startsWith('=')) {
+      if (body.startsWith('=so')) {
+        // =so<mode>,<sbsiz>  — informational only for the emulator (the
+        // device-side patcher sets the receive-buffer size).
+        state.serialFmt = body.substring(1).trim();
+      }
+      continue;
+    }
+    // Value line: <obis_or_pattern>[@scale],label,unit,var,decimals
+    const fields = body.split(',');
+    if (fields.length < 4) continue;
+    const obisRaw = fields[0].trim();
+    let obis = obisRaw, scale = 1;
+    const at = obisRaw.indexOf('@');
+    if (at >= 0) {
+      obis  = obisRaw.substring(0, at).trim();
+      const scaleStr = obisRaw.substring(at + 1).trim();
+      const scaleNum = parseFloat(scaleStr);
+      if (!isNaN(scaleNum) && scaleNum > 0) scale = scaleNum;
+    }
+    // OBIS bytes are typically 14 hex chars (7 bytes); skip non-hex patterns
+    // (those are sub-pattern matches not directly emittable as a single OBIS
+    // value — repo mode v1 doesn't support pattern-matched compound values).
+    if (!/^[0-9a-fA-F]{12,16}$/.test(obis.replace(/\s/g, ''))) continue;
+    state.items.push({
+      obis: obis.replace(/\s/g, '').toLowerCase(),
+      scale,
+      label:    (fields[1] || '').trim(),
+      unit:     (fields[2] || '').trim(),
+      varName:  (fields[3] || '').trim(),
+      decimals: parseInt((fields[4] || '0').trim(), 10) || 0,
+      value:    0,
+    });
+  }
+  return state;
+}
+
+// Render the parsed descriptor: serial config block + dynamic value form.
+function repoRender() {
+  if (!repoState) return;
+  const protoNames = {
+    's': 'SML Binary',
+    'o': 'OBIS ASCII',
+    'r': 'M-Bus',
+    'm': 'Modbus RTU',
+    'M': 'Modbus RTU (BCD)',
+    'v': 'Resol VBus',
+    'e': 'EBus',
+    'k': 'Kamstrup',
+  };
+  const protoName = protoNames[repoState.proto] || `unknown (${repoState.proto})`;
+  const cfg = `<div><b>${repoState.name || '(no name)'}</b></div>` +
+              `<div>protocol: ${protoName} (${repoState.proto})</div>` +
+              `<div>baud: ${repoState.baud}</div>` +
+              `<div>serial framing: 8N1 (Tasmota SML driver default)${
+                repoState.serialFmt ? ` &nbsp; <span style="color:#7a9cbf">/ descriptor: ${repoState.serialFmt}</span>` : ''
+              }</div>` +
+              `<div>${repoState.items.length} OBIS value${repoState.items.length === 1 ? '' : 's'} parsed</div>`;
+  document.getElementById('repoConfigDisplayInner').innerHTML = cfg;
+  document.getElementById('repoConfigDisplay').style.display = '';
+
+  // Repo mode v1 supports SML ('s') and OBIS ASCII ('o') only.
+  const supported = (repoState.proto === 's' || repoState.proto === 'o');
+  if (!supported) {
+    document.getElementById('repoUnsupported').style.display = '';
+    document.getElementById('repoUnsupportedDetail').textContent =
+      `This descriptor uses ${protoName}, which v1 of repo mode doesn't emit yet.`;
+    document.getElementById('repoValuesForm').style.display = 'none';
+    repoUpdateStartButton();
+    return;
+  }
+  document.getElementById('repoUnsupported').style.display = 'none';
+
+  // Build value form — one number input per OBIS item.
+  const inner = document.getElementById('repoValuesFormInner');
+  inner.innerHTML = '';
+  repoState.items.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'fi';
+    row.innerHTML =
+      `<label>${item.label || item.varName} (${item.unit || '-'}) ` +
+      `<span style="color:#7a9cbf;font-family:monospace">${item.obis}</span></label>` +
+      `<input type="number" id="repoVal_${idx}" value="${item.value}" ` +
+      `step="any" oninput="repoState.items[${idx}].value = parseFloat(this.value) || 0">`;
+    inner.appendChild(row);
+  });
+  document.getElementById('repoValuesForm').style.display = '';
+  repoUpdateStartButton();
+}
+
+// Enable/disable Start button based on whether repo mode has a usable meter.
+function repoUpdateStartButton() {
+  const mode = document.getElementById('emuMode').value;
+  const btnGo = document.getElementById('btnGo');
+  if (!btnGo) return;
+  if (mode === 'repo') {
+    const ok = repoState &&
+               (repoState.proto === 's' || repoState.proto === 'o') &&
+               repoState.items.length > 0;
+    btnGo.disabled = !ok;
+    btnGo.title = ok ? '' :
+      'Select a meter (with a supported protocol) to enable Start';
+  } else {
+    btnGo.disabled = false;
+    btnGo.title = '';
+  }
+}
 
 function flt(val, pct) {
   // Apply ±pct% random fluctuation, keeping value non-negative
@@ -521,14 +833,26 @@ function serialConfig(baud) {
 
 document.getElementById('btnConnect').onclick = async () => {
   try {
-    const baud = +document.getElementById('selBaud').value;
+    // Repo mode: take baud from the parsed descriptor; fall back to the
+    // built-in selBaud dropdown otherwise (or if no meter is loaded).
+    const emuMode = document.getElementById('emuMode')?.value || 'builtin';
+    let baud;
+    if (emuMode === 'repo' && repoState && repoState.baud) {
+      baud = repoState.baud;
+    } else {
+      baud = +document.getElementById('selBaud').value;
+    }
     port = await navigator.serial.requestPort();
     await port.open(serialConfig(baud));
     writer = port.writable.getWriter();
     setConn(true);
-    const cfg = document.getElementById('selSerial').value;
-    const fmt = `${baud} baud ${cfg}`;
-    log('info', `Opened port at ${fmt}`);
+    // Serial cfg display: in built-in mode read from selSerial; in repo
+    // mode use the descriptor's serialFmt or the protocol default.
+    const cfg = (emuMode === 'repo')
+      ? (repoState?.serialFmt || '8N1')
+      : document.getElementById('selSerial').value;
+    log('info', `Opened port at ${baud} baud ${cfg} (${emuMode} mode${
+        emuMode === 'repo' ? `, ${repoState?.name || '?'}` : ''})`);
   } catch(e) {
     if (e.name !== 'NotFoundError') log('err', 'Connect failed: ' + e.message);
   }
@@ -642,6 +966,49 @@ async function sendFrame() {
     // Write back to fields with 3 decimal places (Wh resolution)
     elIn.value  = (energyInWh  / 1000).toFixed(3);
     elOut.value = (energyOutWh / 1000).toFixed(3);
+  }
+
+  // Repo mode: dispatch to the descriptor-driven builders. The selProto
+  // dropdown (and all other built-in inputs) are hidden in this mode, so
+  // we need to derive the protocol from repoState directly.
+  const emuMode = document.getElementById('emuMode')?.value || 'builtin';
+  if (emuMode === 'repo') {
+    if (!repoState || repoState.items.length === 0) {
+      log('err', 'Repo mode: select a meter first');
+      stopSending();
+      return;
+    }
+    let data;
+    try {
+      if (repoState.proto === 's') {
+        data = new Uint8Array(buildSMLFrameRepo());
+      } else if (repoState.proto === 'o') {
+        data = new TextEncoder().encode(buildOBISAsciiRepo());
+      } else {
+        log('err', `Repo mode: protocol '${repoState.proto}' not supported in v1`);
+        stopSending();
+        return;
+      }
+      await writer.write(data);
+      framesSent++; bytesSent += data.length; seqNo++;
+      document.getElementById('statF').textContent = framesSent;
+      document.getElementById('statB').textContent = bytesSent;
+      document.getElementById('statL').textContent = data.length + ' B';
+      const protoLabel = repoState.proto === 's' ? 'SML' : 'OBIS';
+      document.getElementById('framePreview').textContent = (repoState.proto === 's')
+        ? hexDump(data)
+        : new TextDecoder().decode(data);
+      log('tx', `TX ${data.length}B [${protoLabel}/repo:${repoState.name}]`);
+    } catch (e) {
+      errCount++;
+      document.getElementById('statE').textContent = errCount;
+      log('err', 'Send failed: ' + e.message);
+      stopSending();
+      try { writer?.releaseLock(); } catch (e2) {} writer = null;
+      try { await port?.close(); } catch (e2) {} port = null;
+      setConn(false);
+    }
+    return;
   }
 
   const proto = document.getElementById('selProto').value;
@@ -1304,6 +1671,131 @@ function msgBody(typeCode, bodyBytes) {
 }
 
 // ─── SML FRAME BUILDER ────────────────────────────────────────────────────────
+// ─── REPO MODE FRAME BUILDERS (SML + OBIS) ───────────────────────────────────
+
+// Envelope wrap: takes a list of `entries` (already smlEntry()-built) and
+// emits a fully-framed SML byte array (escape start + 3 messages + CRC + end).
+// Pulled out of buildSMLFrame() so repo-mode can reuse the envelope while
+// supplying its own descriptor-derived entry list.
+function wrapSMLEntries(entries, serial) {
+  const serBytes  = asciiBytes((serial || '12345678').substring(0, 8).padEnd(8, '\0'));
+  const serverId  = [0x09, 0x01, ...serBytes];
+  const secs      = Math.floor(Date.now() / 1000);
+  const reqFileId  = T.octet([0x00, 0x00, 0x00, 0x01]);
+  const serverIdTL = T.octet(serverId);
+  const refTime    = T.list(T.u8(1), T.u32(secs));
+  const openBody   = T.list(T.null_(), T.null_(), reqFileId, serverIdTL, refTime, T.u8(1));
+  const msg1 = smlMsg(1, msgBody(0x0101, openBody));
+  const listName    = T.octet([0x01,0x00,0x01,0x08,0x00,0xFF]);
+  const sensorTime  = T.list(T.u8(1), T.u32(secs));
+  const valList     = T.list(...entries);
+  const getListBody = T.list(T.null_(), serverIdTL, listName, sensorTime, valList, T.null_(), T.null_());
+  const msg2 = smlMsg(2, msgBody(0x0701, getListBody));
+  const closeBody   = T.list(T.null_());
+  const msg3 = smlMsg(3, msgBody(0x0201, closeBody));
+  const escStart = [0x1B, 0x1B, 0x1B, 0x1B, 0x01, 0x01, 0x01, 0x01];
+  const escEnd   = [0x1B, 0x1B, 0x1B, 0x1B];
+  const endMark  = [0x1A, 0x00];
+  const body = [...msg1, ...msg2, ...msg3];
+  const forCRC = [...escStart, ...body, ...escEnd, ...endMark];
+  const crc = crc16x25(forCRC);
+  return [...forCRC, crc & 0xFF, (crc >> 8) & 0xFF];
+}
+
+// Convert a 14-hex-char OBIS pattern (e.g. "77070100100700ff") into the
+// 6-byte A-B:C.D.E*F array that smlEntry() expects. The Tasmota descriptor
+// format uses the leading "7707" as the SML message-tag prefix; the actual
+// OBIS bytes are the last 6.
+function obisHexToBytes(hex) {
+  const clean = hex.replace(/\s/g, '').toLowerCase();
+  // Take the last 12 hex chars = 6 bytes (A B C D E F).
+  // Patterns shorter than that are skipped at parse time, so we always have
+  // at least 12 here.
+  const tail = clean.slice(-12);
+  const out = [];
+  for (let i = 0; i < 12; i += 2) {
+    out.push(parseInt(tail.substring(i, i + 2), 16));
+  }
+  return out;
+}
+
+// Map descriptor unit string → SML unit code (ETSI TS 103 871-1 §6.3.2).
+// Only the most common ones; unrecognised → omit unit (smlEntry passes null).
+const REPO_UNIT_MAP = {
+  'W':       27,
+  'kW':      27,    // store as W; descriptor's @scale handles the kW→W path
+  'Wh':      30,
+  'kWh':     30,
+  'V':       8,
+  'A':       5,
+  'Hz':      44,
+  'var':     29,
+  'kvar':    29,
+  'varh':    32,
+  'kvarh':   32,
+  'VA':      26,
+  'kVA':     26,
+  'm3':      14,
+  'm³':      14,
+  '°C':      23,
+  'C':       23,
+  '%':       16,
+};
+
+// Build SML frame from repoState. Each item produces one smlEntry; values
+// are scaled per the descriptor's @scale and a sensible scaler chosen based
+// on the unit (so the consumer sees the same number you typed in the form).
+function buildSMLFrameRepo() {
+  if (!repoState || repoState.proto !== 's' || repoState.items.length === 0) return [];
+  const entries = repoState.items.map(it => {
+    const obis = obisHexToBytes(it.obis);
+    const unit = REPO_UNIT_MAP[it.unit] != null ? REPO_UNIT_MAP[it.unit] : null;
+    // Encode value as integer × scaler so the consumer recovers the
+    // displayed number. Strategy: pick a scaler that lets us send an
+    // integer with reasonable precision, then divide by `it.scale` (the
+    // descriptor's @divisor — Tasmota multiplies the wire integer by
+    // 1/scale post-decode).
+    const target = (typeof it.value === 'number' ? it.value : 0);
+    // Negotiate scaler: try -3 (milli) first if value has decimals, else 0.
+    let scaler = 0;
+    if (Math.abs(target - Math.round(target)) > 1e-9) scaler = -3;
+    // Wire integer = target * 10^(-scaler) * scale
+    // (descriptor's @scale means the consumer divides by it after decode,
+    // so we MULTIPLY by it on the wire to compensate)
+    let wire = Math.round(target * Math.pow(10, -scaler) * (it.scale || 1));
+    return smlEntry(obis, unit, scaler, wire);
+  });
+  // Use the existing serial input field (kept visible in repo mode? no — not
+  // shown; fall back to a fixed default).
+  const serial = (document.getElementById('inpSerial')?.value) || '12345678';
+  return wrapSMLEntries(entries, serial);
+}
+
+// Build OBIS ASCII frame from repoState. Format mimics what most German
+// Smart Meter Gateways emit:
+//   /<vendor><serial>!\r\n
+//   <C-D-E>(<value>*<unit>)\r\n
+//   ...
+//   !\r\n
+// The C-D-E triplet is taken from bytes 3..5 of the OBIS pattern's last 6.
+function buildOBISAsciiRepo() {
+  if (!repoState || repoState.proto !== 'o' || repoState.items.length === 0) return '';
+  const serial = (document.getElementById('inpSerial')?.value) || '12345678';
+  let s = `/REP5\\@${serial}\r\n\r\n`;
+  for (const it of repoState.items) {
+    const ob = obisHexToBytes(it.obis);
+    // OBIS code rendered as C-D-E (most descriptors use A=1, B=0, F=ff
+    // which the Tasmota driver matches with leading wildcards).
+    const code = `${ob[2]}.${ob[3]}.${ob[4]}`;
+    // Apply the descriptor's @scale: emitted text value = stored / scale.
+    const v = (typeof it.value === 'number') ? (it.value / (it.scale || 1)) : 0;
+    const dec = Math.max(0, Math.min(6, it.decimals || 3));
+    s += `${code}(${v.toFixed(dec)}*${it.unit || ''})\r\n`;
+  }
+  s += '!\r\n';
+  return s;
+}
+
 function buildSMLFrame() {
   const serial    = document.getElementById('inpSerial').value || '12345678';
   // Use up to 8 ASCII bytes as server ID
@@ -3000,6 +3492,10 @@ PERSIST_FIELDS.forEach(id => {
 persistLoad();
 applyProfile();
 updateFSLink();
+// Restore the last-used emulator mode (and the picked repo meter, if any).
+// Must run AFTER applyProfile so the built-in fallback is in a clean state
+// when we toggle to repo mode.
+repoRestoreState();
 log('info', 'SML/OBIS Meter Emulator ready. Connect via Web Serial API (Chrome 89+).');
 log('info', 'Connect ESP RX → USB-serial adapter TX. Set same baud rate on ESP SML script.');
 </script>
