@@ -266,11 +266,17 @@ def _handle_modbus_rtu_frame(buf: bytes):
                 data_bytes += struct.pack(packer, v)
             resp = bytes([addr, fc, len(data_bytes)]) + bytes(data_bytes)
         else:
-            # Legacy float32 BE (SDM630-style); requires reg_count == 2
-            if reg_count != 2: return None
-            val        = _get_reg_value(start_reg)
-            float_bytes = struct.pack('>f', val)
-            resp = bytes([addr, fc, 4]) + float_bytes
+            # Default: float32 BE per pair of registers. Single-float
+            # reads (reg_count=2) → 4-byte response (legacy SDM630
+            # behaviour). Bulk reads (reg_count=2N) → N packed floats.
+            # Repo descriptors that read N floats in one shot
+            # (e.g. `r010400000012` for 9 floats) need this.
+            if reg_count % 2 != 0: return None
+            data_bytes = bytearray()
+            for i in range(0, reg_count, 2):
+                val = _get_reg_value(start_reg + i)
+                data_bytes += struct.pack('>f', val)
+            resp = bytes([addr, fc, len(data_bytes)]) + bytes(data_bytes)
         crc  = crc16modbus(resp)
         return resp + bytes([crc & 0xFF, crc >> 8]), 8
 

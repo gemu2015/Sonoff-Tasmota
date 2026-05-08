@@ -845,7 +845,10 @@ async function loadRepoDescriptor(filename) {
 // `%0rxpin%`, `%0txpin%`, `%0smlf%` (Tasmota fills these from script
 // hardware config — irrelevant for us; we own the serial port).
 function parseSmlDescriptor(text) {
-  const state = { proto: 's', baud: 9600, serialFmt: null, name: '', items: [] };
+  const state = { proto: 's', baud: 9600, serialFmt: null, name: '', items: [],
+                  // Modbus extras (populated only when proto is 'm'/'M')
+                  rxField: '', tcpHost: null, tcpPort: 502, isTcp: false,
+                  txField: '', interval: 5, requests: [] };
   const lines = text.split('\n');
   for (const raw of lines) {
     const ln = raw.trim();
@@ -860,6 +863,33 @@ function parseSmlDescriptor(text) {
       const baudNum = parseInt(baudStr, 10);
       if (!isNaN(baudNum)) state.baud = baudNum;
       state.name = (parts[5] || '').trim();
+      // Detect Modbus TCP from `[ip]` (or `[ip]:port`) in the rx-pin field.
+      // Same convention Tasmota uses: in TCP mode the rx-pin field is replaced
+      // with [host], and the baud field carries the TCP port.
+      state.rxField = (parts[1] || '').trim();
+      const tcpM = state.rxField.match(/^\[([^\]]+)\](?::(\d+))?$/);
+      if (tcpM) {
+        state.isTcp   = true;
+        state.tcpHost = tcpM[1];
+        state.tcpPort = tcpM[2] ? parseInt(tcpM[2], 10) : (baudNum || 502);
+      }
+      // Modbus +line layout (RTU and TCP):
+      //   +1,rx,m,0,baud,name,tx,interval_sec,req0,req1,...
+      // After the meter name we expect: txpin (parts[6]), interval (parts[7]),
+      // followed by Modbus request hex strings (one per logical read).
+      if (state.proto === 'm') {
+        state.txField = (parts[6] || '0').trim();
+        const ivStr = (parts[7] || '5').trim();
+        const ivNum = parseFloat(ivStr);
+        if (!isNaN(ivNum) && ivNum > 0) state.interval = ivNum;
+        state.requests = [];
+        for (let i = 8; i < parts.length; i++) {
+          const reqHex = parts[i].trim().toLowerCase();
+          if (!reqHex) continue;
+          const r = parseModbusRequestHex(reqHex);
+          if (r) state.requests.push(r);
+        }
+      }
       continue;
     }
     // Value or special line: starts with a digit (meter index), then `,`
@@ -933,6 +963,26 @@ function parseSmlDescriptor(text) {
       decimals: parseInt((fields[4] || '0').trim(), 10) || 0,
       value:    0,
     };
+    // For Modbus items, decode the value pattern to figure out which
+    // register address this item maps to and what wire format the
+    // descriptor expects. The full @-tail (e.g. `@i0:100` or `@1000`)
+    // gives us the request-index; the byte-skip + data-spec inside the
+    // pattern gives us the address offset within that request's reply.
+    if (state.proto === 'm') {
+      const tail = at >= 0 ? obisRaw.substring(at + 1).trim() : '';
+      const reqIdx = (() => {
+        const m = tail.match(/^i(\d+)/i);
+        return m ? parseInt(m[1], 10) : 0;
+      })();
+      const req = state.requests[reqIdx] || state.requests[0] || null;
+      const dec = decodeModbusItemPattern(obisCleaned);
+      if (req && dec && dec.format) {
+        item.regAddr = req.startReg + Math.floor(dec.skipBytes / 2);
+        item.format  = dec.format;
+        item.fc      = req.fc;
+        item.reqIdx  = reqIdx;
+      }
+    }
     // Pre-populate with a sensible default — beats showing 0 for every
     // field. User-editable, persisted across re-pasted descriptors via
     // the input's oninput handler that writes back to repoState.
@@ -940,6 +990,70 @@ function parseSmlDescriptor(text) {
     state.items.push(item);
   }
   return state;
+}
+
+// Parse one Modbus-request hex string from the +line into a normalised
+// form. Tasmota accepts two flavours: the short 4-byte form `01040000`
+// (slave + fc + reg, count defaults to 2) and the verbose 6-byte form
+// `r010400000012` (with explicit count, optional `r` prefix that the
+// driver strips before sending). We handle both.
+function parseModbusRequestHex(hex) {
+  const h = hex.replace(/^r/i, '').toLowerCase().replace(/[^0-9a-f]/g, '');
+  if (h.length < 8) return null;
+  const slave = parseInt(h.substr(0, 2), 16);
+  const fc    = parseInt(h.substr(2, 2), 16);
+  const startReg = parseInt(h.substr(4, 4), 16);
+  let regCount = 2;
+  if (h.length >= 12) regCount = parseInt(h.substr(8, 4), 16);
+  return { slave, fc, startReg, regCount, hex: h };
+}
+
+// Decode a Modbus value pattern from a descriptor line into its
+// {byte_skip_within_payload, wire_format} pieces. Pattern shape after
+// the slave/fc/byte-count prefix is a sequence of skip tokens (`xx` =
+// 1 byte, `xN` = N decimal bytes) followed by a data-spec:
+//   ffffffff  → 4-byte float32 BE   (8 'f' chars)
+//   UUuuUUuu  → 4-byte uint32 BE    (Tasmota convention: U=hi-byte, u=lo)
+//   SSssSSss  → 4-byte int32  BE
+//   UUuu      → 2-byte uint16 BE
+//   SSss      → 2-byte int16  BE
+// The first 6 hex chars (slave + fc + byte-count) are stripped before
+// scanning. Returns {skipBytes, format} or null if unrecognised.
+function decodeModbusItemPattern(pattern) {
+  if (!pattern || pattern.length < 6) return null;
+  let rest = pattern.substring(6);  // drop slave + fc + byte_count
+  let skipBytes = 0;
+  // Eat skip tokens. `xN` (N digits) takes precedence over `xx` since
+  // matching `xx` first would mis-eat patterns like `x12`.
+  while (rest.length > 0) {
+    const m = rest.match(/^x(\d+)/);
+    if (m) { skipBytes += parseInt(m[1], 10); rest = rest.substring(m[0].length); continue; }
+    if (rest.startsWith('xx') || rest.startsWith('xX') || rest.startsWith('Xx') || rest.startsWith('XX')) {
+      skipBytes += 1; rest = rest.substring(2); continue;
+    }
+    break;
+  }
+  // Match the data spec at the head of `rest` and return its width.
+  // 4-byte specs (8 chars) take precedence over 2-byte (4 chars).
+  const m8 = rest.match(/^(ffffffff|FFFFFFFF|UUuuUUuu|SSssSSss|uuUUuuUU|ssSSssSS)/);
+  if (m8) {
+    const tag = m8[1];
+    let format;
+    if (/^[fF]+$/.test(tag))                  format = 'f32be';
+    else if (tag === 'UUuuUUuu')              format = 'u32be';
+    else if (tag === 'SSssSSss')              format = 's32be';
+    else if (tag === 'uuUUuuUU')              format = 'u32le';
+    else if (tag === 'ssSSssSS')              format = 's32le';
+    return { skipBytes, format };
+  }
+  const m4 = rest.match(/^(UUuu|SSss|uuUU|ssSS)/);
+  if (m4) {
+    const tag = m4[1];
+    const format = tag === 'UUuu' ? 'u16be' : tag === 'SSss' ? 's16be'
+                 : tag === 'uuUU' ? 'u16le' : 's16le';
+    return { skipBytes, format };
+  }
+  return null;
 }
 
 // ─── REPO MODE: AUTO-POPULATE & AUTO-UPDATE ──────────────────────────────────
@@ -1130,8 +1244,12 @@ function repoRender() {
   // switch back to built-in mode.
   repoApplySubstitutions();
 
-  // Repo mode v1 supports SML ('s') and OBIS ASCII ('o') only.
-  const supported = (repoState.proto === 's' || repoState.proto === 'o');
+  // Repo mode supports SML ('s'), OBIS ASCII ('o'), Modbus RTU + TCP ('m').
+  // Other protocols (M-Bus 'r', VBus 'v', EBus 'e', Kamstrup 'k') are
+  // listed but not yet emit-able — user sees the values form for edits
+  // but the Start path isn't wired.
+  const supported = (repoState.proto === 's' || repoState.proto === 'o'
+                  || repoState.proto === 'm');
   if (!supported) {
     document.getElementById('repoUnsupported').style.display = '';
     document.getElementById('repoUnsupportedDetail').textContent =
@@ -1142,20 +1260,57 @@ function repoRender() {
   }
   document.getElementById('repoUnsupported').style.display = 'none';
 
-  // Build value form — one number input per OBIS item.
+  // For Modbus, augment the config block with the request layout and
+  // per-item register map so the user can verify the parser landed each
+  // value at the right address.
+  if (repoState.proto === 'm') {
+    const reqLines = repoState.requests.map((r, i) =>
+      `<div style="font-family:monospace;color:#9ec1ea">  req ${i}: FC${r.fc.toString(16).padStart(2,'0').toUpperCase()} reg=0x${r.startReg.toString(16).padStart(4,'0')} cnt=${r.regCount}</div>`
+    ).join('');
+    const transport = repoState.isTcp
+      ? `Modbus TCP — server listens on port ${repoState.tcpPort}; descriptor host <code>${repoState.tcpHost}</code> is what Tasmota points at`
+      : `Modbus RTU slave — connect serial port; emulator answers polls automatically`;
+    document.getElementById('repoConfigDisplayInner').innerHTML +=
+      `<div style="margin-top:6px;color:#7eb8f7">${transport}</div>` +
+      `<div style="margin-top:4px">${repoState.requests.length} request${repoState.requests.length===1?'':'s'} parsed:</div>` +
+      reqLines;
+  }
+
+  // Build value form — one number input per OBIS item. For Modbus items
+  // we also annotate the descriptor's target register and wire format.
   const inner = document.getElementById('repoValuesFormInner');
   inner.innerHTML = '';
   repoState.items.forEach((item, idx) => {
     const row = document.createElement('div');
     row.className = 'fi';
+    let suffix = '';
+    if (repoState.proto === 'm' && item.regAddr != null) {
+      suffix = ` <span style="color:#6f88a8;font-family:monospace;font-size:0.85em">reg=0x${item.regAddr.toString(16).padStart(4,'0')} ${item.format||'?'}</span>`;
+    }
+    // For Modbus we update the server's reg_bank on every input change so
+    // the next FC03/FC04 reply carries the new value. For SML/OBIS the
+    // value is read at frame-build time so a plain assignment is enough.
+    const onInput = repoState.proto === 'm'
+      ? `repoState.items[${idx}].value = parseFloat(this.value) || 0; repoPushModbusRegs()`
+      : `repoState.items[${idx}].value = parseFloat(this.value) || 0`;
     row.innerHTML =
       `<label>${item.label || item.varName} (${item.unit || '-'}) ` +
-      `<span style="color:#7a9cbf;font-family:monospace">${item.obis}</span></label>` +
+      `<span style="color:#7a9cbf;font-family:monospace">${item.obis}</span>${suffix}</label>` +
       `<input type="number" id="repoVal_${idx}" value="${item.value}" ` +
-      `step="any" oninput="repoState.items[${idx}].value = parseFloat(this.value) || 0">`;
+      `step="any" oninput="${onInput}">`;
     inner.appendChild(row);
   });
   document.getElementById('repoValuesForm').style.display = '';
+  // For Modbus: push the descriptor's initial values to the server so
+  // the FC03/04 handler answers correctly even before the user edits
+  // anything. For TCP, this is the only sync path (no serial connect
+  // step). For RTU it gets re-pushed on serial connect too.
+  if (repoState.proto === 'm') repoPushModbusRegs();
+  // Re-evaluate which built-in panels apply now that repoState (and
+  // therefore isModbusRtu/isTcpProfile) reflects the new descriptor.
+  // Hides the Tx-interval row for Modbus since the slave/listener runs
+  // automatically without a fixed-interval push.
+  applyTxPanel();
   repoUpdateStartButton();
 }
 
@@ -1165,12 +1320,20 @@ function repoUpdateStartButton() {
   const btnGo = document.getElementById('btnGo');
   if (!btnGo) return;
   if (mode === 'repo') {
-    const ok = repoState &&
-               (repoState.proto === 's' || repoState.proto === 'o') &&
-               repoState.items.length > 0;
-    btnGo.disabled = !ok;
-    btnGo.title = ok ? '' :
-      'Select a meter (with a supported protocol) to enable Start';
+    // Modbus RTU: the slave runs from setConn(true) → startModbusSlave;
+    // there's no Start button to flip. Modbus TCP: the python server's
+    // port-502 listener is always live; pushing regs is enough.
+    // SML / OBIS push: needs an interval-driven Start.
+    const proto = repoState ? repoState.proto : null;
+    const ok = repoState && repoState.items.length > 0 &&
+               (proto === 's' || proto === 'o' || proto === 'm');
+    const isStateMachine = repoUsesStateMachine();
+    btnGo.disabled = !ok || isStateMachine;
+    btnGo.title = !ok
+      ? 'Select a meter (with a supported protocol) to enable Start'
+      : isStateMachine
+      ? 'Slave/listener answers automatically; no manual Start needed'
+      : '';
   } else {
     btnGo.disabled = false;
     btnGo.title = '';
@@ -1671,8 +1834,43 @@ function sdm630RegValue(reg) {
   }
 }
 
+// Look up a register's value + wire format. In repo mode the source of
+// truth is repoState.items[]; in built-in mode we fall back to the
+// hardcoded SDM630 map. Returns { value, format } where format is
+// 'f32be' (default) or one of 'u16be'/'s16be'/'u32be'/'s32be'.
+function modbusRegLookup(reg) {
+  if (isRepoMode() && repoState && repoState.items) {
+    for (const it of repoState.items) {
+      if (it.regAddr === reg && it.format) {
+        const wire = (typeof it.value === 'number') ? it.value * (it.scale || 1) : 0;
+        return { value: wire, format: it.format };
+      }
+    }
+    return { value: 0, format: 'f32be' };
+  }
+  return { value: sdm630RegValue(reg), format: 'f32be' };
+}
+
+// Encode a value into wire bytes per Modbus format spec.
+function modbusEncodeValue(val, format) {
+  if (format === 'f32be') return float32BE(val);
+  const buf = new ArrayBuffer(4);
+  const dv  = new DataView(buf);
+  if (format === 'u32be') { dv.setUint32(0, (val >>> 0) & 0xFFFFFFFF, false); return Array.from(new Uint8Array(buf)); }
+  if (format === 's32be') { dv.setInt32 (0, val | 0,                    false); return Array.from(new Uint8Array(buf)); }
+  if (format === 'u32le') { dv.setUint32(0, (val >>> 0) & 0xFFFFFFFF, true);  return Array.from(new Uint8Array(buf)); }
+  if (format === 's32le') { dv.setInt32 (0, val | 0,                    true);  return Array.from(new Uint8Array(buf)); }
+  // 16-bit forms: 2-byte wire, but Modbus replies always carry a multiple
+  // of 2 bytes (one register = 2 bytes). Caller adjusts response length.
+  if (format === 'u16be') { dv.setUint16(0, (val >>> 0) & 0xFFFF, false); return Array.from(new Uint8Array(buf, 0, 2)); }
+  if (format === 's16be') { dv.setInt16 (0, val | 0,                false); return Array.from(new Uint8Array(buf, 0, 2)); }
+  if (format === 'u16le') { dv.setUint16(0, (val >>> 0) & 0xFFFF, true);  return Array.from(new Uint8Array(buf, 0, 2)); }
+  if (format === 's16le') { dv.setInt16 (0, val | 0,                true);  return Array.from(new Uint8Array(buf, 0, 2)); }
+  return float32BE(val);
+}
+
 // Modbus RTU request: [addr][FC][...][crcL][crcH]
-// FC03/FC04 Read:  request=8 bytes,  response=9 bytes (1 float32)
+// FC03/FC04 Read:  request=8 bytes,  response=9 bytes (1 float32) or larger for bulk
 // FC06 Write Single Register:  request=8 bytes, response=echo (8 bytes)
 // FC16 Write Multiple Registers: request=7+byteCount+2 bytes, response=8 bytes
 //
@@ -1690,13 +1888,41 @@ function handleModbusRequest(buf) {
     const regCount = (buf[4] << 8) | buf[5];
     const crcRx    = buf[6] | (buf[7] << 8);
     if (crc16modbus(buf.slice(0, 6)) !== crcRx) return null;
-    if (regCount !== 2) return null; // SDM630 always 2 registers = 1 float32
+    if (regCount < 1 || regCount > 125) return null;
 
-    // check writable regs first, then read-only SDM630 map
-    const wreg = wregStore.find(r => r.addr === startReg);
-    const val  = wreg ? wreg.value : sdm630RegValue(startReg);
-    const floatB = float32BE(val);
-    const resp = [addr, fc, 4, ...floatB];
+    // Build response payload by walking the request register-by-register
+    // (16 bits each). For each register slot we look up the descriptor's
+    // wire format: f32be / u32be / s32be span 2 slots, u16be/s16be span
+    // 1 slot. Built-in (non-repo) keeps the legacy SDM630-pair behaviour
+    // since regCount must be exactly 2 there.
+    if (!isRepoMode()) {
+      if (regCount !== 2) return null; // SDM630 always 2 regs = 1 float32
+      const wreg = wregStore.find(r => r.addr === startReg);
+      const val  = wreg ? wreg.value : sdm630RegValue(startReg);
+      const floatB = float32BE(val);
+      const resp = [addr, fc, 4, ...floatB];
+      const crc  = crc16modbus(resp);
+      resp.push(crc & 0xFF, crc >> 8);
+      return { resp: new Uint8Array(resp), consumed: 8 };
+    }
+    const payload = [];
+    let i = 0;
+    while (i < regCount) {
+      const reg = startReg + i;
+      const lk  = modbusRegLookup(reg);
+      const enc = modbusEncodeValue(lk.value, lk.format);
+      const slots = (lk.format && lk.format.indexOf('32') >= 0) ? 2 : 1;
+      // If we'd overshoot the request range, fall back to zeros for the
+      // remainder rather than returning a too-long payload.
+      if (i + slots > regCount) {
+        for (let k = 0; k < (regCount - i) * 2; k++) payload.push(0);
+        i = regCount;
+        break;
+      }
+      for (const b of enc) payload.push(b);
+      i += slots;
+    }
+    const resp = [addr, fc, payload.length, ...payload];
     const crc  = crc16modbus(resp);
     resp.push(crc & 0xFF, crc >> 8);
     return { resp: new Uint8Array(resp), consumed: 8 };
@@ -3198,27 +3424,99 @@ function isRepoMode() {
   return document.getElementById('emuMode')?.value === 'repo';
 }
 
-function isT510() { return !isRepoMode() && document.getElementById('selProfile').value === 't510'; }
-function isKamstrup() { return !isRepoMode() && document.getElementById('selProfile').value === 'kamstrup_kx7'; }
+function isT510() {
+  if (isRepoMode()) {
+    // Heuristic: OBIS-ASCII descriptor at 300 baud is the IEC 62056-21
+    // baud-switching meter (T510 / similar). Real T510 descriptors carry
+    // an embedded TinyC `>F` block that switches 300 → 9600 baud after
+    // identification — the emulator only needs to know that the meter
+    // initially listens at 300.
+    return repoState && repoState.proto === 'o' && repoState.baud === 300;
+  }
+  return document.getElementById('selProfile').value === 't510';
+}
+function isKamstrup() {
+  if (isRepoMode()) return repoState && repoState.proto === 'k';
+  return document.getElementById('selProfile').value === 'kamstrup_kx7';
+}
 
 function isTcpProfile() {
-  return !isRepoMode() && document.getElementById('selProfile').value.endsWith('_tcp');
+  if (isRepoMode()) return !!(repoState && repoState.isTcp);
+  return document.getElementById('selProfile').value.endsWith('_tcp');
 }
 
 function isModbusRtu() {
-  return !isRepoMode() && document.getElementById('selProto').value === 'modbus' && !isTcpProfile();
+  if (isRepoMode()) return !!(repoState && repoState.proto === 'm' && !repoState.isTcp);
+  return document.getElementById('selProto').value === 'modbus' && !isTcpProfile();
+}
+
+// True when the descriptor describes a poll-response or push protocol
+// that doesn't run a fixed-interval frame loop in the browser. These
+// are handled by dedicated state machines (Modbus slave, T510, Kamstrup,
+// Modbus TCP server) instead of `sendFrame()` / `setInterval`.
+function repoUsesStateMachine() {
+  if (!isRepoMode() || !repoState) return false;
+  return repoState.proto === 'm' || repoState.proto === 'k'
+      || (repoState.proto === 'o' && repoState.baud === 300);
+}
+
+// Push the current item values to the server's reg_bank so the python-
+// side Modbus RTU + TCP handlers can answer with up-to-date data. Maps
+// each item's regAddr (computed at parse time) to its scaled wire
+// value, and for non-default formats also sets reg_format[regAddr] so
+// the response packs as 16-bit U/S instead of float32. f32be items
+// don't need a reg_format entry (server's default).
+async function repoPushModbusRegs() {
+  if (!repoState || !repoState.requests || !repoState.requests.length) return;
+  const regs    = {};
+  const formats = {};
+  for (const it of repoState.items) {
+    if (it.regAddr == null || !it.format) continue;
+    // The descriptor's @divisor scales the WIRE int into a display value;
+    // we invert that to get back to the wire form.
+    const wire = (typeof it.value === 'number') ? it.value * (it.scale || 1) : 0;
+    regs[it.regAddr] = wire;
+    if (it.format === 'u16be' || it.format === 'u16le') formats[it.regAddr] = 'u16';
+    else if (it.format === 's16be' || it.format === 's16le') formats[it.regAddr] = 's16';
+    // 32-bit forms map to the server's float32 default — that gives the
+    // wrong wire bytes for u32be / s32be, but the server doesn't yet
+    // support those. Tracked separately; affects ABB/EPEVER/PZEM.
+  }
+  // Server's /api/regs takes a flat {addr: value} dict; /api/reg_format
+  // takes the {addr: 'u16'|'s16'|null} overrides separately. Posting them
+  // as two requests keeps the existing endpoints unchanged.
+  try {
+    await fetch('/api/regs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(regs)
+    });
+    if (Object.keys(formats).length > 0) {
+      await fetch('/api/reg_format', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formats)
+      });
+    }
+  } catch (e) {
+    // Standalone HTML (no python server) — silently no-op. The browser-
+    // side handleModbusRequest still serves correctly via repoState.
+  }
 }
 
 function applyTxPanel() {
   const mb = isModbusRtu();
   const t5 = isT510();
   const ks = isKamstrup();
+  const tcp = isTcpProfile();
   // Kamstrup, like T510, runs entirely server-side (poll/response state
   // machine in sml_emulator_server.py). Browser only pushes register values
   // via /api/regs — no manual interval push, no Start button → swap to the
   // status panel that says "Python state machine active".
-  const auto = mb || t5 || ks;
-  const showWreg = mb || isTcpProfile();
+  // Modbus TCP also has no interval push (server's port-502 listener
+  // answers polls); treat it as auto-mode too.
+  const auto = mb || t5 || ks || tcp;
+  const showWreg = mb || tcp;
   const enc = document.getElementById('selProto').value === 'sml_enc';
   document.getElementById('txIntervalRow').style.display  = auto ? 'none' : '';
   document.getElementById('txTimerPanel').style.display   = auto ? 'none' : '';
@@ -3226,6 +3524,24 @@ function applyTxPanel() {
   document.getElementById('wregPanel').style.display      = showWreg ? '' : 'none';
   document.getElementById('cryptPanel').style.display     = enc ? '' : 'none';
   if (showWreg) buildWregRows();
+  // TCP descriptors don't need the browser to open a serial port — the
+  // python server's port-502 listener answers polls. Hide the Connect
+  // button and tweak the status banner to reflect that. In repo mode,
+  // applyProfile() doesn't run, so we mirror the relevant bits of its
+  // TCP-aware UI toggle here.
+  if (isRepoMode()) {
+    const btnConnect    = document.getElementById('btnConnect');
+    const btnDisconnect = document.getElementById('btnDisconnect');
+    if (btnConnect)    btnConnect.style.display    = tcp ? 'none' : '';
+    if (btnDisconnect) btnDisconnect.style.display = (tcp || !port) ? 'none' : '';
+    if (mb) {
+      setModbusStatus('#7a9cbf',
+        `Modbus RTU slave — connect serial; descriptor expects ${repoState.requests.length} request${repoState.requests.length===1?'':'s'} from Tasmota`);
+    } else if (tcp) {
+      setModbusStatus('#7a9cbf',
+        `Modbus TCP — listening on port ${repoState.tcpPort || 502}; point Tasmota at this host's IP (descriptor sample: ${repoState.tcpHost})`);
+    }
+  }
 }
 
 function setSel(id, val) {
