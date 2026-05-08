@@ -200,7 +200,7 @@ picoos_double picoos_fabs (const picoos_double fabs_arg)
     return (picoos_double) picopal_fabs((picopal_double) fabs_arg);
 }
 
-picoos_double picoos_quick_exp(const picoos_double y) {
+picoos_double picoos_quick_nope(const picoos_double y) {
     return (picoos_double) picopal_quick_exp ((picopal_double)y);
 }
 

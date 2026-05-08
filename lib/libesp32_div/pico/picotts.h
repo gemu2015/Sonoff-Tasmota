@@ -14,6 +14,16 @@ extern "C" {
 typedef void (*picotts_output_fn)(int16_t *samples, unsigned count);
 
 /**
+ * Set runtime resource pointers (Tasmota / PlatformIO addition; not in
+ * upstream DiUS). When non-NULL these supersede both EMBED-mode binary
+ * symbols and PARTITION-mode mmap. Use case: voice data loaded into
+ * PSRAM from LittleFS at boot, so the firmware stays small and the
+ * voice can be swapped without reflashing. Pass NULL to revert to the
+ * compile-time mode. MUST be called before picotts_init().
+ */
+void picotts_set_resources(const void *ta_ptr, const void *sg_ptr);
+
+/**
  * Initialises the PicoTTS engine and prepares to receive TTS requests.
  * A new task is launched, which is used to run the TTS engine.
  * @param prio The priority of the TTS task.
