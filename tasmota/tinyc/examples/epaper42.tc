@@ -1,0 +1,551 @@
+// ═════════════════════════════════════════════════════════════════════
+// epaper42.tc — 4.2" e-paper full-house dashboard.
+//
+// Receives smart-meter / Powerwall / inverter / outdoor-sensor values
+// from other house devices via Tasmota's UDP multicast — every
+// `global float` declaration below auto-syncs on read AND on write
+// (receive-only names just sit and wait for incoming packets;
+// publish names get broadcast back). Renders the lot onto a 400×300
+// e-paper panel via uDisplay with two scrolling 7-day graphs
+// (Powerwall % and solar W), plus a Tasmota WebUI sensor table via
+// WebCall for the same data.
+//
+// Callback shape: EverySecond + WebCall only — no TaskLoop, no
+// Every50ms, no sensorGet. Earlier diagnostic ports found that any
+// per-tick sensorGet → MqttShowSensor → JsonCall fan-out hung the
+// device when running alongside another VM slot's sensor publisher.
+// With those out the device runs stably.
+//
+// The `>S` / `>B` blocks of the original Scripter dashboard port
+// 1:1 here: sprintf the variable parts into a buffer, hand the
+// bracketed uDisplay markup to dspText(); persist arrays replace
+// the Scripter's M:array=0 N declarations.
+//
+// Refresh strategy — IMPORTANT:
+// The 4.2" panel is a FULL-refresh device. Each `[d]` flush takes
+// roughly 3-5 s during which Tasmota's loop task is blocked while
+// the display driver clocks the framebuffer out via SPI. Going much
+// past that risks the ESP32 RTC watchdog. The Scripter version drove
+// updates once per minute (`if upsecs%60==0`); we mirror that — once
+// per 60 s of uptime EverySecond calls update_display(), one big
+// blocking refresh, then back to idle for the next 59 s.
+//
+// Anything that wanted faster updates (live graph, sensor pages) would
+// need partial refresh + a TaskLoop driving the dspText calls so the
+// loop task isn't held — out of scope for this port. The Scripter ran
+// fine at 60 s for years, no reason to change cadence.
+// ═════════════════════════════════════════════════════════════════════
+
+
+// ─── House-wide UDP-shared globals ───────────────────────────────────
+//
+// Every `global float` declaration auto-syncs via Tasmota's UDP
+// multicast (239.255.255.250:1999). Values published by other devices
+// land here on the next packet; values we set here are broadcast back.
+// Initial values are sane defaults until the first packet arrives.
+//
+// All names match exactly what the publishing devices send — DON'T
+// rename without coordinating across the house. Receive-only globals
+// (most of them) just sit and wait; publish globals (btemp/bhumi)
+// are written from EverySecond's sensor read below.
+
+// ── Tesla Powerwall (.99) ──
+global float pwl  =  0.0;     // battery percent
+global float sip  =  0.0;     // grid in (W; negative = exporting)
+global float sop  =  0.0;     // solar power (W)
+global float bip  =  0.0;     // battery in (W; negative = discharging)
+global float hip  =  0.0;     // house power (W)
+global float tcap =  0.0;     // total capacity (Wh)
+global float rcap =  0.0;     // remaining capacity (Wh)
+global float rper =  0.0;     // remaining percent
+
+// ── Solar / inverters / wallbox ──
+global float sedc =  0.0;     // Dach Solar DC (W) — current
+global float sedt =  0.0;     // Dach total Einspeisung (kWh) — counter
+global float wrgh =  0.0;     // Wechselrichter Gartenhaus (W)
+global float wrga =  0.0;     // Wechselrichter Garage (W)
+global float wrgg =  0.0;     // Wechselrichter Garten (W)
+global float auto =  0.0;     // Wallbox aktuell (W)
+global float ssp  =  0.0;     // Solarspeicher (°C)
+
+// ── Smart-meter (Hauptzähler) ──
+global float zwzc =  0.0;     // current draw (W; signed)
+global float zwzi =  0.0;     // consumption total (kWh)
+global float zwzo =  0.0;     // export total (kWh)
+
+// ── Outdoor (Bresser) ──
+global float atmp =  0.0;     // outside temperature (°C)
+
+// ── This device's local sensor — published to the rest of the house ──
+// SHT31 on I2C, read in EverySecond below. The originals from the
+// Scripter version (`g:btemp`, `g:bhumi`, `g:bpress`) were also
+// publish-from-this-device globals, so name + semantics carry over 1:1.
+global float btemp = 20.0;    // room temperature (°C)
+global float bhumi = 50.0;    // room humidity (%)
+// global float bpress = 1013.0; // BMP280 commented out in original; skip
+
+
+// ─── Sensor readiness flags ──────────────────────────────────────────
+// SHT31 may not be present at boot (i2cExists race) — start as
+// "unknown", flip to 1 on first successful read, 0 on persistent
+// failure so the WebUI can show a clear "—" instead of a stale 20.0.
+int sht_seen = 0;
+
+
+// ─── Daily/weekly counters (persist + Scripter-format /wd_log.txt) ───
+//
+// Three 8-element arrays mirroring the Scripter's `M:mez1=0 7` etc.:
+//   mez1[1..7]  — daily Dach Einspeisung delta per weekday  (kWh)
+//   mezh[1..7]  — daily Hauszähler Einspeisung delta        (kWh)
+//   mvzh[1..7]  — daily Hauszähler Verbrauch delta          (kWh)
+// Index 0 holds the "current weekday pointer" (= tasm_wday - 1, with
+// 0 → 7 wraparound) so a future WebChart call can use it as the ring-
+// buffer head — same convention as the Scripter and as epaper29.tc.
+//
+// The `persist` keyword auto-loads from /epaper42.pvs across
+// TinyCStop+TinyCRun cycles and reboots; load_wd_log() additionally
+// reads the legacy Scripter file `/wd_log.txt` at boot so the
+// historical 7-day window from before the TinyC migration carries
+// over unchanged. save_wd_log() writes back at midnight to keep the
+// file in sync (lets users fall back to Scripter or hand-edit).
+//
+// sezh / svzh / sez1 are the absolute-counter snapshots taken at the
+// last midnight; "today's delta" = current zwzo - sezh, etc. Used in
+// update_display()'s column 3.
+persist float mez1[8];
+persist float mezh[8];
+persist float mvzh[8];
+persist float sezh = 0.0;
+persist float svzh = 0.0;
+persist float sez1 = 0.0;
+
+// Last seen hour — used to detect the 23 → 0 transition for the
+// midnight rollover. -1 means "haven't seen any hour yet".
+int last_hr = -1;
+
+// Read the Scripter-format /wd_log.txt into the mez*/mezh/mvzh arrays.
+// File layout (tab-separated, 7 rows):
+//   <mez1>\t<mezh>\t<mvzh>\n × 7   (rows 0..6 → indices [1..7])
+// Missing or short file → leftover persist values remain (no zeroing).
+// Called once from main(); EverySecond writes back via save_wd_log()
+// at midnight.
+void load_wd_log() {
+    if (!fileExists("/wd_log.txt")) return;
+    char buf[256];
+    int f = fileOpen("/wd_log.txt", r);
+    if (f < 0) return;
+    int n = fileRead(f, buf, 255);
+    fileClose(f);
+    if (n <= 0) return;
+    buf[n] = 0;
+
+    char rowbuf[64];
+    char fldbuf[24];
+    for (int row = 0; row < 7; row = row + 1) {
+        strToken(rowbuf, buf, '\n', row);
+        if (strlen(rowbuf) == 0) continue;
+        strToken(fldbuf, rowbuf, '\t', 0);
+        if (strlen(fldbuf) > 0) mez1[row + 1] = atof(fldbuf);
+        strToken(fldbuf, rowbuf, '\t', 1);
+        if (strlen(fldbuf) > 0) mezh[row + 1] = atof(fldbuf);
+        strToken(fldbuf, rowbuf, '\t', 2);
+        if (strlen(fldbuf) > 0) mvzh[row + 1] = atof(fldbuf);
+    }
+}
+
+// Mirror of the Scripter `#savgraf` write loop. Called once at the
+// midnight rollover (after the new day's deltas are stored) so the
+// legacy /wd_log.txt file always reflects the latest 7-day window.
+void save_wd_log() {
+    char buf[256];
+    char tmp[40];
+    buf[0] = 0;
+    for (int row = 1; row <= 7; row = row + 1) {
+        sprintf(tmp, "%.3f\t%.3f\t%.3f\n", mez1[row], mezh[row], mvzh[row]);
+        strcat(buf, tmp);
+    }
+    int f = fileOpen("/wd_log.txt", w);
+    if (f >= 0) {
+        fileWrite(f, buf, strlen(buf));
+        fileClose(f);
+    }
+}
+
+
+// ═══════════════ BEGIN CLOCK HEADER BLOCK ═══════════════════════════
+// Pasted from examples/clock_header.tc — see that file for the
+// rationale and the EN-localised version. Required: a `char scratch[256]`
+// buffer in scope (declared in WebCall below).
+
+int web_clock_tick = 0;            // increments per WebCall poll
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    char scratch[256];
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
+// ═══════════════ END CLOCK HEADER BLOCK ═════════════════════════════
+
+
+// ─── update_display — port of the original Scripter `>S` dt block ────
+//
+// Defined before EverySecond so the single-pass TinyC compiler sees
+// the symbol at the call site. Layout (400×300 e-paper, anchored
+// top-left, y-down):
+//   y=  0..  19  header row: btemp ─ horizontal line ─ bhumi
+//   y= 20.. 119  graph 0 (Powerwall % over 7 days)
+//   y=120.. 219  graph 1 (Solar power W over 7 days)
+//   y=220.. 299  4-line counter table (WR / Einsp / Verbr / DachEinsp)
+//                + outside-temp readout in the right column
+//
+// The `[…]` strings are uDisplay markup interpreted by the display
+// driver — pass-through from the Scripter version, only the variable
+// substitutions (`%var%` → sprintf %f) change. Precision matches the
+// original: dp2 for kWh / btemp / bhumi, dp1 for daily increments,
+// dp0 for W and percent values.
+//
+// No `[Id]` (full clear) here — that's done once at boot. Subsequent
+// updates use the panel's existing buffer, just overwriting the dirty
+// regions, then `[d]` triggers ONE full refresh of the whole panel.
+// On the 4.2" SSD1683-style controller this is ~3-5 s; the Scripter
+// has run that cadence for years without watchdog issues.
+void update_display() {
+    char dt[128];
+
+    // Row 1 — temperature, separator line, humidity. The Scripter mixed
+    // multiple primitives into one `[…][…]` string; we keep that style
+    // so the markup matches the reference 1:1.
+    sprintf(dt, "[f1p7x0y5]%.2f C", btemp);
+    dspText(dt);
+    dspText("[x0y20h400x250y5T][x350t]");
+    sprintf(dt, "[f1p10x70y5]%.2f %%", bhumi);
+    dspText(dt);
+    // bpress on .51 was BMP280-only and isn't published from any house
+    // device anymore — original Scripter line `dt [p10x140y5]%bpress%
+    // hPa` left out intentionally so we don't render a stale 0.
+
+    // Big-number readouts on the right (Powerwall % / Solar W) and
+    // the rolling-graph append. Sticks to the original's [g0:Vg1:V]
+    // pair-syntax — the display driver dispatches the two separate
+    // graph appends from the one bracketed call.
+    sprintf(dt, "[p5x360y75]%.0f %%", pwl);
+    dspText(dt);
+    sprintf(dt, "[p6x360y180]%.0fW", sedc);
+    dspText(dt);
+    sprintf(dt, "[g0:%.0fg1:%.0f]", pwl, sedc);
+    dspText(dt);
+
+    // 4 inverters on one line (Dach / Garage / Gartenhaus / Garten).
+    // The Scripter used `%-wrga%` etc. to flip sign — wrga/wrgh/wrgg
+    // are stored as negative-going (consumption-as-positive convention)
+    // so we negate to display as positive solar production.
+    sprintf(dt, "[p40x60y230] %.0f W : %.0f W : %.0f W : %.0f W",
+            sedc, -wrga, -wrgh, -wrgg);
+    dspText(dt);
+
+    // 3-row counter table.
+    //   col 1 (x=75)   today's absolute total (running counter)
+    //   col 2 (x=150)  7-day average (sum / 7) — kWh, dp2
+    //   col 3 (x=250)  today's delta vs. last midnight snapshot — dp1
+    // Indices 1..7 hold the 7 weekday daily-deltas; index 0 is the
+    // ring-buffer pointer (set in EverySecond), not a value.
+    sprintf(dt, "[p-10x75y245]%.2f kWh", zwzo);
+    dspText(dt);
+    sprintf(dt, "[p-10x75y260]%.2f kWh", zwzi);
+    dspText(dt);
+    sprintf(dt, "[p-10x75y275]%.2f kWh", sedt);
+    dspText(dt);
+
+    // Column 2 — weekly average (Scripter: `t1=mezh[1]+...+mezh[7]/7`).
+    // The Scripter's broken precedence (`a+b+c+d+e+f+g/7` evaluates the
+    // /7 only on g) was probably unintentional but is the visible
+    // behaviour the user has lived with for years. We do the math
+    // properly here — sum then divide.
+    float t1;
+    t1 = (mezh[1] + mezh[2] + mezh[3] + mezh[4] + mezh[5] + mezh[6] + mezh[7]) / 7.0;
+    sprintf(dt, "[p-10x150y245]: %.2f kWh", t1);
+    dspText(dt);
+    t1 = (mvzh[1] + mvzh[2] + mvzh[3] + mvzh[4] + mvzh[5] + mvzh[6] + mvzh[7]) / 7.0;
+    sprintf(dt, "[p-10x150y260]: %.2f kWh", t1);
+    dspText(dt);
+    t1 = (mez1[1] + mez1[2] + mez1[3] + mez1[4] + mez1[5] + mez1[6] + mez1[7]) / 7.0;
+    sprintf(dt, "[p-10x150y275]: %.2f kWh", t1);
+    dspText(dt);
+
+    // Column 3 — today's delta against last midnight snapshot.
+    sprintf(dt, "[p12x250y245]: %.1f kWh", zwzo - sezh);
+    dspText(dt);
+    sprintf(dt, "[p12x250y260]: %.1f kWh", zwzi - svzh);
+    dspText(dt);
+    sprintf(dt, "[p12x250y275]: %.1f kWh", sedt - sez1);
+    dspText(dt);
+
+    // Outside temp at x=320 in the lower band — sized larger via [f2]
+    // to fill the otherwise-empty bottom-right cell.
+    sprintf(dt, "[f2p5x320y250] %.0fC", atmp);
+    dspText(dt);
+
+    // Trigger panel refresh. This is the blocking call — everything
+    // above just buffers; `[d]` starts the SPI dump + waits for BUSY
+    // to clear. ~3-5 s on a 4.2" full-refresh; nothing else runs in
+    // the loop task during that.
+    dspText("[d]");
+}
+
+
+// ─── EverySecond — drives the e-paper update gate ─────────────────────
+//
+// btemp/bhumi are NOT read here (no sensorGet). They land via UDP from
+// sht31_publisher.tc (slot 5 on this same device). Falling back to the
+// publisher avoids the JsonCall fan-out that hung v2.
+//
+// es_ticks / disp_updates surface in WebCall's diag row so a glance
+// at the Tasmota main page tells you whether EverySecond is alive
+// AND how many display refreshes have run.
+int es_ticks      = 0;
+int disp_updates  = 0;
+int last_disp_min = -1;
+
+void EverySecond() {
+    es_ticks = es_ticks + 1;
+
+    // ── Midnight rollover (Scripter: `if chg[hr]>0 and hr==0`) ──
+    // Detect the 23 → 0 hour transition. On the first tick after boot
+    // last_hr is -1, so we don't fire a spurious rollover unless we
+    // happened to boot exactly at 00:xx — in that edge case sezh has
+    // either been carried over from .pvs (correct delta) or starts
+    // at 0 (the bootstrap branch below seeds it to current zwzo etc.
+    // so the very next midnight produces a meaningful delta).
+    if (last_hr != 0 && tasm_hour == 0) {
+        // Yesterday's weekday: Scripter's `tmp=wday-1; if tmp==0 tmp=7`.
+        // Mon (wday=2) → tmp=1; Sun (wday=1) → tmp=7.
+        int dow = tasm_wday - 1;
+        if (dow == 0) dow = 7;
+        mezh[dow] = zwzo - sezh;
+        sezh      = zwzo;
+        mvzh[dow] = zwzi - svzh;
+        svzh      = zwzi;
+        mez1[dow] = sedt - sez1;
+        sez1      = sedt;
+        save_wd_log();
+        saveVars();          // flush .pvs immediately so a crash
+                              // before next TinyCStop doesn't lose
+                              // the new day's snapshot.
+        addLog("midnight rollover: arrays + /wd_log.txt updated");
+    }
+    last_hr = tasm_hour;
+
+    // First-run bootstrap: if sezh is still zero (fresh install, no
+    // .pvs, no /wd_log.txt to migrate from) AND we have non-zero
+    // counter values from the UDP-shared globals, snapshot them so
+    // tomorrow's daily delta starts measuring from "now". Once seeded
+    // this branch never fires again because sezh != 0.
+    if (sezh == 0.0 && zwzo > 0.0) {
+        sezh = zwzo;
+        svzh = zwzi;
+        sez1 = sedt;
+    }
+
+    // Keep the [0]-element ring pointer in sync for any future
+    // WebChart calls (the chart API uses arr[0] as the head index).
+    int dow_now = tasm_wday - 1;
+    if (dow_now == 0) dow_now = 7;
+    mezh[0] = (float)dow_now;
+    mvzh[0] = (float)dow_now;
+    mez1[0] = (float)dow_now;
+
+    // Match the Scripter's `if upsecs%60==0` gate. tasm_uptime is in
+    // seconds since Tasmota boot; gating on uptime%60==0 fires once per
+    // minute. Using a "did we already update for this minute?" flag
+    // prevents double-fire if EverySecond happens to run twice in the
+    // same wall-second (rare but possible under load).
+    int now_min = tasm_uptime / 60;
+    if (now_min != last_disp_min && tasm_uptime > 0) {
+        last_disp_min = now_min;
+        update_display();
+        disp_updates = disp_updates + 1;
+    }
+
+    // Periodic graph save — every 5 min, Scripter ported from `>S`'s
+    // `if upsecs%300==0 then =#savgraf endif` block. Two trivial dt
+    // strings, file I/O happens inside the display driver.
+    if (tasm_uptime > 0 && tasm_uptime % 300 == 0) {
+        dspText("[Gs0:/g0_sav.txt:]");
+        dspText("[Gs1:/g1_sav.txt:]");
+    }
+}
+
+
+// ─── WebCall — Tasmota main page rows ────────────────────────────────
+//
+// Tasmota AJAX-polls our main page every ~2 s and the rows we emit
+// here are spliced into the standard sensor table. {s}/{m}/{e} tags
+// = <tr><th>/</th><td>/</td></tr> after Tasmota's client-side
+// substitution. Group separators use plain {s}<hr>{m}<hr>{e} since
+// Tasmota's CSS centers <hr> inside <td>.
+//
+// `buf` (sprintf scratch) is intentionally 64 chars — ALL sprintf
+// calls into webSend stay below that limit because each one builds
+// just ONE row's value+suffix. Anything longer (multi-field rows)
+// would need splitting; we don't have any here.
+void WebCall() {
+    char buf[64];
+
+    // ── Top: clock + date + sun row ──
+    web_clock_header();
+
+    // ── This room (SHT31) ──
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Wohnzimmer</b>{m}{e}");
+    if (sht_seen) {
+        webSend("{s}Temperatur{m}<span style='color:yellow'>");
+        sprintf(buf, "%.1f &#8451;</span>{e}", btemp);
+        webSend(buf);
+        webSend("{s}Luftfeuchte{m}<span style='color:yellow'>");
+        sprintf(buf, "%.1f %%</span>{e}", bhumi);
+        webSend(buf);
+    } else {
+        webSend("{s}Temperatur{m}<span style='color:#666'>—</span>{e}");
+        webSend("{s}Luftfeuchte{m}<span style='color:#666'>—</span>{e}");
+    }
+
+    // ── Powerwall ──
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Powerwall</b>{m}{e}");
+    webSend("{s}Batterie{m}<span style='color:yellow'>");
+    sprintf(buf, "%.1f %% (%.2f kWh)</span>{e}", pwl, pwl/100.0*13.5);
+    webSend(buf);
+    webSend("{s}Netz{m}<span style='color:yellow'>");
+    sprintf(buf, "%.0f W</span>{e}", sip);
+    webSend(buf);
+    webSend("{s}Solar{m}<span style='color:green'>");
+    sprintf(buf, "%.0f W</span>{e}", sop);
+    webSend(buf);
+    webSend("{s}Batterie-Fluss{m}<span style='color:yellow'>");
+    sprintf(buf, "%.0f W</span>{e}", bip);
+    webSend(buf);
+    webSend("{s}Haus{m}<span style='color:red'>");
+    sprintf(buf, "%.0f W</span>{e}", hip);
+    webSend(buf);
+
+    // ── Solar / Wechselrichter ──
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solar</b>{m}{e}");
+    webSend("{s}Dach DC{m}<span style='color:green'>");
+    sprintf(buf, "%.0f W</span>{e}", sedc);
+    webSend(buf);
+    webSend("{s}Garage{m}<span style='color:green'>");
+    sprintf(buf, "%.0f W</span>{e}", wrga);
+    webSend(buf);
+    webSend("{s}Gartenhaus{m}<span style='color:green'>");
+    sprintf(buf, "%.0f W</span>{e}", wrgh);
+    webSend(buf);
+    webSend("{s}Garten{m}<span style='color:green'>");
+    sprintf(buf, "%.0f W</span>{e}", wrgg);
+    webSend(buf);
+    webSend("{s}Solarspeicher{m}<span style='color:yellow'>");
+    sprintf(buf, "%.1f &#8451;</span>{e}", ssp);
+    webSend(buf);
+
+    // ── Hauptzähler + Wallbox ──
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Z&auml;hler</b>{m}{e}");
+    webSend("{s}aktuell{m}<span style='color:yellow'>");
+    sprintf(buf, "%.0f W</span>{e}", zwzc);
+    webSend(buf);
+    webSend("{s}Verbrauch{m}<span style='color:yellow'>");
+    sprintf(buf, "%.3f kWh</span>{e}", zwzi);
+    webSend(buf);
+    webSend("{s}Einspeisung{m}<span style='color:yellow'>");
+    sprintf(buf, "%.3f kWh</span>{e}", zwzo);
+    webSend(buf);
+    webSend("{s}Wallbox{m}<span style='color:yellow'>");
+    sprintf(buf, "%.0f W</span>{e}", auto);
+    webSend(buf);
+
+    // ── Aussen ──
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Aussen</b>{m}{e}");
+    webSend("{s}Temperatur{m}<span style='color:yellow'>");
+    sprintf(buf, "%.1f &#8451;</span>{e}", atmp);
+    webSend(buf);
+
+    // ── Diag — uptime, EverySecond tick count, EPaper refresh count ──
+    sprintf(buf, "{s}diag{m}uptime=%d s, es=%d, disp=%d{e}",
+            tasm_uptime, es_ticks, disp_updates);
+    webSend(buf);
+}
+
+
+// ─── TaskLoop and Every50ms intentionally REMOVED in v3 ──────────────
+// Hypothesis: TaskLoop's persistent tc_vm_task interferes with the
+// short-lived tc_vm_task spawned for sht31.tcb's main(). With both
+// removed, slot 0 has the same callback shape as examples/epaper29.tc
+// (which the user runs alongside 5 concurrent sensor drivers without
+// issue): EverySecond + WebCall, no separate FreeRTOS task.
+
+
+// ─── main — boot init mirrors the original Scripter `>B` block ───────
+int main() {
+    // Initial clear in partial-mode framebuffer. Same `[IzD0]` start
+    // the Scripter used: I = init/full-clear, z = clear buffer,
+    // D0 = drawing-mode 0 (text + lines, no rotate).
+    dspText("[IzD0]");
+
+    // Graph 0 — Powerwall % over 7 days, sample every minute (10080
+    // minutes total = 7 days). Scale 0..100, axis label "100 %%" /
+    // "0 %%" anchored at right edge (x=360). The big numeric readout
+    // in update_display() shares the same x.
+    dspText("[zG10352:5:40:-350:80:10080:0:100f3x360y40]100 %%[x360y115]0 %%");
+    dspText("[f1x100y25]Powerwall - 7 Tage[f1x360y75] 0 %%");
+
+    // Graph 1 — Solar power W, same 7-day window, scale 0..5000.
+    dspText("[G10353:5:140:-350:80:10080:0:5000f3x360y140]+5000 W[x360y215]0 W");
+    dspText("[f1x70y125]Volleinspeisung - 7 Tage[f1x360y180] 0 W");
+
+    // Static labels for the bottom counter table.
+    dspText("[p13x10y230]WR 1-4:");
+    dspText("[p13x10y245]H-Einsp.:");
+    dspText("[p13x10y260]H-Verbr.:");
+    dspText("[p13x10y275]D-Einsp.:");
+
+    // First flush — gives a blank dashboard skeleton on screen until
+    // EverySecond's first 60-s tick fires the real values in.
+    dspText("[d]");
+
+    // Restore the persisted graph buffers. Scripter `>B` did this AFTER
+    // the static drawing (so the graph rectangle is clear, then the
+    // restore paints the saved curve back into it). The two files
+    // accumulate roughly 70 KB each (10080 samples × 4 bytes); the
+    // Scripter's same files live on .51's filesystem already.
+    dspText("[Gr0:/g0_sav.txt:]");
+    dspText("[Gr1:/g1_sav.txt:]");
+
+    // Pull the 7-day weekday daily-delta arrays from the legacy
+    // /wd_log.txt if it's still around. After the first midnight
+    // rollover under TinyC the persist .pvs has authoritative data
+    // and this becomes a redundant overwrite-with-same-values, but
+    // it also lets the Scripter and TinyC versions share state
+    // bidirectionally during the transition.
+    load_wd_log();
+
+    char m[80];
+    sprintf(m, "epaper42 ready: uptime=%d s (display init done)", tasm_uptime);
+    addLog(m);
+    return 0;
+}
