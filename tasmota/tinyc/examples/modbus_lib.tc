@@ -1,9 +1,9 @@
 // =====================================================================
-// modbus_lib.tc — Modbus TCP helpers for TinyC (v1.5.2+)
+// modbus_lib.tc — Modbus TCP helpers for TinyC (v1.6.0+)
 // =====================================================================
 //
-// Provides clean wrappers around tcpWriteArray/tcpAvailable/tcpReadArray
-// for the most-used Modbus function codes:
+// Provides clean wrappers around the v1.6.0 tcpTransact() syscall for
+// the most-used Modbus function codes:
 //   * mbFC03 — read holding registers (16-bit)
 //   * mbFC04 — read input registers (16-bit)
 //   * mbFC06 — write single holding register
@@ -41,29 +41,21 @@
 //       // 4 = NETWORK error, back off harder
 //       // 2 = PEER_CLOSED, retry sooner
 //   }
+//
+// Implementation note (v1.6.0):
+// Each FC helper used to do `tcpWriteArray(req,…,0)` + `mb_wait_for(N, ms)`
+// + `tcpReadArray(resp)` — three separate syscalls plus a `delay(2)`
+// busy-loop in user code. v1.6.0 collapses that to one `tcpTransact()`
+// call which writes the request, waits for any response within the
+// timeout (1-ms vTaskDelay between availability checks), and reads the
+// reply in one shot. Tighter timeout precision, no per-FC poll loop, no
+// `mb_wait_for` helper required.
 // =====================================================================
 
 // Auto-incremented transaction ID. Wraps at 0xFFFF (Modbus TCP spec
 // allows 0..65535; the actual value doesn't matter as long as request
 // and response match).
 int mb_tid = 0;
-
-// Internal: wait for `expected` bytes on the selected TCP slot OR
-// until `timeout_ms` elapses. Polls tcpAvailable() with vTaskDelay-ish
-// granularity (delay(2)) so other slots / TaskLoop workers can run.
-// Returns the number of bytes available (>= expected on success,
-// less than expected on timeout).
-int mb_wait_for(int expected, int timeout_ms) {
-    int t0 = millis();
-    int n = 0;
-    while (1) {
-        n = tcpAvailable();
-        if (n >= expected) return n;
-        if (millis() - t0 > timeout_ms) return n;
-        delay(2);
-    }
-    return n;
-}
 
 // FC03: Read Holding Registers
 //   slot         — TCP client slot (0..TC_TCP_CLI_SLOTS-1)
@@ -95,14 +87,12 @@ int mbFC03(int slot, int slave, int addr, int qty, char dst[], int timeout_ms) {
     req[9]  =  addr       & 0xFF;
     req[10] = (qty  >> 8) & 0xFF;
     req[11] =  qty        & 0xFF;
-    tcpWriteArray(req, 12, 0);
 
-    int min_resp = 9;                // 7 header + fc + byte_count
-    int n = mb_wait_for(min_resp, timeout_ms);
-    if (n < min_resp) return -1;
-
-    int got = tcpReadArray(resp);
-    if (got < min_resp) return -1;
+    // Atomic write+wait+read. Returns: bytes received (>=9 expected for
+    // a valid header), -1 timeout, -2 disconnect, -3 bad args.
+    int got = tcpTransact(req, 12, resp, 260, timeout_ms);
+    if (got < 0)  return -1;          // timeout / disconnect
+    if (got < 9)  return -1;          // truncated header
 
     // TID match
     int rtid = (resp[0] << 8) | resp[1];
@@ -148,12 +138,9 @@ int mbFC04(int slot, int slave, int addr, int qty, char dst[], int timeout_ms) {
     req[9]  =  addr       & 0xFF;
     req[10] = (qty  >> 8) & 0xFF;
     req[11] =  qty        & 0xFF;
-    tcpWriteArray(req, 12, 0);
 
-    int n = mb_wait_for(9, timeout_ms);
-    if (n < 9) return -1;
-    int got = tcpReadArray(resp);
-    if (got < 9) return -1;
+    int got = tcpTransact(req, 12, resp, 260, timeout_ms);
+    if (got < 9) return -1;          // timeout / disconnect / truncated
 
     int rtid = (resp[0] << 8) | resp[1];
     if (rtid != mb_tid) return -2;
@@ -191,12 +178,9 @@ int mbFC06(int slot, int slave, int addr, int value, int timeout_ms) {
     req[9]  =  addr        & 0xFF;
     req[10] = (value >> 8) & 0xFF;
     req[11] =  value       & 0xFF;
-    tcpWriteArray(req, 12, 0);
 
-    int n = mb_wait_for(12, timeout_ms);
-    if (n < 12) return -1;
-    int got = tcpReadArray(resp);
-    if (got < 12) return -1;
+    int got = tcpTransact(req, 12, resp, 12, timeout_ms);
+    if (got < 12) return -1;         // timeout / disconnect / truncated echo
 
     int rtid = (resp[0] << 8) | resp[1];
     if (rtid != mb_tid) return -2;
@@ -233,12 +217,9 @@ int mbFC16(int slot, int slave, int addr, int qty, char src[], int timeout_ms) {
     req[12] = byte_cnt;
     int i = 0;
     while (i < byte_cnt) { req[13 + i] = src[i]; i++; }
-    tcpWriteArray(req, 13 + byte_cnt, 0);
 
-    int n = mb_wait_for(12, timeout_ms);
-    if (n < 12) return -1;
-    int got = tcpReadArray(resp);
-    if (got < 12) return -1;
+    int got = tcpTransact(req, 13 + byte_cnt, resp, 12, timeout_ms);
+    if (got < 12) return -1;         // timeout / disconnect / truncated echo
 
     int rtid = (resp[0] << 8) | resp[1];
     if (rtid != mb_tid) return -2;
