@@ -109,6 +109,9 @@ extern FS *ffsp;
 #endif
 
 
+// Forward declaration so the command table can reference it.
+void Blib_test(void);
+
 //  command line commands
 const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "mdir" "|"
@@ -118,14 +121,16 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "deiniz" "|"
   "dump" "|"
   "chkpt" "|"
-  "hbn"
+  "hbn" "|"
+  "blibtest"
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
   &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump, &Check_partition, &Test_prog
-#ifdef USE_FLASH_BDIR 
+#ifdef USE_FLASH_BDIR
    ,&BinDir_list
 #endif
+   ,&Blib_test
 };
 
 #ifdef ESP32
@@ -3471,12 +3476,20 @@ int32_t mod_func_execute(uint32_t sel);
 // pFUNC_GET_TINYC_EXPORTS selector. After Init_module() runs the
 // plugin's pFUNC_INIT, we re-dispatch with pFUNC_GET_TINYC_EXPORTS
 // to fetch that table, EXEC_OFFSET-correct the function and name
-// pointers, and copy each entry into the global registry below.
+// pointers, copy each entry into the global registry below — and
+// crucially, malloc-copy the name string into DRAM.
 //
-// The TinyC bcall() syscall (xdrv_124_tinyc.ino) reads this registry
-// to resolve names at runtime. First call per call-site does a
-// linear scan and caches the result; subsequent calls are direct
-// indirect calls through the cached fn pointer.
+// Why DRAM-copy the names: the plugin partition is mmap'd as
+// ESP_PARTITION_MMAP_INST. Reading 32-bit aligned words from this
+// region works (the cache fetches a line and serves it), but
+// individual byte reads via Xtensa l8ui crash with LoadStoreError
+// on ESP32-S3 (verified: byte access at "mb_crc16"+2 from the blib's
+// own mod_func_execute crashed at EPC 0x4281c2fd, EXCVADDR == addr).
+// vsnprintf's %s reads byte-by-byte, so any AddLog("%s", name)
+// against a plugin-region pointer faults. By holding a DRAM copy
+// of each name in the registry, all subsequent code paths
+// (string formatting, name lookup via strcmp, bcall syscall) read
+// from normal DRAM and Just Work.
 //
 // 64 entries is generous for the spike — single-digit blibs each
 // exposing a handful of functions. Bump TC_BLIB_REG_SIZE later if
@@ -3484,13 +3497,37 @@ int32_t mod_func_execute(uint32_t sel);
 #define TC_BLIB_REG_SIZE 64
 
 typedef struct {
-  const char *name;        // EXEC_OFFSET-corrected, points into plugin flash
-  void       *fn;           // EXEC_OFFSET-corrected fn pointer
+  char       *name;         // malloc'd DRAM copy of the name string
+  void       *fn;           // EXEC_OFFSET-corrected fn pointer (4-byte access OK)
   uint8_t     argc;
   uint8_t     ret_type;
   uint8_t     arg_types[TC_MAX_ARGS];
   uint8_t     module_idx;   // for diagnostics + future unload
 } TC_BLIB_REG_ENTRY;
+
+// Safe byte read from a plugin-partition address. The partition is
+// mmap'd as INST so byte access via l8ui faults, but 32-bit aligned
+// reads work — fetch the containing word, then extract the byte.
+static inline uint8_t tc_blib_pp_byte(const uint8_t *addr) {
+  uint32_t word = *(const volatile uint32_t *)((uintptr_t)addr & ~(uintptr_t)3u);
+  return (uint8_t)((word >> (((uintptr_t)addr & 3u) * 8u)) & 0xffu);
+}
+
+// Safe strdup from a plugin-partition address into DRAM. Returns
+// malloc'd buffer (caller frees) or NULL on alloc failure / >255 char.
+static char *tc_blib_pp_strdup(const char *plugin_addr) {
+  if (!plugin_addr) return NULL;
+  uint16_t len = 0;
+  while (len < 256 && tc_blib_pp_byte((const uint8_t *)plugin_addr + len)) len++;
+  if (len >= 256) return NULL;  // unterminated / too long — refuse
+  char *dst = (char *)malloc(len + 1);
+  if (!dst) return NULL;
+  for (uint16_t i = 0; i < len; i++) {
+    dst[i] = (char)tc_blib_pp_byte((const uint8_t *)plugin_addr + i);
+  }
+  dst[len] = '\0';
+  return dst;
+}
 
 static TC_BLIB_REG_ENTRY tc_blib_reg[TC_BLIB_REG_SIZE];
 static uint8_t tc_blib_reg_count = 0;
@@ -3510,14 +3547,17 @@ extern "C" TC_BLIB_REG_ENTRY *tc_blib_lookup(const char *name) {
 
 // Drop every export contributed by `module_idx` from the registry.
 // Used when a module is deinit'd / unlinked so stale fn pointers
-// don't linger.
+// don't linger. Frees the DRAM-copied name strings as it goes.
 static void tc_blib_unregister_module(uint8_t module_idx) {
   uint8_t w = 0;
   for (uint8_t r = 0; r < tc_blib_reg_count; r++) {
-    if (tc_blib_reg[r].module_idx != module_idx) {
-      if (w != r) tc_blib_reg[w] = tc_blib_reg[r];
-      w++;
+    if (tc_blib_reg[r].module_idx == module_idx) {
+      free(tc_blib_reg[r].name);
+      tc_blib_reg[r].name = NULL;
+      continue;
     }
+    if (w != r) tc_blib_reg[w] = tc_blib_reg[r];
+    w++;
   }
   tc_blib_reg_count = w;
 }
@@ -3543,37 +3583,67 @@ static void tc_blib_register_module(uint8_t module_idx) {
     AddLog(LOG_LEVEL_INFO, PSTR("BLIB: module %d returned no exports"), module_idx + 1);
     return;
   }
-  const TC_EXPORT *tab = (const TC_EXPORT *)(raw + fm->execution_offset);
+  uint32_t exoffs = fm->execution_offset;
+  const TC_EXPORT *tab = (const TC_EXPORT *)(raw + exoffs);
 
-  // The table itself sits in PROGMEM; on Xtensa we can read it via
-  // direct pointer access (mmap'd code partition is byte-addressable).
-  // Each `name` and `fn` field stores plugin-relative pointers, so
-  // they need the same EXEC_OFFSET correction before being cached.
+  // The TC_EXPORT struct fields are accessed via 4-byte aligned reads
+  // (the struct is { ptr, ptr, byte, byte, byte[8] } padded to 20 bytes).
+  // Word-level access (tab[i].name, tab[i].fn) works against the mmap'd
+  // INST partition. Byte-level fields (argc, ret_type, arg_types) we
+  // read via tc_blib_pp_byte which fetches the containing word and
+  // extracts.
+  //
+  // Strings (name pointer's target) are copied into DRAM via
+  // tc_blib_pp_strdup so subsequent string ops don't fault.
   uint16_t added = 0;
-  for (uint16_t i = 0; tab[i].name != NULL; i++) {
+  for (uint16_t i = 0; i < TC_BLIB_REG_SIZE; i++) {
+    // Word-aligned read of the name pointer; NULL marks end of list.
+    uint32_t name_linker = *(const volatile uint32_t *)((uint32_t)&tab[i] + 0);
+    if (name_linker == 0) break;
+    uint32_t fn_linker   = *(const volatile uint32_t *)((uint32_t)&tab[i] + 4);
+
     if (tc_blib_reg_count >= TC_BLIB_REG_SIZE) {
       AddLog(LOG_LEVEL_ERROR,
              PSTR("BLIB: registry full (%d), can't add more from module %d"),
              TC_BLIB_REG_SIZE, module_idx + 1);
       break;
     }
-    if (tab[i].argc > TC_MAX_ARGS) {
+
+    // Bytes via word-extract helper.
+    uint8_t argc     = tc_blib_pp_byte((const uint8_t *)&tab[i] + 8);
+    uint8_t ret_type = tc_blib_pp_byte((const uint8_t *)&tab[i] + 9);
+
+    if (argc > TC_MAX_ARGS) {
       AddLog(LOG_LEVEL_ERROR,
              PSTR("BLIB: export %d argc=%d exceeds TC_MAX_ARGS=%d, skipping"),
-             i, tab[i].argc, TC_MAX_ARGS);
+             i, argc, TC_MAX_ARGS);
       continue;
     }
+
     TC_BLIB_REG_ENTRY *r = &tc_blib_reg[tc_blib_reg_count];
-    r->name      = (const char *)((uint32_t)tab[i].name + fm->execution_offset);
-    r->fn        = (void *)((uint32_t)tab[i].fn        + fm->execution_offset);
-    r->argc      = tab[i].argc;
-    r->ret_type  = tab[i].ret_type;
-    memcpy(r->arg_types, tab[i].arg_types, TC_MAX_ARGS);
+
+    // EXEC_OFFSET-correct the name pointer, then DRAM-copy via the
+    // word-aware reader. Function pointer just gets EXEC_OFFSET.
+    r->name = tc_blib_pp_strdup((const char *)(name_linker + exoffs));
+    if (!r->name) {
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("BLIB: strdup failed for export %d (module %d)"),
+             i, module_idx + 1);
+      continue;
+    }
+    r->fn         = (void *)(fn_linker + exoffs);
+    r->argc       = argc;
+    r->ret_type   = ret_type;
+    for (uint8_t a = 0; a < TC_MAX_ARGS; a++) {
+      r->arg_types[a] = tc_blib_pp_byte((const uint8_t *)&tab[i] + 10 + a);
+    }
     r->module_idx = module_idx;
     tc_blib_reg_count++;
     added++;
-    AddLog(LOG_LEVEL_INFO, PSTR("BLIB: registered '%s' (argc=%d ret=%d) from module %d"),
-           r->name, r->argc, r->ret_type, module_idx + 1);
+    // Now safe to %s the name — it's a DRAM pointer.
+    AddLog(LOG_LEVEL_INFO,
+           PSTR("BLIB: registered '%s' fn=%p (argc=%d ret=%d) from module %d"),
+           r->name, r->fn, r->argc, r->ret_type, module_idx + 1);
   }
   AddLog(LOG_LEVEL_INFO, PSTR("BLIB: module %d added %d export(s); registry now %d/%d"),
          module_idx + 1, added, tc_blib_reg_count, TC_BLIB_REG_SIZE);
@@ -3641,6 +3711,66 @@ int32_t Init_module(uint32_t module) {
     return 1;
   }
   return 0;
+}
+
+// Console command: blibtest <name> <hex_data>
+//
+// Smoke-test a registered blib export by calling it with a buffer
+// parsed from the given hex string. Currently hard-wired to the
+// "buf, len → int" signature shared by the CRC functions in
+// xblib_01_crc — argc=2, ret_type=TC_RET_INT, arg_types=[BUF, INT, END].
+// Validates that the registered fn pointer is callable and produces
+// the expected result.
+//
+// Example:
+//   blibtest mb_crc16 01030200080A
+//     → expected result: 0x?? for that frame; cross-check with a
+//       known-good Modbus CRC calculator.
+//   blibtest crc8_dallas 28FF112233445566
+//     → 1-Wire CRC-8 of an 8-byte ROM ID.
+void Blib_test(void) {
+  char buf_in[64];
+  strlcpy(buf_in, XdrvMailbox.data ? XdrvMailbox.data : "", sizeof(buf_in));
+  // Split on first space: name <space> hex
+  char *sp = strchr(buf_in, ' ');
+  if (!sp) {
+    ResponseCmndChar((char*)"Usage: blibtest <name> <hex_bytes>");
+    return;
+  }
+  *sp = '\0';
+  const char *name = buf_in;
+  char *hex = sp + 1;
+  while (*hex == ' ') hex++;
+
+  TC_BLIB_REG_ENTRY *r = tc_blib_lookup(name);
+  if (!r) {
+    Response_P(PSTR("{\"blibtest\":\"unknown export '%s' (registered: %d)\"}"),
+               name, tc_blib_reg_count);
+    return;
+  }
+  // For the spike, only the (BUF, INT) → INT shape is supported. Validate.
+  if (r->argc != 2 || r->arg_types[0] != TC_ARG_BUF || r->arg_types[1] != TC_ARG_INT
+      || r->ret_type != TC_RET_INT) {
+    Response_P(PSTR("{\"blibtest\":\"only (buf,int)->int supported in this spike\"}"));
+    return;
+  }
+  // Parse hex_bytes (no separators, no 0x prefix; even chars per byte).
+  uint8_t bytes[64];
+  int len = 0;
+  while (hex[0] && hex[1] && len < (int)sizeof(bytes)) {
+    char hb[3] = { hex[0], hex[1], '\0' };
+    bytes[len++] = (uint8_t)strtol(hb, NULL, 16);
+    hex += 2;
+  }
+  // Call: cast fn pointer to the expected signature and invoke.
+  typedef int (*buf_int_fn)(uint8_t *, int);
+  int result = ((buf_int_fn)r->fn)(bytes, len);
+  // Widen hex to 32 bits so CRC-32 values aren't truncated; a mask
+  // by 0xFFFF on a CRC-32 result loses the high half and confused
+  // the first read-out (CRC-32 of "123456789" = 0xCBF43926, but a
+  // 16-bit hex showed "3926" only).
+  Response_P(PSTR("{\"blibtest\":{\"name\":\"%s\",\"len\":%d,\"result\":%d,\"hex\":\"%08x\"}}"),
+             name, len, result, (uint32_t)result);
 }
 
 // iniz 1 module
@@ -4321,7 +4451,14 @@ void Set_Module_Start(uint8_t slot, uint32_t start) {
 
 bool Module_upload_start(const char* upload_filename) {
   strlcpy(plugins.mod_name, upload_filename, sizeof(plugins.mod_name));
-  char *cp = strchr(plugins.mod_name, '_');
+  // Filename layout: <MODULE_NAME>_<arch>.bin (e.g. "I2SAUDIO_32.bin",
+  // "CRC_BLIB_32.bin", "DS18X20_32r.bin"). The arch suffix begins at
+  // the LAST underscore, so we strip from there, not the first one —
+  // module names are allowed to contain underscores themselves
+  // (e.g. CRC_BLIB). Using strchr(name, '_') stripped at the FIRST
+  // underscore and made same-named uploads of multi-underscore plugins
+  // accumulate as duplicate slots instead of replacing each other.
+  char *cp = strrchr(plugins.mod_name, '_');
   if (cp) {
     *cp = 0;
   }

@@ -54,7 +54,9 @@ typedef struct {
   uint8_t _unused;
 } MODULE_MEMORY;
 
-MODULE_DESCRIPTOR("CRC_BLIB", MODULE_TYPE_BLIB, 1<<16|0,
+// Revision must be >= MINREV (currently 0x00010004 in xdrv_123_plugins.ino).
+// Match the level of other shipping plugins (xdrv_42_i2s uses 1<<16|5).
+MODULE_DESCRIPTOR("CRC_BLIB", MODULE_TYPE_BLIB, 1<<16|5,
                   "", 0, "", 0, "", 0, "", 0)
 
 MODULE_PART int      blib_crc16_modbus(uint8_t *buf, int len);
@@ -118,20 +120,33 @@ uint8_t blib_crc8_dallas(uint8_t *buf, int len) {
 // addresses; the loader applies EXEC_OFFSET once per entry before
 // registering them in the global TinyC blib registry.
 //
+// CRITICAL: every const char* in the table MUST be a named PROGMEM array,
+// not an inline string literal. Inline literals (e.g. `"mb_crc16"`) end
+// up in `.flash.rodata` of the *builder firmware*, which doesn't exist
+// on the device — adding EXEC_OFFSET to such an address produces a wild
+// pointer (verified: crashed at 0x41a3ae23 on .39 with EXEC_OFFSET +
+// builder-rodata-addr). PROGMEM-decorated named arrays land in the
+// plugin's own `mod_string` section, alongside the rest of the plugin
+// binary, so EXEC_OFFSET correction yields a valid runtime address.
+//
 // arg_types padded with TC_ARG_END so the firmware's marshalling shim
 // can iterate without needing a separate length field.
+static const char NAME_MB_CRC16[]    PROGMEM = "mb_crc16";
+static const char NAME_CRC32[]       PROGMEM = "crc32";
+static const char NAME_CRC8_DALLAS[] PROGMEM = "crc8_dallas";
+
 const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
   // mb_crc16(buf[], len) → int
   // Note: TC_ARG_BUF takes ONE TinyC arg (the buffer name) but the
   // marshaller pushes (void*, int) onto the native stack, so the
   // accompanying "len" argument the user passes from TinyC IS the
   // *count* the native function uses — there's no double-counting.
-  { "mb_crc16",   (void *)blib_crc16_modbus, 2, TC_RET_INT,
-                  { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
-  { "crc32",      (void *)blib_crc32_iso,    2, TC_RET_INT,
-                  { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
-  { "crc8_dallas",(void *)blib_crc8_dallas,  2, TC_RET_INT,
-                  { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
+  { NAME_MB_CRC16,    (void *)blib_crc16_modbus, 2, TC_RET_INT,
+                      { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
+  { NAME_CRC32,       (void *)blib_crc32_iso,    2, TC_RET_INT,
+                      { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
+  { NAME_CRC8_DALLAS, (void *)blib_crc8_dallas,  2, TC_RET_INT,
+                      { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
   // Sentinel — name == NULL marks end of list.
   { NULL, NULL, 0, 0, { 0 } }
 };
