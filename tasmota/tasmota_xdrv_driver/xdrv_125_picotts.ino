@@ -87,8 +87,15 @@ extern "C" {
 
 #include <driver/i2s_std.h>
 #include <freertos/ringbuf.h>
+// WM8960 codec is gated separately — many ESP32-S3 audio boards use
+// codec-less DACs (MAX98357, PCM5102, UDA1334) that don't need any
+// I2C config; for those, leave USE_WM8960_CODEC undefined and the
+// driver skips the I2C dance entirely. Define USE_WM8960_CODEC in
+// platformio_override.ini's env build_flags if your board uses it.
+#ifdef USE_WM8960_CODEC
 #include <Wire.h>
 #include "wm8960.h"     // codec init + gain control (lib/lib_deprecated/wm8960)
+#endif
 #ifdef USE_UFILESYS
 extern FS *ffsp;       // Tasmota's LittleFS handle (mounted at boot
                        // when USE_UFILESYS is enabled).
@@ -324,6 +331,7 @@ static bool PicoTtsLazyInit() {
   if (picotts && picotts->init_failed) return false;
   if (!picotts) picotts = new PicoTtsRuntime();
 
+#ifdef USE_WM8960_CODEC
   // Step 1: bring up the WM8960 audio codec via I2C. Without this
   // sequence, BCLK/LRCLK/DOUT carry the data but the DAC silicon is
   // muted/asleep and no sound comes out the analog jack. Tasmota's
@@ -331,11 +339,17 @@ static bool PicoTtsLazyInit() {
   // the user has SDA/SCL configured before flashing this firmware.
   // Idempotent (i2c writes are pure register pokes) so we still gate
   // on codec_inited to avoid the ~1 ms hit on every TTS call.
+  //
+  // For boards with a codec-less I2S DAC (MAX98357A class-D amp,
+  // PCM5102, UDA1334), leave USE_WM8960_CODEC undefined — the
+  // BCLK/WS/DOUT signals are already self-clocking and the DAC starts
+  // converting on the first frame.
   if (!picotts->codec_inited) {
     W8960_Init(&Wire);
     picotts->codec_inited = true;
     AddLog(LOG_LEVEL_INFO, PSTR("PTT: WM8960 codec initialised on Wire (addr 0x1A)"));
   }
+#endif
 
   // Step 2: load language-specific voice data from LittleFS into PSRAM.
   // Both files (text-analysis + signal-generator) are required.
