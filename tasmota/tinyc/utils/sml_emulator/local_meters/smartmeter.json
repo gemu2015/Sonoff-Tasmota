@@ -1,0 +1,196 @@
+{
+  "smartmeter": [
+    {
+      "label": "(none)",
+      "filename": ""
+    },
+    {
+      "label": "ABB B-Series (like B21, B23) (M-Bus over Infrared port)",
+      "filename": "ABB/ABB B-Series (like B21, B23) (M-Bus over Infrared port).tas"
+    },
+    {
+      "label": "ABB B23 (MODBus)",
+      "filename": "ABB/ABB B23 (MODBus).tas"
+    },
+    {
+      "label": "AEConversion solar inverter INVXXX (RAW)",
+      "filename": "AEConversion/AEConversion solar inverter INVXXX (RAW).tas"
+    },
+    {
+      "label": "Apator 12EC3G",
+      "filename": "Apator/Apator 12EC3G.tas"
+    },
+    {
+      "label": "Apator Norax 1D+ (SML)",
+      "filename": "Apator/Apator Norax 1D+ (SML).tas"
+    },
+    {
+      "label": "Carlo Gavazzi EM340 (MODBus RTU)",
+      "filename": "Carlo/Carlo Gavazzi EM340 (MODBus RTU).tas"
+    },
+    {
+      "label": "DDM18SD (MODBus)",
+      "filename": "DDM18SD/DDM18SD (MODBus).tas"
+    },
+    {
+      "label": "DZG DWS76 (SML)",
+      "filename": "DZG/DZG DWS76 (SML).tas"
+    },
+    {
+      "label": "Digimeto GS303 (SML)",
+      "filename": "Digimeto/Digimeto GS303 (SML).tas"
+    },
+    {
+      "label": "EFR SGM-C2/C4/D4 (SML)",
+      "filename": "EFR/EFR SGM-C2_C4_D4 (SML).tas"
+    },
+    {
+      "label": "EMH DIZ-W1EL-00-KM0-0M-200010-E50/K (M-Bus)",
+      "filename": "EMH/EMH DIZ-W1EL-00-KM0-0M-200010-E50_K (M-Bus).tas"
+    },
+    {
+      "label": "EMH EIZ-GDWL739B (M-Bus)",
+      "filename": "EMH/EMH EIZ-GDWL739B (M-Bus).tas"
+    },
+    {
+      "label": "EMH eHZ Generation K (SML)",
+      "filename": "EMH/EMH eHZ Generation K (SML).tas"
+    },
+    {
+      "label": "EasyMeter Q1D (ASCII OBIS)",
+      "filename": "EasyMeter/EasyMeter Q1D (ASCII OBIS).tas"
+    },
+    {
+      "label": "Elster F96 Plus (Sharky 775) (Ditech Integral-V UltraLite PRO) M-Bus",
+      "filename": "Elster/Elster F96 Plus (Sharky 775) (Ditech Integral-V UltraLite PRO) M-Bus.tas"
+    },
+    {
+      "label": "Elster T510 (OBIS)",
+      "filename": "Elster/Elster T510 (OBIS).tas"
+    },
+    {
+      "label": "Fronius Symo 10.0-3-M (MODBus TCP)",
+      "filename": "Fronius/Fronius Symo 10.0-3-M (MODBus TCP).tas"
+    },
+    {
+      "label": "HUAWEI R4850G2 Lipo Charger (CANBus)",
+      "filename": "HUAWEI/HUAWEI R4850G2 Lipo Charger (CANBus).tas"
+    },
+    {
+      "label": "Huawei SUN2000-10KTL (MODBus)",
+      "filename": "Huawei/Huawei SUN2000-10KTL (MODBus).tas"
+    },
+    {
+      "label": "Iskra eHZ-MS2020 MT691-D4A52-KDy-H03 GRID",
+      "filename": "Iskra/Iskra eHZ-MS2020 MT691-D4A52-KDy-H03 GRID.tas"
+    },
+    {
+      "label": "Iskra eHZ-MT681-D4A51-K0p",
+      "filename": "Iskra/Iskra eHZ-MT681-D4A51-K0p.tas"
+    },
+    {
+      "label": "Iskra eHZ-MT681-D4A52-K0p",
+      "filename": "Iskra/Iskra eHZ-MT681-D4A52-K0p.tas"
+    },
+    {
+      "label": "Itron (SML V1.04)",
+      "filename": "Itron/Itron (SML V1.04).tas"
+    },
+    {
+      "label": "JANZ C3801 (MODBus)",
+      "filename": "JANZ/JANZ C3801 (MODBus).tas"
+    },
+    {
+      "label": "Janitza B23 (MODBus)",
+      "filename": "Janitza/Janitza B23 (MODBus).tas"
+    },
+    {
+      "label": "Kamstrup Multical M401",
+      "filename": "Kamstrup/Kamstrup Multical M401.tas"
+    },
+    {
+      "label": "Landis + Gyr ZMR120AReS2R2sfCS (OBIS)",
+      "filename": "Landis/Landis + Gyr ZMR120AReS2R2sfCS (OBIS).tas"
+    },
+    {
+      "label": "Logarex LK11BL (OBIS)",
+      "filename": "Logarex/Logarex LK11BL (OBIS).tas"
+    },
+    {
+      "label": "PZEM004T V30 multiple meters on Modbus",
+      "filename": "PZEM004T/PZEM004T V30 multiple meters on Modbus.tas"
+    },
+    {
+      "label": "PZEM004T V4.0 multiple meters on Modbus",
+      "filename": "PZEM004T/PZEM004T V4.0 multiple meters on Modbus.tas"
+    },
+    {
+      "label": "Resol Deltasol BS Plus (VBus)",
+      "filename": "Resol/Resol Deltasol BS Plus (VBus).tas"
+    },
+    {
+      "label": "SBC ALE3 (MODBus)",
+      "filename": "SBC/SBC ALE3 (MODBus).tas"
+    },
+    {
+      "label": "SBC ALE3 2x (MODBus)",
+      "filename": "SBC/SBC ALE3 2x (MODBus).tas"
+    },
+    {
+      "label": "SDM230 (MODBus)",
+      "filename": "SDM230/SDM230 (MODBus).tas"
+    },
+    {
+      "label": "SDM530 (MODBus)",
+      "filename": "SDM530/SDM530 (MODBus).tas"
+    },
+    {
+      "label": "SDM630 (MODBus)",
+      "filename": "SDM630/SDM630 (MODBus).tas"
+    },
+    {
+      "label": "SDM72D (MODBus)",
+      "filename": "SDM72D/SDM72D (MODBus).tas"
+    },
+    {
+      "label": "Sagemcom MA105/MA304 single phase/3-phase smart meter (OBIS ASCII)",
+      "filename": "Sagemcom/Sagemcom MA105_MA304 single phase_3-phase smart meter (OBIS ASCII).tas"
+    },
+    {
+      "label": "Sanxing SX6x1 (SxxU1x) (Ascii OBIS)",
+      "filename": "Sanxing/Sanxing SX6x1 (SxxU1x) (Ascii OBIS).tas"
+    },
+    {
+      "label": "Schneider iEM3150 (MODBus)",
+      "filename": "Schneider/Schneider iEM3150 (MODBus).tas"
+    },
+    {
+      "label": "Shelly PRO 3EM emulation",
+      "filename": "Shelly/Shelly PRO 3EM emulation.tas"
+    },
+    {
+      "label": "Siemens IM-350",
+      "filename": "Siemens/Siemens IM-350.tas"
+    },
+    {
+      "label": "Siemens IM-350 (RAW)",
+      "filename": "Siemens/Siemens IM-350 (RAW).tas"
+    },
+    {
+      "label": "Sorel LTDC (CANBus)",
+      "filename": "Sorel/Sorel LTDC (CANBus).tas"
+    },
+    {
+      "label": "Sorel XHCC (CANBus)",
+      "filename": "Sorel/Sorel XHCC (CANBus).tas"
+    },
+    {
+      "label": "Trovis 557x (MODBus)",
+      "filename": "Trovis/Trovis 557x (MODBus).tas"
+    },
+    {
+      "label": "WOLF CSZ 11/300 Heater (EBus)",
+      "filename": "WOLF/WOLF CSZ 11_300 Heater (EBus).tas"
+    }
+  ]
+}

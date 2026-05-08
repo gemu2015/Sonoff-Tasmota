@@ -733,25 +733,71 @@ async function loadRepoMeterList() {
   const status = document.getElementById('repoListStatus');
   const url    = repoMeterListUrl();
   status.textContent = 'Loading…';
+  sel.innerHTML = '<option value="">(pick a meter)</option>';
+  let upstreamCount = 0;
+  let localCount    = 0;
+  let upstreamErr   = null;
+
+  // Upstream (ottelo9 GitHub repo). May fail if offline; fall back to
+  // local-only in that case.
   try {
     const resp = await fetch(url, { mode: 'cors' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    sel.innerHTML = '<option value="">(pick a meter)</option>';
-    let count = 0;
     (data.smartmeter || []).forEach(m => {
       if (!m.filename) return;
       const opt = document.createElement('option');
-      opt.value = m.filename;
+      // "remote:" prefix tells loadRepoDescriptor to fetch from the
+      // upstream URL (vs. /local_meters/ on the emulator server).
+      opt.value = 'remote:' + m.filename;
       opt.textContent = m.label;
       sel.appendChild(opt);
-      count++;
+      upstreamCount++;
     });
-    status.textContent = `${count} meters loaded`;
-    status.style.color = '#7eb8f7';
   } catch (e) {
-    status.textContent = `Failed: ${e.message}`;
+    upstreamErr = e.message;
+  }
+
+  // Local — PDF-extracted descriptors not in the upstream repo. Bundled
+  // inside the .app under Contents/Resources/local_meters/. Skipped
+  // silently if the server doesn't expose them (i.e. running the raw
+  // HTML standalone instead of via the .app's Python wrapper).
+  try {
+    const resp = await fetch('/local_meters.json');
+    if (resp.ok) {
+      const data = await resp.json();
+      const items = (data.smartmeter || []).filter(m => m.filename);
+      if (items.length > 0) {
+        const sep = document.createElement('option');
+        sep.value = ''; sep.disabled = true;
+        sep.textContent = `── local (${items.length} PDF-only, missing from upstream) ──`;
+        sel.appendChild(sep);
+        items.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = 'local:' + m.filename;
+          opt.textContent = m.label;
+          sel.appendChild(opt);
+          localCount++;
+        });
+      }
+    }
+  } catch (e) {
+    // standalone HTML, no local-meters server — fine, just don't show them
+  }
+
+  const total = upstreamCount + localCount;
+  if (upstreamErr && localCount === 0) {
+    status.textContent = `Failed: ${upstreamErr}`;
     status.style.color = '#f44336';
+  } else if (upstreamErr) {
+    status.textContent = `${total} meters loaded (upstream failed; ${localCount} local-only)`;
+    status.style.color = '#ffb74d';
+  } else if (localCount > 0) {
+    status.textContent = `${total} meters loaded (${upstreamCount} upstream + ${localCount} local)`;
+    status.style.color = '#7eb8f7';
+  } else {
+    status.textContent = `${total} meters loaded`;
+    status.style.color = '#7eb8f7';
   }
 }
 
@@ -759,16 +805,26 @@ async function loadRepoDescriptor(filename) {
   if (!filename) {
     repoState = null;
     document.getElementById('repoConfigDisplay').style.display = 'none';
-    document.getElementById('repoDescriptorView').style.display = 'none';
     document.getElementById('repoValuesForm').style.display    = 'none';
     document.getElementById('repoUnsupported').style.display   = 'none';
     repoUpdateStartButton();
     return;
   }
   try { localStorage.setItem('sml_repo_last_meter', filename); } catch (e) {}
-  const base = (document.getElementById('inpRepoUrl').value || '').trim();
-  const url  = (base.endsWith('/') ? base : base + '/') +
-               filename.split('/').map(encodeURIComponent).join('/');
+
+  // Filename is prefixed by source:
+  //   "remote:<path>" → upstream ottelo9 repo (HTTPS to GitHub)
+  //   "local:<path>"  → /local_meters/<path> on this server (PDF extracted)
+  // Older saved selections (no prefix) default to remote.
+  let url;
+  if (filename.startsWith('local:')) {
+    url = '/local_meters/' + filename.substring(6).split('/').map(encodeURIComponent).join('/');
+  } else {
+    const path = filename.startsWith('remote:') ? filename.substring(7) : filename;
+    const base = (document.getElementById('inpRepoUrl').value || '').trim();
+    url = (base.endsWith('/') ? base : base + '/') +
+          path.split('/').map(encodeURIComponent).join('/');
+  }
   try {
     const resp = await fetch(url, { mode: 'cors' });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -781,7 +837,6 @@ async function loadRepoDescriptor(filename) {
     document.getElementById('repoConfigDisplayInner').textContent =
       `Failed to load descriptor: ${e.message}`;
     document.getElementById('repoConfigDisplay').style.display = '';
-    document.getElementById('repoDescriptorView').style.display = 'none';
   }
 }
 

@@ -1211,6 +1211,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == '/':
             self._serve_html()
+        # ── Local meter descriptors (PDF-extracted, missing from upstream
+        #    ottelo9/tasmota-sml-script). Bundled inside the .app under
+        #    Contents/Resources/local_meters/. Two endpoints:
+        #      /local_meters.json        → index in smartmeter.json shape
+        #      /local_meters/<vendor>/<file>.tas → raw .tas content
+        # ───────────────────────────────────────────────────────────────
+        elif path == '/local_meters.json':
+            self._serve_local_meter_index()
+        elif path.startswith('/local_meters/'):
+            self._serve_local_meter_file(path[len('/local_meters/'):])
         elif path == '/api/ports':
             self._json(list_ports())
         elif path == '/api/writeregs':
@@ -1352,6 +1362,52 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _serve_local_meter_index(self):
+        """Return the local_meters/smartmeter.json index. The browser merges
+        these with the upstream ottelo9 list so the dropdown shows both
+        sources. The index is a static file generated at build time from
+        the PDF-extracted descriptors."""
+        idx_path = os.path.join(os.path.dirname(HTML_FILE), 'local_meters', 'smartmeter.json')
+        try:
+            with open(idx_path, 'rb') as f:
+                data = f.read()
+            self.send_response(200)
+            self._cors()
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except FileNotFoundError:
+            # No local_meters folder bundled with this build — return empty
+            # index instead of 404 so the browser falls back to upstream-only.
+            self._json({'smartmeter': [{'label': '(none)', 'filename': ''}]})
+
+    def _serve_local_meter_file(self, rel_path):
+        """Serve a .tas file from local_meters/. rel_path is whatever
+        followed /local_meters/ in the request URL (already URL-decoded
+        upstream by urlparse)."""
+        from urllib.parse import unquote
+        rel = unquote(rel_path)
+        # Defence-in-depth: forbid path traversal. The static files all live
+        # within local_meters/ — anything trying to climb out is malicious.
+        if '..' in rel.split('/') or rel.startswith('/'):
+            self.send_response(403)
+            self.end_headers()
+            return
+        full = os.path.join(os.path.dirname(HTML_FILE), 'local_meters', rel)
+        try:
+            with open(full, 'rb') as f:
+                data = f.read()
+            self.send_response(200)
+            self._cors()
+            self.send_header('Content-Type', 'text/plain; charset=utf-8')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
 
     def _json(self, obj):
         data = json.dumps(obj).encode()
