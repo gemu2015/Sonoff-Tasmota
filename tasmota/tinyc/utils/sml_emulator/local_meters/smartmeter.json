@@ -149,6 +149,10 @@
       "filename": "SDM630/SDM630 (MODBus).tas"
     },
     {
+      "label": "SDM630 (Modbus TCP)",
+      "filename": "SDM630/SDM630 (Modbus TCP).tas"
+    },
+    {
       "label": "SDM72D (MODBus)",
       "filename": "SDM72D/SDM72D (MODBus).tas"
     },
