@@ -37,6 +37,16 @@ to doo:
 #include "./Plugins/modules_def.h"
 #include <TasmotaSerial.h>
 #include "TimeLib.h"
+
+#ifdef USE_PICOTTS
+// Pull in the picotts header so PlatformIO's library dependency finder
+// picks up lib/libesp32_div/pico/ and links the SVOX engine sources
+// into the firmware. The actual API calls live in tmod_picotts_*
+// wrappers further down (jumptable slots 209-214).
+extern "C" {
+#include "picotts.h"
+}
+#endif
 #ifdef ESP32
 // for `struct linger` / SOL_SOCKET / SO_LINGER used by jt[171] op 103
 // (client_setLinger). ESP8266 path doesn't expose setSocketOption().
@@ -493,6 +503,17 @@ double  tmod_floattidf(int64_t in);
 double  realloc_floatuntidf(uint64_t in);
 uint32_t GetNumGPIO(void);
 
+// PicoTTS jumptable shims — forward declarations needed BEFORE
+// MODULE_JUMPTABLE references them. Function-pointer types are spelled
+// out inline because Arduino's auto-prototyper doesn't see typedefs
+// defined further down in this .ino file.
+bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned count), int core);
+void tmod_picotts_add(const char *text, unsigned len);
+void tmod_picotts_shutdown(void);
+void tmod_picotts_set_idle_notify(void (*cb)(void));
+void tmod_picotts_set_error_notify(void (*cb)(void));
+void tmod_picotts_set_resources(const void *ta_ptr, const void *sg_ptr);
+
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
 }
@@ -779,8 +800,79 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_sinf,       // 205
   JMPTBL&tmod_cosf,       // 206
   JMPTBL&tmod_logf,       // 207
-  JMPTBL&tmod_sqrtf       // 208
+  JMPTBL&tmod_sqrtf,      // 208
+  // PicoTTS engine API — exposed at indices 209-214 so the BinPlugin
+  // (tasmota/Plugins/xdrv_42_i2s.cpp) can drive picotts directly.
+  // Slots stay reserved even when USE_PICOTTS isn't compiled in so
+  // plugin binary indexing is stable across firmware variants — the
+  // stubs return / no-op cleanly. The plugin owns its own runtime
+  // state (voice buffers, I2S TX, codec) and calls into firmware
+  // here only for the synthesis engine itself.
+  JMPTBL&tmod_picotts_init,                // 209
+  JMPTBL&tmod_picotts_add,                 // 210
+  JMPTBL&tmod_picotts_shutdown,            // 211
+  JMPTBL&tmod_picotts_set_idle_notify,     // 212
+  JMPTBL&tmod_picotts_set_error_notify,    // 213
+  JMPTBL&tmod_picotts_set_resources        // 214
 };
+
+// Engine prototypes come from lib/libesp32_div/pico/picotts.h, included
+// at the top of this file under USE_PICOTTS. The wrappers below add a
+// single layer of indirection that's trivially LTO-inlined when
+// USE_PICOTTS is on, and a no-op when it's off.
+
+// NOTE: Arduino's auto-prototype generator (which injects forward
+// declarations at the top of tasmota.ino.cpp) doesn't see typedefs
+// defined inside .ino files, so the function signatures below have to
+// spell out the function-pointer types explicitly. Don't replace with
+// `picotts_output_cb_t` / `picotts_notify_cb_t` — the build will fail
+// with "type not declared" against the auto-generated prototype block.
+bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned count), int core) {
+#ifdef USE_PICOTTS
+  return picotts_init(prio, cb, core);
+#else
+  (void)prio; (void)cb; (void)core;
+  return false;
+#endif
+}
+
+void tmod_picotts_add(const char *text, unsigned len) {
+#ifdef USE_PICOTTS
+  picotts_add(text, len);
+#else
+  (void)text; (void)len;
+#endif
+}
+
+void tmod_picotts_shutdown(void) {
+#ifdef USE_PICOTTS
+  picotts_shutdown();
+#endif
+}
+
+void tmod_picotts_set_idle_notify(void (*cb)(void)) {
+#ifdef USE_PICOTTS
+  picotts_set_idle_notify(cb);
+#else
+  (void)cb;
+#endif
+}
+
+void tmod_picotts_set_error_notify(void (*cb)(void)) {
+#ifdef USE_PICOTTS
+  picotts_set_error_notify(cb);
+#else
+  (void)cb;
+#endif
+}
+
+void tmod_picotts_set_resources(const void *ta_ptr, const void *sg_ptr) {
+#ifdef USE_PICOTTS
+  picotts_set_resources(ta_ptr, sg_ptr);
+#else
+  (void)ta_ptr; (void)sg_ptr;
+#endif
+}
 
 
 uint32_t GetNumGPIO(void) {

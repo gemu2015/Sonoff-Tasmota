@@ -36,6 +36,7 @@ codec settings access
 
 #ifdef ESP32
   #define USE_PSHINE
+  #define USE_PICOTTS
 #endif
 
 #include "module.h"
@@ -168,6 +169,27 @@ typedef struct {
   SAM_RENDER *samrender;
 #endif
 
+#ifdef USE_PICOTTS
+  // PicoTTS runtime — text-to-speech via SVOX picotts (Apache 2.0).
+  // Voice files (~0.9–1.4 MB per language) live on LittleFS; when the
+  // first I2STTS is issued we lazy-load them into PSRAM, hand the
+  // pointers to the picotts engine via picotts_set_resources(), then
+  // start the picotts FreeRTOS task. Codec / I2S TX channel / pins are
+  // already owned by this plugin — picotts piggy-backs on Write_Samples().
+  bool picotts_initialized;
+  bool picotts_init_failed;
+  volatile uint32_t picotts_last_audio_ms; // heartbeat from audio_cb,
+                                            // used to detect "synthesis
+                                            // done" without racing the
+                                            // picotts engine's own idle
+                                            // signal
+  uint8_t *picotts_ta_buf;                  // text-analysis voice in PSRAM
+  uint32_t picotts_ta_size;
+  uint8_t *picotts_sg_buf;                  // signal-generator voice
+  uint32_t picotts_sg_size;
+  char picotts_lang[8];                     // e.g. "en-US", "de-DE"
+#endif
+
   I2S_PARS i2sp;
 
 } MODULE_MEMORY;
@@ -219,6 +241,17 @@ typedef struct {
 #define tx_ready mem->tx_ready
 #define cmd_param mem->cmd_param
 #define codec_bus mem->codec_bus
+
+#ifdef USE_PICOTTS
+#define picotts_initialized   mem->picotts_initialized
+#define picotts_init_failed   mem->picotts_init_failed
+#define picotts_last_audio_ms mem->picotts_last_audio_ms
+#define picotts_ta_buf        mem->picotts_ta_buf
+#define picotts_ta_size       mem->picotts_ta_size
+#define picotts_sg_buf        mem->picotts_sg_buf
+#define picotts_sg_size       mem->picotts_sg_size
+#define picotts_lang          mem->picotts_lang
+#endif
 
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
@@ -308,6 +341,14 @@ MODULE_PART void Write_Samples(int16_t *buffer, uint32_t samples);
 MODULE_PART void I2sWrShow(bool json);
 MODULE_PART int32_t i2s_script_cmd(uint32_t sel);
 MODULE_PART void I2SAudio_Deinit();
+#ifdef USE_PICOTTS
+MODULE_PART void Cmnd_TTS(void);
+MODULE_PART void Cmnd_TTSLang(void);
+MODULE_PART void picotts_audio_cb(int16_t *samples, unsigned count);
+MODULE_PART void picotts_idle_cb(void);
+MODULE_PART void picotts_error_cb(void);
+MODULE_PART void PicoShutdownEngine(void);
+#endif
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
@@ -405,8 +446,21 @@ const char S_JSON_WMERR[] PROGMEM = "{\"Codec error\"}";
 #endif
 
 const char tname[] PROGMEM = "I2STASK";
-const uint32_t ui32_const[7] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE,0x7fffffff,I2S_BRIDGE_BUFFER_SIZE,16000}; 
-const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, RENDER_SIZE, 37541, 32000, 44100}; 
+const uint32_t ui32_const[7] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE,0x7fffffff,I2S_BRIDGE_BUFFER_SIZE,16000};
+const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, RENDER_SIZE, 37541, 32000, 44100};
+
+#ifdef USE_PICOTTS
+// Large constants the picotts code path uses. Kept in PROGMEM because
+// values >12 bits compile to fixsfti(<imm>) on Xtensa, which is broken
+// in the BinPlugin build environment (see PIC linker note in
+// MEMORY.md). Loaded via `picp[N] + EXEC_OFFSET` like the other
+// const arrays in this file.
+//   [0] PCM sample rate (Hz)
+//   [1] hard ceiling for one I2STTS call (ms)
+//   [2] max accepted voice-file size (bytes)
+const uint32_t pico_uconst[3] PROGMEM = {16000, 60000, 2 * 1024 * 1024};
+#endif
+
 
 #define GET_OBS ucp[0]
 #define GET_IBS ucp[3]
@@ -1897,6 +1951,297 @@ void Say(void) {
 #endif
 }
 
+// =====================================================================
+// PicoTTS (SVOX, Apache 2.0) — text-to-speech via the existing I2S TX
+// channel. Engine sources live in lib/libesp32_div/pico/ and are pulled
+// in by the firmware build when USE_PICOTTS is defined; the firmware
+// exposes a 6-entry slice of the engine API on the BinPlugin jumptable
+// (slots 209..214), reached via the picotts_init / picotts_add /
+// picotts_set_resources / etc. macros from module_defines.h.
+//
+// We do NOT include picotts.h here: it would conflict with the function-
+// like jumptable macros (a `void picotts_init(...)` prototype gets eaten
+// by `#define picotts_init jpicotts_init`). Instead, the few engine
+// types we touch are inlined.
+//
+// The codec, I2S TX pins, channel setup, AudioPwr, and gain/clamp are
+// all already owned by this plugin — picotts piggy-backs on them, calls
+// Write_Samples() from its FreeRTOS task, and never opens its own I2S
+// channel. Languages live on LittleFS as picotts_<code>_ta.bin and
+// picotts_<code>_sg.bin pairs (~0.9–1.4 MB per language); the I2STTSLang
+// command tears down the engine, frees the old voice from PSRAM, loads
+// the new pair, and re-inits — no reflash needed to switch language.
+// =====================================================================
+#ifdef USE_PICOTTS
+
+// Indices into pico_uconst[] (defined near i32_const, kept in PROGMEM
+// so values >12 bits don't go through Xtensa's broken fixsfti() path).
+#define PICO_K_SRATE_HZ    0   // 16000
+#define PICO_K_MAX_WAIT    1   // 60000 ms hard ceiling per I2STTS call
+#define PICO_K_MAX_VOICE   2   //  2 MiB max accepted voice file size
+#define PICO_GET_UCP \
+  const uint32_t *picp = (const uint32_t *) ((uint8_t *)pico_uconst + EXEC_OFFSET)
+
+#ifndef PICOTTS_DEFAULT_LANG
+#define PICOTTS_DEFAULT_LANG  "en-US"
+#endif
+
+// Hand-rolled size constant: `sizeof(mem->picotts_lang)` would
+// double-expand through the field macro into
+// `sizeof(mem->mem->picotts_lang)` and fail to compile. Keep this in
+// sync with the array width in MODULE_MEMORY (`char picotts_lang[8]`).
+#define PICOTTS_LANG_SZ 8
+
+// How long to keep waiting for a fresh batch of samples after the last
+// audio_cb fired. picotts emits in ~50–200 ms bursts depending on
+// sentence density; 500 ms of silence is a safe "synthesis is done".
+// Stays as a literal — fits in 12 bits, so the compiler emits an
+// `addmi`/`movi` immediate and skips the broken fixsfti() path.
+#define PICOTTS_IDLE_GAP_MS    500
+// The hard ceiling per I2STTS call (60000 ms) lives in pico_uconst[]
+// because it doesn't fit in 12 bits. See PICO_K_MAX_WAIT.
+
+// Read a file from LittleFS into a freshly-allocated PSRAM buffer via
+// the plugin's jfile_* / special_malloc jumptable shims. Returns true
+// on success; on failure, leaves *buf=NULL and logs the reason.
+MODULE_PART bool PicoLoadVoice(const char *path, uint8_t **buf, uint32_t *size) {
+  SETREGS
+  PICO_GET_UCP;
+  *buf = NULL; *size = 0;
+  void *f = jfile_open(path, 'r');
+  if (!f) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: open(%s) failed (upload via /ufsu)"), path);
+    return false;
+  }
+  uint32_t sz = jfile_size(f);
+  if (sz < 16 || sz > picp[PICO_K_MAX_VOICE]) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: %s size %u out of range (16..2 MB)"),
+           path, (unsigned)sz);
+    jfile_close(f);
+    return false;
+  }
+  // special_malloc prefers PSRAM on this build target — voice files are
+  // 500 KB–1 MB each, too big for internal SRAM.
+  uint8_t *p = (uint8_t *)special_malloc(sz);
+  if (!p) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: PSRAM alloc %u B for %s failed"),
+           (unsigned)sz, path);
+    jfile_close(f);
+    return false;
+  }
+  int32_t got = jfile_read(f, p, sz);
+  jfile_close(f);
+  if (got != (int32_t)sz) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: short read %d/%u from %s"),
+           (int)got, (unsigned)sz, path);
+    free(p);
+    return false;
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("PTT: loaded %s (%u B) → PSRAM"),
+         path, (unsigned)sz);
+  *buf  = p;
+  *size = sz;
+  return true;
+}
+
+// audio_cb runs on the picotts FreeRTOS task. The TX channel is set up
+// for mono (chans=1, see Cmnd_TTS), so we hand the samples straight to
+// Write_Samples — it applies gain/clamp and forwards via
+// i2s_write_samples_t. DMA backpressure from i2s_channel_write throttles
+// the picotts engine naturally, so no ring buffer is needed.
+MODULE_PART void picotts_audio_cb(int16_t *samples, unsigned count) {
+  SETREGS
+  if (!count || !samples) return;
+  picotts_last_audio_ms = millis();
+  Write_Samples(samples, count);
+}
+
+MODULE_PART void picotts_idle_cb(void) {
+  SETREGS
+  // No state to flip — last_audio_ms heartbeat is what the foreground
+  // command waits on. Logged at debug level only; the engine fires
+  // idle whenever its input queue drains, including between sentences.
+  AddLog(LOG_LEVEL_DEBUG, PSTR("PTT: synthesis idle"));
+}
+
+MODULE_PART void picotts_error_cb(void) {
+  SETREGS
+  AddLog(LOG_LEVEL_ERROR, PSTR("PTT: engine task aborted"));
+  // Force a re-init on next call. The engine task has already exited
+  // by the time this fires.
+  picotts_initialized = false;
+  picotts_init_failed = false;
+}
+
+// Tear down the engine + voice buffers. Codec / I2S / pins are
+// untouched (owned by the plugin lifecycle).
+MODULE_PART void PicoShutdownEngine(void) {
+  SETREGS
+  if (picotts_initialized) {
+    picotts_shutdown();
+    picotts_initialized = false;
+  }
+  picotts_set_resources(NULL, NULL);
+  if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; picotts_ta_size = 0; }
+  if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; picotts_sg_size = 0; }
+}
+
+// Lazy-init: load voice from LittleFS, register notify cbs, start the
+// picotts FreeRTOS task. Re-runs after a language switch.
+MODULE_PART bool PicoLazyInit(void) {
+  SETREGS
+  if (picotts_initialized) return true;
+  if (picotts_init_failed) return false;
+
+  // Default language on first init. PSTR is mandatory for string
+  // literals here — plugin literals need EXEC_OFFSET to resolve into
+  // the loaded module's address space; without it strncpy reads from
+  // an unmapped firmware-side address and silently produces an empty
+  // result (was reported as `/picotts__ta.bin failed`).
+  if (picotts_lang[0] == 0) {
+    strncpy(picotts_lang, PSTR(PICOTTS_DEFAULT_LANG), PICOTTS_LANG_SZ - 1);
+    picotts_lang[PICOTTS_LANG_SZ - 1] = '\0';
+  }
+
+  char ta_path[40], sg_path[40];
+  snprintf_P(ta_path, sizeof(ta_path), PSTR("/picotts_%s_ta.bin"), picotts_lang);
+  snprintf_P(sg_path, sizeof(sg_path), PSTR("/picotts_%s_sg.bin"), picotts_lang);
+  if (!PicoLoadVoice(ta_path, &picotts_ta_buf, &picotts_ta_size) ||
+      !PicoLoadVoice(sg_path, &picotts_sg_buf, &picotts_sg_size)) {
+    if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; }
+    if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; }
+    picotts_init_failed = true;
+    return false;
+  }
+
+  // Hand voice pointers to the engine BEFORE picotts_init — its
+  // internal find_*_bin_start() will pick them up.
+  picotts_set_resources(picotts_ta_buf, picotts_sg_buf);
+
+  // Function pointers passed across the binplugin boundary need
+  // EXEC_OFFSET applied so the firmware sees the actual code address.
+  uint8_t *acb = (uint8_t *)picotts_audio_cb; acb += EXEC_OFFSET;
+  uint8_t *icb = (uint8_t *)picotts_idle_cb;  icb += EXEC_OFFSET;
+  uint8_t *ecb = (uint8_t *)picotts_error_cb; ecb += EXEC_OFFSET;
+
+  picotts_set_idle_notify ((void (*)(void)) icb);
+  picotts_set_error_notify((void (*)(void)) ecb);
+
+  if (!picotts_init(5, (void (*)(int16_t *, unsigned)) acb, -1)) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: picotts_init failed"));
+    picotts_set_resources(NULL, NULL);
+    if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; }
+    if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; }
+    picotts_init_failed = true;
+    return false;
+  }
+
+  picotts_initialized = true;
+  AddLog(LOG_LEVEL_INFO, PSTR("PTT: ready (lang=%s, voice=%u+%u B from FS)"),
+         picotts_lang,
+         (unsigned)picotts_ta_size, (unsigned)picotts_sg_size);
+  return true;
+}
+
+// I2STTS <utf-8 text> — synthesise + play once.
+void Cmnd_TTS(void) {
+  SETREGS
+  PICO_GET_UCP;
+
+  if (XdrvMailbox->data_len <= 0) {
+    ResponseCmndChar((char *)"Usage: I2STTS <utf8 text>");
+    return;
+  }
+  if (ChkBusy()) {
+    return;
+  }
+  if (!PicoLazyInit()) {
+    ResponseCmndChar((char *)"PTT: init failed (need voice files on FS)");
+    return;
+  }
+
+  // Set up the TX channel for picotts's native rate. chans=1 +
+  // force_mono mirrors the SAM Say() pattern; the codec consumes the
+  // single sample per WS edge and Write_Samples runs the gain/clamp
+  // path on each int16.
+  i2s_busy = true;
+  chans = 1;
+  force_mono = 1;
+  srate = picp[PICO_K_SRATE_HZ];
+  I2S_SetRate(picp[PICO_K_SRATE_HZ], 1, 1);
+  AudioPwr(1);
+  running = true;
+  I2S_Enable(1);
+
+  // Prime the heartbeat so the wait-loop below doesn't think we're
+  // already done before the first audio_cb fires.
+  picotts_last_audio_ms = millis();
+
+  // Submit text + a NUL terminator so picotts treats this as a complete
+  // sentence and starts emitting promptly (rather than buffering until
+  // the next call).
+  picotts_add(XdrvMailbox->data, XdrvMailbox->data_len);
+  static const char nul = '\0';
+  picotts_add(&nul, 1);
+
+  // Wait for synthesis + drain. picotts_last_audio_ms gets bumped from
+  // the engine task on every burst. When it hasn't been bumped for
+  // PICOTTS_IDLE_GAP_MS we're done.
+  uint32_t start = millis();
+  while ((millis() - picotts_last_audio_ms) < PICOTTS_IDLE_GAP_MS) {
+    delay(20);
+    if ((millis() - start) > picp[PICO_K_MAX_WAIT]) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("PTT: timeout after %u ms"),
+             (unsigned)(millis() - start));
+      break;
+    }
+  }
+
+  I2S_Wait_Ready();
+  I2S_Enable(0);
+  running = false;
+  AudioPwr(0);
+  i2s_busy = false;
+
+  ResponseCmndChar(XdrvMailbox->data);
+}
+
+// I2STTSLang <code>      switch language ("en-US", "de-DE", "it-IT", …)
+// I2STTSLang             show currently-loaded language
+void Cmnd_TTSLang(void) {
+  SETREGS
+
+  if (XdrvMailbox->data_len <= 0) {
+    Response_P(PSTR("{\"%s\":\"%s\"}"),
+               XdrvMailbox->command,
+               picotts_lang[0] ? picotts_lang : PSTR(PICOTTS_DEFAULT_LANG));
+    return;
+  }
+  // Codes are 5 chars (e.g. "en-US"); allow 7 + NUL for variants.
+  if (strlen(XdrvMailbox->data) >= PICOTTS_LANG_SZ) {
+    ResponseCmndChar((char *)"PTT: language code too long");
+    return;
+  }
+  if (strcmp(picotts_lang, XdrvMailbox->data) == 0 && picotts_initialized) {
+    Response_P(PSTR("{\"%s\":\"%s\"}"),
+               XdrvMailbox->command, picotts_lang);
+    return;
+  }
+  // Tear down current engine + voice. Codec stays initialised. Engine
+  // re-init happens eagerly so we can report success/failure synchronously.
+  PicoShutdownEngine();
+  picotts_init_failed = false;
+  strncpy(picotts_lang, XdrvMailbox->data, PICOTTS_LANG_SZ - 1);
+  picotts_lang[PICOTTS_LANG_SZ - 1] = '\0';
+  if (!PicoLazyInit()) {
+    ResponseCmndChar((char *)"PTT: voice load failed (check /picotts_<lang>_ta.bin and _sg.bin on FS)");
+    return;
+  }
+  Response_P(PSTR("{\"%s\":\"%s\"}"), XdrvMailbox->command, picotts_lang);
+}
+
+#endif  // USE_PICOTTS
+
 #ifdef USE_WEBRADIO
 
 #ifdef ESP32
@@ -2191,13 +2536,19 @@ const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
     "play|vol|say|wr|"
 #ifdef USE_MIC
-    "gain|rec|stop|bridge|stream"
+    "gain|rec|stop|bridge|stream|"
+#endif
+#ifdef USE_PICOTTS
+    "tts|ttslang|"
 #endif
     "";
 
 void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio
 #ifdef USE_MIC
 ,&SetGain,&StartMicRec,&StopMicRec,&I2SBridge,&Stream_enable
+#endif
+#ifdef USE_PICOTTS
+,&Cmnd_TTS,&Cmnd_TTSLang
 #endif
 };
 
@@ -2220,10 +2571,17 @@ SETREGS
 
 void I2SAudio_Deinit() {
   SETREGS
+#ifdef USE_PICOTTS
+  // Shut down picotts before tearing down the I2S channel: the engine
+  // task can still be mid-utterance and would call back into a closed
+  // i2sp via Write_Samples. PicoShutdownEngine() also frees the voice
+  // buffers from PSRAM and clears the runtime override pointers.
+  PicoShutdownEngine();
+#endif
 #ifdef USE_MP3
   MP3Decoder_FreeBuffers();
   if (m_outBuff) free(m_outBuff);
-  if (m_inBuff) free(m_inBuff);  
+  if (m_inBuff) free(m_inBuff);
 #endif
   i2s_end_t(&i2sp);
 #ifdef USE_AUDIO_CODECS

@@ -289,6 +289,17 @@ typedef struct {
 #define jlogf(A)                         (( float (*)(float))                            jt[207])(A)
 #define jsqrtf(A)                        (( float (*)(float))                            jt[208])(A)
 
+// PicoTTS engine API — exposed by firmware lib/libesp32_div/pico/.
+// Plugin code calls picotts_init/picotts_add/etc. naturally; macros at
+// the bottom of this file remap to the j-prefixed versions which go
+// through the jumptable.
+#define jpicotts_init(P,C,A)             (( bool (*)(unsigned, void(*)(int16_t*,unsigned), int) ) jt[209])(P,C,A)
+#define jpicotts_add(T,L)                (( void (*)(const char*, unsigned) )                    jt[210])(T,L)
+#define jpicotts_shutdown()              (( void (*)(void) )                                     jt[211])()
+#define jpicotts_set_idle_notify(C)      (( void (*)(void(*)(void)) )                            jt[212])(C)
+#define jpicotts_set_error_notify(C)     (( void (*)(void(*)(void)) )                            jt[213])(C)
+#define jpicotts_set_resources(T,S)      (( void (*)(const void*, const void*) )                 jt[214])(T,S)
+
 // float negation via sign-bit XOR (no intrinsic needed, 1u<<31 is PIC-safe)
 #define fneg(a) ({ float _fneg_tmp = (a); *(uint32_t*)&_fneg_tmp ^= (1u << 31); _fneg_tmp; })
 
@@ -1102,6 +1113,15 @@ typedef union {
 #define special_malloc jspecial_malloc
 #define ResponseCmndChar jResponseCmndChar
 #define Plugin_Get_SensorNames jPlugin_Get_SensorNames
+
+// PicoTTS — alias the natural names so plugin code uses
+// `picotts_init(...)` etc. and they expand through the jumptable.
+#define picotts_init             jpicotts_init
+#define picotts_add              jpicotts_add
+#define picotts_shutdown         jpicotts_shutdown
+#define picotts_set_idle_notify  jpicotts_set_idle_notify
+#define picotts_set_error_notify jpicotts_set_error_notify
+#define picotts_set_resources    jpicotts_set_resources
 
 #define __divsi3 jtmod__divsi3
 #define __udivsi3 jtmod__udivsi3

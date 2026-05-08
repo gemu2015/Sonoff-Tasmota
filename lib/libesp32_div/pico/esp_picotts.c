@@ -25,6 +25,40 @@
 
 #define IDLE_WAIT_COUNT 5
 
+// ─── Tasmota: defensive defaults for upstream Kconfig macros ─────────
+// The upstream DiUS port relies on Kconfig (idf.py menuconfig) to set
+// these. Under PlatformIO/Tasmota we expose them as build flags; if
+// the user only defines USE_PICOTTS without the helper flags the
+// library would fail to compile (CONFIG_PICOTTS_INPUT_QUEUE_SIZE) or
+// link with garbage partition names. Defaults below match the values
+// recommended in platformio_snippet.ini and let -DUSE_PICOTTS work
+// standalone.
+//
+// Override in your env's build_flags to tune:
+//   -DCONFIG_PICOTTS_INPUT_QUEUE_SIZE=N      (UTF-8 char queue depth)
+//   '-DCONFIG_PICOTTS_TA_PARTITION="..."'    (only used if you wire
+//   '-DCONFIG_PICOTTS_SG_PARTITION="..."'     up a real partition mode;
+//                                              the runtime override
+//                                              path doesn't read these)
+#ifndef CONFIG_PICOTTS_INPUT_QUEUE_SIZE
+// 256 chars matches the upstream Kconfig default — fine for short
+// status announcements, may briefly block picotts_add() on long input.
+// Bump to 1024 if you regularly synthesise full sentences and want
+// I2STTS to return immediately.
+#define CONFIG_PICOTTS_INPUT_QUEUE_SIZE 256
+#endif
+#ifndef CONFIG_PICOTTS_TA_PARTITION
+// Placeholder — only referenced inside the partition-mode #else branch
+// of the resource loader. The runtime-override path
+// (picotts_set_resources) bypasses partition lookup entirely; if a
+// partition with this name doesn't exist the lookup silently returns
+// NULL and the override pointer wins.
+#define CONFIG_PICOTTS_TA_PARTITION "picotts_ta"
+#endif
+#ifndef CONFIG_PICOTTS_SG_PARTITION
+#define CONFIG_PICOTTS_SG_PARTITION "picotts_sg"
+#endif
+
 static picotts_output_fn outputCb;
 static picotts_error_notify_fn errorCb;
 static picotts_idle_notify_fn idleCb;
