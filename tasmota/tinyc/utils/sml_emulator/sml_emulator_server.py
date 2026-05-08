@@ -1260,21 +1260,17 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == '/':
             self._serve_html()
-        # ── Local meter descriptors (PDF-extracted, formerly missing from
-        #    upstream ottelo9/tasmota-sml-script). All of our additions
-        #    have since been accepted upstream, so the local_meters/
-        #    folder is no longer shipped — these endpoints stay as
-        #    graceful no-ops:
-        #      * `/local_meters.json` returns an empty index (handled
-        #        in _serve_local_meter_index when the file is missing),
-        #        so the browser falls back to upstream-only without
-        #        showing an error.
-        #      * `/local_meters/<…>` 404s, which only matters if a user
-        #        has an old `local:`-prefixed selection cached in
-        #        localStorage; they re-pick from the dropdown and it
-        #        resolves cleanly to the upstream entry.
-        #    Kept (rather than removed) so future PDF-only additions
-        #    can be reintroduced without re-plumbing the routes.
+        # ── Local meter descriptors (PDF-extracted, supplements upstream
+        #    ottelo9/tasmota-sml-script). Two endpoints:
+        #      * `/local_meters.json` — index of bundled descriptors
+        #        (see _serve_local_meter_index for the three outcomes:
+        #        curated JSON, auto-discovered tree, or empty index).
+        #      * `/local_meters/<vendor>/<file>.tas` — raw .tas content.
+        #    As of the upstream PR merge, all of our previous additions
+        #    are now in ottelo9, so the folder ships empty and these
+        #    endpoints behave as no-ops. Drop a new `.tas` file into
+        #    `local_meters/<vendor>/` to bring local-only descriptors
+        #    back without re-plumbing — auto-discovery picks them up.
         # ───────────────────────────────────────────────────────────────
         elif path == '/local_meters.json':
             self._serve_local_meter_index()
@@ -1456,29 +1452,69 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _serve_local_meter_index(self):
-        """Return the local_meters/smartmeter.json index. Originally the
-        browser merged this with the upstream ottelo9 list so the
-        dropdown could show PDF-only descriptors that hadn't yet made it
-        into the upstream repo. As of the upstream merge those have all
-        landed in ottelo9/tasmota-sml-script, so the local_meters/
-        folder is no longer shipped and this endpoint silently returns
-        an empty index — the browser then shows upstream entries only.
-        Kept on the route table so the no-prefix path resolves cleanly
-        and so future PDF-only additions are easy to reintroduce."""
-        idx_path = os.path.join(os.path.dirname(HTML_FILE), 'local_meters', 'smartmeter.json')
-        try:
-            with open(idx_path, 'rb') as f:
-                data = f.read()
-            self.send_response(200)
-            self._cors()
-            self.send_header('Content-Type', 'application/json; charset=utf-8')
-            self.send_header('Content-Length', str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-        except FileNotFoundError:
-            # No local_meters folder bundled with this build — return empty
-            # index instead of 404 so the browser falls back to upstream-only.
-            self._json({'smartmeter': [{'label': '(none)', 'filename': ''}]})
+        """Return the index of locally-bundled meter descriptors. Three
+        possible outcomes, in priority order:
+
+        1. `local_meters/smartmeter.json` exists → serve it verbatim
+           (curated index with friendly labels, matches the upstream
+           ottelo9 format).
+        2. `local_meters/` exists and contains *.tas files but no
+           index.json → auto-discover the tree and synthesize the
+           index on the fly. Useful during development: drop a new
+           `.tas` file in a vendor folder and it appears in the
+           dropdown immediately, without needing to edit JSON.
+        3. Folder absent or empty → return an empty index (with a
+           single "(none)" entry) so the browser falls back to
+           upstream-only without an error.
+
+        As of the upstream PR merge, all our previously-PDF-only
+        descriptors landed in ottelo9/tasmota-sml-script, so the
+        bundled folder ships empty by default. The endpoint stays
+        wired up so new PDF-extracted descriptors can be reintroduced
+        — just drop them in (1) or (2) — without touching the route
+        table or the loader."""
+        base_dir = os.path.join(os.path.dirname(HTML_FILE), 'local_meters')
+        idx_path = os.path.join(base_dir, 'smartmeter.json')
+
+        # Outcome 1: curated index file present.
+        if os.path.isfile(idx_path):
+            try:
+                with open(idx_path, 'rb') as f:
+                    data = f.read()
+                self.send_response(200)
+                self._cors()
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            except OSError:
+                pass  # fall through to auto-discovery
+
+        # Outcome 2: auto-discover *.tas files in vendor subdirectories.
+        # Label = filename without the .tas extension (good enough for
+        # the dropdown; user can rename the file for a cleaner label).
+        if os.path.isdir(base_dir):
+            entries = [{'label': '(none)', 'filename': ''}]
+            try:
+                for vendor in sorted(os.listdir(base_dir)):
+                    vdir = os.path.join(base_dir, vendor)
+                    if not os.path.isdir(vdir):
+                        continue
+                    for fname in sorted(os.listdir(vdir)):
+                        if not fname.endswith('.tas'):
+                            continue
+                        rel   = f'{vendor}/{fname}'
+                        label = fname[:-4]
+                        entries.append({'label': label, 'filename': rel})
+                if len(entries) > 1:
+                    self._json({'smartmeter': entries})
+                    return
+            except OSError:
+                pass  # fall through to empty index
+
+        # Outcome 3: no folder, empty folder, or only non-.tas files.
+        self._json({'smartmeter': [{'label': '(none)', 'filename': ''}]})
 
     def _serve_local_meter_file(self, rel_path):
         """Serve a .tas file from local_meters/. rel_path is whatever
