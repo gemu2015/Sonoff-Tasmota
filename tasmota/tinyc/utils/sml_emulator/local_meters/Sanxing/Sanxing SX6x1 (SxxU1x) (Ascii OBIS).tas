@@ -27,5 +27,24 @@
 1,1-0:7.7.0(@1,Reactive power QIII,kvar,pwr_reac_q3,3
 1,1-0:8.7.0(@1,Reactive power QIV,kvar,pwr_reac_q4,3
 1,=h<hr/>
-1,=hPrevious month stats: %r%1:1,Energy import,kWh,mo_enrg_imp,3 %r%2:1,Energy import T1,kWh,mo_enrg_impt1,3 %r%3:1,Energy import T2,kWh,mo_enrg_impt2,3 %r%4:1,Energy export,kWh,mo_enrg_exp,3 %r%5:1,Energy export T1,kWh,mo_enrg_expt1,3 %r%6:1,Energy export T2,kWh,mo_enrg_expt2,3 %r%7:1,Reactive nrg import,kvarh,mo_nrg_reac_imp,3 %r%8:1,Reactive nrg export,kvarh,mo_nrg_reac_exp,3 %r%9:1,Reactive energy QI,kvarh,mo_nrg_reac_q1,3 %r%10:1,Reactive energy QII,kvarh,mo_nrg_reac_q2,3 %r%11:1,Reactive energy QIII,kvarh,mo_nrg_reac_q3,3 %r%12:1,Reactive energy QIV,kvarh,mo_nrg_reac_q4,3 %r%13:1,Reactive energy SUM?,kvarh,mo_nrg_reac_sum,3 %r%14:1,Peak power import L1,kW,mo_pw_pk_in_l1,3 %r%15:1,Peak power import L2,kW,mo_pw_pk_in_l2,3 %r%16:1,Peak power import L3,kW,mo_pw_pk_in_l3,3 %r%17:1,Peak power export L1,kW,mo_pw_pk_ex_l1,3 %r%18:1,Peak power export L2,kW,mo_pw_pk_ex_l2,3 %r%19:1,Peak power export L3,kW,mo_pw_pk_ex_l3,3
+1,=hPrevious month stats:
+1:1,Energy import,kWh,mo_enrg_imp,3
+2:1,Energy import T1,kWh,mo_enrg_impt1,3
+3:1,Energy import T2,kWh,mo_enrg_impt2,3
+4:1,Energy export,kWh,mo_enrg_exp,3
+5:1,Energy export T1,kWh,mo_enrg_expt1,3
+6:1,Energy export T2,kWh,mo_enrg_expt2,3
+7:1,Reactive nrg import,kvarh,mo_nrg_reac_imp,3
+8:1,Reactive nrg export,kvarh,mo_nrg_reac_exp,3
+9:1,Reactive energy QI,kvarh,mo_nrg_reac_q1,3
+10:1,Reactive energy QII,kvarh,mo_nrg_reac_q2,3
+11:1,Reactive energy QIII,kvarh,mo_nrg_reac_q3,3
+12:1,Reactive energy QIV,kvarh,mo_nrg_reac_q4,3
+13:1,Reactive energy SUM?,kvarh,mo_nrg_reac_sum,3
+14:1,Peak power import L1,kW,mo_pw_pk_in_l1,3
+15:1,Peak power import L2,kW,mo_pw_pk_in_l2,3
+16:1,Peak power import L3,kW,mo_pw_pk_in_l3,3
+17:1,Peak power export L1,kW,mo_pw_pk_ex_l1,3
+18:1,Peak power export L2,kW,mo_pw_pk_ex_l2,3
+19:1,Peak power export L3,kW,mo_pw_pk_ex_l3,3
 #
