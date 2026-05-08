@@ -175,6 +175,20 @@ input:focus, select:focus { border-color: #7eb8f7; }
     <div id="repoConfigDisplay" style="display:none;font-size:0.78em;background:#0a1628;border:1px solid #1a4a7a;border-radius:4px;padding:7px 9px;margin-bottom:8px;font-family:monospace">
       <div id="repoConfigDisplayInner"></div>
     </div>
+    <!-- Raw descriptor view — shows the .tas file as fetched from the
+         repo. Useful when the parsed-config + value-form summary doesn't
+         tell the whole story (sub-pattern lines, comments, header notes
+         get dropped at parse time but might affect how the meter behaves
+         on a real Tasmota device). Collapsed by default to keep the
+         sidebar compact; user opens the <details> if they want to see
+         the bytes. -->
+    <details id="repoDescriptorView" style="display:none;margin-bottom:8px">
+      <summary style="cursor:pointer;font-size:0.78em;color:#9bb8d4;padding:4px 0">
+        Show descriptor source (.tas file)
+      </summary>
+      <textarea id="repoDescriptorText" readonly
+                style="width:100%;min-height:140px;background:#0a1628;border:1px solid #1a4a7a;color:#9bff9b;font-family:'Courier New',monospace;font-size:0.74em;padding:6px 8px;margin-top:4px;border-radius:4px;resize:vertical;white-space:pre;"></textarea>
+    </details>
     <div id="repoValuesForm" style="display:none">
       <h2 style="margin-top:8px">Live Values (editable)</h2>
       <div id="repoValuesFormInner"></div>
@@ -611,6 +625,7 @@ async function loadRepoDescriptor(filename) {
   if (!filename) {
     repoState = null;
     document.getElementById('repoConfigDisplay').style.display = 'none';
+    document.getElementById('repoDescriptorView').style.display = 'none';
     document.getElementById('repoValuesForm').style.display    = 'none';
     document.getElementById('repoUnsupported').style.display   = 'none';
     repoUpdateStartButton();
@@ -625,12 +640,14 @@ async function loadRepoDescriptor(filename) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const text = await resp.text();
     repoState = parseSmlDescriptor(text);
+    repoState.rawText = text;             // keep for the descriptor-view textarea
     repoRender();
   } catch (e) {
     log('err', `Repo descriptor fetch failed: ${e.message}`);
     document.getElementById('repoConfigDisplayInner').textContent =
       `Failed to load descriptor: ${e.message}`;
     document.getElementById('repoConfigDisplay').style.display = '';
+    document.getElementById('repoDescriptorView').style.display = 'none';
   }
 }
 
@@ -722,6 +739,18 @@ function repoRender() {
               `<div>${repoState.items.length} OBIS value${repoState.items.length === 1 ? '' : 's'} parsed</div>`;
   document.getElementById('repoConfigDisplayInner').innerHTML = cfg;
   document.getElementById('repoConfigDisplay').style.display = '';
+
+  // Raw .tas file content. Always populate even when the protocol is
+  // unsupported — user may want to inspect what they picked before
+  // switching to built-in mode.
+  const dview = document.getElementById('repoDescriptorView');
+  const dtext = document.getElementById('repoDescriptorText');
+  if (repoState.rawText) {
+    dtext.value = repoState.rawText;
+    dview.style.display = '';
+  } else {
+    dview.style.display = 'none';
+  }
 
   // Repo mode v1 supports SML ('s') and OBIS ASCII ('o') only.
   const supported = (repoState.proto === 's' || repoState.proto === 'o');
