@@ -849,7 +849,28 @@ function parseSmlDescriptor(text) {
                   // Modbus extras (populated only when proto is 'm'/'M')
                   rxField: '', tcpHost: null, tcpPort: 502, isTcp: false,
                   txField: '', interval: 5, requests: [] };
-  const lines = text.split('\n');
+  // Some descriptors (notably Resol VBus) pack the entire >M block on
+  // the +line using `%r%` as Tasmota's newline placeholder. Expand it
+  // back to real newlines so the line-by-line scan can pick up the
+  // value items. Each segment after `%r%` is implicitly a `1,…` value
+  // line — if the leading meter index is missing, prepend it so the
+  // existing parser branch fires.
+  text = text.replace(/\s*%r%\s*/g, '\n');
+  const rawLines = text.split('\n');
+  const lines = [];
+  let inMblock = false;
+  for (const raw of rawLines) {
+    const ln = raw.trim();
+    if (ln.startsWith('>M')) { inMblock = true; lines.push(raw); continue; }
+    if (ln.startsWith('>'))  { inMblock = false; lines.push(raw); continue; }
+    if (ln.startsWith('#'))  { lines.push(raw); continue; }
+    if (inMblock && ln && !ln.startsWith('+') && !/^\d+,/.test(ln)) {
+      // Bare value line (no `1,` prefix) — supply one.
+      lines.push('1,' + ln);
+    } else {
+      lines.push(raw);
+    }
+  }
   for (const raw of lines) {
     const ln = raw.trim();
     if (!ln || ln.startsWith('#')) continue;
@@ -858,7 +879,20 @@ function parseSmlDescriptor(text) {
       // +meter,rxpin,proto,txpin_or_smlf,baud,name[,extra]
       const parts = ln.substring(1).split(',');
       // parts[0] = meter num, parts[1] = rxpin, parts[2] = proto, etc.
-      state.proto = (parts[2] || 's').trim().toLowerCase().charAt(0);
+      // proto field can carry a trailing parity hint: `re1` = M-Bus 8E1,
+      // `mn1`/`m` = Modbus 8N1, etc. We stash the full string for serial-
+      // config inference and use just the first char for dispatch.
+      const protoFull = (parts[2] || 's').trim().toLowerCase();
+      state.protoFull = protoFull;
+      state.proto = protoFull.charAt(0);
+      // Heuristic serial-framing default from proto suffix when the
+      // descriptor doesn't carry an explicit `=so` line:
+      //   re1 / *e1 → 8E1 (M-Bus and other parity-even protocols)
+      //   *n1       → 8N1 (default; explicit hint here so we don't
+      //                    accidentally use 8E1 for Modbus mn1)
+      if (/e1$/.test(protoFull))      state.serialFmtDefault = '8E1';
+      else if (/n1$/.test(protoFull)) state.serialFmtDefault = '8N1';
+      else                             state.serialFmtDefault = '8N1';
       const baudStr = (parts[4] || '9600').trim();
       const baudNum = parseInt(baudStr, 10);
       if (!isNaN(baudNum)) state.baud = baudNum;
@@ -943,14 +977,20 @@ function parseSmlDescriptor(text) {
       isValid = /^[0-9]+\.[0-9]+\.[0-9]+$/.test(dottedClean);
       storedObis = dottedClean;
     } else if (state.proto === 'r' || state.proto === 'm' || state.proto === 'M') {
-      // M-Bus / Modbus: hex bytes with optional wildcards. Length varies
-      // (M-Bus DIB+VIB = 4-12 hex; Modbus reg addr = 4 hex). Loose check.
-      isValid = /^[0-9a-fA-FuUxX]+$/.test(obisCleaned) && obisCleaned.length >= 4;
+      // M-Bus / Modbus / shift-mode: hex bytes plus wildcards (u/U/s/S/x/X
+      // for value placeholders), and `bcdN` / `pm(...)` tokens for some
+      // descriptors. Very loose check — the encoder is tolerant.
+      isValid = /^[0-9a-fA-FuUsSxXfFbcdpm()0-9.\-_]+$/.test(obisCleaned)
+                && obisCleaned.length >= 2;
+    } else if (state.proto === 'v') {
+      // VBus: voN<type>[@bN] patterns (offset+type or bit field).
+      isValid = /^vo\d+/.test(obisCleaned);
+    } else if (state.proto === 'e') {
+      // EBus: hex literal + skips + 1-2 byte value spec (`uu`/`ss`/etc.).
+      isValid = /^[0-9a-fA-FuUsSxX]+$/.test(obisCleaned) && obisCleaned.length >= 4;
     } else {
-      // VBus / EBus / Kamstrup / unknown: accept any non-empty pattern.
-      // Frame emit isn't wired for these in repo mode v1 — the user gets
-      // the unsupported-protocol warning above the form, but at least
-      // they can see what OBIS codes / addresses the descriptor lists.
+      // Kamstrup / unknown: accept any non-empty pattern. Frame emit
+      // isn't wired for those in repo mode yet.
       isValid = obisCleaned.length > 0;
     }
     if (!isValid) continue;
@@ -1244,12 +1284,14 @@ function repoRender() {
   // switch back to built-in mode.
   repoApplySubstitutions();
 
-  // Repo mode supports SML ('s'), OBIS ASCII ('o'), Modbus RTU + TCP ('m').
-  // Other protocols (M-Bus 'r', VBus 'v', EBus 'e', Kamstrup 'k') are
-  // listed but not yet emit-able — user sees the values form for edits
-  // but the Start path isn't wired.
+  // Repo mode supports SML ('s'), OBIS ASCII ('o'), Modbus RTU + TCP ('m'),
+  // shift-mode / M-Bus ('r' / 're1'), VBus ('v'), and EBus ('e').
+  // Kamstrup ('k') and IEC 62056-21 baud-switching (proto 'o' at 300 baud,
+  // i.e. T510) run server-side via dedicated state machines and don't
+  // need the value-form to drive a frame loop.
   const supported = (repoState.proto === 's' || repoState.proto === 'o'
-                  || repoState.proto === 'm');
+                  || repoState.proto === 'm' || repoState.proto === 'r'
+                  || repoState.proto === 'v' || repoState.proto === 'e');
   if (!supported) {
     document.getElementById('repoUnsupported').style.display = '';
     document.getElementById('repoUnsupportedDetail').textContent =
@@ -1323,10 +1365,11 @@ function repoUpdateStartButton() {
     // Modbus RTU: the slave runs from setConn(true) → startModbusSlave;
     // there's no Start button to flip. Modbus TCP: the python server's
     // port-502 listener is always live; pushing regs is enough.
-    // SML / OBIS push: needs an interval-driven Start.
+    // SML / OBIS / shift / VBus / EBus push: needs an interval-driven Start.
     const proto = repoState ? repoState.proto : null;
     const ok = repoState && repoState.items.length > 0 &&
-               (proto === 's' || proto === 'o' || proto === 'm');
+               (proto === 's' || proto === 'o' || proto === 'm'
+             || proto === 'r' || proto === 'v' || proto === 'e');
     const isStateMachine = repoUsesStateMachine();
     btnGo.disabled = !ok || isStateMachine;
     btnGo.title = !ok
@@ -1560,6 +1603,12 @@ async function sendFrame() {
         data = new Uint8Array(buildSMLFrameRepo());
       } else if (repoState.proto === 'o') {
         data = new TextEncoder().encode(buildOBISAsciiRepo());
+      } else if (repoState.proto === 'r') {
+        data = new Uint8Array(buildShiftFrameRepo());
+      } else if (repoState.proto === 'v') {
+        data = new Uint8Array(buildVBusFrameRepo());
+      } else if (repoState.proto === 'e') {
+        data = new Uint8Array(buildEBusFrameRepo());
       } else {
         log('err', `Repo mode: protocol '${repoState.proto}' not supported in v1`);
         stopSending();
@@ -1570,8 +1619,11 @@ async function sendFrame() {
       document.getElementById('statF').textContent = framesSent;
       document.getElementById('statB').textContent = bytesSent;
       document.getElementById('statL').textContent = data.length + ' B';
-      const protoLabel = repoState.proto === 's' ? 'SML' : 'OBIS';
-      document.getElementById('framePreview').textContent = (repoState.proto === 's')
+      const labelMap = { s:'SML', o:'OBIS', r:'M-Bus', v:'VBus', e:'EBus' };
+      const protoLabel = labelMap[repoState.proto] || repoState.proto.toUpperCase();
+      // Binary protocols → hex dump; OBIS-ASCII is human-readable text
+      const isBinary = repoState.proto !== 'o';
+      document.getElementById('framePreview').textContent = isBinary
         ? hexDump(data)
         : new TextDecoder().decode(data);
       log('tx', `TX ${data.length}B [${protoLabel}/repo:${repoState.name}]`);
@@ -2434,6 +2486,303 @@ function buildOBISAsciiRepo() {
   }
   s += '!\r\n';
   return s;
+}
+
+// ─── REPO MODE: SHIFT-MODE / M-BUS PUSH FRAMES ───────────────────────────────
+// `r` and `re1` descriptors use Tasmota's shift-mode parser: the driver
+// buffers incoming bytes and slides them through, anchoring each value
+// pattern at sbuff[0]. We build a frame by encoding each item's pattern
+// (literal hex bytes + placeholders filled with the current value) and
+// concatenating them. For `re1` (M-Bus) we wrap the result in a proper
+// long-frame envelope so 8E1 parity stays consistent.
+//
+// Pattern grammar in shift mode:
+//   <hex pair>     literal byte (e.g. `0c`, `06`)
+//   xN             skip N bytes (decimal); we emit zeros — the receiver's
+//                  matcher anchors on the literal bytes, the skips are
+//                  positional placeholders
+//   xx             skip 1 byte (alternative spelling)
+//   bcdN           N-digit BCD value (M-Bus: LSB-first nibble pairs)
+//   UUuu           2-byte unsigned big-endian
+//   uuUU           2-byte unsigned little-endian
+//   SSss           2-byte signed big-endian
+//   ssSS           2-byte signed little-endian
+//   UUuuUUuu       4-byte unsigned big-endian
+//   uuUUuuUU       4-byte unsigned little-endian
+//   SSssSSss       4-byte signed big-endian
+//   ssSSssSS       4-byte signed little-endian
+//   ffffffff       4-byte IEEE 754 float big-endian
+//   FFFFffff       (same; case is convention not semantic)
+//   pm(<obis>)     OBIS-ASCII inside a binary stream (DLMS push) — emit as
+//                  literal text, no value substitution
+function encodeShiftItemBytes(pattern, value) {
+  const out = [];
+  let p = pattern;
+  while (p.length > 0) {
+    // OBIS-ASCII embedded in raw stream: `pm(1.8.0)` → emit literal text
+    // (DLMS-encrypted descriptors like L+G E450). We can't actually re-
+    // encrypt without the key, so just skip these — the descriptor's
+    // shift-mode matcher catches the unencrypted OBIS code in the
+    // decrypted output anyway. Treat as no-op.
+    if (p.startsWith('pm(')) {
+      const close = p.indexOf(')');
+      if (close < 0) break;
+      p = p.substring(close + 1);
+      continue;
+    }
+    // BCDn — N decimal digits, ceil(N/2) bytes, M-Bus LSB-first
+    const mBcd = p.match(/^bcd(\d+)/i);
+    if (mBcd) {
+      const n = parseInt(mBcd[1], 10);
+      const nb = Math.ceil(n / 2);
+      // round value to integer and pack as N-digit BCD, LSB-first
+      const intVal = Math.max(0, Math.min(Math.pow(10, n) - 1, Math.round(value)));
+      let s = String(intVal).padStart(n, '0');
+      // pack pairs from LSB: low byte first
+      for (let i = 0; i < nb; i++) {
+        const lo = s.charCodeAt(s.length - 1 - i*2)     - 48;
+        const hi = (i*2 + 2 <= s.length)
+                 ? s.charCodeAt(s.length - 2 - i*2) - 48 : 0;
+        out.push(((hi & 0x0f) << 4) | (lo & 0x0f));
+      }
+      p = p.substring(mBcd[0].length);
+      continue;
+    }
+    // xN skip
+    const mSkipN = p.match(/^x(\d+)/);
+    if (mSkipN) {
+      const n = parseInt(mSkipN[1], 10);
+      for (let i = 0; i < n; i++) out.push(0);
+      p = p.substring(mSkipN[0].length);
+      continue;
+    }
+    // xx single skip
+    if (/^[xX][xX]/.test(p)) { out.push(0); p = p.substring(2); continue; }
+    // Numeric / float specs — try longest first (8 chars before 4)
+    const m8 = p.match(/^(ffffffff|FFFFFFFF|FFFFffff|UUuuUUuu|SSssSSss|uuUUuuUU|ssSSssSS)/);
+    if (m8) {
+      const tag = m8[0];
+      const buf = new ArrayBuffer(4);
+      const dv  = new DataView(buf);
+      if (/^[fF]+$/.test(tag))           dv.setFloat32(0, value, false);
+      else if (tag === 'UUuuUUuu')        dv.setUint32(0, (value>>>0)&0xFFFFFFFF, false);
+      else if (tag === 'SSssSSss')        dv.setInt32 (0, value | 0,                false);
+      else if (tag === 'uuUUuuUU')        dv.setUint32(0, (value>>>0)&0xFFFFFFFF, true);
+      else                                dv.setInt32 (0, value | 0,                true);
+      for (const b of new Uint8Array(buf)) out.push(b);
+      p = p.substring(tag.length);
+      continue;
+    }
+    const m4 = p.match(/^(UUuu|SSss|uuUU|ssSS)/);
+    if (m4) {
+      const tag = m4[0];
+      const buf = new ArrayBuffer(2);
+      const dv  = new DataView(buf);
+      if (tag === 'UUuu')      dv.setUint16(0, (value>>>0)&0xFFFF, false);
+      else if (tag === 'SSss') dv.setInt16 (0, value | 0,            false);
+      else if (tag === 'uuUU') dv.setUint16(0, (value>>>0)&0xFFFF, true);
+      else                     dv.setInt16 (0, value | 0,            true);
+      for (const b of new Uint8Array(buf)) out.push(b);
+      p = p.substring(tag.length);
+      continue;
+    }
+    // 1-byte value specs (Tasmota convention: paired letter = position-only,
+    // standalone `uu`/`UU`/`ss`/`SS` = a single byte). Used by EBus and some
+    // shift-mode descriptors (Wolf CSZ heater: `…xxxxuu@1` = 1 byte uint).
+    const m2 = p.match(/^(uu|UU|ss|SS)/);
+    if (m2) {
+      const tag = m2[0];
+      if (tag === 'ss' || tag === 'SS') {
+        // Clamp to int8 range, two's-complement encode
+        let v = value | 0;
+        if (v >  127) v =  127;
+        if (v < -128) v = -128;
+        out.push(v < 0 ? (v + 256) & 0xFF : v & 0xFF);
+      } else {
+        out.push(((value | 0) & 0xFF));
+      }
+      p = p.substring(tag.length);
+      continue;
+    }
+    // Literal hex pair
+    const mHex = p.match(/^[0-9a-fA-F]{2}/);
+    if (mHex) {
+      out.push(parseInt(mHex[0], 16));
+      p = p.substring(2);
+      continue;
+    }
+    // Unrecognised char — skip one to keep moving
+    p = p.substring(1);
+  }
+  return out;
+}
+
+// Build a raw byte stream from all repo items. For shift-mode descriptors
+// without explicit framing (`r`), this stream IS the frame. For M-Bus
+// (`re1`), we pass the concatenated data records to buildMBusLongFrameRepo
+// which adds the proper envelope.
+function buildShiftFrameRepo() {
+  if (!repoState || repoState.proto !== 'r' || repoState.items.length === 0) return [];
+  // For each item: encode its pattern with the current scaled value.
+  // The descriptor's `@scale` divisor turns wire-int into display value;
+  // invert to get back to wire form.
+  const records = [];
+  for (const it of repoState.items) {
+    const wire = (typeof it.value === 'number') ? it.value * (it.scale || 1) : 0;
+    const bytes = encodeShiftItemBytes(it.obis, wire);
+    for (const b of bytes) records.push(b);
+  }
+  // M-Bus framing: descriptors flagged `re1` (8E1 parity, M-Bus standard)
+  // OR descriptors whose first item starts with `0x` DIB byte (4-bit data
+  // length encoding) get wrapped in a long frame. Generic `r` descriptors
+  // (Siemens IM-350, AEConversion solar inverter) skip the wrap — their
+  // patterns expect raw uninterrupted bytes.
+  const wantMbusWrap = (repoState.protoFull && repoState.protoFull === 're1');
+  if (!wantMbusWrap) return records;
+  return wrapMBusLongFrame(records, repoState.name || 'METER');
+}
+
+// ─── REPO MODE: VBUS PUSH (Resol-style) ─────────────────────────────────────
+// VBus descriptors describe a 28-byte unpacked payload using `voN<type>`
+// patterns where:
+//   voN     byte offset N within the payload (0..27)
+//   ut      unsigned 16-bit time field (minutes-of-day)
+//   sw / SW signed 16-bit word, LE
+//   uw / UW unsigned 16-bit word, LE
+//   ub / UB unsigned 8-bit byte
+//   sb / SB signed 8-bit byte
+//   @bN     bit N of the byte at vo offset (used for relay/flag fields)
+// Each item's @scale is the display divisor (wire = display × scale).
+// We build the payload byte-by-byte from items, then run it through the
+// same Deltasol BS Plus envelope used by buildVBusFrame() (header +
+// 7 frames × {4 data + septet + frame_crc}).
+function decodeVBusItem(pattern) {
+  const m = pattern.match(/^vo(\d+)(ut|sw|uw|ub|sb|SW|UW|UB|SB)(?:@b(\d+))?/);
+  if (!m) return null;
+  return {
+    offset: parseInt(m[1], 10),
+    type:   m[2].toLowerCase(),
+    bit:    m[3] != null ? parseInt(m[3], 10) : null,
+  };
+}
+
+function buildVBusFrameRepo() {
+  if (!repoState || repoState.proto !== 'v' || repoState.items.length === 0) return [];
+  const payload = new Uint8Array(28);
+  for (const it of repoState.items) {
+    const meta = decodeVBusItem(it.obis);
+    if (!meta || meta.offset >= 28) continue;
+    const wire = (typeof it.value === 'number') ? it.value * (it.scale || 1) : 0;
+    if (meta.bit != null) {
+      // bit field — write 0/1 into bit `meta.bit` at offset, leaving
+      // the rest of the byte untouched.
+      const v = (it.value ? 1 : 0) & 1;
+      payload[meta.offset] = (payload[meta.offset] & ~(1 << meta.bit)) | (v << meta.bit);
+      continue;
+    }
+    if (meta.type === 'ub') { payload[meta.offset] = (wire | 0) & 0xFF; continue; }
+    if (meta.type === 'sb') {
+      let v = wire | 0; if (v < 0) v = (v + 256) & 0xFF; payload[meta.offset] = v & 0xFF;
+      continue;
+    }
+    if (meta.type === 'sw' || meta.type === 'uw' || meta.type === 'ut') {
+      let v = wire | 0;
+      if (meta.type === 'sw' && v < 0) v = (v + 0x10000) & 0xFFFF;
+      payload[meta.offset]     =  v        & 0xFF;
+      if (meta.offset + 1 < 28)
+        payload[meta.offset + 1] = (v >>  8) & 0xFF;
+    }
+  }
+  // Same Deltasol-style envelope as the built-in buildVBusFrame: sync
+  // 0xAA + header (dest/src/proto/cmd/framecount + crc) + 7 packed frames.
+  const crc = bytes => { let c = 0x7F; for (const b of bytes) c = (c - b) & 0x7F; return c; };
+  const out = [0xAA];
+  const hdr = [0x10, 0x00, 0x21, 0x42, 0x10, 0x00, 0x01, 0x07];
+  for (const b of hdr) out.push(b);
+  out.push(crc(hdr));
+  for (let g = 0; g < 7; g++) {
+    const base = g * 4;
+    let septet = 0;
+    const f4 = [];
+    for (let i = 0; i < 4; i++) {
+      const v = payload[base + i];
+      if (v & 0x80) septet |= (1 << i);
+      f4.push(v & 0x7F);
+    }
+    f4.push(septet);
+    f4.push(crc(f4));
+    for (const b of f4) out.push(b);
+  }
+  return out;
+}
+
+// ─── REPO MODE: EBUS PUSH (heater bus) ───────────────────────────────────────
+// EBus descriptors anchor on incoming master/slave query patterns and pull
+// the value from a known byte offset. For example:
+//   xxxx5014xxxxxxxxxxuu@1     (Wolf CSZ room temp: 1-byte unsigned)
+// We don't simulate the master/slave dialogue; instead we just emit the
+// pattern bytes back-to-back as a raw byte stream. That works for shift-
+// mode-style EBus parsing since the Tasmota driver buffers incoming bytes
+// and matches each pattern at sbuff[0] regardless of bus framing.
+//
+// EBus is half-duplex 2400 8N1; each descriptor pattern is a complete
+// "we just heard X on the bus" sample. Concatenating them gives the
+// receiver a chance to anchor each one in sequence as the buffer slides.
+function buildEBusFrameRepo() {
+  if (!repoState || repoState.proto !== 'e' || repoState.items.length === 0) return [];
+  // Same encoder as shift mode — pattern bytes with placeholders filled.
+  const out = [];
+  for (const it of repoState.items) {
+    const wire = (typeof it.value === 'number') ? it.value * (it.scale || 1) : 0;
+    const bytes = encodeShiftItemBytes(it.obis, wire);
+    for (const b of bytes) out.push(b);
+    // EBus uses 0xAA as inter-frame separator — adding it between items
+    // keeps the matcher from accidentally aligning across them.
+    out.push(0xAA);
+  }
+  return out;
+}
+
+// Build an M-Bus mode-1 long frame around the given data-record bytes.
+// Layout:
+//   68 LL LL 68            start, length×2 (LL = 1 + 1 + 1 + 12 + |records|)
+//   08 01 72               C-field (RSP_UD), A-field (slave 1), CI (var 1)
+//   [12-byte header]:      ID(4 BCD) + Mfg(2) + Ver(1) + Med(1) + Acc(1) + St(1) + Sig(2)
+//   [data records]
+//   CRC                    arithmetic checksum: sum(C..end of records) mod 256
+//   16                     stop byte
+function wrapMBusLongFrame(records, name) {
+  // Encode a 4-byte BCD secondary address from the meter name's digits.
+  // Falls back to 00000000 if name has no digits.
+  const digits = (name.match(/\d+/g) || []).join('').padStart(8, '0').slice(-8);
+  const id = [0,0,0,0];
+  for (let i = 0; i < 4; i++) {
+    const lo = digits.charCodeAt(7 - i*2)     - 48;
+    const hi = digits.charCodeAt(6 - i*2)     - 48;
+    id[i] = ((hi & 0x0f) << 4) | (lo & 0x0f);
+  }
+  // Manufacturer: pack 3 letters into 2 bytes per EN 13757-3 (5-bit each
+  // letter, base 'A'=1). Default "WMR" = (W=23,M=13,R=18) → 0x5e8d (BE).
+  const m1 = ('W'.charCodeAt(0) - 64) & 0x1f;
+  const m2 = ('M'.charCodeAt(0) - 64) & 0x1f;
+  const m3 = ('R'.charCodeAt(0) - 64) & 0x1f;
+  const mfg = (m1 << 10) | (m2 << 5) | m3;
+  const header = [
+    id[0], id[1], id[2], id[3],     // Identification
+    mfg & 0xFF, (mfg >> 8) & 0xFF,   // Manufacturer (LSB-first)
+    0x01,                            // Version
+    0x04,                            // Medium = heat (4); generic enough
+    0x00,                            // Access counter
+    0x00,                            // Status
+    0x00, 0x00,                      // Signature
+  ];
+  const payload = [0x08, 0x01, 0x72, ...header, ...records];
+  // Cap at 255 bytes — M-Bus frame length field is one byte.
+  if (payload.length > 252) payload.length = 252;
+  const len = payload.length;
+  let crc = 0;
+  for (const b of payload) crc = (crc + b) & 0xFF;
+  return [0x68, len, len, 0x68, ...payload, crc, 0x16];
 }
 
 function buildSMLFrame() {
