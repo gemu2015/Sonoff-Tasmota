@@ -924,6 +924,26 @@ function parseSmlDescriptor(text) {
           if (r) state.requests.push(r);
         }
       }
+      // Kamstrup `+1,rx,k,0,baud,name,tx,interval,3F10NN<reg_hi reg_lo>×N`
+      // — the request hex carries the list of register addresses the
+      // descriptor expects in the response. Parse it once here so the
+      // server-side _ks_runner can route values by reg address (we POST
+      // them via /api/ks_regs).
+      if (state.proto === 'k') {
+        state.txField = (parts[6] || '0').trim();
+        const ivStr = (parts[7] || '10').trim();
+        const ivNum = parseFloat(ivStr);
+        if (!isNaN(ivNum) && ivNum > 0) state.interval = ivNum;
+        state.ksRegAddrs = [];
+        const ksReq = (parts[8] || '').trim().toLowerCase().replace(/[^0-9a-f]/g, '');
+        if (ksReq.startsWith('3f10') && ksReq.length >= 6) {
+          const cnt = parseInt(ksReq.substr(4, 2), 16);
+          for (let j = 0; j < cnt && (6 + j*4 + 4) <= ksReq.length; j++) {
+            const addrHex = ksReq.substr(6 + j*4, 4);
+            state.ksRegAddrs.push(parseInt(addrHex, 16));
+          }
+        }
+      }
       continue;
     }
     // Value or special line: starts with a digit (meter index), then `,`
@@ -982,6 +1002,9 @@ function parseSmlDescriptor(text) {
       // descriptors. Very loose check — the encoder is tolerant.
       isValid = /^[0-9a-fA-FuUsSxXfFbcdpm()0-9.\-_]+$/.test(obisCleaned)
                 && obisCleaned.length >= 2;
+    } else if (state.proto === 'k') {
+      // Kamstrup: `3F10[skip]<reg>kstr` patterns.
+      isValid = /kstr$/i.test(obisCleaned) && obisCleaned.length >= 8;
     } else if (state.proto === 'v') {
       // VBus: voN<type>[@bN] patterns (offset+type or bit field).
       isValid = /^vo\d+/.test(obisCleaned);
@@ -1022,6 +1045,22 @@ function parseSmlDescriptor(text) {
         item.fc      = req.fc;
         item.reqIdx  = reqIdx;
       }
+    }
+    // Kamstrup items carry the register address inline as 4 hex chars
+    // immediately before the `kstr` value-spec marker. Patterns look
+    // like `3F10[skipN]<reg_hi reg_lo>kstr@i0:scale` — the skip places
+    // the parser's cursor at the right spot in the response, then the
+    // 4-char hex literal IS the register address. We recover it via a
+    // simple regex; @i0: just confirms request-index, scale comes from
+    // the `:scale` tail.
+    if (state.proto === 'k') {
+      const tail = at >= 0 ? obisRaw.substring(at + 1).trim() : '';
+      const ms = tail.match(/^i\d+:(\d+(?:\.\d+)?)/i);
+      item.ksScale = ms ? (parseFloat(ms[1]) || 1) : 1;
+      // Find 4 hex chars sitting just before `kstr` — that's the reg
+      // address the descriptor will decode at this position.
+      const mr = obisCleaned.toLowerCase().match(/([0-9a-f]{4})kstr$/);
+      if (mr) item.ksRegAddr = parseInt(mr[1], 16);
     }
     // Pre-populate with a sensible default — beats showing 0 for every
     // field. User-editable, persisted across re-pasted descriptors via
@@ -1285,13 +1324,14 @@ function repoRender() {
   repoApplySubstitutions();
 
   // Repo mode supports SML ('s'), OBIS ASCII ('o'), Modbus RTU + TCP ('m'),
-  // shift-mode / M-Bus ('r' / 're1'), VBus ('v'), and EBus ('e').
-  // Kamstrup ('k') and IEC 62056-21 baud-switching (proto 'o' at 300 baud,
-  // i.e. T510) run server-side via dedicated state machines and don't
-  // need the value-form to drive a frame loop.
+  // shift-mode / M-Bus ('r' / 're1'), VBus ('v'), EBus ('e'), and
+  // Kamstrup ('k'). IEC 62056-21 baud-switching (proto 'o' at 300 baud,
+  // i.e. T510) is also handled — server-side state machines do the
+  // actual work; the value form just edits and pushes data.
   const supported = (repoState.proto === 's' || repoState.proto === 'o'
                   || repoState.proto === 'm' || repoState.proto === 'r'
-                  || repoState.proto === 'v' || repoState.proto === 'e');
+                  || repoState.proto === 'v' || repoState.proto === 'e'
+                  || repoState.proto === 'k');
   if (!supported) {
     document.getElementById('repoUnsupported').style.display = '';
     document.getElementById('repoUnsupportedDetail').textContent =
@@ -1330,10 +1370,16 @@ function repoRender() {
       suffix = ` <span style="color:#6f88a8;font-family:monospace;font-size:0.85em">reg=0x${item.regAddr.toString(16).padStart(4,'0')} ${item.format||'?'}</span>`;
     }
     // For Modbus we update the server's reg_bank on every input change so
-    // the next FC03/FC04 reply carries the new value. For SML/OBIS the
-    // value is read at frame-build time so a plain assignment is enough.
+    // the next FC03/FC04 reply carries the new value. Kamstrup pushes to
+    // /api/ks_regs likewise. T510 (proto 'o' at 300 baud) re-pushes the
+    // whole OBIS body. For SML/OBIS the value is read at frame-build
+    // time so a plain assignment is enough.
     const onInput = repoState.proto === 'm'
       ? `repoState.items[${idx}].value = parseFloat(this.value) || 0; repoPushModbusRegs()`
+      : repoState.proto === 'k'
+      ? `repoState.items[${idx}].value = parseFloat(this.value) || 0; repoPushKsRegs()`
+      : (repoState.proto === 'o' && repoState.baud === 300)
+      ? `repoState.items[${idx}].value = parseFloat(this.value) || 0; repoPushT510Body()`
       : `repoState.items[${idx}].value = parseFloat(this.value) || 0`;
     row.innerHTML =
       `<label>${item.label || item.varName} (${item.unit || '-'}) ` +
@@ -1343,15 +1389,16 @@ function repoRender() {
     inner.appendChild(row);
   });
   document.getElementById('repoValuesForm').style.display = '';
-  // For Modbus: push the descriptor's initial values to the server so
-  // the FC03/04 handler answers correctly even before the user edits
-  // anything. For TCP, this is the only sync path (no serial connect
-  // step). For RTU it gets re-pushed on serial connect too.
+  // For descriptor-driven server-side state machines (Modbus / Kamstrup /
+  // T510) push initial values to the server so the answer-machine has
+  // something to serve before the user edits anything.
   if (repoState.proto === 'm') repoPushModbusRegs();
+  if (repoState.proto === 'k') repoPushKsRegs();
+  if (repoState.proto === 'o' && repoState.baud === 300) repoPushT510Body();
   // Re-evaluate which built-in panels apply now that repoState (and
   // therefore isModbusRtu/isTcpProfile) reflects the new descriptor.
-  // Hides the Tx-interval row for Modbus since the slave/listener runs
-  // automatically without a fixed-interval push.
+  // Hides the Tx-interval row for Modbus / Kamstrup / T510 — those
+  // run automatically without a fixed-interval push.
   applyTxPanel();
   repoUpdateStartButton();
 }
@@ -3853,6 +3900,45 @@ async function repoPushModbusRegs() {
   }
 }
 
+// Push the current Kamstrup item values to the server as pre-scaled
+// integer mantissas keyed by register address. The python _ks_runner
+// reads ks_dyn_regs[addr] and emits the kstr-encoded mantissa with
+// exp=0 (the C decoder's neg-exp bug means we have to encode this way
+// — the descriptor's @iN:K divisor brings it back at decode time).
+async function repoPushKsRegs() {
+  if (!repoState || repoState.proto !== 'k') return;
+  const out = {};
+  for (const it of repoState.items) {
+    if (it.ksRegAddr == null) continue;
+    const scale = it.ksScale || 1;
+    const v = (typeof it.value === 'number') ? it.value : 0;
+    out[it.ksRegAddr] = Math.round(v * scale);
+  }
+  try {
+    await fetch('/api/ks_regs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(out)
+    });
+  } catch (e) { /* standalone HTML — no-op */ }
+}
+
+// Push the current T510 OBIS body to the server. Reuses the OBIS-ASCII
+// builder that already understands the dotted code + (value*unit) format
+// — the python _t510_runner picks it up after the 300→9600 baud
+// handshake.
+async function repoPushT510Body() {
+  if (!repoState || repoState.proto !== 'o' || repoState.baud !== 300) return;
+  const body = buildOBISAsciiRepo();
+  try {
+    await fetch('/api/t510_body', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: body
+    });
+  } catch (e) { /* standalone HTML — no-op */ }
+}
+
 function applyTxPanel() {
   const mb = isModbusRtu();
   const t5 = isT510();
@@ -3889,6 +3975,12 @@ function applyTxPanel() {
     } else if (tcp) {
       setModbusStatus('#7a9cbf',
         `Modbus TCP — listening on port ${repoState.tcpPort || 502}; point Tasmota at this host's IP (descriptor sample: ${repoState.tcpHost})`);
+    } else if (ks) {
+      setModbusStatus('#7a9cbf',
+        `Kamstrup poll/response — connect serial; server answers Tasmota's 3F10 polls. Descriptor lists ${(repoState.ksRegAddrs||[]).length} register${(repoState.ksRegAddrs||[]).length===1?'':'s'}`);
+    } else if (t5) {
+      setModbusStatus('#7a9cbf',
+        `IEC 62056-21 (T510-style) — connect serial at 300 baud; server runs the wakeup→9600 baud handshake then sends the OBIS body built from the value form`);
     }
   }
 }

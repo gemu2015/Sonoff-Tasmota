@@ -464,10 +464,25 @@ def _t510_obis_now() -> str:
     t = time.localtime()
     return f'{t.tm_year%100:02d}{t.tm_mon:02d}{t.tm_mday:02d}{t.tm_hour:02d}{t.tm_min:02d}{t.tm_sec:02d}'
 
+t510_body_override = None  # set via /api/t510_body when running a repo
+                            # descriptor; supersedes the built-in SDM-style
+                            # OBIS body.
+
 def _t510_build_ascii(serial_num: str) -> str:
     """Build a minimal T510 OBIS ASCII telegram from reg_bank. The browser
     pushes fresh register values every second via /api/regs, so reg_bank is
-    the single source of truth for live power/energy data."""
+    the single source of truth for live power/energy data.
+
+    When running under repo mode, the browser POSTs the fully-formed OBIS
+    body to /api/t510_body and we just emit that — same wakeup-handshake +
+    9600-baud-data flow, but with an arbitrary descriptor's value lines."""
+    if t510_body_override is not None:
+        body = t510_body_override
+        # Force the identification header to match `serial_num` so the ACK
+        # phase still matches what we sent in phase 2a.
+        if body.startswith('/'):
+            return body
+        return f'/T515{serial_num}\r\n\r\n' + body
     with state_lock:
         pL1 = float(reg_bank.get(0x000C, 0))  # W
         pL2 = float(reg_bank.get(0x000E, 0))
@@ -585,6 +600,12 @@ KS_REGS = {
     0x03FF: ('ks_powerW',     1),     # W           → W integer;    descriptor /1
 }
 
+# Dynamic register map populated by /api/ks_regs when running a repo
+# descriptor. Keys are register addresses (int), values are pre-scaled
+# integer mantissas (descriptor's @ divisor already applied browser-side).
+# Supersedes KS_REGS lookups when a register is present here.
+ks_dyn_regs = {}
+
 def _ks_crc(data):
     """CRC-16 (poly 0x1021, init 0, no XOR-out, augmented). Matches the C
     KS_calculateCRC at xsns_53_sml.ino:4985 byte-for-byte."""
@@ -641,8 +662,15 @@ def _ks_kstr_encode_int(int_mant, mant_len=4):
     return out
 
 def _ks_get_value(reg_addr):
-    """Look up a register's integer mantissa from the browser-pushed reg_bank.
-    Returns 0 if the register hasn't been mapped or the bank entry is missing."""
+    """Look up a register's integer mantissa. Repo-mode descriptors push
+    pre-scaled integer mantissas to ks_dyn_regs (via /api/ks_regs), which
+    take precedence — that lets arbitrary descriptors work without a
+    server-side hardcoded register map. Falls back to the named-key
+    KS_REGS map (built-in profile) if the descriptor is unknown.
+    Returns 0 if neither map covers the register."""
+    with state_lock:
+        if reg_addr in ks_dyn_regs:
+            return int(ks_dyn_regs[reg_addr])
     spec = KS_REGS.get(reg_addr)
     if not spec:
         return 0
@@ -941,12 +969,27 @@ async function setupConnectUI() {
   btnConn.onclick = async () => {
     const device = sel.value;
     if (!device) { alert('Select a serial port first'); return; }
-    const baud = +document.getElementById('selBaud').value;
-    const serCfg = document.getElementById('selSerial').value;
+    // In repo mode the per-meter baud comes from the parsed descriptor,
+    // not the dropdown — match what the non-bridge connect path does so
+    // the python serial port opens at the descriptor's baud (T510 must
+    // start at 300, M-Bus at 2400, etc.).
+    let baud = +document.getElementById('selBaud').value;
+    let serCfg = document.getElementById('selSerial').value;
+    if (typeof isRepoMode === 'function' && isRepoMode() && window.repoState) {
+      if (window.repoState.baud) baud = window.repoState.baud;
+      if (window.repoState.serialFmtDefault) serCfg = window.repoState.serialFmtDefault;
+    }
     // Tell Python about the profile so it can run the T510 IEC 62056-21
-    // state machine server-side (the browser's port.readable is not available
-    // under the bridge, so the HTML t510Listener never fires).
-    const profile = document.getElementById('selProfile')?.value || '';
+    // or Kamstrup state machine server-side (the browser's port.readable
+    // is not available under the bridge, so the HTML state machines never
+    // fire). Repo mode picks the pseudo-profile based on the descriptor.
+    let profile = document.getElementById('selProfile')?.value || '';
+    if (typeof isRepoMode === 'function' && isRepoMode() && window.repoState) {
+      if (window.repoState.proto === 'k') profile = 'repo_kamstrup';
+      else if (window.repoState.proto === 'o' && window.repoState.baud === 300) profile = 'repo_t510';
+      else profile = '';  // SML / OBIS / VBus / EBus / shift / Modbus all run
+                          // off the existing serial path; no pseudo-profile.
+    }
     const serialNum = document.getElementById('inpSerial')?.value || '';
     const r = await fetch(BASE + '/api/open', {
       method: 'POST',
@@ -1263,12 +1306,15 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json()
             self._open_serial(body.get('device',''), body.get('baud', 9600),
                               body.get('config', '8N1'))
-            # If profile == t510, launch the IEC 62056-21 state machine. Must
-            # run in Python because under the bridge the browser never owns
-            # the port (see BRIDGE_SCRIPT btnConnect override).
-            if body.get('profile') == 't510':
+            # Launch protocol-specific state machines that need to run
+            # server-side because under the bridge the browser never owns
+            # the port (see BRIDGE_SCRIPT btnConnect override). Repo mode
+            # passes pseudo-profiles `repo_t510` / `repo_kamstrup` to
+            # request these machines without a built-in profile match.
+            prof = body.get('profile') or ''
+            if prof in ('t510', 'repo_t510'):
                 t510_start(body.get('serial') or 'T510001')
-            elif body.get('profile') == 'kamstrup_kx7':
+            elif prof in ('kamstrup_kx7', 'repo_kamstrup'):
                 kamstrup_start()
         elif path == '/api/close':
             t510_stop_runner()
@@ -1340,6 +1386,36 @@ class Handler(BaseHTTPRequestHandler):
                         reg_format[addr] = v
                     else:
                         reg_format.pop(addr, None)
+            self._json({'ok': True})
+        elif path == '/api/ks_regs':
+            # Repo-mode Kamstrup descriptor pushes its register list with
+            # pre-scaled integer mantissas. Body shape:
+            #   {"<reg_addr_decimal_or_hex>": <int_mantissa>, ...}
+            # null/missing values clear the override (back to KS_REGS).
+            body = self._read_json()
+            with state_lock:
+                for k, v in body.items():
+                    try:
+                        addr = int(k, 0)  # accept "1", "0x041e", etc.
+                    except (ValueError, TypeError):
+                        continue
+                    if v is None:
+                        ks_dyn_regs.pop(addr, None)
+                    else:
+                        try:
+                            ks_dyn_regs[addr] = int(v)
+                        except (ValueError, TypeError):
+                            pass
+            self._json({'ok': True})
+        elif path == '/api/t510_body':
+            # Repo-mode T510 descriptor: browser pre-builds the OBIS-ASCII
+            # body via buildOBISAsciiRepo() and POSTs it here as raw text.
+            # An empty body restores the built-in SDM-style telegram.
+            global t510_body_override
+            length = int(self.headers.get('Content-Length', '0') or 0)
+            raw = self.rfile.read(length).decode('utf-8', errors='replace') if length > 0 else ''
+            with state_lock:
+                t510_body_override = raw if raw else None
             self._json({'ok': True})
         elif path == '/api/shutdown':
             self._json({'ok': True})
