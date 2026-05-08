@@ -248,7 +248,12 @@ def run_build(env_name, on_line=print):
 # files whose stem matches a known build-env name — env names contain
 # a hyphen (`-`), plugin module names don't.
 # --------------------------------------------------------------------
-def find_output_bin():
+def find_output_bin(newer_than=None):
+    """Most recently modified plugin .bin in build_output/firmware/.
+    If `newer_than` is supplied (mtime as float seconds), only bins
+    with mtime strictly greater are considered — useful in multi-CPU
+    runs to identify the bin produced by THIS build rather than a
+    leftover from a prior one. Returns None if nothing matches."""
     base = REPO / 'build_output' / 'firmware'
     if not base.exists():
         return None
@@ -259,18 +264,39 @@ def find_output_bin():
         # module names are uppercase with optional _32 / _32r suffix).
         if '-' in stem or '.factory' in p.name:
             continue
-        # Also skip gz versions and anything obviously not a plugin module.
         if p.name.endswith('.bin.gz'):
+            continue
+        if newer_than is not None and p.stat().st_mtime <= newer_than:
             continue
         candidates.append(p)
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
+
+def _max_bin_mtime():
+    """Highest mtime among existing plugin-shaped .bin files. Captured
+    before each per-CPU build so find_output_bin(newer_than=…) can
+    filter to only the freshly-produced bin."""
+    base = REPO / 'build_output' / 'firmware'
+    if not base.exists():
+        return 0.0
+    times = [
+        p.stat().st_mtime
+        for p in base.glob('*.bin')
+        if '-' not in p.stem and '.factory' not in p.name and not p.name.endswith('.bin.gz')
+    ]
+    return max(times) if times else 0.0
+
 # --------------------------------------------------------------------
-# CLI flow
+# CLI flow. `cpus` is a list — each entry maps to one env and produces
+# one plugin .bin. The override file is rewritten once before the loop
+# (USE_X_MOD selection is CPU-agnostic) and restored once afterward.
+# Each CPU is built sequentially; failures are logged but don't abort
+# the remaining targets, so picking all three and getting partial
+# results is normal during cross-compile work.
 # --------------------------------------------------------------------
-def cli(plugin, cpu, keep, on_line=print):
+def cli(plugin, cpus, keep, on_line=print):
     plugins = dict(discover_plugins())
     if plugin not in plugins:
         on_line(f'!! Unknown plugin: {plugin}')
@@ -278,28 +304,57 @@ def cli(plugin, cpu, keep, on_line=print):
         for name, fname in discover_plugins():
             on_line(f'   {name:<28s} ({fname})')
         return 2
-    if cpu not in CPU_ENVS:
-        on_line(f'!! Unknown CPU: {cpu}. Available: {", ".join(CPU_ENVS)}')
+
+    if isinstance(cpus, str):
+        cpus = [cpus]
+    if not cpus:
+        on_line('!! No CPU targets selected.')
         return 2
-    env, label = CPU_ENVS[cpu]
-    on_line(f'== Building {plugin} ({plugins[plugin]}) for {label} via env "{env}" ==')
+
+    unknown = [c for c in cpus if c not in CPU_ENVS]
+    if unknown:
+        on_line(f'!! Unknown CPU(s): {", ".join(unknown)}. Available: {", ".join(CPU_ENVS)}')
+        return 2
+
+    on_line(f'== Plugin: {plugin} ({plugins[plugin]}) ==')
+    on_line(f'== Targets: {", ".join(cpus)} ==')
 
     original = rewrite_override(plugin)
+    results = []   # list of (cpu, rc, output_path_or_None)
+    overall_rc = 0
+
     try:
-        rc = run_build(env, on_line=on_line)
-        if rc != 0:
-            on_line(f'!! Build failed (rc={rc})')
-            return rc
-        out = find_output_bin()
-        if out:
-            try:
-                rel = out.relative_to(REPO)
-            except ValueError:
-                rel = out
-            on_line(f'== Output: {rel} ({out.stat().st_size:,} bytes) ==')
-        else:
-            on_line('!! Build succeeded but no plugin .bin under build_output/firmware/Plugins/')
-        return 0
+        for cpu in cpus:
+            env, label = CPU_ENVS[cpu]
+            on_line('')
+            on_line(f'── [{cpu}] {label} via env "{env}" ──')
+            mtime_before = _max_bin_mtime()
+            rc = run_build(env, on_line=on_line)
+            if rc != 0:
+                on_line(f'!! [{cpu}] Build failed (rc={rc}) — continuing with remaining targets')
+                results.append((cpu, rc, None))
+                overall_rc = rc
+                continue
+            out = find_output_bin(newer_than=mtime_before)
+            if out:
+                try:
+                    rel = out.relative_to(REPO)
+                except ValueError:
+                    rel = out
+                on_line(f'   [{cpu}] Output: {rel} ({out.stat().st_size:,} bytes)')
+                results.append((cpu, 0, out))
+            else:
+                on_line(f'!! [{cpu}] Build succeeded but no fresh plugin .bin found')
+                results.append((cpu, 0, None))
+
+        # Summary line so the user knows what landed without scrolling.
+        on_line('')
+        on_line('== Summary ==')
+        for cpu, rc, out in results:
+            tag = 'OK' if rc == 0 and out else ('OK (no bin?)' if rc == 0 else f'FAIL rc={rc}')
+            extra = f'  {out.name}' if out else ''
+            on_line(f'   {cpu:<14s} {tag}{extra}')
+        return overall_rc
     finally:
         if keep:
             on_line('== Left user_config_override.h with chosen plugin enabled (--keep) ==')
@@ -339,14 +394,19 @@ def gui():
     plug_box.current(0)
     plug_box.grid(row=0, column=1, sticky='ew', pady=4)
 
-    # ── CPU radio ─────────────────────────────────────────────────
-    ttk.Label(main, text='CPU:').grid(row=1, column=0, sticky='w')
-    cpu_var = tk.StringVar(value='esp32')
+    # ── CPU checkboxes (multi-select) ─────────────────────────────
+    # Each ticked CPU is built sequentially using the same override
+    # rewrite. Default to esp32 only — users typically pick more when
+    # cross-compiling for distribution; single-target is the common case.
+    ttk.Label(main, text='CPUs:').grid(row=1, column=0, sticky='nw')
     cpu_frame = ttk.Frame(main)
     cpu_frame.grid(row=1, column=1, sticky='w')
+    cpu_vars = {}
     for key, (env, label) in CPU_ENVS.items():
-        ttk.Radiobutton(
-            cpu_frame, text=f'{label}    ({env})', variable=cpu_var, value=key
+        var = tk.IntVar(value=1 if key == 'esp32' else 0)
+        cpu_vars[key] = var
+        ttk.Checkbutton(
+            cpu_frame, text=f'{label}    ({env})', variable=var
         ).pack(anchor='w')
 
     # ── Keep override checkbox ────────────────────────────────────
@@ -382,19 +442,22 @@ def gui():
     def do_build():
         plug_label = plug_var.get()
         plugin = plug_label.split()[0]
-        cpu = cpu_var.get()
+        cpus = [k for k, v in cpu_vars.items() if v.get()]
+        if not cpus:
+            status_var.set('Pick at least one CPU.')
+            return
         keep = bool(keep_var.get())
         log.delete('1.0', tk.END)
-        status_var.set(f'Building {plugin}…')
+        status_var.set(f'Building {plugin} for {len(cpus)} target(s)…')
         build_btn.state(['disabled'])
 
         def runner():
             try:
-                rc = cli(plugin, cpu, keep, on_line=append)
+                rc = cli(plugin, cpus, keep, on_line=append)
                 if rc == 0:
-                    status_var.set('Build succeeded.')
+                    status_var.set(f'Build succeeded ({len(cpus)} target(s)).')
                 else:
-                    status_var.set(f'Build failed (rc={rc}).')
+                    status_var.set(f'Build finished with errors (rc={rc}). See summary above.')
             except Exception as exc:
                 append(f'!! {exc}')
                 status_var.set(f'Build error: {exc}')
@@ -416,9 +479,14 @@ def main():
     p.add_argument('--plugin', help='e.g. USE_I2S_MOD (use --list to see all)')
     p.add_argument(
         '--cpu',
-        choices=list(CPU_ENVS),
-        default='esp32',
-        help='CPU family (default: esp32)',
+        action='append',
+        default=None,
+        help=(
+            'CPU family — one of: ' + ', '.join(CPU_ENVS) + '. Repeat the '
+            'flag (--cpu esp32 --cpu esp32_riscv) or pass a comma-separated '
+            'list (--cpu esp32,esp32_riscv) to build for multiple targets '
+            'in one invocation. Defaults to esp32 if omitted.'
+        ),
     )
     p.add_argument(
         '--keep',
@@ -454,7 +522,14 @@ def main():
         print('CPU choices:', ', '.join(CPU_ENVS))
         sys.exit(2)
 
-    sys.exit(cli(args.plugin, args.cpu, args.keep))
+    # Normalise --cpu: argparse `action='append'` collects each occurrence,
+    # but we also accept a single comma-separated value per flag for
+    # convenience (`--cpu esp32,esp32_riscv`).
+    raw_cpus = args.cpu or ['esp32']
+    cpus = []
+    for entry in raw_cpus:
+        cpus.extend(c.strip() for c in entry.split(',') if c.strip())
+    sys.exit(cli(args.plugin, cpus, args.keep))
 
 if __name__ == '__main__':
     main()
