@@ -172,6 +172,28 @@ input:focus, select:focus { border-color: #7eb8f7; }
         <option value="">(load list first)</option>
       </select>
     </div>
+    <!-- Pin / filter inputs — values substituted into the descriptor's
+         %0rxpin% / %0txpin% / %0smlf% placeholders before display.
+         %0smlf% is the SML median-filter flag: 0 = off, 16 = on (median
+         over the last 16 samples). Default 0 since most users want raw
+         values during emulation. -->
+    <div class="f3">
+      <div>
+        <label>RX Pin</label>
+        <input type="number" id="repoRxPin" value="4" min="0" max="48" oninput="repoApplySubstitutions()">
+      </div>
+      <div>
+        <label>TX Pin</label>
+        <input type="number" id="repoTxPin" value="5" min="0" max="48" oninput="repoApplySubstitutions()">
+      </div>
+      <div>
+        <label>SML Filter</label>
+        <select id="repoSmlf" onchange="repoApplySubstitutions()">
+          <option value="0">off (0)</option>
+          <option value="16">median 16 (16)</option>
+        </select>
+      </div>
+    </div>
     <div id="repoConfigDisplay" style="display:none;font-size:0.78em;background:#0a1628;border:1px solid #1a4a7a;border-radius:4px;padding:7px 9px;margin-bottom:8px;font-family:monospace">
       <div id="repoConfigDisplayInner"></div>
     </div>
@@ -578,34 +600,78 @@ function onEmuModeChange() {
   if (btnReset) btnReset.style.display = isRepo ? '' : 'none';
   try { localStorage.setItem('sml_emu_mode', mode); } catch (e) {}
   // Switching INTO repo mode: refresh button-enabled state and re-paste
-  // the raw descriptor into the SML Descriptor textarea (in case
-  // generateScript() overwrote it while we were in built-in mode).
+  // the descriptor into the SML Descriptor textarea (in case
+  // generateScript() overwrote it while we were in built-in mode), with
+  // current pin/filter substitutions applied.
   if (isRepo) {
     repoUpdateStartButton();
-    if (repoState && repoState.rawText) {
-      const ta = document.getElementById('tasmotaScript');
-      if (ta) ta.value = repoState.rawText;
-    }
+    repoApplySubstitutions();
   }
 }
 
 // Repo-mode counterpart of generateScript(): re-pastes the unmodified
-// .tas content from the last fetch into the SML Descriptor textarea,
-// undoing any user edits.
+// .tas content from the last fetch into the SML Descriptor textarea
+// (with current pin/filter substitutions applied), undoing any
+// post-fetch edits.
 function resetToRepoDescriptor() {
   if (!repoState || !repoState.rawText) {
     log('err', 'No repo descriptor loaded');
     return;
   }
+  repoApplySubstitutions();
+  log('info', `Reset to repo descriptor (${repoState.name || '?'})`);
+}
+
+// Substitute %0rxpin% / %0txpin% / %0smlf% placeholders in the raw
+// descriptor with the values from the repo-panel inputs, then update
+// the SML Descriptor textarea. Mirrors the same logic Tasmota's
+// Scripter applies at runtime — and is the same regex pair the TinyC
+// IDE uses (smlReplacePins). Persists each value to localStorage
+// under the same keys (sml_rxpin / sml_txpin / sml_filter) so the
+// emulator and IDE stay in sync.
+function repoSubstitute(text) {
+  const rx   = (document.getElementById('repoRxPin')?.value || '').trim();
+  const tx   = (document.getElementById('repoTxPin')?.value || '').trim();
+  const filt = (document.getElementById('repoSmlf')?.value || '').trim();
+  if (rx)   { text = text.replace(/%0?rxpin%/g, rx);
+              try { localStorage.setItem('sml_rxpin', rx); } catch (e) {} }
+  if (tx)   { text = text.replace(/%0?txpin%/g, tx);
+              try { localStorage.setItem('sml_txpin', tx); } catch (e) {} }
+  if (filt !== '') { text = text.replace(/%0?smlf%/g, filt);
+              try { localStorage.setItem('sml_filter', filt); } catch (e) {} }
+  return text;
+}
+
+// Re-apply substitutions to the textarea. Called from the input
+// handlers AND from repoRender() / onEmuModeChange() so the textarea
+// always reflects the current pin/filter selection.
+function repoApplySubstitutions() {
+  if (!repoState || !repoState.rawText) return;
   const ta = document.getElementById('tasmotaScript');
-  if (ta) {
-    ta.value = repoState.rawText;
-    log('info', `Reset to repo descriptor (${repoState.name || '?'})`);
-  }
+  if (ta) ta.value = repoSubstitute(repoState.rawText);
+}
+
+// Restore last-used pin / filter values from localStorage on page load.
+// Same keys the TinyC IDE writes — emulator picks up whatever the user
+// last set there. Called from repoRestoreState() below.
+function repoRestorePinDefaults() {
+  try {
+    const rx   = localStorage.getItem('sml_rxpin');
+    const tx   = localStorage.getItem('sml_txpin');
+    const filt = localStorage.getItem('sml_filter');
+    if (rx)   document.getElementById('repoRxPin').value = rx;
+    if (tx)   document.getElementById('repoTxPin').value = tx;
+    if (filt !== null) document.getElementById('repoSmlf').value = filt;
+  } catch (e) {}
 }
 
 // Restore mode + last-picked meter from localStorage on page load.
 function repoRestoreState() {
+  // Always restore pin/filter defaults — they're shared with the TinyC
+  // IDE and the values persist across both apps. Done before the
+  // mode-restore block so onEmuModeChange's repoApplySubstitutions sees
+  // the right pin values.
+  repoRestorePinDefaults();
   try {
     const m = localStorage.getItem('sml_emu_mode');
     if (m === 'repo') {
@@ -772,16 +838,14 @@ function repoRender() {
   document.getElementById('repoConfigDisplayInner').innerHTML = cfg;
   document.getElementById('repoConfigDisplay').style.display = '';
 
-  // Drop the raw .tas content into the SML Descriptor textarea on the
+  // Drop the .tas content (with %0rxpin%/%0txpin%/%0smlf% substituted
+  // from the panel inputs) into the SML Descriptor textarea on the
   // right pane. The same textarea is what Upload-to-Device reads, so
   // the user can tweak rxpin/baud/etc. before uploading without having
   // to leave repo mode. Done unconditionally — even for "unsupported"
   // protocols, so the user can read what's there before deciding to
   // switch back to built-in mode.
-  if (repoState.rawText) {
-    const ta = document.getElementById('tasmotaScript');
-    if (ta) ta.value = repoState.rawText;
-  }
+  repoApplySubstitutions();
 
   // Repo mode v1 supports SML ('s') and OBIS ASCII ('o') only.
   const supported = (repoState.proto === 's' || repoState.proto === 'o');
