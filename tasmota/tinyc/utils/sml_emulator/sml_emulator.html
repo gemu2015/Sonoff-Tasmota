@@ -175,20 +175,11 @@ input:focus, select:focus { border-color: #7eb8f7; }
     <div id="repoConfigDisplay" style="display:none;font-size:0.78em;background:#0a1628;border:1px solid #1a4a7a;border-radius:4px;padding:7px 9px;margin-bottom:8px;font-family:monospace">
       <div id="repoConfigDisplayInner"></div>
     </div>
-    <!-- Raw descriptor view — shows the .tas file as fetched from the
-         repo. Useful when the parsed-config + value-form summary doesn't
-         tell the whole story (sub-pattern lines, comments, header notes
-         get dropped at parse time but might affect how the meter behaves
-         on a real Tasmota device). Collapsed by default to keep the
-         sidebar compact; user opens the <details> if they want to see
-         the bytes. -->
-    <details id="repoDescriptorView" style="display:none;margin-bottom:8px">
-      <summary style="cursor:pointer;font-size:0.78em;color:#9bb8d4;padding:4px 0">
-        Show descriptor source (.tas file)
-      </summary>
-      <textarea id="repoDescriptorText" readonly
-                style="width:100%;min-height:140px;background:#0a1628;border:1px solid #1a4a7a;color:#9bff9b;font-family:'Courier New',monospace;font-size:0.74em;padding:6px 8px;margin-top:4px;border-radius:4px;resize:vertical;white-space:pre;"></textarea>
-    </details>
+    <!-- Raw .tas content shows up in the existing "SML Descriptor"
+         textarea on the right side of the screen — auto-populated by
+         loadRepoDescriptor(). The same textarea is what Upload-to-Device
+         submits, so the user can tweak rxpin / baud / etc. before
+         uploading without leaving repo mode. -->
     <div id="repoValuesForm" style="display:none">
       <h2 style="margin-top:8px">Live Values (editable)</h2>
       <div id="repoValuesFormInner"></div>
@@ -429,6 +420,11 @@ input:focus, select:focus { border-color: #7eb8f7; }
     <div id="wregRows"></div>
   </div>
 
+  </div><!-- /builtinPanels — Deploy + Stats panels below stay visible
+            in repo mode too, so the user can upload the descriptor to a
+            real Tasmota device and watch the frames flow side-by-side
+            with built-in profiles. -->
+
   <!-- DEPLOY TO DEVICE -->
   <div class="panel">
     <h2>Deploy to Tasmota Device</h2>
@@ -471,8 +467,6 @@ input:focus, select:focus { border-color: #7eb8f7; }
     <div class="stat-row"><span class="stat-label">Last frame</span><span class="stat-value" id="statL">—</span></div>
   </div>
 
-  </div><!-- /builtinPanels — wrapper toggled by onEmuModeChange() -->
-
 </div><!-- /sidebar -->
 
 <div class="content">
@@ -489,7 +483,16 @@ input:focus, select:focus { border-color: #7eb8f7; }
         style="width:100%;box-sizing:border-box;font-family:'Courier New',monospace;font-size:0.69em;line-height:1.65;height:210px;resize:vertical;color:#ffb74d;background:#050d1a;padding:8px;border:1px solid #1e3a5f;border-radius:4px;margin-top:4px;white-space:pre;overflow:auto;"
         placeholder="Click Generate to create descriptor…"></textarea>
       <div class="btn-row" style="margin-top:8px;">
-        <button class="btn btn-primary btn-sm" onclick="generateScript()">↺ Regenerate</button>
+        <!-- "Regenerate" rebuilds from the built-in profile inputs — only
+             meaningful in built-in mode. Hidden in repo mode by
+             onEmuModeChange(). -->
+        <button id="btnRegenScript" class="btn btn-primary btn-sm"
+                onclick="generateScript()">↺ Regenerate</button>
+        <!-- Repo-mode counterpart: re-pastes the unmodified .tas content
+             from the last fetch, in case the user edited the textarea
+             and wants to discard their changes. Hidden in built-in mode. -->
+        <button id="btnResetToRepo" class="btn btn-primary btn-sm"
+                onclick="resetToRepoDescriptor()" style="display:none">↺ Reset to repo</button>
         <button class="btn btn-ghost btn-sm" onclick="copyScript()">Copy</button>
       </div>
     </div>
@@ -564,11 +567,40 @@ function onEmuModeChange() {
   const isRepo = (mode === 'repo');
   document.getElementById('builtinPanels').style.display = isRepo ? 'none' : '';
   document.getElementById('repoPanel').style.display     = isRepo ? '' : 'none';
+  // Toggle the descriptor-textarea action buttons:
+  //   - "Regenerate" only makes sense in built-in mode (rebuilds from
+  //     profile + value inputs)
+  //   - "Reset to repo" only makes sense in repo mode (re-pastes the
+  //     unmodified .tas content if the user edited the textarea)
+  const btnRegen = document.getElementById('btnRegenScript');
+  const btnReset = document.getElementById('btnResetToRepo');
+  if (btnRegen) btnRegen.style.display = isRepo ? 'none' : '';
+  if (btnReset) btnReset.style.display = isRepo ? '' : 'none';
   try { localStorage.setItem('sml_emu_mode', mode); } catch (e) {}
-  // When switching INTO repo mode, ensure the Start/Stop buttons honour the
-  // current state (e.g. don't allow Start with no meter selected).
+  // Switching INTO repo mode: refresh button-enabled state and re-paste
+  // the raw descriptor into the SML Descriptor textarea (in case
+  // generateScript() overwrote it while we were in built-in mode).
   if (isRepo) {
     repoUpdateStartButton();
+    if (repoState && repoState.rawText) {
+      const ta = document.getElementById('tasmotaScript');
+      if (ta) ta.value = repoState.rawText;
+    }
+  }
+}
+
+// Repo-mode counterpart of generateScript(): re-pastes the unmodified
+// .tas content from the last fetch into the SML Descriptor textarea,
+// undoing any user edits.
+function resetToRepoDescriptor() {
+  if (!repoState || !repoState.rawText) {
+    log('err', 'No repo descriptor loaded');
+    return;
+  }
+  const ta = document.getElementById('tasmotaScript');
+  if (ta) {
+    ta.value = repoState.rawText;
+    log('info', `Reset to repo descriptor (${repoState.name || '?'})`);
   }
 }
 
@@ -740,16 +772,15 @@ function repoRender() {
   document.getElementById('repoConfigDisplayInner').innerHTML = cfg;
   document.getElementById('repoConfigDisplay').style.display = '';
 
-  // Raw .tas file content. Always populate even when the protocol is
-  // unsupported — user may want to inspect what they picked before
-  // switching to built-in mode.
-  const dview = document.getElementById('repoDescriptorView');
-  const dtext = document.getElementById('repoDescriptorText');
+  // Drop the raw .tas content into the SML Descriptor textarea on the
+  // right pane. The same textarea is what Upload-to-Device reads, so
+  // the user can tweak rxpin/baud/etc. before uploading without having
+  // to leave repo mode. Done unconditionally — even for "unsupported"
+  // protocols, so the user can read what's there before deciding to
+  // switch back to built-in mode.
   if (repoState.rawText) {
-    dtext.value = repoState.rawText;
-    dview.style.display = '';
-  } else {
-    dview.style.display = 'none';
+    const ta = document.getElementById('tasmotaScript');
+    if (ta) ta.value = repoState.rawText;
   }
 
   // Repo mode v1 supports SML ('s') and OBIS ASCII ('o') only.
