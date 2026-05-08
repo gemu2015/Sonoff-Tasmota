@@ -1652,18 +1652,27 @@ static void HandleTinyCPage(void) {
   // --- IDE Section ---
   WSContentSend_P(PSTR("<fieldset><legend><b> TinyC IDE </b></legend>"));
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
-  // Open the IDE directly on port 82, where the dl_server streams the
-  // 150 KB file from a dedicated FreeRTOS task. Avoids blocking the main
-  // HTTP loop on port 80 (which would freeze the device for 1-3 s under
-  // contention with running TinyC scripts that do file I/O).
-  // The JS builds the URL dynamically from window.location.hostname so it
-  // works regardless of IP / mDNS hostname.
+  // Open the IDE via the current-port `/ide` URL and let the server
+  // decide whether to redirect to the port-82 background download
+  // task. This works in both common scenarios:
+  //
+  //   * Real ESP32 on a normal LAN — `Tinyc->dl_server` is up,
+  //     `/ide` issues a 302 to `:82/ide`, the IDE loads via the
+  //     dedicated FreeRTOS task and the main HTTP loop stays free
+  //     for other work (the original benefit of the port-82 split).
+  //   * VBox / firewalled / port-blocked setups — `/ide` falls
+  //     through to a synchronous serve from port 80 (slower under
+  //     contention, but functional everywhere).
+  //
+  // The previous version hardcoded `:82/ide` in the button JS, which
+  // produced an unreachable URL on networks where port 82 isn't
+  // exposed (Andreas's VBox setup at 192.168.56.107).
   WSContentSend_P(PSTR(
     "<p style='text-align:center'>"
-    "<button onclick=\"window.open(location.protocol+'//'+location.hostname+':82/ide','tinyc_ide')\" "
+    "<button onclick=\"window.open('/ide','tinyc_ide')\" "
     "class='button bgrn'>Open IDE</button>"
     "</p>"
-    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82, background task)</p>"));
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82 background task on real hw, port 80 fallback otherwise)</p>"));
 #else
   WSContentSend_P(PSTR(
     "<div class='tc-ide-url'>"
@@ -2422,7 +2431,13 @@ static void HandleTinyCIde(void) {
 #ifdef ESP32
   // Fast path: redirect to port 82 background-task server. Returns
   // immediately; main loop is freed for other work.
-  if (Tinyc && Tinyc->dl_server) {
+  // Escape hatch: `/ide?direct=1` forces the synchronous fallback
+  // below even when dl_server is up. Useful when port 82 is blocked
+  // (VBox / corporate firewall / partial port-forward setups) and
+  // also for debugging the synchronous code path on real hardware.
+  bool skip_redirect = (Webserver->hasArg(F("direct")) &&
+                        Webserver->arg(F("direct")) != F("0"));
+  if (Tinyc && Tinyc->dl_server && !skip_redirect) {
     char loc[80];
     snprintf_P(loc, sizeof(loc), PSTR("http://%_I:%d/ide"),
                (uint32_t)WiFi.localIP(), TC_DLPORT);
