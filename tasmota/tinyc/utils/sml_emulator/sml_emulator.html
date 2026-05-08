@@ -204,6 +204,30 @@ input:focus, select:focus { border-color: #7eb8f7; }
          uploading without leaving repo mode. -->
     <div id="repoValuesForm" style="display:none">
       <h2 style="margin-top:8px">Live Values (editable)</h2>
+      <!-- Auto-fluctuate toggle: when On, sendFrame() in repo mode runs
+           tcFluctuateRepo() once per frame to random-walk LIVE values
+           and increment COUNTER values. When Off, frames carry the
+           values exactly as typed. Categorisation is by unit + label —
+           see repoMeterCategory(). -->
+      <div class="f2" style="margin-bottom:6px">
+        <div>
+          <label>Auto-fluctuate</label>
+          <select id="repoAuto">
+            <option value="0">Off (fixed)</option>
+            <option value="1" selected>On (random walk + counters)</option>
+          </select>
+        </div>
+        <div>
+          <label>Fluctuation</label>
+          <select id="repoFluct">
+            <option value="0">±0 %</option>
+            <option value="2">±2 %</option>
+            <option value="5" selected>±5 %</option>
+            <option value="10">±10 %</option>
+            <option value="20">±20 %</option>
+          </select>
+        </div>
+      </div>
       <div id="repoValuesFormInner"></div>
     </div>
     <div id="repoUnsupported" style="display:none;color:#ff9b3d;font-size:0.78em;background:#3e1a00;border:1px solid #b45000;border-radius:6px;padding:9px 11px">
@@ -845,7 +869,7 @@ function parseSmlDescriptor(text) {
       isValid = obisCleaned.length > 0;
     }
     if (!isValid) continue;
-    state.items.push({
+    const item = {
       obis: storedObis,
       scale,
       label:    (fields[1] || '').trim(),
@@ -853,9 +877,142 @@ function parseSmlDescriptor(text) {
       varName:  (fields[3] || '').trim(),
       decimals: parseInt((fields[4] || '0').trim(), 10) || 0,
       value:    0,
-    });
+    };
+    // Pre-populate with a sensible default — beats showing 0 for every
+    // field. User-editable, persisted across re-pasted descriptors via
+    // the input's oninput handler that writes back to repoState.
+    item.value = repoDefaultValueFor(item);
+    state.items.push(item);
   }
   return state;
+}
+
+// ─── REPO MODE: AUTO-POPULATE & AUTO-UPDATE ──────────────────────────────────
+// repoMeterCategory(item) classifies each value into one of three buckets
+// so the auto-update loop knows what to do:
+//   COUNTER — monotonically increases (energy/volume/runtime); auto-update
+//             adds (power × Δt) for energy or just Δt for time-based.
+//   LIVE    — random-walks around its current value (V/A/Hz/temp/etc.).
+//   FIXED   — neither auto-pre-filled nor auto-updated.
+// Detection is by unit + label keywords. `unit` is taken verbatim from
+// the descriptor's 3rd field (case- and space-sensitive); we lowercase it.
+function repoMeterCategory(item) {
+  const u   = (item.unit  || '').toLowerCase().trim();
+  const lbl = ((item.label || '') + ' ' + (item.varName || '')).toLowerCase();
+  if (/^(wh|kwh|mwh|kvarh|varh|kvah|vah|m3|m³|kg|t)$/i.test(u))     return 'COUNTER_ENERGY';
+  if (/^(d|day|days|tage|stunden|hour|hours|h)$/i.test(u))         return 'COUNTER_TIME';
+  if (/^(mal|count|cnt|stk|times)$/i.test(u))                      return 'COUNTER_INT';
+  if (/^(w|kw|var|kvar|va|kva)$/i.test(u))                         return 'LIVE_POWER';
+  if (/^v$/i.test(u))                                              return 'LIVE_VOLT';
+  if (/^a$/i.test(u))                                              return 'LIVE_CURR';
+  if (/^hz$/i.test(u))                                             return 'LIVE_FREQ';
+  if (/^°?c$/i.test(u) || /temp/i.test(lbl))                       return 'LIVE_TEMP';
+  if (/^%$/i.test(u))                                              return 'LIVE_PCT';
+  return 'FIXED';
+}
+
+// Sensible default for a freshly-loaded item — by category + label hints.
+// Three-phase items (label/varName contains L1/L2/L3) get split values
+// so the per-phase rows look reasonable next to a "total" row.
+function repoDefaultValueFor(item) {
+  const cat = repoMeterCategory(item);
+  const lbl = ((item.label || '') + ' ' + (item.varName || '')).toLowerCase();
+  const isExport = /(expor|einspei|out)/.test(lbl);
+  const phase = lbl.match(/[lp]([123])/);   // L1 / L2 / L3 / P1 / P2 / P3
+  switch (cat) {
+    case 'COUNTER_ENERGY': return isExport ? 234.567 : 12345.678;
+    case 'COUNTER_TIME':   return /day|tage|d$/i.test(item.unit) ? 365 : 8760;
+    case 'COUNTER_INT':    return 100;
+    case 'LIVE_POWER': {
+      if (isExport) return 0;
+      // Per-phase power: total ~1500 W split unevenly across 3 phases
+      if (phase) {
+        const split = [600, 500, 400][parseInt(phase[1], 10) - 1] || 500;
+        return split;
+      }
+      return 1500;
+    }
+    case 'LIVE_VOLT':  return phase
+                              ? [230.1, 229.8, 230.5][parseInt(phase[1], 10) - 1] || 230.0
+                              : 230.1;
+    case 'LIVE_CURR':  return phase
+                              ? [2.6, 2.2, 1.7][parseInt(phase[1], 10) - 1] || 2.2
+                              : 6.5;
+    case 'LIVE_FREQ':  return 50.0;
+    case 'LIVE_TEMP':  return 22.0;
+    case 'LIVE_PCT':
+      if (/soc|akku|batter|charge/i.test(lbl)) return 75;
+      if (/humid|feucht/i.test(lbl))           return 50;
+      return 50;
+    default:           return 0;
+  }
+}
+
+// Random ±pct% wobble around `v`. Matches the built-in mode's `flt()`.
+function repoWobble(v, pct) {
+  if (!pct) return v;
+  return v * (1 + (Math.random() * 2 - 1) * pct / 100);
+}
+
+// Per-frame value update. Called from sendFrame() in repo mode when
+// "Auto-fluctuate" is on. Runs once per frame:
+//   - LIVE_*  values: random walk around their current value (so the
+//                     user can set a target and watch it drift)
+//   - COUNTER_ENERGY: monotonic; +1 step per frame (small, visible to
+//                     the receiving Tasmota driver as actual change).
+//                     For more realistic behaviour, we could derive Δ
+//                     from a paired LIVE_POWER item × elapsed time —
+//                     but that's a hidden coupling that's confusing
+//                     for non-electrical meters (water, heat). Keep it
+//                     simple: just bump by a small unit-aware step.
+//   - COUNTER_TIME / COUNTER_INT: +1 per N frames (slow ticker).
+// After updating each item.value, re-render the form input so the
+// user sees the live changes.
+let repoFrameTick = 0;
+function repoFluctuate() {
+  if (!repoState || !repoState.items.length) return;
+  repoFrameTick++;
+  const fluctPct = parseInt(document.getElementById('repoFluct')?.value || '5', 10);
+  for (let idx = 0; idx < repoState.items.length; idx++) {
+    const it  = repoState.items[idx];
+    const cat = repoMeterCategory(it);
+    let v = (typeof it.value === 'number') ? it.value : 0;
+    switch (cat) {
+      case 'COUNTER_ENERGY':
+        // +0.001 unit per frame — small enough to stay readable, big
+        // enough to be visible as fresh data on every tick.
+        v = v + 0.001;
+        break;
+      case 'COUNTER_TIME':
+        // +1 unit per 60 frames (≈1 minute at 1 Hz, 1 hour at 1/min).
+        if (repoFrameTick % 60 === 0) v = v + 1;
+        break;
+      case 'COUNTER_INT':
+        v = v + 1;
+        break;
+      case 'LIVE_POWER':
+      case 'LIVE_VOLT':
+      case 'LIVE_CURR':
+      case 'LIVE_FREQ':
+      case 'LIVE_TEMP':
+      case 'LIVE_PCT':
+        v = repoWobble(v, fluctPct);
+        break;
+      default:
+        // FIXED — leave as-is
+        break;
+    }
+    it.value = v;
+    // Push back to the form input so the user sees the change.
+    const inp = document.getElementById(`repoVal_${idx}`);
+    if (inp && document.activeElement !== inp) {
+      // Round display to a sensible number of decimals based on category
+      // (counters have 3 decimals max, V/A/Hz have 2, ints are int).
+      const dec = (cat === 'COUNTER_INT' || cat === 'COUNTER_TIME') ? 0 :
+                  (cat === 'COUNTER_ENERGY')                        ? 3 : 2;
+      inp.value = (typeof v === 'number') ? v.toFixed(dec) : v;
+    }
+  }
 }
 
 // Extract C, D, E from an OBIS code regardless of input format.
@@ -1172,6 +1329,12 @@ async function sendFrame() {
       log('err', 'Repo mode: select a meter first');
       stopSending();
       return;
+    }
+    // Pre-frame: optional auto-fluctuation. When On, walks LIVE values
+    // and increments COUNTER values once per frame, then re-renders the
+    // form inputs so the user sees them changing live.
+    if (document.getElementById('repoAuto')?.value === '1') {
+      repoFluctuate();
     }
     let data;
     try {
