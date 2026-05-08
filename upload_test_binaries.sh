@@ -80,6 +80,21 @@ for doc in README.md TinyC_Reference.md TinyC_Reference_DE.md; do
   [[ -f "$TINYC_DIR/$doc" ]] && FILES+=("$TINYC_DIR/$doc") || echo "WARNING: $doc not found"
 done
 
+# --- include reference binplugins (BLIB) — same source of truth ---
+# Built by `python3 tasmota/Plugins/build_plugin.py --plugin USE_CRC_BLIB_MOD
+# --cpu esp8266 esp32 esp32_riscv`. Output filename suffix encodes arch:
+#   .bin       → ESP8266
+#   _32.bin    → ESP32 Tensilica (orig / S2 / S3)
+#   _32r.bin   → ESP32 RISC-V (C3 / C6 / …)
+# The device's plugin loader matches by suffix at iniz time. Including
+# them here lets testers exercise `bcall("crc32", buf, n)` from any
+# TinyC slot without a separate build step.
+PLUGIN_DIR="$SCRIPT_DIR/build_output/firmware"
+for blib_bin in "CRC_BLIB.bin" "CRC_BLIB_32.bin" "CRC_BLIB_32r.bin"; do
+  [[ -f "$PLUGIN_DIR/$blib_bin" ]] && FILES+=("$PLUGIN_DIR/$blib_bin") \
+    || echo "WARNING: $blib_bin not found in $PLUGIN_DIR (skipping — run build_plugin.py first)"
+done
+
 # --- show what will be uploaded ---
 info "Files to upload:"
 for f in "${FILES[@]}"; do
@@ -112,6 +127,69 @@ tc_emit_notes_body() {
 - Upload `tinyc_ide.html.gz` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+
+**TC_RELEASE 1.5.3** — TinyC ↔ binary-library bridge (BLIB / `bcall`).
+
+The plugin system gains a new module type `MODULE_TYPE_BLIB` for plugins
+that have **no Tasmota lifecycle hooks** — they're a pure bag of named
+native functions other firmware code can invoke at full native speed.
+TinyC scripts call them via the new `bcall("name", buf, len)` syscall.
+
+End-to-end pieces shipped together:
+
+- **Firmware**: `MODULE_TYPE_BLIB` enum + `pFUNC_GET_TINYC_EXPORTS` selector
+  + `TC_EXPORT[]` table layout (in `tasmota/Plugins/modules_def.h`).
+  Plugin loader (xdrv_123_plugins.ino) reads the table at iniz time,
+  EXEC_OFFSET-corrects each fn pointer, copies the names to DRAM (so
+  byte-access works on ESP32-S3 MMAP_INST partitions), and registers up
+  to 64 entries in a global lookup. `xdrv_124_tinyc_vm.h` adds
+  `SYS_BLIB_CALL = 370` — the TinyC dispatcher pops `(name_const,
+  buf_ref, len)`, looks up the entry, validates the phase-1 (BUF, INT)
+  → INT signature, marshals the buffer to a flat `uint8_t[]`
+  (stack-alloc ≤256 B, malloc above) and pushes the int back.
+- **Reference plugin**: `xblib_01_crc.cpp` exports `mb_crc16` (Modbus
+  RTU CRC-16, polynomial 0xA001), `crc32` (ISO/IEC 13239 reflected
+  poly 0xEDB88320), `crc8_dallas` (1-Wire CRC-8 polynomial 0x8C).
+  Validated end-to-end on .39: textbook `crc32('123456789') = 0xCBF43926`.
+- **TinyC IDE**: `bcall` registered in BUILTINS with `constArgs[0]`
+  (string-literal name) + `strArgs[1]` (char[] buffer ref). Standalone
+  IDE simulator returns -1 with a `[BLIB]` log line so PC-side runs
+  don't crash on `bcall()`.
+- **Demo**: `examples/blib_crc_demo.tc` exercises all three exports
+  every second, prints results to addLog.
+- **Released binplugins**: `CRC_BLIB.bin` (ESP8266), `CRC_BLIB_32.bin`
+  (ESP32 Tensilica), `CRC_BLIB_32r.bin` (ESP32 RISC-V) ship with the
+  release. Upload to a free plugin slot via the `/u3` endpoint or the
+  Tasmota web UI Files manager, then `iniz N` once. After registration
+  any TinyC slot can call `bcall("mb_crc16", buf, 6)` etc. at native
+  speed.
+- **build_plugin.py** — single-target plugin build helper. Picks the
+  right env per CPU (esp8266 / esp32 / esp32_riscv), rewrites
+  `user_config_override.h` to enable just the chosen plugin, runs `pio
+  run -e ...`, locates the output `.bin` and (by default) restores the
+  override file. CLI + Tk GUI. Multi-CPU support: pass several `--cpu`
+  values to build all archs in one invocation. macOS double-click
+  launcher: `~/Desktop/Plugin Builder.command`.
+
+Use it for: tight inner loops (CRC, FFT, DSP), crypto we don't already
+wrap (AES-GCM, ECDH), codec primitives, large lookup tables that don't
+belong in script bytecode. **Don't** use it for anything that talks to
+Tasmota lifecycle (`Command`, `WebUI`, `OnMqttData`), persistence,
+`watch`/`share`, or that you'd want to iterate on without a flash
+cycle. The phase-1 ABI is `(BUF, INT) → INT` only — float args/returns,
+multi-arg, ref out-params will be added by widening the dispatcher
+when the next blib needs them.
+
+**Misc fixes shipped same release:**
+- **TinyC IDE port** — "Open IDE" button no longer hardcodes port 82;
+  uses the same scheme/host the page was loaded from. Devices on
+  non-default web ports (e.g. behind reverse proxies) now open the
+  IDE correctly.
+- **SML emulator (desktop helper)** — bundled `local_meters/` folder
+  dropped (52 PDF-extracted descriptors merged into ottelo9's
+  `tasmota-sml-script` upstream). Auto-discovery code preserved so
+  individual users can drop their own .tas files into a local folder
+  and have the emulator pick them up.
 
 **TC_RELEASE 1.5.2** — `#include "file.tc"` directive (IDE-side preprocessor).
 The IDE compiler now recognizes `#include "file.tc"` and inlines the content

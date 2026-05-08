@@ -76,6 +76,24 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **`bcall("name", buf, len)` syscall** — invoke native functions exported
+  by a `MODULE_TYPE_BLIB` binary library plugin. Phase-1 ABI is locked to
+  `(BUF, INT) → INT` — matches the CRC primitives in the first reference
+  blib (`xblib_01_crc.cpp`: `mb_crc16` / `crc32` / `crc8_dallas`). The
+  blib is uploaded as a relocatable `.bin` to the device's plugin
+  partition and `iniz`'d once; from then on the names are callable from
+  any TinyC slot at full native speed (no per-blib firmware glue).
+  String literal name → `constArgs[0]`; runtime char[] buffer → `strArgs[1]`.
+  Sim stub returns `-1` so standalone-IDE runs don't crash. See
+  `examples/blib_crc_demo.tc` for a working three-CRC demo.
+  Use it for: tight inner loops (CRC, FFT, DSP), crypto we don't already
+  wrap, codec primitives, large LUTs that don't belong in script bytecode.
+  Don't use it for: anything that talks to Tasmota lifecycle (`Command`,
+  `WebUI`, `OnMqttData`, `persist`, `watch`/`share`) or that you'd want
+  to iterate without a flash cycle. Phase-1 dispatcher is in
+  `xdrv_124_tinyc_vm.h`; widening to other arg shapes (float, multi-arg,
+  `TC_ARG_REF` out-params) is a small surgical patch when the next blib
+  needs them.
 - **String ops** (1.5.0) — 7 new built-ins for in-place char[] manipulation
   with literal-needle args:
     `int n = strReplace(buf, "old", "new")` — find/replace all, returns count
@@ -249,6 +267,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | Persist | `persist` decl, `saveVars()` |
 | Watch | `watch` decl, `changed`, `delta`, `written`, `snapshot` |
 | Cross-VM share | `shareSetInt/GetInt`, `shareSetFloat/GetFloat`, `shareSetStr/GetStr`, `shareHas`, `shareDelete` (string-literal keys) |
+| Binary libs (BLIB) | `bcall("name", buf, len)` → int — call a native function exported by a `MODULE_TYPE_BLIB` plugin (e.g. `xblib_01_crc`'s `mb_crc16`, `crc32`, `crc8_dallas`). Name is a string literal; phase-1 ABI is `(BUF, INT) → INT` only. |
 
 ---
 
@@ -395,6 +414,7 @@ void OnMqttData(char topic[], char payload[]) {
 **SML smart meter** — `sml_ebus.tc`
 **Tasks / concurrency (ESP32)** — `spawn_tasks.tc`, `callbacks.tc`, `callback_test.tc`
 **Cross-VM share (ESP32)** — `share_writer.tc` (slot 0 EverySecond writer) + `share_reader.tc` (slot 1 Command reader)
+**Binary libs (BLIB)** — `blib_crc_demo.tc` (calls `mb_crc16` / `crc32` / `crc8_dallas` exported by the `xblib_01_crc` plugin)
 **HomeKit (ESP32)** — `homekit_demo.tc`, `homekit_office.tc`
 **Strings / sort** — `strings.tc`, `sort.tc`, `file_io.tc`
 **2D arrays** — `test_2d.tc` (char 2D), `test_2d_phase2.tc` (int + float 2D + sprintf %s)

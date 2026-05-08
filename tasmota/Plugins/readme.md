@@ -182,4 +182,71 @@ ads1115
 htu21
 ds18x20
 pcf8574
+
+
+MODULE_TYPE_BLIB — binary library plugins (LEGO bricks)
+========================================================
+
+A new plugin type for plugins that have NO Tasmota lifecycle hooks
+(no FUNC_INIT / FUNC_LOOP / FUNC_COMMAND etc) — purely a bag of named
+native functions other firmware code can invoke at full native speed.
+First reference blib: `xblib_01_crc.cpp` — exports `mb_crc16`, `crc32`,
+`crc8_dallas`.
+
+The contract:
+
+- `MODULE_DESCRIPTOR(name, MODULE_TYPE_BLIB, ...)` declares the module
+  type. The plugin loader skips all the lifecycle dispatch and instead
+  calls `mod_func_execute(pFUNC_GET_TINYC_EXPORTS)` at iniz time to get
+  a `TC_EXPORT[]` table (defined in `tasmota/Plugins/modules_def.h`).
+- Each entry: `{ name, fn, argc, ret_type, arg_types[TC_MAX_ARGS] }`.
+  Names must be NAMED `PROGMEM` strings (not inline string literals)
+  so they land in the plugin's `mod_string` section, not the builder
+  firmware's `.flash.rodata`.
+- Loader EXEC_OFFSET-corrects each fn pointer, copies names to DRAM
+  (so callers can do byte-access — required on ESP32-S3 where MMAP_INST
+  doesn't allow l8ui), and registers up to 64 entries in a global table.
+- TinyC scripts call them via `bcall("name", buf, len)` (see
+  `tasmota/include/xdrv_124_tinyc_vm.h::SYS_BLIB_CALL`).
+
+Phase-1 ABI is locked to `(BUF, INT) → INT` — matches the CRC primitives.
+Other shapes (float args/returns, multi-arg, ref out-params) get added
+by widening the dispatcher in xdrv_124_tinyc_vm.h when the next blib
+needs them.
+
+Test command (from console): `blibtest <name> <hex bytes>` — calls a
+registered export with the provided buffer, prints the int return.
+
+
+build_plugin.py — single-target plugin build helper
+====================================================
+
+Wraps the multi-step plugin build (rewrite override, pick env, run pio,
+locate output) into one CLI/GUI tool.
+
+CLI:
+    python3 tasmota/Plugins/build_plugin.py --list
+    python3 tasmota/Plugins/build_plugin.py --plugin USE_CRC_BLIB_MOD --cpu esp32
+    python3 tasmota/Plugins/build_plugin.py --plugin USE_I2S_MOD --cpu esp8266 esp32 esp32_riscv
+
+GUI (Tk, ships with system Python):
+    python3 tasmota/Plugins/build_plugin.py --gui
+
+Or double-click `~/Desktop/Plugin Builder.command` (macOS launcher).
+
+CPU mapping:
+    esp8266     → env `tasmota-4M`     (output suffix `.bin`)
+    esp32       → env `tasmota32-4M`   (output suffix `_32.bin`,
+                  covers original ESP32 + S2 + S3 — same Xtensa toolchain)
+    esp32_riscv → env `tasmota32c3-4M` (output suffix `_32r.bin` /
+                  `_32c3.bin`, covers C3 + C6 + future Cx parts)
+
+The builder rewrites `tasmota/user_config_override.h` to enable exactly
+the chosen `USE_..._MOD` inside the `device_lcd` block (which carries
+the `#undef USE_HOMEKIT` and the SCRIPT/TINYC/SML setup the plugin
+slots need); restores the original file after the build by default
+(--keep to leave it rewritten).
+
+Output `.bin` lands in `build_output/firmware/<NAME><suffix>.bin`,
+ready to upload via Tasmota's `/u3` endpoint or web UI Files manager.
 ld2410
