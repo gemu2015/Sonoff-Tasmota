@@ -23,17 +23,19 @@
 //
 // Refresh strategy — IMPORTANT:
 // The 4.2" panel is a FULL-refresh device. Each `[d]` flush takes
-// roughly 3-5 s during which Tasmota's loop task is blocked while
-// the display driver clocks the framebuffer out via SPI. Going much
-// past that risks the ESP32 RTC watchdog. The Scripter version drove
-// updates once per minute (`if upsecs%60==0`); we mirror that — once
-// per 60 s of uptime EverySecond calls update_display(), one big
-// blocking refresh, then back to idle for the next 59 s.
+// roughly 3-5 s while the display driver clocks the framebuffer out
+// via SPI and waits for BUSY. To avoid that blocking call living on
+// Tasmota's main loop task (which would trip the loop watchdog after
+// enough cumulative blocks → software reset), the actual rendering
+// runs in a worker — TaskLoop on its own FreeRTOS task. EverySecond
+// just raises a `display_dirty` flag once per minute; TaskLoop sees
+// the flag, clears it, runs update_display(). The TinyC VM mutex is
+// released around long syscalls so EverySecond / WebCall / MQTT
+// keep firing on the loop task throughout the [d] flush.
 //
-// Anything that wanted faster updates (live graph, sensor pages) would
-// need partial refresh + a TaskLoop driving the dspText calls so the
-// loop task isn't held — out of scope for this port. The Scripter ran
-// fine at 60 s for years, no reason to change cadence.
+// First port of this dashboard ran update_display() inline from
+// EverySecond and software-reset roughly once per day — same cause
+// (loop-task held too long during [d]). Worker-task split fixed it.
 // ═════════════════════════════════════════════════════════════════════
 
 
@@ -122,6 +124,17 @@ persist float sez1 = 0.0;
 // Last seen hour — used to detect the 23 → 0 transition for the
 // midnight rollover. -1 means "haven't seen any hour yet".
 int last_hr = -1;
+
+// Worker-task signal flag. EverySecond raises it on the minute
+// boundary; TaskLoop notices it, clears it, and runs update_display()
+// from a separate FreeRTOS task so the 3-5 s `[d]` SPI dump no
+// longer holds Tasmota's main loop task (which would trip Tasmota's
+// loop-watchdog after enough cumulative blocks → software reset).
+//
+// Both tasks read/write the flag under the TinyC VM mutex (which
+// serialises callback dispatch), so the volatile semantics come for
+// free — no atomic primitives needed at the language level.
+int display_dirty = 0;
 
 // Read the Scripter-format /wd_log.txt into the mez*/mezh/mvzh arrays.
 // File layout (tab-separated, 7 rows):
@@ -375,15 +388,15 @@ void EverySecond() {
     mez1[0] = (float)dow_now;
 
     // Match the Scripter's `if upsecs%60==0` gate. tasm_uptime is in
-    // seconds since Tasmota boot; gating on uptime%60==0 fires once per
-    // minute. Using a "did we already update for this minute?" flag
-    // prevents double-fire if EverySecond happens to run twice in the
-    // same wall-second (rare but possible under load).
+    // seconds since Tasmota boot; once a minute we just RAISE the
+    // display-dirty flag. The actual update_display() call (with its
+    // 3-5 s blocking `[d]` flush) runs in TaskLoop on a dedicated
+    // worker task, so Tasmota's main loop keeps yielding within its
+    // watchdog window — no more cumulative-block software resets.
     int now_min = tasm_uptime / 60;
     if (now_min != last_disp_min && tasm_uptime > 0) {
         last_disp_min = now_min;
-        update_display();
-        disp_updates = disp_updates + 1;
+        display_dirty = 1;
     }
 
     // Periodic graph save — every 5 min, Scripter ported from `>S`'s
@@ -392,6 +405,32 @@ void EverySecond() {
     if (tasm_uptime > 0 && tasm_uptime % 300 == 0) {
         dspText("[Gs0:/g0_sav.txt:]");
         dspText("[Gs1:/g1_sav.txt:]");
+    }
+}
+
+
+// ─── TaskLoop — runs update_display() off the main loop task ─────────
+//
+// Lives on its own FreeRTOS task with a 5 KB stack (TinyC's default
+// is fine — no HTTP / TLS / JSON parsing here). Polls the dirty flag
+// every 50 ms; when EverySecond raises it, runs the display update
+// (which includes the long-blocking `[d]` SPI dump). Tasmota's main
+// loop keeps yielding the whole time because the [d] only blocks
+// THIS task — the TinyC VM mutex is released around long syscalls,
+// so EverySecond / WebCall / MQTT / etc. continue firing on the
+// loop task without missing a beat.
+//
+// Why not just tighten the gate / add a periodic clear instead? Both
+// were considered; this is the architectural fix — the Tasmota loop
+// watchdog can't fire on us because we never block the loop task.
+void TaskLoop() {
+    while (1) {
+        if (display_dirty) {
+            display_dirty = 0;
+            update_display();
+            disp_updates = disp_updates + 1;
+        }
+        delay(50);
     }
 }
 
