@@ -1,0 +1,93 @@
+// =================================================================
+// epaper_clock_test.tc — minimal partial-update repro for EPD 2.9"
+//
+// Worked fine on the legacy UDisplay driver. Shows HH:MM:SS in large
+// text, refreshing once a second via the default partial-update path.
+// On the new UDisplay/ driver this is the first thing that breaks
+// even though the boot/init full refresh shows correctly.
+//
+// Failure mode we're hunting:
+//   • full refresh on init shows the splash + first time → screen OK
+//   • every per-second `[d]` after that triggers a blink + LUT
+//     reflashing but the rendered digits don't change visibly,
+//     or change but corrupted
+//
+// The minute-edge `[Id][id]` forced-full sequence is left in so we
+// can compare: full refresh = "looks right", partial = "broken" should
+// be reproducible turn by turn.
+//
+// Tested device: 192.168.188.39 (Waveshare 2.9" v2 SSD1680, ep_mode 3)
+//
+// Usage:
+//   node tasmota/tinyc/tc_deploy.mjs \
+//        tasmota/tinyc/examples/epaper_clock_test.tc 192.168.188.39
+//
+// Then watch /cs (web log) — UDSP_EPD_TRACE in the new driver logs
+// every SPI command, LUT load, and EP_SEND_DATA call. Compare the
+// ":p" block trace against legacy's equivalent path.
+// =================================================================
+
+char buf[64];
+int  ticks   = 0;     // counts how many partial refreshes since boot
+int  full_at = 0;     // tasm_uptime of the last forced-full refresh
+
+void render_clock() {
+    // Big HH:MM:SS — font size 2 (16 px tall), positioned ~middle of
+    // the 296 × 128 panel (with ROT=1 the long axis is x). Padding
+    // p-12 keeps the text-rect cleared so the previous second's
+    // digits don't ghost when we partial-update.
+    sprintf(buf, "[f2s2p-12x10y40]%02d:%02d:%02d",
+            tasm_hour, tasm_minute, tasm_second);
+    dspText(buf);
+
+    // A counter row beneath so we can SEE that EverySecond is
+    // actually firing even when the time digits look frozen.
+    sprintf(buf, "[f1s1p-12x10y100]ticks: %d", ticks);
+    dspText(buf);
+}
+
+void EverySecond() {
+    ticks = ticks + 1;
+    render_clock();
+
+    // Default partial refresh — one per second. This is what is
+    // suspected broken under the new driver.
+    dspText("[d]");
+
+    // Once a minute, do a forced full refresh to clear ghosting AND
+    // give us a side-by-side comparison. After [Id][id] the screen
+    // should look identical to the partial-update result; if it
+    // looks DIFFERENT, the partial path is corrupting the visible
+    // pixels.
+    if (tasm_uptime - full_at >= 60) {
+        dspText("[Id]");
+        dspText("[id]");
+        full_at = tasm_uptime;
+    }
+}
+
+void WebCall() {
+    sprintf(buf, "{s}EPD clock ticks{m}%d{e}", ticks);
+    webSend(buf);
+    sprintf(buf, "{s}Last full refresh{m}uptime %d s{e}", full_at);
+    webSend(buf);
+}
+
+int main() {
+    // [zD0] = clear framebuffer (no refresh yet);
+    // [Id] = init+full refresh once at boot so we know the chip is
+    //         good before any partial refresh runs;
+    // [id] = REQUIRED follow-up — flips the panel back to partial-LUT
+    //         mode. Without this, ep_update_mode stays at FULL and
+    //         every subsequent [d] triggers a flickery full refresh.
+    //         (See epaper29.tc — same idiom.)
+    dspText("[zD0]");
+    dspText("[Id]");
+    dspText("[id]");
+
+    full_at = tasm_uptime;
+    ticks   = 0;
+
+    print("epaper_clock_test ready\n");
+    return 0;
+}
