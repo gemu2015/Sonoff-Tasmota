@@ -3496,14 +3496,9 @@ int32_t mod_func_execute(uint32_t sel);
 // the catalog grows.
 #define TC_BLIB_REG_SIZE 64
 
-typedef struct {
-  char       *name;         // malloc'd DRAM copy of the name string
-  void       *fn;           // EXEC_OFFSET-corrected fn pointer (4-byte access OK)
-  uint8_t     argc;
-  uint8_t     ret_type;
-  uint8_t     arg_types[TC_MAX_ARGS];
-  uint8_t     module_idx;   // for diagnostics + future unload
-} TC_BLIB_REG_ENTRY;
+// TC_BLIB_REG_ENTRY struct lives in modules_def.h so xdrv_124_tinyc_vm.h
+// can use it for the SYS_BLIB_CALL handler without duplicating the
+// definition.
 
 // Safe byte read from a plugin-partition address. The partition is
 // mmap'd as INST so byte access via l8ui faults, but 32-bit aligned

@@ -684,6 +684,25 @@ enum TcSyscall {
   // loop) keep running. Holds the slot's vm_mutex for the duration —
   // intended use is from a spawnTask worker handling one TCP session,
   // where blocking that slot's other callbacks for ≤200 ms is fine.
+  SYS_BLIB_CALL             = 370, // (name_const, buf_ref, len) -> int
+                                  //   Calls a registered binary-library export by name.
+                                  //   Looks up the name in the global blib registry
+                                  //   (populated by tc_blib_register_module() when a
+                                  //   MODULE_TYPE_BLIB plugin is loaded) and invokes
+                                  //   the cached fn pointer. Phase-1 supports only the
+                                  //   (BUF, INT) -> INT signature shared by xblib_01_crc's
+                                  //   mb_crc16 / crc32 / crc8_dallas — argc==2, arg_types
+                                  //   == { TC_ARG_BUF, TC_ARG_INT }, ret_type == TC_RET_INT.
+                                  //   Other signatures will be added as more blibs ship.
+                                  //   Returns: native fn result on success
+                                  //            -1  (unknown name / not registered)
+                                  //            -2  (signature mismatch — wrong shape)
+                                  //            -3  (bad ref / alloc failure)
+                                  //   The TinyC char[] buffer is packed (1 byte per
+                                  //   int32 slot) into a contiguous uint8_t before the
+                                  //   call. Stack-allocated up to 256 B; larger frames
+                                  //   malloc briefly.
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -1234,6 +1253,13 @@ bool Is_gpio_used(uint8_t gpiopin) {
   return (gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0);
 }
 #endif
+
+// ── Blib (binary library) registry — populated in xdrv_123_plugins.ino
+//    when a MODULE_TYPE_BLIB plugin is loaded. The SYS_BLIB_CALL
+//    handler below calls tc_blib_lookup() to resolve a name to the
+//    registered fn pointer + arg-type metadata. TC_BLIB_REG_ENTRY
+//    struct is defined in modules_def.h (shared with xdrv_123).
+extern "C" TC_BLIB_REG_ENTRY *tc_blib_lookup(const char *name);
 
 #ifdef USE_HOMEKIT
 extern "C" int32_t homekit_main(char *, uint32_t);
@@ -11517,6 +11543,61 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         delay(1);
 #endif
       }
+      TC_PUSH(vm, result);
+      break;
+    }
+
+    // ── Blib (binary library) call ────────────────────
+    case SYS_BLIB_CALL: {  // bcall("name", buf, len) -> int
+      // Phase-1: only the (BUF, INT) -> INT signature is supported.
+      // Pop in reverse-push order: len, buf_ref, name_const_idx.
+      int32_t len      = TC_POP(vm);
+      int32_t buf_ref  = TC_POP(vm);
+      int32_t name_ci  = TC_POP(vm);
+
+      // Resolve the name from the const-pool (BUILTINS table marks the
+      // name arg as constArgs[0]; the IDE compiler emits the index).
+      const char *name = tc_get_const_str(vm, name_ci);
+      if (!name) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      TC_BLIB_REG_ENTRY *r = tc_blib_lookup(name);
+      if (!r) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      // Validate the locked spike signature.
+      if (r->argc != 2 ||
+          r->arg_types[0] != TC_ARG_BUF ||
+          r->arg_types[1] != TC_ARG_INT ||
+          r->ret_type != TC_RET_INT) {
+        TC_PUSH(vm, -2);
+        break;
+      }
+      // Resolve buffer (TinyC arrays = int32-per-byte). Pack to a
+      // contiguous uint8_t for the native call. Stack-allocate up to
+      // 256 B; larger frames malloc briefly.
+      int32_t *buf_base = (len > 0) ? tc_resolve_ref(vm, buf_ref) : nullptr;
+      if (len > 0 && !buf_base) {
+        TC_PUSH(vm, -3);
+        break;
+      }
+      uint8_t  stack_buf[256];
+      uint8_t *call_buf = (len <= (int32_t)sizeof(stack_buf))
+                          ? stack_buf
+                          : (uint8_t*)malloc((size_t)len);
+      if (!call_buf) {
+        TC_PUSH(vm, -3);
+        break;
+      }
+      for (int32_t k = 0; k < len; k++) {
+        call_buf[k] = (uint8_t)(buf_base[k] & 0xFF);
+      }
+      // Cast to the (BUF, INT) -> INT shape and invoke.
+      typedef int (*tc_blib_buf_int_fn)(uint8_t *, int);
+      int32_t result = ((tc_blib_buf_int_fn)r->fn)(call_buf, (int)len);
+      if (call_buf != stack_buf) free(call_buf);
       TC_PUSH(vm, result);
       break;
     }

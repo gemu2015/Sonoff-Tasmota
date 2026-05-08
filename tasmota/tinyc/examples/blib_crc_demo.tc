@@ -1,0 +1,49 @@
+// blib_crc_demo.tc — exercise xblib_01_crc via bcall().
+//
+// Prerequisite: upload CRC_BLIB_32.bin to the device's plugin partition
+// and `iniz N` it. The firmware logs three "BLIB: registered ..." lines
+// at iniz time. After that, the names mb_crc16 / crc32 / crc8_dallas are
+// callable from any TinyC slot via `bcall("name", buf, len)`.
+//
+// Phase-1 bcall signature is locked to (BUF, INT) -> INT — matches the
+// CRC primitives this blib exports. Other shapes will be added as more
+// blibs ship.
+
+char buf[64];
+char msg[80];
+int  result;
+
+void EverySecond() {
+    // Modbus FC03 read-holding-regs query: slave 1, addr 0, qty 2.
+    // Wire bytes (sans CRC): 01 03 00 00 00 02
+    buf[0] = 0x01;
+    buf[1] = 0x03;
+    buf[2] = 0x00;
+    buf[3] = 0x00;
+    buf[4] = 0x00;
+    buf[5] = 0x02;
+    result = bcall("mb_crc16", buf, 6);
+    sprintf(msg, "blib mb_crc16(01030000 0002) = 0x%04x", result);
+    addLog(msg);
+
+    // CRC-32 ISO of the textbook string "123456789" — must equal 0xCBF43926.
+    buf[0] = '1'; buf[1] = '2'; buf[2] = '3';
+    buf[3] = '4'; buf[4] = '5'; buf[5] = '6';
+    buf[6] = '7'; buf[7] = '8'; buf[8] = '9';
+    result = bcall("crc32", buf, 9);
+    sprintf(msg, "blib crc32('123456789') = 0x%08x  (expected 0xcbf43926)", result);
+    addLog(msg);
+
+    // 1-Wire CRC-8 over a fake DS18B20 ROM ID. Result byte fits in
+    // the low 8 bits of the int return.
+    buf[0] = 0x28; buf[1] = 0xff; buf[2] = 0x11; buf[3] = 0x22;
+    buf[4] = 0x33; buf[5] = 0x44; buf[6] = 0x55; buf[7] = 0x66;
+    result = bcall("crc8_dallas", buf, 8);
+    sprintf(msg, "blib crc8_dallas(28FF...) = 0x%02x", result & 0xff);
+    addLog(msg);
+}
+
+int main() {
+    addLog("blib_crc_demo: every second exercises the bcall syscall");
+    return 0;
+}

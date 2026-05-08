@@ -78,6 +78,20 @@ typedef struct {
   uint8_t     arg_types[TC_MAX_ARGS];      // each TC_ARG_*; trailing TC_ARG_END
 } TC_EXPORT;
 
+// Global registry slot: one per registered blib export. Populated by
+// xdrv_123_plugins.ino's tc_blib_register_module() at module load,
+// looked up by name from xdrv_124_tinyc_vm.h's SYS_BLIB_CALL handler.
+// Field layout shared across both translation units — declared here
+// (in the already-shared modules_def.h) so they don't drift.
+typedef struct {
+  char       *name;                        // malloc'd DRAM copy, NUL-terminated
+  void       *fn;                          // EXEC_OFFSET-corrected native fn pointer
+  uint8_t     argc;
+  uint8_t     ret_type;
+  uint8_t     arg_types[TC_MAX_ARGS];
+  uint8_t     module_idx;
+} TC_BLIB_REG_ENTRY;
+
 typedef union {
   uint8_t data;
   struct {
