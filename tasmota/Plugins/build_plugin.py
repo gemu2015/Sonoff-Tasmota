@@ -79,16 +79,38 @@ def discover_plugins():
     return out
 
 # --------------------------------------------------------------------
-# Rewrite user_config_override.h: ensure exactly one USE_..._MOD is
-# active. Comment out every other one we find, uncomment (or insert)
-# the target. Other symbols (e.g. BRESSER_6_IN_1, DS18x20_USE_ID_ALIAS)
-# are left untouched — those are sub-options of plugins, not plugin
-# gates themselves.
+# Rewrite user_config_override.h. The plugin-build workflow uses two
+# layered toggles:
+#
+#   1. Top-level `#define device_X` — only one device_* selector is
+#      active at a time. Plugin compiles use `device_lcd` (it carries
+#      a `#undef USE_HOMEKIT` plus the right SCRIPT/TINYC/SML setup
+#      for plugin work). Without this, the firmware build flags from
+#      e.g. `device_devkit` would pull in HomeKit and other features
+#      the plugin slots can't accommodate.
+#
+#   2. Inside the `#ifdef device_lcd … #endif` block, individual
+#      USE_..._MOD lines pick which plugin .cpp gets compiled into
+#      the resulting .bin. Only one of these may be active at a time.
+#
+# This function does both: comments every active `#define device_*`
+# and uncomments `device_lcd`; then walks the device_lcd block and
+# applies the same single-target rule to USE_..._MOD lines. Symbols
+# outside the device_lcd block (and non-USE_*_MOD `#define`s anywhere)
+# are left untouched.
 #
 # Returns the ORIGINAL text so the caller can restore it afterwards.
 # --------------------------------------------------------------------
-_ACTIVE_RE     = re.compile(r'^(\s*)#define\s+(USE_[A-Z0-9_]+_MOD)\b(.*)$')
-_COMMENTED_RE  = re.compile(r'^(\s*)//\s*#define\s+(USE_[A-Z0-9_]+_MOD)\b(.*)$')
+_DEVICE_ACTIVE_RE    = re.compile(r'^(\s*)#define\s+(device_[A-Za-z0-9_]+)\b(.*)$')
+_DEVICE_COMMENTED_RE = re.compile(r'^(\s*)//\s*#define\s+(device_[A-Za-z0-9_]+)\b(.*)$')
+_USE_ACTIVE_RE       = re.compile(r'^(\s*)#define\s+(USE_[A-Z0-9_]+_MOD)\b(.*)$')
+_USE_COMMENTED_RE    = re.compile(r'^(\s*)//\s*#define\s+(USE_[A-Z0-9_]+_MOD)\b(.*)$')
+# Recognise opening / closing preprocessor directives for nesting depth.
+_PP_IF_RE            = re.compile(r'^\s*#\s*(if(?:def|ndef)?|elif)\b')
+_PP_ENDIF_RE         = re.compile(r'^\s*#\s*endif\b')
+_DEVICE_LCD_OPEN_RE  = re.compile(r'^\s*#\s*ifdef\s+device_lcd\b')
+
+DEVICE_TARGET = 'device_lcd'
 
 def rewrite_override(target_use):
     """Edit OVERRIDE in-place; return the prior text for restore."""
@@ -97,32 +119,85 @@ def rewrite_override(target_use):
     original = OVERRIDE.read_text()
 
     out_lines = []
-    target_seen = False
+    device_target_seen = False
+    use_target_seen = False
+    in_device_lcd = False    # are we inside the device_lcd block right now?
+    depth = 0                # nesting depth from the device_lcd open
+
     for line in original.splitlines(keepends=True):
-        m = _ACTIVE_RE.match(line)
-        if m:
-            ind, name, tail = m.groups()
-            if name == target_use:
-                out_lines.append(line)
-                target_seen = True
-            else:
-                out_lines.append(f'{ind}//#define {name}{tail}\n')
-            continue
-        m = _COMMENTED_RE.match(line)
-        if m:
-            ind, name, tail = m.groups()
-            if name == target_use:
-                out_lines.append(f'{ind}#define {name}{tail}\n')
-                target_seen = True
+        # ── First, track the device_lcd block boundary ──────────────
+        if not in_device_lcd:
+            if _DEVICE_LCD_OPEN_RE.match(line):
+                in_device_lcd = True
+                depth = 1
+                # Fall through to top-level processing for the line itself
+        else:
+            # Inside device_lcd — track nested #ifdef / #endif so we
+            # know when the block closes. We also process USE_X_MOD
+            # toggles *inside* this block.
+            if _PP_IF_RE.match(line):
+                depth += 1
+            elif _PP_ENDIF_RE.match(line):
+                depth -= 1
+                if depth == 0:
+                    out_lines.append(line)        # the closing #endif itself
+                    in_device_lcd = False
+                    continue
+
+        # ── Top-level: switch device_* selectors ───────────────────
+        if not in_device_lcd or depth == 1:  # depth 1 = the device_lcd body's #ifdef line
+            m = _DEVICE_ACTIVE_RE.match(line)
+            if m:
+                ind, name, tail = m.groups()
+                if name == DEVICE_TARGET:
+                    out_lines.append(line)
+                    device_target_seen = True
+                else:
+                    out_lines.append(f'{ind}//#define {name}{tail}\n')
                 continue
-            # else: leave the comment as-is
+            m = _DEVICE_COMMENTED_RE.match(line)
+            if m:
+                ind, name, tail = m.groups()
+                if name == DEVICE_TARGET:
+                    out_lines.append(f'{ind}#define {name}{tail}\n')
+                    device_target_seen = True
+                    continue
+                # else: leave commented as-is
+
+        # ── Inside device_lcd block: switch USE_X_MOD lines ────────
+        if in_device_lcd:
+            m = _USE_ACTIVE_RE.match(line)
+            if m:
+                ind, name, tail = m.groups()
+                if name == target_use:
+                    out_lines.append(line)
+                    use_target_seen = True
+                else:
+                    out_lines.append(f'{ind}//#define {name}{tail}\n')
+                continue
+            m = _USE_COMMENTED_RE.match(line)
+            if m:
+                ind, name, tail = m.groups()
+                if name == target_use:
+                    out_lines.append(f'{ind}#define {name}{tail}\n')
+                    use_target_seen = True
+                    continue
+
         out_lines.append(line)
 
-    if not target_seen:
-        # Plugin gate didn't appear in the override — append it.
-        if not out_lines or not out_lines[-1].endswith('\n'):
-            out_lines.append('\n')
-        out_lines.append(f'#define {target_use}\n')
+    # Sanity: bail loudly if the rewrite couldn't find what it needed.
+    if not device_target_seen:
+        raise RuntimeError(
+            f'Could not find a #define {DEVICE_TARGET} (active or commented) '
+            f'at top level of {OVERRIDE.name}. Add one near the other '
+            f'#define device_* selectors (around line 120).'
+        )
+    if not use_target_seen:
+        raise RuntimeError(
+            f'Could not find a #define {target_use} (active or commented) '
+            f'inside the #ifdef {DEVICE_TARGET} block. Add it inside that '
+            f'block first, or pick a different plugin from --list.'
+        )
 
     OVERRIDE.write_text(''.join(out_lines))
     return original
@@ -164,16 +239,33 @@ def run_build(env_name, on_line=print):
     return proc.wait()
 
 # --------------------------------------------------------------------
-# Locate the most recent plugin .bin produced by grepmodule-firmware.py
+# Locate the most recently modified plugin .bin produced by
+# grepmodule-firmware.py. The script writes it to
+# `build_output/firmware/<MODULE_NAME>.bin` (e.g. I2SAUDIO_32.bin) —
+# NOT into the curated `Plugins/<arch>/` subdirectory, which holds
+# older saved versions for distribution. To distinguish a plugin .bin
+# from the env's own firmware .bin (e.g. tasmota32-4M.bin), we exclude
+# files whose stem matches a known build-env name — env names contain
+# a hyphen (`-`), plugin module names don't.
 # --------------------------------------------------------------------
 def find_output_bin():
-    base = REPO / 'build_output' / 'firmware' / 'Plugins'
+    base = REPO / 'build_output' / 'firmware'
     if not base.exists():
         return None
-    bins = list(base.rglob('*.bin'))
-    if not bins:
+    candidates = []
+    for p in base.glob('*.bin'):
+        stem = p.stem
+        # Skip firmware .bin / .factory.bin (env names have hyphens; plugin
+        # module names are uppercase with optional _32 / _32r suffix).
+        if '-' in stem or '.factory' in p.name:
+            continue
+        # Also skip gz versions and anything obviously not a plugin module.
+        if p.name.endswith('.bin.gz'):
+            continue
+        candidates.append(p)
+    if not candidates:
         return None
-    return max(bins, key=lambda p: p.stat().st_mtime)
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 # --------------------------------------------------------------------
 # CLI flow
