@@ -195,7 +195,7 @@ int16_t PN532_getResponseLength(uint8_t buf[], uint8_t len, uint16_t timeout) {
   uint16_t ctime = 0;
 
   do {
-    if (requestFrom(PN532_I2_ADDR, 6)) {
+    if (I2C_requestFrom(PN532_I2_ADDR, 6)) {
       if (I2C_read() & 1) {  // check first byte --- status
         break;           // PN532 is ready
       }
@@ -337,7 +337,7 @@ int16_t PN532_readResponse(uint8_t buf[], uint8_t len, uint16_t timeout = 50) {
 
     // [RDY] 00 00 FF LEN LCS (TFI PD0 ... PDn) DCS 00
     do {
-      if (requestFrom(PN532_I2_ADDR, 6 + length + 2)) {
+      if (I2C_requestFrom(PN532_I2_ADDR, 6 + length + 2)) {
         if (I2C_read() & 1) {  // check first byte --- status
           break;           // PN532 is ready
         }
@@ -452,7 +452,7 @@ int8_t PN532_readAckFrame() {
   if (mode) {
     uint16_t time = 0;
     do {
-      if (requestFrom(PN532_I2_ADDR, sizeof(PN532_ACK) + 1)) {
+      if (I2C_requestFrom(PN532_I2_ADDR, sizeof(PN532_ACK) + 1)) {
         if (I2C_read() & 1) {  // check first byte --- status
           break;           // PN532 is ready
         }

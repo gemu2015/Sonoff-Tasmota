@@ -126,7 +126,7 @@ uint8_t HtuReadDeviceId() {
   I2C_write(HTU21_SERIAL2_READ2);
   I2C_endTransmission(0);
 
-  requestFrom(HTU21_ADDR, 3);
+  I2C_requestFrom(HTU21_ADDR, 3);
   deviceID = I2C_read() << 8;
   deviceID |= I2C_read();
   checksum = I2C_read();
@@ -195,7 +195,7 @@ bool HTU_Read() {
   }                        // In case of error
   delay(Htu.jdelay_temp);  // Sensor time at max resolution
 
-  requestFrom(HTU21_ADDR, 3);
+  I2C_requestFrom(HTU21_ADDR, 3);
   if (3 == I2C_available()) {
     sensorval = I2C_read() << 8;  // MSB
     sensorval |= I2C_read();      // LSB
@@ -215,7 +215,7 @@ bool HTU_Read() {
   }                            // In case of error
   delay(Htu.jdelay_humidity);  // Sensor time at max resolution
 
-  requestFrom(HTU21_ADDR, 3);
+  I2C_requestFrom(HTU21_ADDR, 3);
   if (3 <= I2C_available()) {
     sensorval = I2C_read() << 8;  // MSB
     sensorval |= I2C_read();      // LSB

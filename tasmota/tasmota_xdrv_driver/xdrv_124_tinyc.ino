@@ -2447,9 +2447,17 @@ static void HandleTinyCIde(void) {
   bool skip_redirect = (Webserver->hasArg(F("direct")) &&
                         Webserver->arg(F("direct")) != F("0"));
   if (Tinyc && Tinyc->dl_server && !skip_redirect) {
+    // Format the IP manually — `%_I` is a Tasmota-custom format
+    // specifier that snprintf_P here doesn't expand (the override only
+    // applies in some translation units), so it leaked through as
+    // literal "_I" with a junk port. Use portable %u.%u.%u.%u
+    // instead. Bug: gemu's setup AND Andreas's VBox setup both saw
+    // `Location: http://_I:-1883461440/ide` with the regression
+    // introduced by commit bb72b46f7.
+    IPAddress ip = WiFi.localIP();
     char loc[80];
-    snprintf_P(loc, sizeof(loc), PSTR("http://%_I:%d/ide"),
-               (uint32_t)WiFi.localIP(), TC_DLPORT);
+    snprintf_P(loc, sizeof(loc), PSTR("http://%u.%u.%u.%u:%d/ide"),
+               ip[0], ip[1], ip[2], ip[3], TC_DLPORT);
     Webserver->sendHeader(F("Location"), loc);
     WSSend_P(302, PSTR("text/plain"), PSTR("Redirecting to background IDE server"));
     return;

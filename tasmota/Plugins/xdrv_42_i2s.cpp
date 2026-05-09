@@ -269,6 +269,7 @@ typedef struct {
 #define GPIO_DIN 18
 #define GPIO_APWR 49
 #define GPIO_MC 49
+#define GPIO_PDMC 49      // PDM mic clock — referenced in MODULE_DESCRIPTOR10 below
 #else
 
 #if 1

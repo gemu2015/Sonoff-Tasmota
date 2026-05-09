@@ -86,6 +86,13 @@ typedef union  {
 	struct {
     uint8_t reserved1 : 2;
 		uint8_t THRESH: 1;
+    // Xtensa specreg.h #defines `INTERRUPT 226` which leaks through
+    // the include chain on ESP32 Tensilica builds and turns this
+    // bitfield into `uint8_t 226: 1;` (syntax error). The macro
+    // doesn't appear on RISC-V or ESP8266 toolchains. #undef'ing it
+    // here is local and safe — the plugin doesn't use the Xtensa
+    // INTERRUPT register macro anywhere.
+    #undef INTERRUPT
     uint8_t INTERRUPT: 1;
     uint8_t DRIVE_MODE: 3;
 		uint8_t reserved2 : 1;
