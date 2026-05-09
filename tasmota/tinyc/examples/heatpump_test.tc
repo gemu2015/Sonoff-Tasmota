@@ -28,10 +28,17 @@
 //     us *which* callback blocks before any real damage shows up. No
 //     persist (this-boot only — keeps the script lean and avoids the
 //     persist-hash invalidation pain of the full version).
+//   • /tc_ui custom WebPage — labeled live-values panel, 4h Puffer +
+//     Ausgang charts (1-min samples in ring buffers, persisted to
+//     /heatpump_map.charts via fileWriteBin/fileReadBin so a reboot
+//     doesn't lose the curve), pump on/off toggle button (FC05 coil
+//     40), snapshot/diff register-mapping workflow (?full=1 dumps
+//     the whole 0..500 register table with changed-since-snapshot
+//     rows highlighted). Heavy compared to WebCall but Tasmota only
+//     hits it on full page loads of /tc_ui, not the AJAX-poll path.
 //
 // Still REMOVED from the original full version:
 //   • JsonCall (no MQTT telemetry — user uses UDP only, never re-add)
-//   • /tc_ui custom WebPage + chart history + diff snapshot
 //   • Mailer / SendMail
 //   • Pump-stuck heating watchdog (off/on cycling)
 //   • persist'd diagnostic ring buffers (HPHIST — full version's wdog_hist[8])
@@ -169,6 +176,48 @@ void wlog_push(int addr, int val, char src) {
     if (wlog_count < 16) wlog_count = wlog_count + 1;
 }
 
+// ── /tc_ui state ─────────────────────────────────────────────
+// Snapshot baseline — `MBUS SNAP` (or "Snapshot baseline" button on
+// /tc_ui) freezes the current register values into snap[]; subsequent
+// renders diff each known register against its snap[] slot and
+// highlight rows that have changed.
+int  snap[500];
+int  snapped[500];        // 1 = this slot has a baseline
+int  registers_known = 0; // count, incremented in store_reg on first known
+int  last_block_ms   = 0; // millis() of most recent FC03-block parse
+
+// 4-hour chart history — 1-minute samples in 240-slot ring buffers.
+// Sampling happens in EverySecond on tasm_minute edge-detect so the
+// cadence is exactly once-per-minute regardless of EverySecond jitter.
+// Charts are flushed to /heatpump_map.charts after each new sample
+// (~1×/min ≈ 50 KB/day of LittleFS writes; cheap, and a hard reboot
+// loses at most one minute of history).
+float pf_hist[240];           // Puffer °C ring (r188 / 10)
+float ow_hist[240];           // Ausgang °C ring (r191 / 10)
+int   chart_pos = 0;          // next slot to write (0..239)
+int   chart_pos_arr[1];       // 1-elem buffer for fileReadBin/WriteBin
+int   last_sample_min = -1;   // tasm_minute at last sample (edge-detect)
+
+// WebUI form-button state — Tasmota writes 1 into the int when the
+// matching button is clicked; EverySecond edge-detects rising edges
+// (prev_X==0 && X==1) and runs the action, then writes 0 back.
+int  snap_btn       = 0;
+int  clear_btn      = 0;
+int  prev_snap      = 0;
+int  prev_clear     = 0;
+int  hp_toggle_btn  = 0;      // single toggle — label flips with state
+int  prev_hp_toggle = 0;
+
+// Hoisted scratch buffers used by render_named / render_block /
+// WebUI. Function-local equivalents would each allocate a heap
+// handle per call — and render_block runs once per visible block
+// (× ~6 blocks under ?full=1) which would blow past the 128-handle
+// cap. Single shared globals are cheap; the renderers don't yield
+// between fills so there's no cross-call corruption.
+char g_row[320];      // primary row builder (WebUI rows + render_block rows)
+char g_dcell[64];     // diff-cell text inside render_block's loop
+char g_hdr[120];      // block header in render_block
+
 // ── UDP-shared globals from other Tasmota devices ────────────
 // `global float` = auto-syncs via UDP multicast 239.255.255.250:1999.
 // Initial values are sane defaults until first packet arrives. Names must
@@ -204,8 +253,10 @@ int modbus_crc16(char b[], int len) {
 // ── Store one register reading ────────────────────────────
 void store_reg(int addr, int val) {
     if (addr < 0 || addr >= 500) return;
+    if (!known[addr]) registers_known = registers_known + 1;
     known[addr] = 1;
     reg[addr]   = val;
+    last_block_ms = millis();
 
     // Mirror the four headline registers onto UDP-broadcast globals so
     // neighbour scripts (energy_dashboard, sub-displays, etc.) see fresh
@@ -781,6 +832,375 @@ void WebCall() {
     cb_active_id = 0;
 }
 
+// ── /tc_ui helpers — chart save/load + snapshot ─────────────
+//
+// File format for /heatpump_map.charts (matches heatpump_map_full.tc
+// 1:1 so a device that already has the file from the full version
+// keeps its history when switched to test): 240×4 B pf_hist + 240×4 B
+// ow_hist + 4 B chart_pos = 1924 B exactly. fileReadBin / fileWriteBin
+// move int32/float arrays as raw 4-byte little-endian (TC_RELEASE
+// 1.3.37+).
+void save_charts() {
+    int h = fileOpen("/heatpump_map.charts", "w");
+    if (h < 0) {
+        addLog("save_charts: fileOpen failed");
+        return;
+    }
+    fileWriteBin(h, pf_hist, 240);
+    fileWriteBin(h, ow_hist, 240);
+    chart_pos_arr[0] = chart_pos;
+    fileWriteBin(h, chart_pos_arr, 1);
+    fileClose(h);
+}
+
+void load_charts() {
+    int sz = fileSize("/heatpump_map.charts");
+    if (sz < 1924) {
+        // Missing or wrong-size — fresh install OR an older int16
+        // file from before TC_RELEASE 1.3.37. Either way: leave
+        // arrays zero-initialised; new samples populate from
+        // chart_pos = 0.
+        sprintf(g_tmp, "load_charts: file size %d != 1924, starting fresh", sz);
+        addLog(g_tmp);
+        return;
+    }
+    int h = fileOpen("/heatpump_map.charts", "r");
+    if (h < 0) {
+        addLog("load_charts: fileOpen failed");
+        return;
+    }
+    fileReadBin(h, pf_hist, 240);
+    fileReadBin(h, ow_hist, 240);
+    if (fileReadBin(h, chart_pos_arr, 1) == 1) {
+        chart_pos = chart_pos_arr[0];
+        if (chart_pos < 0 || chart_pos >= 240) chart_pos = 0;
+    }
+    fileClose(h);
+    sprintf(g_tmp, "load_charts: restored %d B from /heatpump_map.charts", sz);
+    addLog(g_tmp);
+}
+
+void take_snapshot() {
+    int n = 0;
+    for (int i = 0; i < 500; i++) {
+        if (known[i]) {
+            snap[i] = reg[i];
+            snapped[i] = 1;
+            n = n + 1;
+        }
+    }
+    sprintf(g_tmp, "snapshot taken: %d registers", n);
+    addLog(g_tmp);
+}
+
+void clear_snapshot() {
+    for (int i = 0; i < 500; i++) snapped[i] = 0;
+    addLog("snapshot cleared");
+}
+
+// ── /tc_ui rendering ────────────────────────────────────────
+//
+// render_named() — labeled headline panel (Power / Zieltemp /
+// Puffer / Ausgang / Ansauggas / Verdampfer / Saugdruck /
+// Auslassdruck). Strong-confidence register mappings only;
+// matches the rows WebCall exposes on the main page but with
+// a tabular layout + raw register reference.
+void render_named() {
+    char pwr[16];
+    char pcls[16];
+
+    // Power state — r217 is enum: 0=booting, 1=running, 6=remote-off
+    int pst = -1;
+    if (known[217]) {
+        pst = reg[217] & 0xFFFF;
+        if      (pst == 0) strcpy(pwr, "booting");
+        else if (pst == 1) strcpy(pwr, "RUNNING");
+        else if (pst == 6) strcpy(pwr, "OFF");
+        else               sprintf(pwr, "?(%d)", pst);
+    } else {
+        strcpy(pwr, "(unknown)");
+    }
+    if      (pst == 1) strcpy(pcls, "hpm-pwr-on");
+    else if (pst == 6) strcpy(pcls, "hpm-pwr-off");
+    else               strcpy(pcls, "hpm-pwr-other");
+
+    webSend("<table class='hpm-named'>");
+
+    sprintf(g_row, "<tr><th>Power state</th><td class='%s'><b>%s</b></td><td class='reg'>r217 = %d</td></tr>",
+            pcls, pwr, pst);
+    webSend(g_row);
+
+    if (known[1]) {
+        float v = (reg[1] & 0xFFFF) / 10.0;
+        sprintf(g_row, "<tr><th>Zieltemp (target)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r1 = %d</td></tr>",
+                v, reg[1] & 0xFFFF);
+        webSend(g_row);
+    }
+
+    // Temperatures (×10 °C). Sign-extend the 16-bit raw value so
+    // negative outside temps render correctly (e.g. r194=0xff6a → -15.0 °C).
+    if (known[188]) {
+        int u = reg[188] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        sprintf(g_row, "<tr><th>Puffer (buffer)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r188 = %d</td></tr>", s / 10.0, u);
+        webSend(g_row);
+    }
+    if (known[191]) {
+        int u = reg[191] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        sprintf(g_row, "<tr><th>Ausgangstemp</th><td><b>%.1f &deg;C</b></td><td class='reg'>r191 = %d</td></tr>", s / 10.0, u);
+        webSend(g_row);
+    }
+    if (known[192]) {
+        int u = reg[192] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        sprintf(g_row, "<tr><th>Ansauggas</th><td><b>%.1f &deg;C</b></td><td class='reg'>r192 = %d</td></tr>", s / 10.0, u);
+        webSend(g_row);
+    }
+    if (known[206]) {
+        int u = reg[206] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        sprintf(g_row, "<tr><th>Verdampfer</th><td><b>%.1f &deg;C</b></td><td class='reg'>r206 = %d</td></tr>", s / 10.0, u);
+        webSend(g_row);
+    }
+
+    // Pressures (×10 bar — always positive, no sign-extend needed)
+    if (known[193]) {
+        sprintf(g_row, "<tr><th>Saugdruck (suction)</th><td><b>%.1f bar</b></td><td class='reg'>r193 = %d</td></tr>",
+                (reg[193] & 0xFFFF) / 10.0, reg[193] & 0xFFFF);
+        webSend(g_row);
+    }
+    if (known[194]) {
+        sprintf(g_row, "<tr><th>Auslassdruck (discharge)</th><td><b>%.1f bar</b></td><td class='reg'>r194 = %d</td></tr>",
+                (reg[194] & 0xFFFF) / 10.0, reg[194] & 0xFFFF);
+        webSend(g_row);
+    }
+
+    webSend("</table>");
+}
+
+// render_block() — one block of [start..end] registers as an HTML
+// table chunk. Rows where the value differs from the snapshot
+// baseline are highlighted with the hpm-chg CSS class.
+void render_block(char title[], int start, int end) {
+    sprintf(g_hdr, "<h4>%s &nbsp;<small>addr %d&ndash;%d</small></h4>",
+            title, start, end);
+    webSend(g_hdr);
+    webSend("<table class='hpm-tbl'><tr><th>Addr</th><th>Hex</th><th>Dec</th><th>Signed</th><th>&Delta; vs snap</th></tr>");
+
+    int sval;
+    int delta;
+    char rowcls[16];
+    for (int a = start; a <= end; a++) {
+        if (a >= 500) break;
+        if (!known[a]) continue;
+        int v = reg[a] & 0xFFFF;
+        sval = v;
+        if (sval >= 0x8000) sval = sval - 0x10000;
+        strcpy(rowcls, "");
+        if (snapped[a]) {
+            delta = v - (snap[a] & 0xFFFF);
+            if (delta != 0) {
+                sprintf(g_dcell, "<b>%d &rarr; %d (%+d)</b>", snap[a] & 0xFFFF, v, delta);
+                strcpy(rowcls, " class='hpm-chg'");
+            } else {
+                strcpy(g_dcell, "&middot;");
+            }
+        } else {
+            strcpy(g_dcell, "&ndash;");
+        }
+        sprintf(g_row, "<tr%s><td>%d</td><td>0x%04x</td><td>%d</td><td>%d</td><td>%s</td></tr>",
+                rowcls, a, v, v, sval, g_dcell);
+        webSend(g_row);
+    }
+    webSend("</table>");
+}
+
+// ── EverySecond — chart sampling + form-button edge detect ──
+// Cheap callback (a few comparisons + occasional file write).
+// Tracked for cb_active_id so the latency tripwire identifies
+// which callback was holding the mutex if a freeze occurs.
+int  cb_sec_max_ms = 0;
+
+void EverySecond() {
+    cb_active_id = 2;
+    int t_sec = millis();
+
+    // 1-minute historian: edge-detect on tasm_minute so the cadence
+    // is exactly once per minute regardless of EverySecond jitter.
+    // Skip when register is unknown (warm-up); leaves the slot at
+    // its previous value rather than poisoning the curve with 0.0.
+    int cur_min = tasm_minute;
+    if (cur_min != last_sample_min) {
+        last_sample_min = cur_min;
+        if (known[188]) {
+            int u = reg[188] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+            pf_hist[chart_pos] = s / 10.0;
+        }
+        if (known[191]) {
+            int u = reg[191] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+            ow_hist[chart_pos] = s / 10.0;
+        }
+        chart_pos = (chart_pos + 1) % 240;
+        save_charts();
+    }
+
+    // Snapshot button — rising edge → take, write 0 back so the
+    // next click is detectable.
+    if (snap_btn == 1 && prev_snap == 0) {
+        take_snapshot();
+        snap_btn = 0;
+    }
+    prev_snap = snap_btn;
+
+    if (clear_btn == 1 && prev_clear == 0) {
+        clear_snapshot();
+        clear_btn = 0;
+    }
+    prev_clear = clear_btn;
+
+    // Pump on/off toggle — rising edge → flip current state.
+    // r217 is read-only status; the actual control is FC05 coil 40
+    // (0xFF00 = ON, 0x0000 = OFF), driven by hp_send_modbus(5, 40, val).
+    if (hp_toggle_btn == 1 && prev_hp_toggle == 0) {
+        int cur = (known[217]) ? (reg[217] & 0xFFFF) : 0;
+        // 1 = running → send OFF.  Anything else (0/booting, 6/off,
+        // unknown) → send ON.
+        int send_val = (cur == 1) ? 0x0000 : 0xFF00;
+        hp_send_modbus(5, 40, send_val);
+        hp_toggle_btn = 0;
+    }
+    prev_hp_toggle = hp_toggle_btn;
+
+    int dt_sec = millis() - t_sec;
+    if (dt_sec > cb_sec_max_ms) cb_sec_max_ms = dt_sec;
+    if (dt_sec > LONG_CALL_CRIT_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "EverySecond ⚠ CRIT %d ms", dt_sec);
+        addLog(g_tmp);
+    } else if (dt_sec > LONG_CALL_WARN_MS) {
+        long_call_warns = long_call_warns + 1;
+        sprintf(g_tmp, "EverySecond ⚠ slow %d ms", dt_sec);
+        addLog(g_tmp);
+    }
+    cb_active_id = 0;
+}
+
+// ── /tc_ui — main custom page ───────────────────────────────
+// Runs on full page loads of /tc_ui (not the AJAX-poll path), so
+// per-call cost is OK to be heavier than WebCall. The optional
+// ?full=1 query string adds the per-block register dump tables
+// which iterate every known address — useful for the snapshot/diff
+// register-mapping workflow but heavy enough that it's gated.
+void WebUI() {
+    webSend("<style>.hpm-panel{max-width:780px;margin:8px auto;background:#f0f0f0;color:#000;padding:14px;border:2px solid #ccc;border-radius:6px;text-align:left;font-size:12px}.hpm-panel h3{margin:0 0 6px;font-size:14px}.hpm-panel h4{margin:14px 0 4px;font-size:12px;color:#444}.hpm-tbl{width:100%;border-collapse:collapse;margin-bottom:6px;font-family:monospace}.hpm-tbl th{background:#dfdfdf;padding:2px 4px;border:1px solid #bbb;text-align:right;font-size:11px}.hpm-tbl td{padding:1px 4px;border:1px solid #ddd;text-align:right}.hpm-chg{background:#fff7c4;color:#603}.hpm-stat{padding:6px;background:#dde6f5;color:#103060;border-radius:3px;margin-bottom:8px}.hpm-named{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:14px}.hpm-named th{background:#e8f0d8;padding:6px 8px;border:1px solid #c8d8a8;text-align:left;font-weight:normal;width:35%}.hpm-named td{padding:6px 8px;border:1px solid #d8d8d8;text-align:left}.hpm-named td.reg{font-family:monospace;color:#666;font-size:11px;width:25%}.hpm-pwr-on{background:#dff0d8;color:#205020;font-weight:bold}.hpm-pwr-off{background:#f5d6d6;color:#702020;font-weight:bold}.hpm-pwr-other{background:#fff3d4;color:#664300}</style>");
+    webSend("<div class='hpm-panel'>");
+    webSend("<h3>&#x1F525; Heat-pump Modbus map</h3>");
+
+    int age_ms = 0;
+    if (last_block_ms > 0) age_ms = millis() - last_block_ms;
+    sprintf(g_row, "<div class='hpm-stat'>frames=%d  parsed=%d  failed=%d  registers=%d  lastblock=%d ms ago</div>",
+            frames_seen, rsp_parsed, rsp_failed, registers_known, age_ms);
+    webSend(g_row);
+
+    // Write-capture banner — large + colored when a write was seen recently
+    if (writes_seen > 0) {
+        sprintf(g_row, "<div class='hpm-stat' style='background:#ffe6c4;color:#603'><b>WRITES: %d total.</b> &nbsp; last: addr <b>%d (0x%04x)</b> val <b>%d</b> &nbsp; %d s ago</div>",
+                writes_seen, last_write_addr, last_write_addr, last_write_val,
+                (millis() - last_write_ms) / 1000);
+        webSend(g_row);
+    }
+
+    webSend("<h4>&#x1F525; Live values</h4>");
+    render_named();
+
+    // Pump control — single toggle button. Label flips with state;
+    // the click handler reads state at click time and chooses the
+    // opposite, so a stale label can't drive a wrong-direction send.
+    webSend("<b>Pump control</b>");
+    int v217 = 0;
+    if (known[217]) v217 = reg[217] & 0xFFFF;
+    if (v217 == 1) {
+        webButton(hp_toggle_btn, "Pump → OFF");
+    } else if (v217 == 6) {
+        webButton(hp_toggle_btn, "Pump → ON");
+    } else {
+        webButton(hp_toggle_btn, "Pump → ON");
+    }
+    webSend("<small>Click to toggle. Sends FC05 coil 40 = 0xFF00 (ON) or 0x0000 (OFF) via RS485 with listen-before-talk to avoid cloud-poll collisions.</small>");
+
+    // Snapshot buttons (for register-mapping workflow)
+    webSend("<hr><b>Register mapping</b>");
+    webButton(snap_btn,  "Snapshot baseline");
+    webButton(clear_btn, "Clear snapshot");
+    webSend("<small>Take a snapshot, change one thing on the heat-pump panel, wait ~10 s, refresh — changed registers will be highlighted in the per-block tables (append <code>?full=1</code> to this URL or use the <code>MBUSDUMP</code> console command).</small>");
+
+    // Per-block tables are heavy — render_block iterates the whole
+    // address range; cumulative heap-handle usage approaches the 128
+    // cap when run on every refresh. Default skips them; ?full=1
+    // turns them on for the diff-snapshot workflow.
+    char fullarg[8];
+    int has_full = webArg("full", fullarg);
+    if (has_full > 0) {
+        render_block("Block 1",   0,  65);
+        render_block("Block 2",  66, 119);
+        render_block("Block 3", 120, 179);
+        render_block("Block 4", 180, 217);
+        render_block("Block 5", 218, 338);
+        render_block("Block 6", 432, 493);
+    }
+
+    webSend("</div>");
+}
+
+// ── /tc_ui — chart panel ────────────────────────────────────
+// Charts have to live in WebPage (not WebUI) because Tasmota's
+// AJAX poll setting innerHTML PARSES <script> tags but does NOT
+// EXECUTE them — Google-Charts containers placed in WebUI would
+// render empty after the first poll. WebPage runs ONLY on full
+// page loads, where script execution still works.
+void WebPage() {
+    // Auto-fit y-axis from non-zero samples (0.0 = "no data yet"
+    // because cold-boot fills the ring with zeros and the sampler
+    // refuses to write when the source register is unknown). If no
+    // samples yet, fall back to a sensible heat-pump range so the
+    // empty chart still has labelled axes.
+    float pf_min = 999.0; float pf_max = -999.0;
+    float ow_min = 999.0; float ow_max = -999.0;
+    int   pf_n = 0;       int   ow_n = 0;
+    for (int i = 0; i < 240; i = i + 1) {
+        if (pf_hist[i] != 0.0) {
+            if (pf_hist[i] < pf_min) pf_min = pf_hist[i];
+            if (pf_hist[i] > pf_max) pf_max = pf_hist[i];
+            pf_n = pf_n + 1;
+        }
+        if (ow_hist[i] != 0.0) {
+            if (ow_hist[i] < ow_min) ow_min = ow_hist[i];
+            if (ow_hist[i] > ow_max) ow_max = ow_hist[i];
+            ow_n = ow_n + 1;
+        }
+    }
+    if (pf_n == 0) { pf_min = 20.0; pf_max = 50.0; }
+    if (ow_n == 0) { ow_min = 20.0; ow_max = 50.0; }
+
+    // Pad y-range by 10 % each side; floor span at 5 °C so a steady
+    // pump still has a legible y-axis.
+    float pf_span = pf_max - pf_min; if (pf_span < 5.0) pf_span = 5.0;
+    float ow_span = ow_max - ow_min; if (ow_span < 5.0) ow_span = 5.0;
+    float pf_lo = pf_min - pf_span * 0.1;
+    float pf_hi = pf_max + pf_span * 0.1;
+    float ow_lo = ow_min - ow_span * 0.1;
+    float ow_hi = ow_max + ow_span * 0.1;
+
+    // 640×240 — same width as energy_dashboard.tc charts so they
+    // line up if both slots run on the same device.
+    WebChartSize(640, 240);
+    WebChart(0, "HP Puffer letzte 4h", "°C",
+             0x3498db, chart_pos, 240, pf_hist,
+             1 | 8, 1, pf_lo, pf_hi);
+
+    WebChartSize(640, 240);
+    WebChart(0, "HP Ausgang letzte 4h", "°C",
+             0xe67e22, chart_pos, 240, ow_hist,
+             1 | 8, 1, ow_lo, ow_hi);
+}
+
 // ── main — open serial, exit ──────────────────────────────
 int main() {
     char m0[80];
@@ -796,6 +1216,11 @@ int main() {
     sprintf(m, "heatpump_test ready: ser=%d rx=%d tx=%d baud=%d 8N2 watchdog=%d ms",
             ser, rx_pin, tx_pin, baud, WDOG_LOOP_REBOOT_MS);
     addLog(m);
+
+    // Restore chart history from /heatpump_map.charts (independent
+    // of TinyC's persist mechanism; uses fileReadBin so a layout-hash
+    // change to persist'd vars doesn't blow the 4 h history away).
+    load_charts();
 
     // Register console-command prefix. With "MBUS" registered, Tasmota
     // routes any command starting with MBUS to our Command(cmd) callback,
