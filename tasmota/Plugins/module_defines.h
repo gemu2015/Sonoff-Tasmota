@@ -966,7 +966,7 @@ typedef union {
 #define ptwai_receive(A,B) jspdispatch(76,(uint32_t)A,(uint32_t)B,0)
 #define ptwai_transmit(A,B) jspdispatch(77,(uint32_t)A,(uint32_t)B,0)
 #define ptwai_read_alerts(A,B) jspdispatch(78,(uint32_t)A,(uint32_t)B,0)
-#define ptwai__clear_receive_queue() jspdispatch(79,0,0,0)
+#define ptwai_clear_receive_queue() jspdispatch(79,0,0,0)
 
 #define ValidPin(A) jspdispatch(100,A,A,0)
 
