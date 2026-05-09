@@ -422,6 +422,42 @@ const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
 const char S_JSON_BUSY[] PROGMEM = "{\"audio is busy\"}";
 const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
+
+// Named PROGMEM strings for the picotts code path. Inline PSTR("…")
+// inside a single command's call chain is unsafe in plugins — the
+// per-function literal pool can't hold more than one cleanly, so the
+// 2nd+ PSTR resolves to garbage. snprintf_P with a garbage format
+// then writes garbage path bytes to ta_path/sg_path, PicoLoadVoice
+// happily opens "whatever that points to", picotts_init reads the
+// resulting buffer as a SVOX resource, and the engine ends up calling
+// a function pointer extracted from random data — the InstrFetchProhibited
+// at PC=0x150f0d56 we hit on `i2sttslang de-de`. All inline PSTR("…")
+// in the picotts command path → moved here as named arrays + GSTR().
+#ifdef USE_PICOTTS
+const char S_PTT_TA_PATH[]    PROGMEM = "/picotts_%s_ta.bin";
+const char S_PTT_SG_PATH[]    PROGMEM = "/picotts_%s_sg.bin";
+const char S_PTT_OPEN_FAIL[]  PROGMEM = "PTT: open(%s) failed (upload via /ufsu)";
+const char S_PTT_SIZE_RANGE[] PROGMEM = "PTT: %s size %u out of range (16..2 MB)";
+const char S_PTT_ALLOC_FAIL[] PROGMEM = "PTT: PSRAM alloc %u B for %s failed";
+const char S_PTT_SHORT_READ[] PROGMEM = "PTT: short read %d/%u from %s";
+const char S_PTT_LOADED[]     PROGMEM = "PTT: loaded %s (%u B) -> PSRAM";
+const char S_PTT_INIT_FAIL[]  PROGMEM = "PTT: picotts_init failed";
+const char S_PTT_READY[]      PROGMEM = "PTT: ready (lang=%s, voice=%u+%u B from FS)";
+const char S_PTT_LANG_RESP[]  PROGMEM = "{\"%s\":\"%s\"}";
+// Hardcoded language code matches PICOTTS_DEFAULT_LANG defined later
+// in the file. Keep both in sync. Temporarily set to "de-DE" to
+// validate the German voice end-to-end while the lang-switch crash
+// is being debugged — first-iniz loads German voices directly,
+// avoiding the broken shutdown+reinit path.
+const char S_PTT_LANG_DEFAULT[] PROGMEM = "de-DE";
+const char S_PTT_LANG_TOO_LONG[] PROGMEM = "PTT: language code too long";
+const char S_PTT_VOICE_LOAD_FAIL[] PROGMEM = "PTT: voice load failed (check /picotts_<lang>_ta.bin and _sg.bin on FS)";
+// Cmnd_TTS error responses — were bare C-literals in plugin code,
+// which lands them in .rodata WITHOUT EXEC_OFFSET applied = wild
+// pointer at runtime. Routed through GSTR via named PROGMEM strings.
+const char S_PTT_USAGE[]      PROGMEM = "Usage: I2STTS <utf8 text>";
+const char S_PTT_INIT_FS[]    PROGMEM = "PTT: init failed (need voice files on FS)";
+#endif
 #if defined(USE_MP3) || defined(USE_SAY)
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
@@ -1983,7 +2019,7 @@ void Say(void) {
   const uint32_t *picp = (const uint32_t *) ((uint8_t *)pico_uconst + EXEC_OFFSET)
 
 #ifndef PICOTTS_DEFAULT_LANG
-#define PICOTTS_DEFAULT_LANG  "en-US"
+#define PICOTTS_DEFAULT_LANG  "de-DE"   // temp: validate German voice while lang-switch crash is debugged
 #endif
 
 // Hand-rolled size constant: `sizeof(mem->picotts_lang)` would
@@ -2004,19 +2040,42 @@ void Say(void) {
 // Read a file from LittleFS into a freshly-allocated PSRAM buffer via
 // the plugin's jfile_* / special_malloc jumptable shims. Returns true
 // on success; on failure, leaves *buf=NULL and logs the reason.
+// One-GSTR-per-function helpers for PicoLoadVoice's AddLog variants.
+// Each takes whatever runtime args the format string consumes and the
+// matching GSTR is the only PSTR-ish reference the helper makes.
+MODULE_PART void ptt_log_open_fail(const char *path) {
+  SETREGS
+  AddLog(LOG_LEVEL_ERROR, GSTR(S_PTT_OPEN_FAIL), path);
+}
+MODULE_PART void ptt_log_size_range(const char *path, unsigned sz) {
+  SETREGS
+  AddLog(LOG_LEVEL_ERROR, GSTR(S_PTT_SIZE_RANGE), path, sz);
+}
+MODULE_PART void ptt_log_alloc_fail(unsigned sz, const char *path) {
+  SETREGS
+  AddLog(LOG_LEVEL_ERROR, GSTR(S_PTT_ALLOC_FAIL), sz, path);
+}
+MODULE_PART void ptt_log_short_read(int got, unsigned sz, const char *path) {
+  SETREGS
+  AddLog(LOG_LEVEL_ERROR, GSTR(S_PTT_SHORT_READ), got, sz, path);
+}
+MODULE_PART void ptt_log_loaded(const char *path, unsigned sz) {
+  SETREGS
+  AddLog(LOG_LEVEL_INFO, GSTR(S_PTT_LOADED), path, sz);
+}
+
 MODULE_PART bool PicoLoadVoice(const char *path, uint8_t **buf, uint32_t *size) {
   SETREGS
   PICO_GET_UCP;
   *buf = NULL; *size = 0;
   void *f = jfile_open(path, 'r');
   if (!f) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: open(%s) failed (upload via /ufsu)"), path);
+    ptt_log_open_fail(path);
     return false;
   }
   uint32_t sz = jfile_size(f);
   if (sz < 16 || sz > picp[PICO_K_MAX_VOICE]) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: %s size %u out of range (16..2 MB)"),
-           path, (unsigned)sz);
+    ptt_log_size_range(path, (unsigned)sz);
     jfile_close(f);
     return false;
   }
@@ -2024,21 +2083,18 @@ MODULE_PART bool PicoLoadVoice(const char *path, uint8_t **buf, uint32_t *size) 
   // 500 KB–1 MB each, too big for internal SRAM.
   uint8_t *p = (uint8_t *)special_malloc(sz);
   if (!p) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: PSRAM alloc %u B for %s failed"),
-           (unsigned)sz, path);
+    ptt_log_alloc_fail((unsigned)sz, path);
     jfile_close(f);
     return false;
   }
   int32_t got = jfile_read(f, p, sz);
   jfile_close(f);
   if (got != (int32_t)sz) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: short read %d/%u from %s"),
-           (int)got, (unsigned)sz, path);
+    ptt_log_short_read((int)got, (unsigned)sz, path);
     free(p);
     return false;
   }
-  AddLog(LOG_LEVEL_INFO, PSTR("PTT: loaded %s (%u B) → PSRAM"),
-         path, (unsigned)sz);
+  ptt_log_loaded(path, (unsigned)sz);
   *buf  = p;
   *size = sz;
   return true;
@@ -2086,6 +2142,31 @@ MODULE_PART void PicoShutdownEngine(void) {
   if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; picotts_sg_size = 0; }
 }
 
+// Single-GSTR-per-function helpers used by PicoLazyInit. Each owns
+// exactly one PROGMEM-string reference so the per-statement literal
+// pool always holds at most one entry per call.
+MODULE_PART void ptt_set_lang_default(char *dst) {
+  SETREGS
+  strncpy(dst, GSTR(S_PTT_LANG_DEFAULT), PICOTTS_LANG_SZ - 1);
+  dst[PICOTTS_LANG_SZ - 1] = '\0';
+}
+MODULE_PART void ptt_make_ta_path(char *dst, size_t cap, const char *lang) {
+  SETREGS
+  snprintf_P(dst, cap, GSTR(S_PTT_TA_PATH), lang);
+}
+MODULE_PART void ptt_make_sg_path(char *dst, size_t cap, const char *lang) {
+  SETREGS
+  snprintf_P(dst, cap, GSTR(S_PTT_SG_PATH), lang);
+}
+MODULE_PART void ptt_log_init_fail(void) {
+  SETREGS
+  AddLog(LOG_LEVEL_ERROR, GSTR(S_PTT_INIT_FAIL));
+}
+MODULE_PART void ptt_log_ready(const char *lang, unsigned ta_sz, unsigned sg_sz) {
+  SETREGS
+  AddLog(LOG_LEVEL_INFO, GSTR(S_PTT_READY), lang, ta_sz, sg_sz);
+}
+
 // Lazy-init: load voice from LittleFS, register notify cbs, start the
 // picotts FreeRTOS task. Re-runs after a language switch.
 MODULE_PART bool PicoLazyInit(void) {
@@ -2093,19 +2174,14 @@ MODULE_PART bool PicoLazyInit(void) {
   if (picotts_initialized) return true;
   if (picotts_init_failed) return false;
 
-  // Default language on first init. PSTR is mandatory for string
-  // literals here — plugin literals need EXEC_OFFSET to resolve into
-  // the loaded module's address space; without it strncpy reads from
-  // an unmapped firmware-side address and silently produces an empty
-  // result (was reported as `/picotts__ta.bin failed`).
+  // Default language on first init — single-GSTR helper.
   if (picotts_lang[0] == 0) {
-    strncpy(picotts_lang, PSTR(PICOTTS_DEFAULT_LANG), PICOTTS_LANG_SZ - 1);
-    picotts_lang[PICOTTS_LANG_SZ - 1] = '\0';
+    ptt_set_lang_default(picotts_lang);
   }
 
   char ta_path[40], sg_path[40];
-  snprintf_P(ta_path, sizeof(ta_path), PSTR("/picotts_%s_ta.bin"), picotts_lang);
-  snprintf_P(sg_path, sizeof(sg_path), PSTR("/picotts_%s_sg.bin"), picotts_lang);
+  ptt_make_ta_path(ta_path, sizeof(ta_path), picotts_lang);
+  ptt_make_sg_path(sg_path, sizeof(sg_path), picotts_lang);
   if (!PicoLoadVoice(ta_path, &picotts_ta_buf, &picotts_ta_size) ||
       !PicoLoadVoice(sg_path, &picotts_sg_buf, &picotts_sg_size)) {
     if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; }
@@ -2128,7 +2204,7 @@ MODULE_PART bool PicoLazyInit(void) {
   picotts_set_error_notify((void (*)(void)) ecb);
 
   if (!picotts_init(5, (void (*)(int16_t *, unsigned)) acb, -1)) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: picotts_init failed"));
+    ptt_log_init_fail();
     picotts_set_resources(NULL, NULL);
     if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; }
     if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; }
@@ -2137,10 +2213,24 @@ MODULE_PART bool PicoLazyInit(void) {
   }
 
   picotts_initialized = true;
-  AddLog(LOG_LEVEL_INFO, PSTR("PTT: ready (lang=%s, voice=%u+%u B from FS)"),
-         picotts_lang,
-         (unsigned)picotts_ta_size, (unsigned)picotts_sg_size);
+  ptt_log_ready(picotts_lang, (unsigned)picotts_ta_size, (unsigned)picotts_sg_size);
   return true;
+}
+
+// Cmnd_TTS error responses — copy from plugin PROGMEM (MMAP_INST,
+// byte-access-unsafe on ESP32-S3) into a stack RAM buffer first via
+// snprintf_P, then hand the buffer to ResponseCmndChar.
+MODULE_PART void ptt_send_usage(void) {
+  SETREGS
+  char buf[40];
+  snprintf_P(buf, sizeof(buf), GSTR(S_PTT_USAGE));
+  ResponseCmndChar(buf);
+}
+MODULE_PART void ptt_send_init_fs(void) {
+  SETREGS
+  char buf[64];
+  snprintf_P(buf, sizeof(buf), GSTR(S_PTT_INIT_FS));
+  ResponseCmndChar(buf);
 }
 
 // I2STTS <utf-8 text> — synthesise + play once.
@@ -2149,14 +2239,14 @@ void Cmnd_TTS(void) {
   PICO_GET_UCP;
 
   if (XdrvMailbox->data_len <= 0) {
-    ResponseCmndChar((char *)"Usage: I2STTS <utf8 text>");
+    ptt_send_usage();
     return;
   }
   if (ChkBusy()) {
     return;
   }
   if (!PicoLazyInit()) {
-    ResponseCmndChar((char *)"PTT: init failed (need voice files on FS)");
+    ptt_send_init_fs();
     return;
   }
 
@@ -2206,25 +2296,92 @@ void Cmnd_TTS(void) {
   ResponseCmndChar(XdrvMailbox->data);
 }
 
+// ── PSTR/GSTR-per-function rule ────────────────────────────
+// In a binplugin a function can only resolve ONE PSTR or GSTR
+// per body — beyond that, the per-function literal pool is
+// mishandled by the PIC linker patcher and one of the references
+// returns a garbage pointer. Symptoms range from "the 2nd reference
+// resolves to nothing meaningful" (silent wrong behaviour) to "garbage
+// bytes get fed to a downstream consumer that interprets them as a
+// pointer" (InstrFetchProhibited at random addresses, e.g. the
+// 0x150f0d56 crash on `i2sttslang de-de`).
+//
+// To stay within the rule, every GSTR(...) reference lives in its
+// own tiny MODULE_PART helper. The command handler itself uses ZERO
+// GSTRs and just calls the helpers. Same pattern for PicoLazyInit and
+// PicoLoadVoice — each AddLog() variant gets its own helper.
+// IMPORTANT: ESP32-S3 maps the plugin partition as MMAP_INST. Byte
+// loads (`l8ui`) on MMAP_INST regions crash with LoadStoreError. So
+// passing a GSTR-derived pointer (which points INTO the plugin's
+// PROGMEM section) to firmware functions that internally do byte
+// access (Response_P, ResponseCmndChar's format string handling) is
+// fatal. The fix patterns are:
+//   1. If we just need to emit a {cmd: "value"} JSON, call
+//      ResponseCmndChar(lang) directly — Tasmota uses its OWN PSTR
+//      (firmware-side, fine) for the format and just %s-substitutes
+//      the lang string from RAM.
+//   2. If we need a custom format string, copy it into a stack RAM
+//      buffer via snprintf_P first (uses pgm_read_byte = aligned
+//      word access + shift, which works on MMAP_INST) and hand
+//      the RAM buffer to the response function.
+MODULE_PART void ptt_send_lang_resp(const char *cmd, const char *lang) {
+  SETREGS
+  // ResponseCmndChar produces {"<cmd>":"<lang>"} natively — no need
+  // for a custom format string, no GSTR for the format → simplest
+  // and avoids the MMAP_INST byte-access trap entirely.
+  ResponseCmndChar((char *)lang);
+  (void)cmd;  // ResponseCmndChar reads XdrvMailbox->command itself
+}
+
+MODULE_PART void ptt_send_too_long(void) {
+  SETREGS
+  char buf[40];
+  snprintf_P(buf, sizeof(buf), GSTR(S_PTT_LANG_TOO_LONG));
+  ResponseCmndChar(buf);
+}
+
+MODULE_PART void ptt_send_voice_load_fail(void) {
+  SETREGS
+  char buf[96];
+  snprintf_P(buf, sizeof(buf), GSTR(S_PTT_VOICE_LOAD_FAIL));
+  ResponseCmndChar(buf);
+}
+
+// Returns the default language code copied to the caller's RAM
+// buffer — same MMAP_INST byte-access constraint as above. Caller
+// must provide a buffer sized PICOTTS_LANG_SZ (8) at minimum.
+MODULE_PART void ptt_copy_default_lang(char *dst, size_t cap) {
+  SETREGS
+  snprintf_P(dst, cap, GSTR(S_PTT_LANG_DEFAULT));
+}
+
 // I2STTSLang <code>      switch language ("en-US", "de-DE", "it-IT", …)
 // I2STTSLang             show currently-loaded language
 void Cmnd_TTSLang(void) {
   SETREGS
 
   if (XdrvMailbox->data_len <= 0) {
-    Response_P(PSTR("{\"%s\":\"%s\"}"),
-               XdrvMailbox->command,
-               picotts_lang[0] ? picotts_lang : PSTR(PICOTTS_DEFAULT_LANG));
+    // Default-lang fallback is copied into RAM by the helper — passing
+    // the raw GSTR pointer to Response_P would crash on ESP32-S3
+    // (MMAP_INST byte-access fault). The helper does snprintf_P with a
+    // local buffer.
+    char lang_buf[PICOTTS_LANG_SZ];
+    if (picotts_lang[0]) {
+      strncpy(lang_buf, picotts_lang, sizeof(lang_buf) - 1);
+      lang_buf[sizeof(lang_buf) - 1] = '\0';
+    } else {
+      ptt_copy_default_lang(lang_buf, sizeof(lang_buf));
+    }
+    ptt_send_lang_resp(XdrvMailbox->command, lang_buf);
     return;
   }
   // Codes are 5 chars (e.g. "en-US"); allow 7 + NUL for variants.
   if (strlen(XdrvMailbox->data) >= PICOTTS_LANG_SZ) {
-    ResponseCmndChar((char *)"PTT: language code too long");
+    ptt_send_too_long();
     return;
   }
   if (strcmp(picotts_lang, XdrvMailbox->data) == 0 && picotts_initialized) {
-    Response_P(PSTR("{\"%s\":\"%s\"}"),
-               XdrvMailbox->command, picotts_lang);
+    ptt_send_lang_resp(XdrvMailbox->command, picotts_lang);
     return;
   }
   // Tear down current engine + voice. Codec stays initialised. Engine
@@ -2234,10 +2391,10 @@ void Cmnd_TTSLang(void) {
   strncpy(picotts_lang, XdrvMailbox->data, PICOTTS_LANG_SZ - 1);
   picotts_lang[PICOTTS_LANG_SZ - 1] = '\0';
   if (!PicoLazyInit()) {
-    ResponseCmndChar((char *)"PTT: voice load failed (check /picotts_<lang>_ta.bin and _sg.bin on FS)");
+    ptt_send_voice_load_fail();
     return;
   }
-  Response_P(PSTR("{\"%s\":\"%s\"}"), XdrvMailbox->command, picotts_lang);
+  ptt_send_lang_resp(XdrvMailbox->command, picotts_lang);
 }
 
 #endif  // USE_PICOTTS
