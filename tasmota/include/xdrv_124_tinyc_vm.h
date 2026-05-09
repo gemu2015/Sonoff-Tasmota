@@ -915,7 +915,7 @@ enum {
   TC_ERR_BAD_OPCODE,     TC_ERR_BAD_SYSCALL,
   TC_ERR_BAD_BINARY,     TC_ERR_INSTRUCTION_LIMIT,
   TC_ERR_BOUNDS,         TC_ERR_PAUSED,
-  TC_ERR_FORBIDDEN_PIN,
+  TC_ERR_FORBIDDEN_PIN,  TC_ERR_FRAME_INVALID,
 };
 
 // Error strings in PROGMEM — saves ~120 bytes RAM on ESP8266
@@ -931,18 +931,19 @@ static const char TC_ERR_08[] PROGMEM = "Instruction limit";
 static const char TC_ERR_09[] PROGMEM = "Bounds error";
 static const char TC_ERR_10[] PROGMEM = "Paused (delay)";
 static const char TC_ERR_11[] PROGMEM = "Forbidden pin";
+static const char TC_ERR_12[] PROGMEM = "Frame locals NULL";
 static const char TC_ERR_XX[] PROGMEM = "Unknown";
 
 static const char * const tc_error_table[] PROGMEM = {
   TC_ERR_00, TC_ERR_01, TC_ERR_02, TC_ERR_03, TC_ERR_04,
   TC_ERR_05, TC_ERR_06, TC_ERR_07, TC_ERR_08, TC_ERR_09, TC_ERR_10,
-  TC_ERR_11
+  TC_ERR_11, TC_ERR_12
 };
 
 static const char* tc_error_str(int err) {
   static char buf[24];
   const char *p;
-  if (err >= 0 && err <= TC_ERR_FORBIDDEN_PIN) {
+  if (err >= 0 && err <= TC_ERR_FRAME_INVALID) {
     p = (const char *)pgm_read_ptr(&tc_error_table[err]);
   } else {
     p = TC_ERR_XX;
@@ -13879,10 +13880,29 @@ static int tc_vm_step(TcVM *vm) {
     case OP_LOAD_LOCAL:
       idx=tc_read_u8(vm);
       if (idx >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      // Defensive NULL-guard: a TaskLoop+WebCall reentrancy race
+      // can leave frames[fp].locals freed (NULL) while fp still
+      // points at it. Without this guard the access crashes the
+      // ESP32 with EXCVADDR=idx*4 (StoreProhibited) and reboots
+      // the device. Convert to a recoverable VM error and log the
+      // (fp, idx, pc, fc) tuple so the corruption source is visible.
+      if (!vm->frames[vm->fp].locals) {
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("TCC: NULL locals @ LOAD_LOCAL fp=%u idx=%u pc=%u fc=%u"),
+               (unsigned)vm->fp, (unsigned)idx, (unsigned)vm->pc, (unsigned)vm->frame_count);
+        return TC_ERR_FRAME_INVALID;
+      }
       TC_PUSH(vm, vm->frames[vm->fp].locals[idx]); break;
     case OP_STORE_LOCAL:
       idx=tc_read_u8(vm);
       if (idx >= TC_MAX_LOCALS) { TC_POP(vm); return TC_ERR_BOUNDS; }
+      if (!vm->frames[vm->fp].locals) {
+        TC_POP(vm);
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("TCC: NULL locals @ STORE_LOCAL fp=%u idx=%u pc=%u fc=%u"),
+               (unsigned)vm->fp, (unsigned)idx, (unsigned)vm->pc, (unsigned)vm->frame_count);
+        return TC_ERR_FRAME_INVALID;
+      }
       vm->frames[vm->fp].locals[idx]=TC_POP(vm); break;
     case OP_LOAD_GLOBAL:
       addr=tc_read_u16(vm);
@@ -13923,12 +13943,24 @@ static int tc_vm_step(TcVM *vm) {
         tc_log_bounds("local[]", idx+a, TC_MAX_LOCALS, vm->pc);
         return TC_ERR_BOUNDS;
       }
+      if (!vm->frames[vm->fp].locals) {
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("TCC: NULL locals @ LOAD_LOCAL_ARR fp=%u idx=%u pc=%u fc=%u"),
+               (unsigned)vm->fp, (unsigned)(idx+a), (unsigned)vm->pc, (unsigned)vm->frame_count);
+        return TC_ERR_FRAME_INVALID;
+      }
       TC_PUSH(vm, vm->frames[vm->fp].locals[idx+a]); break;
     case OP_STORE_LOCAL_ARR:
       idx=tc_read_u8(vm); b=TC_POP(vm); a=TC_POP(vm);
       if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) {
         tc_log_bounds("local[]", idx+a, TC_MAX_LOCALS, vm->pc);
         return TC_ERR_BOUNDS;
+      }
+      if (!vm->frames[vm->fp].locals) {
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("TCC: NULL locals @ STORE_LOCAL_ARR fp=%u idx=%u pc=%u fc=%u"),
+               (unsigned)vm->fp, (unsigned)(idx+a), (unsigned)vm->pc, (unsigned)vm->frame_count);
+        return TC_ERR_FRAME_INVALID;
       }
       vm->frames[vm->fp].locals[idx+a]=b; break;
     case OP_LOAD_GLOBAL_ARR:
@@ -14316,11 +14348,24 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   _op_load_local:
     _idx = _RD_U8();
     if (_idx >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (!vm->frames[vm->fp].locals) {
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("TCC: NULL locals @ LOAD_LOCAL fp=%u idx=%u pc=%u fc=%u"),
+             (unsigned)vm->fp, (unsigned)_idx, (unsigned)_pc, (unsigned)vm->frame_count);
+      _err = TC_ERR_FRAME_INVALID; goto _vm_exit;
+    }
     TC_IPUSH(vm->frames[vm->fp].locals[_idx]);
     NEXT();
   _op_store_local:
     _idx = _RD_U8();
     if (_idx >= TC_MAX_LOCALS) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (!vm->frames[vm->fp].locals) {
+      _sp--;
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("TCC: NULL locals @ STORE_LOCAL fp=%u idx=%u pc=%u fc=%u"),
+             (unsigned)vm->fp, (unsigned)_idx, (unsigned)_pc, (unsigned)vm->frame_count);
+      _err = TC_ERR_FRAME_INVALID; goto _vm_exit;
+    }
     vm->frames[vm->fp].locals[_idx] = TC_IPOP();
     NEXT();
   _op_load_global:
@@ -14366,6 +14411,12 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
       tc_log_bounds("local[]", _idx+_a, TC_MAX_LOCALS, _pc);
       _err = TC_ERR_BOUNDS; goto _vm_exit;
     }
+    if (!vm->frames[vm->fp].locals) {
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("TCC: NULL locals @ LOAD_LOCAL_ARR fp=%u idx=%u pc=%u fc=%u"),
+             (unsigned)vm->fp, (unsigned)(_idx+_a), (unsigned)_pc, (unsigned)vm->frame_count);
+      _err = TC_ERR_FRAME_INVALID; goto _vm_exit;
+    }
     TC_IPUSH(vm->frames[vm->fp].locals[_idx+_a]);
     NEXT();
   _op_store_local_arr:
@@ -14373,6 +14424,12 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) {
       tc_log_bounds("local[]", _idx+_a, TC_MAX_LOCALS, _pc);
       _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
+    if (!vm->frames[vm->fp].locals) {
+      AddLog(LOG_LEVEL_ERROR,
+             PSTR("TCC: NULL locals @ STORE_LOCAL_ARR fp=%u idx=%u pc=%u fc=%u"),
+             (unsigned)vm->fp, (unsigned)(_idx+_a), (unsigned)_pc, (unsigned)vm->frame_count);
+      _err = TC_ERR_FRAME_INVALID; goto _vm_exit;
     }
     vm->frames[vm->fp].locals[_idx+_a] = _b;
     NEXT();
