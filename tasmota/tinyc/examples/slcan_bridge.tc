@@ -1,0 +1,371 @@
+// =================================================================
+// slcan_bridge.tc — USB-serial ↔ CAN-bus bridge using the SLCAN
+// (Lawicel-CAN232) ASCII protocol.
+//
+// Hardware: ESP32-C3 + CAN transceiver (SN65HVD230 / TJA1051 /
+// MCP2562 — anything 3.3V-compatible). C3 has built-in TWAI; no
+// MCP2515 SPI needed. USB-CDC for the host serial.
+//
+// Wire-up (typical C3 dev board):
+//   GPIO 6  → CAN_TX → transceiver TXD
+//   GPIO 7  → CAN_RX ← transceiver RXD
+//   transceiver CAN_H / CAN_L → bus, 120 Ω termination at both ends
+//
+// Host side: any SLCAN client. Tested patterns:
+//   python -m can.viewer -i slcan -c /dev/cu.usbmodem* -b 250000
+//   python -c "import can; b=can.Bus('/dev/…', interface='slcan',
+//       bitrate=250000); print(b.recv(timeout=5))"
+//   slcand /dev/ttyUSB0 + can-utils  (Linux)
+//
+// Protocol (subset — all that python-can / can-utils need):
+//   S0..S8\r        set bitrate 10/20/50/100/125/250/500/800/1000 kbit/s
+//                     (bridge maps S0→25k as 10k isn't a TWAI preset)
+//   O\r             open the channel — calls twaiBegin
+//   C\r             close — twaiEnd
+//   t<iii><L><DD…>\r       transmit 11-bit frame, ID hex (3 chars), DLC,
+//                          payload bytes hex
+//   T<iiiiiiii><L><DD…>\r  transmit 29-bit extended frame, ID hex (8 chars)
+//   V\r             firmware version → "V1010\r"
+//   N\r             serial number    → "N0001\r"
+//   F\r             status flags     → "F00\r" (always-OK)
+//   r/R \r          (RTR — accepted but not actually transmitted)
+//
+// Output (RX) format mirrors TX: lines starting with t/T followed by
+// ID + DLC + payload + CR. Each ACK is a single CR (0x0D); each NACK
+// is BEL (0x07).
+//
+// Default bitrate is 250 kbit/s — same as Sorel XHCC/LTDC. Override
+// before issuing `O`: e.g. `S5\rO\r` for 125 kbit/s (Huawei R4850G2).
+//
+// =================================================================
+
+// ── Pin + serial config ──────────────────────────────────────
+int  can_rx_pin = 7;
+int  can_tx_pin = 6;
+int  cdc_baud   = 115200;       // ignored by USB-CDC but conventional
+int  ser        = -1;
+int  bitrate    = 250;          // kbit/s, set via S<n> command before O
+int  twai_open  = 0;            // 1 after twaiBegin succeeded
+
+// ── SLCAN command parser state ───────────────────────────────
+char cmdbuf[80];               // up to ~70 hex chars + framing
+int  cmdlen = 0;
+
+// ── Activity counters / diag ─────────────────────────────────
+int  tx_frames  = 0;
+int  rx_frames  = 0;
+int  cmd_errors = 0;
+int  bus_errors = 0;
+
+// ── Per-frame scratch ────────────────────────────────────────
+//
+// `rx_meta[3]` holds (id, ext, dlc) — bundled into one array because
+// twaiRecv passes references via array elements rather than scalar
+// addresses-of-globals (TinyC's syscall ABI is array-based).
+char tx_data[8];
+char rx_data[8];
+int  rx_meta[3];        // [0]=id, [1]=ext, [2]=dlc
+int  rx_stats[4];       // [0]=rx_q, [1]=tx_q, [2]=err
+
+// ── Tiny hex helpers ─────────────────────────────────────────
+//
+// `hex_nibble`: '0'..'9'/'a'..'f'/'A'..'F' → 0..15, anything else → -1
+int hex_nibble(int c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Parse `n_chars` hex digits starting at cmdbuf[off] → return value, or
+// -1 on bad digit. Caller checks length before calling.
+int parse_hex(int off, int n_chars) {
+    int v = 0;
+    int i = 0;
+    for (i = 0; i < n_chars; i = i + 1) {
+        int nb = hex_nibble(cmdbuf[off + i] & 0xff);
+        if (nb < 0) return -1;
+        v = (v << 4) | nb;
+    }
+    return v;
+}
+
+// Emit one hex nibble (0..15) on the host serial.
+void emit_nibble(int n) {
+    int b;
+    if (n < 10)  b = '0' + n;
+    else         b = 'a' + n - 10;
+    serialWriteByte(ser, b);
+}
+
+void emit_hex8(int b) {
+    emit_nibble((b >> 4) & 0xf);
+    emit_nibble(b & 0xf);
+}
+
+void emit_hex11(int id) {
+    emit_nibble((id >> 8) & 0x7);   // 11-bit ID = 3 hex chars
+    emit_nibble((id >> 4) & 0xf);
+    emit_nibble(id & 0xf);
+}
+
+void emit_hex29(int id) {
+    emit_nibble((id >> 28) & 0x1);  // 29-bit ID = 8 hex chars
+    emit_nibble((id >> 24) & 0xf);
+    emit_nibble((id >> 20) & 0xf);
+    emit_nibble((id >> 16) & 0xf);
+    emit_nibble((id >> 12) & 0xf);
+    emit_nibble((id >> 8)  & 0xf);
+    emit_nibble((id >> 4)  & 0xf);
+    emit_nibble(id & 0xf);
+}
+
+void ack()  { serialWriteByte(ser, 0x0d); }    // CR — SLCAN OK
+void nack() {
+    serialWriteByte(ser, 0x07);                // BEL — SLCAN error
+    cmd_errors = cmd_errors + 1;
+}
+
+// ── SLCAN bitrate mapping ────────────────────────────────────
+//
+// S<n> command codes per Lawicel spec:
+//   S0=10k  S1=20k  S2=50k  S3=100k  S4=125k
+//   S5=250k S6=500k S7=800k S8=1M
+// TWAI presets don't include 10k/20k — closest fallback for S0/S1
+// is 25k/50k. Most users set S5..S8 (the practical bus rates),
+// so the 10k/20k workaround is a corner case.
+int slcan_to_kbps(int code) {
+    if (code == 0) return 25;     // ← 10k requested, give 25k (closest)
+    if (code == 1) return 50;     // ← 20k requested, give 50k (closest)
+    if (code == 2) return 50;
+    if (code == 3) return 100;
+    if (code == 4) return 125;
+    if (code == 5) return 250;
+    if (code == 6) return 500;
+    if (code == 7) return 800;
+    if (code == 8) return 1000;
+    return -1;
+}
+
+// ── Process one fully-received SLCAN command line ────────────
+//
+// `cmdbuf` holds the bytes between two CRs (CR is the framing terminator;
+// not included in cmdbuf). cmdlen = number of bytes. The first byte is
+// the SLCAN command letter.
+void handle_command() {
+    if (cmdlen <= 0) {
+        ack();   // empty line — be lenient, return CR
+        return;
+    }
+    int cmd = cmdbuf[0] & 0xff;
+
+    // ── S<n> — set bitrate ───────────────────────────────
+    if (cmd == 'S') {
+        if (cmdlen < 2) { nack(); return; }
+        int code = hex_nibble(cmdbuf[1] & 0xff);
+        if (code < 0)   { nack(); return; }
+        int kbps = slcan_to_kbps(code);
+        if (kbps < 0)   { nack(); return; }
+        if (twai_open) {
+            // SLCAN spec says S is rejected while channel open — return
+            // BEL; host should send C first.
+            nack();
+            return;
+        }
+        bitrate = kbps;
+        ack();
+        return;
+    }
+
+    // ── O — open channel ─────────────────────────────────
+    if (cmd == 'O') {
+        if (twai_open) { ack(); return; }      // already open
+        int rc = twaiBegin(can_rx_pin, can_tx_pin, bitrate, 0);
+        if (rc != 1)   { nack(); return; }
+        twai_open = 1;
+        ack();
+        return;
+    }
+
+    // ── C — close channel ────────────────────────────────
+    if (cmd == 'C') {
+        if (twai_open) {
+            twaiEnd();
+            twai_open = 0;
+        }
+        ack();
+        return;
+    }
+
+    // ── t / T — transmit standard / extended frame ──────
+    if (cmd == 't' || cmd == 'T') {
+        if (!twai_open)         { nack(); return; }
+        int id_chars = (cmd == 't') ? 3 : 8;
+        // Need: 1 (cmd) + id_chars + 1 (dlc) at minimum
+        if (cmdlen < 2 + id_chars) { nack(); return; }
+        int id = parse_hex(1, id_chars);
+        if (id < 0)             { nack(); return; }
+        int dlc = hex_nibble(cmdbuf[1 + id_chars] & 0xff);
+        if (dlc < 0 || dlc > 8) { nack(); return; }
+        // Need: dlc * 2 hex chars of payload
+        if (cmdlen < 2 + id_chars + dlc * 2) { nack(); return; }
+        int p = 0;
+        for (p = 0; p < dlc; p = p + 1) {
+            int hi = hex_nibble(cmdbuf[2 + id_chars + p * 2]     & 0xff);
+            int lo = hex_nibble(cmdbuf[2 + id_chars + p * 2 + 1] & 0xff);
+            if (hi < 0 || lo < 0) { nack(); return; }
+            tx_data[p] = (hi << 4) | lo;
+        }
+        int ext = (cmd == 'T') ? 1 : 0;
+        int sent = twaiSend(id, ext, dlc, tx_data);
+        if (sent != 1) { nack(); return; }
+        tx_frames = tx_frames + 1;
+        // SLCAN spec: ACK with the response letter `z\r` (std) or
+        // `Z\r` (ext) instead of plain CR. Many parsers accept plain
+        // CR too — emit the spec form to be strict.
+        serialWriteByte(ser, (cmd == 't') ? 'z' : 'Z');
+        serialWriteByte(ser, 0x0d);
+        return;
+    }
+
+    // ── V — version ──────────────────────────────────────
+    if (cmd == 'V') {
+        serialWriteByte(ser, 'V');
+        serialWriteByte(ser, '1'); serialWriteByte(ser, '0');
+        serialWriteByte(ser, '1'); serialWriteByte(ser, '0');
+        serialWriteByte(ser, 0x0d);
+        return;
+    }
+
+    // ── N — serial number ────────────────────────────────
+    if (cmd == 'N') {
+        serialWriteByte(ser, 'N');
+        serialWriteByte(ser, '0'); serialWriteByte(ser, '0');
+        serialWriteByte(ser, '0'); serialWriteByte(ser, '1');
+        serialWriteByte(ser, 0x0d);
+        return;
+    }
+
+    // ── F — status flags ─────────────────────────────────
+    if (cmd == 'F') {
+        // bit 0 = RX FIFO full, bit 1 = TX FIFO full, bit 2 = error
+        // warning, bit 3 = data overrun, bit 5 = error passive,
+        // bit 6 = arbitration lost, bit 7 = bus error.
+        // We don't do detailed accounting yet; emit 00 if no recent
+        // bus_errors, otherwise 80 (bus error sticky bit).
+        int flags = (bus_errors > 0) ? 0x80 : 0x00;
+        serialWriteByte(ser, 'F');
+        emit_hex8(flags);
+        serialWriteByte(ser, 0x0d);
+        return;
+    }
+
+    // ── r / R — RTR frames (accepted but not actually transmitted) ──
+    if (cmd == 'r' || cmd == 'R') {
+        // SML descriptors don't use RTR. Acknowledge to keep clients
+        // happy but skip the actual TX.
+        ack();
+        return;
+    }
+
+    // Unknown command.
+    nack();
+}
+
+// ── Format one received CAN frame as an SLCAN line ───────────
+//
+// Layout:  t<iii><L><DD…>\r   for 11-bit
+//          T<iiiiiiii><L><DD…>\r for 29-bit
+void emit_rx_frame() {
+    int rx_id  = rx_meta[0];
+    int rx_ext = rx_meta[1];
+    int rx_dlc = rx_meta[2];
+    serialWriteByte(ser, (rx_ext ? 'T' : 't'));
+    if (rx_ext) emit_hex29(rx_id);
+    else        emit_hex11(rx_id);
+    emit_nibble(rx_dlc & 0xf);
+    int p = 0;
+    for (p = 0; p < rx_dlc; p = p + 1) {
+        emit_hex8(rx_data[p] & 0xff);
+    }
+    serialWriteByte(ser, 0x0d);
+    rx_frames = rx_frames + 1;
+}
+
+// ── Periodic poll: drain serial RX, drain CAN RX ─────────────
+void Every50ms() {
+    // 1. Drain SLCAN command bytes from host serial. Frame on CR.
+    int avail = serialAvailable(ser);
+    int loop_guard = 256;
+    while (avail > 0 && loop_guard > 0) {
+        int b = serialRead(ser);
+        loop_guard = loop_guard - 1;
+        if (b == 0x0d) {
+            // End of command. Process and reset buffer.
+            handle_command();
+            cmdlen = 0;
+        } else if (b == 0x0a) {
+            // LF — ignore (some terminals send CR+LF)
+        } else if (cmdlen < 79) {
+            cmdbuf[cmdlen] = b & 0xff;
+            cmdlen = cmdlen + 1;
+        } else {
+            // Buffer overrun — drop the line, consume bytes until next CR.
+            cmdlen = 0;
+            cmd_errors = cmd_errors + 1;
+        }
+        avail = serialAvailable(ser);
+    }
+
+    // 2. Drain CAN RX. Push frames as SLCAN lines until queue empty
+    //    or we've handled a reasonable batch.
+    if (twai_open) {
+        int batch = 16;
+        while (batch > 0) {
+            int n = twaiRecv(rx_meta, rx_data, 8);
+            if (n <= 0) break;
+            emit_rx_frame();
+            batch = batch - 1;
+        }
+    }
+}
+
+// ── WebCall — show bridge state on the main page ─────────────
+void WebCall() {
+    char row[120];
+    char state[12];
+    if (twai_open) strcpy(state, "OPEN");
+    else           strcpy(state, "closed");
+    sprintf(row, "{s}SLCAN bridge{m}%s, %d kbit/s{e}", state, bitrate);
+    webSend(row);
+    sprintf(row, "{s}Frames RX/TX{m}%d / %d{e}", rx_frames, tx_frames);
+    webSend(row);
+    sprintf(row, "{s}Cmd errors / bus errors{m}%d / %d{e}",
+            cmd_errors, bus_errors);
+    webSend(row);
+}
+
+// ── main — open USB-CDC, idle ────────────────────────────────
+int main() {
+    char m[80];
+    sprintf(m, "slcan_bridge: opening USB-CDC at uptime %d s", tasm_uptime);
+    addLog(m);
+
+    // For ESP32-C3, USB-CDC is the default Tasmota serial console; we
+    // open a second serial port via serialBegin only when the device
+    // also exposes a UART pair. Tasmota's existing console handler
+    // shares the USB-CDC, so for a strict bridge build we want a
+    // dedicated serial device. The simplest approach: use UART1 on
+    // a USB-UART adapter (most C3 devkits expose UART0 = USB-CDC + a
+    // separate UART1). If your board only has USB-CDC, replace `ser`
+    // here with the USB-CDC fd (TinyC's serialBegin returns -1 for
+    // non-UART; fall back to addLog/console-write).
+    ser = serialBegin(20, 21, 115200, 0, 1024);  // GPIO 20 RX, 21 TX
+    if (ser < 0) {
+        addLog("slcan_bridge: serialBegin failed — wire UART1 pins");
+        return 0;
+    }
+
+    addLog("slcan_bridge: ready — send `S5\\rO\\r` to open at 250 kbit/s");
+    return 0;
+}

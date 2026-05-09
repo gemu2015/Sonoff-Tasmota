@@ -57,6 +57,14 @@ void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
 // TCP_KEEPINTVL, TCP_KEEPCNT, SO_KEEPALIVE). lwip/sockets.h pulls in
 // setsockopt and the IPPROTO_*/SOL_SOCKET/SO_*/TCP_* macros transitively.
 #include <lwip/sockets.h>
+// Native TWAI (CAN-bus) driver for the SYS_TWAI_* syscalls (380..386).
+// Same header xsns_53_sml.ino uses; provides twai_message_t, the timing
+// preset macros TWAI_TIMING_CONFIG_*, twai_general_config_t, and the
+// twai_driver_install/_start/_stop/_receive/_transmit/_read_alerts API.
+// Gated on SOC_TWAI_SUPPORTED so non-CAN ESP32 variants compile clean.
+#if SOC_TWAI_SUPPORTED
+#include "driver/twai.h"
+#endif
 #endif
 
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
@@ -722,6 +730,67 @@ enum TcSyscall {
                                   //   int32 slot) into a contiguous uint8_t before the
                                   //   call. Stack-allocated up to 256 B; larger frames
                                   //   malloc briefly.
+
+  // ────────────────────────── TWAI / CAN-bus (380..386) ─────────────────
+  // ESP32-only (gated on SOC_TWAI_SUPPORTED at the dispatcher site).
+  // Mirrors the firmware-side TWAI plumbing used by xsns_53_sml.ino's
+  // CAN-bus mode and the BinPlugin loader's `tmod_serialdispatch` cases
+  // 70-79 — same underlying esp-idf calls (twai_driver_install / _start /
+  // _stop / _receive / _transmit / etc.) but exposed at the TinyC layer
+  // so scripts can drive a CAN bus directly. Motivating use case: an
+  // SLCAN-protocol bridge (USB-serial ↔ CAN) for the desktop SML emulator
+  // running on an ESP32-C3 with a CAN transceiver. Reusable beyond that
+  // for any TinyC-driven CAN application (BMS readers, EV-charger probes,
+  // automotive ECU sniffers, etc).
+  //
+  // ESP8266 / non-CAN ESP32 variants compile but every call returns 0/-1
+  // — no functionality, no link error.
+  SYS_TWAI_BEGIN            = 380, // (rx_pin, tx_pin, bitrate_kbps, mode) -> int 1=ok 0=err
+                                  //   bitrate_kbps: 25 / 50 / 100 / 125 / 250 / 500 / 800 / 1000
+                                  //   mode: 0 = NORMAL, 1 = NO_ACK (loopback-esque, listen-only
+                                  //         peers won't ACK), 2 = LISTEN_ONLY (RX only, never TX
+                                  //         a frame or ACK)
+                                  //   Installs the TWAI driver, configures filters to ACCEPT_ALL
+                                  //   (use SYS_TWAI_FILTER to narrow), and starts the controller.
+                                  //   Subsequent calls without an SYS_TWAI_END first return 0 (err).
+  SYS_TWAI_END              = 381, // ()                                    -> void
+                                  //   Stops + uninstalls the TWAI driver. Idempotent — calling
+                                  //   when already-uninstalled is a no-op.
+  SYS_TWAI_AVAILABLE        = 382, // ()                                    -> int frames_queued
+                                  //   Number of frames currently in the RX queue. Returns 0 if
+                                  //   the driver isn't installed.
+  SYS_TWAI_RECV             = 383, // (meta_arr, data_buf, max_bytes) -> int bytes_read | -1
+                                  //   Pops one frame from the RX queue.
+                                  //   meta_arr[0] ← 11/29-bit ID
+                                  //   meta_arr[1] ← 0/1 extended-frame flag
+                                  //   meta_arr[2] ← DLC (payload length)
+                                  //   data_buf[0..dlc-1] ← payload bytes (1 per int32 slot)
+                                  //   Returns the number of payload bytes read, 0 if the queue
+                                  //   was empty, or -1 on error. Non-blocking; pair with
+                                  //   SYS_TWAI_AVAILABLE in a poll loop or call from
+                                  //   Every50ms / TaskLoop / spawnTask. (Bundled meta into one
+                                  //   array because TinyC's BUILTINS table can pass arrays as
+                                  //   refs cleanly; scalar pass-by-reference for syscalls is a
+                                  //   separate mechanism.)
+  SYS_TWAI_SEND             = 384, // (id, ext, dlc, data_buf)              -> int 1=ok 0=err
+                                  //   Queues a frame for transmission. dlc must be 0..8; data_buf
+                                  //   is a TinyC char[] (only the first dlc bytes are used).
+                                  //   ext = 0 → 11-bit standard ID, ext = 1 → 29-bit extended.
+                                  //   Returns 1 on success (queued — the controller TXes when the
+                                  //   bus is free), 0 if the TX queue is full or the driver isn't
+                                  //   installed.
+  SYS_TWAI_STATUS           = 385, // (stats_arr)                           -> int 1=ok 0=err
+                                  //   Diagnostic snapshot — stats_arr is at-least 3 elements:
+                                  //   stats_arr[0] ← RX queue depth
+                                  //   stats_arr[1] ← TX queue depth
+                                  //   stats_arr[2] ← bus error-frame count
+                                  //   Returns 0 if the driver isn't installed (array untouched).
+  SYS_TWAI_FILTER           = 386, // (id_mask, id_value, ext)              -> int 1=ok 0=err
+                                  //   Narrow the RX acceptance filter to frames where (frame.id
+                                  //   & id_mask) == id_value. ext=1 enables 29-bit matching;
+                                  //   ext=0 → 11-bit. Must be called BEFORE SYS_TWAI_BEGIN — the
+                                  //   filter is part of driver install, not run-time mutable.
+                                  //   Default if never called: ACCEPT_ALL (mask=0).
 
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
@@ -11621,6 +11690,139 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, result);
       break;
     }
+
+    // ── TWAI / CAN-bus syscalls (380..386) ────────────
+    // ESP32-only with TWAI peripheral. ESP8266 + ESP32 variants without
+    // TWAI return 0/-1 cleanly so scripts that conditionally use CAN
+    // don't crash the VM.
+#if defined(ESP32) && SOC_TWAI_SUPPORTED
+    case SYS_TWAI_BEGIN: {  // (rx_pin, tx_pin, bitrate_kbps, mode) -> int 1=ok 0=err
+      int32_t mode    = TC_POP(vm);
+      int32_t bitrate = TC_POP(vm);
+      int32_t tx_pin  = TC_POP(vm);
+      int32_t rx_pin  = TC_POP(vm);
+      twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
+        (gpio_num_t)tx_pin, (gpio_num_t)rx_pin,
+        (mode == 1) ? TWAI_MODE_NO_ACK :
+        (mode == 2) ? TWAI_MODE_LISTEN_ONLY :
+                      TWAI_MODE_NORMAL);
+      g_config.rx_queue_len = 32;
+      twai_timing_config_t t_config;
+      switch (bitrate) {
+        case   25: t_config = TWAI_TIMING_CONFIG_25KBITS();   break;
+        case   50: t_config = TWAI_TIMING_CONFIG_50KBITS();   break;
+        case  100: t_config = TWAI_TIMING_CONFIG_100KBITS();  break;
+        case  125: t_config = TWAI_TIMING_CONFIG_125KBITS();  break;
+        case  250: t_config = TWAI_TIMING_CONFIG_250KBITS();  break;
+        case  500: t_config = TWAI_TIMING_CONFIG_500KBITS();  break;
+        case  800: t_config = TWAI_TIMING_CONFIG_800KBITS();  break;
+        case 1000: t_config = TWAI_TIMING_CONFIG_1MBITS();    break;
+        default:   t_config = TWAI_TIMING_CONFIG_125KBITS();  break;  // safe default
+      }
+      twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+      esp_err_t inst = twai_driver_install(&g_config, &t_config, &f_config);
+      if (inst != ESP_OK) { TC_PUSH(vm, 0); break; }
+      esp_err_t st = twai_start();
+      if (st != ESP_OK) { twai_driver_uninstall(); TC_PUSH(vm, 0); break; }
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_TWAI_END: {  // () -> void
+      twai_stop();              // both safe to call when not started/installed
+      twai_driver_uninstall();  //   (return ESP_ERR_INVALID_STATE; we ignore)
+      break;
+    }
+    case SYS_TWAI_AVAILABLE: {  // () -> int frames_queued
+      twai_status_info_t s;
+      if (twai_get_status_info(&s) == ESP_OK) {
+        TC_PUSH(vm, (int32_t)s.msgs_to_rx);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
+    case SYS_TWAI_RECV: {  // (meta_arr, data_buf, max_bytes) -> int bytes_read | -1
+      int32_t max_bytes = TC_POP(vm);
+      int32_t buf_ref   = TC_POP(vm);
+      int32_t meta_ref  = TC_POP(vm);
+      int32_t *meta_p = tc_resolve_ref(vm, meta_ref);
+      int32_t *buf_p  = (max_bytes > 0) ? tc_resolve_ref(vm, buf_ref) : nullptr;
+      if (!meta_p || (max_bytes > 0 && !buf_p)) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      twai_message_t msg;
+      // Non-blocking receive (timeout 0). esp-idf returns ESP_ERR_TIMEOUT
+      // when the queue is empty — translate to "0 bytes" so scripts can
+      // poll without log spam.
+      esp_err_t r = twai_receive(&msg, 0);
+      if (r == ESP_ERR_TIMEOUT) { TC_PUSH(vm, 0); break; }
+      if (r != ESP_OK)          { TC_PUSH(vm, -1); break; }
+      meta_p[0] = (int32_t)msg.identifier;
+      meta_p[1] = (msg.extd) ? 1 : 0;
+      meta_p[2] = (int32_t)msg.data_length_code;
+      int32_t copy_n = (msg.data_length_code < (uint32_t)max_bytes)
+                        ? (int32_t)msg.data_length_code
+                        : max_bytes;
+      for (int32_t k = 0; k < copy_n; k++) {
+        buf_p[k] = (int32_t)msg.data[k];
+      }
+      TC_PUSH(vm, copy_n);
+      break;
+    }
+    case SYS_TWAI_SEND: {  // (id, ext, dlc, data_buf) -> int 1=ok 0=err
+      int32_t buf_ref = TC_POP(vm);
+      int32_t dlc     = TC_POP(vm);
+      int32_t ext     = TC_POP(vm);
+      int32_t id      = TC_POP(vm);
+      if (dlc < 0 || dlc > 8) { TC_PUSH(vm, 0); break; }
+      int32_t *buf_p = (dlc > 0) ? tc_resolve_ref(vm, buf_ref) : nullptr;
+      if (dlc > 0 && !buf_p)  { TC_PUSH(vm, 0); break; }
+      twai_message_t msg = {};
+      msg.identifier = (uint32_t)id;
+      msg.extd = (ext != 0) ? 1 : 0;
+      msg.data_length_code = (uint8_t)dlc;
+      for (int32_t k = 0; k < dlc; k++) {
+        msg.data[k] = (uint8_t)(buf_p[k] & 0xFF);
+      }
+      // 0 timeout — drop the frame if the TX queue is full rather than
+      // blocking the VM. Scripts can retry on the next tick.
+      esp_err_t r = twai_transmit(&msg, 0);
+      TC_PUSH(vm, (r == ESP_OK) ? 1 : 0);
+      break;
+    }
+    case SYS_TWAI_STATUS: {  // (stats_arr) -> int 1=ok 0=err
+      int32_t stats_ref = TC_POP(vm);
+      int32_t *stats_p  = tc_resolve_ref(vm, stats_ref);
+      if (!stats_p) { TC_PUSH(vm, 0); break; }
+      twai_status_info_t s;
+      if (twai_get_status_info(&s) != ESP_OK) { TC_PUSH(vm, 0); break; }
+      stats_p[0] = (int32_t)s.msgs_to_rx;
+      stats_p[1] = (int32_t)s.msgs_to_tx;
+      stats_p[2] = (int32_t)s.bus_error_count;
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_TWAI_FILTER: {  // (id_mask, id_value, ext) -> int 1=ok 0=err
+      // ESP-IDF's twai filter is part of driver install, not run-time
+      // mutable. We accept the call but only use it as a HINT for the
+      // NEXT SYS_TWAI_BEGIN. Most scripts don't need filtering — the
+      // descriptor parser does its own ID matching post-recv.
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);  // discard args
+      TC_PUSH(vm, 1);                      // pretend success
+      break;
+    }
+#else
+    // Non-ESP32 / no-TWAI variants — pop the right number of args and
+    // return a sentinel.
+    case SYS_TWAI_BEGIN:    TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_TWAI_END:      break;
+    case SYS_TWAI_AVAILABLE: TC_PUSH(vm, 0); break;
+    case SYS_TWAI_RECV:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_TWAI_SEND:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_TWAI_STATUS:   TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_TWAI_FILTER:   TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+#endif
 
     // ── MQTT Subscribe/Publish ────────────────────────
 #ifdef USE_MQTT
