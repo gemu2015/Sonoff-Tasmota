@@ -665,6 +665,26 @@ enum TcSyscall {
                                   //   on the kernel side; idle-driven probes
                                   //   keep idle TCP sessions alive against
                                   //   peers with aggressive idle-timeouts.
+                                  //
+                                  //   ⚠ Layer-4 only — does NOT replace an
+                                  //   application-layer watchdog. Empty TCP
+                                  //   ACK probes keep the TCP/IP session up,
+                                  //   but a peer running a Modbus / MQTT /
+                                  //   custom-protocol watchdog that wants
+                                  //   actual application frames will close
+                                  //   its session anyway. Symptoms: TCP
+                                  //   stays connected (tcpConnected()==1)
+                                  //   yet the next Modbus FC03 returns avail=0
+                                  //   timeout because the server-side
+                                  //   Modbus session timed out. Confirmed
+                                  //   on SMA Tripower SE with ≤4 s
+                                  //   Modbus-watchdog (May 9, Andreas's
+                                  //   .107). Two valid fixes: (a) keep poll
+                                  //   cadence ≤ peer's app-layer timeout,
+                                  //   or (b) periodically send a real
+                                  //   application-layer frame (a harmless
+                                  //   `mbFC03` keeps the Modbus session
+                                  //   alive cleanly).
   SYS_TCP_NODELAY          = 349, // (on)                         -> void
                                   //   on=1 disables Nagle's algorithm (default
                                   //   after every connect — call this only to
