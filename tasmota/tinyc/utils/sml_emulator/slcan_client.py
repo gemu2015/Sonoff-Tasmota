@@ -46,6 +46,7 @@ a 200 ms window, `False` on NACK/timeout.
 
 from __future__ import annotations
 import collections
+import socket
 import threading
 import time
 import re
@@ -53,11 +54,10 @@ import glob
 from typing import Optional, Iterator
 
 try:
-    import serial      # pyserial — required.
+    import serial      # pyserial — required for the serial transport.
 except ImportError:
-    raise SystemExit(
-        "slcan_client requires pyserial. Install with: pip install pyserial"
-    )
+    serial = None      # TCP transport works without pyserial; only error
+                        # if the user actually picks a serial port path.
 
 
 CanFrame = collections.namedtuple('CanFrame', ['id', 'ext', 'data'])
@@ -98,25 +98,114 @@ def _resolve_port(port_pattern: str) -> str:
     return hits[0]
 
 
-class SlcanClient:
-    """Thin SLCAN client. Threaded reader, callable send/recv."""
+# ── Transport abstraction ────────────────────────────────────────
+# The SLCAN protocol is identical over USB-serial and TCP — only the
+# byte transport differs. _Transport hides the difference behind two
+# methods: `read(max)` returns up to max bytes, `write(b)` sends bytes.
+class _Transport:
+    def read(self, max_bytes: int = 256) -> bytes: raise NotImplementedError
+    def write(self, data: bytes) -> None: raise NotImplementedError
+    def close(self) -> None: raise NotImplementedError
 
-    def __init__(self, port: str, bitrate: int = 250, baud: int = 115200):
+
+class _SerialTransport(_Transport):
+    def __init__(self, port_pattern: str, baud: int):
+        if serial is None:
+            raise SystemExit(
+                "slcan_client serial transport requires pyserial. "
+                "Install with: pip install pyserial"
+            )
+        self._port_path = _resolve_port(port_pattern)
+        self._ser = serial.Serial(self._port_path, baud, timeout=0.1)
+
+    def read(self, max_bytes: int = 256) -> bytes:
+        return self._ser.read(max_bytes)
+
+    def write(self, data: bytes) -> None:
+        self._ser.write(data)
+        self._ser.flush()
+
+    def close(self) -> None:
+        try:
+            self._ser.close()
+        except Exception:
+            pass
+
+
+class _TcpTransport(_Transport):
+    def __init__(self, host: str, port: int):
+        self._sock = socket.create_connection((host, port), timeout=5.0)
+        self._sock.settimeout(0.1)
+        # TCP_NODELAY — SLCAN lines are tiny + latency-sensitive.
+        self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+    def read(self, max_bytes: int = 256) -> bytes:
+        try:
+            return self._sock.recv(max_bytes)
+        except socket.timeout:
+            return b''
+        except OSError:
+            return b''
+
+    def write(self, data: bytes) -> None:
+        self._sock.sendall(data)
+
+    def close(self) -> None:
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+
+def _make_transport(target: str, baud: int) -> _Transport:
+    """Pick a transport based on the target string.
+
+    `host:port` (with at least one digit-ish in the port slot, no `/`,
+    no glob chars unless they're escaped) → TCP.
+    Anything else → serial port (path or glob).
+
+    Examples:
+        '/dev/cu.usbmodem*'        → SerialTransport
+        '/dev/ttyUSB0'             → SerialTransport
+        '192.168.188.143:8888'     → TcpTransport
+        'bridge.local:8888'        → TcpTransport
+    """
+    # Heuristic: if the string has no slash and contains a colon
+    # followed by digits at the end, treat as host:port.
+    if '/' not in target and ':' in target:
+        host, _, port_str = target.rpartition(':')
+        if port_str.isdigit() and host:
+            return _TcpTransport(host, int(port_str))
+    return _SerialTransport(target, baud)
+
+
+class SlcanClient:
+    """Thin SLCAN client. Threaded reader, callable send/recv.
+
+    Transport is chosen automatically by the `target` string:
+        '/dev/cu.usbmodem*'  → USB-serial
+        '192.168.188.143:8888' → TCP
+    """
+
+    def __init__(self, target: str, bitrate: int = 250, baud: int = 115200):
         """
-        port    : serial device path (or glob like '/dev/cu.usbmodem*')
+        target  : serial device path / glob ('/dev/cu.usbmodem*'), OR
+                  'host:port' for TCP transport ('192.168.188.143:8888')
         bitrate : CAN bus rate in kbit/s — must be one of SLCAN_BITRATES
-        baud    : USB-CDC framing baud (mostly cosmetic on USB-CDC, but
-                  some adapters care; 115200 matches the bridge default)
+        baud    : USB-CDC framing baud (ignored for TCP)
         """
         if bitrate not in BITRATE_TO_CMD:
             raise ValueError(
                 f"bitrate {bitrate} not in {SLCAN_BITRATES}"
             )
-        self._port_pattern = port
-        self._port_path: Optional[str] = None
+        self._target = target
         self._bitrate = bitrate
         self._baud = baud
-        self._ser: Optional[serial.Serial] = None
+        self._tr: Optional[_Transport] = None
         self._rx_thread: Optional[threading.Thread] = None
         self._stop_evt = threading.Event()
         self._rx_queue: collections.deque[CanFrame] = collections.deque(maxlen=4096)
@@ -135,12 +224,9 @@ class SlcanClient:
     # ── Lifecycle ────────────────────────────────────────────────
 
     def open(self) -> None:
-        """Open the serial port, send `S<n>\\r` then `O\\r`, start the
+        """Open the transport, send `S<n>\\r` then `O\\r`, start the
         reader thread. Raises on bridge NACK or no reply within 1 s."""
-        self._port_path = _resolve_port(self._port_pattern)
-        self._ser = serial.Serial(
-            self._port_path, self._baud, timeout=0.1
-        )
+        self._tr = _make_transport(self._target, self._baud)
         self._stop_evt.clear()
         self._rx_thread = threading.Thread(
             target=self._reader, name='slcan-rx', daemon=True
@@ -163,8 +249,8 @@ class SlcanClient:
             raise IOError("bridge did not ACK O (channel open)")
 
     def close(self) -> None:
-        """Send `C\\r`, stop the reader thread, close the port."""
-        if self._ser is None:
+        """Send `C\\r`, stop the reader thread, close the transport."""
+        if self._tr is None:
             return
         try:
             self._raw_write(b'C\r')
@@ -175,9 +261,9 @@ class SlcanClient:
         if self._rx_thread is not None:
             self._rx_thread.join(timeout=1.0)
         try:
-            self._ser.close()
+            self._tr.close()
         finally:
-            self._ser = None
+            self._tr = None
 
     def __enter__(self):
         self.open()
@@ -193,7 +279,7 @@ class SlcanClient:
              timeout: float = 0.2) -> bool:
         """Transmit one frame. Returns True on bridge ACK (`z`/`Z\\r`),
         False on NACK or timeout. Caller must `open()` first."""
-        if self._ser is None:
+        if self._tr is None:
             raise RuntimeError("not open")
         if len(data) > 8:
             raise ValueError("CAN payload max 8 bytes")
@@ -240,9 +326,8 @@ class SlcanClient:
     # ── Internals ────────────────────────────────────────────────
 
     def _raw_write(self, b: bytes) -> None:
-        assert self._ser is not None
-        self._ser.write(b)
-        self._ser.flush()
+        assert self._tr is not None
+        self._tr.write(b)
 
     def _wait_simple_ack(self, timeout: float) -> bool:
         """Wait for either CR (ack) or BEL (nack)."""
@@ -261,14 +346,14 @@ class SlcanClient:
     )
 
     def _reader(self) -> None:
-        """Background thread: drain serial, parse SLCAN lines, push
+        """Background thread: drain transport, parse SLCAN lines, push
         frames to the RX queue and ACK/NACK signals to the send-ack
         channel."""
         buf = bytearray()
         while not self._stop_evt.is_set():
             try:
-                chunk = self._ser.read(256)  # type: ignore[union-attr]
-            except (serial.SerialException, OSError):
+                chunk = self._tr.read(256) if self._tr else b''
+            except OSError:
                 break
             if not chunk:
                 continue
@@ -353,11 +438,16 @@ class SlcanClient:
 
 def _cli_main():
     """Command-line demo. Usage:
-       python slcan_client.py [port] [--bitrate KBPS] [--send ID/HEX]"""
+       python slcan_client.py [target] [--bitrate KBPS] [--send ID/HEX]
+
+    target can be a serial port path/glob ('/dev/cu.usbmodem*') OR a
+    TCP host:port ('192.168.188.143:8888').
+    """
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument('port', nargs='?', default='/dev/cu.usbmodem*',
-                    help='serial port (glob ok, default /dev/cu.usbmodem*)')
+    ap.add_argument('target', nargs='?', default='/dev/cu.usbmodem*',
+                    help="serial port glob (default '/dev/cu.usbmodem*') "
+                         "or TCP 'host:port'")
     ap.add_argument('--bitrate', type=int, default=250,
                     choices=SLCAN_BITRATES, help='kbit/s')
     ap.add_argument('--send', metavar='ID/HEX',
@@ -367,7 +457,7 @@ def _cli_main():
                     help='how long to sniff')
     args = ap.parse_args()
 
-    with SlcanClient(args.port, bitrate=args.bitrate) as c:
+    with SlcanClient(args.target, bitrate=args.bitrate) as c:
         if args.send:
             id_hex, _, data_hex = args.send.partition('/')
             sent = c.send(int(id_hex, 16), args.ext,

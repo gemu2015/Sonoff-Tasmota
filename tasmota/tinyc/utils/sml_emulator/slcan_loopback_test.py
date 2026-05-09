@@ -4,34 +4,37 @@ a CAN transceiver.
 
 Setup:
   1. Flash a tinyc32c3 build to your ESP32-C3.
-  2. Edit `tasmota/tinyc/examples/slcan_bridge.tc`:
+  2. Edit `tasmota/tinyc/examples/slcan_bridge_tcp.tc` (or
+     `slcan_bridge.tc` for the serial variant):
        int  twai_mode  = 1;          // ← change 0 to 1 (NO_ACK)
      Recompile + upload via tc_deploy.mjs.
-  3. Wire a single jumper between the bridge's GPIO 6 (CAN_TX) and
-     GPIO 7 (CAN_RX). No transceiver needed for this test.
-  4. Connect the bridge to your Mac via USB.
+  3. NO jumper wire needed. ESP32 TWAI's NO_ACK mode (Self Test Mode)
+     receives its own transmissions internally via the controller's
+     loopback path — no transceiver, no second node, no wire.
+  4. Connect to the bridge:
+       — TCP variant:   target = '<bridge_ip>:8888'
+       — serial variant: target = '/dev/cu.usbserial-*' (or whatever
+         port your USB-UART adapter shows up as)
   5. Run this script.
 
 What it tests (✓) and does NOT test (✗):
-  ✓ USB-CDC / UART RX+TX between Mac and bridge
+  ✓ Transport: TCP socket OR USB-serial RX+TX, Mac ↔ bridge
   ✓ SLCAN ASCII command parser (S/O/C/t/T/V/F)
   ✓ TinyC twaiBegin / twaiSend / twaiRecv plumbing
-  ✓ TWAI driver in NO_ACK mode (single-node operation)
+  ✓ TWAI driver in NO_ACK / Self Test mode (internal loopback)
   ✓ Frame format round-trip:
       11-bit IDs, 29-bit IDs, DLCs 0..8, payload byte fidelity
   ✗ CAN transceiver electricals — no transceiver in the loop
-  ✗ Differential bus signalling — wires are single-ended digital
+  ✗ Differential bus signalling — TWAI is in self-test mode
   ✗ Bus arbitration with peer nodes
   ✗ Bus-off / error-recovery behaviour
-  ✗ Real-world bitrate timing (NO_ACK mode skips part of the framing)
 
 The remaining ✗ items get exercised once the level converters arrive
 and a real DUT is on the bus.
 
 Usage:
-  python slcan_loopback_test.py [/dev/cu.usbmodem*]
-                                [--bitrate 250]
-                                [--frames 50]
+  python slcan_loopback_test.py 192.168.188.143:8888 [--bitrate 250]
+  python slcan_loopback_test.py /dev/cu.usbserial-* [--bitrate 250]
 """
 
 from __future__ import annotations
@@ -83,8 +86,9 @@ def _frame_str(f: CanFrame) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument('port', nargs='?', default='/dev/cu.usbmodem*',
-                    help='serial port (glob ok, default /dev/cu.usbmodem*)')
+    ap.add_argument('target', nargs='?', default='/dev/cu.usbmodem*',
+                    help="serial port glob (default '/dev/cu.usbmodem*') "
+                         "or TCP 'host:port' (e.g. 192.168.188.143:8888)")
     ap.add_argument('--bitrate', type=int, default=250,
                     choices=SLCAN_BITRATES, help='kbit/s (must match bridge)')
     ap.add_argument('--frames', type=int, default=50,
@@ -95,9 +99,10 @@ def main() -> int:
                     help='only print summary')
     args = ap.parse_args()
 
-    print(f"slcan_loopback_test: opening {args.port} @ {args.bitrate} kbit/s")
-    print(f"  Make sure twai_mode=1 in slcan_bridge.tc and "
-          f"GPIO 6 ↔ GPIO 7 are jumpered.\n")
+    print(f"slcan_loopback_test: opening {args.target} @ {args.bitrate} kbit/s")
+    print(f"  Make sure twai_mode=1 in slcan_bridge[_tcp].tc on the "
+          f"bridge ESP32 — TWAI Self Test mode handles loopback "
+          f"internally, no jumper wire needed.\n")
 
     test_frames = _build_test_frames(args.frames)
     passed = 0
@@ -105,7 +110,7 @@ def main() -> int:
     drops  = 0
 
     try:
-        with SlcanClient(args.port, bitrate=args.bitrate) as c:
+        with SlcanClient(args.target, bitrate=args.bitrate) as c:
             for i, sent in enumerate(test_frames, 1):
                 ack = c.send(sent.id, sent.ext, sent.data, timeout=0.3)
                 if not ack:
