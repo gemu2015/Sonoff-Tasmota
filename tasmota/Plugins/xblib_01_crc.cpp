@@ -152,11 +152,38 @@ const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
 };
 
 // ─── dispatch ────────────────────────────────────────────────────
-// Blibs participate in only ONE selector: the loader's
-// pFUNC_GET_TINYC_EXPORTS request returns the address of the exports
-// table. Every other selector returns 0 / -1 cleanly so the regular
-// xdrv/xsns dispatch loops walk past us harmlessly.
+// Blibs participate in TWO selectors:
+//
+//   1. pFUNC_INIT — fired once by the plugin loader's Init_module().
+//      The convention (shared with driver/sensor plugins) is that the
+//      plugin sets `initialized = 1` HERE if its self-check passed.
+//      That bit is read later by deiniz/mdir/lifecycle dispatch — the
+//      firmware does not auto-set it, so a plugin that skips this
+//      step appears half-loaded (registered exports work, but `deiniz N`
+//      can't reach the unregister/free path).
+//
+//      For this CRC blib there's nothing to validate (pure stateless
+//      math), so init is unconditional. A future blib that needs to
+//      probe hardware, allocate PSRAM, or check a license would add
+//      its own checks here and only mark `initialized = 1` on success.
+//
+//      `GET_MTBL` brings `MODULES_TABLE *mt` into scope; the
+//      `initialized` identifier is a macro defined in module_defines.h
+//      that expands to `mt->flags.initialized`.
+//
+//   2. pFUNC_GET_TINYC_EXPORTS — the loader's request for the address
+//      of the BLIB_EXPORTS[] table. Returns it directly; the loader
+//      walks the table, EXEC_OFFSET-corrects each fn pointer, and
+//      registers entries in the global TinyC blib registry.
+//
+// Every other selector returns 0 cleanly so the regular xdrv/xsns
+// dispatch loops walk past us harmlessly.
 int32_t mod_func_execute(uint32_t sel) {
+  if (sel == pFUNC_INIT) {
+    GET_MTBL;
+    initialized = 1;
+    return 1;
+  }
   if (sel == pFUNC_GET_TINYC_EXPORTS) {
     return (int32_t)(uintptr_t)&BLIB_EXPORTS[0];
   }

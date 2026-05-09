@@ -3324,13 +3324,28 @@ void Unlink_Named_Module(char *name) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
       char nam[32];
       strcpy(nam, name);
-      char *cp = strchr(nam, '.');
+      // Strip filename suffixes only if a `.bin`-style extension is
+      // present — i.e. the caller handed us a raw filename like
+      // "CRC_BLIB_32.bin". If no dot is present, the name was already
+      // stripped upstream (Module_upload_start does this) and is the
+      // bare module name like "CRC_BLIB" — touching it further would
+      // be wrong because module names legitimately contain underscores
+      // ("MP3PLAYER", "CRC_BLIB", etc).
+      //
+      // strrchr is mandatory for the underscore strip — strchr on a
+      // raw filename like "CRC_BLIB_32.bin" would truncate to "CRC"
+      // at the FIRST underscore and miss the existing slot's name
+      // "CRC_BLIB" → re-upload creates a duplicate slot instead of
+      // replacing. Same fix that Module_upload_start needed.
+      char *cp = strrchr(nam, '.');
       if (cp) {
         *cp = 0;
-      }
-      cp = strchr(nam, '_');
-      if (cp) {
-        *cp = 0;
+        // was a raw filename — also strip the _<arch> suffix at
+        // the LAST underscore (the arch tag is right before .bin).
+        cp = strrchr(nam, '_');
+        if (cp) {
+          *cp = 0;
+        }
       }
 
       uint32_t lval[4];
@@ -3704,6 +3719,15 @@ int32_t Init_module(uint32_t module) {
     // register each named function in the global TinyC blib registry.
     // Other module types (driver / sensor / light / energy) ignore
     // this — pFUNC_GET_TINYC_EXPORTS returns 0 from their dispatch.
+    //
+    // The blib's own pFUNC_INIT handler is responsible for setting
+    // `initialized = 1` (via the `#define initialized mt->flags.initialized`
+    // macro from module_defines.h) when its init checks pass — same
+    // convention driver/sensor plugins use. That keeps the door open
+    // for future blibs that need to validate hardware presence, allocate
+    // PSRAM, refuse to register on missing dependencies, etc. — they
+    // simply skip the flag write when init fails, and deiniz/mdir won't
+    // see a half-loaded plugin.
     tc_blib_register_module(module);
     return 1;
   }
