@@ -47,6 +47,35 @@ int  ser        = -1;
 int  bitrate    = 250;          // kbit/s, set via S<n> command before O
 int  twai_open  = 0;            // 1 after twaiBegin succeeded
 
+// ── Loopback / test mode ─────────────────────────────────────
+//
+// twai_mode controls the TWAI controller's bus-state behaviour at
+// twaiBegin time:
+//
+//   0 = NORMAL      — production. Requires a transceiver + at least
+//                     one peer node on the bus (real DUT or another
+//                     ESP32) to ACK each transmitted frame. Without a
+//                     peer, transmissions retry forever and never
+//                     succeed.
+//
+//   1 = NO_ACK      — loopback / single-node test. The controller
+//                     transmits without waiting for an ACK and accepts
+//                     incoming frames without ACKing them. Combined
+//                     with a physical jumper from CAN_TX (GPIO 6) to
+//                     CAN_RX (GPIO 7), this lets the bridge transmit
+//                     a frame and receive its own frame back — no
+//                     transceiver, no second node, no termination
+//                     needed. Used for protocol validation before the
+//                     CAN transceivers arrive.
+//
+//   2 = LISTEN_ONLY — receive-only sniffer. Never transmits, never
+//                     ACKs. Useful for passive CAN bus monitoring on
+//                     a live bus that already has another ACK source.
+//
+// Set this to 1 before flashing for the loopback bring-up test, then
+// back to 0 once the transceiver is wired up.
+int  twai_mode  = 0;            // 0 = NORMAL (default); 1 = NO_ACK (loopback test)
+
 // ── SLCAN command parser state ───────────────────────────────
 char cmdbuf[80];               // up to ~70 hex chars + framing
 int  cmdlen = 0;
@@ -180,7 +209,7 @@ void handle_command() {
     // ── O — open channel ─────────────────────────────────
     if (cmd == 'O') {
         if (twai_open) { ack(); return; }      // already open
-        int rc = twaiBegin(can_rx_pin, can_tx_pin, bitrate, 0);
+        int rc = twaiBegin(can_rx_pin, can_tx_pin, bitrate, twai_mode);
         if (rc != 1)   { nack(); return; }
         twai_open = 1;
         ack();

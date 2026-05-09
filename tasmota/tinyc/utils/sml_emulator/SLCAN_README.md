@@ -37,6 +37,49 @@ ESP32-C3 GPIO 20 ← host UART TX
 transceiver CAN_H / CAN_L → bus, 120 Ω termination at both ends
 ```
 
+## Loopback test (no transceiver needed)
+
+Before the level converters arrive you can verify the protocol stack
+end-to-end with just the ESP32-C3 and a single jumper wire:
+
+1. Edit `tasmota/tinyc/examples/slcan_bridge.tc`:
+   ```c
+   int  twai_mode  = 1;          // ← change 0 to 1 (NO_ACK)
+   ```
+   Recompile + upload via `tc_deploy.mjs`.
+
+2. Wire **GPIO 6 → GPIO 7** with a single jumper. No transceiver, no
+   termination, no bus.
+
+3. Run the loopback exerciser:
+
+   ```bash
+   cd tasmota/tinyc/utils/sml_emulator
+   python slcan_loopback_test.py /dev/cu.usbmodem* --frames 50
+   ```
+
+   Expected: `✅ ALL PASS` — every transmitted frame round-trips back
+   identically. The test covers std/ext IDs, DLCs 0..8, payload byte
+   fidelity, and a few real-world-shaped frames (Sorel/Huawei IDs).
+
+What this test covers (✓) and doesn't (✗):
+
+```
+✓ USB-CDC / UART RX+TX between Mac and bridge
+✓ SLCAN ASCII command parser (S/O/C/t/T/V/F)
+✓ TinyC twaiBegin / twaiSend / twaiRecv plumbing
+✓ TWAI driver in NO_ACK mode (single-node operation)
+✓ Frame format round-trip (IDs, DLCs, payloads)
+✗ CAN transceiver electricals — no transceiver in the loop
+✗ Differential bus signalling — wires are single-ended digital
+✗ Bus arbitration with peer nodes
+✗ Bus-off / error-recovery behaviour
+```
+
+The remaining ✗ items get exercised once the transceivers arrive and
+a real DUT is on the bus. Switch `twai_mode` back to `0` (NORMAL) for
+real-bus operation.
+
 ## Bring-up sequence
 
 ```bash
