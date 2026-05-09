@@ -19,13 +19,25 @@
 //     `addLog` lines from the bridge in your terminal *while* SLCAN
 //     traffic flows over WiFi.
 //
-// Loopback test (no transceiver, no jumper wire):
-//   Set twai_mode = 1 below, redeploy. ESP32 TWAI's NO_ACK mode is
-//   "Self Test Mode" per ESP-IDF docs — controller transmits without
-//   needing an ACK and receives its own transmissions internally
-//   via the controller's loopback path. Every transmitted frame
-//   bounces back through the RX queue. Used for protocol validation
-//   before a real CAN transceiver / DUT is on the bench.
+// Loopback test (NO transceiver — but you DO need one wire):
+//   Set twai_mode = 1 below, drop a single jumper between
+//   `can_tx_pin` and `can_rx_pin` on the bridge ESP32, redeploy.
+//
+//   Mechanism: the TinyC dispatcher sets msg.self = 1 on every
+//   twai_transmit (when twai_mode==1), so the controller queues
+//   each TX'd frame straight back into the RX queue when it sees
+//   the same bits return on RX. The jumper closes the
+//   TX-pin → RX-pin loop electrically — without it the C3's TWAI
+//   peripheral has no way to "see" its own bits regardless of the
+//   self flag. (We confirmed empirically on a generic C3 board:
+//   self=1 + NO_ACK + no wire = TX queue fills and never drains.
+//   Add the wire and every frame loops back.)
+//
+//   Don't be tempted to skip the jumper "because msg.self looks
+//   software-only" — it's not. ESP-IDF docs are explicit that
+//   self-reception requires "an external transceiver to internally
+//   loopback the TX to RX such that a change in logic level to the
+//   TX signal line can be observed on the RX line".
 //
 // Mac client:
 //   python slcan_loopback_test.py 192.168.188.<bridge_ip>:8888 \
@@ -33,8 +45,12 @@
 // =================================================================
 
 // ── Pin + TCP port config ────────────────────────────────────
-int  can_rx_pin = 7;
-int  can_tx_pin = 6;
+// GPIO 9 + 10 chosen because they're free on the .143 dev-board
+// where 6/7 are reserved by the existing module template. Any pair
+// of free GPIOs works — TWAI goes through the C3's IOMUX, no
+// hardwired pin assignment.
+int  can_rx_pin = 10;
+int  can_tx_pin = 9;
 int  tcp_port   = 9999;     // Mac client connects to this port
                             // (8888 collided with another listener on
                             //  the test C3; 9999 confirmed clean)

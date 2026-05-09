@@ -1287,6 +1287,12 @@ struct TINYC {
   // TCP server state (Scripter-compatible ws* functions)
   WiFiServer *tcp_server;              // TCP listening server (heap-allocated)
   WiFiClient tcp_client;               // current server-accepted client
+  // TWAI / CAN bus runtime state. Only the configured mode is captured
+  // here so SYS_TWAI_SEND knows whether to set msg.self=1 (NO_ACK
+  // self-test path — see SYS_TWAI_SEND for the full story on what that
+  // does and doesn't get you). Default 0 (NORMAL) matches calloc-zero.
+  // Other state lives in the ESP-IDF TWAI driver.
+  int8_t  twai_mode;
   // TCP client state (outgoing connections — independent from server).
   // TC_TCP_CLI_SLOTS parallel slots so a script can talk to multiple endpoints
   // (e.g. BYD BMU + SMA HM2.0 + Wallbox) in parallel. Slot 0 is the default.
@@ -11701,6 +11707,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t bitrate = TC_POP(vm);
       int32_t tx_pin  = TC_POP(vm);
       int32_t rx_pin  = TC_POP(vm);
+      // Remember mode for SYS_TWAI_SEND so it can opt into hardware
+      // self-reception when running under NO_ACK self-test. Frames TX'd
+      // with self=1 are counted as self-receptions by the controller
+      // when it sees the same bits return on RX — useful for bench
+      // testing the bridge protocol stack against a known-good frame
+      // generator. Note: the TX→RX path still has to exist
+      // electrically (transceiver OR a single jumper between the
+      // configured CAN-TX and CAN-RX GPIOs). The SELF flag does NOT
+      // give pure-software loopback — we tried, the C3 silicon won't.
+      // In NORMAL / LISTEN_ONLY modes self=0 (production semantics —
+      // we don't want frames echoing locally).
+      Tinyc->twai_mode = (int8_t)mode;
       twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
         (gpio_num_t)tx_pin, (gpio_num_t)rx_pin,
         (mode == 1) ? TWAI_MODE_NO_ACK :
@@ -11779,8 +11797,19 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t *buf_p = (dlc > 0) ? tc_resolve_ref(vm, buf_ref) : nullptr;
       if (dlc > 0 && !buf_p)  { TC_PUSH(vm, 0); break; }
       twai_message_t msg = {};
+      // Self-reception flag in NO_ACK / Self-Test mode. Without this,
+      // even with a TX→RX jumper in place, the controller wouldn't
+      // count its own transmissions as RX events. With self=1 + the
+      // physical wire (or a transceiver) the frame round-trips and
+      // shows up in twai_receive() — which is exactly what bench
+      // protocol-validation needs. Using the deprecated .flags byte
+      // instead of the .self bitfield because .flags is stable across
+      // IDF versions and sidesteps any union-vs-bitfield questions.
+      uint32_t mflags = 0;
+      if (ext != 0)              mflags |= TWAI_MSG_FLAG_EXTD;
+      if (Tinyc->twai_mode == 1) mflags |= TWAI_MSG_FLAG_SELF;
+      msg.flags = mflags;
       msg.identifier = (uint32_t)id;
-      msg.extd = (ext != 0) ? 1 : 0;
       msg.data_length_code = (uint8_t)dlc;
       for (int32_t k = 0; k < dlc; k++) {
         msg.data[k] = (uint8_t)(buf_p[k] & 0xFF);

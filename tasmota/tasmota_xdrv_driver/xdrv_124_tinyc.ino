@@ -598,6 +598,15 @@ static void TinyCInit(void) {
   for (uint8_t s = 0; s < TC_TCP_CLI_SLOTS; s++) {
     new (&Tinyc->tcp_cli_clients[s]) WiFiClient();
   }
+  // Single tcp_client used for accept() in server-mode tcpServer/tcpAvailable
+  // — same calloc-zero trap as the array above. Without this placement-new,
+  // calling tcp_client.connected() (which TC_TCP_ACTIVE_CLIENT does on every
+  // tcpAvailable poll) crashes at NetworkClient::connected vtable+offset 0x54
+  // because the C++ vtable pointer is NULL. Took a 5-line minimal repro
+  // ([tcpServer + EverySecond polling tcpAvailable]) on a fresh-booted .143
+  // ESP32-C3 to find — see MEMORY.md "tcpAvailable() crashes when polled
+  // from a periodic callback" entry for the diagnostic walk.
+  new (&Tinyc->tcp_client) WiFiClient();
   Tinyc->tcp_cli_slot = 0;
   Tinyc->instr_per_tick = TC_INSTR_PER_TICK;
   // Init SPI CS pins to -1 (unused)

@@ -60,14 +60,18 @@ int  twai_open  = 0;            // 1 after twaiBegin succeeded
 //
 //   1 = NO_ACK      — Self Test Mode (ESP-IDF terminology). The
 //                     controller transmits without waiting for an ACK
-//                     and **receives its own transmissions internally
-//                     via the TWAI controller's loopback path** — no
-//                     external wire from TX to RX is needed, no
-//                     transceiver, no second node, no termination.
-//                     Just set this mode and every transmitted frame
-//                     bounces back through the RX queue. Used for
-//                     protocol validation before the CAN transceivers
-//                     arrive.
+//                     **and the TinyC dispatcher sets msg.self=1 on
+//                     each twai_transmit** so the controller counts
+//                     each TX'd frame as a self-reception when it
+//                     sees the same bits back on RX. **You still need
+//                     a single jumper wire** between the configured
+//                     CAN-TX and CAN-RX GPIOs to electrically close
+//                     the loop — the ESP32 TWAI peripheral cannot
+//                     see its own bits without a physical TX→RX
+//                     path. With the wire in place every frame
+//                     loops back; without it the TX queue fills
+//                     and never drains. Empirically confirmed on
+//                     ESP32-C3 (verified on .143, 2026-05-09).
 //
 //   2 = LISTEN_ONLY — receive-only sniffer. Never transmits, never
 //                     ACKs. Useful for passive CAN bus monitoring on

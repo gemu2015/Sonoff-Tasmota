@@ -8,11 +8,15 @@ Setup:
      `slcan_bridge.tc` for the serial variant):
        int  twai_mode  = 1;          // ← change 0 to 1 (NO_ACK)
      Recompile + upload via tc_deploy.mjs.
-  3. NO jumper wire needed. ESP32 TWAI's NO_ACK mode (Self Test Mode)
-     receives its own transmissions internally via the controller's
-     loopback path — no transceiver, no second node, no wire.
+  3. **One jumper wire required.** Connect the configured CAN-TX
+     GPIO to the configured CAN-RX GPIO on the ESP32 with a single
+     wire (no transceiver, no resistor). The TWAI dispatcher sets
+     msg.self=1 in NO_ACK mode so the controller counts its own
+     frames as RX events, but the C3 silicon still needs an
+     electrical TX→RX path to physically see those bits — there
+     is no pure-software loopback in the ESP32 TWAI peripheral.
   4. Connect to the bridge:
-       — TCP variant:   target = '<bridge_ip>:8888'
+       — TCP variant:   target = '<bridge_ip>:9999'
        — serial variant: target = '/dev/cu.usbserial-*' (or whatever
          port your USB-UART adapter shows up as)
   5. Run this script.
@@ -100,9 +104,10 @@ def main() -> int:
     args = ap.parse_args()
 
     print(f"slcan_loopback_test: opening {args.target} @ {args.bitrate} kbit/s")
-    print(f"  Make sure twai_mode=1 in slcan_bridge[_tcp].tc on the "
-          f"bridge ESP32 — TWAI Self Test mode handles loopback "
-          f"internally, no jumper wire needed.\n")
+    print(f"  Make sure twai_mode=1 in slcan_bridge[_tcp].tc AND a jumper")
+    print(f"  is wired between the configured CAN-TX and CAN-RX GPIOs on")
+    print(f"  the bridge ESP32. Without that wire every frame will TX-NACK")
+    print(f"  or DROP because the controller never sees its own bits.\n")
 
     test_frames = _build_test_frames(args.frames)
     passed = 0
