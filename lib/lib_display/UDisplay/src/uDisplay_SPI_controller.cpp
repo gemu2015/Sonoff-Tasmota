@@ -195,8 +195,14 @@ void SPIController::writeData32(uint32_t data) {
 }
 
 // ===== Low-Level Write Functions =====
+// IRAM_ATTR placement matches legacy uDisplay's `USECACHE` (=
+// ICACHE_RAM_ATTR) on its bit-bang functions. Without this, the
+// inner loop runs from flash and incurs cache-miss latency on every
+// re-entry, slowing software SPI by ~7× in observed captures. Putting
+// these in IRAM keeps the hot path at full CPU speed regardless of
+// XIP-cache pressure from other code paths.
 
-void SPIController::write8(uint8_t val) {
+void IRAM_ATTR SPIController::write8(uint8_t val) {
     for (uint8_t bit = 0x80; bit; bit >>= 1) {
         GPIO_CLR(spi_config.clk);
         if (val & bit) GPIO_SET(spi_config.mosi);
@@ -205,7 +211,7 @@ void SPIController::write8(uint8_t val) {
     }
 }
 
-void SPIController::write8_slow(uint8_t val) {
+void IRAM_ATTR SPIController::write8_slow(uint8_t val) {
     for (uint8_t bit = 0x80; bit; bit >>= 1) {
         GPIO_CLR_SLOW(spi_config.clk);
         if (val & bit) GPIO_SET_SLOW(spi_config.mosi);
@@ -214,7 +220,7 @@ void SPIController::write8_slow(uint8_t val) {
     }
 }
 
-void SPIController::write9(uint8_t val, uint8_t dc) {
+void IRAM_ATTR SPIController::write9(uint8_t val, uint8_t dc) {
     GPIO_CLR(spi_config.clk);
     if (dc) GPIO_SET(spi_config.mosi);
     else GPIO_CLR(spi_config.mosi);
@@ -228,7 +234,7 @@ void SPIController::write9(uint8_t val, uint8_t dc) {
     }
 }
 
-void SPIController::write9_slow(uint8_t val, uint8_t dc) {
+void IRAM_ATTR SPIController::write9_slow(uint8_t val, uint8_t dc) {
     GPIO_CLR_SLOW(spi_config.clk);
     if (dc) GPIO_SET_SLOW(spi_config.mosi);
     else GPIO_CLR_SLOW(spi_config.mosi);

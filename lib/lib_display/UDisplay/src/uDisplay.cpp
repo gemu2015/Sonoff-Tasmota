@@ -1036,6 +1036,14 @@ uint16_t index = 0;
                iob, n, (args & 0x80) ? " +delay" : "", peek);
       }
 #endif
+      // CS-release-on-pseudo-op: legacy driver let CS rise between
+      // discrete command sequences so the controller could latch each
+      // (especially the LUT load — many SSD16xx parts only commit the
+      // LUT when CS rises after the data stream). Without this, NEW
+      // produces grey output on partial refreshes (the LUT is sent
+      // but never latched). For users with `cs = -1` in :H this is a
+      // no-op, but it preserves the right behaviour when CS is wired.
+      spiController->csHigh();
       switch (iob) {
         case EP_RESET:
           if (args & 1) {
