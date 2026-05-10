@@ -137,6 +137,17 @@ static TwoWire *_dual_wire = &Wire;
 #  endif
 #  define I2C_Read8(addr, reg)                I2cRead8((addr), (reg), _DUAL_BUS_ARG)
 #  define I2C_write8(addr, reg, val)          I2cWrite8((addr), (reg), (val), _DUAL_BUS_ARG)
+// 16-bit I2C helpers — plugin's `I2C_Read16(addr, reg, bus)` /
+// `I2C_Write16(addr, reg, val, bus)` / `I2C_ValidRead16(*data, addr,
+// reg, bus)` route through Tasmota's bus-aware I2cRead16/I2cWrite16/
+// I2cValidRead16 helpers. Driver code typically passes a literal `0`
+// for the bus arg (legacy single-bus assumption); we override that
+// with `_DUAL_BUS_ARG` so the active bus from the last I2C_SETWIRE
+// is used regardless of what the call site says — the source can
+// stay identical between modes.
+#  define I2C_Read16(addr, reg, bus)          I2cRead16((addr), (reg), _DUAL_BUS_ARG)
+#  define I2C_Write16(addr, reg, val, bus)    I2cWrite16((addr), (reg), (val), _DUAL_BUS_ARG)
+#  define I2C_ValidRead16(data, addr, reg, bus) I2cValidRead16((data), (addr), (reg), _DUAL_BUS_ARG)
 
 // Multi-bus selection — Tasmota's MAX_I2C_Busses is set to 2 on
 // ESP32 (both Wire and Wire1 are available) and 1 on ESP8266.
