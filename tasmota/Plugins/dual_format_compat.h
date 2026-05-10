@@ -132,8 +132,10 @@ static TwoWire *_dual_wire = &Wire;
 // matches our last I2C_SETWIRE.
 #  ifdef ESP32
 #    define _DUAL_BUS_ARG                     (_dual_wire == &Wire1 ? 1 : 0)
+#    define _DUAL_WIRE_FOR(bus)               ((bus) == 1 ? &Wire1 : &Wire)
 #  else
 #    define _DUAL_BUS_ARG                     0
+#    define _DUAL_WIRE_FOR(bus)               (&Wire)
 #  endif
 #  define I2C_Read8(addr, reg)                I2cRead8((addr), (reg), _DUAL_BUS_ARG)
 #  define I2C_write8(addr, reg, val)          I2cWrite8((addr), (reg), (val), _DUAL_BUS_ARG)
@@ -340,6 +342,21 @@ class TasmotaSerial;
 // xsns_14_sht3x_dual.cpp's SHT3X_Show for an example).
 
 #endif  // !BUILD_AS_PLUGIN
+
+// --------------------------------------------------------------------
+// Bus-pointer helper (mode-independent). Some chip-driver classes
+// (e.g. Adafruit_TCS34725) accept a `TwoWire *` to pin themselves
+// to a specific I2C bus. `_DUAL_WIRE_FOR(bus)` resolves to &Wire or
+// &Wire1 by index — works in plugin AND native mode. ESP8266 only
+// has &Wire so it always returns that.
+// --------------------------------------------------------------------
+#ifndef _DUAL_WIRE_FOR
+#  ifdef ESP32
+#    define _DUAL_WIRE_FOR(bus)               ((bus) == 1 ? &Wire1 : &Wire)
+#  else
+#    define _DUAL_WIRE_FOR(bus)               (&Wire)
+#  endif
+#endif
 
 // --------------------------------------------------------------------
 // Per-driver heap-state allocator macros.
