@@ -336,6 +336,14 @@ class TasmotaSerial;
 // unsigned int32 division. Native: hardware /.
 #  define tmod__udivsi3(a, b)                 ((uint32_t)(a) / (uint32_t)(b))
 
+// 64-bit multiply / float→uint conversion / float multiply —
+// plugin's `tmod__muldi3 / tmod__fixunssfsi / tmod__mulsf3` route
+// through softfloat / softint jumptable wrappers (jt[82], jt[83],
+// jfmul). Native: hardware ops.
+#  define tmod__muldi3(a, b)                  ((int64_t)(a) * (int64_t)(b))
+#  define tmod__fixunssfsi(x)                 ((uint32_t)(float)(x))
+#  define tmod__mulsf3(a, b)                  ((float)(a) * (float)(b))
+
 // TasmotaGlobal access — plugin uses pointer (`->`); native uses
 // member-access (`.`). Drivers that touch TasmotaGlobal in shared
 // code should `#if BUILD_AS_PLUGIN`-branch the access (see
