@@ -213,7 +213,10 @@ extern "C" char *tm_trim(char *s);
 #  define tofloat(x)                          ((float)(x))
 #  define fdiv(a, b)                          ((float)(a) / (float)(b))
 #  define fdiff(a, b)                         ((float)(a) - (float)(b))
-#  define iseq(x)                             (false)
+// iseq — plugin's `tmod_iseq(float)` returns `val == 0.0`. Used by
+// drivers as a sentinel-zero check (e.g. "have we seen a real RSSI
+// value yet?"). Native: same expression inline.
+#  define iseq(x)                             ((float)(x) == 0.0f)
 #  define jNAN                                NAN
 #  define jtofloat(x)                         ((float)(x))
 #  define jfdiv(a, b)                         ((float)(a) / (float)(b))
