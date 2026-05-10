@@ -343,6 +343,7 @@ class TasmotaSerial;
 #  define tmod__muldi3(a, b)                  ((int64_t)(a) * (int64_t)(b))
 #  define tmod__fixunssfsi(x)                 ((uint32_t)(float)(x))
 #  define tmod__mulsf3(a, b)                  ((float)(a) * (float)(b))
+#  define tmod__umodsi3(a, b)                 ((uint32_t)(a) % (uint32_t)(b))
 
 // TasmotaGlobal access — plugin uses pointer (`->`); native uses
 // member-access (`.`). Drivers that touch TasmotaGlobal in shared
