@@ -271,6 +271,12 @@ class TasmotaSerial;
 // the literal IS at PROGMEM directly, no offset needed.
 #  define GSTR(s)                             (s)
 
+// PROGMEM float-array access — plugin uses GFLT to apply EXEC_OFFSET
+// to a const-float-array pointer (e.g. `*GFLT(&UVA_RESPONSIVITY[i])`).
+// Native: array is directly readable as flash-mapped data, just
+// pass the address through.
+#  define GFLT(addr)                          (addr)
+
 // Module-decl macros — plugin-only. Native: empty so MODULE_PART
 // forward decls reduce to plain C++ forward decls.
 #  define PUSH_OPTIONS                        /* empty */
