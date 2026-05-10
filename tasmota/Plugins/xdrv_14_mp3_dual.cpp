@@ -113,10 +113,16 @@ void     MP3Player_Deinit(void);
 const char S_JSON_MP3_COMMAND_NVALUE_DUAL[] PROGMEM = "{\"" D_CMND_MP3 "%s\":%d}";
 const char S_JSON_MP3_COMMAND_DUAL[]        PROGMEM = "{\"" D_CMND_MP3 "%s\"}";
 const char mS_JSON_COMMAND_SVALUE_DUAL[]    PROGMEM = "{\"%s\":\"%s\"}";
+// "Mode" is the preferred user-visible name for the protocol switch
+// (DVP_MINI vs DY_SV17F). "TYPE" is kept as a backward-compat alias —
+// both pipe-positions map to the same handler block below.
 const char kMP3_Commands_DUAL[]             PROGMEM =
-    "Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE";
+    "Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE|Mode";
 const char d_mp3_DUAL[]                     PROGMEM = "MP3";
-const char mp3_started_DUAL[]               PROGMEM = "MP3 initialized: TX pin %d type %d";
+const char mp3_started_DUAL[]               PROGMEM = "MP3 initialized: TX pin %d mode %s";
+// Mode names — index by player_type (0=DVP_MINI, 1=DY_SV17F).
+const char mp3_mode_names_DUAL[]            PROGMEM = "DFPlayer|DY_SV17F";
+const char S_JSON_MP3_MODE_DUAL[]           PROGMEM = "{\"" D_CMND_MP3 "Mode\":\"%s\"}";
 
 enum MP3_Commands {
   CMND_MP3_TRACK,
@@ -128,7 +134,8 @@ enum MP3_Commands {
   CMND_MP3_DEVICE,
   CMND_MP3_RESET,
   CMND_MP3_DAC,
-  CMND_MP3_SETTYPE
+  CMND_MP3_SETTYPE,
+  CMND_MP3_MODE
 };
 
 #define MP3_CMD_RESET_VALUE 0x00
@@ -242,8 +249,11 @@ int32_t MP3_Init(void) {
   MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);
   delay(100);
   MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);
+  char mode_buf[10];
+  GetTextIndexed(mode_buf, sizeof(mode_buf),
+                 (uint32_t)(mp3_player_type & 1), GSTR(mp3_mode_names_DUAL));
   AddLog(LOG_LEVEL_INFO, GSTR(mp3_started_DUAL),
-         (int)mp3_player_txpin, (int)mp3_player_type);
+         (int)mp3_player_txpin, mode_buf);
   return 0;
 }
 
@@ -334,7 +344,6 @@ bool MP3PlayerCmd(void) {
     case CMND_MP3_EQ:
     case CMND_MP3_DEVICE:
     case CMND_MP3_DAC:
-    case CMND_MP3_SETTYPE:
       if (_MP3_MB_DATA_LEN > 0) {
         switch (command_code) {
           case CMND_MP3_TRACK:   MP3_CMD(MP3_CMD_TRACK,  _MP3_MB_PAYLOAD); break;
@@ -342,10 +351,50 @@ bool MP3PlayerCmd(void) {
           case CMND_MP3_EQ:      MP3_CMD(MP3_CMD_EQ,     _MP3_MB_PAYLOAD); break;
           case CMND_MP3_DEVICE:  MP3_CMD(MP3_CMD_DEVICE, _MP3_MB_PAYLOAD); break;
           case CMND_MP3_DAC:     MP3_CMD(MP3_CMD_DAC,    _MP3_MB_PAYLOAD); break;
-          case CMND_MP3_SETTYPE: mp3_player_type = _MP3_MB_PAYLOAD & 1;    break;
         }
       }
       Response_P(GSTR(S_JSON_MP3_COMMAND_NVALUE_DUAL), command, _MP3_MB_PAYLOAD);
+      break;
+
+    // MP3Mode (preferred) and MP3TYPE (legacy alias) — switch the
+    // wire-protocol the driver speaks at runtime. Works in both
+    // BinPlugin and native firmware modes; no rebuild needed.
+    //   MP3Mode           → query, returns current mode name
+    //   MP3Mode 0         → DFPlayer Mini protocol (10-byte 0x7E…0xEF)
+    //   MP3Mode 1         → DY-SV17F protocol (0xAA-prefixed)
+    //   MP3Mode DFPlayer  → same as 0 (string form)
+    //   MP3Mode DY_SV17F  → same as 1 (string form)
+    // After a mode change a RESET is sent to the player so its own
+    // state matches what the driver will be sending next.
+    case CMND_MP3_SETTYPE:
+    case CMND_MP3_MODE:
+      if (_MP3_MB_DATA_LEN > 0) {
+        uint8_t new_type;
+        if (strcasecmp_P(_MP3_MB_DATA, PSTR("DFPlayer")) == 0
+            || strcasecmp_P(_MP3_MB_DATA, PSTR("DVP_MINI")) == 0
+            || strcasecmp_P(_MP3_MB_DATA, PSTR("MINI")) == 0) {
+          new_type = DVP_MINI;
+        } else if (strcasecmp_P(_MP3_MB_DATA, PSTR("DY_SV17F")) == 0
+                   || strcasecmp_P(_MP3_MB_DATA, PSTR("SV17F")) == 0) {
+          new_type = DY_SV17F;
+        } else {
+          new_type = (uint8_t)(_MP3_MB_PAYLOAD & 1);
+        }
+        if (new_type != mp3_player_type) {
+          mp3_player_type = new_type;
+          // Re-sync the player to defaults under the new protocol.
+          MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);
+          delay(100);
+          MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);
+        }
+      }
+      {
+        char mode_buf[10];
+        GetTextIndexed(mode_buf, sizeof(mode_buf),
+                       (uint32_t)(mp3_player_type & 1),
+                       GSTR(mp3_mode_names_DUAL));
+        Response_P(GSTR(S_JSON_MP3_MODE_DUAL), mode_buf);
+      }
       break;
 
     case CMND_MP3_PAUSE:
