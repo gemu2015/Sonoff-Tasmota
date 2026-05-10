@@ -47,17 +47,21 @@ OVERRIDE = REPO / 'tasmota' / 'user_config_override.h'
 # same plugin .bin format). RISC-V covers C3 + C6 + future Cx parts.
 # --------------------------------------------------------------------
 CPU_ENVS = {
-    # Default: minimal plugin-build envs (defined in
-    # platformio_override.ini). They `extends` the regular tasmota{,32,32c3}-4M
-    # envs and add `-Dplugin_host_build`, which engages a strip block in
-    # user_config_override.h that #undef's heavy features the plugin
-    # compile path doesn't need (Berry, Zigbee, BLE, KNX, Telegram,
-    # display drivers, picotts, etc). Also drops obj-dump.py from
-    # extra_scripts. Net win: ~20-25% faster warm builds, ~5-15s less
-    # post-build disassembly. Plugin .bin output is ABI-identical to a
-    # full-firmware build (jumptable layout in xdrv_123_plugins.ino is
-    # unconditional). First build per env pays a ~120s cold-cache cost,
-    # subsequent invocations of the same env hit the warm cache.
+    # Standalone plugin-build envs (defined in platformio_override.ini).
+    # They `extends` the regular tasmota{,32,32c3}-4M envs and add
+    # `-Dplugin_host_build`, which engages the top-level strip block at
+    # the END of user_config_override.h. That block #undef's heavy
+    # features the plugin compile path doesn't need (Berry, Zigbee,
+    # BLE, KNX, Telegram, display drivers, picotts, HomeKit, etc) and
+    # sets `NO_USE_SML_DECRYPT`. Independent of which `device_*`
+    # selector is active — the envs work on any fork without first
+    # setting up `device_lcd` or any other device target. Also drops
+    # obj-dump.py from extra_scripts. Net win: ~20-25% faster warm
+    # builds, ~5-15s less post-build disassembly. Plugin .bin output is
+    # ABI-identical to a full-firmware build (jumptable layout in
+    # xdrv_123_plugins.ino is unconditional). First build per env pays
+    # a ~120s cold-cache cost, subsequent invocations of the same env
+    # hit the warm cache.
     #
     # USE_TINYC stays defined in the strip block. Stripping it would
     # leave xdrv_124_tinyc.ino's static functions referenced by
@@ -361,38 +365,28 @@ def discover_plugins():
     return out
 
 # --------------------------------------------------------------------
-# Rewrite user_config_override.h. The plugin-build workflow uses two
-# layered toggles:
+# Rewrite user_config_override.h.
 #
-#   1. Top-level `#define device_X` — only one device_* selector is
-#      active at a time. Plugin compiles use `device_lcd` (it carries
-#      a `#undef USE_HOMEKIT` plus the right SCRIPT/TINYC/SML setup
-#      for plugin work). Without this, the firmware build flags from
-#      e.g. `device_devkit` would pull in HomeKit and other features
-#      the plugin slots can't accommodate.
+# The plugin-build workflow uses ONE toggle: inside the dedicated
+# "Plugin Defines" section (bracketed by sentinels
+#   `// >>> PLUGIN_DEFINES_BEGIN <<<` / `// >>> PLUGIN_DEFINES_END <<<`
+# near the top of user_config_override.h) we comment every
+# `#define USE_..._MOD` except the target one, and uncomment the
+# target. Lines outside the section are left untouched — the user's
+# choice of `device_*` selector and any other config persists across
+# plugin builds.
 #
-#   2. Inside the `#ifdef device_lcd … #endif` block, individual
-#      USE_..._MOD lines pick which plugin .cpp gets compiled into
-#      the resulting .bin. Only one of these may be active at a time.
-#
-# This function does both: comments every active `#define device_*`
-# and uncomments `device_lcd`; then walks the device_lcd block and
-# applies the same single-target rule to USE_..._MOD lines. Symbols
-# outside the device_lcd block (and non-USE_*_MOD `#define`s anywhere)
-# are left untouched.
+# The `-Dplugin_host_build` flag passed by the *-plugin envs in
+# platformio_override.ini engages a top-level strip block at the END
+# of user_config_override.h; that block is independent of which
+# `device_*` selector is active. So the 3 plugin envs work standalone.
 #
 # Returns the ORIGINAL text so the caller can restore it afterwards.
 # --------------------------------------------------------------------
-_DEVICE_ACTIVE_RE    = re.compile(r'^(\s*)#define\s+(device_[A-Za-z0-9_]+)\b(.*)$')
-_DEVICE_COMMENTED_RE = re.compile(r'^(\s*)//\s*#define\s+(device_[A-Za-z0-9_]+)\b(.*)$')
 _USE_ACTIVE_RE       = re.compile(r'^(\s*)#define\s+(USE_[A-Z0-9_]+_MOD)\b(.*)$')
 _USE_COMMENTED_RE    = re.compile(r'^(\s*)//\s*#define\s+(USE_[A-Z0-9_]+_MOD)\b(.*)$')
-# Recognise opening / closing preprocessor directives for nesting depth.
-_PP_IF_RE            = re.compile(r'^\s*#\s*(if(?:def|ndef)?|elif)\b')
-_PP_ENDIF_RE         = re.compile(r'^\s*#\s*endif\b')
-_DEVICE_LCD_OPEN_RE  = re.compile(r'^\s*#\s*ifdef\s+device_lcd\b')
-
-DEVICE_TARGET = 'device_lcd'
+_SECTION_BEGIN_RE    = re.compile(r'>>>\s*PLUGIN_DEFINES_BEGIN\s*<<<')
+_SECTION_END_RE      = re.compile(r'>>>\s*PLUGIN_DEFINES_END\s*<<<')
 
 def rewrite_override(target_use):
     """Edit OVERRIDE in-place; return the prior text for restore."""
@@ -401,84 +395,61 @@ def rewrite_override(target_use):
     original = OVERRIDE.read_text()
 
     out_lines = []
-    device_target_seen = False
+    in_section = False
+    section_seen = False
     use_target_seen = False
-    in_device_lcd = False    # are we inside the device_lcd block right now?
-    depth = 0                # nesting depth from the device_lcd open
 
     for line in original.splitlines(keepends=True):
-        # ── First, track the device_lcd block boundary ──────────────
-        if not in_device_lcd:
-            if _DEVICE_LCD_OPEN_RE.match(line):
-                in_device_lcd = True
-                depth = 1
-                # Fall through to top-level processing for the line itself
-        else:
-            # Inside device_lcd — track nested #ifdef / #endif so we
-            # know when the block closes. We also process USE_X_MOD
-            # toggles *inside* this block.
-            if _PP_IF_RE.match(line):
-                depth += 1
-            elif _PP_ENDIF_RE.match(line):
-                depth -= 1
-                if depth == 0:
-                    out_lines.append(line)        # the closing #endif itself
-                    in_device_lcd = False
-                    continue
+        # ── Section boundary tracking ──────────────────────────────
+        if not in_section:
+            if _SECTION_BEGIN_RE.search(line):
+                in_section = True
+                section_seen = True
+            out_lines.append(line)
+            continue
 
-        # ── Top-level: switch device_* selectors ───────────────────
-        if not in_device_lcd or depth == 1:  # depth 1 = the device_lcd body's #ifdef line
-            m = _DEVICE_ACTIVE_RE.match(line)
-            if m:
-                ind, name, tail = m.groups()
-                if name == DEVICE_TARGET:
-                    out_lines.append(line)
-                    device_target_seen = True
-                else:
-                    out_lines.append(f'{ind}//#define {name}{tail}\n')
-                continue
-            m = _DEVICE_COMMENTED_RE.match(line)
-            if m:
-                ind, name, tail = m.groups()
-                if name == DEVICE_TARGET:
-                    out_lines.append(f'{ind}#define {name}{tail}\n')
-                    device_target_seen = True
-                    continue
-                # else: leave commented as-is
+        # in_section == True from here
+        if _SECTION_END_RE.search(line):
+            in_section = False
+            out_lines.append(line)
+            continue
 
-        # ── Inside device_lcd block: switch USE_X_MOD lines ────────
-        if in_device_lcd:
-            m = _USE_ACTIVE_RE.match(line)
-            if m:
-                ind, name, tail = m.groups()
-                if name == target_use:
-                    out_lines.append(line)
-                    use_target_seen = True
-                else:
-                    out_lines.append(f'{ind}//#define {name}{tail}\n')
+        # ── Inside section: switch USE_X_MOD lines ─────────────────
+        m = _USE_ACTIVE_RE.match(line)
+        if m:
+            ind, name, tail = m.groups()
+            if name == target_use:
+                out_lines.append(line)
+                use_target_seen = True
+            else:
+                out_lines.append(f'{ind}//#define {name}{tail}\n')
+            continue
+        m = _USE_COMMENTED_RE.match(line)
+        if m:
+            ind, name, tail = m.groups()
+            if name == target_use:
+                out_lines.append(f'{ind}#define {name}{tail}\n')
+                use_target_seen = True
                 continue
-            m = _USE_COMMENTED_RE.match(line)
-            if m:
-                ind, name, tail = m.groups()
-                if name == target_use:
-                    out_lines.append(f'{ind}#define {name}{tail}\n')
-                    use_target_seen = True
-                    continue
+            # else: leave commented as-is
 
         out_lines.append(line)
 
     # Sanity: bail loudly if the rewrite couldn't find what it needed.
-    if not device_target_seen:
+    if not section_seen:
         raise RuntimeError(
-            f'Could not find a #define {DEVICE_TARGET} (active or commented) '
-            f'at top level of {OVERRIDE.name}. Add one near the other '
-            f'#define device_* selectors (around line 120).'
+            f'Could not find the Plugin Defines section in {OVERRIDE.name}. '
+            f'Expected sentinels `// >>> PLUGIN_DEFINES_BEGIN <<<` and '
+            f'`// >>> PLUGIN_DEFINES_END <<<`. Did the override file get '
+            f'overwritten? Restore from git or re-add the section near the '
+            f'top of the file (right after the `device_*` selector block).'
         )
     if not use_target_seen:
         raise RuntimeError(
             f'Could not find a #define {target_use} (active or commented) '
-            f'inside the #ifdef {DEVICE_TARGET} block. Add it inside that '
-            f'block first, or pick a different plugin from --list.'
+            f'inside the Plugin Defines section of {OVERRIDE.name}. Add it '
+            f'between the BEGIN/END sentinels and try again, or pick a '
+            f'different plugin from --list.'
         )
 
     OVERRIDE.write_text(''.join(out_lines))
