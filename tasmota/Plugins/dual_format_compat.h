@@ -196,6 +196,12 @@ class TasmotaSerial;
 #  define iscale(val, max_out, max_in) \
        ((uint32_t)changeUIntScale((uint32_t)(val), 0, (uint32_t)(max_in), 0, (uint32_t)(max_out)))
 
+// `trimm` is the plugin's name for Tasmota's `tm_trim` (declared
+// extern in xdrv_123_plugins.ino — leading/trailing whitespace
+// stripper, returns the trimmed pointer in-place).
+#  define trimm(s)                            tm_trim((char *)(s))
+extern "C" char *tm_trim(char *s);
+
 // Float math — plugin routes through jumptable (jt[39..43]); native
 // uses native operators. Expression-equivalent so the call sites in
 // the driver code don't change.
@@ -290,6 +296,77 @@ class TasmotaSerial;
 // SETWIRE — plugin alias that flips `mem->xWire` between Wire and
 // Wire1. Native: route through the bus-aware I2C_SETWIRE shim.
 #  define SETWIRE(bus)                        I2C_SETWIRE(bus)
+
+// Fast / direct GPIO — talks directly to the GPIO matrix registers
+// (GPIO.in / GPIO.out_w1ts / GPIO.out_w1tc on ESP32, GPI/GPOC/GPOS
+// on ESP8266) with no Arduino-level overhead. The plugin's
+// directRead/directWriteLow/etc. route through a jumptable to
+// Tasmota's IRAM-attributed implementations; native uses the same
+// pattern as the TasmotaOneWire library (lib/lib_basic/
+// TasmotaOneWire-2.3.3/OneWire.cpp:175+) — `static inline
+// __attribute__((always_inline))` helpers per-TU so each dual
+// driver gets its own inlined copy at zero call overhead and
+// without depending on USE_BINPLUGINS being enabled.
+//
+// API takes a raw pin number on ESP32 (GPIO matrix is by index),
+// a 1<<pin bitmask on ESP8266 (legacy 8266 GPIO).
+#  ifdef ESP32
+#    if ESP_IDF_VERSION_MAJOR >= 5
+#      include "soc/gpio_periph.h"
+#    endif
+static inline __attribute__((always_inline))
+uint32_t directRead(uint32_t pin) {
+#    if SOC_GPIO_PIN_COUNT <= 32 || CONFIG_IDF_TARGET_ESP32P4
+  return (GPIO.in.val >> pin) & 0x1;
+#    else
+  return (pin < 32) ? ((GPIO.in >> pin) & 0x1)
+                    : ((GPIO.in1.val >> (pin - 32)) & 0x1);
+#    endif
+}
+static inline __attribute__((always_inline))
+void directWriteLow(uint32_t pin) {
+#    if SOC_GPIO_PIN_COUNT <= 32 || CONFIG_IDF_TARGET_ESP32P4
+  GPIO.out_w1tc.val = ((uint32_t)1 << pin);
+#    else
+  if (pin < 32) { GPIO.out_w1tc = ((uint32_t)1 << pin); }
+  else          { GPIO.out1_w1tc.val = ((uint32_t)1 << (pin - 32)); }
+#    endif
+}
+static inline __attribute__((always_inline))
+void directWriteHigh(uint32_t pin) {
+#    if SOC_GPIO_PIN_COUNT <= 32 || CONFIG_IDF_TARGET_ESP32P4
+  GPIO.out_w1ts.val = ((uint32_t)1 << pin);
+#    else
+  if (pin < 32) { GPIO.out_w1ts = ((uint32_t)1 << pin); }
+  else          { GPIO.out1_w1ts.val = ((uint32_t)1 << (pin - 32)); }
+#    endif
+}
+static inline __attribute__((always_inline))
+void directModeInput(uint32_t pin)  { pinMode((uint8_t)pin, INPUT);  }
+static inline __attribute__((always_inline))
+void directModeOutput(uint32_t pin) { pinMode((uint8_t)pin, OUTPUT); }
+#  else  // ESP8266
+static inline __attribute__((always_inline))
+bool directRead(uint32_t pin) {
+  uint32_t mask = (1UL << pin);
+  if (mask > 0x8000) { return GP16I & 0x01; }
+  return (GPI & mask) ? true : false;
+}
+static inline __attribute__((always_inline))
+void directWriteLow(uint32_t pin) {
+  uint32_t mask = (1UL << pin);
+  if (mask > 0x8000) { GP16O &= ~1; } else { GPOC = mask; }
+}
+static inline __attribute__((always_inline))
+void directWriteHigh(uint32_t pin) {
+  uint32_t mask = (1UL << pin);
+  if (mask > 0x8000) { GP16O |= 1;  } else { GPOS = mask; }
+}
+static inline __attribute__((always_inline))
+void directModeInput(uint32_t pin)  { pinMode((uint8_t)pin, INPUT);  }
+static inline __attribute__((always_inline))
+void directModeOutput(uint32_t pin) { pinMode((uint8_t)pin, OUTPUT); }
+#  endif
 
 // PROGMEM float-array access — plugin uses GFLT to apply EXEC_OFFSET
 // to a const-float-array pointer (e.g. `*GFLT(&UVA_RESPONSIVITY[i])`).
