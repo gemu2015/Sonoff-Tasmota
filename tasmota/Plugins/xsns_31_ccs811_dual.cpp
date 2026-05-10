@@ -304,4 +304,22 @@ bool Xsns31(uint32_t function) {
 
 #endif  // BUILD_AS_PLUGIN
 
+// --------------------------------------------------------------------
+// Cleanup — undef state-accessor macros so they don't leak.
+// --------------------------------------------------------------------
+#if !BUILD_AS_PLUGIN
+#  undef CCS811_ready
+#  undef eCO2
+#  undef TVOC
+#  undef tcnt
+#  undef ecnt
+#  undef ready
+#  undef ccs
+#  undef ccs_addr
+#  undef ccs_bus
+#  undef initialized
+#  undef ALLOCMEM
+#  undef RETMEM
+#endif
+
 #endif  // _CCS811_DUAL_ENABLED

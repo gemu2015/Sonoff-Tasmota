@@ -95,7 +95,8 @@ typedef struct {
 const char  BMEtypes[]      PROGMEM = "BMP180|BME280|BMP280|BME680";
 const char  HTTP_BMP_T[]    PROGMEM = "{s}%s %s{m}%s C{e}";
 const char  HTTP_BMP_P[]    PROGMEM = "{s}%s %s{m}%s hp{e}";
-const char  HTTP_SNS_AHUM[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
+// File-unique name to avoid collision with SHT3X dual.
+const char  HTTP_SNS_AHUM_BMP[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
 #if BUILD_AS_PLUGIN
 const char  JSON_BMP[]      PROGMEM = ",\"%s\":{\"" D_JSON_TEMPERATURE "\":%s,\"" D_JSON_PRESSURE "\":%s";
 const char  JSON_BME[]      PROGMEM = ",\"" D_JSON_HUMIDITY "\":%s,\"" D_JSON_AHUM "\":%s}";
@@ -105,7 +106,12 @@ const char  JSON_BMP[]      PROGMEM = ",\"%s\":{\"" D_JSON_TEMPERATURE "\":%s,\"
 const char  JSON_BME[]      PROGMEM = ",\"" D_JSON_HUMIDITY "\":%s,\"" D_JSON_AHUM "\":%s}";
 #endif
 const char  JSON_BMPend[]   PROGMEM = "}";
-const float FP_CONST[]      PROGMEM = {0, 0.01, 0.00097656};
+// File-unique FP_CONST + per-driver FLTC redefine — each dual has
+// its own constants table so the names need to be unique in the
+// merged tasmota.ino.cpp TU.
+const float FP_CONST_BMP[]  PROGMEM = {0, 0.01, 0.00097656};
+#undef  FLTC
+#define FLTC(idx)                             (FP_CONST_BMP[(idx)])
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
@@ -419,7 +425,7 @@ void BME_Show(uint32_t json) {
     if (type == BME280_CHIPID) {
       TempHumDewShow(json, 0, typestr, temp, hum);
       char s1[32];
-      WSContentSend_PD(GSTR(HTTP_SNS_AHUM), typestr,
+      WSContentSend_PD(GSTR(HTTP_SNS_AHUM_BMP), typestr,
                        Plugin_Get_SensorNames(s1, iD_ABSOLUTE_HUMIDITY), ahum_tstr);
     } else {
       char s1[32];
@@ -476,5 +482,30 @@ bool Xsns09(uint32_t function) {
 }
 
 #endif  // BUILD_AS_PLUGIN
+
+// --------------------------------------------------------------------
+// Cleanup — undef state-accessor macros so they don't leak into other
+// dual drivers in the merged tasmota.ino.cpp TU. Particularly critical
+// for `type` (rewrites VL53L0X's vcselPeriodType param), `temp`,
+// `ready`, `initialized`, etc. — generic names whose pollution broke
+// downstream files in earlier multi-driver firmware-link attempts.
+// --------------------------------------------------------------------
+#if !BUILD_AS_PLUGIN
+#  undef temp
+#  undef _t_fine
+#  undef hum
+#  undef press
+#  undef type
+#  undef typestr
+#  undef abshum
+#  undef i2c_addr
+#  undef i2c_bus
+#  undef bmc
+#  undef ready
+#  undef initialized
+#  undef ALLOCMEM
+#  undef RETMEM
+#endif
+#undef FLTC
 
 #endif  // _BME_DUAL_ENABLED

@@ -60,8 +60,14 @@ typedef struct {
 
 const char  kShtTypes3[]    PROGMEM = "SHT3X|SHT3X|SHTC3";
 const char  kShtTypes[]     PROGMEM = "%s%c%02X";
-const char  HTTP_SNS_AHUM[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
-const float FP_CONST[]      PROGMEM = {65535, 45};
+// File-unique names so multi-driver native co-link doesn't collide
+// with HTTP_SNS_AHUM / FP_CONST in BMP / VL53L0X / MLX90614 / Bresser
+// duals. Each driver's FLTC redefine restores `FLTC(idx)` to point
+// at the local FP_CONST array.
+const char  HTTP_SNS_AHUM_SHT3X[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
+const float FP_CONST_SHT3X[]      PROGMEM = {65535, 45};
+#undef  FLTC
+#define FLTC(idx)                             (FP_CONST_SHT3X[(idx)])
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
@@ -252,7 +258,7 @@ void SHT3X_Show(bool json) {
       ftostrfd(abshum, 4, abs_hum);
       if (!json) {
         char s1[32];
-        WSContentSend_PD(GSTR(HTTP_SNS_AHUM), types,
+        WSContentSend_PD(GSTR(HTTP_SNS_AHUM_SHT3X), types,
                          Plugin_Get_SensorNames(s1, iD_ABSOLUTE_HUMIDITY),
                          abs_hum);
       }
@@ -308,5 +314,19 @@ bool Xsns14(uint32_t function) {
 }
 
 #endif  // BUILD_AS_PLUGIN
+
+// --------------------------------------------------------------------
+// Cleanup — undef state-accessor + helper macros so they don't leak
+// into other dual drivers in the merged tasmota.ino.cpp TU.
+// --------------------------------------------------------------------
+#if !BUILD_AS_PLUGIN
+#  undef sht3x_count
+#  undef sht3x_addresses
+#  undef sht3x_sensors
+#  undef initialized
+#  undef ALLOCMEM
+#  undef RETMEM
+#endif
+#undef FLTC
 
 #endif  // _SHT3X_DUAL_ENABLED

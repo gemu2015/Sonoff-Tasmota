@@ -196,11 +196,12 @@ class TasmotaSerial;
 #  define iscale(val, max_out, max_in) \
        ((uint32_t)changeUIntScale((uint32_t)(val), 0, (uint32_t)(max_in), 0, (uint32_t)(max_out)))
 
-// `trimm` is the plugin's name for Tasmota's `tm_trim` (declared
-// extern in xdrv_123_plugins.ino — leading/trailing whitespace
-// stripper, returns the trimmed pointer in-place).
+// `trimm` is the plugin's name for Tasmota's `tm_trim` (defined
+// in xdrv_123_plugins.ino — leading/trailing whitespace stripper,
+// returns the trimmed pointer in-place). Plain C++ linkage to
+// match the Tasmota-side definition (no `extern "C"`).
 #  define trimm(s)                            tm_trim((char *)(s))
-extern "C" char *tm_trim(char *s);
+char *tm_trim(char *s);
 
 // Float math — plugin routes through jumptable (jt[39..43]); native
 // uses native operators. Expression-equivalent so the call sites in

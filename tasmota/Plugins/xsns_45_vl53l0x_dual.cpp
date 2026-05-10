@@ -54,7 +54,10 @@ typedef struct {
   uint8_t  index;
 } VLX_DATA;
 
-const float FP_CONST[] PROGMEM = {10};
+// File-unique name — avoid collision with FP_CONST in other duals.
+const float FP_CONST_VL53[] PROGMEM = {10};
+#undef  FLTC
+#define FLTC(idx)                             (FP_CONST_VL53[(idx)])
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
@@ -318,5 +321,27 @@ bool Xsns45(uint32_t function) {
 }
 
 #endif  // BUILD_AS_PLUGIN
+
+// --------------------------------------------------------------------
+// Cleanup — undef state-accessor macros so they don't leak.
+// --------------------------------------------------------------------
+#if !BUILD_AS_PLUGIN
+#  undef VL53L0X_xshut
+#  undef address
+#  undef VL53L0X_detected
+#  undef Vl53l0x_data
+#  undef io_timeout
+#  undef did_timeout
+#  undef timeout_start_ms
+#  undef stop_variable
+#  undef measurement_timing_budget_us
+#  undef last_status
+#  undef range_mode
+#  undef i2c_bus
+#  undef initialized
+#  undef ALLOCMEM
+#  undef RETMEM
+#endif
+#undef FLTC
 
 #endif  // _VL53L0X_DUAL_ENABLED

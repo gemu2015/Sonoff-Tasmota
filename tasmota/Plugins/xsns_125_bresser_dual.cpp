@@ -343,7 +343,10 @@ MODULE_END
 // 3 = 2.5   (professional rain gauge factor)
 // 4 = 1.0   (wind direction float)
 // 5 = -50.0 (3in1 temp correction threshold)
-const float FP_CONST[] PROGMEM = {0.1, 0.001, 22.5, 2.5, 1.0, -50.0};
+// File-unique FP_CONST + per-driver FLTC.
+const float FP_CONST_BRES[] PROGMEM = {0.1, 0.001, 22.5, 2.5, 1.0, -50.0};
+#undef  FLTC
+#define FLTC(idx)                             (FP_CONST_BRES[(idx)])
 
 
 /*********************************************************************************************\

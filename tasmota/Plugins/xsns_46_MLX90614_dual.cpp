@@ -44,7 +44,10 @@
 const char HTTP_IRTMP[] PROGMEM = "{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}";
 const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[]     PROGMEM = "MLX90614";
-const float FP_CONST[]  PROGMEM = {-999, 0.02, 273.15};
+// File-unique FP_CONST + per-driver FLTC.
+const float FP_CONST_MLX[]  PROGMEM = {-999, 0.02, 273.15};
+#undef  FLTC
+#define FLTC(idx)                             (FP_CONST_MLX[(idx)])
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
@@ -251,5 +254,19 @@ bool Xsns46(uint32_t function) {
 }
 
 #endif  // BUILD_AS_PLUGIN
+
+// --------------------------------------------------------------------
+// Cleanup — undef state-accessor macros so they don't leak.
+// --------------------------------------------------------------------
+#if !BUILD_AS_PLUGIN
+#  undef obj_temp
+#  undef amb_temp
+#  undef ready
+#  undef mlx_bus
+#  undef initialized
+#  undef ALLOCMEM
+#  undef RETMEM
+#endif
+#undef FLTC
 
 #endif  // _MLX90614_DUAL_ENABLED
