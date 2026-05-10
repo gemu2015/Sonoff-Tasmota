@@ -42,6 +42,47 @@
   picks up (it greps Plugins/*.cpp for `#ifdef USE_..._MOD`). The
   native USE_<NAME>_DUAL gate sits in a device block of
   user_config_override.h.
+
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  PLUGIN RULES  —  things you cannot do in plugin-mode code       │
+  └──────────────────────────────────────────────────────────────────┘
+
+  The plugin .bin is a relocatable blob loaded into flash by the
+  plugin loader (xdrv_123_plugins.ino). The loader copies the
+  rodata + text sections to flash and patches a small set of fixup
+  pointers, but does NOT run the C runtime startup that would
+  initialise function-static `.data` from a `.data.init` source
+  template. So:
+
+  RULE 1 — `static` storage is forbidden in code that runs in plugin
+  mode. This includes function-scope `static const T arr[] = {…};`
+  and function-scope `static T var = …;`. Their initialiser is
+  emitted as a memcpy from a `.data.init`/`.rodata.init` source
+  segment that the loader doesn't relocate, so reads come back as
+  zeroes or garbage. Init silently fails — Init returns -1 (no
+  match) or, worse, the chip-id check coincidentally passes on
+  garbage and the driver later misbehaves.
+
+  Workaround: hold the data in a local stack variable initialised
+  PER ELEMENT (`uint8_t addrs[2]; addrs[0] = 0x76; addrs[1] = 0x77;`)
+  or move it into MODULE_MEMORY and assign from Init. Stack-array
+  literal initialisers (`uint8_t cmd[2] = {0x20, 0x03};`) often get
+  inlined as direct stores by the optimiser and may work, but are
+  not guaranteed — prefer the explicit per-element form.
+
+  RULE 2 — File-scope `static` declarations are also forbidden in
+  the plugin-mode block. Native-mode blocks (under `#else  // native`)
+  routinely use `static <state_t> *<name>_state = nullptr;` — that's
+  fine, it's only compiled into the firmware, never the plugin.
+
+  RULE 3 — File-scope `const T arr[] PROGMEM = {…};` does work in
+  plugin mode (the rodata section IS loaded). FLTC-style scaling
+  constants and PROGMEM strings are safe.
+
+  See xsns_09_bmp_dual.cpp commit history for the canonical bug
+  example: a function-scope `static const uint8_t kBmeAddrs[] =
+  {0x76, 0x77};` made Init_BME silently return -1 in plugin mode
+  while working perfectly in native mode.
 */
 
 #ifndef DUAL_FORMAT_COMPAT_H

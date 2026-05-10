@@ -92,7 +92,7 @@ typedef struct {
 // Plugin: MODULE_PART decls land in SECTION_PART between descriptor
 // and MODULE_END.
 // --------------------------------------------------------------------
-#define CCS811_REV (1 << 16 | 4)
+#define CCS811_REV (1 << 16 | 5)
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("CCS811", MODULE_TYPE_SENSOR, CCS811_REV,
                   "", 0, "", 0, "", 0, "", 0)
@@ -174,6 +174,8 @@ static ccs811_state_t *ccs811_state = nullptr;
 bool CCS811_Detect(void) {
   ALLOCMEM
 
+  I2C_SETWIRE(0);
+
   ready = false;
   tcnt = 0;
   ecnt = 0;
@@ -181,23 +183,18 @@ bool CCS811_Detect(void) {
   ccs_bus  = 0;
   ccs_addr = CCS811_ADDRESS;
 
-  // Probe both buses × both possible CCS811 addresses (0x5A, 0x5B).
-  static const uint8_t kCcsAddrs[] = { 0x5A, 0x5B };
-  for (uint32_t bus = 0; bus < MAX_I2C_Busses; bus++) {
-    I2C_SETWIRE(bus);
-    for (uint32_t a = 0; a < (sizeof(kCcsAddrs)/sizeof(kCcsAddrs[0])); a++) {
-      uint8_t addr = kCcsAddrs[a];
-      if (!I2C_SetDevice(addr, bus)) { continue; }
-      if (!CCS811_begin(addr)) {
-        ccs_addr = addr;
-        ccs_bus  = bus;
-        I2C_SetActiveFound(addr, GSTR(CCS811_dev), bus);
-        ready = true;
-        initialized = true;
-        return true;
-      }
-      I2C_ResetActive(addr, bus);
-    }
+  // Single-bus, primary-address probe. Inline the address — `static
+  // const ...[]` arrays don't work in plugin context (function-static
+  // arrays land in rodata that the plugin loader doesn't populate).
+  if (!I2C_SetDevice(ccs_addr, 0)) {
+    CCS811_Deinit();
+    return false;
+  }
+  if (!CCS811_begin(ccs_addr)) {
+    I2C_SetActiveFound(ccs_addr, GSTR(CCS811_dev), 0);
+    ready = true;
+    initialized = true;
+    return true;
   }
   CCS811_Deinit();
   return false;

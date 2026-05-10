@@ -57,7 +57,7 @@ const float FP_CONST_MLX[]  PROGMEM = {-999, 0.02, 273.15};
 // MLX90614S (with USE_SOFTWIRE pin args) and plain MLX90614 —
 // gated by USE_SOFTWIRE.
 // --------------------------------------------------------------------
-#define MLX90614_REV (1 << 16 | 4)
+#define MLX90614_REV (1 << 16 | 5)
 PUSH_OPTIONS
 #ifdef USE_SOFTWIRE
 #  define DEFAULT_SDA_PIN 12

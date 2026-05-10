@@ -108,8 +108,14 @@ private:
     uint16_t                  mincnt;
     uint16_t                  maxcnt;
   };
-  static const tcs_agc agc_lst[];
-  uint16_t             agc_cur;
+  // NOTE: was `static const tcs_agc agc_lst[]` with a file-scope
+  // initialiser. That's banned in plugin context (Rule 1 in
+  // dual_format_compat.h) — function- AND class-static initialised
+  // arrays land in rodata that the plugin loader doesn't populate,
+  // so reads come back as garbage and the AGC steps are wrong.
+  // Now an instance member, populated per-element by begin().
+  tcs_agc  agc_lst[5];
+  uint16_t agc_cur;
 
   void              setGainTime(void);
   Adafruit_TCS34725 tcs;
@@ -158,18 +164,23 @@ static tcs34725_state_t *tcs34725_state = nullptr;
 // --------------------------------------------------------------------
 // Wrapper class — gain/integration steps and method bodies
 // --------------------------------------------------------------------
-const tcs34725::tcs_agc tcs34725::agc_lst[] = {
-  { TCS34725_GAIN_60X, TCS34725_INTEGRATIONTIME_700MS,     0, 20000 },
-  { TCS34725_GAIN_60X, TCS34725_INTEGRATIONTIME_154MS,  4990, 63000 },
-  { TCS34725_GAIN_16X, TCS34725_INTEGRATIONTIME_154MS, 16790, 63000 },
-  { TCS34725_GAIN_4X,  TCS34725_INTEGRATIONTIME_154MS, 15740, 63000 },
-  { TCS34725_GAIN_1X,  TCS34725_INTEGRATIONTIME_154MS, 15740, 0 }
-};
-
 MODULE_PART tcs34725::tcs34725() : agc_cur(0), isAvailable(0), isSaturated(0) {
 }
 
 MODULE_PART boolean tcs34725::begin(uint8_t bus) {
+  // Populate AGC table per-element (plugin Rule 1: no static / no
+  // initialiser-list arrays).
+  agc_lst[0].ag = TCS34725_GAIN_60X; agc_lst[0].at = TCS34725_INTEGRATIONTIME_700MS;
+  agc_lst[0].mincnt = 0;     agc_lst[0].maxcnt = 20000;
+  agc_lst[1].ag = TCS34725_GAIN_60X; agc_lst[1].at = TCS34725_INTEGRATIONTIME_154MS;
+  agc_lst[1].mincnt = 4990;  agc_lst[1].maxcnt = 63000;
+  agc_lst[2].ag = TCS34725_GAIN_16X; agc_lst[2].at = TCS34725_INTEGRATIONTIME_154MS;
+  agc_lst[2].mincnt = 16790; agc_lst[2].maxcnt = 63000;
+  agc_lst[3].ag = TCS34725_GAIN_4X;  agc_lst[3].at = TCS34725_INTEGRATIONTIME_154MS;
+  agc_lst[3].mincnt = 15740; agc_lst[3].maxcnt = 63000;
+  agc_lst[4].ag = TCS34725_GAIN_1X;  agc_lst[4].at = TCS34725_INTEGRATIONTIME_154MS;
+  agc_lst[4].mincnt = 15740; agc_lst[4].maxcnt = 0;
+
   tcs = Adafruit_TCS34725(agc_lst[agc_cur].at, agc_lst[agc_cur].ag);
   // Pin the underlying Adafruit driver to the bus we found the
   // sensor on — without the explicit Wire pointer, its no-arg

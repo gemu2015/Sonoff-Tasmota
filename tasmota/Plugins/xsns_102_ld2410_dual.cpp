@@ -108,7 +108,7 @@ typedef struct {
 // Plugin: MODULE_PART decls land in SECTION_PART between descriptor
 // and MODULE_END.
 // --------------------------------------------------------------------
-#define LD2410_REV (1 << 16 | 4)
+#define LD2410_REV (1 << 16 | 5)
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("LD2410", MODULE_TYPE_SENSOR, LD2410_REV,
                   "RXD", LD2410_DEFAULT_RX_PIN,
@@ -363,7 +363,8 @@ void Ld2410SendCommand(uint32_t command, uint8_t *val, uint32_t val_len) {
 }
 
 void Ld2410SetConfigMode(void) {
-  uint8_t value[2] = { 0x01, 0x00 };
+  uint8_t value[2];
+  value[0] = 0x01; value[1] = 0x00;
   Ld2410SendCommand(LD2410_CMND_START_CONFIGURATION, value, sizeof(value));
 }
 
@@ -414,7 +415,8 @@ void Ld2410SetAllSensitivity(uint32_t sensitivity) {
 }
 
 void Ld2410SetBaudrate(uint32_t index) {
-  uint8_t value[2] = { (uint8_t)index, 0x00 };
+  uint8_t value[2];
+  value[0] = (uint8_t)index; value[1] = 0x00;
   Ld2410SendCommand(LD2410_CMND_SET_BAUDRATE, value, sizeof(value));
 }
 

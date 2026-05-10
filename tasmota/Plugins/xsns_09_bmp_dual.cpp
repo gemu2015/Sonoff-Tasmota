@@ -119,7 +119,7 @@ const float FP_CONST_BMP[]  PROGMEM = {0, 0.01, 0.00097656};
 // Plugin: MODULE_PART decls land in SECTION_PART between descriptor
 // and MODULE_END.
 // --------------------------------------------------------------------
-#define BMX_REV (1 << 16 | 4)
+#define BMX_REV (1 << 16 | 5)
 PUSH_OPTIONS
 #ifdef USE_SOFTWIRE
 #  define DEFAULT_SDA_PIN 12
@@ -220,33 +220,35 @@ static bme_state_t *bme_state = nullptr;
 
 #endif  // BUILD_AS_PLUGIN
 
-// Driver core (unchanged from the original plugin)
+// Driver core — single bus (0), probes both possible addresses
+// (0x76, 0x77) and accepts only known chip IDs. Address list is
+// populated per-element (plugin Rule 1: no `static const T[] = {…}`
+// — those silently return garbage in plugin context).
 int32_t Init_BME() {
   ALLOCMEM
 
-  ready = false;
+  I2C_SETWIRE(0);
+
+  ready   = false;
   i2c_bus = 0;
 
-  // Probe both I2C buses (ESP32) × both addresses (0x76, 0x77).
-  // Stop on first valid chip ID match.
-  static const uint8_t kBmeAddrs[] = { BME280_I2C_ADDRESS1, BME280_I2C_ADDRESS2 };
+  uint8_t addrs[2];
+  addrs[0] = BME280_I2C_ADDRESS1;
+  addrs[1] = BME280_I2C_ADDRESS2;
+
   bool found = false;
-  for (uint32_t bus = 0; bus < MAX_I2C_Busses && !found; bus++) {
-    I2C_SETWIRE(bus);
-    for (uint32_t a = 0; a < (sizeof(kBmeAddrs)/sizeof(kBmeAddrs[0])); a++) {
-      i2c_addr = kBmeAddrs[a];
-      if (!I2C_SetDevice(i2c_addr, bus)) { continue; }
-      uint8_t probe_type = BME_Read(BME280_ID_REGISTER, 1);
-      if (probe_type == BMP180_CHIPID || probe_type == BME280_CHIPID
-          || probe_type == BMP280_CHIPID || probe_type == BME680_CHIPID) {
-        type    = probe_type;
-        i2c_bus = bus;
-        found   = true;
-        break;
-      }
-      I2C_ResetActive(i2c_addr, bus);
+  for (uint32_t a = 0; a < 2; a++) {
+    i2c_addr = addrs[a];
+    if (!I2C_SetDevice(i2c_addr, 0)) { continue; }
+    type = BME_Read(BME280_ID_REGISTER, 1);
+    if (type == BMP180_CHIPID || type == BME280_CHIPID
+        || type == BMP280_CHIPID || type == BME680_CHIPID) {
+      found = true;
+      break;
     }
+    I2C_ResetActive(i2c_addr, 0);
   }
+
   if (!found) {
     BME_Deinit();
     return -1;
@@ -259,7 +261,7 @@ int32_t Init_BME() {
   else if (type == BME680_CHIPID) index = 3;
 
   GetTextIndexed(typestr, sizeof(typestr), index, GSTR(BMEtypes));
-  I2C_SetActiveFound(i2c_addr, typestr, i2c_bus);
+  I2C_SetActiveFound(i2c_addr, typestr, 0);
 
   BME_readCalibrationData();
 

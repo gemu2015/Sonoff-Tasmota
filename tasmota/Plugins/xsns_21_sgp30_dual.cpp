@@ -211,7 +211,8 @@ bool readWordFromCommand(uint8_t command[], uint8_t commandLength,
 
 bool SGP30_IAQinit(void) {
   SETREGS
-  uint8_t command[2] = { 0x20, 0x03 };
+  uint8_t command[2];
+  command[0] = 0x20; command[1] = 0x03;
   return readWordFromCommand(command, 2, 10, 0, 0);
 }
 
@@ -233,7 +234,8 @@ bool SGP30_Begin(void) {
 
 bool SGP30_IAQmeasure(void) {
   SETREGS
-  uint8_t  command[2] = { 0x20, 0x08 };
+  uint8_t  command[2];
+  command[0] = 0x20; command[1] = 0x08;
   uint16_t reply[2];
   if (!readWordFromCommand(command, 2, 12, reply, 2)) { return false; }
   TVOC = reply[1];
@@ -243,7 +245,8 @@ bool SGP30_IAQmeasure(void) {
 
 bool getIAQBaseline(uint16_t *eco2_base, uint16_t *tvoc_base) {
   SETREGS
-  uint8_t  command[2] = { 0x20, 0x15 };
+  uint8_t  command[2];
+  command[0] = 0x20; command[1] = 0x15;
   uint16_t reply[2];
   if (!readWordFromCommand(command, 2, 10, reply, 2)) { return false; }
   *eco2_base = reply[0];

@@ -77,7 +77,7 @@ const float FP_CONST_SHT3X[]      PROGMEM = {65535, 45};
 // Plugin: MODULE_PART decls land in SECTION_PART between descriptor
 // and MODULE_END.
 // --------------------------------------------------------------------
-#define SHT3X_REV (1 << 16 | 4)
+#define SHT3X_REV (1 << 16 | 5)
 PUSH_OPTIONS
 #ifdef USE_SOFTWIRE
 #  define DEFAULT_SDA_PIN 12

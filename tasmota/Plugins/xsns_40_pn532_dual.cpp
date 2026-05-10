@@ -534,7 +534,9 @@ uint32_t PN532_getFirmwareVersion(void) {
 void PN532_wakeup(void) {
   SETREGS
   if (mode) { return; }
-  uint8_t wakeup[5] = { 0x55, 0x55, 0, 0, 0 };
+  uint8_t wakeup[5];
+  wakeup[0] = 0x55; wakeup[1] = 0x55;
+  wakeup[2] = 0;    wakeup[3] = 0;    wakeup[4] = 0;
   writeTS(ts, wakeup, sizeof(wakeup));
   flushTS(ts);
 }
@@ -781,7 +783,8 @@ VTABLE(PN532Command) = {
 // --------------------------------------------------------------------
 void PN532_ScanForTag(void) {
   SETREGS
-  uint8_t uid[7] = { 0 };
+  uint8_t uid[7];
+  memset(uid, 0, sizeof(uid));
   uint8_t uid_len = 0;
 
   if (PN532_readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uid_len)) {
@@ -796,7 +799,8 @@ void PN532_ScanForTag(void) {
 
     if (Pn532.atqa == 0x44) {
       uint8_t confPage = 0;
-      uint8_t nuid[7] = { 0 };
+      uint8_t nuid[7];
+      memset(nuid, 0, sizeof(nuid));
       uint8_t nuid_len = 0;
       if ((confPage = PN532_ntag21x_probe()) > 0) {
         str_pwd = PWD_NONE;

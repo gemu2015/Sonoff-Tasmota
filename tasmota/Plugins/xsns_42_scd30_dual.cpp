@@ -313,7 +313,9 @@ int SCD30_getBytes(void *pOutput, uint8_t len) {
 
 int SCD30_sendCommand(uint16_t command) {
   SETREGS
-  uint8_t data[2] = { (uint8_t)(command >> 8), (uint8_t)(command & 0xFF) };
+  uint8_t data[2];
+  data[0] = (uint8_t)(command >> 8);
+  data[1] = (uint8_t)(command & 0xFF);
   return SCD30_sendBytes(data, sizeof(data));
 }
 

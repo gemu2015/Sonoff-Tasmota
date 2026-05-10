@@ -81,7 +81,7 @@ typedef struct {
 // Plugin: MODULE_PART decls land in SECTION_PART between descriptor
 // and MODULE_END.
 // --------------------------------------------------------------------
-#define HTU_REV (1 << 16 | 4)
+#define HTU_REV (1 << 16 | 5)
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("HTU21", MODULE_TYPE_SENSOR, HTU_REV,
                   "", 0, "", 0, "", 0, "", 0)
