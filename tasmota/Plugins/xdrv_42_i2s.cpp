@@ -2381,7 +2381,13 @@ void Cmnd_TTSLang(void) {
     ptt_send_too_long();
     return;
   }
-  if (strcmp(picotts_lang, XdrvMailbox->data) == 0 && picotts_initialized) {
+  // strcmp / strcmp_P are NOT exported via the plugin JMPTBL — calling
+  // them dispatches through a wild relocation slot (e.g. 0x15152554) and
+  // crashes the device with InstrFetchProhibited on the first lang-switch.
+  // Use strncmp_P (which IS exported); on ESP32 PROGMEM and RAM share an
+  // address space so passing two RAM strings works correctly.
+  if (strncmp_P(picotts_lang, XdrvMailbox->data, PICOTTS_LANG_SZ) == 0 &&
+      picotts_initialized) {
     ptt_send_lang_resp(XdrvMailbox->command, picotts_lang);
     return;
   }
