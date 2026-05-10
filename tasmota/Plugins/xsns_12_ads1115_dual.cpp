@@ -85,20 +85,22 @@
 #define ADS1115_REG_CONFIG_CQUE_NONE    (0x0003)
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: every macro is empty, so this reduces to plain C++ forward
+// decls. Plugin: MODULE_PART decls are placed in SECTION_PART between
+// the descriptor and MODULE_END (canonical legacy plugin layout).
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
-#  ifdef USE_SOFTWIRE
-#    define DEFAULT_SDA_PIN 12
-#    define DEFAULT_SCL_PIN 14
+#ifdef USE_SOFTWIRE
+#  define DEFAULT_SDA_PIN 12
+#  define DEFAULT_SCL_PIN 14
 MODULE_DESCRIPTOR("ADS1115S", MODULE_TYPE_SENSOR, ADS1115_REV,
                   "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN,
                   "", 0, "", 0)
-#  else
+#else
 MODULE_DESCRIPTOR("ADS1115", MODULE_TYPE_SENSOR, ADS1115_REV,
                   "", 0, "", 0, "", 0, "", 0)
-#  endif
+#endif
 MODULE_PART int32_t Init_ADS1115(void);
 MODULE_PART void    Ads1115Label(char *label, uint32_t maxsize, uint8_t address);
 MODULE_PART void    AdsEvery250ms(void);
@@ -106,17 +108,10 @@ MODULE_PART void    ADS1115_Show(bool json);
 MODULE_PART int16_t Ads1115GetConversion(uint8_t channel, uint8_t bus_idx);
 MODULE_PART void    Ads1115StartComparator(uint8_t channel, uint16_t mode);
 MODULE_PART void    ADS1115_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
-MODULE_END
-#else
-int32_t Init_ADS1115(void);
-void    Ads1115Label(char *label, uint32_t maxsize, uint8_t address);
-void    AdsEvery250ms(void);
-void    ADS1115_Show(bool json);
-int16_t Ads1115GetConversion(uint8_t channel, uint8_t bus_idx);
-void    Ads1115StartComparator(uint8_t channel, uint16_t mode);
-void    ADS1115_Deinit(void);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // Per-driver PROGMEM strings — file-unique `_ADS` suffix to avoid

@@ -76,8 +76,15 @@ typedef struct {
 } HTU;
 
 // --------------------------------------------------------------------
-// Forward declarations (MODULE_PART expands to nothing in native)
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
 // --------------------------------------------------------------------
+#define HTU_REV (1 << 16 | 4)
+PUSH_OPTIONS
+MODULE_DESCRIPTOR("HTU21", MODULE_TYPE_SENSOR, HTU_REV,
+                  "", 0, "", 0, "", 0, "", 0)
 MODULE_PART int32_t HTU_Detect();
 MODULE_PART void    HTU_Show(bool json);
 MODULE_PART void    HTU_Deinit();
@@ -92,17 +99,7 @@ MODULE_PART void    HTU_EverySecond();
 #if BUILD_AS_PLUGIN
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 #endif
-
-// --------------------------------------------------------------------
-// Plugin module descriptor (plugin-only)
-// --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
-#  define HTU_REV (1 << 16 | 4)
-PUSH_OPTIONS
-MODULE_DESCRIPTOR("HTU21", MODULE_TYPE_SENSOR, HTU_REV,
-                  "", 0, "", 0, "", 0, "", 0)
 MODULE_END
-#endif
 
 // --------------------------------------------------------------------
 // State storage — heap in both modes

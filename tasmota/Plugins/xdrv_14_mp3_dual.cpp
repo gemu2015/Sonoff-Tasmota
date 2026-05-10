@@ -77,9 +77,13 @@
 #endif
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// In native mode every macro below is empty per dual_format_compat.h,
+// so this reduces to plain C++ forward decls. In plugin mode the
+// MODULE_PART decls are placed in SECTION_PART between the descriptor
+// (SECTION_DESC) and MODULE_END (SECTION_END), as the loader expects.
+// Only mod_func_execute is plugin-only (native dispatches via Xdrv14).
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("MP3PLAYER", MODULE_TYPE_DRIVER, MP3PLAYER_REV,
                   "TXD",  MP3_DEFAULT_TX_PIN,
@@ -92,17 +96,10 @@ MODULE_PART void     MP3_SendCmd(uint8_t *scmd, uint8_t len);
 MODULE_PART void     MP3_CMD(uint8_t mp3cmd, uint16_t val);
 MODULE_PART bool     MP3PlayerCmd(void);
 MODULE_PART void     MP3Player_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t  mod_func_execute(uint32_t sel);
-MODULE_END
-#else
-uint16_t MP3_Checksum(uint8_t *array);
-int32_t  MP3PlayerInit(void);
-int32_t  MP3_Init(void);
-void     MP3_SendCmd(uint8_t *scmd, uint8_t len);
-void     MP3_CMD(uint8_t mp3cmd, uint16_t val);
-bool     MP3PlayerCmd(void);
-void     MP3Player_Deinit(void);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // Constants table — keep PROGMEM strings file-unique to avoid

@@ -85,9 +85,13 @@ typedef struct {
 } PCF8574;
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin-only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// In native mode every macro below is empty per dual_format_compat.h
+// so this reduces to plain C++ forward decls. In plugin mode the
+// MODULE_PART decls are placed in SECTION_PART between the descriptor
+// (SECTION_DESC) and MODULE_END (SECTION_END), as the loader expects.
+// Only mod_func_execute is plugin-only (native dispatches via Xdrv28).
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("PCF8574", MODULE_TYPE_DRIVER, 1 << 16 | 5,
                   "", 0, "", 0, "", 0, "", 0)
@@ -97,17 +101,10 @@ MODULE_PART void    HandlePcf8574(void);
 MODULE_PART void    Pcf8574SaveSettings(void);
 MODULE_PART void    Pcf8574_AddButton(void);
 MODULE_PART void    PCF8574_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t mod_func_execute(uint32_t function);
-MODULE_END
-#else
-// Native: still need plain forward decls so out-of-order calls compile.
-void    Pcf8574SwitchRelay(void);
-int32_t Pcf8574Init(void);
-void    HandlePcf8574(void);
-void    Pcf8574SaveSettings(void);
-void    Pcf8574_AddButton(void);
-void    PCF8574_Deinit(void);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // State storage — heap in both modes (lazy alloc; zero RAM when

@@ -56,7 +56,23 @@ typedef struct {
 
 const float FP_CONST[] PROGMEM = {10};
 
-// Forward decls
+// --------------------------------------------------------------------
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
+// --------------------------------------------------------------------
+#define VL53L0_REV (1 << 16 | 5)
+PUSH_OPTIONS
+#ifdef USE_SOFTWIRE
+#  define DEFAULT_SDA_PIN 41
+#  define DEFAULT_SCL_PIN 40
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,
+                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
+#else
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,
+                  "RMODE", 0x01000300, "I2CBUS", 0x01000200, "", 0, "", 0)
+#endif
 MODULE_PART int32_t VL53L0X_Detect();
 MODULE_PART void    VL53L0X_Every_250MSecond(void);
 MODULE_PART void    VL53L0X_Show(boolean json);
@@ -64,22 +80,7 @@ MODULE_PART void    VL53L0X_Deinit();
 #if BUILD_AS_PLUGIN
 MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 #endif
-
-// Plugin descriptor
-#if BUILD_AS_PLUGIN
-#  define VL53L0_REV (1 << 16 | 5)
-PUSH_OPTIONS
-#  ifdef USE_SOFTWIRE
-#    define DEFAULT_SDA_PIN 41
-#    define DEFAULT_SCL_PIN 40
-MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,
-                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
-#  else
-MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,
-                  "RMODE", 0x01000300, "I2CBUS", 0x01000200, "", 0, "", 0)
-#  endif
 MODULE_END
-#endif
 
 // State
 #if BUILD_AS_PLUGIN

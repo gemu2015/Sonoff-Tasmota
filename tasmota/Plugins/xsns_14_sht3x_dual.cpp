@@ -64,10 +64,24 @@ const char  HTTP_SNS_AHUM[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
 const float FP_CONST[]      PROGMEM = {65535, 45};
 
 // --------------------------------------------------------------------
-// Forward declarations — needed in both modes (Sht3x_Detect calls
-// SHT3X_Deinit before the latter's body appears). MODULE_PART expands
-// to nothing in native, so these reduce to plain C++ forward decls.
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls (which we still
+// need because Sht3x_Detect calls SHT3X_Deinit before the latter's
+// body appears in source order).
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
 // --------------------------------------------------------------------
+#define SHT3X_REV (1 << 16 | 4)
+PUSH_OPTIONS
+#ifdef USE_SOFTWIRE
+#  define DEFAULT_SDA_PIN 12
+#  define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("SHT3XS", MODULE_TYPE_SENSOR, SHT3X_REV,
+                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
+#else
+MODULE_DESCRIPTOR("SHT3X",  MODULE_TYPE_SENSOR, SHT3X_REV,
+                  "", 0, "", 0, "", 0, "", 0)
+#endif
 MODULE_PART int32_t Sht3x_Detect();
 MODULE_PART void    SHT3X_Show(bool json);
 MODULE_PART void    SHT3X_Deinit();
@@ -75,28 +89,7 @@ MODULE_PART bool    Sht3xRead(float &t, float &h, uint8_t sht3x_address);
 #if BUILD_AS_PLUGIN
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 #endif
-
-// --------------------------------------------------------------------
-// Plugin module descriptor (plugin mode only)
-// --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
-
-#  define SHT3X_REV (1 << 16 | 4)
-PUSH_OPTIONS
-
-#  ifdef USE_SOFTWIRE
-#    define DEFAULT_SDA_PIN 12
-#    define DEFAULT_SCL_PIN 14
-MODULE_DESCRIPTOR("SHT3XS", MODULE_TYPE_SENSOR, SHT3X_REV,
-                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
-#  else
-MODULE_DESCRIPTOR("SHT3X",  MODULE_TYPE_SENSOR, SHT3X_REV,
-                  "", 0, "", 0, "", 0, "", 0)
-#  endif
-
 MODULE_END
-
-#endif  // BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // State storage — heap-allocated in BOTH modes. Plugin uses

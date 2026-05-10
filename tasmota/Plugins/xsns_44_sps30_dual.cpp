@@ -70,9 +70,11 @@
 #define PMDP                            2     // decimal places in particle output
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("SPS30", MODULE_TYPE_SENSOR, SPS30_REV,
                   "", 0, "", 0, "", 0, "", 0)
@@ -85,19 +87,10 @@ MODULE_PART void    sps30_cmd(uint16_t cmd);
 MODULE_PART bool    SPS30_command(void);
 MODULE_PART void    CmdClean(void);
 MODULE_PART void    sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
-MODULE_END
-#else
-int32_t SPS30_Init(void);
-void    SPS30_Every_Second(void);
-void    SPS30_Show(bool json);
-void    SPS30_Deinit(void);
-uint8_t sps30_calc_CRC(uint8_t *data);
-void    sps30_cmd(uint16_t cmd);
-bool    SPS30_command(void);
-void    CmdClean(void);
-void    sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // Per-driver PROGMEM strings (file-unique `_SPS` suffix where they'd

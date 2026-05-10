@@ -106,22 +106,21 @@
 #define LTR308_PART_ID_VAL  0xB1
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("LTR308", MODULE_TYPE_SENSOR, LTR308_REV,
                   "", 0, "", 0, "", 0, "", 0)
 MODULE_PART int32_t  LTR308_Detect(void);
 MODULE_PART void     LTR308_Show(bool json);
 MODULE_PART void     LTR308_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t  mod_func_execute(uint32_t sel);
-MODULE_END
-#else
-int32_t LTR308_Detect(void);
-void    LTR308_Show(bool json);
-void    LTR308_Deinit(void);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // State storage — heap in both modes; bound to a local `mem` pointer

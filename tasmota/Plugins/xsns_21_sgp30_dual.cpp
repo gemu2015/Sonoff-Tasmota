@@ -53,20 +53,22 @@
 #define SAVE_PERIOD           30   // baseline-readback cadence (seconds)
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
-#  ifdef USE_SOFTWIRE
-#    define DEFAULT_SDA_PIN 12
-#    define DEFAULT_SCL_PIN 14
+#ifdef USE_SOFTWIRE
+#  define DEFAULT_SDA_PIN 12
+#  define DEFAULT_SCL_PIN 14
 MODULE_DESCRIPTOR("SGP30S", MODULE_TYPE_SENSOR, SGP30_REV,
                   "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN,
                   "", 0, "", 0)
-#  else
+#else
 MODULE_DESCRIPTOR("SGP30",  MODULE_TYPE_SENSOR, SGP30_REV,
                   "", 0, "", 0, "", 0, "", 0)
-#  endif
+#endif
 MODULE_PART int32_t  SGP30_Init(void);
 MODULE_PART bool     SGP30_IAQinit(void);
 MODULE_PART bool     SGP30_Begin(void);
@@ -80,23 +82,10 @@ MODULE_PART bool     setHumidity(uint32_t absolute_humidity);
 MODULE_PART void     SGP30_Every_Second(void);
 MODULE_PART void     SGP30_Show(bool json);
 MODULE_PART void     SGP30_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t  mod_func_execute(uint32_t sel);
-MODULE_END
-#else
-int32_t SGP30_Init(void);
-bool    SGP30_IAQinit(void);
-bool    SGP30_Begin(void);
-bool    SGP30_IAQmeasure(void);
-bool    getIAQBaseline(uint16_t *eco2_base, uint16_t *tvoc_base);
-bool    readWordFromCommand(uint8_t command[], uint8_t commandLength,
-                            uint16_t delayms, uint16_t *readdata,
-                            uint8_t readlen);
-uint8_t generateCRC(uint8_t *data, uint8_t datalen);
-bool    setHumidity(uint32_t absolute_humidity);
-void    SGP30_Every_Second(void);
-void    SGP30_Show(bool json);
-void    SGP30_Deinit(void);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // File-unique PROGMEM strings — `_SGP` suffix prevents collisions

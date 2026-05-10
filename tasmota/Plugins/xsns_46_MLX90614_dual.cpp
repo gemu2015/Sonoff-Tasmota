@@ -46,7 +46,25 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[]     PROGMEM = "MLX90614";
 const float FP_CONST[]  PROGMEM = {-999, 0.02, 273.15};
 
-// Forward decls
+// --------------------------------------------------------------------
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END. Original ships TWO descriptor variants —
+// MLX90614S (with USE_SOFTWIRE pin args) and plain MLX90614 —
+// gated by USE_SOFTWIRE.
+// --------------------------------------------------------------------
+#define MLX90614_REV (1 << 16 | 4)
+PUSH_OPTIONS
+#ifdef USE_SOFTWIRE
+#  define DEFAULT_SDA_PIN 12
+#  define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("MLX90614S", MODULE_TYPE_SENSOR, MLX90614_REV,
+                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
+#else
+MODULE_DESCRIPTOR("MLX90614",  MODULE_TYPE_SENSOR, MLX90614_REV,
+                  "", 0, "", 0, "", 0, "", 0)
+#endif
 MODULE_PART int32_t   Init_MLX90614();
 MODULE_PART uint16_t  MLX90614_read16(uint8_t addr, uint8_t a);
 MODULE_PART uint8_t   MLX90614_jcrc8(uint8_t *addr, uint8_t len);
@@ -57,25 +75,7 @@ MODULE_PART void      MLX90614_Show(uint32_t json);
 #if BUILD_AS_PLUGIN
 MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 #endif
-
-// Plugin descriptor (plugin-only). Note: original ships TWO descriptor
-// variants — MLX90614S (with USE_SOFTWIRE pin args) and plain MLX90614
-// — gated by USE_SOFTWIRE. We replicate both so the plugin .bin
-// produced matches whichever variant the build environment expects.
-#if BUILD_AS_PLUGIN
-#  define MLX90614_REV (1 << 16 | 4)
-PUSH_OPTIONS
-#  ifdef USE_SOFTWIRE
-#    define DEFAULT_SDA_PIN 12
-#    define DEFAULT_SCL_PIN 14
-MODULE_DESCRIPTOR("MLX90614S", MODULE_TYPE_SENSOR, MLX90614_REV,
-                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
-#  else
-MODULE_DESCRIPTOR("MLX90614",  MODULE_TYPE_SENSOR, MLX90614_REV,
-                  "", 0, "", 0, "", 0, "", 0)
-#  endif
 MODULE_END
-#endif
 
 // State storage
 #if BUILD_AS_PLUGIN

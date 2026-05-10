@@ -50,9 +50,17 @@
 #define SR04T_DEFAULT_RX  3       // GPIO 3 (UART0 RX) — overridable
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// In native mode every macro below (PUSH_OPTIONS / MODULE_DESCRIPTOR
+// / MODULE_PART / MODULE_END / PULL_OPTIONS) is empty per
+// dual_format_compat.h, so this reduces to plain C++ forward decls.
+// In plugin mode the descriptor + each MODULE_PART decl land in the
+// `.plugin.mod_part` section between MODULE_DESCRIPTOR and MODULE_END
+// — the plugin loader requires that grouping.
+//
+// Only mod_func_execute is plugin-specific (native dispatches via
+// Xsns22 instead), so its decl is the one thing that stays gated.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("SR04TV3", MODULE_TYPE_SENSOR, SR04TV3_REV,
                   "RECPIN", SR04T_DEFAULT_RX,
@@ -61,14 +69,10 @@ MODULE_PART int32_t Sr04T_Detect(void);
 MODULE_PART void    Sr04T_Show(bool json);
 MODULE_PART void    Sr04T_Read(void);
 MODULE_PART void    Sr04T_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
-MODULE_END
-#else
-int32_t Sr04T_Detect(void);
-void    Sr04T_Show(bool json);
-void    Sr04T_Read(void);
-void    Sr04T_Deinit(void);
 #endif
+MODULE_END
 
 const char SR04T_started_DUAL[] PROGMEM = "SR04TV3 initialized: RX pin %d";
 const char HTTP_DIST_DUAL[]     PROGMEM = "{s}SR04T distance{m}%s cm{e}";

@@ -86,7 +86,16 @@ typedef struct {
   CSS811_MEAS meas;
 } CCS811;
 
-// Forward declarations
+// --------------------------------------------------------------------
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
+// --------------------------------------------------------------------
+#define CCS811_REV (1 << 16 | 4)
+PUSH_OPTIONS
+MODULE_DESCRIPTOR("CCS811", MODULE_TYPE_SENSOR, CCS811_REV,
+                  "", 0, "", 0, "", 0, "", 0)
 MODULE_PART bool       CCS811_Detect(void);
 MODULE_PART void       CCS811_Update(void);
 MODULE_PART void       CCS811_Show(bool json);
@@ -94,15 +103,7 @@ MODULE_PART void       CCS811_Deinit();
 #if BUILD_AS_PLUGIN
 MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 #endif
-
-// Plugin descriptor (plugin-only)
-#if BUILD_AS_PLUGIN
-#  define CCS811_REV (1 << 16 | 4)
-PUSH_OPTIONS
-MODULE_DESCRIPTOR("CCS811", MODULE_TYPE_SENSOR, CCS811_REV,
-                  "", 0, "", 0, "", 0, "", 0)
 MODULE_END
-#endif
 
 // State storage — heap in both modes
 #if BUILD_AS_PLUGIN

@@ -117,9 +117,11 @@ enum VEML6075_Commands {
 };
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("VEML6075", MODULE_TYPE_SENSOR, 1 << 16 | 5,
                   "", 0, "", 0, "", 0, "", 0)
@@ -141,28 +143,10 @@ MODULE_PART void     VEML6075EverySecond(void);
 MODULE_PART bool     VEML6075Cmd(void);
 MODULE_PART void     VEML6075Show(bool json);
 MODULE_PART void     VEML6075_Deinit(void);
+#if BUILD_AS_PLUGIN
 MODULE_PART int32_t  mod_func_execute(uint32_t function);
-MODULE_END
-#else
-uint16_t VEML6075read16(uint8_t reg);
-void     VEML6075write16(uint8_t reg, uint16_t val);
-float    VEML6075calcUVA(void);
-float    VEML6075calcUVB(void);
-float    VEML6075calcUVI(void);
-void     VEML6075SetHD(uint8_t val);
-uint8_t  VEML6075ReadHD(void);
-void     VEML6075SetUvIt(uint8_t val);
-uint8_t  VEML6075GetUvIt(void);
-void     VEML6075Pwr(uint8_t val);
-uint8_t  VEML6075GetPwr(void);
-void     VEML6075ReadData(void);
-bool     VEML6075init(void);
-bool     VEML6075Detect(void);
-void     VEML6075EverySecond(void);
-bool     VEML6075Cmd(void);
-void     VEML6075Show(bool json);
-void     VEML6075_Deinit(void);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // State storage — heap in both modes

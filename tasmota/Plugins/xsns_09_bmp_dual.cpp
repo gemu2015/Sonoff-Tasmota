@@ -107,7 +107,23 @@ const char  JSON_BME[]      PROGMEM = ",\"" D_JSON_HUMIDITY "\":%s,\"" D_JSON_AH
 const char  JSON_BMPend[]   PROGMEM = "}";
 const float FP_CONST[]      PROGMEM = {0, 0.01, 0.00097656};
 
-// Forward decls
+// --------------------------------------------------------------------
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
+// --------------------------------------------------------------------
+#define BMX_REV (1 << 16 | 4)
+PUSH_OPTIONS
+#ifdef USE_SOFTWIRE
+#  define DEFAULT_SDA_PIN 12
+#  define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("BMXx80S", MODULE_TYPE_SENSOR, BMX_REV,
+                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
+#else
+MODULE_DESCRIPTOR("BMXx80",  MODULE_TYPE_SENSOR, BMX_REV,
+                  "", 0, "", 0, "", 0, "", 0)
+#endif
 MODULE_PART int32_t        Init_BME();
 MODULE_PART void           BME_clearCalibrationData();
 MODULE_PART void           BME_readCalibrationData();
@@ -122,22 +138,7 @@ MODULE_PART pressure_t     compensatePressure(int32_t adc_P);
 #if BUILD_AS_PLUGIN
 MODULE_PART int32_t        mod_func_execute(uint32_t sel);
 #endif
-
-// Plugin descriptor
-#if BUILD_AS_PLUGIN
-#  define BMX_REV (1 << 16 | 4)
-PUSH_OPTIONS
-#  ifdef USE_SOFTWIRE
-#    define DEFAULT_SDA_PIN 12
-#    define DEFAULT_SCL_PIN 14
-MODULE_DESCRIPTOR("BMXx80S", MODULE_TYPE_SENSOR, BMX_REV,
-                  "SDA", DEFAULT_SDA_PIN, "SCL", DEFAULT_SCL_PIN, "", 0, "", 0)
-#  else
-MODULE_DESCRIPTOR("BMXx80",  MODULE_TYPE_SENSOR, BMX_REV,
-                  "", 0, "", 0, "", 0, "", 0)
-#  endif
 MODULE_END
-#endif
 
 // State
 #if BUILD_AS_PLUGIN

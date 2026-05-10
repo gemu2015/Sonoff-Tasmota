@@ -60,14 +60,26 @@
 #define TCS34725_CT_Offset  1391.0
 
 // --------------------------------------------------------------------
-// Module descriptor — plugin only
+// Plugin descriptor block — written ONCE without an `#if` gate.
+// Native: macros are empty → plain C++ forward decls.
+// Plugin: MODULE_PART decls land in SECTION_PART between descriptor
+// and MODULE_END.
+//
+// Class out-of-line method DEFINITIONS (further down) are themselves
+// MODULE_PART-decorated, so they don't need separate forward decls
+// here — only the C-callable driver-hook functions do.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("TCS34725", MODULE_TYPE_SENSOR, 1 << 16 | 5,
                   "", 0, "", 0, "", 0, "", 0)
-MODULE_END
+MODULE_PART MOD_RESULT TCS34725_Detect(void);
+MODULE_PART void       TCS34725_EverySecond(void);
+MODULE_PART void       TCS34725_Show(boolean json);
+MODULE_PART void       TCS34725_Deinit(void);
+#if BUILD_AS_PLUGIN
+MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 #endif
+MODULE_END
 
 // --------------------------------------------------------------------
 // Autorange wrapper class — ductsoup's tcs34725. Class definition
@@ -226,21 +238,8 @@ MODULE_PART void tcs34725::getData(void) {
 }
 
 // --------------------------------------------------------------------
-// Driver hooks
+// Driver hooks — forward decls live in the descriptor block above.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
-MODULE_PART MOD_RESULT TCS34725_Detect(void);
-MODULE_PART void       TCS34725_EverySecond(void);
-MODULE_PART void       TCS34725_Show(boolean json);
-MODULE_PART void       TCS34725_Deinit(void);
-MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
-#else
-MOD_RESULT TCS34725_Detect(void);
-void       TCS34725_EverySecond(void);
-void       TCS34725_Show(boolean json);
-void       TCS34725_Deinit(void);
-#endif
-
 MODULE_PART MOD_RESULT TCS34725_Detect(void) {
   ALLOCMEM
 

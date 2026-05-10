@@ -187,6 +187,7 @@ class TasmotaSerial;
 #  define availTS(ts)                         (((TasmotaSerial *)(ts))->available())
 #  define bwriteTS(ts, val)                   (((TasmotaSerial *)(ts))->write((uint8_t)(val)))
 #  define readbTS(ts)                         (((TasmotaSerial *)(ts))->read())
+#  define hardwareSerial(ts)                  (((TasmotaSerial *)(ts))->hardwareSerial())
 #  define deleteTS(ts)                        do { delete ((TasmotaSerial *)(ts)); } while (0)
 
 // Misc helpers used by drivers — plugin's `iscale(val, max_out, max_in)`
@@ -281,12 +282,36 @@ class TasmotaSerial;
 // pass the address through.
 #  define GFLT(addr)                          (addr)
 
-// Module-decl macros — plugin-only. Native: empty so MODULE_PART
-// forward decls reduce to plain C++ forward decls.
+// Module-decl macros — plugin-only. Native: empty so the plugin
+// descriptor block can be written ONCE without an `#if BUILD_AS_PLUGIN`
+// gate. The whole block:
+//
+//   PUSH_OPTIONS
+//   MODULE_DESCRIPTOR("NAME", TYPE, REV, ...)
+//   MODULE_PART int32_t my_fn1(void);
+//   MODULE_PART void    my_fn2(int x);
+//   ...
+//   MODULE_END
+//   PULL_OPTIONS
+//
+// in native mode reduces to: nothing, nothing, plain forward decls,
+// nothing, nothing. Plugin mode generates the FLASH_MODULE descriptor
+// + section-attributed function decls in the .plugin.mod_part section.
+//
+// MODULE_DESCRIPTOR / MODULE_DESCRIPTOR6 / _8 / _10 are variadic
+// no-ops so any descriptor signature absorbs cleanly. The plugin
+// loader walks from MODULE_DESCRIPTOR to MODULE_END to find every
+// MODULE_PART decl — they MUST appear inside that block in source
+// order, which means dual drivers should NOT split the block with
+// any `#if`-gated wrapper around it.
 #  define PUSH_OPTIONS                        /* empty */
 #  define PULL_OPTIONS                        /* empty */
 #  define MODULE_PART                         /* empty */
 #  define MODULE_END                          /* empty */
+#  define MODULE_DESCRIPTOR(...)              /* empty */
+#  define MODULE_DESCRIPTOR6(...)             /* empty */
+#  define MODULE_DESCRIPTOR8(...)             /* empty */
+#  define MODULE_DESCRIPTOR10(...)            /* empty */
 
 // Sensor-name lookup — plugin's `Plugin_Get_SensorNames(buf, id)`
 // fetches a display name from the BinPlugin runtime keyed on a
