@@ -276,6 +276,21 @@ class TasmotaSerial;
 // the literal IS at PROGMEM directly, no offset needed.
 #  define GSTR(s)                             (s)
 
+// EXEC_OFFSET — plugin runtime relocation offset (the address the
+// BinPlugin loader mapped the .plugin.mod_part section to). Native
+// has no relocation, so it's always 0. Used by drivers that index
+// PROGMEM tables with `&TABLE[EXEC_OFFSET + i]` or compute a base
+// pointer with `(uint32_t)&LABEL + EXEC_OFFSET`.
+#  define EXEC_OFFSET                         0
+
+// VTABLE — declare a constant function-pointer array in PROGMEM.
+// Plugin and native use the same syntax, so just mirror it here.
+#  define VTABLE(A)                           void (*const A[])(void) PROGMEM
+
+// SETWIRE — plugin alias that flips `mem->xWire` between Wire and
+// Wire1. Native: route through the bus-aware I2C_SETWIRE shim.
+#  define SETWIRE(bus)                        I2C_SETWIRE(bus)
+
 // PROGMEM float-array access — plugin uses GFLT to apply EXEC_OFFSET
 // to a const-float-array pointer (e.g. `*GFLT(&UVA_RESPONSIVITY[i])`).
 // Native: array is directly readable as flash-mapped data, just
