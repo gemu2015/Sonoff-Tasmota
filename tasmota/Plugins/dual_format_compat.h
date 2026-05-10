@@ -153,6 +153,33 @@ static TwoWire *_dual_wire = &Wire;
 #  define I2C_SetActiveFound(addr, name, bus) I2cSetActiveFound((addr), (name), (bus))
 #  define I2C_ResetActive(addr, bus)          I2cResetActive((addr), (bus))
 
+// TasmotaSerial — plugin's NewTS/beginTS/writeTS/etc route through
+// jt[53..64,88]. Native: instantiate TasmotaSerial directly via
+// `new`, store the pointer as `void*` (matches the plugin's opaque
+// handle type), and cast on each call. Argument shapes match the
+// plugin macros so call sites in driver code stay identical.
+//
+// Note: drivers that hold a `void *ts` and call these macros must
+// `#include <TasmotaSerial.h>` themselves before this header (or
+// arrange for it to be in scope via their .ino shim's transitive
+// includes), since we only forward-declare the class here to avoid
+// pulling the heavy header into every dual driver.
+class TasmotaSerial;
+#  define NewTS(rpin, tpin)                   ((void *)(new TasmotaSerial((int)(rpin), (int)(tpin))))
+#  define beginTS(ts, baud)                   (((TasmotaSerial *)(ts))->begin((uint32_t)(baud)))
+#  define flushTS(ts)                         (((TasmotaSerial *)(ts))->flush())
+#  define writeTS(ts, buf, n)                 (((TasmotaSerial *)(ts))->write((const uint8_t *)(buf), (size_t)(n)))
+#  define readTS(ts, buf, n)                  (((TasmotaSerial *)(ts))->read((char *)(buf), (size_t)(n)))
+#  define availableTS(ts)                     (((TasmotaSerial *)(ts))->available())
+#  define bwriteTS(ts, val)                   (((TasmotaSerial *)(ts))->write((uint8_t)(val)))
+#  define deleteTS(ts)                        do { delete ((TasmotaSerial *)(ts)); } while (0)
+
+// Misc helpers used by drivers — plugin's `iscale(val, max_out, max_in)`
+// scales `val` from 0..max_in to 0..max_out, equivalent to Tasmota's
+// changeUIntScale(val, 0, max_in, 0, max_out).
+#  define iscale(val, max_out, max_in) \
+       ((uint32_t)changeUIntScale((uint32_t)(val), 0, (uint32_t)(max_in), 0, (uint32_t)(max_out)))
+
 // Float math — plugin routes through jumptable (jt[39..43]); native
 // uses native operators. Expression-equivalent so the call sites in
 // the driver code don't change.
