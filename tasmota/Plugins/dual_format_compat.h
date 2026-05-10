@@ -184,7 +184,9 @@ class TasmotaSerial;
 #  define writeTS(ts, buf, n)                 (((TasmotaSerial *)(ts))->write((const uint8_t *)(buf), (size_t)(n)))
 #  define readTS(ts, buf, n)                  (((TasmotaSerial *)(ts))->read((char *)(buf), (size_t)(n)))
 #  define availableTS(ts)                     (((TasmotaSerial *)(ts))->available())
+#  define availTS(ts)                         (((TasmotaSerial *)(ts))->available())
 #  define bwriteTS(ts, val)                   (((TasmotaSerial *)(ts))->write((uint8_t)(val)))
+#  define readbTS(ts)                         (((TasmotaSerial *)(ts))->read())
 #  define deleteTS(ts)                        do { delete ((TasmotaSerial *)(ts)); } while (0)
 
 // Misc helpers used by drivers — plugin's `iscale(val, max_out, max_in)`
