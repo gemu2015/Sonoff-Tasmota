@@ -3134,13 +3134,25 @@ uint32_t eeprom_block;
         uint32_t *bp = lp;
         uint8_t free = 1;
         for (uint32_t cnt = 0; cnt < blocks; cnt++) {
+          // BUG fix 2026-05-10: when bp walks past the partition end,
+          // we have NOT successfully scanned `blocks` worth of free
+          // sectors — the candidate region truncates against the
+          // partition boundary. Setting `free = 0` (instead of just
+          // breaking with `free` still 1) prevents the outer block
+          // from accepting an oversize-doesn't-fit placement. Without
+          // this, after enough plugins were uploaded that the front
+          // of the partition was full, a fresh upload would land at
+          // the gap above them and be accepted even though writing
+          // it would overflow the partition end — flash corruption
+          // → crashes on iniz with NULL/garbage in module_header.
+          if ((uint32_t)bp >= plugins.free_flash_end) {
+            free = 0;
+            break;
+          }
           if (*bp == MODULE_SYNC) {
             free = 0;
           }
           bp += SPI_FLASH_SEC_SIZE / 4;
-          if ((uint32_t)bp >= plugins.free_flash_end) {
-            break;
-          }
           //AddLog(LOG_LEVEL_INFO, PSTR("blocks: %d - %d"), cnt, free);
         }
         if (free) {
