@@ -114,6 +114,8 @@ typedef struct {
   uint16_t  TVOC;
   uint8_t   tcnt;
   uint8_t   ecnt;
+  uint8_t   i2c_addr;        // 0x5A or 0x5B
+  uint8_t   i2c_bus;
   bool      ready;
   CCS811    ccs;
 } MODULE_MEMORY;
@@ -125,6 +127,8 @@ typedef struct {
 #  define ecnt            mem->ecnt
 #  define ready           mem->ready
 #  define ccs             mem->ccs
+#  define ccs_addr        mem->i2c_addr
+#  define ccs_bus         mem->i2c_bus
 
 #else  // native
 
@@ -134,6 +138,8 @@ typedef struct {
   uint16_t  TVOC;
   uint8_t   tcnt;
   uint8_t   ecnt;
+  uint8_t   i2c_addr;
+  uint8_t   i2c_bus;
   bool      ready;
   CCS811    ccs;
   bool      initialized_flag;
@@ -148,6 +154,8 @@ static ccs811_state_t *ccs811_state = nullptr;
 #  define ecnt            ccs811_state->ecnt
 #  define ready           ccs811_state->ready
 #  define ccs             ccs811_state->ccs
+#  define ccs_addr        ccs811_state->i2c_addr
+#  define ccs_bus         ccs811_state->i2c_bus
 #  define initialized     ccs811_state->initialized_flag
 
 #  define ALLOCMEM        DUAL_ALLOCMEM(ccs811)
@@ -164,24 +172,33 @@ static ccs811_state_t *ccs811_state = nullptr;
 
 bool CCS811_Detect(void) {
   ALLOCMEM
-  I2C_SETWIRE(0);
 
   ready = false;
   tcnt = 0;
   ecnt = 0;
   CCS811_ready = 0;
+  ccs_bus  = 0;
+  ccs_addr = CCS811_ADDRESS;
 
-  if (!I2C_SetDevice(CCS811_ADDRESS, 0)) {
-    CCS811_Deinit();
-    return false;
+  // Probe both buses × both possible CCS811 addresses (0x5A, 0x5B).
+  static const uint8_t kCcsAddrs[] = { 0x5A, 0x5B };
+  for (uint32_t bus = 0; bus < MAX_I2C_Busses; bus++) {
+    I2C_SETWIRE(bus);
+    for (uint32_t a = 0; a < (sizeof(kCcsAddrs)/sizeof(kCcsAddrs[0])); a++) {
+      uint8_t addr = kCcsAddrs[a];
+      if (!I2C_SetDevice(addr, bus)) { continue; }
+      if (!CCS811_begin(addr)) {
+        ccs_addr = addr;
+        ccs_bus  = bus;
+        I2C_SetActiveFound(addr, GSTR(CCS811_dev), bus);
+        ready = true;
+        initialized = true;
+        return true;
+      }
+      I2C_ResetActive(addr, bus);
+    }
   }
-
-  if (!CCS811_begin(CCS811_ADDRESS)) {
-    I2C_SetActiveFound(CCS811_ADDRESS, GSTR(CCS811_dev), 0);
-    ready = true;
-    initialized = true;
-    return true;
-  }
+  CCS811_Deinit();
   return false;
 }
 
@@ -190,6 +207,7 @@ void CCS811_Update(void) {
   STGLOB
 
   if (!ready) { return; }
+  I2C_SETWIRE(ccs_bus);
   tcnt++;
   if (tcnt >= EVERYNSECONDS) {
     tcnt = 0;
@@ -221,7 +239,7 @@ void CCS811_Update(void) {
     } else {
       ecnt++;
       if (ecnt > 6) {
-        CCS811_begin(CCS811_ADDRESS);
+        CCS811_begin(ccs_addr);
       }
     }
   }
@@ -242,7 +260,7 @@ void CCS811_Show(bool json) {
 
 void CCS811_Deinit(void) {
   SETREGS
-  I2C_ResetActive(CCS811_ADDRESS, 0);
+  I2C_ResetActive(ccs_addr, ccs_bus);
   RETMEM
 }
 

@@ -110,21 +110,25 @@ MODULE_END
 #if BUILD_AS_PLUGIN
 
 typedef struct {
-  TWIp *xWire;
-  HTU   Htu;
+  TWIp   *xWire;
+  HTU     Htu;
+  uint8_t i2c_bus;
 } MODULE_MEMORY;
 
 #  define Htu               mem->Htu
+#  define htu_bus           mem->i2c_bus
 
 #else  // native
 
 typedef struct {
-  HTU   Htu;
+  HTU     Htu;
+  uint8_t i2c_bus;
 } htu_state_t;
 
 static htu_state_t *htu_state = nullptr;
 
 #  define Htu               htu_state->Htu
+#  define htu_bus           htu_state->i2c_bus
 
 #  define ALLOCMEM          DUAL_ALLOCMEM(htu)
 #  define RETMEM            DUAL_RETMEM(htu)
@@ -254,39 +258,48 @@ bool HTU_Read() {
 
 int32_t HTU_Detect() {
   ALLOCMEM
-  I2C_SETWIRE(0);
 
   Htu.jdelay_humidity = 6;
   Htu.address = HTU21_ADDR;
-  if (!I2C_SetDevice(Htu.address, 0)) {
+  htu_bus = 0;
+
+  // Probe both I2C buses (ESP32) until the device responds.
+  bool found = false;
+  for (uint32_t bus = 0; bus < MAX_I2C_Busses; bus++) {
+    I2C_SETWIRE(bus);
+    if (!I2C_SetDevice(Htu.address, bus)) { continue; }
+    Htu.type = HtuReadDeviceId();
+    if (Htu.type) { htu_bus = bus; found = true; break; }
+    // Sensor address scanned-positive but ID read failed — release
+    // the active marker so the next bus iteration can claim it.
+    I2C_ResetActive(Htu.address, bus);
+  }
+  if (!found) {
     HTU_Deinit();
     return -1;
   }
 
-  Htu.type = HtuReadDeviceId();
-  if (Htu.type) {
-    uint8_t index = 0;
-    HTU_Init();
-    switch (Htu.type) {
-      case HTU21_CHIPID:
-        Htu.jdelay_temp = 50;
-        Htu.jdelay_humidity = 16;
-        break;
-      case SI7021_CHIPID: index++;  // 3
-      case SI7020_CHIPID: index++;  // 2
-      case SI7013_CHIPID: index++;  // 1
-        Htu.jdelay_temp = 12;
-        Htu.jdelay_humidity = 23;
-        break;
-      default:
-        index = 4;
-        Htu.jdelay_temp = 50;
-        Htu.jdelay_humidity = 23;
-    }
-    GetTextIndexed(Htu.types, sizeof(Htu.types), index, GSTR(kHtuTypes));
-    I2cSetActiveFound(Htu.address, Htu.types, 0);
-    initialized = true;
+  uint8_t index = 0;
+  HTU_Init();
+  switch (Htu.type) {
+    case HTU21_CHIPID:
+      Htu.jdelay_temp = 50;
+      Htu.jdelay_humidity = 16;
+      break;
+    case SI7021_CHIPID: index++;  // 3
+    case SI7020_CHIPID: index++;  // 2
+    case SI7013_CHIPID: index++;  // 1
+      Htu.jdelay_temp = 12;
+      Htu.jdelay_humidity = 23;
+      break;
+    default:
+      index = 4;
+      Htu.jdelay_temp = 50;
+      Htu.jdelay_humidity = 23;
   }
+  GetTextIndexed(Htu.types, sizeof(Htu.types), index, GSTR(kHtuTypes));
+  I2cSetActiveFound(Htu.address, Htu.types, htu_bus);
+  initialized = true;
   return 0;
 }
 
@@ -316,7 +329,7 @@ void HTU_Show(bool json) {
 
 void HTU_Deinit() {
   SETREGS
-  I2C_ResetActive(Htu.address, 0);
+  I2C_ResetActive(Htu.address, htu_bus);
   RETMEM
 }
 

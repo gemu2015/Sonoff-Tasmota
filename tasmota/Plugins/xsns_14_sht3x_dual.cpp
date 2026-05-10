@@ -54,6 +54,7 @@
 
 typedef struct {
   uint8_t address;
+  uint8_t bus;            // I2C bus the sensor was found on (0 or 1)
   char    types[6];
 } SHT3XSTRUCT;
 
@@ -206,12 +207,17 @@ int32_t Sht3x_Detect() {
       float h;
       if (Sht3xRead(t, h, sht3x_addresses[i])) {
         sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
+        sht3x_sensors[sht3x_count].bus     = bus;
         GetTextIndexed(sht3x_sensors[sht3x_count].types,
                        sizeof(sht3x_sensors[sht3x_count].types),
                        i, GSTR(kShtTypes3));
         I2C_SetActiveFound(sht3x_sensors[sht3x_count].address,
-                           sht3x_sensors[sht3x_count].types, 0);
+                           sht3x_sensors[sht3x_count].types, bus);
         sht3x_count++;
+      } else {
+        // Address scanned-positive but no valid response — release
+        // so the next bus iteration can claim the address.
+        I2C_ResetActive(sht3x_addresses[i], bus);
       }
     }
     if (sht3x_count) { break; }
@@ -232,6 +238,7 @@ void SHT3X_Show(bool json) {
   for (uint32_t i = 0; i < sht3x_count; i++) {
     float t;
     float h;
+    I2C_SETWIRE(sht3x_sensors[i].bus);
     if (Sht3xRead(t, h, sht3x_sensors[i].address)) {
       char types[11];
       strlcpy(types, sht3x_sensors[i].types, sizeof(types));
@@ -263,7 +270,7 @@ void SHT3X_Show(bool json) {
 void SHT3X_Deinit() {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
-    I2C_ResetActive(sht3x_sensors[i].address, 0);
+    I2C_ResetActive(sht3x_sensors[i].address, sht3x_sensors[i].bus);
   }
   RETMEM
 }

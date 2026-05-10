@@ -81,15 +81,17 @@ MODULE_END
 #if BUILD_AS_PLUGIN
 
 typedef struct {
-  float  obj_temp;
-  float  amb_temp;
-  bool   ready;
-  TWIp  *xWire;
+  float   obj_temp;
+  float   amb_temp;
+  bool    ready;
+  uint8_t i2c_bus;
+  TWIp   *xWire;
 } MODULE_MEMORY;
 
 #  define obj_temp        mem->obj_temp
 #  define amb_temp        mem->amb_temp
 #  define ready           mem->ready
+#  define mlx_bus         mem->i2c_bus
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
@@ -98,10 +100,11 @@ typedef struct {
 #else  // native
 
 typedef struct {
-  float  obj_temp;
-  float  amb_temp;
-  bool   ready;
-  bool   initialized_flag;
+  float   obj_temp;
+  float   amb_temp;
+  bool    ready;
+  uint8_t i2c_bus;
+  bool    initialized_flag;
 } mlx90614_state_t;
 
 static mlx90614_state_t *mlx90614_state = nullptr;
@@ -109,6 +112,7 @@ static mlx90614_state_t *mlx90614_state = nullptr;
 #  define obj_temp        mlx90614_state->obj_temp
 #  define amb_temp        mlx90614_state->amb_temp
 #  define ready           mlx90614_state->ready
+#  define mlx_bus         mlx90614_state->i2c_bus
 #  define initialized     mlx90614_state->initialized_flag
 
 #  define ALLOCMEM        DUAL_ALLOCMEM(mlx90614)
@@ -123,15 +127,20 @@ static mlx90614_state_t *mlx90614_state = nullptr;
 int32_t Init_MLX90614() {
   ALLOCMEM
   ready = false;
-  I2C_SETWIRE(0);
-  if (!I2C_SetDevice(I2_ADR_IRT, 0)) {
-    MLX90614_Deinit();
-    return -1;
+  mlx_bus = 0;
+
+  // Probe both I2C buses for the MLX90614.
+  for (uint32_t bus = 0; bus < MAX_I2C_Busses; bus++) {
+    I2C_SETWIRE(bus);
+    if (!I2C_SetDevice(I2_ADR_IRT, bus)) { continue; }
+    mlx_bus = bus;
+    I2C_SetActiveFound(I2_ADR_IRT, GSTR(mlxdev), bus);
+    initialized = true;
+    ready = true;
+    return ready;
   }
-  I2C_SetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
-  initialized = true;
-  ready = true;
-  return ready;
+  MLX90614_Deinit();
+  return -1;
 }
 
 float MLX90614_GetValue(uint32_t reg) {
@@ -146,6 +155,7 @@ float MLX90614_GetValue(uint32_t reg) {
 void MLX90614_Every_Second() {
   SETREGS
   if (!ready) { return; }
+  I2C_SETWIRE(mlx_bus);
   obj_temp = MLX90614_GetValue(MLX90614_TOBJ1);
   amb_temp = MLX90614_GetValue(MLX90614_TA);
 }
@@ -199,7 +209,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  I2C_ResetActive(I2_ADR_IRT, 0);
+  I2C_ResetActive(I2_ADR_IRT, mlx_bus);
   RETMEM
 }
 

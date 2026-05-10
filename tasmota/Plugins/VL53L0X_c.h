@@ -746,11 +746,11 @@ uint8_t VL53L0X_getVcselPulsePeriod(vcselPeriodType type) {
   SETREGS
   if (type == VcselPeriodPreRange) {
     return VL53L0X_decodeVcselPeriod(VL53L0X_readReg(PRE_RANGE_CONFIG_VCSEL_PERIOD));
-  } else if (type == VcselPeriodFinalRange) {
-    return VL53L0X_decodeVcselPeriod(VL53L0X_readReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD));
-  } else {
-    return 255;
   }
+  if (type == VcselPeriodFinalRange) {
+    return VL53L0X_decodeVcselPeriod(VL53L0X_readReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD));
+  }
+  return 255;
 }
 
 // Start continuous ranging measurements. If period_ms (optional) is 0 or not
