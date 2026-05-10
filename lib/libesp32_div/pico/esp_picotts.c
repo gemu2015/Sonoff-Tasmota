@@ -305,6 +305,19 @@ static void esp_pico_cleanup(void)
     vQueueDelete(textQ);
     textQ = NULL;
   }
+
+  // Clear callback function pointers so a second picotts_init doesn't
+  // see stale addresses. picotts_init resets outputCb itself but leaves
+  // errorCb/idleCb untouched — the BinPlugin caller in xdrv_42_i2s.cpp
+  // re-calls picotts_set_idle_notify / picotts_set_error_notify before
+  // each init, so this should already be covered. Zeroing here is a
+  // belt-and-braces defense against the InstrFetchProhibited crash on
+  // i2sttslang <lang> (wild EPC e.g. 0x1075b555 / 0x150f0d56) — if any
+  // code path fires errorCb or idleCb between cleanup and the second
+  // notify-set, a stale plugin address (post-relocate) would be wild.
+  outputCb = NULL;
+  errorCb = NULL;
+  idleCb = NULL;
 }
 
 

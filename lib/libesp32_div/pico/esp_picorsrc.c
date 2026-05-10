@@ -32,7 +32,14 @@ static uint32_t esp_pico_load_pi_u32(const char *raw, unsigned offs)
   uint32_t b = raw[offs+1];
   uint32_t c = raw[offs+2];
   uint32_t d = raw[offs+3];
-  return (d << 24 || c << 16 | b << 8 | a);
+  // BUG fix 2026-05-10: was `(d << 24 || c << 16 | b << 8 | a)` — `||`
+  // (logical) instead of `|` (bitwise) reduces the whole expression to
+  // 0 or 1, so the function returned ~0/1 instead of the actual 32-bit
+  // little-endian value. Used to read voice-resource length at line 93
+  // of esp_pico_loadResource. Worked accidentally for first init (some
+  // SVOX paths don't strictly enforce len) but may have contributed to
+  // resource-state corruption on second init.
+  return (d << 24) | (c << 16) | (b << 8) | a;
 }
 
 
