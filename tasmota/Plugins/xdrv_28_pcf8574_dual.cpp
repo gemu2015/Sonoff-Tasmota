@@ -110,38 +110,39 @@ MODULE_END
 // State storage — heap in both modes (lazy alloc; zero RAM when
 // no PCF8574 is present on the bus)
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  pcf8574_state_t
+#endif
 
 typedef struct {
   TWIp   *xWire;
   PCF8574 Pcf8574;
   bool    handler_up;
+  bool    initialized_flag;
 } MODULE_MEMORY;
 
-#  define Pcf8574    mem->Pcf8574
-#  define handler_up mem->handler_up
+#define Pcf8574    mem->Pcf8574
+#define handler_up mem->handler_up
 
-#else  // native
-
-typedef struct {
-  PCF8574 Pcf8574;
-  bool    handler_up;
-  bool    initialized_flag;
-} pcf8574_state_t;
+#if !BUILD_AS_PLUGIN
 
 static pcf8574_state_t *pcf8574_state = nullptr;
 
-#  define Pcf8574     pcf8574_state->Pcf8574
-#  define handler_up  pcf8574_state->handler_up
-#  define initialized pcf8574_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(pcf8574)
-#  define RETMEM      DUAL_RETMEM(pcf8574)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = pcf8574_state;
+#  define ALLOCMEM \
+       if (!pcf8574_state) pcf8574_state = (pcf8574_state_t *)calloc(1, sizeof(pcf8574_state_t)); \
+       if (!pcf8574_state) return -1; \
+       MODULE_MEMORY *mem = pcf8574_state;
+#  define RETMEM \
+       if (pcf8574_state) { free(pcf8574_state); pcf8574_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XDRV_28     28
 #  define XI2C_02     2
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // Driver core — shared body. The only branches are TasmotaGlobal

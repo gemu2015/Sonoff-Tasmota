@@ -149,40 +149,39 @@ enum MP3_Commands {
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  mp3_state_t
+#endif
 
 typedef struct {
   uint8_t player_type;
   uint8_t player_txpin;
   void   *ts;            // TasmotaSerial * — opaque to the plugin
+  bool    initialized_flag;
 } MODULE_MEMORY;
 
-#  define mp3_player_type   mem->player_type
-#  define mp3_player_txpin  mem->player_txpin
-#  define mp3_ts            mem->ts
+#define mp3_player_type   mem->player_type
+#define mp3_player_txpin  mem->player_txpin
+#define mp3_ts            mem->ts
 
-#else  // native
-
-typedef struct {
-  uint8_t player_type;
-  uint8_t player_txpin;
-  void   *ts;
-  bool    initialized_flag;
-} mp3_state_t;
+#if !BUILD_AS_PLUGIN
 
 static mp3_state_t *mp3_state = nullptr;
 
-#  define mp3_player_type   mp3_state->player_type
-#  define mp3_player_txpin  mp3_state->player_txpin
-#  define mp3_ts            mp3_state->ts
-#  define initialized       mp3_state->initialized_flag
-
-#  define ALLOCMEM          DUAL_ALLOCMEM(mp3)
-#  define RETMEM            DUAL_RETMEM(mp3)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = mp3_state;
+#  define ALLOCMEM \
+       if (!mp3_state) mp3_state = (mp3_state_t *)calloc(1, sizeof(mp3_state_t)); \
+       if (!mp3_state) return -1; \
+       MODULE_MEMORY *mem = mp3_state;
+#  define RETMEM \
+       if (mp3_state) { free(mp3_state); mp3_state = nullptr; }
+#  define initialized       mem->initialized_flag
 
 #  define XDRV_14           14
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // XdrvMailbox access pattern (pointer in plugin, instance in native)
 #if BUILD_AS_PLUGIN

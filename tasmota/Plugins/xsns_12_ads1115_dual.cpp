@@ -141,16 +141,22 @@ typedef struct {
   int16_t last_values[ADS1115_MAX_BOARDS][4];     // for change-tracking in EVERY_250ms
 } ADS1115;
 
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  ads1115_state_t
+#endif
 
 typedef struct {
   TWIp   *xWire;
   ADS1115 Ads1115;
   bool    ready;
+  bool    initialized_flag;
 } MODULE_MEMORY;
 
-#  define Ads1115     mem->Ads1115
-#  define ready       mem->ready
+#define Ads1115     mem->Ads1115
+#define ready       mem->ready
+
+#if BUILD_AS_PLUGIN
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
@@ -158,25 +164,22 @@ typedef struct {
 
 #else  // native
 
-typedef struct {
-  ADS1115 Ads1115;
-  bool    ready;
-  bool    initialized_flag;
-} ads1115_state_t;
-
 static ads1115_state_t *ads1115_state = nullptr;
 
-#  define Ads1115     ads1115_state->Ads1115
-#  define ready       ads1115_state->ready
-#  define initialized ads1115_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(ads1115)
-#  define RETMEM      DUAL_RETMEM(ads1115)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = ads1115_state;
+#  define ALLOCMEM \
+       if (!ads1115_state) ads1115_state = (ads1115_state_t *)calloc(1, sizeof(ads1115_state_t)); \
+       if (!ads1115_state) return -1; \
+       MODULE_MEMORY *mem = ads1115_state;
+#  define RETMEM \
+       if (ads1115_state) { free(ads1115_state); ads1115_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XSNS_12     12
 #  define XI2C_13     13
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // Driver core

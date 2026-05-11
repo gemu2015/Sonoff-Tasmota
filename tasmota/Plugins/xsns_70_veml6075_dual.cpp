@@ -178,46 +178,41 @@ typedef union {
   uint16_t config;
 } veml6075configRegister;
 
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  veml6075_state_t
+#endif
 
 typedef struct {
   TWIp                  *xWire;
   uint8_t                veml6075_active;
   veml6075configRegister veml6075Config;
   VEML6075STRUCT         veml6075_sensor;
+  bool                   initialized_flag;
 } MODULE_MEMORY;
 
-#  define veml6075_active mem->veml6075_active
-#  define veml6075Config  mem->veml6075Config
-#  define veml6075_sensor mem->veml6075_sensor
+#define veml6075_active mem->veml6075_active
+#define veml6075Config  mem->veml6075Config
+#define veml6075_sensor mem->veml6075_sensor
 
-#else  // native
-
-typedef struct {
-  uint8_t                veml6075_active;
-  veml6075configRegister veml6075Config;
-  VEML6075STRUCT         veml6075_sensor;
-  bool                   initialized_flag;
-} veml6075_state_t;
+#if !BUILD_AS_PLUGIN
 
 static veml6075_state_t *veml6075_state = nullptr;
 
-#  define veml6075_active mem_veml->veml6075_active
-#  define veml6075Config  mem_veml->veml6075Config
-#  define veml6075_sensor mem_veml->veml6075_sensor
-
-// State pointer alias — using a private name (mem_veml) so the
-// generic `mem` from plugin mode can never accidentally route here.
-#  define mem_veml        veml6075_state
-#  define initialized     veml6075_state->initialized_flag
-
-#  define ALLOCMEM        DUAL_ALLOCMEM(veml6075)
-#  define RETMEM          DUAL_RETMEM(veml6075)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = veml6075_state;
+#  define ALLOCMEM \
+       if (!veml6075_state) veml6075_state = (veml6075_state_t *)calloc(1, sizeof(veml6075_state_t)); \
+       if (!veml6075_state) return -1; \
+       MODULE_MEMORY *mem = veml6075_state;
+#  define RETMEM \
+       if (veml6075_state) { free(veml6075_state); veml6075_state = nullptr; }
+#  define initialized     mem->initialized_flag
 
 #  define XSNS_70         70
 #  define XI2C_49         49
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // XdrvMailbox access pattern (pointer in plugin, instance in native)
 #if BUILD_AS_PLUGIN

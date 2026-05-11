@@ -81,7 +81,10 @@ MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 MODULE_END
 
 // State storage
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  mlx90614_state_t
+#endif
 
 typedef struct {
   float   obj_temp;
@@ -89,12 +92,15 @@ typedef struct {
   bool    ready;
   uint8_t i2c_bus;
   TWIp   *xWire;
+  bool    initialized_flag;
 } MODULE_MEMORY;
 
-#  define obj_temp        mem->obj_temp
-#  define amb_temp        mem->amb_temp
-#  define ready           mem->ready
-#  define mlx_bus         mem->i2c_bus
+#define obj_temp        mem->obj_temp
+#define amb_temp        mem->amb_temp
+#define ready           mem->ready
+#define mlx_bus         mem->i2c_bus
+
+#if BUILD_AS_PLUGIN
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
@@ -102,24 +108,17 @@ typedef struct {
 
 #else  // native
 
-typedef struct {
-  float   obj_temp;
-  float   amb_temp;
-  bool    ready;
-  uint8_t i2c_bus;
-  bool    initialized_flag;
-} mlx90614_state_t;
-
 static mlx90614_state_t *mlx90614_state = nullptr;
 
-#  define obj_temp        mlx90614_state->obj_temp
-#  define amb_temp        mlx90614_state->amb_temp
-#  define ready           mlx90614_state->ready
-#  define mlx_bus         mlx90614_state->i2c_bus
-#  define initialized     mlx90614_state->initialized_flag
-
-#  define ALLOCMEM        DUAL_ALLOCMEM(mlx90614)
-#  define RETMEM          DUAL_RETMEM(mlx90614)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = mlx90614_state;
+#  define ALLOCMEM \
+       if (!mlx90614_state) mlx90614_state = (mlx90614_state_t *)calloc(1, sizeof(mlx90614_state_t)); \
+       if (!mlx90614_state) return -1; \
+       MODULE_MEMORY *mem = mlx90614_state;
+#  define RETMEM \
+       if (mlx90614_state) { free(mlx90614_state); mlx90614_state = nullptr; }
+#  define initialized     mem->initialized_flag
 
 #  define XSNS_46         46
 #  define XI2C_32         32

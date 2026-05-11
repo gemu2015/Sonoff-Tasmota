@@ -104,45 +104,47 @@ MODULE_END
 // Idle RAM cost when no SHT31 is on the bus: 0 bytes plugin / 4 bytes
 // native (a single nullptr).
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp
+// for the pattern rationale). `initialized_flag` is native-only —
+// plugin already has `#define initialized mt->flags.initialized` from
+// module_defines.h:590, so only native maps `initialized` → mem field.
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  sht3x_state_t
+#endif
 
 typedef struct {
   TWIp        *xWire;
   uint8_t      sht3x_count;
   uint8_t      sht3x_addresses[3];
   SHT3XSTRUCT  sht3x_sensors[SHT3X_MAX_SENSORS];
-  // NOTE: do NOT add `bool initialized;` — module_defines.h:590
-  // already provides `#define initialized mt->flags.initialized`.
+  bool         initialized_flag;
 } MODULE_MEMORY;
 
-#  define sht3x_count       mem->sht3x_count
-#  define sht3x_addresses   mem->sht3x_addresses
-#  define sht3x_sensors     mem->sht3x_sensors
+#define sht3x_count       mem->sht3x_count
+#define sht3x_addresses   mem->sht3x_addresses
+#define sht3x_sensors     mem->sht3x_sensors
+
+#if BUILD_AS_PLUGIN
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
 #  endif
 
-#else  // native
-
-typedef struct {
-  uint8_t      sht3x_count;
-  uint8_t      sht3x_addresses[3];
-  SHT3XSTRUCT  sht3x_sensors[SHT3X_MAX_SENSORS];
-  bool         initialized;
-} sht3x_state_t;
+#else  // native — override SETREGS / ALLOCMEM / RETMEM to bind `mem`
+       // to the file-static state pointer. ALLOCMEM also declares `mem`
+       // so callers like Init can use it immediately.
 
 static sht3x_state_t *sht3x_state = nullptr;
 
-#  define sht3x_count       sht3x_state->sht3x_count
-#  define sht3x_addresses   sht3x_state->sht3x_addresses
-#  define sht3x_sensors     sht3x_state->sht3x_sensors
-#  define initialized       sht3x_state->initialized
-
-// Bind ALLOCMEM/RETMEM to this driver's state pointer. The shim
-// macros DUAL_ALLOCMEM/DUAL_RETMEM do the lazy-calloc / free pattern.
-#  define ALLOCMEM   DUAL_ALLOCMEM(sht3x)
-#  define RETMEM     DUAL_RETMEM(sht3x)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = sht3x_state;
+#  define ALLOCMEM \
+       if (!sht3x_state) sht3x_state = (sht3x_state_t *)calloc(1, sizeof(sht3x_state_t)); \
+       if (!sht3x_state) return -1; \
+       MODULE_MEMORY *mem = sht3x_state;
+#  define RETMEM \
+       if (sht3x_state) { free(sht3x_state); sht3x_state = nullptr; }
+#  define initialized       mem->initialized_flag
 
 #  define XSNS_14   14
 #  define XI2C_15   15

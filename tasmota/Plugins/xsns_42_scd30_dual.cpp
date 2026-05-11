@@ -187,7 +187,10 @@ typedef struct {
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  scd30_state_t
+#endif
 
 typedef struct {
   TWIp   *xWire;
@@ -195,38 +198,32 @@ typedef struct {
   uint8_t bus;
   SCD30   Scd30;
   DRV     drv;
+  bool    initialized_flag;
 } MODULE_MEMORY;
 
-#  define ready    mem->ready
-#  define scd_bus  mem->bus
-#  define Scd30    mem->Scd30
-#  define drv      mem->drv
+#define ready    mem->ready
+#define scd_bus  mem->bus
+#define Scd30    mem->Scd30
+#define drv      mem->drv
 
-#else  // native
-
-typedef struct {
-  uint8_t  ready;
-  uint8_t  bus;
-  SCD30    Scd30;
-  DRV      drv;
-  bool     initialized_flag;
-} scd30_state_t;
+#if !BUILD_AS_PLUGIN
 
 static scd30_state_t *scd30_state = nullptr;
 
-#  define ready       scd30_state->ready
-#  define scd_bus     scd30_state->bus
-#  define Scd30       scd30_state->Scd30
-#  define drv         scd30_state->drv
-#  define initialized scd30_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(scd30)
-#  define RETMEM      DUAL_RETMEM(scd30)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = scd30_state;
+#  define ALLOCMEM \
+       if (!scd30_state) scd30_state = (scd30_state_t *)calloc(1, sizeof(scd30_state_t)); \
+       if (!scd30_state) return -1; \
+       MODULE_MEMORY *mem = scd30_state;
+#  define RETMEM \
+       if (scd30_state) { free(scd30_state); scd30_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XSNS_42     42
 #  define XI2C_29     29
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // XdrvMailbox accessors (pointer in plugin, instance in native)
 #if BUILD_AS_PLUGIN

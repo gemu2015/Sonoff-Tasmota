@@ -127,7 +127,12 @@ MODULE_END
 // inside each function (via SETMEMREGS) so the access pattern is
 // identical in plugin and native.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+// (LTR308 was the first dual to use the in-function `mem` pattern;
+// this brings it in line with the rest of the dual lineup.)
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  ltr308_mem_t
+#endif
 
 typedef struct {
   TWIp   *xWire;
@@ -138,30 +143,13 @@ typedef struct {
   float   lux;
   bool    valid;
   bool    LTR308_detected;
+  bool    initialized_flag;
 } MODULE_MEMORY;
 
-#else  // native — file-unique typedef name, then alias MODULE_MEMORY to it
-
-typedef struct {
-  uint8_t address;
-  uint8_t bus;
-  uint8_t gain;
-  uint8_t resolution;
-  float   lux;
-  bool    valid;
-  bool    LTR308_detected;
-  bool    initialized_flag;
-} ltr308_mem_t;
+#if !BUILD_AS_PLUGIN
 
 static ltr308_mem_t *ltr308_state = nullptr;
 
-#  define MODULE_MEMORY   ltr308_mem_t
-
-// Override the SETREGS / SETMEMREGS / ALLOCMEM / RETMEM macros for
-// this driver to bind a `mem` local to our heap state, matching the
-// plugin shape. SETREGS and SETMEMREGS are equivalent here — both
-// declare `mem` — but only one should be called per function (same
-// rule as in plugin mode, where they also both declare `mem`).
 #  undef  SETREGS
 #  undef  SETMEMREGS
 #  define SETREGS         MODULE_MEMORY *mem = ltr308_state;
@@ -169,15 +157,15 @@ static ltr308_mem_t *ltr308_state = nullptr;
 #  define ALLOCMEM \
        if (!ltr308_state) ltr308_state = (ltr308_mem_t *)calloc(1, sizeof(ltr308_mem_t)); \
        if (!ltr308_state) return -1; \
-       MODULE_MEMORY *mem = ltr308_state
+       MODULE_MEMORY *mem = ltr308_state;
 #  define RETMEM \
        if (ltr308_state) { free(ltr308_state); ltr308_state = nullptr; }
-#  define initialized     ltr308_state->initialized_flag
+#  define initialized     mem->initialized_flag
 
 #  define XSNS_56         56
 #  define XI2C_56         56
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 const float FP_CONST_LTR[] PROGMEM = {
   0.6,   // [0] lux formula numerator factor

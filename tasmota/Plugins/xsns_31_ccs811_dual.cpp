@@ -106,7 +106,10 @@ MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 MODULE_END
 
 // State storage — heap in both modes
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  ccs811_state_t
+#endif
 
 typedef struct {
   TWIp     *xWire;
@@ -119,53 +122,37 @@ typedef struct {
   uint8_t   i2c_bus;
   bool      ready;
   CCS811    ccs;
+  bool      initialized_flag;
 } MODULE_MEMORY;
 
-#  define CCS811_ready    mem->CCS811_ready
-#  define eCO2            mem->eCO2
-#  define TVOC            mem->TVOC
-#  define tcnt            mem->tcnt
-#  define ecnt            mem->ecnt
-#  define ready           mem->ready
-#  define ccs             mem->ccs
-#  define ccs_addr        mem->i2c_addr
-#  define ccs_bus         mem->i2c_bus
+#define CCS811_ready    mem->CCS811_ready
+#define eCO2            mem->eCO2
+#define TVOC            mem->TVOC
+#define tcnt            mem->tcnt
+#define ecnt            mem->ecnt
+#define ready           mem->ready
+#define ccs             mem->ccs
+#define ccs_addr        mem->i2c_addr
+#define ccs_bus         mem->i2c_bus
 
-#else  // native
-
-typedef struct {
-  uint8_t   CCS811_ready;
-  uint16_t  eCO2;
-  uint16_t  TVOC;
-  uint8_t   tcnt;
-  uint8_t   ecnt;
-  uint8_t   i2c_addr;
-  uint8_t   i2c_bus;
-  bool      ready;
-  CCS811    ccs;
-  bool      initialized_flag;
-} ccs811_state_t;
+#if !BUILD_AS_PLUGIN
 
 static ccs811_state_t *ccs811_state = nullptr;
 
-#  define CCS811_ready    ccs811_state->CCS811_ready
-#  define eCO2            ccs811_state->eCO2
-#  define TVOC            ccs811_state->TVOC
-#  define tcnt            ccs811_state->tcnt
-#  define ecnt            ccs811_state->ecnt
-#  define ready           ccs811_state->ready
-#  define ccs             ccs811_state->ccs
-#  define ccs_addr        ccs811_state->i2c_addr
-#  define ccs_bus         ccs811_state->i2c_bus
-#  define initialized     ccs811_state->initialized_flag
-
-#  define ALLOCMEM        DUAL_ALLOCMEM(ccs811)
-#  define RETMEM          DUAL_RETMEM(ccs811)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = ccs811_state;
+#  define ALLOCMEM \
+       if (!ccs811_state) ccs811_state = (ccs811_state_t *)calloc(1, sizeof(ccs811_state_t)); \
+       if (!ccs811_state) return -1; \
+       MODULE_MEMORY *mem = ccs811_state;
+#  define RETMEM \
+       if (ccs811_state) { free(ccs811_state); ccs811_state = nullptr; }
+#  define initialized     mem->initialized_flag
 
 #  define XSNS_31         31
 #  define XI2C_24         24
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // Chip driver header — uses the field accessors above (ccs.*) so it
 // must come AFTER the #defines that bind them.

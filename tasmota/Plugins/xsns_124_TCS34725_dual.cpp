@@ -124,37 +124,36 @@ private:
 // --------------------------------------------------------------------
 // State storage — heap in both modes, holds the wrapper instance.
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  tcs34725_state_t
+#endif
 
 typedef struct {
   TwoWire *xWire;
   tcs34725 rgb_sensor;
   bool     ready;
   uint8_t  bus;
+  bool     initialized_flag;
 } MODULE_MEMORY;
 
-#  define rgb_sensor  mem->rgb_sensor
-#  define tcs_ready   mem->ready
-#  define tcs_bus     mem->bus
+#define rgb_sensor  mem->rgb_sensor
+#define tcs_ready   mem->ready
+#define tcs_bus     mem->bus
 
-#else  // native
-
-typedef struct {
-  tcs34725 rgb_sensor;
-  bool     ready;
-  uint8_t  bus;
-  bool     initialized_flag;
-} tcs34725_state_t;
+#if !BUILD_AS_PLUGIN
 
 static tcs34725_state_t *tcs34725_state = nullptr;
 
-#  define rgb_sensor  tcs34725_state->rgb_sensor
-#  define tcs_ready   tcs34725_state->ready
-#  define tcs_bus     tcs34725_state->bus
-#  define initialized tcs34725_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(tcs34725)
-#  define RETMEM      DUAL_RETMEM(tcs34725)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = tcs34725_state;
+#  define ALLOCMEM \
+       if (!tcs34725_state) tcs34725_state = (tcs34725_state_t *)calloc(1, sizeof(tcs34725_state_t)); \
+       if (!tcs34725_state) return -1; \
+       MODULE_MEMORY *mem = tcs34725_state;
+#  define RETMEM \
+       if (tcs34725_state) { free(tcs34725_state); tcs34725_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XSNS_124    124
 #  define XI2C_55     55

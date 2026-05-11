@@ -150,31 +150,10 @@ const uint8_t ds18x20_chipids[] PROGMEM = {
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
-
-typedef struct {
-  uint8_t onewire_last_discrepancy;
-  uint8_t onewire_last_family_discrepancy;
-  bool    onewire_last_device_flag;
-  uint8_t onewire_rom_id[8];
-  uint8_t delay_low[2];
-  uint8_t delay_high[2];
-  DSX     DS18X20Data;
-  DSPINS  ds18x20_gpios[MAX_DSB];
-  DSS     ds18x20_sensor[DS18X20_MAX_SENSORS];
-} MODULE_MEMORY;
-
-#  define onewire_last_discrepancy        mem->onewire_last_discrepancy
-#  define onewire_last_family_discrepancy mem->onewire_last_family_discrepancy
-#  define onewire_last_device_flag        mem->onewire_last_device_flag
-#  define onewire_rom_id                  mem->onewire_rom_id
-#  define DS18X20Data                     mem->DS18X20Data
-#  define ds18x20_gpios                   mem->ds18x20_gpios
-#  define ds18x20_sensor                  mem->ds18x20_sensor
-#  define delay_low                       mem->delay_low
-#  define delay_high                      mem->delay_high
-
-#else  // native
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  ds18x20_state_t
+#endif
 
 typedef struct {
   uint8_t onewire_last_discrepancy;
@@ -187,27 +166,35 @@ typedef struct {
   DSPINS  ds18x20_gpios[MAX_DSB];
   DSS     ds18x20_sensor[DS18X20_MAX_SENSORS];
   bool    initialized_flag;
-} ds18x20_state_t;
+} MODULE_MEMORY;
+
+#define onewire_last_discrepancy        mem->onewire_last_discrepancy
+#define onewire_last_family_discrepancy mem->onewire_last_family_discrepancy
+#define onewire_last_device_flag        mem->onewire_last_device_flag
+#define onewire_rom_id                  mem->onewire_rom_id
+#define DS18X20Data                     mem->DS18X20Data
+#define ds18x20_gpios                   mem->ds18x20_gpios
+#define ds18x20_sensor                  mem->ds18x20_sensor
+#define delay_low                       mem->delay_low
+#define delay_high                      mem->delay_high
+
+#if !BUILD_AS_PLUGIN
 
 static ds18x20_state_t *ds18x20_state = nullptr;
 
-#  define onewire_last_discrepancy        ds18x20_state->onewire_last_discrepancy
-#  define onewire_last_family_discrepancy ds18x20_state->onewire_last_family_discrepancy
-#  define onewire_last_device_flag        ds18x20_state->onewire_last_device_flag
-#  define onewire_rom_id                  ds18x20_state->onewire_rom_id
-#  define DS18X20Data                     ds18x20_state->DS18X20Data
-#  define ds18x20_gpios                   ds18x20_state->ds18x20_gpios
-#  define ds18x20_sensor                  ds18x20_state->ds18x20_sensor
-#  define delay_low                       ds18x20_state->delay_low
-#  define delay_high                      ds18x20_state->delay_high
-#  define initialized                     ds18x20_state->initialized_flag
-
-#  define ALLOCMEM                        DUAL_ALLOCMEM(ds18x20)
-#  define RETMEM                          DUAL_RETMEM(ds18x20)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = ds18x20_state;
+#  define ALLOCMEM \
+       if (!ds18x20_state) ds18x20_state = (ds18x20_state_t *)calloc(1, sizeof(ds18x20_state_t)); \
+       if (!ds18x20_state) return -1; \
+       MODULE_MEMORY *mem = ds18x20_state;
+#  define RETMEM \
+       if (ds18x20_state) { free(ds18x20_state); ds18x20_state = nullptr; }
+#  define initialized                     mem->initialized_flag
 
 #  define XSNS_05                         5
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // XdrvMailbox accessor (pointer in plugin, instance in native)
 #if BUILD_AS_PLUGIN

@@ -146,8 +146,19 @@ MODULE_PART int32_t        mod_func_execute(uint32_t sel);
 #endif
 MODULE_END
 
-// State
-#if BUILD_AS_PLUGIN
+// State — unified struct definition for plugin + native. In native mode
+// MODULE_MEMORY is `#define`-aliased to bme_state_t (file-unique tag so
+// it doesn't collide with other duals' MODULE_MEMORY in the merged
+// tasmota.ino.cpp TU). Both modes use `mem->field` access; SETREGS /
+// ALLOCMEM / RETMEM declare/manage the `mem` local.
+//
+// Mode-specific fields stay in the unified struct:
+//   xWire           — used only in plugin (TWIp* per-instance bus handle).
+//                     ~4 B unused in native (acceptable, keeps code linear).
+//   initialized_flag — used only in native. ~1 B unused in plugin.
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  bme_state_t
+#endif
 
 typedef struct {
   TWIp    *xWire;
@@ -162,58 +173,51 @@ typedef struct {
   BMECAL   bmc;
   char     typestr[8];
   bool     ready;
+  bool     initialized_flag;
 } MODULE_MEMORY;
 
-#  define temp       mem->temp
-#  define _t_fine    mem->_t_fine
-#  define hum        mem->hum
-#  define press      mem->press
-#  define type       mem->type
-#  define typestr    mem->typestr
-#  define abshum     mem->abshum
-#  define i2c_addr   mem->i2c_addr
-#  define i2c_bus    mem->i2c_bus
-#  define bmc        mem->bmc
-#  define ready      mem->ready
+#define temp        mem->temp
+#define _t_fine     mem->_t_fine
+#define hum         mem->hum
+#define press       mem->press
+#define type        mem->type
+#define typestr     mem->typestr
+#define abshum      mem->abshum
+#define i2c_addr    mem->i2c_addr
+#define i2c_bus     mem->i2c_bus
+#define bmc         mem->bmc
+#define ready       mem->ready
+// NOTE: `initialized` is plugin-loader-managed: module_defines.h has
+// `#define initialized mt->flags.initialized`, which gates whether the
+// loader dispatches non-INIT calls (JSON / WEB_SENSOR / EVERY_SECOND)
+// to this slot. Overriding to `mem->initialized_flag` in plugin mode
+// causes Init_BME's `initialized = true` to write the struct field
+// instead of the loader flag → slot stays "uninitialised" → never
+// renders. Map to mem->initialized_flag only in native mode (below).
+
+#if BUILD_AS_PLUGIN
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
 #  endif
 
-#else  // native
-
-typedef struct {
-  float    hum;
-  float    abshum;
-  float    temp;
-  int32_t  _t_fine;
-  float    press;
-  uint8_t  type;
-  uint8_t  i2c_addr;
-  uint8_t  i2c_bus;
-  BMECAL   bmc;
-  char     typestr[8];
-  bool     ready;
-  bool     initialized_flag;
-} bme_state_t;
+#else  // native — override SETREGS / ALLOCMEM / RETMEM to bind `mem`
+       // to the file-static global state pointer. Native ALLOCMEM also
+       // emits the `mem` local declaration so functions that start with
+       // ALLOCMEM (e.g. Init_BME) have `mem` available afterwards —
+       // matching the plugin shape.
 
 static bme_state_t *bme_state = nullptr;
 
-#  define temp        bme_state->temp
-#  define _t_fine     bme_state->_t_fine
-#  define hum         bme_state->hum
-#  define press       bme_state->press
-#  define type        bme_state->type
-#  define typestr     bme_state->typestr
-#  define abshum      bme_state->abshum
-#  define i2c_addr    bme_state->i2c_addr
-#  define i2c_bus     bme_state->i2c_bus
-#  define bmc         bme_state->bmc
-#  define ready       bme_state->ready
-#  define initialized bme_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(bme)
-#  define RETMEM      DUAL_RETMEM(bme)
+#  undef  SETREGS
+#  define SETREGS      MODULE_MEMORY *mem = bme_state;
+#  define ALLOCMEM \
+       if (!bme_state) bme_state = (bme_state_t *)calloc(1, sizeof(bme_state_t)); \
+       if (!bme_state) return -1; \
+       MODULE_MEMORY *mem = bme_state;
+#  define RETMEM \
+       if (bme_state) { free(bme_state); bme_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XSNS_09     9
 #  define XI2C_10     10

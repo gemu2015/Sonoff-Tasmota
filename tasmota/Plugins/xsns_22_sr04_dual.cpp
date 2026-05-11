@@ -81,7 +81,10 @@ const char JSON_DIST_DUAL[]     PROGMEM = ",\"SR04T\":{\"DIST\":%s}";
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  sr04_state_t
+#endif
 
 typedef struct {
   uint8_t  recpin;
@@ -89,40 +92,32 @@ typedef struct {
   float    distance;
   void    *ts;          // TasmotaSerial *
   uint8_t  sbuff[4];    // 4-byte sliding window
+  bool     initialized_flag;
 } MODULE_MEMORY;
 
-#  define sr04_ts        mem->ts
-#  define sr04_recpin    mem->recpin
-#  define sr04_ready     mem->ready
-#  define sr04_distance  mem->distance
-#  define sr04_sbuff     mem->sbuff
+#define sr04_ts        mem->ts
+#define sr04_recpin    mem->recpin
+#define sr04_ready     mem->ready
+#define sr04_distance  mem->distance
+#define sr04_sbuff     mem->sbuff
 
-#else  // native
-
-typedef struct {
-  uint8_t  recpin;
-  uint8_t  ready;
-  float    distance;
-  void    *ts;
-  uint8_t  sbuff[4];
-  bool     initialized_flag;
-} sr04_state_t;
+#if !BUILD_AS_PLUGIN
 
 static sr04_state_t *sr04_state = nullptr;
 
-#  define sr04_ts        sr04_state->ts
-#  define sr04_recpin    sr04_state->recpin
-#  define sr04_ready     sr04_state->ready
-#  define sr04_distance  sr04_state->distance
-#  define sr04_sbuff     sr04_state->sbuff
-#  define initialized    sr04_state->initialized_flag
-
-#  define ALLOCMEM       DUAL_ALLOCMEM(sr04)
-#  define RETMEM         DUAL_RETMEM(sr04)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = sr04_state;
+#  define ALLOCMEM \
+       if (!sr04_state) sr04_state = (sr04_state_t *)calloc(1, sizeof(sr04_state_t)); \
+       if (!sr04_state) return -1; \
+       MODULE_MEMORY *mem = sr04_state;
+#  define RETMEM \
+       if (sr04_state) { free(sr04_state); sr04_state = nullptr; }
+#  define initialized    mem->initialized_flag
 
 #  define XSNS_22        22
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // Driver core

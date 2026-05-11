@@ -172,21 +172,10 @@ const char HTTP_SNS_LD2410_ENG[] PROGMEM =
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
-
-typedef struct {
-  uint8_t   rxd_pin;
-  uint8_t   txd_pin;
-  uint8_t   ready;
-  LD2410_MEM LD2410;
-} MODULE_MEMORY;
-
-#  define rxd_pin     mem->rxd_pin
-#  define txd_pin     mem->txd_pin
-#  define ready       mem->ready
-#  define LD2410      mem->LD2410
-
-#else  // native
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  ld2410_state_t
+#endif
 
 typedef struct {
   uint8_t    rxd_pin;
@@ -194,22 +183,30 @@ typedef struct {
   uint8_t    ready;
   LD2410_MEM LD2410;
   bool       initialized_flag;
-} ld2410_state_t;
+} MODULE_MEMORY;
+
+#define rxd_pin     mem->rxd_pin
+#define txd_pin     mem->txd_pin
+#define ready       mem->ready
+#define LD2410      mem->LD2410
+
+#if !BUILD_AS_PLUGIN
 
 static ld2410_state_t *ld2410_state = nullptr;
 
-#  define rxd_pin     ld2410_state->rxd_pin
-#  define txd_pin     ld2410_state->txd_pin
-#  define ready       ld2410_state->ready
-#  define LD2410      ld2410_state->LD2410
-#  define initialized ld2410_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(ld2410)
-#  define RETMEM      DUAL_RETMEM(ld2410)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = ld2410_state;
+#  define ALLOCMEM \
+       if (!ld2410_state) ld2410_state = (ld2410_state_t *)calloc(1, sizeof(ld2410_state_t)); \
+       if (!ld2410_state) return -1; \
+       MODULE_MEMORY *mem = ld2410_state;
+#  define RETMEM \
+       if (ld2410_state) { free(ld2410_state); ld2410_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XSNS_102    102
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // Driver core

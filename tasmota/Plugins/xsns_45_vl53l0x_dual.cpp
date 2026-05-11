@@ -85,8 +85,10 @@ MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 #endif
 MODULE_END
 
-// State
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  vl53l0x_state_t
+#endif
 
 typedef struct {
   TWIp    *xWire;
@@ -96,20 +98,23 @@ typedef struct {
   bool     VL53L0X_detected;
   VLX_DATA Vl53l0x_data;
   VLX_MEM  vlx_mem;
+  bool     initialized_flag;
 } MODULE_MEMORY;
 
-#  define VL53L0X_xshut             mem->VL53L0X_xshut
-#  define address                   mem->vlx_mem.address
-#  define VL53L0X_detected          mem->VL53L0X_detected
-#  define Vl53l0x_data              mem->Vl53l0x_data
-#  define io_timeout                mem->vlx_mem.io_timeout
-#  define did_timeout               mem->vlx_mem.did_timeout
-#  define timeout_start_ms          mem->vlx_mem.timeout_start_ms
-#  define stop_variable             mem->vlx_mem.stop_variable
-#  define measurement_timing_budget_us mem->vlx_mem.measurement_timing_budget_us
-#  define last_status               mem->vlx_mem.last_status
-#  define range_mode                mem->range_mode
-#  define i2c_bus                   mem->i2c_bus
+#define VL53L0X_xshut             mem->VL53L0X_xshut
+#define address                   mem->vlx_mem.address
+#define VL53L0X_detected          mem->VL53L0X_detected
+#define Vl53l0x_data              mem->Vl53l0x_data
+#define io_timeout                mem->vlx_mem.io_timeout
+#define did_timeout               mem->vlx_mem.did_timeout
+#define timeout_start_ms          mem->vlx_mem.timeout_start_ms
+#define stop_variable             mem->vlx_mem.stop_variable
+#define measurement_timing_budget_us mem->vlx_mem.measurement_timing_budget_us
+#define last_status               mem->vlx_mem.last_status
+#define range_mode                mem->range_mode
+#define i2c_bus                   mem->i2c_bus
+
+#if BUILD_AS_PLUGIN
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
@@ -117,39 +122,22 @@ typedef struct {
 
 #else  // native
 
-typedef struct {
-  bool     VL53L0X_xshut;
-  uint8_t  range_mode;
-  uint8_t  i2c_bus;
-  bool     VL53L0X_detected;
-  VLX_DATA Vl53l0x_data;
-  VLX_MEM  vlx_mem;
-  bool     initialized_flag;
-} vl53l0x_state_t;
-
 static vl53l0x_state_t *vl53l0x_state = nullptr;
 
-#  define VL53L0X_xshut             vl53l0x_state->VL53L0X_xshut
-#  define address                   vl53l0x_state->vlx_mem.address
-#  define VL53L0X_detected          vl53l0x_state->VL53L0X_detected
-#  define Vl53l0x_data              vl53l0x_state->Vl53l0x_data
-#  define io_timeout                vl53l0x_state->vlx_mem.io_timeout
-#  define did_timeout               vl53l0x_state->vlx_mem.did_timeout
-#  define timeout_start_ms          vl53l0x_state->vlx_mem.timeout_start_ms
-#  define stop_variable             vl53l0x_state->vlx_mem.stop_variable
-#  define measurement_timing_budget_us vl53l0x_state->vlx_mem.measurement_timing_budget_us
-#  define last_status               vl53l0x_state->vlx_mem.last_status
-#  define range_mode                vl53l0x_state->range_mode
-#  define i2c_bus                   vl53l0x_state->i2c_bus
-#  define initialized               vl53l0x_state->initialized_flag
-
-#  define ALLOCMEM                  DUAL_ALLOCMEM(vl53l0x)
-#  define RETMEM                    DUAL_RETMEM(vl53l0x)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = vl53l0x_state;
+#  define ALLOCMEM \
+       if (!vl53l0x_state) vl53l0x_state = (vl53l0x_state_t *)calloc(1, sizeof(vl53l0x_state_t)); \
+       if (!vl53l0x_state) return -1; \
+       MODULE_MEMORY *mem = vl53l0x_state;
+#  define RETMEM \
+       if (vl53l0x_state) { free(vl53l0x_state); vl53l0x_state = nullptr; }
+#  define initialized               mem->initialized_flag
 
 #  define XSNS_45                   45
 #  define XI2C_31                   31
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // Library impl — uses the field accessors above.
 #include "VL53L0X_c.h"

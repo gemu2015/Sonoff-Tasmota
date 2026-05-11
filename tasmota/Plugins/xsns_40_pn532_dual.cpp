@@ -189,7 +189,10 @@ typedef struct PN532 {
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  pn532_state_t
+#endif
 
 typedef struct {
   TWIp          *xWire;
@@ -200,46 +203,34 @@ typedef struct {
   TasmotaSerial *ts;
   uint8_t        rec;
   uint8_t        trx;
+  bool           initialized_flag;
 } MODULE_MEMORY;
 
-#  define ready    mem->ready
-#  define Pn532    mem->Pn532
-#  define ts       mem->ts
-#  define rec      mem->rec
-#  define trx      mem->trx
-#  define mode     mem->mode
-#  define pn_bus   mem->bus
+#define ready    mem->ready
+#define Pn532    mem->Pn532
+#define ts       mem->ts
+#define rec      mem->rec
+#define trx      mem->trx
+#define mode     mem->mode
+#define pn_bus   mem->bus
 
-#else  // native
-
-typedef struct {
-  bool           ready;
-  uint8_t        mode;
-  uint8_t        bus;
-  PN532          Pn532;
-  TasmotaSerial *ts;
-  uint8_t        rec;
-  uint8_t        trx;
-  bool           initialized_flag;
-} pn532_state_t;
+#if !BUILD_AS_PLUGIN
 
 static pn532_state_t *pn532_state = nullptr;
 
-#  define ready       pn532_state->ready
-#  define Pn532       pn532_state->Pn532
-#  define ts          pn532_state->ts
-#  define rec         pn532_state->rec
-#  define trx         pn532_state->trx
-#  define mode        pn532_state->mode
-#  define pn_bus      pn532_state->bus
-#  define initialized pn532_state->initialized_flag
-
-#  define ALLOCMEM    DUAL_ALLOCMEM(pn532)
-#  define RETMEM      DUAL_RETMEM(pn532)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = pn532_state;
+#  define ALLOCMEM \
+       if (!pn532_state) pn532_state = (pn532_state_t *)calloc(1, sizeof(pn532_state_t)); \
+       if (!pn532_state) return -1; \
+       MODULE_MEMORY *mem = pn532_state;
+#  define RETMEM \
+       if (pn532_state) { free(pn532_state); pn532_state = nullptr; }
+#  define initialized mem->initialized_flag
 
 #  define XSNS_40     40
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // XdrvMailbox accessor (pointer in plugin, instance in native)
 #if BUILD_AS_PLUGIN

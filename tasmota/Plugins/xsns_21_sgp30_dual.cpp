@@ -100,7 +100,10 @@ const char JSON_SNS_AHUM_SGP[]  PROGMEM = ",\"aHumidity\":%s}";
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  sgp30_state_t
+#endif
 
 typedef struct {
   TWIp    *xWire;
@@ -113,17 +116,20 @@ typedef struct {
   uint16_t TVOC_base;
   uint16_t eCO2_base;
   float    abshum;
+  bool     initialized_flag;
 } MODULE_MEMORY;
 
-#  define ready          mem->ready
-#  define secs           mem->secs
-#  define sgp30_ready    mem->sgp30_ready
-#  define sgp_bus        mem->bus
-#  define TVOC           mem->TVOC
-#  define eCO2           mem->eCO2
-#  define TVOC_base      mem->TVOC_base
-#  define eCO2_base      mem->eCO2_base
-#  define abshum         mem->abshum
+#define ready          mem->ready
+#define secs           mem->secs
+#define sgp30_ready    mem->sgp30_ready
+#define sgp_bus        mem->bus
+#define TVOC           mem->TVOC
+#define eCO2           mem->eCO2
+#define TVOC_base      mem->TVOC_base
+#define eCO2_base      mem->eCO2_base
+#define abshum         mem->abshum
+
+#if BUILD_AS_PLUGIN
 
 #  ifdef USE_SOFTWIRE
 #    include "Softwire/Softwire_cpp.h"
@@ -131,34 +137,17 @@ typedef struct {
 
 #else  // native
 
-typedef struct {
-  bool     sgp30_ready;
-  bool     ready;
-  uint8_t  bus;
-  uint8_t  secs;
-  uint16_t eCO2;
-  uint16_t TVOC;
-  uint16_t TVOC_base;
-  uint16_t eCO2_base;
-  float    abshum;
-  bool     initialized_flag;
-} sgp30_state_t;
-
 static sgp30_state_t *sgp30_state = nullptr;
 
-#  define ready          sgp30_state->ready
-#  define secs           sgp30_state->secs
-#  define sgp30_ready    sgp30_state->sgp30_ready
-#  define sgp_bus        sgp30_state->bus
-#  define TVOC           sgp30_state->TVOC
-#  define eCO2           sgp30_state->eCO2
-#  define TVOC_base      sgp30_state->TVOC_base
-#  define eCO2_base      sgp30_state->eCO2_base
-#  define abshum         sgp30_state->abshum
-#  define initialized    sgp30_state->initialized_flag
-
-#  define ALLOCMEM       DUAL_ALLOCMEM(sgp30)
-#  define RETMEM         DUAL_RETMEM(sgp30)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = sgp30_state;
+#  define ALLOCMEM \
+       if (!sgp30_state) sgp30_state = (sgp30_state_t *)calloc(1, sizeof(sgp30_state_t)); \
+       if (!sgp30_state) return -1; \
+       MODULE_MEMORY *mem = sgp30_state;
+#  define RETMEM \
+       if (sgp30_state) { free(sgp30_state); sgp30_state = nullptr; }
+#  define initialized    mem->initialized_flag
 
 #  define XSNS_21        21
 #  define XI2C_18        18

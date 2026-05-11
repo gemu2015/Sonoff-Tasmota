@@ -233,24 +233,10 @@ struct WS_Sensor {
 // (bresser_mem_t) and aliases MODULE_MEMORY to it via #define so
 // the body's `MODULE_MEMORY *mem = ...` pattern resolves correctly.
 
-#if BUILD_AS_PLUGIN
-
-typedef struct {
-  void     *spi;
-  uint8_t  cs_pin;
-  uint32_t spibaud;
-  uint8_t  gdo0_pin;
-  uint8_t  found;
-  uint8_t  ready;
-  uint8_t  decode_status;
-  uint32_t reject_ids[MAX_REJIDS];
-  float    rssi;
-  struct WS_Sensor sensor[NUM_SENSORS];
-  struct WS_Sensor sensor_copy[NUM_SENSORS];
-  uint8_t  recvData[MSG_BUF_SIZE];
-} MODULE_MEMORY;
-
-#else  // native
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  bresser_mem_t
+#endif
 
 typedef struct {
   void     *spi;
@@ -266,11 +252,11 @@ typedef struct {
   struct WS_Sensor sensor_copy[NUM_SENSORS];
   uint8_t  recvData[MSG_BUF_SIZE];
   bool     initialized_flag;
-} bresser_mem_t;
+} MODULE_MEMORY;
+
+#if !BUILD_AS_PLUGIN
 
 static bresser_mem_t *bresser_state = nullptr;
-
-#  define MODULE_MEMORY    bresser_mem_t
 
 // Override SETREGS / SETMEMREGS / ALLOCMEM / RETMEM to bind a
 // `mem` local to the heap state. Same shape as plugin macros so
@@ -282,10 +268,10 @@ static bresser_mem_t *bresser_state = nullptr;
 #  define ALLOCMEM \
        if (!bresser_state) bresser_state = (bresser_mem_t *)calloc(1, sizeof(bresser_mem_t)); \
        if (!bresser_state) return -1; \
-       MODULE_MEMORY *mem = bresser_state
+       MODULE_MEMORY *mem = bresser_state;
 #  define RETMEM \
        if (bresser_state) { free(bresser_state); bresser_state = nullptr; }
-#  define initialized     bresser_state->initialized_flag
+#  define initialized     mem->initialized_flag
 
 // Native SPI shim — call sites use spiBeginTransaction/Transfer/etc
 // with `mem->spibaud` baked into the SPISettings. Routes to Arduino's

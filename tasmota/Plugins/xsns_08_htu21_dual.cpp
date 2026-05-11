@@ -104,7 +104,10 @@ MODULE_END
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  htu_state_t
+#endif
 
 typedef struct {
   TWIp   *xWire;
@@ -112,28 +115,26 @@ typedef struct {
   uint8_t i2c_bus;
 } MODULE_MEMORY;
 
-#  define Htu               mem->Htu
-#  define htu_bus           mem->i2c_bus
+#define Htu               mem->Htu
+#define htu_bus           mem->i2c_bus
 
-#else  // native
-
-typedef struct {
-  HTU     Htu;
-  uint8_t i2c_bus;
-} htu_state_t;
+#if !BUILD_AS_PLUGIN
 
 static htu_state_t *htu_state = nullptr;
 
-#  define Htu               htu_state->Htu
-#  define htu_bus           htu_state->i2c_bus
-
-#  define ALLOCMEM          DUAL_ALLOCMEM(htu)
-#  define RETMEM            DUAL_RETMEM(htu)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = htu_state;
+#  define ALLOCMEM \
+       if (!htu_state) htu_state = (htu_state_t *)calloc(1, sizeof(htu_state_t)); \
+       if (!htu_state) return -1; \
+       MODULE_MEMORY *mem = htu_state;
+#  define RETMEM \
+       if (htu_state) { free(htu_state); htu_state = nullptr; }
 
 #  define XSNS_08           8
 #  define XI2C_09           9
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // Driver core — shared

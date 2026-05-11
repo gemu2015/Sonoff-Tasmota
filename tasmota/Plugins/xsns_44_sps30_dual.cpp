@@ -132,7 +132,10 @@ typedef struct {
   float TYPSIZ;
 } SPS30_DATA;
 
-#if BUILD_AS_PLUGIN
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  sps30_state_t
+#endif
 
 typedef struct {
   TWIp      *xWire;
@@ -141,41 +144,33 @@ typedef struct {
   bool       ready;
   uint8_t    bus;
   uint16_t   secs;
+  bool       initialized_flag;
 } MODULE_MEMORY;
 
-#  define sps30_result   mem->sps30_result
-#  define sps30_running  mem->sps30_running
-#  define ready          mem->ready
-#  define sps_bus        mem->bus
-#  define secs           mem->secs
+#define sps30_result   mem->sps30_result
+#define sps30_running  mem->sps30_running
+#define ready          mem->ready
+#define sps_bus        mem->bus
+#define secs           mem->secs
 
-#else  // native
-
-typedef struct {
-  SPS30_DATA sps30_result;
-  bool       sps30_running;
-  bool       ready;
-  uint8_t    bus;
-  uint16_t   secs;
-  bool       initialized_flag;
-} sps30_state_t;
+#if !BUILD_AS_PLUGIN
 
 static sps30_state_t *sps30_state = nullptr;
 
-#  define sps30_result   sps30_state->sps30_result
-#  define sps30_running  sps30_state->sps30_running
-#  define ready          sps30_state->ready
-#  define sps_bus        sps30_state->bus
-#  define secs           sps30_state->secs
-#  define initialized    sps30_state->initialized_flag
-
-#  define ALLOCMEM       DUAL_ALLOCMEM(sps30)
-#  define RETMEM         DUAL_RETMEM(sps30)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = sps30_state;
+#  define ALLOCMEM \
+       if (!sps30_state) sps30_state = (sps30_state_t *)calloc(1, sizeof(sps30_state_t)); \
+       if (!sps30_state) return -1; \
+       MODULE_MEMORY *mem = sps30_state;
+#  define RETMEM \
+       if (sps30_state) { free(sps30_state); sps30_state = nullptr; }
+#  define initialized    mem->initialized_flag
 
 #  define XSNS_44        44
 #  define XI2C_31        31
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // XdrvMailbox accessors (pointer-vs-instance)
 #if BUILD_AS_PLUGIN

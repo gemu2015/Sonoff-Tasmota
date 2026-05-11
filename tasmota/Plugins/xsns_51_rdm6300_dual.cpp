@@ -86,23 +86,10 @@ const char RDM_JSON_UID_DUAL[] PROGMEM = ",\"RDM6300\":{\"UID\":\"%08X\"}}";
 // --------------------------------------------------------------------
 // State storage — heap in both modes
 // --------------------------------------------------------------------
-#if BUILD_AS_PLUGIN
-
-typedef struct {
-  uint8_t        recpin;
-  uint8_t        ready;
-  uint32_t       uid;
-  uint8_t        block_time;
-  TasmotaSerial *ts;
-} MODULE_MEMORY;
-
-#  define rdm_ts          mem->ts
-#  define rdm_recpin      mem->recpin
-#  define rdm_ready       mem->ready
-#  define rdm_uid         mem->uid
-#  define rdm_block_time  mem->block_time
-
-#else  // native
+// Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
+#if !BUILD_AS_PLUGIN
+#  define MODULE_MEMORY  rdm6300_state_t
+#endif
 
 typedef struct {
   uint8_t        recpin;
@@ -111,23 +98,31 @@ typedef struct {
   uint8_t        block_time;
   TasmotaSerial *ts;
   bool           initialized_flag;
-} rdm6300_state_t;
+} MODULE_MEMORY;
+
+#define rdm_ts          mem->ts
+#define rdm_recpin      mem->recpin
+#define rdm_ready       mem->ready
+#define rdm_uid         mem->uid
+#define rdm_block_time  mem->block_time
+
+#if !BUILD_AS_PLUGIN
 
 static rdm6300_state_t *rdm6300_state = nullptr;
 
-#  define rdm_ts          rdm6300_state->ts
-#  define rdm_recpin      rdm6300_state->recpin
-#  define rdm_ready       rdm6300_state->ready
-#  define rdm_uid         rdm6300_state->uid
-#  define rdm_block_time  rdm6300_state->block_time
-#  define initialized     rdm6300_state->initialized_flag
-
-#  define ALLOCMEM        DUAL_ALLOCMEM(rdm6300)
-#  define RETMEM          DUAL_RETMEM(rdm6300)
+#  undef  SETREGS
+#  define SETREGS    MODULE_MEMORY *mem = rdm6300_state;
+#  define ALLOCMEM \
+       if (!rdm6300_state) rdm6300_state = (rdm6300_state_t *)calloc(1, sizeof(rdm6300_state_t)); \
+       if (!rdm6300_state) return -1; \
+       MODULE_MEMORY *mem = rdm6300_state;
+#  define RETMEM \
+       if (rdm6300_state) { free(rdm6300_state); rdm6300_state = nullptr; }
+#  define initialized     mem->initialized_flag
 
 #  define XSNS_51         51
 
-#endif  // BUILD_AS_PLUGIN
+#endif  // !BUILD_AS_PLUGIN
 
 // --------------------------------------------------------------------
 // Driver core

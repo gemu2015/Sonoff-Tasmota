@@ -157,6 +157,14 @@ static TwoWire *_dual_wire = &Wire;
 static TwoWire *_dual_wire = &Wire;
 #    define I2C_SETWIRE(bus)                  do { (void)(bus); } while (0)
 #  endif
+
+// In plugin mode `TWIp` is defined in module_defines.h to either
+// `SWI2C_VARS` (software I2C path) or `TwoWire` (hardware I2C path).
+// In native mode neither is set up, but unified MODULE_MEMORY structs
+// may still declare a `TWIp *xWire;` field (unused here). Alias to
+// `TwoWire` so the field has a valid type; the field itself stays
+// unread in native.
+typedef TwoWire TWIp;
 #  define I2C_beginTransmission(addr)         _dual_wire->beginTransmission((uint8_t)(addr))
 #  define I2C_write(b)                        _dual_wire->write((uint8_t)(b))
 #  define I2C_endTransmission(stop)           _dual_wire->endTransmission((bool)(stop))
