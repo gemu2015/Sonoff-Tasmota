@@ -10,11 +10,13 @@
 // (Powerwall % and solar W), plus a Tasmota WebUI sensor table via
 // WebCall for the same data.
 //
-// Callback shape: EverySecond + WebCall only — no TaskLoop, no
-// Every50ms, no sensorGet. Earlier diagnostic ports found that any
-// per-tick sensorGet → MqttShowSensor → JsonCall fan-out hung the
-// device when running alongside another VM slot's sensor publisher.
-// With those out the device runs stably.
+// Callback shape: EverySecond + WebCall + TaskLoop. SHT31 values are
+// pulled via `sensorGet("SHT3X#Temperature")` once per EverySecond —
+// safe because all callbacks on the same slot serialise through the
+// VM mutex. (An earlier diagnostic port did sensorGet from inside the
+// TaskLoop worker — that hung the device because the worker raced
+// EverySecond on the same VM mutex while MqttShowSensor fanned the
+// JsonCall out to all slots. Don't move the call back into TaskLoop.)
 //
 // The `>S` / `>B` blocks of the original Scripter dashboard port
 // 1:1 here: sprintf the variable parts into a buffer, hand the
@@ -342,6 +344,23 @@ int last_disp_min = -1;
 void EverySecond() {
     es_ticks = es_ticks + 1;
 
+    // ── Local SHT31 read via Tasmota SensorJSON ──
+    // Slot 5 (sht31.tcb) publishes SHT3X.Temperature / SHT3X.Humidity
+    // through its JsonCall. sensorGet parses the live SensorJSON and
+    // returns the numeric value (NAN if the key is missing).
+    // Earlier ports hung the device when this was done from a TaskLoop
+    // worker — sensorGet → MqttShowSensor → JsonCall fan-out raced the
+    // worker against EverySecond on the same VM. Running it from
+    // EverySecond (one fixed call site, serialised with all other
+    // callbacks via the VM mutex) is the supported pattern.
+    float t = sensorGet("SHT3X#Temperature");
+    float h = sensorGet("SHT3X#Humidity");
+    if (t > -100.0 && t < 200.0) {  // sanity-check, NaN compares false
+        btemp = t;
+        bhumi = h;
+        sht_seen = 1;
+    }
+
     // ── Midnight rollover (Scripter: `if chg[hr]>0 and hr==0`) ──
     // Detect the 23 → 0 hour transition. On the first tick after boot
     // last_hr is -1, so we don't fire a spurious rollover unless we
@@ -454,7 +473,7 @@ void WebCall() {
     web_clock_header();
 
     // ── This room (SHT31) ──
-    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Wohnzimmer</b>{m}{e}");
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Arbeitszimmer Gerhard</b>{m}{e}");
     if (sht_seen) {
         webSend("{s}Temperatur{m}<span style='color:yellow'>");
         sprintf(buf, "%.1f &#8451;</span>{e}", btemp);
