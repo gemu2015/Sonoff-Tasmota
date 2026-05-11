@@ -688,6 +688,8 @@ TinyC stellt virtuelle `tasm_*`-Variablen bereit, die den Tasmota-Systemzustand 
 | `tasm_sunset` | int | lesen | Sonnenuntergang, Minuten seit Mitternacht (erfordert USE_SUNRISE) |
 | `tasm_time` | int | lesen | Aktuelle Uhrzeit, Minuten seit Mitternacht |
 | `tasm_pheap` | int | lesen | Freier PSRAM-Speicher in Bytes (nur ESP32) |
+| `tasm_maxblock` | int | lesen | Groesster zusammenhaengender freier Heap-Block in Bytes (nur ESP32) — zeigt Heap-Fragmentierung: freier Heap kann hoch sein, waehrend `maxblock` niedrig ist |
+| `tasm_frag` | int | lesen | Heap-Fragmentierung 0..100 % (nur ESP32) — abgeleitet aus `1 - maxblock/free_heap` |
 | `tasm_smlj` | int | lesen/schreiben | SML JSON-Ausgabe aktivieren/deaktivieren (erfordert USE_SML_M) |
 | `tasm_npwr` | int | lesen | Anzahl der Power-Geraete (Relais) |
 

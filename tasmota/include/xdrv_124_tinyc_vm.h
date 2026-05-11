@@ -1354,8 +1354,14 @@ bool Is_gpio_used(uint8_t gpiopin) {
 //    when a MODULE_TYPE_BLIB plugin is loaded. The SYS_BLIB_CALL
 //    handler below calls tc_blib_lookup() to resolve a name to the
 //    registered fn pointer + arg-type metadata. TC_BLIB_REG_ENTRY
-//    struct is defined in modules_def.h (shared with xdrv_123).
+//    struct is defined in modules_def.h (shared with xdrv_123) — only
+//    pulled in when USE_BINPLUGINS is defined. Builds without
+//    USE_BINPLUGINS (e.g. EPD47/ttgo47) skip this entire path; the
+//    SYS_BLIB_CALL dispatcher case returns -1 cleanly so any stray
+//    bcall() in a script fails gracefully instead of crashing.
+#ifdef USE_BINPLUGINS
 extern "C" TC_BLIB_REG_ENTRY *tc_blib_lookup(const char *name);
+#endif
 
 #ifdef USE_HOMEKIT
 extern "C" int32_t homekit_main(char *, uint32_t);
@@ -7577,6 +7583,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     //  23 = tasm_rule       (rw) rule1 enabled (bit 0 of Settings->rule_enabled)
     //  24 = tasm_lat        (rw) latitude in decimal degrees (float)
     //  25 = tasm_lon        (rw) longitude in decimal degrees (float)
+    //  26 = tasm_maxblock   (ro) largest contiguous free heap block, bytes (ESP32 only)
+    //  27 = tasm_frag       (ro) heap fragmentation 0..100 %  (ESP32 only)
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -7653,6 +7661,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           TC_PUSH(vm, (int32_t)loni);
           goto tasm_get_done;
         }
+#ifdef ESP32
+        case 26: val = (int32_t)ESP_getMaxAllocHeap();     break;  // tasm_maxblock — largest contiguous free heap block (bytes)
+        case 27: val = (int32_t)ESP_getHeapFragmentation(); break;  // tasm_frag — heap fragmentation 0..100 %
+#endif
         default: break;
       }
       TC_PUSH(vm, val);
@@ -11662,6 +11674,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t len      = TC_POP(vm);
       int32_t buf_ref  = TC_POP(vm);
       int32_t name_ci  = TC_POP(vm);
+#ifndef USE_BINPLUGINS
+      // BinPlugins (and therefore BLIB) not in this firmware build —
+      // return -1 ("not supported") with the stack already balanced
+      // by the three TC_POPs above. Silences -Wunused-variable.
+      (void)len; (void)buf_ref; (void)name_ci;
+      TC_PUSH(vm, -1);
+      break;
+    }
+#else
 
       // Resolve the name from the const-pool (BUILTINS table marks the
       // name arg as constArgs[0]; the IDE compiler emits the index).
@@ -11709,6 +11730,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, result);
       break;
     }
+#endif  // USE_BINPLUGINS — closes the #ifndef branch's split case
 
     // ── TWAI / CAN-bus syscalls (380..386) ────────────
     // ESP32-only with TWAI peripheral. ESP8266 + ESP32 variants without

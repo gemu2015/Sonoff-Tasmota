@@ -292,7 +292,7 @@
         {
           "comment": "Tasmota system variables",
           "name": "variable.language.tasmota.tinyc",
-          "match": "\\b(tasm_wifi|tasm_mqttcon|tasm_teleperiod|tasm_uptime|tasm_heap|tasm_power|tasm_dimmer|tasm_temp|tasm_hum|tasm_hour|tasm_minute|tasm_second|tasm_year|tasm_month|tasm_day|tasm_wday|tasm_cw|tasm_sunrise|tasm_sunset|tasm_time)\\b"
+          "match": "\\b(tasm_wifi|tasm_mqttcon|tasm_teleperiod|tasm_uptime|tasm_heap|tasm_pheap|tasm_maxblock|tasm_frag|tasm_power|tasm_dimmer|tasm_temp|tasm_hum|tasm_hour|tasm_minute|tasm_second|tasm_year|tasm_month|tasm_day|tasm_wday|tasm_cw|tasm_sunrise|tasm_sunset|tasm_time|tasm_smlj|tasm_npwr|tasm_rule|tasm_lat|tasm_lon)\\b"
         }
       ]
     },
