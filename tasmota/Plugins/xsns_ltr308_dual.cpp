@@ -182,7 +182,17 @@ const float FP_CONST_LTR[] PROGMEM = {
 };
 // Override the generic FLTC pointing at this driver's table.
 #undef  FLTC
-#define FLTC(idx) (FP_CONST_LTR[(idx)])
+#if BUILD_AS_PLUGIN
+// ESP32-S3 lsi-from-PROGMEM trap: see xsns_09_bmp_dual.cpp note.
+#  define FLTC(idx) ({ \
+      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_LTR + EXEC_OFFSET))[(idx)]; \
+      float _f; \
+      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
+      _f; \
+    })
+#else
+#  define FLTC(idx) (FP_CONST_LTR[(idx)])
+#endif
 
 const char HTTP_LTR308_LUX_DUAL[] PROGMEM = "{s}LTR308 Illuminance{m}%s lux{e}";
 

@@ -332,7 +332,17 @@ MODULE_END
 // File-unique FP_CONST + per-driver FLTC.
 const float FP_CONST_BRES[] PROGMEM = {0.1, 0.001, 22.5, 2.5, 1.0, -50.0};
 #undef  FLTC
-#define FLTC(idx)                             (FP_CONST_BRES[(idx)])
+#if BUILD_AS_PLUGIN
+// ESP32-S3 lsi-from-PROGMEM trap: see xsns_09_bmp_dual.cpp note.
+#  define FLTC(idx) ({ \
+      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_BRES + EXEC_OFFSET))[(idx)]; \
+      float _f; \
+      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
+      _f; \
+    })
+#else
+#  define FLTC(idx)                             (FP_CONST_BRES[(idx)])
+#endif
 
 
 /*********************************************************************************************\

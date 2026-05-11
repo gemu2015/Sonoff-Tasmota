@@ -111,7 +111,26 @@ const char  JSON_BMPend[]   PROGMEM = "}";
 // merged tasmota.ino.cpp TU.
 const float FP_CONST_BMP[]  PROGMEM = {0, 0.01, 0.00097656};
 #undef  FLTC
-#define FLTC(idx)                             (FP_CONST_BMP[(idx)])
+// On ESP32-S3 plugin mode, direct `lsi` (load single-float) from a
+// PROGMEM float[] silently fails — the load instruction returns
+// garbage when the address lives in IROM. Workaround (same pattern
+// firmware uses for plain `FP_CONST` in module_defines.h:498-499):
+// read the slot as `volatile uint32_t` (forces `l32i`) then memcpy
+// the bit pattern into a float local. Plain `FP_CONST_BMP[idx]` only
+// works in contexts where the compiler ends up casting to int
+// (e.g. `(int)(FLTC(1)*1000)`) — in float-arg-passing contexts
+// (e.g. `fscale(x, FLTC(1), FLTC(0))`) the compiler emits the
+// unsafe lsi and corrupts the value to 0xDD5F53FB.
+#if BUILD_AS_PLUGIN
+#  define FLTC(idx) ({ \
+      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_BMP + EXEC_OFFSET))[(idx)]; \
+      float _f; \
+      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
+      _f; \
+    })
+#else
+#  define FLTC(idx)  (FP_CONST_BMP[(idx)])
+#endif
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.

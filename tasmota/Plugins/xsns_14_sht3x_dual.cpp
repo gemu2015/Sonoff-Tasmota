@@ -67,7 +67,20 @@ const char  kShtTypes[]     PROGMEM = "%s%c%02X";
 const char  HTTP_SNS_AHUM_SHT3X[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
 const float FP_CONST_SHT3X[]      PROGMEM = {65535, 45};
 #undef  FLTC
-#define FLTC(idx)                             (FP_CONST_SHT3X[(idx)])
+#if BUILD_AS_PLUGIN
+// ESP32-S3 lsi-from-PROGMEM trap: a direct `float[]` load via `lsi`
+// can return garbage. Read as volatile uint32_t (forces l32i), then
+// memcpy to float. EXEC_OFFSET applies the plugin loader's runtime
+// relocation to the compile-time symbol address.
+#  define FLTC(idx) ({ \
+      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_SHT3X + EXEC_OFFSET))[(idx)]; \
+      float _f; \
+      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
+      _f; \
+    })
+#else
+#  define FLTC(idx)                             (FP_CONST_SHT3X[(idx)])
+#endif
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
