@@ -4553,7 +4553,19 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           if (tc_serial_ports[slot]->hardwareSerial()) {
             ClaimSerial();
           }
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial[%d] opened rx=%d tx=%d baud=%d cfg=%d buf=%d hw=%d"),
+#ifdef ESP32
+          // Override TasmotaSerial's HW-FIFO→ring-buffer copy
+          // threshold from its 120-byte default down to 10 bytes
+          // (~5 ms at 19200 baud). The default is wrong for chunked
+          // protocols (Modbus-RTU, SML, anything that bursts > 120
+          // bytes at line rate without inter-byte gaps): trailing
+          // bytes stay invisible to userland until the slave goes
+          // idle long enough for rx_timeout to fire, by which point
+          // any silence-based framer in script-land has already
+          // misframed. See TasmotaSerial::setRxFifoFull doc comment.
+          tc_serial_ports[slot]->setRxFifoFull(10);
+#endif
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial[%d] opened rx=%d tx=%d baud=%d cfg=%d buf=%d hw=%d rxfifo=10"),
                  slot, rxpin, txpin, baud, config, bufsize, tc_serial_ports[slot]->hardwareSerial());
           TC_PUSH(vm, slot);
         } else {

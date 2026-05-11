@@ -335,6 +335,14 @@ bool TasmotaSerial::hardwareSerial(void) {
 #endif  // ESP32
 }
 
+#ifdef ESP32
+bool TasmotaSerial::setRxFifoFull(uint8_t threshold) {
+  // No-op on software-serial path (no IDF UART driver to configure).
+  if (!m_hardserial || !TSerial) return false;
+  return uart_set_rx_full_threshold(m_uart, threshold) == ESP_OK;
+}
+#endif
+
 bool TasmotaSerial::overflow(void) {
   if (m_hardserial) {
 #ifdef ESP8266

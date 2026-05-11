@@ -73,6 +73,16 @@ class TasmotaSerial : public Stream {
     uint32_t getUart(void) const { return m_uart; }
     HardwareSerial *getesp32hws(void) { return TSerial; }
     int32_t setConfig(uint32_t config);
+    // Override the IDF UART driver's "HW FIFO → ring buffer" copy
+    // threshold. Esp32Begin() sets this to 120 for baud > 9600, which
+    // is wrong for chunked protocols (Modbus-RTU, SML, anything that
+    // bursts > threshold bytes at line rate without inter-byte gaps):
+    // bytes after the first 120 stay in the HW FIFO with no IRQ until
+    // the slave finally goes idle and rx_timeout fires — by which
+    // time a userland silence-based framer has already misframed.
+    // Pass a smaller value (e.g. 10 for Modbus-RTU at 19200 baud) to
+    // get fine-grained continuous visibility. Returns true on success.
+    bool setRxFifoFull(uint8_t threshold);
 #endif
     bool isValid(void) { return m_valid; }
     bool overflow(void);
