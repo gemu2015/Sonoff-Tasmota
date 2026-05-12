@@ -508,10 +508,5 @@ bool Xsns09(uint32_t function) {
 #  undef i2c_bus
 #  undef bmc
 #  undef ready
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
-#undef FLTC
-
 #endif  // _BME_DUAL_ENABLED

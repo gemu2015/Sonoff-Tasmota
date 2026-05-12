@@ -724,9 +724,6 @@ bool Xsns102(uint32_t function) {
 #  undef txd_pin
 #  undef ready
 #  undef LD2410
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _LD2410_DUAL_ENABLED

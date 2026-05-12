@@ -415,9 +415,6 @@ bool Xsns12(uint32_t function) {
 #if !BUILD_AS_PLUGIN
 #  undef Ads1115
 #  undef ready
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _ADS1115_DUAL_ENABLED

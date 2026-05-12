@@ -249,10 +249,5 @@ bool Xsns46(uint32_t function) {
 #  undef amb_temp
 #  undef ready
 #  undef mlx_bus
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
-#undef FLTC
-
 #endif  // _MLX90614_DUAL_ENABLED

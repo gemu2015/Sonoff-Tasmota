@@ -313,10 +313,5 @@ bool Xsns45(uint32_t function) {
 #  undef last_status
 #  undef range_mode
 #  undef i2c_bus
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
-#undef FLTC
-
 #endif  // _VL53L0X_DUAL_ENABLED

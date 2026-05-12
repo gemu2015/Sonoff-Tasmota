@@ -428,9 +428,6 @@ bool Xdrv28(uint32_t function) {
 #if !BUILD_AS_PLUGIN
 #  undef Pcf8574
 #  undef handler_up
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _PCF_MAILBOX_INDEX
 #undef _PCF_TG_DEVICES

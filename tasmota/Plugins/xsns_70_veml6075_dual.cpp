@@ -454,9 +454,6 @@ bool Xsns70(uint32_t function) {
 #  undef veml6075Config
 #  undef veml6075_sensor
 #  undef mem_veml
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _VEML_MB_TOPIC
 #undef _VEML_MB_DATA_LEN

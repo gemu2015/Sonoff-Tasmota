@@ -357,9 +357,6 @@ bool Xsns124(uint32_t function) {
 #  undef rgb_sensor
 #  undef tcs_ready
 #  undef tcs_bus
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _TCS34725_DUAL_ENABLED

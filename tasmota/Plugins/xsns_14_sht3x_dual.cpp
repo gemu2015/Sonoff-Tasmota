@@ -312,10 +312,5 @@ bool Xsns14(uint32_t function) {
 #  undef sht3x_count
 #  undef sht3x_addresses
 #  undef sht3x_sensors
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
-#undef FLTC
-
 #endif  // _SHT3X_DUAL_ENABLED

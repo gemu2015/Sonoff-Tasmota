@@ -293,9 +293,6 @@ bool Xsns31(uint32_t function) {
 #  undef ccs
 #  undef ccs_addr
 #  undef ccs_bus
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _CCS811_DUAL_ENABLED

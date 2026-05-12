@@ -1399,9 +1399,6 @@ bool Xsns125(uint32_t function) {
 #  undef MODULE_MEMORY
 #  undef SETREGS
 #  undef SETMEMREGS
-#  undef ALLOCMEM
-#  undef RETMEM
-#  undef initialized
 #  undef spiBeginTransaction
 #  undef spiEndTransaction
 #  undef spiTransfer

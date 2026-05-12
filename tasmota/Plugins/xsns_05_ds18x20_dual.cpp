@@ -873,9 +873,6 @@ bool Xsns05(uint32_t function) {
 #  undef ds18x20_sensor
 #  undef delay_low
 #  undef delay_high
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _DS_MB_DATA
 #undef MAX_DSB

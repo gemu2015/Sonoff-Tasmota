@@ -447,9 +447,6 @@ bool Xsns44(uint32_t function) {
 #  undef ready
 #  undef sps_bus
 #  undef secs
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _SPS_MB_TOPIC
 

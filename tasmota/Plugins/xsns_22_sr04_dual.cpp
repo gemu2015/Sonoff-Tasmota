@@ -236,9 +236,6 @@ bool Xsns22(uint32_t function) {
 #  undef sr04_ready
 #  undef sr04_distance
 #  undef sr04_sbuff
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _SR04T_DUAL_ENABLED

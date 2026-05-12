@@ -940,9 +940,6 @@ bool Xsns40(uint32_t function) {
 #  undef trx
 #  undef mode
 #  undef pn_bus
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _PN532_MB_DATA
 

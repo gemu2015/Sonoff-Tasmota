@@ -378,9 +378,6 @@ bool Xsns08(uint32_t function) {
 #if !BUILD_AS_PLUGIN
 #  undef Htu
 #  undef htu_bus
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _HTU_DUAL_ENABLED

@@ -482,9 +482,6 @@ bool Xdrv14(uint32_t function) {
 #  undef mp3_player_type
 #  undef mp3_player_txpin
 #  undef mp3_ts
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _MP3_MB_TOPIC
 #undef _MP3_MB_DATA_LEN

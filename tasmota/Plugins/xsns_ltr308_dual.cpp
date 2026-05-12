@@ -365,10 +365,5 @@ bool Xsns56(uint32_t function) {
 #if !BUILD_AS_PLUGIN
 #  undef MODULE_MEMORY
 #  undef SETMEMREGS
-#  undef ALLOCMEM
-#  undef RETMEM
-#  undef initialized
 #endif
-#undef FLTC
-
 #endif  // _LTR308_DUAL_ENABLED

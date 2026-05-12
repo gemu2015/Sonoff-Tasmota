@@ -403,9 +403,6 @@ bool Xsns21(uint32_t function) {
 #  undef TVOC_base
 #  undef eCO2_base
 #  undef abshum
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _SGP30_DUAL_ENABLED

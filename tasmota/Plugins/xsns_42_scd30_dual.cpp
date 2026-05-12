@@ -751,9 +751,6 @@ bool Xsns42(uint32_t function) {
 #  undef scd_bus
 #  undef Scd30
 #  undef drv
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 #undef _SCD_MB_DATA_LEN
 #undef _SCD_MB_PAYLOAD

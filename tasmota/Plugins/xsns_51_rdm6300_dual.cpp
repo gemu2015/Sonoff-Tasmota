@@ -284,9 +284,6 @@ bool Xsns51(uint32_t function) {
 #  undef rdm_ready
 #  undef rdm_uid
 #  undef rdm_block_time
-#  undef initialized
-#  undef ALLOCMEM
-#  undef RETMEM
 #endif
 
 #endif  // _RDM6300_DUAL_ENABLED
