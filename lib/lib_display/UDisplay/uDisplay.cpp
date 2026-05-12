@@ -1087,18 +1087,15 @@ Renderer *uDisplay::Init(void) {
     Serial.printf("Dsp Init 1 start \n");
   #endif
 
-  // for any bpp below native 16 bits, we allocate a local framebuffer to copy into
+  // for any bpp below native 16 bits, we allocate a local framebuffer to copy into.
+  // special_calloc() centralises the PSRAM-vs-internal decision and ALWAYS zeroes
+  // the buffer — important because displayFrame_42() (and any other path that
+  // streams fb_buffer to the panel before the first user-side fillScreen()) would
+  // otherwise XOR raw PSRAM garbage to the display.
+  extern void *special_calloc(size_t num, size_t size);
   if (ep_mode || bpp < 16) {
     if (framebuffer) free(framebuffer);
-#ifdef ESP8266
-    framebuffer = (uint8_t*)calloc((gxs * gys * bpp) / 8, 1);
-#else
-    if (UsePSRAM()) {
-      framebuffer = (uint8_t*)heap_caps_malloc((gxs * gys * bpp) / 8, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else {
-      framebuffer = (uint8_t*)calloc((gxs * gys * bpp) / 8, 1);
-    }
-#endif // ESP8266
+    framebuffer = (uint8_t*)special_calloc((gxs * gys * bpp) / 8, 1);
   }
   frame_buffer = framebuffer;
 
