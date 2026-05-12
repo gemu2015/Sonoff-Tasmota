@@ -3465,6 +3465,11 @@ SETREGS
   sml_globs.ready = false;
 
   if (!bitRead(Settings->rule_enabled, 0)) {
+    // Long-standing Scripter-era guard — see xsns_53_sml.ino for the
+    // detailed comment. Same silent-fail path silenced here too, now
+    // surfaces the cause via AddLog before returning.
+    AddLog(LOG_LEVEL_INFO, PSTR("SML: init skipped - Rule1 disabled (Settings->rule_enabled bit 0 == 0). "
+                                "Run `Rule1 1` to enable SML, or check your build has USE_RULES enabled."));
     return 1;
   }
 

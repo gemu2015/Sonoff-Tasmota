@@ -3418,6 +3418,16 @@ void SML_Init(void) {
   sml_globs.ready = false;
 
   if (!bitRead(Settings->rule_enabled, 0)) {
+    // Long-standing guard from the Scripter-era SML driver: meter setup
+    // only runs when Rule1 is enabled. With USE_UFILESYS-only builds
+    // there's no semantic reason for the gate, but the check is still
+    // here. Silent return was the historical behaviour and confused
+    // users when /sml_meter.def was on disk but the driver never loaded
+    // it (no log line, no error in `sensor53 r` reply — just nothing).
+    // Surface the cause so a fresh device (Rule1 = 0 after factory
+    // reset / reflash) gives a clear diagnostic instead.
+    AddLog(LOG_LEVEL_INFO, PSTR("SML: init skipped - Rule1 disabled (Settings->rule_enabled bit 0 == 0). "
+                                "Run `Rule1 1` to enable SML, or check your build has USE_RULES enabled."));
     return;
   }
 
