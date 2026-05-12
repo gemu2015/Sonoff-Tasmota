@@ -145,6 +145,12 @@ float regs10(int val, int signedp) {
 
 
 // ── store_reg — record value + republish on UDP if mapped ───────
+// `global float` writes auto-broadcast via Tasmota's UDP multicast bus
+// (239.255.255.250:1999). Earlier (2026-05-11) we toggled this off via
+// a DIAG_NO_UDP flag to test whether per-frame UDP bursts were causing
+// the bimodal ~2 s latency on /cm — confirmed NOT the cause (slowness
+// persisted with UDP off AND with the script entirely stopped). Flag
+// removed; UDP is back on.
 void store_reg(int addr, int val) {
     if (addr < 0 || addr >= 500) return;
     known[addr] = 1;
@@ -357,6 +363,31 @@ void TaskLoop() {
 // the on-device readout, no out-of-band /in scraping is needed.
 void WebCall() {
     char row[120];
+
+    // Heat-pump state (mirrors what we publish via UDP globals). Run state
+    // first so it's the most prominent — at a glance you see "Ein"/"Aus"
+    // and the target temperature. TinyC's sprintf %s wants a char[] var,
+    // not a ternary expression — copy into a local first.
+    char status[8];
+    if (hp_run > 0.5) strcpy(status, "Ein");
+    else              strcpy(status, "Aus");
+    sprintf(row, "{s}WP Status{m}%s   Soll %.1f°C{e}", status, hp_tgt);
+    webSend(row);
+
+    // Temperatures (°C ×10 → float)
+    sprintf(row, "{s}WP Außen / Puffer{m}%.1f°C / %.1f°C{e}", hp_at, hp_in);
+    webSend(row);
+    sprintf(row, "{s}WP Ausgang / Ansauggas{m}%.1f°C / %.1f°C{e}", hp_out, hp_sug);
+    webSend(row);
+    sprintf(row, "{s}WP Verdampfer{m}%.1f°C{e}", hp_evp);
+    webSend(row);
+
+    // Pressures (×10 bar → float)
+    sprintf(row, "{s}WP Druck Saug / Hoch{m}%.1f bar / %.1f bar{e}", hp_psh, hp_pdh);
+    webSend(row);
+
+    // Sniffer activity + heap health — last so it doesn't crowd the
+    // heat-pump readout.
     sprintf(row, "{s}HP sniffer{m}frames=%d parsed=%d failed=%d  free=%dkb maxb=%dkb frag=%d%%{e}",
             frames_seen, rsp_parsed, rsp_failed,
             tasm_heap / 1024, tasm_maxblock / 1024, tasm_frag);
