@@ -1767,6 +1767,16 @@ static void tc_send_web(const char *buf, int len) {
   tc_web_lazy_begin();
   WSContentSend(buf, len);
 }
+
+// Raw-mode counterpart: writes bytes straight to the active client socket,
+// bypassing Tasmota's chunked-buffer machinery. Each call also defensively
+// arms web_raw_active so any stray webSend() afterwards becomes a no-op.
+static void tc_send_raw(const char *buf, int len) {
+  if (Tinyc) Tinyc->web_raw_active = 1;
+  if (Webserver && len > 0) {
+    Webserver->client().write((const uint8_t*)buf, len);
+  }
+}
 #endif
 
 /*********************************************************************************************\
@@ -8954,16 +8964,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Write bytes directly to Webserver->client(), bypassing the framework's
       // chunked-transfer / content-builder machinery. Implicitly raw-arms the
       // request so any subsequent webSend() is a no-op (defensive).
+      //
+      // Streams via tc_stream_ref → tc_send_raw in TC_STREAM_CHUNK (256-byte)
+      // pieces, so arbitrarily long HTTP responses work. Earlier rev capped at
+      // TC_OUTPUT_SIZE (128 B) which silently truncated the Marstek-emu's
+      // /v1/json body (~129 B) and broke Jackery keep-alive on iter 1 with a
+      // short-read on a truncated Content-Length frame.
       a = TC_POP(vm);  // str_ref
 #ifdef USE_WEBSERVER
-      if (Tinyc) Tinyc->web_raw_active = 1;
-      if (Webserver) {
-        char buf[TC_OUTPUT_SIZE];
-        int n = tc_ref_to_cstr(vm, a, buf, sizeof(buf));
-        if (n > 0) {
-          Webserver->client().write((const uint8_t*)buf, n);
-        }
-      }
+      tc_stream_ref(vm, a, tc_send_raw);
 #endif
       break;
     }
