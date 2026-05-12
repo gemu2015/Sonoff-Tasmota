@@ -25,9 +25,11 @@
 
 //#define UDSP_DEBUG
 
-// EPD trace: set to 1 to emit compact per-opcode log during send_spi_cmds
-// (safe to leave on for bring-up; one log line per raw/pseudo command).
-#define UDSP_EPD_TRACE 1
+// EPD trace: set to 1 to emit compact per-opcode log during send_spi_cmds.
+// Default OFF for production; flip to 1 during EPD-driver bring-up to get
+// one log line per raw/pseudo command. Keep in sync with the matching
+// toggle in uDisplay_EPD_panel.cpp.
+#define UDSP_EPD_TRACE 0
 
 #ifndef UDSP_LBSIZE
 #define UDSP_LBSIZE 256

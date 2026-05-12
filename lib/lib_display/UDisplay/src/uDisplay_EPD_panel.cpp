@@ -5,20 +5,23 @@
 #include "uDisplay_EPD_panel.h"
 #include <Arduino.h>
 
-// Match UDSP_EPD_TRACE toggle in uDisplay.cpp (kept in sync manually for now).
-#define UDSP_EPD_TRACE 1
+// Per-step tracing. Disabled by default; set to 1 to enable AddLog
+// noise during EPD-driver debugging (matches the UDSP_EPD_TRACE
+// toggle in uDisplay.cpp — keep them in sync manually).
+#define UDSP_EPD_TRACE 0
 #if UDSP_EPD_TRACE
 extern void AddLog(uint32_t loglevel, const char* formatP, ...);
 #define EPD_LOG_LEVEL 2  /* LOG_LEVEL_INFO */
 #endif
 
-// Logic-analyzer trigger pin. When defined, pulses HIGH at the start of each
-// updateFrame() and LOW at the end so the LA can trigger on the rising edge
-// and capture exactly one refresh cycle (CS / SCK / MOSI / BUSY decoded as
-// SPI). Mirrored in UDisplay_legacy/uDisplay.cpp so the two drivers can be
-// captured under identical conditions and diffed wire-level. Remove (or
-// leave undefined) before shipping.
-#define UDSP_LA_TRIGGER 13
+// Logic-analyzer trigger pin. When defined, pulses HIGH at the start of
+// updateFrame() and LOW at the end so an LA can trigger on the rising
+// edge and capture exactly one refresh cycle. Mirrored in
+// UDisplay_legacy/uDisplay.cpp so the two drivers can be captured
+// wire-level under identical conditions and diffed. Left UNDEFINED
+// here for production builds — uncomment if you need wire-level
+// debugging again.
+// #define UDSP_LA_TRIGGER 13
 
 // EPD Command Definitions
 static constexpr uint8_t DRIVER_OUTPUT_CONTROL                = 0x01;
@@ -72,42 +75,35 @@ EPDPanel::~EPDPanel() {
     }
 }
 
+
+// Wait for the panel's BUSY pin to go idle (or run a fallback delay
+// when no busy pin is configured). History: a "safety-net minimum
+// wait" variant (commit ce47b1ee4, 2026-04-25) was introduced as a
+// workaround for missed BUSY edges on bit-banged SPI. That root cause
+// was actually flash-cache-miss latency in the inner write loop,
+// fixed properly by IRAM-placing the bit-bang writers in 20fde024a
+// (2026-05-10). With reliable BUSY polling the safety net became
+// spurious blocking and was reverted on epaper29. See
+// project_udisplay_epd.md "UPDATE 2026-05-12".
+#define UDSP_BUSY_TIMEOUT 3000
 void EPDPanel::delay_sync(int32_t ms) {
-    uint8_t busy_level = cfg.busy_invert ? LOW : HIGH;
-    uint32_t time = millis();
-    if (cfg.busy_pin >= 0) {
-        // Two-phase wait:
-        //   1) The chip takes tens of microseconds to assert BUSY after the
-        //      last SPI byte. Wait up to 20 ms for the rising edge so we
-        //      don't sample before the refresh has even started.
-        //   2) Then poll until BUSY goes back to idle, bounded by busy_timeout.
-        uint32_t rising_deadline = time + 20;
-        while (digitalRead(cfg.busy_pin) != busy_level) {
-            if (millis() >= rising_deadline) break;
-            delayMicroseconds(100);
-        }
-        while (digitalRead(cfg.busy_pin) == busy_level) {
-            delay(1);
-            if ((millis() - time) > cfg.busy_timeout) {
-                break;
-            }
-        }
-        // Safety net: BUSY polling on some 3-wire SPI panels (e.g. WS 2.9" v2
-        // SSD1680 with bit-banged SPI) misses the busy edge — read returns to
-        // idle before we sample. Without this, two back-to-back partial
-        // refreshes collide: 2nd 0x22 0xFF fires while 1st is still running.
-        // If polling returned much faster than the caller-specified panel
-        // timing, enforce the spec time as a minimum.
-        uint32_t elapsed = millis() - time;
-        if (ms > 0 && elapsed < (uint32_t)ms) {
-            delay((uint32_t)ms - elapsed);
-        }
-    } else {
-        delay(ms);
+  uint8_t busy_level = HIGH;
+  if (cfg.busy_invert) {
+    busy_level = LOW;
+  }
+  uint32_t time = millis();
+  if (cfg.busy_pin > 0) {
+    while (digitalRead(cfg.busy_pin) == busy_level) {
+      delay(1);
+      if  ((millis() - time) > UDSP_BUSY_TIMEOUT) {
+        break;
+      }
     }
+  } else {
+    delay(ms);
+  }
 #if UDSP_EPD_TRACE
-    AddLog(EPD_LOG_LEVEL, "UDSP: delay_sync pin=%d lvl=%d waited=%ums",
-           (int)cfg.busy_pin, (int)busy_level, (unsigned)(millis() - time));
+   AddLog(EPD_LOG_LEVEL, "UDSP: delay_sync pin=%d lvl=%d waited=%ums",(int)cfg.busy_pin, (int)busy_level, (unsigned)(millis() - time));
 #endif
 }
 
