@@ -161,8 +161,6 @@ static ccs811_state_t *ccs811_state = nullptr;
 bool CCS811_Detect(void) {
   ALLOCMEM
 
-  I2C_SETWIRE(0);
-
   ready = false;
   tcnt = 0;
   ecnt = 0;
@@ -170,18 +168,24 @@ bool CCS811_Detect(void) {
   ccs_bus  = 0;
   ccs_addr = CCS811_ADDRESS;
 
-  // Single-bus, primary-address probe. Inline the address — `static
-  // const ...[]` arrays don't work in plugin context (function-static
-  // arrays land in rodata that the plugin loader doesn't populate).
-  if (!I2C_SetDevice(ccs_addr, 0)) {
-    CCS811_Deinit();
-    return false;
-  }
-  if (!CCS811_begin(ccs_addr)) {
-    I2C_SetActiveFound(ccs_addr, GSTR(CCS811_dev), 0);
-    ready = true;
-    initialized = true;
-    return true;
+  // Probe both I²C busses (MAX_I2C_Busses == 2 on ESP32) — matches
+  // the SHT3X / BMP / VL53L0X pattern. The primary address is the
+  // only one the chip uses; just iterate over busses.
+  // `CCS811_begin` returns 0 on success (the test reads `!begin`).
+  for (uint32_t bus = 0; bus < MAX_I2C_Busses; bus++) {
+    I2C_SETWIRE(bus);
+    if (!I2C_SetDevice(ccs_addr, bus)) { continue; }
+    if (!CCS811_begin(ccs_addr)) {
+      ccs_bus = bus;
+      I2C_SetActiveFound(ccs_addr, GSTR(CCS811_dev), bus);
+      ready = true;
+      initialized = true;
+      return true;
+    }
+    // Address ACKed at the bus level but the chip-side init failed —
+    // release the slot so the other bus iteration (or a later driver)
+    // can claim it.
+    I2C_ResetActive(ccs_addr, bus);
   }
   CCS811_Deinit();
   return false;

@@ -250,8 +250,6 @@ static bme_state_t *bme_state = nullptr;
 int32_t Init_BME() {
   ALLOCMEM
 
-  I2C_SETWIRE(0);
-
   ready   = false;
   i2c_bus = 0;
 
@@ -259,17 +257,29 @@ int32_t Init_BME() {
   addrs[0] = BME280_I2C_ADDRESS1;
   addrs[1] = BME280_I2C_ADDRESS2;
 
+  // Probe both I²C busses (MAX_I2C_Busses == 2 on ESP32) — matches
+  // the SHT3X / HTU21 / CCS811 / MLX90614 / VL53L0X pattern. The
+  // outer `bus` loop is required: without it, sensors on Wire1
+  // (e.g. an EPD47 device using its secondary I²C for sensors)
+  // are silently invisible to the BMP driver.
   bool found = false;
-  for (uint32_t a = 0; a < 2; a++) {
-    i2c_addr = addrs[a];
-    if (!I2C_SetDevice(i2c_addr, 0)) { continue; }
-    type = BME_Read(BME280_ID_REGISTER, 1);
-    if (type == BMP180_CHIPID || type == BME280_CHIPID
-        || type == BMP280_CHIPID || type == BME680_CHIPID) {
-      found = true;
-      break;
+  for (uint32_t bus = 0; bus < MAX_I2C_Busses && !found; bus++) {
+    I2C_SETWIRE(bus);
+    for (uint32_t a = 0; a < 2; a++) {
+      i2c_addr = addrs[a];
+      if (!I2C_SetDevice(i2c_addr, bus)) { continue; }
+      type = BME_Read(BME280_ID_REGISTER, 1);
+      if (type == BMP180_CHIPID || type == BME280_CHIPID
+          || type == BMP280_CHIPID || type == BME680_CHIPID) {
+        i2c_bus = bus;
+        found = true;
+        break;
+      }
+      // Probed positive at the address bus level (someone ACK'd) but
+      // the chip-ID register doesn't match anything we know — release
+      // so the next iteration / driver can claim the address.
+      I2C_ResetActive(i2c_addr, bus);
     }
-    I2C_ResetActive(i2c_addr, 0);
   }
 
   if (!found) {
@@ -284,8 +294,11 @@ int32_t Init_BME() {
   else if (type == BME680_CHIPID) index = 3;
 
   GetTextIndexed(typestr, sizeof(typestr), index, GSTR(BMEtypes));
-  I2C_SetActiveFound(i2c_addr, typestr, 0);
+  I2C_SetActiveFound(i2c_addr, typestr, i2c_bus);
 
+  // Calibration read uses the same wire — explicitly re-select to
+  // be safe in case any helper above touched I2C_SETWIRE state.
+  I2C_SETWIRE(i2c_bus);
   BME_readCalibrationData();
 
   initialized = true;
