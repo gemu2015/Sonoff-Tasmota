@@ -226,6 +226,10 @@ int32_t WcResolutionSetting(int32_t resolution) {
   return Settings->webcam_config2.resolution << 4 | Settings->webcam_config.resolution;
 }
 
+static_assert(FRAMESIZE_INVALID == 25, "Number of supported frame sizes has changed in tools/esp32-arduino-libs sensor.h. If over 31 redesign WcResolutionSetting()");
+
+/*********************************************************************************************/
+
 void WcInterrupt(uint32_t state) {
   TasAutoMutex localmutex(&WebcamMutex, "WcInterrupt");
   // Stop camera ISR if active to fix TG1WDT_SYS_RESET

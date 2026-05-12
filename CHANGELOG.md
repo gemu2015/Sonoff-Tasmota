@@ -3,7 +3,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [15.4.0.1]
+## [15.4.0.2]
+### Added
+- Support for Modbus RX Enable GPIO (#24726)
+- Support for hostname generation using single-specifier Format() patterns (#24731)
+
+### Breaking Changed
+
+### Changed
+- ESP32 Platform from 2026.04.50 to 2026.05.50, Framework (Arduino Core) from v3.3.8 to v3.3.8.260506 and IDF v5.5.4.260407 (#24718)
+- Berry `format()` now uses internal `ext_snprintf_P()` for floating point formatting (#24725)
+- ESP8266 wrap printf and replace with stubs reducing flash size by 6k (#24714)
+- LVGL splash screen uses default Montserrat-14 instead of Montserrat-20 on small screens
+
+### Fixed
+- NeoPool possible overflow/div-zero errors and Hydrolysis module detection (#24724)
+- Seesaw encoder position tracking in light control mode (#24730)
+
+### Removed
+
+
+## [15.4.0.1] 20260507
 ### Added
 - Berry add support for pre-processor (#24679)
 - Berry transpose C defines to Berry in `tasmota_defines_for_berry.be` (#24680)
@@ -11,17 +31,9 @@ All notable changes to this project will be documented in this file.
 - Command `SetOption [0..2]` to display SetOption values
 - Command `WcResolution 0..24` increasing camera max resolution from 14 to 24
 
-### Breaking Changed
-
 ### Changed
 - ESP32 Platform from 2025.04.30 to 2026.04.50, Framework (Arduino Core) from v3.1.11 to v3.3.8 and IDF from v5.3.4.260127 to v5.5.4.260407 (#24676)
 - Berry solidification cache (#24710)
-
-### Fixed
-
-### Removed
-
-
 
 ## [Released]
 

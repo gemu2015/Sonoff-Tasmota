@@ -1,5 +1,5 @@
 /*
-  xdrv_99_esp32_webcamberry.ino - ESP32 webcam support for Tasmota
+  xdrv_81_esp32_webcam_task.ino - ESP32 webcam support for Tasmota
 
   Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
@@ -305,7 +305,7 @@ These will save or append a picture to a file.  The picture must have been first
 
 
 
-#define XDRV_99           99
+#define XDRV_81           81
 
 #include "cam_hal.h"
 #include "esp_camera.h"
@@ -335,19 +335,32 @@ SemaphoreHandle_t WebcamMutex = nullptr;
 const int nativeIntervals20ms[] = {
     20, //0 = FRAMESIZE_96X96,    // 96x96 (50fps, ~48fps) - at wcclock=30 (75, ~53)
     20, //1 = FRAMESIZE_QQVGA,    // 160x120 (50fps ~47fps)
-    20, //2 = FRAMESIZE_QCIF,     // 176x144 (50fps ~47fps)
-    20, //3 = FRAMESIZE_HQVGA,    // 240x176 (50fps ~37fps?)
-    20, //4 = FRAMESIZE_240X240,  // 240x240 (50fps ~39fps)
-    20, //5 = FRAMESIZE_QVGA,     // 320x240 (50fps ~35fps)
-    20, //6 = FRAMESIZE_CIF,      // 400x296 (50fps ~31fps)
-    20, //7 = FRAMESIZE_HVGA,     // 480x320 (25fps ~24fps)
-    40, //8 = FRAMESIZE_VGA,      // 640x480 (25fps ~19fps)
-    40, //9 = FRAMESIZE_SVGA,     // 800x600 (25fps ~15.5fps)
-    80, //10 = FRAMESIZE_XGA,      // 1024x768 (12.5fps, ~10fps)
-    80, //11 = FRAMESIZE_HD,       // 1280x720 (12.5fps, ~9fps)
-    80, //12 = FRAMESIZE_SXGA,     // 1280x1024 (12.5fps, ~7.5fps)
-    80, //13 = FRAMESIZE_UXGA,     // 1600x1200 (12.5fps, ~5fps)
+    20, //2 = FRAMESIZE_128X128,  // 128x128 (50fps ~47fps?)
+    20, //3 = FRAMESIZE_QCIF,     // 176x144 (50fps ~47fps)
+    20, //4 = FRAMESIZE_HQVGA,    // 240x176 (50fps ~37fps?)
+    20, //5 = FRAMESIZE_240X240,  // 240x240 (50fps ~39fps)
+    20, //6 = FRAMESIZE_QVGA,     // 320x240 (50fps ~35fps)
+    20, //7 = FRAMESIZE_320X320,  // 320x320 (50fps ~31fps?)
+    20, //8 = FRAMESIZE_CIF,      // 400x296 (50fps ~31fps)
+    20, //9 = FRAMESIZE_HVGA,     // 480x320 (25fps ~24fps)
+    40, //10 = FRAMESIZE_VGA,      // 640x480 (25fps ~19fps)
+    40, //11 = FRAMESIZE_SVGA,     // 800x600 (25fps ~15.5fps)
+    80, //12 = FRAMESIZE_XGA,      // 1024x768 (12.5fps, ~10fps)
+    80, //13 = FRAMESIZE_HD,       // 1280x720 (12.5fps, ~9fps)
+    80, //14 = FRAMESIZE_SXGA,     // 1280x1024 (12.5fps, ~7.5fps)
+    80, //15 = FRAMESIZE_UXGA,     // 1600x1200 (12.5fps, ~5fps)
+   100, //16 = FRAMESIZE_FHD,      // 1920x1080
+   100, //17 = FRAMESIZE_P_HD,     //  720x1280
+   100, //18 = FRAMESIZE_P_3MP,    //  864x1536
+   100, //19 = FRAMESIZE_QXGA,     // 2048x1536
+   100, //20 = FRAMESIZE_QHD,      // 2560x1440
+   100, //21 = FRAMESIZE_WQXGA,    // 2560x1600
+   100, //22 = FRAMESIZE_P_FHD,    // 1080x1920
+   100, //23 = FRAMESIZE_QSXGA,    // 2560x1920
+   100, //24 = FRAMESIZE_5MP,      // 2592x1944
 };
+
+static_assert(FRAMESIZE_INVALID == 25, "Number of supported frame sizes has changed in tools/esp32-arduino-libs sensor.h. Update table above. If over 31 redesign WcResolutionSetting()");
 
 
 // use mutex like:
@@ -505,6 +518,21 @@ struct {
   char name[7] = "Webcam";
 } WcStats;
 
+/*********************************************************************************************/
+
+int32_t WcResolutionSetting(int32_t resolution = -2);
+int32_t WcResolutionSetting(int32_t resolution) {
+  if (resolution > -2) {
+    if (-1 == resolution) { resolution = 31; }
+    Settings->webcam_config.resolution = resolution & 0xF;
+    Settings->webcam_config2.resolution = resolution >> 4 & 0x1;
+  }
+  resolution = Settings->webcam_config2.resolution << 4 | Settings->webcam_config.resolution;
+  if (31 == resolution) { resolution = -1; }  // Disable Camera
+  return resolution;
+}
+
+/*********************************************************************************************/
 
 // allocate a PICSTORE buffer.
 // for PIXFORMAT_JPEG:
@@ -521,22 +549,6 @@ struct {
 #define WC_REALLOC_WITH_COPY 2
 
 #define WC_USE_FAST_MEM 0x10
-
-/*********************************************************************************************/
-
-int32_t WcResolutionSetting(int32_t resolution = -2);
-int32_t WcResolutionSetting(int32_t resolution) {
-  if (resolution > -2) {
-    if (-1 == resolution) { resolution = 31; }
-    Settings->webcam_config.resolution = resolution & 0xF;
-    Settings->webcam_config2.resolution = resolution >> 4 & 0x1;
-  }
-  resolution = Settings->webcam_config2.resolution << 4 | Settings->webcam_config.resolution;
-  if (31 == resolution) { resolution = -1; }  // Disable Camera
-  return resolution;
-}
-
-/*********************************************************************************************/
 
 bool pic_alloc(struct PICSTORE *ps, int width, int height, int jpegsize, int format, int allocstyle){
   int len = 0;
@@ -3042,7 +3054,7 @@ void WcStatsShow(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv99(uint32_t function) {
+bool Xdrv81(uint32_t function) {
   bool result = false;
 
   switch (function) {

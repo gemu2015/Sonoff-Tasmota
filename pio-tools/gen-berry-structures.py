@@ -7,6 +7,22 @@ import json
 import subprocess
 from os.path import join, isfile
 
+from tasmotapiolib import is_non_build_target
+
+# Skip during the espidf libs compile phase that runs first when
+# `custom_sdkconfig` is set. The Arduino-as-component / hybrid build
+# triggers a recursive SConscript("espidf.py") which sets
+# ARDUINO_LIB_COMPILE_FLAG="Build" - in that pass we don't want to
+# regenerate Berry artifacts.
+if env.subst("$ARDUINO_LIB_COMPILE_FLAG") == "Build":
+    print("gen-berry-structures: skipped (ESP-IDF libs compile phase)")
+    Return()
+
+# Skip for non-compiling targets (upload, erase, monitor, ...).
+if is_non_build_target(env):
+    print("gen-berry-structures: skipped (non-build target)")
+    Return()
+
 # generate all precompiled Berry structures from multiple modules
 CURRENT_DIR = os.getcwd()
 PROJECT_DIR = env.subst("$PROJECT_DIR")

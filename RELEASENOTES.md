@@ -112,10 +112,12 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 
 [Complete list](BUILDS.md) of available feature and sensors.
 
-## Changelog v15.4.0.1
+## Changelog v15.4.0.2
 ### Added
 - Command `SetOption [0..2]` to display SetOption values
 - Command `WcResolution 0..24` increasing camera max resolution from 14 to 24
+- Support for hostname generation using single-specifier Format() patterns [#24731](https://github.com/arendst/Tasmota/issues/24731)
+- Support for Modbus RX Enable GPIO [#24726](https://github.com/arendst/Tasmota/issues/24726)
 - MiElHVAC extend support of AirDirection control [#24675](https://github.com/arendst/Tasmota/issues/24675)
 - Berry add support for pre-processor [#24679](https://github.com/arendst/Tasmota/issues/24679)
 - Berry transpose C defines to Berry in `tasmota_defines_for_berry.be` [#24680](https://github.com/arendst/Tasmota/issues/24680)
@@ -123,8 +125,12 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 ### Breaking Changed
 
 ### Changed
-- ESP32 Platform from 2025.04.30 to 2026.04.50, Framework (Arduino Core) from v3.1.11 to v3.3.8 and IDF from v5.3.4.260127 to v5.5.4.260407 [#24676](https://github.com/arendst/Tasmota/issues/24676)
+- ESP32 Platform from 2025.04.30 to 2026.05.50, Framework (Arduino Core) from v3.1.11 to v3.3.8.260506 and IDF from v5.3.4.260127 to v5.5.4.260407 [#24718](https://github.com/arendst/Tasmota/issues/24718)
+- ESP8266 wrap printf and replace with stubs reducing flash size by 6k [#24714](https://github.com/arendst/Tasmota/issues/24714)
+- Berry `format()` now uses internal `ext_snprintf_P()` for floating point formatting [#24725](https://github.com/arendst/Tasmota/issues/24725)
 
 ### Fixed
+- NeoPool possible overflow/div-zero errors and Hydrolysis module detection [#24724](https://github.com/arendst/Tasmota/issues/24724)
+- Seesaw encoder position tracking in light control mode [#24730](https://github.com/arendst/Tasmota/issues/24730)
 
 ### Removed
