@@ -1116,8 +1116,10 @@ static const char TC_CORS_ORIGIN[] PROGMEM = "Access-Control-Allow-Origin";
 static const char TC_CORS_METHODS[] PROGMEM = "Access-Control-Allow-Methods";
 static const char TC_CORS_HEADERS[] PROGMEM = "Access-Control-Allow-Headers";
 
-// Send CORS headers from PROGMEM (saves ~180 bytes RAM on ESP8266)
-static void TCSendCORS(const char *methods_ram) {
+// Send CORS headers from PROGMEM (saves ~180 bytes RAM on ESP8266).
+// Non-static so the lazy WSContentBegin path in xdrv_124_tinyc_vm.h's
+// SYS_WEB_SEND* dispatchers can reuse it from inside the VM TU.
+void TCSendCORS(const char *methods_ram) {
   char hdr[40], val[16];
   strncpy_P(hdr, TC_CORS_ORIGIN, sizeof(hdr)); Webserver->sendHeader(hdr, "*");
   strncpy_P(hdr, TC_CORS_METHODS, sizeof(hdr)); Webserver->sendHeader(hdr, methods_ram);
@@ -2887,11 +2889,39 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
     return;
   }
   Tinyc->current_web_handler = handler_num;
-  // CORS + chunked response -- callback uses webSend() to emit content
-  TCSendCORS("GET, POST, OPTIONS");
-  WSContentBegin(200, CT_HTML);
+  Tinyc->web_content_begun   = 0;
+  Tinyc->web_raw_active      = 0;
+#ifdef USE_HTTP_KEEPALIVE
+  // Per-request opt-in: handler must call webKeepAlive() each iteration
+  // to keep the TCP socket open. Reset here so a previously kept-alive
+  // request doesn't carry its flag into the next request handler.
+  if (Webserver) Webserver->setKeepAlive(false);
+#endif
+
+  // WSContentBegin + CORS are now LAZY: triggered on the first webSend()
+  // call inside the callback (see SYS_WEB_SEND / SYS_WEB_SEND_STR). This
+  // lets raw-mode handlers — those that call webRawMode() and write the
+  // full HTTP response via webRawWrite() — bypass Tasmota's chunked
+  // text/html wrapping entirely. Motivating use case: emulating storage
+  // devices whose firmware expects an exact 3-header EcoTracker response
+  // (HTTP/1.1 200 OK + Content-Type + Content-Length, nothing else) plus
+  // a kept-alive TCP socket — Jackery Homepower 2000 Ultra and friends.
+  // Existing webOn scripts that just call webSend() see byte-identical
+  // wire format vs. the old eager-WSContentBegin path.
   tc_slot_callback(s, "WebOn");
-  WSContentEnd();
+
+  if (Tinyc->web_content_begun) {
+    WSContentEnd();
+  } else if (!Tinyc->web_raw_active) {
+    // Handler called neither webSend() nor webRaw*() — preserve the
+    // pre-lazy-begin behaviour of emitting an empty-body chunked
+    // response so scripts that register an endpoint without producing
+    // content (rare but legitimate, e.g. side-effect-only triggers)
+    // don't regress to "client gets nothing on the wire".
+    TCSendCORS("GET, POST, OPTIONS");
+    WSContentBegin(200, CT_HTML);
+    WSContentEnd();
+  }
   Tinyc->current_web_handler = 0;
 }
 

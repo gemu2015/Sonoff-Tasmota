@@ -792,6 +792,41 @@ enum TcSyscall {
                                   //   filter is part of driver install, not run-time mutable.
                                   //   Default if never called: ACCEPT_ALL (mask=0).
 
+  // ── Raw / keep-alive WebOn response control (390..392) ────────────────
+  // Lets a webOn() handler emit an HTTP response with a hand-crafted set of
+  // headers (no auto-injected text/html, no Transfer-Encoding: chunked, no
+  // hardcoded `Connection: close`) AND keep the TCP socket open across
+  // subsequent polls. Motivating use case: emulating EcoTracker-like devices
+  // whose firmware parses HTTP loosely and expects a specific 3-header
+  // shape with kept-alive transport — most notably the Jackery Homepower
+  // 2000 Ultra (sdeigm/uni-meter#265, ottelo/tasmota-sml-script#24).
+  // Without these, Tasmota's webserver path closes the connection after
+  // each response and Jackery drops the device from its app within
+  // seconds. The raw-write side bypasses Tasmota's chunked machinery
+  // entirely (Webserver->client().write(...)); the keep-alive side is
+  // backed by USE_HTTP_KEEPALIVE in TasmotaWebServer.h.
+  SYS_WEB_RAW_MODE          = 390, // ()                                    -> void
+                                  //   Disable Tasmota's auto-generated headers and chunked encoding
+                                  //   for the current WebOn request. After this call, webSend() is
+                                  //   a no-op (defensive — handler should use webRawWrite() only).
+                                  //   Must be the first webOn syscall of the handler, before any
+                                  //   webSend().
+  SYS_WEB_RAW_WRITE         = 391, // (str_ref)                             -> void
+                                  //   Stream bytes directly to Webserver->client(). Implies raw
+                                  //   mode if webRawMode() wasn't called explicitly. The handler
+                                  //   is responsible for emitting the full HTTP response: status
+                                  //   line, headers, blank line, body. Typical usage:
+                                  //     sprintf(hdr, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n", strlen(json));
+                                  //     webRawWrite(hdr); webRawWrite(json);
+                                  //   Caps the per-call write at TC_OUTPUT_SIZE bytes (call multiple
+                                  //   times for larger payloads).
+  SYS_WEB_KEEP_ALIVE        = 392, // ()                                    -> void
+                                  //   Keep the TCP socket open after this response. Per-request
+                                  //   opt-in — the WebServer's _ka_flag (TasmotaWebServer.h)
+                                  //   resets at the start of each request and when a new client
+                                  //   connects. Compiles to a no-op when USE_HTTP_KEEPALIVE is
+                                  //   #undef'd.
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -1273,6 +1308,13 @@ struct TINYC {
   char     web_handler_url[TC_MAX_WEB_HANDLERS][32];
   uint8_t  web_handler_count;
   uint8_t  current_web_handler;   // handler number during WebOn callback
+  // Per-request state for HandleTinyCWebOn. web_content_begun: set the first
+  // time webSend() runs inside a WebOn callback — triggers lazy WSContentBegin
+  // (so raw-mode handlers that skip webSend() entirely get to write the full
+  // response themselves). web_raw_active: set by webRawMode() — defensively
+  // suppresses any auto-WSContentBegin even if a stray webSend() slips in.
+  uint8_t  web_content_begun;
+  uint8_t  web_raw_active;
   // Console buttons (webConsoleButton)
 #define TC_MAX_CONSOLE_BTNS 4
   char     console_btn_url[TC_MAX_CONSOLE_BTNS][32];
@@ -1694,7 +1736,35 @@ static void tc_send_response(const char *buf, int len) {
   ResponseAppend_P(PSTR("%s"), buf);
 }
 #ifdef USE_WEBSERVER
+extern void TCSendCORS(const char *methods_ram);  // defined in xdrv_124_tinyc.ino
+
+// Lazy WSContentBegin: triggered on the first webSend()/webSendStr()/etc
+// call inside a WebOn callback. Allows raw-mode handlers (those that
+// call webRawMode() and write the full HTTP response via webRawWrite())
+// to bypass Tasmota's auto-generated text/html + chunked-transfer wrapper
+// — which is required when emulating storages whose firmware expects an
+// exact response shape (e.g. Jackery Homepower 2000 Ultra: HTTP/1.1 200 OK
+// + Content-Type + Content-Length, nothing else, kept-alive socket).
+//
+// Guard rails:
+//   - current_web_handler != 0 ensures we're inside a WebOn dispatch (other
+//     callbacks like WebCall / WebUI have their own chunked context already
+//     set up by the upper-layer handler).
+//   - web_content_begun gate makes this idempotent across the streaming
+//     loop in tc_stream_ref (256-byte chunks).
+//   - web_raw_active suppresses begin entirely so a stray webSend() after
+//     webRawMode() doesn't corrupt the response.
+static inline void tc_web_lazy_begin(void) {
+  if (Tinyc && Tinyc->current_web_handler > 0 &&
+      !Tinyc->web_content_begun && !Tinyc->web_raw_active) {
+    TCSendCORS("GET, POST, OPTIONS");
+    WSContentBegin(200, CT_HTML);
+    Tinyc->web_content_begun = 1;
+  }
+}
+
 static void tc_send_web(const char *buf, int len) {
+  tc_web_lazy_begin();
   WSContentSend(buf, len);
 }
 #endif
@@ -6431,6 +6501,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       a = TC_POP(vm);  // constant pool index
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
 #ifdef USE_WEBSERVER
+        tc_web_lazy_begin();
         int slen = strlen(vm->constants[a].str.ptr);
         WSContentSend(vm->constants[a].str.ptr, slen);
 #endif
@@ -8783,6 +8854,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         if (!f && ffsp) f = ffsp->open(path, "r");
         if (f) {
           char buf[256];
+#ifdef USE_WEBSERVER
+          tc_web_lazy_begin();
+#endif
           WSContentFlush();
           while (f.available()) {
             int len = f.readBytes(buf, sizeof(buf) - 1);
@@ -8802,6 +8876,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t count = TC_POP(vm);
       int32_t ref = TC_POP(vm);
 #ifdef USE_WEBSERVER
+      tc_web_lazy_begin();
       int32_t *arr = tc_resolve_ref(vm, ref);
       int32_t maxLen = tc_ref_maxlen(vm, ref);
       if (arr && count > 0) {
@@ -8864,6 +8939,40 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
 #endif
       TC_PUSH(vm, result);
+      break;
+    }
+
+    case SYS_WEB_RAW_MODE: {
+      // Disable Tasmota's auto-WSContentBegin for this WebOn request.
+      // Handler will emit the full HTTP response itself via webRawWrite().
+#ifdef USE_WEBSERVER
+      if (Tinyc) Tinyc->web_raw_active = 1;
+#endif
+      break;
+    }
+    case SYS_WEB_RAW_WRITE: {
+      // Write bytes directly to Webserver->client(), bypassing the framework's
+      // chunked-transfer / content-builder machinery. Implicitly raw-arms the
+      // request so any subsequent webSend() is a no-op (defensive).
+      a = TC_POP(vm);  // str_ref
+#ifdef USE_WEBSERVER
+      if (Tinyc) Tinyc->web_raw_active = 1;
+      if (Webserver) {
+        char buf[TC_OUTPUT_SIZE];
+        int n = tc_ref_to_cstr(vm, a, buf, sizeof(buf));
+        if (n > 0) {
+          Webserver->client().write((const uint8_t*)buf, n);
+        }
+      }
+#endif
+      break;
+    }
+    case SYS_WEB_KEEP_ALIVE: {
+      // Keep the TCP socket alive across this and the next request. Backed by
+      // TasmotaWebServer's overridden handleClient() under USE_HTTP_KEEPALIVE.
+#if defined(USE_WEBSERVER) && defined(USE_HTTP_KEEPALIVE)
+      if (Webserver) Webserver->setKeepAlive(true);
+#endif
       break;
     }
 
