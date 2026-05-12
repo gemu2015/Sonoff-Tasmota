@@ -266,27 +266,28 @@ void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
 
 // we must use this for epaper because these displays have a strange and different bit pattern
 void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
-
-    int16_t w = cfg.width, h = cfg.height;
-    if (rotation == 1 || rotation == 3) {
-      std::swap(w, h);
-    }
-
-    if (x < 0 || x >= w || y < 0 || y >= h) {
+    // (x, y) are PHYSICAL panel coordinates — drawPixel() has already applied
+    // the rotation transform. So bounds & stride MUST use the physical
+    // cfg.width/cfg.height regardless of rotation. The previous code swapped
+    // w/h for rotation 1/3, which clipped valid pixels (any physical-x >=
+    // cfg.height when cfg.width > cfg.height) and addressed the framebuffer
+    // with the wrong stride. Rotation 0/2 happened to work because no swap
+    // occurred; the bug only bit landscape rotations.
+    if (x < 0 || x >= cfg.width || y < 0 || y >= cfg.height) {
         return;
     }
 
     if (IF_INVERT_COLOR) {
         if (color) {
-            fb_buffer[(x + y * w) / 8] |= 0x80 >> (x % 8);
+            fb_buffer[(x + y * cfg.width) / 8] |= 0x80 >> (x % 8);
         } else {
-            fb_buffer[(x + y * w) / 8] &= ~(0x80 >> (x % 8));
+            fb_buffer[(x + y * cfg.width) / 8] &= ~(0x80 >> (x % 8));
         }
     } else {
         if (color) {
-            fb_buffer[(x + y * w) / 8] &= ~(0x80 >> (x % 8));
+            fb_buffer[(x + y * cfg.width) / 8] &= ~(0x80 >> (x % 8));
         } else {
-            fb_buffer[(x + y * w) / 8] |= 0x80 >> (x % 8);
+            fb_buffer[(x + y * cfg.width) / 8] |= 0x80 >> (x % 8);
         }
     }
 
