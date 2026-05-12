@@ -14,15 +14,6 @@ extern void AddLog(uint32_t loglevel, const char* formatP, ...);
 #define EPD_LOG_LEVEL 2  /* LOG_LEVEL_INFO */
 #endif
 
-// Logic-analyzer trigger pin. When defined, pulses HIGH at the start of
-// updateFrame() and LOW at the end so an LA can trigger on the rising
-// edge and capture exactly one refresh cycle. Mirrored in
-// UDisplay_legacy/uDisplay.cpp so the two drivers can be captured
-// wire-level under identical conditions and diffed. Left UNDEFINED
-// here for production builds — uncomment if you need wire-level
-// debugging again.
-// #define UDSP_LA_TRIGGER 13
-
 // EPD Command Definitions
 static constexpr uint8_t DRIVER_OUTPUT_CONTROL                = 0x01;
 static constexpr uint8_t BOOSTER_SOFT_START_CONTROL           = 0x0C;
@@ -428,19 +419,6 @@ bool EPDPanel::setRotation(uint8_t rot) {
 bool EPDPanel::updateFrame() {
     if (!fb_buffer) return false;
 
-#ifdef UDSP_LA_TRIGGER
-    // One-shot pinMode init — Arduino's pinMode is fast, but doing it here
-    // (instead of at construction) keeps the LA-trigger feature self-contained
-    // in this function's #ifdef block.
-    static bool la_init = false;
-    if (!la_init) {
-        pinMode(UDSP_LA_TRIGGER, OUTPUT);
-        digitalWrite(UDSP_LA_TRIGGER, LOW);
-        la_init = true;
-    }
-    digitalWrite(UDSP_LA_TRIGGER, HIGH);
-#endif
-
 #if UDSP_EPD_TRACE
     AddLog(EPD_LOG_LEVEL, "UDSP: updateFrame ep_mode=%d update_mode=%d part_off=%u part_cnt=%u full_off=%u full_cnt=%u",
            (int)cfg.ep_mode, (int)update_mode,
@@ -471,9 +449,6 @@ bool EPDPanel::updateFrame() {
         displayFrame_42();
     }
 
-#ifdef UDSP_LA_TRIGGER
-    digitalWrite(UDSP_LA_TRIGGER, LOW);
-#endif
     return true;
 }
 
