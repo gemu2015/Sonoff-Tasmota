@@ -110,28 +110,8 @@ const char  JSON_BMPend[]   PROGMEM = "}";
 // its own constants table so the names need to be unique in the
 // merged tasmota.ino.cpp TU.
 const float FP_CONST_BMP[]  PROGMEM = {0, 0.01, 0.00097656};
-#undef  FLTC
-// On ESP32-S3 plugin mode, direct `lsi` (load single-float) from a
-// PROGMEM float[] silently fails — the load instruction returns
-// garbage when the address lives in IROM. Workaround (same pattern
-// firmware uses for plain `FP_CONST` in module_defines.h:498-499):
-// read the slot as `volatile uint32_t` (forces `l32i`) then memcpy
-// the bit pattern into a float local. Plain `FP_CONST_BMP[idx]` only
-// works in contexts where the compiler ends up casting to int
-// (e.g. `(int)(FLTC(1)*1000)`) — in float-arg-passing contexts
-// (e.g. `fscale(x, FLTC(1), FLTC(0))`) the compiler emits the
-// unsafe lsi and corrupts the value to 0xDD5F53FB.
-#if BUILD_AS_PLUGIN
-#  define FLTC(idx) ({ \
-      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_BMP + EXEC_OFFSET))[(idx)]; \
-      float _f; \
-      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
-      _f; \
-    })
-#else
-#  define FLTC(idx)  (FP_CONST_BMP[(idx)])
-#endif
-
+#define DUAL_FLTC_TABLE FP_CONST_BMP
+#include "dual_format_fltc.h"
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
 // Native: macros are empty → plain C++ forward decls.
@@ -175,10 +155,9 @@ MODULE_END
 //   xWire           — used only in plugin (TWIp* per-instance bus handle).
 //                     ~4 B unused in native (acceptable, keeps code linear).
 //   initialized_flag — used only in native. ~1 B unused in plugin.
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  bme_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    bme
+#define DUAL_NATIVE_STATE_T bme_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp    *xWire;
   float    hum;
@@ -226,18 +205,7 @@ typedef struct {
        // ALLOCMEM (e.g. Init_BME) have `mem` available afterwards —
        // matching the plugin shape.
 
-static bme_state_t *bme_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS      MODULE_MEMORY *mem = bme_state;
-#  define ALLOCMEM \
-       if (!bme_state) bme_state = (bme_state_t *)calloc(1, sizeof(bme_state_t)); \
-       if (!bme_state) return -1; \
-       MODULE_MEMORY *mem = bme_state;
-#  define RETMEM \
-       if (bme_state) { free(bme_state); bme_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_09     9
 #  define XI2C_10     10
 

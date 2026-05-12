@@ -188,10 +188,9 @@ typedef struct {
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  scd30_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    scd30
+#define DUAL_NATIVE_STATE_T scd30_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp   *xWire;
   uint8_t ready;
@@ -208,18 +207,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static scd30_state_t *scd30_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = scd30_state;
-#  define ALLOCMEM \
-       if (!scd30_state) scd30_state = (scd30_state_t *)calloc(1, sizeof(scd30_state_t)); \
-       if (!scd30_state) return -1; \
-       MODULE_MEMORY *mem = scd30_state;
-#  define RETMEM \
-       if (scd30_state) { free(scd30_state); scd30_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_42     42
 #  define XI2C_29     29
 

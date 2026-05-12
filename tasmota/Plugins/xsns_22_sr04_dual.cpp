@@ -82,10 +82,9 @@ const char JSON_DIST_DUAL[]     PROGMEM = ",\"SR04T\":{\"DIST\":%s}";
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  sr04_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    sr04
+#define DUAL_NATIVE_STATE_T sr04_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   uint8_t  recpin;
   uint8_t  ready;
@@ -103,18 +102,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static sr04_state_t *sr04_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = sr04_state;
-#  define ALLOCMEM \
-       if (!sr04_state) sr04_state = (sr04_state_t *)calloc(1, sizeof(sr04_state_t)); \
-       if (!sr04_state) return -1; \
-       MODULE_MEMORY *mem = sr04_state;
-#  define RETMEM \
-       if (sr04_state) { free(sr04_state); sr04_state = nullptr; }
-#  define initialized    mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_22        22
 
 #endif  // !BUILD_AS_PLUGIN

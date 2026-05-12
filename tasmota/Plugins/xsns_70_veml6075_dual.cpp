@@ -179,10 +179,9 @@ typedef union {
 } veml6075configRegister;
 
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  veml6075_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    veml6075
+#define DUAL_NATIVE_STATE_T veml6075_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp                  *xWire;
   uint8_t                veml6075_active;
@@ -197,18 +196,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static veml6075_state_t *veml6075_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = veml6075_state;
-#  define ALLOCMEM \
-       if (!veml6075_state) veml6075_state = (veml6075_state_t *)calloc(1, sizeof(veml6075_state_t)); \
-       if (!veml6075_state) return -1; \
-       MODULE_MEMORY *mem = veml6075_state;
-#  define RETMEM \
-       if (veml6075_state) { free(veml6075_state); veml6075_state = nullptr; }
-#  define initialized     mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_70         70
 #  define XI2C_49         49
 

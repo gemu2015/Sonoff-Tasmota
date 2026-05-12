@@ -234,10 +234,9 @@ struct WS_Sensor {
 // the body's `MODULE_MEMORY *mem = ...` pattern resolves correctly.
 
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  bresser_mem_t
-#endif
-
+#define DUAL_NATIVE_NAME    bresser
+#define DUAL_NATIVE_STATE_T bresser_mem_t
+#include "dual_format_native_state.h"
 typedef struct {
   void     *spi;
   uint8_t  cs_pin;
@@ -256,23 +255,10 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static bresser_mem_t *bresser_state = nullptr;
-
+DUAL_NATIVE_STATE_PTR_DECL
 // Override SETREGS / SETMEMREGS / ALLOCMEM / RETMEM to bind a
 // `mem` local to the heap state. Same shape as plugin macros so
 // the body's `mem->X` accesses don't change.
-#  undef  SETREGS
-#  undef  SETMEMREGS
-#  define SETREGS         MODULE_MEMORY *mem = bresser_state;
-#  define SETMEMREGS      MODULE_MEMORY *mem = bresser_state;
-#  define ALLOCMEM \
-       if (!bresser_state) bresser_state = (bresser_mem_t *)calloc(1, sizeof(bresser_mem_t)); \
-       if (!bresser_state) return -1; \
-       MODULE_MEMORY *mem = bresser_state;
-#  define RETMEM \
-       if (bresser_state) { free(bresser_state); bresser_state = nullptr; }
-#  define initialized     mem->initialized_flag
-
 // Native SPI shim — call sites use spiBeginTransaction/Transfer/etc
 // with `mem->spibaud` baked into the SPISettings. Routes to Arduino's
 // SPI library instead of the plugin's jumptable.
@@ -331,20 +317,8 @@ MODULE_END
 // 5 = -50.0 (3in1 temp correction threshold)
 // File-unique FP_CONST + per-driver FLTC.
 const float FP_CONST_BRES[] PROGMEM = {0.1, 0.001, 22.5, 2.5, 1.0, -50.0};
-#undef  FLTC
-#if BUILD_AS_PLUGIN
-// ESP32-S3 lsi-from-PROGMEM trap: see xsns_09_bmp_dual.cpp note.
-#  define FLTC(idx) ({ \
-      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_BRES + EXEC_OFFSET))[(idx)]; \
-      float _f; \
-      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
-      _f; \
-    })
-#else
-#  define FLTC(idx)                             (FP_CONST_BRES[(idx)])
-#endif
-
-
+#define DUAL_FLTC_TABLE FP_CONST_BRES
+#include "dual_format_fltc.h"
 /*********************************************************************************************\
  * CC1101 Low-Level SPI Functions
 \*********************************************************************************************/

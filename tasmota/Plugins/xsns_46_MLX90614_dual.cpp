@@ -46,19 +46,8 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[]     PROGMEM = "MLX90614";
 // File-unique FP_CONST + per-driver FLTC.
 const float FP_CONST_MLX[]  PROGMEM = {-999, 0.02, 273.15};
-#undef  FLTC
-#if BUILD_AS_PLUGIN
-// ESP32-S3 lsi-from-PROGMEM trap: see xsns_09_bmp_dual.cpp note.
-#  define FLTC(idx) ({ \
-      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_MLX + EXEC_OFFSET))[(idx)]; \
-      float _f; \
-      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
-      _f; \
-    })
-#else
-#  define FLTC(idx)                             (FP_CONST_MLX[(idx)])
-#endif
-
+#define DUAL_FLTC_TABLE FP_CONST_MLX
+#include "dual_format_fltc.h"
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
 // Native: macros are empty → plain C++ forward decls.
@@ -92,10 +81,9 @@ MODULE_END
 
 // State storage
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  mlx90614_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    mlx90614
+#define DUAL_NATIVE_STATE_T mlx90614_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   float   obj_temp;
   float   amb_temp;
@@ -118,18 +106,7 @@ typedef struct {
 
 #else  // native
 
-static mlx90614_state_t *mlx90614_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = mlx90614_state;
-#  define ALLOCMEM \
-       if (!mlx90614_state) mlx90614_state = (mlx90614_state_t *)calloc(1, sizeof(mlx90614_state_t)); \
-       if (!mlx90614_state) return -1; \
-       MODULE_MEMORY *mem = mlx90614_state;
-#  define RETMEM \
-       if (mlx90614_state) { free(mlx90614_state); mlx90614_state = nullptr; }
-#  define initialized     mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_46         46
 #  define XI2C_32         32
 

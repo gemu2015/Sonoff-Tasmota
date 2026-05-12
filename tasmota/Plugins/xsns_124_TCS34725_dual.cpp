@@ -125,10 +125,9 @@ private:
 // State storage — heap in both modes, holds the wrapper instance.
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  tcs34725_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    tcs34725
+#define DUAL_NATIVE_STATE_T tcs34725_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TwoWire *xWire;
   tcs34725 rgb_sensor;
@@ -143,18 +142,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static tcs34725_state_t *tcs34725_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = tcs34725_state;
-#  define ALLOCMEM \
-       if (!tcs34725_state) tcs34725_state = (tcs34725_state_t *)calloc(1, sizeof(tcs34725_state_t)); \
-       if (!tcs34725_state) return -1; \
-       MODULE_MEMORY *mem = tcs34725_state;
-#  define RETMEM \
-       if (tcs34725_state) { free(tcs34725_state); tcs34725_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_124    124
 #  define XI2C_55     55
 

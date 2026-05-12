@@ -150,10 +150,9 @@ enum MP3_Commands {
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  mp3_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    mp3
+#define DUAL_NATIVE_STATE_T mp3_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   uint8_t player_type;
   uint8_t player_txpin;
@@ -167,18 +166,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static mp3_state_t *mp3_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = mp3_state;
-#  define ALLOCMEM \
-       if (!mp3_state) mp3_state = (mp3_state_t *)calloc(1, sizeof(mp3_state_t)); \
-       if (!mp3_state) return -1; \
-       MODULE_MEMORY *mem = mp3_state;
-#  define RETMEM \
-       if (mp3_state) { free(mp3_state); mp3_state = nullptr; }
-#  define initialized       mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XDRV_14           14
 
 #endif  // !BUILD_AS_PLUGIN

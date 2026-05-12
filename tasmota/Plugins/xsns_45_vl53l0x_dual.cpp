@@ -56,19 +56,8 @@ typedef struct {
 
 // File-unique name — avoid collision with FP_CONST in other duals.
 const float FP_CONST_VL53[] PROGMEM = {10};
-#undef  FLTC
-#if BUILD_AS_PLUGIN
-// ESP32-S3 lsi-from-PROGMEM trap: see xsns_09_bmp_dual.cpp note.
-#  define FLTC(idx) ({ \
-      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_VL53 + EXEC_OFFSET))[(idx)]; \
-      float _f; \
-      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
-      _f; \
-    })
-#else
-#  define FLTC(idx)                             (FP_CONST_VL53[(idx)])
-#endif
-
+#define DUAL_FLTC_TABLE FP_CONST_VL53
+#include "dual_format_fltc.h"
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
 // Native: macros are empty → plain C++ forward decls.
@@ -96,10 +85,9 @@ MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 MODULE_END
 
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  vl53l0x_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    vl53l0x
+#define DUAL_NATIVE_STATE_T vl53l0x_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp    *xWire;
   bool     VL53L0X_xshut;
@@ -132,18 +120,7 @@ typedef struct {
 
 #else  // native
 
-static vl53l0x_state_t *vl53l0x_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = vl53l0x_state;
-#  define ALLOCMEM \
-       if (!vl53l0x_state) vl53l0x_state = (vl53l0x_state_t *)calloc(1, sizeof(vl53l0x_state_t)); \
-       if (!vl53l0x_state) return -1; \
-       MODULE_MEMORY *mem = vl53l0x_state;
-#  define RETMEM \
-       if (vl53l0x_state) { free(vl53l0x_state); vl53l0x_state = nullptr; }
-#  define initialized               mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_45                   45
 #  define XI2C_31                   31
 

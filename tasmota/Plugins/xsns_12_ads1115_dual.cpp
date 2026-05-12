@@ -142,10 +142,9 @@ typedef struct {
 } ADS1115;
 
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  ads1115_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    ads1115
+#define DUAL_NATIVE_STATE_T ads1115_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp   *xWire;
   ADS1115 Ads1115;
@@ -164,18 +163,7 @@ typedef struct {
 
 #else  // native
 
-static ads1115_state_t *ads1115_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = ads1115_state;
-#  define ALLOCMEM \
-       if (!ads1115_state) ads1115_state = (ads1115_state_t *)calloc(1, sizeof(ads1115_state_t)); \
-       if (!ads1115_state) return -1; \
-       MODULE_MEMORY *mem = ads1115_state;
-#  define RETMEM \
-       if (ads1115_state) { free(ads1115_state); ads1115_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_12     12
 #  define XI2C_13     13
 

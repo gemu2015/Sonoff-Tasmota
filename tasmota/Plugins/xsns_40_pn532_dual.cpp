@@ -190,10 +190,9 @@ typedef struct PN532 {
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  pn532_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    pn532
+#define DUAL_NATIVE_STATE_T pn532_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp          *xWire;
   bool           ready;
@@ -216,18 +215,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static pn532_state_t *pn532_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = pn532_state;
-#  define ALLOCMEM \
-       if (!pn532_state) pn532_state = (pn532_state_t *)calloc(1, sizeof(pn532_state_t)); \
-       if (!pn532_state) return -1; \
-       MODULE_MEMORY *mem = pn532_state;
-#  define RETMEM \
-       if (pn532_state) { free(pn532_state); pn532_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_40     40
 
 #endif  // !BUILD_AS_PLUGIN

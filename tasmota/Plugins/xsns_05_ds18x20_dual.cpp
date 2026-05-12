@@ -151,10 +151,9 @@ const uint8_t ds18x20_chipids[] PROGMEM = {
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  ds18x20_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    ds18x20
+#define DUAL_NATIVE_STATE_T ds18x20_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   uint8_t onewire_last_discrepancy;
   uint8_t onewire_last_family_discrepancy;
@@ -180,18 +179,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static ds18x20_state_t *ds18x20_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = ds18x20_state;
-#  define ALLOCMEM \
-       if (!ds18x20_state) ds18x20_state = (ds18x20_state_t *)calloc(1, sizeof(ds18x20_state_t)); \
-       if (!ds18x20_state) return -1; \
-       MODULE_MEMORY *mem = ds18x20_state;
-#  define RETMEM \
-       if (ds18x20_state) { free(ds18x20_state); ds18x20_state = nullptr; }
-#  define initialized                     mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_05                         5
 
 #endif  // !BUILD_AS_PLUGIN

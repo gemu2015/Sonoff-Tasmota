@@ -107,10 +107,9 @@ MODULE_END
 
 // State storage — heap in both modes
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  ccs811_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    ccs811
+#define DUAL_NATIVE_STATE_T ccs811_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp     *xWire;
   uint8_t   CCS811_ready;
@@ -137,18 +136,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static ccs811_state_t *ccs811_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = ccs811_state;
-#  define ALLOCMEM \
-       if (!ccs811_state) ccs811_state = (ccs811_state_t *)calloc(1, sizeof(ccs811_state_t)); \
-       if (!ccs811_state) return -1; \
-       MODULE_MEMORY *mem = ccs811_state;
-#  define RETMEM \
-       if (ccs811_state) { free(ccs811_state); ccs811_state = nullptr; }
-#  define initialized     mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_31         31
 #  define XI2C_24         24
 

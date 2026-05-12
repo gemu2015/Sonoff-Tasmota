@@ -111,10 +111,9 @@ MODULE_END
 // no PCF8574 is present on the bus)
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  pcf8574_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    pcf8574
+#define DUAL_NATIVE_STATE_T pcf8574_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp   *xWire;
   PCF8574 Pcf8574;
@@ -127,18 +126,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static pcf8574_state_t *pcf8574_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = pcf8574_state;
-#  define ALLOCMEM \
-       if (!pcf8574_state) pcf8574_state = (pcf8574_state_t *)calloc(1, sizeof(pcf8574_state_t)); \
-       if (!pcf8574_state) return -1; \
-       MODULE_MEMORY *mem = pcf8574_state;
-#  define RETMEM \
-       if (pcf8574_state) { free(pcf8574_state); pcf8574_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XDRV_28     28
 #  define XI2C_02     2
 

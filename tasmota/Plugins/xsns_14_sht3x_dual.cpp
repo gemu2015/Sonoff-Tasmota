@@ -66,22 +66,8 @@ const char  kShtTypes[]     PROGMEM = "%s%c%02X";
 // at the local FP_CONST array.
 const char  HTTP_SNS_AHUM_SHT3X[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
 const float FP_CONST_SHT3X[]      PROGMEM = {65535, 45};
-#undef  FLTC
-#if BUILD_AS_PLUGIN
-// ESP32-S3 lsi-from-PROGMEM trap: a direct `float[]` load via `lsi`
-// can return garbage. Read as volatile uint32_t (forces l32i), then
-// memcpy to float. EXEC_OFFSET applies the plugin loader's runtime
-// relocation to the compile-time symbol address.
-#  define FLTC(idx) ({ \
-      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_SHT3X + EXEC_OFFSET))[(idx)]; \
-      float _f; \
-      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
-      _f; \
-    })
-#else
-#  define FLTC(idx)                             (FP_CONST_SHT3X[(idx)])
-#endif
-
+#define DUAL_FLTC_TABLE FP_CONST_SHT3X
+#include "dual_format_fltc.h"
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
 // Native: macros are empty → plain C++ forward decls (which we still
@@ -121,10 +107,9 @@ MODULE_END
 // for the pattern rationale). `initialized_flag` is native-only —
 // plugin already has `#define initialized mt->flags.initialized` from
 // module_defines.h:590, so only native maps `initialized` → mem field.
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  sht3x_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    sht3x
+#define DUAL_NATIVE_STATE_T sht3x_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp        *xWire;
   uint8_t      sht3x_count;
@@ -147,18 +132,7 @@ typedef struct {
        // to the file-static state pointer. ALLOCMEM also declares `mem`
        // so callers like Init can use it immediately.
 
-static sht3x_state_t *sht3x_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = sht3x_state;
-#  define ALLOCMEM \
-       if (!sht3x_state) sht3x_state = (sht3x_state_t *)calloc(1, sizeof(sht3x_state_t)); \
-       if (!sht3x_state) return -1; \
-       MODULE_MEMORY *mem = sht3x_state;
-#  define RETMEM \
-       if (sht3x_state) { free(sht3x_state); sht3x_state = nullptr; }
-#  define initialized       mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_14   14
 #  define XI2C_15   15
 

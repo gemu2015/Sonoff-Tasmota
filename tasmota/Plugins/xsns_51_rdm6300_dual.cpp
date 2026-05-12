@@ -87,10 +87,9 @@ const char RDM_JSON_UID_DUAL[] PROGMEM = ",\"RDM6300\":{\"UID\":\"%08X\"}}";
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  rdm6300_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    rdm6300
+#define DUAL_NATIVE_STATE_T rdm6300_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   uint8_t        recpin;
   uint8_t        ready;
@@ -108,18 +107,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static rdm6300_state_t *rdm6300_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = rdm6300_state;
-#  define ALLOCMEM \
-       if (!rdm6300_state) rdm6300_state = (rdm6300_state_t *)calloc(1, sizeof(rdm6300_state_t)); \
-       if (!rdm6300_state) return -1; \
-       MODULE_MEMORY *mem = rdm6300_state;
-#  define RETMEM \
-       if (rdm6300_state) { free(rdm6300_state); rdm6300_state = nullptr; }
-#  define initialized     mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_51         51
 
 #endif  // !BUILD_AS_PLUGIN

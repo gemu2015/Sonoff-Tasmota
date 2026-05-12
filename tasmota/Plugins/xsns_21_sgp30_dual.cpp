@@ -101,10 +101,9 @@ const char JSON_SNS_AHUM_SGP[]  PROGMEM = ",\"aHumidity\":%s}";
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  sgp30_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    sgp30
+#define DUAL_NATIVE_STATE_T sgp30_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp    *xWire;
   bool     sgp30_ready;
@@ -137,18 +136,7 @@ typedef struct {
 
 #else  // native
 
-static sgp30_state_t *sgp30_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = sgp30_state;
-#  define ALLOCMEM \
-       if (!sgp30_state) sgp30_state = (sgp30_state_t *)calloc(1, sizeof(sgp30_state_t)); \
-       if (!sgp30_state) return -1; \
-       MODULE_MEMORY *mem = sgp30_state;
-#  define RETMEM \
-       if (sgp30_state) { free(sgp30_state); sgp30_state = nullptr; }
-#  define initialized    mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_21        21
 #  define XI2C_18        18
 

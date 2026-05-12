@@ -130,10 +130,9 @@ MODULE_END
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
 // (LTR308 was the first dual to use the in-function `mem` pattern;
 // this brings it in line with the rest of the dual lineup.)
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  ltr308_mem_t
-#endif
-
+#define DUAL_NATIVE_NAME    ltr308
+#define DUAL_NATIVE_STATE_T ltr308_mem_t
+#include "dual_format_native_state.h"
 typedef struct {
   TWIp   *xWire;
   uint8_t address;
@@ -148,20 +147,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static ltr308_mem_t *ltr308_state = nullptr;
-
-#  undef  SETREGS
-#  undef  SETMEMREGS
-#  define SETREGS         MODULE_MEMORY *mem = ltr308_state;
-#  define SETMEMREGS      MODULE_MEMORY *mem = ltr308_state;
-#  define ALLOCMEM \
-       if (!ltr308_state) ltr308_state = (ltr308_mem_t *)calloc(1, sizeof(ltr308_mem_t)); \
-       if (!ltr308_state) return -1; \
-       MODULE_MEMORY *mem = ltr308_state;
-#  define RETMEM \
-       if (ltr308_state) { free(ltr308_state); ltr308_state = nullptr; }
-#  define initialized     mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_56         56
 #  define XI2C_56         56
 
@@ -181,19 +167,8 @@ const float FP_CONST_LTR[] PROGMEM = {
   0.025  // [10] integration 25 ms (16-bit)
 };
 // Override the generic FLTC pointing at this driver's table.
-#undef  FLTC
-#if BUILD_AS_PLUGIN
-// ESP32-S3 lsi-from-PROGMEM trap: see xsns_09_bmp_dual.cpp note.
-#  define FLTC(idx) ({ \
-      volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST_LTR + EXEC_OFFSET))[(idx)]; \
-      float _f; \
-      __builtin_memcpy(&_f, (void*)&_tmp, 4); \
-      _f; \
-    })
-#else
-#  define FLTC(idx) (FP_CONST_LTR[(idx)])
-#endif
-
+#define DUAL_FLTC_TABLE FP_CONST_LTR
+#include "dual_format_fltc.h"
 const char HTTP_LTR308_LUX_DUAL[] PROGMEM = "{s}LTR308 Illuminance{m}%s lux{e}";
 
 // --------------------------------------------------------------------

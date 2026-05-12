@@ -173,10 +173,9 @@ const char HTTP_SNS_LD2410_ENG[] PROGMEM =
 // State storage — heap in both modes
 // --------------------------------------------------------------------
 // Unified MODULE_MEMORY for plugin + native (see xsns_09_bmp_dual.cpp).
-#if !BUILD_AS_PLUGIN
-#  define MODULE_MEMORY  ld2410_state_t
-#endif
-
+#define DUAL_NATIVE_NAME    ld2410
+#define DUAL_NATIVE_STATE_T ld2410_state_t
+#include "dual_format_native_state.h"
 typedef struct {
   uint8_t    rxd_pin;
   uint8_t    txd_pin;
@@ -192,18 +191,7 @@ typedef struct {
 
 #if !BUILD_AS_PLUGIN
 
-static ld2410_state_t *ld2410_state = nullptr;
-
-#  undef  SETREGS
-#  define SETREGS    MODULE_MEMORY *mem = ld2410_state;
-#  define ALLOCMEM \
-       if (!ld2410_state) ld2410_state = (ld2410_state_t *)calloc(1, sizeof(ld2410_state_t)); \
-       if (!ld2410_state) return -1; \
-       MODULE_MEMORY *mem = ld2410_state;
-#  define RETMEM \
-       if (ld2410_state) { free(ld2410_state); ld2410_state = nullptr; }
-#  define initialized mem->initialized_flag
-
+DUAL_NATIVE_STATE_PTR_DECL
 #  define XSNS_102    102
 
 #endif  // !BUILD_AS_PLUGIN
