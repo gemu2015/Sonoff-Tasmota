@@ -1190,18 +1190,15 @@ Renderer *uDisplay::Init(void) {
     AddLog(LOG_LEVEL_DEBUG, "UDisplay: Dsp Init 1 start");
   #endif
 
-  // for any bpp below native 16 bits, we allocate a local framebuffer to copy into
+  // for any bpp below native 16 bits, we allocate a local framebuffer to copy into.
+  // special_calloc() centralises the PSRAM-vs-internal decision and ALWAYS zeroes
+  // the buffer — important because displayFrame_42() (and any other path that
+  // streams fb_buffer to the panel before the first user-side fillScreen()) would
+  // otherwise XOR raw PSRAM garbage to the display.
+  extern void *special_calloc(size_t num, size_t size);
   if (ep_mode || bpp < 16) {
     if (framebuffer) free(framebuffer);
-#ifdef ESP8266
-    framebuffer = (uint8_t*)calloc((gxs * gys * bpp) / 8, 1);
-#else
-    if (UsePSRAM()) {
-      framebuffer = (uint8_t*)heap_caps_malloc((gxs * gys * bpp) / 8, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else {
-      framebuffer = (uint8_t*)calloc((gxs * gys * bpp) / 8, 1);
-    }
-#endif // ESP8266
+    framebuffer = (uint8_t*)special_calloc((gxs * gys * bpp) / 8, 1);
   }
   frame_buffer = framebuffer;
 
@@ -1259,6 +1256,23 @@ if (interface == _UDSP_SPI) {
         panel_config->epd.invert_colors = true; // IF_INVERT_COLOR was hardcoded to 1
         panel_config->epd.invert_framebuffer = true; // TODO: maybe use lvgl_param.invert_bw for per-display config?
         panel_config->epd.busy_invert = (bool)lvgl_param.busy_invert;
+
+        // Bridge the three address-command bytes parsed from :a (or :A) into the
+        // EPD-config fields read by displayFrame_42()/clearFrame_42() (ep_mode 2,
+        // IL0398/GD7965 4.2" panels). The :a parser places these in
+        // panel_config->spi.cmd_set_addr_x/y/cmd_write_ram when interface==SPI,
+        // and in saw_1/2/3 for non-bus EPDs; either way, displayFrame_42() reads
+        // cfg.saw_1/2/3, so mirror across. Without this, the new driver writes
+        // command 0x00 three times instead of 0x10/0x13/0x12 and no frame updates.
+        if (interface == _UDSP_SPI) {
+            panel_config->epd.saw_1 = panel_config->spi.cmd_set_addr_x;
+            panel_config->epd.saw_2 = panel_config->spi.cmd_set_addr_y;
+            panel_config->epd.saw_3 = panel_config->spi.cmd_write_ram;
+        } else {
+            panel_config->epd.saw_1 = saw_1;
+            panel_config->epd.saw_2 = saw_2;
+            panel_config->epd.saw_3 = saw_3;
+        }
         
         // Set callback for sending command sequences
         panel_config->epd.send_cmds_callback = [this](uint16_t offset, uint16_t count) {
