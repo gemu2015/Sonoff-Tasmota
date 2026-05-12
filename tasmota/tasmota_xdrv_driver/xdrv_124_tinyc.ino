@@ -4480,8 +4480,17 @@ bool Xdrv124(uint32_t function) {
       WebServer_on(PSTR("/tc"), HandleTinyCPage);
       Webserver->on("/tc_upload", HTTP_POST, HandleTinyCUploadDone, HandleTinyCUpload);
       Webserver->on("/tc_upload", HTTP_OPTIONS, HandleTinyCUploadCORS);
-      WebServer_on(PSTR("/tc_api"), HandleTinyCApi);
+      // CORS preflight handler MUST be registered BEFORE the HTTP_ANY catch-all
+      // (HandleTinyCApi defaults to HTTP_ANY = 255 which matches every method
+      // including OPTIONS). Arduino-ESP32 WebServer iterates handlers in
+      // registration order, first-match-wins. Without this swap, OPTIONS
+      // preflight requests for /tc_api flow into HandleTinyCApi which then
+      // tries to execute the `cmd=readfile` etc. and returns the file body
+      // — Safari sees a non-empty preflight response and rejects the
+      // subsequent GET as a CORS failure, surfacing in the IDE as
+      // "Error: Load failed" on the "Load from Device" button.
       Webserver->on("/tc_api", HTTP_OPTIONS, HandleTinyCApiCORS);
+      WebServer_on(PSTR("/tc_api"), HandleTinyCApi);
       WebServer_on(PSTR("/tc_ui"), HandleTinyCUI);
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
       WebServer_on(PSTR("/tc_cam"), HandleTinyCCam);
