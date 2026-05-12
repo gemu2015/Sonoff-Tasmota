@@ -53,7 +53,7 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 DEFAULT_PORT = 8200
-APP_VERSION = "v2026-05-04"
+APP_VERSION = "v2026-05-12"
 
 # ─── Background state ────────────────────────────────────────────────────────
 state_lock = threading.Lock()
@@ -469,6 +469,302 @@ def ping_stop():
     ping_stop_event.set()
 
 
+# ─── Jackery-Emulation ───────────────────────────────────────────────────────
+# Open ONE TCP socket against a target (typically a Tasmota running the
+# EcoTracker emulation .tc), then pipeline HTTP/1.1 GET requests on the SAME
+# socket with `interval_s` between them — exactly how a real Jackery Homepower
+# 2000 polls a physical EcoTracker. Detects server-side socket close (= keep-
+# alive broken, the bug we're testing against) and reports per-iteration
+# status, response shape and round-trip latency.
+#
+# The four other modes (UDP, HTTP-GET, Ping) all open fresh sockets per
+# request and so can't see this class of regression. Jackery-Emu is the
+# direct regression test for Tasmota's USE_HTTP_KEEPALIVE wiring + the
+# TinyC webRawMode / webRawWrite / webKeepAlive path.
+jackery_state = {
+    'running': False,
+    'host': '', 'port': 0, 'path': '',
+    'interval_s': 13.0,
+    'count_target': 0,         # 0 = run until stopped
+    'iter_done': 0,
+    'iter_ok': 0,
+    'iter_fail': 0,
+    'rtt_last_ms': 0.0,
+    'rtt_min_ms': 0.0,
+    'rtt_max_ms': 0.0,
+    'rtt_sum_ms': 0.0,
+    'socket_alive': False,
+    'started_at': 0.0,
+    'stop_reason': None,
+    'recent': [],              # cap 200, oldest dropped
+}
+jackery_thread = None
+jackery_lock = threading.Lock()
+
+
+def _jackery_recv_response(sock, timeout_s=10.0):
+    """Read ONE HTTP/1.1 response from `sock`. Returns
+    (status_code, headers_dict, body_str) on success.
+    Returns None when the peer closed the socket mid-read (= the bug we're
+    looking for). Raises on socket timeout.
+    """
+    sock.settimeout(timeout_s)
+    buf = b''
+    # Phase 1: read until end-of-headers
+    while b'\r\n\r\n' not in buf:
+        chunk = sock.recv(4096)
+        if not chunk:
+            return None
+        buf += chunk
+        if len(buf) > 65536:
+            raise ValueError('response headers >64 KB — refusing')
+
+    head, rest = buf.split(b'\r\n\r\n', 1)
+    lines = head.split(b'\r\n')
+    status_line = lines[0].decode('ascii', errors='replace')
+    parts = status_line.split(' ', 2)
+    try:
+        status = int(parts[1])
+    except (IndexError, ValueError):
+        status = 0
+
+    headers = {}
+    for ln in lines[1:]:
+        s = ln.decode('ascii', errors='replace')
+        k, _, v = s.partition(':')
+        headers[k.strip().lower()] = v.strip()
+
+    body = rest
+    # Phase 2: read body — Content-Length or chunked
+    cl = headers.get('content-length')
+    if cl is not None:
+        try:
+            need = int(cl)
+        except ValueError:
+            need = 0
+        while len(body) < need:
+            chunk = sock.recv(min(4096, need - len(body)))
+            if not chunk:
+                return None
+            body += chunk
+        body = body[:need]
+    elif headers.get('transfer-encoding', '').lower() == 'chunked':
+        decoded = b''
+        cbuf = body
+        while True:
+            while b'\r\n' not in cbuf:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    return None
+                cbuf += chunk
+            size_line, cbuf = cbuf.split(b'\r\n', 1)
+            try:
+                sz = int(size_line.split(b';')[0].strip(), 16)
+            except ValueError:
+                return None
+            if sz == 0:
+                break
+            while len(cbuf) < sz + 2:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    return None
+                cbuf += chunk
+            decoded += cbuf[:sz]
+            cbuf = cbuf[sz + 2:]
+        body = decoded
+    # else: HTTP/1.0 read-until-close — drain whatever's there but don't block
+
+    return status, headers, body.decode('utf-8', errors='replace')
+
+
+def _jackery_record_ok(i, status, body, rtt_ms, headers):
+    with jackery_lock:
+        st = jackery_state
+        st['iter_done'] = i + 1
+        if 200 <= status < 300:
+            st['iter_ok'] += 1
+            st['rtt_last_ms'] = rtt_ms
+            if st['rtt_min_ms'] == 0.0 or rtt_ms < st['rtt_min_ms']:
+                st['rtt_min_ms'] = rtt_ms
+            if rtt_ms > st['rtt_max_ms']:
+                st['rtt_max_ms'] = rtt_ms
+            st['rtt_sum_ms'] += rtt_ms
+        else:
+            st['iter_fail'] += 1
+        st['recent'].append({
+            'i': i,
+            'ok': 200 <= status < 300,
+            'status': status,
+            'rtt_ms': round(rtt_ms, 1),
+            'body_preview': body[:200],
+            'connection': headers.get('connection', ''),
+            'content_length': headers.get('content-length', ''),
+            'content_type': headers.get('content-type', ''),
+        })
+        if len(st['recent']) > 200:
+            st['recent'] = st['recent'][-200:]
+
+
+def _jackery_record_fail(i, reason, rtt_ms):
+    with jackery_lock:
+        st = jackery_state
+        st['iter_fail'] += 1
+        st['iter_done'] = i + 1
+        st['stop_reason'] = reason
+        st['recent'].append({
+            'i': i,
+            'ok': False,
+            'status': 0,
+            'rtt_ms': round(rtt_ms, 1),
+            'error': reason,
+        })
+        if len(st['recent']) > 200:
+            st['recent'] = st['recent'][-200:]
+
+
+def jackery_emu_loop(host, port, path, interval_s, count_target):
+    """Worker thread for the Jackery emulator. Holds the lock briefly only
+    to update shared state; the actual blocking socket I/O happens outside
+    the lock so the /api/jackery/status endpoint can poll without waiting."""
+    s = None
+    try:
+        try:
+            s = socket.create_connection((host, port), timeout=5.0)
+            s.settimeout(10.0)
+        except (socket.timeout, socket.error, OSError) as e:
+            _jackery_record_fail(0, f'initial connect failed: {e}', 0.0)
+            return
+
+        with jackery_lock:
+            jackery_state['socket_alive'] = True
+            jackery_state['started_at'] = time.time()
+
+        i = 0
+        while True:
+            with jackery_lock:
+                if not jackery_state['running']:
+                    break
+            if count_target > 0 and i >= count_target:
+                with jackery_lock:
+                    jackery_state['stop_reason'] = f'reached target count {count_target}'
+                break
+
+            t0 = time.monotonic()
+            req = (
+                f'GET {path} HTTP/1.1\r\n'
+                f'Host: {host}\r\n'
+                f'User-Agent: Jackery-Emu/1.0\r\n'
+                f'Connection: keep-alive\r\n'
+                f'\r\n'
+            )
+            try:
+                s.sendall(req.encode('ascii'))
+            except (socket.error, OSError) as e:
+                rtt = (time.monotonic() - t0) * 1000
+                _jackery_record_fail(i, f'send failed: {e}', rtt)
+                with jackery_lock:
+                    jackery_state['socket_alive'] = False
+                break
+
+            try:
+                resp = _jackery_recv_response(s, timeout_s=10.0)
+            except (socket.timeout, socket.error, OSError) as e:
+                rtt = (time.monotonic() - t0) * 1000
+                _jackery_record_fail(i, f'read failed: {e}', rtt)
+                with jackery_lock:
+                    jackery_state['socket_alive'] = False
+                break
+
+            rtt = (time.monotonic() - t0) * 1000
+            if resp is None:
+                _jackery_record_fail(
+                    i, 'server closed socket mid-response (keep-alive broken)', rtt)
+                with jackery_lock:
+                    jackery_state['socket_alive'] = False
+                break
+
+            status, headers, body = resp
+            _jackery_record_ok(i, status, body, rtt, headers)
+
+            # If server signalled `Connection: close`, the keep-alive is
+            # only honoured for this single request — flag it but continue,
+            # the next sendall will fail loudly which is itself diagnostic.
+            if headers.get('connection', '').lower() == 'close':
+                with jackery_lock:
+                    if jackery_state['stop_reason'] is None:
+                        jackery_state['stop_reason'] = (
+                            'server sent "Connection: close" header — keep-alive '
+                            'not honoured by the EcoTracker emulator')
+
+            i += 1
+            # Interruptible sleep so /api/jackery/stop reacts within ~100 ms
+            slept = 0.0
+            interrupted = False
+            while slept < interval_s:
+                with jackery_lock:
+                    if not jackery_state['running']:
+                        interrupted = True
+                        break
+                step = min(0.1, interval_s - slept)
+                time.sleep(step)
+                slept += step
+            if interrupted:
+                break
+    finally:
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
+        with jackery_lock:
+            jackery_state['running'] = False
+            jackery_state['socket_alive'] = False
+
+
+def jackery_start(host, port, path, interval_s, count):
+    global jackery_thread
+    with jackery_lock:
+        if jackery_state['running']:
+            return {'ok': False, 'error': 'already running'}
+        jackery_state.update({
+            'running': True,
+            'host': host, 'port': port, 'path': path,
+            'interval_s': interval_s,
+            'count_target': count,
+            'iter_done': 0,
+            'iter_ok': 0,
+            'iter_fail': 0,
+            'rtt_last_ms': 0.0,
+            'rtt_min_ms': 0.0,
+            'rtt_max_ms': 0.0,
+            'rtt_sum_ms': 0.0,
+            'socket_alive': False,
+            'started_at': 0.0,
+            'stop_reason': None,
+            'recent': [],
+        })
+    jackery_thread = threading.Thread(
+        target=jackery_emu_loop,
+        args=(host, port, path, interval_s, count),
+        daemon=True,
+    )
+    jackery_thread.start()
+    return {'ok': True}
+
+
+def jackery_stop():
+    with jackery_lock:
+        jackery_state['running'] = False
+    return {'ok': True}
+
+
+def jackery_status_snapshot():
+    with jackery_lock:
+        out = {k: v for k, v in jackery_state.items() if k != 'recent'}
+        out['recent'] = list(jackery_state['recent'])
+    return out
+
+
 # ─── HTML page (embedded) ────────────────────────────────────────────────────
 HTML_PAGE = r"""<!DOCTYPE html>
 <html lang="de">
@@ -507,11 +803,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
   button.http:hover:not(:disabled)  { background: #1976d2; }
   button.ping  { background: #e65100; color: #fff; }   /* Ping — orange */
   button.ping:hover:not(:disabled)  { background: #f57c00; }
+  button.jackery  { background: #6a1b9a; color: #fff; } /* Jackery — purple */
+  button.jackery:hover:not(:disabled)  { background: #7b1fa2; }
   button.stop  { background: #b71c1c; color: #fff; }   /* Stop — red */
   button.stop:hover:not(:disabled)  { background: #c62828; }
   .indicator { font-weight: bold; color: #4caf50; }
   .indicator.http { color: #4fc3f7; }
   .indicator.ping { color: #ffb74d; }
+  .indicator.jackery { color: #ce93d8; }
   fieldset { border: 1px solid #1a4a7a; border-radius: 6px; margin: 10px 0; padding: 10px;
              background: #0f3460; }
   legend { color: #9bb8d4; padding: 0 6px; font-weight: 600;
@@ -528,6 +827,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .log .warn  { color: #ffd54f; }
   .log .dup   { color: #ffb74d; }
   .log .listen{ color: #b482ff; }
+  .log .jackery { color: #ce93d8; }
   .json { background: #0a0a1a; color: #4fc3f7; font-family: Consolas, monospace;
           font-size: 12.5px; padding: 8px; border: 1px solid #1a3a6a;
           border-radius: 4px; height: 270px;
@@ -582,6 +882,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   <label><input type="radio" name="proto" id="protoUdp"  checked> UDP</label>
   <label><input type="radio" name="proto" id="protoHttp"> HTTP GET</label>
   <label><input type="radio" name="proto" id="protoPing"> Ping</label>
+  <label><input type="radio" name="proto" id="protoJackery"> Jackery-Emu</label>
   <span id="modeIndicator" class="indicator">[ UDP-Modus ]</span>
 </div>
 
@@ -650,6 +951,32 @@ HTML_PAGE = r"""<!DOCTYPE html>
   </div>
 </div>
 
+<!-- Jackery-Emulation Bereich -->
+<!-- Opens ONE TCP socket against the target and pipelines HTTP/1.1 GET     -->
+<!-- requests on the SAME socket — exactly how a real Jackery polls a       -->
+<!-- physical EcoTracker. The four other modes use fresh sockets per        -->
+<!-- request and so can't detect a broken keep-alive path. This panel can.  -->
+<div id="panelJackery" class="panel">
+  <div class="row">
+    <label>Pfad:</label>
+    <input type="text" id="jackeryPath" style="flex:1" value="/v1/json">
+    <button id="btnJackeryStart" class="jackery">Jackery starten</button>
+    <button id="btnJackeryStop"  class="stop" disabled>Stoppen</button>
+  </div>
+  <div class="row">
+    <label>Intervall (Sek.):</label>
+    <input type="number" id="jackeryInterval" class="tiny" min="1" value="13">
+    <label>Anzahl:</label>
+    <input type="number" id="jackeryCount" class="tiny" min="0" value="20">
+    <span class="hint">(0 = unendlich)</span>
+    <span id="jackeryStatus" class="hint right"></span>
+  </div>
+  <div class="row">
+    <label>Live-Statistik:</label>
+    <span id="jackeryStats" class="hint" style="flex:1; font-family:monospace; color:#ce93d8">noch nicht gestartet</span>
+  </div>
+</div>
+
 <hr>
 
 <!-- Antwort-Log -->
@@ -697,6 +1024,9 @@ const PERSIST_FIELDS = [
   ['chkListener',       'checked'],
   ['chkPingLog',        'checked'],
   ['chkPingErrorsOnly', 'checked'],
+  ['jackeryPath',     'value'],
+  ['jackeryInterval', 'value'],
+  ['jackeryCount',    'value'],
 ];
 function lsLoad() {
   for (const [id, kind] of PERSIST_FIELDS) {
@@ -708,7 +1038,7 @@ function lsLoad() {
   }
   // Active proto radio
   const proto = localStorage.getItem(LS_PREFIX + 'proto') || 'udp';
-  const radioId = {udp:'protoUdp', http:'protoHttp', ping:'protoPing'}[proto] || 'protoUdp';
+  const radioId = {udp:'protoUdp', http:'protoHttp', ping:'protoPing', jackery:'protoJackery'}[proto] || 'protoUdp';
   $(radioId).checked = true;
 }
 // Per-mode port memory: when the user switches UDP↔HTTP, restore the port
@@ -716,6 +1046,7 @@ function lsLoad() {
 // of always clobbering with the canonical default.
 function portKey() { return $('protoUdp').checked ? 'port_udp'
                          : $('protoHttp').checked ? 'port_http'
+                         : $('protoJackery').checked ? 'port_jackery'
                          : null; }
 function portSaveCurrent() {
   const k = portKey(); if (k) {
@@ -725,9 +1056,10 @@ function portSaveCurrent() {
 function portRestoreForMode() {
   const isUdp = $('protoUdp').checked;
   const isHttp = $('protoHttp').checked;
-  if (!isUdp && !isHttp) return;          // ping mode: port hidden, don't touch
-  const k = isUdp ? 'port_udp' : 'port_http';
-  const def = isUdp ? '1010' : '80';
+  const isJackery = $('protoJackery').checked;
+  if (!isUdp && !isHttp && !isJackery) return;     // ping mode: port hidden, don't touch
+  const k = isUdp ? 'port_udp' : isHttp ? 'port_http' : 'port_jackery';
+  const def = isUdp ? '1010' : '80';               // both http + jackery default to 80
   $('port').value = localStorage.getItem(LS_PREFIX + k) || def;
 }
 function lsSave(id, kind) {
@@ -740,9 +1072,12 @@ function lsAttachAll() {
     const el = $(id); if (!el) continue;
     el.addEventListener(kind === 'checked' ? 'change' : 'input', () => lsSave(id, kind));
   }
-  for (const id of ['protoUdp','protoHttp','protoPing']) {
+  for (const id of ['protoUdp','protoHttp','protoPing','protoJackery']) {
     $(id).addEventListener('change', () => {
-      const m = $('protoUdp').checked ? 'udp' : ($('protoHttp').checked ? 'http' : 'ping');
+      const m = $('protoUdp').checked ? 'udp'
+              : $('protoHttp').checked ? 'http'
+              : $('protoPing').checked ? 'ping'
+              : 'jackery';
       try { localStorage.setItem(LS_PREFIX + 'proto', m); } catch (e) {}
     });
   }
@@ -797,28 +1132,32 @@ async function api(path, body = null) {
 // localStorage key the live port input belongs to. Whenever the proto
 // changes, we save the OLD mode's port first, then restore the NEW
 // mode's port — so a user-typed port survives switches and reloads.
-let _lastMode = null;     // 'udp' | 'http' | 'ping' | null
+let _lastMode = null;     // 'udp' | 'http' | 'ping' | 'jackery' | null
 function currentMode() {
-  return $('protoUdp').checked  ? 'udp'
-       : $('protoHttp').checked ? 'http'
-       : 'ping';
+  return $('protoUdp').checked     ? 'udp'
+       : $('protoHttp').checked    ? 'http'
+       : $('protoPing').checked    ? 'ping'
+       : 'jackery';
 }
 function updateMode() {
   const newMode = currentMode();
   // Save the port we were just on (if it was a port-bearing mode) before
   // we restore the new mode's value into the same input field.
-  if (_lastMode === 'udp' || _lastMode === 'http') portSaveCurrent();
+  if (_lastMode === 'udp' || _lastMode === 'http' || _lastMode === 'jackery') portSaveCurrent();
 
-  const isUdp  = newMode === 'udp';
-  const isHttp = newMode === 'http';
-  const isPing = newMode === 'ping';
-  $('panelUdpHttp').classList.toggle('active', !isPing);
+  const isUdp     = newMode === 'udp';
+  const isHttp    = newMode === 'http';
+  const isPing    = newMode === 'ping';
+  const isJackery = newMode === 'jackery';
+  $('panelUdpHttp').classList.toggle('active', isUdp || isHttp);
   $('panelPing').classList.toggle('active', isPing);
+  $('panelJackery').classList.toggle('active', isJackery);
+  // Port input visible for UDP / HTTP / Jackery; hidden for Ping
   $('lblPort').style.display = isPing ? 'none' : '';
   $('port').style.display     = isPing ? 'none' : '';
 
   const ind = $('modeIndicator');
-  ind.classList.remove('http','ping');
+  ind.classList.remove('http','ping','jackery');
   if (isUdp) {
     ind.textContent = '[ UDP-Modus ]';
     $('lblCmd').textContent = 'UDP-Anfrage:';
@@ -844,7 +1183,7 @@ function updateMode() {
     }
     portRestoreForMode();
     document.title = `Shelly / EcoTracker Tester — HTTP GET`;
-  } else {
+  } else if (isPing) {
     ind.textContent = '[ Ping-Modus ]';
     ind.classList.add('ping');
     if ($('chkListener').checked) {
@@ -852,10 +1191,20 @@ function updateMode() {
       api('/api/udp/listener', { action: 'stop' });
     }
     document.title = `Shelly / EcoTracker Tester — Ping`;
+  } else {
+    // Jackery-Emu
+    ind.textContent = '[ Jackery-Emu ]';
+    ind.classList.add('jackery');
+    if ($('chkListener').checked) {
+      $('chkListener').checked = false;
+      api('/api/udp/listener', { action: 'stop' });
+    }
+    portRestoreForMode();
+    document.title = `Shelly / EcoTracker Tester — Jackery-Emu`;
   }
   _lastMode = newMode;
 }
-['protoUdp','protoHttp','protoPing'].forEach(id => $(id).addEventListener('change', updateMode));
+['protoUdp','protoHttp','protoPing','protoJackery'].forEach(id => $(id).addEventListener('change', updateMode));
 // Save port on every keystroke too (so even switching tabs without
 // mode change preserves the typed value).
 $('port').addEventListener('input', portSaveCurrent);
@@ -957,7 +1306,7 @@ $('btnIntervalStart').addEventListener('click', () => {
   $('btnIntervalStart').disabled = true;
   $('btnIntervalStop').disabled = false;
   $('interval').disabled = true;
-  ['protoUdp','protoHttp','protoPing'].forEach(id => $(id).disabled = true);
+  ['protoUdp','protoHttp','protoPing','protoJackery'].forEach(id => $(id).disabled = true);
   $('intervalStatus').textContent = `Aktiv: alle ${sec}s`;
   $('intervalStatus').style.color = '#64ffb4';
   setStatus(`Intervall gestartet (${sec}s).`);
@@ -969,7 +1318,7 @@ $('btnIntervalStop').addEventListener('click', () => {
   $('btnIntervalStart').disabled = false;
   $('btnIntervalStop').disabled = true;
   $('interval').disabled = false;
-  ['protoUdp','protoHttp','protoPing'].forEach(id => $(id).disabled = false);
+  ['protoUdp','protoHttp','protoPing','protoJackery'].forEach(id => $(id).disabled = false);
   $('intervalStatus').textContent = 'Gestoppt';
   $('intervalStatus').style.color = '#888';
   setStatus('Intervall gestoppt.');
@@ -999,7 +1348,7 @@ $('btnPingStart').addEventListener('click', async () => {
   $('btnPingStart').disabled = true;
   $('btnPingStop').disabled = false;
   ['pingInterval','pingDuration','chkPingLog','chkPingErrorsOnly'].forEach(id => $(id).disabled = true);
-  ['protoUdp','protoHttp'].forEach(id => $(id).disabled = true);
+  ['protoUdp','protoHttp','protoJackery'].forEach(id => $(id).disabled = true);
 
   const intervalText = interval <= 0 ? 'max. Speed' : `${interval}s`;
   const durText = duration === 0 ? 'unendlich' : `${duration}s`;
@@ -1042,7 +1391,7 @@ async function pollPing() {
     $('btnPingStart').disabled = false;
     $('btnPingStop').disabled = true;
     ['pingInterval','pingDuration','chkPingLog','chkPingErrorsOnly'].forEach(id => $(id).disabled = false);
-    ['protoUdp','protoHttp'].forEach(id => $(id).disabled = false);
+    ['protoUdp','protoHttp','protoJackery'].forEach(id => $(id).disabled = false);
 
     const summary  = '\n' + '='.repeat(78) + '\n'
                    + `  Ping-Statistik fuer ${r.host}:\n`
@@ -1057,6 +1406,112 @@ async function pollPing() {
     } else {
       setStatus(`Ping beendet: ${recv}/${sent} empfangen, ${lossPct}% Verlust, Avg=${avg}ms`);
     }
+  }
+}
+
+// ── Jackery-Emulation ──────────────────────────────────────────────────────
+// Polls /api/jackery/status every 500 ms while running. Each new iteration
+// in `recent[]` gets logged with status + RTT + body preview, plus a tag if
+// the server sent `Connection: close`. The live-stats line shows iteration
+// counter, ok/fail tally, current socket state, and RTT min/avg/max.
+let jackeryPollHandle = null;
+let jackerySeenIter   = -1;
+
+$('btnJackeryStart').addEventListener('click', async () => {
+  const host = $('host').value.trim();
+  if (!host) return setStatus('Fehler: Kein Ziel-Host angegeben.');
+  const port = parseInt($('port').value || '80', 10);
+  const path = ($('jackeryPath').value || '/v1/json').trim();
+  const interval = parseInt($('jackeryInterval').value || '13', 10);
+  const count    = parseInt($('jackeryCount').value || '0', 10);
+  if (interval < 1) return setStatus('Fehler: Intervall muss mindestens 1 Sekunde sein.');
+  if (count < 0)    return setStatus('Fehler: Anzahl muss >= 0 sein (0 = unendlich).');
+
+  const r = await api('/api/jackery/start', {
+    host, port, path, interval_s: interval, count,
+  });
+  if (!r.ok) return setStatus(`Jackery-Fehler: ${r.error || 'unbekannt'}`);
+
+  $('btnJackeryStart').disabled = true;
+  $('btnJackeryStop').disabled  = false;
+  ['jackeryPath','jackeryInterval','jackeryCount'].forEach(id => $(id).disabled = true);
+  ['protoUdp','protoHttp','protoPing'].forEach(id => $(id).disabled = true);
+
+  const target = `${host}:${port}${path}`;
+  const countText = count === 0 ? 'unendlich' : `${count} Iterationen`;
+  $('jackeryStatus').textContent = `Aktiv: ${target}, alle ${interval}s, ${countText}`;
+  $('jackeryStatus').style.color = '#ce93d8';
+  setStatus(`Jackery-Emu gestartet gegen ${target}`);
+  jackerySeenIter = -1;
+  logEntry(`--- Jackery-Emu gestartet: ${target}  (Intervall: ${interval}s, ${countText}) ---\n`, 'warn');
+
+  jackeryPollHandle = setInterval(pollJackery, 500);
+});
+
+$('btnJackeryStop').addEventListener('click', async () => {
+  await api('/api/jackery/stop', { action: 'stop' });
+  // pollJackery will detect running=false on its next tick and finalise.
+});
+
+async function pollJackery() {
+  const r = await api('/api/jackery/status');
+  if (!r) return;
+  // Render any new iteration log entries.
+  for (const ent of (r.recent || [])) {
+    if (ent.i <= jackerySeenIter) continue;
+    jackerySeenIter = ent.i;
+    if (ent.ok) {
+      const cl   = ent.content_length ? `${ent.content_length}B` : '?';
+      const ct   = (ent.content_type || '').split(';')[0];
+      const cTag = ent.connection ? ` [Connection: ${ent.connection}]` : '';
+      const preview = (ent.body_preview || '').replace(/\s+/g, ' ').slice(0, 120);
+      logEntry(`[#${ent.i}]  HTTP ${ent.status}  ${ent.rtt_ms}ms  ${cl}  ${ct}${cTag}\n  ${preview}\n\n`, 'jackery');
+    } else {
+      const reason = ent.error || `HTTP ${ent.status}`;
+      logEntry(`[#${ent.i}]  FAIL  ${ent.rtt_ms}ms  — ${reason}\n\n`, 'err');
+    }
+  }
+  // Live-statistics line.
+  const rttAvg = r.iter_ok > 0 ? (r.rtt_sum_ms / r.iter_ok) : 0;
+  const target = r.count_target > 0 ? r.count_target : '∞';
+  const stats =
+    `iter ${r.iter_done}/${target}` +
+    `  ok=${r.iter_ok} fail=${r.iter_fail}` +
+    `  socket=${r.socket_alive ? 'ALIVE' : 'closed'}` +
+    `  RTT last=${r.rtt_last_ms.toFixed(1)}ms` +
+    ` avg=${rttAvg.toFixed(1)}ms` +
+    ` min=${r.rtt_min_ms.toFixed(1)}ms` +
+    ` max=${r.rtt_max_ms.toFixed(1)}ms`;
+  $('jackeryStats').textContent = stats;
+
+  if (!r.running) {
+    if (jackeryPollHandle) { clearInterval(jackeryPollHandle); jackeryPollHandle = null; }
+    $('btnJackeryStart').disabled = false;
+    $('btnJackeryStop').disabled  = true;
+    ['jackeryPath','jackeryInterval','jackeryCount'].forEach(id => $(id).disabled = false);
+    ['protoUdp','protoHttp','protoPing'].forEach(id => $(id).disabled = false);
+
+    const reason = r.stop_reason || 'gestoppt';
+    const verdict = (r.iter_ok > 0 && r.iter_fail === 0 && !r.stop_reason)
+      ? 'PASS — alle Polls erfolgreich, Socket blieb offen'
+      : (r.iter_ok > 0 && r.iter_fail === 0)
+        ? `STOPPED — ${reason}`
+        : `FAIL — ${reason}`;
+    const cls = verdict.startsWith('PASS') ? 'ok'
+              : verdict.startsWith('STOPPED') ? 'warn'
+              : 'err';
+    const summary = '\n' + '='.repeat(78) + '\n'
+                  + `  Jackery-Emu Ergebnis:\n`
+                  + `  Iterationen: ${r.iter_done}  |  OK: ${r.iter_ok}  |  FAIL: ${r.iter_fail}\n`
+                  + `  RTT: Min=${r.rtt_min_ms.toFixed(1)}ms  Avg=${rttAvg.toFixed(1)}ms  Max=${r.rtt_max_ms.toFixed(1)}ms\n`
+                  + `  Verdict: ${verdict}\n`
+                  + '='.repeat(78) + '\n';
+    logEntry(summary, cls);
+    $('jackeryStatus').textContent = verdict;
+    $('jackeryStatus').style.color = verdict.startsWith('PASS') ? '#64ffb4'
+                                  : verdict.startsWith('STOPPED') ? '#ffb74d'
+                                  : '#ff6b6b';
+    setStatus(`Jackery-Emu beendet: ${verdict}`);
   }
 }
 
@@ -1162,6 +1617,8 @@ class Handler(BaseHTTPRequestHandler):
                 out['recent'] = list(ping_state['recent'])
                 # min_ms might be None — serialize as None
             return self._send_json(out)
+        if path == '/api/jackery/status':
+            return self._send_json(jackery_status_snapshot())
         self.send_response(404); self.end_headers()
 
     def do_POST(self):
@@ -1209,6 +1666,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/ping/stop':
             ping_stop()
             return self._send_json({'ok': True})
+        if path == '/api/jackery/start':
+            host = (body.get('host') or '').strip()
+            if not host:
+                return self._send_json({'ok': False, 'error': 'no host'})
+            try:
+                port = int(body.get('port') or 80)
+                interval_s = float(body.get('interval_s') or 13)
+                count = int(body.get('count') or 0)
+            except (TypeError, ValueError) as e:
+                return self._send_json({'ok': False, 'error': f'bad param: {e}'})
+            req_path = body.get('path') or '/v1/json'
+            if not req_path.startswith('/'):
+                req_path = '/' + req_path
+            return self._send_json(jackery_start(host, port, req_path, interval_s, count))
+        if path == '/api/jackery/stop':
+            return self._send_json(jackery_stop())
         if path == '/api/shutdown':
             self._send_json({'ok': True})
             threading.Timer(0.3, lambda: os._exit(0)).start()

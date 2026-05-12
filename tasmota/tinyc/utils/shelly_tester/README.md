@@ -24,6 +24,7 @@ distribute modified copies.
 | **UDP** (default port 1010) | Arbitrary text payload — typically `Shelly.GetStatus` or `EM.GetStatus` for a Shelly RPC, or any string a custom firmware listens for | Talking to Shelly devices in their local UDP-RPC mode, or to any device using a UDP-text protocol |
 | **HTTP GET** (default port 80) | Arbitrary URL path | Hitting `/rpc/Shelly.GetStatus`, `/v1/json` (EcoTracker), or any web endpoint |
 | **Ping** | ICMP echo via the system `ping` binary | Connectivity testing; loss / RTT statistics |
+| **Jackery-Emu** (default port 80) | HTTP/1.1 GETs on ONE persistent TCP socket, like the real Jackery Homepower 2000 polls a physical EcoTracker | Validating that an EcoTracker emulator (e.g. ottelo's TinyC `ecotracker.tc`) correctly keeps the TCP socket open across polls — the property Jackery firmware requires and the four other modes can't observe (they all open fresh sockets per request) |
 
 All three modes share a single host/IP field, color-coded answer log,
 and a pretty-printed JSON pane that auto-parses any response.
@@ -143,6 +144,9 @@ constant directly to tweak the UI.
 | `/api/ping/start`          | POST   | Start a background ping loop                                       |
 | `/api/ping/stop`           | POST   | Stop the ping loop                                                 |
 | `/api/ping/status`         | GET    | Live stats + recent results (browser polls every 200 ms while running) |
+| `/api/jackery/start`       | POST   | Start a Jackery-Emu session (one persistent socket, N HTTP/1.1 GETs at `interval_s`) |
+| `/api/jackery/stop`        | POST   | Stop the running Jackery-Emu session                               |
+| `/api/jackery/status`      | GET    | Live state + per-iteration log (browser polls every 500 ms while running) |
 | `/api/shutdown`            | POST   | Clean exit (300 ms grace, then `os._exit`)                         |
 
 UDP send/receive is one-shot per call (3-second receive timeout). The
@@ -165,6 +169,23 @@ ring buffer for the browser to poll.
 - **No external Python deps** — pure stdlib (`socket`, `urllib`,
   `subprocess`, `http.server`). Same baseline as the SML Emulator and
   UDP Monitor in the sibling utils.
+- **Jackery-Emu mode** — uses raw `socket` directly (not `urllib`),
+  opens exactly one TCP connection and pipelines HTTP/1.1 GETs on it
+  with `Connection: keep-alive`. Reads responses with Content-Length
+  awareness OR chunked-transfer decoding, depending on the server's
+  framing choice. Detects the failure modes that matter for the
+  Jackery-EcoTracker handshake: server closing socket mid-stream
+  (= keep-alive broken on the emulator side), server returning
+  `Connection: close` (= per-response opt-out even if the socket
+  stays alive), 4xx/5xx status (= wrong path or auth required),
+  truncated bodies. Verdict on session end:
+  - **PASS** if all iterations returned 2xx AND no per-response
+    `Connection: close` AND no socket teardown.
+  - **STOPPED** if the run was clean but ended early (target count
+    reached, user-stop, or stop-reason set by a Connection: close
+    flag).
+  - **FAIL** otherwise — typically socket closed mid-response or a
+    sequence of non-2xx replies.
 - **Persistent UDP listener** — Shelly's RPC sometimes pushes
   unsolicited packets after a control command (e.g. set output state).
   The listener socket binds with `SO_REUSEADDR` so it can co-exist
