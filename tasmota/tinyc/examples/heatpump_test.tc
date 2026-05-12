@@ -361,8 +361,34 @@ void TaskLoop() {
 // Watch for: free dropping toward 50 KB OR frag climbing past ~30% —
 // both correlate with the kind of /  sluggishness seen on .31. With
 // the on-device readout, no out-of-band /in scraping is needed.
+// Web-clock tick — increments on every WebCall fire. Visible as the
+// trailing "● N" counter in the clock row, so a glance confirms the
+// device is still updating (not just serving a cached page).
+int web_clock_tick = 0;
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    char scratch[256];
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span></td></tr>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+}
+
 void WebCall() {
     char row[120];
+
+    // Big green clock with date + WebCall tick counter — at-a-glance
+    // proof that the device is alive and the page is fresh.
+    web_clock_header();
 
     // Heat-pump state (mirrors what we publish via UDP globals). Run state
     // first so it's the most prominent — at a glance you see "Ein"/"Aus"
