@@ -1,0 +1,38 @@
+// IGMP-Leave Smoke-Test für den neuen `udp(10, mcast_ip)` Syscall (TC 1.6.1).
+//
+// Workflow:
+//   1. main() joined per `udp(9, ...)` der SMA-Speedwire-Multicast-Gruppe
+//   2. wartet 1 s damit der Tasmota-Log das Join-Event schreiben kann
+//   3. ruft `udp(10, ...)` IGMP-Leave
+//   4. loggt beide Return-Codes
+//
+// Erwartete Log-Zeilen (Tasmota Console → Logs):
+//   TCC: UDP joined 239.12.255.254:9522
+//   TCC: igmp_leavegroup 239.12.255.254 rc=0
+//   IGMP-LEAVE-TEST: join=1 leave=1
+//
+// `rc=0` heißt LwIP-ERR_OK; jeder andere Wert ist ein LwIP-Fehler
+// (lwip/err.h: ERR_MEM=-1, ERR_BUF=-2, ERR_VAL=-6, ...).
+//
+// Bonus: nach dem Leave 2 s warten und schauen ob `TCC: UDP port N rx timeout`
+// kommt — Watchdog sollte NICHT mehr versuchen die geleavte Gruppe zu rejoinen
+// (case-10 cleart `Tinyc->udp_port_mcast`).
+
+int main() {
+    addLog("IGMP-LEAVE-TEST: starting");
+
+    int j = udp(9, "239.12.255.254", 9522);
+    addLog("IGMP-LEAVE-TEST: udp(9) join called");
+    delay(1000);
+
+    int l = udp(10, "239.12.255.254");
+    addLog("IGMP-LEAVE-TEST: udp(10) leave called");
+
+    char m[80];
+    sprintf(m, "IGMP-LEAVE-TEST: join=%d leave=%d", j, l);
+    addLog(m);
+
+    delay(2000);
+    addLog("IGMP-LEAVE-TEST: end (watchdog should NOT rejoin)");
+    return 0;
+}
