@@ -1,0 +1,44 @@
+// shareDump() smoke test — TC 1.6.2
+//
+// Verifies the new SYS_SHARE_DUMP syscall (= 348) works end-to-end:
+//   - publish a few mixed-type entries (int, float, str)
+//   - call shareDump() — should log each entry + a summary
+//   - verify the return value matches the number of live entries
+//
+// Expected log output (in order):
+//   shareDump test: starting
+//   shareDump test: published 4 entries (alpha=42, beta=1.5, gamma="hi", delta=99)
+//   TCC: share[0] key="alpha" type=INT value=42
+//   TCC: share[1] key="beta"  type=FLT value=1.500000
+//   TCC: share[2] key="gamma" type=STR value="hi"
+//   TCC: share[3] key="delta" type=INT value=99
+//   TCC: shareDump: 4/32 live entries
+//   shareDump test: live count=4
+
+int main() {
+    addLog("shareDump test: starting");
+
+    // Clean any leftover entries from previous runs so the test is
+    // deterministic. Shouldn't be needed on first ever boot.
+    shareDelete("alpha");
+    shareDelete("beta");
+    shareDelete("gamma");
+    shareDelete("delta");
+
+    // Publish 4 mixed-type entries.
+    shareSetInt("alpha", 42);
+    shareSetFloat("beta", 1.5);
+    char hi[8];
+    strcpy(hi, "hi");
+    shareSetStr("gamma", hi);
+    shareSetInt("delta", 99);
+
+    addLog("shareDump test: published 4 entries");
+
+    int n = shareDump();
+    char m[40];
+    sprintf(m, "shareDump test: live count=%d", n);
+    addLog(m);
+
+    return 0;
+}

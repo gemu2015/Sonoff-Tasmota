@@ -147,8 +147,18 @@ if (compiled.warnings?.length) {
     for (const w of compiled.warnings) console.warn('  warn:', w);
 }
 
-// also drop a copy next to the source for inspection
-const localTcb = path.join(srcDir, baseName + '.tcb');
+// Drop a copy into the tinyc/bytecode/ directory for inspection.
+// Historical behaviour was to drop it next to the .tc source, which led
+// to ~100 stale .tcb artefacts littering tasmota/tinyc/examples/ over
+// time. The canonical home for inspectable bytecode is tinyc/bytecode/
+// (which is also where the curated, in-tree .tcb files live for the
+// 67-odd reference examples). Falls back to next-to-source if the
+// bytecode/ dir is missing (e.g. tc_deploy was vendored to a different
+// tree without it).
+const bytecodeDir = path.join(__dirname, 'bytecode');
+const localTcb = fs.existsSync(bytecodeDir)
+    ? path.join(bytecodeDir, baseName + '.tcb')
+    : path.join(srcDir, baseName + '.tcb');
 fs.writeFileSync(localTcb, binary);
 console.log(`  wrote ${localTcb}`);
 
