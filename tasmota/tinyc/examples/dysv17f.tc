@@ -9,6 +9,7 @@
 #define DY_DEVICE  2    // 0=USB, 1=SD, 2=FLASH (built-in)
 
 int dy_txpin = 10;      // TX pin — selectable via web UI
+int dy_serial = -1;     // TasmotaSerial slot handle returned by serialBegin (-1 = closed)
 int dy_ok = 0;
 int dy_vol = 15;
 char dy_file[32];
@@ -30,7 +31,7 @@ void dy_send(int cmd, int len) {
         i++;
     }
     dy_buf[3 + len] = cs & 0xFF;
-    serialWriteBytes(dy_buf, len + 4);
+    serialWriteBytes(dy_serial, dy_buf, len + 4);
 }
 
 // Simple commands (no data)
@@ -139,7 +140,10 @@ void WebCall() {
 void OnExit() {
     dy_stop();
     delay(50);
-    serialClose();
+    if (dy_serial >= 0) {
+        serialClose(dy_serial);
+        dy_serial = -1;
+    }
 }
 
 int main() {
@@ -149,7 +153,8 @@ int main() {
     // Restore persisted pin from web UI before opening serial
     webPulldown(dy_txpin, "TX Pin", "@getfreepins");
     int ret = serialBegin(-1, dy_txpin, 9600, 3, 64);  // 3 = 8N1
-    if (ret == 1) {
+    if (ret >= 0) {
+        dy_serial = ret;
         dy_ok = 1;
         addCommand("MP3");
         delay(100);

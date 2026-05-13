@@ -20,7 +20,7 @@
 
 int ld_rxpin = 8;
 int ld_txpin = 7;
-int ld_serial = 0;
+int ld_serial = -1;     // TasmotaSerial slot handle from serialBegin (-1 = closed)
 int ld_ok = 0;
 
 // parsed sensor values
@@ -57,8 +57,8 @@ void ld_decode() {
 
 // ---- serial reader with header sync ----
 void ld_read() {
-    while (serialAvailable() > 0) {
-        int b = serialRead();
+    while (serialAvailable(ld_serial) > 0) {
+        int b = serialRead(ld_serial);
         if (b < 0) break;
 
         // find header F4 F3 F2 F1
@@ -217,7 +217,10 @@ void WebUI() {
 }
 
 void OnExit() {
-    serialClose();
+    if (ld_serial >= 0) {
+        serialClose(ld_serial);
+        ld_serial = -1;
+    }
 }
 
 int main() {
@@ -228,8 +231,9 @@ int main() {
     webPulldown(ld_txpin, "TX Pin", "@getfreepins");
 
     int ret = serialBegin(ld_rxpin, ld_txpin, LD_BAUD, 3, LD_SBUF);
-    if (ret == 1) {
-        ld_serial = 1;
+    if (ret >= 0) {
+        ld_serial = ret;
+        ld_ok = 0;          // will flip to 1 after first valid frame
     }
 
     addCommand("Radar");

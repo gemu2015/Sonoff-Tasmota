@@ -58,7 +58,7 @@ persist int ow_mode;   // 0=GPIO, 1=DS2480B (persist across reboot)
 persist int ow_pin;    // GPIO mode pin
 persist int ow_rxpin;  // DS2480B serial RX
 persist int ow_txpin;  // DS2480B serial TX
-int ow_serial = 0;     // serial opened flag
+int ow_serial = -1;    // serial port handle (-1 = closed; 0..2 = valid TasmotaSerial slot returned by serialBegin)
 int ow_ok = 0;         // driver active
 int ow_tick = 0;       // even/odd second counter
 int ow_ds_cmd = 1;     // DS2480B in command mode flag
@@ -138,7 +138,7 @@ int ow_crc8(int len) {
 int ow_ds_wait() {
     int i = 0;
     while (i < 50) {
-        if (serialAvailable() > 0) return 1;
+        if (serialAvailable(ow_serial) > 0) return 1;
         delay(1);
         i = i + 1;
     }
@@ -147,14 +147,14 @@ int ow_ds_wait() {
 
 int ow_ds_init() {
     int ret = serialBegin(ow_rxpin, ow_txpin, 9600, 3, 64);
-    if (ret != 1) return 0;
-    ow_serial = 1;
+    if (ret < 0) return 0;
+    ow_serial = ret;   // store the handle (0..2) returned by serialBegin
     delay(100);
 
     // send 0xC1 to init (same as library begin())
-    serialWriteByte(DS_RESET);
+    serialWriteByte(ow_serial,DS_RESET);
     if (ow_ds_wait()) {
-        serialRead();  // discard init response
+        serialRead(ow_serial);  // discard init response
     }
 
     ow_ds_cmd = 1;
@@ -163,14 +163,14 @@ int ow_ds_init() {
 
 int ow_ds_reset() {
     if (!ow_ds_cmd) {
-        serialWriteByte(DS_CMD_MODE);
+        serialWriteByte(ow_serial,DS_CMD_MODE);
         delay(1);
         ow_ds_cmd = 1;
     }
-    serialWriteByte(DS_RESET);
+    serialWriteByte(ow_serial,DS_RESET);
 
     if (ow_ds_wait()) {
-        int resp = serialRead() & 0xFF;
+        int resp = serialRead(ow_serial) & 0xFF;
         if (resp == DS_RESET_OK) return 1;  // 0xCD = presence detected
         return 0;
     }
@@ -179,27 +179,27 @@ int ow_ds_reset() {
 
 void ow_ds_wbit(int b) {
     if (!ow_ds_cmd) {
-        serialWriteByte(DS_CMD_MODE);
+        serialWriteByte(ow_serial,DS_CMD_MODE);
         ow_ds_cmd = 1;
     }
     if (b) {
-        serialWriteByte(DS_WRITE1);
+        serialWriteByte(ow_serial,DS_WRITE1);
     } else {
-        serialWriteByte(DS_WRITE0);
+        serialWriteByte(ow_serial,DS_WRITE0);
     }
     if (ow_ds_wait()) {
-        serialRead();
+        serialRead(ow_serial);
     }
 }
 
 int ow_ds_rbit() {
     if (!ow_ds_cmd) {
-        serialWriteByte(DS_CMD_MODE);
+        serialWriteByte(ow_serial,DS_CMD_MODE);
         ow_ds_cmd = 1;
     }
-    serialWriteByte(DS_WRITE1);
+    serialWriteByte(ow_serial,DS_WRITE1);
     if (ow_ds_wait()) {
-        int resp = serialRead() & 0xFF;
+        int resp = serialRead(ow_serial) & 0xFF;
         return resp & 0x01;
     }
     return 1;
@@ -207,27 +207,27 @@ int ow_ds_rbit() {
 
 void ow_ds_write(int byte) {
     if (ow_ds_cmd) {
-        serialWriteByte(DS_DATA_MODE);
+        serialWriteByte(ow_serial,DS_DATA_MODE);
         ow_ds_cmd = 0;
     }
-    serialWriteByte(byte);
+    serialWriteByte(ow_serial,byte);
     // escape: if byte is 0xE1, 0xE3, or 0xF1, send it twice
     if (byte == DS_DATA_MODE || byte == DS_CMD_MODE || byte == DS_PULSE_TERM) {
-        serialWriteByte(byte);
+        serialWriteByte(ow_serial,byte);
     }
     if (ow_ds_wait()) {
-        serialRead();
+        serialRead(ow_serial);
     }
 }
 
 int ow_ds_read() {
     if (ow_ds_cmd) {
-        serialWriteByte(DS_DATA_MODE);
+        serialWriteByte(ow_serial,DS_DATA_MODE);
         ow_ds_cmd = 0;
     }
-    serialWriteByte(0xFF);
+    serialWriteByte(ow_serial,0xFF);
     if (ow_ds_wait()) {
-        return serialRead() & 0xFF;
+        return serialRead(ow_serial) & 0xFF;
     }
     return 0xFF;
 }
@@ -814,9 +814,9 @@ void ow_check_ui_changes() {
 
 void ow_reinit() {
     // close existing serial if open
-    if (ow_serial) {
-        serialClose();
-        ow_serial = 0;
+    if (ow_serial >= 0) {
+        serialClose(ow_serial);
+        ow_serial = -1;
     }
     ow_ok = 0;
     ow_cnt = 0;
@@ -1453,8 +1453,8 @@ void Command(char cmd[]) {
 }
 
 void OnExit() {
-    if (ow_serial) {
-        serialClose();
+    if (ow_serial >= 0) {
+        serialClose(ow_serial);
     }
 }
 

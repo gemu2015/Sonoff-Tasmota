@@ -8,16 +8,17 @@
 #define THRESHOLD 2000
 
 int main() {
-    serialBegin(3, 1, 115200, 3, 64);  // RX=3, TX=1, 115200 baud, 8N1, 64 byte buf
+    int s = serialBegin(3, 1, 115200, 3, 64);  // RX=3, TX=1, 115200 baud, 8N1, 64 byte buf
+    if (s < 0) return -1;                      // bail out if no serial slot was free
     pinMode(LED_PIN, OUTPUT);
 
     int count = 0;
     while (count < 20) {
         int value = analogRead(SENSOR_PIN);
 
-        serialPrint("Sensor: ");
-        serialPrintInt(value);
-        serialPrintln("");
+        serialPrint(s, "Sensor: ");
+        serialPrintInt(s, value);
+        serialPrintln(s, "");
 
         if (value > THRESHOLD) {
             digitalWrite(LED_PIN, 1);
