@@ -3426,8 +3426,7 @@ void SML_Init(void) {
     // it (no log line, no error in `sensor53 r` reply — just nothing).
     // Surface the cause so a fresh device (Rule1 = 0 after factory
     // reset / reflash) gives a clear diagnostic instead.
-    AddLog(LOG_LEVEL_INFO, PSTR("SML: init skipped - Rule1 disabled (Settings->rule_enabled bit 0 == 0). "
-                                "Run `Rule1 1` to enable SML, or check your build has USE_RULES enabled."));
+    AddLog(LOG_LEVEL_INFO, PSTR("SML: init skipped - because disabled (Settings->rule_enabled bit 0 == 0)"));
     return;
   }
 
