@@ -735,10 +735,13 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_sunset` | int | read | Sunset, minutes since midnight (requires USE_SUNRISE) |
 | `tasm_time` | int | read | Current time, minutes since midnight |
 | `tasm_pheap` | int | read | Free PSRAM in bytes (ESP32 only, 0 on ESP8266) |
-| `tasm_maxblock` | int | read | Largest contiguous free heap block in bytes (ESP32 only) — diagnoses heap fragmentation: free heap can be high while `maxblock` is low |
-| `tasm_frag` | int | read | Heap fragmentation 0..100 % (ESP32 only) — derived from `1 - maxblock/free_heap` |
 | `tasm_smlj` | int | read/write | SML JSON output enable/disable (requires USE_SML_M) |
 | `tasm_npwr` | int | read | Number of power (relay) devices |
+| `tasm_rule` | int | read/write | Rule1 enabled (bit 0 of `Settings->rule_enabled`). Read returns 0 or 1. Write any non-zero to enable, 0 to disable. Equivalent to the console `Rule1 1` / `Rule1 0` commands. Note: some Tasmota subsystems (SML descriptors) check this flag at init and silently skip when Rule1 is disabled — flip with `tasm_rule = 1` before starting them. |
+| `tasm_lat` | float | read/write | Device latitude in decimal degrees (e.g. 48.137). Backed by `Settings->latitude` (stored ×1 000 000 as int). Used by `tasm_sunrise` / `tasm_sunset` calculations. |
+| `tasm_lon` | float | read/write | Device longitude in decimal degrees (e.g. 11.575). Backed by `Settings->longitude`. |
+| `tasm_maxblock` | int | read | Largest contiguous free heap block in bytes (ESP32 only) — diagnoses heap fragmentation: free heap can be high while `maxblock` is low |
+| `tasm_frag` | int | read | Heap fragmentation 0..100 % (ESP32 only) — derived from `1 - maxblock/free_heap` |
 
 ### Indexed Tasmota State Functions
 
