@@ -148,10 +148,11 @@ void OnExit() {
 
 int main() {
     dy_file[0] = 0;
-    // Wait for system to fully initialize (serial/GPIO not ready during early boot)
-    delay(10000);
-    // Restore persisted pin from web UI before opening serial
-    webPulldown(dy_txpin, "TX Pin", "@getfreepins");
+    // Race-Free Autoexec (TinyC 1.3.36+) defers main() until Tasmota
+    // uptime ≥ 3 s, so no manual boot delay is needed before serialBegin.
+    // WebUI pulldowns live in WebUI() — calling them here writes via
+    // WSContentSend_P with no active web-request context and corrupts
+    // the heap. Persist holds dy_txpin across reboots.
     int ret = serialBegin(-1, dy_txpin, 9600, 3, 64);  // 3 = 8N1
     if (ret >= 0) {
         dy_serial = ret;

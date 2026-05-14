@@ -224,11 +224,11 @@ void OnExit() {
 }
 
 int main() {
-    delay(10000);
-
-    // restore persisted pin config
-    webPulldown(ld_rxpin, "RX Pin", "@getfreepins");
-    webPulldown(ld_txpin, "TX Pin", "@getfreepins");
+    // Race-Free Autoexec (TinyC 1.3.36+) defers main() until Tasmota
+    // uptime ≥ 3 s, so no manual boot delay is needed before serialBegin.
+    // WebUI pulldowns live in WebUI() — calling them here writes via
+    // WSContentSend_P with no active web-request context and corrupts
+    // the heap. Persist holds the rx/tx pins across reboots.
 
     int ret = serialBegin(ld_rxpin, ld_txpin, LD_BAUD, 3, LD_SBUF);
     if (ret >= 0) {
