@@ -2944,6 +2944,46 @@ void EverySecond() {
 }
 ```
 
+#### TCP Client tuning *(since 1.5.1)*
+
+Four per-slot helpers for production-grade outgoing TCP work. All
+operate on the **currently selected** slot, so call `tcpSelect(N)`
+first. Solve the recurring SMA / Solar-Edge / Powerwall idle-
+disconnect pattern and the Modbus-TCP request-response boilerplate.
+
+| Function | Description |
+|----------|-------------|
+| `int tcpKeepalive(int idle_sec, int intvl_sec, int count)` | Enable SO_KEEPALIVE on the active slot and set TCP_KEEPIDLE / TCP_KEEPINTVL / TCP_KEEPCNT via direct setsockopt. Returns 1=ok, 0=err. Typical SMA Tripower setting: `tcpKeepalive(30, 10, 3)` — after 30 s idle, send up to 3 probes spaced 10 s apart before declaring dead. Solves the "peer drops idle connection after 60 s" pattern. |
+| `tcpNoDelay(int on)` | Toggle Nagle's algorithm on the active slot. `tcpConnect()` already calls `setNoDelay(true)` by default; use this to re-enable Nagle for high-throughput bulk transfers. |
+| `int tcpDisconnectReason()` | Returns last disconnect reason for the active slot: 0=NEVER (never connected), 1=CONNECTED (still open), 2=PEER_CLOSED (FIN), 3=TIMEOUT, 4=NETWORK (down), 5=USER_CLOSED. Lets a reconnect watchdog react intelligently to RST/FIN vs. network errors instead of blind retries. |
+| `int tcpTransact(char req[], int req_len, char resp[], int resp_max, int timeout_ms)` | Atomic write-and-await-reply on the active slot — folds the `tcpWriteArray + poll-tcpAvailable + tcpReadArray` pattern into a single syscall. Returns bytes received on success (all immediately-available bytes up to `resp_max`); -1 timeout; -2 not connected or peer dropped mid-wait (`tcpDisconnectReason()` set to PEER_CLOSED); -3 bad arguments. Holds the calling slot's `vm_mutex` throughout — designed to run from a `spawnTask` worker, blocking that slot's other callbacks for ≤200 ms is fine. Suitable for protocols where the response fits in one TCP segment (Modbus-TCP, ≤256 B). |
+
+**Example — Modbus-TCP poll with one-shot request/response:**
+```c
+char req[12]  = {0,1, 0,0, 0,6,  1, 3, 0,0x10, 0,4};  // FC03 read 4 regs
+char resp[260];
+
+void main() {
+    tcpSelect(0);
+    tcpConnect("192.168.1.50", 502);
+    tcpKeepalive(30, 10, 3);                  // SMA-style keep-alive
+}
+
+void EverySecond() {
+    tcpSelect(0);
+    int n = tcpTransact(req, 12, resp, 260, 200);   // ≤200 ms
+    if (n > 0) {
+        // resp[0..n-1] = MBAP header + FC03 response
+    } else if (n == -2) {
+        int reason = tcpDisconnectReason();
+        if (reason == 2 || reason == 4) tcpConnect("192.168.1.50", 502);
+    }
+}
+```
+
+See `examples/modbus_lib.tc` for the canonical `mbFC03/04/06/16`
+helpers built on `tcpTransact`.
+
 ### MQTT Subscribe / Publish
 
 Subscribe to MQTT topics and react to inbound messages, or publish arbitrary payloads. Requires `USE_MQTT` in the firmware build (enabled by default).
@@ -3213,6 +3253,45 @@ int main() {
 - `webArg()` reads both GET query parameters and POST form fields
 - Equivalent to Scripter's `won(N, "/url")` + `>onN` section
 - CORS is enabled so endpoints are accessible from external apps
+
+#### Raw HTTP responses + keep-alive *(since 1.6.0)*
+
+By default, `webSend()` inside a `WebOn()` handler routes through
+Tasmota's `WSContentSend` which auto-emits a chunked HTML response with
+`Content-Type: text/html` + `Connection: close`. That's wrong for clients
+that expect specific headers (Jackery EcoTracker emu, plain JSON APIs)
+or that need to keep the socket open across multiple requests (HTTP/1.1
+keep-alive). The raw-mode trio bypasses `WSContentSend`:
+
+| Function | Description |
+|----------|-------------|
+| `webRawMode()` | Inside a `WebOn()` handler: switch the response builder to raw-bytes mode. After this, NOTHING is auto-emitted — you must write the full HTTP response yourself (status line + headers + blank line + body). |
+| `webRawWrite(char buf[])` | Write `buf` raw bytes to the underlying TCP client. Streams via the standard `tc_stream_ref` chunking (256 B at a time), so unlimited-size payloads work. Replaces `webSend()` in raw mode. |
+| `webKeepAlive()` | Mark the response as keep-alive. The framework keeps the TCP socket open after the handler returns so the same client can send another request without reconnecting. Requires `USE_HTTP_KEEPALIVE` in firmware (ESP32 default). |
+
+**Example — Jackery EcoTracker emulation (exactly 3 headers, JSON body, keep-alive):**
+```c
+char hdr[160];
+
+void WebOn() {
+    if (webHandler() != 1) return;
+    webRawMode();
+    char body[64];
+    sprintf(body, "{\"power\":%d,\"powerAvg\":%d,\"energyCounterIn\":%d,\"energyCounterOut\":%d}",
+            p, p_avg, e_in, e_out);
+    sprintf(hdr, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n",
+            strlen(body));
+    webRawWrite(hdr);
+    webRawWrite(body);
+    webKeepAlive();
+}
+
+int main() { webOn(1, "/"); return 0; }
+```
+
+This is what `examples/ecotracker.tc` and `examples/marstek_emu.tc` use.
+No `webSend()` calls in the handler at all — the raw 3-header response
+is byte-identical to what a real EcoTracker emits.
 
 ### UDP Multicast (Scripter-compatible)
 
@@ -3541,6 +3620,57 @@ int main() {
     return 0;
 }
 ```
+
+### TWAI / CAN Bus (ESP32)
+
+ESP32 has a built-in TWAI (Two-Wire Automotive Interface, electrically
+identical to CAN 2.0) controller — most ESP32-S3 / ESP32-C3 / ESP32-C6
+boards expose it through any two GPIOs via the GPIO matrix. A 3.3 V
+CAN transceiver (SN65HVD230, TCAN332, TJA1051 with level shifter, etc.)
+is required between MCU and the differential bus pair (CAN_H / CAN_L).
+
+| Function | Description |
+|----------|-------------|
+| `int twaiBegin(int rx_pin, int tx_pin, int kbits, int mode)` | Install + start the TWAI driver. `kbits` ∈ {10, 25, 50, 100, 125, 250, 500, 800, 1000}. `mode`: 0=NORMAL (ACK on bus), 1=NO_ACK (self-test, useful with loopback jumper for software validation). Returns 0=ok, -1=err |
+| `twaiEnd()` | Stop driver, release pins. Required before any subsequent `twaiBegin()` (driver is single-instance) |
+| `int twaiAvailable()` | Number of RX frames waiting in the driver queue. 0 if empty |
+| `int twaiRecv(int meta[], char data[], int max_dlc)` | Drain one RX frame. `meta[0]=ID, meta[1]=ext_flag, meta[2]=dlc`. `data[0..dlc-1]` filled with payload bytes. Returns the number of payload bytes read (0 = queue empty, < 0 = driver error) |
+| `int twaiSend(int id, char data[], int dlc, int ext_flag)` | Transmit one frame. Returns 0=ok, -1=err. `ext_flag=0` standard 11-bit ID, `=1` extended 29-bit |
+| `int twaiStatus(int counters[])` | Snapshot of driver state. Fills `counters[]` with `[state, tx_err, rx_err, tx_failed, rx_missed, arb_lost, bus_err]`. Returns state code: 0=stopped, 1=running, 2=bus-off, 3=recovering |
+| `int twaiFilter(int id_acc, int id_mask, int ext_flag)` | Install acceptance filter. `id_acc` matches `RX_ID & ~id_mask`; `id_mask=0` accepts only the exact ID, `id_mask=0x1FFFFFFF` accepts all. Set BEFORE `twaiBegin()` for it to take effect (driver re-install required to change). Returns 0=ok |
+
+**Notes:**
+- Mode 1 (NO_ACK) is for software bring-up only — the controller drives TX but never expects an ACK, letting you validate the protocol stack with a TX→RX jumper on the same MCU before a transceiver is wired up.
+- After a bus-off (state 2), call `twaiEnd()` + `twaiBegin()` to recover. Some drivers also support `twai_initiate_recovery()` via state 3 but the simpler restart is preferred from script.
+- ESP32-C3 GPIO 9 is a BOOT strap pin with weak pull-up. It works as TWAI-TX but **NOT** as TWAI-RX (the strap holds the line and the controller sees a permanent dominant). Pick RX on a non-strap pin (10, 18, 19, etc.).
+
+**Example — sniffer that logs every frame:**
+```c
+int rx_meta[4];
+char rx_data[8];
+int rx_total = 0;
+
+void EveryLoop() {
+    while (twaiAvailable() > 0) {
+        int n = twaiRecv(rx_meta, rx_data, 8);
+        if (n <= 0) break;
+        rx_total = rx_total + 1;
+        char ext = rx_meta[1] ? 'E' : 'S';
+        addLog("CAN RX #%d %cID=0x%X DLC=%d  %02X %02X %02X %02X %02X %02X %02X %02X",
+            rx_total, ext, rx_meta[0], rx_meta[2],
+            rx_data[0], rx_data[1], rx_data[2], rx_data[3],
+            rx_data[4], rx_data[5], rx_data[6], rx_data[7]);
+    }
+}
+
+int main() {
+    twaiBegin(38, 39, 250, 0);   // rx=38, tx=39, 250 kbit/s, NORMAL
+    addLog("CAN sniffer ready");
+    return 0;
+}
+```
+
+See `examples/slcan_bridge_tcp.tc` for a full SLCAN-over-TCP bridge.
 
 ### Display Drawing
 
@@ -4374,6 +4504,26 @@ void Command(char cmd[]) {
 }
 int main() { addCommand("RDR"); return 0; }
 ```
+
+#### shareDump() *(since 1.6.2)*
+
+Diagnostic-only — walk the entire `tc_share_table[]` under the share
+mutex and log every live entry via `AddLog`. Returns the number of
+live entries to the calling VM. Pure read-only, non-allocating.
+
+```c
+int n = shareDump();
+// → Tasmota log:
+//   TCC: share[0] key="brutto"    type=FLT value=25.290000
+//   TCC: share[3] key="price"     type=FLT value=12.605000
+//   TCC: share[5] key="soc"       type=INT value=87
+//   TCC: share[12] key="disp_html" type=STR value="<table>..."
+//   TCC: shareDump: 8/32 live entries
+```
+
+Useful for diagnosing cross-VM share anomalies: did the write actually
+land? at what index? with what type and value? Doc-side this avoids
+having to patch the firmware with strategically-placed debug logs.
 
 ### Symmetric Crypto (ESP32)
 

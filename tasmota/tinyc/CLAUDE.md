@@ -238,35 +238,41 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 
 | Domain | Key calls |
 |---|---|
-| Output | `addLog`, `addLogF`, `sprintf`, `responseCmnd`, `responseAppend`, `webSend` |
+| Output | `addLog("fmt %d %s", a, b)` (variadic), `sprintf`, `responseCmnd`, `responseAppend`, `webSend` |
 | GPIO | `pinMode`, `digitalRead`, `digitalWrite`, `analogRead`, `dacWrite` |
-| Time | `millis`, `delay`, `tasm_secs/mins/hours/…`, `time()`, `strftime` |
+| Time | `millis`, `delay`, `tasm_hour/minute/second/…`, `time()`, `strftime` |
 | Timers | `timerSet`, `timerCancel` (software) |
-| Serial | `serialBegin`, `serialRead`, `serialWrite`, `serialAvailable` |
-| I²C | `i2cBegin`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cScan` |
-| SPI | `spiBegin`, `spiTransfer`, `spiCS` |
-| 1-Wire | `oneWireReset`, `oneWireRead`, `oneWireWrite`, `oneWireSearch` |
-| Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileSize` |
-| HTTP | `httpGet`, `httpPost`, `httpGetStream` |
-| TCP | `tcpListen`, `tcpAccept`, `tcpRead`, `tcpWrite` (client + server) |
-| UDP | `udpSend`, `udpReceive`, `udpMulticast` |
-| MQTT | `mqttSubscribe`, `mqttPublish` |
+| Serial | `serialBegin(rx, tx, baud, cfg, buf)` returns slot 0..2; `serialRead(slot)`, `serialWrite(slot, str)`, `serialAvailable(slot)` (multi-port API; slot is first arg) |
+| I²C | `i2cRead8`, `i2cWrite8`, `i2cReadBuf`, `i2cWriteBuf`, `i2cScan` |
+| SPI | `spiInit`, `spiTransfer`, `spiSetCs` |
+| 1-Wire | `owReset`, `owRead`, `owWrite`, `owSearch` |
+| Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileSize`, `fileReadBin`/`fileWriteBin` |
+| HTTP | `httpGet`, `httpPost`, `httpHeader` |
+| TCP | `tcpConnect`, `tcpRead`, `tcpWrite`, `tcpAvailable`, `tcpSelect` (slot 0..3); tuning: `tcpKeepalive`, `tcpNoDelay`, `tcpTransact`, `tcpDisconnectReason` |
+| UDP (Scripter globalvars) | `udpSend(name, val)`, `udpRecv(name)`, `udpReady(name)`, `udpRecvArray(name, arr, max)` |
+| UDP (general) | `udp(N, args…)` dispatcher: 0=open, 1=read, 2=reply, 3=send-to-url, 9=join-mcast, 10=igmp-leave, etc. (see Reference.md §General-Purpose UDP) |
+| MQTT | `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` (const-pool string args; ESP32 USE_MQTT) |
 | mDNS | `mdnsAdvertise` |
-| Display | `dspText`, `dspPixel`, `dspLine`, `dspRect`, `dspCircle`, `dspColor`, `dspUpdate` |
-| Canvas | `imgCreate`, `imgBeginDraw`, `imgEndDraw`, `imgClear`, `dspPushImageRect` |
-| Touch | `btnAdd`, `btnState`, `btnEnable`, `TouchButton` callback |
-| TinyUI | `uiLabel`, `uiButton`, `uiSlider`, `uiRefresh` |
+| Display | `dspText`, `dspPixel`, `dspLine`, `dspRect`, `dspCircle`, `dspColor`, `dspUpdate` (e-paper only) |
+| Image bridge | `dspLoadImageFromCam(cam) → img_slot`, `dspImgTextBurn(slot, x, y, color, w, align, text)`, `dspImageToCam(img, cam, quality)` |
+| Canvas | `imgCreate`, `imgBeginDraw`, `imgEndDraw`, `imgClear`, `imgBlit`, `imgFlush`, `dspPushImageRect` |
+| TinyUI widgets | `uiTheme`, `uiScreen`, `uiClearScreen`, `uiLabel`, `uiLabelSet`, `uiProgress`, `uiProgressSet`, `uiGauge`, `uiCheckbox`, `uiButton`, `uiIcon` |
+| WebChart (Google) | `WebChart`, `WebChartSize`, `WebChartTimeBase` |
+| Web raw HTTP | `webRawMode`, `webRawWrite`, `webKeepAlive` (for clients that expect specific headers / persistent sockets — EcoTracker, Jackery, etc.) |
 | Audio | `i2sBegin`, `i2sWrite`, `i2sStop`, `fileReadPCM16` |
-| Camera | `cameraInit`, `camControl`, `camCapture` |
-| SML | `smlGet`, `smlWrite`, `smlDesc` |
+| Camera | `camControl(sel, p1, p2)` (multiplexed: 0=init, 10=capture, 11=save-to-file, 12=free, 13=deinit, …) |
+| SML | `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetOpt`, `smlApplyPins`, `smlScripterLoad` |
 | Sensor JSON | `sensorGet("ENERGY#Power")` parses live Tasmota SensorJSON |
-| WS2812 LEDs | `ws2812Begin`, `ws2812SetPixel`, `ws2812Show` |
-| HomeKit | `hkAdd`, `hkSet`, `hkReady`, `HomeKitWrite` callback |
+| WS2812 LEDs | `setPixels(arr, count, pin)` |
+| HomeKit | `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkInit`, `hkStop`, `hkReset`, `hkSetCode`, `HomeKitWrite` callback |
 | Tasks (ESP32) | `spawnTask("Name"[, stackKB])`, `killTask`, `taskRunning` |
 | Crypto (ESP32) | `aesEcb` (AES-128-ECB, 1 block), `aesCbc`, `hmacSha256`, `sha256`, `hex2bin` / `bin2hex` |
+| TWAI / CAN (ESP32) | `twaiBegin(rx, tx, kbits, mode)`, `twaiSend`, `twaiRecv`, `twaiAvailable`, `twaiStatus`, `twaiFilter`, `twaiEnd` |
 | Persist | `persist` decl, `saveVars()` |
 | Watch | `watch` decl, `changed`, `delta`, `written`, `snapshot` |
-| Cross-VM share | `shareSetInt/GetInt`, `shareSetFloat/GetFloat`, `shareSetStr/GetStr`, `shareHas`, `shareDelete` (string-literal keys) |
+| Cross-VM share | `shareSetInt/GetInt`, `shareSetFloat/GetFloat`, `shareSetStr/GetStr`, `shareHas`, `shareDelete`, `shareDump` (diagnostic) — string-literal keys |
+| Tasmota commands | `tasmCmd("Cmd")`, `tasmDefer("Cmd")` (queue for main task), `tasmInfo(sel, buf)` |
+| Diagnostics | `dumpVM()`, `vmStackDepth()` |
 | Binary libs (BLIB) | `bcall("name", buf, len)` → int — call a native function exported by a `MODULE_TYPE_BLIB` plugin (e.g. `xblib_01_crc`'s `mb_crc16`, `crc32`, `crc8_dallas`). Name is a string literal; phase-1 ABI is `(BUF, INT) → INT` only. |
 
 ---

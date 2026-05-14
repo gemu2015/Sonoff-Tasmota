@@ -99,6 +99,13 @@ const BUILTINS = {
     // UDP multicast (Scripter-compatible) — scalar float auto-sends via STORE_GLOBAL_UDP opcode
     'udpSendArray':     { syscall: Syscall.UDP_SEND_ARRAY,  args: 3, returns: false, constArgs: [0], strArgs: [1] },
     'udpSendStr':       { syscall: Syscall.UDP_SEND_STR,   args: 2, returns: false, constArgs: [0], strArgs: [1] },
+    // udpSend / udpRecv / udpReady / udpRecvArray — Scripter-style named-variable
+    // accessors documented in TinyC_Reference.md §UDP. Firmware syscalls existed
+    // (100/101/102/104) but BUILTINS were missing until 2026-05-14.
+    'udpSend':          { syscall: Syscall.UDP_SEND,        args: 2, returns: false, constArgs: [0] },
+    'udpRecv':          { syscall: Syscall.UDP_RECV,        args: 1, returns: true,  constArgs: [0], returnFloat: true },
+    'udpReady':         { syscall: Syscall.UDP_READY,       args: 1, returns: true,  constArgs: [0] },
+    'udpRecvArray':     { syscall: Syscall.UDP_RECV_ARRAY,  args: 3, returns: true,  constArgs: [0] },
 
     // I2C bus (last param = bus: 0 or 1)
     'i2cRead8':         { syscall: Syscall.I2C_READ8,      args: 3, returns: true },
@@ -245,6 +252,10 @@ const BUILTINS = {
     'strTrim':          { syscall: Syscall.STR_TRIM,           args: 1, returns: true,  strArgs: [0] },
     'atoi':             { syscall: Syscall.STR_TO_INT,      args: 1, returns: true,  strArgs: [0] },
     'atof':             { syscall: Syscall.STR_TO_FLOAT,    args: 1, returns: true,  strArgs: [0], returnFloat: true },
+    // strToInt / strToFloat are documented in TinyC_Reference.md as aliases for
+    // atoi / atof — both names route to the same syscalls so doc + code agree.
+    'strToInt':         { syscall: Syscall.STR_TO_INT,      args: 1, returns: true,  strArgs: [0] },
+    'strToFloat':       { syscall: Syscall.STR_TO_FLOAT,    args: 1, returns: true,  strArgs: [0], returnFloat: true },
 
     // Sensor JSON parsing
     'sensorGet':        { syscall: Syscall.SENSOR_GET,      args: 1, returns: true,  constArgs: [0] },
