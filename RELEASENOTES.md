@@ -128,6 +128,8 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - ESP32 Platform from 2025.04.30 to 2026.05.50, Framework (Arduino Core) from v3.1.11 to v3.3.8.260506 and IDF from v5.3.4.260127 to v5.5.4.260407 [#24718](https://github.com/arendst/Tasmota/issues/24718)
 - ESP8266 wrap printf and replace with stubs reducing flash size by 6k [#24714](https://github.com/arendst/Tasmota/issues/24714)
 - Berry `format()` now uses internal `ext_snprintf_P()` for floating point formatting [#24725](https://github.com/arendst/Tasmota/issues/24725)
+- LVGL splash screen uses default Montserrat-14 instead of Montserrat-20 on small screens [#24735](https://github.com/arendst/Tasmota/issues/24735)
+
 
 ### Fixed
 - NeoPool possible overflow/div-zero errors and Hydrolysis module detection [#24724](https://github.com/arendst/Tasmota/issues/24724)
