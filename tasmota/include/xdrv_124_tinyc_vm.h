@@ -4512,27 +4512,31 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (vm->ow_bus) { delete vm->ow_bus; vm->ow_bus = nullptr; }
       vm->ow_bus = new OneWire(a);
       vm->ow_pin = a;
-      // Debug: manual 1-Wire test at C level
+#ifdef TC_OW_DEBUG
+      // Manual 1-Wire bring-up trace: bus reset, first 3 ROM-search bit
+      // pairs, plus a library-level search probe. Enable with
+      // -DTC_OW_DEBUG=1 when bringing up new hardware; off by default
+      // since these AddLog calls fire on every owSetPin() and dump
+      // ~5 lines per call into the console.
       {
         uint8_t rst = vm->ow_bus->reset();
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: owDbg reset=%d"), rst);
         if (rst) {
-          // Manual search: write SEARCH_ROM, read first 3 bit-pairs
           vm->ow_bus->write(0xF0); // SEARCH_ROM
           for (int b = 0; b < 3; b++) {
             uint8_t id = vm->ow_bus->read_bit();
             uint8_t cmp = vm->ow_bus->read_bit();
             AddLog(LOG_LEVEL_INFO, PSTR("TCC: owDbg bit%d: id=%d cmp=%d"), b, id, cmp);
-            vm->ow_bus->write_bit(id); // follow the id direction
+            vm->ow_bus->write_bit(id);
           }
         }
-        // Now test library search
         vm->ow_bus->reset_search();
         uint8_t taddr[8];
         uint8_t tf = vm->ow_bus->search(taddr);
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: owDbg search=%d fam=0x%02X"), tf, tf ? taddr[0] : 0);
         vm->ow_bus->reset_search();
       }
+#endif
       break;
     }
     case SYS_OW_RESET: {
