@@ -845,6 +845,15 @@ enum TcSyscall {
                                   //   connects. Compiles to a no-op when USE_HTTP_KEEPALIVE is
                                   //   #undef'd.
 
+  SYS_PIN_FREE              = 393, // (pin)                                 -> int (1=free, 0=forbidden)
+                                  //   Soft pin-availability check. Returns 1 if `pin` is usable
+                                  //   by a TinyC script (matches tc_pin_forbidden() == false),
+                                  //   0 otherwise. Does NOT halt the VM. Use this before any
+                                  //   pinMode/owSetPin/i2cBegin call on a user-configurable pin
+                                  //   so a stale or wrong default doesn't crash the slot before
+                                  //   the WebUI gets a chance to render and let the user pick
+                                  //   a different pin. Out-of-range pins return 0.
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -3353,15 +3362,20 @@ static bool tc_pin_forbidden(int32_t pin) {
   if (pin < 0 || pin >= MAX_GPIO_PIN) return true;
   if (FlashPin(pin)) return true;
   if (RedPin(pin)) return true;
-  if (TasmotaGlobal.gpio_pin[pin] != 0) return true;  // claimed by Tasmota peripheral
+  // gpio_pin[] stores (function << 5) | index. Top 11 bits hold the GPIO
+  // function id. GPIO_NONE (0) = pin is free; GPIO_USER (2047) = pin is
+  // explicitly user-configurable in the module template — both must remain
+  // available to TinyC scripts. Anything else = claimed by a Tasmota peripheral.
+  uint32_t pin_func = TasmotaGlobal.gpio_pin[pin] >> 5;
+  if (pin_func != GPIO_NONE && pin_func != GPIO_USER) return true;
   return false;
 }
 
 #define TC_CHECK_PIN(vm, pin) \
   if (tc_pin_forbidden(pin)) { \
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT — forbidden pin %d (flash:%d red:%d tasmota:%d)"), \
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT — forbidden pin %d (flash:%d red:%d gpio_func:%d)"), \
       (int)(pin), FlashPin(pin), RedPin(pin), \
-      (pin >= 0 && pin < MAX_GPIO_PIN) ? TasmotaGlobal.gpio_pin[pin] : -1); \
+      (pin >= 0 && pin < MAX_GPIO_PIN) ? (TasmotaGlobal.gpio_pin[pin] >> 5) : -1); \
     (vm)->error = TC_ERR_FORBIDDEN_PIN; \
     (vm)->halted = true; \
     return TC_ERR_FORBIDDEN_PIN; \
@@ -4476,6 +4490,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         TasmotaGlobal.gpio_pin[a] = AGPIO(GPIO_NONE);
       }
       pinMode(a, b);
+      break;
+    case SYS_PIN_FREE:
+      // Soft availability check — does NOT halt. Returns 1 if pin is free
+      // (matches tc_pin_forbidden() == false), 0 otherwise. Lets scripts
+      // gate pinMode/owSetPin/etc. on user-configurable pins so a stale
+      // default doesn't kill the slot before the WebUI renders.
+      a = TC_POP(vm);
+      TC_PUSH(vm, tc_pin_forbidden(a) ? 0 : 1);
       break;
 
     // ── 1-Wire (using Tasmota OneWire library) ────────

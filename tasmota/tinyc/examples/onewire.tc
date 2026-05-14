@@ -829,6 +829,12 @@ void ow_reinit() {
     ow_act_tx = ow_txpin;
 
     if (ow_mode == 0) {
+        if (!pinFree(ow_pin)) {
+            char m[64];
+            sprintf(m, "1-Wire: pin %d claimed/forbidden — pick another in WebUI", ow_pin);
+            addLog(m);
+            return;
+        }
         owSetPin(ow_pin);
         if (!owReset()) {
             addLog("1-Wire: no devices (GPIO mode)");
@@ -1472,11 +1478,10 @@ int main() {
         delay(5000);
     }
 
-    // setup WebUI pulldowns (persist handles storage, webPulldown handles UI)
-    webPulldown(ow_mode, "Mode", "GPIO|DS2480B");
-    webPulldown(ow_pin, "1-Wire Pin", "@getfreepins");
-    webPulldown(ow_rxpin, "DS2480B RX", "@getfreepins");
-    webPulldown(ow_txpin, "DS2480B TX", "@getfreepins");
+    // WebUI pulldowns live in WebUI() (line 1201) — calling them here from
+    // main() writes via WSContentSend_P without an active request context and
+    // corrupts the heap (crash later inside tlsf_malloc on the next real
+    // request). Persist handles storage; WebUI() renders on each page hit.
 
     ow_reinit();
     addCommand("OW");

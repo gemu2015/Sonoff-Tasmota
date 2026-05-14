@@ -459,6 +459,12 @@ export const Syscall = {
     WEB_RAW_WRITE:           391, // (str_ref)    -> void  write raw bytes to Webserver->client()
     WEB_KEEP_ALIVE:          392, // ()           -> void  keep TCP socket alive after response
 
+    // Soft pin-availability check — does NOT halt the VM. Returns 1 if pin is
+    // free, 0 if forbidden (flash/red/claimed). Use before pinMode/owSetPin/
+    // i2cBegin on user-configurable pins so a stale default doesn't crash the
+    // slot before the WebUI can render and let the user pick a different pin.
+    PIN_FREE:                393, // (pin)        -> int (1=free, 0=forbidden)
+
     // Symmetric crypto (AES-128 / SHA-256 / HMAC-SHA256). All buffers are
     // TinyC char[] (one byte per int32 slot, low 8 bits used). Lengths in
     // bytes. AES ops are in-place on the data ref. Motivating use case:

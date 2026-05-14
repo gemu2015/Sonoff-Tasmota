@@ -23,6 +23,7 @@ const BUILTINS = {
     'analogRead':       { syscall: Syscall.ANALOG_READ,     args: 1, returns: true },
     'analogWrite':      { syscall: Syscall.ANALOG_WRITE,    args: 2, returns: false },
     'gpioInit':         { syscall: Syscall.GPIO_INIT,       args: 2, returns: false },
+    'pinFree':          { syscall: Syscall.PIN_FREE,        args: 1, returns: true },
     // 1-Wire (native C bit-bang)
     'owSetPin':         { syscall: Syscall.OW_SET_PIN,     args: 1, returns: false },
     'owReset':          { syscall: Syscall.OW_RESET,       args: 0, returns: true },
