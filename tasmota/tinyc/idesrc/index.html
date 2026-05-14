@@ -519,7 +519,12 @@
     <!-- Header -->
     <div class="header">
         <div>
-            <h1>TinyC IDE v1.3.11</h1>
+            <h1>TinyC IDE v1.6.5</h1>
+            <!-- Header version is hand-maintained; keep in sync with
+                 TC_RELEASE in tasmota/include/xdrv_124_tinyc_vm.h.
+                 (Spotted out-of-date by Andreas's Claude review of
+                 1.5.2 — was stuck at 1.3.20 for 5 releases.) -->
+
             <span class="subtitle">ESP32/ESP8266 Bytecode Compiler & VM</span>
         </div>
         <div class="toolbar">
@@ -532,20 +537,23 @@
             <button class="btn" onclick="saveFile()" id="btnSave" title="Ctrl+S">
                 Save
             </button>
-            <input type="file" id="fileInput" accept=".tc,.c,.h,.txt" style="display:none">
+            <input type="file" id="fileInput" accept=".tc,.c,.h,.txt" multiple style="display:none">
             <select id="examples">
                 <option value="">Load Example...</option>
                 <!--EXAMPLES_OPTIONS-->
             </select>
-            <input type="text" id="compilerDefines" placeholder="-DBOARD_DFROBOT" value="" class="ip-input" title="Preprocessor defines, e.g. -DBOARD_DFROBOT -DMY_FLAG" style="width:180px;">
             <button class="btn btn-primary" onclick="compileCode()" title="Ctrl+Enter">
                 Compile
+            </button>
+            <button class="btn" onclick="saveTcb()" id="btnSaveTcb" title="Save compiled .tcb bytecode to host computer (Ctrl+Shift+S)">
+                Save .tcb
             </button>
             <button class="btn btn-success" onclick="runCode()" title="Ctrl+Shift+Enter">
                 Run
             </button>
             <div class="wifi-upload-group">
                 <input type="text" id="deviceIp" placeholder="Device IP" value="" class="ip-input" title="Tasmota device IP address">
+                <select id="targetSlot" class="ip-input" style="width:95px;min-width:95px;margin-left:4px" title="Target VM slot (0-5, ESP32)"><option value="0">Slot 0</option><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option><option value="4">Slot 4</option><option value="5">Slot 5</option></select>
                 <button class="btn btn-wifi" onclick="uploadWiFi()" title="Upload .tcb to Tasmota via WiFi">
                     Upload
                 </button>
@@ -695,7 +703,7 @@ int main() {
             en: {
                 subtitle: 'ESP32/ESP8266 Bytecode Compiler & VM',
                 btn_new: 'New', btn_open: 'Open', btn_save: 'Save',
-                btn_compile: 'Compile', btn_run: 'Run',
+                btn_compile: 'Compile', btn_save_tcb: 'Save .tcb', btn_run: 'Run',
                 btn_upload: 'Upload', btn_run_device: 'Run on Device',
                 btn_save_file: 'Save File', btn_close: '\u2715 Close',
                 load_example: 'Load Example...', device_files: 'Device Files...',
@@ -708,7 +716,7 @@ int main() {
             de: {
                 subtitle: 'ESP32/ESP8266 Bytecode-Compiler & VM',
                 btn_new: 'Neu', btn_open: '\u00D6ffnen', btn_save: 'Speichern',
-                btn_compile: 'Kompilieren', btn_run: 'Ausf\u00FChren',
+                btn_compile: 'Kompilieren', btn_save_tcb: '.tcb speichern', btn_run: 'Ausf\u00FChren',
                 btn_upload: 'Hochladen', btn_run_device: 'Auf Ger\u00E4t',
                 btn_save_file: 'Datei speichern', btn_close: '\u2715 Schlie\u00DFen',
                 load_example: 'Beispiel laden...', device_files: 'Ger\u00E4tedateien...',
@@ -729,6 +737,7 @@ int main() {
             document.getElementById('btnOpen').textContent = t('btn_open');
             document.getElementById('btnSave').textContent = t('btn_save');
             document.querySelector('[onclick="compileCode()"]').textContent = t('btn_compile');
+            document.getElementById('btnSaveTcb').textContent = t('btn_save_tcb');
             document.querySelector('[onclick="runCode()"]').textContent = t('btn_run');
             document.querySelector('[onclick="uploadWiFi()"]').textContent = t('btn_upload');
             document.querySelector('[onclick="runOnDevice()"]').textContent = t('btn_run_device');
@@ -784,6 +793,126 @@ int main() {
         // ─── SML Descriptor ────────────────────────────────
         function getDeviceIp() {
             return document.getElementById('deviceIp').value.trim();
+        }
+
+        // ─── #include local-files map (v1.5.2) ─────────────
+        // When the user opens main + companion files via "Open" (multi-
+        // select), companion files land here keyed by basename. The
+        // resolver below consults this map BEFORE making a network call
+        // to the device — so PC-side development with a local folder of
+        // .tc files works without uploading every helper file to the
+        // device first.
+        //
+        // The user can also drop files explicitly via "Add include from
+        // PC" button (TODO future). Cleared on full reload of the IDE
+        // (in-memory only — no localStorage to keep things obvious).
+        const tcLocalFiles = new Map();   // basename -> source text
+
+        // ─── #include resolver (v1.5.2) ────────────────────
+        // Recursively walks the source for `#include "filename.tc"` lines,
+        // resolves each from (1) the local-files map (companion files
+        // opened in the same multi-select), then (2) the device's UFS via
+        // /tc_api?cmd=readfile, and returns a fully-inlined source string
+        // that can be passed straight to compile().
+        //
+        // Why textual inclusion before preprocess():
+        //   - #ifdef/#define inside included files behave as if typed inline
+        //   - #defines from main file are visible in included files (and
+        //     vice versa) — natural C semantics
+        //   - first-include-only deduplication acts as an automatic
+        //     header-guard — simple libraries don't need #ifndef/#define
+        //
+        // Cycle detection via a stack; max depth 16 (catches accidental
+        // infinite recursion). Visited set ensures each file is inlined
+        // at most once even if multiple files request it (or the same
+        // file requests something twice).
+        //
+        // Falls back gracefully: if no #include directives are present,
+        // returns the source unchanged without making any network calls
+        // and without requiring a device IP.
+        async function tcResolveIncludes(source) {
+            const includeRe = /^[ \t]*#include[ \t]+"([^"]+)"/;
+            // Quick scan — no #include? skip everything (no IP needed,
+            // no network calls, transparent fallthrough for single-file
+            // scripts).
+            if (!includeRe.test(source) && !source.split('\n').some(l => includeRe.test(l))) {
+                return source;
+            }
+            // IP only required if at least one #include can't be resolved
+            // from the local-files map; deferred to first UFS fetch below.
+            const visited = new Set();          // filename -> already-inlined
+            const MAX_DEPTH = 16;
+
+            // Helper: strip leading slashes so map lookups by basename match
+            // both `#include "foo.tc"` and `#include "/foo.tc"`.
+            function tcLocalKey(name) {
+                return name.replace(/^\/+/, '');
+            }
+
+            async function fetchFile(filename) {
+                // Order: (1) local-files map (companion files opened from
+                // PC), (2) device UFS over HTTP. Local takes priority so
+                // PC-side iteration doesn't depend on first uploading the
+                // helper files to the device.
+                const key = tcLocalKey(filename);
+                if (tcLocalFiles.has(key)) {
+                    return tcLocalFiles.get(key);
+                }
+                const ip = getDeviceIp();
+                if (!ip) {
+                    throw new Error(
+                        `#include "${filename}" — not in local files and no ` +
+                        `device IP set. Either open companion files from PC ` +
+                        `via the multi-select Open dialog, or set the device IP ` +
+                        `to fetch from the device's UFS.`);
+                }
+                const path = filename.startsWith('/') ? filename : '/' + filename;
+                const url = `http://${ip}/tc_api?cmd=readfile&path=${encodeURIComponent(path)}`;
+                let resp;
+                try {
+                    resp = await fetch(url, { mode: 'cors' });
+                } catch (e) {
+                    throw new Error(`#include "${filename}" — fetch failed: ${e.message}`);
+                }
+                if (!resp.ok) {
+                    let detail = '';
+                    try { detail = await resp.text(); } catch {}
+                    throw new Error(`#include "${filename}" — HTTP ${resp.status} (${detail.slice(0, 80) || resp.statusText})`);
+                }
+                return await resp.text();
+            }
+
+            async function expand(text, stack) {
+                if (stack.length > MAX_DEPTH) {
+                    throw new Error(`#include depth exceeded (${MAX_DEPTH}): ${stack.join(' -> ')}`);
+                }
+                const lines = text.split('\n');
+                const out = [];
+                for (const ln of lines) {
+                    const m = ln.match(includeRe);
+                    if (!m) {
+                        out.push(ln);
+                        continue;
+                    }
+                    const fname = m[1];
+                    if (stack.includes(fname)) {
+                        throw new Error(`Circular #include: ${stack.concat([fname]).join(' -> ')}`);
+                    }
+                    if (visited.has(fname)) {
+                        out.push(`// #include "${fname}" — already included, skipped`);
+                        continue;
+                    }
+                    visited.add(fname);
+                    const content = await fetchFile(fname);
+                    const expanded = await expand(content, stack.concat([fname]));
+                    out.push(`// === BEGIN #include "${fname}" ===`);
+                    out.push(expanded);
+                    out.push(`// === END #include "${fname}" ===`);
+                }
+                return out.join('\n');
+            }
+
+            return await expand(source, []);
         }
 
         function smlSetStatus(msg, cls) {
@@ -925,13 +1054,16 @@ int main() {
             const ip = getDeviceIp();
             if (!ip) { smlSetStatus('No device IP', 'error'); return; }
             smlSetStatus('Restarting SML...');
+            // mode: 'no-cors' so Safari accepts the opaque response when the
+            // IDE was loaded cross-origin (e.g. served from :82 vs. /cm on
+            // :80). The fire-and-forget GET still reaches Tasmota and runs
+            // the command; we just can't read the JSON ack. If the request
+            // makes it through the network stack, treat as success — only a
+            // genuine network error (unreachable / DNS / etc.) throws to the
+            // catch branch.
             try {
-                const resp = await fetch(`http://${ip}/cm?cmnd=sensor53+r`, { mode: 'cors' });
-                if (resp.ok) {
-                    smlSetStatus('SML restarted', 'success');
-                } else {
-                    smlSetStatus(`Restart failed: HTTP ${resp.status}`, 'error');
-                }
+                await fetch(`http://${ip}/cm?cmnd=sensor53+r`, { mode: 'no-cors' });
+                smlSetStatus('SML restart sent', 'success');
             } catch (e) {
                 smlSetStatus(`Error: ${e.message}`, 'error');
             }
@@ -1071,11 +1203,10 @@ int main() {
                     return;
                 }
                 document.getElementById('editor').value = EXAMPLES[e.target.value];
-                // Auto-set defines for examples that need board selection
-                const definesInput = document.getElementById('compilerDefines');
-                if (e.target.value === 'camera' && definesInput && !definesInput.value.trim()) {
-                    definesInput.value = '-DBOARD_DFROBOT';
-                }
+                // Board selection now lives in source via `#define BOARD_X` at the
+                // top of the .tc (or via a `// @defines: -DBOARD_X` pragma comment
+                // that preprocess() picks up). The compilerDefines input field
+                // was removed since #define makes per-file selection self-contained.
                 currentFileHandle = null;
                 currentFileName = e.target.value + '.tc';
                 isDirty = false;
@@ -1105,19 +1236,24 @@ int main() {
         }
 
         // ─── Compile ────────────────────────────────────
-        window.compileCode = function() {
+        window.compileCode = async function() {
             clearOutput();
             const editorSource = document.getElementById('editor').value;
             // Merge any TinyC callbacks from SML descriptor into the source
-            const source = smlMergeCallbacks(editorSource);
+            let source = smlMergeCallbacks(editorSource);
             const start = performance.now();
 
             try {
-                // Parse -D flags from defines input field
-                const definesStr = (document.getElementById('compilerDefines')?.value || '').trim();
-                const userDefines = definesStr ? definesStr.split(/\s+/).filter(d => d.startsWith('-D')).map(d => d.slice(2)) : [];
-                appendOutput('Defines: [' + userDefines.join(', ') + ']', 'info');
-                lastCompiled = compile(source, { defines: userDefines });
+                // Resolve `#include "file.tc"` — fetches each included file
+                // from the device's UFS and inlines the content (recursively,
+                // with cycle detection). No-op if source has no #include.
+                // Async because of the HTTP fetch.
+                source = await tcResolveIncludes(source);
+
+                // No UI input for -D flags — all defines come from inside the .tc
+                // source via `#define X` directives or the `// @defines:` pragma
+                // (parsed inside preprocess()). Pass an empty initial set.
+                lastCompiled = compile(source, { defines: [] });
                 const elapsed = (performance.now() - start).toFixed(1);
                 const size = lastCompiled.binary.length;
 
@@ -1129,6 +1265,14 @@ int main() {
                 appendOutput(`Functions: ${Object.keys(lastCompiled.functions).join(', ')}`);
                 appendOutput(`Globals: ${Object.keys(lastCompiled.globals).length}`);
                 appendOutput(`Constants: ${lastCompiled.constants.length}`);
+
+                // Compiler warnings (non-fatal) — narrowing, heap-usage, etc.
+                if (Array.isArray(lastCompiled.warnings) && lastCompiled.warnings.length > 0) {
+                    appendOutput(`${lastCompiled.warnings.length} warning(s):`, 'warning');
+                    for (const w of lastCompiled.warnings) {
+                        appendOutput('  ⚠ ' + w, 'warning');
+                    }
+                }
 
                 // Update disassembly
                 const vm = new VM();
@@ -1154,9 +1298,9 @@ int main() {
         };
 
         // ─── Run ────────────────────────────────────────
-        window.runCode = function() {
+        window.runCode = async function() {
             if (!lastCompiled) {
-                window.compileCode();
+                await window.compileCode();
                 if (!lastCompiled) return;
             }
 
@@ -1230,54 +1374,99 @@ int main() {
 
         window.openFile = async function() {
             if (hasFileSystemAccess) {
-                // Modern API: picker returns a file handle we can re-save to
+                // Modern API: multi-select. First file becomes the main
+                // (loaded into editor with re-saveable handle); rest are
+                // stashed in tcLocalFiles for #include resolution.
                 try {
-                    const [handle] = await window.showOpenFilePicker({
+                    const handles = await window.showOpenFilePicker({
                         types: [{
-                            description: 'TinyC Source Files',
+                            description: 'TinyC Source Files (.tc + companions)',
                             accept: { 'text/plain': ['.tc', '.c', '.h'] },
                         }],
-                        multiple: false,
+                        multiple: true,
                     });
-                    const file = await handle.getFile();
-                    const text = await file.text();
-                    document.getElementById('editor').value = text;
-                    currentFileHandle = handle;
-                    currentFileName = file.name;
+                    if (handles.length === 0) return;
+                    const [mainHandle, ...rest] = handles;
+                    const mainFile = await mainHandle.getFile();
+                    const mainText = await mainFile.text();
+                    document.getElementById('editor').value = mainText;
+                    currentFileHandle = mainHandle;
+                    currentFileName = mainFile.name;
                     isDirty = false;
                     updateTabName();
                     updateHighlight();
-                    setStatus(`Opened ${file.name}`, 'success');
+
+                    // Stash companion files for #include resolution. Replace
+                    // the map entirely so an old set of companions doesn't
+                    // linger across "Open" actions.
+                    tcLocalFiles.clear();
+                    for (const h of rest) {
+                        const f = await h.getFile();
+                        tcLocalFiles.set(f.name, await f.text());
+                    }
+                    const extra = rest.length > 0
+                        ? ` + ${rest.length} companion file${rest.length > 1 ? 's' : ''} for #include`
+                        : '';
+                    setStatus(`Opened ${mainFile.name}${extra}`, 'success');
+                    if (rest.length > 0) {
+                        appendOutput(
+                            `Loaded for #include: ${[...tcLocalFiles.keys()].join(', ')}`,
+                            'info');
+                    }
                 } catch (e) {
                     if (e.name !== 'AbortError') {
                         appendOutput('Open error: ' + e.message, 'error');
                     }
                 }
             } else {
-                // Fallback: trigger hidden <input type="file">
+                // Fallback: trigger hidden <input type="file"> (multi-select
+                // attribute already set on the element).
                 document.getElementById('fileInput').click();
             }
         };
 
-        // Hidden file input change handler (fallback for browsers without File System Access API)
-        document.getElementById('fileInput').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                document.getElementById('editor').value = ev.target.result;
-                currentFileHandle = null;
-                currentFileName = file.name;
+        // Hidden file input change handler (fallback for browsers without
+        // File System Access API). Multi-select: first file is the main,
+        // rest go into tcLocalFiles for #include resolution.
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            const [mainFile, ...rest] = files;
+
+            // Read main file → editor
+            try {
+                const mainText = await mainFile.text();
+                document.getElementById('editor').value = mainText;
+                currentFileHandle = null;            // no re-save handle (Firefox/Safari)
+                currentFileName = mainFile.name;
                 isDirty = false;
                 updateTabName();
                 updateHighlight();
-                setStatus(`Opened ${file.name}`, 'success');
-            };
-            reader.onerror = () => {
-                appendOutput('Open error: ' + reader.error.message, 'error');
-            };
-            reader.readAsText(file);
-            // Reset so the same file can be re-opened
+            } catch (err) {
+                appendOutput('Open error: ' + err.message, 'error');
+                e.target.value = '';
+                return;
+            }
+
+            // Stash companions for #include
+            tcLocalFiles.clear();
+            for (const f of rest) {
+                try {
+                    tcLocalFiles.set(f.name, await f.text());
+                } catch (err) {
+                    appendOutput(`Couldn't read ${f.name}: ${err.message}`, 'warning');
+                }
+            }
+            const extra = rest.length > 0
+                ? ` + ${rest.length} companion file${rest.length > 1 ? 's' : ''} for #include`
+                : '';
+            setStatus(`Opened ${mainFile.name}${extra}`, 'success');
+            if (rest.length > 0) {
+                appendOutput(
+                    `Loaded for #include: ${[...tcLocalFiles.keys()].join(', ')}`,
+                    'info');
+            }
+            // Reset so the same set can be re-opened
             e.target.value = '';
         });
 
@@ -1338,6 +1527,48 @@ int main() {
             return currentFileName.replace(/\.tc$/, '.tcb').replace(/\.c$/, '.tcb');
         }
 
+        // \u2500\u2500\u2500 Save compiled .tcb to host computer \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        // Mirrors uploadWiFi's compile-then-act pattern: always recompile so the
+        // saved .tcb matches the current editor source. Uses showSaveFilePicker
+        // when available (Chrome/Edge) for a real Save-As dialog including
+        // filename edits and folder choice; falls back to the <a download> blob
+        // trick on Firefox/Safari.
+        window.saveTcb = async function() {
+            await window.compileCode();
+            if (!lastCompiled) return;       // compile failed \u2014 error already in console pane
+            const filename = getTcbFilename();
+            const blob = new Blob([lastCompiled.binary], { type: 'application/octet-stream' });
+
+            if (hasFileSystemAccess) {
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: filename,
+                        types: [{
+                            description: 'TinyC Bytecode',
+                            accept: { 'application/octet-stream': ['.tcb'] },
+                        }],
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    setStatus(`Saved ${handle.name} (${lastCompiled.binary.length} bytes)`, 'success');
+                } catch (e) {
+                    if (e.name === 'AbortError') return;
+                    appendOutput('Save .tcb error: ' + e.message, 'error');
+                }
+            } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setStatus(`Downloaded ${filename} (${lastCompiled.binary.length} bytes)`, 'success');
+            }
+        };
+
         // ─── WiFi Upload to Tasmota ─────────────────────
         window.uploadWiFi = async function() {
             const ip = document.getElementById('deviceIp').value.trim();
@@ -1348,14 +1579,15 @@ int main() {
             }
 
             // Always (re)compile from current source before uploading
-            window.compileCode();
+            await window.compileCode();
             if (!lastCompiled) return;
 
             // Pass `fsz` so the device can right-size its upload allocation
             // instead of always grabbing TC_MAX_PROGRAM (64 KB) — important on
             // long-running devices where heap fragmentation may not have a
             // 64 KB contiguous block.
-            const url = `http://${ip}/tc_upload?api=1&fsz=${lastCompiled.binary.length}`;
+            const slot = (document.getElementById('targetSlot') || {value:'0'}).value || '0';
+            const url = `http://${ip}/tc_upload?api=1&slot=${slot}&fsz=${lastCompiled.binary.length}`;
             appendOutput(`Uploading ${getTcbFilename()} (${lastCompiled.binary.length} bytes) to ${ip}...`, 'info');
 
             try {
@@ -1382,6 +1614,8 @@ int main() {
                     }
                     // Save IP for next time
                     try { localStorage.setItem('tinyc_device_ip', ip); } catch(e) {}
+                try { localStorage.setItem('tinyc_target_slot', slot); } catch(e) {}
+                try { localStorage.setItem('tinyc_target_slot', slot); } catch(e) {}
                     // Refresh Device Files dropdown so the new/updated .tcb shows up,
                     // and select it so the label reflects what was just uploaded
                     refreshDeviceFiles().then(() => {
@@ -1418,7 +1652,7 @@ int main() {
             clearOutput();
             appendOutput('--- Run on Device ---', 'info');
             appendOutput('Compiling...', 'info');
-            window.compileCode();
+            await window.compileCode();
             if (!lastCompiled) return;
 
             // Step 2: Upload
@@ -1428,7 +1662,8 @@ int main() {
                 const blob = new Blob([lastCompiled.binary], { type: 'application/octet-stream' });
                 formData.append('file', blob, getTcbFilename());
 
-                const uploadResp = await fetch(`http://${ip}/tc_upload?api=1&fsz=${lastCompiled.binary.length}`, {
+                const slot = (document.getElementById('targetSlot') || {value:'0'}).value || '0';
+                const uploadResp = await fetch(`http://${ip}/tc_upload?api=1&slot=${slot}&fsz=${lastCompiled.binary.length}`, {
                     method: 'POST', body: formData, mode: 'cors',
                 });
 
@@ -1442,7 +1677,7 @@ int main() {
 
                 // Step 3: Run
                 appendOutput('Starting program...', 'info');
-                const runResp = await fetch(`http://${ip}/tc_api?cmd=run`, { mode: 'cors' });
+                const runResp = await fetch(`http://${ip}/tc_api?cmd=run&slot=${slot}`, { mode: 'cors' });
                 const runJson = await runResp.json().catch(() => ({}));
 
                 // Resolve the active .tcb name — /tc_api?cmd=run echoes the slot's
@@ -1458,6 +1693,7 @@ int main() {
 
                 // Save IP
                 try { localStorage.setItem('tinyc_device_ip', ip); } catch(e) {}
+                try { localStorage.setItem('tinyc_target_slot', slot); } catch(e) {}
 
                 // Refresh Device Files dropdown so the new/updated .tcb is listed,
                 // and select it so the label matches what just got uploaded + run.
@@ -1475,6 +1711,15 @@ int main() {
             }
         };
 
+        // Restore selected slot from localStorage (after toolbar render)
+        try {
+            const savedSlot = localStorage.getItem('tinyc_target_slot');
+            if (savedSlot !== null) {
+                const sel = document.getElementById('targetSlot');
+                if (sel) sel.value = savedSlot;
+            }
+        } catch(e) {}
+
         // Restore device IP: served-from-device IP > ?device= param > localStorage
         {
             const params = new URLSearchParams(window.location.search);
@@ -1484,9 +1729,15 @@ int main() {
             const isServedFromDevice = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostIp);
 
             if (isServedFromDevice) {
-                // IDE loaded from ESP — use the device's own IP, hide the IP input (redundant)
-                document.getElementById('deviceIp').value = hostIp;
-                document.getElementById('deviceIp').style.display = 'none';
+                // IDE loaded from ESP — use the device's own IP. Keep the
+                // input visible as a read-only confirmation (so failures
+                // like SML "Load failed" have visible context), but mark
+                // it readonly so accidental clicks don't blank the field.
+                const ipEl = document.getElementById('deviceIp');
+                ipEl.value = hostIp;
+                ipEl.setAttribute('readonly', '');
+                ipEl.title = 'Auto-erkannt aus IDE-URL (IDE liegt auf dem Gerät). Read-only.';
+                ipEl.style.background = '#1a3a6a';   // subtle hint that it's locked
                 try { localStorage.setItem('tinyc_device_ip', hostIp); } catch(e) {}
                 document.getElementById('btnCloseIde').style.display = '';
             } else if (deviceParam) {
@@ -1500,6 +1751,7 @@ int main() {
                 } catch(e) {}
             }
         }
+
 
         // Close IDE and return to Tasmota
         window.closeIde = function() {
@@ -2203,6 +2455,12 @@ int main() {
             } else if (e.ctrlKey && e.key === 'Enter') {
                 e.preventDefault();
                 window.compileCode();
+            } else if (e.ctrlKey && e.shiftKey && (e.key === 'S' || e.key === 's')) {
+                // Ctrl+Shift+S → save compiled .tcb to host (sibling to plain
+                // Ctrl+S which saves the .tc source). On most layouts e.key is
+                // 'S' (capitalised) when shift is held; check both for safety.
+                e.preventDefault();
+                window.saveTcb();
             } else if (e.ctrlKey && e.key === 's') {
                 e.preventDefault();
                 window.saveFile();

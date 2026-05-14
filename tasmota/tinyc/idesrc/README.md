@@ -54,43 +54,32 @@ top of `bundle.py` (the `EXAMPLES` array).
 | `src/codegen.js`      | ✅ Synced to live (305 BUILTINS entries — all recent patches included) |
 | `src/vm.js`           | ✅ Synced to live |
 | `src/compiler.js`     | ✅ Synced to live |
-| `index.html`          | ⚠️ **STALE** — Apr-23 state, missing post-Apr HTML template changes |
+| `index.html`          | ✅ Synced to live (H1 = v1.6.5, Save .tcb button, Target Slot dropdown, multi-file upload, `#include` UX, visible device-IP, smlRestart no-cors — all in) |
 
-**`src/*.js` modules are now consistent with the live
-`../tinyc_ide.html.gz`** — extracted from the bundled HTML and
-re-wrapped with their original ES-module `import`/`export` structure.
-All recent BUILTINS additions are present: `shareDump`, `udp(10)`,
-11 `ui*` widgets, 3 image↔cam-bridge functions, crypto, TWAI, string
-ops, TCP tuning, `webRawMode/Write/KeepAlive`, `bcall`, etc.
+**Full backport complete.** `python3 bundle.py` from this folder now
+reproduces a `tinyc_ide.html.gz` that is functionally equivalent to
+the deployed `../tinyc_ide.html.gz` — the only diff (~77 lines)
+comes from updated example sources in `../examples/*.tc` getting
+inlined as template literals (e.g. the post-fix `sensor_read.tc`,
+the bridge-function-using `snap_with_timestamp.tc`).
 
-**`index.html` is still on the Apr-23 state.** Missing template-side
-features that live in the deployed IDE:
-- Multi-file upload (`multiple` attr on `#fileInput`)
-- "Save .tcb" button + `saveTcb()` handler (Ctrl+Shift+S)
-- "Target Slot" dropdown (`#targetSlot`)
-- `#include "file.tc"` preprocessor directive UX
-- IDE `<h1>` label (currently shows 1.3.11 vs live 1.6.5)
-- Visible device-IP field, smlRestart no-cors
+## Going-forward workflow
 
-Net: re-running `bundle.py` right now produces an IDE that:
-- Has all the right COMPILER behavior (modules are current)
-- Lacks the post-Apr HTML/UI changes (template is stale)
+For new syscalls / IDE changes, edit the in-tree sources directly:
 
-⚠️ **DO NOT re-bundle to overwrite `../tinyc_ide.html.gz` yet** —
-the bundled output would lose the HTML-template patches. Continue
-to maintain `../tinyc_ide.html.gz` as the source of truth and apply
-new patches via `../patch_*.mjs` scripts targeting the gzipped HTML,
-**OR** apply changes to both `src/*.js` AND `../tinyc_ide.html.gz`
-simultaneously for cleaner bookkeeping.
+  1. New syscall → register in firmware (`xdrv_124_tinyc_vm.h`)
+  2. Add `Syscall` enum entry in `src/opcodes.js`
+  3. Add `BUILTINS` entry in `src/codegen.js`
+  4. (If the syscall needs a custom compile path — like multi-arg
+     `sprintf` or `udp(N, …)` — extend `compileCallExpr` in
+     `src/codegen.js`)
+  5. `python3 bundle.py` → auto-copies `tinyc_ide.html.gz` to `../`
+  6. `git add ../tinyc_ide.html.gz src/{opcodes,codegen}.js`
 
-**Pending work:**
-1. Reconstruct `index.html` from the live `../tinyc_ide.html.gz` (split
-   out the bundled JS block, recover the original HTML template +
-   `<script type="module">import` line + EXAMPLES placeholders).
-2. Verify `bundle.py` from the in-tree sources produces a byte-
-   equivalent (or functionally equivalent) `tinyc_ide.html.gz` to live.
-3. Switch the patch workflow over: future changes edit `src/*.js` /
-   `index.html` directly, re-bundle, commit both sources + bundle.
+The `../patch_*.mjs` scripts under `tasmota/tinyc/` are retained as
+historical records of how the gzipped HTML was patched while idesrc
+was stale — they remain idempotent and safe to re-run but are no
+longer the preferred way to add new syscalls.
 
 ## History
 
