@@ -1,7 +1,7 @@
-// TinyC Parser - Recursive Descent Parser producing AST
+import { TokenType } from './lexer.js';
+
 // Supports: functions, variables, arrays, if/else, while, for, switch, expressions
 
-import { TokenType } from './lexer.js';
 
 export class ParseError extends Error {
     constructor(message, token) {
@@ -57,7 +57,8 @@ export class Parser {
         this.tokens = tokens;
         this.pos = 0;
         this.structTypes = new Map(); // tag  → [{ name, type }]
-        this.typeAliases  = new Map(); // name → base type string ('int', 'float', 'struct:Tag')
+        this.typeAliases  = new Map(); // name → base type string ('int', 'float', 'struct:Tag', 'fnptr:Alias')
+        this.fnPtrTypes   = new Map(); // alias → { returnType, params: [{type, name?, isArray?}] }
     }
 
     // ─── Token helpers ───────────────────────────────────────────
@@ -107,6 +108,7 @@ export class Parser {
         const t = tok.type;
         if (t === TokenType.KW_STRUCT) return true;
         if (t === TokenType.IDENTIFIER && this.typeAliases.has(tok.value)) return true;
+        if (t === TokenType.IDENTIFIER && this.structTypes.has(tok.value)) return true;
         return t === TokenType.KW_INT || t === TokenType.KW_FLOAT ||
                t === TokenType.KW_CHAR || t === TokenType.KW_BOOL || t === TokenType.KW_VOID;
     }
@@ -139,11 +141,13 @@ export class Parser {
             case TokenType.IDENTIFIER: {
                 // typedef'd name — resolve to its base type
                 const resolved = this.typeAliases.get(tok.value);
-                if (!resolved) {
-                    throw new ParseError(`Unknown type '${tok.value}'`, tok);
+                if (resolved) { baseType = resolved; break; }
+                // Bare struct tag (no preceding 'struct' keyword)
+                if (this.structTypes.has(tok.value)) {
+                    baseType = `struct:${tok.value}`;
+                    break;
                 }
-                baseType = resolved;
-                break;
+                throw new ParseError(`Unknown type '${tok.value}'`, tok);
             }
             default:
                 throw new ParseError(`Expected type, got ${tok.type}`, tok);
@@ -210,6 +214,14 @@ export class Parser {
             const name = this.expect(TokenType.IDENTIFIER).value;
 
             if (type.startsWith('struct:')) {
+                // Function decl with struct return type takes precedence
+                if (this.check(TokenType.LPAREN)) {
+                    if (isPersist) throw new ParseError("'persist' cannot be applied to functions", this.current());
+                    if (isWatch)   throw new ParseError("'watch' cannot be applied to functions", this.current());
+                    if (isGlobal)  throw new ParseError("'global' cannot be applied to functions", this.current());
+                    program.body.push(this.parseFunctionDecl(type, name));
+                    continue;
+                }
                 // Global struct variable declaration
                 const node = this.parseStructVarDecl(type, name, true);
                 if (isPersist) node.isPersist = true;
@@ -317,19 +329,25 @@ export class Parser {
             this.expect(TokenType.SEMICOLON);
             return { type: NodeType.StructVarDecl, structType, name, tag, isArray: true, arraySize, init: null, line };
         }
-        // Positional initializer: struct Point p = {1, 2, 3.0};
+        // Initializer: positional list  Point p = {1, 2};
+        //         OR    expression       Point p = make_point(1, 2);
         let init = null;
+        let initExpr = null;
         if (this.match(TokenType.ASSIGN)) {
-            this.expect(TokenType.LBRACE);
-            init = [];
-            while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
-                init.push(this.parseExpression());
-                if (!this.match(TokenType.COMMA)) break;
+            if (this.check(TokenType.LBRACE)) {
+                this.advance();
+                init = [];
+                while (!this.check(TokenType.RBRACE) && !this.check(TokenType.EOF)) {
+                    init.push(this.parseExpression());
+                    if (!this.match(TokenType.COMMA)) break;
+                }
+                this.expect(TokenType.RBRACE);
+            } else {
+                initExpr = this.parseExpression();
             }
-            this.expect(TokenType.RBRACE);
         }
         this.expect(TokenType.SEMICOLON);
-        return { type: NodeType.StructVarDecl, structType, name, tag, isArray: false, arraySize: 0, init, line };
+        return { type: NodeType.StructVarDecl, structType, name, tag, isArray: false, arraySize: 0, init, initExpr, line };
     }
 
     parseTypedef() {
@@ -389,11 +407,55 @@ export class Parser {
         }
 
         // ── typedef primitive|existing-type Alias; ────────────────────────────
+        // OR
+        // ── typedef <retType> (*<alias>)(<param-list>); ── function-pointer alias
         const baseType = this.parseType();  // handles int/float/char/bool/void + nested typedefs
+
+        // Function-pointer typedef detection: after the return type we see "(* …"
+        if (this.check(TokenType.LPAREN) && this.peek(1).type === TokenType.STAR) {
+            return this.parseFnPtrTypedef(baseType, line);
+        }
+
         const alias = this.expect(TokenType.IDENTIFIER).value;
         this.expect(TokenType.SEMICOLON);
         this.typeAliases.set(alias, baseType);
         return { type: NodeType.TypedefDecl, alias, baseType, structDecl: null, line };
+    }
+
+    parseFnPtrTypedef(returnType, line) {
+        this.expect(TokenType.LPAREN);
+        this.expect(TokenType.STAR);
+        const alias = this.expect(TokenType.IDENTIFIER).value;
+        this.expect(TokenType.RPAREN);
+        this.expect(TokenType.LPAREN);
+        const params = [];
+        if (!this.check(TokenType.RPAREN)) {
+            do {
+                const ptype = this.parseType();
+                let pname = null;
+                if (this.check(TokenType.IDENTIFIER)) {
+                    pname = this.advance().value;
+                }
+                let isArr = false;
+                if (this.match(TokenType.LBRACKET)) {
+                    this.expect(TokenType.RBRACKET);
+                    isArr = true;
+                }
+                params.push({ type: ptype, name: pname, isArray: isArr });
+            } while (this.match(TokenType.COMMA));
+        }
+        this.expect(TokenType.RPAREN);
+        this.expect(TokenType.SEMICOLON);
+        this.fnPtrTypes.set(alias, { returnType, params });
+        this.typeAliases.set(alias, `fnptr:${alias}`);
+        return {
+            type: NodeType.TypedefDecl,
+            alias,
+            baseType: `fnptr:${alias}`,
+            fnPtrSig: { returnType, params },
+            structDecl: null,
+            line,
+        };
     }
 
     parseEnum() {
@@ -442,9 +504,17 @@ export class Parser {
         if (!this.check(TokenType.RPAREN)) {
             do {
                 const pType = this.parseType();
+                // Scalar reference: `int& a` — pass-by-reference for primitives.
+                let isScalarRef = false;
+                if (this.match(TokenType.AMPERSAND)) {
+                    isScalarRef = true;
+                }
                 const pName = this.expect(TokenType.IDENTIFIER).value;
                 let arraySize = null;
                 if (this.match(TokenType.LBRACKET)) {
+                    if (isScalarRef) {
+                        throw new ParseError("'int& a' (ref) cannot be combined with '[]' (array)", this.current());
+                    }
                     // Array parameter: int arr[] or int arr[10]
                     if (!this.check(TokenType.RBRACKET)) {
                         arraySize = this.expect(TokenType.INT_LITERAL).value;
@@ -453,7 +523,7 @@ export class Parser {
                     }
                     this.expect(TokenType.RBRACKET);
                 }
-                params.push({ type: pType, name: pName, arraySize });
+                params.push({ type: pType, name: pName, arraySize, isScalarRef });
             } while (this.match(TokenType.COMMA));
         }
         this.expect(TokenType.RPAREN);
@@ -578,6 +648,21 @@ export class Parser {
         }
         this.expect(TokenType.RBRACKET);
 
+        // ── Phase 1: optional second dim for char[N][M]. Flat-stored
+        //     row-major; dims live in symbol-table for compile-time
+        //     index arithmetic and row-reference offsets.
+        let cols = null;
+        if (this.check(TokenType.LBRACKET)) {
+            // Phase 2: int / float / char 2D arrays. The runtime opcodes
+            // (LOAD_HEAP_ARR, ADDR_HEAP_OFF) don't care about element
+            // type — they index by int32 slots. char arrays still pack
+            // 1 byte per slot at the syscall boundary; int / float
+            // arrays use the full 32 bits per slot.
+            this.advance();
+            cols = this.parseExpression();
+            this.expect(TokenType.RBRACKET);
+        }
+
         let init = null;
         let stringInit = null;
         if (this.match(TokenType.ASSIGN)) {
@@ -598,7 +683,7 @@ export class Parser {
         }
         this.expect(TokenType.SEMICOLON, "Expected ';' after array declaration");
 
-        return { type: NodeType.ArrayDecl, varType, name, size, init, stringInit, line };
+        return { type: NodeType.ArrayDecl, varType, name, size, cols, init, stringInit, line };
     }
 
     // ─── Control flow ────────────────────────────────────────────
@@ -773,6 +858,7 @@ export class Parser {
                     type: NodeType.ArrayAssign,
                     name: left.name,
                     index: left.index,
+                    index2: left.index2,        // 2D: forward second subscript
                     op: op.value,
                     value: right,
                     line: left.line,
@@ -961,12 +1047,18 @@ export class Parser {
                 this.expect(TokenType.RPAREN);
                 expr = { type: NodeType.CallExpr, name: expr.name, args, line: expr.line };
             }
-            // Array access
+            // Array access — 1D: arr[i]  /  2D: arr[i][j]
             else if (this.check(TokenType.LBRACKET) && expr.type === NodeType.Identifier) {
                 this.advance();
                 const index = this.parseExpression();
                 this.expect(TokenType.RBRACKET);
-                expr = { type: NodeType.ArrayAccess, name: expr.name, index, line: expr.line };
+                let index2 = null;
+                if (this.check(TokenType.LBRACKET)) {
+                    this.advance();
+                    index2 = this.parseExpression();
+                    this.expect(TokenType.RBRACKET);
+                }
+                expr = { type: NodeType.ArrayAccess, name: expr.name, index, index2, line: expr.line };
             }
             // Member access: p.field  or  p.arr[i]  or  arr[i].field
             else if (this.check(TokenType.DOT)) {
@@ -985,6 +1077,23 @@ export class Parser {
                 } else {
                     expr = { type: NodeType.MemberAccess, object: objectValue, field, line: expr.line };
                 }
+            }
+            // Indirect call after a MemberAccess / MemberArrayAccess:
+            //   obj.handler(arg1, arg2)        — fn-ptr struct field call
+            //   arr[i].handler(arg1)
+            // Produces a CallExpr with .callee = the access node and no .name.
+            else if ((expr.type === NodeType.MemberAccess
+                   || expr.type === NodeType.MemberArrayAccess)
+                  && this.check(TokenType.LPAREN)) {
+                this.advance(); // consume (
+                const args = [];
+                if (!this.check(TokenType.RPAREN)) {
+                    do {
+                        args.push(this.parseExpression());
+                    } while (this.match(TokenType.COMMA));
+                }
+                this.expect(TokenType.RPAREN);
+                expr = { type: NodeType.CallExpr, name: null, callee: expr, args, line: expr.line };
             }
             // Post-increment/decrement
             else if (this.check(TokenType.INC, TokenType.DEC)) {
@@ -1053,3 +1162,4 @@ export class Parser {
         throw new ParseError(`Unexpected token: ${tok.type} ('${tok.value}')`, tok);
     }
 }
+

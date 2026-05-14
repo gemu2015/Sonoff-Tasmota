@@ -1,4 +1,3 @@
-// TinyC Bytecode Opcodes
 // Stack-based VM instruction set
 
 export const Op = {
@@ -61,6 +60,7 @@ export const Op = {
     CALL:           0x53,   // call function (2-byte address)
     RET:            0x54,   // return from function
     RET_VAL:        0x55,   // return with value on stack
+    CALL_INDIRECT:  0x56,   // pop addr from stack, call (function pointer)
 
     // ─── Variables ────────────────────────────
     LOAD_LOCAL:     0x60,   // push local[index] (1-byte index)
@@ -198,6 +198,8 @@ export const Syscall = {
     // Tasmota command
     TASM_CMD:       43,  // (const_idx_cmd, out_buf_ref) -> int response_length
     TASM_CMD_REF:   248, // (cmd_ref, out_buf_ref) -> int response_length — cmd from char array
+    TASM_DEFER:     366, // (cmd_ref) -> void — push command into tc_defer_command queue (runs on main task between callbacks)
+    TASM_DEFER_STR: 367, // (cmd_const_idx) -> void — defer a string-literal command
 
     // File I/O (work with const pool for filenames, array refs for buffers)
     FILE_OPEN:      60,  // (const_idx_path, mode) -> int handle (-1=err)
@@ -389,6 +391,9 @@ export const Syscall = {
     DSP_TEXT_WIDTH: 266, // (len) -> int — get pixel width for len chars in current font
     DSP_TEXT_HEIGHT:267, // () -> int — get pixel height for current font
     DSP_IMG_TEXT:   268, // (slot, x, y, color, fieldw, align, buf_ref) -> void — composite text on image
+    DSP_LOAD_IMG_CAM: 277, // (cam_slot) -> img_slot  (-1=err)
+    DSP_IMG_TEXT_BURN:278, // (slot,x,y,col,fldw,align,buf) -> void (mutates image)
+    DSP_IMG_TO_CAM:   279, // (img_slot,cam_slot,quality) -> bytes  (-1=err)
 
     // RGB565 canvas / image slots — draw dsp* primitives into PSRAM buffers
     IMG_CREATE:     328, // (w, h) -> int slot (0..3, -1=err) — alloc blank canvas in PSRAM
@@ -398,6 +403,73 @@ export const Syscall = {
     IMG_BLIT:       332, // (dst, src, sx, sy, dx, dy, w, h) -> void — canvas->canvas rect copy
     IMG_INVALIDATE: 333, // (slot, x, y, w, h) -> void — union rect into slot's dirty region
     IMG_FLUSH:      334, // (slot, panel_x, panel_y) -> void — push dirty region to panel + clear
+
+    // Cross-VM shared key/value store (driver-global, mutex-protected)
+    SHARE_SET_INT:  340, // (key_const_idx, val)     -> void
+    SHARE_GET_INT:  341, // (key_const_idx)          -> int  (0 if missing)
+    SHARE_SET_FLT:  342, // (key_const_idx, val)     -> void
+    SHARE_GET_FLT:  343, // (key_const_idx)          -> float (0.0 if missing)
+    SHARE_SET_STR:  344, // (key_const_idx, src_ref) -> void
+    SHARE_GET_STR:  345, // (key_const_idx, dst_ref) -> int  chars copied
+    SHARE_HAS:      346, // (key_const_idx)          -> int  0/1
+    SHARE_DELETE:   347, // (key_const_idx)          -> int  1 if removed
+    SHARE_DUMP:     352, // ()                       -> int  number of live entries
+    UI_SCREEN:      310, // (id)                                       -> void
+    UI_THEME:       311, // (bg, accent, text, border)                 -> void
+    UI_CLEAR_SCREEN:312, // ()                                          -> void
+    UI_LABEL:       320, // (num,x,y,w,h,text_const,align)             -> void
+    UI_LABEL_SET:   321, // (num, text_ref_or_const)                   -> void
+    UI_CHECKBOX:    322, // (num,x,y,w,h,label_const)                  -> void
+    UI_PROGRESS:    323, // (num,x,y,w,h,value,max)                    -> void
+    UI_PROGRESS_SET:324, // (num, value)                               -> void
+    UI_GAUGE:       325, // (num,x,y,r,value,vmin,vmax)                -> void
+    UI_ICON:        326, // (num,x,y,img_slot)                         -> void
+    UI_BUTTON:      327, // (num,x,y,w,h,label_const)                  -> void
+
+    // Per-slot TCP-client tuning (v1.5.1). Operate on the currently selected
+    // slot. Useful for Modbus-TCP, MQTT-TLS, REST clients facing peers with
+    // aggressive idle-timeouts (SMA Tripower etc.) or where Nagle slows down
+    // small request/response pairs.
+    TCP_KEEPALIVE:           348, // (idle_sec, intvl_sec, count) -> int 1=ok 0=err
+    TCP_NODELAY:             349, // (on)                         -> void
+    TCP_DISCONNECT_REASON:   350, // ()                           -> int 0..5
+    // Atomic write-then-wait-for-response (v1.6.0). Folds the canonical
+    // tcpWriteArray + delay/poll-tcpAvailable + tcpReadArray pattern into one
+    // syscall. Returns bytes received (>=0), -1 timeout, -2 disconnect, -3 bad args.
+    TCP_TRANSACT:            351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
+
+    // Binary library call (xblib_*) — phase-1: (BUF, INT) -> INT only.
+    BLIB_CALL:               370, // (name_const, buf_ref, len) -> int
+
+    // TWAI / CAN-bus (380..386). ESP32-only on the device; standalone
+    // IDE runs return sentinel values via the simulator stubs below.
+    TWAI_BEGIN:              380, // (rxpin, txpin, bitrate_kbps, mode) -> int 1=ok 0=err
+    TWAI_END:                381, // () -> void
+    TWAI_AVAILABLE:          382, // () -> int frames_queued
+    TWAI_RECV:               383, // (id_ref, ext_ref, dlc_ref, data_buf, max) -> int bytes | -1
+    TWAI_SEND:               384, // (id, ext, dlc, data_buf) -> int 1=ok 0=err
+    TWAI_STATUS:             385, // (rx_q_ref, tx_q_ref, err_ref) -> int 1=ok 0=err
+    TWAI_FILTER:             386, // (id_mask, id_value, ext) -> int 1=ok 0=err
+
+    // WebOn raw / keep-alive controls (390..392). Required for emulating
+    // EcoTracker-style devices whose firmware needs an exact 3-header
+    // HTTP response (no auto Server/Date/Connection) plus a kept-alive
+    // TCP socket — Jackery Homepower 2000 Ultra and similar storages.
+    WEB_RAW_MODE:            390, // ()           -> void  disable Tasmota auto-headers for this request
+    WEB_RAW_WRITE:           391, // (str_ref)    -> void  write raw bytes to Webserver->client()
+    WEB_KEEP_ALIVE:          392, // ()           -> void  keep TCP socket alive after response
+
+    // Symmetric crypto (AES-128 / SHA-256 / HMAC-SHA256). All buffers are
+    // TinyC char[] (one byte per int32 slot, low 8 bits used). Lengths in
+    // bytes. AES ops are in-place on the data ref. Motivating use case:
+    // Local Tuya v3.3 protocol so TinyC scripts can drive Smart-Life devices
+    // (pool heat pumps, plugs, switches) directly without a cloud or bridge.
+    AES_ECB:         360, // (key16_ref, data16_ref, enc_flag)               -> int 1=ok 0=err
+    AES_CBC:         361, // (key16_ref, iv16_ref, data_ref, len, enc_flag)  -> int 1=ok 0=err
+    HMAC_SHA256:     362, // (key_ref, klen, data_ref, dlen, out32_ref)      -> int 1=ok
+    SHA256:          363, // (data_ref, dlen, out32_ref)                     -> int 1=ok
+    HEX2BIN:         364, // (hex_ref_or_const, hex_len, out_ref)            -> int  bytes written
+    BIN2HEX:         365, // (bin_ref, bin_len, out_ref)                     -> int  chars written
 
     // Audio
     AUDIO_VOL:      200, // (vol) -> void — set volume 0-100
@@ -434,6 +506,15 @@ export const Syscall = {
     SPAWN_TASK_STACK: 299, // (name_const, stack_kb) -> int pool_idx or -1 (kb clamped 3..16)
     KILL_TASK:        300, // (name_const) -> int 0=signaled, -1=not running
     TASK_RUNNING:     301, // (name_const) -> int 1/0
+
+    // String ops 1.5.0
+    STR_REPLACE_CONST:   302, // (arr, old_const, new_const) -> int (count)
+    STR_STARTS_CONST:    303, // (arr, prefix_const) -> int 1/0
+    STR_ENDS_CONST:      304, // (arr, suffix_const) -> int 1/0
+    STR_CONTAINS_CONST:  305, // (arr, substr_const) -> int 1/0
+    STR_TO_UPPER:        306, // (arr) -> void
+    STR_TO_LOWER:        307, // (arr) -> void
+    STR_TRIM:            308, // (arr) -> int (new length)
 
     // Tasmota system variables (virtual — accessed as tasm_xxx)
     TASM_GET:       130, // (index) -> int/float — read Tasmota variable
@@ -515,6 +596,9 @@ export const Syscall = {
     //   original markers). Pass -1 for any value to leave that placeholder alone.
     SML_APPLY_PINS:  281, // (path_c, rx_pin, tx_pin, smlf) -> int (subs done, -1=err, 0=no change)
     SML_SCRIPTER_LOAD: 282, // (path_c) -> int — extract >F/>S sections, compile to mini-scripter bytecode (lnv0..9, switch/case, if/endif, sml(m,0,baud), sml(m,1,"HEX")). Returns # sections compiled (0..2), -1=err.
+    VM_STACK_DEPTH:  283, // () -> int — current operand-stack depth before this syscall's return push (diagnostic; detect SP leaks)
+    FILE_READ_BIN:   286, // (handle, arr, count) -> elements_read (-1=err) — read up-to count int32 elems as 4-byte LE binary; works for both int[] and float[]
+    FILE_WRITE_BIN:  287, // (handle, arr, count) -> elements_written (-1=err) — write count int32 elems as 4-byte LE binary; works for both int[] and float[]
 };
 
 export const SyscallName = {};
@@ -527,4 +611,5 @@ export const MAGIC = 0x54434300; // "TCC\0"
 export const VERSION = 5;       // V5: global (UDP auto-update) variables
 
 // Release version — bump on any compiler/VM/syscall change
-export const TINYC_RELEASE = "1.3.13"; // smlScripterLoad(path) syscall 282 — extract >F/>S Tasmota Scripter sections from an SML descriptor and run them via firmware mini-scripter (lnv0..9, +=/-=/=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX")). Lets descriptors with IEC mode-A handshakes work in -DTINYC_NO_SCRIPTER builds without hand-porting to TinyC native
+export const TINYC_RELEASE = "1.3.20"; // Symmetric crypto syscalls (360-365): aesEcb / aesCbc (AES-128, in-place on TinyC char[] buffers), hmacSha256, sha256, plus hex2bin / bin2hex byte-twiddling helpers. ESP32-only via mbedtls (already linked for HTTPS/MQTT-TLS); ESP8266 returns 0/no-op. Motivating use case: TinyC scripts speaking the Tuya local protocol (v3.3 = AES-128-ECB) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip or a bridge. Also enables custom signed REST APIs (HMAC-SHA256), encrypted SML decoders not covered by AmsLib, and per-device MQTT-TLS fingerprinting. Buffers follow TinyC convention (one byte per int32 slot, low 8 bits used); lengths in bytes. AES-CBC stack-allocates up to 4 KB per call, falls back to malloc above; HMAC/SHA bounded at 1024 B key / 4 KB data. AES key fixed at 128 bits (Tuya/most Smart-Life devices). Tuya v3.4 (ECDH+AES-GCM) not exposed — most Smart-Life devices still use v3.3.
+

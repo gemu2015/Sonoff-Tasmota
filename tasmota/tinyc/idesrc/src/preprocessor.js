@@ -1,4 +1,3 @@
-// TinyC Preprocessor — minimal C-style conditional compilation
 // Runs BEFORE the lexer as a text-to-text transform.
 //
 // Supported directives:
@@ -232,6 +231,25 @@ export function preprocess(source, predefined = []) {
                     break;
                 }
 
+                case 'include': {
+                    // Should not reach here — #include is handled in a
+                    // separate textual-inlining pass before preprocess()
+                    // (tcResolveIncludes), so that #ifdef/#define inside
+                    // included files behave the same as if the content
+                    // were typed inline. If we DO see one here it means
+                    // the IDE skipped the inlining pass — emit a clear
+                    // error rather than silently dropping the directive.
+                    if (isActive(condStack)) {
+                        throw new PreprocessorError(
+                            `#include "${directive.filename}" reached preprocess() — ` +
+                            `tcResolveIncludes() must run first. Make sure compileCode() ` +
+                            `awaits the inlining pass.`, lineNum);
+                    } else {
+                        output.push('');
+                    }
+                    break;
+                }
+
                 default:
                     output.push(raw);
                     break;
@@ -301,6 +319,18 @@ function parseDirective(trimmed) {
 
         case 'endif':
             return { type: 'endif' };
+
+        case 'include': {
+            // #include "filename.tc" — content inlined by preprocess() from
+            // the includes map (pre-resolved by tcResolveIncludes() before
+            // compile()). Only "..." form supported (local files); <...> form
+            // (system headers) intentionally omitted — TinyC has no system
+            // headers. Filename is plain ASCII; quotes are stripped.
+            if (!rest) return null;
+            const m = rest.match(/^"([^"]+)"/);
+            if (!m) return null;
+            return { type: 'include', filename: m[1] };
+        }
 
         default:
             return null;  // unknown directive — pass through to lexer/parser
@@ -568,3 +598,4 @@ function expandMacros(line, macros) {
     }
     return result;
 }
+

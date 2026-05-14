@@ -43,47 +43,54 @@ top of `bundle.py` (the `EXAMPLES` array).
 
 ---
 
-## ⚠️ IMPORTANT — drift status (2026-05-14)
+## Drift status (2026-05-14)
 
-The `src/*.js` files here are **stale** relative to the currently
-deployed `../tinyc_ide.html.gz`. The deployed file was kept up to date
-via a series of idempotent `patch_*.mjs` scripts that rewrote the
-gzipped HTML directly. Re-running `bundle.py` right now would clobber
-all those patches and roll the IDE back to its April-23 state.
+| Component | Status |
+|---|---|
+| `src/preprocessor.js` | ✅ Synced to live |
+| `src/opcodes.js`      | ✅ Synced to live (335 Syscall entries, TINYC_RELEASE = 1.3.20) |
+| `src/lexer.js`        | ✅ Synced to live |
+| `src/parser.js`       | ✅ Synced to live |
+| `src/codegen.js`      | ✅ Synced to live (305 BUILTINS entries — all recent patches included) |
+| `src/vm.js`           | ✅ Synced to live |
+| `src/compiler.js`     | ✅ Synced to live |
+| `index.html`          | ⚠️ **STALE** — Apr-23 state, missing post-Apr HTML template changes |
 
-**Drift to backport** (run `diff <(gunzip -c ../tinyc_ide.html.gz)
-<(python3 bundle.py && cat tinyc_ide.html)` for the canonical list):
+**`src/*.js` modules are now consistent with the live
+`../tinyc_ide.html.gz`** — extracted from the bundled HTML and
+re-wrapped with their original ES-module `import`/`export` structure.
+All recent BUILTINS additions are present: `shareDump`, `udp(10)`,
+11 `ui*` widgets, 3 image↔cam-bridge functions, crypto, TWAI, string
+ops, TCP tuning, `webRawMode/Write/KeepAlive`, `bcall`, etc.
 
-- Compiler / codegen additions:
-  - `udp(10, mcast_ip)` IGMP-Leave (commit `68a5c5419`)
-  - `shareDump()` syscall + Syscall enum entry (commit `ebb277e64`)
-  - 11 `ui*` BUILTINS for the retained-mode widget API
-    (`uiScreen`, `uiTheme`, `uiClearScreen`, `uiLabel`, `uiLabelSet`,
-    `uiCheckbox`, `uiProgress`, `uiProgressSet`, `uiGauge`, `uiIcon`,
-    `uiButton` — commit `bf0b570d1`)
-  - 3 image↔cam bridge BUILTINS (`dspLoadImageFromCam`,
-    `dspImgTextBurn`, `dspImageToCam` — commit `3ecd0a06b`)
-  - `webRawMode` / `webRawWrite` / `webKeepAlive` BUILTINS
-    (commit `a306863b8`)
-  - Various IDE UX patches: visible-IP, smlRestart no-cors,
-    H1 release label (1.3.11 → 1.6.5)
+**`index.html` is still on the Apr-23 state.** Missing template-side
+features that live in the deployed IDE:
+- Multi-file upload (`multiple` attr on `#fileInput`)
+- "Save .tcb" button + `saveTcb()` handler (Ctrl+Shift+S)
+- "Target Slot" dropdown (`#targetSlot`)
+- `#include "file.tc"` preprocessor directive UX
+- IDE `<h1>` label (currently shows 1.3.11 vs live 1.6.5)
+- Visible device-IP field, smlRestart no-cors
 
-- HTML template (index.html) additions:
-  - Multi-file upload (`multiple` attr on `#fileInput`)
-  - Save .tcb button + `saveTcb()` handler
-  - Target Slot dropdown (`#targetSlot`)
-  - `#include "file.tc"` preprocessor directive support
-    (resolved via `tcResolveIncludes()` before `preprocess()`)
+Net: re-running `bundle.py` right now produces an IDE that:
+- Has all the right COMPILER behavior (modules are current)
+- Lacks the post-Apr HTML/UI changes (template is stale)
 
-Total drift: ~1935 diff lines between Apr-23 `src/` bundle output and
-live `../tinyc_ide.html.gz` (today).
+⚠️ **DO NOT re-bundle to overwrite `../tinyc_ide.html.gz` yet** —
+the bundled output would lose the HTML-template patches. Continue
+to maintain `../tinyc_ide.html.gz` as the source of truth and apply
+new patches via `../patch_*.mjs` scripts targeting the gzipped HTML,
+**OR** apply changes to both `src/*.js` AND `../tinyc_ide.html.gz`
+simultaneously for cleaner bookkeeping.
 
-**Pending work:** incrementally backport the drift into `src/*.js` and
-`index.html`, then re-bundle and byte-compare against the live IDE.
-Until that's done, treat `../tinyc_ide.html.gz` as the source of truth
-and continue patching it via `../patch_*.mjs` scripts. **Do not
-re-run `bundle.py` until backports complete** — it will overwrite
-the live IDE with the stale Apr-23 state.
+**Pending work:**
+1. Reconstruct `index.html` from the live `../tinyc_ide.html.gz` (split
+   out the bundled JS block, recover the original HTML template +
+   `<script type="module">import` line + EXAMPLES placeholders).
+2. Verify `bundle.py` from the in-tree sources produces a byte-
+   equivalent (or functionally equivalent) `tinyc_ide.html.gz` to live.
+3. Switch the patch workflow over: future changes edit `src/*.js` /
+   `index.html` directly, re-bundle, commit both sources + bundle.
 
 ## History
 

@@ -1,8 +1,8 @@
-// TinyC Virtual Machine - JavaScript implementation
+import { Op, OpName, SyscallName, MAGIC, VERSION } from './opcodes.js';
+
 // Runs the same bytecode as the ESP32 C VM
 // Used for in-browser testing and debugging
 
-import { Op, OpName, SyscallName, MAGIC, VERSION } from './opcodes.js';
 
 export class VMError extends Error {
     constructor(message, pc) {
@@ -639,6 +639,21 @@ export class VM {
 
                 // Save return address and frame pointer
                 // Arguments are on the stack — callee pops them via STORE_LOCAL
+                this.frames.push({
+                    returnPC: this.pc,
+                    prevFP: this.fp,
+                });
+                this.fp = this.frames.length - 1;
+                this.pc = this.codeOffset + addr;
+                break;
+            }
+            case Op.CALL_INDIRECT: {
+                // Same as CALL but the target address comes from the data
+                // stack (top entry, masked to u16) instead of bytecode bytes.
+                // Used by function-pointer call sites: the caller pushes args,
+                // then loads the fn-ptr variable's value, then emits this op.
+                const addr = this.pop() & 0xFFFF;
+                if (this.frames.length >= MAX_FRAMES) throw new VMError('Call stack overflow', this.pc);
                 this.frames.push({
                     returnPC: this.pc,
                     prevFP: this.fp,
@@ -2711,6 +2726,8 @@ export class VM {
                         break;
                     }
                     case 20: val = 4194304; break; // tasm_pheap (simulate 4MB PSRAM)
+                    case 26: val = 28000; break;   // tasm_maxblock (sim: 28 KB max contiguous block)
+                    case 27: val = 0; break;       // tasm_frag (sim: never fragmented)
                 }
                 if (idx !== 7 && idx !== 8) this.push(val);
                 break;
@@ -3638,6 +3655,96 @@ export class VM {
                 this.onOutput(`[TCP] tcpSelect(${slot})\n`);
                 break;
             }
+            case Syscall.TCP_KEEPALIVE: { // tcpKeepalive(idle, intvl, count) -> int
+                const cnt   = this.pop();
+                const intvl = this.pop();
+                const idle  = this.pop();
+                this.onOutput(`[TCP] tcpKeepalive(idle=${idle}s, intvl=${intvl}s, count=${cnt}) — simulator stub, returning 0 (not connected)\n`);
+                this.push(0);
+                break;
+            }
+            case Syscall.TCP_NODELAY: { // tcpNoDelay(on)
+                const on = this.pop();
+                this.onOutput(`[TCP] tcpNoDelay(${on}) — simulator stub\n`);
+                break;
+            }
+            case Syscall.TCP_DISCONNECT_REASON: { // tcpDisconnectReason() -> int
+                this.push(0); // simulator: never used
+                break;
+            }
+            case Syscall.TCP_TRANSACT: { // tcpTransact(req,req_len,resp,resp_max,timeout) -> int
+                const timeout_ms = this.pop();
+                const resp_max   = this.pop();
+                const resp_ref   = this.pop();
+                const req_len    = this.pop();
+                const req_ref    = this.pop();
+                this.onOutput(`[TCP] tcpTransact(req_len=${req_len}, resp_max=${resp_max}, timeout=${timeout_ms}ms) — simulator stub, returning -2 (not connected)\n`);
+                this.push(-2);
+                break;
+            }
+            case Syscall.BLIB_CALL: { // bcall("name", buf, len) -> int
+                const len      = this.pop();
+                const buf_ref  = this.pop();
+                const name_ci  = this.pop();
+                const name     = (this.consts && this.consts[name_ci]) || '?';
+                this.onOutput(`[BLIB] bcall("${name}", buf, len=${len}) — simulator stub, returning -1 (no registry on host)\n`);
+                this.push(-1);
+                break;
+            }
+            case Syscall.TWAI_BEGIN: { // twaiBegin(rx, tx, kbps, mode) -> int
+                const mode    = this.pop();
+                const kbps    = this.pop();
+                const tx_pin  = this.pop();
+                const rx_pin  = this.pop();
+                this.onOutput(`[TWAI] twaiBegin(rx=${rx_pin}, tx=${tx_pin}, ${kbps} kbps, mode=${mode}) — simulator stub, returning 0 (no CAN on host)\n`);
+                this.push(0);
+                break;
+            }
+            case Syscall.TWAI_END: { // twaiEnd()
+                this.onOutput(`[TWAI] twaiEnd() — simulator stub\n`);
+                break;
+            }
+            case Syscall.TWAI_AVAILABLE: { // twaiAvailable() -> int
+                this.push(0);
+                break;
+            }
+            case Syscall.TWAI_RECV: { // twaiRecv(meta_arr, data_buf, max) -> int
+                this.pop(); this.pop(); this.pop();
+                this.push(0); // no frame
+                break;
+            }
+            case Syscall.TWAI_SEND: { // twaiSend(id, ext, dlc, buf) -> int
+                const buf_ref = this.pop();
+                const dlc     = this.pop();
+                const ext     = this.pop();
+                const id      = this.pop();
+                this.onOutput(`[TWAI] twaiSend(id=0x${(id>>>0).toString(16)}, ext=${ext}, dlc=${dlc}) — simulator stub, returning 1\n`);
+                this.push(1);
+                break;
+            }
+            case Syscall.TWAI_STATUS: { // twaiStatus(stats_arr) -> int
+                this.pop();
+                this.push(0); // not installed
+                break;
+            }
+            case Syscall.TWAI_FILTER: { // twaiFilter(mask, value, ext) -> int
+                this.pop(); this.pop(); this.pop();
+                this.push(1); // accepted
+                break;
+            }
+            case Syscall.WEB_RAW_MODE: { // webRawMode()
+                this.onOutput(`[WEB] webRawMode() — simulator stub\n`);
+                break;
+            }
+            case Syscall.WEB_RAW_WRITE: { // webRawWrite(buf)
+                const buf_ref = this.pop();
+                this.onOutput(`[WEB] webRawWrite(buf=ref ${buf_ref}) — simulator stub (would write to client socket)\n`);
+                break;
+            }
+            case Syscall.WEB_KEEP_ALIVE: { // webKeepAlive()
+                this.onOutput(`[WEB] webKeepAlive() — simulator stub (would arm Webserver->setKeepAlive(true))\n`);
+                break;
+            }
 
             // ── FreeRTOS spawn/kill — browser stub ─────────────────
             case Syscall.SPAWN_TASK: { // spawnTask("Name") -> int pool_idx
@@ -3923,9 +4030,41 @@ export class VM {
                     operand = SyscallName[binary[pc]] || `#${binary[pc]}`;
                     pc += 1;
                     break;
+                case Op.SYSCALL2: {
+                    // u16 syscall id (extended range 256+). Without this case
+                    // the disassembler would walk past the operand and decode
+                    // the operand bytes as opcodes — that's the cause of the
+                    // stray "??? (0xNN)" lines in large scripts (bat_ctrl.tc).
+                    const id2 = (binary[pc] << 8) | binary[pc + 1];
+                    operand = SyscallName[id2] || `#${id2}`;
+                    pc += 2;
+                    break;
+                }
                 case Op.LOAD_CONST:
                     operand = `const[${(binary[pc] << 8) | binary[pc + 1]}]`;
                     pc += 2;
+                    break;
+                // No-operand opcodes: nothing to consume. Listing them here
+                // makes the disassembler's intent explicit and lets the
+                // default branch flag genuine unmapped opcodes loudly.
+                case Op.NOP: case Op.HALT: case Op.POP: case Op.DUP:
+                case Op.ADD: case Op.SUB: case Op.MUL: case Op.DIV:
+                case Op.MOD: case Op.NEG:
+                case Op.FADD: case Op.FSUB: case Op.FMUL: case Op.FDIV:
+                case Op.FNEG:
+                case Op.BIT_AND: case Op.BIT_OR: case Op.BIT_XOR:
+                case Op.BIT_NOT: case Op.SHL: case Op.SHR:
+                case Op.EQ: case Op.NEQ: case Op.LT: case Op.GT:
+                case Op.LTE: case Op.GTE:
+                case Op.FEQ: case Op.FNEQ: case Op.FLT: case Op.FGT:
+                case Op.FLTE: case Op.FGTE:
+                case Op.LOGIC_AND: case Op.LOGIC_OR: case Op.LOGIC_NOT:
+                case Op.RET: case Op.RET_VAL:
+                case Op.I2F: case Op.F2I: case Op.I2C:
+                    break;
+                default:
+                    // Genuinely unmapped opcode — flag it clearly.
+                    operand = '<-- unknown opcode, may be operand byte';
                     break;
             }
 
@@ -3935,3 +4074,4 @@ export class VM {
         return lines.join('\n');
     }
 }
+

@@ -1,4 +1,3 @@
-// TinyC Lexer - Tokenizer for C subset
 // Supports: int, float, char, bool, void, arrays, if/else, while, for, functions
 
 export const TokenType = {
@@ -522,3 +521,4 @@ export class Lexer {
         return this.tokens;
     }
 }
+

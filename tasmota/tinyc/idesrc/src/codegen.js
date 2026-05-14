@@ -12,7 +12,7 @@ export class CodeGenError extends Error {
 }
 
 // Well-known callback function names — auto-detected by compiler
-const CALLBACK_NAMES = ['JsonCall', 'WebCall', 'WebPage', 'WebUI', 'WebOn', 'EverySecond', 'Every100ms', 'Every50ms', 'EveryLoop', 'UdpCall', 'TaskLoop', 'CleanUp', 'TouchButton', 'HomeKitWrite', 'Event', 'OnExit', 'Command', 'OnMqttConnect', 'OnMqttDisconnect', 'OnWifiConnect', 'OnWifiDisconnect', 'OnTimeSet', 'OnInit'];
+const CALLBACK_NAMES = ['JsonCall', 'WebCall', 'WebPage', 'WebUI', 'WebOn', 'EverySecond', 'Every100ms', 'Every50ms', 'EveryLoop', 'UdpCall', 'TaskLoop', 'CleanUp', 'TouchButton', 'HomeKitWrite', 'Event', 'OnExit', 'Command', 'OnMqttConnect', 'OnMqttDisconnect', 'OnWifiConnect', 'OnWifiDisconnect', 'OnTimeSet', 'OnInit', 'BootInit'];
 
 // Built-in functions mapped to syscalls
 const BUILTINS = {
@@ -38,6 +38,7 @@ const BUILTINS = {
     'delayMicroseconds':{ syscall: Syscall.DELAY_MICRO,     args: 1, returns: false },
     'millis':           { syscall: Syscall.MILLIS,          args: 0, returns: true },
     'micros':           { syscall: Syscall.MICROS,          args: 0, returns: true },
+    'vmStackDepth':     { syscall: Syscall.VM_STACK_DEPTH,   args: 0, returns: true },
     'timerStart':       { syscall: Syscall.TIMER_START,     args: 2, returns: false },
     'timerDone':        { syscall: Syscall.TIMER_DONE,      args: 1, returns: true  },
     'timerStop':        { syscall: Syscall.TIMER_STOP,      args: 1, returns: false },
@@ -83,6 +84,7 @@ const BUILTINS = {
 
     // Tasmota command
     'tasmCmd':          { syscall: Syscall.TASM_CMD,        args: 2, returns: true,  constArgs: [0], strArgs: [1] },
+    'tasmDefer':        { syscall: Syscall.TASM_DEFER,      args: 1, returns: false, strArgs: [0] },
 
     // Tasmota output (for callbacks — route directly to Tasmota APIs)
     'addLog':           { syscall: Syscall.LOG,              args: 1, returns: false, strArgs: [0] },
@@ -145,6 +147,39 @@ const BUILTINS = {
     'tcpDisconnect':    { syscall: Syscall.TCP_DISCONNECT,  args: 0, returns: false },
     'tcpConnected':     { syscall: Syscall.TCP_CONNECTED,   args: 0, returns: true  },
     'tcpSelect':        { syscall: Syscall.TCP_SELECT,      args: 1, returns: false },
+    // Per-slot TCP tuning (v1.5.1). Operate on the currently selected slot.
+    'tcpKeepalive':         { syscall: Syscall.TCP_KEEPALIVE,         args: 3, returns: true  },
+    'tcpNoDelay':           { syscall: Syscall.TCP_NODELAY,           args: 1, returns: false },
+    'tcpDisconnectReason':  { syscall: Syscall.TCP_DISCONNECT_REASON, args: 0, returns: true  },
+    // Atomic write-and-await-reply on the selected slot (v1.6.0). Args 0 and 2
+    // are char[] refs (request bytes in, response bytes out). Args 1 (req_len),
+    // 3 (resp_max), 4 (timeout_ms) are plain ints.
+    'tcpTransact':          { syscall: Syscall.TCP_TRANSACT,          args: 5, returns: true,
+                              strArgs: [0, 2] },
+
+    // Binary library invocation. constArgs[0] requires the name to be a
+    // string literal at the call site; it gets pushed as a const-pool
+    // index that the firmware resolves to the registered fn pointer.
+    'bcall':                { syscall: Syscall.BLIB_CALL,             args: 3, returns: true,
+                              constArgs: [0], strArgs: [1] },
+
+    // TWAI / CAN-bus syscalls.
+    'twaiBegin':            { syscall: Syscall.TWAI_BEGIN,             args: 4, returns: true },
+    'twaiEnd':              { syscall: Syscall.TWAI_END,               args: 0, returns: false },
+    'twaiAvailable':        { syscall: Syscall.TWAI_AVAILABLE,         args: 0, returns: true },
+    'twaiRecv':             { syscall: Syscall.TWAI_RECV,              args: 3, returns: true,
+                              strArgs: [0, 1] },          // meta_arr, data_buf
+    'twaiSend':             { syscall: Syscall.TWAI_SEND,              args: 4, returns: true,
+                              strArgs: [3] },             // data_buf
+    'twaiStatus':           { syscall: Syscall.TWAI_STATUS,            args: 1, returns: true,
+                              strArgs: [0] },             // stats_arr
+    'twaiFilter':           { syscall: Syscall.TWAI_FILTER,            args: 3, returns: true },
+
+    // WebOn raw response + keep-alive controls.
+    'webRawMode':           { syscall: Syscall.WEB_RAW_MODE,           args: 0, returns: false },
+    'webRawWrite':          { syscall: Syscall.WEB_RAW_WRITE,          args: 1, returns: false,
+                              strArgs: [0] },             // str_ref
+    'webKeepAlive':         { syscall: Syscall.WEB_KEEP_ALIVE,         args: 0, returns: false },
 
     // spawnTask / killTask / taskRunning all handled as special cases in compileCallExpr —
     // string literal → emits syscall AND registers the name in the function table
@@ -155,6 +190,12 @@ const BUILTINS = {
     'fileClose':        { syscall: Syscall.FILE_CLOSE,      args: 1, returns: true },
     'fileRead':         { syscall: Syscall.FILE_READ,       args: 3, returns: true,  strArgs: [1] },
     'fileWrite':        { syscall: Syscall.FILE_WRITE,      args: 3, returns: true,  strArgs: [1] },
+    // Binary array I/O — moves count int32 elements (4-byte LE) between
+    // the int[]/float[] array and the file. The same syscall works for
+    // both types since both are int32 in memory; the script knows the
+    // type, the syscall just moves bits.
+    'fileReadBin':      { syscall: Syscall.FILE_READ_BIN,   args: 3, returns: true,  strArgs: [1] },
+    'fileWriteBin':     { syscall: Syscall.FILE_WRITE_BIN,  args: 3, returns: true,  strArgs: [1] },
     'fileExists':       { syscall: Syscall.FILE_EXISTS,     args: 1, returns: true,  constArgs: [0] },
     'fileDelete':       { syscall: Syscall.FILE_DELETE,     args: 1, returns: true,  constArgs: [0] },
     'fileSize':         { syscall: Syscall.FILE_SIZE,       args: 1, returns: true,  constArgs: [0] },
@@ -193,11 +234,61 @@ const BUILTINS = {
     'strToken':         { syscall: Syscall.STR_TOKEN,       args: 4, returns: true,  strArgs: [0, 1] },
     'strSub':           { syscall: Syscall.STR_SUB,         args: 4, returns: true,  strArgs: [0, 1] },
     'strFind':          { syscall: Syscall.STR_FIND,        args: 2, returns: true,  strArgs: [0, 1] },
+
+    // ── 1.5.0 string ops (literal-needle / in-place) ──
+    'strReplace':       { syscall: Syscall.STR_REPLACE_CONST,  args: 3, returns: true,  strArgs: [0], constArgs: [1, 2] },
+    'strStartsWith':    { syscall: Syscall.STR_STARTS_CONST,   args: 2, returns: true,  strArgs: [0], constArgs: [1] },
+    'strEndsWith':      { syscall: Syscall.STR_ENDS_CONST,     args: 2, returns: true,  strArgs: [0], constArgs: [1] },
+    'strContains':      { syscall: Syscall.STR_CONTAINS_CONST, args: 2, returns: true,  strArgs: [0], constArgs: [1] },
+    'strToUpper':       { syscall: Syscall.STR_TO_UPPER,       args: 1, returns: false, strArgs: [0] },
+    'strToLower':       { syscall: Syscall.STR_TO_LOWER,       args: 1, returns: false, strArgs: [0] },
+    'strTrim':          { syscall: Syscall.STR_TRIM,           args: 1, returns: true,  strArgs: [0] },
     'atoi':             { syscall: Syscall.STR_TO_INT,      args: 1, returns: true,  strArgs: [0] },
     'atof':             { syscall: Syscall.STR_TO_FLOAT,    args: 1, returns: true,  strArgs: [0], returnFloat: true },
 
     // Sensor JSON parsing
     'sensorGet':        { syscall: Syscall.SENSOR_GET,      args: 1, returns: true,  constArgs: [0] },
+
+    // Cross-VM shared key/value store — let two slots share named scalars/strings
+    'shareSetInt':      { syscall: Syscall.SHARE_SET_INT,   args: 2, returns: false, constArgs: [0], intArgs: [1] },
+    'shareGetInt':      { syscall: Syscall.SHARE_GET_INT,   args: 1, returns: true,  constArgs: [0] },
+    'shareSetFloat':    { syscall: Syscall.SHARE_SET_FLT,   args: 2, returns: false, constArgs: [0] },
+    'shareGetFloat':    { syscall: Syscall.SHARE_GET_FLT,   args: 1, returns: true,  constArgs: [0], returnFloat: true },
+    'shareSetStr':      { syscall: Syscall.SHARE_SET_STR,   args: 2, returns: false, constArgs: [0], strArgs: [1] },
+    'shareGetStr':      { syscall: Syscall.SHARE_GET_STR,   args: 2, returns: true,  constArgs: [0], strArgs: [1] },
+    'shareHas':         { syscall: Syscall.SHARE_HAS,       args: 1, returns: true,  constArgs: [0] },
+    'shareDelete':      { syscall: Syscall.SHARE_DELETE,    args: 1, returns: true,  constArgs: [0] },
+    'shareDump':        { syscall: Syscall.SHARE_DUMP,      args: 0, returns: true },
+    'uiScreen':         { syscall: Syscall.UI_SCREEN,       args: 1, returns: false },
+    'uiTheme':          { syscall: Syscall.UI_THEME,        args: 4, returns: false },
+    'uiClearScreen':    { syscall: Syscall.UI_CLEAR_SCREEN, args: 0, returns: false },
+    'uiLabel':          { syscall: Syscall.UI_LABEL,        args: 7, returns: false, constArgs: [5] },
+    'uiLabelSet':       { syscall: Syscall.UI_LABEL_SET,    args: 2, returns: false, strArgs: [1] },
+    'uiCheckbox':       { syscall: Syscall.UI_CHECKBOX,     args: 6, returns: false, constArgs: [5] },
+    'uiProgress':       { syscall: Syscall.UI_PROGRESS,     args: 7, returns: false },
+    'uiProgressSet':    { syscall: Syscall.UI_PROGRESS_SET, args: 2, returns: false },
+    'uiGauge':          { syscall: Syscall.UI_GAUGE,        args: 7, returns: false },
+    'uiIcon':           { syscall: Syscall.UI_ICON,         args: 4, returns: false },
+    'uiButton':         { syscall: Syscall.UI_BUTTON,       args: 6, returns: false, constArgs: [5] },
+
+    // Symmetric crypto (ESP32-only via mbedtls). Buffers must be `char[]` of
+    // sufficient capacity. AES key length fixed at 128 bits (16 bytes).
+    //   aesEcb(key, data, encrypt)        — single 16-byte block, in-place
+    //   aesCbc(key, iv, data, len, enc)   — multi-block, in-place; iv updated
+    //   hmacSha256(key,klen,data,dlen,out32) — HMAC into 32-byte out buffer
+    //   sha256(data, dlen, out32)         — plain SHA-256 into 32-byte out
+    //   hex2bin(hex, hex_len, out)        — hex chars → bytes; -1 on bad nibble
+    //   bin2hex(bin, bin_len, out)        — bytes → lowercase hex; NUL-terminated
+    'aesEcb':           { syscall: Syscall.AES_ECB,         args: 3, returns: true,  strArgs: [0, 1], intArgs: [2] },
+    'aesCbc':           { syscall: Syscall.AES_CBC,         args: 5, returns: true,  strArgs: [0, 1, 2], intArgs: [3, 4] },
+    'hmacSha256':       { syscall: Syscall.HMAC_SHA256,     args: 5, returns: true,  strArgs: [0, 2, 4], intArgs: [1, 3] },
+    'sha256':           { syscall: Syscall.SHA256,          args: 3, returns: true,  strArgs: [0, 2], intArgs: [1] },
+    // hex2bin's first arg can be a string LITERAL (constArgs) OR a char[] (strArgs).
+    // The compiler resolves which based on what the caller passed; the VM-side
+    // tc_is_const_ref() check distinguishes at runtime. Listing both lets the
+    // type-checker accept either form without error.
+    'hex2bin':          { syscall: Syscall.HEX2BIN,         args: 3, returns: true,  strArgs: [0, 2], intArgs: [1] },
+    'bin2hex':          { syscall: Syscall.BIN2HEX,         args: 3, returns: true,  strArgs: [0, 2], intArgs: [1] },
 
     // HTTP
     'httpGet':          { syscall: Syscall.HTTP_GET,         args: 2, returns: true,  strArgs: [0, 1] },
@@ -286,7 +377,10 @@ const BUILTINS = {
     'dspImageHeight':   { syscall: Syscall.DSP_IMG_HEIGHT,  args: 1, returns: true },
     'dspTextWidth':     { syscall: Syscall.DSP_TEXT_WIDTH,  args: 1, returns: true },  // arg: strlen
     'dspTextHeight':    { syscall: Syscall.DSP_TEXT_HEIGHT, args: 0, returns: true },
-    'dspImgText':       { syscall: Syscall.DSP_IMG_TEXT,   args: 7, returns: false, strArgs: [6] },  // (slot, x, y, color, fieldw, align, text_buf)
+    'dspImgText':       { syscall: Syscall.DSP_IMG_TEXT,   args: 7, returns: false, strArgs: [6] },
+    'dspLoadImageFromCam':{ syscall: Syscall.DSP_LOAD_IMG_CAM,   args: 1, returns: true },
+    'dspImgTextBurn':   { syscall: Syscall.DSP_IMG_TEXT_BURN,    args: 7, returns: false, strArgs: [6] },
+    'dspImageToCam':    { syscall: Syscall.DSP_IMG_TO_CAM,       args: 3, returns: true  },  // (slot, x, y, color, fieldw, align, text_buf)
 
     // Canvas / in-memory RGB565 image slots (ESP32 + USE_DISPLAY + JPEG_PICTS on-device)
     'imgCreate':        { syscall: Syscall.IMG_CREATE,     args: 2, returns: true },   // (w, h) -> int slot
@@ -332,7 +426,7 @@ const BUILTINS = {
     'mailSend':         { syscall: Syscall.EMAIL_SEND,       args: 1, returns: true,  strArgs: [0] },
 
     // Tesla Powerwall (ESP32 — requires TESLA_POWERWALL)
-    'pwlRequest':       { syscall: Syscall.PWL_REQUEST,      args: 1, returns: true,  constArgs: [0] },
+    'pwlRequest':       { syscall: Syscall.PWL_REQUEST,      args: 1, returns: true,  strArgs:   [0] },
     'pwlBind':          { syscall: Syscall.PWL_BIND,         args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'pwlGet':           { syscall: Syscall.PWL_GET_FLOAT,    args: 1, returns: true,  constArgs: [0] },
     'pwlStr':           { syscall: Syscall.PWL_GET_STR,      args: 2, returns: true,  constArgs: [0], strArgs: [1] },
@@ -426,6 +520,8 @@ export class CodeGenerator {
         this.spawnTargets = new Set(); // user-function names referenced by spawnTask/killTask/taskRunning — must be in function table
         this.defines = new Map();   // name -> AST node (compile-time constants)
         this.structTypes = new Map(); // tag -> [{ name, type }]
+        this.fnPtrTypes  = new Map(); // alias → { returnType, params }
+        this.fnAddrPatches = [];      // [{name, offset}] forward refs to function addresses (for fn-ptr assignment)
 
         // Predefined color constants (RGB565)
         const colorDefs = {
@@ -477,11 +573,29 @@ export class CodeGenerator {
         // Compiler warnings (non-fatal, collected and returned in compile result)
         this.warnings = [];
 
+        // De-duplicate identical narrowing warnings (same name + line) so a loop
+        // assigning the same var doesn't flood the output window.
+        this._narrowingSeen = new Set();
+
         // Forward references (patched later)
         this.patches = [];
 
         // Source map: bytecode offset -> source line
         this.sourceMap = [];
+    }
+
+    // Warn on implicit float → int / char narrowing at assignment. An explicit
+    // `(int)` cast routes through compileCast() and suppresses this warning.
+    // Motivating bug: bat_ctrl.tc did `int g_sl; g_sl = wr_vl3 / 100.0` —
+    // silently truncated float(~2.30) into an array index, out-of-bounds at
+    // runtime. With this warning the root cause is flagged at compile time.
+    warnNarrowing(name, line, valType, targetType) {
+        const key = `${name}@${line}`;
+        if (this._narrowingSeen.has(key)) return;
+        this._narrowingSeen.add(key);
+        this.warnings.push(
+            `line ${line}: implicit narrowing — assigning ${valType} to '${name}' (declared ${targetType}). ` +
+            `Truncates toward zero. Use explicit (${targetType}) cast to silence.`);
     }
 
     // ─── Tasmota system variables (virtual — no global slot used) ──
@@ -515,6 +629,8 @@ export class CodeGenerator {
         'tasm_rule':        { index: 23, type: 'int',   writable: true  },
         'tasm_lat':         { index: 24, type: 'float', writable: true  },
         'tasm_lon':         { index: 25, type: 'float', writable: true  },
+        'tasm_maxblock':    { index: 26, type: 'int',   writable: false },
+        'tasm_frag':        { index: 27, type: 'int',   writable: false },
     };
 
     // ─── Bytecode emission ──────────────────────────────────
@@ -605,14 +721,14 @@ export class CodeGenerator {
             if (this.constants[i] === value) return i;
         }
         const idx = this.constants.length;
-        if (idx >= 256) {
+        if (idx >= 1024) {
             throw new CodeGenError(
-                `Constant pool limit exceeded (${idx} constants, max 256 on ESP32). ` +
+                `Constant pool limit exceeded (${idx} constants, max 1024 on ESP32). ` +
                 `Reduce string literals — each unique string counts as one constant.`);
         }
-        if (idx === 220 && !this._constWarnEmitted) {
+        if (idx === 950 && !this._constWarnEmitted) {
             this._constWarnEmitted = true;
-            this.warnings.push(`Constant pool at ${idx}/256 — approaching ESP32 limit. Each unique string literal uses one slot.`);
+            this.warnings.push(`Constant pool at ${idx}/1024 — approaching ESP32 limit. Each unique string literal uses one slot.`);
         }
         this.constants.push(value);
         return idx;
@@ -758,6 +874,12 @@ export class CodeGenerator {
             }
         }
 
+        // Pre-pre-pass: register fn-ptr typedef aliases (so var decls can refer to them)
+        for (const node of ast.body) {
+            if (node.type === NodeType.TypedefDecl && node.fnPtrSig) {
+                this.fnPtrTypes.set(node.alias, node.fnPtrSig);
+            }
+        }
         // First pass: collect globals, functions, and defines
         for (const node of ast.body) {
             if (node.type === NodeType.DefineDecl) {
@@ -799,8 +921,10 @@ export class CodeGenerator {
                     this.persistGlobals.push({ index: g.index, slotCount: slots });
                 }
             } else if (node.type === NodeType.ArrayDecl) {
-                const size = this.inferArraySize(node);
+                const dims = this.arrayDims(node);
+                const size = dims.flat;
                 const g = this.defineGlobal(node.name, node.varType, true, size, node.isPersist);
+                if (dims.cols > 1) { g.cols = dims.cols; g.rows = dims.rows; }
                 if (node.isPersist) {
                     if (g.isHeap) {
                         // Heap persist: index field = 0x8000 | heapHandle (bit 15 = heap flag)
@@ -902,6 +1026,76 @@ export class CodeGenerator {
             }
             this.patchJumpTo(patch.offset, func.address);
         }
+        // Patch fn-pointer address-of references (PUSH_I32 placeholders left
+        // by compileIdentifier when a bare function name was used as a value).
+        for (const fp of this.fnAddrPatches) {
+            const func = this.functions.get(fp.name);
+            if (!func || func.address < 0) {
+                throw new CodeGenError(`Unresolved fn-pointer reference to '${fp.name}'`, 0);
+            }
+            // PUSH_I32 reads big-endian; address fits in low 16 bits.
+            this.code[fp.offset]     = 0;
+            this.code[fp.offset + 1] = 0;
+            this.code[fp.offset + 2] = (func.address >> 8) & 0xFF;
+            this.code[fp.offset + 3] =  func.address       & 0xFF;
+        }
+
+        // Constant-pool diagnostic — Andreas's request 7.2 (BUG_REPORT
+        // 2026-04-25). When the pool is large enough that the user is
+        // hunting for things to consolidate, append a top-N digest to
+        // the warnings: 10 longest entries (fat strings) + the most
+        // common short-string prefixes (sprintf format-splits).
+        if (this.constants.length >= 200) {
+            const stringConsts = this.constants
+                .filter(c => typeof c === 'string')
+                .map((s, i) => ({ s, i, len: s.length }));
+
+            // Top 10 longest
+            const longest = [...stringConsts]
+                .sort((a, b) => b.len - a.len)
+                .slice(0, 10);
+            const longestLines = longest.map(({ s, i, len }) => {
+                const preview = s.length > 60 ? s.slice(0, 57) + '...' : s;
+                // escape control chars for display
+                const safe = preview.replace(/[\x00-\x1F]/g, c =>
+                    '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+                return `    [#${String(i).padStart(4)}] ${len.toString().padStart(4)}B  "${safe}"`;
+            });
+
+            // Most common short prefixes (heuristic for sprintf format splits).
+            // Strings <= 32 bytes are likely format-string fragments. Group by
+            // their first 6 chars (or full string if shorter).
+            const prefixCount = new Map();
+            for (const { s } of stringConsts) {
+                if (s.length === 0 || s.length > 32) continue;
+                const key = s.slice(0, Math.min(6, s.length));
+                const e = prefixCount.get(key) || { count: 0, examples: [] };
+                e.count++;
+                if (e.examples.length < 3 && !e.examples.includes(s)) {
+                    e.examples.push(s);
+                }
+                prefixCount.set(key, e);
+            }
+            const topPrefixes = [...prefixCount.entries()]
+                .filter(([, v]) => v.count >= 3)
+                .sort((a, b) => b[1].count - a[1].count)
+                .slice(0, 8);
+            const prefixLines = topPrefixes.map(([k, v]) =>
+                `    "${k.replace(/[\x00-\x1F]/g, '?')}…"  ×${v.count}  e.g. ${v.examples.map(s => '"' + s.replace(/[\x00-\x1F]/g, '?') + '"').join(', ')}`);
+
+            const total = stringConsts.length;
+            const totalBytes = stringConsts.reduce((a, b) => a + b.len, 0);
+            const lines = [
+                `Constant pool: ${this.constants.length} total entries (${total} strings, ${totalBytes} B).`,
+                `  Top ${longest.length} longest:`,
+                ...longestLines,
+            ];
+            if (prefixLines.length > 0) {
+                lines.push(`  Frequent short prefixes (likely sprintf format-splits — consolidate format strings to save slots):`);
+                lines.push(...prefixLines);
+            }
+            this.warnings.push(lines.join('\n'));
+        }
 
         return this.buildBinary();
     }
@@ -914,9 +1108,33 @@ export class CodeGenerator {
 
         this.currentFunction = funcInfo;
         this.scope = new Scope();
+        // Reset per-function temp slots used by struct-return receive.
+        this._structRetTmp = null;
 
         // Register parameters as locals
         for (const param of node.params) {
+            // Scalar reference param (int& a, float& a, char& a). 1-slot local
+            // holding an encoded ref (ADDR_LOCAL/ADDR_GLOBAL value), accessed
+            // via LOAD/STORE_REF_ARR with index 0.
+            if (param.isScalarRef) {
+                const info = this.scope.define(param.name, param.type, true, 1);
+                info.isRef       = true;
+                info.isScalarRef = true;
+                continue;
+            }
+            // Struct-typed param: reserve memberSlotCount slots
+            if (typeof param.type === 'string' && param.type.startsWith('struct:')) {
+                const tag = param.type.slice(7);
+                const members = this.structTypes.get(tag);
+                if (!members) {
+                    throw new CodeGenError(`Unknown struct '${tag}' in parameter`, node.line || 0);
+                }
+                const slots = this.memberSlotCount(members);
+                const info = this.scope.define(param.name, param.type, true, slots);
+                info.isStruct = true;
+                info.structTag = tag;
+                continue;
+            }
             if (param.arraySize !== null) {
                 if (param.arraySize === 0) {
                     // Array reference parameter (e.g., char cmd[])
@@ -931,12 +1149,25 @@ export class CodeGenerator {
             }
         }
 
-        // Emit code to pop arguments from stack into locals (reverse order)
-        for (let i = node.params.length - 1; i >= 0; i--) {
-            const param = node.params[i];
+        // Emit code to pop arguments from stack into locals.
+        // For multi-slot params (structs), each slot gets its own STORE_LOCAL.
+        // We walk slot indices in reverse so the order matches how the
+        // caller pushed (slot 0 first, slot N-1 last → pop slot N-1 first).
+        // Build flat slot list across all params.
+        const flatSlots = [];
+        for (const param of node.params) {
             const info = this.scope.lookup(param.name);
+            if (info.isStruct) {
+                for (let s = 0; s < info.arraySize; s++) flatSlots.push(info.index + s);
+            } else if (info.isRef || info.isArray) {
+                flatSlots.push(info.index);   // array refs occupy 1 slot
+            } else {
+                flatSlots.push(info.index);
+            }
+        }
+        for (let i = flatSlots.length - 1; i >= 0; i--) {
             this.emit(Op.STORE_LOCAL);
-            this.emitByte(info.index);
+            this.emitByte(flatSlots[i]);
         }
 
         // Compile body
@@ -1049,6 +1280,28 @@ export class CodeGenerator {
         info.isStruct = true;
         info.structTag = node.tag;
 
+        // Initializer from a struct-returning expression: Point z = make_point(...)
+        // The expression pushes N values; we pop them into z's slots in reverse
+        // (TOS = slot N-1 first), using a temp local for the offset/value swap.
+        if (node.initExpr && !node.isArray) {
+            // Compile the expression (callee will push N values onto data stack)
+            this.compileExpr(node.initExpr);
+            // Allocate a single-slot temp once per function (lazy)
+            if (this._structRetTmp == null) {
+                const t = this.scope.define('$ret_tmp', 'int');
+                this._structRetTmp = t.index;
+            }
+            const tmp = this._structRetTmp;
+            for (let off = totalSlots - 1; off >= 0; off--) {
+                // Stack now has [..., valOff] (valOff at TOS)
+                this.emit(Op.STORE_LOCAL); this.emitByte(tmp);   // val → tmp
+                this.emitPushInt(off);                            // offset on stack
+                this.emit(Op.LOAD_LOCAL);  this.emitByte(tmp);   // val back on top
+                // Stack: [..., offset, val]   ready for STORE_LOCAL_ARR
+                this.emit(Op.STORE_LOCAL_ARR); this.emitByte(info.index);
+            }
+            return;
+        }
         // Handle positional initializer: struct Point p = {1, 2};
         // Array fields are skipped (cannot be initialized from a scalar list).
         if (node.init && !node.isArray) {
@@ -1070,17 +1323,76 @@ export class CodeGenerator {
         }
     }
 
-    // Returns total slot count for a struct's members (array fields use arraySize slots)
+    // Slot count of one struct member. Handles:
+    //   • array field (uses arraySize)
+    //   • nested struct field (recurses into inner struct's total)
+    //   • everything else = 1 slot
+    memberSlotsFor(m) {
+        if (m.isArray) return m.arraySize;
+        if (typeof m.type === 'string' && m.type.startsWith('struct:')) {
+            const innerTag = m.type.slice(7);
+            const innerMembers = this.structTypes.get(innerTag);
+            if (!innerMembers) return 1;   // unknown — fail-safe; resolver will throw
+            return this.memberSlotCount(innerMembers);
+        }
+        return 1;
+    }
+    // Returns total slot count for a struct's members.
     memberSlotCount(members) {
-        return members.reduce((sum, m) => sum + (m.isArray ? m.arraySize : 1), 0);
+        return members.reduce((sum, m) => sum + this.memberSlotsFor(m), 0);
     }
 
-    // Resolve struct member. `object` may be a plain variable name (string) or
-    // an ArrayAccess AST node (e.g. `gauges[i]`) when the struct is an element
-    // of a struct array.
+    // Resolve struct member. `object` may be:
+    //   • a plain variable name (string)
+    //   • an ArrayAccess AST node (e.g. `gauges[i]`)
+    //   • a MemberAccess AST node (nested: `a.b.c`)
     // Returns { info, isLocal, fieldOffset, fieldType, fieldIsArray, fieldArraySize,
     //          isArrayElement, indexExpr, structSlots }
     resolveMember(object, fieldName, line) {
+        // Nested field path: walk the MemberAccess chain inside-out, summing
+        // field offsets along the way. Reduces to a base var + total offset.
+        if (typeof object === 'object' && object !== null && object.type === NodeType.MemberAccess) {
+            const inner = this.resolveMember(object.object, object.field, object.line || line);
+            // `inner` describes `object.field` (the parent of `fieldName` in this call).
+            // The parent must itself be a struct (nested type), with tag inferred from
+            // the parent member's declared type (`struct:InnerTag`).
+            const parentMembers = this.structTypes.get(inner.info.structTag);
+            const parentMember  = parentMembers.find(m => m.name === object.field);
+            if (!parentMember || typeof parentMember.type !== 'string'
+                              || !parentMember.type.startsWith('struct:')) {
+                throw new CodeGenError(
+                    `'${object.field}' is not a struct field — nested access '${object.field}.${fieldName}' invalid`,
+                    object.line || line);
+            }
+            const innerTag = parentMember.type.slice(7);
+            const innerMembers = this.structTypes.get(innerTag);
+            if (!innerMembers) {
+                throw new CodeGenError(`Unknown nested struct type 'struct:${innerTag}'`, line);
+            }
+            // Find the requested field within the nested struct.
+            let nestedOffset = 0;
+            let nestedMember = null;
+            for (const m of innerMembers) {
+                if (m.name === fieldName) { nestedMember = m; break; }
+                nestedOffset += this.memberSlotsFor(m);
+            }
+            if (!nestedMember) {
+                throw new CodeGenError(
+                    `Nested struct '${innerTag}' has no member '${fieldName}'`, line);
+            }
+            // Total offset: parent's field offset + nested field's offset within it.
+            return {
+                info:           inner.info,
+                isLocal:        inner.isLocal,
+                fieldOffset:    inner.fieldOffset + nestedOffset,
+                fieldType:      nestedMember.type,
+                fieldIsArray:   !!nestedMember.isArray,
+                fieldArraySize: nestedMember.arraySize || 0,
+                isArrayElement: inner.isArrayElement,
+                indexExpr:      inner.indexExpr,
+                structSlots:    inner.structSlots,
+            };
+        }
         let objectName = object;
         let indexExpr = null;
         let isArrayElement = false;
@@ -1110,12 +1422,13 @@ export class CodeGenerator {
         if (!info.isStruct) throw new CodeGenError(`'${objectName}' is not a struct`, line);
 
         const members = this.structTypes.get(info.structTag);
-        // Compute cumulative slot offset
+        // Compute cumulative slot offset (nested struct fields contribute
+        // their own total slot count, not 1).
         let fieldOffset = 0;
         let fieldMember = null;
         for (const m of members) {
             if (m.name === fieldName) { fieldMember = m; break; }
-            fieldOffset += m.isArray ? m.arraySize : 1;
+            fieldOffset += this.memberSlotsFor(m);
         }
         if (!fieldMember) {
             throw new CodeGenError(`Struct '${info.structTag}' has no member '${fieldName}'`, line);
@@ -1179,6 +1492,95 @@ export class CodeGenerator {
         } else {
             this.emit(Op.STORE_GLOBAL_ARR);
             this.emitU16(info.index);
+        }
+    }
+
+    // Returns true if `name` resolves to a struct variable in scope/globals.
+    _isStructVar(name) {
+        if (!name) return false;
+        const local = this.scope ? this.scope.lookup(name) : null;
+        if (local && local.isStruct) return true;
+        const g = this.globals.get(name);
+        return !!(g && g.isStruct);
+    }
+    // Returns true if expression `e` evaluates to a struct value:
+    // either an Identifier of a struct var, or an ArrayAccess into a
+    // struct array. Future: add CallExpr returning struct (Day-5).
+    _isStructValueExpr(e) {
+        if (!e) return false;
+        if (e.type === NodeType.Identifier) return this._isStructVar(e.name);
+        if (e.type === NodeType.ArrayAccess) return this._isStructVar(e.name);
+        return false;
+    }
+    // Resolve a struct lvalue/rvalue descriptor into:
+    //   { info, isLocal, tag, structSlots, isArrayElement, indexExpr }
+    _resolveStructAccess(desc) {
+        let name, indexExpr = null, isArrayElement = false;
+        if (desc.kind === 'var')   { name = desc.name; }
+        else if (desc.kind === 'arr') { name = desc.name; indexExpr = desc.index; isArrayElement = true; }
+        else if (desc.type === NodeType.Identifier) { name = desc.name; }
+        else if (desc.type === NodeType.ArrayAccess) { name = desc.name; indexExpr = desc.index; isArrayElement = true; }
+        else throw new CodeGenError("Internal: invalid struct access shape", 0);
+        let info = null, isLocal = false;
+        if (this.scope) {
+            const local = this.scope.lookup(name);
+            if (local) { info = local; isLocal = true; }
+        }
+        if (!info) info = this.globals.get(name);
+        if (!info) throw new CodeGenError(`Undefined variable: '${name}'`, 0);
+        if (!info.isStruct) throw new CodeGenError(`'${name}' is not a struct`, 0);
+        const members = this.structTypes.get(info.structTag);
+        return {
+            info, isLocal,
+            tag: info.structTag,
+            structSlots: this.memberSlotCount(members),
+            isArrayElement, indexExpr,
+        };
+    }
+    // Push the slot offset of the `off`-th slot of a struct base onto the stack.
+    // For a whole struct var: PUSH off. For an array element: i*structSlots + off.
+    _pushStructSlotOffset(rm, off) {
+        if (rm.isArrayElement) {
+            this.compileExpr(rm.indexExpr);
+            this.emitPushInt(rm.structSlots);
+            this.emit(Op.MUL);
+            if (off > 0) { this.emitPushInt(off); this.emit(Op.ADD); }
+        } else {
+            this.emitPushInt(off);
+        }
+    }
+    // Emit a load of the struct slot whose offset is currently on top of stack.
+    _emitStructSlotLoad(rm) {
+        if (rm.info.isHeap) { this.emit(Op.LOAD_HEAP_ARR);   this.emitByte(rm.info.heapHandle); }
+        else if (rm.isLocal){ this.emit(Op.LOAD_LOCAL_ARR);  this.emitByte(rm.info.index); }
+        else                { this.emit(Op.LOAD_GLOBAL_ARR); this.emitU16(rm.info.index); }
+    }
+    // Emit a store. Stack must hold [..., dst_offset, value].
+    _emitStructSlotStore(rm) {
+        if (rm.info.isHeap) { this.emit(Op.STORE_HEAP_ARR);   this.emitByte(rm.info.heapHandle); }
+        else if (rm.isLocal){ this.emit(Op.STORE_LOCAL_ARR);  this.emitByte(rm.info.index); }
+        else                { this.emit(Op.STORE_GLOBAL_ARR); this.emitU16(rm.info.index); }
+    }
+    // Whole-struct copy. `dst` is a struct lvalue descriptor (var or array element);
+    // `src` is an AST node (Identifier or ArrayAccess) referring to a struct.
+    _compileStructCopy(dst, src, line) {
+        const dstRm = this._resolveStructAccess(dst);
+        const srcRm = this._resolveStructAccess(src);
+        if (dstRm.tag !== srcRm.tag) {
+            throw new CodeGenError(
+                `Cannot assign struct '${srcRm.tag}' to struct '${dstRm.tag}' — different types`,
+                line || 0);
+        }
+        const slots = dstRm.structSlots;
+        for (let off = 0; off < slots; off++) {
+            // PUSH dst_offset
+            this._pushStructSlotOffset(dstRm, off);
+            // PUSH src_offset
+            this._pushStructSlotOffset(srcRm, off);
+            // LOAD src
+            this._emitStructSlotLoad(srcRm);
+            // STORE dst (consumes [dst_off, value])
+            this._emitStructSlotStore(dstRm);
         }
     }
 
@@ -1292,13 +1694,30 @@ export class CodeGenerator {
         this.emitStoreStructSlot(info, isLocal);
     }
 
+    // Phase 1 2D helper — returns rows count, cols count (1 for 1D),
+    // and total flat slot count.
+    arrayDims(node) {
+        const rows = this.inferArraySize(node);
+        let cols = 1;
+        if (node.cols != null) {
+            // node.cols is an AST expression; reuse the size-evaluator
+            cols = this.inferArraySize({ size: node.cols });
+            if (!Number.isInteger(cols) || cols < 1) {
+                throw new CodeGenError("2D array column count must be a positive integer constant", node.line);
+            }
+        }
+        return { rows, cols, flat: rows * cols };
+    }
+
     compileArrayDecl(node) {
-        const size = this.inferArraySize(node);
+        const dims = this.arrayDims(node);
+        const size = dims.flat;
 
         // Large local arrays → heap
         if (size > HEAP_THRESHOLD) {
             const heapInfo = this.defineHeapArray(node.name, node.varType, size);
-            this.scope.define(node.name, node.varType, true, size, { handle: heapInfo.heapHandle });
+            const localSym = this.scope.define(node.name, node.varType, true, size, { handle: heapInfo.heapHandle });
+            if (dims.cols > 1) { localSym.cols = dims.cols; localSym.rows = dims.rows; }
             // Emit initializers using STORE_HEAP_ARR
             if (node.stringInit) {
                 const str = node.stringInit;
@@ -1324,6 +1743,7 @@ export class CodeGenerator {
         }
 
         const info = this.scope.define(node.name, node.varType, true, size);
+        if (dims.cols > 1) { info.cols = dims.cols; info.rows = dims.rows; }
         if (node.stringInit) {
             // char buf[N] = "hello" → copy string chars + null terminator
             const str = node.stringInit;
@@ -1520,6 +1940,29 @@ export class CodeGenerator {
     }
 
     compileReturn(node) {
+        // Struct return: callee pushes all field slots, then Op.RET (which
+        // preserves data stack across frame teardown — see VM source).
+        const retType = this.currentFunction && this.currentFunction.returnType;
+        if (node.value && typeof retType === 'string' && retType.startsWith('struct:')) {
+            if (!this._isStructValueExpr(node.value)) {
+                throw new CodeGenError(
+                    `Function returns struct '${retType.slice(7)}' but value is not a struct`,
+                    node.line);
+            }
+            const rm = this._resolveStructAccess(node.value);
+            if ('struct:' + rm.tag !== retType) {
+                throw new CodeGenError(
+                    `Return type mismatch: expected '${retType}', got 'struct:${rm.tag}'`,
+                    node.line);
+            }
+            const slots = rm.structSlots;
+            for (let off = 0; off < slots; off++) {
+                this._pushStructSlotOffset(rm, off);
+                this._emitStructSlotLoad(rm);
+            }
+            this.emit(Op.RET);
+            return;
+        }
         if (node.value) {
             this.compileExpr(node.value);
             this.emit(Op.RET_VAL);
@@ -1577,6 +2020,24 @@ export class CodeGenerator {
             if (builtin) return builtin.returns;
             const func = this.functions.get(node.name);
             if (func) return func.returnType !== 'void';
+            // Fn-ptr call: read return type from the alias signature.
+            const fpVar2 = this._lookupFnPtrVar && this._lookupFnPtrVar(node.name);
+            if (fpVar2) {
+                const sig = this.fnPtrTypes.get(fpVar2.fnPtrAlias);
+                if (sig) return sig.returnType !== 'void';
+            }
+            // Indirect call through struct field: callee is a MemberAccess.
+            if (node.callee && (node.callee.type === NodeType.MemberAccess
+                             || node.callee.type === NodeType.MemberArrayAccess)) {
+                try {
+                    const rm = this.resolveMember(node.callee.object, node.callee.field, 0);
+                    if (typeof rm.fieldType === 'string' && rm.fieldType.startsWith('fnptr:')) {
+                        const sig2 = this.fnPtrTypes.get(rm.fieldType.slice(6));
+                        if (sig2) return sig2.returnType !== 'void';
+                    }
+                } catch (_) {}
+                return true;
+            }
         }
         if (node.type === NodeType.PostfixExpr) return true;
         return true;
@@ -1670,7 +2131,52 @@ export class CodeGenerator {
         }
     }
 
+    _lookupFnPtrVar(name) {
+        if (this.scope) {
+            const local = this.scope.lookup(name);
+            if (local && typeof local.type === 'string' && local.type.startsWith('fnptr:')) {
+                return { info: local, isLocal: true, fnPtrAlias: local.type.slice(6) };
+            }
+        }
+        const g = this.globals.get(name);
+        if (g && typeof g.type === 'string' && g.type.startsWith('fnptr:')) {
+            return { info: g, isLocal: false, fnPtrAlias: g.type.slice(6) };
+        }
+        return null;
+    }
     compileIdentifier(node) {
+        // Scalar reference param: read through the encoded ref at index 0.
+        if (this.scope) {
+            const sr = this.scope.lookup(node.name);
+            if (sr && sr.isScalarRef) {
+                this.emit(Op.PUSH_I8);     this.emitByte(0);
+                this.emit(Op.LOAD_REF_ARR); this.emitByte(sr.index);
+                return;
+            }
+        }
+        // Function-name reference (no parens): emit PUSH_I32 of the function's
+        // bytecode address. Local/global var names override (so a local 'foo'
+        // shadows a function 'foo' — same C scoping rule).
+        if ((!this.scope || !this.scope.lookup(node.name)) &&
+            !this.globals.has(node.name) &&
+            this.functions && this.functions.has(node.name)) {
+            const func = this.functions.get(node.name);
+            // Emit PUSH_I32 with a placeholder; record forward-ref for patching.
+            this.emit(Op.PUSH_I32);
+            const offset = this.code.length;
+            this.code.push(0, 0, 0, 0);
+            // PUSH_I32 reads big-endian (matches readI32 / firmware tc_read_i32).
+            // Address fits in low 16 bits → high two bytes stay 0.
+            if (func.address >= 0) {
+                this.code[offset]     = 0;                              // bits 31..24
+                this.code[offset + 1] = 0;                              // bits 23..16
+                this.code[offset + 2] = (func.address >> 8) & 0xFF;     // bits 15..8
+                this.code[offset + 3] =  func.address       & 0xFF;     // bits  7..0
+            } else {
+                this.fnAddrPatches.push({ name: node.name, offset });
+            }
+            return;
+        }
         // Check locals first (locals shadow defines, like C preprocessor)
         if (this.scope) {
             const local = this.scope.lookup(node.name);
@@ -1994,6 +2500,17 @@ export class CodeGenerator {
         throw new CodeGenError(`Not an array: ${name}`, line);
     }
 
+    // Phase 2 helper: returns true when the AST node is arr[i] of a
+    // 2D char array (i.e. a row reference candidate). Called from the
+    // sprintf dispatcher to route %s args through emitArrayRef.
+    is2DCharArrayAccess(node) {
+        if (!node || node.type !== NodeType.ArrayAccess) return false;
+        if (node.index2 != null) return false;     // element access [i][j]
+        const sym = (this.scope && this.scope.lookup(node.name)) ||
+                    this.globals.get(node.name) || null;
+        return !!(sym && sym.cols && sym.cols > 1 && sym.type === 'char');
+    }
+
     // Emit an array address ref (for string functions)
     emitArrayRef(node) {
         // String concatenation expression: str1 + str2, str1 + "lit", etc.
@@ -2001,6 +2518,27 @@ export class CodeGenerator {
         if (node.type === NodeType.BinaryExpr && node.op === '+' && this.isStringNode(node)) {
             this.compileBinaryExpr(node);
             return;
+        }
+        // ── Phase 1 2D row reference: arr[i] of a 2D char array → ADDR_HEAP_OFF
+        if (node.type === NodeType.ArrayAccess && node.index2 == null) {
+            const sym = (this.scope && this.scope.lookup(node.name)) ||
+                        this.globals.get(node.name) || null;
+            if (sym && sym.cols && sym.cols > 1) {
+                if (!sym.isHeap) {
+                    throw new CodeGenError(
+                        `Row references for 2D arrays require heap storage ` +
+                        `(total >= ${typeof HEAP_THRESHOLD === 'number' ? HEAP_THRESHOLD + 1 : 17} ` +
+                        `elements). '${node.name}' is too small (${sym.rows}x${sym.cols}).`,
+                        node.line);
+                }
+                // Emit row offset = index * cols, then ADDR_HEAP_OFF.
+                this.compileExpr(node.index);
+                this.emitPushInt(sym.cols);
+                this.emit(Op.MUL);
+                this.emit(Op.ADDR_HEAP_OFF);
+                this.emitByte(sym.heapHandle);
+                return;
+            }
         }
         // Handle struct member array field: msg.text passed to strcpy(msg.text, ...)
         if (node.type === NodeType.MemberAccess) {
@@ -2136,6 +2674,74 @@ export class CodeGenerator {
     }
 
     compileCallExpr(node) {
+        // Indirect call through a struct field: `obj.handler(args)` or
+        // `arr[i].handler(args)`. The parser left node.callee = the
+        // MemberAccess/MemberArrayAccess node and node.name = null.
+        if (node.callee && (node.callee.type === NodeType.MemberAccess
+                         || node.callee.type === NodeType.MemberArrayAccess)) {
+            const rm = this.resolveMember(node.callee.object, node.callee.field, node.callee.line || node.line);
+            if (typeof rm.fieldType !== 'string' || !rm.fieldType.startsWith('fnptr:')) {
+                throw new CodeGenError(
+                    `Field '${node.callee.field}' is not a function pointer — cannot call`,
+                    node.callee.line || node.line);
+            }
+            const alias = rm.fieldType.slice(6);
+            const sig = this.fnPtrTypes.get(alias);
+            if (!sig) {
+                throw new CodeGenError(`Unknown fn-ptr type 'fnptr:${alias}' for field '${node.callee.field}'`,
+                                       node.callee.line || node.line);
+            }
+            if (node.args.length !== sig.params.length) {
+                throw new CodeGenError(
+                    `fn-ptr field '${node.callee.field}' expects ${sig.params.length} args, got ${node.args.length}`,
+                    node.line);
+            }
+            // Push args (with type coercion + array-ref handling like the v1 path)
+            for (let i = 0; i < node.args.length; i++) {
+                const param = sig.params[i];
+                const isArrayParam = !!param.isArray;
+                if (isArrayParam &&
+                    node.args[i].type === NodeType.Identifier &&
+                    this.isArrayVar(node.args[i].name)) {
+                    this.emitArrayRefByName(node.args[i].name, node.line);
+                } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
+                    this.emitStringArg(node.args[i]);
+                } else {
+                    this.compileExpr(node.args[i]);
+                    const argType = this.inferType(node.args[i]);
+                    if (param.type === 'float' && !this.isFloatType(argType)) this.emit(Op.I2F);
+                    else if (param.type !== 'float' && this.isFloatType(argType)) this.emit(Op.F2I);
+                }
+            }
+            // Push the fn-ptr value: re-use the member-access codegen which
+            // emits LOAD_X with the field offset; this leaves the address on TOS.
+            this.compileMemberAccess({
+                type: NodeType.MemberAccess,
+                object: node.callee.object,
+                field:  node.callee.field,
+                line:   node.callee.line || node.line,
+            });
+            this.emit(Op.CALL_INDIRECT);
+            if (sig.returnType !== 'void') this.hasValue = true;
+            return;
+        }
+
+        // sizeof(Tag) — compile-time constant slot count.
+        if (node.name === 'sizeof' && node.args.length === 1
+                                   && node.args[0].type === NodeType.Identifier) {
+            const tag = node.args[0].name;
+            if (this.structTypes.has(tag)) {
+                const slots = this.memberSlotCount(this.structTypes.get(tag));
+                this.emitPushInt(slots);
+                return;
+            }
+            // Primitive type names → 1 (slot)
+            if (tag === 'int' || tag === 'float' || tag === 'char' || tag === 'bool') {
+                this.emitPushInt(1);
+                return;
+            }
+            throw new CodeGenError(`sizeof: unknown type '${tag}'`, node.line);
+        }
         // Check watch intrinsics (changed, delta, written, snapshot)
         if (node.name === 'changed' || node.name === 'delta' ||
             node.name === 'written' || node.name === 'snapshot') {
@@ -2244,8 +2850,7 @@ export class CodeGenerator {
                 if (isVarAddLogLevel) {
                     this.compileExpr(node.args[0]);  // log level
                     this.emitLogScratchRef();
-                    this.emit(Op.SYSCALL);
-                    this.emitByte(Syscall.LOG_LEVEL);
+                    this.emitSyscall(Syscall.LOG_LEVEL);
                 } else {
                     this.emitLogScratchRef();
                     this.emit(Op.SYSCALL);
@@ -2296,8 +2901,7 @@ export class CodeGenerator {
                         this.emitArrayRef(node.args[0]);
                         const idx = this.addConstant(arg1.value);
                         this.emit(Op.LOAD_CONST); this.emitU16(idx);
-                        this.emit(Op.SYSCALL);
-                        this.emitByte(Syscall.STRCMP_CONST);
+                        this.emitSyscall(Syscall.STRCMP_CONST);
                         if (builtin.returns) this.pendingPush = true;
                         return;
                     }
@@ -2306,8 +2910,7 @@ export class CodeGenerator {
                         this.emitArrayRef(node.args[1]);
                         const idx = this.addConstant(arg0.value);
                         this.emit(Op.LOAD_CONST); this.emitU16(idx);
-                        this.emit(Op.SYSCALL);
-                        this.emitByte(Syscall.STRCMP_CONST);
+                        this.emitSyscall(Syscall.STRCMP_CONST);
                         this.emit(Op.NEG);  // reverse ordering for strcmp("lit", arr)
                         if (builtin.returns) this.pendingPush = true;
                         return;
@@ -2321,8 +2924,7 @@ export class CodeGenerator {
                         const idx = this.addConstant(arg1.value);
                         this.emit(Op.LOAD_CONST); this.emitU16(idx);
                         this.compileExpr(node.args[2]);  // len
-                        this.emit(Op.SYSCALL);
-                        this.emitByte(Syscall.FILE_WRITE_STR);
+                        this.emitSyscall(Syscall.FILE_WRITE_STR);
                         if (builtin.returns) this.pendingPush = true;
                         return;
                     }
@@ -2362,8 +2964,17 @@ export class CodeGenerator {
                     const idx = this.addConstant(resolved.value);
                     this.emit(Op.LOAD_CONST);
                     this.emitU16(idx);
-                    this.emit(Op.SYSCALL);
-                    this.emitByte(Syscall.LOG_LEVEL_STR);
+                    this.emitSyscall(Syscall.LOG_LEVEL_STR);
+                    return;
+                }
+                // tasmDefer("literal") → use _STR variant.
+                // emitSyscall is required because TASM_DEFER_STR (367) > 255 — emitByte would truncate to 111.
+                if (node.name === 'tasmDefer' && node.args.length === 1 &&
+                    resolveArg(node.args[0]).type === NodeType.StringLiteral) {
+                    const idx = this.addConstant(resolveArg(node.args[0]).value);
+                    this.emit(Op.LOAD_CONST);
+                    this.emitU16(idx);
+                    this.emitSyscall(Syscall.TASM_DEFER_STR);
                     return;
                 }
                 // webSend("literal") / responseAppend("literal") / addLog("literal") / mailBody("literal") / responseCmnd("literal") → use _STR variant
@@ -2489,11 +3100,19 @@ export class CodeGenerator {
                         // Variable ref (scalar or array) → push as address ref
                         this.emitVarRef(arg);
                     } else if (builtin.strArgs && builtin.strArgs.includes(i)) {
-                        // Must be a char array → push as array ref
+                        // String-literal acceptance: encode as const-pool
+                        // ref so the firmware syscall handler (which reads
+                        // via tc_ref_to_cstr) sees it the same as a char[]
+                        // buffer. Same encoding pattern as helper-function
+                        // char[] params receiving a literal. For a non-
+                        // literal, fall through to emitArrayRef for the
+                        // existing identifier/member-access paths.
                         if (resolved.type === NodeType.StringLiteral) {
-                            throw new CodeGenError(`${node.name} requires a char array, not a string literal`, arg.line || node.line);
+                            const idx = this.addConstant(resolved.value);
+                            this.emitPushInt((0xC0008000 | idx) | 0);
+                        } else {
+                            this.emitArrayRef(arg);
                         }
-                        this.emitArrayRef(arg);
                     } else {
                         this.compileExpr(arg);
                         // floatArgs: ensure value is float (emit I2F if int expression)
@@ -2520,6 +3139,41 @@ export class CodeGenerator {
             return;
         }
 
+        // Function-pointer call site: if name resolves to a fnptr var, treat
+        // the call as indirect — push args, then push the var's value (the
+        // function's bytecode address), then emit Op.CALL_INDIRECT.
+        const fpVar = this._lookupFnPtrVar(node.name);
+        if (fpVar) {
+            const sig = this.fnPtrTypes.get(fpVar.fnPtrAlias);
+            if (sig) {
+                if (node.args.length !== sig.params.length) {
+                    throw new CodeGenError(
+                        `fn-ptr '${node.name}' expects ${sig.params.length} args, got ${node.args.length}`,
+                        node.line);
+                }
+                for (let i = 0; i < node.args.length; i++) {
+                    const param = sig.params[i];
+                    const isArrayParam = !!param.isArray;
+                    if (isArrayParam &&
+                        node.args[i].type === NodeType.Identifier &&
+                        this.isArrayVar(node.args[i].name)) {
+                        this.emitArrayRefByName(node.args[i].name, node.line);
+                    } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
+                        this.emitStringArg(node.args[i]);
+                    } else {
+                        this.compileExpr(node.args[i]);
+                        const argType = this.inferType(node.args[i]);
+                        if (param.type === 'float' && !this.isFloatType(argType)) this.emit(Op.I2F);
+                        else if (param.type !== 'float' && this.isFloatType(argType)) this.emit(Op.F2I);
+                    }
+                }
+                // Push the fn-ptr value (function's bytecode address)
+                this.compileExpr({ type: NodeType.Identifier, name: node.name, line: node.line });
+                this.emit(Op.CALL_INDIRECT);
+                if (sig.returnType !== 'void') this.hasValue = true;
+                return;
+            }
+        }
         // User-defined function
         const func = this.functions.get(node.name);
         if (!func) {
@@ -2535,12 +3189,71 @@ export class CodeGenerator {
         // Push arguments (they become locals in the callee)
         for (let i = 0; i < node.args.length; i++) {
             const param = func.params[i];
+            // Scalar-reference parameter (int& a, etc.): push the encoded
+            // ref of the variable (ADDR_LOCAL or ADDR_GLOBAL), not its value.
+            if (param.isScalarRef) {
+                const arg = node.args[i];
+                if (!arg || arg.type !== NodeType.Identifier) {
+                    throw new CodeGenError(
+                        `Function '${node.name}' arg ${i+1}: ref parameter requires a variable name (got ${arg && arg.type})`,
+                        node.line);
+                }
+                const localR = this.scope ? this.scope.lookup(arg.name) : null;
+                if (localR) {
+                    if (localR.isStaticAlias) {
+                        const g = this.globals.get(localR.globalName);
+                        if (!g) throw new CodeGenError(`Static global '${localR.globalName}' missing`, node.line);
+                        this.emit(Op.ADDR_GLOBAL); this.emitU16(g.index);
+                    } else if (localR.isHeap) {
+                        throw new CodeGenError(`Cannot pass heap-array variable '${arg.name}' as ref param (v1)`, node.line);
+                    } else {
+                        this.emit(Op.ADDR_LOCAL); this.emitByte(localR.index);
+                    }
+                } else {
+                    const g = this.globals.get(arg.name);
+                    if (!g) throw new CodeGenError(`Undefined variable '${arg.name}' in ref arg`, node.line);
+                    this.emit(Op.ADDR_GLOBAL); this.emitU16(g.index);
+                }
+                continue;
+            }
+            // Struct-typed parameter: push N slot values from the arg.
+            if (typeof param.type === 'string' && param.type.startsWith('struct:')) {
+                const tag = param.type.slice(7);
+                const members = this.structTypes.get(tag);
+                if (!members) {
+                    throw new CodeGenError(`Unknown struct '${tag}' in call`, node.line);
+                }
+                const slots = this.memberSlotCount(members);
+                const arg = node.args[i];
+                if (!this._isStructValueExpr(arg)) {
+                    throw new CodeGenError(
+                        `Function '${node.name}' arg ${i+1} expects struct '${tag}'`,
+                        node.line);
+                }
+                const rm = this._resolveStructAccess(arg);
+                if (rm.tag !== tag) {
+                    throw new CodeGenError(
+                        `Function '${node.name}' arg ${i+1}: struct '${rm.tag}' is not '${tag}'`,
+                        node.line);
+                }
+                for (let s = 0; s < slots; s++) {
+                    this._pushStructSlotOffset(rm, s);
+                    this._emitStructSlotLoad(rm);
+                }
+                continue;
+            }
             const isArrayParam = param.arraySize !== undefined;
             if (isArrayParam &&
                 node.args[i].type === NodeType.Identifier &&
                 this.isArrayVar(node.args[i].name)) {
                 // Array parameter (char[] or int[]): push array reference, not element value
                 this.emitArrayRefByName(node.args[i].name, node.line);
+            } else if (isArrayParam &&
+                       node.args[i].type === NodeType.ArrayAccess &&
+                       node.args[i].index2 == null &&
+                       (() => { const s = (this.scope && this.scope.lookup(node.args[i].name)) || this.globals.get(node.args[i].name); return s && s.cols && s.cols > 1; })()) {
+                // 2D char array row reference: arr[i] passed to char[] param
+                this.emitArrayRef(node.args[i]);
             } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
                 // char[] param receiving a string literal: emit const-pool ref encoding
                 // (tag=3, handle = 0x8000|constIdx). Without this, LOAD_CONST pushes a
@@ -2616,7 +3329,7 @@ export class CodeGenerator {
         }
         const modeNode = node.args[0];
         if (modeNode.type !== NodeType.IntLiteral) {
-            throw new CodeGenError("udp() first argument (mode) must be a literal integer 0-9", modeNode.line || node.line);
+            throw new CodeGenError("udp() first argument (mode) must be a literal integer 0-10", modeNode.line || node.line);
         }
         const mode = modeNode.value;
         const nargs = node.args.length;
@@ -2669,8 +3382,12 @@ export class CodeGenerator {
                 this.emitStringArg(node.args[1]);  // mcast_ip (char[] or string literal)
                 this.compileExpr(node.args[2]);    // port (int)
                 break;
+            case 10: // udp(10, mcast_ip) → IGMP-Leave on the netif (socket-independent)
+                if (nargs !== 2) throw new CodeGenError("udp(10, mcast_ip) expects 2 arguments", node.line);
+                this.emitStringArg(node.args[1]);  // mcast_ip (char[] or string literal)
+                break;
             default:
-                throw new CodeGenError(`udp() mode must be 0-9, got ${mode}`, node.line);
+                throw new CodeGenError(`udp() mode must be 0-10, got ${mode}`, node.line);
         }
         // Push mode as last value (VM pops it first)
         this.emitPushInt(mode);
@@ -2872,10 +3589,13 @@ export class CodeGenerator {
         for (const seg of segments) {
             if (seg.type === null) {
                 // Trailing text — append as a string constant via "%s" fmt.
+                // Note: snprintf only honors %% inside the *format* string, not
+                // inside %s arguments. So we must unescape %% → % here, otherwise
+                // the trailing literal would print "%%" to the user. Bug B fix.
                 emitDst();
                 const fmtIdx = this.addConstant('%s');
                 this.emit(Op.LOAD_CONST); this.emitU16(fmtIdx);
-                const txtIdx = this.addConstant(seg.segment);
+                const txtIdx = this.addConstant(seg.segment.replace(/%%/g, '%'));
                 this.emit(Op.LOAD_CONST); this.emitU16(txtIdx);
                 this.emit(Op.SYSCALL);
                 this.emitByte(Syscall.SPRINTF_STR_CAT_CONST);
@@ -2886,7 +3606,8 @@ export class CodeGenerator {
             const useAppend = isAppend || firstEmitted;
             const valArg = valArgs[valIdx++];
             const resolvedVal = resolveArg(valArg);
-            const isCharArr   = resolvedVal.type === NodeType.Identifier && this.isCharArrayVar(resolvedVal.name);
+            const isCharArr   = (resolvedVal.type === NodeType.Identifier && this.isCharArrayVar(resolvedVal.name)) ||
+                                this.is2DCharArrayAccess(resolvedVal);
             const isStringLit = resolvedVal.type === NodeType.StringLiteral;
             const segFmtIdx   = this.addConstant(seg.segment);
 
@@ -2969,7 +3690,8 @@ export class CodeGenerator {
         const valArg = node.args[2];
         const resolvedVal = resolveArg(valArg);
         const valType = this.inferType(resolvedVal);
-        const isCharArr = (resolvedVal.type === NodeType.Identifier && this.isCharArrayVar(resolvedVal.name));
+        const isCharArr = (resolvedVal.type === NodeType.Identifier && this.isCharArrayVar(resolvedVal.name)) ||
+                          this.is2DCharArrayAccess(resolvedVal);
         const isStringLit = (resolvedVal.type === NodeType.StringLiteral);
 
         // Determine format specifier type to drive dispatch (fixes float var with %d and vice-versa)
@@ -3038,7 +3760,31 @@ export class CodeGenerator {
     }
 
     compileArrayAccess(node) {
-        this.compileExpr(node.index);
+        // Phase 1 2D: prefer scope/global lookup so we can compute flat
+        // index from i * cols + j when both subscripts are present.
+        const sym = (this.scope && this.scope.lookup(node.name)) ||
+                    this.globals.get(node.name) || null;
+        const is2D = sym && sym.cols && sym.cols > 1;
+        if (is2D) {
+            if (node.index2 == null) {
+                throw new CodeGenError(
+                    `'${node.name}' is a 2D char array — use ${node.name}[i][j] for an element, ` +
+                    `or pass ${node.name}[i] / ${node.name} to a char[] parameter for a row/whole reference`,
+                    node.line);
+            }
+            // Stack: i, cols, MUL, j, ADD  →  flat index
+            this.compileExpr(node.index);
+            this.emitPushInt(sym.cols);
+            this.emit(Op.MUL);
+            this.compileExpr(node.index2);
+            this.emit(Op.ADD);
+        } else {
+            if (node.index2 != null) {
+                throw new CodeGenError(
+                    `'${node.name}' is a 1D array — second subscript not allowed`, node.line);
+            }
+            this.compileExpr(node.index);
+        }
 
         if (this.scope) {
             const local = this.scope.lookup(node.name);
@@ -3077,6 +3823,56 @@ export class CodeGenerator {
     }
 
     compileAssignment(node) {
+        // ── Scalar reference assignment: a = expr;  (a is int& param)
+        if (this.scope) {
+            const sr = this.scope.lookup(node.name);
+            if (sr && sr.isScalarRef) {
+                if (node.op === '=') {
+                    this.emit(Op.PUSH_I8); this.emitByte(0);     // idx 0
+                    this.compileExpr(node.value);                // value
+                    const valType = this.inferType(node.value);
+                    if (sr.type === 'float' && valType !== 'float') this.emit(Op.I2F);
+                    else if (sr.type !== 'float' && valType === 'float') this.emit(Op.F2I);
+                    this.emit(Op.STORE_REF_ARR); this.emitByte(sr.index);
+                } else {
+                    // Compound assignment +=, -=, *=, /= etc.
+                    const isFloat = sr.type === 'float';
+                    // Stack: [idx, idx, oldVal, rhs, op, newVal]
+                    this.emit(Op.PUSH_I8); this.emitByte(0);
+                    this.emit(Op.DUP);
+                    this.emit(Op.LOAD_REF_ARR); this.emitByte(sr.index);
+                    this.compileExpr(node.value);
+                    const valType = this.inferType(node.value);
+                    if (isFloat && valType !== 'float') this.emit(Op.I2F);
+                    else if (!isFloat && valType === 'float') this.emit(Op.F2I);
+                    switch (node.op) {
+                        case '+=':  this.emit(isFloat ? Op.FADD : Op.ADD);  break;
+                        case '-=':  this.emit(isFloat ? Op.FSUB : Op.SUB);  break;
+                        case '*=':  this.emit(isFloat ? Op.FMUL : Op.MUL);  break;
+                        case '/=':  this.emit(isFloat ? Op.FDIV : Op.DIV);  break;
+                        case '%=':  this.emit(Op.MOD);     break;
+                        case '&=':  this.emit(Op.BIT_AND); break;
+                        case '|=':  this.emit(Op.BIT_OR);  break;
+                        case '^=':  this.emit(Op.BIT_XOR); break;
+                        case '<<=': this.emit(Op.SHL);     break;
+                        case '>>=': this.emit(Op.SHR);     break;
+                        default: throw new CodeGenError(`Unknown compound op on ref param: ${node.op}`, node.line);
+                    }
+                    this.emit(Op.STORE_REF_ARR); this.emitByte(sr.index);
+                }
+                return;
+            }
+        }
+        // ── Whole-struct copy: b = a;  b = arr[i];  ───────────
+        // (LHS is an Identifier-style assignment; arr[i] = ... goes
+        //  through compileArrayAssign instead.)
+        if (node.op === '=' && this._isStructVar(node.name)
+                            && this._isStructValueExpr(node.value)) {
+            this._compileStructCopy(
+                { kind: 'var', name: node.name },
+                node.value, node.line);
+            return;
+        }
         // ── String operations on char[] ──────────────────────
         // buf = "hello"       → strcpyConst(buf, "hello")
         // buf = other         → strcpy(buf, other)   where other is char[]
@@ -3157,7 +3953,10 @@ export class CodeGenerator {
             // Type coercion: int→float or float→int
             const valType = this.inferType(node.value);
             if (targetType === 'float' && valType !== 'float') this.emit(Op.I2F);
-            else if (targetType !== 'float' && valType === 'float') this.emit(Op.F2I);
+            else if (targetType !== 'float' && valType === 'float') {
+                this.warnNarrowing(node.name, node.line, valType, targetType);
+                this.emit(Op.F2I);
+            }
         } else {
             // Compound assignment: +=, -=, etc.
             const isFloat = targetType === 'float';
@@ -3165,7 +3964,10 @@ export class CodeGenerator {
             this.compileExpr(node.value);
             const valType = this.inferType(node.value);
             if (isFloat && valType !== 'float') this.emit(Op.I2F);
-            else if (!isFloat && valType === 'float') this.emit(Op.F2I);
+            else if (!isFloat && valType === 'float') {
+                this.warnNarrowing(node.name, node.line, valType, targetType);
+                this.emit(Op.F2I);
+            }
             switch (node.op) {
                 case '+=':  this.emit(isFloat ? Op.FADD : Op.ADD);  break;
                 case '-=':  this.emit(isFloat ? Op.FSUB : Op.SUB);  break;
@@ -3233,7 +4035,37 @@ export class CodeGenerator {
     }
 
     compileArrayAssign(node) {
-        this.compileExpr(node.index);
+        // ── Whole-struct copy into array element: arr[i] = b; or arr[i] = arr[j];
+        if (node.op === '=' && this._isStructVar(node.name)
+                            && this._isStructValueExpr(node.value)) {
+            this._compileStructCopy(
+                { kind: 'arr', name: node.name, index: node.index },
+                node.value, node.line);
+            return;
+        }
+
+        // Phase 2 2D: arr[i][j] = expr → flatten i*cols + j onto the stack.
+        const _sym = (this.scope && this.scope.lookup(node.name)) ||
+                     this.globals.get(node.name) || null;
+        const _is2D = _sym && _sym.cols && _sym.cols > 1;
+        if (_is2D) {
+            if (node.index2 == null) {
+                throw new CodeGenError(
+                    `'${node.name}' is a 2D array — assignment requires both indices, e.g. ${node.name}[i][j] = …`,
+                    node.line);
+            }
+            this.compileExpr(node.index);
+            this.emitPushInt(_sym.cols);
+            this.emit(Op.MUL);
+            this.compileExpr(node.index2);
+            this.emit(Op.ADD);
+        } else {
+            if (node.index2 != null) {
+                throw new CodeGenError(
+                    `'${node.name}' is a 1D array — second subscript not allowed in assignment`, node.line);
+            }
+            this.compileExpr(node.index);
+        }
         const arrType = this.getVarType(node.name);
 
         if (node.op !== '=') {
@@ -3258,7 +4090,10 @@ export class CodeGenerator {
             this.compileExpr(node.value);
             const valType = this.inferType(node.value);
             if (isFloat && valType !== 'float') this.emit(Op.I2F);
-            else if (!isFloat && valType === 'float') this.emit(Op.F2I);
+            else if (!isFloat && valType === 'float') {
+                this.warnNarrowing(node.name + '[]', node.line, valType, arrType);
+                this.emit(Op.F2I);
+            }
             switch (node.op) {
                 case '+=': this.emit(isFloat ? Op.FADD : Op.ADD); break;
                 case '-=': this.emit(isFloat ? Op.FSUB : Op.SUB); break;
@@ -3270,7 +4105,10 @@ export class CodeGenerator {
             // Type coercion: int→float or float→int
             const valType = this.inferType(node.value);
             if (arrType === 'float' && valType !== 'float') this.emit(Op.I2F);
-            else if (arrType !== 'float' && valType === 'float') this.emit(Op.F2I);
+            else if (arrType !== 'float' && valType === 'float') {
+                this.warnNarrowing(node.name + '[]', node.line, valType, arrType);
+                this.emit(Op.F2I);
+            }
         }
 
         const arrInfo = this.lookupArray(node.name);
@@ -3352,6 +4190,7 @@ export class CodeGenerator {
                 return 'int';
             }
             case NodeType.CallExpr: {
+                if (node.name === 'sizeof') return 'int';
                 // Watch intrinsics
                 if (node.name === 'delta' && node.args.length === 1 && node.args[0].type === NodeType.Identifier) {
                     const watchInfo = this.watchGlobals.get(node.args[0].name);
@@ -3363,6 +4202,9 @@ export class CodeGenerator {
                 if (func) return func.returnType;
                 const builtin = BUILTINS[node.name];
                 if (builtin) {
+                    // Symbol-table-driven: any builtin marked returnFloat:true is a float-returner.
+                    if (builtin.returnFloat === true) return 'float';
+                    // Legacy hardcoded list (kept for builtins whose entries don't yet have the flag).
                     if (node.name === 'sqrt' || node.name === 'sin' || node.name === 'cos' ||
                         node.name === 'exp' || node.name === 'log' ||
                         node.name === 'pow' || node.name === 'acos' ||
@@ -3513,18 +4355,18 @@ export class CodeGenerator {
 
     encodeHeapDeclarations() {
         if (this.heapArrays.size === 0) return new Uint8Array(0);
-        // Check total heap size against ESP32 limit (8192 slots = 32 KB)
-        const TC_MAX_HEAP_SLOTS = 8192;
-        const TC_WARN_HEAP_SLOTS = 7000;
+        // Check total heap size against ESP32 VM limit (TC_MAX_HEAP = 16384 slots = 64 KB in xdrv_124_tinyc_vm.h)
+        const TC_MAX_HEAP_SLOTS = 16384;
+        const TC_WARN_HEAP_SLOTS = 14000;
         let totalSlots = 0;
         for (const [, info] of this.heapArrays) totalSlots += info.arraySize;
         if (totalSlots > TC_MAX_HEAP_SLOTS) {
             throw new CodeGenError(
-                `Heap limit exceeded: ${totalSlots} slots needed, max ${TC_MAX_HEAP_SLOTS} (32 KB) on ESP32. ` +
+                `Heap limit exceeded: ${totalSlots} slots needed, max ${TC_MAX_HEAP_SLOTS} (64 KB) on ESP32. ` +
                 `Reduce array sizes — each char[N] uses ${Math.ceil(1)} slot per byte, each int[N]/float[N] uses 1 slot per element.`);
         }
         if (totalSlots > TC_WARN_HEAP_SLOTS) {
-            this.warnings.push(`Heap usage high: ${totalSlots}/${TC_MAX_HEAP_SLOTS} slots (${Math.round(totalSlots*4/1024)} KB of 32 KB). Consider reducing array sizes.`);
+            this.warnings.push(`Heap usage high: ${totalSlots}/${TC_MAX_HEAP_SLOTS} slots (${Math.round(totalSlots*4/1024)} KB of 64 KB). Consider reducing array sizes.`);
         }
         const bytes = [];
         bytes.push(this.heapArrays.size);  // count
@@ -3600,3 +4442,4 @@ export class CodeGenerator {
         return new Uint8Array(bytes);
     }
 }
+
