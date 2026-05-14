@@ -1,0 +1,43 @@
+// UART TX continuous burst test for oscilloscope verification.
+//
+// Opens UART on RX=11 TX=12 @ 9600 8N1 (same config as onewire DS2480B).
+// Then continuously sends 0xC1 bytes for ~10 seconds with 10 ms gaps.
+// At 9600 baud each byte is ~1.04 ms wide → with 10 ms gap that's about
+// ~91 bytes / second visible as a steady burst pattern on the TX pin.
+//
+// Expected on Hans's oscilloscope at GPIO 12:
+//   - Idle high (3.3V)
+//   - Every ~10 ms: a brief 1.04 ms transmission of 0xC1
+//     (start bit low, then 0xC1 = 0b11000001 LSB-first, then stop high)
+//   - 10 seconds of activity, then idle high
+//
+// If Oszi sees nothing during this run: TasmotaSerial / Arduino-ESP32
+// HardwareSerial UART1 GPIO-matrix-routing failed silently — script
+// thinks it's sending but UART peripheral isn't connected to GPIO 12.
+// If Oszi sees the bursts: UART path works → onewire issue is elsewhere
+// (chip not responding, etc).
+
+int main() {
+    addLog("uart_tx_test: opening UART rx=11 tx=12 @9600");
+    int s = serialBegin(11, 12, 9600, 3, 64);
+    if (s < 0) {
+        addLog("uart_tx_test: serialBegin FAILED");
+        return -1;
+    }
+    char m[48];
+    sprintf(m, "uart_tx_test: opened slot=%d, sending 0xC1 burst", s);
+    addLog(m);
+
+    delay(200);  // let UART settle, give the addLog a chance to flush
+
+    int i = 0;
+    while (i < 1000) {        // 1000 × 10 ms = 10 seconds
+        serialWriteByte(s, 0xC1);
+        delay(10);
+        i = i + 1;
+    }
+
+    addLog("uart_tx_test: burst done, closing");
+    serialClose(s);
+    return 0;
+}

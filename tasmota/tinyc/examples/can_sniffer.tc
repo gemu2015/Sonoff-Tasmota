@@ -1,0 +1,113 @@
+// CAN bus sniffer — empfängt alle Frames auf dem Bus und loggt sie
+//
+// Wiring (this example assumes ESP32-S3 with external CAN transceiver
+// like SN65HVD230 / TJA1051 / MCP2562 between MCU and bus):
+//   GPIO_TX → transceiver TXD (input)
+//   GPIO_RX ← transceiver RXD (output)
+//   Transceiver CANH/CANL → bus
+//
+// Default pin/bitrate matches Hans's bench rig where this device sits
+// on the same bus as .143 (running slcan_bridge_tcp.tcb). Frames the
+// PC sends over `192.168.188.143:9999` via SLCAN end up here.
+
+int  rx_pin   = 38;       // ESP32-S3 .39 default: TX=GPIO39 → transceiver TXD, RX=GPIO38 ← RXD
+int  tx_pin   = 39;
+int  bitrate  = 250;      // kbit/s — must match the other end
+int  twai_mode = 0;       // 0 = NORMAL (ACK on bus), 1 = NO_ACK
+                          // (self-test only — wrong here, we want bus ACK)
+
+int  twai_open  = 0;
+int  rx_total   = 0;      // lifetime received-frame counter
+int  rx_meta[4];          // [0]=id, [1]=ext, [2]=dlc
+int  rx_data[8];          // up to 8 payload bytes
+int  last_id   = -1;
+int  last_dlc  = 0;
+int  last_ext  = 0;
+int  last_data[8];
+
+char  m[120];             // log + WebCall scratch
+char  ext_str[4];         // "EXT" or "STD" — TinyC sprintf %s needs a char[]
+                          // not a ternary-with-string-literals expression.
+
+void open_bus() {
+    if (twai_open) return;
+    int rc = twaiBegin(rx_pin, tx_pin, bitrate, twai_mode);
+    if (rc < 0) {
+        sprintf(m, "CAN: twaiBegin(rx=%d,tx=%d,%d kbit/s,mode=%d) FAILED rc=%d",
+                rx_pin, tx_pin, bitrate, twai_mode, rc);
+        addLog(m);
+        return;
+    }
+    twai_open = 1;
+    sprintf(m, "CAN: bus opened rx=%d tx=%d %d kbit/s mode=%d",
+            rx_pin, tx_pin, bitrate, twai_mode);
+    addLog(m);
+}
+
+// Drain RX queue every tick. Tight loop with bounded count so a flood
+// can't starve other callbacks. twaiRecv returns 0 when queue is empty
+// (non-blocking), > 0 with bytes_read on a frame, < 0 on driver error.
+void Every50ms() {
+    if (!twai_open) return;
+    int guard = 16;
+    while (guard > 0) {
+        int n = twaiRecv(rx_meta, rx_data, 8);
+        if (n <= 0) break;
+        rx_total = rx_total + 1;
+        last_id   = rx_meta[0];
+        last_ext  = rx_meta[1];
+        last_dlc  = rx_meta[2];
+        int i = 0;
+        for (i = 0; i < 8; i = i + 1) {
+            if (i < last_dlc) last_data[i] = rx_data[i]; else last_data[i] = 0;
+        }
+        if (last_ext) strcpy(ext_str, "EXT"); else strcpy(ext_str, "STD");
+        sprintf(m,
+            "CAN RX #%d  %s ID=0x%03x DLC=%d  %02x %02x %02x %02x %02x %02x %02x %02x",
+            rx_total, ext_str, last_id, last_dlc,
+            last_data[0], last_data[1], last_data[2], last_data[3],
+            last_data[4], last_data[5], last_data[6], last_data[7]);
+        addLog(m);
+        guard = guard - 1;
+    }
+}
+
+void EverySecond() {
+    if (!twai_open) {
+        open_bus();
+    }
+}
+
+void WebCall() {
+    char state[12];
+    if (twai_open) strcpy(state, "open"); else strcpy(state, "closed");
+    sprintf(m, "{s}CAN bus (RX=%d TX=%d @ %dkbit/s){m}%s{e}",
+            rx_pin, tx_pin, bitrate, state);
+    webSend(m);
+
+    sprintf(m, "{s}Frames empfangen (lifetime){m}%d{e}", rx_total);
+    webSend(m);
+
+    if (rx_total > 0) {
+        if (last_ext) strcpy(ext_str, "EXT"); else strcpy(ext_str, "STD");
+        sprintf(m,
+            "{s}Letzter Frame{m}%s ID=0x%03x DLC=%d{e}",
+            ext_str, last_id, last_dlc);
+        webSend(m);
+
+        sprintf(m,
+            "{s}Letzte Daten{m}%02x %02x %02x %02x %02x %02x %02x %02x{e}",
+            last_data[0], last_data[1], last_data[2], last_data[3],
+            last_data[4], last_data[5], last_data[6], last_data[7]);
+        webSend(m);
+    }
+}
+
+int main() {
+    twai_open = 0;
+    rx_total  = 0;
+    last_id   = -1;
+    open_bus();          // try once immediately; EverySecond retries on fail
+    addLog("CAN sniffer: started");
+    return 0;
+}

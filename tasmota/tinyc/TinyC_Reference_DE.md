@@ -2064,6 +2064,46 @@ void EverySecond() {
 }
 ```
 
+#### TCP-Client Tuning *(seit 1.5.1)*
+
+Vier Per-Slot-Helfer fuer produktive TCP-Verbindungen. Alle arbeiten
+auf dem **aktuell ausgewaehlten** Slot — also vorher `tcpSelect(N)`
+aufrufen. Loesen das wiederkehrende Idle-Disconnect-Problem
+(SMA / Solar-Edge / Powerwall) und die Modbus-TCP Request-Response-
+Standardroutine.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int tcpKeepalive(int idle_sec, int intvl_sec, int count)` | SO_KEEPALIVE auf dem aktiven Slot aktivieren und TCP_KEEPIDLE / KEEPINTVL / KEEPCNT via setsockopt setzen. Returns 1=ok, 0=err. Typisch SMA Tripower: `tcpKeepalive(30, 10, 3)` — nach 30 s idle bis zu 3 Probes im 10 s-Abstand bevor TCP als tot deklariert wird. Loest das "Peer schliesst Verbindung nach 60 s Idle"-Pattern. |
+| `tcpNoDelay(int on)` | Nagle-Algorithmus auf dem aktiven Slot umschalten. `tcpConnect()` setzt bereits `setNoDelay(true)` — dieser Aufruf reaktiviert Nagle z.B. fuer Bulk-Transfers. |
+| `int tcpDisconnectReason()` | Letzter Disconnect-Grund: 0=NEVER, 1=CONNECTED (offen), 2=PEER_CLOSED (FIN), 3=TIMEOUT, 4=NETWORK, 5=USER_CLOSED. Erlaubt Watchdog-Logik die RST/FIN von Netzwerk-Fehlern unterscheidet. |
+| `int tcpTransact(char req[], int req_len, char resp[], int resp_max, int timeout_ms)` | Atomisches write-and-await-reply auf dem aktiven Slot — fasst `tcpWriteArray + poll-tcpAvailable + tcpReadArray` in einen Syscall. Returns Bytes empfangen (alle sofort verfuegbaren bis `resp_max`); -1 Timeout; -2 nicht verbunden oder Peer hat waehrend des Wartens FIN gesendet (`tcpDisconnectReason()` zeigt PEER_CLOSED); -3 ungueltige Argumente. Haelt `vm_mutex` fuer die gesamte Wartezeit — gedacht fuer `spawnTask`-Worker. Geeignet fuer Protokolle deren Antwort in einem TCP-Segment passt (Modbus-TCP, <=256 B). |
+
+**Beispiel — Modbus-TCP-Polling mit einem Roundtrip pro Sekunde:**
+```c
+char req[12]  = {0,1, 0,0, 0,6,  1, 3, 0,0x10, 0,4};  // FC03 4 Register lesen
+char resp[260];
+
+void main() {
+    tcpSelect(0);
+    tcpConnect("192.168.1.50", 502);
+    tcpKeepalive(30, 10, 3);                  // SMA-Style Keep-Alive
+}
+
+void EverySecond() {
+    tcpSelect(0);
+    int n = tcpTransact(req, 12, resp, 260, 200);   // <=200 ms
+    if (n > 0) {
+        // resp[0..n-1] = MBAP Header + FC03 Antwort
+    } else if (n == -2) {
+        int reason = tcpDisconnectReason();
+        if (reason == 2 || reason == 4) tcpConnect("192.168.1.50", 502);
+    }
+}
+```
+
+Vorgefertigte Helfer `mbFC03/04/06/16` in `examples/modbus_lib.tc`.
+
 ### MQTT Abonnieren / Publizieren
 
 MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige Payloads publizieren. Benoetigt `USE_MQTT` in der Firmware (standardmaessig aktiviert).
@@ -2636,6 +2676,58 @@ int main() {
     return 0;
 }
 ```
+
+### TWAI / CAN-Bus (ESP32)
+
+Der ESP32 hat einen eingebauten TWAI-Controller (Two-Wire Automotive
+Interface, elektrisch identisch zu CAN 2.0). Die meisten ESP32-S3 /
+ESP32-C3 / ESP32-C6 Boards koennen ihn ueber beliebige zwei GPIOs
+via GPIO-Matrix exponieren. Ein 3.3 V CAN-Transceiver (SN65HVD230,
+TCAN332, TJA1051 mit Level-Shifter, ...) ist zwingend zwischen MCU
+und dem Differential-Bus-Paar (CAN_H / CAN_L) erforderlich.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int twaiBegin(int rx_pin, int tx_pin, int kbits, int mode)` | TWAI-Treiber installieren + starten. `kbits` aus {10, 25, 50, 100, 125, 250, 500, 800, 1000}. `mode`: 0=NORMAL (ACK auf Bus), 1=NO_ACK (Self-Test mit Loopback-Jumper fuer Software-Validierung ohne Transceiver). Returns 0=ok, -1=err |
+| `twaiEnd()` | Treiber stoppen, Pins freigeben. Vor jedem erneuten `twaiBegin()` notwendig (Treiber ist Single-Instance) |
+| `int twaiAvailable()` | Anzahl RX-Frames in der Treiber-Queue. 0 wenn leer |
+| `int twaiRecv(int meta[], char data[], int max_dlc)` | Einen RX-Frame abholen. `meta[0]=ID, meta[1]=ext_flag, meta[2]=dlc`. `data[0..dlc-1]` mit Payload gefuellt. Returns Anzahl Payload-Bytes (0 = Queue leer, <0 = Treiber-Fehler) |
+| `int twaiSend(int id, char data[], int dlc, int ext_flag)` | Einen Frame senden. Returns 0=ok, -1=err. `ext_flag=0` Standard-11-Bit-ID, `=1` Extended-29-Bit |
+| `int twaiStatus(int counters[])` | Snapshot des Treiber-Zustands. Fuellt `counters[]` mit `[state, tx_err, rx_err, tx_failed, rx_missed, arb_lost, bus_err]`. Returns Status: 0=gestoppt, 1=laeuft, 2=bus-off, 3=recovering |
+| `int twaiFilter(int id_acc, int id_mask, int ext_flag)` | Acceptance-Filter setzen. `id_acc` matcht `RX_ID & ~id_mask`; `id_mask=0` akzeptiert nur die exakte ID, `id_mask=0x1FFFFFFF` akzeptiert alles. Muss VOR `twaiBegin()` aufgerufen werden. Returns 0=ok |
+
+**Hinweise:**
+- Mode 1 (NO_ACK) dient nur dem Software-Bring-up — der Controller treibt TX, erwartet aber keinen ACK. Mit TX→RX-Jumper am selben MCU laesst sich der Protokoll-Stack ohne Transceiver validieren.
+- Nach Bus-Off (Status 2) `twaiEnd()` + `twaiBegin()` aufrufen zum Reset.
+- **ESP32-C3 GPIO 9** ist ein BOOT-Strap-Pin mit Pull-up. Funktioniert als TWAI-TX, aber **NICHT** als TWAI-RX (Strap haelt die Leitung dominant). RX auf einen Non-Strap-Pin legen (10, 18, 19, ...).
+
+**Beispiel — Sniffer der jeden Frame loggt:**
+```c
+int rx_meta[4];
+char rx_data[8];
+int rx_total = 0;
+
+void EveryLoop() {
+    while (twaiAvailable() > 0) {
+        int n = twaiRecv(rx_meta, rx_data, 8);
+        if (n <= 0) break;
+        rx_total = rx_total + 1;
+        char ext = rx_meta[1] ? 'E' : 'S';
+        addLog("CAN RX #%d %cID=0x%X DLC=%d  %02X %02X %02X %02X %02X %02X %02X %02X",
+            rx_total, ext, rx_meta[0], rx_meta[2],
+            rx_data[0], rx_data[1], rx_data[2], rx_data[3],
+            rx_data[4], rx_data[5], rx_data[6], rx_data[7]);
+    }
+}
+
+int main() {
+    twaiBegin(38, 39, 250, 0);   // rx=38, tx=39, 250 kbit/s, NORMAL
+    addLog("CAN-Sniffer bereit");
+    return 0;
+}
+```
+
+Vollstaendige SLCAN-ueber-TCP-Bridge: `examples/slcan_bridge_tcp.tc`.
 
 ### Display-Zeichnung
 

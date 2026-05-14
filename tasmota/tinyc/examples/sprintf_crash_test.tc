@@ -1,0 +1,68 @@
+// Minimal repro for the Exception 29 / tlsf_free NULL crash that
+// blew up onewire.tc twice today (2026-05-13 ~13:41 and ~13:42).
+//
+// Pattern that triggered the crash:
+//   - Function with several locals (ints + a small heap-promoted char[])
+//   - sprintf with multiple args using %d and %02X
+//   - addLog of the resulting buffer
+//   - Function called from main()
+//
+// Run via /tc_api upload + TinyCRun /sprintf_crash_test.tcb.
+// Expected (after VM fix): three lines of log output, clean halt.
+// Currently observed (pre-fix): crash with Exception 29 StoreProhibited.
+
+int helper_two_args() {
+    int a = 0xC1;
+    int b = 5;
+    char m[64];
+    sprintf(m, "two-arg test a=%d b=0x%02X", b, a);
+    addLog(m);
+    return 1;
+}
+
+int helper_three_args() {
+    int a = 0xCD;
+    int b = 7;
+    int c = 0xC1;
+    char m[64];
+    sprintf(m, "three-arg test a=%d b=0x%02X c=0x%02X", b, a, c);
+    addLog(m);
+    return 1;
+}
+
+int helper_with_locals_and_loop() {
+    int tries = 0;
+    int got_any = 0;
+    int first_byte = -1;
+    int drained_n = 0;
+    // The actual ow_ds_init pattern — locals declared at top, then
+    // assigned inside while/if, then used in sprintf at the end.
+    while (tries < 2) {
+        if (tries == 0) {
+            int idle = 0;            // block-scoped local
+            while (idle < 3) {
+                int b = 0xC1;       // deeper block-scoped local
+                if (drained_n == 0) first_byte = b;
+                drained_n = drained_n + 1;
+                idle = idle + 1;
+            }
+            got_any = 1;
+        }
+        tries = tries + 1;
+    }
+    char m[64];
+    sprintf(m, "looped pattern: drained=%d first=0x%02X", drained_n, first_byte);
+    addLog(m);
+    return 1;
+}
+
+int main() {
+    addLog("sprintf_crash_test: starting");
+    int a = helper_two_args();
+    int b = helper_three_args();
+    int c = helper_with_locals_and_loop();
+    char done[48];
+    sprintf(done, "done: a=%d b=%d c=%d", a, b, c);
+    addLog(done);
+    return 0;
+}

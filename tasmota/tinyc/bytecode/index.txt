@@ -14,6 +14,7 @@ callback_test.tcb
 callbacks.tcb
 camera.tcb
 camera_goouuu.tcb
+can_sniffer.tcb
 ccs811.tcb
 chart.tcb
 chart_types.tcb
@@ -34,6 +35,8 @@ epd_compare_test.tcb
 epd_ssd1680_test.tcb
 fibonacci.tcb
 file_io.tcb
+gpio_sweep.tcb
+gpio_toggle_test.tcb
 guiton_display.tcb
 heatpump_map_full.tcb
 heatpump_test.tcb
@@ -78,6 +81,7 @@ sml_ebus.tcb
 snap_with_timestamp.tcb
 sort.tcb
 spawn_tasks.tcb
+sprintf_crash_test.tcb
 sps30.tcb
 strings.tcb
 structs_demo.tcb
@@ -96,6 +100,7 @@ tinyui_dashboard.tcb
 tinyui_demo.tcb
 touch_buttons.tcb
 tuya_pool_heater.tcb
+uart_tx_test.tcb
 udp.tcb
 veml6075.tcb
 vl53l0x.tcb

@@ -1,0 +1,32 @@
+// GPIO toggle diagnostic — togglt einen Pin im 1-Hz-Takt (500ms HIGH / 500ms LOW)
+// Damit kann man am Oszi prüfen ob der physische Pin den die Software meint
+// auch wirklich der ist den man auf dem Board als "GPIOn" beschriftet sieht.
+//
+// Default: GPIO10 — der Pin den slcan_bridge_tcp.tc als TWAI-TX verwendet.
+// Ändere TOGGLE_PIN unten falls du einen anderen Pin testen willst.
+
+int TOGGLE_PIN = 39;
+int level = 0;
+int tick = 0;
+
+void EverySecond() {
+    tick = tick + 1;
+    if (level == 0) {
+        digitalWrite(TOGGLE_PIN, 1);
+        level = 1;
+    } else {
+        digitalWrite(TOGGLE_PIN, 0);
+        level = 0;
+    }
+}
+
+int main() {
+    pinMode(TOGGLE_PIN, 3);   // 3 = OUTPUT in Arduino-ESP32 (INPUT|OUTPUT, 0x01|0x02);
+                              // 1 = INPUT alone, 2 = pure OUTPUT (write-only, no read-back).
+    digitalWrite(TOGGLE_PIN, 0);
+    char m[80];
+    sprintf(m, "GPIO toggle test: GPIO%d wird alle 1 s zwischen 0V und 3.3V getoggelt",
+            TOGGLE_PIN);
+    addLog(m);
+    return 0;
+}

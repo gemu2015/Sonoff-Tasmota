@@ -1,0 +1,52 @@
+// GPIO sweep — togglt jeden freien ESP32-C3 GPIO der Reihe nach,
+// 4 Sekunden pro Pin (zwei Toggles), und loggt vorher welcher
+// Pin gerade aktiv ist. Tastkopf ans Mess-Objekt halten, in der
+// Tasmota-Konsole mitlesen welcher GPIO gerade an der Reihe ist.
+//
+// Sweep-Reihenfolge: 0..10 + 18..21 (11..17 sind SPI-Flash, reserviert).
+
+int pins[16];     // GPIO numbers to sweep
+int n_pins = 6;   // count of valid entries (high-range only, skipping Bresser SPI)
+int idx   = 0;    // current sweep position
+int phase = 0;    // 0=announce, 1=high1, 2=low1, 3=high2, 4=low2, then next
+
+void EverySecond() {
+    int cur = pins[idx];
+    if (phase == 0) {
+        char m[64];
+        sprintf(m, "GPIO sweep: NOW probing GPIO%d  ← Tastkopf hier prüfen", cur);
+        addLog(m);
+        pinMode(cur, 3);   // 3 = OUTPUT (Arduino-ESP32, INPUT|OUTPUT); 1 was INPUT — bug
+        digitalWrite(cur, 1);
+        phase = 1;
+    } else if (phase == 1) {
+        digitalWrite(cur, 0);
+        phase = 2;
+    } else if (phase == 2) {
+        digitalWrite(cur, 1);
+        phase = 3;
+    } else if (phase == 3) {
+        digitalWrite(cur, 0);
+        digitalWrite(cur, 0);   // ensure low before moving on
+        // back to input to release pin (Hans's transceiver might be
+        // driving the same line; avoid output-output conflict on next sweep)
+        pinMode(cur, 0);        // 0 = INPUT
+        phase = 0;
+        idx = idx + 1;
+        if (idx >= n_pins) {
+            idx = 0;
+            addLog("GPIO sweep: --- wrap-around, restarting ---");
+        }
+    }
+}
+
+int main() {
+    pins[0] = 8;
+    pins[1] = 9;
+    pins[2] = 10;
+    pins[3] = 18;
+    pins[4] = 19;
+    pins[5] = 20;
+    addLog("GPIO sweep v2: durchläuft GPIO 8, 9, 10, 18, 19, 20 (Bresser-SPI 4-7 übersprungen)");
+    return 0;
+}

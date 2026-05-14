@@ -49,7 +49,7 @@
 // where 6/7 are reserved by the existing module template. Any pair
 // of free GPIOs works — TWAI goes through the C3's IOMUX, no
 // hardwired pin assignment.
-int  can_rx_pin = 10;
+int  can_rx_pin = 10;     // ESP32-C3 .143 default: TX=GPIO9 (Strap-OK as TX), RX=GPIO10
 int  can_tx_pin = 9;
 int  tcp_port   = 9999;     // Mac client connects to this port
                             // (8888 collided with another listener on
