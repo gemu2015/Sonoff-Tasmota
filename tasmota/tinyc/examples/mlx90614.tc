@@ -134,7 +134,6 @@ void OnExit() {
 }
 
 int main() {
-    char buf[48];
     mlx_ok = 0;
     mlx_addr = 0;
 

@@ -57,7 +57,6 @@ void take_snap() {
     if (fh >= 0) {
         camControl(11, CAM_OUT, fh);
         fileClose(fh);
-        char msg[64];
         addLog("saved %s (%d bytes)", path, jlen);
     }
 }

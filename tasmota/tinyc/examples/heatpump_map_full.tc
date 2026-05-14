@@ -766,7 +766,6 @@ void take_snapshot() {
             n = n + 1;
         }
     }
-    char m[80];
     addLog("snapshot taken: %d registers", n);
 }
 
@@ -882,7 +881,6 @@ int hp_send_modbus(int fc, int regaddr, int val) {
         long_call_warns = long_call_warns + 1;
     }
 
-    char m[120];
     addLog("hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x) in %d ms", fc, regaddr, val, val, dt_mb);
     return 1;
 }
@@ -2033,7 +2031,6 @@ int main() {
     // driver init has fully settled. `serialBegin` here works the
     // same as in any in-tree Tasmota driver — no race, no
     // `delay(15000)` workaround, no separate BootInit hook needed.
-    char m0[80];
     addLog("heatpump_map: opening serial at uptime %d s", tasm_uptime);
 
     ser = serialBegin(rx_pin, tx_pin, baud, cfg, 1024);
@@ -2041,7 +2038,6 @@ int main() {
         addLog("heatpump_map: serialBegin FAILED");
         return 0;
     }
-    char m[120];
     addLog("heatpump_map ready: ser=%d rx=%d tx=%d baud=%d 8N2  open /tc_ui", ser, rx_pin, tx_pin, baud);
     addCommand("MBUS");
     webPageLabel(0, "Heat-pump map");

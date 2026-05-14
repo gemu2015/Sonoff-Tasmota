@@ -461,7 +461,6 @@ void ow_scan_gpio() {
     int total = 0;
     while (total < (OW_MAX_SENS + OW_MAX_SW)) {
         if (!owSearch(ow_srom)) break;
-        char dd[48];
         addLog("OW: found fam=0x%02X (gpio)", ow_srom[0] & 0xFF);
         ow_record_found();
         total = total + 1;
@@ -973,7 +972,6 @@ void ow_reinit() {
         return;
     }
 
-    char dt[64];
     addLog("1-Wire: %d temp, %d switch", ow_cnt, ow_sw_cnt);
 
     // initial switch state read

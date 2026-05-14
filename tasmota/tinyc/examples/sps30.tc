@@ -298,7 +298,6 @@ int main() {
     sps_interval = SPS_INTERVAL;
 
     if (sps_scan()) {
-        char buf[48];
         addLog("SPS30 found at 0x%x on bus %d", sps_addr, sps_bus);
         addCommand("SPS30");
         // Do first measurement immediately

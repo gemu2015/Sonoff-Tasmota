@@ -36,7 +36,6 @@ int main() {
     addLog("shareDump test: published 4 entries");
 
     int n = shareDump();
-    char m[40];
     addLog("shareDump test: live count=%d", n);
 
     return 0;

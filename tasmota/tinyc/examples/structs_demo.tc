@@ -56,7 +56,6 @@ void wlog_push(int addr, int val, char src) {
 // ── Render one event as a log line. Struct passed by VALUE — the
 //    callee gets its own copy, mutations would not be visible to caller.
 void wlog_print(WriteEvent e, int slot) {
-    char m[80];
     addLog("  [%d] addr=%-5d val=0x%04x src=%c at %d ms", slot, e.addr, e.val, e.src, e.ms);
 }
 

@@ -290,7 +290,6 @@ void OnExit() {
 }
 
 int main() {
-    char buf[64];
     bme_ok = 0;
     bme_addr = 0;
     hist_pos = 0;

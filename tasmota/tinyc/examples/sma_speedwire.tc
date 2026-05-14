@@ -68,7 +68,6 @@ void TaskLoop() {
         joined = udp(9, SMA_MCAST, SMA_PORT);
         if (!joined) delay(5000);
     }
-    char log_buf[96];
     while (1) {
         int len = udp(1, pkt);
         if (len >= 32 && pkt[0] == 'S' && pkt[1] == 'M' && pkt[2] == 'A') {

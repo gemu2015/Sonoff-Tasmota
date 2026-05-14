@@ -381,7 +381,6 @@ void WebCall() {
 
 // ── main — open USB-CDC, idle ────────────────────────────────
 int main() {
-    char m[80];
     addLog("slcan_bridge: opening USB-CDC at uptime %d s", tasm_uptime);
 
     // For ESP32-C3, USB-CDC is the default Tasmota serial console; we

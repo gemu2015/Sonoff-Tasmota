@@ -24,7 +24,6 @@ int main() {
         addLog("uart_tx_test: serialBegin FAILED");
         return -1;
     }
-    char m[48];
     addLog("uart_tx_test: opened slot=%d, sending 0xC1 burst", s);
 
     delay(200);  // let UART settle, give the addLog a chance to flush

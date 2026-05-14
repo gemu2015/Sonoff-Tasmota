@@ -235,7 +235,6 @@ void doPlayWav(char path[]) {
 
     if (codec_ok) wmSetVolume(dac_vol);
 
-    char msg[64];
     addLog("WAV: %dHz ratio %d %dch %d bytes", wav_rate, ratio, wav_channels, wav_data_size);
     playing = 1;
 
@@ -432,7 +431,6 @@ int main() {
         addLog("I2S: no codec, direct DAC mode");
     }
 
-    char msg[48];
     addLog("I2S: BCLK=%d LRCLK=%d DOUT=%d", pin_bclk, pin_lrclk, pin_dout);
     return 0;
 }

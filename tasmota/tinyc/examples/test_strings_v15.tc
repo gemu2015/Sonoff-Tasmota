@@ -5,21 +5,18 @@
 void test_replace() {
     char buf[80] = "v=23.4,unit=C,ts=1714838400,unit=C";
     int n = strReplace(buf, "unit=C", "unit=°C");
-    char m[120];
     addLog("test_replace: n=%d (expect 2) buf=[%s]", n, buf);
 }
 
 void test_replace_grow() {
     char buf[64] = "abc";
     int n = strReplace(buf, "b", "BB");
-    char m[80];
     addLog("test_replace_grow: n=%d (expect 1) buf=[%s] (expect aBBc)", n, buf);
 }
 
 void test_replace_shrink() {
     char buf[64] = "hello world hello";
     int n = strReplace(buf, "hello", "hi");
-    char m[80];
     addLog("test_replace_shrink: n=%d (expect 2) buf=[%s] (expect 'hi world hi')", n, buf);
 }
 
@@ -29,7 +26,6 @@ void test_starts() {
     int b = strStartsWith(buf, "ON");          // 0
     int c = strStartsWith(buf, "MBUSONXX");    // 0 (longer than buf)
     int d = strStartsWith(buf, "");            // 1 (empty matches anything)
-    char m[80];
     addLog("test_starts: MBUS=%d ON=%d longer=%d empty=%d (expect 1,0,0,1)", a, b, c, d);
 }
 
@@ -39,7 +35,6 @@ void test_ends() {
     int b = strEndsWith(buf, ".be");           // 0
     int c = strEndsWith(buf, "report.tcb");    // 1 (whole string)
     int d = strEndsWith(buf, "extralong.tcb"); // 0
-    char m[80];
     addLog("test_ends: tcb=%d be=%d whole=%d longer=%d (expect 1,0,1,0)", a, b, c, d);
 }
 
@@ -49,7 +44,6 @@ void test_contains() {
     int b = strContains(buf, "warning");       // 0
     int c = strContains(buf, "<error>");       // 1
     int d = strContains(buf, "");              // 0 (empty needle = false)
-    char m[80];
     addLog("test_contains: error=%d warning=%d tag=%d empty=%d (expect 1,0,1,0)", a, b, c, d);
 }
 
@@ -58,7 +52,6 @@ void test_case() {
     strToUpper(a);
     char b[16] = "Hello World";
     strToLower(b);
-    char m[80];
     addLog("test_case: upper=[%s] lower=[%s]", a, b);
 }
 
@@ -71,7 +64,6 @@ void test_trim() {
     int p = strTrim(c);
     char d[32] = "       ";       // all whitespace
     int q = strTrim(d);
-    char buf[120];
     addLog("test_trim: a=%d[%s] b=%d[%s] c=%d[%s] d=%d[%s] (expect 5,3,13,0)", n, a, m, b, p, c, q, d);
 }
 
@@ -79,7 +71,6 @@ void test_trim() {
 void test_realworld_parse() {
     char line[80] = "  TARGET_TEMP =   23.4   ";
     strTrim(line);
-    char m1[80];
     addLog("  trimmed: [%s]", line);
 
     if (strStartsWith(line, "TARGET_TEMP")) {
@@ -91,7 +82,6 @@ void test_realworld_parse() {
     strReplace(line, "= ", ":");
     strReplace(line, " =", ":");
     strReplace(line, "=", ":");
-    char m2[80];
     addLog("  after norm: [%s]", line);
 }
 

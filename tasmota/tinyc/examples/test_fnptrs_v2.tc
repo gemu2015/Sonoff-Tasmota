@@ -7,7 +7,6 @@ typedef void (*cmd_handler)(char args[]);
 void do_on(char args[])  { addLog("DO_ON"); }
 void do_off(char args[]) { addLog("DO_OFF"); }
 void do_set(char args[]) {
-    char m[80];
     addLog("DO_SET args=[%s]", args);
 }
 

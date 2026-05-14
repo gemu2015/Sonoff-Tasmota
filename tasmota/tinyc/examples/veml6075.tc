@@ -129,7 +129,6 @@ void OnExit() {
 }
 
 int main() {
-    char buf[48];
     veml_ok = 0;
     veml_addr = 0;
 

@@ -161,7 +161,6 @@ void Unlocker() {
     progress_done  = 0;
     progress_digit = 0;
 
-    char log[96];
     addLog("meter_pin_unlock: sending %d%d%d%d on GPIO %d (on/off/gap = %d/%d/%d ms, %d pulses)", d1, d2, d3, d4, ir_pin, pulse_on_ms, pulse_off_ms, digit_gap_ms, progress_total);
 
     ir_off();

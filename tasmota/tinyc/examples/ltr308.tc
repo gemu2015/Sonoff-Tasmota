@@ -234,7 +234,6 @@ void OnExit() {
 // Main — initialize and scan
 // ═══════════════════════════════════════════════════════════════════
 int main() {
-    char buf[64];
     ltr_ok = 0;
     ltr_addr = 0;
 #ifdef USE_CHART

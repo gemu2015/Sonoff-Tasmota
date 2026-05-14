@@ -38,13 +38,11 @@ void test_basic() {
     p.x = 10;
     p.y = 20;
     int sum = p.x + p.y;
-    char m[40];
     addLog("test_basic: x=%d y=%d sum=%d", p.x, p.y, sum);
 }
 
 void test_local_struct_with_init() {
     Point q = {3, 4};
-    char m[40];
     addLog("test_init: q.x=%d q.y=%d", q.x, q.y);
 }
 
@@ -53,7 +51,6 @@ void test_global() {
     g_w.val  = 0xFF00;
     g_w.ms   = millis();
     g_w.src  = 'O';
-    char m[80];
     addLog("test_global: addr=%d val=%d src=%c", g_w.addr, g_w.val, g_w.src);
 }
 
@@ -62,7 +59,6 @@ void test_array_of_struct() {
         g_pts[i].x = i * 10;
         g_pts[i].y = i * 20;
     }
-    char m[80];
     addLog("test_array: g_pts[3]=(%d,%d)", g_pts[3].x, g_pts[3].y);
 }
 
@@ -71,7 +67,6 @@ void test_char_array_field() {
     s.duration_ms = 1234;
     s.ratio = 0.75;
     strcpy(s.label, "boost");
-    char m[80];
     addLog("test_chararr: duration=%d ratio=%.2f label=%s", s.duration_ms, s.ratio, s.label);
 }
 
@@ -81,7 +76,6 @@ void test_nested_struct() {
     r.tl.y = 0;
     r.br.x = 100;
     r.br.y = 200;
-    char m[80];
     addLog("test_nested: tl=(%d,%d) br=(%d,%d)", r.tl.x, r.tl.y, r.br.x, r.br.y);
 }
 
@@ -91,7 +85,6 @@ void test_whole_assign_var_to_var() {
     a.y = 7;
     Point b;
     b = a;
-    char m[40];
     addLog("test_assign: b=(%d,%d) (expect 5,7)", b.x, b.y);
 }
 
@@ -100,7 +93,6 @@ void test_whole_assign_arr_to_var() {
     g_pts[2].y = 200;
     Point c;
     c = g_pts[2];
-    char m[40];
     addLog("test_a2v: c=(%d,%d) (expect 100,200)", c.x, c.y);
 }
 
@@ -109,12 +101,10 @@ void test_whole_assign_var_to_arr() {
     d.x = 33;
     d.y = 44;
     g_pts[4] = d;
-    char m[40];
     addLog("test_v2a: g_pts[4]=(%d,%d) (expect 33,44)", g_pts[4].x, g_pts[4].y);
 }
 
 void greet(Point p) {
-    char m[40];
     addLog("test_param: got (%d,%d) (expect 99,11)", p.x, p.y);
 }
 
@@ -134,7 +124,6 @@ Point make_point(int xx, int yy) {
 
 void test_struct_return() {
     Point z = make_point(42, 84);
-    char m[40];
     addLog("test_return: z=(%d,%d) (expect 42,84)", z.x, z.y);
 }
 
@@ -143,7 +132,6 @@ void test_sizeof() {
     int sw = sizeof(WriteLog);       // 4 slots (3 ints + 1 char)
     int ss = sizeof(Sample);         // 18 slots (1 int + 1 float + char[16])
     int sr = sizeof(Rect);           // 4 slots (2× Point = 2 + 2)
-    char m[80];
     addLog("test_sizeof: Point=%d WriteLog=%d Sample=%d Rect=%d", sp, sw, ss, sr);
 }
 

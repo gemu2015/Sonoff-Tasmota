@@ -176,7 +176,6 @@ void OnExit() {
 }
 
 int main() {
-    char buf[48];
     sht_ok = 0;
     sht_addr = 0;
 

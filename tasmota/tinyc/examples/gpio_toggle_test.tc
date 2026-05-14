@@ -24,7 +24,6 @@ int main() {
     pinMode(TOGGLE_PIN, 3);   // 3 = OUTPUT in Arduino-ESP32 (INPUT|OUTPUT, 0x01|0x02);
                               // 1 = INPUT alone, 2 = pure OUTPUT (write-only, no read-back).
     digitalWrite(TOGGLE_PIN, 0);
-    char m[80];
     addLog("GPIO toggle test: GPIO%d wird alle 1 s zwischen 0V und 3.3V getoggelt", TOGGLE_PIN);
     return 0;
 }

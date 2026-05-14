@@ -130,7 +130,6 @@ int main() {
     sgp_tick = 0;
 
     if (sgp_scan()) {
-        char buf[48];
         addLog("SGP30 found at 0x%x on bus %d", sgp_addr, sgp_bus);
     } else {
         addLog("SGP30 not found");

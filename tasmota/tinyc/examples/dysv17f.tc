@@ -160,7 +160,6 @@ int main() {
         addCommand("MP3");
         delay(100);
         dy_volume(dy_vol);
-        char buf[48];
         addLog("DY-SV17F ready on GPIO %d", dy_txpin);
     } else {
         addLog("DY-SV17F: serial init failed");

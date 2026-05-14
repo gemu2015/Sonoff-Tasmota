@@ -13,7 +13,6 @@ int phase = 0;    // 0=announce, 1=high1, 2=low1, 3=high2, 4=low2, then next
 void EverySecond() {
     int cur = pins[idx];
     if (phase == 0) {
-        char m[64];
         addLog("GPIO sweep: NOW probing GPIO%d  ← Tastkopf hier prüfen", cur);
         pinMode(cur, 3);   // 3 = OUTPUT (Arduino-ESP32, INPUT|OUTPUT); 1 was INPUT — bug
         digitalWrite(cur, 1);

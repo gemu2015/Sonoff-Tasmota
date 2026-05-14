@@ -178,7 +178,6 @@ void OnExit() {
 }
 
 int main() {
-    char buf[48];
     tcs_ok = 0;
     tcs_addr = 0;
 

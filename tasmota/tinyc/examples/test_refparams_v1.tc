@@ -13,7 +13,6 @@ void test_swap() {
     int x = 5;
     int y = 7;
     swap(x, y);
-    char m[40];
     addLog("test_swap: x=%d y=%d (expect 7,5)", x, y);
 }
 
@@ -27,7 +26,6 @@ void test_multi_out() {
     int hi = 0;
     int lo = 0;
     parse_pair(0xABCD, lo, hi);
-    char m[40];
     addLog("test_multi_out: lo=0x%02x hi=0x%02x (expect cd,ab)", lo, hi);
 }
 
@@ -41,7 +39,6 @@ void test_compound() {
     inc_by(counter, 5);
     inc_by(counter, 5);
     inc_by(counter, 5);
-    char m[40];
     addLog("test_compound: counter=%d (expect 25)", counter);
 }
 
@@ -58,7 +55,6 @@ void test_globals() {
     accumulate(g_count, g_total, 100);
     accumulate(g_count, g_total, 200);
     accumulate(g_count, g_total, 300);
-    char m[60];
     addLog("test_globals: g_count=%d g_total=%d (expect 3,600)", g_count, g_total);
 }
 

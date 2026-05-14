@@ -28,7 +28,6 @@ int main() {
     int l = udp(10, "239.12.255.254");
     addLog("IGMP-LEAVE-TEST: udp(10) leave called");
 
-    char m[80];
     addLog("IGMP-LEAVE-TEST: join=%d leave=%d", j, l);
 
     delay(2000);

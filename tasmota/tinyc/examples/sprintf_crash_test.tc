@@ -14,7 +14,6 @@
 int helper_two_args() {
     int a = 0xC1;
     int b = 5;
-    char m[64];
     addLog("two-arg test a=%d b=0x%02X", b, a);
     return 1;
 }
@@ -23,7 +22,6 @@ int helper_three_args() {
     int a = 0xCD;
     int b = 7;
     int c = 0xC1;
-    char m[64];
     addLog("three-arg test a=%d b=0x%02X c=0x%02X", b, a, c);
     return 1;
 }
@@ -48,7 +46,6 @@ int helper_with_locals_and_loop() {
         }
         tries = tries + 1;
     }
-    char m[64];
     addLog("looped pattern: drained=%d first=0x%02X", drained_n, first_byte);
     return 1;
 }

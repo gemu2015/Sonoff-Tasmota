@@ -158,7 +158,6 @@ int main() {
     }
 
     if (!ccs_init()) {
-        char dt[48];
         addLog("CCS811 init failed (addr 0x%x)", ccs_addr);
         return 0;
     }
