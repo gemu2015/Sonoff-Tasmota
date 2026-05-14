@@ -4,8 +4,10 @@
 //   DS2413 — 2-channel open-drain switch (family 0x3A)
 //   DS2408 — 8-channel GPIO (family 0x29)
 // Modes:
-//   GPIO mode  — native 1-Wire syscalls (timing in C, needs 4.7k pullup)
+//   GPIO mode    — native 1-Wire syscalls (timing in C, needs 4.7k pullup)
 //   DS2480B mode — via DS2480B serial-to-1-Wire bridge (9600 baud)
+//   DS2484 mode  — via DS2484 I2C-to-1-Wire bridge (fixed I2C addr 0x18,
+//                  no pins to claim, uses existing I2C bus)
 //
 // WebUI lets user select mode and pin(s)
 // Supports up to 16 temp sensors + 16 switch devices on one bus
@@ -53,11 +55,34 @@
 #define DS_WRITE0     0x81
 #define DS_RESET_OK   0xCD
 
+// DS2484 I2C-to-1-Wire bridge constants
+#define DS84_ADDR     0x18    // 7-bit I2C address (slave addr is fixed)
+#define DS84_DRST     0xF0    // Device Reset (single-byte cmd)
+#define DS84_SRP      0xE1    // Set Read Pointer (then ptr byte)
+#define DS84_WCFG     0xD2    // Write Configuration (then byte: hi nibble = ~lo)
+#define DS84_1WRS     0xB4    // 1-Wire Reset (single byte; status auto-pointed)
+#define DS84_1WSB     0x87    // 1-Wire Single Bit (arg: 0x80=write-1, 0x00=write-0)
+#define DS84_1WRB     0x96    // 1-Wire Read Byte (then read data from RDATA)
+#define DS84_1WWB     0xA5    // 1-Wire Write Byte (then byte)
+#define DS84_1WT      0x78    // 1-Wire Triplet (arg: branch direction in bit 7)
+#define DS84_RP_STAT  0xF0    // read-pointer target: Status register
+#define DS84_RP_RDATA 0xE1    // read-pointer target: Read-Data register
+#define DS84_ST_1WB   0x01    // Status bit: 1-Wire Busy
+#define DS84_ST_PPD   0x02    // Status bit: Presence Pulse Detected
+#define DS84_ST_SBR   0x20    // Status bit: Single-Bit Result
+
 // --- config ---
-persist int ow_mode;   // 0=GPIO, 1=DS2480B (persist across reboot)
+// Single-backend operation chosen via auto-detect cascade in ow_reinit():
+//   1. probe DS2484 on the configured I2C bus (auto)
+//   2. else try DS2480B (serial init using the configured rx/tx pins)
+//   3. else fall back to native GPIO bit-bang on the configured pin
+// ow_mode is the result, NOT a user choice — the WebUI just shows it
+// and lets the user pick the pin/bus that each backend would use.
 persist int ow_pin;    // GPIO mode pin
 persist int ow_rxpin;  // DS2480B serial RX
 persist int ow_txpin;  // DS2480B serial TX
+persist int ow_i2c_bus;// DS2484 I2C bus (0=primary, 1=secondary)
+int ow_mode = 0;       // detected backend: 0=GPIO, 1=DS2480B, 2=DS2484
 int ow_serial = -1;    // serial port handle (-1 = closed; 0..2 = valid TasmotaSerial slot returned by serialBegin)
 int ow_ok = 0;         // driver active
 int ow_tick = 0;       // even/odd second counter
@@ -66,6 +91,7 @@ int ow_act_mode = -1;  // active config (for change detection)
 int ow_act_pin = -1;
 int ow_act_rx = -1;
 int ow_act_tx = -1;
+int ow_act_bus = -1;
 
 // temperature sensor data
 int ow_cnt = 0;        // number of temp sensors
@@ -151,11 +177,17 @@ int ow_ds_init() {
     ow_serial = ret;   // store the handle (0..2) returned by serialBegin
     delay(100);
 
-    // send 0xC1 to init (same as library begin())
-    serialWriteByte(ow_serial,DS_RESET);
-    if (ow_ds_wait()) {
-        serialRead(ow_serial);  // discard init response
+    // send 0xC1 to init (same as library begin()). A real DS2480B chip
+    // echoes a presence byte; serialBegin alone returning OK just means
+    // the pins were free, NOT that anything's wired there — so require
+    // an actual response or release the port and fail the probe.
+    serialWriteByte(ow_serial, DS_RESET);
+    if (!ow_ds_wait()) {
+        serialClose(ow_serial);
+        ow_serial = -1;
+        return 0;
     }
+    serialRead(ow_serial);  // discard the presence byte
 
     ow_ds_cmd = 1;
     return 1;
@@ -233,33 +265,127 @@ int ow_ds_read() {
 }
 
 // ========================================
+// DS2484 I2C-to-1-Wire bridge
+// Same chip family as DS2480B, but I2C instead of UART. No pins to
+// claim — sits on whichever I2C bus the user picked. Status polling
+// (1WB bit) gates each 1-Wire operation.
+// ========================================
+
+char ow_84_buf[2];
+
+// Encode the WCFG argument: lower nibble = config bits, upper nibble = ~lower.
+int ow_84_cfg_byte(int v) {
+    return (((~v) & 0x0F) << 4) | (v & 0x0F);
+}
+
+// Poll Status until 1WB (1-Wire Busy) clears. Caller is expected to have
+// issued a 1-Wire command that auto-points to the Status register (Reset /
+// Single Bit / Read Byte / Write Byte / Triplet all do). Returns the final
+// Status byte, or 0xFF on I2C timeout.
+int ow_84_wait() {
+    int i = 0;
+    while (i < 50) {
+        if (i2cRead0(DS84_ADDR, ow_84_buf, 1, ow_i2c_bus) > 0) {
+            int st = ow_84_buf[0] & 0xFF;
+            if (!(st & DS84_ST_1WB)) return st;
+        }
+        delay(1);
+        i = i + 1;
+    }
+    return 0xFF;
+}
+
+// Probe both I2C buses for a DS2484 at the fixed address 0x18. If found,
+// sets ow_i2c_bus to whichever bus answered and initialises the chip.
+// Returns 1 on success, 0 if no DS2484 is reachable on either bus.
+int ow_84_init() {
+    int b = 0;
+    while (b < 2) {
+        if (i2cExists(DS84_ADDR, b)) {
+            ow_i2c_bus = b;
+            if (!i2cWrite0(DS84_ADDR, DS84_DRST, b)) return 0;
+            delay(1);
+            // Write config: APU=1 (active pullup → cleaner edges, faster bus)
+            i2cWrite8(DS84_ADDR, DS84_WCFG, ow_84_cfg_byte(0x01), b);
+            return 1;
+        }
+        b = b + 1;
+    }
+    return 0;
+}
+
+int ow_84_reset() {
+    if (!i2cWrite0(DS84_ADDR, DS84_1WRS, ow_i2c_bus)) return 0;
+    int st = ow_84_wait();
+    if (st == 0xFF) return 0;
+    return (st & DS84_ST_PPD) ? 1 : 0;
+}
+
+void ow_84_write(int byte) {
+    i2cWrite8(DS84_ADDR, DS84_1WWB, byte & 0xFF, ow_i2c_bus);
+    ow_84_wait();
+}
+
+int ow_84_read() {
+    i2cWrite0(DS84_ADDR, DS84_1WRB, ow_i2c_bus);
+    ow_84_wait();
+    // Switch read pointer to Read-Data register, then read 1 byte
+    i2cWrite8(DS84_ADDR, DS84_SRP, DS84_RP_RDATA, ow_i2c_bus);
+    if (i2cRead0(DS84_ADDR, ow_84_buf, 1, ow_i2c_bus) > 0) {
+        return ow_84_buf[0] & 0xFF;
+    }
+    return 0xFF;
+}
+
+void ow_84_wbit(int b) {
+    // 1-Wire Single Bit: arg bit 7 carries the value (0x80=1, 0x00=0).
+    i2cWrite8(DS84_ADDR, DS84_1WSB, b ? 0x80 : 0x00, ow_i2c_bus);
+    ow_84_wait();
+}
+
+int ow_84_rbit() {
+    // To read a bit, write a 1 (releases the bus) and inspect SBR in Status.
+    i2cWrite8(DS84_ADDR, DS84_1WSB, 0x80, ow_i2c_bus);
+    int st = ow_84_wait();
+    return (st & DS84_ST_SBR) ? 1 : 0;
+}
+
+// ========================================
 // Abstraction layer
 // GPIO mode uses native owXxx() syscalls (timing in C)
 // DS2480B mode uses serial functions
+// DS2484  mode uses I2C functions
 // ========================================
+
+// Dispatch helpers — operate on the active backend (ow_mode).
 
 int ow_reset() {
     if (ow_mode == 0) return owReset();
+    if (ow_mode == 2) return ow_84_reset();
     return ow_ds_reset();
 }
 
 void ow_write(int byte) {
     if (ow_mode == 0) owWrite(byte);
+    else if (ow_mode == 2) ow_84_write(byte);
     else ow_ds_write(byte);
 }
 
 int ow_read() {
     if (ow_mode == 0) return owRead();
+    if (ow_mode == 2) return ow_84_read();
     return ow_ds_read();
 }
 
 void ow_wbit(int b) {
     if (ow_mode == 0) owWriteBit(b);
+    else if (ow_mode == 2) ow_84_wbit(b);
     else ow_ds_wbit(b);
 }
 
 int ow_rbit() {
     if (ow_mode == 0) return owReadBit();
+    if (ow_mode == 2) return ow_84_rbit();
     return ow_ds_rbit();
 }
 
@@ -269,162 +395,118 @@ int ow_rbit() {
 
 char ow_srom[8];
 
+// Record one found ROM as a temp sensor or switch device.
+void ow_record_found() {
+    int fam = ow_srom[0] & 0xFF;
+    int i = 0;
+    if ((fam == FAM_DS18B20 || fam == FAM_DS18S20 || fam == FAM_DS1822) && ow_cnt < OW_MAX_SENS) {
+        int base = ow_cnt * 8;
+        while (i < 8) { ow_rom[base + i] = ow_srom[i]; i = i + 1; }
+        ow_valid[ow_cnt] = 0;
+        ow_cnt = ow_cnt + 1;
+    } else if ((fam == FAM_DS2413 || fam == FAM_DS2406 || fam == FAM_DS2408) && ow_sw_cnt < OW_MAX_SW) {
+        int base = ow_sw_cnt * 8;
+        while (i < 8) { ow_sw_rom[base + i] = ow_srom[i]; i = i + 1; }
+        ow_sw_type[ow_sw_cnt] = fam;
+        ow_sw_state[ow_sw_cnt] = 0xFF;
+        ow_sw_input[ow_sw_cnt] = 0;
+        ow_sw_valid[ow_sw_cnt] = 0;
+        if (fam == FAM_DS2408) ow_sw_ch[ow_sw_cnt] = 8;
+        else ow_sw_ch[ow_sw_cnt] = 2;
+        ow_sw_cnt = ow_sw_cnt + 1;
+    }
+}
+
+// GPIO backend search — uses the native owSearch() library.
+void ow_scan_gpio() {
+    owSetPin(ow_pin);
+    owSearchReset();
+    int total = 0;
+    while (total < (OW_MAX_SENS + OW_MAX_SW)) {
+        if (!owSearch(ow_srom)) break;
+        char dd[48];
+        sprintf(dd, "OW: found fam=0x%02X (gpio)", ow_srom[0] & 0xFF);
+        addLog(dd);
+        ow_record_found();
+        total = total + 1;
+    }
+}
+
+// Bit-bang ROM search via the dispatch layer (works for both DS2480B and
+// DS2484). Could be sped up on DS2484 via 1-Wire Triplet (0x78) — keeping
+// the unified code path for simplicity.
+void ow_scan_bitbang() {
+    int ow_last_disc = 0;
+    int ow_last_done = 0;
+    int i = 0;
+    while (i < 8) { ow_srom[i] = 0; i = i + 1; }
+
+    int total = 0;
+    while (total < (OW_MAX_SENS + OW_MAX_SW)) {
+        if (ow_last_done) break;
+        if (!ow_reset()) break;
+
+        ow_write(OW_SEARCH_ROM);
+
+        int last_zero = 0;
+        int pos = 1;
+        int ok = 1;
+
+        while (pos <= 64) {
+            int id_bit = ow_rbit();
+            int cmp_bit = ow_rbit();
+
+            if (id_bit == 1 && cmp_bit == 1) { ok = 0; break; }
+
+            int direction = 0;
+            if (id_bit == 0 && cmp_bit == 0) {
+                if (pos == ow_last_disc) {
+                    direction = 1;
+                } else if (pos > ow_last_disc) {
+                    direction = 0;
+                } else {
+                    int byteN = (pos - 1) / 8;
+                    int bitN = (pos - 1) % 8;
+                    direction = (ow_srom[byteN] >> bitN) & 1;
+                }
+                if (direction == 0) last_zero = pos;
+            } else {
+                direction = id_bit;
+            }
+
+            int byteN = (pos - 1) / 8;
+            int bitN = (pos - 1) % 8;
+            if (direction) ow_srom[byteN] = ow_srom[byteN] | (1 << bitN);
+            else           ow_srom[byteN] = ow_srom[byteN] & ~(1 << bitN);
+
+            ow_wbit(direction);
+            pos = pos + 1;
+        }
+
+        if (!ok) break;
+
+        ow_last_disc = last_zero;
+        if (ow_last_disc == 0) ow_last_done = 1;
+
+        // verify CRC
+        i = 0;
+        while (i < 8) { ow_buf[i] = ow_srom[i]; i = i + 1; }
+        if (ow_crc8(8) != 0) { total = total + 1; continue; }
+
+        char dd[48];
+        if (ow_mode == 1) sprintf(dd, "OW: found fam=0x%02X (ds2480b)", ow_srom[0] & 0xFF);
+        else              sprintf(dd, "OW: found fam=0x%02X (ds2484)",  ow_srom[0] & 0xFF);
+        addLog(dd);
+        ow_record_found();
+        total = total + 1;
+    }
+}
+
 void ow_scan() {
     ow_cnt = 0;
     ow_sw_cnt = 0;
-
-    if (ow_mode == 0) {
-        // GPIO mode: use native owSearch() from OneWire library
-        owSearchReset();
-
-        int total = 0;
-        while (total < (OW_MAX_SENS + OW_MAX_SW)) {
-            if (!owSearch(ow_srom)) break;
-
-            int fam = ow_srom[0] & 0xFF;
-            char dd[48];
-            sprintf(dd, "OW: found fam=0x%02X", fam);
-            addLog(dd);
-
-            int i = 0;
-            if ((fam == FAM_DS18B20 || fam == FAM_DS18S20 || fam == FAM_DS1822) && ow_cnt < OW_MAX_SENS) {
-                int base = ow_cnt * 8;
-                while (i < 8) {
-                    ow_rom[base + i] = ow_srom[i];
-                    i = i + 1;
-                }
-                ow_valid[ow_cnt] = 0;
-                ow_cnt = ow_cnt + 1;
-            }
-            if ((fam == FAM_DS2413 || fam == FAM_DS2406 || fam == FAM_DS2408) && ow_sw_cnt < OW_MAX_SW) {
-                int base = ow_sw_cnt * 8;
-                while (i < 8) {
-                    ow_sw_rom[base + i] = ow_srom[i];
-                    i = i + 1;
-                }
-                ow_sw_type[ow_sw_cnt] = fam;
-                ow_sw_state[ow_sw_cnt] = 0xFF;  // all off (open-drain: 1=off)
-                ow_sw_input[ow_sw_cnt] = 0;
-                ow_sw_valid[ow_sw_cnt] = 0;
-                if (fam == FAM_DS2408) {
-                    ow_sw_ch[ow_sw_cnt] = 8;
-                } else {
-                    ow_sw_ch[ow_sw_cnt] = 2;  // DS2413=2, DS2406 default=2 (updated on first read)
-                }
-                ow_sw_cnt = ow_sw_cnt + 1;
-            }
-            total = total + 1;
-        }
-    } else {
-        // DS2480B mode: use TinyC bit-bang search via serial bridge
-        int ow_last_disc = 0;
-        int ow_last_done = 0;
-        int i = 0;
-        while (i < 8) {
-            ow_srom[i] = 0;
-            i = i + 1;
-        }
-
-        int total = 0;
-        while (total < (OW_MAX_SENS + OW_MAX_SW)) {
-            // --- inline search for DS2480B mode ---
-            if (ow_last_done) break;
-            if (!ow_ds_reset()) break;
-
-            ow_ds_write(OW_SEARCH_ROM);
-
-            int last_zero = 0;
-            int pos = 1;
-            int ok = 1;
-
-            while (pos <= 64) {
-                int id_bit = ow_ds_rbit();
-                int cmp_bit = ow_ds_rbit();
-
-                if (id_bit == 1 && cmp_bit == 1) {
-                    ok = 0;
-                    break;
-                }
-
-                int direction = 0;
-                if (id_bit == 0 && cmp_bit == 0) {
-                    if (pos == ow_last_disc) {
-                        direction = 1;
-                    } else if (pos > ow_last_disc) {
-                        direction = 0;
-                    } else {
-                        int byteN = (pos - 1) / 8;
-                        int bitN = (pos - 1) % 8;
-                        direction = (ow_srom[byteN] >> bitN) & 1;
-                    }
-                    if (direction == 0) {
-                        last_zero = pos;
-                    }
-                } else {
-                    direction = id_bit;
-                }
-
-                int byteN = (pos - 1) / 8;
-                int bitN = (pos - 1) % 8;
-                if (direction) {
-                    ow_srom[byteN] = ow_srom[byteN] | (1 << bitN);
-                } else {
-                    ow_srom[byteN] = ow_srom[byteN] & ~(1 << bitN);
-                }
-
-                ow_ds_wbit(direction);
-                pos = pos + 1;
-            }
-
-            if (!ok) break;
-
-            ow_last_disc = last_zero;
-            if (ow_last_disc == 0) {
-                ow_last_done = 1;
-            }
-
-            // verify CRC
-            i = 0;
-            while (i < 8) {
-                ow_buf[i] = ow_srom[i];
-                i = i + 1;
-            }
-            if (ow_crc8(8) != 0) {
-                total = total + 1;
-                continue;
-            }
-
-            int fam = ow_srom[0] & 0xFF;
-            i = 0;
-            if ((fam == FAM_DS18B20 || fam == FAM_DS18S20 || fam == FAM_DS1822) && ow_cnt < OW_MAX_SENS) {
-                int base = ow_cnt * 8;
-                while (i < 8) {
-                    ow_rom[base + i] = ow_srom[i];
-                    i = i + 1;
-                }
-                ow_valid[ow_cnt] = 0;
-                ow_cnt = ow_cnt + 1;
-            }
-            if ((fam == FAM_DS2413 || fam == FAM_DS2406 || fam == FAM_DS2408) && ow_sw_cnt < OW_MAX_SW) {
-                int base = ow_sw_cnt * 8;
-                while (i < 8) {
-                    ow_sw_rom[base + i] = ow_srom[i];
-                    i = i + 1;
-                }
-                ow_sw_type[ow_sw_cnt] = fam;
-                ow_sw_state[ow_sw_cnt] = 0xFF;
-                ow_sw_input[ow_sw_cnt] = 0;
-                ow_sw_valid[ow_sw_cnt] = 0;
-                if (fam == FAM_DS2408) {
-                    ow_sw_ch[ow_sw_cnt] = 8;
-                } else {
-                    ow_sw_ch[ow_sw_cnt] = 2;
-                }
-                ow_sw_cnt = ow_sw_cnt + 1;
-            }
-            total = total + 1;
-        }
-    }
+    if (ow_mode == 0) ow_scan_gpio();
+    else              ow_scan_bitbang();
 }
 
 // ========================================
@@ -813,7 +895,7 @@ void ow_check_ui_changes() {
 // ========================================
 
 void ow_reinit() {
-    // close existing serial if open
+    // close existing serial if open (previous DS2480B attempt)
     if (ow_serial >= 0) {
         serialClose(ow_serial);
         ow_serial = -1;
@@ -821,34 +903,41 @@ void ow_reinit() {
     ow_ok = 0;
     ow_cnt = 0;
     ow_sw_cnt = 0;
+    ow_mode = -1;   // sentinel until cascade picks a backend
 
     // save active config (even if init fails, so we don't retry every second)
-    ow_act_mode = ow_mode;
     ow_act_pin = ow_pin;
     ow_act_rx = ow_rxpin;
     ow_act_tx = ow_txpin;
+    ow_act_bus = ow_i2c_bus;
 
-    if (ow_mode == 0) {
+    // Cascade priority: DS2484 (I2C) → DS2480B (serial) → GPIO bit-bang.
+    // The first backend that initialises wins; the others stay silent.
+    if (ow_84_init()) {
+        ow_mode = 2;
+        addLog("1-Wire: backend = DS2484 (I2C)");
+    } else if (ow_ds_init()) {
+        ow_mode = 1;
+        addLog("1-Wire: backend = DS2480B (serial)");
+    } else {
         if (!pinFree(ow_pin)) {
             char m[64];
-            sprintf(m, "1-Wire: pin %d claimed/forbidden — pick another in WebUI", ow_pin);
+            sprintf(m, "1-Wire: GPIO pin %d claimed — pick another in WebUI", ow_pin);
             addLog(m);
+            ow_act_mode = ow_mode;
             return;
         }
+        ow_mode = 0;
         owSetPin(ow_pin);
-        if (!owReset()) {
-            addLog("1-Wire: no devices (GPIO mode)");
-            return;
-        }
-    } else {
-        if (!ow_ds_init()) {
-            addLog("1-Wire: DS2480B serial failed");
-            return;
-        }
-        if (!ow_ds_reset()) {
-            addLog("1-Wire: no devices (DS2480B mode)");
-            return;
-        }
+        char m[64];
+        sprintf(m, "1-Wire: backend = GPIO bit-bang on pin %d (fallback)", ow_pin);
+        addLog(m);
+    }
+    ow_act_mode = ow_mode;
+
+    if (!ow_reset()) {
+        addLog("1-Wire: backend up but no devices on bus");
+        return;
     }
 
     ow_scan();
@@ -858,7 +947,7 @@ void ow_reinit() {
         return;
     }
 
-    char dt[48];
+    char dt[64];
     sprintf(dt, "1-Wire: %d temp, %d switch", ow_cnt, ow_sw_cnt);
     addLog(dt);
 
@@ -888,7 +977,8 @@ void ow_reinit() {
 void EverySecond() {
     // detect config change from WebUI pulldowns
     if (ow_mode != ow_act_mode || ow_pin != ow_act_pin ||
-        ow_rxpin != ow_act_rx || ow_txpin != ow_act_tx) {
+        ow_rxpin != ow_act_rx || ow_txpin != ow_act_tx ||
+        ow_i2c_bus != ow_act_bus) {
         ow_reinit();
         return;
     }
@@ -1198,13 +1288,20 @@ void JsonCall() {
 // ---- WebUI: configuration page ----
 
 void WebUI() {
-    webPulldown(ow_mode, "Mode", "GPIO|DS2480B");
-    if (ow_mode == 0) {
-        webPulldown(ow_pin, "1-Wire Pin", "@getfreepins");
-    } else {
-        webPulldown(ow_rxpin, "DS2480B RX", "@getfreepins");
-        webPulldown(ow_txpin, "DS2480B TX", "@getfreepins");
-    }
+    // Backend is auto-detected (DS2484 → DS2480B → GPIO). Show what won
+    // and expose the pin/bus config for all three so the user can move
+    // the wiring at will and re-scan picks it up.
+    char status[80];
+    if      (ow_mode == 2) sprintf(status, "<div><b>Backend:</b> DS2484 (I2C bus %d)</div>", ow_i2c_bus);
+    else if (ow_mode == 1) sprintf(status, "<div><b>Backend:</b> DS2480B (serial rx=%d tx=%d)</div>", ow_rxpin, ow_txpin);
+    else if (ow_mode == 0) sprintf(status, "<div><b>Backend:</b> GPIO bit-bang (pin %d)</div>", ow_pin);
+    else                   strcpy (status, "<div><b>Backend:</b> none — no bus available</div>");
+    webSend(status);
+    webPulldown(ow_pin,   "GPIO Pin",   "@getfreepins");
+    webPulldown(ow_rxpin, "DS2480B RX", "@getfreepins");
+    webPulldown(ow_txpin, "DS2480B TX", "@getfreepins");
+    // DS2484 I2C bus is auto-probed (both 0 and 1) on each reinit, so no
+    // pulldown needed — the status line above shows where it was found.
 
     // switch controls
     if (ow_sw_cnt > 0) {
@@ -1467,21 +1564,20 @@ void OnExit() {
 int main() {
     // first-run defaults (persist vars start at 0)
     if (ow_pin == 0 && ow_rxpin == 0 && ow_txpin == 0) {
-        ow_mode = 1;    // DS2480B
         ow_pin = 4;
         ow_rxpin = 6;
         ow_txpin = 5;
     }
 
-    // DS2480B needs delay to avoid serial boot conflicts
-    if (ow_mode == 1) {
-        delay(5000);
-    }
+    // Give the bus and any peripherals time to stabilise after Tasmota
+    // boot. DS2480B in particular needs ~3 s after power before its
+    // serial reset response is reliable; harmless for the I2C and GPIO
+    // paths too.
+    delay(5000);
 
-    // WebUI pulldowns live in WebUI() (line 1201) — calling them here from
-    // main() writes via WSContentSend_P without an active request context and
-    // corrupts the heap (crash later inside tlsf_malloc on the next real
-    // request). Persist handles storage; WebUI() renders on each page hit.
+    // WebUI pulldowns live in WebUI() — calling them here writes via
+    // WSContentSend_P with no active web-request context and corrupts
+    // the heap. Persist handles storage; WebUI() renders on each hit.
 
     ow_reinit();
     addCommand("OW");
