@@ -1,17 +1,61 @@
-// 1-Wire Driver: Temperature Sensors + Output Switches
-// Supports:
-//   DS18B20/DS18S20/DS1822 — temperature sensors
-//   DS2413 — 2-channel open-drain switch (family 0x3A)
-//   DS2408 — 8-channel GPIO (family 0x29)
-// Modes:
-//   GPIO mode    — native 1-Wire syscalls (timing in C, needs 4.7k pullup)
-//   DS2480B mode — via DS2480B serial-to-1-Wire bridge (9600 baud)
-//   DS2484 mode  — via DS2484 I2C-to-1-Wire bridge (fixed I2C addr 0x18,
-//                  no pins to claim, uses existing I2C bus)
+// ============================================================================
+// 1-Wire Driver — Temperature Sensors + Output Switches
+// ============================================================================
 //
-// WebUI lets user select mode and pin(s)
-// Supports up to 16 temp sensors + 16 switch devices on one bus
-// WebUI buttons for first 2 switch devices; rest via OW command
+// Supported devices on the 1-Wire bus
+// -----------------------------------
+//   Temperature  DS18B20 / DS18S20 / DS1822
+//   Switches     DS2413  (2-channel open-drain)        family 0x3A
+//                DS2406  (1- or 2-channel open-drain)  family 0x12
+//                DS2408  (8-channel GPIO)              family 0x29
+//   Caps         16 temp sensors + 16 switch devices per bus
+//
+// Bus backends (auto-detected priority cascade at startup)
+// --------------------------------------------------------
+//   1. DS2484 I2C-to-1-Wire bridge   (I2C addr 0x18, both buses probed)
+//   2. DS2480B serial-to-1-Wire      (rx/tx pins; presence response required)
+//   3. GPIO bit-bang                 (timing in C, needs external 4.7k pullup)
+//
+// The first backend that answers wins; the others stay silent. Whichever
+// won is shown in the WebUI status line. Re-running the cascade (e.g.
+// after rewiring) only takes changing any pin/bus dropdown in the WebUI.
+//
+// WebUI
+// -----
+// Configuration form lets you set:
+//   GPIO Pin    — pin for GPIO bit-bang fallback
+//   DS2480B RX  — UART RX, only meaningful if a DS2480B chip is wired
+//   DS2480B TX  — UART TX, same
+// DS2484 has no pin field — its I2C bus is sniffed automatically. The
+// status line reports which backend won and its config.
+//
+// First two switch devices get on-page buttons (A / B channels). Devices
+// beyond #1 are controlled via the OW console command.
+//
+// Console commands  (prefix "OW")
+// -------------------------------
+//   OW                        — show status JSON of all devices
+//   OW <n>                    — show status of one switch device
+//   OW SCAN                   — re-run cascade + ROM search
+//
+//   Switch state — DS2413 / DS2406 convention: 0 = ON, 1 = OFF
+//     OW <n> A <0|1>          — set channel A
+//     OW <n> B <0|1>          — set channel B (2-channel devices only)
+//     OW <n> <byte>           — DS2408: write 8-bit port byte (0xFF=all off)
+//
+//   Aliases — friendly names that follow each device's 64-bit ROM,
+//   persist across reboots, show up in WebUI + JSON status
+//     OW NAME T <idx> <name>  — name temp sensor #idx
+//     OW NAME S <idx> <name>  — name switch device #idx
+//     OW NAME T|S <idx>       — (no name arg) clear the alias
+//
+// Examples
+// --------
+//   OW NAME T 0 Boiler         OW 1 A 0       → switch 1 PIO-A ON
+//   OW NAME S 0 Pump           OW 1 0x55      → DS2408 device 1: bits 0,2,4,6 on
+//   OW SCAN                    OW             → JSON dump of everything
+//
+// ============================================================================
 
 #define OW_MAX_SENS 16
 #define OW_MAX_SW   16
