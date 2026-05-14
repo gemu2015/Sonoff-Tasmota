@@ -12,14 +12,12 @@ int my_mul(int a, int b) { return a * b; }
 
 void hello(char who[]) {
     char m[64];
-    sprintf(m, "Hello, %s!", who);
-    addLog(m);
+    addLog("Hello, %s!", who);
 }
 
 void hi(char who[]) {
     char m[64];
-    sprintf(m, "Hi %s.", who);
-    addLog(m);
+    addLog("Hi %s.", who);
 }
 
 // Test 1: local fn-ptr, assigned + called
@@ -31,8 +29,7 @@ void test_local_int_op() {
     op2 = my_mul;
     int p = op2(3, 4);
     char m[64];
-    sprintf(m, "test_local_int_op: 3+4=%d (expect 7), 3*4=%d (expect 12)", s, p);
-    addLog(m);
+    addLog("test_local_int_op: 3+4=%d (expect 7), 3*4=%d (expect 12)", s, p);
 }
 
 // Test 2: reassign + dispatch by enum
@@ -48,9 +45,7 @@ int dispatch(int op_id, int a, int b) {
 
 void test_dispatch() {
     char m[64];
-    sprintf(m, "test_dispatch: add=%d mul=%d (expect 9, 20)",
-            dispatch(OP_ADD, 4, 5), dispatch(OP_MUL, 4, 5));
-    addLog(m);
+    addLog("test_dispatch: add=%d mul=%d (expect 9, 20)", dispatch(OP_ADD, 4, 5), dispatch(OP_MUL, 4, 5));
 }
 
 // Test 3: global fn-ptr
@@ -72,8 +67,7 @@ void test_fnptr_as_arg() {
     int s = run_op(my_add, 10, 20);
     int p = run_op(my_mul, 10, 20);
     char m[64];
-    sprintf(m, "test_fnptr_as_arg: add=%d mul=%d (expect 30, 200)", s, p);
-    addLog(m);
+    addLog("test_fnptr_as_arg: add=%d mul=%d (expect 30, 200)", s, p);
 }
 
 int main() {

@@ -87,13 +87,7 @@ void EverySecond() {
     // Health report every 10s
     if (t - last_report >= 10) {
         last_report = t;
-        sprintf(buf,
-            "[cbtest] t=%ds loop=%d 50ms=%d 100ms=%d sec=%d init=%d wcon=%d wdis=%d mcon=%d mdis=%d tset=%d task=%d",
-            t, c_every_loop, c_every_50ms, c_every_100ms, c_every_second,
-            c_on_init, c_on_wifi_connect, c_on_wifi_disconnect,
-            c_on_mqtt_connect, c_on_mqtt_disconnect, c_on_time_set,
-            c_task_loop);
-        addLog(buf);
+        addLog("[cbtest] t=%ds loop=%d 50ms=%d 100ms=%d sec=%d init=%d wcon=%d wdis=%d mcon=%d mdis=%d tset=%d task=%d", t, c_every_loop, c_every_50ms, c_every_100ms, c_every_second, c_on_init, c_on_wifi_connect, c_on_wifi_disconnect, c_on_mqtt_connect, c_on_mqtt_disconnect, c_on_time_set, c_task_loop);
 
         // Auto PASS/FAIL at 10 and 20 seconds
         if (t == 10 || t == 20) {

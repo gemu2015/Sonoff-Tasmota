@@ -246,9 +246,7 @@ void log_failed_frame() {
         strcat(hex, b);
     }
     char msg[120];
-    sprintf(msg, "HP fail #%d len=%d [%s] lastreq addr=%d qty=%d",
-            fail_log_count, buf_len, hex, last_req_addr, last_req_qty);
-    addLog(msg);
+    addLog("HP fail #%d len=%d [%s] lastreq addr=%d qty=%d", fail_log_count, buf_len, hex, last_req_addr, last_req_qty);
 }
 
 

@@ -1517,6 +1517,26 @@ printString(report);
 | `sprintf(char dst[], "fmt", val, ...)` | Format one or more values into dst (overwrites). Type auto-detected. |
 | `sprintfAppend(char dst[], "fmt", val, ...)` | Format one or more values and append to dst. Type auto-detected. |
 
+### Variadic addLog
+
+`addLog` accepts the same `printf`-style format + args as `sprintf` directly —
+no scratch buffer needed for one-shot log lines:
+
+```c
+addLog("boot ok");                                  // string literal (cheapest)
+addLog("counter=%d", counter);                      // single int
+addLog("id=%d temp=%.1f name=%s", id, temp, name);  // multi-value
+```
+
+Internally the compiler routes the variadic form through the same `sprintf`
+machinery, formats into a stack buffer, then emits the `AddLog` syscall at
+`LOG_LEVEL_INFO`. Prefer this over the `sprintf(buf, ...); addLog(buf);` pair
+whenever you don't need the formatted string for anything else — it's shorter
+and skips the explicit buffer declaration.
+
+`addLogLevel(level, "fmt", val, ...)` is the level-selectable variant
+(`1=ERROR / 2=INFO / 3=DEBUG / 4=DEBUG_MORE`).
+
 > **Legacy aliases:** The explicit-type variants `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` are still supported for backward compatibility.
 
 **Format specifiers:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (string).

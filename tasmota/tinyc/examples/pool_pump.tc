@@ -323,8 +323,7 @@ int tcp_round_trip(int packet_len) {
         waited = waited + 50;
     }
     if (avail < 24) {
-        sprintf(dbg_buf, "POOL: timeout after %d ms (avail=%d)", waited, avail);
-        addLog(dbg_buf);
+        addLog("POOL: timeout after %d ms (avail=%d)", waited, avail);
         return 0;
     }
 
@@ -460,8 +459,7 @@ int tuya_v34_handshake() {
     //   [32] HMAC-SHA256(local_key, local_nonce)
     int dec_len = parse_response(34, local_key, got);
     if (dec_len < 48) {     // need at least 16 nonce + 32 hmac
-        sprintf(scratch, "POOL: v3.4 step2 short payload %d", dec_len);
-        addLog(scratch);
+        addLog("POOL: v3.4 step2 short payload %d", dec_len);
         return 0;
     }
 
@@ -911,8 +909,7 @@ void EverySecond() {
         if (pool_set_synced &&
             pool_set_input != pump_temp_set &&
             pool_set_input >= 5 && pool_set_input <= 80) {
-            sprintf(resp_msg, "POOL: web slider → TEMP %d", pool_set_input);
-            addLog(resp_msg);
+            addLog("POOL: web slider → TEMP %d", pool_set_input);
             enqueue_work(3, pool_set_input);
             pump_temp_set = pool_set_input;   // optimistic, prevents re-fire
         }
@@ -1008,8 +1005,7 @@ int main() {
     if (!load_config()) {
         addLog("POOL: cannot load /pool_pump.cfg — upload a 3-line config (ip / 16-char key / 22-char devId) and restart");
     } else {
-        sprintf(scratch, "POOL: ready — target %s:%d", pump_ip, pump_port);
-        addLog(scratch);
+        addLog("POOL: ready — target %s:%d", pump_ip, pump_port);
     }
     return 0;
 }

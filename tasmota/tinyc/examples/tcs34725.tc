@@ -183,8 +183,7 @@ int main() {
     tcs_addr = 0;
 
     if (tcs_scan()) {
-        sprintf(buf, "TCS34725 found at 0x%x on bus %d", tcs_addr, tcs_bus);
-        addLog(buf);
+        addLog("TCS34725 found at 0x%x on bus %d", tcs_addr, tcs_bus);
     } else {
         addLog("TCS34725 not found");
     }

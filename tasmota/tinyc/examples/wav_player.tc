@@ -236,8 +236,7 @@ void doPlayWav(char path[]) {
     if (codec_ok) wmSetVolume(dac_vol);
 
     char msg[64];
-    sprintf(msg, "WAV: %dHz ratio %d %dch %d bytes", wav_rate, ratio, wav_channels, wav_data_size);
-    addLog(msg);
+    addLog("WAV: %dHz ratio %d %dch %d bytes", wav_rate, ratio, wav_channels, wav_data_size);
     playing = 1;
 
     int bytes_per_frame = wav_channels * 2;  // 2 or 4 bytes per frame
@@ -434,7 +433,6 @@ int main() {
     }
 
     char msg[48];
-    sprintf(msg, "I2S: BCLK=%d LRCLK=%d DOUT=%d", pin_bclk, pin_lrclk, pin_dout);
-    addLog(msg);
+    addLog("I2S: BCLK=%d LRCLK=%d DOUT=%d", pin_bclk, pin_lrclk, pin_dout);
     return 0;
 }

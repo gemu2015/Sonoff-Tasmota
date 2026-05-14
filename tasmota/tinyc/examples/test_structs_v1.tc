@@ -39,15 +39,13 @@ void test_basic() {
     p.y = 20;
     int sum = p.x + p.y;
     char m[40];
-    sprintf(m, "test_basic: x=%d y=%d sum=%d", p.x, p.y, sum);
-    addLog(m);
+    addLog("test_basic: x=%d y=%d sum=%d", p.x, p.y, sum);
 }
 
 void test_local_struct_with_init() {
     Point q = {3, 4};
     char m[40];
-    sprintf(m, "test_init: q.x=%d q.y=%d", q.x, q.y);
-    addLog(m);
+    addLog("test_init: q.x=%d q.y=%d", q.x, q.y);
 }
 
 void test_global() {
@@ -56,8 +54,7 @@ void test_global() {
     g_w.ms   = millis();
     g_w.src  = 'O';
     char m[80];
-    sprintf(m, "test_global: addr=%d val=%d src=%c", g_w.addr, g_w.val, g_w.src);
-    addLog(m);
+    addLog("test_global: addr=%d val=%d src=%c", g_w.addr, g_w.val, g_w.src);
 }
 
 void test_array_of_struct() {
@@ -66,8 +63,7 @@ void test_array_of_struct() {
         g_pts[i].y = i * 20;
     }
     char m[80];
-    sprintf(m, "test_array: g_pts[3]=(%d,%d)", g_pts[3].x, g_pts[3].y);
-    addLog(m);
+    addLog("test_array: g_pts[3]=(%d,%d)", g_pts[3].x, g_pts[3].y);
 }
 
 void test_char_array_field() {
@@ -76,9 +72,7 @@ void test_char_array_field() {
     s.ratio = 0.75;
     strcpy(s.label, "boost");
     char m[80];
-    sprintf(m, "test_chararr: duration=%d ratio=%.2f label=%s",
-            s.duration_ms, s.ratio, s.label);
-    addLog(m);
+    addLog("test_chararr: duration=%d ratio=%.2f label=%s", s.duration_ms, s.ratio, s.label);
 }
 
 void test_nested_struct() {
@@ -88,9 +82,7 @@ void test_nested_struct() {
     r.br.x = 100;
     r.br.y = 200;
     char m[80];
-    sprintf(m, "test_nested: tl=(%d,%d) br=(%d,%d)",
-            r.tl.x, r.tl.y, r.br.x, r.br.y);
-    addLog(m);
+    addLog("test_nested: tl=(%d,%d) br=(%d,%d)", r.tl.x, r.tl.y, r.br.x, r.br.y);
 }
 
 void test_whole_assign_var_to_var() {
@@ -100,8 +92,7 @@ void test_whole_assign_var_to_var() {
     Point b;
     b = a;
     char m[40];
-    sprintf(m, "test_assign: b=(%d,%d) (expect 5,7)", b.x, b.y);
-    addLog(m);
+    addLog("test_assign: b=(%d,%d) (expect 5,7)", b.x, b.y);
 }
 
 void test_whole_assign_arr_to_var() {
@@ -110,8 +101,7 @@ void test_whole_assign_arr_to_var() {
     Point c;
     c = g_pts[2];
     char m[40];
-    sprintf(m, "test_a2v: c=(%d,%d) (expect 100,200)", c.x, c.y);
-    addLog(m);
+    addLog("test_a2v: c=(%d,%d) (expect 100,200)", c.x, c.y);
 }
 
 void test_whole_assign_var_to_arr() {
@@ -120,15 +110,12 @@ void test_whole_assign_var_to_arr() {
     d.y = 44;
     g_pts[4] = d;
     char m[40];
-    sprintf(m, "test_v2a: g_pts[4]=(%d,%d) (expect 33,44)",
-            g_pts[4].x, g_pts[4].y);
-    addLog(m);
+    addLog("test_v2a: g_pts[4]=(%d,%d) (expect 33,44)", g_pts[4].x, g_pts[4].y);
 }
 
 void greet(Point p) {
     char m[40];
-    sprintf(m, "test_param: got (%d,%d) (expect 99,11)", p.x, p.y);
-    addLog(m);
+    addLog("test_param: got (%d,%d) (expect 99,11)", p.x, p.y);
 }
 
 void test_struct_param() {
@@ -148,8 +135,7 @@ Point make_point(int xx, int yy) {
 void test_struct_return() {
     Point z = make_point(42, 84);
     char m[40];
-    sprintf(m, "test_return: z=(%d,%d) (expect 42,84)", z.x, z.y);
-    addLog(m);
+    addLog("test_return: z=(%d,%d) (expect 42,84)", z.x, z.y);
 }
 
 void test_sizeof() {
@@ -158,9 +144,7 @@ void test_sizeof() {
     int ss = sizeof(Sample);         // 18 slots (1 int + 1 float + char[16])
     int sr = sizeof(Rect);           // 4 slots (2× Point = 2 + 2)
     char m[80];
-    sprintf(m, "test_sizeof: Point=%d WriteLog=%d Sample=%d Rect=%d",
-            sp, sw, ss, sr);
-    addLog(m);
+    addLog("test_sizeof: Point=%d WriteLog=%d Sample=%d Rect=%d", sp, sw, ss, sr);
 }
 
 int main() {

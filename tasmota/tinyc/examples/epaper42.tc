@@ -603,7 +603,6 @@ int main() {
     load_wd_log();
 
     char m[80];
-    sprintf(m, "epaper42 ready: uptime=%d s (display init done)", tasm_uptime);
-    addLog(m);
+    addLog("epaper42 ready: uptime=%d s (display init done)", tasm_uptime);
     return 0;
 }

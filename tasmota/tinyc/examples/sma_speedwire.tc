@@ -77,9 +77,7 @@ void TaskLoop() {
             p_l1  = getPower(len, 0x15, 0x04);
             p_l2  = getPower(len, 0x29, 0x04);
             p_l3  = getPower(len, 0x3D, 0x04);
-            sprintf(log_buf, "[SMA] in=%.1fW out=%.1fW L1=%.1f L2=%.1f L3=%.1f",
-                p_in, p_out, p_l1, p_l2, p_l3);
-            addLog(log_buf);
+            addLog("[SMA] in=%.1fW out=%.1fW L1=%.1f L2=%.1f L3=%.1f", p_in, p_out, p_l1, p_l2, p_l3);
         }
         delay(100);
     }

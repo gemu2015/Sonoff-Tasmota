@@ -146,8 +146,7 @@ int main() {
     sht_state = 0;
 
     if (sht_scan()) {
-        sprintf(buf, "sht31_publisher: SHT3X at 0x%x on bus %d", sht_addr, sht_bus);
-        addLog(buf);
+        addLog("sht31_publisher: SHT3X at 0x%x on bus %d", sht_addr, sht_bus);
     } else {
         addLog("sht31_publisher: SHT3X not found on any bus");
     }

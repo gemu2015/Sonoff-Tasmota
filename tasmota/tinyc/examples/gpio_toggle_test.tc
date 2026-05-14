@@ -25,8 +25,6 @@ int main() {
                               // 1 = INPUT alone, 2 = pure OUTPUT (write-only, no read-back).
     digitalWrite(TOGGLE_PIN, 0);
     char m[80];
-    sprintf(m, "GPIO toggle test: GPIO%d wird alle 1 s zwischen 0V und 3.3V getoggelt",
-            TOGGLE_PIN);
-    addLog(m);
+    addLog("GPIO toggle test: GPIO%d wird alle 1 s zwischen 0V und 3.3V getoggelt", TOGGLE_PIN);
     return 0;
 }

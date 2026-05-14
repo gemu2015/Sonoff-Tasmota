@@ -15,8 +15,7 @@ int helper_two_args() {
     int a = 0xC1;
     int b = 5;
     char m[64];
-    sprintf(m, "two-arg test a=%d b=0x%02X", b, a);
-    addLog(m);
+    addLog("two-arg test a=%d b=0x%02X", b, a);
     return 1;
 }
 
@@ -25,8 +24,7 @@ int helper_three_args() {
     int b = 7;
     int c = 0xC1;
     char m[64];
-    sprintf(m, "three-arg test a=%d b=0x%02X c=0x%02X", b, a, c);
-    addLog(m);
+    addLog("three-arg test a=%d b=0x%02X c=0x%02X", b, a, c);
     return 1;
 }
 
@@ -51,8 +49,7 @@ int helper_with_locals_and_loop() {
         tries = tries + 1;
     }
     char m[64];
-    sprintf(m, "looped pattern: drained=%d first=0x%02X", drained_n, first_byte);
-    addLog(m);
+    addLog("looped pattern: drained=%d first=0x%02X", drained_n, first_byte);
     return 1;
 }
 
@@ -62,7 +59,6 @@ int main() {
     int b = helper_three_args();
     int c = helper_with_locals_and_loop();
     char done[48];
-    sprintf(done, "done: a=%d b=%d c=%d", a, b, c);
-    addLog(done);
+    addLog("done: a=%d b=%d c=%d", a, b, c);
     return 0;
 }

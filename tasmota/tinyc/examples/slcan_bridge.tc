@@ -382,8 +382,7 @@ void WebCall() {
 // ── main — open USB-CDC, idle ────────────────────────────────
 int main() {
     char m[80];
-    sprintf(m, "slcan_bridge: opening USB-CDC at uptime %d s", tasm_uptime);
-    addLog(m);
+    addLog("slcan_bridge: opening USB-CDC at uptime %d s", tasm_uptime);
 
     // For ESP32-C3, USB-CDC is the default Tasmota serial console; we
     // open a second serial port via serialBegin only when the device

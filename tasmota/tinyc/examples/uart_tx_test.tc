@@ -25,8 +25,7 @@ int main() {
         return -1;
     }
     char m[48];
-    sprintf(m, "uart_tx_test: opened slot=%d, sending 0xC1 burst", s);
-    addLog(m);
+    addLog("uart_tx_test: opened slot=%d, sending 0xC1 burst", s);
 
     delay(200);  // let UART settle, give the addLog a chance to flush
 

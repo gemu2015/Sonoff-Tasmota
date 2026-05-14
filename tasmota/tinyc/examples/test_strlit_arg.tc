@@ -5,8 +5,7 @@
 char log_buf[96];
 
 void show(char s[]) {
-    sprintf(log_buf, "[TEST] arg=%s", s);
-    addLog(log_buf);
+    addLog("[TEST] arg=%s", s);
 }
 
 void EverySecond() {

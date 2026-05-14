@@ -58,8 +58,7 @@ void take_snap() {
         camControl(11, CAM_OUT, fh);
         fileClose(fh);
         char msg[64];
-        sprintf(msg, "saved %s (%d bytes)", path, jlen);
-        addLog(msg);
+        addLog("saved %s (%d bytes)", path, jlen);
     }
 }
 

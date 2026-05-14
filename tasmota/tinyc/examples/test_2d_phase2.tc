@@ -17,8 +17,7 @@ char  msgs[3][16];
 
 void show_ints(int row[], int n) {
     char tmp[64];
-    sprintf(tmp, "ints n=%d first=%d last=%d", n, row[0], row[n-1]);
-    addLog(tmp);
+    addLog("ints n=%d first=%d last=%d", n, row[0], row[n-1]);
 }
 
 int main() {

@@ -29,8 +29,7 @@ int main() {
     addLog("IGMP-LEAVE-TEST: udp(10) leave called");
 
     char m[80];
-    sprintf(m, "IGMP-LEAVE-TEST: join=%d leave=%d", j, l);
-    addLog(m);
+    addLog("IGMP-LEAVE-TEST: join=%d leave=%d", j, l);
 
     delay(2000);
     addLog("IGMP-LEAVE-TEST: end (watchdog should NOT rejoin)");

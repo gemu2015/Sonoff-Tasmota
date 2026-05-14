@@ -85,8 +85,7 @@ int probe_webui() {
     tcpSelect(0);
     int rc = tcpConnect(self_ip, 80);
     if (rc != 0) {
-        sprintf(log_buf, "watchdog: probe %s:80 connect failed rc=%d", self_ip, rc);
-        addLog(log_buf);
+        addLog("watchdog: probe %s:80 connect failed rc=%d", self_ip, rc);
         return 0;
     }
     // Connected. Don't bother sending a request; the SYN+ACK is enough
@@ -96,9 +95,7 @@ int probe_webui() {
 }
 
 void log_state(char reason[]) {
-    sprintf(log_buf, "watchdog: heap=%d probe_fails=%d reason=%s",
-            tasm_heap, probe_fail_count, reason);
-    addLog(log_buf);
+    addLog("watchdog: heap=%d probe_fails=%d reason=%s", tasm_heap, probe_fail_count, reason);
 }
 
 void trigger_reboot(char reason[]) {
@@ -138,8 +135,7 @@ void EveryMinute() {
     refresh_self_ip();
     if (probe_webui()) {
         if (probe_fail_count > 0) {
-            sprintf(log_buf, "watchdog: WebUI back (was %d fails)", probe_fail_count);
-            addLog(log_buf);
+            addLog("watchdog: WebUI back (was %d fails)", probe_fail_count);
         }
         probe_fail_count = 0;
         return;
@@ -155,8 +151,6 @@ void EveryMinute() {
 int main() {
     addLog("watchdog: starting; will probe WebUI and watch heap");
     refresh_self_ip();
-    sprintf(log_buf, "watchdog: own IP %s, heap floor %d, probe every %d min",
-            self_ip, HEAP_FLOOR_BYTES, PROBE_EVERY_MIN);
-    addLog(log_buf);
+    addLog("watchdog: own IP %s, heap floor %d, probe every %d min", self_ip, HEAP_FLOOR_BYTES, PROBE_EVERY_MIN);
     return 0;
 }

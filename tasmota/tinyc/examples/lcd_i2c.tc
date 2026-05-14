@@ -183,8 +183,7 @@ int lcd_init() {
         addLog("LCD: no PCF8574 found on bus 0/1");
         return -1;
     }
-    sprintf(buf, "LCD: found at 0x%x bus %d", lcd_addr, lcd_bus);
-    addLog(buf);
+    addLog("LCD: found at 0x%x bus %d", lcd_addr, lcd_bus);
 
     lcd_bl = LCD_BL;
 

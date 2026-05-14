@@ -1000,6 +1000,27 @@ printString(report);
 
 > **Alte Varianten:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` funktionieren weiterhin.
 
+### Variadisches addLog
+
+`addLog` akzeptiert dieselbe `printf`-Format-Notation wie `sprintf` direkt —
+fuer einmalige Log-Zeilen wird kein Scratch-Puffer mehr gebraucht:
+
+```c
+addLog("boot ok");                                  // String-Literal (am guenstigsten)
+addLog("counter=%d", counter);                      // einzelner int
+addLog("id=%d temp=%.1f name=%s", id, temp, name);  // mehrere Werte
+```
+
+Intern routet der Compiler den variadischen Aufruf durch dieselbe
+`sprintf`-Maschinerie, formatiert in einen Stack-Puffer und ruft dann den
+`AddLog`-Syscall auf `LOG_LEVEL_INFO` auf. Diese Form ist dem
+`sprintf(buf, ...); addLog(buf);`-Pattern vorzuziehen wann immer die formatierte
+Zeichenkette nur einmal benoetigt wird — kuerzer und ohne explizite
+Puffer-Deklaration.
+
+`addLogLevel(level, "fmt", val, ...)` ist die Variante mit waehlbarem Level
+(`1=ERROR / 2=INFO / 3=DEBUG / 4=DEBUG_MORE`).
+
 **Format-Spezifikatoren:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (Zeichenkette).
 
 ### Zeichenkettenmanipulation

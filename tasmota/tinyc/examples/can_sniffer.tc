@@ -62,12 +62,7 @@ void Every50ms() {
             if (i < last_dlc) last_data[i] = rx_data[i]; else last_data[i] = 0;
         }
         if (last_ext) strcpy(ext_str, "EXT"); else strcpy(ext_str, "STD");
-        sprintf(m,
-            "CAN RX #%d  %s ID=0x%03x DLC=%d  %02x %02x %02x %02x %02x %02x %02x %02x",
-            rx_total, ext_str, last_id, last_dlc,
-            last_data[0], last_data[1], last_data[2], last_data[3],
-            last_data[4], last_data[5], last_data[6], last_data[7]);
-        addLog(m);
+        addLog("CAN RX #%d  %s ID=0x%03x DLC=%d  %02x %02x %02x %02x %02x %02x %02x %02x", rx_total, ext_str, last_id, last_dlc, last_data[0], last_data[1], last_data[2], last_data[3], last_data[4], last_data[5], last_data[6], last_data[7]);
         guard = guard - 1;
     }
 }

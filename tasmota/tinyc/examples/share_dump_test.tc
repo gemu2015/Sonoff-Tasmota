@@ -37,8 +37,7 @@ int main() {
 
     int n = shareDump();
     char m[40];
-    sprintf(m, "shareDump test: live count=%d", n);
-    addLog(m);
+    addLog("shareDump test: live count=%d", n);
 
     return 0;
 }

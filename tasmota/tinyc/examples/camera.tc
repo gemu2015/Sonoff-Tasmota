@@ -108,8 +108,7 @@ int initCamera() {
     addLog("TCC: camera initialized OK");
 
     int pid = camControl(8, 0, 0);
-    sprintf(buf, "TCC: sensor PID = 0x%x", pid);
-    addLog(buf);
+    addLog("TCC: sensor PID = 0x%x", pid);
 
     if (pid == OV3660_PID) {
         camControl(9, CAM_VFLIP, 1);
@@ -159,8 +158,7 @@ int takePicture() {
     written = camControl(11, 2, fh);
     fileClose(fh);
 
-    sprintf(buf, "TCC: saved %d bytes to %s", written, path);
-    addLog(buf);
+    addLog("TCC: saved %d bytes to %s", written, path);
 
     return written;
 }
@@ -294,8 +292,7 @@ int main() {
 
     // Take initial test capture to PSRAM slot 1
     int size = captureToSlot();
-    sprintf(buf, "Camera ready, first frame: %d bytes, heap: %d", size, tasm_heap);
-    addLog(buf);
+    addLog("Camera ready, first frame: %d bytes, heap: %d", size, tasm_heap);
 
     return 0;
 }

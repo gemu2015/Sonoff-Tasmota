@@ -607,8 +607,7 @@ void flush_frame() {
         int n = buf_len;
         if (n > 64) n = 64;
         bin2hex(buf, n, g_hex);
-        sprintf(g_row, "MB f#%d %dB hex=%s", frames_seen, buf_len, g_hex);
-        addLog(g_row);
+        addLog("MB f#%d %dB hex=%s", frames_seen, buf_len, g_hex);
     }
 }
 
@@ -768,8 +767,7 @@ void take_snapshot() {
         }
     }
     char m[80];
-    sprintf(m, "snapshot taken: %d registers", n);
-    addLog(m);
+    addLog("snapshot taken: %d registers", n);
 }
 
 // ------------------------------------------------------------
@@ -885,9 +883,7 @@ int hp_send_modbus(int fc, int regaddr, int val) {
     }
 
     char m[120];
-    sprintf(m, "hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x) in %d ms",
-            fc, regaddr, val, val, dt_mb);
-    addLog(m);
+    addLog("hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x) in %d ms", fc, regaddr, val, val, dt_mb);
     return 1;
 }
 
@@ -2038,8 +2034,7 @@ int main() {
     // same as in any in-tree Tasmota driver — no race, no
     // `delay(15000)` workaround, no separate BootInit hook needed.
     char m0[80];
-    sprintf(m0, "heatpump_map: opening serial at uptime %d s", tasm_uptime);
-    addLog(m0);
+    addLog("heatpump_map: opening serial at uptime %d s", tasm_uptime);
 
     ser = serialBegin(rx_pin, tx_pin, baud, cfg, 1024);
     if (ser < 0) {
@@ -2047,9 +2042,7 @@ int main() {
         return 0;
     }
     char m[120];
-    sprintf(m, "heatpump_map ready: ser=%d rx=%d tx=%d baud=%d 8N2  open /tc_ui",
-            ser, rx_pin, tx_pin, baud);
-    addLog(m);
+    addLog("heatpump_map ready: ser=%d rx=%d tx=%d baud=%d 8N2  open /tc_ui", ser, rx_pin, tx_pin, baud);
     addCommand("MBUS");
     webPageLabel(0, "Heat-pump map");
 
