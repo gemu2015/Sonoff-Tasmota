@@ -1716,6 +1716,18 @@ static void HandleTinyCPage(void) {
   }
 #endif
 
+  // Auto-refresh: re-fetch the page whenever the browser tab regains
+  // visibility (typical flow: user runs/stops a slot via the IDE tab,
+  // switches back to this tab — without this, slot state stayed stale
+  // until manual reload). Doesn't poll while the tab is hidden, so no
+  // background traffic.
+  WSContentSend_P(PSTR(
+    "<script>"
+    "document.addEventListener('visibilitychange',function(){"
+      "if(!document.hidden)location.reload();"
+    "});"
+    "</script>"));
+
   WSContentSpaceButton(BUTTON_MANAGEMENT);
   WSContentEnd();
 }
