@@ -76,10 +76,13 @@ For new syscalls / IDE changes, edit the in-tree sources directly:
   5. `python3 bundle.py` → auto-copies `tinyc_ide.html.gz` to `../`
   6. `git add ../tinyc_ide.html.gz src/{opcodes,codegen}.js`
 
-The `../patch_*.mjs` scripts under `tasmota/tinyc/` are retained as
-historical records of how the gzipped HTML was patched while idesrc
-was stale — they remain idempotent and safe to re-run but are no
-longer the preferred way to add new syscalls.
+The `../patch_*.mjs` scripts that used to live under `tasmota/tinyc/`
+have been removed — they were idempotent rewrites of the gzipped
+HTML to compensate for the stale idesrc/. With idesrc/ now in sync,
+all those patches are present in `src/*.js` directly and the scripts
+are obsolete. To inspect what each patch did, see the matching
+commit message in `git log -- tasmota/tinyc/` (commits referenced in
+each patch's docstring).
 
 ## History
 
