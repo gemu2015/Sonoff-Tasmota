@@ -1,50 +1,56 @@
-// sizeof_demo.tc — compile-time sizeof operator
+// sizeof_demo.tc — compile-time sizeof for struct types
 //
-// sizeof is evaluated at compile time (folded to an integer literal).
-// It costs nothing at runtime — there is no bytecode for the operator
-// itself, only a PUSH_IMM of the computed byte count.
+// `sizeof(StructTag)` returns the SLOT COUNT of a struct at compile time
+// (folded to an integer literal at compile, zero runtime cost — no opcode
+// for the operator itself, just a PUSH_IMM of the computed value).
 //
-// Sizes follow C conventions (bytes, not slots):
-//    sizeof(char)  = 1    sizeof(int)    = 4
-//    sizeof(bool)  = 1    sizeof(float)  = 4
-//    sizeof(char buf[40])  = 40
-//    sizeof(int  arr[10])  = 40
-//    sizeof(struct Foo)    = sum of member bytes
+// TinyC sizeof reports SLOTS, not bytes. Every scalar (int, float, char,
+// bool) takes 1 slot in the VM's int32 array model. char[N] fields count
+// as N slots. Nested struct fields contribute their full member slot count
+// transparently.
 //
-// Supported forms:
-//    sizeof(type)      — int, float, char, bool, struct Tag, typedef name
-//    sizeof(name)      — variable, array, or struct var
-//    sizeof name       — same, without parens
+// CURRENT SCOPE (1.6.x): only struct tags work.
 //
-// NOT supported: sizeof(arbitrary_expression). Use sizeof(type) or a
-// named variable. For "array element count" use sizeof(arr)/sizeof(int).
+//    sizeof(MyStruct)        ✓  → struct member slot count
+//    sizeof(int)             ✗  parser rejects primitive type keywords
+//    sizeof(my_var)          ✗  "unknown type 'my_var'" — variables not
+//                               supported, only TYPE names
+//    sizeof(arr)             ✗  same — use the array's declared size
+//                               directly (e.g. #define NUMS_N 10)
+//
+// If you need array-element-count, hardcode it as a #define and check
+// it manually rather than via sizeof:
+//    #define NUMS_N 10
+//    int nums[NUMS_N];
+//    // …loop bounds use NUMS_N directly.
+
+struct Point {
+    int    x;          // 1 slot
+    int    y;          // 1 slot
+};                     // → sizeof(Point) = 2
 
 struct Frame {
-    int    id;       // 4 bytes
-    char   label[8]; // 8 bytes
-    float  value;    // 4 bytes
-};
+    int    id;         // 1 slot
+    char   label[8];   // 8 slots
+    float  value;      // 1 slot
+};                     // → sizeof(Frame) = 10
 
-struct Frame frames[3];
-char  buf[64];
-int   nums[10];
+struct Rect {
+    struct Point tl;   // 2 slots (nested)
+    struct Point br;   // 2 slots
+};                     // → sizeof(Rect)  = 4
 
-void main() {
-    char line[80];
+int main() {
+    char line[64];
 
-    sprintfInt(line, "sizeof(int)      = %d", sizeof(int));          dspText(line); addLog(line);
-    sprintfInt(line, "sizeof(float)    = %d", sizeof(float));        dspText(line); addLog(line);
-    sprintfInt(line, "sizeof(char)     = %d", sizeof(char));         dspText(line); addLog(line);
-    sprintfInt(line, "sizeof(bool)     = %d", sizeof(bool));         dspText(line); addLog(line);
-    sprintfInt(line, "sizeof(buf[64])  = %d", sizeof(buf));          addLog(line);   // 64
-    sprintfInt(line, "sizeof(nums[10]) = %d", sizeof(nums));         addLog(line);   // 40
-    sprintfInt(line, "sizeof Frame     = %d", sizeof(struct Frame)); addLog(line);   // 16
-    sprintfInt(line, "sizeof frames[3] = %d", sizeof(frames));       addLog(line);   // 48
+    sprintf(line, "sizeof(Point) = %d slot(s)", sizeof(Point));   addLog(line);  // 2
+    sprintf(line, "sizeof(Frame) = %d slot(s)", sizeof(Frame));   addLog(line);  // 10
+    sprintf(line, "sizeof(Rect)  = %d slot(s)", sizeof(Rect));    addLog(line);  // 4
 
-    // Element count idiom
-    int n = sizeof(nums) / sizeof(int);
-    sprintfInt(line, "nums has %d elements", n);                     addLog(line);   // 10
+    // sizeof at compile time can drive other compile-time constants —
+    // useful for declaring buffers of matching size:
+    // (Not demonstrated here because a buffer-sized-by-sizeof would
+    //  itself need to compile against the same struct tag.)
 
-    // Works in const expression for array size
-    // char copy[sizeof(buf)];   // ← compiles, allocates a 64-byte buffer
+    return 0;
 }

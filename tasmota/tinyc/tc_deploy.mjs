@@ -39,12 +39,15 @@ const __dirname  = path.dirname(__filename);
 const args    = process.argv.slice(2);
 const positional = [];
 const defines   = [];
+let   noUpload   = false;       // --no-upload: compile only, write .tcb, skip device push
 for (const a of args) {
     if (a.startsWith('-D')) defines.push(a.slice(2));
+    else if (a === '--no-upload' || a === '-n') noUpload = true;
     else positional.push(a);
 }
 if (positional.length < 1) {
-    console.error('Usage: tc_deploy.mjs <file.tc> [<device-ip> [<remote-name>]] [-DDEFINE …]');
+    console.error('Usage: tc_deploy.mjs <file.tc> [<device-ip> [<remote-name>]] [-DDEFINE …] [--no-upload|-n]');
+    console.error('       --no-upload   compile only, write .tcb to bytecode/, skip device push');
     process.exit(2);
 }
 const srcPath   = path.resolve(positional[0]);
@@ -216,7 +219,13 @@ async function uploadAndRun() {
     console.log('Done.');
 }
 
-uploadAndRun().catch((e) => {
-    console.error('Deploy error:', e?.message || e);
-    process.exit(1);
-});
+if (noUpload) {
+    // --no-upload: compile-only path used by tc_compile_all.mjs and any
+    // user wanting to refresh bytecode/ without touching a device.
+    console.log('--no-upload: skipping device push.');
+} else {
+    uploadAndRun().catch((e) => {
+        console.error('Deploy error:', e?.message || e);
+        process.exit(1);
+    });
+}
