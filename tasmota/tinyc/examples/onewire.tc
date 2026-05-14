@@ -122,30 +122,25 @@
 //   3. else fall back to native GPIO bit-bang on the configured pin
 // ow_mode is the result, NOT a user choice — the WebUI just shows it
 // and lets the user pick the pin/bus that each backend would use.
-persist int ow_pin;    // GPIO mode pin
-persist int ow_rxpin;  // DS2480B serial RX
-persist int ow_txpin;  // DS2480B serial TX
-persist int ow_i2c_bus;// DS2484 I2C bus (0=primary, 1=secondary)
+persist watch int ow_pin;   // GPIO mode pin           (WebUI-writable → watch)
+persist watch int ow_rxpin; // DS2480B serial RX       (WebUI-writable → watch)
+persist watch int ow_txpin; // DS2480B serial TX       (WebUI-writable → watch)
+persist int       ow_i2c_bus; // DS2484 bus 0/1 — auto-set by ow_84_init probe
 int ow_mode = 0;       // detected backend: 0=GPIO, 1=DS2480B, 2=DS2484
 int ow_serial = -1;    // serial port handle (-1 = closed; 0..2 = valid TasmotaSerial slot returned by serialBegin)
 int ow_ok = 0;         // driver active
 int ow_tick = 0;       // even/odd second counter
 int ow_ds_cmd = 1;     // DS2480B in command mode flag
-int ow_act_mode = -1;  // active config (for change detection)
-int ow_act_pin = -1;
-int ow_act_rx = -1;
-int ow_act_tx = -1;
-int ow_act_bus = -1;
 
 // temperature sensor data
 int ow_cnt = 0;        // number of temp sensors
-char ow_rom[128];      // 16 sensors x 8 bytes ROM
+char ow_rom[16][8];    // 16 sensors x 8 bytes ROM
 float ow_temp[16];     // temperatures
 int ow_valid[16];      // valid reading flag
 
 // switch device data
 int ow_sw_cnt = 0;     // number of switch devices
-char ow_sw_rom[128];   // 16 devices x 8 bytes ROM
+char ow_sw_rom[16][8]; // 16 devices x 8 bytes ROM
 int ow_sw_type[16];    // family code (0x3A or 0x29)
 int ow_sw_state[16];   // output state (DS2413: bits 0-1, DS2408: bits 0-7)
 int ow_sw_input[16];   // readback input state
@@ -444,13 +439,11 @@ void ow_record_found() {
     int fam = ow_srom[0] & 0xFF;
     int i = 0;
     if ((fam == FAM_DS18B20 || fam == FAM_DS18S20 || fam == FAM_DS1822) && ow_cnt < OW_MAX_SENS) {
-        int base = ow_cnt * 8;
-        while (i < 8) { ow_rom[base + i] = ow_srom[i]; i = i + 1; }
+        while (i < 8) { ow_rom[ow_cnt][i] = ow_srom[i]; i = i + 1; }
         ow_valid[ow_cnt] = 0;
         ow_cnt = ow_cnt + 1;
     } else if ((fam == FAM_DS2413 || fam == FAM_DS2406 || fam == FAM_DS2408) && ow_sw_cnt < OW_MAX_SW) {
-        int base = ow_sw_cnt * 8;
-        while (i < 8) { ow_sw_rom[base + i] = ow_srom[i]; i = i + 1; }
+        while (i < 8) { ow_sw_rom[ow_sw_cnt][i] = ow_srom[i]; i = i + 1; }
         ow_sw_type[ow_sw_cnt] = fam;
         ow_sw_state[ow_sw_cnt] = 0xFF;
         ow_sw_input[ow_sw_cnt] = 0;
@@ -559,20 +552,18 @@ void ow_scan() {
 
 void ow_select(int idx) {
     ow_write(OW_MATCH_ROM);
-    int base = idx * 8;
     int i = 0;
     while (i < 8) {
-        ow_write(ow_rom[base + i] & 0xFF);
+        ow_write(ow_rom[idx][i] & 0xFF);
         i = i + 1;
     }
 }
 
 void ow_sw_select(int idx) {
     ow_write(OW_MATCH_ROM);
-    int base = idx * 8;
     int i = 0;
     while (i < 8) {
-        ow_write(ow_sw_rom[base + i] & 0xFF);
+        ow_write(ow_sw_rom[idx][i] & 0xFF);
         i = i + 1;
     }
 }
@@ -607,7 +598,7 @@ void ow_read_temp(int idx) {
 
     if (ow_crc8(9) != 0) return;
 
-    int fam = ow_rom[idx * 8] & 0xFF;
+    int fam = ow_rom[idx][0] & 0xFF;
     int lsb = ow_buf[0] & 0xFF;
     int msb = ow_buf[1] & 0xFF;
     int raw = (msb << 8) | lsb;
@@ -949,12 +940,6 @@ void ow_reinit() {
     ow_sw_cnt = 0;
     ow_mode = -1;   // sentinel until cascade picks a backend
 
-    // save active config (even if init fails, so we don't retry every second)
-    ow_act_pin = ow_pin;
-    ow_act_rx = ow_rxpin;
-    ow_act_tx = ow_txpin;
-    ow_act_bus = ow_i2c_bus;
-
     // Cascade priority: DS2484 (I2C) → DS2480B (serial) → GPIO bit-bang.
     // The first backend that initialises wins; the others stay silent.
     if (ow_84_init()) {
@@ -968,7 +953,6 @@ void ow_reinit() {
             char m[64];
             sprintf(m, "1-Wire: GPIO pin %d claimed — pick another in WebUI", ow_pin);
             addLog(m);
-            ow_act_mode = ow_mode;
             return;
         }
         ow_mode = 0;
@@ -977,7 +961,6 @@ void ow_reinit() {
         sprintf(m, "1-Wire: backend = GPIO bit-bang on pin %d (fallback)", ow_pin);
         addLog(m);
     }
-    ow_act_mode = ow_mode;
 
     if (!ow_reset()) {
         addLog("1-Wire: backend up but no devices on bus");
@@ -1019,10 +1002,11 @@ void ow_reinit() {
 // ========================================
 
 void EverySecond() {
-    // detect config change from WebUI pulldowns
-    if (ow_mode != ow_act_mode || ow_pin != ow_act_pin ||
-        ow_rxpin != ow_act_rx || ow_txpin != ow_act_tx ||
-        ow_i2c_bus != ow_act_bus) {
+    // detect WebUI dropdown writes via watch — fires on any pulldown change
+    if (changed(ow_pin) || changed(ow_rxpin) || changed(ow_txpin)) {
+        snapshot(ow_pin);
+        snapshot(ow_rxpin);
+        snapshot(ow_txpin);
         ow_reinit();
         return;
     }
@@ -1062,15 +1046,13 @@ void EverySecond() {
 // ---- Alias helpers (ROM-based) ----
 
 void ow_copy_trom(int idx) {
-    int base = idx * 8;
     int i = 0;
-    while (i < 8) { ow_arom[i] = ow_rom[base + i]; i = i + 1; }
+    while (i < 8) { ow_arom[i] = ow_rom[idx][i]; i = i + 1; }
 }
 
 void ow_copy_srom(int idx) {
-    int base = idx * 8;
     int i = 0;
-    while (i < 8) { ow_arom[i] = ow_sw_rom[base + i]; i = i + 1; }
+    while (i < 8) { ow_arom[i] = ow_sw_rom[idx][i]; i = i + 1; }
 }
 
 // Find alias for ROM in ow_arom. Copies name to dst, returns 1 if found.
@@ -1172,10 +1154,9 @@ int ow_clear_alias() {
 void ow_temp_label(char dst[], int idx) {
     ow_copy_trom(idx);
     if (ow_get_alias(dst)) return;
-    int base = idx * 8;
     strcpy(dst, "DS18x20-");
     char hx[4];
-    sprintf(hx, "%02X", ow_rom[base + 6] & 0xFF);
+    sprintf(hx, "%02X", ow_rom[idx][6] & 0xFF);
     strcat(dst, hx);
 }
 
@@ -1613,12 +1594,10 @@ int main() {
         ow_txpin = 5;
     }
 
-    // Give the bus and any peripherals time to stabilise after Tasmota
-    // boot. DS2480B in particular needs ~3 s after power before its
-    // serial reset response is reliable; harmless for the I2C and GPIO
-    // paths too.
-    delay(5000);
-
+    // Since 1.3.36 the runtime defers autoexec main() until Tasmota's
+    // uptime ≥ 3 s, so serialBegin / I2C are race-free here — no manual
+    // boot delay needed.
+    //
     // WebUI pulldowns live in WebUI() — calling them here writes via
     // WSContentSend_P with no active web-request context and corrupts
     // the heap. Persist handles storage; WebUI() renders on each hit.
