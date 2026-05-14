@@ -296,6 +296,13 @@ const BUILTINS = {
     'httpHeader':       { syscall: Syscall.HTTP_HEADER,      args: 2, returns: false, strArgs: [0, 1] },
     'webParse':         { syscall: Syscall.WEB_PARSE,        args: 4, returns: true,  strArgs: [0, 3], constArgs: [1] },
 
+    // MQTT — firmware has handlers gated on USE_MQTT; CLAUDE.md + Reference.md
+    // documented them, but the BUILTINS entries were missing until 2026-05-14.
+    // All take const-pool string args.
+    'mqttSubscribe':    { syscall: Syscall.MQTT_SUBSCRIBE,   args: 1, returns: true,  constArgs: [0] },
+    'mqttUnsubscribe':  { syscall: Syscall.MQTT_UNSUBSCRIBE, args: 1, returns: true,  constArgs: [0] },
+    'mqttPublish':      { syscall: Syscall.MQTT_PUBLISH_TO,  args: 2, returns: true,  constArgs: [0, 1] },
+
     // WebUI widgets (refArgs[0] = variable ref for binding, strArgs = label/options)
     'webButton':        { syscall: Syscall.WEB_BUTTON,      args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webSlider':        { syscall: Syscall.WEB_SLIDER,      args: 4, returns: false, refArgs: [0], constArgs: [3] },

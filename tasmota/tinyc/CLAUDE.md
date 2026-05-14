@@ -460,6 +460,10 @@ side effect — back up `Settings.json` and any user files first.
 - **`SYS_FILE_WRITE_STR`** — compiler emits the opcode but VM has no handler
   yet (`TC_ERR_BAD_SYSCALL` at runtime). Track upstream; don't generate code
   that relies on it.
+- **`SYS_STRCONCAT` (259)** — same shape: IDE emits the opcode when a script
+  uses `"a" + "b"` (string-`+` concat), but firmware has no case-handler for
+  ID 259 → `TC_ERR_BAD_SYSCALL`. Avoid string-`+`; use `strcpy` + `strcat`
+  (or `sprintf` for variadic builds) instead.
 - **DFRobot OV3660 camera horizontal stripes** — unsolved, 10+ hrs debug. If a
   user has this exact board, acknowledge the known issue rather than guessing.
 - **Callback-dispatch integer cache** — attempted and reverted (broke PAUSED

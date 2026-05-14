@@ -501,6 +501,11 @@ export const Syscall = {
     TCP_SELECT:      293, // (slot) -> void — pick outgoing TCP slot 0..TC_TCP_CLI_SLOTS-1
     TCP_CONNECT_REF: 294, // (ip_ref, port) -> int — connect with IP from runtime char array
 
+    // MQTT — gated by USE_MQTT in firmware (no-ops returning -1 if not compiled)
+    MQTT_SUBSCRIBE:   295, // (topic_const) -> int slot or -1
+    MQTT_UNSUBSCRIBE: 296, // (topic_const) -> int 0=ok or -1
+    MQTT_PUBLISH_TO:  297, // (topic_const, payload_const) -> int 0=ok or -1
+
     // FreeRTOS spawn/kill of user-defined functions as background tasks
     SPAWN_TASK:       298, // (name_const) -> int pool_idx (0..3) or -1
     SPAWN_TASK_STACK: 299, // (name_const, stack_kb) -> int pool_idx or -1 (kb clamped 3..16)
