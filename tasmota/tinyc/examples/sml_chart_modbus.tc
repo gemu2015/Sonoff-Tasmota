@@ -238,11 +238,11 @@ void WebUI() {
     sprintf(sml_buf, "<div style='font-size:11px'>Slave aktiv: Port %d &middot; FC03<br>40000=Leistung W &middot; 40002=Bezug kWh &middot; 40004=Einspeisung kWh<br>(je 2 Register, IEEE-754 float, big-endian)</div>", mb_port);
     webSend(sml_buf);
     webSend("<hr><b>&#x1F4BE; Daten</b>");
-    webButton(do_init,  "Zaehlerwerte initialisieren");
-    webButton(do_init2, "Balkendiagramme zuruecksetzen");
-    webButton(do_save,  "Diagrammdaten speichern");
+    webButton(do_init,  "Zaehlerwerte initialisieren|initialisiert");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen|zurueckgesetzt");
+    webButton(do_save,  "Diagrammdaten speichern|gespeichert");
     webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
-    webButton(do_reset, "Sensor53 r");
+    webButton(do_reset, "Sensor53 r|SML neu geladen");
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_chart_modbus.tc</b><br>TinyC port of ottelo's 2_SML_Chart_PV_Modbus.tas</div></div>");
 }
 

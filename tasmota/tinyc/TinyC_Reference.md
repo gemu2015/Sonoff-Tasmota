@@ -3086,7 +3086,8 @@ Both callbacks use the same widget functions.
 
 | Function | Description |
 |----------|-------------|
-| `webButton(var, "label")` | Toggle button (0/1) — displays ON/OFF, click toggles |
+| `webButton(var, "label")` | Momentary action button — pulses `var` to 1 on click (script reads it, acts, resets to 0). No ON/OFF suffix. Optional `"Idle\|Active"` label shows the `Active` text on the button for ~2.5 s as a click confirmation, then reverts (generic ✓ if no `\|`) |
+| `webToggle(var, "label")` | Latching on/off button (0/1) — **green when `var`≠0, grey when 0**, click flips it. Optional `"On\|Off"` label shows different text/emoji per state (e.g. `"💡 An\|🌙 Aus"`); no `\|` → same text both states, colour only |
 | `webSlider(var, min, max, "label")` | Range slider — drag to set value |
 | `webCheckbox(var, "label")` | Checkbox (0/1) — check/uncheck toggles |
 | `webText(chararray, maxlen, "label")` | Text input — edit string variable |
@@ -3106,7 +3107,7 @@ int relay;
 int brightness;
 
 void WebCall() {
-    webButton(relay, "Power");
+    webToggle(relay, "Power");
     webSlider(brightness, 0, 100, "Brightness");
 }
 ```
@@ -3125,7 +3126,7 @@ char devname[32];
 void WebUI() {
     int page = webPage();
     if (page == 0) {
-        webButton(power, "Power");
+        webToggle(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
         webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
@@ -5116,7 +5117,7 @@ int mode;
 void WebUI() {
     int page = webPage();
     if (page == 0) {
-        webButton(power, "Power");
+        webToggle(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
     }
     if (page == 1) {

@@ -138,11 +138,11 @@ void WebPage() {
 void WebUI() {
     sml_render_settings_panel();
     webSend("<hr><b>&#x1F4BE; Daten</b>");
-    webButton(do_init,  "Zaehlerwerte initialisieren");
-    webButton(do_init2, "Balkendiagramme zuruecksetzen");
-    webButton(do_save,  "Diagrammdaten speichern");
+    webButton(do_init,  "Zaehlerwerte initialisieren|initialisiert");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen|zurueckgesetzt");
+    webButton(do_save,  "Diagrammdaten speichern|gespeichert");
     webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
-    webButton(do_reset, "Sensor53 r");
+    webButton(do_reset, "Sensor53 r|SML neu geladen");
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_chart.tc</b><br>TinyC port of ottelo's 1_SML_Chart.tas</div></div>");
 }
 

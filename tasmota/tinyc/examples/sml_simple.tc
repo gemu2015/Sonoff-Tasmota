@@ -49,7 +49,7 @@ void WebCall() {
 void WebUI() {
     sml_render_settings_panel();
     webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
-    webButton(do_reset, "Sensor53 r");
+    webButton(do_reset, "Sensor53 r|SML neu geladen");
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_simple.tc</b><br>TinyC port of ottelo's 0_SML_Simple.tas</div></div>");
 }
 

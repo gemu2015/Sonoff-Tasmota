@@ -2207,7 +2207,8 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `webButton(var, "label")` | Umschalt-Schaltflaeche (0/1) — zeigt EIN/AUS, Klick schaltet um |
+| `webButton(var, "label")` | Momentane Aktions-Schaltflaeche — setzt `var` bei Klick auf 1 (Skript liest, handelt, setzt auf 0 zurueck). Kein EIN/AUS-Zusatz. Optionales `"Idle\|Active"`-Label zeigt den `Active`-Text ~2,5 s als Klick-Bestaetigung, dann zurueck (generisches ✓ ohne `\|`) |
+| `webToggle(var, "label")` | Rastende Ein/Aus-Schaltflaeche (0/1) — **gruen wenn `var`≠0, grau wenn 0**, Klick schaltet um. Optionales `"Ein\|Aus"`-Label zeigt verschiedenen Text/Emoji je Zustand (z.B. `"💡 An\|🌙 Aus"`); ohne `\|` → gleicher Text, nur Farbe |
 | `webSlider(var, min, max, "label")` | Bereichsregler — ziehen zum Einstellen des Werts |
 | `webCheckbox(var, "label")` | Kontrollkaestchen (0/1) — Aktivieren/Deaktivieren schaltet um |
 | `webText(chararray, maxlen, "label")` | Texteingabe — Zeichenkettenvariable bearbeiten |
@@ -2227,7 +2228,7 @@ int relay;
 int brightness;
 
 void WebCall() {
-    webButton(relay, "Power");
+    webToggle(relay, "Power");
     webSlider(brightness, 0, 100, "Brightness");
 }
 ```
@@ -2246,7 +2247,7 @@ char devname[32];
 void WebUI() {
     int page = webPage();
     if (page == 0) {
-        webButton(power, "Power");
+        webToggle(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
         webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
@@ -4033,7 +4034,7 @@ int mode;
 void WebUI() {
     int page = webPage();
     if (page == 0) {
-        webButton(power, "Power");
+        webToggle(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
     }
     if (page == 1) {
