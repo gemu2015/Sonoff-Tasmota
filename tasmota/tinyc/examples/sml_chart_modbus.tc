@@ -51,7 +51,11 @@ int do_save;
 int do_reset;
 
 // ── Modbus-TCP slave state ─────────────────────────────────────────────────
-#define MB_PORT 502
+// Port is user-editable via the settings page. `persist watch` so a change
+// is detected in EverySecond (changed()) and the server re-binds on the
+// new port without a reboot. Standard Modbus-TCP is 502; first-run default
+// set in main().
+persist watch int mb_port;
 
 int mb_started;          // 0 until tcpServer() succeeds (network may be down
                          // at first Every100ms — retry until it comes up)
@@ -66,10 +70,10 @@ float mb_dat[6];         // up to 3 float values (raw IEEE-754 bits in slots)
 // ============================================================================
 void mb_poll() {
     if (!mb_started) {
-        int rc = tcpServer(MB_PORT);
+        int rc = tcpServer(mb_port);
         if (rc == 0) {
             mb_started = 1;
-            addLog("sml_chart_modbus: Modbus-TCP slave on port %d", MB_PORT);
+            addLog("sml_chart_modbus: Modbus-TCP slave on port %d", mb_port);
         }
         return;                       // network not up yet — retry next tick
     }
@@ -144,6 +148,16 @@ void mb_poll() {
 void EverySecond() {
     sml_descriptor_apply();
 
+    // Port changed via the settings page → tear the listener down and let
+    // mb_poll() re-bind on the new port next Every100ms tick.
+    if (changed(mb_port)) {
+        if (mb_port < 1 || mb_port > 65535) mb_port = 502;
+        tcpClose();
+        mb_started = 0;
+        snapshot(mb_port);
+        addLog("sml_chart_modbus: Modbus-TCP port changed → %d", mb_port);
+    }
+
     if (do_reset) {
         tasmCmd("Sensor53 r", sml_pv_resp);
         do_reset = 0;
@@ -199,7 +213,7 @@ void WebCall() {
     sprintf(sml_buf, "{s}Tageseinspeisung{m}%.2f kWh{e}",   eout - sml_dval2); webSend(sml_buf);
     sprintf(sml_buf, "{s}Monatseinspeisung{m}%.2f kWh{e}",  eout - sml_mval2); webSend(sml_buf);
     sprintf(sml_buf, "{s}Jahreseinspeisung{m}%.2f kWh{e}",  eout - sml_yval2); webSend(sml_buf);
-    sprintf(sml_buf, "{s}Modbus-TCP{m}Port %d (FC03 40000/40002/40004){e}", MB_PORT);
+    sprintf(sml_buf, "{s}Modbus-TCP{m}Port %d (FC03 40000/40002/40004){e}", mb_port);
     webSend(sml_buf);
 }
 
@@ -220,7 +234,8 @@ void WebUI() {
     webSend("<hr><b>&#x1F527; Optionen</b>");
     webCheckbox(sml_sndpwr, "MQTT: Gemittelte Leistung senden");
     webSend("<hr><b>&#x1F50C; Modbus-TCP</b>");
-    sprintf(sml_buf, "<div style='font-size:11px'>Slave aktiv: Port %d &middot; FC03<br>40000=Leistung W &middot; 40002=Bezug kWh &middot; 40004=Einspeisung kWh<br>(je 2 Register, IEEE-754 float, big-endian)</div>", MB_PORT);
+    webNumber(mb_port, 1, 65535, "TCP-Port");
+    sprintf(sml_buf, "<div style='font-size:11px'>Slave aktiv: Port %d &middot; FC03<br>40000=Leistung W &middot; 40002=Bezug kWh &middot; 40004=Einspeisung kWh<br>(je 2 Register, IEEE-754 float, big-endian)</div>", mb_port);
     webSend(sml_buf);
     webSend("<hr><b>&#x1F4BE; Daten</b>");
     webButton(do_init,  "Zaehlerwerte initialisieren");
@@ -237,6 +252,9 @@ int main() {
         sml_tx_pin = -1;
     }
     if (sml_da == 0) sml_da = 1;
+    // First-run default: persisted ints are 0 until set. 0 is not a valid
+    // TCP port, so treat it as "unset" and fall back to standard 502.
+    if (mb_port < 1 || mb_port > 65535) mb_port = 502;
 
     if (sml_activ != tasm_rule) tasm_rule = sml_activ;
 
@@ -253,6 +271,6 @@ int main() {
     smlScripterLoad("/sml_meter.def");
 
     addLog("sml_chart_modbus: started rx=%d tx=%d meter=%d activ=%d sndpwr=%d mbport=%d",
-           sml_rx_pin, sml_tx_pin, sml_meter_sel, sml_activ, sml_sndpwr, MB_PORT);
+           sml_rx_pin, sml_tx_pin, sml_meter_sel, sml_activ, sml_sndpwr, mb_port);
     return 0;
 }
