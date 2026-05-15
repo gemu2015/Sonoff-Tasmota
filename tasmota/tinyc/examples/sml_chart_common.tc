@@ -1,0 +1,260 @@
+// ============================================================================
+// sml_chart_common.tc — shared chart + descriptor helpers for SML scripts
+// ============================================================================
+//
+// Helper library used by the sml_chart family (sml_chart.tc + later
+// sml_chart_pv / sml_chart_bezug / sml_chart_modbus / sml_water /
+// power_meter ports). Provides:
+//
+//   * Persist state for descriptor management, baselines and the rolling
+//     chart arrays
+//   * `sml_descriptor_apply()` — change-detect for rx/tx/filter/activ,
+//     re-runs Sensor53 r + smlApplyPins on any flip (same logic as in
+//     sml_simple.tc)
+//   * Two-stage chart-array pump: filter ring at 5 s cadence → averaged
+//     value pushed to the visible chart at 30 s / 60 s cadence (matches
+//     ottelo's `s4hf/s24hf` moving-average idiom)
+//   * `sml_chart_60s_tick()` — daily/monthly/yearly counter updates +
+//     midnight rollover with month-wrap zero-fill
+//   * `sml_chart_render_*()` — WebChart-driven 4 h / 24 h power line
+//     charts + daily / monthly column charts
+//   * `sml_chart_save() / load()` — binary persistence of the four
+//     chart arrays to `/sml_chart.bin`
+//   * `sml_render_settings_page()` — same Stromzähler / Pins / Filter
+//     panel as sml_simple, kept central so all sml_chart_* variants
+//     share one source of truth
+//
+// **No callbacks / no main() in here** — the including script wires the
+// helpers into its own EverySecond / WebUI / WebCall callbacks.
+//
+// Storage footprint (all in PSRAM on ESP32-S3-PSRAM via special_calloc):
+//   s4h:    481 ints       ≈ 1.9 KB     (4 h @ 30 s/sample)
+//   s24h:  1441 ints       ≈ 5.6 KB     (24 h @ 60 s/sample)
+//   dcon:    32 floats     ≈ 128 B
+//   mcon:    13 floats     ≈ 52 B
+//   filter rings, cursors, scratch                ≈ 200 B
+//   ---------------------------------------------------------
+//   Total chart state                              ≈ 8 KB
+// ============================================================================
+
+// Descriptor management (persist watch vars + sml_descriptor_apply +
+// sml_render_settings_panel) lives in sml_descriptor.tc — one source of
+// truth shared with sml_simple.tc and any future SML-flavoured script.
+#include "sml_descriptor.tc"
+
+// ── Energy baselines (delta against current SML kWh counter) ────────────────
+persist float sml_dval;         // daily zero point
+persist float sml_mval;         // monthly zero point
+persist float sml_yval;         // yearly zero point
+persist int   sml_da;           // last seen day-of-month (month-wrap detector)
+
+// ── Rolling-power chart arrays — head index in a separate cursor ────────────
+// MUST be float arrays — WebChart memcpy's each int32 slot into a float
+// (vm.h SYS_WEB_CHART: `memcpy(&fval, &arr[idx], sizeof(float))`). Int
+// arrays render as garbage values (bit-cast).
+persist float sml_s4h[481];     // 4 h chart, 30 s per slot
+persist float sml_s24h[1441];   // 24 h chart, 60 s per slot
+persist int   sml_s4h_pos;
+persist int   sml_s24h_pos;
+
+// ── Daily / monthly columnar totals — 0-based indexing matching WebChart's
+// ring-buffer walk (pos-count+i, mod count). Day 1 = index 0, Month 1 = 0.
+persist float sml_dcon[31];
+persist float sml_mcon[12];
+
+// ── Runtime state — moving filter rings + tick counters ─────────────────────
+int sml_s4hf[6];                // 6×5s = 30s average window for 4 h chart
+int sml_s24hf[12];              // 12×5s = 60s average window for 24 h chart
+int sml_f4_pos;
+int sml_f24_pos;
+int sml_t1;                     // 5s downcounter
+int sml_t2;                     // 60s downcounter
+int sml_hr_last;                // last seen tasm_hour (midnight edge detect)
+// sml_buf is declared in sml_descriptor.tc and shared by both modules
+
+// ============================================================================
+// Save / load chart arrays to /sml_chart.bin
+// ============================================================================
+void sml_chart_save() {
+    int h = fileOpen("/sml_chart.bin", "w");
+    if (h < 0) {
+        addLog("sml_chart_save: fileOpen failed");
+        return;
+    }
+    fileWriteBin(h, sml_s4h,  481);
+    fileWriteBin(h, sml_s24h, 1441);
+    fileWriteBin(h, sml_dcon, 31);
+    fileWriteBin(h, sml_mcon, 12);
+    fileClose(h);
+}
+
+void sml_chart_load() {
+    int h = fileOpen("/sml_chart.bin", "r");
+    if (h < 0) return;          // no file yet — arrays stay at persist defaults
+    fileReadBin(h, sml_s4h,  481);
+    fileReadBin(h, sml_s24h, 1441);
+    fileReadBin(h, sml_dcon, 31);
+    fileReadBin(h, sml_mcon, 12);
+    fileClose(h);
+}
+
+// ============================================================================
+// Init helpers — reset baselines from current meter, reset chart arrays
+// ============================================================================
+void sml_chart_init_baselines() {
+    float ein = smlGet(2);
+    sml_dval = ein;
+    sml_mval = ein;
+    sml_yval = ein;
+    sml_s4h_pos  = 0;
+    sml_s24h_pos = 0;
+    int i = 0;
+    while (i < 481)  { sml_s4h[i]  = 0.0; i = i + 1; }
+    i = 0;
+    while (i < 1441) { sml_s24h[i] = 0.0; i = i + 1; }
+    sml_chart_save();
+    addLog("sml_chart: baselines set from meter, power charts cleared");
+}
+
+void sml_chart_init_columns() {
+    int i = 0;
+    while (i < 31) { sml_dcon[i] = 0.0; i = i + 1; }
+    i = 0;
+    while (i < 12) { sml_mcon[i] = 0.0; i = i + 1; }
+    sml_chart_save();
+    addLog("sml_chart: daily + monthly column charts cleared");
+}
+
+// ============================================================================
+// 5-s tick — feed the moving-average filters and push to the rolling
+// chart arrays. Mirrors ottelo's >S "alle 5s" block exactly.
+// ============================================================================
+void sml_chart_5s_tick() {
+    int p = (int)smlGet(1);             // current power in W (int filter ring)
+    sml_s4hf[sml_f4_pos] = p;
+    sml_f4_pos = (sml_f4_pos + 1) % 6;
+    sml_s24hf[sml_f24_pos] = p;
+    sml_f24_pos = (sml_f24_pos + 1) % 12;
+
+    int sum = 0;
+    int i = 0;
+    while (i < 6) { sum = sum + sml_s4hf[i]; i = i + 1; }
+    float s4h_avg = (float)sum / 6.0;
+
+    sum = 0;
+    i = 0;
+    while (i < 12) { sum = sum + sml_s24hf[i]; i = i + 1; }
+    float s24h_avg = (float)sum / 12.0;
+
+    int idx4  = ((tasm_hour - 4 + 24) % 24) * 120 + tasm_minute * 2 + (tasm_second / 30);
+    int idx24 = tasm_hour * 60 + tasm_minute;
+    if (idx4 >= 0 && idx4 < 480) {
+        sml_s4h[idx4] = s4h_avg;
+        sml_s4h_pos = idx4;
+    }
+    if (idx24 >= 0 && idx24 < 1440) {
+        sml_s24h[idx24] = s24h_avg;
+        sml_s24h_pos = idx24;
+    }
+}
+
+// ============================================================================
+// 60-s tick — daily / monthly counters + midnight rollover.
+// Mirrors ottelo's >S "alle 60s" block (lines 244-278).
+// ============================================================================
+void sml_chart_60s_tick() {
+    float ein = smlGet(2);
+    int   d   = tasm_day;        // 1..31
+    int   m   = tasm_month;      // 1..12
+
+    if (d >= 1 && d <= 31) sml_dcon[d - 1] = ein - sml_dval;
+    if (m >= 1 && m <= 12) sml_mcon[m - 1] = ein - sml_mval;
+
+    int hr = tasm_hour;
+    if (sml_hr_last != hr && hr == 0) {
+        if (d > 1) {
+            sml_da = d;
+        } else {
+            // Month-wrap — zero out days past the previous month's length.
+            // sml_da still holds last-seen 1..31; zero indices [sml_da..30].
+            int i = sml_da;
+            while (i < 31) { sml_dcon[i] = 0.0; i = i + 1; }
+            sml_mval = ein;
+            sml_da = 1;
+        }
+        if (d == 1 && m == 1) sml_yval = ein;
+        sml_dval = ein;
+        sml_chart_save();
+    }
+    sml_hr_last = hr;
+}
+
+// ============================================================================
+// Render helpers — chart + table blocks for the WebUI main page
+// ============================================================================
+void sml_chart_render_totals() {
+    float ein = smlGet(2);
+    sprintf(sml_buf, "{s}Tagesverbrauch{m}%.2f kWh{e}",   ein - sml_dval); webSend(sml_buf);
+    sprintf(sml_buf, "{s}Monatsverbrauch{m}%.2f kWh{e}",  ein - sml_mval); webSend(sml_buf);
+    sprintf(sml_buf, "{s}Jahresverbrauch{m}%.2f kWh{e}",  ein - sml_yval); webSend(sml_buf);
+}
+
+void sml_chart_render_4h() {
+    WebChartSize(600, 280);
+    // type=0 (line), color red, interval=1 min (chart spans the array's last
+    // 480 minutes — actual data sampling is every 30 s, so two consecutive
+    // 30 s samples land in the same x-axis minute; visually negligible)
+    WebChart(0, "Verbrauch 4 Stunden [Watt]", "W", 0x3498db, sml_s4h_pos, 480, sml_s4h, 0, 1, 0.0, 0.0);
+}
+
+void sml_chart_render_24h() {
+    WebChartSize(600, 280);
+    WebChart(0, "Verbrauch 24 Stunden [Watt]", "W", 0x3498db, sml_s24h_pos, 1440, sml_s24h, 0, 1, 0.0, 0.0);
+}
+
+// ── Direct Google Charts emit — per-bar tri-color (past=green / today=red /
+//    future=blue) and day-of-month x-axis. WebChart's built-in axis
+//    formatter shows DD.MM. for >7 column points and doesn't support
+//    per-bar styles, so we bypass it for the column charts. Loader is
+//    already on the page from the WebChart line-chart calls above.
+void sml_chart_render_days() {
+    int today = tasm_day;
+    if (today < 1) today = 1;
+    webSend("<div id='sml_dch' style='text-align:center;width:600px;height:280px'></div>");
+    webSend("<script>function _smlDD(){var d=google.visualization.arrayToDataTable([['Tag','Energie [kWh]',{role:'style'}]");
+    int i = 1;
+    while (i <= 31) {
+        if (i < today)        sprintf(sml_buf, ",[%d,%.2f,'green']", i, sml_dcon[i - 1]);
+        else if (i == today)  sprintf(sml_buf, ",[%d,%.2f,'red']",   i, sml_dcon[i - 1]);
+        else                  sprintf(sml_buf, ",[%d,%.2f,'blue']",  i, sml_dcon[i - 1]);
+        webSend(sml_buf);
+        i = i + 1;
+    }
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_dch')).draw(d,{chartArea:{left:50,right:20,height:'75%'},legend:'none',title:'Tagesverbraeuche Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlDD);</script>");
+}
+
+void sml_chart_render_months() {
+    int thismon = tasm_month;
+    if (thismon < 1) thismon = 1;
+    // strToken needs the source as a resolvable char[] variable — string
+    // literals fall through tc_resolve_ref and return empty (the earlier
+    // version produced ['',12.3,...] with no month names on the x-axis).
+    char mn_names[64];
+    strcpy(mn_names, "Jan|Feb|Maer|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez");
+    char mn[6];
+    webSend("<div id='sml_mch' style='text-align:center;width:600px;height:280px'></div>");
+    webSend("<script>function _smlDM(){var d=google.visualization.arrayToDataTable([['Monat','Verbrauch [kWh]',{role:'style'}]");
+    int i = 1;
+    while (i <= 12) {
+        strToken(mn, mn_names, '|', i);
+        if (i < thismon)        sprintf(sml_buf, ",['%s',%.2f,'green']", mn, sml_mcon[i - 1]);
+        else if (i == thismon)  sprintf(sml_buf, ",['%s',%.2f,'red']",   mn, sml_mcon[i - 1]);
+        else                    sprintf(sml_buf, ",['%s',%.2f,'blue']",  mn, sml_mcon[i - 1]);
+        webSend(sml_buf);
+        i = i + 1;
+    }
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_mch')).draw(d,{chartArea:{left:50,right:30,top:30,height:'70%'},legend:'none',title:'Monatsverbraeuche Jahresansicht',vAxis:{format:'# kWh'},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlDM);</script>");
+}
+
+// Settings panel renderer is in sml_descriptor.tc as
+// `sml_render_settings_panel()` — including modules call that directly.

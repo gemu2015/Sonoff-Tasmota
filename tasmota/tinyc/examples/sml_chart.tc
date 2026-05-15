@@ -1,0 +1,176 @@
+// ============================================================================
+// sml_chart.tc — single-meter SML reader with 4h/24h power charts +
+//                  daily / monthly column charts
+//
+// TinyC port of ottelo's 1_SML_Chart.tas. Same scaffold as sml_simple.tc
+// (descriptor + pin management) plus four WebChart blocks rendering the
+// rolling-power and daily/monthly-consumption history.
+//
+// All the heavy lifting (chart-array pump, midnight rollover, save/load,
+// settings-panel rendering) is in `sml_chart_common.tc`. This file just
+// wires the helpers into Tasmota's callbacks.
+// ============================================================================
+
+#include "sml_chart_common.tc"
+
+// Uncomment to pre-fill all four chart arrays with synthetic data at boot —
+// useful for visually validating chart rendering without waiting hours for
+// real SML readings to accumulate. Comment out for production.
+#define SML_CHART_DEMO
+
+// ── Transient WebButton flags (cleared after handler fires) ─────────────────
+int do_init;     // re-baseline counters from current meter reading
+int do_init2;    // reset the daily + monthly column charts
+int do_save;     // manual save of chart arrays
+int do_reset;    // Sensor53 r without changing any settings
+
+#ifdef SML_CHART_DEMO
+// ── Synthetic chart data — purely for rendering validation ────────────────
+// 4h power: bell-shaped pulse centred halfway through, peaks ~5000 W.
+// 24h power: solar-style daily curve (zero at night, peak at midday).
+// Daily totals: cosine wave 5-30 kWh.
+// Monthly totals: seasonal swing 200-450 kWh (heating winter).
+void sml_chart_demo_fill() {
+    int i = 0;
+    while (i < 480) {
+        float x = ((float)i - 240.0) / 60.0;       // -4..+4 over 480 samples
+        float bell = cos(x * 0.5);                  // soft hump 0..1
+        if (bell < 0.0) bell = 0.0;
+        sml_s4h[i] = bell * bell * 5000.0 + 200.0;
+        i = i + 1;
+    }
+    sml_s4h_pos = 240;
+
+    i = 0;
+    while (i < 1440) {
+        float t = (float)i;
+        float solar = 0.0;
+        if (t > 360.0 && t < 1080.0) {
+            float phase = (t - 360.0) / 720.0;
+            solar = sin(phase * 3.14159);
+            solar = solar * solar * 4500.0;
+        }
+        sml_s24h[i] = solar + 150.0;
+        i = i + 1;
+    }
+    sml_s24h_pos = 720;
+
+    i = 0;
+    while (i < 31) {
+        float ph = (float)i / 31.0 * 6.28318;
+        sml_dcon[i] = 15.0 + 10.0 * cos(ph);       // 5..25 kWh wobble
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < 12) {
+        float ph = (float)i / 12.0 * 6.28318;
+        sml_mcon[i] = 325.0 + 125.0 * cos(ph);     // 200..450 kWh seasonal
+        i = i + 1;
+    }
+    addLog("sml_chart: demo data loaded into all four charts");
+}
+#endif
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+void EverySecond() {
+    // Always: descriptor / pin / filter / activ change-detect
+    sml_descriptor_apply();
+
+    // Manual reset button — one-shot
+    if (do_reset) {
+        tasmCmd("Sensor53 r", sml_buf);
+        do_reset = 0;
+    }
+
+    // Below: only run once NTP is up and the meter is actually reporting
+    if (tasm_year < 2020) return;
+    if (smlGet(2) == 0.0) return;
+
+    // Reset buttons (act once the meter is live so baselines reflect reality)
+    if (do_init)  { sml_chart_init_baselines(); do_init  = 0; }
+    if (do_init2) { sml_chart_init_columns();   do_init2 = 0; }
+    if (do_save)  { sml_chart_save();           do_save  = 0; }
+
+    // 5 s / 60 s tick scheduler — first time `_t1`/`_t2` are 0 (zero-init),
+    // tick runs and resets the counter.
+    sml_t1 = sml_t1 - 1;
+    if (sml_t1 <= 0) {
+        sml_t1 = 5;
+        sml_chart_5s_tick();
+    }
+    sml_t2 = sml_t2 - 1;
+    if (sml_t2 <= 0) {
+        sml_t2 = 60;
+        sml_chart_60s_tick();
+    }
+}
+
+// ── Tasmota main page, sensor-table row block (Scripter >W text part) ──
+void WebCall() {
+    if (!sml_activ) {
+        webSend("{s}SML{m}disabled (Rule1 off){e}");
+        return;
+    }
+    sml_chart_render_totals();
+}
+
+// ── Tasmota main page, chart block below the sensor table ──────────────
+// This is where ottelo's >W $gc(...) chart sections land in TinyC.
+void WebPage() {
+    sml_chart_render_4h();
+    sml_chart_render_24h();
+    sml_chart_render_days();
+    sml_chart_render_months();
+}
+
+// ── Dedicated settings sub-page (Scripter >w "Stromzähler / Daten") ────
+void WebUI() {
+    sml_render_settings_panel();
+    webSend("<hr><b>&#x1F4BE; Daten</b>");
+    webButton(do_init,  "Zaehlerwerte initialisieren");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen");
+    webButton(do_save,  "Diagrammdaten speichern");
+    webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
+    webButton(do_reset, "Sensor53 r");
+    webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_chart.tc</b><br>TinyC port of ottelo's 1_SML_Chart.tas</div></div>");
+}
+
+int main() {
+    // First-run pin defaults: -1 = "leave the descriptor placeholder
+    // alone until user picks". Same trick as sml_simple.tc.
+    if (sml_rx_pin == 0 && sml_tx_pin == 0) {
+        sml_rx_pin = -1;
+        sml_tx_pin = -1;
+    }
+    if (sml_da == 0) sml_da = 1;
+
+    // tasm_rule must match the persisted checkbox before SML_Init runs.
+    if (sml_activ != tasm_rule) {
+        tasm_rule = sml_activ;
+    }
+
+    sml_chart_load();
+
+#ifdef SML_CHART_DEMO
+    sml_chart_demo_fill();
+#endif
+
+    // Single button on Tasmota's menu → opens the settings sub-page (WebUI).
+    // Label kept short — the panel header inside already shows "SML Zaehler",
+    // so prefixing "SML" here just stacks redundantly with it.
+    webPageLabel(0, "Einstellungen / Daten");
+    // Clear any stale label left in slot 1 from a previous version that
+    // registered two pages — Tinyc->page_label[] persists across slot
+    // restarts, an empty string suppresses the button at render time.
+    webPageLabel(1, "");
+
+    smlScripterLoad("/sml_meter.def");
+
+    addLog("sml_chart: started rx=%d tx=%d meter=%d activ=%d",
+           sml_rx_pin, sml_tx_pin, sml_meter_sel, sml_activ);
+    return 0;
+}
