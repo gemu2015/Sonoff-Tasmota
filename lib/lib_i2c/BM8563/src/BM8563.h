@@ -24,14 +24,13 @@ typedef struct
 class BM8563 {
 public:
   BM8563();
-/*
-#if SOC_HP_I2C_NUM > 1
+#ifdef ESP32
   void setBus(uint32_t _bus) { myWire = _bus ? &Wire1 : &Wire; };
 #else
-  void setBus(uint32_t _bus) { myWire = &Wire; };
+  void setBus(uint32_t _bus) { (void)_bus; myWire = &Wire; };
 #endif
-*/
   void begin(TwoWire *wire);
+  void begin() { begin(myWire); };  // use whichever bus was last selected via setBus()
   void GetBm8563Time(void);
 
   void SetTime(RTC_TimeTypeDef* RTC_TimeStruct);
