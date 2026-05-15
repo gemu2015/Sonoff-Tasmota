@@ -2533,9 +2533,17 @@ static void HandleTinyCIde(void) {
 // Process sv= widget value updates from AJAX requests
 // Format: sv=gidx_value | sv=gidx_s_string | sv=gidx_t_HH:MM
 // Uses slot 0 for globals access (WebUI is bound to slot 0)
-static void TinyC_WebSetVar(void) {
+// `slot_idx` is the slot that owns the WebUI/WebPage being rendered.
+// /tc_ui resolves it from page_slot[]; the main-page path passes 0. A
+// hardcoded slot 0 here silently dropped every widget write for any
+// script not running in slot 0 (widgets render from the owning slot but
+// writes landed in slot 0 → "WebUI does nothing"). Takes an index, not
+// a TcSlot* — a pointer param breaks Arduino's auto-prototype (TcSlot
+// is declared later than the generated forward decl in tasmota.ino).
+static void TinyC_WebSetVar(uint8_t slot_idx) {
   if (!Tinyc) return;
-  TcSlot *s = Tinyc->slots[0];
+  if (slot_idx >= TC_MAX_VMS) return;
+  TcSlot *s = Tinyc->slots[slot_idx];
   if (!s || !s->loaded) return;
   if (!Webserver->hasArg(F("sv"))) return;
 
@@ -3158,8 +3166,9 @@ static void HandleTinyCUI(void) {
     return;
   }
 
-  // Handle sv= parameter -- widget value update
-  TinyC_WebSetVar();
+  // Handle sv= parameter -- widget value update (target the slot that
+  // owns this page, NOT a hardcoded slot 0).
+  TinyC_WebSetVar(si);
 
   // Reset WebChart state before rendering
   tc_chart_seq = 0;
@@ -4406,8 +4415,11 @@ bool Xdrv124(uint32_t function) {
       break;
 #ifdef USE_WEBSERVER
     case FUNC_WEB_GET_ARG:
-      // Process sv= widget value updates from main page AJAX (slot 0)
-      TinyC_WebSetVar();
+      // Process sv= widget value updates from main page AJAX. The main
+      // page renders WebPage() for all slots; slot 0 remains the write
+      // target here (pre-existing multi-slot main-page assumption — the
+      // /tc_ui path above is slot-accurate).
+      TinyC_WebSetVar(0);
       break;
     case FUNC_WEB_SENSOR:
       TinyCShow(false);
