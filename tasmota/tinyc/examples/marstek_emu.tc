@@ -29,6 +29,7 @@ persist float mval2;           // month baseline out
 persist float yval;            // year baseline in
 persist float yval2;           // year baseline out
 persist watch int sml_activ;   // SML enable (mirrors tasm_rule)
+persist watch int smlfo;       // SML median filter enable (0 = off, 1 = on → smlf 0/16)
 
 // ─── Runtime state ─────────────────────────────────────────────────────────
 float cpwr;                    // regulated power [W] (current)
@@ -164,9 +165,11 @@ void EverySecond() {
     //
     // React to user changes via watch/changed/snapshot: zero per-second file I/O
     // when nothing changed, re-apply on any transition. Values substitute verbatim
-    // (tx=-1 → literal "-1" = "no tx pin" in SML; smlf=0 = filter off, ottelo's default).
-    int meter_changed = changed(meter_sel);
-    int pins_changed  = changed(rx_pin) || changed(tx_pin);
+    // (tx=-1 → literal "-1" = "no tx pin" in SML; smlf follows the Median-Filter
+    // checkbox: 0 = off (ottelo's default), 16 = median).
+    int meter_changed  = changed(meter_sel);
+    int pins_changed   = changed(rx_pin) || changed(tx_pin);
+    int filter_changed = changed(smlfo);
 
     // sml_activ is the checkbox → drives tasm_rule (Rule1 bit). SML_Init bails
     // out early when Rule1 is off, so toggling this MUST force a Sensor53 r
@@ -179,12 +182,13 @@ void EverySecond() {
         snapshot(sml_activ);
     }
 
-    if (meter_changed || pins_changed || activ_changed) {
+    if (meter_changed || pins_changed || filter_changed || activ_changed) {
         if (rx_pin >= 0 || tx_pin >= 0) {
-            smlApplyPins("/sml_meter.def", rx_pin, tx_pin, 0);
+            smlApplyPins("/sml_meter.def", rx_pin, tx_pin, smlfo ? 16 : 0);
         }
         snapshot(rx_pin);
         snapshot(tx_pin);
+        snapshot(smlfo);
         // /sml_meter.def was rewritten (or newly arrived from webRepoPulldown),
         // OR Rule1 was just enabled — force SML to re-read the descriptor so
         // the new pins/meter take effect without requiring a full reboot.
@@ -335,6 +339,7 @@ void WebUI() {
     // every second (idempotent — only writes when content actually changes).
     webPulldown(rx_pin, "RX Pin",  "@getfreepins");
     webPulldown(tx_pin, "TX Pin",  "@getfreepins");
+    webCheckbox(smlfo, "Median-Filter");
 
     webSend("<hr>");
     webSend("<b>&#x1F4BE; Daten</b>");
