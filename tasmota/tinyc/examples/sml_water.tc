@@ -1,0 +1,470 @@
+// ============================================================================
+// sml_water.tc — water-meter (pulse counter, Reed contact / S0) with charts
+// ============================================================================
+//
+// TinyC port of ottelo's 6_SML_Wasseruhr.tas.
+//
+// Why standalone (not sharing sml_chart_common.tc):
+//   * Sensor is a pulse counter on a single GPIO — no rx/tx UART pair
+//   * Descriptor uses Tasmota's SML counter syntax (`+1,<pin>,c,1,-50,...`)
+//     instead of the serial-meter syntax, so the `smlApplyPins` placeholder
+//     trio (rxpin / txpin / smlf) doesn't map cleanly. We build the
+//     descriptor file ourselves at runtime via fileWrite — cleanest for a
+//     two-field config (pin + factor).
+//   * Reading is monotonic m³, not oscillating power → no moving-average
+//     filter needed. 4 h / 24 h charts show cumulative m³ directly so the
+//     slope visualises consumption rate (flat = no usage, steep = high
+//     flow). Matches ottelo's intent.
+//
+// Storage footprint (PSRAM-backed via special_calloc on ESP32-S3):
+//   sml_w_s4h:    481 floats  ≈ 1.9 KB     (4 h @ 30 s/sample)
+//   sml_w_s24h:  1441 floats  ≈ 5.6 KB     (24 h @ 60 s/sample)
+//   sml_w_dcon:    31 floats  ≈ 124 B
+//   sml_w_mcon:    12 floats  ≈ 48 B
+//   ----------------------------------------------
+//   Total chart state                       ≈ 8 KB
+//
+// Wiring + Setup:
+//   1. Connect Reed contact / S0 output of water meter to a free GPIO (with
+//      pull-up to 3V3 — Tasmota's counter mode `c,1` enables the internal
+//      pull-up. Debounce 50 ms covers typical mechanical bounce.)
+//   2. Pick the GPIO under "Einstellungen → Wasseruhr".
+//   3. Set `factor` (pulses per m³) — typical reed switches send 1
+//      pulse / 0.0001 m³ = 10000 pulses/m³ (default).
+//   4. Toggle "SML aktiv" checkbox — emits `Rule1 1` and the SML driver
+//      starts polling the counter.
+//   5. On first start the m³ counter reads from 0; set the absolute meter
+//      reading via Tasmota console: `Sensor53 c1 <reading_in_m³_×_factor>`.
+//
+// Requires: USE_SML (or USE_SML_M) + USE_UFILESYS in firmware.
+// ============================================================================
+
+// ── Persisted descriptor + factor (changeable via WebUI) ────────────────────
+persist watch int sml_w_pin;        // counter GPIO (-1 = unset, set on first boot)
+persist watch int sml_w_factor;     // pulses per m³ (default 10000)
+persist watch int sml_w_activ;      // mirrors tasm_rule bit 0
+
+// ── Consumption baselines (delta against current m³ counter) ───────────────
+persist float sml_w_dval;           // daily zero point
+persist float sml_w_mval;           // monthly zero point
+persist float sml_w_yval;           // yearly zero point
+persist int   sml_w_da;             // last seen day-of-month (month-wrap)
+
+// ── Rolling chart arrays (cumulative m³) ───────────────────────────────────
+// MUST be float arrays — WebChart bit-casts each slot to float (vm.h SYS_WEB_CHART
+// `memcpy(&fval, &arr[idx], sizeof(float))`). See sml_chart_common.tc note.
+persist float sml_w_s4h[481];       // 4 h chart, 30 s per slot
+persist float sml_w_s24h[1441];     // 24 h chart, 60 s per slot
+persist int   sml_w_s4h_pos;
+persist int   sml_w_s24h_pos;
+
+// ── Daily / monthly column arrays — 0-based indexing ───────────────────────
+persist float sml_w_dcon[31];       // m³ per day, [day-1] = today
+persist float sml_w_mcon[12];       // m³ per month, [month-1] = this month
+
+// ── Runtime state ──────────────────────────────────────────────────────────
+int sml_w_t1;                       // 5 s downcounter
+int sml_w_t2;                       // 60 s downcounter
+int sml_w_hr_last;                  // for midnight edge-detect
+char sml_w_buf[200];                // sprintf scratch
+
+// ── Transient WebButton flags ──────────────────────────────────────────────
+int do_init;        // re-baseline counters
+int do_init2;       // reset daily + monthly columns
+int do_save;        // manual save
+int do_reset;       // Sensor53 r
+
+// Uncomment to pre-fill all four charts with synthetic data — useful for
+// visually validating chart rendering without waiting for real pulses.
+//#define SML_WATER_DEMO
+
+// ============================================================================
+// Descriptor file builder — writes /sml_water.def from current pin + factor
+// ============================================================================
+//
+// Tasmota SML descriptor for a pulse counter:
+//   +1,<gpio>,c,1,-50,Wasser
+//     +1  = meter slot
+//     gpio = the configured pin
+//     c    = counter mode
+//     1    = pull-up enabled
+//     -50  = debounce window (negative = ms with IRQ-driven counting)
+//     Wasser = display name
+//   1,1-0:1.8.0*255(@<factor>,Wasseruhr,m3,Wasseruhr,4)
+//     1     = meter slot
+//     1-0:1.8.0*255 = OBIS "energy in" — repurposed for cumulative m³
+//     @<factor> = divisor (pulses per m³)
+//     Wasseruhr = field name
+//     m3        = unit (ASCII-safe in SML config)
+//     Wasseruhr = JSON key
+//     4         = decimal places
+//   # = end of descriptor block
+//
+// Idempotent — caller skips re-write when pin/factor unchanged.
+void sml_water_write_descriptor() {
+    if (sml_w_pin < 0 || sml_w_factor <= 0) return;
+    int h = fileOpen("/sml_water.def", "w");
+    if (h < 0) {
+        addLog("sml_water: cannot open /sml_water.def for write");
+        return;
+    }
+    // Build the whole descriptor in one buffer then write once. Passing a
+    // string literal to fileWrite() makes the compiler emit
+    // SYS_FILE_WRITE_STR (259) which has no firmware handler (CLAUDE.md
+    // §11 known gap → "Unknown syscall" at runtime) — so the trailing
+    // "#\n" terminator must come from a char[], not a literal.
+    sprintf(sml_w_buf,
+            "+1,%d,c,1,-50,Wasser\n1,1-0:1.8.0*255(@%d,Wasseruhr,m3,Wasseruhr,4)\n#\n",
+            sml_w_pin, sml_w_factor);
+    fileWrite(h, sml_w_buf, strlen(sml_w_buf));
+    fileClose(h);
+    addLog("sml_water: wrote /sml_water.def pin=%d factor=%d", sml_w_pin, sml_w_factor);
+}
+
+// ============================================================================
+// Change-detect + re-apply: descriptor / pin / factor / activ.
+// ============================================================================
+void sml_water_apply() {
+    int pin_changed     = changed(sml_w_pin);
+    int factor_changed  = changed(sml_w_factor);
+    int activ_changed   = changed(sml_w_activ);
+
+    if (activ_changed) {
+        tasm_rule = sml_w_activ;
+        snapshot(sml_w_activ);
+    }
+    if (pin_changed || factor_changed) {
+        sml_water_write_descriptor();
+        snapshot(sml_w_pin);
+        snapshot(sml_w_factor);
+        tasmCmd("Sensor53 r", sml_w_buf);
+    }
+}
+
+// ============================================================================
+// Save / load chart arrays to /sml_water.bin
+// ============================================================================
+void sml_water_save() {
+    int h = fileOpen("/sml_water.bin", "w");
+    if (h < 0) {
+        addLog("sml_water_save: fileOpen failed");
+        return;
+    }
+    fileWriteBin(h, sml_w_s4h,  481);
+    fileWriteBin(h, sml_w_s24h, 1441);
+    fileWriteBin(h, sml_w_dcon, 31);
+    fileWriteBin(h, sml_w_mcon, 12);
+    fileClose(h);
+}
+
+void sml_water_load() {
+    int h = fileOpen("/sml_water.bin", "r");
+    if (h < 0) return;
+    fileReadBin(h, sml_w_s4h,  481);
+    fileReadBin(h, sml_w_s24h, 1441);
+    fileReadBin(h, sml_w_dcon, 31);
+    fileReadBin(h, sml_w_mcon, 12);
+    fileClose(h);
+}
+
+// ============================================================================
+// Init helpers — reset baselines + clear chart arrays
+// ============================================================================
+void sml_water_init_baselines() {
+    float total = smlGet(1);
+    sml_w_dval = total;
+    sml_w_mval = total;
+    sml_w_yval = total;
+    sml_w_s4h_pos  = 0;
+    sml_w_s24h_pos = 0;
+    int i = 0;
+    while (i < 481)  { sml_w_s4h[i]  = 0.0; i = i + 1; }
+    i = 0;
+    while (i < 1441) { sml_w_s24h[i] = 0.0; i = i + 1; }
+    sml_water_save();
+    addLog("sml_water: baselines set from meter, 4h/24h charts cleared");
+}
+
+void sml_water_init_columns() {
+    int i = 0;
+    while (i < 31) { sml_w_dcon[i] = 0.0; i = i + 1; }
+    i = 0;
+    while (i < 12) { sml_w_mcon[i] = 0.0; i = i + 1; }
+    sml_water_save();
+    addLog("sml_water: daily + monthly column charts cleared");
+}
+
+// ============================================================================
+// 5-s tick — sample current m³ and push to the rolling chart arrays.
+// Cumulative m³ goes in directly (no moving-average filter — the counter
+// is monotonic, averaging just adds lag for no smoothing benefit).
+// ============================================================================
+void sml_water_5s_tick() {
+    float total = smlGet(1);
+
+    int idx4  = ((tasm_hour - 4 + 24) % 24) * 120 + tasm_minute * 2 + (tasm_second / 30);
+    int idx24 = tasm_hour * 60 + tasm_minute;
+    if (idx4 >= 0 && idx4 < 480) {
+        sml_w_s4h[idx4] = total;
+        sml_w_s4h_pos = idx4;
+    }
+    if (idx24 >= 0 && idx24 < 1440) {
+        sml_w_s24h[idx24] = total;
+        sml_w_s24h_pos = idx24;
+    }
+}
+
+// ============================================================================
+// 60-s tick — daily / monthly counters + midnight rollover.
+// Identical structure to sml_chart_common's 60 s tick but in m³.
+// ============================================================================
+void sml_water_60s_tick() {
+    float total = smlGet(1);
+    int   d   = tasm_day;
+    int   m   = tasm_month;
+
+    if (d >= 1 && d <= 31) sml_w_dcon[d - 1] = total - sml_w_dval;
+    if (m >= 1 && m <= 12) sml_w_mcon[m - 1] = total - sml_w_mval;
+
+    int hr = tasm_hour;
+    if (sml_w_hr_last != hr && hr == 0) {
+        if (d > 1) {
+            sml_w_da = d;
+        } else {
+            int i = sml_w_da;
+            while (i < 31) { sml_w_dcon[i] = 0.0; i = i + 1; }
+            sml_w_mval = total;
+            sml_w_da = 1;
+        }
+        if (d == 1 && m == 1) sml_w_yval = total;
+        sml_w_dval = total;
+        sml_water_save();
+    }
+    sml_w_hr_last = hr;
+}
+
+// ============================================================================
+// Render: totals row on the main sensor page
+// ============================================================================
+void sml_water_render_totals() {
+    float total = smlGet(1);
+    sprintf(sml_w_buf, "{s}Zaehlerstand{m}%.4f m&sup3;{e}", total);             webSend(sml_w_buf);
+    sprintf(sml_w_buf, "{s}Tagesverbrauch{m}%.4f m&sup3;{e}", total - sml_w_dval); webSend(sml_w_buf);
+    sprintf(sml_w_buf, "{s}Monatsverbrauch{m}%.3f m&sup3;{e}", total - sml_w_mval); webSend(sml_w_buf);
+    sprintf(sml_w_buf, "{s}Jahresverbrauch{m}%.3f m&sup3;{e}", total - sml_w_yval); webSend(sml_w_buf);
+}
+
+// ============================================================================
+// Render: WebChart line charts (4 h + 24 h cumulative m³)
+// ============================================================================
+void sml_water_render_4h() {
+    WebChartSize(600, 280);
+    // type=0 (line), color=blue, 4 decimals, interval=1 min, ymin/ymax=0 (auto)
+    WebChart(0, "Verbrauch 4 Stunden [m\xC2\xB3]", "m\xC2\xB3", 0x3498db,
+             sml_w_s4h_pos, 480, sml_w_s4h, 4, 1, 0.0, 0.0);
+}
+
+void sml_water_render_24h() {
+    WebChartSize(600, 280);
+    WebChart(0, "Verbrauch 24 Stunden [m\xC2\xB3]", "m\xC2\xB3", 0x3498db,
+             sml_w_s24h_pos, 1440, sml_w_s24h, 4, 1, 0.0, 0.0);
+}
+
+// ============================================================================
+// Render: daily + monthly column charts — direct Google Charts emit so we
+// get per-bar tri-color (past=green / today=red / future=blue). Same idiom
+// as in sml_chart_common.tc render_days/render_months.
+// ============================================================================
+void sml_water_render_days() {
+    int today = tasm_day;
+    if (today < 1) today = 1;
+    webSend("<div id='smlw_dch' style='text-align:center;width:600px;height:280px'></div>");
+    webSend("<script>function _smlwDD(){var d=google.visualization.arrayToDataTable([['Tag','Verbrauch [m³]',{role:'style'}]");
+    int i = 1;
+    while (i <= 31) {
+        if (i < today)        sprintf(sml_w_buf, ",[%d,%.4f,'green']", i, sml_w_dcon[i - 1]);
+        else if (i == today)  sprintf(sml_w_buf, ",[%d,%.4f,'red']",   i, sml_w_dcon[i - 1]);
+        else                  sprintf(sml_w_buf, ",[%d,%.4f,'blue']",  i, sml_w_dcon[i - 1]);
+        webSend(sml_w_buf);
+        i = i + 1;
+    }
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('smlw_dch')).draw(d,{chartArea:{left:60,right:20,height:'75%'},legend:'none',title:'Tagesverbraeuche Monatsansicht',vAxis:{format:'# m³'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlwDD);</script>");
+}
+
+void sml_water_render_months() {
+    int thismon = tasm_month;
+    if (thismon < 1) thismon = 1;
+    char mn_names[64];
+    strcpy(mn_names, "Jan|Feb|Maer|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez");
+    char mn[6];
+    webSend("<div id='smlw_mch' style='text-align:center;width:600px;height:280px'></div>");
+    webSend("<script>function _smlwDM(){var d=google.visualization.arrayToDataTable([['Monat','Verbrauch [m³]',{role:'style'}]");
+    int i = 1;
+    while (i <= 12) {
+        strToken(mn, mn_names, '|', i);
+        if (i < thismon)        sprintf(sml_w_buf, ",['%s',%.3f,'green']", mn, sml_w_mcon[i - 1]);
+        else if (i == thismon)  sprintf(sml_w_buf, ",['%s',%.3f,'red']",   mn, sml_w_mcon[i - 1]);
+        else                    sprintf(sml_w_buf, ",['%s',%.3f,'blue']",  mn, sml_w_mcon[i - 1]);
+        webSend(sml_w_buf);
+        i = i + 1;
+    }
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('smlw_mch')).draw(d,{chartArea:{left:60,right:30,top:30,height:'70%'},legend:'none',title:'Monatsverbraeuche Jahresansicht',vAxis:{format:'# m³'},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlwDM);</script>");
+}
+
+// ============================================================================
+// Settings panel — counter pin pulldown + factor input + activ checkbox
+// ============================================================================
+void sml_water_render_settings_panel() {
+    webSend("<style>.sml-p{max-width:340px;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.sml-p h3{margin:0 0 8px}.sml-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.sml-p b{display:inline-block;margin-bottom:4px;font-size:13px}.sml-p div{margin:6px 0}.sml-p .hint{font-size:9px;color:#555;line-height:1.4}</style>");
+    webSend("<div class='sml-p'><h3>&#x1F6B0; Wasseruhr</h3>");
+    int up_d = tasm_uptime / 86400;
+    int up_h = (tasm_uptime / 3600) % 24;
+    int up_m = (tasm_uptime / 60) % 60;
+    sprintf(sml_w_buf, "<div>Uptime: %d d %d h %d min</div>", up_d, up_h, up_m);
+    webSend(sml_w_buf);
+
+    webCheckbox(sml_w_activ, "SML Zaehler aktiv");
+    webSend("&#x1F4DD; <a href='/ufse?file=/sml_water.def'>Descriptor bearbeiten</a>");
+
+    webSend("<hr><b>&#x1F50C; Counter-GPIO</b>");
+    webPulldown(sml_w_pin, "Pin (Reed/S0)", "@getfreepins");
+    webSend("<div class='hint'>Reed contact / S0 output of the meter. Internal pull-up enabled, 50 ms debounce.</div>");
+
+    webSend("<hr><b>&#x2696;&#xFE0F; Faktor</b>");
+    webNumber(sml_w_factor, 1, 1000000, "Pulses per m&sup3;");
+    webSend("<div class='hint'>10000 = 1 pulse / 0.0001 m&sup3;<br>1000 = 1 pulse / 0.001 m&sup3; (1 L)</div>");
+}
+
+#ifdef SML_WATER_DEMO
+// ── Synthetic chart data — purely for rendering validation ────────────────
+void sml_water_demo_fill() {
+    // 4h: smooth cumulative curve, starts at 100 m³, +5 m³ over 4h
+    int i = 0;
+    while (i < 480) {
+        float t = (float)i / 480.0;
+        sml_w_s4h[i] = 100.0 + 5.0 * t;
+        i = i + 1;
+    }
+    sml_w_s4h_pos = 240;
+
+    // 24h: similar but over 24h, +30 m³
+    i = 0;
+    while (i < 1440) {
+        float t = (float)i / 1440.0;
+        sml_w_s24h[i] = 80.0 + 30.0 * t;
+        i = i + 1;
+    }
+    sml_w_s24h_pos = 720;
+
+    // Daily: 0.2..1.5 m³ per day
+    i = 0;
+    while (i < 31) {
+        float ph = (float)i / 31.0 * 6.28318;
+        sml_w_dcon[i] = 0.85 + 0.65 * cos(ph);
+        i = i + 1;
+    }
+
+    // Monthly: 8..25 m³ per month
+    i = 0;
+    while (i < 12) {
+        float ph = (float)i / 12.0 * 6.28318;
+        sml_w_mcon[i] = 16.0 + 8.0 * cos(ph);
+        i = i + 1;
+    }
+    addLog("sml_water: demo data loaded into all four charts");
+}
+#endif
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+void EverySecond() {
+    sml_water_apply();
+
+    // Manual reset button — one-shot
+    if (do_reset) {
+        tasmCmd("Sensor53 r", sml_w_buf);
+        do_reset = 0;
+    }
+
+    if (tasm_year < 2020) return;
+    if (sml_w_pin < 0) return;          // no pin picked yet → idle
+
+    if (do_init)  { sml_water_init_baselines(); do_init  = 0; }
+    if (do_init2) { sml_water_init_columns();   do_init2 = 0; }
+    if (do_save)  { sml_water_save();           do_save  = 0; }
+
+    sml_w_t1 = sml_w_t1 - 1;
+    if (sml_w_t1 <= 0) {
+        sml_w_t1 = 5;
+        sml_water_5s_tick();
+    }
+    sml_w_t2 = sml_w_t2 - 1;
+    if (sml_w_t2 <= 0) {
+        sml_w_t2 = 60;
+        sml_water_60s_tick();
+    }
+}
+
+// ── Main page, sensor-table block ──
+void WebCall() {
+    if (!sml_w_activ) {
+        webSend("{s}Wasseruhr{m}disabled (Rule1 off){e}");
+        return;
+    }
+    sml_water_render_totals();
+}
+
+// ── Main page, chart block below sensors ──
+void WebPage() {
+    sml_water_render_4h();
+    sml_water_render_24h();
+    sml_water_render_days();
+    sml_water_render_months();
+}
+
+// ── Settings sub-page (menu button) ──
+void WebUI() {
+    sml_water_render_settings_panel();
+    webSend("<hr><b>&#x1F4BE; Daten</b>");
+    webButton(do_init,  "Zaehlerwerte initialisieren");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen");
+    webButton(do_save,  "Diagrammdaten speichern");
+    webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
+    webButton(do_reset, "Sensor53 r");
+    webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_water.tc</b><br>TinyC port of ottelo's 6_SML_Wasseruhr.tas</div></div>");
+}
+
+int main() {
+    // First-run defaults: pin -1 (unset), factor 10000 (typical reed switch).
+    // sml_w_factor == 0 is the "uninitialized" sentinel — a 0 factor would
+    // divide-by-zero in SML's reading-scale calculation.
+    if (sml_w_pin == 0 && sml_w_factor == 0) sml_w_pin = -1;
+    if (sml_w_factor == 0) sml_w_factor = 10000;
+    if (sml_w_da == 0)     sml_w_da = 1;
+
+    if (sml_w_activ != tasm_rule) {
+        tasm_rule = sml_w_activ;
+    }
+
+    sml_water_load();
+
+#ifdef SML_WATER_DEMO
+    sml_water_demo_fill();
+#endif
+
+    // Make sure descriptor file is in sync with persisted settings at boot —
+    // if the user changed factor/pin between FW reboots, the .def file might
+    // be stale.
+    sml_water_write_descriptor();
+
+    webPageLabel(0, "Einstellungen / Daten");
+    webPageLabel(1, "");                     // clear any stale slot-1 label
+
+    smlScripterLoad("/sml_water.def");
+
+    addLog("sml_water: started pin=%d factor=%d activ=%d",
+           sml_w_pin, sml_w_factor, sml_w_activ);
+    return 0;
+}
