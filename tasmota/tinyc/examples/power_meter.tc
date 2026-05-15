@@ -1,0 +1,430 @@
+// ============================================================================
+// power_meter.tc — energy-metering smart plug power + consumption charts
+// ============================================================================
+//
+// TinyC port of ottelo's 5_SteckdoseLeistungsmesser_1.tas and _2.tas.
+//
+// For smart plugs / inline meters that expose the Tasmota ENERGY driver
+// (Sonoff POW Elite, POW320D, NOUS A8T, …). No SML, no descriptor, no
+// serial pins — `sensorGet("ENERGY#Power")` / `sensorGet("ENERGY#Total")`
+// read the built-in energy sensor directly.
+//
+// The two ottelo variants differ ONLY in the high-resolution chart
+// granularity — everything else (24 h chart, daily / monthly columns,
+// power2 smoothing, MQTT option) is identical. They collapse into one
+// file with a single compile-time toggle:
+//
+//   default (variant 1)        : 4 h chart, 30 s/sample, 480 samples
+//   -DPOWER_METER_HIRES (var 2): 1 h chart,  5 s/sample, 720 samples
+//
+// Storage footprint (PSRAM-backed via special_calloc on ESP32-S3):
+//   pm_s4h:   481 or 721 floats   ≈ 1.9 / 2.8 KB
+//   pm_s24h:      1441 floats     ≈ 5.6 KB
+//   pm_dcon:        31 floats     ≈ 124 B
+//   pm_mcon:        12 floats     ≈ 48 B
+//   -----------------------------------------------
+//   Total chart state             ≈ 8–9 KB
+//
+// Setup: just flash a smart plug with this script in a TinyC slot. The
+// ENERGY driver is always live on these devices — no Rule1 / Sensor53.
+// Use the menu button "Einstellungen / Daten" to reset baselines or
+// toggle the optional MQTT publish of the smoothed power value.
+//
+// Requires: a device with USE_ENERGY_SENSOR + USE_UFILESYS.
+// ============================================================================
+
+// ── High-resolution chart toggle ───────────────────────────────────────────
+// Uncomment for variant 2 (1 h chart, 5 s resolution). Leave commented for
+// variant 1 (4 h chart, 30 s resolution).
+//#define POWER_METER_HIRES
+
+#ifdef POWER_METER_HIRES
+  #define PM_S4H_LEN      721
+  #define PM_S4H_DATA     720
+  #define PM_S4H_PERHOUR  720       // samples per hour on the hi-res chart
+  #define PM_S4H_MINMUL   12        // = PERHOUR / 60
+  #define PM_S4H_SECDIV   5         // sample every 5 s
+  #define PM_S4H_HOURS    1
+  #define PM_S4H_TITLE    "Leistung 1 Stunde [Watt]"
+#else
+  #define PM_S4H_LEN      481
+  #define PM_S4H_DATA     480
+  #define PM_S4H_PERHOUR  120
+  #define PM_S4H_MINMUL   2
+  #define PM_S4H_SECDIV   30
+  #define PM_S4H_HOURS    4
+  #define PM_S4H_TITLE    "Leistung 4 Stunden [Watt]"
+#endif
+
+// ── Persisted energy baselines (delta against ENERGY#Total) ─────────────────
+persist float pm_dval;          // daily zero point [kWh]
+persist float pm_mval;          // monthly zero point
+persist float pm_yval;          // yearly zero point
+persist int   pm_da;            // last-seen day-of-month (month-wrap)
+persist int   pm_sndpwr;        // 1 = publish smoothed power over MQTT
+
+// ── Rolling power chart arrays (MUST be float — WebChart bit-casts) ──────────
+persist float pm_s4h[PM_S4H_LEN];
+persist float pm_s24h[1441];    // 24 h chart, 60 s per slot
+persist int   pm_s4h_pos;
+persist int   pm_s24h_pos;
+
+// ── Daily / monthly column arrays — 0-based ─────────────────────────────────
+persist float pm_dcon[31];      // kWh per day, [day-1] = today
+persist float pm_mcon[12];      // kWh per month, [month-1] = this month
+
+// ── Runtime state ──────────────────────────────────────────────────────────
+int   pm_s4hf[6];               // 6-sample moving-average ring (4 h / 1 h chart)
+int   pm_s24hf[12];             // 12-sample ring (24 h chart)
+int   pm_f4_pos;
+int   pm_f24_pos;
+int   pm_t1;                    // 5 s downcounter
+int   pm_t2;                    // 60 s downcounter
+int   pm_hr_last;               // midnight edge-detect
+float pm_power2;                // exponentially-smoothed power (DPL feed)
+char  pm_buf[200];
+
+// ── Transient WebButton flags ──────────────────────────────────────────────
+int do_init;
+int do_init2;
+int do_save;
+
+// Uncomment to pre-fill all four charts with synthetic data for visual
+// validation without waiting for real energy readings to accumulate.
+//#define POWER_METER_DEMO
+
+// ============================================================================
+// Save / load chart arrays to /power_meter.bin
+// ============================================================================
+void pm_save() {
+    int h = fileOpen("/power_meter.bin", "w");
+    if (h < 0) {
+        addLog("power_meter_save: fileOpen failed");
+        return;
+    }
+    fileWriteBin(h, pm_s4h,  PM_S4H_LEN);
+    fileWriteBin(h, pm_s24h, 1441);
+    fileWriteBin(h, pm_dcon, 31);
+    fileWriteBin(h, pm_mcon, 12);
+    fileClose(h);
+}
+
+void pm_load() {
+    int h = fileOpen("/power_meter.bin", "r");
+    if (h < 0) return;
+    fileReadBin(h, pm_s4h,  PM_S4H_LEN);
+    fileReadBin(h, pm_s24h, 1441);
+    fileReadBin(h, pm_dcon, 31);
+    fileReadBin(h, pm_mcon, 12);
+    fileClose(h);
+}
+
+// ============================================================================
+// Init helpers
+// ============================================================================
+void pm_init_baselines() {
+    float total = sensorGet("ENERGY#Total");
+    pm_dval = total;
+    pm_mval = total;
+    pm_yval = total;
+    pm_s4h_pos  = 0;
+    pm_s24h_pos = 0;
+    int i = 0;
+    while (i < PM_S4H_LEN) { pm_s4h[i]  = 0.0; i = i + 1; }
+    i = 0;
+    while (i < 1441)       { pm_s24h[i] = 0.0; i = i + 1; }
+    pm_save();
+    addLog("power_meter: baselines set from ENERGY#Total, power charts cleared");
+}
+
+void pm_init_columns() {
+    int i = 0;
+    while (i < 31) { pm_dcon[i] = 0.0; i = i + 1; }
+    i = 0;
+    while (i < 12) { pm_mcon[i] = 0.0; i = i + 1; }
+    pm_save();
+    addLog("power_meter: daily + monthly column charts cleared");
+}
+
+// ============================================================================
+// 5-s tick — moving-average filter feed + push to rolling charts.
+// Mirrors ottelo's >S "alle 5s" block. The hi-res variant pushes a new
+// 4 h-chart slot every 5 s; the default variant every 30 s (idx4 changes
+// at the configured cadence).
+// ============================================================================
+void pm_5s_tick() {
+    float pf = sensorGet("ENERGY#Power");
+    int   p  = (int)pf;
+
+    pm_s4hf[pm_f4_pos] = p;
+    pm_f4_pos = (pm_f4_pos + 1) % 6;
+    pm_s24hf[pm_f24_pos] = p;
+    pm_f24_pos = (pm_f24_pos + 1) % 12;
+
+    int sum = 0;
+    int i = 0;
+    while (i < 6) { sum = sum + pm_s4hf[i]; i = i + 1; }
+    float s4h_avg = (float)sum / 6.0;
+
+    sum = 0;
+    i = 0;
+    while (i < 12) { sum = sum + pm_s24hf[i]; i = i + 1; }
+    float s24h_avg = (float)sum / 12.0;
+
+    int idx4  = ((tasm_hour - PM_S4H_HOURS + 24) % 24) * PM_S4H_PERHOUR
+                + tasm_minute * PM_S4H_MINMUL + (tasm_second / PM_S4H_SECDIV);
+    int idx24 = tasm_hour * 60 + tasm_minute;
+    if (idx4 >= 0 && idx4 < PM_S4H_DATA) {
+        pm_s4h[idx4] = s4h_avg;
+        pm_s4h_pos = idx4;
+    }
+    if (idx24 >= 0 && idx24 < 1440) {
+        pm_s24h[idx24] = s24h_avg;
+        pm_s24h_pos = idx24;
+    }
+
+    // Exponentially-smoothed power (ottelo's `power2` — feed for e.g.
+    // opendtu-onbattery DPL). 0.9 old + 0.1 new.
+    pm_power2 = 0.9 * pm_power2 + 0.1 * pf;
+    if (pm_sndpwr) {
+        // TinyC's mqttPublish() needs const-pool string args (no runtime
+        // payload) and doesn't do Scripter's %topic% substitution. Use
+        // Tasmota's `Publish` console command instead — tasmInfo(0) gives
+        // the device MQTT topic so the published topic matches ottelo's
+        // `stat/%topic%/script/power2`.
+        char tp[64];
+        tasmInfo(0, tp);
+        sprintf(pm_buf, "Publish stat/%s/script/power2 %.0f", tp, pm_power2);
+        tasmCmd(pm_buf, tp);            // tp reused as response scratch
+    }
+}
+
+// ============================================================================
+// 60-s tick — daily / monthly counters + midnight rollover.
+// ============================================================================
+void pm_60s_tick() {
+    float total = sensorGet("ENERGY#Total");
+    int   d   = tasm_day;
+    int   m   = tasm_month;
+
+    if (d >= 1 && d <= 31) pm_dcon[d - 1] = total - pm_dval;
+    if (m >= 1 && m <= 12) pm_mcon[m - 1] = total - pm_mval;
+
+    int hr = tasm_hour;
+    if (pm_hr_last != hr && hr == 0) {
+        if (d > 1) {
+            pm_da = d;
+        } else {
+            int i = pm_da;
+            while (i < 31) { pm_dcon[i] = 0.0; i = i + 1; }
+            pm_mval = total;
+            pm_da = 1;
+        }
+        if (d == 1 && m == 1) pm_yval = total;
+        pm_dval = total;
+        pm_save();
+    }
+    pm_hr_last = hr;
+}
+
+// ============================================================================
+// Render: totals row on the main sensor page
+// ============================================================================
+void pm_render_totals() {
+    float total = sensorGet("ENERGY#Total");
+    sprintf(pm_buf, "{s}Leistung (gefiltert){m}%.0f W{e}", pm_power2);          webSend(pm_buf);
+    sprintf(pm_buf, "{s}Tagesverbrauch{m}%.2f kWh{e}",   total - pm_dval); webSend(pm_buf);
+    sprintf(pm_buf, "{s}Monatsverbrauch{m}%.2f kWh{e}",  total - pm_mval); webSend(pm_buf);
+    sprintf(pm_buf, "{s}Jahresverbrauch{m}%.2f kWh{e}",  total - pm_yval); webSend(pm_buf);
+}
+
+// ============================================================================
+// Render: WebChart line charts (4 h / 1 h + 24 h power)
+// ============================================================================
+void pm_render_4h() {
+    WebChartSize(600, 280);
+    WebChart(0, PM_S4H_TITLE, "W", 0x3498db, pm_s4h_pos, PM_S4H_DATA, pm_s4h, 0, 1, 0.0, 0.0);
+}
+
+void pm_render_24h() {
+    WebChartSize(600, 280);
+    WebChart(0, "Leistung 24 Stunden [Watt]", "W", 0x3498db, pm_s24h_pos, 1440, pm_s24h, 0, 1, 0.0, 0.0);
+}
+
+// ============================================================================
+// Render: daily + monthly column charts — direct Google Charts emit for
+// per-bar tri-color (past=green / today=red / future=blue). Same idiom
+// as sml_chart_common.tc.
+// ============================================================================
+void pm_render_days() {
+    int today = tasm_day;
+    if (today < 1) today = 1;
+    webSend("<div id='pm_dch' style='text-align:center;width:600px;height:280px'></div>");
+    webSend("<script>function _pmDD(){var d=google.visualization.arrayToDataTable([['Tag','Energie [kWh]',{role:'style'}]");
+    int i = 1;
+    while (i <= 31) {
+        if (i < today)        sprintf(pm_buf, ",[%d,%.2f,'green']", i, pm_dcon[i - 1]);
+        else if (i == today)  sprintf(pm_buf, ",[%d,%.2f,'red']",   i, pm_dcon[i - 1]);
+        else                  sprintf(pm_buf, ",[%d,%.2f,'blue']",  i, pm_dcon[i - 1]);
+        webSend(pm_buf);
+        i = i + 1;
+    }
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('pm_dch')).draw(d,{chartArea:{left:50,right:20,height:'75%'},legend:'none',title:'Tagesverbraeuche Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_pmDD);</script>");
+}
+
+void pm_render_months() {
+    int thismon = tasm_month;
+    if (thismon < 1) thismon = 1;
+    char mn_names[64];
+    strcpy(mn_names, "Jan|Feb|Maer|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez");
+    char mn[6];
+    webSend("<div id='pm_mch' style='text-align:center;width:600px;height:280px'></div>");
+    webSend("<script>function _pmDM(){var d=google.visualization.arrayToDataTable([['Monat','Verbrauch [kWh]',{role:'style'}]");
+    int i = 1;
+    while (i <= 12) {
+        strToken(mn, mn_names, '|', i);
+        if (i < thismon)        sprintf(pm_buf, ",['%s',%.2f,'green']", mn, pm_mcon[i - 1]);
+        else if (i == thismon)  sprintf(pm_buf, ",['%s',%.2f,'red']",   mn, pm_mcon[i - 1]);
+        else                    sprintf(pm_buf, ",['%s',%.2f,'blue']",  mn, pm_mcon[i - 1]);
+        webSend(pm_buf);
+        i = i + 1;
+    }
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('pm_mch')).draw(d,{chartArea:{left:50,right:30,top:30,height:'70%'},legend:'none',title:'Monatsverbraeuche Jahresansicht',vAxis:{format:'# kWh'},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_pmDM);</script>");
+}
+
+// ============================================================================
+// Settings panel
+// ============================================================================
+void pm_render_settings_panel() {
+    webSend("<style>.sml-p{max-width:340px;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.sml-p h3{margin:0 0 8px}.sml-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.sml-p b{display:inline-block;margin-bottom:4px;font-size:13px}.sml-p div{margin:6px 0}.sml-p .hint{font-size:9px;color:#555;line-height:1.4}</style>");
+    webSend("<div class='sml-p'><h3>&#x1F50C; Leistungsmesser</h3>");
+    int up_d = tasm_uptime / 86400;
+    int up_h = (tasm_uptime / 3600) % 24;
+    int up_m = (tasm_uptime / 60) % 60;
+    sprintf(pm_buf, "<div>Uptime: %d d %d h %d min</div>", up_d, up_h, up_m);
+    webSend(pm_buf);
+    float total = sensorGet("ENERGY#Total");
+    float pwr   = sensorGet("ENERGY#Power");
+    sprintf(pm_buf, "<div>Aktuell: %.0f W &nbsp;|&nbsp; Zaehler: %.2f kWh</div>", pwr, total);
+    webSend(pm_buf);
+
+    webSend("<hr><b>&#x1F527; Optionen</b>");
+    webCheckbox(pm_sndpwr, "Gemittelte Leistung per MQTT senden");
+    webSend("<div class='hint'>Publishes stat/&lt;topic&gt;/script/power2 every 5 s — feed for e.g. opendtu-onbattery DPL.</div>");
+}
+
+#ifdef POWER_METER_DEMO
+// ── Synthetic chart data — purely for rendering validation ────────────────
+void pm_demo_fill() {
+    int i = 0;
+    while (i < PM_S4H_DATA) {
+        float x = ((float)i - (float)PM_S4H_DATA / 2.0) / ((float)PM_S4H_DATA / 8.0);
+        float bell = cos(x * 0.5);
+        if (bell < 0.0) bell = 0.0;
+        pm_s4h[i] = bell * bell * 2200.0 + 80.0;
+        i = i + 1;
+    }
+    pm_s4h_pos = PM_S4H_DATA / 2;
+
+    i = 0;
+    while (i < 1440) {
+        float t = (float)i;
+        float v = 0.0;
+        if (t > 360.0 && t < 1320.0) {
+            float ph = (t - 360.0) / 960.0;
+            v = sin(ph * 3.14159);
+            v = v * v * 1800.0;
+        }
+        pm_s24h[i] = v + 60.0;
+        i = i + 1;
+    }
+    pm_s24h_pos = 720;
+
+    i = 0;
+    while (i < 31) {
+        float ph = (float)i / 31.0 * 6.28318;
+        pm_dcon[i] = 4.5 + 3.0 * cos(ph);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 12) {
+        float ph = (float)i / 12.0 * 6.28318;
+        pm_mcon[i] = 135.0 + 60.0 * cos(ph);
+        i = i + 1;
+    }
+    addLog("power_meter: demo data loaded into all four charts");
+}
+#endif
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+void EverySecond() {
+    if (tasm_year < 2020) return;
+    // Wait for the energy driver to report something (Scripter: enrg[1]==0)
+    if (sensorGet("ENERGY#Power") == 0.0 && sensorGet("ENERGY#Total") == 0.0) {
+        // still allow the very first reading of exactly 0 W after warmup —
+        // a plugged-in idle device legitimately reads 0 W but has a Total
+        // > 0; only skip when BOTH are zero (driver not up yet).
+        return;
+    }
+
+    if (do_init)  { pm_init_baselines(); do_init  = 0; }
+    if (do_init2) { pm_init_columns();   do_init2 = 0; }
+    if (do_save)  { pm_save();           do_save  = 0; }
+
+    pm_t1 = pm_t1 - 1;
+    if (pm_t1 <= 0) {
+        pm_t1 = 5;
+        pm_5s_tick();
+    }
+    pm_t2 = pm_t2 - 1;
+    if (pm_t2 <= 0) {
+        pm_t2 = 60;
+        pm_60s_tick();
+    }
+}
+
+// ── Main page, sensor-table block ──
+void WebCall() {
+    pm_render_totals();
+}
+
+// ── Main page, chart block below sensors ──
+void WebPage() {
+    pm_render_4h();
+    pm_render_24h();
+    pm_render_days();
+    pm_render_months();
+}
+
+// ── Settings sub-page (menu button) ──
+void WebUI() {
+    pm_render_settings_panel();
+    webSend("<hr><b>&#x1F4BE; Daten</b>");
+    webButton(do_init,  "Werte initialisieren");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen");
+    webButton(do_save,  "Diagrammdaten speichern");
+    webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>power_meter.tc</b><br>TinyC port of ottelo's 5_SteckdoseLeistungsmesser_1/2.tas</div></div>");
+}
+
+int main() {
+    if (pm_da == 0) pm_da = 1;
+
+    pm_load();
+
+#ifdef POWER_METER_DEMO
+    pm_demo_fill();
+#endif
+
+    webPageLabel(0, "Einstellungen / Daten");
+    webPageLabel(1, "");
+
+    int hires = 0;
+#ifdef POWER_METER_HIRES
+    hires = 1;
+#endif
+    addLog("power_meter: started (hires=%d) sndpwr=%d", hires, pm_sndpwr);
+    return 0;
+}
