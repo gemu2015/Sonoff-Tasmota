@@ -2534,6 +2534,21 @@ Zaehlerstaende auslesen und Zaehler ueber Tasmota's SML-Treiber steuern (erforde
 SML kann **ohne Scripter** laufen — nur `USE_UFILESYS` wird fuer dateibasierte Zaehlerbeschreibungen benoetigt.
 Der SML-Deskriptor-Tab der IDE verwaltet die Zaehlerdefinitionsdatei (`/sml_meter.def`) auf dem Geraet.
 
+> **⚠ Stolperfalle: Rule1 teilt sich mit Scripter.** Der SML-Treiber gated
+> auf `bitRead(rule_enabled, 0)` und laeuft nur wenn **Rule1** aktiv ist
+> (`tasm_rule = 1` aus TinyC, oder `Rule1 1` in der Konsole). Dasselbe Bit
+> aktiviert auch jeden noch vorhandenen Scripter-`>S`-Abschnitt. Liegt ein
+> altes `*.tas`-Skript noch im Flash (z.B. ein altes ottelo
+> `1_SML_Chart.tas` / `2_SML_Chart_PV.tas`), wird es sofort wenn SML
+> aktiviert wird seine eigenen Chart-HTML- und
+> `setOnLoadCallback`-Registrierungen parallel zu deiner TinyC-`WebPage()`
+> emittieren — Chart-Targets kollidieren, JS-Callbacks ueberschreiben sich
+> gegenseitig, die Hauptseite zeigt halb-gezeichnete Charts.
+>
+> **Fix beim Portieren von Scripter:** Das Scripter-Quelltext via IDE-
+> *Tools → Edit Script* loeschen (Textfeld leeren, speichern). Der
+> SML-Deskriptor in `/sml_meter.def` ist unabhaengig und bleibt erhalten.
+
 #### Zaehlerstaende lesen
 
 | Funktion | Beschreibung |

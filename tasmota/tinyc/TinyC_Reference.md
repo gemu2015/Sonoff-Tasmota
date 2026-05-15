@@ -3477,6 +3477,21 @@ Read meter values and control meters via Tasmota's SML driver (requires `USE_SML
 SML can run **without Scripter** — only `USE_UFILESYS` is needed for file-based meter descriptors.
 The IDE's SML Descriptor tab manages the meter definition file (`/sml_meter.def`) on the device.
 
+> **⚠ Gotcha: Rule1 is shared with Scripter.** The SML driver gates on
+> `bitRead(rule_enabled, 0)` and only runs when **Rule1** is on (set via
+> `tasm_rule = 1` from TinyC, or the `Rule1 1` console command). The same
+> bit also enables any Scripter `>S` section that's still on the device.
+> If a legacy `*.tas` script is left in flash (e.g. an old ottelo
+> `1_SML_Chart.tas` or `2_SML_Chart_PV.tas`), it will start emitting its
+> own chart HTML / `setOnLoadCallback` registrations alongside your
+> TinyC `WebPage()` output the moment you enable SML — chart targets
+> collide, JS callbacks overwrite each other, and the main page renders
+> as a mess of half-drawn charts.
+>
+> **Fix when porting from Scripter:** delete the Scripter source via the
+> IDE's *Tools → Edit Script* (clear the text area, save). The SML
+> descriptor in `/sml_meter.def` is independent and stays put.
+
 #### Reading Meter Values
 
 | Function | Description |

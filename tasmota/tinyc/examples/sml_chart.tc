@@ -16,7 +16,7 @@
 // Uncomment to pre-fill all four chart arrays with synthetic data at boot —
 // useful for visually validating chart rendering without waiting hours for
 // real SML readings to accumulate. Comment out for production.
-#define SML_CHART_DEMO
+//#define SML_CHART_DEMO
 
 // ── Transient WebButton flags (cleared after handler fires) ─────────────────
 int do_init;     // re-baseline counters from current meter reading

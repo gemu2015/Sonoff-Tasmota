@@ -305,6 +305,14 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
    heap handle. Fine for correctness; just be aware that ~128 such live heap
    arrays (`TC_MAX_HEAP_HANDLES`, ESP32) is the ceiling.
 10. **`TinyCRun file.tcb` without leading slash** — needs `/file.tcb`.
+11. **Enabling SML on a device that still has a Scripter `>S` section** —
+    Rule1 bit 0 gates BOTH the SML driver AND Scripter execution, so the
+    moment you flip SML on, any leftover ottelo-style chart script will
+    start emitting its own `setOnLoadCallback` / chart HTML alongside your
+    TinyC `WebPage()`. Result: collided chart targets, last `drawChart`
+    wins, page renders as a mess. When porting Scripter → TinyC, clear the
+    Scripter source via IDE *Tools → Edit Script* before activating SML.
+    See `TinyC_Reference.md §Smart Meter (SML)` for the full callout.
 
 ---
 
