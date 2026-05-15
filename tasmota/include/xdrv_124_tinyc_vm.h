@@ -246,13 +246,23 @@ static FS *tc_file_path(char *path) {
   #define TC_AUTOEXEC_MIN_UPTIME  3
 #endif
 
-// Heap memory for large arrays (> 255 elements)
+// Heap memory for large arrays (> 255 elements).
+// Separate #ifndef guards so user_config_override.h can independently
+// tune either value — without the guard the unconditional #define here
+// (included after user_config_override.h) silently clobbered overrides.
+#ifndef TC_MAX_HEAP
 #ifdef ESP8266
   #define TC_MAX_HEAP           2048   // heap slots (8KB)
-  #define TC_MAX_HEAP_HANDLES   8
 #else  // ESP32
   #define TC_MAX_HEAP           16384  // heap slots (64KB upper bound; grown dynamically)
+#endif
+#endif
+#ifndef TC_MAX_HEAP_HANDLES
+#ifdef ESP8266
+  #define TC_MAX_HEAP_HANDLES   8
+#else  // ESP32
   #define TC_MAX_HEAP_HANDLES   128    // max concurrent heap arrays (energy script uses 68+)
+#endif
 #endif
 
 #define TC_MAGIC           0x54434300  // "TCC\0"

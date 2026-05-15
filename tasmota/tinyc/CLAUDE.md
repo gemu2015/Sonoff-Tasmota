@@ -239,8 +239,9 @@ Things that changed recently and invalidate older examples or forum advice:
   push-button aesthetic.
 
 Features documented in `TinyC_Reference.md` VM-limits table may understate:
-on ESP32, constant pool is **1024**, heap is **32 KB**, code size is **128 KB**
-(the table section in the reference is behind).
+on ESP32, constant pool is **1024**, heap is **64 KB** (`TC_MAX_HEAP`
+16384 slots × 4 B — default; overridable in `user_config_override.h`),
+code size is **128 KB** (the table section in the reference is behind).
 
 ---
 

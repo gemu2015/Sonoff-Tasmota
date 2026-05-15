@@ -4375,15 +4375,21 @@ export class CodeGenerator {
 
     encodeHeapDeclarations() {
         if (this.heapArrays.size === 0) return new Uint8Array(0);
-        // Check total heap size against ESP32 VM limit (TC_MAX_HEAP = 16384 slots = 64 KB in xdrv_124_tinyc_vm.h)
+        // ESP32 VM heap limit. MUST match TC_MAX_HEAP in
+        // xdrv_124_tinyc_vm.h (default 16384 slots = 64 KB). JS has no
+        // preprocessor and cannot read user_config_override.h: if you
+        // raise TC_MAX_HEAP there, also bump this constant and re-run
+        // idesrc/bundle.py, otherwise the IDE/tc_deploy will reject
+        // programs the (override) firmware would actually accept.
         const TC_MAX_HEAP_SLOTS = 16384;
         const TC_WARN_HEAP_SLOTS = 14000;
         let totalSlots = 0;
         for (const [, info] of this.heapArrays) totalSlots += info.arraySize;
         if (totalSlots > TC_MAX_HEAP_SLOTS) {
             throw new CodeGenError(
-                `Heap limit exceeded: ${totalSlots} slots needed, max ${TC_MAX_HEAP_SLOTS} (64 KB) on ESP32. ` +
-                `Reduce array sizes — each char[N] uses ${Math.ceil(1)} slot per byte, each int[N]/float[N] uses 1 slot per element.`);
+                `Heap limit exceeded: ${totalSlots} slots needed, max ${TC_MAX_HEAP_SLOTS} (${Math.round(TC_MAX_HEAP_SLOTS*4/1024)} KB) on ESP32. ` +
+                `Reduce array sizes (char[N] = 1 slot/byte, int[N]/float[N] = 1 slot/element), ` +
+                `or raise TC_MAX_HEAP in user_config_override.h AND TC_MAX_HEAP_SLOTS in codegen.js + re-run bundle.py.`);
         }
         if (totalSlots > TC_WARN_HEAP_SLOTS) {
             this.warnings.push(`Heap usage high: ${totalSlots}/${TC_MAX_HEAP_SLOTS} slots (${Math.round(totalSlots*4/1024)} KB of 64 KB). Consider reducing array sizes.`);
