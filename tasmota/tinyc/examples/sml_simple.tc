@@ -1,0 +1,193 @@
+// ============================================================================
+// sml_simple.tc — minimal SML smart-meter reader & descriptor manager
+// ============================================================================
+//
+// A trimmed-down sibling of marstek_emu.tc that ONLY does:
+//   1. Pick a meter descriptor from ottelo's tasmota-sml-script repo via
+//      a WebUI dropdown (webRepoPulldown), save it to /sml_meter.def.
+//   2. Select the RX/TX GPIO pins for the meter's serial line via two
+//      "@getfreepins" pulldowns; pin changes auto-substitute the matching
+//      placeholders in /sml_meter.def and force SML to re-read.
+//   3. Enable / disable the SML driver via a checkbox that mirrors
+//      Tasmota's Rule1 bit (tasm_rule).
+//   4. Re-compile any IEC-62056-21 wake-up sequences (>F / >S) embedded
+//      in the descriptor whenever it changes.
+//   5. Surface the live readings on the main Tasmota page (power /
+//      energy-in / energy-out) and in MQTT telemetry (JsonCall).
+//
+// No emulators (EcoTracker, Shelly Pro 3EM, etc.) — for that use
+// marstek_emu.tc. No baselines / counters / midnight rollover / mDNS /
+// UDP / chart history — for those see marstek_emu.tc or sml_ebus.tc.
+//
+// Requires: USE_SML (or USE_SML_M) in the firmware build, plus filesystem
+// (USE_UFILESYS) so /sml_meter.def can be persisted.
+// ============================================================================
+
+// ── Persisted, watch-bound settings (WebUI writes these) ────────────────────
+// Initializers on `persist` decls only seed the binary's shadow copy — once
+// the .pvs file exists, its value wins (and zero-init is the layout default
+// for a fresh file). First-run defaults are applied in main() instead so
+// rx_pin / tx_pin end up at -1 ("unset") rather than 0 ("real GPIO 0").
+persist watch int meter_sel;   // index into ottelo's descriptor menu list
+persist watch int rx_pin;      // SML serial RX (-1 = unset)
+persist watch int tx_pin;      // SML serial TX (-1 = unset / single-direction meters)
+persist watch int sml_filter;  // Median filter (0 = raw, 1 = on → smlf=16 in the descriptor)
+persist watch int sml_activ;   // 1 = SML driver enabled (mirrors tasm_rule bit 0)
+
+// ── Transient UI flags (not persisted — reset on each boot) ────────────────
+int do_reset;                  // webButton trigger → re-init SML driver
+
+// ── Scratch ────────────────────────────────────────────────────────────────
+char body[160];
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+// Re-apply descriptor edits + pin assignments on any user change. Uses
+// changed() / snapshot() so this is zero-IO while nothing is changing.
+void EverySecond() {
+    int meter_changed  = changed(meter_sel);
+    int pins_changed   = changed(rx_pin) || changed(tx_pin);
+    int filter_changed = changed(sml_filter);
+    int activ_changed  = changed(sml_activ);
+
+    if (activ_changed) {
+        // SML driver gates on Rule1 (`bitRead(rule_enabled, 0)` in SML_Init).
+        // The checkbox is the source of truth — propagate to tasm_rule so a
+        // freshly-enabled SML driver will actually start polling.
+        tasm_rule = sml_activ;
+        snapshot(sml_activ);
+    }
+
+    if (meter_changed || pins_changed || filter_changed || activ_changed) {
+        if (rx_pin >= 0 || tx_pin >= 0) {
+            // smlf substitutes the %0?smlf% placeholder in ottelo's
+            // descriptors. Convention: 0 = raw readings (no filter),
+            // 16 = enable Tasmota's median filter. Checkbox stores 0/1;
+            // multiply by 16 to get the descriptor-level value.
+            int filter_val = sml_filter ? 16 : 0;
+            // Idempotent — only rewrites when a substituted value changed.
+            smlApplyPins("/sml_meter.def", rx_pin, tx_pin, filter_val);
+        }
+        snapshot(rx_pin);
+        snapshot(tx_pin);
+        snapshot(sml_filter);
+        // Force SML to re-read the descriptor without a full reboot.
+        tasmCmd("Sensor53 r", body);
+    }
+
+    // Manual reset button — flips a one-shot flag the WebUI sets via
+    // webButton, runs Sensor53 r, clears the flag. Useful after editing
+    // /sml_meter.def by hand to force a re-parse without rebooting.
+    if (do_reset) {
+        tasmCmd("Sensor53 r", body);
+        addLog("sml_simple: manual SML reset triggered");
+        do_reset = 0;
+    }
+
+    // If the user picked a new meter, the new file may contain >F/>S
+    // sections (IEC 62056-21 wake-up handshake for older meters like
+    // Elster AS1350: 300-baud "/?!" → 9600-baud data). Compile them.
+    if (meter_changed) {
+        snapshot(meter_sel);
+        smlScripterLoad("/sml_meter.def");
+    }
+}
+
+// ── Main page sensor block ─────────────────────────────────────────────────
+void WebCall() {
+    if (!sml_activ) {
+        webSend("{s}SML{m}disabled (Rule1 off){e}");
+        return;
+    }
+    float pwr  = smlGet(1);   // current power, W
+    float ein  = smlGet(2);   // energy in, kWh
+    float eout = smlGet(3);   // energy out, kWh
+    sprintf(body, "{s}SML Leistung{m}%.0f W{e}", pwr);            webSend(body);
+    sprintf(body, "{s}SML Bezug{m}%.3f kWh{e}",   ein);           webSend(body);
+    sprintf(body, "{s}SML Einspeisung{m}%.3f kWh{e}", eout);      webSend(body);
+}
+
+// ── Settings page ──────────────────────────────────────────────────────────
+void WebUI() {
+    int page = webPage();
+    if (page != 0) return;
+
+    webSend("<style>.sml-p{max-width:340px;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.sml-p h3{margin:0 0 8px}.sml-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.sml-p b{display:inline-block;margin-bottom:4px;font-size:13px}.sml-p div{margin:6px 0}.sml-p .hint{font-size:9px;color:#555;line-height:1.4}.sml-p .ftr{text-align:center;font-size:10px;color:#777;margin-top:10px}</style>");
+    webSend("<div class='sml-p'>");
+    webSend("<h3>&#x26A1; SML Zaehler</h3>");
+
+    // Uptime row (mirrors ottelo's >W layout)
+    int up_d = tasm_uptime / 86400;
+    int up_h = (tasm_uptime / 3600) % 24;
+    int up_m = (tasm_uptime / 60) % 60;
+    sprintf(body, "<div>Uptime: %d d %d h %d min</div>", up_d, up_h, up_m);
+    webSend(body);
+
+    webCheckbox(sml_activ, "SML Zaehler aktiv");
+    webSend("&#x1F4DD; <a href='/ufse?file=/sml_meter.def'>Zaehler-Descriptor bearbeiten</a>");
+
+    webSend("<hr><b>&#x1F4E6; Descriptor</b>");
+    // Pulls ottelo's smartmeter list on demand and saves the picked
+    // descriptor to /sml_meter.def.
+    webRepoPulldown(meter_sel, "Descriptor aus Repo",
+                    "https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/script-list-menu/meters/smartmeter.json",
+                    "smartmeter",
+                    "/sml_meter.def");
+
+    webSend("<hr><b>&#x1F50C; Pins</b>");
+    webPulldown(rx_pin, "RX Pin", "@getfreepins");
+    webPulldown(tx_pin, "TX Pin", "@getfreepins");
+    webSend("<div class='hint'>RX=3 TX=1: Hichi, Stromleser, LesekopfV32, Wattwaechter<br>RX=5 TX=4: bitShake</div>");
+
+    webSend("<hr><b>&#x1F4CA; Median-Filter</b>");
+    // Substitutes the %0?smlf% placeholder in the descriptor.
+    // 0 = raw, 16 = median filter enabled (sml.h: SML_FILTER_MEDIAN).
+    webCheckbox(sml_filter, "Median-Filter aktiv");
+
+    webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
+    webButton(do_reset, "Sensor53 r");
+
+    // Footer — mirrors ottelo's >W signoff
+    webSend("<div class='ftr'><b>sml_simple.tc</b><br>TinyC port of ottelo's 0_SML_Simple.tas</div>");
+    webSend("</div>");
+}
+
+// MQTT telemetry: nothing to do here — the SML driver publishes its own
+// JSON block in the SENSOR message. Earlier Scripter versions gated their
+// own JsonAppend on `smlj=1 when sml[2]>0`, but the current driver handles
+// that internally.
+
+// ============================================================================
+// main() — one-shot setup
+// ============================================================================
+int main() {
+    // First-run defaults for the pin pickers: 0 means "no .pvs file yet,
+    // both pins still at zero-init". GPIO 0 IS a valid pin, so we can't
+    // treat it as "unset". Pick -1 explicitly so smlApplyPins leaves the
+    // placeholder in /sml_meter.def alone until the user picks something.
+    if (rx_pin == 0 && tx_pin == 0) {
+        rx_pin = -1;
+        tx_pin = -1;
+    }
+
+    // tasm_rule (Rule1) is the SML driver gate. If sml_activ was persisted as
+    // 1 in a previous session but Rule1 happens to be off, SML_Init bails out
+    // early during boot — sml_globs.ready stays false and every smlGet() will
+    // return 0.0. Force the checkbox value to win at boot.
+    if (sml_activ != tasm_rule) {
+        tasm_rule = sml_activ;
+    }
+
+    webPageLabel(0, "SML Zaehler");
+
+    // Pick up any >F/>S sections already in /sml_meter.def from a prior
+    // session or a manual upload. Logs "(>F=0 >S=0)" if there's nothing
+    // to compile — harmless.
+    smlScripterLoad("/sml_meter.def");
+
+    addLog("sml_simple: started rx=%d tx=%d meter=%d active=%d",
+           rx_pin, tx_pin, meter_sel, sml_activ);
+    return 0;
+}
