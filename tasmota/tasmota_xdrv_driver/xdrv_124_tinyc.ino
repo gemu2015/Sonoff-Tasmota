@@ -2506,6 +2506,11 @@ static void HandleTinyCIde(void) {
   if (gzipped) {
     Webserver->sendHeader(F("Content-Encoding"), F("gzip"));
   }
+  // Never cache the IDE — it's a fast-iterating dev tool. A prior
+  // max-age=600 on the port-82 path caused users to keep running a
+  // stale IDE for 10 min after a gz update (incl. window.open named-
+  // window reuse not reloading at all). Force a fresh fetch every time.
+  Webserver->sendHeader(F("Cache-Control"), F("no-cache, no-store, must-revalidate"));
   Webserver->setContentLength(fsize);
   WSSend_P(200, PSTR("text/html"), PSTR(""));
 
@@ -3601,14 +3606,14 @@ static void tc_ide_serve_task(void *param) {
         "Content-Type: text/html; charset=utf-8\r\n"
         "Content-Encoding: gzip\r\n"
         "Content-Length: %u\r\n"
-        "Cache-Control: max-age=600\r\n"
+        "Cache-Control: no-cache, no-store, must-revalidate\r\n"
         "Connection: close\r\n\r\n"), fsize);
   } else {
     client.printf_P(PSTR(
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html; charset=utf-8\r\n"
         "Content-Length: %u\r\n"
-        "Cache-Control: max-age=600\r\n"
+        "Cache-Control: no-cache, no-store, must-revalidate\r\n"
         "Connection: close\r\n\r\n"), fsize);
   }
 
