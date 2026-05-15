@@ -1,5 +1,5 @@
 // ============================================================================
-// sml_chart_pv.tc — SML reader with PV-production tracking + 4 charts
+// sml_chart_pv.tc — SML reader with PV-production tracking + charts
 // ============================================================================
 //
 // TinyC port of ottelo's 2_SML_Chart_PV.tas. Builds on sml_chart.tc:
@@ -10,195 +10,23 @@
 // smoothed power readout and optional MQTT publish of that smoothed
 // value (for opendtu-onbattery DPL etc.).
 //
-// All chart infrastructure (4h/24h power, daily-consumption, midnight
-// rollover, file I/O, descriptor settings panel) is inherited from
-// sml_chart_common.tc.
+// All consumption-chart infrastructure (4h/24h power, daily-consumption,
+// midnight rollover, file I/O, descriptor settings panel) is inherited
+// from sml_chart_common.tc; all PV-production helpers from
+// sml_chart_pv_common.tc (also shared with sml_chart_modbus.tc).
+// This file is just the callback wiring.
 // ============================================================================
-
-#include "sml_chart_common.tc"
 
 // Uncomment to pre-fill all charts with synthetic data at boot.
 //#define SML_CHART_DEMO
 
-// ── Production-side persist state ──────────────────────────────────────────
-persist float sml_dval2;             // daily zero point for energy-out (kWh)
-persist float sml_mval2;             // monthly zero point
-persist float sml_yval2;             // yearly zero point
-persist float sml_dprod[31];         // 31 days of production totals
-persist float sml_mprod[12];         // 12 months of production totals
-
-persist watch int sml_sndpwr;        // 1 = publish smoothed power via MQTT
-
-// ── Runtime state ──────────────────────────────────────────────────────────
-float sml_power2;                    // exponentially-smoothed power [W]
-int   sml_pv_hr_last;                // PV-side midnight edge detector
-char  sml_pv_resp[64];               // tasmCmd response buffer
+#include "sml_chart_pv_common.tc"
 
 // ── Transient WebButton flags ──────────────────────────────────────────────
 int do_init;
 int do_init2;
 int do_save;
 int do_reset;
-
-#ifdef SML_CHART_DEMO
-void sml_chart_pv_demo_fill() {
-    // Match the consumption-side demo curves so the four-chart page
-    // shows recognisable shapes before any live meter data lands.
-    int i = 0;
-    while (i < 480) {
-        float x = ((float)i - 240.0) / 60.0;
-        float bell = cos(x * 0.5);
-        if (bell < 0.0) bell = 0.0;
-        sml_s4h[i] = bell * bell * 5000.0 + 200.0;
-        i = i + 1;
-    }
-    sml_s4h_pos = 240;
-
-    i = 0;
-    while (i < 1440) {
-        float t = (float)i;
-        float solar = 0.0;
-        if (t > 360.0 && t < 1080.0) {
-            float phase = (t - 360.0) / 720.0;
-            solar = sin(phase * 3.14159);
-            solar = solar * solar * 4500.0;
-        }
-        sml_s24h[i] = solar + 150.0;
-        i = i + 1;
-    }
-    sml_s24h_pos = 720;
-
-    i = 0;
-    while (i < 31) {
-        float ph = (float)i / 31.0 * 6.28318;
-        sml_dcon[i]  = 15.0 + 10.0 * cos(ph);          // consumption 5..25 kWh
-        sml_dprod[i] =  9.0 +  7.0 * cos(ph + 1.57);   // production phase-shifted
-        i = i + 1;
-    }
-    i = 0;
-    while (i < 12) {
-        float ph = (float)i / 12.0 * 6.28318;
-        sml_mcon[i]  = 325.0 + 125.0 * cos(ph);
-        sml_mprod[i] = 180.0 + 100.0 * cos(ph + 3.14); // anti-phase to consumption
-        i = i + 1;
-    }
-    addLog("sml_chart_pv: demo data loaded into all six chart blocks");
-}
-#endif
-
-// ============================================================================
-// Production-side helpers — companion to sml_chart_common's consumption set
-// ============================================================================
-
-void sml_chart_pv_save() {
-    int h = fileOpen("/sml_chart_pv.bin", "w");
-    if (h < 0) return;
-    fileWriteBin(h, sml_dprod, 31);
-    fileWriteBin(h, sml_mprod, 12);
-    fileClose(h);
-}
-
-void sml_chart_pv_load() {
-    int h = fileOpen("/sml_chart_pv.bin", "r");
-    if (h < 0) return;
-    fileReadBin(h, sml_dprod, 31);
-    fileReadBin(h, sml_mprod, 12);
-    fileClose(h);
-}
-
-void sml_chart_pv_init_baselines() {
-    float eout = smlGet(3);
-    sml_dval2 = eout;
-    sml_mval2 = eout;
-    sml_yval2 = eout;
-    sml_chart_pv_save();
-    addLog("sml_chart_pv: production baselines set from meter");
-}
-
-void sml_chart_pv_init_columns() {
-    int i = 0;
-    while (i < 31) { sml_dprod[i] = 0.0; i = i + 1; }
-    i = 0;
-    while (i < 12) { sml_mprod[i] = 0.0; i = i + 1; }
-    sml_chart_pv_save();
-}
-
-// 5-s smoothing — first-order EMA on smlGet(1) with α=0.1 (heavy smoothing).
-// MQTT-publishes the smoothed value when sml_sndpwr is enabled.
-void sml_chart_pv_5s_tick() {
-    sml_power2 = 0.9 * sml_power2 + 0.1 * smlGet(1);
-    if (sml_sndpwr) {
-        sprintf(sml_buf, "publish stat/%%topic%%/script/power2 %d", (int)sml_power2);
-        tasmCmd(sml_buf, sml_pv_resp);
-    }
-}
-
-// 60-s tick — production daily / monthly counters + midnight rollover for
-// the production baselines. Mirrors the consumption-side logic in
-// sml_chart_common's sml_chart_60s_tick.
-void sml_chart_pv_60s_tick() {
-    float eout = smlGet(3);
-    int   d    = tasm_day;
-    int   m    = tasm_month;
-
-    if (d >= 1 && d <= 31) sml_dprod[d - 1] = eout - sml_dval2;
-    if (m >= 1 && m <= 12) sml_mprod[m - 1] = eout - sml_mval2;
-
-    int hr = tasm_hour;
-    if (sml_pv_hr_last != hr && hr == 0) {
-        if (d == 1) {
-            // Month-wrap — zero days past previous month's length.
-            int i = sml_da;
-            while (i < 31) { sml_dprod[i] = 0.0; i = i + 1; }
-            sml_mval2 = eout;
-        }
-        if (d == 1 && m == 1) sml_yval2 = eout;
-        sml_dval2 = eout;
-        sml_chart_pv_save();
-    }
-    sml_pv_hr_last = hr;
-}
-
-// ============================================================================
-// Render helpers — production daily chart + dual-series month chart
-// (consumption + feed-in). The 4h / 24h line charts and the consumption
-// daily column chart come straight from sml_chart_common.
-// ============================================================================
-
-void sml_chart_pv_render_dayprod() {
-    int today = tasm_day;
-    if (today < 1) today = 1;
-    webSend("<div id='sml_dpch' style='text-align:center;width:600px;height:280px'></div>");
-    webSend("<script>function _smlDP(){var d=google.visualization.arrayToDataTable([['Tag','Einspeisung [kWh]',{role:'style'}]");
-    int i = 1;
-    while (i <= 31) {
-        if (i < today)        sprintf(sml_buf, ",[%d,%.2f,'green']", i, sml_dprod[i - 1]);
-        else if (i == today)  sprintf(sml_buf, ",[%d,%.2f,'red']",   i, sml_dprod[i - 1]);
-        else                  sprintf(sml_buf, ",[%d,%.2f,'blue']",  i, sml_dprod[i - 1]);
-        webSend(sml_buf);
-        i = i + 1;
-    }
-    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_dpch')).draw(d,{chartArea:{left:50,right:20,height:'75%'},legend:'none',title:'Tageseinspeisungen Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlDP);</script>");
-}
-
-// Dual-series month chart — overrides sml_chart_common's single-series
-// version. ottelo's >W draws consumption AND feed-in side-by-side per
-// month, with two independent y-axes so both ranges scale visibly.
-void sml_chart_pv_render_months_dual() {
-    char mn_names[64];
-    strcpy(mn_names, "Jan|Feb|Maer|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez");
-    char mn[6];
-    webSend("<div id='sml_mch2' style='text-align:center;width:600px;height:280px'></div>");
-    webSend("<script>function _smlDM2(){var d=google.visualization.arrayToDataTable([['Monat','Verbrauch [kWh]','Einspeisung [kWh]']");
-    int i = 1;
-    while (i <= 12) {
-        strToken(mn, mn_names, '|', i);
-        sprintf(sml_buf, ",['%s',%.2f,%.2f]", mn, sml_mcon[i - 1], sml_mprod[i - 1]);
-        webSend(sml_buf);
-        i = i + 1;
-    }
-    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_mch2')).draw(d,{chartArea:{left:60,right:60,top:30,height:'70%'},legend:{position:'top'},title:'Monatsverbraeuche / -einspeisungen Jahresansicht',series:{0:{color:'#27ae60',targetAxisIndex:0},1:{color:'#f39c12',targetAxisIndex:1}},vAxes:{0:{format:'# kWh'},1:{format:'# kWh'}},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlDM2);</script>");
-}
 
 // ============================================================================
 // Callbacks

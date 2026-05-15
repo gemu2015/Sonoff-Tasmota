@@ -1,0 +1,254 @@
+// ============================================================================
+// sml_chart_modbus.tc — sml_chart_pv + Modbus-TCP slave server
+// ============================================================================
+//
+// TinyC port of ottelo's 2_SML_Chart_PV_Modbus.tas.
+//
+// Identical to sml_chart_pv.tc (SML reader, PV-production tracking, the
+// six chart blocks, smoothed power, optional MQTT publish) PLUS a
+// Modbus-TCP slave on port 502 that exposes the live meter values as
+// 32-bit floats so a PV/battery controller (opendtu-onbattery, EVCC,
+// Modbus-capable inverter, …) can poll them directly:
+//
+//   Register 40000 (PDU addr 0) = Power        [W]   = smlGet(1)
+//   Register 40002 (PDU addr 2) = Consumption  [kWh] = smlGet(2)
+//   Register 40004 (PDU addr 4) = Feed-in      [kWh] = smlGet(3)
+//
+// Only FC03 (Read Holding Registers) is implemented, matching ottelo's
+// Scripter `>F` block. Each value is 2 registers (one IEEE-754 float,
+// big-endian). Reads must be 2-register aligned and within 0..6.
+//
+// All consumption-chart infrastructure comes from sml_chart_common.tc,
+// all PV-production helpers from sml_chart_pv_common.tc (shared with
+// sml_chart_pv.tc). This file adds only the Modbus server + callback
+// wiring.
+//
+// TinyC TCP-server API used (= Scripter wso/wsa/wsra/wswa):
+//   tcpServer(port)              start listening server     (wso)
+//   tcpAvailable()               accept client + byte count (wsa)
+//   tcpReadArray(int_arr)        read raw bytes              (wsra)
+//   tcpWriteArray(arr, n, type)  write n elements, type:     (wswa)
+//                                  0 = uint8, 3 = raw 32-bit big-endian
+//
+// Float-encoding note: a TinyC `float` array stores each value's raw
+// IEEE-754 bits in its 32-bit slot (same convention WebChart relies on).
+// tcpWriteArray(... , 3) emits those 4 bytes big-endian — exactly a
+// Modbus float register pair. The MBAP/PDU header bytes are small
+// integers, so they go through a separate `int` array written with
+// type 0 (uint8). Mixing the two in one array would misencode (a float
+// slot's low byte != its numeric value).
+// ============================================================================
+
+// Uncomment to pre-fill all charts with synthetic data at boot.
+//#define SML_CHART_DEMO
+
+#include "sml_chart_pv_common.tc"
+
+// ── Transient WebButton flags ──────────────────────────────────────────────
+int do_init;
+int do_init2;
+int do_save;
+int do_reset;
+
+// ── Modbus-TCP slave state ─────────────────────────────────────────────────
+#define MB_PORT 502
+
+int mb_started;          // 0 until tcpServer() succeeds (network may be down
+                         // at first Every100ms — retry until it comes up)
+int mb_rx[16];           // request frame bytes (FC03 request = exactly 12 B)
+int mb_hdr[9];           // MBAP + PDU header / exception bytes (uint8)
+float mb_dat[6];         // up to 3 float values (raw IEEE-754 bits in slots)
+
+// ============================================================================
+// Modbus-TCP FC03 server — mirrors ottelo's >F section.
+// Called from Every100ms(). One request → one response, connection kept
+// open (proper Modbus-TCP slave behaviour; clients pipeline polls).
+// ============================================================================
+void mb_poll() {
+    if (!mb_started) {
+        int rc = tcpServer(MB_PORT);
+        if (rc == 0) {
+            mb_started = 1;
+            addLog("sml_chart_modbus: Modbus-TCP slave on port %d", MB_PORT);
+        }
+        return;                       // network not up yet — retry next tick
+    }
+
+    int avail = tcpAvailable();       // accepts a waiting client + byte count
+    if (avail != 12) {
+        // Not a clean 12-byte FC03 request. Drain any partial/oversized
+        // junk so it doesn't wedge the parser on the next tick.
+        if (avail > 12) tcpReadArray(mb_rx);
+        return;
+    }
+
+    tcpReadArray(mb_rx);              // mb_rx[0..11] = the request frame
+
+    // Common MBAP echo: transaction id (0,1), protocol id (2,3 → 0),
+    // unit id (mb_rx[6]).
+    mb_hdr[0] = mb_rx[0];
+    mb_hdr[1] = mb_rx[1];
+    mb_hdr[2] = 0;
+    mb_hdr[3] = 0;
+    mb_hdr[6] = mb_rx[6];             // unit id
+
+    int fc   = mb_rx[7];              // function code
+    int addr = mb_rx[9];             // start address (low byte; high = mb_rx[8]=0)
+    int qty  = mb_rx[11];            // quantity of registers (low byte)
+
+    if (fc != 3) {
+        // Illegal Function (0x01)
+        mb_hdr[4] = 0;
+        mb_hdr[5] = 3;               // length = unit + FC|0x80 + exccode
+        mb_hdr[7] = fc + 128;        // FC | 0x80
+        mb_hdr[8] = 1;               // exception 0x01
+        tcpWriteArray(mb_hdr, 9, 0);
+        return;
+    }
+
+    // Validate: qty+addr within 0..6, both 2-register aligned.
+    if (qty + addr > 6 || (qty % 2) != 0 || (addr % 2) != 0) {
+        // Illegal Data Address (0x02)
+        mb_hdr[4] = 0;
+        mb_hdr[5] = 3;
+        mb_hdr[7] = fc + 128;
+        mb_hdr[8] = 2;
+        tcpWriteArray(mb_hdr, 9, 0);
+        return;
+    }
+
+    // Valid FC03 — build the normal response header.
+    int bytecount = qty * 2;         // each register = 2 bytes
+    mb_hdr[4] = 0;
+    mb_hdr[5] = bytecount + 3;       // length = unit + FC + bytecount-field + data
+    mb_hdr[7] = fc;                  // FC03
+    mb_hdr[8] = bytecount;           // PDU byte count
+    tcpWriteArray(mb_hdr, 9, 0);     // 9 header bytes (uint8)
+
+    // Data: addr/2 → first sml index (smlGet is 1-based: 1=power,
+    // 2=consumption, 3=feed-in). qty/2 floats.
+    int first  = addr / 2 + 1;
+    int floats = qty / 2;
+    int k = 0;
+    while (k < floats) {
+        mb_dat[k] = smlGet(first + k);
+        k = k + 1;
+    }
+    tcpWriteArray(mb_dat, floats, 3); // raw 32-bit big-endian (IEEE-754)
+}
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+void EverySecond() {
+    sml_descriptor_apply();
+
+    if (do_reset) {
+        tasmCmd("Sensor53 r", sml_pv_resp);
+        do_reset = 0;
+    }
+
+    if (tasm_year < 2020) return;
+    if (smlGet(2) == 0.0) return;
+
+    if (do_init) {
+        sml_chart_init_baselines();
+        sml_chart_pv_init_baselines();
+        do_init = 0;
+    }
+    if (do_init2) {
+        sml_chart_init_columns();
+        sml_chart_pv_init_columns();
+        do_init2 = 0;
+    }
+    if (do_save) {
+        sml_chart_save();
+        sml_chart_pv_save();
+        do_save = 0;
+    }
+
+    sml_t1 = sml_t1 - 1;
+    if (sml_t1 <= 0) {
+        sml_t1 = 5;
+        sml_chart_5s_tick();
+        sml_chart_pv_5s_tick();
+    }
+    sml_t2 = sml_t2 - 1;
+    if (sml_t2 <= 0) {
+        sml_t2 = 60;
+        sml_chart_60s_tick();
+        sml_chart_pv_60s_tick();
+    }
+}
+
+// Modbus-TCP poll — 10 Hz, matches ottelo's >F (every 100 ms).
+void Every100ms() {
+    mb_poll();
+}
+
+void WebCall() {
+    if (!sml_activ) {
+        webSend("{s}SML{m}disabled (Rule1 off){e}");
+        return;
+    }
+    sml_chart_render_totals();
+    sprintf(sml_buf, "{s}Leistung (gefiltert){m}%.0f W{e}", sml_power2);
+    webSend(sml_buf);
+    float eout = smlGet(3);
+    sprintf(sml_buf, "{s}Tageseinspeisung{m}%.2f kWh{e}",   eout - sml_dval2); webSend(sml_buf);
+    sprintf(sml_buf, "{s}Monatseinspeisung{m}%.2f kWh{e}",  eout - sml_mval2); webSend(sml_buf);
+    sprintf(sml_buf, "{s}Jahreseinspeisung{m}%.2f kWh{e}",  eout - sml_yval2); webSend(sml_buf);
+    sprintf(sml_buf, "{s}Modbus-TCP{m}Port %d (FC03 40000/40002/40004){e}", MB_PORT);
+    webSend(sml_buf);
+}
+
+void WebPage() {
+    sml_chart_render_4h();
+    sml_chart_render_24h();
+    sml_chart_render_days();           // daily consumption (tri-color)
+    sml_chart_pv_render_dayprod();     // daily production (tri-color)
+    sml_chart_pv_render_months_dual(); // dual-series month chart
+}
+
+void WebUI() {
+    sml_render_settings_panel();
+    webSend("<hr><b>&#x1F527; Optionen</b>");
+    webCheckbox(sml_sndpwr, "MQTT: Gemittelte Leistung senden");
+    webSend("<hr><b>&#x1F50C; Modbus-TCP</b>");
+    sprintf(sml_buf, "<div style='font-size:11px'>Slave aktiv: Port %d &middot; FC03<br>40000=Leistung W &middot; 40002=Bezug kWh &middot; 40004=Einspeisung kWh<br>(je 2 Register, IEEE-754 float, big-endian)</div>", MB_PORT);
+    webSend(sml_buf);
+    webSend("<hr><b>&#x1F4BE; Daten</b>");
+    webButton(do_init,  "Zaehlerwerte initialisieren");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen");
+    webButton(do_save,  "Diagrammdaten speichern");
+    webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
+    webButton(do_reset, "Sensor53 r");
+    webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_chart_modbus.tc</b><br>TinyC port of ottelo's 2_SML_Chart_PV_Modbus.tas</div></div>");
+}
+
+int main() {
+    if (sml_rx_pin == 0 && sml_tx_pin == 0) {
+        sml_rx_pin = -1;
+        sml_tx_pin = -1;
+    }
+    if (sml_da == 0) sml_da = 1;
+
+    if (sml_activ != tasm_rule) tasm_rule = sml_activ;
+
+    sml_chart_load();
+    sml_chart_pv_load();
+
+#ifdef SML_CHART_DEMO
+    sml_chart_pv_demo_fill();
+#endif
+
+    webPageLabel(0, "Einstellungen / Daten");
+    webPageLabel(1, "");
+
+    smlScripterLoad("/sml_meter.def");
+
+    addLog("sml_chart_modbus: started rx=%d tx=%d meter=%d activ=%d sndpwr=%d mbport=%d",
+           sml_rx_pin, sml_tx_pin, sml_meter_sel, sml_activ, sml_sndpwr, MB_PORT);
+    return 0;
+}
