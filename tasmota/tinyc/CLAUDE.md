@@ -183,6 +183,16 @@ Things that changed recently and invalidate older examples or forum advice:
   going through MQTT or the filesystem. Keys are short string literals;
   missing-key reads return `0` / `0.0` / `""`. Caps: 32 keys, 16 char key,
   64 char string value (override via `TC_SHARE_*` defines).
+  - **`TC_SHARE_MAX` is a global cap across ALL slots combined**, not
+    per-slot. In multi-slot setups (4-6 slots × 5-10 shares each) the
+    default 32 is reached fast. As of 1.6.6 a full table no longer fails
+    silently: each rejected `shareSet*` logs at INFO
+    `TCC: shareSetInt("key")=val failed — table full (N/32). Raise
+    TC_SHARE_MAX in user_config_override.h.` (one line per failing call).
+    From outside, a silently-capped share looks like `shareGetInt("key")`
+    constantly returning `0`. Workaround: `#define TC_SHARE_MAX 48` in
+    `user_config_override.h` + rebuild. DRAM cost per added slot ≈
+    `1 + TC_SHARE_STR_LEN` bytes.
 - **PSRAM-backed bytecode** — `.tcb` and the constant string pool are
   allocated in internal DRAM first; on OOM they automatically spill to
   PSRAM (ESP32 only). Small programs stay fast; very large ones still load.
