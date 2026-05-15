@@ -360,11 +360,23 @@ void EverySecond() {
     // Persist MQTT-publish toggle across reboots
     if (changed(sndpwr)) { snapshot(sndpwr); saveVars(); }
 
-    // Auto-apply RX/TX pin selections to /sml_meter.def. Idempotent: writes only
-    // when the file content actually differs. Preserves the original
-    // "; %0rxpin% ..." template line so the user can re-pick pins later.
+    // Auto-apply RX/TX pin + median-filter to /sml_meter.def. Idempotent:
+    // writes only when the file content actually differs. Preserves the
+    // original "; %0rxpin% ..." template line so the user can re-pick later.
+    //
+    // The smlf arg (descriptor field 4, ottelo's %0smlf%) follows the
+    // Median-Filter checkbox: 0 = off, 16 = median. It was hardcoded to
+    // -1 — wrong value, and it never tracked the checkbox: ottelo's MT175
+    // template `+1,%0rxpin%,s,%0smlf%,9600,MT175,%0txpin%` resolved to
+    // `s,-1,` and toggling the filter did nothing visible. When the file
+    // actually changes (pins or filter), re-read it into the running SML
+    // driver via `Sensor53 r` so the change takes effect without a reboot
+    // (smlApplyPins only rewrites the file; it does not reload SML).
     if (rx_pin >= 0 || tx_pin >= 0) {
-        smlApplyPins("/sml_meter.def", rx_pin, tx_pin, -1);
+        int n = smlApplyPins("/sml_meter.def", rx_pin, tx_pin, smlfo ? 16 : 0);
+        if (n > 0) {
+            tasmCmd("Sensor53 r", body);
+        }
     }
 
     // Throttle power updates
