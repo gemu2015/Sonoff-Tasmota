@@ -1,0 +1,230 @@
+// ============================================================================
+// m5_epd47.tc — M5Paper EPD-47 house dashboard (port of Scripter source)
+// ============================================================================
+//
+// Scope of this first conversion pass:
+//   - Display layout + render commands ported from the Scripter `>B` and `>S`
+//     sections. Static setup runs once in main(); periodic redraw fires every
+//     30 s from EverySecond, full refresh every 5 min.
+//   - Variables declared so the layout compiles cleanly. UDP-globals
+//     (`global float`) receive their values from broadcasting peers
+//     (Powerwall data, inverter readings, outdoor temp, etc.) — no local
+//     Powerwall API polling on this device anymore.
+//   - Standard green-clock WebCall header from heatpump_test.tc / epaper42.tc.
+//
+// NOT in this pass (TODO, separate commits):
+//   - Charts (was 5 Google charts + on-display graph render). Removed.
+//   - File-backed array I/O (wd_log/wd_log2 quarter-hour ring buffers).
+//   - Midnight rollover bookkeeping (mez1/mezh/mvzh weekly totals).
+//   - MP3 playback on touch / hour change.
+//   - Aircon HTTP poll.
+//   - Touch button + slider event handling.
+//   - Web sub-page "Grafiken".
+//   - Weekly mail report.
+//
+// Layout reference (960 x 540, 16-grayscale ED047TC1 on M5Paper):
+//
+//   y=0..30   : top row — local sensor strip + clock (font2, 5px from top)
+//   y=35      : horizontal divider line
+//   y=50..140 : 4 inverter rows (Dach, Garage, Gartenhaus, Garten),
+//               each row showing 3 columns: live W, week avg kWh, today kWh
+//   y=180     : horizontal divider line
+//   y=200..390: side panels — main floor area for sensors + clock + battery
+//   y=270/380/490 (x=370) : large centred numbers — powerwall%, sedc W, hip W
+//   x=540 y=350 : analog clock (radius 70)
+//   x=720 y=70/120 : outside temp + powerwall %
+//   x=720 y=500 : battery voltage
+// ============================================================================
+
+// ── Geometry constants ─────────────────────────────────────────────
+#define SCR_W 960
+#define SCR_H 540
+
+// ── Powerwall externals (kept as UDP globals, no longer polled here) ───
+// Broadcast over UDP by whichever device now owns the Powerwall API poll.
+global float pwl  = 0.0;   // battery percent (0..100)
+global float sip  = 0.0;   // grid power (W; <0 = export)
+global float sop  = 0.0;   // solar power (W)
+global float bip  = 0.0;   // battery power (W)
+global float hip  = 0.0;   // house power (W)
+
+// ── Inverter readings (UDP globals from individual inverter loggers) ───
+global float sedc = 0.0;   // Dach (roof) inverter, W
+global float wrga = 0.0;   // Garage inverter, W (stored sign-flipped in display)
+global float wrgh = 0.0;   // Gartenhaus inverter, W
+global float wrgg = 0.0;   // Garten inverter, W
+
+// ── Meters + outside (UDP globals) ─────────────────────────────────
+global float atmp = 0.0;   // outside temperature (C)
+global float zwzc = 0.0;   // ZRZ current power
+global float zwzi = 0.0;   // ZRZ Verbrauch (kWh counter, in)
+global float zwzo = 0.0;   // ZRZ Einspeisung (kWh counter, out)
+global float sedt = 0.0;   // Dach Einspeisung (kWh counter)
+global float ssp  = 0.0;   // solar water tank temp (C)
+global float bpress = 0.0; // barometric pressure (hPa)
+
+// ── Local sensors (read in EverySecond from Tasmota SensorJSON) ────
+float ltemp = 0.0;         // local SHT3X temp (C)
+float lhumi = 0.0;         // local SHT3X humidity (%)
+float bvolt = 0.0;         // M5EPD battery voltage
+
+// ── Weekly snapshots (persist across reboots) ──────────────────────
+persist float sezh = 0.0;  // last seen zwzo at midnight
+persist float svzh = 0.0;  // last seen zwzi at midnight
+persist float sez1 = 0.0;  // last seen sedt at midnight
+
+// ── Weekly per-day totals (Sun..Sat = index 1..7), persist ──────────
+persist float mezh[8];     // house Einspeisung per day
+persist float mvzh[8];     // house Verbrauch per day
+persist float mez1[8];     // Dach Einspeisung per day
+
+// ── Misc scratch ────────────────────────────────────────────────────
+int  web_clock_tick = 0;   // bumps each WebCall — proof-of-life in header
+char scratch[256];         // shared sprintf buffer for display + web
+
+// ============================================================================
+// Display rendering
+// ============================================================================
+
+// One-time display setup — runs from main(). Sets renderer mode + colour
+// palette, draws two horizontal divider lines, draws all the static labels
+// for the inverter table, draws the buttons + slider, then asks the panel
+// to update. Anything that changes per-tick is in update_display().
+void setup_display() {
+    // [z ID0 B15 C0] — renderer config: init driver 0, BG=15 (white),
+    // FG=0 (black). Same starting state as the Scripter version.
+    dspText("[zID0B15C0]");
+
+    // Two horizontal dividers framing the central data block.
+    sprintf(scratch, "[x0y35h%d]",  SCR_W);  dspText(scratch);
+    sprintf(scratch, "[x0y180h%d]", SCR_W);  dspText(scratch);
+
+    // Static labels for the 4-inverter table at y=50..140.
+    dspText("[f2p13x10y50]WR 1-4:");
+    dspText("[p13x10y80]H-Einsp.:");
+    dspText("[p13x10y110]H-Verbr.:");
+    dspText("[p13x10y140]D-Einsp.:");
+
+    // Buttons row at x=830 — Rel1 toggle + display-off, then two icon
+    // launchers (lamp + picture) on the right side at x=650.
+    dspText("[f1s1b0:830:200:100:50:2:11:4:2:Rel 1:b1:830:270:100:50:2:11:4:2:Dsp off:]");
+    dspText("[b258:650:200:92:92:2:11:4:2:/lamp1:]");
+    dspText("[b259:650:300:92:92:2:11:4:2:/pict77:]");
+
+    // Reset to BG=15 / FG=0 explicitly before the slider so its colours
+    // don't pick up whatever a previous bracket left dangling.
+    dspText("[Bi15Ci0]");
+
+    // Vertical slider, x=780 y=200, w=30 h=200, range 0..15 (greyscale).
+    dspText("[bs4:780:200:30:200:20:0:0:15]");
+    dspText("[b4s80]");   // initial slider value = 80 (= ~middle)
+
+    // Apply everything that's been queued.
+    dspText("[d]");
+}
+
+// Periodic redraw — fires every 30 s from EverySecond. Re-paints the
+// data block (top sensor strip, inverter rows, outside temp, powerwall %,
+// analog clock, battery voltage), then `[d]` to flush.
+void update_display() {
+    // Top strip (font 2, padding 7, y=5): local temp / humidity / pressure,
+    // then big clock at x=600 (time HH:MM via [T]) and seconds at x=800.
+    dspText("[Bi15]");
+    sprintf(scratch, "[f2p7x5y5]%.1f C", ltemp);                  dspText(scratch);
+    sprintf(scratch, "[p10x140y5]%.0f %%", lhumi);                dspText(scratch);
+    sprintf(scratch, "[p10x280y5]%.0f hPa", bpress);              dspText(scratch);
+    dspText("[f4x600y5T][x800tS]");
+
+    // Three big centred numbers along x=370 — powerwall %, dach W, house W.
+    sprintf(scratch, "[f1p5x370y270]%.0f %%", pwl);               dspText(scratch);
+    sprintf(scratch, "[p6x370y380]%.0f W",    sedc);              dspText(scratch);
+    sprintf(scratch, "[p6x370y490]%.0f W",    hip);               dspText(scratch);
+
+    // Row of 4 inverter watt readings at y=50 (the column to the right of
+    // "WR 1-4:"). Garage/Gartenhaus/Garten readings are sign-flipped to
+    // match the Scripter's display convention (export = positive number).
+    sprintf(scratch, "[f2p40x160y50] %.0f W : %.0f W : %.0f W : %.0f W",
+            sedc, -wrga, -wrgh, -wrgg);
+    dspText(scratch);
+
+    // 3 kWh counters in the second column at x=160, rows 80/110/140:
+    // Einspeisung ZRZ (zwzo) / Verbrauch ZRZ (zwzi) / Einspeisung Dach (sedt).
+    sprintf(scratch, "[p-12x160y80]%.0f kWh :",  zwzo);           dspText(scratch);
+    sprintf(scratch, "[p-12x160y110]%.0f kWh :", zwzi);           dspText(scratch);
+    sprintf(scratch, "[p-12x160y140]%.0f kWh :", sedt);           dspText(scratch);
+
+    // Weekly averages (sum / 7) in the third column at x=360.
+    float wk_einsp_h = (mezh[1] + mezh[2] + mezh[3] + mezh[4]
+                     +  mezh[5] + mezh[6] + mezh[7]) / 7.0;
+    float wk_verbr_h = (mvzh[1] + mvzh[2] + mvzh[3] + mvzh[4]
+                     +  mvzh[5] + mvzh[6] + mvzh[7]) / 7.0;
+    float wk_einsp_d = (mez1[1] + mez1[2] + mez1[3] + mez1[4]
+                     +  mez1[5] + mez1[6] + mez1[7]) / 7.0;
+    sprintf(scratch, "[p-10x360y80]%.1f kWh :",  wk_einsp_h);     dspText(scratch);
+    sprintf(scratch, "[p-10x360y110]%.1f kWh :", wk_verbr_h);     dspText(scratch);
+    sprintf(scratch, "[p-10x360y140]%.1f kWh :", wk_einsp_d);     dspText(scratch);
+
+    // Daily totals (counter delta from midnight snapshot) in column 4 at x=550.
+    sprintf(scratch, "[p-8x550y80]%.1f kWh",  zwzo - sezh);       dspText(scratch);
+    sprintf(scratch, "[p-8x550y110]%.1f kWh", zwzi - svzh);       dspText(scratch);
+    sprintf(scratch, "[p-8x550y140]%.1f kWh", sedt - sez1);       dspText(scratch);
+
+    // Right panel: outside temp + powerwall % (large)
+    sprintf(scratch, "[f2s2p-7x720y70] %.0f C", atmp);            dspText(scratch);
+    sprintf(scratch, "[f2s2p-7x720y120] %.0f %%", pwl);           dspText(scratch);
+
+    // Battery voltage at bottom right.
+    sprintf(scratch, "[f2s1p8x720y500]%.3f V", bvolt);            dspText(scratch);
+
+    // TODO: analog clock subroutine (#aclock in the Scripter source) —
+    // 12 tick marks around (540,350) radius 70 with numerals. Will port
+    // in a follow-up pass; needs a TinyC function that walks angles in
+    // degrees and stamps each numeral with dspText.
+
+    // Apply.
+    dspText("[d]");
+}
+
+// Full refresh — clears ghosting, runs every 5 minutes.
+void full_refresh() {
+    dspText("[I]");
+}
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+void EverySecond() {
+    // Read local sensors via Tasmota's SensorJSON dispatcher.
+    ltemp = sensorGet("SHT3X#Temperature");
+    lhumi = sensorGet("SHT3X#Humidity");
+    bvolt = sensorGet("M5EPD#BV");
+
+    // 30-s display refresh cadence; 5-min full refresh cycle.
+    int s = tasm_uptime;
+    if ((s % 30) == 0)  update_display();
+    if ((s % 300) == 0) full_refresh();
+}
+
+// Standard green-clock WebCall header — same pattern as heatpump_test.tc
+// and epaper42.tc. Big HH:MM:SS in green, weekday + date below, tiny
+// proof-of-life tick counter on the right.
+void WebCall() {
+    web_clock_tick = web_clock_tick + 1;
+    char wd_label[4];
+    char mo_label[4];
+    // Scripter used is(wday) / is1(month) — same labels here.
+    strToken(wd_label, "So|Mo|Di|Mi|Do|Fr|Sa", '|', tasm_wday);
+    strToken(mo_label, "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez", '|', tasm_month);
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span></td></tr>",
+        tasm_hour, tasm_minute, tasm_second,
+        wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+}
+
+int main() {
+    // Race-Free Autoexec (TinyC 1.3.36+) — no manual boot delay needed.
+    setup_display();
+    addLog("m5_epd47: display set up, dashboard ready");
+    return 0;
+}
