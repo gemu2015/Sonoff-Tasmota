@@ -410,6 +410,35 @@ void OnMqttData(char topic[], char payload[]) {
 }
 ```
 
+### Slot-restart cleanup (close TCP/UDP sockets cleanly before main() reruns)
+
+When a slot is stopped and restarted (via `TinyCStop`/`TinyCRun`, or via IDE
+"Run" after edit), any persistent TCP clients or UDP sockets the script
+opened are still held by lwIP at the moment main() runs again. The script
+will happily call `tcpConnect()` / `udpBegin()` again, but the peer (e.g.
+a Modbus-TCP slave at a battery BMU) may still see a half-open session
+from the previous run and refuse the new one until its own timeout fires —
+typically 30 s of pointless errors at slot startup.
+
+`CleanUp()` is a recognised callback that fires once when the slot is
+asked to stop, before the VM tears down. Use it to release sockets:
+
+```c
+void CleanUp() {
+    // Close any TCP-client slot you opened
+    if (mb_slot >= 0) {
+        tcpSelect(mb_slot);
+        tcpDisconnect();
+    }
+    // Drop UDP-multicast membership and close the socket cleanly
+    udp(0, 9522);
+}
+```
+
+After this lands, the next slot run sees a clean socket table and can
+reconnect immediately. Verified live on Andreas's Bat3 setup (BMU + SMA
+inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
+
 ---
 
 ## 9. Example index (grouped)
