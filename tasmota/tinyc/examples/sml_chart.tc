@@ -121,10 +121,17 @@ void WebCall() {
 // ── Tasmota main page, chart block below the sensor table ──────────────
 // This is where ottelo's >W $gc(...) chart sections land in TinyC.
 void WebPage() {
+    // ottelo's chart-centering compensation: the Tasmota main page shifts
+    // chart blocks ~30 px right (sensor-table left structure). ottelo's
+    // Scripter scripts wrap the whole chart section in
+    // `<div style="margin-left:-30px">` (1_SML_Chart.tas line 301/345) to
+    // pull it back to centered. Same fix, same value, here.
+    webSend("<div style='margin-left:-30px'>");
     sml_chart_render_4h();
     sml_chart_render_24h();
     sml_chart_render_days();
     sml_chart_render_months();
+    webSend("</div>");
 }
 
 // ── Dedicated settings sub-page (Scripter >w "Stromzähler / Daten") ────

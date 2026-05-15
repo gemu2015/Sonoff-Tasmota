@@ -231,6 +231,11 @@ void WebPage() {
         return;
     }
 
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
+    // opened after the early-return guard + the independently centered
+    // clock header so the early path leaves no unclosed div.
+    webSend("<div style='margin-left:-30px'>");
+
     // --- 24h chart: 3 series, interval = 5 min ---
     WebChart(0, "Temperaturen 24h", "Aussen|C", 0x2196F3, d_pos, DAY_LEN, d_at, 1, 5, 0.0, 0.0);
     WebChart(0, "", "Speicher|C", 0xFF5722, d_pos, DAY_LEN, d_ss, 1, 5, 0.0, 0.0);
@@ -242,6 +247,7 @@ void WebPage() {
         WebChart(0, "", "Speicher|C", 0xFF5722, w_pos, WEEK_LEN, w_ss, 1, 30, 0.0, 0.0);
         WebChart(0, "", "Kollektor|C", 0x4CAF50, w_pos, WEEK_LEN, w_ct, 1, 30, 0.0, 0.0);
     }
+    webSend("</div>");
 }
 
 

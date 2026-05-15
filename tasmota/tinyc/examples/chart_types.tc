@@ -48,6 +48,9 @@ void WebPage() {
         return;
     }
 
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+    webSend("<div style='margin-left:-30px'>");
+
     // Line chart
     WebChart('l', "Line Chart", "\u00b0C", 0xe74c3c, pos, SAMPLES, d_line, 1, 30, 0, 0);
 
@@ -68,4 +71,5 @@ void WebPage() {
     WebChart('t', "Weekly Energy|So|Mo|Di|Mi|Do|Fr|Sa", "Haus", 0, 7, 7, d_tbl1, 1, 0, 0, 0);
     WebChart('t', "",                                   "Solar", 0, 7, 7, d_tbl2, 1, 0, 0, 0);
     WebChart('t', "",                                   "Regen", 0, 7, 7, d_tbl3, 1, 0, 0, 0);
+    webSend("</div>");
 }

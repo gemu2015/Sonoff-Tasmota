@@ -627,8 +627,11 @@ void WebCall() {
 
 void WebPage() {
     // ─── Live streaming chart: 4 solar inverters (Chart.js) ───
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+    webSend("<div style='margin-left:-30px'>");
     webSend("<div style='position:relative;width:640px;height:300px;'><canvas id='schart' width='640' height='300'></canvas></div>");
     webSendFile("stream_tc.js");
+    webSend("</div>");
 }
 
 // ═══════════════════════════════════════════════════════════════════

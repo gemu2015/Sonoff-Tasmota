@@ -1621,6 +1621,8 @@ void EverySecond() {
 // Same trick energy_dashboard.tc uses.
 // ------------------------------------------------------------
 void WebPage() {
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+    webSend("<div style='margin-left:-30px'>");
     // Auto-fit y-axis from non-zero samples (0.0 = "no data yet"
     // because cold-boot fills persist with zeros and the sampler
     // refuses to write when the reg is unknown). If no samples yet,
@@ -1666,6 +1668,7 @@ void WebPage() {
     WebChart(0, "HP Ausgang letzte 4h", "°C",
              0xe67e22, chart_pos, 240, ow_hist,
              1 | 8, 1, ow_lo, ow_hi);
+    webSend("</div>");
 }
 
 // ------------------------------------------------------------

@@ -555,6 +555,8 @@ void WebCall() {
 // in the energy block — it triggers location.reload() so WebPage()
 // runs again.
 void WebPage() {
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+    webSend("<div style='margin-left:-30px'>");
     // Order (top→bottom): 60-min chart (W), 24-hour chart (kW),
     // 31-day chart (kWh + avg temp dual-axis), 31-day table.
     // Rationale: shortest timeframe at the top, longest at the
@@ -644,6 +646,7 @@ void WebPage() {
              days_pos, 31, days_w, 1, 0, 0.0, 0.0);
     WebChart('t', "",    "D-Temp (°C)", 0x3498db,
              days_pos, 31, days_t, 1, 0, 0.0, 0.0);
+    webSend("</div>");
 }
 
 // ── Test data presets (console-triggered) ───────────────────────────

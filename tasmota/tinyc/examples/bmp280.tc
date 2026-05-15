@@ -187,8 +187,11 @@ void WebPage() {
     int n = hist_pos;
     if (n > CHART_LEN) n = CHART_LEN;
     if (n > 0) {
+        // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+        webSend("<div style='margin-left:-30px'>");
         WebChart('l', "Temperature", "\u00b0C", 0xe74c3c, hist_pos, CHART_LEN, hist_temp, 1, 0, 0, 0);
         WebChart('l', "Pressure", "hPa", 0x27ae60, hist_pos, CHART_LEN, hist_pres, 1, 0, 0, 0);
+        webSend("</div>");
     }
 }
 

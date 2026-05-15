@@ -190,7 +190,10 @@ void WebPage() {
     int n = hist_pos;
     if (n > CHART_LEN) n = CHART_LEN;
     if (n > 0) {
+        // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+        webSend("<div style='margin-left:-30px'>");
         WebChart('l', "Illuminance", "lux", 0xf1c40f, hist_pos, CHART_LEN, hist_lux, 1, 0, 0, 0);
+        webSend("</div>");
     }
 }
 #endif

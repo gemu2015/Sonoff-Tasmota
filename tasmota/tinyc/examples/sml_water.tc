@@ -418,10 +418,14 @@ void WebCall() {
 
 // ── Main page, chart block below sensors ──
 void WebPage() {
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
+    // counters the ~30 px right-shift of the Tasmota main page.
+    webSend("<div style='margin-left:-30px'>");
     sml_water_render_4h();
     sml_water_render_24h();
     sml_water_render_days();
     sml_water_render_months();
+    webSend("</div>");
 }
 
 // ── Settings sub-page (menu button) ──

@@ -471,6 +471,10 @@ void WebCall() {
 // WebChart shim even when count=0 (empty frame). Page auto-reloads every
 // `chart_refresh` seconds so data stays fresh (Scripter-style >W behaviour).
 void WebPage() {
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
+    // wraps only the charts; the status strip + reload button below keep
+    // their own text-align:center so they stay page-centered.
+    webSend("<div style='margin-left:-30px'>");
     // Line chart: last 4h of power
     WebChart(0, "Leistung 4h",  "W", 0xe74c3c, s4h_pos,  s4h_cnt,  s4h,  0, 1, 0, 0);
     // Line chart: last 24h of power
@@ -481,6 +485,7 @@ void WebPage() {
     // Bar chart: 12 months, two series
     WebChart(1, "Monate (kWh)", "Verbrauch",   0x27ae60, mon_pos, mon_cnt, mcon,  1, 43200, 0, 0);
     WebChart(1, "",             "Einspeisung", 0xf39c12, mon_pos, mon_cnt, mprod, 1, 43200, 0, 0);
+    webSend("</div>");
 
     // Status strip + manual reload button + auto-reload script.
     // body[640] holds the status line; we reuse it for the reload <script>.

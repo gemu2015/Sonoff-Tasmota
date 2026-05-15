@@ -575,12 +575,15 @@ void WebPage() {
         webSend("<p>Collecting data... Charts appear after first sample.</p>");
         return;
     }
+    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
+    webSend("<div style='margin-left:-30px'>");
     WebChart(0, "Temperature (24h)", "\u00b0C", 0xe74c3c, h_pos, h_count, h_temp, 1, 5, -20, 50);
     WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, h_count, h_hum,  1, 5, 0, 100);
     WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, h_count, h_wavg, 1, 5, 0, 0);
     WebChart(0, "Rain (24h)",        "mm",       0x2980b9, h_pos, h_count, h_rain, 1, 5, 0, 0);
     WebChart(0, "Brightness (24h)",  "lux",      0xf39c12, h_pos, h_count, h_lux,  0, 5, 0, 0);
     WebChart(0, "UV Index (24h)",    "UVI",      0x9b59b6, h_pos, h_count, h_uvi,  1, 5, 0, 12);
+    webSend("</div>");
 }
 
 void WebCall() {
