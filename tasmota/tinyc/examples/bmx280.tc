@@ -264,11 +264,7 @@ void WebPage() {
 void bmx_web_label(int idx) {
     char vt[32];
     LGetString(idx, bmx_lbl);
-    strcpy(vt, "{s}");
-    strcat(vt, bmx_name);
-    strcat(vt, " ");
-    strcat(vt, bmx_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}%s %s{m}", bmx_name, bmx_lbl);
     webSend(vt);
 }
 
@@ -301,9 +297,7 @@ void JsonCall() {
     if (!bmx_ok) return;
     char buf[96];
     // ,\"BME280\":{\"Temperature\":23.5,\"Pressure\":1013.2,\"Humidity\":45.3}
-    strcpy(buf, ",\"");
-    strcat(buf, bmx_name);
-    strcat(buf, "\":{");
+    sprintf(buf, ",\"%s\":{", bmx_name);
     responseAppend(buf);
     sprintf(buf, "\"Temperature\":%.1f", bmx_temp);
     responseAppend(buf);

@@ -1178,11 +1178,7 @@ void ow_web_sensor(int idx) {
     ow_temp_label(name, idx);
 
     LGetString(0, ow_lbl);  // 0 = Temperature
-    strcpy(vt, "{s}");
-    strcat(vt, name);
-    strcat(vt, " ");
-    strcat(vt, ow_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}%s %s{m}", name, ow_lbl);
     webSend(vt);
     sprintf(vt, "%.1f °C{e}", ow_temp[idx]);
     webSend(vt);
@@ -1201,9 +1197,7 @@ void ow_web_switch(int idx) {
         if ((ow_sw_input[idx] & 0x01) == 0) a_on = 1;
         if ((ow_sw_input[idx] & 0x04) == 0) b_on = 1;
 
-        strcpy(vt, "{s}");
-        strcat(vt, name);
-        strcat(vt, " A{m}");
+        sprintf(vt, "{s}%s A{m}", name);
         webSend(vt);
         if (a_on) {
             webSend("ON{e}");
@@ -1212,9 +1206,7 @@ void ow_web_switch(int idx) {
         }
 
         if (ow_is_2ch(idx)) {
-            strcpy(vt, "{s}");
-            strcat(vt, name);
-            strcat(vt, " B{m}");
+            sprintf(vt, "{s}%s B{m}", name);
             webSend(vt);
             if (b_on) {
                 webSend("ON{e}");
@@ -1224,9 +1216,7 @@ void ow_web_switch(int idx) {
         }
     } else {
         // DS2408: show hex port state
-        strcpy(vt, "{s}");
-        strcat(vt, name);
-        strcat(vt, "{m}");
+        sprintf(vt, "{s}%s{m}", name);
         webSend(vt);
         sprintf(vt, "0x%02X{e}", ow_sw_input[idx] & 0xFF);
         webSend(vt);
@@ -1262,9 +1252,7 @@ void JsonCall() {
     while (i < ow_cnt) {
         if (ow_valid[i]) {
             ow_temp_label(name, i);
-            strcpy(buf, ",\"");
-            strcat(buf, name);
-            strcat(buf, "\":{");
+            sprintf(buf, ",\"%s\":{", name);
             responseAppend(buf);
             sprintf(buf, "\"Temperature\":%.1f}", ow_temp[i]);
             responseAppend(buf);
@@ -1277,9 +1265,7 @@ void JsonCall() {
     while (i < ow_sw_cnt) {
         if (ow_sw_valid[i]) {
             ow_sw_label(name, i);
-            strcpy(buf, ",\"");
-            strcat(buf, name);
-            strcat(buf, "\":{");
+            sprintf(buf, ",\"%s\":{", name);
             responseAppend(buf);
             if (ow_is_2ch(i) || ow_is_1ch(i)) {
                 int a_on = 0;
@@ -1433,9 +1419,7 @@ void ow_cmd_status(char resp[]) {
     while (i < ow_sw_cnt) {
         if (i > 0) strcat(resp, ",");
         ow_sw_label(name, i);
-        strcpy(tmp, "\"");
-        strcat(tmp, name);
-        strcat(tmp, "\":{");
+        sprintf(tmp, "\"%s\":{", name);
         strcat(resp, tmp);
         if (ow_is_2ch(i) || ow_is_1ch(i)) {
             int a_on = 0;

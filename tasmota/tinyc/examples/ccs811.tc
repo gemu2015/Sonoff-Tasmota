@@ -99,11 +99,7 @@ void EverySecond() {
 void ccs_web_label(int idx) {
     char vt[48];
     LGetString(idx, ccs_lbl);
-    strcpy(vt, "{s}");
-    strcat(vt, ccs_name);
-    strcat(vt, " ");
-    strcat(vt, ccs_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}%s %s{m}", ccs_name, ccs_lbl);
     webSend(vt);
 }
 
@@ -126,9 +122,7 @@ void WebCall() {
 void JsonCall() {
     if (!ccs_ok) return;
     char buf[64];
-    strcpy(buf, ",\"");
-    strcat(buf, ccs_name);
-    strcat(buf, "\":{");
+    sprintf(buf, ",\"%s\":{", ccs_name);
     responseAppend(buf);
     sprintf(buf, "\"eCO2\":%d", ccs_eco2);
     responseAppend(buf);

@@ -165,9 +165,7 @@ void WebCall() {
 
     // detection distance (localized label)
     LGetString(16, ld_lbl);
-    strcpy(vt, "{s}LD2410 ");
-    strcat(vt, ld_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}LD2410 %s{m}", ld_lbl);
     webSend(vt);
     sprintf(vt, "%d cm{e}", ld_dist);
     webSend(vt);

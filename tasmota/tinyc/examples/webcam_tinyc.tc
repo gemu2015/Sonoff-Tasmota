@@ -159,19 +159,7 @@ void flash_off() {
 // Build timestamped filename: /PICS/27_2_2026-14_30_05.jpg
 // ═══════════════════════════════════════════════════════════════════
 void build_pic_name() {
-    strcpy(fnam, "/PICS/");
-    sprintfAppend(fnam, "%d", tasm_day);
-    strcat(fnam, "_");
-    sprintfAppend(fnam, "%d", tasm_month);
-    strcat(fnam, "_");
-    sprintfAppend(fnam, "%d", tasm_year);
-    strcat(fnam, "-");
-    sprintfAppend(fnam, "%d", tasm_hour);
-    strcat(fnam, "_");
-    sprintfAppend(fnam, "%d", tasm_minute);
-    strcat(fnam, "_");
-    sprintfAppend(fnam, "%d", tasm_second);
-    strcat(fnam, ".jpg");
+    sprintf(fnam, "/PICS/%d_%d_%d-%d_%d_%d.jpg", tasm_day, tasm_month, tasm_year, tasm_hour, tasm_minute, tasm_second);
 }
 
 // ═══════════════════════════════════════════════════════════════════

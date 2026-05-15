@@ -1015,11 +1015,7 @@ void wd_send_alert(char subj_part[]) {
     if (known[188]) { u = reg[188] & 0xFFFF; s = u; if (s >= 32768) s -= 65536; puffer_c  = s / 10.0; }
 
     // mailSend takes just the bracketed params, no leading "sendmail "
-    strcpy(mailer_params, "[*:*:*:*:*:");
-    strcat(mailer_params, wd_email_to);
-    strcat(mailer_params, ":HP Watchdog ");
-    strcat(mailer_params, subj_part);
-    strcat(mailer_params, "]");
+    sprintf(mailer_params, "[*:*:*:*:*:%s:HP Watchdog %s]", wd_email_to, subj_part);
     sprintf(g_tmp, "trips=%d puff=%.1fC out=%.1fC P=%.0fW",
             wd_trigger_count, puffer_c, ausgang_c, hwp);
     strcat(mailer_params, g_tmp);

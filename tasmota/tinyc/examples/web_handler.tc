@@ -12,9 +12,7 @@ void WebOn() {
         char name[32];
         int len = webArg("name", name);
         if (len > 0) {
-            strcpy(buf, "{\"greeting\":\"Hello, ");
-            strcat(buf, name);
-            strcat(buf, "!\"}");
+            sprintf(buf, "{\"greeting\":\"Hello, %s!\"}", name);
         } else {
             strcpy(buf, "{\"greeting\":\"Hello, World!\"}");
         }

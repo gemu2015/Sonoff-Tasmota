@@ -247,9 +247,7 @@ void WebPage() {
 void bme_web_label(int idx) {
     char vt[32];
     LGetString(idx, bme_lbl);
-    strcpy(vt, "{s}BME280 ");
-    strcat(vt, bme_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}BME280 %s{m}", bme_lbl);
     webSend(vt);
 }
 

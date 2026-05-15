@@ -130,9 +130,7 @@ void nextPic() {
             dspText(buf);
 
             // Draw scaled JPEG
-            strcpy(buf, "[x0y0P");
-            strcat(buf, path);
-            strcat(buf, ":1:480:281]");
+            sprintf(buf, "[x0y0P%s:1:480:281]", path);
             dspText(buf);
 
         

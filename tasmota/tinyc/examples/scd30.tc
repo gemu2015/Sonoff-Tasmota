@@ -150,9 +150,7 @@ void EverySecond() {
 void scd_web_label(int idx) {
     char vt[32];
     LGetString(idx, scd_lbl);
-    strcpy(vt, "{s}SCD30 ");
-    strcat(vt, scd_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}SCD30 %s{m}", scd_lbl);
     webSend(vt);
 }
 

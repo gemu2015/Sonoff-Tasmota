@@ -128,9 +128,7 @@ void EverySecond() {
 void sht_web_label(int idx) {
     char vt[32];
     LGetString(idx, sht_lbl);
-    strcpy(vt, "{s}SHT31 ");
-    strcat(vt, sht_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}SHT31 %s{m}", sht_lbl);
     webSend(vt);
 }
 

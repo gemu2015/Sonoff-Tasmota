@@ -55,9 +55,7 @@ void Command(char cmd[]) {
             // No mailBody() — body inlined in params, exactly mirroring
             // the working console form
             //   sendmail [*:*:*:*:*:to:Test]hello from TinyC
-            strcpy(params, "[*:*:*:*:*:");
-            strcat(params, to_addr);
-            strcat(params, ":TinyC mail test]hello from TinyC mail_test.tc");
+            sprintf(params, "[*:*:*:*:*:%s:TinyC mail test]hello from TinyC mail_test.tc", to_addr);
             addLog("MAILTEST: queuing for TaskLoop");
             addLog(params);
             send_pending = 1;

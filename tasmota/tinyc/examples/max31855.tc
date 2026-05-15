@@ -45,9 +45,7 @@ void WebCall() {
     char out[64];
     if (tc_ok) {
         LGetString(0, tc_lbl);
-        strcpy(out, "{s}MAX31855 ");
-        strcat(out, tc_lbl);
-        strcat(out, "{m}");
+        sprintf(out, "{s}MAX31855 %s{m}", tc_lbl);
         webSend(out);
         sprintf(out, "%.1f &deg;C{e}", tc_temp);
         webSend(out);

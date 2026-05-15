@@ -196,9 +196,7 @@ void WebPage() {
 void bmp_web_label(int idx) {
     char vt[32];
     LGetString(idx, bmp_lbl);
-    strcpy(vt, "{s}BMP280 ");
-    strcat(vt, bmp_lbl);
-    strcat(vt, "{m}");
+    sprintf(vt, "{s}BMP280 %s{m}", bmp_lbl);
     webSend(vt);
 }
 
