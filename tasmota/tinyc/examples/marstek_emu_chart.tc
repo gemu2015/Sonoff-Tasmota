@@ -13,11 +13,18 @@
 // Requires: USE_SML (or USE_SML_M). SML meter descriptor loaded separately
 // via the IDE SML tab or /sml_meter.def.
 
-// ─── Simulator toggle (no real meter required) ────────────────────────────
-// Uncomment to generate fake meter readings + pre-seed day/month history.
-// In SIMULATE mode chart sampling is accelerated (1s and 5s) so all four
-// charts visibly populate within minutes.  Comment out for real SML meter.
-#define SIMULATE 1
+// ─── Simulator toggle (DEV ONLY — no real meter required) ─────────────────
+// MUST stay commented out for any real deployment. When defined:
+//   * getSml() returns a fake triangle-wave instead of the real meter —
+//     the emulator then feeds that fake power to the battery (looks
+//     "random"/wrong on a real install — ottelo Bug 2).
+//   * chart sampling is accelerated to 1s/5s while WebChart's interval
+//     args stay 1min/5min, so the 24h X-axis is stretched ~60× (Bug 3)
+//     and day/month rings never roll over in a short test (Bug 4).
+// Enable ONLY to eyeball chart rendering on a device with no meter, the
+// same way SML_CHART_DEMO works in the sml_chart ports. Real meter use:
+// leave this commented.
+//#define SIMULATE 1
 
 // ─── Chart sizing ──────────────────────────────────────────────────────────
 #define N4H    240    // 4h at 1-min raster (real mode)
