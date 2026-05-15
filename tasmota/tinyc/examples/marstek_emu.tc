@@ -577,10 +577,10 @@ void WebUI() {
 
     webSend("<hr>");
     webSend("<b>&#x1F4BE; Daten</b>");
-    webButton(do_init, "Zaehler initialisieren");
-    webButton(do_save, "Daten speichern");
+    webButton(do_init, "Zaehler initialisieren|initialisiert");
+    webButton(do_save, "Daten speichern|gespeichert");
 #ifdef MARSTEK_CHARTS
-    webButton(do_init2, "Diagramme zuruecksetzen");
+    webButton(do_init2, "Diagramme zuruecksetzen|zurueckgesetzt");
 #endif
 
     webSend("</div>");

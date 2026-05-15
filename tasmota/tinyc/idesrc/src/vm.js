@@ -2919,6 +2919,15 @@ export class VM {
                 this.onOutput(`[WebUI] Button: ${label}=${txt} (gidx=${resolved.base})\n`);
                 break;
             }
+            case 394: { // WEB_TOGGLE
+                const labelIdx = this.pop();
+                const gref = this.pop();
+                const resolved = this.resolveRef(gref);
+                const val = resolved.arr[resolved.base];
+                const label = this.constants[labelIdx] || 'Toggle';
+                this.onOutput(`[WebUI] Toggle: ${label}=${val ? 'ON' : 'OFF'} (gidx=${resolved.base})\n`);
+                break;
+            }
             case 151: { // WEB_SLIDER
                 const labelIdx = this.pop();
                 const max = this.pop();

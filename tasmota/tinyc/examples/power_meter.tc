@@ -407,9 +407,9 @@ void WebPage() {
 void WebUI() {
     pm_render_settings_panel();
     webSend("<hr><b>&#x1F4BE; Daten</b>");
-    webButton(do_init,  "Werte initialisieren");
-    webButton(do_init2, "Balkendiagramme zuruecksetzen");
-    webButton(do_save,  "Diagrammdaten speichern");
+    webButton(do_init,  "Werte initialisieren|initialisiert");
+    webButton(do_init2, "Balkendiagramme zuruecksetzen|zurueckgesetzt");
+    webButton(do_save,  "Diagrammdaten speichern|gespeichert");
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>power_meter.tc</b><br>TinyC port of ottelo's 5_SteckdoseLeistungsmesser_1/2.tas</div></div>");
 }
 

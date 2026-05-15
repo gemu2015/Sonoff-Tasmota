@@ -33,7 +33,7 @@ void HomeKitWrite(int dev, int var, float val) {
 void WebUI() {
     webSlider(sim_temp, 15, 35, "Temperature");
     webSlider(sim_hum, 20, 90, "Humidity");
-    webButton(sw_btn, "Switch");
+    webToggle(sw_btn, "Switch ON|Switch OFF");
 }
 
 void EverySecond() {

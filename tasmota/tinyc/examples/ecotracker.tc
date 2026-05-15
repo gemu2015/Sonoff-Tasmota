@@ -148,8 +148,8 @@ void WebUI() {
     int page = webPage();
     if (page == 0) {
         webNumber(pwroffset, -100, 100, "Offset [W] Nulleinspeisung");
-        webButton(do_init, "Zaehler initialisieren");
-        webButton(do_save, "Daten speichern");
+        webButton(do_init, "Zaehler initialisieren|initialisiert");
+        webButton(do_save, "Daten speichern|gespeichert");
     }
 }
 

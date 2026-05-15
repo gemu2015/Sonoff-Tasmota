@@ -317,6 +317,7 @@ const BUILTINS = {
 
     // WebUI widgets (refArgs[0] = variable ref for binding, strArgs = label/options)
     'webButton':        { syscall: Syscall.WEB_BUTTON,      args: 2, returns: false, refArgs: [0], constArgs: [1] },
+    'webToggle':        { syscall: Syscall.WEB_TOGGLE,      args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webSlider':        { syscall: Syscall.WEB_SLIDER,      args: 4, returns: false, refArgs: [0], constArgs: [3] },
     'webCheckbox':      { syscall: Syscall.WEB_CHECKBOX,    args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webText':          { syscall: Syscall.WEB_TEXT,         args: 3, returns: false, refArgs: [0], constArgs: [2] },

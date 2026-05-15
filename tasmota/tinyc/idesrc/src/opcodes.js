@@ -464,6 +464,7 @@ export const Syscall = {
     // i2cBegin on user-configurable pins so a stale default doesn't crash the
     // slot before the WebUI can render and let the user pick a different pin.
     PIN_FREE:                393, // (pin)        -> int (1=free, 0=forbidden)
+    WEB_TOGGLE:              394, // (gidx, label_ref) -> void — latching on/off button
 
     // Symmetric crypto (AES-128 / SHA-256 / HMAC-SHA256). All buffers are
     // TinyC char[] (one byte per int32 slot, low 8 bits used). Lengths in

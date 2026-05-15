@@ -215,6 +215,29 @@ Things that changed recently and invalidate older examples or forum advice:
   `if (written(slider_var)) { dispatch(); snapshot(slider_var); }` now fires
   correctly. `TC_MAX_WATCH = 16` watched globals per VM slot.
 
+- **`webButton` is a momentary action button, not a toggle** — it no
+  longer appends `: ON`/`: OFF` to the label (that suffix was confusing
+  for the dominant "do something" use case). On click it still pulses
+  the bound var (toggle scripts keep working) and briefly shows a
+  confirmation on the button itself for ~2.5 s, then reverts. Opt into
+  custom confirmation text with an `"Idle|Active"` label:
+  `webButton(do_init, "Zaehler initialisieren|initialisiert")`. No `|`
+  → generic `✓`. The `|` split is purely server-side rendering — no API
+  / compiler change, fully backward compatible (no existing label uses
+  `|`). True-toggle UIs that need a visible ON/OFF state should show it
+  via a separate `webText`/label — or use `webToggle` (below).
+- **`webToggle(var, "Label")` — latching on/off button** (syscall 394).
+  The stateful counterpart to the now-momentary `webButton`: a
+  full-width button that is **green when the bound var != 0, grey when
+  0**, no ON/OFF text suffix. Click flips the var 0↔1. Use this for
+  lights, pump-enable, mode switches — anything where the user must see
+  current state at a glance. Optional per-state label/emoji via an
+  `"On text|Off text"` label: `webToggle(light, "💡 An|🌙 Aus")` shows
+  "💡 An" (green) when on, "🌙 Aus" (grey) when off. No `|` → same text
+  both states, colour only. `webCheckbox` still exists for a classic
+  checkbox; `webToggle` is the button-styled equivalent that matches the
+  push-button aesthetic.
+
 Features documented in `TinyC_Reference.md` VM-limits table may understate:
 on ESP32, constant pool is **1024**, heap is **32 KB**, code size is **128 KB**
 (the table section in the reference is behind).

@@ -41,9 +41,9 @@ void HomeKitWrite(int dev, int var, float val) {
 }
 
 void WebUI() {
-    webButton(mh_pwr, "Licht");
+    webToggle(mh_pwr, "💡 Licht an|🌙 Licht aus");
     webSlider(mh_bri, 0, 100, "Helligkeit");
-    webButton(elamp, "Ecklicht");
+    webToggle(elamp, "💡 Ecklicht an|🌙 Ecklicht aus");
 }
 
 void EverySecond() {
