@@ -49,8 +49,10 @@
 // where 6/7 are reserved by the existing module template. Any pair
 // of free GPIOs works — TWAI goes through the C3's IOMUX, no
 // hardwired pin assignment.
-int  can_rx_pin = 10;     // ESP32-C3 .143 default: TX=GPIO9 (Strap-OK as TX), RX=GPIO10
-int  can_tx_pin = 9;
+int  can_rx_pin = 9;      // ESP32-C3 .143 wiring 2026-05-16: RX=GPIO9, TX=GPIO10
+int  can_tx_pin = 10;     // NOTE: GPIO9 is the BOOT strap. RXD idles HIGH
+                          // (recessive) so it should NOT force download
+                          // mode at reset — but watch the next reboot.
 int  tcp_port   = 9999;     // Mac client connects to this port
                             // (8888 collided with another listener on
                             //  the test C3; 9999 confirmed clean)
@@ -69,7 +71,9 @@ int  twai_open  = 0;        // 1 after twaiBegin succeeded
 //
 // Set to 1 for the loopback bring-up test, 0 once the transceiver
 // is wired up and a real DUT is on the bus.
-int  twai_mode  = 1;
+// 2026-05-16: authentic transceivers soldered, bus differential
+// measured ~2.0 V (spec) — electrical layer PASSES. NORMAL mode.
+int  twai_mode  = 0;
 
 // ── SLCAN command parser state ───────────────────────────────
 char cmdbuf[80];

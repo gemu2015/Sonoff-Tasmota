@@ -10,8 +10,8 @@
 // on the same bus as .143 (running slcan_bridge_tcp.tcb). Frames the
 // PC sends over `192.168.188.143:9999` via SLCAN end up here.
 
-int  rx_pin   = 38;       // ESP32-S3 .39 default: TX=GPIO39 → transceiver TXD, RX=GPIO38 ← RXD
-int  tx_pin   = 39;
+int  rx_pin   = 39;       // ESP32-S3 .39 wiring 2026-05-16: RX=GPIO39 ← RXD, TX=GPIO38 → TXD
+int  tx_pin   = 38;
 int  bitrate  = 250;      // kbit/s — must match the other end
 int  twai_mode = 0;       // 0 = NORMAL (ACK on bus), 1 = NO_ACK
                           // (self-test only — wrong here, we want bus ACK)
