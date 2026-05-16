@@ -51,7 +51,7 @@ configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 |---|---|---|
 | `-DTINYC_TESTING` | Enable TinyC with all standard features | Required |
 | `-DTINYC_NO_SCRIPTER` | Exclude Tasmota Scripter engine (~120 KB flash saved) | Recommended |
-| `-DTINYC_HOMEKIT` | Enable Apple HomeKit support (**≈+152 KB flash**) | **S3/16 MB only** — does *not* fit the 4 MB app partition (see Flash Budget) |
+| `-DTINYC_HOMEKIT` | Enable Apple HomeKit support (**≈+152 KB flash**) | **S3/16 MB only** by policy — links on 4 MB but leaves too little headroom (see Flash Budget) |
 | `-DTINYC_CAMERA` | Enable integrated camera driver (ESP32/S3 only, not RISC-V) — **≈+42 KB flash** | ESP32/S3 builds |
 | `-DTINYC_NO_DISPLAY` | Exclude display support (~80 KB flash saved) | Optional |
 
@@ -65,17 +65,18 @@ Numbers below are measured firmware deltas on this env (commit-era 1.6.8):
 | App partition ceiling | 1,900,544 B | over → build fails |
 | Baseline shipped (TinyC ✓, camera ✓, HomeKit ✗) | 1,634,895 B | **≈259 KB free** |
 | **TinyC subsystem itself** | **≈196 KB** | hand-measured; full driver — VM + ~70 syscalls + web widgets + IDE serving + bridges (not the bare interpreter, which is tiny) |
-| HomeKit (`-DTINYC_HOMEKIT`) | **+152 KB** | → ≈108 KB free; fits *only* with `device_devkit` off and nothing else added |
+| HomeKit (`-DTINYC_HOMEKIT`) | **+152 KB** | technically fits 4 MB (→ ≈108 KB free) but leaves too little headroom — see rule of thumb |
 | Camera (`-DTINYC_CAMERA`) | +42 KB | cheap; keep it |
-| `device_devkit` selector | ≈149 KB | the real space hog on 4 MB — keep off for tight builds |
 | TinyC IDE blob (`tinyc_ide.html.gz`) | ~165 KB | lives on the **filesystem partition, not app0** — does *not* count against the 1856 KB ceiling |
 
 **Rule of thumb:** on 4 MB ESP32 (Tensilica), TinyC (~196 KB) is the single
-largest optional subsystem — bigger than HomeKit. **HomeKit ships only in the
-ESP32-S3 / 16 MB builds**, which have a far larger app partition. On 4 MB,
-`-DTINYC_HOMEKIT` is force-dropped (`build_unflags = -DTINYC_HOMEKIT` in
-`[env:tinyc32-4M]`) because TinyC + HomeKit + the devkit profile together
-overflow the 1856 KB partition. RISC-V (C3) is tighter still and also omits camera.
+largest optional subsystem — bigger than HomeKit. Enabling HomeKit *would*
+still link (≈108 KB free), but that margin is too thin given TinyC's growth
+rate plus per-build extras (extra sensors, display variants, etc.). So as a
+policy **HomeKit ships only in the ESP32-S3 / 16 MB builds**, which have a far
+larger app partition and ample headroom; the 4 MB env force-drops it
+(`build_unflags = -DTINYC_HOMEKIT` in `[env:tinyc32-4M]`). RISC-V (C3) is
+tighter still and also omits camera.
 
 ## What's Included in Pre-Built Firmware
 
@@ -86,8 +87,9 @@ All pre-built firmware includes:
 - **I2C / SPI / Serial** — Hardware bus access (native TinyC, no Scripter dependency)
 
 - **HomeKit** — Apple Home integration via `-DTINYC_HOMEKIT`. **Only in the
-  ESP32-S3 / 16 MB builds** — it adds ≈152 KB and does not fit the 4 MB ESP32
-  app partition (see Flash Budget above). The 4 MB / C3 builds force-drop it.
+  ESP32-S3 / 16 MB builds** by policy — it adds ≈152 KB; on 4 MB that would
+  link but leaves too little headroom (see Flash Budget above), so the
+  4 MB / C3 builds force-drop it.
 
 ESP32 and ESP32-S3 builds additionally include:
 - **Camera** — Integrated camera driver via `-DTINYC_CAMERA` (≈+42 KB, measured). Supports OV2640, OV3660, OV5640 with MJPEG streaming, PSRAM slot management, and motion detection
