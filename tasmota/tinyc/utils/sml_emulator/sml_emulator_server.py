@@ -832,33 +832,59 @@ def _can_runner(bridge: str, bitrate: int):
             cli.open()                                  # S<n> + O, ACKed
             log_entry('info', 'CAN: SLCAN channel open (S/O ACK)')
             backoff = 1.0                               # reset on success
-            last_rx = time.time()
-            poll_n  = 0
+            last_rx  = time.time()
+            last_bc  = 0.0
+            poll_n   = 0
+            bc_n     = 0
+            bc_fail  = 0
+            def _send_all(frames):
+                a = 0
+                for fr in frames:
+                    if cli.send(int(fr['id']), bool(fr['ext']),
+                                bytes.fromhex(fr['data']), timeout=0.3):
+                        a += 1
+                return a
             while not can_stop:
-                f = cli.recv(timeout=0.5)
-                if f is None:
-                    if time.time() - last_rx > IDLE_LIMIT:
-                        log_entry('warn', 'CAN: link silent '
-                                  f'{IDLE_LIMIT:.0f}s (bridge bus-off?) '
-                                  '— re-opening channel')
-                        break                           # → reconnect
-                    continue
-                last_rx = time.time()
                 with state_lock:
                     cfg    = can_cfg
                     frames = list(can_frames)
-                poll = cfg.get('poll') if cfg else None
+                poll  = cfg.get('poll') if cfg else None
+                bcast = bool(cfg.get('broadcast')) if cfg else False
+                bms   = (cfg.get('intervalMs') or 1000) if cfg else 1000
+                # Broadcast (passive) devices — e.g. Sorel: no poll on the
+                # bus, the device just keeps sending. Transmit the frame
+                # set every intervalMs unsolicited.
+                if bcast and frames and \
+                        (time.time() - last_bc) >= (bms / 1000.0):
+                    acks = _send_all(frames)
+                    last_bc = time.time()
+                    bc_n += 1
+                    if bc_n <= 3 or bc_n % 10 == 0:
+                        log_entry('tx', f'CAN broadcast #{bc_n} → '
+                                  f'{acks}/{len(frames)} frames ACKed')
+                    # No peer ACKing at all for several cycles ⇒ dead
+                    # link / bus-off (broadcast gets no RX to watchdog on).
+                    bc_fail = bc_fail + 1 if acks == 0 else 0
+                    if bc_fail >= 5:
+                        log_entry('warn', 'CAN: broadcast unACKed 5× '
+                                  '(no DUT / bus-off?) — re-opening')
+                        break
+                f = cli.recv(timeout=0.3)
+                if f is None:
+                    # Idle watchdog applies only to POLL mode — a
+                    # broadcast DUT legitimately sends us nothing.
+                    if (poll and not bcast
+                            and time.time() - last_rx > IDLE_LIMIT):
+                        log_entry('warn', 'CAN: link silent '
+                                  f'{IDLE_LIMIT:.0f}s (bridge bus-off?) '
+                                  '— re-opening channel')
+                        break
+                    continue
+                last_rx = time.time()
                 if poll and f.ext == bool(poll.get('ext')) \
                         and f.id == int(poll.get('id')):
                     poll_n += 1
-                    acks = 0
-                    for fr in frames:
-                        data = bytes.fromhex(fr['data'])
-                        if cli.send(int(fr['id']), bool(fr['ext']),
-                                    data, timeout=0.3):
-                            acks += 1
-                    # One compact line per poll cycle (10 frames → 1 log
-                    # line, not 10 — keeps the console readable).
+                    acks = _send_all(frames)
                     if not frames:
                         log_entry('warn', 'CAN poll #%d: no response '
                                   'frames yet (set values in the form)'
@@ -1421,7 +1447,8 @@ function _canEncodeValue(fmt, width, raw) {
 }
 function buildCanCfg() {
   if (typeof repoState === 'undefined' || !repoState
-      || repoState.proto !== 'c' || !repoState.canPoll)
+      || repoState.proto !== 'c'
+      || (!repoState.canPoll && !repoState.canBroadcast))
     return null;
   const frames = [];
   for (const it of (repoState.items || [])) {
@@ -1452,8 +1479,14 @@ function buildCanCfg() {
     for (const x of data) hex += x.toString(16).padStart(2, '0');
     frames.push({ id, ext, data: hex });
   }
-  return { poll: { id: repoState.canPoll.id, ext: repoState.canPoll.ext },
-           frames };
+  return {
+    poll: repoState.canPoll
+            ? { id: repoState.canPoll.id, ext: repoState.canPoll.ext }
+            : null,
+    broadcast:  !!repoState.canBroadcast,
+    intervalMs: repoState.canBroadcastMs || 1000,
+    frames
+  };
 }
 async function pushCanCfg() {
   const cfg = buildCanCfg();
@@ -1742,9 +1775,13 @@ class Handler(BaseHTTPRequestHandler):
             # (b) the current prebuilt response frames. The browser owns
             # .tas parsing + UU/uu/@scale value encoding; we just store
             # the latest set for _can_runner to blast on each poll.
-            # Body shape:
-            #   {"poll":   {"id": <int>, "ext": <bool>},
-            #    "frames": [{"id": <int>, "ext": <bool>, "data": "<hex>"}, ...]}
+            # Body shape (poll-mode OR broadcast-mode):
+            #   {"poll": {"id":<int>,"ext":<bool>} | null,
+            #    "broadcast": <bool>, "intervalMs": <int>,
+            #    "frames": [{"id":<int>,"ext":<bool>,"data":"<hex>"}, ...]}
+            # poll-mode (Huawei): answer when the DUT polls.
+            # broadcast-mode (Sorel etc.): no poll on the bus — send the
+            # frame set every intervalMs unsolicited.
             # Re-POSTed every ~1 s with refreshed values (like /api/regs).
             global can_cfg, can_frames
             body = self._read_json()
@@ -1761,12 +1798,23 @@ class Handler(BaseHTTPRequestHandler):
                 if len(b) > 8:                       # CAN max payload
                     continue
                 cleaned.append({'id': fid, 'ext': ext, 'data': b.hex()})
+            try:
+                ims = int(body.get('intervalMs') or 1000)
+            except (ValueError, TypeError):
+                ims = 1000
+            ims = max(100, min(ims, 60000))      # sane bounds
             with state_lock:
-                if poll is not None:
-                    can_cfg = {'poll': {'id': int(poll.get('id', 0)),
-                                        'ext': bool(poll.get('ext', True))}}
+                can_cfg = {
+                    'poll': ({'id': int(poll.get('id', 0)),
+                              'ext': bool(poll.get('ext', True))}
+                             if poll is not None else None),
+                    'broadcast': bool(body.get('broadcast')),
+                    'intervalMs': ims,
+                }
                 can_frames = cleaned
-            self._json({'ok': True, 'frames': len(cleaned)})
+            self._json({'ok': True, 'frames': len(cleaned),
+                        'mode': 'broadcast' if body.get('broadcast')
+                                else 'poll'})
         elif path == '/api/t510_body':
             # Repo-mode T510 descriptor: browser pre-builds the OBIS-ASCII
             # body via buildOBISAsciiRepo() and POSTs it here as raw text.

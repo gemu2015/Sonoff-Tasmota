@@ -969,6 +969,15 @@ function parseSmlDescriptor(text) {
           const dlc  = parseInt(pollHex.substr(8, 2), 16) || 0;
           state.canPoll = { id, ext, dlc,
                             data: pollHex.substr(10, dlc * 2).toLowerCase() };
+        } else {
+          // No poll frame in the +line ⇒ broadcast/passive device
+          // (e.g. Sorel XHCC/LTDC): the real device spontaneously
+          // sends its frames, the DUT only listens. The emulator must
+          // transmit the frame set unsolicited every interval. Derive
+          // it from tsecs (100 ms ticks); fall back to 1 s.
+          state.canBroadcast   = true;
+          state.canBroadcastMs = Math.max(100,
+                                  Math.min((state.tsecs || 10) * 100, 60000));
         }
       }
       continue;
