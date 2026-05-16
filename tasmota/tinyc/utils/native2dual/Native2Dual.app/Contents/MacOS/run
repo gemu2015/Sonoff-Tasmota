@@ -1,0 +1,22 @@
+#!/bin/bash
+# macOS .app launcher for the native2dual PoC. Double-click in Finder
+# (no Terminal window). The bundle lives INSIDE the repo util dir
+# (.../native2dual/Native2Dual.app) because native2dual is repo-bound:
+# Compile forks build_plugin.py against the live checkout. Resolve back
+# to the util dir: run -> MacOS -> Contents -> Native2Dual.app -> util.
+export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+
+PYTHON=""
+for p in /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
+    [ -x "$p" ] && PYTHON="$p" && break
+done
+if [ -z "$PYTHON" ]; then
+    osascript -e 'display alert "Native2Dual" message "Python 3 not found. Install Python 3 from python.org."'
+    exit 1
+fi
+if [ ! -f "${DIR}/native2dual_app.py" ]; then
+    osascript -e 'display alert "Native2Dual" message "native2dual_app.py not found next to the bundle. Keep Native2Dual.app inside tasmota/tinyc/utils/native2dual/."'
+    exit 1
+fi
+exec "$PYTHON" "${DIR}/native2dual_app.py"
