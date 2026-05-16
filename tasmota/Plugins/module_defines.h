@@ -471,6 +471,7 @@ typedef struct {
   StateBitfield *global_state;
   uint16_t *gpio_pin;
   TRtcSettings *rtc;
+  bool *i2c_enabled;          // append-only (TGTAB idx 13); 0..12 unchanged
 } GTBL;
 
 #define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl(); TRtcSettings  *RtcSettings = tgbl->rtc;

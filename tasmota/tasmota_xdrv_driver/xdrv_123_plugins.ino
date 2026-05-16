@@ -2772,6 +2772,7 @@ const void * TGTAB[] PROGMEM = {
   &TasmotaGlobal.global_state,
   &TasmotaGlobal.gpio_pin,
   &RtcSettings,
+  &TasmotaGlobal.i2c_enabled,              // 13  append-only — 0..12 unchanged
 };
 
 void *tmod_gtbl(void) {
