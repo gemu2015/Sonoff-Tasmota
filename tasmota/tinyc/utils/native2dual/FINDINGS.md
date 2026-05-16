@@ -69,13 +69,21 @@ auto-generated and compiles clean up to the ABI boundary**.
 ## Conclusion
 
 The bottleneck for the cheap ~1/3 of the backlog is **not** 132
-individual hand conversions — it is **one shared, addressable JMPTBL
-modernisation**: the plugin ABI froze when Tasmota I²C was single-bus;
+individual hand conversions — it is **one shared, APPEND-ONLY JMPTBL
+extension**: the plugin ABI froze when Tasmota I²C was single-bus;
 native gained a `bus` param and `I2cWrite0`/`I2cReadBuffer0` since.
-Add/modernise those ~3–5 dual-bus I²C JMPTBL entries **once** and the
-entire CHEAP + much of VIABLE_BIG register-bang sensor class becomes
-near-push-button via `scaffold.py`. The 222 NEEDS_PORT (vendor C++
-libs) stay irreducibly human — unchanged.
+
+**Hard constraint (project rule):** the JMPTBL is a frozen ABI bound
+by already-compiled plugin `.bin`s. NEVER modify/reorder/re-signature
+an existing entry — *append only*. So the fix is NOT to "modernise"
+`jI2cWrite8` (that would break every existing plugin). It is to ADD
+**new** slots — e.g. `jI2cWrite8Bus` (4-arg), `jI2cWrite0`,
+`jI2cReadBuffer0` — leaving `jI2cWrite8` and all existing entries
+byte-identical, and have `dual_format_compat.h` map the native
+dual-bus calls onto the new slots. Done once, the entire CHEAP + much
+of VIABLE_BIG register-bang sensor class becomes near-push-button via
+`scaffold.py`. The 222 NEEDS_PORT (vendor C++ libs) stay irreducibly
+human — unchanged.
 
 tc2plugin (TinyC→plugin) is kept as the backup transpiler; this is a
 separate, complementary path. No firmware/ABI changes were made by
