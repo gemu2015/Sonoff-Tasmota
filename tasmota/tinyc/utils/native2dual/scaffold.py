@@ -344,7 +344,8 @@ def main():
     # the plugin GTBL doesn't carry must be guarded/dropped by a human
     # (typically optional branches like the #if MAX_I2C>1 dual-bus
     # display). Flag, never auto-edit (would be a semantic change).
-    GTBL_ABSENT = ['i2c_enabled', 'spi_enabled2', 'global_state']
+    # i2c_enabled was appended to GTBL/TGTAB (idx 13) — now resolvable.
+    GTBL_ABSENT = ['spi_enabled2', 'free_gpio']
     gtbl_flags = sorted({m for m in GTBL_ABSENT
                          if re.search(r'TasmotaGlobal\s*[.>-]+\s*'
                                       + re.escape(m), body)})
