@@ -243,6 +243,18 @@ on ESP32, constant pool is **1024**, heap is **64 KB** (`TC_MAX_HEAP`
 16384 slots × 4 B — default; overridable in `user_config_override.h`),
 code size is **128 KB** (the table section in the reference is behind).
 
+- **Firmware flash footprint of the TinyC subsystem ≈ 196 KB** (hand-measured
+  on `tinyc32-4M`, 1.6.8). This is the *whole* `xdrv_124` driver (VM + ~70
+  syscalls + web widgets + browser-IDE serving + HW/HomeKit/camera bridges),
+  NOT the bare interpreter loop — the old README "~12 KB" claim was the
+  interpreter only and was corrected. On the 4 MB ESP32 (`app1856k`, 1856 KB
+  ceiling) TinyC is the single largest optional subsystem, bigger than
+  HomeKit (≈152 KB). Consequence: **HomeKit ships only in S3/16 MB builds**;
+  4 MB envs force-drop `-DTINYC_HOMEKIT`. `USE_TINYC` is currently *not*
+  cleanly removable (unguarded couplings in xdrv_55_touch — fixed — and
+  xdrv_01_2_webserver_esp32_mail `WcGetPicstore` — open). See
+  `TinyC_Custom_Builds.md` → Flash Budget for the full measured table.
+
 ---
 
 ## 5. Callbacks — recognised names only

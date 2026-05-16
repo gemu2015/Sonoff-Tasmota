@@ -5,7 +5,7 @@ TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver
 ## Key Advantages
 
 - **Portable bytecode** — compile once in the browser, run the same binary on ESP32, ESP32-S3, ESP32-C3, or ESP8266. No recompilation needed per target.
-- **No on-device compiler** — the device only needs the lightweight VM (~12 KB flash). Compilation happens in the browser IDE, saving precious flash and RAM on constrained devices.
+- **No on-device compiler** — compilation happens in the browser IDE, so no parser/codegen ships in firmware. The bytecode interpreter loop itself is tiny, but the full shipped TinyC subsystem (VM + ~70 syscalls + web widgets + browser-IDE serving + hardware/HomeKit/camera bridges) is **≈196 KB flash** on a 4 MB ESP32 build (hand-measured) — still far smaller than embedding a compiler, but budget for it on tight 4 MB targets.
 - **Compact binary upload** — bytecode is smaller than source text, reducing upload time and filesystem usage.
 - **Instant execution** — uploaded bytecode runs immediately, no parsing or compilation step on the device.
 - **Familiar C syntax** — no new language to learn. Standard C subset with `int`, `float`, arrays, functions, `for`/`while`/`if` — anyone who knows C can write TinyC.
