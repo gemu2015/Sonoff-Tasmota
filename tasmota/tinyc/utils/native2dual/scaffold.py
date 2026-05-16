@@ -19,6 +19,145 @@
 # =====================================================================
 import re, sys, os
 
+def _pool_consts(b):
+    """Plugin literal-pool rule: the Xtensa literal pool is NOT
+    relocated in plugin mode, so in executable code:
+      * float literals  -> pooled `const float FP_CONST[] PROGMEM`,
+        referenced via FLTC(idx)
+      * int  literals |v|>2047 -> ICONST(v)
+    FLTC/ICONST are no-ops in native, real reads in plugin (compat
+    header / module_defines). Skip contexts that MUST stay compile-
+    time constants: strings/comments, #-lines, `case … :` labels,
+    `[ … ]` (array dim/subscript) and `= { … }` aggregate initializers.
+    Returns (new_body, fp_const_decl_or_None). Edits applied right-to-
+    left so positions stay valid."""
+    n = len(b)
+    m = list(b)                       # strings/comments -> spaces
+    skip = bytearray(n)               # 1 = do not touch
+    X = 1
+    st = None; i = 0
+    while i < n:
+        c = b[i]; d = b[i+1] if i+1 < n else ''
+        if st is None:
+            if c == '/' and d == '/': st='//'; m[i]=m[i+1]=' '; skip[i]=skip[i+1]=X; i+=2; continue
+            if c == '/' and d == '*': st='/*'; m[i]=m[i+1]=' '; skip[i]=skip[i+1]=X; i+=2; continue
+            if c == '"': st='"'; skip[i]=X; i+=1; continue
+            if c == "'": st="'"; skip[i]=X; i+=1; continue
+            i += 1
+        elif st == '//':
+            if c == '\n': st=None
+            else: m[i]=' '; skip[i]=X
+            i += 1
+        elif st == '/*':
+            if c=='*' and d=='/': m[i]=m[i+1]=' '; skip[i]=skip[i+1]=X; st=None; i+=2; continue
+            if c!='\n': m[i]=' '; skip[i]=X
+            i += 1
+        else:
+            if c == '\\':
+                skip[i]=X
+                if i+1<n: skip[i+1]=X
+                i += 2; continue
+            if c == st: st=None
+            elif c!='\n': m[i]=' '
+            skip[i]=X; i += 1
+    m = ''.join(m)
+    def mark(a, z):
+        for k in range(a, min(z, n)): skip[k] = X
+    for mm in re.finditer(r'(?m)^[ \t]*#[^\n]*', m): mark(mm.start(), mm.end())
+    for mm in re.finditer(r'\bcase\b[^:\n]*:', m):    mark(mm.start(), mm.end())
+    i = 0
+    while i < n:                                   # all [ … ] spans
+        if m[i] == '[':
+            d = 0; j = i
+            while j < n:
+                if m[j] == '[': d += 1
+                elif m[j] == ']':
+                    d -= 1
+                    if d == 0: break
+                j += 1
+            mark(i, j+1); i = j+1; continue
+        i += 1
+    for mm in re.finditer(r'=\s*\{', m):           # = { … } initializers
+        s0 = mm.end()-1; d = 0; j = s0
+        while j < n:
+            if m[j] == '{': d += 1
+            elif m[j] == '}':
+                d -= 1
+                if d == 0: break
+            j += 1
+        mark(mm.start(), j+1)
+    fp = []; fmap = {}; reps = []
+    FLOAT = re.compile(r'(?<![\w.])(\d+\.\d*(?:[eE][+-]?\d+)?|'
+                       r'\.\d+(?:[eE][+-]?\d+)?|\d+[eE][+-]?\d+)[fFlL]?'
+                       r'(?![\w.])')
+    for mo in FLOAT.finditer(m):
+        s0, e0 = mo.start(), mo.end()
+        if skip[s0]: continue
+        key = b[s0:e0].rstrip('fFlL')
+        try: float(key)
+        except ValueError: continue
+        if key not in fmap:
+            fmap[key] = len(fp); fp.append(key)
+        reps.append((s0, e0, f'FLTC({fmap[key]})'))
+    INT = re.compile(r'(?<![\w.])(0[xX][0-9a-fA-F]+|\d+)[uUlL]*'
+                     r'(?![\w.\d])')
+    for mo in INT.finditer(m):
+        s0, e0 = mo.start(), mo.end()
+        if skip[s0]: continue
+        try: v = int(mo.group(1), 0)
+        except ValueError: continue
+        if -2048 <= v <= 2047: continue
+        reps.append((s0, e0, f'ICONST({b[s0:e0]})'))
+    for s0, e0, rep in sorted(reps, key=lambda r: -r[0]):
+        b = b[:s0] + rep + b[e0:]
+    fpd = None
+    if fp:
+        vals = ', '.join((x if re.search(r'[.eE]', x) else x + '.0') + 'f'
+                         for x in fp)
+        fpd = ('// plugin literal-pool rule: float consts pooled in '
+               'PROGMEM, read via FLTC(idx)\n'
+               'const float FP_CONST[] PROGMEM = { %s };' % vals)
+    return b, fpd
+
+def _soft_float(b):
+    """Plugin mode: compiler-emitted HW float ops (__divsf3/__floatsisf
+    …) mis-relocate under the loader (tc2plugin Bug-3 class). Lower the
+    SAFE, recognisable sensor idiom — a float-context binary op where
+    one side is a pooled FLTC(idx) and the other a single identifier —
+    to the soft-float helpers (fdiv/fmul/fadd/fdiff + tofloat on an
+    integer operand), matching the hand dual. Anything more complex
+    (chained float exprs, float-typed locals, transcendentals) is NOT
+    mechanically lowerable here — that is tc2plugin's type-inference
+    job — so it is honestly flagged NEEDS-SOFTFLOAT, never miscompiled.
+    Returns (new_body, [flag_lines])."""
+    intv = set(re.findall(
+        r'\b(?:u?int(?:8|16|32|64)?_t|int|unsigned|short|long|size_t|'
+        r'char|bool)\s+([A-Za-z_]\w*)', b))
+    FN = {'/': 'fdiv', '*': 'fmul', '+': 'fadd', '-': 'fdiff'}
+    def wrap(tok):
+        tok = tok.strip()
+        return f'tofloat({tok})' if tok in intv else tok
+    # ident OP FLTC(i)
+    b = re.sub(r'([A-Za-z_]\w*)\s*([*/+\-])\s*FLTC\((\d+)\)',
+               lambda m: f'{FN[m.group(2)]}({wrap(m.group(1))}, '
+                         f'FLTC({m.group(3)}))', b)
+    # FLTC(i) OP ident
+    b = re.sub(r'FLTC\((\d+)\)\s*([*/+\-])\s*([A-Za-z_]\w*)',
+               lambda m: f'{FN[m.group(2)]}(FLTC({m.group(1)}), '
+                         f'{wrap(m.group(3))})', b)
+    flags = []
+    # Honest residual scan: a `float` local still produced by bare HW
+    # arithmetic (not via fXxx/FLTC) — flag the line, do not touch it.
+    for ln in b.splitlines():
+        s = ln.strip()
+        if re.match(r'(static\s+)?(const\s+)?float\s+\w', s) and \
+           re.search(r'[^|&=!<>]=[^=]', s) and \
+           not re.search(r'\b(fdiv|fmul|fadd|fdiff|tofloat|FLTC|'
+                         r'ConvertTemp|ConvertHumidity)\b', s) and \
+           re.search(r'[-+*/]', s.split('=', 1)[1] if '=' in s else ''):
+            flags.append('NEEDS-SOFTFLOAT: ' + s[:90])
+    return b, sorted(set(flags))
+
 def main():
     src_path, NAME = sys.argv[1], sys.argv[2]
     s = open(src_path, encoding='utf-8', errors='replace').read()
@@ -126,6 +265,15 @@ def main():
                 body = ('// NEEDS-MANUAL: PROGMEM array %s (elem type %s) '
                         '- wrap element reads with the matching '
                         'pgm_read_*\n' % (nm, base)) + body
+
+    # plugin literal-pool rule: float consts -> FP_CONST/FLTC,
+    # int >12-bit -> ICONST (in executable code only).
+    body, _fpdecl = _pool_consts(body)
+    if _fpdecl:
+        hoist.append(_fpdecl)          # emitted before fn bodies
+    # plugin: lower the safe FLTC-based float idiom to soft-float;
+    # flag the rest (tc2plugin's type-inference territory).
+    body, _sf_flags = _soft_float(body)
 
     STATE = []
     if mem_fields:
@@ -372,6 +520,21 @@ def main():
         for g_ in gtbl_flags:
             FLAGS.append(f'//   NEEDS-ABI: TasmotaGlobal.{g_} '
                          '— absent from plugin GTBL; guard/drop that branch')
+        FLAGS.append('// ' + '='*64)
+    if _sf_flags:
+        FLAGS += ['// ' + '='*64,
+                  f'// NEEDS-SOFTFLOAT ({len(_sf_flags)}) — float-typed '
+                  'expressions the',
+                  '// scaffolder will NOT auto-lower (general C++ float→'
+                  'soft-float is',
+                  '// tc2plugin type-inference territory). Bare HW float ops '
+                  'mis-relocate',
+                  '// under the plugin loader — a human must rewrite these '
+                  'via fdiv/fmul/',
+                  '// fadd/fdiff/tofloat/FLTC (see xsns_14_sht3x_dual.cpp '
+                  'for the pattern):']
+        for f_ in _sf_flags:
+            FLAGS.append('//   ' + f_)
         FLAGS.append('// ' + '='*64)
 
     print(PRE)
