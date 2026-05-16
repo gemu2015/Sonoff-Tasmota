@@ -50,21 +50,31 @@ iterations harvesting the error set:
   MODULE_MEMORY not declared` cluster — pure scaffolder-incompleteness.
 - **build2** (+ state→MODULE_MEMORY + reg-bind prologues): cluster
   gone; left ordering bugs + category-B.
-- **build3** (+ hoist #defines/enums/PROGMEM, fix is_written): **zero
-  scaffolder errors remain.** Residue is *exactly* the frozen-ABI gap:
-
-```
-NEEDS-JMPTBL (3):
-  I2cWrite8       frozen jI2cWrite8 is 3-arg; native 4-arg (…,bus) — drift
-  I2cWrite0       not in plugin JMPTBL/compat (dual-bus reg write)
-  I2cReadBuffer0  not in plugin JMPTBL/compat (dual-bus buffer read)
-  (+ module_defines.h tgbl / return-in-void = compat-header ABI drift)
-```
+- **build3** (+ hoist #defines/enums/PROGMEM, fix is_written): zero
+  scaffolder errors; residue = pure frozen-ABI gap (3 dual-bus I²C
+  syms + tgbl/return-in-void).
+- **build4** (+ APPEND-ONLY JMPTBL slots 216/217/218 =
+  `tmod_I2cWrite8Bus/I2cWrite0/I2cReadBuffer0`, new `j*` macros, and a
+  FILE-LOCAL `#undef I2cWrite8`/remap injected by the scaffold — frozen
+  `jI2cWrite8` jt[45] left byte-identical): **all 3 I²C errors gone.**
+  Residue: 2 scaffolder gaps — `void` INIT fn vs ALLOCMEM `return -1`,
+  and `TasmotaGlobal` needing the `STGLOB` prologue.
+- **build5** (+ INIT fn → `int32_t`, `STGLOB` when body uses
+  TasmotaGlobal): both gone. Residue: `*tgbl.member` mis-parse.
+- **build6** (+ file-local `#define TasmotaGlobal (*tgbl)`): gone.
+  **Final residue = ONE line:** `TasmotaGlobal.i2c_enabled[1]` in the
+  optional `#if MAX_I2C>1` dual-bus *display* branch — the plugin's
+  curated `GTBL` struct doesn't carry that member.
 
 The mechanical scaffolding (gating, MODULE_DESCRIPTOR/MODULE_PART,
-file-scope state → per-slot MODULE_MEMORY, ALLOCMEM/SETMEMREGS/RETMEM
-prologues, RO-array→const, #define/enum/PROGMEM hoist) is **fully
-auto-generated and compiles clean up to the ABI boundary**.
+file-scope state → per-slot MODULE_MEMORY, ALLOCMEM/SETMEMREGS/RETMEM +
+STGLOB prologues, INIT→int32_t, RO-array→const, #define/enum/PROGMEM
+hoist, file-local I²C+TasmotaGlobal remap) is **fully auto-generated**.
+After the one-time append-only JMPTBL extension, a real 236-line
+lib-free native sensor compiles down to a **single** human decision:
+guard/drop one optional dual-bus-display line (`NEEDS-ABI` flagged).
+GTBL is offset-sensitive and was deliberately NOT extended (different
+ABI surface than jt; not a safe append; out of authorised scope).
 
 ## Conclusion
 
@@ -75,15 +85,24 @@ native gained a `bus` param and `I2cWrite0`/`I2cReadBuffer0` since.
 
 **Hard constraint (project rule):** the JMPTBL is a frozen ABI bound
 by already-compiled plugin `.bin`s. NEVER modify/reorder/re-signature
-an existing entry — *append only*. So the fix is NOT to "modernise"
-`jI2cWrite8` (that would break every existing plugin). It is to ADD
-**new** slots — e.g. `jI2cWrite8Bus` (4-arg), `jI2cWrite0`,
-`jI2cReadBuffer0` — leaving `jI2cWrite8` and all existing entries
-byte-identical, and have `dual_format_compat.h` map the native
-dual-bus calls onto the new slots. Done once, the entire CHEAP + much
-of VIABLE_BIG register-bang sensor class becomes near-push-button via
-`scaffold.py`. The 222 NEEDS_PORT (vendor C++ libs) stay irreducibly
-human — unchanged.
+an existing entry — *append only*.
+
+**DONE (this PoC):** appended JMPTBL slots 216/217/218
+(`tmod_I2cWrite8Bus` 4-arg, `tmod_I2cWrite0`, `tmod_I2cReadBuffer0`) +
+matching `j*` macros; `jI2cWrite8`/jt[45] and all 0..215 left
+byte-identical (verified — no existing `.bin` behaviour changes). The
+scaffold injects a *file-local* `#undef I2cWrite8`/remap so only
+scaffolded TUs opt in. Empirically this collapsed the residue of a
+real lib-free sensor to **one** flagged optional-feature line.
+
+So: one shared, append-only ABI extension (done) + the auto-scaffolder
+takes the entire CHEAP + much of VIABLE_BIG register-bang sensor class
+to near-push-button; the per-driver residue is small, localized, and
+`NEEDS-ABI`/`NEEDS-PORT`-flagged for a human. The 222 NEEDS_PORT
+(vendor C++ libs) stay irreducibly human — unchanged. `GTBL` (curated
+TasmotaGlobal subset) is offset-sensitive and was intentionally NOT
+extended — a separate, riskier ABI surface; optional branches reading
+absent GTBL members are flagged for a human to guard/drop.
 
 tc2plugin (TinyC→plugin) is kept as the backup transpiler; this is a
 separate, complementary path. No firmware/ABI changes were made by

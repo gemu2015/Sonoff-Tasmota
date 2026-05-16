@@ -104,24 +104,71 @@ def main():
     else:
         STATE = type_defs
 
-    # --- inject reg-bind prologue into every top-level function body --
-    # ALLOCMEM in the INIT path (allocates MODULE_MEMORY), SETMEMREGS
-    # elsewhere (binds mem + mt/jt). Mechanical, mirrors the hand duals.
+    # --- per-function prologue pass (brace-matched, string/comment-safe).
+    #     ALLOCMEM in the INIT path, SETMEMREGS elsewhere; + STGLOB when
+    #     the body uses TasmotaGlobal (declares `tgbl`); + the INIT fn is
+    #     made int32_t-returning because ALLOCMEM's OOM guard `return -1`
+    #     is invalid in a void fn. Mirrors the hand duals exactly. -----
     init_fn = None
     im = re.search(r'FUNC_INIT[^\n]*\n\s*([A-Z]\w+)\s*\(', s)
     if im: init_fn = im.group(1)
-    def add_prologue(mm):
-        head, name = mm.group(0), mm.group(2)
-        tok = 'ALLOCMEM' if (mem_fields and name == init_fn) \
-              else ('SETMEMREGS' if mem_fields else 'SETREGS')
-        return head + f'\n  {tok}'
-    body = re.sub(
+
+    def mask(t):                       # length-preserving str/comment blank
+        o = list(t); i = 0; n = len(t); st = None
+        while i < n:
+            c = t[i]; d = t[i+1] if i+1 < n else ''
+            if st is None:
+                if c == '/' and d == '/': st='//'; o[i]=o[i+1]=' '; i+=2; continue
+                if c == '/' and d == '*': st='/*'; o[i]=o[i+1]=' '; i+=2; continue
+                if c == '"': st='"'; i+=1; continue
+                if c == "'": st="'"; i+=1; continue
+                i += 1
+            elif st == '//':
+                if c == '\n': st=None
+                else: o[i]=' '
+                i += 1
+            elif st == '/*':
+                if c=='*' and d=='/': o[i]=o[i+1]=' '; st=None; i+=2; continue
+                if c != '\n': o[i]=' '
+                i += 1
+            else:                                   # in " or '
+                if c == '\\': i += 2; continue
+                if c == st: st=None
+                elif c != '\n': o[i]=' '
+                i += 1
+        return ''.join(o)
+
+    msk = mask(body)
+    SIG = re.compile(
         r'^((?:bool|void|int32_t|uint8_t|int|float|const char\s*\*)\s+'
-        r'([A-Za-z_]\w*)\s*\([^;{]*\))\s*\{',
-        lambda mm: mm.group(1) + ' {\n  ' +
-        ('ALLOCMEM' if (mem_fields and mm.group(2) == init_fn)
-         else ('SETMEMREGS' if mem_fields else 'SETREGS')),
-        body, flags=re.M)
+        r'([A-Za-z_]\w*)\s*\([^;{]*\))\s*\{', re.M)
+    funcs = []
+    for m in SIG.finditer(msk):
+        nm = m.group(2)
+        if re.match(r'(Xsns|Xdrv)\d+$', nm):        # dispatcher: skip
+            continue
+        o = msk.index('{', m.end()-1)
+        depth = 0
+        for j in range(o, len(msk)):
+            if msk[j] == '{': depth += 1
+            elif msk[j] == '}':
+                depth -= 1
+                if depth == 0: break
+        funcs.append((m.start(), o, j, nm))
+    for s0, o, c, nm in sorted(funcs, key=lambda f: -f[0]):
+        sig  = body[s0:o].rstrip()
+        is_init = (mem_fields and nm == init_fn)
+        if is_init and re.match(r'\s*void\b', sig):
+            sig = re.sub(r'\bvoid\b', 'int32_t', sig, count=1)
+        tok = 'ALLOCMEM' if is_init else ('SETMEMREGS' if mem_fields
+                                          else 'SETREGS')
+        if 'TasmotaGlobal' in msk[o:c]:
+            tok += ' STGLOB'
+        inner = body[o+1:c]
+        if is_init:
+            inner = re.sub(r'\breturn\s*;', 'return 0;', inner)
+            inner = inner + '\n  return 0;\n'
+        body = body[:s0] + sig + ' {\n  ' + tok + inner + body[c:]
 
     # --- collect top-level function signatures for MODULE_PART --------
     sigs = re.findall(
@@ -150,6 +197,23 @@ def main():
 #  ifdef USE_{U}_N2D_MOD
 #    define _{U}_N2D_ENABLED 1
 #  endif
+// native2dual: route native dual-bus I2C onto the append-only JMPTBL
+// slots 216/217/218. FILE-LOCAL only — module_defines.h's global
+// `#define I2cWrite8 jI2cWrite8` (jt[45], 3-arg) is undef'd here just
+// for this scaffolded TU; no other plugin source is affected, so this
+// changes the behaviour of NOTHING that already exists.
+#  undef  I2cWrite8
+#  define I2cWrite8(a,r,v,b)       jI2cWrite8Bus((a),(r),(v),(b))
+#  undef  I2cWrite0
+#  define I2cWrite0(a,r,b)         jI2cWrite0((a),(r),(b))
+#  undef  I2cReadBuffer0
+#  define I2cReadBuffer0(a,bf,l,b) jI2cReadBuffer0((a),(bf),(l),(b))
+// module_defines.h has `#define TasmotaGlobal *tgbl`, so native
+// `TasmotaGlobal.member` mis-parses as `*(tgbl.member)`. Re-point to
+// `(*tgbl)` so `.member` works with the STGLOB-declared `tgbl`.
+// File-local; native build & other plugins untouched.
+#  undef  TasmotaGlobal
+#  define TasmotaGlobal (*tgbl)
 #endif
 #ifdef _{U}_N2D_ENABLED
 // ===================================================================
@@ -209,18 +273,38 @@ def main():
     }
     flagged = sorted({sym for sym in JMPTBL_GAP
                       if re.search(r'\b'+re.escape(sym)+r'\s*\(', body)})
+    # GTBL is a CURATED subset of TasmotaGlobal exposed to plugins; it
+    # is offset-sensitive, NOT a safe jt-style append. Member accesses
+    # the plugin GTBL doesn't carry must be guarded/dropped by a human
+    # (typically optional branches like the #if MAX_I2C>1 dual-bus
+    # display). Flag, never auto-edit (would be a semantic change).
+    GTBL_ABSENT = ['i2c_enabled', 'spi_enabled2', 'global_state']
+    gtbl_flags = sorted({m for m in GTBL_ABSENT
+                         if re.search(r'TasmotaGlobal\s*[.>-]+\s*'
+                                      + re.escape(m), body)})
     FLAGS = []
     if flagged:
         FLAGS = ['// ' + '='*64,
-                 f'// NEEDS-JMPTBL ({len(flagged)}) — irreducible: the frozen '
-                 'BinPlugin ABI does',
-                 '// not expose these (or its signature drifted from native).',
-                 '// A human/firmware must add/modernise the JMPTBL entry;',
-                 '// the scaffolder cannot invent ABI. Until then this plugin',
-                 '// will not link. (This is THE bottleneck for the lib-free',
-                 '// register-bang driver class — shared across many drivers.)']
+                 f'// DUAL-BUS I2C ({len(flagged)}) — RESOLVED via append-only '
+                 'JMPTBL slots',
+                 '// jt[216..218] (tmod_I2cWrite8Bus/I2cWrite0/I2cReadBuffer0).',
+                 '// This scaffold injects a FILE-LOCAL remap above; the frozen',
+                 '// jI2cWrite8 (jt[45], 3-arg) is left byte-identical, so no',
+                 '// existing plugin .bin behaviour changes. Informational:']
         for s_ in flagged:
-            FLAGS.append(f'//   NEEDS-JMPTBL: {s_:16s} — {JMPTBL_GAP[s_]}')
+            FLAGS.append(f'//   routed: {s_:16s} — was: {JMPTBL_GAP[s_]}')
+        FLAGS.append('// ' + '='*64)
+    if gtbl_flags:
+        FLAGS += ['// ' + '='*64,
+                  f'// NEEDS-ABI ({len(gtbl_flags)}) — plugin GTBL (curated '
+                  'TasmotaGlobal subset)',
+                  '// does not carry these members. GTBL is offset-sensitive,',
+                  '// NOT a safe jt-style append — a human must guard/drop the',
+                  '// (usually optional) branch that reads them, e.g. the',
+                  '// `#if MAX_I2C > 1` dual-bus display path.']
+        for g_ in gtbl_flags:
+            FLAGS.append(f'//   NEEDS-ABI: TasmotaGlobal.{g_} '
+                         '— absent from plugin GTBL; guard/drop that branch')
         FLAGS.append('// ' + '='*64)
 
     print(PRE)
