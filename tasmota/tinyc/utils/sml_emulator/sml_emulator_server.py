@@ -1143,6 +1143,12 @@ async function setupConnectUI() {
     } else {
       canWrap.style.display = 'none';
     }
+    // The same button drives serial AND CAN connect; in CAN mode it
+    // still read "Connect Serial Port" — relabel so it's obviously the
+    // CAN trigger (this is what starts the bridge link; there is no
+    // separate Start for CAN).
+    if (btnConn._origLabel === undefined) btnConn._origLabel = btnConn.textContent;
+    btnConn.textContent = isCan ? 'Connect CAN bridge' : btnConn._origLabel;
   }, 700);
 
   // Re-enable even if Web Serial check disabled it (e.g. Safari)
