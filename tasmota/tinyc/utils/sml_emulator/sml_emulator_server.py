@@ -1115,12 +1115,33 @@ async function setupConnectUI() {
   canWrap.appendChild(canInp);
   btnConn.parentNode.insertBefore(canWrap, btnConn);
   btnConn.parentNode.insertBefore(document.createTextNode(' '), btnConn);
-  // Toggle serial-port select vs CAN-bridge field by descriptor type.
+  // Surface the bridge field where the user actually looks: as the
+  // first row of the parsed-descriptor value panel (above the metric
+  // inputs), not buried in the connect toolbar. Relocate the single
+  // canWrap node there for CAN descriptors (the HTML rebuilds
+  // repoValuesFormInner per parse but not repoValuesForm itself, so a
+  // node inserted before repoValuesFormInner survives; the poller
+  // re-asserts it anyway). Hide the serial-port select in CAN mode.
   setInterval(() => {
     const isCan = (typeof isRepoMode === 'function' && isRepoMode()
                    && window.repoState && window.repoState.proto === 'c');
-    canWrap.style.display = isCan ? 'inline-flex' : 'none';
-    sel.style.display     = isCan ? 'none' : '';
+    sel.style.display = isCan ? 'none' : '';
+    const form = document.getElementById('repoValuesForm');
+    if (isCan && form) {
+      if (canWrap.parentNode !== form) {
+        canWrap.style.cssText =
+          'display:flex;align-items:center;gap:8px;margin:0 0 10px 0;'
+        + 'padding:7px 9px;background:#0a2030;border:1px solid #1a6a9a;'
+        + 'border-radius:5px';
+        canLbl.style.cssText =
+          'color:#7ec8ff;font-size:0.85em;font-weight:600;white-space:nowrap';
+        canInp.style.width = '180px';
+        form.insertBefore(canWrap, form.firstChild);
+      }
+      canWrap.style.display = 'flex';
+    } else {
+      canWrap.style.display = 'none';
+    }
   }, 700);
 
   // Re-enable even if Web Serial check disabled it (e.g. Safari)
