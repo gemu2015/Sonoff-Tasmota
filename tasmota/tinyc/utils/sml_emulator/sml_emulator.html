@@ -1336,6 +1336,7 @@ function repoRender() {
     'v': 'Resol VBus',
     'e': 'EBus',
     'k': 'Kamstrup',
+    'c': 'CAN bus',
   };
   const protoName = protoNames[repoState.proto] || `unknown (${repoState.proto})`;
   const cfg = `<div><b>${repoState.name || '(no name)'}</b></div>` +
@@ -1365,7 +1366,7 @@ function repoRender() {
   const supported = (repoState.proto === 's' || repoState.proto === 'o'
                   || repoState.proto === 'm' || repoState.proto === 'r'
                   || repoState.proto === 'v' || repoState.proto === 'e'
-                  || repoState.proto === 'k');
+                  || repoState.proto === 'k' || repoState.proto === 'c');
   if (!supported) {
     document.getElementById('repoUnsupported').style.display = '';
     document.getElementById('repoUnsupportedDetail').textContent =
@@ -3887,6 +3888,7 @@ function isModbusRtu() {
 function repoUsesStateMachine() {
   if (!isRepoMode() || !repoState) return false;
   return repoState.proto === 'm' || repoState.proto === 'k'
+      || repoState.proto === 'c'
       || (repoState.proto === 'o' && repoState.baud === 300);
 }
 
