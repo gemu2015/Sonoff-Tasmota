@@ -202,6 +202,17 @@ void handle_command() {
     if (cmd == 'O') {
         if (twai_open) { ack(); return; }
         int rc = twaiBegin(can_rx_pin, can_tx_pin, bitrate, twai_mode);
+        if (rc != 1) {
+            // twaiBegin can fail with ESP_ERR_INVALID_STATE when the
+            // TWAI driver is still installed from a prior session that
+            // didn't cleanly close (script re-run via TinyCRun without
+            // a reboot, client dropped without sending C, or a bus-off
+            // left it installed). Tear it down and retry once so O is
+            // recoverable WITHOUT a device Restart — this is what made
+            // "bridge did not ACK O / no data flowing" a recurring trap.
+            twaiEnd();
+            rc = twaiBegin(can_rx_pin, can_tx_pin, bitrate, twai_mode);
+        }
         if (rc != 1)   { nack(); return; }
         twai_open = 1;
         ack();
