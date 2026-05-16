@@ -270,6 +270,38 @@ def main():
     # FUNC_-case -> pFUNC_ map from the original dispatcher
     fmap = {'FUNC_INIT':'pFUNC_INIT','FUNC_EVERY_SECOND':'pFUNC_EVERY_SECOND',
             'FUNC_JSON_APPEND':'pFUNC_JSON_APPEND','FUNC_WEB_SENSOR':'pFUNC_WEB_SENSOR'}
+    # pFUNC_DEINIT must release any I2C address the driver claimed via
+    # I2cSetActiveFound (else reload / other drivers can't re-claim the
+    # bus — the BinPlugin slot-churn trap). Native register-bang
+    # drivers rarely have a deinit; the hand duals add one. Synthesize
+    # it from the claim call site: the common `arr[cnt].field` idiom →
+    # a release loop; anything else → a single release (best-effort)
+    # or an honest NEEDS-MANUAL flag. I2cResetActive(addr,bus) is
+    # already in the JMPTBL (jt[30]) — no new slot needed.
+    rel = ''
+    sm = re.search(r'I2cSetActiveFound\s*\(\s*([^,]+?)\s*,[^,]+,'
+                   r'\s*([^)]+?)\s*\)', s)
+    if sm:
+        ae, be = sm.group(1).strip(), sm.group(2).strip()
+        ix = r'^([A-Za-z_]\w*)\s*\[\s*([^\]]+?)\s*\]\s*\.\s*(\w+)$'
+        am, bm = re.match(ix, ae), re.match(ix, be)
+        if am and bm and am.group(1) == bm.group(1) \
+                and am.group(2) == bm.group(2):
+            arr, cnt = am.group(1), am.group(2)
+            rel = (f'for (uint32_t _di = 0; _di < {cnt}; _di++) '
+                   f'I2cResetActive({arr}[_di].{am.group(3)}, '
+                   f'{arr}[_di].{bm.group(3)});')
+        elif re.search(r'[\[\.]', ae):       # stateful but not the idiom
+            rel = ('/* NEEDS-MANUAL: release each I2C device claimed via '
+                   'I2cSetActiveFound — I2cResetActive(addr,bus) */')
+        else:                                # single fixed address
+            rel = f'I2cResetActive({ae}, {be});'
+    deinit = ('    case pFUNC_DEINIT: { SETMEMREGS '
+              + (rel + ' ' if rel else '')
+              + 'RETMEM break; }'
+              + ('  // deregister I2C, then free MODULE_MEMORY'
+                 if rel else ''))
+
     DISP = ['#if BUILD_AS_PLUGIN',
             'int32_t mod_func_execute(uint32_t function) {',
             '  switch (function) {']
@@ -287,7 +319,7 @@ def main():
                            disp_body)
             call = im.group(1) if im else ''
         DISP.append(f'    case {pf}: {{ {call} break; }}')
-    DISP += ['    case pFUNC_DEINIT: { SETMEMREGS RETMEM break; }',
+    DISP += [deinit,
              '    default: break;',
              '  }', '  return 0;', '}', 'PULL_OPTIONS', '#endif',
              f'#endif  // _{U}_N2D_ENABLED']
