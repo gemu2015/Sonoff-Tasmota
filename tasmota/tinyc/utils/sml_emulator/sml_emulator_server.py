@@ -813,50 +813,77 @@ def _can_runner(bridge: str, bitrate: int):
         can_running = False
         return
     log_entry('info', f'CAN profile started — SLCAN bridge {bridge} @ {bitrate} kbit/s')
-    cli = None
-    try:
-        cli = SlcanClient(bridge, bitrate=bitrate)
-        cli.open()
-        log_entry('info', 'CAN: SLCAN channel open (S/O ACK)')
-        nomatch = 0
-        while not can_stop:
-            f = cli.recv(timeout=0.5)
-            if f is None:
-                continue
-            with state_lock:
-                cfg    = can_cfg
-                frames = list(can_frames)
-            poll = cfg.get('poll') if cfg else None
-            if poll and f.ext == bool(poll.get('ext')) \
-                    and f.id == int(poll.get('id')):
-                log_entry('rx', f'CAN poll  id=0x{f.id:08X} ext={f.ext} '
-                                f'dlc={len(f.data)} {f.data.hex()}')
-                if not frames:
-                    log_entry('warn', 'CAN poll: no response frames configured '
-                                      '(push values from the browser)')
-                for fr in frames:
-                    data = bytes.fromhex(fr['data'])
-                    ok = cli.send(int(fr['id']), bool(fr['ext']),
-                                  data, timeout=0.3)
-                    log_entry('tx' if ok else 'warn',
-                              f"CAN resp id=0x{int(fr['id']):08X} "
-                              f"{data.hex()} ack={ok}")
-            else:
-                nomatch += 1
-                if nomatch <= 5 or nomatch % 50 == 0:   # throttle bus noise
-                    log_entry('rx', f'CAN rx (no poll match) '
-                                    f'id=0x{f.id:08X} ext={f.ext} '
-                                    f'{f.data.hex()}  [#{nomatch}]')
-    except Exception as e:
-        log_entry('err', f'CAN runner exception: {e}')
-    finally:
-        if cli:
-            try:
-                cli.close()
-            except Exception:
-                pass
-        can_running = False
-        log_entry('info', 'CAN profile stopped')
+    # Resilience: the SLCAN bridge has no bus-off auto-recovery (it goes
+    # silent after CAN TX errors and stays that way until the channel is
+    # re-opened — see SLCAN_README "send C\rO\r to re-open"), and a fresh
+    # bridge (post Restart 1 / TinyCRun) can miss the first S/O before
+    # its command loop is servicing the socket. So: keep an outer
+    # reconnect loop. Open with retries; if the link goes silent for
+    # IDLE_LIMIT s while the DUT should be polling (~1 Hz), assume
+    # bus-off/stale and re-open (the bridge's O reinstalls TWAI). The
+    # emulator self-heals across bridge restarts — the user presses
+    # Connect once and leaves it.
+    IDLE_LIMIT  = 8.0          # s of total silence → reconnect
+    backoff     = 1.0
+    while not can_stop:
+        cli = None
+        try:
+            cli = SlcanClient(bridge, bitrate=bitrate)
+            cli.open()                                  # S<n> + O, ACKed
+            log_entry('info', 'CAN: SLCAN channel open (S/O ACK)')
+            backoff = 1.0                               # reset on success
+            last_rx = time.time()
+            poll_n  = 0
+            while not can_stop:
+                f = cli.recv(timeout=0.5)
+                if f is None:
+                    if time.time() - last_rx > IDLE_LIMIT:
+                        log_entry('warn', 'CAN: link silent '
+                                  f'{IDLE_LIMIT:.0f}s (bridge bus-off?) '
+                                  '— re-opening channel')
+                        break                           # → reconnect
+                    continue
+                last_rx = time.time()
+                with state_lock:
+                    cfg    = can_cfg
+                    frames = list(can_frames)
+                poll = cfg.get('poll') if cfg else None
+                if poll and f.ext == bool(poll.get('ext')) \
+                        and f.id == int(poll.get('id')):
+                    poll_n += 1
+                    acks = 0
+                    for fr in frames:
+                        data = bytes.fromhex(fr['data'])
+                        if cli.send(int(fr['id']), bool(fr['ext']),
+                                    data, timeout=0.3):
+                            acks += 1
+                    # One compact line per poll cycle (10 frames → 1 log
+                    # line, not 10 — keeps the console readable).
+                    if not frames:
+                        log_entry('warn', 'CAN poll #%d: no response '
+                                  'frames yet (set values in the form)'
+                                  % poll_n)
+                    elif poll_n <= 3 or poll_n % 10 == 0:
+                        log_entry('tx', f'CAN poll #{poll_n} → '
+                                  f'{acks}/{len(frames)} frames ACKed')
+                    elif acks != len(frames):
+                        log_entry('warn', f'CAN poll #{poll_n}: only '
+                                  f'{acks}/{len(frames)} ACKed')
+                # else: non-poll bus frame — ignored silently
+        except Exception as e:
+            log_entry('warn', f'CAN: channel error ({e}) — retrying')
+        finally:
+            if cli:
+                try:
+                    cli.close()
+                except Exception:
+                    pass
+        if can_stop:
+            break
+        time.sleep(backoff)                             # reconnect backoff
+        backoff = min(backoff * 1.5, 5.0)
+    can_running = False
+    log_entry('info', 'CAN profile stopped')
 
 def can_start(bridge: str, bitrate: int):
     global can_running, can_thread, can_stop
