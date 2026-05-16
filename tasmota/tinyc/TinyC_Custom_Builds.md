@@ -94,6 +94,21 @@ All pre-built firmware includes:
 ESP32 and ESP32-S3 builds additionally include:
 - **Camera** — Integrated camera driver via `-DTINYC_CAMERA` (≈+42 KB, measured). Supports OV2640, OV3660, OV5640 with MJPEG streaming, PSRAM slot management, and motion detection
 
+### Build-flag-gated TinyC commands
+
+The camera and HomeKit syscalls are conditionally compiled — they exist in
+the firmware **only if the matching build flag was set**. A script using
+them on firmware built without the flag will fail to compile in the IDE
+(unknown builtin) or be a no-op:
+
+| Build flag | Gated TinyC builtins |
+|---|---|
+| `-DTINYC_CAMERA` (`USE_TINYC_CAMERA`) | `cameraInit`, `camControl`, `dspLoadImageFromCam`, `dspImageToCam` |
+| `-DTINYC_HOMEKIT` (`USE_HOMEKIT`) | `hkInit`, `hkAdd`, `hkStart`, `hkStop`, `hkReset`, `hkReady`, `hkVar`, `hkSetCode`, `HomeKitWrite` callback |
+
+Since the 4 MB / C3 pre-built firmware ships **without** HomeKit, the `hk*`
+builtins are unavailable there — use an S3/16 MB build for HomeKit scripts.
+
 ESP32-C3 (RISC-V) does **not** include camera support — the esp32-camera library requires Xtensa.
 
 ## platformio_override.ini Sections

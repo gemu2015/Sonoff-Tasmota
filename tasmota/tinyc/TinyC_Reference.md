@@ -4179,6 +4179,12 @@ Camera support for ESP32 boards with OV2640/OV3660/OV5640 sensors. Two modes ava
 
 Both modes support `mailAttachPic()` for email picture attachments (up to 4 pictures per email).
 
+> **Build-flag gated:** the camera builtins (`cameraInit`, `camControl`,
+> `dspLoadImageFromCam`, `dspImageToCam`) are only compiled in when the
+> firmware was built with `-DTINYC_CAMERA` (or `USE_WEBCAM`). On firmware
+> without it they don't exist — a script using them won't compile/run.
+> ESP32-C3 (RISC-V) and most 4 MB builds without the flag have no camera.
+
 #### Camera Init with Custom Pins (TinyC integrated mode)
 
 ```c
@@ -4343,7 +4349,14 @@ See `webcam_tinyc.tc` for a full security camera example with MJPEG streaming, m
 
 Apple HomeKit integration — expose devices directly from TinyC as HomeKit accessories. Sensors, lights, switches, and outlets become controllable via Apple Home. All HomeKit-bound variables use **native float values** — no x10 scaling needed.
 
-**Requires:** `#define USE_HOMEKIT` in `user_config_override.h`.
+**Requires:** firmware built with `-DTINYC_HOMEKIT` (which enables
+`USE_HOMEKIT`). The HomeKit builtins (`hkInit`, `hkAdd`, `hkStart`,
+`hkStop`, `hkReset`, `hkReady`, `hkVar`, `hkSetCode`) and the
+`HomeKitWrite` callback are **only compiled in with that flag** — a
+script using them on firmware built without it won't compile/run. By
+policy the pre-built **4 MB ESP32 and C3 firmware ship without HomeKit**
+(see `TinyC_Custom_Builds.md` → Flash Budget); use an **ESP32-S3 / 16 MB**
+build for HomeKit scripts.
 
 #### Predefined HomeKit Constants
 
