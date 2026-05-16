@@ -91,7 +91,31 @@ def main():
             accessors.append(f'#define {nm} mem->{nm}')
             body = body.replace(full, '', 1)
         elif arr and 'static' not in full:                  # RO array
-            body = body.replace(full, 'const ' + full, 1)
+            # PLUGIN RULE 3: a file-scope const array lands in the
+            # Xtensa literal pool, which the BinPlugin loader does NOT
+            # relocate → must be PROGMEM and read via pgm_read_*.
+            # PROGMEM is a no-op section attr in native mode and
+            # pgm_read works on plain memory too, so this stays
+            # dual-safe (compiles+runs both as native and as plugin).
+            base = ty.strip().split()[-1]
+            rd = {'uint8_t':'pgm_read_byte','int8_t':'pgm_read_byte',
+                  'char':'pgm_read_byte','bool':'pgm_read_byte',
+                  'uint16_t':'pgm_read_word','int16_t':'pgm_read_word',
+                  'uint32_t':'pgm_read_dword','int32_t':'pgm_read_dword',
+                  'int':'pgm_read_dword','size_t':'pgm_read_dword',
+                  'float':'pgm_read_float'}.get(base)
+            decl = f'const {ty}{nm}{arr} PROGMEM {init or ""};'
+            body = body.replace(full, decl, 1)
+            if rd:
+                # rewrite element reads nm[expr] -> rd(&nm[expr]); the
+                # PROGMEM decl uses empty `nm[]` so it is never matched.
+                body = re.sub(
+                    r'\b' + re.escape(nm) + r'\s*\[\s*([^\]\n]+?)\s*\]',
+                    lambda mm: f'{rd}(&{nm}[{mm.group(1)}])', body)
+            else:
+                body = ('// NEEDS-MANUAL: PROGMEM array %s (elem type %s) '
+                        '- wrap element reads with the matching '
+                        'pgm_read_*\n' % (nm, base)) + body
 
     STATE = []
     if mem_fields:
