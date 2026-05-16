@@ -1124,7 +1124,8 @@ async function setupConnectUI() {
   // re-asserts it anyway). Hide the serial-port select in CAN mode.
   setInterval(() => {
     const isCan = (typeof isRepoMode === 'function' && isRepoMode()
-                   && window.repoState && window.repoState.proto === 'c');
+                   && typeof repoState !== 'undefined' && repoState
+                   && repoState.proto === 'c');
     sel.style.display = isCan ? 'none' : '';
     const form = document.getElementById('repoValuesForm');
     if (isCan && form) {
@@ -1151,10 +1152,11 @@ async function setupConnectUI() {
   btnConn.onclick = async () => {
     // ── CAN-bus profile: network SLCAN bridge, no serial port ──
     if (typeof isRepoMode === 'function' && isRepoMode()
-        && window.repoState && window.repoState.proto === 'c') {
+        && typeof repoState !== 'undefined' && repoState
+        && repoState.proto === 'c') {
       const bridge  = (canInp.value || '').trim();
       if (!bridge) { alert('Enter the SLCAN bridge host:port'); return; }
-      const bitrate = window.repoState.canBitrate || 125;
+      const bitrate = repoState.canBitrate || 125;
       const r = await fetch(BASE + '/api/open', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -1167,7 +1169,7 @@ async function setupConnectUI() {
         setConn(true);
         pushCanCfg();                       // send poll matcher + initial frames
         log('info', `CAN bridge ${bridge} @ ${bitrate} kbit/s — emulating `
-                    + (window.repoState.name || 'CAN device'));
+                    + (repoState.name || 'CAN device'));
       } else {
         log('err', `CAN open failed: ${(j && j.error) || 'unknown'}`);
       }
@@ -1412,7 +1414,8 @@ function _canEncodeValue(fmt, width, raw) {
   return b;
 }
 function buildCanCfg() {
-  if (!window.repoState || repoState.proto !== 'c' || !repoState.canPoll)
+  if (typeof repoState === 'undefined' || !repoState
+      || repoState.proto !== 'c' || !repoState.canPoll)
     return null;
   const frames = [];
   for (const it of (repoState.items || [])) {
@@ -1457,7 +1460,8 @@ async function pushCanCfg() {
   } catch (_) {}
 }
 setInterval(() => {
-  if (writer && window.repoState && repoState.proto === 'c') pushCanCfg();
+  if (writer && typeof repoState !== 'undefined' && repoState
+      && repoState.proto === 'c') pushCanCfg();
 }, 1000);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
