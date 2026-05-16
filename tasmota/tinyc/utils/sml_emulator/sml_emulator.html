@@ -946,6 +946,31 @@ function parseSmlDescriptor(text) {
           }
         }
       }
+      // CAN: +M,rx,C,smlf,<params>,name,tx,<tsecs>,<pollFrameHex>[,…]
+      //   params = bitrateIndex + 100*rxQueueLen
+      //   bitrate index: 0=25 1=50 2=100 3=125 4=250 5=500 6=800 7=1000
+      //                  kbit/s (8/9/other → 125 — matches firmware default)
+      //   pollFrameHex = [id:4B BE][dlc:1B][data…]; bit31 of the 4-byte id
+      //                  is the extended-frame flag (masked off for the
+      //                  actual id). This is the frame the DUT broadcasts
+      //                  to poll the device; the emulator matches it on RX.
+      if (state.proto === 'c') {
+        const params = parseInt((parts[4] || '0').trim(), 10) || 0;
+        const BR = [25, 50, 100, 125, 250, 500, 800, 1000];
+        const bidx = params % 100;
+        state.canBitrate = (bidx >= 0 && bidx < 8) ? BR[bidx] : 125;
+        const tsec = parseInt((parts[7] || '10').trim(), 10);
+        state.tsecs = (!isNaN(tsec) && tsec > 0) ? tsec : 10;
+        const pollHex = (parts[8] || '').trim().replace(/[^0-9a-fA-F]/g, '');
+        if (pollHex.length >= 10) {
+          const id32 = parseInt(pollHex.substr(0, 8), 16) >>> 0;
+          const ext  = (id32 & 0x80000000) !== 0;
+          const id   = ext ? (id32 & 0x7fffffff) : id32;
+          const dlc  = parseInt(pollHex.substr(8, 2), 16) || 0;
+          state.canPoll = { id, ext, dlc,
+                            data: pollHex.substr(10, dlc * 2).toLowerCase() };
+        }
+      }
       continue;
     }
     // Value or special line: starts with a digit (meter index), then `,`
@@ -1013,6 +1038,13 @@ function parseSmlDescriptor(text) {
     } else if (state.proto === 'e') {
       // EBus: hex literal + skips + 1-2 byte value spec (`uu`/`ss`/etc.).
       isValid = /^[0-9a-fA-FuUsSxX]+$/.test(obisCleaned) && obisCleaned.length >= 4;
+    } else if (state.proto === 'c') {
+      // CAN: pattern is [id:4B][dlc:1B][data…] hex with U/u/S/s/x/X/f/F
+      // value placeholders. Letter case is SIGNIFICANT (endianness) so,
+      // unlike SML, do NOT lowercase storedObis. Need ≥ id+dlc+1 byte.
+      isValid = /^[0-9a-fA-FuUsSxXfF]+$/.test(obisCleaned)
+                && obisCleaned.length >= 12;
+      storedObis = obisCleaned;
     } else {
       // Kamstrup / unknown: accept any non-empty pattern. Frame emit
       // isn't wired for those in repo mode yet.

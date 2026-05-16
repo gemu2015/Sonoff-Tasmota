@@ -123,6 +123,20 @@ ks_running = False
 ks_thread  = None
 ks_stop    = False
 
+# CAN-bus profile mode. The emulator plays a CAN device (e.g. Huawei
+# R4850G2) reached over a network SLCAN bridge (slcan_bridge_tcp.tc on
+# an ESP32, TCP host:port). Like Kamstrup it is request/response: the
+# DUT (Tasmota + USE_SML_CANBUS) periodically broadcasts a poll frame;
+# we answer with the descriptor's response frames. The browser parses
+# the .tas (it already has the UU/uu/@scale codec) and pushes a poll
+# matcher + prebuilt response frames via /api/can_cfg; this runner
+# stays dumb — match poll, blast the current frame set over SLCAN.
+can_running = False
+can_thread  = None
+can_stop    = False
+can_cfg     = None       # {'poll': {'id':int,'ext':bool}} poll matcher
+can_frames  = []         # [{'id':int,'ext':bool,'data':<hex str>}] responses
+
 def serial_reader():
     global serial_port
     while True:
@@ -777,6 +791,90 @@ def kamstrup_stop_runner():
     ks_stop    = True
     ks_running = False
 
+# ── CAN-bus profile (network SLCAN bridge) ──────────────────────────────────────
+def _can_runner(bridge: str, bitrate: int):
+    """Hold one SlcanClient (TCP) to the bridge; on each matching DUT
+    poll frame, transmit the current prebuilt response frame set.
+
+    The browser owns descriptor parsing + value encoding (its existing
+    .tas UU/uu/@scale codec) and refreshes can_frames via /api/can_cfg.
+    """
+    global can_running
+    try:
+        # slcan_client.py sits next to this server file; make the import
+        # path-independent of how the process was launched (repo dir,
+        # packaged .app bundle, or an external headless launcher).
+        _here = os.path.dirname(os.path.abspath(__file__))
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        from slcan_client import SlcanClient
+    except Exception as e:
+        log_entry('err', f'CAN: slcan_client import failed: {e}')
+        can_running = False
+        return
+    log_entry('info', f'CAN profile started — SLCAN bridge {bridge} @ {bitrate} kbit/s')
+    cli = None
+    try:
+        cli = SlcanClient(bridge, bitrate=bitrate)
+        cli.open()
+        log_entry('info', 'CAN: SLCAN channel open (S/O ACK)')
+        nomatch = 0
+        while not can_stop:
+            f = cli.recv(timeout=0.5)
+            if f is None:
+                continue
+            with state_lock:
+                cfg    = can_cfg
+                frames = list(can_frames)
+            poll = cfg.get('poll') if cfg else None
+            if poll and f.ext == bool(poll.get('ext')) \
+                    and f.id == int(poll.get('id')):
+                log_entry('rx', f'CAN poll  id=0x{f.id:08X} ext={f.ext} '
+                                f'dlc={len(f.data)} {f.data.hex()}')
+                if not frames:
+                    log_entry('warn', 'CAN poll: no response frames configured '
+                                      '(push values from the browser)')
+                for fr in frames:
+                    data = bytes.fromhex(fr['data'])
+                    ok = cli.send(int(fr['id']), bool(fr['ext']),
+                                  data, timeout=0.3)
+                    log_entry('tx' if ok else 'warn',
+                              f"CAN resp id=0x{int(fr['id']):08X} "
+                              f"{data.hex()} ack={ok}")
+            else:
+                nomatch += 1
+                if nomatch <= 5 or nomatch % 50 == 0:   # throttle bus noise
+                    log_entry('rx', f'CAN rx (no poll match) '
+                                    f'id=0x{f.id:08X} ext={f.ext} '
+                                    f'{f.data.hex()}  [#{nomatch}]')
+    except Exception as e:
+        log_entry('err', f'CAN runner exception: {e}')
+    finally:
+        if cli:
+            try:
+                cli.close()
+            except Exception:
+                pass
+        can_running = False
+        log_entry('info', 'CAN profile stopped')
+
+def can_start(bridge: str, bitrate: int):
+    global can_running, can_thread, can_stop
+    if can_running:
+        return
+    can_stop    = False
+    can_running = True
+    can_thread  = threading.Thread(target=_can_runner,
+                                   args=(bridge, bitrate), daemon=True)
+    can_thread.start()
+
+def can_stop_runner():
+    global can_running, can_stop
+    if not can_running:
+        return
+    can_stop    = True
+    can_running = False
+
 # ── Modbus TCP slave ───────────────────────────────────────────────────────────
 def modbus_tcp_server():
     global tcp_clients
@@ -962,11 +1060,54 @@ async function setupConnectUI() {
   btnConn.parentNode.insertBefore(sel, btnConn);
   btnConn.parentNode.insertBefore(document.createTextNode(' '), btnConn);
 
+  // CAN-bus profile: a network SLCAN bridge (slcan_bridge_tcp.tc on an
+  // ESP32) replaces the serial port. Show a host:port field; visible
+  // only when the parsed descriptor is a CAN ('+…,C,…') one.
+  const canInp = document.createElement('input');
+  canInp.id = 'bridgeCanHost';
+  canInp.type = 'text';
+  canInp.value = '192.168.188.143:9999';
+  canInp.title = 'SLCAN bridge host:port (slcan_bridge_tcp.tc)';
+  canInp.style.cssText = 'width:170px;background:#0a1628;border:1px solid #1a4a7a;color:#e0e0e0;padding:5px 8px;border-radius:4px;font-size:0.81em;display:none;';
+  btnConn.parentNode.insertBefore(canInp, btnConn);
+  btnConn.parentNode.insertBefore(document.createTextNode(' '), btnConn);
+  // Toggle serial-port vs CAN-bridge input by descriptor type.
+  setInterval(() => {
+    const isCan = (typeof isRepoMode === 'function' && isRepoMode()
+                   && window.repoState && window.repoState.proto === 'c');
+    canInp.style.display = isCan ? '' : 'none';
+    sel.style.display    = isCan ? 'none' : '';
+  }, 700);
+
   // Re-enable even if Web Serial check disabled it (e.g. Safari)
   btnConn.disabled = false;
 
   // Override Connect button
   btnConn.onclick = async () => {
+    // ── CAN-bus profile: network SLCAN bridge, no serial port ──
+    if (typeof isRepoMode === 'function' && isRepoMode()
+        && window.repoState && window.repoState.proto === 'c') {
+      const bridge  = (canInp.value || '').trim();
+      if (!bridge) { alert('Enter the SLCAN bridge host:port'); return; }
+      const bitrate = window.repoState.canBitrate || 125;
+      const r = await fetch(BASE + '/api/open', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({profile: 'repo_can', bridge, bitrate})
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j && j.ok) {
+        window._bridgeWriter = { write: async () => {} };  // CAN has no serial TX
+        writer = window._bridgeWriter;
+        setConn(true);
+        pushCanCfg();                       // send poll matcher + initial frames
+        log('info', `CAN bridge ${bridge} @ ${bitrate} kbit/s — emulating `
+                    + (window.repoState.name || 'CAN device'));
+      } else {
+        log('err', `CAN open failed: ${(j && j.error) || 'unknown'}`);
+      }
+      return;
+    }
     const device = sel.value;
     if (!device) { alert('Select a serial port first'); return; }
     // In repo mode the per-meter baud comes from the parsed descriptor,
@@ -1160,6 +1301,100 @@ async function pollLog() {
 }
 setInterval(pollLog, 1000);
 
+// ── CAN profile: encode repo items → SLCAN response frames ───────────────────
+// The descriptor data line is [id:4B][dlc:1B][data…] where part of the
+// data is literal selector bytes and a run of U/u/S/s/f/F placeholders
+// marks the value field. We mirror Tasmota's UU/uu endianness convention
+// (uppercase-leading = big-endian, lowercase = byte-swapped/LE). raw =
+// round(displayed_value × @scale) — the firmware reports raw / scale.
+function _canScanFormat(rest) {
+  const m8 = rest.match(/^(ffffffff|FFFFFFFF|UUuuUUuu|SSssSSss|uuUUuuUU|ssSSssSS)/);
+  if (m8) { const t = m8[1];
+    return { width: 4, letters: 8,
+      fmt: /^[fF]+$/.test(t) ? 'f32be'
+         : t === 'UUuuUUuu' ? 'u32be' : t === 'SSssSSss' ? 's32be'
+         : t === 'uuUUuuUU' ? 'u32le' : 's32le' }; }
+  const m4 = rest.match(/^(UUuu|SSss|uuUU|ssSS)/);
+  if (m4) { const t = m4[1];
+    return { width: 2, letters: 4,
+      fmt: t === 'UUuu' ? 'u16be' : t === 'SSss' ? 's16be'
+         : t === 'uuUU' ? 'u16le' : 's16le' }; }
+  const m1 = rest.match(/^(UU|SS|uu|ss)/);
+  if (m1) { const t = m1[1];
+    return { width: 1, letters: 2,
+      fmt: (t[0] === 'S' || t[0] === 's') ? 's8' : 'u8' }; }
+  return null;
+}
+function _canEncodeValue(fmt, width, raw) {
+  const b = new Uint8Array(width);
+  if (fmt === 'f32be') { new DataView(b.buffer).setFloat32(0, raw, false); return b; }
+  let v = Math.round(raw);
+  const span = Math.pow(2, width * 8);
+  if (fmt[0] === 's') {                       // signed: clamp then 2's-comp
+    const lim = span / 2;
+    if (v >  lim - 1) v = lim - 1;
+    if (v < -lim)     v = -lim;
+    if (v < 0) v += span;
+  } else {
+    if (v < 0) v = 0;
+    if (v > span - 1) v = span - 1;
+  }
+  const le = fmt.endsWith('le');
+  for (let i = 0; i < width; i++) {
+    const sh = le ? i : (width - 1 - i);
+    b[i] = Math.floor(v / Math.pow(2, 8 * sh)) & 0xff;
+  }
+  return b;
+}
+function buildCanCfg() {
+  if (!window.repoState || repoState.proto !== 'c' || !repoState.canPoll)
+    return null;
+  const frames = [];
+  for (const it of (repoState.items || [])) {
+    const pat = it.obis || '';                       // [id8][dlc2][data…]
+    if (pat.length < 12) continue;
+    const id  = parseInt(pat.substr(0, 8), 16) >>> 0;
+    const ext = id > 0x7ff;
+    const dlc = parseInt(pat.substr(8, 2), 16) || 0;
+    if (dlc < 1 || dlc > 8) continue;
+    const data = new Uint8Array(dlc);
+    let rest = pat.substr(10), off = 0, placed = false;
+    while (rest.length > 0 && off < dlc) {
+      const f = _canScanFormat(rest);
+      if (f) {
+        const raw = (+it.value || 0) * (it.scale || 1);
+        const enc = _canEncodeValue(f.fmt, f.width, raw);
+        for (let i = 0; i < f.width && off < dlc; i++) data[off++] = enc[i];
+        rest = rest.substr(f.letters); placed = true; continue;
+      }
+      if (/^[0-9a-fA-F]{2}/.test(rest)) {              // literal selector byte
+        data[off++] = parseInt(rest.substr(0, 2), 16);
+        rest = rest.substr(2); continue;
+      }
+      break;
+    }
+    if (!placed) continue;                              // no value field
+    let hex = '';
+    for (const x of data) hex += x.toString(16).padStart(2, '0');
+    frames.push({ id, ext, data: hex });
+  }
+  return { poll: { id: repoState.canPoll.id, ext: repoState.canPoll.ext },
+           frames };
+}
+async function pushCanCfg() {
+  const cfg = buildCanCfg();
+  if (!cfg) return;
+  try {
+    await fetch(BASE + '/api/can_cfg', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(cfg)
+    });
+  } catch (_) {}
+}
+setInterval(() => {
+  if (writer && window.repoState && repoState.proto === 'c') pushCanCfg();
+}, 1000);
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 setupConnectUI();
 
@@ -1310,6 +1545,20 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == '/api/open':
             body = self._read_json()
+            prof = body.get('profile') or ''
+            # CAN-bus repo profile runs over a network SLCAN bridge, not
+            # a local serial device — skip _open_serial entirely and own
+            # the HTTP response here (the serial path's _json is bypassed).
+            if prof in ('can', 'repo_can'):
+                bridge  = (body.get('bridge') or '192.168.188.143:9999').strip()
+                try:
+                    bitrate = int(body.get('bitrate') or 125)
+                except (ValueError, TypeError):
+                    bitrate = 125
+                can_start(bridge, bitrate)
+                self._json({'ok': True, 'mode': 'can',
+                            'bridge': bridge, 'bitrate': bitrate})
+                return
             self._open_serial(body.get('device',''), body.get('baud', 9600),
                               body.get('config', '8N1'))
             # Launch protocol-specific state machines that need to run
@@ -1317,7 +1566,6 @@ class Handler(BaseHTTPRequestHandler):
             # the port (see BRIDGE_SCRIPT btnConnect override). Repo mode
             # passes pseudo-profiles `repo_t510` / `repo_kamstrup` to
             # request these machines without a built-in profile match.
-            prof = body.get('profile') or ''
             if prof in ('t510', 'repo_t510'):
                 t510_start(body.get('serial') or 'T510001')
             elif prof in ('kamstrup_kx7', 'repo_kamstrup'):
@@ -1325,6 +1573,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/api/close':
             t510_stop_runner()
             kamstrup_stop_runner()
+            can_stop_runner()
             self._close_serial()
             self._json({'ok': True})
         elif path == '/api/send':
@@ -1413,6 +1662,36 @@ class Handler(BaseHTTPRequestHandler):
                         except (ValueError, TypeError):
                             pass
             self._json({'ok': True})
+        elif path == '/api/can_cfg':
+            # Repo-mode CAN descriptor pushes (a) the DUT poll matcher and
+            # (b) the current prebuilt response frames. The browser owns
+            # .tas parsing + UU/uu/@scale value encoding; we just store
+            # the latest set for _can_runner to blast on each poll.
+            # Body shape:
+            #   {"poll":   {"id": <int>, "ext": <bool>},
+            #    "frames": [{"id": <int>, "ext": <bool>, "data": "<hex>"}, ...]}
+            # Re-POSTed every ~1 s with refreshed values (like /api/regs).
+            global can_cfg, can_frames
+            body = self._read_json()
+            poll = body.get('poll') or None
+            cleaned = []
+            for fr in (body.get('frames') or []):
+                try:
+                    fid = int(fr['id'])
+                    ext = bool(fr.get('ext', True))
+                    hx  = str(fr['data']).strip()
+                    b   = bytes.fromhex(hx)          # validate hex
+                except (KeyError, ValueError, TypeError):
+                    continue
+                if len(b) > 8:                       # CAN max payload
+                    continue
+                cleaned.append({'id': fid, 'ext': ext, 'data': b.hex()})
+            with state_lock:
+                if poll is not None:
+                    can_cfg = {'poll': {'id': int(poll.get('id', 0)),
+                                        'ext': bool(poll.get('ext', True))}}
+                can_frames = cleaned
+            self._json({'ok': True, 'frames': len(cleaned)})
         elif path == '/api/t510_body':
             # Repo-mode T510 descriptor: browser pre-builds the OBIS-ASCII
             # body via buildOBISAsciiRepo() and POSTs it here as raw text.
