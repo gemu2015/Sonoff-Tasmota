@@ -289,6 +289,12 @@ typedef struct {
 #define jlogf(A)                         (( float (*)(float))                            jt[207])(A)
 #define jsqrtf(A)                        (( float (*)(float))                            jt[208])(A)
 #define jexpf(A)                         (( float (*)(float))                            jt[215])(A)
+// Append-only dual-bus I2C (jt[216..218]). NEW slots — jI2cWrite8
+// (jt[45], 3-arg) is left byte-identical so existing plugins are
+// unaffected. Native2dual-scaffolded drivers opt into these locally.
+#define jI2cWrite8Bus(A,R,V,B)           (( bool (*)(uint32_t,uint32_t,uint32_t,uint32_t)) jt[216])(A,R,V,B)
+#define jI2cWrite0(A,R,B)                (( bool (*)(uint32_t,uint32_t,uint32_t))          jt[217])(A,R,B)
+#define jI2cReadBuffer0(A,BUF,L,B)       (( bool (*)(uint32_t,uint8_t*,uint32_t,uint32_t)) jt[218])(A,BUF,L,B)
 
 // PicoTTS engine API — exposed by firmware lib/libesp32_div/pico/.
 // Plugin code calls picotts_init/picotts_add/etc. naturally; macros at

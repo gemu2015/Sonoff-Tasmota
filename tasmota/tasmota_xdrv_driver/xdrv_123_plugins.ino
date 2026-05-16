@@ -821,7 +821,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_picotts_set_idle_notify,     // 212
   JMPTBL&tmod_picotts_set_error_notify,    // 213
   JMPTBL&tmod_picotts_set_resources,       // 214
-  JMPTBL&tmod_expf                         // 215  expf() — append-only, 0..214 unchanged
+  JMPTBL&tmod_expf,                        // 215  expf() — append-only, 0..214 unchanged
+  JMPTBL&tmod_I2cWrite8Bus,                // 216  I2cWrite8 4-arg dual-bus (jt[45] 3-arg left intact)
+  JMPTBL&tmod_I2cWrite0,                   // 217  I2cWrite0 dual-bus
+  JMPTBL&tmod_I2cReadBuffer0               // 218  I2cReadBuffer0 dual-bus
 };
 
 // Engine prototypes come from lib/libesp32_div/pico/picotts.h, included
@@ -1718,6 +1721,12 @@ float tmod_cosf(float a) { return cosf(a); }
 float tmod_logf(float a) { return logf(a); }
 float tmod_sqrtf(float a) { return sqrtf(a); }
 float tmod_expf(float a) { return expf(a); }
+// Append-only dual-bus I2C wrappers (JMPTBL 216..218). The frozen
+// 3-arg jI2cWrite8 (jt[45]) is intentionally left untouched; these are
+// NEW slots so no existing plugin .bin behaviour changes.
+bool tmod_I2cWrite8Bus(uint32_t addr, uint32_t reg, uint32_t val, uint32_t bus) { return I2cWrite8(addr, reg, val, bus); }
+bool tmod_I2cWrite0(uint32_t addr, uint32_t reg, uint32_t bus) { return I2cWrite0(addr, reg, bus); }
+bool tmod_I2cReadBuffer0(uint32_t addr, uint8_t *buf, uint32_t len, uint32_t bus) { return I2cReadBuffer0(addr, buf, len, bus); }
 
 // shine mpeg3 encoder about 31kB code
 uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
