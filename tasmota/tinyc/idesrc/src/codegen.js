@@ -271,6 +271,7 @@ const BUILTINS = {
     'shareHas':         { syscall: Syscall.SHARE_HAS,       args: 1, returns: true,  constArgs: [0] },
     'shareDelete':      { syscall: Syscall.SHARE_DELETE,    args: 1, returns: true,  constArgs: [0] },
     'shareDump':        { syscall: Syscall.SHARE_DUMP,      args: 0, returns: true },
+    'dumpPersist':      { syscall: Syscall.PERSIST_DUMP,    args: 0, returns: true },
     'uiScreen':         { syscall: Syscall.UI_SCREEN,       args: 1, returns: false },
     'uiTheme':          { syscall: Syscall.UI_THEME,        args: 4, returns: false },
     'uiClearScreen':    { syscall: Syscall.UI_CLEAR_SCREEN, args: 0, returns: false },

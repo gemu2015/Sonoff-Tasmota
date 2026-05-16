@@ -168,6 +168,15 @@ Things that changed recently and invalidate older examples or forum advice:
 - **`persist`** — layout auto-resets on flash rebuild (v2 `.pvs` format,
   FNV-1a hash). Users no longer need `UfsDelete /*.pvs` after adding/removing
   persist vars. If advice says they do, it's stale.
+  - ⚠️ **"auto-resets" means ALL persist values revert to declaration
+    defaults, not just the changed ones.** Adding/removing/reordering ANY
+    `persist` variable invalidates the *entire* `.pvs` (the FNV-1a hash is
+    over the whole layout). On next boot every persisted value — IPs,
+    calibration, months of accumulated stats — is back to its code default.
+    Treat any persist-layout change as a **full-restore event**: back up
+    `.pvs` / all relevant settings (Tasmota config backup) *before* the
+    flash. The graceful no-`UfsDelete` behaviour is about not corrupting,
+    not about preserving old values.
 - **`spawnTask("Name")` / `killTask` / `taskRunning`** — user-defined functions
   can run as dedicated FreeRTOS tasks (ESP32, max 4). Task name must be a
   string literal matching a user function in the same `.tc`.

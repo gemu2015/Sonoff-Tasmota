@@ -474,6 +474,15 @@ Use these functions in callbacks to send data to Tasmota:
 | `responseCmnd(buf)` | Send char array as console command response | `Command()` |
 | `responseCmnd("literal")` | Send string literal as console command response | `Command()` |
 
+> **`responseCmnd(buf)` length cap:** the char-array form is copied through a
+> stack buffer of `TC_RESPONSE_MAX` bytes (default 512 on ESP32, 256 on
+> ESP8266; `#ifndef`-guarded — raise it in `user_config_override.h`). Output
+> longer than the cap is truncated; since that usually cuts JSON mid-object
+> Tasmota then shows an empty `{}`. As of 1.6.9 a truncation logs
+> `TCC: responseCmnd output truncated at N chars …` (no longer silent). For
+> very large responses, split into multiple commands. The string-literal form
+> has no such cap (bounded only by Tasmota's ~700 B `RESPONSE_MAX_SIZE`).
+
 ### Web Page Format
 
 Use Tasmota's `{s}` `{m}` `{e}` macros in `webSend()` to create table rows:
@@ -4573,6 +4582,33 @@ int n = shareDump();
 Useful for diagnosing cross-VM share anomalies: did the write actually
 land? at what index? with what type and value? Doc-side this avoids
 having to patch the firmware with strategically-placed debug logs.
+
+#### dumpPersist() *(since 1.6.9)*
+
+The persist-layer counterpart of `shareDump()`. Logs every `persist`
+entry — its global index, slot count, and the raw int32 words (chunked
+16/line so long arrays are never silently truncated) — plus a header
+with the `.pvs` filename and the FNV-1a layout hash. Returns the number
+of persist entries.
+
+```c
+int n = dumpPersist();
+// → Tasmota log:
+//   TCC: persistDump file="/bat_ctrl.pvs" hash=0x9F3A21C7 entries=12
+//   TCC: persist p[0] i=4 n=1 @0:42
+//   TCC: persist p[1] i=6 n=40 @0:1078530011,1067030938,...   (16/line)
+//   TCC: persist p[1] i=6 n=40 @16:...
+```
+
+**Primary use — back up before a layout-change flash.** Adding/removing/
+reordering ANY `persist` variable invalidates the whole `.pvs` and resets
+**all** persist values to defaults on next boot (not just the changed
+ones). Call `dumpPersist()` from a `Command()` handler, copy the log
+lines, and you have a bit-exact snapshot to restore from afterwards.
+Raw int32 words are emitted (not float-formatted) precisely so the
+restore is bit-exact regardless of whether a slot holds an int or a
+float — persist stores no per-slot type. One-shot diagnostic; heavy on
+serial like `shareDump()`.
 
 ### Symmetric Crypto (ESP32)
 

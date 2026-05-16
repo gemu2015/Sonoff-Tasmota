@@ -414,6 +414,7 @@ export const Syscall = {
     SHARE_HAS:      346, // (key_const_idx)          -> int  0/1
     SHARE_DELETE:   347, // (key_const_idx)          -> int  1 if removed
     SHARE_DUMP:     352, // ()                       -> int  number of live entries
+    PERSIST_DUMP:   395, // ()                       -> int  number of persist entries (logs each)
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void
