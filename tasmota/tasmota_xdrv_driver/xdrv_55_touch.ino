@@ -469,10 +469,16 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
 // Bridge into TinyC: xdrv_124_tinyc.ino defines the real body; gated by
 // USE_TINYC so this TU doesn't pull a link error when TinyC is disabled.
 // C++ linkage (no extern "C") to match the definition's mangled name.
+// The stub must NOT be `static`: Tasmota's Arduino builder auto-generates
+// a non-static forward prototype for this name at the top of the
+// concatenated TU, so a `static` definition trips
+// "declared 'extern' and later 'static'" under -fpermissive. Plain
+// `inline` (external linkage) matches the auto-prototype and is ODR-safe
+// since xdrv_124 provides no definition when USE_TINYC is off.
 #ifdef USE_TINYC
 extern void tinyc_touch_button(uint8_t, int16_t);
 #else
-static inline void tinyc_touch_button(uint8_t, int16_t) {}
+inline void tinyc_touch_button(uint8_t, int16_t) {}
 #endif
 
 void Touch_MQTT(uint8_t index, const char *cp, uint32_t val) {
