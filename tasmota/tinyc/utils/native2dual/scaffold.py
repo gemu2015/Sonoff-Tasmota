@@ -75,6 +75,16 @@ def main():
             r'^(struct\s+(\w+)\s*\{[^}]*\})\s*([A-Za-z_]\w*)\s*'
             r'(\[[^\]]*\])?\s*;', body, re.S | re.M)):
         tdef, tag, inst, arr = m.groups()
+        # Strip C++ in-class member initializers (`float t = NAN;`,
+        # `uint8_t v = 0;`). The plugin build disallows them and they
+        # never run anyway — MODULE_MEMORY is raw jcalloc'd heap (no
+        # ctor). Mirrors the hand-dual slimming. Only the `{...}` body
+        # is touched; simple-expr inits ( = X before ; or , ).
+        def _strip_inits(sd):
+            i, j = sd.index('{'), sd.rindex('}')
+            inner = re.sub(r'\s*=\s*[^;,{}]+(?=[;,])', '', sd[i+1:j])
+            return sd[:i+1] + inner + sd[j:]
+        tdef = _strip_inits(tdef)
         type_defs.append(tdef + ';')
         mem_fields.append(f'{tag} {inst}{arr or ""};')
         accessors.append(f'#define {inst} mem->{inst}')
