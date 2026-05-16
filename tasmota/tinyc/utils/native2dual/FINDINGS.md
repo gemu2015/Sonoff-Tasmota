@@ -62,9 +62,11 @@ iterations harvesting the error set:
 - **build5** (+ INIT fn → `int32_t`, `STGLOB` when body uses
   TasmotaGlobal): both gone. Residue: `*tgbl.member` mis-parse.
 - **build6** (+ file-local `#define TasmotaGlobal (*tgbl)`): gone.
-  **Final residue = ONE line:** `TasmotaGlobal.i2c_enabled[1]` in the
-  optional `#if MAX_I2C>1` dual-bus *display* branch — the plugin's
-  curated `GTBL` struct doesn't carry that member.
+  Residue = ONE line: `TasmotaGlobal.i2c_enabled[1]`.
+- **buildA** (+ append-only `i2c_enabled` to GTBL/TGTAB idx 13): the
+  last residue resolves. **`esp32 OK — SHT3X_32.bin (1,416 bytes)`,
+  ZERO errors** — a real loadable plugin, on par with the hand dual
+  (1408 B). End-to-end PROVEN.
 
 The mechanical scaffolding (gating, MODULE_DESCRIPTOR/MODULE_PART,
 file-scope state → per-slot MODULE_MEMORY, ALLOCMEM/SETMEMREGS/RETMEM +
