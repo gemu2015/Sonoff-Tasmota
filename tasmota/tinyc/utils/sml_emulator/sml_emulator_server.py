@@ -1088,22 +1088,39 @@ async function setupConnectUI() {
   btnConn.parentNode.insertBefore(document.createTextNode(' '), btnConn);
 
   // CAN-bus profile: a network SLCAN bridge (slcan_bridge_tcp.tc on an
-  // ESP32) replaces the serial port. Show a host:port field; visible
-  // only when the parsed descriptor is a CAN ('+…,C,…') one.
+  // ESP32) replaces the serial port. A labelled host:port field —
+  // remembered across sessions — shown only when the parsed descriptor
+  // is a CAN ('+…,C,…') one (swaps in place of the serial-port select).
+  const CAN_BRIDGE_KEY = 'sml_can_bridge';
+  let savedBridge;
+  try { savedBridge = localStorage.getItem(CAN_BRIDGE_KEY); } catch (e) {}
+  const canWrap = document.createElement('span');
+  canWrap.id = 'bridgeCanWrap';
+  canWrap.style.cssText = 'display:none;align-items:center;gap:6px';
+  const canLbl = document.createElement('label');
+  canLbl.textContent = 'CAN bridge:';
+  canLbl.htmlFor = 'bridgeCanHost';
+  canLbl.style.cssText = 'color:#9ec1ea;font-size:0.82em;white-space:nowrap';
   const canInp = document.createElement('input');
   canInp.id = 'bridgeCanHost';
   canInp.type = 'text';
-  canInp.value = '192.168.188.143:9999';
-  canInp.title = 'SLCAN bridge host:port (slcan_bridge_tcp.tc)';
-  canInp.style.cssText = 'width:170px;background:#0a1628;border:1px solid #1a4a7a;color:#e0e0e0;padding:5px 8px;border-radius:4px;font-size:0.81em;display:none;';
-  btnConn.parentNode.insertBefore(canInp, btnConn);
+  canInp.value = savedBridge || '192.168.188.143:9999';
+  canInp.placeholder = 'host:port';
+  canInp.title = 'SLCAN bridge host:port (slcan_bridge_tcp.tc on the ESP32). Remembered across sessions.';
+  canInp.style.cssText = 'width:170px;background:#0a1628;border:1px solid #1a4a7a;color:#e0e0e0;padding:5px 8px;border-radius:4px;font-size:0.81em';
+  canInp.addEventListener('input', () => {
+    try { localStorage.setItem(CAN_BRIDGE_KEY, canInp.value.trim()); } catch (e) {}
+  });
+  canWrap.appendChild(canLbl);
+  canWrap.appendChild(canInp);
+  btnConn.parentNode.insertBefore(canWrap, btnConn);
   btnConn.parentNode.insertBefore(document.createTextNode(' '), btnConn);
-  // Toggle serial-port vs CAN-bridge input by descriptor type.
+  // Toggle serial-port select vs CAN-bridge field by descriptor type.
   setInterval(() => {
     const isCan = (typeof isRepoMode === 'function' && isRepoMode()
                    && window.repoState && window.repoState.proto === 'c');
-    canInp.style.display = isCan ? '' : 'none';
-    sel.style.display    = isCan ? 'none' : '';
+    canWrap.style.display = isCan ? 'inline-flex' : 'none';
+    sel.style.display     = isCan ? 'none' : '';
   }, 700);
 
   // Re-enable even if Web Serial check disabled it (e.g. Safari)
