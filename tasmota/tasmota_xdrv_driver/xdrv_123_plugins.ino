@@ -820,7 +820,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_picotts_shutdown,            // 211
   JMPTBL&tmod_picotts_set_idle_notify,     // 212
   JMPTBL&tmod_picotts_set_error_notify,    // 213
-  JMPTBL&tmod_picotts_set_resources        // 214
+  JMPTBL&tmod_picotts_set_resources,       // 214
+  JMPTBL&tmod_expf                         // 215  expf() — append-only, 0..214 unchanged
 };
 
 // Engine prototypes come from lib/libesp32_div/pico/picotts.h, included
@@ -1716,6 +1717,7 @@ float tmod_sinf(float a) { return sinf(a); }
 float tmod_cosf(float a) { return cosf(a); }
 float tmod_logf(float a) { return logf(a); }
 float tmod_sqrtf(float a) { return sqrtf(a); }
+float tmod_expf(float a) { return expf(a); }
 
 // shine mpeg3 encoder about 31kB code
 uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {

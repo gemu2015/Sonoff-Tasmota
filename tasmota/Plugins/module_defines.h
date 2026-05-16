@@ -288,6 +288,7 @@ typedef struct {
 #define jcosf(A)                         (( float (*)(float))                            jt[206])(A)
 #define jlogf(A)                         (( float (*)(float))                            jt[207])(A)
 #define jsqrtf(A)                        (( float (*)(float))                            jt[208])(A)
+#define jexpf(A)                         (( float (*)(float))                            jt[215])(A)
 
 // PicoTTS engine API — exposed by firmware lib/libesp32_div/pico/.
 // Plugin code calls picotts_init/picotts_add/etc. naturally; macros at
@@ -999,6 +1000,7 @@ typedef union {
 #define cosf jcosf
 #define logf jlogf
 #define sqrtf jsqrtf
+#define expf jexpf
 #endif
 
 #define dadd(A,B) double_dispatch(0,A,B)
