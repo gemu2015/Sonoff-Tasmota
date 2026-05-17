@@ -372,10 +372,16 @@ def main():
             # both off the native presence gate. `initialized` resolves
             # to mt->flags.initialized in plugin mode (module_defines.h);
             # `mt`/`mem` are in scope via this fn's ALLOCMEM prologue.
-            setf = f'initialized = ({init_gate}) ? 1 : 0'
-            inner = re.sub(r'\breturn\s*;',
-                           f'return (({setf}), initialized);', inner)
-            inner = inner + f'\n  {setf};\n  return initialized;\n'
+            # On detect-FAIL (no device) FREE the lazily-ALLOCMEM'd
+            # MODULE_MEMORY (RETMEM) instead of leaking it — mirrors the
+            # hand dual's `else { <driver>_Deinit(); }`. Capture the gate
+            # into a local BEFORE RETMEM (RETMEM frees `mem`, so the gate
+            # expr — which expands to mem->… — must not be read after).
+            fin = ('{ int32_t _n2d_ok = (' + init_gate + ') ? 1 : 0;'
+                   ' if (_n2d_ok) { initialized = 1; }'
+                   ' else { RETMEM } return _n2d_ok; }')
+            inner = re.sub(r'\breturn\s*;', fin, inner)
+            inner = inner + '\n  ' + fin + '\n'
         body = body[:s0] + sig + ' {\n  ' + tok + inner + body[c:]
 
     # --- collect top-level function signatures for MODULE_PART --------
