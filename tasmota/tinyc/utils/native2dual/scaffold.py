@@ -400,6 +400,15 @@ def main():
     body = re.sub(r'\bPressureUnit\s*\(\s*\)\s*\.\s*c_str\s*\(\s*\)',
                   'N2D_PRESSURE_UNIT_CSTR', body)
 
+    # WSContentSpaceButton: native 1-arg `WSContentSpaceButton(BTN)`;
+    # the proven ABI form is 2-arg `jWSContentSpaceButton(A,bool)`
+    # (jt[124]). Add the 2nd arg `true` (what the hand dual passes).
+    # Only single-arg calls (no comma) are adapted; dual-safe (native
+    # WSContentSpaceButton also accepts the optional 2nd arg).
+    body = re.sub(
+        r'\bWSContentSpaceButton\s*\(\s*([^(),]+?)\s*\)',
+        r'WSContentSpaceButton(\1, true)', body)
+
     STATE = []
     if mem_fields:
         STATE = type_defs + [
@@ -588,6 +597,14 @@ def main():
 // File-local; native build & other plugins untouched.
 #  undef  TasmotaGlobal
 #  define TasmotaGlobal (*tgbl)
+// Same idiom for XdrvMailbox: module_defines.h has
+// `#define XdrvMailbox (jXdrvMailbox)` (a POINTER, jt[57]); native
+// driver code uses `XdrvMailbox.index` (instance `.`). Re-point to the
+// dereferenced form so `.member` works unchanged in the plugin —
+// exactly what the hand dual xdrv_28_pcf8574_dual.cpp does per-use.
+// File-local; native build untouched.
+#  undef  XdrvMailbox
+#  define XdrvMailbox (*jXdrvMailbox)
 // SETMEMREGS (unlike SETREGS/ALLOCMEM) does NOT declare `jsettings`,
 // but `Settings` -> `jsettings` (module_defines.h). Scaffolded
 // SETMEMREGS fns that use `Settings->` get a ` STSET` prologue token
