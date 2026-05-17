@@ -824,7 +824,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_expf,                        // 215  expf() — append-only, 0..214 unchanged
   JMPTBL&tmod_I2cWrite8Bus,                // 216  I2cWrite8 4-arg dual-bus (jt[45] 3-arg left intact)
   JMPTBL&tmod_I2cWrite0,                   // 217  I2cWrite0 dual-bus
-  JMPTBL&tmod_I2cReadBuffer0               // 218  I2cReadBuffer0 dual-bus
+  JMPTBL&tmod_I2cReadBuffer0,              // 218  I2cReadBuffer0 dual-bus
+  JMPTBL&tmod_ext_call                     // 219  selector-dispatched extensible helper (ONE slot for many fns; new helper = new case, never a new jt slot)
 };
 
 // Engine prototypes come from lib/libesp32_div/pico/picotts.h, included
@@ -1727,6 +1728,39 @@ float tmod_expf(float a) { return expf(a); }
 bool tmod_I2cWrite8Bus(uint32_t addr, uint32_t reg, uint32_t val, uint32_t bus) { return I2cWrite8(addr, reg, val, bus); }
 bool tmod_I2cWrite0(uint32_t addr, uint32_t reg, uint32_t bus) { return I2cWrite0(addr, reg, bus); }
 bool tmod_I2cReadBuffer0(uint32_t addr, uint8_t *buf, uint32_t len, uint32_t bus) { return I2cReadBuffer0(addr, buf, len, bus); }
+
+// jt[219] — ONE selector-dispatched slot so the frozen JMPTBL grows by
+// a single entry, not once per helper. Adding a future helper = a new
+// `case` here; NEVER a new jt slot. All args/return are uint32_t-wide
+// (ESP32 pointers are 32-bit); float/pointer payloads are bit-cast by
+// the plugin-side j-macros in module_defines.h. APPEND-ONLY: 0..218
+// are byte-identical, so no existing plugin .bin behaviour changes.
+//   sel 0 I2cRead8(a,r,bus)        4 I2cRead24(a,r,bus)
+//   sel 1 I2cRead16LE(a,r,bus)     5 I2cReadS16_LE(a,r,bus)
+//   sel 2 CalcTempHumToDew(t,h)    (a,b = float bits)
+//   sel 3 TempUnit()              6 PressureUnit() -> const char*
+int32_t tmod_ext_call(uint32_t sel, uint32_t a, uint32_t b, uint32_t c) {
+  switch (sel) {
+    case 0: return (int32_t)(uint8_t)  I2cRead8((uint8_t)a, (uint8_t)b, (uint8_t)c);
+    case 1: return (int32_t)(uint16_t) I2cRead16LE((uint8_t)a, (uint8_t)b, (uint8_t)c);
+    case 2: { float t, h, r;                       // CalcTempHumToDew
+              memcpy(&t, &a, 4); memcpy(&h, &b, 4);
+              r = CalcTempHumToDew(t, h);
+              int32_t o; memcpy(&o, &r, 4); return o; }
+    case 3: return (int32_t)(uint8_t)  TempUnit();
+    case 4: return                     I2cRead24((uint8_t)a, (uint8_t)b, (uint8_t)c);
+    case 5: return (int32_t)(int16_t)  I2cReadS16_LE((uint8_t)a, (uint8_t)b, (uint8_t)c);
+    case 6: { static String _pu; _pu = PressureUnit();
+              return (int32_t)(intptr_t) _pu.c_str(); }
+    case 7: { float p, r; memcpy(&p, &a, 4);          // ConvertPressure
+              r = ConvertPressure(p);
+              int32_t o; memcpy(&o, &r, 4); return o; }
+    case 8: { float p, r; memcpy(&p, &a, 4);          // ...ForSeaLevel
+              r = ConvertPressureForSeaLevel(p);
+              int32_t o; memcpy(&o, &r, 4); return o; }
+  }
+  return 0;
+}
 
 // shine mpeg3 encoder about 31kB code
 uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {

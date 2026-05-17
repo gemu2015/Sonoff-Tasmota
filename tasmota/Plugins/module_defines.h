@@ -296,6 +296,35 @@ typedef struct {
 #define jI2cWrite0(A,R,B)                (( bool (*)(uint32_t,uint32_t,uint32_t))          jt[217])(A,R,B)
 #define jI2cReadBuffer0(A,BUF,L,B)       (( bool (*)(uint32_t,uint8_t*,uint32_t,uint32_t)) jt[218])(A,BUF,L,B)
 
+// jt[219] — ONE selector-dispatched slot for many helpers (keeps the
+// frozen JMPTBL minimal: a future helper adds a `case` in
+// tmod_ext_call, NEVER a new jt slot). 0..218 byte-identical.
+#define jEXT(SEL,A,B,C)   (( int32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t)) jt[219])((SEL),(A),(B),(C))
+#define jI2cRead8Bus(A,R,B)     ((uint8_t)  jEXT(0,(A),(R),(B)))
+#define jI2cRead16LE(A,R,B)     ((uint16_t) jEXT(1,(A),(R),(B)))
+#define jCalcTempHumToDew(T,H)  (__extension__({ float _t=(T),_h=(H); uint32_t _a,_b; \
+                                  __builtin_memcpy(&_a,&_t,4); __builtin_memcpy(&_b,&_h,4); \
+                                  int32_t _r=jEXT(2,_a,_b,0); float _f; \
+                                  __builtin_memcpy(&_f,&_r,4); _f; }))
+#define jTempUnit()             ((char)     jEXT(3,0,0,0))
+#define jI2cRead24(A,R,B)       ((int32_t)  jEXT(4,(A),(R),(B)))
+#define jI2cReadS16_LE(A,R,B)   ((int16_t)  jEXT(5,(A),(R),(B)))
+#define jPressureUnit()         ((const char*)(intptr_t) jEXT(6,0,0,0))
+#define jConvertPressure(P)              (__extension__({ float _p=(P); uint32_t _a; \
+                                  __builtin_memcpy(&_a,&_p,4); int32_t _r=jEXT(7,_a,0,0); \
+                                  float _f; __builtin_memcpy(&_f,&_r,4); _f; }))
+#define jConvertPressureForSeaLevel(P)   (__extension__({ float _p=(P); uint32_t _a; \
+                                  __builtin_memcpy(&_a,&_p,4); int32_t _r=jEXT(8,_a,0,0); \
+                                  float _f; __builtin_memcpy(&_f,&_r,4); _f; }))
+// Additive global aliases (no jt change): a scaffolded driver calls
+// these natural names. I2cRead8/24/16LE/S16_LE stay FILE-LOCAL remaps
+// (the frozen 2-arg `#define I2cRead8 jI2cRead8` must remain for
+// existing plugins); these two have no frozen form to protect.
+#define CalcTempHumToDew jCalcTempHumToDew
+#define TempUnit jTempUnit
+#define ConvertPressure jConvertPressure
+#define ConvertPressureForSeaLevel jConvertPressureForSeaLevel
+
 // PicoTTS engine API — exposed by firmware lib/libesp32_div/pico/.
 // Plugin code calls picotts_init/picotts_add/etc. naturally; macros at
 // the bottom of this file remap to the j-prefixed versions which go

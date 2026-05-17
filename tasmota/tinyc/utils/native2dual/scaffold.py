@@ -221,6 +221,20 @@ def main():
     body = _strip_last(r'#endif\s*//\s*USE_I2C\s*\n?', body)
     body = _strip_last(r'#endif\s*//\s*USE_\w+\s*\n?', body)
 
+    # --- `static` is NOT allowed in a BinPlugin, AT ALL. -------------
+    # A `static` FUNCTION whose address is taken (e.g. bme68x callbacks
+    # `bme_dev->delay_us = Bme68x_Delayus`) yields the UN-relocated link
+    # address — the lib later calls it → wild PC → Exception 28
+    # LoadProhibited (xsns_09_bmp with USE_BME68X compiled in). A
+    # `static` file/loc VAR is unrelocated .data/.bss (same class as
+    # the pointer-global bug). Strip the leading `static` qualifier
+    # everywhere BEFORE the state-wrap / RO-array passes so they then
+    # treat the decl correctly (vars → MODULE_MEMORY, const arrays →
+    # PROGMEM+EXEC_OFFSET, functions → plain external). Must run before
+    # state-wrap. (PSTR's designed `static const char __c[]` lives in
+    # the PRE preamble, not in `body`, so it is untouched.)
+    body = re.sub(r'(?m)^([ \t]*)static\s+(?=[A-Za-z_])', r'\1', body)
+
     # --- state-wrap: file-scope mutable vars/instances -> MODULE_MEMORY,
     #     read-only arrays -> const (RULE 2). Struct *type* defs stay at
     #     file scope; only the instance moves into MODULE_MEMORY. -------
@@ -241,6 +255,23 @@ def main():
         hoist.append(m.group(0))
     for h in hoist:
         body = body.replace(h, '', 1)
+
+    # Hoist `typedef struct [tag] { ... } NAME;` blocks into type_defs
+    # so they precede MODULE_MEMORY (output order: STATE before body).
+    # Needed once a MODULE_MEMORY field is a pointer to such a typedef
+    # (xsns_09_bmp: `bmp_sensors_t *bmp_sensors;`). Strip C++ in-struct
+    # member initializers (plugin build disallows them; MODULE_MEMORY is
+    # raw jcalloc'd heap, no ctor) — same rule as the struct-instance
+    # split below. Structs here have no nested braces.
+    for m in list(re.finditer(
+            r'^[ \t]*typedef\s+struct\s*\w*\s*\{[^{}]*\}\s*\w+\s*;',
+            body, re.M)):
+        td = m.group(0)
+        i, j = td.index('{'), td.rindex('}')
+        td = td[:i+1] + re.sub(r'\s*=\s*[^;,{}]+(?=[;,])', '',
+                               td[i+1:j]) + td[j:]
+        type_defs.append(td)
+        body = body.replace(m.group(0), '', 1)
 
     def is_written(nm):
         # True only if assigned/mutated SOMEWHERE OTHER THAN its own
@@ -330,6 +361,30 @@ def main():
                         '- wrap element reads with the matching '
                         'pgm_read_*\n' % (nm, base)) + body
 
+    # file-scope mutable POINTER globals: `[static] T *p [= init];`
+    # (incl. typedef'd / `struct X` types). In a BinPlugin a raw
+    # .data/.bss global is NOT reliably addressable — it must live in
+    # MODULE_MEMORY exactly like the scalar state, else a write
+    # (`p = calloc(...)`) is not read back (xsns_09_bmp: bmp_sensors /
+    # bmp180_cal_data / Bme280CalibrationData stayed raw → calloc result
+    # lost → BmpDetect aborted on the `!bmp_sensors` early-return). The
+    # scalar regex above only matches builtin types, so pointers /
+    # typedef'd types fell through. Init (`= nullptr`) is dropped (the
+    # field is jcalloc-zeroed). A MODULE_MEMORY member that is a pointer
+    # to an incomplete struct (e.g. bme68x under #ifdef-off) is legal.
+    _PTR_TYPE = (r'(?:struct\s+\w+|\w+_t|void|char|float|double|int|'
+                 r'bool|uint\d+_t|int\d+_t)')
+    for m in list(re.finditer(
+            r'^(?:static\s+)?(' + _PTR_TYPE + r')\s*(\*+)\s*'
+            r'([A-Za-z_]\w*)\s*(=\s*[^;]+)?;', body, re.M)):
+        full, ty, stars, nm = m.group(0), m.group(1), m.group(2), \
+                              m.group(3)
+        if not is_written(nm):
+            continue
+        mem_fields.append(f'{ty} {stars}{nm};')
+        accessors.append(f'#define {nm} mem->{nm}')
+        body = body.replace(full, '', 1)
+
     # plugin literal-pool rule: float consts -> FP_CONST/FLTC,
     # int >12-bit -> ICONST (in executable code only).
     body, _fpdecl = _pool_consts(body)
@@ -338,6 +393,12 @@ def main():
     # plugin: lower the safe FLTC-based float idiom to soft-float;
     # flag the rest (tc2plugin's type-inference territory).
     body, _sf_flags = _soft_float(body)
+
+    # `PressureUnit().c_str()` — native String vs plugin const-char*
+    # jt[219]. Route through the dual-safe N2D_PRESSURE_UNIT_CSTR macro
+    # (defined per-mode in the file-local preamble).
+    body = re.sub(r'\bPressureUnit\s*\(\s*\)\s*\.\s*c_str\s*\(\s*\)',
+                  'N2D_PRESSURE_UNIT_CSTR', body)
 
     STATE = []
     if mem_fields:
@@ -496,6 +557,18 @@ def main():
 #  define I2cWrite0(a,r,b)         jI2cWrite0((a),(r),(b))
 #  undef  I2cReadBuffer0
 #  define I2cReadBuffer0(a,bf,l,b) jI2cReadBuffer0((a),(bf),(l),(b))
+// Dual-bus I2C reads onto the jt[219] selector slot. I2cRead8 has a
+// frozen 2-arg `#define I2cRead8 jI2cRead8` (jt[?]) for existing
+// plugins — undef + file-local 3-arg form (like I2cWrite8). The
+// others have no frozen form. FILE-LOCAL; native build untouched.
+#  undef  I2cRead8
+#  define I2cRead8(a,r,b)          jI2cRead8Bus((a),(r),(b))
+#  undef  I2cRead24
+#  define I2cRead24(a,r,b)         jI2cRead24((a),(r),(b))
+#  undef  I2cRead16LE
+#  define I2cRead16LE(a,r,b)       jI2cRead16LE((a),(r),(b))
+#  undef  I2cReadS16_LE
+#  define I2cReadS16_LE(a,r,b)     jI2cReadS16_LE((a),(r),(b))
 // Native drivers iterate `for (bus=0; bus<MAX_I2C; bus++)`. In the
 // plugin TU `MAX_I2C` (firmware's tasmota_globals.h SoC-controller
 // count) is NOT in scope — tasmota_options.h doesn't pull it — so the
@@ -521,8 +594,14 @@ def main():
 // which declares it from the existing `asettings` (jt[135]) — no ABI
 // change. Native: `Settings` is the real global, STSET is empty.
 #  define STSET SETTINGS *jsettings = *asettings;
+// `PressureUnit()` returns String (native) — the jt[219] form returns
+// `const char*`. Scaffolder rewrites `PressureUnit().c_str()` to this
+// dual-safe macro: plugin → jPressureUnit() (already const char*);
+// native → the real String.c_str().
+#  define N2D_PRESSURE_UNIT_CSTR  jPressureUnit()
 #else
 #  define STSET
+#  define N2D_PRESSURE_UNIT_CSTR  PressureUnit().c_str()
 #endif
 #ifdef _{U}_N2D_ENABLED
 // ===================================================================
