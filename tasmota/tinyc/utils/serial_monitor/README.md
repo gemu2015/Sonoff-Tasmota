@@ -50,13 +50,33 @@ SERIAL_MONITOR_HISTORY=1000000 python3 serial_monitor_server.py
 
 - **macOS:** double-click `Serial Monitor.app` (no Terminal window) or
   `Serial Monitor.command`. The browser opens at
-  `http://localhost:8124/`.
+  `http://127.0.0.1:8124/`.
 - **Any OS / Linux:** `python3 serial_monitor_server.py`
 
 Requires Python 3 and `pyserial` (`pip3 install pyserial`).
 
 If it is already running, launching again just re-focuses the existing
 instance (the port is reused, history is preserved).
+
+### macOS TCC / `~/Desktop` note (why the .app runs a bundled copy)
+
+Modern macOS privacy (TCC) blocks a **Finder-launched unsigned app**
+from reading `~/Desktop`, `~/Documents`, `~/Downloads`. When this repo
+lives under one of those (e.g. `~/Desktop/...`), running the repo's
+`serial_monitor_server.py` directly from the `.app` fails with
+`[Errno 1] Operation not permitted` and the app *appears to do
+nothing*. A `.command` / Terminal run works because Terminal already
+holds the Desktop grant.
+
+Fix: the `.app` ships its own copy of the server at
+`Serial Monitor.app/Contents/Resources/serial_monitor_server.py` and
+runs **that** — an app reading files inside its *own bundle* is exempt
+from the Desktop restriction. After editing the canonical
+`serial_monitor_server.py`, double-click **`sync_app.command`** (or
+`cp serial_monitor_server.py "Serial Monitor.app/Contents/Resources/"`)
+to refresh the bundled copy. Launch failures are no longer silent: any
+problem raises a dialog and is logged to
+`~/Library/Logs/SerialMonitor-launch.log`.
 
 ## Notes
 

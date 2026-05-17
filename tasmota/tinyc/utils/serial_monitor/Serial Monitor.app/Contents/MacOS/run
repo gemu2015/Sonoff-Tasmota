@@ -1,21 +1,54 @@
 #!/bin/bash
 # macOS .app launcher for the Serial Monitor. Double-click in Finder
-# (no Terminal window). The bundle lives INSIDE the repo util dir
-# (.../serial_monitor/Serial Monitor.app). Resolve back to the util
-# dir: run -> MacOS -> Contents -> Serial Monitor.app -> serial_monitor.
+# (no Terminal window).
+#
+# WHY THE SERVER IS BUNDLED INSIDE THE .app:
+# Modern macOS (TCC privacy) blocks a Finder-launched unsigned app from
+# reading ~/Desktop, ~/Documents, ~/Downloads. This repo lives under
+# ~/Desktop, so running the repo's serial_monitor_server.py directly
+# fails with "[Errno 1] Operation not permitted" and the app appears to
+# do nothing. An app reading files INSIDE ITS OWN BUNDLE is exempt, so
+# the server is shipped at Contents/Resources/serial_monitor_server.py
+# and run from there. (Same approach the SML Emulator .app uses.)
+# Refresh the bundled copy with sync_app.command after editing the
+# canonical serial_monitor_server.py.
 export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
-DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+LOG="${HOME}/Library/Logs/SerialMonitor-launch.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+echo "=== $(date '+%F %T') launch: \$0=$0 cwd=$(pwd) ===" >>"$LOG"
+
+die() {                       # die "message"
+    echo "FATAL: $1" >>"$LOG"
+    /usr/bin/osascript -e "display alert \"Serial Monitor\" message \"$1\"" >>"$LOG" 2>&1
+    exit 1
+}
+
+SELF="$0"
+[ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+MACOS_DIR="$(cd "$(dirname "$SELF")" 2>/dev/null && pwd)"
+RES="$(cd "${MACOS_DIR}/../Resources" 2>/dev/null && pwd)"
+UTIL="$(cd "${MACOS_DIR}/../../.." 2>/dev/null && pwd)"
+echo "RES=$RES UTIL=$UTIL" >>"$LOG"
+
+# Prefer the copy bundled in the .app (always readable, even on the
+# TCC-protected Desktop). Fall back to the repo copy for the rare case
+# the app sits outside a protected folder.
+SERVER=""
+[ -f "${RES}/serial_monitor_server.py" ]  && SERVER="${RES}/serial_monitor_server.py"
+[ -z "$SERVER" ] && [ -f "${UTIL}/serial_monitor_server.py" ] && \
+    SERVER="${UTIL}/serial_monitor_server.py"
+[ -n "$SERVER" ] || die "serial_monitor_server.py not found in the app bundle. Re-run sync_app.command."
 
 PYTHON=""
 for p in /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
     [ -x "$p" ] && PYTHON="$p" && break
 done
-if [ -z "$PYTHON" ]; then
-    osascript -e 'display alert "Serial Monitor" message "Python 3 not found. Install Python 3 from python.org."'
-    exit 1
-fi
-if [ ! -f "${DIR}/serial_monitor_server.py" ]; then
-    osascript -e 'display alert "Serial Monitor" message "serial_monitor_server.py not found next to the bundle. Keep \"Serial Monitor.app\" inside tasmota/tinyc/utils/serial_monitor/."'
-    exit 1
-fi
-exec "$PYTHON" "${DIR}/serial_monitor_server.py"
+echo "PYTHON=$PYTHON SERVER=$SERVER" >>"$LOG"
+[ -n "$PYTHON" ] || die "Python 3 not found. Install Python 3 from python.org."
+
+cd "$RES" 2>/dev/null || cd /tmp
+"$PYTHON" "$SERVER" >>"$LOG" 2>&1
+rc=$?
+echo "=== server exited rc=$rc ===" >>"$LOG"
+[ $rc -eq 0 ] || die "Serial Monitor stopped (exit $rc). See ${LOG}."
+exit 0

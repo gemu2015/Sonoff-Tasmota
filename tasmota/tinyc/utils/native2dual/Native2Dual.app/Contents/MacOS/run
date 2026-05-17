@@ -1,22 +1,65 @@
 #!/bin/bash
-# macOS .app launcher for the native2dual PoC. Double-click in Finder
-# (no Terminal window). The bundle lives INSIDE the repo util dir
-# (.../native2dual/Native2Dual.app) because native2dual is repo-bound:
-# Compile forks build_plugin.py against the live checkout. Resolve back
-# to the util dir: run -> MacOS -> Contents -> Native2Dual.app -> util.
+# macOS .app launcher for the native2dual PoC. Double-click in Finder.
+#
+# native2dual is REPO-BOUND: it reads tasmota_xsns_sensor/, rewrites
+# user_config_override.h, and forks build_plugin.py with cwd=REPO. It
+# cannot run from a bundled copy the way the Serial Monitor can.
+#
+# Modern macOS (TCC privacy) blocks a Finder-launched unsigned app from
+# reading ~/Desktop, ~/Documents, ~/Downloads. When the repo lives
+# under one of those, a direct Finder launch fails with "[Errno 1]
+# Operation not permitted" and the app appears to do nothing. Terminal
+# already holds that grant, so when direct access is denied this
+# launcher transparently re-launches the work through Terminal via
+# Native2Dual.command. Nothing here ever fails silently.
 export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
-DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+LOG="${HOME}/Library/Logs/Native2Dual-launch.log"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+echo "=== $(date '+%F %T') launch: \$0=$0 cwd=$(pwd) ===" >>"$LOG"
+
+die() {
+    echo "FATAL: $1" >>"$LOG"
+    /usr/bin/osascript -e "display alert \"Native2Dual\" message \"$1\"" >>"$LOG" 2>&1
+    exit 1
+}
+
+SELF="$0"
+[ -L "$SELF" ] && SELF="$(readlink "$SELF")"
+UTIL="$(cd "$(dirname "$SELF")/../../.." 2>/dev/null && pwd)"
+echo "UTIL=$UTIL" >>"$LOG"
+[ -n "$UTIL" ] || die "Could not resolve the app location."
+
+APP="${UTIL}/native2dual_app.py"
+CMD="${UTIL}/Native2Dual.command"
+REPO="$(cd "${UTIL}/../../../.." 2>/dev/null && pwd)"
+PROBE="${REPO}/tasmota/user_config_override.h"
+echo "APP=$APP REPO=$REPO" >>"$LOG"
+[ -f "$APP" ] || die "native2dual_app.py not found. Keep Native2Dual.app inside tasmota/tinyc/utils/native2dual/."
 
 PYTHON=""
 for p in /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
     [ -x "$p" ] && PYTHON="$p" && break
 done
-if [ -z "$PYTHON" ]; then
-    osascript -e 'display alert "Native2Dual" message "Python 3 not found. Install Python 3 from python.org."'
-    exit 1
+echo "PYTHON=$PYTHON" >>"$LOG"
+[ -n "$PYTHON" ] || die "Python 3 not found. Install Python 3 from python.org."
+
+# Probe: can a Finder-launched process actually READ the repo? (TCC)
+if "$PYTHON" -c "open(r'''$PROBE''').read(1)" >>"$LOG" 2>&1; then
+    echo "repo readable -> running directly (no Terminal)" >>"$LOG"
+    cd "$UTIL" || die "Cannot enter ${UTIL}."
+    "$PYTHON" "$APP" >>"$LOG" 2>&1
+    rc=$?
+    echo "=== server exited rc=$rc ===" >>"$LOG"
+    [ $rc -eq 0 ] || die "Native2Dual stopped (exit $rc). See ${LOG}."
+    exit 0
 fi
-if [ ! -f "${DIR}/native2dual_app.py" ]; then
-    osascript -e 'display alert "Native2Dual" message "native2dual_app.py not found next to the bundle. Keep Native2Dual.app inside tasmota/tinyc/utils/native2dual/."'
-    exit 1
+
+# Blocked by macOS privacy. Terminal has the Desktop grant — use it.
+echo "repo NOT readable (macOS TCC) -> relaunching via Terminal" >>"$LOG"
+if [ -f "$CMD" ]; then
+    /usr/bin/osascript -e 'display notification "Repo is in a macOS-protected folder — opening in Terminal (it has access)." with title "Native2Dual"' >>"$LOG" 2>&1
+    open -a Terminal "$CMD" >>"$LOG" 2>&1 && exit 0
+    die "Could not open Native2Dual.command in Terminal."
+else
+    die "macOS privacy blocks reading the repo from Finder. Run Native2Dual.command in Terminal, or grant this app Full Disk Access (System Settings > Privacy & Security)."
 fi
-exec "$PYTHON" "${DIR}/native2dual_app.py"
