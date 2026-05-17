@@ -20,6 +20,7 @@
 
 import os, sys, json, threading, time, socket, subprocess, webbrowser
 import tempfile, http.client, base64, shutil, re as _re
+import urllib.request, concurrent.futures
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -572,6 +573,45 @@ def _flash_ota(host, user, password):
         _flog('OTA ERROR ' + str(e), err=True)
 
 
+def _probe_tasmota(ip):
+    """Quick unauthenticated probe — return {'ip','name'} if the host
+    looks like a Tasmota web device, else None."""
+    try:
+        r = urllib.request.urlopen('http://%s/cm?cmnd=Status' % ip,
+                                   timeout=0.6)
+        body = r.read(2048).decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        # 401 = Tasmota with WebPassword: still a device, name unknown.
+        return {'ip': ip, 'name': '(locked)'} if e.code == 401 else None
+    except Exception:
+        return None
+    try:
+        j = json.loads(body)
+        st = j.get('Status', {})
+        nm = st.get('DeviceName') or (st.get('FriendlyName') or [''])[0] \
+            or st.get('Topic') or ''
+        return {'ip': ip, 'name': nm}
+    except Exception:
+        if 'WARNING' in body or 'tasmota' in body.lower():
+            return {'ip': ip, 'name': '(locked)'}
+    return None
+
+
+def _scan_tasmota(net):
+    """Scan net ('192.168.1') .1-.254 for Tasmota devices, parallel."""
+    net = net.strip().rstrip('.')
+    if not _re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}$', net):
+        return []
+    found = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=80) as ex:
+        for d in ex.map(_probe_tasmota,
+                        ['%s.%d' % (net, i) for i in range(1, 255)]):
+            if d:
+                found.append(d)
+    found.sort(key=lambda d: tuple(int(x) for x in d['ip'].split('.')))
+    return found
+
+
 def _flash_cancel():
     with fw_lock:
         p = flash_proc
@@ -684,10 +724,13 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   </span>
   <span id="gOta" class="grp hide">
     <label>Device</label>
-    <input id="host" placeholder="192.168.x.x or name"
-      autocomplete="off">
+    <select id="hostsel" title="Tasmota devices found on the LAN"
+      style="min-width:170px"><option value="">— scan the LAN —</option></select>
+    <button id="hostscan" title="Scan this subnet for Tasmota devices">⟳ Scan</button>
+    <input id="host" placeholder="or type 192.168.x.x / name"
+      autocomplete="off" style="min-width:150px">
     <input id="fwpass" type="password" placeholder="WebPassword (if set)"
-      style="width:160px" autocomplete="off">
+      style="width:150px" autocomplete="off">
   </span>
   <button id="flashgo" class="go">Flash</button>
   <button id="flashcancel" class="stop hide">Cancel</button>
@@ -936,6 +979,30 @@ flashgoEl.onclick=async()=>{
   poll();
 };
 flashcancelEl.onclick=()=>fetch('/api/flash/cancel',{method:'POST'});
+const hostselEl=$('#hostsel'), hostscanEl=$('#hostscan');
+hostselEl.onchange=()=>{ if(hostselEl.value)$('#host').value=hostselEl.value; };
+hostscanEl.onclick=async()=>{
+  const ip=(hostipEl&&hostipEl.value)||'';
+  const net=ip.split('.').slice(0,3).join('.');
+  hostscanEl.disabled=true;
+  const ot=hostscanEl.textContent; hostscanEl.textContent='scanning…';
+  try{
+    const j=await(await fetch('/api/scan'+(net?'?net='+net:''))).json();
+    hostselEl.innerHTML='';
+    const o0=document.createElement('option');
+    o0.value='';o0.textContent=(j.devices||[]).length
+      ? '— '+j.devices.length+' on '+j.net+'.x —'
+      : '— none found on '+j.net+'.x —';
+    hostselEl.appendChild(o0);
+    (j.devices||[]).forEach(d=>{const o=document.createElement('option');
+      o.value=d.ip;
+      o.textContent=d.ip+(d.name?'  ('+d.name+')':'');
+      hostselEl.appendChild(o);});
+    if((j.devices||[]).length===1){
+      hostselEl.value=j.devices[0].ip; $('#host').value=j.devices[0].ip;}
+  }catch(e){ alert('Scan failed: '+e); }
+  hostscanEl.textContent=ot; hostscanEl.disabled=false;
+};
 function updateFlash(j){
   const fs=j.flash||{}; flashing=!!fs.running;
   if(j.fw&&!fwReady){fwReady=true;
@@ -1013,6 +1080,12 @@ class H(BaseHTTPRequestHandler):
                         'sport': pref_sport})
         elif path == '/api/host':
             self._json({'ips': _local_ips()})
+        elif path == '/api/scan':
+            qs = parse_qs(urlparse(self.path).query)
+            net = (qs.get('net') or [''])[0]
+            if not net:
+                net = _default_ip().rsplit('.', 1)[0]
+            self._json({'net': net, 'devices': _scan_tasmota(net)})
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])

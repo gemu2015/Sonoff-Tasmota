@@ -54,8 +54,12 @@ ceiling/wall with no cable access.
     optional and only needed for serial flashing — if missing:
     `pip3 install --user esptool`.
   - **OTA** — uploads the `.bin` to a Tasmota device's web updater
-    (`/u2`) over the LAN with a live progress bar; enter the device
-    IP/host and its `WebPassword` if one is set. No cable needed.
+    (`/u2`) over the LAN with a live progress bar. **⟳ Scan** finds
+    Tasmota devices on the subnet (of the selected LogHost IP) in a
+    couple of seconds and lists them by friendly name in the device
+    dropdown (password-protected ones show as `(locked)`); or just
+    type an IP/host. Enter the `WebPassword` if one is set. No cable
+    needed.
 
   Progress and full tool output stream into the same big-history
   console (and into Save). **Cancel** aborts a running serial job.
