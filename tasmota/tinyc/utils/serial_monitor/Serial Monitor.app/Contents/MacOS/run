@@ -1,0 +1,21 @@
+#!/bin/bash
+# macOS .app launcher for the Serial Monitor. Double-click in Finder
+# (no Terminal window). The bundle lives INSIDE the repo util dir
+# (.../serial_monitor/Serial Monitor.app). Resolve back to the util
+# dir: run -> MacOS -> Contents -> Serial Monitor.app -> serial_monitor.
+export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+
+PYTHON=""
+for p in /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
+    [ -x "$p" ] && PYTHON="$p" && break
+done
+if [ -z "$PYTHON" ]; then
+    osascript -e 'display alert "Serial Monitor" message "Python 3 not found. Install Python 3 from python.org."'
+    exit 1
+fi
+if [ ! -f "${DIR}/serial_monitor_server.py" ]; then
+    osascript -e 'display alert "Serial Monitor" message "serial_monitor_server.py not found next to the bundle. Keep \"Serial Monitor.app\" inside tasmota/tinyc/utils/serial_monitor/."'
+    exit 1
+fi
+exec "$PYTHON" "${DIR}/serial_monitor_server.py"
