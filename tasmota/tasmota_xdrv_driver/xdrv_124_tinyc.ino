@@ -2906,11 +2906,26 @@ static void HandleTinyCDisplay(void) {
 
 // ---- Custom web handlers (webOn) -- uses slot 0 ----
 
+// A slot running a TaskLoop (Modbus/BYD polls etc.) is only sub-ms
+// non-halted; returning 503 immediately gave a "TinyC not ready"
+// white page on every page-switch. Wait briefly for halted instead.
+#ifndef TC_WEBON_HALTED_WAIT_MS
+#define TC_WEBON_HALTED_WAIT_MS 1500
+#endif
+
 static void HandleTinyCWebOn(uint8_t handler_num) {
   if (!Tinyc) { Webserver->send(503, "text/plain", "TinyC not ready"); return; }
   TcSlot *s = Tinyc->slots[0];
-  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) {
+  if (!s || !s->loaded || s->vm.error != TC_OK) {     // truly fatal
     Webserver->send(503, "text/plain", "TinyC not ready");
+    return;
+  }
+  { uint32_t _t0 = millis();
+    while (!s->vm.halted && (millis() - _t0) < TC_WEBON_HALTED_WAIT_MS) {
+      delay(20); yield();
+    } }
+  if (!s->vm.halted) {
+    Webserver->send(503, "text/plain", "TinyC busy (timeout)");
     return;
   }
   Tinyc->current_web_handler = handler_num;
@@ -3161,8 +3176,16 @@ static void HandleTinyCUI(void) {
   // Find the slot that registered this page
   uint8_t si = (page < Tinyc->page_count) ? Tinyc->page_slot[page] : 0;
   TcSlot *s = Tinyc->slots[si];
-  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) {
+  if (!s || !s->loaded || s->vm.error != TC_OK) {     // truly fatal
     Webserver->send(503, "text/plain", "TinyC not ready");
+    return;
+  }
+  { uint32_t _t0 = millis();
+    while (!s->vm.halted && (millis() - _t0) < TC_WEBON_HALTED_WAIT_MS) {
+      delay(20); yield();
+    } }
+  if (!s->vm.halted) {
+    Webserver->send(503, "text/plain", "TinyC busy (timeout)");
     return;
   }
 
