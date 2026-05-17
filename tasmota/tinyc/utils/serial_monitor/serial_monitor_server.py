@@ -22,7 +22,8 @@ import os, sys, json, threading, time, socket, subprocess, webbrowser
 import tempfile, http.client, base64, shutil, re as _re
 import urllib.request, concurrent.futures
 from collections import deque
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import (HTTPServer, ThreadingHTTPServer,
+                          BaseHTTPRequestHandler)
 from urllib.parse import urlparse, parse_qs
 
 HTTP_PORT  = 8124
@@ -421,12 +422,24 @@ def _stop_syslog(quiet=False):
 # Serial flashing via esptool (use-if-present); OTA via Tasmota's
 # HTTP /u2 web-updater. Output streams into the same big-history log.
 
+_esptool_cache = None
+
+
 def _have_esptool():
-    try:
-        import esptool                       # noqa: F401
-        return True
-    except Exception:
-        return bool(shutil.which('esptool') or shutil.which('esptool.py'))
+    """Cached. Use the fast PATH check first; only fall back to an
+    (expensive, ~4s first time) `import esptool` once, then memoize —
+    this runs on every /api/poll, it must not import per call."""
+    global _esptool_cache
+    if _esptool_cache is None:
+        if shutil.which('esptool') or shutil.which('esptool.py'):
+            _esptool_cache = True
+        else:
+            try:
+                import esptool               # noqa: F401
+                _esptool_cache = True
+            except Exception:
+                _esptool_cache = False
+    return _esptool_cache
 
 
 def _flash_set(**kw):
@@ -1325,8 +1338,18 @@ def main():
         return
     except OSError:
         pass
-    HTTPServer.allow_reuse_address = True
-    srv = HTTPServer(('0.0.0.0', HTTP_PORT), H)
+    # Threaded: a slow request (LAN scan ~2-3s, devinfo, OTA up to
+    # 25s, a multi-minute serial flash) must NOT block the 250ms poll
+    # / live log — single-threaded made Safari abort with "Load
+    # failed". daemon threads so Quit/os._exit stays instant.
+    ThreadingHTTPServer.allow_reuse_address = True
+    ThreadingHTTPServer.daemon_threads = True
+    # Bind loopback only: the web UI is always local (we open
+    # 127.0.0.1). Binding 0.0.0.0 made the macOS app-firewall stall
+    # the FIRST inbound connection ~4s (then Safari aborts "Load
+    # failed"). Loopback is exempt → instant, and still reachable as
+    # 127.0.0.1. (Syslog has its own 0.0.0.0 UDP socket — unrelated.)
+    srv = ThreadingHTTPServer(('127.0.0.1', HTTP_PORT), H)
     print(f'Serial Monitor on {url}  (history {HISTORY} lines)')
     threading.Timer(0.6, lambda: _open_url(url)).start()
     try:
