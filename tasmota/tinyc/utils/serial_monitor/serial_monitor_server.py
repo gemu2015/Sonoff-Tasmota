@@ -632,15 +632,29 @@ def _dev_info(host, user='admin', password=''):
     F = j.get('StatusFWR', {})
     N = j.get('StatusNET', {})
     T = j.get('StatusSTS', {})
+    M = j.get('StatusMEM', {})
     fn = S.get('FriendlyName')
+
+    def _mb(kb):
+        try:
+            kb = int(kb)
+        except Exception:
+            return ''
+        return ('%g MB' % round(kb / 1024, 1)) if kb >= 1024 \
+            else ('%d KB' % kb)
     return {'ok': True,
             'name': S.get('DeviceName')
                     or (fn[0] if isinstance(fn, list) and fn else ''),
             'topic': S.get('Topic', ''),
             'module': S.get('Module', ''),
             'version': F.get('Version', ''),
-            'hardware': F.get('Hardware', ''),
+            'hardware': F.get('Hardware', ''),     # CPU / chip
             'core': F.get('Core', ''),
+            'cpufreq': F.get('CpuFrequency', ''),
+            'flash': _mb(M.get('FlashSize')),      # total flash chip
+            'appflash': _mb(M.get('ProgramFlashSize')),
+            'used': _mb(M.get('ProgramSize')),
+            'free': _mb(M.get('Free')),
             'host': N.get('Hostname', ''),
             'ip': N.get('IPAddress', host),
             'mac': N.get('Mac', ''),
@@ -762,10 +776,10 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <span id="fwinfo" style="color:var(--mut);font-size:12px">no file</span>
   <label>Mode</label>
   <select id="fmode">
-    <option value="serial" selected>Serial (esptool)</option>
-    <option value="ota">OTA (Tasmota /u2)</option>
+    <option value="ota" selected>OTA (Tasmota /u2)</option>
+    <option value="serial">Serial (esptool)</option>
   </select>
-  <span id="gSerial" class="grp">
+  <span id="gSerial" class="grp hide">
     <label>Baud</label>
     <select id="fbaud">
       <option>115200</option><option selected>460800</option>
@@ -778,7 +792,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <span style="color:var(--mut);font-size:12px">uses the
       Port selected above</span>
   </span>
-  <span id="gOta" class="grp hide">
+  <span id="gOta" class="grp">
     <label>Device</label>
     <select id="hostsel" title="Tasmota devices found on the LAN"
       style="min-width:170px"><option value="">— scan the LAN —</option></select>
@@ -1052,8 +1066,13 @@ async function loadDevInfo(){
     const d=await(await fetch(u)).json();
     if(d.ok){
       devinfoEl.className='ok';
+      const flash=d.flash?(d.flash+' flash'
+        +(d.appflash?' (app '+d.appflash
+          +(d.free?', free '+d.free:'')+')':'')):'';
       devinfoEl.innerHTML='✓ <b>'+(d.name||d.host||host)+'</b>'
-        +(d.hardware?' · '+d.hardware:'')
+        +(d.hardware?' · <b>'+d.hardware+'</b>':'')
+        +(d.cpufreq?' @'+d.cpufreq+'MHz':'')
+        +(flash?' · '+flash:'')
         +(d.version?' · Tasmota '+d.version
             +(d.core?' ('+d.core+')':''):'')
         +' · '+(d.ip||host)+(d.mac?' · '+d.mac:'')
@@ -1329,15 +1348,38 @@ def main():
     # Safari resolves "localhost" to IPv6 ::1; bind all interfaces and
     # open via 127.0.0.1 so the page AND its fetch()s reach the server.
     url = f'http://127.0.0.1:{HTTP_PORT}/'
-    # If already running, just focus the existing instance.
+    # If an instance is already running, REPLACE it so a relaunch
+    # always loads the current code (no stale-process trap). Politely
+    # ask it to quit, wait for the port, then take over.
     try:
-        s = socket.create_connection(('127.0.0.1', HTTP_PORT), 0.4)
-        s.close()
-        print(f'Serial Monitor already running — opening {url}')
-        _open_url(url)
-        return
+        socket.create_connection(('127.0.0.1', HTTP_PORT), 0.4).close()
+        running = True
     except OSError:
-        pass
+        running = False
+    if running:
+        print('Serial Monitor already running — replacing it')
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', HTTP_PORT,
+                                            timeout=2)
+            c.request('POST', '/api/quit')
+            c.getresponse().read()
+            c.close()
+        except Exception:
+            pass
+        freed = False
+        for _ in range(60):                  # up to ~6s
+            try:
+                socket.create_connection(
+                    ('127.0.0.1', HTTP_PORT), 0.2).close()
+                time.sleep(0.1)
+            except OSError:
+                freed = True
+                break
+        if not freed:
+            print(f'old instance won’t release :{HTTP_PORT} — '
+                  f'opening {url}')
+            _open_url(url)
+            return
     # Threaded: a slow request (LAN scan ~2-3s, devinfo, OTA up to
     # 25s, a multi-minute serial flash) must NOT block the 250ms poll
     # / live log — single-threaded made Safari abort with "Load

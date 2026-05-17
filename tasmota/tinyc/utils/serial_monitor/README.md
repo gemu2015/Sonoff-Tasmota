@@ -59,10 +59,11 @@ ceiling/wall with no cable access.
     couple of seconds and lists them by friendly name in the device
     dropdown (password-protected ones show as `(locked)`); or just
     type an IP/host. Enter the `WebPassword` if one is set. No cable
-    needed. **Picking/typing a device shows a live confirm card**
-    (name · chip · Tasmota version · IP · MAC · uptime · RSSI) so you
-    can be sure it's the right target before overwriting it; the OTA
-    button also re-shows it in the confirm dialog.
+    needed (OTA is the default mode). **Picking/typing a device
+    shows a live confirm card** — name · CPU/chip @MHz · flash size
+    (app / free) · Tasmota version · IP · MAC · uptime · RSSI — so
+    you can be sure it's the right target before overwriting it; the
+    OTA button also re-shows it in the confirm dialog.
 
   Progress and full tool output stream into the same big-history
   console (and into Save). **Cancel** aborts a running serial job.
@@ -121,8 +122,11 @@ Platform notes:
   OS** (Windows IPs/adapter names come from `ipconfig`, Linux from
   `ifconfig`/`ip`, macOS adds the Wi-Fi/Ethernet port labels).
 
-If it is already running, launching again just re-focuses the existing
-instance (the port is reused, history is preserved).
+If an instance is already running, launching again **replaces it**
+(it asks the old one to quit, waits for the port, then takes over) so
+a relaunch always runs the current code — no stale-process trap. The
+browser tabs reconnect automatically; in-memory history is cleared by
+the restart.
 
 ### macOS TCC / `~/Desktop` note (why the .app runs a bundled copy)
 
