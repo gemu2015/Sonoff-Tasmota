@@ -489,8 +489,16 @@ def _flash_serial(port, baud, offset, erase, nostub=False):
         return
     _close_serial(quiet=True)                 # esptool needs the port
     _flash_set(running=True, pct=0, ok=None, error='', phase='serial')
+    baud = int(baud)
+    if nostub and baud > 115200:
+        # The ROM loader can't reliably do the high-baud switch
+        # (-> "0105: format of received message invalid" at seq 0).
+        # Pin it to 115200 — slower but it actually completes.
+        _flog(f'no-stub: capping baud {baud} -> 115200 for ROM '
+              f'loader reliability')
+        baud = 115200
     base = [sys.executable, '-u', '-m', 'esptool',
-            '--chip', 'auto', '--port', port, '--baud', str(int(baud))]
+            '--chip', 'auto', '--port', port, '--baud', str(baud)]
     if nostub:                                # ROM loader, skips the
         base += ['--no-stub']                 # RAM-stub upload step
     steps = []
@@ -529,7 +537,10 @@ def _flash_serial(port, baud, offset, erase, nostub=False):
                         r'write to target RAM|Checksum error|'
                         r'stub', tail, _re.I)):
                     _flog('stub upload failed — retrying with '
-                          '--no-stub (ROM loader, slower) …')
+                          '--no-stub (ROM loader, slower). If this '
+                          'also fails, use the ESP32-S3 "USB '
+                          'JTAG/serial debug unit" port instead of a '
+                          'UART bridge.')
                     return _flash_serial(port, baud, offset, erase,
                                          nostub=True)
                 _flash_set(running=False, ok=False,
@@ -993,7 +1004,7 @@ const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       flashgoEl=$('#flashgo'), flashcancelEl=$('#flashcancel'),
       fwpctEl=$('#fwpct'), fwstatEl=$('#fwstat'), fwinfoEl=$('#fwinfo');
 let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false,
-    fwReady=false, flashing=false;
+    fwReady=false, flashing=false, fwName='';
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
 
@@ -1183,7 +1194,7 @@ fwfileEl.onchange=async()=>{
   const fd=new FormData(); fd.append('fw',f,f.name);
   try{
     const j=await(await fetch('/api/fw',{method:'POST',body:fd})).json();
-    if(j.ok){fwReady=true;
+    if(j.ok){fwReady=true; fwName=j.name||'';
       fwinfoEl.textContent=j.name+'  ('+j.size.toLocaleString()+' B)';}
     else{fwinfoEl.textContent='upload failed: '+(j.error||'?');}
   }catch(e){fwinfoEl.textContent='upload error: '+e;}
@@ -1202,8 +1213,27 @@ flashgoEl.onclick=async()=>{
   }else{
     const port=portEl.value;
     if(!port){alert('Select the serial Port (top bar) first');return;}
-    if(!confirm('Serial-flash '+port+'? This closes the monitor on '
-      +'that port and overwrites the device.'))return;
+    const off=$('#foffset').value.trim();
+    const isZero=/^0x0*$|^0+$/i.test(off) || parseInt(off,16)===0;
+    const warn=[];
+    if(isZero && !/factory/i.test(fwName))
+      warn.push('• Offset 0x0 needs a *.factory.bin (bootloader + '
+        +'partition table + app). "'+fwName+'" looks like an '
+        +'APP-only image — it will NOT boot at 0x0. Use the '
+        +'.factory.bin, or change the offset.');
+    const sel=portEl.options[portEl.selectedIndex];
+    const txt=(sel&&sel.textContent)||'';
+    const hasJtag=[...portEl.options].some(o=>/JTAG/i.test(o.textContent));
+    if(!/JTAG/i.test(txt)&&hasJtag)
+      warn.push('• For ESP32-S3 the "USB JTAG/serial debug unit" port '
+        +'is far more reliable — a UART bridge often fails esptool\'s '
+        +'stub upload (Checksum error). Consider selecting it.');
+    if(!confirm('Serial-flash '+port+'?\n\nfile: '+fwName
+      +'   offset: '+$('#foffset').value
+      +'\nThis closes the monitor on that port and overwrites the '
+      +'device (settings/filesystem may be lost).'
+      +(warn.length?'\n\n⚠ '+warn.join('\n\n⚠ '):'')
+      +'\n\nProceed?'))return;
     url='/api/flash/serial';
     bdy={port,baud:+$('#fbaud').value,offset:$('#foffset').value,
          erase:$('#ferase').checked,nostub:$('#fnostub').checked};
@@ -1294,7 +1324,7 @@ hostscanEl.onclick=async()=>{
 };
 function updateFlash(j){
   const fs=j.flash||{}; flashing=!!fs.running;
-  if(j.fw&&!fwReady){fwReady=true;
+  if(j.fw&&!fwReady){fwReady=true; fwName=j.fw;
     fwinfoEl.textContent=j.fw+'  ('+(j.fwsize||0).toLocaleString()+' B)';}
   if(!j.esptool&&fmodeEl.value==='serial')
     fwstatEl.textContent='esptool missing → pip3 install --user esptool';
