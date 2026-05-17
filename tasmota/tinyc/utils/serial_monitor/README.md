@@ -19,9 +19,14 @@ already scrolled past.
 - **Clear** — empties the view *and* the server history.
 - **Save** — downloads the full server-side history as a timestamped
   `serial-YYYYMMDD-HHMMSS.log`.
+- **Quit** — stops the server process (use this before relaunching so
+  you don't end up talking to a stale instance).
 - `autoscroll` — follow the tail (untick to scroll back freely while
   data keeps arriving).
 - `time` — show/hide per-line timestamps.
+- `hex` — render lines as space-separated byte hex (lines with
+  non-printable/non-ASCII bytes carry their exact raw bytes; toggling
+  re-renders the whole visible buffer, no reconnect needed).
 
 ## Large history
 

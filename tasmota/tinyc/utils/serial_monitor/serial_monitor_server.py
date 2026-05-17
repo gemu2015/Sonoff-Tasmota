@@ -40,13 +40,25 @@ def _open_url(url):
         return False
 
 
-def add_line(direction, text):
+def _line_hex(raw):
+    """Hex view of a raw line, only stored when it contains
+    non-printable / non-ASCII bytes (keeps memory ~unchanged for
+    plain text logs; pure-ASCII hex is derived client-side)."""
+    if any((b < 0x20 and b != 0x09) or b >= 0x7f for b in raw):
+        return ' '.join(f'{b:02x}' for b in raw)
+    return None
+
+
+def add_line(direction, text, hexs=None):
     """direction: 'rx' | 'info' | 'err'"""
     global log_seq
     with state_lock:
         log_seq += 1
-        log_buf.append({'seq': log_seq, 't': time.strftime('%H:%M:%S'),
-                        'd': direction, 'x': text})
+        e = {'seq': log_seq, 't': time.strftime('%H:%M:%S'),
+             'd': direction, 'x': text}
+        if hexs:
+            e['h'] = hexs
+        log_buf.append(e)
 
 
 def list_ports():
@@ -94,12 +106,15 @@ def _serial_reader():
                     break
                 raw = bytes(buf[:nl]).rstrip(b'\r')
                 del buf[:nl + 1]
-                add_line('rx', raw.decode('utf-8', 'replace'))
+                add_line('rx', raw.decode('utf-8', 'replace'),
+                         _line_hex(raw))
             last = now
         else:
             # idle: flush a lingering partial line (e.g. a prompt)
             if buf and (now - last) > 0.25:
-                add_line('rx', bytes(buf).decode('utf-8', 'replace'))
+                pr = bytes(buf)
+                add_line('rx', pr.decode('utf-8', 'replace'),
+                         _line_hex(pr))
                 buf.clear()
             time.sleep(0.02)
 
@@ -183,10 +198,13 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <button id="conn" class="go">Connect</button>
   <button id="clear">Clear</button>
   <button id="save">Save</button>
+  <button id="quit" class="stop" title="Stop the server process">Quit</button>
   <label style="margin-left:6px"><input type="checkbox" id="auto" checked
     style="vertical-align:middle"> autoscroll</label>
   <label><input type="checkbox" id="ts" checked
     style="vertical-align:middle"> time</label>
+  <label><input type="checkbox" id="hex"
+    style="vertical-align:middle"> hex</label>
   <span id="stat"><span id="dot"></span><span id="msg">idle</span></span>
 </div>
 <div id="log" class="" tabindex="0"></div>
@@ -217,7 +235,22 @@ async function loadPorts(){
       o.textContent=p.device+(p.desc?'  —  '+p.desc:'');
       portEl.appendChild(o);});
     if(keep)portEl.value=keep;
-  }catch(e){}
+  }catch(e){
+    portEl.innerHTML='';
+    const o=document.createElement('option');
+    o.textContent='(port list failed: '+e+')';o.value='';
+    portEl.appendChild(o);
+  }
+}
+
+const _enc=new TextEncoder();
+function toHex(s){return Array.from(_enc.encode(s),
+  b=>b.toString(16).padStart(2,'0')).join(' ');}
+function hexMode(){return $('#hex').checked;}
+function render(span){
+  const h=hexMode();
+  span.textContent = h ? (span.dataset.h || toHex(span.dataset.x||''))
+                       : (span.dataset.x||'');
 }
 
 function setStat(on,t){dotEl.classList.toggle('on',on);msgEl.textContent=t;}
@@ -229,7 +262,8 @@ function append(lines){
   for(const ln of lines){
     const d=document.createElement('div');d.className='l';
     const t=document.createElement('span');t.className='t';t.textContent=ln.t;
-    const x=document.createElement('span');x.className=ln.d;x.textContent=ln.x;
+    const x=document.createElement('span');x.className=ln.d;
+    x.dataset.x=ln.x; if(ln.h)x.dataset.h=ln.h; render(x);
     d.appendChild(t);d.appendChild(x);frag.appendChild(d);
   }
   logEl.appendChild(frag);
@@ -276,8 +310,18 @@ $('#clear').onclick=async()=>{
 };
 $('#save').onclick=()=>{ window.location='/api/save'; };
 $('#ts').onchange=e=>logEl.classList.toggle('notime',!e.target.checked);
+$('#hex').onchange=()=>{
+  for(const s of logEl.querySelectorAll('.l>span:last-child')) render(s);
+};
+$('#quit').onclick=async()=>{
+  if(!confirm('Stop the Serial Monitor server?'))return;
+  try{await fetch('/api/quit',{method:'POST'});}catch(e){}
+  if(pollTimer)clearInterval(pollTimer);
+  setStat(false,'server stopped — you can close this tab');
+  document.title='Serial Monitor (stopped)';
+};
 
-loadPorts(); poll(); setInterval(poll,250);
+loadPorts(); poll(); pollTimer=setInterval(poll,250);
 </script></body></html>"""
 
 
@@ -350,13 +394,20 @@ class H(BaseHTTPRequestHandler):
             with state_lock:
                 log_buf.clear()
             self._json({'ok': True})
+        elif path == '/api/quit':
+            self._json({'ok': True})
+            _close_serial(quiet=True)
+            # let the response flush, then hard-exit the process
+            threading.Timer(0.2, lambda: os._exit(0)).start()
         else:
             self._send(404, b'not found', 'text/plain')
 
 
 def main():
     threading.Thread(target=_serial_reader, daemon=True).start()
-    url = f'http://localhost:{HTTP_PORT}/'
+    # Safari resolves "localhost" to IPv6 ::1; bind all interfaces and
+    # open via 127.0.0.1 so the page AND its fetch()s reach the server.
+    url = f'http://127.0.0.1:{HTTP_PORT}/'
     # If already running, just focus the existing instance.
     try:
         s = socket.create_connection(('127.0.0.1', HTTP_PORT), 0.4)
@@ -367,7 +418,7 @@ def main():
     except OSError:
         pass
     HTTPServer.allow_reuse_address = True
-    srv = HTTPServer(('127.0.0.1', HTTP_PORT), H)
+    srv = HTTPServer(('0.0.0.0', HTTP_PORT), H)
     print(f'Serial Monitor on {url}  (history {HISTORY} lines)')
     threading.Timer(0.6, lambda: _open_url(url)).start()
     try:
