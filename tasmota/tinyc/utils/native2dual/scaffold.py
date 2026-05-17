@@ -422,6 +422,19 @@ def main():
 #  define I2cWrite0(a,r,b)         jI2cWrite0((a),(r),(b))
 #  undef  I2cReadBuffer0
 #  define I2cReadBuffer0(a,bf,l,b) jI2cReadBuffer0((a),(bf),(l),(b))
+// Native drivers iterate `for (bus=0; bus<MAX_I2C; bus++)`. In the
+// plugin TU `MAX_I2C` (firmware's tasmota_globals.h SoC-controller
+// count) is NOT in scope — tasmota_options.h doesn't pull it — so the
+// bound is wrong/absent and the probe loop never runs (pFUNC_INIT
+// returns 0, "no device found" even though I2cScan sees it). The
+// plugin/dual world's bus-count symbol is `MAX_I2C_Busses` (defined by
+// module_defines.h + dual_format_compat.h, always >=1). The hand duals
+// use it deliberately (dual_format_compat.h:203). Map native MAX_I2C
+// onto it, FILE-LOCAL.
+#  ifdef MAX_I2C
+#    undef MAX_I2C
+#  endif
+#  define MAX_I2C MAX_I2C_Busses
 // module_defines.h has `#define TasmotaGlobal *tgbl`, so native
 // `TasmotaGlobal.member` mis-parses as `*(tgbl.member)`. Re-point to
 // `(*tgbl)` so `.member` works with the STGLOB-declared `tgbl`.
