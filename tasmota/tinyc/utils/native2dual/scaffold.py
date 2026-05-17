@@ -256,11 +256,28 @@ def main():
             decl = f'const {ty}{nm}{arr} PROGMEM {init or ""};'
             body = body.replace(full, decl, 1)
             if rd:
-                # rewrite element reads nm[expr] -> rd(&nm[expr]); the
+                # rewrite element reads nm[expr] -> rd(&nm[...]); the
                 # PROGMEM decl uses empty `nm[]` so it is never matched.
+                # PLUGIN RELOCATION: the BinPlugin loader relocates the
+                # module by EXEC_OFFSET, so a plain &nm[expr] is the
+                # UN-relocated link address and reads garbage/0. The
+                # codebase's canonical idiom (dual_format_compat.h:341;
+                # e.g. PN532 `pgm_read_byte(&PN532_NACK_TAB[EXEC_OFFSET
+                # + i])`) is to bias the INDEX by EXEC_OFFSET. That is
+                # only size-correct for byte arrays (index step == byte
+                # step). EXEC_OFFSET == 0 in native (dual_format_compat.h)
+                # so this is dual-safe. For wider element types add the
+                # byte offset to a uint8_t* base then re-type.
+                if rd == 'pgm_read_byte':
+                    rep = lambda mm: (f'{rd}(&{nm}[EXEC_OFFSET + '
+                                      f'({mm.group(1)})])')
+                else:
+                    rep = lambda mm: (
+                        f'{rd}((const {base}*)((const uint8_t*)({nm}) + '
+                        f'EXEC_OFFSET) + ({mm.group(1)}))')
                 body = re.sub(
                     r'\b' + re.escape(nm) + r'\s*\[\s*([^\]\n]+?)\s*\]',
-                    lambda mm: f'{rd}(&{nm}[{mm.group(1)}])', body)
+                    rep, body)
             else:
                 body = ('// NEEDS-MANUAL: PROGMEM array %s (elem type %s) '
                         '- wrap element reads with the matching '
