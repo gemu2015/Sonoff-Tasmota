@@ -31,10 +31,53 @@ Useful for:
 | Eastron SDM630 — 3-phase            | Modbus RTU                      | bidirectional  |
 | Eastron SDM630 (TCP)                | Modbus TCP                      | bidirectional  |
 | Apator T510 — 3-phase               | IEC 62056-21 mode-C handshake   | bidirectional  |
+| Huawei R4850G2 (CANBus)             | CAN poll/response, 125 kbit/s   | bidirectional  |
+| Sorel XHCC / LTDC (CANBus)          | CAN broadcast, 250 kbit/s       | push (CAN)     |
+| any `USE_SML_CANBUS` `.tas`         | CAN (poll or broadcast)         | bidirectional  |
 
 For bidirectional protocols (Kamstrup, Modbus RTU, T510) the Python
 server runs a state machine that watches for incoming polls and emits
 the matching response — see *Architecture* below.
+
+> **CAN profiles need a separate hardware CAN-bridge device** — a
+> USB-serial dongle is *not* enough. See **CAN-bus support** below and
+> `SLCAN_README.md` for the full setup.
+
+## CAN-bus support (requires a bridge device)
+
+CAN meters/chargers (Huawei R4850G2, Sorel XHCC/LTDC, and any
+`USE_SML_CANBUS` descriptor) are supported, but **CAN is not a
+serial-port protocol** — the Mac has no CAN hardware. A separate
+**SLCAN bridge device is mandatory**:
+
+- A second ESP32 (e.g. ESP32-C3) running Tasmota+TinyC with the
+  `tasmota/tinyc/examples/slcan_bridge_tcp.tc` script. It listens on
+  TCP and translates SLCAN-ASCII ↔ real CAN frames via the ESP32 TWAI
+  peripheral.
+- A **CAN transceiver** (SN65HVD230 / TJA1051 / MCP2562, 3.3 V) on the
+  bridge — the TWAI peripheral is logic-only and cannot drive the
+  differential bus by itself.
+- **120 Ω termination at both ends** of the CAN bus (bridge end and
+  the device-under-test end).
+- The bridge and the DUT share the CAN bus; the emulator never touches
+  CAN directly — it speaks SLCAN over TCP to the bridge.
+
+In the GUI: pick a CAN profile (`proto 'c'` descriptor), enter the
+bridge `host:port` (default `…:9999`), click **Connect CAN bridge**.
+There is **no Start button for CAN** — the server-side runner answers
+polls / emits broadcasts automatically once connected.
+
+> **Troubleshooting tip (cost the most time once):** if the DUT ACKs
+> *some* frames, decodes nothing, and the bridge bus-offs every cycle —
+> **check the CAN RX/TX pin wiring first.** Swapped RX/TX gives
+> intermittent ACK loss + endless bus-off that looks exactly like a
+> software bug. Pin map is per-board; see `SLCAN_README.md`.
+
+The bridge link is self-healing: it recovers a bus-off TWAI in place
+and rides through bridge restarts without user intervention. Verified
+end-to-end on real hardware against Huawei R4850G2 (poll) and Sorel
+LTDC (broadcast) firmware drivers — see `SLCAN_README.md` for the full
+recipe and the bring-up history.
 
 ## Quick start
 

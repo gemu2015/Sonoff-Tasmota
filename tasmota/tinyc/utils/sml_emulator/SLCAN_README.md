@@ -1,11 +1,30 @@
 # SLCAN bridge ↔ SML emulator
 
 How the desktop SML emulator gets CAN-bus support without a kernel-level
-CAN driver: an ESP32-C3 running Tasmota+TinyC acts as a USB-attached
-SLCAN bridge. The Mac talks ASCII-over-USB-CDC, the C3 translates to
+CAN driver: an ESP32 running Tasmota+TinyC acts as a network SLCAN
+bridge. The Mac talks SLCAN-ASCII over **TCP**, the bridge translates to
 real CAN frames via its built-in TWAI peripheral, the bus terminates at
 the device under test (a separate ESP32 running Tasmota with
 `USE_SML_CANBUS`).
+
+## REQUIREMENT: a dedicated CAN bridge device
+
+CAN support is **not** a software-only feature and **not** a USB-serial
+dongle. You must have, on the same CAN bus as the device-under-test:
+
+1. **A separate ESP32 bridge** running Tasmota+TinyC with
+   `tasmota/tinyc/examples/slcan_bridge_tcp.tc` (network/TCP variant —
+   this is the one the emulator uses; the older USB-CDC `slcan_bridge.tc`
+   is kept only for the loopback test). The emulator connects to the
+   bridge's `host:port` (default `:9999`) over WiFi/LAN.
+2. **A real CAN transceiver** on the bridge (SN65HVD230 / TJA1051 /
+   MCP2562, 3.3 V). The TWAI peripheral is protocol-logic only — without
+   a transceiver there is no differential bus and nothing will ACK.
+3. **120 Ω termination at *both* ends** of the bus.
+4. **Correct RX/TX pin wiring** on both the bridge and the DUT (see the
+   pin map below — this is the #1 time-sink if wrong).
+
+Without all four, the emulator's CAN profiles cannot reach the DUT.
 
 ## Pieces
 
@@ -156,23 +175,53 @@ scripting.
 - **No filter at run-time**: ESP-IDF's TWAI filter is part of driver
   install, not run-time mutable. `twaiFilter` is exposed but acts as a
   hint for the next `twaiBegin` (currently a no-op).
-- **No bus-error recovery yet**: bridge counts errors but doesn't auto-
-  restart on bus-off. If the controller goes bus-off, send `C\rO\r` to
-  re-open. Useful as a manual recovery during debugging.
+- **Bus-off recovery IS implemented** (TCP bridge): the bridge detects
+  a run of consecutive `twaiSend` failures (the only reliable bus-off
+  signal — `twaiStatus()` does *not* expose controller state) and
+  reinstalls the TWAI driver in place, logging
+  `TWAI bus-off -> reinstalled in place`. The emulator runner also
+  self-heals across bridge restarts (EOF → reconnect < 1 s). No manual
+  `C\rO\r` churn needed anymore.
 - **No DBC support**. The emulator's CAN profile mode (when added) does
   raw frame matching against descriptor patterns, same model the
   firmware-side SML driver uses. If you want a richer signal-decoding
   layer, plug python-can + cantools in beside this client.
 
-## Status (2026-05-09)
+## Pin map (board-specific — get this right FIRST)
 
-- **Code is in place and builds clean** (firmware compile verified for
-  `tinyc32c3` env; bridge script compiles to 2,120 bytes via
-  `tc_deploy.mjs`).
-- **Untested on hardware** — level converters not yet arrived. Expect
-  bring-up tweaks (especially around USB-CDC vs UART1 host serial)
-  once a physical bridge is wired.
-- **SML emulator GUI integration deferred** — when hardware testing
-  confirms the bridge protocol works, add a CAN profile mode to
-  `sml_emulator.html` / `sml_emulator_server.py` that uses
-  `slcan_client.py` to send frames matching the descriptor patterns.
+The TCP bridge's CAN pins are set at the top of
+`slcan_bridge_tcp.tc` (`can_rx_pin` / `can_tx_pin`) and are
+**board-specific**. Bench reference (2026-05-16/17):
+
+| Device | Role | CAN RX | CAN TX |
+|---|---|---|---|
+| `.143` ESP32-C3 (bridge) | `slcan_bridge_tcp.tc` | GPIO 9 | GPIO 10 |
+| `.39` ESP32-S3 (DUT) | `USE_SML_CANBUS` | GPIO 39 | GPIO 38 |
+
+`RX` on one node wires to `TX` on the other through the transceiver
+pair. **A swapped RX/TX is the single biggest red herring**: you get
+intermittent per-frame ACK loss, the bridge bus-offs every cycle, and
+the DUT decodes nothing — which looks *exactly* like a software
+burst/timing/queue bug. The transport is robust; if the symptom is
+"DUT ACKs some frames but never decodes, bus-off every cycle", **verify
+the wiring/pin map before touching code**. A lower bitrate (Huawei
+125 k) can mask a marginal mis-wire that a higher one (Sorel 250 k)
+exposes.
+
+## Status (2026-05-17) — PROVEN end-to-end
+
+- **Hardware-verified, both modes**, live on `.39` through the `.143`
+  bridge:
+  - Huawei R4850G2 — **poll/response**, 125 kbit/s: 10/10 frames ACKed
+    per poll, sustained.
+  - Sorel **LTDC** — **broadcast**, 250 kbit/s: decodes
+    `{"CAN":{"S1":22,"S2":22,"S3":22,"S4":22,"R1":0,"R2":0,"R3":0}}`.
+- **GUI integrated**: CAN profile mode in `sml_emulator.html` /
+  `sml_emulator_server.py` (`proto 'c'`); enter the bridge `host:port`,
+  **Connect CAN bridge** — no Start button (server-side runner).
+- **Self-healing**: bridge reinstalls a bus-off TWAI in place; runner
+  reconnects across bridge restarts; broadcast frames are spread across
+  the period (real-device cadence, not a burst) so the DUT keeps up.
+- Hardening commit: `35202886c` (bridge `client_connected`/RX-gate
+  deadlock, dead bus-off-recovery code, frame spreading, EOF
+  fast-reconnect, CAN-Start no-op). No firmware/ABI change.
