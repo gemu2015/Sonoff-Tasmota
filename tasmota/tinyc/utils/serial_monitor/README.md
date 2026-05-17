@@ -16,6 +16,11 @@ already scrolled past.
 - **Baudrate selector** — 300 … 1500000 (default 115200; Tasmota uses
   115200, ESP boot ROM log is 74880).
 - **Connect / Disconnect**.
+- **Command input** (bottom bar, enabled while connected) — type a
+  command, **Enter** (or **Send**) transmits it; ↑/↓ recall history.
+  The line-ending selector appends CR LF (Tasmota console default),
+  LF, CR, or nothing. Sent commands appear in the log as `» cmd`
+  (`tx`) lines, so they are part of history/Save too.
 - **Clear** — empties the view *and* the server history.
 - **Save** — downloads the full server-side history as a timestamped
   `serial-YYYYMMDD-HHMMSS.log`.
@@ -53,9 +58,11 @@ instance (the port is reused, history is preserved).
 
 ## Notes
 
-- Read-only by design (a monitor, not a terminal): it never writes to
-  the port, so it is safe to leave attached during flashing/boot
-  (close it first only if the OS enforces exclusive port access).
+- Primarily a monitor: it only writes when you explicitly type a
+  command and press Send/Enter. Idle (and while just watching) it
+  never touches the port, so it is safe to leave attached during
+  flashing/boot — but don't send commands during a flash, and close
+  it first if the OS enforces exclusive port access.
 - Bytes are decoded UTF-8 with replacement; a promptless partial line
   (no newline) is flushed after ~0.25 s so REPL/`>` prompts still show.
 - One device at a time. To watch two devices, run a second copy with a

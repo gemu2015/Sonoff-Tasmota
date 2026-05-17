@@ -136,6 +136,22 @@ def _close_serial(quiet=False):
             add_line('info', f'[closed {dev}]')
 
 
+def _write_serial(text, eol):
+    """Send a typed command to the device. eol: 'crlf'|'lf'|'cr'|''."""
+    end = {'crlf': '\r\n', 'lf': '\n', 'cr': '\r'}.get(eol, '')
+    with state_lock:
+        sp = serial_port
+    if sp is None:
+        return False, 'not connected'
+    try:
+        sp.write((text + end).encode('utf-8', 'replace'))
+        sp.flush()
+    except Exception as e:
+        return False, str(e)
+    add_line('tx', text)
+    return True, None
+
+
 def _open_serial(device, baud):
     global serial_port, cur_device, cur_baud
     try:
@@ -187,6 +203,10 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  .l .t{color:#586274;flex:none;-webkit-user-select:none;
        user-select:none}
  .rx{color:var(--rx)} .info{color:var(--info)} .err{color:var(--err)}
+ .tx{color:#f0c674} .tx::before{content:"» "}
+ #cmd{flex:1;min-width:120px}
+ #cmdbar{display:flex;gap:8px;align-items:center;padding:8px 10px;
+      background:var(--bar);border-top:1px solid #222}
  #log.notime .t{display:none}
 </style></head><body>
 <div id="bar">
@@ -208,10 +228,23 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <span id="stat"><span id="dot"></span><span id="msg">idle</span></span>
 </div>
 <div id="log" class="" tabindex="0"></div>
+<div id="cmdbar">
+  <input id="cmd" placeholder="type a command, Enter to send"
+    autocomplete="off" disabled>
+  <select id="eol" title="line ending appended to the command">
+    <option value="crlf" selected>CR LF</option>
+    <option value="lf">LF</option>
+    <option value="cr">CR</option>
+    <option value="">none</option>
+  </select>
+  <button id="send" disabled>Send</button>
+</div>
 <script>
 const $=s=>document.querySelector(s);
 const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
-      connEl=$('#conn'), msgEl=$('#msg'), dotEl=$('#dot');
+      connEl=$('#conn'), msgEl=$('#msg'), dotEl=$('#dot'),
+      cmdEl=$('#cmd'), sendEl=$('#send'), eolEl=$('#eol');
+let cmdHist=[], histIdx=0;
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
 
@@ -286,6 +319,7 @@ async function poll(){
                     (j.dropped?('  ('+j.dropped+' rolled off)'):''));
     connEl.textContent=j.open?'Disconnect':'Connect';
     connEl.className=j.open?'stop':'go';
+    cmdEl.disabled=sendEl.disabled=!j.open;
     if(j.lines&&j.lines.length) append(j.lines);
   }catch(e){ setStat(false,'server unreachable'); }
 }
@@ -303,6 +337,32 @@ connEl.onclick=async()=>{
   }
   poll();
 };
+async function sendCmd(){
+  const t=cmdEl.value;
+  if(!t.length){return;}
+  cmdEl.value='';
+  cmdHist.push(t); histIdx=cmdHist.length;
+  try{
+    const r=await fetch('/api/send',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:t,eol:eolEl.value})});
+    const j=await r.json();
+    if(!j.ok) setStat(connected,'send failed: '+(j.error||'?'));
+  }catch(e){ setStat(false,'server unreachable'); }
+  poll();
+}
+sendEl.onclick=sendCmd;
+cmdEl.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();sendCmd();}
+  else if(e.key==='ArrowUp'){
+    if(histIdx>0){histIdx--;cmdEl.value=cmdHist[histIdx]||'';}
+    e.preventDefault();
+  }else if(e.key==='ArrowDown'){
+    if(histIdx<cmdHist.length){histIdx++;
+      cmdEl.value=cmdHist[histIdx]||'';}
+    e.preventDefault();
+  }
+});
 $('#refresh').onclick=loadPorts;
 $('#clear').onclick=async()=>{
   await fetch('/api/clear',{method:'POST'});
@@ -386,6 +446,10 @@ class H(BaseHTTPRequestHandler):
         if path == '/api/open':
             ok, err = _open_serial(body.get('device', ''),
                                    body.get('baud', 115200))
+            self._json({'ok': ok, 'error': err})
+        elif path == '/api/send':
+            ok, err = _write_serial(str(body.get('text', '')),
+                                    str(body.get('eol', 'crlf')))
             self._json({'ok': ok, 'error': err})
         elif path == '/api/close':
             _close_serial()
