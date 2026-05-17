@@ -470,6 +470,43 @@ def _multipart_first_file(raw, ctype):
     return None, b''
 
 
+def _classify_fw(blob):
+    """Inspect an ESP firmware image and pick the serial-flash offset
+    automatically (like ESP_Flasher — no manual offset needed).
+
+    - ESP image magic is 0xE9.
+    - A *factory*/merged image has the partition-table signature
+      0xAA50 at file offset 0x8000  -> flash whole thing at 0x0.
+    - ESP8266 images are whole-image too -> 0x0.
+    - An ESP32 *app-only* image (extended header carries a known
+      chip_id, no table at 0x8000) cannot be serial-flashed at a
+      fixed offset (its app-partition offset lives in the device's
+      partition table) -> tell the user to use the .factory.bin / OTA.
+    Returns {'kind','offset'|None,'note'}."""
+    if not blob or blob[0] != 0xE9:
+        return {'kind': 'unknown', 'offset': None,
+                'note': 'not an ESP image (no 0xE9 magic)'}
+    if len(blob) > 0x8002 and blob[0x8000:0x8002] == b'\xaa\x50':
+        return {'kind': 'factory', 'offset': '0x0',
+                'note': 'factory/merged image (bootloader + partition '
+                        'table + app) → 0x0'}
+    # ESP32 app-image extended header: chip_id at bytes 12-13 (LE).
+    esp32_ids = {0, 2, 4, 5, 6, 9, 12, 13, 16, 18, 20, 23}
+    cid = int.from_bytes(blob[12:14], 'little') if len(blob) > 14 \
+        else -1
+    if cid in esp32_ids:
+        names = {0: 'ESP32', 2: 'ESP32-S2', 5: 'ESP32-C3',
+                 9: 'ESP32-S3', 12: 'ESP32-C2', 13: 'ESP32-C6',
+                 16: 'ESP32-H2', 18: 'ESP32-P4'}
+        return {'kind': 'esp32-app', 'offset': None,
+                'note': '%s APP-only image — NOT serial-flashable at '
+                        'a fixed offset. Use the *.factory.bin for '
+                        'serial, or OTA this image.'
+                        % names.get(cid, 'ESP32')}
+    return {'kind': 'esp8266', 'offset': '0x0',
+            'note': 'whole-image (ESP8266) → 0x0'}
+
+
 def _flash_guard():
     with fw_lock:
         if flash_state['running']:
@@ -956,9 +993,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
       <option>115200</option><option selected>460800</option>
       <option>921600</option><option>230400</option>
     </select>
-    <label title="0x0 for ESP8266 and ESP32 *factory* images">Offset</label>
+    <label title="Auto-detected from the image when you pick a file; override only if you know better">Offset</label>
     <input id="foffset" value="0x0" style="width:74px"
-      title="0x0 = full/factory image. App-only ESP32 image: 0x10000">
+      title="Auto-set from the firmware (factory/ESP8266 → 0x0). Manual override possible.">
     <label><input type="checkbox" id="ferase"> erase</label>
     <label title="ESP32-S3/C3: use the ROM loader, skip the RAM stub upload — fixes 'Failed to write to target RAM / Checksum error'"><input type="checkbox" id="fnostub"> no-stub</label>
     <span style="color:var(--mut);font-size:12px">uses the Port above
@@ -1004,7 +1041,7 @@ const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       flashgoEl=$('#flashgo'), flashcancelEl=$('#flashcancel'),
       fwpctEl=$('#fwpct'), fwstatEl=$('#fwstat'), fwinfoEl=$('#fwinfo');
 let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false,
-    fwReady=false, flashing=false, fwName='';
+    fwReady=false, flashing=false, fwName='', fwKind='', fwOffset='';
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
 
@@ -1195,7 +1232,12 @@ fwfileEl.onchange=async()=>{
   try{
     const j=await(await fetch('/api/fw',{method:'POST',body:fd})).json();
     if(j.ok){fwReady=true; fwName=j.name||'';
-      fwinfoEl.textContent=j.name+'  ('+j.size.toLocaleString()+' B)';}
+      fwKind=j.kind||''; fwOffset=j.offset||'';
+      if(fwOffset) $('#foffset').value=fwOffset;
+      fwinfoEl.textContent=j.name+'  ('+j.size.toLocaleString()+' B)  — '
+        +(j.note||'');
+      fwinfoEl.style.color=(fwKind==='esp32-app'||fwKind==='unknown')
+        ?'var(--err)':'var(--info)';}
     else{fwinfoEl.textContent='upload failed: '+(j.error||'?');}
   }catch(e){fwinfoEl.textContent='upload error: '+e;}
 };
@@ -1213,14 +1255,21 @@ flashgoEl.onclick=async()=>{
   }else{
     const port=portEl.value;
     if(!port){alert('Select the serial Port (top bar) first');return;}
-    const off=$('#foffset').value.trim();
-    const isZero=/^0x0*$|^0+$/i.test(off) || parseInt(off,16)===0;
+    // Auto-detected image type decides the offset (no manual entry).
+    if(fwKind==='esp32-app'){
+      alert('This is an ESP32 APP-only image — it can NOT be '
+        +'serial-flashed at a fixed offset (its app-partition offset '
+        +'lives in the device partition table).\n\nUse the matching '
+        +'*.factory.bin for serial flashing, or switch Mode to OTA '
+        +'to push this image.');
+      return;
+    }
+    if(fwKind==='unknown'){
+      if(!confirm('Could not recognise this file as an ESP image. '
+        +'Flash it anyway at '+$('#foffset').value+'?'))return;
+    }
+    const offset=fwOffset||$('#foffset').value;
     const warn=[];
-    if(isZero && !/factory/i.test(fwName))
-      warn.push('• Offset 0x0 needs a *.factory.bin (bootloader + '
-        +'partition table + app). "'+fwName+'" looks like an '
-        +'APP-only image — it will NOT boot at 0x0. Use the '
-        +'.factory.bin, or change the offset.');
     const sel=portEl.options[portEl.selectedIndex];
     const txt=(sel&&sel.textContent)||'';
     const hasJtag=[...portEl.options].some(o=>/JTAG/i.test(o.textContent));
@@ -1229,13 +1278,13 @@ flashgoEl.onclick=async()=>{
         +'is far more reliable — a UART bridge often fails esptool\'s '
         +'stub upload (Checksum error). Consider selecting it.');
     if(!confirm('Serial-flash '+port+'?\n\nfile: '+fwName
-      +'   offset: '+$('#foffset').value
-      +'\nThis closes the monitor on that port and overwrites the '
+      +'\noffset: '+offset+' (auto-detected: '+(fwKind||'?')+')'
+      +'\n\nThis closes the monitor on that port and overwrites the '
       +'device (settings/filesystem may be lost).'
       +(warn.length?'\n\n⚠ '+warn.join('\n\n⚠ '):'')
       +'\n\nProceed?'))return;
     url='/api/flash/serial';
-    bdy={port,baud:+$('#fbaud').value,offset:$('#foffset').value,
+    bdy={port,baud:+$('#fbaud').value,offset:offset,
          erase:$('#ferase').checked,nostub:$('#fnostub').checked};
   }
   const j=await(await fetch(url,{method:'POST',
@@ -1474,9 +1523,12 @@ class H(BaseHTTPRequestHandler):
                         pass
                 fw_path, fw_name, fw_size = tmp, os.path.basename(fn), \
                     len(blob)
+            cls = _classify_fw(blob)
             add_line('info', f'[flash] firmware loaded: {fw_name} '
-                             f'({fw_size} bytes)')
-            self._json({'ok': True, 'name': fw_name, 'size': fw_size})
+                             f'({fw_size} bytes) — {cls["note"]}')
+            self._json({'ok': True, 'name': fw_name, 'size': fw_size,
+                        'kind': cls['kind'], 'offset': cls['offset'],
+                        'note': cls['note']})
             return
         try:
             body = json.loads(raw) if raw else {}

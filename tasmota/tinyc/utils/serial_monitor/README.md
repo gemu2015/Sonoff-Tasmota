@@ -46,13 +46,19 @@ ceiling/wall with no cable access.
 - **Flash ▾** — firmware flasher (toggles a panel). Pick a `.bin`,
   then either:
   - **Serial** — flashes via `esptool` (auto-detects ESP8266 / all
-    ESP32 variants) using the **Port** selected in the top bar. Baud
-    (default 460800), flash **Offset** (`0x0` for ESP8266 and ESP32
-    *factory* images; `0x10000` for an app-only ESP32 image), and an
-    optional **erase** first. The monitor on that port is closed
-    automatically (esptool needs exclusive access). `esptool` is
-    optional and only needed for serial flashing — if missing:
-    `pip3 install --user esptool`.
+    ESP32 variants) using the **Port** selected in the top bar. The
+    flash **offset is auto-detected from the image** (no need to type
+    it): a *factory*/merged image or an ESP8266 image → `0x0`; an
+    ESP32 **app-only** image is rejected for serial with a hint to
+    use the matching `*.factory.bin` or OTA instead (it has no fixed
+    serial offset — its app partition lives in the device's partition
+    table). Detection reads the ESP image header + the partition-table
+    signature (`0xAA50` @ `0x8000`). Optional **erase** first; the
+    monitor on that port is closed automatically. If esptool's RAM
+    stub fails (some UART bridges → *Checksum error*) it auto-retries
+    with `--no-stub` at 115200; for ESP32-S3 prefer the *USB
+    JTAG/serial debug unit* port. `esptool` is optional (only for
+    serial): `pip3 install --user esptool`.
   - **OTA** — serves the `.bin` on a temporary LAN port and tells the
     device to pull it via `OtaUrl` + `Upgrade 1`. The device performs
     the ESP32 **safeboot** partition switch itself, so full-size
