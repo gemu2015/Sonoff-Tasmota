@@ -295,6 +295,25 @@ def main():
     im = re.search(r'FUNC_INIT[^\n]*\n\s*([A-Z]\w+)\s*\(', s)
     if im: init_fn = im.group(1)
 
+    # --- post-INIT "presence" gate. The BinPlugin loader requires the
+    #     pFUNC_INIT handler to SET `initialized` (= mt->flags.initialized,
+    #     module_defines.h) or every later dispatch is gated off and the
+    #     plugin produces nothing (xdrv_123_plugins.ino:3736-3754). Native
+    #     register-bang drivers never set `initialized` — they gate the
+    #     non-INIT branch on a count/found expr, e.g.
+    #         if (FUNC_INIT == function) { Detect(); }
+    #         else if (sht3x_count) { switch (function) {...} }
+    #     Harvest that `else if (<gate>)` expression; the scaffold drives
+    #     `initialized` from it (mirrors the hand dual's bool-detect). No
+    #     gate found → assume always-present (1) + NEEDS-REVIEW flag.
+    init_gate = '1'
+    dm0 = re.search(r'bool\s+(?:Xsns|Xdrv)\d+\s*\([^)]*\)\s*\{', s)
+    if dm0:
+        gm = re.search(r'\belse\s+if\s*\(\s*(.+?)\s*\)\s*\{',
+                       s[dm0.start():], re.S)
+        if gm:
+            init_gate = re.sub(r'\s+', ' ', gm.group(1)).strip()
+
     def mask(t):                       # length-preserving str/comment blank
         o = list(t); i = 0; n = len(t); st = None
         while i < n:
@@ -348,8 +367,15 @@ def main():
             tok += ' STGLOB'
         inner = body[o+1:c]
         if is_init:
-            inner = re.sub(r'\breturn\s*;', 'return 0;', inner)
-            inner = inner + '\n  return 0;\n'
+            # The loader needs pFUNC_INIT to (a) set `initialized` so
+            # later dispatch is enabled and (b) return that result. Drive
+            # both off the native presence gate. `initialized` resolves
+            # to mt->flags.initialized in plugin mode (module_defines.h);
+            # `mt`/`mem` are in scope via this fn's ALLOCMEM prologue.
+            setf = f'initialized = ({init_gate}) ? 1 : 0'
+            inner = re.sub(r'\breturn\s*;',
+                           f'return (({setf}), initialized);', inner)
+            inner = inner + f'\n  {setf};\n  return initialized;\n'
         body = body[:s0] + sig + ' {\n  ' + tok + inner + body[c:]
 
     # --- collect top-level function signatures for MODULE_PART --------
@@ -452,6 +478,7 @@ def main():
 
     DISP = ['#if BUILD_AS_PLUGIN',
             'int32_t mod_func_execute(uint32_t function) {',
+            '  int32_t result = 0;',
             '  switch (function) {']
     for fn, pf in fmap.items():
         m = re.search(fn + r'\b[\s\S]*?\b([A-Z][A-Za-z0-9_]*)\s*\(', disp_body)
@@ -466,10 +493,16 @@ def main():
             im = re.search(r'FUNC_INIT[^\n]*\n\s*([A-Z]\w+\s*\([^;]*\);)',
                            disp_body)
             call = im.group(1) if im else ''
-        DISP.append(f'    case {pf}: {{ {call} break; }}')
+        if fn == 'FUNC_INIT':
+            # Capture the INIT fn's return — the scaffolded INIT body
+            # returns `initialized` (set from the native presence gate);
+            # the loader logs/uses this and the flag enables dispatch.
+            DISP.append(f'    case {pf}: {{ result = {call} break; }}')
+        else:
+            DISP.append(f'    case {pf}: {{ {call} break; }}')
     DISP += [deinit,
              '    default: break;',
-             '  }', '  return 0;', '}', 'PULL_OPTIONS', '#endif',
+             '  }', '  return result;', '}', 'PULL_OPTIONS', '#endif',
              f'#endif  // _{U}_N2D_ENABLED']
 
     # --- honest NEEDS-JMPTBL report: symbols the frozen plugin ABI
