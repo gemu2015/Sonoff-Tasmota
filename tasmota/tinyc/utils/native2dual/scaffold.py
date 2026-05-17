@@ -137,14 +137,47 @@ def _soft_float(b):
     def wrap(tok):
         tok = tok.strip()
         return f'tofloat({tok})' if tok in intv else tok
-    # ident OP FLTC(i)
-    b = re.sub(r'([A-Za-z_]\w*)\s*([*/+\-])\s*FLTC\((\d+)\)',
-               lambda m: f'{FN[m.group(2)]}({wrap(m.group(1))}, '
-                         f'FLTC({m.group(3)}))', b)
+    # ident OP FLTC(i)  — but NOT `obj.member`/`ptr->member` OP FLTC:
+    # matching the bare member name there corrupts the access into a
+    # bogus `obj.fdiv(member, …)`. A leading `.`/`->` ⇒ leave it (it is
+    # a member float-op — honest residue, never silently mangled).
+    b = re.sub(r'(\.|->)?\s*\b([A-Za-z_]\w*)\s*([*/+\-])\s*FLTC\((\d+)\)',
+               lambda m: m.group(0) if m.group(1) else
+                         f'{FN[m.group(3)]}({wrap(m.group(2))}, '
+                         f'FLTC({m.group(4)}))', b)
     # FLTC(i) OP ident
-    b = re.sub(r'FLTC\((\d+)\)\s*([*/+\-])\s*([A-Za-z_]\w*)',
-               lambda m: f'{FN[m.group(2)]}(FLTC({m.group(1)}), '
-                         f'{wrap(m.group(3))})', b)
+    b = re.sub(r'FLTC\((\d+)\)\s*([*/+\-])\s*(\.|->)?\s*\b([A-Za-z_]\w*)',
+               lambda m: m.group(0) if m.group(3) else
+                         f'{FN[m.group(2)]}(FLTC({m.group(1)}), '
+                         f'{wrap(m.group(4))})', b)
+    # Lower bare int→float local assignments:
+    #   `float v = <integer-valued expr>;`  →  `float v = tofloat(<expr>);`
+    # The loader mis-relocates the compiler's int→float conversion just
+    # like HW float ops, so the int compensation result (Bosch BMP/BME
+    # `float T = (t_fine*5+128)>>8;`, `float h = (v_x1_u32r>>12);`) reads
+    # garbage without tofloat. Conservative: only when the RHS is
+    # PROVABLY integer — contains ≥1 known int var and every identifier
+    # is a known int var or the EXEC_OFFSET/ICONST int macros, no float
+    # literal, not already a soft-float/FLTC/tofloat call. Anything else
+    # is left for the honest NEEDS-SOFTFLOAT scan (never miscompiled).
+    _INTMACRO = {'EXEC_OFFSET', 'ICONST'}
+    def _intfloat(m):
+        decl, var, rhs = m.group(1), m.group(2), m.group(3).strip()
+        if re.search(r'\b(fdiv|fmul|fadd|fdiff|tofloat|FLTC|'
+                     r'ConvertTemp|ConvertHumidity|NAN|nanf?)\b', rhs):
+            return m.group(0)
+        if re.search(r'(?:\d\.\d|\.\d\d*|\d\.|\d[eE][-+]?\d|\d[fF]\b)',
+                     rhs):                         # float literal-ish
+            return m.group(0)
+        ids = set(re.findall(r'\b([A-Za-z_]\w*)\s*(?!\s*\()', rhs))
+        intids = ids & intv
+        if not intids:                              # no runtime int var
+            return m.group(0)                       # (pure const) — skip
+        if not (ids <= (intv | _INTMACRO)):         # an unknown/float id
+            return m.group(0)                       # honest flag instead
+        return f'{decl}{var} = tofloat({rhs});'
+    b = re.sub(r'\b((?:static\s+)?(?:const\s+)?float\s+)(\w+)\s*=\s*'
+               r'([^;]+);', _intfloat, b)
     flags = []
     # Honest residual scan: a `float` local still produced by bare HW
     # arithmetic (not via fXxx/FLTC) — flag the line, do not touch it.
@@ -171,8 +204,22 @@ def main():
     body = re.sub(r'^\s*/\*.*?\*/\s*', '', body, count=1, flags=re.S)  # license
     body = re.sub(r'#ifdef\s+USE_I2C\s*\n', '', body, count=1)
     body = re.sub(r'#ifdef\s+USE_\w+\s*\n', '', body, count=1)
-    body = re.sub(r'#endif\s*//\s*USE_\w+\s*\n?', '', body)
-    body = re.sub(r'#endif\s*//\s*USE_I2C\s*\n?', '', body)
+    # Strip ONLY the two OUTERMOST wrapper closers (matching the two
+    # leading #ifdefs removed above) — the LAST `#endif // USE_I2C`
+    # then the LAST remaining `#endif // USE_<driver>`. A global
+    # `re.sub` here also deletes INNER feature guards like
+    # `#endif // USE_BME68X` that close an `#ifdef USE_BME68X` inside a
+    # switch, leaving the #ifdef unbalanced → preprocessor corruption
+    # (hit by xsns_09_bmp; SHT3X has no inner USE_ guard so it slipped
+    # through). Remove last-match only, outermost first.
+    def _strip_last(pat, txt):
+        ms = list(re.finditer(pat, txt))
+        if not ms:
+            return txt
+        m = ms[-1]
+        return txt[:m.start()] + txt[m.end():]
+    body = _strip_last(r'#endif\s*//\s*USE_I2C\s*\n?', body)
+    body = _strip_last(r'#endif\s*//\s*USE_\w+\s*\n?', body)
 
     # --- state-wrap: file-scope mutable vars/instances -> MODULE_MEMORY,
     #     read-only arrays -> const (RULE 2). Struct *type* defs stay at
@@ -382,6 +429,16 @@ def main():
                                           else 'SETREGS')
         if 'TasmotaGlobal' in msk[o:c]:
             tok += ' STGLOB'
+        # `Settings->x` → `jsettings->x` (module_defines.h). SETREGS and
+        # ALLOCMEM declare `SETTINGS *jsettings = *asettings;` but
+        # SETMEMREGS does NOT — a SETMEMREGS fn using Settings fails to
+        # compile (xsns_09_bmp BmpShow). Inject STSET (plugin: declare
+        # jsettings; native: empty) — analogous to STGLOB. ONLY for the
+        # SETMEMREGS prologue; SETREGS/ALLOCMEM already have jsettings so
+        # adding it would redeclare.
+        if tok.startswith('SETMEMREGS') and \
+           re.search(r'\bSettings\s*(?:->|\))', msk[o:c]):
+            tok += ' STSET'
         inner = body[o+1:c]
         if is_init:
             # The loader needs pFUNC_INIT to (a) set `initialized` so
@@ -458,6 +515,14 @@ def main():
 // File-local; native build & other plugins untouched.
 #  undef  TasmotaGlobal
 #  define TasmotaGlobal (*tgbl)
+// SETMEMREGS (unlike SETREGS/ALLOCMEM) does NOT declare `jsettings`,
+// but `Settings` -> `jsettings` (module_defines.h). Scaffolded
+// SETMEMREGS fns that use `Settings->` get a ` STSET` prologue token
+// which declares it from the existing `asettings` (jt[135]) — no ABI
+// change. Native: `Settings` is the real global, STSET is empty.
+#  define STSET SETTINGS *jsettings = *asettings;
+#else
+#  define STSET
 #endif
 #ifdef _{U}_N2D_ENABLED
 // ===================================================================
@@ -467,8 +532,12 @@ def main():
 // error set IS the deliverable (empirical NEEDS-* taxonomy).
 // ===================================================================
 '''
+    # xnum keeps its zero-padded form for the `Xsns09` name regex, but
+    # as a C numeric literal `09` is an INVALID octal constant — emit
+    # the decimal value.
     PART = ['PUSH_OPTIONS',
-            f'MODULE_DESCRIPTOR("{U[:6]}", MODULE_TYPE_SENSOR, 1<<16|{xnum},'
+            f'MODULE_DESCRIPTOR("{U[:6]}", MODULE_TYPE_SENSOR, '
+            f'1<<16|{int(xnum)},'
             ' "",0,"",0,"",0,"",0)']
     for sg in sigs:
         PART.append(f'MODULE_PART {sg};')
