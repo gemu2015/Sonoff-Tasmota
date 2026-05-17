@@ -530,60 +530,148 @@ def _flash_serial(port, baud, offset, erase):
         _flog('ERROR ' + str(e), err=True)
 
 
+def _pick_local_ip(dev_ip):
+    """Our LAN IP on the device's /24 (so the device can fetch the
+    firmware back from us), else the default route IP."""
+    sub = dev_ip.rsplit('.', 1)[0] + '.'
+    for e in _local_ips():
+        if e['ip'].startswith(sub):
+            return e['ip']
+    return _default_ip()
+
+
+def _cm(host, port, cmnd, user, password, timeout=8):
+    """Tasmota /cm command → (status, text). Auth via user/password
+    query params (Tasmota's scheme when WebPassword is set)."""
+    import urllib.parse
+    q = 'cmnd=' + urllib.parse.quote(cmnd)
+    if password:
+        q = ('user=%s&password=%s&'
+             % (urllib.parse.quote(user or 'admin'),
+                urllib.parse.quote(password))) + q
+    try:
+        r = urllib.request.urlopen('http://%s:%d/cm?%s'
+                                   % (host, port, q), timeout=timeout)
+        return r.status, r.read(4000).decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        return e.code, ''
+    except Exception as e:
+        return 0, str(e)
+
+
+def _fw_version(host, port, user, password):
+    s, t = _cm(host, port, 'Status 2', user, password, timeout=4)
+    try:
+        return json.loads(t).get('StatusFWR', {}).get('Version', '')
+    except Exception:
+        return ''
+
+
+class _FwHandler(BaseHTTPRequestHandler):
+    fw = b''
+
+    def log_message(self, *a):
+        pass
+
+    def _serve(self, body):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', str(len(_FwHandler.fw)))
+        self.end_headers()
+        if not body:
+            return
+        blob = _FwHandler.fw
+        sent, step = 0, 16384
+        while sent < len(blob):
+            self.wfile.write(blob[sent:sent + step])
+            sent += step
+            _flash_set(pct=min(90, int(90 * sent / len(blob))),
+                       phase='sending')
+        _flog('firmware sent (%d B) — device now flashing/rebooting'
+              % len(blob))
+
+    def do_HEAD(self):
+        self._serve(False)
+
+    def do_GET(self):
+        _flog('device pulling firmware …')
+        self._serve(True)
+
+
 def _flash_ota(host, user, password):
-    """POST the uploaded .bin to Tasmota's /u2 web updater, with a
-    real upload-progress %."""
+    """Robust Tasmota OTA: serve the .bin on a LAN-reachable port and
+    tell the device to pull it via `OtaUrl` + `Upgrade 1`. The device
+    does the ESP32 safeboot partition switch itself — works for full
+    images and is language-independent (no /u2 page scraping)."""
     _flash_set(running=True, pct=0, ok=None, error='', phase='ota')
+    srv = None
     try:
         with open(fw_path, 'rb') as f:
-            blob = f.read()
+            _FwHandler.fw = f.read()
         host = host.strip()
         if ':' in host:
-            h, prt = host.split(':', 1)
-            prt = int(prt)
+            h, dport = host.split(':', 1)
+            dport = int(dport)
         else:
-            h, prt = host, 80
-        bnd = '----serialmon' + str(int(time.time()))
-        pre = (f'--{bnd}\r\nContent-Disposition: form-data; '
-               f'name="u2"; filename="{fw_name or "firmware.bin"}"\r\n'
-               f'Content-Type: application/octet-stream\r\n\r\n'
-               ).encode()
-        post = f'\r\n--{bnd}--\r\n'.encode()
-        total = len(pre) + len(blob) + len(post)
-        conn = http.client.HTTPConnection(h, prt, timeout=25)
-        conn.putrequest('POST', '/u2')
-        conn.putheader('Content-Type',
-                        'multipart/form-data; boundary=' + bnd)
-        conn.putheader('Content-Length', str(total))
-        if password:
-            tok = base64.b64encode(
-                f'{user or "admin"}:{password}'.encode()).decode()
-            conn.putheader('Authorization', 'Basic ' + tok)
-        conn.endheaders()
-        _flog(f'OTA → http://{h}:{prt}/u2  ({len(blob)} bytes)')
-        conn.send(pre)
-        sent, step = 0, 8192
-        while sent < len(blob):
-            conn.send(blob[sent:sent + step])
-            sent += step
-            _flash_set(pct=min(99, int(100 * sent / len(blob))))
-        conn.send(post)
-        resp = conn.getresponse()
-        txt = resp.read(4000).decode('utf-8', 'replace')
-        conn.close()
-        ok = resp.status == 200 and 'Failed' not in txt \
-            and 'rror' not in txt[:200]
-        if ok:
-            _flash_set(running=False, ok=True, pct=100, phase='done')
-            _flog('OTA upload accepted — device is rebooting')
-        else:
+            h, dport = host, 80
+        dev_ip = socket.gethostbyname(h)
+        my_ip = _pick_local_ip(dev_ip)
+        before = _fw_version(h, dport, user, password)
+
+        # Temp file server on 0.0.0.0 (device must reach our LAN IP;
+        # the main UI server is loopback-only). Ephemeral port.
+        ThreadingHTTPServer.daemon_threads = True
+        srv = ThreadingHTTPServer(('0.0.0.0', 0), _FwHandler)
+        fport = srv.server_address[1]
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = 'http://%s:%d/fw.bin' % (my_ip, fport)
+        _flog('serving %s (%d B); current version: %s'
+              % (url, len(_FwHandler.fw), before or '?'))
+
+        st, txt = _cm(h, dport, 'Backlog OtaUrl %s; Upgrade 1' % url,
+                      user, password, timeout=10)
+        if st == 401:
+            raise RuntimeError('WebPassword required/incorrect')
+        if st != 200:
+            raise RuntimeError('device /cm failed (%s) %s'
+                               % (st, txt[:120]))
+        _flog('Upgrade triggered: %s' % txt.strip()[:200])
+        _flash_set(phase='upgrading')
+
+        # Wait for it to flash & come back (safeboot dance ~ up to 2-3
+        # min). Success = reachable again, ideally version changed.
+        deadline = time.time() + 240
+        time.sleep(8)
+        back = ''
+        while time.time() < deadline:
+            v = _fw_version(h, dport, user, password)
+            if v:
+                back = v
+                break
+            _flash_set(pct=min(99, (flash_state.get('pct') or 90) + 1))
+            time.sleep(5)
+        if not back:
             _flash_set(running=False, ok=False,
-                       error=f'HTTP {resp.status}')
-            _flog(f'OTA FAILED HTTP {resp.status}: '
-                  f'{txt.strip()[:200]}', err=True)
+                       error='no response after upgrade (timeout)')
+            _flog('device did not come back within 240s — check it '
+                  'physically', err=True)
+            return
+        changed = before and back and (before != back)
+        _flash_set(running=False, ok=True, pct=100, phase='done')
+        _flog('OTA OK — device back online, version %s%s'
+              % (back, '' if not before else
+                 (' (was %s)' % before if changed else
+                  ' (unchanged — re-flash of same version)')))
     except Exception as e:
         _flash_set(running=False, ok=False, error=str(e))
         _flog('OTA ERROR ' + str(e), err=True)
+    finally:
+        if srv is not None:
+            try:
+                srv.shutdown()
+                srv.server_close()
+            except Exception:
+                pass
 
 
 def _probe_tasmota(ip):

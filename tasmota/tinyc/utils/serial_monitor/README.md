@@ -53,8 +53,13 @@ ceiling/wall with no cable access.
     automatically (esptool needs exclusive access). `esptool` is
     optional and only needed for serial flashing — if missing:
     `pip3 install --user esptool`.
-  - **OTA** — uploads the `.bin` to a Tasmota device's web updater
-    (`/u2`) over the LAN with a live progress bar. **⟳ Scan** finds
+  - **OTA** — serves the `.bin` on a temporary LAN port and tells the
+    device to pull it via `OtaUrl` + `Upgrade 1`. The device performs
+    the ESP32 **safeboot** partition switch itself, so full-size
+    images work and the result is language-independent (no `/u2` page
+    scraping). Progress bar tracks the device's download; then it
+    flashes/reboots and the tool waits and re-reads the version to
+    confirm (up to ~4 min for the safeboot dance). **⟳ Scan** finds
     Tasmota devices on the subnet (of the selected LogHost IP) in a
     couple of seconds and lists them by friendly name in the device
     dropdown (password-protected ones show as `(locked)`); or just
