@@ -479,7 +479,7 @@ def _flash_guard():
     return None
 
 
-def _flash_serial(port, baud, offset, erase):
+def _flash_serial(port, baud, offset, erase, nostub=False):
     global flash_proc
     if not _have_esptool():
         _flash_set(running=False, ok=False,
@@ -491,6 +491,8 @@ def _flash_serial(port, baud, offset, erase):
     _flash_set(running=True, pct=0, ok=None, error='', phase='serial')
     base = [sys.executable, '-u', '-m', 'esptool',
             '--chip', 'auto', '--port', port, '--baud', str(int(baud))]
+    if nostub:                                # ROM loader, skips the
+        base += ['--no-stub']                 # RAM-stub upload step
     steps = []
     if erase:
         steps.append(('erase', base + ['erase_flash']))
@@ -506,10 +508,12 @@ def _flash_serial(port, baud, offset, erase):
                                   bufsize=1)
             with fw_lock:
                 flash_proc = p
+            tail = ''
             for ln in p.stdout:
                 ln = ln.rstrip('\r\n')
                 if ln:
                     _flog(ln)
+                    tail += ln + '\n'
                 mm = _re.search(r'(\d+)\s*%', ln)
                 if mm:
                     _flash_set(pct=int(mm.group(1)))
@@ -517,12 +521,24 @@ def _flash_serial(port, baud, offset, erase):
             with fw_lock:
                 flash_proc = None
             if rc != 0:
+                # esptool's RAM stub upload is broken on some
+                # chip/port/esptool combos ("Failed to write to
+                # target RAM ... Checksum error"). The ROM loader
+                # (--no-stub) works — retry automatically once.
+                if (not nostub and _re.search(
+                        r'write to target RAM|Checksum error|'
+                        r'stub', tail, _re.I)):
+                    _flog('stub upload failed — retrying with '
+                          '--no-stub (ROM loader, slower) …')
+                    return _flash_serial(port, baud, offset, erase,
+                                         nostub=True)
                 _flash_set(running=False, ok=False,
                            error=f'{phase} exited {rc}')
                 _flog(f'FAILED ({phase} exit {rc})', err=True)
                 return
         _flash_set(running=False, ok=True, pct=100, phase='done')
-        _flog('serial flash OK — device reset')
+        _flog('serial flash OK — device reset'
+              + (' (no-stub)' if nostub else ''))
     except Exception as e:
         with fw_lock:
             flash_proc = None
@@ -933,8 +949,10 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <input id="foffset" value="0x0" style="width:74px"
       title="0x0 = full/factory image. App-only ESP32 image: 0x10000">
     <label><input type="checkbox" id="ferase"> erase</label>
-    <span style="color:var(--mut);font-size:12px">uses the
-      Port selected above</span>
+    <label title="ESP32-S3/C3: use the ROM loader, skip the RAM stub upload — fixes 'Failed to write to target RAM / Checksum error'"><input type="checkbox" id="fnostub"> no-stub</label>
+    <span style="color:var(--mut);font-size:12px">uses the Port above
+      — for ESP32-S3 prefer the &ldquo;USB JTAG/serial debug
+      unit&rdquo; port</span>
   </span>
   <span id="gOta" class="grp">
     <label>Device</label>
@@ -1188,7 +1206,7 @@ flashgoEl.onclick=async()=>{
       +'that port and overwrites the device.'))return;
     url='/api/flash/serial';
     bdy={port,baud:+$('#fbaud').value,offset:$('#foffset').value,
-         erase:$('#ferase').checked};
+         erase:$('#ferase').checked,nostub:$('#fnostub').checked};
   }
   const j=await(await fetch(url,{method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -1444,7 +1462,8 @@ class H(BaseHTTPRequestHandler):
                 threading.Thread(target=_flash_serial, args=(
                     body['port'], body.get('baud', 460800),
                     body.get('offset', '0x0'),
-                    bool(body.get('erase'))), daemon=True).start()
+                    bool(body.get('erase')),
+                    bool(body.get('nostub'))), daemon=True).start()
                 self._json({'ok': True})
             return
         if path == '/api/flash/ota':
