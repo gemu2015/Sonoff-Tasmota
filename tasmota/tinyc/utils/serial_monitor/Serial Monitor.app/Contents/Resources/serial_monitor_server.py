@@ -610,6 +610,31 @@ def _probe_tasmota(ip):
     return None
 
 
+def _dev_partitions(host, user='admin', password=''):
+    """ESP32 partition table from the Information page (/in). The data
+    is embedded as `}1Partition <name>}2<n> KB (genutzt <p>%)`.
+    Language-agnostic: we read the numbers, not the words. Best-effort
+    — returns [] on any failure (older/ESP8266 builds have none)."""
+    try:
+        req = urllib.request.Request('http://%s/in' % host)
+        if password:
+            tok = base64.b64encode(
+                ('%s:%s' % (user or 'admin', password)).encode()).decode()
+            req.add_header('Authorization', 'Basic ' + tok)
+        html = urllib.request.urlopen(req, timeout=2.5).read(
+            12000).decode('utf-8', 'replace')
+    except Exception:
+        return []
+    out = []
+    for m in _re.finditer(
+            r'Partition ([^}]+?)\}2\s*(\d+)\s*KB'
+            r'(?:[^}]*?(\d+)\s*%)?', html):
+        out.append({'name': m.group(1).strip(),
+                    'kb': int(m.group(2)),
+                    'used': int(m.group(3)) if m.group(3) else None})
+    return out
+
+
 def _dev_info(host, user='admin', password=''):
     """Full Tasmota `Status 0` → a concise confirm-before-flash card."""
     host = host.strip()
@@ -659,7 +684,8 @@ def _dev_info(host, user='admin', password=''):
             'ip': N.get('IPAddress', host),
             'mac': N.get('Mac', ''),
             'uptime': T.get('Uptime', ''),
-            'rssi': (T.get('Wifi') or {}).get('RSSI', '')}
+            'rssi': (T.get('Wifi') or {}).get('RSSI', ''),
+            'parts': _dev_partitions(host, user, password)}
 
 
 def _scan_tasmota(net):
@@ -737,6 +763,8 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #devinfo b{color:var(--fg)}
  #devinfo.ok b{color:var(--info)}
  #devinfo.bad{color:var(--err)}
+ #devinfo .parts{margin-top:3px;color:var(--mut);font-size:11px}
+ #devinfo .parts b{color:var(--fg)}
  #log.notime .t{display:none}
 </style></head><body>
 <div id="bar">
@@ -1079,6 +1107,14 @@ async function loadDevInfo(){
         +(d.uptime?' · up '+d.uptime:'')
         +(d.rssi!==''?' · RSSI '+d.rssi+'%':'')
         +'  — confirm this is the device you want to overwrite';
+      if(d.parts&&d.parts.length){
+        const fmt=k=>k>=1024?(Math.round(k/102.4)/10+' MB'):(k+' KB');
+        devinfoEl.innerHTML+='<div class="parts">'+d.parts.map(p=>{
+          const u=p.used!=null?' <span'+(p.used>=90
+            ?' style="color:var(--err)"':'')+'>'+p.used+'%</span>':'';
+          return '<b>'+p.name+'</b> '+fmt(p.kb)+u;
+        }).join('  ·  ')+'</div>';
+      }
     }else if(d.locked){
       devinfoEl.className='bad';
       devinfoEl.textContent='🔒 '+host+' needs its WebPassword '

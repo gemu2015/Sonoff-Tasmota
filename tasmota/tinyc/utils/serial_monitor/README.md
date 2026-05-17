@@ -62,8 +62,12 @@ ceiling/wall with no cable access.
     needed (OTA is the default mode). **Picking/typing a device
     shows a live confirm card** — name · CPU/chip @MHz · flash size
     (app / free) · Tasmota version · IP · MAC · uptime · RSSI — so
-    you can be sure it's the right target before overwriting it; the
-    OTA button also re-shows it in the confirm dialog.
+    you can be sure it's the right target before overwriting it,
+    plus the **ESP32 partition table** (safeboot / app0 / fs / custom
+    with size and used %, over-full ones flagged red) read from the
+    device's Information page — so you can see at a glance whether a
+    build will fit. The OTA button also re-shows the summary in the
+    confirm dialog.
 
   Progress and full tool output stream into the same big-history
   console (and into Save). **Cancel** aborts a running serial job.
