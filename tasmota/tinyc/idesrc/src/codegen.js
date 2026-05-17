@@ -4236,6 +4236,20 @@ export class CodeGenerator {
                 }
                 return 'int';
             }
+            case NodeType.TernaryExpr: {
+                // `cond ? a : b` — float if EITHER branch is float (same
+                // rule as BinaryExpr). Was missing → fell to default
+                // 'int', so `global float G = cond ? f1 : f2;` inferred
+                // int and broadcast/stored with the wrong type tag
+                // (Andreas: SoC arrived as float-bits-as-int). An
+                // explicit `(float)` worked only because CastExpr forces
+                // 'float'.
+                const ct = this.inferType(node.consequent);
+                const at = this.inferType(node.alternate);
+                if (ct === 'float' || at === 'float') return 'float';
+                if (ct === 'string' || at === 'string') return 'string';
+                return 'int';
+            }
             case NodeType.UnaryExpr:
                 return this.inferType(node.operand);
             case NodeType.ArrayAccess:
