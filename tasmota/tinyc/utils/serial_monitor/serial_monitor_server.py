@@ -215,23 +215,103 @@ def _open_serial(device, baud):
     return True, None
 
 
-def _local_ips():
-    """This machine's LAN IPv4(s) — for Tasmota `LogHost`."""
-    ips = []
+def _default_ip():
+    """The source IP the OS would use to reach the internet — for a
+    normal single-LAN host this is THE one to use for `LogHost`."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))       # no packet sent; picks route
-        ips.append(s.getsockname()[0])
+        ip = s.getsockname()[0]
         s.close()
+        return ip
     except Exception:
-        pass
+        return '127.0.0.1'
+
+
+def _iface_map():
+    """{iface_device: [ipv4,...]} via ifconfig (mac/BSD/net-tools) or
+    `ip` (Linux iproute2). Best-effort; empty on failure."""
+    import re
+    m = {}
     try:
-        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
-            if ip not in ips and not ip.startswith('127.'):
-                ips.append(ip)
+        out = subprocess.run(['ifconfig'], capture_output=True,
+                              text=True, timeout=3).stdout
+        cur = None
+        for ln in out.splitlines():
+            h = re.match(r'^(\w[\w.\-]*):?\s', ln)
+            if h and not ln[:1].isspace():
+                cur = h.group(1)
+                m.setdefault(cur, [])
+            ip = re.search(r'\binet (\d+\.\d+\.\d+\.\d+)', ln)
+            if cur and ip:
+                m[cur].append(ip.group(1))
     except Exception:
         pass
-    return ips or ['127.0.0.1']
+    if not m:
+        try:
+            out = subprocess.run(['ip', '-o', '-4', 'addr'],
+                                  capture_output=True, text=True,
+                                  timeout=3).stdout
+            for ln in out.splitlines():
+                g = re.match(r'^\d+:\s+(\S+)\s+inet\s+'
+                             r'(\d+\.\d+\.\d+\.\d+)', ln)
+                if g:
+                    m.setdefault(g.group(1), []).append(g.group(2))
+        except Exception:
+            pass
+    return m
+
+
+def _mac_port_names():
+    """macOS: {device: 'Wi-Fi'|'Ethernet'|...} for friendly labels."""
+    names = {}
+    if sys.platform != 'darwin':
+        return names
+    try:
+        out = subprocess.run(
+            ['networksetup', '-listallhardwareports'],
+            capture_output=True, text=True, timeout=3).stdout
+        port = None
+        for ln in out.splitlines():
+            if ln.startswith('Hardware Port:'):
+                port = ln.split(':', 1)[1].strip()
+            elif ln.startswith('Device:') and port:
+                names[ln.split(':', 1)[1].strip()] = port
+    except Exception:
+        pass
+    return names
+
+
+def _local_ips():
+    """LAN IPv4 candidates for Tasmota `LogHost`, collapsed to one
+    entry per real interface/subnet and labelled. Default first.
+    Returns [{'ip','label','default'}]."""
+    default = _default_ip()
+    ports = _mac_port_names()
+    ifaces = _iface_map()
+    out, seen_sub = [], set()
+
+    def add(ip, dev):
+        if (ip.startswith('127.') or ip.startswith('169.254.')
+                or ip in [o['ip'] for o in out]):
+            return
+        sub = ip.rsplit('.', 1)[0]
+        if sub in seen_sub:                  # collapse aliases/subnet dups
+            return
+        seen_sub.add(sub)
+        label = ports.get(dev) or dev or 'net'
+        out.append({'ip': ip, 'label': label,
+                    'default': ip == default})
+
+    # Default first, with its interface label if we can find it.
+    ddev = next((d for d, ips in ifaces.items() if default in ips), '')
+    add(default, ddev)
+    for dev, ips in ifaces.items():
+        for ip in ips:
+            add(ip, dev)
+    if not out:                              # last-resort fallback
+        out = [{'ip': default, 'label': '', 'default': True}]
+    return out
 
 
 def _syslog_reader(sock):
@@ -273,7 +353,7 @@ def _start_syslog(port):
     threading.Thread(target=_syslog_reader, args=(s,),
                      daemon=True).start()
     _save_settings(sport=int(port))
-    ip = _local_ips()[0]
+    ip = _local_ips()[0]['ip']
     add_line('info', f'[syslog listening on UDP {port} — on the device: '
                      f'Backlog LogHost {ip}; LogPort {port}; SysLog 2]')
     return True, None
@@ -527,8 +607,12 @@ async function loadHost(){
   try{
     const j=await(await fetch('/api/host')).json();
     hostipEl.innerHTML='';
-    (j.ips||[]).forEach(ip=>{const o=document.createElement('option');
-      o.value=ip;o.textContent=ip;hostipEl.appendChild(o);});
+    (j.ips||[]).forEach(e=>{const o=document.createElement('option');
+      o.value=e.ip;
+      o.textContent=e.ip+(e.label?'  ('+e.label+')':'')
+        +(e.default?'  ✓ default':'');
+      if(e.default)o.selected=true;
+      hostipEl.appendChild(o);});
   }catch(e){}
 }
 async function copyIp(){
