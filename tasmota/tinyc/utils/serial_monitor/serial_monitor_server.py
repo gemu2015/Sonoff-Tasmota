@@ -422,24 +422,91 @@ def _stop_syslog(quiet=False):
 # Serial flashing via esptool (use-if-present); OTA via Tasmota's
 # HTTP /u2 web-updater. Output streams into the same big-history log.
 
-_esptool_cache = None
+# Isolated esptool venv (PEP 668 / "externally-managed" safe — never
+# touches system Python; created on user request for non-developers).
+ESPVENV = os.path.expanduser('~/.serial_monitor_venv')
+_esptool_cache = None                         # None | False | python-exe
+install_state = {'running': False, 'ok': None, 'error': ''}
 
 
-def _have_esptool():
-    """Cached. Use the fast PATH check first; only fall back to an
-    (expensive, ~4s first time) `import esptool` once, then memoize —
-    this runs on every /api/poll, it must not import per call."""
+def _venv_py():
+    p = os.path.join(
+        ESPVENV, 'Scripts' if sys.platform == 'win32' else 'bin',
+        'python.exe' if sys.platform == 'win32' else 'python3')
+    return p if os.path.isfile(p) else None
+
+
+def _have_esptool(refresh=False):
+    """Resolve the python interpreter that can run esptool. Cached
+    (runs on every /api/poll). Prefers the isolated venv, else a
+    system/PATH esptool. Returns the python path (truthy) or False."""
     global _esptool_cache
+    if refresh:
+        _esptool_cache = None
     if _esptool_cache is None:
-        if shutil.which('esptool') or shutil.which('esptool.py'):
-            _esptool_cache = True
-        else:
+        vp = _venv_py()
+        if vp:
             try:
-                import esptool               # noqa: F401
-                _esptool_cache = True
+                if subprocess.run([vp, '-m', 'esptool', 'version'],
+                                  capture_output=True,
+                                  timeout=15).returncode == 0:
+                    _esptool_cache = vp
             except Exception:
-                _esptool_cache = False
+                pass
+        if _esptool_cache is None:
+            if shutil.which('esptool') or shutil.which('esptool.py'):
+                _esptool_cache = sys.executable
+            else:
+                try:
+                    import esptool           # noqa: F401
+                    _esptool_cache = sys.executable
+                except Exception:
+                    _esptool_cache = False
     return _esptool_cache
+
+
+def _install_esptool():
+    """Create ~/.serial_monitor_venv and pip-install esptool into it.
+    venv sidesteps PEP 668 'externally-managed-environment' and keeps
+    the system Python pristine. Output streams to the console log."""
+    if install_state['running']:
+        return
+    install_state.update(running=True, ok=None, error='')
+    _flog('installing esptool into an isolated venv '
+          '(~/.serial_monitor_venv) — one-time, ~10-30s …')
+    try:
+        if not _venv_py():
+            r = subprocess.run([sys.executable, '-m', 'venv', ESPVENV],
+                               capture_output=True, text=True,
+                               timeout=120)
+            if r.returncode != 0:
+                raise RuntimeError('venv create: '
+                                   + (r.stderr or r.stdout)[:300])
+        vp = _venv_py()
+        if not vp:
+            raise RuntimeError('venv python missing after create')
+        for args, fatal in (
+                ([vp, '-m', 'pip', '-q', 'install', '--upgrade',
+                  'pip'], False),
+                ([vp, '-m', 'pip', 'install', 'esptool'], True)):
+            _flog('$ ' + ' '.join(args[1:]))
+            p = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True,
+                                  bufsize=1)
+            for ln in p.stdout:
+                ln = ln.rstrip()
+                if ln:
+                    _flog(ln)
+            if p.wait() != 0 and fatal:
+                raise RuntimeError('pip install esptool failed')
+        if _have_esptool(refresh=True):
+            install_state.update(running=False, ok=True)
+            _flog('esptool installed ✓ — serial flashing is ready')
+        else:
+            raise RuntimeError('esptool still not found after install')
+    except Exception as e:
+        install_state.update(running=False, ok=False, error=str(e))
+        _flog('esptool install failed: ' + str(e), err=True)
 
 
 def _flash_set(**kw):
@@ -518,11 +585,12 @@ def _flash_guard():
 
 def _flash_serial(port, baud, offset, erase, nostub=False):
     global flash_proc
-    if not _have_esptool():
+    pybin = _have_esptool()
+    if not pybin:
         _flash_set(running=False, ok=False,
                    error='esptool not found')
-        _flog('esptool not found — install with:  '
-              'pip3 install --user esptool', err=True)
+        _flog('esptool not found — click "Install esptool" in the '
+              'Flash panel, or use OTA (no esptool needed).', err=True)
         return
     _close_serial(quiet=True)                 # esptool needs the port
     _flash_set(running=True, pct=0, ok=None, error='', phase='serial')
@@ -534,7 +602,7 @@ def _flash_serial(port, baud, offset, erase, nostub=False):
         _flog(f'no-stub: capping baud {baud} -> 115200 for ROM '
               f'loader reliability')
         baud = 115200
-    base = [sys.executable, '-u', '-m', 'esptool',
+    base = [pybin, '-u', '-m', 'esptool',
             '--chip', 'auto', '--port', port, '--baud', str(baud)]
     if nostub:                                # ROM loader, skips the
         base += ['--no-stub']                 # RAM-stub upload step
@@ -1001,6 +1069,14 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <span style="color:var(--mut);font-size:12px">uses the Port above
       — for ESP32-S3 prefer the &ldquo;USB JTAG/serial debug
       unit&rdquo; port</span>
+    <span id="noesptool" class="hide" style="color:var(--err);
+      font-size:12px">esptool not installed —
+      <button id="espinstall" style="padding:3px 8px">Install esptool
+      (isolated)</button>
+      <a href="https://tasmota.github.io/install/" target="_blank"
+        style="color:#64b4ff">or use the Tasmota Web Installer ↗</a>
+      <span style="color:var(--mut)">· no esptool needed for
+      <b>OTA</b> (device already on WiFi)</span></span>
   </span>
   <span id="gOta" class="grp">
     <label>Device</label>
@@ -1294,6 +1370,12 @@ flashgoEl.onclick=async()=>{
   poll();
 };
 flashcancelEl.onclick=()=>fetch('/api/flash/cancel',{method:'POST'});
+document.addEventListener('click',e=>{
+  if(e.target&&e.target.id==='espinstall'){
+    e.target.disabled=true;
+    fetch('/api/esptool/install',{method:'POST'}).catch(()=>{});
+  }
+});
 const hostselEl=$('#hostsel'), hostscanEl=$('#hostscan'),
       devinfoEl=$('#devinfo');
 let devTimer=null;
@@ -1375,8 +1457,15 @@ function updateFlash(j){
   const fs=j.flash||{}; flashing=!!fs.running;
   if(j.fw&&!fwReady){fwReady=true; fwName=j.fw;
     fwinfoEl.textContent=j.fw+'  ('+(j.fwsize||0).toLocaleString()+' B)';}
-  if(!j.esptool&&fmodeEl.value==='serial')
-    fwstatEl.textContent='esptool missing → pip3 install --user esptool';
+  const noesp=$('#noesptool'), espbtn=$('#espinstall');
+  noesp.classList.toggle('hide', !!j.esptool);
+  if(espbtn){
+    espbtn.disabled=!!j.esptool_installing;
+    espbtn.textContent=j.esptool_installing
+      ? 'installing esptool …' : 'Install esptool (isolated)';
+  }
+  if(j.esptool_installing)
+    fwstatEl.textContent='installing esptool (see log) …';
   else if(fs.running)
     fwstatEl.textContent=(fs.phase||'')+' '+(fs.pct||0)+'%';
   else if(fs.ok===true) fwstatEl.textContent='✓ done';
@@ -1384,7 +1473,7 @@ function updateFlash(j){
   else fwstatEl.textContent='';
   fwpctEl.classList.toggle('hide',!fs.running);
   fwpctEl.value=fs.pct||0;
-  flashgoEl.disabled=fs.running;
+  flashgoEl.disabled=fs.running||!!j.esptool_installing;
   flashcancelEl.classList.toggle('hide',!fs.running);
 }
 
@@ -1481,7 +1570,8 @@ class H(BaseHTTPRequestHandler):
                         'dev': dev, 'baud': baud, 'rx_bytes': rb,
                         'syslog': slog > 0, 'sport': slog,
                         'flash': fs, 'fw': fw_name, 'fwsize': fw_size,
-                        'esptool': _have_esptool()})
+                        'esptool': bool(_have_esptool()),
+                        'esptool_installing': install_state['running']})
         elif path == '/api/save':
             with state_lock:
                 txt = ''.join(
@@ -1563,6 +1653,16 @@ class H(BaseHTTPRequestHandler):
         if path == '/api/flash/cancel':
             _flash_cancel()
             self._json({'ok': True})
+            return
+        if path == '/api/esptool/install':
+            if _have_esptool():
+                self._json({'ok': True, 'note': 'already installed'})
+            elif install_state['running']:
+                self._json({'ok': True, 'note': 'install in progress'})
+            else:
+                threading.Thread(target=_install_esptool,
+                                 daemon=True).start()
+                self._json({'ok': True})
             return
         if path == '/api/open':
             ok, err = _open_serial(body.get('device', ''),

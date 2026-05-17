@@ -57,8 +57,16 @@ ceiling/wall with no cable access.
     monitor on that port is closed automatically. If esptool's RAM
     stub fails (some UART bridges → *Checksum error*) it auto-retries
     with `--no-stub` at 115200; for ESP32-S3 prefer the *USB
-    JTAG/serial debug unit* port. `esptool` is optional (only for
-    serial): `pip3 install --user esptool`.
+    JTAG/serial debug unit* port.
+
+    **No esptool installed?** It's only needed for *serial*. The
+    panel offers a one-click **Install esptool (isolated)** — it
+    builds a private venv at `~/.serial_monitor_venv` (PEP 668-safe,
+    never touches system Python) and uses that. Or use the official
+    **Tasmota Web Installer** (link in the panel,
+    <https://tasmota.github.io/install/> — browser-based, Chrome/Edge,
+    nothing to install). And remember **OTA needs no esptool at all**
+    — use it for any device already on WiFi.
   - **OTA** — serves the `.bin` on a temporary LAN port and tells the
     device to pull it via `OtaUrl` + `Upgrade 1`. The device performs
     the ESP32 **safeboot** partition switch itself, so full-size
