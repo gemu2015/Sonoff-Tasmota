@@ -1,184 +1,165 @@
-# Serial Monitor
+# Serial Monitor — ESP/Tasmota Swiss-army knife
 
-A browser-based **ESP Swiss-army knife** — console *and* firmware
-flasher — with a **large scrollback history** so events never scroll
-away. Two capture sources, usable at the same time into one shared
-history, plus two ways to flash:
+A browser-based tool for ESP devices: a **console** (serial + remote
+syslog) with a huge scrollback, **plus** a firmware **flasher**
+(serial via esptool, or OTA over the LAN). One dependency-light Python
+server (stdlib + `pyserial`) serving an embedded single-page UI — no
+Electron, no build step, no cloud.
 
-- **Serial** — a local USB/serial port (`pyserial`).
-- **Syslog** — a UDP syslog listener for devices you can't reach
-  physically; lines are tagged per sending device IP.
-- **Flash / Serial** — `esptool` (optional; ESP8266 + all ESP32).
-- **Flash / OTA** — upload to a Tasmota device's `/u2` over the LAN.
+It opens at `http://127.0.0.1:8124/`.
 
-Built in the same manner as the SML emulator: one dependency-light
-Python server (only `pyserial`; syslog/OTA use stdlib; `esptool` only
-if you serial-flash) serving an embedded single-page UI — no Electron,
-no build step.
+---
 
-Useful when you need to see a boot log / crash backtrace / sporadic
-event that the Arduino IDE / `screen` / `pio device monitor` would have
-already scrolled past — or to collect logs from a device that's in a
-ceiling/wall with no cable access.
+## Quick start
 
-## Controls
+Cross-platform (macOS / Windows / Linux). Needs **Python 3** and
+**`pyserial`** (`esptool` only if you serial-flash).
 
-- **Port selector** — auto-lists serial ports (`⟳` rescans, e.g. after
-  plugging the device in). USB ports are listed first.
-- **Baudrate selector** — 300 … 1500000 (default 115200; Tasmota uses
-  115200, ESP boot ROM log is 74880).
-- **Connect / Disconnect** — open/close the selected serial port.
-- **Syslog listener** — for devices you can't reach with a cable. Set
-  the UDP port (default 514; `<1024` may need root — use e.g. `5514`)
-  and press **Listen**. Then on each device:
-  `Backlog LogHost <this-PC-IP>; LogPort <port>; SysLog 2`. Every line
-  is tagged with the sending device's IP, so several remote devices
-  can be watched in one stream (toggle the `src` checkbox to show/hide
-  the IP). Serial and Syslog can run **at the same time**, both
-  feeding the same history/Save. Caveat: syslog only flows once WiFi
-  is up — it won't capture the boot-ROM log or a pre-network crash
-  (use Serial for those).
-- **Command input** (bottom bar, enabled while connected) — type a
-  command, **Enter** (or **Send**) transmits it; ↑/↓ recall history.
-  The line-ending selector appends CR LF (Tasmota console default),
-  LF, CR, or nothing. Sent commands appear in the log as `» cmd`
-  (`tx`) lines, so they are part of history/Save too.
-- **Flash ▾** — firmware flasher (toggles a panel). Pick a `.bin`,
-  then either:
-  - **Serial** — flashes via `esptool` (auto-detects ESP8266 / all
-    ESP32 variants) using the **Port** selected in the top bar. The
-    flash **offset is auto-detected from the image** (no need to type
-    it): a *factory*/merged image or an ESP8266 image → `0x0`; an
-    ESP32 **app-only** image is rejected for serial with a hint to
-    use the matching `*.factory.bin` or OTA instead (it has no fixed
-    serial offset — its app partition lives in the device's partition
-    table). Detection reads the ESP image header + the partition-table
-    signature (`0xAA50` @ `0x8000`). Optional **erase** first; the
-    monitor on that port is closed automatically. If esptool's RAM
-    stub fails (some UART bridges → *Checksum error*) it auto-retries
-    with `--no-stub` at 115200; for ESP32-S3 prefer the *USB
-    JTAG/serial debug unit* port.
+| OS | Launch | Get deps |
+|----|--------|----------|
+| **macOS** | double-click `Serial Monitor.app` (no Terminal) or `Serial Monitor.command` | Python from python.org; `pip3 install pyserial` |
+| **Windows** | double-click `Serial Monitor.bat` (no console window) | Python from python.org (tick *Add to PATH*); `py -m pip install pyserial` |
+| **Linux** | double-click `Serial Monitor.desktop` (mark *Allow Launching*) or `./serial_monitor.sh` | `pip3 install --user pyserial` |
+| **Any** | `python3 serial_monitor_server.py` | — |
 
-    **No esptool installed?** It's only needed for *serial*. The
-    panel offers a one-click **Install esptool (isolated)** — it
-    builds a private venv at `~/.serial_monitor_venv` (PEP 668-safe,
-    never touches system Python) and uses that. Or use the official
-    **Tasmota Web Installer** (link in the panel,
-    <https://tasmota.github.io/install/> — browser-based, Chrome/Edge,
-    nothing to install). And remember **OTA needs no esptool at all**
-    — use it for any device already on WiFi.
-  - **OTA** — serves the `.bin` on a temporary LAN port and tells the
-    device to pull it via `OtaUrl` + `Upgrade 1`. The device performs
-    the ESP32 **safeboot** partition switch itself, so full-size
-    images work and the result is language-independent (no `/u2` page
-    scraping). Progress bar tracks the device's download; then it
-    flashes/reboots and the tool waits and re-reads the version to
-    confirm (up to ~4 min for the safeboot dance). **⟳ Scan** finds
-    Tasmota devices on the subnet (of the selected LogHost IP) in a
-    couple of seconds and lists them by friendly name in the device
-    dropdown (password-protected ones show as `(locked)`); or just
-    type an IP/host. Enter the `WebPassword` if one is set. No cable
-    needed (OTA is the default mode). **Picking/typing a device
-    shows a live confirm card** — name · CPU/chip @MHz · flash size
-    (app / free) · Tasmota version · IP · MAC · uptime · RSSI — so
-    you can be sure it's the right target before overwriting it,
-    plus the **ESP32 partition table** (safeboot / app0 / fs / custom
-    with size and used %, over-full ones flagged red) read from the
-    device's Information page — so you can see at a glance whether a
-    build will fit. The OTA button also re-shows the summary in the
-    confirm dialog.
+Relaunching while it's already running **replaces** the old instance
+(loads current code, no stale-process trap); open browser tabs
+reconnect automatically.
 
-  Progress and full tool output stream into the same big-history
-  console (and into Save). **Cancel** aborts a running serial job.
-- **Clear** — empties the view *and* the server history.
-- **Save** — downloads the full server-side history as a timestamped
-  `serial-YYYYMMDD-HHMMSS.log`.
-- **Quit** — stops the server process (use this before relaunching so
-  you don't end up talking to a stale instance).
-- The last port + baud you connected with are remembered across
-  restarts (`~/.serial_monitor.json`) and pre-selected on next launch.
-- `autoscroll` — follow the tail (untick to scroll back freely while
-  data keeps arriving).
-- `time` — show/hide per-line timestamps.
-- `hex` — render lines as space-separated byte hex (lines with
-  non-printable/non-ASCII bytes carry their exact raw bytes; toggling
-  re-renders the whole visible buffer, no reconnect needed).
+---
 
-## Large history
+## 1. Console
 
-The server keeps a ring buffer of **200 000 lines** by default
-(tens of MB RAM) — far beyond what a terminal scrollback holds. The
-browser keeps up to 50 000 lines in view for performance, but **Save**
-always dumps the *full* server ring. Override the depth with:
+- **Serial** — pick a **Port** + **Baud** (default 115200; ESP boot-ROM
+  log is 74880), **Connect**. The port list auto-populates (`⟳`
+  rescans); last port/baud are remembered (`~/.serial_monitor.json`).
+- **Syslog** — for devices with no cable. Pick the UDP port (default
+  514; `<1024` needs root, so use e.g. **5514**), **Listen**, then on
+  each device: `Backlog LogHost <PC-IP>; LogPort <port>; SysLog 2`.
+  The **LogHost** dropdown shows this PC's IPs (📋 copies one); the
+  *Listen* log line prints a ready-to-paste `Backlog …`. Every line is
+  tagged with the sender IP (`src` checkbox shows/hides it) so many
+  devices share one stream. *Syslog only flows once WiFi is up — not
+  the boot-ROM log / pre-network crash; use Serial for those.*
+- Serial and Syslog can run **at the same time** into one history.
+- **Command input** (bottom, when serial-connected) — type, **Enter**
+  to send; ↑/↓ history; line-ending selector (CR LF default). Sent
+  commands show as `» cmd`.
+- **hex** — byte view (binary lines keep exact bytes). **time** —
+  toggle timestamps. **autoscroll** — follow tail.
+- **Save** — downloads the *full* server-side history
+  (`serial-YYYYMMDD-HHMMSS.log`). **Clear** — empties view + history.
+- **Quit** — stops the server and shows a "stopped" page.
+
+### Large history
+
+Ring buffer of **200 000 lines** by default (tens of MB). Browser
+keeps 50 000 in view; **Save** always dumps the full ring. Override:
 
 ```
 SERIAL_MONITOR_HISTORY=1000000 python3 serial_monitor_server.py
 ```
 
-## Run
+---
 
-Cross-platform — one pure-Python server (stdlib + `pyserial`). The
-browser opens at `http://127.0.0.1:8124/`.
+## 2. Flasher  (**Flash ▾**)
 
-- **macOS:** double-click `Serial Monitor.app` (no Terminal window) or
-  `Serial Monitor.command`.
-- **Windows:** double-click **`Serial Monitor.bat`** (uses
-  `pythonw`/`pyw` so no console window stays open). Install Python 3
-  from python.org (tick *Add python.exe to PATH*), then
-  `py -m pip install pyserial`.
-- **Linux:** double-click **`Serial Monitor.desktop`** (mark it
-  *Allow Launching* / executable the first time) or run
-  **`./serial_monitor.sh`**. `pip3 install --user pyserial`.
-- **Any OS:** `python3 serial_monitor_server.py`.
+Pick a `.bin`, choose **OTA** (default) or **Serial**.
 
-Requires Python 3 and `pyserial`.
+### Which method?
 
-Platform notes:
+| Situation | Use |
+|-----------|-----|
+| Device already on WiFi (update) | **OTA** — no cable, no esptool, keeps filesystem & config |
+| Blank chip / recovery / partition change | **Serial** (needs esptool) |
+| Non-developer, no esptool | **OTA**, or the **Tasmota Web Installer** link, or one-click isolated install |
 
-- **Linux serial access** usually needs the `dialout` group:
-  `sudo usermod -aG dialout "$USER"` then re-login (else the port
-  shows but won't open: *permission denied*).
-- **Syslog port < 1024** (e.g. the default 514) needs root on
-  macOS/Linux — use a high port like **5514** and set Tasmota
-  `LogPort 5514` (no sudo). On Windows 514 normally works as-is.
-- The **port/baud/syslog dropdowns and `LogHost` IP list adapt per
-  OS** (Windows IPs/adapter names come from `ipconfig`, Linux from
-  `ifconfig`/`ip`, macOS adds the Wi-Fi/Ethernet port labels).
+### OTA
 
-If an instance is already running, launching again **replaces it**
-(it asks the old one to quit, waits for the port, then takes over) so
-a relaunch always runs the current code — no stale-process trap. The
-browser tabs reconnect automatically; in-memory history is cleared by
-the restart.
+Serves the `.bin` on a temporary LAN port and tells the device to pull
+it via `OtaUrl` + `Upgrade 1`. The device does the ESP32 **safeboot**
+partition switch itself, so full-size images work and it's
+language-independent. Progress tracks the device's download; then it
+reboots and the tool re-reads the version to confirm (up to ~4 min).
 
-### macOS TCC / `~/Desktop` note (why the .app runs a bundled copy)
+- **⟳ Scan** finds Tasmota devices on the subnet in ~seconds, listed
+  by friendly name (password-protected = `(locked)`); or type an
+  IP/host. Enter **WebPassword** if set.
+- Selecting a device shows a **confirm card**: name · chip @MHz ·
+  flash size (app / free) · Tasmota version · IP · MAC · uptime ·
+  RSSI, **plus the ESP32 partition table** (safeboot / app0 / fs /
+  custom, with used %, over-full = red) — so you know it's the right
+  device and the image fits *before* overwriting it.
 
-Modern macOS privacy (TCC) blocks a **Finder-launched unsigned app**
-from reading `~/Desktop`, `~/Documents`, `~/Downloads`. When this repo
-lives under one of those (e.g. `~/Desktop/...`), running the repo's
-`serial_monitor_server.py` directly from the `.app` fails with
-`[Errno 1] Operation not permitted` and the app *appears to do
-nothing*. A `.command` / Terminal run works because Terminal already
-holds the Desktop grant.
+### Serial
 
-Fix: the `.app` ships its own copy of the server at
-`Serial Monitor.app/Contents/Resources/serial_monitor_server.py` and
-runs **that** — an app reading files inside its *own bundle* is exempt
-from the Desktop restriction. After editing the canonical
-`serial_monitor_server.py`, double-click **`sync_app.command`** (or
-`cp serial_monitor_server.py "Serial Monitor.app/Contents/Resources/"`)
-to refresh the bundled copy. Launch failures are no longer silent: any
-problem raises a dialog and is logged to
-`~/Library/Logs/SerialMonitor-launch.log`.
+Flashes via `esptool` (`--chip auto`: ESP8266 + every ESP32). **The
+offset is auto-detected from the image** — you never type it:
+
+- *factory*/merged image, or ESP8266 image → flashed at `0x0`.
+- ESP32 **app-only** image → rejected (no fixed serial offset; its
+  app partition lives in the device's table) with a hint to use the
+  matching `*.factory.bin`, or OTA.
+
+Detection reads the ESP header + the partition-table signature
+(`0xAA50` @ `0x8000`). Optional **erase** first; the monitor on that
+port is auto-closed. If esptool's RAM stub fails (some UART bridges →
+*Checksum error*) it **auto-retries with `--no-stub` at 115200**.
+
+> **For serial flashing, use the `*.factory.bin`** (offset handled for
+> you). On ESP32-S3/C3 prefer the **"USB JTAG/serial debug unit"**
+> port — UART bridges often fail esptool's stub upload.
+
+**No esptool?** The panel offers **Install esptool (isolated)** — a
+private venv at `~/.serial_monitor_venv` (PEP 668-safe, never touches
+system Python) — or the official **Tasmota Web Installer**
+(<https://tasmota.github.io/install/>, browser-based, nothing to
+install). OTA needs no esptool at all.
+
+Progress + full tool output stream into the same console (and Save).
+**Cancel** aborts a running serial job.
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Double-click `.app` does **nothing** (macOS) | macOS TCC blocks Finder-launched apps from reading `~/Desktop` etc. The `.app` runs a copy bundled in `Contents/Resources/`; after editing the server run **`sync_app.command`**. Failures log to `~/Library/Logs/SerialMonitor-launch.log`. |
+| Safari "server unreachable" / "Load failed" | A stale old instance was serving. Relaunch (auto-replace) and ⌘⇧R. Server binds loopback + sends no-store; the page is always local. |
+| Selected device / scan flaky, devices missing | Fixed: two-phase scan (connect-scan, then HTTP probe) + proxy bypass. Relaunch to get current code. |
+| Serial: `Failed to write to target RAM … Checksum error` | esptool's stub upload fails on some UART bridges. Auto-retries `--no-stub`@115200; better: use the **USB-JTAG** port. |
+| Serial: `0105 … message invalid` at seq 0 | `--no-stub` at high baud — it's pinned to 115200 automatically. |
+| Flashed at 0x0 and device won't boot | You used an **app-only** image at 0x0. Use the **`*.factory.bin`** (now auto-detected/blocked). |
+| Linux: port shows but won't open | Add yourself to `dialout`: `sudo usermod -aG dialout "$USER"`, re-login. |
+| Syslog won't bind 514 | `<1024` needs root on macOS/Linux. Use 5514 and `LogPort 5514` (Windows: 514 is fine). |
+| OTA: settings/filesystem after flash | OTA keeps fs + config. **Serial** flashing a factory image resets settings and can wipe `fs` (esp. with **erase**). Back up first; prefer OTA for updates. |
+
+---
+
+## Files in this folder
+
+| File | Purpose |
+|------|---------|
+| `serial_monitor_server.py` | The whole tool (server + embedded UI) |
+| `Serial Monitor.app` | macOS double-click launcher (runs the bundled copy) |
+| `sync_app.command` | Refresh the `.app`'s bundled server after edits (macOS) |
+| `Serial Monitor.command` | macOS Terminal launcher |
+| `Serial Monitor.bat` | Windows launcher (no console window) |
+| `serial_monitor.sh` / `Serial Monitor.desktop` | Linux launchers |
+| `README.md` | This file |
+
+---
 
 ## Notes
 
-- Primarily a monitor: it only writes when you explicitly type a
-  command and press Send/Enter. Idle (and while just watching) it
-  never touches the port, so it is safe to leave attached during
-  flashing/boot — but don't send commands during a flash, and close
-  it first if the OS enforces exclusive port access.
+- Primarily a monitor: it only writes to the port when you send a
+  command or flash. Idle, it never touches the port — safe to leave
+  attached during boot (don't send during a flash).
 - Bytes are decoded UTF-8 with replacement; a promptless partial line
-  (no newline) is flushed after ~0.25 s so REPL/`>` prompts still show.
-- One device at a time. To watch two devices, run a second copy with a
-  different port: `SERIAL_MONITOR_HISTORY=… ` and edit `HTTP_PORT`.
+  is flushed after ~0.25 s so REPL/`>` prompts still show.
+- One serial device at a time. For two, run a second copy with a
+  different `HTTP_PORT`.
+- Per-OS adaptation: serial ports, the `LogHost` IP list, and adapter
+  labels come from `ipconfig` (Windows) / `ifconfig`/`ip` (Linux) /
+  `networksetup` (macOS).
