@@ -614,8 +614,12 @@ def main():
     # xnum keeps its zero-padded form for the `Xsns09` name regex, but
     # as a C numeric literal `09` is an INVALID octal constant — emit
     # the decimal value.
+    # Xdrv## -> MODULE_TYPE_DRIVER, Xsns## -> MODULE_TYPE_SENSOR
+    # (the hand dual xdrv_28_pcf8574_dual.cpp is explicit: a driver
+    # MUST be _DRIVER, not _SENSOR — wrong type → loader mis-dispatch).
+    mtype = 'MODULE_TYPE_DRIVER' if disp == 'Xdrv' else 'MODULE_TYPE_SENSOR'
     PART = ['PUSH_OPTIONS',
-            f'MODULE_DESCRIPTOR("{U[:6]}", MODULE_TYPE_SENSOR, '
+            f'MODULE_DESCRIPTOR("{U[:6]}", {mtype}, '
             f'1<<16|{int(xnum)},'
             ' "",0,"",0,"",0,"",0)']
     for sg in sigs:
