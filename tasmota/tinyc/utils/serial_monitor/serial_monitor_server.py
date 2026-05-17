@@ -215,6 +215,25 @@ def _open_serial(device, baud):
     return True, None
 
 
+def _local_ips():
+    """This machine's LAN IPv4(s) — for Tasmota `LogHost`."""
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))       # no packet sent; picks route
+        ips.append(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if ip not in ips and not ip.startswith('127.'):
+                ips.append(ip)
+    except Exception:
+        pass
+    return ips or ['127.0.0.1']
+
+
 def _syslog_reader(sock):
     """One UDP datagram = one log line. Strip the RFC3164 <PRI> prefix;
     tag with the sender IP so several devices show in one stream."""
@@ -254,8 +273,9 @@ def _start_syslog(port):
     threading.Thread(target=_syslog_reader, args=(s,),
                      daemon=True).start()
     _save_settings(sport=int(port))
-    add_line('info', f'[syslog listening on UDP {port} — set Tasmota '
-                     f'LogHost <this-ip>, LogPort {port}, SysLog 2]')
+    ip = _local_ips()[0]
+    add_line('info', f'[syslog listening on UDP {port} — on the device: '
+                     f'Backlog LogHost {ip}; LogPort {port}; SysLog 2]')
     return True, None
 
 
@@ -327,6 +347,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <input id="sport" type="number" min="1" max="65535" value="514"
     title="UDP port. <1024 needs root; use e.g. 5514 and Tasmota LogPort 5514.">
   <button id="syslog" class="go">Listen</button>
+  <label title="This PC's IP — set as Tasmota LogHost on the device">LogHost</label>
+  <select id="hostip" title="this PC's LAN IP — pick the right interface, click 📋 to copy"></select>
+  <button id="copyip" title="copy IP for Tasmota LogHost">📋</button>
   <span style="width:1px;height:22px;background:#30363d;margin:0 2px"></span>
   <button id="clear">Clear</button>
   <button id="save">Save</button>
@@ -359,7 +382,8 @@ const $=s=>document.querySelector(s);
 const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       connEl=$('#conn'), msgEl=$('#msg'), dotEl=$('#dot'),
       cmdEl=$('#cmd'), sendEl=$('#send'), eolEl=$('#eol'),
-      syslogEl=$('#syslog'), sportEl=$('#sport');
+      syslogEl=$('#syslog'), sportEl=$('#sport'),
+      hostipEl=$('#hostip'), copyipEl=$('#copyip');
 let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false;
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
@@ -499,6 +523,22 @@ cmdEl.addEventListener('keydown',e=>{
     e.preventDefault();
   }
 });
+async function loadHost(){
+  try{
+    const j=await(await fetch('/api/host')).json();
+    hostipEl.innerHTML='';
+    (j.ips||[]).forEach(ip=>{const o=document.createElement('option');
+      o.value=ip;o.textContent=ip;hostipEl.appendChild(o);});
+  }catch(e){}
+}
+async function copyIp(){
+  const ip=hostipEl.value; if(!ip)return;
+  try{ await navigator.clipboard.writeText(ip); }
+  catch(e){ hostipEl.focus(); }
+  const o=copyipEl.textContent; copyipEl.textContent='✓';
+  setTimeout(()=>copyipEl.textContent=o,900);
+}
+copyipEl.onclick=copyIp;
 syslogEl.onclick=async()=>{
   if(syslogOn){ await fetch('/api/syslog',{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -536,7 +576,7 @@ $('#quit').onclick=async()=>{
     '<p>You can close this tab.</p></div>';
 };
 
-loadPorts(); poll(); pollTimer=setInterval(poll,250);
+loadPorts(); loadHost(); poll(); pollTimer=setInterval(poll,250);
 </script></body></html>"""
 
 
@@ -571,6 +611,8 @@ class H(BaseHTTPRequestHandler):
         elif path == '/api/prefs':
             self._json({'device': pref_device, 'baud': pref_baud,
                         'sport': pref_sport})
+        elif path == '/api/host':
+            self._json({'ips': _local_ips()})
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])
