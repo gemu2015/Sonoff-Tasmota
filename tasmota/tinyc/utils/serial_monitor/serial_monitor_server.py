@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
-# Serial Monitor — a browser-based serial console for ESP devices with a
-# LARGE scrollback history so events never scroll away. Built in the same
-# manner as the SML emulator: one dependency-light Python server
-# (pyserial only) serving an embedded single-page UI.
+# Serial Monitor — a browser-based console for ESP devices with a LARGE
+# scrollback history so events never scroll away. Two capture sources,
+# usable at the same time, feeding one shared ring:
 #
-#   Port selector · Baudrate selector · Clear · Save
+#   • Serial  — a local USB/serial port (pyserial).
+#   • Syslog  — a UDP syslog listener for devices you can NOT reach
+#               physically: set Tasmota `LogHost <this-ip>` /
+#               `LogPort <port>` / `SysLog 2`; each line is tagged with
+#               the sending device's IP so several devices can be
+#               watched together.
 #
-# Run:  python3 serial_monitor_server.py   (opens http://localhost:8124/)
+# Built like the SML emulator: one dependency-light Python server
+# (pyserial only — syslog uses stdlib sockets) serving an embedded SPA.
+#
+#   Port · Baud · Syslog · Clear · Save · Quit · hex · command input
+#
+# Run:  python3 serial_monitor_server.py   (opens http://127.0.0.1:8124/)
 # or double-click "Serial Monitor.app" / "Serial Monitor.command".
 
 import os, sys, json, threading, time, socket, subprocess, webbrowser
@@ -25,29 +34,35 @@ SETTINGS   = os.path.expanduser('~/.serial_monitor.json')
 def _load_settings():
     try:
         with open(SETTINGS) as f:
-            d = json.load(f)
-            return str(d.get('device', '')), int(d.get('baud', 115200))
+            return json.load(f) or {}
     except Exception:
-        return '', 115200
+        return {}
 
 
-def _save_settings(device, baud):
+def _save_settings(**kw):
     try:
+        d = _load_settings()
+        d.update(kw)
         with open(SETTINGS, 'w') as f:
-            json.dump({'device': device, 'baud': int(baud)}, f)
+            json.dump(d, f)
     except Exception:
         pass
 
 
-pref_device, pref_baud = _load_settings()
+_s = _load_settings()
+pref_device = str(_s.get('device', ''))
+pref_baud   = int(_s.get('baud', 115200))
+pref_sport  = int(_s.get('sport', 514))
 
 state_lock  = threading.Lock()
 serial_port = None                       # pyserial Serial or None
-log_buf     = deque(maxlen=HISTORY)       # dicts: {seq,t,d,x}
+log_buf     = deque(maxlen=HISTORY)       # dicts: {seq,t,d,x[,h][,src]}
 log_seq     = 0                           # monotonic; survives rotation
 rx_bytes    = 0
 cur_device  = ''
 cur_baud    = 0
+syslog_sock = None                        # bound UDP socket or None
+syslog_port = 0                           # 0 = not listening
 
 
 def _open_url(url):
@@ -71,8 +86,9 @@ def _line_hex(raw):
     return None
 
 
-def add_line(direction, text, hexs=None):
-    """direction: 'rx' | 'info' | 'err'"""
+def add_line(direction, text, hexs=None, src=None):
+    """direction: 'rx' | 'tx' | 'info' | 'err'. src: optional source
+    tag (syslog sender IP) so multi-device logs stay disambiguated."""
     global log_seq
     with state_lock:
         log_seq += 1
@@ -80,6 +96,8 @@ def add_line(direction, text, hexs=None):
              'd': direction, 'x': text}
         if hexs:
             e['h'] = hexs
+        if src:
+            e['src'] = src
         log_buf.append(e)
 
 
@@ -192,9 +210,69 @@ def _open_serial(device, baud):
         cur_device = device
         cur_baud = int(baud)
     pref_device, pref_baud = device, int(baud)
-    _save_settings(device, baud)
+    _save_settings(device=device, baud=int(baud))
     add_line('info', f'[opened {device} @ {baud} baud]')
     return True, None
+
+
+def _syslog_reader(sock):
+    """One UDP datagram = one log line. Strip the RFC3164 <PRI> prefix;
+    tag with the sender IP so several devices show in one stream."""
+    import re
+    pri = re.compile(rb'^<\d{1,3}>')
+    while True:
+        try:
+            data, addr = sock.recvfrom(65535)
+        except OSError:
+            return                       # socket closed by _stop_syslog
+        if not data:
+            continue
+        ip = addr[0]
+        for raw in data.replace(b'\r', b'').split(b'\n'):
+            if not raw:
+                continue
+            raw = pri.sub(b'', raw, count=1)
+            add_line('rx', raw.decode('utf-8', 'replace'),
+                     _line_hex(raw), src=ip)
+
+
+def _start_syslog(port):
+    global syslog_sock, syslog_port
+    _stop_syslog(quiet=True)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(('0.0.0.0', int(port)))
+    except PermissionError:
+        return False, (f'Port {port} needs root (<1024). Use a high '
+                       f'port, e.g. 5514, and set Tasmota LogPort 5514.')
+    except Exception as e:
+        return False, str(e)
+    with state_lock:
+        syslog_sock = s
+        syslog_port = int(port)
+    threading.Thread(target=_syslog_reader, args=(s,),
+                     daemon=True).start()
+    _save_settings(sport=int(port))
+    add_line('info', f'[syslog listening on UDP {port} — set Tasmota '
+                     f'LogHost <this-ip>, LogPort {port}, SysLog 2]')
+    return True, None
+
+
+def _stop_syslog(quiet=False):
+    global syslog_sock, syslog_port
+    with state_lock:
+        s = syslog_sock
+        syslog_sock = None
+        p = syslog_port
+        syslog_port = 0
+    if s is not None:
+        try:
+            s.close()
+        except Exception:
+            pass
+        if not quiet:
+            add_line('info', f'[syslog stopped (was UDP {p})]')
 
 
 HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -228,6 +306,10 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
        user-select:none}
  .rx{color:var(--rx)} .info{color:var(--info)} .err{color:var(--err)}
  .tx{color:#f0c674} .tx::before{content:"» "}
+ .l .s{color:#6b7e9b;flex:none;-webkit-user-select:none;
+       user-select:none}
+ #log.nosrc .s{display:none}
+ #sport{width:64px}
  #cmd{flex:1;min-width:120px}
  #cmdbar{display:flex;gap:8px;align-items:center;padding:8px 10px;
       background:var(--bar);border-top:1px solid #222}
@@ -240,6 +322,12 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <label>Baud</label>
   <select id="baud"></select>
   <button id="conn" class="go">Connect</button>
+  <span style="width:1px;height:22px;background:#30363d;margin:0 2px"></span>
+  <label title="UDP syslog listener for remote devices. In Tasmota set LogHost &lt;this PC IP&gt;, LogPort, SysLog 2.">Syslog</label>
+  <input id="sport" type="number" min="1" max="65535" value="514"
+    title="UDP port. <1024 needs root; use e.g. 5514 and Tasmota LogPort 5514.">
+  <button id="syslog" class="go">Listen</button>
+  <span style="width:1px;height:22px;background:#30363d;margin:0 2px"></span>
   <button id="clear">Clear</button>
   <button id="save">Save</button>
   <button id="quit" class="stop" title="Stop the server process">Quit</button>
@@ -249,6 +337,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     style="vertical-align:middle"> time</label>
   <label><input type="checkbox" id="hex"
     style="vertical-align:middle"> hex</label>
+  <label title="show the syslog sender IP per line"><input
+    type="checkbox" id="srcck" checked
+    style="vertical-align:middle"> src</label>
   <span id="stat"><span id="dot"></span><span id="msg">idle</span></span>
 </div>
 <div id="log" class="" tabindex="0"></div>
@@ -267,8 +358,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 const $=s=>document.querySelector(s);
 const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       connEl=$('#conn'), msgEl=$('#msg'), dotEl=$('#dot'),
-      cmdEl=$('#cmd'), sendEl=$('#send'), eolEl=$('#eol');
-let cmdHist=[], histIdx=0, prefsApplied=false;
+      cmdEl=$('#cmd'), sendEl=$('#send'), eolEl=$('#eol'),
+      syslogEl=$('#syslog'), sportEl=$('#sport');
+let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false;
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
 
@@ -300,6 +392,7 @@ async function loadPorts(){
           portEl.value=pr.device;
         if(pr.baud&&[...baudEl.options].some(o=>+o.value===+pr.baud))
           baudEl.value=pr.baud;
+        if(pr.sport) sportEl.value=pr.sport;
       }catch(e){}
     }
   }catch(e){
@@ -329,9 +422,12 @@ function append(lines){
   for(const ln of lines){
     const d=document.createElement('div');d.className='l';
     const t=document.createElement('span');t.className='t';t.textContent=ln.t;
+    d.appendChild(t);
+    if(ln.src){const s=document.createElement('span');s.className='s';
+      s.textContent=ln.src;d.appendChild(s);}
     const x=document.createElement('span');x.className=ln.d;
     x.dataset.x=ln.x; if(ln.h)x.dataset.h=ln.h; render(x);
-    d.appendChild(t);d.appendChild(x);frag.appendChild(d);
+    d.appendChild(x);frag.appendChild(d);
   }
   logEl.appendChild(frag);
   // trim DOM to MAXDOM lines (server keeps the full history for Save)
@@ -345,14 +441,20 @@ async function poll(){
     const r=await fetch('/api/poll?since='+since);
     const j=await r.json();
     since=j.seq; total=j.total;
-    connected=j.open;
-    setStat(j.open, (j.open?('● connected '+(j.dev||'')+' @ '+j.baud)
-                            :'○ disconnected')
+    connected=j.open; syslogOn=!!j.syslog;
+    const parts=[];
+    if(j.open) parts.push('● serial '+(j.dev||'')+' @ '+j.baud);
+    if(j.syslog) parts.push('◆ syslog UDP '+j.sport);
+    if(!j.open&&!j.syslog) parts.push('○ idle');
+    setStat(j.open||j.syslog, parts.join('  ')
                     +'  |  '+total+' lines  '+
                     (j.rx_bytes||0)+' B'+
                     (j.dropped?('  ('+j.dropped+' rolled off)'):''));
     connEl.textContent=j.open?'Disconnect':'Connect';
     connEl.className=j.open?'stop':'go';
+    syslogEl.textContent=j.syslog?'Stop':'Listen';
+    syslogEl.className=j.syslog?'stop':'go';
+    if(j.syslog&&+sportEl.value!==+j.sport) sportEl.value=j.sport;
     cmdEl.disabled=sendEl.disabled=!j.open;
     if(j.lines&&j.lines.length) append(j.lines);
   }catch(e){ setStat(false,'server unreachable'); }
@@ -397,6 +499,20 @@ cmdEl.addEventListener('keydown',e=>{
     e.preventDefault();
   }
 });
+syslogEl.onclick=async()=>{
+  if(syslogOn){ await fetch('/api/syslog',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'stop'})}); }
+  else{
+    const r=await fetch('/api/syslog',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'start',port:+sportEl.value})});
+    const j=await r.json();
+    if(!j.ok) alert('Syslog: '+(j.error||'failed'));
+  }
+  poll();
+};
+$('#srcck').onchange=e=>logEl.classList.toggle('nosrc',!e.target.checked);
 $('#refresh').onclick=loadPorts;
 $('#clear').onclick=async()=>{
   await fetch('/api/clear',{method:'POST'});
@@ -453,7 +569,8 @@ class H(BaseHTTPRequestHandler):
         elif path == '/api/ports':
             self._json(list_ports())
         elif path == '/api/prefs':
-            self._json({'device': pref_device, 'baud': pref_baud})
+            self._json({'device': pref_device, 'baud': pref_baud,
+                        'sport': pref_sport})
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])
@@ -463,14 +580,19 @@ class H(BaseHTTPRequestHandler):
                 lines = [e for e in log_buf if e['seq'] > since]
                 dropped = max(0, (oldest - 1) - since) if since else 0
                 openf = serial_port is not None
+                slog = syslog_port
                 dev, baud, rb, tot = cur_device, cur_baud, rx_bytes, \
                     len(log_buf)
             self._json({'lines': lines, 'seq': seq, 'total': tot,
                         'dropped': dropped, 'open': openf,
-                        'dev': dev, 'baud': baud, 'rx_bytes': rb})
+                        'dev': dev, 'baud': baud, 'rx_bytes': rb,
+                        'syslog': slog > 0, 'sport': slog})
         elif path == '/api/save':
             with state_lock:
-                txt = ''.join(f"{e['t']} {e['x']}\n" for e in log_buf)
+                txt = ''.join(
+                    f"{e['t']} "
+                    f"{('['+e['src']+'] ') if e.get('src') else ''}"
+                    f"{e['x']}\n" for e in log_buf)
             fn = time.strftime('serial-%Y%m%d-%H%M%S.log')
             self._send(200, txt.encode('utf-8', 'replace'),
                        'text/plain; charset=utf-8',
@@ -498,6 +620,13 @@ class H(BaseHTTPRequestHandler):
         elif path == '/api/close':
             _close_serial()
             self._json({'ok': True})
+        elif path == '/api/syslog':
+            if body.get('action') == 'start':
+                ok, err = _start_syslog(body.get('port', 514))
+            else:
+                _stop_syslog()
+                ok, err = True, None
+            self._json({'ok': ok, 'error': err})
         elif path == '/api/clear':
             with state_lock:
                 log_buf.clear()
@@ -505,6 +634,7 @@ class H(BaseHTTPRequestHandler):
         elif path == '/api/quit':
             self._json({'ok': True})
             _close_serial(quiet=True)
+            _stop_syslog(quiet=True)
             # let the response flush, then hard-exit the process
             threading.Timer(0.2, lambda: os._exit(0)).start()
         else:

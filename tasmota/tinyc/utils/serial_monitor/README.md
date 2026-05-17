@@ -1,13 +1,21 @@
 # Serial Monitor
 
-A browser-based serial console for ESP devices with a **large scrollback
-history** so events never scroll away. Built in the same manner as the
-SML emulator: one dependency-light Python server (only `pyserial`)
-serving an embedded single-page UI — no Electron, no build step.
+A browser-based console for ESP devices with a **large scrollback
+history** so events never scroll away. Two capture sources, usable at
+the same time into one shared history:
+
+- **Serial** — a local USB/serial port (`pyserial`).
+- **Syslog** — a UDP syslog listener for devices you can't reach
+  physically; lines are tagged per sending device IP.
+
+Built in the same manner as the SML emulator: one dependency-light
+Python server (only `pyserial`; syslog uses stdlib) serving an embedded
+single-page UI — no Electron, no build step.
 
 Useful when you need to see a boot log / crash backtrace / sporadic
 event that the Arduino IDE / `screen` / `pio device monitor` would have
-already scrolled past.
+already scrolled past — or to collect logs from a device that's in a
+ceiling/wall with no cable access.
 
 ## Controls
 
@@ -15,7 +23,17 @@ already scrolled past.
   plugging the device in). USB ports are listed first.
 - **Baudrate selector** — 300 … 1500000 (default 115200; Tasmota uses
   115200, ESP boot ROM log is 74880).
-- **Connect / Disconnect**.
+- **Connect / Disconnect** — open/close the selected serial port.
+- **Syslog listener** — for devices you can't reach with a cable. Set
+  the UDP port (default 514; `<1024` may need root — use e.g. `5514`)
+  and press **Listen**. Then on each device:
+  `Backlog LogHost <this-PC-IP>; LogPort <port>; SysLog 2`. Every line
+  is tagged with the sending device's IP, so several remote devices
+  can be watched in one stream (toggle the `src` checkbox to show/hide
+  the IP). Serial and Syslog can run **at the same time**, both
+  feeding the same history/Save. Caveat: syslog only flows once WiFi
+  is up — it won't capture the boot-ROM log or a pre-network crash
+  (use Serial for those).
 - **Command input** (bottom bar, enabled while connected) — type a
   command, **Enter** (or **Send**) transmits it; ↑/↓ recall history.
   The line-ending selector appends CR LF (Tasmota console default),
