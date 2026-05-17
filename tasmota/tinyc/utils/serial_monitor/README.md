@@ -59,7 +59,10 @@ ceiling/wall with no cable access.
     couple of seconds and lists them by friendly name in the device
     dropdown (password-protected ones show as `(locked)`); or just
     type an IP/host. Enter the `WebPassword` if one is set. No cable
-    needed.
+    needed. **Picking/typing a device shows a live confirm card**
+    (name · chip · Tasmota version · IP · MAC · uptime · RSSI) so you
+    can be sure it's the right target before overwriting it; the OTA
+    button also re-shows it in the confirm dialog.
 
   Progress and full tool output stream into the same big-history
   console (and into Save). **Cancel** aborts a running serial job.

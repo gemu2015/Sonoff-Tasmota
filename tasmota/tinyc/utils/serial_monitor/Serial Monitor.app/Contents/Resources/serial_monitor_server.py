@@ -597,6 +597,44 @@ def _probe_tasmota(ip):
     return None
 
 
+def _dev_info(host, user='admin', password=''):
+    """Full Tasmota `Status 0` → a concise confirm-before-flash card."""
+    host = host.strip()
+    q = 'cmnd=Status%200'
+    if password:
+        q = ('user=%s&password=%s&' % (user or 'admin', password)) + q
+    try:
+        r = urllib.request.urlopen('http://%s/cm?%s' % (host, q),
+                                   timeout=2.5)
+        j = json.loads(r.read(8000).decode('utf-8', 'replace'))
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'locked': True}
+        return {'ok': False, 'error': 'HTTP %d' % e.code}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    if 'WARNING' in j:                       # bad/again password
+        return {'ok': False, 'locked': True}
+    S = j.get('Status', {})
+    F = j.get('StatusFWR', {})
+    N = j.get('StatusNET', {})
+    T = j.get('StatusSTS', {})
+    fn = S.get('FriendlyName')
+    return {'ok': True,
+            'name': S.get('DeviceName')
+                    or (fn[0] if isinstance(fn, list) and fn else ''),
+            'topic': S.get('Topic', ''),
+            'module': S.get('Module', ''),
+            'version': F.get('Version', ''),
+            'hardware': F.get('Hardware', ''),
+            'core': F.get('Core', ''),
+            'host': N.get('Hostname', ''),
+            'ip': N.get('IPAddress', host),
+            'mac': N.get('Mac', ''),
+            'uptime': T.get('Uptime', ''),
+            'rssi': (T.get('Wifi') or {}).get('RSSI', '')}
+
+
 def _scan_tasmota(net):
     """Scan net ('192.168.1') .1-.254 for Tasmota devices, parallel."""
     net = net.strip().rstrip('.')
@@ -667,6 +705,11 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #fwpct{width:160px;height:14px;accent-color:var(--acc)}
  #flashbar .grp{display:flex;gap:8px;align-items:center}
  #host{min-width:150px}
+ #devinfo{flex-basis:100%;font:12px ui-monospace,Menlo,monospace;
+      color:var(--mut);padding:2px 0 0}
+ #devinfo b{color:var(--fg)}
+ #devinfo.ok b{color:var(--info)}
+ #devinfo.bad{color:var(--err)}
  #log.notime .t{display:none}
 </style></head><body>
 <div id="bar">
@@ -736,6 +779,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <button id="flashcancel" class="stop hide">Cancel</button>
   <progress id="fwpct" max="100" value="0" class="hide"></progress>
   <span id="fwstat" style="color:var(--mut);font-size:12px"></span>
+  <div id="devinfo"></div>
 </div>
 <div id="log" class="" tabindex="0"></div>
 <div id="cmdbar">
@@ -961,6 +1005,9 @@ flashgoEl.onclick=async()=>{
   if(fmodeEl.value==='ota'){
     const host=$('#host').value.trim();
     if(!host){alert('Enter the device IP/hostname');return;}
+    if(!confirm('OTA-flash this device?\n\n'
+      +(devinfoEl.textContent||host)
+      +'\n\nThis overwrites its firmware.'))return;
     url='/api/flash/ota';
     bdy={host,user:'admin',password:$('#fwpass').value};
   }else{
@@ -979,8 +1026,47 @@ flashgoEl.onclick=async()=>{
   poll();
 };
 flashcancelEl.onclick=()=>fetch('/api/flash/cancel',{method:'POST'});
-const hostselEl=$('#hostsel'), hostscanEl=$('#hostscan');
-hostselEl.onchange=()=>{ if(hostselEl.value)$('#host').value=hostselEl.value; };
+const hostselEl=$('#hostsel'), hostscanEl=$('#hostscan'),
+      devinfoEl=$('#devinfo');
+let devTimer=null;
+async function loadDevInfo(){
+  const host=$('#host').value.trim();
+  if(!host){devinfoEl.textContent='';devinfoEl.className='';return;}
+  devinfoEl.className='';devinfoEl.textContent='querying '+host+' …';
+  try{
+    const u='/api/devinfo?host='+encodeURIComponent(host)
+      +'&pw='+encodeURIComponent($('#fwpass').value||'');
+    const d=await(await fetch(u)).json();
+    if(d.ok){
+      devinfoEl.className='ok';
+      devinfoEl.innerHTML='✓ <b>'+(d.name||d.host||host)+'</b>'
+        +(d.hardware?' · '+d.hardware:'')
+        +(d.version?' · Tasmota '+d.version
+            +(d.core?' ('+d.core+')':''):'')
+        +' · '+(d.ip||host)+(d.mac?' · '+d.mac:'')
+        +(d.uptime?' · up '+d.uptime:'')
+        +(d.rssi!==''?' · RSSI '+d.rssi+'%':'')
+        +'  — confirm this is the device you want to overwrite';
+    }else if(d.locked){
+      devinfoEl.className='bad';
+      devinfoEl.textContent='🔒 '+host+' needs its WebPassword '
+        +'(enter it, then it re-checks)';
+    }else{
+      devinfoEl.className='bad';
+      devinfoEl.textContent='✗ '+host+' — '+(d.error||'no response '
+        +'(not a Tasmota device?)');
+    }
+  }catch(e){devinfoEl.className='bad';
+    devinfoEl.textContent='✗ '+host+' — '+e;}
+}
+function devInfoSoon(ms){clearTimeout(devTimer);
+  devTimer=setTimeout(loadDevInfo,ms||450);}
+hostselEl.onchange=()=>{ if(hostselEl.value){
+  $('#host').value=hostselEl.value; loadDevInfo(); } };
+$('#host').addEventListener('input',()=>devInfoSoon());
+$('#fwpass').addEventListener('change',loadDevInfo);
+fmodeEl.addEventListener('change',()=>{ if(fmodeEl.value==='ota')
+  loadDevInfo(); else {devinfoEl.textContent='';devinfoEl.className='';}});
 hostscanEl.onclick=async()=>{
   const ip=(hostipEl&&hostipEl.value)||'';
   const net=ip.split('.').slice(0,3).join('.');
@@ -999,7 +1085,8 @@ hostscanEl.onclick=async()=>{
       o.textContent=d.ip+(d.name?'  ('+d.name+')':'');
       hostselEl.appendChild(o);});
     if((j.devices||[]).length===1){
-      hostselEl.value=j.devices[0].ip; $('#host').value=j.devices[0].ip;}
+      hostselEl.value=j.devices[0].ip; $('#host').value=j.devices[0].ip;
+      loadDevInfo();}
   }catch(e){ alert('Scan failed: '+e); }
   hostscanEl.textContent=ot; hostscanEl.disabled=false;
 };
@@ -1086,6 +1173,14 @@ class H(BaseHTTPRequestHandler):
             if not net:
                 net = _default_ip().rsplit('.', 1)[0]
             self._json({'net': net, 'devices': _scan_tasmota(net)})
+        elif path == '/api/devinfo':
+            qs = parse_qs(urlparse(self.path).query)
+            host = (qs.get('host') or [''])[0]
+            pw = (qs.get('pw') or [''])[0]
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+            else:
+                self._json(_dev_info(host, 'admin', pw))
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])
