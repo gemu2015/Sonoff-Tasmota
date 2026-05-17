@@ -197,6 +197,20 @@ def main():
     U = NAME.upper()
     xsns_m = re.search(r'\bbool\s+(Xsns|Xdrv)(\d+)\s*\(\s*uint(?:8|32)_t\s+\w+\s*\)',
                        s)
+    if xsns_m is None:
+        # No `bool Xsns##/Xdrv##(...)` dispatcher → this file is NOT a
+        # standalone driver. Common case: a class/struct fragment that
+        # a parent driver #includes (e.g. xsns_78_ezo*.ino define
+        # `struct EZOxx : public EZOStruct` and are pulled in by the
+        # real xsns_78_ezo dispatcher). Fail cleanly, not with a raw
+        # AttributeError — and tell triage these are not per-file
+        # targets (scaffold the PARENT that owns the dispatcher).
+        sys.stderr.write(
+            "NEEDS-MANUAL: no `bool Xsns##/Xdrv##(uintN_t)` dispatcher "
+            "in %s — not a standalone driver (class fragment / "
+            "#included file). Scaffold the parent driver that owns the "
+            "dispatcher instead.\n" % os.path.basename(src_path))
+        sys.exit(2)
     disp, xnum = xsns_m.group(1), xsns_m.group(2)
 
     # --- strip the original outer #ifdef USE_*/license, keep body ----
