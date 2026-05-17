@@ -550,8 +550,8 @@ def _cm(host, port, cmnd, user, password, timeout=8):
              % (urllib.parse.quote(user or 'admin'),
                 urllib.parse.quote(password))) + q
     try:
-        r = urllib.request.urlopen('http://%s:%d/cm?%s'
-                                   % (host, port, q), timeout=timeout)
+        r = _NOPROXY.open('http://%s:%d/cm?%s' % (host, port, q),
+                          timeout=timeout)
         return r.status, r.read(4000).decode('utf-8', 'replace')
     except urllib.error.HTTPError as e:
         return e.code, ''
@@ -674,26 +674,46 @@ def _flash_ota(host, user, password):
                 pass
 
 
-def _probe_tasmota(ip):
-    """Quick unauthenticated probe — return {'ip','name'} if the host
-    looks like a Tasmota web device, else None."""
+# Bypass any configured HTTP proxy for LAN device calls (a proxy
+# would mis-route 192.168.x and silently break scan/devinfo while a
+# browser still works).
+_NOPROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _port80_open(ip):
     try:
-        r = urllib.request.urlopen('http://%s/cm?cmnd=Status' % ip,
-                                   timeout=0.6)
-        body = r.read(2048).decode('utf-8', 'replace')
-    except urllib.error.HTTPError as e:
-        # 401 = Tasmota with WebPassword: still a device, name unknown.
-        return {'ip': ip, 'name': '(locked)'} if e.code == 401 else None
-    except Exception:
+        socket.create_connection((ip, 80), 0.6).close()
+        return ip
+    except OSError:
         return None
+
+
+def _http_status(ip):
+    """HTTP Status probe of a host already known to have :80 open.
+    One retry — under server load a single attempt is flaky."""
+    body = None
+    for attempt in (1, 2):
+        try:
+            r = _NOPROXY.open('http://%s/cm?cmnd=Status' % ip,
+                              timeout=4)
+            body = r.read(2048).decode('utf-8', 'replace')
+            break
+        except urllib.error.HTTPError as e:
+            # 401 = Tasmota with WebPassword: a device, name unknown.
+            return {'ip': ip, 'name': '(locked)'} \
+                if e.code == 401 else None
+        except Exception:
+            if attempt == 2:
+                return None
+            time.sleep(0.25)
     try:
-        j = json.loads(body)
-        st = j.get('Status', {})
-        nm = st.get('DeviceName') or (st.get('FriendlyName') or [''])[0] \
+        st = json.loads(body).get('Status', {})
+        nm = st.get('DeviceName') \
+            or (st.get('FriendlyName') or [''])[0] \
             or st.get('Topic') or ''
         return {'ip': ip, 'name': nm}
     except Exception:
-        if 'WARNING' in body or 'tasmota' in body.lower():
+        if body and ('WARNING' in body or 'tasmota' in body.lower()):
             return {'ip': ip, 'name': '(locked)'}
     return None
 
@@ -709,7 +729,7 @@ def _dev_partitions(host, user='admin', password=''):
             tok = base64.b64encode(
                 ('%s:%s' % (user or 'admin', password)).encode()).decode()
             req.add_header('Authorization', 'Basic ' + tok)
-        html = urllib.request.urlopen(req, timeout=2.5).read(
+        html = _NOPROXY.open(req, timeout=4).read(
             12000).decode('utf-8', 'replace')
     except Exception:
         return []
@@ -730,8 +750,7 @@ def _dev_info(host, user='admin', password=''):
     if password:
         q = ('user=%s&password=%s&' % (user or 'admin', password)) + q
     try:
-        r = urllib.request.urlopen('http://%s/cm?%s' % (host, q),
-                                   timeout=2.5)
+        r = _NOPROXY.open('http://%s/cm?%s' % (host, q), timeout=4)
         j = json.loads(r.read(8000).decode('utf-8', 'replace'))
     except urllib.error.HTTPError as e:
         if e.code == 401:
@@ -777,14 +796,23 @@ def _dev_info(host, user='admin', password=''):
 
 
 def _scan_tasmota(net):
-    """Scan net ('192.168.1') .1-.254 for Tasmota devices, parallel."""
+    """Two-phase scan of net ('192.168.1') .1-.254.
+
+    Phase A: fast TCP connect-scan of all 254 (cheap, resilient) →
+    the handful with :80 open. Phase B: HTTP Status probe ONLY those,
+    low concurrency + retry. The old single-phase 80-way HTTP scan
+    flaked when run inside the threaded server (GIL + poll threads),
+    intermittently dropping live devices like .39."""
     net = net.strip().rstrip('.')
     if not _re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}$', net):
         return []
+    ips = ['%s.%d' % (net, i) for i in range(1, 255)]
+    cf = concurrent.futures
+    with cf.ThreadPoolExecutor(max_workers=64) as ex:
+        live = [x for x in ex.map(_port80_open, ips) if x]
     found = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=80) as ex:
-        for d in ex.map(_probe_tasmota,
-                        ['%s.%d' % (net, i) for i in range(1, 255)]):
+    with cf.ThreadPoolExecutor(max_workers=12) as ex:
+        for d in ex.map(_http_status, live):
             if d:
                 found.append(d)
     found.sort(key=lambda d: tuple(int(x) for x in d['ip'].split('.')))
