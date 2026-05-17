@@ -1607,6 +1607,16 @@ function startSending() {
   // machine watches the RX stream for poll frames and answers them. Browser
   // doesn't push frames here.
   if (isTcpProfile() || isModbusRtu() || isT510() || isKamstrup()) return;
+  // CAN repo profile: the Python _can_runner answers polls / broadcasts
+  // server-side over the SLCAN bridge (started on Connect, fed by the
+  // 1 s pushCanCfg interval). The browser must NOT run the sendFrame
+  // loop here — there is no browser-built CAN frame.
+  if (typeof repoState !== 'undefined' && repoState
+      && repoState.proto === 'c') {
+    log('info', 'CAN runs via the SLCAN bridge runner (auto on Connect) '
+              + '— no manual Start needed');
+    return;
+  }
   const proto = document.getElementById('selProto').value;
   const iv = +document.getElementById('selInterval').value;
   sendFrame();
@@ -1700,6 +1710,11 @@ async function sendFrame() {
         data = new Uint8Array(buildVBusFrameRepo());
       } else if (repoState.proto === 'e') {
         data = new Uint8Array(buildEBusFrameRepo());
+      } else if (repoState.proto === 'c') {
+        // CAN is answered server-side by the Python _can_runner over the
+        // SLCAN bridge; the browser only pushes can_cfg (own 1 s timer).
+        // Nothing to build/write here — never an error.
+        return;
       } else {
         log('err', `Repo mode: protocol '${repoState.proto}' not supported in v1`);
         stopSending();

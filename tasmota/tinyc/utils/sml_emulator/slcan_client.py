@@ -141,11 +141,17 @@ class _TcpTransport(_Transport):
 
     def read(self, max_bytes: int = 256) -> bytes:
         try:
-            return self._sock.recv(max_bytes)
+            data = self._sock.recv(max_bytes)
         except socket.timeout:
-            return b''
-        except OSError:
-            return b''
+            return b''                       # alive, just no data this tick
+        except OSError as e:
+            raise ConnectionError(f"bridge socket error: {e}") from e
+        if data == b'':
+            # recv() returning 0 bytes WITHOUT a timeout == the peer
+            # closed the connection (bridge restarted / TinyCRun). This
+            # is NOT idle — surface it so the runner reconnects now.
+            raise ConnectionError("bridge closed the connection (EOF)")
+        return data
 
     def write(self, data: bytes) -> None:
         self._sock.sendall(data)
@@ -220,6 +226,11 @@ class SlcanClient:
         self._send_ack_evt = threading.Event()
         # Last status flags from F\r reply (single byte hex).
         self._status_flags: int = 0
+        # Set True by the reader thread when the transport dies (peer
+        # closed / socket error) rather than on an intentional close.
+        # recv() surfaces it so the runner reconnects fast instead of
+        # looping forever on a dead socket.
+        self._link_dead = False
 
     # ── Lifecycle ────────────────────────────────────────────────
 
@@ -313,6 +324,11 @@ class SlcanClient:
             self._rx_cond.wait(timeout)
             if self._rx_queue:
                 return self._rx_queue.popleft()
+            if self._link_dead:
+                # Transport died (bridge restarted / socket dropped).
+                # Raise so the runner's reconnect loop fires instead of
+                # spinning on a permanently-empty queue.
+                raise ConnectionError("bridge link dead — reconnecting")
             return None
 
     def recv_iter(self) -> Iterator[CanFrame]:
@@ -354,6 +370,13 @@ class SlcanClient:
             try:
                 chunk = self._tr.read(256) if self._tr else b''
             except OSError:
+                # Real transport death (EOF / socket error), not an
+                # intentional close. Flag it for recv() unless we were
+                # asked to stop.
+                if not self._stop_evt.is_set():
+                    self._link_dead = True
+                    with self._rx_cond:
+                        self._rx_cond.notify_all()
                 break
             if not chunk:
                 continue

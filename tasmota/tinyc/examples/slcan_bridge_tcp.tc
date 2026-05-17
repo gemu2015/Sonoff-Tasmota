@@ -58,6 +58,8 @@ int  tcp_port   = 9999;     // Mac client connects to this port
                             //  the test C3; 9999 confirmed clean)
 int  bitrate    = 250;      // kbit/s, set via S<n> command before O
 int  twai_open  = 0;        // 1 after twaiBegin succeeded
+int  tcp_started = 0;       // 1 after tcpServer() bound (needs WiFi up)
+int  twst[7];               // twaiStatus: [state,txe,rxe,txf,rxm,arb,buse]
 
 // ── Loopback / test mode ─────────────────────────────────────
 //
@@ -85,6 +87,16 @@ int  rx_frames  = 0;
 int  cmd_errors = 0;
 int  bus_errors = 0;
 int  client_connected = 0;
+// Consecutive twaiSend failures. twaiSend (SYS_TWAI_SEND) returns 0
+// when twai_transmit() is non-OK — which is what happens once the
+// controller has gone BUS-OFF (a DUT that briefly stops ACKing makes
+// the controller auto-retransmit until its TX-error counter avalanches
+// to bus-off; the ESP32 TWAI does NOT self-recover). The old
+// twaiStatus()==2 check could never fire (that syscall returns 1/0 and
+// never exposes the state), so bus-off used to latch until the client
+// churned C/S/O. We now recover in place after a short run of failed
+// sends — the real, observable bus-off signal.
+int  tx_fail_run = 0;
 
 // ── Per-frame scratch ────────────────────────────────────────
 char tx_data[8];
@@ -193,7 +205,11 @@ void handle_command() {
         if (code < 0)   { nack(); return; }
         int kbps = slcan_to_kbps(code);
         if (kbps < 0)   { nack(); return; }
-        if (twai_open) { nack(); return; }
+        // Tolerate S while open: a reconnecting client (its TCP dropped
+        // ungracefully, no C sent) sends S before O. Old code nack'd
+        // here → the client could never re-open → broken-pipe churn.
+        // Treat S-while-open as reconfigure: close, then accept.
+        if (twai_open) { twaiEnd(); twai_open = 0; }
         bitrate = kbps;
         ack();
         return;
@@ -215,6 +231,12 @@ void handle_command() {
         }
         if (rc != 1)   { nack(); return; }
         twai_open = 1;
+        // A successful O proves a real client opened the channel.
+        // Make the flag track the S/O..C session lifecycle — NOT the
+        // flaky per-tick tcpAvailable/tcpConnected heuristic. A passive
+        // SLCAN responder sends nothing between polls, so a tick-based
+        // flag decays to 0 and would deadlock the RX-forward gate.
+        client_connected = 1;
         ack();
         return;
     }
@@ -224,6 +246,7 @@ void handle_command() {
             twaiEnd();
             twai_open = 0;
         }
+        client_connected = 0;
         ack();
         return;
     }
@@ -246,7 +269,25 @@ void handle_command() {
         }
         int ext = (cmd == 'T') ? 1 : 0;
         int sent = twaiSend(id, ext, dlc, tx_data);
-        if (sent != 1)             { nack(); return; }
+        if (sent != 1) {
+            // twai_transmit() non-OK — almost always BUS-OFF (a DUT that
+            // briefly stopped ACKing made the controller auto-retransmit
+            // until its TX-error counter avalanched). ESP32 TWAI does
+            // not self-recover; reinstall the driver in place after a
+            // short run so the link comes straight back instead of
+            // latching dead until the client churns C/S/O.
+            tx_fail_run = tx_fail_run + 1;
+            if (tx_fail_run >= 3) {
+                twaiEnd();
+                twaiBegin(can_rx_pin, can_tx_pin, bitrate, twai_mode);
+                bus_errors = bus_errors + 1;
+                tx_fail_run = 0;
+                addLog("slcan_bridge_tcp: TWAI bus-off -> reinstalled in place");
+            }
+            nack();
+            return;
+        }
+        tx_fail_run = 0;
         tx_frames = tx_frames + 1;
         // SLCAN spec: ACK as `z\r` / `Z\r`
         outline[0] = (cmd == 't') ? 'z' : 'Z';
@@ -295,6 +336,11 @@ void emit_rx_frame() {
 
 // ── Periodic poll: drain TCP RX, drain CAN RX ────────────────
 void Every50ms() {
+    // 0. If the TCP server isn't up yet (autostart fired before WiFi,
+    //    or WiFi was already up before this script loaded so
+    //    OnWifiConnect won't re-fire), keep retrying until it binds.
+    if (!tcp_started) { start_tcp_server(); if (!tcp_started) return; }
+
     // 1. Drain SLCAN command bytes from the TCP client.
     int avail = tcpAvailable();
     if (avail > 0) {
@@ -323,13 +369,20 @@ void Every50ms() {
             avail = tcpAvailable();
             loop_guard = loop_guard - 1;
         }
-    } else if (!tcpConnected()) {
-        client_connected = 0;
     }
+    // NOTE: do NOT clear client_connected on an idle tick.
+    // tcpConnected()/tcpAvailable() read false between polls (a passive
+    // SLCAN responder sends nothing until it gets a frame to answer).
+    // Clearing here decayed the flag to 0 and the RX-forward gate below
+    // then never forwarded the DUT's poll → client never answers →
+    // permanent deadlock. The flag's lifecycle is owned by O (set) /
+    // C (clear); stale-session cleanup is the S-while-open handler.
 
     // 2. Drain CAN RX. Push frames as SLCAN lines until queue empty
-    //    or we've handled a reasonable batch.
-    if (twai_open && client_connected) {
+    //    or we've handled a reasonable batch. Gate on twai_open ONLY —
+    //    if the channel is open a client opened it; writing RX to a
+    //    since-departed client is harmless and a reconnect re-S/Os.
+    if (twai_open) {
         int batch = 16;
         while (batch > 0) {
             int n = twaiRecv(rx_meta, rx_data, 8);
@@ -338,6 +391,16 @@ void Every50ms() {
             batch = batch - 1;
         }
     }
+
+    // 3. Bus-off recovery is driven by consecutive twaiSend failures in
+    //    the t/T handler (see tx_fail_run) — that is the only reliable,
+    //    observable bus-off signal from TinyC. The previous
+    //    `twaiStatus(twst) == 2` test here was DEAD CODE: SYS_TWAI_STATUS
+    //    returns 1 (ok) / 0 (err) and fills the array with
+    //    rx/tx/bus_error counts only — it never returns the controller
+    //    state, so `st == 2` was never true and bus-off latched until
+    //    the client churned C/S/O. Removed; do not re-add without first
+    //    extending SYS_TWAI_STATUS to expose twai_status_info_t.state.
 }
 
 // ── WebCall — show bridge state on the main page ─────────────
@@ -359,22 +422,38 @@ void WebCall() {
     webSend(row);
 }
 
-// ── main — start TCP server ──────────────────────────────────
-int main() {
-    char m[80];
-    sprintf(m, "slcan_bridge_tcp: starting at uptime %d s", tasm_uptime);
-    addLog(m);
-
+// ── TCP server start — deferred until WiFi is up ─────────────
+// At autostart (~3 s uptime) the network stack isn't ready, so
+// tcpServer() returns rc<0 and (previously) the bridge stayed dead
+// until a manual TinyCRun. Now: bind from OnWifiConnect() (the
+// WiFi-up callback) AND retry from Every50ms (covers the case where
+// WiFi was already up before this script auto-loaded, so the
+// network-up callback won't fire again). Guarded by tcp_started so
+// the socket binds exactly once.
+void start_tcp_server() {
+    if (tcp_started) return;
     int rc = tcpServer(tcp_port);
-    if (rc < 0) {
-        sprintf(m, "slcan_bridge_tcp: tcpServer(%d) failed rc=%d", tcp_port, rc);
-        addLog(m);
-        return 0;
-    }
-
+    if (rc < 0) { return; }          // network not ready — retry later
+    tcp_started = 1;
+    char m[96];
     sprintf(m, "slcan_bridge_tcp: listening on TCP:%d  (twai_mode=%d)",
             tcp_port, twai_mode);
     addLog(m);
     addLog("slcan_bridge_tcp: connect a client and send `S5\\rO\\r` to open at 250 kbit/s");
+}
+
+// WiFi/network came up (FUNC_NETWORK_UP) — bind now. Guarded, so a
+// later reconnect is a no-op (don't rebind a live socket).
+void OnWifiConnect() {
+    start_tcp_server();
+}
+
+// ── main — must return so callbacks activate ─────────────────
+int main() {
+    char m[80];
+    sprintf(m, "slcan_bridge_tcp: started uptime %d s — waiting for WiFi",
+            tasm_uptime);
+    addLog(m);
+    start_tcp_server();   // binds now if WiFi already up; else deferred
     return 0;
 }

@@ -818,12 +818,19 @@ def _can_runner(bridge: str, bitrate: int):
     # re-opened — see SLCAN_README "send C\rO\r to re-open"), and a fresh
     # bridge (post Restart 1 / TinyCRun) can miss the first S/O before
     # its command loop is servicing the socket. So: keep an outer
-    # reconnect loop. Open with retries; if the link goes silent for
-    # IDLE_LIMIT s while the DUT should be polling (~1 Hz), assume
-    # bus-off/stale and re-open (the bridge's O reinstalls TWAI). The
-    # emulator self-heals across bridge restarts — the user presses
-    # Connect once and leaves it.
-    IDLE_LIMIT  = 8.0          # s of total silence → reconnect
+    # reconnect loop. Open with retries and reconnect ONLY on a real
+    # socket/channel exception (genuine bridge restart). The bridge's
+    # own O-reopen + bus-off auto-recovery handles a wedged TWAI.
+    #
+    # DO NOT reconnect on RX idle in poll mode. The DUT owns the poll
+    # cadence; the emulator is a passive responder. Tearing the channel
+    # down on N seconds of silence opens a dead window (sleep + S/O
+    # handshake) during which the DUT's poll gets NO ACK — the ESP32
+    # TWAI then hardware-retransmits at bus speed, exploding the
+    # Bit/Stuff/CRC/Form/ACK counters into the hundreds of thousands
+    # and saturating the bus, which keeps the idle watchdog re-firing:
+    # a self-inflicted error storm. The old (stable) runner just
+    # `continue`d on idle and never tore down — restore that.
     backoff     = 1.0
     while not can_stop:
         cli = None
@@ -837,12 +844,32 @@ def _can_runner(bridge: str, bitrate: int):
             poll_n   = 0
             bc_n     = 0
             bc_fail  = 0
-            def _send_all(frames):
+            def _send_all(frames, tag, gap):
+                # Log every response frame's id + payload + ack, like the
+                # pre-cb398d74e runner did. The user reads this request/
+                # response trace to verify wire bytes — do NOT collapse it.
+                #
+                # `gap` (s) is the inter-frame spacing. A real CAN device
+                # interleaves its frames with bus-idle time; it does NOT
+                # dump the whole set in one tight burst. Bursting makes
+                # the DUT miss an ACK on one frame each cycle → the
+                # bridge controller auto-retransmits it → TX-error
+                # avalanche → bus-off. Poll mode (Huawei) is proven at a
+                # tight 8 ms; broadcast mode (Sorel) spreads the set
+                # across its whole period so the DUT always keeps up.
                 a = 0
-                for fr in frames:
-                    if cli.send(int(fr['id']), bool(fr['ext']),
-                                bytes.fromhex(fr['data']), timeout=0.3):
+                n = len(frames)
+                for i, fr in enumerate(frames):
+                    data = bytes.fromhex(fr['data'])
+                    ok = cli.send(int(fr['id']), bool(fr['ext']),
+                                  data, timeout=0.3)
+                    if ok:
                         a += 1
+                    log_entry('tx' if ok else 'warn',
+                              f"CAN {tag} resp id=0x{int(fr['id']):08X} "
+                              f"{data.hex()} ack={ok}")
+                    if i + 1 < n and gap > 0:
+                        time.sleep(gap)
                 return a
             while not can_stop:
                 with state_lock:
@@ -856,12 +883,16 @@ def _can_runner(bridge: str, bitrate: int):
                 # set every intervalMs unsolicited.
                 if bcast and frames and \
                         (time.time() - last_bc) >= (bms / 1000.0):
-                    acks = _send_all(frames)
-                    last_bc = time.time()
                     bc_n += 1
-                    if bc_n <= 3 or bc_n % 10 == 0:
-                        log_entry('tx', f'CAN broadcast #{bc_n} → '
-                                  f'{acks}/{len(frames)} frames ACKed')
+                    # Spread the set across ~80% of the broadcast period
+                    # (capped 60 ms/frame) — a real device cadence, not a
+                    # burst. e.g. 7 frames / 500 ms → ~57 ms apart, so
+                    # the DUT comfortably ACKs every frame and the bridge
+                    # never auto-retransmits into bus-off.
+                    n = max(1, len(frames))
+                    g = min(0.060, (bms / 1000.0) * 0.8 / n)
+                    acks = _send_all(frames, f'broadcast #{bc_n}', g)
+                    last_bc = time.time()
                     # No peer ACKing at all for several cycles ⇒ dead
                     # link / bus-off (broadcast gets no RX to watchdog on).
                     bc_fail = bc_fail + 1 if acks == 0 else 0
@@ -871,30 +902,30 @@ def _can_runner(bridge: str, bitrate: int):
                         break
                 f = cli.recv(timeout=0.3)
                 if f is None:
-                    # Idle watchdog applies only to POLL mode — a
-                    # broadcast DUT legitimately sends us nothing.
-                    if (poll and not bcast
-                            and time.time() - last_rx > IDLE_LIMIT):
-                        log_entry('warn', 'CAN: link silent '
-                                  f'{IDLE_LIMIT:.0f}s (bridge bus-off?) '
-                                  '— re-opening channel')
-                        break
+                    # Poll mode: stay passive — NEVER tear down on idle
+                    # (see header comment: that is what caused the .39
+                    # ACK-error retransmit storm). Reconnect happens only
+                    # via the except: clause on a real socket error.
                     continue
                 last_rx = time.time()
                 if poll and f.ext == bool(poll.get('ext')) \
                         and f.id == int(poll.get('id')):
                     poll_n += 1
-                    acks = _send_all(frames)
+                    # Log the incoming request frame, then every response
+                    # frame (id + payload + ack) — full wire trace, as in
+                    # the pre-cb398d74e runner the user relies on.
+                    log_entry('rx', f'CAN poll #{poll_n} req '
+                              f'id=0x{f.id:08X} ext={f.ext} '
+                              f'dlc={len(f.data)} {f.data.hex()}')
                     if not frames:
                         log_entry('warn', 'CAN poll #%d: no response '
                                   'frames yet (set values in the form)'
                                   % poll_n)
-                    elif poll_n <= 3 or poll_n % 10 == 0:
-                        log_entry('tx', f'CAN poll #{poll_n} → '
-                                  f'{acks}/{len(frames)} frames ACKed')
-                    elif acks != len(frames):
-                        log_entry('warn', f'CAN poll #{poll_n}: only '
-                                  f'{acks}/{len(frames)} ACKed')
+                    else:
+                        acks = _send_all(frames, f'poll #{poll_n}', 0.008)
+                        if acks != len(frames):
+                            log_entry('warn', f'CAN poll #{poll_n}: only '
+                                      f'{acks}/{len(frames)} ACKed')
                 # else: non-poll bus frame — ignored silently
         except Exception as e:
             log_entry('warn', f'CAN: channel error ({e}) — retrying')
@@ -906,8 +937,10 @@ def _can_runner(bridge: str, bitrate: int):
                     pass
         if can_stop:
             break
+        # Keep the reconnect dead window sub-second so a genuine
+        # exception-driven reopen barely perturbs the DUT's poll loop.
         time.sleep(backoff)                             # reconnect backoff
-        backoff = min(backoff * 1.5, 5.0)
+        backoff = min(backoff * 1.5, 1.0)
     can_running = False
     log_entry('info', 'CAN profile stopped')
 
