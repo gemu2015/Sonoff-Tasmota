@@ -636,6 +636,10 @@ def main():
 #  define I2cSetActiveFound(...) _N2C(_n2dSAF_,_N2N(__VA_ARGS__))(__VA_ARGS__)
 #  define _n2dSAF_2(a,n)       jI2cSetActiveFound((a),(n),0)
 #  define _n2dSAF_3(a,n,b)     jI2cSetActiveFound((a),(n),(b))
+#  undef  I2cResetActive
+#  define I2cResetActive(...)  _N2C(_n2dRA_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dRA_1(a)          jI2cResetActive((a),0)
+#  define _n2dRA_2(a,b)        jI2cResetActive((a),(b))
 #  undef  Pin
 #  define Pin(...)             _N2C(_n2dPin_,_N2N(__VA_ARGS__))(__VA_ARGS__)
 #  define _n2dPin_1(p)         jPin((p),0)
@@ -730,10 +734,17 @@ def main():
     # or an honest NEEDS-MANUAL flag. I2cResetActive(addr,bus) is
     # already in the JMPTBL (jt[30]) — no new slot needed.
     rel = ''
-    sm = re.search(r'I2cSetActiveFound\s*\(\s*([^,]+?)\s*,[^,]+,'
-                   r'\s*([^)]+?)\s*\)', s)
+    # Match a SINGLE I2cSetActiveFound call. `[^,]`/`[^)]` also match
+    # newlines, so the old 3-arg-only pattern ran PAST a 2-arg call
+    # (e.g. `I2cSetActiveFound(ADDR,"NAME")`) into following code and
+    # synthesised a malformed 3-arg I2cResetActive (hmc5883l/ds3502).
+    # Newline-anchored; name uncaptured (quoted or token); bus optional.
+    sm = re.search(r'I2cSetActiveFound\s*\(\s*([^,\n]+?)\s*,'
+                   r'\s*(?:"[^"\n]*"|[^,()\n]+?)\s*'
+                   r'(?:,\s*([^)\n]+?)\s*)?\)', s)
     if sm:
-        ae, be = sm.group(1).strip(), sm.group(2).strip()
+        ae = sm.group(1).strip()
+        be = sm.group(2).strip() if sm.group(2) else '0'
         ix = r'^([A-Za-z_]\w*)\s*\[\s*([^\]]+?)\s*\]\s*\.\s*(\w+)$'
         am, bm = re.match(ix, ae), re.match(ix, be)
         if am and bm and am.group(1) == bm.group(1) \
@@ -862,7 +873,14 @@ def main():
         print('// MODULE_MEMORY (per-slot heap); read-only arrays -> const')
         print('\n'.join(STATE))
         print()
-    print(body.rstrip())
+    # Cosmetic only (whitespace; compile-neutral): the regex block
+    # deletions (hoists, struct/ptr/state moves) leave big runs of
+    # blank lines that make hand-correcting the transpiled file
+    # painful. Collapse 2+ consecutive blanks to one and trim trailing
+    # whitespace so the human-review/patch surface is readable.
+    body = re.sub(r'[ \t]+\n', '\n', body)
+    body = re.sub(r'\n[ \t]*\n[ \t]*\n+', '\n\n', body)
+    print(body.strip('\n'))
     print()
     print('\n'.join(DISP))
 

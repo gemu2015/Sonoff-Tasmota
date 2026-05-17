@@ -320,10 +320,18 @@ typedef struct {
 // these natural names. I2cRead8/24/16LE/S16_LE stay FILE-LOCAL remaps
 // (the frozen 2-arg `#define I2cRead8 jI2cRead8` must remain for
 // existing plugins); these two have no frozen form to protect.
+#define jResponseCmndIdxNumber(V)        ((void)   jEXT(9,(uint32_t)(int)(V),0,0))
+#define jSqrtInt(N)                      ((uint32_t)jEXT(10,(uint32_t)(N),0,0))
+#define jGetPin(L)                       ((uint32_t)jEXT(11,(uint32_t)(L),0,0))
+#define jDigitalWrite(G,I,S)             ((void)   jEXT(12,(uint32_t)(G),(uint32_t)(I),(uint32_t)(S)))
 #define CalcTempHumToDew jCalcTempHumToDew
 #define TempUnit jTempUnit
 #define ConvertPressure jConvertPressure
 #define ConvertPressureForSeaLevel jConvertPressureForSeaLevel
+#define ResponseCmndIdxNumber jResponseCmndIdxNumber
+#define SqrtInt jSqrtInt
+#define GetPin jGetPin
+#define DigitalWrite jDigitalWrite
 
 // PicoTTS engine API — exposed by firmware lib/libesp32_div/pico/.
 // Plugin code calls picotts_init/picotts_add/etc. naturally; macros at

@@ -1758,6 +1758,10 @@ int32_t tmod_ext_call(uint32_t sel, uint32_t a, uint32_t b, uint32_t c) {
     case 8: { float p, r; memcpy(&p, &a, 4);          // ...ForSeaLevel
               r = ConvertPressureForSeaLevel(p);
               int32_t o; memcpy(&o, &r, 4); return o; }
+    case 9:  ResponseCmndIdxNumber((int)a); return 0;       // void
+    case 10: return (int32_t) SqrtInt((uint32_t)a);
+    case 11: return (int32_t) GetPin((uint32_t)a);
+    case 12: DigitalWrite((uint32_t)a,(uint32_t)b,(uint32_t)c); return 0; // void
   }
   return 0;
 }
