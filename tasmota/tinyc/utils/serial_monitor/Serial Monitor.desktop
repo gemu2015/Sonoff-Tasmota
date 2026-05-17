@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Serial Monitor
+Comment=Browser serial/syslog console for ESP / Tasmota devices
+Exec=bash -c 'cd "$(dirname "$(readlink -f %k)")" && exec python3 serial_monitor_server.py'
+Terminal=false
+Categories=Development;Utility;
+Keywords=serial;esp;tasmota;syslog;monitor;

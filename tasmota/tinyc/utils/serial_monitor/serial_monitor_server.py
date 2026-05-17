@@ -65,10 +65,21 @@ syslog_sock = None                        # bound UDP socket or None
 syslog_port = 0                           # 0 = not listening
 
 
+def _run(cmd, timeout=4):
+    """subprocess.run wrapper; on Windows suppresses the console flash."""
+    kw = {}
+    if sys.platform == 'win32':
+        kw['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    return subprocess.run(cmd, capture_output=True, text=True,
+                          timeout=timeout, **kw)
+
+
 def _open_url(url):
     try:
         if sys.platform == 'darwin':
             subprocess.Popen(['open', url]); return True
+        if sys.platform == 'win32':
+            os.startfile(url); return True          # noqa: built-in
     except Exception:
         pass
     try:
@@ -229,13 +240,31 @@ def _default_ip():
 
 
 def _iface_map():
-    """{iface_device: [ipv4,...]} via ifconfig (mac/BSD/net-tools) or
-    `ip` (Linux iproute2). Best-effort; empty on failure."""
+    """{iface_or_adapter: [ipv4,...]}. Windows: ipconfig (adapter name
+    is already friendly). mac/BSD/Linux: ifconfig, then `ip` fallback.
+    Best-effort; empty on failure."""
     import re
     m = {}
+    if sys.platform == 'win32':
+        try:
+            out = _run(['ipconfig']).stdout
+            cur = None
+            for ln in out.splitlines():
+                if ln.strip() and not ln[:1].isspace():
+                    cur = re.sub(r'.*adapter\s*', '',
+                                 ln.strip().rstrip(':')).strip() \
+                          or ln.strip().rstrip(':')
+                    m.setdefault(cur, [])
+                else:
+                    g = re.search(r'IPv4 Address.*?:\s*'
+                                  r'([\d.]+)', ln)
+                    if cur and g:
+                        m[cur].append(g.group(1))
+        except Exception:
+            pass
+        return m
     try:
-        out = subprocess.run(['ifconfig'], capture_output=True,
-                              text=True, timeout=3).stdout
+        out = _run(['ifconfig']).stdout
         cur = None
         for ln in out.splitlines():
             h = re.match(r'^(\w[\w.\-]*):?\s', ln)
@@ -249,9 +278,7 @@ def _iface_map():
         pass
     if not m:
         try:
-            out = subprocess.run(['ip', '-o', '-4', 'addr'],
-                                  capture_output=True, text=True,
-                                  timeout=3).stdout
+            out = _run(['ip', '-o', '-4', 'addr']).stdout
             for ln in out.splitlines():
                 g = re.match(r'^\d+:\s+(\S+)\s+inet\s+'
                              r'(\d+\.\d+\.\d+\.\d+)', ln)
@@ -268,9 +295,7 @@ def _mac_port_names():
     if sys.platform != 'darwin':
         return names
     try:
-        out = subprocess.run(
-            ['networksetup', '-listallhardwareports'],
-            capture_output=True, text=True, timeout=3).stdout
+        out = _run(['networksetup', '-listallhardwareports']).stdout
         port = None
         for ln in out.splitlines():
             if ln.startswith('Hardware Port:'):
@@ -309,6 +334,13 @@ def _local_ips():
     for dev, ips in ifaces.items():
         for ip in ips:
             add(ip, dev)
+    # Generic fallback (any OS): pull extra subnets from DNS so the
+    # list is still useful if ifconfig/ip/ipconfig parsing failed.
+    try:
+        for ip in socket.gethostbyname_ex(socket.gethostname())[2]:
+            add(ip, '')
+    except Exception:
+        pass
     if not out:                              # last-resort fallback
         out = [{'ip': default, 'label': '', 'default': True}]
     return out

@@ -66,12 +66,33 @@ SERIAL_MONITOR_HISTORY=1000000 python3 serial_monitor_server.py
 
 ## Run
 
-- **macOS:** double-click `Serial Monitor.app` (no Terminal window) or
-  `Serial Monitor.command`. The browser opens at
-  `http://127.0.0.1:8124/`.
-- **Any OS / Linux:** `python3 serial_monitor_server.py`
+Cross-platform — one pure-Python server (stdlib + `pyserial`). The
+browser opens at `http://127.0.0.1:8124/`.
 
-Requires Python 3 and `pyserial` (`pip3 install pyserial`).
+- **macOS:** double-click `Serial Monitor.app` (no Terminal window) or
+  `Serial Monitor.command`.
+- **Windows:** double-click **`Serial Monitor.bat`** (uses
+  `pythonw`/`pyw` so no console window stays open). Install Python 3
+  from python.org (tick *Add python.exe to PATH*), then
+  `py -m pip install pyserial`.
+- **Linux:** double-click **`Serial Monitor.desktop`** (mark it
+  *Allow Launching* / executable the first time) or run
+  **`./serial_monitor.sh`**. `pip3 install --user pyserial`.
+- **Any OS:** `python3 serial_monitor_server.py`.
+
+Requires Python 3 and `pyserial`.
+
+Platform notes:
+
+- **Linux serial access** usually needs the `dialout` group:
+  `sudo usermod -aG dialout "$USER"` then re-login (else the port
+  shows but won't open: *permission denied*).
+- **Syslog port < 1024** (e.g. the default 514) needs root on
+  macOS/Linux — use a high port like **5514** and set Tasmota
+  `LogPort 5514` (no sudo). On Windows 514 normally works as-is.
+- The **port/baud/syslog dropdowns and `LogHost` IP list adapt per
+  OS** (Windows IPs/adapter names come from `ipconfig`, Linux from
+  `ifconfig`/`ip`, macOS adds the Wi-Fi/Ethernet port labels).
 
 If it is already running, launching again just re-focuses the existing
 instance (the port is reused, history is preserved).
