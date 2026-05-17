@@ -18,6 +18,28 @@ HTTP_PORT  = 8124
 # Big ring so events do NOT scroll away. ~200k lines ≈ tens of MB RAM;
 # override with SERIAL_MONITOR_HISTORY=<lines>.
 HISTORY    = int(os.environ.get('SERIAL_MONITOR_HISTORY', '200000'))
+# Remember the last-used port/baud across restarts.
+SETTINGS   = os.path.expanduser('~/.serial_monitor.json')
+
+
+def _load_settings():
+    try:
+        with open(SETTINGS) as f:
+            d = json.load(f)
+            return str(d.get('device', '')), int(d.get('baud', 115200))
+    except Exception:
+        return '', 115200
+
+
+def _save_settings(device, baud):
+    try:
+        with open(SETTINGS, 'w') as f:
+            json.dump({'device': device, 'baud': int(baud)}, f)
+    except Exception:
+        pass
+
+
+pref_device, pref_baud = _load_settings()
 
 state_lock  = threading.Lock()
 serial_port = None                       # pyserial Serial or None
@@ -153,7 +175,7 @@ def _write_serial(text, eol):
 
 
 def _open_serial(device, baud):
-    global serial_port, cur_device, cur_baud
+    global serial_port, cur_device, cur_baud, pref_device, pref_baud
     try:
         import serial as pyserial
     except ImportError:
@@ -169,6 +191,8 @@ def _open_serial(device, baud):
         serial_port = p
         cur_device = device
         cur_baud = int(baud)
+    pref_device, pref_baud = device, int(baud)
+    _save_settings(device, baud)
     add_line('info', f'[opened {device} @ {baud} baud]')
     return True, None
 
@@ -244,7 +268,7 @@ const $=s=>document.querySelector(s);
 const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       connEl=$('#conn'), msgEl=$('#msg'), dotEl=$('#dot'),
       cmdEl=$('#cmd'), sendEl=$('#send'), eolEl=$('#eol');
-let cmdHist=[], histIdx=0;
+let cmdHist=[], histIdx=0, prefsApplied=false;
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
 
@@ -268,6 +292,16 @@ async function loadPorts(){
       o.textContent=p.device+(p.desc?'  —  '+p.desc:'');
       portEl.appendChild(o);});
     if(keep)portEl.value=keep;
+    if(!prefsApplied){
+      prefsApplied=true;
+      try{
+        const pr=await(await fetch('/api/prefs')).json();
+        if(pr.device&&[...portEl.options].some(o=>o.value===pr.device))
+          portEl.value=pr.device;
+        if(pr.baud&&[...baudEl.options].some(o=>+o.value===+pr.baud))
+          baudEl.value=pr.baud;
+      }catch(e){}
+    }
   }catch(e){
     portEl.innerHTML='';
     const o=document.createElement('option');
@@ -394,6 +428,9 @@ class H(BaseHTTPRequestHandler):
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Access-Control-Allow-Origin', '*')
+        # Safari caches aggressively; never let it serve a stale UI.
+        self.send_header('Cache-Control', 'no-store, must-revalidate')
+        self.send_header('Pragma', 'no-cache')
         if extra:
             for k, v in extra.items():
                 self.send_header(k, v)
@@ -410,6 +447,8 @@ class H(BaseHTTPRequestHandler):
                        'text/html; charset=utf-8')
         elif path == '/api/ports':
             self._json(list_ports())
+        elif path == '/api/prefs':
+            self._json({'device': pref_device, 'baud': pref_baud})
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])

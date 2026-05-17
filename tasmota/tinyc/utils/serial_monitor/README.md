@@ -26,6 +26,8 @@ already scrolled past.
   `serial-YYYYMMDD-HHMMSS.log`.
 - **Quit** — stops the server process (use this before relaunching so
   you don't end up talking to a stale instance).
+- The last port + baud you connected with are remembered across
+  restarts (`~/.serial_monitor.json`) and pre-selected on next launch.
 - `autoscroll` — follow the tail (untick to scroll back freely while
   data keeps arriving).
 - `time` — show/hide per-line timestamps.
