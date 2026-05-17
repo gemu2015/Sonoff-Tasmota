@@ -1,16 +1,20 @@
 # Serial Monitor
 
-A browser-based console for ESP devices with a **large scrollback
-history** so events never scroll away. Two capture sources, usable at
-the same time into one shared history:
+A browser-based **ESP Swiss-army knife** — console *and* firmware
+flasher — with a **large scrollback history** so events never scroll
+away. Two capture sources, usable at the same time into one shared
+history, plus two ways to flash:
 
 - **Serial** — a local USB/serial port (`pyserial`).
 - **Syslog** — a UDP syslog listener for devices you can't reach
   physically; lines are tagged per sending device IP.
+- **Flash / Serial** — `esptool` (optional; ESP8266 + all ESP32).
+- **Flash / OTA** — upload to a Tasmota device's `/u2` over the LAN.
 
 Built in the same manner as the SML emulator: one dependency-light
-Python server (only `pyserial`; syslog uses stdlib) serving an embedded
-single-page UI — no Electron, no build step.
+Python server (only `pyserial`; syslog/OTA use stdlib; `esptool` only
+if you serial-flash) serving an embedded single-page UI — no Electron,
+no build step.
 
 Useful when you need to see a boot log / crash backtrace / sporadic
 event that the Arduino IDE / `screen` / `pio device monitor` would have
@@ -39,6 +43,22 @@ ceiling/wall with no cable access.
   The line-ending selector appends CR LF (Tasmota console default),
   LF, CR, or nothing. Sent commands appear in the log as `» cmd`
   (`tx`) lines, so they are part of history/Save too.
+- **Flash ▾** — firmware flasher (toggles a panel). Pick a `.bin`,
+  then either:
+  - **Serial** — flashes via `esptool` (auto-detects ESP8266 / all
+    ESP32 variants) using the **Port** selected in the top bar. Baud
+    (default 460800), flash **Offset** (`0x0` for ESP8266 and ESP32
+    *factory* images; `0x10000` for an app-only ESP32 image), and an
+    optional **erase** first. The monitor on that port is closed
+    automatically (esptool needs exclusive access). `esptool` is
+    optional and only needed for serial flashing — if missing:
+    `pip3 install --user esptool`.
+  - **OTA** — uploads the `.bin` to a Tasmota device's web updater
+    (`/u2`) over the LAN with a live progress bar; enter the device
+    IP/host and its `WebPassword` if one is set. No cable needed.
+
+  Progress and full tool output stream into the same big-history
+  console (and into Save). **Cancel** aborts a running serial job.
 - **Clear** — empties the view *and* the server history.
 - **Save** — downloads the full server-side history as a timestamped
   `serial-YYYYMMDD-HHMMSS.log`.

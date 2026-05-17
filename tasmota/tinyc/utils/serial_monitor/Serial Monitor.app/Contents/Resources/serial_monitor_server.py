@@ -19,6 +19,7 @@
 # or double-click "Serial Monitor.app" / "Serial Monitor.command".
 
 import os, sys, json, threading, time, socket, subprocess, webbrowser
+import tempfile, http.client, base64, shutil, re as _re
 from collections import deque
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -63,6 +64,14 @@ cur_device  = ''
 cur_baud    = 0
 syslog_sock = None                        # bound UDP socket or None
 syslog_port = 0                           # 0 = not listening
+
+fw_lock     = threading.Lock()
+fw_path     = None                        # temp file with uploaded .bin
+fw_name     = ''
+fw_size     = 0
+flash_proc  = None                        # running esptool Popen or None
+flash_state = {'running': False, 'pct': 0, 'phase': '',
+               'ok': None, 'error': ''}
 
 
 def _run(cmd, timeout=4):
@@ -407,6 +416,174 @@ def _stop_syslog(quiet=False):
             add_line('info', f'[syslog stopped (was UDP {p})]')
 
 
+# ----------------------------- flasher ------------------------------
+# Serial flashing via esptool (use-if-present); OTA via Tasmota's
+# HTTP /u2 web-updater. Output streams into the same big-history log.
+
+def _have_esptool():
+    try:
+        import esptool                       # noqa: F401
+        return True
+    except Exception:
+        return bool(shutil.which('esptool') or shutil.which('esptool.py'))
+
+
+def _flash_set(**kw):
+    with fw_lock:
+        flash_state.update(kw)
+
+
+def _flog(line, err=False):
+    add_line('err' if err else 'info', '[flash] ' + line)
+
+
+def _multipart_first_file(raw, ctype):
+    """Minimal multipart/form-data parser (cgi was removed in 3.13):
+    return (filename, filebytes) of the first file part, or (None,b'')."""
+    m = _re.search(r'boundary=(?:"([^"]+)"|([^;]+))', ctype or '')
+    if not m:
+        return None, b''
+    bnd = ('--' + (m.group(1) or m.group(2)).strip()).encode()
+    for part in raw.split(bnd):
+        if b'\r\n\r\n' not in part:
+            continue
+        head, _, data = part.partition(b'\r\n\r\n')
+        if b'filename=' not in head:
+            continue
+        fn = _re.search(rb'filename="([^"]*)"', head)
+        return ((fn.group(1).decode('utf-8', 'replace') if fn else 'fw'),
+                data[:-2] if data.endswith(b'\r\n') else data)
+    return None, b''
+
+
+def _flash_guard():
+    with fw_lock:
+        if flash_state['running']:
+            return 'a flash job is already running'
+    if not fw_path or not os.path.isfile(fw_path):
+        return 'no firmware uploaded'
+    return None
+
+
+def _flash_serial(port, baud, offset, erase):
+    global flash_proc
+    if not _have_esptool():
+        _flash_set(running=False, ok=False,
+                   error='esptool not found')
+        _flog('esptool not found — install with:  '
+              'pip3 install --user esptool', err=True)
+        return
+    _close_serial(quiet=True)                 # esptool needs the port
+    _flash_set(running=True, pct=0, ok=None, error='', phase='serial')
+    base = [sys.executable, '-u', '-m', 'esptool',
+            '--chip', 'auto', '--port', port, '--baud', str(int(baud))]
+    steps = []
+    if erase:
+        steps.append(('erase', base + ['erase_flash']))
+    steps.append(('write', base + ['--before', 'default_reset',
+                  '--after', 'hard_reset', 'write_flash',
+                  '--flash_size', 'keep', str(offset), fw_path]))
+    try:
+        for phase, cmd in steps:
+            _flash_set(phase=phase)
+            _flog(f'{phase}: ' + ' '.join(cmd[3:]))
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True,
+                                  bufsize=1)
+            with fw_lock:
+                flash_proc = p
+            for ln in p.stdout:
+                ln = ln.rstrip('\r\n')
+                if ln:
+                    _flog(ln)
+                mm = _re.search(r'(\d+)\s*%', ln)
+                if mm:
+                    _flash_set(pct=int(mm.group(1)))
+            rc = p.wait()
+            with fw_lock:
+                flash_proc = None
+            if rc != 0:
+                _flash_set(running=False, ok=False,
+                           error=f'{phase} exited {rc}')
+                _flog(f'FAILED ({phase} exit {rc})', err=True)
+                return
+        _flash_set(running=False, ok=True, pct=100, phase='done')
+        _flog('serial flash OK — device reset')
+    except Exception as e:
+        with fw_lock:
+            flash_proc = None
+        _flash_set(running=False, ok=False, error=str(e))
+        _flog('ERROR ' + str(e), err=True)
+
+
+def _flash_ota(host, user, password):
+    """POST the uploaded .bin to Tasmota's /u2 web updater, with a
+    real upload-progress %."""
+    _flash_set(running=True, pct=0, ok=None, error='', phase='ota')
+    try:
+        with open(fw_path, 'rb') as f:
+            blob = f.read()
+        host = host.strip()
+        if ':' in host:
+            h, prt = host.split(':', 1)
+            prt = int(prt)
+        else:
+            h, prt = host, 80
+        bnd = '----serialmon' + str(int(time.time()))
+        pre = (f'--{bnd}\r\nContent-Disposition: form-data; '
+               f'name="u2"; filename="{fw_name or "firmware.bin"}"\r\n'
+               f'Content-Type: application/octet-stream\r\n\r\n'
+               ).encode()
+        post = f'\r\n--{bnd}--\r\n'.encode()
+        total = len(pre) + len(blob) + len(post)
+        conn = http.client.HTTPConnection(h, prt, timeout=25)
+        conn.putrequest('POST', '/u2')
+        conn.putheader('Content-Type',
+                        'multipart/form-data; boundary=' + bnd)
+        conn.putheader('Content-Length', str(total))
+        if password:
+            tok = base64.b64encode(
+                f'{user or "admin"}:{password}'.encode()).decode()
+            conn.putheader('Authorization', 'Basic ' + tok)
+        conn.endheaders()
+        _flog(f'OTA → http://{h}:{prt}/u2  ({len(blob)} bytes)')
+        conn.send(pre)
+        sent, step = 0, 8192
+        while sent < len(blob):
+            conn.send(blob[sent:sent + step])
+            sent += step
+            _flash_set(pct=min(99, int(100 * sent / len(blob))))
+        conn.send(post)
+        resp = conn.getresponse()
+        txt = resp.read(4000).decode('utf-8', 'replace')
+        conn.close()
+        ok = resp.status == 200 and 'Failed' not in txt \
+            and 'rror' not in txt[:200]
+        if ok:
+            _flash_set(running=False, ok=True, pct=100, phase='done')
+            _flog('OTA upload accepted — device is rebooting')
+        else:
+            _flash_set(running=False, ok=False,
+                       error=f'HTTP {resp.status}')
+            _flog(f'OTA FAILED HTTP {resp.status}: '
+                  f'{txt.strip()[:200]}', err=True)
+    except Exception as e:
+        _flash_set(running=False, ok=False, error=str(e))
+        _flog('OTA ERROR ' + str(e), err=True)
+
+
+def _flash_cancel():
+    with fw_lock:
+        p = flash_proc
+    if p is not None:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+        _flog('cancelled by user', err=True)
+        _flash_set(running=False, ok=False, error='cancelled')
+
+
 HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Serial Monitor</title>
@@ -443,8 +620,13 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #log.nosrc .s{display:none}
  #sport{width:64px}
  #cmd{flex:1;min-width:120px}
- #cmdbar{display:flex;gap:8px;align-items:center;padding:8px 10px;
-      background:var(--bar);border-top:1px solid #222}
+ #cmdbar,#flashbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+      padding:8px 10px;background:var(--bar);border-top:1px solid #222}
+ #flashbar{border-bottom:1px solid #222;border-top:0}
+ .hide{display:none!important}
+ #fwpct{width:160px;height:14px;accent-color:var(--acc)}
+ #flashbar .grp{display:flex;gap:8px;align-items:center}
+ #host{min-width:150px}
  #log.notime .t{display:none}
 </style></head><body>
 <div id="bar">
@@ -465,6 +647,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <span style="width:1px;height:22px;background:#30363d;margin:0 2px"></span>
   <button id="clear">Clear</button>
   <button id="save">Save</button>
+  <button id="flashtog" title="Flash firmware (serial via esptool / Tasmota OTA)">Flash ▾</button>
   <button id="quit" class="stop" title="Stop the server process">Quit</button>
   <label style="margin-left:6px"><input type="checkbox" id="auto" checked
     style="vertical-align:middle"> autoscroll</label>
@@ -476,6 +659,40 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     type="checkbox" id="srcck" checked
     style="vertical-align:middle"> src</label>
   <span id="stat"><span id="dot"></span><span id="msg">idle</span></span>
+</div>
+<div id="flashbar" class="hide">
+  <label>Firmware</label>
+  <input type="file" id="fwfile" accept=".bin">
+  <span id="fwinfo" style="color:var(--mut);font-size:12px">no file</span>
+  <label>Mode</label>
+  <select id="fmode">
+    <option value="serial" selected>Serial (esptool)</option>
+    <option value="ota">OTA (Tasmota /u2)</option>
+  </select>
+  <span id="gSerial" class="grp">
+    <label>Baud</label>
+    <select id="fbaud">
+      <option>115200</option><option selected>460800</option>
+      <option>921600</option><option>230400</option>
+    </select>
+    <label title="0x0 for ESP8266 and ESP32 *factory* images">Offset</label>
+    <input id="foffset" value="0x0" style="width:74px"
+      title="0x0 = full/factory image. App-only ESP32 image: 0x10000">
+    <label><input type="checkbox" id="ferase"> erase</label>
+    <span style="color:var(--mut);font-size:12px">uses the
+      Port selected above</span>
+  </span>
+  <span id="gOta" class="grp hide">
+    <label>Device</label>
+    <input id="host" placeholder="192.168.x.x or name"
+      autocomplete="off">
+    <input id="fwpass" type="password" placeholder="WebPassword (if set)"
+      style="width:160px" autocomplete="off">
+  </span>
+  <button id="flashgo" class="go">Flash</button>
+  <button id="flashcancel" class="stop hide">Cancel</button>
+  <progress id="fwpct" max="100" value="0" class="hide"></progress>
+  <span id="fwstat" style="color:var(--mut);font-size:12px"></span>
 </div>
 <div id="log" class="" tabindex="0"></div>
 <div id="cmdbar">
@@ -495,8 +712,12 @@ const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       connEl=$('#conn'), msgEl=$('#msg'), dotEl=$('#dot'),
       cmdEl=$('#cmd'), sendEl=$('#send'), eolEl=$('#eol'),
       syslogEl=$('#syslog'), sportEl=$('#sport'),
-      hostipEl=$('#hostip'), copyipEl=$('#copyip');
-let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false;
+      hostipEl=$('#hostip'), copyipEl=$('#copyip'),
+      fwfileEl=$('#fwfile'), fmodeEl=$('#fmode'),
+      flashgoEl=$('#flashgo'), flashcancelEl=$('#flashcancel'),
+      fwpctEl=$('#fwpct'), fwstatEl=$('#fwstat'), fwinfoEl=$('#fwinfo');
+let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false,
+    fwReady=false, flashing=false;
 let connected=false, since=0, total=0, dropped=0, pollTimer=null,
     MAXDOM=50000;   // keep huge but bounded scrollback in the DOM
 
@@ -592,6 +813,7 @@ async function poll(){
     syslogEl.className=j.syslog?'stop':'go';
     if(j.syslog&&+sportEl.value!==+j.sport) sportEl.value=j.sport;
     cmdEl.disabled=sendEl.disabled=!j.open;
+    updateFlash(j);
     if(j.lines&&j.lines.length) append(j.lines);
   }catch(e){ setStat(false,'server unreachable'); }
 }
@@ -669,6 +891,68 @@ syslogEl.onclick=async()=>{
   poll();
 };
 $('#srcck').onchange=e=>logEl.classList.toggle('nosrc',!e.target.checked);
+
+// ---- flasher ----
+$('#flashtog').onclick=()=>{
+  $('#flashbar').classList.toggle('hide');
+};
+fmodeEl.onchange=()=>{
+  const ota=fmodeEl.value==='ota';
+  $('#gOta').classList.toggle('hide',!ota);
+  $('#gSerial').classList.toggle('hide',ota);
+};
+fwfileEl.onchange=async()=>{
+  const f=fwfileEl.files[0]; if(!f)return;
+  fwinfoEl.textContent='uploading '+f.name+' …';
+  const fd=new FormData(); fd.append('fw',f,f.name);
+  try{
+    const j=await(await fetch('/api/fw',{method:'POST',body:fd})).json();
+    if(j.ok){fwReady=true;
+      fwinfoEl.textContent=j.name+'  ('+j.size.toLocaleString()+' B)';}
+    else{fwinfoEl.textContent='upload failed: '+(j.error||'?');}
+  }catch(e){fwinfoEl.textContent='upload error: '+e;}
+};
+flashgoEl.onclick=async()=>{
+  if(!fwReady){alert('Choose a firmware .bin first');return;}
+  let url,bdy;
+  if(fmodeEl.value==='ota'){
+    const host=$('#host').value.trim();
+    if(!host){alert('Enter the device IP/hostname');return;}
+    url='/api/flash/ota';
+    bdy={host,user:'admin',password:$('#fwpass').value};
+  }else{
+    const port=portEl.value;
+    if(!port){alert('Select the serial Port (top bar) first');return;}
+    if(!confirm('Serial-flash '+port+'? This closes the monitor on '
+      +'that port and overwrites the device.'))return;
+    url='/api/flash/serial';
+    bdy={port,baud:+$('#fbaud').value,offset:$('#foffset').value,
+         erase:$('#ferase').checked};
+  }
+  const j=await(await fetch(url,{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(bdy)})).json();
+  if(!j.ok) alert('Flash: '+(j.error||'failed'));
+  poll();
+};
+flashcancelEl.onclick=()=>fetch('/api/flash/cancel',{method:'POST'});
+function updateFlash(j){
+  const fs=j.flash||{}; flashing=!!fs.running;
+  if(j.fw&&!fwReady){fwReady=true;
+    fwinfoEl.textContent=j.fw+'  ('+(j.fwsize||0).toLocaleString()+' B)';}
+  if(!j.esptool&&fmodeEl.value==='serial')
+    fwstatEl.textContent='esptool missing → pip3 install --user esptool';
+  else if(fs.running)
+    fwstatEl.textContent=(fs.phase||'')+' '+(fs.pct||0)+'%';
+  else if(fs.ok===true) fwstatEl.textContent='✓ done';
+  else if(fs.ok===false) fwstatEl.textContent='✗ '+(fs.error||'failed');
+  else fwstatEl.textContent='';
+  fwpctEl.classList.toggle('hide',!fs.running);
+  fwpctEl.value=fs.pct||0;
+  flashgoEl.disabled=fs.running;
+  flashcancelEl.classList.toggle('hide',!fs.running);
+}
+
 $('#refresh').onclick=loadPorts;
 $('#clear').onclick=async()=>{
   await fetch('/api/clear',{method:'POST'});
@@ -741,10 +1025,14 @@ class H(BaseHTTPRequestHandler):
                 slog = syslog_port
                 dev, baud, rb, tot = cur_device, cur_baud, rx_bytes, \
                     len(log_buf)
+            with fw_lock:
+                fs = dict(flash_state)
             self._json({'lines': lines, 'seq': seq, 'total': tot,
                         'dropped': dropped, 'open': openf,
                         'dev': dev, 'baud': baud, 'rx_bytes': rb,
-                        'syslog': slog > 0, 'sport': slog})
+                        'syslog': slog > 0, 'sport': slog,
+                        'flash': fs, 'fw': fw_name, 'fwsize': fw_size,
+                        'esptool': _have_esptool()})
         elif path == '/api/save':
             with state_lock:
                 txt = ''.join(
@@ -760,13 +1048,69 @@ class H(BaseHTTPRequestHandler):
             self._send(404, b'not found', 'text/plain')
 
     def do_POST(self):
+        global fw_path, fw_name, fw_size
         path = urlparse(self.path).path
         n = int(self.headers.get('Content-Length', 0) or 0)
         raw = self.rfile.read(n) if n else b''
+        if path == '/api/fw':
+            fn, blob = _multipart_first_file(
+                raw, self.headers.get('Content-Type', ''))
+            if not blob:
+                self._json({'ok': False, 'error': 'no file'})
+                return
+            try:
+                fd, tmp = tempfile.mkstemp(suffix='.bin',
+                                           prefix='serialmon-fw-')
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(blob)
+            except Exception as e:
+                self._json({'ok': False, 'error': str(e)})
+                return
+            with fw_lock:
+                if fw_path and os.path.isfile(fw_path):
+                    try:
+                        os.unlink(fw_path)
+                    except Exception:
+                        pass
+                fw_path, fw_name, fw_size = tmp, os.path.basename(fn), \
+                    len(blob)
+            add_line('info', f'[flash] firmware loaded: {fw_name} '
+                             f'({fw_size} bytes)')
+            self._json({'ok': True, 'name': fw_name, 'size': fw_size})
+            return
         try:
             body = json.loads(raw) if raw else {}
         except Exception:
             body = {}
+        if path == '/api/flash/serial':
+            err = _flash_guard()
+            if not err and not body.get('port'):
+                err = 'no serial port selected'
+            if err:
+                self._json({'ok': False, 'error': err})
+            else:
+                threading.Thread(target=_flash_serial, args=(
+                    body['port'], body.get('baud', 460800),
+                    body.get('offset', '0x0'),
+                    bool(body.get('erase'))), daemon=True).start()
+                self._json({'ok': True})
+            return
+        if path == '/api/flash/ota':
+            err = _flash_guard()
+            if not err and not body.get('host'):
+                err = 'no device host/IP'
+            if err:
+                self._json({'ok': False, 'error': err})
+            else:
+                threading.Thread(target=_flash_ota, args=(
+                    body['host'], body.get('user', 'admin'),
+                    body.get('password', '')), daemon=True).start()
+                self._json({'ok': True})
+            return
+        if path == '/api/flash/cancel':
+            _flash_cancel()
+            self._json({'ok': True})
+            return
         if path == '/api/open':
             ok, err = _open_serial(body.get('device', ''),
                                    body.get('baud', 115200))
