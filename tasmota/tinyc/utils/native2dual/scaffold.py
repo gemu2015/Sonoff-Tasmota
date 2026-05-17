@@ -301,23 +301,30 @@ def main():
                 continue                     # this match is the declaration
             return True
         return False
-    # struct Tag { ... } inst[..];  -> split type vs instance
+    # `struct [Tag] { ... } inst[..];` -> move instance into
+    # MODULE_MEMORY. TAG IS OPTIONAL: ANONYMOUS `struct { ... } inst;`
+    # (xsns_10_bh1750 / xsns_26_lm75ad) was previously unmatched →
+    # state not wrapped → no MODULE_MEMORY emitted → SETREGS (which
+    # references the MODULE_MEMORY type) failed to compile. Tagged:
+    # type_defs + `Tag inst;`. Anonymous: embed the (init-stripped)
+    # struct definition directly as the member type (no tag to name).
+    def _strip_inits(sd):
+        # Strip C++ in-class member initializers (`float t = NAN;`,
+        # `uint8_t v = 0;`) — plugin build disallows them; MODULE_MEMORY
+        # is raw jcalloc'd heap (no ctor). Only the `{...}` body.
+        i, j = sd.index('{'), sd.rindex('}')
+        inner = re.sub(r'\s*=\s*[^;,{}]+(?=[;,])', '', sd[i+1:j])
+        return sd[:i+1] + inner + sd[j:]
     for m in list(re.finditer(
-            r'^(struct\s+(\w+)\s*\{[^}]*\})\s*([A-Za-z_]\w*)\s*'
+            r'^(struct\s+(\w+)?\s*\{[^{}]*\})\s*([A-Za-z_]\w*)\s*'
             r'(\[[^\]]*\])?\s*;', body, re.S | re.M)):
         tdef, tag, inst, arr = m.groups()
-        # Strip C++ in-class member initializers (`float t = NAN;`,
-        # `uint8_t v = 0;`). The plugin build disallows them and they
-        # never run anyway — MODULE_MEMORY is raw jcalloc'd heap (no
-        # ctor). Mirrors the hand-dual slimming. Only the `{...}` body
-        # is touched; simple-expr inits ( = X before ; or , ).
-        def _strip_inits(sd):
-            i, j = sd.index('{'), sd.rindex('}')
-            inner = re.sub(r'\s*=\s*[^;,{}]+(?=[;,])', '', sd[i+1:j])
-            return sd[:i+1] + inner + sd[j:]
         tdef = _strip_inits(tdef)
-        type_defs.append(tdef + ';')
-        mem_fields.append(f'{tag} {inst}{arr or ""};')
+        if tag:
+            type_defs.append(tdef + ';')
+            mem_fields.append(f'{tag} {inst}{arr or ""};')
+        else:                                   # anonymous struct
+            mem_fields.append(f'{tdef} {inst}{arr or ""};')
         accessors.append(f'#define {inst} mem->{inst}')
         body = body.replace(m.group(0), '', 1)
     # plain scalar/array file-scope vars
@@ -432,7 +439,14 @@ def main():
             'typedef struct {'] + ['  ' + f for f in mem_fields] + \
             ['} MODULE_MEMORY;'] + accessors
     else:
-        STATE = type_defs
+        # No file-scope mutable state, but SETREGS/SETMEMREGS still
+        # reference the MODULE_MEMORY *type* — emit a minimal one so a
+        # stateless driver compiles (else: "MODULE_MEMORY not declared").
+        STATE = type_defs + [
+            f'#define DUAL_NATIVE_NAME    {NM}',
+            f'#define DUAL_NATIVE_STATE_T {NM}_n2d_state_t',
+            '#include "dual_format_native_state.h"',
+            'typedef struct { uint32_t _n2d_unused; } MODULE_MEMORY;']
 
     # --- per-function prologue pass (brace-matched, string/comment-safe).
     #     ALLOCMEM in the INIT path, SETMEMREGS elsewhere; + STGLOB when
@@ -569,29 +583,73 @@ def main():
 #  ifdef USE_{U}_N2D_MOD
 #    define _{U}_N2D_ENABLED 1
 #  endif
-// native2dual: route native dual-bus I2C onto the append-only JMPTBL
-// slots 216/217/218. FILE-LOCAL only — module_defines.h's global
-// `#define I2cWrite8 jI2cWrite8` (jt[45], 3-arg) is undef'd here just
-// for this scaffolded TU; no other plugin source is affected, so this
-// changes the behaviour of NOTHING that already exists.
-#  undef  I2cWrite8
-#  define I2cWrite8(a,r,v,b)       jI2cWrite8Bus((a),(r),(v),(b))
-#  undef  I2cWrite0
-#  define I2cWrite0(a,r,b)         jI2cWrite0((a),(r),(b))
-#  undef  I2cReadBuffer0
-#  define I2cReadBuffer0(a,bf,l,b) jI2cReadBuffer0((a),(bf),(l),(b))
-// Dual-bus I2C reads onto the jt[219] selector slot. I2cRead8 has a
-// frozen 2-arg `#define I2cRead8 jI2cRead8` (jt[?]) for existing
-// plugins — undef + file-local 3-arg form (like I2cWrite8). The
-// others have no frozen form. FILE-LOCAL; native build untouched.
+// native2dual: ARITY-DISPATCHING file-local I2C/GPIO remaps. Native
+// drivers use mixed arities — the legacy single-bus form
+// (I2cRead8(a,r), I2cWrite8(a,r,v), Pin(g), I2cSetActiveFound(a,n))
+// AND the newer bus-carrying form. A fixed-arity #define breaks the
+// other arity (macro arg-count error). Dispatch on __VA_ARGS__ count:
+// short arity -> the FROZEN jt slot (unchanged behaviour), long arity
+// -> the appended dual-bus slot. FILE-LOCAL, #if BUILD_AS_PLUGIN only
+// (native uses the real overloaded Tasmota fns) — nothing existing
+// changes. Supports 1..4 args.
+#  define _N2N(...)            _N2N_(__VA_ARGS__,4,3,2,1,0)
+#  define _N2N_(a,b,c,d,N,...) N
+#  define _N2C(x,y)            _N2C_(x,y)
+#  define _N2C_(x,y)           x##y
 #  undef  I2cRead8
-#  define I2cRead8(a,r,b)          jI2cRead8Bus((a),(r),(b))
+#  define I2cRead8(...)        _N2C(_n2dR8_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dR8_2(a,r)        jI2cRead8((a),(r))
+#  define _n2dR8_3(a,r,b)      jI2cRead8Bus((a),(r),(b))
+#  undef  I2cWrite8
+#  define I2cWrite8(...)       _N2C(_n2dW8_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dW8_3(a,r,v)      jI2cWrite8((a),(r),(v))
+#  define _n2dW8_4(a,r,v,b)    jI2cWrite8Bus((a),(r),(v),(b))
+#  undef  I2cRead16
+#  define I2cRead16(...)       _N2C(_n2dR16_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dR16_2(a,r)       jI2cRead16((a),(r),0)
+#  define _n2dR16_3(a,r,b)     jI2cRead16((a),(r),(b))
+#  undef  I2cWrite16
+#  define I2cWrite16(...)      _N2C(_n2dW16_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dW16_3(a,r,v)     jI2cWrite16((a),(r),(v),0)
+#  define _n2dW16_4(a,r,v,b)   jI2cWrite16((a),(r),(v),(b))
+#  undef  I2cWrite0
+#  define I2cWrite0(...)       _N2C(_n2dW0_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dW0_2(a,r)        jI2cWrite0((a),(r),0)
+#  define _n2dW0_3(a,r,b)      jI2cWrite0((a),(r),(b))
+#  undef  I2cReadBuffer0
+#  define I2cReadBuffer0(...)  _N2C(_n2dRB_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dRB_3(a,bf,l)     jI2cReadBuffer0((a),(bf),(l),0)
+#  define _n2dRB_4(a,bf,l,b)   jI2cReadBuffer0((a),(bf),(l),(b))
 #  undef  I2cRead24
-#  define I2cRead24(a,r,b)         jI2cRead24((a),(r),(b))
+#  define I2cRead24(...)       _N2C(_n2dR24_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dR24_2(a,r)       jI2cRead24((a),(r),0)
+#  define _n2dR24_3(a,r,b)     jI2cRead24((a),(r),(b))
 #  undef  I2cRead16LE
-#  define I2cRead16LE(a,r,b)       jI2cRead16LE((a),(r),(b))
+#  define I2cRead16LE(...)     _N2C(_n2dR16L_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dR16L_2(a,r)      jI2cRead16LE((a),(r),0)
+#  define _n2dR16L_3(a,r,b)    jI2cRead16LE((a),(r),(b))
 #  undef  I2cReadS16_LE
-#  define I2cReadS16_LE(a,r,b)     jI2cReadS16_LE((a),(r),(b))
+#  define I2cReadS16_LE(...)   _N2C(_n2dRS16L_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dRS16L_2(a,r)     jI2cReadS16_LE((a),(r),0)
+#  define _n2dRS16L_3(a,r,b)   jI2cReadS16_LE((a),(r),(b))
+#  undef  I2cSetActiveFound
+#  define I2cSetActiveFound(...) _N2C(_n2dSAF_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dSAF_2(a,n)       jI2cSetActiveFound((a),(n),0)
+#  define _n2dSAF_3(a,n,b)     jI2cSetActiveFound((a),(n),(b))
+#  undef  Pin
+#  define Pin(...)             _N2C(_n2dPin_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dPin_1(p)         jPin((p),0)
+#  define _n2dPin_2(p,i)       jPin((p),(i))
+#  undef  I2cSetDevice
+#  define I2cSetDevice(...)    _N2C(_n2dSD_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dSD_1(a)          jI2cSetDevice((a),0)
+#  define _n2dSD_2(a,b)        jI2cSetDevice((a),(b))
+// I2cReadS16 (signed big-endian 16) has no jt slot — it is exactly
+// `(int16_t)` of the unsigned jI2cRead16 (jt[20]); reinterpret.
+#  undef  I2cReadS16
+#  define I2cReadS16(...)      _N2C(_n2dRS16_,_N2N(__VA_ARGS__))(__VA_ARGS__)
+#  define _n2dRS16_2(a,r)      ((int16_t)jI2cRead16((a),(r),0))
+#  define _n2dRS16_3(a,r,b)    ((int16_t)jI2cRead16((a),(r),(b)))
 // Native drivers iterate `for (bus=0; bus<MAX_I2C; bus++)`. In the
 // plugin TU `MAX_I2C` (firmware's tasmota_globals.h SoC-controller
 // count) is NOT in scope — tasmota_options.h doesn't pull it — so the
