@@ -409,10 +409,15 @@ $('#hex').onchange=()=>{
 };
 $('#quit').onclick=async()=>{
   if(!confirm('Stop the Serial Monitor server?'))return;
-  try{await fetch('/api/quit',{method:'POST'});}catch(e){}
   if(pollTimer)clearInterval(pollTimer);
-  setStat(false,'server stopped — you can close this tab');
+  try{await fetch('/api/quit',{method:'POST'});}catch(e){}
   document.title='Serial Monitor (stopped)';
+  document.body.innerHTML=
+    '<div style="font:1.2em -apple-system,sans-serif;padding:60px;'+
+    'text-align:center;color:#7a8aa0;background:#0e1116;'+
+    'height:100vh;margin:0;">'+
+    '<h2 style="color:#d6deeb">Serial Monitor stopped.</h2>'+
+    '<p>You can close this tab.</p></div>';
 };
 
 loadPorts(); poll(); pollTimer=setInterval(poll,250);
