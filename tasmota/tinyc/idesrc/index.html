@@ -519,11 +519,11 @@
     <!-- Header -->
     <div class="header">
         <div>
-            <h1>TinyC IDE v1.6.5</h1>
-            <!-- Header version is hand-maintained; keep in sync with
-                 TC_RELEASE in tasmota/include/xdrv_124_tinyc_vm.h.
-                 (Spotted out-of-date by Andreas's Claude review of
-                 1.5.2 — was stuck at 1.3.20 for 5 releases.) -->
+            <h1>TinyC IDE v__TC_RELEASE__</h1>
+            <!-- Version + heap limit are AUTO-INJECTED by bundle.py
+                 from TC_RELEASE / TC_MAX_HEAP in xdrv_124_tinyc_vm.h
+                 (user_config_override.h wins for heap). No hand-sync —
+                 ends the recurring drift (stuck at 1.3.20 / 1.6.5). -->
 
             <span class="subtitle">ESP32/ESP8266 Bytecode Compiler & VM</span>
         </div>

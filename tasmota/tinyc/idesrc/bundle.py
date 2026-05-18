@@ -185,6 +185,36 @@ if anchor in html:
 else:
     print("WARNING: Could not find insertion point for auto-detect code")
 
+# Auto-inject TC_MAX_HEAP + TC_RELEASE so the IDE always tracks the
+# firmware (no more manual codegen.js / banner drift). user override
+# wins; else the ESP32 default from the C header.
+def _slurp(p):
+    try:
+        with open(p) as fh:
+            return fh.read()
+    except Exception:
+        return ''
+
+_vm  = _slurp('../../include/xdrv_124_tinyc_vm.h')
+_ovr = _slurp('../../user_config_override.h')
+
+_m = re.search(r'^\s*#define\s+TC_MAX_HEAP\s+(\d+)', _ovr, re.M)
+if _m:
+    _heap = int(_m.group(1)); _heap_src = 'user_config_override.h'
+else:
+    _vals = [int(v) for v in re.findall(
+        r'#define\s+TC_MAX_HEAP\s+(\d+)', _vm)]
+    _heap = max(_vals) if _vals else 16384; _heap_src = 'xdrv_124_tinyc_vm.h'
+
+_rm  = re.search(r'#define\s+TC_RELEASE\s+"([^"]+)"', _vm)
+_rel = _rm.group(1) if _rm else '?'
+
+html, _n = re.subn(r'const TC_MAX_HEAP_SLOTS = \d+;',
+                    f'const TC_MAX_HEAP_SLOTS = {_heap};', html)
+html = html.replace('__TC_RELEASE__', _rel)
+print(f"Injected TC_MAX_HEAP={_heap} (from {_heap_src}, {_n} site) "
+      f"TC_RELEASE={_rel}")
+
 # Write bundled HTML
 with open('tinyc_ide.html', 'w') as f:
     f.write(html)
