@@ -37,6 +37,7 @@ EXAMPLES = [
     ('sort',           'Bubble Sort'),
     ('file_io',        'File I/O'),
     ('persist_array_file', 'Persist arrays (script-managed file)'),
+    ('dmx_dimmer_panel', 'DMX dimmer panel (slider + channel)'),
     ('callbacks',      'Callbacks'),
     ('chart',          'Google Chart'),
     ('live_chart',     'Live Chart (_Q)'),

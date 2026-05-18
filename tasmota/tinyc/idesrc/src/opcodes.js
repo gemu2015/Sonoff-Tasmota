@@ -415,7 +415,8 @@ export const Syscall = {
     SHARE_DELETE:   347, // (key_const_idx)          -> int  1 if removed
     SHARE_DUMP:     352, // ()                       -> int  number of live entries
     PERSIST_DUMP:   395, // ()                       -> int  number of persist entries (logs each)
-    DMX_WRITE:      396, // (channel, value)         -> void  set DMX512 slot (1..512) to 0..255; TX-only on UART2
+    DMX_WRITE:      396, // (channel, value)         -> void  set DMX512 slot (1..512) to 0..255; TX-only
+    DMX_INIT:       397, // (uart, rx, tx)           -> int   configure DMX512 TX at runtime (auto-direction RS485, no DE); 1=ok 0=fail
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

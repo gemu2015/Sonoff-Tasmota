@@ -1,0 +1,39 @@
+// dmx_dimmer_panel.tc — minimal DMX512 test panel.
+//
+// /tc_ui page: a TX-pin pulldown (TinyC's built-in free-GPIO
+// selector), a DMX-channel number input and a value slider.
+// Picking a pin re-inits the DMX UART at runtime; the value is
+// pushed once per second (firmware also auto-refreshes the DMX
+// frame ~20 Hz and runs a 30 s watchdog → 0).
+//
+// Hardware: an auto-direction RS485 transceiver on the chosen TX
+// pin (no DE pin needed). DMX is TX-only.
+//
+// Note: "@getfreepins" lists only GPIOs Tasmota currently has free
+// (the bound var holds the real GPIO number, or -1 = None).
+
+int txpin = 17;   // DMX TX GPIO — set via the @getfreepins pulldown
+int chan  = 1;    // DMX channel  (webNumber 1..16)
+int val   = 0;    // DMX value    (webSlider 0..255)
+int curtx = -2;   // last-initialised pin (-2 = not yet)
+
+void main() {
+  webPageLabel("DMX");   // adds a "DMX" button on the Tasmota main page
+}
+
+// Rendered on the /tc_ui page (every 2 s + on widget change).
+void WebUI() {
+  webPulldown(txpin, "DMX TX pin", "@getfreepins");
+  webNumber(chan, 1, 16,  "DMX Channel");
+  webSlider(val,  0, 255, "DMX Value");
+}
+
+void EverySecond() {
+  if (txpin != curtx) {                 // pin changed → (re)init
+    curtx = txpin;
+    if (txpin >= 0) {
+      if (dmxInit(2, -1, txpin) == 0) { log("DMX init failed"); }
+    }
+  }
+  if (txpin >= 0) { dmxWrite(chan, val); }   // push + feed watchdog
+}
