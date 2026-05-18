@@ -18,7 +18,7 @@ int val   = 0;    // DMX value    (webSlider 0..255)
 int curtx = -2;   // last-initialised pin (-2 = not yet)
 
 void main() {
-  webPageLabel("DMX");   // adds a "DMX" button on the Tasmota main page
+  webPageLabel(0, "DMX");   // adds a "DMX" button on the Tasmota main page
 }
 
 // Rendered on the /tc_ui page (every 2 s + on widget change).
