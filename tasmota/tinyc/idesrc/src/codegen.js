@@ -4398,14 +4398,27 @@ export class CodeGenerator {
         const TC_WARN_HEAP_SLOTS = 14000;
         let totalSlots = 0;
         for (const [, info] of this.heapArrays) totalSlots += info.arraySize;
-        if (totalSlots > TC_MAX_HEAP_SLOTS) {
+        // The DEVICE is the real enforcer: the VM heap is grown
+        // dynamically and rejected at load against the *actual*
+        // TC_MAX_HEAP (which user_config_override.h may raise). The
+        // IDE only knows the firmware default, so past it we WARN, not
+        // block — a big program is fine on a device with a raised
+        // TC_MAX_HEAP. A hard error stays ONLY for an absurd overflow
+        // (almost certainly a bug) so broken programs still fail fast.
+        const TC_HEAP_HARD_CEIL = TC_MAX_HEAP_SLOTS * 4;
+        if (totalSlots > TC_HEAP_HARD_CEIL) {
             throw new CodeGenError(
-                `Heap limit exceeded: ${totalSlots} slots needed, max ${TC_MAX_HEAP_SLOTS} (${Math.round(TC_MAX_HEAP_SLOTS*4/1024)} KB) on ESP32. ` +
-                `Reduce array sizes (char[N] = 1 slot/byte, int[N]/float[N] = 1 slot/element), ` +
-                `or raise TC_MAX_HEAP in user_config_override.h + re-run idesrc/bundle.py (the IDE limit auto-tracks it).`);
+                `Heap way over limit: ${totalSlots} slots (${Math.round(totalSlots*4/1024)} KB) — far above the ` +
+                `${TC_MAX_HEAP_SLOTS}-slot firmware default; almost certainly an oversized-array bug ` +
+                `(char[N] = 1 slot/byte, int[N]/float[N] = 1 slot/element).`);
         }
-        if (totalSlots > TC_WARN_HEAP_SLOTS) {
-            this.warnings.push(`Heap usage high: ${totalSlots}/${TC_MAX_HEAP_SLOTS} slots (${Math.round(totalSlots*4/1024)} KB of 64 KB). Consider reducing array sizes.`);
+        if (totalSlots > TC_MAX_HEAP_SLOTS) {
+            this.warnings.push(
+                `Heap ${totalSlots} slots (${Math.round(totalSlots*4/1024)} KB) exceeds the ${TC_MAX_HEAP_SLOTS}-slot ` +
+                `firmware default — OK only if the target device has TC_MAX_HEAP raised in user_config_override.h, ` +
+                `else it is rejected at load. The device is authoritative.`);
+        } else if (totalSlots > TC_WARN_HEAP_SLOTS) {
+            this.warnings.push(`Heap usage high: ${totalSlots}/${TC_MAX_HEAP_SLOTS} slots (${Math.round(totalSlots*4/1024)} KB). Consider reducing array sizes.`);
         }
         const bytes = [];
         bytes.push(this.heapArrays.size);  // count
