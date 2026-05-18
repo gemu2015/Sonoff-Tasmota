@@ -19,6 +19,7 @@ const BUILTINS = {
     // GPIO
     'pinMode':          { syscall: Syscall.PIN_MODE,        args: 2, returns: false },
     'digitalWrite':     { syscall: Syscall.DIGITAL_WRITE,   args: 2, returns: false },
+    'dmxWrite':         { syscall: Syscall.DMX_WRITE,       args: 2, returns: false },
     'digitalRead':      { syscall: Syscall.DIGITAL_READ,    args: 1, returns: true },
     'analogRead':       { syscall: Syscall.ANALOG_READ,     args: 1, returns: true },
     'analogWrite':      { syscall: Syscall.ANALOG_WRITE,    args: 2, returns: false },

@@ -4352,6 +4352,9 @@ bool Xdrv124(uint32_t function) {
       tc_all_callbacks_id(TC_CB_LOOP);
       break;
     case FUNC_EVERY_50_MSECOND:
+      tc_dmx_tick();   // DMX refresh + watchdog — runs even if VM paused
+                       // so the dimmer never loses its frame (no-op
+                       // until first dmxWrite / if TC_DMX_TX_PIN unset)
       if (tc_paused) { break; }
       TinyCEvery50ms();
       if (TasmotaGlobal.rules_flag.mqtt_disconnected) {
