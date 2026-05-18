@@ -23,7 +23,6 @@
 #ifdef USE_WEBCAM_V2
 
 #undef WEBCAM_DEV_DEBUG
-#define WEBCAM_DEV_DEBUG
 
 /*********************************************************************************************\
  * ESP32 webcam based on example in Arduino-ESP32 library
@@ -289,34 +288,32 @@ extern FS *ffsp;
 #endif
 
 bool HttpCheckPriviledgedAccess(bool);
-extern ESP8266WebServer *Webserver;
+extern TasmotaWebServer *Webserver;
 
 SemaphoreHandle_t WebcamMutex = nullptr;
 
 
 
 
-// Frame intervals in ms at 20MHz XCLK.
-// Indices must match the framesize_t enum in the esp32-camera library.
-// New library (Arduino ESP32 ≥3.x) added FRAMESIZE_128X128 and FRAMESIZE_320X320.
-// Empirically, intervals scale linearly with XCLK frequency.
+// these are the frame intervals at 20mhz
+// empirically, they directly scale with frequency.
+// for 30mhz, 50fps -> 75fps; for 15 mhz, 37.5fps, 
+// Q: what happens at 30 mains?
 const int nativeIntervals20ms[] = {
-    20, //0  = FRAMESIZE_96X96,    // 96x96
-    20, //1  = FRAMESIZE_QQVGA,    // 160x120
-    20, //2  = FRAMESIZE_128X128,  // 128x128
-    20, //3  = FRAMESIZE_QCIF,     // 176x144
-    20, //4  = FRAMESIZE_HQVGA,    // 240x176
-    20, //5  = FRAMESIZE_240X240,  // 240x240
-    20, //6  = FRAMESIZE_QVGA,     // 320x240
-    20, //7  = FRAMESIZE_320X320,  // 320x320
-    20, //8  = FRAMESIZE_CIF,      // 400x296
-    20, //9  = FRAMESIZE_HVGA,     // 480x320
-    40, //10 = FRAMESIZE_VGA,      // 640x480
-    40, //11 = FRAMESIZE_SVGA,     // 800x600
-    80, //12 = FRAMESIZE_XGA,      // 1024x768
-    80, //13 = FRAMESIZE_HD,       // 1280x720
-    80, //14 = FRAMESIZE_SXGA,     // 1280x1024
-    80, //15 = FRAMESIZE_UXGA,     // 1600x1200
+    20, //0 = FRAMESIZE_96X96,    // 96x96 (50fps, ~48fps) - at wcclock=30 (75, ~53)
+    20, //1 = FRAMESIZE_QQVGA,    // 160x120 (50fps ~47fps)
+    20, //2 = FRAMESIZE_QCIF,     // 176x144 (50fps ~47fps)
+    20, //3 = FRAMESIZE_HQVGA,    // 240x176 (50fps ~37fps?)
+    20, //4 = FRAMESIZE_240X240,  // 240x240 (50fps ~39fps)
+    20, //5 = FRAMESIZE_QVGA,     // 320x240 (50fps ~35fps)
+    20, //6 = FRAMESIZE_CIF,      // 400x296 (50fps ~31fps)
+    20, //7 = FRAMESIZE_HVGA,     // 480x320 (25fps ~24fps)
+    40, //8 = FRAMESIZE_VGA,      // 640x480 (25fps ~19fps)
+    40, //9 = FRAMESIZE_SVGA,     // 800x600 (25fps ~15.5fps)
+    80, //10 = FRAMESIZE_XGA,      // 1024x768 (12.5fps, ~10fps)
+    80, //11 = FRAMESIZE_HD,       // 1280x720 (12.5fps, ~9fps)
+    80, //12 = FRAMESIZE_SXGA,     // 1280x1024 (12.5fps, ~7.5fps)
+    80, //13 = FRAMESIZE_UXGA,     // 1600x1200 (12.5fps, ~5fps)
 };
 
 
@@ -440,7 +437,7 @@ struct {
   volatile uint8_t  camPixelFormat; // 
 
   // our (separate) webserver on port 81
-  ESP8266WebServer *CamServer;
+  TasmotaWebServer *CamServer;
   // pointer to the first http streaming client in a list of multiple clients, or nullptr
   wc_client *client_p;
   struct PICSTORE picstore[MAX_PICSTORE];
@@ -700,30 +697,28 @@ struct PICSTORE VideoJpeg = {0};
 // xdrv_50_filesystem.ino - bool TfsSaveFile(const char *fname, const uint8_t *buf, uint32_t len)
 // support_esp.ino - void NvmSave(const char *sNvsName, const char *sName, const void *pSettings, unsigned nSettingsLen)
 void WcInterrupt(uint32_t state) {
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2)
-  // On ESP32-S3/S2 (LCD_CAM + GDMA), camera DMA does not conflict with
-  // flash/NVS writes.  cam_stop() leaves GDMA in a stuck state that
-  // cam_start() cannot recover from.  Even just pausing the streaming task
-  // (via disable_cam + mutex) causes fb_get to fail permanently.
-  // The safest approach is to let the camera run undisturbed.
-  return;
-#else
   TasAutoMutex localmutex(&WebcamMutex, "WcInterrupt", 20000);
+  // Stop camera ISR if active to fix TG1WDT_SYS_RESET
   if (!Wc.up) { return; }
 
-  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: WcInterrupt(%d)"), state);
-
+  // why stop/start the server itself here?
+  // stopping the cam interrupt should be enough?
+  //WcSetStreamserver(state);
   if (state) {
-    // On original ESP32 (I2S-based camera), DMA conflicts with flash writes
-    // and causes TG1WDT_SYS_RESET.  Must stop and restart the camera.
-    esp_camera_return_all();
+    // Re-enable interrupts
     cam_start();
+#ifdef WEBCAM_DEV_DEBUG  
+    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: cam_start()"));
+#endif    
     Wc.disable_cam = 0;
   } else {
+    // Stop interrupts
     Wc.disable_cam = 1;
     cam_stop();
-  }
+#ifdef WEBCAM_DEV_DEBUG  
+    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: cam_stop()"));
 #endif
+  }
 }
 
 
@@ -744,7 +739,7 @@ bool WcWaitZero(volatile int8_t *val, int8_t initial, int timeout_ms){
 // TAS will disable us for short periods...
 // this wait for TAS to re-enable it
 void WcWaitEnable(){
-  int timeout_ms = 5000;  // NVS/flash writes can take several seconds
+  int timeout_ms = 1000;
   int loops = timeout_ms/WC_WAIT_INTERVAL_MS;
   if (!loops) loops = 1;
   while(Wc.disable_cam && loops--){
@@ -900,7 +895,7 @@ void WcSetDefaults(uint32_t upgrade) {
 void WcCamOff() {
   TasAutoMutex localmutex(&WebcamMutex, "WcCamOff", 30000);
   // deinit camera
-  WcSetup(-1);
+  WcSetup((int32_t)-1);
   // kill any existing clients
   WcEndStream();
 #ifdef ENABLE_RTSPSERVER
@@ -979,26 +974,12 @@ uint32_t WcSetup(int32_t fsiz) {
     config.pin_href = Pin(GPIO_WEBCAM_HREF);      // HREF_GPIO_NUM;
     config.pin_sccb_sda = Pin(GPIO_WEBCAM_SIOD);  // SIOD_GPIO_NUM; - unset to use shared I2C bus 2
     config.pin_sccb_scl = Pin(GPIO_WEBCAM_SIOC);  // SIOC_GPIO_NUM;
-    if(TasmotaGlobal.i2c_enabled[1]){
-      if(config.pin_sccb_sda < 0){
-        // SCCB pins not in template but I2C bus 2 is on the SCCB GPIOs.
-        // Take over the pins for camera SCCB. Wire1 must be fully released
-        // BEFORE camera init — the camera driver creates a fresh I2C master
-        // on port 1 via SCCB_Init(). If Wire1 was ever active on port 1,
-        // the bus recycling leaves residual state that prevents LCD_CAM DMA
-        // frame capture. Best practice: use WEBCAM_SIOD/SIOC in the template
-        // instead of I2C bus 2 so Wire1 is never initialized on these pins.
-        config.pin_sccb_sda = Pin(GPIO_I2C_SDA, 1);
-        config.pin_sccb_scl = Pin(GPIO_I2C_SCL, 1);
-        Wire1.end();
-        TasmotaGlobal.i2c_enabled[1] = false;
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-#ifdef WEBCAM_DEV_DEBUG
-        extern bool i2cIsInit(uint8_t);
-        AddLog(LOG_LEVEL_INFO, PSTR("CAM: SCCB pins SDA=%d SCL=%d (Wire1 released, I2C bus2 disabled, port1 %s)"),
-          config.pin_sccb_sda, config.pin_sccb_scl,
-          i2cIsInit(1) ? "STILL ACTIVE" : "released");
-#endif
+    if(TasmotaGlobal.i2c_enabled[1]){              // configure SIOD and SIOC as SDA,2 and SCL,2
+      config.sccb_i2c_port = 1;                   // reuse initialized bus 2, can be shared now
+      if(config.pin_sccb_sda < 0){                // GPIO_WEBCAM_SIOD must not be set to really make it happen
+#ifdef WEBCAM_DEV_DEBUG  
+        AddLog(LOG_LEVEL_INFO, PSTR("CAM: Use I2C bus2"));
+#endif        
       }
     }
     config.pin_pwdn = Pin(GPIO_WEBCAM_PWDN);       // PWDN_GPIO_NUM;
@@ -1061,12 +1042,21 @@ uint32_t WcSetup(int32_t fsiz) {
     }
   }
 
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
-
-#ifdef WEBCAM_DEV_DEBUG
-  AddLog(LOG_LEVEL_DEBUG, "CAM: XCLK on GPIO %i ledc ch %i timer %i", config.pin_xclk, config.ledc_channel, config.ledc_timer);
+#ifdef WEBCAM_DEV_DEBUG  
+  AddLog(LOG_LEVEL_DEBUG, "CAM: get ledc channel");
 #endif
+
+  int32_t ledc_channel = analogAttach(config.pin_xclk);
+  if (ledc_channel < 0) {
+#ifdef WEBCAM_DEV_DEBUG  
+    AddLog(LOG_LEVEL_ERROR, "CAM: cannot allocated ledc channel, remove a PWM GPIO");
+#endif    
+  }
+  config.ledc_channel = (ledc_channel_t) ledc_channel;
+#ifdef WEBCAM_DEV_DEBUG  
+  AddLog(LOG_LEVEL_DEBUG_MORE, "CAM: XCLK on GPIO %i using ledc channel %i", config.pin_xclk, config.ledc_channel);
+#endif  
+  config.ledc_timer = LEDC_TIMER_0;
 //  config.xclk_freq_hz = 20000000;
   if (!Settings->webcam_clk) Settings->webcam_clk = 20;
   config.xclk_freq_hz = Settings->webcam_clk * 1000000;
@@ -1096,13 +1086,11 @@ uint32_t WcSetup(int32_t fsiz) {
 
   Wc.psram = UsePSRAM();
   if (Wc.psram) {
-    config.frame_size = (framesize_t)fsiz;
+    config.frame_size = FRAMESIZE_UXGA;
     config.jpeg_quality = 10;
     config.fb_count = 2;
-    config.grab_mode = CAMERA_GRAB_LATEST;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-#ifdef WEBCAM_DEV_DEBUG
-    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: PSRAM found, init fsiz %d"), fsiz);
+#ifdef WEBCAM_DEV_DEBUG  
+    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: PSRAM found"));
 #endif
   } else {
     config.frame_size = FRAMESIZE_VGA;
@@ -1112,73 +1100,51 @@ uint32_t WcSetup(int32_t fsiz) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: PSRAM not found"));
   }
 
-  // enable verbose camera driver logging for debugging
-  esp_log_level_set("cam_hal", ESP_LOG_DEBUG);
-  esp_log_level_set("sccb", ESP_LOG_DEBUG);
-  esp_log_level_set("camera", ESP_LOG_DEBUG);
-  esp_log_level_set("lcd_cam", ESP_LOG_DEBUG);
-  esp_log_level_set("gdma", ESP_LOG_DEBUG);
 
   esp_err_t err;
-  sensor_t * wc_s = NULL;
-
-  err = esp_camera_init(&config);
-  if (err != ESP_OK) {
-    AddLog(LOG_LEVEL_INFO, PSTR("CAM: InitErr 0x%x"), err);
-    esp_camera_deinit();
-    // retry once after power cycle
-    if (config.pin_pwdn >= 0){
-      gpio_set_level((gpio_num_t)config.pin_pwdn, 1);
-      vTaskDelay(500 / portTICK_PERIOD_MS);
-      gpio_set_level((gpio_num_t)config.pin_pwdn, 0);
-      vTaskDelay(500 / portTICK_PERIOD_MS);
-    }
+  // cannot hurt to retry...
+  for (int i = 0; i < 3; i++){
     err = esp_camera_init(&config);
     if (err != ESP_OK) {
-      AddLog(LOG_LEVEL_INFO, PSTR("CAM: InitErr 0x%x (retry)"), err);
+      AddLog(LOG_LEVEL_INFO, PSTR("CAM: InitErr 0x%x try %d"), err, (i+1));
       esp_camera_deinit();
-      Wc.lastCamError = err;
-      return 0;
-    }
-  }
-
-  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: esp_camera_init OK"));
-
-  wc_s = esp_camera_sensor_get();
-  if (wc_s) {
-    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: sensor PID 0x%x"), wc_s->id.PID);
-    // OV3660 specific post-init settings (from DFRobot reference)
-    if (wc_s->id.PID == OV3660_PID) {
-      wc_s->set_vflip(wc_s, 1);
-      wc_s->set_brightness(wc_s, 1);
-      wc_s->set_saturation(wc_s, -2);
-      AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: OV3660 adjustments applied"));
-    }
-  }
-
-  Wc.width = 0;
-  Wc.height = 0;
-
-  // Prime the DMA pipeline BEFORE WcApplySettings().  WcFeature() inside
-  // WcApplySettings() changes CLKRC and timing registers which disrupts
-  // frame production for ~1.2s.  The prime must happen while the sensor is
-  // still in its post-init state producing frames at default timing.
-  // This fb_get kicks the internal cam_task state machine and ensures
-  // at least one complete VSYNC→DMA→EOF cycle has occurred.
-  {
-    camera_fb_t *prime_fb = esp_camera_fb_get();
-    if (prime_fb) {
-      AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: DMA primed %dx%d len=%d"),
-        prime_fb->width, prime_fb->height, prime_fb->len);
-      esp_camera_fb_return(prime_fb);
+      if (err == 0x105 && (config.pin_pwdn >= 0)){
+        // try a longer power off... and retry
+        // power off for 500ms
+        gpio_set_level((gpio_num_t)config.pin_pwdn, 1);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+      }
     } else {
-      AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: DMA prime timeout"));
+      if (i){
+        AddLog(LOG_LEVEL_INFO, PSTR("CAM: InitOK try %d"), (i+1));
+      }
+      break;
     }
   }
 
-  // Camera SCCB owns the I2C bus on the SCCB pins (port 1).
-  // Do NOT re-initialize Wire1 — it would conflict with camera SCCB
-  // and prevent LCD_CAM DMA from capturing frames.
+  if (err != ESP_OK) {
+    AddLog(LOG_LEVEL_INFO, PSTR("CAM: InitErr 0x%x"), err);
+    Wc.lastCamError = err;
+    return 0;
+  }
+
+//  AddLog(LOG_LEVEL_INFO, PSTR("CAM: heap check 2: %d"),ESP_getFreeHeap());
+
+  // drop down frame size for higher initial frame rate
+  sensor_t * wc_s = esp_camera_sensor_get();
+  // seems config.frame_size has no effect?
+  // so this is where we set framesize....
+  wc_s->set_framesize(wc_s, (framesize_t)fsiz);
+
+  camera_fb_t *wc_fb = esp_camera_fb_get();
+  if (!wc_fb) {
+    AddLog(LOG_LEVEL_INFO, PSTR("CAM: Init failed !frame on time"));
+    Wc.lastCamError = 2;
+    return 0;
+  }
+  Wc.width = wc_fb->width;
+  Wc.height = wc_fb->height;
+  esp_camera_fb_return(wc_fb);
 
   WcApplySettings();
 
@@ -1189,11 +1155,7 @@ uint32_t WcSetup(int32_t fsiz) {
   Wc.up = 1;
   if (Wc.psram) { Wc.up = 2; }
 
-  {
-    int idx = fsiz;
-    if (idx < 0 || idx >= (int)(sizeof(nativeIntervals20ms)/sizeof(nativeIntervals20ms[0]))) idx = 6; // default to QVGA
-    Wc.frameIntervalsus = (uint32_t)(((float)nativeIntervals20ms[idx]/((float)Settings->webcam_clk/20.0))*1000.0);
-  }
+  Wc.frameIntervalsus = (uint32_t)(((float)nativeIntervals20ms[fsiz]/((float)Settings->webcam_clk/20.0))*1000.0);
   WcStats.maxfps = (uint32_t)((float)1000000.0/(float)Wc.frameIntervalsus);
 
   Wc.lastCamError = ESP_OK;
@@ -1217,7 +1179,7 @@ int32_t WcSetOptions(uint32_t sel, int32_t value) {
       // pixelformat - native formats + 1, 0->jpeg
       if (value >= 0) { Wc.camPixelFormat = value; }
       if (Wc.up){
-        WcSetup(Settings->webcam_config.resolution);
+        WcSetup((int32_t)Settings->webcam_config.resolution);
       }
       return value;
       break;
@@ -1233,11 +1195,7 @@ int32_t WcSetOptions(uint32_t sel, int32_t value) {
       Wc.width = 0;
       Wc.height = 0;
       Wc.last_frame_len = 0;
-      {
-        int idx = value;
-        if (idx < 0 || idx >= (int)(sizeof(nativeIntervals20ms)/sizeof(nativeIntervals20ms[0]))) idx = 6; // default to QVGA
-        Wc.frameIntervalsus = (uint32_t)(((float)nativeIntervals20ms[idx]/((float)Settings->webcam_clk/20.0))*1000.0);
-      }
+      Wc.frameIntervalsus = (uint32_t)(((float)nativeIntervals20ms[value]/((float)Settings->webcam_clk/20.0))*1000.0);
       WcStats.maxfps = (uint32_t)((float)1000000.0/(float)Wc.frameIntervalsus);
 
       // WcFeature is lost on resolution change
@@ -1602,18 +1560,16 @@ void HandleWebcamMjpegFn(int type) {
     Wc.CamServer->send(403,"","");
     return;
   }
-  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Create client start"));
+  TasAutoMutex localmutex(&WebcamMutex, "HandleWebcamMjpeg", 200);
   wc_client *client = new wc_client;
   client->active = 1;
   client->type = type;
+  client->p_next = Wc.client_p;
   client->client = Wc.CamServer->client();
-  // add to list atomically - only pointer write needs protection
-  {
-    TasAutoMutex localmutex(&WebcamMutex, "HandleWebcamMjpeg", 5000);
-    client->p_next = Wc.client_p;
-    Wc.client_p = client;
-  }
-  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Create client done"));
+  Wc.client_p = client;
+#ifdef WEBCAM_DEV_DEBUG  
+  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Create client"));
+#endif
 }
 
 void HandleWebcamRoot(void) {
@@ -1642,7 +1598,7 @@ uint32_t WcSetStreamserver(uint32_t flag) {
   if (flag) {
     if (!Wc.CamServer) {
       TasAutoMutex localmutex(&WebcamMutex, "HandleWebcamMjpeg", 20000);
-      Wc.CamServer = new ESP8266WebServer(81);
+      Wc.CamServer = new TasmotaWebServer(81);
       Wc.CamServer->on("/", HandleWebcamRoot);
       Wc.CamServer->on("/diff.mjpeg", HandleWebcamMjpegDiff);
       Wc.CamServer->on("/cam.mjpeg", HandleWebcamMjpeg);
@@ -1681,7 +1637,7 @@ static void WCStartOperationTask(){
       "WCOperationTask",  /* Name of the task */
       8192,             /* Stack size in bytes */
       NULL,             /* Task input parameter */
-      2,                /* Priority of the task - must be > 0 on ESP32-S3 to avoid starvation */
+      0,                /* Priority of the task */
       &Wc.taskHandle,   /* Task handle. */
 #ifdef CONFIG_FREERTOS_UNICORE
       0);               /* Core where the task should run */
@@ -1702,7 +1658,7 @@ static void WCStartOperationTask(){
 static void WCOperationTask(void *pvParameters){
   unsigned long loopcount = 0;
 
-#ifdef WEBCAM_DEV_DEBUG
+#ifdef WEBCAM_DEV_DEBUG  
   AddLog(LOG_LEVEL_DEBUG,PSTR("CAM: WCOperationTask: Start task"));
 #endif
   int framecount = 0;
@@ -1716,6 +1672,7 @@ static void WCOperationTask(void *pvParameters){
 
   int32_t skipsWanted = Wc.skipFrames;
 
+
   // we set to Wc.taskRunning 2 to stop the task
   while (Wc.taskRunning == 1){
     loopcount++;
@@ -1728,7 +1685,7 @@ static void WCOperationTask(void *pvParameters){
     WcWaitEnable();
     // if camera is configured and working
     { // closure for auto mutex
-      // note that this mutex can block the loop for a long time -
+      // note that this mutex can block the loop for a long time - 
       // e.g. if motion detect on a full big frame, up to a second
       TasAutoMutex localmutex(&WebcamMutex, "WebcamMjpeg", 30000);
 
@@ -1737,19 +1694,13 @@ static void WCOperationTask(void *pvParameters){
         size_t _jpg_buf_len = 0;
         uint8_t * _jpg_buf = NULL;
 
-#ifdef WEBCAM_DEV_DEBUG
-        if (loopcount <= 3 || !(loopcount % 500)) {
-          AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Task loop %lu up=%d dis=%d clients=%p"),
-            loopcount, Wc.up, Wc.disable_cam, Wc.client_p);
-        }
-#endif
         // read a frame buffer pointer.  this will block until a frame is available
         camera_fb_t *wc_fb = esp_camera_fb_get();
 
         if (!wc_fb) {
           // add framecount so we show this right away if we were showing frames.
           if (!(loopcount % 100) || (statdur > 5000) || framecount){
-            AddLog(LOG_LEVEL_DEBUG,PSTR("CAM: Frame fail loop %lu"), loopcount);
+            AddLog(LOG_LEVEL_DEBUG,PSTR("CAM: Frame fail")), 
             laststatmillis = thismillis;
             framecount = 0;
           }
@@ -1762,16 +1713,6 @@ static void WCOperationTask(void *pvParameters){
           uint64_t camtime = wc_fb->timestamp.tv_sec;
           camtime = camtime * 1000000;
           camtime += wc_fb->timestamp.tv_usec;
-#ifdef WEBCAM_DEV_DEBUG
-          {
-            static uint32_t total_fc = 0;
-            total_fc++;
-            if (total_fc == 1) {
-              AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Streaming %dx%d fmt=%d"),
-                wc_fb->width, wc_fb->height, wc_fb->format);
-            }
-          }
-#endif
 
           if (!skipsWanted) skipsWanted = Wc.skipFrames;
 
@@ -1788,13 +1729,9 @@ static void WCOperationTask(void *pvParameters){
               }
               if (skipsWanted > 0) skipsWanted --;
             } else {
-#ifdef WEBCAM_DEV_DEBUG
-              static uint32_t dup_count = 0;
-              dup_count++;
-              if (dup_count <= 3 || !(dup_count % 500)) {
-                AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("CAM: Duplicate time in frame? diff %d intv %d (count %u)"), camdiff, Wc.frameIntervalsus, dup_count);
-              }
-#endif
+#ifdef WEBCAM_DEV_DEBUG  
+              AddLog(LOG_LEVEL_DEBUG,PSTR("CAM: Duplicate time in frame? diff %d intv %d"), camdiff, Wc.frameIntervalsus);
+#endif              
             }
           }
           last_camtime = camtime;
@@ -2105,7 +2042,7 @@ void WcRemoveDeadCients(){
   while(client){
     if (!client->active){
       // just in case...
-      TasAutoMutex localmutex(&WebcamMutex, "WcLoop", 5000);
+      TasAutoMutex localmutex(&WebcamMutex, "WcLoop", 200);
       *prev = client->p_next;
       client->client.stop();
       wc_client *next = client->p_next;
@@ -2720,7 +2657,7 @@ void CmndWebcamResolution(void) {
     }
     Settings->webcam_config.resolution = XdrvMailbox.payload;
     if (reinit) {
-      WcSetup(Settings->webcam_config.resolution);
+      WcSetup((int32_t)Settings->webcam_config.resolution);
     } else {
       WcSetOptions(0, Settings->webcam_config.resolution);
     }
@@ -2924,7 +2861,7 @@ void CmndWebcamClock(void){
     Settings->webcam_clk = XdrvMailbox.payload;
     // if cam is up, must setup to apply
     if (Wc.up){
-      WcSetup(Settings->webcam_config.resolution);
+      WcSetup((int32_t)Settings->webcam_config.resolution);
     }
   }
   ResponseCmndNumber(Settings->webcam_clk);
@@ -2939,7 +2876,7 @@ void CmndWebcamCamStartStop(void){
 
 
 void CmndWebcamInit(void) {
-  WcSetup(Settings->webcam_config.resolution);
+  WcSetup((int32_t)Settings->webcam_config.resolution);
   WcSetStreamserver(Settings->webcam_config.stream);
   ResponseCmndDone();
 }
@@ -3090,7 +3027,7 @@ bool Xdrv99(uint32_t function) {
       break;
     case FUNC_INIT:
       // starts stream server if configured, and configured camera 
-      WcSetup(Settings->webcam_config.resolution);
+      WcSetup((int32_t)Settings->webcam_config.resolution);
       WcSetStreamserver(Settings->webcam_config.stream);
       WCStartOperationTask();
       break;
