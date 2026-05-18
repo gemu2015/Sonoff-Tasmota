@@ -1,0 +1,85 @@
+// persist_array_file.tc — script-managed persistence for arrays that
+// must NOT be lost.
+//
+// WHY (vs `persist` / .pvs):
+//   The .pvs auto-persist seals the file with a layout hash. Any
+//   add/remove/resize of a `persist` variable invalidates it and (pre
+//   1.6.10) wiped ALL values; even with the 1.6.10 .pvs.bak net it is
+//   the firmware that decides to discard. For large/critical tables
+//   (config, tariff/SOC schedules, meter totals, chart history) own
+//   the file in the script: a leading FORMAT version + explicit,
+//   field-wise migration. Immune to firmware flashes and layout
+//   changes — the script, not the firmware, decides what happens.
+//
+// Uses the BINARY array I/O builtins (fileWriteBin/fileReadBin):
+// raw 4-byte little-endian int32 — compact, exact, no text rounding.
+// Works for int[] AND float[] (both are int32 in memory, so float
+// bit-patterns survive verbatim — right for chart/sensor history).
+// Cost is tiny; only the migrate branch is hand-written, and only
+// runs when YOU bump FORMAT.
+
+#define DATAFILE "/appcfg.bin"
+#define FORMAT   2                 // bump when the layout changes
+
+// ---- the data to protect (sizes are yours) ------------------------
+int   cfg[8];                      // device config
+float tariff[12];                  // 12 tariff zones (floats: exact)
+int   hdr[1];                      // record 0: [FORMAT]
+
+// ---- save: header record + each array, fixed counts ---------------
+void saveData() {
+  int h = fileOpen(DATAFILE, 1);   // 1 = write (truncates)
+  if (h < 0) { return; }
+  hdr[0] = FORMAT;
+  fileWriteBin(h, hdr,    1);
+  fileWriteBin(h, cfg,    8);
+  fileWriteBin(h, tariff, 12);
+  fileClose(h);
+}
+
+// ---- defaults: only for a missing/unreadable file -----------------
+void setDefaults() {
+  int i = 0;
+  while (i < 8)  { cfg[i]    = 0;   i = i + 1; }
+  i = 0;
+  while (i < 12) { tariff[i] = 0.0; i = i + 1; }
+}
+
+// ---- load: version-gated, explicit migration ----------------------
+void loadData() {
+  int h = fileOpen(DATAFILE, 0);   // 0 = read
+  if (h < 0) { setDefaults(); return; }     // first run / no file
+
+  setDefaults();                            // baseline for any gaps
+  int n = fileReadBin(h, hdr, 1);           // record 0
+  int ver = -1;
+  if (n == 1) { ver = hdr[0]; }
+
+  if (ver == FORMAT) {
+    fileReadBin(h, cfg,    8);              // current layout
+    fileReadBin(h, tariff, 12);
+  } else if (ver == 1) {
+    // --- migration v1 -> v2 ---
+    // v1 had cfg[6] only and no tariff[]. Read what exists; defaults
+    // (set above) cover the rest. Re-save in the new format so the
+    // next boot is on FORMAT 2.
+    fileReadBin(h, cfg, 6);
+    fileClose(h);
+    saveData();
+    return;
+  }
+  // unknown/corrupt: keep file for recovery, run on defaults (no-op).
+  fileClose(h);
+}
+
+void main() {
+  loadData();
+  // ... use cfg[]/tariff[] ...
+}
+
+// Persist on shutdown/reload, and call saveData() yourself whenever a
+// value changes — there is no flash-wear-free auto-save here, that is
+// the point: you control exactly when it is written.
+void OnExit() {
+  saveData();
+}

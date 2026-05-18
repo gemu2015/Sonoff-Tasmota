@@ -36,6 +36,7 @@ EXAMPLES = [
     ('sensor_read',    'Sensor Read'),
     ('sort',           'Bubble Sort'),
     ('file_io',        'File I/O'),
+    ('persist_array_file', 'Persist arrays (script-managed file)'),
     ('callbacks',      'Callbacks'),
     ('chart',          'Google Chart'),
     ('live_chart',     'Live Chart (_Q)'),
