@@ -368,7 +368,22 @@ static uint8_t tc_qpc_counter(void) {
 #endif
 }
 
+static void tc_bootloop_marker_delete(void);           // fwd (defined below)
+
 static bool tc_bootloop_detected(void) {
+#ifdef ESP32
+  // Fix B (belt+suspenders to Fix A): a clean software reset
+  // (esp_restart from a `Restart` command / OTA / commanded reboot)
+  // is by definition NOT a crash-loop. Don't trip on it, and proactively
+  // clear any stale marker so a sequential `Restart 1` (esp. right
+  // after an OTA flash, when Tasmota also reports "settings reset")
+  // can never disable autoexec. Crash resets (PANIC/WDT/BROWNOUT) and
+  // power-on (handled by the QPC counter) still go through detection.
+  if (esp_reset_reason() == ESP_RST_SW) {
+    tc_bootloop_marker_delete();
+    return false;
+  }
+#endif
   if (tc_bootloop_marker_present()) return true;       // primary: filesystem marker
   if (tc_qpc_counter() >= TC_BOOTLOOP_QPC_THRESHOLD) return true; // QPC: power-cycle storm
   if (TasmotaGlobal.no_autoexec) return true;          // fallback: Tasmota's gate
@@ -4576,6 +4591,13 @@ bool Xdrv124(uint32_t function) {
       break;
 #endif
     case FUNC_SAVE_BEFORE_RESTART:
+      // Fix A: a commanded restart / OTA is graceful — Tasmota calls
+      // FUNC_SAVE_BEFORE_RESTART ONLY here, never on crash/WDT/panic.
+      // Drop the boot-loop marker FIRST so a user's (even repeated)
+      // `Restart` is never mistaken for a crash-loop and cannot
+      // disable autoexec. Real loops (no FUNC_SAVE_BEFORE_RESTART)
+      // still leave the marker.
+      tc_bootloop_marker_delete();
       // Call user's CleanUp() callback on all active slots (like scripter's >R section)
       tc_all_callbacks_id(TC_CB_CLEAN_UP);
       // Save persist variables for all loaded slots
