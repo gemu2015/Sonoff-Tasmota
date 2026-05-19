@@ -32,7 +32,7 @@ void EverySecond() {
   if (txpin != curtx) {                 // pin changed → (re)init
     curtx = txpin;
     if (txpin >= 0) {
-      if (dmxInit(2, -1, txpin) == 0) { log("DMX init failed"); }
+      if (dmxInit(txpin) == 0) { log("DMX init failed"); }
     }
   }
   if (txpin >= 0) { dmxWrite(chan, val); }   // push + feed watchdog
