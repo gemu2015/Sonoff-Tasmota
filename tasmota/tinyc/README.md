@@ -2,6 +2,18 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
+> **Current firmware: v1.6.14** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to the [`testing` GitHub release](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing).
+
+## What's new in v1.6.14
+
+- **DMX512 TX via RMT** — `dmxInit(gpio)` (single GPIO, no UART consumed). Frame built as `rmt_symbol_word_t[]` and pushed through `rmt_new_tx_channel` + copy encoder at 1 MHz — hardware-clocked BREAK/MAB/250 kbaud, no busy-wait, all UARTs stay free for SML/Modbus/`tc_serial`. 30 s watchdog forces all-zero so a dimmer can safe-off. See `examples/dmx_dimmer_panel.tc`.
+- **Boot-loop false-positive fix (1.6.11)** — rapid back-to-back `Restart 1`s no longer leave the four slots marked `autoexec=0`. Real PANIC/WDT/BROWNOUT loops still trip the protection.
+- **Persist `.pvs.bak` safety net (1.6.10)** — every successful persist save keeps the previous snapshot as `slot-N_<name>.pvs.bak`; one `cp` recovers a layout-hash-wiped state without JSON-restore.
+- **WebOn / WebUI halted-wait fix (1.6.10)** — `webOn()` callbacks no longer return spurious `503` if the VM is momentarily halted on the other core during a page poll.
+- **IDE auto-injects `TC_RELEASE` + `TC_MAX_HEAP`** — `bundle.py` reads them from `xdrv_124_tinyc_vm.h` at bundle time, so banner version + heap-warning threshold always match the firmware. Heap budget is now a *warning*, not a hard block (device is the gate).
+- **New example: `persist_array_file`** — script-managed binary persistence via `fileReadArray` / `fileWriteArray` for buffers larger than the `persist` keyword's per-slot budget.
+- **`serial_monitor` utility rewrite** — Windows + Linux support, OTA flasher (LAN scan → `OtaUrl` + `Upgrade`), serial esptool flasher with `--no-stub` fallback, ESP32 partition-table view, isolated esptool install. Lives under `tasmota/tinyc/utils/serial_monitor/`.
+
 ## Key Advantages
 
 - **Portable bytecode** — compile once in the browser, run the same binary on ESP32, ESP32-S3, ESP32-C3, or ESP8266. No recompilation needed per target.
@@ -90,6 +102,7 @@ Callbacks run automatically from Tasmota's main loop:
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_pheap`, `tasm_maxblock`, `tasm_frag`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + `HomeKitWrite(dev, var, val)` callback
 **LED Strip:** `setPixels(array, len, offset)` — WS2812/NeoPixel control
+**DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-clocked BREAK/MAB/250 kbaud 8N2, 16 slots default (`TC_DMX_SLOTS`), 30 s all-zero watchdog. No UART consumed
 **Debug:** `print`, `dumpVM`
 
 ## Predefined Constants
@@ -163,6 +176,7 @@ See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 - **multipage_demo** — Multi-page display navigation
 
 **Protocols & Hardware:**
+- **dmx_dimmer_panel** — DMX512 TX via RMT, `@getfreepins` pin pulldown + channel/value sliders
 - **bresser** / **bresser_chart** — CC1101 868 MHz weather station receiver
 - **onewire** — 1-Wire bus: DS18B20 + DS2406/DS2413/DS2408, GPIO and DS2480B modes
 - **max31855** — SPI thermocouple reader

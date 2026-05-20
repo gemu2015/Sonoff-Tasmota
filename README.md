@@ -16,6 +16,8 @@ This fork adds **TinyC** — a C-subset compiler and VM running as `XDRV_124`. W
 
 ➡️ **[TinyC Documentation](https://gemu2015.github.io/Sonoff-Tasmota/)** — getting started, full function reference (EN/DE), examples, gallery, and pre-built firmware downloads.
 
+📦 **Latest test firmware: [v1.6.14](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing)** — DMX512 TX via RMT (no UART consumed), boot-loop false-positive fix, persist `.pvs.bak` safety net, IDE auto-injects firmware version + heap budget. See [`tasmota/tinyc/README.md`](tasmota/tinyc/README.md) for the full changelog.
+
 > *TinyC for Tasmota* is an independent project and is **not affiliated with**
 > Fabrice Bellard's [Tiny C Compiler (TCC / TinyCC)](https://bellard.org/tcc/) —
 > different project, different scope (bytecode VM for Tasmota vs native compiler).

@@ -2,6 +2,18 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
+> **Aktuelle Firmware: v1.6.14** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen am [`testing`-Release auf GitHub](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing).
+
+## Was ist neu in v1.6.14
+
+- **DMX512-TX via RMT** — `dmxInit(gpio)` (ein GPIO, kein UART belegt). Der Frame wird als `rmt_symbol_word_t[]` aufgebaut und ueber `rmt_new_tx_channel` + Copy-Encoder mit 1 MHz hardware-getaktet ausgegeben (BREAK/MAB/250 kBaud, kein Busy-Wait). Alle UARTs bleiben frei fuer SML/Modbus/`tc_serial`. 30-Sekunden-Watchdog zwingt auf Null, damit ein Heizstab-Dimmer sicher abschalten kann. Siehe `examples/dmx_dimmer_panel.tc`.
+- **Boot-Loop-False-Positive-Fix (1.6.11)** — schnelle `Restart 1`-Folgen markieren die vier Slots nicht mehr faelschlich als `autoexec=0`. Echte PANIC/WDT/BROWNOUT-Loops loesen die Schutzlogik weiterhin aus.
+- **Persist-`.pvs.bak`-Sicherheitsnetz (1.6.10)** — jeder erfolgreiche Persist-Schreibvorgang behaelt den vorherigen Stand als `slot-N_<name>.pvs.bak`; ein einfaches `cp` stellt einen layout-hash-geloeschten Zustand ohne JSON-Restore wieder her.
+- **WebOn/WebUI-Halted-Wait-Fix (1.6.10)** — `webOn()`-Callbacks liefern keinen spuriosen `503` mehr, wenn die VM waehrend des Page-Pollings auf dem anderen Core kurz angehalten ist.
+- **IDE injiziert `TC_RELEASE` + `TC_MAX_HEAP` automatisch** — `bundle.py` liest beide beim Bundeln aus `xdrv_124_tinyc_vm.h`, sodass Banner-Version und Heap-Warnschwelle immer zur Firmware passen. Das Heap-Budget ist jetzt eine *Warnung*, kein harter Block — das Geraet entscheidet.
+- **Neues Beispiel: `persist_array_file`** — Script-verwaltete Binaer-Persistenz via `fileReadArray` / `fileWriteArray` fuer Puffer, die groesser sind als das `persist`-Slot-Budget.
+- **`serial_monitor`-Utility — grosse Ueberarbeitung** — Windows- und Linux-Unterstuetzung, OTA-Flasher (LAN-Scan -> `OtaUrl` + `Upgrade`), serieller esptool-Flasher mit `--no-stub`-Fallback, ESP32-Partitionstabelle in der Geraetekarte, isolierte esptool-Installation. Liegt unter `tasmota/tinyc/utils/serial_monitor/`.
+
 ## Tasmota mit TinyC bauen
 
 In `user_config_override.h` hinzufuegen:
@@ -63,6 +75,7 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_pheap`, `tasm_maxblock`, `tasm_frag`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + Callback `HomeKitWrite(dev, var, val)`
 **LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Steuerung
+**DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-getakteter BREAK/MAB/250 kBaud 8N2, 16 Slots (`TC_DMX_SLOTS`), 30 s All-Zero-Watchdog. Kein UART belegt
 **Debug:** `print`, `dumpVM`
 
 ## Vordefinierte Konstanten
@@ -84,6 +97,7 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **Watch:** `watch` Schluesselwort fuer Aenderungserkennung, `changed`, `delta`, `written`, `snapshot`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + Callback `HomeKitWrite(dev, var, val)`
 **LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Steuerung
+**DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-getakteter BREAK/MAB/250 kBaud 8N2, 16 Slots (`TC_DMX_SLOTS`), 30 s All-Zero-Watchdog. Kein UART belegt
 **Debug:** `print`, `dumpVM`
 
 ## Tasmota-Befehle

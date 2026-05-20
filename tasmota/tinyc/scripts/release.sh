@@ -16,8 +16,16 @@
 set -euo pipefail
 
 # ─────────── Configuration ───────────────────────────────────────────────────
-TASMOTA_ROOT="${TASMOTA_ROOT:-/Users/gerhardmutz1/Desktop/Smart-Home/Tasmota/Development/Sonoff-Tasmota}"
-TINYC_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# After the May-2026 in-tree relocation, the canonical layout is:
+#   tasmota/tinyc/scripts/release.sh   ← $SCRIPT_DIR
+#   tasmota/tinyc/                     ← $TINYC_DIR (TinyC_Reference*.md, tinyc_ide.html.gz, examples/, …)
+#   tasmota/tinyc/idesrc/              ← $IDE_SRC_DIR (bundle.py, src/, index.html)
+#   <repo-root>                        ← $TASMOTA_ROOT
+TINYC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IDE_SRC_DIR="$TINYC_DIR/idesrc"
+TASMOTA_ROOT="${TASMOTA_ROOT:-$(cd "$TINYC_DIR/../.." && pwd)}"
+TC_RELEASE_HEADER="$TASMOTA_ROOT/tasmota/include/xdrv_124_tinyc_vm.h"
 RELEASE_REPO="${RELEASE_REPO:-gemu2015/Sonoff-Tasmota}"
 RELEASE_TAG="${RELEASE_TAG:-testing}"
 
@@ -66,17 +74,20 @@ run()  {
   fi
 }
 
-# Extract version from src/opcodes.js (single source of truth).
+# Extract firmware version from xdrv_124_tinyc_vm.h `#define TC_RELEASE "x.y.z"`
+# (single source of truth for the firmware build the testers flash). The legacy
+# IDE-side TINYC_RELEASE in idesrc/src/opcodes.js follows a separate counter and
+# is not what users see in the device banner — bundle.py auto-injects TC_RELEASE
+# into the IDE at bundle time, so both stay in sync.
 extract_version() {
   if [[ -n "$VERSION_OVERRIDE" ]]; then
     echo "$VERSION_OVERRIDE"
     return
   fi
-  # Match only the first "..." that comes after the =, not whatever the
-  # trailing comment quotes (e.g. `// printf("fmt", ...)`).
-  grep -E 'TINYC_RELEASE\s*=' "$TINYC_DIR/src/opcodes.js" \
+  [[ -f "$TC_RELEASE_HEADER" ]] || die "TC_RELEASE header not found: $TC_RELEASE_HEADER"
+  grep -E '^[[:space:]]*#define[[:space:]]+TC_RELEASE\b' "$TC_RELEASE_HEADER" \
     | head -1 \
-    | sed -E 's|^[^=]*=[^"]*"([^"]+)".*|\1|'
+    | sed -E 's|^[^"]*"([^"]+)".*|\1|'
 }
 
 VERSION="$(extract_version)"
@@ -125,7 +136,11 @@ fi
 
 # ─────────── Bundle IDE ──────────────────────────────────────────────────────
 log "Bundling IDE (tinyc_ide.html.gz)…"
-run "( cd '$TINYC_DIR' && ./bundle.sh ) | tail -5"
+# bundle.py chdirs to its own directory (idesrc/) and writes both
+# tinyc_ide.html and tinyc_ide.html.gz there, then copies the .gz up to
+# tasmota/tinyc/ so it ends up next to the docs and README. We invoke it
+# directly to avoid the bundle.sh wrapper assuming a flat layout.
+run "python3 '$IDE_SRC_DIR/bundle.py' --gzip | tail -8"
 
 IDE_GZ="$TINYC_DIR/tinyc_ide.html.gz"
 [[ -f "$IDE_GZ" ]] || $DRY_RUN || die "IDE bundle missing: $IDE_GZ"
