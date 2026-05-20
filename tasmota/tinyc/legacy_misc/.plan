@@ -1,0 +1,98 @@
+# Plan: `persist` keyword with binary save/load
+
+## Syntax
+```c
+persist float dval = 0.0;      // scalar — 4 bytes in file
+persist int counter;            // scalar — 4 bytes
+persist char name[32];          // array — 32×4 bytes in file
+```
+
+## Changes by file
+
+### 1. lexer.js
+- Add `KW_PERSIST` token type
+- Add `'persist': TokenType.KW_PERSIST` to KEYWORDS map
+
+### 2. parser.js
+- In `parseTopLevel()` / `parseDeclaration()`: if current token is `KW_PERSIST`, consume it, set `isPersist: true` on the VarDecl/ArrayDecl node, then parse the type+name as normal
+
+### 3. codegen.js
+- Track `this.persistGlobals = []` — list of `{index, slotCount}` for persist globals
+- When processing a VarDecl/ArrayDecl with `isPersist`, add entry to persistGlobals
+- In `buildBinary()`: emit persist table section after function table
+  - Format: `[count u8] [index u16, slotCount u16] × count`
+- Add `persistTableSize` to header (new field at offset 16, making header 18 bytes)
+- Add `saveVars` builtin: syscall with no args, triggers save of all persist globals
+- **Bump bytecode VERSION from 3 to 4**
+
+### 4. opcodes.js
+- Add `PERSIST_SAVE: 203` syscall
+- Update `VERSION` to 4
+
+### 5. vm.js (browser)
+- Parse persist table from binary
+- Store persist entries list
+- `saveVars` (syscall 203): serialize persist globals to virtual filesystem as `/tinyc_pvars.bin`
+- On load: if `/tinyc_pvars.bin` exists in virtual FS, restore globals before running main()
+
+### 6. xdrv_124_tinyc_vm.h (C VM)
+- Add to tc_vm struct:
+  ```c
+  struct { uint16_t index; uint16_t count; } persist[TC_MAX_PERSIST]; // max 32 entries
+  uint8_t persist_count;
+  ```
+- In `tc_vm_load()`: parse persist table from bytecode, store in struct
+- After loading and zeroing globals: call `tc_persist_load()` to read `/tinyc_pvars.bin`
+- Add `SYS_PERSIST_SAVE = 203`: calls `tc_persist_save()`
+- `tc_persist_save()`: write binary file:
+  ```
+  ['P','V'] [count u8]
+  for each persist entry:
+    [index u16 LE] [slotCount u16 LE] [slotCount × int32 LE]
+  ```
+- `tc_persist_load()`: read file, match entries by index, restore globals
+- Auto-save on TinyCStop (before clearing VM)
+
+### 7. xdrv_124_tinyc.ino
+- Call `tc_persist_save()` in TinyCStop before destroying VM
+
+### 8. Syntax highlighting (tinyc.tmLanguage.json)
+- Add `persist` to keywords pattern
+
+### 9. Documentation
+- Add `persist` section to TinyC_Reference.md
+- Update ecotracker.tc example to use `persist` keyword
+
+## Binary file format `/tinyc_pvars.bin`
+```
+Offset  Size    Description
+0       2       Magic: 'P', 'V' (0x50, 0x56)
+2       1       Entry count
+3+      var     Entries:
+                  [global_index: u16 LE]
+                  [slot_count: u16 LE]
+                  [data: slot_count × 4 bytes, raw int32 LE]
+```
+
+Max file size: 32 entries × (4 + 255×4) = ~32KB worst case, typical ~200 bytes.
+
+## Bytecode V4 header (18 bytes)
+```
+Offset  Size  Field
+0       4     MAGIC 0x54434300
+4       2     VERSION = 4
+6       2     globalSize
+8       2     entryPoint
+10      2     constPoolSize
+12      2     heapDeclSize
+14      2     funcTableSize
+16      2     persistTableSize   ← NEW
+```
+
+## Key decisions
+- Binary format, not text — compact and fast
+- Raw int32 values — floats are already stored as bit-cast int32 in globals[]
+- File stored on ufsp (user filesystem), same as .tcb files
+- Auto-load on program start, manual save via `saveVars()`
+- Auto-save on TinyCStop for safety
+- Max 32 persist entries (sufficient, saves RAM)

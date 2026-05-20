@@ -1,0 +1,537 @@
+// vl53l0x.tc — VL53L0X Time-of-Flight distance sensor driver
+// Pure TinyC — no native syscalls, uses i2cRead8/i2cWrite8/i2cRead/i2cWrite
+// Based on working Pololu/ST plugin (VL53L0X_c.h)
+// Includes full timing budget calculation (required for calibration)
+
+#define VL_ADDR   0x29
+#define VL_ID     0xEE
+#define VL_TIMEOUT 500
+
+// ── Registers ────────────────────────────────────────
+#define SYSRANGE_START                  0x00
+#define SYSTEM_SEQUENCE_CONFIG          0x01
+#define SYSTEM_INTERMEASUREMENT_PERIOD  0x04
+#define SYSTEM_INTERRUPT_CONFIG_GPIO    0x0A
+#define SYSTEM_INTERRUPT_CLEAR          0x0B
+#define RESULT_INTERRUPT_STATUS         0x13
+#define RESULT_RANGE_STATUS             0x14
+#define MSRC_CONFIG_CONTROL             0x60
+#define FINAL_RANGE_CONFIG_MIN_COUNT_RATE 0x44
+#define MSRC_CONFIG_TIMEOUT_MACROP      0x46
+#define PRE_RANGE_CONFIG_VCSEL_PERIOD   0x50
+#define PRE_RANGE_CONFIG_TIMEOUT_HI     0x51
+#define FINAL_RANGE_CONFIG_VCSEL_PERIOD 0x70
+#define FINAL_RANGE_CONFIG_TIMEOUT_HI   0x71
+#define GPIO_HV_MUX_ACTIVE_HIGH        0x84
+#define VHV_CONFIG_PAD_SCL_SDA_HV       0x89
+#define GLOBAL_CONFIG_SPAD_ENABLES_REF_0 0xB0
+#define GLOBAL_CONFIG_REF_EN_START_SEL  0xB6
+#define GLOBAL_CONFIG_VCSEL_WIDTH       0x32
+#define DYNAMIC_SPAD_NUM_REQ            0x4E
+#define DYNAMIC_SPAD_REF_EN_START       0x4F
+#define IDENTIFICATION_MODEL_ID         0xC0
+#define ALGO_PHASECAL_LIM               0x30
+
+// ── State ────────────────────────────────────────────
+int vl_bus;
+int vl_stop_var;
+int vl_budget_us;
+int vl_ok;
+int vl_valid;       // 1 = valid reading, 0 = no target
+float vl_range;
+char vl_buf[12];
+int vl_tstart;
+
+// ── I2C wrappers — match plugin's Wire transactions ──
+
+void wr(int reg, int val) {
+  i2cWrite8(VL_ADDR, reg, val, vl_bus);
+}
+
+int rd(int reg) {
+  // Use buffer read (STOP mode) — matches plugin exactly
+  i2cRead(VL_ADDR, reg, vl_buf, 1, vl_bus);
+  return vl_buf[0];
+}
+
+void wr16(int reg, int val) {
+  vl_buf[0] = val / 256;
+  vl_buf[1] = val & 255;
+  i2cWrite(VL_ADDR, reg, vl_buf, 2, vl_bus);
+}
+
+int rd16(int reg) {
+  i2cRead(VL_ADDR, reg, vl_buf, 2, vl_bus);
+  return vl_buf[0] * 256 + vl_buf[1];
+}
+
+void wr32(int reg, int val) {
+  vl_buf[0] = (val / 16777216) & 255;
+  vl_buf[1] = (val / 65536) & 255;
+  vl_buf[2] = (val / 256) & 255;
+  vl_buf[3] = val & 255;
+  i2cWrite(VL_ADDR, reg, vl_buf, 4, vl_bus);
+}
+
+// ── Timeout helpers ──────────────────────────────────
+
+void startTO() { vl_tstart = millis(); }
+
+int timedOut() {
+  int e = millis() - vl_tstart;
+  if (e < 0) { e = e + 2147483647; }
+  return e > VL_TIMEOUT;
+}
+
+// ── VCSEL period encode/decode ───────────────────────
+
+int decodeVcsel(int rv) { return (rv + 1) * 2; }
+int encodeVcsel(int p) { return p / 2 - 1; }
+
+// macro period in nanoseconds, avoids overflow
+int macroPeriodNs(int pclks) {
+  // (2304 * pclks * 1655 + 500) / 1000
+  // max pclks=18: 2304*18=41472, 41472*1655=68636160, +500/1000=68636 — fits
+  return (2304 * pclks * 1655 + 500) / 1000;
+}
+
+// ── Timeout encode/decode ────────────────────────────
+
+int decodeTimeout(int rv) {
+  int lsb = rv & 255;
+  int msb = rv / 256;
+  int i = 0;
+  while (i < msb) { lsb = lsb * 2; i = i + 1; }
+  return lsb + 1;
+}
+
+int encodeTimeout(int mclks) {
+  if (mclks <= 0) { return 0; }
+  int ls = mclks - 1;
+  int ms = 0;
+  while (ls > 255) { ls = ls / 2; ms = ms + 1; }
+  return ms * 256 + (ls & 255);
+}
+
+// convert mclks to microseconds — overflow-safe
+int mclksToUs(int mclks, int pclks) {
+  int mns = macroPeriodNs(pclks);
+  // (mclks * mns + mns/2) / 1000 — could overflow for large mclks
+  // use: mclks * (mns/10) / 100 for safety
+  return (mclks * (mns / 10) + 50) / 100;
+}
+
+int usToMclks(int us, int pclks) {
+  int mns = macroPeriodNs(pclks);
+  return (us * 1000 + mns / 2) / mns;
+}
+
+// ── Get sequence step enables + timeouts ─────────────
+// stored in local vars via pointers not available, use globals
+
+int en_tcc;
+int en_dss;
+int en_msrc;
+int en_pre;
+int en_final;
+int pre_pclks;
+int final_pclks;
+int msrc_mclks;
+int pre_mclks;
+int final_mclks;
+int msrc_us;
+int pre_us;
+int final_us;
+
+void getEnablesAndTimeouts() {
+  int sc = rd(SYSTEM_SEQUENCE_CONFIG);
+  en_tcc   = (sc / 16) & 1;
+  en_dss   = (sc / 8) & 1;
+  en_msrc  = (sc / 4) & 1;
+  en_pre   = (sc / 64) & 1;
+  en_final = (sc / 128) & 1;
+
+  pre_pclks = decodeVcsel(rd(PRE_RANGE_CONFIG_VCSEL_PERIOD));
+  msrc_mclks = rd(MSRC_CONFIG_TIMEOUT_MACROP) + 1;
+  msrc_us = mclksToUs(msrc_mclks, pre_pclks);
+  pre_mclks = decodeTimeout(rd16(PRE_RANGE_CONFIG_TIMEOUT_HI));
+  pre_us = mclksToUs(pre_mclks, pre_pclks);
+
+  final_pclks = decodeVcsel(rd(FINAL_RANGE_CONFIG_VCSEL_PERIOD));
+  final_mclks = decodeTimeout(rd16(FINAL_RANGE_CONFIG_TIMEOUT_HI));
+  if (en_pre) { final_mclks = final_mclks - pre_mclks; }
+  final_us = mclksToUs(final_mclks, final_pclks);
+}
+
+// ── Get measurement timing budget (microseconds) ────
+
+int getBudget() {
+  int b = 1910 + 960;
+  getEnablesAndTimeouts();
+  if (en_tcc) { b = b + msrc_us + 590; }
+  if (en_dss) { b = b + 2 * (msrc_us + 690); }
+  else { if (en_msrc) { b = b + msrc_us + 660; } }
+  if (en_pre) { b = b + pre_us + 660; }
+  if (en_final) { b = b + final_us + 550; }
+  return b;
+}
+
+// ── Set measurement timing budget ────────────────────
+
+int setBudget(int budget) {
+  if (budget < 20000) { return 0; }
+  int used = 1320 + 960;
+  getEnablesAndTimeouts();
+  if (en_tcc) { used = used + msrc_us + 590; }
+  if (en_dss) { used = used + 2 * (msrc_us + 690); }
+  else { if (en_msrc) { used = used + msrc_us + 660; } }
+  if (en_pre) { used = used + pre_us + 660; }
+  if (en_final) {
+    used = used + 550;
+    if (used > budget) { return 0; }
+    int fr_us = budget - used;
+    int fr_mclks = usToMclks(fr_us, final_pclks);
+    if (en_pre) { fr_mclks = fr_mclks + pre_mclks; }
+    wr16(FINAL_RANGE_CONFIG_TIMEOUT_HI, encodeTimeout(fr_mclks));
+    vl_budget_us = budget;
+  }
+  return 1;
+}
+
+// ── Single reference calibration ─────────────────────
+
+int singleRefCal(int vhv_init) {
+  wr(SYSRANGE_START, 1 | vhv_init);
+  startTO();
+  while ((rd(RESULT_INTERRUPT_STATUS) & 7) == 0) {
+    if (timedOut()) {
+      addLog("VL53L0X: cal timeout");
+      return 0;
+    }
+  }
+  wr(SYSTEM_INTERRUPT_CLEAR, 1);
+  wr(SYSRANGE_START, 0);
+  return 1;
+}
+
+// ── Get SPAD info from NVM ───────────────────────────
+
+int spad_count;
+int spad_aperture;
+
+int getSpadInfo() {
+  wr(0x80, 0x01);
+  wr(0xFF, 0x01);
+  wr(0x00, 0x00);
+  wr(0xFF, 0x06);
+  wr(0x83, rd(0x83) | 0x04);
+  wr(0xFF, 0x07);
+  wr(0x81, 0x01);
+  wr(0x80, 0x01);
+  wr(0x94, 0x6B);
+  wr(0x83, 0x00);
+  startTO();
+  while (rd(0x83) == 0) {
+    if (timedOut()) { return 0; }
+  }
+  wr(0x83, 0x01);
+  int tmp = rd(0x92);
+  spad_count = tmp & 127;
+  spad_aperture = tmp / 128;
+  wr(0x81, 0x00);
+  wr(0xFF, 0x06);
+  wr(0x83, rd(0x83) & 251);
+  wr(0xFF, 0x01);
+  wr(0x00, 0x01);
+  wr(0xFF, 0x00);
+  wr(0x80, 0x00);
+  return 1;
+}
+
+// ── Full init — follows plugin VL53L0X_init(true) exactly ──
+
+int vlInit() {
+  // check model ID
+  int id = rd(IDENTIFICATION_MODEL_ID);
+  if (id != VL_ID) { return 0; }
+
+  // ── DataInit ──
+  // 2V8 mode
+  wr(VHV_CONFIG_PAD_SCL_SDA_HV, rd(VHV_CONFIG_PAD_SCL_SDA_HV) | 0x01);
+
+  // "Set I2C standard mode"
+  wr(0x88, 0x00);
+
+  wr(0x80, 0x01);
+  wr(0xFF, 0x01);
+  wr(0x00, 0x00);
+  vl_stop_var = rd(0x91);
+  wr(0x00, 0x01);
+  wr(0xFF, 0x00);
+  wr(0x80, 0x00);
+
+  // disable SIGNAL_RATE_MSRC and PRE_RANGE limit checks
+  wr(MSRC_CONFIG_CONTROL, rd(MSRC_CONFIG_CONTROL) | 0x12);
+
+  // signal rate limit 0.25 MCPS: 0.25 * 128 = 32 in Q9.7
+  wr16(FINAL_RANGE_CONFIG_MIN_COUNT_RATE, 32);
+
+  wr(SYSTEM_SEQUENCE_CONFIG, 0xFF);
+
+  // ── StaticInit ──
+
+  // SPAD configuration
+  if (!getSpadInfo()) { return 0; }
+
+  // read SPAD map
+  char spad[6];
+  i2cRead(VL_ADDR, GLOBAL_CONFIG_SPAD_ENABLES_REF_0, spad, 6, vl_bus);
+
+  // set reference SPADs
+  wr(0xFF, 0x01);
+  wr(DYNAMIC_SPAD_REF_EN_START, 0x00);
+  wr(DYNAMIC_SPAD_NUM_REQ, 0x2C);
+  wr(0xFF, 0x00);
+  wr(GLOBAL_CONFIG_REF_EN_START_SEL, 0xB4);
+
+  int first = 0;
+  if (spad_aperture) { first = 12; }
+  int enabled = 0;
+  int i = 0;
+  while (i < 48) {
+    int bi = i / 8;
+    int bit = i - bi * 8;
+    // compute mask = 1 << bit
+    int mask = 1;
+    int j = 0;
+    while (j < bit) { mask = mask * 2; j = j + 1; }
+    if (i < first || enabled == spad_count) {
+      spad[bi] = spad[bi] & (255 - mask);
+    } else {
+      if (spad[bi] & mask) { enabled = enabled + 1; }
+    }
+    i = i + 1;
+  }
+  i2cWrite(VL_ADDR, GLOBAL_CONFIG_SPAD_ENABLES_REF_0, spad, 6, vl_bus);
+
+  // ── Load tuning settings ──
+  wr(0xFF, 0x01); wr(0x00, 0x00);
+  wr(0xFF, 0x00); wr(0x09, 0x00); wr(0x10, 0x00); wr(0x11, 0x00);
+  wr(0x24, 0x01); wr(0x25, 0xFF); wr(0x75, 0x00);
+  wr(0xFF, 0x01); wr(0x4E, 0x2C); wr(0x48, 0x00); wr(0x30, 0x20);
+  wr(0xFF, 0x00);
+  wr(0x30, 0x09); wr(0x54, 0x00); wr(0x31, 0x04); wr(0x32, 0x03);
+  wr(0x40, 0x83); wr(0x46, 0x25); wr(0x60, 0x00); wr(0x27, 0x00);
+  wr(0x50, 0x06); wr(0x51, 0x00); wr(0x52, 0x96); wr(0x56, 0x08);
+  wr(0x57, 0x30); wr(0x61, 0x00); wr(0x62, 0x00); wr(0x64, 0x00);
+  wr(0x65, 0x00); wr(0x66, 0xA0);
+  wr(0xFF, 0x01);
+  wr(0x22, 0x32); wr(0x47, 0x14); wr(0x49, 0xFF); wr(0x4A, 0x00);
+  wr(0xFF, 0x00);
+  wr(0x7A, 0x0A); wr(0x7B, 0x00); wr(0x78, 0x21);
+  wr(0xFF, 0x01);
+  wr(0x23, 0x34); wr(0x42, 0x00); wr(0x44, 0xFF); wr(0x45, 0x26);
+  wr(0x46, 0x05); wr(0x40, 0x40); wr(0x0E, 0x06); wr(0x20, 0x1A);
+  wr(0x43, 0x40);
+  wr(0xFF, 0x00);
+  wr(0x34, 0x03); wr(0x35, 0x44);
+  wr(0xFF, 0x01);
+  wr(0x31, 0x04); wr(0x4B, 0x09); wr(0x4C, 0x05); wr(0x4D, 0x04);
+  wr(0xFF, 0x00);
+  wr(0x44, 0x00); wr(0x45, 0x20); wr(0x47, 0x08); wr(0x48, 0x28);
+  wr(0x67, 0x00); wr(0x70, 0x04); wr(0x71, 0x01); wr(0x72, 0xFE);
+  wr(0x76, 0x00); wr(0x77, 0x00);
+  wr(0xFF, 0x01); wr(0x0D, 0x01);
+  wr(0xFF, 0x00); wr(0x80, 0x01); wr(0x01, 0xF8);
+  wr(0xFF, 0x01);
+  wr(0x8E, 0x01); wr(0x00, 0x01); wr(0xFF, 0x00); wr(0x80, 0x00);
+
+  // ── GPIO config: new sample ready, active low ──
+  wr(SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04);
+  wr(GPIO_HV_MUX_ACTIVE_HIGH, rd(GPIO_HV_MUX_ACTIVE_HIGH) & 239);
+  wr(SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+  // ── Timing budget: get, change sequence, re-apply ──
+  // THIS IS CRITICAL — without it, calibration fails
+  vl_budget_us = getBudget();
+
+  // disable MSRC and TCC
+  wr(SYSTEM_SEQUENCE_CONFIG, 0xE8);
+
+  // re-apply budget with new sequence config
+  setBudget(vl_budget_us);
+
+  // ── VHV calibration ──
+  wr(SYSTEM_SEQUENCE_CONFIG, 0x01);
+  if (!singleRefCal(0x40)) { return 0; }
+
+  // ── Phase calibration ──
+  wr(SYSTEM_SEQUENCE_CONFIG, 0x02);
+  if (!singleRefCal(0x00)) { return 0; }
+
+  // restore sequence config
+  wr(SYSTEM_SEQUENCE_CONFIG, 0xE8);
+
+  return 1;
+}
+
+// ── Read single-shot range (mm) ──────────────────────
+
+int readRange() {
+  wr(0x80, 0x01);
+  wr(0xFF, 0x01);
+  wr(0x00, 0x00);
+  wr(0x91, vl_stop_var);
+  wr(0x00, 0x01);
+  wr(0xFF, 0x00);
+  wr(0x80, 0x00);
+
+  wr(SYSRANGE_START, 0x01);
+
+  // wait start bit cleared
+  startTO();
+  while (rd(SYSRANGE_START) & 1) {
+    if (timedOut()) { return 65535; }
+  }
+
+  // wait measurement complete
+  startTO();
+  while ((rd(RESULT_INTERRUPT_STATUS) & 7) == 0) {
+    if (timedOut()) { return 65535; }
+  }
+
+  // range at RESULT_RANGE_STATUS + 10 = 0x1E
+  int range = rd16(0x1E);
+
+  wr(SYSTEM_INTERRUPT_CLEAR, 0x01);
+
+  return range;
+}
+
+// ── Callbacks ────────────────────────────────────────
+
+void EverySecond() {
+  if (!vl_ok) { return; }
+
+  int dist = readRange();
+
+  if (dist < 8190) {
+    vl_range = (float)dist;
+    vl_valid = 1;
+  } else {
+    vl_valid = 0;
+  }
+}
+
+void WebCall() {
+  if (!vl_ok) { return; }
+  char buf[64];
+  if (vl_valid) {
+    sprintf(buf, "{s}VL53L0X{m}%.0f mm{e}", vl_range);
+  } else {
+    strcpy(buf, "{s}VL53L0X{m}---{e}");
+  }
+  webSend(buf);
+}
+
+void JsonCall() {
+  if (!vl_ok) { return; }
+  char buf[64];
+  if (vl_valid) {
+    sprintf(buf, ",\"VL53L0X\":{\"Distance\":%.0f}", vl_range);
+  } else {
+    strcpy(buf, ",\"VL53L0X\":{\"Distance\":null}");
+  }
+  responseAppend(buf);
+}
+
+// ── Command handler ───────────────────────────────────
+// VLMode 0 = default (33ms), 1 = fast (20ms), 2 = accurate (200ms)
+// VLBudget <us> = set custom timing budget in microseconds
+// VLStatus = show current settings
+
+void Command(char cmd[]) {
+  char buf[80];
+  char arg[16];
+  int val;
+
+  if (strFind(cmd, "MODE") == 0) {
+    if (strlen(cmd) > 4) { strSub(arg, cmd, 4, 0); val = atoi(arg); }
+    else { val = 0; }
+    int b = 33000;
+    if (val == 1) { b = 20000; }
+    if (val == 2) { b = 200000; }
+    if (setBudget(b)) {
+      sprintf(buf, "{\"VLMode\":%d}", val);
+      responseCmnd(buf);
+    } else {
+      responseCmnd("{\"VLMode\":\"failed\"}");
+    }
+  }
+  else if (strFind(cmd, "BUDGET") == 0) {
+    if (strlen(cmd) > 6) { strSub(arg, cmd, 6, 0); val = atoi(arg); }
+    else { val = 33000; }
+    if (val < 20000) { val = 20000; }
+    if (setBudget(val)) {
+      sprintf(buf, "{\"VLBudget\":%d}", vl_budget_us);
+      responseCmnd(buf);
+    } else {
+      responseCmnd("{\"VLBudget\":\"failed\"}");
+    }
+  }
+  else if (strFind(cmd, "STATUS") == 0) {
+    sprintf(buf, "{\"VLStatus\":{\"Budget\":%d", vl_budget_us);
+    if (vl_valid) {
+      sprintf(arg, ",\"Range\":%.0f", vl_range);
+    } else {
+      strcpy(arg, ",\"Range\":null");
+    }
+    strcat(buf, arg);
+    sprintf(arg, ",\"Bus\":%d}}", vl_bus);
+    strcat(buf, arg);
+    responseCmnd(buf);
+  }
+  else {
+    responseCmnd("{\"VL\":\"commands: VLMode 0|1|2, VLBudget <us>, VLStatus\"}");
+  }
+}
+
+// ── Main ─────────────────────────────────────────────
+
+void OnExit() {
+  if (vl_ok) {
+    I2cResetActive(VL_ADDR, vl_bus);
+  }
+}
+
+int main() {
+  vl_ok = 0;
+  vl_valid = 0;
+  vl_bus = 0;
+
+  addCommand("VL");
+
+  // scan both buses
+  while (vl_bus < 2) {
+    if (i2cSetDevice(VL_ADDR, vl_bus)) {
+      if (rd(IDENTIFICATION_MODEL_ID) == VL_ID) {
+        i2cSetActiveFound(VL_ADDR, "VL53L0X", vl_bus);
+        break;
+      }
+    }
+    vl_bus = vl_bus + 1;
+  }
+  if (vl_bus >= 2) {
+    addLog("VL53L0X: not found");
+    return 0;
+  }
+
+  if (vlInit()) {
+    vl_ok = 1;
+    addLog("VL53L0X: init OK");
+  } else {
+    addLog("VL53L0X: init FAILED");
+  }
+
+  return 0;
+}

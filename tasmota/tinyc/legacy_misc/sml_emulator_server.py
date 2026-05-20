@@ -1,0 +1,762 @@
+#!/usr/bin/env python3
+"""
+SML Emulator Server — Python hybrid app
+Serves sml_emulator.html with injected bridge script that replaces Web Serial
+calls with HTTP API calls.  Provides:
+  - Serial port access via pyserial
+  - Modbus TCP slave on port 1502 (always running for sdm630_tcp profile)
+
+Usage:  python3 sml_emulator_server.py
+Deps:   pip install pyserial
+"""
+
+import os, sys, json, threading, time, struct, socket, webbrowser, subprocess, platform
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+import io
+
+HTTP_PORT   = 8099
+MODBUS_PORT = 1502
+HTML_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sml_emulator.html')
+
+# ── Reliable cross-platform browser launcher ──────────────────────────────────
+def open_browser_reliable(url):
+    """Open URL in the default browser using the most reliable OS-native method.
+    On macOS webbrowser.open() is flaky (often doesn't bring Safari/Chrome to front
+    or doesn't open at all). Use `open <url>` directly — it's what Finder uses."""
+    try:
+        sysname = platform.system()
+        if sysname == 'Darwin':
+            # macOS: `open` is the most reliable — always activates the browser
+            subprocess.Popen(['open', url])
+            return True
+        if sysname == 'Windows':
+            # os.startfile opens URL in default browser on Windows
+            os.startfile(url)
+            return True
+        # Linux / others: try xdg-open, fall back to webbrowser
+        try:
+            subprocess.Popen(['xdg-open', url])
+            return True
+        except FileNotFoundError:
+            pass
+    except Exception:
+        pass
+    # Fallback: standard lib
+    try:
+        return webbrowser.open(url)
+    except Exception:
+        return False
+
+# ── Shared state ──────────────────────────────────────────────────────────────
+state_lock      = threading.Lock()
+serial_port     = None          # pyserial Serial object
+serial_baud     = 9600
+serial_log      = []            # list of dicts: {t, type, msg}
+tcp_clients     = 0             # active Modbus TCP connections
+last_http_req   = 0.0           # timestamp of last HTTP request (for browser watchdog)
+browser_opened  = False         # whether browser has been opened at least once
+
+# Register bank: maps Modbus register address → float value
+# Updated by POST /api/regs (pushed from JS computeLiveValues every second)
+reg_bank   = {}
+# Write bank: registers written by Modbus master (FC06/FC16)
+# Polled by browser via GET /api/writeregs
+write_bank = {}
+
+def log_entry(typ, msg):
+    with state_lock:
+        serial_log.append({'t': time.strftime('%H:%M:%S'), 'type': typ, 'msg': msg})
+        if len(serial_log) > 500:
+            serial_log.pop(0)
+
+# ── CRC-16 Modbus ─────────────────────────────────────────────────────────────
+def crc16modbus(data: bytes) -> int:
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b & 0xFF
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0xA001 if (crc & 1) else (crc >> 1)
+    return crc & 0xFFFF
+
+# ── Serial reader thread ───────────────────────────────────────────────────────
+rx_buf = bytearray()
+
+def serial_reader():
+    global serial_port
+    while True:
+        try:
+            port = None
+            with state_lock:
+                port = serial_port
+            if port is None or not port.is_open:
+                time.sleep(0.05)
+                continue
+            data = port.read(256)
+            if not data:
+                continue
+            with state_lock:
+                rx_buf.extend(data)
+            # Process Modbus RTU frames (FC04, 8 bytes each)
+            _process_modbus_rtu()
+        except Exception as e:
+            log_entry('err', f'Serial read: {e}')
+            time.sleep(0.1)
+
+def _process_modbus_rtu():
+    global rx_buf, serial_port
+    while len(rx_buf) >= 8:
+        result = _handle_modbus_rtu_frame(bytes(rx_buf))
+        if result == 'incomplete':
+            # Known FC but full frame not yet received — wait for more bytes
+            break
+        if result:
+            resp, consumed = result
+            rx_buf = rx_buf[consumed:]
+            try:
+                with state_lock:
+                    if serial_port and serial_port.is_open:
+                        serial_port.write(resp)
+                log_entry('tx', f'Modbus RTU resp {len(resp)}B  {resp.hex(" ")}')
+            except Exception as e:
+                log_entry('err', f'Serial write: {e}')
+        else:
+            rx_buf = rx_buf[1:]  # discard leading byte, re-scan
+
+def _handle_modbus_rtu_frame(buf: bytes):
+    """Returns one of:
+         (response_bytes, bytes_consumed)  — valid frame, response to send
+         'incomplete'                      — known FC but frame not yet complete (wait)
+         None                              — invalid / unknown; caller discards 1 byte
+    """
+    if len(buf) < 2:
+        return None
+    addr = buf[0]
+    fc   = buf[1]
+    if addr != 1:
+        return None
+
+    # FC03 / FC04 Read — fixed 8-byte request
+    if fc in (0x03, 0x04):
+        if len(buf) < 8: return 'incomplete'
+        crc_rx    = buf[6] | (buf[7] << 8)
+        if crc16modbus(buf[:6]) != crc_rx: return None
+        start_reg = (buf[2] << 8) | buf[3]
+        reg_count = (buf[4] << 8) | buf[5]
+        if reg_count != 2: return None
+        val        = _get_reg_value(start_reg)
+        float_bytes = struct.pack('>f', val)
+        resp = bytes([addr, fc, 4]) + float_bytes
+        crc  = crc16modbus(resp)
+        return resp + bytes([crc & 0xFF, crc >> 8]), 8
+
+    # FC06 Write Single Register — fixed 8-byte request
+    if fc == 0x06:
+        if len(buf) < 8: return 'incomplete'
+        crc_rx = buf[6] | (buf[7] << 8)
+        if crc16modbus(buf[:6]) != crc_rx: return None
+        reg    = (buf[2] << 8) | buf[3]
+        raw    = (buf[4] << 8) | buf[5]
+        _write_reg_word(reg, raw)
+        return bytes(buf[:8]), 8  # echo
+
+    # FC16 Write Multiple Registers — variable length
+    if fc == 0x10:
+        if len(buf) < 7: return 'incomplete'   # need header to know length
+        byte_count = buf[6]
+        # Sanity: byte_count must be even, >=2 and <=246 (Modbus max 123 regs)
+        # Without this, garbage data with buf[6]>250 blocks us waiting for 250+ bytes.
+        if byte_count < 2 or byte_count > 246 or (byte_count & 1):
+            return None
+        frame_len  = 7 + byte_count + 2
+        if len(buf) < frame_len: return 'incomplete'
+        crc_rx = buf[frame_len-2] | (buf[frame_len-1] << 8)
+        if crc16modbus(buf[:frame_len-2]) != crc_rx: return None
+        start_reg = (buf[2] << 8) | buf[3]
+        reg_count = (buf[4] << 8) | buf[5]
+        for i in range(0, reg_count, 2):
+            off  = 7 + i * 2
+            if off + 4 > frame_len - 2: break
+            hi   = (buf[off] << 8)   | buf[off+1]
+            lo   = (buf[off+2] << 8) | buf[off+3]
+            val  = struct.unpack('>f', struct.pack('>HH', hi, lo))[0]
+            _set_write_reg(start_reg + i, val)
+        resp = bytes([addr, 0x10, buf[2], buf[3], buf[4], buf[5]])
+        crc  = crc16modbus(resp)
+        return resp + bytes([crc & 0xFF, crc >> 8]), frame_len
+
+    return None
+
+# FC06 word buffer for float32 assembly (two consecutive FC06 writes = one float)
+# Accessed from both the serial-reader thread (RTU) and modbus_tcp_client threads (TCP)
+_fc06_word_buf      = {}
+_fc06_word_buf_lock = threading.Lock()
+
+def _write_reg_word(reg: int, raw: int):
+    """Buffer a single FC06 uint16 write; assemble float32 when both words received."""
+    even = (reg & 1) == 0
+    with _fc06_word_buf_lock:
+        if even:
+            _fc06_word_buf[reg] = raw
+            return
+        hi_reg = reg - 1
+        hi     = _fc06_word_buf.pop(hi_reg, 0)
+    val = struct.unpack('>f', struct.pack('>HH', hi, raw))[0]
+    _set_write_reg(hi_reg, val)
+
+def _set_write_reg(reg: int, val: float):
+    with state_lock:
+        write_bank[reg] = val
+    log_entry('info', f'WRITE reg=0x{reg:04X} = {val:.3f}')
+
+def _get_reg_value(reg: int) -> float:
+    with state_lock:
+        if reg in write_bank:
+            return float(write_bank[reg])
+        return float(reg_bank.get(reg, 0))
+
+# ── Modbus TCP slave ───────────────────────────────────────────────────────────
+def modbus_tcp_server():
+    global tcp_clients
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind(('', MODBUS_PORT))
+    except OSError as e:
+        log_entry('err', f'Modbus TCP bind port {MODBUS_PORT}: {e}')
+        return
+    srv.listen(4)
+    log_entry('info', f'Modbus TCP slave listening on port {MODBUS_PORT}')
+    while True:
+        try:
+            conn, addr = srv.accept()
+            threading.Thread(target=modbus_tcp_client, args=(conn, addr), daemon=True).start()
+        except Exception as e:
+            log_entry('err', f'Modbus TCP accept: {e}')
+
+def modbus_tcp_client(conn, addr):
+    global tcp_clients
+    with state_lock:
+        tcp_clients += 1
+    log_entry('info', f'Modbus TCP client {addr[0]}:{addr[1]}')
+    try:
+        buf = b''
+        while True:
+            data = conn.recv(256)
+            if not data:
+                break
+            buf += data
+            while len(buf) >= 12:
+                # MBAP header: trans_id(2) + proto(2) + length(2) + unit_id(1) = 7 bytes
+                # PDU: fc(1) + reg_hi(1) + reg_lo(1) + cnt_hi(1) + cnt_lo(1) = 5 bytes → total 12
+                trans_id  = (buf[0] << 8) | buf[1]
+                pdu_len   = (buf[4] << 8) | buf[5]   # length field = unit_id + PDU bytes
+                total_len = 6 + pdu_len               # MBAP header (6) + pdu_len
+                if len(buf) < total_len:
+                    break
+                unit_id   = buf[6]
+                fc        = buf[7]
+                start_reg = (buf[8] << 8) | buf[9]
+                reg_count = (buf[10] << 8) | buf[11]
+                buf_pdu   = buf[7:total_len]   # full PDU (fc + data), before consuming
+                buf = buf[total_len:]
+
+                if fc in (0x03, 0x04):
+                    # Read registers — build float response for each pair
+                    payload = b''
+                    for i in range(0, reg_count, 2):
+                        val = _get_reg_value(start_reg + i)
+                        payload += struct.pack('>f', val)
+                    pdu_resp = bytes([fc, len(payload)]) + payload
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+                    log_entry('tx', f'Modbus TCP READ  reg=0x{start_reg:04x} cnt={reg_count}  {addr[0]}')
+
+                elif fc == 0x06:
+                    # Write Single Register — PDU layout: [fc][regHi][regLo][valHi][valLo] = 5 bytes
+                    if len(buf_pdu) < 5:
+                        # malformed, send illegal data address
+                        pdu_resp = bytes([fc | 0x80, 0x02])
+                        mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                        conn.sendall(mbap + pdu_resp)
+                        continue
+                    raw = (buf_pdu[3] << 8) | buf_pdu[4]  # value at PDU bytes 3-4
+                    _write_reg_word(start_reg, raw)
+                    # echo back the request PDU (standard FC06 response = identical to request)
+                    pdu_resp = bytes(buf_pdu[:5])
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+                    log_entry('tx', f'Modbus TCP WRITE reg=0x{start_reg:04x} raw=0x{raw:04x}  {addr[0]}')
+
+                elif fc == 0x10:
+                    # Write Multiple Registers — PDU: [fc][regHi][regLo][cntHi][cntLo][byteCount][data...]
+                    # buf_pdu[5] is byteCount (already in bytes, not register count)
+                    data_bytes = buf_pdu[6:6 + buf_pdu[5]] if len(buf_pdu) > 6 else b''
+                    for i in range(0, reg_count, 2):
+                        off = i * 2
+                        if off + 4 > len(data_bytes): break
+                        hi  = (data_bytes[off] << 8)   | data_bytes[off+1]
+                        lo  = (data_bytes[off+2] << 8) | data_bytes[off+3]
+                        val = struct.unpack('>f', struct.pack('>HH', hi, lo))[0]
+                        _set_write_reg(start_reg + i, val)
+                    pdu_resp = bytes([0x10, buf_pdu[1], buf_pdu[2], buf_pdu[3], buf_pdu[4]])
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+
+                else:
+                    # Exception: illegal function
+                    pdu_resp = bytes([fc | 0x80, 0x01])
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+    except Exception as e:
+        pass
+    finally:
+        with state_lock:
+            tcp_clients -= 1
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+# ── List serial ports ─────────────────────────────────────────────────────────
+def list_ports():
+    try:
+        from serial.tools import list_ports as lp
+        return [{'device': p.device, 'desc': p.description} for p in lp.comports()]
+    except ImportError:
+        return []
+
+# ── HTTP handler ───────────────────────────────────────────────────────────────
+BRIDGE_SCRIPT = r"""
+<script>
+/* ── SML Emulator Server Bridge ── */
+(function() {
+'use strict';
+
+const BASE = 'http://localhost:""" + str(HTTP_PORT) + r"""';
+
+// ── Port selector UI ─────────────────────────────────────────────────────────
+async function buildPortSelector() {
+  const resp = await fetch(BASE + '/api/ports').catch(() => null);
+  const ports = resp ? await resp.json().catch(() => []) : [];
+  const sel = document.createElement('select');
+  sel.id = 'bridgePortSel';
+  sel.style.cssText = 'width:160px;background:#0a1628;border:1px solid #1a4a7a;color:#e0e0e0;padding:5px 8px;border-radius:4px;font-size:0.81em;';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '— select port —';
+  sel.appendChild(placeholder);
+  ports.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.device;
+    o.textContent = `${p.device}  ${p.desc || ''}`.trim();
+    sel.appendChild(o);
+  });
+  return sel;
+}
+
+// Replace Connect button area
+async function setupConnectUI() {
+  const btnConn = document.getElementById('btnConnect');
+  const btnDisc = document.getElementById('btnDisconnect');
+  if (!btnConn) return;
+
+  // Hide Web Serial warning — we have our own port picker
+  const warn = document.getElementById('warnSerial');
+  if (warn) warn.style.display = 'none';
+
+  // Insert port selector before Connect button
+  const sel = await buildPortSelector();
+  btnConn.parentNode.insertBefore(sel, btnConn);
+  btnConn.parentNode.insertBefore(document.createTextNode(' '), btnConn);
+
+  // Re-enable even if Web Serial check disabled it (e.g. Safari)
+  btnConn.disabled = false;
+
+  // Override Connect button
+  btnConn.onclick = async () => {
+    const device = sel.value;
+    if (!device) { alert('Select a serial port first'); return; }
+    const baud = +document.getElementById('selBaud').value;
+    const serCfg = document.getElementById('selSerial').value;
+    const r = await fetch(BASE + '/api/open', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({device, baud, config: serCfg})
+    });
+    const j = await r.json();
+    if (j.ok) {
+      // Create a fake writer proxy
+      window._bridgeWriter = {
+        write: async (data) => {
+          await fetch(BASE + '/api/send', {
+            method: 'POST',
+            headers: {'Content-Type':'application/octet-stream'},
+            body: data
+          });
+        }
+      };
+      writer = window._bridgeWriter;
+      setConn(true);
+      log('info', `Opened ${device} at ${baud} baud ${serCfg}`);
+    } else {
+      log('err', `Open failed: ${j.error}`);
+    }
+  };
+
+  // Override Disconnect button
+  btnDisc.onclick = async () => {
+    stopSending();
+    await fetch(BASE + '/api/close', { method: 'POST' });
+    writer = null;
+    setConn(false);
+    log('info', 'Disconnected');
+  };
+}
+
+// ── Fix stopSending: port is always null in bridge — use writer for state ─────
+const _origStopSending = stopSending;
+stopSending = function() {
+  _origStopSending();
+  // Original sets btnStart.disabled=(port===null); port is always null in bridge.
+  // Re-enable Start if still connected (writer set) and not in auto-slave mode.
+  if (writer && !isModbusRtu() && !isT510()) {
+    document.getElementById('btnStart').disabled = false;
+  }
+};
+
+// ── Override Modbus slave (no-op — Python handles RTU, always-on TCP) ─────────
+window.startModbusSlave = function() {
+  modbusRunning = true;
+  setModbusStatus('#4caf50', '● Python Modbus RTU slave active  |  TCP slave port """ + str(MODBUS_PORT) + r"""');
+  log('info', 'Modbus slave running in Python backend');
+};
+window.stopModbusSlave = function() {
+  modbusRunning = false;
+};
+
+// ── Auto-push registers every second from computeLiveValues ──────────────────
+const _origComputeLiveValues = computeLiveValues;
+computeLiveValues = function() {
+  _origComputeLiveValues();
+  // Push current live values to Python (best-effort, no await)
+  const regs = {
+    0x0000: live.vL1,
+    0x0002: live.vL2,
+    0x0004: live.vL3,
+    0x0006: live.iL1,
+    0x0008: live.iL2,
+    0x000A: live.iL3,
+    0x000C: live.pL1,
+    0x000E: live.pL2,
+    0x0010: live.pL3,
+    0x0012: live.pNet,
+    0x001E: live.freq,
+    0x0046: Math.sqrt(3) * live.vL1,
+    0x0048: live.energyIn,
+    0x004A: live.energyOut
+  };
+  fetch(BASE + '/api/regs', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(regs)
+  }).catch(() => {});
+};
+
+// ── For TCP profiles: push registers every second (no sendFrame loop runs) ────
+setInterval(() => {
+  if (isTcpProfile()) computeLiveValues();
+}, 1000);
+
+// ── Poll writable registers written by TCP master ────────────────────────────
+async function pollWriteRegs() {
+  try {
+    const r = await fetch(BASE + '/api/writeregs');
+    if (!r.ok) return;
+    const data = await r.json();
+    for (const [hexAddr, val] of Object.entries(data)) {
+      const reg = parseInt(hexAddr, 16);
+      const idx = wregStore.findIndex(r => r.addr === reg || r.addr === (reg & ~1));
+      if (idx < 0) continue;
+      if (wregStore[idx].value === val) continue;
+      wregStore[idx].value = val;
+      const el = document.getElementById(`wregVal${idx}`);
+      if (el) {
+        el.textContent = isFinite(val) ? val.toFixed(3) : String(val);
+        el.classList.add('wreg-written');
+        setTimeout(() => el.classList.remove('wreg-written'), 800);
+      }
+    }
+  } catch(_) {}
+}
+setInterval(pollWriteRegs, 1000);
+
+// ── Poll Python log entries ───────────────────────────────────────────────────
+let lastLogIdx = 0;
+async function pollLog() {
+  try {
+    const r = await fetch(BASE + `/api/status?since=${lastLogIdx}`);
+    if (!r.ok) return;
+    const j = await r.json();
+    for (const e of (j.log || [])) {
+      log(e.type === 'err' ? 'err' : e.type === 'tx' ? 'tx' : 'info',
+          `[py] ${e.msg}`);
+    }
+    lastLogIdx = j.log_idx;
+  } catch(_) {}
+}
+setInterval(pollLog, 1000);
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+setupConnectUI();
+
+// For sdm630_tcp profile: Modbus TCP slave always runs in Python, no UI needed
+const tcpStatusEl = document.createElement('div');
+tcpStatusEl.style.cssText = 'font-size:0.73em;color:#4caf50;padding:4px 0;';
+tcpStatusEl.textContent = `Modbus TCP slave: port """ + str(MODBUS_PORT) + r"""`;
+const tcpPanel = document.getElementById('tcpPanel');
+if (tcpPanel) {
+  const sep = tcpPanel.querySelector('h2');
+  if (sep) sep.after(tcpStatusEl);
+}
+
+})();
+
+// Fix Modbus TCP port to match Python server — outside IIFE for reliability
+(function() {
+  var portEl = document.getElementById('inpBridgePort');
+  if (portEl) {
+    portEl.value = """ + str(MODBUS_PORT) + r""";
+    portEl.dispatchEvent(new Event('input'));
+    if (typeof generateScript === 'function') generateScript();
+  }
+})();
+</script>
+</body>
+"""
+
+def browser_watchdog(url):
+    """Reopen browser automatically if no HTTP activity for 8 s after first use.
+    Checks every 2 s for responsiveness."""
+    global last_http_req, browser_opened
+    while True:
+        time.sleep(2)
+        if browser_opened and last_http_req > 0 and (time.time() - last_http_req) > 8:
+            last_http_req = time.time()   # reset so we don't spam
+            open_browser_reliable(url)
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass   # suppress default access log
+
+    def do_OPTIONS(self):
+        self._cors()
+        self.send_response(204)
+        self.end_headers()
+
+    def _cors(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+
+    def _touch(self):
+        global last_http_req
+        last_http_req = time.time()
+
+    def do_GET(self):
+        self._touch()
+        parsed = urlparse(self.path)
+        path   = parsed.path
+
+        if path == '/':
+            self._serve_html()
+        elif path == '/api/ports':
+            self._json(list_ports())
+        elif path == '/api/writeregs':
+            with state_lock:
+                data = {f'0x{k:04X}': v for k, v in write_bank.items()}
+            self._json(data)
+        elif path == '/api/status':
+            qs    = parse_qs(parsed.query)
+            since = int(qs.get('since', ['0'])[0])
+            with state_lock:
+                total = len(serial_log)
+                chunk = serial_log[since:] if since < total else []
+                port_open = serial_port is not None and serial_port.is_open
+            self._json({'log': chunk, 'log_idx': total,
+                        'port_open': port_open, 'tcp_clients': tcp_clients})
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        self._touch()
+        path = urlparse(self.path).path
+
+        if path == '/api/open':
+            body = self._read_json()
+            self._open_serial(body.get('device',''), body.get('baud', 9600),
+                              body.get('config', '8N1'))
+        elif path == '/api/close':
+            self._close_serial()
+            self._json({'ok': True})
+        elif path == '/api/send':
+            data = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+            self._serial_write(data)
+            self._json({'ok': True, 'bytes': len(data)})
+        elif path == '/api/regs':
+            body = self._read_json()
+            with state_lock:
+                for k, v in body.items():
+                    reg_bank[int(k)] = float(v) if v is not None else 0.0
+            self._json({'ok': True})
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def _serve_html(self):
+        try:
+            with open(HTML_FILE, 'r', encoding='utf-8') as f:
+                html = f.read()
+        except FileNotFoundError:
+            self.send_response(404)
+            self.end_headers()
+            return
+        # Inject bridge before </body>
+        html = html.replace('</body>', BRIDGE_SCRIPT, 1)
+        data = html.encode('utf-8')
+        self.send_response(200)
+        self._cors()
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _json(self, obj):
+        data = json.dumps(obj).encode()
+        self.send_response(200)
+        self._cors()
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _read_json(self):
+        length = int(self.headers.get('Content-Length', 0))
+        raw    = self.rfile.read(length)
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+
+    def _open_serial(self, device, baud, config):
+        global serial_port, rx_buf
+        try:
+            import serial as pyserial
+        except ImportError:
+            self._json({'ok': False, 'error': 'pyserial not installed (pip install pyserial)'})
+            return
+        self._close_serial(quiet=True)
+        try:
+            # Parse config string e.g. "8N1", "7E1"
+            data_bits = int(config[0]) if config else 8
+            parity_c  = config[1].upper() if len(config) > 1 else 'N'
+            stop_bits = int(config[2]) if len(config) > 2 else 1
+            parity_map = {'N': pyserial.PARITY_NONE,
+                          'E': pyserial.PARITY_EVEN,
+                          'O': pyserial.PARITY_ODD}
+            p = pyserial.Serial(
+                port=device, baudrate=baud,
+                bytesize=data_bits,
+                parity=parity_map.get(parity_c, pyserial.PARITY_NONE),
+                stopbits=stop_bits,
+                timeout=0.05
+            )
+            with state_lock:
+                serial_port = p
+                rx_buf.clear()
+            log_entry('info', f'Opened {device} {baud} {config}')
+            self._json({'ok': True})
+        except Exception as e:
+            self._json({'ok': False, 'error': str(e)})
+
+    def _close_serial(self, quiet=False):
+        global serial_port
+        with state_lock:
+            p = serial_port
+            serial_port = None
+        if p:
+            try:
+                p.close()
+            except Exception:
+                pass
+            if not quiet:
+                log_entry('info', 'Serial port closed')
+
+    def _serial_write(self, data: bytes):
+        with state_lock:
+            p = serial_port
+        if p and p.is_open:
+            try:
+                p.write(data)
+                log_entry('tx', f'TX {len(data)}B  {data[:32].hex(" ")}')
+            except Exception as e:
+                log_entry('err', f'Serial write: {e}')
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+def main():
+    if not os.path.exists(HTML_FILE):
+        print(f'ERROR: {HTML_FILE} not found', file=sys.stderr)
+        sys.exit(1)
+
+    url = f'http://localhost:{HTTP_PORT}/'
+
+    # If server already running (browser was closed), just reopen the browser
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.settimeout(0.5)
+    try:
+        probe.connect(('127.0.0.1', HTTP_PORT))
+        probe.close()
+        print(f'Server already running — reopening browser at {url}')
+        # Try twice with small delay for macOS reliability (sometimes first open
+        # gets swallowed when the browser app was in background).
+        open_browser_reliable(url)
+        time.sleep(0.3)
+        open_browser_reliable(url)
+        return
+    except (ConnectionRefusedError, OSError):
+        pass
+    finally:
+        try: probe.close()
+        except: pass
+
+    # Start Modbus TCP slave
+    threading.Thread(target=modbus_tcp_server, daemon=True).start()
+
+    # Start serial reader
+    threading.Thread(target=serial_reader, daemon=True).start()
+
+    # Start HTTP server (SO_REUSEADDR so restart after crash doesn't fail)
+    HTTPServer.allow_reuse_address = True
+    server = HTTPServer(('127.0.0.1', HTTP_PORT), Handler)
+    print(f'SML Emulator Server')
+    print(f'  HTTP:      {url}')
+    print(f'  Modbus TCP port: {MODBUS_PORT}')
+    print(f'  Press Ctrl+C to stop')
+
+    def _open_browser():
+        global browser_opened, last_http_req
+        open_browser_reliable(url)
+        browser_opened = True
+        last_http_req  = time.time()
+    threading.Timer(0.8, _open_browser).start()
+    threading.Thread(target=browser_watchdog, args=(url,), daemon=True).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print('\nStopped.')
+
+if __name__ == '__main__':
+    main()

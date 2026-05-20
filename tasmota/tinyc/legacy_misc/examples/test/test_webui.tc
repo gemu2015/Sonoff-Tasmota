@@ -1,0 +1,59 @@
+// Test: WebUI controls — buttons, sliders, checkboxes, text inputs
+// Tests all web control widgets on the Tasmota main page
+// No hardware dependencies — pure web interface test
+
+int slider_val;
+int checkbox_val;
+int radio_val;
+int pulldown_val;
+int button_count;
+char text_val[64];
+int number_val;
+
+int main() {
+    slider_val = 50;
+    checkbox_val = 0;
+    radio_val = 0;
+    pulldown_val = 0;
+    button_count = 0;
+    number_val = 25;
+    strcpy(text_val, "Hello");
+    print("WebUI test running. Open device web page to test controls.\n");
+}
+
+void WebUI() {
+    // Button
+    webButton(button_count, "Click Counter");
+
+    // Slider (min=0, max=100)
+    webSlider(slider_val, 0, 100, "Brightness");
+
+    // Checkbox
+    webCheckbox(checkbox_val, "Enable Feature");
+
+    // Text input
+    webText(text_val, 64, "Name");
+
+    // Number input
+    webNumber(number_val, 0, 100, "Threshold");
+
+    // Pulldown
+    webPulldown(pulldown_val, "Off|Low|Medium|High");
+
+    // Radio buttons
+    webRadio(radio_val, "Mode A|Mode B|Mode C");
+}
+
+void WebCall() {
+    // This callback fires when any web control changes
+    char msg[128];
+    sprintf(msg, "WebCall: slider=%d check=%d radio=%d pull=%d btn=%d num=%d text=%s\n", slider_val, checkbox_val, radio_val, pulldown_val, button_count, number_val, text_val);
+    printStr(msg);
+}
+
+void WebPage() {
+    // Show current values on the sensor page
+    char html[256];
+    sprintf(html, "<p>Slider: <b>%d</b></p><p>Checkbox: <b>%d</b></p><p>Radio: <b>%d</b></p><p>Pulldown: <b>%d</b></p><p>Button clicks: <b>%d</b></p><p>Text: <b>%s</b></p><p>Number: <b>%d</b></p>", slider_val, checkbox_val, radio_val, pulldown_val, button_count, text_val, number_val);
+    webSend(html);
+}

@@ -1,0 +1,16 @@
+// Slot 1 test — Counter B (increments by 10 every second)
+int counterB = 0;
+
+void EverySecond() {
+    counterB = counterB + 10;
+}
+
+void WebCall() {
+    char buf[64];
+    sprintf(buf, "{s}Slot 1 Counter B{m}%d{e}", counterB);
+    webSend(buf);
+}
+
+int main() {
+    return 0;
+}

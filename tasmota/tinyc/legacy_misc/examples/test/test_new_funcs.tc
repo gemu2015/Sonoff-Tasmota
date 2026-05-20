@@ -1,0 +1,142 @@
+// Test script for new TinyC functions
+// Tests: tasmInfo, tasmPower, tasmSwitch, tasmCounter,
+//        pow, acos, arrayFill, arrayCopy, event callbacks
+
+int arr1[10];
+int arr2[10];
+int cnt;
+char buf[64];
+char tmp[32];
+
+void main() {
+  print("=== New Function Tests ===");
+
+  // Test pow()
+  float p1;
+  p1 = pow(2.0, 10.0);
+  sprintf(buf, "pow(2,10) = %.0f", p1);
+  print(buf);
+
+  float p2;
+  p2 = pow(3.0, 3.0);
+  sprintf(buf, "pow(3,3) = %.0f", p2);
+  print(buf);
+
+  // Test acos()
+  float a1;
+  a1 = acos(0.5);
+  sprintf(buf, "acos(0.5) = %.4f (expect 1.0472)", a1);
+  print(buf);
+
+  float a2;
+  a2 = acos(1.0);
+  sprintf(buf, "acos(1.0) = %.4f (expect 0.0)", a2);
+  print(buf);
+
+  // Test tasmInfo string functions
+  print("--- tasmInfo strings ---");
+  int len;
+
+  len = tasmInfo(0, buf);
+  sprintf(tmp, "mqtt_topic(%d): ", len);
+  strcat(tmp, buf);
+  print(tmp);
+
+  len = tasmInfo(2, buf);
+  sprintf(tmp, "ip_addr(%d): ", len);
+  strcat(tmp, buf);
+  print(tmp);
+
+  len = tasmInfo(3, buf);
+  sprintf(tmp, "friendly(%d): ", len);
+  strcat(tmp, buf);
+  print(tmp);
+
+  len = tasmInfo(4, buf);
+  sprintf(tmp, "device(%d): ", len);
+  strcat(tmp, buf);
+  print(tmp);
+
+  len = tasmInfo(6, buf);
+  sprintf(tmp, "reset(%d): ", len);
+  strcat(tmp, buf);
+  print(tmp);
+
+  // Test tasmPower, tasmSwitch, tasmCounter
+  print("--- Indexed state ---");
+  int pw;
+  pw = tasmPower(1);
+  sprintf(buf, "power(1) = %d", pw);
+  print(buf);
+
+  int sw;
+  sw = tasmSwitch(1);
+  sprintf(buf, "switch(1) = %d", sw);
+  print(buf);
+
+  int ct;
+  ct = tasmCounter(1);
+  sprintf(buf, "counter(1) = %d", ct);
+  print(buf);
+
+  // Test tasm_npwr
+  int np;
+  np = tasm_npwr;
+  sprintf(buf, "tasm_npwr = %d", np);
+  print(buf);
+
+  // Test arrayFill
+  print("--- Array ops ---");
+  arrayFill(arr1, 42, 10);
+  sprintf(buf, "arr1[0]=%d", arr1[0]);
+  sprintf(tmp, " arr1[9]=%d", arr1[9]);
+  strcat(buf, tmp);
+  print(buf);
+
+  // Test arrayCopy
+  int i;
+  i = 0;
+  while (i < 10) {
+    arr1[i] = i * 10;
+    i = i + 1;
+  }
+  arrayCopy(arr2, arr1, 10);
+  sprintf(buf, "copy: arr2[0]=%d", arr2[0]);
+  sprintf(tmp, " arr2[5]=%d", arr2[5]);
+  strcat(buf, tmp);
+  sprintf(tmp, " arr2[9]=%d", arr2[9]);
+  strcat(buf, tmp);
+  print(buf);
+
+  print("=== All tests done ===");
+  print("Waiting for event callbacks...");
+  cnt = 0;
+}
+
+void EverySecond() {
+  cnt = cnt + 1;
+  if (cnt <= 3) {
+    sprintf(buf, "tick %d", cnt);
+    print(buf);
+  }
+}
+
+void OnWifiConnect() {
+  print(">>> OnWifiConnect fired!");
+}
+
+void OnWifiDisconnect() {
+  print(">>> OnWifiDisconnect fired!");
+}
+
+void OnMqttConnect() {
+  print(">>> OnMqttConnect fired!");
+}
+
+void OnMqttDisconnect() {
+  print(">>> OnMqttDisconnect fired!");
+}
+
+void OnTimeSet() {
+  print(">>> OnTimeSet fired!");
+}

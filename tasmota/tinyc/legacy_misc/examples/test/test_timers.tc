@@ -1,0 +1,72 @@
+// Test: Timers, callbacks, millis/micros timing
+// No hardware dependencies — pure software timing tests
+
+int timer_fired[4];
+int loop_count;
+int second_count;
+int ms_count;
+int start_ms;
+
+int main() {
+    print("=== Timer & Callback Test ===\n\n");
+    start_ms = millis();
+
+    // Start 4 timers with different intervals
+    timerStart(0, 2000);   // 2 seconds
+    timerStart(1, 5000);   // 5 seconds
+    timerStart(2, 10000);  // 10 seconds
+    timerStart(3, 30000);  // 30 seconds
+
+    print("4 timers started: 2s, 5s, 10s, 30s\n");
+    print("Callbacks active: EverySecond, Every50ms, EveryLoop\n\n");
+}
+
+void Every50ms() {
+    ms_count = ms_count + 1;
+
+    // Check timers
+    int i;
+    for (i = 0; i < 4; i = i + 1) {
+        if (timerDone(i) && !timer_fired[i]) {
+            timer_fired[i] = 1;
+            char msg[64];
+            int elapsed = millis() - start_ms;
+            sprintf(msg, "Timer %d fired at %d ms\n", i, elapsed);
+            printStr(msg);
+
+            // Restart timer 0 to test repeated firing
+            if (i == 0) {
+                timer_fired[0] = 0;
+                timerStart(0, 2000);
+            }
+        }
+    }
+}
+
+void EverySecond() {
+    second_count = second_count + 1;
+
+    // Show remaining time on timers every 5 seconds
+    if ((second_count % 5) == 0) {
+        char msg[128];
+        sprintf(msg, "[%ds] loops=%d 50ms=%d", second_count, loop_count, ms_count);
+        int i;
+        for (i = 0; i < 4; i = i + 1) {
+            int rem = timerRemaining(i);
+            sprintfAppend(msg, " t%d=%dms", i, rem);
+        }
+        printStr(msg);
+        print("\n");
+    }
+}
+
+void EveryLoop() {
+    loop_count = loop_count + 1;
+}
+
+void WebPage() {
+    char html[256];
+    int elapsed = (millis() - start_ms) / 1000;
+    sprintf(html, "<p>Running: <b>%d</b> sec</p><p>EveryLoop calls: <b>%d</b></p><p>Every50ms calls: <b>%d</b></p><p>EverySecond calls: <b>%d</b></p>", elapsed, loop_count, ms_count, second_count);
+    webSend(html);
+}

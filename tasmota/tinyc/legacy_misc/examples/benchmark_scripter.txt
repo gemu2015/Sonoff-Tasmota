@@ -1,0 +1,111 @@
+>D
+IP=192.168.188.135
+
+; Scripter Benchmark — equivalent to TinyC benchmark.tc
+; Paste into Tasmota Scripter console (Edit Script)
+; Measures execution speed of various operations
+; NOTE: All Scripter numbers are floats (no true integers)
+; NOTE: Scripter has no operator precedence - use brackets!
+; WARNING: 100k iterations may trigger watchdog on slow devices
+;          reduce counts if device reboots
+
+
+t_start=0
+t0=0
+t1=0
+i=0
+sum=0
+x=0
+idx=0
+t_int=0
+t_float=0
+t_array=0
+t_call=0
+t_string=0
+t_total=0
+M:arr=0 200
+sa=""
+sb=""
+sc=""
+
+>B
+
+ct(1 300000 1 3 8000)
+
+=>print === Scripter Benchmark ===
+
+>t1
+t_start=millis
+; 1. Integer arithmetic: 100k iterations, 5 ops each = 500k ops
+t0=millis
+sum=0
+for i 0 99999 1
+sum=sum+i
+sum=sum-(i/2)
+sum=sum*3
+sum=sum/4
+sum=sum%1000000
+next
+t1=millis
+t_int=t1-t0
+=>print Integer:  %0t_int% ms  (500k ops)
+
+; 2. Float arithmetic: 50k iterations, 5 ops each = 250k ops
+t0=millis
+sum=0
+x=1
+for i 0 49999 1
+sum=sum+x
+x=x*1.0001
+sum=sum-(x*0.5)
+sum=sum*1.001
+sum=sum/1.001
+next
+t1=millis
+t_float=t1-t0
+=>print Float:    %0t_float% ms  (250k ops)
+
+; 3. Array access: 200 fill + 100k random access
+; NOTE: Scripter M: arrays are 1-based, so idx+1
+t0=millis
+for i 1 200 1
+arr[i]=i*7
+next
+sum=0
+for i 0 99999 1
+idx=((i*31)+17)%200
+idx=idx+1
+sum=sum+arr[idx]
+arr[idx]=sum&65535
+next
+t1=millis
+t_array=t1-t0
+=>print Array:    %0t_array% ms  (100k access)
+
+; 4. Function calls: 100k calls with 3 args
+t0=millis
+sum=0
+for i 0 99999 1
+sum==#add3(sum i 1)
+sum=sum&2147483647
+next
+t1=millis
+t_call=t1-t0
+=>print Calls:    %0t_call% ms  (100k calls)
+
+; 5. String operations: 10k iterations
+t0=millis
+for i 0 9999 1
+sa="Hello"
+sb="World"
+sc=sa+" "+sb
+next
+t1=millis
+t_string=t1-t0
+=>print Strings:  %0t_string% ms  (10k iters)
+
+t_total=millis-t_start
+=>print -- Total: %0t_total% ms --
+
+#add3(a b c)
+return a+b+c

@@ -1,0 +1,23 @@
+// Minimal WebPage() sanity check — 15 lines.
+// If you see "HELLO FROM WebPage" in a red box on the Tasmota main page,
+// the callback system works and the chart problem is in marstek_emu_chart.tc.
+// If you see NOTHING, the problem is firmware/deployment, not the script.
+
+int counter;
+
+void WebPage() {
+    char buf[200];
+    sprintf(buf, "<div style='border:3px solid red;padding:12px;margin:10px 0;background:#fff;color:#000;font-size:14px'><b>HELLO FROM WebPage</b><br>counter=%d uptime=%ds</div>", counter, tasm_uptime);
+    webSend(buf);
+    WebChart(0, "Test", "W", 0xff0000, 1, 1, &counter, 0, 1, 0, 0);
+}
+
+void EverySecond() {
+    counter = counter + 1;
+}
+
+int main() {
+    counter = 0;
+    addLog("WebPage sanity script loaded");
+    return 0;
+}

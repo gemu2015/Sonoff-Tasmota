@@ -1,0 +1,336 @@
+// guiton_display.tc — LCD Energy Monitor
+// Converted from Tasmota Scripter for Guiton LCD board
+// Device IP: 192.168.188.75
+
+// ═══════════════════════════════════════════════════════════════════
+// PERSISTENT VARIABLES (survive reboot)
+// ═══════════════════════════════════════════════════════════════════
+persist int loud;      // volume 0-100
+persist int cpic;      // slideshow picture index
+
+// ═══════════════════════════════════════════════════════════════════
+// ENERGY VALUES (updated via UDP from collector)
+// ═══════════════════════════════════════════════════════════════════
+global float pwl;       // powerwall level %
+global float atmp;      // ambient temperature
+global float sip;       // grid import (Netz)
+global float sop;       // solar production
+global float bip;       // battery import/export
+global float hip;       // home consumption
+global float hwp;       // heat pump
+global float sedc;      // solar roof (Dach)
+global float wrgh;      // WR garden house (Gartenhaus)
+global float wrga;      // WR garage
+global float wrgg;      // WR garden (Garten)
+
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+int lgrey;
+int cnt;
+int udp_timer;
+watch int hr;        // hour change detection
+watch int mn;        // minute change detection
+watch int loud_w;    // volume slider change detection
+
+char buf[160];
+char tmp[80];
+char path[80];
+char fnam[64];
+
+// ═══════════════════════════════════════════════════════════════════
+// DISPLAY HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+// Draw value with auto-color: green (ci=2) if >0, red (ci=3) if <=0
+// Returns new y position (y + 25)
+int colval(float val, int x, int y) {
+    int ci;
+    if (val > 0.0) { ci = 2; } else { ci = 3; }
+    sprintf(buf, "[Ci%dx%dy%dp-7]%.0f W", ci, x, y, val);
+    dspText(buf);
+    return y + 25;
+}
+
+// Draw value with fixed color index, returns new y
+int wval(float val, int x, int y, int ci) {
+    sprintf(buf, "[Ci%dx%dy%dp-7]%.0f W", ci, x, y, val);
+    dspText(buf);
+    return y + 25;
+}
+
+// Draw a column of labels starting at (x, y) with 25px spacing
+void drawLabels(int x, int y, int col) {
+    dspText("[f1s2Ci6]");
+    if (col == 0) {
+        // left column: H: N: S: B: HWP:
+        sprintf(buf, "[x%dy%d]H:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]N:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]S:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]B:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]HWP:", x, y);
+        dspText(buf);
+    } else {
+        // right column: DA: GA: GH: GA: SU:
+        sprintf(buf, "[x%dy%d]DA:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]GA:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]GH:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]GA:", x, y);
+        dspText(buf);
+        y = y + 25;
+        sprintf(buf, "[x%dy%d]SU:", x, y);
+        dspText(buf);
+    }
+}
+
+// Advance slideshow to next image in /RGB directory
+void nextpic() {
+    int dir;
+    int found;
+    int c;
+
+    dir = fileOpenDir("/RGB");
+    if (dir < 0) return;
+
+    found = 0;
+    c = 0;
+    while (fileReadDir(dir, fnam)) {
+        // Skip hidden files and non-image files
+        if (fnam[0] == '.' || (strFind(fnam, ".jpg") < 0 && strFind(fnam, ".rgb") < 0)) {
+            c = c;  // skip
+        } else {
+            c = c + 1;
+            if (c == cpic) {
+                // Build full path: /RGB/filename
+                strcpy(path, "/RGB/");
+                strcat(path, fnam);
+
+                // Clear picture area with grey
+                sprintf(buf, "[C%dx0y0R480:281]", lgrey);
+                dspText(buf);
+
+                // Draw scaled image
+                strcpy(buf, "[x0y0P");
+                strcat(buf, path);
+                strcat(buf, ":1:480:281]");
+                dspText(buf);
+
+                audioPlay("/Correct.mp3");
+                found = 1;
+                break;
+            }
+        }
+    }
+    fileClose(dir);
+
+    if (found > 0) {
+        cpic = cpic + 1;
+    } else {
+        cpic = 1;  // loop back to start
+    }
+}
+
+// Draw static elements (background, buttons, separators, labels)
+void drawStatic() {
+    // background + aerial photo
+    sprintf(buf, "[B%dzf1s3x0y0P/Aerial.jpg:]", lgrey);
+    dspText(buf);
+
+    // touch power button
+    dspText("[b1:420:420:50:50:2:11:4:2:/power:]");
+
+    // separator lines
+    dspText("[Ci1x0y285h480]");
+    dspText("[Ci1x0y335h480]");
+
+    // labels
+    drawLabels(10, 345, 0);
+    drawLabels(200, 345, 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UDP RECEIVE — parse energy values from collector
+// ═══════════════════════════════════════════════════════════════════
+void OnUDP() {
+    udp_timer = 60;
+
+    // TODO: Parse your UDP packet here.
+    // Example pattern (adapt field names to your sender format):
+    //   char pkt[512];
+    //   udpGet(pkt);
+    //   pwl  = udpFloat(pkt, "pwl");
+    //   atmp = udpFloat(pkt, "atmp");
+    //   sip  = udpFloat(pkt, "sip");
+    //   sop  = udpFloat(pkt, "sop");
+    //   bip  = udpFloat(pkt, "bip");
+    //   hip  = udpFloat(pkt, "hip");
+    //   hwp  = udpFloat(pkt, "hwp");
+    //   sedc = udpFloat(pkt, "sedc");
+    //   wrgh = udpFloat(pkt, "wrgh");
+    //   wrga = udpFloat(pkt, "wrga");
+    //   wrgg = udpFloat(pkt, "wrgg");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EVERY SECOND — display updates, change detection
+// ═══════════════════════════════════════════════════════════════════
+void EverySecond() {
+    cnt = cnt + 1;
+
+    // ─── UDP timeout ───
+    if (udp_timer > 0) {
+        udp_timer = udp_timer - 1;
+    }
+    if (udp_timer == 0) {
+        addLog("TCC: udp timeout");
+        udp_timer = -1;   // log once
+    }
+
+    // ─── Date / time ───
+    dspText("[Ci5f4x10y300T]");
+    dspText("[x160y300tS]");
+
+    // ─── Temperature ───
+    sprintf(buf, "[f2s1Ci3x350y300p-6]%.1f C", atmp);
+    dspText(buf);
+
+    // ─── Battery state ───
+    sprintf(buf, "[f2s1x370y350p-6]%.1f %", pwl);
+    dspText(buf);
+
+    dspText("[f2s1]");
+
+    // ─── Left column: Home / Netz / Solar / Battery / HWP ───
+    int y;
+    y = 345;
+    y = wval(hip, 50, y, 2);      // Home — green
+    y = colval(sip, 50, y);        // Netz — auto color
+    y = wval(sop, 50, y, 7);      // Solar — cyan
+    y = colval(bip, 50, y);        // Battery — auto color
+    y = wval(hwp, 50, y, 2);      // Heat pump — green
+
+    // ─── Right column: Dach / Gartenhaus / Garage / Garten / Sum ───
+    y = 345;
+    y = wval(sedc, 230, y, 7);                // Dach
+    y = wval(0.0 - wrgh, 230, y, 7);          // Gartenhaus (negated)
+    y = wval(0.0 - wrga, 230, y, 7);          // Garage (negated)
+    y = wval(0.0 - wrgg, 230, y, 7);          // Garten (negated)
+    float sum;
+    sum = 0.0 - (wrga + wrgh + wrgg);
+    y = wval(sum, 230, y, 7);                 // Sum
+
+    // ─── Hour change: play chime ───
+    hr = tasm_hour;
+    if (tasm_year > 2023 && changed(hr)) {
+        audioPlay("/Glass.mp3");
+        snapshot(hr);
+    }
+
+    // ─── Volume change ───
+    loud_w = loud;
+    if (changed(loud_w)) {
+        audioVol(loud);
+        snapshot(loud_w);
+    }
+
+    // ─── Minute change: advance slideshow ───
+    mn = tasm_minute;
+    if (changed(mn)) {
+        nextpic();
+        snapshot(mn);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WEB UI — slider on main Tasmota page
+// ═══════════════════════════════════════════════════════════════════
+void WebUI() {
+    webSlider(loud, 0, 100, "Lautstaerke");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COMMAND — console volume control
+// ═══════════════════════════════════════════════════════════════════
+void Command(char cmd[]) {
+    char arg[32];
+    char resp[80];
+
+    if (strFind(cmd, "Setvol") >= 0) {
+        if (strlen(cmd) > 6) {
+            strSub(arg, cmd, 6, 0);
+            int vol;
+            vol = atoi(arg);
+            if (vol < 0) { vol = 0; }
+            if (vol > 100) { vol = 100; }
+            loud = vol;
+            audioVol(loud);
+            saveVars();
+        }
+        sprintf(resp, "{\"LCDSetvol\":\"%d\"}", loud);
+        responseCmnd(resp);
+    } else {
+        strcpy(resp, "{\"LCD\":\"cmds: Setvol\"}");
+        responseCmnd(resp);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CALLBACKS
+// ═══════════════════════════════════════════════════════════════════
+void OnInit() {
+    addLog("TCC: WiFi up");
+}
+
+void OnExit() {
+    print("Guiton Display shutdown\n");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════
+int main() {
+    lgrey = 21130;
+    cnt = 0;
+    udp_timer = 30;
+    hr = tasm_hour;
+    mn = tasm_minute;
+    loud_w = loud;
+    snapshot(hr);
+    snapshot(mn);
+    snapshot(loud_w);
+
+    // Audio init
+    if (loud == 0) { loud = 80; }
+    audioVol(loud);
+
+    // Slideshow init
+    if (cpic == 0) { cpic = 1; }
+
+    // Draw static display
+    drawStatic();
+
+    // First slideshow image
+    nextpic();
+
+    // Startup sound
+    audioPlay("/Startup.mp3");
+
+    // Register console command prefix
+    addCommand("LCD");
+
+    return 0;
+}

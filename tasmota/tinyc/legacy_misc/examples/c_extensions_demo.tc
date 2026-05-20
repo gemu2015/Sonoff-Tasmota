@@ -1,0 +1,370 @@
+// c_extensions_demo.tc
+// Demonstrates all C compatibility extensions added to TinyC (2026-03)
+//
+// Extensions covered:
+//   1. Variadic sprintf
+//   2. Ternary operator  (?:)
+//   3. do-while loop
+//   4. enum
+//   5. const keyword
+//   6. Compound assignments  (%=  &=  |=  ^=  <<=  >>=)
+//   7. Hex escape sequences  (\x41)
+//   8. static local variables
+//   9. struct
+//  10. char name[] = "..."  (size inferred from string literal)
+//  11. typedef
+
+// ── Buffers ───────────────────────────────────────────────────────────────────
+char buf[64];
+char tmp[32];
+
+// ── 4. enum (global) ──────────────────────────────────────────────────────────
+enum Color {
+    COLOR_RED   = 0,
+    COLOR_GREEN = 1,
+    COLOR_BLUE  = 2,
+};
+
+enum Status {
+    STATUS_OK   =  0,
+    STATUS_WARN =  1,
+    STATUS_ERR  = -1,   // negative enum values supported
+};
+
+// ── 5. const (global) ─────────────────────────────────────────────────────────
+const int   MAX_RETRIES = 5;
+const float ALERT_TEMP  = 30.0;
+
+// ── 11. typedef ───────────────────────────────────────────────────────────────
+typedef int   millisec_t;       // primitive alias
+typedef float celsius_t;
+
+// Anonymous struct typedef (no 'struct' keyword needed at use site)
+typedef struct {
+    int   r;
+    int   g;
+    int   b;
+} Color;
+
+// ── 9. struct ─────────────────────────────────────────────────────────────────
+struct SensorReading {
+    float temperature;
+    float humidity;
+    int   quality;
+};
+
+struct Point {
+    int x;
+    int y;
+};
+
+// Global struct instance
+struct SensorReading last_reading;
+
+// ── 8. static local counter (helper) ─────────────────────────────────────────
+// Returns the number of times it has been called.
+int counter() {
+    static int n = 0;
+    n = n + 1;
+    return n;
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+void main() {
+    addLog("=== TinyC C Extensions Demo ===");
+    int fail = 0;
+
+    // ── 1. Variadic sprintf ───────────────────────────────────────────────────
+    // Single sprintf call with mixed int, float, and string args.
+    int   count = 42;
+    float ratio = 3.14;
+    sprintf(buf, "n=%d r=%.2f", count, ratio);
+    // expected: "n=42 r=3.14"
+    if (buf[2]=='4' && buf[3]=='2' && buf[7]=='3') {
+        addLog("PASS variadic sprintf");
+    } else {
+        addLog("FAIL variadic sprintf");
+        fail = fail + 1;
+    }
+
+    // Three args including a string variable
+    // 10. char name[] = "..." (size inferred) ─────────────────────────────────
+    char unit[] = "degC";          // size = 5 (4 chars + null terminator)
+    sprintf(buf, "val=%.1f %s", ratio, unit);
+    // "val=3.1 degC"  → [0]=v [1]=a [2]=l [3]== [4]=3 [5]=. [6]=1 [7]=space [8]=d
+    if (buf[4]=='3' && buf[8]=='d') {
+        addLog("PASS char[] inferred size + sprintf %s");
+    } else {
+        addLog("FAIL char[] inferred size + sprintf %s");
+        fail = fail + 1;
+    }
+
+    // ── 7. Hex escape sequences ───────────────────────────────────────────────
+    char hex_str[] = "\x41\x42\x43";   // "ABC"  (A=0x41, B=0x42, C=0x43)
+    char hex_ch    = '\x5A';            // 'Z' = 90
+    if (hex_str[0]==65 && hex_str[1]==66 && hex_str[2]==67 && hex_ch==90) {
+        addLog("PASS hex escape in string and char");
+    } else {
+        addLog("FAIL hex escape in string and char");
+        fail = fail + 1;
+    }
+
+    // ── 2. Ternary operator ───────────────────────────────────────────────────
+    int temp = 35;
+    int hot_flag = (temp > 30) ? 1 : 0;
+    if (hot_flag == 1) {
+        addLog("PASS ternary operator");
+    } else {
+        addLog("FAIL ternary operator");
+        fail = fail + 1;
+    }
+
+    // Nested ternary
+    int level = (temp > 40) ? 3 : (temp > 30) ? 2 : 1;
+    if (level == 2) {
+        addLog("PASS nested ternary");
+    } else {
+        addLog("FAIL nested ternary");
+        fail = fail + 1;
+    }
+
+    // Ternary with float
+    float limit = (temp > 30) ? ALERT_TEMP + 5.0 : ALERT_TEMP;
+    if (limit > 34.9 && limit < 35.1) {
+        addLog("PASS ternary with float");
+    } else {
+        addLog("FAIL ternary with float");
+        fail = fail + 1;
+    }
+
+    // ── 3. do-while loop ──────────────────────────────────────────────────────
+    int i = 0;
+    int sum = 0;
+    do {
+        sum = sum + i;
+        i = i + 1;
+    } while (i < 5);
+    // sum = 0+1+2+3+4 = 10
+    if (sum == 10) {
+        addLog("PASS do-while loop");
+    } else {
+        addLog("FAIL do-while loop");
+        fail = fail + 1;
+    }
+
+    // do-while body executes at least once even when condition starts false
+    int once = 0;
+    do { once = 1; } while (0);
+    if (once == 1) {
+        addLog("PASS do-while executes at least once");
+    } else {
+        addLog("FAIL do-while executes at least once");
+        fail = fail + 1;
+    }
+
+    // ── 4. enum ───────────────────────────────────────────────────────────────
+    if (COLOR_RED == 0 && COLOR_GREEN == 1 && COLOR_BLUE == 2) {
+        addLog("PASS enum values");
+    } else {
+        addLog("FAIL enum values");
+        fail = fail + 1;
+    }
+
+    if (STATUS_ERR == -1 && STATUS_OK == 0 && STATUS_WARN == 1) {
+        addLog("PASS negative enum value");
+    } else {
+        addLog("FAIL negative enum value");
+        fail = fail + 1;
+    }
+
+    // Inline enum inside function
+    enum Direction { NORTH = 0, EAST = 1, SOUTH = 2, WEST = 3 };
+    int dir = EAST;
+    if (dir == 1 && SOUTH == 2 && WEST == 3) {
+        addLog("PASS inline enum");
+    } else {
+        addLog("FAIL inline enum");
+        fail = fail + 1;
+    }
+
+    // ── 5. const ──────────────────────────────────────────────────────────────
+    const int  LOCAL_LIMIT = 100;
+    const float PI_APPROX  = 3.14159;
+    if (LOCAL_LIMIT == 100 && MAX_RETRIES == 5) {
+        addLog("PASS const int");
+    } else {
+        addLog("FAIL const int");
+        fail = fail + 1;
+    }
+    if (PI_APPROX > 3.141 && PI_APPROX < 3.142 && ALERT_TEMP == 30.0) {
+        addLog("PASS const float");
+    } else {
+        addLog("FAIL const float");
+        fail = fail + 1;
+    }
+
+    // ── 6. Compound assignments ───────────────────────────────────────────────
+    int v = 100;
+    v %= 30;             // 100 % 30 = 10
+    if (v == 10) { addLog("PASS %="); } else { addLog("FAIL %="); fail = fail + 1; }
+
+    int flags = 0xFF;
+    flags &= 0x0F;       // 0xFF & 0x0F = 15
+    if (flags == 15) { addLog("PASS &="); } else { addLog("FAIL &="); fail = fail + 1; }
+
+    flags |= 0x30;       // 0x0F | 0x30 = 63
+    if (flags == 63) { addLog("PASS |="); } else { addLog("FAIL |="); fail = fail + 1; }
+
+    flags ^= 0x0F;       // 0x3F ^ 0x0F = 48
+    if (flags == 48) { addLog("PASS ^="); } else { addLog("FAIL ^="); fail = fail + 1; }
+
+    int bits = 1;
+    bits <<= 4;          // 1 << 4 = 16
+    if (bits == 16) { addLog("PASS <<="); } else { addLog("FAIL <<="); fail = fail + 1; }
+
+    bits >>= 2;          // 16 >> 2 = 4
+    if (bits == 4)  { addLog("PASS >>="); } else { addLog("FAIL >>="); fail = fail + 1; }
+
+    // float compound
+    float fv = 10.0;
+    fv += 5.0;    fv -= 3.0;    fv *= 2.0;    fv /= 6.0;
+    // ((10+5-3)*2)/6 = 24/6 = 4
+    if (fv > 3.9 && fv < 4.1) {
+        addLog("PASS float compound += -= *= /=");
+    } else {
+        addLog("FAIL float compound += -= *= /=");
+        fail = fail + 1;
+    }
+
+    // ── 8. static local variables ─────────────────────────────────────────────
+    // counter() increments and returns a persistent local across calls
+    int c1 = counter();
+    int c2 = counter();
+    int c3 = counter();
+    if (c1 == 1 && c2 == 2 && c3 == 3) {
+        addLog("PASS static local");
+    } else {
+        addLog("FAIL static local");
+        fail = fail + 1;
+    }
+
+    // ── 9. struct ─────────────────────────────────────────────────────────────
+    // Local struct, member assignment
+    struct Point p;
+    p.x = 10;
+    p.y = 20;
+    if (p.x == 10 && p.y == 20) {
+        addLog("PASS struct local member access");
+    } else {
+        addLog("FAIL struct local member access");
+        fail = fail + 1;
+    }
+
+    // Struct initializer list
+    struct Point origin = {0, 0};
+    struct Point corner = {100, 200};
+    if (origin.x == 0 && corner.x == 100 && corner.y == 200) {
+        addLog("PASS struct initializer list");
+    } else {
+        addLog("FAIL struct initializer list");
+        fail = fail + 1;
+    }
+
+    // Struct compound member assignment
+    corner.x += 5;
+    corner.y -= 10;
+    corner.x *= 2;
+    if (corner.x == 210 && corner.y == 190) {
+        addLog("PASS struct compound member assign");
+    } else {
+        addLog("FAIL struct compound member assign");
+        fail = fail + 1;
+    }
+
+    // Struct with float fields + enum field
+    struct SensorReading r;
+    r.temperature = 23.5;
+    r.humidity    = 60.0;
+    r.quality     = STATUS_OK;
+    if (r.temperature > 23.0 && r.humidity == 60.0 && r.quality == 0) {
+        addLog("PASS struct float fields");
+    } else {
+        addLog("FAIL struct float fields");
+        fail = fail + 1;
+    }
+
+    // Global struct
+    last_reading.temperature = ALERT_TEMP + 2.0;   // 32.0
+    last_reading.quality     = STATUS_WARN;
+    if (last_reading.temperature > 31.9 && last_reading.quality == 1) {
+        addLog("PASS global struct");
+    } else {
+        addLog("FAIL global struct");
+        fail = fail + 1;
+    }
+
+    // Struct fields used in expressions
+    float avg_t = (r.temperature + last_reading.temperature) / 2.0;
+    // (23.5 + 32.0) / 2 = 27.75
+    if (avg_t > 27.0 && avg_t < 28.0) {
+        addLog("PASS struct fields in expression");
+    } else {
+        addLog("FAIL struct fields in expression");
+        fail = fail + 1;
+    }
+
+    // ── 11. typedef ───────────────────────────────────────────────────────────
+    millisec_t delay_ms = 500;
+    celsius_t  boiling  = 100.0;
+    if (delay_ms == 500 && boiling == 100.0) {
+        addLog("PASS typedef primitive");
+    } else {
+        addLog("FAIL typedef primitive");
+        fail = fail + 1;
+    }
+
+    // Anonymous struct typedef — use Color directly, no 'struct' prefix
+    Color red = {255, 0, 0};
+    Color sky = {135, 206, 235};
+    red.r -= 55;    // compound assign on typedef'd struct
+    if (red.r == 200 && sky.b == 235) {
+        addLog("PASS typedef anonymous struct");
+    } else {
+        addLog("FAIL typedef anonymous struct");
+        fail = fail + 1;
+    }
+
+    // Chained typedef
+    typedef millisec_t duration_t;
+    duration_t timeout = 1000;
+    if (timeout == 1000) {
+        addLog("PASS typedef chained alias");
+    } else {
+        addLog("FAIL typedef chained alias");
+        fail = fail + 1;
+    }
+
+    // ── Combined: struct + enum + ternary + variadic sprintf ─────────────────
+    char quality_str[] = "ok  ";
+    if (r.quality == STATUS_OK) {
+        strcpy(quality_str, "ok");
+    } else {
+        strcpy(quality_str, "warn");
+    }
+    sprintf(buf, "T=%.1f H=%.0f Q=%s", r.temperature, r.humidity, quality_str);
+    // expected: "T=23.5 H=60 Q=ok"
+    if (buf[2]=='2' && buf[3]=='3' && buf[9]=='6' && buf[10]=='0') {
+        addLog("PASS combined struct+enum+sprintf");
+    } else {
+        addLog("FAIL combined struct+enum+sprintf");
+        fail = fail + 1;
+    }
+
+    // ── Summary ───────────────────────────────────────────────────────────────
+    if (fail == 0) {
+        addLog("=== ALL TESTS PASSED ===");
+    } else {
+        sprintf(buf, "=== %d TEST(S) FAILED ===", fail);
+        addLog(buf);
+    }
+}

@@ -1,0 +1,67 @@
+tinyc to doo
+1. powerwall access
+2. 
+
+
+
+un_benchmark()
+=== Berry Benchmark ===
+Integer:  401 ms  (500k ops)
+Float:    212 ms  (250k ops)
+Array:    2072 ms  (100k access)
+Calls:    810 ms  (100k calls)
+Strings:  97 ms  (10k iters)
+-- Total: 3597 ms --
+
+// tiny 1
+
+08:38:44.162 TCC: Integer:  2640 ms  (500k ops)
+08:38:45.276 TCC: Float:    1113 ms  (250k ops)
+08:38:46.222 HTP: Werkzeuge
+08:38:47.247 TCC: Array:    1971 ms  (100k access)
+08:38:47.354 HTP: Konsole
+08:38:50.147 TCC: Calls:    2899 ms  (100k calls)
+08:38:50.185 WIF: Prüfe Verbindung…
+08:38:50.416 TCC: Strings:  268 ms  (10k iters)
+08:38:50.417 TCC: ── Total: 8896 ms ──
+08:38:50.418 TCC: Halted after 11043379 instr, 2 callbacks
+
+// tiny 2 nach leichter optimisierung
+09:23:34.754 TCC: VM task started (/benchmark.tcb)
+09:23:34.755 TCC: === TinyC Benchmark ===
+09:23:34.755 TCC: Program started (/benchmark.tcb)
+09:23:34.767 TCC: Program started (API, slot 0)
+09:23:36.890 TCC: Integer:  2135 ms  (500k ops)
+09:23:37.988 TCC: Float:    1098 ms  (250k ops)
+09:23:38.602 HTP: Hauptmenü
+09:23:39.944 TCC: Array:    1955 ms  (100k access)
+09:23:40.586 HTP: Werkzeuge
+09:23:42.728 TCC: Calls:    2783 ms  (100k calls)
+09:23:42.906 HTP: Konsole
+09:23:43.036 TCC: Strings:  308 ms  (10k iters)
+09:23:43.038 TCC: ── Total: 8284 ms ──
+
+
+--- Running ---
+=== TinyC Browser Benchmark macos ===
+Integer:  68 ms  (500k ops)
+Float:    53 ms  (250k ops)
+Array:    63 ms  (100k access)
+Calls:    51 ms  (100k calls)
+Strings:  27 ms  (10k iters)
+ Total: 269 ms 
+
+--- Halted ---
+Instructions: 11043379, Time: 274.0ms
+
+scripter benchmark
+09:45:30.250  Integer:  22305 ms  (500k ops)
+09:45:40.704  Float:    10453 ms  (250k ops)
+09:46:01.118  Array:    20415 ms  (100k access)
+09:46:32.340  Calls:    31220 ms  (100k calls)
+09:46:33.131  Strings:  791 ms  (10k iters)
+09:46:33.131  -- Total: 85185 ms --
+
+
+
+2,3 berry faster

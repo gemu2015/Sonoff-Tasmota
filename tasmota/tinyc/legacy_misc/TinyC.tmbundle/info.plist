@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>name</key>
+	<string>TinyC</string>
+	<key>uuid</key>
+	<string>F8A3E1B0-7C4D-4A91-B5E2-3F6D8C9A1B2E</string>
+	<key>description</key>
+	<string>Syntax highlighting for TinyC — C scripting for Tasmota ESP32/ESP8266</string>
+	<key>contactName</key>
+	<string>Gerhard Mutz</string>
+</dict>
+</plist>

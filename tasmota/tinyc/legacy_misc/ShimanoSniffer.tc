@@ -1,0 +1,267 @@
+// ShimanoSniffer.tc — Dual-channel Shimano UART sniffer for ESP32
+// Web UI with live log, optional decode + file logging.
+
+#define CH1_RX_PIN   17
+#define CH2_RX_PIN   16
+#define BAUD         9600
+#define SERIAL_CFG   3
+#define BUF_SIZE     256
+#define GAP_MS       4
+#define MAX_MSG      64
+#define MAX_PAYLOAD  32
+#define LOG_FILE     "/shimano.log"
+#define LOG_MAX_SIZE 100000
+
+int h1 = -1;
+int h2 = -1;
+
+char msg1[MAX_MSG];
+int  msg1_len = 0;
+int  last1 = 0;
+
+char msg2[MAX_MSG];
+int  msg2_len = 0;
+int  last2 = 0;
+
+int seq = 0;
+int cnt1 = 0;
+int cnt2 = 0;
+int err1 = 0;
+int err2 = 0;
+
+int opt_decode = 0;
+int opt_flog = 0;
+
+char hex_out[200];
+char dec_out[100];
+char raw_log[2000];
+char dec_log[800];
+char tmp[1100];
+
+void trimLog(char log[], int maxLen, int keepFrom) {
+    if (strlen(log) <= maxLen) return;
+    int p = keepFrom;
+    while (p < maxLen && log[p] != 10) p++;
+    if (p < maxLen) p++;
+    strSub(tmp, log, p, strlen(log) - p);
+    strcpy(log, tmp);
+}
+
+void processCH1() {
+    if (msg1_len < 5) {
+        if (msg1_len > 0) err1++;
+        msg1_len = 0;
+        return;
+    }
+    if ((msg1[0] & 0xFF) != 0x00) { err1++; msg1_len = 0; return; }
+
+    int payload_len = msg1[2] & 0xFF;
+    if (payload_len > MAX_PAYLOAD) { err1++; msg1_len = 0; return; }
+
+    cnt1++;
+    seq++;
+
+    sprintf(hex_out, "%d B-TX:", seq);
+    int i = 0;
+    while (i < msg1_len) {
+        sprintfAppend(hex_out, " %02X", msg1[i] & 0xFF);
+        i++;
+    }
+    int expected = 3 + payload_len + 2;
+    if (msg1_len != expected && payload_len > 0) {
+        sprintfAppend(hex_out, " [%d/%d]", msg1_len, expected);
+    }
+
+    printString(hex_out);
+
+    trimLog(raw_log, 1700, 800);
+    raw_log += hex_out;
+    raw_log += "\n";
+
+    if (opt_flog) {
+        hex_out += "\n";
+        fileLog(LOG_FILE, hex_out, LOG_MAX_SIZE);
+    }
+
+    if (opt_decode && payload_len > 0) {
+        int cmd = msg1[3] & 0xFF;
+        dec_out = "";
+        if (cmd == 0x10 && payload_len == 22 && msg1_len >= 25) {
+            int st = msg1[5] & 0xFF;
+            int pv = (msg1[9] & 0xFF) | ((msg1[10] & 0xFF) << 8);
+            int cx = ((msg1[11] & 0xFF) | ((msg1[12] & 0xFF) << 8)) / 2;
+            int cn = ((msg1[13] & 0xFF) | ((msg1[14] & 0xFF) << 8)) / 2;
+            int tm = msg1[15] & 0xFF;
+            int sc = msg1[18] & 0xFF;
+            sprintf(dec_out, "%d St=%d V=%d Cx=%d Cn=%d T=%d S=%d",
+                seq, st, pv, cx, cn, tm, sc);
+        }
+        if (cmd == 0x30) { sprintf(dec_out, "%d Auth", seq); }
+        if (cmd == 0x31) { sprintf(dec_out, "%d Specs", seq); }
+        if (cmd == 0x11) { sprintf(dec_out, "%d DevInfo", seq); }
+        if (cmd == 0x21) { sprintf(dec_out, "%d Shutdown", seq); }
+        if (cmd == 0x32) { sprintf(dec_out, "%d Trip", seq); }
+
+        if (strlen(dec_out) > 0) {
+            trimLog(dec_log, 600, 300);
+            dec_log += dec_out;
+            dec_log += "\n";
+        }
+    }
+
+    msg1_len = 0;
+}
+
+void processCH2() {
+    if (msg2_len < 5) {
+        if (msg2_len > 0) err2++;
+        msg2_len = 0;
+        return;
+    }
+    if ((msg2[0] & 0xFF) != 0x00) { err2++; msg2_len = 0; return; }
+
+    int payload_len = msg2[2] & 0xFF;
+    if (payload_len > MAX_PAYLOAD) { err2++; msg2_len = 0; return; }
+
+    cnt2++;
+    seq++;
+
+    sprintf(hex_out, "%d B-RX:", seq);
+    int i = 0;
+    while (i < msg2_len) {
+        sprintfAppend(hex_out, " %02X", msg2[i] & 0xFF);
+        i++;
+    }
+    int expected = 3 + payload_len + 2;
+    if (msg2_len != expected && payload_len > 0) {
+        sprintfAppend(hex_out, " [%d/%d]", msg2_len, expected);
+    }
+
+    printString(hex_out);
+
+    trimLog(raw_log, 1700, 800);
+    raw_log += hex_out;
+    raw_log += "\n";
+
+    if (opt_flog) {
+        hex_out += "\n";
+        fileLog(LOG_FILE, hex_out, LOG_MAX_SIZE);
+    }
+
+    if (opt_decode && payload_len > 0) {
+        int cmd = msg2[3] & 0xFF;
+        dec_out = "";
+        if (cmd == 0x10 && payload_len == 5) { sprintf(dec_out, "%d Poll", seq); }
+        if (cmd == 0x30) { sprintf(dec_out, "%d Auth-Req", seq); }
+        if (cmd == 0x31) { sprintf(dec_out, "%d Specs-Req", seq); }
+        if (cmd == 0x11) { sprintf(dec_out, "%d DevInfo-Req", seq); }
+        if (cmd == 0x21) { sprintf(dec_out, "%d Shutdown-Req", seq); }
+        if (cmd == 0x32) { sprintf(dec_out, "%d Trip-Req", seq); }
+
+        if (strlen(dec_out) > 0) {
+            trimLog(dec_log, 600, 300);
+            dec_log += dec_out;
+            dec_log += "\n";
+        }
+    }
+
+    msg2_len = 0;
+}
+
+void EveryLoop() {
+    int now = millis();
+
+    if (msg1_len > 0 && (now - last1) > GAP_MS) { processCH1(); }
+    if (msg2_len > 0 && (now - last2) > GAP_MS) { processCH2(); }
+
+    while (serialAvailable(h1) > 0) {
+        int b = serialRead(h1);
+        if (b >= 0) {
+            last1 = millis();
+            if (msg1_len < MAX_MSG) {
+                msg1[msg1_len] = b;
+                msg1_len++;
+            } else {
+                processCH1();
+                msg1[0] = b;
+                msg1_len = 1;
+            }
+        }
+    }
+
+    while (serialAvailable(h2) > 0) {
+        int b = serialRead(h2);
+        if (b >= 0) {
+            last2 = millis();
+            if (msg2_len < MAX_MSG) {
+                msg2[msg2_len] = b;
+                msg2_len++;
+            } else {
+                processCH2();
+                msg2[0] = b;
+                msg2_len = 1;
+            }
+        }
+    }
+}
+
+void WebUI() {
+    webCheckbox(opt_decode, "Decode");
+    webCheckbox(opt_flog, "File Log");
+
+    char buf[100];
+    sprintf(buf, "<hr><small>TX:%d RX:%d Err:%d/%d #%d</small>", cnt1, cnt2, err1, err2, seq);
+    webSend(buf);
+
+    webSend("<div style='height:250px;overflow-y:auto;display:flex;flex-direction:column-reverse'>");
+    webSend("<pre style='margin:0;background:#000;color:#0f0;padding:4px;font-size:11px;width:100%'>");
+    webSend(raw_log);
+    webSend("</pre></div>");
+
+    webSend("<div style='height:150px;overflow-y:auto;display:flex;flex-direction:column-reverse'>");
+    webSend("<pre style='margin:0;background:#000;color:#ff0;padding:4px;font-size:11px;width:100%'>");
+    if (opt_decode) {
+        webSend(dec_log);
+    }
+    webSend("</pre></div>");
+}
+
+void WebCall() {
+    char buf[64];
+    sprintf(buf, "{s}Shimano{m}TX:%d RX:%d E:%d/%d{e}", cnt1, cnt2, err1, err2);
+    webSend(buf);
+}
+
+void OnExit() {
+    if (h1 >= 0) { serialClose(h1); }
+    if (h2 >= 0) { serialClose(h2); }
+    printStr("Shimano Sniffer stopped.");
+}
+
+int main() {
+    h1 = serialBegin(CH1_RX_PIN, -1, BAUD, SERIAL_CFG, BUF_SIZE);
+    if (h1 < 0) {
+        printStr("ERROR: CH1 serialBegin failed!");
+        return -1;
+    }
+
+    h2 = serialBegin(CH2_RX_PIN, -1, BAUD, SERIAL_CFG, BUF_SIZE);
+    if (h2 < 0) {
+        printStr("ERROR: CH2 serialBegin failed!");
+        serialClose(h1);
+        return -1;
+    }
+
+    msg1_len = 0; cnt1 = 0; err1 = 0; last1 = millis();
+    msg2_len = 0; cnt2 = 0; err2 = 0; last2 = millis();
+    seq = 0;
+    raw_log = "";
+    dec_log = "";
+
+    webPageLabel(0, "Sniffer");
+
+    char info[80];
+    sprintf(info, "Shimano Sniffer: TX=GPIO%d RX=GPIO%d", CH1_RX_PIN, CH2_RX_PIN);
+    printString(info);
+    return 0;
+}

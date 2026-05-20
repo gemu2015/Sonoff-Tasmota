@@ -1,0 +1,99 @@
+// t510_meter.tc — IEC 62056-21 wake-up sequence for T510 3-phase OBIS meter
+//
+// TinyC IDE mechanism:
+//   sml_meter.def contains void Every100ms() with the baud-switching body after the # line.
+//   The IDE detects it, extracts its body, and injects it into Every100ms()
+//   here. Variables used by the injected body must be declared in this file.
+//
+// Scripter original (>F = every 100ms):
+//   >D  res=0  scnt=0
+//   >B  ->sensor53 r
+//   >F  scnt+=1
+//       case 6  sml(1 0 300)  sml(1 1 "2F3F210D0A")
+//       case 18 sml(1 1 "063035300D0A")
+//       case 20 sml(1 0 9600)
+//       case 50 scnt=0
+//
+// Timing (scnt × 100ms):
+//   case  6 →  600ms : set 300 baud, send /?!\r\n  (IEC 62056-21 mode-C)
+//   case 18 → 1800ms : send ACK \x06050\r\n  (switch meter to 9600)
+//   case 20 → 2000ms : set SML driver to 9600 to read OBIS response
+//   case 50 → 5000ms : reset scnt, begin next cycle
+//
+// sml_meter.def value index (1-based):
+//   1 = Meter_number   2 = Timestamp    3 = Total_in (kWh)
+//   4 = Power_L1 (W)   5 = Power_L2 (W) 6 = Power_L3 (W)
+//   7 = Power_total    8 = Current_L1   9 = Current_L2  10 = Current_L3
+
+// ── Additional state for EverySecond / JsonCall / WebCall ─────────────────────
+persist watch int sml_activ;   // mirrors tasm_rule, toggled via WebUI checkbox
+
+float energy_in;    // Import total   (kWh) — smlGet(3)
+float pwr_l1;       // Power L1       (W)   — smlGet(4)
+float pwr_l2;       // Power L2       (W)   — smlGet(5)
+float pwr_l3;       // Power L3       (W)   — smlGet(6)
+float pwr_total;    // Power total    (W)   — smlGet(7)
+float cur_l1;       // Current L1     (A)   — smlGet(8)
+float cur_l2;       // Current L2     (A)   — smlGet(9)
+float cur_l3;       // Current L3     (A)   — smlGet(10)
+
+void main() {
+    char resp[32];
+    // Checkbox is the single source of truth at boot — if the user enabled
+    // "Enable T510" in a previous session, make sure Rule1 is on BEFORE
+    // sensor53 r runs. Otherwise SML_Init's `bitRead(rule_enabled, 0)` guard
+    // bails out, sml_globs.ready stays false, and every SML_SetBaud / SML_Write
+    // from the injected Every100ms handshake silently returns 0 — the meter
+    // sees nothing and the emulator never answers.
+    if (sml_activ != tasm_rule) {
+        tasm_rule = sml_activ;
+    }
+    tasmCmd("sensor53 r", resp);    // restart SML driver, loads sml_meter.def
+    // scnt is static int inside Every100ms() — zero-initialised automatically
+}
+
+// Body injected by TinyC IDE from sml_meter.def:
+//   static int scnt = 0;          — persists across calls
+//   char wake_hex[] / ack_hex[]   — plain locals (re-initialised each 100ms)
+void Every100ms() {
+}
+
+void EverySecond() {
+    // sml_activ drives tasm_rule (Rule1 bit). SML_Init bails out early when
+    // Rule1 is off, so toggling this MUST force a sensor53 r — otherwise
+    // sml_globs.ready stays false and SML_SetBaud/SML_Write silently return 0.
+    if (changed(sml_activ)) {
+        char resp[32];
+        tasm_rule = sml_activ;
+        snapshot(sml_activ);
+        tasmCmd("sensor53 r", resp);
+    }
+    energy_in = smlGet(3);
+    pwr_l1    = smlGet(4);
+    pwr_l2    = smlGet(5);
+    pwr_l3    = smlGet(6);
+    pwr_total = smlGet(7);
+    cur_l1    = smlGet(8);
+    cur_l2    = smlGet(9);
+    cur_l3    = smlGet(10);
+}
+
+void JsonCall() {
+    char buf[96];
+    sprintf(buf, ",\"T510\":{\"E_in\":%.3f,\"P_L1\":%.0f,\"P_L2\":%.0f,\"P_L3\":%.0f,\"P\":%.0f}",
+            energy_in, pwr_l1, pwr_l2, pwr_l3, pwr_total);
+    responseAppend(buf);
+}
+
+void WebUI() {
+    webCheckbox(sml_activ, "Enable T510");
+}
+
+void WebCall() {
+    char buf[80];
+    sprintf(buf, "{s}T510 Leistung L1{m}%.0f W{e}", pwr_l1);   webSend(buf);
+    sprintf(buf, "{s}T510 Leistung L2{m}%.0f W{e}", pwr_l2);   webSend(buf);
+    sprintf(buf, "{s}T510 Leistung L3{m}%.0f W{e}", pwr_l3);   webSend(buf);
+    sprintf(buf, "{s}T510 Gesamt{m}%.0f W{e}", pwr_total);      webSend(buf);
+    sprintf(buf, "{s}T510 Zaehlerstand{m}%.3f kWh{e}", energy_in); webSend(buf);
+}
