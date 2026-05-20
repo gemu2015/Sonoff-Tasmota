@@ -699,6 +699,47 @@ def _fw_version(host, port, user, password):
         return ''
 
 
+def _device_mode(host, port, user, password):
+    """Classify the post-OTA reachable state. Tasmota's safeboot build is
+    HTTP-reachable but does NOT serve `Status 2` (returns
+    `{"Command":"Unknown"}`), so the old _fw_version-only poll would
+    time out even though the device is up — just stuck in the recovery
+    UI waiting for a Restart click. We probe the root page once we know
+    /cm is answering; the safeboot main menu identifies itself in the
+    page footer (`release-safeboot` build tag) and `<title>`.
+
+    Returns one of:
+      ('normal',   version)     — full firmware, OTA succeeded
+      ('safeboot', version)     — recovery partition booted (1× Restart fixes it)
+      ('unreachable', None)     — no usable response yet
+    """
+    # /cm?cmnd=Status 2 gets us the version when in normal mode.
+    s, t = _cm(host, port, 'Status 2', user, password, timeout=4)
+    try:
+        v = json.loads(t).get('StatusFWR', {}).get('Version', '')
+        if v:
+            return ('normal', v)
+    except Exception:
+        pass
+    # /cm answered but no StatusFWR → either safeboot (`{"Command":"Unknown"}`)
+    # or transient. Fetch the root page; safeboot tags itself clearly.
+    if s == 200:
+        try:
+            r = _NOPROXY.open('http://%s:%d/' % (host, port), timeout=4)
+            body = r.read(4000).decode('utf-8', 'replace').lower()
+            if ('release-safeboot' in body
+                    or 'safeboot' in body
+                    or 'main menu' in body):
+                # Try to lift a version string out of the footer
+                # ("Tasmota 15.4.0(release-safeboot)") if present.
+                import re
+                m = re.search(r'tasmota\s+([0-9][\w.()-]*)', body)
+                return ('safeboot', m.group(1) if m else '')
+        except Exception:
+            pass
+    return ('unreachable', None)
+
+
 class _FwHandler(BaseHTTPRequestHandler):
     fw = b''
 
@@ -771,29 +812,63 @@ def _flash_ota(host, user, password):
         _flash_set(phase='upgrading')
 
         # Wait for it to flash & come back (safeboot dance ~ up to 2-3
-        # min). Success = reachable again, ideally version changed.
+        # min). Three possible outcomes:
+        #   1) device reachable + Status 2 valid → 'normal' → success
+        #   2) device reachable but in safeboot recovery UI → auto-trigger
+        #      Restart 1 once, give it ~60 s to land in app0
+        #   3) deadline → real timeout
         deadline = time.time() + 240
         time.sleep(8)
         back = ''
+        restart_kicked = False
         while time.time() < deadline:
-            v = _fw_version(h, dport, user, password)
-            if v:
+            mode, v = _device_mode(h, dport, user, password)
+            if mode == 'normal':
                 back = v
                 break
+            if mode == 'safeboot' and not restart_kicked:
+                _flog('device booted into Safeboot (recovery partition, %s) '
+                      '— new app0 image did not auto-start. This usually '
+                      'means the 1.6.11 bootloop-guard tripped once on '
+                      'first boot; the .pvs.bak safety net + safeboot '
+                      'recovery are working as designed. Sending Restart 1 '
+                      'to switch back to app0…' % (v or 'version unknown'))
+                _cm(h, dport, 'Restart 1', user, password, timeout=6)
+                restart_kicked = True
+                # Push back the deadline by 60 s for the second boot.
+                deadline = max(deadline, time.time() + 60)
+                _flash_set(phase='post-safeboot-restart')
+                time.sleep(8)
+                continue
             _flash_set(pct=min(99, (flash_state.get('pct') or 90) + 1))
             time.sleep(5)
         if not back:
-            _flash_set(running=False, ok=False,
-                       error='no response after upgrade (timeout)')
-            _flog('device did not come back within 240s — check it '
-                  'physically', err=True)
+            # Did we at least see safeboot? Distinguish "stuck in safeboot"
+            # (the new image really won't run) from "no response at all".
+            final_mode, final_v = _device_mode(h, dport, user, password)
+            if final_mode == 'safeboot':
+                _flash_set(running=False, ok=False,
+                           error='device stuck in Safeboot after Restart 1 '
+                                 '— new .bin appears faulty')
+                _flog('device still in Safeboot (%s) after Restart 1 — the '
+                      'new app0 image is faulty and was rejected twice. '
+                      'Re-flash a known-good .bin via the Safeboot Web-UI '
+                      'at http://%s/' % (final_v or '?', h), err=True)
+            else:
+                _flash_set(running=False, ok=False,
+                           error='no response after upgrade (timeout)')
+                _flog('device did not come back within 240s — check it '
+                      'physically', err=True)
             return
         changed = before and back and (before != back)
         _flash_set(running=False, ok=True, pct=100, phase='done')
-        _flog('OTA OK — device back online, version %s%s'
+        recovered = ' (recovered from Safeboot via auto-Restart 1)' \
+            if restart_kicked else ''
+        _flog('OTA OK — device back online, version %s%s%s'
               % (back, '' if not before else
                  (' (was %s)' % before if changed else
-                  ' (unchanged — re-flash of same version)')))
+                  ' (unchanged — re-flash of same version)'),
+                 recovered))
     except Exception as e:
         _flash_set(running=False, ok=False, error=str(e))
         _flog('OTA ERROR ' + str(e), err=True)
