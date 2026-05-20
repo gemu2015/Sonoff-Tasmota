@@ -50,6 +50,7 @@ void (* const Ws2812Command[])(void) PROGMEM = {
   &CmndLed, &CmndPixels, &CmndRotation, &CmndWidth, &CmndStepPixels, &CmndPixelType };
 
 #include <TasmotaLED.h>
+#include <TasmotaLEDPusher.h>   // TasmotaLED.h only forward-declares TasmotaLEDPusher; we call ::Create() below, which needs the full class definition
 
 const uint16_t kLedType = 0;
 // select the right pixel size
@@ -832,7 +833,9 @@ void CmndPixels(void)
   if (ParseParameters(4, parm) > 0) {
     if ((parm[0] > 0) && (parm[0] <= WS2812_MAX_LEDS)) {
       Ws2812Clear();                     // Clear all known pixels
+#ifdef USE_BERRY
       Ws2812CanShowWait();
+#endif
       Settings->light_pixels = parm[0];
       Settings->light_pixels_reverse = parm[1];
       Settings->light_pixels_height_1 = (parm[2] > 0) ? parm[2] - 1 : 0;
