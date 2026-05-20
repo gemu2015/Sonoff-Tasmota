@@ -24,10 +24,7 @@ typedef struct
 class BM8563 {
 public:
   BM8563();
-// Wire1 only exists on SoCs with ≥2 I²C peripherals (classic ESP32, ESP32-S3).
-// ESP32-C3 / -C2 / -H2 / -C6 have a single Wire — fall through to the Wire-only
-// variant so the lib compiles cleanly on those chips even when nothing uses it.
-#if defined(ESP32) && defined(SOC_I2C_NUM) && (SOC_I2C_NUM > 1)
+#if SOC_HP_I2C_NUM > 1
   void setBus(uint32_t _bus) { myWire = _bus ? &Wire1 : &Wire; };
 #else
   void setBus(uint32_t _bus) { (void)_bus; myWire = &Wire; };

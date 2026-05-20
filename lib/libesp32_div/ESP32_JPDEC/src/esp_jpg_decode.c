@@ -13,7 +13,7 @@
 // limitations under the License.
 #include "esp_jpg_decode.h"
 
-#ifndef CONFIG_IDF_TARGET_ESP32C3
+#if !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(CONFIG_IDF_TARGET_ESP32C6)
 
 #include "esp_system.h"
 #if ESP_IDF_VERSION_MAJOR >= 4 // IDF 4+
