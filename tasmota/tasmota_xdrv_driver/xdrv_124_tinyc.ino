@@ -2928,6 +2928,17 @@ static void HandleTinyCDisplay(void) {
 #define TC_WEBON_HALTED_WAIT_MS 1500
 #endif
 
+// When the halted-wait above expires, return an HTML page with a
+// meta-refresh instead of a plain-text 503. The browser auto-reloads
+// after 1 s — by then the previous webOn render is essentially always
+// done. Removes the "TinyC busy (timeout)" stutter when the user clicks
+// through several /tcN routes quickly. (Andreas FYI 2026-05-20 22:07.)
+static const char TC_BUSY_HTML[] PROGMEM =
+  "<!DOCTYPE html><html><head>"
+  "<meta http-equiv=\"refresh\" content=\"1\">"
+  "<title>TinyC busy</title></head>"
+  "<body>TinyC busy &mdash; reloading in 1 s ...</body></html>";
+
 static void HandleTinyCWebOn(uint8_t handler_num) {
   if (!Tinyc) { Webserver->send(503, "text/plain", "TinyC not ready"); return; }
   TcSlot *s = Tinyc->slots[0];
@@ -2940,7 +2951,7 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
       delay(20); yield();
     } }
   if (!s->vm.halted) {
-    Webserver->send(503, "text/plain", "TinyC busy (timeout)");
+    Webserver->send_P(503, PSTR("text/html"), TC_BUSY_HTML);
     return;
   }
   Tinyc->current_web_handler = handler_num;
@@ -3200,7 +3211,7 @@ static void HandleTinyCUI(void) {
       delay(20); yield();
     } }
   if (!s->vm.halted) {
-    Webserver->send(503, "text/plain", "TinyC busy (timeout)");
+    Webserver->send_P(503, PSTR("text/html"), TC_BUSY_HTML);
     return;
   }
 
