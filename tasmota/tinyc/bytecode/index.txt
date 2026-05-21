@@ -24,6 +24,7 @@ crash_test.tcb
 crypto_test.tcb
 display_demo.tcb
 dummy5.tcb
+dmx_dimmer_panel.tcb
 dysv17f.tcb
 ecotracker.tcb
 editor.tcb
