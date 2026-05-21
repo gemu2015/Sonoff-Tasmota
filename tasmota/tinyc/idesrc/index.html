@@ -865,11 +865,12 @@ int main() {
                 }
                 const ip = getDeviceIp();
                 if (!ip) {
+                    const have = tcLocalFiles.size > 0
+                        ? ` Local files currently loaded: ${[...tcLocalFiles.keys()].join(', ')}.`
+                        : ' No local files loaded — use "Incl" to load a folder or Open with multi-select.';
                     throw new Error(
-                        `#include "${filename}" — not in local files and no ` +
-                        `device IP set. Either open companion files from PC ` +
-                        `via the multi-select Open dialog, or set the device IP ` +
-                        `to fetch from the device's UFS.`);
+                        `#include "${filename}" — not in local files (key '${key}') and no ` +
+                        `device IP set.${have}`);
                 }
                 const path = filename.startsWith('/') ? filename : '/' + filename;
                 const url = `http://${ip}/tc_api?cmd=readfile&path=${encodeURIComponent(path)}`;
@@ -1401,13 +1402,16 @@ int main() {
                     updateTabName();
                     updateHighlight();
 
-                    // Stash companion files for #include resolution. Replace
-                    // the map entirely so an old set of companions doesn't
-                    // linger across "Open" actions.
-                    tcLocalFiles.clear();
-                    for (const h of rest) {
-                        const f = await h.getFile();
-                        tcLocalFiles.set(f.name, await f.text());
+                    // Stash companion files for #include resolution. Only
+                    // replace the map if the user actually selected >1 file
+                    // (so opening a single main file after an "Incl" folder
+                    // load does NOT wipe the previously-loaded companions).
+                    if (rest.length > 0) {
+                        tcLocalFiles.clear();
+                        for (const h of rest) {
+                            const f = await h.getFile();
+                            tcLocalFiles.set(f.name, await f.text());
+                        }
                     }
                     const extra = rest.length > 0
                         ? ` + ${rest.length} companion file${rest.length > 1 ? 's' : ''} for #include`
@@ -1453,13 +1457,17 @@ int main() {
                 return;
             }
 
-            // Stash companions for #include
-            tcLocalFiles.clear();
-            for (const f of rest) {
-                try {
-                    tcLocalFiles.set(f.name, await f.text());
-                } catch (err) {
-                    appendOutput(`Couldn't read ${f.name}: ${err.message}`, 'warning');
+            // Stash companions for #include — only clear when actually
+            // adding new companions, so a single-file Open after Incl keeps
+            // the previously-loaded folder companions intact.
+            if (rest.length > 0) {
+                tcLocalFiles.clear();
+                for (const f of rest) {
+                    try {
+                        tcLocalFiles.set(f.name, await f.text());
+                    } catch (err) {
+                        appendOutput(`Couldn't read ${f.name}: ${err.message}`, 'warning');
+                    }
                 }
             }
             const extra = rest.length > 0
