@@ -537,7 +537,11 @@
             <button class="btn" onclick="saveFile()" id="btnSave" title="Ctrl+S">
                 Save
             </button>
+            <button class="btn" onclick="addIncludeFolder()" id="btnIncl" title="Load all .tc/.h/.c files from a folder as #include companions (does not replace editor content)">
+                Incl
+            </button>
             <input type="file" id="fileInput" accept=".tc,.c,.h,.txt" multiple style="display:none">
+            <input type="file" id="dirInput" accept=".tc,.c,.h,.txt" multiple webkitdirectory style="display:none">
             <select id="examples">
                 <option value="">Load Example...</option>
                 <!--EXAMPLES_OPTIONS-->
@@ -702,7 +706,7 @@ int main() {
         const I18N = {
             en: {
                 subtitle: 'ESP32/ESP8266 Bytecode Compiler & VM',
-                btn_new: 'New', btn_open: 'Open', btn_save: 'Save',
+                btn_new: 'New', btn_open: 'Open', btn_save: 'Save', btn_incl: 'Incl',
                 btn_compile: 'Compile', btn_save_tcb: 'Save .tcb', btn_run: 'Run',
                 btn_upload: 'Upload', btn_run_device: 'Run on Device',
                 btn_save_file: 'Save File', btn_close: '\u2715 Close',
@@ -715,7 +719,7 @@ int main() {
             },
             de: {
                 subtitle: 'ESP32/ESP8266 Bytecode-Compiler & VM',
-                btn_new: 'Neu', btn_open: '\u00D6ffnen', btn_save: 'Speichern',
+                btn_new: 'Neu', btn_open: '\u00D6ffnen', btn_save: 'Speichern', btn_incl: 'Inkl',
                 btn_compile: 'Kompilieren', btn_save_tcb: '.tcb speichern', btn_run: 'Ausf\u00FChren',
                 btn_upload: 'Hochladen', btn_run_device: 'Auf Ger\u00E4t',
                 btn_save_file: 'Datei speichern', btn_close: '\u2715 Schlie\u00DFen',
@@ -736,6 +740,7 @@ int main() {
             document.getElementById('btnNew').textContent = t('btn_new');
             document.getElementById('btnOpen').textContent = t('btn_open');
             document.getElementById('btnSave').textContent = t('btn_save');
+            document.getElementById('btnIncl').textContent = t('btn_incl');
             document.querySelector('[onclick="compileCode()"]').textContent = t('btn_compile');
             document.getElementById('btnSaveTcb').textContent = t('btn_save_tcb');
             document.querySelector('[onclick="runCode()"]').textContent = t('btn_run');
@@ -1468,6 +1473,76 @@ int main() {
             }
             // Reset so the same set can be re-opened
             e.target.value = '';
+        });
+
+        // ─── "Incl" — load folder of companion files for #include ───────────
+        // Does NOT touch the editor content. Fills tcLocalFiles so that
+        // `#include "foo.tc"` in the current script resolves locally.
+        // Modern path: showDirectoryPicker (Chrome/Edge).
+        // Fallback: hidden <input webkitdirectory> (all Chromium browsers).
+        window.addIncludeFolder = async function() {
+            const INCLUDE_EXTS = new Set(['.tc', '.c', '.h', '.txt']);
+            function hasIncludeExt(name) {
+                const dot = name.lastIndexOf('.');
+                return dot >= 0 && INCLUDE_EXTS.has(name.slice(dot).toLowerCase());
+            }
+
+            if (typeof window.showDirectoryPicker === 'function') {
+                // Modern File System Access API
+                let dirHandle;
+                try {
+                    dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+                } catch (e) {
+                    if (e.name !== 'AbortError') appendOutput('Incl error: ' + e.message, 'error');
+                    return;
+                }
+                tcLocalFiles.clear();
+                let count = 0;
+                for await (const [name, handle] of dirHandle.entries()) {
+                    if (handle.kind !== 'file' || !hasIncludeExt(name)) continue;
+                    try {
+                        const f = await handle.getFile();
+                        tcLocalFiles.set(name, await f.text());
+                        count++;
+                    } catch (e) {
+                        appendOutput(`Incl: couldn't read ${name}: ${e.message}`, 'warning');
+                    }
+                }
+                if (count === 0) {
+                    setStatus('Incl: no .tc/.h/.c files found in folder', 'warning');
+                } else {
+                    setStatus(`Incl: ${count} file${count > 1 ? 's' : ''} loaded for #include`, 'success');
+                    appendOutput(`Loaded for #include: ${[...tcLocalFiles.keys()].join(', ')}`, 'info');
+                }
+            } else {
+                // Fallback: webkitdirectory input
+                document.getElementById('dirInput').click();
+            }
+        };
+
+        document.getElementById('dirInput').addEventListener('change', async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            const INCLUDE_EXTS = new Set(['.tc', '.c', '.h', '.txt']);
+            tcLocalFiles.clear();
+            let count = 0;
+            for (const f of files) {
+                const dot = f.name.lastIndexOf('.');
+                if (dot < 0 || !INCLUDE_EXTS.has(f.name.slice(dot).toLowerCase())) continue;
+                try {
+                    tcLocalFiles.set(f.name, await f.text());
+                    count++;
+                } catch (err) {
+                    appendOutput(`Incl: couldn't read ${f.name}: ${err.message}`, 'warning');
+                }
+            }
+            e.target.value = '';
+            if (count === 0) {
+                setStatus('Incl: no .tc/.h/.c files found in folder', 'warning');
+            } else {
+                setStatus(`Incl: ${count} file${count > 1 ? 's' : ''} loaded for #include`, 'success');
+                appendOutput(`Loaded for #include: ${[...tcLocalFiles.keys()].join(', ')}`, 'info');
+            }
         });
 
         window.saveFile = async function() {
