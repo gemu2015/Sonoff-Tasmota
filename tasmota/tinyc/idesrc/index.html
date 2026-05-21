@@ -883,7 +883,13 @@ int main() {
                 if (!resp.ok) {
                     let detail = '';
                     try { detail = await resp.text(); } catch {}
-                    throw new Error(`#include "${filename}" — HTTP ${resp.status} (${detail.slice(0, 80) || resp.statusText})`);
+                    const hint = resp.status === 404
+                        ? ` — file is not on the device's UFS either. Click the "Incl" button to load the folder containing "${filename}" from your PC, then recompile.`
+                        : '';
+                    const have = tcLocalFiles.size > 0
+                        ? ` Local files currently loaded: ${[...tcLocalFiles.keys()].join(', ')}.`
+                        : '';
+                    throw new Error(`#include "${filename}" — HTTP ${resp.status} (${detail.slice(0, 80) || resp.statusText})${hint}${have}`);
                 }
                 return await resp.text();
             }
