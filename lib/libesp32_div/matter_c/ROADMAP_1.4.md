@@ -66,9 +66,12 @@ bar.** Dev VID 0xFFF1 + chosen PID for testing.
 Goal: `chip-tool pairing onnetwork <id> 20202021` completes; device reachable
 on an operational CASE session.
 - **A1 Operational certificate codec** (`mtrc_cert`): Matter compact-TLV
-  cert (RCAC/ICAC/NOC) decode + encode + ECDSA chain verify + extract
-  subject (node-id, fabric-id) and public key. *The last hard piece* — but
-  now testable against chip-tool's real certs.
+  cert (RCAC/ICAC/NOC).
+  - ✅ **A1a parse + field extraction** — DONE (host-tested). Extracts
+    subject node-id/fabric-id, issuer ids, public key, signature, is-CA
+    from NOC + RCAC TLV. `test/build_cert.sh`.
+  - ⏭ **A1b chain-signature verify** — reconstruct the X.509 DER TBS and
+    ECDSA-verify NOC←ICAC←RCAC (or relaxed/trust-on-store for first interop).
 - **A2 Device Attestation**: DAC/PAI + Certification Declaration (use the CSA
   test PAA/PAI/DAC set), `AttestationRequest`/`CertificateChainRequest`
   signing, attestation nonce/TBS.
