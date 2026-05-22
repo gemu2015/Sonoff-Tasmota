@@ -681,7 +681,7 @@ static int build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t ep, uint32_t 
 static int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
                                       uint32_t cl, const uint8_t *nonce, size_t nlen) {
 #ifdef MTRC_ATTEST_TEST_CREDS
-  static uint8_t ae[256];
+  static uint8_t ae[768];
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, ae, sizeof(ae));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), MTRC_CD, (size_t)MTRC_CD_LEN);  // certificationDeclaration
@@ -690,7 +690,7 @@ static int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
   mtrc_tlv_end_container(&w);
   if (!mtrc_tlv_writer_ok(&w)) return -1;
   size_t ael = mtrc_tlv_writer_len(&w);
-  static uint8_t hin[256 + 16];
+  static uint8_t hin[768 + 16];
   memcpy(hin, ae, ael); memcpy(hin + ael, g.att, 16);
   uint8_t h[32]; mtrc_sha256(hin, ael + 16, h);
   uint8_t sig[64]; if (!mtrc_ecdsa_sign(sig, h, MTRC_DAC_PRIV)) return -1;
@@ -779,7 +779,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
            (unsigned)ep, (unsigned)cl, (unsigned)cmd);
   mlog(MATTER_LOG_INFO, m);
 
-  static uint8_t resp[512];
+  static uint8_t resp[1024];          // CSA DAC/PAI (~500B) + CD (~540B) responses
   int n = -1;
   if (cl == 0x003E && cmd == 0x02) {  // CertificateChainRequest -> Response(0x03)
 #ifdef MTRC_ATTEST_TEST_CREDS

@@ -79,11 +79,18 @@ on an operational CASE session.
   creds (self-generated PAA→PAI→DAC chain + CD placeholder) come from
   `test/gen_attest_creds.py` → gated `mtrc_attest_creds.h` (MTRC_ATTEST_TEST_
   CREDS; never shipped). Verified: prover gets DAC/PAI, then verifies the
-  DAC-signed attestation + echoed nonce. **For a real chip-tool pairing, swap
-  in the CSA development DAC/PAI/CD set** (handlers unchanged) so chip-tool's
-  test PAA store trusts the chain — or run chip-tool with
-  `--paa-trust-store-path` / `--bypass-attestation-verifier` against the dev
-  chain.
+  DAC-signed attestation + echoed nonce.
+  - ✅ **CSA ecosystem creds wired** — `test/gen_csa_creds.py` extracts the CSA
+    test DAC/PAI/CD (VID 0xFFF1 / PID 0x8000) from Tasmota's Berry Matter
+    (`Matter_Certs.be`) into the same gated header. These are the exact creds
+    Tasmota presents to Apple Home / Google / Alexa (DAC chains to the CSA test
+    PAA; CD is CSA-signed), so commercial controllers accept our attestation —
+    no chip-tool bypass needed. Device-verified: DAC 493B / PAI 463B / CD in a
+    583B attestationElements, signature valid. (Two generators: gen_csa_creds
+    for ecosystems, gen_attest_creds for a self-signed dev chain.)
+    NOTE: attestation is now ecosystem-acceptable, but a full Apple/Google
+    pairing also needs the **mandatory data model** (B5 + Basic Information
+    attributes) — a commercial commissioner reads far more than the prover.
 - **A3 Node Operational Credentials cluster (0x003E)**:
   - ✅ **A3a PKCS#10 CSR builder** (`mtrc_csr`) — host-tested (build_csr.sh).
   - ✅ **A3b CSRRequest handler** — DONE (device-verified on C6). Parses the
