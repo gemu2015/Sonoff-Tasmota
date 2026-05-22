@@ -2465,6 +2465,7 @@ static void HandleHomeKitQR(void) {
 #include "matter_c.h"
 #include <esp_random.h>
 #include <AsyncUDP.h>
+#include <mdns.h>          // ESP-IDF mDNS: commissionable subtypes (_L/_S/_CM)
 
 // Matter operational/commissioning UDP socket (port 5540). Inbound packets
 // are pumped into matter_udp_rx; the responder replies to the last peer.
@@ -2542,6 +2543,7 @@ extern "C" {
     (void)ctx; (void)instance;
     if (!Mdns.begun) return MATTER_ERR_TRANSPORT;     // responder not up yet
     MDNS.addService(service, "udp", port);            // -> _matterc._udp
+    uint16_t disc = 0;
     for (size_t i = 0; i < n; i++) {
       const char *eq = strchr(txt[i], '=');
       if (!eq) continue;
@@ -2549,7 +2551,21 @@ extern "C" {
       if (kl >= sizeof(key)) kl = sizeof(key) - 1;
       memcpy(key, txt[i], kl); key[kl] = 0;
       MDNS.addServiceTxt(service, "udp", key, eq + 1);
+      if (kl == 1 && key[0] == 'D') disc = (uint16_t)atoi(eq + 1);
     }
+    // Matter commissionable mDNS subtypes (Core Spec §4.3.4): commissioners
+    // (Apple Home / Google) browse _L<long-disc> / _S<short-disc> / _CM under
+    // _matterc._udp to find a device. Without these, Apple never discovers us.
+    // ESPmDNS has no subtype API, so call the ESP-IDF mdns component directly.
+    char stype[20]; snprintf(stype, sizeof(stype), "_%s", service);   // "_matterc"
+    char sub[16];
+    snprintf(sub, sizeof(sub), "_L%u", (unsigned)disc);
+    mdns_service_subtype_add_for_host(NULL, stype, "_udp", NULL, sub);
+    snprintf(sub, sizeof(sub), "_S%u", (unsigned)(disc >> 8));         // short = top 4 bits
+    mdns_service_subtype_add_for_host(NULL, stype, "_udp", NULL, sub);
+    mdns_service_subtype_add_for_host(NULL, stype, "_udp", NULL, "_CM");
+    AddLog(LOG_LEVEL_INFO, PSTR("MTR: mDNS subtypes _L%u _S%u _CM added"),
+           (unsigned)disc, (unsigned)(disc >> 8));
     return MATTER_OK;
   }
   // Reply to the last peer that sent us a datagram (PASE/CASE is a single
