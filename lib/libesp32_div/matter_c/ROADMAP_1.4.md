@@ -90,8 +90,14 @@ on an operational CASE session.
     + the IPK), returns NOCResponse{statusCode, fabricIndex, debugText}.
     Verified: prover drives PASE → CSRRequest → AddTrustedRootCertificate →
     AddNOC → NOCResponse statusCode=0, fabricIndex=2 (fabric installed).
-  - ⏭ CASE against the *installed* fabric (end-to-end PASE→commission→CASE);
-    `UpdateNOC`, `RemoveFabric`; persist the fabric table via the port kv.
+  - ✅ **Full PASE→commission→CASE** — DONE (device-verified). The prover
+    drives the complete flow on one device: PASE → CSRRequest →
+    AddTrustedRootCertificate → AddNOC (fabric installed) → **CASE against that
+    installed fabric** (device authenticates with the commissioned operational
+    key) → encrypted IM Read over the operational session. The commissioned
+    fabric is genuinely operational. Only **A2 (attestation)** stands between
+    this and a real chip-tool pairing.
+  - ⏭ `UpdateNOC`, `RemoveFabric`; persist the fabric table via the port kv.
 - **A4 Fabric store** (`mtrc_store`):
   - ✅ **Fabric table + serializer** — DONE (host-tested). Fixed-capacity
     in-memory table (root pubkey, fabric/node id, IPK, operational keypair,
