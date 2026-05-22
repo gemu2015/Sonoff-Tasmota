@@ -4445,6 +4445,9 @@ bool Xdrv124(uint32_t function) {
 
   switch (function) {
     case FUNC_LOOP:
+#ifdef USE_MATTER_C
+      matter_loop();   // process any queued Matter datagram (PASE responder)
+#endif
       if (tc_paused) { break; }
       // Deferred autoexec start — one-shot, gated on uptime so we
       // wait through Wi-Fi/RF coex bring-up. Spawning tc_vm_task at

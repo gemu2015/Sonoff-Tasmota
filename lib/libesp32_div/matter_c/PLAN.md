@@ -229,10 +229,17 @@ is ~40% of total risk and effort.
        `matter_udp_rx` → frame decode + log. Verified on hardware: a probe
        PBKDFParamRequest logged `rx 16B sess=0 proto=0x0000 op=0x20 exch=1
        R=1`. `udp_send` (reply to last peer) wired for P2.
-     - ⏭ **P2 PASE responder** — dispatch unsecured Secure Channel msgs to a
-       state machine: PBKDFParamReq→Resp, Pake1→Pake2, Pake3→StatusReport,
-       MRP acks, establish the PASE secure session. (Uses the host-tested
-       mtrc_pase + mtrc_sec + mtrc_mrp.)
+     - ⏳ **P2 PASE responder** — IN PROGRESS. matter_udp_rx now queues;
+       matter_loop (FUNC_LOOP) processes in main-loop context (PBKDF2/SPAKE2+
+       won't block the network task). Dispatch by Secure Channel opcode.
+       - ✅ **P2a PBKDFParamReq → PBKDFParamResponse** — LIVE ON C6. Device
+         decodes the request, generates responderRandom/sessionId/salt
+         (iterations 1000), sends a byte-correct PBKDFParamResponse with the
+         MRP ack, and captures the SPAKE2+ transcript context. Verified with
+         a probe: `op=0x21 A=1 ack=1`, payload TLV correct.
+       - ⏭ **P2b Pake1 → Pake2** (verifier SPAKE2+: w0/L from passcode+salt,
+         compute Y/Z/V + cB).  **P2c Pake3 → StatusReport** (verify cA,
+         derive PASE session keys).
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 
