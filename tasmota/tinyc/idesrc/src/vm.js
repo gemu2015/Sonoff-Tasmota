@@ -3827,6 +3827,49 @@ export class VM {
                 this.onOutput('[HomeKit] hkReset()\n');
                 break;
 
+            // ── Matter data-model scripting (simulator stubs) ───────
+            // The simulator has no Matter stack; model the data registry just
+            // enough that matterSet/matterGet round-trip and the script runs.
+            case Syscall.MTR_ADD: {
+                const dt = this.pop();
+                if (!this._mtrEp) this._mtrEp = 1;
+                const ep = this._mtrEp++;
+                this.onOutput(`[Matter] matterAdd(0x${(dt>>>0).toString(16)}) -> endpoint ${ep}\n`);
+                this.push(ep);
+                break;
+            }
+            case Syscall.MTR_CLUSTER: {
+                const cl = this.pop(), ep = this.pop();
+                this.onOutput(`[Matter] matterCluster(ep=${ep}, 0x${(cl>>>0).toString(16)})\n`);
+                break;
+            }
+            case Syscall.MTR_ATTR: {
+                const ty = this.pop(), at = this.pop(), cl = this.pop(), ep = this.pop();
+                this.onOutput(`[Matter] matterAttr(ep=${ep}, cl=0x${(cl>>>0).toString(16)}, attr=0x${(at>>>0).toString(16)}, type=${ty})\n`);
+                break;
+            }
+            case Syscall.MTR_SET: {
+                const val = this.pop(), at = this.pop(), cl = this.pop(), ep = this.pop();
+                if (!this._mtrVals) this._mtrVals = {};
+                this._mtrVals[`${ep}/${cl>>>0}/${at>>>0}`] = val;
+                this.onOutput(`[Matter] matterSet(ep=${ep}, cl=0x${(cl>>>0).toString(16)}, attr=0x${(at>>>0).toString(16)}) = ${val}\n`);
+                break;
+            }
+            case Syscall.MTR_GET: {
+                const at = this.pop(), cl = this.pop(), ep = this.pop();
+                const v = (this._mtrVals && this._mtrVals[`${ep}/${cl>>>0}/${at>>>0}`]) || 0;
+                this.push(v);
+                break;
+            }
+            case Syscall.MTR_START:
+                this.onOutput('[Matter] matterStart() — not available in simulator\n');
+                this.push(0);
+                break;
+            case Syscall.MTR_RESET:
+                this._mtrEp = 1; this._mtrVals = {};
+                this.onOutput('[Matter] matterReset()\n');
+                break;
+
             // ── Addressable LED strip (WS2812) ─────────────────────
             case Syscall.WS2812: {
                 const offset = this.pop();

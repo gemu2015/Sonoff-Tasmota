@@ -896,6 +896,17 @@ enum TcSyscall {
                                   //   GPIO (no UART consumed). Call once before dmxWrite;
                                   //   or set compile-time TC_DMX_GPIO for auto-init.
 
+  // Matter data-model scripting (ESP32 — requires USE_MATTER_C). Lets a .tc
+  // script define the Matter device on the firmware-agnostic matter_c engine
+  // (the "Matter 1.4 with TinyC" goal). Append-only — never renumber.
+  SYS_MTR_ADD               = 398, // (deviceType) -> int  matterAdd(): new endpoint id (<0 err)
+  SYS_MTR_CLUSTER           = 399, // (ep, clusterId) -> void  matterCluster(): add a cluster
+  SYS_MTR_ATTR              = 400, // (ep, cl, attrId, type) -> void  matterAttr(): declare attr
+  SYS_MTR_SET               = 401, // (ep, cl, attr, value) -> void  matterSet(): publish value
+  SYS_MTR_GET               = 402, // (ep, cl, attr) -> int  matterGet(): cached value (0 if absent)
+  SYS_MTR_START             = 403, // () -> int  matterStart(): advertise + accept commissioning, 0=ok
+  SYS_MTR_RESET             = 404, // () -> void  matterReset(): clear data model to the root node
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -1486,6 +1497,12 @@ static int16_t hk_var_gidx[TC_HK_MAX_VARS];          // global index per registe
 static volatile uint8_t hk_var_dirty[TC_HK_MAX_VARS]; // dirty flag (set from HAP thread)
 static uint8_t hk_var_count = 0;
 #endif
+
+// Matter data-model scripting bridge (SYS_MTR_* handlers below). The real
+// prototypes (matter_add_endpoint / matter_set_attr_uint / matter_start / ...)
+// come from matter_c.h, which xdrv_124_tinyc.ino includes ahead of this header
+// when USE_MATTER_C is set — so the handlers call them directly, no local
+// forward declarations needed (avoids a matter_err_t-vs-int return mismatch).
 
 // WebChart state (reset at start of each WebPage callback)
 static uint8_t tc_chart_seq = 0;        // auto-incrementing chart div ID (tc0, tc1, ...)
@@ -4678,6 +4695,58 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, tc_dmx_init(dg));             // (gpio) -> 1/0
       break;
     }
+
+    // ── Matter data-model scripting (USE_MATTER_C) ────────────────────
+    // A .tc script declares endpoints/clusters/attributes on the matter_c
+    // engine and publishes attribute values; the IM Read/Subscribe paths and
+    // the report engine serve them. Args pop in reverse push order.
+#ifdef USE_MATTER_C
+    case SYS_MTR_ADD: {                          // matterAdd(deviceType) -> ep
+      int32_t dt = TC_POP(vm);
+      TC_PUSH(vm, matter_add_endpoint((uint32_t)dt));
+      break;
+    }
+    case SYS_MTR_CLUSTER: {                      // matterCluster(ep, clusterId)
+      int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      matter_add_cluster((uint16_t)ep, (uint32_t)cl);
+      break;
+    }
+    case SYS_MTR_ATTR: {                         // matterAttr(ep, cl, attr, type)
+      int32_t ty = TC_POP(vm); int32_t at = TC_POP(vm);
+      int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      matter_add_attr((uint16_t)ep, (uint32_t)cl, (uint32_t)at, (int)ty, 0);
+      break;
+    }
+    case SYS_MTR_SET: {                          // matterSet(ep, cl, attr, value)
+      int32_t val = TC_POP(vm); int32_t at = TC_POP(vm);
+      int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      matter_set_attr_uint((uint16_t)ep, (uint32_t)cl, (uint32_t)at,
+                           (uint64_t)(uint32_t)val);
+      break;
+    }
+    case SYS_MTR_GET: {                          // matterGet(ep, cl, attr) -> int
+      int32_t at = TC_POP(vm); int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      uint64_t v = 0;
+      matter_get_attr_uint((uint16_t)ep, (uint32_t)cl, (uint32_t)at, &v);
+      TC_PUSH(vm, (int32_t)v);
+      break;
+    }
+    case SYS_MTR_START:                          // matterStart() -> 0=ok
+      TC_PUSH(vm, (int32_t)matter_start());
+      break;
+    case SYS_MTR_RESET:                          // matterReset()
+      matter_reset_model();
+      break;
+#else
+    case SYS_MTR_ADD:     TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_MTR_CLUSTER: TC_POP(vm); TC_POP(vm); break;
+    case SYS_MTR_ATTR:    TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_MTR_SET:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_MTR_GET:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_MTR_START:   TC_PUSH(vm, -1); break;
+    case SYS_MTR_RESET:   break;
+#endif  // USE_MATTER_C
+
     case SYS_DIGITAL_READ:
       a = TC_POP(vm);
       if (a >= 0 && a < MAX_GPIO_PIN) {

@@ -142,6 +142,33 @@ int matter_add_endpoint(uint32_t device_type_id);
 matter_err_t matter_set_attr(uint16_t endpoint, uint32_t cluster,
                              uint32_t attr, const uint8_t *tlv, size_t tlv_len);
 
+// ---- TinyC / script data-model bridge (Phase C2) -----------------------
+// Integer-friendly wrappers over the data-model registry, used by the TinyC
+// `mtr*` syscalls (and any host that prefers plain ints over TLV). The
+// endpoint is the value returned by matter_add_endpoint().
+
+// Reset the data model to just the root node (endpoint 0 + Basic Information).
+// A script calls this before declaring its own endpoints for full control.
+void         matter_reset_model(void);
+
+// Declare a cluster on an endpoint (idempotent).
+matter_err_t matter_add_cluster(uint16_t endpoint, uint32_t cluster);
+
+// Declare an attribute (auto-adds the cluster). `type` is a mtrc_dm_type_t
+// (0=bool, 1=u8, 2=u16, 3=u32, 4=u64, 5=enum8); `writable` (0/1) marks it
+// Write-able by a controller.
+matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
+                             int type, int writable);
+
+// Set an attribute's value (set-or-create). The subscription report engine
+// picks up the change on the next matter_loop() pump.
+matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
+                                  uint32_t attr, uint64_t value);
+
+// Get an attribute's cached value. Returns 1 + fills *out if present, else 0.
+int          matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
+                                  uint32_t attr, uint64_t *out);
+
 // ---- Onboarding payload ------------------------------------------------
 const char *matter_qr_uri(void);       // "MT:..." string for the QR code
 const char *matter_manual_code(void);  // "1234-567-8901" manual pairing code

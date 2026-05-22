@@ -70,6 +70,7 @@ EXAMPLES = [
     ('touch_buttons',  'Touch Buttons'),
     ('homekit_demo',   'HomeKit Demo'),
     ('homekit_office', 'HomeKit Office'),
+    ('matter_plug',    'Matter Plug + Power'),
     ('camera',         'ESP Camera (DFRobot)'),
 ]
 

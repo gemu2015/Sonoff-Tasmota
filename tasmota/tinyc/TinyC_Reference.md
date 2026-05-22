@@ -4487,6 +4487,72 @@ int main() {
 3. Scan QR code at `http://<device>/hk` with iPhone
 4. After configuration changes, run `hkReset()` once, then re-pair
 
+### Matter (ESP32 — requires USE_MATTER_C)
+
+Matter is the alternative to HomeKit and uses the **same TinyC integration
+slot** (`TINYC_MATTER` replaces `TINYC_HOMEKIT` at build time — they are
+mutually exclusive). The pure-C `matter_c` engine in the firmware handles all
+the hard parts — commissioning (SPAKE2+/PASE), the Interaction Model
+(Read/Subscribe), and the subscription/report engine. A `.tc` script just
+*declares* the Matter device and *publishes* attribute values — no firmware
+rebuild to change the device.
+
+#### Predefined Matter Constants
+
+| Group | Constants |
+|---|---|
+| Device types | `MATTER_PLUG` `MATTER_ONOFF_LIGHT` `MATTER_DIMM_LIGHT` `MATTER_TEMP_SENSOR` `MATTER_HUM_SENSOR` |
+| Cluster ids | `CLUSTER_ONOFF` `CLUSTER_LEVEL` `CLUSTER_TEMP` `CLUSTER_HUM` `CLUSTER_POWER` `CLUSTER_ENERGY` |
+| Attribute types | `MTR_BOOL` `MTR_U8` `MTR_U16` `MTR_U32` `MTR_U64` `MTR_ENUM8` |
+
+#### Matter Functions
+
+| Function | Description |
+|---|---|
+| `int matterAdd(deviceType)` | Add an endpoint of a device type; returns the endpoint id (<0 on error). The device type's mandatory clusters are attached automatically (e.g. `MATTER_PLUG` → OnOff → relay 1) |
+| `matterCluster(ep, clusterId)` | Add a cluster to an endpoint |
+| `matterAttr(ep, cl, attr, type)` | Declare an attribute (`type` = `MTR_U32` etc.) |
+| `matterSet(ep, cl, attr, value)` | Publish an attribute value; subscribers are notified on the next loop |
+| `int matterGet(ep, cl, attr)` | Read back the cached attribute value (0 if absent) |
+| `int matterStart()` | Advertise + accept commissioning. Returns 0=ok |
+| `matterReset()` | Clear the data model to the root node (call before declaring your own) |
+
+OnOff (cluster `CLUSTER_ONOFF`) on a plug/light endpoint maps to relay 1
+automatically — the firmware applies On/Off/Toggle to the real GPIO.
+
+#### Example — Smart Plug + Power sensor
+
+```c
+int ep;
+int watts, tick;
+
+void EverySecond() {
+    // Real meter: watts = (int)sensorGet("ENERGY#Power");  // or smlGet("Power")
+    tick = tick + 1; watts = (tick * 13) % 250;            // demo saw-tooth
+    matterSet(ep, CLUSTER_POWER, 0, watts);                 // ActivePower
+}
+
+int main() {
+    matterReset();                          // clean slate (root node only)
+    ep = matterAdd(MATTER_PLUG);            // endpoint + OnOff cluster -> relay 1
+    matterCluster(ep, CLUSTER_POWER);      // Electrical Power Measurement
+    matterAttr(ep, CLUSTER_POWER, 0, MTR_U32);
+    matterStart();                          // advertise + accept commissioning
+    return 0;
+}
+```
+
+#### Commissioning
+
+1. Compile and flash firmware with `USE_MATTER_C` (`-DTINYC_MATTER`)
+2. Compile and upload a TinyC program using `matterAdd()` / `matterStart()`
+3. Pair with any on-network Matter controller (chip-tool, Apple Home, …);
+   the commissioning info is shown at `http://<device>/mt`
+
+> Status: the data-model scripting API (`matter*`) is live. A `MatterInvoke`
+> command callback (script-side command handling, like `HomeKitWrite`) and
+> full CASE pairing with commercial controllers are in progress.
+
 #### Predefined File Constants
 
 Shorthand constants for `fileOpen()`:

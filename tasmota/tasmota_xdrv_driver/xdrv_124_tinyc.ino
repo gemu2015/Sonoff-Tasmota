@@ -67,6 +67,14 @@ static void (*const TinyCWebOnHandlers[])(void) = {
   #include <lwip/sockets.h>
 #endif
 
+// Matter data-model API must be visible INSIDE the VM header (its SYS_MTR_*
+// handlers call matter_*). Included here, ahead of the VM header, so the real
+// prototypes/types are in scope; the include guard makes the later include in
+// the USE_MATTER_C block (with the port wiring) a harmless no-op.
+#ifdef USE_MATTER_C
+  #include "matter_c.h"
+#endif
+
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
 

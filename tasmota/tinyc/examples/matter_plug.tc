@@ -1,0 +1,39 @@
+// Matter Smart Plug + live Power sensor — defined entirely in TinyC.
+//
+// The matter_c engine (pure C, in the firmware) does all the heavy lifting:
+// commissioning (SPAKE2+/PASE), the Interaction Model (Read/Subscribe), and
+// the subscription/report engine. This script just *declares* the Matter
+// device and *publishes* attribute values — no firmware rebuild to change it.
+//
+// OnOff (cluster 0x0006) on the plug endpoint maps to relay 1 automatically
+// (the firmware applies On/Off/Toggle to the real GPIO). Here we additionally
+// expose an Electrical Power Measurement attribute and feed it a live reading
+// every second, so a controller can subscribe to the plug's wattage.
+//
+// Build -> upload the .tcb. Requires a USE_MATTER_C firmware. Commission with
+// any on-network Matter controller (chip-tool / Apple Home / ...).
+
+int ep;          // our Matter endpoint id
+int tick;
+int watts;       // demo power value
+
+void EverySecond() {
+    // Publish a value into the ActivePower attribute (cluster 0x0090, attr 0).
+    // Real meter:  watts = (int)sensorGet("ENERGY#Power");   // or smlGet("Power")
+    // Demo: a gentle saw-tooth so a subscriber sees changing reports.
+    tick = tick + 1;
+    watts = (tick * 13) % 250;
+    matterSet(ep, CLUSTER_POWER, 0, watts);
+}
+
+int main() {
+    // Define the Matter device: a smart plug with power measurement.
+    matterReset();                          // clean slate (root node only)
+    ep = matterAdd(MATTER_PLUG);            // endpoint + OnOff cluster -> relay 1
+    matterCluster(ep, CLUSTER_POWER);      // add Electrical Power Measurement
+    matterAttr(ep, CLUSTER_POWER, 0, MTR_U32);  // ActivePower attribute
+    matterSet(ep, CLUSTER_POWER, 0, 0);    // initial value
+    matterStart();                          // advertise + accept commissioning
+
+    return 0;
+}

@@ -464,6 +464,15 @@ const BUILTINS = {
     'hkStop':           { syscall: Syscall.HK_STOP,          args: 0, returns: false },
     'hkReset':          { syscall: Syscall.HK_RESET,         args: 0, returns: false },
 
+    // Matter data-model scripting (ESP32 — requires USE_MATTER_C)
+    'matterAdd':        { syscall: Syscall.MTR_ADD,         args: 1, returns: true },
+    'matterCluster':    { syscall: Syscall.MTR_CLUSTER,     args: 2, returns: false },
+    'matterAttr':       { syscall: Syscall.MTR_ATTR,        args: 4, returns: false },
+    'matterSet':        { syscall: Syscall.MTR_SET,         args: 4, returns: false },
+    'matterGet':        { syscall: Syscall.MTR_GET,         args: 3, returns: true },
+    'matterStart':      { syscall: Syscall.MTR_START,       args: 0, returns: true },
+    'matterReset':      { syscall: Syscall.MTR_RESET,       args: 0, returns: false },
+
     // Addressable LED strip (WS2812)
     'setPixels':        { syscall: Syscall.WS2812,           args: 3, returns: false, refArgs: [0] },
 
@@ -561,7 +570,21 @@ export class CodeGenerator {
         };
         // File mode constants (r=read, w=write, a=append)
         const fileDefs = { r: 0, w: 1, a: 2 };
-        const allDefs = { ...colorDefs, ...hkDefs, ...fileDefs };
+        // Matter scripting constants (USE_MATTER_C). Device types + cluster ids
+        // (Matter 1.4 spec) + attribute storage types (mtrc_dm_type_t).
+        const matterDefs = {
+            // device types
+            MATTER_PLUG: 0x010A, MATTER_ONOFF_LIGHT: 0x0100,
+            MATTER_DIMM_LIGHT: 0x0101, MATTER_TEMP_SENSOR: 0x0302,
+            MATTER_HUM_SENSOR: 0x0307,
+            // cluster ids
+            CLUSTER_ONOFF: 0x0006, CLUSTER_LEVEL: 0x0008,
+            CLUSTER_TEMP: 0x0402, CLUSTER_HUM: 0x0405,
+            CLUSTER_POWER: 0x0090, CLUSTER_ENERGY: 0x0091,
+            // attribute storage types (mtrc_dm_type_t)
+            MTR_BOOL: 0, MTR_U8: 1, MTR_U16: 2, MTR_U32: 3, MTR_U64: 4, MTR_ENUM8: 5,
+        };
+        const allDefs = { ...colorDefs, ...hkDefs, ...fileDefs, ...matterDefs };
         for (const [name, value] of Object.entries(allDefs)) {
             this.defines.set(name, { type: 'IntLiteral', value, line: 0 });
         }

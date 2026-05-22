@@ -123,13 +123,23 @@ Mirrors the retired HomeKit pattern (`hkAdd`/`hkStart`/`HomeKitWrite`).
   detection, idempotency, capacity, enumeration). The B-phase clusters and the
   Phase-C TinyC syscalls now build on this registry instead of hardcoding.
 - **C2 TinyC syscalls** (new `mtr*` builtins, append-only JMPTBL):
-  - `matterAdd(deviceType)` → endpoint id
-  - `matterCluster(ep, clusterId)` / `matterAttr(ep, cl, attrId, type)`
-  - `matterSet(ep, cl, attr, value)` → updates attr + fires subscriptions
-  - `matterGet(ep, cl, attr)` ; `matterStart()` ; `matterReset()`
-  - `MatterInvoke(ep, cl, cmd, args)` **callback** into the VM (like
-    `HomeKitWrite`) for command handling
-  - `matterEvent(ep, cl, eventId, data)` to emit events
+  - ✅ **C2a data-model syscalls** — DONE. SYS_MTR_ADD/CLUSTER/ATTR/SET/GET/
+    START/RESET (398–404, append-only). Compiler: `matterAdd`/`matterCluster`/
+    `matterAttr`/`matterSet`/`matterGet`/`matterStart`/`matterReset` builtins +
+    predefined constants (`MATTER_PLUG`/…, `CLUSTER_ONOFF`/…, `MTR_U32`/…). VM
+    handlers call the matter_c scripting API (`matter_add_endpoint`,
+    `matter_set_attr_uint`, …) — guarded by `USE_MATTER_C`, with `#else` stubs.
+    `examples/matter_plug.tc` (plug + Electrical Power Measurement); IDE
+    simulator stubs in `vm.js`; bundle rebuilt; TINYC_RELEASE 1.3.21.
+    - `matterAdd(deviceType)` → endpoint id
+    - `matterCluster(ep, clusterId)` / `matterAttr(ep, cl, attrId, type)`
+    - `matterSet(ep, cl, attr, value)` → updates attr (subs fire next loop)
+    - `matterGet(ep, cl, attr)` ; `matterStart()` ; `matterReset()`
+  - ⏭ **C2b `MatterInvoke(ep, cl, cmd)` callback** into the VM (like
+    `HomeKitWrite`) for command handling — needs an `on_command` port + a
+    clean OnOff ownership story (currently the core drives the relay via
+    `on_attr_write`).
+  - ⏭ `matterEvent(ep, cl, eventId, data)` to emit events.
 - **C3 xdrv glue**: route the data-model registry's command/attr callbacks
   to the VM; the OnOff→relay path becomes a script (`MatterInvoke` →
   `power(...)`), not hardcoded C.

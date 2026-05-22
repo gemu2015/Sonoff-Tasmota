@@ -3514,6 +3514,73 @@ int main() {
 3. QR-Code unter `http://<Geraet>/hk` mit iPhone scannen
 4. Bei Konfigurationsaenderungen `hkReset()` einmalig ausfuehren, dann erneut koppeln
 
+### Matter (ESP32 — benoetigt USE_MATTER_C)
+
+Matter ist die Alternative zu HomeKit und nutzt **denselben TinyC-Integrations-
+Slot** (`TINYC_MATTER` ersetzt `TINYC_HOMEKIT` zur Build-Zeit — beide schliessen
+sich gegenseitig aus). Die reine C-Engine `matter_c` in der Firmware erledigt
+die schwierigen Teile — Kopplung (SPAKE2+/PASE), das Interaction Model
+(Read/Subscribe) und die Subscription-/Report-Engine. Ein `.tc`-Skript
+*deklariert* nur das Matter-Geraet und *veroeffentlicht* Attributwerte — kein
+Firmware-Neubau, um das Geraet zu aendern.
+
+#### Vordefinierte Matter-Konstanten
+
+| Gruppe | Konstanten |
+|---|---|
+| Geraetetypen | `MATTER_PLUG` `MATTER_ONOFF_LIGHT` `MATTER_DIMM_LIGHT` `MATTER_TEMP_SENSOR` `MATTER_HUM_SENSOR` |
+| Cluster-IDs | `CLUSTER_ONOFF` `CLUSTER_LEVEL` `CLUSTER_TEMP` `CLUSTER_HUM` `CLUSTER_POWER` `CLUSTER_ENERGY` |
+| Attributtypen | `MTR_BOOL` `MTR_U8` `MTR_U16` `MTR_U32` `MTR_U64` `MTR_ENUM8` |
+
+#### Matter-Funktionen
+
+| Funktion | Beschreibung |
+|---|---|
+| `int matterAdd(geraetetyp)` | Endpunkt eines Geraetetyps hinzufuegen; liefert die Endpunkt-ID (<0 bei Fehler). Die Pflicht-Cluster des Typs werden automatisch angehaengt (z.B. `MATTER_PLUG` → OnOff → Relais 1) |
+| `matterCluster(ep, clusterId)` | Cluster zu einem Endpunkt hinzufuegen |
+| `matterAttr(ep, cl, attr, typ)` | Attribut deklarieren (`typ` = `MTR_U32` usw.) |
+| `matterSet(ep, cl, attr, wert)` | Attributwert veroeffentlichen; Abonnenten werden im naechsten Loop benachrichtigt |
+| `int matterGet(ep, cl, attr)` | Zwischengespeicherten Attributwert lesen (0 falls nicht vorhanden) |
+| `int matterStart()` | Bewerben + Kopplung annehmen. Liefert 0=ok |
+| `matterReset()` | Datenmodell auf den Root-Knoten zuruecksetzen (vor eigener Deklaration aufrufen) |
+
+OnOff (Cluster `CLUSTER_ONOFF`) auf einem Plug-/Light-Endpunkt steuert
+automatisch Relais 1 — die Firmware wendet On/Off/Toggle auf den realen GPIO an.
+
+#### Beispiel — Steckdose + Leistungssensor
+
+```c
+int ep;
+int watts, tick;
+
+void EverySecond() {
+    // Echter Zaehler: watts = (int)sensorGet("ENERGY#Power");  // oder smlGet("Power")
+    tick = tick + 1; watts = (tick * 13) % 250;            // Demo-Saegezahn
+    matterSet(ep, CLUSTER_POWER, 0, watts);                 // ActivePower
+}
+
+int main() {
+    matterReset();                          // sauberer Start (nur Root-Knoten)
+    ep = matterAdd(MATTER_PLUG);            // Endpunkt + OnOff-Cluster -> Relais 1
+    matterCluster(ep, CLUSTER_POWER);      // Electrical Power Measurement
+    matterAttr(ep, CLUSTER_POWER, 0, MTR_U32);
+    matterStart();                          // bewerben + Kopplung annehmen
+    return 0;
+}
+```
+
+#### Kopplung
+
+1. Firmware mit `USE_MATTER_C` (`-DTINYC_MATTER`) kompilieren und flashen
+2. TinyC-Programm mit `matterAdd()` / `matterStart()` kompilieren und hochladen
+3. Mit einem beliebigen On-Network-Matter-Controller koppeln (chip-tool,
+   Apple Home, …); die Kopplungsinfo wird unter `http://<Geraet>/mt` angezeigt
+
+> Status: die Datenmodell-Skripting-API (`matter*`) ist aktiv. Ein
+> `MatterInvoke`-Befehls-Callback (Befehlsbehandlung im Skript, wie
+> `HomeKitWrite`) und die vollstaendige CASE-Kopplung mit kommerziellen
+> Controllern sind in Arbeit.
+
 #### Vordefinierte Datei-Konstanten
 
 Fuer `fileOpen()` stehen folgende Kurzformen zur Verfuegung:

@@ -544,6 +544,44 @@ matter_err_t matter_set_attr(uint16_t endpoint, uint32_t cluster,
   return MATTER_OK;
 }
 
+// ---- TinyC / script data-model bridge (Phase C2) -----------------------
+void matter_reset_model(void) {
+  if (!g.inited) return;
+  mtrc_dm_reset();
+  dm_seed_root();
+  g.next_ep = 1;
+}
+
+matter_err_t matter_add_cluster(uint16_t endpoint, uint32_t cluster) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  return mtrc_dm_add_cluster(endpoint, cluster) == 0 ? MATTER_OK : MATTER_ERR_NO_MEM;
+}
+
+matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
+                             int type, int writable) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  if (type < 0 || type > MTRC_DM_T_ENUM8) type = MTRC_DM_T_U32;
+  uint8_t flags = writable ? MTRC_DM_F_WRITABLE : 0;
+  return mtrc_dm_add_attr(endpoint, cluster, attr, (mtrc_dm_type_t)type, flags, 0) == 0
+         ? MATTER_OK : MATTER_ERR_NO_MEM;
+}
+
+matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
+                                  uint32_t attr, uint64_t value) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  if (!mtrc_dm_find(endpoint, cluster, attr))
+    mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, value);
+  else
+    mtrc_dm_set(endpoint, cluster, attr, value);
+  return MATTER_OK;
+}
+
+int matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
+                         uint32_t attr, uint64_t *out) {
+  if (!g.inited) return 0;
+  return mtrc_dm_get(endpoint, cluster, attr, out);
+}
+
 // ---- onboarding + introspection ---------------------------------------
 const char *matter_qr_uri(void)      { return g.qr; }      // "" until Phase 6
 const char *matter_manual_code(void) { return g.manual; }  // "" until Phase 6
