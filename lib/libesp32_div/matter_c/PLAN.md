@@ -116,7 +116,7 @@ Profiler, Thread radio.
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | **0. Spike ✅ DONE** | `mtrc_crypto` (BearSSL SHA256/HMAC/HKDF + P-256 mul/mulgen/muladd) + `mtrc_spake2p` | ✅ **PASS — GO.** All 11 checks match the RFC 9383 P256 vector (X, Y, Z, V both sides, K_main, K_confirmP/V, cA, cB) on `br_ec_p256_m15`. Host self-test: `test/build_host.sh`. Firmware co-build verified on tinyc32c3-matter (83.9% flash). |
-| **1. TLV** | `mtrc_tlv` encode/decode | Round-trips all spec TLV test vectors |
+| **1. TLV ✅ DONE** | `mtrc_tlv` encode/decode (streaming, zero-copy reader) | ✅ PASS. 14 canonical spec encode vectors match; full nested round-trip decode + byte-identical re-encode; fully-qualified tags. Host test `test/build_tlv.sh`; firmware co-build on tinyc32c3-matter. |
 | **2. Frame+MRP+UDP** | Message layer | Unsecured UDP echo with correct counters/acks |
 | **3. Commissioning slice** | PASE, BTP/BLE, CASE, fabric store, **OnOff** | ⭐ **chip-tool pairs over BLE→WiFi and toggles the relay.** The milestone. |
 | **4. IM breadth** | read/write/subscribe (not just invoke) | chip-tool reads attrs + receives subscription reports |
@@ -182,12 +182,15 @@ is ~40% of total risk and effort.
 2. ✅ **Phase-0 crypto spike** — `mtrc_crypto` over BearSSL + `mtrc_spake2p`,
    verified 11/11 against the RFC 9383 P256 vector (host + firmware co-build).
    Viability confirmed: the hard crypto works on the resident library.
-3. ⏭ **NEXT — `mtrc_tlv`** (Phase 1): Matter TLV encode/decode, verified
-   against spec TLV test vectors. Mechanical and well-bounded.
+3. ✅ **Phase 1 `mtrc_tlv`** — Matter TLV codec, 14 spec vectors + round-trip.
+4. ⏭ **NEXT — Phase 2**: `mtrc_frame` (message header) + `mtrc_mrp`
+   (reliability) + `mtrc_udp` glue. Exit: unsecured UDP echo with correct
+   counters/acks.
 
-### How to re-run the SPAKE2+ spike
+### How to re-run the host self-tests
 ```
-bash lib/libesp32_div/matter_c/test/build_host.sh   # -> "PASS — GO"
+bash lib/libesp32_div/matter_c/test/build_host.sh   # SPAKE2+  -> "PASS — GO"
+bash lib/libesp32_div/matter_c/test/build_tlv.sh    # TLV codec -> "PASS"
 ```
 
 ---
