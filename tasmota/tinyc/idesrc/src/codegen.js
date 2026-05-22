@@ -12,7 +12,7 @@ export class CodeGenError extends Error {
 }
 
 // Well-known callback function names — auto-detected by compiler
-const CALLBACK_NAMES = ['JsonCall', 'WebCall', 'WebPage', 'WebUI', 'WebOn', 'EverySecond', 'Every100ms', 'Every50ms', 'EveryLoop', 'UdpCall', 'TaskLoop', 'CleanUp', 'TouchButton', 'HomeKitWrite', 'Event', 'OnExit', 'Command', 'OnMqttConnect', 'OnMqttDisconnect', 'OnWifiConnect', 'OnWifiDisconnect', 'OnTimeSet', 'OnInit', 'BootInit'];
+const CALLBACK_NAMES = ['JsonCall', 'WebCall', 'WebPage', 'WebUI', 'WebOn', 'EverySecond', 'Every100ms', 'Every50ms', 'EveryLoop', 'UdpCall', 'TaskLoop', 'CleanUp', 'TouchButton', 'HomeKitWrite', 'MatterInvoke', 'Event', 'OnExit', 'Command', 'OnMqttConnect', 'OnMqttDisconnect', 'OnWifiConnect', 'OnWifiDisconnect', 'OnTimeSet', 'OnInit', 'BootInit'];
 
 // Built-in functions mapped to syscalls
 const BUILTINS = {

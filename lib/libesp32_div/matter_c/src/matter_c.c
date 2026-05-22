@@ -344,7 +344,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
 
   static uint8_t resp[256];
   int n = -1;
-  if (cl == 0x0030) {                 // General Commissioning
+  if (cl == 0x0030) {                 // General Commissioning (handled in-core)
     uint32_t rc = 0xFFFFFFFF;
     if      (cmd == 0x00) rc = 0x01;  // ArmFailSafe -> ArmFailSafeResponse
     else if (cmd == 0x02) rc = 0x03;  // SetRegulatoryConfig -> Response
@@ -352,13 +352,24 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     if (rc != 0xFFFFFFFF)
       n = mtrc_im_build_cmd_response_u8(resp, sizeof(resp), ep, cl, rc, 0); // errorCode OK
   } else if (cl == 0x0006 && cmd <= 0x02) {   // OnOff: Off(0)/On(1)/Toggle(2)
-    if (g.port.on_attr_write) {
+    // Route to the application (script's MatterInvoke -> relay, or the built-in
+    // relay default). on_command owns the action; on_attr_write is the legacy
+    // fallback for hosts that don't provide on_command.
+    int handled = 0;
+    if (g.port.on_command)
+      handled = g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)cmd);
+    else if (g.port.on_attr_write) {
       uint8_t action = (uint8_t)cmd;          // maps 1:1 to Tasmota POWER_*
       g.port.on_attr_write(g.port.ctx, ep, 0x0006, 0x0000, &action, 1);
+      handled = 1;
     }
     g.onoff = (cmd == 0x02) ? !g.onoff : (cmd == 0x01);
     mtrc_dm_set(ep, 0x0006, 0x0000, g.onoff ? 1 : 0);   // keep registry in sync
-    n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
+    if (handled)
+      n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
+  } else if (g.port.on_command) {     // any other app cluster -> let a script try
+    if (g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)cmd))
+      n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
   }
   if (n < 0)
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x81); // UNSUPPORTED_COMMAND

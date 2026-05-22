@@ -2474,6 +2474,47 @@ static IPAddress mtrc_peer_ip;
 static uint16_t  mtrc_peer_port = 0;
 static bool      mtrc_udp_listening = false;
 
+// Route a Matter command Invoke to the script's MatterInvoke(ep, cluster, cmd)
+// callback on every slot that defines it (the structural twin of HomeKit's
+// tc_hk_write_callback). Returns true if at least one script handled it, so the
+// caller can fall back to the built-in OnOff->relay behavior otherwise.
+static bool MatterC_DispatchInvoke(uint16_t ep, uint32_t cluster, uint32_t cmd) {
+  if (!Tinyc) return false;
+  bool handled = false;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (!s || !s->loaded) continue;
+    // Does this slot define a MatterInvoke callback?
+    bool has = false;
+    for (int c = 0; c < s->vm.callback_count; c++)
+      if (strcmp(s->vm.callbacks[c].name, "MatterInvoke") == 0) { has = true; break; }
+    if (!has) continue;
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+    if (s->vm.halted && s->vm.error == TC_OK) {
+      tc_current_slot = s;
+      TcVM *vm = &s->vm;
+      if (vm->sp + 3 <= vm->stack_size) {
+        // Pin pre-push SP so the 3 consumed args don't re-materialise (see
+        // tc_hk_write_callback for the same idiom).
+        uint16_t pre_push_sp = vm->sp;
+        vm->stack[vm->sp++] = (int32_t)ep;
+        vm->stack[vm->sp++] = (int32_t)cluster;
+        vm->stack[vm->sp++] = (int32_t)cmd;
+        tc_vm_call_callback(vm, "MatterInvoke");
+        vm->sp = pre_push_sp;
+        handled = true;
+      }
+      tc_current_slot = nullptr;
+    }
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+  }
+  return handled;
+}
+
 // ---- matter_c host port (Tasmota backing for the firmware-agnostic lib) --
 // For the discovery + PASE-rx milestone we provide log / millis / CSPRNG /
 // a minimal kv store + mdns_publish (ESPmDNS) + udp_send (AsyncUDP). A
@@ -2542,6 +2583,21 @@ extern "C" {
     }
     return MATTER_ERR_NOT_IMPLEMENTED;
   }
+  // Matter invoked a command. First offer it to the script (MatterInvoke); if
+  // no script handles it, apply the built-in default (OnOff -> relay 1). The
+  // default runs ONLY when unhandled, so a script that drives the relay itself
+  // never double-toggles. Returns 1 if handled (core replies SUCCESS).
+  static int mtrc_p_on_command(void *ctx, uint16_t endpoint, uint32_t cluster,
+                               uint32_t command, int32_t arg) {
+    (void)ctx; (void)endpoint; (void)arg;
+    if (MatterC_DispatchInvoke(endpoint, cluster, command)) return 1;
+    if (cluster == 0x0006 && command <= 2) {        // OnOff -> relay 1 (default)
+      AddLog(LOG_LEVEL_INFO, PSTR("MTR: OnOff -> Power %u (default)"), (unsigned)command);
+      ExecuteCommandPower(1, command, SRC_BUTTON);   // 0=off 1=on 2=toggle
+      return 1;
+    }
+    return 0;
+  }
 }
 
 static matter_port_t mtrc_port;
@@ -2570,6 +2626,7 @@ static void MatterC_MaybeStart(void) {
   mtrc_port.udp_send     = mtrc_p_udp_send;
   mtrc_port.on_attr_write = mtrc_p_on_attr_write;
   mtrc_port.on_attr_read  = mtrc_p_on_attr_read;
+  mtrc_port.on_command    = mtrc_p_on_command;
 
   // Listen on UDP 5540 for Matter operational/commissioning datagrams and
   // pump them into the core. (onPacket runs in the async-tcpip task.)

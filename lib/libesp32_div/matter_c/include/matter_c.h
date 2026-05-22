@@ -98,6 +98,16 @@ typedef struct matter_port {
   //  non-OK to let the core use its cached/default value. May be NULL.
   matter_err_t (*on_attr_read)(void *ctx, uint16_t endpoint, uint32_t cluster,
                                uint32_t attr, uint64_t *out);
+
+  // -- application bridge: Matter INVOKED a command (e.g. OnOff On/Off/Toggle).
+  //  The host routes it to the application — in Tasmota/TinyC that is the
+  //  script's `MatterInvoke(ep, cluster, cmd)` callback, falling back to the
+  //  built-in behavior (OnOff -> relay) when no script handles it. `arg` is a
+  //  primary command argument where applicable (e.g. Level), else the command
+  //  id. Returns 1 if handled (core replies SUCCESS), 0 if not (UNSUPPORTED).
+  //  May be NULL — then the core uses on_attr_write for OnOff (legacy path).
+  int (*on_command)(void *ctx, uint16_t endpoint, uint32_t cluster,
+                    uint32_t command, int32_t arg);
 } matter_port_t;
 
 // ---- Device configuration ----------------------------------------------

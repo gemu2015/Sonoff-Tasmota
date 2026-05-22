@@ -4520,6 +4520,22 @@ rebuild to change the device.
 OnOff (cluster `CLUSTER_ONOFF`) on a plug/light endpoint maps to relay 1
 automatically — the firmware applies On/Off/Toggle to the real GPIO.
 
+#### MatterInvoke Callback (Optional)
+
+Define `MatterInvoke(ep, cluster, cmd)` to handle controller commands yourself
+(the Matter twin of `HomeKitWrite`). When present, **your script owns the
+command** — the built-in OnOff→relay default steps aside, so you won't get a
+double-toggle. Omit it to keep the automatic relay behavior.
+
+```c
+void MatterInvoke(int ep, int cluster, int cmd) {
+    if (cluster == CLUSTER_ONOFF) {
+        if (cmd == 2) { tasm_power = 1 - tasmPower(0); }  // Toggle
+        else          { tasm_power = cmd; }               // 0=Off, 1=On
+    }
+}
+```
+
 #### Example — Smart Plug + Power sensor
 
 ```c
@@ -4549,9 +4565,9 @@ int main() {
 3. Pair with any on-network Matter controller (chip-tool, Apple Home, …);
    the commissioning info is shown at `http://<device>/mt`
 
-> Status: the data-model scripting API (`matter*`) is live. A `MatterInvoke`
-> command callback (script-side command handling, like `HomeKitWrite`) and
-> full CASE pairing with commercial controllers are in progress.
+> Status: the data-model scripting API (`matter*`) and the `MatterInvoke`
+> command callback are live and device-verified. Full CASE pairing with
+> commercial controllers (Apple/Google/Alexa/HA) is in progress.
 
 #### Predefined File Constants
 

@@ -17,6 +17,20 @@ int ep;          // our Matter endpoint id
 int tick;
 int watts;       // demo power value
 
+// Called when a Matter controller invokes a command on one of our clusters.
+// Here the script OWNS OnOff: it drives relay 1 itself (so the firmware's
+// built-in OnOff->relay default steps aside — no double-toggle). Drop this
+// function to fall back to the automatic relay behavior.
+void MatterInvoke(int e, int cluster, int cmd) {
+    if (cluster == CLUSTER_ONOFF) {
+        if (cmd == 2) {
+            tasm_power = 1 - tasmPower(0);   // Toggle
+        } else {
+            tasm_power = cmd;                // 0=Off, 1=On
+        }
+    }
+}
+
 void EverySecond() {
     // Publish a value into the ActivePower attribute (cluster 0x0090, attr 0).
     // Real meter:  watts = (int)sensorGet("ENERGY#Power");   // or smlGet("Power")

@@ -3547,6 +3547,23 @@ Firmware-Neubau, um das Geraet zu aendern.
 OnOff (Cluster `CLUSTER_ONOFF`) auf einem Plug-/Light-Endpunkt steuert
 automatisch Relais 1 — die Firmware wendet On/Off/Toggle auf den realen GPIO an.
 
+#### MatterInvoke-Callback (Optional)
+
+Definiere `MatterInvoke(ep, cluster, cmd)`, um Controller-Befehle selbst zu
+behandeln (das Matter-Gegenstueck zu `HomeKitWrite`). Ist die Funktion
+vorhanden, **gehoert der Befehl deinem Skript** — das eingebaute OnOff→Relais-
+Standardverhalten tritt zurueck, also kein doppeltes Umschalten. Weglassen, um
+das automatische Relaisverhalten zu behalten.
+
+```c
+void MatterInvoke(int ep, int cluster, int cmd) {
+    if (cluster == CLUSTER_ONOFF) {
+        if (cmd == 2) { tasm_power = 1 - tasmPower(0); }  // Umschalten
+        else          { tasm_power = cmd; }               // 0=Aus, 1=Ein
+    }
+}
+```
+
 #### Beispiel — Steckdose + Leistungssensor
 
 ```c
@@ -3576,10 +3593,10 @@ int main() {
 3. Mit einem beliebigen On-Network-Matter-Controller koppeln (chip-tool,
    Apple Home, …); die Kopplungsinfo wird unter `http://<Geraet>/mt` angezeigt
 
-> Status: die Datenmodell-Skripting-API (`matter*`) ist aktiv. Ein
-> `MatterInvoke`-Befehls-Callback (Befehlsbehandlung im Skript, wie
-> `HomeKitWrite`) und die vollstaendige CASE-Kopplung mit kommerziellen
-> Controllern sind in Arbeit.
+> Status: die Datenmodell-Skripting-API (`matter*`) und der `MatterInvoke`-
+> Befehls-Callback sind aktiv und am Geraet verifiziert. Die vollstaendige
+> CASE-Kopplung mit kommerziellen Controllern (Apple/Google/Alexa/HA) ist in
+> Arbeit.
 
 #### Vordefinierte Datei-Konstanten
 

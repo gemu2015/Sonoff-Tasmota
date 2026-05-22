@@ -135,10 +135,16 @@ Mirrors the retired HomeKit pattern (`hkAdd`/`hkStart`/`HomeKitWrite`).
     - `matterCluster(ep, clusterId)` / `matterAttr(ep, cl, attrId, type)`
     - `matterSet(ep, cl, attr, value)` → updates attr (subs fire next loop)
     - `matterGet(ep, cl, attr)` ; `matterStart()` ; `matterReset()`
-  - ⏭ **C2b `MatterInvoke(ep, cl, cmd)` callback** into the VM (like
-    `HomeKitWrite`) for command handling — needs an `on_command` port + a
-    clean OnOff ownership story (currently the core drives the relay via
-    `on_attr_write`).
+  - ✅ **C2b `MatterInvoke(ep, cl, cmd)` callback** — DONE. New `on_command`
+    port: the core routes an Invoke to the script's `MatterInvoke` (every slot
+    that defines it, like `HomeKitWrite`); when no script handles it, the
+    built-in OnOff→relay default applies — so a script that drives the relay
+    itself never double-toggles. Other app clusters return SUCCESS only if a
+    script handled them, else UNSUPPORTED_COMMAND. `examples/matter_plug.tc`
+    now owns OnOff via `MatterInvoke` (drives relay 1 through `tasm_power`).
+  - ⏭ Command-field arguments (e.g. Level MoveToLevel level) — `MatterInvoke`
+    currently passes (ep, cluster, cmd); parsing CommandFields into `arg` is
+    the next refinement.
   - ⏭ `matterEvent(ep, cl, eventId, data)` to emit events.
 - **C3 xdrv glue**: route the data-model registry's command/attr callbacks
   to the VM; the OnOff→relay path becomes a script (`MatterInvoke` →
