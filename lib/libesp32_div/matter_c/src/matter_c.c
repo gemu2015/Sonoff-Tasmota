@@ -50,6 +50,7 @@ static struct {
   uint8_t          i2r[16], r2i[16], att[16];   // PASE session keys (on success)
   bool             pase_secure;       // true once cA verified
   uint32_t         sec_tx_counter;    // our secured-session message counter
+  bool             onoff;             // OnOff attribute (endpoint relay state)
 } g;
 
 static void mlog(matter_log_level_t lvl, const char *msg) {
@@ -274,6 +275,13 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     else if (cmd == 0x04) rc = 0x05;  // CommissioningComplete -> Response
     if (rc != 0xFFFFFFFF)
       n = mtrc_im_build_cmd_response_u8(resp, sizeof(resp), ep, cl, rc, 0); // errorCode OK
+  } else if (cl == 0x0006 && cmd <= 0x02) {   // OnOff: Off(0)/On(1)/Toggle(2)
+    if (g.port.on_attr_write) {
+      uint8_t action = (uint8_t)cmd;          // maps 1:1 to Tasmota POWER_*
+      g.port.on_attr_write(g.port.ctx, ep, 0x0006, 0x0000, &action, 1);
+    }
+    g.onoff = (cmd == 0x02) ? !g.onoff : (cmd == 0x01);
+    n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
   }
   if (n < 0)
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x81); // UNSUPPORTED_COMMAND

@@ -2512,6 +2512,16 @@ extern "C" {
     mtrc_udp.writeTo((const uint8_t *)buf, len, mtrc_peer_ip, mtrc_peer_port);
     return MATTER_OK;
   }
+  // Matter wrote a device attribute. OnOff (cluster 0x0006) -> Tasmota relay:
+  // the OnOff command id (Off=0/On=1/Toggle=2) maps 1:1 to POWER_OFF/ON/TOGGLE.
+  static void mtrc_p_on_attr_write(void *ctx, uint16_t endpoint, uint32_t cluster,
+                                   uint32_t attr, const uint8_t *tlv, size_t len) {
+    (void)ctx; (void)endpoint; (void)attr;
+    if (cluster == 0x0006 && len >= 1) {
+      AddLog(LOG_LEVEL_INFO, PSTR("MTR: OnOff -> Power %u"), (unsigned)tlv[0]);
+      ExecuteCommandPower(1, tlv[0], SRC_BUTTON);   // 0=off 1=on 2=toggle
+    }
+  }
 }
 
 static matter_port_t mtrc_port;
@@ -2538,6 +2548,7 @@ static void MatterC_MaybeStart(void) {
   mtrc_port.kv_del       = mtrc_p_kv_del;
   mtrc_port.mdns_publish = mtrc_p_mdns;
   mtrc_port.udp_send     = mtrc_p_udp_send;
+  mtrc_port.on_attr_write = mtrc_p_on_attr_write;
 
   // Listen on UDP 5540 for Matter operational/commissioning datagrams and
   // pump them into the core. (onPacket runs in the async-tcpip task.)

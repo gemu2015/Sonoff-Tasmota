@@ -263,12 +263,24 @@ is ~40% of total risk and effort.
        end-to-end: prover `commission` mode sends an encrypted ArmFailSafe
        InvokeRequest → device replies a decryptable ArmFailSafeResponse.
        Both directions of the secure channel + the IM codec work on-device.
-     - ⏭ **P3b.2 Node Operational Credentials** — AttestationRequest,
-       CSRRequest (generate operational keypair + NOCSR), AddTrustedRoot,
-       AddNOC (store the compact-TLV NOC chain). This needs the operational-
-       cert codec (the last hard piece) + device attestation (test DAC).
-   - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
-     Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
+     - ✅ **P3b OnOff cluster → relay** — 🎉 **RELAY TOGGLED VIA MATTER ON
+       HARDWARE.** OnOff (cluster 0x0006: Off/On/Toggle) maps 1:1 to Tasmota
+       POWER_*; the xdrv port's on_attr_write calls ExecuteCommandPower.
+       Verified on the C6 @ .122 (GPIO8=Relay1): prover does PASE then sends
+       an encrypted OnOff.Toggle InvokeRequest → device flips the relay
+       (OFF→ON→OFF across two invokes), weblog "OnOff -> Power 2", encrypted
+       InvokeResponse returned. `test/pase_prover.py <ip> toggle`.
+     - ⏭ **P3b.2 Node Operational Credentials** (AttestationRequest /
+       CSRRequest / AddNOC) + **CASE** — only needed for full chip-tool /
+       Apple-Google interop (credential layer). The cluster command path is
+       already proven; these establish the *operational* session that would
+       carry it in a standard commission. Operational-cert codec is the last
+       hard piece. CASE crypto already host-validated (mtrc_case).
+
+   **🏁 MILESTONE: Matter command → relay toggle works end-to-end on real
+   hardware** — discovery → SPAKE2+ PASE → encrypted IM → OnOff → relay.
+   The OnOff command currently rides the PASE secure session; in a standard
+   commission it would ride CASE (identical secured-message transport).
 
 ### How to re-run the host self-tests
 ```
