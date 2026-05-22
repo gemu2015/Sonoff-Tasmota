@@ -2455,6 +2455,84 @@ static void HandleHomeKitQR(void) {
 // also forces the reusable matter_c library to link in a TINYC_MATTER build.
 #ifdef USE_MATTER_C
 #include "matter_c.h"
+#include <esp_random.h>
+
+// ---- matter_c host port (Tasmota backing for the firmware-agnostic lib) --
+// For the discovery milestone we provide log / millis / CSPRNG / a minimal
+// kv store + mdns_publish via ESPmDNS. UDP/BLE and a UFS-backed kv come with
+// the PASE-over-UDP + fabric-store milestones.
+extern "C" {
+  static uint32_t mtrc_p_millis(void *ctx) { (void)ctx; return millis(); }
+  static void mtrc_p_log(void *ctx, matter_log_level_t lvl, const char *msg) {
+    (void)ctx;
+    AddLog(lvl == MATTER_LOG_DEBUG ? LOG_LEVEL_DEBUG : LOG_LEVEL_INFO,
+           PSTR("MTR: %s"), msg);
+  }
+  static matter_err_t mtrc_p_random(void *ctx, void *buf, size_t len) {
+    (void)ctx; esp_fill_random(buf, len); return MATTER_OK;   // hardware CSPRNG
+  }
+  // Minimal kv (not-found / no-op) so matter_init's required-port check
+  // passes; replaced by a UFS-backed store at the fabric-store milestone.
+  static matter_err_t mtrc_p_kv_get(void *ctx, const char *k, void *b, size_t *l) {
+    (void)ctx;(void)k;(void)b;(void)l; return MATTER_ERR_STORE; }
+  static matter_err_t mtrc_p_kv_set(void *ctx, const char *k, const void *b, size_t l) {
+    (void)ctx;(void)k;(void)b;(void)l; return MATTER_OK; }
+  static matter_err_t mtrc_p_kv_del(void *ctx, const char *k) {
+    (void)ctx;(void)k; return MATTER_OK; }
+  static matter_err_t mtrc_p_mdns(void *ctx, const char *service, const char *instance,
+                                  uint16_t port, const char *const *txt, size_t n) {
+    (void)ctx; (void)instance;
+    if (!Mdns.begun) return MATTER_ERR_TRANSPORT;     // responder not up yet
+    MDNS.addService(service, "udp", port);            // -> _matterc._udp
+    for (size_t i = 0; i < n; i++) {
+      const char *eq = strchr(txt[i], '=');
+      if (!eq) continue;
+      char key[12]; size_t kl = (size_t)(eq - txt[i]);
+      if (kl >= sizeof(key)) kl = sizeof(key) - 1;
+      memcpy(key, txt[i], kl); key[kl] = 0;
+      MDNS.addServiceTxt(service, "udp", key, eq + 1);
+    }
+    return MATTER_OK;
+  }
+}
+
+static matter_port_t mtrc_port;
+static bool mtrc_inited = false;
+
+// Called from FUNC_EVERY_SECOND once the mDNS responder is up.
+static void MatterC_MaybeStart(void) {
+  if (mtrc_inited) return;
+  // Matter on-network commissioning REQUIRES mDNS; SetOption55 defaults off.
+  // Auto-enable it and bring the responder up so the device is discoverable
+  // out-of-box (no manual SetOption55 needed).
+  if (!Settings->flag3.mdns_enabled) {
+    Settings->flag3.mdns_enabled = 1;
+    StartMdns();          // MDNS.begin(hostname)
+    return;               // let it settle; publish the service next tick
+  }
+  if (!Mdns.begun) { StartMdns(); return; }
+  memset(&mtrc_port, 0, sizeof(mtrc_port));
+  mtrc_port.millis       = mtrc_p_millis;
+  mtrc_port.log          = mtrc_p_log;
+  mtrc_port.random_bytes = mtrc_p_random;
+  mtrc_port.kv_get       = mtrc_p_kv_get;
+  mtrc_port.kv_set       = mtrc_p_kv_set;
+  mtrc_port.kv_del       = mtrc_p_kv_del;
+  mtrc_port.mdns_publish = mtrc_p_mdns;
+
+  matter_config_t cfg;
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.vendor_id     = 0xFFF1;          // Matter test VID
+  cfg.product_id    = 0x8000;
+  cfg.discriminator = 3840;            // 0xF00
+  cfg.passcode      = 20202021;        // standard test passcode
+  cfg.device_name   = TasmotaGlobal.hostname;
+
+  if (matter_init(&mtrc_port, &cfg) == MATTER_OK) {
+    matter_start();                    // publishes _matterc._udp
+  }
+  mtrc_inited = true;                  // one-shot
+}
 
 static void HandleMatterQR(void) {
   const char *uri  = matter_qr_uri();       // "MT:..." once Phase 6 lands
@@ -4430,6 +4508,9 @@ bool Xdrv124(uint32_t function) {
       // to declare the boot a success and clear the marker so future
       // recovery cycles work.
       TinyCCheckBootStable();
+#ifdef USE_MATTER_C
+      MatterC_MaybeStart();   // one-shot: publish _matterc._udp once mDNS is up
+#endif
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
       tc_all_callbacks_id(TC_CB_EVERY_SECOND);

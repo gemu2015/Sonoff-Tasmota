@@ -200,14 +200,16 @@ is ~40% of total risk and effort.
      tampered header(AAD), and wrong key all fail the MIC. `mtrc_frame`
      refactored into header/proto split codecs. Privacy(§4.8) deferred
      (optional). Host test `test/build_sec.sh`.
-   - ⏭ **3c mDNS commissionable advertisement** (`_matterc._udp`) — replaces
-     BLE. **BLE is NOT mandatory for us:** Tasmota is already on Wi-Fi, so we
-     use Matter *on-network (IP) commissioning* — the device advertises over
-     mDNS and PASE runs over UDP. This drops BTP + NimBLE (the most
-     integration-bound piece) from the MVP. chip-tool `pairing onnetwork` and
-     HA matter-server both support it; only the Apple/Google consumer QR flow
-     prefers BLE (a v2 nicety, not a blocker; cert not pursued). See the BLE
-     analysis decision.
+   - ✅ **3c mDNS commissionable advertisement** (`_matterc._udp`) — **LIVE
+     ON THE C6.** `matter_start` publishes the commissionable record via the
+     xdrv port (ESPmDNS); `matter_init`+`matter_start` wired at
+     FUNC_EVERY_SECOND (one-shot, gated on mDNS up). Verified on hardware
+     (.122) with `dns-sd`: `ESP32-C6._matterc._udp.local → :5540`, TXT
+     `D=3840 CM=1 VP=65521+32768`. BLE dropped — Tasmota is already on Wi-Fi
+     so we use on-network (IP) commissioning. Gotchas found+fixed: the fork
+     `#undef USE_DISCOVERY` (re-enabled in the matter gate) and SetOption55
+     (mdns_enabled) defaults OFF (matter firmware now auto-enables it).
+     Flash via `test/flash_c6.sh` (safeboot-aware OTA).
    - ⏳ **3d CASE** (operational session) — IN PROGRESS.
      - ✅ ECDH + deterministic ECDSA (RFC 6979) primitives (`mtrc_crypto`).
      - ✅ **CASE key schedule** (`mtrc_case`): destinationId = HMAC(IPK,...),

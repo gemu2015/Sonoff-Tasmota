@@ -11,6 +11,7 @@
 
 #include "matter_c.h"
 #include <string.h>
+#include <stdio.h>
 
 // ---- module state ------------------------------------------------------
 static struct {
@@ -46,13 +47,42 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   return MATTER_OK;
 }
 
+#define MTRC_COMMISSION_PORT 5540   // Matter operational/commissioning UDP port
+
 matter_err_t matter_start(void) {
   if (!g.inited)   return MATTER_ERR_NOT_INIT;
   if (g.started)   return MATTER_OK;
+
+  // Publish the commissionable node over mDNS (_matterc._udp) so an
+  // on-network commissioner (chip-tool `pairing onnetwork`) can discover us.
+  // TXT keys per Matter Core Spec §4.3.1: D=discriminator, CM=commissioning
+  // mode, VP=vendor+product. (UDP listener + PASE handling come next.)
+  if (g.port.mdns_publish) {
+    static char txt_d[16], txt_cm[8], txt_vp[24];
+    snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)g.cfg.discriminator);
+    snprintf(txt_cm, sizeof(txt_cm), "CM=1");   // 1 = in commissioning mode
+    snprintf(txt_vp, sizeof(txt_vp), "VP=%u+%u", (unsigned)g.cfg.vendor_id,
+             (unsigned)g.cfg.product_id);
+    const char *txt[] = { txt_d, txt_cm, txt_vp };
+
+    // 64-bit commissioning instance name as 16 uppercase hex (Matter spec).
+    uint8_t inst[8] = {0};
+    if (g.port.random_bytes) g.port.random_bytes(g.port.ctx, inst, 8);
+    char instance[17];
+    for (int i = 0; i < 8; i++) snprintf(instance + 2*i, 3, "%02X", inst[i]);
+
+    matter_err_t e = g.port.mdns_publish(g.port.ctx, "matterc", instance,
+                                         MTRC_COMMISSION_PORT, txt, 3);
+    mlog(e == MATTER_OK ? MATTER_LOG_INFO : MATTER_LOG_ERROR,
+         e == MATTER_OK ? "matter_c: commissionable mDNS published (_matterc._udp)"
+                        : "matter_c: mDNS publish failed");
+  } else {
+    mlog(MATTER_LOG_INFO, "matter_c start — no mdns_publish port; not discoverable");
+  }
+
   g.started = true;
-  mlog(MATTER_LOG_INFO, "matter_c start (stub) — commissioning not yet implemented");
-  // TODO Phase 3: begin BLE commissionable advertising + open PASE.
-  return MATTER_ERR_NOT_IMPLEMENTED;
+  // PASE-over-UDP commissioning is the next milestone; discovery is live.
+  return MATTER_OK;
 }
 
 matter_err_t matter_stop(void) {
