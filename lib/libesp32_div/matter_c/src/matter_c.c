@@ -23,6 +23,9 @@
 #include "mtrc_case_msg.h"
 #include "mtrc_cert.h"
 #include "mtrc_csr.h"
+#ifdef MTRC_ATTEST_TEST_CREDS
+#include "mtrc_attest_creds.h"   // generated dev DAC/PAI/CD (gated; never ship)
+#endif
 #include <string.h>
 #include <stdio.h>
 
@@ -639,6 +642,64 @@ static int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
+#ifdef MTRC_ATTEST_TEST_CREDS
+// Build an InvokeResponse carrying a command (resp_cmd) whose CommandFields are
+// one or two byte strings: {0:f0} and (if f1) {1:f1}. Covers CertificateChain
+// Response, AttestationResponse, and similar. Returns length, or -1.
+static int build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+                                uint32_t resp_cmd,
+                                const uint8_t *f0, size_t f0len,
+                                const uint8_t *f1, size_t f1len) {
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // InvokeResponseMessage
+  mtrc_tlv_put_bool(&w, mtrc_tlv_ctx(0), false);
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // InvokeResponses
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          //  InvokeResponseIB
+  mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(0));          //   command CommandDataIB
+  mtrc_tlv_start_list(&w, mtrc_tlv_ctx(0));            //    CommandPath
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), ep);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), cl);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), resp_cmd);
+  mtrc_tlv_end_container(&w);
+  mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //    CommandFields
+  mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(0), f0, f0len);
+  if (f1) mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), f1, f1len);
+  mtrc_tlv_end_container(&w);
+  mtrc_tlv_end_container(&w);                          //   end CommandDataIB
+  mtrc_tlv_end_container(&w);                          //  end InvokeResponseIB
+  mtrc_tlv_end_container(&w);                          // end InvokeResponses
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);
+  mtrc_tlv_end_container(&w);
+  return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
+}
+#endif  // MTRC_ATTEST_TEST_CREDS
+
+// AttestationRequest -> AttestationResponse (cmd 0x01): attestationElements =
+// {1:CD, 2:nonce, 3:timestamp}; attestationSignature = ECDSA(DAC, SHA256(
+// attestationElements || attestationChallenge)). The challenge is the PASE
+// Att key (g.att). DAC/CD come from the gated dev cred set (A2).
+static int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
+                                      uint32_t cl, const uint8_t *nonce, size_t nlen) {
+#ifdef MTRC_ATTEST_TEST_CREDS
+  static uint8_t ae[256];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, ae, sizeof(ae));
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
+  mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), MTRC_CD, (size_t)MTRC_CD_LEN);  // certificationDeclaration
+  mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(2), nonce, nlen);                   // attestationNonce
+  mtrc_tlv_put_uint (&w, mtrc_tlv_ctx(3), 0);                             // timestamp
+  mtrc_tlv_end_container(&w);
+  if (!mtrc_tlv_writer_ok(&w)) return -1;
+  size_t ael = mtrc_tlv_writer_len(&w);
+  static uint8_t hin[256 + 16];
+  memcpy(hin, ae, ael); memcpy(hin + ael, g.att, 16);
+  uint8_t h[32]; mtrc_sha256(hin, ael + 16, h);
+  uint8_t sig[64]; if (!mtrc_ecdsa_sign(sig, h, MTRC_DAC_PRIV)) return -1;
+  return build_cmd_resp_bytes(out, cap, ep, cl, 0x01, ae, ael, sig, 64);
+#else
+  (void)out; (void)cap; (void)ep; (void)cl; (void)nonce; (void)nlen; return -1;
+#endif
+}
+
 // Build a NOCResponse (NOC cluster cmd 0x08): {0:statusCode, 1:fabricIndex,
 // 2:debugText}. statusCode 0 = OK (NodeOperationalCertStatusEnum).
 static int build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
@@ -720,7 +781,23 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
 
   static uint8_t resp[512];
   int n = -1;
-  if (cl == 0x003E && cmd == 0x04) {  // NOC: CSRRequest -> CSRResponse
+  if (cl == 0x003E && cmd == 0x02) {  // CertificateChainRequest -> Response(0x03)
+#ifdef MTRC_ATTEST_TEST_CREDS
+    uint64_t ct = 0;
+    if (inv_field(payload, plen, 0, 0, NULL, NULL, &ct)) {
+      if (ct == 1)
+        n = build_cmd_resp_bytes(resp, sizeof(resp), ep, cl, 0x03, MTRC_DAC_DER, MTRC_DAC_DER_LEN, NULL, 0);
+      else if (ct == 2)
+        n = build_cmd_resp_bytes(resp, sizeof(resp), ep, cl, 0x03, MTRC_PAI_DER, MTRC_PAI_DER_LEN, NULL, 0);
+    }
+    if (n > 0) mlog(MATTER_LOG_INFO, "NOC: CertificateChainResponse sent");
+#endif
+  } else if (cl == 0x003E && cmd == 0x00) {   // AttestationRequest -> Response(0x01)
+    const uint8_t *nonce = NULL; size_t nlen = 0;
+    if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
+      n = build_attestation_response(resp, sizeof(resp), ep, cl, nonce, nlen);
+    if (n > 0) mlog(MATTER_LOG_INFO, "NOC: AttestationResponse sent (DAC-signed)");
+  } else if (cl == 0x003E && cmd == 0x04) {  // NOC: CSRRequest -> CSRResponse
     const uint8_t *nonce = NULL; size_t nlen = 0;
     if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
       n = build_csr_response(resp, sizeof(resp), ep, cl, nonce, nlen);

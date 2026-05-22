@@ -72,9 +72,18 @@ on an operational CASE session.
     from NOC + RCAC TLV. `test/build_cert.sh`.
   - ⏭ **A1b chain-signature verify** — reconstruct the X.509 DER TBS and
     ECDSA-verify NOC←ICAC←RCAC (or relaxed/trust-on-store for first interop).
-- **A2 Device Attestation**: DAC/PAI + Certification Declaration (use the CSA
-  test PAA/PAI/DAC set), `AttestationRequest`/`CertificateChainRequest`
-  signing, attestation nonce/TBS.
+- **A2 Device Attestation** — ✅ DONE (device-verified). `CertificateChain
+  Request` returns the DAC/PAI (DER); `AttestationRequest` returns
+  attestationElements{CD, nonce, timestamp} + an attestationSignature =
+  ECDSA(DAC, SHA256(elements || attestationChallenge=PASE Att key)). Dev
+  creds (self-generated PAA→PAI→DAC chain + CD placeholder) come from
+  `test/gen_attest_creds.py` → gated `mtrc_attest_creds.h` (MTRC_ATTEST_TEST_
+  CREDS; never shipped). Verified: prover gets DAC/PAI, then verifies the
+  DAC-signed attestation + echoed nonce. **For a real chip-tool pairing, swap
+  in the CSA development DAC/PAI/CD set** (handlers unchanged) so chip-tool's
+  test PAA store trusts the chain — or run chip-tool with
+  `--paa-trust-store-path` / `--bypass-attestation-verifier` against the dev
+  chain.
 - **A3 Node Operational Credentials cluster (0x003E)**:
   - ✅ **A3a PKCS#10 CSR builder** (`mtrc_csr`) — host-tested (build_csr.sh).
   - ✅ **A3b CSRRequest handler** — DONE (device-verified on C6). Parses the
