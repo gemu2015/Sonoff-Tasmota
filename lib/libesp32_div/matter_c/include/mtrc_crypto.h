@@ -56,6 +56,16 @@ int  mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
 // (n = P-256 subgroup order). Used to turn point subtraction into muladd.
 void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]);
 
+// Reduce an arbitrary-length big-endian integer modulo the P-256 order n,
+// producing a 32-byte big-endian scalar. Used for SPAKE2+ w0/w1 from the
+// 40-byte PBKDF2 halves.
+void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]);
+
+// PBKDF2-HMAC-SHA256 (RFC 8018). Returns 1 on success.
+int  mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
+                        const uint8_t *salt, size_t salt_len,
+                        uint32_t iterations, uint8_t *out, size_t out_len);
+
 #ifdef __cplusplus
 }
 #endif

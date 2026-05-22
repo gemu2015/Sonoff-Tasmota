@@ -185,16 +185,24 @@ is ~40% of total risk and effort.
 3. ✅ **Phase 1 `mtrc_tlv`** — Matter TLV codec, 14 spec vectors + round-trip.
 4. ✅ **Phase 2 `mtrc_frame` + `mtrc_mrp`** — message/protocol header codec
    + reliability (ack, backoff retransmit, dedup). 18 checks PASS.
-5. ⏭ **NEXT — Phase 3 (the wall)**: commissioning vertical slice — PASE
-   (wire SPAKE2+ into the PBKDFParamReq/Pake1-3 exchange), session key
-   schedule, BTP/BLE transport, CASE, fabric store, then ONE OnOff device.
-   Exit: chip-tool pairs over BLE→WiFi and toggles the relay.
+5. ⏳ **Phase 3 (the wall) — IN PROGRESS**: commissioning vertical slice.
+   - ✅ **3a PASE + key schedule** (`mtrc_pase`): PBKDF2 w0/w1, the Matter
+     SPAKE2+ key schedule (context = SHA256("CHIP PAKE V1 Commissioning"
+     ‖req‖resp), Ka/Ke split, ConfirmationKeys, SessionKeys), and the
+     PBKDFParamReq/Resp + Pake1/2/3 TLV codecs. 24 checks PASS, incl. a
+     full prover↔verifier handshake deriving identical I2R/R2I/Att keys.
+     Matter constants taken verbatim from connectedhomeip.
+   - ⏭ **3b secured frame**: AES-CCM encrypt/decrypt + MIC + privacy on
+     top of `mtrc_frame`, keyed by the PASE session keys.
+   - ⏭ **3c BTP/BLE** transport · **3d CASE** · **3e fabric store** ·
+     **3f OnOff endpoint**. Exit: chip-tool pairs over BLE→WiFi, toggles relay.
 
 ### How to re-run the host self-tests
 ```
-bash lib/libesp32_div/matter_c/test/build_host.sh   # SPAKE2+  -> "PASS — GO"
+bash lib/libesp32_div/matter_c/test/build_host.sh   # SPAKE2+   -> "PASS — GO"
 bash lib/libesp32_div/matter_c/test/build_tlv.sh    # TLV codec -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_msg.sh    # frame+MRP -> "PASS"
+bash lib/libesp32_div/matter_c/test/build_pase.sh   # PASE      -> "PASS"
 ```
 
 ---

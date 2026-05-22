@@ -72,3 +72,56 @@ void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
     neg[i] = (uint8_t)d;
   }
 }
+
+// 32-byte big-endian helpers for the mod-n reduction.
+static int be32_ge(const uint8_t a[32], const uint8_t b[32]) {
+  for (int i = 0; i < 32; i++) if (a[i] != b[i]) return a[i] > b[i];
+  return 1;  // equal counts as >=
+}
+static void be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
+  int borrow = 0;
+  for (int i = 31; i >= 0; i--) {
+    int d = (int)a[i] - (int)P256_N[i] - borrow;
+    if (d < 0) { d += 256; borrow = 1; } else borrow = 0;
+    a[i] = (uint8_t)d;
+  }
+}
+
+void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
+  // Bit-by-bit: acc = (acc << 1 | bit); if it reached >= n, subtract n once.
+  // acc stays < n throughout (value before each subtract is < 2n).
+  uint8_t acc[32] = {0};
+  for (size_t i = 0; i < in_len * 8; i++) {
+    int bit = (in[i >> 3] >> (7 - (i & 7))) & 1;
+    int carry = bit;
+    for (int j = 31; j >= 0; j--) { int v = ((int)acc[j] << 1) | carry; acc[j] = (uint8_t)v; carry = v >> 8; }
+    if (carry) be32_sub_n(acc);                 // 257th bit set -> definitely >= n
+    else if (be32_ge(acc, P256_N)) be32_sub_n(acc);
+  }
+  memcpy(out, acc, 32);
+}
+
+int mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
+                       const uint8_t *salt, size_t salt_len,
+                       uint32_t iterations, uint8_t *out, size_t out_len) {
+  if (salt_len > 64 || iterations == 0) return 0;
+  uint8_t block[64 + 4];
+  uint32_t i = 1; size_t done = 0;
+  while (done < out_len) {
+    memcpy(block, salt, salt_len);
+    block[salt_len + 0] = (uint8_t)(i >> 24); block[salt_len + 1] = (uint8_t)(i >> 16);
+    block[salt_len + 2] = (uint8_t)(i >> 8);  block[salt_len + 3] = (uint8_t)i;
+    uint8_t Uin[32], Uout[32], T[32];
+    mtrc_hmac_sha256(pw, pw_len, block, salt_len + 4, Uin); // U1
+    memcpy(T, Uin, 32);
+    for (uint32_t c = 1; c < iterations; c++) {
+      mtrc_hmac_sha256(pw, pw_len, Uin, 32, Uout);          // U_{c+1} (no aliasing)
+      memcpy(Uin, Uout, 32);
+      for (int j = 0; j < 32; j++) T[j] ^= Uout[j];
+    }
+    size_t take = out_len - done; if (take > 32) take = 32;
+    memcpy(out + done, T, take);
+    done += take; i++;
+  }
+  return 1;
+}
