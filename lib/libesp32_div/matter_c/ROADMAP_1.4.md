@@ -102,10 +102,16 @@ on an operational CASE session.
     (off by default — no creds ship). The prover, extended into a CASE
     initiator, sends Sigma1 and confirms: S2K agreed, TBE2 opened, device
     signature valid → responder authenticated.
-  - ⏭ **Sigma3 → operational session** (A5.2b): decrypt TBEData3, parse the
-    initiator NOC (A1a) + verify its sig, derive I2R/R2I/Att, run an encrypted
-    IM read over the CASE session. Then peer-NOC chain verify (A1b),
-    operational mDNS advert (`_matter._tcp`).
+  - ✅ **Sigma3 → operational session** (A5.2b) — DONE (device-verified on C6).
+    `case_handle_sigma3` decrypts TBEData3, parses the initiator NOC (A1a) for
+    its pubkey, verifies the Sigma3 signature, derives I2R/R2I/Att, sends a
+    success StatusReport. A small TX-context refactor (`tx_use_pase/case`) lets
+    the existing IM handlers answer over either the PASE or the CASE session.
+    Verified: prover drives Sigma1/2/3 → mutual auth → an encrypted IM
+    ReadRequest over the CASE session returns ReportData. **A mutually-
+    authenticated operational session + IM-over-CASE now works on hardware.**
+  - ⏭ Harden: peer-NOC chain verify (A1b, currently relaxed/A1a-pubkey-only),
+    operational mDNS advert (`_matter._tcp`), CASE message-counter persistence.
 - **Exit**: chip-tool pairs and reads Basic Information over CASE.
 
 ### Phase B — Core data model (Read/Write/Subscribe + mandatory clusters)

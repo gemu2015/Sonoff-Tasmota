@@ -66,6 +66,7 @@ static struct {
   uint16_t         case_my_sid;       // our responder/operational session id
   uint8_t          case_shared[32];   // ECDH shared secret
   uint8_t          case_re_priv[32], case_re_pub[65];  // responder ephemeral
+  uint8_t          case_init_eph[65]; // initiator ephemeral pub (from Sigma1)
   uint8_t          case_resp_random[32];
   uint8_t          case_tt[1024];     // transcript: Sigma1[||Sigma2[||Sigma3]]
   size_t           case_tt_len;       // total bytes in case_tt
@@ -354,6 +355,13 @@ static int case_seal(const uint8_t key[16], const uint8_t nonce[13],
   memcpy(out, pt, pt_len);
   return mtrc_aes_ccm_encrypt(key, nonce, 13, NULL, 0, out, pt_len, out + pt_len, 16);
 }
+static int case_open(const uint8_t key[16], const uint8_t nonce[13],
+                     const uint8_t *blob, size_t blob_len, uint8_t *out) {
+  if (blob_len < 16) return 0;
+  size_t ct = blob_len - 16;
+  memcpy(out, blob, ct);
+  return mtrc_aes_ccm_decrypt(key, nonce, 13, NULL, 0, out, ct, blob + ct, 16);
+}
 
 // Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
 // NOC + a signature over TBSData2 with the operational key, send Sigma2.
@@ -373,6 +381,7 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
 
   g.case_fabric_index = f->fabric_index;
   g.case_peer_sid = s1.initiator_session_id;
+  memcpy(g.case_init_eph, s1.initiator_eph_pub, 65);   // needed for Sigma3 verify
   g.port.random_bytes(g.port.ctx, g.case_re_priv, 32);
   if (!mtrc_ec_pub_from_priv(g.case_re_pub, g.case_re_priv)) return;
   g.port.random_bytes(g.port.ctx, g.case_resp_random, 32);
@@ -422,21 +431,94 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   mlog(MATTER_LOG_INFO, "CASE: Sigma2 sent (responder authenticated)");
 }
 
-// Send an encrypted message back to the commissioner on the secured PASE
-// session: R2I key, our session-id assigned to the peer, our secured counter,
+// Sigma3 -> operational session. Decrypt TBEData3, verify the initiator's
+// signature with the public key from its NOC, derive the session keys.
+static void case_handle_sigma3(const uint8_t *pl, size_t pll,
+                               const mtrc_msg_header *mh) {
+  if (g.case_phase != 1) return;
+  mtrc_fabric *f = mtrc_store_by_index(g.case_fabric_index);
+  if (!f) return;
+  mtrc_sigma3 s3;
+  if (!mtrc_sigma3_decode(pl, pll, &s3)) return;
+
+  // h12 = SHA256(Sigma1||Sigma2): case_tt currently holds exactly those two.
+  uint8_t h12[32]; mtrc_sha256(g.case_tt, g.case_tt_len, h12);
+  uint8_t s3k[16];
+  if (!mtrc_case_s3k(g.case_shared, f->ipk, h12, s3k)) return;
+
+  static uint8_t tbe3[512];
+  if (!case_open(s3k, MTRC_CASE_NONCE_SIGMA3, s3.encrypted3, s3.encrypted3_len, tbe3)) {
+    mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE decrypt failed"); return;
+  }
+  mtrc_case_tbe t3;
+  if (!mtrc_case_tbe_decode(tbe3, s3.encrypted3_len - 16, &t3)) return;
+
+  // Verify the initiator's signature over TBSData3 with its NOC public key.
+  // Relaxed for first interop: full cert-chain verify (A1b) is a later step;
+  // here we parse the NOC (A1a) for its pubkey and check the Sigma3 signature.
+  mtrc_cert nc; int verified = 0;
+  if (mtrc_cert_parse(t3.noc, t3.noc_len, &nc) && nc.have_pubkey) {
+    mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
+    tbs.noc = t3.noc; tbs.noc_len = t3.noc_len;
+    memcpy(tbs.sender_pub, g.case_init_eph, 65);   // initiator was sender
+    memcpy(tbs.receiver_pub, g.case_re_pub, 65);
+    static uint8_t tmp[600];
+    int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
+    if (nt > 0) {
+      uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
+      verified = mtrc_ecdsa_verify(t3.signature, ht, nc.pubkey);
+    }
+  }
+  if (!verified) {
+    mlog(MATTER_LOG_ERROR, "CASE: initiator NOC signature INVALID");
+    uint8_t sr[8]; memset(sr, 0, 8); sr[0] = 0x01;   // GeneralCode = Failure
+    pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
+    g.case_phase = 0;
+    return;
+  }
+
+  // Append Sigma3 to the transcript, derive the operational session keys.
+  if (g.case_tt_len + pll <= sizeof(g.case_tt)) {
+    memcpy(g.case_tt + g.case_tt_len, pl, pll); g.case_tt_len += pll;
+  }
+  uint8_t hall[32]; mtrc_sha256(g.case_tt, g.case_tt_len, hall);
+  if (!mtrc_case_session_keys(g.case_shared, f->ipk, hall,
+                              g.case_i2r, g.case_r2i, g.case_att)) return;
+  g.case_secure = true; g.case_phase = 2; g.case_sec_tx_counter = 0;
+
+  uint8_t sr[8]; memset(sr, 0, 8);   // GeneralCode = Success
+  pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
+  mlog(MATTER_LOG_INFO, "CASE: Sigma3 verified -> OPERATIONAL SESSION ESTABLISHED");
+}
+
+// Active secure-session TX context (PASE or CASE), selected before each
+// dispatch / report so secured_send addresses the right session id, response
+// key (R2I) and message counter.
+static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; } g_tx =
+  { NULL, 0, NULL };
+static void tx_use_pase(void) {
+  g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
+}
+static void tx_use_case(void) {
+  g_tx.key = g.case_r2i; g_tx.sid = g.case_peer_sid; g_tx.ctr = &g.case_sec_tx_counter;
+}
+
+// Send an encrypted message on the active secured session (PASE or CASE):
+// the R2I key, our session-id assigned to the peer, our secured counter,
 // acking the inbound message.
 static void secured_send(uint8_t opcode, uint16_t protocol_id,
                          const uint8_t *payload, size_t plen,
                          uint16_t exch, bool has_ack, uint32_t ack_counter) {
+  if (!g_tx.key || !g_tx.ctr) return;
   mtrc_msg_header mh; memset(&mh, 0, sizeof(mh));
-  mh.session_id = g.peer_session_id; mh.session_type = 0;
-  mh.msg_counter = ++g.sec_tx_counter;
+  mh.session_id = g_tx.sid; mh.session_type = 0;
+  mh.msg_counter = ++(*g_tx.ctr);
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
   ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = true; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
   static uint8_t out[1280];
-  int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g.r2i);
+  int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
   if (n > 0 && g.port.udp_send)
     g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
 }
@@ -591,11 +673,11 @@ static void im_handle_subscribe(const uint8_t *payload, size_t plen,
 
 // A message arrived on the established PASE secure session: decrypt with the
 // I2R key, parse the inner protocol header, dispatch the IM.
-static void secured_dispatch(const uint8_t *buf, size_t len) {
+static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_key) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
   static uint8_t pt[1280];
-  if (!mtrc_sec_decode(buf, len, g.i2r, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
+  if (!mtrc_sec_decode(buf, len, rx_key, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
     mlog(MATTER_LOG_ERROR, "secured rx: MIC/decrypt failed");
     return;
   }
@@ -620,9 +702,14 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) return;
 
   if (mh0.session_id != 0) {
-    // Secured session traffic (post-PASE commissioning IM).
-    if (g.pase_secure && mh0.session_id == g.my_session_id)
-      secured_dispatch(buf, len);
+    // Secured session traffic: PASE (commissioning IM) or CASE (operational).
+    if (g.pase_secure && mh0.session_id == g.my_session_id) {
+      tx_use_pase();
+      secured_dispatch(buf, len, g.i2r);
+    } else if (g.case_secure && mh0.session_id == g.case_my_sid) {
+      tx_use_case();
+      secured_dispatch(buf, len, g.case_i2r);
+    }
     return;
   }
 
@@ -637,6 +724,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
     case MTRC_SC_PASE_PAKE1:      pase_handle_pake1(pl, pll, &mh);     break;
     case MTRC_SC_PASE_PAKE3:      pase_handle_pake3(pl, pll, &mh);     break;
     case MTRC_SC_CASE_SIGMA1:     case_handle_sigma1(pl, pll, &mh);    break;
+    case MTRC_SC_CASE_SIGMA3:     case_handle_sigma3(pl, pll, &mh);    break;
     default: break;
   }
 }
@@ -657,8 +745,10 @@ void matter_loop(void) {
       static uint8_t rep[160];
       int n = mtrc_im_build_report_uint(rep, sizeof(rep), g.sub_id,
                                         g.sub_ep, g.sub_cl, g.sub_attr, v);
-      if (n > 0)
+      if (n > 0) {
+        tx_use_pase();   // the subscription was established over PASE
         secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, (size_t)n, g.sub_exch, false, 0);
+      }
     }
   }
 }
