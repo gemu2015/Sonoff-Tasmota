@@ -2448,6 +2448,53 @@ static void HandleHomeKitQR(void) {
 }
 #endif  // USE_HOMEKIT
 
+// ---- Matter pairing page (/mt) — replaces HomeKit when USE_MATTER_C ----
+// HomeKit and Matter are mutually exclusive (see user_config_override.h:
+// TINYC_HOMEKIT vs TINYC_MATTER). They share the same TinyC integration
+// slot, so this is the structural twin of HandleHomeKitQR above. The page
+// also forces the reusable matter_c library to link in a TINYC_MATTER build.
+#ifdef USE_MATTER_C
+#include "matter_c.h"
+
+static void HandleMatterQR(void) {
+  const char *uri  = matter_qr_uri();       // "MT:..." once Phase 6 lands
+  const char *code = matter_manual_code();  // "1234-567-8901"
+
+  WSContentStart_P(PSTR("Matter Pairing"));
+  WSContentSendStyle();
+  if (!uri || !uri[0]) {
+    // Library present but commissioning payload not built yet (stub phase).
+    WSContentSend_P(PSTR("<div style='text-align:center'>"
+      "<h2>Matter</h2><p>matter_c v%s — commissioning not yet implemented.</p>"
+      "</div>"), matter_version());
+    WSContentSpaceButton(BUTTON_MAIN);
+    WSContentEnd();
+    return;
+  }
+
+  // qrcode.js from CDN — the phone viewing this page has internet access.
+  WSContentSend_P(PSTR(
+    "<div style='text-align:center'>"
+    "<h2>Matter Pairing</h2>"
+    "<div id='qr' style='display:inline-block;padding:8px;background:#fff'></div>"
+    "<p style='font-size:24px;font-family:monospace;letter-spacing:4px'><b>%s</b></p>"
+    "<p>Scan with the Apple Home / Google Home / Alexa app</p>"
+    "<p id='uri' style='font-size:10px;color:#888'></p>"
+    "</div>"
+    "<script src='https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'></script>"
+    "<script>"
+    "var u='%s';"
+    "document.getElementById('uri').textContent=u;"
+    "try{new QRCode(document.getElementById('qr'),{text:u,width:200,height:200,"
+    "correctLevel:QRCode.CorrectLevel.M});}catch(e){"
+    "document.getElementById('qr').innerHTML='<p>QR library failed: '+e.message+'</p>';}"
+    "</script>"
+  ), code, uri);
+  WSContentSpaceButton(BUTTON_MAIN);
+  WSContentEnd();
+}
+#endif  // USE_MATTER_C
+
 // ---- Self-hosted IDE (optional -- #define USE_TINYC_IDE) ----
 // Port 80 /ide handler: on ESP32 with port-82 download server up, issues a
 // 302 redirect to port 82 /ide so the actual 150 KB streaming happens in a
@@ -4598,6 +4645,9 @@ bool Xdrv124(uint32_t function) {
 #endif
 #ifdef USE_HOMEKIT
       WebServer_on(PSTR("/hk"), HandleHomeKitQR);
+#endif
+#ifdef USE_MATTER_C
+      WebServer_on(PSTR("/mt"), HandleMatterQR);   // Matter pairing (replaces /hk)
 #endif
 #ifdef USE_DISPLAY
       WebServer_on(PSTR("/tc_display"), HandleTinyCDisplay);
