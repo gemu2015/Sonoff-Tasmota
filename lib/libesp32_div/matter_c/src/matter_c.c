@@ -100,6 +100,69 @@ static void mlog(matter_log_level_t lvl, const char *msg) {
   if (g.port.log) g.port.log(g.port.ctx, lvl, msg);
 }
 
+// ---- onboarding payload (Core Spec §5.1) -------------------------------
+// Verhoeff check digit over the decimal string s (manual pairing code).
+static uint8_t mtrc_verhoeff(const char *s) {
+  static const uint8_t d[10][10] = {
+    {0,1,2,3,4,5,6,7,8,9},{1,2,3,4,0,6,7,8,9,5},{2,3,4,0,1,7,8,9,5,6},
+    {3,4,0,1,2,8,9,5,6,7},{4,0,1,2,3,9,5,6,7,8},{5,9,8,7,6,0,4,3,2,1},
+    {6,5,9,8,7,1,0,4,3,2},{7,6,5,9,8,2,1,0,4,3},{8,7,6,5,9,3,2,1,0,4},
+    {9,8,7,6,5,4,3,2,1,0}};
+  static const uint8_t p[8][10] = {
+    {0,1,2,3,4,5,6,7,8,9},{1,5,7,6,2,8,3,0,9,4},{5,8,0,3,7,9,6,1,4,2},
+    {8,9,1,6,0,4,3,5,2,7},{9,4,5,3,1,2,6,8,7,0},{4,2,8,6,5,7,3,9,0,1},
+    {2,7,9,3,8,0,6,4,1,5},{7,0,4,6,9,1,3,2,5,8}};
+  static const uint8_t inv[10] = {0,4,3,2,1,5,6,7,8,9};
+  int c = 0, len = (int)strlen(s);
+  for (int i = 0; i < len; i++) {
+    int dig = s[len - 1 - i] - '0';
+    c = d[c][p[(i + 1) % 8][dig]];
+  }
+  return inv[c];
+}
+
+// Build the manual pairing code (11 digits) and the "MT:" QR string into g.
+static void mtrc_build_onboarding(void) {
+  uint16_t disc = g.cfg.discriminator & 0x0FFF;
+  uint32_t pass = g.cfg.passcode & 0x07FFFFFF;
+
+  // Manual code (short, no VID/PID): d1 | chunk2(5) | chunk3(4) | Verhoeff.
+  unsigned d1 = (0u << 2) | (unsigned)(disc >> 10);
+  unsigned c2 = ((unsigned)(disc & 0x300) << 6) | (unsigned)(pass & 0x3FFF);
+  unsigned c3 = (unsigned)(pass >> 14);
+  char body[12];
+  snprintf(body, sizeof(body), "%01u%05u%04u", d1, c2, c3);
+  snprintf(g.manual, sizeof(g.manual), "%s%u", body, (unsigned)mtrc_verhoeff(body));
+
+  // QR: bit-pack version(3)=0, VID(16), PID(16), flow(2)=0, discovery(8),
+  // discriminator(12), passcode(27), pad(4) = 88 bits, then Base38 + "MT:".
+  uint8_t buf[11]; memset(buf, 0, sizeof(buf));
+  int pos = 0;
+  #define MTRC_PUTBITS(val, ln) do { \
+      for (int _i = 0; _i < (ln); _i++) { \
+        if ((uint32_t)(val) & (1u << _i)) buf[pos >> 3] |= (1 << (pos & 7)); \
+        pos++; } } while (0)
+  MTRC_PUTBITS(0, 3);
+  MTRC_PUTBITS(g.cfg.vendor_id, 16);
+  MTRC_PUTBITS(g.cfg.product_id, 16);
+  MTRC_PUTBITS(0, 2);                 // commissioning flow = standard
+  MTRC_PUTBITS(0x04, 8);             // discovery capabilities = on-network/IP
+  MTRC_PUTBITS(disc, 12);
+  MTRC_PUTBITS(pass, 27);
+  MTRC_PUTBITS(0, 4);               // padding
+  #undef MTRC_PUTBITS
+  static const char B38[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+  char *o = g.qr; *o++ = 'M'; *o++ = 'T'; *o++ = ':';
+  for (int i = 0; i < 11; i += 3) {
+    int cl = (11 - i >= 3) ? 3 : (11 - i);
+    uint32_t v = 0;
+    for (int j = 0; j < cl; j++) v |= (uint32_t)buf[i + j] << (8 * j);
+    int nch = (cl == 3) ? 5 : (cl == 2) ? 4 : 2;
+    for (int k = 0; k < nch; k++) { *o++ = B38[v % 38]; v /= 38; }
+  }
+  *o = '\0';
+}
+
 // Cluster ids used by the data model.
 #define MTRC_CL_ONOFF       0x0006
 #define MTRC_CL_LEVEL       0x0008
@@ -192,9 +255,8 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   case_seed_test_fabric();
 #endif
 
-  // TODO Phase 6: build real onboarding payload (Base38 + Verhoeff + TLV).
-  g.qr[0] = '\0';
-  g.manual[0] = '\0';
+  // Onboarding payload: QR ("MT:...") + 11-digit manual pairing code.
+  mtrc_build_onboarding();
 
   mlog(MATTER_LOG_INFO, "matter_c init (data model seeded)");
   return MATTER_OK;
