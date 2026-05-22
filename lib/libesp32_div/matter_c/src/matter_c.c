@@ -639,6 +639,73 @@ static int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
+// Build a NOCResponse (NOC cluster cmd 0x08): {0:statusCode, 1:fabricIndex,
+// 2:debugText}. statusCode 0 = OK (NodeOperationalCertStatusEnum).
+static int build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+                              uint8_t status, uint8_t fabric_index) {
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // InvokeResponseMessage
+  mtrc_tlv_put_bool(&w, mtrc_tlv_ctx(0), false);
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // InvokeResponses
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          //  InvokeResponseIB
+  mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(0));          //   command CommandDataIB
+  mtrc_tlv_start_list(&w, mtrc_tlv_ctx(0));            //    CommandPath
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), ep);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), cl);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), 0x08);        //    NOCResponse
+  mtrc_tlv_end_container(&w);
+  mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //    CommandFields
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), status);      //     statusCode
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), fabric_index);//     fabricIndex
+  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(2), "", 0);       //     debugText ""
+  mtrc_tlv_end_container(&w);                          //    end CommandFields
+  mtrc_tlv_end_container(&w);                          //   end CommandDataIB
+  mtrc_tlv_end_container(&w);                          //  end InvokeResponseIB
+  mtrc_tlv_end_container(&w);                          // end InvokeResponses
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);
+  mtrc_tlv_end_container(&w);                          // end message
+  return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
+}
+
+// AddNOC: parse the NOC + IPK + admin args, install the fabric (CSR-generated
+// operational key + the AddTrustedRootCertificate root) into mtrc_store, and
+// build the NOCResponse. NOC chain verify is relaxed for now (A1b).
+static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+                        const uint8_t *payload, size_t plen) {
+  const uint8_t *noc = NULL, *ipk = NULL; size_t noclen = 0, ipklen = 0;
+  uint64_t admin_subj = 0, admin_vid = 0;
+  if (!inv_field(payload, plen, 0, 1, &noc, &noclen, NULL))
+    return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
+  inv_field(payload, plen, 2, 1, &ipk, &ipklen, NULL);
+  inv_field(payload, plen, 3, 0, NULL, NULL, &admin_subj);
+  inv_field(payload, plen, 4, 0, NULL, NULL, &admin_vid);
+
+  mtrc_cert nc;
+  if (!mtrc_cert_parse(noc, noclen, &nc) || !nc.have_pubkey ||
+      !g.have_pending_op || !g.have_pending_root)
+    return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
+
+  mtrc_fabric *f = mtrc_store_alloc();
+  if (!f) return build_noc_response(out, cap, ep, cl, 0x05, 0);   // TableFull
+  f->fabric_id = nc.have_fabric_id ? nc.subject_fabric_id : 0;
+  f->node_id   = nc.have_node_id   ? nc.subject_node_id   : 0;
+  f->admin_vendor_id = (uint16_t)admin_vid;
+  memcpy(f->root_pub, g.pending_root_pub, 65);
+  memset(f->ipk, 0, 16);
+  if (ipk && ipklen <= 16) memcpy(f->ipk, ipk, ipklen);
+  memcpy(f->op_priv, g.pending_op_priv, 32);
+  memcpy(f->op_pub,  g.pending_op_pub, 65);
+  if (noclen <= MTRC_NOC_MAX) { memcpy(f->noc, noc, noclen); f->noc_len = (uint16_t)noclen; }
+  (void)admin_subj;
+
+  char m[96];
+  snprintf(m, sizeof(m), "NOC: fabric installed idx=%u fab=0x%08lX node=0x%08lX",
+           (unsigned)f->fabric_index, (unsigned long)f->fabric_id,
+           (unsigned long)f->node_id);
+  mlog(MATTER_LOG_INFO, m);
+  return build_noc_response(out, cap, ep, cl, 0x00, f->fabric_index);   // OK
+}
+
 // Handle a decrypted IM InvokeRequest. P3b.1 answers the General
 // Commissioning commands ({errorCode, debugText}); anything else gets an
 // UNSUPPORTED_COMMAND status.
@@ -658,6 +725,17 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
       n = build_csr_response(resp, sizeof(resp), ep, cl, nonce, nlen);
     if (n > 0) mlog(MATTER_LOG_INFO, "NOC: CSRResponse sent (operational keypair + CSR)");
+  } else if (cl == 0x003E && cmd == 0x0B) {   // AddTrustedRootCertificate
+    const uint8_t *rc = NULL; size_t rcl = 0; mtrc_cert root;
+    if (inv_field(payload, plen, 0, 1, &rc, &rcl, NULL) &&
+        mtrc_cert_parse(rc, rcl, &root) && root.have_pubkey) {
+      memcpy(g.pending_root_pub, root.pubkey, 65);
+      g.have_pending_root = true;
+      n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
+      mlog(MATTER_LOG_INFO, "NOC: trusted root stored");
+    }
+  } else if (cl == 0x003E && cmd == 0x06) {   // AddNOC -> NOCResponse
+    n = build_addnoc(resp, sizeof(resp), ep, cl, payload, plen);
   } else if (cl == 0x0030) {          // General Commissioning (handled in-core)
     uint32_t rc = 0xFFFFFFFF;
     if      (cmd == 0x00) rc = 0x01;  // ArmFailSafe -> ArmFailSafeResponse

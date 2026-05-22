@@ -83,10 +83,15 @@ on an operational CASE session.
     signature} over the PASE session. Verified: prover sends CSRRequest →
     device returns a valid 189-byte PKCS#10 CSR for its new operational key.
     (attestationSignature uses a placeholder DAC until A2.)
-  - ⏭ **A3c** `AddTrustedRootCertificate` (store RCAC) + `AddNOC` (parse NOC,
-    install the fabric into `mtrc_store` with the CSR-generated operational
-    key, replacing the test fabric) + `NOCResponse`; `UpdateNOC`,
-    `RemoveFabric`. Then CASE runs against the *installed* fabric.
+  - ✅ **A3c** `AddTrustedRootCertificate` + `AddNOC` — DONE (device-verified).
+    AddTrustedRootCertificate parses the RCAC (mtrc_cert) → stores the root
+    pubkey; AddNOC parses the NOC → installs a fabric into `mtrc_store` (root
+    pubkey + fabric/node ids from the NOC + the CSR-generated operational key
+    + the IPK), returns NOCResponse{statusCode, fabricIndex, debugText}.
+    Verified: prover drives PASE → CSRRequest → AddTrustedRootCertificate →
+    AddNOC → NOCResponse statusCode=0, fabricIndex=2 (fabric installed).
+  - ⏭ CASE against the *installed* fabric (end-to-end PASE→commission→CASE);
+    `UpdateNOC`, `RemoveFabric`; persist the fabric table via the port kv.
 - **A4 Fabric store** (`mtrc_store`):
   - ✅ **Fabric table + serializer** — DONE (host-tested). Fixed-capacity
     in-memory table (root pubkey, fabric/node id, IPK, operational keypair,
