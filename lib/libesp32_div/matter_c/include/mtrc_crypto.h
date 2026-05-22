@@ -52,6 +52,17 @@ int  mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
                     const uint8_t *a, size_t a_len,
                     const uint8_t *b, size_t b_len);
 
+// pub = priv * G  (uncompressed public key from a 32-byte private scalar).
+int  mtrc_ec_pub_from_priv(uint8_t pub[65], const uint8_t priv[32]);
+
+// ECDH: shared_x = X-coordinate of (priv * peer_pub). 32-byte output.
+int  mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t priv[32]);
+
+// ECDSA P-256 over a precomputed 32-byte message hash. Signatures are raw
+// r||s (64 bytes). Signing is deterministic (RFC 6979, via BearSSL).
+int  mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]);
+int  mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]);
+
 // neg = (n - s) mod n, for a 32-byte big-endian scalar s < n
 // (n = P-256 subgroup order). Used to turn point subtraction into muladd.
 void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]);

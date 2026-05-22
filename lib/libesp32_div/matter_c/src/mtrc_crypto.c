@@ -63,6 +63,32 @@ int mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
                            a, a_len, b, b_len, MTRC_CURVE);
 }
 
+int mtrc_ec_pub_from_priv(uint8_t pub[65], const uint8_t priv[32]) {
+  return mtrc_ec_mulgen(pub, priv, 32);
+}
+
+int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t priv[32]) {
+  uint8_t pt[65];
+  memcpy(pt, peer_pub, 65);
+  if (!mtrc_ec_mul(pt, priv, 32)) return 0;   // pt = priv * peer_pub
+  memcpy(shared_x, pt + 1, 32);               // X coordinate
+  return 1;
+}
+
+int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]) {
+  br_ec_private_key sk;
+  sk.curve = MTRC_CURVE; sk.x = (unsigned char *)priv; sk.xlen = 32;
+  // Deterministic (RFC 6979): hf drives the internal HMAC-DRBG.
+  size_t n = br_ecdsa_i15_sign_raw(EC(), &br_sha256_vtable, hash, &sk, sig);
+  return n == 64 ? 1 : 0;
+}
+
+int mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]) {
+  br_ec_public_key pk;
+  pk.curve = MTRC_CURVE; pk.q = (unsigned char *)pub; pk.qlen = 65;
+  return br_ecdsa_i15_vrfy_raw(EC(), hash, 32, &pk, sig, 64) ? 1 : 0;
+}
+
 void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
   // neg = n - s  (256-bit big-endian subtract; assumes 0 < s < n)
   int borrow = 0;

@@ -52,7 +52,7 @@ logic.
 | **Crypto** | **BearSSL** — `lib/lib_ssl/bearssl-esp8266` (RAM-tuned, used on ESP32 too) | Hadinger picked it for Matter precisely because **mbedTLS RAM footprint is too heavy on ESP32**. BearSSL `i15`/`m15` P-256 uses **15-bit-limb, stack-only bignums (no malloc)** → bounded, small RAM under WiFi+web+VM heap pressure. Already linked in any TLS build ⇒ **~0 incremental crypto flash**. |
 | **Crypto primitives present** | `ec_p256_m15.c` + `ec_prime_i15.c` (P-256, incl. `br_ec` **`muladd`** = `A·x+B·y`, exactly SPAKE2+'s `X=x·P+w0·M`), `ecdsa_i15_*_raw` (raw ECDSA, Matter uses raw not ASN.1), `aead/` AES-CCM, `hash/` SHA-256, `kdf/` HKDF | All Matter crypto needs are covered by the resident library |
 | **Crypto glue we write** | SPAKE2+ assembly (M/N points, w0/w1 derivation, X/Y/Z/V, transcript TT), CASE session derivation, HKDF labels | From the spec — keeps provenance clean |
-| **Commissioning transport** | BLE via **NimBLE** (already in Tasmota), Matter **BTP** over GATT | No WiFi creds needed pre-commission |
+| **Commissioning transport** | **On-network (IP)** — mDNS `_matterc._udp` + PASE over UDP. **No BLE/BTP** (Tasmota is already on WiFi, so the BLE credential-bootstrap is unnecessary). | Drops the most integration-bound piece; chip-tool `pairing onnetwork` supports it |
 | **Operational transport** | UDP over **lwIP** (IPv6-first, IPv4 fallback) | Standard Matter operational path |
 | **Discovery** | ESP/Tasmota **mDNS** (commissionable `_matterc._udp` + operational `_matter._tcp`) | Reuse existing stack |
 | **Persistence** | Tasmota **UFS** — compact binary fabric/session store | Survives reboot, multi-fabric |
@@ -200,8 +200,19 @@ is ~40% of total risk and effort.
      tampered header(AAD), and wrong key all fail the MIC. `mtrc_frame`
      refactored into header/proto split codecs. Privacy(§4.8) deferred
      (optional). Host test `test/build_sec.sh`.
-   - ⏭ **3c BTP/BLE** transport · **3d CASE** · **3e fabric store** ·
-     **3f OnOff endpoint**. Exit: chip-tool pairs over BLE→WiFi, toggles relay.
+   - ⏭ **3c mDNS commissionable advertisement** (`_matterc._udp`) — replaces
+     BLE. **BLE is NOT mandatory for us:** Tasmota is already on Wi-Fi, so we
+     use Matter *on-network (IP) commissioning* — the device advertises over
+     mDNS and PASE runs over UDP. This drops BTP + NimBLE (the most
+     integration-bound piece) from the MVP. chip-tool `pairing onnetwork` and
+     HA matter-server both support it; only the Apple/Google consumer QR flow
+     prefers BLE (a v2 nicety, not a blocker; cert not pursued). See the BLE
+     analysis decision.
+   - ⏳ **3d CASE** (operational session) — IN PROGRESS. Crypto primitives
+     first: ECDH + deterministic ECDSA (RFC 6979) on P-256, then the
+     Sigma1/2/3 flow + operational-cert (compact-TLV NOC) handling.
+   - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
+     Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 
 ### How to re-run the host self-tests
 ```
