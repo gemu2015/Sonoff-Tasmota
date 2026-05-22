@@ -75,10 +75,18 @@ on an operational CASE session.
 - **A2 Device Attestation**: DAC/PAI + Certification Declaration (use the CSA
   test PAA/PAI/DAC set), `AttestationRequest`/`CertificateChainRequest`
   signing, attestation nonce/TBS.
-- **A3 Node Operational Credentials cluster (0x003E)**: `CSRRequest`
-  (generate operational keypair + NOCSR), `AddTrustedRootCertificate`,
-  `AddNOC` (install fabric: NOC + IPK + admin node), `UpdateNOC`,
-  `RemoveFabric`.
+- **A3 Node Operational Credentials cluster (0x003E)**:
+  - ✅ **A3a PKCS#10 CSR builder** (`mtrc_csr`) — host-tested (build_csr.sh).
+  - ✅ **A3b CSRRequest handler** — DONE (device-verified on C6). Parses the
+    InvokeRequest CommandFields (CSRNonce), generates a fresh operational
+    keypair, builds the CSR, returns CSRResponse{NOCSRElements, attestation
+    signature} over the PASE session. Verified: prover sends CSRRequest →
+    device returns a valid 189-byte PKCS#10 CSR for its new operational key.
+    (attestationSignature uses a placeholder DAC until A2.)
+  - ⏭ **A3c** `AddTrustedRootCertificate` (store RCAC) + `AddNOC` (parse NOC,
+    install the fabric into `mtrc_store` with the CSR-generated operational
+    key, replacing the test fabric) + `NOCResponse`; `UpdateNOC`,
+    `RemoveFabric`. Then CASE runs against the *installed* fabric.
 - **A4 Fabric store** (`mtrc_store`):
   - ✅ **Fabric table + serializer** — DONE (host-tested). Fixed-capacity
     in-memory table (root pubkey, fabric/node id, IPK, operational keypair,
