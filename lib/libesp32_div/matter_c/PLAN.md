@@ -117,7 +117,7 @@ Profiler, Thread radio.
 |---|---|---|
 | **0. Spike ✅ DONE** | `mtrc_crypto` (BearSSL SHA256/HMAC/HKDF + P-256 mul/mulgen/muladd) + `mtrc_spake2p` | ✅ **PASS — GO.** All 11 checks match the RFC 9383 P256 vector (X, Y, Z, V both sides, K_main, K_confirmP/V, cA, cB) on `br_ec_p256_m15`. Host self-test: `test/build_host.sh`. Firmware co-build verified on tinyc32c3-matter (83.9% flash). |
 | **1. TLV ✅ DONE** | `mtrc_tlv` encode/decode (streaming, zero-copy reader) | ✅ PASS. 14 canonical spec encode vectors match; full nested round-trip decode + byte-identical re-encode; fully-qualified tags. Host test `test/build_tlv.sh`; firmware co-build on tinyc32c3-matter. |
-| **2. Frame+MRP+UDP** | Message layer | Unsecured UDP echo with correct counters/acks |
+| **2. Frame+MRP ✅ DONE** | `mtrc_frame` (message+protocol header codec) + `mtrc_mrp` (reliability) | ✅ PASS. Canonical frame bytes + full-header round-trip; MRP reliable-send→ack clears pending, dropped-ack→4 backoff retransmits→timeout, sliding-window dedup. Host test `test/build_msg.sh`. UDP socket glue deferred to firmware port (Phase 6). |
 | **3. Commissioning slice** | PASE, BTP/BLE, CASE, fabric store, **OnOff** | ⭐ **chip-tool pairs over BLE→WiFi and toggles the relay.** The milestone. |
 | **4. IM breadth** | read/write/subscribe (not just invoke) | chip-tool reads attrs + receives subscription reports |
 | **5. Cluster breadth** | Tier B device types | Each commissions + functions in chip-tool |
@@ -183,14 +183,18 @@ is ~40% of total risk and effort.
    verified 11/11 against the RFC 9383 P256 vector (host + firmware co-build).
    Viability confirmed: the hard crypto works on the resident library.
 3. ✅ **Phase 1 `mtrc_tlv`** — Matter TLV codec, 14 spec vectors + round-trip.
-4. ⏭ **NEXT — Phase 2**: `mtrc_frame` (message header) + `mtrc_mrp`
-   (reliability) + `mtrc_udp` glue. Exit: unsecured UDP echo with correct
-   counters/acks.
+4. ✅ **Phase 2 `mtrc_frame` + `mtrc_mrp`** — message/protocol header codec
+   + reliability (ack, backoff retransmit, dedup). 18 checks PASS.
+5. ⏭ **NEXT — Phase 3 (the wall)**: commissioning vertical slice — PASE
+   (wire SPAKE2+ into the PBKDFParamReq/Pake1-3 exchange), session key
+   schedule, BTP/BLE transport, CASE, fabric store, then ONE OnOff device.
+   Exit: chip-tool pairs over BLE→WiFi and toggles the relay.
 
 ### How to re-run the host self-tests
 ```
 bash lib/libesp32_div/matter_c/test/build_host.sh   # SPAKE2+  -> "PASS — GO"
 bash lib/libesp32_div/matter_c/test/build_tlv.sh    # TLV codec -> "PASS"
+bash lib/libesp32_div/matter_c/test/build_msg.sh    # frame+MRP -> "PASS"
 ```
 
 ---
