@@ -36,11 +36,24 @@ extern "C" {
 #define MTRC_IM_INVOKE_REQUEST    0x08
 #define MTRC_IM_INVOKE_RESPONSE   0x09
 
-// Parse the first command path out of an InvokeRequest payload.
-// Returns 1 and fills endpoint/cluster/command, or 0.
+// Parse the first command path out of an InvokeRequest payload (CommandPath
+// list {0:endpoint,1:cluster,2:command}). Returns 1, fills out, or 0.
 int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
                                 uint16_t *endpoint, uint32_t *cluster,
                                 uint32_t *command);
+
+// Parse the first attribute path out of a ReadRequest payload
+// (AttributePathIB list {2:endpoint,3:cluster,4:attribute}; endpoint may be
+// wildcard -> defaults to 0). Returns 1, fills out, or 0.
+int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
+                                  uint16_t *endpoint, uint32_t *cluster,
+                                  uint32_t *attribute);
+
+// Build a ReportDataMessage with a single unsigned-int attribute value
+// (covers bool/enum/u8..u32). Returns length, or -1.
+int mtrc_im_build_report_uint(uint8_t *out, size_t cap,
+                              uint16_t endpoint, uint32_t cluster,
+                              uint32_t attribute, uint64_t value);
 
 // Build an InvokeResponseMessage carrying a single command response whose
 // fields are { 0: status_field0 (u8), 1: "" } — the shape of the General

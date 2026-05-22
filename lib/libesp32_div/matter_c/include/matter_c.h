@@ -92,6 +92,12 @@ typedef struct matter_port {
   //  Host applies it to the relay/light/etc. `tlv` is the raw TLV value.
   void (*on_attr_write)(void *ctx, uint16_t endpoint, uint32_t cluster,
                         uint32_t attr, const uint8_t *tlv, size_t tlv_len);
+
+  // -- application bridge: Matter is READING an attribute. Host returns the
+  //  live value (e.g. the real relay state) via *out + MATTER_OK; return
+  //  non-OK to let the core use its cached/default value. May be NULL.
+  matter_err_t (*on_attr_read)(void *ctx, uint16_t endpoint, uint32_t cluster,
+                               uint32_t attr, uint64_t *out);
 } matter_port_t;
 
 // ---- Device configuration ----------------------------------------------

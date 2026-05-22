@@ -25,6 +25,50 @@ int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
   return 0;
 }
 
+int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
+                                  uint16_t *endpoint, uint32_t *cluster,
+                                  uint32_t *attribute) {
+  // AttributePathIB is the only list in a ReadRequest: {2:ep,3:cluster,4:attr}.
+  mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, buf, len);
+  mtrc_tlv_elem e;
+  while (mtrc_tlv_read(&r, &e)) {
+    if (e.type != MTRC_TLV_LIST) continue;
+    uint16_t ep = 0; uint32_t cl = 0, at = 0; int have = 0;
+    mtrc_tlv_elem ie;
+    while (mtrc_tlv_read(&r, &ie) && ie.type != MTRC_TLV_END) {
+      if (ie.tag.ctrl != MTRC_TLV_TAG_CONTEXT) continue;
+      if      (ie.tag.number == 2) { ep = (uint16_t)ie.u; }
+      else if (ie.tag.number == 3) { cl = (uint32_t)ie.u; have |= 1; }
+      else if (ie.tag.number == 4) { at = (uint32_t)ie.u; have |= 2; }
+    }
+    if (have == 3) { *endpoint = ep; *cluster = cl; *attribute = at; return 1; }
+  }
+  return 0;
+}
+
+int mtrc_im_build_report_uint(uint8_t *out, size_t cap,
+                              uint16_t endpoint, uint32_t cluster,
+                              uint32_t attribute, uint64_t value) {
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          //  AttributeReportIB
+  mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //   AttributeDataIB
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), 1);           //    DataVersion
+  mtrc_tlv_start_list(&w, mtrc_tlv_ctx(1));            //    AttributePathIB
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), endpoint);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(3), cluster);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(4), attribute);
+  mtrc_tlv_end_container(&w);                          //    end path
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), value);       //    Data (value)
+  mtrc_tlv_end_container(&w);                          //   end AttributeDataIB
+  mtrc_tlv_end_container(&w);                          //  end AttributeReportIB
+  mtrc_tlv_end_container(&w);                          // end AttributeReports
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);        // interactionModelRevision
+  mtrc_tlv_end_container(&w);                          // end message
+  return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
+}
+
 int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
                                   uint16_t endpoint, uint32_t cluster,
                                   uint32_t resp_command, uint8_t field0) {

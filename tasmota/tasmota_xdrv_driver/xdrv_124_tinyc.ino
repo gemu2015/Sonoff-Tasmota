@@ -2522,6 +2522,18 @@ extern "C" {
       ExecuteCommandPower(1, tlv[0], SRC_BUTTON);   // 0=off 1=on 2=toggle
     }
   }
+  // Matter reads an attribute -> return the live device value. OnOff (0x0006
+  // attr 0) reflects the real relay state (Power1).
+  static matter_err_t mtrc_p_on_attr_read(void *ctx, uint16_t endpoint,
+                                          uint32_t cluster, uint32_t attr,
+                                          uint64_t *out) {
+    (void)ctx; (void)endpoint;
+    if (cluster == 0x0006 && attr == 0x0000) {
+      *out = bitRead(TasmotaGlobal.power, 0) ? 1 : 0;
+      return MATTER_OK;
+    }
+    return MATTER_ERR_NOT_IMPLEMENTED;
+  }
 }
 
 static matter_port_t mtrc_port;
@@ -2549,6 +2561,7 @@ static void MatterC_MaybeStart(void) {
   mtrc_port.mdns_publish = mtrc_p_mdns;
   mtrc_port.udp_send     = mtrc_p_udp_send;
   mtrc_port.on_attr_write = mtrc_p_on_attr_write;
+  mtrc_port.on_attr_read  = mtrc_p_on_attr_read;
 
   // Listen on UDP 5540 for Matter operational/commissioning datagrams and
   // pump them into the core. (onPacket runs in the async-tcpip task.)

@@ -292,6 +292,35 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
   }
 }
 
+// Handle a decrypted IM ReadRequest: report the requested attribute. P3/B1
+// supports OnOff (0x0006/0x0000 -> relay state) and a couple of Basic
+// Information attrs; everything else reports 0.
+static void im_handle_read(const uint8_t *payload, size_t plen,
+                           uint16_t exch, uint32_t ack) {
+  uint16_t ep; uint32_t cl, attr;
+  if (!mtrc_im_parse_first_attribute(payload, plen, &ep, &cl, &attr)) return;
+  char m[80];
+  snprintf(m, sizeof(m), "IM Read ep=%u cluster=0x%04X attr=0x%04X",
+           (unsigned)ep, (unsigned)cl, (unsigned)attr);
+  mlog(MATTER_LOG_INFO, m);
+
+  uint64_t val = 0;
+  // Prefer the host's live value (e.g. real relay state); fall back to cache.
+  if (!(g.port.on_attr_read &&
+        g.port.on_attr_read(g.port.ctx, ep, cl, attr, &val) == MATTER_OK)) {
+    if      (cl == 0x0006 && attr == 0x0000) val = g.onoff ? 1 : 0;   // OnOff
+    else if (cl == 0x0028 && attr == 0x0002) val = g.cfg.vendor_id;    // BasicInfo VendorID
+    else if (cl == 0x0028 && attr == 0x0004) val = g.cfg.product_id;   // BasicInfo ProductID
+  }
+
+  static uint8_t resp[160];
+  int n = mtrc_im_build_report_uint(resp, sizeof(resp), ep, cl, attr, val);
+  if (n > 0) {
+    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp, (size_t)n, exch, ack);
+    mlog(MATTER_LOG_INFO, "IM ReportData sent");
+  }
+}
+
 // A message arrived on the established PASE secure session: decrypt with the
 // I2R key, parse the inner protocol header, dispatch the IM.
 static void secured_dispatch(const uint8_t *buf, size_t len) {
@@ -304,6 +333,8 @@ static void secured_dispatch(const uint8_t *buf, size_t len) {
   }
   if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_INVOKE_REQUEST) {
     im_handle_invoke(ipl, ipll, ph.exchange_id, mh.msg_counter);
+  } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_READ_REQUEST) {
+    im_handle_read(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else {
     char m[80];
     snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",

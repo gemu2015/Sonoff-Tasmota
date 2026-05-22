@@ -117,7 +117,7 @@ print("==> PASE handshake %s" % ("PASS — session established" if ok else "FAIL
 
 # ---- 4) IM over the secured session: invoke a command ----
 mode = sys.argv[2] if len(sys.argv) > 2 else ""
-if ok and mode in ("secured", "commission", "toggle"):
+if ok and mode in ("secured", "commission", "toggle", "read"):
     from cryptography.hazmat.primitives.ciphers.aead import AESCCM
     rsid = struct.unpack('<H', resp_payload[ resp_payload.find(b'\x25\x03')+2 :
                                              resp_payload.find(b'\x25\x03')+4 ])[0]
@@ -130,22 +130,24 @@ if ok and mode in ("secured", "commission", "toggle"):
     def u8(t,v):  return bytes([0x24,t,v&0xff])
     def b0(t):    return bytes([0x28,t])      # bool false
 
-    if mode == "toggle":
-        # OnOff.Toggle (cluster 0x0006 cmd 0x02), no fields
-        path  = bytes([0x37,0x00]) + u16(0,0) + u32(1,0x06) + u32(2,0x02) + b'\x18'
-        cdata = b'\x15' + path + b'\x18'
-        label = "OnOff.Toggle"
+    if mode == "read":
+        # ReadRequest: AttributeRequests[ AttributePathIB{2:ep,3:cluster,4:attr} ]
+        apath = bytes([0x37,0x00]) + u16(2,0) + u32(3,0x06) + u32(4,0x00) + b'\x18'  # OnOff attr
+        msg   = b'\x15' + bytes([0x36,0x00]) + apath + b'\x18' + b0(3) + u8(0xFF,1) + b'\x18'
+        im_op = 0x02; label = "ReadRequest(OnOff)"
+    elif mode == "toggle":
+        path  = bytes([0x37,0x00]) + u16(0,0) + u32(1,0x06) + u32(2,0x02) + b'\x18'   # OnOff.Toggle
+        msg   = b'\x15' + b0(0) + b0(1) + bytes([0x36,0x02]) + (b'\x15'+path+b'\x18') + b'\x18' + u8(0xFF,1) + b'\x18'
+        im_op = 0x08; label = "OnOff.Toggle"
     else:
-        # ArmFailSafe (cluster 0x30 cmd 0x00) with fields
-        path  = bytes([0x37,0x00]) + u16(0,0) + u32(1,0x30) + u32(2,0x00) + b'\x18'
+        path  = bytes([0x37,0x00]) + u16(0,0) + u32(1,0x30) + u32(2,0x00) + b'\x18'   # ArmFailSafe
         flds  = bytes([0x35,0x01]) + u16(0,60) + u64(1,0) + b'\x18'
         cdata = b'\x15' + path + flds + b'\x18'
-        label = "ArmFailSafe"
-    inv = bytes([0x36,0x02]) + cdata + b'\x18'
-    msg = b'\x15' + b0(0) + b0(1) + inv + u8(0xFF,1) + b'\x18'
+        msg   = b'\x15' + b0(0) + b0(1) + bytes([0x36,0x02]) + cdata + b'\x18' + u8(0xFF,1) + b'\x18'
+        im_op = 0x08; label = "ArmFailSafe"
 
     sctr = 1
-    proto = bytes([0x05, 0x08]) + struct.pack('<H',2) + struct.pack('<H',0x0001)  # IM InvokeReq exch2
+    proto = bytes([0x05, im_op]) + struct.pack('<H',2) + struct.pack('<H',0x0001)  # IM, exch2
     mhdr  = b'\x00' + struct.pack('<H', rsid) + b'\x00' + struct.pack('<I', sctr)
     nonce = b'\x00' + struct.pack('<I', sctr) + struct.pack('<Q', 0)
     ct = AESCCM(I2R, tag_length=16).encrypt(nonce, proto+msg, mhdr)
@@ -156,10 +158,19 @@ if ok and mode in ("secured", "commission", "toggle"):
         sf = r[3]; dctr2 = struct.unpack('<I', r[4:8])[0]
         non = bytes([sf]) + struct.pack('<I',dctr2) + struct.pack('<Q',0)
         pt = AESCCM(R2I, tag_length=16).decrypt(non, r[8:], r[0:8])
-        op = pt[1]
-        print("   decrypted InvokeResponse op=0x%02X (%s)" %
-              (op, "OK" if op==0x09 else "unexpected"))
-        print("\n==> IM %s %s" % (label, "PASS" if op==0x09 else "FAILED"))
+        xf = pt[0]; op = pt[1]; o = 6
+        if xf & 0x10: o += 2
+        if xf & 0x02: o += 4
+        body = pt[o:]
+        if mode == "read":
+            onoff = 1 if (b'\x24\x02\x01' in body) else 0   # Data ctx2 uint
+            print("   ReportData op=0x%02X  OnOff=%d" % (op, onoff))
+            print("\n==> IM Read %s (OnOff=%d)" %
+                  ("PASS" if op==0x05 else "FAILED", onoff))
+        else:
+            print("   decrypted InvokeResponse op=0x%02X (%s)" %
+                  (op, "OK" if op==0x09 else "unexpected"))
+            print("\n==> IM %s %s" % (label, "PASS" if op==0x09 else "FAILED"))
     except socket.timeout:
         print("   NO RESPONSE (timeout)")
 s.close()

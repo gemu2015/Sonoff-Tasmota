@@ -89,8 +89,11 @@ on an operational CASE session.
 
 ### Phase B — Core data model (Read/Write/Subscribe + mandatory clusters)
 Goal: controllers can browse + monitor the node like a real Matter device.
-- **B1 Attribute store + IM Read** (`ReadRequest`/`ReportData`), wildcard
-  attribute paths, DataVersion.
+- **B1 IM Read** (`ReadRequest`/`ReportData`) — ✅ STARTED, live on C6. Parses
+  AttributePathIB, reports the value via the new `on_attr_read` port (OnOff
+  0x0006/0 returns the **live relay state**; BasicInfo VID/PID). Verified:
+  set relay ON/OFF (Tasmota) -> Matter Read reports OnOff=1/0. Remaining:
+  multi-attribute reports, wildcard paths, a real attribute registry.
 - **B2 IM Write** (`WriteRequest`/`WriteResponse`).
 - **B3 Subscriptions** — the report engine: min/max interval, change
   reporting, `SubscribeRequest`/`SubscribeResponse`/periodic `ReportData`,
