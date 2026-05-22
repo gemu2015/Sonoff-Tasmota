@@ -2456,11 +2456,20 @@ static void HandleHomeKitQR(void) {
 #ifdef USE_MATTER_C
 #include "matter_c.h"
 #include <esp_random.h>
+#include <AsyncUDP.h>
+
+// Matter operational/commissioning UDP socket (port 5540). Inbound packets
+// are pumped into matter_udp_rx; the responder replies to the last peer.
+#define MTRC_COMMISSION_PORT_HOST 5540    // Matter operational/commissioning UDP port
+static AsyncUDP mtrc_udp;
+static IPAddress mtrc_peer_ip;
+static uint16_t  mtrc_peer_port = 0;
+static bool      mtrc_udp_listening = false;
 
 // ---- matter_c host port (Tasmota backing for the firmware-agnostic lib) --
-// For the discovery milestone we provide log / millis / CSPRNG / a minimal
-// kv store + mdns_publish via ESPmDNS. UDP/BLE and a UFS-backed kv come with
-// the PASE-over-UDP + fabric-store milestones.
+// For the discovery + PASE-rx milestone we provide log / millis / CSPRNG /
+// a minimal kv store + mdns_publish (ESPmDNS) + udp_send (AsyncUDP). A
+// UFS-backed kv comes with the fabric-store milestone.
 extern "C" {
   static uint32_t mtrc_p_millis(void *ctx) { (void)ctx; return millis(); }
   static void mtrc_p_log(void *ctx, matter_log_level_t lvl, const char *msg) {
@@ -2494,6 +2503,15 @@ extern "C" {
     }
     return MATTER_OK;
   }
+  // Reply to the last peer that sent us a datagram (PASE/CASE is a single
+  // exchange at a time). ip6/port from the core are ignored for now.
+  static matter_err_t mtrc_p_udp_send(void *ctx, const uint8_t ip6[16],
+                                      uint16_t port, const void *buf, size_t len) {
+    (void)ctx; (void)ip6; (void)port;
+    if (!mtrc_peer_port) return MATTER_ERR_TRANSPORT;
+    mtrc_udp.writeTo((const uint8_t *)buf, len, mtrc_peer_ip, mtrc_peer_port);
+    return MATTER_OK;
+  }
 }
 
 static matter_port_t mtrc_port;
@@ -2519,6 +2537,20 @@ static void MatterC_MaybeStart(void) {
   mtrc_port.kv_set       = mtrc_p_kv_set;
   mtrc_port.kv_del       = mtrc_p_kv_del;
   mtrc_port.mdns_publish = mtrc_p_mdns;
+  mtrc_port.udp_send     = mtrc_p_udp_send;
+
+  // Listen on UDP 5540 for Matter operational/commissioning datagrams and
+  // pump them into the core. (onPacket runs in the async-tcpip task.)
+  if (!mtrc_udp_listening && mtrc_udp.listen(MTRC_COMMISSION_PORT_HOST)) {
+    mtrc_udp_listening = true;
+    mtrc_udp.onPacket([](AsyncUDPPacket p) {
+      mtrc_peer_ip   = p.remoteIP();
+      mtrc_peer_port = p.remotePort();
+      uint8_t ip6[16] = {0};
+      matter_udp_rx(ip6, p.remotePort(), p.data(), p.length());
+    });
+    AddLog(LOG_LEVEL_INFO, PSTR("MTR: listening on UDP %u"), MTRC_COMMISSION_PORT_HOST);
+  }
 
   matter_config_t cfg;
   memset(&cfg, 0, sizeof(cfg));

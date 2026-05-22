@@ -10,6 +10,7 @@
 // GPLv3. Inspired by Tasmota Berry Matter; implemented from the CSA spec.
 
 #include "matter_c.h"
+#include "mtrc_frame.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -107,8 +108,27 @@ void matter_loop(void) {
 // ---- inbound transport pumps ------------------------------------------
 void matter_udp_rx(const uint8_t src_ip6[16], uint16_t src_port,
                    const void *buf, size_t len) {
-  (void)src_ip6; (void)src_port; (void)buf; (void)len;
-  // TODO Phase 2/3: frame parse -> session decrypt -> IM dispatch.
+  (void)src_ip6;
+  if (!g.inited) return;
+
+  // Decode the (unsecured-session) message + protocol header and log it.
+  // PASE starts on the unsecured session (id 0) in plaintext, so the frame
+  // decoder applies directly. Dispatch to the PASE responder is the next step.
+  mtrc_msg_header mh; mtrc_proto_header ph;
+  const uint8_t *pl; size_t pll;
+  char m[112];
+  if (mtrc_frame_decode((const uint8_t *)buf, len, &mh, &ph, &pl, &pll) > 0) {
+    snprintf(m, sizeof(m),
+             "rx %u B from :%u  sess=%u proto=0x%04X op=0x%02X exch=%u R=%d pl=%u",
+             (unsigned)len, (unsigned)src_port, (unsigned)mh.session_id,
+             (unsigned)ph.protocol_id, (unsigned)ph.opcode,
+             (unsigned)ph.exchange_id, ph.reliability ? 1 : 0, (unsigned)pll);
+  } else {
+    snprintf(m, sizeof(m), "rx %u B from :%u  (frame decode failed)",
+             (unsigned)len, (unsigned)src_port);
+  }
+  mlog(MATTER_LOG_INFO, m);
+  // TODO P2: dispatch unsecured Secure Channel msgs to the PASE responder.
 }
 
 void matter_ble_rx(const void *buf, size_t len) {

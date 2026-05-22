@@ -224,6 +224,15 @@ is ~40% of total risk and effort.
        octet strings). Host test `test/build_case_msg.sh`.
      - ⏭ operational-cert (compact-TLV NOC) parse + chain verify — needs
        real chip-tool-generated certs, so it comes with live integration.
+   - ⏳ **PASE over UDP:5540** — IN PROGRESS.
+     - ✅ **P1 receive path** — LIVE ON C6. AsyncUDP listener on 5540 →
+       `matter_udp_rx` → frame decode + log. Verified on hardware: a probe
+       PBKDFParamRequest logged `rx 16B sess=0 proto=0x0000 op=0x20 exch=1
+       R=1`. `udp_send` (reply to last peer) wired for P2.
+     - ⏭ **P2 PASE responder** — dispatch unsecured Secure Channel msgs to a
+       state machine: PBKDFParamReq→Resp, Pake1→Pake2, Pake3→StatusReport,
+       MRP acks, establish the PASE secure session. (Uses the host-tested
+       mtrc_pase + mtrc_sec + mtrc_mrp.)
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 
