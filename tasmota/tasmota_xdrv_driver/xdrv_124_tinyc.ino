@@ -2545,10 +2545,14 @@ extern "C" {
     MDNS.addService(service, "udp", port);            // -> _matterc._udp
     char stype0[20]; snprintf(stype0, sizeof(stype0), "_%s", service);   // "_matterc"
     // Matter REQUIRES a 16-hex commissioning instance name (Core Spec §4.3.1);
-    // ESPmDNS defaults it to the hostname, which Apple Home rejects. The core
-    // passes a proper 16-hex `instance` — rename the service to use it.
-    if (instance && instance[0])
-      mdns_service_instance_name_set(stype0, "_udp", instance);
+    // ESPmDNS defaults it to the hostname, which Apple Home rejects. Use a
+    // STABLE id derived from the chip MAC (not the core's per-boot random one)
+    // so reboots reuse the same instance and never seed new mDNS phantoms in
+    // controllers' caches.
+    (void)instance;
+    char inst16[17];
+    snprintf(inst16, sizeof(inst16), "%016llX", (unsigned long long)ESP.getEfuseMac());
+    mdns_service_instance_name_set(stype0, "_udp", inst16);
     uint16_t disc = 0;
     for (size_t i = 0; i < n; i++) {
       const char *eq = strchr(txt[i], '=');
