@@ -101,6 +101,39 @@ void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
   memcpy(out, acc, 32);
 }
 
+int mtrc_aes_ccm_encrypt(const uint8_t key[16],
+                         const uint8_t *nonce, size_t nonce_len,
+                         const uint8_t *aad, size_t aad_len,
+                         uint8_t *data, size_t data_len,
+                         uint8_t *tag, size_t tag_len) {
+  br_aes_ct_ctrcbc_keys bc;
+  br_aes_ct_ctrcbc_init(&bc, key, 16);
+  br_ccm_context ctx;
+  br_ccm_init(&ctx, &bc.vtable);
+  if (!br_ccm_reset(&ctx, nonce, nonce_len, aad_len, data_len, tag_len)) return 0;
+  if (aad_len) br_ccm_aad_inject(&ctx, aad, aad_len);
+  br_ccm_flip(&ctx);
+  if (data_len) br_ccm_run(&ctx, 1, data, data_len);
+  br_ccm_get_tag(&ctx, tag);
+  return 1;
+}
+
+int mtrc_aes_ccm_decrypt(const uint8_t key[16],
+                         const uint8_t *nonce, size_t nonce_len,
+                         const uint8_t *aad, size_t aad_len,
+                         uint8_t *data, size_t data_len,
+                         const uint8_t *tag, size_t tag_len) {
+  br_aes_ct_ctrcbc_keys bc;
+  br_aes_ct_ctrcbc_init(&bc, key, 16);
+  br_ccm_context ctx;
+  br_ccm_init(&ctx, &bc.vtable);
+  if (!br_ccm_reset(&ctx, nonce, nonce_len, aad_len, data_len, tag_len)) return 0;
+  if (aad_len) br_ccm_aad_inject(&ctx, aad, aad_len);
+  br_ccm_flip(&ctx);
+  if (data_len) br_ccm_run(&ctx, 0, data, data_len);
+  return br_ccm_check_tag(&ctx, tag) ? 1 : 0;
+}
+
 int mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
                        const uint8_t *salt, size_t salt_len,
                        uint32_t iterations, uint8_t *out, size_t out_len) {

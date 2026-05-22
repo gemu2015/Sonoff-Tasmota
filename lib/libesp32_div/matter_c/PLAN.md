@@ -192,8 +192,14 @@ is ~40% of total risk and effort.
      PBKDFParamReq/Resp + Pake1/2/3 TLV codecs. 24 checks PASS, incl. a
      full prover↔verifier handshake deriving identical I2R/R2I/Att keys.
      Matter constants taken verbatim from connectedhomeip.
-   - ⏭ **3b secured frame**: AES-CCM encrypt/decrypt + MIC + privacy on
-     top of `mtrc_frame`, keyed by the PASE session keys.
+   - ✅ **3b secured frame** (`mtrc_sec` + `mtrc_crypto` AES-CCM): AES-128-CCM
+     encrypt/decrypt with the message header as AAD, 13-byte Matter nonce
+     (secflags‖ctr‖srcnode), 16-byte MIC, keyed by the PASE session keys.
+     16 checks PASS — CCM matches a Python AESCCM reference byte-exact;
+     secured round-trip recovers header/proto/payload; tampered ciphertext,
+     tampered header(AAD), and wrong key all fail the MIC. `mtrc_frame`
+     refactored into header/proto split codecs. Privacy(§4.8) deferred
+     (optional). Host test `test/build_sec.sh`.
    - ⏭ **3c BTP/BLE** transport · **3d CASE** · **3e fabric store** ·
      **3f OnOff endpoint**. Exit: chip-tool pairs over BLE→WiFi, toggles relay.
 
@@ -203,6 +209,7 @@ bash lib/libesp32_div/matter_c/test/build_host.sh   # SPAKE2+   -> "PASS — GO"
 bash lib/libesp32_div/matter_c/test/build_tlv.sh    # TLV codec -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_msg.sh    # frame+MRP -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_pase.sh   # PASE      -> "PASS"
+bash lib/libesp32_div/matter_c/test/build_sec.sh    # AES-CCM   -> "PASS"
 ```
 
 ---

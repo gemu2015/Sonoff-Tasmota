@@ -27,29 +27,32 @@ static void wb_raw(wbuf *w, const uint8_t *d, size_t n){
   if(w->err||w->len+n>w->cap){w->err=1;return;} if(n){memcpy(w->p+w->len,d,n); w->len+=n;}
 }
 
-int mtrc_frame_encode(uint8_t *out, size_t cap,
-                      const mtrc_msg_header *mh, const mtrc_proto_header *ph,
-                      const uint8_t *payload, size_t payload_len) {
-  if (!out || !mh || !ph) return -1;
-  wbuf w = { out, cap, 0, 0 };
+uint8_t mtrc_frame_security_flags(const mtrc_msg_header *mh) {
+  uint8_t sf = (uint8_t)(mh->session_type & SF_STYPE_MASK);
+  if (mh->control) sf |= SF_C;
+  return sf;
+}
 
-  // --- message header ---
+int mtrc_frame_encode_msg_header(uint8_t *out, size_t cap, const mtrc_msg_header *mh) {
+  if (!out || !mh) return -1;
+  wbuf w = { out, cap, 0, 0 };
   uint8_t mf = (uint8_t)((mh->version & 0x07) << MF_VER_SHIFT);
   if (mh->has_src) mf |= MF_S_FLAG;
   mf |= (uint8_t)(mh->dsiz & MF_DSIZ_MASK);
   wb_u8(&w, mf);
   wb_le(&w, mh->session_id, 2);
-
-  uint8_t sf = (uint8_t)(mh->session_type & SF_STYPE_MASK);
-  if (mh->control) sf |= SF_C;
-  wb_u8(&w, sf);
+  wb_u8(&w, mtrc_frame_security_flags(mh));
   wb_le(&w, mh->msg_counter, 4);
-
-  if (mh->has_src)               wb_le(&w, mh->src_node_id, 8);
-  if (mh->dsiz == MTRC_DSIZ_NODE)  wb_le(&w, mh->dest_node_id, 8);
+  if (mh->has_src)                      wb_le(&w, mh->src_node_id, 8);
+  if (mh->dsiz == MTRC_DSIZ_NODE)       wb_le(&w, mh->dest_node_id, 8);
   else if (mh->dsiz == MTRC_DSIZ_GROUP) wb_le(&w, mh->dest_group_id, 2);
+  return w.err ? -1 : (int)w.len;
+}
 
-  // --- protocol header ---
+int mtrc_frame_encode_proto(uint8_t *out, size_t cap, const mtrc_proto_header *ph,
+                            const uint8_t *payload, size_t payload_len) {
+  if (!out || !ph) return -1;
+  wbuf w = { out, cap, 0, 0 };
   uint8_t xf = 0;
   if (ph->initiator)   xf |= XF_I;
   if (ph->ack)         xf |= XF_A;
@@ -61,11 +64,18 @@ int mtrc_frame_encode(uint8_t *out, size_t cap,
   wb_le(&w, ph->protocol_id, 2);
   if (ph->has_vendor) wb_le(&w, ph->vendor_id, 2);
   if (ph->ack)        wb_le(&w, ph->ack_counter, 4);
-
-  // --- payload ---
   if (payload_len) wb_raw(&w, payload, payload_len);
-
   return w.err ? -1 : (int)w.len;
+}
+
+int mtrc_frame_encode(uint8_t *out, size_t cap,
+                      const mtrc_msg_header *mh, const mtrc_proto_header *ph,
+                      const uint8_t *payload, size_t payload_len) {
+  int hn = mtrc_frame_encode_msg_header(out, cap, mh);
+  if (hn < 0) return -1;
+  int pn = mtrc_frame_encode_proto(out + hn, cap - (size_t)hn, ph, payload, payload_len);
+  if (pn < 0) return -1;
+  return hn + pn;
 }
 
 typedef struct { const uint8_t *p; size_t len, off; int err; } rbuf;
@@ -76,19 +86,15 @@ static uint64_t rb_le(rbuf *r, int n){
   uint64_t v=0; for(int i=0;i<n;i++) v|=(uint64_t)r->p[r->off+i]<<(8*i); r->off+=n; return v;
 }
 
-int mtrc_frame_decode(const uint8_t *buf, size_t len,
-                      mtrc_msg_header *mh, mtrc_proto_header *ph,
-                      const uint8_t **payload, size_t *payload_len) {
-  if (!buf || !mh || !ph) return -1;
+int mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtrc_msg_header *mh) {
+  if (!buf || !mh) return -1;
   rbuf r = { buf, len, 0, 0 };
   memset(mh, 0, sizeof(*mh));
-  memset(ph, 0, sizeof(*ph));
-
   uint8_t mf = rb_u8(&r);
   mh->version  = (uint8_t)((mf >> MF_VER_SHIFT) & 0x07);
   mh->has_src  = (mf & MF_S_FLAG) != 0;
   mh->dsiz     = (mtrc_dsiz)(mf & MF_DSIZ_MASK);
-  if (mh->dsiz == 3) { return -1; }                 // reserved
+  if (mh->dsiz == 3) return -1;                      // reserved
   mh->session_id = (uint16_t)rb_le(&r, 2);
   uint8_t sf = rb_u8(&r);
   mh->control = (sf & SF_C) != 0;
@@ -97,8 +103,15 @@ int mtrc_frame_decode(const uint8_t *buf, size_t len,
   if (mh->has_src)                mh->src_node_id  = rb_le(&r, 8);
   if (mh->dsiz == MTRC_DSIZ_NODE) mh->dest_node_id = rb_le(&r, 8);
   else if (mh->dsiz == MTRC_DSIZ_GROUP) mh->dest_group_id = (uint16_t)rb_le(&r, 2);
-  if (sf & SF_MX) { return -1; }                    // message extensions: not yet
+  if (sf & SF_MX) return -1;                         // message extensions: not yet
+  return r.err ? -1 : (int)r.off;
+}
 
+int mtrc_frame_decode_proto(const uint8_t *buf, size_t len, mtrc_proto_header *ph,
+                            const uint8_t **payload, size_t *payload_len) {
+  if (!buf || !ph) return -1;
+  rbuf r = { buf, len, 0, 0 };
+  memset(ph, 0, sizeof(*ph));
   uint8_t xf = rb_u8(&r);
   ph->initiator   = (xf & XF_I) != 0;
   ph->ack         = (xf & XF_A) != 0;
@@ -109,10 +122,19 @@ int mtrc_frame_decode(const uint8_t *buf, size_t len,
   ph->protocol_id = (uint16_t)rb_le(&r, 2);
   if (ph->has_vendor) ph->vendor_id   = (uint16_t)rb_le(&r, 2);
   if (ph->ack)        ph->ack_counter = (uint32_t)rb_le(&r, 4);
-  if (xf & XF_SX)  { return -1; }                   // secured extensions: not yet
-
+  if (xf & XF_SX) return -1;                         // secured extensions: not yet
   if (r.err) return -1;
   if (payload)     *payload = buf + r.off;
   if (payload_len) *payload_len = len - r.off;
+  return 1;
+}
+
+int mtrc_frame_decode(const uint8_t *buf, size_t len,
+                      mtrc_msg_header *mh, mtrc_proto_header *ph,
+                      const uint8_t **payload, size_t *payload_len) {
+  int hn = mtrc_frame_decode_msg_header(buf, len, mh);
+  if (hn < 0) return -1;
+  if (!mtrc_frame_decode_proto(buf + hn, len - (size_t)hn, ph, payload, payload_len))
+    return -1;
   return (int)len;
 }

@@ -91,6 +91,25 @@ int mtrc_frame_decode(const uint8_t *buf, size_t len,
                       mtrc_msg_header *mh, mtrc_proto_header *ph,
                       const uint8_t **payload, size_t *payload_len);
 
+// ---- split codecs (used by the secured-message path: the message header
+//      is the AAD, the protocol header + payload are the encrypted body) --
+
+// The Security Flags byte for this header (P/C/MX/SessionType). Also the
+// first byte of the AES-CCM nonce.
+uint8_t mtrc_frame_security_flags(const mtrc_msg_header *mh);
+
+// Encode only the message header. Returns its length, or -1.
+int mtrc_frame_encode_msg_header(uint8_t *out, size_t cap, const mtrc_msg_header *mh);
+// Decode only the message header. Returns header length consumed, or -1.
+int mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtrc_msg_header *mh);
+
+// Encode protocol header + payload. Returns length, or -1.
+int mtrc_frame_encode_proto(uint8_t *out, size_t cap, const mtrc_proto_header *ph,
+                            const uint8_t *payload, size_t payload_len);
+// Decode protocol header + payload from a (decrypted) buffer. Returns 1/0.
+int mtrc_frame_decode_proto(const uint8_t *buf, size_t len, mtrc_proto_header *ph,
+                            const uint8_t **payload, size_t *payload_len);
+
 #ifdef __cplusplus
 }
 #endif

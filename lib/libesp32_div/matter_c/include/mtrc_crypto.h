@@ -66,6 +66,26 @@ int  mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
                         const uint8_t *salt, size_t salt_len,
                         uint32_t iterations, uint8_t *out, size_t out_len);
 
+// ---- AES-128-CCM (Matter message encryption) --------------------------
+#define MTRC_CCM_NONCE_LEN 13
+#define MTRC_CCM_TAG_LEN   16
+
+// Encrypt in place (data: plaintext -> ciphertext), writing the auth tag.
+// Returns 1 on success.
+int mtrc_aes_ccm_encrypt(const uint8_t key[16],
+                         const uint8_t *nonce, size_t nonce_len,
+                         const uint8_t *aad, size_t aad_len,
+                         uint8_t *data, size_t data_len,
+                         uint8_t *tag, size_t tag_len);
+
+// Decrypt in place (data: ciphertext -> plaintext) and verify the tag.
+// Returns 1 if authentic, 0 if the tag check fails.
+int mtrc_aes_ccm_decrypt(const uint8_t key[16],
+                         const uint8_t *nonce, size_t nonce_len,
+                         const uint8_t *aad, size_t aad_len,
+                         uint8_t *data, size_t data_len,
+                         const uint8_t *tag, size_t tag_len);
+
 #ifdef __cplusplus
 }
 #endif
