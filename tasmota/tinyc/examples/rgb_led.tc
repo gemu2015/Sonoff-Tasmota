@@ -1,0 +1,24 @@
+// Onboard RGB LED demo — WS2812/SK6812 driven directly off the RMT peripheral.
+// No USE_LIGHT, no GPIO template, no NeoPixelBus: just rgbLed(gpio, 0xRRGGBB).
+//
+// Most ESP32-C3/C6/S3 dev boards wire the addressable RGB LED to GPIO8. If that
+// pin is assigned to something else in your Tasmota template (e.g. a relay),
+// free it first (Backlog GPIO8 0; Restart 1) or pass a different gpio.
+
+int pin;
+int step;
+
+void EverySecond() {
+    step = (step + 1) % 4;                  // cycle red -> green -> blue -> off
+    if (step == 0) { rgbLed(pin, 0x200000); }   // dim red
+    if (step == 1) { rgbLed(pin, 0x002000); }   // dim green
+    if (step == 2) { rgbLed(pin, 0x000020); }   // dim blue
+    if (step == 3) { rgbLed(pin, 0x000000); }   // off
+}
+
+int main() {
+    pin  = 8;                 // onboard WS2812 (override for your board)
+    step = -1;
+    rgbLed(pin, 0x080808);    // dim white on start
+    return 0;
+}

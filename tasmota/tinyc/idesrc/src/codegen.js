@@ -475,6 +475,8 @@ const BUILTINS = {
 
     // Addressable LED strip (WS2812)
     'setPixels':        { syscall: Syscall.WS2812,           args: 3, returns: false, refArgs: [0] },
+    // Single onboard RGB LED (WS2812/SK6812) via RMT — rgbLed(gpio, 0xRRGGBB)
+    'rgbLed':           { syscall: Syscall.RGB_LED,          args: 2, returns: true },
 
     // Debug
     'print':            { syscall: Syscall.DEBUG_PRINT,     args: 1, returns: false },

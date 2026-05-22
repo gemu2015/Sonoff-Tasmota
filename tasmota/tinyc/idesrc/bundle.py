@@ -71,6 +71,7 @@ EXAMPLES = [
     ('homekit_demo',   'HomeKit Demo'),
     ('homekit_office', 'HomeKit Office'),
     ('matter_plug',    'Matter Plug + Power'),
+    ('rgb_led',        'RGB LED (WS2812 / RMT)'),
     ('camera',         'ESP Camera (DFRobot)'),
 ]
 

@@ -907,6 +907,9 @@ enum TcSyscall {
   SYS_MTR_START             = 403, // () -> int  matterStart(): advertise + accept commissioning, 0=ok
   SYS_MTR_RESET             = 404, // () -> void  matterReset(): clear data model to the root node
 
+  // Addressable RGB LED (WS2812/SK6812) via RMT — no USE_LIGHT, no template.
+  SYS_RGB_LED               = 405, // (gpio, 0xRRGGBB) -> int  drive one WS2812 pixel; 1=ok 0=fail
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -3364,10 +3367,72 @@ static void tc_dmx_tick(void) {
   rmt_transmit(tc_dmx_chan, tc_dmx_enc, tc_dmx_sym,
                sizeof(tc_dmx_sym), &tx);
 }
+
+// ---- WS2812 / SK6812 single-pixel RGB LED via RMT ----------------------
+// A standalone NeoPixel driver for the onboard RGB LED found on most ESP32-C3/
+// C6/S3 dev boards — no USE_LIGHT, no GPIO template, no NeoPixelBus. Bit timing
+// at 0.1 us/tick: '0' = 0.3 us high + 0.9 us low, '1' = 0.9 us high + 0.3 us
+// low, then a >50 us low reset. Colour is 0xRRGGBB; WS2812 wants G,R,B order.
+static rmt_channel_handle_t tc_rgb_chan = nullptr;
+static rmt_encoder_handle_t tc_rgb_enc  = nullptr;
+static int  tc_rgb_gpio = -1;
+static rmt_symbol_word_t tc_rgb_sym[25];   // 24 data bits + 1 reset
+
+static rmt_symbol_word_t tc_rgb_bit(int one) {
+  rmt_symbol_word_t s;
+  s.level0 = 1; s.duration0 = one ? 9 : 3;   // high
+  s.level1 = 0; s.duration1 = one ? 3 : 9;   // low
+  return s;
+}
+
+static int tc_rgb_init(int gpio) {
+  if (tc_pin_forbidden(gpio)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: rgbLed forbidden gpio %d"), gpio);
+    return 0;
+  }
+  if (tc_rgb_chan && tc_rgb_gpio == gpio) return 1;   // already on this pin
+  if (tc_rgb_chan) {
+    rmt_disable(tc_rgb_chan);
+    if (tc_rgb_enc) { rmt_del_encoder(tc_rgb_enc); tc_rgb_enc = nullptr; }
+    rmt_del_channel(tc_rgb_chan); tc_rgb_chan = nullptr;
+  }
+  rmt_tx_channel_config_t cc = {};
+  cc.gpio_num = (gpio_num_t)gpio;
+  cc.clk_src = RMT_CLK_SRC_DEFAULT;
+  cc.resolution_hz = 10000000;        // 0.1 us / tick
+  cc.mem_block_symbols = 64;
+  cc.trans_queue_depth = 2;
+  if (rmt_new_tx_channel(&cc, &tc_rgb_chan) != ESP_OK) { tc_rgb_chan = nullptr; return 0; }
+  rmt_copy_encoder_config_t ec = {};
+  if (rmt_new_copy_encoder(&ec, &tc_rgb_enc) != ESP_OK || rmt_enable(tc_rgb_chan) != ESP_OK) {
+    if (tc_rgb_enc) { rmt_del_encoder(tc_rgb_enc); tc_rgb_enc = nullptr; }
+    rmt_del_channel(tc_rgb_chan); tc_rgb_chan = nullptr; return 0;
+  }
+  tc_rgb_gpio = gpio;
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: WS2812 RMT GPIO%d"), gpio);
+  return 1;
+}
+
+static int tc_rgb_set(int gpio, uint32_t color) {
+  if (!tc_rgb_init(gpio)) return 0;
+  uint8_t grb[3] = { (uint8_t)(color >> 8), (uint8_t)(color >> 16), (uint8_t)color };  // G,R,B
+  int n = 0;
+  for (int by = 0; by < 3; by++)
+    for (int bit = 7; bit >= 0; bit--)            // MSB first
+      tc_rgb_sym[n++] = tc_rgb_bit((grb[by] >> bit) & 1);
+  tc_rgb_sym[n].level0 = 0; tc_rgb_sym[n].duration0 = 500;   // 50 us reset (low)
+  tc_rgb_sym[n].level1 = 0; tc_rgb_sym[n].duration1 = 500;   n++;
+  rmt_transmit_config_t tx = {};
+  tx.loop_count = 0; tx.flags.eot_level = 0;
+  rmt_tx_wait_all_done(tc_rgb_chan, 50);
+  return rmt_transmit(tc_rgb_chan, tc_rgb_enc, tc_rgb_sym,
+                      (size_t)n * sizeof(rmt_symbol_word_t), &tx) == ESP_OK;
+}
 #else
 static inline int  tc_dmx_init(int) { return 0; }
 static inline void tc_dmx_set(int, int) {}
 static inline void tc_dmx_tick(void) {}
+static inline int  tc_rgb_set(int, uint32_t) { return 0; }
 #endif  // ESP32
 
 // Find a free file handle slot, returns -1 if none available
@@ -4693,6 +4758,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DMX_INIT: {
       int dg = TC_POP(vm);
       TC_PUSH(vm, tc_dmx_init(dg));             // (gpio) -> 1/0
+      break;
+    }
+    case SYS_RGB_LED: {
+      int32_t color = TC_POP(vm); int32_t gpio = TC_POP(vm);
+      TC_PUSH(vm, tc_rgb_set(gpio, (uint32_t)color));   // (gpio,0xRRGGBB) -> 1/0
       break;
     }
 

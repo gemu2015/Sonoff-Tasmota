@@ -3878,6 +3878,12 @@ export class VM {
                 this.onOutput(`[WS2812] setPixels(arr, ${len}, offset=${offset})\n`);
                 break;
             }
+            case Syscall.RGB_LED: {
+                const color = this.pop(), gpio = this.pop();
+                this.onOutput(`[RGB] rgbLed(gpio=${gpio}, #${(color>>>0).toString(16).padStart(6,'0')})\n`);
+                this.push(1);
+                break;
+            }
 
             // ── SML descriptor pin substitution (browser stub) ─────
             case Syscall.SML_APPLY_PINS: {
