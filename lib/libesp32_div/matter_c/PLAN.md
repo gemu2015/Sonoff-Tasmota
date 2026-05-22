@@ -237,9 +237,17 @@ is ~40% of total risk and effort.
          (iterations 1000), sends a byte-correct PBKDFParamResponse with the
          MRP ack, and captures the SPAKE2+ transcript context. Verified with
          a probe: `op=0x21 A=1 ack=1`, payload TLV correct.
-       - ⏭ **P2b Pake1 → Pake2** (verifier SPAKE2+: w0/L from passcode+salt,
-         compute Y/Z/V + cB).  **P2c Pake3 → StatusReport** (verify cA,
-         derive PASE session keys).
+       - ✅ **P2b Pake1 → Pake2** + **P2c Pake3 → StatusReport** — LIVE ON C6.
+         On Pake1 the device derives w0/w1 (PBKDF2) + L=w1·G, computes Y/Z/V
+         and the Matter key schedule, replies Pake2(pB,cB); on Pake3 it
+         verifies cA and sends StatusReport(success), establishing the PASE
+         session keys (I2R/R2I/Att). **Full handshake verified on hardware**
+         by an independent Python SPAKE2+ prover (`test/pase_prover.py`):
+         device cB == prover-recomputed cB, StatusReport GeneralCode=0. The
+         SPAKE2+ verifier runs on-device (PBKDF2 1000 iters + EC) with no
+         watchdog issue (deferred to matter_loop / main loop).
+   - ✅ **PASE COMPLETE** — mutually-authenticated secure session established
+     on-device with an independent prover. (chip-tool would now pass PASE.)
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 

@@ -12,6 +12,8 @@
 #include "matter_c.h"
 #include "mtrc_frame.h"
 #include "mtrc_pase.h"
+#include "mtrc_spake2p.h"
+#include "mtrc_crypto.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -42,6 +44,9 @@ static struct {
   uint8_t          salt[16];
   uint32_t         iterations;
   uint8_t          context[32];       // SHA256(prefix || req || resp)
+  uint8_t          cA_expected[32];   // prover confirmation we expect in Pake3
+  uint8_t          i2r[16], r2i[16], att[16];   // PASE session keys (on success)
+  bool             pase_secure;       // true once cA verified
 } g;
 
 static void mlog(matter_log_level_t lvl, const char *msg) {
@@ -175,6 +180,57 @@ static void pase_handle_param_req(const uint8_t *payload, size_t plen,
   mlog(MATTER_LOG_INFO, "PASE: PBKDFParamResponse sent");
 }
 
+// Pake1 (pA) -> Pake2 (pB, cB). Verifier-side SPAKE2+ (heavy: PBKDF2 + EC).
+static void pase_handle_pake1(const uint8_t *payload, size_t plen,
+                              const mtrc_msg_header *mh) {
+  uint8_t pA[65];
+  if (!mtrc_pase_decode_pake1(payload, plen, pA)) return;
+
+  uint8_t w0[32], w1[32], L[65], y[32], pB[65], Z[65], V[65];
+  if (!mtrc_pase_derive_w0w1(g.cfg.passcode, g.salt, 16, g.iterations, w0, w1)) return;
+  if (!mtrc_ec_mulgen(L, w1, 32)) return;                      // L = w1*G
+  g.port.random_bytes(g.port.ctx, y, 32);
+  if (!mtrc_spake2p_verifier_Y(w0, y, pB)) return;             // pB = y*G + w0*N
+  if (!mtrc_spake2p_verifier_ZV(w0, y, pA, L, Z, V)) return;   // Z,V from pA,L
+
+  mtrc_pase_keys_t k;
+  if (!mtrc_pase_keys(g.context, pA, pB, Z, V, w0, &k)) return;
+  memcpy(g.cA_expected, k.cA, 32);                             // expect this in Pake3
+  memcpy(g.i2r, k.i2r, 16); memcpy(g.r2i, k.r2i, 16); memcpy(g.att, k.att, 16);
+
+  uint8_t out[160];
+  int n = mtrc_pase_encode_pake2(out, sizeof(out), pB, k.cB);  // send pB + cB
+  if (n < 0) return;
+  pase_send(MTRC_SC_PASE_PAKE2, out, (size_t)n, true, mh->msg_counter, true);
+  g.pase_phase = 2;
+  mlog(MATTER_LOG_INFO, "PASE: Pake2 sent (SPAKE2+ verifier)");
+}
+
+// Pake3 (cA) -> verify, then StatusReport. On success the PASE session keys
+// are live (g.i2r / g.r2i / g.att).
+static void pase_handle_pake3(const uint8_t *payload, size_t plen,
+                              const mtrc_msg_header *mh) {
+  uint8_t cA[32];
+  if (!mtrc_pase_decode_pake3(payload, plen, cA)) return;
+  uint8_t diff = 0;
+  for (int i = 0; i < 32; i++) diff |= (uint8_t)(cA[i] ^ g.cA_expected[i]);
+
+  // Secure Channel StatusReport: GeneralCode(2) | ProtocolId(4) | Code(2), LE.
+  uint8_t sr[8]; memset(sr, 0, 8);
+  if (diff == 0) {
+    // GeneralCode=0 (Success), ProtocolId=0 (SecureChannel),
+    // Code=0 (SessionEstablishmentSuccess)
+    g.pase_secure = true; g.pase_phase = 3;
+    pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
+    mlog(MATTER_LOG_INFO, "PASE: cA verified -> SESSION ESTABLISHED (StatusReport success)");
+  } else {
+    sr[0] = 0x01;   // GeneralCode = 1 (Failure)
+    pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
+    g.pase_phase = 0;
+    mlog(MATTER_LOG_ERROR, "PASE: cA MISMATCH -> StatusReport failure");
+  }
+}
+
 static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
   mtrc_msg_header mh; mtrc_proto_header ph;
@@ -185,7 +241,8 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   g.exchange_id = ph.exchange_id;
   switch (ph.opcode) {
     case MTRC_SC_PBKDF_PARAM_REQ: pase_handle_param_req(pl, pll, &mh); break;
-    // TODO P2b: MTRC_SC_PASE_PAKE1 -> Pake2 ; P2c: PASE_PAKE3 -> StatusReport
+    case MTRC_SC_PASE_PAKE1:      pase_handle_pake1(pl, pll, &mh);     break;
+    case MTRC_SC_PASE_PAKE3:      pase_handle_pake3(pl, pll, &mh);     break;
     default: break;
   }
 }
