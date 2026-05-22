@@ -208,9 +208,17 @@ is ~40% of total risk and effort.
      HA matter-server both support it; only the Apple/Google consumer QR flow
      prefers BLE (a v2 nicety, not a blocker; cert not pursued). See the BLE
      analysis decision.
-   - ⏳ **3d CASE** (operational session) — IN PROGRESS. Crypto primitives
-     first: ECDH + deterministic ECDSA (RFC 6979) on P-256, then the
-     Sigma1/2/3 flow + operational-cert (compact-TLV NOC) handling.
+   - ⏳ **3d CASE** (operational session) — IN PROGRESS.
+     - ✅ ECDH + deterministic ECDSA (RFC 6979) primitives (`mtrc_crypto`).
+     - ✅ **CASE key schedule** (`mtrc_case`): destinationId = HMAC(IPK,...),
+       S2K/S3K = HKDF(shared, IPK‖…‖SHA256(Σ), "Sigma2"/"Sigma3"), session
+       keys = HKDF(…, "SessionKeys", 48), + the NCASE_SigmaN nonces. 13
+       checks PASS vs Python refs (destinationId, ECDH agreement, S2K, S3K,
+       I2R/R2I/Att). Constants verbatim from connectedhomeip. Host test
+       `test/build_case.sh`.
+     - ⏭ Sigma1/2/3 message TLV + operational-cert (compact-TLV NOC) chain
+       verify — these need real chip-tool-generated certs, so they come with
+       the live integration step.
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 
@@ -221,6 +229,8 @@ bash lib/libesp32_div/matter_c/test/build_tlv.sh    # TLV codec -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_msg.sh    # frame+MRP -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_pase.sh   # PASE      -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_sec.sh    # AES-CCM   -> "PASS"
+bash lib/libesp32_div/matter_c/test/build_ec.sh     # ECDH/ECDSA-> "PASS"
+bash lib/libesp32_div/matter_c/test/build_case.sh   # CASE keys -> "PASS"
 ```
 
 ---
