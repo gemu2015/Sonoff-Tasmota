@@ -2540,9 +2540,15 @@ extern "C" {
     (void)ctx;(void)k; return MATTER_OK; }
   static matter_err_t mtrc_p_mdns(void *ctx, const char *service, const char *instance,
                                   uint16_t port, const char *const *txt, size_t n) {
-    (void)ctx; (void)instance;
+    (void)ctx;
     if (!Mdns.begun) return MATTER_ERR_TRANSPORT;     // responder not up yet
     MDNS.addService(service, "udp", port);            // -> _matterc._udp
+    char stype0[20]; snprintf(stype0, sizeof(stype0), "_%s", service);   // "_matterc"
+    // Matter REQUIRES a 16-hex commissioning instance name (Core Spec §4.3.1);
+    // ESPmDNS defaults it to the hostname, which Apple Home rejects. The core
+    // passes a proper 16-hex `instance` — rename the service to use it.
+    if (instance && instance[0])
+      mdns_service_instance_name_set(stype0, "_udp", instance);
     uint16_t disc = 0;
     for (size_t i = 0; i < n; i++) {
       const char *eq = strchr(txt[i], '=');
