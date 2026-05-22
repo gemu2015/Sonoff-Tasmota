@@ -248,6 +248,17 @@ is ~40% of total risk and effort.
          watchdog issue (deferred to matter_loop / main loop).
    - ✅ **PASE COMPLETE** — mutually-authenticated secure session established
      on-device with an independent prover. (chip-tool would now pass PASE.)
+   - ✅ **P3a secured-session receive** — LIVE ON C6. Post-PASE, the device
+     routes traffic on its assigned session id through `mtrc_sec_decode`
+     (I2R key) and parses the inner IM message. Verified: prover sends an
+     AES-CCM-encrypted IM InvokeRequest with the derived I2R key →
+     `secured rx OK: proto=0x0001 op=0x08`. Confirms the PASE session keys +
+     nonce/AAD interoperate on-device. `test/pase_prover.py <ip> secured`.
+   - ⏭ **P3b commissioning IM** — process the InvokeRequests (General
+     Commissioning: ArmFailSafe/SetRegulatoryConfig/CommissioningComplete;
+     Node Operational Credentials: CSRRequest/AddTrustedRoot/AddNOC) and
+     send encrypted InvokeResponses. Needs the IM codec + operational-cert
+     handling (now feedable with real chip-tool certs).
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 

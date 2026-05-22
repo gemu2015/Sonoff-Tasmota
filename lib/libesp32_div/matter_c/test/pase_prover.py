@@ -111,7 +111,23 @@ assert cB == cB_check, "cB mismatch -> device SPAKE2+ wrong"
 send(0x24, b'\x15\x30\x01\x20' + cA + b'\x18', ack=dctr)
 op, sr, dctr = recv()
 gen = struct.unpack('<H', sr[0:2])[0] if len(sr)>=2 else 0xFFFF
-print("3) StatusReport op=0x%02X GeneralCode=%d (%s)" %
-      (op, gen, "SUCCESS" if (op==0x40 and gen==0) else "FAIL"))
-print("\n==> PASE handshake %s" % ("PASS — session established" if (op==0x40 and gen==0) else "FAILED"))
+ok = (op==0x40 and gen==0)
+print("3) StatusReport op=0x%02X GeneralCode=%d (%s)" % (op, gen, "SUCCESS" if ok else "FAIL"))
+print("==> PASE handshake %s" % ("PASS — session established" if ok else "FAILED"))
+
+# ---- 4) Secured-session probe: send an encrypted IM msg with the PASE keys ----
+if ok and len(sys.argv) > 2 and sys.argv[2] == "secured":
+    from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+    rsid = struct.unpack('<H', resp_payload[ resp_payload.find(b'\x25\x03')+2 :
+                                             resp_payload.find(b'\x25\x03')+4 ])[0]
+    sek = hkdf(Ke, b'', b'SessionKeys', 48)
+    I2R = sek[:16]
+    # inner: protocol header (IM, InvokeRequest op 0x08) + tiny IM payload
+    inner = bytes([0x05, 0x08]) + struct.pack('<H',2) + struct.pack('<H',0x0001) + b'\x15\x18'
+    ctr = 1
+    mhdr = b'\x00' + struct.pack('<H', rsid) + b'\x00' + struct.pack('<I', ctr)
+    nonce = b'\x00' + struct.pack('<I', ctr) + struct.pack('<Q', 0)   # secflags|ctr|srcNode(0)
+    ct = AESCCM(I2R, tag_length=16).encrypt(nonce, inner, mhdr)       # ct||tag
+    s.sendto(mhdr + ct, (DEV, 5540))
+    print("4) sent encrypted IM (session=0x%04X, I2R) — check device weblog for 'secured rx OK'" % rsid)
 s.close()

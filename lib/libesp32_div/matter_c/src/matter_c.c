@@ -14,6 +14,7 @@
 #include "mtrc_pase.h"
 #include "mtrc_spake2p.h"
 #include "mtrc_crypto.h"
+#include "mtrc_sec.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -231,13 +232,43 @@ static void pase_handle_pake3(const uint8_t *payload, size_t plen,
   }
 }
 
+// A message arrived on the established PASE secure session: decrypt with the
+// I2R key (initiator->responder), then parse the inner protocol header + IM
+// payload. (Processing the commissioning IM is the next milestone.)
+static void secured_dispatch(const uint8_t *buf, size_t len) {
+  mtrc_msg_header mh; mtrc_proto_header ph;
+  const uint8_t *ipl; size_t ipll;
+  static uint8_t pt[1280];
+  if (!mtrc_sec_decode(buf, len, g.i2r, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
+    mlog(MATTER_LOG_ERROR, "secured rx: MIC/decrypt failed");
+    return;
+  }
+  char m[96];
+  snprintf(m, sizeof(m), "secured rx OK: proto=0x%04X op=0x%02X exch=%u pl=%u",
+           (unsigned)ph.protocol_id, (unsigned)ph.opcode,
+           (unsigned)ph.exchange_id, (unsigned)ipll);
+  mlog(MATTER_LOG_INFO, m);
+  // TODO P3b: IM dispatch (ArmFailSafe / AddNOC / ... -> InvokeResponse).
+}
+
 static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
+  // Peek the message header to route by session id.
+  mtrc_msg_header mh0;
+  if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) return;
+
+  if (mh0.session_id != 0) {
+    // Secured session traffic (post-PASE commissioning IM).
+    if (g.pase_secure && mh0.session_id == g.my_session_id)
+      secured_dispatch(buf, len);
+    return;
+  }
+
+  // Unsecured session (id 0): PASE over Secure Channel.
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *pl; size_t pll;
   if (mtrc_frame_decode(buf, len, &mh, &ph, &pl, &pll) <= 0) return;
-  // PASE rides the unsecured session (id 0), Secure Channel protocol.
-  if (mh.session_id != 0 || ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) return;
+  if (ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) return;
   g.exchange_id = ph.exchange_id;
   switch (ph.opcode) {
     case MTRC_SC_PBKDF_PARAM_REQ: pase_handle_param_req(pl, pll, &mh); break;
