@@ -87,9 +87,17 @@ on an operational CASE session.
     (30 checks: alloc, index reuse, lookups, round-trip, malformed-reject).
   - ⏭ Wire into matter_c: load on init / save on AddNOC+RemoveFabric via the
     port kv (UFS); operational message-counter persistence across reboot.
-- **A5 CASE responder**: wire Sigma1/2/3 (messages + `mtrc_case` schedule
-  already built) with cert-chain verify + destinationId match → operational
-  session keys. Operational mDNS advert (`_matter._tcp`).
+- **A5 CASE responder**:
+  - ✅ **Full handshake proven host-side** — `test/build_case_full.sh` runs an
+    initiator AND responder against each other in C (mtrc_case schedule +
+    mtrc_case_msg codecs + mtrc_crypto): destinationId match → ECDH → S2K →
+    Sigma2 (TBE seal + TBS sign) → S3K → Sigma3 → mutual ECDSA verify → both
+    sides derive identical I2R/R2I/Att; an operational message round-trips
+    (26 checks). The protocol/key-schedule risk is retired.
+  - ⏭ Wire the responder into matter_c (Sigma1→Sigma2→Sigma3 state machine on
+    a pre-provisioned test fabric), extend the prover into a CASE initiator,
+    device-verify. Then peer-NOC chain verify (A1b), operational mDNS advert
+    (`_matter._tcp`).
 - **Exit**: chip-tool pairs and reads Basic Information over CASE.
 
 ### Phase B — Core data model (Read/Write/Subscribe + mandatory clusters)
