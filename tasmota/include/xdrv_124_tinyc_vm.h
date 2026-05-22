@@ -3264,10 +3264,20 @@ static void tc_dmx_build(void) {
   }
 }
 
+static bool tc_pin_forbidden(int32_t pin);   // defined later in this file
+
 // Runtime (re)configure. gpio = TX GPIO. Returns 1 ok / 0 fail.
 static int tc_dmx_init(int gpio) {
   if (gpio < 0) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: dmxInit bad gpio %d"), gpio);
+    return 0;
+  }
+  // Reject pins that are out-of-range / flash (e.g. C3 GPIO11-17 = SPI
+  // flash) / restricted / already claimed. Driving RMT onto a flash pin
+  // crashes the chip instantly, so guard here too — not just in scripts.
+  if (tc_pin_forbidden(gpio)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: dmxInit forbidden gpio %d "
+           "(flash/reserved/claimed on this CPU)"), gpio);
     return 0;
   }
   if (tc_dmx_chan) {                                  // reconfigure
