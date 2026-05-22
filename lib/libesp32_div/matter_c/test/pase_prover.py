@@ -117,7 +117,7 @@ print("==> PASE handshake %s" % ("PASS — session established" if ok else "FAIL
 
 # ---- 4) IM over the secured session: invoke a command ----
 mode = sys.argv[2] if len(sys.argv) > 2 else ""
-if ok and mode in ("secured", "commission", "toggle", "read"):
+if ok and mode in ("secured", "commission", "toggle", "read", "subscribe"):
     from cryptography.hazmat.primitives.ciphers.aead import AESCCM
     rsid = struct.unpack('<H', resp_payload[ resp_payload.find(b'\x25\x03')+2 :
                                              resp_payload.find(b'\x25\x03')+4 ])[0]
@@ -130,7 +130,13 @@ if ok and mode in ("secured", "commission", "toggle", "read"):
     def u8(t,v):  return bytes([0x24,t,v&0xff])
     def b0(t):    return bytes([0x28,t])      # bool false
 
-    if mode == "read":
+    if mode == "subscribe":
+        # SubscribeRequest{0:keepSubs,1:minFloor,2:maxCeil=5,3:AttributeRequests}
+        apath = bytes([0x37,0x00]) + u16(2,0) + u32(3,0x06) + u32(4,0x00) + b'\x18'
+        msg   = (b'\x15' + b0(0) + u16(1,0) + u16(2,5) +
+                 bytes([0x36,0x03]) + apath + b'\x18' + u8(0xFF,1) + b'\x18')
+        im_op = 0x03; label = "SubscribeRequest(OnOff)"
+    elif mode == "read":
         # ReadRequest: AttributeRequests[ AttributePathIB{2:ep,3:cluster,4:attr} ]
         apath = bytes([0x37,0x00]) + u16(2,0) + u32(3,0x06) + u32(4,0x00) + b'\x18'  # OnOff attr
         msg   = b'\x15' + bytes([0x36,0x00]) + apath + b'\x18' + b0(3) + u8(0xFF,1) + b'\x18'
@@ -152,7 +158,33 @@ if ok and mode in ("secured", "commission", "toggle", "read"):
     nonce = b'\x00' + struct.pack('<I', sctr) + struct.pack('<Q', 0)
     ct = AESCCM(I2R, tag_length=16).encrypt(nonce, proto+msg, mhdr)
     s.sendto(mhdr + ct, (DEV, 5540))
-    print("4) sent %s InvokeRequest (encrypted I2R)" % label)
+    print("4) sent %s (encrypted I2R)" % label)
+
+    def srecv(timeout=6):
+        s.settimeout(timeout)
+        r,_ = s.recvfrom(2048)
+        sf2 = r[3]; dc = struct.unpack('<I', r[4:8])[0]
+        non2 = bytes([sf2]) + struct.pack('<I',dc) + struct.pack('<Q',0)
+        p = AESCCM(R2I, tag_length=16).decrypt(non2, r[8:], r[0:8])
+        xf2=p[0]; o2=6
+        if xf2&0x10:o2+=2
+        if xf2&0x02:o2+=4
+        return p[1], p[o2:]
+
+    if mode == "subscribe":
+        try:
+            op1,b1 = srecv(); print("   priming ReportData op=0x%02X OnOff=%d" %
+                                    (op1, 1 if b'\x24\x02\x01' in b1 else 0))
+            op2,_  = srecv(); print("   SubscribeResponse op=0x%02X" % op2)
+            print("   waiting ~7s for a periodic report...")
+            op3,b3 = srecv(8); print("   periodic ReportData op=0x%02X OnOff=%d" %
+                                     (op3, 1 if b'\x24\x02\x01' in b3 else 0))
+            ok2 = (op1==0x05 and op2==0x04 and op3==0x05)
+            print("\n==> IM Subscribe %s" % ("PASS — priming + response + periodic report"
+                                             if ok2 else "FAILED"))
+        except socket.timeout:
+            print("   timeout"); print("\n==> IM Subscribe FAILED")
+        s.close(); raise SystemExit
     try:
         r,_ = s.recvfrom(2048)
         sf = r[3]; dctr2 = struct.unpack('<I', r[4:8])[0]

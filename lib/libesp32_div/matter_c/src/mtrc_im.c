@@ -46,11 +46,48 @@ int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
   return 0;
 }
 
-int mtrc_im_build_report_uint(uint8_t *out, size_t cap,
+int mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
+                            uint16_t *endpoint, uint32_t *cluster,
+                            uint32_t *attribute, uint16_t *max_interval) {
+  // MaxIntervalCeiling = top-level ctx2 (u16); attribute path = AttributePathIB.
+  *max_interval = 0;
+  mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, buf, len);
+  mtrc_tlv_elem e;
+  if (mtrc_tlv_read(&r, &e) && e.type == MTRC_TLV_STRUCT) {
+    int depth = 1; mtrc_tlv_elem se;
+    while (depth == 1 && mtrc_tlv_read(&r, &se)) {
+      if (se.type == MTRC_TLV_END) break;
+      if (se.tag.ctrl == MTRC_TLV_TAG_CONTEXT && se.tag.number == 2 &&
+          se.type == MTRC_TLV_UINT) { *max_interval = (uint16_t)se.u; }
+      if (se.type==MTRC_TLV_STRUCT||se.type==MTRC_TLV_ARRAY||se.type==MTRC_TLV_LIST) {
+        int d=1; mtrc_tlv_elem x;
+        while (d>0 && mtrc_tlv_read(&r,&x)) {
+          if (x.type==MTRC_TLV_STRUCT||x.type==MTRC_TLV_ARRAY||x.type==MTRC_TLV_LIST) d++;
+          else if (x.type==MTRC_TLV_END) d--;
+        }
+      }
+    }
+  }
+  return mtrc_im_parse_first_attribute(buf, len, endpoint, cluster, attribute);
+}
+
+int mtrc_im_build_subscribe_response(uint8_t *out, size_t cap,
+                                     uint32_t sub_id, uint16_t max_interval) {
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // SubscribeResponseMessage
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);      // SubscriptionId
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), max_interval);// MaxInterval
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);        // interactionModelRevision
+  mtrc_tlv_end_container(&w);
+  return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
+}
+
+int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
                               uint16_t endpoint, uint32_t cluster,
                               uint32_t attribute, uint64_t value) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
+  if (sub_id) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);   // SubscriptionId
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          //  AttributeReportIB
   mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //   AttributeDataIB

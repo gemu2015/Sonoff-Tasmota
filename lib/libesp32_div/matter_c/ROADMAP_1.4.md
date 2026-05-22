@@ -94,10 +94,14 @@ Goal: controllers can browse + monitor the node like a real Matter device.
   0x0006/0 returns the **live relay state**; BasicInfo VID/PID). Verified:
   set relay ON/OFF (Tasmota) -> Matter Read reports OnOff=1/0. Remaining:
   multi-attribute reports, wildcard paths, a real attribute registry.
-- **B2 IM Write** (`WriteRequest`/`WriteResponse`).
-- **B3 Subscriptions** — the report engine: min/max interval, change
-  reporting, `SubscribeRequest`/`SubscribeResponse`/periodic `ReportData`,
-  keep-alive. (How Apple/Google watch state — mandatory for a good UX.)
+- **B2 IM Write** (`WriteRequest`/`WriteResponse`) — pending (needs a
+  writable attribute / cluster first).
+- **B3 Subscriptions** — ✅ STARTED, live on C6. SubscribeRequest -> priming
+  ReportData (with SubscriptionId) + SubscribeResponse; the report engine in
+  matter_loop sends periodic (maxInterval) + change-driven ReportData.
+  Verified: prover subscribes to OnOff -> priming + response + periodic
+  report received. Remaining: multi-attribute subscriptions, the
+  StatusResponse handshake leg, keep-alive/resubscribe, multiple subs.
 - **B4 Access Control cluster (0x001F)** + ACL enforcement on every IM op.
 - **B5 Root-node mandatory clusters** on endpoint 0: Descriptor (0x001D),
   Basic Information (0x0028), General Commissioning (0x0030, full),

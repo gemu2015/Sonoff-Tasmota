@@ -51,6 +51,15 @@ static struct {
   bool             pase_secure;       // true once cA verified
   uint32_t         sec_tx_counter;    // our secured-session message counter
   bool             onoff;             // OnOff attribute (endpoint relay state)
+
+  // single attribute subscription (the report engine)
+  bool             sub_active;
+  uint32_t         sub_id;
+  uint16_t         sub_ep; uint32_t sub_cl, sub_attr;
+  uint16_t         sub_max_s;         // max report interval (seconds)
+  uint16_t         sub_exch;
+  uint32_t         sub_last_ms;       // last report time
+  uint64_t         sub_last_val;      // last reported value (change detection)
 } g;
 
 static void mlog(matter_log_level_t lvl, const char *msg) {
@@ -240,18 +249,29 @@ static void pase_handle_pake3(const uint8_t *payload, size_t plen,
 // acking the inbound message.
 static void secured_send(uint8_t opcode, uint16_t protocol_id,
                          const uint8_t *payload, size_t plen,
-                         uint16_t exch, uint32_t ack_counter) {
+                         uint16_t exch, bool has_ack, uint32_t ack_counter) {
   mtrc_msg_header mh; memset(&mh, 0, sizeof(mh));
   mh.session_id = g.peer_session_id; mh.session_type = 0;
   mh.msg_counter = ++g.sec_tx_counter;
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
-  ph.initiator = false; ph.ack = true; ph.ack_counter = ack_counter;
+  ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = true; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
   static uint8_t out[1280];
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g.r2i);
   if (n > 0 && g.port.udp_send)
     g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
+}
+
+// Live value of an attribute: host's on_attr_read, else cache/config.
+static uint64_t attr_value(uint16_t ep, uint32_t cl, uint32_t attr) {
+  uint64_t v = 0;
+  if (g.port.on_attr_read &&
+      g.port.on_attr_read(g.port.ctx, ep, cl, attr, &v) == MATTER_OK) return v;
+  if      (cl == 0x0006 && attr == 0x0000) v = g.onoff ? 1 : 0;
+  else if (cl == 0x0028 && attr == 0x0002) v = g.cfg.vendor_id;
+  else if (cl == 0x0028 && attr == 0x0004) v = g.cfg.product_id;
+  return v;
 }
 
 // Handle a decrypted IM InvokeRequest. P3b.1 answers the General
@@ -287,7 +307,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x81); // UNSUPPORTED_COMMAND
 
   if (n > 0) {
-    secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, ack);
+    secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack);
     mlog(MATTER_LOG_INFO, "IM InvokeResponse sent");
   }
 }
@@ -304,21 +324,41 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
            (unsigned)ep, (unsigned)cl, (unsigned)attr);
   mlog(MATTER_LOG_INFO, m);
 
-  uint64_t val = 0;
-  // Prefer the host's live value (e.g. real relay state); fall back to cache.
-  if (!(g.port.on_attr_read &&
-        g.port.on_attr_read(g.port.ctx, ep, cl, attr, &val) == MATTER_OK)) {
-    if      (cl == 0x0006 && attr == 0x0000) val = g.onoff ? 1 : 0;   // OnOff
-    else if (cl == 0x0028 && attr == 0x0002) val = g.cfg.vendor_id;    // BasicInfo VendorID
-    else if (cl == 0x0028 && attr == 0x0004) val = g.cfg.product_id;   // BasicInfo ProductID
-  }
-
   static uint8_t resp[160];
-  int n = mtrc_im_build_report_uint(resp, sizeof(resp), ep, cl, attr, val);
+  int n = mtrc_im_build_report_uint(resp, sizeof(resp), 0, ep, cl, attr,
+                                    attr_value(ep, cl, attr));
   if (n > 0) {
-    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp, (size_t)n, exch, ack);
+    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack);
     mlog(MATTER_LOG_INFO, "IM ReportData sent");
   }
+}
+
+// Handle a SubscribeRequest: register a subscription, send a priming
+// ReportData + SubscribeResponse. Periodic/changed reports come from
+// matter_loop. (Single subscription supported.)
+static void im_handle_subscribe(const uint8_t *payload, size_t plen,
+                                uint16_t exch, uint32_t ack) {
+  uint16_t ep, maxc; uint32_t cl, attr;
+  if (!mtrc_im_parse_subscribe(payload, plen, &ep, &cl, &attr, &maxc)) return;
+  g.sub_active = true;
+  g.sub_id = (g.sub_id ? g.sub_id : 1) + 1;
+  g.sub_ep = ep; g.sub_cl = cl; g.sub_attr = attr;
+  g.sub_max_s = (maxc == 0 || maxc > 60) ? 30 : maxc;   // clamp
+  g.sub_exch = exch;
+  g.sub_last_val = attr_value(ep, cl, attr);
+  g.sub_last_ms = g.port.millis(g.port.ctx);
+
+  char m[80];
+  snprintf(m, sizeof(m), "IM Subscribe ep=%u cl=0x%04X attr=0x%04X max=%us id=%u",
+           (unsigned)ep,(unsigned)cl,(unsigned)attr,(unsigned)g.sub_max_s,(unsigned)g.sub_id);
+  mlog(MATTER_LOG_INFO, m);
+
+  static uint8_t rep[160];
+  int n = mtrc_im_build_report_uint(rep, sizeof(rep), g.sub_id, ep, cl, attr, g.sub_last_val);
+  if (n > 0) secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, (size_t)n, exch, true, ack);
+  n = mtrc_im_build_subscribe_response(rep, sizeof(rep), g.sub_id, g.sub_max_s);
+  if (n > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, rep, (size_t)n, exch, false, 0);
+  mlog(MATTER_LOG_INFO, "IM SubscribeResponse sent (priming report + subscribe)");
 }
 
 // A message arrived on the established PASE secure session: decrypt with the
@@ -335,6 +375,8 @@ static void secured_dispatch(const uint8_t *buf, size_t len) {
     im_handle_invoke(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_READ_REQUEST) {
     im_handle_read(ipl, ipll, ph.exchange_id, mh.msg_counter);
+  } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_SUBSCRIBE_REQUEST) {
+    im_handle_subscribe(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else {
     char m[80];
     snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",
@@ -376,7 +418,20 @@ void matter_loop(void) {
     g.rx_pending = false;
     pase_dispatch(g.rx_buf, g.rx_len, g.rx_src_port);   // crypto-heavy work here
   }
-  // TODO: MRP retransmit timers + subscription report scheduler.
+  // Subscription report engine: send a ReportData when the value changed or
+  // the max interval elapsed.
+  if (g.sub_active && g.pase_secure) {
+    uint32_t now = g.port.millis(g.port.ctx);
+    uint64_t v = attr_value(g.sub_ep, g.sub_cl, g.sub_attr);
+    if (v != g.sub_last_val || (now - g.sub_last_ms) >= (uint32_t)g.sub_max_s * 1000u) {
+      g.sub_last_val = v; g.sub_last_ms = now;
+      static uint8_t rep[160];
+      int n = mtrc_im_build_report_uint(rep, sizeof(rep), g.sub_id,
+                                        g.sub_ep, g.sub_cl, g.sub_attr, v);
+      if (n > 0)
+        secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, (size_t)n, g.sub_exch, false, 0);
+    }
+  }
 }
 
 // ---- inbound transport pumps ------------------------------------------
