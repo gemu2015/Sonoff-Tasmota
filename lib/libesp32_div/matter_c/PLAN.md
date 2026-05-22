@@ -115,7 +115,7 @@ Profiler, Thread radio.
 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
-| **0. Spike** | `mtrc_crypto` wired to BearSSL `br_ec`/`br_ccm`/HKDF + SPAKE2+ assembled on top | SPAKE2+ matches a **spec test vector**. ⭐ go/no-go gate — primitives already proven present, so this is mostly wiring + the spec assembly. Do it first. |
+| **0. Spike ✅ DONE** | `mtrc_crypto` (BearSSL SHA256/HMAC/HKDF + P-256 mul/mulgen/muladd) + `mtrc_spake2p` | ✅ **PASS — GO.** All 11 checks match the RFC 9383 P256 vector (X, Y, Z, V both sides, K_main, K_confirmP/V, cA, cB) on `br_ec_p256_m15`. Host self-test: `test/build_host.sh`. Firmware co-build verified on tinyc32c3-matter (83.9% flash). |
 | **1. TLV** | `mtrc_tlv` encode/decode | Round-trips all spec TLV test vectors |
 | **2. Frame+MRP+UDP** | Message layer | Unsecured UDP echo with correct counters/acks |
 | **3. Commissioning slice** | PASE, BTP/BLE, CASE, fabric store, **OnOff** | ⭐ **chip-tool pairs over BLE→WiFi and toggles the relay.** The milestone. |
@@ -176,14 +176,19 @@ is ~40% of total risk and effort.
 
 ---
 
-## 8. First concrete steps (when work starts — NOT yet)
+## 8. Concrete steps
 
-1. **Reserve the Xdrv slot** + scaffold `lib/matter_c/` + `USE_MATTER_C` gate
-   + a `-dbg` build env.
-2. **Phase-0 crypto spike** — `mtrc_crypto` over BearSSL `br_ec`/`br_ccm`/HKDF,
-   then SPAKE2+ assembled from the spec, verified against a spec test vector.
-   *This single experiment confirms viability before any protocol code.*
-3. **`mtrc_tlv`** + spec test vectors.
+1. ✅ Scaffold `lib/libesp32_div/matter_c/` + `USE_MATTER_C` gate + dev envs.
+2. ✅ **Phase-0 crypto spike** — `mtrc_crypto` over BearSSL + `mtrc_spake2p`,
+   verified 11/11 against the RFC 9383 P256 vector (host + firmware co-build).
+   Viability confirmed: the hard crypto works on the resident library.
+3. ⏭ **NEXT — `mtrc_tlv`** (Phase 1): Matter TLV encode/decode, verified
+   against spec TLV test vectors. Mechanical and well-bounded.
+
+### How to re-run the SPAKE2+ spike
+```
+bash lib/libesp32_div/matter_c/test/build_host.sh   # -> "PASS — GO"
+```
 
 ---
 
