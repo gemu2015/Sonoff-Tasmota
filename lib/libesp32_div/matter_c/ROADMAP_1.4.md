@@ -79,9 +79,14 @@ on an operational CASE session.
   (generate operational keypair + NOCSR), `AddTrustedRootCertificate`,
   `AddNOC` (install fabric: NOC + IPK + admin node), `UpdateNOC`,
   `RemoveFabric`.
-- **A4 Fabric store** (`mtrc_store` over UFS via the port kv): persist fabric
-  table (NOC chain, IPK, fabric-id, node-id) + operational keypair + message
-  counters (replay protection across reboot).
+- **A4 Fabric store** (`mtrc_store`):
+  - ✅ **Fabric table + serializer** — DONE (host-tested). Fixed-capacity
+    in-memory table (root pubkey, fabric/node id, IPK, operational keypair,
+    NOC/ICAC) with alloc/index-assign/lookup/remove/enumerate + a flat
+    serialize/deserialize blob for kv persistence. `test/build_store.sh`
+    (30 checks: alloc, index reuse, lookups, round-trip, malformed-reject).
+  - ⏭ Wire into matter_c: load on init / save on AddNOC+RemoveFabric via the
+    port kv (UFS); operational message-counter persistence across reboot.
 - **A5 CASE responder**: wire Sigma1/2/3 (messages + `mtrc_case` schedule
   already built) with cert-chain verify + destinationId match → operational
   session keys. Operational mDNS advert (`_matter._tcp`).
