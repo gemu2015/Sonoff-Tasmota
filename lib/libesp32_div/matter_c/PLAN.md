@@ -225,7 +225,19 @@ bash lib/libesp32_div/matter_c/test/build_sec.sh    # AES-CCM   -> "PASS"
 
 ---
 
-## 9. Open decisions
+## 9. Device-test target
+
+- **DUT:** ESP32-**C6** at **http://192.168.188.122**
+- **Build/flash env:** `tinyc32c6-matter` (in platformio_override.ini —
+  extends `tinyc32c6`, `-DTINYC_MATTER`, unflags `-DTINYC_HOMEKIT`):
+  ```
+  pio run -e tinyc32c6-matter -t upload      # OTA/serial flash
+  ```
+- C6 has built-in USB-JTAG (see memory `jtag_watchpoint_debugging`) — a
+  `tinyc32c6-dbg` env exists for watchpoint debugging if a session-crypto
+  bug bites on-device.
+
+## 10. Open decisions
 
 - [ ] Which Xdrv slot is free in the fork for `USE_MATTER_C`?
 - [ ] Dev VID/PID for interop testing (test VID 0xFFF1–0xFFF4 + chosen PID).
