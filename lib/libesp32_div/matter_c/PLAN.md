@@ -216,9 +216,12 @@ is ~40% of total risk and effort.
        checks PASS vs Python refs (destinationId, ECDH agreement, S2K, S3K,
        I2R/R2I/Att). Constants verbatim from connectedhomeip. Host test
        `test/build_case.sh`.
-     - ⏭ Sigma1/2/3 message TLV + operational-cert (compact-TLV NOC) chain
-       verify — these need real chip-tool-generated certs, so they come with
-       the live integration step.
+     - ✅ **Sigma1/2/3 message TLV codecs** (`mtrc_case_msg`): Sigma1/2/3 +
+       TBEData + TBSData encode/decode (tags verbatim from connectedhomeip).
+       6 round-trip checks PASS (encrypted2/3 + NOC/ICAC treated as opaque
+       octet strings). Host test `test/build_case_msg.sh`.
+     - ⏭ operational-cert (compact-TLV NOC) parse + chain verify — needs
+       real chip-tool-generated certs, so it comes with live integration.
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 
@@ -231,6 +234,7 @@ bash lib/libesp32_div/matter_c/test/build_pase.sh   # PASE      -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_sec.sh    # AES-CCM   -> "PASS"
 bash lib/libesp32_div/matter_c/test/build_ec.sh     # ECDH/ECDSA-> "PASS"
 bash lib/libesp32_div/matter_c/test/build_case.sh   # CASE keys -> "PASS"
+bash lib/libesp32_div/matter_c/test/build_case_msg.sh # CASE msgs-> "PASS"
 ```
 
 ---
