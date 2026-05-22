@@ -2697,24 +2697,35 @@ static void HandleMatterQR(void) {
     return;
   }
 
-  // qrcode.js from CDN — the phone viewing this page has internet access.
+  // Render the QR as an SVG ON THE DEVICE — no CDN / JS / internet needed.
+  // Run-length rects per row keep each chunk small for WSContentSend.
+  WSContentSend_P(PSTR("<div style='text-align:center'><h2>Matter Pairing</h2>"));
+  int qn = matter_qr_size();
+  if (qn > 0) {
+    int q = 4, dim = qn + 2 * q;     // quiet zone
+    WSContentSend_P(PSTR("<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' "
+      "viewBox='0 0 %d %d' shape-rendering='crispEdges' style='background:#fff;padding:8px'>"
+      "<rect width='%d' height='%d' fill='#fff'/><g fill='#000'>"), dim, dim, dim, dim);
+    char row[640];
+    for (int y = 0; y < qn; y++) {
+      int p = 0; int x = 0;
+      while (x < qn) {
+        if (matter_qr_dark(x, y)) {
+          int w = 1; while (x + w < qn && matter_qr_dark(x + w, y)) w++;
+          if (p < (int)sizeof(row) - 48)
+            p += snprintf(row + p, sizeof(row) - p,
+                          "<rect x='%d' y='%d' width='%d' height='1'/>", x + q, y + q, w);
+          x += w;
+        } else x++;
+      }
+      if (p) WSContentSend_P(PSTR("%s"), row);
+    }
+    WSContentSend_P(PSTR("</g></svg>"));
+  }
   WSContentSend_P(PSTR(
-    "<div style='text-align:center'>"
-    "<h2>Matter Pairing</h2>"
-    "<div id='qr' style='display:inline-block;padding:8px;background:#fff'></div>"
     "<p style='font-size:24px;font-family:monospace;letter-spacing:4px'><b>%s</b></p>"
     "<p>Scan with the Apple Home / Google Home / Alexa app</p>"
-    "<p id='uri' style='font-size:10px;color:#888'></p>"
-    "</div>"
-    "<script src='https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'></script>"
-    "<script>"
-    "var u='%s';"
-    "document.getElementById('uri').textContent=u;"
-    "try{new QRCode(document.getElementById('qr'),{text:u,width:200,height:200,"
-    "correctLevel:QRCode.CorrectLevel.M});}catch(e){"
-    "document.getElementById('qr').innerHTML='<p>QR library failed: '+e.message+'</p>';}"
-    "</script>"
-  ), code, uri);
+    "<p style='font-size:10px;color:#888'>%s</p></div>"), code, uri);
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
 }

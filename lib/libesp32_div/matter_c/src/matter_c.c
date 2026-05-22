@@ -23,6 +23,7 @@
 #include "mtrc_case_msg.h"
 #include "mtrc_cert.h"
 #include "mtrc_csr.h"
+#include "qrcodegen.h"
 #ifdef MTRC_ATTEST_TEST_CREDS
 #include "mtrc_attest_creds.h"   // generated dev DAC/PAI/CD (gated; never ship)
 #endif
@@ -121,6 +122,11 @@ static uint8_t mtrc_verhoeff(const char *s) {
   return inv[c];
 }
 
+// QR module matrix for the onboarding payload, so the host can draw the code
+// itself (no external/CDN QR library). Encoded once from g.qr.
+static uint8_t g_qrbuf[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
+static int     g_qr_ok = 0;
+
 // Build the manual pairing code (11 digits) and the "MT:" QR string into g.
 static void mtrc_build_onboarding(void) {
   uint16_t disc = g.cfg.discriminator & 0x0FFF;
@@ -161,6 +167,16 @@ static void mtrc_build_onboarding(void) {
     for (int k = 0; k < nch; k++) { *o++ = B38[v % 38]; v /= 38; }
   }
   *o = '\0';
+
+  // Pre-render the QR module matrix so the host can draw it without a CDN.
+  static uint8_t tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
+  g_qr_ok = qrcodegen_encodeText(g.qr, tmp, g_qrbuf, qrcodegen_Ecc_MEDIUM,
+                                 qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
+}
+
+int matter_qr_size(void) { return g_qr_ok ? qrcodegen_getSize(g_qrbuf) : 0; }
+bool matter_qr_dark(int x, int y) {
+  return g_qr_ok ? qrcodegen_getModule(g_qrbuf, x, y) : false;
 }
 
 // Cluster ids used by the data model.

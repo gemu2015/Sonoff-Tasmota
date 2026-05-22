@@ -183,6 +183,12 @@ int          matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
 const char *matter_qr_uri(void);       // "MT:..." string for the QR code
 const char *matter_manual_code(void);  // "1234-567-8901" manual pairing code
 
+// QR matrix (rendered from matter_qr_uri) so a host can draw the code itself
+// without an external/CDN QR library. matter_qr_size() returns the modules per
+// side (0 if unavailable); matter_qr_dark(x,y) is true for a dark module.
+int  matter_qr_size(void);
+bool matter_qr_dark(int x, int y);
+
 // ---- Introspection -----------------------------------------------------
 const char *matter_version(void);      // MATTER_C_VERSION_STR
 bool        matter_is_commissioned(void);
