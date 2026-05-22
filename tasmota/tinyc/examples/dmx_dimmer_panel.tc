@@ -11,11 +11,20 @@
 //
 // Note: "@getfreepins" lists only GPIOs Tasmota currently has free
 // (the bound var holds the real GPIO number, or -1 = None).
+//
+// The default txpin below (17) is valid on classic ESP32/S3 but is a
+// flash pin on the ESP32-C3 (GPIO11-17 = SPI flash). Driving RMT onto a
+// flash pin crashes the chip immediately. So before every (re)init we
+// gate on pinFree(txpin) — a soft check (returns 1=free, 0=forbidden:
+// out-of-range / flash / claimed by a peripheral) that does NOT halt the
+// VM. A forbidden default just logs a hint and waits for the user to pick
+// a free pin from the pulldown, instead of taking the slot down on boot.
 
 int txpin = 17;   // DMX TX GPIO — set via the @getfreepins pulldown
 int chan  = 1;    // DMX channel  (webNumber 1..16)
 int val   = 0;    // DMX value    (webSlider 0..255)
 int curtx = -2;   // last-initialised pin (-2 = not yet)
+int dmxok = 0;    // 1 once dmxInit() succeeded on curtx
 
 void main() {
   webPageLabel(0, "DMX");   // adds a "DMX" button on the Tasmota main page
@@ -31,9 +40,16 @@ void WebUI() {
 void EverySecond() {
   if (txpin != curtx) {                 // pin changed → (re)init
     curtx = txpin;
+    dmxok = 0;
     if (txpin >= 0) {
-      if (dmxInit(txpin) == 0) { log("DMX init failed"); }
+      if (pinFree(txpin) == 0) {        // forbidden on this CPU (flash/range/claimed)
+        log("DMX: TX pin not allowed on this CPU — pick a free pin");
+      } else if (dmxInit(txpin) == 0) {
+        log("DMX init failed");
+      } else {
+        dmxok = 1;
+      }
     }
   }
-  if (txpin >= 0) { dmxWrite(chan, val); }   // push + feed watchdog
+  if (dmxok) { dmxWrite(chan, val); }   // push + feed watchdog (only when initialised)
 }
