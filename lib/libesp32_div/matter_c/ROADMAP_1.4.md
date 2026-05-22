@@ -113,8 +113,15 @@ Goal: controllers can browse + monitor the node like a real Matter device.
 ### Phase C — TinyC Matter scripting API  (the "with TinyC" goal)
 Goal: a `.tc` script defines the Matter device; the C core is generic.
 Mirrors the retired HomeKit pattern (`hkAdd`/`hkStart`/`HomeKitWrite`).
-- **C1 Data-model registry** in `matter_c`: dynamic endpoints/clusters/
-  attributes (not hardcoded), fed by the host.
+- **C1 Data-model registry** (`mtrc_dm`) — ✅ DONE (host-tested). Dynamic
+  endpoint/cluster/attribute tables (fixed-capacity, no malloc) replace the
+  hardcoded `attr_value()` if/else ladder. `matter_init` seeds root (BasicInfo
+  VID/PID) + a default OnOff plug endpoint; `matter_add_endpoint` attaches a
+  device-type's cluster set; `matter_set_attr` decodes a TLV scalar into the
+  registry; IM Read/Subscribe resolve values registry-first (live host
+  `on_attr_read` still wins). `test/build_dm.sh` (declare/get/set + change
+  detection, idempotency, capacity, enumeration). The B-phase clusters and the
+  Phase-C TinyC syscalls now build on this registry instead of hardcoding.
 - **C2 TinyC syscalls** (new `mtr*` builtins, append-only JMPTBL):
   - `matterAdd(deviceType)` → endpoint id
   - `matterCluster(ep, clusterId)` / `matterAttr(ep, cl, attrId, type)`

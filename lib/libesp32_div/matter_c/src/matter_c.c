@@ -16,6 +16,8 @@
 #include "mtrc_crypto.h"
 #include "mtrc_sec.h"
 #include "mtrc_im.h"
+#include "mtrc_dm.h"
+#include "mtrc_tlv.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -51,6 +53,7 @@ static struct {
   bool             pase_secure;       // true once cA verified
   uint32_t         sec_tx_counter;    // our secured-session message counter
   bool             onoff;             // OnOff attribute (endpoint relay state)
+  uint16_t         next_ep;           // next endpoint id handed out by add_endpoint
 
   // single attribute subscription (the report engine)
   bool             sub_active;
@@ -66,6 +69,47 @@ static void mlog(matter_log_level_t lvl, const char *msg) {
   if (g.port.log) g.port.log(g.port.ctx, lvl, msg);
 }
 
+// Cluster ids used by the data model.
+#define MTRC_CL_ONOFF       0x0006
+#define MTRC_CL_LEVEL       0x0008
+#define MTRC_CL_DESCRIPTOR  0x001D
+#define MTRC_CL_BASIC_INFO  0x0028
+#define MTRC_CL_TEMP_MEAS   0x0402
+#define MTRC_CL_HUM_MEAS    0x0405
+
+// Attach a device-type's default clusters/attributes to an endpoint. Keeps the
+// per-device-type mandatory set in one place so matter_add_endpoint and the
+// matter_init seed agree. (Subset; extended as Phase D clusters land.)
+static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
+  switch (dt) {
+    case MATTER_DEVTYPE_ON_OFF_PLUGIN:
+    case MATTER_DEVTYPE_ON_OFF_LIGHT:
+      mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
+                       MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
+      break;
+    case MATTER_DEVTYPE_DIMMABLE_LIGHT:
+      mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
+                       MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
+      mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0000, MTRC_DM_T_U8,
+                       MTRC_DM_F_WRITABLE, 0);   // CurrentLevel
+      break;
+    case MATTER_DEVTYPE_TEMP_SENSOR:
+      mtrc_dm_add_attr(ep, MTRC_CL_TEMP_MEAS, 0x0000, MTRC_DM_T_U16, 0, 0);
+      break;
+    case MATTER_DEVTYPE_HUMIDITY_SENSOR:
+      mtrc_dm_add_attr(ep, MTRC_CL_HUM_MEAS, 0x0000, MTRC_DM_T_U16, 0, 0);
+      break;
+    default: break;
+  }
+}
+
+// Seed endpoint 0 (root node): Basic Information VID/PID. Re-seedable.
+static void dm_seed_root(void) {
+  mtrc_dm_add_endpoint(0, 0x0016);   // Root Node device type
+  mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0002, MTRC_DM_T_U16, 0, g.cfg.vendor_id);
+  mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0004, MTRC_DM_T_U16, 0, g.cfg.product_id);
+}
+
 // ---- lifecycle ---------------------------------------------------------
 matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) {
   if (!port || !cfg) return MATTER_ERR_INVALID_ARG;
@@ -77,12 +121,20 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   g.port = *port;
   g.cfg  = *cfg;
   g.inited = true;
+  g.next_ep = 1;            // endpoint 0 is the root node
+
+  // Seed the data-model registry: root node + a default OnOff endpoint so the
+  // current relay device works out of the box. A TinyC script (Phase C) can
+  // matter_factory_reset() and rebuild a different model.
+  mtrc_dm_reset();
+  dm_seed_root();
+  matter_add_endpoint(MATTER_DEVTYPE_ON_OFF_PLUGIN);   // -> endpoint 1
 
   // TODO Phase 6: build real onboarding payload (Base38 + Verhoeff + TLV).
   g.qr[0] = '\0';
   g.manual[0] = '\0';
 
-  mlog(MATTER_LOG_INFO, "matter_c init (stub)");
+  mlog(MATTER_LOG_INFO, "matter_c init (data model seeded)");
   return MATTER_OK;
 }
 
@@ -263,11 +315,15 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
     g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
 }
 
-// Live value of an attribute: host's on_attr_read, else cache/config.
+// Live value of an attribute. Resolution order:
+//   1. host's on_attr_read (the firmware owns it, e.g. the real relay state),
+//   2. the data-model registry (script/host-pushed cache),
+//   3. legacy fallbacks (kept until every attribute is registered).
 static uint64_t attr_value(uint16_t ep, uint32_t cl, uint32_t attr) {
   uint64_t v = 0;
   if (g.port.on_attr_read &&
       g.port.on_attr_read(g.port.ctx, ep, cl, attr, &v) == MATTER_OK) return v;
+  if (mtrc_dm_get(ep, cl, attr, &v)) return v;
   if      (cl == 0x0006 && attr == 0x0000) v = g.onoff ? 1 : 0;
   else if (cl == 0x0028 && attr == 0x0002) v = g.cfg.vendor_id;
   else if (cl == 0x0028 && attr == 0x0004) v = g.cfg.product_id;
@@ -301,6 +357,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
       g.port.on_attr_write(g.port.ctx, ep, 0x0006, 0x0000, &action, 1);
     }
     g.onoff = (cmd == 0x02) ? !g.onoff : (cmd == 0x01);
+    mtrc_dm_set(ep, 0x0006, 0x0000, g.onoff ? 1 : 0);   // keep registry in sync
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
   }
   if (n < 0)
@@ -454,17 +511,37 @@ void matter_ble_rx(const void *buf, size_t len) {
 // ---- endpoints / attributes -------------------------------------------
 int matter_add_endpoint(uint32_t device_type_id) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
-  (void)device_type_id;
-  // TODO Phase 5: allocate endpoint, attach the device-type's cluster set.
-  return MATTER_ERR_NOT_IMPLEMENTED;
+  uint16_t ep = g.next_ep;
+  if (mtrc_dm_add_endpoint(ep, device_type_id) < 0) return MATTER_ERR_NO_MEM;
+  dm_attach_device_type(ep, device_type_id);
+  g.next_ep++;
+  return (int)ep;
+}
+
+// Decode a leading TLV scalar (uint/bool) into a u64. Returns 1 on success.
+static int tlv_scalar_u64(const uint8_t *tlv, size_t len, uint64_t *out) {
+  mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, tlv, len);
+  mtrc_tlv_elem e;
+  if (!mtrc_tlv_read(&r, &e)) return 0;
+  if (e.type == MTRC_TLV_UINT) { *out = e.u; return 1; }
+  if (e.type == MTRC_TLV_BOOL) { *out = e.u ? 1 : 0; return 1; }
+  return 0;
 }
 
 matter_err_t matter_set_attr(uint16_t endpoint, uint32_t cluster,
                              uint32_t attr, const uint8_t *tlv, size_t tlv_len) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
-  (void)endpoint; (void)cluster; (void)attr; (void)tlv; (void)tlv_len;
-  // TODO Phase 4: store value + emit subscription reports.
-  return MATTER_ERR_NOT_IMPLEMENTED;
+  if (!tlv || tlv_len == 0) return MATTER_ERR_INVALID_ARG;
+  uint64_t v;
+  if (!tlv_scalar_u64(tlv, tlv_len, &v)) return MATTER_ERR_INVALID_ARG;
+  // Auto-register the attribute if the host pushes a value before declaring it.
+  if (!mtrc_dm_find(endpoint, cluster, attr))
+    mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, v);
+  else
+    mtrc_dm_set(endpoint, cluster, attr, v);
+  // The subscription report engine in matter_loop() picks up the change on the
+  // next pump (it polls attr_value), so no immediate report is needed here.
+  return MATTER_OK;
 }
 
 // ---- onboarding + introspection ---------------------------------------
