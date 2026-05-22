@@ -96,8 +96,13 @@ int mtrc_dm_set(uint16_t endpoint, uint32_t cluster, uint32_t attr, uint64_t val
 // ---- enumeration (Descriptor cluster + wildcard reads) -----------------
 int  mtrc_dm_endpoint_count(void);
 const mtrc_dm_endpoint_t *mtrc_dm_endpoint_at(int i);
+int  mtrc_dm_cluster_count(void);
+const mtrc_dm_cluster_t  *mtrc_dm_cluster_at(int i);
 int  mtrc_dm_attr_count(void);
 const mtrc_dm_attr_t     *mtrc_dm_attr_at(int i);
+
+// Look up an endpoint's device type. Returns 1 + fills *out if found, else 0.
+int  mtrc_dm_endpoint_device_type(uint16_t endpoint, uint32_t *out);
 
 #ifdef __cplusplus
 }

@@ -69,7 +69,17 @@ int mtrc_dm_endpoint_count(void) { return dm.ep_n; }
 const mtrc_dm_endpoint_t *mtrc_dm_endpoint_at(int i) {
   return (i >= 0 && i < dm.ep_n) ? &dm.ep[i] : NULL;
 }
+int mtrc_dm_cluster_count(void) { return dm.cl_n; }
+const mtrc_dm_cluster_t *mtrc_dm_cluster_at(int i) {
+  return (i >= 0 && i < dm.cl_n) ? &dm.cl[i] : NULL;
+}
 int mtrc_dm_attr_count(void) { return dm.at_n; }
 const mtrc_dm_attr_t *mtrc_dm_attr_at(int i) {
   return (i >= 0 && i < dm.at_n) ? &dm.at[i] : NULL;
+}
+
+int mtrc_dm_endpoint_device_type(uint16_t endpoint, uint32_t *out) {
+  for (int i = 0; i < dm.ep_n; i++)
+    if (dm.ep[i].endpoint == endpoint) { if (out) *out = dm.ep[i].device_type; return 1; }
+  return 0;
 }

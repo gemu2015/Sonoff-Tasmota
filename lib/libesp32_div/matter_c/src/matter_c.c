@@ -103,9 +103,10 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
   }
 }
 
-// Seed endpoint 0 (root node): Basic Information VID/PID. Re-seedable.
+// Seed endpoint 0 (root node): Descriptor + Basic Information VID/PID.
 static void dm_seed_root(void) {
   mtrc_dm_add_endpoint(0, 0x0016);   // Root Node device type
+  mtrc_dm_add_cluster(0, MTRC_CL_DESCRIPTOR);   // mandatory on every endpoint
   mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0002, MTRC_DM_T_U16, 0, g.cfg.vendor_id);
   mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0004, MTRC_DM_T_U16, 0, g.cfg.product_id);
 }
@@ -380,9 +381,41 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
   }
 }
 
-// Handle a decrypted IM ReadRequest: report the requested attribute. P3/B1
-// supports OnOff (0x0006/0x0000 -> relay state) and a couple of Basic
-// Information attrs; everything else reports 0.
+// Build a Descriptor (0x001D) attribute report from the data-model registry:
+//   0x0000 DeviceTypeList, 0x0001 ServerList, 0x0002 ClientList (empty),
+//   0x0003 PartsList. Returns the encoded length, or -1.
+static int build_descriptor_report(uint8_t *out, size_t cap, uint32_t sub_id,
+                                   uint16_t ep, uint32_t attr) {
+  if (attr == 0x0000) {                              // DeviceTypeList
+    uint32_t dt = 0; mtrc_dm_endpoint_device_type(ep, &dt);
+    return mtrc_im_build_report_devtypelist(out, cap, sub_id, ep, 0x001D, attr, dt, 1);
+  }
+  if (attr == 0x0001) {                              // ServerList (clusters on ep)
+    uint32_t list[MTRC_DM_MAX_CLUSTERS]; int n = 0;
+    for (int i = 0; i < mtrc_dm_cluster_count(); i++) {
+      const mtrc_dm_cluster_t *c = mtrc_dm_cluster_at(i);
+      if (c && c->endpoint == ep && n < (int)(sizeof(list)/sizeof(list[0])))
+        list[n++] = c->cluster;
+    }
+    return mtrc_im_build_report_list_uint(out, cap, sub_id, ep, 0x001D, attr, list, n);
+  }
+  if (attr == 0x0003) {                              // PartsList (ep0: child eps)
+    uint32_t list[MTRC_DM_MAX_ENDPOINTS]; int n = 0;
+    if (ep == 0) {
+      for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
+        const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(i);
+        if (e && e->endpoint != 0 && n < (int)(sizeof(list)/sizeof(list[0])))
+          list[n++] = e->endpoint;
+      }
+    }
+    return mtrc_im_build_report_list_uint(out, cap, sub_id, ep, 0x001D, attr, list, n);
+  }
+  return mtrc_im_build_report_list_uint(out, cap, sub_id, ep, 0x001D, attr, NULL, 0);
+}
+
+// Handle a decrypted IM ReadRequest: report the requested attribute. Descriptor
+// (0x001D) lists come from the registry; OnOff (0x0006/0x0000 -> relay state)
+// and Basic Information are scalars; everything else reports 0.
 static void im_handle_read(const uint8_t *payload, size_t plen,
                            uint16_t exch, uint32_t ack) {
   uint16_t ep; uint32_t cl, attr;
@@ -392,8 +425,10 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
            (unsigned)ep, (unsigned)cl, (unsigned)attr);
   mlog(MATTER_LOG_INFO, m);
 
-  static uint8_t resp[160];
-  int n = mtrc_im_build_report_uint(resp, sizeof(resp), 0, ep, cl, attr,
+  static uint8_t resp[256];
+  int n = (cl == 0x001D)
+        ? build_descriptor_report(resp, sizeof(resp), 0, ep, attr)
+        : mtrc_im_build_report_uint(resp, sizeof(resp), 0, ep, cl, attr,
                                     attr_value(ep, cl, attr));
   if (n > 0) {
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack);
@@ -524,6 +559,7 @@ int matter_add_endpoint(uint32_t device_type_id) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   uint16_t ep = g.next_ep;
   if (mtrc_dm_add_endpoint(ep, device_type_id) < 0) return MATTER_ERR_NO_MEM;
+  mtrc_dm_add_cluster(ep, MTRC_CL_DESCRIPTOR);   // mandatory on every endpoint
   dm_attach_device_type(ep, device_type_id);
   g.next_ep++;
   return (int)ep;

@@ -60,6 +60,22 @@ int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
                               uint16_t endpoint, uint32_t cluster,
                               uint32_t attribute, uint64_t value);
 
+// Build a ReportDataMessage whose attribute value is an ARRAY of unsigned
+// ints (covers Descriptor ServerList / PartsList / ClientList — lists of
+// cluster or endpoint ids). Returns length, or -1.
+int mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_t sub_id,
+                                   uint16_t endpoint, uint32_t cluster,
+                                   uint32_t attribute,
+                                   const uint32_t *vals, int count);
+
+// Build a ReportDataMessage for the Descriptor DeviceTypeList attribute: an
+// array of DeviceTypeStruct{ 0:deviceType(u32), 1:revision(u16) }. Emits a
+// single entry. Returns length, or -1.
+int mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint32_t sub_id,
+                                     uint16_t endpoint, uint32_t cluster,
+                                     uint32_t attribute,
+                                     uint32_t device_type, uint16_t revision);
+
 // Parse a SubscribeRequest: first attribute path + MaxIntervalCeiling (ctx2).
 int mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
                             uint16_t *endpoint, uint32_t *cluster,

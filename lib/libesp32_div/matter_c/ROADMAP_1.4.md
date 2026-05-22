@@ -103,11 +103,18 @@ Goal: controllers can browse + monitor the node like a real Matter device.
   report received. Remaining: multi-attribute subscriptions, the
   StatusResponse handshake leg, keep-alive/resubscribe, multiple subs.
 - **B4 Access Control cluster (0x001F)** + ACL enforcement on every IM op.
-- **B5 Root-node mandatory clusters** on endpoint 0: Descriptor (0x001D),
-  Basic Information (0x0028), General Commissioning (0x0030, full),
-  Network Commissioning (0x0031, Wi-Fi/ethernet feature), General
-  Diagnostics (0x0033), Administrator Commissioning (0x003C), Operational
-  Credentials (0x003E), Group Key Management (0x003F).
+- **B5 Root-node mandatory clusters** on endpoint 0:
+  - ✅ **Descriptor (0x001D)** — DONE (device-verified). Built from the
+    registry on every endpoint: DeviceTypeList, ServerList (the endpoint's
+    clusters), ClientList (empty), PartsList (ep0 → child endpoints). New
+    `mtrc_im` list-report builders (array-of-uint + DeviceTypeStruct);
+    `test/build_im_list.sh` round-trips the TLV. Lets a controller browse the
+    node. Remaining: global attributes (AttributeList 0xFFFB, etc.) +
+    Descriptor over Subscribe.
+  - ⏭ Basic Information (0x0028, more attrs), General Commissioning (0x0030,
+    full), Network Commissioning (0x0031), General Diagnostics (0x0033),
+    Administrator Commissioning (0x003C), Operational Credentials (0x003E),
+    Group Key Management (0x003F).
 - **Exit**: passes the IM/data-model portions of the chip cert tests.
 
 ### Phase C — TinyC Matter scripting API  (the "with TinyC" goal)

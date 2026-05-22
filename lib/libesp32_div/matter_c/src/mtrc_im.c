@@ -106,6 +106,63 @@ int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
+// Shared opener: emit the ReportData envelope down to the AttributePathIB,
+// leaving the writer positioned to append the Data value. `w` is initialized.
+static void report_open(mtrc_tlv_writer *w, uint8_t *out, size_t cap, uint32_t sub_id,
+                        uint16_t endpoint, uint32_t cluster, uint32_t attribute) {
+  mtrc_tlv_writer_init(w, out, cap);
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // ReportDataMessage
+  if (sub_id) mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), sub_id);   // SubscriptionId
+  mtrc_tlv_start_array(w, mtrc_tlv_ctx(1));            // AttributeReports
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());           //  AttributeReportIB
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));           //   AttributeDataIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //    DataVersion
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));             //    AttributePathIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), endpoint);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cluster);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attribute);
+  mtrc_tlv_end_container(w);                           //    end path
+  // caller appends Data at ctx2 here
+}
+
+// Shared closer: end AttributeDataIB/ReportIB/array + interactionModelRevision.
+static int report_close(mtrc_tlv_writer *w) {
+  mtrc_tlv_end_container(w);                           //   end AttributeDataIB
+  mtrc_tlv_end_container(w);                           //  end AttributeReportIB
+  mtrc_tlv_end_container(w);                           // end AttributeReports
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0xFF), 1);         // interactionModelRevision
+  mtrc_tlv_end_container(w);                           // end message
+  return mtrc_tlv_writer_ok(w) ? (int)mtrc_tlv_writer_len(w) : -1;
+}
+
+int mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_t sub_id,
+                                   uint16_t endpoint, uint32_t cluster,
+                                   uint32_t attribute,
+                                   const uint32_t *vals, int count) {
+  mtrc_tlv_writer w;
+  report_open(&w, out, cap, sub_id, endpoint, cluster, attribute);
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(2));           //    Data = array
+  for (int i = 0; i < count; i++)
+    mtrc_tlv_put_uint(&w, mtrc_tlv_anon(), vals ? vals[i] : 0);
+  mtrc_tlv_end_container(&w);                          //    end array
+  return report_close(&w);
+}
+
+int mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint32_t sub_id,
+                                     uint16_t endpoint, uint32_t cluster,
+                                     uint32_t attribute,
+                                     uint32_t device_type, uint16_t revision) {
+  mtrc_tlv_writer w;
+  report_open(&w, out, cap, sub_id, endpoint, cluster, attribute);
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(2));           //    Data = array
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          //     DeviceTypeStruct
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), device_type); //      0: deviceType
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), revision);    //      1: revision
+  mtrc_tlv_end_container(&w);                          //     end struct
+  mtrc_tlv_end_container(&w);                          //    end array
+  return report_close(&w);
+}
+
 int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
                                   uint16_t endpoint, uint32_t cluster,
                                   uint32_t resp_command, uint8_t field0) {
