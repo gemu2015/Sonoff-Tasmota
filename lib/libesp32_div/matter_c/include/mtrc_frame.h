@@ -49,6 +49,9 @@ extern "C" {
 #define MTRC_SC_PASE_PAKE1           0x22
 #define MTRC_SC_PASE_PAKE2           0x23
 #define MTRC_SC_PASE_PAKE3           0x24
+#define MTRC_SC_CASE_SIGMA1          0x30
+#define MTRC_SC_CASE_SIGMA2          0x31
+#define MTRC_SC_CASE_SIGMA3          0x32
 #define MTRC_SC_STATUS_REPORT        0x40
 
 // Destination size field

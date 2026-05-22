@@ -18,6 +18,10 @@
 #include "mtrc_im.h"
 #include "mtrc_dm.h"
 #include "mtrc_tlv.h"
+#include "mtrc_store.h"
+#include "mtrc_case.h"
+#include "mtrc_case_msg.h"
+#include "mtrc_cert.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -54,6 +58,21 @@ static struct {
   uint32_t         sec_tx_counter;    // our secured-session message counter
   bool             onoff;             // OnOff attribute (endpoint relay state)
   uint16_t         next_ep;           // next endpoint id handed out by add_endpoint
+
+  // CASE responder state (operational session establishment)
+  uint8_t          case_phase;        // 0 idle, 1 sent-sigma2, 2 secure
+  uint8_t          case_fabric_index;
+  uint16_t         case_peer_sid;     // initiator (controller) session id
+  uint16_t         case_my_sid;       // our responder/operational session id
+  uint8_t          case_shared[32];   // ECDH shared secret
+  uint8_t          case_re_priv[32], case_re_pub[65];  // responder ephemeral
+  uint8_t          case_resp_random[32];
+  uint8_t          case_tt[1024];     // transcript: Sigma1[||Sigma2[||Sigma3]]
+  size_t           case_tt_len;       // total bytes in case_tt
+  size_t           case_len1;         // Sigma1 length (prefix for h1)
+  uint8_t          case_i2r[16], case_r2i[16], case_att[16];
+  bool             case_secure;
+  uint32_t         case_sec_tx_counter;
 
   // single attribute subscription (the report engine)
   bool             sub_active;
@@ -103,6 +122,29 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
   }
 }
 
+#ifdef MTRC_CASE_TEST_FABRIC
+// Pre-provision a fixed TEST fabric so the CASE responder can establish an
+// operational session before the real commissioning flow (A2/A3) exists. The
+// matching credentials live in the Python prover. Gated OFF by default — never
+// ship test keys; enable via -DMTRC_CASE_TEST_FABRIC for the device test only.
+static void case_seed_test_fabric(void) {
+  if (mtrc_store_count() > 0) return;
+  mtrc_fabric *f = mtrc_store_alloc();
+  if (!f) return;
+  f->fabric_id = 0x0000FAB000000001ULL;
+  f->node_id   = 0x1122334455667788ULL;
+  f->admin_vendor_id = 0xFFF1;
+  memset(f->ipk, 0xC5, 16);
+  uint8_t root_priv[32]; memset(root_priv, 0x07, 32);
+  mtrc_ec_pub_from_priv(f->root_pub, root_priv);
+  memset(f->op_priv, 0x11, 32);
+  mtrc_ec_pub_from_priv(f->op_pub, f->op_priv);
+  for (int i = 0; i < 48; i++) f->noc[i] = (uint8_t)(0x40 + i);
+  f->noc_len = 48;
+  mlog(MATTER_LOG_INFO, "CASE: seeded TEST fabric (do not ship)");
+}
+#endif
+
 // Seed endpoint 0 (root node): Descriptor + Basic Information VID/PID.
 static void dm_seed_root(void) {
   mtrc_dm_add_endpoint(0, 0x0016);   // Root Node device type
@@ -130,6 +172,13 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   mtrc_dm_reset();
   dm_seed_root();
   matter_add_endpoint(MATTER_DEVTYPE_ON_OFF_PLUGIN);   // -> endpoint 1
+
+  // Fabric table (operational credentials). Empty until commissioned (A2/A3);
+  // a fixed test fabric can be pre-provisioned for the CASE responder test.
+  mtrc_store_reset();
+#ifdef MTRC_CASE_TEST_FABRIC
+  case_seed_test_fabric();
+#endif
 
   // TODO Phase 6: build real onboarding payload (Base38 + Verhoeff + TLV).
   g.qr[0] = '\0';
@@ -295,6 +344,82 @@ static void pase_handle_pake3(const uint8_t *payload, size_t plen,
     g.pase_phase = 0;
     mlog(MATTER_LOG_ERROR, "PASE: cA MISMATCH -> StatusReport failure");
   }
+}
+
+// ---- CASE responder (operational session establishment) ----------------
+// Raw AES-CCM seal/open for the CASE TBE blobs: blob = ciphertext || tag,
+// AAD empty (Core Spec §4.13.2). Returns 1 on success.
+static int case_seal(const uint8_t key[16], const uint8_t nonce[13],
+                     const uint8_t *pt, size_t pt_len, uint8_t *out) {
+  memcpy(out, pt, pt_len);
+  return mtrc_aes_ccm_encrypt(key, nonce, 13, NULL, 0, out, pt_len, out + pt_len, 16);
+}
+
+// Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
+// NOC + a signature over TBSData2 with the operational key, send Sigma2.
+static void case_handle_sigma1(const uint8_t *pl, size_t pll,
+                               const mtrc_msg_header *mh) {
+  mtrc_sigma1 s1;
+  if (!mtrc_sigma1_decode(pl, pll, &s1)) return;
+
+  mtrc_fabric *f = NULL; uint8_t cand[32];
+  for (int i = 0; i < mtrc_store_count(); i++) {
+    mtrc_fabric *cf = mtrc_store_at(i);
+    mtrc_case_destination_id(cf->ipk, s1.initiator_random, cf->root_pub,
+                             cf->fabric_id, cf->node_id, cand);
+    if (memcmp(cand, s1.destination_id, 32) == 0) { f = cf; break; }
+  }
+  if (!f) { mlog(MATTER_LOG_ERROR, "CASE: no fabric matches destinationId"); return; }
+
+  g.case_fabric_index = f->fabric_index;
+  g.case_peer_sid = s1.initiator_session_id;
+  g.port.random_bytes(g.port.ctx, g.case_re_priv, 32);
+  if (!mtrc_ec_pub_from_priv(g.case_re_pub, g.case_re_priv)) return;
+  g.port.random_bytes(g.port.ctx, g.case_resp_random, 32);
+  uint16_t sid = 0; g.port.random_bytes(g.port.ctx, (uint8_t *)&sid, 2);
+  g.case_my_sid = sid ? sid : 2;
+  if (!mtrc_ecdh(g.case_shared, s1.initiator_eph_pub, g.case_re_priv)) return;
+
+  if (pll > sizeof(g.case_tt)) return;
+  memcpy(g.case_tt, pl, pll); g.case_tt_len = pll; g.case_len1 = pll;
+  uint8_t h1[32]; mtrc_sha256(g.case_tt, g.case_len1, h1);
+
+  uint8_t s2k[16];
+  if (!mtrc_case_s2k(g.case_shared, f->ipk, g.case_resp_random, g.case_re_pub, h1, s2k))
+    return;
+
+  static uint8_t tmp[600];
+  mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
+  tbs.noc = f->noc; tbs.noc_len = f->noc_len;
+  memcpy(tbs.sender_pub, g.case_re_pub, 65);
+  memcpy(tbs.receiver_pub, s1.initiator_eph_pub, 65);
+  int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
+  if (nt < 0) return;
+  uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
+
+  mtrc_case_tbe tbe; memset(&tbe, 0, sizeof(tbe));
+  tbe.noc = f->noc; tbe.noc_len = f->noc_len;
+  if (!mtrc_ecdsa_sign(tbe.signature, ht, f->op_priv)) return;
+  int ne = mtrc_case_tbe_encode(tmp, sizeof(tmp), &tbe);
+  if (ne < 0) return;
+
+  static uint8_t enc2[700];
+  if (!case_seal(s2k, MTRC_CASE_NONCE_SIGMA2, tmp, (size_t)ne, enc2)) return;
+
+  mtrc_sigma2 s2; memset(&s2, 0, sizeof(s2));
+  memcpy(s2.responder_random, g.case_resp_random, 32);
+  s2.responder_session_id = g.case_my_sid;
+  memcpy(s2.responder_eph_pub, g.case_re_pub, 65);
+  s2.encrypted2 = enc2; s2.encrypted2_len = (size_t)ne + 16;
+  static uint8_t s2buf[800];
+  int n2 = mtrc_sigma2_encode(s2buf, sizeof(s2buf), &s2);
+  if (n2 < 0) return;
+  if (g.case_tt_len + (size_t)n2 <= sizeof(g.case_tt)) {
+    memcpy(g.case_tt + g.case_tt_len, s2buf, n2); g.case_tt_len += (size_t)n2;
+  }
+  pase_send(MTRC_SC_CASE_SIGMA2, s2buf, (size_t)n2, true, mh->msg_counter, true);
+  g.case_phase = 1;
+  mlog(MATTER_LOG_INFO, "CASE: Sigma2 sent (responder authenticated)");
 }
 
 // Send an encrypted message back to the commissioner on the secured PASE
@@ -511,6 +636,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
     case MTRC_SC_PBKDF_PARAM_REQ: pase_handle_param_req(pl, pll, &mh); break;
     case MTRC_SC_PASE_PAKE1:      pase_handle_pake1(pl, pll, &mh);     break;
     case MTRC_SC_PASE_PAKE3:      pase_handle_pake3(pl, pll, &mh);     break;
+    case MTRC_SC_CASE_SIGMA1:     case_handle_sigma1(pl, pll, &mh);    break;
     default: break;
   }
 }

@@ -94,10 +94,18 @@ on an operational CASE session.
     Sigma2 (TBE seal + TBS sign) → S3K → Sigma3 → mutual ECDSA verify → both
     sides derive identical I2R/R2I/Att; an operational message round-trips
     (26 checks). The protocol/key-schedule risk is retired.
-  - ⏭ Wire the responder into matter_c (Sigma1→Sigma2→Sigma3 state machine on
-    a pre-provisioned test fabric), extend the prover into a CASE initiator,
-    device-verify. Then peer-NOC chain verify (A1b), operational mDNS advert
-    (`_matter._tcp`).
+  - ✅ **Sigma1 → Sigma2 on the device** — DONE (device-verified on C6). New
+    SC opcodes (Sigma1=0x30/2=0x31/3=0x32); `case_handle_sigma1` matches the
+    initiator's destinationId to a stored fabric (`mtrc_store`), does ECDH,
+    derives S2K, signs TBSData2 with the operational key, seals TBEData2, sends
+    Sigma2. A fixed test fabric is pre-provisioned behind `-DMTRC_CASE_TEST_FABRIC`
+    (off by default — no creds ship). The prover, extended into a CASE
+    initiator, sends Sigma1 and confirms: S2K agreed, TBE2 opened, device
+    signature valid → responder authenticated.
+  - ⏭ **Sigma3 → operational session** (A5.2b): decrypt TBEData3, parse the
+    initiator NOC (A1a) + verify its sig, derive I2R/R2I/Att, run an encrypted
+    IM read over the CASE session. Then peer-NOC chain verify (A1b),
+    operational mDNS advert (`_matter._tcp`).
 - **Exit**: chip-tool pairs and reads Basic Information over CASE.
 
 ### Phase B — Core data model (Read/Write/Subscribe + mandatory clusters)
