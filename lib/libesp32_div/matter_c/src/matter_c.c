@@ -15,6 +15,7 @@
 #include "mtrc_spake2p.h"
 #include "mtrc_crypto.h"
 #include "mtrc_sec.h"
+#include "mtrc_im.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -48,6 +49,7 @@ static struct {
   uint8_t          cA_expected[32];   // prover confirmation we expect in Pake3
   uint8_t          i2r[16], r2i[16], att[16];   // PASE session keys (on success)
   bool             pase_secure;       // true once cA verified
+  uint32_t         sec_tx_counter;    // our secured-session message counter
 } g;
 
 static void mlog(matter_log_level_t lvl, const char *msg) {
@@ -232,9 +234,58 @@ static void pase_handle_pake3(const uint8_t *payload, size_t plen,
   }
 }
 
+// Send an encrypted message back to the commissioner on the secured PASE
+// session: R2I key, our session-id assigned to the peer, our secured counter,
+// acking the inbound message.
+static void secured_send(uint8_t opcode, uint16_t protocol_id,
+                         const uint8_t *payload, size_t plen,
+                         uint16_t exch, uint32_t ack_counter) {
+  mtrc_msg_header mh; memset(&mh, 0, sizeof(mh));
+  mh.session_id = g.peer_session_id; mh.session_type = 0;
+  mh.msg_counter = ++g.sec_tx_counter;
+  mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
+  ph.initiator = false; ph.ack = true; ph.ack_counter = ack_counter;
+  ph.reliability = true; ph.opcode = opcode; ph.exchange_id = exch;
+  ph.protocol_id = protocol_id;
+  static uint8_t out[1280];
+  int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g.r2i);
+  if (n > 0 && g.port.udp_send)
+    g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
+}
+
+// Handle a decrypted IM InvokeRequest. P3b.1 answers the General
+// Commissioning commands ({errorCode, debugText}); anything else gets an
+// UNSUPPORTED_COMMAND status.
+static void im_handle_invoke(const uint8_t *payload, size_t plen,
+                             uint16_t exch, uint32_t ack) {
+  uint16_t ep; uint32_t cl, cmd;
+  if (!mtrc_im_parse_first_command(payload, plen, &ep, &cl, &cmd)) return;
+  char m[80];
+  snprintf(m, sizeof(m), "IM Invoke ep=%u cluster=0x%04X cmd=0x%02X",
+           (unsigned)ep, (unsigned)cl, (unsigned)cmd);
+  mlog(MATTER_LOG_INFO, m);
+
+  static uint8_t resp[256];
+  int n = -1;
+  if (cl == 0x0030) {                 // General Commissioning
+    uint32_t rc = 0xFFFFFFFF;
+    if      (cmd == 0x00) rc = 0x01;  // ArmFailSafe -> ArmFailSafeResponse
+    else if (cmd == 0x02) rc = 0x03;  // SetRegulatoryConfig -> Response
+    else if (cmd == 0x04) rc = 0x05;  // CommissioningComplete -> Response
+    if (rc != 0xFFFFFFFF)
+      n = mtrc_im_build_cmd_response_u8(resp, sizeof(resp), ep, cl, rc, 0); // errorCode OK
+  }
+  if (n < 0)
+    n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x81); // UNSUPPORTED_COMMAND
+
+  if (n > 0) {
+    secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, ack);
+    mlog(MATTER_LOG_INFO, "IM InvokeResponse sent");
+  }
+}
+
 // A message arrived on the established PASE secure session: decrypt with the
-// I2R key (initiator->responder), then parse the inner protocol header + IM
-// payload. (Processing the commissioning IM is the next milestone.)
+// I2R key, parse the inner protocol header, dispatch the IM.
 static void secured_dispatch(const uint8_t *buf, size_t len) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
@@ -243,12 +294,14 @@ static void secured_dispatch(const uint8_t *buf, size_t len) {
     mlog(MATTER_LOG_ERROR, "secured rx: MIC/decrypt failed");
     return;
   }
-  char m[96];
-  snprintf(m, sizeof(m), "secured rx OK: proto=0x%04X op=0x%02X exch=%u pl=%u",
-           (unsigned)ph.protocol_id, (unsigned)ph.opcode,
-           (unsigned)ph.exchange_id, (unsigned)ipll);
-  mlog(MATTER_LOG_INFO, m);
-  // TODO P3b: IM dispatch (ArmFailSafe / AddNOC / ... -> InvokeResponse).
+  if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_INVOKE_REQUEST) {
+    im_handle_invoke(ipl, ipll, ph.exchange_id, mh.msg_counter);
+  } else {
+    char m[80];
+    snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",
+             (unsigned)ph.protocol_id, (unsigned)ph.opcode);
+    mlog(MATTER_LOG_INFO, m);
+  }
 }
 
 static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {

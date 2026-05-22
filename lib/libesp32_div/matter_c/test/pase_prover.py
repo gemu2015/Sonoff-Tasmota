@@ -115,19 +115,51 @@ ok = (op==0x40 and gen==0)
 print("3) StatusReport op=0x%02X GeneralCode=%d (%s)" % (op, gen, "SUCCESS" if ok else "FAIL"))
 print("==> PASE handshake %s" % ("PASS — session established" if ok else "FAILED"))
 
-# ---- 4) Secured-session probe: send an encrypted IM msg with the PASE keys ----
-if ok and len(sys.argv) > 2 and sys.argv[2] == "secured":
+# ---- 4) Commissioning IM over the secured session: ArmFailSafe round-trip ----
+if ok and len(sys.argv) > 2 and sys.argv[2] in ("secured", "commission"):
     from cryptography.hazmat.primitives.ciphers.aead import AESCCM
     rsid = struct.unpack('<H', resp_payload[ resp_payload.find(b'\x25\x03')+2 :
                                              resp_payload.find(b'\x25\x03')+4 ])[0]
     sek = hkdf(Ke, b'', b'SessionKeys', 48)
-    I2R = sek[:16]
-    # inner: protocol header (IM, InvokeRequest op 0x08) + tiny IM payload
-    inner = bytes([0x05, 0x08]) + struct.pack('<H',2) + struct.pack('<H',0x0001) + b'\x15\x18'
-    ctr = 1
-    mhdr = b'\x00' + struct.pack('<H', rsid) + b'\x00' + struct.pack('<I', ctr)
-    nonce = b'\x00' + struct.pack('<I', ctr) + struct.pack('<Q', 0)   # secflags|ctr|srcNode(0)
-    ct = AESCCM(I2R, tag_length=16).encrypt(nonce, inner, mhdr)       # ct||tag
+    I2R, R2I = sek[:16], sek[16:32]
+    init_sid = 0x1111            # we advertised this as initiatorSessionId
+
+    def u16(t,v): return bytes([0x25,t])+struct.pack('<H',v)
+    def u32(t,v): return bytes([0x26,t])+struct.pack('<I',v)
+    def u64(t,v): return bytes([0x27,t])+struct.pack('<Q',v)
+    def u8(t,v):  return bytes([0x24,t,v&0xff])
+    def b0(t):    return bytes([0x28,t])      # bool false
+    # ArmFailSafe (cluster 0x30 cmd 0x00) InvokeRequest
+    path  = bytes([0x37,0x00]) + u16(0,0) + u32(1,0x30) + u32(2,0x00) + b'\x18'  # CommandPath list
+    flds  = bytes([0x35,0x01]) + u16(0,60) + u64(1,0)   + b'\x18'               # {expiry,breadcrumb}
+    cdata = b'\x15' + path + flds + b'\x18'                                     # CommandDataIB
+    inv   = bytes([0x36,0x02]) + cdata + b'\x18'                                # InvokeRequests array
+    msg   = b'\x15' + b0(0) + b0(1) + inv + u8(0xFF,1) + b'\x18'                # InvokeRequestMessage
+
+    sctr = 1
+    proto = bytes([0x05, 0x08]) + struct.pack('<H',2) + struct.pack('<H',0x0001)  # IM InvokeRequest, exch 2
+    mhdr  = b'\x00' + struct.pack('<H', rsid) + b'\x00' + struct.pack('<I', sctr)
+    nonce = b'\x00' + struct.pack('<I', sctr) + struct.pack('<Q', 0)
+    ct = AESCCM(I2R, tag_length=16).encrypt(nonce, proto+msg, mhdr)
     s.sendto(mhdr + ct, (DEV, 5540))
-    print("4) sent encrypted IM (session=0x%04X, I2R) — check device weblog for 'secured rx OK'" % rsid)
+    print("4) sent ArmFailSafe InvokeRequest (encrypted I2R)")
+    try:
+        r,_ = s.recvfrom(2048)
+        sf = r[3]; dctr2 = struct.unpack('<I', r[4:8])[0]
+        non = bytes([sf]) + struct.pack('<I',dctr2) + struct.pack('<Q',0)
+        pt = AESCCM(R2I, tag_length=16).decrypt(non, r[8:], r[0:8])
+        xf=pt[0]; op=pt[1]; o=6
+        if xf&0x10:o+=2
+        if xf&0x02:o+=4
+        body = pt[o:]
+        # device encodes path ids minimal-width (u8): cluster 0x30 -> 24 01 30,
+        # ArmFailSafeResponse cmd 0x01 -> 24 02 01.
+        has_resp = (b'\x24\x01\x30' in body) and (b'\x24\x02\x01' in body)
+        print("   decrypted InvokeResponse op=0x%02X  ArmFailSafeResponse=%s"
+              % (op, "yes" if (op==0x09 and has_resp) else "NO"))
+        print("\n==> COMMISSIONING IM %s" %
+              ("PASS — ArmFailSafe answered over secure session"
+               if (op==0x09 and has_resp) else "FAILED"))
+    except socket.timeout:
+        print("   NO RESPONSE (timeout)")
 s.close()

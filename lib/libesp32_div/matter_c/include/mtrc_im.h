@@ -1,0 +1,62 @@
+// mtrc_im.h — Matter Interaction Model (subset) for matter_c.
+//
+// Just enough of the IM (Core Spec §10) to drive commissioning:
+// parse an InvokeRequest's first command path, and build InvokeResponses
+// (a command response, or a status). Protocol id = 0x0001 (IM).
+//
+//   InvokeRequestMessage = struct {
+//     0:suppressResponse(bool) 1:timedRequest(bool)
+//     2:InvokeRequests = array[ CommandDataIB struct {
+//          0:CommandPath = list{0:endpoint 1:cluster 2:command}
+//          1:CommandFields = struct{...} } ]
+//     0xFF:interactionModelRevision(u8) }
+//   InvokeResponseMessage = struct {
+//     0:suppressResponse(bool)
+//     1:InvokeResponses = array[ InvokeResponseIB struct {
+//          0:command = CommandDataIB{ 0:CommandPath list, 1:CommandFields }
+//          | 1:status = CommandStatusIB{ 0:CommandPath, 1:StatusIB{0:status} } } ]
+//     0xFF:interactionModelRevision(u8) }
+//
+// GPLv3. Implemented from the Matter spec.
+
+#ifndef MTRC_IM_H
+#define MTRC_IM_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// IM protocol opcodes (Core Spec §4.4.3 / §10)
+#define MTRC_IM_STATUS_RESPONSE   0x01
+#define MTRC_IM_READ_REQUEST      0x02
+#define MTRC_IM_REPORT_DATA       0x05
+#define MTRC_IM_INVOKE_REQUEST    0x08
+#define MTRC_IM_INVOKE_RESPONSE   0x09
+
+// Parse the first command path out of an InvokeRequest payload.
+// Returns 1 and fills endpoint/cluster/command, or 0.
+int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
+                                uint16_t *endpoint, uint32_t *cluster,
+                                uint32_t *command);
+
+// Build an InvokeResponseMessage carrying a single command response whose
+// fields are { 0: status_field0 (u8), 1: "" } — the shape of the General
+// Commissioning *Response commands ({errorCode, debugText}). Returns length.
+int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
+                                  uint16_t endpoint, uint32_t cluster,
+                                  uint32_t resp_command, uint8_t field0);
+
+// Build an InvokeResponseMessage carrying a CommandStatusIB (status only),
+// e.g. for unsupported commands. `status` is the IM StatusIB status code.
+int mtrc_im_build_status(uint8_t *out, size_t cap,
+                         uint16_t endpoint, uint32_t cluster, uint32_t command,
+                         uint8_t status);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // MTRC_IM_H

@@ -254,11 +254,19 @@ is ~40% of total risk and effort.
      AES-CCM-encrypted IM InvokeRequest with the derived I2R key →
      `secured rx OK: proto=0x0001 op=0x08`. Confirms the PASE session keys +
      nonce/AAD interoperate on-device. `test/pase_prover.py <ip> secured`.
-   - ⏭ **P3b commissioning IM** — process the InvokeRequests (General
-     Commissioning: ArmFailSafe/SetRegulatoryConfig/CommissioningComplete;
-     Node Operational Credentials: CSRRequest/AddTrustedRoot/AddNOC) and
-     send encrypted InvokeResponses. Needs the IM codec + operational-cert
-     handling (now feedable with real chip-tool certs).
+   - ⏳ **P3b commissioning IM** — IN PROGRESS. `mtrc_im` codec (parse
+     InvokeRequest first command path; build InvokeResponse command/status).
+     secured_dispatch → im_handle_invoke; secured_send encrypts replies (R2I).
+     - ✅ **P3b.1 General Commissioning** — LIVE ON C6. ArmFailSafe (and
+       SetRegulatoryConfig/CommissioningComplete) answered with
+       {errorCode=0}; unknown cmd → UNSUPPORTED_COMMAND status. Verified
+       end-to-end: prover `commission` mode sends an encrypted ArmFailSafe
+       InvokeRequest → device replies a decryptable ArmFailSafeResponse.
+       Both directions of the secure channel + the IM codec work on-device.
+     - ⏭ **P3b.2 Node Operational Credentials** — AttestationRequest,
+       CSRRequest (generate operational keypair + NOCSR), AddTrustedRoot,
+       AddNOC (store the compact-TLV NOC chain). This needs the operational-
+       cert codec (the last hard piece) + device attestation (test DAC).
    - ⏭ **3e fabric store** · **3f OnOff endpoint + IM invoke**.
      Exit: chip-tool `pairing onnetwork` over IP toggles a relay (no BLE).
 
