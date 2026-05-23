@@ -34,8 +34,16 @@ def copy_reference() -> None:
         if not src.exists():
             print(f"  skip: {src} not found", file=sys.stderr)
             continue
+        text = src.read_text(encoding="utf-8")
+        # Rewrite cross-document markdown links to their built page names so
+        # `mkdocs build --strict` resolves them. The source files keep the
+        # repo-relative names (e.g. TinyC_Reference.md) so links also work when
+        # browsing the docs directly on GitHub. Only link targets `](name)` are
+        # rewritten — code spans like `TinyC_Reference.md` are left intact.
+        for a, b in mapping.items():
+            text = text.replace(f"]({a})", f"]({b})")
         dst = DOCS / dst_name
-        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        dst.write_text(text, encoding="utf-8")
         print(f"  {src.relative_to(ROOT)} -> {dst.relative_to(ROOT)}")
 
 
