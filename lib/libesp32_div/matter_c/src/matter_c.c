@@ -272,6 +272,16 @@ static void dm_seed_root(void) {
   mtrc_dm_add_cluster(0, MTRC_CL_DESCRIPTOR);   // mandatory on every endpoint
   mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0002, MTRC_DM_T_U16, 0, g.cfg.vendor_id);
   mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0004, MTRC_DM_T_U16, 0, g.cfg.product_id);
+  // Mandatory root-node clusters (read attributes served by emit_root_attr).
+  // Registering them puts them in the Descriptor ServerList and the wildcard
+  // enumeration; their values are synthetic / fabric-scoped (not registry attrs).
+  mtrc_dm_add_cluster(0, 0x0030);   // General Commissioning
+  mtrc_dm_add_cluster(0, 0x0031);   // Network Commissioning
+  mtrc_dm_add_cluster(0, 0x0033);   // General Diagnostics
+  mtrc_dm_add_cluster(0, 0x003C);   // Administrator Commissioning
+  mtrc_dm_add_cluster(0, 0x003E);   // Operational Credentials
+  mtrc_dm_add_cluster(0, 0x003F);   // Group Key Management
+  mtrc_dm_add_cluster(0, 0x001F);   // Access Control
 }
 
 // ---- fabric persistence (kv) -------------------------------------------
@@ -1313,17 +1323,191 @@ static void emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) 
 // everything else comes from the data-model registry.
 static int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) {
   int n = 0;
-  if (cl == 0x001D) { static const uint32_t a[]={0,1,2,3};
-    for (unsigned i=0;i<4 && n<cap;i++) out[n++]=a[i]; return n; }
-  if (cl == 0x0030 && ep==0) { static const uint32_t a[]={0,1,2,3,4,5};
-    for (unsigned i=0;i<6 && n<cap;i++) out[n++]=a[i]; return n; }
-  if (cl == 0x0028 && ep==0) { static const uint32_t a[]={0x0000,0x0002,0x0004};
-    for (unsigned i=0;i<3 && n<cap;i++) out[n++]=a[i]; return n; }
-  for (int i=0;i<mtrc_dm_attr_count();i++) {
+  #define CFA_LIST(...) do { static const uint32_t a[]={__VA_ARGS__}; \
+    for (unsigned i=0;i<sizeof(a)/sizeof(a[0]) && n<cap;i++) out[n++]=a[i]; return n; } while(0)
+  if (cl == 0x001D) CFA_LIST(0,1,2,3);                                  // Descriptor
+  if (ep == 0) switch (cl) {                                            // root-node clusters
+    case 0x0028: CFA_LIST(0,1,2,3,4,5,6,7,8,9,0x0A,0x0F,0x11,0x12,0x13,0x15,0x16); // Basic Information
+    case 0x0030: CFA_LIST(0,1,2,3,4);                                   // General Commissioning
+    case 0x0031: CFA_LIST(3,4);                                         // Network Commissioning
+    case 0x0033: CFA_LIST(0,1,2,8);                                     // General Diagnostics
+    case 0x003C: CFA_LIST(0,1,2);                                       // Administrator Commissioning
+    case 0x003E: CFA_LIST(0,1,2,3,4,5);                                 // Operational Credentials
+    case 0x003F: CFA_LIST(0,1,2,3);                                     // Group Key Management
+    case 0x001F: CFA_LIST(0,2,3,4);                                     // Access Control
+    default: break;
+  }
+  #undef CFA_LIST
+  for (int i=0;i<mtrc_dm_attr_count();i++) {                            // registry (app clusters)
     const mtrc_dm_attr_t *a = mtrc_dm_attr_at(i);
     if (a && a->endpoint==ep && a->cluster==cl && n<cap) out[n++]=a->attr;
   }
   return n;
+}
+
+// AttributeReportIB header up to (not incl.) the Data field at context tag 2.
+static void frag_open(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());            // AttributeReportIB
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));            //  AttributeDataIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //   DataVersion
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));             //   AttributePathIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
+  mtrc_tlv_end_container(w);                            //   end path
+}
+static void frag_close(mtrc_tlv_writer *w) {
+  mtrc_tlv_end_container(w);                            //  end AttributeDataIB
+  mtrc_tlv_end_container(w);                            // end AttributeReportIB
+}
+static void emit_attr_report_str(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+                                 uint32_t attr, const char *s) {
+  frag_open(w, ep, cl, attr);
+  mtrc_tlv_put_utf8(w, mtrc_tlv_ctx(2), (const uint8_t *)s, s ? strlen(s) : 0);
+  frag_close(w);
+}
+static void emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+                                  uint32_t attr, bool b) {
+  frag_open(w, ep, cl, attr);
+  mtrc_tlv_put_bool(w, mtrc_tlv_ctx(2), b);
+  frag_close(w);
+}
+
+// Root-node (endpoint 0) cluster attribute reads that controllers (Apple Home /
+// Home Assistant) require to validate the node: Basic Information, General
+// Commissioning, Network Commissioning, General Diagnostics, Administrator
+// Commissioning, Operational Credentials (fabric-scoped lists from mtrc_store),
+// Group Key Management and Access Control. Modeled on Berry Matter_Plugin_1_Root.
+static void emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
+  const uint16_t ep = 0;
+  static const char *UNIQUE_ID = "TASMOTA-MATTER-C6-0001";
+  if (cl == 0x0028) {                                   // Basic Information
+    switch (attr) {
+      case 0x0000: emit_attr_report_uint(w,ep,cl,attr,18); return;            // DataModelRevision
+      case 0x0001: emit_attr_report_str (w,ep,cl,attr,"Tasmota"); return;     // VendorName
+      case 0x0002: emit_attr_report_uint(w,ep,cl,attr,g.cfg.vendor_id); return;
+      case 0x0003: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:"ESP32-C6"); return; // ProductName
+      case 0x0004: emit_attr_report_uint(w,ep,cl,attr,g.cfg.product_id); return;
+      case 0x0005: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:"ESP32-C6"); return; // NodeLabel
+      case 0x0006: emit_attr_report_str (w,ep,cl,attr,"XX"); return;          // Location
+      case 0x0007: emit_attr_report_uint(w,ep,cl,attr,0); return;             // HardwareVersion
+      case 0x0008: emit_attr_report_str (w,ep,cl,attr,"ESP32-C6"); return;    // HardwareVersionString
+      case 0x0009: emit_attr_report_uint(w,ep,cl,attr,1); return;             // SoftwareVersion
+      case 0x000A: emit_attr_report_str (w,ep,cl,attr,"1.0"); return;         // SoftwareVersionString
+      case 0x000F: emit_attr_report_str (w,ep,cl,attr,UNIQUE_ID); return;     // SerialNumber
+      case 0x0011: emit_attr_report_bool(w,ep,cl,attr,true); return;          // Reachable
+      case 0x0012: emit_attr_report_str (w,ep,cl,attr,UNIQUE_ID); return;     // UniqueID
+      case 0x0013: frag_open(w,ep,cl,attr);                                   // CapabilityMinima
+        mtrc_tlv_start_struct(w, mtrc_tlv_ctx(2));
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 3);        // CaseSessionsPerFabric
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 3);        // SubscriptionsPerFabric
+        mtrc_tlv_end_container(w); frag_close(w); return;
+      case 0x0015: emit_attr_report_uint(w,ep,cl,attr,0x01040100); return;    // SpecificationVersion
+      case 0x0016: emit_attr_report_uint(w,ep,cl,attr,1); return;             // MaxPathsPerInvoke
+    }
+    return;
+  }
+  if (cl == 0x0030) {                                   // General Commissioning
+    switch (attr) {
+      case 0x0000: emit_attr_report_uint(w,ep,cl,attr,g.breadcrumb); return;  // Breadcrumb
+      case 0x0001: frag_open(w,ep,cl,attr);                                   // BasicCommissioningInfo
+        mtrc_tlv_start_struct(w, mtrc_tlv_ctx(2));
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 60);
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 900);
+        mtrc_tlv_end_container(w); frag_close(w); return;
+      case 0x0002: emit_attr_report_uint(w,ep,cl,attr,0); return;             // RegulatoryConfig
+      case 0x0003: emit_attr_report_uint(w,ep,cl,attr,0); return;             // LocationCapability
+      case 0x0004: emit_attr_report_bool(w,ep,cl,attr,true); return;          // SupportsConcurrentConnection
+    }
+    return;
+  }
+  if (cl == 0x0031) {                                   // Network Commissioning
+    switch (attr) {
+      case 0x0003: emit_attr_report_uint(w,ep,cl,attr,30); return;            // ConnectMaxTimeSeconds
+      case 0x0004: emit_attr_report_bool(w,ep,cl,attr,true); return;          // InterfaceEnabled
+    }
+    return;
+  }
+  if (cl == 0x0033) {                                   // General Diagnostics
+    switch (attr) {
+      case 0x0000: frag_open(w,ep,cl,attr);                                   // NetworkInterfaces (empty)
+        mtrc_tlv_start_array(w, mtrc_tlv_ctx(2)); mtrc_tlv_end_container(w);
+        frag_close(w); return;
+      case 0x0001: emit_attr_report_uint(w,ep,cl,attr,1); return;             // RebootCount
+      case 0x0002: emit_attr_report_uint(w,ep,cl,attr,
+                     g.port.millis ? g.port.millis(g.port.ctx)/1000 : 0); return; // UpTime
+      case 0x0008: emit_attr_report_bool(w,ep,cl,attr,false); return;         // TestEventTriggersEnabled
+    }
+    return;
+  }
+  if (cl == 0x003C) {                                   // Administrator Commissioning
+    switch (attr) {
+      case 0x0000: emit_attr_report_uint(w,ep,cl,attr, g.commissionable?1:0); return; // WindowStatus
+      case 0x0001: frag_open(w,ep,cl,attr); mtrc_tlv_put_null(w,mtrc_tlv_ctx(2)); frag_close(w); return; // AdminFabricIndex
+      case 0x0002: frag_open(w,ep,cl,attr); mtrc_tlv_put_null(w,mtrc_tlv_ctx(2)); frag_close(w); return; // AdminVendorId
+    }
+    return;
+  }
+  if (cl == 0x003F) {                                   // Group Key Management
+    switch (attr) {
+      case 0x0000: frag_open(w,ep,cl,attr); mtrc_tlv_start_array(w,mtrc_tlv_ctx(2)); mtrc_tlv_end_container(w); frag_close(w); return; // GroupKeyMap
+      case 0x0001: frag_open(w,ep,cl,attr); mtrc_tlv_start_array(w,mtrc_tlv_ctx(2)); mtrc_tlv_end_container(w); frag_close(w); return; // GroupTable
+      case 0x0002: emit_attr_report_uint(w,ep,cl,attr,1); return;             // MaxGroupsPerFabric
+      case 0x0003: emit_attr_report_uint(w,ep,cl,attr,1); return;             // MaxGroupKeysPerFabric
+    }
+    return;
+  }
+  if (cl == 0x001F) {                                   // Access Control
+    switch (attr) {
+      case 0x0000: frag_open(w,ep,cl,attr); mtrc_tlv_start_array(w,mtrc_tlv_ctx(2)); mtrc_tlv_end_container(w); frag_close(w); return; // ACL (managed internally)
+      case 0x0002: emit_attr_report_uint(w,ep,cl,attr,4); return;             // SubjectsPerAccessControlEntry
+      case 0x0003: emit_attr_report_uint(w,ep,cl,attr,3); return;             // TargetsPerAccessControlEntry
+      case 0x0004: emit_attr_report_uint(w,ep,cl,attr,4); return;             // AccessControlEntriesPerFabric
+    }
+    return;
+  }
+  if (cl == 0x003E) {                                   // Operational Credentials
+    if (attr == 0x0000) {                               // NOCs / list[NOCStruct]
+      frag_open(w,ep,cl,attr); mtrc_tlv_start_array(w, mtrc_tlv_ctx(2));
+      for (int i=0;i<mtrc_store_count();i++){ mtrc_fabric *f=mtrc_store_at(i); if(!f)continue;
+        mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+        mtrc_tlv_put_bytes(w, mtrc_tlv_ctx(1), f->noc, f->noc_len);
+        if (f->icac_len) mtrc_tlv_put_bytes(w, mtrc_tlv_ctx(2), f->icac, f->icac_len);
+        else             mtrc_tlv_put_null (w, mtrc_tlv_ctx(2));
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0xFE), f->fabric_index);
+        mtrc_tlv_end_container(w);
+      }
+      mtrc_tlv_end_container(w); frag_close(w); return;
+    }
+    if (attr == 0x0001) {                               // Fabrics / list[FabricDescriptorStruct]
+      frag_open(w,ep,cl,attr); mtrc_tlv_start_array(w, mtrc_tlv_ctx(2));
+      for (int i=0;i<mtrc_store_count();i++){ mtrc_fabric *f=mtrc_store_at(i); if(!f)continue;
+        mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+        mtrc_tlv_put_bytes(w, mtrc_tlv_ctx(1), f->root_pub, 65);        // RootPublicKey
+        mtrc_tlv_put_uint (w, mtrc_tlv_ctx(2), f->admin_vendor_id);     // VendorID
+        mtrc_tlv_put_uint (w, mtrc_tlv_ctx(3), f->fabric_id);           // FabricID
+        mtrc_tlv_put_uint (w, mtrc_tlv_ctx(4), f->node_id);             // NodeID
+        mtrc_tlv_put_utf8 (w, mtrc_tlv_ctx(5), (const uint8_t *)"", 0); // Label
+        mtrc_tlv_put_uint (w, mtrc_tlv_ctx(0xFE), f->fabric_index);     // FabricIndex
+        mtrc_tlv_end_container(w);
+      }
+      mtrc_tlv_end_container(w); frag_close(w); return;
+    }
+    switch (attr) {
+      case 0x0002: emit_attr_report_uint(w,ep,cl,attr,5); return;             // SupportedFabrics
+      case 0x0003: emit_attr_report_uint(w,ep,cl,attr,mtrc_store_count()); return; // CommissionedFabrics
+      case 0x0004: frag_open(w,ep,cl,attr); mtrc_tlv_start_array(w,mtrc_tlv_ctx(2)); mtrc_tlv_end_container(w); frag_close(w); return; // TrustedRootCertificates
+      case 0x0005: { mtrc_fabric *cf = mtrc_store_by_index(g.case_fabric_index);
+        emit_attr_report_uint(w,ep,cl,attr, cf ? cf->fabric_index : 0); return; } // CurrentFabricIndex
+    }
+    return;
+  }
+}
+
+// True for root-node (ep0) clusters served by emit_root_attr.
+static int is_root_cluster(uint32_t cl) {
+  return cl==0x0028 || cl==0x0030 || cl==0x0031 || cl==0x0033 ||
+         cl==0x003C || cl==0x003E || cl==0x003F || cl==0x001F;
 }
 
 // Emit one AttributeReportIB fragment for any (ep,cl,attr), including the
@@ -1344,7 +1528,8 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
       emit_report_list(w, ep, cl, attr, NULL, 0); return;
     default: break;
   }
-  emit_attr_report(w, ep, cl, attr);                                           // functional scalar
+  if (ep == 0 && is_root_cluster(cl)) { emit_root_attr(w, cl, attr); return; } // root-node clusters
+  emit_attr_report(w, ep, cl, attr);                                           // app-cluster functional scalar
 }
 
 // Append every (ep,cl,attr) path matching a (possibly wildcard) filter to
@@ -1367,14 +1552,9 @@ static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t wan
     if (!e) continue;
     uint16_t ep = e->endpoint;
     if (has_ep && ep != want_ep) continue;
-    if (ep == 0) {                                          // synthetic root clusters
-      if (!has_cl || want_cl==0x0030) RPT_CLUSTER(0, 0x0030);
-      if (!has_cl || want_cl==0x0028) RPT_CLUSTER(0, 0x0028);
-    }
-    for (int ci=0; ci<mtrc_dm_cluster_count(); ci++) {     // registered clusters
+    for (int ci=0; ci<mtrc_dm_cluster_count(); ci++) {     // every registered cluster on ep
       const mtrc_dm_cluster_t *cc = mtrc_dm_cluster_at(ci);
       if (!cc || cc->endpoint != ep) continue;
-      if (cc->cluster==0x0030 || cc->cluster==0x0028) continue;   // handled above
       if (has_cl && cc->cluster != want_cl) continue;
       RPT_CLUSTER(ep, cc->cluster);
     }
@@ -1388,7 +1568,7 @@ static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t wan
 // the next chunk. `ack` is the counter of the message that triggered this chunk.
 static void send_report_chunk(uint32_t ack) {
   static uint8_t chunk[1280];
-  static uint8_t frag[400];
+  static uint8_t frag[1024];   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(chunk));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());             // ReportDataMessage
   if (g.rpt_is_sub) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), g.rpt_sub_id);   // SubscriptionId
