@@ -2599,12 +2599,20 @@ extern "C" {
                                   uint16_t port, const char *const *txt, size_t n) {
     (void)ctx;
     if (!Mdns.begun) return MATTER_ERR_TRANSPORT;     // responder not up yet
-    bool operational = (strcmp(service, "matter") == 0);   // _matter._udp vs _matterc._udp
-    MDNS.addService(service, "udp", port);
+    bool operational = (strcmp(service, "matter") == 0);
+    // Matter DNS-SD service-type quirk (Core Spec §4.3.1): OPERATIONAL discovery
+    // is published under _matter._TCP — even though the operational transport is
+    // still UDP on 5540. Only commissionable (_matterc) and commissioner
+    // (_matterd) use _udp. Advertising operational under _udp makes Apple/Google
+    // home hubs (which browse _matter._tcp) find nothing, so they finish AddNOC
+    // but never start operational CASE (no Sigma1) and pairing fails at the end.
+    const char *proto  = operational ? "tcp"  : "udp";   // ESPmDNS form
+    const char *protou = operational ? "_tcp" : "_udp";  // esp-mdns component form
+    MDNS.addService(service, proto, port);
     char stype0[20]; snprintf(stype0, sizeof(stype0), "_%s", service);
     if (operational) {
       // Operational instance is <compressedFabricId>-<nodeId>, supplied by core.
-      mdns_service_instance_name_set(stype0, "_udp", instance);
+      mdns_service_instance_name_set(stype0, protou, instance);
     } else {
       // Matter REQUIRES a 16-hex commissioning instance name (Core Spec §4.3.1);
       // ESPmDNS defaults it to the hostname, which Apple Home rejects. Use a
@@ -2613,7 +2621,7 @@ extern "C" {
       // controllers' caches.
       char inst16[17];
       snprintf(inst16, sizeof(inst16), "%016llX", (unsigned long long)ESP.getEfuseMac());
-      mdns_service_instance_name_set(stype0, "_udp", inst16);
+      mdns_service_instance_name_set(stype0, protou, inst16);
     }
     uint16_t disc = 0;
     for (size_t i = 0; i < n; i++) {
@@ -2622,19 +2630,19 @@ extern "C" {
       char key[12]; size_t kl = (size_t)(eq - txt[i]);
       if (kl >= sizeof(key)) kl = sizeof(key) - 1;
       memcpy(key, txt[i], kl); key[kl] = 0;
-      MDNS.addServiceTxt(service, "udp", key, eq + 1);
+      MDNS.addServiceTxt(service, proto, key, eq + 1);
       if (kl == 1 && key[0] == 'D') disc = (uint16_t)atoi(eq + 1);
     }
     if (operational) {
       // Operational browse subtype _I<compressedFabricId> (Core Spec §4.3.4):
-      // controllers browse _I<CFID>._sub._matter._udp to re-find the node.
+      // controllers browse _I<CFID>._sub._matter._tcp to re-find the node.
       // CFID is the instance label before the '-'.
       char sub[24]; const char *dash = strchr(instance, '-');
       size_t cl = dash ? (size_t)(dash - instance) : strlen(instance);
       if (cl > 20) cl = 20;
       snprintf(sub, sizeof(sub), "_I%.*s", (int)cl, instance);
-      mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, sub);
-      AddLog(LOG_LEVEL_INFO, PSTR("MTR: operational mDNS _matter._udp %s (%s)"), instance, sub);
+      mdns_service_subtype_add_for_host(NULL, stype0, protou, NULL, sub);
+      AddLog(LOG_LEVEL_INFO, PSTR("MTR: operational mDNS _matter._tcp %s (%s)"), instance, sub);
       return MATTER_OK;
     }
     // Matter commissionable mDNS subtypes (Core Spec §4.3.4): commissioners
@@ -2643,10 +2651,10 @@ extern "C" {
     // ESPmDNS has no subtype API, so call the ESP-IDF mdns component directly.
     char sub[16];
     snprintf(sub, sizeof(sub), "_L%u", (unsigned)disc);
-    mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, sub);
+    mdns_service_subtype_add_for_host(NULL, stype0, protou, NULL, sub);
     snprintf(sub, sizeof(sub), "_S%u", (unsigned)(disc >> 8));         // short = top 4 bits
-    mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, sub);
-    mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, "_CM");
+    mdns_service_subtype_add_for_host(NULL, stype0, protou, NULL, sub);
+    mdns_service_subtype_add_for_host(NULL, stype0, protou, NULL, "_CM");
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: mDNS subtypes _L%u _S%u _CM added"),
            (unsigned)disc, (unsigned)(disc >> 8));
     return MATTER_OK;

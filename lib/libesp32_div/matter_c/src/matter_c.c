@@ -919,7 +919,10 @@ static void publish_operational_mdns(const mtrc_fabric *f) {
   snprintf(instance + p, sizeof(instance) - p, "-%016llX", (unsigned long long)f->node_id);
   static const char *txt[] = { "SII=5000", "SAI=300", "T=0" };
   g.port.mdns_publish(g.port.ctx, "matter", instance, MTRC_COMMISSION_PORT, txt, 3);
-  char m[64]; snprintf(m, sizeof(m), "operational mDNS: _matter._udp %s", instance);
+  // Operational discovery is published by the host under _matter._TCP per Core
+  // Spec §4.3.1 (transport is still UDP). The host port chooses the proto; this
+  // log just reflects the spec'd service type.
+  char m[64]; snprintf(m, sizeof(m), "operational mDNS: _matter._tcp %s", instance);
   mlog(MATTER_LOG_INFO, m);
 }
 
