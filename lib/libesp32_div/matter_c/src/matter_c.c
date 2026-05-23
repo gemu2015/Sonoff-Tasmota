@@ -58,7 +58,7 @@ typedef struct {
   bool             peer_has_node;      // whether the initiator sent a source node id
   uint32_t         peer_last_ctr;      // last processed peer counter (unsecured MRP dedup)
   bool             have_peer_ctr;
-  uint8_t          last_tx_buf[1024];  // last unsecured frame sent (re-sent on retransmit)
+  uint8_t          last_tx_buf[1536];  // last unsecured frame sent (re-sent on retransmit; Sigma2 w/ ICAC)
   size_t           last_tx_len;
   uint16_t         my_session_id;
   uint16_t         exchange_id;
@@ -81,11 +81,12 @@ typedef struct {
   uint8_t          case_fabric_index;
   uint16_t         case_peer_sid;     // initiator (controller) session id
   uint16_t         case_my_sid;       // our responder/operational session id
+  uint64_t         case_peer_node_id; // controller's operational node id (Sigma3 NOC) — RX nonce
   uint8_t          case_shared[32];   // ECDH shared secret
   uint8_t          case_re_priv[32], case_re_pub[65];  // responder ephemeral
   uint8_t          case_init_eph[65]; // initiator ephemeral pub (from Sigma1)
   uint8_t          case_resp_random[32];
-  uint8_t          case_tt[1024];     // transcript: Sigma1[||Sigma2[||Sigma3]]
+  uint8_t          case_tt[2560];     // transcript: Sigma1[||Sigma2[||Sigma3]] (NOC+ICAC fit)
   size_t           case_tt_len;       // total bytes in case_tt
   size_t           case_len1;         // Sigma1 length (prefix for h1)
   uint8_t          case_i2r[16], case_r2i[16], case_att[16];
@@ -445,6 +446,12 @@ static void pase_handle_param_req(const uint8_t *payload, size_t plen,
   g.peer_session_id = req.initiator_session_id;
   memcpy(g.init_random, req.initiator_random, 32);
 
+  // A fresh PASE handshake begins a new commissioning: discard any pending
+  // operational keypair / trusted root from a prior (aborted) attempt so the
+  // CSRRequest mints a new key bound to THIS commissioning's NOC.
+  g.have_pending_op = false;
+  g.have_pending_root = false;
+
   g.port.random_bytes(g.port.ctx, g.resp_random, 32);
   g.port.random_bytes(g.port.ctx, g.salt, 16);
   uint16_t sid = 0;
@@ -538,6 +545,25 @@ static int case_open(const uint8_t key[16], const uint8_t nonce[13],
   return mtrc_aes_ccm_decrypt(key, nonce, 13, NULL, 0, out, ct, blob + ct, 16);
 }
 
+// Operational IPK for CASE = Crypto_KDF(epochIPK, salt=compressedFabricId,
+// info="GroupKey v1.0", 16). ALL CASE crypto (destinationId, Sigma2/3 keys and
+// the operational session keys) uses this derived key, NOT the raw IPK epoch
+// key stored from AddNOC (Core Spec §4.15.3 "Operational Group Key Derivation"
+// + §4.14.2 destinationId). Berry: Matter_Fabric.get_ipk_group_key(). Using the
+// raw epoch IPK makes the responder's destinationId never match a real
+// controller (Apple) -> "no fabric matches destinationId" and CASE never starts.
+static void fabric_op_ipk(const mtrc_fabric *f, uint8_t op_ipk[16]) {
+  uint8_t salt[8];
+  for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
+  uint8_t cfid[8];
+  if (mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
+                       (const uint8_t *)"CompressedFabric", 16, cfid, sizeof(cfid)) &&
+      mtrc_hkdf_sha256(cfid, sizeof(cfid), f->ipk, 16,
+                       (const uint8_t *)"GroupKey v1.0", 13, op_ipk, 16))
+    return;
+  memcpy(op_ipk, f->ipk, 16);   // fallback (KDF cannot realistically fail)
+}
+
 // Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
 // NOC + a signature over TBSData2 with the operational key, send Sigma2.
 static void case_handle_sigma1(const uint8_t *pl, size_t pll,
@@ -545,12 +571,15 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   mtrc_sigma1 s1;
   if (!mtrc_sigma1_decode(pl, pll, &s1)) return;
 
-  mtrc_fabric *f = NULL; uint8_t cand[32];
+  mtrc_fabric *f = NULL; uint8_t cand[32]; uint8_t op_ipk[16];
   for (int i = 0; i < mtrc_store_count(); i++) {
     mtrc_fabric *cf = mtrc_store_at(i);
-    mtrc_case_destination_id(cf->ipk, s1.initiator_random, cf->root_pub,
+    uint8_t cf_ipk[16]; fabric_op_ipk(cf, cf_ipk);
+    mtrc_case_destination_id(cf_ipk, s1.initiator_random, cf->root_pub,
                              cf->fabric_id, cf->node_id, cand);
-    if (memcmp(cand, s1.destination_id, 32) == 0) { f = cf; break; }
+    if (memcmp(cand, s1.destination_id, 32) == 0) {
+      f = cf; memcpy(op_ipk, cf_ipk, 16); break;
+    }
   }
   if (!f) { mlog(MATTER_LOG_ERROR, "CASE: no fabric matches destinationId"); return; }
 
@@ -569,12 +598,13 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   uint8_t h1[32]; mtrc_sha256(g.case_tt, g.case_len1, h1);
 
   uint8_t s2k[16];
-  if (!mtrc_case_s2k(g.case_shared, f->ipk, g.case_resp_random, g.case_re_pub, h1, s2k))
+  if (!mtrc_case_s2k(g.case_shared, op_ipk, g.case_resp_random, g.case_re_pub, h1, s2k))
     return;
 
-  static uint8_t tmp[600];
+  static uint8_t tmp[1100];
   mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
   tbs.noc = f->noc; tbs.noc_len = f->noc_len;
+  tbs.icac = f->icac; tbs.icac_len = f->icac_len;     // include ICAC if fabric uses one
   memcpy(tbs.sender_pub, g.case_re_pub, 65);
   memcpy(tbs.receiver_pub, s1.initiator_eph_pub, 65);
   int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
@@ -583,11 +613,19 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
 
   mtrc_case_tbe tbe; memset(&tbe, 0, sizeof(tbe));
   tbe.noc = f->noc; tbe.noc_len = f->noc_len;
+  tbe.icac = f->icac; tbe.icac_len = f->icac_len;     // ICAC into encrypted TBEData2 too
+  // TBEData2 tag 4 = resumptionID. The responder always supplies a fresh 16-byte
+  // resumptionID in Sigma2 (Core Spec §4.14.2.5.3); controllers (Apple) expect
+  // it and reject Sigma2 as InvalidParameter if it is missing. We don't support
+  // session resumption yet, so a fresh random value per CASE is fine.
+  uint8_t resumption_id[16];
+  g.port.random_bytes(g.port.ctx, resumption_id, 16);
+  tbe.resumption_id = resumption_id; tbe.resumption_id_len = 16;
   if (!mtrc_ecdsa_sign(tbe.signature, ht, f->op_priv)) return;
   int ne = mtrc_case_tbe_encode(tmp, sizeof(tmp), &tbe);
   if (ne < 0) return;
 
-  static uint8_t enc2[700];
+  static uint8_t enc2[1100];
   if (!case_seal(s2k, MTRC_CASE_NONCE_SIGMA2, tmp, (size_t)ne, enc2)) return;
 
   mtrc_sigma2 s2; memset(&s2, 0, sizeof(s2));
@@ -595,7 +633,7 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   s2.responder_session_id = g.case_my_sid;
   memcpy(s2.responder_eph_pub, g.case_re_pub, 65);
   s2.encrypted2 = enc2; s2.encrypted2_len = (size_t)ne + 16;
-  static uint8_t s2buf[800];
+  static uint8_t s2buf[1280];
   int n2 = mtrc_sigma2_encode(s2buf, sizeof(s2buf), &s2);
   if (n2 < 0) return;
   if (g.case_tt_len + (size_t)n2 <= sizeof(g.case_tt)) {
@@ -616,12 +654,14 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   mtrc_sigma3 s3;
   if (!mtrc_sigma3_decode(pl, pll, &s3)) return;
 
+  uint8_t op_ipk[16]; fabric_op_ipk(f, op_ipk);   // derived operational IPK (not raw epoch)
+
   // h12 = SHA256(Sigma1||Sigma2): case_tt currently holds exactly those two.
   uint8_t h12[32]; mtrc_sha256(g.case_tt, g.case_tt_len, h12);
   uint8_t s3k[16];
-  if (!mtrc_case_s3k(g.case_shared, f->ipk, h12, s3k)) return;
+  if (!mtrc_case_s3k(g.case_shared, op_ipk, h12, s3k)) return;
 
-  static uint8_t tbe3[512];
+  static uint8_t tbe3[1024];
   if (!case_open(s3k, MTRC_CASE_NONCE_SIGMA3, s3.encrypted3, s3.encrypted3_len, tbe3)) {
     mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE decrypt failed"); return;
   }
@@ -631,13 +671,20 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   // Verify the initiator's signature over TBSData3 with its NOC public key.
   // Relaxed for first interop: full cert-chain verify (A1b) is a later step;
   // here we parse the NOC (A1a) for its pubkey and check the Sigma3 signature.
+  // TBSData3 MUST include the initiator's ICAC when present (Apple sends one),
+  // else the reconstructed hash won't match the signature.
   mtrc_cert nc; int verified = 0;
   if (mtrc_cert_parse(t3.noc, t3.noc_len, &nc) && nc.have_pubkey) {
+    // Remember the controller's operational node id — the operational-session
+    // decrypt nonce uses the SENDER's node id, and operational messages omit it
+    // from the header (implied by the session).
+    if (nc.have_node_id) g.case_peer_node_id = nc.subject_node_id;
     mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
     tbs.noc = t3.noc; tbs.noc_len = t3.noc_len;
+    tbs.icac = t3.icac; tbs.icac_len = t3.icac_len;
     memcpy(tbs.sender_pub, g.case_init_eph, 65);   // initiator was sender
     memcpy(tbs.receiver_pub, g.case_re_pub, 65);
-    static uint8_t tmp[600];
+    static uint8_t tmp[1100];
     int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
     if (nt > 0) {
       uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
@@ -657,9 +704,14 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
     memcpy(g.case_tt + g.case_tt_len, pl, pll); g.case_tt_len += pll;
   }
   uint8_t hall[32]; mtrc_sha256(g.case_tt, g.case_tt_len, hall);
-  if (!mtrc_case_session_keys(g.case_shared, f->ipk, hall,
+  if (!mtrc_case_session_keys(g.case_shared, op_ipk, hall,
                               g.case_i2r, g.case_r2i, g.case_att)) return;
-  g.case_secure = true; g.case_phase = 2; g.case_sec_tx_counter = 0;
+  g.case_secure = true; g.case_phase = 2;
+  // Operational message counter MUST start at a random value (Core Spec §4.5.1.1);
+  // a fresh session starting at 1 can be rejected by strict receivers (Apple).
+  // secured_send pre-increments, so the first sent counter = this value + 1.
+  uint32_t c0 = 0; g.port.random_bytes(g.port.ctx, (uint8_t *)&c0, 4);
+  g.case_sec_tx_counter = (c0 & 0x0FFFFFFF) | 1;   // random, MSB clear, non-zero
 
   uint8_t sr[8]; memset(sr, 0, 8);   // GeneralCode = Success
   pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
@@ -669,13 +721,22 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
 // Active secure-session TX context (PASE or CASE), selected before each
 // dispatch / report so secured_send addresses the right session id, response
 // key (R2I) and message counter.
-static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; } g_tx =
-  { NULL, 0, NULL };
+static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } g_tx =
+  { NULL, 0, NULL, 0, 0 };
 static void tx_use_pase(void) {
   g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
+  g_tx.src = 0;   // commissioning peer has no operational node id -> nonce src 0
+  g_tx.dst = 0;
 }
 static void tx_use_case(void) {
   g_tx.key = g.case_r2i; g_tx.sid = g.case_peer_sid; g_tx.ctr = &g.case_sec_tx_counter;
+  // Operational responses: the NONCE source is OUR node id (not carried in the
+  // header), and the header carries the DESTINATION = the controller's node id
+  // (Core Spec §4.4 / Berry build_response). The device's own id is implied by
+  // the session, so we do NOT set a Source Node ID (S flag) on our messages.
+  mtrc_fabric *cf = mtrc_store_by_index(g.case_fabric_index);
+  g_tx.src = cf ? cf->node_id : 0;
+  g_tx.dst = g.case_peer_node_id;
 }
 
 // Send an encrypted message on the active secured session (PASE or CASE):
@@ -683,19 +744,27 @@ static void tx_use_case(void) {
 // acking the inbound message.
 static void secured_send(uint8_t opcode, uint16_t protocol_id,
                          const uint8_t *payload, size_t plen,
-                         uint16_t exch, bool has_ack, uint32_t ack_counter) {
+                         uint16_t exch, bool has_ack, uint32_t ack_counter,
+                         bool reliable) {
   if (!g_tx.key || !g_tx.ctr) return;
   mtrc_msg_header mh; memset(&mh, 0, sizeof(mh));
   mh.session_id = g_tx.sid; mh.session_type = 0;
   mh.msg_counter = ++(*g_tx.ctr);
+  mh.src_node_id = g_tx.src;          // nonce source = our node id (CASE) / 0 (PASE); NOT in header
+  mh.has_src = false;                 // device messages carry no Source Node ID (implied by session)
+  if (g_tx.dst) {                     // operational: address the response TO the controller
+    mh.dsiz = MTRC_DSIZ_NODE; mh.dest_node_id = g_tx.dst;
+  }
+  { char dm[88]; snprintf(dm, sizeof(dm), "TX op=0x%02X sid=%u src=0x%08lX dst=0x%08lX ctr=%u",
+      (unsigned)opcode, (unsigned)g_tx.sid, (unsigned long)g_tx.src,
+      (unsigned long)g_tx.dst, (unsigned)mh.msg_counter); mlog(MATTER_LOG_DEBUG, dm); }
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
   ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
-  ph.reliability = true; ph.opcode = opcode; ph.exchange_id = exch;
+  ph.reliability = reliable; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
   static uint8_t out[1280];
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
-  if (n > 0 && g.port.udp_send)
-    g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
+  if (n > 0 && g.port.udp_send) g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
 }
 
 // Live value of an attribute. Resolution order:
@@ -758,9 +827,18 @@ static int inv_field(const uint8_t *buf, size_t len, uint32_t tag, int want_byte
 // InvokeResponse length, or -1.
 static int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                               const uint8_t *nonce, size_t nlen) {
-  g.port.random_bytes(g.port.ctx, g.pending_op_priv, 32);
-  if (!mtrc_ec_pub_from_priv(g.pending_op_pub, g.pending_op_priv)) return -1;
-  g.have_pending_op = true;
+  // Generate the operational keypair ONCE per commissioning. MRP retransmits
+  // the CSRRequest if our first CSRResponse is slow/lost; re-minting a key here
+  // would leave the device holding a keypair the AddNOC-certified NOC does NOT
+  // contain -> CASE Sigma2 is signed with the wrong key -> "Invalid signature"
+  // and pairing fails (Apple/chip-tool/HA all reject it). Reuse the pending key
+  // on a retransmit; the CSR pubkey then matches the NOC the controller builds.
+  // have_pending_op is reset at the start of each new PASE handshake.
+  if (!g.have_pending_op) {
+    g.port.random_bytes(g.port.ctx, g.pending_op_priv, 32);
+    if (!mtrc_ec_pub_from_priv(g.pending_op_pub, g.pending_op_priv)) return -1;
+    g.have_pending_op = true;
+  }
 
   static uint8_t csr[400];
   int csrlen = mtrc_csr_build(csr, sizeof(csr), g.pending_op_priv, g.pending_op_pub);
@@ -929,9 +1007,15 @@ static void publish_operational_mdns(const mtrc_fabric *f) {
 static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                         const uint8_t *payload, size_t plen) {
   const uint8_t *noc = NULL, *ipk = NULL; size_t noclen = 0, ipklen = 0;
+  const uint8_t *icac = NULL; size_t icaclen = 0;
   uint64_t admin_subj = 0, admin_vid = 0;
   if (!inv_field(payload, plen, 0, 1, &noc, &noclen, NULL))
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
+  // ICACValue (field 1) is OPTIONAL: present when the fabric issues NOCs via an
+  // intermediate CA (NOC <- ICAC <- RCAC). Apple Home uses an ICAC; chip-tool by
+  // default issues NOCs straight from the root. We MUST store it and echo it in
+  // Sigma2, else the controller can't build the cert chain and rejects CASE.
+  inv_field(payload, plen, 1, 1, &icac, &icaclen, NULL);
   inv_field(payload, plen, 2, 1, &ipk, &ipklen, NULL);
   inv_field(payload, plen, 3, 0, NULL, NULL, &admin_subj);
   inv_field(payload, plen, 4, 0, NULL, NULL, &admin_vid);
@@ -952,12 +1036,16 @@ static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
   memcpy(f->op_priv, g.pending_op_priv, 32);
   memcpy(f->op_pub,  g.pending_op_pub, 65);
   if (noclen <= MTRC_NOC_MAX) { memcpy(f->noc, noc, noclen); f->noc_len = (uint16_t)noclen; }
+  f->icac_len = 0;
+  if (icac && icaclen && icaclen <= MTRC_NOC_MAX) {
+    memcpy(f->icac, icac, icaclen); f->icac_len = (uint16_t)icaclen;
+  }
   (void)admin_subj;
 
-  char m[96];
-  snprintf(m, sizeof(m), "NOC: fabric installed idx=%u fab=0x%08lX node=0x%08lX",
-           (unsigned)f->fabric_index, (unsigned long)f->fabric_id,
-           (unsigned long)f->node_id);
+  char m[110];
+  snprintf(m, sizeof(m), "NOC: fabric idx=%u node=0x%08lX noc=%uB icac=%uB ipk=%uB",
+           (unsigned)f->fabric_index, (unsigned long)f->node_id,
+           (unsigned)f->noc_len, (unsigned)f->icac_len, (unsigned)ipklen);
   mlog(MATTER_LOG_INFO, m);
   mtrc_persist_fabrics();          // survive reboots
   publish_operational_mdns(f);     // become discoverable on the operational fabric
@@ -1062,7 +1150,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x81); // UNSUPPORTED_COMMAND
 
   if (n > 0) {
-    secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack);
+    secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack, true);
     mlog(MATTER_LOG_DEBUG, "IM InvokeResponse sent");
   }
 }
@@ -1175,13 +1263,116 @@ static void emit_attr_status(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
   mtrc_tlv_end_container(w);                           // end AttributeReportIB
 }
 
+// ---- wildcard attribute enumeration (Apple/Google subscribe to '*') --------
+// Emit one AttributeReportIB fragment whose Data is an array of uints (Descriptor
+// ServerList/ClientList/PartsList, AttributeList, etc.) into a shared writer.
+static void emit_report_list(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+                             uint32_t attr, const uint32_t *vals, int count) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_start_array(w, mtrc_tlv_ctx(2));
+  for (int i = 0; i < count; i++) mtrc_tlv_put_uint(w, mtrc_tlv_anon(), vals ? vals[i] : 0);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+}
+
+// Emit the Descriptor (0x001D) DeviceTypeList fragment (array of {0:type,1:rev}).
+static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), 0x001D);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), 0x0000);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_start_array(w, mtrc_tlv_ctx(2));
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), dt);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 1);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+}
+
+// Emit the four Descriptor (0x001D) list attributes for one endpoint.
+static int emit_descriptor_frags(mtrc_tlv_writer *w, uint16_t ep,
+                                 int has_attr, uint32_t want_attr) {
+  int n = 0;
+  if (!has_attr || want_attr == 0x0000) {                 // DeviceTypeList
+    uint32_t dt = 0; mtrc_dm_endpoint_device_type(ep, &dt);
+    emit_report_devtypelist(w, ep, dt); n++;
+  }
+  if (!has_attr || want_attr == 0x0001) {                 // ServerList
+    uint32_t list[MTRC_DM_MAX_CLUSTERS]; int c = 0;
+    for (int i = 0; i < mtrc_dm_cluster_count(); i++) {
+      const mtrc_dm_cluster_t *cc = mtrc_dm_cluster_at(i);
+      if (cc && cc->endpoint == ep && c < (int)(sizeof(list)/sizeof(list[0]))) list[c++] = cc->cluster;
+    }
+    emit_report_list(w, ep, 0x001D, 0x0001, list, c); n++;
+  }
+  if (!has_attr || want_attr == 0x0002) { emit_report_list(w, ep, 0x001D, 0x0002, NULL, 0); n++; } // ClientList
+  if (!has_attr || want_attr == 0x0003) {                 // PartsList
+    uint32_t list[MTRC_DM_MAX_ENDPOINTS]; int c = 0;
+    if (ep == 0) for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
+      const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(i);
+      if (e && e->endpoint != 0 && c < (int)(sizeof(list)/sizeof(list[0]))) list[c++] = e->endpoint;
+    }
+    emit_report_list(w, ep, 0x001D, 0x0003, list, c); n++;
+  }
+  return n;
+}
+
+// Walk the data model, emitting an AttributeReportIB fragment for every attribute
+// that matches a (possibly wildcard) ep/cluster/attr filter. Returns the count.
+// Covers Descriptor (synthetic lists), GeneralCommissioning + BasicInformation
+// (synthetic scalars on ep0), and every registered data-model attribute.
+static int emit_wildcard(mtrc_tlv_writer *w, int has_ep, uint16_t want_ep,
+                         int has_cl, uint32_t want_cl, int has_attr, uint32_t want_attr) {
+  int count = 0;
+  for (int ei = 0; ei < mtrc_dm_endpoint_count(); ei++) {
+    const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(ei);
+    if (!e) continue;
+    uint16_t ep = e->endpoint;
+    if (has_ep && ep != want_ep) continue;
+    if (!has_cl || want_cl == 0x001D)                       // Descriptor
+      count += emit_descriptor_frags(w, ep, has_attr, want_attr);
+    if (ep == 0 && (!has_cl || want_cl == 0x0030)) {        // GeneralCommissioning
+      static const uint32_t a[] = {0,1,2,3,4,5,0xFFFC,0xFFFD};
+      for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++)
+        if (!has_attr || want_attr==a[i]) { emit_attr_report(w, 0, 0x0030, a[i]); count++; }
+    }
+    if (ep == 0 && (!has_cl || want_cl == 0x0028)) {        // BasicInformation
+      static const uint32_t a[] = {0x0000,0x0002,0x0004,0xFFFC,0xFFFD};
+      for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++)
+        if (!has_attr || want_attr==a[i]) { emit_attr_report(w, 0, 0x0028, a[i]); count++; }
+    }
+    for (int ai = 0; ai < mtrc_dm_attr_count(); ai++) {     // registered attributes
+      const mtrc_dm_attr_t *a = mtrc_dm_attr_at(ai);
+      if (!a || a->endpoint != ep) continue;
+      if (has_cl && a->cluster != want_cl) continue;
+      if (has_attr && a->attr != want_attr) continue;
+      emit_attr_report(w, ep, a->cluster, a->attr); count++;
+    }
+  }
+  return count;
+}
+
 // Multi-path ReadRequest -> ReportData covering EVERY requested AttributePathIB
 // (chip-tool's ReadCommissioningInfo reads ~10 paths in one request). Concrete
-// unknown attrs get an UNSUPPORTED_ATTRIBUTE status; wildcard paths to clusters
-// we don't host are silently skipped.
+// unknown attrs get an UNSUPPORTED_ATTRIBUTE status; wildcard paths enumerate
+// the data model via emit_wildcard.
 static void im_handle_read(const uint8_t *payload, size_t plen,
                            uint16_t exch, uint32_t ack) {
-  static uint8_t resp[1024];
+  static uint8_t resp[1152];
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
@@ -1200,18 +1391,10 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
       else if (ie.tag.number == 3) { cl   = (uint32_t)ie.u; have_cl = 1; }
       else if (ie.tag.number == 4) { attr = (uint32_t)ie.u; have_attr = 1; }
     }
-    if (!have_cl) continue;
-    uint16_t ep0 = have_ep ? ep : 0;                   // commissioning clusters live on root
-    if (have_attr) {
-      if (attr_known(ep0, cl, attr))      { emit_attr_report(&w, ep0, cl, attr); npaths++; }
-      else if (have_ep)                   { emit_attr_status(&w, ep0, cl, attr, 0x86); npaths++; }
-      // wildcard endpoint to a cluster we don't host -> skip
-    } else {                                           // wildcard attribute
-      if (cl == 0x0030) { static const uint32_t a[]={0,1,2,3,4,5,0xFFFC,0xFFFD};
-        for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++){ emit_attr_report(&w,ep0,cl,a[i]); npaths++; } }
-      else if (cl == 0x0028) { static const uint32_t a[]={0x0000,0x0002,0x0004,0xFFFC,0xFFFD};
-        for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++){ emit_attr_report(&w,ep0,cl,a[i]); npaths++; } }
-      // unknown cluster wildcard -> skip
+    int n = emit_wildcard(&w, have_ep, ep, have_cl, cl, have_attr, attr);
+    npaths += n;
+    if (n == 0 && have_ep && have_cl && have_attr) {   // concrete unknown -> status
+      emit_attr_status(&w, ep, cl, attr, 0x86); npaths++;
     }
   }
 
@@ -1222,7 +1405,7 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
 
   if (mtrc_tlv_writer_ok(&w)) {
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp,
-                 mtrc_tlv_writer_len(&w), exch, true, ack);
+                 mtrc_tlv_writer_len(&w), exch, true, ack, true);
     char m[48]; snprintf(m, sizeof(m), "IM ReportData sent (%d attrs)", npaths);
     mlog(MATTER_LOG_DEBUG, m);
   } else {
@@ -1235,36 +1418,114 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
 // matter_loop. (Single subscription supported.)
 static void im_handle_subscribe(const uint8_t *payload, size_t plen,
                                 uint16_t exch, uint32_t ack) {
-  uint16_t ep, maxc; uint32_t cl, attr;
-  if (!mtrc_im_parse_subscribe(payload, plen, &ep, &cl, &attr, &maxc)) return;
-  g.sub_active = true;
-  g.sub_id = (g.sub_id ? g.sub_id : 1) + 1;
-  g.sub_ep = ep; g.sub_cl = cl; g.sub_attr = attr;
-  g.sub_max_s = (maxc == 0 || maxc > 60) ? 30 : maxc;   // clamp
-  g.sub_exch = exch;
-  g.sub_last_val = attr_value(ep, cl, attr);
-  g.sub_last_ms = g.port.millis(g.port.ctx);
+  // A SubscribeRequest MUST get a priming ReportData + SubscribeResponse, or the
+  // controller retransmits and pairing stalls. Apple/Google issue a WILDCARD
+  // subscribe to model the whole node, so the priming report enumerates the data
+  // model (Descriptor lists, BasicInformation, every registered attribute) via
+  // emit_wildcard. A concrete hosted attribute is also registered for periodic
+  // change reports from matter_loop.
+  uint16_t ep = 0, maxc = 0; uint32_t cl = 0, attr = 0;
+  int have = mtrc_im_parse_subscribe(payload, plen, &ep, &cl, &attr, &maxc);
+  uint16_t max_s = (maxc == 0 || maxc > 60) ? 30 : maxc;   // clamp
+  uint32_t sid = (g.sub_id ? g.sub_id : 1) + 1; g.sub_id = sid;
+  int hosted = (have && attr_known(ep, cl, attr));
+
+  if (hosted) {
+    g.sub_active = true; g.sub_ep = ep; g.sub_cl = cl; g.sub_attr = attr;
+    g.sub_max_s = max_s; g.sub_exch = exch;
+    g.sub_last_val = attr_value(ep, cl, attr);
+    g.sub_last_ms = g.port.millis(g.port.ctx);
+  } else {
+    g.sub_active = false;
+  }
+
+  // Priming ReportData: enumerate matching attributes (have==0 -> full node).
+  static uint8_t rep[1152];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, rep, sizeof(rep));
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sid);         // SubscriptionId
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
+  int frags = emit_wildcard(&w, have, ep, have, cl, have, attr);
+  mtrc_tlv_end_container(&w);
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);        // interactionModelRevision
+  mtrc_tlv_end_container(&w);
+  if (mtrc_tlv_writer_ok(&w))
+    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, mtrc_tlv_writer_len(&w),
+                 exch, true, ack, true);
+  else
+    mlog(MATTER_LOG_ERROR, "IM subscribe: priming report overflow");
+  int m2 = mtrc_im_build_subscribe_response(rep, sizeof(rep), sid, max_s);
+  if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, rep, (size_t)m2,
+                           exch, false, 0, true);
 
   char m[80];
-  snprintf(m, sizeof(m), "IM Subscribe ep=%u cl=0x%04X attr=0x%04X max=%us id=%u",
-           (unsigned)ep,(unsigned)cl,(unsigned)attr,(unsigned)g.sub_max_s,(unsigned)g.sub_id);
+  snprintf(m, sizeof(m), "IM Subscribe id=%u max=%us hosted=%d frags=%d",
+           (unsigned)sid,(unsigned)max_s,hosted,frags);
   mlog(MATTER_LOG_INFO, m);
+}
 
-  static uint8_t rep[160];
-  int n = mtrc_im_build_report_uint(rep, sizeof(rep), g.sub_id, ep, cl, attr, g.sub_last_val);
-  if (n > 0) secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, (size_t)n, exch, true, ack);
-  n = mtrc_im_build_subscribe_response(rep, sizeof(rep), g.sub_id, g.sub_max_s);
-  if (n > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, rep, (size_t)n, exch, false, 0);
-  mlog(MATTER_LOG_INFO, "IM SubscribeResponse sent (priming report + subscribe)");
+// Handle a WriteRequest -> WriteResponse. Apple Home writes the ACL (Access
+// Control, cluster 0x001F) over the operational session right after
+// CommissioningComplete; with no WriteResponse it retransmits and the "add"
+// times out. We accept every write and report SUCCESS per AttributePathIB (the
+// data model is permissive — no ACL enforcement yet). The path is the only LIST
+// in the message, so we reuse the flat-walk parse from im_handle_read.
+static void im_handle_write(const uint8_t *payload, size_t plen,
+                            uint16_t exch, uint32_t ack) {
+  static uint8_t resp[512];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // WriteResponseMessage
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(0));           // WriteResponses [AttributeStatusIB]
+
+  int npaths = 0;
+  mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, payload, plen);
+  mtrc_tlv_elem e;
+  while (mtrc_tlv_read(&r, &e)) {
+    if (e.type != MTRC_TLV_LIST) continue;             // AttributePathIB is the only list
+    int have_cl = 0, have_attr = 0; uint16_t ep = 0; uint32_t cl = 0, attr = 0;
+    mtrc_tlv_elem ie;
+    while (mtrc_tlv_read(&r, &ie) && ie.type != MTRC_TLV_END) {
+      if (ie.tag.ctrl != MTRC_TLV_TAG_CONTEXT) continue;
+      if      (ie.tag.number == 2) { ep   = (uint16_t)ie.u; }
+      else if (ie.tag.number == 3) { cl   = (uint32_t)ie.u; have_cl = 1; }
+      else if (ie.tag.number == 4) { attr = (uint32_t)ie.u; have_attr = 1; }
+    }
+    if (!have_cl) continue;
+    mtrc_tlv_start_struct(&w, mtrc_tlv_anon());         //  AttributeStatusIB
+    mtrc_tlv_start_list(&w, mtrc_tlv_ctx(0));           //   AttributePathIB
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), ep);
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(3), cl);
+    if (have_attr) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(4), attr);
+    mtrc_tlv_end_container(&w);
+    mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));         //   StatusIB
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), 0);          //    Status = SUCCESS
+    mtrc_tlv_end_container(&w);
+    mtrc_tlv_end_container(&w);                         //  end AttributeStatusIB
+    npaths++;
+  }
+
+  mtrc_tlv_end_container(&w);                           // end WriteResponses
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);         // InteractionModelRevision
+  mtrc_tlv_end_container(&w);                           // end WriteResponseMessage
+
+  if (mtrc_tlv_writer_ok(&w)) {
+    secured_send(MTRC_IM_WRITE_RESPONSE, MTRC_PROTO_IM, resp,
+                 mtrc_tlv_writer_len(&w), exch, true, ack, true);
+    char m[48]; snprintf(m, sizeof(m), "IM WriteResponse sent (%d attrs)", npaths);
+    mlog(MATTER_LOG_INFO, m);
+  } else {
+    mlog(MATTER_LOG_ERROR, "IM write: response build overflow");
+  }
 }
 
 // A message arrived on the established PASE secure session: decrypt with the
 // I2R key, parse the inner protocol header, dispatch the IM.
-static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_key) {
+static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_key,
+                             uint64_t peer_node_id) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
   static uint8_t pt[1280];
-  if (!mtrc_sec_decode(buf, len, rx_key, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
+  if (!mtrc_sec_decode(buf, len, rx_key, peer_node_id, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
     mlog(MATTER_LOG_ERROR, "secured rx: MIC/decrypt failed");
     return;
   }
@@ -1274,11 +1535,22 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
     im_handle_read(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_SUBSCRIBE_REQUEST) {
     im_handle_subscribe(ipl, ipll, ph.exchange_id, mh.msg_counter);
+  } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_WRITE_REQUEST) {
+    im_handle_write(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else {
     char m[80];
     snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",
              (unsigned)ph.protocol_id, (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m);
+    // MRP: a reliable message we generate no application response for (e.g. a
+    // StatusResponse acking our priming report) must still be acknowledged, or
+    // the peer (Apple) retransmits it forever and the add/subscribe stalls. Send
+    // a non-reliable StandaloneAck for its message counter. Bare acks (op 0x10,
+    // R=0) need no ack, so this never loops.
+    if (ph.reliability) {
+      secured_send(MTRC_SC_STANDALONE_ACK, MTRC_PROTO_SECURE_CHANNEL, NULL, 0,
+                   ph.exchange_id, true, mh.msg_counter, false);
+    }
   }
 }
 
@@ -1300,10 +1572,10 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
     // Secured session traffic: PASE (commissioning IM) or CASE (operational).
     if (g.pase_secure && mh0.session_id == g.my_session_id) {
       tx_use_pase();
-      secured_dispatch(buf, len, g.i2r);
+      secured_dispatch(buf, len, g.i2r, 0);   // PASE: commissioning peer node id = 0
     } else if (g.case_secure && mh0.session_id == g.case_my_sid) {
       tx_use_case();
-      secured_dispatch(buf, len, g.case_i2r);
+      secured_dispatch(buf, len, g.case_i2r, g.case_peer_node_id);   // operational: controller node id
     }
     return;
   }
@@ -1338,6 +1610,23 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
     case MTRC_SC_PASE_PAKE3:      pase_handle_pake3(pl, pll, &mh);     break;
     case MTRC_SC_CASE_SIGMA1:     case_handle_sigma1(pl, pll, &mh);    break;
     case MTRC_SC_CASE_SIGMA3:     case_handle_sigma3(pl, pll, &mh);    break;
+    case MTRC_SC_STATUS_REPORT: {
+      // A peer-sent StatusReport (e.g. Apple rejecting our Sigma2). Decode
+      // GeneralCode(LE16) || ProtocolId(LE32) || ProtocolCode(LE16) so we can
+      // see WHY. SecureChannel ProtocolCode: 0x0000 success, 0x0001
+      // NoSharedTrustRoots, 0x0002 InvalidParam, 0x0003 CloseSession, 0x0004 Busy.
+      if (pll >= 8) {
+        unsigned gc = pl[0] | (pl[1] << 8);
+        unsigned long pid = (unsigned long)pl[2] | ((unsigned long)pl[3] << 8) |
+                            ((unsigned long)pl[4] << 16) | ((unsigned long)pl[5] << 24);
+        unsigned pc = pl[6] | (pl[7] << 8);
+        char m[80];
+        snprintf(m, sizeof(m), "rx StatusReport gen=%u proto=0x%08lX code=0x%04X",
+                 gc, pid, pc);
+        mlog(MATTER_LOG_ERROR, m);
+      }
+      break;
+    }
     default: break;
   }
 }
@@ -1360,7 +1649,7 @@ void matter_loop(void) {
                                         g.sub_ep, g.sub_cl, g.sub_attr, v);
       if (n > 0) {
         tx_use_pase();   // the subscription was established over PASE
-        secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, (size_t)n, g.sub_exch, false, 0);
+        secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, (size_t)n, g.sub_exch, false, 0, true);
       }
     }
   }

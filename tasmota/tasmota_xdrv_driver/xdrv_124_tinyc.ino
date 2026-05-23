@@ -2502,6 +2502,12 @@ static void HandleHomeKitQR(void) {
 static AsyncUDP mtrc_udp;
 static IPAddress mtrc_peer_ip;
 static uint16_t  mtrc_peer_port = 0;
+// Last KNOWN-GOOD IPv6 peer. AsyncUDP intermittently mis-flags an inbound IPv6
+// datagram as IPv4 (isIPv6()==false -> remoteIP() returns garbage like
+// 158.158.110.255), which would clobber the reply address. We only refresh this
+// from datagrams that are reliably IPv6, and reply here for Matter (IPv6) peers.
+static IPAddress mtrc_peer_ip6;
+static uint16_t  mtrc_peer_port6 = 0;
 static bool      mtrc_udp_listening = false;
 
 // Route a Matter command Invoke to the script's MatterInvoke(ep, cluster, cmd)
@@ -2664,8 +2670,22 @@ extern "C" {
   static matter_err_t mtrc_p_udp_send(void *ctx, const uint8_t ip6[16],
                                       uint16_t port, const void *buf, size_t len) {
     (void)ctx; (void)ip6; (void)port;
-    if (!mtrc_peer_port) return MATTER_ERR_TRANSPORT;
-    mtrc_udp.writeTo((const uint8_t *)buf, len, mtrc_peer_ip, mtrc_peer_port);
+    // Prefer the last KNOWN-GOOD IPv6 peer (Matter is IPv6). This dodges the
+    // AsyncUDP isIPv6() glitch that would otherwise leave mtrc_peer_ip pointing
+    // at a garbage IPv4 and silently drop the reply.
+    IPAddress dst   = mtrc_peer_port6 ? mtrc_peer_ip6   : mtrc_peer_ip;
+    uint16_t  dport = mtrc_peer_port6 ? mtrc_peer_port6 : mtrc_peer_port;
+    if (!dport) return MATTER_ERR_TRANSPORT;
+    // Force the WiFi-STA netif. ESP-IDF lwIP is built without LWIP_IPV6_SCOPES,
+    // so a link-local (fe80::/10) destination has no zone and udp_sendto can't
+    // pick an egress interface — the datagram is silently dropped. Apple Home
+    // runs operational CASE *from its link-local address*. writeTo(...,tcpip_if)
+    // routes via _udp_sendto_if on the named netif; if STA is down it falls back
+    // to the default route, so global/ULA replies are unaffected.
+    size_t sent = mtrc_udp.writeTo((const uint8_t *)buf, len, dst, dport,
+                                   TCPIP_ADAPTER_IF_STA);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: tx %u B -> [%s]:%u sent=%u"),
+           (unsigned)len, dst.toString().c_str(), (unsigned)dport, (unsigned)sent);
     return MATTER_OK;
   }
   // Matter wrote a device attribute. OnOff (cluster 0x0006) -> Tasmota relay:
@@ -2787,6 +2807,10 @@ static void MatterC_MaybeStart(void) {
       // otherwise our PASE/CASE responses go nowhere and the controller stalls.
       mtrc_peer_ip   = p.isIPv6() ? p.remoteIPv6() : p.remoteIP();
       mtrc_peer_port = p.remotePort();
+      if (p.isIPv6()) {                     // only trust reliably-IPv6 datagrams
+        mtrc_peer_ip6   = p.remoteIPv6();
+        mtrc_peer_port6 = p.remotePort();
+      }
       AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u B from %s:%u (v6=%d)"),
              (unsigned)p.length(), mtrc_peer_ip.toString().c_str(),
              (unsigned)mtrc_peer_port, (int)p.isIPv6());

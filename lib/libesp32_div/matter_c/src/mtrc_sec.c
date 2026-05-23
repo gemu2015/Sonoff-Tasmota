@@ -47,6 +47,7 @@ int mtrc_sec_encode(uint8_t *out, size_t cap,
 }
 
 int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
+                    uint64_t peer_node_id,
                     mtrc_msg_header *mh, mtrc_proto_header *ph,
                     uint8_t *pt_buf, size_t pt_cap,
                     const uint8_t **payload, size_t *payload_len) {
@@ -61,8 +62,11 @@ int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
   memcpy(pt_buf, in + hl, ct_len);                 // ciphertext -> decrypt in place
   const uint8_t *tag = in + hl + ct_len;
 
+  // Nonce source node id = the sender's node id. When the header carries it use
+  // that; otherwise (operational CASE omits it) fall back to the session peer.
+  uint64_t nonce_src = mh->has_src ? mh->src_node_id : peer_node_id;
   uint8_t nonce[MTRC_CCM_NONCE_LEN];
-  mtrc_sec_nonce(nonce, mtrc_frame_security_flags(mh), mh->msg_counter, mh->src_node_id);
+  mtrc_sec_nonce(nonce, mtrc_frame_security_flags(mh), mh->msg_counter, nonce_src);
 
   if (!mtrc_aes_ccm_decrypt(key, nonce, MTRC_CCM_NONCE_LEN,
                             in, (size_t)hl,             // AAD = message header

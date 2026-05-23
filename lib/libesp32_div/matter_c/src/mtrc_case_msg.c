@@ -21,14 +21,24 @@ int mtrc_sigma1_decode(const uint8_t *in, size_t len, mtrc_sigma1 *s) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, in, len);
   mtrc_tlv_elem e; memset(s, 0, sizeof(*s));
   if (!mtrc_tlv_read(&r, &e) || e.type != MTRC_TLV_STRUCT) return 0;
-  while (mtrc_tlv_read(&r, &e) && e.type != MTRC_TLV_END) {
-    switch (e.tag.number) {
-      case 1: if (e.type==MTRC_TLV_BYTES && e.bytes_len==32) memcpy(s->initiator_random, e.bytes, 32); break;
-      case 2: s->initiator_session_id = (uint16_t)e.u; break;
-      case 3: if (e.type==MTRC_TLV_BYTES && e.bytes_len==32) memcpy(s->destination_id, e.bytes, 32); break;
-      case 4: if (e.type==MTRC_TLV_BYTES && e.bytes_len==65) memcpy(s->initiator_eph_pub, e.bytes, 65); break;
-      default: break;   // optional 5/6/7 ignored
+  // Sigma1 field 5 (initiatorSEDParams) is a NESTED struct whose inner context
+  // tags (1=idle,2=active interval,...) collide with our top-level tags. The
+  // flat reader emits the nested elements too, so we must only act on top-level
+  // fields (depth 0) and skip the contents of any nested container — otherwise
+  // e.g. SESSION_ACTIVE_INTERVAL (300 ms) overwrites initiatorSessionId.
+  int depth = 0;
+  while (mtrc_tlv_read(&r, &e)) {
+    if (e.type == MTRC_TLV_END) { if (depth == 0) break; depth--; continue; }
+    if (depth == 0) {
+      switch (e.tag.number) {
+        case 1: if (e.type==MTRC_TLV_BYTES && e.bytes_len==32) memcpy(s->initiator_random, e.bytes, 32); break;
+        case 2: if (e.type==MTRC_TLV_UINT) s->initiator_session_id = (uint16_t)e.u; break;
+        case 3: if (e.type==MTRC_TLV_BYTES && e.bytes_len==32) memcpy(s->destination_id, e.bytes, 32); break;
+        case 4: if (e.type==MTRC_TLV_BYTES && e.bytes_len==65) memcpy(s->initiator_eph_pub, e.bytes, 65); break;
+        default: break;   // optional 5 (SEDParams)/6/7 skipped below
+      }
     }
+    if (e.type==MTRC_TLV_STRUCT || e.type==MTRC_TLV_ARRAY || e.type==MTRC_TLV_LIST) depth++;
   }
   return !r.err;
 }

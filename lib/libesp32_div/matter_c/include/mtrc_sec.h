@@ -42,7 +42,11 @@ int mtrc_sec_encode(uint8_t *out, size_t cap,
 // remainder into pt_buf, verifies the MIC, then parses the protocol header.
 // On success fills mh/ph and points *payload into pt_buf. Returns 1, or 0
 // on malformed input / authentication failure.
+//   peer_node_id: the SENDER's operational node id, used in the decrypt nonce
+//   when the message header omits the source node id (S flag clear) — operational
+//   CASE messages do this. Pass 0 for PASE / commissioning sessions.
 int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
+                    uint64_t peer_node_id,
                     mtrc_msg_header *mh, mtrc_proto_header *ph,
                     uint8_t *pt_buf, size_t pt_cap,
                     const uint8_t **payload, size_t *payload_len);
