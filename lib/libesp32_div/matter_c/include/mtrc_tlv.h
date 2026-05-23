@@ -86,6 +86,9 @@ void   mtrc_tlv_writer_init(mtrc_tlv_writer *w, uint8_t *buf, size_t cap);
 size_t mtrc_tlv_writer_len(const mtrc_tlv_writer *w);
 int    mtrc_tlv_writer_ok(const mtrc_tlv_writer *w);  // 1 if no error + depth==0
 
+// Append already-encoded TLV bytes verbatim (pre-built fragment into a container).
+int mtrc_tlv_put_raw   (mtrc_tlv_writer *w, const uint8_t *p, size_t n);
+
 // Scalars (minimal-width encoding chosen automatically for ints).
 int mtrc_tlv_put_uint  (mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint64_t v);
 int mtrc_tlv_put_int   (mtrc_tlv_writer *w, mtrc_tlv_tag tag, int64_t  v);

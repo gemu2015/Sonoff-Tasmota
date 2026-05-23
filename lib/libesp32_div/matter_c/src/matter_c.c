@@ -108,6 +108,20 @@ typedef struct {
   uint16_t         sub_exch;
   uint32_t         sub_last_ms;       // last report time
   uint64_t         sub_last_val;      // last reported value (change detection)
+
+  // Chunked ReportData engine: a wildcard read/subscribe response that exceeds
+  // one UDP datagram is split into multiple ReportData messages with
+  // MoreChunkedMessages set; each non-final chunk is flow-controlled by the
+  // controller's StatusResponse (Core Spec §8.7 / §4.4.4).
+  bool             rpt_active;        // a chunked report is in progress
+  bool             rpt_is_sub;        // subscribe (send SubscribeResponse at end) vs read
+  uint8_t          rpt_phase;         // 0=sending chunks, 1=(sub) awaiting StatusResponse -> SubscribeResponse
+  uint32_t         rpt_sub_id;        // subscription id (subscribe only)
+  uint16_t         rpt_sub_max_s;     // subscription max interval (subscribe only)
+  uint16_t         rpt_exch;          // exchange id of the read/subscribe
+  int              rpt_cursor;        // next path index to emit
+  int              rpt_npaths;        // total paths
+  struct { uint16_t ep; uint32_t cl; uint32_t attr; } rpt_paths[192];
 } matter_ctx_t;
 
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
@@ -1155,38 +1169,6 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
   }
 }
 
-// Build a Descriptor (0x001D) attribute report from the data-model registry:
-//   0x0000 DeviceTypeList, 0x0001 ServerList, 0x0002 ClientList (empty),
-//   0x0003 PartsList. Returns the encoded length, or -1.
-static int build_descriptor_report(uint8_t *out, size_t cap, uint32_t sub_id,
-                                   uint16_t ep, uint32_t attr) {
-  if (attr == 0x0000) {                              // DeviceTypeList
-    uint32_t dt = 0; mtrc_dm_endpoint_device_type(ep, &dt);
-    return mtrc_im_build_report_devtypelist(out, cap, sub_id, ep, 0x001D, attr, dt, 1);
-  }
-  if (attr == 0x0001) {                              // ServerList (clusters on ep)
-    uint32_t list[MTRC_DM_MAX_CLUSTERS]; int n = 0;
-    for (int i = 0; i < mtrc_dm_cluster_count(); i++) {
-      const mtrc_dm_cluster_t *c = mtrc_dm_cluster_at(i);
-      if (c && c->endpoint == ep && n < (int)(sizeof(list)/sizeof(list[0])))
-        list[n++] = c->cluster;
-    }
-    return mtrc_im_build_report_list_uint(out, cap, sub_id, ep, 0x001D, attr, list, n);
-  }
-  if (attr == 0x0003) {                              // PartsList (ep0: child eps)
-    uint32_t list[MTRC_DM_MAX_ENDPOINTS]; int n = 0;
-    if (ep == 0) {
-      for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
-        const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(i);
-        if (e && e->endpoint != 0 && n < (int)(sizeof(list)/sizeof(list[0])))
-          list[n++] = e->endpoint;
-      }
-    }
-    return mtrc_im_build_report_list_uint(out, cap, sub_id, ep, 0x001D, attr, list, n);
-  }
-  return mtrc_im_build_report_list_uint(out, cap, sub_id, ep, 0x001D, attr, NULL, 0);
-}
-
 // Handle a decrypted IM ReadRequest: report the requested attribute. Descriptor
 // (0x001D) lists come from the registry; OnOff (0x0006/0x0000 -> relay state)
 // and Basic Information are scalars; everything else reports 0.
@@ -1246,23 +1228,6 @@ static void emit_attr_report(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint3
   mtrc_tlv_end_container(w);                           // end AttributeReportIB
 }
 
-// One AttributeReportIB carrying AttributeStatus (for unsupported attributes).
-static void emit_attr_status(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
-                             uint32_t attr, uint8_t status) {
-  mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // AttributeReportIB
-  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(0));           //  AttributeStatusIB
-  mtrc_tlv_start_list(w, mtrc_tlv_ctx(0));             //   AttributePathIB
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
-  mtrc_tlv_end_container(w);                           //   end path
-  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));           //   StatusIB
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), status);       //    Status
-  mtrc_tlv_end_container(w);                           //   end StatusIB
-  mtrc_tlv_end_container(w);                           //  end AttributeStatusIB
-  mtrc_tlv_end_container(w);                           // end AttributeReportIB
-}
-
 // ---- wildcard attribute enumeration (Apple/Google subscribe to '*') --------
 // Emit one AttributeReportIB fragment whose Data is an array of uints (Descriptor
 // ServerList/ClientList/PartsList, AttributeList, etc.) into a shared writer.
@@ -1303,81 +1268,166 @@ static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt
   mtrc_tlv_end_container(w);
 }
 
-// Emit the four Descriptor (0x001D) list attributes for one endpoint.
-static int emit_descriptor_frags(mtrc_tlv_writer *w, uint16_t ep,
-                                 int has_attr, uint32_t want_attr) {
-  int n = 0;
-  if (!has_attr || want_attr == 0x0000) {                 // DeviceTypeList
-    uint32_t dt = 0; mtrc_dm_endpoint_device_type(ep, &dt);
-    emit_report_devtypelist(w, ep, dt); n++;
-  }
-  if (!has_attr || want_attr == 0x0001) {                 // ServerList
+// Emit one AttributeReportIB fragment carrying a scalar uint Data value
+// (FeatureMap, ClusterRevision, and other scalar globals).
+static void emit_attr_report_uint(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+                                  uint32_t attr, uint64_t val) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), val);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+}
+
+// Emit a single Descriptor (0x001D) list attribute fragment.
+static void emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
+  if (attr == 0x0000) { uint32_t dt = 0; mtrc_dm_endpoint_device_type(ep, &dt);
+    emit_report_devtypelist(w, ep, dt); return; }
+  if (attr == 0x0001) {                                  // ServerList
     uint32_t list[MTRC_DM_MAX_CLUSTERS]; int c = 0;
     for (int i = 0; i < mtrc_dm_cluster_count(); i++) {
       const mtrc_dm_cluster_t *cc = mtrc_dm_cluster_at(i);
       if (cc && cc->endpoint == ep && c < (int)(sizeof(list)/sizeof(list[0]))) list[c++] = cc->cluster;
     }
-    emit_report_list(w, ep, 0x001D, 0x0001, list, c); n++;
+    emit_report_list(w, ep, 0x001D, 0x0001, list, c); return;
   }
-  if (!has_attr || want_attr == 0x0002) { emit_report_list(w, ep, 0x001D, 0x0002, NULL, 0); n++; } // ClientList
-  if (!has_attr || want_attr == 0x0003) {                 // PartsList
+  if (attr == 0x0002) { emit_report_list(w, ep, 0x001D, 0x0002, NULL, 0); return; }   // ClientList
+  if (attr == 0x0003) {                                  // PartsList
     uint32_t list[MTRC_DM_MAX_ENDPOINTS]; int c = 0;
     if (ep == 0) for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
       const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(i);
       if (e && e->endpoint != 0 && c < (int)(sizeof(list)/sizeof(list[0]))) list[c++] = e->endpoint;
     }
-    emit_report_list(w, ep, 0x001D, 0x0003, list, c); n++;
+    emit_report_list(w, ep, 0x001D, 0x0003, list, c); return;
+  }
+}
+
+// Functional (non-global) attribute ids a cluster exposes. Synthetic clusters
+// (Descriptor / GeneralCommissioning / BasicInformation) have fixed lists;
+// everything else comes from the data-model registry.
+static int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) {
+  int n = 0;
+  if (cl == 0x001D) { static const uint32_t a[]={0,1,2,3};
+    for (unsigned i=0;i<4 && n<cap;i++) out[n++]=a[i]; return n; }
+  if (cl == 0x0030 && ep==0) { static const uint32_t a[]={0,1,2,3,4,5};
+    for (unsigned i=0;i<6 && n<cap;i++) out[n++]=a[i]; return n; }
+  if (cl == 0x0028 && ep==0) { static const uint32_t a[]={0x0000,0x0002,0x0004};
+    for (unsigned i=0;i<3 && n<cap;i++) out[n++]=a[i]; return n; }
+  for (int i=0;i<mtrc_dm_attr_count();i++) {
+    const mtrc_dm_attr_t *a = mtrc_dm_attr_at(i);
+    if (a && a->endpoint==ep && a->cluster==cl && n<cap) out[n++]=a->attr;
   }
   return n;
 }
 
-// Walk the data model, emitting an AttributeReportIB fragment for every attribute
-// that matches a (possibly wildcard) ep/cluster/attr filter. Returns the count.
-// Covers Descriptor (synthetic lists), GeneralCommissioning + BasicInformation
-// (synthetic scalars on ep0), and every registered data-model attribute.
-static int emit_wildcard(mtrc_tlv_writer *w, int has_ep, uint16_t want_ep,
-                         int has_cl, uint32_t want_cl, int has_attr, uint32_t want_attr) {
-  int count = 0;
-  for (int ei = 0; ei < mtrc_dm_endpoint_count(); ei++) {
+// Emit one AttributeReportIB fragment for any (ep,cl,attr), including the
+// mandatory global attributes every cluster must expose (Core Spec §7.13).
+static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+  if (cl == 0x001D && attr <= 0x0003) { emit_descriptor_one(w, ep, attr); return; }
+  switch (attr) {
+    case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr, 1); return;             // ClusterRevision
+    case 0xFFFC: emit_attr_report_uint(w, ep, cl, attr,
+                   cl == 0x0300 ? 0x01 : 0); return;                            // FeatureMap (ColorControl: HS)
+    case 0xFFFB: {                                                              // AttributeList
+      uint32_t fa[80]; int fn = cluster_func_attrs(ep, cl, fa, 74);
+      static const uint32_t glob[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+      for (unsigned i=0;i<6 && fn<80;i++) fa[fn++]=glob[i];
+      emit_report_list(w, ep, cl, attr, fa, fn); return;
+    }
+    case 0xFFF8: case 0xFFF9: case 0xFFFA:                                      // Gen/Accepted CmdList, EventList
+      emit_report_list(w, ep, cl, attr, NULL, 0); return;
+    default: break;
+  }
+  emit_attr_report(w, ep, cl, attr);                                           // functional scalar
+}
+
+// Append every (ep,cl,attr) path matching a (possibly wildcard) filter to
+// g.rpt_paths, including each cluster's mandatory global attributes. Multiple
+// query paths accumulate (a ReadRequest may carry several AttributePathIBs).
+static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t want_cl,
+                          int has_attr, uint32_t want_attr) {
+  static const uint32_t globals[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+  int cap = (int)(sizeof(g.rpt_paths)/sizeof(g.rpt_paths[0]));
+  #define RPT_PUT(EP,CL,AT) do { uint32_t _a=(AT); \
+    if ((!has_attr || _a==want_attr) && g.rpt_npaths<cap) { \
+      g.rpt_paths[g.rpt_npaths].ep=(EP); g.rpt_paths[g.rpt_npaths].cl=(uint32_t)(CL); \
+      g.rpt_paths[g.rpt_npaths].attr=_a; g.rpt_npaths++; } } while(0)
+  #define RPT_CLUSTER(EP,CL) do { uint32_t _fa[80]; \
+    int _fn=cluster_func_attrs((EP),(CL),_fa,80); \
+    for (int _i=0;_i<_fn;_i++) RPT_PUT((EP),(CL),_fa[_i]); \
+    for (unsigned _g=0;_g<sizeof(globals)/sizeof(globals[0]);_g++) RPT_PUT((EP),(CL),globals[_g]); } while(0)
+  for (int ei=0; ei<mtrc_dm_endpoint_count(); ei++) {
     const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(ei);
     if (!e) continue;
     uint16_t ep = e->endpoint;
     if (has_ep && ep != want_ep) continue;
-    if (!has_cl || want_cl == 0x001D)                       // Descriptor
-      count += emit_descriptor_frags(w, ep, has_attr, want_attr);
-    if (ep == 0 && (!has_cl || want_cl == 0x0030)) {        // GeneralCommissioning
-      static const uint32_t a[] = {0,1,2,3,4,5,0xFFFC,0xFFFD};
-      for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++)
-        if (!has_attr || want_attr==a[i]) { emit_attr_report(w, 0, 0x0030, a[i]); count++; }
+    if (ep == 0) {                                          // synthetic root clusters
+      if (!has_cl || want_cl==0x0030) RPT_CLUSTER(0, 0x0030);
+      if (!has_cl || want_cl==0x0028) RPT_CLUSTER(0, 0x0028);
     }
-    if (ep == 0 && (!has_cl || want_cl == 0x0028)) {        // BasicInformation
-      static const uint32_t a[] = {0x0000,0x0002,0x0004,0xFFFC,0xFFFD};
-      for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++)
-        if (!has_attr || want_attr==a[i]) { emit_attr_report(w, 0, 0x0028, a[i]); count++; }
-    }
-    for (int ai = 0; ai < mtrc_dm_attr_count(); ai++) {     // registered attributes
-      const mtrc_dm_attr_t *a = mtrc_dm_attr_at(ai);
-      if (!a || a->endpoint != ep) continue;
-      if (has_cl && a->cluster != want_cl) continue;
-      if (has_attr && a->attr != want_attr) continue;
-      emit_attr_report(w, ep, a->cluster, a->attr); count++;
+    for (int ci=0; ci<mtrc_dm_cluster_count(); ci++) {     // registered clusters
+      const mtrc_dm_cluster_t *cc = mtrc_dm_cluster_at(ci);
+      if (!cc || cc->endpoint != ep) continue;
+      if (cc->cluster==0x0030 || cc->cluster==0x0028) continue;   // handled above
+      if (has_cl && cc->cluster != want_cl) continue;
+      RPT_CLUSTER(ep, cc->cluster);
     }
   }
-  return count;
+  #undef RPT_CLUSTER
+  #undef RPT_PUT
 }
 
-// Multi-path ReadRequest -> ReportData covering EVERY requested AttributePathIB
-// (chip-tool's ReadCommissioningInfo reads ~10 paths in one request). Concrete
-// unknown attrs get an UNSUPPORTED_ATTRIBUTE status; wildcard paths enumerate
-// the data model via emit_wildcard.
+// Build and send one ReportData chunk from g.rpt_paths[g.rpt_cursor:]. Sets
+// MoreChunkedMessages while paths remain; the controller's StatusResponse pulls
+// the next chunk. `ack` is the counter of the message that triggered this chunk.
+static void send_report_chunk(uint32_t ack) {
+  static uint8_t chunk[1280];
+  static uint8_t frag[400];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(chunk));
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());             // ReportDataMessage
+  if (g.rpt_is_sub) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), g.rpt_sub_id);   // SubscriptionId
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));              // AttributeReports
+  const size_t MAX_PAYLOAD = 1100;                        // < 1280 IPv6 MTU after headers + MIC
+  int emitted = 0;
+  while (g.rpt_cursor < g.rpt_npaths) {
+    mtrc_tlv_writer fw; mtrc_tlv_writer_init(&fw, frag, sizeof(frag));
+    emit_one_path(&fw, g.rpt_paths[g.rpt_cursor].ep, g.rpt_paths[g.rpt_cursor].cl,
+                  g.rpt_paths[g.rpt_cursor].attr);
+    if (!mtrc_tlv_writer_ok(&fw)) { g.rpt_cursor++; continue; }   // skip a frag that didn't build
+    size_t flen = mtrc_tlv_writer_len(&fw);
+    if (emitted > 0 && mtrc_tlv_writer_len(&w) + flen > MAX_PAYLOAD) break;   // chunk full
+    mtrc_tlv_put_raw(&w, frag, flen); emitted++; g.rpt_cursor++;
+  }
+  mtrc_tlv_end_container(&w);                             // end AttributeReports
+  int more = (g.rpt_cursor < g.rpt_npaths);
+  if (more) mtrc_tlv_put_bool(&w, mtrc_tlv_ctx(3), true); // MoreChunkedMessages
+  else if (!g.rpt_is_sub) mtrc_tlv_put_bool(&w, mtrc_tlv_ctx(4), true);  // read final: SuppressResponse
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);          // InteractionModelRevision
+  mtrc_tlv_end_container(&w);
+  if (mtrc_tlv_writer_ok(&w))
+    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, chunk, mtrc_tlv_writer_len(&w),
+                 g.rpt_exch, true, ack, true);
+  else mlog(MATTER_LOG_ERROR, "IM report chunk overflow");
+  { char m[56]; snprintf(m, sizeof(m), "IM ReportData %d/%d more=%d",
+      g.rpt_cursor, g.rpt_npaths, more); mlog(MATTER_LOG_DEBUG, m); }
+  if (more)              { /* stay active; next chunk on StatusResponse */ }
+  else if (g.rpt_is_sub) { g.rpt_phase = 1; }            // priming done -> SubscribeResponse next
+  else                   { g.rpt_active = false; }       // read complete
+}
+
+// Multi-path ReadRequest -> chunked ReportData covering every requested
+// AttributePathIB plus each cluster's mandatory global attributes. Large
+// responses (wildcard reads) are split across ReportData chunks driven by the
+// controller's StatusResponse (see send_report_chunk / secured_dispatch).
 static void im_handle_read(const uint8_t *payload, size_t plen,
                            uint16_t exch, uint32_t ack) {
-  static uint8_t resp[1152];
-  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
-  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
-  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
-
-  int npaths = 0;
+  g.rpt_npaths = 0;
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, payload, plen);
   mtrc_tlv_elem e;
   while (mtrc_tlv_read(&r, &e)) {
@@ -1391,39 +1441,21 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
       else if (ie.tag.number == 3) { cl   = (uint32_t)ie.u; have_cl = 1; }
       else if (ie.tag.number == 4) { attr = (uint32_t)ie.u; have_attr = 1; }
     }
-    int n = emit_wildcard(&w, have_ep, ep, have_cl, cl, have_attr, attr);
-    npaths += n;
-    if (n == 0 && have_ep && have_cl && have_attr) {   // concrete unknown -> status
-      emit_attr_status(&w, ep, cl, attr, 0x86); npaths++;
-    }
+    rpt_add_query(have_ep, ep, have_cl, cl, have_attr, attr);
   }
-
-  mtrc_tlv_end_container(&w);                           // end AttributeReports
-  mtrc_tlv_put_bool(&w, mtrc_tlv_ctx(4), true);         // SuppressResponse (reads are one-shot)
-  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);         // InteractionModelRevision
-  mtrc_tlv_end_container(&w);                           // end ReportDataMessage
-
-  if (mtrc_tlv_writer_ok(&w)) {
-    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp,
-                 mtrc_tlv_writer_len(&w), exch, true, ack, true);
-    char m[48]; snprintf(m, sizeof(m), "IM ReportData sent (%d attrs)", npaths);
-    mlog(MATTER_LOG_DEBUG, m);
-  } else {
-    mlog(MATTER_LOG_ERROR, "IM read: report build overflow");
-  }
+  g.rpt_active = true; g.rpt_is_sub = false; g.rpt_phase = 0;
+  g.rpt_exch = exch; g.rpt_cursor = 0;
+  send_report_chunk(ack);
 }
 
-// Handle a SubscribeRequest: register a subscription, send a priming
-// ReportData + SubscribeResponse. Periodic/changed reports come from
-// matter_loop. (Single subscription supported.)
+// Handle a SubscribeRequest: send a chunked priming ReportData enumerating the
+// subscribed paths (wildcard -> whole node, incl. global attributes), then —
+// after the controller acks the last chunk with a StatusResponse — a
+// SubscribeResponse. A concrete hosted attribute is also registered for
+// periodic/change reports from matter_loop. Chunk continuation + the final
+// SubscribeResponse are driven from secured_dispatch's StatusResponse handler.
 static void im_handle_subscribe(const uint8_t *payload, size_t plen,
                                 uint16_t exch, uint32_t ack) {
-  // A SubscribeRequest MUST get a priming ReportData + SubscribeResponse, or the
-  // controller retransmits and pairing stalls. Apple/Google issue a WILDCARD
-  // subscribe to model the whole node, so the priming report enumerates the data
-  // model (Descriptor lists, BasicInformation, every registered attribute) via
-  // emit_wildcard. A concrete hosted attribute is also registered for periodic
-  // change reports from matter_loop.
   uint16_t ep = 0, maxc = 0; uint32_t cl = 0, attr = 0;
   int have = mtrc_im_parse_subscribe(payload, plen, &ep, &cl, &attr, &maxc);
   uint16_t max_s = (maxc == 0 || maxc > 60) ? 30 : maxc;   // clamp
@@ -1439,29 +1471,17 @@ static void im_handle_subscribe(const uint8_t *payload, size_t plen,
     g.sub_active = false;
   }
 
-  // Priming ReportData: enumerate matching attributes (have==0 -> full node).
-  static uint8_t rep[1152];
-  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, rep, sizeof(rep));
-  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
-  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sid);         // SubscriptionId
-  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
-  int frags = emit_wildcard(&w, have, ep, have, cl, have, attr);
-  mtrc_tlv_end_container(&w);
-  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);        // interactionModelRevision
-  mtrc_tlv_end_container(&w);
-  if (mtrc_tlv_writer_ok(&w))
-    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, rep, mtrc_tlv_writer_len(&w),
-                 exch, true, ack, true);
-  else
-    mlog(MATTER_LOG_ERROR, "IM subscribe: priming report overflow");
-  int m2 = mtrc_im_build_subscribe_response(rep, sizeof(rep), sid, max_s);
-  if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, rep, (size_t)m2,
-                           exch, false, 0, true);
+  g.rpt_npaths = 0;
+  rpt_add_query(have, ep, have, cl, have, attr);          // wildcard when !have
+  g.rpt_active = true; g.rpt_is_sub = true; g.rpt_phase = 0;
+  g.rpt_exch = exch; g.rpt_cursor = 0;
+  g.rpt_sub_id = sid; g.rpt_sub_max_s = max_s;
 
   char m[80];
-  snprintf(m, sizeof(m), "IM Subscribe id=%u max=%us hosted=%d frags=%d",
-           (unsigned)sid,(unsigned)max_s,hosted,frags);
+  snprintf(m, sizeof(m), "IM Subscribe id=%u max=%us hosted=%d paths=%d",
+           (unsigned)sid,(unsigned)max_s,hosted,g.rpt_npaths);
   mlog(MATTER_LOG_INFO, m);
+  send_report_chunk(ack);                                 // first priming chunk
 }
 
 // Handle a WriteRequest -> WriteResponse. Apple Home writes the ACL (Access
@@ -1537,6 +1557,21 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
     im_handle_subscribe(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_WRITE_REQUEST) {
     im_handle_write(ipl, ipll, ph.exchange_id, mh.msg_counter);
+  } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE
+             && g.rpt_active) {
+    // Flow control for a chunked ReportData: the controller StatusResponses each
+    // chunk. Pull the next chunk; for a subscribe, after the final chunk send the
+    // SubscribeResponse. The reply piggybacks the MRP ack for this StatusResponse.
+    if (g.rpt_phase == 1) {                 // subscribe priming done -> SubscribeResponse
+      static uint8_t sr[80];
+      int m2 = mtrc_im_build_subscribe_response(sr, sizeof(sr), g.rpt_sub_id, g.rpt_sub_max_s);
+      if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, sr, (size_t)m2,
+                               g.rpt_exch, true, mh.msg_counter, true);
+      g.rpt_active = false;
+      mlog(MATTER_LOG_INFO, "IM SubscribeResponse sent");
+    } else {
+      send_report_chunk(mh.msg_counter);    // next data chunk
+    }
   } else {
     char m[80];
     snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",

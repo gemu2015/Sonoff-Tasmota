@@ -50,6 +50,9 @@ void mtrc_tlv_writer_init(mtrc_tlv_writer *w, uint8_t *buf, size_t cap) {
 }
 size_t mtrc_tlv_writer_len(const mtrc_tlv_writer *w) { return w->len; }
 int    mtrc_tlv_writer_ok (const mtrc_tlv_writer *w) { return !w->err && w->depth == 0; }
+// Append already-encoded TLV bytes verbatim (e.g. a pre-built AttributeReportIB
+// fragment into a ReportData array). Does not touch container depth.
+int mtrc_tlv_put_raw(mtrc_tlv_writer *w, const uint8_t *p, size_t n) { return w_raw(w, p, n); }
 
 int mtrc_tlv_put_uint(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint64_t v) {
   uint8_t t; int n;
