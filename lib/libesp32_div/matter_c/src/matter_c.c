@@ -38,6 +38,7 @@
 typedef struct {
   bool             inited;
   bool             started;
+  bool             commissionable;    // PASE accepted only while a Bind window is open
   matter_port_t    port;
   matter_config_t  cfg;
   char             qr[32];     // "MT:..." (built once config is known)
@@ -339,44 +340,52 @@ matter_err_t matter_start(void) {
   if (!g.inited)   return MATTER_ERR_NOT_INIT;
   if (g.started)   return MATTER_OK;
 
-  // Publish the commissionable node over mDNS (_matterc._udp) so an
-  // on-network commissioner (chip-tool `pairing onnetwork`) can discover us.
-  // TXT keys per Matter Core Spec §4.3.1: D=discriminator, CM=commissioning
-  // mode, VP=vendor+product. (UDP listener + PASE handling come next.)
-  if (g.port.mdns_publish) {
-    static char txt_d[16], txt_cm[8], txt_vp[24];
-    snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)g.cfg.discriminator);
-    snprintf(txt_cm, sizeof(txt_cm), "CM=1");   // 1 = in commissioning mode
-    snprintf(txt_vp, sizeof(txt_vp), "VP=%u+%u", (unsigned)g.cfg.vendor_id,
-             (unsigned)g.cfg.product_id);
-    const char *txt[] = { txt_d, txt_cm, txt_vp };
-
-    // 64-bit commissioning instance name as 16 uppercase hex (Matter spec).
-    uint8_t inst[8] = {0};
-    if (g.port.random_bytes) g.port.random_bytes(g.port.ctx, inst, 8);
-    char instance[17];
-    for (int i = 0; i < 8; i++) snprintf(instance + 2*i, 3, "%02X", inst[i]);
-
-    matter_err_t e = g.port.mdns_publish(g.port.ctx, "matterc", instance,
-                                         MTRC_COMMISSION_PORT, txt, 3);
-    mlog(e == MATTER_OK ? MATTER_LOG_INFO : MATTER_LOG_ERROR,
-         e == MATTER_OK ? "matter_c: commissionable mDNS published (_matterc._udp)"
-                        : "matter_c: mDNS publish failed");
-  } else {
-    mlog(MATTER_LOG_INFO, "matter_c start — no mdns_publish port; not discoverable");
-  }
-
-  // Already commissioned? Re-publish the operational service for each restored
-  // fabric so controllers (Apple/chip-tool) can re-discover us after a reboot.
+  // Operational only: re-publish the operational service (_matter._udp) for each
+  // restored fabric so commissioned controllers re-discover us after a reboot.
+  // The COMMISSIONABLE advert (_matterc._udp) + QR are published on demand by
+  // matter_open_commissioning_window() — the host's Bind action. A started but
+  // un-bound node is therefore NOT openly pairable until the user opens a window.
   for (int i = 0; i < mtrc_store_count(); i++) {
     mtrc_fabric *f = mtrc_store_at(i);
     if (f) publish_operational_mdns(f);
   }
-
   g.started = true;
-  // PASE-over-UDP commissioning is the next milestone; discovery is live.
   return MATTER_OK;
 }
+
+// Open the commissioning window (the Bind action): advertise the commissionable
+// node over mDNS (_matterc._udp, TXT D/CM/VP per Core Spec §4.3.1) and accept
+// PASE. The host times the window and closes it (remove advert + set !commissionable)
+// on the Bind-window timeout or on Unbind.
+matter_err_t matter_open_commissioning_window(void) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  g.commissionable = true;
+  if (!g.port.mdns_publish) return MATTER_OK;
+  static char txt_d[16], txt_cm[8], txt_vp[24];
+  snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)g.cfg.discriminator);
+  snprintf(txt_cm, sizeof(txt_cm), "CM=1");   // 1 = in commissioning mode
+  snprintf(txt_vp, sizeof(txt_vp), "VP=%u+%u", (unsigned)g.cfg.vendor_id,
+           (unsigned)g.cfg.product_id);
+  const char *txt[] = { txt_d, txt_cm, txt_vp };
+  uint8_t inst[8] = {0};
+  if (g.port.random_bytes) g.port.random_bytes(g.port.ctx, inst, 8);
+  char instance[17];
+  for (int i = 0; i < 8; i++) snprintf(instance + 2*i, 3, "%02X", inst[i]);
+  matter_err_t e = g.port.mdns_publish(g.port.ctx, "matterc", instance,
+                                       MTRC_COMMISSION_PORT, txt, 3);
+  mlog(e == MATTER_OK ? MATTER_LOG_INFO : MATTER_LOG_ERROR,
+       e == MATTER_OK ? "matter_c: commissioning window open (_matterc._udp)"
+                      : "matter_c: commissionable mDNS publish failed");
+  return e;
+}
+
+// Toggle the commissionable flag (host closes the window on timeout/Unbind).
+// While closed the PASE responder ignores new commissioning; existing fabrics
+// (CASE/operational) are unaffected.
+void matter_set_commissionable(int on) {
+  if (g_ptr) g.commissionable = on ? true : false;
+}
+int matter_is_commissionable(void) { return (g_ptr && g.commissionable) ? 1 : 0; }
 
 matter_err_t matter_stop(void) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
@@ -427,6 +436,10 @@ static void pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
 // PBKDFParamRequest -> PBKDFParamResponse (we choose salt + iterations).
 static void pase_handle_param_req(const uint8_t *payload, size_t plen,
                                   const mtrc_msg_header *mh) {
+  if (!g.commissionable) {            // commissioning window closed -> not pairable
+    mlog(MATTER_LOG_INFO, "PASE: ignored (commissioning window closed)");
+    return;
+  }
   mtrc_pase_param_req req;
   if (!mtrc_pase_decode_param_req(payload, plen, &req)) return;
   g.peer_session_id = req.initiator_session_id;

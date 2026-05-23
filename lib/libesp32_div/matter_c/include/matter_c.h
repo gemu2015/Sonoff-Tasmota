@@ -193,6 +193,14 @@ bool matter_qr_dark(int x, int y);
 const char *matter_version(void);      // MATTER_C_VERSION_STR
 bool        matter_is_commissioned(void);
 
+// Commissioning window (host-driven Bind/Unbind + timeout). When closed, the
+// PASE responder refuses new commissioning; operational (CASE) sessions for
+// existing fabrics are unaffected. matter_start() opens it; the host closes it
+// on the Bind-window timeout or on Unbind.
+matter_err_t matter_open_commissioning_window(void);  // Bind: advertise + accept PASE
+void matter_set_commissionable(int on);
+int  matter_is_commissionable(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -2704,6 +2704,21 @@ static bool mtrc_core_inited = false;   // matter_init() done — data model liv
 static bool mtrc_started     = false;   // matter_start() done — advertising
 static bool mtrc_want_start  = false;   // a script asked to start; finish when mDNS is up
 
+// Commissioning window (web Bind/Unbind). Bind opens it for MTRC_BIND_WINDOW_S
+// seconds: the device accepts PASE and /mt shows the QR; on timeout (or Unbind)
+// it closes — QR hidden + PASE refused. mtrc_window_end is a millis() deadline.
+#ifndef MTRC_BIND_WINDOW_S
+#define MTRC_BIND_WINDOW_S  600          // 10 minutes
+#endif
+static uint32_t mtrc_window_end = 0;     // millis() deadline; 0 = window closed
+static bool mtrc_window_open(void) {
+  return mtrc_window_end != 0 && (int32_t)(mtrc_window_end - millis()) > 0;
+}
+static uint32_t mtrc_window_left_s(void) {
+  if (!mtrc_window_open()) return 0;
+  return (mtrc_window_end - millis()) / 1000;
+}
+
 // Initialize the Matter CORE once: wire the host port + matter_init() (seeds the
 // data model, loads persisted fabrics). Does NOT touch mDNS/UDP or advertise —
 // that is matterStart(). Called lazily from the mtr* syscalls, so a firmware
@@ -2771,7 +2786,7 @@ static void MatterC_MaybeStart(void) {
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: listening on UDP %u"), MTRC_COMMISSION_PORT_HOST);
   }
 
-  matter_start();          // publishes _matterc._udp + operational mDNS for fabrics
+  matter_start();          // operational mDNS for fabrics; NOT pairable until Bind
   mtrc_started = true;
 }
 
@@ -2785,61 +2800,109 @@ static int mtrc_request_start(void) {
   return 0;
 }
 
+// ---- Bind / Unbind (web) ----------------------------------------------
+// Bind: start Matter (if needed) and open the commissioning window for
+// MTRC_BIND_WINDOW_S — advertise commissionable (_matterc), accept PASE, show QR.
+static void mtrc_bind(void) {
+  mtrc_request_start();                 // ensure core + operational up
+  matter_open_commissioning_window();   // publish _matterc + accept PASE (sets commissionable)
+  mtrc_window_end = millis() + (uint32_t)MTRC_BIND_WINDOW_S * 1000;
+  AddLog(LOG_LEVEL_INFO, PSTR("MTR: Bind — commissioning window open %us"),
+         (unsigned)MTRC_BIND_WINDOW_S);
+}
+
+// Close the window: stop advertising commissionable + refuse new PASE (existing
+// fabrics / operational sessions are unaffected).
+static void mtrc_close_window(void) {
+  mtrc_window_end = 0;
+  matter_set_commissionable(0);
+  if (Mdns.begun) mdns_service_remove("_matterc", "_udp");   // stop being discoverable
+  AddLog(LOG_LEVEL_INFO, PSTR("MTR: commissioning window closed (QR expired)"));
+}
+
+// Unbind: leave all fabrics (factory reset) + close the window.
+static void mtrc_unbind(void) {
+  mtrc_ensure_inited();                 // load a persisted fabric so it can be wiped
+  matter_factory_reset();
+  mtrc_close_window();
+  AddLog(LOG_LEVEL_INFO, PSTR("MTR: Unbind — left all fabrics"));
+}
+
+// Unbind confirm + button markup, reused below.
+#define MTRC_UNBIND_BTN \
+  "<form action='/mt' method='get'><button name='unbind' value='1' " \
+  "onclick=\"return confirm('Remove this device from all Matter controllers?')\">" \
+  "Unbind</button></form>"
+
 static void HandleMatterQR(void) {
-  if (!mtrc_started) {                       // off until a TinyC script starts it
+  if (!mtrc_core_inited) {            // no TinyC script has defined a Matter device
     WSContentStart_P(PSTR("Matter"));
     WSContentSendStyle();
-    WSContentSend_P(PSTR("<p>Matter is not running. Start it from a TinyC script "
-                         "with <b>matterStart()</b>%s.</p>"),
-                    mtrc_core_inited ? PSTR(" (waiting for mDNS…)") : PSTR(""));
+    WSContentSend_P(PSTR("<div style='text-align:center'><h2>Matter</h2>"
+      "<p>No Matter device is defined. Add one from a TinyC script "
+      "(e.g. <b>matterAdd()</b> / <b>matterStart()</b>) — then Bind / Unbind "
+      "appear here.</p></div>"));
     WSContentSpaceButton(BUTTON_MAIN);
     WSContentStop();
     return;
   }
-  const char *uri  = matter_qr_uri();       // "MT:..." once Phase 6 lands
-  const char *code = matter_manual_code();  // "1234-567-8901"
+  if (Webserver->hasArg(F("bind")))   mtrc_bind();      // open the pairing window
+  if (Webserver->hasArg(F("unbind"))) mtrc_unbind();    // leave all fabrics
+
+  bool open = mtrc_window_open();
+  uint32_t left = mtrc_window_left_s();
 
   WSContentStart_P(PSTR("Matter Pairing"));
   WSContentSendStyle();
-  if (!uri || !uri[0]) {
-    // Library present but commissioning payload not built yet (stub phase).
-    WSContentSend_P(PSTR("<div style='text-align:center'>"
-      "<h2>Matter</h2><p>matter_c v%s — commissioning not yet implemented.</p>"
-      "</div>"), matter_version());
-    WSContentSpaceButton(BUTTON_MAIN);
-    WSContentEnd();
-    return;
-  }
+  WSContentSend_P(PSTR("<div style='text-align:center'><h2>Matter</h2>"));
 
-  // Render the QR as an SVG ON THE DEVICE — no CDN / JS / internet needed.
-  // Run-length rects per row keep each chunk small for WSContentSend.
-  WSContentSend_P(PSTR("<div style='text-align:center'><h2>Matter Pairing</h2>"));
-  int qn = matter_qr_size();
-  if (qn > 0) {
-    int q = 4, dim = qn + 2 * q;     // quiet zone
-    WSContentSend_P(PSTR("<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' "
-      "viewBox='0 0 %d %d' shape-rendering='crispEdges' style='background:#fff;padding:8px'>"
-      "<rect width='%d' height='%d' fill='#fff'/><g fill='#000'>"), dim, dim, dim, dim);
-    char row[640];
-    for (int y = 0; y < qn; y++) {
-      int p = 0; int x = 0;
-      while (x < qn) {
-        if (matter_qr_dark(x, y)) {
-          int w = 1; while (x + w < qn && matter_qr_dark(x + w, y)) w++;
-          if (p < (int)sizeof(row) - 48)
-            p += snprintf(row + p, sizeof(row) - p,
-                          "<rect x='%d' y='%d' width='%d' height='1'/>", x + q, y + q, w);
-          x += w;
-        } else x++;
+  if (open && matter_qr_uri()[0]) {
+    // Render the QR as an SVG ON THE DEVICE — no CDN / JS / internet needed.
+    int qn = matter_qr_size();
+    if (qn > 0) {
+      int q = 4, dim = qn + 2 * q;     // quiet zone
+      WSContentSend_P(PSTR("<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' "
+        "viewBox='0 0 %d %d' shape-rendering='crispEdges' style='background:#fff;padding:8px'>"
+        "<rect width='%d' height='%d' fill='#fff'/><g fill='#000'>"), dim, dim, dim, dim);
+      char row[640];
+      for (int y = 0; y < qn; y++) {
+        int p = 0; int x = 0;
+        while (x < qn) {
+          if (matter_qr_dark(x, y)) {
+            int w = 1; while (x + w < qn && matter_qr_dark(x + w, y)) w++;
+            if (p < (int)sizeof(row) - 48)
+              p += snprintf(row + p, sizeof(row) - p,
+                            "<rect x='%d' y='%d' width='%d' height='1'/>", x + q, y + q, w);
+            x += w;
+          } else x++;
+        }
+        if (p) WSContentSend_P(PSTR("%s"), row);
       }
-      if (p) WSContentSend_P(PSTR("%s"), row);
+      WSContentSend_P(PSTR("</g></svg>"));
     }
-    WSContentSend_P(PSTR("</g></svg>"));
+    WSContentSend_P(PSTR(
+      "<p style='font-size:24px;font-family:monospace;letter-spacing:4px'><b>%s</b></p>"
+      "<p>Scan with the Apple Home / Google Home / Alexa app</p>"
+      "<p style='color:#080'>Pairing window open — closes in <span id='cd'>%um %02us</span></p>"
+      "<p style='font-size:10px;color:#888'>%s</p>"),
+      matter_manual_code(), left / 60, left % 60, matter_qr_uri());
+    // Live countdown; when it hits 0 reload /mt -> window is closed, QR gone.
+    WSContentSend_P(PSTR("<script>var s=%u;function t(){var e=document.getElementById('cd');"
+      "if(s<=0){location.href='/mt';return;}"
+      "e.textContent=Math.floor(s/60)+'m '+('0'+(s%%60)).slice(-2)+'s';s--;"
+      "setTimeout(t,1000);}t();</script>"), left);
+    WSContentSend_P(PSTR(MTRC_UNBIND_BTN));
+  } else {
+    WSContentSend_P(PSTR("<p>Matter is %s.<br>Press <b>Bind</b> to open a %u-minute "
+      "pairing window and show the QR code.</p>"),
+      mtrc_started ? PSTR("running (not in pairing mode)") : PSTR("off"),
+      (unsigned)(MTRC_BIND_WINDOW_S / 60));
+    WSContentSend_P(PSTR("<form action='/mt' method='get'>"
+      "<button name='bind' value='1'>Bind — open %u min pairing</button></form>"),
+      (unsigned)(MTRC_BIND_WINDOW_S / 60));
+    WSContentSend_P(PSTR(MTRC_UNBIND_BTN));
   }
-  WSContentSend_P(PSTR(
-    "<p style='font-size:24px;font-family:monospace;letter-spacing:4px'><b>%s</b></p>"
-    "<p>Scan with the Apple Home / Google Home / Alexa app</p>"
-    "<p style='font-size:10px;color:#888'>%s</p></div>"), code, uri);
+  WSContentSend_P(PSTR("</div>"));
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
 }
@@ -4788,6 +4851,7 @@ bool Xdrv124(uint32_t function) {
       mtrc_want_start = true;   // compile-time opt-in: start Matter without a script
 #endif
       MatterC_MaybeStart();   // no-op unless a script called matterStart() (or autostart)
+      if (mtrc_window_end && !mtrc_window_open()) mtrc_close_window();  // Bind window timeout
 #endif
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
@@ -4883,6 +4947,13 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(false);
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
+#ifdef USE_MATTER_C
+      // Only show the Matter pairing UI once a TinyC script has defined a Matter
+      // device (any mtr* syscall lazily inits the core).
+      if (mtrc_core_inited)
+        WSContentSend_P(PSTR("<p></p><form action='/mt' method='get'><button>"
+                             "Matter Pairing (Bind / Unbind)</button></form>"));
+#endif
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
       // Show MJPEG stream from port 81 — rendered once, not AJAX-refreshed
       // onerror retry reconnects if stream drops (e.g. client disconnect)
