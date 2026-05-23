@@ -77,14 +77,24 @@ int mtrc_pase_decode_param_req(const uint8_t *in, size_t len, mtrc_pase_param_re
   mtrc_tlv_elem e;
   memset(r, 0, sizeof(*r));
   if (!mtrc_tlv_read(&rd, &e) || e.type != MTRC_TLV_STRUCT) return 0;
-  while (mtrc_tlv_read(&rd, &e) && e.type != MTRC_TLV_END) {
-    switch (e.tag.number) {
-      case 1: if (e.type==MTRC_TLV_BYTES && e.bytes_len==32) memcpy(r->initiator_random, e.bytes, 32); break;
-      case 2: r->initiator_session_id = (uint16_t)e.u; break;
-      case 3: r->passcode_id = (uint16_t)e.u; break;
-      case 4: r->has_pbkdf_parameters = (e.u != 0); break;
-      default: break;
+  // Depth-tracked walk: only top-level (depth==1) fields are this struct's
+  // members. Field 5 (initiatorSessionParams) is a nested struct carrying MRP
+  // params — its inner tag 2 (SESSION_ACTIVE_INTERVAL, default 300) must NOT be
+  // mistaken for initiatorSessionId. Skip the contents of any nested container.
+  int depth = 1;
+  while (depth > 0 && mtrc_tlv_read(&rd, &e)) {
+    if (e.type == MTRC_TLV_END) { depth--; continue; }
+    int is_container = (e.type==MTRC_TLV_STRUCT || e.type==MTRC_TLV_ARRAY || e.type==MTRC_TLV_LIST);
+    if (depth == 1) {
+      switch (e.tag.number) {
+        case 1: if (e.type==MTRC_TLV_BYTES && e.bytes_len==32) memcpy(r->initiator_random, e.bytes, 32); break;
+        case 2: r->initiator_session_id = (uint16_t)e.u; break;
+        case 3: r->passcode_id = (uint16_t)e.u; break;
+        case 4: r->has_pbkdf_parameters = (e.u != 0); break;
+        default: break;
+      }
     }
+    if (is_container) depth++;
   }
   return !rd.err;
 }

@@ -4773,23 +4773,27 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #ifdef USE_MATTER_C
     case SYS_MTR_ADD: {                          // matterAdd(deviceType) -> ep
       int32_t dt = TC_POP(vm);
+      if (!mtrc_ensure_inited()) { TC_PUSH(vm, -1); break; }   // lazy core init
       TC_PUSH(vm, matter_add_endpoint((uint32_t)dt));
       break;
     }
     case SYS_MTR_CLUSTER: {                      // matterCluster(ep, clusterId)
       int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      if (!mtrc_ensure_inited()) break;
       matter_add_cluster((uint16_t)ep, (uint32_t)cl);
       break;
     }
     case SYS_MTR_ATTR: {                         // matterAttr(ep, cl, attr, type)
       int32_t ty = TC_POP(vm); int32_t at = TC_POP(vm);
       int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      if (!mtrc_ensure_inited()) break;
       matter_add_attr((uint16_t)ep, (uint32_t)cl, (uint32_t)at, (int)ty, 0);
       break;
     }
     case SYS_MTR_SET: {                          // matterSet(ep, cl, attr, value)
       int32_t val = TC_POP(vm); int32_t at = TC_POP(vm);
       int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      if (!mtrc_ensure_inited()) break;
       matter_set_attr_uint((uint16_t)ep, (uint32_t)cl, (uint32_t)at,
                            (uint64_t)(uint32_t)val);
       break;
@@ -4801,11 +4805,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, (int32_t)v);
       break;
     }
-    case SYS_MTR_START:                          // matterStart() -> 0=ok
-      TC_PUSH(vm, (int32_t)matter_start());
+    case SYS_MTR_START:                          // matterStart() -> 0=ok (off until now)
+      TC_PUSH(vm, (int32_t)mtrc_request_start());
       break;
     case SYS_MTR_RESET:                          // matterReset()
-      matter_reset_model();
+      if (mtrc_ensure_inited()) matter_reset_model();
       break;
 #else
     case SYS_MTR_ADD:     TC_POP(vm); TC_PUSH(vm, -1); break;

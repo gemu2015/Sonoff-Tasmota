@@ -4,9 +4,11 @@
 #include "mtrc_frame.h"
 #include <string.h>
 
-// message-flags bit positions
-#define MF_VER_SHIFT   5
-#define MF_S_FLAG      0x10
+// message-flags bit positions (CSA Matter Core §4.4.1.1):
+//   bits 7..4 = Version, bit 2 = S (Source Node ID present),
+//   bits 1..0 = DSIZ (0=none, 1=dest node 8B, 2=dest group 2B).
+#define MF_VER_SHIFT   4
+#define MF_S_FLAG      0x04
 #define MF_DSIZ_MASK   0x03
 // security-flags bit positions
 #define SF_P           0x80
@@ -91,7 +93,7 @@ int mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtrc_msg_header
   rbuf r = { buf, len, 0, 0 };
   memset(mh, 0, sizeof(*mh));
   uint8_t mf = rb_u8(&r);
-  mh->version  = (uint8_t)((mf >> MF_VER_SHIFT) & 0x07);
+  mh->version  = (uint8_t)((mf >> MF_VER_SHIFT) & 0x0F);
   mh->has_src  = (mf & MF_S_FLAG) != 0;
   mh->dsiz     = (mtrc_dsiz)(mf & MF_DSIZ_MASK);
   if (mh->dsiz == 3) return -1;                      // reserved

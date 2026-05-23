@@ -29,9 +29,13 @@
 #endif
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>   // calloc/free for the heap-allocated context
 
 // ---- module state ------------------------------------------------------
-static struct {
+// The whole context is heap-allocated on matter_init() (and freed on factory
+// reset) so a firmware with Matter compiled-in but unused costs ~0 RAM — it is
+// only allocated once a host/script actually starts Matter.
+typedef struct {
   bool             inited;
   bool             started;
   matter_port_t    port;
@@ -49,6 +53,12 @@ static struct {
   // PASE responder session state
   uint8_t          pase_phase;        // 0 idle, 1 sent-resp, 2 sent-pake2, 3 done
   uint16_t         peer_session_id;
+  uint64_t         peer_node_id;       // initiator's ephemeral source node id (unsecured)
+  bool             peer_has_node;      // whether the initiator sent a source node id
+  uint32_t         peer_last_ctr;      // last processed peer counter (unsecured MRP dedup)
+  bool             have_peer_ctr;
+  uint8_t          last_tx_buf[1024];  // last unsecured frame sent (re-sent on retransmit)
+  size_t           last_tx_len;
   uint16_t         my_session_id;
   uint16_t         exchange_id;
   uint32_t         tx_counter;        // our unsecured-session message counter
@@ -62,6 +72,7 @@ static struct {
   bool             pase_secure;       // true once cA verified
   uint32_t         sec_tx_counter;    // our secured-session message counter
   bool             onoff;             // OnOff attribute (endpoint relay state)
+  uint64_t         breadcrumb;        // GeneralCommissioning Breadcrumb
   uint16_t         next_ep;           // next endpoint id handed out by add_endpoint
 
   // CASE responder state (operational session establishment)
@@ -95,7 +106,10 @@ static struct {
   uint16_t         sub_exch;
   uint32_t         sub_last_ms;       // last report time
   uint64_t         sub_last_val;      // last reported value (change detection)
-} g;
+} matter_ctx_t;
+
+static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
+#define g (*g_ptr)                    // every g.field below dereferences the heap context
 
 static void mlog(matter_log_level_t lvl, const char *msg) {
   if (g.port.log) g.port.log(g.port.ctx, lvl, msg);
@@ -244,6 +258,41 @@ static void dm_seed_root(void) {
   mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0004, MTRC_DM_T_U16, 0, g.cfg.product_id);
 }
 
+// ---- fabric persistence (kv) -------------------------------------------
+// The whole fabric table is serialized to one kv blob ("fab" -> UFS file on
+// Tasmota). Saved on AddNOC, restored on boot, so a commissioned node survives
+// reboots and stays reachable to its controllers (Apple/chip-tool).
+#define MTRC_KV_FABRICS "fab"
+#define MTRC_KV_BLOB_MAX  3200      // max serialized fabric table (~3 fabrics * ~1 KB)
+static void publish_operational_mdns(const mtrc_fabric *f);   // fwd (defined below)
+
+static void mtrc_persist_fabrics(void) {
+  if (!g.port.kv_set) return;
+  uint8_t *blob = (uint8_t *)malloc(MTRC_KV_BLOB_MAX);   // transient — not static BSS
+  if (!blob) return;
+  int n = mtrc_store_serialize(blob, MTRC_KV_BLOB_MAX);
+  if (n <= 0) { mlog(MATTER_LOG_ERROR, "persist: serialize failed"); free(blob); return; }
+  matter_err_t e = g.port.kv_set(g.port.ctx, MTRC_KV_FABRICS, blob, (size_t)n);
+  free(blob);
+  char m[56];
+  snprintf(m, sizeof(m), "persist: %d B / %d fabric(s) rc=%d", n, mtrc_store_count(), (int)e);
+  mlog(MATTER_LOG_INFO, m);
+}
+
+static void mtrc_load_fabrics(void) {
+  if (!g.port.kv_get) return;
+  uint8_t *blob = (uint8_t *)malloc(MTRC_KV_BLOB_MAX);
+  if (!blob) return;
+  size_t len = MTRC_KV_BLOB_MAX;
+  if (g.port.kv_get(g.port.ctx, MTRC_KV_FABRICS, blob, &len) == MATTER_OK && len > 0 &&
+      mtrc_store_deserialize(blob, len)) {
+    char m[48];
+    snprintf(m, sizeof(m), "loaded %d fabric(s) from kv", mtrc_store_count());
+    mlog(MATTER_LOG_INFO, m);
+  }
+  free(blob);
+}
+
 // ---- lifecycle ---------------------------------------------------------
 matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) {
   if (!port || !cfg) return MATTER_ERR_INVALID_ARG;
@@ -251,6 +300,11 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   if (!port->kv_get || !port->kv_set || !port->millis || !port->random_bytes)
     return MATTER_ERR_INVALID_ARG;
 
+  // Lazily allocate the (large) context the first time Matter is started.
+  if (!g_ptr) {
+    g_ptr = (matter_ctx_t *)calloc(1, sizeof(matter_ctx_t));
+    if (!g_ptr) return MATTER_ERR_NO_MEM;
+  }
   memset(&g, 0, sizeof(g));
   g.port = *port;
   g.cfg  = *cfg;
@@ -264,11 +318,12 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   dm_seed_root();
   matter_add_endpoint(MATTER_DEVTYPE_ON_OFF_PLUGIN);   // -> endpoint 1
 
-  // Fabric table (operational credentials). Empty until commissioned (A2/A3);
-  // a fixed test fabric can be pre-provisioned for the CASE responder test.
+  // Fabric table (operational credentials). Restore any commissioned fabrics
+  // from persistent storage so the node stays in its fabrics across reboots.
   mtrc_store_reset();
+  mtrc_load_fabrics();
 #ifdef MTRC_CASE_TEST_FABRIC
-  case_seed_test_fabric();
+  if (mtrc_store_count() == 0) case_seed_test_fabric();   // dev fallback only
 #endif
 
   // Onboarding payload: QR ("MT:...") + 11-digit manual pairing code.
@@ -311,6 +366,13 @@ matter_err_t matter_start(void) {
     mlog(MATTER_LOG_INFO, "matter_c start — no mdns_publish port; not discoverable");
   }
 
+  // Already commissioned? Re-publish the operational service for each restored
+  // fabric so controllers (Apple/chip-tool) can re-discover us after a reboot.
+  for (int i = 0; i < mtrc_store_count(); i++) {
+    mtrc_fabric *f = mtrc_store_at(i);
+    if (f) publish_operational_mdns(f);
+  }
+
   g.started = true;
   // PASE-over-UDP commissioning is the next milestone; discovery is live.
   return MATTER_OK;
@@ -324,10 +386,12 @@ matter_err_t matter_stop(void) {
 }
 
 matter_err_t matter_factory_reset(void) {
-  if (!g.inited) return MATTER_ERR_NOT_INIT;
-  // TODO Phase 3: enumerate + delete fabric/session keys via port.kv_del.
-  mlog(MATTER_LOG_INFO, "matter_c factory reset (stub)");
-  return MATTER_ERR_NOT_IMPLEMENTED;
+  if (!g_ptr || !g.inited) return MATTER_ERR_NOT_INIT;
+  mtrc_store_reset();                                    // wipe in-RAM fabric table
+  if (g.port.kv_del) g.port.kv_del(g.port.ctx, MTRC_KV_FABRICS);   // wipe persisted blob
+  g.pase_secure = false; g.case_secure = false;
+  mlog(MATTER_LOG_INFO, "matter_c factory reset (fabrics wiped)");
+  return MATTER_OK;
 }
 
 // ---- PASE responder ----------------------------------------------------
@@ -337,6 +401,9 @@ static void pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
                       bool has_ack, uint32_t ack_counter, bool reliable) {
   mtrc_msg_header mh; memset(&mh, 0, sizeof(mh));
   mh.session_id = 0; mh.session_type = 0; mh.msg_counter = ++g.tx_counter;
+  // Responder echoes the initiator's ephemeral node id as Destination (and
+  // carries no Source) so the controller can match its unauthenticated session.
+  if (g.peer_has_node) { mh.dsiz = MTRC_DSIZ_NODE; mh.dest_node_id = g.peer_node_id; }
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
   ph.initiator   = false;          // we are the responder
   ph.ack         = has_ack;
@@ -347,8 +414,14 @@ static void pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
   ph.protocol_id = MTRC_PROTO_SECURE_CHANNEL;
   uint8_t out[1280];
   int n = mtrc_frame_encode(out, sizeof(out), &mh, &ph, payload, plen);
-  if (n > 0 && g.port.udp_send)
+  if (n > 0 && g.port.udp_send) {
+    // Cache as the "last reply" so an MRP retransmit (same peer counter) can be
+    // answered by re-sending these exact bytes instead of re-running crypto.
+    if ((size_t)n <= sizeof(g.last_tx_buf)) {
+      memcpy(g.last_tx_buf, out, (size_t)n); g.last_tx_len = (size_t)n;
+    } else { g.last_tx_len = 0; }
     g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
+  }
 }
 
 // PBKDFParamRequest -> PBKDFParamResponse (we choose salt + iterations).
@@ -690,8 +763,14 @@ static int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
   size_t nocsr_len = mtrc_tlv_writer_len(&w);
 
   // attestationSignature = ECDSA(DAC, SHA256(NOCSRElements || attChallenge)).
-  // attChallenge is the PASE/CASE Att key. DAC is a placeholder until A2.
-  uint8_t dac[32]; memset(dac, 0x55, 32);
+  // attChallenge is the PASE/CASE Att key; the controller verifies this against
+  // the DAC public key it already received, so it MUST be the real DAC key.
+#ifdef MTRC_ATTEST_TEST_CREDS
+  const uint8_t *dac = MTRC_DAC_PRIV;
+#else
+  uint8_t dacbuf[32]; memset(dacbuf, 0x55, 32);
+  const uint8_t *dac = dacbuf;
+#endif
   static uint8_t hin[480 + 16];
   memcpy(hin, nocsr, nocsr_len); memcpy(hin + nocsr_len, g.att, 16);
   uint8_t h[32]; mtrc_sha256(hin, nocsr_len + 16, h);
@@ -809,6 +888,28 @@ static int build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
 // AddNOC: parse the NOC + IPK + admin args, install the fabric (CSR-generated
 // operational key + the AddTrustedRootCertificate root) into mtrc_store, and
 // build the NOCResponse. NOC chain verify is relaxed for now (A1b).
+// Publish the operational mDNS service (_matter._udp) for a commissioned fabric
+// so controllers can re-discover this node operationally (Core Spec §4.3.1/4.3.4).
+// Instance = <compressedFabricId(16 hex)>-<nodeId(16 hex)>; the host adds the
+// _I<compressedFabricId> browse subtype. CFID = Crypto_KDF(rootPubKey[1..64],
+// salt=fabricId(BE64), info="CompressedFabric", 64 bits).
+static void publish_operational_mdns(const mtrc_fabric *f) {
+  if (!g.port.mdns_publish || !f) return;
+  uint8_t salt[8];
+  for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
+  uint8_t cfid[8];
+  if (!mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
+                        (const uint8_t *)"CompressedFabric", 16, cfid, sizeof(cfid)))
+    return;
+  char instance[40]; int p = 0;
+  for (int i = 0; i < 8; i++) p += snprintf(instance + p, sizeof(instance) - p, "%02X", cfid[i]);
+  snprintf(instance + p, sizeof(instance) - p, "-%016llX", (unsigned long long)f->node_id);
+  static const char *txt[] = { "SII=5000", "SAI=300", "T=0" };
+  g.port.mdns_publish(g.port.ctx, "matter", instance, MTRC_COMMISSION_PORT, txt, 3);
+  char m[64]; snprintf(m, sizeof(m), "operational mDNS: _matter._udp %s", instance);
+  mlog(MATTER_LOG_INFO, m);
+}
+
 static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                         const uint8_t *payload, size_t plen) {
   const uint8_t *noc = NULL, *ipk = NULL; size_t noclen = 0, ipklen = 0;
@@ -842,6 +943,8 @@ static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
            (unsigned)f->fabric_index, (unsigned long)f->fabric_id,
            (unsigned long)f->node_id);
   mlog(MATTER_LOG_INFO, m);
+  mtrc_persist_fabrics();          // survive reboots
+  publish_operational_mdns(f);     // become discoverable on the operational fabric
   return build_noc_response(out, cap, ep, cl, 0x00, f->fabric_index);   // OK
 }
 
@@ -855,7 +958,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
   char m[80];
   snprintf(m, sizeof(m), "IM Invoke ep=%u cluster=0x%04X cmd=0x%02X",
            (unsigned)ep, (unsigned)cl, (unsigned)cmd);
-  mlog(MATTER_LOG_INFO, m);
+  mlog(MATTER_LOG_DEBUG, m);
 
   static uint8_t resp[1024];          // CSA DAC/PAI (~500B) + CD (~540B) responses
   int n = -1;
@@ -923,7 +1026,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
 
   if (n > 0) {
     secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack);
-    mlog(MATTER_LOG_INFO, "IM InvokeResponse sent");
+    mlog(MATTER_LOG_DEBUG, "IM InvokeResponse sent");
   }
 }
 
@@ -962,23 +1065,131 @@ static int build_descriptor_report(uint8_t *out, size_t cap, uint32_t sub_id,
 // Handle a decrypted IM ReadRequest: report the requested attribute. Descriptor
 // (0x001D) lists come from the registry; OnOff (0x0006/0x0000 -> relay state)
 // and Basic Information are scalars; everything else reports 0.
+// Is (ep,cl,attr) an attribute we can serve a value for? Mirrors the coverage
+// of emit_attr_value_field below.
+static int attr_known(uint16_t ep, uint32_t cl, uint32_t attr) {
+  if (cl == 0x0030 && (attr <= 0x0005 || attr == 0xFFFC || attr == 0xFFFD)) return 1; // GeneralCommissioning
+  if (cl == 0x0028 && (attr == 0x0000 || attr == 0x0002 || attr == 0x0004 ||
+                       attr == 0xFFFC || attr == 0xFFFD)) return 1;                   // Basic Information (VID=2,PID=4)
+  if (mtrc_dm_find(ep, cl, attr)) return 1;                                          // registry (OnOff, etc.)
+  return 0;
+}
+
+// Write the Data field (context tag 2) for a known attribute, with the correct
+// TLV type (controllers reject e.g. a bool returned as uint).
+static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+  if (cl == 0x0030) {                                  // General Commissioning
+    switch (attr) {
+      case 0x0000: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), g.breadcrumb); return;     // Breadcrumb (u64)
+      case 0x0001:                                                                  // BasicCommissioningInfo
+        mtrc_tlv_start_struct(w, mtrc_tlv_ctx(2));
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 60);     // FailSafeExpiryLengthSeconds
+        mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 900);    // MaxCumulativeFailsafeSeconds
+        mtrc_tlv_end_container(w); return;
+      case 0x0002: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 0);    return;             // RegulatoryConfig (enum8)
+      case 0x0003: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 0);    return;             // LocationCapability (enum8)
+      case 0x0004: mtrc_tlv_put_bool(w, mtrc_tlv_ctx(2), true); return;             // SupportsConcurrentConnection
+      case 0x0005: mtrc_tlv_put_bool(w, mtrc_tlv_ctx(2), false);return;             // IsCommissioningWithoutPower
+      case 0xFFFC: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 0);    return;             // FeatureMap
+      case 0xFFFD: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 2);    return;             // ClusterRevision
+    }
+  }
+  if (cl == 0x0028) {                                  // Basic Information
+    switch (attr) {                                    // NB: VendorID=0x0002, ProductID=0x0004
+      case 0x0000: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 18);               return; // DataModelRevision
+      case 0x0002: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), g.cfg.vendor_id);  return; // VendorID
+      case 0x0004: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), g.cfg.product_id); return; // ProductID
+      case 0xFFFC: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 0);                return; // FeatureMap
+      case 0xFFFD: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 3);                return; // ClusterRevision
+    }
+  }
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), attr_value(ep, cl, attr));                  // registry/uint
+}
+
+// One AttributeReportIB carrying AttributeData (DataVersion + path + value).
+static void emit_attr_report(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // AttributeReportIB
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));           //  AttributeDataIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //   DataVersion
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));             //   AttributePathIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
+  mtrc_tlv_end_container(w);                           //   end path
+  emit_attr_value_field(w, ep, cl, attr);             //   Data
+  mtrc_tlv_end_container(w);                           //  end AttributeDataIB
+  mtrc_tlv_end_container(w);                           // end AttributeReportIB
+}
+
+// One AttributeReportIB carrying AttributeStatus (for unsupported attributes).
+static void emit_attr_status(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+                             uint32_t attr, uint8_t status) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // AttributeReportIB
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(0));           //  AttributeStatusIB
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(0));             //   AttributePathIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
+  mtrc_tlv_end_container(w);                           //   end path
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));           //   StatusIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), status);       //    Status
+  mtrc_tlv_end_container(w);                           //   end StatusIB
+  mtrc_tlv_end_container(w);                           //  end AttributeStatusIB
+  mtrc_tlv_end_container(w);                           // end AttributeReportIB
+}
+
+// Multi-path ReadRequest -> ReportData covering EVERY requested AttributePathIB
+// (chip-tool's ReadCommissioningInfo reads ~10 paths in one request). Concrete
+// unknown attrs get an UNSUPPORTED_ATTRIBUTE status; wildcard paths to clusters
+// we don't host are silently skipped.
 static void im_handle_read(const uint8_t *payload, size_t plen,
                            uint16_t exch, uint32_t ack) {
-  uint16_t ep; uint32_t cl, attr;
-  if (!mtrc_im_parse_first_attribute(payload, plen, &ep, &cl, &attr)) return;
-  char m[80];
-  snprintf(m, sizeof(m), "IM Read ep=%u cluster=0x%04X attr=0x%04X",
-           (unsigned)ep, (unsigned)cl, (unsigned)attr);
-  mlog(MATTER_LOG_INFO, m);
+  static uint8_t resp[1024];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));           // AttributeReports
 
-  static uint8_t resp[256];
-  int n = (cl == 0x001D)
-        ? build_descriptor_report(resp, sizeof(resp), 0, ep, attr)
-        : mtrc_im_build_report_uint(resp, sizeof(resp), 0, ep, cl, attr,
-                                    attr_value(ep, cl, attr));
-  if (n > 0) {
-    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack);
-    mlog(MATTER_LOG_INFO, "IM ReportData sent");
+  int npaths = 0;
+  mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, payload, plen);
+  mtrc_tlv_elem e;
+  while (mtrc_tlv_read(&r, &e)) {
+    if (e.type != MTRC_TLV_LIST) continue;             // AttributePathIB is the only list
+    int have_ep = 0, have_cl = 0, have_attr = 0;
+    uint16_t ep = 0; uint32_t cl = 0, attr = 0;
+    mtrc_tlv_elem ie;
+    while (mtrc_tlv_read(&r, &ie) && ie.type != MTRC_TLV_END) {
+      if (ie.tag.ctrl != MTRC_TLV_TAG_CONTEXT) continue;
+      if      (ie.tag.number == 2) { ep   = (uint16_t)ie.u; have_ep = 1; }
+      else if (ie.tag.number == 3) { cl   = (uint32_t)ie.u; have_cl = 1; }
+      else if (ie.tag.number == 4) { attr = (uint32_t)ie.u; have_attr = 1; }
+    }
+    if (!have_cl) continue;
+    uint16_t ep0 = have_ep ? ep : 0;                   // commissioning clusters live on root
+    if (have_attr) {
+      if (attr_known(ep0, cl, attr))      { emit_attr_report(&w, ep0, cl, attr); npaths++; }
+      else if (have_ep)                   { emit_attr_status(&w, ep0, cl, attr, 0x86); npaths++; }
+      // wildcard endpoint to a cluster we don't host -> skip
+    } else {                                           // wildcard attribute
+      if (cl == 0x0030) { static const uint32_t a[]={0,1,2,3,4,5,0xFFFC,0xFFFD};
+        for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++){ emit_attr_report(&w,ep0,cl,a[i]); npaths++; } }
+      else if (cl == 0x0028) { static const uint32_t a[]={0x0000,0x0002,0x0004,0xFFFC,0xFFFD};
+        for (unsigned i=0;i<sizeof(a)/sizeof(a[0]);i++){ emit_attr_report(&w,ep0,cl,a[i]); npaths++; } }
+      // unknown cluster wildcard -> skip
+    }
+  }
+
+  mtrc_tlv_end_container(&w);                           // end AttributeReports
+  mtrc_tlv_put_bool(&w, mtrc_tlv_ctx(4), true);         // SuppressResponse (reads are one-shot)
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);         // InteractionModelRevision
+  mtrc_tlv_end_container(&w);                           // end ReportDataMessage
+
+  if (mtrc_tlv_writer_ok(&w)) {
+    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, resp,
+                 mtrc_tlv_writer_len(&w), exch, true, ack);
+    char m[48]; snprintf(m, sizeof(m), "IM ReportData sent (%d attrs)", npaths);
+    mlog(MATTER_LOG_DEBUG, m);
+  } else {
+    mlog(MATTER_LOG_ERROR, "IM read: report build overflow");
   }
 }
 
@@ -1030,15 +1241,23 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
     char m[80];
     snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",
              (unsigned)ph.protocol_id, (unsigned)ph.opcode);
-    mlog(MATTER_LOG_INFO, m);
+    mlog(MATTER_LOG_DEBUG, m);
   }
 }
 
 static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
+  { char m[40]; snprintf(m, sizeof(m), "rx %u B (dispatch)", (unsigned)len);
+    mlog(MATTER_LOG_DEBUG, m); }
   // Peek the message header to route by session id.
   mtrc_msg_header mh0;
-  if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) return;
+  if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) {
+    mlog(MATTER_LOG_DEBUG, "rx: msg-header decode FAIL"); return; }
+
+  // The initiator carries an ephemeral Source Node ID on the unsecured
+  // session; our replies must echo it back as the Destination Node ID
+  // (CSA Core §4.5.2 — exactly one node id present on unsecured messages).
+  if (mh0.has_src) { g.peer_node_id = mh0.src_node_id; g.peer_has_node = true; }
 
   if (mh0.session_id != 0) {
     // Secured session traffic: PASE (commissioning IM) or CASE (operational).
@@ -1052,11 +1271,29 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
     return;
   }
 
+  // MRP duplicate suppression on the unsecured session: a retransmit carries
+  // the same message counter. Re-send our last reply (it already acks that
+  // counter) rather than re-running the SPAKE2+/CASE crypto, which would mint
+  // fresh ephemeral state and break the in-flight handshake.
+  if (g.have_peer_ctr && mh0.msg_counter == g.peer_last_ctr) {
+    if (g.last_tx_len && g.port.udp_send)
+      g.port.udp_send(g.port.ctx, NULL, 0, g.last_tx_buf, g.last_tx_len);
+    mlog(MATTER_LOG_DEBUG, "rx: duplicate counter -> re-sent last reply");
+    return;
+  }
+  g.peer_last_ctr = mh0.msg_counter; g.have_peer_ctr = true;
+
   // Unsecured session (id 0): PASE over Secure Channel.
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *pl; size_t pll;
-  if (mtrc_frame_decode(buf, len, &mh, &ph, &pl, &pll) <= 0) return;
-  if (ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) return;
+  if (mtrc_frame_decode(buf, len, &mh, &ph, &pl, &pll) <= 0) {
+    mlog(MATTER_LOG_DEBUG, "rx: frame decode FAIL"); return; }
+  if (ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) {
+    char m[48]; snprintf(m, sizeof(m), "rx: proto 0x%04X != SecureChannel",
+                         (unsigned)ph.protocol_id);
+    mlog(MATTER_LOG_DEBUG, m); return; }
+  { char m[48]; snprintf(m, sizeof(m), "rx: SC opcode 0x%02X", (unsigned)ph.opcode);
+    mlog(MATTER_LOG_DEBUG, m); }
   g.exchange_id = ph.exchange_id;
   switch (ph.opcode) {
     case MTRC_SC_PBKDF_PARAM_REQ: pase_handle_param_req(pl, pll, &mh); break;
@@ -1069,7 +1306,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
 }
 
 void matter_loop(void) {
-  if (!g.inited || !g.started) return;
+  if (!g_ptr || !g.inited || !g.started) return;   // off / not started -> no-op
   if (g.rx_pending) {
     g.rx_pending = false;
     pase_dispatch(g.rx_buf, g.rx_len, g.rx_src_port);   // crypto-heavy work here
@@ -1097,7 +1334,7 @@ void matter_loop(void) {
 void matter_udp_rx(const uint8_t src_ip6[16], uint16_t src_port,
                    const void *buf, size_t len) {
   (void)src_ip6;
-  if (!g.inited || g.rx_pending) return;        // sequential; MRP retransmits
+  if (!g_ptr || !g.inited || g.rx_pending) return;   // sequential; MRP retransmits
   if (len == 0 || len > sizeof(g.rx_buf)) return;
   memcpy(g.rx_buf, buf, len);
   g.rx_len = len; g.rx_src_port = src_port;
@@ -1185,7 +1422,7 @@ int matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
 }
 
 // ---- onboarding + introspection ---------------------------------------
-const char *matter_qr_uri(void)      { return g.qr; }      // "" until Phase 6
-const char *matter_manual_code(void) { return g.manual; }  // "" until Phase 6
+const char *matter_qr_uri(void)      { return g_ptr ? g.qr : ""; }
+const char *matter_manual_code(void) { return g_ptr ? g.manual : ""; }
 const char *matter_version(void)     { return MATTER_C_VERSION_STR; }
 bool        matter_is_commissioned(void) { return false; } // TODO Phase 3

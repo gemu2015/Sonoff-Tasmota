@@ -73,6 +73,13 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 // the USE_MATTER_C block (with the port wiring) a harmless no-op.
 #ifdef USE_MATTER_C
   #include "matter_c.h"
+  // Lazy start: Matter is compiled in but stays completely off (no mDNS, no UDP
+  // socket, no fabric load, no advertising) until a TinyC script first uses an
+  // mtr* syscall — same "off until enabled" model as HomeKit's hkStart(). These
+  // are defined further down (with the port wiring); forward-declared here so
+  // the VM header's mtr* syscall handlers can call them.
+  static bool mtrc_ensure_inited(void);   // init the core once (data model live)
+  static int  mtrc_request_start(void);   // matterStart(): advertise + commission
 #endif
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
@@ -738,11 +745,17 @@ static const char TC_NOT_INIT[] PROGMEM = "Not initialized";
 #define D_PRFX_TINYC "TinyC"
 
 void CmndCheckPartition(void);
+#ifdef USE_MATTER_C
+void CmndMatterReset(void);
+#endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Run|Stop|Reset|Exec|Info"
 #ifdef ESP32
   "|Chkpt"
+#endif
+#ifdef USE_MATTER_C
+  "|MtrReset"
 #endif
   ;
 
@@ -752,7 +765,23 @@ void (* const TinyCCommand[])(void) PROGMEM = {
 #ifdef ESP32
   , &CmndCheckPartition
 #endif
+#ifdef USE_MATTER_C
+  , &CmndMatterReset
+#endif
 };
+
+#ifdef USE_MATTER_C
+// TinyCMtrReset — factory-reset Matter: wipe all commissioned fabrics (RAM +
+// persisted UFS blob) and restart so the node re-advertises commissionable for
+// a fresh pairing. Use between commissioning attempts / to leave a controller.
+void CmndMatterReset(void) {
+  mtrc_ensure_inited();    // alloc context + load any persisted fabric so it can be wiped
+  matter_factory_reset();
+  AddLog(LOG_LEVEL_INFO, PSTR("MTR: factory reset — fabrics wiped, restarting"));
+  ResponseCmndDone();
+  TasmotaGlobal.restart_flag = 2;
+}
+#endif
 
 // --- TinyCChkpt: partition table manager (no USE_BINPLUGINS needed) ---
 #ifdef ESP32
@@ -2530,29 +2559,62 @@ extern "C" {
   static matter_err_t mtrc_p_random(void *ctx, void *buf, size_t len) {
     (void)ctx; esp_fill_random(buf, len); return MATTER_OK;   // hardware CSPRNG
   }
-  // Minimal kv (not-found / no-op) so matter_init's required-port check
-  // passes; replaced by a UFS-backed store at the fabric-store milestone.
+  // UFS-backed key/value store (Matter fabric table persistence). Keys map to
+  // files "/mtr_<key>" on the Tasmota filesystem. Falls back to not-found/no-op
+  // when the filesystem is unavailable (matter still runs, just doesn't persist).
+#ifdef USE_UFILESYS
+  static void mtrc_kv_fname(const char *k, char *out, size_t cap) {
+    snprintf(out, cap, "/mtr_%s", k);
+  }
+  static matter_err_t mtrc_p_kv_get(void *ctx, const char *k, void *b, size_t *l) {
+    (void)ctx;
+    char fn[40]; mtrc_kv_fname(k, fn, sizeof(fn));
+    if (!TfsFileExists(fn)) return MATTER_ERR_STORE;
+    size_t fsz = TfsFileSize(fn);
+    if (fsz == 0 || fsz > *l) return MATTER_ERR_STORE;
+    if (!TfsLoadFile(fn, (uint8_t *)b, fsz)) return MATTER_ERR_STORE;
+    *l = fsz;
+    return MATTER_OK;
+  }
+  static matter_err_t mtrc_p_kv_set(void *ctx, const char *k, const void *b, size_t l) {
+    (void)ctx;
+    char fn[40]; mtrc_kv_fname(k, fn, sizeof(fn));
+    return TfsSaveFile(fn, (const uint8_t *)b, (uint32_t)l) ? MATTER_OK : MATTER_ERR_STORE;
+  }
+  static matter_err_t mtrc_p_kv_del(void *ctx, const char *k) {
+    (void)ctx;
+    char fn[40]; mtrc_kv_fname(k, fn, sizeof(fn));
+    if (TfsFileExists(fn)) TfsDeleteFile(fn);
+    return MATTER_OK;
+  }
+#else
   static matter_err_t mtrc_p_kv_get(void *ctx, const char *k, void *b, size_t *l) {
     (void)ctx;(void)k;(void)b;(void)l; return MATTER_ERR_STORE; }
   static matter_err_t mtrc_p_kv_set(void *ctx, const char *k, const void *b, size_t l) {
     (void)ctx;(void)k;(void)b;(void)l; return MATTER_OK; }
   static matter_err_t mtrc_p_kv_del(void *ctx, const char *k) {
     (void)ctx;(void)k; return MATTER_OK; }
+#endif  // USE_UFILESYS
   static matter_err_t mtrc_p_mdns(void *ctx, const char *service, const char *instance,
                                   uint16_t port, const char *const *txt, size_t n) {
     (void)ctx;
     if (!Mdns.begun) return MATTER_ERR_TRANSPORT;     // responder not up yet
-    MDNS.addService(service, "udp", port);            // -> _matterc._udp
-    char stype0[20]; snprintf(stype0, sizeof(stype0), "_%s", service);   // "_matterc"
-    // Matter REQUIRES a 16-hex commissioning instance name (Core Spec §4.3.1);
-    // ESPmDNS defaults it to the hostname, which Apple Home rejects. Use a
-    // STABLE id derived from the chip MAC (not the core's per-boot random one)
-    // so reboots reuse the same instance and never seed new mDNS phantoms in
-    // controllers' caches.
-    (void)instance;
-    char inst16[17];
-    snprintf(inst16, sizeof(inst16), "%016llX", (unsigned long long)ESP.getEfuseMac());
-    mdns_service_instance_name_set(stype0, "_udp", inst16);
+    bool operational = (strcmp(service, "matter") == 0);   // _matter._udp vs _matterc._udp
+    MDNS.addService(service, "udp", port);
+    char stype0[20]; snprintf(stype0, sizeof(stype0), "_%s", service);
+    if (operational) {
+      // Operational instance is <compressedFabricId>-<nodeId>, supplied by core.
+      mdns_service_instance_name_set(stype0, "_udp", instance);
+    } else {
+      // Matter REQUIRES a 16-hex commissioning instance name (Core Spec §4.3.1);
+      // ESPmDNS defaults it to the hostname, which Apple Home rejects. Use a
+      // STABLE id derived from the chip MAC (not the core's per-boot random one)
+      // so reboots reuse the same instance and never seed new mDNS phantoms in
+      // controllers' caches.
+      char inst16[17];
+      snprintf(inst16, sizeof(inst16), "%016llX", (unsigned long long)ESP.getEfuseMac());
+      mdns_service_instance_name_set(stype0, "_udp", inst16);
+    }
     uint16_t disc = 0;
     for (size_t i = 0; i < n; i++) {
       const char *eq = strchr(txt[i], '=');
@@ -2563,17 +2625,28 @@ extern "C" {
       MDNS.addServiceTxt(service, "udp", key, eq + 1);
       if (kl == 1 && key[0] == 'D') disc = (uint16_t)atoi(eq + 1);
     }
+    if (operational) {
+      // Operational browse subtype _I<compressedFabricId> (Core Spec §4.3.4):
+      // controllers browse _I<CFID>._sub._matter._udp to re-find the node.
+      // CFID is the instance label before the '-'.
+      char sub[24]; const char *dash = strchr(instance, '-');
+      size_t cl = dash ? (size_t)(dash - instance) : strlen(instance);
+      if (cl > 20) cl = 20;
+      snprintf(sub, sizeof(sub), "_I%.*s", (int)cl, instance);
+      mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, sub);
+      AddLog(LOG_LEVEL_INFO, PSTR("MTR: operational mDNS _matter._udp %s (%s)"), instance, sub);
+      return MATTER_OK;
+    }
     // Matter commissionable mDNS subtypes (Core Spec §4.3.4): commissioners
     // (Apple Home / Google) browse _L<long-disc> / _S<short-disc> / _CM under
     // _matterc._udp to find a device. Without these, Apple never discovers us.
     // ESPmDNS has no subtype API, so call the ESP-IDF mdns component directly.
-    char stype[20]; snprintf(stype, sizeof(stype), "_%s", service);   // "_matterc"
     char sub[16];
     snprintf(sub, sizeof(sub), "_L%u", (unsigned)disc);
-    mdns_service_subtype_add_for_host(NULL, stype, "_udp", NULL, sub);
+    mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, sub);
     snprintf(sub, sizeof(sub), "_S%u", (unsigned)(disc >> 8));         // short = top 4 bits
-    mdns_service_subtype_add_for_host(NULL, stype, "_udp", NULL, sub);
-    mdns_service_subtype_add_for_host(NULL, stype, "_udp", NULL, "_CM");
+    mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, sub);
+    mdns_service_subtype_add_for_host(NULL, stype0, "_udp", NULL, "_CM");
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: mDNS subtypes _L%u _S%u _CM added"),
            (unsigned)disc, (unsigned)(disc >> 8));
     return MATTER_OK;
@@ -2627,61 +2700,102 @@ extern "C" {
 }
 
 static matter_port_t mtrc_port;
-static bool mtrc_inited = false;
+static bool mtrc_core_inited = false;   // matter_init() done — data model live
+static bool mtrc_started     = false;   // matter_start() done — advertising
+static bool mtrc_want_start  = false;   // a script asked to start; finish when mDNS is up
 
-// Called from FUNC_EVERY_SECOND once the mDNS responder is up.
-static void MatterC_MaybeStart(void) {
-  if (mtrc_inited) return;
-  // Matter on-network commissioning REQUIRES mDNS; SetOption55 defaults off.
-  // Auto-enable it and bring the responder up so the device is discoverable
-  // out-of-box (no manual SetOption55 needed).
-  if (!Settings->flag3.mdns_enabled) {
-    Settings->flag3.mdns_enabled = 1;
-    StartMdns();          // MDNS.begin(hostname)
-    return;               // let it settle; publish the service next tick
-  }
-  if (!Mdns.begun) { StartMdns(); return; }
+// Initialize the Matter CORE once: wire the host port + matter_init() (seeds the
+// data model, loads persisted fabrics). Does NOT touch mDNS/UDP or advertise —
+// that is matterStart(). Called lazily from the mtr* syscalls, so a firmware
+// with Matter compiled-in costs nothing at runtime until a TinyC script uses it.
+static bool mtrc_ensure_inited(void) {
+  if (mtrc_core_inited) return true;
   memset(&mtrc_port, 0, sizeof(mtrc_port));
-  mtrc_port.millis       = mtrc_p_millis;
-  mtrc_port.log          = mtrc_p_log;
-  mtrc_port.random_bytes = mtrc_p_random;
-  mtrc_port.kv_get       = mtrc_p_kv_get;
-  mtrc_port.kv_set       = mtrc_p_kv_set;
-  mtrc_port.kv_del       = mtrc_p_kv_del;
-  mtrc_port.mdns_publish = mtrc_p_mdns;
-  mtrc_port.udp_send     = mtrc_p_udp_send;
+  mtrc_port.millis        = mtrc_p_millis;
+  mtrc_port.log           = mtrc_p_log;
+  mtrc_port.random_bytes  = mtrc_p_random;
+  mtrc_port.kv_get        = mtrc_p_kv_get;
+  mtrc_port.kv_set        = mtrc_p_kv_set;
+  mtrc_port.kv_del        = mtrc_p_kv_del;
+  mtrc_port.mdns_publish  = mtrc_p_mdns;
+  mtrc_port.udp_send      = mtrc_p_udp_send;
   mtrc_port.on_attr_write = mtrc_p_on_attr_write;
   mtrc_port.on_attr_read  = mtrc_p_on_attr_read;
   mtrc_port.on_command    = mtrc_p_on_command;
+
+  matter_config_t cfg;
+  memset(&cfg, 0, sizeof(cfg));
+  cfg.vendor_id     = 0xFFF1;          // Matter test VID
+  cfg.product_id    = 0x8000;
+  cfg.discriminator = 0x0A12;          // 2578 — unique, avoids old test-3840 phantom
+  cfg.passcode      = 13572468;        // unique non-trivial passcode
+  cfg.device_name   = TasmotaGlobal.hostname;
+
+  if (matter_init(&mtrc_port, &cfg) != MATTER_OK) return false;
+  mtrc_core_inited = true;
+  AddLog(LOG_LEVEL_INFO, PSTR("MTR: core init (data model live)"));
+  return true;
+}
+
+// Called every second: finishes a pending matterStart() once mDNS is ready. Does
+// NOTHING unless a script requested start (mtrc_want_start) — so an unused build
+// never enables mDNS, opens the UDP socket, or advertises.
+static void MatterC_MaybeStart(void) {
+  if (!mtrc_want_start || mtrc_started) return;
+  if (!mtrc_ensure_inited()) return;
+  // Matter on-network commissioning REQUIRES mDNS; SetOption55 defaults off.
+  if (!Settings->flag3.mdns_enabled) {
+    Settings->flag3.mdns_enabled = 1;
+    StartMdns();          // MDNS.begin(hostname)
+    return;               // let it settle; finish next tick
+  }
+  if (!Mdns.begun) { StartMdns(); return; }
 
   // Listen on UDP 5540 for Matter operational/commissioning datagrams and
   // pump them into the core. (onPacket runs in the async-tcpip task.)
   if (!mtrc_udp_listening && mtrc_udp.listen(MTRC_COMMISSION_PORT_HOST)) {
     mtrc_udp_listening = true;
     mtrc_udp.onPacket([](AsyncUDPPacket p) {
-      mtrc_peer_ip   = p.remoteIP();
+      // Matter commissioning/operational traffic from real controllers (Apple,
+      // chip-tool, Google) arrives over IPv6. AsyncUDP's remoteIP() returns
+      // 0.0.0.0 for IPv6 packets, so capture remoteIPv6() and reply there —
+      // otherwise our PASE/CASE responses go nowhere and the controller stalls.
+      mtrc_peer_ip   = p.isIPv6() ? p.remoteIPv6() : p.remoteIP();
       mtrc_peer_port = p.remotePort();
+      AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u B from %s:%u (v6=%d)"),
+             (unsigned)p.length(), mtrc_peer_ip.toString().c_str(),
+             (unsigned)mtrc_peer_port, (int)p.isIPv6());
       uint8_t ip6[16] = {0};
       matter_udp_rx(ip6, p.remotePort(), p.data(), p.length());
     });
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: listening on UDP %u"), MTRC_COMMISSION_PORT_HOST);
   }
 
-  matter_config_t cfg;
-  memset(&cfg, 0, sizeof(cfg));
-  cfg.vendor_id     = 0xFFF1;          // Matter test VID
-  cfg.product_id    = 0x8000;
-  cfg.discriminator = 3840;            // 0xF00
-  cfg.passcode      = 20202021;        // standard test passcode
-  cfg.device_name   = TasmotaGlobal.hostname;
+  matter_start();          // publishes _matterc._udp + operational mDNS for fabrics
+  mtrc_started = true;
+}
 
-  if (matter_init(&mtrc_port, &cfg) == MATTER_OK) {
-    matter_start();                    // publishes _matterc._udp
-  }
-  mtrc_inited = true;                  // one-shot
+// matterStart() backend: a TinyC script asked Matter to go live. Ensure the
+// core is inited, flag the request, and complete immediately if mDNS is already
+// up (else MatterC_MaybeStart finishes on the next tick). Returns 0 = accepted.
+static int mtrc_request_start(void) {
+  if (!mtrc_ensure_inited()) return -1;
+  mtrc_want_start = true;
+  MatterC_MaybeStart();
+  return 0;
 }
 
 static void HandleMatterQR(void) {
+  if (!mtrc_started) {                       // off until a TinyC script starts it
+    WSContentStart_P(PSTR("Matter"));
+    WSContentSendStyle();
+    WSContentSend_P(PSTR("<p>Matter is not running. Start it from a TinyC script "
+                         "with <b>matterStart()</b>%s.</p>"),
+                    mtrc_core_inited ? PSTR(" (waiting for mDNS…)") : PSTR(""));
+    WSContentSpaceButton(BUTTON_MAIN);
+    WSContentStop();
+    return;
+  }
   const char *uri  = matter_qr_uri();       // "MT:..." once Phase 6 lands
   const char *code = matter_manual_code();  // "1234-567-8901"
 
@@ -4670,7 +4784,10 @@ bool Xdrv124(uint32_t function) {
       // recovery cycles work.
       TinyCCheckBootStable();
 #ifdef USE_MATTER_C
-      MatterC_MaybeStart();   // one-shot: publish _matterc._udp once mDNS is up
+#ifdef TC_MATTER_AUTOSTART
+      mtrc_want_start = true;   // compile-time opt-in: start Matter without a script
+#endif
+      MatterC_MaybeStart();   // no-op unless a script called matterStart() (or autostart)
 #endif
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
