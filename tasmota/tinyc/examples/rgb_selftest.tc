@@ -1,0 +1,54 @@
+// RGB self-test — drives the SAME pipeline a Matter ColorControl command would:
+//   matterSet(Level/Hue/Sat) -> matterGet -> hsv2rgb -> rgbLed(GPIO8).
+// Used to verify the colour path on macOS where chip-tool cannot issue
+// operational commands (Bonjour kDNSServiceErr_BadState). EverySecond steps
+// the hue so the onboard WS2812 walks a rainbow; the log prints each RGB word.
+
+int rgb_ep;
+int rgb_gpio;
+int hue;
+
+int hsv2rgb(int h, int s, int v) {
+    int region; int rem; int p; int q; int t; int r; int g; int b;
+    if (s == 0) { return (v << 16) + (v << 8) + v; }
+    region = (h * 6) / 255;
+    rem    = (h * 6) - (region * 255);
+    p = (v * (255 - s)) / 255;
+    q = (v * (255 - (s * rem) / 255)) / 255;
+    t = (v * (255 - (s * (255 - rem)) / 255)) / 255;
+    r = v; g = t; b = p;
+    if (region == 1) { r = q; g = v; b = p; }
+    if (region == 2) { r = p; g = v; b = t; }
+    if (region == 3) { r = p; g = q; b = v; }
+    if (region == 4) { r = t; g = p; b = v; }
+    if (region == 5) { r = v; g = p; b = q; }
+    return (r << 16) + (g << 8) + b;
+}
+
+void EverySecond() {
+    int lvl; int sat; int rgb;
+    hue = hue + 32; if (hue > 254) { hue = hue - 254; }
+    matterSet(rgb_ep, 0x0300, 0, hue);          // CurrentHue
+    lvl = matterGet(rgb_ep, CLUSTER_LEVEL, 0);
+    sat = matterGet(rgb_ep, 0x0300, 1);
+    rgb = hsv2rgb(hue, sat, lvl);
+    rgbLed(rgb_gpio, rgb);
+    addLog("RGB selftest hue=%d lvl=%d sat=%d -> 0x%06x", hue, lvl, sat, rgb);
+}
+
+int main() {
+    rgb_gpio = 8;
+    hue = 0;
+
+    matterReset();
+    rgb_ep = matterAdd(0x010D);
+    matterCluster(rgb_ep, CLUSTER_LEVEL);
+    matterAttr(rgb_ep, CLUSTER_LEVEL, 0, MTR_U8);
+    matterCluster(rgb_ep, 0x0300);
+    matterAttr(rgb_ep, 0x0300, 0, MTR_U8);
+    matterAttr(rgb_ep, 0x0300, 1, MTR_U8);
+    matterSet(rgb_ep, CLUSTER_LEVEL, 0, 254);    // full brightness
+    matterSet(rgb_ep, 0x0300, 1, 254);           // full saturation
+    rgbLed(rgb_gpio, 0xFF0000);                   // start red so it's obviously on
+    return 0;
+}

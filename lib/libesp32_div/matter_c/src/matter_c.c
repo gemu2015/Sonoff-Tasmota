@@ -1026,10 +1026,31 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
       g.port.on_attr_write(g.port.ctx, ep, 0x0006, 0x0000, &action, 1);
       handled = 1;
     }
-    g.onoff = (cmd == 0x02) ? !g.onoff : (cmd == 0x01);
-    mtrc_dm_set(ep, 0x0006, 0x0000, g.onoff ? 1 : 0);   // keep registry in sync
+    uint64_t cur = 0; mtrc_dm_get(ep, 0x0006, 0x0000, &cur);   // per-endpoint state
+    int newv = (cmd == 0x02) ? (cur ? 0 : 1) : (cmd == 0x01 ? 1 : 0);
+    mtrc_dm_set(ep, 0x0006, 0x0000, newv);              // keep registry in sync
+    g.onoff = newv;                                      // mirror (legacy relay fallback)
     if (handled)
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
+  } else if (cl == 0x0008 && (cmd == 0x00 || cmd == 0x04)) {  // LevelControl MoveToLevel[WithOnOff]
+    uint64_t lvl = 0; inv_field(payload, plen, 0, 0, NULL, NULL, &lvl);   // field 0 = Level
+    mtrc_dm_set(ep, 0x0008, 0x0000, lvl & 0xFF);                          // CurrentLevel
+    if (cmd == 0x04 && (lvl & 0xFF)) mtrc_dm_set(ep, 0x0006, 0x0000, 1);  // WithOnOff -> On
+    if (g.port.on_command) g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)(lvl & 0xFF));
+    n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
+  } else if (cl == 0x0300) {                                  // ColorControl
+    uint64_t a = 0, b = 0;
+    inv_field(payload, plen, 0, 0, NULL, NULL, &a);            // hue / sat / X / mireds
+    inv_field(payload, plen, 1, 0, NULL, NULL, &b);            // sat (for HueAndSat) / Y
+    if      (cmd == 0x00) mtrc_dm_set(ep, 0x0300, 0x0000, a & 0xFF);                 // MoveToHue
+    else if (cmd == 0x03) mtrc_dm_set(ep, 0x0300, 0x0001, a & 0xFF);                 // MoveToSaturation
+    else if (cmd == 0x06) { mtrc_dm_set(ep, 0x0300, 0x0000, a & 0xFF);              // MoveToHueAndSaturation
+                            mtrc_dm_set(ep, 0x0300, 0x0001, b & 0xFF); }
+    else if (cmd == 0x07) { mtrc_dm_set(ep, 0x0300, 0x0003, a);                     // MoveToColor (CurrentX/Y)
+                            mtrc_dm_set(ep, 0x0300, 0x0004, b); }
+    else if (cmd == 0x0A) mtrc_dm_set(ep, 0x0300, 0x0007, a);                        // MoveToColorTemperature
+    if (g.port.on_command) g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)(a & 0xFFFF));
+    n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
   } else if (g.port.on_command) {     // any other app cluster -> let a script try
     if (g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)cmd))
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
