@@ -52,6 +52,7 @@ configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 | `-DTINYC_TESTING` | Enable TinyC with all standard features | Required |
 | `-DTINYC_NO_SCRIPTER` | Exclude Tasmota Scripter engine (~120 KB flash saved) | Recommended |
 | `-DTINYC_HOMEKIT` | Enable Apple HomeKit support (**≈+152 KB flash**) | **S3/16 MB only** by policy — links on 4 MB but leaves too little headroom (see Flash Budget) |
+| `-DTINYC_MATTER` | Enable Matter (`USE_MATTER_C`, pure-C engine). **Mutually exclusive with `-DTINYC_HOMEKIT`** — same build slot; the gate enables one or the other. Crypto rides on the resident BearSSL, so the incremental flash is modest. | Opt-in (e.g. the `tinyc32c6-matter` env) |
 | `-DTINYC_CAMERA` | Enable integrated camera driver (ESP32/S3 only, not RISC-V) — **≈+42 KB flash** | ESP32/S3 builds |
 | `-DTINYC_NO_DISPLAY` | Exclude display support (~80 KB flash saved) | Optional |
 
@@ -105,6 +106,7 @@ them on firmware built without the flag will fail to compile in the IDE
 |---|---|
 | `-DTINYC_CAMERA` (`USE_TINYC_CAMERA`) | `cameraInit`, `camControl`, `dspLoadImageFromCam`, `dspImageToCam` |
 | `-DTINYC_HOMEKIT` (`USE_HOMEKIT`) | `hkInit`, `hkAdd`, `hkStart`, `hkStop`, `hkReset`, `hkReady`, `hkVar`, `hkSetCode`, `HomeKitWrite` callback |
+| `-DTINYC_MATTER` (`USE_MATTER_C`) | `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart`, `MatterInvoke` callback (replaces HomeKit — same slot) |
 
 Since the 4 MB / C3 pre-built firmware ships **without** HomeKit, the `hk*`
 builtins are unavailable there — use an S3/16 MB build for HomeKit scripts.

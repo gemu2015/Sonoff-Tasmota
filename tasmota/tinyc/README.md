@@ -62,6 +62,7 @@ Callbacks run automatically from Tasmota's main loop:
 | `TaskLoop()` | FreeRTOS task (ESP32) | Background loop with `delay()` support |
 | `TouchButton(btn, val)` | Touch event | GFX button/slider touch callback |
 | `HomeKitWrite(dev, var, val)` | HomeKit write | Control lights, switches, outlets from Apple Home |
+| `MatterInvoke(ep, cluster, cmd)` | Matter command | Handle controller commands (OnOff/Level/Color) on your Matter endpoints |
 | `Command(char cmd[])` | Custom console command | Handle registered prefix commands (e.g., MP3Play) |
 | `OnExit()` | Script stop | Close serial ports, release resources |
 
@@ -97,11 +98,13 @@ Callbacks run automatically from Tasmota's main loop:
 **Persist:** `persist` keyword for auto-saved variables, `saveVars` for manual save
 **Watch:** `watch` keyword for change detection, `changed`, `delta`, `written`, `snapshot` intrinsics
 **WebUI:** `webButton`, `webToggle`, `webSlider`, `webCheckbox`, `webText`, `webNumber`, `webPulldown`, `webRadio`, `webTime`, `webPageLabel`, `webPage`, `webSendFile`, `webOn`, `webHandler`, `webArg`
-**SML:** `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOpt`, `smlGetV`
+**SML:** `smlGet`, `smlGetStr`, `smlGetV`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOptions`, `smlCopy`, `smlApplyPins`, `smlScripterLoad`
 **mDNS:** `mdnsRegister`
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_pheap`, `tasm_maxblock`, `tasm_frag`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + `HomeKitWrite(dev, var, val)` callback
-**LED Strip:** `setPixels(array, len, offset)` — WS2812/NeoPixel control
+**Matter (ESP32, `USE_MATTER_C`):** `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart` + `MatterInvoke(ep, cluster, cmd)` callback — declare Matter endpoints (plug, light, sensors) from a script; the pure-C `matter_c` engine handles commissioning + the Interaction Model. Mutually exclusive with HomeKit (same build slot). See `examples/matter_plug.tc`, `matter_rgb.tc`
+**LED Strip:** `setPixels(array, len, offset)` — WS2812/NeoPixel strip; `rgbLed(gpio, 0xRRGGBB)` — single on-board WS2812
+**I2S Audio:** `i2sBegin(bclk, lrclk, dout, rate)`, `i2sWrite(pcm, frames)`, `i2sStop` — raw PCM streaming (e.g. WAV playback with `fileReadPCM16`)
 **DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-clocked BREAK/MAB/250 kbaud 8N2, 16 slots default (`TC_DMX_SLOTS`), 30 s all-zero watchdog. No UART consumed
 **Debug:** `print`, `dumpVM`
 
@@ -193,6 +196,8 @@ See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 **Web & Communication:**
 - **web_buttons** / **web_handler** / **webui_demo** / **webcall_demo** — Custom web interfaces
 - **homekit_demo** / **homekit_office** — Apple HomeKit integration
+- **matter_plug** — Matter On/Off smart plug (relay) via the pure-C `matter_c` engine
+- **matter_rgb** — Matter dual endpoint: On/Off plug + Extended Color Light on an on-board WS2812 (HSV→RGB)
 - **udp** — Multicast data sharing between devices
 
 **Basics:**

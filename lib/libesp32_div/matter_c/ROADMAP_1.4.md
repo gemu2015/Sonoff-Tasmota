@@ -8,21 +8,30 @@
 
 ---
 
-## 0. Where we are (foundation — DONE, live on the C6)
+## 0. Where we are (DONE, live on the C6)
 
 ```
 ✅ Crypto      SPAKE2+, AES-CCM, ECDH, ECDSA(RFC6979), HKDF/HMAC/SHA, CASE schedule
 ✅ Wire        TLV, message+protocol frame, MRP, secured (CCM) frame, PASE/CASE msgs
-✅ Transport   on-network mDNS (_matterc._udp), UDP:5540 listener, udp_send
-✅ Handshake   full PASE (SPAKE2+ mutual auth) — verified by independent prover
-✅ Secured IM  encrypted InvokeRequest/Response both directions
-✅ App         General Commissioning + OnOff cluster -> Tasmota relay toggle
-✅ Tooling     host self-tests, pase_prover.py, safeboot-aware flash_c6.sh
+✅ Transport   on-network mDNS (_matterc._udp commissionable + _matter._tcp operational),
+               UDP:5540 listener, IPv6 + IPv4 reply (link-local via STA netif)
+✅ Handshake   full PASE (SPAKE2+) AND full operational CASE (Sigma1/2/3, op-IPK schedule)
+✅ Attestation DAC/PAI/CD device attestation + CSR (real DAC key) — CSA-cred accepted
+✅ NOC         AddTrustedRoot + AddNOC, operational cert (NOC/ICAC) codec, fabric install
+✅ Persist     fabric table on UFS — survives reboot, operational mDNS re-published
+✅ Secured IM  encrypted Invoke/Read/Subscribe + report engine; multi-path ReadCommissioningInfo
+✅ App         General Commissioning, OnOff->relay, LevelControl + ColorControl (RGB light)
+✅ Scripting   TinyC matter* API + MatterInvoke callback; matter_plug.tc + matter_rgb.tc
+✅ Web/UX      /mt pairing page, on-device SVG QR, timed Bind/Unbind commissioning window
+✅ Tooling     host self-tests, pase_prover.py, safeboot-aware flash_c6.sh, CSA chip-tool
+✅ Interop     chip-tool FULLY commissions over IPv6 (PASE->attest->CSR->AddNOC->CASE)
 ```
 
-The hard cryptographic + transport unknowns are retired. Everything below is
-**bounded engineering**: breadth (clusters, data model), one remaining hard
-codec (operational certificates), and the TinyC scripting layer.
+**End-to-end commissioning works with the CSA reference controller.** The hard
+cryptographic + transport unknowns are retired. What remains is hardening
+pairing with the **commercial** controllers (Apple Home reaches operational
+CASE; the final CommissioningComplete round-trip + multi-fabric / concurrent
+operational sessions are in progress), plus cluster breadth and ACL.
 
 ---
 
@@ -50,13 +59,13 @@ bar.** Dev VID 0xFFF1 + chosen PID for testing.
 
 | Area | Have | Need for 1.4 |
 |---|---|---|
-| Commissioning | PASE + GC + OnOff over PASE | Attestation, CSR, **operational-cert codec**, AddNOC, CASE, fabric store |
-| Sessions | one PASE session | CASE operational sessions, multi-fabric, multi-controller, counter persistence |
-| Interaction Model | Invoke only | **Read, Write, Subscribe** (+ report engine), wildcard paths |
+| Commissioning | ✅ PASE, Attestation, CSR, operational-cert codec, AddNOC, **CASE**, fabric store on UFS | harden Apple/Google CommissioningComplete round-trip |
+| Sessions | ✅ one PASE + one CASE operational session, fabric persistence | **multi-fabric, multi-controller (concurrent CASE)**, counter persistence |
+| Interaction Model | ✅ Invoke, Read, Subscribe + report engine, multi-path read | Write, wildcard paths, full attribute breadth |
 | Security model | session keys | **Access Control List** (0x001F) enforcement |
-| Clusters | GC(0x0030), OnOff(0x0006) | the mandatory root-node set + app clusters |
-| Data model | hardcoded | endpoint/cluster/attribute registry (script-driven) |
-| Scripting | none | TinyC Matter API + callbacks |
+| Clusters | ✅ GC(0x0030), OnOff(0x0006), LevelControl(0x0008), ColorControl(0x0300), Basic Info(0x0028), NOC(0x003E) | the rest of the mandatory root-node set + app clusters |
+| Data model | ✅ script-driven endpoint/cluster/attribute registry | breadth |
+| Scripting | ✅ TinyC `matter*` API + `MatterInvoke` callback | more device-type helpers / named constants |
 
 ---
 

@@ -47,6 +47,11 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 | `WebPage()` | Seitenaufruf (einmalig) | Charts, eigenes HTML |
 | `UdpCall()` | UDP-Paket empfangen | Geraetekommunikation |
 | `TaskLoop()` | FreeRTOS-Task (ESP32) | Hintergrundschleife mit `delay()` |
+| `TouchButton(btn, val)` | Touch-Ereignis | GFX-Button/Slider-Touch-Callback |
+| `HomeKitWrite(dev, var, val)` | HomeKit-Schreibzugriff | Lichter, Schalter, Steckdosen aus Apple Home steuern |
+| `MatterInvoke(ep, cluster, cmd)` | Matter-Befehl | Controller-Befehle (OnOff/Level/Color) auf eigenen Matter-Endpunkten verarbeiten |
+| `Command(char cmd[])` | Eigener Konsolenbefehl | Registrierte Praefix-Befehle verarbeiten (z. B. MP3Play) |
+| `OnExit()` | Skript-Stopp | Serielle Ports schliessen, Ressourcen freigeben |
 
 `main()` wird zuerst ausgefuehrt (in einem FreeRTOS-Task auf ESP32, mit voller `delay()`-Unterstuetzung). Nach Rueckkehr von `main()` bleiben Globale erhalten und Callbacks werden aktiviert. Wenn `TaskLoop()` definiert ist, laeuft es unabhaengig vom Haupt-Thread weiter.
 
@@ -70,11 +75,13 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **Touch-Buttons:** `dspButton`, `dspTButton`, `dspPButton`, `dspSlider`, `dspButtonState`, `touchButton`
 **Audio:** `audioVol`, `audioPlay`, `audioSay`
 **WebUI:** `webButton`, `webToggle`, `webSlider`, `webCheckbox`, `webText`, `webNumber`, `webPulldown`, `webRadio`, `webTime`, `webPageLabel`, `webPage`, `webSendFile`, `webOn`, `webHandler`, `webArg`
-**SML:** `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOpt`, `smlGetV`
+**SML:** `smlGet`, `smlGetStr`, `smlGetV`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOptions`, `smlCopy`, `smlApplyPins`, `smlScripterLoad`
 **mDNS:** `mdnsRegister`
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_pheap`, `tasm_maxblock`, `tasm_frag`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + Callback `HomeKitWrite(dev, var, val)`
-**LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Steuerung
+**Matter (ESP32, `USE_MATTER_C`):** `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart` + Callback `MatterInvoke(ep, cluster, cmd)` — Matter-Endpunkte (Steckdose, Licht, Sensoren) per Skript deklarieren; die reine C-Engine `matter_c` uebernimmt Commissioning + Interaction Model. Schliesst HomeKit aus (gleicher Build-Slot). Siehe `examples/matter_plug.tc`, `matter_rgb.tc`
+**LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Streifen; `rgbLed(gpio, 0xRRGGBB)` — einzelne On-Board-WS2812
+**I2S-Audio:** `i2sBegin(bclk, lrclk, dout, rate)`, `i2sWrite(pcm, frames)`, `i2sStop` — rohe PCM-Ausgabe (z. B. WAV-Wiedergabe mit `fileReadPCM16`)
 **DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-getakteter BREAK/MAB/250 kBaud 8N2, 16 Slots (`TC_DMX_SLOTS`), 30 s All-Zero-Watchdog. Kein UART belegt
 **Debug:** `print`, `dumpVM`
 
@@ -96,7 +103,9 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **Persist:** `persist` Schluesselwort fuer automatisch gespeicherte Variablen, `saveVars` fuer manuelles Speichern
 **Watch:** `watch` Schluesselwort fuer Aenderungserkennung, `changed`, `delta`, `written`, `snapshot`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + Callback `HomeKitWrite(dev, var, val)`
-**LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Steuerung
+**Matter (ESP32, `USE_MATTER_C`):** `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart` + Callback `MatterInvoke(ep, cluster, cmd)` — Matter-Endpunkte (Steckdose, Licht, Sensoren) per Skript deklarieren; die reine C-Engine `matter_c` uebernimmt Commissioning + Interaction Model. Schliesst HomeKit aus (gleicher Build-Slot). Siehe `examples/matter_plug.tc`, `matter_rgb.tc`
+**LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Streifen; `rgbLed(gpio, 0xRRGGBB)` — einzelne On-Board-WS2812
+**I2S-Audio:** `i2sBegin(bclk, lrclk, dout, rate)`, `i2sWrite(pcm, frames)`, `i2sStop` — rohe PCM-Ausgabe (z. B. WAV-Wiedergabe mit `fileReadPCM16`)
 **DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-getakteter BREAK/MAB/250 kBaud 8N2, 16 Slots (`TC_DMX_SLOTS`), 30 s All-Zero-Watchdog. Kein UART belegt
 **Debug:** `print`, `dumpVM`
 
@@ -173,6 +182,8 @@ Siehe [`examples/`](examples/) fuer 60+ vollstaendige Programme. Highlights:
 **Web & Kommunikation:**
 - **web_buttons** / **web_handler** / **webui_demo** — Eigene Web-Oberflaechen
 - **homekit_demo** / **homekit_office** — Apple HomeKit Integration
+- **matter_plug** — Matter On/Off-Steckdose (Relais) ueber die reine C-Engine `matter_c`
+- **matter_rgb** — Matter Dual-Endpunkt: On/Off-Steckdose + Extended Color Light auf On-Board-WS2812 (HSV→RGB)
 - **udp** — Multicast-Datenaustausch zwischen Geraeten
 
 **Grundlagen:**

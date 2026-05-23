@@ -2198,6 +2198,17 @@ void process() {
 | `int analogRead(int pin)`            | Read analog value (0–4095)           |
 | `analogWrite(int pin, int value)`    | Write PWM value                      |
 | `gpioInit(int pin, int mode)`        | Release pin from Tasmota + pinMode   |
+| `int pinFree(int pin)`               | Soft check: returns 1 if the pin is free to use (not claimed/forbidden by the running Tasmota config), 0 otherwise. Does **not** halt — lets a script gate `pinMode`/`owSetPin`/etc. on a user-configurable pin instead of crashing on a stale config. |
+
+### DMX Output
+
+Drive a DMX-512 universe over a GPIO (uses the RMT peripheral). Channels are
+1-based, values `0..255`.
+
+| Function | Description |
+|----------|-------------|
+| `int dmxInit(int gpio)` | Initialise DMX output on `gpio`. Returns 1 on success, 0 on error. |
+| `dmxWrite(int channel, int value)` | Set DMX `channel` (1..512) to `value` (0..255). Buffered; sent on the continuous DMX refresh. |
 
 ### Timing
 
@@ -2521,6 +2532,7 @@ Extract a time range from tab-delimited CSV data files into float arrays for ana
 |----------|-------------|
 | `int fileExtract(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Extract rows where `from <= timestamp <= to`. Always seeks from file start. Returns row count |
 | `int fileExtractFast(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Same but caches file position for efficient sequential time-range queries |
+| `int fileRange(handle, char min[], char max[])` | Scan the file (header auto-skipped) and write the **first** and **last** timestamps into the `min` / `max` char arrays. Returns the total row count. Use it to discover a log's span before choosing a `from`/`to` window for `fileExtract`. |
 
 **Parameters:**
 - `handle` — open file handle (from `fileOpen`)
@@ -2612,6 +2624,7 @@ Execute any Tasmota console command and capture the JSON response.
 |----------------------------------------------|------------------------------------------------|
 | `int tasmCmd("command", char response[])`    | Execute command (string literal), store response, return length |
 | `int tasmCmd(char cmd[], char response[])`   | Execute command (char array), store response, return length |
+| `tasmDefer(char cmd[])`                      | Queue a Tasmota command for **deferred** execution (runs from the 50 ms tick while the VM is halted, so the VM mutex is free). Use this for commands that must not run inside a callback — e.g. blocking ones like `SendMail`, or anything that could re-enter the VM. Fire-and-forget (no response). |
 
 **Notes:**
 - Command can be a string literal (e.g., `"Status 0"`) or a `char[]` variable for dynamic commands
@@ -3102,6 +3115,7 @@ Both callbacks use the same widget functions.
 | `webText(chararray, maxlen, "label")` | Text input — edit string variable |
 | `webNumber(var, min, max, "label")` | Number input with min/max bounds |
 | `webPulldown(var, "label", "opt0\|opt1\|opt2")` | Dropdown select with label — pipe-separated options, 0-based index. Use `"@getfreepins"` as options to show available GPIO pins |
+| `webRepoPulldown(var, "label", "json_url", "index_key", "/dest")` | Dropdown populated from a remote **repository JSON** (`{ "<index_key>": [ {"label":..,"filename":..}, .. ] }`). Pre-selects `var`, writes the chosen index back on change, and (if `/dest` is non-empty) downloads the picked file and saves it to `/dest` on the device. Handy for picking a meter descriptor or example from an online index. |
 | `webRadio(var, "opt0\|opt1\|opt2")` | Radio button group — pipe-separated options, 0-based index |
 | `webTime(var, "label")` | Time picker (HH:MM) — stored as HHMM integer (e.g., 1430 = 14:30) |
 | `webPageLabel(page, "label")` | Register page 0–5 with a button label on the main page |
@@ -3186,6 +3200,13 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 | `interval` | Minutes between data points (for X-axis time labels) |
 | `ymin` | Y-axis minimum. If `ymin >= ymax`, chart auto-scales |
 | `ymax` | Y-axis maximum. If `ymin >= ymax`, chart auto-scales |
+
+**Chart configuration (optional, call before `WebChart()`):**
+
+| Function | Description |
+|----------|-------------|
+| `WebChartSize(int width, int height)` | Set the chart `<div>` size in pixels (e.g. `640 × 200`). `0` for either = use the default. |
+| `WebChartTimeBase(int minutes)` | Offset the X-axis time base from "now". `0` = anchored to now (default); negative = into the past (e.g. `-1440` = 24 h ago). Useful to align a ring buffer's oldest sample with the left edge. |
 
 **Example — 24h weather charts:**
 ```c
@@ -3530,6 +3551,17 @@ void WebCall() {
     }
 }
 ```
+
+#### Meter Setup
+
+Load a meter descriptor and bind the serial pins at runtime (instead of via
+GPIO template), so a single firmware build serves any meter by swapping the
+`/sml_meter.def` file.
+
+| Function | Description |
+|----------|-------------|
+| `int smlScripterLoad(char path[])` | Load the SML meter descriptor from a file (e.g. `"/sml_meter.def"`). Returns 1 on success. |
+| `int smlApplyPins(char path[], int rxPin, int txPin, int flags)` | Load the descriptor **and** start the meter on the given `rxPin`/`txPin`. `flags` bit 4 (`16`) selects the inverted/IR-head input. Returns 1 on success. Call once from `main()`. |
 
 #### Advanced Meter Control
 
@@ -3975,6 +4007,18 @@ audioPlay("/alarm.mp3");   // play MP3 file
 audioSay("sensor alert");  // speak text
 ```
 
+#### Raw I2S Output
+
+Lower-level access to an I2S DAC/amplifier for streaming your own PCM samples
+(e.g. playing a WAV file chunk by chunk).
+
+| Function | Description |
+|----------|-------------|
+| `int i2sBegin(int bclk, int lrclk, int dout, int sampleRate)` | Configure the I2S output pins and sample rate (Hz). Returns 0 on success, -1 on error. |
+| `int i2sWrite(int[] pcm, int frames)` | Write `frames` 16-bit stereo PCM samples from the `pcm` array to the I2S bus (blocks until queued). Returns frames written. |
+| `i2sStop()` | Release the I2S driver and pins. |
+| `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Read up to `frames` 16-bit samples from an open WAV file into `pcm`, up-mixing mono→stereo when `wavChannels == 1`. Returns frames read (0 at EOF). Pairs with `i2sWrite()`. |
+
 ### Persistent Variables
 
 | Function | Description |
@@ -4144,8 +4188,9 @@ Control WS2812 / NeoPixel addressable LED strips directly from TinyC.
 | Function | Description |
 |----------|-------------|
 | `setPixels(array, len, offset)` | Set `len` pixels from `array`, starting at strip position `offset & 0x7FF`. Updates strip immediately. |
+| `int rgbLed(gpio, color)` | Drive a **single** WS2812 / NeoPixel on `gpio` with packed `0xRRGGBB` `color` (use `0` to turn it off). Returns 1 on success, 0 on error. The RMT driver is created on the first call for that pin. Handy for an on-board status LED (e.g. GPIO8 on an ESP32-C6 dev board) and used by the Matter colour-light example to render Hue/Saturation/Level. |
 
-**Color format:** Each array element is `0xRRGGBB` (24-bit RGB packed into an int).
+**Color format:** Each array element (and `rgbLed`'s `color`) is `0xRRGGBB` (24-bit RGB packed into an int).
 
 **RGBW mode:** Set bit 12 of offset (`offset | 0x1000`) for RGBW mode. In RGBW mode, two consecutive array elements encode one pixel (high word = `0x00RG`, low word = `0xBW00`).
 
@@ -4520,6 +4565,21 @@ rebuild to change the device.
 OnOff (cluster `CLUSTER_ONOFF`) on a plug/light endpoint maps to relay 1
 automatically — the firmware applies On/Off/Toggle to the real GPIO.
 
+#### Colour lights (Extended Color Light)
+
+There are no named constants for colour lights yet — use the raw Matter ids:
+device type **`0x010D`** (Extended Color Light) and cluster **`0x0300`**
+(Color Control). The firmware's Interaction Model handles `LevelControl`
+(`CLUSTER_LEVEL`, brightness) and `ColorControl` (`0x0300`, Hue/Saturation)
+commands from a controller and applies them to the data model; your
+`MatterInvoke()` then reads the values back with `matterGet()` and paints an
+LED with [`rgbLed()`](#addressable-led-strip-ws2812--requires-use_ws2812).
+ColorControl attributes: `0` = CurrentHue, `1` = CurrentSaturation (both 0..254).
+
+See **`examples/matter_rgb.tc`** for a complete dual-endpoint device — an
+On/Off plug (relay) plus an HSV colour light on an on-board WS2812 — and
+**`examples/rgb_selftest.tc`** for a controller-free colour-pipeline check.
+
 #### MatterInvoke Callback (Optional)
 
 Define `MatterInvoke(ep, cluster, cmd)` to handle controller commands yourself
@@ -4566,8 +4626,13 @@ int main() {
    the commissioning info is shown at `http://<device>/mt`
 
 > Status: the data-model scripting API (`matter*`) and the `MatterInvoke`
-> command callback are live and device-verified. Full CASE pairing with
-> commercial controllers (Apple/Google/Alexa/HA) is in progress.
+> command callback are live and device-verified. The CSA reference controller
+> **chip-tool fully commissions** the device over IPv6 (PASE → attestation →
+> CSR → AddNOC → CASE) and the fabric persists across reboots. Operational
+> discovery is advertised under `_matter._tcp` per spec. Full pairing with the
+> commercial controllers (Apple Home / Google / Alexa) is still being hardened
+> (multi-fabric / concurrent operational sessions). The Bind/Unbind buttons and
+> on-device QR live at `http://<device>/mt`.
 
 #### Predefined File Constants
 
@@ -4591,6 +4656,7 @@ Query loaded binary plugins (PIC modules) for data.
 | Function | Description |
 |---|---|
 | `int pluginQuery(char dst[], int index, int p1, int p2)` | Call plugin at `index` with parameters `p1`, `p2`. Result string copied to `dst`. Returns string length |
+| `int bcall(char name[], char buf[], int len)` | Call a named function exported by a loaded **binary library** (blib) — e.g. `bcall("mb_crc16", buf, 6)` to compute a Modbus CRC16 over `buf`. The function operates on the byte buffer and returns an int result. Requires the matching `.blib` to be loaded. |
 
 ### Cross-VM Share Table (ESP32)
 
@@ -4745,6 +4811,7 @@ for (int i = 0; i < 32; i = i + 1) {
 | Function      | Description                |
 |---------------|----------------------------|
 | `dumpVM()`    | Dump VM state to console   |
+| `int vmStackDepth()` | Returns the current operand-stack depth. A diagnostic for catching stack leaks in scripts/callback chains — call it at the same point across loops; the value should stay constant. |
 
 ---
 

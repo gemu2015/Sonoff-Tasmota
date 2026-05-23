@@ -3,6 +3,15 @@
 **TinyC** ist eine Untermenge von C, die zu Bytecode fuer eine stackbasierte virtuelle Maschine kompiliert wird.
 Es laeuft sowohl im Browser (JavaScript-VM) als auch auf ESP32/ESP8266 (als Tasmota-Treiber XDRV_124).
 
+> **Hinweis:** Diese deutsche Referenz folgt der englischen
+> [`TinyC_Reference.md`](TinyC_Reference.md), kann bei den **neuesten** Funktionen
+> aber etwas hinterherhinken. Die englische Referenz ist die vollstaendige,
+> massgebliche Quelle — dort sind u. a. auch Krypto (`sha256`, `hmacSha256`,
+> `aesCbc`/`aesEcb`, `bin2hex`/`hex2bin`), der PSRAM-Bildspeicher (`imgCreate`,
+> `imgBlit`, …), erweiterte String-Funktionen (`strContains`, `strReplace`,
+> `strTrim`, `strToLower`/`strToUpper`, …) und Binaer-Datei-I/O
+> (`fileReadBin`/`fileWriteBin`) dokumentiert.
+
 ---
 
 ## Inhaltsverzeichnis
@@ -1314,6 +1323,17 @@ Alternative: fuer die Elementgroesse eines Arrays `sizeof(typ)` direkt nutzen, z
 | `int analogRead(int pin)`            | Analogwert lesen (0–4095)             |
 | `analogWrite(int pin, int value)`    | PWM-Wert schreiben                    |
 | `gpioInit(int pin, int mode)`        | Pin von Tasmota freigeben + pinMode   |
+| `int pinFree(int pin)`               | Weiche Pruefung: liefert 1, wenn der Pin frei nutzbar ist (nicht von der laufenden Tasmota-Konfiguration belegt/gesperrt), sonst 0. Haelt das Programm **nicht** an — so kann ein Skript `pinMode`/`owSetPin` usw. an einem konfigurierbaren Pin absichern, statt bei veralteter Konfiguration abzustuerzen. |
+
+### DMX-Ausgabe
+
+DMX-512-Universum ueber einen GPIO ausgeben (nutzt das RMT-Peripheral). Kanaele
+sind 1-basiert, Werte `0..255`.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int dmxInit(int gpio)` | DMX-Ausgabe an `gpio` initialisieren. Liefert 1 bei Erfolg, 0 bei Fehler. |
+| `dmxWrite(int channel, int value)` | DMX-`channel` (1..512) auf `value` (0..255) setzen. Gepuffert; wird beim laufenden DMX-Refresh gesendet. |
 
 ### Zeitsteuerung
 
@@ -2299,6 +2319,13 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 | `ymin` | Y-Achsen-Minimum. Wenn `ymin >= ymax`, automatische Skalierung |
 | `ymax` | Y-Achsen-Maximum. Wenn `ymin >= ymax`, automatische Skalierung |
 
+**Chart-Konfiguration (optional, vor `WebChart()` aufrufen):**
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `WebChartSize(int width, int height)` | Groesse des Chart-`<div>` in Pixeln setzen (z. B. `640 × 200`). `0` fuer einen der Werte = Standard verwenden. |
+| `WebChartTimeBase(int minutes)` | Zeitbasis der X-Achse relativ zu „jetzt“ verschieben. `0` = an „jetzt“ verankert (Standard); negativ = in die Vergangenheit (z. B. `-1440` = vor 24 h). Nuetzlich, um das aelteste Sample eines Ringpuffers an den linken Rand zu legen. |
+
 **Beispiel — 24h Wetterdaten:**
 ```c
 #define NPTS 288       // 24h bei 5-Minuten-Intervallen
@@ -2578,6 +2605,17 @@ void WebCall() {
     }
 }
 ```
+
+#### Zaehler-Setup
+
+Einen Zaehler-Deskriptor laden und die seriellen Pins zur Laufzeit binden
+(statt ueber das GPIO-Template), sodass ein einziges Firmware-Image jeden
+Zaehler bedient — nur die Datei `/sml_meter.def` wird getauscht.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int smlScripterLoad(char path[])` | SML-Zaehler-Deskriptor aus einer Datei laden (z. B. `"/sml_meter.def"`). Liefert 1 bei Erfolg. |
+| `int smlApplyPins(char path[], int rxPin, int txPin, int flags)` | Deskriptor laden **und** den Zaehler an `rxPin`/`txPin` starten. `flags`-Bit 4 (`16`) waehlt den invertierten/IR-Lesekopf-Eingang. Liefert 1 bei Erfolg. Einmal aus `main()` aufrufen. |
 
 #### Erweiterte Zaehlersteuerung
 
@@ -3017,6 +3055,18 @@ audioPlay("/alarm.mp3");   // MP3-Datei abspielen
 audioSay("sensor alert");  // Text sprechen
 ```
 
+#### Rohe I2S-Ausgabe
+
+Zugriff auf niedrigerer Ebene auf einen I2S-DAC/-Verstaerker, um eigene
+PCM-Samples zu streamen (z. B. eine WAV-Datei stueckweise abzuspielen).
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int i2sBegin(int bclk, int lrclk, int dout, int sampleRate)` | I2S-Ausgabepins und Abtastrate (Hz) konfigurieren. Liefert 0 bei Erfolg, -1 bei Fehler. |
+| `int i2sWrite(int[] pcm, int frames)` | `frames` 16-Bit-Stereo-PCM-Samples aus `pcm` an den I2S-Bus schreiben (blockiert bis eingereiht). Liefert geschriebene Frames. |
+| `i2sStop()` | I2S-Treiber und Pins freigeben. |
+| `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Bis zu `frames` 16-Bit-Samples aus einer offenen WAV-Datei nach `pcm` lesen, bei `wavChannels == 1` Mono→Stereo hochmischen. Liefert gelesene Frames (0 bei EOF). Passt zu `i2sWrite()`. |
+
 ### Persistente Variablen
 
 | Funktion | Beschreibung |
@@ -3184,8 +3234,9 @@ WS2812 / NeoPixel adressierbare LED-Streifen direkt aus TinyC steuern.
 | Funktion | Beschreibung |
 |----------|-------------|
 | `setPixels(array, len, offset)` | Setzt `len` Pixel aus `array`, ab Strip-Position `offset & 0x7FF`. Aktualisiert den Strip sofort. |
+| `int rgbLed(gpio, color)` | Steuert eine **einzelne** WS2812/NeoPixel an `gpio` mit gepacktem `0xRRGGBB`-`color` (`0` schaltet sie aus). Liefert 1 bei Erfolg, 0 bei Fehler. Der RMT-Treiber wird beim ersten Aufruf fuer diesen Pin angelegt. Praktisch fuer eine On-Board-Status-LED (z. B. GPIO8 auf einem ESP32-C6-Devboard) und vom Matter-Farblicht-Beispiel zum Darstellen von Hue/Saturation/Level genutzt. |
 
-**Farbformat:** Jedes Array-Element ist `0xRRGGBB` (24-Bit RGB als Integer gepackt).
+**Farbformat:** Jedes Array-Element (und `rgbLed`s `color`) ist `0xRRGGBB` (24-Bit RGB als Integer gepackt).
 
 **RGBW-Modus:** Bit 12 von offset setzen (`offset | 0x1000`) fuer RGBW-Modus. Im RGBW-Modus kodieren zwei aufeinanderfolgende Array-Elemente ein Pixel (High-Word = `0x00RG`, Low-Word = `0xBW00`).
 
@@ -3547,6 +3598,20 @@ Firmware-Neubau, um das Geraet zu aendern.
 OnOff (Cluster `CLUSTER_ONOFF`) auf einem Plug-/Light-Endpunkt steuert
 automatisch Relais 1 — die Firmware wendet On/Off/Toggle auf den realen GPIO an.
 
+#### Farblichter (Extended Color Light)
+
+Fuer Farblichter gibt es noch keine benannten Konstanten — die rohen Matter-IDs
+verwenden: Geraetetyp **`0x010D`** (Extended Color Light) und Cluster **`0x0300`**
+(Color Control). Die Firmware verarbeitet `LevelControl` (`CLUSTER_LEVEL`,
+Helligkeit) und `ColorControl` (`0x0300`, Hue/Saturation) vom Controller und
+schreibt sie ins Datenmodell; dein `MatterInvoke()` liest die Werte dann mit
+`matterGet()` zurueck und faerbt eine LED mit `rgbLed()`. ColorControl-Attribute:
+`0` = CurrentHue, `1` = CurrentSaturation (beide 0..254).
+
+Siehe **`examples/matter_rgb.tc`** fuer ein vollstaendiges Dual-Endpunkt-Geraet
+(On/Off-Steckdose + HSV-Farblicht auf einer On-Board-WS2812) und
+**`examples/rgb_selftest.tc`** fuer einen Controller-freien Test der Farb-Pipeline.
+
 #### MatterInvoke-Callback (Optional)
 
 Definiere `MatterInvoke(ep, cluster, cmd)`, um Controller-Befehle selbst zu
@@ -3594,9 +3659,14 @@ int main() {
    Apple Home, …); die Kopplungsinfo wird unter `http://<Geraet>/mt` angezeigt
 
 > Status: die Datenmodell-Skripting-API (`matter*`) und der `MatterInvoke`-
-> Befehls-Callback sind aktiv und am Geraet verifiziert. Die vollstaendige
-> CASE-Kopplung mit kommerziellen Controllern (Apple/Google/Alexa/HA) ist in
-> Arbeit.
+> Befehls-Callback sind aktiv und am Geraet verifiziert. Der CSA-Referenz-
+> Controller **chip-tool koppelt vollstaendig** ueber IPv6 (PASE → Attestation
+> → CSR → AddNOC → CASE), und die Fabric bleibt ueber Neustarts erhalten. Die
+> operative Discovery wird spezifikationskonform unter `_matter._tcp`
+> beworben. Die vollstaendige Kopplung mit den kommerziellen Controllern
+> (Apple Home / Google / Alexa) wird noch gehaertet (Multi-Fabric / mehrere
+> gleichzeitige operative Sessions). Die Bind/Unbind-Buttons und der
+> On-Device-QR liegen unter `http://<Geraet>/mt`.
 
 #### Vordefinierte Datei-Konstanten
 
@@ -3677,6 +3747,7 @@ int main() { addCommand("RDR"); return 0; }
 | Funktion      | Beschreibung                    |
 |---------------|---------------------------------|
 | `dumpVM()`    | VM-Zustand auf Konsole ausgeben |
+| `int vmStackDepth()` | Liefert die aktuelle Tiefe des Operanden-Stacks. Diagnose fuer Stack-Lecks in Skripten/Callback-Ketten — an gleicher Stelle ueber mehrere Durchlaeufe aufrufen; der Wert sollte konstant bleiben. |
 
 ---
 

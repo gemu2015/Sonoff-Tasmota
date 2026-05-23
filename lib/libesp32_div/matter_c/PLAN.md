@@ -1,11 +1,20 @@
 # Matter-C Port — Implementation Plan
 
-> **Status:** scaffolded. Library skeleton + host gate are in place and
-> build clean on both paths; protocol layers are stubs (return
-> NOT_IMPLEMENTED). This document is the spec for a from-scratch, pure-C
-> Matter implementation for the gemu2015/Sonoff-Tasmota fork, **inspired
-> by** (not converted from) the device-subset architecture of Tasmota
-> Berry Matter (S. Hadinger). GPLv3.
+> **Status (2026-05):** commissioning works end-to-end. The CSA reference
+> controller **chip-tool fully commissions** the device over IPv6 — PASE
+> (SPAKE2+), Device Attestation (DAC/PAI/CD), CSR, AddTrustedRoot + AddNOC,
+> and the operational **CASE** handshake (Sigma1/2/3) all pass — and the
+> fabric persists across reboots on UFS. The TinyC data-model scripting API
+> (`matter*` syscalls + `MatterInvoke` callback) is live, with On/Off plug
+> and Extended Color Light (WS2812) examples. Operational discovery is
+> advertised under `_matter._tcp` per spec. **In progress:** robust pairing
+> with the commercial controllers (Apple Home reaches operational CASE; the
+> final CommissioningComplete round-trip + multi-fabric / concurrent
+> operational sessions are being hardened). See `ROADMAP_1.4.md` for the
+> per-feature checklist. This document is the spec for a from-scratch,
+> pure-C Matter implementation for the gemu2015/Sonoff-Tasmota fork,
+> **inspired by** (not converted from) the device-subset architecture of
+> Tasmota Berry Matter (S. Hadinger). GPLv3.
 >
 > **Location:** `lib/libesp32_div/matter_c/` (alongside `homekit/`, so the
 > existing tinyc `lib_extra_dirs` discover it). Portable to other firmware
