@@ -44,6 +44,7 @@ int main() {
     // Define the Matter device: a smart plug with power measurement.
     matterReset();                          // clean slate (root node only)
     ep = matterAdd(MATTER_PLUG);            // endpoint + OnOff cluster -> relay 1
+    matterName(ep, "Smart Plug");           // accessory title in the controller
     matterCluster(ep, CLUSTER_POWER);      // add Electrical Power Measurement
     matterAttr(ep, CLUSTER_POWER, 0, MTR_U32);  // ActivePower attribute
     matterSet(ep, CLUSTER_POWER, 0, 0);    // initial value

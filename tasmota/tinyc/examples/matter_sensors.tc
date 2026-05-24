@@ -48,18 +48,21 @@ int main() {
 
     // Endpoint 1 — Temperature Sensor
     ep_temp = matterAdd(MATTER_TEMP_SENSOR);
+    matterName(ep_temp, "Temperature");              // accessory title in the controller
     matterCluster(ep_temp, CLUSTER_TEMP);
     matterAttr(ep_temp, CLUSTER_TEMP, 0, MTR_S16);   // MeasuredValue (int16, 0.01 °C)
     matterSet(ep_temp, CLUSTER_TEMP, 0, 2100);       // seed 21.00 °C
 
     // Endpoint 2 — Relative Humidity Sensor
     ep_hum = matterAdd(MATTER_HUM_SENSOR);
+    matterName(ep_hum, "Humidity");                  // accessory title in the controller
     matterCluster(ep_hum, CLUSTER_HUM);
     matterAttr(ep_hum, CLUSTER_HUM, 0, MTR_U16);     // MeasuredValue (uint16, 0.01 %)
     matterSet(ep_hum, CLUSTER_HUM, 0, 5000);         // seed 50.00 %
 
     // Endpoint 3 — Pressure Sensor
     ep_press = matterAdd(MATTER_PRESS_SENSOR);
+    matterName(ep_press, "Pressure");                // accessory title in the controller
     matterCluster(ep_press, CLUSTER_PRESS);
     matterAttr(ep_press, CLUSTER_PRESS, 0, MTR_S16); // MeasuredValue (int16, hPa)
     matterSet(ep_press, CLUSTER_PRESS, 0, 1013);     // seed 1013 hPa

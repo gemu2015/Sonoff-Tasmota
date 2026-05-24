@@ -4577,11 +4577,33 @@ rebuild to change the device.
 | `matterAttr(ep, cl, attr, type)` | Declare an attribute (`type` = `MTR_U32` etc.) |
 | `matterSet(ep, cl, attr, value)` | Publish an attribute value; subscribers are notified on the next loop |
 | `int matterGet(ep, cl, attr)` | Read back the cached attribute value (0 if absent) |
+| `matterName(ep, "label")` | Name an endpoint so a controller shows it with that title (see *Naming endpoints* below) |
 | `int matterStart()` | Advertise + accept commissioning. Returns 0=ok |
 | `matterReset()` | Clear the data model to the root node (call before declaring your own) |
 
 OnOff (cluster `CLUSTER_ONOFF`) on a plug/light endpoint maps to relay 1
 automatically — the firmware applies On/Off/Toggle to the real GPIO.
+
+#### Naming endpoints (`matterName`)
+
+Plain Matter has no per-endpoint name, so a node with several endpoints appears
+in Apple Home as *"Temperature Sensor 1 … N"*. `matterName(ep, "label")` turns
+the node into a Matter **bridge** so each endpoint shows with its own title: the
+first call lazily adds an **Aggregator** endpoint, the named endpoint becomes a
+**Bridged Node** and carries a Bridged Device Basic Information `NodeLabel`.
+
+```c
+e = matterAdd(MATTER_TEMP_SENSOR);
+matterName(e, "Buero Temp");          // shows as "Buero Temp" instead of "Temperature Sensor 1"
+```
+
+- Call it **after** `matterAdd` for that endpoint; opt-in per endpoint (unnamed
+  endpoints stay plain); idempotent (re-call to rename).
+- Labels are ASCII — a string literal stores one byte per character, so umlauts
+  would emit Latin-1 rather than UTF-8; use ASCII (`"Buero"`) and rename in the
+  controller if you want `Büro`.
+- Adding a bridge changes the node identity → an already-paired node must be
+  **removed and re-added** in the controller to pick up the names.
 
 #### Colour lights (Extended Color Light)
 

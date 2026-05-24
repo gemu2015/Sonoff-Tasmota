@@ -3610,11 +3610,34 @@ Firmware-Neubau, um das Geraet zu aendern.
 | `matterAttr(ep, cl, attr, typ)` | Attribut deklarieren (`typ` = `MTR_U32` usw.) |
 | `matterSet(ep, cl, attr, wert)` | Attributwert veroeffentlichen; Abonnenten werden im naechsten Loop benachrichtigt |
 | `int matterGet(ep, cl, attr)` | Zwischengespeicherten Attributwert lesen (0 falls nicht vorhanden) |
+| `matterName(ep, "label")` | Endpunkt benennen, damit ein Controller ihn mit diesem Titel anzeigt (siehe *Endpunkte benennen* unten) |
 | `int matterStart()` | Bewerben + Kopplung annehmen. Liefert 0=ok |
 | `matterReset()` | Datenmodell auf den Root-Knoten zuruecksetzen (vor eigener Deklaration aufrufen) |
 
 OnOff (Cluster `CLUSTER_ONOFF`) auf einem Plug-/Light-Endpunkt steuert
 automatisch Relais 1 — die Firmware wendet On/Off/Toggle auf den realen GPIO an.
+
+#### Endpunkte benennen (`matterName`)
+
+Reines Matter kennt keinen Namen pro Endpunkt, daher erscheint ein Knoten mit
+mehreren Endpunkten in Apple Home als *"Temperatursensor 1 … N"*.
+`matterName(ep, "label")` macht den Knoten zu einer Matter-**Bridge**, sodass
+jeder Endpunkt mit eigenem Titel erscheint: der erste Aufruf legt einen
+**Aggregator**-Endpunkt an, der benannte Endpunkt wird zum **Bridged Node** und
+traegt einen Bridged-Device-Basic-Information-`NodeLabel`.
+
+```c
+e = matterAdd(MATTER_TEMP_SENSOR);
+matterName(e, "Buero Temp");          // erscheint als "Buero Temp" statt "Temperatursensor 1"
+```
+
+- **Nach** `matterAdd` fuer diesen Endpunkt aufrufen; pro Endpunkt optional
+  (unbenannte Endpunkte bleiben einfach); idempotent (zum Umbenennen erneut).
+- Labels sind ASCII — ein String-Literal speichert ein Byte pro Zeichen, Umlaute
+  wuerden Latin-1 statt UTF-8 erzeugen; ASCII verwenden (`"Buero"`) und bei
+  Bedarf im Controller in `Büro` umbenennen.
+- Eine Bridge aendert die Knotenidentitaet → ein bereits gekoppelter Knoten muss
+  im Controller **entfernt und neu hinzugefuegt** werden, um die Namen zu uebernehmen.
 
 #### Farblichter (Extended Color Light)
 

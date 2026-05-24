@@ -472,6 +472,7 @@ const BUILTINS = {
     'matterSetFloat':   { syscall: Syscall.MTR_SETF,        args: 5, returns: false },
     'matterEvent':      { syscall: Syscall.MTR_EVENT,       args: 5, returns: false },
     'matterGet':        { syscall: Syscall.MTR_GET,         args: 3, returns: true },
+    'matterName':       { syscall: Syscall.MTR_NAME,        args: 2, returns: false, strArgs: [1] },
     'matterStart':      { syscall: Syscall.MTR_START,       args: 0, returns: true },
     'matterReset':      { syscall: Syscall.MTR_RESET,       args: 0, returns: false },
 

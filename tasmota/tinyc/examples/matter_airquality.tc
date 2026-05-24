@@ -36,6 +36,7 @@ int main() {
     tick = 0;
     matterReset();
     ep = matterAdd(MATTER_AIRQUALITY_SENSOR);
+    matterName(ep, "Air Quality");          // shows as the accessory title in the controller
 
     matterCluster(ep, CLUSTER_AIRQUALITY);
     matterAttr(ep, CLUSTER_AIRQUALITY, 0, MTR_ENUM8);  // AirQuality index

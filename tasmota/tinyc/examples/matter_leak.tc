@@ -22,11 +22,13 @@ int main() {
     matterReset();
 
     ep_leak = matterAdd(MATTER_WATERLEAK_SENSOR);
+    matterName(ep_leak, "Water Leak");                      // accessory title in the controller
     matterCluster(ep_leak, CLUSTER_BOOL_STATE);
     matterAttr(ep_leak, CLUSTER_BOOL_STATE, 0, MTR_BOOL);   // StateValue
     matterSet(ep_leak, CLUSTER_BOOL_STATE, 0, 0);
 
     ep_rain = matterAdd(MATTER_RAIN_SENSOR);
+    matterName(ep_rain, "Rain");                            // accessory title in the controller
     matterCluster(ep_rain, CLUSTER_BOOL_STATE);
     matterAttr(ep_rain, CLUSTER_BOOL_STATE, 0, MTR_BOOL);   // StateValue
     matterSet(ep_rain, CLUSTER_BOOL_STATE, 0, 0);

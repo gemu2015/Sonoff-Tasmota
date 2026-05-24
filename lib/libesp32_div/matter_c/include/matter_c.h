@@ -153,6 +153,12 @@ void matter_ble_rx(const void *buf, size_t len);
 // number (>= 1) on success, or a negative matter_err_t on failure.
 int matter_add_endpoint(uint32_t device_type_id);
 
+// Give an endpoint a friendly name that controllers (Apple Home) display as the
+// accessory title. Turns the node into a Matter bridge (Aggregator + Bridged
+// Device Basic Information NodeLabel); call after matter_add_endpoint for that
+// endpoint. Idempotent — re-call to rename.
+matter_err_t matter_set_label(uint16_t endpoint, const char *name);
+
 // Host pushes a new value into an attribute (e.g. a fresh sensor reading).
 matter_err_t matter_set_attr(uint16_t endpoint, uint32_t cluster,
                              uint32_t attr, const uint8_t *tlv, size_t tlv_len);

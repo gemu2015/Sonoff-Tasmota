@@ -32,6 +32,7 @@ int main() {
     last = -1;
     matterReset();
     ep = matterAdd(MATTER_FAN);
+    matterName(ep, "Fan");                  // accessory title in the controller
     matterCluster(ep, CLUSTER_FAN);
     matterAttr(ep, CLUSTER_FAN, ATTR_FAN_MODE,        MTR_ENUM8);
     matterAttr(ep, CLUSTER_FAN, ATTR_FAN_PERCENT,     MTR_U8);   // Home writes this

@@ -50,34 +50,40 @@ int main() {
 
     // 4 smart plugs -> relays Power1..Power4 (endpoint id == relay number).
     // matterAdd(MATTER_PLUG) auto-adds the OnOff cluster (+ Identify).
-    plug1 = matterAdd(MATTER_PLUG);
-    plug2 = matterAdd(MATTER_PLUG);
-    plug3 = matterAdd(MATTER_PLUG);
-    plug4 = matterAdd(MATTER_PLUG);
+    // matterName(ep, "label") makes the endpoint a Bridged Node so the
+    // controller (Apple Home) shows it with that title instead of "Outlet 1..N".
+    plug1 = matterAdd(MATTER_PLUG);  matterName(plug1, "Plug 1");
+    plug2 = matterAdd(MATTER_PLUG);  matterName(plug2, "Plug 2");
+    plug3 = matterAdd(MATTER_PLUG);  matterName(plug3, "Plug 3");
+    plug4 = matterAdd(MATTER_PLUG);  matterName(plug4, "Plug 4");
 
     // Temperature sensor (MeasuredValue int16, 0.01 °C)
     s_temp = matterAdd(MATTER_TEMP_SENSOR);
     matterCluster(s_temp, CLUSTER_TEMP);
     matterAttr(s_temp, CLUSTER_TEMP, 0, MTR_S16);
     matterSet(s_temp, CLUSTER_TEMP, 0, 2100);          // seed 21.00 °C
+    matterName(s_temp, "Room Temp");
 
     // Humidity sensor (MeasuredValue uint16, 0.01 %)
     s_hum = matterAdd(MATTER_HUM_SENSOR);
     matterCluster(s_hum, CLUSTER_HUM);
     matterAttr(s_hum, CLUSTER_HUM, 0, MTR_U16);
     matterSet(s_hum, CLUSTER_HUM, 0, 5000);            // seed 50.00 %
+    matterName(s_hum, "Room Humidity");
 
     // Pressure sensor (MeasuredValue int16, hPa)
     s_press = matterAdd(MATTER_PRESS_SENSOR);
     matterCluster(s_press, CLUSTER_PRESS);
     matterAttr(s_press, CLUSTER_PRESS, 0, MTR_S16);
     matterSet(s_press, CLUSTER_PRESS, 0, 1013);
+    matterName(s_press, "Pressure");
 
     // Contact sensor — Boolean State (1 = closed/contact)
     s_contact = matterAdd(MATTER_CONTACT_SENSOR);
     matterCluster(s_contact, CLUSTER_BOOL_STATE);
     matterAttr(s_contact, CLUSTER_BOOL_STATE, 0, MTR_BOOL);
     matterSet(s_contact, CLUSTER_BOOL_STATE, 0, 1);
+    matterName(s_contact, "Door Contact");
 
     matterStart();                       // Matter on; press Bind on /mt to pair
     return 0;

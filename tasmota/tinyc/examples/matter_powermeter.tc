@@ -57,6 +57,7 @@ int main() {
     matterReset();
 
     ep = matterAdd(MATTER_ELEC_SENSOR);
+    matterName(ep, "Power Meter");                                // accessory title in the controller
 
     matterCluster(ep, CLUSTER_POWER);                            // ElectricalPowerMeasurement
     matterAttr(ep, CLUSTER_POWER, ATTR_ACTIVE_POWER,   MTR_S64); // mW

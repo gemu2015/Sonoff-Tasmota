@@ -51,6 +51,7 @@ int main() {
     tick = 0;
     matterReset();
     ep = matterAdd(MATTER_GENERIC_SWITCH);
+    matterName(ep, "Button");               // accessory title in the controller
     matterCluster(ep, CLUSTER_SWITCH);
     matterAttr(ep, CLUSTER_SWITCH, ATTR_SWITCH_NUMPOS,   MTR_U8);
     matterAttr(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS,      MTR_U8);

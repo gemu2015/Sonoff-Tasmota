@@ -28,6 +28,7 @@ int main() {
     pos = 0;
     matterReset();
     ep = matterAdd(MATTER_WINDOW);
+    matterName(ep, "Window Covering");       // accessory title in the controller
     matterCluster(ep, CLUSTER_WINDOW);
     matterAttr(ep, CLUSTER_WINDOW, ATTR_WC_LIFT, MTR_U16);   // position 0..10000
     matterSet(ep, CLUSTER_WINDOW, ATTR_WC_LIFT, 0);          // start open

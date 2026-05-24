@@ -69,9 +69,11 @@ int main() {
 
     // Endpoint 1 — On/Off plug -> relay 1 (GPIO7)
     plug_ep = matterAdd(MATTER_PLUG);
+    matterName(plug_ep, "Plug");             // accessory title in the controller
 
     // Endpoint 2 — Extended Color Light (device type 0x010D) -> RGB on GPIO8
     rgb_ep = matterAdd(0x010D);
+    matterName(rgb_ep, "RGB Light");         // accessory title in the controller
     matterCluster(rgb_ep, CLUSTER_ONOFF);
     matterAttr(rgb_ep, CLUSTER_ONOFF, 0, MTR_BOOL);   // OnOff
     matterCluster(rgb_ep, CLUSTER_LEVEL);

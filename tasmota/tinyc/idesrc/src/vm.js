@@ -3861,6 +3861,12 @@ export class VM {
                 this.push(v);
                 break;
             }
+            case Syscall.MTR_NAME: {
+                const nameRef = this.pop(), ep = this.pop();
+                const name = this.readStringFromRef(nameRef);
+                this.onOutput(`[Matter] matterName(ep=${ep}, "${name}")\n`);
+                break;
+            }
             case Syscall.MTR_START:
                 this.onOutput('[Matter] matterStart() — not available in simulator\n');
                 this.push(0);

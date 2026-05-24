@@ -61,6 +61,7 @@ the port to reuse on another firmware.
 | `matterSetFloat(ep, cl, attr, value, scale)` | set a value as `round(value*scale)` (S64) or float bits (FLOAT) |
 | `matterGet(ep, cl, attr)` | read an attribute back |
 | `matterEvent(ep, cl, eventId, a, b)` | emit a Matter event (e.g. Generic Switch press) |
+| `matterName(ep, "label")` | name an endpoint so it shows as the accessory title (see *Naming* below) |
 | `matterStart()` | go operational (publish operational mDNS for stored fabrics) |
 | `MatterInvoke(ep, cl, cmd)` | callback: a controller invoked a command (OnOff/Level/Color/…) |
 | `EverySecond()` | callback: push live sensor/meter values |
@@ -68,6 +69,21 @@ the port to reuse on another firmware.
 Pairing is opened from the **`/mt`** web page (Bind → 10-min window + on-device
 QR); `/mt?unbind=1` factory-resets the fabrics. The device is not openly
 pairable until Bind.
+
+### Naming endpoints (`matterName`)
+
+Plain Matter has no per-endpoint name, so a multi-endpoint node shows up in Apple
+Home as *"Temperature Sensor 1 … N"*. `matterName(ep, "label")` fixes this by
+turning the node into a Matter **bridge**: the first call lazily creates an
+**Aggregator** (`0x000E`) endpoint, the named endpoint becomes a **Bridged Node**
+(its Descriptor `DeviceTypeList` gains `0x0013`) and gets a **Bridged Device
+Basic Information** cluster (`0x0039`) whose `NodeLabel` is the label the
+controller displays. Call it right after `matterAdd` for that endpoint; it's
+opt-in per endpoint (unnamed endpoints stay plain) and idempotent (re-call to
+rename). Labels are ASCII — a string literal stores one byte per char, so use
+plain ASCII (`"Buero Temp"`), then rename in the controller if you want umlauts.
+Because adding a bridge changes the node's identity, an **already-commissioned
+node must be removed and re-added** in the controller to pick up the names.
 
 ---
 

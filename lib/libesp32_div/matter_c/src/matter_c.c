@@ -124,6 +124,17 @@ typedef struct {
   uint64_t         breadcrumb;        // GeneralCommissioning Breadcrumb
   uint16_t         next_ep;           // next endpoint id handed out by add_endpoint
 
+  // Bridge / per-endpoint naming. A controller (Apple Home) can only display a
+  // manufacturer-supplied name per endpoint when the node is a *bridge*: an
+  // Aggregator (0x000E) endpoint groups child endpoints that each advertise the
+  // Bridged Node device type (0x0013) and a Bridged Device Basic Information
+  // cluster (0x0039) whose NodeLabel carries the name. matterName() opts an
+  // endpoint into this (lazily creating the aggregator on first use). Malloc-free
+  // parallel table — names live here, not in the u64-only data-model registry.
+  uint16_t         aggregator_ep;     // 0 = no bridge; else the Aggregator endpoint id
+  uint8_t          label_count;
+  struct { uint16_t ep; char name[33]; } labels[MTRC_DM_MAX_ENDPOINTS];
+
   // CASE responder state (operational session establishment)
   uint8_t          case_phase;        // 0 idle, 1 sent-sigma2, 2 secure
   uint8_t          case_fabric_index;
@@ -332,6 +343,16 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
     default: break;
   }
 }
+
+// Per-endpoint bridge label lookup (NULL if the endpoint was never named). An
+// endpoint that has a label is a "Bridged Node": its Descriptor DeviceTypeList
+// gains 0x0013 and it carries a Bridged Device Basic Information cluster.
+static const char *dm_label_for(uint16_t ep) {
+  for (int i = 0; i < g.label_count; i++)
+    if (g.labels[i].ep == ep) return g.labels[i].name;
+  return NULL;
+}
+static int ep_is_bridged(uint16_t ep) { return dm_label_for(ep) != NULL; }
 
 #ifdef MTRC_CASE_TEST_FABRIC
 // Pre-provision a fixed TEST fabric so the CASE responder can establish an
@@ -1542,6 +1563,12 @@ static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), dt);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 1);
   mtrc_tlv_end_container(w);
+  if (ep_is_bridged(ep)) {            // also a Bridged Node so the controller reads 0x0039 NodeLabel
+    mtrc_tlv_start_struct(w, mtrc_tlv_anon());
+    mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 0x0013);
+    mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 1);
+    mtrc_tlv_end_container(w);
+  }
   mtrc_tlv_end_container(w);
   mtrc_tlv_end_container(w);
   mtrc_tlv_end_container(w);
@@ -1579,9 +1606,17 @@ static void emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) 
   if (attr == 0x0002) { emit_report_list(w, ep, 0x001D, 0x0002, NULL, 0); return; }   // ClientList
   if (attr == 0x0003) {                                  // PartsList
     uint32_t list[MTRC_DM_MAX_ENDPOINTS]; int c = 0;
-    if (ep == 0) for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
+    // Full-family pattern: the root (ep0) lists EVERY endpoint on the node
+    // (bridged endpoints + the Aggregator). The Aggregator additionally lists
+    // its bridged children (every app endpoint except itself). A controller
+    // (Apple) needs the root to enumerate all endpoints — listing only the
+    // Aggregator under the root makes the bridged devices disappear entirely.
+    int is_agg = (g.aggregator_ep != 0 && ep == g.aggregator_ep);
+    if (ep == 0 || is_agg) for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
       const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(i);
-      if (e && e->endpoint != 0 && c < (int)(sizeof(list)/sizeof(list[0]))) list[c++] = e->endpoint;
+      if (!e || e->endpoint == 0) continue;
+      if (is_agg && e->endpoint == g.aggregator_ep) continue;  // aggregator excludes itself
+      if (c < (int)(sizeof(list)/sizeof(list[0]))) list[c++] = e->endpoint;
     }
     emit_report_list(w, ep, 0x001D, 0x0003, list, c); return;
   }
@@ -1595,6 +1630,7 @@ static int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) 
   #define CFA_LIST(...) do { static const uint32_t a[]={__VA_ARGS__}; \
     for (unsigned i=0;i<sizeof(a)/sizeof(a[0]) && n<cap;i++) out[n++]=a[i]; return n; } while(0)
   if (cl == 0x001D) CFA_LIST(0,1,2,3);                                  // Descriptor
+  if (cl == 0x0039) CFA_LIST(0x0003,0x0005,0x000A,0x000F,0x0011,0x0012);// Bridged Device Basic Information
   if (ep == 0) switch (cl) {                                            // root-node clusters
     case 0x0028: CFA_LIST(0,1,2,3,4,5,6,7,8,9,0x0A,0x0F,0x11,0x12,0x13,0x15,0x16); // Basic Information
     case 0x0030: CFA_LIST(0,1,2,3,4);                                   // General Commissioning
@@ -1779,12 +1815,28 @@ static int is_root_cluster(uint32_t cl) {
          cl==0x003C || cl==0x003E || cl==0x003F || cl==0x001F;
 }
 
+// Bridged Device Basic Information (0x0039) on a named (bridged) endpoint. The
+// per-endpoint name a controller (Apple Home) displays as the accessory title
+// comes from NodeLabel (0x0005); the rest are mandatory metadata.
+static void emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
+  const char *label = dm_label_for(ep);
+  char uid[24]; snprintf(uid, sizeof uid, "TASMOTA-MTRC-EP%u", (unsigned)ep);
+  switch (attr) {
+    case 0x0003: emit_attr_report_str (w,ep,0x0039,attr, g.cfg.device_name?g.cfg.device_name:"Tasmota"); return; // ProductName
+    case 0x0005: emit_attr_report_str (w,ep,0x0039,attr, label?label:""); return;  // NodeLabel (the name)
+    case 0x000A: emit_attr_report_str (w,ep,0x0039,attr, "1.0"); return;           // SoftwareVersionString
+    case 0x000F: emit_attr_report_str (w,ep,0x0039,attr, uid);  return;            // SerialNumber
+    case 0x0011: emit_attr_report_bool(w,ep,0x0039,attr, true); return;            // Reachable
+    case 0x0012: emit_attr_report_str (w,ep,0x0039,attr, uid);  return;            // UniqueID
+  }
+}
+
 // Emit one AttributeReportIB fragment for any (ep,cl,attr), including the
 // mandatory global attributes every cluster must expose (Core Spec §7.13).
 static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   if (cl == 0x001D && attr <= 0x0003) { emit_descriptor_one(w, ep, attr); return; }
   switch (attr) {
-    case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr, 1); return;             // ClusterRevision
+    case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr, cl == 0x0039 ? 3 : 1); return; // ClusterRevision
     case 0xFFFC: emit_attr_report_uint(w, ep, cl, attr,
                    cl == 0x0300 ? 0x01 :    // ColorControl: HueSaturation
                    cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
@@ -1828,6 +1880,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
     }
     default: break;
   }
+  if (cl == 0x0039) { emit_bridged_basic(w, ep, attr); return; }              // Bridged Device Basic Information (name)
   if (ep == 0 && is_root_cluster(cl)) { emit_root_attr(w, cl, attr); return; } // root-node clusters
   emit_attr_report(w, ep, cl, attr);                                           // app-cluster functional scalar
 }
@@ -2371,6 +2424,46 @@ int matter_add_endpoint(uint32_t device_type_id) {
   return (int)ep;
 }
 
+// Name an endpoint so a controller (Apple Home) shows it with a friendly title
+// instead of a generic "Temperature Sensor 1". Implemented as the Matter bridge
+// pattern: the first call lazily creates an Aggregator (0x000E) endpoint, the
+// named endpoint becomes a Bridged Node (its DeviceTypeList gains 0x0013) and
+// gets a Bridged Device Basic Information cluster (0x0039) whose NodeLabel is
+// the name. Idempotent — calling again just updates the label. Call AFTER the
+// endpoint exists (i.e. after matterAdd); a re-declared model (matterReset)
+// drops all labels and the aggregator.
+matter_err_t matter_set_label(uint16_t ep, const char *name) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  if (ep == 0) return MATTER_ERR_INVALID_ARG;
+  uint32_t dt; if (!mtrc_dm_endpoint_device_type(ep, &dt)) return MATTER_ERR_INVALID_ARG;
+
+  if (g.aggregator_ep == 0) {                       // lazily stand up the bridge
+    uint16_t aep = g.next_ep;
+    if (mtrc_dm_add_endpoint(aep, 0x000E) < 0) return MATTER_ERR_NO_MEM;   // Aggregator
+    mtrc_dm_add_cluster(aep, MTRC_CL_DESCRIPTOR);
+    dm_add_identify(aep);
+    g.next_ep++;
+    g.aggregator_ep = aep;
+  }
+
+  int idx = -1;
+  for (int i = 0; i < g.label_count; i++) if (g.labels[i].ep == ep) { idx = i; break; }
+  if (idx < 0) {
+    if (g.label_count >= (int)(sizeof(g.labels)/sizeof(g.labels[0]))) return MATTER_ERR_NO_MEM;
+    idx = g.label_count++;
+    g.labels[idx].ep = ep;
+    mtrc_dm_add_cluster(ep, 0x0039);                // Bridged Device Basic Information
+  }
+  strncpy(g.labels[idx].name, name ? name : "", sizeof(g.labels[idx].name) - 1);
+  g.labels[idx].name[sizeof(g.labels[idx].name) - 1] = 0;
+#ifdef MTRC_DIAG
+  { char m[80]; snprintf(m, sizeof m, "DIAG label ep=%u agg=%u '%s'",
+      (unsigned)ep, (unsigned)g.aggregator_ep, g.labels[idx].name);
+    mlog(MATTER_LOG_INFO, m); }
+#endif
+  return MATTER_OK;
+}
+
 // Decode a leading TLV scalar (uint/bool) into a u64. Returns 1 on success.
 static int tlv_scalar_u64(const uint8_t *tlv, size_t len, uint64_t *out) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, tlv, len);
@@ -2403,6 +2496,8 @@ void matter_reset_model(void) {
   mtrc_dm_reset();
   dm_seed_root();
   g.next_ep = 1;
+  g.aggregator_ep = 0;          // bridge torn down with the model
+  g.label_count = 0;
 }
 
 matter_err_t matter_add_cluster(uint16_t endpoint, uint32_t cluster) {
