@@ -2669,12 +2669,49 @@ extern "C" {
     // but never start operational CASE (no Sigma1) and pairing fails at the end.
     const char *proto  = operational ? "tcp"  : "udp";   // ESPmDNS form
     const char *protou = operational ? "_tcp" : "_udp";  // esp-mdns component form
-    MDNS.addService(service, proto, port);
     char stype0[20]; snprintf(stype0, sizeof(stype0), "_%s", service);
+
     if (operational) {
-      // Operational instance is <compressedFabricId>-<nodeId>, supplied by core.
-      mdns_service_instance_name_set(stype0, protou, instance);
-    } else {
+      // OPERATIONAL discovery: ONE _matter._tcp instance PER FABRIC. A node can
+      // belong to several fabrics (Apple Home alone may commission the device into
+      // TWO fabrics during one "Add"). ESP-IDF mdns keys a service by its instance
+      // name, so each fabric MUST be a distinct instance added via
+      // mdns_service_add_for_host(<CFID>-<nodeId>, ...). The previous code used
+      // MDNS.addService + mdns_service_instance_name_set, which keeps a SINGLE
+      // _matter._tcp service and RENAMES it on each call — so the 2nd fabric erased
+      // the 1st fabric's record, and that controller could never re-resolve the
+      // node operationally → Apple shows "Keine Antwort". Instance/host pair is
+      // idempotent: re-announcing the same fabric is a no-op (returns "exists").
+      mdns_txt_item_t items[8]; size_t ni = 0;
+      static char kvbuf[8][24];                          // key\0value, serialized in main task
+      for (size_t i = 0; i < n && ni < 8; i++) {
+        const char *eq = strchr(txt[i], '=');
+        if (!eq) continue;
+        size_t len = strlen(txt[i]);
+        if (len >= sizeof(kvbuf[0])) len = sizeof(kvbuf[0]) - 1;
+        memcpy(kvbuf[ni], txt[i], len); kvbuf[ni][len] = 0;
+        char *v = strchr(kvbuf[ni], '='); *v = 0; v++;   // split in place
+        items[ni].key = kvbuf[ni]; items[ni].value = v; ni++;
+      }
+      esp_err_t err = mdns_service_add_for_host(instance, stype0, protou, NULL, port,
+                                                ni ? items : NULL, ni);
+      // Operational browse subtype _I<compressedFabricId> (Core Spec §4.3.4):
+      // controllers browse _I<CFID>._sub._matter._tcp to re-find the node. The
+      // subtype must attach to THIS fabric's instance, not the default one.
+      char sub[24]; const char *dash = strchr(instance, '-');
+      size_t cl = dash ? (size_t)(dash - instance) : strlen(instance);
+      if (cl > 20) cl = 20;
+      snprintf(sub, sizeof(sub), "_I%.*s", (int)cl, instance);
+      mdns_service_subtype_add_for_host(instance, stype0, protou, NULL, sub);
+      AddLog(LOG_LEVEL_INFO, PSTR("MTR: operational mDNS %s._matter._tcp (%s) rc=%d"),
+             instance, sub, (int)err);
+      return MATTER_OK;
+    }
+
+    // COMMISSIONABLE (_matterc._udp): only one pairing window at a time → a single
+    // instance is correct here.
+    MDNS.addService(service, proto, port);
+    {
       // Matter REQUIRES a 16-hex commissioning instance name (Core Spec §4.3.1);
       // ESPmDNS defaults it to the hostname, which Apple Home rejects. Use a
       // STABLE id derived from the chip MAC (not the core's per-boot random one)
@@ -2694,18 +2731,6 @@ extern "C" {
       MDNS.addServiceTxt(service, proto, key, eq + 1);
       if (kl == 1 && key[0] == 'D') disc = (uint16_t)atoi(eq + 1);
     }
-    if (operational) {
-      // Operational browse subtype _I<compressedFabricId> (Core Spec §4.3.4):
-      // controllers browse _I<CFID>._sub._matter._tcp to re-find the node.
-      // CFID is the instance label before the '-'.
-      char sub[24]; const char *dash = strchr(instance, '-');
-      size_t cl = dash ? (size_t)(dash - instance) : strlen(instance);
-      if (cl > 20) cl = 20;
-      snprintf(sub, sizeof(sub), "_I%.*s", (int)cl, instance);
-      mdns_service_subtype_add_for_host(NULL, stype0, protou, NULL, sub);
-      AddLog(LOG_LEVEL_INFO, PSTR("MTR: operational mDNS _matter._tcp %s (%s)"), instance, sub);
-      return MATTER_OK;
-    }
     // Matter commissionable mDNS subtypes (Core Spec §4.3.4): commissioners
     // (Apple Home / Google) browse _L<long-disc> / _S<short-disc> / _CM under
     // _matterc._udp to find a device. Without these, Apple never discovers us.
@@ -2718,6 +2743,16 @@ extern "C" {
     mdns_service_subtype_add_for_host(NULL, stype0, protou, NULL, "_CM");
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: mDNS subtypes _L%u _S%u _CM added"),
            (unsigned)disc, (unsigned)(disc >> 8));
+    return MATTER_OK;
+  }
+  // Withdraw a per-fabric operational instance (RemoveFabric / Unbind). Only the
+  // operational _matter._tcp service is per-fabric; commissionable is singular.
+  static matter_err_t mtrc_p_mdns_remove(void *ctx, const char *service, const char *instance) {
+    (void)ctx;
+    if (!Mdns.begun) return MATTER_ERR_TRANSPORT;
+    if (strcmp(service, "matter") != 0) return MATTER_OK;
+    esp_err_t err = mdns_service_remove_for_host(instance, "_matter", "_tcp", NULL);
+    AddLog(LOG_LEVEL_INFO, PSTR("MTR: operational mDNS remove %s rc=%d"), instance, (int)err);
     return MATTER_OK;
   }
   // Reply to the last peer that sent us a datagram (PASE/CASE is a single
@@ -2833,6 +2868,7 @@ static bool mtrc_ensure_inited(void) {
   mtrc_port.kv_set        = mtrc_p_kv_set;
   mtrc_port.kv_del        = mtrc_p_kv_del;
   mtrc_port.mdns_publish  = mtrc_p_mdns;
+  mtrc_port.mdns_remove   = mtrc_p_mdns_remove;
   mtrc_port.udp_send      = mtrc_p_udp_send;
   mtrc_port.on_attr_write = mtrc_p_on_attr_write;
   mtrc_port.on_attr_read  = mtrc_p_on_attr_read;

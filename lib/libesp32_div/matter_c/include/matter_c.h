@@ -87,6 +87,11 @@ typedef struct matter_port {
   matter_err_t (*mdns_publish)(void *ctx, const char *service,
                                const char *instance, uint16_t port,
                                const char *const *txt, size_t txt_count);
+  // Withdraw a previously published service instance (e.g. a removed fabric's
+  // operational _matter._tcp record). May be NULL (then stale records linger
+  // until the next reboot). `instance` matches what was passed to mdns_publish.
+  matter_err_t (*mdns_remove)(void *ctx, const char *service,
+                              const char *instance);
 
   // -- application bridge: Matter wrote an attribute (e.g. OnOff On/Off) --
   //  Host applies it to the relay/light/etc. `tlv` is the raw TLV value.

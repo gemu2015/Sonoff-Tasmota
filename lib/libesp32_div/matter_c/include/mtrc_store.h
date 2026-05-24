@@ -26,7 +26,9 @@
 extern "C" {
 #endif
 
-#define MTRC_MAX_FABRICS  3
+// Matter requires supporting >= 5 fabrics; Apple Home alone may use 2 (and a
+// user with two homes, or adding Google/Alexa later, needs more). ~1 KB each.
+#define MTRC_MAX_FABRICS  5
 #define MTRC_NOC_MAX    400   // max NOC / ICAC compact-TLV bytes
 
 typedef struct {

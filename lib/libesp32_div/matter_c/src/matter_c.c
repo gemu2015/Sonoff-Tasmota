@@ -35,9 +35,16 @@
 // One established operational CASE session. Apple Home always opens >=2
 // operational sessions (the iPhone AND each home hub); holding only one and
 // letting the second clobber the first makes the first controller's traffic
-// fail to decrypt -> both accessories show "no response". We keep a small table
-// of established sessions keyed by our (responder) session id.
-#define MTRC_MAX_CASE_SESS 4
+// fail to decrypt -> both accessories show "no response". We keep a table of
+// established sessions keyed by our (responder) session id.
+//
+// Apple Home runs the iPhone AND every HomePod / Apple TV as a SEPARATE admin
+// (controller) node, each holding its own operational CASE session + wildcard
+// subscription — and Apple may commission the device into TWO fabrics. So a
+// single home easily needs 5-6 concurrent sessions. Too few slots -> the hub
+// responsible for the device keeps getting evicted (slot thrash) -> Home shows
+// "Keine Antwort" even though commissioning succeeded. ~112 B per slot.
+#define MTRC_MAX_CASE_SESS 16
 typedef struct {
   bool     in_use;
   uint16_t my_sid;        // our responder/operational session id
@@ -290,14 +297,27 @@ bool matter_qr_dark(int x, int y) {
 // Attach a device-type's default clusters/attributes to an endpoint. Keeps the
 // per-device-type mandatory set in one place so matter_add_endpoint and the
 // matter_init seed agree. (Subset; extended as Phase D clusters land.)
+// The Identify cluster (0x0003) is MANDATORY on nearly every application device
+// type (plug, all lights, ...). Apple drops an endpoint that lacks it — which is
+// why an On/Off Plug-in Unit with only Descriptor+OnOff never appeared in Home.
+// IdentifyTime (0x0000 u16) + IdentifyType (0x0001 enum8, 0 = None).
+static void dm_add_identify(uint16_t ep) {
+  mtrc_dm_add_attr(ep, 0x0003, 0x0000, MTRC_DM_T_U16, MTRC_DM_F_WRITABLE, 0);
+  mtrc_dm_add_attr(ep, 0x0003, 0x0001, MTRC_DM_T_U8,  0, 0);
+}
+
 static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
   switch (dt) {
     case MATTER_DEVTYPE_ON_OFF_PLUGIN:
     case MATTER_DEVTYPE_ON_OFF_LIGHT:
+      dm_add_identify(ep);
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
       break;
     case MATTER_DEVTYPE_DIMMABLE_LIGHT:
+    case 0x010C:   // Color Temperature Light
+    case 0x010D:   // Extended Color Light (script also declares ColorControl)
+      dm_add_identify(ep);
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
       mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0000, MTRC_DM_T_U8,
@@ -359,8 +379,9 @@ static void dm_seed_root(void) {
 // Tasmota). Saved on AddNOC, restored on boot, so a commissioned node survives
 // reboots and stays reachable to its controllers (Apple/chip-tool).
 #define MTRC_KV_FABRICS "fab"
-#define MTRC_KV_BLOB_MAX  3200      // max serialized fabric table (~3 fabrics * ~1 KB)
+#define MTRC_KV_BLOB_MAX  5632      // max serialized fabric table (5 fabrics * ~1 KB worst case w/ ICAC); transient malloc
 static void publish_operational_mdns(const mtrc_fabric *f);   // fwd (defined below)
+static void unpublish_operational_mdns(const mtrc_fabric *f); // fwd (defined below)
 
 static void mtrc_persist_fabrics(void) {
   if (!g.port.kv_set) return;
@@ -491,6 +512,8 @@ matter_err_t matter_stop(void) {
 
 matter_err_t matter_factory_reset(void) {
   if (!g_ptr || !g.inited) return MATTER_ERR_NOT_INIT;
+  for (int i = 0; i < mtrc_store_count(); i++)           // withdraw operational mDNS
+    unpublish_operational_mdns(mtrc_store_at(i));        // before the table is wiped
   mtrc_store_reset();                                    // wipe in-RAM fabric table
   if (g.port.kv_del) g.port.kv_del(g.port.ctx, MTRC_KV_FABRICS);   // wipe persisted blob
   g.pase_secure = false; g.case_secure = false;
@@ -688,13 +711,20 @@ static mtrc_case_sess *case_session_find(uint16_t my_sid) {
     if (g.case_sess[i].in_use && g.case_sess[i].my_sid == my_sid) return &g.case_sess[i];
   return NULL;
 }
-// Reuse an existing slot for this sid, else a free slot, else evict slot 0.
+// Reuse an existing slot for this sid, else a free slot, else evict the
+// least-recently-active session (smallest sub_last_ms; never-subscribed slots
+// have sub_last_ms==0 and are reclaimed first). Evicting slot 0 unconditionally
+// would tend to kill a live controller; LRU keeps the busy ones alive.
 static mtrc_case_sess *case_session_alloc(uint16_t my_sid) {
   mtrc_case_sess *s = case_session_find(my_sid);
   if (s) return s;
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)
     if (!g.case_sess[i].in_use) return &g.case_sess[i];
-  return &g.case_sess[0];
+  int victim = 0; uint32_t oldest = g.case_sess[0].sub_last_ms;
+  for (int i = 1; i < MTRC_MAX_CASE_SESS; i++) {
+    if (g.case_sess[i].sub_last_ms < oldest) { oldest = g.case_sess[i].sub_last_ms; victim = i; }
+  }
+  return &g.case_sess[victim];
 }
 
 // Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
@@ -1138,17 +1168,36 @@ static int build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
 // Instance = <compressedFabricId(16 hex)>-<nodeId(16 hex)>; the host adds the
 // _I<compressedFabricId> browse subtype. CFID = Crypto_KDF(rootPubKey[1..64],
 // salt=fabricId(BE64), info="CompressedFabric", 64 bits).
-static void publish_operational_mdns(const mtrc_fabric *f) {
-  if (!g.port.mdns_publish || !f) return;
+// Compute a fabric's operational DNS-SD instance name: <CFID(16hex)>-<nodeId(16hex)>.
+static int fabric_op_instance(const mtrc_fabric *f, char *instance, size_t cap) {
+  if (!f) return 0;
   uint8_t salt[8];
   for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
   uint8_t cfid[8];
   if (!mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
                         (const uint8_t *)"CompressedFabric", 16, cfid, sizeof(cfid)))
-    return;
-  char instance[40]; int p = 0;
-  for (int i = 0; i < 8; i++) p += snprintf(instance + p, sizeof(instance) - p, "%02X", cfid[i]);
-  snprintf(instance + p, sizeof(instance) - p, "-%016llX", (unsigned long long)f->node_id);
+    return 0;
+  int p = 0;
+  for (int i = 0; i < 8; i++) p += snprintf(instance + p, cap - p, "%02X", cfid[i]);
+  snprintf(instance + p, cap - p, "-%016llX", (unsigned long long)f->node_id);
+  return 1;
+}
+
+// Withdraw a fabric's operational _matter._tcp record (RemoveFabric / Unbind),
+// so a removed controller's stale instance does not linger until reboot.
+static void unpublish_operational_mdns(const mtrc_fabric *f) {
+  if (!g.port.mdns_remove || !f) return;
+  char instance[40];
+  if (!fabric_op_instance(f, instance, sizeof(instance))) return;
+  g.port.mdns_remove(g.port.ctx, "matter", instance);
+  char m[64]; snprintf(m, sizeof(m), "operational mDNS removed %s", instance);
+  mlog(MATTER_LOG_INFO, m);
+}
+
+static void publish_operational_mdns(const mtrc_fabric *f) {
+  if (!g.port.mdns_publish || !f) return;
+  char instance[40];
+  if (!fabric_op_instance(f, instance, sizeof(instance))) return;
   static const char *txt[] = { "SII=5000", "SAI=300", "T=0" };
   g.port.mdns_publish(g.port.ctx, "matter", instance, MTRC_COMMISSION_PORT, txt, 3);
   // Operational discovery is published by the host under _matter._TCP per Core
@@ -1252,6 +1301,28 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     }
   } else if (cl == 0x003E && cmd == 0x06) {   // AddNOC -> NOCResponse
     n = build_addnoc(resp, sizeof(resp), ep, cl, payload, plen);
+  } else if (cl == 0x003E && cmd == 0x0A) {   // RemoveFabric -> NOCResponse
+    // When a controller removes this node from its fabric (Apple Home "Remove
+    // Accessory"), forget that fabric: withdraw its operational mDNS, drop its
+    // CASE sessions, delete it from the store and re-persist. Without this the
+    // device keeps an orphaned fabric and a stale _matter._tcp record forever.
+    uint64_t idx = 0;
+    inv_field(payload, plen, 0, 0, NULL, NULL, &idx);        // field 0 = FabricIndex
+    mtrc_fabric *rf = mtrc_store_by_index((uint8_t)idx);
+    if (rf) {
+      unpublish_operational_mdns(rf);
+      for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)
+        if (g.case_sess[i].in_use && g.case_sess[i].fabric_index == (uint8_t)idx)
+          memset(&g.case_sess[i], 0, sizeof(g.case_sess[i]));   // drop sessions on this fabric
+      mtrc_store_remove((uint8_t)idx);
+      mtrc_persist_fabrics();
+      char m[48]; snprintf(m, sizeof(m), "NOC: RemoveFabric idx=%u (%d left)",
+                           (unsigned)idx, mtrc_store_count());
+      mlog(MATTER_LOG_INFO, m);
+      n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, (uint8_t)idx);   // OK
+    } else {
+      n = build_noc_response(resp, sizeof(resp), ep, cl, 0x0B, (uint8_t)idx);   // InvalidFabricIndex
+    }
   } else if (cl == 0x0030) {          // General Commissioning (handled in-core)
     uint32_t rc = 0xFFFFFFFF;
     if      (cmd == 0x00) rc = 0x01;  // ArmFailSafe -> ArmFailSafeResponse
@@ -1259,6 +1330,12 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     else if (cmd == 0x04) rc = 0x05;  // CommissioningComplete -> Response
     if (rc != 0xFFFFFFFF)
       n = mtrc_im_build_cmd_response_u8(resp, sizeof(resp), ep, cl, rc, 0); // errorCode OK
+  } else if (cl == 0x0003 && (cmd == 0x00 || cmd == 0x40)) {  // Identify / TriggerEffect
+    // We advertise these in the AcceptedCommandList, so we must accept them.
+    // No physical identify indicator -> store IdentifyTime and reply SUCCESS.
+    if (cmd == 0x00) { uint64_t t = 0; inv_field(payload, plen, 0, 0, NULL, NULL, &t);
+                       mtrc_dm_set(ep, 0x0003, 0x0000, t & 0xFFFF); }
+    n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
   } else if (cl == 0x0006 && cmd <= 0x02) {   // OnOff: Off(0)/On(1)/Toggle(2)
     // Route to the application (script's MatterInvoke -> relay, or the built-in
     // relay default). on_command owns the action; on_attr_write is the legacy
@@ -1697,8 +1774,29 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
       if (cl == 0x003B) { static const uint32_t sev[]={1,2,3,4,5,6};            // Switch events
         emit_report_list(w, ep, cl, attr, sev, 6); return; }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;
-    case 0xFFF8: case 0xFFF9:                                                   // Generated/Accepted CommandList
-      emit_report_list(w, ep, cl, attr, NULL, 0); return;
+    case 0xFFF8:                                                               // GeneratedCommandList
+      emit_report_list(w, ep, cl, attr, NULL, 0); return;   // our app clusters generate none
+    case 0xFFF9: {                                                             // AcceptedCommandList
+      // Controllers validate controllability via this list. An endpoint whose
+      // cluster accepts NO commands is treated as non-functional: an On/Off
+      // Plug-in Unit with an empty OnOff list never appears in Apple Home, and a
+      // light whose OnOff list is empty shows as dimmer-only (no on/off button).
+      static const uint32_t c_ident[] = {0x00,0x40};                            // Identify, TriggerEffect
+      static const uint32_t c_onoff[] = {0x00,0x01,0x02};                       // Off, On, Toggle
+      static const uint32_t c_level[] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
+      static const uint32_t c_color[] = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
+      static const uint32_t c_wcov[]  = {0x00,0x01,0x02,0x05};                  // Up/Down/Stop/GoToLift%
+      const uint32_t *l = NULL; int ln = 0;
+      switch (cl) {
+        case 0x0003: l=c_ident; ln=2; break;
+        case 0x0006: l=c_onoff; ln=3; break;
+        case 0x0008: l=c_level; ln=8; break;
+        case 0x0102: l=c_wcov;  ln=4; break;
+        case 0x0300: l=c_color; ln=5; break;
+        default: break;
+      }
+      emit_report_list(w, ep, cl, attr, l, ln); return;
+    }
     default: break;
   }
   if (ep == 0 && is_root_cluster(cl)) { emit_root_attr(w, cl, attr); return; } // root-node clusters
