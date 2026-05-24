@@ -68,16 +68,14 @@ EXAMPLES = [
     ('benchmark',      'Benchmark'),
     ('display_demo',   'Display Drawing'),
     ('touch_buttons',  'Touch Buttons'),
-    ('homekit_demo',   'HomeKit Demo'),
-    ('homekit_office', 'HomeKit Office'),
+    # HomeKit is deprecated (TINYC_HOMEKIT is no longer enabled in any build env —
+    # replaced by Matter). The homekit_*.tc files are kept in examples/ for
+    # reference but are no longer bundled into the IDE dropdown.
+    # Curated Matter set (the other matter_*.tc files remain in examples/):
     ('matter_plug',    'Matter Plug + Power'),
     ('matter_rgb',     'Matter Plug + RGB Light'),
     ('matter_sensors', 'Matter Temp/Humidity/Pressure'),
     ('matter_powermeter', 'Matter Power Meter (SML)'),
-    ('matter_fan',     'Matter Fan'),
-    ('matter_shutter', 'Matter Window Covering'),
-    ('matter_leak',    'Matter Water-Leak + Rain'),
-    ('matter_airquality', 'Matter Air Quality (CO2/PM/VOC)'),
     ('matter_button',  'Matter Button (Generic Switch)'),
     ('matter_bridge',  'Matter Bridge (multi-device node)'),
     ('rgb_led',        'RGB LED (WS2812 / RMT)'),
