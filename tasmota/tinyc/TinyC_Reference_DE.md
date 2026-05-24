@@ -171,6 +171,24 @@ void EverySecond() {
 }
 ```
 
+### Geteilte Variablen (UDP) — das Schluesselwort `global`
+
+Eine skalare globale Variable, die mit dem Schluesselwort `global` deklariert wird, wird automatisch mit anderen Tasmota-Geraeten ueber UDP-Multicast geteilt — das direkte Aequivalent zu Scripter-`g:`-Variablen. **Eine Zuweisung sendet den neuen Wert automatisch per Broadcast**; die Firmware **aktualisiert die Variable automatisch**, wenn ein passender benannter Wert von einem anderen Geraet eintrifft. Es sind keine expliziten `udpSend`/`udpRecv`-Aufrufe noetig (diese bleiben fuer Arrays/Strings/manuelle Steuerung verfuegbar — siehe UDP-Multicast).
+
+```c
+global int   mh_pwr;     // schreiben -> Broadcast im Netzwerk als "mh_pwr"
+global float btemp;      // automatisch aktualisiert, wenn ein anderes Geraet "btemp" sendet
+
+void EverySecond() {
+    mh_pwr = 1;                                         // sendet mh_pwr=1
+    matterSetFloat(ep, CLUSTER_TEMP, 0, btemp, 100);   // nutzt den zuletzt empfangenen btemp
+}
+```
+
+- Nur skalare Globals (`int`/`float`) koennen `global` sein; der **Variablenname ist der geteilte Schluessel** (entspricht dem Scripter-`g:<name>`).
+- Multicast-Gruppe `239.255.255.250:1999`; der Socket initialisiert sich bei der ersten Verwendung automatisch (siehe UDP-Multicast fuer das Wire-Protokoll + `UdpCall()`).
+- Mit den anderen Speicher-Schluesselwoertern kombinierbar: `global watch int x;` um auch eingehende Aenderungen zu erkennen (`written(x)`/`changed(x)` feuern bei UDP-Updates), oder `global persist float y;` um zusaetzlich einen Neustart zu ueberstehen.
+
 ### Lokale Variablen
 Innerhalb von Funktionen oder Bloecken deklariert. Blockbasierter Gueltigkeitsbereich (neuer Bereich pro `{ }`).
 ```c

@@ -187,6 +187,24 @@ void WebCall() { webSlider(target, 20, 28, "Target"); }
 
 (Mechanism: at load time, the VM scans bytecode for `STORE_WATCH` and records each watched var-slot. The URL handler checks that index before raw-writing. `TC_MAX_WATCH = 16` watched globals per slot.)
 
+### Shared Variables (UDP) — the `global` keyword
+
+A scalar global declared with the `global` keyword is automatically shared with other Tasmota devices over UDP multicast — the direct equivalent of Scripter `g:` variables. **Assigning it auto-broadcasts** the new value; the firmware **auto-updates it in place** when a matching named value arrives from another device. No explicit `udpSend`/`udpRecv` calls are needed (those remain available for arrays/strings/manual control — see UDP Multicast).
+
+```c
+global int   mh_pwr;     // write -> broadcast on the network as "mh_pwr"
+global float btemp;      // auto-updated when another device broadcasts "btemp"
+
+void EverySecond() {
+    mh_pwr = 1;                                         // broadcasts mh_pwr=1
+    matterSetFloat(ep, CLUSTER_TEMP, 0, btemp, 100);   // uses the latest received btemp
+}
+```
+
+- Only scalar globals (`int`/`float`) can be `global`; the **variable name is the shared key** (matches the Scripter `g:<name>`).
+- Multicast group `239.255.255.250:1999`; the socket auto-initialises on first use (see [UDP Multicast](#udp-multicast-scripter-compatible) for the wire protocol + `UdpCall()`).
+- Combine with the other storage keywords: `global watch int x;` to also detect inbound changes (`written(x)`/`changed(x)` fire on UDP updates), or `global persist float y;` to also survive reboot.
+
 ### Local Variables
 Declared inside functions or blocks. Block-scoped (new scope per `{ }`).
 ```c
