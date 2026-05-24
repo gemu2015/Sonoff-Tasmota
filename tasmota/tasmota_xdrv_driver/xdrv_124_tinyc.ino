@@ -2724,12 +2724,24 @@ extern "C" {
   // exchange at a time). ip6/port from the core are ignored for now.
   static matter_err_t mtrc_p_udp_send(void *ctx, const uint8_t ip6[16],
                                       uint16_t port, const void *buf, size_t len) {
-    (void)ctx; (void)ip6; (void)port;
-    // Prefer the last KNOWN-GOOD IPv6 peer (Matter is IPv6). This dodges the
-    // AsyncUDP isIPv6() glitch that would otherwise leave mtrc_peer_ip pointing
-    // at a garbage IPv4 and silently drop the reply.
-    IPAddress dst   = mtrc_peer_port6 ? mtrc_peer_ip6   : mtrc_peer_ip;
-    uint16_t  dport = mtrc_peer_port6 ? mtrc_peer_port6 : mtrc_peer_port;
+    (void)ctx;
+    // Reply to THIS request's own source (the core passes the originating
+    // controller's IPv6) so concurrent controllers each get their answer. A
+    // zero address means the source was unknown (AsyncUDP mis-flagged the
+    // inbound packet as IPv4) -> fall back to the last KNOWN-GOOD IPv6 peer.
+    bool have_src = false;
+    if (port) { for (int i = 0; i < 16; i++) if (ip6[i]) { have_src = true; break; } }
+    IPAddress dst; uint16_t dport;
+    if (have_src) {
+      // Carry the STA interface zone so a link-local (fe80::) reply has an
+      // egress scope — Apple runs operational CASE from its link-local address.
+      // All controllers share the WiFi-STA interface, so the last-good peer's
+      // zone is the correct zone for every reconstructed address.
+      dst = IPAddress(IPv6, ip6, mtrc_peer_ip6.zone()); dport = port;
+    } else {
+      dst   = mtrc_peer_port6 ? mtrc_peer_ip6   : mtrc_peer_ip;
+      dport = mtrc_peer_port6 ? mtrc_peer_port6 : mtrc_peer_port;
+    }
     if (!dport) return MATTER_ERR_TRANSPORT;
     // Force the WiFi-STA netif. ESP-IDF lwIP is built without LWIP_IPV6_SCOPES,
     // so a link-local (fe80::/10) destination has no zone and udp_sendto can't
@@ -2872,7 +2884,12 @@ static void MatterC_MaybeStart(void) {
       AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u B from %s:%u (v6=%d)"),
              (unsigned)p.length(), mtrc_peer_ip.toString().c_str(),
              (unsigned)mtrc_peer_port, (int)p.isIPv6());
+      // Pass the datagram's own IPv6 source so the core can reply to the exact
+      // controller (Apple opens several sessions from different addresses).
+      // Only IPv6 is trusted (AsyncUDP mis-flags some v6 packets as v4); for a
+      // mis-flagged packet we pass zero -> the host falls back to last-good peer.
       uint8_t ip6[16] = {0};
+      if (p.isIPv6()) { IPAddress a6 = p.remoteIPv6(); for (int i = 0; i < 16; i++) ip6[i] = a6[i]; }
       matter_udp_rx(ip6, p.remotePort(), p.data(), p.length());
     });
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: listening on UDP %u"), MTRC_COMMISSION_PORT_HOST);

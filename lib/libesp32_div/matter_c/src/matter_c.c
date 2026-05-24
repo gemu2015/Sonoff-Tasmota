@@ -48,6 +48,20 @@ typedef struct {
   uint32_t tx_counter;    // per-session secured TX message counter
 } mtrc_case_sess;
 
+// One inbound datagram queued for processing. The old single-buffer design
+// dropped every packet that arrived while one was pending; with several
+// controllers (Apple opens many sessions) that caused constant MRP retransmit
+// storms (seconds of control lag). A ring lets bursts queue instead of drop.
+// Each entry remembers its SOURCE so the reply goes back to the right
+// controller (not a global "last peer").
+#define MTRC_RX_QUEUE 8
+typedef struct {
+  uint8_t  ip6[16];
+  uint16_t port;
+  uint16_t len;
+  uint8_t  buf[1280];
+} mtrc_rx_pkt;
+
 // The whole context is heap-allocated on matter_init() (and freed on factory
 // reset) so a firmware with Matter compiled-in but unused costs ~0 RAM — it is
 // only allocated once a host/script actually starts Matter.
@@ -60,12 +74,14 @@ typedef struct {
   char             qr[32];     // "MT:..." (built once config is known)
   char             manual[16]; // "1234-567-8901"
 
-  // deferred inbound packet (matter_udp_rx may be called from a network task;
-  // the actual crypto-heavy processing runs in matter_loop / main loop).
-  volatile bool    rx_pending;
-  uint16_t         rx_src_port;
-  size_t           rx_len;
-  uint8_t          rx_buf[1280];
+  // Deferred inbound datagrams (matter_udp_rx runs in a network task; the
+  // crypto-heavy processing runs in matter_loop / main loop). SPSC ring:
+  // producer = network task, consumer = main loop. Single-core C6 -> atomic
+  // index updates.
+  mtrc_rx_pkt      rx_q[MTRC_RX_QUEUE];
+  volatile uint8_t rx_head, rx_tail;
+  uint8_t          reply_ip6[16];   // source of the packet currently dispatched
+  uint16_t         reply_port;      // -> replies target the right controller
 
   // PASE responder session state
   uint8_t          pase_phase;        // 0 idle, 1 sent-resp, 2 sent-pake2, 3 done
@@ -487,7 +503,7 @@ static void pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
     if ((size_t)n <= sizeof(g.last_tx_buf)) {
       memcpy(g.last_tx_buf, out, (size_t)n); g.last_tx_len = (size_t)n;
     } else { g.last_tx_len = 0; }
-    g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
+    g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, out, (size_t)n);  // reply to this packet's source
   }
 }
 
@@ -878,7 +894,8 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
   ph.protocol_id = protocol_id;
   static uint8_t out[1280];
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
-  if (n > 0 && g.port.udp_send) g.port.udp_send(g.port.ctx, NULL, 0, out, (size_t)n);
+  if (n > 0 && g.port.udp_send)
+    g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, out, (size_t)n);  // reply to this packet's source
 }
 
 // Live value of an attribute. Resolution order:
@@ -1899,7 +1916,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   // fresh ephemeral state and break the in-flight handshake.
   if (g.have_peer_ctr && mh0.msg_counter == g.peer_last_ctr) {
     if (g.last_tx_len && g.port.udp_send)
-      g.port.udp_send(g.port.ctx, NULL, 0, g.last_tx_buf, g.last_tx_len);
+      g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, g.last_tx_buf, g.last_tx_len);
     mlog(MATTER_LOG_DEBUG, "rx: duplicate counter -> re-sent last reply");
     return;
   }
@@ -1946,9 +1963,13 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
 
 void matter_loop(void) {
   if (!g_ptr || !g.inited || !g.started) return;   // off / not started -> no-op
-  if (g.rx_pending) {
-    g.rx_pending = false;
-    pase_dispatch(g.rx_buf, g.rx_len, g.rx_src_port);   // crypto-heavy work here
+  // Drain ALL queued datagrams (a burst from several controllers must not be
+  // dropped). Set the reply target from each packet's own source first.
+  while (g.rx_head != g.rx_tail) {
+    mtrc_rx_pkt *p = &g.rx_q[g.rx_tail];
+    memcpy(g.reply_ip6, p->ip6, 16); g.reply_port = p->port;
+    pase_dispatch(p->buf, p->len, p->port);            // crypto-heavy work here
+    g.rx_tail = (uint8_t)((g.rx_tail + 1) % MTRC_RX_QUEUE);
   }
   // Subscription report engine: send a ReportData when the value changed or
   // the max interval elapsed.
@@ -1972,12 +1993,15 @@ void matter_loop(void) {
 // May run in a network task — only copy + flag; processing is in matter_loop.
 void matter_udp_rx(const uint8_t src_ip6[16], uint16_t src_port,
                    const void *buf, size_t len) {
-  (void)src_ip6;
-  if (!g_ptr || !g.inited || g.rx_pending) return;   // sequential; MRP retransmits
-  if (len == 0 || len > sizeof(g.rx_buf)) return;
-  memcpy(g.rx_buf, buf, len);
-  g.rx_len = len; g.rx_src_port = src_port;
-  g.rx_pending = true;
+  if (!g_ptr || !g.inited) return;
+  if (len == 0 || len > sizeof(g.rx_q[0].buf)) return;
+  uint8_t nh = (uint8_t)((g.rx_head + 1) % MTRC_RX_QUEUE);
+  if (nh == g.rx_tail) return;                        // ring full: drop (rare)
+  mtrc_rx_pkt *p = &g.rx_q[g.rx_head];
+  if (src_ip6) memcpy(p->ip6, src_ip6, 16); else memset(p->ip6, 0, 16);
+  p->port = src_port; p->len = (uint16_t)len;
+  memcpy(p->buf, buf, len);
+  g.rx_head = nh;                                     // publish AFTER fields written
 }
 
 void matter_ble_rx(const void *buf, size_t len) {
