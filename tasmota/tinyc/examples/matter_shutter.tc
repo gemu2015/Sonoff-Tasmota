@@ -1,0 +1,36 @@
+// Matter Window Covering (roller shutter / blind).
+//
+//   Endpoint 1: Window Covering (0x0202) -> WindowCovering (0x0102)
+//     CurrentPositionLiftPercent100ths (0x000E) uint16, 0 = open .. 10000 = closed
+//
+// Commands arrive via MatterInvoke: UpOrOpen(0), DownOrClose(1), StopMotion(2).
+// (GoToLiftPercentage carries a target the simple MatterInvoke hook does not
+// receive yet — open/close/stop work; positional go-to is a follow-up.)
+//
+// The FeatureMap for this cluster is reported as Lift + PositionAwareLift so the
+// controller shows the open/close position.
+
+int ep;
+int pos;     // 0..10000  (0 = fully open, 10000 = fully closed)
+
+void MatterInvoke(int e, int cluster, int cmd) {
+    if (e != ep) { return; }
+    if (cluster != CLUSTER_WINDOW) { return; }
+    if (cmd == 0) { pos = 0; }         // UpOrOpen    -> open
+    if (cmd == 1) { pos = 10000; }     // DownOrClose -> closed
+    // cmd == 2 (StopMotion): keep current position
+    matterSet(ep, CLUSTER_WINDOW, ATTR_WC_LIFT, pos);
+    addLog("Shutter -> %d/10000", pos);
+    // drive your motor / relays here based on pos
+}
+
+int main() {
+    pos = 0;
+    matterReset();
+    ep = matterAdd(MATTER_WINDOW);
+    matterCluster(ep, CLUSTER_WINDOW);
+    matterAttr(ep, CLUSTER_WINDOW, ATTR_WC_LIFT, MTR_U16);   // position 0..10000
+    matterSet(ep, CLUSTER_WINDOW, ATTR_WC_LIFT, 0);          // start open
+    matterStart();
+    return 0;
+}

@@ -74,6 +74,11 @@ EXAMPLES = [
     ('matter_rgb',     'Matter Plug + RGB Light'),
     ('matter_sensors', 'Matter Temp/Humidity/Pressure'),
     ('matter_powermeter', 'Matter Power Meter (SML)'),
+    ('matter_fan',     'Matter Fan'),
+    ('matter_shutter', 'Matter Window Covering'),
+    ('matter_leak',    'Matter Water-Leak + Rain'),
+    ('matter_airquality', 'Matter Air Quality (CO2/PM/VOC)'),
+    ('matter_button',  'Matter Button (Generic Switch)'),
     ('rgb_led',        'RGB LED (WS2812 / RMT)'),
     ('camera',         'ESP Camera (DFRobot)'),
 ]

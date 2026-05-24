@@ -46,6 +46,15 @@ typedef struct {
   uint64_t peer_node_id;  // controller operational node id (RX/TX nonce source)
   uint8_t  i2r[16], r2i[16], att[16];
   uint32_t tx_counter;    // per-session secured TX message counter
+  // Operational subscription (for proactive/live reports from matter_loop).
+  bool     sub_active;    // this controller has a live subscription
+  uint32_t sub_id;        // SubscriptionId we assigned
+  uint16_t sub_max_s;     // max report interval (seconds)
+  uint16_t sub_exch;      // subscription exchange id (reports reuse it)
+  uint32_t sub_last_ms;   // last report time
+  uint32_t sub_last_gen;  // app-data generation at last report (change detection)
+  uint8_t  cli_ip6[16];   // controller's IPv6 (so a periodic report reaches it)
+  uint16_t cli_port;
 } mtrc_case_sess;
 
 // One inbound datagram queued for processing. The old single-buffer design
@@ -170,6 +179,19 @@ typedef struct {
   int              rpt_cursor;        // next path index to emit
   int              rpt_npaths;        // total paths
   struct { uint16_t ep; uint32_t cl; uint32_t attr; } rpt_paths[192];
+
+  // App-data generation: bumped whenever an app-endpoint attribute is written
+  // (sensor/light values). Per-session subscriptions compare it to detect a
+  // change and push a live ReportData (matter_loop), not just at max interval.
+  uint32_t app_gen;
+
+  // Matter Events (Generic Switch button presses). matterEvent() enqueues here
+  // (may run in the VM task); matter_loop drains and sends EventReports to
+  // subscribers in the main loop (no race on the working set / reply target).
+  uint64_t event_number;     // monotonic EventNumber
+#define MTRC_EV_QUEUE 8
+  struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
+  volatile uint8_t ev_head, ev_tail;
 } matter_ctx_t;
 
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
@@ -836,6 +858,7 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   memcpy(ss->i2r, k_i2r, 16);
   memcpy(ss->r2i, k_r2i, 16);
   memcpy(ss->att, k_att, 16);
+  ss->sub_active = false;                      // no subscription on a fresh session
   case_session_load(ss);
 
   uint8_t sr[8]; memset(sr, 0, 8);   // GeneralCode = Success
@@ -1280,6 +1303,9 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
   if (n < 0)
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x81); // UNSUPPORTED_COMMAND
 
+  // OnOff/Level/Color changed the data model -> let live subscriptions push it.
+  if (cl == 0x0006 || cl == 0x0008 || cl == 0x0300) g.app_gen++;
+
   if (n > 0) {
     secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack, true);
     mlog(MATTER_LOG_DEBUG, "IM InvokeResponse sent");
@@ -1341,6 +1367,10 @@ static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, 
   }
   if (a && a->type == MTRC_DM_T_S64) {
     mtrc_tlv_put_int(w, mtrc_tlv_ctx(2), (int64_t)v); return;                       // ElectricalPower int64
+  }
+  if (a && a->type == MTRC_DM_T_FLOAT) {
+    uint32_t bits = (uint32_t)v; float f; memcpy(&f, &bits, 4);                     // ConcentrationMeasurement single
+    mtrc_tlv_put_float(w, mtrc_tlv_ctx(2), f); return;
   }
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), v);                                         // registry/uint
 }
@@ -1639,14 +1669,23 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
   switch (attr) {
     case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr, 1); return;             // ClusterRevision
     case 0xFFFC: emit_attr_report_uint(w, ep, cl, attr,
-                   cl == 0x0300 ? 0x01 : 0); return;                            // FeatureMap (ColorControl: HS)
+                   cl == 0x0300 ? 0x01 :    // ColorControl: HueSaturation
+                   cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
+                   cl == 0x003B ? 0x2E :    // Switch: MomentarySwitch + Release + LongPress + MultiPress
+                   (cl >= 0x040C && cl <= 0x042F) ? 0x01 :  // ConcentrationMeasurement: NumericMeasurement
+                   0); return;                                                  // FeatureMap
+
     case 0xFFFB: {                                                              // AttributeList
       uint32_t fa[80]; int fn = cluster_func_attrs(ep, cl, fa, 74);
       static const uint32_t glob[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
       for (unsigned i=0;i<6 && fn<80;i++) fa[fn++]=glob[i];
       emit_report_list(w, ep, cl, attr, fa, fn); return;
     }
-    case 0xFFF8: case 0xFFF9: case 0xFFFA:                                      // Gen/Accepted CmdList, EventList
+    case 0xFFFA:                                                                // EventList
+      if (cl == 0x003B) { static const uint32_t sev[]={1,2,3,4,5,6};            // Switch events
+        emit_report_list(w, ep, cl, attr, sev, 6); return; }
+      emit_report_list(w, ep, cl, attr, NULL, 0); return;
+    case 0xFFF8: case 0xFFF9:                                                   // Generated/Accepted CommandList
       emit_report_list(w, ep, cl, attr, NULL, 0); return;
     default: break;
   }
@@ -1779,6 +1818,15 @@ static void im_handle_subscribe(const uint8_t *payload, size_t plen,
   g.rpt_exch = exch; g.rpt_cursor = 0;
   g.rpt_sub_id = sid; g.rpt_sub_max_s = max_s;
 
+  // Record the subscription on the current operational session so matter_loop
+  // pushes live ReportData updates (on app-value change, and at max interval).
+  mtrc_case_sess *subs = case_session_find(g.case_my_sid);
+  if (subs) {
+    subs->sub_active = true; subs->sub_id = sid; subs->sub_max_s = max_s;
+    subs->sub_exch = exch; subs->sub_last_ms = g.port.millis(g.port.ctx);
+    subs->sub_last_gen = g.app_gen;
+  }
+
   char m[80];
   snprintf(m, sizeof(m), "IM Subscribe id=%u max=%us hosted=%d paths=%d",
            (unsigned)sid,(unsigned)max_s,hosted,g.rpt_npaths);
@@ -1786,12 +1834,23 @@ static void im_handle_subscribe(const uint8_t *payload, size_t plen,
   send_report_chunk(ack);                                 // first priming chunk
 }
 
+// Consume the rest of a container whose opening element was just read (skips
+// nested structs/arrays/lists) so the flat walker resyncs on the next element.
+static void tlv_skip_container(mtrc_tlv_reader *r) {
+  int depth = 1; mtrc_tlv_elem e;
+  while (depth > 0 && mtrc_tlv_read(r, &e)) {
+    if (e.type == MTRC_TLV_STRUCT || e.type == MTRC_TLV_ARRAY || e.type == MTRC_TLV_LIST) depth++;
+    else if (e.type == MTRC_TLV_END) depth--;
+  }
+}
+
 // Handle a WriteRequest -> WriteResponse. Apple Home writes the ACL (Access
 // Control, cluster 0x001F) over the operational session right after
 // CommissioningComplete; with no WriteResponse it retransmits and the "add"
-// times out. We accept every write and report SUCCESS per AttributePathIB (the
-// data model is permissive — no ACL enforcement yet). The path is the only LIST
-// in the message, so we reuse the flat-walk parse from im_handle_read.
+// times out. We accept every write and report SUCCESS per AttributePathIB. A
+// SCALAR write to an app endpoint is applied to the data model (so a writable
+// attribute — e.g. Fan PercentSetting — actually takes effect; a script reads it
+// with matterGet). Complex values (e.g. the ACL list) are accepted but skipped.
 static void im_handle_write(const uint8_t *payload, size_t plen,
                             uint16_t exch, uint32_t ack) {
   static uint8_t resp[512];
@@ -1813,6 +1872,20 @@ static void im_handle_write(const uint8_t *payload, size_t plen,
       else if (ie.tag.number == 4) { attr = (uint32_t)ie.u; have_attr = 1; }
     }
     if (!have_cl) continue;
+
+    // The Data field follows the path inside the AttributeDataIB. Apply a scalar
+    // write to an app endpoint; consume (skip) a complex value like the ACL.
+    mtrc_tlv_elem de;
+    if (mtrc_tlv_read(&r, &de)) {
+      if (de.type == MTRC_TLV_STRUCT || de.type == MTRC_TLV_ARRAY || de.type == MTRC_TLV_LIST) {
+        tlv_skip_container(&r);
+      } else if (have_attr && ep != 0 &&
+                 (de.type == MTRC_TLV_UINT || de.type == MTRC_TLV_SINT || de.type == MTRC_TLV_BOOL)) {
+        uint64_t val = (de.type == MTRC_TLV_SINT) ? (uint64_t)de.i : de.u;
+        if (mtrc_dm_find(ep, cl, attr)) { mtrc_dm_set(ep, cl, attr, val); g.app_gen++; }
+      }
+    }
+
     mtrc_tlv_start_struct(&w, mtrc_tlv_anon());         //  AttributeStatusIB
     mtrc_tlv_start_list(&w, mtrc_tlv_ctx(0));           //   AttributePathIB
     mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), ep);
@@ -1917,6 +1990,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
       mtrc_case_sess *ss = case_session_find(mh0.session_id);
       if (ss) {
         case_session_load(ss);
+        memcpy(ss->cli_ip6, g.reply_ip6, 16); ss->cli_port = g.reply_port;  // for live reports
         tx_use_case();
         secured_dispatch(buf, len, g.case_i2r, g.case_peer_node_id);
         case_session_save(ss);
@@ -1976,6 +2050,88 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   }
 }
 
+// Push a live subscription ReportData over the CURRENT working-set session: all
+// app-endpoint attributes (the dynamic sensor/light values). Small enough for
+// one datagram. The caller loads the session and points g.reply_ip6 at its
+// controller first. Reports reuse the subscription's exchange id.
+static void send_subscription_report(uint32_t sub_id, uint16_t exch) {
+  static uint8_t buf[1100];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
+  mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);            // SubscriptionId
+  mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));                 // AttributeReports
+  for (int i = 0; i < mtrc_dm_attr_count(); i++) {
+    const mtrc_dm_attr_t *a = mtrc_dm_attr_at(i);
+    if (!a || a->endpoint == 0) continue;                    // app endpoints only (dynamic)
+    if (mtrc_tlv_writer_len(&w) > 1000) break;               // keep to one datagram
+    emit_attr_report(&w, a->endpoint, a->cluster, a->attr);
+  }
+  mtrc_tlv_end_container(&w);                                // end AttributeReports
+  mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);             // InteractionModelRevision
+  mtrc_tlv_end_container(&w);                                // end ReportDataMessage
+  if (mtrc_tlv_writer_ok(&w))
+    secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
+                 exch, false, 0, true);                      // device-initiated, reliable
+}
+
+// Send one Matter Event as an EventReport (ReportData) to every subscribed
+// session — used by Generic Switch button events. Runs in the main loop.
+static void matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
+                              int32_t a, int32_t b) {
+  uint64_t evno = ++g.event_number;
+  uint32_t now  = g.port.millis(g.port.ctx);
+  for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
+    mtrc_case_sess *s = &g.case_sess[i];
+    if (!s->in_use || !s->sub_active) continue;
+    static uint8_t buf[256];
+    mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
+    mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), s->sub_id);         // SubscriptionId
+    mtrc_tlv_start_array(&w, mtrc_tlv_ctx(2));                 // EventReports
+    mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                //  EventReportIB
+    mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));                //   EventDataIB
+    mtrc_tlv_start_list(&w, mtrc_tlv_ctx(0));                  //    EventPathIB
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), ep);               //     Endpoint
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), cl);               //     Cluster
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(3), event_id);        //     Event
+    mtrc_tlv_end_container(&w);                                //    end path
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), evno);            //    EventNumber
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(2), 1);              //    PriorityLevel = Info
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(4), now);            //    SystemTimestamp (ms)
+    mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(7));              //    Data
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), (uint32_t)a);    //     field 0 (New/PreviousPosition)
+    if (cl == 0x003B && (event_id == 0x05 || event_id == 0x06))
+      mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), (uint32_t)b);  //     field 1 (press count)
+    mtrc_tlv_end_container(&w);                                //    end Data
+    mtrc_tlv_end_container(&w);                                //   end EventDataIB
+    mtrc_tlv_end_container(&w);                                //  end EventReportIB
+    mtrc_tlv_end_container(&w);                                // end EventReports
+    mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);            // InteractionModelRevision
+    mtrc_tlv_end_container(&w);                                // end ReportDataMessage
+    if (mtrc_tlv_writer_ok(&w)) {
+      memcpy(g.reply_ip6, s->cli_ip6, 16); g.reply_port = s->cli_port;
+      case_session_load(s);
+      tx_use_case();
+      secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
+                   s->sub_exch, false, 0, true);
+      case_session_save(s);
+    }
+  }
+}
+
+// matterEvent() backend: enqueue an event; the actual send happens in
+// matter_loop (main loop) so it is safe to call from a VM-task callback.
+matter_err_t matter_queue_event(uint16_t ep, uint32_t cl, uint32_t event_id,
+                                int32_t a, int32_t b) {
+  if (!g_ptr || !g.inited) return MATTER_ERR_NOT_INIT;
+  uint8_t nh = (uint8_t)((g.ev_head + 1) % MTRC_EV_QUEUE);
+  if (nh == g.ev_tail) return MATTER_ERR_NO_MEM;             // ring full: drop
+  g.ev_q[g.ev_head].ep = ep; g.ev_q[g.ev_head].cl = cl;
+  g.ev_q[g.ev_head].ev = event_id; g.ev_q[g.ev_head].a = a; g.ev_q[g.ev_head].b = b;
+  g.ev_head = nh;
+  return MATTER_OK;
+}
+
 void matter_loop(void) {
   if (!g_ptr || !g.inited || !g.started) return;   // off / not started -> no-op
   // Drain ALL queued datagrams (a burst from several controllers must not be
@@ -1986,8 +2142,38 @@ void matter_loop(void) {
     pase_dispatch(p->buf, p->len, p->port);            // crypto-heavy work here
     g.rx_tail = (uint8_t)((g.rx_tail + 1) % MTRC_RX_QUEUE);
   }
-  // Subscription report engine: send a ReportData when the value changed or
-  // the max interval elapsed.
+
+  // Live operational subscriptions: push a ReportData to each subscribed
+  // controller when an app value changed (>=1 s apart) or the max interval
+  // elapsed. Runs in the main loop, sequential with the RX drain above, so the
+  // shared working set / g.reply_ip6 are not raced. Skipped while a chunked
+  // priming report is still in flight.
+  if (!g.rpt_active) {
+    uint32_t now2 = g.port.millis(g.port.ctx);
+    for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
+      mtrc_case_sess *s = &g.case_sess[i];
+      if (!s->in_use || !s->sub_active) continue;
+      int changed = (s->sub_last_gen != g.app_gen);
+      uint32_t since = now2 - s->sub_last_ms;
+      if (!((changed && since >= 1000u) || since >= (uint32_t)s->sub_max_s * 1000u)) continue;
+      s->sub_last_ms = now2; s->sub_last_gen = g.app_gen;
+      memcpy(g.reply_ip6, s->cli_ip6, 16); g.reply_port = s->cli_port;
+      case_session_load(s);
+      tx_use_case();
+      send_subscription_report(s->sub_id, s->sub_exch);
+      case_session_save(s);
+    }
+  }
+
+  // Drain queued Matter events (matterEvent) -> EventReports to subscribers.
+  while (g.ev_head != g.ev_tail) {
+    uint8_t t = g.ev_tail;
+    matter_emit_event(g.ev_q[t].ep, g.ev_q[t].cl, g.ev_q[t].ev, g.ev_q[t].a, g.ev_q[t].b);
+    g.ev_tail = (uint8_t)((t + 1) % MTRC_EV_QUEUE);
+  }
+
+  // Legacy single-attribute subscription engine (PASE/commissioning path):
+  // send a ReportData when the value changed or the max interval elapsed.
   if (g.sub_active && g.pase_secure) {
     uint32_t now = g.port.millis(g.port.ctx);
     uint64_t v = attr_value(g.sub_ep, g.sub_cl, g.sub_attr);
@@ -2077,7 +2263,7 @@ matter_err_t matter_add_cluster(uint16_t endpoint, uint32_t cluster) {
 matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
                              int type, int writable) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
-  if (type < 0 || type > MTRC_DM_T_S64) type = MTRC_DM_T_U32;
+  if (type < 0 || type > MTRC_DM_T_FLOAT) type = MTRC_DM_T_U32;
   uint8_t flags = writable ? MTRC_DM_F_WRITABLE : 0;
   return mtrc_dm_add_attr(endpoint, cluster, attr, (mtrc_dm_type_t)type, flags, 0) == 0
          ? MATTER_OK : MATTER_ERR_NO_MEM;
@@ -2090,6 +2276,28 @@ matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
     mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, value);
   else
     mtrc_dm_set(endpoint, cluster, attr, value);
+  if (endpoint != 0) g.app_gen++;   // app value changed -> live subscription report
+  return MATTER_OK;
+}
+
+// matterSetFloat backend. For a FLOAT attribute the raw single-precision value
+// is stored (as its 32-bit bits); for any other type the value is scaled to an
+// integer round(f*scale) — so one builtin serves both float wire attrs (air
+// quality) and scaled-int wire attrs (temperature 0.01C, power mW, ...).
+matter_err_t matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
+                                    uint32_t attr, float f, int32_t scale) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  mtrc_dm_attr_t *a = mtrc_dm_find(endpoint, cluster, attr);
+  uint64_t v;
+  if (a && a->type == MTRC_DM_T_FLOAT) {
+    uint32_t bits; memcpy(&bits, &f, 4); v = bits;           // store float bits as-is
+  } else {
+    double s = (double)f * (double)scale;                    // scale + round-to-nearest
+    v = (uint64_t)(int64_t)(s + (s < 0 ? -0.5 : 0.5));
+  }
+  if (!a) mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, v);
+  else    mtrc_dm_set(endpoint, cluster, attr, v);
+  if (endpoint != 0) g.app_gen++;
   return MATTER_OK;
 }
 

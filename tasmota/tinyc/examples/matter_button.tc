@@ -1,0 +1,63 @@
+// Matter Generic Switch (stateless programmable button) — uses Matter EVENTS.
+//
+//   Endpoint 1: Generic Switch (0x000F) -> Switch (0x003B)
+//     NumberOfPositions (0x0000) uint8 = 2
+//     CurrentPosition   (0x0001) uint8
+//     MultiPressMax     (0x0002) uint8 = 3
+//   Events (matterEvent): InitialPress(1) LongPress(2) ShortRelease(3)
+//                          LongRelease(4) MultiPressOngoing(5) MultiPressComplete(6)
+//
+// Apple Home maps these to Single Press / Double Press / Long Press automation
+// triggers (it reads MultiPressComplete.count and LongPress). matterEvent() is
+// delivered as a Matter EventReport to every subscribed controller.
+//
+// This demo fires single / double / long presses on a timer; replace the
+// EverySecond logic with a real Tasmota Button handler.
+
+int ep;
+int tick;
+
+// Emit one tap of N presses (Apple reads MultiPressComplete count = N).
+void tap(int n) {
+    int i;
+    i = 0;
+    while (i < n) {
+        matterEvent(ep, CLUSTER_SWITCH, EV_INITIAL_PRESS, 1, 0);   // NewPosition = 1
+        matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS, 1);
+        matterEvent(ep, CLUSTER_SWITCH, EV_SHORT_RELEASE, 0, 0);   // PreviousPosition = 0
+        matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS, 0);
+        i = i + 1;
+    }
+    matterEvent(ep, CLUSTER_SWITCH, EV_MULTI_COMPLETE, 0, n);      // PreviousPos = 0, count = N
+}
+
+// Emit a long press (press + hold + release).
+void hold() {
+    matterEvent(ep, CLUSTER_SWITCH, EV_INITIAL_PRESS, 1, 0);
+    matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS, 1);
+    matterEvent(ep, CLUSTER_SWITCH, EV_LONG_PRESS, 1, 0);
+    matterEvent(ep, CLUSTER_SWITCH, EV_LONG_RELEASE, 0, 0);
+    matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS, 0);
+}
+
+void EverySecond() {
+    tick = tick + 1;
+    if ((tick % 12) == 0) { addLog("Button: single"); tap(1); }
+    if ((tick % 31) == 0) { addLog("Button: double"); tap(2); }
+    if ((tick % 47) == 0) { addLog("Button: long");   hold(); }
+}
+
+int main() {
+    tick = 0;
+    matterReset();
+    ep = matterAdd(MATTER_GENERIC_SWITCH);
+    matterCluster(ep, CLUSTER_SWITCH);
+    matterAttr(ep, CLUSTER_SWITCH, ATTR_SWITCH_NUMPOS,   MTR_U8);
+    matterAttr(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS,      MTR_U8);
+    matterAttr(ep, CLUSTER_SWITCH, ATTR_SWITCH_MULTIMAX, MTR_U8);
+    matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_NUMPOS,   2);
+    matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_POS,      0);
+    matterSet(ep, CLUSTER_SWITCH, ATTR_SWITCH_MULTIMAX, 3);
+    matterStart();
+    return 0;
+}

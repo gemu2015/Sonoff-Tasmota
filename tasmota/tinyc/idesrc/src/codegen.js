@@ -470,6 +470,7 @@ const BUILTINS = {
     'matterAttr':       { syscall: Syscall.MTR_ATTR,        args: 4, returns: false },
     'matterSet':        { syscall: Syscall.MTR_SET,         args: 4, returns: false },
     'matterSetFloat':   { syscall: Syscall.MTR_SETF,        args: 5, returns: false },
+    'matterEvent':      { syscall: Syscall.MTR_EVENT,       args: 5, returns: false },
     'matterGet':        { syscall: Syscall.MTR_GET,         args: 3, returns: true },
     'matterStart':      { syscall: Syscall.MTR_START,       args: 0, returns: true },
     'matterReset':      { syscall: Syscall.MTR_RESET,       args: 0, returns: false },
@@ -583,19 +584,36 @@ export class CodeGenerator {
             MATTER_PRESS_SENSOR: 0x0305, MATTER_FLOW_SENSOR: 0x0306,
             MATTER_LIGHT_SENSOR: 0x0106, MATTER_OCCUPANCY_SENSOR: 0x0107,
             MATTER_CONTACT_SENSOR: 0x0015, MATTER_ELEC_SENSOR: 0x0510,
+            MATTER_WATERLEAK_SENSOR: 0x0043, MATTER_RAIN_SENSOR: 0x0044,
+            MATTER_CT_LIGHT: 0x010C, MATTER_FAN: 0x002B,
+            MATTER_WINDOW: 0x0202, MATTER_GENERIC_SWITCH: 0x000F,
+            MATTER_AIRQUALITY_SENSOR: 0x002C,
             // cluster ids
             CLUSTER_ONOFF: 0x0006, CLUSTER_LEVEL: 0x0008, CLUSTER_COLOR: 0x0300,
             CLUSTER_TEMP: 0x0402, CLUSTER_HUM: 0x0405, CLUSTER_PRESS: 0x0403,
             CLUSTER_FLOW: 0x0404, CLUSTER_ILLUM: 0x0400, CLUSTER_OCCUPANCY: 0x0406,
             CLUSTER_BOOL_STATE: 0x0045,
+            CLUSTER_FAN: 0x0202, CLUSTER_WINDOW: 0x0102, CLUSTER_SWITCH: 0x003B,
+            // Switch (0x003B) event ids for matterEvent()
+            EV_INITIAL_PRESS: 0x01, EV_LONG_PRESS: 0x02, EV_SHORT_RELEASE: 0x03,
+            EV_LONG_RELEASE: 0x04, EV_MULTI_ONGOING: 0x05, EV_MULTI_COMPLETE: 0x06,
+            // Air Quality (0x005B) + Concentration Measurement clusters (float MeasuredValue)
+            CLUSTER_AIRQUALITY: 0x005B, CLUSTER_CO2: 0x040D, CLUSTER_PM25: 0x042A,
+            CLUSTER_PM10: 0x042D, CLUSTER_PM1: 0x042C, CLUSTER_VOC: 0x042E, CLUSTER_NO2: 0x0413,
             // Matter 1.4 electrical measurement (power meter / SML)
             CLUSTER_POWER: 0x0090, CLUSTER_ENERGY: 0x0091,
             // ElectricalPowerMeasurement (0x0090) attribute ids
             ATTR_VOLTAGE: 0x0004, ATTR_ACTIVE_CURRENT: 0x0005,
             ATTR_ACTIVE_POWER: 0x0008, ATTR_FREQUENCY: 0x000E,
+            // FanControl (0x0202): mode + percent (PercentSetting is writable)
+            ATTR_FAN_MODE: 0x0000, ATTR_FAN_PERCENT: 0x0002, ATTR_FAN_PERCENT_CUR: 0x0006,
+            // WindowCovering (0x0102): CurrentPositionLiftPercent100ths (0..10000)
+            ATTR_WC_LIFT: 0x000E,
+            // Switch (0x003B): NumberOfPositions / CurrentPosition / MultiPressMax
+            ATTR_SWITCH_NUMPOS: 0x0000, ATTR_SWITCH_POS: 0x0001, ATTR_SWITCH_MULTIMAX: 0x0002,
             // attribute storage types (mtrc_dm_type_t) — order MUST match the enum
             MTR_BOOL: 0, MTR_U8: 1, MTR_U16: 2, MTR_U32: 3, MTR_U64: 4, MTR_ENUM8: 5,
-            MTR_S16: 6, MTR_S32: 7, MTR_S64: 8,
+            MTR_S16: 6, MTR_S32: 7, MTR_S64: 8, MTR_FLOAT: 9,
         };
         const allDefs = { ...colorDefs, ...hkDefs, ...fileDefs, ...matterDefs };
         for (const [name, value] of Object.entries(allDefs)) {

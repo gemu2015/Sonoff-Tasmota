@@ -175,6 +175,16 @@ matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
 matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
                                   uint32_t attr, uint64_t value);
 
+// matterSetFloat backend: store a FLOAT attribute's raw value, or round(f*scale)
+// as an integer for any other (scaled-int) attribute type.
+matter_err_t matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
+                                    uint32_t attr, float f, int32_t scale);
+
+// Queue a Matter Event (e.g. Generic Switch button press) for delivery as an
+// EventReport to subscribed controllers (sent from matter_loop).
+matter_err_t matter_queue_event(uint16_t endpoint, uint32_t cluster,
+                                uint32_t event_id, int32_t a, int32_t b);
+
 // Get an attribute's cached value. Returns 1 + fills *out if present, else 0.
 int          matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
                                   uint32_t attr, uint64_t *out);

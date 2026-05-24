@@ -1,0 +1,36 @@
+// Matter Water-Leak + Rain sensors (BooleanState).
+//
+//   Endpoint 1: Water Leak Detector (0x0043) -> BooleanState (0x0045) StateValue
+//   Endpoint 2: Rain Sensor         (0x0044) -> BooleanState (0x0045) StateValue
+//
+// StateValue (attr 0x0000, bool): true = wet/leak/rain detected, false = dry.
+
+int ep_leak;
+int ep_rain;
+int tick;
+
+void EverySecond() {
+    tick = tick + 1;
+    // Simulated wet/dry pulses so you can see the state flip in Home. Replace
+    // with a real input, e.g. matterSet(ep_leak, CLUSTER_BOOL_STATE, 0, gpioRead(<pin>));
+    matterSet(ep_leak, CLUSTER_BOOL_STATE, 0, (tick % 20) < 3);
+    matterSet(ep_rain, CLUSTER_BOOL_STATE, 0, (tick % 30) < 5);
+}
+
+int main() {
+    tick = 0;
+    matterReset();
+
+    ep_leak = matterAdd(MATTER_WATERLEAK_SENSOR);
+    matterCluster(ep_leak, CLUSTER_BOOL_STATE);
+    matterAttr(ep_leak, CLUSTER_BOOL_STATE, 0, MTR_BOOL);   // StateValue
+    matterSet(ep_leak, CLUSTER_BOOL_STATE, 0, 0);
+
+    ep_rain = matterAdd(MATTER_RAIN_SENSOR);
+    matterCluster(ep_rain, CLUSTER_BOOL_STATE);
+    matterAttr(ep_rain, CLUSTER_BOOL_STATE, 0, MTR_BOOL);   // StateValue
+    matterSet(ep_rain, CLUSTER_BOOL_STATE, 0, 0);
+
+    matterStart();
+    return 0;
+}

@@ -1,0 +1,56 @@
+// Matter Air Quality sensor — CO2 / PM2.5 / TVOC (Matter 1.4).
+//
+//   Endpoint 1: Air Quality Sensor (0x002C)
+//     AirQuality          (0x005B/0x0000) enum8  0=Unknown 1=Good 2=Fair 3=Moderate
+//                                                 4=Poor 5=VeryPoor 6=ExtremelyPoor
+//     CO2  MeasuredValue  (0x040D/0x0000) single float, ppm
+//     PM2.5 MeasuredValue (0x042A/0x0000) single float, µg/m³
+//     TVOC MeasuredValue  (0x042E/0x0000) single float
+//
+// Concentration MeasuredValues are IEEE floats on the wire (not scaled ints):
+// publish them with matterSetFloat(ep, cluster, attr, value, 1) — for a float
+// attribute the scale is ignored and the raw value is stored. Declare those
+// attributes as MTR_FLOAT.
+//
+// Simulated readings; swap for a real SGP30/SCD30/etc. via sensorGet().
+
+int ep;
+int tick;
+
+void EverySecond() {
+    float co2; float pm25; float voc; int aq;
+    tick = tick + 1;
+    co2  = 600.0 + 400.0 * sin((float)tick / 50.0);    // ~200 .. 1000 ppm
+    pm25 = 12.0  + 10.0  * sin((float)tick / 35.0);    // ~2 .. 22 µg/m³
+    voc  = 100.0 + 80.0  * sin((float)tick / 65.0);    // ~20 .. 180
+    aq = 1;                                            // Good
+    if (co2 > 800.0)  { aq = 3; }                      // Moderate
+    if (co2 > 1000.0) { aq = 5; }                      // Very poor
+    matterSet(ep, CLUSTER_AIRQUALITY, 0, aq);          // enum8 index
+    matterSetFloat(ep, CLUSTER_CO2,  0, co2,  1);      // float ppm
+    matterSetFloat(ep, CLUSTER_PM25, 0, pm25, 1);      // float µg/m³
+    matterSetFloat(ep, CLUSTER_VOC,  0, voc,  1);
+}
+
+int main() {
+    tick = 0;
+    matterReset();
+    ep = matterAdd(MATTER_AIRQUALITY_SENSOR);
+
+    matterCluster(ep, CLUSTER_AIRQUALITY);
+    matterAttr(ep, CLUSTER_AIRQUALITY, 0, MTR_ENUM8);  // AirQuality index
+    matterCluster(ep, CLUSTER_CO2);
+    matterAttr(ep, CLUSTER_CO2, 0, MTR_FLOAT);         // CO2 MeasuredValue (ppm)
+    matterCluster(ep, CLUSTER_PM25);
+    matterAttr(ep, CLUSTER_PM25, 0, MTR_FLOAT);
+    matterCluster(ep, CLUSTER_VOC);
+    matterAttr(ep, CLUSTER_VOC, 0, MTR_FLOAT);
+
+    matterSet(ep, CLUSTER_AIRQUALITY, 0, 1);           // Good
+    matterSetFloat(ep, CLUSTER_CO2,  0, 500.0, 1);
+    matterSetFloat(ep, CLUSTER_PM25, 0, 5.0,   1);
+    matterSetFloat(ep, CLUSTER_VOC,  0, 50.0,  1);
+
+    matterStart();
+    return 0;
+}

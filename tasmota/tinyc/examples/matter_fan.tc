@@ -1,0 +1,44 @@
+// Matter Fan — Home controls the speed by WRITING the PercentSetting attribute.
+//
+//   Endpoint 1: Fan (0x002B) -> FanControl (0x0202)
+//     FanMode        (0x0000) enum8  0=Off 1=Low 2=Med 3=High 4=On 5=Auto
+//     PercentSetting (0x0002) uint8  0..100  — Home WRITES this (the firmware
+//                                              applies the write to the model)
+//     PercentCurrent (0x0006) uint8  0..100  — we report the actual speed
+//
+// Matter fans are not invoke-driven: the controller WRITES PercentSetting. The
+// firmware applies a scalar write to the data model, so this script just polls
+// it each second and drives the output.
+
+int ep;
+int last;
+
+void EverySecond() {
+    int pct; int mode;
+    pct = matterGet(ep, CLUSTER_FAN, ATTR_FAN_PERCENT);   // speed Home requested
+    if (pct == last) { return; }
+    last = pct;
+    mode = 0;
+    if (pct > 0)  { mode = 1; }
+    if (pct > 33) { mode = 2; }
+    if (pct > 66) { mode = 3; }
+    matterSet(ep, CLUSTER_FAN, ATTR_FAN_PERCENT_CUR, pct);  // actual = requested
+    matterSet(ep, CLUSTER_FAN, ATTR_FAN_MODE, mode);
+    addLog("Fan -> %d%% (mode %d)", pct, mode);
+    // analogWrite(<gpio>, pct * 255 / 100);   // drive a real PWM fan here
+}
+
+int main() {
+    last = -1;
+    matterReset();
+    ep = matterAdd(MATTER_FAN);
+    matterCluster(ep, CLUSTER_FAN);
+    matterAttr(ep, CLUSTER_FAN, ATTR_FAN_MODE,        MTR_ENUM8);
+    matterAttr(ep, CLUSTER_FAN, ATTR_FAN_PERCENT,     MTR_U8);   // Home writes this
+    matterAttr(ep, CLUSTER_FAN, ATTR_FAN_PERCENT_CUR, MTR_U8);
+    matterSet(ep, CLUSTER_FAN, ATTR_FAN_MODE, 0);
+    matterSet(ep, CLUSTER_FAN, ATTR_FAN_PERCENT, 0);
+    matterSet(ep, CLUSTER_FAN, ATTR_FAN_PERCENT_CUR, 0);
+    matterStart();
+    return 0;
+}

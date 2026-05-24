@@ -43,6 +43,7 @@ typedef enum {
   MTRC_DM_T_S16,   // signed 16-bit — TemperatureMeasurement / PressureMeasurement MeasuredValue (may be negative)
   MTRC_DM_T_S32,   // signed 32-bit
   MTRC_DM_T_S64,   // signed 64-bit — ElectricalPowerMeasurement (ActivePower mW, Voltage mV, ... int64)
+  MTRC_DM_T_FLOAT, // single-precision float — Concentration Measurement (CO2/PM/VOC), stored as its 32-bit bits in the u64 cache
 } mtrc_dm_type_t;
 
 // Attribute flags.
