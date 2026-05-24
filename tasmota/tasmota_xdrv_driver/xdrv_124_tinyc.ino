@@ -2510,6 +2510,29 @@ static IPAddress mtrc_peer_ip6;
 static uint16_t  mtrc_peer_port6 = 0;
 static bool      mtrc_udp_listening = false;
 
+// ---- Matter Invoke deferral queue ----------------------------------------
+// matter_udp_rx() (hence im_handle_invoke -> on_command) runs in the
+// async-tcpip task. Executing the Tasmota command pipeline
+// (ExecuteCommandPower) or a TinyC VM there overflows that task's small stack
+// and races the main loop -> crash. So on_command only ENQUEUES the action
+// (lightweight, async-safe) and replies SUCCESS; the main loop drains the
+// queue (FUNC_EVERY_50_MSECOND) and performs the relay/script action in the
+// safe main-task context. SPSC ring: producer = async task, consumer = main
+// loop; the C6 is single-core so byte/word index updates are atomic.
+struct MtrcInvokeJob { uint16_t ep; uint32_t cluster; uint32_t command; int32_t arg; };
+#define MTRC_INV_Q 8
+static volatile MtrcInvokeJob mtrc_inv_q[MTRC_INV_Q];
+static volatile uint8_t mtrc_inv_head = 0, mtrc_inv_tail = 0;
+static void mtrc_invoke_enqueue(uint16_t ep, uint32_t cl, uint32_t cmd, int32_t arg) {
+  uint8_t nh = (uint8_t)((mtrc_inv_head + 1) % MTRC_INV_Q);
+  if (nh == mtrc_inv_tail) return;       // full: drop (drained every 50 ms; won't happen)
+  mtrc_inv_q[mtrc_inv_head].ep      = ep;
+  mtrc_inv_q[mtrc_inv_head].cluster = cl;
+  mtrc_inv_q[mtrc_inv_head].command = cmd;
+  mtrc_inv_q[mtrc_inv_head].arg     = arg;
+  mtrc_inv_head = nh;                     // publish AFTER fields are written
+}
+
 // Route a Matter command Invoke to the script's MatterInvoke(ep, cluster, cmd)
 // callback on every slot that defines it (the structural twin of HomeKit's
 // tc_hk_write_callback). Returns true if at least one script handled it, so the
@@ -2549,6 +2572,38 @@ static bool MatterC_DispatchInvoke(uint16_t ep, uint32_t cluster, uint32_t cmd) 
 #endif
   }
   return handled;
+}
+
+// Does any loaded slot define a MatterInvoke callback? Cheap (callback-name
+// scan, no VM execution) so it is safe to call from the async-tcpip task.
+static bool mtrc_have_matterinvoke(void) {
+  if (!Tinyc) return false;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (!s || !s->loaded) continue;
+    for (int c = 0; c < s->vm.callback_count; c++)
+      if (strcmp(s->vm.callbacks[c].name, "MatterInvoke") == 0) return true;
+  }
+  return false;
+}
+
+// Drain queued Matter Invoke actions in the MAIN-LOOP task context (called from
+// FUNC_EVERY_50_MSECOND). Mirrors the old inline on_command body: offer to the
+// script first (MatterInvoke), then the built-in OnOff->relay-1 default.
+static void mtrc_invoke_drain(void) {
+  while (mtrc_inv_head != mtrc_inv_tail) {
+    MtrcInvokeJob j;                                       // copy out of volatile slot
+    j.ep      = mtrc_inv_q[mtrc_inv_tail].ep;
+    j.cluster = mtrc_inv_q[mtrc_inv_tail].cluster;
+    j.command = mtrc_inv_q[mtrc_inv_tail].command;
+    j.arg     = mtrc_inv_q[mtrc_inv_tail].arg;
+    mtrc_inv_tail = (uint8_t)((mtrc_inv_tail + 1) % MTRC_INV_Q);
+    if (MatterC_DispatchInvoke(j.ep, j.cluster, j.command)) continue;  // script handled
+    if (j.cluster == 0x0006 && j.command <= 2) {           // OnOff -> relay 1 (default)
+      AddLog(LOG_LEVEL_INFO, PSTR("MTR: OnOff -> Power %u (default)"), (unsigned)j.command);
+      ExecuteCommandPower(1, j.command, SRC_BUTTON);        // 0=off 1=on 2=toggle
+    }
+  }
 }
 
 // ---- matter_c host port (Tasmota backing for the firmware-agnostic lib) --
@@ -2718,14 +2773,17 @@ extern "C" {
   // never double-toggles. Returns 1 if handled (core replies SUCCESS).
   static int mtrc_p_on_command(void *ctx, uint16_t endpoint, uint32_t cluster,
                                uint32_t command, int32_t arg) {
-    (void)ctx; (void)endpoint; (void)arg;
-    if (MatterC_DispatchInvoke(endpoint, cluster, command)) return 1;
-    if (cluster == 0x0006 && command <= 2) {        // OnOff -> relay 1 (default)
-      AddLog(LOG_LEVEL_INFO, PSTR("MTR: OnOff -> Power %u (default)"), (unsigned)command);
-      ExecuteCommandPower(1, command, SRC_BUTTON);   // 0=off 1=on 2=toggle
-      return 1;
-    }
-    return 0;
+    (void)ctx;
+    // Runs in the async-tcpip task: do NOT execute the relay pipeline or a
+    // TinyC VM here (stack overflow + reentrancy -> crash). Queue the action
+    // for the main loop and reply SUCCESS optimistically. "known" mirrors the
+    // old return value so im_handle_invoke's OnOff/catch-all status stays
+    // correct (LevelControl/ColorControl reply SUCCESS regardless of return).
+    bool known = (cluster == 0x0006 && command <= 2) ||
+                 cluster == 0x0008 || cluster == 0x0300 ||
+                 mtrc_have_matterinvoke();
+    if (known) mtrc_invoke_enqueue(endpoint, cluster, command, arg);
+    return known ? 1 : 0;
   }
 }
 
@@ -4863,6 +4921,10 @@ bool Xdrv124(uint32_t function) {
       tc_dmx_tick();   // DMX refresh + watchdog — runs even if VM paused
                        // so the dimmer never loses its frame (no-op
                        // until first dmxWrite / if TC_DMX_TX_PIN unset)
+#ifdef USE_MATTER_C
+      mtrc_invoke_drain();  // run queued Matter Invoke actions in the main task
+                            // (enqueued by on_command from the async-tcpip task)
+#endif
       if (tc_paused) { break; }
       TinyCEvery50ms();
       if (TasmotaGlobal.rules_flag.mqtt_disconnected) {
