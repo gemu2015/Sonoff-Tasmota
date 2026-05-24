@@ -298,9 +298,11 @@ bool matter_qr_dark(int x, int y) {
 // per-device-type mandatory set in one place so matter_add_endpoint and the
 // matter_init seed agree. (Subset; extended as Phase D clusters land.)
 // The Identify cluster (0x0003) is MANDATORY on nearly every application device
-// type (plug, all lights, ...). Apple drops an endpoint that lacks it — which is
-// why an On/Off Plug-in Unit with only Descriptor+OnOff never appeared in Home.
-// IdentifyTime (0x0000 u16) + IdentifyType (0x0001 enum8, 0 = None).
+// type (plug, lights, sensors, fan, window covering, generic switch, ...). Apple
+// drops an endpoint that lacks it (that's why a bare On/Off Plug-in Unit never
+// appeared in Home). It is therefore added to EVERY app endpoint in
+// matter_add_endpoint, not per-device-type here. IdentifyTime (0x0000 u16) +
+// IdentifyType (0x0001 enum8, 0 = None).
 static void dm_add_identify(uint16_t ep) {
   mtrc_dm_add_attr(ep, 0x0003, 0x0000, MTRC_DM_T_U16, MTRC_DM_F_WRITABLE, 0);
   mtrc_dm_add_attr(ep, 0x0003, 0x0001, MTRC_DM_T_U8,  0, 0);
@@ -310,14 +312,12 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
   switch (dt) {
     case MATTER_DEVTYPE_ON_OFF_PLUGIN:
     case MATTER_DEVTYPE_ON_OFF_LIGHT:
-      dm_add_identify(ep);
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
       break;
     case MATTER_DEVTYPE_DIMMABLE_LIGHT:
     case 0x010C:   // Color Temperature Light
     case 0x010D:   // Extended Color Light (script also declares ColorControl)
-      dm_add_identify(ep);
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
       mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0000, MTRC_DM_T_U8,
@@ -465,6 +465,23 @@ matter_err_t matter_start(void) {
     mtrc_fabric *f = mtrc_store_at(i);
     if (f) publish_operational_mdns(f);
   }
+#ifdef MTRC_DIAG
+  // Debug: dump the data-model endpoints (device type + cluster count) so the
+  // script's declared model can be inspected. Build with -DMTRC_DIAG to enable.
+  for (int i = 0; i < mtrc_dm_endpoint_count(); i++) {
+    const mtrc_dm_endpoint_t *e = mtrc_dm_endpoint_at(i);
+    if (!e) continue;
+    int nc = 0;
+    for (int j = 0; j < mtrc_dm_cluster_count(); j++) {
+      const mtrc_dm_cluster_t *c = mtrc_dm_cluster_at(j);
+      if (c && c->endpoint == e->endpoint) nc++;
+    }
+    char m[64];
+    snprintf(m, sizeof(m), "DIAG endpoint %u devtype 0x%04X clusters=%d",
+             (unsigned)e->endpoint, (unsigned)e->device_type, nc);
+    mlog(MATTER_LOG_INFO, m);
+  }
+#endif
   g.started = true;
   return MATTER_OK;
 }
@@ -2058,6 +2075,16 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
       send_report_chunk(mh.msg_counter);    // next data chunk
     }
   } else {
+#ifdef MTRC_DIAG
+    // Debug: dump a controller's IM StatusResponse (op 0x01) raw TLV — a non-zero
+    // status after our ReportData means the controller rejected it. -DMTRC_DIAG.
+    if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == 0x01 && ipll <= 24) {
+      char hx[56]; int hp = 0;
+      for (size_t i = 0; i < ipll && hp < 52; i++) hp += snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]);
+      char sm[80]; snprintf(sm, sizeof(sm), "DIAG IM StatusResponse raw=%s", hx);
+      mlog(MATTER_LOG_INFO, sm);
+    }
+#endif
     char m[80];
     snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",
              (unsigned)ph.protocol_id, (unsigned)ph.opcode);
@@ -2326,6 +2353,7 @@ int matter_add_endpoint(uint32_t device_type_id) {
   uint16_t ep = g.next_ep;
   if (mtrc_dm_add_endpoint(ep, device_type_id) < 0) return MATTER_ERR_NO_MEM;
   mtrc_dm_add_cluster(ep, MTRC_CL_DESCRIPTOR);   // mandatory on every endpoint
+  dm_add_identify(ep);                           // Identify is mandatory on every app endpoint
   dm_attach_device_type(ep, device_type_id);
   g.next_ep++;
   return (int)ep;
