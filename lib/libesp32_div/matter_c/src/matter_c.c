@@ -1229,7 +1229,15 @@ static int fabric_op_instance(const mtrc_fabric *f, char *instance, size_t cap) 
     return 0;
   int p = 0;
   for (int i = 0; i < 8; i++) p += snprintf(instance + p, cap - p, "%02X", cfid[i]);
-  snprintf(instance + p, cap - p, "-%016llX", (unsigned long long)f->node_id);
+  // Node id as 16 hex, big-endian, formatted byte-by-byte. Do NOT use "%016llX":
+  // ESP-IDF's newlib-nano printf (default on several Tasmota envs) ignores the
+  // 'll' length modifier and emits garbage ("...lX") for a 64-bit value, which
+  // corrupts the operational DNS-SD instance name so a controller can never
+  // resolve the node for CASE (commissioning ends at "connecting"/"no response").
+  if (p < (int)cap - 1) instance[p++] = '-';
+  for (int i = 7; i >= 0; i--)
+    p += snprintf(instance + p, cap - p, "%02X",
+                  (unsigned)((f->node_id >> (i * 8)) & 0xFF));
   return 1;
 }
 
@@ -2517,11 +2525,18 @@ matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
 matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
                                   uint32_t attr, uint64_t value) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
-  if (!mtrc_dm_find(endpoint, cluster, attr))
+  int changed;
+  if (!mtrc_dm_find(endpoint, cluster, attr)) {
     mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, value);
-  else
-    mtrc_dm_set(endpoint, cluster, attr, value);
-  if (endpoint != 0) g.app_gen++;   // app value changed -> live subscription report
+    changed = 1;                                  // first publication of this attr
+  } else {
+    changed = mtrc_dm_set(endpoint, cluster, attr, value);  // 1 only if the value differs
+  }
+  // Only a REAL change schedules a live subscription report. Bumping app_gen on
+  // every write (even identical values) made a script that re-publishes N sensor
+  // attrs each second flood the subscriber with N ReportData bursts/second —
+  // which starved the Matter CASE handshake during commissioning.
+  if (changed && endpoint != 0) g.app_gen++;
   return MATTER_OK;
 }
 
@@ -2540,9 +2555,10 @@ matter_err_t matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
     double s = (double)f * (double)scale;                    // scale + round-to-nearest
     v = (uint64_t)(int64_t)(s + (s < 0 ? -0.5 : 0.5));
   }
-  if (!a) mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, v);
-  else    mtrc_dm_set(endpoint, cluster, attr, v);
-  if (endpoint != 0) g.app_gen++;
+  int changed;
+  if (!a) { mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, v); changed = 1; }
+  else    { changed = mtrc_dm_set(endpoint, cluster, attr, v); }   // 1 only if value differs
+  if (changed && endpoint != 0) g.app_gen++;     // report only on real change (see matter_set_attr_uint)
   return MATTER_OK;
 }
 

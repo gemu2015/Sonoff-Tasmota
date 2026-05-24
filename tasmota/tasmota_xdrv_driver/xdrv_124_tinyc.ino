@@ -2717,8 +2717,14 @@ extern "C" {
       // STABLE id derived from the chip MAC (not the core's per-boot random one)
       // so reboots reuse the same instance and never seed new mDNS phantoms in
       // controllers' caches.
-      char inst16[17];
-      snprintf(inst16, sizeof(inst16), "%016llX", (unsigned long long)ESP.getEfuseMac());
+      // 16-hex instance, formatted byte-by-byte — newlib-nano printf (default on
+      // several Tasmota envs) ignores the 'll' modifier and emits garbage for a
+      // 64-bit "%016llX". Harmless here (Apple matches commissionable by the D=
+      // discriminator TXT), but the operational instance MUST be valid hex, so
+      // keep the formatting consistent and spec-correct everywhere.
+      char inst16[17]; unsigned long long mac = (unsigned long long)ESP.getEfuseMac();
+      for (int i = 0; i < 8; i++)
+        snprintf(inst16 + 2 * i, 3, "%02X", (unsigned)((mac >> ((7 - i) * 8)) & 0xFF));
       mdns_service_instance_name_set(stype0, protou, inst16);
     }
     uint16_t disc = 0;
