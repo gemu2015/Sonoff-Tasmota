@@ -29,13 +29,16 @@ TC_RELEASE_HEADER="$TASMOTA_ROOT/tasmota/include/xdrv_124_tinyc_vm.h"
 RELEASE_REPO="${RELEASE_REPO:-gemu2015/Sonoff-Tasmota}"
 RELEASE_TAG="${RELEASE_TAG:-testing}"
 
-# 4 standard firmware targets (env name in platformio_override.ini).
-# Matches the historical asset list of the testing release.
+# Standard firmware targets (env name in platformio_override.ini). The ESP32
+# targets now ship with Matter (USE_MATTER_C) — at ~57 kB it fits where HomeKit
+# (~156 kB) did not, so testers can pair over Apple Home / Google / Alexa.
+# ESP8266 stays non-Matter (no resident crypto/IPv6 budget).
 STD_TARGETS=(
-  tinyc32-4M       # ESP32 4MB flash
-  tinyc32s3        # ESP32-S3 16MB flash
-  tinyc32c3        # ESP32-C3
-  tinyc8266-4M     # ESP8266 4MB flash
+  tinyc32-4M       # ESP32 4MB flash    (Matter)
+  tinyc32s3        # ESP32-S3 16MB flash (Matter)
+  tinyc32c3        # ESP32-C3           (Matter)
+  tinyc32c6        # ESP32-C6           (Matter)
+  tinyc8266-4M     # ESP8266 4MB flash  (no Matter)
 )
 
 # ─────────── Argument parsing ────────────────────────────────────────────────
@@ -209,12 +212,17 @@ else
 ### Included targets:
 | File | Description |
 |------|-------------|
-| \`tinyc32-4M.bin\` / \`.factory.bin\` | ESP32 4MB flash |
-| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 |
-| \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 |
+| \`tinyc32-4M.bin\` / \`.factory.bin\` | ESP32 4MB flash — **Matter** |
+| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** |
+| \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
+| \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | ESP8266 4MB flash |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
+
+The ESP32 builds include **Matter** (Apple Home / Google / Alexa): a script
+defines the device (see \`matter_*.tc\` examples); open pairing from the \`/mt\`
+web page (Bind) and add the QR in your controller app.
 
 ### How to flash:
 - OTA: Firmware Upgrade → Upload \`.bin\` file
