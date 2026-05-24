@@ -1353,6 +1353,17 @@ static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, 
       case 0xFFFD: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 3);                return; // ClusterRevision
     }
   }
+  // ElectricalEnergyMeasurement (0x0091): the Cumulative/Periodic Energy
+  // attributes (0x0001..0x0004) are an EnergyMeasurementStruct, not a scalar.
+  // Emit { 0: Energy(int64, mWh) } from the stored value (optional timestamps
+  // omitted). The script stores mWh, e.g. matterSetFloat(ep,CLUSTER_ENERGY,
+  // attr, kWh, 1000000).
+  if (cl == 0x0091 && attr >= 0x0001 && attr <= 0x0004) {
+    mtrc_tlv_start_struct(w, mtrc_tlv_ctx(2));                        // EnergyMeasurementStruct
+    mtrc_tlv_put_int(w, mtrc_tlv_ctx(0), (int64_t)attr_value(ep, cl, attr));  // Energy (mWh)
+    mtrc_tlv_end_container(w);
+    return;
+  }
   // Registry attribute: emit with the declared type. Signed sensor values
   // (TemperatureMeasurement / PressureMeasurement MeasuredValue are int16 and
   // may be negative) MUST be a TLV signed int, or controllers read a huge
@@ -1672,6 +1683,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
                    cl == 0x0300 ? 0x01 :    // ColorControl: HueSaturation
                    cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
                    cl == 0x003B ? 0x2E :    // Switch: MomentarySwitch + Release + LongPress + MultiPress
+                   cl == 0x0091 ? 0x07 :    // ElectricalEnergyMeasurement: Imported + Exported + Cumulative
                    (cl >= 0x040C && cl <= 0x042F) ? 0x01 :  // ConcentrationMeasurement: NumericMeasurement
                    0); return;                                                  // FeatureMap
 

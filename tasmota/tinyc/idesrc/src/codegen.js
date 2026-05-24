@@ -605,6 +605,8 @@ export class CodeGenerator {
             // ElectricalPowerMeasurement (0x0090) attribute ids
             ATTR_VOLTAGE: 0x0004, ATTR_ACTIVE_CURRENT: 0x0005,
             ATTR_ACTIVE_POWER: 0x0008, ATTR_FREQUENCY: 0x000E,
+            // ElectricalEnergyMeasurement (0x0091): Cumulative Energy (mWh) structs
+            ATTR_ENERGY_IMPORT: 0x0001, ATTR_ENERGY_EXPORT: 0x0002,
             // FanControl (0x0202): mode + percent (PercentSetting is writable)
             ATTR_FAN_MODE: 0x0000, ATTR_FAN_PERCENT: 0x0002, ATTR_FAN_PERCENT_CUR: 0x0006,
             // WindowCovering (0x0102): CurrentPositionLiftPercent100ths (0..10000)

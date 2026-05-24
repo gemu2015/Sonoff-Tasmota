@@ -1,57 +1,76 @@
-// Matter 1.4 Power Meter — expose an SML / energy-meter reading over Matter.
+// Matter 1.4 Power + Energy Meter — expose an SML meter over Matter.
 //
 // Matter 1.4 added the Electrical Sensor device type (0x0510) with the
-// Electrical Power Measurement cluster (0x0090). This example publishes the
-// live electrical values a Tasmota SML meter reads, so a Matter controller
-// (e.g. Home Assistant, which supports the energy clusters) can graph them.
+// Electrical Power Measurement (0x0090) and Electrical Energy Measurement
+// (0x0091) clusters. This publishes the live values a Tasmota SML meter reads
+// so a Matter controller (e.g. Home Assistant) can show power AND energy.
 //
 //   Endpoint 1: Electrical Sensor (0x0510)
 //     -> ElectricalPowerMeasurement (0x0090):
-//          ActivePower   (0x0008) int64, milliwatts (mW)   — may be negative (export)
-//          Voltage       (0x0004) int64, millivolts (mV)
-//          ActiveCurrent (0x0005) int64, milliamps  (mA)
+//          ActivePower   (0x0008) int64 mW   — may be negative (grid export)
+//          Voltage       (0x0004) int64 mV
+//          ActiveCurrent (0x0005) int64 mA
+//     -> ElectricalEnergyMeasurement (0x0091):
+//          CumulativeEnergyImported (0x0001) EnergyMeasurementStruct {Energy mWh}
+//          CumulativeEnergyExported (0x0002) EnergyMeasurementStruct {Energy mWh}
 //
-// Values are int64 and can exceed 32 bits, so they are published with
-// matterSetFloat(ep, cluster, attr, value, scale): it stores round(value*scale)
-// as a 64-bit signed integer. Declare those attributes as MTR_S64.
+// Values are int64; publish with matterSetFloat(ep, cluster, attr, value, scale)
+// which stores round(value*scale). Power uses scale 1000 (W->mW); cumulative
+// energy uses scale 1000000 (kWh->mWh). Declare those attributes as MTR_S64; the
+// engine wraps the energy value in the required EnergyMeasurementStruct.
 //
-// NOTE: values below are SIMULATED so it runs on any board. For a real meter,
-// read the SML values with sensorGet(), e.g.
-//     w = sensorGet("SML#Power_curr");      // Watts  (your SML descriptor name)
-//     v = sensorGet("SML#Volt_L1");         // Volts
-//     a = sensorGet("SML#Amp_L1");          // Amps
+// NOTE: simulated so it runs on any board. For a real meter, read SML values:
+//     w   = sensorGet("SML#Power_curr");     // Watts
+//     imp = sensorGet("SML#Total_in");       // kWh imported (cumulative)
+//     exp = sensorGet("SML#Total_out");      // kWh exported (cumulative)
 //
-// Limitation: the Electrical*Measurement clusters also define struct attributes
-// (Accuracy, Ranges, EnergyMeasurementStruct) the scalar data-model engine does
-// not emit yet; cumulative energy (0x0091) needs that and is left for later.
+// Limitation: the optional EnergyMeasurementStruct timestamps and the EPM
+// Accuracy/Ranges struct attributes are not emitted (not required for readout).
 
-int ep;          // electrical-sensor endpoint id
+int ep;
 int tick;
+float kwh_imp;     // cumulative imported energy (kWh)
+float kwh_exp;     // cumulative exported energy (kWh)
 
 void EverySecond() {
     float w; float v; float a;
     tick = tick + 1;
     // Simulated readings (swap for sensorGet(...) on a real SML meter).
-    w = 800.0 - 1500.0 * sin((float)tick / 30.0);   // -700 .. +2300 W (signed: export when negative)
+    w = 800.0 - 1500.0 * sin((float)tick / 30.0);   // -700 .. +2300 W (export when negative)
     v = 230.0 + 3.0  * sin((float)tick / 17.0);     // ~230 V
     a = w / v;                                       // rough current (A)
     matterSetFloat(ep, CLUSTER_POWER, ATTR_ACTIVE_POWER,   w, 1000);  // W -> mW
     matterSetFloat(ep, CLUSTER_POWER, ATTR_VOLTAGE,        v, 1000);  // V -> mV
     matterSetFloat(ep, CLUSTER_POWER, ATTR_ACTIVE_CURRENT, a, 1000);  // A -> mA
+
+    // Integrate power into energy: W for 1 s = W/3600000 kWh.
+    if (w > 0.0) { kwh_imp = kwh_imp + w / 3600000.0; }
+    if (w < 0.0) { kwh_exp = kwh_exp - w / 3600000.0; }
+    matterSetFloat(ep, CLUSTER_ENERGY, ATTR_ENERGY_IMPORT, kwh_imp, 1000000);  // kWh -> mWh
+    matterSetFloat(ep, CLUSTER_ENERGY, ATTR_ENERGY_EXPORT, kwh_exp, 1000000);
 }
 
 int main() {
     tick = 0;
-    matterReset();                     // clean data model (root node only)
+    kwh_imp = 1234.5;                  // seed with a realistic meter reading
+    kwh_exp = 56.7;
+    matterReset();
 
     ep = matterAdd(MATTER_ELEC_SENSOR);
-    matterCluster(ep, CLUSTER_POWER);                       // ElectricalPowerMeasurement
-    matterAttr(ep, CLUSTER_POWER, ATTR_ACTIVE_POWER,   MTR_S64);  // mW (int64, signed)
-    matterAttr(ep, CLUSTER_POWER, ATTR_VOLTAGE,        MTR_S64);  // mV
-    matterAttr(ep, CLUSTER_POWER, ATTR_ACTIVE_CURRENT, MTR_S64);  // mA
+
+    matterCluster(ep, CLUSTER_POWER);                            // ElectricalPowerMeasurement
+    matterAttr(ep, CLUSTER_POWER, ATTR_ACTIVE_POWER,   MTR_S64); // mW
+    matterAttr(ep, CLUSTER_POWER, ATTR_VOLTAGE,        MTR_S64); // mV
+    matterAttr(ep, CLUSTER_POWER, ATTR_ACTIVE_CURRENT, MTR_S64); // mA
     matterSetFloat(ep, CLUSTER_POWER, ATTR_ACTIVE_POWER,   0.0, 1000);
     matterSetFloat(ep, CLUSTER_POWER, ATTR_VOLTAGE,      230.0, 1000);
     matterSetFloat(ep, CLUSTER_POWER, ATTR_ACTIVE_CURRENT, 0.0, 1000);
+
+    matterCluster(ep, CLUSTER_ENERGY);                            // ElectricalEnergyMeasurement
+    matterAttr(ep, CLUSTER_ENERGY, ATTR_ENERGY_IMPORT, MTR_S64);  // mWh (wrapped in a struct)
+    matterAttr(ep, CLUSTER_ENERGY, ATTR_ENERGY_EXPORT, MTR_S64);
+    matterSetFloat(ep, CLUSTER_ENERGY, ATTR_ENERGY_IMPORT, kwh_imp, 1000000);
+    matterSetFloat(ep, CLUSTER_ENERGY, ATTR_ENERGY_EXPORT, kwh_exp, 1000000);
 
     matterStart();                     // Matter on; press Bind on /mt to pair
     return 0;
