@@ -906,6 +906,7 @@ enum TcSyscall {
   SYS_MTR_GET               = 402, // (ep, cl, attr) -> int  matterGet(): cached value (0 if absent)
   SYS_MTR_START             = 403, // () -> int  matterStart(): advertise + accept commissioning, 0=ok
   SYS_MTR_RESET             = 404, // () -> void  matterReset(): clear data model to the root node
+  SYS_MTR_SETF              = 406, // (ep,cl,attr,fval,scale) -> void  matterSetFloat(): store round(fval*scale) as int64
 
   // Addressable RGB LED (WS2812/SK6812) via RMT — no USE_LIGHT, no template.
   SYS_RGB_LED               = 405, // (gpio, 0xRRGGBB) -> int  drive one WS2812 pixel; 1=ok 0=fail
@@ -4798,6 +4799,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                            (uint64_t)(uint32_t)val);
       break;
     }
+    case SYS_MTR_SETF: {                         // matterSetFloat(ep, cl, attr, fval, scale)
+      int32_t scale = TC_POP(vm);                // integer multiplier (e.g. 100 for 0.01 units, 1000 for mW)
+      float   fval  = TC_POPF(vm);               // float reading (e.g. 21.37 °C, 2350.5 W)
+      int32_t at = TC_POP(vm); int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
+      if (!mtrc_ensure_inited()) break;
+      int64_t scaled = (int64_t)llround((double)fval * (double)scale);
+      matter_set_attr_uint((uint16_t)ep, (uint32_t)cl, (uint32_t)at, (uint64_t)scaled);
+      break;
+    }
     case SYS_MTR_GET: {                          // matterGet(ep, cl, attr) -> int
       int32_t at = TC_POP(vm); int32_t cl = TC_POP(vm); int32_t ep = TC_POP(vm);
       uint64_t v = 0;
@@ -4816,6 +4826,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_MTR_CLUSTER: TC_POP(vm); TC_POP(vm); break;
     case SYS_MTR_ATTR:    TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_MTR_SET:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_MTR_SETF:    TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_MTR_GET:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_MTR_START:   TC_PUSH(vm, -1); break;
     case SYS_MTR_RESET:   break;

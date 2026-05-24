@@ -427,6 +427,7 @@ export const Syscall = {
     MTR_RESET:      404, // ()                       -> void  matterReset(): clear data model to root
     // Addressable RGB LED (WS2812/SK6812) via RMT — no USE_LIGHT / template
     RGB_LED:        405, // (gpio, 0xRRGGBB)         -> int   rgbLed(): drive one WS2812 pixel; 1=ok
+    MTR_SETF:       406, // (ep,cl,attr,fval,scale)  -> void  matterSetFloat(): store round(fval*scale) as int64 (temp/power)
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

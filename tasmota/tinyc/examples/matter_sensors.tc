@@ -1,0 +1,69 @@
+// Matter environmental sensors — Temperature + Humidity + Pressure (pure TinyC).
+//
+// Declares three Matter sensor endpoints on the matter_c engine:
+//   Endpoint 1: Temperature Sensor (0x0302) -> TemperatureMeasurement (0x0402)
+//   Endpoint 2: Humidity Sensor    (0x0307) -> RelativeHumidityMeasurement (0x0405)
+//   Endpoint 3: Pressure Sensor    (0x0305) -> PressureMeasurement (0x0403)
+//
+// Matter MeasuredValue units (Matter 1.4 spec):
+//   Temperature : int16,  0.01 °C   (e.g. 2137 = 21.37 °C, -512 = -5.12 °C)
+//   Humidity    : uint16, 0.01 %    (e.g. 5500 = 55.00 %RH)
+//   Pressure    : int16,  1 hPa     (MeasuredValue = 10 x kPa; 1013 = 1013 hPa)
+//
+// Temperature & pressure are SIGNED (MTR_S16) so sub-zero readings show
+// correctly. Humidity is unsigned (MTR_U16).
+//
+// Publishing uses matterSetFloat(ep, cluster, attr, value, scale): pass the
+// real float reading and an integer scale, and it stores round(value*scale) in
+// the Matter wire units. e.g. 21.37 °C with scale 100 -> 2137 (0.01 °C).
+//
+// Open pairing from the web /mt page (Bind), then add in Apple/Google/Alexa.
+//
+// NOTE: values below are SIMULATED so the example runs on any board. For a real
+// BME280/SHT3x etc., replace the readings in EverySecond() with sensorGet(),
+// e.g.  t = sensorGet("BME280#Temperature");   // already a float in °C
+
+int ep_temp;     // temperature endpoint id
+int ep_hum;      // humidity endpoint id
+int ep_press;    // pressure endpoint id
+int tick;        // seconds counter for the simulated waveform
+
+// Push fresh readings into the Matter attributes. Controllers pick them up on
+// their subscription's report interval (or when the accessory view is opened).
+void EverySecond() {
+    float t; float h; float p;
+    tick = tick + 1;
+    // Simulated float readings that drift so you can watch them change in Home.
+    t = 11.0 + 20.0 * sin((float)tick / 60.0);    // ~ -9 .. +31 °C  (signed!)
+    h = 55.0 + 15.0 * sin((float)tick / 45.0);    // ~40 .. 70 %RH
+    p = 1013.0 + 12.0 * sin((float)tick / 90.0);  // ~1001 .. 1025 hPa
+    matterSetFloat(ep_temp,  CLUSTER_TEMP,  0, t, 100);   // °C  -> 0.01 °C
+    matterSetFloat(ep_hum,   CLUSTER_HUM,   0, h, 100);   // %   -> 0.01 %
+    matterSetFloat(ep_press, CLUSTER_PRESS, 0, p, 1);     // hPa -> hPa
+}
+
+int main() {
+    tick = 0;
+    matterReset();                     // clean data model (root node only)
+
+    // Endpoint 1 — Temperature Sensor
+    ep_temp = matterAdd(MATTER_TEMP_SENSOR);
+    matterCluster(ep_temp, CLUSTER_TEMP);
+    matterAttr(ep_temp, CLUSTER_TEMP, 0, MTR_S16);   // MeasuredValue (int16, 0.01 °C)
+    matterSet(ep_temp, CLUSTER_TEMP, 0, 2100);       // seed 21.00 °C
+
+    // Endpoint 2 — Relative Humidity Sensor
+    ep_hum = matterAdd(MATTER_HUM_SENSOR);
+    matterCluster(ep_hum, CLUSTER_HUM);
+    matterAttr(ep_hum, CLUSTER_HUM, 0, MTR_U16);     // MeasuredValue (uint16, 0.01 %)
+    matterSet(ep_hum, CLUSTER_HUM, 0, 5000);         // seed 50.00 %
+
+    // Endpoint 3 — Pressure Sensor
+    ep_press = matterAdd(MATTER_PRESS_SENSOR);
+    matterCluster(ep_press, CLUSTER_PRESS);
+    matterAttr(ep_press, CLUSTER_PRESS, 0, MTR_S16); // MeasuredValue (int16, hPa)
+    matterSet(ep_press, CLUSTER_PRESS, 0, 1013);     // seed 1013 hPa
+
+    matterStart();                     // Matter on; press Bind on /mt to pair
+    return 0;
+}

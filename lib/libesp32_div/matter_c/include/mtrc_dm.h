@@ -40,6 +40,9 @@ typedef enum {
   MTRC_DM_T_U32,
   MTRC_DM_T_U64,
   MTRC_DM_T_ENUM8,
+  MTRC_DM_T_S16,   // signed 16-bit — TemperatureMeasurement / PressureMeasurement MeasuredValue (may be negative)
+  MTRC_DM_T_S32,   // signed 32-bit
+  MTRC_DM_T_S64,   // signed 64-bit — ElectricalPowerMeasurement (ActivePower mW, Voltage mV, ... int64)
 } mtrc_dm_type_t;
 
 // Attribute flags.

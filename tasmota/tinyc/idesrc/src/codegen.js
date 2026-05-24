@@ -469,6 +469,7 @@ const BUILTINS = {
     'matterCluster':    { syscall: Syscall.MTR_CLUSTER,     args: 2, returns: false },
     'matterAttr':       { syscall: Syscall.MTR_ATTR,        args: 4, returns: false },
     'matterSet':        { syscall: Syscall.MTR_SET,         args: 4, returns: false },
+    'matterSetFloat':   { syscall: Syscall.MTR_SETF,        args: 5, returns: false },
     'matterGet':        { syscall: Syscall.MTR_GET,         args: 3, returns: true },
     'matterStart':      { syscall: Syscall.MTR_START,       args: 0, returns: true },
     'matterReset':      { syscall: Syscall.MTR_RESET,       args: 0, returns: false },
@@ -575,16 +576,26 @@ export class CodeGenerator {
         // Matter scripting constants (USE_MATTER_C). Device types + cluster ids
         // (Matter 1.4 spec) + attribute storage types (mtrc_dm_type_t).
         const matterDefs = {
-            // device types
+            // device types (Matter 1.4 Device Library)
             MATTER_PLUG: 0x010A, MATTER_ONOFF_LIGHT: 0x0100,
-            MATTER_DIMM_LIGHT: 0x0101, MATTER_TEMP_SENSOR: 0x0302,
-            MATTER_HUM_SENSOR: 0x0307,
+            MATTER_DIMM_LIGHT: 0x0101, MATTER_COLOR_LIGHT: 0x010D,
+            MATTER_TEMP_SENSOR: 0x0302, MATTER_HUM_SENSOR: 0x0307,
+            MATTER_PRESS_SENSOR: 0x0305, MATTER_FLOW_SENSOR: 0x0306,
+            MATTER_LIGHT_SENSOR: 0x0106, MATTER_OCCUPANCY_SENSOR: 0x0107,
+            MATTER_CONTACT_SENSOR: 0x0015, MATTER_ELEC_SENSOR: 0x0510,
             // cluster ids
-            CLUSTER_ONOFF: 0x0006, CLUSTER_LEVEL: 0x0008,
-            CLUSTER_TEMP: 0x0402, CLUSTER_HUM: 0x0405,
+            CLUSTER_ONOFF: 0x0006, CLUSTER_LEVEL: 0x0008, CLUSTER_COLOR: 0x0300,
+            CLUSTER_TEMP: 0x0402, CLUSTER_HUM: 0x0405, CLUSTER_PRESS: 0x0403,
+            CLUSTER_FLOW: 0x0404, CLUSTER_ILLUM: 0x0400, CLUSTER_OCCUPANCY: 0x0406,
+            CLUSTER_BOOL_STATE: 0x0045,
+            // Matter 1.4 electrical measurement (power meter / SML)
             CLUSTER_POWER: 0x0090, CLUSTER_ENERGY: 0x0091,
-            // attribute storage types (mtrc_dm_type_t)
+            // ElectricalPowerMeasurement (0x0090) attribute ids
+            ATTR_VOLTAGE: 0x0004, ATTR_ACTIVE_CURRENT: 0x0005,
+            ATTR_ACTIVE_POWER: 0x0008, ATTR_FREQUENCY: 0x000E,
+            // attribute storage types (mtrc_dm_type_t) — order MUST match the enum
             MTR_BOOL: 0, MTR_U8: 1, MTR_U16: 2, MTR_U32: 3, MTR_U64: 4, MTR_ENUM8: 5,
+            MTR_S16: 6, MTR_S32: 7, MTR_S64: 8,
         };
         const allDefs = { ...colorDefs, ...hkDefs, ...fileDefs, ...matterDefs };
         for (const [name, value] of Object.entries(allDefs)) {

@@ -1327,7 +1327,22 @@ static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, 
       case 0xFFFD: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), 3);                return; // ClusterRevision
     }
   }
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), attr_value(ep, cl, attr));                  // registry/uint
+  // Registry attribute: emit with the declared type. Signed sensor values
+  // (TemperatureMeasurement / PressureMeasurement MeasuredValue are int16 and
+  // may be negative) MUST be a TLV signed int, or controllers read a huge
+  // positive number for sub-zero readings.
+  uint64_t v = attr_value(ep, cl, attr);
+  mtrc_dm_attr_t *a = mtrc_dm_find(ep, cl, attr);
+  if (a && a->type == MTRC_DM_T_S16) {
+    mtrc_tlv_put_int(w, mtrc_tlv_ctx(2), (int64_t)(int16_t)(uint16_t)v); return;
+  }
+  if (a && a->type == MTRC_DM_T_S32) {
+    mtrc_tlv_put_int(w, mtrc_tlv_ctx(2), (int64_t)(int32_t)(uint32_t)v); return;
+  }
+  if (a && a->type == MTRC_DM_T_S64) {
+    mtrc_tlv_put_int(w, mtrc_tlv_ctx(2), (int64_t)v); return;                       // ElectricalPower int64
+  }
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), v);                                         // registry/uint
 }
 
 // One AttributeReportIB carrying AttributeData (DataVersion + path + value).
@@ -2062,7 +2077,7 @@ matter_err_t matter_add_cluster(uint16_t endpoint, uint32_t cluster) {
 matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
                              int type, int writable) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
-  if (type < 0 || type > MTRC_DM_T_ENUM8) type = MTRC_DM_T_U32;
+  if (type < 0 || type > MTRC_DM_T_S64) type = MTRC_DM_T_U32;
   uint8_t flags = writable ? MTRC_DM_F_WRITABLE : 0;
   return mtrc_dm_add_attr(endpoint, cluster, attr, (mtrc_dm_type_t)type, flags, 0) == 0
          ? MATTER_OK : MATTER_ERR_NO_MEM;

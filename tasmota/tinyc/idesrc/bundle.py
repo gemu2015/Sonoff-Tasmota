@@ -71,6 +71,9 @@ EXAMPLES = [
     ('homekit_demo',   'HomeKit Demo'),
     ('homekit_office', 'HomeKit Office'),
     ('matter_plug',    'Matter Plug + Power'),
+    ('matter_rgb',     'Matter Plug + RGB Light'),
+    ('matter_sensors', 'Matter Temp/Humidity/Pressure'),
+    ('matter_powermeter', 'Matter Power Meter (SML)'),
     ('rgb_led',        'RGB LED (WS2812 / RMT)'),
     ('camera',         'ESP Camera (DFRobot)'),
 ]
