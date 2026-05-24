@@ -79,6 +79,7 @@ EXAMPLES = [
     ('matter_leak',    'Matter Water-Leak + Rain'),
     ('matter_airquality', 'Matter Air Quality (CO2/PM/VOC)'),
     ('matter_button',  'Matter Button (Generic Switch)'),
+    ('matter_bridge',  'Matter Bridge (multi-device node)'),
     ('rgb_led',        'RGB LED (WS2812 / RMT)'),
     ('camera',         'ESP Camera (DFRobot)'),
 ]

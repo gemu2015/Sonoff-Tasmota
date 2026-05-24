@@ -26,10 +26,13 @@
 extern "C" {
 #endif
 
-// Capacity. Tunable; sized for a root node + a handful of app endpoints.
-#define MTRC_DM_MAX_ENDPOINTS   8
-#define MTRC_DM_MAX_CLUSTERS   32   // total across all endpoints
-#define MTRC_DM_MAX_ATTRS      96   // total across all clusters
+// Capacity. Tunable, fixed-size (malloc-free) — sized for a root node + up to
+// ~32 application endpoints so one node can act as a multi-device bridge. Must
+// be matched by matter_c.c's g.rpt_paths[] (the wildcard-read path buffer) and
+// the stack lists in emit_descriptor_one. ~15 kB static RAM at this sizing.
+#define MTRC_DM_MAX_ENDPOINTS  33   // 32 app endpoints + root (endpoint 0)
+#define MTRC_DM_MAX_CLUSTERS  160   // total across all endpoints
+#define MTRC_DM_MAX_ATTRS     320   // total across all clusters
 
 // Attribute storage/wire type. Kept as metadata for write parsing and the
 // Descriptor cluster; the report engine emits all of these as a TLV uint.

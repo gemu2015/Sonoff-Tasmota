@@ -1,0 +1,84 @@
+// Matter Bridge — ONE Matter node exposing MANY devices (pure TinyC).
+//
+// A single commissioned Matter node can present several endpoints; Apple Home
+// (and Google/Alexa/HA) show each endpoint as its own accessory tile. This is
+// the "bridge" pattern: relay several real Tasmota devices through one Matter
+// node instead of commissioning each separately.
+//
+// This example exposes 8 endpoints on one node:
+//   ep1..ep4  On/Off plugs  -> Tasmota relays Power1..Power4
+//   ep5       Temperature sensor   (live, simulated)
+//   ep6       Humidity sensor      (live, simulated)
+//   ep7       Pressure sensor
+//   ep8       Contact sensor       (Boolean State)
+//
+// matterAdd() hands out endpoint ids 1,2,3,... in call order, so the four
+// plugs are endpoints 1..4 and map 1:1 to relays Power1..Power4. The firmware
+// tracks each endpoint's OnOff attribute itself; this script just drives the
+// physical relay via tasmCmd("PowerN ...").
+//
+// The data model holds up to ~32 application endpoints (MTRC_DM_MAX_ENDPOINTS),
+// so you can extend this well beyond 8. Open pairing from /mt (Bind).
+
+int plug1; int plug2; int plug3; int plug4;   // endpoints 1..4 -> Power1..Power4
+int s_temp; int s_hum; int s_press; int s_contact;
+int tick;
+
+// A controller toggled a plug endpoint -> drive the matching Tasmota relay.
+// Plug endpoints are 1..4, so the endpoint id IS the relay number.
+void MatterInvoke(int e, int cluster, int cmd) {
+    char cstr[24]; char resp[64];
+    if (cluster == CLUSTER_ONOFF) {
+        sprintf(cstr, "Power%d %d", e, cmd);   // cmd: 0=Off 1=On 2=Toggle
+        tasmCmd(cstr, resp);
+    }
+}
+
+void EverySecond() {
+    float t; float h;
+    tick = tick + 1;
+    // Simulated sensor values — swap for sensorGet("SHT3X#Temperature") etc.
+    t = 21.0 + 4.0  * sin((float)tick / 30.0);   // ~17..25 °C
+    h = 50.0 + 10.0 * sin((float)tick / 47.0);   // ~40..60 %
+    matterSetFloat(s_temp, CLUSTER_TEMP, 0, t, 100);   // 0.01 °C
+    matterSetFloat(s_hum,  CLUSTER_HUM,  0, h, 100);   // 0.01 %
+}
+
+int main() {
+    tick = 0;
+    matterReset();                       // clean data model (root node only)
+
+    // 4 smart plugs -> relays Power1..Power4 (endpoint id == relay number).
+    // matterAdd(MATTER_PLUG) auto-adds the OnOff cluster (+ Identify).
+    plug1 = matterAdd(MATTER_PLUG);
+    plug2 = matterAdd(MATTER_PLUG);
+    plug3 = matterAdd(MATTER_PLUG);
+    plug4 = matterAdd(MATTER_PLUG);
+
+    // Temperature sensor (MeasuredValue int16, 0.01 °C)
+    s_temp = matterAdd(MATTER_TEMP_SENSOR);
+    matterCluster(s_temp, CLUSTER_TEMP);
+    matterAttr(s_temp, CLUSTER_TEMP, 0, MTR_S16);
+    matterSet(s_temp, CLUSTER_TEMP, 0, 2100);          // seed 21.00 °C
+
+    // Humidity sensor (MeasuredValue uint16, 0.01 %)
+    s_hum = matterAdd(MATTER_HUM_SENSOR);
+    matterCluster(s_hum, CLUSTER_HUM);
+    matterAttr(s_hum, CLUSTER_HUM, 0, MTR_U16);
+    matterSet(s_hum, CLUSTER_HUM, 0, 5000);            // seed 50.00 %
+
+    // Pressure sensor (MeasuredValue int16, hPa)
+    s_press = matterAdd(MATTER_PRESS_SENSOR);
+    matterCluster(s_press, CLUSTER_PRESS);
+    matterAttr(s_press, CLUSTER_PRESS, 0, MTR_S16);
+    matterSet(s_press, CLUSTER_PRESS, 0, 1013);
+
+    // Contact sensor — Boolean State (1 = closed/contact)
+    s_contact = matterAdd(MATTER_CONTACT_SENSOR);
+    matterCluster(s_contact, CLUSTER_BOOL_STATE);
+    matterAttr(s_contact, CLUSTER_BOOL_STATE, 0, MTR_BOOL);
+    matterSet(s_contact, CLUSTER_BOOL_STATE, 0, 1);
+
+    matterStart();                       // Matter on; press Bind on /mt to pair
+    return 0;
+}

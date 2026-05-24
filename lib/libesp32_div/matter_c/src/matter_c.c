@@ -185,7 +185,7 @@ typedef struct {
   uint16_t         rpt_exch;          // exchange id of the read/subscribe
   int              rpt_cursor;        // next path index to emit
   int              rpt_npaths;        // total paths
-  struct { uint16_t ep; uint32_t cl; uint32_t attr; } rpt_paths[192];
+  struct { uint16_t ep; uint32_t cl; uint32_t attr; } rpt_paths[1024];  // wildcard-read path buffer; sized for ~32 endpoints (see MTRC_DM_MAX_ENDPOINTS)
 
   // App-data generation: bumped whenever an app-endpoint attribute is written
   // (sensor/light values). Per-session subscriptions compare it to detect a
@@ -901,6 +901,18 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   ss->peer_sid     = g.case_hs_peer_sid;
   ss->fabric_index = g.case_hs_fabric_index;
   ss->peer_node_id = g.case_hs_peer_node_id;
+  // A controller holds ONE operational session: when it re-establishes CASE
+  // (fresh session id), drop its previous session(s) for the same fabric+node so
+  // the table can't fill with stale duplicates. Without this, a controller that
+  // reconnects repeatedly accumulates slots until the table is full, then new
+  // CASE handshakes evict live sessions -> thrash -> Apple accessories flap
+  // (appear then disappear), especially across two homes.
+  for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
+    mtrc_case_sess *o = &g.case_sess[i];
+    if (o != ss && o->in_use && o->fabric_index == ss->fabric_index
+        && o->peer_node_id == ss->peer_node_id)
+      memset(o, 0, sizeof(*o));
+  }
   ss->tx_counter   = (c0 & 0x0FFFFFFF) | 1;   // random, MSB clear, non-zero
   memcpy(ss->i2r, k_i2r, 16);
   memcpy(ss->r2i, k_r2i, 16);
