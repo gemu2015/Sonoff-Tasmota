@@ -87,6 +87,21 @@ pairable until Bind.
 
 Deploy with `node tasmota/tinyc/tc_deploy.mjs examples/<name>.tc <device-ip>`.
 
+### Apple Home device-type support
+
+The device exposes every endpoint per the Matter spec, but **Apple Home only
+renders device types it has a category for** — others commission cleanly but show
+no tile (no error; not a device bug). Other controllers (Home Assistant, Google)
+show more.
+
+| Shown in Apple Home | Apple commissions but shows **no tile** |
+|---|---|
+| plug/outlet, on-off/dimmable/color light, temperature, humidity, contact, air quality, occupancy, leak | **pressure** (`0x0305`), **standalone Electrical Sensor / power meter** (`0x0510`) |
+
+For energy, **Home Assistant** renders the Electrical Power/Energy clusters
+(`0x0090`/`0x0091`) with graphs. To get consumption visible in *Apple*, put the
+power cluster on a *plug* endpoint (`0x010A`) rather than a standalone sensor.
+
 ---
 
 ## Build & flash
@@ -104,6 +119,24 @@ Primary DUT: ESP32-C6. Targets ESP32 / S3 / C6 over Wi-Fi/IP (BLE and Thread
 are intentionally not used — Tasmota is already on the network).
 
 ---
+
+## Flash & RAM footprint
+
+Measured on ESP32-C6 as the firmware delta between `tinyc32c6-matter` (option ON)
+and `tinyc32c6` (option OFF):
+
+| | |
+|---|---|
+| **Flash cost of the Matter option** | **~56.7 kB** (58,048 B: 1,697,328 − 1,639,280) |
+| vs the retired HomeKit stack (~156 kB) | **~1/3 the flash** |
+| Crypto | **≈ 0 incremental** — BearSSL is already linked for TLS builds |
+| Firmware in the ota_0 app partition (1.81 MB) | 1,697,328 B → **89.3 % used, ~198 kB free** |
+| Static RAM delta | ~99 kB — but most of that is the **IPv6 + mDNS** stacks the gate switches on; `matter_c`'s own fixed tables are ~15–20 kB at the 32-endpoint sizing. Runtime free heap stays ~220 kB. |
+
+The whole point of pure-C over Berry Matter (~343 kB) is this footprint: a complete
+Matter 1.4 device — multi-fabric, all the device types above, the TinyC API — for
+~57 kB of flash. (Per-object `size` reports 0 because the build uses LTO; measure
+via the ON-vs-OFF firmware delta.)
 
 ## Debugging
 
