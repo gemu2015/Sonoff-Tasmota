@@ -1374,8 +1374,11 @@ void HandleUploadUFSLoop(void) {
 
 void HandleUploadUFSDone(void) {
 #ifdef USE_TINYC
-  extern bool tc_global_pause;
-  tc_global_pause = false;
+  // Resume (restart) any VM tasks stopped for the write. Safety net: if the
+  // upload aborted before UfsUploadFileClose, this still restarts them and
+  // clears tc_global_pause (idempotent — no-op if Close already resumed).
+  extern void TinyCFsWriteResume(void);
+  TinyCFsWriteResume();
 #endif
   if (!HttpCheckPriviledgedAccess()) { return; }
 
@@ -1751,6 +1754,13 @@ void download_task(void *path) {
 bool UfsUploadFileOpen(const char* upload_filename) {
   char npath[UFS_FILENAME_SIZE];
   snprintf_P(npath, sizeof(npath), PSTR("%s/%s"), ufs_path, upload_filename);
+#ifdef USE_TINYC
+  // Park TinyC VM tasks before touching the (internal-flash) FS: a multi-sector
+  // LittleFS write while a VM task runs network/heap/flash-XIP on the other core
+  // hard-hangs the device. Waits for the VM to quiesce, then writes safely.
+  extern void TinyCFsWritePause(void);
+  TinyCFsWritePause();
+#endif
   dfsp->remove(npath);
   ufs_upload_file = dfsp->open(npath, UFS_FILE_WRITE);
   return (ufs_upload_file);
@@ -1767,6 +1777,10 @@ bool UfsUploadFileWrite(uint8_t *upload_buf, size_t current_size) {
 
 void UfsUploadFileClose(void) {
   ufs_upload_file.close();
+#ifdef USE_TINYC
+  extern void TinyCFsWriteResume(void);
+  TinyCFsWriteResume();   // resume TinyC VM tasks (HandleUploadUFSDone also clears, as a safety net)
+#endif
 }
 
 //******************************************************************************************

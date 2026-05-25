@@ -1845,6 +1845,59 @@ static void HandleTinyCUploadCORS(void) {
   Webserver->send(204);
 }
 
+// ── Flash-FS write coordination (xdrv_50 /ufsu file-manager uploads) ──────────
+// A large internal-flash write (LittleFS) repeatedly disables the SPI flash
+// cache for each erase/program. On a dual-core node, while a TinyC VM task
+// exists the write DEADLOCKS the device (no watchdog recovery) — reproduced and
+// serial-traced by uploading the ~183 KB IDE to a Matter-bridge TaskLoop node.
+// (Suppressing main-loop callbacks via tc_global_pause alone is NOT enough —
+// tc_vm_task keeps stepping; and merely pausing / vTaskSuspend()ing it is also
+// NOT enough — the task still wedges the write. Verified the hard way.)
+//
+// TinyCFsWritePause() fully STOPS each running VM task (off the scheduler, like
+// TinyCStop) for the duration of the write — the only thing that lets it through
+// (~3 s vs a hard hang). Resume RESTARTS them: main() re-runs, which for the
+// bridge re-runs matterReset()+rebuild — identical to a normal boot, so the
+// Matter fabric (persisted on UFS) and commissioning survive.
+// Non-static so xdrv_50 can call them through a forward `extern` declaration.
+void TinyCFsWritePause(void) {
+  tc_global_pause = true;             // also gates main-loop callbacks (see Xdrv124)
+  if (!Tinyc) return;
+#ifdef ESP32
+  // STOP (delete) each running VM task for the duration of the flash write.
+  // Verified the hard way on a dual-core S3 Matter bridge: cooperatively
+  // pausing or vTaskSuspend()ing the VM task is NOT enough — a large internal-
+  // flash (LittleFS) write still wedges while the task merely exists. Only
+  // FULLY removing it from the scheduler (exactly what TinyCStop does, which
+  // let the same 183 KB upload through in ~3 s) reliably works. main() is
+  // re-run on resume; the bridge's main() starts with matterReset() and
+  // rebuilds its endpoints (identical to a normal boot — the Matter fabric
+  // persists on UFS), so no commissioning is lost.
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s && s->loaded && s->task_running) {
+      s->fs_was_running = true;
+      TinyCStopVM(s);                 // sets task_stop + waits for the task to exit
+    }
+  }
+#endif
+}
+
+void TinyCFsWriteResume(void) {
+  tc_global_pause = false;
+#ifdef ESP32
+  if (Tinyc) {
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (s && s->fs_was_running) {
+        s->fs_was_running = false;
+        TinyCStartVM(s);              // re-runs main() (re-runs matterReset()+rebuild for the bridge)
+      }
+    }
+  }
+#endif
+}
+
 static void HandleTinyCUpload(void) {
   if (!Tinyc) return;
 
@@ -1969,6 +2022,10 @@ static void HandleTinyCUpload(void) {
 #ifdef USE_UFILESYS
         if (ufsp) {
           const char *saveName = s->filename[0] ? s->filename : TC_FILE_NAME;
+          // NOTE: small .tcb write — not wrapped in TinyCFsWritePause (that's
+          // for the large /ufsu file-manager uploads that hang). tc_deploy
+          // stops/runs the target slot itself, so stopping all slots here would
+          // needlessly disrupt other running scripts (e.g. a Matter bridge).
 #ifdef USE_WEBCAM
           WcInterrupt(0);
 #endif
