@@ -3227,6 +3227,22 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 | `WebChartSize(int width, int height)` | Set the chart `<div>` size in pixels (e.g. `640 × 200`). `0` for either = use the default. |
 | `WebChartTimeBase(int minutes)` | Offset the X-axis time base from "now". `0` = anchored to now (default); negative = into the past (e.g. `-1440` = 24 h ago). Useful to align a ring buffer's oldest sample with the left edge. |
 
+**Customizing a chart with JS (call *after* `WebChart()`):**
+
+| Function | Description |
+|----------|-------------|
+| `WebChartJS("…js…")` | Attach a JS snippet to the chart just emitted. It runs in the chart's draw scope with `dt` (Google `DataTable`), `o` (options object) and `el` (DOM element) — after the default options are built, before the draw. **Mutate** `o` / format `dt` and let TinyC draw, or **take over**: draw yourself and set `o.done=1` to skip the default draw (lets you pick any chart type). |
+
+This is the escape hatch for chart tweaks that don't have a dedicated builtin — colors, axis options, tooltip date format, filled-area rendering — all script-side, no firmware change. Examples:
+```c
+WebChart(0, "Power 4h", "W", 0x3498db, pos, 480, arr, 0, 1, 0.0, 0.0);
+// Filled area instead of a line:
+WebChartJS("o.areaOpacity=0.3;new google.visualization.AreaChart(el).draw(dt,o);o.done=1");
+// Locale-correct date in the tooltip (column 0 is the time/date domain):
+WebChartJS("new google.visualization.DateFormat({pattern:'dd.MM.yyyy HH:mm'}).format(dt,0)");
+```
+The snippet is emitted verbatim as a function body, so keep it free of `</script>`. Must be called from a web callback (e.g. `WebPage()`/`WebCall()`), like `WebChart()` itself.
+
 **Example — 24h weather charts:**
 ```c
 #define NPTS 288       // 24h at 5-min intervals
