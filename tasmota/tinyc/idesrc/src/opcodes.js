@@ -414,6 +414,7 @@ export const Syscall = {
     SHARE_HAS:      346, // (key_const_idx)          -> int  0/1
     SHARE_DELETE:   347, // (key_const_idx)          -> int  1 if removed
     SHARE_DUMP:     352, // ()                       -> int  number of live entries
+    SHARE_SET_FLT_KEY: 353, // (key_ref, val)        -> void  like shareSetFloat but key is a runtime char[] (or literal)
     PERSIST_DUMP:   395, // ()                       -> int  number of persist entries (logs each)
     DMX_WRITE:      396, // (channel, value)         -> void  set DMX512 slot (1..512) to 0..255; TX-only
     DMX_INIT:       397, // (gpio)                   -> int   configure DMX512 TX on an RMT channel at GPIO (no UART); 1=ok 0=fail

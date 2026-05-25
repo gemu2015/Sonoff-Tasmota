@@ -266,6 +266,7 @@ const BUILTINS = {
     'shareSetInt':      { syscall: Syscall.SHARE_SET_INT,   args: 2, returns: false, constArgs: [0], intArgs: [1] },
     'shareGetInt':      { syscall: Syscall.SHARE_GET_INT,   args: 1, returns: true,  constArgs: [0] },
     'shareSetFloat':    { syscall: Syscall.SHARE_SET_FLT,   args: 2, returns: false, constArgs: [0] },
+    'shareSetFloatKey': { syscall: Syscall.SHARE_SET_FLT_KEY, args: 2, returns: false, strArgs: [0] },
     'shareGetFloat':    { syscall: Syscall.SHARE_GET_FLT,   args: 1, returns: true,  constArgs: [0], returnFloat: true },
     'shareSetStr':      { syscall: Syscall.SHARE_SET_STR,   args: 2, returns: false, constArgs: [0], strArgs: [1] },
     'shareGetStr':      { syscall: Syscall.SHARE_GET_STR,   args: 2, returns: true,  constArgs: [0], strArgs: [1] },

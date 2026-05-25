@@ -696,6 +696,7 @@ enum TcSyscall {
   SYS_SHARE_HAS        = 346, // (key_const_idx)             -> int  0/1
   SYS_SHARE_DELETE     = 347, // (key_const_idx)             -> int  1 if removed, 0 if not present
   SYS_SHARE_DUMP       = 352, // ()                          -> int  number of live entries — also logs each via AddLog
+  SYS_SHARE_SET_FLT_KEY= 353, // (key_ref, val)              -> void  like SHARE_SET_FLT but key is a runtime char[] (or literal)
                               // (348..351 are SYS_TCP_KEEPALIVE/NODELAY/DISCONNECT_REASON/TRANSACT)
 
   // Per-slot TCP-client tuning (v1.5.1). Operate on the currently selected
@@ -2703,10 +2704,21 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
 
   for (int si = 0; si < TC_MAX_VMS; si++) {
     TcSlot *s = Tinyc->slots[si];
-    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+    if (!s || !s->loaded) continue;
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+    // Re-check halted/error AFTER the mutex (Bug #1 TOCTOU). The core-1 VM task
+    // can flip halted=false between the pre-lock test and here; injecting globals
+    // or running UdpCall on a non-halted VM corrupts its frame/stack -> crash
+    // under UDP-global traffic. This UDP-receive site was the one missed by the
+    // original Bug #1 fix (the other 5 callback sites already re-check here).
+    if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+      if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+      continue;
+    }
 
     // Auto-update global variables from UDP packet (V5)
     TcVM *vmp = &s->vm;
@@ -13295,6 +13307,30 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         tc_share_unlock();
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: shareSetFloat(\"%s\")=%.3f failed — table full (%d/%d). Raise TC_SHARE_MAX in user_config_override.h."),
                key, val, used, (int)TC_SHARE_MAX);
+        break;
+      }
+      tc_share_unlock();
+      break;
+    }
+    case SYS_SHARE_SET_FLT_KEY: {
+      float val      = TC_POPF(vm);
+      int32_t kref   = TC_POP(vm);
+      char keyb[TC_SHARE_KEY_LEN + 1];
+      int kl = tc_ref_to_cstr(vm, kref, keyb, sizeof(keyb));   // literal OR runtime char[]
+      if (kl <= 0 || keyb[0] == 0) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: shareSetFloatKey: empty/invalid key ref"));
+        break;
+      }
+      tc_share_lock();
+      int idx = tc_share_find_or_alloc(keyb);
+      if (idx >= 0) {
+        tc_share_table[idx].type = TC_SHARE_TYPE_FLT;
+        tc_share_table[idx].v.f = val;
+      } else {
+        int used = tc_share_count_used();
+        tc_share_unlock();
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: shareSetFloatKey(\"%s\")=%.3f failed — table full (%d/%d). Raise TC_SHARE_MAX in user_config_override.h."),
+               keyb, val, used, (int)TC_SHARE_MAX);
         break;
       }
       tc_share_unlock();

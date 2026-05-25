@@ -1,0 +1,24 @@
+// share_key_test.tc — verify shareSetFloatKey (runtime char[] key).
+// Writes s1..s5 with a runtime-built key in a loop, then reads them back with
+// literal-key shareGetFloat to prove the keys match. This is the pattern Andreas
+// wants so 60 unrolled shareSetFloat("sN",v) lines collapse to a loop.
+
+char key[8];
+float vals[8];
+
+int main() {
+    char b[64]; int i;
+    i = 0;
+    while (i < 5) {
+        vals[i] = (float)i * 1.5 + 0.25;
+        sprintf(key, "s%d", i + 1);
+        shareSetFloatKey(key, vals[i]);      // runtime char[] key
+        i = i + 1;
+    }
+    // verify: read back with LITERAL keys (used inline in %f — must match)
+    sprintf(b, "s1=%.2f s3=%.2f s5=%.2f (want 0.25 3.25 6.25)",
+            shareGetFloat("s1"), shareGetFloat("s3"), shareGetFloat("s5"));
+    addLog(b);
+    shareDump();                              // logs every live entry s1..s5
+    return 0;
+}
