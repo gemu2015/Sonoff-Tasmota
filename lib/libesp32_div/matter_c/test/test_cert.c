@@ -38,6 +38,33 @@ int main(void) {
   chk("no node-id",        !c.have_node_id);
   chk("pubkey 04|40..",    c.have_pubkey && c.pubkey[0]==0x04 && c.pubkey[1]==0x40);
 
+  printf("(C) structural chain check (partial A1b)\n");
+  mtrc_cert noc_c, rcac_c; uint8_t buf2[512];
+  int nn = hex2bin(NOC,  buf,  sizeof(buf));  mtrc_cert_parse(buf,  (size_t)nn, &noc_c);
+  int mm = hex2bin(RCAC, buf2, sizeof(buf2)); mtrc_cert_parse(buf2, (size_t)mm, &rcac_c);
+
+  chk("NOC ok on its fabric (no ICAC)",
+      mtrc_cert_chain_check(&noc_c, NULL, 0x0000FAB000000001ULL, 0) == 1);
+  chk("NOC rejected on wrong fabric",
+      mtrc_cert_chain_check(&noc_c, NULL, 0xDEADBEEFDEADBEEFULL, 0) == 0);
+  chk("NOC ok when fabric unknown (0)",
+      mtrc_cert_chain_check(&noc_c, NULL, 0, 0) == 1);
+  chk("CA cert rejected as NOC",
+      mtrc_cert_chain_check(&rcac_c, NULL, 0x0000FAB000000001ULL, 0) == 0);
+  chk("NULL NOC rejected",
+      mtrc_cert_chain_check(NULL, NULL, 0, 0) == 0);
+
+  // validity window (synthetic: stamp a copy with a known [100,200] window)
+  mtrc_cert vc = noc_c; vc.not_before = 100; vc.not_after = 200;
+  chk("validity within window ok",
+      mtrc_cert_chain_check(&vc, NULL, 0x0000FAB000000001ULL, 150) == 1);
+  chk("validity after not_after rejected",
+      mtrc_cert_chain_check(&vc, NULL, 0x0000FAB000000001ULL, 300) == 0);
+  chk("validity before not_before rejected",
+      mtrc_cert_chain_check(&vc, NULL, 0x0000FAB000000001ULL,  50) == 0);
+  chk("validity now=0 skips window",
+      mtrc_cert_chain_check(&vc, NULL, 0x0000FAB000000001ULL,   0) == 1);
+
   printf("\n==> cert parser %s\n", g_ok ? "PASS" : "FAIL");
   return g_ok ? 0 : 1;
 }

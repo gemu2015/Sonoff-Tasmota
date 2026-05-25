@@ -48,6 +48,25 @@ typedef struct {
 // Parse a Matter-TLV certificate. Returns 1 on success.
 int mtrc_cert_parse(const uint8_t *tlv, size_t len, mtrc_cert *out);
 
+// Structural (non-cryptographic) operational-cert chain check — partial A1b.
+// Validates the relationships a valid initiator NOC[/ICAC] chain must hold and
+// that the NOC is bound to the fabric the CASE handshake matched, WITHOUT the
+// X.509-DER signature-chain crypto (the remaining A1b step). The fabric root is
+// already bound by Sigma1's destinationId = HMAC(IPK, ...||RootPubKey||
+// FabricId||NodeId), so this adds fabric/role/chain-consistency hardening on top
+// (catches wrong-fabric NOCs, a non-CA ICAC, a NOC posing as a CA, an ICAC that
+// contradicts the NOC's issuer id, and — when a clock is available — expiry).
+// Conservative by design: it rejects only positive contradictions, so it can't
+// reject a well-formed NOC.
+//   noc       : parsed initiator NOC (required)
+//   icac      : parsed initiator ICAC, or NULL if the chain has none
+//   fabric_id : fabric the handshake matched; 0 = caller doesn't know it (skip)
+//   now_epoch : current time in Matter epoch (2000-01-01) seconds, or 0 =
+//               unknown -> skip the validity-window check
+// Returns 1 if the chain is structurally acceptable, 0 to reject the session.
+int mtrc_cert_chain_check(const mtrc_cert *noc, const mtrc_cert *icac,
+                          uint64_t fabric_id, uint32_t now_epoch);
+
 #ifdef __cplusplus
 }
 #endif

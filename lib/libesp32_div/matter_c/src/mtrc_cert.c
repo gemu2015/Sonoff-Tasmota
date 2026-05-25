@@ -101,3 +101,36 @@ int mtrc_cert_parse(const uint8_t *tlv, size_t len, mtrc_cert *out) {
   }
   return r.err ? 0 : (out->have_pubkey ? 1 : 0);
 }
+
+int mtrc_cert_chain_check(const mtrc_cert *noc, const mtrc_cert *icac,
+                          uint64_t fabric_id, uint32_t now_epoch) {
+  if (!noc) return 0;
+
+  // --- NOC: must be a leaf operational cert bound to the matched fabric -------
+  if (noc->is_ca) return 0;                              // a NOC is never a CA
+  if (!noc->have_node_id || !noc->have_fabric_id) return 0;  // NOC carries both ids
+  if (fabric_id && noc->subject_fabric_id != fabric_id) return 0;  // our fabric
+
+  // --- Intermediate (if the chain supplies one) -------------------------------
+  if (icac) {
+    if (!icac->is_ca) return 0;                          // an ICAC must be a CA
+    // If both name the ICAC id, they must agree (NOC.issuer == ICAC.subject).
+    if (noc->issuer_has_icac && icac->have_icac_id &&
+        noc->issuer_icac_id != icac->subject_icac_id) return 0;
+    // If the ICAC constrains a fabric, it must be the NOC's fabric.
+    if (icac->have_fabric_id &&
+        icac->subject_fabric_id != noc->subject_fabric_id) return 0;
+  }
+
+  // --- Validity window — only when the caller has a trusted clock --------------
+  // not_before / not_after == 0 means "unbounded" in that direction.
+  if (now_epoch) {
+    if (noc->not_before && now_epoch < noc->not_before) return 0;
+    if (noc->not_after  && now_epoch > noc->not_after)  return 0;
+    if (icac) {
+      if (icac->not_before && now_epoch < icac->not_before) return 0;
+      if (icac->not_after  && now_epoch > icac->not_after)  return 0;
+    }
+  }
+  return 1;
+}

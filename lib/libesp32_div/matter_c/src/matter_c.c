@@ -900,6 +900,24 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
     return;
   }
 
+  // A1b (structural): the initiator NOC[/ICAC] chain must be internally
+  // consistent and bound to the fabric matched in Sigma1. (Full X.509-DER
+  // signature-chain verification is the remaining A1b step; the fabric ROOT is
+  // already bound by Sigma1's destinationId = HMAC over RootPubKey + IPK.)
+  {
+    mtrc_cert icac_c;
+    int have_icac = (t3.icac && t3.icac_len > 0 &&
+                     mtrc_cert_parse(t3.icac, t3.icac_len, &icac_c));
+    if (!mtrc_cert_chain_check(&nc, have_icac ? &icac_c : NULL,
+                               f ? f->fabric_id : 0, 0)) {
+      mlog(MATTER_LOG_ERROR, "CASE: initiator NOC chain check FAILED");
+      uint8_t sr[8]; memset(sr, 0, 8); sr[0] = 0x01;   // GeneralCode = Failure
+      pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
+      g.case_phase = 0;
+      return;
+    }
+  }
+
   // Append Sigma3 to the transcript, derive the operational session keys.
   if (g.case_tt_len + pll <= sizeof(g.case_tt)) {
     memcpy(g.case_tt + g.case_tt_len, pl, pll); g.case_tt_len += pll;
