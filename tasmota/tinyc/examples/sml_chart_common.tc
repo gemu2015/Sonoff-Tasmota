@@ -73,28 +73,63 @@ int sml_hr_last;                // last seen tasm_hour (midnight edge detect)
 // sml_buf is declared in sml_descriptor.tc and shared by both modules
 
 // ============================================================================
-// Save / load chart arrays to /sml_chart.bin
+// Save / load chart arrays
+// ----------------------------------------------------------------------------
+// By default the arrays are stored as compact BINARY (/sml_chart*.bin).
+// Define CHART_CSV (uncomment below, or `#define CHART_CSV` before the
+// #include in your main script) to instead store human-readable TAB-separated
+// CSV (/sml_chart*.csv) you can open / read / edit in a spreadsheet and
+// restore. CHART_CSV_DEC sets the decimal places (trailing zeros stripped).
+// Note: the two formats use different filenames, so toggling starts a fresh
+// chart file rather than misreading the other format.
 // ============================================================================
+// #define CHART_CSV
+#ifndef CHART_CSV_DEC
+#define CHART_CSV_DEC 3
+#endif
+
 void sml_chart_save() {
+#ifdef CHART_CSV
+    int h = fileOpen("/sml_chart.csv", "w");
+#else
     int h = fileOpen("/sml_chart.bin", "w");
+#endif
     if (h < 0) {
         addLog("sml_chart_save: fileOpen failed");
         return;
     }
+#ifdef CHART_CSV
+    fileWriteArray(sml_s4h,  h, 481,  0, CHART_CSV_DEC);
+    fileWriteArray(sml_s24h, h, 1441, 0, CHART_CSV_DEC);
+    fileWriteArray(sml_dcon, h, 31,   0, CHART_CSV_DEC);
+    fileWriteArray(sml_mcon, h, 12,   0, CHART_CSV_DEC);
+#else
     fileWriteBin(h, sml_s4h,  481);
     fileWriteBin(h, sml_s24h, 1441);
     fileWriteBin(h, sml_dcon, 31);
     fileWriteBin(h, sml_mcon, 12);
+#endif
     fileClose(h);
 }
 
 void sml_chart_load() {
+#ifdef CHART_CSV
+    int h = fileOpen("/sml_chart.csv", "r");
+#else
     int h = fileOpen("/sml_chart.bin", "r");
+#endif
     if (h < 0) return;          // no file yet — arrays stay at persist defaults
+#ifdef CHART_CSV
+    fileReadArray(sml_s4h,  h, 481);
+    fileReadArray(sml_s24h, h, 1441);
+    fileReadArray(sml_dcon, h, 31);
+    fileReadArray(sml_mcon, h, 12);
+#else
     fileReadBin(h, sml_s4h,  481);
     fileReadBin(h, sml_s24h, 1441);
     fileReadBin(h, sml_dcon, 31);
     fileReadBin(h, sml_mcon, 12);
+#endif
     fileClose(h);
 }
 

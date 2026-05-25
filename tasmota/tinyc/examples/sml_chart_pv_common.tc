@@ -91,18 +91,36 @@ void sml_chart_pv_demo_fill() {
 // ============================================================================
 
 void sml_chart_pv_save() {
+#ifdef CHART_CSV
+    int h = fileOpen("/sml_chart_pv.csv", "w");
+#else
     int h = fileOpen("/sml_chart_pv.bin", "w");
+#endif
     if (h < 0) return;
+#ifdef CHART_CSV
+    fileWriteArray(sml_dprod, h, 31, 0, CHART_CSV_DEC);
+    fileWriteArray(sml_mprod, h, 12, 0, CHART_CSV_DEC);
+#else
     fileWriteBin(h, sml_dprod, 31);
     fileWriteBin(h, sml_mprod, 12);
+#endif
     fileClose(h);
 }
 
 void sml_chart_pv_load() {
+#ifdef CHART_CSV
+    int h = fileOpen("/sml_chart_pv.csv", "r");
+#else
     int h = fileOpen("/sml_chart_pv.bin", "r");
+#endif
     if (h < 0) return;
+#ifdef CHART_CSV
+    fileReadArray(sml_dprod, h, 31);
+    fileReadArray(sml_mprod, h, 12);
+#else
     fileReadBin(h, sml_dprod, 31);
     fileReadBin(h, sml_mprod, 12);
+#endif
     fileClose(h);
 }
 
