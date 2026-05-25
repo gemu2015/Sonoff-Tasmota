@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SML Chart Data Editor — TinyC sml_chart.bin</title>
+<style>
+  :root { --bg:#f0f2f5; --card:#fff; --ink:#222; --mut:#666; --line:#1565c0; --accent:#1565c0; --warn:#c62828; --ok:#2e7d32; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; background:var(--bg); color:var(--ink); }
+  header { background:var(--card); padding:14px 18px; border-bottom:1px solid #ddd; position:sticky; top:0; z-index:10; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--mut); font-size:13px; }
+  main { padding:16px; max-width:1100px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid #e0e0e0; border-radius:8px; padding:14px 16px; margin-bottom:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; }
+  .drop { border:2px dashed #aac; border-radius:8px; padding:22px; text-align:center; color:var(--mut); cursor:pointer; transition:.15s; }
+  .drop.hover { background:#eef4ff; border-color:var(--accent); color:var(--accent); }
+  button { font:inherit; padding:7px 13px; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:6px; cursor:pointer; }
+  button.sec { background:#fff; color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  label { font-size:13px; color:var(--mut); }
+  input[type=number], input[type=text] { font:inherit; padding:5px 7px; border:1px solid #ccc; border-radius:5px; width:90px; }
+  table.schema td { padding:3px 6px; }
+  .seg-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  .seg-title { font-weight:600; font-size:15px; }
+  .stats { color:var(--mut); font-size:12px; font-variant-numeric:tabular-nums; }
+  canvas { width:100%; height:140px; display:block; background:#fafbfc; border:1px solid #eee; border-radius:6px; margin:8px 0; }
+  textarea { width:100%; min-height:90px; max-height:240px; font:12px/1.4 ui-monospace, Menlo, Consolas, monospace; padding:8px; border:1px solid #ccc; border-radius:6px; resize:vertical; white-space:pre; overflow:auto; }
+  .msg { font-size:13px; padding:8px 10px; border-radius:6px; margin:8px 0; display:none; }
+  .msg.warn { background:#fdecea; color:var(--warn); display:block; }
+  .msg.ok { background:#e8f5e9; color:var(--ok); display:block; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .toolbar button { padding:4px 9px; font-size:12px; }
+  code { background:#eef; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .hint { font-size:12px; color:var(--mut); margin-top:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SML Chart Data Editor</h1>
+  <div class="sub">View &amp; edit the raw binary chart files written by the TinyC <code>sml_chart</code> example
+  (<code>/sml_chart.bin</code> — 4-byte little-endian float32, no header). Also reads/writes the <code>#define CHART_CSV</code> tab format.</div>
+</header>
+
+<main>
+  <div class="card">
+    <div id="drop" class="drop">Drop <b>/sml_chart.bin</b> (or <b>.csv</b>) here, or click to choose a file…
+      <input id="file" type="file" accept=".bin,.csv,.dat,.tab,*/*" style="display:none">
+    </div>
+    <div id="loadmsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <div class="seg-head"><span class="seg-title">Layout (arrays in the file, in order)</span>
+      <span class="stats" id="schemaTotal"></span></div>
+    <div class="hint">Defaults match the standard <code>sml_chart.tc</code>. Adjust the counts if your script declares different array sizes — the file is split in this order. The .bin size must equal (total &times; 4) bytes.</div>
+    <table class="schema"><tbody id="schemaBody"></tbody></table>
+    <div class="toolbar"><button class="sec" id="resync">Re-split current file with this layout</button></div>
+  </div>
+
+  <div id="segments"></div>
+
+  <div class="card" id="exportCard" style="display:none">
+    <div class="seg-head"><span class="seg-title">Export</span></div>
+    <div class="hint">Edit values in the boxes above (whitespace- or newline-separated). Each array must keep its exact count. Then download and re-upload to the device's file manager.</div>
+    <div class="toolbar">
+      <button id="dlBin">Download .bin (binary)</button>
+      <button class="sec" id="dlCsv">Download .csv (tab)</button>
+      <span class="stats" id="exportMsg"></span>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+// ─── Default layout = standard sml_chart.tc arrays (in file order) ─────────────
+const DEFAULT_SCHEMA = [
+  { name: "sml_s4h  (4 h chart)",      count: 481  },
+  { name: "sml_s24h (24 h chart)",     count: 1441 },
+  { name: "sml_dcon (daily, 31 days)", count: 31   },
+  { name: "sml_mcon (monthly, 12)",    count: 12   },
+];
+const CSV_DECIMALS = 3;   // matches CHART_CSV_DEC-ish; trailing zeros stripped
+
+let schema = DEFAULT_SCHEMA.map(s => ({...s}));
+let lastFloats = null;     // Float32 values from the most recent load (flat)
+let lastName   = "sml_chart";
+
+const $ = id => document.getElementById(id);
+
+// ─── Schema table ─────────────────────────────────────────────────────────────
+function renderSchema() {
+  const tb = $("schemaBody"); tb.innerHTML = "";
+  schema.forEach((s, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td><input type="text" value="${s.name}" data-i="${i}" data-k="name" style="width:220px"></td>` +
+      `<td><label>count</label> <input type="number" min="0" value="${s.count}" data-i="${i}" data-k="count"></td>`;
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll("input").forEach(inp => inp.addEventListener("change", e => {
+    const i = +e.target.dataset.i, k = e.target.dataset.k;
+    schema[i][k] = (k === "count") ? Math.max(0, parseInt(e.target.value || "0", 10)) : e.target.value;
+    updateSchemaTotal();
+  }));
+  updateSchemaTotal();
+}
+function schemaTotal() { return schema.reduce((a, s) => a + s.count, 0); }
+function updateSchemaTotal() {
+  const t = schemaTotal();
+  $("schemaTotal").textContent = `total ${t} values · ${t*4} bytes (.bin)`;
+}
+
+// ─── File loading ─────────────────────────────────────────────────────────────
+function setMsg(el, text, kind) { el.className = "msg " + (kind || ""); el.textContent = text; }
+
+function loadArrayBuffer(buf, fname) {
+  const bytes = new Uint8Array(buf);
+  // Heuristic: text (CSV/tab) if it looks like printable ASCII digits/tabs/newlines.
+  const isText = looksLikeText(bytes);
+  let floats;
+  if (isText || /\.(csv|tab|txt)$/i.test(fname)) {
+    floats = parseCsv(new TextDecoder().decode(bytes));
+    setMsg($("loadmsg"), `Loaded text/CSV "${fname}" — ${floats.length} values across ${countLines(bytes)} line(s).`, "ok");
+  } else {
+    if (buf.byteLength % 4 !== 0) {
+      setMsg($("loadmsg"), `Warning: "${fname}" is ${buf.byteLength} bytes — not a multiple of 4. Treating as float32; last partial value dropped.`, "warn");
+    }
+    const n = Math.floor(buf.byteLength / 4);
+    const dv = new DataView(buf);
+    floats = new Array(n);
+    for (let i = 0; i < n; i++) floats[i] = dv.getFloat32(i * 4, true); // little-endian
+    const exp = schemaTotal();
+    if (n === exp) setMsg($("loadmsg"), `Loaded binary "${fname}" — ${n} float32 values (matches layout ✓).`, "ok");
+    else setMsg($("loadmsg"), `Loaded binary "${fname}" — ${n} float32 values, but the layout expects ${exp}. Adjust the counts below, then "Re-split".`, "warn");
+  }
+  lastFloats = floats;
+  lastName = fname.replace(/\.(bin|csv|tab|txt|dat)$/i, "") || "sml_chart";
+  renderSegments();
+}
+
+function looksLikeText(bytes) {
+  const n = Math.min(bytes.length, 256);
+  if (n === 0) return false;
+  let printable = 0;
+  for (let i = 0; i < n; i++) {
+    const b = bytes[i];
+    if (b === 9 || b === 10 || b === 13 || (b >= 32 && b <= 126)) printable++;
+  }
+  return printable / n > 0.95;
+}
+function countLines(bytes) {
+  let c = 1; for (let i = 0; i < bytes.length; i++) if (bytes[i] === 10) c++;
+  return c;
+}
+function parseCsv(text) {
+  // Each line = one array of whitespace/tab-separated floats; flatten in order.
+  const out = [];
+  text.split(/\r?\n/).forEach(line => {
+    line.trim().split(/[\s,;]+/).forEach(tok => {
+      if (tok === "") return;
+      const v = parseFloat(tok);
+      if (!Number.isNaN(v)) out.push(v);
+    });
+  });
+  return out;
+}
+
+// ─── Segment rendering (one panel per array) ──────────────────────────────────
+function renderSegments() {
+  const host = $("segments"); host.innerHTML = "";
+  if (!lastFloats) { $("exportCard").style.display = "none"; return; }
+  let off = 0;
+  schema.forEach((s, i) => {
+    const vals = lastFloats.slice(off, off + s.count);
+    off += s.count;
+    host.appendChild(segmentCard(i, s, vals));
+  });
+  if (off < lastFloats.length) {
+    const rest = lastFloats.slice(off);
+    host.appendChild(segmentCard(-1, { name: `(leftover ${rest.length} values not in layout)`, count: rest.length }, rest));
+  }
+  $("exportCard").style.display = "";
+  $("exportMsg").textContent = "";
+}
+
+function segmentCard(idx, s, vals) {
+  const card = document.createElement("div"); card.className = "card";
+  const stats = statLine(vals);
+  card.innerHTML =
+    `<div class="seg-head"><span class="seg-title">${escapeHtml(s.name)}</span>` +
+    `<span class="stats" data-stats>${stats}</span></div>` +
+    `<canvas data-canvas></canvas>` +
+    `<textarea data-ta spellcheck="false">${vals.map(fmt).join(" ")}</textarea>` +
+    `<div class="hint" data-cnt></div>` +
+    `<div class="toolbar">` +
+      `<button class="sec" data-act="render">Update chart</button>` +
+      `<button class="sec" data-act="zero">Set all 0</button>` +
+      `<button class="sec" data-act="wrap">Wrap (one/line)</button>` +
+    `</div>`;
+  const ta = card.querySelector("[data-ta]");
+  const canvas = card.querySelector("[data-canvas]");
+  const cnt = card.querySelector("[data-cnt]");
+  const statsEl = card.querySelector("[data-stats]");
+  const expect = s.count;
+
+  const refresh = () => {
+    const v = parseCsv(ta.value);
+    drawChart(canvas, v);
+    statsEl.innerHTML = statLine(v);
+    cnt.innerHTML = (v.length === expect)
+      ? `${v.length} values ✓`
+      : `<span style="color:var(--warn)">${v.length} values — expected ${expect}! Export will keep what's here; fix the count before re-uploading.</span>`;
+  };
+  card.querySelector('[data-act="render"]').onclick = refresh;
+  card.querySelector('[data-act="zero"]').onclick = () => {
+    const v = parseCsv(ta.value); ta.value = v.map(() => "0").join(" "); refresh();
+  };
+  card.querySelector('[data-act="wrap"]').onclick = () => {
+    const v = parseCsv(ta.value); ta.value = v.map(fmt).join("\n"); refresh();
+  };
+  ta.addEventListener("input", debounce(refresh, 250));
+  requestAnimationFrame(refresh);
+  return card;
+}
+
+function statLine(v) {
+  if (!v.length) return "0 values";
+  let mn = Infinity, mx = -Infinity, sum = 0, nz = 0;
+  for (const x of v) { if (x < mn) mn = x; if (x > mx) mx = x; sum += x; if (x !== 0) nz++; }
+  return `${v.length} vals · min ${fmt(mn)} · max ${fmt(mx)} · avg ${fmt(sum/v.length)} · ${nz} non-zero`;
+}
+
+// ─── Tiny canvas chart (line; bars when few points) ───────────────────────────
+function drawChart(canvas, v) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 140;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  if (!v.length) return;
+  const pad = 4;
+  let mn = Math.min(0, ...v), mx = Math.max(0, ...v);
+  if (mx === mn) mx = mn + 1;
+  const x = i => pad + (w - 2*pad) * (v.length === 1 ? 0.5 : i / (v.length - 1));
+  const y = val => (h - pad) - (h - 2*pad) * (val - mn) / (mx - mn);
+  // zero line
+  ctx.strokeStyle = "#ddd"; ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w-pad, y(0)); ctx.stroke();
+  if (v.length <= 40) {
+    const bw = Math.max(1, (w - 2*pad) / v.length * 0.7);
+    ctx.fillStyle = "#1565c0";
+    v.forEach((val, i) => { const cx = x(i); const yy = y(val); ctx.fillRect(cx - bw/2, Math.min(yy, y(0)), bw, Math.abs(yy - y(0))); });
+  } else {
+    ctx.strokeStyle = "#1565c0"; ctx.lineWidth = 1; ctx.beginPath();
+    v.forEach((val, i) => { const cx = x(i), cy = y(val); i ? ctx.lineTo(cx, cy) : ctx.moveTo(cx, cy); });
+    ctx.stroke();
+  }
+}
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+function collectArrays() {
+  const tas = $("segments").querySelectorAll("[data-ta]");
+  return Array.from(tas).map(ta => parseCsv(ta.value));
+}
+function dlBlob(blob, fname) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("dlBin").onclick = () => {
+  const arrays = collectArrays(); const flat = [].concat(...arrays);
+  const buf = new ArrayBuffer(flat.length * 4); const dv = new DataView(buf);
+  flat.forEach((val, i) => dv.setFloat32(i * 4, val, true)); // little-endian
+  dlBlob(new Blob([buf], { type: "application/octet-stream" }), lastName + ".bin");
+  $("exportMsg").textContent = `Wrote ${flat.length} float32 (${flat.length*4} bytes).`;
+};
+$("dlCsv").onclick = () => {
+  const arrays = collectArrays();
+  const text = arrays.map(a => a.map(csvFmt).join("\t")).join("\n") + "\n";
+  dlBlob(new Blob([text], { type: "text/plain" }), lastName + ".csv");
+  $("exportMsg").textContent = `Wrote ${arrays.length} line(s), ${arrays.reduce((n,a)=>n+a.length,0)} values.`;
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function fmt(v) { if (!isFinite(v)) return "0"; const r = Math.round(v*1000)/1000; return String(r); }
+function csvFmt(v) { if (!isFinite(v)) return "0"; let s = v.toFixed(CSV_DECIMALS); if (s.indexOf(".") >= 0) s = s.replace(/0+$/,"").replace(/\.$/,""); return s; }
+function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+// ─── Wire up file input + drag-drop ───────────────────────────────────────────
+const drop = $("drop"), fileInput = $("file");
+drop.onclick = () => fileInput.click();
+fileInput.onchange = e => { const f = e.target.files[0]; if (f) readFile(f); };
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("hover"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("hover"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+function readFile(f) { const r = new FileReader(); r.onload = () => loadArrayBuffer(r.result, f.name); r.readAsArrayBuffer(f); }
+$("resync").onclick = () => { if (lastFloats) renderSegments(); };
+
+renderSchema();
+</script>
+</body>
+</html>
