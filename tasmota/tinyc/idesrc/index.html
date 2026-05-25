@@ -542,11 +542,11 @@
             </button>
             <input type="file" id="fileInput" accept=".tc,.c,.h,.txt" multiple style="display:none">
             <input type="file" id="dirInput" accept=".tc,.c,.h,.txt" multiple webkitdirectory style="display:none">
-            <select id="examples">
+            <select id="examples" style="max-width:150px">
                 <option value="">Load Example...</option>
                 <!--EXAMPLES_OPTIONS-->
             </select>
-            <select id="repoExamples" onmousedown="populateRepoExamples()" onchange="loadRepoExample(this.value)" title="Load the latest example .tc straight from the GitHub repo examples/ folder (needs internet)">
+            <select id="repoExamples" style="max-width:150px" onmousedown="populateRepoExamples()" onchange="loadRepoExample(this.value)" title="Load the latest example .tc straight from the GitHub repo examples/ folder (needs internet)">
                 <option value="">Repo Examples...</option>
             </select>
             <button class="btn btn-primary" onclick="compileCode()" title="Ctrl+Enter">
