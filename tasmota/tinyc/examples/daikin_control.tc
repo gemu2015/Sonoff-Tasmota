@@ -1,0 +1,272 @@
+// daikin_control.tc — dedicated controller for Daikin WiFi A/C units
+// (BRP069/airbase local HTTP API — the same units the home bridge reads).
+//
+// READS the full operational state of each unit and lets you START/STOP and set
+// mode + target temperature. Everything is plain HTTP GET, so it needs no extra
+// firmware support — just TinyC's httpGet().
+//
+// Status   : live rows on the device main web page (WebCall).
+// Web UI   : per-unit Mode dropdown + Setpoint slider + Apply button, right on
+//            the main page (WebCall). Pick mode/temp, hit Apply — EverySecond
+//            queues it, TaskLoop sends it. Nothing blocks the web server.
+// Control  : GET /dk?u=<n>&pow=<0|1>&mode=<m>&stemp=<c>   (for scripts/HA/curl)
+//            e.g.  /dk?u=0&pow=1&mode=4&stemp=22     turn unit 0 to Heat 22 C
+//                  /dk?u=0&pow=0                     stop unit 0
+//                  /dk?u=1&stemp=21                  unit 1 keep mode, set 21 C
+//            Omitted fields keep the unit's current value. Returns JSON.
+//            Scriptable from a browser, curl, Home Assistant, Node-RED, rules.
+//
+// mode: 2=Dry 3=Cool 4=Heat 6=Fan-only 0/1/7=Auto
+//
+// Daikin quirk: set_control_info REQUIRES pow+mode+stemp+shum+f_rate+f_dir on
+// every call — a partial write garbles the rest. So control is read-modify-write:
+// read get_control_info, keep shum/f_rate/f_dir, override the rest, write it back.
+
+#define NUNITS 2
+
+// ── Your units — edit IPs/names ─────────────────────────────────────────────
+char ip0[] = "192.168.188.24";   char nm0[] = "Wohnzimmer";
+char ip1[] = "192.168.188.43";   char nm1[] = "Schlafzimmer";
+
+// ── Cached operational state, one entry per unit ────────────────────────────
+float d_htemp[NUNITS];   // inside temperature  C
+float d_otemp[NUNITS];   // outside temperature C
+float d_hhum[NUNITS];    // inside humidity %  (<=0 = not reported)
+float d_stemp[NUNITS];   // target setpoint     C
+int   d_pow[NUNITS];     // 0 = off, 1 = on
+int   d_mode[NUNITS];    // operation mode (see legend above)
+int   d_cmp[NUNITS];     // compressor frequency Hz (0 = idle, >0 = running)
+int   d_ok[NUNITS];      // last poll succeeded
+
+char buf[256];           // shared httpGet response (>64 -> heap)
+char url[160];           // shared URL builder      (>64 -> heap)
+
+// ── Pending-command queue ───────────────────────────────────────────────────
+// The /dk web handler runs on the web/main task; TaskLoop's polling runs on the
+// VM task. Two blocking httpGet()s overlapping from different tasks corrupt the
+// HTTP client's heap (delayed crash/hang). So WebOn never does httpGet itself —
+// it just records the request here, and TaskLoop (the sole VM task) executes it.
+// All httpGet traffic is therefore serialized onto one task.
+int   req_pending;       // 0 = idle, 1 = a command is waiting
+int   req_unit;          // target unit index
+int   req_pow;           // -1 = keep current
+int   req_mode;          // -1 = keep current
+float req_stemp;         // <0 = keep current
+
+// ── Web-UI controls (one Mode pulldown + Setpoint slider + Apply button/unit) ─
+// These are `watch`ed so the firmware records UI writes (slider drag / dropdown
+// pick / button click arrive as out-of-band ?sv= writes). EverySecond reacts to
+// the Apply press only, so dragging the slider never spams the A/C — the chosen
+// values just sit in c_state*/c_temp* until Apply is pressed.
+// Mode dropdown index: 0=Off 1=Cool 2=Heat 3=Dry 4=Fan 5=Auto
+watch int c_state0;  watch int c_temp0;  watch int c_apply0;
+watch int c_state1;  watch int c_temp1;  watch int c_apply1;
+int   ui_synced;         // 1 after widgets seeded from the first successful poll
+
+// Find "key" in src and atof the value that follows. key MUST be a real char[]
+// (caller strcpy's the literal in first) — passing a bare string literal through
+// a char[] param can mis-resolve in TinyC. Returns -999 if the key is absent.
+float dfield(char src[], char key[]) {
+    char v[16]; int p;
+    p = strFind(src, key);
+    if (p < 0) { return -999.0; }
+    strSub(v, src, p + strlen(key), 12);   // numeric value; atof stops at ','
+    return atof(v);
+}
+
+void mode_name(char dst[], int m) {
+    if (m == 2)      { strcpy(dst, "Dry"); }
+    else if (m == 3) { strcpy(dst, "Cool"); }
+    else if (m == 4) { strcpy(dst, "Heat"); }
+    else if (m == 6) { strcpy(dst, "Fan"); }
+    else             { strcpy(dst, "Auto"); }
+}
+
+// Dropdown index (0=Off 1=Cool 2=Heat 3=Dry 4=Fan 5=Auto) → current A/C state.
+int state_from(int pow, int m) {
+    if (pow == 0)    { return 0; }
+    if (m == 3)      { return 1; }
+    if (m == 4)      { return 2; }
+    if (m == 2)      { return 3; }
+    if (m == 6)      { return 4; }
+    return 5;                              // 0/1/7 → Auto
+}
+
+// Translate a dropdown index + slider temp into a queued req_* command.
+void queue_unit(int u, int stateidx, int tempv) {
+    int pw; int md;
+    pw = 1; md = -1;
+    if (stateidx == 0)      { pw = 0; md = -1; }     // Off (keep mode)
+    else if (stateidx == 1) { md = 3; }              // Cool
+    else if (stateidx == 2) { md = 4; }              // Heat
+    else if (stateidx == 3) { md = 2; }              // Dry
+    else if (stateidx == 4) { md = 6; }              // Fan
+    else                    { md = 1; }              // Auto
+    req_unit = u; req_pow = pw; req_mode = md; req_stemp = (float)tempv;
+    req_pending = 1;                                  // flag LAST
+}
+
+// Poll one unit: get_sensor_info (temps/humidity/compressor) + get_control_info
+// (power/mode/setpoint). Updates the cached state for index u.
+void daikin_read(char ip[], int u) {
+    char k[12]; float f;
+    d_ok[u] = 0;
+
+    sprintf(url, "http://%s/aircon/get_sensor_info", ip);
+    buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "htemp=");   f = dfield(buf, k); if (f > -90.0) { d_htemp[u] = f; }
+        strcpy(k, "otemp=");   f = dfield(buf, k); if (f > -90.0) { d_otemp[u] = f; }
+        strcpy(k, "hhum=");    f = dfield(buf, k); d_hhum[u] = f;            // '-' -> ~0
+        strcpy(k, "cmpfreq="); f = dfield(buf, k); if (f >= 0.0) { d_cmp[u] = (int)f; }
+        d_ok[u] = 1;
+    }
+
+    sprintf(url, "http://%s/aircon/get_control_info", ip);
+    buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "pow=");   f = dfield(buf, k); if (f >= 0.0) { d_pow[u]  = (int)f; }
+        strcpy(k, "mode=");  f = dfield(buf, k); if (f >= 0.0) { d_mode[u] = (int)f; }
+        strcpy(k, "stemp="); f = dfield(buf, k); if (f >  0.0) { d_stemp[u] = f; }
+    }
+}
+
+// Start/stop + set mode + setpoint (read-modify-write so shum/f_rate/f_dir are
+// preserved exactly, as the Daikin requires).
+void daikin_set(char ip[], int pow, int mode, float stemp) {
+    int shum; int fdir; char frate[8]; char tmp[12]; int p;
+    shum = 0; fdir = 0; strcpy(frate, "A");
+
+    sprintf(url, "http://%s/aircon/get_control_info", ip);
+    buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        p = strFind(buf, "shum=");   if (p >= 0) { strSub(tmp, buf, p + 5, 8); shum = (int)atof(tmp); }
+        p = strFind(buf, "f_dir=");  if (p >= 0) { strSub(tmp, buf, p + 6, 8); fdir = (int)atof(tmp); }
+        p = strFind(buf, "f_rate="); if (p >= 0) { strSub(tmp, buf, p + 7, 8); strToken(frate, tmp, ',', 0); }
+    }
+
+    sprintf(url, "http://%s/aircon/set_control_info?pow=%d&mode=%d&stemp=%.1f&shum=%d&f_rate=%s&f_dir=%d",
+            ip, pow, mode, stemp, shum, frate, fdir);
+    httpGet(url, buf);
+    addLog(url);
+}
+
+// Emit one unit's live status row (actual A/C state from the last poll).
+void status_row(char nm[], int u) {
+    char row[160]; char mn[8];
+    mode_name(mn, d_mode[u]);
+    if (d_pow[u]) {
+        sprintf(row, "{s}%s{m}ON %s set %.1f (in %.1f / out %.1f){e}",
+                nm, mn, d_stemp[u], d_htemp[u], d_otemp[u]);
+    } else {
+        sprintf(row, "{s}%s{m}OFF (in %.1f / out %.1f){e}",
+                nm, d_htemp[u], d_otemp[u]);
+    }
+    webSend(row);
+}
+
+// Status rows + interactive controls on the device main page. Widgets MUST be
+// rendered here (FUNC_WEB_SENSOR), never in main() — emitting them with no active
+// web request corrupts the heap. The widget vars are bound by reference, so each
+// unit is spelled out (a helper param can't carry a watched-global binding).
+void WebCall() {
+    status_row(nm0, 0);
+    webPulldown(c_state0, "WZ Mode", "Off|Cool|Heat|Dry|Fan|Auto");
+    webSlider(c_temp0, 16, 30, "WZ Setpoint");
+    webButton(c_apply0, "Apply WZ|Sent");
+
+    status_row(nm1, 1);
+    webPulldown(c_state1, "SZ Mode", "Off|Cool|Heat|Dry|Fan|Auto");
+    webSlider(c_temp1, 16, 30, "SZ Setpoint");
+    webButton(c_apply1, "Apply SZ|Sent");
+}
+
+// React to Apply clicks (out-of-band writes set c_applyN to 1). No httpGet here —
+// just queue; TaskLoop sends it. Skip while a request is still unconsumed so two
+// quick Applies can't clobber each other; the button stays set and retries.
+void EverySecond() {
+    if (c_apply0 != 0 && req_pending == 0) { queue_unit(0, c_state0, c_temp0); c_apply0 = 0; }
+    if (c_apply1 != 0 && req_pending == 0) { queue_unit(1, c_state1, c_temp1); c_apply1 = 0; }
+}
+
+// Control endpoint: /dk?u=&pow=&mode=&stemp=  (omitted fields keep current).
+// Runs on the web task — it MUST NOT call httpGet (see req_pending comment). It
+// only records the request; TaskLoop executes the actual set on the VM task and
+// also refreshes the cache, so the reply here reflects what's been queued.
+void WebOn() {
+    int h; char a[16]; char resp[96]; int u; int pow; int mode; float stemp;
+    h = webHandler();
+    if (h == 1) {
+        u = 0; pow = -1; mode = -1; stemp = -1.0;
+        if (webArg("u", a)     > 0) { u = (int)atof(a); }
+        if (u < 0) { u = 0; }
+        if (u >= NUNITS) { u = NUNITS - 1; }
+        if (webArg("pow", a)   > 0) { pow   = (int)atof(a); }
+        if (webArg("mode", a)  > 0) { mode  = (int)atof(a); }
+        if (webArg("stemp", a) > 0) { stemp = atof(a); }
+
+        // publish the request, flag LAST so TaskLoop never sees a half-write
+        req_unit = u; req_pow = pow; req_mode = mode; req_stemp = stemp;
+        req_pending = 1;
+
+        sprintf(resp, "{\"unit\":%d,\"queued\":1,\"pow\":%d,\"mode\":%d,\"stemp\":%.1f}",
+                u, pow, mode, stemp);
+        webSend(resp);
+    }
+}
+
+// Execute a queued command on the VM task: fill omitted fields from cache, write
+// it, then immediately re-read so the status rows reflect the new state.
+void daikin_apply() {
+    int u; int pow; int mode; float stemp;
+    u = req_unit; pow = req_pow; mode = req_mode; stemp = req_stemp;
+    req_pending = 0;
+    if (pow < 0)      { pow   = d_pow[u]; }
+    if (mode < 0)     { mode  = d_mode[u]; }
+    if (stemp < 0.0)  { stemp = d_stemp[u]; }
+    if (stemp < 10.0) { stemp = 22.0; }                // sane floor if never read yet
+    if (u == 0) { daikin_set(ip0, pow, mode, stemp); daikin_read(ip0, 0); }
+    else        { daikin_set(ip1, pow, mode, stemp); daikin_read(ip1, 1); }
+}
+
+// Poll loop — ALL blocking httpGet lives here (never EverySecond, never a web
+// handler). Polls both units ~once a minute, but wakes every second to run any
+// command the /dk handler has queued, so control feels responsive.
+void TaskLoop() {
+    int t;
+    delay(8000);                       // let WiFi come up
+    while (1) {
+        daikin_read(ip0, 0);
+        delay(2000);
+        daikin_read(ip1, 1);
+        if (ui_synced == 0) {              // seed widgets from the first real poll
+            if (d_ok[0]) { c_temp0 = (int)d_stemp[0]; c_state0 = state_from(d_pow[0], d_mode[0]); }
+            if (d_ok[1]) { c_temp1 = (int)d_stemp[1]; c_state1 = state_from(d_pow[1], d_mode[1]); }
+            if (d_ok[0] || d_ok[1]) { ui_synced = 1; }
+        }
+        t = 0;
+        while (t < 58) {               // ~58 s idle, checking the queue each second
+            if (req_pending) { daikin_apply(); }
+            delay(1000);
+            t = t + 1;
+        }
+    }
+}
+
+int main() {
+    int u;
+    u = 0;
+    while (u < NUNITS) {
+        d_htemp[u] = 0.0; d_otemp[u] = 0.0; d_hhum[u] = -1.0;
+        d_stemp[u] = 0.0; d_pow[u] = 0; d_mode[u] = 0; d_cmp[u] = 0; d_ok[u] = 0;
+        u = u + 1;
+    }
+    req_pending = 0; req_unit = 0; req_pow = -1; req_mode = -1; req_stemp = -1.0;
+    c_state0 = 0; c_temp0 = 22; c_apply0 = 0;
+    c_state1 = 0; c_temp1 = 22; c_apply1 = 0;
+    ui_synced = 0;
+    webOn(1, "/dk");
+    printStr("Daikin controller ready.\n");
+    printStr("UI: device main page (Mode/Setpoint/Apply).  API: /dk?u=0&pow=1&mode=4&stemp=22\n");
+    return 0;
+}
