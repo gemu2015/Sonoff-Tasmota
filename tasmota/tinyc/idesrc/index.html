@@ -546,6 +546,9 @@
                 <option value="">Load Example...</option>
                 <!--EXAMPLES_OPTIONS-->
             </select>
+            <select id="repoExamples" onmousedown="populateRepoExamples()" onchange="loadRepoExample(this.value)" title="Load the latest example .tc straight from the GitHub repo examples/ folder (needs internet)">
+                <option value="">Repo Examples...</option>
+            </select>
             <button class="btn btn-primary" onclick="compileCode()" title="Ctrl+Enter">
                 Compile
             </button>
@@ -1227,6 +1230,75 @@ int main() {
                 e.target.value = '';
             }
         });
+
+        // ─── Repo examples (live from GitHub) ────────────
+        // The bundled "Load Example..." dropdown only carries a curated subset
+        // (kept small so the on-device IDE stays compact). This second dropdown
+        // lists EVERY .tc in the repo's examples/ folder via the GitHub API and
+        // fetches the raw source on demand — so unbundled / newly-added examples
+        // are reachable without re-flashing the IDE. Needs internet; degrades
+        // gracefully (stays empty) when offline / on a LAN-only device.
+        const REPO_OWNER  = 'gemu2015';
+        const REPO_NAME   = 'Sonoff-Tasmota';
+        const REPO_BRANCH = 'universal';
+        const REPO_EX_DIR = 'tasmota/tinyc/examples';
+        let repoExamplesLoaded = false;
+        async function populateRepoExamples() {
+            if (repoExamplesLoaded) return;
+            repoExamplesLoaded = true;                 // optimistic: don't re-fire on every open
+            const sel = document.getElementById('repoExamples');
+            try {
+                const api = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${REPO_EX_DIR}?ref=${REPO_BRANCH}`;
+                const resp = await fetch(api, { mode: 'cors', headers: { 'Accept': 'application/vnd.github+json' } });
+                if (!resp.ok) throw new Error('GitHub API ' + resp.status);
+                const files = await resp.json();
+                // List user-facing examples; skip dev/test artifacts (test_*, bug*,
+                // *_diag, *selftest*, *smoke*) so the dropdown stays a real example list.
+                const skip = /^(test_|bug)|(_diag|selftest|smoke)/i;
+                const tc = files
+                    .filter(f => f.type === 'file' && f.name.endsWith('.tc') && !skip.test(f.name))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                sel.length = 1;                        // keep the placeholder
+                for (const f of tc) {
+                    const o = document.createElement('option');
+                    o.value = f.download_url;          // raw.githubusercontent URL (no API rate limit)
+                    o.textContent = f.name.replace(/\.tc$/, '');
+                    sel.appendChild(o);
+                }
+                sel.options[0].textContent = 'Repo Examples (' + tc.length + ')...';
+            } catch (e) {
+                repoExamplesLoaded = false;            // allow a retry on next open
+                console.warn('Repo examples list failed:', e.message);
+            }
+        }
+        // Prefetch once shortly after load so the list is usually ready on first
+        // click; the onmousedown handler is the fallback (and retries if offline).
+        setTimeout(populateRepoExamples, 1200);
+
+        window.loadRepoExample = async function(url) {
+            if (!url) return;
+            const sel = document.getElementById('repoExamples');
+            if (isDirty && !confirm(t('confirm_unsaved_example'))) { sel.value = ''; return; }
+            const name = url.split('/').pop();         // e.g. "matter_fan.tc"
+            try {
+                setStatus('Loading ' + name + ' from repo...', '');
+                const resp = await fetch(url, { mode: 'cors' });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const text = await resp.text();
+                document.getElementById('editor').value = text;
+                currentFileHandle = null;
+                currentFileName = name;
+                isDirty = false;
+                updateTabName();
+                updateHighlight();
+                setStatus('Loaded ' + name + ' from repo (' + text.length + ' bytes)', 'success');
+                appendOutput('Loaded ' + name + ' from repo (' + text.length + ' bytes)', 'success');
+            } catch (e) {
+                appendOutput('Repo load failed: ' + e.message, 'error');
+                setStatus('Load failed', 'error');
+            }
+            sel.value = '';
+        };
 
         // ─── Output helpers ─────────────────────────────
         function clearOutput() {
