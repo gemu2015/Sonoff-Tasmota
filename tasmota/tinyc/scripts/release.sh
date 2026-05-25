@@ -184,6 +184,12 @@ else
   # Open $EDITOR with a stub so the user can write the changelog inline.
   STUB="$STAGE_DIR/_stub.md"
   if ! $DRY_RUN; then
+    # Refuse to launch an interactive editor when there's no terminal (e.g. run
+    # from CI or a background shell) — otherwise vi blocks forever waiting for
+    # input and the whole release "hangs". Tell the caller to pass --notes.
+    if ! [ -t 0 ] || ! [ -t 1 ]; then
+      die "No --notes file and no interactive terminal — won't open \$EDITOR here. Re-run with: --notes /path/to/notes.md"
+    fi
     cat > "$STUB" <<EOF
 ### Changes in v$VERSION ($TODAY):
 - **<headline>** — <one paragraph: what changed, why, what the user sees>
