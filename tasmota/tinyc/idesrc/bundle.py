@@ -79,6 +79,7 @@ EXAMPLES = [
     ('matter_button',  'Matter Button (Generic Switch)'),
     ('matter_bridge',  'Matter Bridge (multi-device node)'),
     ('rgb_led',        'RGB LED (WS2812 / RMT)'),
+    ('ledbar',         'WS2812 LED Strip (setPixels)'),
     ('camera',         'ESP Camera (DFRobot)'),
 ]
 

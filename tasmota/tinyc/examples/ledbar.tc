@@ -12,6 +12,7 @@ global float elamp;
 // LED strip pixel buffer (heap-allocated, ESP8266 has only 64 global slots)
 int leds[65];    // > 64 → auto heap; only [0..59] used
 char buf[16];
+float last_elamp = -1.0;   // remembers the last 'elamp' we acted on (-1 = none yet)
 
 // Stripe colors (dim to save power)
 int colr1 = 0x050000;   // dark red
@@ -67,11 +68,18 @@ void WebCall() {
 }
 
 void UdpCall() {
-    // elamp is auto-updated from UDP; react to changes here
-    if (elamp > 0.0) {
-        tasmCmd("IRsend {\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":0x00F7E01F}", buf);
-    } else {
-        tasmCmd("IRsend {\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":0x00F740BF}", buf);
+    // UdpCall fires on EVERY received global (ledbar + elamp + every other
+    // device's broadcasts), so only send the IR command when 'elamp' actually
+    // CHANGES — otherwise the IR transmitter is hammered on every packet and
+    // the lamp control floods/garbles. This is how the Matter "Ecklicht"
+    // on/off (bridge sets g:elamp on MatterInvoke) reaches the IR lamp.
+    if (elamp != last_elamp) {
+        last_elamp = elamp;
+        if (elamp > 0.0) {
+            tasmCmd("IRsend {\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":0x00F7E01F}", buf);
+        } else {
+            tasmCmd("IRsend {\"Protocol\":\"NEC\",\"Bits\":32,\"Data\":0x00F740BF}", buf);
+        }
     }
 }
 
