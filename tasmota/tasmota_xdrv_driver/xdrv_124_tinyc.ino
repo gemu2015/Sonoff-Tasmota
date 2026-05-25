@@ -4667,6 +4667,7 @@ static void tc_spawn_task_body(void *param) {
     vm->fp = vm->frame_count;
     vm->frame_count++;
     vm->pc = vm->code_offset + vm->callbacks[cb_idx].address;
+    vm->worker_borrowed = true;   // stays set across delay() windows; cleared at cleanup
 
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') running on slot %d"), name, entry->slot_idx);
 
@@ -4725,6 +4726,7 @@ static void tc_spawn_task_body(void *param) {
     }
     vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
 
+    vm->worker_borrowed = false;
     vm->halted = true;
     vm->running = false;
     vm->pc = saved_pc;
