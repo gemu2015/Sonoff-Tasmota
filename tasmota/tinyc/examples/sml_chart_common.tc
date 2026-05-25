@@ -192,9 +192,14 @@ void sml_chart_5s_tick() {
     while (i < 12) { sum = sum + sml_s24hf[i]; i = i + 1; }
     float s24h_avg = (float)sum / 12.0;
 
-    int idx4  = ((tasm_hour - 4 + 24) % 24) * 120 + tasm_minute * 2 + (tasm_second / 30);
+    // 240-slot ring at 1 min/slot = the last 4 h, sliding. Two fixes vs the old
+    // ((hour-4)%24)*120 mapping: (1) that only produced idx4 < 480 for hours
+    // 4..7, so outside 04:00-08:00 nothing was stored and the chart was empty;
+    // (2) 1-min slots match the WebChart x-axis interval=1, so 240 points span a
+    // real 4 h axis — the previous 480 30-s points were drawn over an 8 h axis.
+    int idx4  = (tasm_hour * 60 + tasm_minute) % 240;
     int idx24 = tasm_hour * 60 + tasm_minute;
-    if (idx4 >= 0 && idx4 < 480) {
+    if (idx4 >= 0 && idx4 < 240) {
         sml_s4h[idx4] = s4h_avg;
         sml_s4h_pos = idx4;
     }
@@ -259,10 +264,9 @@ void sml_chart_area_de() {
 
 void sml_chart_render_4h() {
     WebChartSize(600, 280);
-    // interval=1 min (chart spans the array's last 480 minutes — actual data
-    // sampling is every 30 s, so two consecutive 30 s samples land in the same
-    // x-axis minute; visually negligible). Filled area + DE date via the hook.
-    WebChart(0, "Verbrauch 4 Stunden [Watt]", "W", 0x3498db, sml_s4h_pos, 480, sml_s4h, 0, 1, 0.0, 0.0);
+    // 240 points at interval=1 min = a 4 h x-axis (matches the 240-slot 1-min
+    // ring). Filled area + DE date via the hook.
+    WebChart(0, "Verbrauch 4 Stunden [Watt]", "W", 0x3498db, sml_s4h_pos, 240, sml_s4h, 0, 1, 0.0, 0.0);
     sml_chart_area_de();
 }
 
