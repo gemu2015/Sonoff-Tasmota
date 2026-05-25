@@ -2489,28 +2489,29 @@ Filesystem management, structured array I/O, and log file rotation.
 | `int fileFormat()` | Format LittleFS filesystem (erases all data). Returns 0=ok |
 | `int fileMkdir("path")` | Create directory. Returns 1=ok, 0=fail |
 | `int fileRmdir("path")` | Remove directory. Returns 1=ok, 0=fail |
-| `int fileReadArray(int arr[], handle)` | Read one tab-delimited line into int array. Returns element count |
-| `fileWriteArray(int arr[], handle)` | Write array as tab-delimited line with trailing newline |
-| `fileWriteArray(int arr[], handle, append)` | Write with append flag: 1=omit newline (for appending multiple arrays on one line) |
+| `int fileReadArray(float arr[], handle [, count])` | Read tab/comma-delimited **float** values into array (streamed, any size). `count` caps how many (default: array capacity, stops at EOF). Returns elements read |
+| `fileWriteArray(float arr[], handle, count)` | Write `count` **float** values as tab-separated text (default 2 decimals) + trailing newline. `count` is explicit (like `fileWriteBin`) so small global arrays write the right length |
+| `fileWriteArray(float arr[], handle, count, append)` | append=1 keeps the line open (trailing tab) so several arrays share one line |
+| `fileWriteArray(float arr[], handle, count, append, decimals)` | `decimals` = max decimal places per value, trailing zeros stripped (0–7). Lower = smaller file |
 | `int fileLog("fname", char str[], limit)` | Append string + newline to file. Remove first line if file exceeds `limit` bytes. Returns file size |
 | `int fileDownload("fname", char url[])` | Download URL content to file. Returns HTTP status code (200=ok). Compatible with Scripter's `frw()` |
 | `int fileGetStr(char dst[], handle, "delim", index, endChar)` | Search file from start for Nth occurrence of delimiter, extract string until endChar. Returns string length. Compatible with Scripter's `fcs()` |
 
-**fileReadArray / fileWriteArray format:** Values are stored as decimal text separated by TAB characters, one array per line. This is compatible with Scripter's `fra()`/`fwa()` format.
+**fileReadArray / fileWriteArray format:** Values are stored as human-readable **float** text separated by TAB characters, one array per line — compatible with Scripter's `fra()`/`fwa()`. The file is a plain editable `.csv`/`.tab`. `count` is given explicitly (like `fileWriteBin`/`fileReadBin`) because TinyC global arrays (≤64 elements) don't carry their declared size; pass the real element count so small arrays read/write the right length. The optional `decimals` argument (default 2) caps how many decimal places each value gets (trailing zeros are stripped, like Scripter's number precision), which keeps the file compact — important for large arrays since otherwise small/fractional values can produce long strings (e.g. `0.0001234567`). Read streams value-by-value, so large arrays (e.g. a 1441-slot chart buffer) work without a line-length limit. Both `int[]` and `float[]` arrays are 32-bit slots in memory; these calls treat them as **float** (there is no integer variant — use `fileWriteBin`/`fileReadBin` for compact non-text storage).
 
 ```c
-// Example: Save and load array data
-int values[5];
-values[0] = 100; values[1] = 200; values[2] = 300;
-values[3] = 400; values[4] = 500;
+// Example: Save and load float array data (human-readable .tab/.csv)
+float values[5];
+values[0] = 1.5; values[1] = 22.7; values[2] = 300.0;
+values[3] = 4.25; values[4] = 500.5;
 
-int f = fileOpen("/data.tab", 1);    // write mode
-fileWriteArray(values, f);           // writes "100\t200\t300\t400\t500\n"
+int f = fileOpen("/data.tab", 1);     // write mode
+fileWriteArray(values, f, 5);         // writes "1.5\t22.7\t300\t4.25\t500.5\n"
 fileClose(f);
 
-int loaded[5];
-f = fileOpen("/data.tab", 0);       // read mode
-int n = fileReadArray(loaded, f);   // n = 5
+float loaded[5];
+f = fileOpen("/data.tab", 0);        // read mode
+int n = fileReadArray(loaded, f, 5); // n = 5
 fileClose(f);
 ```
 

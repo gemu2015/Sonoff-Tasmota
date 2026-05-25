@@ -11,7 +11,7 @@ TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-T
 - **Persist-`.pvs.bak`-Sicherheitsnetz (1.6.10)** — jeder erfolgreiche Persist-Schreibvorgang behaelt den vorherigen Stand als `slot-N_<name>.pvs.bak`; ein einfaches `cp` stellt einen layout-hash-geloeschten Zustand ohne JSON-Restore wieder her.
 - **WebOn/WebUI-Halted-Wait-Fix (1.6.10)** — `webOn()`-Callbacks liefern keinen spuriosen `503` mehr, wenn die VM waehrend des Page-Pollings auf dem anderen Core kurz angehalten ist.
 - **IDE injiziert `TC_RELEASE` + `TC_MAX_HEAP` automatisch** — `bundle.py` liest beide beim Bundeln aus `xdrv_124_tinyc_vm.h`, sodass Banner-Version und Heap-Warnschwelle immer zur Firmware passen. Das Heap-Budget ist jetzt eine *Warnung*, kein harter Block — das Geraet entscheidet.
-- **Neues Beispiel: `persist_array_file`** — Script-verwaltete Binaer-Persistenz via `fileReadArray` / `fileWriteArray` fuer Puffer, die groesser sind als das `persist`-Slot-Budget.
+- **Neues Beispiel: `persist_array_file`** — Script-verwaltete Binaer-Persistenz via `fileReadBin` / `fileWriteBin` fuer Puffer, die groesser sind als das `persist`-Slot-Budget. (Fuer menschenlesbare Textspeicherung `fileReadArray` / `fileWriteArray` verwenden — diese lesen/schreiben **Float**-Werte als TAB-getrennte CSV.)
 - **`serial_monitor`-Utility — grosse Ueberarbeitung** — Windows- und Linux-Unterstuetzung, OTA-Flasher (LAN-Scan -> `OtaUrl` + `Upgrade`), serieller esptool-Flasher mit `--no-stub`-Fallback, ESP32-Partitionstabelle in der Geraetekarte, isolierte esptool-Installation. Liegt unter `tasmota/tinyc/utils/serial_monitor/`.
 
 ## Tasmota mit TinyC bauen

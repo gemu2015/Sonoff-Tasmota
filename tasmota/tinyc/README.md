@@ -11,7 +11,7 @@ TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver
 - **Persist `.pvs.bak` safety net (1.6.10)** — every successful persist save keeps the previous snapshot as `slot-N_<name>.pvs.bak`; one `cp` recovers a layout-hash-wiped state without JSON-restore.
 - **WebOn / WebUI halted-wait fix (1.6.10)** — `webOn()` callbacks no longer return spurious `503` if the VM is momentarily halted on the other core during a page poll.
 - **IDE auto-injects `TC_RELEASE` + `TC_MAX_HEAP`** — `bundle.py` reads them from `xdrv_124_tinyc_vm.h` at bundle time, so banner version + heap-warning threshold always match the firmware. Heap budget is now a *warning*, not a hard block (device is the gate).
-- **New example: `persist_array_file`** — script-managed binary persistence via `fileReadArray` / `fileWriteArray` for buffers larger than the `persist` keyword's per-slot budget.
+- **New example: `persist_array_file`** — script-managed binary persistence via `fileReadBin` / `fileWriteBin` for buffers larger than the `persist` keyword's per-slot budget. (For human-readable text storage use `fileReadArray` / `fileWriteArray`, which read/write **float** values as TAB-separated CSV.)
 - **`serial_monitor` utility rewrite** — Windows + Linux support, OTA flasher (LAN scan → `OtaUrl` + `Upgrade`), serial esptool flasher with `--no-stub` fallback, ESP32 partition-table view, isolated esptool install. Lives under `tasmota/tinyc/utils/serial_monitor/`.
 
 ## Key Advantages

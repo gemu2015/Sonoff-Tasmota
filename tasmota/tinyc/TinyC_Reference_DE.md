@@ -1612,28 +1612,29 @@ Dateisystemverwaltung, strukturierte Array-Ein-/Ausgabe und Logdatei-Rotation.
 | `int fileFormat()` | LittleFS-Dateisystem formatieren (loescht alle Daten). Gibt 0=ok zurueck |
 | `int fileMkdir("pfad")` | Verzeichnis erstellen. Gibt 1=ok, 0=Fehler zurueck |
 | `int fileRmdir("pfad")` | Verzeichnis entfernen. Gibt 1=ok, 0=Fehler zurueck |
-| `int fileReadArray(int arr[], handle)` | Eine Tab-getrennte Zeile in Int-Array lesen. Gibt Elementanzahl zurueck |
-| `fileWriteArray(int arr[], handle)` | Array als Tab-getrennte Zeile mit Zeilenumbruch schreiben |
-| `fileWriteArray(int arr[], handle, append)` | Mit Append-Flag: 1=Zeilenumbruch weglassen (zum Anhaengen mehrerer Arrays in einer Zeile) |
+| `int fileReadArray(float arr[], handle [, count])` | Tab/Komma-getrennte **Float**-Werte in Array lesen (gestreamt, beliebige Groesse). `count` begrenzt die Anzahl (Standard: Array-Kapazitaet, stoppt bei EOF). Gibt gelesene Elemente zurueck |
+| `fileWriteArray(float arr[], handle, count)` | `count` **Float**-Werte als Tab-getrennten Text (Standard 2 Nachkommastellen) + Zeilenumbruch schreiben. `count` explizit (wie `fileWriteBin`), damit kleine globale Arrays die richtige Laenge schreiben |
+| `fileWriteArray(float arr[], handle, count, append)` | append=1 haelt die Zeile offen (Tab am Ende), um mehrere Arrays in einer Zeile abzulegen |
+| `fileWriteArray(float arr[], handle, count, append, decimals)` | `decimals` = max. Nachkommastellen pro Wert, nachgestellte Nullen entfernt (0–7). Kleiner = kleinere Datei |
 | `int fileLog("datei", char str[], limit)` | String + Zeilenumbruch an Datei anhaengen. Erste Zeile entfernen wenn Datei `limit` Bytes ueberschreitet. Gibt Dateigroesse zurueck |
 | `int fileDownload("datei", char url[])` | URL-Inhalt in Datei herunterladen. Gibt HTTP-Statuscode zurueck (200=ok). Kompatibel mit Scripters `frw()` |
 | `int fileGetStr(char dst[], handle, "delim", index, endChar)` | Datei von Anfang nach N-tem Vorkommen des Trennzeichens durchsuchen, String bis endChar extrahieren. Gibt Stringlaenge zurueck. Kompatibel mit Scripters `fcs()` |
 
-**fileReadArray / fileWriteArray Format:** Werte werden als Dezimaltext durch TAB-Zeichen getrennt gespeichert, ein Array pro Zeile. Kompatibel mit Scripters `fra()`/`fwa()` Format.
+**fileReadArray / fileWriteArray Format:** Werte werden als menschenlesbarer **Float**-Text durch TAB-Zeichen getrennt gespeichert, ein Array pro Zeile — kompatibel mit Scripters `fra()`/`fwa()`. Die Datei ist eine editierbare `.csv`/`.tab`. `count` wird explizit angegeben (wie `fileWriteBin`/`fileReadBin`), da globale TinyC-Arrays (≤64 Elemente) ihre deklarierte Groesse nicht mitfuehren — die echte Elementanzahl uebergeben, damit kleine Arrays die richtige Laenge lesen/schreiben. Das optionale Argument `decimals` (Standard 2) begrenzt die Nachkommastellen pro Wert (nachgestellte Nullen werden entfernt, wie Scripters Zahlenpraezision) und haelt die Datei kompakt — wichtig bei grossen Arrays, da kleine/gebrochene Werte sonst lange Zeichenketten erzeugen koennen (z. B. `0.0001234567`). Das Lesen erfolgt wertweise (gestreamt), daher funktionieren auch grosse Arrays (z. B. ein 1441-Slot-Chart-Puffer) ohne Zeilenlaengen-Limit. Es gibt keine Integer-Variante (fuer kompakte Binaerspeicherung `fileWriteBin`/`fileReadBin` verwenden).
 
 ```c
-// Beispiel: Array-Daten speichern und laden
-int values[5];
-values[0] = 100; values[1] = 200; values[2] = 300;
-values[3] = 400; values[4] = 500;
+// Beispiel: Float-Array-Daten speichern und laden (menschenlesbar)
+float values[5];
+values[0] = 1.5; values[1] = 22.7; values[2] = 300.0;
+values[3] = 4.25; values[4] = 500.5;
 
-int f = fileOpen("/data.tab", 1);    // Schreibmodus
-fileWriteArray(values, f);           // schreibt "100\t200\t300\t400\t500\n"
+int f = fileOpen("/data.tab", 1);     // Schreibmodus
+fileWriteArray(values, f, 5);         // schreibt "1.5\t22.7\t300\t4.25\t500.5\n"
 fileClose(f);
 
-int loaded[5];
-f = fileOpen("/data.tab", 0);       // Lesemodus
-int n = fileReadArray(loaded, f);   // n = 5
+float loaded[5];
+f = fileOpen("/data.tab", 0);        // Lesemodus
+int n = fileReadArray(loaded, f, 5); // n = 5
 fileClose(f);
 ```
 

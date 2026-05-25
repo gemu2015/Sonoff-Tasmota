@@ -214,8 +214,7 @@ const BUILTINS = {
     'fileRmdir':        { syscall: Syscall.FILE_RMDIR,     args: 1, returns: true,  constArgs: [0] },
     'fileSeek':         { syscall: Syscall.FILE_SEEK,      args: 3, returns: true },
     'fileTell':         { syscall: Syscall.FILE_TELL,      args: 1, returns: true },
-    'fileReadArray':    { syscall: Syscall.FILE_READ_ARR,  args: 2, returns: true,  strArgs: [0] },
-    // fileWriteArray handled as special case in compileCallExpr (optional append arg)
+    // fileReadArray / fileWriteArray handled as special cases in compileCallExpr (optional count/append/decimals)
     'fileLog':          { syscall: Syscall.FILE_LOG,       args: 3, returns: true,  constArgs: [0], strArgs: [1] },
     'fileDownload':     { syscall: Syscall.FILE_DOWNLOAD, args: 2, returns: true,  constArgs: [0], strArgs: [1] },
     'fileGetStr':       { syscall: Syscall.FILE_GET_STR, args: 5, returns: true,  strArgs: [0], constArgs: [2] },
@@ -2854,6 +2853,9 @@ export class CodeGenerator {
         if (node.name === 'fileWriteArray') {
             return this.compileFileWriteArray(node);
         }
+        if (node.name === 'fileReadArray') {
+            return this.compileFileReadArray(node);
+        }
 
         // timeOffset — optional zeroFlag: timeOffset(buf, days) or timeOffset(buf, days, zeroFlag)
         if (node.name === 'timeOffset') {
@@ -3561,21 +3563,38 @@ export class CodeGenerator {
     }
 
     compileFileWriteArray(node) {
-        // fileWriteArray(array, handle) or fileWriteArray(array, handle, append)
-        // append is optional, default 0 (add newline)
+        // fileWriteArray(array, handle, count [, append [, decimals]])
+        //   count    required — number of FLOAT elements to write (like fileWriteBin;
+        //            needed because global arrays don't carry their declared size)
+        //   append   optional, default 0 (terminate the line with newline)
+        //   decimals optional, default 2 — max decimal places per value (trailing
+        //            zeros stripped), keeps the text compact
         const nargs = node.args.length;
-        if (nargs < 2 || nargs > 3) {
-            throw new CodeGenError("fileWriteArray(array, handle [, append]) expects 2 or 3 arguments", node.line);
+        if (nargs < 3 || nargs > 5) {
+            throw new CodeGenError("fileWriteArray(array, handle, count [, append [, decimals]]) expects 3 to 5 arguments", node.line);
         }
         this.emitArrayRef(node.args[0]);  // array ref
         this.compileExpr(node.args[1]);   // handle (int)
-        if (nargs === 3) {
-            this.compileExpr(node.args[2]);  // append flag (int)
-        } else {
-            this.emitPushInt(0);             // default: 0 = add newline
-        }
+        this.compileExpr(node.args[2]);   // count (int)
+        if (nargs >= 4) this.compileExpr(node.args[3]); else this.emitPushInt(0);   // append (default 0 = newline)
+        if (nargs >= 5) this.compileExpr(node.args[4]); else this.emitPushInt(2);   // decimals (default 2)
         this.emit(Op.SYSCALL);
         this.emitByte(Syscall.FILE_WRITE_ARR);
+    }
+
+    compileFileReadArray(node) {
+        // fileReadArray(array, handle [, count]) -> elements read
+        //   count optional — cap how many to read (default -1 = up to array
+        //   capacity; reading also stops at EOF). Pass it for small global arrays.
+        const nargs = node.args.length;
+        if (nargs < 2 || nargs > 3) {
+            throw new CodeGenError("fileReadArray(array, handle [, count]) expects 2 or 3 arguments", node.line);
+        }
+        this.emitArrayRef(node.args[0]);  // array ref
+        this.compileExpr(node.args[1]);   // handle (int)
+        if (nargs >= 3) this.compileExpr(node.args[2]); else this.emitPushInt(-1);  // count (default -1 = cap)
+        this.emit(Op.SYSCALL);
+        this.emitByte(Syscall.FILE_READ_ARR);
     }
 
     compileTimeOffset(node) {

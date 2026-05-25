@@ -1891,7 +1891,8 @@ export class VM {
 
             // Heap (80-81) handled elsewhere
 
-            case 82: { // FILE_READ_ARR — read tab-delimited line into int array
+            case 82: { // FILE_READ_ARR — read tab/comma-delimited line into float array
+                const cap = this.pop();   // -1 = no cap
                 const handle = this.pop();
                 const arrRef = this.pop();
                 let count = 0;
@@ -1908,9 +1909,10 @@ export class VM {
                         const tokens = line.split(/[\t,]/);
                         const base = this.resolveRef(arrRef);
                         for (let i = 0; i < tokens.length; i++) {
-                            const val = parseInt(tokens[i], 10);
+                            if (cap >= 0 && count >= cap) break;
+                            const val = parseFloat(tokens[i]);
                             if (!isNaN(val)) {
-                                this.globals[base + i] = val;
+                                this.globals[base + count] = val;
                                 count++;
                             }
                         }
@@ -1919,26 +1921,24 @@ export class VM {
                 this.push(count);
                 break;
             }
-            case 83: { // FILE_WRITE_ARR — write int array as tab-delimited line
+            case 83: { // FILE_WRITE_ARR — write float array as tab-delimited line
+                let decimals = this.pop();
                 const append = this.pop();
+                let len = this.pop();    // explicit element count
                 const handle = this.pop();
                 const arrRef = this.pop();
+                decimals = Math.max(0, Math.min(7, decimals | 0));
+                if (len < 0) len = 0;
                 const fh = this.fileHandles[handle];
                 if (fh) {
                     const base = this.resolveRef(arrRef);
-                    // Determine array length from ref info
-                    let len = 0;
-                    const ref_type = (arrRef >> 24) & 0xFF;
-                    if (ref_type === 0) { // global
-                        for (const [, g] of this.globalInfo) {
-                            if (g.isArray && g.index === (arrRef & 0xFFFFFF)) { len = g.arraySize; break; }
-                        }
-                    }
-                    if (len === 0) len = 16; // fallback
                     let line = '';
                     for (let i = 0; i < len; i++) {
                         if (i > 0) line += '\t';
-                        line += String(this.globals[base + i] || 0);
+                        // up to `decimals` places, trailing zeros stripped
+                        let s = (this.globals[base + i] || 0).toFixed(decimals);
+                        if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+                        line += s;
                     }
                     if (!append) line += '\n';
                     // Append to file data
