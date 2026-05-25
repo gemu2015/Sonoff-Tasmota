@@ -1,0 +1,44 @@
+// globals_toctou_soak.tc — stress the UDP-`global` receive path (the
+// tc_udp_on_receive TOCTOU that crashed powerwall when globals were defined).
+//
+// Declaring a `global` opens the multicast RX socket, so EVERY global on the
+// LAN drives tc_udp_on_receive -> UdpCall while a busy TaskLoop keeps the VM
+// task flipping halted<->running (the race window). Before the fix this
+// corrupted the VM frame -> crash within minutes. With the fix: heap flat,
+// uptime climbs, no reboot.
+//
+// Uses a TEST name (tw_soak) — never a production powerwall/sensor name — so it
+// can't pollute real receivers on the LAN.
+
+global float tw_soak;
+int rx;        // multicast globals received (UdpCall fired)
+int loops;     // VM-busy iterations
+
+void UdpCall() { rx = rx + 1; }
+
+void TaskLoop() {
+    int i; float x;
+    delay(4000);                       // let WiFi come up + join the group
+    while (1) {
+        // Keep the VM task busy so the main-task RX races it.
+        i = 0; x = 0.0;
+        while (i < 15000) { x = x + sin((float)i * 0.001); i = i + 1; }
+        loops = loops + 1;
+        tw_soak = x;                   // broadcast a TEST global (safe name)
+        delay(40);
+    }
+}
+
+void EverySecond() {
+    char b[72];
+    if (tasm_uptime % 10 == 0) {
+        sprintf(b, "soak up=%ds rx=%d loops=%d heap=%dk", tasm_uptime, rx, loops, tasm_heap / 1024);
+        addLog(b);
+    }
+}
+
+int main() {
+    rx = 0; loops = 0;
+    printStr("globals TOCTOU soak running (rx counts LAN multicast globals)\n");
+    return 0;
+}

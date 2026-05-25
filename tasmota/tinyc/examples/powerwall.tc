@@ -4,17 +4,24 @@
 //
 // Requires: TESLA_POWERWALL enabled in firmware build
 
-// ─── Powerwall data — local-only (no UDP broadcast for now) ───
-// UDP `global` broadcasts (and even batched at one cnt slot) appear
-// to corrupt BearSSL state when interleaved with SSL operations on
-// this firmware. Stripped to local-only for rock-stable baseline;
-// once we have that, we'll re-add LAN publication via the Scripter's
-// pattern (WebSend to a relay device) instead of UDP globals.
+// ─── Publish mode — WebSend relay (default) vs direct UDP globals ───────────
+// Switched by PWL_DIRECT_GLOBALS:
 //
-// Receivers that previously subscribed to UDP global names continue
-// to read those names from the original Scripter device — same data,
-// just sourced from .47 (or wherever the Scripter runs) rather than
-// .140. No breakage on the receiver side.
+//   (undefined, default)  WebSend relay — POST `Script>pwl=...;sip=...` to a
+//                         Scripter device (.76) that re-broadcasts via UDP
+//                         globals. Safe baseline used while direct broadcast
+//                         was avoided.
+//
+//   #define PWL_DIRECT_GLOBALS  — broadcast directly: mirror the readings into
+//                         `global float` vars (auto-broadcast on assign), no
+//                         relay. Direct UDP-global broadcast previously appeared
+//                         to corrupt BearSSL state under load; root cause was
+//                         the tc_udp_on_receive TOCTOU (fixed, commit
+//                         abe4b8ccf). Same global names (pwl/sip/...) so
+//                         receivers don't change. Compile with -DPWL_DIRECT_GLOBALS.
+//
+// #define PWL_DIRECT_GLOBALS
+
 float l_pwl  = 8.0;
 float l_sip  = 0.0;
 float l_sop  = 0.0;
@@ -39,35 +46,41 @@ float l_p3w = 0.0;
 char l_cts1_err[16];
 char l_cts2_err[16];
 
-// ─── WebSend publisher (Scripter-style relay, currently OFF) ───
-// Direct port of the Scripter line:
-//   if upsecs%30==0 {
-//     =>websend [192.168.188.76]Script>pwl=...;sip=...;...
-//   }
-// .76 is a Scripter-running device that parses `Script>...` and
-// re-broadcasts via UDP globals. This bypasses our own UDP broadcast
-// (which seems to corrupt BearSSL on this firmware) — the Scripter
-// at .76 has a different SSL-state lifecycle, no contention.
-//
-// Currently DISABLED — flip WS_ENABLE to 1 once the local-only loop
-// has proven rock-stable, then we test if this WebSend path also
-// stays clean.
-int  WS_ENABLE     = 1;
+// ─── Publisher — pwl_publish() called every 30 s from EverySecond ───────────
+#ifdef PWL_DIRECT_GLOBALS
+
+// Direct UDP-global broadcast. Assigning a `global` auto-broadcasts it on
+// 239.255.255.250:1999, same names a Scripter relay would emit — receivers
+// don't change. The values are mirrored from the working l_* locals once every
+// 30 s (not on every reading) to keep the multicast rate at the Scripter pace.
+global float pwl;  global float sip;  global float sop;  global float bip;
+global float hip;  global float tcap; global float rcap; global float rper;
+global float phs1; global float phs2; global float phs3;
+
+void pwl_publish() {
+    pwl  = l_pwl;  sip  = l_sip;  sop  = l_sop;  bip  = l_bip;
+    hip  = l_hip;  tcap = l_tcap; rcap = l_rcap; rper = l_rper;
+    phs1 = l_phs1; phs2 = l_phs2; phs3 = l_phs3;
+}
+
+#else
+
+// WebSend relay: POST `Script>pwl=...;sip=...` to a Scripter device (.76) that
+// re-broadcasts via UDP globals — different SSL-state lifecycle, no contention.
+// %% → literal %; %3E = '>', %3D = '=', %3B = ';' (Tasmota URL-decodes cmnd).
 int  WS_TARGET[]   = "192.168.188.76";  // Scripter device that re-broadcasts
 char ws_url[256];
 char ws_resp[64];
 
-void pwl_websend_publish() {
-    // Build URL: http://<target>/cm?cmnd=Script>pwl=...;sip=...;...
-    // %% in sprintf format → literal %; %3E = >, %3D = =, %3B = ;
-    // — Tasmota's HTTP server URL-decodes the cmnd before passing
-    // to the Scripter `Script>...` handler.
+void pwl_publish() {
     sprintf(ws_url,
         "http://%s/cm?cmnd=Script%%3Epwl%%3D%.2f%%3Bsip%%3D%.2f%%3Bsop%%3D%.2f%%3Bbip%%3D%.2f%%3Bhip%%3D%.2f%%3Btcap%%3D%.0f%%3Brcap%%3D%.2f%%3Brper%%3D%.1f%%3Bphs1%%3D%.2f%%3Bphs2%%3D%.2f%%3Bphs3%%3D%.2f",
         WS_TARGET,
         l_pwl, l_sip, l_sop, l_bip, l_hip, l_tcap, l_rcap, l_rper, l_phs1, l_phs2, l_phs3);
     httpGet(ws_url, ws_resp);
 }
+
+#endif
 
 // State
 char buf[128];
@@ -356,12 +369,11 @@ void EverySecond() {
         lcd_last_update = tasm_uptime;
     }
 
-    // WebSend publisher — gated by WS_ENABLE (default 0). When
-    // enabled, fires every 30 s exactly like the Scripter. Runs in
-    // loopTask (EverySecond's home task), separate from PwlWorker's
-    // tc_vm_task — so the HTTP-GET shouldn't contend with SSL state.
-    if (WS_ENABLE && (tasm_uptime % 30 == 0)) {
-        pwl_websend_publish();
+    // Publish every 30 s (WebSend relay or direct UDP globals — see
+    // PWL_DIRECT_GLOBALS). Runs in loopTask (EverySecond's home task),
+    // separate from PwlWorker's tc_vm_task, so it doesn't contend with SSL.
+    if (tasm_uptime % 30 == 0) {
+        pwl_publish();
     }
 
     // Console heartbeat (every 30 s) — same as before
