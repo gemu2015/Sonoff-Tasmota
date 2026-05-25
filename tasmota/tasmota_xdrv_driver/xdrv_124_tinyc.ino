@@ -4527,6 +4527,15 @@ static bool tc_mqtt_data_handler(void) {
       tc_current_slot = slot;
 #ifdef ESP32
       if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+      // Re-check halted AFTER the lock (TOCTOU): the core-1 VM task can flip
+      // halted=false between the pre-lock check above and here; running
+      // OnMqttData on a non-halted VM corrupts its frame -> crash under MQTT
+      // traffic. Same race as tc_udp_on_receive (Bug #1 pattern).
+      if (!slot->vm.halted || slot->vm.error != TC_OK) {
+        if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+        tc_current_slot = nullptr;
+        continue;
+      }
 #endif
       tc_vm_call_callback_str2(&slot->vm, "OnMqttData", topic, payload);
 #ifdef ESP32
