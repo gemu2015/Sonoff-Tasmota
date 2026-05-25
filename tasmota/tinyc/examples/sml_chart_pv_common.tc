@@ -196,7 +196,7 @@ void sml_chart_pv_render_dayprod() {
         webSend(sml_buf);
         i = i + 1;
     }
-    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_dpch')).draw(d,{chartArea:{left:50,right:20,height:'75%'},legend:'none',title:'Tageseinspeisungen Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlDP);</script>");
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_dpch')).draw(d,{chartArea:{left:50,right:20,height:'75%',backgroundColor:'#f0f2f5'},legend:'none',title:'Tageseinspeisungen Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlDP);</script>");
 }
 
 // Dual-series month chart — overrides sml_chart_common's single-series
@@ -215,5 +215,5 @@ void sml_chart_pv_render_months_dual() {
         webSend(sml_buf);
         i = i + 1;
     }
-    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_mch2')).draw(d,{chartArea:{left:60,right:60,top:30,height:'70%'},legend:{position:'top'},title:'Monatsverbraeuche / -einspeisungen Jahresansicht',series:{0:{color:'#27ae60',targetAxisIndex:0},1:{color:'#f39c12',targetAxisIndex:1}},vAxes:{0:{format:'# kWh'},1:{format:'# kWh'}},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlDM2);</script>");
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_mch2')).draw(d,{chartArea:{left:60,right:60,top:30,height:'70%',backgroundColor:'#f0f2f5'},legend:{position:'top'},title:'Monatsverbraeuche / -einspeisungen Jahresansicht',series:{0:{color:'#27ae60',targetAxisIndex:0},1:{color:'#f39c12',targetAxisIndex:1}},vAxes:{0:{format:'# kWh'},1:{format:'# kWh'}},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlDM2);</script>");
 }

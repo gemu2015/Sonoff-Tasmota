@@ -133,6 +133,17 @@ void sml_chart_load() {
     fileClose(h);
 }
 
+// Flush chart data to file whenever the script is going away, so the post-boot
+// sml_chart_load() never reads a stale .bin and shows a gap:
+//   CleanUp() — device Restart / OTA (FUNC_SAVE_BEFORE_RESTART). The .tas `>R`.
+//   OnExit()  — this slot stopped / re-run / unlinked (per-slot teardown).
+void CleanUp() {
+    sml_chart_save();
+}
+void OnExit() {
+    sml_chart_save();
+}
+
 // ============================================================================
 // Init helpers — reset baselines from current meter, reset chart arrays
 // ============================================================================
@@ -234,17 +245,31 @@ void sml_chart_render_totals() {
     sprintf(sml_buf, "{s}Jahresverbrauch{m}%.2f kWh{e}",  ein - sml_yval); webSend(sml_buf);
 }
 
+// Script JS hook applied to both rolling charts: filled area (better
+// readability) + DE date in the tooltip (dd.MM.yyyy), independent of the
+// browser locale. WebChartJS runs in the chart's draw scope (dt/o/el) and
+// o.done=1 takes over the draw so it renders as an AreaChart.
+char sml_chart_js[224];   // must hold the full snippet incl. trailing o.done=1
+
+void sml_chart_area_de() {
+    strcpy(sml_chart_js,
+        "var f=new google.visualization.DateFormat({pattern:'dd.MM.yyyy HH:mm'});f.format(dt,0);o.areaOpacity=0.3;new google.visualization.AreaChart(el).draw(dt,o);o.done=1");
+    WebChartJS(sml_chart_js);
+}
+
 void sml_chart_render_4h() {
     WebChartSize(600, 280);
-    // type=0 (line), color red, interval=1 min (chart spans the array's last
-    // 480 minutes — actual data sampling is every 30 s, so two consecutive
-    // 30 s samples land in the same x-axis minute; visually negligible)
+    // interval=1 min (chart spans the array's last 480 minutes — actual data
+    // sampling is every 30 s, so two consecutive 30 s samples land in the same
+    // x-axis minute; visually negligible). Filled area + DE date via the hook.
     WebChart(0, "Verbrauch 4 Stunden [Watt]", "W", 0x3498db, sml_s4h_pos, 480, sml_s4h, 0, 1, 0.0, 0.0);
+    sml_chart_area_de();
 }
 
 void sml_chart_render_24h() {
     WebChartSize(600, 280);
     WebChart(0, "Verbrauch 24 Stunden [Watt]", "W", 0x3498db, sml_s24h_pos, 1440, sml_s24h, 0, 1, 0.0, 0.0);
+    sml_chart_area_de();
 }
 
 // ── Direct Google Charts emit — per-bar tri-color (past=green / today=red /
@@ -265,7 +290,7 @@ void sml_chart_render_days() {
         webSend(sml_buf);
         i = i + 1;
     }
-    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_dch')).draw(d,{chartArea:{left:50,right:20,height:'75%'},legend:'none',title:'Tagesverbraeuche Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlDD);</script>");
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_dch')).draw(d,{chartArea:{left:50,right:20,height:'75%',backgroundColor:'#f0f2f5'},legend:'none',title:'Tagesverbraeuche Monatsansicht',vAxis:{format:'# kWh'},hAxis:{title:'Tag',ticks:[1,5,10,15,20,25,30]}});}google.charts.setOnLoadCallback(_smlDD);</script>");
 }
 
 void sml_chart_render_months() {
@@ -288,7 +313,7 @@ void sml_chart_render_months() {
         webSend(sml_buf);
         i = i + 1;
     }
-    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_mch')).draw(d,{chartArea:{left:50,right:30,top:30,height:'70%'},legend:'none',title:'Monatsverbraeuche Jahresansicht',vAxis:{format:'# kWh'},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlDM);</script>");
+    webSend("]);new google.visualization.ColumnChart(document.getElementById('sml_mch')).draw(d,{chartArea:{left:50,right:30,top:30,height:'70%',backgroundColor:'#f0f2f5'},legend:'none',title:'Monatsverbraeuche Jahresansicht',vAxis:{format:'# kWh'},hAxis:{slantedText:false,showTextEvery:1}});}google.charts.setOnLoadCallback(_smlDM);</script>");
 }
 
 // Settings panel renderer is in sml_descriptor.tc as
