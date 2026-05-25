@@ -14,11 +14,16 @@
 //
 //   #define PWL_DIRECT_GLOBALS  — broadcast directly: mirror the readings into
 //                         `global float` vars (auto-broadcast on assign), no
-//                         relay. Direct UDP-global broadcast previously appeared
-//                         to corrupt BearSSL state under load; root cause was
-//                         the tc_udp_on_receive TOCTOU (fixed, commit
-//                         abe4b8ccf). Same global names (pwl/sip/...) so
-//                         receivers don't change. Compile with -DPWL_DIRECT_GLOBALS.
+//                         relay. Same global names (pwl/sip/...) so receivers
+//                         don't change. Compile with -DPWL_DIRECT_GLOBALS.
+//                         Earlier this deterministically crashed the node
+//                         (Exc29 heap corruption in LwIP tcp_alloc on the
+//                         worker's next TLS socket): UDP-global RX in
+//                         tc_udp_on_receive blocked loopTask on the VM mutex for
+//                         the whole multi-second BearSSL request, starving the
+//                         web/LwIP servicing. Fixed by making that injection
+//                         non-blocking (drop-on-busy). Verified live on .39:
+//                         a full request cycle + clean heap with globals on.
 //
 // #define PWL_DIRECT_GLOBALS
 
