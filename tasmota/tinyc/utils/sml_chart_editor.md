@@ -1,7 +1,7 @@
 # SML Chart Data Editor
 
 A single self-contained HTML page to **view and edit the raw chart data** that the
-TinyC [`sml_chart`](sml_chart.tc) example stores on the device — no install, works
+TinyC [`sml_chart`](../examples/sml_chart.tc) example stores on the device — no install, works
 offline, no server. Open [`sml_chart_editor.html`](sml_chart_editor.html) in any
 browser.
 
