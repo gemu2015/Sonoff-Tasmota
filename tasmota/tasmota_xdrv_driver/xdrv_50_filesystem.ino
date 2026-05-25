@@ -1365,10 +1365,8 @@ const char HTTP_EDITOR_FORM_END[] PROGMEM =
 // shared upload handler.
 void HandleUploadUFSLoop(void) {
   Web.upload_file_type = UPL_UFSFILE;
-#ifdef USE_TINYC
-  extern bool tc_global_pause;
-  tc_global_pause = true;
-#endif
+  // TinyC VM is stopped (size-gated) in UfsUploadFileOpen and resumed in
+  // UfsUploadFileClose / HandleUploadUFSDone — see TinyCFsWritePause().
   HandleUploadLoop();
 }
 
@@ -1755,11 +1753,12 @@ bool UfsUploadFileOpen(const char* upload_filename) {
   char npath[UFS_FILENAME_SIZE];
   snprintf_P(npath, sizeof(npath), PSTR("%s/%s"), ufs_path, upload_filename);
 #ifdef USE_TINYC
-  // Park TinyC VM tasks before touching the (internal-flash) FS: a multi-sector
-  // LittleFS write while a VM task runs network/heap/flash-XIP on the other core
-  // hard-hangs the device. Waits for the VM to quiesce, then writes safely.
-  extern void TinyCFsWritePause(void);
-  TinyCFsWritePause();
+  // Stop TinyC VM tasks before a LARGE internal-flash write: a multi-block
+  // LittleFS write while a VM task exists deadlocks a dual-core node. Size-gated
+  // inside (small files skip it). The declared size comes from the ?fsz= arg.
+  extern void TinyCFsWritePause(uint32_t fsize);
+  uint32_t tc_fsz = Webserver->hasArg(F("fsz")) ? (uint32_t)Webserver->arg(F("fsz")).toInt() : 0;
+  TinyCFsWritePause(tc_fsz);
 #endif
   dfsp->remove(npath);
   ufs_upload_file = dfsp->open(npath, UFS_FILE_WRITE);

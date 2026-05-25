@@ -1860,7 +1860,17 @@ static void HandleTinyCUploadCORS(void) {
 // bridge re-runs matterReset()+rebuild — identical to a normal boot, so the
 // Matter fabric (persisted on UFS) and commissioning survive.
 // Non-static so xdrv_50 can call them through a forward `extern` declaration.
-void TinyCFsWritePause(void) {
+#ifndef TC_FS_BIG_WRITE
+#define TC_FS_BIG_WRITE 16384        // bytes: only /ufsu uploads >= this stop the VM.
+                                     // Small writes touch a few flash blocks and never
+                                     // deadlock, so they skip the bridge-disrupting
+                                     // stop/restart. Override with -DTC_FS_BIG_WRITE=N.
+#endif
+void TinyCFsWritePause(uint32_t fsize) {
+  // Size-gate: skip the VM stop for small writes (the common case — config /
+  // small .tc / data files). fsize==0 means the client didn't declare a size
+  // (?fsz=) so assume it could be large and protect.
+  if (fsize > 0 && fsize < TC_FS_BIG_WRITE) return;
   tc_global_pause = true;             // also gates main-loop callbacks (see Xdrv124)
   if (!Tinyc) return;
 #ifdef ESP32
