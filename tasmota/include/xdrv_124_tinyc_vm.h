@@ -981,6 +981,7 @@ enum TcSyscall {
   // I2SPlay uses (see tc_defer_command at top of this file).
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
   SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
+  SYS_WEB_CHART_JS    = 354, // (js_str) -> void — attach script JS to the last WebChart (runs in draw scope with dt,o,el; set o.done to take over the draw)
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
@@ -9698,6 +9699,27 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    case SYS_WEB_CHART_JS: {
+      // WebChartJS("js") — attach script-supplied JS to the most-recent WebChart.
+      // The snippet is emitted verbatim as a function body and runs in the chart's
+      // draw loop with dt (DataTable), o (options) and el (element) in scope, after
+      // the default options are built but before the draw. Set o.done=1 in the
+      // snippet to take over the draw (use any chart type / formatter). Must be
+      // called from a web callback (WebPage/WebCall), right after a WebChart().
+      int32_t js_ref = TC_POP(vm);
+#ifdef USE_WEBSERVER
+      if (tc_chart_seq > 0) {
+        char js[384];
+        int n = tc_ref_to_cstr(vm, js_ref, js, sizeof(js));   // literal OR runtime char[]
+        if (n > 0) {
+          WSContentSend_P(PSTR("<script>if(_tcC[%d])_tcC[%d].j=function(dt,o,el){%s};</script>"),
+                          tc_chart_seq - 1, tc_chart_seq - 1, js);
+        }
+      }
+#endif
+      break;
+    }
+
     case SYS_WEB_CHART: {
       // WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)
 #ifdef USE_WEBSERVER
@@ -9851,11 +9873,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                   "o.lineWidth=1;o.pointSize=0;"
                 "}"
                 "if(dual){o.series=sr;o.vAxes=vx;}else{o.vAxis=va;}"
+                "if(c.j){try{c.j(dt,o,el);}catch(_e){}}"                                   // WebChartJS script hook (dt,o,el in scope)
+                "if(!o.done){"                                                             // snippet may set o.done to take over the draw
                 "if(tp==98)new google.visualization.BarChart(el).draw(dt,o);"              // 'b'=98
                 "else if(tp==99||tp==1)new google.visualization.ColumnChart(el).draw(dt,o);" // 'c'=99 or legacy 1
                 "else if(tp==104)new google.visualization.Histogram(el).draw(dt,o);"       // 'h'=104
                 "else if(tp==115){o.isStacked=true;new google.visualization.ColumnChart(el).draw(dt,o);}" // 's'=115
                 "else new google.visualization.LineChart(el).draw(dt,o);"                  // 'l'=108 or legacy 0
+                "}"
               "}"
             "}"
           "}"

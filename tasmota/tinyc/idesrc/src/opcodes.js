@@ -278,6 +278,7 @@ export const Syscall = {
     I2C_FREE:       249, // (addr, bus) -> void — release claimed I2C address
     WEB_CHART_SIZE: 233, // (width, height) -> void — set chart div size in pixels
     WEB_CHART_TBASE: 261, // (minutes) -> void — set time base offset from "now"
+    WEB_CHART_JS:   354, // (js_str) -> void — attach script JS to the last WebChart (runs in draw scope with dt,o,el; set o.done to take over the draw)
 
     // Console command callback
     ADD_COMMAND:    45, // (const_idx_prefix) -> void — register command prefix

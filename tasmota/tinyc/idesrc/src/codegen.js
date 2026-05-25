@@ -347,6 +347,7 @@ const BUILTINS = {
     'WebChart':         { syscall: Syscall.WEB_CHART,           args: 11, returns: false, constArgs: [1, 2], refArgs: [6], floatArgs: [9, 10] },
     'WebChartSize':     { syscall: Syscall.WEB_CHART_SIZE,      args: 2, returns: false },
     'WebChartTimeBase': { syscall: Syscall.WEB_CHART_TBASE,     args: 1, returns: false },
+    'WebChartJS':       { syscall: Syscall.WEB_CHART_JS,        args: 1, returns: false, strArgs: [0] },
     'pluginQuery':      { syscall: Syscall.PLUGIN_QUERY,        args: 4, returns: true,  strArgs: [0] },
     'sortArray':        { syscall: Syscall.SORT_ARRAY,          args: 3, returns: false, refArgs: [0] },
     'smlCopy':          { syscall: Syscall.SML_COPY,            args: 2, returns: true,  strArgs: [0] },
