@@ -34,8 +34,9 @@ RELEASE_TAG="${RELEASE_TAG:-testing}"
 # (~156 kB) did not, so testers can pair over Apple Home / Google / Alexa.
 # ESP8266 stays non-Matter (no resident crypto/IPv6 budget).
 STD_TARGETS=(
-  tinyc32-4M       # ESP32 4MB flash    (Matter)
-  tinyc32s3        # ESP32-S3 16MB flash (Matter)
+  tinyc32-4M-plain # ESP32 4MB classic WROOM — plain (no Matter / no camera / no HomeKit)
+  tinyc32-4M-cam   # ESP32 4MB WROVER + PSRAM — Matter + camera
+  tinyc32s3        # ESP32-S3 16MB flash (Matter + camera)
   tinyc32c3        # ESP32-C3           (Matter)
   tinyc32c6        # ESP32-C6           (Matter)
   tinyc8266-4M     # ESP8266 4MB flash  (no Matter)
@@ -212,8 +213,9 @@ else
 ### Included targets:
 | File | Description |
 |------|-------------|
-| \`tinyc32-4M.bin\` / \`.factory.bin\` | ESP32 4MB flash — **Matter** |
-| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** |
+| \`tinyc32-4M-plain.bin\` / \`.factory.bin\` | ESP32 4MB classic WROOM — plain (no Matter / no camera) |
+| \`tinyc32-4M-cam.bin\` / \`.factory.bin\` | ESP32 4MB WROVER + PSRAM — **Matter** + camera |
+| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** + camera |
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | ESP8266 4MB flash |
