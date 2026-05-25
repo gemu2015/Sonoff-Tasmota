@@ -1,0 +1,242 @@
+// Matter Home Bridge — TinyC port of the HomeKit "script-3" scripter.
+//
+// One Matter node that bridges the same accessories the old HomeKit script
+// exposed, over Tasmota UDP global variables (the Scripter `g:` mechanism).
+//
+//   OUT (controller -> assign a `global` -> auto-broadcast to the real devices)
+//     Licht     color light  -> mh_pwr / mh_hue / mh_sat / mh_bri
+//     Ecklicht  switch        -> elamp
+//   IN  (`global` auto-updated by other devices -> Matter sensor attribute)
+//     Buero    temp/hum/press -> btemp / bhumi / bpress
+//     Aussen   temperature    -> atmp
+//     WZ       temp/hum/AQ    -> wtemp / whumi / wco2 / wtvoc
+//     AZ       temp/hum/AQ    -> aztemp / azhumi / azeco2 / aztvoc
+//   POLL (HTTP)
+//     Wohnzimmer / Schlafzimmer Daikin aircon -> two temperature sensors
+//
+// Shared values use the `global` keyword: assigning one auto-broadcasts it,
+// reading one returns the latest value received from your other Scripter
+// devices (multicast 239.255.255.250:1999) — no explicit udpSend/udpRecv.
+// HomeKit ranges are restored when writing the light (Matter hue/sat/level are
+// 0..254; the remote light expects HomeKit 0..360 / 0..100).
+//
+// Differences vs the scripter: Powerwall removed; WZ/AZ TVOC+CO2 folded into one
+// Matter Air-Quality endpoint per room. Requires a USE_MATTER_C build; Bind /mt.
+
+// ── Shared (UDP) globals — names MUST match the Scripter g:<name> ──
+global float mh_pwr; global float mh_hue; global float mh_sat; global float mh_bri;   // OUT: Licht
+global float elamp;                                                                   // OUT: Ecklicht
+global float btemp; global float bhumi; global float bpress;                          // IN: Buero
+global float atmp;                                                                    // IN: outside
+global float wtemp; global float whumi; global float wco2; global float wtvoc;        // IN: WZ
+global float aztemp; global float azhumi; global float azeco2; global float aztvoc;   // IN: AZ
+
+// ── Matter endpoint ids (assigned 1..N in matterAdd order) ──
+int licht; int ecklicht;
+int e_btemp; int e_bhumi; int e_bpress; int e_atmp;
+int e_wtemp; int e_whumi; int e_waq;
+int e_aztemp; int e_azhumi; int e_azaq;
+int e_acwz; int e_acsz;
+int tick;
+char resp[256];
+
+// ── Air-quality enum (0x005B) from a CO2 ppm value ──
+int aq_from_co2(float co2) {
+    if (co2 > 1000.0) { return 5; }   // Very poor
+    if (co2 >  800.0) { return 3; }   // Moderate
+    return 1;                         // Good
+}
+
+// ── A Matter controller changed one of the writable accessories ──
+// Assigning a `global` auto-broadcasts it to the real light/lamp. Matter stores
+// hue/sat/level as 0..254; convert to HomeKit hue 0..360 / sat,bri 0..100.
+void MatterInvoke(int e, int cluster, int cmd) {
+    if (e == licht) {
+        if (cluster == CLUSTER_ONOFF) {
+            mh_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+        }
+        if (cluster == CLUSTER_LEVEL) {              // MoveToLevelWithOnOff
+            mh_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+            mh_bri = (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254;
+        }
+        if (cluster == 0x0300) {                     // MoveToHueAndSaturation
+            mh_hue = (matterGet(licht, 0x0300, 0) * 360) / 254;
+            mh_sat = (matterGet(licht, 0x0300, 1) * 100) / 254;
+        }
+        return;
+    }
+    if (e == ecklicht) {
+        if (cluster == CLUSTER_ONOFF) { elamp = matterGet(ecklicht, CLUSTER_ONOFF, 0); }
+        return;
+    }
+}
+
+// ── Push the received globals into the Matter sensor attributes ──
+void pull_sensors() {
+    matterSetFloat(e_btemp,  CLUSTER_TEMP,  0, btemp,  100);   // 0.01 C
+    matterSetFloat(e_bhumi,  CLUSTER_HUM,   0, bhumi,  100);   // 0.01 %
+    matterSetFloat(e_bpress, CLUSTER_PRESS, 0, bpress, 1);     // hPa
+    matterSetFloat(e_atmp,   CLUSTER_TEMP,  0, atmp,   100);
+
+    matterSetFloat(e_wtemp,  CLUSTER_TEMP,  0, wtemp,  100);
+    matterSetFloat(e_whumi,  CLUSTER_HUM,   0, whumi,  100);
+    matterSetFloat(e_waq,  CLUSTER_CO2, 0, wco2,  1);
+    matterSetFloat(e_waq,  CLUSTER_VOC, 0, wtvoc, 1);
+    matterSet(e_waq, CLUSTER_AIRQUALITY, 0, aq_from_co2(wco2));
+
+    matterSetFloat(e_aztemp, CLUSTER_TEMP,  0, aztemp, 100);
+    matterSetFloat(e_azhumi, CLUSTER_HUM,   0, azhumi, 100);
+    matterSetFloat(e_azaq, CLUSTER_CO2, 0, azeco2, 1);
+    matterSetFloat(e_azaq, CLUSTER_VOC, 0, aztvoc, 1);
+    matterSet(e_azaq, CLUSTER_AIRQUALITY, 0, aq_from_co2(azeco2));
+}
+
+// ── Poll one Daikin aircon and push its room temperature to a Matter sensor ──
+// MUST run from TaskLoop, not EverySecond: httpGet blocks until the HTTP round
+// trip finishes, which stalls (and can crash) the main loop. The aircon returns
+// plain text "ret=OK,htemp=26.0,hhum=-,otemp=25.0,...". Parse htemp with the
+// strFind/strSub builtins — a string literal passed *through* a user-function
+// char[] param doesn't index reliably, so keep the literal at the builtin site.
+void poll_aircon(char ip[], int ep) {
+    float t; char url[64]; char buf[128]; char hv[12]; int hp;
+    sprintf(url, "http://%s/aircon/get_sensor_info", ip);
+    buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        hp = strFind(buf, "htemp=");
+        if (hp >= 0) {
+            strSub(hv, buf, hp + 6, 10);          // "26.0,hhum=" — atof stops at ','
+            t = atof(hv);
+            if (t > -50.0 && t < 80.0) { matterSetFloat(ep, CLUSTER_TEMP, 0, t, 100); }
+        }
+    }
+}
+
+// Daikin polling loop — its own FreeRTOS task so the blocking httpGet never
+// stalls EverySecond / the Matter network handling.
+void TaskLoop() {
+    delay(15000);                                 // let WiFi + Matter come up first
+    while (1) {
+        poll_aircon("192.168.188.24", e_acwz);    // Wohnzimmer
+        delay(3000);
+        poll_aircon("192.168.188.43", e_acsz);    // Schlafzimmer
+        delay(57000);                             // ~once per minute
+    }
+}
+
+// ── LCD status screen (no-op if no display attached) ──
+int lcd_ready = 0;
+void lcd_labels() {
+    dspClear();
+    dspText("[Ci16f1s1y18x70]Home Bridge");
+    dspText("[f1s1Ci16]");
+    dspText("[x10y60]Aussen:");
+    dspText("[x10y80]Buero T:");
+    dspText("[x10y100]Buero H:");
+    dspText("[x10y120]WZ T:");
+    dspText("[x10y140]WZ CO2:");
+}
+void lcd_values() {
+    char b[40];
+    sprintf(b, "[Ci5x120y60p-8]%.1f C",  atmp);  dspText(b);
+    sprintf(b, "[Ci5x120y80p-8]%.1f C",  btemp); dspText(b);
+    sprintf(b, "[Ci5x120y100p-8]%.0f %%", bhumi); dspText(b);
+    sprintf(b, "[Ci5x120y120p-8]%.1f C",  wtemp); dspText(b);
+    sprintf(b, "[Ci5x120y140p-8]%.0f",    wco2);  dspText(b);
+}
+
+void EverySecond() {
+    tick = tick + 1;
+
+    if (tasm_hour == 1 && tasm_uptime > 4000) { char r[16]; tasmCmd("Restart 1", r); }
+
+    if (tick % 5 == 0) { pull_sensors(); }           // received globals -> Matter attrs (every 5s)
+    // Daikin polling moved to TaskLoop() — httpGet must not block EverySecond.
+
+    if (lcd_ready == 0 && tasm_uptime > 3) { lcd_labels(); lcd_ready = 1; }
+    if (lcd_ready) {
+        dspText("[Ci3x10y36T]");                     // clock HH:MM
+        if (tick % 5 == 0) { lcd_values(); }
+    }
+}
+
+// ── Web status page ──
+void WebCall() {
+    char b[80];
+    sprintf(b, "{s}<b>Licht</b>{m}%d%%{e}", (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254); webSend(b);
+    sprintf(b, "{s}Aussentemperatur{m}%.1f C{e}", atmp);   webSend(b);
+    sprintf(b, "{s}Buero Temp{m}%.1f C{e}",  btemp);        webSend(b);
+    sprintf(b, "{s}Buero Feuchte{m}%.0f %%{e}", bhumi);     webSend(b);
+    sprintf(b, "{s}Buero Druck{m}%.0f hPa{e}", bpress);     webSend(b);
+    sprintf(b, "{s}WZ Temp{m}%.1f C{e}",  wtemp);           webSend(b);
+    sprintf(b, "{s}WZ Feuchte{m}%.0f %%{e}", whumi);        webSend(b);
+    sprintf(b, "{s}WZ CO2{m}%.0f ppm{e}", wco2);            webSend(b);
+    sprintf(b, "{s}WZ TVOC{m}%.0f{e}", wtvoc);              webSend(b);
+    sprintf(b, "{s}AZ Temp{m}%.1f C{e}",  aztemp);          webSend(b);
+    sprintf(b, "{s}AZ Feuchte{m}%.0f %%{e}", azhumi);       webSend(b);
+    sprintf(b, "{s}AZ CO2{m}%.0f ppm{e}", azeco2);          webSend(b);
+    sprintf(b, "{s}Wohnzimmer (Klima){m}%.1f C{e}", matterGet(e_acwz, CLUSTER_TEMP, 0) / 100.0); webSend(b);
+    sprintf(b, "{s}Schlafzimmer (Klima){m}%.1f C{e}", matterGet(e_acsz, CLUSTER_TEMP, 0) / 100.0); webSend(b);
+}
+
+// ── endpoint-declaration helpers ──
+int add_temp() {
+    int e; e = matterAdd(MATTER_TEMP_SENSOR);
+    matterCluster(e, CLUSTER_TEMP); matterAttr(e, CLUSTER_TEMP, 0, MTR_S16);   // signed: outside < 0
+    return e;
+}
+int add_hum() {
+    int e; e = matterAdd(MATTER_HUM_SENSOR);
+    matterCluster(e, CLUSTER_HUM); matterAttr(e, CLUSTER_HUM, 0, MTR_U16);
+    return e;
+}
+int add_aq() {
+    int e; e = matterAdd(MATTER_AIRQUALITY_SENSOR);
+    matterCluster(e, CLUSTER_AIRQUALITY); matterAttr(e, CLUSTER_AIRQUALITY, 0, MTR_ENUM8);
+    matterCluster(e, CLUSTER_CO2); matterAttr(e, CLUSTER_CO2, 0, MTR_FLOAT);
+    matterCluster(e, CLUSTER_VOC); matterAttr(e, CLUSTER_VOC, 0, MTR_FLOAT);
+    return e;
+}
+
+int main() {
+    tick = 0;
+    matterReset();
+
+    // OUT: colour light (Licht) — controller drives mh_pwr/hue/sat/bri globals
+    licht = matterAdd(MATTER_COLOR_LIGHT);
+    matterCluster(licht, CLUSTER_ONOFF); matterAttr(licht, CLUSTER_ONOFF, 0, MTR_BOOL);
+    matterCluster(licht, CLUSTER_LEVEL); matterAttr(licht, CLUSTER_LEVEL, 0, MTR_U8);
+    matterCluster(licht, 0x0300); matterAttr(licht, 0x0300, 0, MTR_U8); matterAttr(licht, 0x0300, 1, MTR_U8);
+    matterSet(licht, CLUSTER_LEVEL, 0, 254);
+    matterName(licht, "Licht");
+
+    // OUT: corner lamp (Ecklicht) switch -> elamp global
+    ecklicht = matterAdd(MATTER_ONOFF_LIGHT);
+    matterName(ecklicht, "Ecklicht");
+
+    // IN: Buero BMP280 — temp / humidity / pressure
+    e_btemp  = add_temp();   matterName(e_btemp,  "Buero Temperatur");
+    e_bhumi  = add_hum();    matterName(e_bhumi,  "Buero Feuchte");
+    e_bpress = matterAdd(MATTER_PRESS_SENSOR);
+    matterCluster(e_bpress, CLUSTER_PRESS); matterAttr(e_bpress, CLUSTER_PRESS, 0, MTR_S16);
+    matterName(e_bpress, "Buero Luftdruck");
+
+    // IN: outside temperature
+    e_atmp = add_temp();     matterName(e_atmp, "Aussentemperatur");
+
+    // IN: Wohnzimmer — temp / humidity / air quality (CO2 + TVOC)
+    e_wtemp = add_temp();    matterName(e_wtemp, "Wohnzimmer Temp");
+    e_whumi = add_hum();     matterName(e_whumi, "Wohnzimmer Feuchte");
+    e_waq   = add_aq();      matterName(e_waq,   "Wohnzimmer Luft");
+
+    // IN: AZ room — temp / humidity / air quality (CO2 + TVOC)
+    e_aztemp = add_temp();   matterName(e_aztemp, "Arbeitszimmer Temp");
+    e_azhumi = add_hum();    matterName(e_azhumi, "Arbeitszimmer Feuchte");
+    e_azaq   = add_aq();     matterName(e_azaq,   "Arbeitszimmer Luft");
+
+    // POLL: two Daikin aircons as temperature sensors
+    e_acwz = add_temp();     matterName(e_acwz, "Wohnzimmer Klima");
+    e_acsz = add_temp();     matterName(e_acsz, "Schlafzimmer Klima");
+
+    matterStart();                                   // Matter on; Bind on /mt to pair
+    return 0;
+}
