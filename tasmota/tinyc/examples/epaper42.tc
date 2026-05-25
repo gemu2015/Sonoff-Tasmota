@@ -89,6 +89,8 @@ global float bhumi = 50.0;    // room humidity (%)
 // global float bpress = 1013.0; // BMP280 commented out in original; skip
 
 
+global float ledbar;
+
 // ─── Sensor readiness flags ──────────────────────────────────────────
 // SHT31 may not be present at boot (i2cExists race) — start as
 // "unknown", flip to 1 on first successful read, 0 on persistent
@@ -425,6 +427,17 @@ void EverySecond() {
         dspText("[Gs0:/g0_sav.txt:]");
         dspText("[Gs1:/g1_sav.txt:]");
     }
+	
+	
+	ledbar=0-(wrgh+wrga+wrgg);
+//	otmp=abs(zwzc)
+//	if otmp<80
+//	then
+//		ledbar=tmp
+//	else
+//		ledbar=-zwzc
+//	endif
+	
 }
 
 
