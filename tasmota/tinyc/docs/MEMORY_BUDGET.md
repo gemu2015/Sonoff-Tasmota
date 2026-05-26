@@ -10,11 +10,11 @@ numbers shift with build flags, LTO, and how many script slots are loaded.
 | Feature | Flash (code + rodata) | DRAM (BSS-resident) | DRAM (heap, on demand) | PSRAM (heap) |
 |---|---:|---:|---:|---:|
 | **TinyC VM + builtins** | ~125 KB ¹ | ~9 KB ² | ~3–5 KB **per loaded slot** ³ | — |
-| **matter_c (Matter 1.4 responder)** | ~57 KB ⁴ | ~19 KB ⁵ | — *(with PSRAM patch ⁸)* | ~41 KB ⁶ |
+| **matter_c (Matter 1.4 responder)** | ~57 KB ⁴ | ~31 KB ⁵ | — *(with PSRAM patch ⁸)* | ~30 KB ⁶ |
 | &nbsp;&nbsp;↳ matter_ctx_t (before PSRAM patch) | — | — | **~30 KB** ⁶ | — |
 | **Camera extension** (`-DTINYC_CAMERA`) ⁹ | ~55 KB | ~18 KB | — | **frame buffers ⁰** |
-| **Combined, PSRAM-cam board** (TinyC + Matter + cam) | ~237 KB | ~46 KB | ~3.5 KB / slot + buffers | ~41 KB + cam fb |
-| **Combined, no-PSRAM board** (TinyC + Matter, no cam) ⁷ | ~182 KB | ~58 KB | ~3.5 KB / slot | — |
+| **Combined, PSRAM-cam board** (TinyC + Matter + cam) | ~237 KB | ~58 KB | ~3.5 KB / slot + buffers | ~30 KB + cam fb |
+| **Combined, no-PSRAM board** (TinyC + Matter, no cam) ⁷ | ~182 KB | ~70 KB | ~3.5 KB / slot | — |
 
 ### Footnotes
 
@@ -58,21 +58,28 @@ numbers shift with build flags, LTO, and how many script slots are loaded.
    |---|---:|---|
    | `dm` (mtrc_dm.c)        | 9.2 KB | endpoint/cluster/attribute tables (sized for ~32 endpoints) |
    | `g_fab` (mtrc_store.c)  | 5.0 KB | fabric table + per-fabric NOC/ICAC/RCAC certificate copies |
-   | remaining function-scope statics | ~4.5 KB | commissioning-only (csr, nocsr, hin, ae, resp) + small (rep, sr, …) |
+   | function-scope statics  | ~17 KB | s2buf, tbe3, pt, out, chunk, frag, csr, nocsr, hin, ae, tmp[N] — handshake/IM scratch buffers |
    | `g_qrbuf`, misc         | ~0.2 KB | onboarding QR module matrix + small statics |
-   | **subtotal**            | **~19 KB** | |
+   | **subtotal**            | **~31 KB** | |
 
-   The 11 KB of "always-used handshake/IM scratch" (s2buf, tbe3, pt, out,
-   chunk, frag, tmp, enc2, buf) was lifted into matter_ctx_t in commit
-   ⁵ᵃ so it follows the context into PSRAM — see footnote ⁵ᵃ.
+   These large statics avoid heap allocs on every CASE handshake / IM
+   request — a trade of always-resident DRAM for predictable latency.
 
-   5ᵃ. **Phase-1 scratch move** (commit `ada2ccec8`, 2026-05-26):
-       9 large file-scope `static uint8_t name[N]` buffers in matter_c.c
-       (~11.3 KB total) became `g.sc_*` fields inside `matter_ctx_t`.
-       Since matter_ctx_t lives in PSRAM after the previous patch, the BSS
-       drops accordingly. Verified live: `.dram0.bss` shrank 92,128 →
-       80,560 B (-11.3 KB) at compile, DRAM heap-free on .47 grew from
-       37 → 50 KB at runtime, PSRAM use grew by ~10 KB (the moved fields).
+   **Lesson from an attempted scratch-buffer move (reverted)**: an earlier
+   attempt (commit `ada2ccec8`, reverted by `<this commit>`) tried to lift
+   ~11 KB of these statics into matter_ctx_t to follow it into PSRAM. It
+   built fine and `.dram0.bss` did drop by 11.3 KB. But on a classic
+   ESP32-D0WD with PSRAM, **CASE Sigma3 TBE decrypt then started failing
+   deterministically** even after reverting just the in-place AES-CCM
+   output buffers. The most likely cause is that the transcript-hash
+   input (`g.case_tt`) reads stale bytes when the just-written Sigma2 was
+   built via a PSRAM-resident scratch buffer — i.e., PSRAM-to-PSRAM
+   sequential write/read coherency is not fully reliable on classic ESP32
+   even with `-mfix-esp32-psram-cache-issue`. Future attempts to free
+   this DRAM should either (a) keep all crypto-input/output buffers in
+   DRAM and only move pure-TLV-build buffers, or (b) add explicit cache
+   flush/invalidate around PSRAM-to-PSRAM transcript ops, or (c) host
+   `case_tt` itself in DRAM regardless of matter_ctx_t placement.
 
 6. **matter_ctx_t** — single ~30 KB struct allocated *lazily* the first time
    matter is initialized (typically at FUNC_NETWORK_UP from the xdrv binding):

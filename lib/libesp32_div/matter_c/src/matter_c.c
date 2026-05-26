@@ -216,22 +216,6 @@ typedef struct {
 #define MTRC_EV_QUEUE 8
   struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
   volatile uint8_t ev_head, ev_tail;
-
-  // ── Scratch buffers (moved here from file-scope statics to keep them out
-  // of internal DRAM on PSRAM boards — the whole matter_ctx_t lives in
-  // PSRAM via matter_special_malloc()). All accesses happen on the single
-  // matter_loop / main-loop thread, so a shared single instance is safe.
-  // sc_tmp is reused across CASE phases — Sigma1's TBE2 build is finished
-  // before Sigma3's TBS3 reconstruct begins.
-  uint8_t sc_pt[1280];        // secured_dispatch: CCM plaintext output
-  uint8_t sc_chunk[1280];     // send_report_chunk: outbound IM ReportData chunk
-  uint8_t sc_frag[1024];      // send_report_chunk: fragment buffer (large NOCs)
-  uint8_t sc_s2buf[1280];     // case_handle_sigma1: Sigma2 wire-encoded
-  uint8_t sc_enc2[1100];      // case_handle_sigma1: Sigma2 ciphertext
-  uint8_t sc_tmp[1100];       // case_handle_sigma1 + case_handle_sigma3 (sequential)
-  uint8_t sc_tbe3[1024];      // case_handle_sigma3: TBE3 decrypted plaintext
-  uint8_t sc_out[1280];       // secured_send: assembled outbound message
-  uint8_t sc_buf[1100];       // send_subscription_report: ReportData build
 } matter_ctx_t;
 
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
@@ -835,13 +819,13 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   if (!mtrc_case_s2k(g.case_shared, op_ipk, g.case_resp_random, g.case_re_pub, h1, s2k))
     return;
 
-  uint8_t *tmp = g.sc_tmp;       // formerly file-scope statics; now in matter_ctx_t (PSRAM)
+  static uint8_t tmp[1100];
   mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
   tbs.noc = f->noc; tbs.noc_len = f->noc_len;
   tbs.icac = f->icac; tbs.icac_len = f->icac_len;     // include ICAC if fabric uses one
   memcpy(tbs.sender_pub, g.case_re_pub, 65);
   memcpy(tbs.receiver_pub, s1.initiator_eph_pub, 65);
-  int nt = mtrc_case_tbs_encode(tmp, sizeof(g.sc_tmp), &tbs);
+  int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
   if (nt < 0) return;
   uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
 
@@ -856,10 +840,10 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   g.port.random_bytes(g.port.ctx, resumption_id, 16);
   tbe.resumption_id = resumption_id; tbe.resumption_id_len = 16;
   if (!mtrc_ecdsa_sign(tbe.signature, ht, f->op_priv)) return;
-  int ne = mtrc_case_tbe_encode(tmp, sizeof(g.sc_tmp), &tbe);
+  int ne = mtrc_case_tbe_encode(tmp, sizeof(tmp), &tbe);
   if (ne < 0) return;
 
-  uint8_t *enc2 = g.sc_enc2;
+  static uint8_t enc2[1100];
   if (!case_seal(s2k, MTRC_CASE_NONCE_SIGMA2, tmp, (size_t)ne, enc2)) return;
 
   mtrc_sigma2 s2; memset(&s2, 0, sizeof(s2));
@@ -867,8 +851,8 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
   s2.responder_session_id = g.case_hs_my_sid;
   memcpy(s2.responder_eph_pub, g.case_re_pub, 65);
   s2.encrypted2 = enc2; s2.encrypted2_len = (size_t)ne + 16;
-  uint8_t *s2buf = g.sc_s2buf;
-  int n2 = mtrc_sigma2_encode(s2buf, sizeof(g.sc_s2buf), &s2);
+  static uint8_t s2buf[1280];
+  int n2 = mtrc_sigma2_encode(s2buf, sizeof(s2buf), &s2);
   if (n2 < 0) return;
   if (g.case_tt_len + (size_t)n2 <= sizeof(g.case_tt)) {
     memcpy(g.case_tt + g.case_tt_len, s2buf, n2); g.case_tt_len += (size_t)n2;
@@ -895,7 +879,7 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   uint8_t s3k[16];
   if (!mtrc_case_s3k(g.case_shared, op_ipk, h12, s3k)) return;
 
-  uint8_t *tbe3 = g.sc_tbe3;     // formerly file-scope static; now in matter_ctx_t (PSRAM)
+  static uint8_t tbe3[1024];
   if (!case_open(s3k, MTRC_CASE_NONCE_SIGMA3, s3.encrypted3, s3.encrypted3_len, tbe3)) {
     mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE decrypt failed"); return;
   }
@@ -918,8 +902,8 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
     tbs.icac = t3.icac; tbs.icac_len = t3.icac_len;
     memcpy(tbs.sender_pub, g.case_init_eph, 65);   // initiator was sender
     memcpy(tbs.receiver_pub, g.case_re_pub, 65);
-    uint8_t *tmp = g.sc_tmp;     // shared with Sigma1's TBS/TBE2 build (sequential CASE phases)
-    int nt = mtrc_case_tbs_encode(tmp, sizeof(g.sc_tmp), &tbs);
+    static uint8_t tmp[1100];
+    int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
     if (nt > 0) {
       uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
       verified = mtrc_ecdsa_verify(t3.signature, ht, nc.pubkey);
@@ -1046,8 +1030,8 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
   ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = reliable; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
-  uint8_t *out = g.sc_out;       // formerly file-scope static; now in matter_ctx_t (PSRAM)
-  int n = mtrc_sec_encode(out, sizeof(g.sc_out), &mh, &ph, payload, plen, g_tx.key);
+  static uint8_t out[1280];
+  int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
   if (n > 0 && g.port.udp_send)
     g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, out, (size_t)n);  // reply to this packet's source
 }
@@ -1979,16 +1963,16 @@ static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t wan
 // MoreChunkedMessages while paths remain; the controller's StatusResponse pulls
 // the next chunk. `ack` is the counter of the message that triggered this chunk.
 static void send_report_chunk(uint32_t ack) {
-  uint8_t *chunk = g.sc_chunk;   // formerly file-scope statics; now in matter_ctx_t (PSRAM)
-  uint8_t *frag  = g.sc_frag;    // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
-  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(g.sc_chunk));
+  static uint8_t chunk[1280];
+  static uint8_t frag[1024];   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(chunk));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());             // ReportDataMessage
   if (g.rpt_is_sub) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), g.rpt_sub_id);   // SubscriptionId
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));              // AttributeReports
   const size_t MAX_PAYLOAD = 1100;                        // < 1280 IPv6 MTU after headers + MIC
   int emitted = 0;
   while (g.rpt_cursor < g.rpt_npaths) {
-    mtrc_tlv_writer fw; mtrc_tlv_writer_init(&fw, frag, sizeof(g.sc_frag));
+    mtrc_tlv_writer fw; mtrc_tlv_writer_init(&fw, frag, sizeof(frag));
     emit_one_path(&fw, g.rpt_paths[g.rpt_cursor].ep, g.rpt_paths[g.rpt_cursor].cl,
                   g.rpt_paths[g.rpt_cursor].attr);
     if (!mtrc_tlv_writer_ok(&fw)) { g.rpt_cursor++; continue; }   // skip a frag that didn't build
@@ -2170,8 +2154,8 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
                              uint64_t peer_node_id) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
-  uint8_t *pt = g.sc_pt;        // formerly file-scope static; now in matter_ctx_t (PSRAM)
-  if (!mtrc_sec_decode(buf, len, rx_key, peer_node_id, &mh, &ph, pt, sizeof(g.sc_pt), &ipl, &ipll)) {
+  static uint8_t pt[1280];
+  if (!mtrc_sec_decode(buf, len, rx_key, peer_node_id, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
     mlog(MATTER_LOG_ERROR, "secured rx: MIC/decrypt failed");
     return;
   }
@@ -2316,8 +2300,8 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
 // one datagram. The caller loads the session and points g.reply_ip6 at its
 // controller first. Reports reuse the subscription's exchange id.
 static void send_subscription_report(uint32_t sub_id, uint16_t exch) {
-  uint8_t *buf = g.sc_buf;       // formerly file-scope static; now in matter_ctx_t (PSRAM)
-  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(g.sc_buf));
+  static uint8_t buf[1100];
+  mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);            // SubscriptionId
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(1));                 // AttributeReports
