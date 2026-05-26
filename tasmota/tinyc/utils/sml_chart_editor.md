@@ -28,14 +28,28 @@ writes).
 
 ## How to use
 
-1. On the device, open the **file manager** (Consoles → Manage File system, or
-   `http://<device>/ufsd`) and **download `/sml_chart.bin`** (or `.csv`).
-2. Open `sml_chart_editor.html` and drop the file in.
-3. Each array shows as a **chart + an editable values box** (whitespace- or
-   newline-separated) with min/max/avg/non-zero stats. Edit values, or use
-   *Set all 0* / *Wrap*. Keep each array's value count unchanged.
-4. Click **Download .bin** (or **.csv**) and **re-upload** it to the device's file
-   manager, overwriting the original. Restart the script (or reboot) to reload.
+### Recommended: host the editor on the device (firmware 1.6.21+)
+
+1. On the device, open the **file manager** at `http://<device>/ufsd` and **upload
+   `sml_chart_editor.html`** (or `.html.gz` to save space) to the filesystem.
+2. Open **`http://<device>/cedit`** in a browser — the editor renders directly
+   from the device (a dedicated `/cedit` route serves it as `text/html` inline;
+   `/ufsd?download=…` would just download the HTML file, not render it).
+3. In the **"On-device file"** card at the top:
+   - Click **Load from device** → reads `/sml_chart.bin` over `/ufsd?download=`.
+   - Edit each array as a chart + values box (min/max/avg/non-zero, *Set all 0*,
+     *Wrap*). Keep each array's value count unchanged.
+   - Click **Save to device + restart slot** → POSTs the rebuilt `.bin` to
+     `/ufsu` and runs `Backlog TinyCStop 0; TinyCRun /sml_chart.tcb` so the
+     script reloads the edited arrays. No reboot needed.
+
+### Offline fallback (any firmware)
+
+1. Download `/sml_chart.bin` from the device's file manager (`/ufsd`).
+2. Open `sml_chart_editor.html` locally in any browser and drop the file in.
+3. Edit, then click **Download .bin**.
+4. Re-upload the edited file to the device via the file manager and restart the
+   script (or reboot).
 
 ## Notes
 

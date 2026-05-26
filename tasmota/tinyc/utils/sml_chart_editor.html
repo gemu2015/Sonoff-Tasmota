@@ -44,6 +44,21 @@
 </header>
 
 <main>
+  <div class="card" id="deviceCard">
+    <div class="seg-head"><span class="seg-title">On-device file (same-origin)</span>
+      <span class="stats" id="deviceStatus"></span></div>
+    <div class="hint">When this page is opened on the device at <code>http://&lt;device&gt;/cedit</code>, these buttons read &amp; write the chart file directly on the device — no manual download/upload. Opened from a local file or another host? Use the drop-zone below instead.</div>
+    <div class="row" style="margin-top:8px">
+      <label>File on device <input id="devFile" type="text" value="/sml_chart.bin" style="width:180px"></label>
+      <label>Reload script <input id="devSlot" type="text" value="/sml_chart.tcb" style="width:180px"></label>
+    </div>
+    <div class="toolbar">
+      <button class="sec" id="devLoad">Load from device</button>
+      <button id="devSave">Save to device + restart slot</button>
+      <span class="stats" id="devMsg"></span>
+    </div>
+  </div>
+
   <div class="card">
     <div id="drop" class="drop">Drop <b>/sml_chart.bin</b> (or <b>.csv</b>) here, or click to choose a file…
       <input id="file" type="file" accept=".bin,.csv,.dat,.tab,*/*" style="display:none">
@@ -297,6 +312,74 @@ fileInput.onchange = e => { const f = e.target.files[0]; if (f) readFile(f); };
 drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
 function readFile(f) { const r = new FileReader(); r.onload = () => loadArrayBuffer(r.result, f.name); r.readAsArrayBuffer(f); }
 $("resync").onclick = () => { if (lastFloats) renderSegments(); };
+
+// ─── On-device file: load / save / restart-slot ───────────────────────────────
+// All same-origin fetches (relative URLs). Works when the page is served by the
+// device at /cedit (HandleSmlChartEditor in xdrv_124_tinyc.ino reads
+// /sml_chart_editor.html(.gz) from the FS and returns it inline as text/html).
+// Endpoints: GET /ufsd?download=<path>, POST /ufsu?fsz=<size> (multipart field
+// "ufsu"; the file's name becomes the device path), GET /cm?cmnd=...
+(function () {
+  const isFile = location.protocol === "file:";
+  if (isFile) {
+    $("deviceStatus").innerHTML = '<span style="color:var(--warn)">offline (file://) — open at http://&lt;device&gt;/cedit to enable</span>';
+    $("devLoad").disabled = true; $("devSave").disabled = true;
+    return;
+  }
+  $("deviceStatus").textContent = "host: " + location.host;
+
+  function setDevMsg(text, kind) {
+    $("devMsg").innerHTML = kind
+      ? '<span style="color:var(--' + (kind === "ok" ? "ok" : "warn") + ')">' + escapeHtml(text) + "</span>"
+      : escapeHtml(text);
+  }
+
+  $("devLoad").onclick = async () => {
+    const fname = $("devFile").value.trim() || "/sml_chart.bin";
+    setDevMsg("Loading " + fname + " …");
+    try {
+      const r = await fetch("/ufsd?download=" + encodeURIComponent(fname), { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const buf = await r.arrayBuffer();
+      loadArrayBuffer(buf, fname.replace(/^\//, ""));
+      setDevMsg("Loaded " + buf.byteLength + " bytes from " + fname, "ok");
+    } catch (e) {
+      setDevMsg("Load failed: " + (e && e.message || e), "err");
+    }
+  };
+
+  $("devSave").onclick = async () => {
+    const fname = $("devFile").value.trim() || "/sml_chart.bin";
+    const slot  = $("devSlot").value.trim();
+    if (!lastFloats) { setDevMsg("Nothing loaded — load a file first.", "err"); return; }
+    // Flatten current textareas → raw LE float32.
+    const arrays = collectArrays();
+    const flat = [].concat(...arrays);
+    const ab = new ArrayBuffer(flat.length * 4);
+    const dv = new DataView(ab);
+    flat.forEach((v, i) => dv.setFloat32(i * 4, v, true));
+    // Tasmota's /ufsu reads the multipart filename as the on-device path.
+    const targetName = fname.replace(/^\//, "") || "sml_chart.bin";
+    const file = new File([ab], targetName, { type: "application/octet-stream" });
+    const fd = new FormData();
+    fd.append("ufsu", file);
+    setDevMsg("Saving " + ab.byteLength + " B to " + fname + " …");
+    try {
+      const r = await fetch("/ufsu?fsz=" + ab.byteLength, { method: "POST", body: fd });
+      if (!r.ok) throw new Error("upload HTTP " + r.status);
+      if (slot) {
+        const cmd = "Backlog TinyCStop 0; TinyCRun " + slot;
+        const r2 = await fetch("/cm?cmnd=" + encodeURIComponent(cmd), { cache: "no-store" });
+        if (!r2.ok) throw new Error("restart HTTP " + r2.status);
+        setDevMsg("Saved " + ab.byteLength + " B; reloaded " + slot, "ok");
+      } else {
+        setDevMsg("Saved " + ab.byteLength + " B (no slot restart)", "ok");
+      }
+    } catch (e) {
+      setDevMsg("Save failed: " + (e && e.message || e), "err");
+    }
+  };
+})();
 
 renderSchema();
 </script>

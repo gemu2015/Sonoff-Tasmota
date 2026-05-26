@@ -3221,6 +3221,57 @@ static void HandleTinyCIde(void) {
 #endif  // USE_UFILESYS
 #endif  // USE_TINYC_IDE
 
+// ---- /cedit: serve sml_chart_editor.html from FS as inline text/html ----
+// Companion to tasmota/tinyc/utils/sml_chart_editor.html. The user uploads that
+// file (preferably .html.gz) to the device's filesystem, then visits
+// http://<device>/cedit and the page renders in the browser instead of being
+// downloaded — Tasmota's generic /ufsd?download= forces Content-Disposition
+// attachment, so a small inline-serving route is the simplest way to host the
+// editor on the device. Same-origin fetches from the editor hit /ufsd?download=
+// to load /sml_chart.bin, /ufsu to save, and /cm to restart the slot.
+#ifdef USE_UFILESYS
+static void HandleSmlChartEditor(void) {
+  if (!ffsp && !ufsp) {
+    WSSend_P(503, PSTR("text/plain"), PSTR("Filesystem not available"));
+    return;
+  }
+  bool gzipped = false;
+  File f;
+  if (ufsp) f = ufsp->open("/sml_chart_editor.html.gz", "r");
+  if (f) {
+    gzipped = true;
+  } else {
+    if (ufsp) f = ufsp->open("/sml_chart_editor.html", "r");
+    if (!f && ffsp && ffsp != ufsp) {
+      f = ffsp->open("/sml_chart_editor.html.gz", "r");
+      if (f) gzipped = true;
+      else f = ffsp->open("/sml_chart_editor.html", "r");
+    }
+  }
+  if (!f) {
+    WSSend_P(404, PSTR("text/plain"), PSTR(
+      "sml_chart_editor not found on the filesystem. Upload "
+      "sml_chart_editor.html.gz (or .html) — see "
+      "tasmota/tinyc/utils/sml_chart_editor.md."));
+    return;
+  }
+  uint32_t fsize = f.size();
+  if (gzipped) {
+    Webserver->sendHeader(F("Content-Encoding"), F("gzip"));
+  }
+  Webserver->sendHeader(F("Cache-Control"), F("no-cache, no-store, must-revalidate"));
+  Webserver->setContentLength(fsize);
+  WSSend_P(200, PSTR("text/html"), PSTR(""));
+  uint8_t buf[256];
+  while (f.available()) {
+    int n = f.read(buf, sizeof(buf));
+    if (n > 0) Webserver->client().write(buf, n);
+    yield();
+  }
+  f.close();
+}
+#endif  // USE_UFILESYS
+
 // ---- WebUI: shared sv= parameter handler ----
 
 // Process sv= widget value updates from AJAX requests
@@ -5305,6 +5356,9 @@ bool Xdrv124(uint32_t function) {
       }
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
       WebServer_on(PSTR("/ide"), HandleTinyCIde);
+#endif
+#ifdef USE_UFILESYS
+      WebServer_on(PSTR("/cedit"), HandleSmlChartEditor);
 #endif
 #ifdef USE_HOMEKIT
       WebServer_on(PSTR("/hk"), HandleHomeKitQR);
