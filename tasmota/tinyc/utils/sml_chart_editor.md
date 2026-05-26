@@ -22,6 +22,26 @@ browser.
 works if a script declares different array sizes (the file is split in this order;
 `.bin` size must equal *total × 4* bytes).
 
+### PV variant (`sml_chart_pv.tc`)
+
+The PV port of ottelo's `2_SML_Chart_PV.tas` adds two more arrays after the four
+above (production-side daily/monthly), so `/sml_chart_pv.bin` is **2008 floats /
+8032 bytes**:
+
+| Array       | Count | Meaning |
+|-------------|-------|---------|
+| `sml_s4h`   | 481   | 4 h chart |
+| `sml_s24h`  | 1441  | 24 h chart |
+| `sml_dcon`  | 31    | daily consumption |
+| `sml_mcon`  | 12    | monthly consumption |
+| `sml_dprod` | 31    | daily production |
+| `sml_mprod` | 12    | monthly production |
+
+Use the **Preset** dropdown at the top of the editor to switch — it reconfigures
+the file path, the reload-script path, and the schema in one click. If you load
+a file whose size matches a preset other than the one currently selected, the
+warning message points you to the right preset.
+
 It also reads/writes the human-readable **`#define CHART_CSV`** format
 (`/sml_chart.csv`) — one array per line, TAB-separated (what `fileWriteArray()`
 writes).

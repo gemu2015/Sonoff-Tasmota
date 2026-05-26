@@ -49,6 +49,10 @@
       <span class="stats" id="deviceStatus"></span></div>
     <div class="hint">When this page is opened on the device at <code>http://&lt;device&gt;/cedit</code>, these buttons read &amp; write the chart file directly on the device — no manual download/upload. Opened from a local file or another host? Use the drop-zone below instead.</div>
     <div class="row" style="margin-top:8px">
+      <label>Preset <select id="presetSel" style="width:200px">
+        <option value="standard">sml_chart (4 arrays, 1965)</option>
+        <option value="pv">sml_chart_pv (6 arrays, 2008)</option>
+      </select></label>
       <label>File on device <input id="devFile" type="text" value="/sml_chart.bin" style="width:180px"></label>
       <label>Reload script <input id="devSlot" type="text" value="/sml_chart.tcb" style="width:180px"></label>
     </div>
@@ -90,13 +94,37 @@
 <script>
 "use strict";
 
-// ─── Default layout = standard sml_chart.tc arrays (in file order) ─────────────
-const DEFAULT_SCHEMA = [
-  { name: "sml_s4h  (4 h chart)",      count: 481  },
-  { name: "sml_s24h (24 h chart)",     count: 1441 },
-  { name: "sml_dcon (daily, 31 days)", count: 31   },
-  { name: "sml_mcon (monthly, 12)",    count: 12   },
-];
+// ─── Presets ──────────────────────────────────────────────────────────────────
+// Each entry: file path on device, slot path, and the float32 layout (in file
+// order). totals: standard=1965, pv=2008. Add new variants here as the script
+// family grows (e.g. sml_chart_modbus.tc shares PV's layout, so its preset
+// would reuse the pv schema). 'pv' covers ottelo's `2_SML_Chart_PV.tas` port
+// (sml_chart_pv.tc).
+const PRESETS = {
+  standard: {
+    file: "/sml_chart.bin",
+    slot: "/sml_chart.tcb",
+    schema: [
+      { name: "sml_s4h  (4 h chart)",      count: 481  },
+      { name: "sml_s24h (24 h chart)",     count: 1441 },
+      { name: "sml_dcon (daily, 31 days)", count: 31   },
+      { name: "sml_mcon (monthly, 12)",    count: 12   },
+    ],
+  },
+  pv: {
+    file: "/sml_chart_pv.bin",
+    slot: "/sml_chart_pv.tcb",
+    schema: [
+      { name: "sml_s4h   (4 h chart)",       count: 481  },
+      { name: "sml_s24h  (24 h chart)",      count: 1441 },
+      { name: "sml_dcon  (daily consumption, 31)", count: 31 },
+      { name: "sml_mcon  (monthly consumption, 12)", count: 12 },
+      { name: "sml_dprod (daily production, 31)",   count: 31 },
+      { name: "sml_mprod (monthly production, 12)", count: 12 },
+    ],
+  },
+};
+const DEFAULT_SCHEMA = PRESETS.standard.schema;
 const CSV_DECIMALS = 3;   // matches CHART_CSV_DEC-ish; trailing zeros stripped
 
 // ─── Locale ──────────────────────────────────────────────────────────────────
@@ -113,6 +141,27 @@ let lastFloats = null;     // Float32 values from the most recent load (flat)
 let lastName   = "sml_chart";
 
 const $ = id => document.getElementById(id);
+
+// Apply a preset by name: updates schema + device-file + reload-slot fields,
+// re-renders the schema table. Called from the preset <select> onchange and
+// from the auto-detect path in loadArrayBuffer().
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  schema = p.schema.map(s => ({...s}));
+  if ($("devFile")) $("devFile").value = p.file;
+  if ($("devSlot")) $("devSlot").value = p.slot;
+  if ($("presetSel")) $("presetSel").value = name;
+  renderSchema();
+}
+
+// Detect which preset a float-count matches. Returns preset name or null.
+function detectPreset(floatCount) {
+  for (const [name, p] of Object.entries(PRESETS)) {
+    if (p.schema.reduce((a, s) => a + s.count, 0) === floatCount) return name;
+  }
+  return null;
+}
 
 // ─── Schema table ─────────────────────────────────────────────────────────────
 function renderSchema() {
@@ -158,7 +207,16 @@ function loadArrayBuffer(buf, fname) {
     for (let i = 0; i < n; i++) floats[i] = dv.getFloat32(i * 4, true); // little-endian
     const exp = schemaTotal();
     if (n === exp) setMsg($("loadmsg"), `Loaded binary "${fname}" — ${n} float32 values (matches layout ✓).`, "ok");
-    else setMsg($("loadmsg"), `Loaded binary "${fname}" — ${n} float32 values, but the layout expects ${exp}. Adjust the counts below, then "Re-split".`, "warn");
+    else {
+      // Size mismatch — but does it match a known preset? If so, surface the
+      // hint inline (mi-hol's case: opening a 2008-float sml_chart_pv.bin with
+      // the standard 1965 preset selected).
+      const hit = detectPreset(n);
+      const tail = hit
+        ? ` — that's the size of preset "${hit}". Pick it from the dropdown to auto-fix the layout.`
+        : ` Adjust the counts below, then "Re-split".`;
+      setMsg($("loadmsg"), `Loaded binary "${fname}" — ${n} float32 values, but the layout expects ${exp}.${tail}`, "warn");
+    }
   }
   lastFloats = floats;
   lastName = fname.replace(/\.(bin|csv|tab|txt|dat)$/i, "") || "sml_chart";
@@ -394,6 +452,12 @@ $("resync").onclick = () => { if (lastFloats) renderSegments(); };
     }
   };
 })();
+
+// Preset dropdown — replaces both the device file + slot fields and the
+// in-memory schema. mi-hol asked for this 2026-05-26: he runs sml_chart_pv.tc
+// (43 float file = dprod+mprod, 2008 floats total) and the editor was
+// hard-wired for plain sml_chart.tc's 1965-float layout.
+$("presetSel").addEventListener("change", e => applyPreset(e.target.value));
 
 renderSchema();
 </script>
