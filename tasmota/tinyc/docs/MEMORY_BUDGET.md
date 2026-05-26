@@ -66,7 +66,7 @@ numbers shift with build flags, LTO, and how many script slots are loaded.
    chunk, frag, tmp, enc2, buf) was lifted into matter_ctx_t in commit
    ⁵ᵃ so it follows the context into PSRAM — see footnote ⁵ᵃ.
 
-   5ᵃ. **Phase-1 scratch move** (commit `<phase1-sha>`, 2026-05-26):
+   5ᵃ. **Phase-1 scratch move** (commit `ada2ccec8`, 2026-05-26):
        9 large file-scope `static uint8_t name[N]` buffers in matter_c.c
        (~11.3 KB total) became `g.sc_*` fields inside `matter_ctx_t`.
        Since matter_ctx_t lives in PSRAM after the previous patch, the BSS
