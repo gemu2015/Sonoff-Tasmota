@@ -153,6 +153,11 @@ int main() {
     // WebUI pulldowns live in WebUI() — calling them here writes via
     // WSContentSend_P with no active web-request context and corrupts
     // the heap. Persist holds dy_txpin across reboots.
+    // Register a TinyC UI page on the Tasmota main page — clicking the
+    // "MP3" button routes /tc_ui?p=0 to this slot's WebUI() callback.
+    // Without this, /tc_ui falls back to slot 0 and the pulldown is
+    // unreachable ("points into nirvana").
+    webPageLabel(0, "MP3");
     int ret = serialBegin(-1, dy_txpin, 9600, 3, 64);  // 3 = 8N1
     if (ret >= 0) {
         dy_serial = ret;
