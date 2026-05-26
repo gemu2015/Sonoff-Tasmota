@@ -3364,8 +3364,17 @@ static void HandleTinyCDisplayRaw(void) {
   if (fb && (uintptr_t)fb < 0x3C000000) fb = nullptr;
   if (rgb && (uintptr_t)rgb < 0x3C000000) rgb = nullptr;
 
-  // Derive raw (unrotated) dimensions from rotated width/height + rotation
-  uint8_t rot = renderer->getRotation();
+  // Derive raw (unrotated) dimensions from rotated width/height + rotation.
+  // Use Tasmota's authoritative Settings->display_rotate instead of
+  // renderer->getRotation(): for EPD panels, the renderer's internal rotation
+  // field can stay 0 even when DisplayRotate=1 puts the renderer dims into
+  // landscape (the framebuffer is still physically laid out in panel-native
+  // orientation, so we need DisplayRotate to know which way to un-rotate the
+  // logical width()/height() back to the raw fb stride). Verified on .122
+  // (E-PAPER-29-V1, DisplayRotate=1: width()=296 height()=128 getRotation()=0
+  // but fb on the wire is 128-wide × 296-tall — the JS client was decoding it
+  // with stride 296 and showing rotated-but-garbled pixels).
+  uint8_t rot = Settings->display_rotate & 3;
   uint16_t rw, rh;  // raw framebuffer dimensions
   if (rot == 0 || rot == 2) {
     rw = renderer->width();
