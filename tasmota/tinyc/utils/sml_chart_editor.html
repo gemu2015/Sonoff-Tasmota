@@ -99,6 +99,15 @@ const DEFAULT_SCHEMA = [
 ];
 const CSV_DECIMALS = 3;   // matches CHART_CSV_DEC-ish; trailing zeros stripped
 
+// ─── Locale ──────────────────────────────────────────────────────────────────
+// Display the user's decimal separator (`,` in DE / FR / IT, `.` in EN / etc.)
+// — detected from the browser's locale at load. Parser accepts BOTH `,` and `.`
+// regardless (we just normalize before parseFloat), so pasted point-decimal
+// values still work for a comma-locale user and vice versa. CSV export keeps
+// `.` always to match `fileWriteArray` on the device.
+const DECIMAL_CHAR = (1.5).toLocaleString().replace(/[0-9]/g, "") || ".";
+const NF = new Intl.NumberFormat(undefined, { maximumFractionDigits: 3, useGrouping: false });
+
 let schema = DEFAULT_SCHEMA.map(s => ({...s}));
 let lastFloats = null;     // Float32 values from the most recent load (flat)
 let lastName   = "sml_chart";
@@ -125,7 +134,7 @@ function renderSchema() {
 function schemaTotal() { return schema.reduce((a, s) => a + s.count, 0); }
 function updateSchemaTotal() {
   const t = schemaTotal();
-  $("schemaTotal").textContent = `total ${t} values · ${t*4} bytes (.bin)`;
+  $("schemaTotal").textContent = `total ${t} values · ${t*4} bytes (.bin) · decimal: "${DECIMAL_CHAR}"`;
 }
 
 // ─── File loading ─────────────────────────────────────────────────────────────
@@ -171,12 +180,17 @@ function countLines(bytes) {
   return c;
 }
 function parseCsv(text) {
-  // Each line = one array of whitespace/tab-separated floats; flatten in order.
+  // Each line = one array of whitespace-separated floats; flatten in order.
+  // Locale: when the user's decimal is ',', don't split on ',' — it'd shred
+  // "1,5" into [1, 5]. In point-locales, comma is still a valid field
+  // separator (legacy). Then normalize ',' → '.' in each token before
+  // parseFloat so both decimal styles are always accepted.
+  const splitRe = (DECIMAL_CHAR === ",") ? /[\s;\t]+/ : /[\s,;\t]+/;
   const out = [];
   text.split(/\r?\n/).forEach(line => {
-    line.trim().split(/[\s,;]+/).forEach(tok => {
+    line.trim().split(splitRe).forEach(tok => {
       if (tok === "") return;
-      const v = parseFloat(tok);
+      const v = parseFloat(tok.replace(",", "."));
       if (!Number.isNaN(v)) out.push(v);
     });
   });
@@ -298,8 +312,8 @@ $("dlCsv").onclick = () => {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function fmt(v) { if (!isFinite(v)) return "0"; const r = Math.round(v*1000)/1000; return String(r); }
-function csvFmt(v) { if (!isFinite(v)) return "0"; let s = v.toFixed(CSV_DECIMALS); if (s.indexOf(".") >= 0) s = s.replace(/0+$/,"").replace(/\.$/,""); return s; }
+function fmt(v) { if (!isFinite(v)) return "0"; return NF.format(Math.round(v*1000)/1000); }   // user-locale (e.g. "1,5" on DE)
+function csvFmt(v) { if (!isFinite(v)) return "0"; let s = v.toFixed(CSV_DECIMALS); if (s.indexOf(".") >= 0) s = s.replace(/0+$/,"").replace(/\.$/,""); return s; }   // always "." — matches device fileWriteArray
 function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
 
