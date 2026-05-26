@@ -30,6 +30,7 @@ global float btemp; global float bhumi; global float bpress;                    
 global float atmp;                                                                    // IN: outside
 global float wtemp; global float whumi; global float wco2; global float wtvoc;        // IN: WZ
 global float aztemp; global float azhumi; global float azeco2; global float aztvoc;   // IN: AZ
+global float pwl; global float sip; global float sop; global float bip; global float hip;
 
 // ── Matter endpoint ids (assigned 1..N in matterAdd order) ──
 int licht; int ecklicht;
@@ -39,6 +40,44 @@ int e_aztemp; int e_azhumi; int e_azaq;
 int e_acwz; int e_acsz;
 int tick;
 char resp[256];
+char scratch[256];   // sprintf workspace for the clock header BLOCK below
+
+
+// ═══════════════ BEGIN CLOCK HEADER BLOCK (from examples/clock_header.tc) ═════
+// Reusable WebUI clock header — big green HH:MM:SS + German weekday/date
+// + sunrise/sunset + live-tick "spinner", wrapped in a dark-grey
+// rounded card spanning both columns. See examples/clock_header.tc
+// for the standalone reference. Requires `char scratch[256]` in scope.
+int web_clock_tick = 0;
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    // Single dark-grey rounded card spanning both columns. Two
+    // sprintfs because the full card exceeds 256-byte scratch.
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
+// ═══════════════ END CLOCK HEADER BLOCK ════════════════════════════════════
+
 
 // ── Air-quality enum (0x005B) from a CO2 ppm value ──
 int aq_from_co2(float co2) {
@@ -120,28 +159,32 @@ void TaskLoop() {
         delay(3000);
         poll_aircon("192.168.188.43", e_acsz);    // Schlafzimmer
         delay(57000);                             // ~once per minute
+		lcd_values();
     }
 }
 
 // ── LCD status screen (no-op if no display attached) ──
 int lcd_ready = 0;
 void lcd_labels() {
-    dspClear();
-    dspText("[Ci16f1s1y18x70]Home Bridge");
-    dspText("[f1s1Ci16]");
-    dspText("[x10y60]Aussen:");
-    dspText("[x10y80]Buero T:");
-    dspText("[x10y100]Buero H:");
-    dspText("[x10y120]WZ T:");
-    dspText("[x10y140]WZ CO2:");
+    dspText("[zD0]");
+    dspText("[x0y50h296]");
+    dspText("[f1x15y60]Batterie:");
+    dspText("[f1x15y75]Solar:");
+    dspText("[f1x15y90]Verbrauch:");
+    dspText("[f1x15y105]Netz:");
 }
 void lcd_values() {
     char b[40];
-    sprintf(b, "[Ci5x120y60p-8]%.1f C",  atmp);  dspText(b);
-    sprintf(b, "[Ci5x120y80p-8]%.1f C",  btemp); dspText(b);
-    sprintf(b, "[Ci5x120y100p-8]%.0f %%", bhumi); dspText(b);
-    sprintf(b, "[Ci5x120y120p-8]%.1f C",  wtemp); dspText(b);
-    sprintf(b, "[Ci5x120y140p-8]%.0f",    wco2);  dspText(b);
+	strcpy(b, "[f4x5y10T]");  dspText(b);  // // clock HH:MM
+	strcpy(b, "[f4x155y10tS]");  dspText(b);
+	
+    sprintf(b, "[f2x160y60p-8]%.2f %%", pwl);  dspText(b);
+    sprintf(b, "[f2x170y95p-6]%.1f C",  atmp); dspText(b);
+    sprintf(b, "[f1x85y60p-10]%.2f W", bip); dspText(b);
+    sprintf(b, "[f1x85y75p-10]%.2f W",  sop); dspText(b);
+    sprintf(b, "[f1x85y90p-10]%.2f W",    hip);  dspText(b);
+	sprintf(b, "[f1x85y105p-10]%.2f W",   sip);  dspText(b);
+	strcpy(b, "[d]");  dspText(b);
 }
 
 void EverySecond() {
@@ -154,13 +197,14 @@ void EverySecond() {
 
     if (lcd_ready == 0 && tasm_uptime > 3) { lcd_labels(); lcd_ready = 1; }
     if (lcd_ready) {
-        dspText("[Ci3x10y36T]");                     // clock HH:MM
-        if (tick % 5 == 0) { lcd_values(); }
+        //dspText("[Ci3x10y36T]");                     // clock HH:MM
+       // if (tick % 5 == 0) { lcd_values(); }
     }
 }
 
 // ── Web status page ──
 void WebCall() {
+	web_clock_header();
     char b[80];
     sprintf(b, "{s}<b>Licht</b>{m}%d%%{e}", (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254); webSend(b);
     sprintf(b, "{s}Aussentemperatur{m}%.1f C{e}", atmp);   webSend(b);
