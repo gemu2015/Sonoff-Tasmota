@@ -1123,8 +1123,34 @@ Einfache Kompilierzeit-Konstanten (keine Makro-Expansion):
 - Gueltigkeitsbereich: gesamtes Programm
 - Wertlose Definitionen fuer Bedingungen erlaubt: `#define ESP32`
 
-**Einschraenkungen:**
-- Kein `#include`
+### `#include "filename.tc"`
+
+Fuegt eine andere `.tc`-Datei zur Compile-Zeit ein (Text-Paste vor der
+Praeprozessor-Verarbeitung). Wird genutzt, um Helfer zwischen Skripten zu
+teilen:
+
+```c
+// in sml_chart_pv.tc
+#include "sml_chart_common.tc"      // gemeinsame Chart-Infrastruktur einziehen
+#include "sml_chart_pv_common.tc"   // PV-spezifische Helfer einziehen
+```
+
+**Wie es funktioniert:**
+- Die IDE laedt jede `#include`-Datei aus dem Projekt (bzw. aus dem Geraete-
+  Dateisystem beim Aufruf via `/cedit`), splittet sie textuell an der
+  Direktiven-Position ein und faehrt dann mit `#define` / `#ifdef` / Lexer /
+  Codegen fort.
+- Verschachtelte `#include`-Ketten werden rekursiv aufgeloest. Bereits
+  inkludierte Dateien werden gemerkt, damit `#include`-Zyklen den Compile
+  nicht aufhaengen.
+- Der resultierende `.tcb`-Bytecode enthaelt alles inline — keine
+  Laufzeit-Aufloesung. Umbenennen oder Loeschen einer Header-Datei nach
+  dem Compile beeinflusst ein Geraet, das die fertige `.tcb` laeuft, nicht.
+
+**Pfade:**
+- `#include "foo.tc"` und `#include "/foo.tc"` funktionieren beide — das
+  fuehrende `/` ist toleriert. Aufloesung ist projekt-relativ (IDE) bzw.
+  geraete-FS-relativ (`/cedit`).
 
 ### Funktionsaehnliche Makros
 
@@ -4259,8 +4285,8 @@ int main() {
 | Dynamischer Speicher          | malloc/free        | Auto-Heap fuer Arrays >16 Elemente (kein explizites malloc) |
 | Mehrdimensionale Arrays       | `int a[3][4]`      | **Nicht unterstuetzt**       |
 | Zeichenkettentyp              | `char*`            | Nur `char arr[N]` — keine Zeigerarithmetik |
-| Praeprozessor                 | Volles CPP         | `#define` (Konstanten + funktionsaehnliche Makros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef` (kein `#include`) |
-| Header-Dateien                | `#include`         | **Nicht unterstuetzt**       |
+| Praeprozessor                 | Volles CPP         | `#define` (Konstanten + funktionsaehnliche Makros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef`, `#include "file.tc"` (Text-Paste zur Compile-Zeit, rekursiv, zyklus-sicher) |
+| Header-Dateien                | `#include`         | `#include "file.tc"` unterstuetzt — Text-Paste vor der Praeprozessor-Verarbeitung; Aufloesung ist projekt-relativ (IDE) bzw. geraete-FS-relativ (`/cedit`) |
 | typedef                       | Volle Unterstuetzung | Unterstuetzt: primitive Aliase, benannte Struct-Aliase, anonyme Struct-typedefs, verkettete Aliase, lokale typedefs |
 | `const`                       | Typgeprueft        | Akzeptiert (Dokumentationshinweis, zur Laufzeit nicht erzwungen) |
 | `static` lokale Variablen     | Volle Unterstuetzung | Unterstuetzt: nullinitialisiert, bleibt zwischen Aufrufen erhalten. Nicht-null-Initialisierer werden nicht ausgefuehrt |

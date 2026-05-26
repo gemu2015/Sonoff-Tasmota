@@ -1711,8 +1711,30 @@ Simple compile-time constants (no macro expansion):
 - Scope: entire program
 - Valueless defines allowed for conditionals: `#define ESP32`
 
-**Limitations:**
-- No `#include`
+### `#include "filename.tc"`
+
+Inline another `.tc` file at compile time (text paste, before preprocessing).
+Used to share helpers between scripts:
+
+```c
+// in sml_chart_pv.tc
+#include "sml_chart_common.tc"      // bring in shared chart infrastructure
+#include "sml_chart_pv_common.tc"   // bring in PV-specific helpers
+```
+
+**How it works:**
+- The IDE loads each `#include`d file from the project (or from the device's
+  filesystem when serving via `/cedit`), splices it textually at the directive
+  position, then continues with `#define` / `#ifdef` / lexer / codegen.
+- Nested `#include` chains are followed recursively. Already-included files
+  are remembered so `#include` cycles don't blow the compile up.
+- The resulting `.tcb` bytecode contains everything inlined — no runtime
+  resolution. Renaming or deleting a header after compile doesn't affect a
+  device running the compiled `.tcb`.
+
+**Paths:**
+- `#include "foo.tc"` and `#include "/foo.tc"` both work — leading `/` is
+  tolerated. Resolution is project-relative (IDE) or device-FS-relative (`/cedit`).
 
 ### Function-Like Macros
 
@@ -5402,8 +5424,8 @@ int main() {
 | Dynamic memory           | malloc/free    | Auto heap for arrays >16 elements (no explicit malloc) |
 | Multi-dimensional arrays | Full support   | **2D supported since 1.3.38** — `char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]`. Element access `arr[i][j]`, row passing `func(arr[i])` to 1D array params, `strcpy/strcat/strcmp` on rows, `sprintf("%s", arr[i])` for 2D char. 3D+ **not supported**. 2D literal initialisers (`int m[2][3] = {{1,2,3},{4,5,6}}`) not accepted yet — initialise in `main()` instead |
 | String type              | `char*`        | `char arr[N]` only — no pointer arithmetic. `char name[] = "literal"` size-inferred (since 2026-03). String ops (replace/starts/ends/contains/upper/lower/trim) since 1.5.0 — see [String Operations](#string-operations) |
-| Preprocessor             | Full CPP       | `#define` (constants + function-like macros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef` (no `#include`) |
-| Header files             | `#include`     | **Not supported**            |
+| Preprocessor             | Full CPP       | `#define` (constants + function-like macros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef`, `#include "file.tc"` (text-paste at compile time, recursive, cycle-safe) |
+| Header files             | `#include`     | `#include "file.tc"` supported — text paste before preprocessing; resolution is project-relative (IDE) or device-FS-relative (`/cedit`) |
 | typedef                  | Full support   | Supported: primitive aliases, named struct aliases, anonymous struct typedef, chained aliases, local typedef, function-pointer typedefs (1.4.1+) |
 | `const`                  | Type enforced  | Accepted (documentation hint, not enforced at runtime) |
 | `static` locals          | Full support   | Supported: zero-initialised, persists across calls. Non-zero initialisers not emitted |
