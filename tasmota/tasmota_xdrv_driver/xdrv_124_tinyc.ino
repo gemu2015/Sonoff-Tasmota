@@ -80,6 +80,14 @@ static void (*const TinyCWebOnHandlers[])(void) = {
   // the VM header's mtr* syscall handlers can call them.
   static bool mtrc_ensure_inited(void);   // init the core once (data model live)
   static int  mtrc_request_start(void);   // matterStart(): advertise + commission
+
+  // C-linkage shim so pure-C matter_c.c can call Tasmota's PSRAM-aware
+  // special_malloc helper (the helper itself lives in a .ino, so its symbol
+  // is C++-mangled; a plain `extern void *special_malloc(...)` in a .c TU
+  // wouldn't resolve at link time). matter_init() uses this for the ~22 KB
+  // context so it lives in PSRAM on boards that have PSRAM, freeing
+  // internal DRAM where it matters most.
+  extern "C" void *matter_special_malloc(size_t n) { return special_malloc(n); }
 #endif
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues

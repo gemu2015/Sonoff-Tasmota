@@ -30,6 +30,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>   // calloc/free for the heap-allocated context
+#ifdef ARDUINO_ARCH_ESP32
+// Tasmota helper: heap_caps_malloc(MALLOC_CAP_SPIRAM) if PSRAM is available,
+// plain malloc() otherwise. Routes through a C-linkage shim in xdrv_124_tinyc.ino
+// because the underlying special_malloc() lives in a .ino (C++) TU.
+extern void *matter_special_malloc(size_t n);
+#endif
 
 // ---- module state ------------------------------------------------------
 // One established operational CASE session. Apple Home always opens >=2
@@ -439,11 +445,22 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
     return MATTER_ERR_INVALID_ARG;
 
   // Lazily allocate the (large) context the first time Matter is started.
+  // Prefer PSRAM on boards that have it — the context is ~22 KB and would
+  // otherwise consume a sizeable chunk of internal DRAM on a 4 MB-PSRAM
+  // classic ESP32 (where DRAM is the limiting resource, not PSRAM).
+  // matter_special_malloc is a thin C-linkage shim in xdrv_124_tinyc.ino
+  // that forwards to Tasmota's special_malloc(). On non-PSRAM boards it
+  // returns plain malloc; on the host test harness (no ARDUINO_ARCH_ESP32)
+  // we fall through to libc calloc.
   if (!g_ptr) {
+#ifdef ARDUINO_ARCH_ESP32
+    g_ptr = (matter_ctx_t *)matter_special_malloc(sizeof(matter_ctx_t));
+#else
     g_ptr = (matter_ctx_t *)calloc(1, sizeof(matter_ctx_t));
+#endif
     if (!g_ptr) return MATTER_ERR_NO_MEM;
   }
-  memset(&g, 0, sizeof(g));
+  memset(&g, 0, sizeof(g));   // zero whether we came from PSRAM or DRAM
   g.port = *port;
   g.cfg  = *cfg;
   g.inited = true;
