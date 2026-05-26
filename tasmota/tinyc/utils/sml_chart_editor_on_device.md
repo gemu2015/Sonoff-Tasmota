@@ -14,11 +14,12 @@ device** and edit `/sml_chart.bin` in place — no manual download/upload cycle.
 
 ## Install (one time)
 
-1. **Gzip the editor** to save flash:
-   `gzip -k9 tasmota/tinyc/utils/sml_chart_editor.html` → `sml_chart_editor.html.gz` (~7 KB).
+1. Download the pre-built [`sml_chart_editor.html.gz`](sml_chart_editor.html.gz)
+   (~7 KB) — or use the raw [`sml_chart_editor.html`](sml_chart_editor.html) if
+   you don't mind the larger file. Either works; the route checks `.gz` first
+   and falls back to `.html`.
 2. Open the device's file manager at `http://<device>/ufsd`, click **Upload**,
-   and upload `sml_chart_editor.html.gz` (or the raw `.html` if you don't
-   gzip — both work, the route falls back).
+   and upload the file.
 
 ## Use
 
