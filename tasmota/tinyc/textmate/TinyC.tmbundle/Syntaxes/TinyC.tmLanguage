@@ -273,7 +273,7 @@
 					<key>name</key>
 					<string>entity.name.function.callback.tinyc</string>
 					<key>match</key>
-					<string>\b(EveryLoop|Every50ms|EverySecond|JsonCall|WebCall|WebPage|WebUI|UdpCall|TaskLoop|TouchButton|HomeKitWrite|Command|OnExit)\b</string>
+					<string>\b(BootInit|CleanUp|Command|Event|Every100ms|Every50ms|EveryLoop|EverySecond|HomeKitWrite|JsonCall|MatterInvoke|OnExit|OnInit|OnMqttConnect|OnMqttDisconnect|OnTimeSet|OnWifiConnect|OnWifiDisconnect|TaskLoop|TouchButton|UdpCall|WebCall|WebOn|WebPage|WebUI)\b</string>
 				</dict>
 			</array>
 		</dict>
@@ -285,19 +285,19 @@
 					<key>name</key>
 					<string>support.function.gpio.tinyc</string>
 					<key>match</key>
-					<string>\b(pinMode|digitalWrite|digitalRead|analogRead|analogWrite|gpioInit)\b</string>
+					<string>\b(pinMode|digitalWrite|digitalRead|analogRead|analogWrite|gpioInit|pinFree|peekReg|pokeReg|dmxInit|dmxWrite|rgbLed|setPixels)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.timing.tinyc</string>
 					<key>match</key>
-					<string>\b(delay|delayMicroseconds|millis|micros|timerStart|timerDone|timerStop|timerRemaining)\b</string>
+					<string>\b(delay|delayMicroseconds|millis|micros|timerStart|timerDone|timerStop|timerRemaining|vmStackDepth)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.serial.tinyc</string>
 					<key>match</key>
-					<string>\b(serialBegin|serialPrint|serialPrintInt|serialPrintFloat|serialPrintln|serialRead|serialAvailable|serialClose|serialWriteByte|serialWriteStr|serialWriteBytes)\b</string>
+					<string>\b(serialBegin|serialClose|serialPrint|serialPrintInt|serialPrintFloat|serialPrintln|serialRead|serialAvailable|serialWrite|serialWriteByte|serialWriteBytes)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -309,13 +309,13 @@
 					<key>name</key>
 					<string>support.function.math.tinyc</string>
 					<key>match</key>
-					<string>\b(abs|min|max|map|random|sqrt|sin|cos|floor|ceil|round|exp|log|intBitsToFloat)\b</string>
+					<string>\b(abs|min|max|map|random|sqrt|sin|cos|acos|floor|ceil|round|exp|log|pow|intBitsToFloat)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.string.tinyc</string>
 					<key>match</key>
-					<string>\b(strlen|strcpy|strcat|strcmp|printString|printStr|strToken|strSub|strFind|atoi|atof)\b</string>
+					<string>\b(strlen|strcpy|strcat|strcmp|strToken|strSub|strFind|strReplace|strStartsWith|strEndsWith|strContains|strToUpper|strToLower|strTrim|atoi|atof|strToInt|strToFloat|printString|printStr|LGetString|arrayFill|arrayCopy|sortArray)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -327,13 +327,13 @@
 					<key>name</key>
 					<string>support.function.tasmota.tinyc</string>
 					<key>match</key>
-					<string>\b(tasmCmd|sensorGet|responseAppend|webSend|webFlush|addLog|addCommand|responseCmnd)\b</string>
+					<string>\b(tasmCmd|tasmDefer|tasmInfo|tasmPower|tasmSwitch|tasmCounter|sensorGet|responseAppend|webSend|webFlush|addLog|addLogLevel|addCommand|responseCmnd|pluginQuery|bcall)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.i2c.tinyc</string>
 					<key>match</key>
-					<string>\b(i2cRead8|i2cWrite8|i2cRead|i2cWrite|i2cExists|i2cRead0|i2cWrite0|i2cSetDevice|i2cSetActiveFound)\b</string>
+					<string>\b(i2cRead8|i2cWrite8|i2cRead|i2cWrite|i2cReadRS|i2cExists|i2cRead0|i2cWrite0|i2cSetDevice|i2cSetActiveFound|I2cResetActive)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -343,9 +343,15 @@
 				</dict>
 				<dict>
 					<key>name</key>
+					<string>support.function.i2s.tinyc</string>
+					<key>match</key>
+					<string>\b(i2sBegin|i2sWrite|i2sStop|fileReadPCM16)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
 					<string>support.function.file.tinyc</string>
 					<key>match</key>
-					<string>\b(fileOpen|fileClose|fileRead|fileWrite|fileExists|fileDelete|fileSize|fileFormat|fileMkdir|fileRmdir|fileReadArray|fileWriteArray|fileLog|fileDownload|fileGetStr|fileExtract|fileExtractFast|fsInfo)\b</string>
+					<string>\b(fileOpen|fileClose|fileRead|fileWrite|fileReadBin|fileWriteBin|fileReadArray|fileWriteArray|fileExists|fileDelete|fileSize|fileFormat|fileMkdir|fileRmdir|fileSeek|fileTell|fileLog|fileDownload|fileGetStr|fileOpenDir|fileReadDir|fileRange|fileExtract|fileExtractFast|fsInfo)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -363,19 +369,43 @@
 					<key>name</key>
 					<string>support.function.tcp.tinyc</string>
 					<key>match</key>
-					<string>\b(tcpServer|tcpClose|tcpAvailable|tcpRead|tcpWrite|tcpReadArray|tcpWriteArray)\b</string>
+					<string>\b(tcpServer|tcpClose|tcpAvailable|tcpRead|tcpWrite|tcpReadArray|tcpWriteArray|tcpConnect|tcpDisconnect|tcpConnected|tcpSelect|tcpKeepalive|tcpNoDelay|tcpDisconnectReason|tcpTransact)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.udp.tinyc</string>
 					<key>match</key>
-					<string>\b(udpSend|udpRecv|udpReady|udpSendArray|udpRecvArray|udp)\b</string>
+					<string>\b(udpSend|udpRecv|udpReady|udpSendStr|udpSendArray|udpRecvArray|udp)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.mqtt.tinyc</string>
+					<key>match</key>
+					<string>\b(mqttSubscribe|mqttUnsubscribe|mqttPublish)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.twai.tinyc</string>
+					<key>match</key>
+					<string>\b(twaiBegin|twaiEnd|twaiAvailable|twaiRecv|twaiSend|twaiStatus|twaiFilter)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.crypto.tinyc</string>
+					<key>match</key>
+					<string>\b(aesEcb|aesCbc|hmacSha256|sha256|hex2bin|bin2hex)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.display.tinyc</string>
 					<key>match</key>
-					<string>\b(dspText|dspClear|dspPos|dspFont|dspSize|dspColor|dspDraw|dspPad|dspPixel|dspLine|dspRect|dspFillRect|dspCircle|dspFillCircle|dspHLine|dspVLine|dspRoundRect|dspFillRoundRect|dspTriangle|dspFillTriangle|dspDim|dspOnOff|dspUpdate|dspPicture|dspWidth|dspHeight|dspLoadImage|dspPushImageRect|dspImageWidth|dspImageHeight|dspTextWidth|dspTextHeight|dspImgText)\b</string>
+					<string>\b(dspText|dspClear|dspPos|dspFont|dspSize|dspColor|dspDraw|dspPad|dspPixel|dspLine|dspRect|dspFillRect|dspCircle|dspFillCircle|dspHLine|dspVLine|dspRoundRect|dspFillRoundRect|dspTriangle|dspFillTriangle|dspDim|dspOnOff|dspUpdate|dspPicture|dspWidth|dspHeight|dspLoadImage|dspLoadImageFromCam|dspPushImageRect|dspImageWidth|dspImageHeight|dspImageToCam|dspTextWidth|dspTextHeight|dspImgText|dspImgTextBurn)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.image.tinyc</string>
+					<key>match</key>
+					<string>\b(imgCreate|imgBeginDraw|imgEndDraw|imgClear|imgBlit|imgInvalidate|imgFlush)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -387,13 +417,25 @@
 					<key>name</key>
 					<string>support.function.webui.tinyc</string>
 					<key>match</key>
-					<string>\b(webButton|webSlider|webCheckbox|webText|webNumber|webPulldown|webRadio|webTime|webPageLabel|webPage|webSendFile|webOn|webHandler|webArg)\b</string>
+					<string>\b(webButton|webToggle|webSlider|webCheckbox|webText|webNumber|webPulldown|webRepoPulldown|webRadio|webTime|webPageLabel|webPage|webSendFile|webSendJsonArray|webOn|webHandler|webArg|webConsoleButton|webRawMode|webRawWrite|webKeepAlive|WebChart|WebChartSize|WebChartTimeBase|WebChartJS)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.uikit.tinyc</string>
+					<key>match</key>
+					<string>\b(uiScreen|uiTheme|uiClearScreen|uiLabel|uiLabelSet|uiCheckbox|uiProgress|uiProgressSet|uiGauge|uiIcon|uiButton)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.audio.tinyc</string>
 					<key>match</key>
 					<string>\b(audioVol|audioPlay|audioSay)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.camera.tinyc</string>
+					<key>match</key>
+					<string>\b(camControl|cameraInit)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -405,31 +447,37 @@
 					<key>name</key>
 					<string>support.function.email.tinyc</string>
 					<key>match</key>
-					<string>\b(mailBody|mailAttach|mailSend)\b</string>
+					<string>\b(mailBody|mailAttach|mailAttachPic|mailSend)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.homekit.tinyc</string>
 					<key>match</key>
-					<string>\b(hkSetCode|hkAdd|hkVar|hkReady|hkStart|hkReset|hkStop)\b</string>
+					<string>\b(hkSetCode|hkAdd|hkVar|hkReady|hkStart|hkInit|hkReset|hkStop)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
-					<string>support.function.led.tinyc</string>
+					<string>support.function.matter.tinyc</string>
 					<key>match</key>
-					<string>\b(setPixels)\b</string>
+					<string>\b(matterAdd|matterCluster|matterAttr|matterSet|matterSetFloat|matterEvent|matterGet|matterName|matterStart|matterReset)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.sml.tinyc</string>
 					<key>match</key>
-					<string>\b(smlGet|smlGetStr|smlWrite|smlRead|smlSetBaud|smlSetWStr|smlSetOpt|smlGetV)\b</string>
+					<string>\b(smlGet|smlGetStr|smlGetV|smlWrite|smlRead|smlSetBaud|smlSetWStr|smlSetOptions|smlCopy|smlApplyPins|smlScripterLoad)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
 					<string>support.function.mdns.tinyc</string>
 					<key>match</key>
 					<string>\b(mdnsRegister)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.share.tinyc</string>
+					<key>match</key>
+					<string>\b(shareSetInt|shareGetInt|shareSetFloat|shareSetFloatKey|shareGetFloat|shareSetStr|shareGetStr|shareHas|shareDelete|shareDump|dumpPersist)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
@@ -442,6 +490,12 @@
 					<string>support.function.powerwall.tinyc</string>
 					<key>match</key>
 					<string>\b(pwlRequest|pwlBind|pwlGet|pwlStr)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
+					<string>support.function.task.tinyc</string>
+					<key>match</key>
+					<string>\b(spawnTask|killTask|taskRunning)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
