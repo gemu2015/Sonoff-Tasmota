@@ -5198,7 +5198,18 @@ bool Xdrv124(uint32_t function) {
               snprintf(cmd_str, sizeof(cmd_str), "%s", sub);
             }
 #ifdef ESP32
-            if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+            // 1.6.23 — Andreas's .104 (C3 single-core) saw the HTTP server
+            // hang for ~2:30 min when this lock was portMAX_DELAY and the
+            // VM-task TaskLoop was busy in a shareSetFloat burst. The HTTP
+            // serving task (loopTask on C3) blocked here, AsyncTCP backed
+            // up, and only the 60-s UDP-multicast socket reset recovered
+            // it. Use a bounded try-lock: if the VM is genuinely busy past
+            // 200 ms, bail out and let Tasmota return "Command unknown"
+            // — keeps the web server responsive and the user retries.
+            if (s->vm_mutex &&
+                xSemaphoreTake(s->vm_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+              continue;
+            }
 #endif
             if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32
