@@ -68,6 +68,12 @@
       <input id="file" type="file" accept=".bin,.csv,.dat,.tab,*/*" style="display:none">
     </div>
     <div id="loadmsg" class="msg"></div>
+    <div class="toolbar" style="margin-top:8px">
+      <button class="sec" id="impTas">Import Scripter <code>data.csv</code> (PV)</button>
+      <input id="impTasFile" type="file" accept=".csv,.txt,*/*" style="display:none">
+      <span class="stats" id="impTasMsg"></span>
+    </div>
+    <div class="hint">Migration path from ottelo's <code>2_SML_Chart_PV.tas</code>: the Scripter writes 5 lines (481 / 1441 / 31 / 31 / 24). This button reorders them into the TinyC PV layout (2008 floats, 6 arrays) and selects the <b>pv</b> preset so you can review + Save to device. <code>mcon[24]</code> is split into <code>sml_mcon[12]</code> (consumption) + <code>sml_mprod[12]</code> (production) per the .tas writer order.</div>
   </div>
 
   <div class="card">
@@ -458,6 +464,73 @@ $("resync").onclick = () => { if (lastFloats) renderSegments(); };
 // (43 float file = dprod+mprod, 2008 floats total) and the editor was
 // hard-wired for plain sml_chart.tc's 1965-float layout.
 $("presetSel").addEventListener("change", e => applyPreset(e.target.value));
+
+// ── Scripter data.csv → TinyC sml_chart_pv.bin migration ──────────────────────
+// ottelo's 2_SML_Chart_PV.tas (Scripter) writes 5 lines via fwa():
+//   line 0: s4h    (481)
+//   line 1: s24h   (1441)
+//   line 2: dcon   (31)
+//   line 3: dprod  (31)
+//   line 4: mcon   (24, with [0..11]=consumption, [12..23]=production)
+// The TinyC port (sml_chart_pv.tc) keeps each chart as its own persist[] in a
+// different order: s4h | s24h | dcon | mcon[12] | dprod | mprod[12] = 2008.
+// This importer reads the 5-line CSV, validates the column counts, performs
+// the reorder + the mcon split, and loads the result into the editor with
+// the pv preset selected for review/save.
+const TAS_EXPECT = [481, 1441, 31, 31, 24];
+
+function parseTabFloats(line) {
+  // Scripter writes TAB-separated; accept comma/space too. Treat empty cells
+  // as 0 (the Scripter `fwa()` never emits truly missing cells, but defensive).
+  return line.split(/[\s,;]+/).filter(t => t.length > 0).map(t => {
+    const n = parseFloat(t.replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+function importScripterCsv(text, fname) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 5) {
+    setMsg($("impTasMsg"), `Need 5 non-empty lines (s4h / s24h / dcon / dprod / mcon24); got ${lines.length}.`, "warn");
+    return false;
+  }
+  const rows = lines.slice(0, 5).map(parseTabFloats);
+  for (let i = 0; i < 5; i++) {
+    if (rows[i].length !== TAS_EXPECT[i]) {
+      setMsg($("impTasMsg"),
+        `Line ${i + 1}: expected ${TAS_EXPECT[i]} cols, got ${rows[i].length}. ` +
+        `This doesn't look like ottelo's 2_SML_Chart_PV.tas data.csv.`,
+        "warn");
+      return false;
+    }
+  }
+  // TinyC layout: s4h | s24h | dcon | mcon(=mcon24[0..11]) | dprod | mprod(=mcon24[12..23])
+  const mcon  = rows[4].slice(0, 12);
+  const mprod = rows[4].slice(12, 24);
+  const out = [].concat(rows[0], rows[1], rows[2], mcon, rows[3], mprod);
+  if (out.length !== 2008) {
+    setMsg($("impTasMsg"), `Internal error: produced ${out.length} floats, expected 2008.`, "warn");
+    return false;
+  }
+  applyPreset("pv");
+  lastFloats = out;
+  lastName = (fname || "imported").replace(/\.(csv|txt|dat)$/i, "");
+  renderSegments();
+  setMsg($("impTasMsg"),
+    `Imported ${out.length} floats from "${fname}" — review the arrays below, then Save to device.`,
+    "ok");
+  return true;
+}
+
+$("impTas").addEventListener("click", () => $("impTasFile").click());
+$("impTasFile").addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => importScripterCsv(ev.target.result, f.name);
+  r.readAsText(f);
+  e.target.value = "";   // allow re-picking the same file later
+});
 
 renderSchema();
 </script>
