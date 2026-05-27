@@ -957,17 +957,30 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   ss->peer_sid     = g.case_hs_peer_sid;
   ss->fabric_index = g.case_hs_fabric_index;
   ss->peer_node_id = g.case_hs_peer_node_id;
-  // A controller holds ONE operational session: when it re-establishes CASE
-  // (fresh session id), drop its previous session(s) for the same fabric+node so
-  // the table can't fill with stale duplicates. Without this, a controller that
-  // reconnects repeatedly accumulates slots until the table is full, then new
-  // CASE handshakes evict live sessions -> thrash -> Apple accessories flap
-  // (appear then disappear), especially across two homes.
+  // Drop STALE prior sessions for the same fabric+node so the table can't fill
+  // with duplicates. Previous version evicted EVERY matching session here, which
+  // turned out to be too aggressive: Apple Home opens a fresh CASE handshake
+  // every ~45-60 s in some configurations (.122 captured 72 Sigma1s in 40 min)
+  // and each Sigma3 would nuke Apple's still-active subscription session ->
+  // Apple loses the session -> opens a NEW one immediately -> repeat forever.
+  // After enough churn the Sigma2 builder eventually wedged on a deterministic
+  // state-corruption bug and the device froze.
+  //
+  // New policy: only evict a matching session if it has been quiet for >= 60 s.
+  // - sub_last_ms == 0 (never subscribed): keep — could be a fresh just-opened
+  //   session or a read-only client; LRU at table-full handles real pressure.
+  // - sub_last_ms within 60 s of now: still being used, keep.
+  // - sub_last_ms > 60 s old: actually stale, safe to drop.
+  uint32_t now_ms = g.port.millis(g.port.ctx);
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
     mtrc_case_sess *o = &g.case_sess[i];
-    if (o != ss && o->in_use && o->fabric_index == ss->fabric_index
-        && o->peer_node_id == ss->peer_node_id)
-      memset(o, 0, sizeof(*o));
+    if (o == ss || !o->in_use) continue;
+    if (o->fabric_index != ss->fabric_index) continue;
+    if (o->peer_node_id != ss->peer_node_id) continue;
+    if (o->sub_last_ms == 0) continue;                 // fresh / no-sub: keep
+    if ((uint32_t)(now_ms - o->sub_last_ms) < 60000u)  // active within 60s: keep
+      continue;
+    memset(o, 0, sizeof(*o));
   }
   ss->tx_counter   = (c0 & 0x0FFFFFFF) | 1;   // random, MSB clear, non-zero
   memcpy(ss->i2r, k_i2r, 16);
