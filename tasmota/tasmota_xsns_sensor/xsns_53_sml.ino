@@ -3114,6 +3114,19 @@ uint32_t SML_getscriptsize(char *lp) {
       break;
     }
   }
+  // Silent-fail guard: if the meter-definition terminator (`\n#`) is not found
+  // within METER_DEF_SIZE chars, mlen stays 0 and downstream treats the
+  // definition as empty (maxvars=0, ready=false, no clue why). Loud-fail
+  // instead so the user knows to bump METER_DEF_SIZE. Reported by Andreas
+  // 2026-05-27: spent half an afternoon debugging "SML doesn't start anymore"
+  // after bumping 64→100 registers, root cause was descriptor outgrew the
+  // default 3000.
+  if (mlen == 0) {
+    AddLog(LOG_LEVEL_ERROR,
+           PSTR("SML: meter def exceeds METER_DEF_SIZE=%u (no `\\n#` terminator found) "
+                "— SML will not start. Bump #define METER_DEF_SIZE in your build."),
+           (unsigned)METER_DEF_SIZE);
+  }
   //AddLog(LOG_LEVEL_INFO, PSTR("len=%d"),mlen);
   return mlen;
 }
