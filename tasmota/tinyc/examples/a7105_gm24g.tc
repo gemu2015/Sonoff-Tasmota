@@ -1,0 +1,319 @@
+// a7105_gm24g.tc — A7105 receiver template with datasheet-correct
+// calibration sequence, plus a documented failed reverse-engineering
+// attempt of the GaoMei (高美) GM2.4G ceiling lamp remote protocol.
+//
+// ============================================================================
+// WHY THIS FILE EXISTS (READ BEFORE COPYING)
+// ============================================================================
+//
+// The existing a7105_listen.tc / a7105_scan.tc do NOT do the IF/VCO/Bank
+// calibration that A7105 datasheet §15.1 says is mandatory after every reset.
+// They work for most A7105 traffic because the chip's default calibration
+// state happens to be usable for many protocols, but anything that needs
+// reliable RX on a specific frequency band (TX too) requires the full cal.
+//
+// This file implements the COMPLETE init + cal sequence from the datasheet,
+// useful as a starting point for any A7105 receive/transmit project.
+//
+// ============================================================================
+// GM2.4G CEILING LAMP — REVERSE-ENGINEERING NOTES (failed crack, for posterity)
+// ============================================================================
+//
+// RF layer (from HackRF SDR capture, /tmp/lamp_capture2.iq):
+//   - 100 kbps GFSK, ±50 kHz deviation
+//   - FHSS over A7105 channels 61..66 (2461..2466 MHz, 1 MHz grid)
+//   - Hop dwell 200..500 µs
+//   - Burst 4..11 ms during button press
+//
+// SPI sniff of the original remote (sigrok, /Users/.../gm24g.sr):
+//   - 12 MHz crystal, 16-pin SSOP radio (matches A7105 pinout)
+//   - Writes to reg 0x06 (IDDATA): `06 00 00` then `06 A4 5E`
+//   - Per datasheet §10.6.1 the IDDATA pointer resets at CS-high, so the
+//     captured ID is most likely `A4 5E XX XX` where XX XX are chip default
+//     (or `00 00 A4 5E` if pointer is preserved across CS, alternative interp)
+//   - DATA_RATE, PLL II/V, TX_I/II, CODE_I/II all captured
+//
+// The wall we hit: even with maximum-permissive matcher (wildcard ID 0xAA*4 +
+// ETH=110 + PMDO preamble-only mode), our chip detected ZERO preamble pulses
+// across all 128 channels during continuous button-press. The HackRF clearly
+// saw the lamp transmitting, so RF reaches us — the chip rejects at the very
+// first stage (preamble detection). Most likely the lamp's transmitter is an
+// A7105 *clone* (A7106, A7129, or no-name Chinese variant) with a proprietary
+// preamble pattern or whitening seed that breaks standard A7105 preamble lock.
+//
+// To proceed would require opening the LAMP itself (not the remote) and
+// reading its receiver chip's config — that's the exact config our receiver
+// would need to mirror. Parked here.
+//
+// ============================================================================
+// USAGE
+// ============================================================================
+//
+// Commands (after device boots with this script):
+//   GM SCAN       → camp on ch 61..66, ~300ms each (the lamp's known band)
+//   GM CH N       → camp on a single channel N (0..127)
+//   GM REGS       → dump regs 0x00..0x1F to log
+//   GM LOOSE      → switch ID match to ETH=110 (max permissive — catches noise too)
+//   GM STRICT     → switch ID match to ETH=0   (exact match only)
+//   GM OFF        → stop receiver
+//
+// Wiring (XL7105-SY-B 3-wire SPI module on ESP32-C3):
+//   SCK  -> SPI CLK (bus 1)
+//   MISO -> SDIO direct
+//   MOSI -> SDIO via 1 kΩ resistor (3-wire fight-protection)
+//   SCS  -> GPIO 3
+//   GIO1 -> GPIO 1 (optional, for FSYNC indicator)
+
+#define CS_PIN  3
+#define SLOT    2
+
+// A7105 strobe codes — top 4 bits = state, low 4 bits are don't-care
+#define A7_STB_SLEEP     0x80
+#define A7_STB_IDLE      0x90
+#define A7_STB_STANDBY   0xA0
+#define A7_STB_PLL       0xB0
+#define A7_STB_RX        0xC0
+#define A7_STB_TX        0xD0
+#define A7_STB_RST_WRPTR 0xE0   // 1110xxxx per datasheet §10.4.7
+#define A7_STB_RST_RDPTR 0xF0   // 1111xxxx per datasheet §10.4.8
+
+char spi[20];
+int  cur_ch = 63;
+int  active = 0;
+int  grabs  = 0;
+int  scan_ch = 0;
+int  scan_until = 0;
+
+void a7_strobe(int s) {
+    spi[0] = s & 0xFF;
+    spiTransfer(SLOT, spi, 1, 1);
+}
+
+void a7_write(int addr, int val) {
+    spi[0] = addr & 0x3F;        // bit 7=0 (control reg), bit 6=0 (write)
+    spi[1] = val & 0xFF;
+    spiTransfer(SLOT, spi, 2, 1);
+}
+
+int a7_read(int addr) {
+    spi[0] = 0x40 | (addr & 0x3F);   // bit 6=1 (read)
+    spi[1] = 0x00;
+    spiTransfer(SLOT, spi, 2, 1);
+    return spi[1] & 0xFF;
+}
+
+void a7_reset() {
+    a7_write(0x00, 0x00);   // write 0x00 to MODE → soft reset → STANDBY
+    delay(10);
+}
+
+// Write 4-byte ID in a SINGLE CS-low transaction per datasheet §10.6.1.
+// IDDATA write pointer resets at CS-high, so all 4 bytes must be sent together.
+void a7_write_id(int b0, int b1, int b2, int b3) {
+    spi[0] = 0x06;
+    spi[1] = b0 & 0xFF;
+    spi[2] = b1 & 0xFF;
+    spi[3] = b2 & 0xFF;
+    spi[4] = b3 & 0xFF;
+    spiTransfer(SLOT, spi, 5, 1);
+}
+
+// Full init + IF/VCO/Bank calibration per datasheet §15.1.
+// Returns calibration time in ms (typically 1-3 ms; max 50 ms before timeout).
+int a7_init() {
+    a7_reset();
+
+    // === Step 1: Init all control registers (datasheet §15.1 step 1) ===
+    a7_write(0x01, 0x42);   // MODE_CTRL: ARSSI=1 (auto RSSI), FMS=1 (FIFO mode)
+    a7_write(0x03, 0x0F);   // FIFO_I:    FEP=0x0F → 16-byte payload
+    a7_write(0x0D, 0x05);   // CLOCK:     CSC=01 (/2), XS=1
+    a7_write(0x0E, 0x04);   // DATA_RATE: SDR=4 → 100 kbps with 16 MHz xtal
+                            //   formula: SDR = (Fxtal / target_bps / 32) - 1
+                            //   for 16 MHz xtal: 100k → 4, 250k → 1, 500k → 0
+    a7_write(0x10, 0x9E);   // PLL_II:    default for 2.4 GHz
+    a7_write(0x11, 0x4B);   // PLL_III:   BIP=01001011
+    a7_write(0x12, 0x00);   // PLL_IV
+    a7_write(0x13, 0x02);   // PLL_V:     BFP
+    a7_write(0x14, 0x16);   // TX_I:      FDP=110 → ~93 kHz deviation
+    a7_write(0x15, 0x2B);   // TX_II:     PDV=01 FD=01011
+    a7_write(0x16, 0x12);   // DELAY_I
+    a7_write(0x17, 0x4A);   // DELAY_II:  WSEL=010 (600µs xtal settle)
+    a7_write(0x18, 0x62);   // RX:        BWS=1 → 500 kHz IF bandwidth
+    a7_write(0x19, 0x80);   // RX_GAIN_I: MVGS=1 (manual VGA)
+    a7_write(0x1C, 0x0A);   // RX_GAIN_IV
+    a7_write(0x1E, 0x32);   // ADC_CTRL:  RSM=00 (5 dBm), RSS=1
+    a7_write(0x1F, 0x80);   // CODE_I:    IDL=0 (4-byte ID), PML[7:6]=10 (3B preamble)
+    a7_write(0x20, 0xDF);   // CODE_II:   ETH=110 (3-bit ID tolerance — permissive
+                            //              start; switch via GM STRICT later)
+    a7_write(0x24, 0x13);   // VCO_CURRENT_CAL: MVCS=1 (manual), VCOC[3:0]=0011
+                            //   per datasheet §15.3 step 3
+    a7_write(0x25, 0x04);   // VCO_BAND_CAL_I:  MVBS=0 (auto), MVB[2:0]=100 (default)
+    a7_write(0x26, 0x3B);   // VCO_BAND_CAL_II: VTH=111, VTL=011 (datasheet recommended)
+    a7_write(0x29, 0x47);   // RX_DEM_TEST_I
+
+    // === Set wildcard ID (most permissive — change for production use) ===
+    // For a real protocol, replace with the actual 4-byte ID expected from
+    // the transmitter. GM2.4G capture suggested A4 5E XX XX but couldn't be
+    // verified working (see notes at top of file).
+    a7_write_id(0xAA, 0xAA, 0xAA, 0xAA);
+
+    // Set initial channel BEFORE calibration so VCO calibrates for the
+    // correct frequency band
+    a7_write(0x0F, 63);    // ch 63 = 2463 MHz (mid of lamp's hop range)
+
+    // === Step 2..4: Calibration sequence (datasheet §15.1 step 2..4) ===
+    a7_strobe(A7_STB_STANDBY);
+    delay(2);
+    a7_strobe(A7_STB_PLL);   // chip must be in PLL mode for VCO cal
+    delay(2);
+
+    // Enable IF Filter Bank (FBC=1), VCO Current (VCC=1), VCO Bank (VBC=1)
+    // All three calibrations start simultaneously
+    a7_write(0x02, 0x07);    // CAL_CTRL: bit2=VCC, bit1=VBC, bit0=FBC
+
+    // Step 5..6: Poll for calibration done (FBC/VBC auto-clear; VCC stays set
+    // when in manual mode MVCS=1, which is normal)
+    int t0 = millis();
+    int cal = 0xFF;
+    while (millis() - t0 < 50) {
+        cal = a7_read(0x02);
+        // Auto-cal bits (FBC + VBC) cleared = IF + VCO bank done
+        if ((cal & 0x03) == 0) break;
+    }
+    int cal_time = millis() - t0;
+
+    // Step 6: check calibration pass/fail flags
+    int r22 = a7_read(0x22);     // bit 4 = FBCF (0 = IF cal pass)
+    int r25 = a7_read(0x25);     // bit 3 = VBCF (0 = VCO bank cal pass)
+    int fbcf = (r22 >> 4) & 1;
+    int vbcf = (r25 >> 3) & 1;
+    if (fbcf != 0 || vbcf != 0) {
+        addLog("a7105 CAL FAIL: FBCF=%d VBCF=%d (r22=%02X r25=%02X)",
+               fbcf, vbcf, r22, r25);
+    } else {
+        addLog("a7105 cal OK in %dms (FBCF=0 VBCF=0)", cal_time);
+    }
+
+    // Back to standby — chip is now ready for RX or TX operations
+    a7_strobe(A7_STB_STANDBY);
+    delay(2);
+    return cal_time;
+}
+
+void a7_rx_on(int ch) {
+    a7_strobe(A7_STB_STANDBY);
+    delay(1);
+    a7_write(0x0F, ch & 0xFF);       // PLL_I = channel
+    a7_strobe(A7_STB_PLL);
+    delay(1);
+    a7_strobe(A7_STB_RST_RDPTR);
+    a7_strobe(A7_STB_RX);
+    cur_ch = ch;
+}
+
+void drain_packet() {
+    char pkt[16];
+    a7_strobe(A7_STB_RST_RDPTR);
+    int i = 0;
+    while (i < 16) {
+        spi[0] = 0x40 | 0x05;    // read FIFO_DATA (reg 0x05)
+        spi[1] = 0x00;
+        spiTransfer(SLOT, spi, 2, 1);
+        pkt[i] = spi[1] & 0xFF;
+        i = i + 1;
+    }
+    int crcf = (a7_read(0x00) >> 5) & 1;   // MODE bit 5 = CRC flag (0 = pass)
+    char hex[140];
+    // TinyC has no ternary expression for string args, so log crcf as integer
+    sprintf(hex, "A7105 FRAME #%d ch=%d crcf=%d  %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+        grabs + 1, cur_ch, crcf,
+        pkt[0] & 0xFF, pkt[1] & 0xFF, pkt[2] & 0xFF, pkt[3] & 0xFF,
+        pkt[4] & 0xFF, pkt[5] & 0xFF, pkt[6] & 0xFF, pkt[7] & 0xFF,
+        pkt[8] & 0xFF, pkt[9] & 0xFF, pkt[10] & 0xFF, pkt[11] & 0xFF,
+        pkt[12] & 0xFF, pkt[13] & 0xFF, pkt[14] & 0xFF, pkt[15] & 0xFF);
+    addLog(hex);
+    grabs = grabs + 1;
+}
+
+void EveryLoop() {
+    // Scan-mode channel rotation (every 300ms)
+    if (scan_until > 0) {
+        if (millis() > scan_until) {
+            scan_ch = scan_ch + 1;
+            if (scan_ch > 66) scan_ch = 61;
+            scan_until = millis() + 300;
+            a7_rx_on(scan_ch);
+        }
+    }
+    if (active == 0) return;
+
+    // Poll MODE register — when TRER (bit 0) goes low, a packet has arrived
+    int m = a7_read(0x00);
+    if ((m & 0x01) != 0) return;
+
+    drain_packet();
+    a7_strobe(A7_STB_RX);   // re-arm
+}
+
+void Command(char cmd[]) {
+    char buf[100];
+    if (strFind(cmd, "OFF") >= 0) {
+        active = 0;
+        scan_until = 0;
+        a7_strobe(A7_STB_STANDBY);
+        sprintf(buf, "A7105 off. frames=%d", grabs);
+        responseCmnd(buf);
+    } else if (strFind(cmd, "SCAN") >= 0) {
+        scan_ch = 61;
+        scan_until = millis() + 300;
+        active = 1;
+        grabs = 0;
+        a7_rx_on(scan_ch);
+        responseCmnd("A7105 SCAN started ch 61..66, 300ms each");
+    } else if (strFind(cmd, "REGS") >= 0) {
+        char line[80];
+        int row = 0;
+        while (row < 8) {
+            int v0 = a7_read(row*4 + 0);
+            int v1 = a7_read(row*4 + 1);
+            int v2 = a7_read(row*4 + 2);
+            int v3 = a7_read(row*4 + 3);
+            sprintf(line, "reg[0x%02X..0x%02X] = %02X %02X %02X %02X",
+                    row*4, row*4+3, v0, v1, v2, v3);
+            addLog(line);
+            row = row + 1;
+        }
+        responseCmnd("REGS dumped to log");
+    } else if (strFind(cmd, "LOOSE") >= 0) {
+        a7_strobe(A7_STB_STANDBY); delay(1);
+        a7_write(0x20, 0xDF);
+        responseCmnd("ETH=110 permissive (will catch noise)");
+    } else if (strFind(cmd, "STRICT") >= 0) {
+        a7_strobe(A7_STB_STANDBY); delay(1);
+        a7_write(0x20, 0x07);
+        responseCmnd("ETH=0 exact ID match only");
+    } else if (strFind(cmd, "CH") >= 0) {
+        char arg[8];
+        strSub(arg, cmd, 3, 0);
+        int ch = atoi(arg);
+        if (ch < 0 || ch > 127) ch = 63;
+        a7_rx_on(ch);
+        active = 1;
+        scan_until = 0;
+        grabs = 0;
+        sprintf(buf, "A7105 camping ch=%d", ch);
+        responseCmnd(buf);
+    } else {
+        responseCmnd("Use: GM SCAN | GM CH <n> | GM REGS | GM LOOSE | GM STRICT | GM OFF");
+    }
+}
+
+int main() {
+    spiInit(-1, -1, -1, 1);
+    spiSetCS(SLOT, CS_PIN);
+    delay(100);
+    a7_init();
+    addCommand("GM");
+    addLog("a7105_gm24g loaded. Use 'GM SCAN' / 'GM CH 63' / 'GM REGS'");
+    return 0;
+}
