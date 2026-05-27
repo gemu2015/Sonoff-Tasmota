@@ -2585,6 +2585,22 @@ static IPAddress mtrc_peer_ip6;
 static uint16_t  mtrc_peer_port6 = 0;
 static bool      mtrc_udp_listening = false;
 
+// Per-packet AddLog formatting (`IPAddress::toString()` for IPv6 link-local
+// strings + vsnprintf into Tasmota's LOGSZ stack buffer) overflowed the
+// AsyncTCP task's ~4 KB stack and corrupted the saved RA with format-string
+// bytes — crashed .122 ~hourly with `Instruction access fault` MEPC=RA=ASCII
+// fragments like `,"Ho` / `stname":"ESP` / `rx 42 B` (captured live on serial
+// 2026-05-27 15:34:50, BootCount 290). matter_udp_rx itself was fine on that
+// stack (no crashes in crypto/IM dispatch); the overflow was specifically in
+// the log path. Fix: count packets in the async lambda (no formatting), then
+// log aggregated counters periodically from the main task where 8 KB+ of stack
+// is available. Volatile counters are word-sized → atomic on single-core C6.
+static volatile uint32_t mtrc_rx_pkts  = 0;
+static volatile uint32_t mtrc_rx_bytes = 0;
+static uint32_t          mtrc_rx_pkts_last  = 0;  // last logged value (main task)
+static uint32_t          mtrc_rx_bytes_last = 0;
+static uint32_t          mtrc_rx_log_ms     = 0;  // throttle: emit at most every 5 s
+
 // ---- Matter Invoke deferral queue ----------------------------------------
 // matter_udp_rx() (hence im_handle_invoke -> on_command) runs in the
 // async-tcpip task. Executing the Tasmota command pipeline
@@ -2998,9 +3014,11 @@ static void MatterC_MaybeStart(void) {
         mtrc_peer_ip6   = p.remoteIPv6();
         mtrc_peer_port6 = p.remotePort();
       }
-      AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u B from %s:%u (v6=%d)"),
-             (unsigned)p.length(), mtrc_peer_ip.toString().c_str(),
-             (unsigned)mtrc_peer_port, (int)p.isIPv6());
+      // DO NOT call AddLog here — IPv6 toString() + vsnprintf overflows the
+      // AsyncTCP task's ~4 KB stack (see counter declarations above). Just
+      // bump cheap counters; main loop logs aggregates periodically.
+      mtrc_rx_pkts  += 1;
+      mtrc_rx_bytes += (uint32_t)p.length();
       // Pass the datagram's own IPv6 source so the core can reply to the exact
       // controller (Apple opens several sessions from different addresses).
       // Only IPv6 is trusted (AsyncUDP mis-flags some v6 packets as v4); for a
@@ -5047,6 +5065,24 @@ bool Xdrv124(uint32_t function) {
     case FUNC_LOOP:
 #ifdef USE_MATTER_C
       matter_loop();   // process any queued Matter datagram (PASE responder)
+      // Throttled aggregate log of UDP RX (every 5 s, only if traffic).
+      // Runs on main task → safe stack for the format/log path.
+      {
+        uint32_t now_ms = millis();
+        if ((uint32_t)(now_ms - mtrc_rx_log_ms) >= 5000) {
+          uint32_t pkts  = mtrc_rx_pkts;
+          uint32_t bytes = mtrc_rx_bytes;
+          uint32_t dp = pkts  - mtrc_rx_pkts_last;
+          uint32_t db = bytes - mtrc_rx_bytes_last;
+          if (dp) {
+            AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u pkts / %u B (last 5s)"),
+                   (unsigned)dp, (unsigned)db);
+            mtrc_rx_pkts_last  = pkts;
+            mtrc_rx_bytes_last = bytes;
+          }
+          mtrc_rx_log_ms = now_ms;
+        }
+      }
 #endif
       if (tc_paused) { break; }
       // Deferred autoexec start — one-shot, gated on uptime so we
