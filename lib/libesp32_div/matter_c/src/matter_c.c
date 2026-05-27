@@ -1304,12 +1304,20 @@ static void publish_operational_mdns(const mtrc_fabric *f) {
   if (!g.port.mdns_publish || !f) return;
   char instance[40];
   if (!fabric_op_instance(f, instance, sizeof(instance))) return;
-  static const char *txt[] = { "SII=5000", "SAI=300", "T=0" };
-  g.port.mdns_publish(g.port.ctx, "matter", instance, MTRC_COMMISSION_PORT, txt, 3);
+  // Matter Core Spec §4.3.1.6 — operational mDNS TXT records:
+  //   SII (Session Idle Interval, ms)        MANDATORY
+  //   SAI (Session Active Interval, ms)      MANDATORY
+  //   SAT (Session Active Threshold, ms)     MANDATORY (added 1.3)
+  //   T   (TCP Support, bool: 0=UDP-only)    MANDATORY
+  // Apple Home tolerates SAT missing; Google Nest rejects ("kann nicht
+  // verbinden" right after CASE completes — Hans report 2026-05-27).
+  // Default SAT per spec is 4000 ms.
+  static const char *txt[] = { "SII=5000", "SAI=300", "SAT=4000", "T=0" };
+  g.port.mdns_publish(g.port.ctx, "matter", instance, MTRC_COMMISSION_PORT, txt, 4);
   // Operational discovery is published by the host under _matter._TCP per Core
   // Spec §4.3.1 (transport is still UDP). The host port chooses the proto; this
   // log just reflects the spec'd service type.
-  char m[64]; snprintf(m, sizeof(m), "operational mDNS: _matter._tcp %s", instance);
+  char m[96]; snprintf(m, sizeof(m), "operational mDNS: _matter._tcp %s TXT=SII/SAI/SAT/T", instance);
   mlog(MATTER_LOG_INFO, m);
 }
 
@@ -2169,9 +2177,32 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
   const uint8_t *ipl; size_t ipll;
   static uint8_t pt[1280];
   if (!mtrc_sec_decode(buf, len, rx_key, peer_node_id, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
-    mlog(MATTER_LOG_ERROR, "secured rx: MIC/decrypt failed");
+    // MIC/decrypt failures usually mean wrong key (no session yet for that peer)
+    // OR Google rotated keys silently. Include session id + peer node so we know
+    // which session was tried (helps diagnose "kann nicht verbinden" cases).
+    char em[80];
+    snprintf(em, sizeof(em), "secured rx MIC/decrypt FAIL sid=%u peer=0x%016llX len=%u",
+             (unsigned)mh.session_id, (unsigned long long)peer_node_id, (unsigned)len);
+    mlog(MATTER_LOG_ERROR, em);
     return;
   }
+#ifdef MTRC_DIAG_HANS
+  // Diagnostic build (Hans / Google Nest debugging): dump every decrypted
+  // message with proto/op + first 24 hex bytes of inner payload. Disable in
+  // production — chatty during a subscribe burst.
+  {
+    char hx[64]; int hp = 0;
+    size_t nh = ipll < 24 ? ipll : 24;
+    for (size_t i = 0; i < nh && hp < 58; i++)
+      hp += snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]);
+    char dm[120];
+    snprintf(dm, sizeof(dm),
+             "DIAG secured rx proto=0x%04X op=0x%02X exch=0x%04X plen=%u %s",
+             (unsigned)ph.protocol_id, (unsigned)ph.opcode,
+             (unsigned)ph.exchange_id, (unsigned)ipll, hx);
+    mlog(MATTER_LOG_INFO, dm);
+  }
+#endif
   if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_INVOKE_REQUEST) {
     im_handle_invoke(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_READ_REQUEST) {
