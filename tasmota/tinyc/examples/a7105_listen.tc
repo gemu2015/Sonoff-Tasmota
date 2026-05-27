@@ -1,0 +1,146 @@
+// a7105_listen.tc — background FIFO RX. EveryLoop drains FIFO when packets
+// arrive, frames are addLog'd as they come. Commands are zero-work — they
+// just toggle state, so no instruction-limit / vm_mutex issues.
+//
+// Commands:
+//   GO <ch>  -> tune to channel, start listening
+//   GO       -> same channel as before
+//   OFF      -> stop listening
+//   ST       -> show stats
+
+#define CS_PIN  3
+#define SLOT    2
+#define A7_STB_IDLE 0x90
+#define A7_STB_PLL  0xB0
+#define A7_STB_RX   0xC0
+#define A7_STB_RST_RDPTR 0xE0
+
+char spi[20];
+int  cur_ch = 31;
+int  active = 0;
+int  grabs  = 0;
+
+void a7_strobe(int s) {
+    spi[0] = s & 0xFF;
+    spiTransfer(SLOT, spi, 1, 1);
+}
+
+void a7_write(int addr, int val) {
+    spi[0] = addr & 0x3F;
+    spi[1] = val & 0xFF;
+    spiTransfer(SLOT, spi, 2, 1);
+}
+
+int a7_read(int addr) {
+    spi[0] = 0x40 | (addr & 0x3F);
+    spi[1] = 0x00;
+    spiTransfer(SLOT, spi, 2, 1);
+    return spi[1] & 0xFF;
+}
+
+void a7_reset() {
+    a7_write(0x00, 0x00);
+    delay(10);
+}
+
+void a7_init() {
+    a7_reset();
+    a7_write(0x01, 0x62);
+    a7_write(0x03, 0x0F);
+    a7_write(0x0D, 0x05);
+    a7_write(0x0E, 0x00);
+    a7_write(0x10, 0x9E);
+    a7_write(0x11, 0x4B);
+    a7_write(0x12, 0x00);
+    a7_write(0x13, 0x02);
+    a7_write(0x14, 0x16);
+    a7_write(0x15, 0x2B);
+    a7_write(0x16, 0x12);
+    a7_write(0x17, 0x4A);
+    a7_write(0x18, 0x62);
+    a7_write(0x19, 0x80);
+    a7_write(0x1C, 0x0A);
+    a7_write(0x1E, 0x32);
+    a7_write(0x06, 0xAA);
+    a7_write(0x06, 0xAA);
+    a7_write(0x06, 0xAA);
+    a7_write(0x06, 0xAA);
+    a7_write(0x1F, 0x07);
+    a7_write(0x20, 0x1F);
+}
+
+void a7_rx_on(int ch) {
+    a7_strobe(A7_STB_IDLE);
+    delay(1);
+    a7_write(0x0F, ch & 0xFF);
+    a7_strobe(A7_STB_PLL);
+    delay(1);
+    a7_strobe(A7_STB_RST_RDPTR);
+    a7_strobe(A7_STB_RX);
+    cur_ch = ch;
+}
+
+void EveryLoop() {
+    if (active == 0) return;
+    int m = a7_read(0x00);
+    // TRER bit 0: when 0, RX completed (chip auto-back to PLL state)
+    if ((m & 0x01) != 0) return;
+    // Packet ready — grab it
+    char pkt[16];
+    a7_strobe(A7_STB_RST_RDPTR);
+    int i = 0;
+    while (i < 16) {
+        spi[0] = 0x40 | 0x05;
+        spi[1] = 0x00;
+        spiTransfer(SLOT, spi, 2, 1);
+        pkt[i] = spi[1] & 0xFF;
+        i = i + 1;
+    }
+    int crcf = (m >> 5) & 1;
+    char hex[120];
+    sprintf(hex, "FRAME #%d ch=%d crcf=%d  %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+        grabs + 1, cur_ch, crcf,
+        pkt[0] & 0xFF, pkt[1] & 0xFF, pkt[2] & 0xFF, pkt[3] & 0xFF,
+        pkt[4] & 0xFF, pkt[5] & 0xFF, pkt[6] & 0xFF, pkt[7] & 0xFF,
+        pkt[8] & 0xFF, pkt[9] & 0xFF, pkt[10] & 0xFF, pkt[11] & 0xFF,
+        pkt[12] & 0xFF, pkt[13] & 0xFF, pkt[14] & 0xFF, pkt[15] & 0xFF);
+    addLog(hex);
+    grabs = grabs + 1;
+    // re-arm RX
+    a7_strobe(A7_STB_RX);
+}
+
+void Command(char cmd[]) {
+    char buf[80];
+    if (strFind(cmd, "OFF") >= 0) {
+        active = 0;
+        a7_strobe(A7_STB_IDLE);
+        sprintf(buf, "LSN off. total frames=%d", grabs);
+        responseCmnd(buf);
+    } else if (strFind(cmd, "ST") >= 0) {
+        sprintf(buf, "active=%d ch=%d frames=%d", active, cur_ch, grabs);
+        responseCmnd(buf);
+    } else {
+        // GO [ch]
+        char arg[8];
+        strSub(arg, cmd, 3, 0);
+        int ch = atoi(arg);
+        if (ch < 0 || ch > 127) ch = cur_ch;
+        a7_init();
+        a7_rx_on(ch);
+        grabs = 0;
+        active = 1;
+        sprintf(buf, "LSN on ch=%d  (press remote now)", ch);
+        responseCmnd(buf);
+    }
+}
+
+int main() {
+    spiInit(-1, -1, -1, 1);
+    spiSetCS(SLOT, CS_PIN);
+    delay(50);
+    a7_init();
+    addCommand("LSN");
+    addLog("a7105_listen: LSN GO 31 = start, LSN OFF = stop, LSN ST = stats");
+    return 0;
+}

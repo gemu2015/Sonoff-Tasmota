@@ -1,0 +1,159 @@
+// a7105_scan.tc — AMICCOM A7105 RSSI-scan + init for ceiling-lamp sniffer.
+// Strategy: configure chip with datasheet-recommended defaults, then walk
+// channels 0..127 (2.4 GHz band, 1 MHz step), enter RX briefly on each,
+// read RSSI ADC. When the lamp's remote transmits, the corresponding
+// channel(s) will show a clear RSSI spike → we know which channel to
+// listen on.
+//
+// Strobe codes (from multiprotocol-tx / deviation-tx open-source A7105 drivers):
+//   0x80 SLEEP, 0x90 IDLE, 0xA0 STANDBY, 0xB0 PLL_ON,
+//   0xC0 RX,    0xD0 TX,   0xE0 RST_RDPTR, 0xF0 RST_WRPTR
+// Sent as a single SPI byte with bit 7 = 1.
+//
+// Commands:
+//   SCAN     -> sweep ch 0..127, log RSSI > threshold
+//   RSSI N   -> RSSI on channel N only
+//   DUMP     -> read+log first 16 registers (sanity check)
+
+#define CS_PIN  3
+#define SLOT    2
+#define A7_STB_IDLE 0x90
+#define A7_STB_PLL  0xB0
+#define A7_STB_RX   0xC0
+
+char spi[4];
+
+void a7_strobe(int s) {
+    spi[0] = s & 0xFF;
+    spiTransfer(SLOT, spi, 1, 1);
+}
+
+void a7_write(int addr, int val) {
+    spi[0] = addr & 0x3F;
+    spi[1] = val & 0xFF;
+    spiTransfer(SLOT, spi, 2, 1);
+}
+
+int a7_read(int addr) {
+    spi[0] = 0x40 | (addr & 0x3F);
+    spi[1] = 0x00;
+    spiTransfer(SLOT, spi, 2, 1);
+    return spi[1] & 0xFF;
+}
+
+void a7_reset() {
+    a7_write(0x00, 0x00);
+    delay(10);
+}
+
+// Datasheet-recommended defaults for 250 Kbps GFSK 2.4 GHz, FIFO mode.
+// Most values from A7105 datasheet §9 "Reset / Recommend" columns + the
+// multiprotocol-tx default init table.
+void a7_init() {
+    a7_reset();
+    a7_write(0x01, 0x42);  // Mode Control: ADCM=0 FMS=1(FIFO) WWSE=0 FMT=0 CD=0 AIF=0 ARSSI=1 DDPC=0
+    a7_write(0x03, 0x0F);  // FIFO I: FEP[5:0]=0F -> 16-byte FIFO
+    a7_write(0x0D, 0x05);  // Clock: GRC=0000 CSC=01 CGS=0 XS=1
+    a7_write(0x0E, 0x00);  // Data Rate: SDR=0 -> 500 Kbps if Fsyck=16MHz/32
+    a7_write(0x10, 0x9E);  // PLL II: default
+    a7_write(0x11, 0x4B);  // PLL III: default BIP
+    a7_write(0x12, 0x00);  // PLL IV
+    a7_write(0x13, 0x02);  // PLL V
+    a7_write(0x14, 0x16);  // TX I: FDP=110
+    a7_write(0x15, 0x2B);  // TX II: PDV=01 FD=01011
+    a7_write(0x16, 0x12);  // Delay I
+    a7_write(0x17, 0x4A);  // Delay II: WSEL=010 (600us xtal settle)
+    a7_write(0x18, 0x62);  // RX: RXSM=11 BWS=1 (500 KHz IF)
+    a7_write(0x19, 0x80);  // RX Gain I: MVGS=1 -> manual VGA
+    a7_write(0x1C, 0x0A);  // RX Gain IV: MHC=1 LHC=01
+    a7_write(0x1E, 0x32);  // ADC Control: RSM=00 (5 dBm margin) RSS=1 CDM=0
+    a7_write(0x1F, 0x07);  // Code I: PML=11 (4-byte preamble) IDL=1
+    a7_write(0x20, 0x17);  // Code II: ETH=11 (3-bit ID tolerance — permissive)
+    a7_write(0x29, 0x47);  // Rx DEM test I
+}
+
+// Set channel + start RX. Returns 0 on success.
+void a7_rx_on(int ch) {
+    a7_strobe(A7_STB_IDLE);
+    delay(1);
+    a7_write(0x0F, ch & 0xFF);   // PLL I: CHN
+    a7_strobe(A7_STB_PLL);
+    delay(1);
+    a7_strobe(A7_STB_RX);
+    delay(1);
+}
+
+// Read RSSI ADC. Per datasheet §17, ADC output = ADC[7:0] in register 0x1D
+// when read, after triggering measurement via ADCM bit in 0x01. With ARSSI=1
+// in 0x01, RSSI auto-measures when entering RX.
+int a7_rssi() {
+    delay(2);                      // let ADC complete
+    return a7_read(0x1D);
+}
+
+void Command(char cmd[]) {
+    char buf[120];
+    if (strFind(cmd, "DUMP") >= 0) {
+        a7_init();
+        char line[80];
+        int row = 0;
+        while (row < 16) {
+            int v0 = a7_read(row);
+            int v1 = a7_read(row + 16);
+            sprintf(line, "reg[0x%02X]=0x%02X  reg[0x%02X]=0x%02X", row, v0, row + 16, v1);
+            addLog(line);
+            row = row + 1;
+        }
+        responseCmnd("DUMP done — see log");
+    } else if (strFind(cmd, "SCAN") >= 0) {
+        // A7105 RSSI: LOWER ADC = STRONGER signal. Sweep 0..127, take min of
+        // 5 samples per channel, log channels with min < 0x60 (= strong-ish).
+        a7_init();
+        int ch = 0;
+        int hits = 0;
+        int best_ch = -1;
+        int best_r = 0xFF;
+        while (ch < 128) {
+            a7_rx_on(ch);
+            int r0 = a7_rssi(); int r1 = a7_rssi(); int r2 = a7_rssi();
+            int r3 = a7_rssi(); int r4 = a7_rssi();
+            int rmin = r0;
+            if (r1 < rmin) rmin = r1;
+            if (r2 < rmin) rmin = r2;
+            if (r3 < rmin) rmin = r3;
+            if (r4 < rmin) rmin = r4;
+            if (rmin < best_r) { best_r = rmin; best_ch = ch; }
+            if (rmin < 0x60) {
+                addLog("ch=%d  rssi_min=0x%02X (STRONG)", ch, rmin);
+                hits = hits + 1;
+            }
+            ch = ch + 1;
+        }
+        sprintf(buf, "SCAN done: %d strong ch, best ch=%d rssi=0x%02X (lower=stronger)",
+                hits, best_ch, best_r);
+        responseCmnd(buf);
+    } else if (strFind(cmd, "R") >= 0) {
+        // 'RAD R 42' — single-channel RSSI
+        char arg[8];
+        strSub(arg, cmd, 1, 0);
+        int ch = atoi(arg);
+        a7_init();
+        a7_rx_on(ch);
+        int r = a7_rssi();
+        sprintf(buf, "ch=%d rssi=0x%02X", ch, r);
+        responseCmnd(buf);
+    } else {
+        responseCmnd("Use 'RAD DUMP' or 'RAD SCAN' or 'RAD R <ch>'");
+    }
+}
+
+int main() {
+    spiInit(-1, -1, -1, 1);
+    spiSetCS(SLOT, CS_PIN);
+    delay(50);
+    a7_init();
+    int rb = a7_read(0x06);  // we don't write ID here, so it should be 0
+    addCommand("RAD");
+    addLog("a7105_scan: init done. ID[0]=0x%02X. Use RAD DUMP / RAD SCAN / RAD R <ch>", rb);
+    return 0;
+}

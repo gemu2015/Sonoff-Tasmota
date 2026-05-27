@@ -1,0 +1,71 @@
+// a7105_probe.tc — AMICCOM A7105 alive-check (SPI register R/W round-trip)
+// Use this as step 1 of A7105 bring-up: confirms wiring + SPI + chip alive.
+// Modules sold as "XL7105-SY-B" actually carry an AMICCOM A7105 chip
+// — completely different protocol from nRF24L01 / XL7105 family.
+//
+// Recommended wiring (ESP32-C3 + 3-wire SPI module: SCS,SCK,SDIO,GIO1,GIO2):
+//   SCK  -> SPI CLK   (Tasmota SPI CLK1)
+//   MISO -> SDIO direct
+//   MOSI -> SDIO via 1 kΩ resistor   (3-wire SPI fight-protection)
+//   SCS  -> any free GPIO            (this script uses CS_PIN below)
+//   GIO1 -> optional, any free GPIO  (used by a7105_fsync.tc)
+//
+// SPI command format per A7105 datasheet §9:
+//   Strobe:  byte0 = 0x80 | strobe_code  (no data)
+//   Write:   byte0 = addr (0x00..0x32)   then byte1..N = data
+//   Read:    byte0 = 0x40 | addr         then byte1..N = dummy → data
+//
+// 3-wire SPI is natively supported (same SDIO pin for in/out, auto-direction
+// based on the command bit), so no special config needed.
+//
+// Test:
+//   1. Software reset: write 0x00 to reg 0x00
+//   2. Write 0x5A to ID register byte 0 (reg 0x06, datasheet-recommended)
+//   3. Read reg 0x06 back, expect 0x5A
+//   If readback == 0x5A → chip is ALIVE.
+
+#define CS_PIN  3
+#define SLOT    2
+
+char spi[4];
+
+void a7_write(int addr, int val) {
+    spi[0] = addr & 0x3F;
+    spi[1] = val & 0xFF;
+    spiTransfer(SLOT, spi, 2, 1);
+}
+
+int a7_read(int addr) {
+    spi[0] = 0x40 | (addr & 0x3F);
+    spi[1] = 0x00;
+    spiTransfer(SLOT, spi, 2, 1);
+    return spi[1] & 0xFF;
+}
+
+void a7_reset() {
+    a7_write(0x00, 0x00);   // Mode register, RESETN bits all set -> reset
+    delay(10);
+}
+
+void Command(char cmd[]) {
+    char buf[120];
+    a7_reset();
+    a7_write(0x06, 0x5A);
+    int rb = a7_read(0x06);
+    int mode = a7_read(0x00);
+    sprintf(buf, "after reset+write: ID[0]=0x%02X (expect 0x5A) Mode=0x%02X", rb, mode);
+    responseCmnd(buf);
+}
+
+int main() {
+    spiInit(-1, -1, -1, 1);
+    spiSetCS(SLOT, CS_PIN);
+    delay(50);                  // power/regulator settle
+    a7_reset();
+    a7_write(0x06, 0x5A);
+    int rb = a7_read(0x06);
+    int mode = a7_read(0x00);
+    addCommand("PRB");   // 'A7' collides with a Tasmota built-in
+    addLog("a7105: ID[0] readback=0x%02X (expect 0x5A) Mode=0x%02X", rb, mode);
+    return 0;
+}

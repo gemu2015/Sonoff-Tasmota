@@ -1,0 +1,191 @@
+// a7105_fsync.tc — channel scan using A7105's FSYNC hardware signal.
+// FSYNC fires on GIO1 when the chip's demodulator confirms a valid
+// preamble + ID-match. Loose ID + ETH=3 still accepts many patterns,
+// but it ONLY fires on real-shape packets, not RF noise.
+//
+// Wiring:
+//   A7105 GIO1 -> C3 GPIO 1
+//
+// Commands:
+//   FSC      -> sweep ch 0..127, count FSYNC pulses per channel
+//   FCH N    -> camp on channel N for 5s, report total pulses
+
+#define CS_PIN  3
+#define SLOT    2
+#define FSYNC_PIN 1
+#define A7_STB_IDLE 0x90
+#define A7_STB_PLL  0xB0
+#define A7_STB_RX   0xC0
+
+char spi[4];
+
+void a7_strobe(int s) { spi[0] = s & 0xFF; spiTransfer(SLOT, spi, 1, 1); }
+void a7_write(int a, int v) { spi[0] = a & 0x3F; spi[1] = v & 0xFF; spiTransfer(SLOT, spi, 2, 1); }
+int  a7_read(int a)  { spi[0] = 0x40 | (a & 0x3F); spi[1] = 0; spiTransfer(SLOT, spi, 2, 1); return spi[1] & 0xFF; }
+void a7_reset() { a7_write(0x00, 0x00); delay(10); }
+
+void a7_init() {
+    a7_reset();
+    // Mode Control: FMS=1 (FIFO) so FSYNC fires on ID-match completion
+    a7_write(0x01, 0x62);
+    a7_write(0x03, 0x0F);  // 16-byte FIFO
+    a7_write(0x0D, 0x05);
+    a7_write(0x0E, 0x00);
+    a7_write(0x10, 0x9E);
+    a7_write(0x11, 0x4B);
+    a7_write(0x13, 0x02);
+    a7_write(0x14, 0x16);
+    a7_write(0x15, 0x2B);
+    a7_write(0x16, 0x12);
+    a7_write(0x17, 0x4A);
+    a7_write(0x18, 0x62);
+    a7_write(0x19, 0x80);
+    a7_write(0x1C, 0x0A);
+    a7_write(0x1E, 0x32);
+    // wildcard ID 0xAA*4 (same as listener)
+    a7_write(0x06, 0xAA); a7_write(0x06, 0xAA);
+    a7_write(0x06, 0xAA); a7_write(0x06, 0xAA);
+    // Code Reg I: PML=11 (4-byte preamble) IDL=1
+    a7_write(0x1F, 0x07);
+    // Code Reg II: ETH=11 (3-bit ID tolerance, max permissive)
+    a7_write(0x20, 0x1F);
+    // GIO1 Pin Control I (0x0B): GIO1S=0011 (PMDO = Preamble Detect Output)
+    // PMDO fires BEFORE ID-match step — catches any preamble pattern, no
+    // ID required. Looser than FSYNC but real signal vs noise still distinct.
+    // Bits: [-,-,GIO1S3,GIO1S2,GIO1S1,GIO1S0,GIO1I,GIO1OE]
+    //       =  0  0    0      0      1      1     0     1   = 0x0D
+    a7_write(0x0B, 0x0D);
+}
+
+void a7_rx_on(int ch) {
+    a7_strobe(A7_STB_IDLE); delay(1);
+    a7_write(0x0F, ch & 0xFF);
+    a7_strobe(A7_STB_PLL); delay(1);
+    a7_strobe(A7_STB_RX);
+}
+
+// Count FSYNC rising edges over ~200ms on the current channel.
+int count_fsync_pulses() {
+    int count = 0;
+    int prev = digitalRead(FSYNC_PIN);
+    int t0 = millis();
+    int spins = 0;
+    while (millis() - t0 < 200) {
+        int now = digitalRead(FSYNC_PIN);
+        if (prev == 0 && now == 1) count = count + 1;
+        prev = now;
+        spins = spins + 1;
+        // After a pulse fires, chip auto-leaves RX. Re-arm.
+        if (count > 0 && now == 0) {
+            a7_strobe(A7_STB_RX);
+        }
+    }
+    return count;
+}
+
+// Watch GPIO 1 continuously for 5 seconds on one channel. Logs MAX
+// value seen (1 = pin went high at any moment, 0 = stayed low) and
+// rising-edge count. Runs in EveryLoop chunks to avoid command timeout.
+int watch_ch = -1;
+int watch_t0 = 0;
+int watch_max = 0;
+int watch_edges = 0;
+int watch_prev = 0;
+
+void watch_step() {
+    if (watch_ch < 0) return;
+    if (millis() - watch_t0 >= 5000) {
+        char wb[80];
+        sprintf(wb, "WATCH done ch=%d max_pin=%d rising_edges=%d",
+                watch_ch, watch_max, watch_edges);
+        addLog(wb);
+        watch_ch = -1;
+        return;
+    }
+    // poll many times per EveryLoop call
+    int i = 0;
+    while (i < 200) {
+        int now = digitalRead(FSYNC_PIN);
+        if (now > watch_max) watch_max = now;
+        if (watch_prev == 0 && now == 1) watch_edges = watch_edges + 1;
+        watch_prev = now;
+        i = i + 1;
+    }
+    // periodically re-arm RX (chip leaves RX after a frame)
+    a7_strobe(A7_STB_RX);
+}
+
+int scan_active = 0;
+int scan_ch = 0;
+int scan_best_ch = -1;
+int scan_best = 0;
+
+void EveryLoop() {
+    if (watch_ch >= 0) { watch_step(); return; }
+    if (scan_active == 0) return;
+    if (scan_ch >= 128) {
+        scan_active = 0;
+        addLog("FSC done: best ch=%d pulses=%d", scan_best_ch, scan_best);
+        return;
+    }
+    a7_rx_on(scan_ch);
+    int p = count_fsync_pulses();   // 200ms per ch
+    if (p > scan_best) { scan_best = p; scan_best_ch = scan_ch; }
+    if (p >= 2) addLog("ch=%d FSYNC=%d", scan_ch, p);
+    scan_ch = scan_ch + 1;
+}
+
+void Command(char cmd[]) {
+    char buf[120];
+    if (strFind(cmd, "FCH") >= 0) {
+        // 'FSC FCH <n>' style — camp on one channel briefly via SST command
+        // (kept short, < command timeout)
+        char arg[8];
+        strSub(arg, cmd, 4, 0);
+        int ch = atoi(arg);
+        if (ch < 0 || ch > 127) ch = 31;
+        a7_init();
+        a7_rx_on(ch);
+        int p = count_fsync_pulses();   // 200ms only
+        sprintf(buf, "ch=%d FSYNC_in_200ms=%d", ch, p);
+        responseCmnd(buf);
+    } else if (strFind(cmd, "GO") >= 0) {
+        a7_init();
+        scan_ch = 0; scan_best = 0; scan_best_ch = -1;
+        scan_active = 1;
+        responseCmnd("FSC scan started in background; results in log");
+    } else if (strFind(cmd, "ST") >= 0) {
+        sprintf(buf, "scan_active=%d ch=%d best_ch=%d best=%d",
+                scan_active, scan_ch, scan_best_ch, scan_best);
+        responseCmnd(buf);
+    } else if (strFind(cmd, "WATCH") >= 0 || strFind(cmd, "W ") >= 0) {
+        // FSC W <ch> — camp on channel for 5s, watch GPIO 1; runs in background
+        char arg[8];
+        strSub(arg, cmd, 2, 0);
+        int ch = atoi(arg);
+        if (ch < 0 || ch > 127) ch = 64;
+        a7_init();
+        a7_rx_on(ch);
+        watch_ch = ch;
+        watch_t0 = millis();
+        watch_max = 0;
+        watch_edges = 0;
+        watch_prev = digitalRead(FSYNC_PIN);
+        sprintf(buf, "WATCH started on ch=%d for 5s — press remote NOW", ch);
+        responseCmnd(buf);
+    } else {
+        responseCmnd("FSC GO = scan, FSC ST = status, FSC FCH N = test ch, FSC W N = watch GPIO1 5s");
+    }
+}
+
+int main() {
+    pinMode(FSYNC_PIN, 1);    // INPUT (ESP32 Arduino: INPUT=1)
+    spiInit(-1, -1, -1, 1);
+    spiSetCS(SLOT, CS_PIN);
+    delay(50);
+    a7_init();
+    addCommand("FSC");
+    // also register 'FCH' as separate prefix (no — uses the same handler)
+    addLog("a7105_fsync: GIO1 -> GPIO%d. FSC = scan, FCH N = camp on ch", FSYNC_PIN);
+    return 0;
+}
