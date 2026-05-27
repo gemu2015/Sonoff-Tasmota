@@ -2585,6 +2585,31 @@ static IPAddress mtrc_peer_ip6;
 static uint16_t  mtrc_peer_port6 = 0;
 static bool      mtrc_udp_listening = false;
 
+// ---- Matter UDP RX deferral queue -----------------------------------------
+// AsyncUDP's onPacket lambda runs on the async-tcpip task (~4 KB stack).
+// Doing anything heavy there — AddLog formatting a long IPv6 string, calling
+// matter_udp_rx() which descends into ~5-10 stack frames of crypto + IM
+// dispatch — overflows that stack and corrupts the saved RA with adjacent
+// string fragments. Symptom: device reboots ~hourly under Apple Home
+// subscription load with `Instruction access fault` and MEPC = ASCII bytes
+// from whatever JSON/log line happened to be on the neighbouring main-task
+// stack frame (e.g. `,"Ho` from `"Hostname":"ESP32-C6"`).
+//
+// Fix: the lambda only memcpy's the datagram + metadata into a small SPSC
+// ring; the main loop drains it (FUNC_LOOP) and performs the work — including
+// AddLog and matter_udp_rx — in the safe main-task context.
+struct MtrcUdpRxSlot {
+  uint8_t  ip6[16];      // IPv6 source (zero if v4)
+  uint16_t port;         // source port
+  uint16_t data_len;     // bytes in `data`
+  uint8_t  is_v6;        // 1 = IPv6 (and ip6 valid), 0 = IPv4 fallback
+  uint8_t  reserved;
+  uint8_t  data[1280];   // IPv6 MTU; matter datagrams stay well below this
+};
+#define MTRC_UDP_Q 4                  // 4 × ~1.3 KB = ~5.2 KB heap when active
+static MtrcUdpRxSlot *mtrc_udp_q = nullptr;     // lazy-allocated on first packet
+static volatile uint8_t mtrc_udp_head = 0, mtrc_udp_tail = 0;
+
 // ---- Matter Invoke deferral queue ----------------------------------------
 // matter_udp_rx() (hence im_handle_invoke -> on_command) runs in the
 // async-tcpip task. Executing the Tasmota command pipeline
@@ -2660,6 +2685,42 @@ static bool mtrc_have_matterinvoke(void) {
       if (strcmp(s->vm.callbacks[c].name, "MatterInvoke") == 0) return true;
   }
   return false;
+}
+
+// Drain queued Matter UDP datagrams in the MAIN-LOOP task context (called from
+// FUNC_LOOP, just before matter_loop()). The AsyncUDP onPacket lambda only
+// memcpy's the packet into the ring; all heavy work — AddLog, peer-state
+// update, matter_udp_rx() with its multi-frame crypto + IM dispatch — happens
+// here in the main task's ample stack. Drains all queued packets in one tick
+// so under burst load (Apple Home subscription ACK trains) we don't fall
+// behind by more than one main-loop iteration.
+static void mtrc_udp_drain(void) {
+  if (!mtrc_udp_q) return;
+  while (mtrc_udp_head != mtrc_udp_tail) {
+    MtrcUdpRxSlot *s = &mtrc_udp_q[mtrc_udp_tail];
+    // Reconstruct peer IPAddress for the log line + maintain global peer state
+    // for any code path that still references it (mtrc_p_udp_send fallback).
+    IPAddress peer;
+    if (s->is_v6) {
+      // Carry the STA interface zone so link-local replies have egress scope
+      peer = IPAddress(IPv6, s->ip6, mtrc_peer_ip6.zone());
+      mtrc_peer_ip   = peer;
+      mtrc_peer_ip6  = peer;
+      mtrc_peer_port6 = s->port;
+    } else {
+      // IPv4 fallback (rare on Matter, but handle for completeness)
+      peer = IPAddress(s->ip6[0], s->ip6[1], s->ip6[2], s->ip6[3]);
+      mtrc_peer_ip   = peer;
+    }
+    mtrc_peer_port = s->port;
+
+    AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u B from %s:%u (v6=%d)"),
+           (unsigned)s->data_len, peer.toString().c_str(),
+           (unsigned)s->port, (int)s->is_v6);
+
+    matter_udp_rx(s->ip6, s->port, s->data, s->data_len);
+    mtrc_udp_tail = (uint8_t)((mtrc_udp_tail + 1) % MTRC_UDP_Q);
+  }
 }
 
 // Drain queued Matter Invoke actions in the MAIN-LOOP task context (called from
@@ -2983,31 +3044,42 @@ static void MatterC_MaybeStart(void) {
   }
   if (!Mdns.begun) { StartMdns(); return; }
 
-  // Listen on UDP 5540 for Matter operational/commissioning datagrams and
-  // pump them into the core. (onPacket runs in the async-tcpip task.)
+  // Listen on UDP 5540 for Matter operational/commissioning datagrams.
+  // The onPacket lambda runs on the async-tcpip task with a small (~4 KB)
+  // stack — it MUST stay tiny. So it only memcpy's the datagram + metadata
+  // into mtrc_udp_q (lazy-allocated ~5 KB heap) and returns. The main loop
+  // drains the queue via mtrc_udp_drain() in FUNC_LOOP, where matter_udp_rx
+  // can safely descend through crypto/IM dispatch on the ample main stack.
+  // Previously crashed ~hourly under Apple Home subscription load with
+  // Instruction access fault, RA = ASCII bytes from neighbouring main-task
+  // stack frame (e.g. ',"Ho' from "Hostname":"ESP32-C6").
   if (!mtrc_udp_listening && mtrc_udp.listen(MTRC_COMMISSION_PORT_HOST)) {
     mtrc_udp_listening = true;
     mtrc_udp.onPacket([](AsyncUDPPacket p) {
-      // Matter commissioning/operational traffic from real controllers (Apple,
-      // chip-tool, Google) arrives over IPv6. AsyncUDP's remoteIP() returns
-      // 0.0.0.0 for IPv6 packets, so capture remoteIPv6() and reply there —
-      // otherwise our PASE/CASE responses go nowhere and the controller stalls.
-      mtrc_peer_ip   = p.isIPv6() ? p.remoteIPv6() : p.remoteIP();
-      mtrc_peer_port = p.remotePort();
-      if (p.isIPv6()) {                     // only trust reliably-IPv6 datagrams
-        mtrc_peer_ip6   = p.remoteIPv6();
-        mtrc_peer_port6 = p.remotePort();
+      if (!mtrc_udp_q) {
+        mtrc_udp_q = (MtrcUdpRxSlot *)malloc(sizeof(MtrcUdpRxSlot) * MTRC_UDP_Q);
+        if (!mtrc_udp_q) return;        // alloc failed: drop datagram
       }
-      AddLog(LOG_LEVEL_DEBUG, PSTR("MTR: udp rx %u B from %s:%u (v6=%d)"),
-             (unsigned)p.length(), mtrc_peer_ip.toString().c_str(),
-             (unsigned)mtrc_peer_port, (int)p.isIPv6());
-      // Pass the datagram's own IPv6 source so the core can reply to the exact
-      // controller (Apple opens several sessions from different addresses).
-      // Only IPv6 is trusted (AsyncUDP mis-flags some v6 packets as v4); for a
-      // mis-flagged packet we pass zero -> the host falls back to last-good peer.
-      uint8_t ip6[16] = {0};
-      if (p.isIPv6()) { IPAddress a6 = p.remoteIPv6(); for (int i = 0; i < 16; i++) ip6[i] = a6[i]; }
-      matter_udp_rx(ip6, p.remotePort(), p.data(), p.length());
+      uint8_t nh = (uint8_t)((mtrc_udp_head + 1) % MTRC_UDP_Q);
+      if (nh == mtrc_udp_tail) return;  // ring full: drop (will retry next packet)
+
+      MtrcUdpRxSlot *s = &mtrc_udp_q[mtrc_udp_head];
+      s->port  = p.remotePort();
+      s->is_v6 = p.isIPv6() ? 1 : 0;
+      if (s->is_v6) {
+        IPAddress a6 = p.remoteIPv6();
+        for (int i = 0; i < 16; i++) s->ip6[i] = a6[i];
+      } else {
+        // IPv4 fallback: stash the 4 bytes in ip6[0..3] for the drain to reuse
+        IPAddress a4 = p.remoteIP();
+        s->ip6[0] = a4[0]; s->ip6[1] = a4[1]; s->ip6[2] = a4[2]; s->ip6[3] = a4[3];
+        for (int i = 4; i < 16; i++) s->ip6[i] = 0;
+      }
+      size_t len = p.length();
+      if (len > sizeof(s->data)) len = sizeof(s->data);   // clamp to slot size
+      s->data_len = (uint16_t)len;
+      memcpy(s->data, p.data(), len);
+      mtrc_udp_head = nh;             // publish AFTER all fields are written
     });
     AddLog(LOG_LEVEL_INFO, PSTR("MTR: listening on UDP %u"), MTRC_COMMISSION_PORT_HOST);
   }
@@ -5046,7 +5118,8 @@ bool Xdrv124(uint32_t function) {
   switch (function) {
     case FUNC_LOOP:
 #ifdef USE_MATTER_C
-      matter_loop();   // process any queued Matter datagram (PASE responder)
+      mtrc_udp_drain();  // drain inbound UDP datagrams onto the main task stack
+      matter_loop();     // process any queued Matter datagram (PASE responder)
 #endif
       if (tc_paused) { break; }
       // Deferred autoexec start — one-shot, gated on uptime so we
