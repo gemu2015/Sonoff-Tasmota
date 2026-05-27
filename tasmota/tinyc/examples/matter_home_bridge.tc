@@ -220,6 +220,7 @@ void WebCall() {
     sprintf(b, "{s}AZ CO2{m}%.0f ppm{e}", azeco2);          webSend(b);
     sprintf(b, "{s}Wohnzimmer (Klima){m}%.1f C{e}", matterGet(e_acwz, CLUSTER_TEMP, 0) / 100.0); webSend(b);
     sprintf(b, "{s}Schlafzimmer (Klima){m}%.1f C{e}", matterGet(e_acsz, CLUSTER_TEMP, 0) / 100.0); webSend(b);
+	sprintf(b, "{s}heap{m}%d kb, %d %%{e}", tasm_heap / 1000, tasm_frag);          webSend(b);
 }
 
 // ── endpoint-declaration helpers ──
