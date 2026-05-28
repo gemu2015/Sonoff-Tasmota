@@ -624,6 +624,14 @@ struct METER_DESC {
   uint8_t  ebm_reqlen;
   volatile uint8_t ebm_req;  // request pending — producer sets this LAST
   uint32_t ebm_t0;           // millis() of last state transition (timeout base)
+#ifdef USE_SML_EBUS_ARB
+  uint8_t  ebm_arb;          // 1 = in-firmware arbitration master (soA)
+  uint8_t  eba_bus;          // EBA_BUS_* bus-sequence state
+  uint8_t  eba_phase;        // EBA_* arbitration phase for this meter
+  uint8_t  eba_restart;      // restart-on-clobber counter
+  uint32_t eba_syn_us;       // esp_timer_get_time() at the last observed SYN start
+  uint32_t eba_won, eba_lost, eba_late, eba_restarts;  // diagnostics
+#endif
 #endif
 };
 
@@ -695,6 +703,39 @@ struct METER_DESC  meter_desc[MAX_METERS];
 #define EBM_RESP_TMO     300
 #define EBM_ARB_MAX_RETRY 4
 #define EBM_TX_START     1     // 1 = QQ already placed on bus by ENH_RES_STARTED; set 0 if not
+
+#ifdef USE_SML_EBUS_ARB
+// In-firmware eBUS bus arbitration (soA) — CLEAN-ROOM from the public eBUS spec, NOT copied from any
+// implementation. eBUS facts used: SYN delimiter = 0xAA; a master wanting the bus writes its address
+// (QQ) into the window 4300..4456 us after the SYN start bit (SYN symbol = 4167 us @2400 baud); the
+// line is wired-AND (dominant 0) so the numerically-lowest address wins; arbitration runs in two
+// priority rounds keyed on the address low nibble (same class -> second round). Read back our own
+// byte from the shared wire to learn the winner. This MUST run in a dedicated per-symbol hot path
+// (Eba_OnSymbol), never the ~50 ms SML_Poll loop.
+//
+// Bus sequence (which symbol slot we expect next), advanced per received symbol:
+#define EBA_BUS_IDLE      0   // waiting for the first SYN
+#define EBA_BUS_SYN       1   // saw a SYN; next non-SYN byte is a round-1 master address
+#define EBA_BUS_ADDR1     2   // saw SYN+ADDR; next SYN opens round 2, else bus goes busy
+#define EBA_BUS_SYN2      3   // saw SYN ADDR SYN; next byte is a round-2 master address
+#define EBA_BUS_BUSY      4   // a telegram is in progress (until the next SYN)
+// Arbitration phase for THIS meter:
+#define EBA_OFF           0   // soA not enabled
+#define EBA_IDLE          1   // enabled, nothing to send
+#define EBA_ARMED         2   // telegram staged (ebm_req) — write QQ on the next first-SYN
+#define EBA_R1            3   // wrote QQ in round 1, awaiting read-back
+#define EBA_R2WAIT        4   // tied on priority class — will write QQ in round 2
+#define EBA_R2            5   // wrote QQ in round 2, awaiting read-back
+#define EBA_WON           6   // we own the bus — stream the staged telegram (from byte 1)
+#define EBA_LOST          7   // lost this round — retry on a later SYN
+// Timing (microseconds), per eBUS spec test_1 v1.1.1 section 3.2:
+#define EBA_ARB_MIN_US    4300
+#define EBA_ARB_MAX_US    4456
+#ifndef EBM_ARB_TX_LEAD_US
+#define EBM_ARB_TX_LEAD_US 700  // ESP32-C3 UART write()->wire latency; SCOPE-TUNE per target chip
+#endif
+#define EBA_MAX_RESTART   3     // restart arbitration up to N times if our byte gets clobbered
+#endif // USE_SML_EBUS_ARB
 #endif // USE_SML_EBUS_MASTER
 
 
@@ -1757,15 +1798,103 @@ void Ebm_RxByte(uint32_t meters, uint8_t raw) {
 // Appends the eBUS CRC. Returns 1 = queued, 0 = rejected, -1 = busy. Never touches UART.
 int Ebm_QueueTelegram(uint32_t meter, uint8_t *body, uint8_t len) {
   struct METER_DESC *mp = &meter_desc[meter];
-  if (mp->ebm_enh != 2 && !mp->ebm_raw) { return 0; }  // not enhanced and not raw-test / not ready
+  uint8_t ready = (mp->ebm_enh == 2) || mp->ebm_raw;
+#ifdef USE_SML_EBUS_ARB
+  ready = ready || mp->ebm_arb;
+#endif
+  if (!ready) { return 0; }                            // no active-master mode enabled
   if (mp->ebm_req) { return -1; }                      // a request is already in flight
   if (len < 5 || len > sizeof(mp->ebm_reqbuf) - 1) { return 0; }
   memcpy(mp->ebm_reqbuf, body, len);
   mp->ebm_reqbuf[len] = ebus_CalculateCRC(body, len);  // CRC over QQ..last-data
   mp->ebm_reqlen = len + 1;
+#ifdef USE_SML_EBUS_ARB
+  if (mp->ebm_arb && mp->eba_phase == EBA_IDLE) { mp->eba_phase = EBA_ARMED; mp->eba_restart = 0; }
+#endif
   mp->ebm_req = 1;                                      // publish LAST (cross-task handoff)
   return 1;
 }
+
+#ifdef USE_SML_EBUS_ARB
+// ── In-firmware eBUS arbitration (soA) — CLEAN-ROOM per the public eBUS spec ──────────────────────
+// Write our master address into the spec window 4300..4456 us after the SYN start bit; the
+// EBM_ARB_TX_LEAD_US lead compensates the UART write()->wire latency. Returns 1 if written, else
+// 0 (too late this round). MUST be called from the per-symbol hot path, never the 50 ms loop.
+int Eba_WriteAddr(struct METER_DESC *mp, uint32_t syn_us) {
+  if (!mp->meter_ss) { return 0; }
+  uint32_t since = micros() - syn_us;
+  if (since > EBA_ARB_MAX_US) { mp->eba_late++; return 0; }
+  int32_t wait = (int32_t)EBA_ARB_MIN_US - (int32_t)since - (int32_t)EBM_ARB_TX_LEAD_US;
+  if (wait > 0) { delayMicroseconds((unsigned int)wait); }
+  uint8_t qq = mp->ebm_qq;
+  mp->meter_ss->write(&qq, 1);                          // dominant-0 wired-AND: lowest addr wins
+  return 1;
+}
+
+// We won arbitration: stream the staged telegram from byte 1 (QQ already on the bus), AA/A9-escaped.
+void Eba_StreamTelegram(struct METER_DESC *mp) {
+  if (!mp->meter_ss || mp->ebm_reqlen < 2) { return; }
+  uint8_t tx[2 * sizeof(mp->ebm_reqbuf)];
+  uint16_t n = 0;
+  for (uint8_t i = 1; i < mp->ebm_reqlen; i++) {       // skip QQ (idx 0) — already transmitted
+    uint8_t b = mp->ebm_reqbuf[i];
+    if (b == EBUS_SYNC)      { tx[n++] = EBUS_ESC; tx[n++] = 0x01; }
+    else if (b == EBUS_ESC)  { tx[n++] = EBUS_ESC; tx[n++] = 0x00; }
+    else                     { tx[n++] = b; }
+  }
+  mp->meter_ss->write(tx, n);
+  AddLog(LOG_LEVEL_DEBUG, PSTR("SML: eBUS arb WON qq=%02x -> %u telegram bytes"), mp->ebm_qq, n);
+}
+
+// Per-symbol hot path: feed every received bus symbol here WITH a micros() timestamp taken as close
+// to reception as possible. Runs the two-round arbitration, streams the frame on a win, and forwards
+// the symbol to the passive decoder so reads + the slave response decode normally.
+// NOTE: timing only holds when called from a dedicated RX-event task (Phase 2). The 50 ms loop will
+// always read 'late' — inert because no meter enables soA until bench bring-up.
+void Eba_OnSymbol(uint32_t meters, uint8_t sym, uint32_t now_us) {
+  struct METER_DESC *mp = &meter_desc[meters];
+
+  // 1) read-back resolution — the byte right after our write IS the arbitration winner
+  if (mp->eba_phase == EBA_R1) {
+    if (sym == EBUS_SYNC) {                            // our address got clobbered -> restart
+      if (mp->eba_restart++ < EBA_MAX_RESTART) { mp->eba_restarts++; mp->eba_phase = EBA_ARMED; }
+      else { mp->eba_restart = 0; mp->eba_lost++; mp->eba_phase = EBA_LOST; }
+    } else if (sym == mp->ebm_qq) {                    // read back our own addr -> won round 1
+      mp->eba_won++; mp->eba_phase = EBA_WON;
+    } else if ((sym & 0x0f) == (mp->ebm_qq & 0x0f)) {  // tied priority class -> contest round 2
+      mp->eba_phase = EBA_R2WAIT;
+    } else {                                           // a lower address won -> lost round 1
+      mp->eba_lost++; mp->eba_phase = EBA_LOST;
+    }
+  } else if (mp->eba_phase == EBA_R2) {
+    if (sym == mp->ebm_qq) { mp->eba_won++; mp->eba_phase = EBA_WON; }
+    else { mp->eba_lost++; mp->eba_phase = EBA_LOST; }
+  }
+
+  // 2) SYN bookkeeping + arming the timed address writes
+  if (sym == EBUS_SYNC) {
+    mp->eba_syn_us = now_us;
+    if (mp->eba_phase == EBA_ARMED) {                  // first free SYN with a staged frame
+      mp->eba_phase = Eba_WriteAddr(mp, now_us) ? EBA_R1 : EBA_ARMED;
+    } else if (mp->eba_phase == EBA_R2WAIT) {          // round-2 SYN
+      if (Eba_WriteAddr(mp, now_us)) { mp->eba_phase = EBA_R2; }
+      else { mp->eba_lost++; mp->eba_phase = EBA_LOST; }   // missed our round-2 window
+    }
+  }
+
+  // 3) outcome
+  if (mp->eba_phase == EBA_WON) {
+    Eba_StreamTelegram(mp);
+    mp->ebm_req = 0; mp->eba_restart = 0; mp->eba_phase = EBA_IDLE;
+  } else if (mp->eba_phase == EBA_LOST) {
+    mp->eba_restart = 0;
+    mp->eba_phase = mp->ebm_req ? EBA_ARMED : EBA_IDLE;     // keep retrying while a request stands
+  }
+
+  // 4) always feed the passive decoder (reads + the slave response after we win)
+  ebus_feed_byte(meters, sym);
+}
+#endif // USE_SML_EBUS_ARB
 #endif // USE_SML_EBUS_MASTER
 
 void sml_shift_in(uint32_t meters, uint32_t shard) {
@@ -2100,6 +2229,14 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       }
       break;
     case 'e':
+#ifdef USE_SML_EBUS_ARB
+      // In-firmware arbitration master: route every symbol (with a timestamp) through the
+      // arbitration hot path, which also forwards to ebus_feed_byte. NOTE: real arbitration timing
+      // only holds from a dedicated RX-event task — wiring that (HardwareSerial onReceive +
+      // setRxFIFOFull(1)) is the next phase; from this 50 ms loop it just reads 'late' (inert,
+      // since no meter enables soA until bench bring-up).
+      if (mp->ebm_arb) { Eba_OnSymbol(meters, iob, micros()); break; }
+#endif
       // ebus (passive accumulator refactored into ebus_feed_byte)
       if (ebus_feed_byte(meters, iob)) {
         return;
@@ -3562,6 +3699,17 @@ case '6':
       mp->ebm_raw = 1;
       AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS raw master TEST mode, QQ=%02x"), mp->ebm_qq);
       break;
+#ifdef USE_SML_EBUS_ARB
+    case 'F':   // soF[,QQ] — in-Firmware arbitration master (real multi-master bus)
+      cp++;
+      mp->ebm_qq = 0xff;
+      if (*cp == ',') { cp++; mp->ebm_qq = strtol(cp, &cp, 16); }
+      mp->ebm_arb = 1;
+      mp->eba_phase = EBA_IDLE;
+      mp->eba_bus = EBA_BUS_IDLE;
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS in-firmware arbitration master, QQ=%02x"), mp->ebm_qq);
+      break;
+#endif // USE_SML_EBUS_ARB
 #endif // USE_SML_EBUS_MASTER
 	}
 	return cp;
