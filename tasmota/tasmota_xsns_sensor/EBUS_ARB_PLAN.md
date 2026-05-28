@@ -140,6 +140,38 @@ HW for in-firmware arbitration, and it sits on a REAL eBUS with the Wolf master(
 4. Build + OTA .150; run the read-only ladder §5. Tune the lead constant on a scope.
 5. License/attribution decision before any upstream PR.
 
+## 6b. Andreas's live bus (.104) — concrete targets, from his validated catalog (2026-05-28)
+NOTE: the opt-in shipped as **`soF`** (the planned `soA` collided with the USE_SML_DECRYPT option).
+Andreas mailed a Vaillant register catalog **validated against the real aroTHERM + an active ebusd**,
+which independently confirms this whole approach (§3.5/§4.0 of his doc: "Tasmota-SML is passive, the
+TX-master half is missing... SYN-byte arbitration, lowest address wins, loser waits for next SYN +
+retries, no bus crash" = exactly `Eba_OnSymbol`).
+
+- **Device map (Slave = Master+5):** HMU(WP) `03/08` · sensoCOMFORT VRC720 `10/15` · VWZIO `71/76`
+  · NETX2 internet-poller `f1/f6` (snoops most reads passively) · ebusd `31`. Six live masters.
+- **Our master address (QQ) on .104: `73`** (also 77/7F) — verified **0× in a 1 h dump = free**.
+  NOT 70/71 (71 = VWZIO, busy). eBUS master addresses must have the right bit-parity (00,01,03,07,0F,
+  10,11,13,17,1F,30,31,33,37,3F,70,71,73,77,7F,F0,F1,F3,F7,FF).
+- **Arbitration is inherently SAFE here:** Vaillant masters `03/10/31/f1` are all **lower than `73`**
+  → they always win, Tasmota `73` yields + retries next slot → we can never pre-empt the heat-pump
+  control. Re-verify `73` is free with a fresh `sensor53 d1` dump before each active session (a service
+  tech could dock a tool on it).
+- **b514 diagnostic read targets** (passively unreadable; need the active master). Telegram per his
+  §4.4: `QQ=73 ZZ=08 B5 14 <ID> 03 FF FF` + CRC → slave replies; our firmware appends the CRC.
+  | Diag | ID (after B5 14) | Decoder | Tasmota pattern |
+  |------|------------------|---------|-----------------|
+  | **T1.130 Heizstab-VL** | `0582` | SIN/10 °C | `x2ssSS@10` (IGN:2 then signed16/10) |
+  | HE-Vorlauf T.0.40 | `0528` | UIN/10 °C | `x2uuUU@10` |
+  | HE-Rücklauf T.0.41 | `0529` | UIN/10 °C | `x2uuUU@10` |
+  | HE-Durchfluss T.0.43 | `052b` | UIN l/h | `x2uuUU@1` |
+  | Heizstab-STB T.1.124 | `057c` | UCH 0/1 | `x2uu@1` |
+  CONFIRM the target slave with Andreas: §4.4 example uses `ZZ=08` (HMU) but `300 §D` says the Heizstab
+  values live on slave `76` (VWZIO, `76.vwzio.csv`). One of the two answers `b514 058203ffff` — ask him.
+- **Cross-check oracle:** his HA-ebusd (read-only `find`/`info`, never `read`/`write`) at
+  `192.168.56.123:8888` is ground-truth for comparing whatever our master decodes.
+- **Phase-2 verification can run read-only on .104 directly** (in addition to .150) — because Tasmota@73
+  yields to Vaillant, a read-only `b514` query cannot disrupt the live system. Andreas runs it.
+
 ## 7. Out of scope / deferred
 - Writes to a real bus (clock-write on .150 only after read works, and even then optional — the user's
   rule is reads are the goal; the clock harness already proved the write encoder).
