@@ -54,6 +54,7 @@ configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 | `-DTINYC_HOMEKIT` | Enable Apple HomeKit support (**≈+152 KB flash**) | **S3/16 MB only** by policy — links on 4 MB but leaves too little headroom (see Flash Budget) |
 | `-DTINYC_MATTER` | Enable Matter (`USE_MATTER_C`, pure-C engine). **Mutually exclusive with `-DTINYC_HOMEKIT`** — same build slot; the gate enables one or the other. Crypto rides on the resident BearSSL, so the incremental flash is modest. | Opt-in (e.g. the `tinyc32c6-matter` env) |
 | `-DTINYC_CAMERA` | Enable integrated camera driver (ESP32/S3 only, not RISC-V) — **≈+42 KB flash** | ESP32/S3 builds |
+| `-DUSE_TINYC_BLE` | Enable BLE scripting (scan + GATT client). Pulls in `USE_BLE_ESP32` (the common-BLE driver) — **≈+292 KB flash / +9 KB RAM**. Requires NimBLE-capable framework (BT enabled in sdkconfig) and `-DCONFIG_NIMBLE_CPP_IDF` globally. ESP32 family only. Off → BLE builtins are runtime no-ops | Opt-in (e.g. the `tinyc32s3-ble` env) |
 | `-DTINYC_NO_DISPLAY` | Exclude display support (~80 KB flash saved) | Optional |
 
 ## Flash Budget (measured, `tinyc32-4M` — classic ESP32 4 MB, the tightest target)
@@ -68,6 +69,7 @@ Numbers below are measured firmware deltas on this env (commit-era 1.6.8):
 | **TinyC subsystem itself** | **≈196 KB** | hand-measured; full driver — VM + ~70 syscalls + web widgets + IDE serving + bridges (not the bare interpreter, which is tiny) |
 | HomeKit (`-DTINYC_HOMEKIT`) | **+152 KB** | technically fits 4 MB (→ ≈108 KB free) but leaves too little headroom — see rule of thumb |
 | Camera (`-DTINYC_CAMERA`) | +42 KB | cheap; keep it |
+| BLE (`-DUSE_TINYC_BLE` → `USE_BLE_ESP32`) | **+292 KB** (+≈9 KB RAM) | the heaviest optional subsystem — pulls in NimBLE. Too big for the 4 MB ESP32 alongside the full TinyC stack; use S3/16 MB (env `tinyc32s3-ble` drops Matter/camera for headroom). Off by default |
 | TinyC IDE blob (`tinyc_ide.html.gz`) | ~165 KB | lives on the **filesystem partition, not app0** — does *not* count against the 1856 KB ceiling |
 
 **Rule of thumb:** on 4 MB ESP32 (Tensilica), TinyC (~196 KB) is the single
@@ -107,6 +109,7 @@ them on firmware built without the flag will fail to compile in the IDE
 | `-DTINYC_CAMERA` (`USE_TINYC_CAMERA`) | `cameraInit`, `camControl`, `dspLoadImageFromCam`, `dspImageToCam` |
 | `-DTINYC_HOMEKIT` (`USE_HOMEKIT`) | `hkInit`, `hkAdd`, `hkStart`, `hkStop`, `hkReset`, `hkReady`, `hkVar`, `hkSetCode`, `HomeKitWrite` callback |
 | `-DTINYC_MATTER` (`USE_MATTER_C`) | `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart`, `MatterInvoke` callback (replaces HomeKit — same slot) |
+| `-DUSE_TINYC_BLE` (`USE_BLE_ESP32`) | `bleScan`, `bleScanStop`, `bleNext`, `bleMac`, `bleAddrType`, `bleRssi`, `bleName`, `bleMfg`, `bleTarget`, `bleReadStart`, `bleWriteStart`, `bleDone`, `bleResult`. Unlike the camera/HomeKit builtins these are always present in the IDE compiler (scripts compile anywhere) and simply no-op at runtime on a non-BLE build |
 
 Since the 4 MB / C3 pre-built firmware ships **without** HomeKit, the `hk*`
 builtins are unavailable there — use an S3/16 MB build for HomeKit scripts.

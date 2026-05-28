@@ -103,6 +103,7 @@ Callbacks run automatically from Tasmota's main loop:
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_pheap`, `tasm_maxblock`, `tasm_frag`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
 **HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + `HomeKitWrite(dev, var, val)` callback
 **Matter (ESP32, `USE_MATTER_C`):** `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart` + `MatterInvoke(ep, cluster, cmd)` callback — declare Matter endpoints (plug, light, sensors) from a script; the pure-C `matter_c` engine handles commissioning + the Interaction Model. Mutually exclusive with HomeKit (same build slot). See `examples/matter_plug.tc`, `matter_rgb.tc`
+**Bluetooth LE (ESP32, `USE_TINYC_BLE`):** scan — `bleScan`, `bleScanStop`, `bleNext`, `bleMac`, `bleAddrType`, `bleRssi`, `bleName`, `bleMfg`; GATT client — `bleTarget`, `bleReadStart`, `bleWriteStart`, `bleDone`, `bleResult`. Built on the common-BLE driver (`USE_BLE_ESP32`, ≈+292 KB flash); non-blocking (poll in `TaskLoop`); auto-enables BLE (no `SetOption115`). See `examples/ble_scan.tc`
 **LED Strip:** `setPixels(array, len, offset)` — WS2812/NeoPixel strip; `rgbLed(gpio, 0xRRGGBB)` — single on-board WS2812
 **I2S Audio:** `i2sBegin(bclk, lrclk, dout, rate)`, `i2sWrite(pcm, frames)`, `i2sStop` — raw PCM streaming (e.g. WAV playback with `fileReadPCM16`)
 **DMX512 (ESP32 via RMT):** `dmxInit(gpio)`, `dmxWrite(channel, value)` — TX-only, hardware-clocked BREAK/MAB/250 kbaud 8N2, 16 slots default (`TC_DMX_SLOTS`), 30 s all-zero watchdog. No UART consumed
@@ -186,6 +187,7 @@ See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 - **dysv17f** — DY-SV17F MP3 player (serial TX, console commands)
 - **ld2410** — mmWave presence sensor
 - **camera** / **webcam** / **webcam_tinyc** — ESP32 camera drivers
+- **ble_scan** — BLE advertisement scanner + device-filter template (`USE_TINYC_BLE`)
 - **sml_ebus** — Smart Meter Language / eBUS
 
 **Energy & Automation:**

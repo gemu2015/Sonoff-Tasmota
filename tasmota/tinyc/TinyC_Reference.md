@@ -4849,6 +4849,7 @@ Motivating use case: TinyC scripts speaking the **Tuya local protocol** (v3.3 = 
 | `int aesCbc(char key[], char iv[], char data[], int len, int enc_flag)` | AES-128-CBC in-place. `key` and `iv` are 16 bytes each. `len` must be a multiple of 16. Stack-allocates up to 4 KB; falls back to malloc above. Returns 1=ok, 0=err |
 | `int hmacSha256(char key[], int klen, char data[], int dlen, char out[])` | HMAC-SHA256. `key` ≤ 1024 B, `data` ≤ 4 KB, `out` must be ≥ 32 B. Returns 1=ok |
 | `int sha256(char data[], int dlen, char out[])` | SHA-256 of `data[0..dlen-1]` into `out[0..31]`. Returns 1=ok |
+| `int md5(char data[], int dlen, char out[])` | MD5 of `data[0..dlen-1]` into `out[0..15]` (16-byte digest). Returns 1=ok, 0=err (incl. if MD5 is disabled in the mbedtls config). For legacy key-derivation (e.g. the Tuya BLE handshake) — not for new security designs |
 | `int hex2bin(char hex[], int hex_len, char out[])` | Decode hex string → bytes. Returns bytes written (= `hex_len / 2`). Tolerates odd hex_len by truncating the trailing nibble |
 | `int bin2hex(char bin[], int bin_len, char out[])` | Encode bytes → lowercase hex string. Writes `bin_len * 2` chars + NUL terminator. Returns chars written (excluding NUL) |
 
@@ -4882,6 +4883,84 @@ hmacSha256(key, 32, data, strlen(data), actual_sig);
 int ok = 1;
 for (int i = 0; i < 32; i = i + 1) {
     if (actual_sig[i] != expected_sig[i]) { ok = 0; break; }
+}
+```
+
+### Bluetooth LE (ESP32)
+
+Scan BLE advertisements and act as a GATT **client** (connect / read / write / subscribe to
+notifications). Built on Tasmota's common-BLE driver (`xdrv_79`), so it shares one radio with the
+MI32 / iBeacon scanners. **Requires a firmware built with `USE_TINYC_BLE`** (which pulls in
+`USE_BLE_ESP32` ≈ **+292 KB flash / +9 KB RAM**). On a build without it, every BLE builtin is a
+no-op returning a sentinel (`0` / `-1`). ESP32 family only (no ESP8266). The first `bleScan()`
+enables BLE at runtime — no `SetOption115` needed. GATT **server** (advertising as a peripheral) is
+not provided.
+
+**Threading:** advertisement and GATT-completion callbacks run on the NimBLE/main task, never on the
+VM. They publish into small buffers; your script drains them in `TaskLoop()` — so the API is
+**non-blocking** (poll, don't wait).
+
+**Scan / observe** — start a scan, then pull queued adverts one at a time:
+
+| Function | Description |
+|---|---|
+| `int bleScan(int ms)` | Start capturing adverts into a ring. `ms` > 0 auto-stops after that many ms; `ms = 0` runs until `bleScanStop()`. Clears the queue. Returns 1 |
+| `int bleScanStop()` | Stop capturing. Returns 1 |
+| `int bleNext()` | Pop the next queued advert into the "current" slot. Returns 1 if one was available, 0 if the queue is empty. Call the getters below for the current advert |
+| `int bleMac(char buf[])` | Write the current advert's 6 MAC bytes into `buf[0..5]` (display order, MSB first). Returns 6 |
+| `int bleAddrType()` | Address type of the current advert: 0 = public, 1/2/3 = random. Needed to connect |
+| `int bleRssi()` | RSSI of the current advert in dBm (negative) |
+| `int bleName(char buf[])` | Copy the advert's local name into `buf` (NUL-terminated). Returns the length (0 if none) |
+| `int bleMfg(char buf[])` | Copy the manufacturer-specific data bytes into `buf`. Returns the length. The first two bytes are the company ID, little-endian (e.g. `buf[0]=0xD0, buf[1]=0x06` → 0x06D0) |
+
+**GATT client** — set a target, then start one read or write transaction and poll for completion.
+Each transaction is one connect → (optional write) → (optional subscribe-and-wait-one-notification)
+→ disconnect:
+
+| Function | Description |
+|---|---|
+| `int bleTarget(char mac[], int addrtype, int svc16)` | Set the GATT target: 6 MAC bytes (display order, as from `bleMac()`), address type (from `bleAddrType()`), and the 16-bit service UUID (e.g. `0x180D`). Returns 1 |
+| `int bleReadStart(int notify16)` | Connect to the target, subscribe to notify characteristic `notify16` under the service, and wait for one notification. Returns 1 = started, < 0 = busy/err. Poll `bleDone()` |
+| `int bleWriteStart(int chr16, char buf[], int len)` | Connect to the target and write `buf[0..len-1]` to characteristic `chr16`. Returns 1 = started, < 0 = busy/err. Poll `bleDone()` |
+| `int bleDone()` | Poll the in-flight transaction: 0 = still running, > 0 = done (the value is the result length in bytes), < 0 = failed (negative xdrv_79 state code, e.g. -5 = service not found, -8 = notify timeout, -11 = connect failed) |
+| `int bleResult(char buf[])` | After `bleDone() > 0`, copy the received notification/read bytes into `buf`. Returns the length |
+
+Only one GATT transaction is in flight at a time (single half-duplex slot). Devices using a **random**
+address rotate it between sessions — re-discover by manufacturer-id / name each time and connect to
+the address currently advertised; never hardcode the MAC.
+
+**Diagnostics:** the console command `BLEDebug 1` makes the common-BLE driver dump a device's actual
+services + characteristics when a requested service isn't found — handy when bringing up a new device
+whose UUIDs you don't know yet.
+
+See `examples/ble_scan.tc` for a full scanner with a device-filter template.
+
+```c
+// Read a notification from a BLE peripheral (service 0x180D, notify char 0x2A37)
+char nm[40]; int mac[8]; char frame[40]; int st;
+
+int main() { st = 0; bleScan(0); return 0; }       // start scanning
+
+void TaskLoop() {
+  if (st == 0) {                                    // discover by name, then connect
+    if (bleNext()) {
+      bleName(nm);
+      if (strFind(nm, "MyDevice") >= 0) {
+        bleMac(mac); int t = bleAddrType();
+        bleScanStop();
+        bleTarget(mac, t, 0x180D);
+        if (bleReadStart(0x2a37) == 1) { st = 1; }
+      }
+    }
+  } else if (st == 1) {                             // wait for the notification
+    int d = bleDone();
+    if (d > 0) {
+      int n = bleResult(frame);
+      char m[64]; sprintf(m, "got %d bytes, b0=%02x", n, frame[0]); addLog(m);
+      st = 2;
+    } else if (d < 0) { st = 0; bleScan(0); }       // failed — rescan
+  }
+  delay(250);
 }
 ```
 
