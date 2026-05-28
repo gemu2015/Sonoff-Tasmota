@@ -190,7 +190,8 @@ void lcd_values() {
 void EverySecond() {
     tick = tick + 1;
 
-    if (tasm_hour == 1 && tasm_uptime > 4000) { char r[16]; tasmCmd("Restart 1", r); }
+	// longtime stable now, no longer needed 
+    //if (tasm_hour == 1 && tasm_uptime > 4000) { char r[16]; tasmCmd("Restart 1", r); }
 
     if (tick % 5 == 0) { pull_sensors(); }           // received globals -> Matter attrs (every 5s)
     // Daikin polling moved to TaskLoop() — httpGet must not block EverySecond.
