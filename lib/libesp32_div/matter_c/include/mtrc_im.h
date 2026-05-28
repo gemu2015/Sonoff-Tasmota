@@ -39,6 +39,7 @@ extern "C" {
 #define MTRC_IM_WRITE_RESPONSE      0x07
 #define MTRC_IM_INVOKE_REQUEST      0x08
 #define MTRC_IM_INVOKE_RESPONSE     0x09
+#define MTRC_IM_TIMED_REQUEST       0x0A
 
 // Parse the first command path out of an InvokeRequest payload (CommandPath
 // list {0:endpoint,1:cluster,2:command}). Returns 1, fills out, or 0.

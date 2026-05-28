@@ -1043,6 +1043,15 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
   ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = reliable; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
+#ifdef MTRC_DIAG_HANS
+  // TX twin of the "DIAG secured rx" line — shows what the device sends (e.g. the
+  // StatusResponse op=0x01 answering a TimedRequest, and InvokeResponses). -DMTRC_DIAG_HANS.
+  { char dt[96]; snprintf(dt, sizeof(dt),
+      "DIAG secured tx proto=0x%04X op=0x%02X exch=0x%04X plen=%u%s%s",
+      (unsigned)protocol_id, (unsigned)opcode, (unsigned)exch, (unsigned)plen,
+      reliable ? " R" : "", has_ack ? " ack" : "");
+    mlog(MATTER_LOG_INFO, dt); }
+#endif
   static uint8_t out[1280];
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
   if (n > 0 && g.port.udp_send)
@@ -2211,6 +2220,18 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
     im_handle_subscribe(ipl, ipll, ph.exchange_id, mh.msg_counter);
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_WRITE_REQUEST) {
     im_handle_write(ipl, ipll, ph.exchange_id, mh.msg_counter);
+  } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_TIMED_REQUEST) {
+    // Timed interaction (Core Spec §8.7): the controller sends TimedRequest{0:timeoutMs}
+    // before a timed Invoke/Write. We MUST reply with a StatusResponse(SUCCESS); the actual
+    // Invoke/Write then arrives on the SAME exchange and is handled by the branches above.
+    // Google Nest uses a timed interaction in its post-CASE setup; Apple Home does not — so
+    // without this the Nest stalls (no follow-up, retries the TimedRequest, then reports
+    // "device can't be added"). This device has no command requiring strict timed gating, so
+    // the follow-up is accepted unconditionally (timeout value not enforced).
+    static const uint8_t sr[] = { 0x15, 0x24, 0x00, 0x00, 0x24, 0xFF, 0x0C, 0x18 }; // {0:SUCCESS, 0xFF:IMrev=12}
+    secured_send(MTRC_IM_STATUS_RESPONSE, MTRC_PROTO_IM, sr, sizeof(sr),
+                 ph.exchange_id, true, mh.msg_counter, true);
+    mlog(MATTER_LOG_INFO, "IM TimedRequest -> StatusResponse SUCCESS");
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE
              && g.rpt_active) {
     // Flow control for a chunked ReportData: the controller StatusResponses each
