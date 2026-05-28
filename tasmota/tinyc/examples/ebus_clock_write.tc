@@ -1,0 +1,45 @@
+// ebus_clock_write.tc — .39 eBUS active-master WRITE test (Mac<->.39 UART harness).
+//
+// Pairs with the SML emulator's "EBus responder (active-master write test)" mode and the
+// .39 descriptor that has `1,=soR,FF` on an 'e' meter (see sml_meter.def.39ebus).
+//
+// Pressing the button calls smlWrite(1, ...) with a 0700 date/time CLOCK broadcast
+// (QQ=0F ZZ=FE PB=07 SB=00 NN=09 | temp 00 80 | HH MM SS | DD MM WD YY). The firmware
+// appends the eBUS CRC8, AA/A9-escapes it, and blind-tx's it on the next bus SYN. The
+// emulator un-escapes it, checks the CRC and logs e.g.  "EBus RX broadcast ... CLOCK
+// 28.05.26 12:34:56". SAFE: a clock broadcast touches no solar register.
+//
+// The fixed test value below (12:34:56  28.05.2026, weekday Thu=4) makes the round-trip
+// obvious in the emulator log. Edit `tele` to send a different time.
+
+int  c_send;            // web button (toggles on press)
+int  c_send_prev;
+int  n_sent;            // how many telegrams we've fired
+char tele[40];          // QQ ZZ PB SB NN + 9 data bytes, NO CRC (firmware adds it)
+
+int main() {
+  // 0F FE 07 00 09 | 00 80 | 12 34 56 | 28 05 04 26
+  strcpy(tele, "0FFE070009008012345628050426");
+  n_sent = 0;
+  addLog("ebus_clock_write: ready — press the button to send a 0700 clock broadcast");
+  return 0;
+}
+
+void TaskLoop() {
+  if (c_send != c_send_prev) {
+    c_send_prev = c_send;
+    int rc = smlWrite(1, tele);          // meter 1 (the 'e' meter), 1-based
+    n_sent = n_sent + 1;
+    char m[80];
+    sprintf(m, "ebus_clock_write: smlWrite rc=%d  (%s)", rc, tele);
+    addLog(m);
+  }
+  delay(200);
+}
+
+void WebCall() {
+  char m[96];
+  sprintf(m, "{s}<b>eBUS clock write</b>{m}%d sent{e}", n_sent); webSend(m);
+  sprintf(m, "{s}Telegram{m}%s{e}", tele); webSend(m);
+  webSend("<tr><td colspan=2>"); webButton(c_send, "Send 0700 clock broadcast"); webSend("</td></tr>");
+}

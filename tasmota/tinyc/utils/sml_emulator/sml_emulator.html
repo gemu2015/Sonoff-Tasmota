@@ -276,6 +276,7 @@ input:focus, select:focus { border-color: #7eb8f7; }
           <option value="mbus">M-Bus (heat meter)</option>
           <option value="obis">OBIS ASCII</option>
           <option value="modbus">Modbus RTU (slave)</option>
+          <option value="ebus_resp">EBus responder (active-master write test)</option>
         </select>
       </div>
       <div>
@@ -806,6 +807,7 @@ async function loadRepoMeterList() {
 async function loadRepoDescriptor(filename) {
   if (!filename) {
     repoState = null;
+    window.repoState = repoState;   // expose for the Python bridge (it reads window.repoState)
     document.getElementById('repoConfigDisplay').style.display = 'none';
     document.getElementById('repoValuesForm').style.display    = 'none';
     document.getElementById('repoUnsupported').style.display   = 'none';
@@ -833,6 +835,7 @@ async function loadRepoDescriptor(filename) {
     const text = await resp.text();
     repoState = parseSmlDescriptor(text);
     repoState.rawText = text;             // keep for the descriptor-view textarea
+    window.repoState = repoState;         // expose for the Python bridge (it reads window.repoState)
     repoRender();
   } catch (e) {
     log('err', `Repo descriptor fetch failed: ${e.message}`);
@@ -1045,8 +1048,12 @@ function parseSmlDescriptor(text) {
       // VBus: voN<type>[@bN] patterns (offset+type or bit field).
       isValid = /^vo\d+/.test(obisCleaned);
     } else if (state.proto === 'e') {
-      // EBus: hex literal + skips + 1-2 byte value spec (`uu`/`ss`/etc.).
-      isValid = /^[0-9a-fA-FuUsSxX]+$/.test(obisCleaned) && obisCleaned.length >= 4;
+      // EBus: hex literal + skips + value spec (`uu`/`ss`/etc.), plus the
+      // named decode tokens the DUT understands: `bcd`N and the 0700 clock
+      // fields ETIME/EDATE (need the letters b,c,d,T,I,M,E,D,A — E/D/A/b/c/d
+      // are already hex, so we add T,I,M). Without these the clock lines were
+      // silently dropped here and no 0700 telegram was ever generated.
+      isValid = /^[0-9a-fA-FuUsSxXTIMbcd]+$/.test(obisCleaned) && obisCleaned.length >= 4;
     } else if (state.proto === 'c') {
       // CAN: pattern is [id:4B][dlc:1B][data…] hex with U/u/S/s/x/X/f/F
       // value placeholders. Letter case is SIGNIFICANT (endianness) so,
@@ -1546,6 +1553,16 @@ document.getElementById('btnConnect').onclick = async () => {
     } else {
       baud = +document.getElementById('selBaud').value;
     }
+    // EBus is ALWAYS 2400 8N1 — force it for every eBus mode (responder, heater-bus
+    // replay 'ebus', or a repo descriptor with proto 'e'). Otherwise non-repo eBus modes
+    // fall back to the selBaud dropdown (default 9600). Also reflect it in the dropdown.
+    {
+      const _p = document.getElementById('selProto')?.value || '';
+      if (_p.indexOf('ebus') === 0 || (repoState && repoState.proto === 'e')) {
+        baud = 2400;
+        const _b = document.getElementById('selBaud'); if (_b) _b.value = '2400';
+      }
+    }
     port = await navigator.serial.requestPort();
     await port.open(serialConfig(baud));
     writer = port.writable.getWriter();
@@ -1594,6 +1611,10 @@ function setConn(ok) {
       document.getElementById('modbusStatus').style.color = '#7a9cbf';
       document.getElementById('modbusStatus').textContent = 'Connect serial port — IEC 62056-21 mode (300→9600 baud)';
     }
+  } else if (isEBusResponder()) {
+    // Active-master write test: we play the bus (SYN + verify the DUT's telegrams).
+    if (ok) { startEBusResponder(); }
+    else    { stopEBusResponder(); }
   } else {
     document.getElementById('btnStart').disabled = !ok;
     document.getElementById('btnOnce').disabled  = !ok;
@@ -1606,7 +1627,7 @@ function startSending() {
   // Kamstrup (in bridge mode) also runs server-side — the Python state
   // machine watches the RX stream for poll frames and answers them. Browser
   // doesn't push frames here.
-  if (isTcpProfile() || isModbusRtu() || isT510() || isKamstrup()) return;
+  if (isTcpProfile() || isModbusRtu() || isT510() || isKamstrup() || isEBusResponder()) return;
   // CAN repo profile: the Python _can_runner answers polls / broadcasts
   // server-side over the SLCAN bridge (started on Connect, fed by the
   // 1 s pushCanCfg interval). The browser must NOT run the sendFrame
@@ -1629,6 +1650,7 @@ function startSending() {
 function stopSending() {
   if (modbusRunning) { stopModbusSlave(); }
   if (t510Running)   { stopT510Listener(); }
+  if (ebusRespRunning) { stopEBusResponder(); }
   clearInterval(sendTimer); sendTimer = null;
   clearInterval(progTimer); progTimer = null;
   const f = document.getElementById('progFill');
@@ -2664,6 +2686,26 @@ function encodeShiftItemBytes(pattern, value) {
     }
     // xx single skip
     if (/^[xX][xX]/.test(p)) { out.push(0); p = p.substring(2); continue; }
+    // EBus clock fields — xsns_53 decode tokens ETIME / EDATE (added for the
+    // 0700 date/time service). Emit the current LOCAL time/date in eBus BCD so
+    // the DUT's clock-read descriptor shows a live value:
+    //   ETIME = BTI: 3 BCD bytes HH MM SS (hours-first)
+    //   EDATE = BDA: 4 BCD bytes DD MM WD YY (day-first, WD 1=Mon..7=Sun)
+    if (/^ETIME/i.test(p)) {
+      const d = new Date();
+      const bcd = n => ((Math.floor(n / 10) << 4) | (n % 10)) & 0xFF;
+      out.push(bcd(d.getHours()), bcd(d.getMinutes()), bcd(d.getSeconds()));
+      p = p.substring(5);
+      continue;
+    }
+    if (/^EDATE/i.test(p)) {
+      const d = new Date();
+      const bcd = n => ((Math.floor(n / 10) << 4) | (n % 10)) & 0xFF;
+      const wd = (d.getDay() === 0) ? 7 : d.getDay();
+      out.push(bcd(d.getDate()), bcd(d.getMonth() + 1), bcd(wd), bcd(d.getFullYear() % 100));
+      p = p.substring(5);
+      continue;
+    }
     // Numeric / float specs — try longest first (8 chars before 4)
     const m8 = p.match(/^(ffffffff|FFFFFFFF|FFFFffff|UUuuUUuu|SSssSSss|uuUUuuUU|ssSSssSS)/);
     if (m8) {
@@ -2836,15 +2878,38 @@ function buildVBusFrameRepo() {
 // receiver a chance to anchor each one in sequence as the buffer slides.
 function buildEBusFrameRepo() {
   if (!repoState || repoState.proto !== 'e' || repoState.items.length === 0) return [];
-  // Same encoder as shift mode — pattern bytes with placeholders filled.
-  const out = [];
+  // Each descriptor value line is an eBus MATCH pattern starting at QQ:
+  //   QQ ZZ PB SB NN data… (the QQ/ZZ/NN slots are usually `xx` wildcards → 0).
+  // encodeShiftItemBytes() fills the value placeholders but leaves NN at 0 and
+  // appends NO CRC, so xsns_53's strict parser (reads NN=byte[4], validates
+  // CRC8 at byte[NN+5]) rejected every frame with "ebus crc error". Build a
+  // real telegram per item: fix NN = data length, append the eBus CRC8, then
+  // escape payload+CRC and terminate with an (unescaped) SYN — identical wire
+  // format to buildEbusOneFrame(), which the DUT already decodes.
+  // Items that share one PB/SB telegram (Collector+Storage+Pump on 5017,
+  // ClockTime+ClockDate on 0700) are MERGED into a single frame: each item's
+  // encoded bytes place its value at its own offset and 0 elsewhere, so OR-ing
+  // them lands every value in one telegram. (Emitting them separately would make
+  // each line read 0 at the others' offsets.) Grouping key = PB/SB (bytes 2,3).
+  const groups = new Map();   // "PBSB" -> merged byte array (QQ ZZ PB SB NN-slot data…)
   for (const it of repoState.items) {
     const wire = (typeof it.value === 'number') ? it.value * (it.scale || 1) : 0;
     const bytes = encodeShiftItemBytes(it.obis, wire);
-    for (const b of bytes) out.push(b);
-    // EBus uses 0xAA as inter-frame separator — adding it between items
-    // keeps the matcher from accidentally aligning across them.
-    out.push(0xAA);
+    if (bytes.length < 5) continue;                     // not a full eBus header
+    const key = (bytes[2] << 8) | bytes[3];             // PB SB
+    let merged = groups.get(key);
+    if (!merged) { merged = []; groups.set(key, merged); }
+    for (let i = 0; i < bytes.length; i++) {
+      merged[i] = (i < merged.length ? merged[i] : 0) | bytes[i];
+    }
+  }
+  const out = [];
+  for (const body of groups.values()) {
+    if (body.length < 5) continue;
+    body[4] = body.length - 5;                          // NN = data byte count (pattern had a wildcard here)
+    const crc = ebusFrameCRC(body);                     // CRC8 poly 0x9B over QQ..last-data (matches xsns_53)
+    for (const b of ebusEscape([...body, crc])) out.push(b);
+    out.push(0xAA);                                     // SYN terminates the frame (not escaped)
   }
   return out;
 }
@@ -3411,7 +3476,119 @@ function buildEBusFrame() {
   solarData[12] = (storage >> 8) & 0xFF;
   const f3 = buildEbusOneFrame(0x07, 0xFE, 0x50, 0x17, solarData);
 
-  return [...f1, ...f2, ...f3];
+  // Frame 4 — date/time clock broadcast (QQ=0f ZZ=fe PB=07 SB=00 NN=09):
+  //   temp(2) | time HH MM SS (3 BCD) | date DD MM WD YY (4 BCD)
+  // so the DUT's ETIME/EDATE clock-read descriptor (the 0700 service) decodes
+  // ClockTime/ClockDate. Uses the Mac's current local time.
+  const now = new Date();
+  const bcd = n => ((Math.floor(n / 10) << 4) | (n % 10)) & 0xFF;
+  const wd  = (now.getDay() === 0) ? 7 : now.getDay();    // eBus weekday 1=Mon..7=Sun
+  const clockData = [
+    0x00, 0x80,                                            // temp (unused by clock descriptor)
+    bcd(now.getHours()), bcd(now.getMinutes()), bcd(now.getSeconds()),
+    bcd(now.getDate()), bcd(now.getMonth() + 1), bcd(wd), bcd(now.getFullYear() % 100),
+  ];
+  const f4 = buildEbusOneFrame(0x0F, 0xFE, 0x07, 0x00, clockData);
+
+  return [...f1, ...f2, ...f3, ...f4];
+}
+
+// ─── EBus RESPONDER — active-master WRITE test (no real bus / no transceiver) ──
+//
+// Direct Mac↔DUT UART (2400 8N1, two wires = full-duplex). The Tasmota DUT
+// (xsns_53 active eBus master, in its "wait-for-SYN-then-send" test mode) WRITES
+// telegrams; we play the bus: emit idle SYN (0xAA) on Mac→DUT so the DUT sees a
+// free bus, and on DUT→Mac we receive each telegram, un-escape it, validate the
+// eBus CRC8 and decode/verify it. Primary target: the `0f fe 0700` clock
+// broadcast (the agreed SAFE write — no solar register is touched). Reuses the
+// existing eBus CRC (ebusFrameCRC) and mirrors startModbusSlave's Web-Serial loop.
+//
+// Caveat (physics): a 2-wire UART is full-duplex, a real eBus is one shared wire,
+// so this can't reproduce multi-master electrical arbitration (collision/echo) —
+// the DUT must send without echo-based arbitration. It DOES verify everything
+// above the bit layer: framing, escaping, CRC, and the master send path.
+// TODO: master→slave (ZZ != 0xFE) query responses (ACK 0x00 + NN' data' CRC').
+let ebusRespRunning = false, ebusRespReader = null, ebusSynTimer = null;
+let ebusRawSeg = [], ebusRespFrames = 0;
+
+function isEBusResponder() {
+  return document.getElementById('selProto').value === 'ebus_resp';
+}
+
+function ebusUnescape(seg) {           // reverse of ebusEscape(): A9 01->AA, A9 00->A9
+  const out = [];
+  for (let i = 0; i < seg.length; i++) {
+    if (seg[i] === 0xA9 && i + 1 < seg.length) { i++; out.push(seg[i] === 0x01 ? 0xAA : 0xA9); }
+    else out.push(seg[i]);
+  }
+  return out;
+}
+function ebusBcd(b) { return (b >> 4) * 10 + (b & 0x0F); }
+const hx2 = b => b.toString(16).padStart(2, '0');
+
+function handleEbusTelegram(f) {       // f = [QQ ZZ PB SB NN data..(NN).. CRC] (un-escaped)
+  if (f.length < 6) return;
+  const NN = f[4];
+  if (f.length < 5 + NN + 1) {         // incomplete / not a real telegram boundary
+    log('rx', 'EBus RX runt: ' + f.map(hx2).join(' '));
+    return;
+  }
+  const body = f.slice(0, 5 + NN), crc = f[5 + NN], calc = ebusFrameCRC(body);
+  const wire = f.slice(0, 5 + NN + 1).map(hx2).join(' ');
+  const qq = f[0], zz = f[1], pb = f[2], sb = f[3];
+  ebusRespFrames++;
+  if (calc !== crc) {
+    log('err', `EBus RX BAD CRC (got ${hx2(crc)} want ${hx2(calc)}): ${wire}`);
+    setModbusStatus('#e0a030', `● EBus responder — ${ebusRespFrames} telegram(s), last CRC FAIL`);
+    return;
+  }
+  let note = '';
+  if (pb === 0x07 && sb === 0x00 && NN >= 9) {   // date/time service = clock write
+    const d = f.slice(5);  // [NN-implied data] — Wolf 0700: temp(2) time HH MM SS(3) date DD MM WD YY(4)
+    note = `  CLOCK ${hx2(ebusBcd(d[5]))}.${hx2(ebusBcd(d[6]))}.${ebusBcd(d[8])} `
+         + `${hx2(ebusBcd(d[2]))}:${hx2(ebusBcd(d[3]))}:${hx2(ebusBcd(d[4]))}`;
+  }
+  const kind = (zz === 0xFE) ? 'broadcast' : `MS->0x${hx2(zz)}`;
+  log('rx', `EBus RX ${kind} QQ=0x${hx2(qq)} PB=0x${hx2(pb)} SB=0x${hx2(sb)} NN=${NN} CRC ok  [${wire}]${note}`);
+  setModbusStatus('#4caf50', `● EBus responder — ${ebusRespFrames} telegram(s) OK, last 0x${hx2(pb)}${hx2(sb)}${note ? ' (clock)' : ''}`);
+  // (MS query response would go here — emit ACK 0x00 + slave message; broadcast = no reply.)
+}
+
+async function startEBusResponder() {
+  if (!port || ebusRespRunning) return;
+  ebusRespRunning = true; ebusRawSeg = []; ebusRespFrames = 0;
+  setModbusStatus('#4caf50', '● EBus responder — SYN on the bus, waiting for the DUT to write…');
+  log('info', 'EBus responder started — idle SYN @ ~40 ms; verifies the DUT master writes (e.g. 0f fe 0700 clock)');
+  ebusSynTimer = setInterval(() => { try { if (writer) writer.write(new Uint8Array([0xAA])); } catch (e) {} }, 40);
+  const reader = port.readable.getReader();
+  ebusRespReader = reader;
+  try {
+    while (ebusRespRunning) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      for (const b of value) {
+        if (b === 0xAA) {              // SYN = telegram delimiter on the wire
+          if (ebusRawSeg.length) { handleEbusTelegram(ebusUnescape(ebusRawSeg)); ebusRawSeg = []; }
+        } else {
+          ebusRawSeg.push(b);
+          if (ebusRawSeg.length > 64) ebusRawSeg = [];   // runaway guard
+        }
+      }
+    }
+  } catch (e) {
+    if (ebusRespRunning) log('err', 'EBus responder read error: ' + e.message);
+  } finally {
+    try { reader.releaseLock(); } catch (e) {}
+  }
+}
+
+function stopEBusResponder() {
+  ebusRespRunning = false;
+  if (ebusSynTimer) { clearInterval(ebusSynTimer); ebusSynTimer = null; }
+  try { if (ebusRespReader) ebusRespReader.cancel(); } catch (e) {}
+  ebusRespReader = null;
+  setModbusStatus('#7a9cbf', 'Connect serial port — EBus responder starts automatically');
 }
 
 // ─── M-BUS BUILDER (Sensus Pollucom F heat meter) ────────────────────────────

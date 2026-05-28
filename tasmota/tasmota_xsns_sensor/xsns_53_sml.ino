@@ -609,6 +609,22 @@ struct METER_DESC {
 #ifdef ESP32
   int8_t uart_index;
 #endif
+#ifdef USE_SML_EBUS_MASTER
+  uint8_t  ebm_enh;          // 0=off, 1=requested (handshaking), 2=confirmed enhanced
+  uint8_t  ebm_raw;          // 1 = raw active-master TEST mode (no adapter/arbitration; Mac-UART harness)
+  uint8_t  ebm_qq;           // our master address (QQ)
+  uint8_t  ebm_state;        // EBM_* state
+  uint8_t  ebm_retry;        // arbitration / init retry counter
+  uint8_t  ebm_haveb1;       // 1 = a pending enhanced byte1 is held
+  uint8_t  ebm_b1;           // the pending enhanced byte1
+  uint8_t  ebm_txbuf[48];    // active telegram QQ..CRC (main task owns)
+  uint8_t  ebm_txlen;        // bytes in ebm_txbuf incl. CRC
+  uint8_t  ebm_txpos;        // next byte index to push to the adapter
+  uint8_t  ebm_reqbuf[48];   // staging buffer (producer fills, incl. CRC)
+  uint8_t  ebm_reqlen;
+  volatile uint8_t ebm_req;  // request pending — producer sets this LAST
+  uint32_t ebm_t0;           // millis() of last state transition (timeout base)
+#endif
 };
 
 
@@ -637,6 +653,49 @@ struct METER_DESC  meter_desc[MAX_METERS];
 #define SML_SYNC		0x77
 #define EBUS_SYNC		0xaa
 #define EBUS_ESC    0xa9
+
+#ifdef USE_SML_EBUS_MASTER
+// ebusd "enhanced protocol" — the eBUS adapter (https://adapter.ebusd.eu) does the
+// timing-critical bus arbitration itself; the host exchanges 2-byte protocol symbols.
+//   byte1 = ENH_BYTE1 | (cmd<<2) | ((data&0xc0)>>6)
+//   byte2 = ENH_BYTE2 | (data&0x3f)
+#define ENH_BYTE_FLAG    0x80
+#define ENH_BYTE_MASK    0xc0
+#define ENH_BYTE1        0xc0
+#define ENH_BYTE2        0x80
+// host -> device
+#define ENH_REQ_INIT     0x0
+#define ENH_REQ_SEND     0x1
+#define ENH_REQ_START    0x2
+#define ENH_REQ_INFO     0x3
+// device -> host
+#define ENH_RES_RESETTED 0x0
+#define ENH_RES_RECEIVED 0x1
+#define ENH_RES_STARTED  0x2
+#define ENH_RES_INFO     0x3
+#define ENH_RES_FAILED   0xa
+#define ENH_RES_ERR_EBUS 0xb
+#define ENH_RES_ERR_HOST 0xc
+// active-master state machine
+#define EBM_OFF          0
+#define EBM_NEED_INIT    1
+#define EBM_INIT_WAIT    2
+#define EBM_IDLE         3
+#define EBM_ARB_REQ      4
+#define EBM_AWAIT_RESP   5
+#define EBM_RELEASE      6
+// events
+#define EBM_EV_TICK      0
+#define EBM_EV_ARB_WON   1
+#define EBM_EV_ARB_LOST  2
+#define EBM_EV_ERR       3
+// tuning (ms / counts)
+#define EBM_INIT_TMO     1500
+#define EBM_ARB_TMO      150
+#define EBM_RESP_TMO     300
+#define EBM_ARB_MAX_RETRY 4
+#define EBM_TX_START     1     // 1 = QQ already placed on bus by ENH_RES_STARTED; set 0 if not
+#endif // USE_SML_EBUS_MASTER
 
 
 // calulate deltas
@@ -1514,6 +1573,201 @@ void sml_empty_receiver(uint32_t meters) {
 
 void SML_Decode(uint8_t index);
 
+// Passive eBUS frame accumulator (refactored out of case 'e' so the enhanced-protocol
+// de-framer can feed it too). Returns 1 when iob was a SYNC (frame boundary), else 0.
+uint8_t ebus_feed_byte(uint32_t meters, uint8_t iob) {
+  struct METER_DESC *mp = &meter_desc[meters];
+  if (iob == EBUS_SYNC) {
+    // should be end of telegram: QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
+    if (mp->spos > 5 && mp->spos > mp->sbuff[4] + 5) {
+      uint16_t tlen = mp->sbuff[4] + 5 + check_ebus_esc(mp->sbuff, mp->spos);
+      if (mp->sbuff[tlen] == ebus_CalculateCRC(mp->sbuff, tlen)) {
+        ebus_esc(mp->sbuff, mp->spos);
+        SML_Decode(meters);
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("ebus crc error"));
+      }
+    }
+#ifdef USE_SML_EBUS_MASTER
+    // raw active-master TEST mode (no adapter, no real arbitration — Mac<->.39 full-duplex
+    // UART harness): on a bus SYNC the bus is idle, so blind-tx the staged telegram with
+    // inline AA/A9 escaping plus a trailing SYNC. One-shot: ebm_req cleared after send.
+    if (mp->ebm_raw && mp->ebm_req && mp->meter_ss) {
+      uint8_t tx[2 * sizeof(mp->ebm_reqbuf) + 1];
+      uint16_t n = 0;
+      for (uint8_t i = 0; i < mp->ebm_reqlen; i++) {
+        uint8_t b = mp->ebm_reqbuf[i];
+        if (b == EBUS_SYNC)      { tx[n++] = EBUS_ESC; tx[n++] = 0x01; }
+        else if (b == EBUS_ESC)  { tx[n++] = EBUS_ESC; tx[n++] = 0x00; }
+        else                     { tx[n++] = b; }
+      }
+      tx[n++] = EBUS_SYNC;                 // close the telegram with a SYNC
+      mp->meter_ss->write(tx, n);
+      mp->ebm_req = 0;                     // one-shot
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS raw TX %u bytes"), n);
+    }
+    // a bus SYNC closes an active master exchange that was awaiting the slave reply
+    if (mp->ebm_enh == 2 && mp->ebm_state == EBM_AWAIT_RESP) {
+      mp->ebm_state = EBM_RELEASE;
+    }
+#endif
+    mp->spos = 0;
+    return 1;
+  }
+  mp->sbuff[mp->spos] = iob;
+  mp->spos++;
+  if (mp->spos >= mp->sbsiz) {
+    mp->spos = 0;
+  }
+  return 0;
+}
+
+#ifdef USE_SML_EBUS_MASTER
+// Write one 2-byte ebusd-enhanced protocol symbol to the adapter (host->device).
+void Ebm_SendEnh(struct METER_DESC *mp, uint8_t cmd, uint8_t data) {
+  if (!mp->meter_ss) { return; }
+  uint8_t b[2];
+  b[0] = ENH_BYTE1 | (cmd << 2) | ((data & 0xc0) >> 6);
+  b[1] = ENH_BYTE2 | (data & 0x3f);
+  mp->meter_ss->write(b, 2);
+}
+
+// Non-blocking active-master state machine. Stepped per 50 ms tick from SML_Poll and
+// event-driven from the RX de-framer (arbitration won/lost). Never blocks the loop.
+void Ebm_Step(uint32_t meters, uint8_t ev) {
+  struct METER_DESC *mp = &meter_desc[meters];
+  uint32_t now = millis();
+  switch (mp->ebm_state) {
+    case EBM_NEED_INIT:
+      Ebm_SendEnh(mp, ENH_REQ_INIT, 0x01);   // request reset + extra-features
+      mp->ebm_retry = 0;
+      mp->ebm_t0 = now;
+      mp->ebm_state = EBM_INIT_WAIT;
+      break;
+    case EBM_INIT_WAIT:
+      // ENH_RES_RESETTED (handled in Ebm_RxByte) flips ebm_enh=2 and state=EBM_IDLE
+      if (now - mp->ebm_t0 > EBM_INIT_TMO) {
+        if (mp->ebm_retry < 1) {
+          mp->ebm_retry++;
+          Ebm_SendEnh(mp, ENH_REQ_INIT, 0x01);
+          mp->ebm_t0 = now;
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS adapter not enhanced — falling back to passive"));
+          mp->ebm_enh = 0;            // raw passive path resumes in sml_shift_in
+          mp->ebm_state = EBM_OFF;
+        }
+      }
+      break;
+    case EBM_IDLE:
+      if (mp->ebm_req) {
+        uint8_t n = mp->ebm_reqlen;
+        if (n > sizeof(mp->ebm_txbuf)) { n = sizeof(mp->ebm_txbuf); }
+        memcpy(mp->ebm_txbuf, mp->ebm_reqbuf, n);
+        mp->ebm_txlen = n;
+        mp->ebm_req = 0;
+        mp->ebm_txpos = EBM_TX_START;
+        mp->ebm_retry = 0;
+        Ebm_SendEnh(mp, ENH_REQ_START, mp->ebm_txbuf[0]);   // arbitrate with our QQ
+        mp->ebm_t0 = now;
+        mp->ebm_state = EBM_ARB_REQ;
+      }
+      break;
+    case EBM_ARB_REQ:
+      if (ev == EBM_EV_ARB_WON) {
+        // We hold the bus — push the rest of the telegram (ZZ..CRC) to the adapter
+        // promptly; the adapter clocks it onto the 2400-baud bus and escapes as needed.
+        while (mp->ebm_txpos < mp->ebm_txlen) {
+          Ebm_SendEnh(mp, ENH_REQ_SEND, mp->ebm_txbuf[mp->ebm_txpos]);
+          mp->ebm_txpos++;
+        }
+        mp->ebm_t0 = now;
+        mp->ebm_state = EBM_AWAIT_RESP;
+      } else if (ev == EBM_EV_ARB_LOST || ev == EBM_EV_ERR || (now - mp->ebm_t0 > EBM_ARB_TMO)) {
+        if (mp->ebm_retry < EBM_ARB_MAX_RETRY) {
+          mp->ebm_retry++;
+          Ebm_SendEnh(mp, ENH_REQ_START, mp->ebm_txbuf[0]);   // retry on the next SYN slot
+          mp->ebm_t0 = now;
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS arbitration failed (qq=%02x)"), mp->ebm_txbuf[0]);
+          mp->ebm_state = EBM_IDLE;
+        }
+      }
+      break;
+    case EBM_AWAIT_RESP:
+      // ebus_feed_byte advances us to EBM_RELEASE on the trailing SYNC; this is the
+      // fallback for broadcasts / pure writes that produce no decodable reply.
+      if (now - mp->ebm_t0 > EBM_RESP_TMO) {
+        mp->ebm_state = EBM_RELEASE;
+      }
+      break;
+    case EBM_RELEASE:
+      Ebm_SendEnh(mp, ENH_REQ_START, EBUS_SYNC);   // release the bus
+      mp->ebm_state = EBM_IDLE;
+      break;
+    default:
+      break;
+  }
+}
+
+// De-frame raw UART bytes from an enhanced adapter into protocol symbols + bus bytes.
+void Ebm_RxByte(uint32_t meters, uint8_t raw) {
+  struct METER_DESC *mp = &meter_desc[meters];
+  if (!(raw & ENH_BYTE_FLAG)) { return; }              // not an enhanced byte
+  uint8_t kind = raw & ENH_BYTE_MASK;
+  if (kind == ENH_BYTE1) {
+    mp->ebm_b1 = raw;
+    mp->ebm_haveb1 = 1;
+    return;
+  }
+  // kind == ENH_BYTE2
+  if (!mp->ebm_haveb1) { return; }                     // byte2 without byte1
+  mp->ebm_haveb1 = 0;
+  uint8_t cmd  = (mp->ebm_b1 >> 2) & 0x0f;
+  uint8_t data = ((mp->ebm_b1 & 0x03) << 6) | (raw & 0x3f);
+  switch (cmd) {
+    case ENH_RES_RECEIVED:
+      ebus_feed_byte(meters, data);                    // into the passive decoder
+      break;
+    case ENH_RES_RESETTED:
+      if (mp->ebm_enh != 2) {
+        AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS enhanced active (qq=%02x)"), mp->ebm_qq);
+      }
+      mp->ebm_enh = 2;
+      if (mp->ebm_state == EBM_INIT_WAIT || mp->ebm_state == EBM_NEED_INIT) {
+        mp->ebm_state = EBM_IDLE;
+      }
+      break;
+    case ENH_RES_STARTED:
+      ebus_feed_byte(meters, data);                    // QQ is now on the bus -> start frame
+      Ebm_Step(meters, EBM_EV_ARB_WON);
+      break;
+    case ENH_RES_FAILED:
+      Ebm_Step(meters, EBM_EV_ARB_LOST);
+      break;
+    case ENH_RES_ERR_EBUS:
+    case ENH_RES_ERR_HOST:
+      Ebm_Step(meters, EBM_EV_ERR);
+      break;
+    default:
+      break;
+  }
+}
+
+// Stage a master telegram (QQ ZZ PB SB NN data..) for the active-master state machine.
+// Appends the eBUS CRC. Returns 1 = queued, 0 = rejected, -1 = busy. Never touches UART.
+int Ebm_QueueTelegram(uint32_t meter, uint8_t *body, uint8_t len) {
+  struct METER_DESC *mp = &meter_desc[meter];
+  if (mp->ebm_enh != 2 && !mp->ebm_raw) { return 0; }  // not enhanced and not raw-test / not ready
+  if (mp->ebm_req) { return -1; }                      // a request is already in flight
+  if (len < 5 || len > sizeof(mp->ebm_reqbuf) - 1) { return 0; }
+  memcpy(mp->ebm_reqbuf, body, len);
+  mp->ebm_reqbuf[len] = ebus_CalculateCRC(body, len);  // CRC over QQ..last-data
+  mp->ebm_reqlen = len + 1;
+  mp->ebm_req = 1;                                      // publish LAST (cross-task handoff)
+  return 1;
+}
+#endif // USE_SML_EBUS_MASTER
+
 void sml_shift_in(uint32_t meters, uint32_t shard) {
   uint32_t count;
 
@@ -1665,6 +1919,13 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       iob = 0;
     }
   }
+
+#ifdef USE_SML_EBUS_MASTER
+  if (mp->type == 'e' && mp->ebm_enh) {
+    Ebm_RxByte(meters, iob);   // enhanced de-framer owns this byte
+    return;
+  }
+#endif
 
   switch (mp->type) {
     case 'o':
@@ -1839,29 +2100,9 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       }
       break;
     case 'e':
-      // ebus
-      if (iob == EBUS_SYNC) {
-        // should be end of telegramm
-        // QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
-        if (mp->spos > 5 && mp->spos > mp->sbuff[4] + 5) {
-          // get telegramm lenght
-          uint16_t tlen = mp->sbuff[4] + 5 + check_ebus_esc(mp->sbuff, mp->spos);
-          // test crc
-          if (mp->sbuff[tlen] == ebus_CalculateCRC(mp->sbuff, tlen)) {
-              ebus_esc(mp->sbuff, mp->spos);
-              SML_Decode(meters);
-          } else {
-              // crc error
-              AddLog(LOG_LEVEL_INFO, PSTR("ebus crc error"));
-          }
-        }
-        mp->spos = 0;
+      // ebus (passive accumulator refactored into ebus_feed_byte)
+      if (ebus_feed_byte(meters, iob)) {
         return;
-      }
-      mp->sbuff[mp->spos] = iob;
-      mp->spos++;
-      if (mp->spos >= mp->sbsiz) {
-        mp->spos = 0;
       }
       break;
   }
@@ -1884,6 +2125,9 @@ uint32_t meters;
 
     for (meters = 0; meters < sml_globs.meters_used; meters++) {
       struct METER_DESC *mp = &meter_desc[meters];
+#ifdef USE_SML_EBUS_MASTER
+      if (mp->type == 'e' && mp->ebm_enh) { Ebm_Step(meters, EBM_EV_TICK); }
+#endif
       if (mp->type == 'C') continue;
       if (mp->type != 'c') {
         if (mp->srcpin != TCP_MODE_FLG) {
@@ -2179,7 +2423,11 @@ void SML_Decode(uint8_t index) {
       uint8_t found = 1;
       double ebus_dval = 99;
       double mbus_dval = 99;
-      while (*mp != '@') {
+      // NOTE: a value descriptor must terminate its pattern with an '@' scale.
+      // The `&& *mp` guard stops this loop at the end of the descriptor string so
+      // a line missing '@' (e.g. "...uu,Name") can no longer scan past the buffer
+      // (out-of-bounds read -> crash -> boot loop). See the post-loop check below.
+      while (*mp != '@' && *mp) {
         if (found == 0) {
           // skip rest of decoder part
           mp++;
@@ -2478,6 +2726,28 @@ void SML_Decode(uint8_t index) {
               }
               mbus_dval = bcdval;
               ebus_dval = bcdval;
+            } else if (!strncmp_P(mp, PSTR("ETIME"), 5)) {
+              // eBUS time field (BTI = 3 BCD bytes HH MM SS, BCD|REV hours-first) ->
+              // integer HHMMSS (e.g. 09:21:00 -> 92100). Kept small + SEPARATE from the
+              // date on purpose: TinyC smlGet() returns a float (~2^22 exact), so a
+              // combined YYYYMMDDHHMM would lose precision on export. HHMMSS max 235959.
+              mp += 5;
+              uint8_t t_hh = (cp[0] >> 4) * 10 + (cp[0] & 0x0f);
+              uint8_t t_mi = (cp[1] >> 4) * 10 + (cp[1] & 0x0f);
+              uint8_t t_ss = (cp[2] >> 4) * 10 + (cp[2] & 0x0f);
+              ebus_dval = mbus_dval = (double)(t_hh * 10000 + t_mi * 100 + t_ss);
+              cp += 3;
+            } else if (!strncmp_P(mp, PSTR("EDATE"), 5)) {
+              // eBUS date field (BDA = 4 BCD bytes DD MM WD YY, day-first, WD=weekday) ->
+              // sortable integer YYMMDD (e.g. 2026-05-28 -> 260528). Century dropped so it
+              // stays float-exact for TinyC export (YYYYMMDD=20.2M would overflow float).
+              // YYMMDD max 991231.
+              mp += 5;
+              uint8_t d_dd = (cp[0] >> 4) * 10 + (cp[0] & 0x0f);
+              uint8_t d_mo = (cp[1] >> 4) * 10 + (cp[1] & 0x0f);
+              uint8_t d_yy = (cp[3] >> 4) * 10 + (cp[3] & 0x0f);
+              ebus_dval = mbus_dval = (double)(d_yy * 10000 + d_mo * 100 + d_dd);
+              cp += 4;
             } else if (*mp == 'v') {
               // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
               // vub3, vsb3 etc
@@ -2580,6 +2850,19 @@ void SML_Decode(uint8_t index) {
             }
           }
         }
+      }
+      if (*mp != '@') {
+        // malformed descriptor: the value pattern has no '@' scale. Reject the line
+        // instead of running the scale parser off the end of the string. Warn once
+        // per boot (this runs per frame, so guard against log spam).
+        if (found) {
+          static bool sml_warned_no_at = false;
+          if (!sml_warned_no_at) {
+            sml_warned_no_at = true;
+            AddLog(LOG_LEVEL_INFO, PSTR("SML: a decoder line is missing its '@' scale — line ignored (meter %d)"), mindex + 1);
+          }
+        }
+        found = 0;
       }
       if (found) {
         // matches, get value
@@ -3261,6 +3544,25 @@ case '6':
       break;
 
 #endif // USE_SML_CANBUS
+#ifdef USE_SML_EBUS_MASTER
+    case 'E':   // soE[,QQ] — enable enhanced eBUS active master, optional master address (hex)
+      cp++;
+      mp->ebm_qq = 0xff;
+      if (*cp == ',') { cp++; mp->ebm_qq = strtol(cp, &cp, 16); }
+      mp->ebm_enh = 1;
+      mp->ebm_state = EBM_NEED_INIT;
+      mp->ebm_haveb1 = 0;
+      mp->ebm_t0 = 0;
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS enhanced master requested, QQ=%02x"), mp->ebm_qq);
+      break;
+    case 'R':   // soR[,QQ] — raw active-master TEST mode (no adapter/arbitration; Mac<->.39 UART harness)
+      cp++;
+      mp->ebm_qq = 0xff;
+      if (*cp == ',') { cp++; mp->ebm_qq = strtol(cp, &cp, 16); }
+      mp->ebm_raw = 1;
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS raw master TEST mode, QQ=%02x"), mp->ebm_qq);
+      break;
+#endif // USE_SML_EBUS_MASTER
 	}
 	return cp;
 }
@@ -4943,6 +5245,15 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     slen += 6;
   }
 
+#ifdef USE_SML_EBUS_MASTER
+  if (mp->type == 'e' && (mp->ebm_enh == 2 || mp->ebm_raw)) {
+    // active eBUS master: stage the telegram. Enhanced mode arbitrates via the adapter;
+    // raw-test mode blind-tx's on the next bus SYNC (Mac<->.39 UART harness). Either way
+    // we never blind-write the bare bytes here.
+    Ebm_QueueTelegram(meter, sbuff, slen);
+    return;
+  }
+#endif
   if (mp->srcpin == TCP_MODE_FLG) {
     sml_tcp_send(meter, sbuff, slen);
   } else {

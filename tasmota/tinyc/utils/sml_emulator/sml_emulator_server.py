@@ -158,11 +158,125 @@ def serial_reader():
             # validate (line ~155: `rx_buf = rx_buf[1:]`), silently dropping
             # every byte of a non-Modbus protocol before the state machine
             # ever wakes up to read it.
-            if not (t510_running or ks_running):
+            if not (t510_running or ks_running or ebus_resp_running):
                 _process_modbus_rtu()
         except Exception as e:
             log_entry('err', f'Serial read: {e}')
             time.sleep(0.1)
+
+# ── EBus responder (active-master WRITE test) — server-side ─────────────────────
+# Mirrors the browser-side startEBusResponder() for use UNDER THE BRIDGE, where
+# the browser can't own the port. Emits idle SYN (0xAA) so the DUT (xsns_53 raw
+# active master) sees a free bus, then decodes each telegram the DUT writes:
+# un-escape, validate the eBus CRC8 (poly 0x9B, matches xsns_53), and log it
+# (special-casing the 0700 date/time clock broadcast). Read-only — a broadcast
+# needs no reply, so we never write anything but SYN.
+ebus_resp_running = False
+ebus_resp_thread  = None
+ebus_resp_stop    = False
+_ebus_rx_count    = 0
+
+def _ebus_crc8(data, crc):
+    for _ in range(8):
+        poly = 0x9B if (crc & 0x80) else 0
+        crc = ((crc & 0x7F) << 1) & 0xFF
+        if data & 0x80:
+            crc |= 1
+        crc ^= poly
+        data = (data << 1) & 0xFF
+    return crc
+
+def _ebus_frame_crc(body):
+    c = 0
+    for b in body:
+        c = _ebus_crc8(b, c)
+    return c
+
+def _ebus_unescape(seg):
+    out, i = [], 0
+    while i < len(seg):
+        if seg[i] == 0xA9 and i + 1 < len(seg):
+            i += 1
+            out.append(0xAA if seg[i] == 0x01 else 0xA9)
+        else:
+            out.append(seg[i])
+        i += 1
+    return out
+
+def _ebus_handle_telegram(seg):
+    global _ebus_rx_count
+    f = _ebus_unescape(seg)
+    if len(f) < 6:
+        return
+    nn = f[4]
+    if len(f) < 5 + nn + 1:
+        log_entry('rx', 'EBus RX runt: ' + ' '.join('%02x' % b for b in f))
+        return
+    body = f[:5 + nn]
+    crc  = f[5 + nn]
+    calc = _ebus_frame_crc(body)
+    wire = ' '.join('%02x' % b for b in f[:5 + nn + 1])
+    _ebus_rx_count += 1
+    if calc != crc:
+        log_entry('err', f'EBus RX BAD CRC (got {crc:02x} want {calc:02x}): {wire}')
+        return
+    qq, zz, pb, sb = f[0], f[1], f[2], f[3]
+    note = ''
+    if pb == 0x07 and sb == 0x00 and nn >= 9:
+        d = f[5:]
+        bcd = lambda b: (b >> 4) * 10 + (b & 0x0f)
+        note = '  CLOCK %02d.%02d.%02d %02d:%02d:%02d' % (
+            bcd(d[5]), bcd(d[6]), bcd(d[8]), bcd(d[2]), bcd(d[3]), bcd(d[4]))
+    kind = 'broadcast' if zz == 0xFE else f'MS->0x{zz:02x}'
+    log_entry('rx', f'EBus RX {kind} QQ=0x{qq:02x} PB=0x{pb:02x} SB=0x{sb:02x} '
+                    f'NN={nn} CRC ok  [{wire}]{note}')
+
+def _ebus_resp_runner():
+    seg = bytearray()
+    last_syn = 0.0
+    while not ebus_resp_stop:
+        now = time.time()
+        if now - last_syn >= 0.04:          # idle SYN ~every 40 ms
+            with state_lock:
+                p = serial_port
+            if p and p.is_open:
+                try:
+                    p.write(b'\xAA')
+                except Exception:
+                    pass
+            last_syn = now
+        with state_lock:                     # drain whatever serial_reader collected
+            chunk = bytes(rx_buf)
+            rx_buf.clear()
+        for b in chunk:
+            if b == 0xAA:                    # SYN = telegram delimiter
+                if seg:
+                    _ebus_handle_telegram(list(seg))
+                    seg = bytearray()
+            else:
+                seg.append(b)
+        time.sleep(0.005)
+
+def ebus_resp_start():
+    global ebus_resp_running, ebus_resp_thread, ebus_resp_stop, _ebus_rx_count
+    if ebus_resp_running:
+        return
+    ebus_resp_stop = False
+    ebus_resp_running = True
+    _ebus_rx_count = 0
+    with state_lock:
+        rx_buf.clear()
+    log_entry('info', 'EBus responder (server-side): SYN @40ms, decoding DUT writes (e.g. 0f fe 0700 clock)')
+    ebus_resp_thread = threading.Thread(target=_ebus_resp_runner, daemon=True)
+    ebus_resp_thread.start()
+
+def ebus_resp_stop_runner():
+    global ebus_resp_running, ebus_resp_stop
+    if not ebus_resp_running:
+        return
+    ebus_resp_stop = True
+    ebus_resp_running = False
+    log_entry('info', f'EBus responder stopped ({_ebus_rx_count} telegram(s) decoded)')
 
 _FC_NAMES = {0x01: 'FC01 read-coils',   0x02: 'FC02 read-disc-in',
              0x03: 'FC03 read-holding', 0x04: 'FC04 read-input',
@@ -1128,6 +1242,14 @@ async function buildPortSelector() {
     o.textContent = `${p.device}  ${p.desc || ''}`.trim();
     sel.appendChild(o);
   });
+  // Persist the chosen port across app restarts (the /dev path is stable per
+  // USB adapter). Restore the last selection if still present; save on change.
+  const PORT_KEY = 'sml_bridge_port';
+  let savedPort; try { savedPort = localStorage.getItem(PORT_KEY); } catch (e) {}
+  if (savedPort && ports.some(p => p.device === savedPort)) sel.value = savedPort;
+  sel.addEventListener('change', () => {
+    try { localStorage.setItem(PORT_KEY, sel.value); } catch (e) {}
+  });
   return sel;
 }
 
@@ -1252,6 +1374,16 @@ async function setupConnectUI() {
       if (window.repoState.baud) baud = window.repoState.baud;
       if (window.repoState.serialFmtDefault) serCfg = window.repoState.serialFmtDefault;
     }
+    // EBus is ALWAYS 2400 8N1 — force it for every eBus mode (responder, heater-bus
+    // replay 'ebus', or a repo descriptor with proto 'e'). Otherwise non-repo eBus modes
+    // stay at the dropdown default (9600). Also reflect it in the dropdown.
+    {
+      const _p = document.getElementById('selProto') ? document.getElementById('selProto').value : '';
+      if (_p.indexOf('ebus') === 0 || (window.repoState && window.repoState.proto === 'e')) {
+        baud = 2400; serCfg = '8N1';
+        const _b = document.getElementById('selBaud'); if (_b) _b.value = '2400';
+      }
+    }
     // Tell Python about the profile so it can run the T510 IEC 62056-21
     // or Kamstrup state machine server-side (the browser's port.readable
     // is not available under the bridge, so the HTML state machines never
@@ -1263,6 +1395,10 @@ async function setupConnectUI() {
       else profile = '';  // SML / OBIS / VBus / EBus / shift / Modbus all run
                           // off the existing serial path; no pseudo-profile.
     }
+    // EBus responder (active-master WRITE test) must run server-side under the
+    // bridge — the browser never owns the port, so it can't read the DUT's
+    // telegrams. The python `ebus_resp` runner sends SYN + decodes incoming.
+    if (typeof isEBusResponder === 'function' && isEBusResponder()) profile = 'ebus_resp';
     const serialNum = document.getElementById('inpSerial')?.value || '';
     const r = await fetch(BASE + '/api/open', {
       method: 'POST',
@@ -1711,10 +1847,13 @@ class Handler(BaseHTTPRequestHandler):
                 t510_start(body.get('serial') or 'T510001')
             elif prof in ('kamstrup_kx7', 'repo_kamstrup'):
                 kamstrup_start()
+            elif prof == 'ebus_resp':
+                ebus_resp_start()
         elif path == '/api/close':
             t510_stop_runner()
             kamstrup_stop_runner()
             can_stop_runner()
+            ebus_resp_stop_runner()
             self._close_serial()
             self._json({'ok': True})
         elif path == '/api/send':

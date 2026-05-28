@@ -1,0 +1,8 @@
+// sml_enable.tc — minimal: turn on the SML descriptor gate (Rule1 / tasm_rule).
+// On TinyC builds without the Rules console command, the SML descriptor init
+// silently skips unless rule_enabled (bit0) is set. `tasm_rule = 1` writes that
+// persisted Settings bit, so ONE manual run (TinyCRun) is enough — SML stays
+// enabled across reboots. Run BY HAND only; never mark autoexec (no boot-loop).
+int main() {
+    tasm_rule = 1;
+}
