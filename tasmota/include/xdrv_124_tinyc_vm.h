@@ -914,6 +914,23 @@ enum TcSyscall {
   // Addressable RGB LED (WS2812/SK6812) via RMT — no USE_LIGHT, no template.
   SYS_RGB_LED               = 405, // (gpio, 0xRRGGBB) -> int  drive one WS2812 pixel; 1=ok 0=fail
 
+  // BLE scan/observe (gated by USE_TINYC_BLE -> USE_BLE_ESP32; built on xdrv_79 common-BLE).
+  // 416-424 reserved for the GATT-client family (connect/write/subscribe) added in a later phase.
+  SYS_BLE_SCAN              = 409, // (ms) -> int   start capturing adverts (clears queue; ms>0 auto-stops)
+  SYS_BLE_SCAN_STOP         = 410, // () -> int     stop capturing
+  SYS_BLE_NEXT              = 411, // () -> int     pop next advert into current; 1=got one, 0=empty
+  SYS_BLE_MAC               = 412, // (buf_ref) -> int   write 6 MAC bytes (buf[0..5]); returns 6
+  SYS_BLE_RSSI              = 413, // () -> int     RSSI of current advert (dBm, negative)
+  SYS_BLE_NAME              = 414, // (buf_ref) -> int   copy advert local name into char[]; returns len
+  SYS_BLE_MFG               = 415, // (buf_ref) -> int   write manufacturer-data bytes; returns len
+  // GATT client (connect/subscribe/write) on xdrv_79 ops. Non-blocking: start → poll bleDone() → bleResult().
+  SYS_BLE_ADDRTYPE          = 416, // () -> int          address type of the current advert (0=public, else random)
+  SYS_BLE_TARGET            = 417, // (mac_ref, addrtype, svc16) -> int  set GATT target + service UUID; 1=ok
+  SYS_BLE_READ_START        = 418, // (notify16) -> int  connect target + subscribe notify char; 1=started, <0=busy/err
+  SYS_BLE_WRITE_START       = 419, // (chr16, buf_ref, len) -> int  connect target + write char; 1=started, <0=busy/err
+  SYS_BLE_DONE              = 420, // () -> int          0=pending, >0=result length ready, <0=failed
+  SYS_BLE_RESULT            = 421, // (buf_ref) -> int   copy received notify/read bytes; returns len
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -950,6 +967,8 @@ enum TcSyscall {
                               //   Skips whitespace; returns -1 on bad nibble.
   SYS_BIN2HEX          = 365, // (bin_ref, bin_len, out_ref)                    -> int  chars written (bin_len*2),
                               //   lowercase, no separators, NUL-terminated.
+  SYS_MD5              = 368, // (data_ref, dlen, out16_ref)                    -> int  1=ok 0=err (16-byte digest)
+                              //   For Tuya BLE key derivation; via mbedtls generic md (0 if MD5 disabled).
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -4784,6 +4803,84 @@ static int tc_share_count_used(void) {
   }
   return used;
 }
+
+/*********************************************************************************************\
+ * BLE scan/observe — built on the xdrv_79 common-BLE driver (BLE_ESP32::), gated.
+ *
+ * The advert callback runs on the BLE/NimBLE task; it must NEVER touch the VM (that would
+ * mean cross-task vm_mutex contention — see the spawnTask/loopstall + httpGet-concurrency
+ * lessons). It only pushes a small fixed record into a ring under a short critical section.
+ * The VM drains the ring on its own task via bleNext()/bleMac()/bleName()/... in TaskLoop.
+\*********************************************************************************************/
+#if defined(ESP32) && defined(USE_TINYC_BLE)
+#if !defined(USE_BLE_ESP32)
+#error "USE_TINYC_BLE requires USE_BLE_ESP32 (the common BLE driver, xdrv_79_esp32_ble)"
+#endif
+
+#define TC_BLE_RING        24    // advert ring slots
+#define TC_BLE_NAMELEN     30    // captured local-name bytes
+#define TC_BLE_MFGLEN      30    // captured manufacturer-data bytes
+#define MAX_BLE_DATA_LEN_TC 64   // max GATT write/result payload (<= xdrv_79 MAX_BLE_DATA_LEN=100)
+
+struct tc_ble_adv_t {
+  uint8_t  mac[6];
+  uint8_t  addrtype;                // BLE address type (0=public, 1/2/3=random) — needed to connect
+  int8_t   rssi;
+  uint8_t  namelen;
+  char     name[TC_BLE_NAMELEN + 1];
+  uint8_t  mfglen;
+  uint8_t  mfg[TC_BLE_MFGLEN];
+};
+
+static struct {
+  tc_ble_adv_t     ring[TC_BLE_RING];
+  tc_ble_adv_t     cur;             // last record popped by bleNext() (VM task only)
+  volatile uint8_t head;            // producer (BLE task) writes
+  volatile uint8_t tail;            // consumer (VM task) reads
+  volatile uint8_t capturing;       // 1 = push adverts into the ring
+  uint8_t          registered;      // 1 once the advert callback is registered
+  uint8_t          have_cur;        // 1 if cur holds a valid record
+  uint32_t         stop_ms;         // millis() deadline for auto-stop, 0 = none
+  portMUX_TYPE     mux;
+} tc_ble = { .mux = portMUX_INITIALIZER_UNLOCKED };
+
+// Producer — runs on the BLE/NimBLE task (called from the glue's advert callback).
+// Keep it tiny and VM-free. Plain-C signature so it needs no BLE_ESP32 types: in the
+// concatenated build xdrv_124 sorts BEFORE xdrv_79, so it cannot see BLE_ESP32. The
+// glue file (xdrv_79_tinyc_ble_glue.ino, sorted after xdrv_79) calls this with the
+// fields already extracted from BLE_ESP32::ble_advertisment_t.
+static void tc_ble_push(const uint8_t *mac, int addrtype, int rssi, const char *name, const uint8_t *mfg, int mfglen) {
+  if (!tc_ble.capturing) return;
+  uint8_t nl = name ? (uint8_t)strnlen(name, TC_BLE_NAMELEN) : 0;
+  if (mfglen < 0) mfglen = 0;
+  if (mfglen > TC_BLE_MFGLEN) mfglen = TC_BLE_MFGLEN;
+  portENTER_CRITICAL(&tc_ble.mux);
+  uint8_t nh = (tc_ble.head + 1) % TC_BLE_RING;
+  if (nh != tc_ble.tail) {                  // ring not full — drop on overflow
+    tc_ble_adv_t *e = &tc_ble.ring[tc_ble.head];
+    if (mac) memcpy(e->mac, mac, 6);
+    e->addrtype = (uint8_t)addrtype;
+    e->rssi = (int8_t)rssi;
+    if (nl) memcpy(e->name, name, nl);
+    e->name[nl] = 0; e->namelen = nl;
+    if (mfglen) memcpy(e->mfg, mfg, mfglen);
+    e->mfglen = (uint8_t)mfglen;
+    tc_ble.head = nh;
+  }
+  portEXIT_CRITICAL(&tc_ble.mux);
+}
+
+// GATT-client target set by bleTarget(); used by bleReadStart()/bleWriteStart().
+static struct { uint8_t mac[6]; uint8_t addrtype; uint16_t svc; } tc_gatt = {};
+
+// All defined in xdrv_79_tinyc_ble_glue.ino (after xdrv_79, where BLE_ESP32 is visible).
+// xdrv_124 only ever passes/gets primitive types across this boundary.
+void tc_ble_glue_register(void);
+// Queue a connect→(optional write to chr)→(optional subscribe notify)→complete op. 1=queued, <0=busy/err.
+int  tc_ble_gatt_start(const uint8_t *mac, int addrtype, int svc, int chr, int notify, const uint8_t *wbuf, int wlen);
+int  tc_ble_gatt_poll(void);                  // 0=pending, 1=done(result ready), <0=failed (GEN_STATE_*)
+int  tc_ble_gatt_copy(uint8_t *out, int max); // copy result bytes into out, return len, release the op
+#endif // USE_TINYC_BLE
 
 /*********************************************************************************************\
  * VM: Syscall dispatch
@@ -12687,6 +12784,141 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_TWAI_FILTER:   TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
 #endif
 
+    // ── BLE scan/observe (xdrv_79 common-BLE) ─────────
+#if defined(ESP32) && defined(USE_TINYC_BLE)
+    case SYS_BLE_SCAN: {                 // bleScan(ms) -> 1; clears queue, starts capture
+      a = TC_POP(vm);                    // ms (0 = run until bleScanStop)
+      if (!tc_ble.registered) {
+        tc_ble_glue_register();          // registers tc_ble_push as a BLE advert sink
+        tc_ble.registered = 1;
+      }
+      portENTER_CRITICAL(&tc_ble.mux);
+      tc_ble.head = tc_ble.tail = 0;
+      portEXIT_CRITICAL(&tc_ble.mux);
+      tc_ble.have_cur = 0;
+      tc_ble.stop_ms = (a > 0) ? (millis() + (uint32_t)a) : 0;
+      tc_ble.capturing = 1;
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_SCAN_STOP: {            // bleScanStop() -> 1
+      tc_ble.capturing = 0;
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_NEXT: {                 // bleNext() -> 1 if a record was dequeued, else 0
+      if (tc_ble.stop_ms && (int32_t)(millis() - tc_ble.stop_ms) >= 0) {
+        tc_ble.capturing = 0;            // auto-stop window elapsed
+      }
+      int got = 0;
+      portENTER_CRITICAL(&tc_ble.mux);
+      if (tc_ble.tail != tc_ble.head) {
+        tc_ble.cur = tc_ble.ring[tc_ble.tail];
+        tc_ble.tail = (tc_ble.tail + 1) % TC_BLE_RING;
+        got = 1;
+      }
+      portEXIT_CRITICAL(&tc_ble.mux);
+      tc_ble.have_cur = got;
+      TC_PUSH(vm, got);
+      break;
+    }
+    case SYS_BLE_MAC: {                  // bleMac(buf) -> 6; buf[0..5] = MAC bytes
+      a = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, a);
+      if (!buf || !tc_ble.have_cur) { TC_PUSH(vm, 0); break; }
+      int32_t maxc = tc_ref_maxlen(vm, a);
+      int n = 0;
+      for (; n < 6 && n < maxc; n++) buf[n] = (int32_t)tc_ble.cur.mac[n];
+      TC_PUSH(vm, n);
+      break;
+    }
+    case SYS_BLE_RSSI: {                 // bleRssi() -> dBm (negative); 0 if no current
+      TC_PUSH(vm, tc_ble.have_cur ? (int32_t)tc_ble.cur.rssi : 0);
+      break;
+    }
+    case SYS_BLE_NAME: {                 // bleName(buf) -> len; copies advert local name
+      a = TC_POP(vm);
+      if (!tc_ble.have_cur) { int32_t *b0 = tc_resolve_ref(vm, a); if (b0) b0[0] = 0; TC_PUSH(vm, 0); break; }
+      TC_PUSH(vm, tc_cstr_to_ref(vm, a, tc_ble.cur.name));
+      break;
+    }
+    case SYS_BLE_MFG: {                  // bleMfg(buf) -> len; buf[i] = manufacturer-data bytes
+      a = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, a);
+      if (!buf || !tc_ble.have_cur) { TC_PUSH(vm, 0); break; }
+      int32_t maxc = tc_ref_maxlen(vm, a);
+      int n = 0;
+      for (; n < tc_ble.cur.mfglen && n < maxc; n++) buf[n] = (int32_t)tc_ble.cur.mfg[n];
+      TC_PUSH(vm, n);
+      break;
+    }
+    case SYS_BLE_ADDRTYPE: {             // bleAddrType() -> addr type of current advert
+      TC_PUSH(vm, tc_ble.have_cur ? (int32_t)tc_ble.cur.addrtype : 0);
+      break;
+    }
+    case SYS_BLE_TARGET: {               // bleTarget(macbuf, addrtype, svc16) -> 1
+      int32_t svc  = TC_POP(vm);
+      int32_t type = TC_POP(vm);
+      int32_t mref = TC_POP(vm);
+      int32_t *mb = tc_resolve_ref(vm, mref);
+      if (!mb) { TC_PUSH(vm, 0); break; }
+      for (int i = 0; i < 6; i++) tc_gatt.mac[i] = (uint8_t)(mb[i] & 0xff);
+      tc_gatt.addrtype = (uint8_t)type;
+      tc_gatt.svc = (uint16_t)svc;
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_READ_START: {           // bleReadStart(notify16) -> 1 started / <0 busy|err
+      int32_t notify = TC_POP(vm);
+      TC_PUSH(vm, tc_ble_gatt_start(tc_gatt.mac, tc_gatt.addrtype, tc_gatt.svc, 0, notify, nullptr, 0));
+      break;
+    }
+    case SYS_BLE_WRITE_START: {          // bleWriteStart(chr16, buf, len) -> 1 started / <0 busy|err
+      int32_t wlen = TC_POP(vm);
+      int32_t wref = TC_POP(vm);
+      int32_t chr  = TC_POP(vm);
+      uint8_t wb[MAX_BLE_DATA_LEN_TC];
+      int32_t *p = tc_resolve_ref(vm, wref);
+      if (wlen < 0) wlen = 0;
+      if (wlen > (int32_t)sizeof(wb)) wlen = sizeof(wb);
+      if (p) { for (int i = 0; i < wlen; i++) wb[i] = (uint8_t)(p[i] & 0xff); }
+      TC_PUSH(vm, tc_ble_gatt_start(tc_gatt.mac, tc_gatt.addrtype, tc_gatt.svc, chr, 0, p ? wb : nullptr, p ? wlen : 0));
+      break;
+    }
+    case SYS_BLE_DONE: {                 // bleDone() -> 0 pending / >0 len / <0 failed
+      int st = tc_ble_gatt_poll();
+      if (st <= 0) { TC_PUSH(vm, st); break; }   // 0 pending or <0 failed pass through
+      TC_PUSH(vm, st);                            // >0 = result length available
+      break;
+    }
+    case SYS_BLE_RESULT: {               // bleResult(buf) -> len; copy received bytes
+      a = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, a);
+      if (!buf) { TC_PUSH(vm, 0); break; }
+      int32_t maxc = tc_ref_maxlen(vm, a);
+      uint8_t tmp[MAX_BLE_DATA_LEN_TC];
+      int n = tc_ble_gatt_copy(tmp, sizeof(tmp));
+      int i = 0;
+      for (; i < n && i < maxc; i++) buf[i] = (int32_t)tmp[i];
+      TC_PUSH(vm, i);
+      break;
+    }
+#else
+    case SYS_BLE_SCAN:      TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SCAN_STOP: TC_PUSH(vm, 0); break;
+    case SYS_BLE_NEXT:      TC_PUSH(vm, 0); break;
+    case SYS_BLE_MAC:       TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_RSSI:      TC_PUSH(vm, 0); break;
+    case SYS_BLE_NAME:      TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_MFG:       TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_ADDRTYPE:  TC_PUSH(vm, 0); break;
+    case SYS_BLE_TARGET:    TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_READ_START:  TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_BLE_WRITE_START: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_BLE_DONE:      TC_PUSH(vm, -1); break;
+    case SYS_BLE_RESULT:    TC_POP(vm); TC_PUSH(vm, 0); break;
+#endif
+
     // ── MQTT Subscribe/Publish ────────────────────────
 #ifdef USE_MQTT
     case SYS_MQTT_SUBSCRIBE: {  // mqttSubscribe("topic") -> int slot or -1
@@ -13761,6 +13993,40 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       free(dbuf);
       if (rc == 0) {
         for (int i = 0; i < 32; i++) out_arr[i] = (int32_t)out[i];
+        TC_PUSH(vm, 1);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_MD5: {                 // md5(data_ref, dlen, out16_ref) -> 1 ok / 0 err
+#ifdef ESP32
+      int32_t out_ref  = TC_POP(vm);
+      int32_t dlen     = TC_POP(vm);
+      int32_t data_ref = TC_POP(vm);
+      int32_t *data_arr = tc_resolve_ref(vm, data_ref);
+      int32_t *out_arr  = tc_resolve_ref(vm, out_ref);
+      if (!data_arr || !out_arr || dlen < 0 ||
+          tc_ref_maxlen(vm, data_ref) < dlen ||
+          tc_ref_maxlen(vm, out_ref) < 16 ||
+          dlen > 4096) {
+        TC_PUSH(vm, 0); break;
+      }
+      const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_MD5);
+      if (!info) { TC_PUSH(vm, 0); break; }   // MD5 not compiled into mbedtls
+      uint8_t *dbuf = (uint8_t*)special_malloc(dlen > 0 ? dlen : 1);
+      uint8_t out[16];
+      if (!dbuf) { TC_PUSH(vm, 0); break; }
+      for (int i = 0; i < dlen; i++) dbuf[i] = (uint8_t)(data_arr[i] & 0xFF);
+      int rc = mbedtls_md(info, dbuf, dlen, out);
+      free(dbuf);
+      if (rc == 0) {
+        for (int i = 0; i < 16; i++) out_arr[i] = (int32_t)out[i];
         TC_PUSH(vm, 1);
       } else {
         TC_PUSH(vm, 0);

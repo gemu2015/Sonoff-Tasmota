@@ -3741,6 +3741,26 @@ export class VM {
                 this.push(1); // accepted
                 break;
             }
+            // ── BLE scan/observe — browser stub (no BLE on host) ──
+            case Syscall.BLE_SCAN: { // bleScan(ms) -> int
+                const ms = this.pop();
+                this.onOutput(`[BLE] bleScan(${ms}) — simulator stub (no BLE on host)\n`);
+                this.push(1);
+                break;
+            }
+            case Syscall.BLE_SCAN_STOP: { this.push(1); break; }        // bleScanStop()
+            case Syscall.BLE_NEXT: { this.push(0); break; }             // bleNext() -> no adverts
+            case Syscall.BLE_MAC: { this.pop(); this.push(0); break; }  // bleMac(buf)
+            case Syscall.BLE_RSSI: { this.push(0); break; }             // bleRssi()
+            case Syscall.BLE_NAME: { this.pop(); this.push(0); break; } // bleName(buf)
+            case Syscall.BLE_MFG: { this.pop(); this.push(0); break; }  // bleMfg(buf)
+            case Syscall.BLE_ADDRTYPE: { this.push(0); break; }                       // bleAddrType()
+            case Syscall.BLE_TARGET: { this.pop(); this.pop(); this.pop(); this.push(0); break; } // bleTarget(mac,type,svc)
+            case Syscall.BLE_READ_START: { this.pop(); this.push(-1); break; }        // bleReadStart(notify)
+            case Syscall.BLE_WRITE_START: { this.pop(); this.pop(); this.pop(); this.push(-1); break; } // bleWriteStart(chr,buf,len)
+            case Syscall.BLE_DONE: { this.push(-1); break; }                          // bleDone()
+            case Syscall.BLE_RESULT: { this.pop(); this.push(0); break; }             // bleResult(buf)
+
             case Syscall.WEB_RAW_MODE: { // webRawMode()
                 this.onOutput(`[WEB] webRawMode() — simulator stub\n`);
                 break;

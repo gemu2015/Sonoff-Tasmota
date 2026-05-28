@@ -1,0 +1,50 @@
+// ble_scan.tc — BLE advertisement scanner for TinyC.
+//
+// Needs a firmware built with USE_TINYC_BLE (which pulls in USE_BLE_ESP32, the common-BLE
+// driver xdrv_79). bleScan() auto-enables BLE at runtime, so no SetOption115 is required.
+//
+// Pattern: bleScan(ms) starts capturing adverts into a ring (ms=0 = until bleScanStop()).
+// Drain the ring in TaskLoop with bleNext(); for each advert read bleMac()/bleRssi()/
+// bleName()/bleMfg()/bleAddrType(). Here we print every named/manufacturer advert and flag
+// an Etekcity/VeSync fitness scale by its advert signature (name or manufacturer-id 0x06D0)
+// — a template for filtering for any device you care about.
+
+char nm[40];      // advert local name
+int  mac[8];      // 6 MAC bytes (display order)
+int  mfg[40];     // manufacturer-specific data bytes
+int  started;
+
+int main() { started = 0; return 0; }
+
+void TaskLoop() {
+  if (started == 0) { bleScan(0); started = 1; addLog("ble: scanning (continuous)"); }
+
+  int got = bleNext();
+  while (got) {
+    bleMac(mac);
+    int r  = bleRssi();
+    int nl = bleName(nm);
+    int ml = bleMfg(mfg);
+
+    // Skip pure-noise beacons (no name AND no manufacturer data) to keep the log readable.
+    if (nl > 0 || ml > 0) {
+      char macs[24];
+      sprintf(macs, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+      char m[120];
+      sprintf(m, "ble %s r=%d mfg=0x%02x%02x name=%s", macs, r, mfg[1], mfg[0], nm);
+      addLog(m);
+
+      // Example filter: flag an Etekcity/VeSync scale (name match, or manufacturer-id 0x06D0).
+      int isScale = 0;
+      if (strFind(nm, "Etekcity") >= 0 || strFind(nm, "Fitness") >= 0 || strFind(nm, "QN-Scale") >= 0) { isScale = 1; }
+      if (ml >= 2 && mfg[0] == 0xD0 && mfg[1] == 0x06) { isScale = 1; }
+      if (isScale) {
+        char s[100];
+        sprintf(s, "ble: *** SCALE candidate mac=%s mfgid=0x%02x%02x name=%s ***", macs, mfg[1], mfg[0], nm);
+        addLog(s);
+      }
+    }
+    got = bleNext();
+  }
+  delay(500);
+}

@@ -36,6 +36,25 @@ const BUILTINS = {
     'owSearchReset':    { syscall: Syscall.OW_SEARCH_RESET, args: 0, returns: false },
     'owSearch':         { syscall: Syscall.OW_SEARCH,      args: 1, returns: true, strArgs: [0] },
 
+    // BLE scan/observe (ESP32 + USE_TINYC_BLE). Discover by polling: bleScan(ms) then bleNext()
+    // in a loop, reading bleMac/bleRssi/bleName/bleMfg of the current advert.
+    'bleScan':          { syscall: Syscall.BLE_SCAN,       args: 1, returns: true },
+    'bleScanStop':      { syscall: Syscall.BLE_SCAN_STOP,  args: 0, returns: true },
+    'bleNext':          { syscall: Syscall.BLE_NEXT,       args: 0, returns: true },
+    'bleMac':           { syscall: Syscall.BLE_MAC,        args: 1, returns: true, strArgs: [0] },
+    'bleRssi':          { syscall: Syscall.BLE_RSSI,       args: 0, returns: true },
+    'bleName':          { syscall: Syscall.BLE_NAME,       args: 1, returns: true, strArgs: [0] },
+    'bleMfg':           { syscall: Syscall.BLE_MFG,        args: 1, returns: true, strArgs: [0] },
+
+    // BLE GATT client (non-blocking): bleTarget(), then bleReadStart()/bleWriteStart(),
+    // poll bleDone() in TaskLoop, fetch with bleResult().
+    'bleAddrType':      { syscall: Syscall.BLE_ADDRTYPE,    args: 0, returns: true },
+    'bleTarget':        { syscall: Syscall.BLE_TARGET,      args: 3, returns: true, strArgs: [0] },
+    'bleReadStart':     { syscall: Syscall.BLE_READ_START,  args: 1, returns: true },
+    'bleWriteStart':    { syscall: Syscall.BLE_WRITE_START, args: 3, returns: true, strArgs: [1] },
+    'bleDone':          { syscall: Syscall.BLE_DONE,        args: 0, returns: true },
+    'bleResult':        { syscall: Syscall.BLE_RESULT,      args: 1, returns: true, strArgs: [0] },
+
     // Timing
     'delay':            { syscall: Syscall.DELAY,           args: 1, returns: false },
     'delayMicroseconds':{ syscall: Syscall.DELAY_MICRO,     args: 1, returns: false },
@@ -298,6 +317,7 @@ const BUILTINS = {
     'aesCbc':           { syscall: Syscall.AES_CBC,         args: 5, returns: true,  strArgs: [0, 1, 2], intArgs: [3, 4] },
     'hmacSha256':       { syscall: Syscall.HMAC_SHA256,     args: 5, returns: true,  strArgs: [0, 2, 4], intArgs: [1, 3] },
     'sha256':           { syscall: Syscall.SHA256,          args: 3, returns: true,  strArgs: [0, 2], intArgs: [1] },
+    'md5':              { syscall: Syscall.MD5,             args: 3, returns: true,  strArgs: [0, 2], intArgs: [1] },
     // hex2bin's first arg can be a string LITERAL (constArgs) OR a char[] (strArgs).
     // The compiler resolves which based on what the caller passed; the VM-side
     // tc_is_const_ref() check distinguishes at runtime. Listing both lets the

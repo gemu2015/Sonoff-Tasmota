@@ -81,6 +81,7 @@ EXAMPLES = [
     ('rgb_led',        'RGB LED (WS2812 / RMT)'),
     ('ledbar',         'WS2812 LED Strip (setPixels)'),
     ('camera',         'ESP Camera (DFRobot)'),
+    ('ble_scan',       'BLE Scanner'),
 ]
 
 print("Bundling TinyC IDE...")

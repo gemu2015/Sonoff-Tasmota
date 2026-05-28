@@ -2122,6 +2122,19 @@ static void BLETaskRunCurrentOperation(BLE_ESP32::generic_sensor_t** pCurrentOpe
     } else {
       newstate = GEN_STATE_FAILED_NOSERVICE;
       // failed to get a service
+      // BLEDebug 1: dump the device's actual GATT so callers can discover real UUIDs.
+      if (BLEDebugMode > 0) {
+        const std::vector<NimBLERemoteService*>& svcs = pClient->getServices(true);
+        AddLog(LOG_LEVEL_INFO, PSTR("BLE: requested svc %s absent; device exposes %d service(s):"),
+               op->serviceUUID.toString().c_str(), (int)svcs.size());
+        for (auto s : svcs) {
+          const std::vector<NimBLERemoteCharacteristic*>& chrs = s->getCharacteristics(true);
+          AddLog(LOG_LEVEL_INFO, PSTR("BLE:  svc %s (%d chr)"), s->getUUID().toString().c_str(), (int)chrs.size());
+          for (auto c : chrs) {
+            AddLog(LOG_LEVEL_INFO, PSTR("BLE:   chr %s props=0x%02x"), c->getUUID().toString().c_str(), c->getProperties());
+          }
+        }
+      }
 #ifdef BLE_ESP32_DEBUG
       AddLog(LOG_LEVEL_DEBUG,PSTR("BLE: failed - svc not on device?"));
 #endif

@@ -432,6 +432,21 @@ export const Syscall = {
     MTR_SETF:       406, // (ep,cl,attr,fval,scale)  -> void  matterSetFloat(): store round(fval*scale) as int64 (temp/power)
     MTR_EVENT:      407, // (ep,cl,eventId,a,b)      -> void  matterEvent(): emit a Matter event (Generic Switch buttons)
     MTR_NAME:       408, // (ep, name)               -> void  matterName(): name an endpoint (bridge -> Apple Home accessory title)
+    // BLE scan/observe (firmware: USE_TINYC_BLE -> USE_BLE_ESP32). 416-424 reserved for GATT client.
+    BLE_SCAN:       409, // (ms)                     -> int   bleScan(): start capturing adverts (clears queue; ms>0 auto-stops)
+    BLE_SCAN_STOP:  410, // ()                       -> int   bleScanStop(): stop capturing
+    BLE_NEXT:       411, // ()                       -> int   bleNext(): pop next advert into current; 1=got one, 0=empty
+    BLE_MAC:        412, // (buf)                    -> int   bleMac(): write 6 MAC bytes into buf[0..5]; returns 6
+    BLE_RSSI:       413, // ()                       -> int   bleRssi(): RSSI of current advert (dBm, negative)
+    BLE_NAME:       414, // (buf)                    -> int   bleName(): copy advert local name into char[]; returns len
+    BLE_MFG:        415, // (buf)                    -> int   bleMfg(): write manufacturer-data bytes into buf; returns len
+    // GATT client (non-blocking): bleTarget() then bleReadStart()/bleWriteStart(), poll bleDone(), bleResult().
+    BLE_ADDRTYPE:   416, // ()                       -> int   bleAddrType(): addr type of current advert (0=public, else random)
+    BLE_TARGET:     417, // (mac, addrtype, svc16)   -> int   bleTarget(): set GATT target address + service UUID
+    BLE_READ_START: 418, // (notify16)               -> int   bleReadStart(): connect + subscribe notify char; 1=started, <0=busy
+    BLE_WRITE_START:419, // (chr16, buf, len)        -> int   bleWriteStart(): connect + write char; 1=started, <0=busy
+    BLE_DONE:       420, // ()                       -> int   bleDone(): 0=pending, >0=result len, <0=failed
+    BLE_RESULT:     421, // (buf)                    -> int   bleResult(): copy received notify/read bytes; returns len
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void
@@ -495,6 +510,7 @@ export const Syscall = {
     SHA256:          363, // (data_ref, dlen, out32_ref)                     -> int 1=ok
     HEX2BIN:         364, // (hex_ref_or_const, hex_len, out_ref)            -> int  bytes written
     BIN2HEX:         365, // (bin_ref, bin_len, out_ref)                     -> int  chars written
+    MD5:             368, // (data_ref, dlen, out16_ref)                     -> int 1=ok (16-byte digest; Tuya key derivation)
 
     // Audio
     AUDIO_VOL:      200, // (vol) -> void — set volume 0-100
