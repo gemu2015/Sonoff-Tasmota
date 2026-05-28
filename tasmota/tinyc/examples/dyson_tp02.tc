@@ -1,0 +1,219 @@
+// dyson_tp02.tc — local control of a Dyson Pure Cool Link (Tower TP02 / Desk DP01 …)
+// over the purifier's OWN on-device MQTT broker (port 1883, plaintext on the LAN).
+//
+// Tasmota's built-in mqttPublish only reaches Tasmota's own broker, so we hand-roll a
+// minimal MQTT v3.1.1 client (CONNECT / SUBSCRIBE / PUBLISH QoS0 / PINGREQ) over the raw
+// TCP client. Reads live state (mode / speed / oscillation / night / dust / VOC) into
+// share vars + a web tile, and writes it back via STATE-SET from web widgets.
+//
+// ── SETUP ─────────────────────────────────────────────────────────────────────────────
+// 1. The MQTT username is the device SERIAL; the password is the device LOCAL credential
+//    (an 88-char base64, NOT your Dyson account password). Extract it once from the Dyson
+//    cloud with e.g. the `libdyson`/`libdyson-neon` Python lib (DysonAccount login →
+//    devices() → .credential / .product_type / .serial). It is a SECRET — keep it out of
+//    this source.
+// 2. Store ONLY the credential in /dyson.cfg on the device FS (one line, trailing newline
+//    ok):  Backlog … or upload via the file manager. This script reads it at start.
+// 3. Set HOST (the purifier's LAN IP), SERIAL and PRODUCT_TYPE below to match your unit.
+//    Product type selects the MQTT topic prefix: 475 = Pure Cool Link Tower, 469 = Link
+//    Desk, 455 = Hot+Cool Link, 438/520 = newer Pure Cool, etc. Field names differ on the
+//    non-"Link" models (fpwr instead of fmod) — adjust parse_status/state_set if needed.
+//
+// Start by hand with TinyCRun (no autostart needed). Verify in the console log:
+//   "dyson: CONNACK rc=0" then "dyson: subscribed", then the web tile fills in.
+//
+// ── ARCHITECTURE ──────────────────────────────────────────────────────────────────────
+// The MQTT socket is owned by the VM task (main + TaskLoop). Web widgets (WebCall, which
+// runs on the web task) only set the c_* control vars; TaskLoop notices c_X != c_X_prev
+// and is the ONLY caller that writes the socket — single-task I/O, no cross-task tcpWrite.
+
+char host[] = "192.168.188.45";    // <-- SET: Dyson LAN IP (DHCP — update if it changes)
+char sid[]  = "NN2-EU-HKA2458A";   // <-- SET: device serial (= MQTT username)
+char pt[]   = "475";               // <-- SET: product type (475 = Pure Cool Link Tower)
+char cid[]  = "tctc";              // MQTT client id (any short unique string)
+char cred[120];                    // MQTT password, loaded from /dyson.cfg
+char tcmd[44];                     // command topic  <pt>/<serial>/command
+char tsta[48];                     // status topic   <pt>/<serial>/status/current
+
+int body[400]; int bln;            // MQTT packet body builder
+int out[700];                      // full packet (header + body)
+int rxd[768];                      // RX scratch (status burst ~450 bytes)
+int connected; int subscribed;
+int t_ping;
+
+// live state (read from the device)
+int  d_mode;   // 0=Off 1=Fan 2=Auto
+int  d_speed;  // 1..10 (0 if AUTO/off)
+int  d_osc;    // 0/1
+int  d_night;  // 0/1
+int  d_dust;   // pact (particulate)
+int  d_voc;    // vact (volatile organics)
+
+// control (set by web widgets, dispatched by TaskLoop on change vs *_prev shadow)
+int  c_mode = 2;   // pulldown 0=Off 1=Fan 2=Auto
+int  c_speed = 5;  // slider 1..10
+int  c_osc;        // toggle 0/1
+int  c_night;      // toggle 0/1
+int  c_mode_prev = 2; int c_speed_prev = 5; int c_osc_prev; int c_night_prev;
+int  c_init;       // 0 until first status syncs the widgets to the device
+
+void bpb(int v) { body[bln] = v & 0xff; bln = bln + 1; }
+void bpstr(char s[]) {                       // MQTT string field: 2-byte BE length + bytes
+  int n = strlen(s); bpb(n >> 8); bpb(n);
+  int i; for (i = 0; i < n; i = i + 1) { bpb(s[i]); }
+}
+void send_pkt(int type) {                    // prepend fixed header + remaining-length, send
+  int on = 0; out[on] = type; on = on + 1;
+  if (bln < 128) { out[on] = bln; on = on + 1; }
+  else { out[on] = (bln & 0x7f) | 0x80; on = on + 1; out[on] = bln >> 7; on = on + 1; }
+  int i; for (i = 0; i < bln; i = i + 1) { out[on] = body[i]; on = on + 1; }
+  tcpWriteArray(out, on, 0);
+}
+void mqtt_connect() {
+  bln = 0;
+  bpb(0); bpb(4); bpb('M'); bpb('Q'); bpb('T'); bpb('T');
+  bpb(4); bpb(0xc2); bpb(0); bpb(60);              // protocol level 4, clean+user+pass, keepalive 60
+  bpstr(cid); bpstr(sid); bpstr(cred);
+  send_pkt(0x10);
+}
+void mqtt_sub(char topic[]) {
+  bln = 0; bpb(0); bpb(1); bpstr(topic); bpb(0);   // packet id 1, QoS 0
+  send_pkt(0x82);
+}
+void mqtt_pub(char topic[], char payload[]) {
+  bln = 0; bpstr(topic);
+  int n = strlen(payload); int i;
+  for (i = 0; i < n; i = i + 1) { bpb(payload[i]); }
+  send_pkt(0x30);                                  // PUBLISH QoS 0
+}
+void mqtt_ping() { out[0] = 0xc0; out[1] = 0x00; tcpWriteArray(out, 2, 0); }
+
+void request_state() {                             // ask the device to push its state once
+  char ts[24]; char req[96];
+  sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02dZ", tasm_year, tasm_month, tasm_day, tasm_hour, tasm_minute, tasm_second);
+  sprintf(req, "{\"msg\":\"REQUEST-CURRENT-STATE\",\"time\":\"%s\"}", ts);
+  mqtt_pub(tcmd, req);
+}
+
+void state_set(char fields[]) {                    // {"msg":"STATE-SET",...,"data":{<fields>}}
+  char ts[24]; char req[160];
+  sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02dZ", tasm_year, tasm_month, tasm_day, tasm_hour, tasm_minute, tasm_second);
+  sprintf(req, "{\"msg\":\"STATE-SET\",\"time\":\"%s\",\"mode-reason\":\"LAPP\",\"data\":{%s}}", ts, fields);
+  mqtt_pub(tcmd, req);
+  char lg[64]; sprintf(lg, "dyson: STATE-SET {%s}", fields); addLog(lg);
+}
+
+void parse_status(char b[]) {                      // tolerant substring parse of the JSON burst
+  int p; char v[8];
+  p = strFind(b, "\"fnsp\":\"");
+  if (p >= 0) { strSub(v, b, p + 8, 4); d_speed = atof(v); shareSetInt("dyson_speed", d_speed); }  // "AUTO" -> 0
+  p = strFind(b, "\"pact\":\"");
+  if (p >= 0) { strSub(v, b, p + 8, 4); d_dust = atof(v); shareSetInt("dyson_dust", d_dust); }
+  p = strFind(b, "\"vact\":\"");
+  if (p >= 0) { strSub(v, b, p + 8, 4); d_voc = atof(v); shareSetInt("dyson_voc", d_voc); }
+  if (strFind(b, "\"oson\":\"ON")  >= 0) { d_osc = 1;  shareSetInt("dyson_osc", 1); }
+  else if (strFind(b, "\"oson\":\"OFF") >= 0) { d_osc = 0; shareSetInt("dyson_osc", 0); }
+  if (strFind(b, "\"nmod\":\"ON")  >= 0) { d_night = 1; shareSetInt("dyson_night", 1); }
+  else if (strFind(b, "\"nmod\":\"OFF") >= 0) { d_night = 0; shareSetInt("dyson_night", 0); }
+  if (strFind(b, "\"fmod\":\"OFF")  >= 0) { d_mode = 0; }
+  else if (strFind(b, "\"fmod\":\"AUTO") >= 0) { d_mode = 2; }
+  else if (strFind(b, "\"fmod\":\"FAN")  >= 0) { d_mode = 1; }
+  shareSetInt("dyson_mode", d_mode);
+
+  // Mirror device state into the control widgets — but never overwrite a click that
+  // TaskLoop hasn't dispatched yet (c_X != c_X_prev = pending). First status forces sync.
+  if (c_init == 0 || c_mode  == c_mode_prev)  { c_mode  = d_mode;  c_mode_prev  = d_mode; }
+  if (c_init == 0 || c_osc   == c_osc_prev)   { c_osc   = d_osc;   c_osc_prev   = d_osc; }
+  if (c_init == 0 || c_night == c_night_prev) { c_night = d_night; c_night_prev = d_night; }
+  if (d_speed > 0 && (c_init == 0 || c_speed == c_speed_prev)) { c_speed = d_speed; c_speed_prev = d_speed; }
+  c_init = 1;
+}
+
+void do_connect() {
+  subscribed = 0;
+  int rc = tcpConnect(host, 1883);
+  if (rc == 0) { mqtt_connect(); t_ping = millis(); addLog("dyson: TCP up, CONNECT sent"); }
+  else { addLog("dyson: tcpConnect failed"); }
+}
+
+int main() {
+  connected = 0; subscribed = 0;
+  sprintf(tcmd, "%s/%s/command", pt, sid);
+  sprintf(tsta, "%s/%s/status/current", pt, sid);
+  int fh = fileOpen("/dyson.cfg", "r");
+  if (fh < 0) { addLog("dyson: /dyson.cfg missing"); return 0; }
+  int n = fileRead(fh, cred, 119); fileClose(fh);
+  if (n < 1) { addLog("dyson: empty credential"); return 0; }
+  int done = 0;                                    // trim trailing whitespace/newline
+  while (n > 0 && done == 0) {
+    int c = cred[n - 1];
+    if (c == 10 || c == 13 || c == 32 || c == 9) { n = n - 1; } else { done = 1; }
+  }
+  cred[n] = 0;
+  do_connect();
+  return 0;
+}
+
+void TaskLoop() {
+  if (tcpConnected() == 0) { do_connect(); delay(3000); return; }
+
+  if (tcpAvailable() > 0) {
+    int n = tcpReadArray(rxd);
+    if (subscribed == 0 && n >= 4 && rxd[0] == 0x20) {           // CONNACK
+      char m[48]; sprintf(m, "dyson: CONNACK rc=%d", rxd[3]); addLog(m);
+      if (rxd[3] == 0) { mqtt_sub(tsta); request_state(); subscribed = 1; addLog("dyson: subscribed"); }
+    } else {                                                     // PUBLISH (status burst)
+      char buf[768]; int i; int j = 0;
+      for (i = 0; i < n && j < 767; i = i + 1) {
+        int c = rxd[i]; if (c == 0) { c = 32; }   // keep binary 0x00 from cutting the string
+        buf[j] = c; j = j + 1;
+      }
+      buf[j] = 0;
+      parse_status(buf);
+    }
+  }
+
+  // dispatch one pending control change per tick (web widgets set c_*, we own the socket)
+  if (subscribed == 1 && c_init == 1) {
+    char f[40];
+    if (c_mode != c_mode_prev) {
+      if (c_mode == 0) { strcpy(f, "\"fmod\":\"OFF\""); }
+      else if (c_mode == 2) { strcpy(f, "\"fmod\":\"AUTO\""); }
+      else { sprintf(f, "\"fmod\":\"FAN\",\"fnsp\":\"%04d\"", c_speed); }
+      state_set(f); c_mode_prev = c_mode;
+    } else if (c_speed != c_speed_prev) {
+      sprintf(f, "\"fmod\":\"FAN\",\"fnsp\":\"%04d\"", c_speed);
+      state_set(f); c_speed_prev = c_speed; c_mode = 1; c_mode_prev = 1;
+    } else if (c_osc != c_osc_prev) {
+      if (c_osc) { strcpy(f, "\"oson\":\"ON\""); } else { strcpy(f, "\"oson\":\"OFF\""); }
+      state_set(f); c_osc_prev = c_osc;
+    } else if (c_night != c_night_prev) {
+      if (c_night) { strcpy(f, "\"nmod\":\"ON\""); } else { strcpy(f, "\"nmod\":\"OFF\""); }
+      state_set(f); c_night_prev = c_night;
+    }
+  }
+
+  if (millis() - t_ping > 45000) { mqtt_ping(); t_ping = millis(); }   // keepalive
+  delay(250);
+}
+
+void onoff(char dst[], int v) { if (v) { strcpy(dst, "On"); } else { strcpy(dst, "Off"); } }
+
+void WebCall() {
+  char m[96]; char a[8]; char b2[8];
+  char md[8];
+  if (d_mode == 0) { strcpy(md, "Off"); } else if (d_mode == 2) { strcpy(md, "Auto"); } else { strcpy(md, "Fan"); }
+  sprintf(m, "{s}<b>Dyson TP02</b>{m}%s{e}", md); webSend(m);
+  sprintf(m, "{s}Speed{m}%d / 10{e}", d_speed); webSend(m);
+  onoff(a, d_osc); sprintf(m, "{s}Oscillation{m}%s{e}", a); webSend(m);
+  onoff(b2, d_night); sprintf(m, "{s}Night mode{m}%s{e}", b2); webSend(m);
+  sprintf(m, "{s}Dust (pact){m}%d{e}", d_dust); webSend(m);
+  sprintf(m, "{s}VOC (vact){m}%d{e}", d_voc); webSend(m);
+
+  // Controls. webPulldown/webSlider/webButton emit a raw <div><button>, illegal inside
+  // the sensor <table> — wrap each in <tr><td colspan=2> or it gets foster-parented out.
+  webSend("<tr><td colspan=2>"); webPulldown(c_mode, "Mode", "Off|Fan|Auto"); webSend("</td></tr>");
+  webSend("<tr><td colspan=2>"); webSlider(c_speed, 1, 10, "Speed"); webSend("</td></tr>");
+  webSend("<tr><td colspan=2>"); webButton(c_osc, "Oscillation"); webSend("</td></tr>");
+  webSend("<tr><td colspan=2>"); webButton(c_night, "Night mode"); webSend("</td></tr>");
+}
