@@ -1350,6 +1350,13 @@ export class CodeGenerator {
         const info = this.scope.define(node.name, node.varType);
         if (node.init) {
             this.compileExpr(node.init);
+            // Type coercion for local initialisers, mirroring the global-initialiser path
+            // (e.g. `float H = u_height;` must convert int→float, not copy the raw bits —
+            //  otherwise H holds an int bit-pattern reinterpreted as a denormal float, which
+            //  then underflows to 0.0f and traps the next FDIV). See computeComp div-by-zero.
+            const valType = this.inferType(node.init);
+            if (node.varType === 'float' && valType !== 'float') this.emit(Op.I2F);
+            else if (node.varType !== 'float' && valType === 'float') this.emit(Op.F2I);
             this.emit(Op.STORE_LOCAL);
             this.emitByte(info.index);
         }
