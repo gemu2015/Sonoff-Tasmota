@@ -181,6 +181,18 @@ typedef struct {
   uint8_t          pending_root_pub[65];      // from AddTrustedRootCertificate
   bool             have_pending_root;
 
+  // Fail-Safe context (Core Spec §11.10). ArmFailSafe starts a timer; AddNOC
+  // installs a fabric that is TENTATIVE until CommissioningComplete commits it.
+  // If the timer expires (or a fresh commissioning starts) first, the tentative
+  // fabric is rolled back. Without this every failed/abandoned commissioning
+  // attempt that reached AddNOC leaked a *persisted* fabric — after
+  // MTRC_MAX_FABRICS such attempts the table is full -> AddNOC=TableFull -> no
+  // operational mDNS -> the controller never starts CASE (Hans/Google Nest,
+  // discussion #85: "kann nicht hinzugefügt").
+  bool             fs_armed;            // fail-safe currently armed
+  uint32_t         fs_expiry_ms;        // millis() deadline while armed
+  uint8_t          fs_added_fabric;     // fabric_index added by AddNOC this context (0 = none/committed)
+
   // single attribute subscription (the report engine)
   bool             sub_active;
   uint32_t         sub_id;
@@ -224,6 +236,10 @@ static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM wh
 static void mlog(matter_log_level_t lvl, const char *msg) {
   if (g.port.log) g.port.log(g.port.ctx, lvl, msg);
 }
+
+// Fail-Safe disarm/rollback (defined after the fabric-store helpers it uses);
+// forward-declared so the PASE handler can abandon a prior tentative fabric.
+static void matter_failsafe_disarm(bool committed);
 
 // ---- onboarding payload (Core Spec §5.1) -------------------------------
 // Verhoeff check digit over the decimal string s (manual pairing code).
@@ -573,6 +589,7 @@ matter_err_t matter_factory_reset(void) {
   if (g.port.kv_del) g.port.kv_del(g.port.ctx, MTRC_KV_FABRICS);   // wipe persisted blob
   g.pase_secure = false; g.case_secure = false;
   memset(g.case_sess, 0, sizeof(g.case_sess));   // drop all operational sessions
+  g.fs_armed = false; g.fs_added_fabric = 0;     // no tentative fabric survives a reset
   mlog(MATTER_LOG_INFO, "matter_c factory reset (fabrics wiped)");
   return MATTER_OK;
 }
@@ -624,6 +641,10 @@ static void pase_handle_param_req(const uint8_t *payload, size_t plen,
   // CSRRequest mints a new key bound to THIS commissioning's NOC.
   g.have_pending_op = false;
   g.have_pending_root = false;
+  // …and abandon a fabric left tentative by a prior AddNOC that never reached
+  // CommissioningComplete — else a controller retrying within the fail-safe
+  // window leaks one fabric per attempt (the AddNOC=TableFull root cause).
+  if (g.fs_added_fabric) matter_failsafe_disarm(false);
 
   g.port.random_bytes(g.port.ctx, g.resp_random, 32);
   g.port.random_bytes(g.port.ctx, g.salt, 16);
@@ -1335,8 +1356,10 @@ static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
   const uint8_t *noc = NULL, *ipk = NULL; size_t noclen = 0, ipklen = 0;
   const uint8_t *icac = NULL; size_t icaclen = 0;
   uint64_t admin_subj = 0, admin_vid = 0;
-  if (!inv_field(payload, plen, 0, 1, &noc, &noclen, NULL))
+  if (!inv_field(payload, plen, 0, 1, &noc, &noclen, NULL)) {
+    mlog(MATTER_LOG_INFO, "NOC: AddNOC FAIL InvalidNOC (no NOCValue field)");
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
+  }
   // ICACValue (field 1) is OPTIONAL: present when the fabric issues NOCs via an
   // intermediate CA (NOC <- ICAC <- RCAC). Apple Home uses an ICAC; chip-tool by
   // default issues NOCs straight from the root. We MUST store it and echo it in
@@ -1348,11 +1371,19 @@ static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
 
   mtrc_cert nc;
   if (!mtrc_cert_parse(noc, noclen, &nc) || !nc.have_pubkey ||
-      !g.have_pending_op || !g.have_pending_root)
+      !g.have_pending_op || !g.have_pending_root) {
+    mlog(MATTER_LOG_INFO, "NOC: AddNOC FAIL InvalidNOC (cert parse / no pending op|root)");
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
+  }
 
   mtrc_fabric *f = mtrc_store_alloc();
-  if (!f) return build_noc_response(out, cap, ep, cl, 0x05, 0);   // TableFull
+  if (!f) {
+    char mf[72];
+    snprintf(mf, sizeof(mf), "NOC: AddNOC FAIL TableFull (%d/%d fabrics) — matterReset to clear",
+             mtrc_store_count(), MTRC_MAX_FABRICS);
+    mlog(MATTER_LOG_INFO, mf);
+    return build_noc_response(out, cap, ep, cl, 0x05, 0);   // TableFull
+  }
   f->fabric_id = nc.have_fabric_id ? nc.subject_fabric_id : 0;
   f->node_id   = nc.have_node_id   ? nc.subject_node_id   : 0;
   f->admin_vendor_id = (uint16_t)admin_vid;
@@ -1375,7 +1406,36 @@ static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
   mlog(MATTER_LOG_INFO, m);
   mtrc_persist_fabrics();          // survive reboots
   publish_operational_mdns(f);     // become discoverable on the operational fabric
+  // Tentative until CommissioningComplete; rolled back if the fail-safe expires
+  // or a new commissioning starts first (see matter_failsafe_disarm).
+  g.fs_added_fabric = f->fabric_index;
   return build_noc_response(out, cap, ep, cl, 0x00, f->fabric_index);   // OK
+}
+
+// Disarm the Fail-Safe (Core Spec §11.10). committed=true => Commissioning
+// Complete arrived, the AddNOC'd fabric stays. committed=false => the fail-safe
+// expired / was disarmed / a new commissioning started before
+// CommissioningComplete => roll back the tentative fabric so a failed attempt
+// does not leak a persisted fabric (the AddNOC=TableFull root cause).
+static void matter_failsafe_disarm(bool committed) {
+  uint8_t idx = g.fs_added_fabric;
+  if (!committed && idx) {
+    mtrc_fabric *rf = mtrc_store_by_index(idx);
+    if (rf) {
+      unpublish_operational_mdns(rf);                  // withdraw its _matter._tcp
+      for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)     // drop any session on it
+        if (g.case_sess[i].in_use && g.case_sess[i].fabric_index == idx)
+          memset(&g.case_sess[i], 0, sizeof(g.case_sess[i]));
+      mtrc_store_remove(idx);
+      mtrc_persist_fabrics();
+      char m[80];
+      snprintf(m, sizeof(m), "fail-safe rollback: removed tentative fabric idx=%u (%d left)",
+               (unsigned)idx, mtrc_store_count());
+      mlog(MATTER_LOG_INFO, m);
+    }
+  }
+  g.fs_armed = false;
+  g.fs_added_fabric = 0;
 }
 
 // Handle a decrypted IM InvokeRequest. P3b.1 answers the General
@@ -1448,9 +1508,28 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     }
   } else if (cl == 0x0030) {          // General Commissioning (handled in-core)
     uint32_t rc = 0xFFFFFFFF;
-    if      (cmd == 0x00) rc = 0x01;  // ArmFailSafe -> ArmFailSafeResponse
+    if (cmd == 0x00) {                // ArmFailSafe -> ArmFailSafeResponse
+      rc = 0x01;
+      uint64_t expiry = 0;            // field 0 = ExpiryLengthSeconds (uint16)
+      inv_field(payload, plen, 0, 0, NULL, NULL, &expiry);
+      if (expiry == 0) {
+        // Disarm: roll back anything not yet committed (Core Spec §11.10.6.2).
+        matter_failsafe_disarm(false);
+      } else {
+        // Arm / re-arm: (re-)start the timer. A re-arm during the same
+        // commissioning keeps an already-added tentative fabric.
+        g.fs_armed = true;
+        g.fs_expiry_ms = g.port.millis(g.port.ctx) + (uint32_t)expiry * 1000u;
+        char fm[48];
+        snprintf(fm, sizeof(fm), "fail-safe armed %us", (unsigned)expiry);
+        mlog(MATTER_LOG_DEBUG, fm);
+      }
+    }
     else if (cmd == 0x02) rc = 0x03;  // SetRegulatoryConfig -> Response
-    else if (cmd == 0x04) rc = 0x05;  // CommissioningComplete -> Response
+    else if (cmd == 0x04) {           // CommissioningComplete -> Response
+      rc = 0x05;
+      matter_failsafe_disarm(true);   // commit: the AddNOC'd fabric is now permanent
+    }
     if (rc != 0xFFFFFFFF)
       n = mtrc_im_build_cmd_response_u8(resp, sizeof(resp), ep, cl, rc, 0); // errorCode OK
   } else if (cl == 0x0003 && (cmd == 0x00 || cmd == 0x40)) {  // Identify / TriggerEffect
@@ -2444,6 +2523,11 @@ matter_err_t matter_queue_event(uint16_t ep, uint32_t cl, uint32_t event_id,
 
 void matter_loop(void) {
   if (!g_ptr || !g.inited || !g.started) return;   // off / not started -> no-op
+  // Fail-safe expiry (Core Spec §11.10): if a commissioning armed the fail-safe
+  // but never sent CommissioningComplete, roll back its tentative fabric so the
+  // abandoned attempt does not leak a persisted fabric.
+  if (g.fs_armed && (int32_t)(g.port.millis(g.port.ctx) - g.fs_expiry_ms) >= 0)
+    matter_failsafe_disarm(false);
   // Drain ALL queued datagrams (a burst from several controllers must not be
   // dropped). Set the reply target from each packet's own source first.
   while (g.rx_head != g.rx_tail) {
