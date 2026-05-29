@@ -89,6 +89,38 @@ int main(void) {
   chk("bad magic rejected", mtrc_store_deserialize((const uint8_t*)"XXXX\0", 5) == 0);
   chk("truncated rejected", mtrc_store_deserialize(blob, 6) == 0);
 
+  printf("(F) FabricLabel round-trip (UpdateFabricLabel)\n");
+  mtrc_store_reset();
+  mtrc_fabric *fl = mtrc_store_alloc();
+  fl->fabric_id = 0xAABBCCDDEEFF0011ULL;
+  fl->noc_len = 10; memset(fl->noc, 0x55, 10);
+  strcpy(fl->label, "Alexa Home");
+  static uint8_t lblob[2048];
+  int ln = mtrc_store_serialize(lblob, sizeof(lblob));
+  chk("serialize w/ label ok", ln > 0);
+  mtrc_store_reset();
+  chk("deserialize w/ label ok", mtrc_store_deserialize(lblob, (size_t)ln) == 1);
+  mtrc_fabric *fk = mtrc_store_by_index(1);
+  chk("label preserved", fk && strcmp(fk->label, "Alexa Home") == 0);
+
+  printf("(G) legacy ver-1 blob (no label) still loads\n");
+  // A ver-1 blob is a ver-2 blob with an empty trailing label (label_len=0),
+  // the version byte set to 1, and that one trailing zero byte dropped.
+  mtrc_store_reset();
+  mtrc_fabric *fv = mtrc_store_alloc();
+  fv->fabric_id = 0x1212121212121212ULL;
+  fv->noc_len = 4; memset(fv->noc, 0x77, 4);
+  fv->label[0] = '\0';                                  // empty -> 1-byte (0x00) tail in ver 2
+  static uint8_t vblob[2048];
+  int vn = mtrc_store_serialize(vblob, sizeof(vblob));
+  chk("serialize (empty label) ok", vn > 0);
+  vblob[3] = 1;                                         // pretend it was written by ver-1 firmware
+  mtrc_store_reset();
+  chk("ver-1 deserialize ok", mtrc_store_deserialize(vblob, (size_t)(vn - 1)) == 1);
+  mtrc_fabric *fw = mtrc_store_by_index(1);
+  chk("ver-1 fabric back", fw && fw->fabric_id == 0x1212121212121212ULL);
+  chk("ver-1 label empty", fw && fw->label[0] == '\0');
+
   printf(g_ok ? "\n==> fabric store PASS\n" : "\n==> fabric store FAIL\n");
   return g_ok ? 0 : 1;
 }

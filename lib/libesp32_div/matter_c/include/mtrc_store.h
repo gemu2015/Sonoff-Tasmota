@@ -30,6 +30,7 @@ extern "C" {
 // user with two homes, or adding Google/Alexa later, needs more). ~1 KB each.
 #define MTRC_MAX_FABRICS  5
 #define MTRC_NOC_MAX    400   // max NOC / ICAC compact-TLV bytes
+#define MTRC_LABEL_MAX   32   // FabricDescriptor Label (UTF-8), spec max length
 
 typedef struct {
   uint8_t  in_use;
@@ -43,6 +44,7 @@ typedef struct {
   uint8_t  op_pub[65];            // our operational public key
   uint8_t  noc[MTRC_NOC_MAX];     uint16_t noc_len;
   uint8_t  icac[MTRC_NOC_MAX];    uint16_t icac_len;
+  char     label[MTRC_LABEL_MAX + 1]; // controller-set FabricLabel (UpdateFabricLabel), NUL-terminated
 } mtrc_fabric;
 
 // Clear the whole table.

@@ -62,7 +62,10 @@ int mtrc_store_remove(uint8_t fabric_index) {
 // Blob layout (little-endian): 'M''F''B'(magic3) ver(1) count(1), then per
 // fabric: index(1) fabric_id(8) node_id(8) admin_vid(2) root_pub(65) ipk(16)
 // op_priv(32) op_pub(65) noc_len(2) noc[noc_len] icac_len(2) icac[icac_len].
-#define MTRC_STORE_VER 1
+// ver 2 appends label_len(1) label[label_len] (UTF-8, <=MTRC_LABEL_MAX) per
+// fabric. Deserialize still accepts ver-1 blobs (label defaults empty) so a
+// device already commissioned under the old format keeps its fabrics.
+#define MTRC_STORE_VER 2
 
 static void put_u16(uint8_t *p, uint16_t v) { p[0]=v&0xFF; p[1]=(v>>8)&0xFF; }
 static void put_u64(uint8_t *p, uint64_t v) { for (int i=0;i<8;i++) p[i]=(v>>(8*i))&0xFF; }
@@ -80,7 +83,9 @@ int mtrc_store_serialize(uint8_t *buf, size_t cap) {
   for (int i = 0; i < MTRC_MAX_FABRICS; i++) {
     mtrc_fabric *f = &g_fab[i];
     if (!f->in_use) continue;
-    size_t need = 1+8+8+2+65+16+32+65 + 2 + f->noc_len + 2 + f->icac_len;
+    size_t lbl = strlen(f->label);
+    if (lbl > MTRC_LABEL_MAX) lbl = MTRC_LABEL_MAX;
+    size_t need = 1+8+8+2+65+16+32+65 + 2 + f->noc_len + 2 + f->icac_len + 1 + lbl;
     if (o + need > cap) return -1;
     buf[o++]=f->fabric_index;
     put_u64(buf+o, f->fabric_id); o+=8;
@@ -92,13 +97,15 @@ int mtrc_store_serialize(uint8_t *buf, size_t cap) {
     memcpy(buf+o, f->op_pub, 65);   o+=65;
     put_u16(buf+o, f->noc_len);  o+=2; memcpy(buf+o, f->noc,  f->noc_len);  o+=f->noc_len;
     put_u16(buf+o, f->icac_len); o+=2; memcpy(buf+o, f->icac, f->icac_len); o+=f->icac_len;
+    buf[o++]=(uint8_t)lbl;       memcpy(buf+o, f->label, lbl);              o+=lbl;
   }
   return (int)o;
 }
 
 int mtrc_store_deserialize(const uint8_t *buf, size_t len) {
-  if (len < 5 || buf[0]!='M' || buf[1]!='F' || buf[2]!='B' || buf[3]!=MTRC_STORE_VER)
-    return 0;
+  if (len < 5 || buf[0]!='M' || buf[1]!='F' || buf[2]!='B') return 0;
+  uint8_t ver = buf[3];
+  if (ver != 1 && ver != MTRC_STORE_VER) return 0;   // ver 1 = no label (legacy)
   uint8_t count = buf[4];
   if (count > MTRC_MAX_FABRICS) return 0;
   mtrc_store_reset();
@@ -121,6 +128,12 @@ int mtrc_store_deserialize(const uint8_t *buf, size_t len) {
     f->icac_len = get_u16(buf+o); o+=2;
     if (f->icac_len > MTRC_NOC_MAX || o + f->icac_len > len) { mtrc_store_reset(); return 0; }
     memcpy(f->icac, buf+o, f->icac_len); o+=f->icac_len;
+    if (ver >= 2) {                                  // ver 2+ : trailing label
+      if (o + 1 > len) { mtrc_store_reset(); return 0; }
+      uint8_t lbl = buf[o++];
+      if (lbl > MTRC_LABEL_MAX || o + lbl > len) { mtrc_store_reset(); return 0; }
+      memcpy(f->label, buf+o, lbl); f->label[lbl] = '\0'; o+=lbl;
+    }
   }
   return 1;
 }

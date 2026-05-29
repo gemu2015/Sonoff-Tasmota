@@ -1192,7 +1192,9 @@ static int inv_field(const uint8_t *buf, size_t len, uint32_t tag, int want_byte
           mtrc_tlv_elem f;
           while (mtrc_tlv_read(&r, &f) && f.type != MTRC_TLV_END) {
             if (f.tag.ctrl == MTRC_TLV_TAG_CONTEXT && f.tag.number == tag) {
-              if (want_bytes && f.type == MTRC_TLV_BYTES) { *bp = f.bytes; *blen = f.bytes_len; return 1; }
+              // UTF8 and octet strings share the bytes/bytes_len fields; a string
+              // field (e.g. UpdateFabricLabel's Label) reads through want_bytes too.
+              if (want_bytes && (f.type == MTRC_TLV_BYTES || f.type == MTRC_TLV_UTF8)) { *bp = f.bytes; *blen = f.bytes_len; return 1; }
               if (!want_bytes && f.type == MTRC_TLV_UINT)  { *uv = f.u; return 1; }
             }
           }
@@ -1580,6 +1582,39 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
       n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, (uint8_t)idx);   // OK
     } else {
       n = build_noc_response(resp, sizeof(resp), ep, cl, 0x0B, (uint8_t)idx);   // InvalidFabricIndex
+    }
+  } else if (cl == 0x003E && cmd == 0x09) {   // UpdateFabricLabel -> NOCResponse
+    // Mandatory OperationalCredentials command. We previously fell through to
+    // UNSUPPORTED_COMMAND here: Apple/Google tolerated it, but Alexa treats the
+    // rejection as fatal and ends commissioning with "unbekannter Fehler".
+    // Apply the label to the ACCESSING fabric (the one this CASE session
+    // belongs to) and persist it. Spec NOCResponse statuses: OK(0x00),
+    // LabelConflict(0x0D) if another fabric already uses a non-empty label,
+    // InvalidFabricIndex(0x0B) if there is no accessing fabric.
+    const uint8_t *lbl = NULL; size_t lbllen = 0;
+    inv_field(payload, plen, 0, 1, &lbl, &lbllen, NULL);     // field 0 = Label (UTF-8)
+    if (lbllen > MTRC_LABEL_MAX) lbllen = MTRC_LABEL_MAX;
+    mtrc_fabric *cf = mtrc_store_by_index(g.case_fabric_index);
+    if (!cf) {
+      n = build_noc_response(resp, sizeof(resp), ep, cl, 0x0B, g.case_fabric_index); // InvalidFabricIndex
+    } else {
+      int conflict = 0;
+      if (lbllen) for (int i = 0; i < mtrc_store_count(); i++) {
+        mtrc_fabric *o = mtrc_store_at(i);
+        if (o && o != cf && (size_t)strlen(o->label) == lbllen &&
+            memcmp(o->label, lbl, lbllen) == 0) { conflict = 1; break; }
+      }
+      if (conflict) {
+        n = build_noc_response(resp, sizeof(resp), ep, cl, 0x0D, cf->fabric_index); // LabelConflict
+      } else {
+        if (lbllen) memcpy(cf->label, lbl, lbllen);
+        cf->label[lbllen] = '\0';
+        mtrc_persist_fabrics();
+        char fm[64]; snprintf(fm, sizeof(fm), "NOC: UpdateFabricLabel idx=%u \"%s\"",
+                              (unsigned)cf->fabric_index, cf->label);
+        mlog(MATTER_LOG_INFO, fm);
+        n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, cf->fabric_index); // OK
+      }
     }
   } else if (cl == 0x0030) {          // General Commissioning (handled in-core)
     uint32_t rc = 0xFFFFFFFF;
@@ -2063,7 +2098,7 @@ static void emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(2), f->admin_vendor_id);     // VendorID
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(3), f->fabric_id);           // FabricID
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(4), f->node_id);             // NodeID
-        mtrc_tlv_put_utf8 (w, mtrc_tlv_ctx(5), (const uint8_t *)"", 0); // Label
+        mtrc_tlv_put_utf8 (w, mtrc_tlv_ctx(5), (const uint8_t *)f->label, strlen(f->label)); // Label (UpdateFabricLabel)
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(0xFE), f->fabric_index);     // FabricIndex
         mtrc_tlv_end_container(w);
       }
@@ -2127,6 +2162,10 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
         emit_report_list(w, ep, cl, attr, sev, 6); return; }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;
     case 0xFFF8:                                                               // GeneratedCommandList
+      if (cl == 0x003E) {                                  // OperationalCredentials responses
+        static const uint32_t g_noc[] = {0x01,0x03,0x05,0x08};                 // Attestation/CertChain/CSR/NOCResponse
+        emit_report_list(w, ep, cl, attr, g_noc, 4); return;
+      }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;   // our app clusters generate none
     case 0xFFF9: {                                                             // AcceptedCommandList
       // Controllers validate controllability via this list. An endpoint whose
@@ -2138,6 +2177,9 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
       static const uint32_t c_level[] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
       static const uint32_t c_color[] = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
       static const uint32_t c_wcov[]  = {0x00,0x01,0x02,0x05};                  // Up/Down/Stop/GoToLift%
+      // OperationalCredentials commands we accept (responses are GeneratedCommandList,
+      // not here). Advertising UpdateFabricLabel(0x09) signals Alexa we honour it.
+      static const uint32_t c_noc[]   = {0x00,0x02,0x04,0x06,0x09,0x0A,0x0B};
       const uint32_t *l = NULL; int ln = 0;
       switch (cl) {
         case 0x0003: l=c_ident; ln=2; break;
@@ -2145,6 +2187,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
         case 0x0008: l=c_level; ln=8; break;
         case 0x0102: l=c_wcov;  ln=4; break;
         case 0x0300: l=c_color; ln=5; break;
+        case 0x003E: l=c_noc;   ln=7; break;
         default: break;
       }
       emit_report_list(w, ep, cl, attr, l, ln); return;
