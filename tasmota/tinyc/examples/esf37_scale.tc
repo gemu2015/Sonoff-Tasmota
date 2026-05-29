@@ -1,4 +1,5 @@
-// esf37_scale.tc — read the Etekcity ESF37 body-composition scale over BLE (plaintext).
+// esf37_scale.tc — read the Etekcity ESF37 body-composition scale over BLE (plaintext)
+//                  + estimate body composition + log every weigh-in to a file.
 //
 // WHAT THIS IS:
 //   The production reader, distilled from esf37_probe.tc after the protocol was decoded live
@@ -12,26 +13,43 @@
 //     CKSUM = (TYPE + LEN + Σpayload) & 0xFF
 //   TYPE 0xD0 = MEASUREMENT (LEN 8):
 //     [0:2] weight kg ×100, u16 BE   (0x20BC = 8380 -> 83.80 kg = display 83,8)
-//     [2:4] weight lb ×100, u16 BE   (0x4830 = 18480 -> 184.80 lb)
+//     [2:4] weight lb ×100, u16 BE   (decoded but no longer displayed — kg only)
 //     [4]   stable flag              (0x00 measuring / 0x01 locked)
 //     [5:8] bio-impedance, u24 BE    (0x000213 = 531 Ω; only meaningful once stable)
 //   TYPE 0xD2 = idle heartbeat (LEN 1, payload 0x2B) — scale awake but no load. Ignored.
 //   Example locked frame: feefc0a3 d0 08 20bc 4830 01 000213 42   (cksum 0x42 ✓)
 //
+// BODY COMPOSITION (estimate — NOT the VeSync proprietary algorithm):
+//   From weight + impedance + a stored profile (height/age/sex) we derive, via published BIA
+//   equations, BMI, body-fat %, lean (fat-free) mass, body-water %, and skeletal-muscle mass.
+//     Impedance index II = height_cm^2 / R_ohm
+//     FFM (Sun 2003):  male  = -10.68 + 0.65·II + 0.26·W + 0.02·R
+//                      female=  -9.53 + 0.69·II + 0.17·W + 0.02·R
+//     Body fat %  = 100·(W − FFM)/W ;  Body water % = 100·(0.732·FFM)/W
+//     Skeletal muscle (Janssen 2000) = II·0.401 + sex·3.825 − age·0.071 + 5.102  (sex: M=1/F=0)
+//     BMI = W / (height_m^2)
+//   These are population estimates; treat them as a trend indicator, not a clinical figure.
+//
+// PROFILE (PERSISTENT): height/age/sex are editable in the web tile and saved to /esf37.cfg
+//   (CSV "height,age,sex"), so they survive a reboot. Defaults: 180 cm, 75 y, male.
+//
+// HISTORY LOG: every locked weigh-in (once impedance lands) appends one TAB-delimited row to
+//   /esf37.log:  <localtime> \t kg \t ohm \t BMI \t fat% \t lean \t water% \t muscle
+//   The web tile renders the log as a scrollable HTML table (newest entries shown; the full
+//   record always lives in /esf37.log).
+//
 // HOW IT READS:
 //   xdrv_79 delivers ONE notify per subscribe then disconnects (one-shot GATT op), so we
-//   re-subscribe in a loop. Live weight therefore lags slightly (one connect cycle per frame);
-//   that's fine for a scale — what matters is the *settled* reading. We surface the live value
-//   on every valid 0xD0 and latch the last LOCKED ([4]==0x01) weight + impedance separately.
+//   re-subscribe in a loop. We surface the live value on every valid 0xD0 and latch the last
+//   LOCKED ([4]==0x01) weight + impedance separately.
 //
 // DISCOVERY: the advert has NO local name; find the scale by manufacturer-id 0x06D0 (LE bytes
 //   D0 06). Its MAC is a RANDOM address that ROTATES between sessions — discover it live each
-//   run, carry the address-type into the connect, never hardcode. The scale only advertises
-//   while awake, so step on it. We must bleScanStop() before a GATT connect.
+//   run, carry the address-type into the connect, never hardcode. Step on the scale to wake it.
 //
 // DEPLOY: a USE_TINYC_BLE build (env tinyc32s3-ble). bleScan auto-enables BLE (no SetOption115).
 //   node tc_deploy.mjs examples/esf37_scale.tc <device-ip>
-//   Step on the scale; watch the web tile (/) or the syslog for "esf37: LOCKED ...".
+//   Step on the scale; watch the web tile (/) or the syslog for "esf37: LOGGED ...".
 
 int  mac[8];        // 6 MAC bytes of the current advert
 int  mfg[40];       // manufacturer-specific data bytes (incl. 2-byte company id, little-endian)
@@ -49,28 +67,141 @@ int  hb;            // heartbeat tick
 // decoded / shared state (read by WebCall + JsonCall)
 int   have;         // 0 until the first valid 0xD0 frame is decoded
 float w_kg;         // live weight in kg
-float w_lb;         // live weight in lb
 int   w_stable;     // 1 once the current reading has locked
 int   w_imp;        // bio-impedance Ω (latched from the locked frame)
 float lock_kg;      // latched weight at the moment it locked
 int   nframes;      // total valid measurement frames decoded
 int   nlock;        // total locked readings captured
+int   logged;       // 1 once the current lock has been written to /esf37.log (de-dupe)
+
+// body-composition results (computed once weight + impedance + profile are all present)
+float c_bmi;        // body-mass index
+float c_fat;        // body fat %
+float c_lean;       // lean / fat-free mass kg
+float c_water;      // body water %
+float c_muscle;     // skeletal muscle mass kg
+int   c_have;       // 1 once the impedance-derived metrics are valid
+
+// persistent profile (editable in the web tile, saved to /esf37.cfg)
+int  u_height;      // body height, cm
+int  u_age;         // age, years
+int  u_sex;         // 1 = male, 0 = female
+int  p_height;      // shadows for change-detect -> save
+int  p_age;
+int  p_sex;
+
+char fbuf[1400];    // scratch for reading /esf37.log back (global: char[] is int32-backed)
+
+// Extract the idx-th comma-separated field of src into dst. Returns field length.
+int csvField(char src[], int idx, char dst[]) {
+  int n = strlen(src);
+  int i = 0; int f = 0; int j = 0;
+  while (i < n) {
+    int c = src[i] & 0xFF;
+    if (c == 44) {                       // ','
+      if (f == idx) { dst[j] = 0; return j; }
+      f = f + 1; j = 0;
+    } else {
+      if (f == idx) { dst[j] = c; j = j + 1; }
+    }
+    i = i + 1;
+  }
+  if (f == idx) { dst[j] = 0; return j; }
+  dst[0] = 0; return 0;
+}
+
+// Load the persistent profile from /esf37.cfg ("height,age,sex"). Keeps defaults if absent.
+void loadCfg() {
+  if (fileExists("/esf37.cfg") == 0) { return; }
+  int fh = fileOpen("/esf37.cfg", "r");
+  if (fh < 0) { return; }
+  char buf[48];
+  int n = fileRead(fh, buf, 47);
+  fileClose(fh);
+  if (n <= 0) { return; }
+  buf[n] = 0;
+  char fld[16];
+  if (csvField(buf, 0, fld) > 0) { u_height = atoi(fld); }
+  if (csvField(buf, 1, fld) > 0) { u_age    = atoi(fld); }
+  if (csvField(buf, 2, fld) > 0) { u_sex    = atoi(fld); }
+  char m[64];
+  sprintf(m, "esf37: profile loaded %d cm / %d y / sex %d", u_height, u_age, u_sex);
+  addLog(m);
+}
+
+// Persist the current profile to /esf37.cfg.
+void saveCfg() {
+  char buf[32];
+  sprintf(buf, "%d,%d,%d", u_height, u_age, u_sex);
+  int fh = fileOpen("/esf37.cfg", "w");
+  if (fh < 0) { addLog("esf37: cfg save failed"); return; }
+  fileWrite(fh, buf, strlen(buf));
+  fileClose(fh);
+  char m[64];
+  sprintf(m, "esf37: profile saved %d cm / %d y / sex %d", u_height, u_age, u_sex);
+  addLog(m);
+}
+
+// Estimate body composition from weight + impedance + profile (BIA equations, see header).
+void computeComp() {
+  if (w_imp <= 0 || w_kg <= 0.0 || u_height <= 0) { return; }
+  float H = u_height;          // cm
+  float W = w_kg;              // kg
+  float R = w_imp;             // Ω
+  float A = u_age;             // years
+  float S = u_sex;             // 1 male / 0 female
+
+  float hm = H / 100.0;
+  c_bmi = W / (hm * hm);
+
+  float II = (H * H) / R;      // impedance index
+  float ffm;
+  if (u_sex == 1) {
+    ffm = -10.68 + 0.65 * II + 0.26 * W + 0.02 * R;
+  } else {
+    ffm = -9.53 + 0.69 * II + 0.17 * W + 0.02 * R;
+  }
+  c_lean  = ffm;
+  c_fat   = 100.0 * (W - ffm) / W;
+  c_water = 100.0 * (0.732 * ffm) / W;
+  c_muscle = II * 0.401 + S * 3.825 - A * 0.071 + 5.102;
+  c_have = 1;
+}
+
+// Append one TAB-delimited row for the current locked weigh-in to /esf37.log.
+void logMeasurement() {
+  char ts[40];
+  timeStamp(ts);                                  // local "YYYY-MM-DDTHH:MM:SS"
+  char line[200];
+  sprintf(line, "%s\t%.2f\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\n",
+          ts, w_kg, w_imp, c_bmi, c_fat, c_lean, c_water, c_muscle);
+  int fh = fileOpen("/esf37.log", "a");
+  if (fh < 0) { addLog("esf37: log open failed"); return; }
+  fileWrite(fh, line, strlen(line));
+  fileClose(fh);
+  char m[64];
+  sprintf(m, "esf37: LOGGED %.2f kg / %d ohm", w_kg, w_imp);
+  addLog(m);
+}
 
 // Decode one measurement frame already validated as TYPE 0xD0 / LEN 8.
 void decodeD0() {
   int kg100 = ((frame[6] & 0xFF) << 8) | (frame[7] & 0xFF);
-  int lb100 = ((frame[8] & 0xFF) << 8) | (frame[9] & 0xFF);
   int stable = frame[10] & 0xFF;
 
   w_kg = kg100 / 100.0;
-  w_lb = lb100 / 100.0;
   w_stable = stable;
   have = 1;
   nframes = nframes + 1;
 
   shareSetFloat("scale_kg", w_kg);
-  shareSetFloat("scale_lb", w_lb);
   shareSetInt("scale_stable", stable);
+
+  // BMI needs only weight + height, so it's available even while still measuring.
+  if (u_height > 0) {
+    float hm = u_height / 100.0;
+    c_bmi = w_kg / (hm * hm);
+  }
 
   if (stable == 1) {
     // Impedance is a u24 BE; payload[5] has always been 0x00 so far (high byte / pad).
@@ -83,8 +214,11 @@ void decodeD0() {
     if (imp > 0) {
       w_imp = imp;
       shareSetInt("scale_imp", w_imp);
-      char m[100];
-      sprintf(m, "esf37: LOCKED %.2f kg / %.2f lb  imp=%d ohm  (#%d)", w_kg, w_lb, w_imp, nlock);
+      computeComp();
+      if (logged == 0) { logMeasurement(); logged = 1; }   // one log row per weigh-in
+      char m[110];
+      sprintf(m, "esf37: LOCKED %.2f kg  imp=%d ohm  BMI %.1f  fat %.1f%%  (#%d)",
+              w_kg, w_imp, c_bmi, c_fat, nlock);
       addLog(m);
     } else {
       char m[80];
@@ -92,6 +226,7 @@ void decodeD0() {
       addLog(m);
     }
   } else {
+    logged = 0;                          // fresh measurement underway -> arm the next log
     char m[80];
     sprintf(m, "esf37: measuring %.2f kg", w_kg);
     addLog(m);
@@ -123,14 +258,68 @@ void handleFrame(int n) {
   // type == 0xD2 (idle heartbeat) and anything else: silently ignored.
 }
 
+// Render /esf37.log as a scrollable HTML table inside the sensor tile.
+void renderTable() {
+  if (fileExists("/esf37.log") == 0) {
+    webSend("<tr><td colspan=2><i>no weigh-ins logged yet</i></td></tr>");
+    return;
+  }
+  int fsz = fileSize("/esf37.log");
+  int fh = fileOpen("/esf37.log", "r");
+  if (fh < 0) { return; }
+  int skip = 0;
+  if (fsz > 1390) { fileSeek(fh, fsz - 1390, 0); skip = 1; }   // tail window; drop partial 1st line
+  int n = fileRead(fh, fbuf, 1390);
+  fileClose(fh);
+  if (n <= 0) { webSend("<tr><td colspan=2><i>log empty</i></td></tr>"); return; }
+  fbuf[n] = 0;
+
+  webSend("<tr><td colspan=2><b>History</b></td></tr>");
+  webSend("<tr><td colspan=2><div style='max-height:170px;overflow:auto'>");
+  webSend("<table style='width:100%;font-size:75%'>");
+  webSend("<tr style='text-align:left'><th>Time<th>kg<th>&#937;<th>BMI<th>Fat%<th>Lean<th>H2O%<th>Musc");
+
+  int i = 0;
+  if (skip == 1) { while (i < n && fbuf[i] != 10) { i = i + 1; } i = i + 1; }
+  char row[240];
+  strcpy(row, "<tr><td>");
+  int rl = strlen(row);
+  while (i < n) {
+    int c = fbuf[i] & 0xFF;
+    if (c == 9) {                              // tab -> next cell
+      row[rl] = 0; strcat(row, "<td>"); rl = strlen(row);
+    } else if (c == 10) {                      // newline -> emit row
+      row[rl] = 0;
+      if (rl > 8) { webSend(row); }
+      strcpy(row, "<tr><td>"); rl = strlen(row);
+    } else {
+      if (c != 13 && rl < 235) { row[rl] = c; rl = rl + 1; }
+    }
+    i = i + 1;
+  }
+  if (rl > 8) { row[rl] = 0; webSend(row); }    // trailing line with no newline
+  webSend("</table></div></td></tr>");
+}
+
 int main() {
   phase = 0; started = 0; inflight = 0; fails = 0; hb = 0; ttype = 0;
-  have = 0; w_kg = 0.0; w_lb = 0.0; w_stable = 0; w_imp = 0; lock_kg = 0.0;
-  nframes = 0; nlock = 0;
+  have = 0; w_kg = 0.0; w_stable = 0; w_imp = 0; lock_kg = 0.0;
+  nframes = 0; nlock = 0; logged = 0;
+  c_bmi = 0.0; c_fat = 0.0; c_lean = 0.0; c_water = 0.0; c_muscle = 0.0; c_have = 0;
+  u_height = 180; u_age = 75; u_sex = 1;        // defaults: 180 cm, 75 y, male
+  loadCfg();                                    // override from flash if /esf37.cfg exists
+  p_height = u_height; p_age = u_age; p_sex = u_sex;
   return 0;
 }
 
 void TaskLoop() {
+
+  // Persist profile edits made in the web form, and re-estimate with the new profile.
+  if (u_height != p_height || u_age != p_age || u_sex != p_sex) {
+    p_height = u_height; p_age = u_age; p_sex = u_sex;
+    saveCfg();
+    if (w_imp > 0 && w_kg > 0.0) { computeComp(); }
+  }
 
   // ── Phase 0: scan and lock onto the scale ───────────────────────────────────
   if (phase == 0) {
@@ -211,26 +400,41 @@ void TaskLoop() {
 }
 
 void WebCall() {
-  char m[96];
+  // Persistent body profile (editable; saved to /esf37.cfg on change). webPulldown/webNumber
+  // emit raw <div>s illegal inside the sensor <table>, so wrap each in <tr><td colspan=2>.
+  webSend("<tr><td colspan=2><b>Body profile</b></td></tr>");
+  webSend("<tr><td colspan=2>"); webNumber(u_height, 100, 250, "Height (cm)"); webSend("</td></tr>");
+  webSend("<tr><td colspan=2>"); webNumber(u_age, 1, 120, "Age (years)");      webSend("</td></tr>");
+  webSend("<tr><td colspan=2>"); webPulldown(u_sex, "Sex", "Female|Male");     webSend("</td></tr>");
+
   if (have == 0) {
     webSend("{s}<b>Etekcity ESF37</b>{m}step on scale{e}");
+    renderTable();
     return;
   }
+
+  char m[100];
   char st[12];
   if (w_stable == 1) { strcpy(st, "locked"); } else { strcpy(st, "measuring"); }
   sprintf(m, "{s}<b>Etekcity ESF37</b>{m}%s{e}", st); webSend(m);
   sprintf(m, "{s}Weight{m}%.2f kg{e}", w_kg); webSend(m);
-  sprintf(m, "{s}Weight{m}%.2f lb{e}", w_lb); webSend(m);
-  if (w_imp > 0) {
+  if (u_height > 0) { sprintf(m, "{s}BMI{m}%.1f{e}", c_bmi); webSend(m); }
+  if (c_have == 1) {
+    sprintf(m, "{s}Body fat{m}%.1f%%{e}", c_fat); webSend(m);
+    sprintf(m, "{s}Lean mass{m}%.1f kg{e}", c_lean); webSend(m);
+    sprintf(m, "{s}Body water{m}%.1f%%{e}", c_water); webSend(m);
+    sprintf(m, "{s}Muscle mass{m}%.1f kg{e}", c_muscle); webSend(m);
     sprintf(m, "{s}Impedance{m}%d &#937;{e}", w_imp); webSend(m);
   }
+
+  renderTable();
 }
 
 // JSON teleperiod — appears in the MQTT sensor payload (only once we have a reading).
 void JsonCall() {
   if (have == 0) { return; }
-  char buf[120];
-  sprintf(buf, ",\"ESF37\":{\"Weight\":%.2f,\"WeightLb\":%.2f,\"Impedance\":%d,\"Stable\":%d}",
-          w_kg, w_lb, w_imp, w_stable);
+  char buf[200];
+  sprintf(buf, ",\"ESF37\":{\"Weight\":%.2f,\"Impedance\":%d,\"Stable\":%d,\"BMI\":%.1f,\"BodyFat\":%.1f,\"LeanMass\":%.1f,\"BodyWater\":%.1f,\"Muscle\":%.1f}",
+          w_kg, w_imp, w_stable, c_bmi, c_fat, c_lean, c_water, c_muscle);
   responseAppend(buf);
 }
