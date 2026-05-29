@@ -256,6 +256,9 @@ public:
   void updateBaudRate(uint32_t baud);
   void rxRead(void);
   void end();
+#ifdef USE_SML_EBUS_ARB
+  HardwareSerial *get_hws(void) { return hws; }   // eBUS arb RX-event wiring needs the raw UART
+#endif
   using Print::write;
 private:
   // Member variables
@@ -631,6 +634,8 @@ struct METER_DESC {
   uint8_t  eba_restart;      // restart-on-clobber counter
   uint32_t eba_syn_us;       // esp_timer_get_time() at the last observed SYN start
   uint32_t eba_won, eba_lost, eba_late, eba_restarts;  // diagnostics
+  uint32_t eba_arm_ms;       // millis() when the current request was armed (watchdog base)
+  uint32_t eba_giveup;       // requests the watchdog dropped (never won the bus)
 #endif
 #endif
 };
@@ -735,6 +740,7 @@ struct METER_DESC  meter_desc[MAX_METERS];
 #define EBM_ARB_TX_LEAD_US 700  // ESP32-C3 UART write()->wire latency; SCOPE-TUNE per target chip
 #endif
 #define EBA_MAX_RESTART   3     // restart arbitration up to N times if our byte gets clobbered
+#define EBA_REQ_TMO_MS    3000  // watchdog: drop a queued request that never wins, freeing the slot
 #endif // USE_SML_EBUS_ARB
 #endif // USE_SML_EBUS_MASTER
 
@@ -1809,7 +1815,7 @@ int Ebm_QueueTelegram(uint32_t meter, uint8_t *body, uint8_t len) {
   mp->ebm_reqbuf[len] = ebus_CalculateCRC(body, len);  // CRC over QQ..last-data
   mp->ebm_reqlen = len + 1;
 #ifdef USE_SML_EBUS_ARB
-  if (mp->ebm_arb && mp->eba_phase == EBA_IDLE) { mp->eba_phase = EBA_ARMED; mp->eba_restart = 0; }
+  if (mp->ebm_arb && mp->eba_phase == EBA_IDLE) { mp->eba_phase = EBA_ARMED; mp->eba_restart = 0; mp->eba_arm_ms = millis(); }
 #endif
   mp->ebm_req = 1;                                      // publish LAST (cross-task handoff)
   return 1;
@@ -1893,6 +1899,47 @@ void Eba_OnSymbol(uint32_t meters, uint8_t sym, uint32_t now_us) {
 
   // 4) always feed the passive decoder (reads + the slave response after we win)
   ebus_feed_byte(meters, sym);
+}
+
+// ── Phase 2: dedicated per-byte RX-event reader ───────────────────────────────────────────────────
+// HardwareSerial onReceive + setRxFIFOFull(1) delivers one callback per received byte from the UART
+// event task (NOT an ISR — so the short delayMicroseconds() busy-wait in Eba_WriteAddr is allowed
+// here). Timestamping each symbol with micros() — the same base Eba_WriteAddr uses — is tight enough
+// for the 4300..4456 us arbitration window; the ~50 ms SML_Poll loop is far too coarse. This task is
+// the SOLE reader of the arb meter's UART (SML_Poll's drain is disabled for it). Eba_OnSymbol still
+// forwards every byte to ebus_feed_byte, so passive decode + the slave response keep working.
+int8_t eba_rx_meter = -1;   // meter index that owns the arb RX-event callback (one eBUS per device)
+
+void Eba_RxEvent(void) {
+  if (eba_rx_meter < 0) { return; }
+  struct METER_DESC *mp = &meter_desc[eba_rx_meter];
+  if (!mp->meter_ss) { return; }
+  uint32_t t = micros();                            // same base Eba_WriteAddr() uses for the SYN window
+  while (mp->meter_ss->available()) {
+    int s = mp->meter_ss->read();
+    if (s < 0) { break; }
+    Eba_OnSymbol((uint32_t)eba_rx_meter, (uint8_t)s, t);
+  }
+}
+
+// Attach the per-byte RX event to the arb meter's UART, right after begin(). One eBUS bus per device.
+void Eba_AttachRx(uint32_t meters) {
+  struct METER_DESC *mp = &meter_desc[meters];
+  if (!mp->ebm_arb || !mp->meter_ss) { return; }
+#ifdef USE_ESP32_SW_SERIAL
+  HardwareSerial *h = mp->meter_ss->get_hws();       // SML_ESP32_SERIAL wraps a HardwareSerial
+#else
+  HardwareSerial *h = mp->meter_ss;                  // meter_ss IS the HardwareSerial
+#endif
+  if (!h) {
+    AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS arb needs a hardware UART (rx pin >= 0); RX event not attached"));
+    return;
+  }
+  h->setRxFIFOFull(1);                               // one RX event per single byte
+  h->onReceive(Eba_RxEvent, false);                  // false = fire on FIFO-full, not only on timeout
+  eba_rx_meter = (int8_t)meters;
+  AddLog(LOG_LEVEL_INFO, PSTR("SML: eBUS arb RX-event attached meter=%d qq=%02x lead=%uus"),
+         (int)meters, mp->ebm_qq, (unsigned)EBM_ARB_TX_LEAD_US);
 }
 #endif // USE_SML_EBUS_ARB
 #endif // USE_SML_EBUS_MASTER
@@ -2264,6 +2311,21 @@ uint32_t meters;
       struct METER_DESC *mp = &meter_desc[meters];
 #ifdef USE_SML_EBUS_MASTER
       if (mp->type == 'e' && mp->ebm_enh) { Ebm_Step(meters, EBM_EV_TICK); }
+#ifdef USE_SML_EBUS_ARB
+      // arb watchdog: a low-priority QQ may never win on a busy multi-master bus; after EBA_REQ_TMO_MS
+      // drop the request so SML_Queue() stops returning -1 and the slot frees for the next telegram.
+      // Only abort between rounds (IDLE/ARMED) — never mid-arbitration, which would leave our QQ on the
+      // wire with no telegram following (a half-frame the bus must time out). A round is a few ms, so the
+      // next ARMED window catches it promptly.
+      if (mp->type == 'e' && mp->ebm_arb && mp->ebm_req &&
+          (mp->eba_phase == EBA_IDLE || mp->eba_phase == EBA_ARMED) &&
+          (millis() - mp->eba_arm_ms > EBA_REQ_TMO_MS)) {
+        mp->ebm_req = 0; mp->eba_phase = EBA_IDLE; mp->eba_restart = 0; mp->eba_giveup++;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("SML: eBUS arb give-up qq=%02x won=%u lost=%u late=%u rst=%u giveup=%u"),
+               mp->ebm_qq, (unsigned)mp->eba_won, (unsigned)mp->eba_lost, (unsigned)mp->eba_late,
+               (unsigned)mp->eba_restarts, (unsigned)mp->eba_giveup);
+      }
+#endif
 #endif
       if (mp->type == 'C') continue;
       if (mp->type != 'c') {
@@ -2273,6 +2335,11 @@ uint32_t meters;
           if (sml_globs.ser_act_LED_pin != 255 && (sml_globs.ser_act_meter_num == 0 || sml_globs.ser_act_meter_num - 1 == meters)) {
             digitalWrite(sml_globs.ser_act_LED_pin, mp->meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
           }
+#ifdef USE_SML_EBUS_ARB
+          // arb meter: the onReceive RX-event task is the sole reader (it feeds ebus_feed_byte);
+          // draining here too would double-consume the bus symbols and wreck arbitration timing.
+          if (!(mp->ebm_arb && eba_rx_meter == (int8_t)meters))
+#endif
           while (mp->meter_ss->available()) {
             sml_shift_in(meters, 0);
           }
@@ -4598,6 +4665,9 @@ next_line:
         if (mp->so_flags.SO_DISS_PULL) {
           gpio_pullup_dis((gpio_num_t)mp->srcpin);
         }
+#ifdef USE_SML_EBUS_ARB
+        Eba_AttachRx(meters);   // in-firmware arbitration (soF): attach the per-byte RX-event reader
+#endif
 #ifdef USE_ESP32_SW_SERIAL
 				mp->meter_ss->setRxBufferSize(mp->sibsiz);
 #endif
@@ -5619,6 +5689,19 @@ bool XSNS_53_cmd(void) {
           }
           ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"sml_globs.ser_act_LED_pin: %d\"}}"), sml_globs.ser_act_LED_pin);
         }
+#ifdef USE_SML_EBUS_ARB
+      } else if (*cp == 'a') {
+        // eBUS in-firmware arbitration diagnostics (won/lost/late tune EBM_ARB_TX_LEAD_US on the scope)
+        int8_t mi = eba_rx_meter;
+        if (mi >= 0) {
+          struct METER_DESC *mp = &meter_desc[mi];
+          ResponseTime_P(PSTR(",\"SML\":{\"EbusArb\":{\"qq\":\"%02x\",\"won\":%u,\"lost\":%u,\"late\":%u,\"restarts\":%u,\"giveup\":%u,\"req\":%u,\"phase\":%u}}}"),
+            mp->ebm_qq, (unsigned)mp->eba_won, (unsigned)mp->eba_lost, (unsigned)mp->eba_late,
+            (unsigned)mp->eba_restarts, (unsigned)mp->eba_giveup, (unsigned)mp->ebm_req, (unsigned)mp->eba_phase);
+        } else {
+          ResponseTime_P(PSTR(",\"SML\":{\"EbusArb\":\"not attached\"}}"));
+        }
+#endif
       } else {
         serviced = false;
       }

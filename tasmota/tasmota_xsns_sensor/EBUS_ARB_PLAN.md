@@ -158,15 +158,27 @@ retries, no bus crash" = exactly `Eba_OnSymbol`).
   tech could dock a tool on it).
 - **b514 diagnostic read targets** (passively unreadable; need the active master). Telegram per his
   §4.4: `QQ=73 ZZ=08 B5 14 <ID> 03 FF FF` + CRC → slave replies; our firmware appends the CRC.
-  | Diag | ID (after B5 14) | Decoder | Tasmota pattern |
-  |------|------------------|---------|-----------------|
-  | **T1.130 Heizstab-VL** | `0582` | SIN/10 °C | `x2ssSS@10` (IGN:2 then signed16/10) |
-  | HE-Vorlauf T.0.40 | `0528` | UIN/10 °C | `x2uuUU@10` |
-  | HE-Rücklauf T.0.41 | `0529` | UIN/10 °C | `x2uuUU@10` |
-  | HE-Durchfluss T.0.43 | `052b` | UIN l/h | `x2uuUU@1` |
-  | Heizstab-STB T.1.124 | `057c` | UCH 0/1 | `x2uu@1` |
-  CONFIRM the target slave with Andreas: §4.4 example uses `ZZ=08` (HMU) but `300 §D` says the Heizstab
-  values live on slave `76` (VWZIO, `76.vwzio.csv`). One of the two answers `b514 058203ffff` — ask him.
+  **ZZ=08 (HMU) CONFIRMED** (2026-05-29, `08.hmu.csv:180`) — all 13 b514 reads in his 1 h dump go
+  `31 → 08`, never to 76. The earlier "76" was a doc mix-up: slave 76 (VWZIO) carries the *energy*
+  counters (`b51a 05ff3246/3249/324a` = op-hours / consumption / starts), a different register set,
+  NOT the VL temp. Response-framing proof (sibling read, same ZZ=08):
+  `aa 31 08 b514 05 0548 03ffff CRC 00 ‖ 04 4800 0000 CRC 00` — response byte0 echoes the register
+  ID, bytes[0:2] are the two IGN-skipped bytes.
+  | Diag | ID (after B5 14) | Decoder | Tasmota pattern | Access |
+  |------|------------------|---------|-----------------|--------|
+  | **T1.130 Heizstab-VL** | `0582` | **SIN**/10 °C | `x2ssSS@10` (IGN:2 then signed16/10) | direct read ✓ |
+  | Heizstab-STB T.1.124 | `057c` | UCH 0/1 | `x2uu@1` | direct read ✓ |
+  | HE-Vorlauf T.0.40 | `0528` | **SIN**/10 °C | `x2ssSS@10` | ⚠ enable-write first? |
+  | HE-Rücklauf T.0.41 | `0529` | **SIN**/10 °C | `x2ssSS@10` | ⚠ enable-write first? |
+  | HE-Durchfluss T.0.45 | `052b` | **UIN** l/h | `x2uuUU@1` | ⚠ enable-write first? |
+  **Start the read ladder with `0582` (VL) or `057c` (STB)** — both bake `03ffff` into the read ID
+  = a single direct telegram, the proven pattern. HE-VL/RL/flow (`0528/0529/052b`) are modelled in
+  `08.hmu.csv` as an *enable-write* (`#w b514 0528 HEX:3=03FFFF`) **then** read pair; whether the bare
+  `05 28 03 ff ff` read works without that prior write is unverified on the real bus (none appear in
+  the dump). The enable-write is a HMU *test-register* write — defer it until the direct-read path is
+  proven, and clear any such write with the user first (write-safety rule). Andreas offered a live
+  on-wire `0582` capture + real temp (he'd briefly uncomment the `r`-line on his HA-ebusd .123,
+  read-only) as a decode oracle — worth taking before we trust our own decode.
 - **Cross-check oracle:** his HA-ebusd (read-only `find`/`info`, never `read`/`write`) at
   `192.168.56.123:8888` is ground-truth for comparing whatever our master decodes.
 - **Phase-2 verification can run read-only on .104 directly** (in addition to .150) — because Tasmota@73
