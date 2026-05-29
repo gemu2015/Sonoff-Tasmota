@@ -16227,6 +16227,20 @@ static void TinyCStopVM(TcSlot *s) {
 static bool TinyCStartVM(TcSlot *s) {
   if (!Tinyc || !s || !s->loaded) return false;
 
+#ifdef ESP32
+  // Auto-stop a slot that is already running BEFORE we reset the VM.
+  // tc_vm_load() below reinitialises s->vm and tc_free_all_frames/heap_free
+  // happen in the stop path; if the old tc_vm_task is still alive while we
+  // reload, it keeps stepping over frame locals that get freed underneath it
+  // → NULL frame-locals crash (#76, "TinyCRun on a running slot"). A clean
+  // stop waits for the task to exit (and runs OnExit + persist-save), so
+  // re-running a live slot is safe — TinyCRun now auto-restarts. This MUST run
+  // before tc_vm_load; the later (now-removed) stop fired too late.
+  if (s->task_handle) {
+    TinyCStopVM(s);
+  }
+#endif
+
   // Reset VM
   int err = tc_vm_load(&s->vm, s->program, s->program_size);
   if (err != TC_OK) return false;
@@ -16256,11 +16270,8 @@ static bool TinyCStartVM(TcSlot *s) {
   s->output[0] = '\0';
 
 #ifdef ESP32
-  // Stop any existing task first
-  if (s->task_handle) {
-    TinyCStopVM(s);
-  }
-
+  // (An already-running task was stopped at the top of this function, before
+  //  tc_vm_load, so s->task_handle is null here on the re-run path.)
   s->task_stop = false;
   s->task_running = false;
 
