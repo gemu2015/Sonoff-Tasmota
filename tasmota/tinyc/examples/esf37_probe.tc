@@ -1,0 +1,167 @@
+// esf37_probe.tc — GATT subscribe-notify probe for the Etekcity ESF37 scale
+//
+// GOAL (tests the 2026-05-29 research hypothesis):
+//   Prior memory recorded "subscribe to 0x2C12 times out -> the scale is Tuya-encrypted and
+//   needs a per-device localKey." Web research (hertzg/metekcity, etekcity_esf551_ble) overturns
+//   that: Etekcity reuses the Tuya BLE *service UUIDs* (0x1910 + 0x2C10/0x2C11/0x2C12) but runs a
+//   PLAINTEXT custom protocol on them — NO AES, NO localKey. metekcity measurement notifications
+//   start with byte 0xD0. So a bare GATT subscribe to notify char 0x2C12 SHOULD stream frames with
+//   zero secrets. This script finds out, and re-tests whether the old -8 timeout was just transient
+//   (scale asleep / wrong moment) rather than encryption.
+//
+// WHAT IT DOES (read-only — writes NOTHING to the scale):
+//   1. Scan; find the scale by manufacturer-id 0x06D0. The advert has NO local name and the MAC is
+//      a RANDOM address that ROTATES between sessions, so we MUST discover it live each run and
+//      never hardcode it.
+//   2. Lock its current MAC + address-type; target the custom service 0x1910.
+//   3. Repeat: bleReadStart(0x2C12) connects + subscribes the notify char + waits for one frame;
+//      poll bleDone(); on >0 dump the raw bytes as hex; on <0 log the failure code and retry.
+//   Step on the scale while this runs and watch the syslog.
+//
+// READING THE LOG:
+//   - "FRAME len=.. hex=d0.."  (first byte 0xD0) => PLAINTEXT measurement. Jackpot: the localKey
+//     theory is dead and Phase 3 is unblocked. Decode per metekcity:
+//       sign(1: 00 pos / 01 neg) + weight(u16 BE, value/10 kg) + unit(enum) + stable(1: 01 settled).
+//     (ESF37 layout still needs confirming on real bytes — this dump is exactly that evidence.)
+//   - ANY frame at all (even non-0xD0) => plaintext stream confirmed; decode TBD from the bytes.
+//   - Persistent bleDone()<0 with NO frame (e.g. -8 = NOTIFYTIMEOUT) => a bare subscribe is not
+//     enough. The next step is a SINGLE-CONNECTION write-then-subscribe: write a metekcity start
+//     cmd (SET_UNIT 0xC0 or PING 0xC3) to 0x2C11 *and* subscribe 0x2C12 on the SAME connection.
+//     xdrv_79 already supports that in one op (it subscribes, then writes, then waits for notify —
+//     see xdrv_79_esp32_ble.ino ~1962-2121), and tc_ble_gatt_start() already plumbs chr+wbuf+notify
+//     together. The ONLY missing piece is a TinyC binding, e.g. a new bleWriteNotify(chr,buf,len,
+//     notify) syscall (reserve id 422). bleReadStart + bleWriteStart can't do it because each is a
+//     separate connect/disconnect and only one transaction runs at a time.
+//
+// SAFETY: read-only (subscribe + receive). It never writes to the scale, so it cannot change units,
+//   tare, or any setting. No localKey, no pairing, no cloud.
+// DEPLOY: a USE_TINYC_BLE build (env tinyc32s3-ble, e.g. .39). bleScan auto-enables BLE.
+//   Read the log via UDP syslog (preferred) or the web console /cs.
+
+char nm[40];        // advert local name scratch (ESF37 = empty)
+int  mac[8];        // 6 MAC bytes of the current advert
+int  mfg[40];       // manufacturer-specific data bytes (incl. 2-byte company id, little-endian)
+
+int  tmac[8];       // locked MAC of the scale (re-used as bleTarget's address buffer)
+int  ttype;         // locked address type (random vs public) — MUST be carried into the connect
+int  frame[80];     // received notify/read bytes (<= MAX_BLE_DATA_LEN_TC = 64)
+
+int  phase;         // 0 = scanning for the scale, 1 = subscribe-notify probe
+int  started;       // has bleScan been kicked off this scan pass?
+int  inflight;      // is a GATT op currently queued/running?
+int  fails;         // consecutive subscribe failures (triggers a rescan)
+int  frames;        // total frames captured
+int  hb;            // heartbeat tick
+
+// Dump `n` bytes of frame[] as lowercase hex to the log.
+void logHex(int n) {
+  char hexbuf[140];
+  int hi = 0;
+  int i = 0;
+  while (i < n) {
+    int by = frame[i] & 0xFF;
+    int n1 = (by >> 4) & 0xF;
+    int n2 = by & 0xF;
+    if (n1 < 10) { hexbuf[hi] = 48 + n1; } else { hexbuf[hi] = 87 + n1; }
+    hi = hi + 1;
+    if (n2 < 10) { hexbuf[hi] = 48 + n2; } else { hexbuf[hi] = 87 + n2; }
+    hi = hi + 1;
+    i = i + 1;
+  }
+  hexbuf[hi] = 0;
+  char m[200];
+  sprintf(m, "esf37: FRAME len=%d hex=%s", n, hexbuf);
+  addLog(m);
+}
+
+int main() {
+  phase = 0; started = 0; inflight = 0; fails = 0; frames = 0; hb = 0; ttype = 0;
+  return 0;
+}
+
+void TaskLoop() {
+
+  // ── Phase 0: scan and lock onto the scale ───────────────────────────────────
+  if (phase == 0) {
+    if (started == 0) {
+      bleScan(0);
+      started = 1;
+      addLog("esf37: scanning for scale (mfr 0x06D0) — step on it to wake it");
+    }
+
+    int got = bleNext();
+    while (got) {
+      int ml = bleMfg(mfg);
+      int isScale = 0;
+      if (ml >= 2 && mfg[0] == 0xD0 && mfg[1] == 0x06) { isScale = 1; }   // company id 0x06D0, LE
+
+      if (isScale) {
+        bleMac(mac);
+        ttype = bleAddrType();
+        int i = 0;
+        while (i < 6) { tmac[i] = mac[i]; i = i + 1; }
+
+        char b[110];
+        sprintf(b, "esf37: SCALE found mac=%02x:%02x:%02x:%02x:%02x:%02x type=%d -> connect svc=0x1910",
+                tmac[0], tmac[1], tmac[2], tmac[3], tmac[4], tmac[5], ttype);
+        addLog(b);
+
+        bleScanStop();                       // must stop scanning before a GATT connect
+        bleTarget(tmac, ttype, 0x1910);      // set GATT target + custom service UUID
+        phase = 1; inflight = 0; fails = 0;
+        got = 0;                             // stop draining; probe begins next tick
+      } else {
+        got = bleNext();
+      }
+    }
+
+    delay(200);
+    return;
+  }
+
+  // ── Phase 1: subscribe to notify char 0x2C12 and dump every frame ────────────
+  if (inflight == 0) {
+    int rc = bleReadStart(0x2C12);           // connect + subscribe notify; read-only, no write
+    if (rc == 1) {
+      inflight = 1;
+    } else {
+      char e[80];
+      sprintf(e, "esf37: bleReadStart busy/err rc=%d", rc);
+      addLog(e);
+      delay(400);
+    }
+  } else {
+    int d = bleDone();                       // 0 pending / >0 frame length / <0 failed
+    if (d > 0) {
+      int n = bleResult(frame);
+      logHex(n);
+      frames = frames + 1;
+      fails = 0;
+      inflight = 0;
+    } else {
+      if (d < 0) {
+        char e[110];
+        sprintf(e, "esf37: subscribe rc=%d (no frame) — step on the scale; retrying", d);
+        addLog(e);
+        inflight = 0;
+        fails = fails + 1;
+        if (fails >= 8) {
+          addLog("esf37: 8 fails — rescanning (MAC may have rotated / scale asleep)");
+          phase = 0; started = 0; fails = 0;
+        }
+        delay(300);
+      }
+      // d == 0: still pending — just keep polling
+    }
+  }
+
+  // Heartbeat so we know the script is alive while the scale sleeps.
+  hb = hb + 1;
+  if (hb >= 25) {
+    hb = 0;
+    char h[80];
+    sprintf(h, "esf37: alive phase=%d frames=%d", phase, frames);
+    addLog(h);
+  }
+  delay(200);
+}

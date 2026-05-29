@@ -1,0 +1,236 @@
+// esf37_scale.tc — read the Etekcity ESF37 body-composition scale over BLE (plaintext).
+//
+// WHAT THIS IS:
+//   The production reader, distilled from esf37_probe.tc after the protocol was decoded live
+//   on 2026-05-29. The ESF37 reuses the Tuya BLE *service UUIDs* (0x1910 + 0x2C10/2C11/2C12)
+//   but runs a PLAINTEXT custom protocol on them — NO AES, NO localKey, NO pairing. A bare
+//   GATT subscribe to notify char 0x2C12 streams measurement frames. This script never writes
+//   to the scale (read-only) — it cannot change units, tare, or any setting.
+//
+// FRAME FORMAT (verified on 30+ live frames + the physical display):
+//   FE EF C0 A3 | TYPE(1) | LEN(1) | PAYLOAD[LEN] | CKSUM(1)
+//     CKSUM = (TYPE + LEN + Σpayload) & 0xFF
+//   TYPE 0xD0 = MEASUREMENT (LEN 8):
+//     [0:2] weight kg ×100, u16 BE   (0x20BC = 8380 -> 83.80 kg = display 83,8)
+//     [2:4] weight lb ×100, u16 BE   (0x4830 = 18480 -> 184.80 lb)
+//     [4]   stable flag              (0x00 measuring / 0x01 locked)
+//     [5:8] bio-impedance, u24 BE    (0x000213 = 531 Ω; only meaningful once stable)
+//   TYPE 0xD2 = idle heartbeat (LEN 1, payload 0x2B) — scale awake but no load. Ignored.
+//   Example locked frame: feefc0a3 d0 08 20bc 4830 01 000213 42   (cksum 0x42 ✓)
+//
+// HOW IT READS:
+//   xdrv_79 delivers ONE notify per subscribe then disconnects (one-shot GATT op), so we
+//   re-subscribe in a loop. Live weight therefore lags slightly (one connect cycle per frame);
+//   that's fine for a scale — what matters is the *settled* reading. We surface the live value
+//   on every valid 0xD0 and latch the last LOCKED ([4]==0x01) weight + impedance separately.
+//
+// DISCOVERY: the advert has NO local name; find the scale by manufacturer-id 0x06D0 (LE bytes
+//   D0 06). Its MAC is a RANDOM address that ROTATES between sessions — discover it live each
+//   run, carry the address-type into the connect, never hardcode. The scale only advertises
+//   while awake, so step on it. We must bleScanStop() before a GATT connect.
+//
+// DEPLOY: a USE_TINYC_BLE build (env tinyc32s3-ble). bleScan auto-enables BLE (no SetOption115).
+//   node tc_deploy.mjs examples/esf37_scale.tc <device-ip>
+//   Step on the scale; watch the web tile (/) or the syslog for "esf37: LOCKED ...".
+
+int  mac[8];        // 6 MAC bytes of the current advert
+int  mfg[40];       // manufacturer-specific data bytes (incl. 2-byte company id, little-endian)
+
+int  tmac[8];       // locked MAC of the scale (re-used as bleTarget's address buffer)
+int  ttype;         // locked address type (random vs public) — MUST be carried into the connect
+int  frame[80];     // received notify bytes (<= MAX_BLE_DATA_LEN_TC = 64)
+
+int  phase;         // 0 = scanning for the scale, 1 = subscribe-notify read loop
+int  started;       // has bleScan been kicked off this scan pass?
+int  inflight;      // is a GATT subscribe currently queued/running?
+int  fails;         // consecutive subscribe failures (triggers a rescan)
+int  hb;            // heartbeat tick
+
+// decoded / shared state (read by WebCall + JsonCall)
+int   have;         // 0 until the first valid 0xD0 frame is decoded
+float w_kg;         // live weight in kg
+float w_lb;         // live weight in lb
+int   w_stable;     // 1 once the current reading has locked
+int   w_imp;        // bio-impedance Ω (latched from the locked frame)
+float lock_kg;      // latched weight at the moment it locked
+int   nframes;      // total valid measurement frames decoded
+int   nlock;        // total locked readings captured
+
+// Decode one measurement frame already validated as TYPE 0xD0 / LEN 8.
+void decodeD0() {
+  int kg100 = ((frame[6] & 0xFF) << 8) | (frame[7] & 0xFF);
+  int lb100 = ((frame[8] & 0xFF) << 8) | (frame[9] & 0xFF);
+  int stable = frame[10] & 0xFF;
+
+  w_kg = kg100 / 100.0;
+  w_lb = lb100 / 100.0;
+  w_stable = stable;
+  have = 1;
+  nframes = nframes + 1;
+
+  shareSetFloat("scale_kg", w_kg);
+  shareSetFloat("scale_lb", w_lb);
+  shareSetInt("scale_stable", stable);
+
+  if (stable == 1) {
+    // Impedance is a u24 BE; payload[5] has always been 0x00 so far (high byte / pad).
+    int imp = ((frame[11] & 0xFF) << 16) | ((frame[12] & 0xFF) << 8) | (frame[13] & 0xFF);
+    lock_kg = w_kg;
+    nlock = nlock + 1;
+    // The scale sometimes emits a stable frame a beat BEFORE the body-composition result
+    // lands (impedance 00 00 00). Only latch impedance when it's actually present, and never
+    // clobber a previously-captured value with 0 — the weight is final either way.
+    if (imp > 0) {
+      w_imp = imp;
+      shareSetInt("scale_imp", w_imp);
+      char m[100];
+      sprintf(m, "esf37: LOCKED %.2f kg / %.2f lb  imp=%d ohm  (#%d)", w_kg, w_lb, w_imp, nlock);
+      addLog(m);
+    } else {
+      char m[80];
+      sprintf(m, "esf37: locked %.2f kg (impedance pending)", w_kg);
+      addLog(m);
+    }
+  } else {
+    char m[80];
+    sprintf(m, "esf37: measuring %.2f kg", w_kg);
+    addLog(m);
+  }
+}
+
+// Validate header + length + checksum, then dispatch by TYPE.
+void handleFrame(int n) {
+  if (n < 7) { return; }                                              // too short for any frame
+  if (frame[0] != 0xFE || frame[1] != 0xEF || frame[2] != 0xC0 || frame[3] != 0xA3) {
+    return;                                                           // not an ESF37 frame
+  }
+  int type = frame[4] & 0xFF;
+  int len  = frame[5] & 0xFF;
+  if (n < len + 7) { return; }                                       // header4 + type + len + payload + cksum
+
+  int cs = (type + len) & 0xFF;                                      // checksum spans TYPE..last payload
+  int i = 0;
+  while (i < len) { cs = (cs + (frame[6 + i] & 0xFF)) & 0xFF; i = i + 1; }
+  int cksum = frame[6 + len] & 0xFF;
+  if (cs != cksum) {
+    char e[64];
+    sprintf(e, "esf37: bad cksum type=%02x calc=%02x got=%02x", type, cs, cksum);
+    addLog(e);
+    return;
+  }
+
+  if (type == 0xD0 && len == 8) { decodeD0(); }
+  // type == 0xD2 (idle heartbeat) and anything else: silently ignored.
+}
+
+int main() {
+  phase = 0; started = 0; inflight = 0; fails = 0; hb = 0; ttype = 0;
+  have = 0; w_kg = 0.0; w_lb = 0.0; w_stable = 0; w_imp = 0; lock_kg = 0.0;
+  nframes = 0; nlock = 0;
+  return 0;
+}
+
+void TaskLoop() {
+
+  // ── Phase 0: scan and lock onto the scale ───────────────────────────────────
+  if (phase == 0) {
+    if (started == 0) {
+      bleScan(0);
+      started = 1;
+      addLog("esf37: scanning for scale (mfr 0x06D0) — step on it to wake it");
+    }
+
+    int got = bleNext();
+    while (got) {
+      int ml = bleMfg(mfg);
+      int isScale = 0;
+      if (ml >= 2 && mfg[0] == 0xD0 && mfg[1] == 0x06) { isScale = 1; }   // company id 0x06D0, LE
+
+      if (isScale) {
+        bleMac(mac);
+        ttype = bleAddrType();
+        int i = 0;
+        while (i < 6) { tmac[i] = mac[i]; i = i + 1; }
+
+        char b[110];
+        sprintf(b, "esf37: SCALE found mac=%02x:%02x:%02x:%02x:%02x:%02x type=%d -> subscribe 0x2C12",
+                tmac[0], tmac[1], tmac[2], tmac[3], tmac[4], tmac[5], ttype);
+        addLog(b);
+
+        bleScanStop();                       // must stop scanning before a GATT connect
+        bleTarget(tmac, ttype, 0x1910);      // set GATT target + custom service UUID
+        phase = 1; inflight = 0; fails = 0;
+        got = 0;                             // stop draining; read loop begins next tick
+      } else {
+        got = bleNext();
+      }
+    }
+
+    delay(200);
+    return;
+  }
+
+  // ── Phase 1: subscribe to notify char 0x2C12, decode every frame ─────────────
+  if (inflight == 0) {
+    int rc = bleReadStart(0x2C12);           // connect + subscribe notify; read-only, no write
+    if (rc == 1) {
+      inflight = 1;
+    } else {
+      delay(400);                            // busy/err — back off and retry
+    }
+  } else {
+    int d = bleDone();                       // 0 pending / >0 frame length / <0 failed
+    if (d > 0) {
+      int n = bleResult(frame);
+      handleFrame(n);
+      fails = 0;
+      inflight = 0;
+    } else {
+      if (d < 0) {
+        inflight = 0;
+        fails = fails + 1;
+        if (fails >= 8) {
+          addLog("esf37: scale quiet — rescanning (MAC may have rotated / asleep)");
+          phase = 0; started = 0; fails = 0;
+        }
+        delay(300);
+      }
+      // d == 0: still pending — just keep polling
+    }
+  }
+
+  // Heartbeat so we know the script is alive while the scale sleeps.
+  hb = hb + 1;
+  if (hb >= 25) {
+    hb = 0;
+    char h[80];
+    sprintf(h, "esf37: alive phase=%d frames=%d locks=%d", phase, nframes, nlock);
+    addLog(h);
+  }
+  delay(200);
+}
+
+void WebCall() {
+  char m[96];
+  if (have == 0) {
+    webSend("{s}<b>Etekcity ESF37</b>{m}step on scale{e}");
+    return;
+  }
+  char st[12];
+  if (w_stable == 1) { strcpy(st, "locked"); } else { strcpy(st, "measuring"); }
+  sprintf(m, "{s}<b>Etekcity ESF37</b>{m}%s{e}", st); webSend(m);
+  sprintf(m, "{s}Weight{m}%.2f kg{e}", w_kg); webSend(m);
+  sprintf(m, "{s}Weight{m}%.2f lb{e}", w_lb); webSend(m);
+  if (w_imp > 0) {
+    sprintf(m, "{s}Impedance{m}%d &#937;{e}", w_imp); webSend(m);
+  }
+}
+
+// JSON teleperiod — appears in the MQTT sensor payload (only once we have a reading).
+void JsonCall() {
+  if (have == 0) { return; }
+  char buf[120];
+  sprintf(buf, ",\"ESF37\":{\"Weight\":%.2f,\"WeightLb\":%.2f,\"Impedance\":%d,\"Stable\":%d}",
+          w_kg, w_lb, w_imp, w_stable);
+  responseAppend(buf);
+}
