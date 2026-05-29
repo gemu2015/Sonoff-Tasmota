@@ -68,6 +68,8 @@ typedef struct {
   uint32_t sub_last_gen;  // app-data generation at last report (change detection)
   uint8_t  cli_ip6[16];   // controller's IPv6 (so a periodic report reaches it)
   uint16_t cli_port;
+  uint32_t rx_last_ctr;   // last processed inbound counter (secured MRP dedup)
+  bool     have_rx_ctr;
 } mtrc_case_sess;
 
 // One inbound datagram queued for processing. The old single-buffer design
@@ -126,6 +128,19 @@ typedef struct {
   uint8_t          i2r[16], r2i[16], att[16];   // PASE session keys (on success)
   bool             pase_secure;       // true once cA verified
   uint32_t         sec_tx_counter;    // our secured-session message counter
+  uint32_t         pase_rx_last_ctr;  // last processed inbound counter on the PASE secure session (MRP dedup)
+  bool             pase_have_rx_ctr;
+  // Last encrypted reply sent on ANY secured session, cached so an MRP
+  // retransmit (same inbound counter) is answered by re-sending these exact
+  // bytes instead of re-running the handler. Without this a retransmitted
+  // AddNOC over the PASE secure session was re-invoked -> a SECOND fabric was
+  // persisted for the same node (idx=1 AND idx=2), burning 2 of 5 slots per
+  // commission (Hans/Google Nest, #85 comment-17101003). Single global cache
+  // mirrors the unsecured path (last_tx_buf): safe because during commissioning
+  // the device sends no unsolicited secured traffic between a request and its
+  // retransmit.
+  uint8_t          sec_last_tx_buf[1280];
+  size_t           sec_last_tx_len;
   bool             onoff;             // OnOff attribute (endpoint relay state)
   uint64_t         breadcrumb;        // GeneralCommissioning Breadcrumb
   uint16_t         next_ep;           // next endpoint id handed out by add_endpoint
@@ -641,6 +656,10 @@ static void pase_handle_param_req(const uint8_t *payload, size_t plen,
   // CSRRequest mints a new key bound to THIS commissioning's NOC.
   g.have_pending_op = false;
   g.have_pending_root = false;
+  // Fresh PASE secure session ahead: forget the prior session's last inbound
+  // counter (and drop the cached reply) so a low starting counter can't be
+  // mistaken for a duplicate of the previous commissioning.
+  g.pase_have_rx_ctr = false; g.sec_last_tx_len = 0;
   // …and abandon a fabric left tentative by a prior AddNOC that never reached
   // CommissioningComplete — else a controller retrying within the fail-safe
   // window leaks one fabric per attempt (the AddNOC=TableFull root cause).
@@ -1008,6 +1027,7 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   memcpy(ss->r2i, k_r2i, 16);
   memcpy(ss->att, k_att, 16);
   ss->sub_active = false;                      // no subscription on a fresh session
+  ss->have_rx_ctr = false;                     // fresh inbound counter space (slot may be reused)
   case_session_load(ss);
 
   uint8_t sr[8]; memset(sr, 0, 8);   // GeneralCode = Success
@@ -1075,8 +1095,16 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
 #endif
   static uint8_t out[1280];
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
-  if (n > 0 && g.port.udp_send)
+  if (n > 0 && g.port.udp_send) {
+    // Cache as the "last secured reply" so an MRP retransmit (same inbound
+    // counter on this session) can be answered by re-sending these exact bytes
+    // rather than re-running the handler (which double-added a fabric on a
+    // retransmitted AddNOC). See sec_last_tx_buf doc.
+    if ((size_t)n <= sizeof(g.sec_last_tx_buf)) {
+      memcpy(g.sec_last_tx_buf, out, (size_t)n); g.sec_last_tx_len = (size_t)n;
+    } else { g.sec_last_tx_len = 0; }
     g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, out, (size_t)n);  // reply to this packet's source
+  }
 }
 
 // Live value of an attribute. Resolution order:
@@ -2369,7 +2397,22 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
 
   if (mh0.session_id != 0) {
     // Secured session traffic: PASE (commissioning IM) or CASE (operational).
+    // The message counter sits in the cleartext header (it seeds the decrypt
+    // nonce), so MRP duplicate suppression works BEFORE decrypt: a retransmit
+    // carries the same counter on the same session. Re-send the cached secured
+    // reply (it already acks that counter) instead of re-running the handler —
+    // re-running a retransmitted AddNOC persisted a SECOND fabric for the same
+    // node (#85). Tracked per session because PASE and each CASE session have
+    // independent counter spaces.
     if (g.pase_secure && mh0.session_id == g.my_session_id) {
+      if (g.pase_have_rx_ctr && mh0.msg_counter == g.pase_rx_last_ctr) {
+        if (g.sec_last_tx_len && g.port.udp_send)
+          g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
+                          g.sec_last_tx_buf, g.sec_last_tx_len);
+        mlog(MATTER_LOG_DEBUG, "rx: dup PASE counter -> re-sent last secured reply");
+        return;
+      }
+      g.pase_rx_last_ctr = mh0.msg_counter; g.pase_have_rx_ctr = true;
       tx_use_pase();
       secured_dispatch(buf, len, g.i2r, 0);   // PASE: commissioning peer node id = 0
     } else {
@@ -2378,6 +2421,14 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
       // persists. This is what lets Apple's phone AND home hub talk at once.
       mtrc_case_sess *ss = case_session_find(mh0.session_id);
       if (ss) {
+        if (ss->have_rx_ctr && mh0.msg_counter == ss->rx_last_ctr) {
+          if (g.sec_last_tx_len && g.port.udp_send)
+            g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
+                            g.sec_last_tx_buf, g.sec_last_tx_len);
+          mlog(MATTER_LOG_DEBUG, "rx: dup CASE counter -> re-sent last secured reply");
+          return;
+        }
+        ss->rx_last_ctr = mh0.msg_counter; ss->have_rx_ctr = true;
         case_session_load(ss);
         memcpy(ss->cli_ip6, g.reply_ip6, 16); ss->cli_port = g.reply_port;  // for live reports
         tx_use_case();
