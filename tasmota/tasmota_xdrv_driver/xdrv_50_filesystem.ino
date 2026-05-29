@@ -98,6 +98,10 @@ FS *dfsp;
 
 char ufs_path[UFS_FILENAME_SIZE];
 File ufs_upload_file;
+#ifndef UFS_BIG_WRITE
+#define UFS_BIG_WRITE 16384      // bytes: uploads >= this (or undeclared size) get the WDT bound
+#endif                          // + SML serial quiesce around the blocking LittleFS close().
+bool ufs_upload_big = false;     // set per /ufsu upload in UfsUploadFileOpen
 uint8_t ufs_dir;
 // 0 = None, 1 = SD, 2 = ffat, 3 = littlefs
 uint8_t ufs_type;
@@ -1378,6 +1382,11 @@ void HandleUploadUFSDone(void) {
   extern void TinyCFsWriteResume(void);
   TinyCFsWriteResume();
 #endif
+#ifdef USE_SML_M
+  // Safety net: re-enable SML meter polling if the upload aborted before Close. Idempotent.
+  extern void SmlUploadResume(void);
+  SmlUploadResume();
+#endif
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   HTTPUpload& upload = Webserver->upload();
@@ -1752,13 +1761,24 @@ void download_task(void *path) {
 bool UfsUploadFileOpen(const char* upload_filename) {
   char npath[UFS_FILENAME_SIZE];
   snprintf_P(npath, sizeof(npath), PSTR("%s/%s"), ufs_path, upload_filename);
+  // Declared upload size (?fsz= arg). 0 == undeclared (direct POST) -> assume large.
+  // A large internal-flash (LittleFS) write blocks the single-core loop for several
+  // seconds with the flash cache disabled; "big" gates the WDT bound (Close) and the
+  // SML serial quiesce. Threshold matches TinyCFsWritePause()'s internal gate.
+  uint32_t ufs_fsz = Webserver->hasArg(F("fsz")) ? (uint32_t)Webserver->arg(F("fsz")).toInt() : 0;
+  ufs_upload_big = (ufs_fsz == 0 || ufs_fsz >= UFS_BIG_WRITE);
 #ifdef USE_TINYC
   // Stop TinyC VM tasks before a LARGE internal-flash write: a multi-block
   // LittleFS write while a VM task exists deadlocks a dual-core node. Size-gated
   // inside (small files skip it). The declared size comes from the ?fsz= arg.
   extern void TinyCFsWritePause(uint32_t fsize);
-  uint32_t tc_fsz = Webserver->hasArg(F("fsz")) ? (uint32_t)Webserver->arg(F("fsz")).toInt() : 0;
-  TinyCFsWritePause(tc_fsz);
+  TinyCFsWritePause(ufs_fsz);
+#endif
+#ifdef USE_SML_M
+  // Keep the SML/eBUS driver off the meter UART for the duration of a big write so no
+  // serial decode work accumulates across the multi-second blocking close(). Idempotent.
+  extern void SmlUploadPause(void);
+  if (ufs_upload_big) { SmlUploadPause(); }
 #endif
   dfsp->remove(npath);
   ufs_upload_file = dfsp->open(npath, UFS_FILE_WRITE);
@@ -1775,10 +1795,25 @@ bool UfsUploadFileWrite(uint8_t *upload_buf, size_t current_size) {
 }
 
 void UfsUploadFileClose(void) {
+#ifdef ESP32
+  // A large LittleFS close()/flush blocks the single-core loop for several seconds with the
+  // flash cache disabled. Tasmota subscribes loop() to the 5 s Task-WDT (enableLoopWDT() in
+  // tasmota.ino) and feeds it via delay()/yield(); a 7 s+ flush that calls neither would trip
+  // it. Suspend the loop-WDT only across the blocking close(), then restore Tasmota's default.
+  // OsWatch (120 s, timer-driven) still backstops a genuine infinite hang.
+  if (ufs_upload_big) { disableLoopWDT(); }
+#endif
   ufs_upload_file.close();
+#ifdef ESP32
+  if (ufs_upload_big) { feedLoopWDT(); enableLoopWDT(); }
+#endif
 #ifdef USE_TINYC
   extern void TinyCFsWriteResume(void);
   TinyCFsWriteResume();   // resume TinyC VM tasks (HandleUploadUFSDone also clears, as a safety net)
+#endif
+#ifdef USE_SML_M
+  extern void SmlUploadResume(void);
+  SmlUploadResume();      // resume SML meter polling (HandleUploadUFSDone also clears, as a safety net)
 #endif
 }
 

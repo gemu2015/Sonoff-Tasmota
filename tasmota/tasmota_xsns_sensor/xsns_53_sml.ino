@@ -2303,9 +2303,18 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 
 uint16_t sml_count = 0;
 
+// /ufsu large-file upload bracket. While a big internal-flash (LittleFS) write holds the
+// single-core loop for several seconds (cache disabled), keep SML_Poll off the meter UART so no
+// serial decode work piles up across the blocking close(). Set/cleared from xdrv_50's upload
+// open/close (mirrors TinyCFsWritePause()). Inert until set — decode is byte-identical otherwise.
+bool sml_upload_pause = false;
+void SmlUploadPause(void)  { sml_upload_pause = true; }
+void SmlUploadResume(void) { sml_upload_pause = false; }
+
 // polled every 50 ms
 void SML_Poll(void) {
 uint32_t meters;
+    if (sml_upload_pause) { return; }   // /ufsu big write in progress — stay off the meter UART
 
     for (meters = 0; meters < sml_globs.meters_used; meters++) {
       struct METER_DESC *mp = &meter_desc[meters];
