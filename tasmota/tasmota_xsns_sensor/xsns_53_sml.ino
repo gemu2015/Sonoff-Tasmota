@@ -3232,8 +3232,23 @@ void SML_Decode(uint8_t index) {
           if (cp && (*cp == '+' || *cp == '-')) {
             double offset = CharToDouble(cp);
             sml_globs.meter_vars[vindex] += offset;
+            cp = skip_double(cp);
           }
           sml_globs.meter_vars[vindex] /= fac;
+          // optional no-value sentinel:  ...@<scale>[<offset>]:na<value>
+          // Suppress this reading from JSON/MQTT (and the immediate publish) when the
+          // scaled value equals <value> — e.g. a Vaillant aroTHERM reports -99.0 on an
+          // inactive sensor (Heizstab-VL while the backup heater is off). The token is
+          // inert unless ':na' is present, so every existing descriptor is byte-identical.
+          if (cp && cp[0] == ':' && cp[1] == 'n' && cp[2] == 'a') {
+            double na_val = CharToDouble(cp + 3);
+            double na_diff = sml_globs.meter_vars[vindex] - na_val;
+            if (na_diff < 0) na_diff = -na_diff;
+            if (na_diff <= 0.001) {
+              sml_globs.dvalid[vindex] = 0;   // omit from periodic JSON / web group
+              goto nextsect;                  // and skip the immediate-MQTT publish
+            }
+          }
           SML_Immediate_MQTT((const char*)mp, vindex, mindex);
         }
       }
