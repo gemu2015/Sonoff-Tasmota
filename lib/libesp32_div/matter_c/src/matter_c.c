@@ -208,6 +208,22 @@ typedef struct {
   uint32_t         fs_expiry_ms;        // millis() deadline while armed
   uint8_t          fs_added_fabric;     // fabric_index added by AddNOC this context (0 = none/committed)
 
+  // AdministratorCommissioning (cluster 0x003C) "enhanced" commissioning window
+  // opened by an already-commissioned admin (e.g. Google Nest hub's multi-admin
+  // handoff): OpenCommissioningWindow supplies an EXTERNAL SPAKE2+ verifier
+  // (W0 32B || L 65B) + salt + iterations + discriminator, so a SECOND admin can
+  // PASE-pair WITHOUT the on-device passcode. While ocw_active the PASE responder
+  // uses these supplied parameters instead of deriving w0/L from g.cfg.passcode.
+  // All zero (cleared context) -> normal Apple/Bind commissioning is byte-identical.
+  bool             ocw_active;          // external-verifier PASE window open
+  uint8_t          ocw_w0[32];          // supplied SPAKE2+ w0 (BE scalar)
+  uint8_t          ocw_L[65];           // supplied SPAKE2+ L = w1*G (uncompressed point)
+  uint8_t          ocw_salt[32];        // PBKDF salt the admin used to derive w0
+  uint8_t          ocw_salt_len;        // 16..32
+  uint32_t         ocw_iterations;      // PBKDF iteration count to echo
+  uint16_t         ocw_disc;            // 12-bit discriminator advertised over mDNS
+  uint32_t         ocw_expiry_ms;       // millis() deadline; 0 = no OCW window armed
+
   // single attribute subscription (the report engine)
   bool             sub_active;
   uint32_t         sub_id;
@@ -559,13 +575,17 @@ matter_err_t matter_start(void) {
 // node over mDNS (_matterc._udp, TXT D/CM/VP per Core Spec §4.3.1) and accept
 // PASE. The host times the window and closes it (remove advert + set !commissionable)
 // on the Bind-window timeout or on Unbind.
-matter_err_t matter_open_commissioning_window(void) {
-  if (!g.inited) return MATTER_ERR_NOT_INIT;
+// Publish the commissionable-node advert (_matterc._udp, TXT D/CM/VP per Core
+// Spec §4.3.1). cm = 1 (standard, on-device passcode) or 2 (enhanced window
+// opened by AdministratorCommissioning, external verifier). disc is the 12-bit
+// discriminator the controller will browse for (host derives _L<disc>/_S<disc>
+// subtypes from the D= TXT value). Marks g.commissionable so PASE is accepted.
+static matter_err_t mtrc_publish_commissionable(uint16_t disc, int cm) {
   g.commissionable = true;
   if (!g.port.mdns_publish) return MATTER_OK;
   static char txt_d[16], txt_cm[8], txt_vp[24];
-  snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)g.cfg.discriminator);
-  snprintf(txt_cm, sizeof(txt_cm), "CM=1");   // 1 = in commissioning mode
+  snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)disc);
+  snprintf(txt_cm, sizeof(txt_cm), "CM=%d", cm);   // 1 = standard, 2 = enhanced
   snprintf(txt_vp, sizeof(txt_vp), "VP=%u+%u", (unsigned)g.cfg.vendor_id,
            (unsigned)g.cfg.product_id);
   const char *txt[] = { txt_d, txt_cm, txt_vp };
@@ -581,11 +601,19 @@ matter_err_t matter_open_commissioning_window(void) {
   return e;
 }
 
+matter_err_t matter_open_commissioning_window(void) {
+  if (!g.inited) return MATTER_ERR_NOT_INIT;
+  g.ocw_active = false; g.ocw_expiry_ms = 0;   // standard (on-device passcode) window
+  return mtrc_publish_commissionable(g.cfg.discriminator, 1);
+}
+
 // Toggle the commissionable flag (host closes the window on timeout/Unbind).
 // While closed the PASE responder ignores new commissioning; existing fabrics
 // (CASE/operational) are unaffected.
 void matter_set_commissionable(int on) {
-  if (g_ptr) g.commissionable = on ? true : false;
+  if (!g_ptr) return;
+  g.commissionable = on ? true : false;
+  if (!on) { g.ocw_active = false; g.ocw_expiry_ms = 0; }   // closing the window ends any enhanced OCW
 }
 int matter_is_commissionable(void) { return (g_ptr && g.commissionable) ? 1 : 0; }
 
@@ -605,6 +633,7 @@ matter_err_t matter_factory_reset(void) {
   g.pase_secure = false; g.case_secure = false;
   memset(g.case_sess, 0, sizeof(g.case_sess));   // drop all operational sessions
   g.fs_armed = false; g.fs_added_fabric = 0;     // no tentative fabric survives a reset
+  g.ocw_active = false; g.ocw_expiry_ms = 0;     // drop any enhanced commissioning window
   mlog(MATTER_LOG_INFO, "matter_c factory reset (fabrics wiped)");
   return MATTER_OK;
 }
@@ -679,6 +708,16 @@ static void pase_handle_param_req(const uint8_t *payload, size_t plen,
   resp.iterations = g.iterations;
   memcpy(resp.salt, g.salt, 16); resp.salt_len = 16;
 
+  // Enhanced commissioning window (AdministratorCommissioning OpenCommissioningWindow):
+  // the second admin derived its w0 from the passcode using ITS salt+iterations, so
+  // we must echo exactly those (and pake1 will use the supplied external w0/L) — the
+  // device's own passcode is NOT involved in this PASE.
+  if (g.ocw_active) {
+    g.iterations = g.ocw_iterations;
+    resp.iterations = g.ocw_iterations;
+    memcpy(resp.salt, g.ocw_salt, g.ocw_salt_len); resp.salt_len = g.ocw_salt_len;
+  }
+
   uint8_t rp[160];
   int rn = mtrc_pase_encode_param_resp(rp, sizeof(rp), &resp);
   if (rn < 0) return;
@@ -698,8 +737,16 @@ static void pase_handle_pake1(const uint8_t *payload, size_t plen,
   if (!mtrc_pase_decode_pake1(payload, plen, pA)) return;
 
   uint8_t w0[32], w1[32], L[65], y[32], pB[65], Z[65], V[65];
-  if (!mtrc_pase_derive_w0w1(g.cfg.passcode, g.salt, 16, g.iterations, w0, w1)) return;
-  if (!mtrc_ec_mulgen(L, w1, 32)) return;                      // L = w1*G
+  if (g.ocw_active) {
+    // Enhanced window: the admin supplied the SPAKE2+ verifier directly
+    // (w0 || L). The device passcode / w1 are NOT used — skip the PBKDF + EC
+    // derivation and install the supplied verifier.
+    memcpy(w0, g.ocw_w0, 32);
+    memcpy(L,  g.ocw_L,  65);
+  } else {
+    if (!mtrc_pase_derive_w0w1(g.cfg.passcode, g.salt, 16, g.iterations, w0, w1)) return;
+    if (!mtrc_ec_mulgen(L, w1, 32)) return;                    // L = w1*G
+  }
   g.port.random_bytes(g.port.ctx, y, 32);
   if (!mtrc_spake2p_verifier_Y(w0, y, pB)) return;             // pB = y*G + w0*N
   if (!mtrc_spake2p_verifier_ZV(w0, y, pA, L, Z, V)) return;   // Z,V from pA,L
@@ -1603,6 +1650,50 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
     else if (cmd == 0x0A) mtrc_dm_set(ep, 0x0300, 0x0007, a);                        // MoveToColorTemperature
     if (g.port.on_command) g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)(a & 0xFFFF));
     n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
+  } else if (cl == 0x003C) {          // AdministratorCommissioning (multi-admin handoff)
+    // A second administrator (e.g. a Google Nest hub finishing its "add to Google
+    // Home") closes the standard window and re-opens an ENHANCED one carrying its
+    // own SPAKE2+ verifier, so it can PASE-pair without the on-device passcode.
+    // Hans's C3 aborted here: we advertised cmds 0/1/2 but had no handler, so both
+    // returned UNSUPPORTED_COMMAND and the handoff failed.
+    if (cmd == 0x00) {                // OpenCommissioningWindow (external verifier)
+      uint64_t timeout = 0, disc = 0, iters = 0;
+      const uint8_t *verif = NULL, *salt = NULL; size_t verlen = 0, saltlen = 0;
+      inv_field(payload, plen, 0, 0, NULL, NULL, &timeout);   // CommissioningTimeout (s)
+      inv_field(payload, plen, 1, 1, &verif, &verlen, NULL);  // PAKEPasscodeVerifier = W0(32)||L(65)
+      inv_field(payload, plen, 2, 0, NULL, NULL, &disc);      // Discriminator (12-bit)
+      inv_field(payload, plen, 3, 0, NULL, NULL, &iters);     // PBKDF iterations
+      inv_field(payload, plen, 4, 1, &salt, &saltlen, NULL);  // PBKDF salt
+      if (verif && verlen == 97 && salt && saltlen >= 16 && saltlen <= 32 &&
+          iters >= 1000 && iters <= 100000) {
+        memcpy(g.ocw_w0, verif, 32); memcpy(g.ocw_L, verif + 32, 65);
+        memcpy(g.ocw_salt, salt, saltlen); g.ocw_salt_len = (uint8_t)saltlen;
+        g.ocw_iterations = (uint32_t)iters;
+        g.ocw_disc = (uint16_t)(disc & 0x0FFF);
+        g.ocw_active = true;
+        g.ocw_expiry_ms = g.port.millis(g.port.ctx) +
+                          (uint32_t)(timeout ? timeout : 180) * 1000u;
+        mtrc_publish_commissionable(g.ocw_disc, 2);            // CM=2 (enhanced window)
+        n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
+        mlog(MATTER_LOG_INFO, "AdminComm: OpenCommissioningWindow (enhanced, external verifier)");
+      } else {
+        g.ocw_active = false;
+        n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x87);  // CONSTRAINT_ERROR
+        mlog(MATTER_LOG_ERROR, "AdminComm: OpenCommissioningWindow rejected (bad params)");
+      }
+    } else if (cmd == 0x01) {         // OpenBasicCommissioningWindow (device passcode)
+      uint64_t timeout = 0;
+      inv_field(payload, plen, 0, 0, NULL, NULL, &timeout);
+      matter_open_commissioning_window();                      // standard CM=1 window (clears ocw_active)
+      g.ocw_expiry_ms = g.port.millis(g.port.ctx) +
+                        (uint32_t)(timeout ? timeout : 180) * 1000u;
+      n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
+      mlog(MATTER_LOG_INFO, "AdminComm: OpenBasicCommissioningWindow");
+    } else if (cmd == 0x02) {         // RevokeCommissioning (close the window)
+      matter_set_commissionable(0);                            // stop PASE; clears ocw_active/expiry
+      n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
+      mlog(MATTER_LOG_INFO, "AdminComm: RevokeCommissioning (window closed)");
+    }
   } else if (g.port.on_command) {     // any other app cluster -> let a script try
     if (g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)cmd))
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
@@ -2579,6 +2670,14 @@ void matter_loop(void) {
   // abandoned attempt does not leak a persisted fabric.
   if (g.fs_armed && (int32_t)(g.port.millis(g.port.ctx) - g.fs_expiry_ms) >= 0)
     matter_failsafe_disarm(false);
+  // Enhanced commissioning window backstop: if an AdministratorCommissioning
+  // OpenCommissioningWindow opened a window that nobody completed, stop accepting
+  // PASE when its CommissioningTimeout elapses (the host's Bind-window timer
+  // withdraws the _matterc mDNS advert separately).
+  if (g.ocw_expiry_ms && (int32_t)(g.port.millis(g.port.ctx) - g.ocw_expiry_ms) >= 0) {
+    g.ocw_active = false; g.ocw_expiry_ms = 0; g.commissionable = false;
+    mlog(MATTER_LOG_INFO, "AdminComm: commissioning window expired");
+  }
   // Drain ALL queued datagrams (a burst from several controllers must not be
   // dropped). Set the reply target from each packet's own source first.
   while (g.rx_head != g.rx_tail) {
