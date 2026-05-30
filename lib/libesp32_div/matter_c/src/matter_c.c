@@ -372,12 +372,23 @@ static void dm_add_identify(uint16_t ep) {
   mtrc_dm_add_attr(ep, 0x0003, 0x0001, MTRC_DM_T_U8,  0, 0);
 }
 
+// Groups (0x0004) is MANDATORY on the On/Off Plug-in Unit and every Lighting
+// device type (Matter Device Library). Apple/Google tolerate its absence, but
+// Alexa enforces the device type's mandatory-cluster list and rejects the whole
+// device ("Alexa is getting your device ready" -> GS014 / RN002) when it is
+// missing. NameSupport (0x0000, bitmap8) is its sole mandatory attribute;
+// bit7 = GroupNames feature (0 = not supported, matching FeatureMap 0).
+static void dm_add_groups(uint16_t ep) {
+  mtrc_dm_add_attr(ep, 0x0004, 0x0000, MTRC_DM_T_U8, 0, 0);   // Groups.NameSupport = 0
+}
+
 static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
   switch (dt) {
     case MATTER_DEVTYPE_ON_OFF_PLUGIN:
     case MATTER_DEVTYPE_ON_OFF_LIGHT:
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
+      dm_add_groups(ep);
       break;
     case MATTER_DEVTYPE_DIMMABLE_LIGHT:
     case 0x010C:   // Color Temperature Light
@@ -386,6 +397,22 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
       mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0000, MTRC_DM_T_U8,
                        MTRC_DM_F_WRITABLE, 0);   // CurrentLevel
+      // LevelControl mandatory/Berry-parity attrs — Alexa rejects a Dimmable/
+      // Color Light whose Level cluster serves only CurrentLevel (GS014).
+      mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0002, MTRC_DM_T_U8, 0, 1);    // MinLevel
+      mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0003, MTRC_DM_T_U8, 0, 254);  // MaxLevel
+      mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x000F, MTRC_DM_T_U8, 0, 0);    // Options
+      mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0011, MTRC_DM_T_U8, 0, 254);  // OnLevel
+      dm_add_groups(ep);
+      if (dt == 0x010C || dt == 0x010D) {
+        // ColorControl attrs that are mandatory regardless of feature (HS/XY/CT).
+        // The script declares CurrentHue/CurrentSaturation; these complete the
+        // mandatory set so Alexa accepts the Extended/Color-Temp Light.
+        mtrc_dm_add_attr(ep, 0x0300, 0x0008, MTRC_DM_T_U8,  0, 0);  // ColorMode (0=CurrentHue&Sat)
+        mtrc_dm_add_attr(ep, 0x0300, 0x000F, MTRC_DM_T_U8,  0, 0);  // Options
+        mtrc_dm_add_attr(ep, 0x0300, 0x4001, MTRC_DM_T_U8,  0, 0);  // EnhancedColorMode (0)
+        mtrc_dm_add_attr(ep, 0x0300, 0x400A, MTRC_DM_T_U16, 0, 1);  // ColorCapabilities (bit0=HS)
+      }
       break;
     case MATTER_DEVTYPE_TEMP_SENSOR:
       mtrc_dm_add_attr(ep, MTRC_CL_TEMP_MEAS, 0x0000, MTRC_DM_T_U16, 0, 0);
@@ -2142,8 +2169,12 @@ static void emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
 static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   if (cl == 0x001D && attr <= 0x0003) { emit_descriptor_one(w, ep, attr); return; }
   switch (attr) {
-    case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr, cl == 0x0039 ? 3 : 1); return; // ClusterRevision
+    case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr,
+                   cl == 0x0039 ? 3 :
+                   cl == 0x0004 ? 4 :    // Groups
+                   1); return;                                                  // ClusterRevision
     case 0xFFFC: emit_attr_report_uint(w, ep, cl, attr,
+                   cl == 0x0008 ? 0x01 :    // LevelControl: OnOff feature (WithOnOff cmds)
                    cl == 0x0300 ? 0x01 :    // ColorControl: HueSaturation
                    cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
                    cl == 0x003B ? 0x2E :    // Switch: MomentarySwitch + Release + LongPress + MultiPress
@@ -2166,6 +2197,10 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
         static const uint32_t g_noc[] = {0x01,0x03,0x05,0x08};                 // Attestation/CertChain/CSR/NOCResponse
         emit_report_list(w, ep, cl, attr, g_noc, 4); return;
       }
+      if (cl == 0x0004) {                                  // Groups responses
+        static const uint32_t g_grp[] = {0x00,0x01,0x02,0x03};                 // Add/View/GetMembership/Remove Response
+        emit_report_list(w, ep, cl, attr, g_grp, 4); return;
+      }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;   // our app clusters generate none
     case 0xFFF9: {                                                             // AcceptedCommandList
       // Controllers validate controllability via this list. An endpoint whose
@@ -2173,6 +2208,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
       // Plug-in Unit with an empty OnOff list never appears in Apple Home, and a
       // light whose OnOff list is empty shows as dimmer-only (no on/off button).
       static const uint32_t c_ident[] = {0x00,0x40};                            // Identify, TriggerEffect
+      static const uint32_t c_groups[]= {0x00,0x01,0x02,0x03,0x04,0x05};        // Add/View/GetMembership/Remove/RemoveAll/AddIfIdentifying
       static const uint32_t c_onoff[] = {0x00,0x01,0x02};                       // Off, On, Toggle
       static const uint32_t c_level[] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
       static const uint32_t c_color[] = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
@@ -2183,6 +2219,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
       const uint32_t *l = NULL; int ln = 0;
       switch (cl) {
         case 0x0003: l=c_ident; ln=2; break;
+        case 0x0004: l=c_groups;ln=6; break;
         case 0x0006: l=c_onoff; ln=3; break;
         case 0x0008: l=c_level; ln=8; break;
         case 0x0102: l=c_wcov;  ln=4; break;
