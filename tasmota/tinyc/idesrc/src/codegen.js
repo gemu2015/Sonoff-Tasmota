@@ -624,6 +624,12 @@ export class CodeGenerator {
             CLUSTER_PM10: 0x042D, CLUSTER_PM1: 0x042C, CLUSTER_VOC: 0x042E, CLUSTER_NO2: 0x0413,
             // Matter 1.4 electrical measurement (power meter / SML)
             CLUSTER_POWER: 0x0090, CLUSTER_ENERGY: 0x0091,
+            // Power Source (0x002F) battery — Apple/Google surface battery % + low-battery.
+            // Attach CLUSTER_BATTERY to a functional sensor endpoint; FeatureMap=BAT.
+            CLUSTER_BATTERY: 0x002F,
+            ATTR_BAT_STATUS: 0x0000, ATTR_BAT_ORDER: 0x0001, ATTR_BAT_PERCENT: 0x000C,
+            ATTR_BAT_CHARGE_LEVEL: 0x000E, ATTR_BAT_REPL_NEEDED: 0x000F, ATTR_BAT_REPLACEABILITY: 0x0010,
+            BAT_OK: 0, BAT_WARN: 1, BAT_CRIT: 2,
             // ElectricalPowerMeasurement (0x0090) attribute ids
             ATTR_VOLTAGE: 0x0004, ATTR_ACTIVE_CURRENT: 0x0005,
             ATTR_ACTIVE_POWER: 0x0008, ATTR_FREQUENCY: 0x000E,

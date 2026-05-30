@@ -1,0 +1,82 @@
+// Matter battery (Power Source cluster 0x002F, BAT feature) — real battery level.
+//
+// Adds the Power Source cluster to a FUNCTIONAL accessory (here a Temperature
+// Sensor) so Apple Home / Google Home show that accessory's battery level and a
+// low-battery warning. This is the proper Matter battery — unlike faking SoC as a
+// Humidity tile (see matter_fake_sensors.tc), it carries true battery semantics.
+//
+//   Endpoint 1: Temperature Sensor (0x0302)
+//     + TemperatureMeasurement (0x0402) MeasuredValue          int16 x0.01 C
+//     + Power Source           (0x002F) FeatureMap = BAT(0x02)
+//         BatPercentRemaining   (0x000C) uint8  HALF-PERCENT 0..200  (value = % x 2)
+//         BatChargeLevel        (0x000E) enum8  0=OK 1=Warning 2=Critical
+//         Status                (0x0000) enum8  1=Active
+//         Order                 (0x0001) uint8
+//         BatReplacementNeeded  (0x000F) bool
+//         BatReplaceability     (0x0010) enum8  2=UserReplaceable
+//
+// IMPORTANT: BatPercentRemaining is in HALF-PERCENT (0..200). Publish round(soc*2);
+// the controller displays value/2 = the percentage.
+//
+// HOW APPLE SHOWS IT: battery is an attribute OF the accessory — a low-battery
+// badge + the % in the accessory's settings — NOT a standalone home-screen tile.
+// For a prominent 0..100 % SoC gauge (e.g. a solar/powerwall battery that has no
+// other function), fake it as a Humidity sensor instead (matter_fake_sensors.tc).
+//
+// If a controller does not pick up the battery, some require PowerSourceConfiguration
+// (0x002E) on endpoint 0 listing the battery endpoints — add that next; most
+// controllers accept the Power Source cluster directly on the device endpoint.
+//
+// Simulated readings; replace with sensorGet(...) for real values.
+
+int ep;          // temperature + battery endpoint
+int tick;
+
+void EverySecond() {
+    float t; float soc; int lvl;
+    tick = tick + 1;
+    t   = 21.0 + 4.0 * sin((float)tick / 60.0);     // ~17 .. 25 C
+    soc = 55.0 + 40.0 * sin((float)tick / 120.0);   // ~15 .. 95 %
+
+    // charge-level enum from the SoC
+    lvl = BAT_OK;
+    if (soc < 20.0) { lvl = BAT_WARN; }
+    if (soc < 10.0) { lvl = BAT_CRIT; }
+
+    matterSetFloat(ep, CLUSTER_TEMP, 0, t, 100);                 // 0.01 C
+    matterSetFloat(ep, CLUSTER_BATTERY, ATTR_BAT_PERCENT, soc, 2); // % -> half-percent, stores round(soc*2)
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_CHARGE_LEVEL, lvl);
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_REPL_NEEDED, lvl == BAT_CRIT);
+}
+
+int main() {
+    tick = 0;
+    matterReset();
+
+    ep = matterAdd(MATTER_TEMP_SENSOR);
+    matterName(ep, "Battery Sensor");
+
+    // --- the sensor's primary function ---
+    matterCluster(ep, CLUSTER_TEMP);
+    matterAttr(ep, CLUSTER_TEMP, 0, MTR_S16);
+    matterSet(ep, CLUSTER_TEMP, 0, 2100);                       // 21.00 C
+
+    // --- Power Source (battery) on the same endpoint ---
+    matterCluster(ep, CLUSTER_BATTERY);
+    matterAttr(ep, CLUSTER_BATTERY, ATTR_BAT_STATUS,        MTR_ENUM8);
+    matterAttr(ep, CLUSTER_BATTERY, ATTR_BAT_ORDER,         MTR_U8);
+    matterAttr(ep, CLUSTER_BATTERY, ATTR_BAT_PERCENT,       MTR_U8);    // half-percent
+    matterAttr(ep, CLUSTER_BATTERY, ATTR_BAT_CHARGE_LEVEL,  MTR_ENUM8);
+    matterAttr(ep, CLUSTER_BATTERY, ATTR_BAT_REPL_NEEDED,   MTR_BOOL);
+    matterAttr(ep, CLUSTER_BATTERY, ATTR_BAT_REPLACEABILITY, MTR_ENUM8);
+
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_STATUS,        1);   // Active
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_ORDER,         0);
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_PERCENT,       180); // 90 % (= 180 half-percent)
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_CHARGE_LEVEL,  BAT_OK);
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_REPL_NEEDED,   0);
+    matterSet(ep, CLUSTER_BATTERY, ATTR_BAT_REPLACEABILITY, 2);  // UserReplaceable
+
+    matterStart();                       // Matter on; press Bind on /mt to pair
+    return 0;
+}

@@ -355,6 +355,7 @@ bool matter_qr_dark(int x, int y) {
 #define MTRC_CL_LEVEL       0x0008
 #define MTRC_CL_DESCRIPTOR  0x001D
 #define MTRC_CL_BASIC_INFO  0x0028
+#define MTRC_CL_POWERSOURCE 0x002F
 #define MTRC_CL_TEMP_MEAS   0x0402
 #define MTRC_CL_HUM_MEAS    0x0405
 
@@ -2188,6 +2189,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
     case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr,
                    cl == 0x0039 ? 3 :
                    cl == 0x0004 ? 4 :    // Groups
+                   cl == 0x002F ? 2 :    // Power Source (cluster revision 2)
                    1); return;                                                  // ClusterRevision
     case 0xFFFC: emit_attr_report_uint(w, ep, cl, attr,
                    cl == 0x0008 ? 0x01 :    // LevelControl: OnOff feature (WithOnOff cmds)
@@ -2195,6 +2197,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
                    cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
                    cl == 0x003B ? 0x2E :    // Switch: MomentarySwitch + Release + LongPress + MultiPress
                    cl == 0x0091 ? 0x07 :    // ElectricalEnergyMeasurement: Imported + Exported + Cumulative
+                   cl == 0x002F ? 0x02 :    // PowerSource: BAT (battery) feature
                    (cl >= 0x040C && cl <= 0x042F) ? 0x01 :  // ConcentrationMeasurement: NumericMeasurement
                    0); return;                                                  // FeatureMap
 
