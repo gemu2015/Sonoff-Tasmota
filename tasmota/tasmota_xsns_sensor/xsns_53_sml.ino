@@ -592,6 +592,14 @@ struct METER_DESC {
 #else
   SML_ESP32_SERIAL *meter_ss;
 #endif
+  // UART hardware number this meter is bound to (0..2), -1 = none / SW / TCP.
+  // Captured at serial-create time so SmlUploadPause/Resume can disable RX IRQs
+  // by IDF call directly on the raw-HardwareSerial path (Arduino-ESP32's
+  // HardwareSerial does not expose its uart_nr; SML_ESP32_SERIAL has its own
+  // helper). Without this, the ufsu RX-IRQ kill only covers USE_ESP32_SW_SERIAL
+  // builds — Andreas's .104 (raw HardwareSerial path) is exactly where the hang
+  // lives, so the fix HAS to reach this branch.
+  int8_t hw_uart_index = -1;
 #endif  // ESP32
 
 // software serial pointers
@@ -2336,15 +2344,19 @@ uint16_t sml_count = 0;
 // serial decode work piles up across the blocking close(). Set/cleared from xdrv_50's upload
 // open/close (mirrors TinyCFsWritePause()). Inert until set — decode is byte-identical otherwise.
 //
-// HARDENING (2026-05-30, after Andreas's .104 live-load repro): pausing SML_Poll alone is NOT
-// enough. The UART RXFIFO_FULL/TOUT ISR keeps firing while the meter sees continuous traffic
-// (2400 Bd eBUS) — that ISR load piled on top of the cache-disabled flash write starves
-// WiFi/LwIP AND the OsWatch timer ISR, producing a deep hang the soft watchdog never recovers
-// from. Surgical fix: turn off the IDF UART RX interrupt for each HW-backed meter UART for the
-// duration of the upload (RX FIFO will silently overflow its 128 B hardware buffer — fine, the
-// SML decoder resyncs on the next SYNC byte after resume). We only touch HW serial (TasmotaSerial::
-// getesp32hws() != nullptr) — SW-serial / TCP meters are skipped, and so is UART0 (which would
-// be catastrophic to silence). ESP32 only; ESP8266 keeps the old behavior.
+// HARDENING (2026-05-30, after Andreas's .104 live-load repro — refined for raw-HardwareSerial
+// after his 1837 compile-error report): pausing SML_Poll alone is NOT enough. The UART
+// RXFIFO_FULL/TOUT ISR keeps firing while the meter sees continuous traffic (2400 Bd eBUS) —
+// that ISR load piled on top of any long blocking write (flash via /ufsu OR SD write — single-
+// core C3 just sees the blocked loop) starves WiFi/LwIP AND the OsWatch timer ISR, producing a
+// deep hang the soft watchdog never recovers from. Surgical fix: turn off the IDF UART RX
+// interrupt for each meter UART for the duration of the upload (RX FIFO silently overflows its
+// 128 B hardware buffer — fine, the SML decoder resyncs on the next SYNC byte after resume).
+// Both code paths (raw HardwareSerial when !USE_ESP32_SW_SERIAL, SML_ESP32_SERIAL otherwise)
+// are covered: SML_ESP32_SERIAL has its own rx_intr_disable/enable helpers; raw HardwareSerial
+// has no uart_nr getter so we use the hw_uart_index captured in METER_DESC at construction time.
+// TCP meters / not-yet-opened slots / SW-emulated SML_ESP32_SERIAL are safely skipped. ESP32
+// only; ESP8266 keeps the old behavior.
 bool sml_upload_pause = false;
 void SmlUploadPause(void)  {
   sml_upload_pause = true;
@@ -2352,7 +2364,12 @@ void SmlUploadPause(void)  {
   for (uint8_t m = 0; m < sml_globs.meters_used; m++) {
     struct METER_DESC *mp = &meter_desc[m];
     if (mp->srcpin == TCP_MODE_FLG) continue;       // TCP-attached meter, no UART
-    if (mp->meter_ss) mp->meter_ss->rx_intr_disable();
+    if (!mp->meter_ss) continue;                    // not opened yet
+#ifdef USE_ESP32_SW_SERIAL
+    mp->meter_ss->rx_intr_disable();                // SML_ESP32_SERIAL handles HW/SW internally
+#else
+    if (mp->hw_uart_index >= 0) uart_disable_rx_intr((uart_port_t)mp->hw_uart_index);
+#endif
   }
 #endif
 }
@@ -2361,7 +2378,12 @@ void SmlUploadResume(void) {
   for (uint8_t m = 0; m < sml_globs.meters_used; m++) {
     struct METER_DESC *mp = &meter_desc[m];
     if (mp->srcpin == TCP_MODE_FLG) continue;
-    if (mp->meter_ss) mp->meter_ss->rx_intr_enable();
+    if (!mp->meter_ss) continue;
+#ifdef USE_ESP32_SW_SERIAL
+    mp->meter_ss->rx_intr_enable();
+#else
+    if (mp->hw_uart_index >= 0) uart_enable_rx_intr((uart_port_t)mp->hw_uart_index);
+#endif
   }
 #endif
   sml_upload_pause = false;
@@ -4681,6 +4703,7 @@ next_line:
         }
 #ifdef USE_ESP32_SW_SERIAL
         mp->meter_ss = new SML_ESP32_SERIAL(uart_index);
+        mp->hw_uart_index = uart_index;        // for SmlUploadPause: SW path uses meter_ss->rx_intr_disable() but field is harmless to set
         if (mp->srcpin >= 0) {
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
@@ -4688,6 +4711,7 @@ next_line:
         }
 #else
         mp->meter_ss = new HardwareSerial(uart_index);
+        mp->hw_uart_index = uart_index;        // captured BEFORE the post-decrement — Pause/Resume reads this to silence the right UART
         if (uart_index == 0) { ClaimSerial(); }
         uart_index--;
         if (uart_index < 0) uart_index = 0;
