@@ -434,6 +434,22 @@ static const char *dm_label_for(uint16_t ep) {
 }
 static int ep_is_bridged(uint16_t ep) { return dm_label_for(ep) != NULL; }
 
+// NON_BRIDGE_VENDOR (Berry-matter parity): Amazon Alexa (vendor 0x1217) and
+// Amazon (0x1381) do not accept the Bridged Node device type (0x0013) in an
+// endpoint's DeviceTypeList — a bridged ACTUATOR makes Alexa loop during "getting
+// device ready" and fail (GS014/RN002), while bridged sensors squeak by. Apple
+// Home / Google Home require 0x0013 to read the per-endpoint NodeLabel (0x0039),
+// so we keep it for them. The fix is PER-FABRIC: for an Alexa/Amazon fabric we
+// present the SAME endpoints WITHOUT 0x0013 (a plain composed node, which Alexa
+// accepts), keyed on the reading CASE session's fabric admin vendor id (captured
+// at AddNOC field 4). The Aggregator (0x000E) itself is tolerated by Alexa, so it
+// stays. Returns 1 when the current session's fabric is a non-bridge vendor.
+static int fabric_is_non_bridge(void) {
+  mtrc_fabric *f = mtrc_store_by_index(g.case_fabric_index);
+  if (!f) return 0;
+  return f->admin_vendor_id == 0x1217 || f->admin_vendor_id == 0x1381;
+}
+
 #ifdef MTRC_CASE_TEST_FABRIC
 // Pre-provision a fixed TEST fabric so the CASE responder can establish an
 // operational session before the real commissioning flow (A2/A3) exists. The
@@ -1896,7 +1912,7 @@ static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), dt);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 1);
   mtrc_tlv_end_container(w);
-  if (ep_is_bridged(ep)) {            // also a Bridged Node so the controller reads 0x0039 NodeLabel
+  if (ep_is_bridged(ep) && !fabric_is_non_bridge()) {   // Bridged Node 0x0013 — NOT for Alexa/Amazon
     mtrc_tlv_start_struct(w, mtrc_tlv_anon());
     mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 0x0013);
     mtrc_tlv_put_uint(w, mtrc_tlv_ctx(1), 1);
