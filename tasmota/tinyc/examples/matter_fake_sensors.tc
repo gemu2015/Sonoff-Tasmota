@@ -1,0 +1,116 @@
+// Matter "fake" sensors — surface UNSUPPORTED quantities through SUPPORTED tiles.
+//
+// Apple Home (and partly Google/Alexa) only render a fixed set of numeric Matter
+// sensor tiles: Temperature, Humidity, Light, and the Air-Quality concentration
+// clusters (CO2/PM2.5/VOC/...). Pressure (0x0403), Electrical Power/Voltage/
+// Current (0x0090) and Energy (0x0091) are valid Matter but show NOTHING in Apple.
+//
+// Trick: carry the real value in a cluster the controller DOES display:
+//
+//   carrier            wire encoding              range / notes
+//   -----------------  -------------------------  ----------------------------------
+//   Temperature 0x0402 int16 x0.01  (MTR_S16)     -327.68 .. +327.67, SIGNED, 0.01 res
+//   Humidity    0x0405 uint16 x0.01 (MTR_U16)     clamped 0..100  -> perfect for %  / SoC
+//   CO2 (conc.) 0x040D single float (MTR_FLOAT)   any magnitude, full float precision
+//
+// Choose by value range:
+//   * fits +-327 (volts, amps, pressure-in-kPa, small power) -> Temperature
+//   * 0..100 percentage (battery SoC, valve %, load %)        -> Humidity
+//   * large / arbitrary float (watts, pressure-in-hPa, lux)   -> CO2 float
+//
+// CAVEATS
+//   - The tile's UNIT is fixed by the cluster (deg / % / ppm). Name the endpoint
+//     (matterName) to carry the REAL meaning + unit; the controller still appends
+//     its own unit, so you get e.g. "Netz V" showing "230.00 deg".
+//   - A CO2 carrier feeds Apple's Air-Quality verdict (a "watts=3680" reads as
+//     3680 ppm -> "poor air"). We pin the AirQuality enum to Good(1); if that
+//     still bothers you, prefer the Temperature route (scale the unit to fit +-327).
+//   - Temperature is SIGNED (good for current that can go negative on export);
+//     concentration floats are treated as >= 0.
+//   - Temperature overflows if value*100 > 32767  (i.e. value > 327.67) -> rescale
+//     the unit (hPa->kPa, W->kW) or move it to the CO2 float.
+//   - Bonus: Apple sees these as real temps/humidity, so you can build HomeKit
+//     automations on them ("when [voltage-as-temp] > 250 -> notify").
+//
+// BATTERY SoC: matter_c has no PowerSource (0x002F) cluster, and Apple shows a
+// Matter battery only as an attribute of a functional accessory (a low-battery
+// badge + % in settings) — NOT as a standalone numeric tile. So to get a visible
+// "0..100 %" SoC gauge, fake it as a Humidity sensor (see ep_soc below).
+//
+// Open pairing from the web /mt page (Bind), then add in Apple/Google/Alexa.
+// Values are SIMULATED so it runs on any board; replace the EverySecond() math
+// with sensorGet("...") for real readings.
+
+int ep_press;   // air pressure   -> Temperature (kPa)
+int ep_volt;    // mains voltage  -> Temperature (V)
+int ep_curr;    // mains current  -> Temperature (A, signed)
+int ep_power;   // active power   -> CO2 float (W, any magnitude)
+int ep_soc;     // battery SoC    -> Humidity (0..100 %)
+int tick;
+
+void EverySecond() {
+    float p_hpa; float volt; float amp; float watt; float soc;
+    tick = tick + 1;
+
+    // --- simulated real-world readings (swap for sensorGet(...)) ---
+    p_hpa = 1013.0 + 12.0 * sin((float)tick / 90.0);   // ~1001 .. 1025 hPa
+    volt  = 230.0  + 8.0  * sin((float)tick / 40.0);    // ~222 .. 238 V
+    amp   = 6.0    + 6.0  * sin((float)tick / 25.0);    // ~0 .. 12 A
+    watt  = 1400.0 + 1200.0 * sin((float)tick / 55.0);  // ~200 .. 2600 W
+    soc   = 60.0   + 35.0 * sin((float)tick / 120.0);   // ~25 .. 95 %
+
+    // --- publish through the carrier clusters ---
+    // pressure: hPa -> kPa so it fits Temperature's +-327 window (1013 hPa = 101.3 kPa)
+    matterSetFloat(ep_press, CLUSTER_TEMP, 0, p_hpa / 10.0, 100); // -> "101.30 deg"
+    matterSetFloat(ep_volt,  CLUSTER_TEMP, 0, volt,         100); // -> "230.xx deg"
+    matterSetFloat(ep_curr,  CLUSTER_TEMP, 0, amp,          100); // -> "6.xx deg"
+    matterSetFloat(ep_power, CLUSTER_CO2,  0, watt,         1);   // -> "1400 ppm"
+    matterSet     (ep_power, CLUSTER_AIRQUALITY, 0, 1);          // pin AirQuality = Good
+    matterSetFloat(ep_soc,   CLUSTER_HUM,  0, soc,          100); // -> "60 %"
+}
+
+int main() {
+    tick = 0;
+    matterReset();                       // clean data model (root node only)
+
+    // ---- Pressure as a Temperature sensor (shown in kPa) ----
+    ep_press = matterAdd(MATTER_TEMP_SENSOR);
+    matterName(ep_press, "Luftdruck kPa");
+    matterCluster(ep_press, CLUSTER_TEMP);
+    matterAttr(ep_press, CLUSTER_TEMP, 0, MTR_S16);
+    matterSet(ep_press, CLUSTER_TEMP, 0, 10130);        // seed 101.30 kPa
+
+    // ---- Voltage as a Temperature sensor ----
+    ep_volt = matterAdd(MATTER_TEMP_SENSOR);
+    matterName(ep_volt, "Netz V");
+    matterCluster(ep_volt, CLUSTER_TEMP);
+    matterAttr(ep_volt, CLUSTER_TEMP, 0, MTR_S16);
+    matterSet(ep_volt, CLUSTER_TEMP, 0, 23000);         // seed 230.00 V
+
+    // ---- Current as a Temperature sensor (signed: export = negative) ----
+    ep_curr = matterAdd(MATTER_TEMP_SENSOR);
+    matterName(ep_curr, "Strom A");
+    matterCluster(ep_curr, CLUSTER_TEMP);
+    matterAttr(ep_curr, CLUSTER_TEMP, 0, MTR_S16);
+    matterSet(ep_curr, CLUSTER_TEMP, 0, 600);           // seed 6.00 A
+
+    // ---- Active power as a CO2 float (any magnitude; shows "W" as ppm) ----
+    ep_power = matterAdd(MATTER_AIRQUALITY_SENSOR);
+    matterName(ep_power, "Leistung W");
+    matterCluster(ep_power, CLUSTER_AIRQUALITY);
+    matterAttr(ep_power, CLUSTER_AIRQUALITY, 0, MTR_ENUM8);  // mandatory for the device type
+    matterCluster(ep_power, CLUSTER_CO2);
+    matterAttr(ep_power, CLUSTER_CO2, 0, MTR_FLOAT);        // carries watts
+    matterSet(ep_power, CLUSTER_AIRQUALITY, 0, 1);          // Good (don't alarm the room)
+    matterSetFloat(ep_power, CLUSTER_CO2, 0, 1400.0, 1);
+
+    // ---- Battery SoC as a Humidity sensor (0..100 % tile) ----
+    ep_soc = matterAdd(MATTER_HUM_SENSOR);
+    matterName(ep_soc, "Akku SoC %");
+    matterCluster(ep_soc, CLUSTER_HUM);
+    matterAttr(ep_soc, CLUSTER_HUM, 0, MTR_U16);
+    matterSet(ep_soc, CLUSTER_HUM, 0, 6000);            // seed 60.00 %
+
+    matterStart();                       // Matter on; press Bind on /mt to pair
+    return 0;
+}
