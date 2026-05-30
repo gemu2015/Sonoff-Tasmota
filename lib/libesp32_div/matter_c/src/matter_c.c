@@ -383,12 +383,31 @@ static void dm_add_groups(uint16_t ep) {
   mtrc_dm_add_attr(ep, 0x0004, 0x0000, MTRC_DM_T_U8, 0, 0);   // Groups.NameSupport = 0
 }
 
+// OnOff cluster's Lighting (LT) feature attrs — MANDATORY under LT per Matter 1.4
+// OnOff cluster spec table. Added on every Light device type but NOT on Plug
+// (plug spec does not include LT). Without these, an Alexa interrogation of a
+// mixed actuator+sensor node treats the OnOff cluster as non-spec → GS014
+// (single-light pairs but multi-class node rejects). Per-EP FeatureMap dispatch
+// in emit_one_path matches: only Light EPs claim FeatureMap bit 0 (LT).
+static void dm_add_onoff_lt(uint16_t ep) {
+  mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4000, MTRC_DM_T_BOOL,  0, 1); // GlobalSceneControl (default TRUE)
+  mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4001, MTRC_DM_T_U16,   0, 0); // OnTime
+  mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4002, MTRC_DM_T_U16,   0, 0); // OffWaitTime
+  mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4003, MTRC_DM_T_ENUM8, 0, 0); // StartUpOnOff (0 = Off)
+}
+
 static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
   switch (dt) {
     case MATTER_DEVTYPE_ON_OFF_PLUGIN:
+      // Plug: OnOff base only — LT does NOT apply to OnOff Plug-in Unit per spec.
+      mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
+                       MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
+      dm_add_groups(ep);
+      break;
     case MATTER_DEVTYPE_ON_OFF_LIGHT:
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
+      dm_add_onoff_lt(ep);
       dm_add_groups(ep);
       break;
     case MATTER_DEVTYPE_DIMMABLE_LIGHT:
@@ -396,6 +415,7 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
     case 0x010D:   // Extended Color Light (script also declares ColorControl)
       mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x0000, MTRC_DM_T_BOOL,
                        MTRC_DM_F_WRITABLE | MTRC_DM_F_LIVE, 0);
+      dm_add_onoff_lt(ep);
       mtrc_dm_add_attr(ep, MTRC_CL_LEVEL, 0x0000, MTRC_DM_T_U8,
                        MTRC_DM_F_WRITABLE, 0);   // CurrentLevel
       // LevelControl mandatory/Berry-parity attrs — Alexa rejects a Dimmable/
@@ -2190,16 +2210,30 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
                    cl == 0x0039 ? 3 :
                    cl == 0x0004 ? 4 :    // Groups
                    cl == 0x002F ? 2 :    // Power Source (cluster revision 2)
+                   cl == 0x0006 ? 6 :    // OnOff (Matter 1.4 cluster revision 6)
                    1); return;                                                  // ClusterRevision
-    case 0xFFFC: emit_attr_report_uint(w, ep, cl, attr,
-                   cl == 0x0008 ? 0x01 :    // LevelControl: OnOff feature (WithOnOff cmds)
-                   cl == 0x0300 ? 0x01 :    // ColorControl: HueSaturation
-                   cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
-                   cl == 0x003B ? 0x2E :    // Switch: MomentarySwitch + Release + LongPress + MultiPress
-                   cl == 0x0091 ? 0x07 :    // ElectricalEnergyMeasurement: Imported + Exported + Cumulative
-                   cl == 0x002F ? 0x02 :    // PowerSource: BAT (battery) feature
-                   (cl >= 0x040C && cl <= 0x042F) ? 0x01 :  // ConcentrationMeasurement: NumericMeasurement
-                   0); return;                                                  // FeatureMap
+    case 0xFFFC: {                                                              // FeatureMap
+      uint32_t fm = 0;
+      if (cl == 0x0006) {
+        // OnOff: claim Lighting (LT, bit 0) ONLY for Light device types per spec.
+        // OnOff Plug-in Unit (0x010A) keeps FeatureMap=0 (no LT). The LT-required
+        // attrs 0x4000..0x4003 are added in dm_attach_device_type for matching EPs.
+        uint32_t dt = 0;
+        if (mtrc_dm_endpoint_device_type(ep, &dt) &&
+            (dt == MATTER_DEVTYPE_ON_OFF_LIGHT || dt == MATTER_DEVTYPE_DIMMABLE_LIGHT
+             || dt == 0x010C || dt == 0x010D)) fm = 0x01;
+      } else {
+        fm = cl == 0x0008 ? 0x01 :    // LevelControl: OnOff feature (WithOnOff cmds)
+             cl == 0x0300 ? 0x01 :    // ColorControl: HueSaturation
+             cl == 0x0102 ? 0x05 :    // WindowCovering: Lift + PositionAwareLift
+             cl == 0x003B ? 0x2E :    // Switch: MomentarySwitch + Release + LongPress + MultiPress
+             cl == 0x0091 ? 0x07 :    // ElectricalEnergyMeasurement: Imported + Exported + Cumulative
+             cl == 0x002F ? 0x02 :    // PowerSource: BAT (battery) feature
+             (cl >= 0x040C && cl <= 0x042F) ? 0x01 :  // ConcentrationMeasurement: NumericMeasurement
+             0;
+      }
+      emit_attr_report_uint(w, ep, cl, attr, fm); return;
+    }
 
     case 0xFFFB: {                                                              // AttributeList
       uint32_t fa[80]; int fn = cluster_func_attrs(ep, cl, fa, 74);
