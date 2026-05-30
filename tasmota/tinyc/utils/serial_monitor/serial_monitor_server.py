@@ -906,9 +906,20 @@ def _http_status(ip):
             body = r.read(2048).decode('utf-8', 'replace')
             break
         except urllib.error.HTTPError as e:
-            # 401 = Tasmota with WebPassword: a device, name unknown.
+            # A 401 alone is NOT proof of Tasmota — any HTTP Basic-Auth
+            # device (router/NAS/printer) returns one. Tasmota's /cm uses
+            # query-param auth and replies 200 + {"WARNING":…}; it does not
+            # Basic-Auth-401 here. So only treat a 401 as a *locked Tasmota*
+            # if the body carries a Tasmota marker (JSON "WARNING" /
+            # "tasmota"); a generic HTML "Authorization required" page → skip.
+            if e.code != 401:
+                return None
+            try:
+                b = e.read(1024).decode('utf-8', 'replace').lower()
+            except Exception:
+                b = ''
             return {'ip': ip, 'name': '(locked)'} \
-                if e.code == 401 else None
+                if ('warning' in b or 'tasmota' in b) else None
         except Exception:
             if attempt == 2:
                 return None
@@ -950,23 +961,45 @@ def _dev_partitions(host, user='admin', password=''):
     return out
 
 
-def _dev_info(host, user='admin', password=''):
-    """Full Tasmota `Status 0` → a concise confirm-before-flash card."""
-    host = host.strip()
-    q = 'cmnd=Status%200'
+def _status(host, cmnd, user='admin', password=''):
+    """One Tasmota Status query → parsed dict (top-level keys), or {} on
+    failure. HTTP 401 surfaces as {'__http__':401}. Reads a generous cap;
+    used for the small per-section queries that fit the device's JSON
+    response buffer where a full `Status 0` can overflow and truncate."""
+    q = 'cmnd=' + cmnd.replace(' ', '%20')
     if password:
         q = ('user=%s&password=%s&' % (user or 'admin', password)) + q
     try:
         r = _NOPROXY.open('http://%s/cm?%s' % (host, q), timeout=4)
-        j = json.loads(r.read(8000).decode('utf-8', 'replace'))
+        j = json.loads(r.read(16000).decode('utf-8', 'replace'))
+        return j if isinstance(j, dict) else {}
     except urllib.error.HTTPError as e:
-        if e.code == 401:
-            return {'ok': False, 'locked': True}
-        return {'ok': False, 'error': 'HTTP %d' % e.code}
-    except Exception as e:
-        return {'ok': False, 'error': str(e)}
-    if 'WARNING' in j:                       # bad/again password
+        return {'__http__': e.code}
+    except Exception:
+        return {}
+
+
+def _dev_info(host, user='admin', password=''):
+    """Tasmota status → a concise confirm-before-flash card. Tries the
+    one-shot `Status 0`; if that doesn't parse (some devices — e.g. an
+    Energy_Manager with a long ID list — overflow the response buffer
+    and truncate the JSON mid-stream), re-assemble from the small
+    per-section queries, which individually fit the buffer."""
+    host = host.strip()
+    j = _status(host, 'Status 0', user, password)
+    if j.get('__http__') == 401 or 'WARNING' in j:
         return {'ok': False, 'locked': True}
+    if 'Status' not in j or 'StatusFWR' not in j:
+        j = {}
+        for c in ('Status', 'Status 2', 'Status 4', 'Status 5',
+                  'Status 11'):
+            part = _status(host, c, user, password)
+            if part.get('__http__') == 401:
+                return {'ok': False, 'locked': True}
+            j.update({k: v for k, v in part.items() if k != '__http__'})
+        if 'StatusFWR' not in j:
+            return {'ok': False, 'error': 'no parseable Status '
+                    '(device response-buffer overflow?)'}
     S = j.get('Status', {})
     F = j.get('StatusFWR', {})
     N = j.get('StatusNET', {})
@@ -1026,6 +1059,36 @@ def _scan_tasmota(net):
     return found
 
 
+def _scan_full(net, pw=''):
+    """Scan + enrich: find every Tasmota on `net`, then fetch each one's
+    confirm-card details (CPU/version/flash/free/partition map) in
+    parallel so the UI can show a full picker TABLE, not just names.
+    Locked devices come back with {'locked':True}. Best-effort per
+    device — a slow/odd one still lands in the list with what we got."""
+    base = _scan_tasmota(net)
+    if not base:
+        return []
+
+    def enrich(d):
+        ip = d['ip']
+        info = _dev_info(ip, 'admin', pw)        # Status 0 + /in partitions
+        if info.get('ok'):
+            info['ip'] = ip
+            if not info.get('name'):
+                info['name'] = d.get('name', '')
+            return info
+        # not ok: keep it in the list so the user still sees the device
+        return {'ip': ip, 'name': d.get('name', ''),
+                'ok': False, 'locked': bool(info.get('locked')),
+                'error': info.get('error', '')}
+
+    cf = concurrent.futures
+    with cf.ThreadPoolExecutor(max_workers=8) as ex:
+        out = list(ex.map(enrich, base))
+    out.sort(key=lambda d: tuple(int(x) for x in d['ip'].split('.')))
+    return out
+
+
 def _flash_cancel():
     with fw_lock:
         p = flash_proc
@@ -1048,8 +1111,14 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  body{margin:0;font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;
       background:var(--bg);color:var(--fg);height:100vh;display:flex;
       flex-direction:column}
- #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
-      padding:8px 10px;background:var(--bar);border-bottom:1px solid #222}
+ #bar,#modebar,#monpanel,#devpanel{display:flex;flex-wrap:wrap;gap:8px;
+      align-items:center;padding:8px 10px;background:var(--bar);
+      border-bottom:1px solid #222}
+ #modebar{gap:6px}
+ .tab{background:#0e1116;color:var(--mut);border:1px solid #30363d;
+      border-radius:6px;padding:7px 13px;font-weight:600;cursor:pointer}
+ .tab:hover{border-color:var(--acc)}
+ .tab.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
  select,button,input{font:13px inherit;background:#0e1116;color:var(--fg);
       border:1px solid #30363d;border-radius:5px;padding:6px 9px}
  button{cursor:pointer}
@@ -1074,12 +1143,11 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #log.nosrc .s{display:none}
  #sport{width:64px}
  #cmd{flex:1;min-width:120px}
- #cmdbar,#flashbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+ #cmdbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
       padding:8px 10px;background:var(--bar);border-top:1px solid #222}
- #flashbar{border-bottom:1px solid #222;border-top:0}
  .hide{display:none!important}
  #fwpct{width:160px;height:14px;accent-color:var(--acc)}
- #flashbar .grp{display:flex;gap:8px;align-items:center}
+ #devpanel .grp{display:flex;gap:8px;align-items:center}
  #host{min-width:150px}
  #devinfo{flex-basis:100%;font:12px ui-monospace,Menlo,monospace;
       color:var(--mut);padding:2px 0 0}
@@ -1088,9 +1156,39 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #devinfo.bad{color:var(--err)}
  #devinfo .parts{margin-top:3px;color:var(--mut);font-size:11px}
  #devinfo .parts b{color:var(--fg)}
+ #scanwrap{flex-basis:100%;overflow:auto;max-height:240px;margin-top:4px;
+      border:1px solid #222;border-radius:6px}
+ #scantbl{border-collapse:collapse;width:100%;
+      font:11px/1.4 ui-monospace,Menlo,Consolas,monospace}
+ #scantbl th,#scantbl td{padding:3px 7px;text-align:left;
+      border-bottom:1px solid #1c2230;white-space:nowrap;vertical-align:top}
+ #scantbl th{color:var(--mut);position:sticky;top:0;background:var(--bar);
+      z-index:1;font-weight:600}
+ #scantbl tbody tr{cursor:pointer}
+ #scantbl tbody tr:hover{background:#1b2230}
+ #scantbl tbody tr.sel{background:#173049;
+      box-shadow:inset 2px 0 0 var(--acc)}
+ #scantbl b{color:var(--fg)}
+ #scantbl td.parts{white-space:normal;color:var(--mut);
+      max-width:320px;font-size:10px}
+ #scantbl .lk{color:var(--err)}
+ #scantbl button{padding:2px 9px;font-size:11px}
+ #scantbl .rn{cursor:pointer;color:#5a6b86;margin-left:3px;
+      -webkit-user-select:none;user-select:none}
+ #scantbl .rn:hover{color:var(--acc)}
  #log.notime .t{display:none}
 </style></head><body>
-<div id="bar">
+<div id="modebar">
+  <button id="modeMon" class="tab on" title="Serial / UDP-syslog console">📟 Monitor</button>
+  <button id="modeDev" class="tab" title="Scan the LAN · OTA-flash · rename devices">🔧 Devices · Scan &amp; OTA</button>
+  <span style="width:1px;height:22px;background:#30363d;margin:0 4px"></span>
+  <label title="This PC's LAN IP — used as the Tasmota LogHost target (Monitor) AND as the subnet to scan (Devices)">IP</label>
+  <select id="hostip" title="this PC's LAN IP — LogHost target / scan subnet; click 📋 to copy"></select>
+  <button id="copyip" title="copy IP for Tasmota LogHost">📋</button>
+  <button id="quit" class="stop" title="Stop the server process">Quit</button>
+  <span id="stat"><span id="dot"></span><span id="msg">idle</span></span>
+</div>
+<div id="monpanel">
   <label>Port</label>
   <select id="port" style="min-width:190px"></select>
   <button id="refresh" title="Rescan serial ports">⟳</button>
@@ -1102,14 +1200,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <input id="sport" type="number" min="1" max="65535" value="514"
     title="UDP port. <1024 needs root; use e.g. 5514 and Tasmota LogPort 5514.">
   <button id="syslog" class="go">Listen</button>
-  <label title="This PC's IP — set as Tasmota LogHost on the device">LogHost</label>
-  <select id="hostip" title="this PC's LAN IP — pick the right interface, click 📋 to copy"></select>
-  <button id="copyip" title="copy IP for Tasmota LogHost">📋</button>
   <span style="width:1px;height:22px;background:#30363d;margin:0 2px"></span>
   <button id="clear">Clear</button>
   <button id="save">Save</button>
-  <button id="flashtog" title="Flash firmware (serial via esptool / Tasmota OTA)">Flash ▾</button>
-  <button id="quit" class="stop" title="Stop the server process">Quit</button>
   <label style="margin-left:6px"><input type="checkbox" id="auto" checked
     style="vertical-align:middle"> autoscroll</label>
   <label><input type="checkbox" id="ts" checked
@@ -1119,9 +1212,8 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <label title="show the syslog sender IP per line"><input
     type="checkbox" id="srcck" checked
     style="vertical-align:middle"> src</label>
-  <span id="stat"><span id="dot"></span><span id="msg">idle</span></span>
 </div>
-<div id="flashbar" class="hide">
+<div id="devpanel" class="hide">
   <label>Firmware</label>
   <input type="file" id="fwfile" accept=".bin">
   <span id="fwinfo" style="color:var(--mut);font-size:12px">no file</span>
@@ -1131,6 +1223,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <option value="serial">Serial (esptool)</option>
   </select>
   <span id="gSerial" class="grp hide">
+    <label>Port</label>
+    <select id="fport" style="min-width:170px"></select>
+    <button id="frefresh" title="Rescan serial ports">⟳</button>
     <label>Baud</label>
     <select id="fbaud">
       <option>115200</option><option selected>460800</option>
@@ -1141,9 +1236,8 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
       title="Auto-set from the firmware (factory/ESP8266 → 0x0). Manual override possible.">
     <label><input type="checkbox" id="ferase"> erase</label>
     <label title="ESP32-S3/C3: use the ROM loader, skip the RAM stub upload — fixes 'Failed to write to target RAM / Checksum error'"><input type="checkbox" id="fnostub"> no-stub</label>
-    <span style="color:var(--mut);font-size:12px">uses the Port above
-      — for ESP32-S3 prefer the &ldquo;USB JTAG/serial debug
-      unit&rdquo; port</span>
+    <span style="color:var(--mut);font-size:12px">for ESP32-S3 prefer
+      the &ldquo;USB JTAG/serial debug unit&rdquo; port</span>
     <span id="noesptool" class="hide" style="color:var(--err);
       font-size:12px">esptool not installed —
       <button id="espinstall" style="padding:3px 8px">Install esptool
@@ -1168,6 +1262,11 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <progress id="fwpct" max="100" value="0" class="hide"></progress>
   <span id="fwstat" style="color:var(--mut);font-size:12px"></span>
   <div id="devinfo"></div>
+  <div id="scanwrap" class="hide"><table id="scantbl">
+    <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
+      <th>Tasmota</th><th>Flash</th><th>Free</th><th>Partitions</th>
+      <th></th></tr></thead>
+    <tbody id="scanbody"></tbody></table></div>
 </div>
 <div id="log" class="" tabindex="0"></div>
 <div id="cmdbar">
@@ -1216,6 +1315,10 @@ async function loadPorts(){
       o.textContent=p.device+(p.desc?'  —  '+p.desc:'');
       portEl.appendChild(o);});
     if(keep)portEl.value=keep;
+    const fpEl=$('#fport');               // mirror the same ports into the
+    if(fpEl){ const k=fpEl.value;         // serial-flash Port picker (Devices)
+      fpEl.innerHTML=portEl.innerHTML;
+      if(k&&[...fpEl.options].some(o=>o.value===k)) fpEl.value=k; }
     if(!prefsApplied){
       prefsApplied=true;
       try{
@@ -1367,10 +1470,20 @@ syslogEl.onclick=async()=>{
 };
 $('#srcck').onchange=e=>logEl.classList.toggle('nosrc',!e.target.checked);
 
+// ---- mode switch (Monitor  |  Devices · Scan & OTA) ----
+function setMode(m){
+  const dev=(m==='dev');
+  $('#devpanel').classList.toggle('hide',!dev);
+  $('#monpanel').classList.toggle('hide',dev);
+  $('#cmdbar').classList.toggle('hide',dev);   // command input = Monitor only
+  $('#modeMon').classList.toggle('on',!dev);
+  $('#modeDev').classList.toggle('on',dev);
+  if(dev && $('#host').value.trim()) loadDevInfo();
+}
+$('#modeMon').onclick=()=>setMode('mon');
+$('#modeDev').onclick=()=>setMode('dev');
+
 // ---- flasher ----
-$('#flashtog').onclick=()=>{
-  $('#flashbar').classList.toggle('hide');
-};
 fmodeEl.onchange=()=>{
   const ota=fmodeEl.value==='ota';
   $('#gOta').classList.toggle('hide',!ota);
@@ -1404,8 +1517,10 @@ flashgoEl.onclick=async()=>{
     url='/api/flash/ota';
     bdy={host,user:'admin',password:$('#fwpass').value};
   }else{
-    const port=portEl.value;
-    if(!port){alert('Select the serial Port (top bar) first');return;}
+    const fpEl=$('#fport');
+    const port=fpEl.value;
+    if(!port){alert('Select the serial Port in the Serial-flash group '
+      +'first');return;}
     // Auto-detected image type decides the offset (no manual entry).
     if(fwKind==='esp32-app'){
       alert('This is an ESP32 APP-only image — it can NOT be '
@@ -1421,9 +1536,9 @@ flashgoEl.onclick=async()=>{
     }
     const offset=fwOffset||$('#foffset').value;
     const warn=[];
-    const sel=portEl.options[portEl.selectedIndex];
+    const sel=fpEl.options[fpEl.selectedIndex];
     const txt=(sel&&sel.textContent)||'';
-    const hasJtag=[...portEl.options].some(o=>/JTAG/i.test(o.textContent));
+    const hasJtag=[...fpEl.options].some(o=>/JTAG/i.test(o.textContent));
     if(!/JTAG/i.test(txt)&&hasJtag)
       warn.push('• For ESP32-S3 the "USB JTAG/serial debug unit" port '
         +'is far more reliable — a UART bridge often fails esptool\'s '
@@ -1505,13 +1620,116 @@ $('#host').addEventListener('input',()=>devInfoSoon());
 $('#fwpass').addEventListener('change',loadDevInfo);
 fmodeEl.addEventListener('change',()=>{ if(fmodeEl.value==='ota')
   loadDevInfo(); else {devinfoEl.textContent='';devinfoEl.className='';}});
+const scanwrapEl=$('#scanwrap'), scanbodyEl=$('#scanbody');
+function _fmtKB(k){return k>=1024?(Math.round(k/102.4)/10+' MB'):(k+' KB');}
+function _esc(s){return String(s==null?'':s).replace(/[&<>"]/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function _nameCell(d){return '<b>'+_esc(d.name)+'</b> <span class="rn" '
+  +'data-f="devicename" title="rename device name (instant)">✎</span>';}
+function _hostCell(d){return _esc(d.host)+' <span class="rn" '
+  +'data-f="hostname" title="rename hostname (reboots the device)">✎</span>';}
+function selectDevice(ip,tr){
+  $('#host').value=ip;
+  [...scanbodyEl.children].forEach(r=>r.classList.remove('sel'));
+  if(tr) tr.classList.add('sel');
+  loadDevInfo();
+}
+function renderScanTable(devs){
+  scanbodyEl.innerHTML='';
+  if(!devs||!devs.length){
+    scanbodyEl.innerHTML='<tr><td colspan="9" style="color:var(--mut);'
+      +'padding:9px;white-space:normal">No Tasmota devices answered on '
+      +'this subnet.<br>• Check the <b>LogHost</b> IP (top bar) is on the '
+      +'same LAN as your devices.<br>• If you opened <b>Serial Monitor.app</b> '
+      +'from Finder, macOS may be blocking its LAN access — enable it under '
+      +'<b>System Settings → Privacy &amp; Security → Local Network</b> '
+      +'(Serial Monitor / Python) and relaunch, <i>or</i> just run '
+      +'<b>Serial Monitor.command</b> from Terminal (which already has '
+      +'Local-Network access).</td></tr>';
+    scanwrapEl.classList.remove('hide');
+    return;
+  }
+  devs.forEach(d=>{
+    const tr=document.createElement('tr');
+    if(d.ok===false){
+      const why=d.locked?'🔒 locked — type WebPassword below + rescan'
+        :('✗ '+(d.error||'no Status'));
+      tr.innerHTML='<td>'+d.ip+'</td><td><b>'+(d.name||'')+'</b></td>'
+        +'<td class="lk" colspan="7">'+why+'</td>';
+    }else{
+      const parts=(d.parts||[]).map(p=>'<b>'+p.name+'</b> '+_fmtKB(p.kb)
+        +(p.used!=null?' '+p.used+'%':'')).join(' · ') || '—';
+      tr.innerHTML='<td>'+d.ip+'</td>'
+        +'<td>'+_nameCell(d)+'</td>'
+        +'<td>'+_hostCell(d)+'</td>'
+        +'<td>'+(d.hardware||'')+(d.cpufreq?' @'+d.cpufreq:'')+'</td>'
+        +'<td>'+(d.version||'')+(d.core?' ('+d.core+')':'')+'</td>'
+        +'<td>'+(d.flash||'')+'</td>'
+        +'<td>'+(d.free||'')+'</td>'
+        +'<td class="parts">'+parts+'</td>'
+        +'<td><button class="go">OTA ▸</button></td>';
+    }
+    tr.onclick=(e)=>{
+      if(e.target&&e.target.classList&&e.target.classList.contains('rn')){
+        startRename(d, e.target.dataset.f, tr); return;   // ✎ pencil
+      }
+      selectDevice(d.ip,tr);
+      if(e.target&&e.target.tagName==='BUTTON'){
+        if(!fwReady){alert('Choose a firmware .bin first (top of the '
+          +'Flash bar), then click OTA on the device.');return;}
+        flashgoEl.click();           // confirms, then OTAs $('#host')
+      }
+    };
+    scanbodyEl.appendChild(tr);
+  });
+  scanwrapEl.classList.remove('hide');
+}
+function startRename(d, field, tr){
+  const isHost = field==='hostname';
+  const cur = isHost ? (d.host||'') : (d.name||'');
+  const nv = prompt('New '+(isHost
+      ? 'hostname for '+d.ip+'  (A–Z a–z 0–9 - only; the device REBOOTS):'
+      : 'device name for '+d.ip+' :'), cur);
+  if(nv===null) return;
+  const v=nv.trim();
+  if(!v || v===cur) return;
+  if(isHost && !confirm('Set hostname of '+d.ip+' to "'+v+'"?\n\n'
+      +'The device will REBOOT to apply it (brief WLAN drop).')) return;
+  applyRename(d, field, v, tr);
+}
+async function applyRename(d, field, value, tr){
+  try{
+    const j=await(await fetch('/api/rename',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:d.ip,field:field,value:value,
+        password:$('#fwpass').value||''})})).json();
+    if(!j.ok){ alert('Rename failed: '+(j.locked
+      ?'WebPassword required — type it in the Flash bar and retry'
+      :(j.error||'unknown'))); return; }
+    if(field==='hostname'){
+      d.host=j.value;
+      tr.children[2].innerHTML=_hostCell(d)
+        +' <i style="color:var(--mut)">rebooting… rescan in ~20 s</i>';
+    }else{
+      d.name=j.value;
+      tr.children[1].innerHTML=_nameCell(d);
+    }
+  }catch(e){ alert('Rename error: '+e); }
+}
 hostscanEl.onclick=async()=>{
   const ip=(hostipEl&&hostipEl.value)||'';
   const net=ip.split('.').slice(0,3).join('.');
   hostscanEl.disabled=true;
   const ot=hostscanEl.textContent; hostscanEl.textContent='scanning…';
+  scanbodyEl.innerHTML='<tr><td colspan="9" style="color:var(--mut)">'
+    +'scanning '+(net||'LAN')+'.x — reading CPU / version / partitions …'
+    +'</td></tr>'; scanwrapEl.classList.remove('hide');
   try{
-    const j=await(await fetch('/api/scan'+(net?'?net='+net:''))).json();
+    const pw=encodeURIComponent($('#fwpass').value||'');
+    const j=await(await fetch('/api/scan?full=1'+(net?'&net='+net:'')
+      +'&pw='+pw)).json();
+    renderScanTable(j.devices);
+    // keep the compact dropdown in sync as a fallback picker
     hostselEl.innerHTML='';
     const o0=document.createElement('option');
     o0.value='';o0.textContent=(j.devices||[]).length
@@ -1519,13 +1737,12 @@ hostscanEl.onclick=async()=>{
       : '— none found on '+j.net+'.x —';
     hostselEl.appendChild(o0);
     (j.devices||[]).forEach(d=>{const o=document.createElement('option');
-      o.value=d.ip;
-      o.textContent=d.ip+(d.name?'  ('+d.name+')':'');
+      o.value=d.ip;o.textContent=d.ip+(d.name?'  ('+d.name+')':'');
       hostselEl.appendChild(o);});
-    if((j.devices||[]).length===1){
-      hostselEl.value=j.devices[0].ip; $('#host').value=j.devices[0].ip;
-      loadDevInfo();}
-  }catch(e){ alert('Scan failed: '+e); }
+    if((j.devices||[]).length===1) selectDevice(j.devices[0].ip,
+      scanbodyEl.firstChild);
+  }catch(e){ scanbodyEl.innerHTML='<tr><td colspan="9" class="lk">'
+    +'scan failed: '+e+'</td></tr>'; }
   hostscanEl.textContent=ot; hostscanEl.disabled=false;
 };
 function updateFlash(j){
@@ -1553,6 +1770,7 @@ function updateFlash(j){
 }
 
 $('#refresh').onclick=loadPorts;
+$('#frefresh').onclick=loadPorts;
 $('#clear').onclick=async()=>{
   await fetch('/api/clear',{method:'POST'});
   logEl.innerHTML=''; since=0;
@@ -1575,7 +1793,7 @@ $('#quit').onclick=async()=>{
     '<p>You can close this tab.</p></div>';
 };
 
-loadPorts(); loadHost(); poll(); pollTimer=setInterval(poll,250);
+setMode('mon'); loadPorts(); loadHost(); poll(); pollTimer=setInterval(poll,250);
 </script></body></html>"""
 
 
@@ -1615,9 +1833,12 @@ class H(BaseHTTPRequestHandler):
         elif path == '/api/scan':
             qs = parse_qs(urlparse(self.path).query)
             net = (qs.get('net') or [''])[0]
+            pw = (qs.get('pw') or [''])[0]
+            full = (qs.get('full') or ['0'])[0] in ('1', 'true', 'yes')
             if not net:
                 net = _default_ip().rsplit('.', 1)[0]
-            self._json({'net': net, 'devices': _scan_tasmota(net)})
+            devs = _scan_full(net, pw) if full else _scan_tasmota(net)
+            self._json({'net': net, 'devices': devs})
         elif path == '/api/devinfo':
             qs = parse_qs(urlparse(self.path).query)
             host = (qs.get('host') or [''])[0]
@@ -1724,6 +1945,43 @@ class H(BaseHTTPRequestHandler):
                     body['host'], body.get('user', 'admin'),
                     body.get('password', '')), daemon=True).start()
                 self._json({'ok': True})
+            return
+        if path == '/api/rename':
+            host = str(body.get('host', '')).strip()
+            field = str(body.get('field', ''))
+            value = str(body.get('value', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not host or not value or field not in ('devicename',
+                                                      'hostname'):
+                self._json({'ok': False,
+                            'error': 'host/field/value required'})
+                return
+            dport = 80
+            if ':' in host:
+                h, p = host.split(':', 1)
+                host, dport = h, int(p)
+            if field == 'hostname':
+                # Tasmota Hostname: A-Za-z0-9-, <=32, applied on reboot.
+                v = _re.sub(r'[^A-Za-z0-9-]', '-', value)[:32].strip('-')
+                if not v:
+                    self._json({'ok': False, 'error': 'invalid hostname'})
+                    return
+                cmnd = 'Backlog Hostname %s; Restart 1' % v
+            else:
+                v = value.replace(';', ' ')[:32].strip()   # DeviceName
+                cmnd = 'DeviceName %s' % v
+            st, txt = _cm(host, dport, cmnd, 'admin', pw, timeout=8)
+            if st == 401:
+                self._json({'ok': False, 'locked': True,
+                            'error': 'WebPassword required'})
+            elif st != 200:
+                self._json({'ok': False,
+                            'error': 'device /cm returned %s' % st})
+            else:
+                _flog('%s %s -> "%s"%s' % (host, field, v,
+                      ' (rebooting)' if field == 'hostname' else ''))
+                self._json({'ok': True, 'value': v,
+                            'rebooting': field == 'hostname'})
             return
         if path == '/api/flash/cancel':
             _flash_cancel()
