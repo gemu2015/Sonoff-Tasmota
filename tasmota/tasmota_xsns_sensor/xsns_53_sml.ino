@@ -49,6 +49,11 @@
 // so we pull in lwIP's definitions here (ESP32-only; ESP8266 path doesn't use TCP meters).
 #ifdef ESP32
 #include <lwip/sockets.h>
+// IDF UART RX-interrupt control — used by SmlUploadPause/Resume to silence the
+// per-meter UART ISR during a long /ufsu flash write (otherwise the ISR keeps
+// firing through the cache-disabled close(), starving WiFi/LwIP and OsWatch,
+// and the device hangs hard despite SML_Poll being paused — Andreas .104 repro).
+#include <driver/uart.h>
 #endif
 
 
@@ -256,6 +261,13 @@ public:
   void updateBaudRate(uint32_t baud);
   void rxRead(void);
   void end();
+  // Silence the RX-side interrupt for the duration of a long blocking task
+  // (the /ufsu LittleFS flush is the motivating case — see SmlUploadPause).
+  // Idempotent. HW-serial path disables the IDF UART RX interrupt; SW-serial
+  // path detaches the GPIO change interrupt. The RX FIFO may overflow during
+  // the silence — fine, the SML decoder resyncs on the next SYNC after enable.
+  void rx_intr_disable(void);
+  void rx_intr_enable(void);
 #ifdef USE_SML_EBUS_ARB
   HardwareSerial *get_hws(void) { return hws; }   // eBUS arb RX-event wiring needs the raw UART
 #endif
@@ -310,6 +322,22 @@ void SML_ESP32_SERIAL::setbaud(uint32_t speed) {
 void SML_ESP32_SERIAL::end(void) {
   if (m_buffer) {
     free(m_buffer);
+  }
+}
+
+void SML_ESP32_SERIAL::rx_intr_disable(void) {
+  if (hws) {
+    uart_disable_rx_intr((uart_port_t)uart_index);
+  } else if (m_rx_pin >= 0) {
+    detachInterrupt(m_rx_pin);
+  }
+}
+
+void SML_ESP32_SERIAL::rx_intr_enable(void) {
+  if (hws) {
+    uart_enable_rx_intr((uart_port_t)uart_index);
+  } else if (m_rx_pin >= 0) {
+    attachInterruptArg(m_rx_pin, sml_callRxRead, this, CHANGE);
   }
 }
 
@@ -2307,9 +2335,37 @@ uint16_t sml_count = 0;
 // single-core loop for several seconds (cache disabled), keep SML_Poll off the meter UART so no
 // serial decode work piles up across the blocking close(). Set/cleared from xdrv_50's upload
 // open/close (mirrors TinyCFsWritePause()). Inert until set — decode is byte-identical otherwise.
+//
+// HARDENING (2026-05-30, after Andreas's .104 live-load repro): pausing SML_Poll alone is NOT
+// enough. The UART RXFIFO_FULL/TOUT ISR keeps firing while the meter sees continuous traffic
+// (2400 Bd eBUS) — that ISR load piled on top of the cache-disabled flash write starves
+// WiFi/LwIP AND the OsWatch timer ISR, producing a deep hang the soft watchdog never recovers
+// from. Surgical fix: turn off the IDF UART RX interrupt for each HW-backed meter UART for the
+// duration of the upload (RX FIFO will silently overflow its 128 B hardware buffer — fine, the
+// SML decoder resyncs on the next SYNC byte after resume). We only touch HW serial (TasmotaSerial::
+// getesp32hws() != nullptr) — SW-serial / TCP meters are skipped, and so is UART0 (which would
+// be catastrophic to silence). ESP32 only; ESP8266 keeps the old behavior.
 bool sml_upload_pause = false;
-void SmlUploadPause(void)  { sml_upload_pause = true; }
-void SmlUploadResume(void) { sml_upload_pause = false; }
+void SmlUploadPause(void)  {
+  sml_upload_pause = true;
+#ifdef ESP32
+  for (uint8_t m = 0; m < sml_globs.meters_used; m++) {
+    struct METER_DESC *mp = &meter_desc[m];
+    if (mp->srcpin == TCP_MODE_FLG) continue;       // TCP-attached meter, no UART
+    if (mp->meter_ss) mp->meter_ss->rx_intr_disable();
+  }
+#endif
+}
+void SmlUploadResume(void) {
+#ifdef ESP32
+  for (uint8_t m = 0; m < sml_globs.meters_used; m++) {
+    struct METER_DESC *mp = &meter_desc[m];
+    if (mp->srcpin == TCP_MODE_FLG) continue;
+    if (mp->meter_ss) mp->meter_ss->rx_intr_enable();
+  }
+#endif
+  sml_upload_pause = false;
+}
 
 // polled every 50 ms
 void SML_Poll(void) {
@@ -5488,10 +5544,18 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
   }
 
 #ifdef USE_SML_EBUS_MASTER
-  if (mp->type == 'e' && (mp->ebm_enh == 2 || mp->ebm_raw)) {
+  if (mp->type == 'e' && (mp->ebm_enh == 2 || mp->ebm_raw
+#ifdef USE_SML_EBUS_ARB
+                          || mp->ebm_arb
+#endif
+                         )) {
     // active eBUS master: stage the telegram. Enhanced mode arbitrates via the adapter;
-    // raw-test mode blind-tx's on the next bus SYNC (Mac<->.39 UART harness). Either way
-    // we never blind-write the bare bytes here.
+    // raw-test mode blind-tx's on the next bus SYNC (Mac<->.39 UART harness); in-firmware
+    // arbitration (soF) routes through Ebm_QueueTelegram → EBA state machine. Either way
+    // we never blind-write the bare bytes here — adding `ebm_arb` closes the soF send
+    // trigger Andreas hit on .104 (without it, an soF meter fell through to a raw
+    // meter_ss->write() at the bottom of this function = unprotected blind-tx into the
+    // multi-master bus, exactly what the arbitration code is meant to prevent).
     Ebm_QueueTelegram(meter, sbuff, slen);
     return;
   }
