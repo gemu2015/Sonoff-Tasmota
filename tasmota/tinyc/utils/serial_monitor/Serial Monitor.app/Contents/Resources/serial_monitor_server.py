@@ -1165,6 +1165,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #scantbl th{color:var(--mut);position:sticky;top:0;background:var(--bar);
       z-index:1;font-weight:600}
  #scantbl tbody tr{cursor:pointer}
+ #scantbl tbody tr:nth-child(even){background:#12161d}
  #scantbl tbody tr:hover{background:#1b2230}
  #scantbl tbody tr.sel{background:#173049;
       box-shadow:inset 2px 0 0 var(--acc)}
@@ -1172,6 +1173,20 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #scantbl td.parts{white-space:normal;color:var(--mut);
       max-width:320px;font-size:10px}
  #scantbl .lk{color:var(--err)}
+ #scantbl a.iplink{color:var(--acc);text-decoration:none;font-weight:600}
+ #scantbl a.iplink:hover{text-decoration:underline}
+ /* CPU-family colour badges */
+ .cpu{display:inline-block;padding:0 6px;border-radius:9px;font-size:10px;
+      font-weight:700;border:1px solid transparent}
+ .cpu-8266{color:#e0a84e;background:#2e2410;border-color:#4a3a18}
+ .cpu-32  {color:#7ab0ff;background:#15233b;border-color:#28456e}
+ .cpu-s2  {color:#5fd0c8;background:#103230;border-color:#1d5450}
+ .cpu-s3  {color:#87d96b;background:#162c12;border-color:#2c4f22}
+ .cpu-c3  {color:#b88bf0;background:#261a3a;border-color:#432f63}
+ .cpu-c6  {color:#5cc8e6;background:#0f2a33;border-color:#1d4a59}
+ /* free-heap health + partition fill */
+ .free-ok{color:#87d96b} .free-warn{color:#e0a84e} .free-low{color:var(--err);font-weight:700}
+ .pu-warn{color:#e0a84e} .pu-hi{color:var(--err);font-weight:700}
  #scantbl button{padding:2px 9px;font-size:11px}
  #scantbl .rn{cursor:pointer;color:#5a6b86;margin-left:3px;
       -webkit-user-select:none;user-select:none}
@@ -1628,6 +1643,27 @@ function _nameCell(d){return '<b>'+_esc(d.name)+'</b> <span class="rn" '
   +'data-f="devicename" title="rename device name (instant)">✎</span>';}
 function _hostCell(d){return _esc(d.host)+' <span class="rn" '
   +'data-f="hostname" title="rename hostname (reboots the device)">✎</span>';}
+function _ipCell(d){const ip=_esc(d.ip);return '<a class="iplink" href="http://'+ip
+  +'" target="_blank" rel="noopener" title="open http://'+ip+' in a browser tab" '
+  +'onclick="event.stopPropagation()">'+ip+'</a>';}
+function _cpuCell(d){
+  const hw=d.hardware||'', u=hw.toUpperCase();
+  let cls='cpu-32';
+  if(u.includes('8266'))      cls='cpu-8266';
+  else if(u.includes('C6'))   cls='cpu-c6';
+  else if(u.includes('C2')||u.includes('C3')) cls='cpu-c3';
+  else if(u.includes('S2'))   cls='cpu-s2';
+  else if(u.includes('S3'))   cls='cpu-s3';
+  const pill=hw?'<span class="cpu '+cls+'">'+_esc(hw)+'</span>':'';
+  return pill+(d.cpufreq?' <span style="color:var(--mut)">@'+_esc(d.cpufreq)+'</span>':'');
+}
+function _freeCell(d){
+  const s=d.free||''; if(!s) return '';
+  const m=s.match(/([\d.]+)\s*(KB|MB)/i); let cls='';
+  if(m){let kb=parseFloat(m[1]); if(/MB/i.test(m[2])) kb*=1024;
+    cls = kb<20?'free-low':(kb<45?'free-warn':'free-ok');}
+  return '<span class="'+cls+'">'+_esc(s)+'</span>';
+}
 function selectDevice(ip,tr){
   $('#host').value=ip;
   [...scanbodyEl.children].forEach(r=>r.classList.remove('sel'));
@@ -1654,18 +1690,22 @@ function renderScanTable(devs){
     if(d.ok===false){
       const why=d.locked?'🔒 locked — type WebPassword below + rescan'
         :('✗ '+(d.error||'no Status'));
-      tr.innerHTML='<td>'+d.ip+'</td><td><b>'+(d.name||'')+'</b></td>'
+      tr.innerHTML='<td>'+_ipCell(d)+'</td><td><b>'+(d.name||'')+'</b></td>'
         +'<td class="lk" colspan="7">'+why+'</td>';
     }else{
-      const parts=(d.parts||[]).map(p=>'<b>'+p.name+'</b> '+_fmtKB(p.kb)
-        +(p.used!=null?' '+p.used+'%':'')).join(' · ') || '—';
-      tr.innerHTML='<td>'+d.ip+'</td>'
+      const parts=(d.parts||[]).map(p=>{
+        let u='';
+        if(p.used!=null){const c=p.used>=90?'pu-hi':(p.used>=75?'pu-warn':'');
+          u=' <span class="'+c+'">'+p.used+'%</span>';}
+        return '<b>'+_esc(p.name)+'</b> '+_fmtKB(p.kb)+u;
+      }).join(' · ') || '—';
+      tr.innerHTML='<td>'+_ipCell(d)+'</td>'
         +'<td>'+_nameCell(d)+'</td>'
         +'<td>'+_hostCell(d)+'</td>'
-        +'<td>'+(d.hardware||'')+(d.cpufreq?' @'+d.cpufreq:'')+'</td>'
-        +'<td>'+(d.version||'')+(d.core?' ('+d.core+')':'')+'</td>'
-        +'<td>'+(d.flash||'')+'</td>'
-        +'<td>'+(d.free||'')+'</td>'
+        +'<td>'+_cpuCell(d)+'</td>'
+        +'<td>'+_esc(d.version)+(d.core?' <span style="color:var(--mut)">('+_esc(d.core)+')</span>':'')+'</td>'
+        +'<td style="color:var(--mut)">'+_esc(d.flash)+'</td>'
+        +'<td>'+_freeCell(d)+'</td>'
         +'<td class="parts">'+parts+'</td>'
         +'<td><button class="go">OTA ▸</button></td>';
     }
