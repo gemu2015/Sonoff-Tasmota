@@ -346,6 +346,11 @@ const BUILTINS = {
     'webButton':        { syscall: Syscall.WEB_BUTTON,      args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webToggle':        { syscall: Syscall.WEB_TOGGLE,      args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webSlider':        { syscall: Syscall.WEB_SLIDER,      args: 4, returns: false, refArgs: [0], constArgs: [3] },
+    // Runtime-label variants (label is a char[] you build at runtime, not a literal),
+    // plus varIdx() to get a var's global index for fully hand-built tcbtn/seva HTML.
+    'webButtonV':       { syscall: Syscall.WEB_BUTTON_V,    args: 2, returns: false, refArgs: [0], strArgs: [1] },
+    'webSliderV':       { syscall: Syscall.WEB_SLIDER_V,    args: 4, returns: false, refArgs: [0], strArgs: [3] },
+    'varIdx':           { syscall: Syscall.VAR_IDX,         args: 1, returns: true,  refArgs: [0] },
     'webCheckbox':      { syscall: Syscall.WEB_CHECKBOX,    args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webText':          { syscall: Syscall.WEB_TEXT,         args: 3, returns: false, refArgs: [0], constArgs: [2] },
     'webNumber':        { syscall: Syscall.WEB_NUMBER,      args: 4, returns: false, refArgs: [0], constArgs: [3] },

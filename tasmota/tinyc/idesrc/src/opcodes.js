@@ -449,6 +449,9 @@ export const Syscall = {
     BLE_RESULT:     421, // (buf)                    -> int   bleResult(): copy received notify/read bytes; returns len
     JSON_NUM:       422, // (src_ref, path_ref)           -> float  jsonNum(): parse JSON in src by '#'-path, return numeric value
     JSON_STR:       423, // (src_ref, path_ref, dst_ref)  -> int    jsonStr(): parse JSON string value into dst, return length (-1 absent)
+    VAR_IDX:        424, // (var_ref)                     -> int    varIdx(): global index of a var (for hand-built tcbtn/seva/siva HTML)
+    WEB_BUTTON_V:   425, // (var_ref, label_ref)          -> void   webButtonV(): like webButton but RUNTIME label (char[])
+    WEB_SLIDER_V:   426, // (var_ref, min, max, label_ref)-> void   webSliderV(): like webSlider but RUNTIME label (char[])
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

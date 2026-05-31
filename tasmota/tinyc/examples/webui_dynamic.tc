@@ -1,0 +1,47 @@
+// webui_dynamic.tc — demo of the TinyC dynamic-HTML enablers (1.6.31).
+//
+//   varIdx(var)                          -> a global's index, so you can hand-build
+//                                           raw-HTML controls wired to tcbtn/seva/siva
+//   webButtonV(var, labelbuf)            -> like webButton, but a RUNTIME char[] label
+//   webSliderV(var, min, max, labelbuf)  -> like webSlider, but a RUNTIME char[] label
+//
+// The built-in webButton/webSlider only accept a compile-time string LITERAL label;
+// these variants take a label you build at runtime (sprintf), and varIdx() lets you
+// emit your own <button>/<input> HTML in any custom layout. Drive it from the main
+// page like any widget (the JS helpers tcbtn(this,nval,idx) / seva(value,idx) post
+// back to /?m=1&sv=idx_...).
+
+watch int b0     = 0;     // pulse button (webButtonV)
+watch int sl     = 50;    // slider value (webSliderV)
+watch int rawbtn = 0;     // pulse button built as raw HTML via varIdx
+int  clicks = 0;
+char buf[200];
+
+void WebCall() {
+    char lbl[40];
+    // 1) runtime-labelled button — label changes as state changes
+    sprintf(lbl, "Klick mich (%d)", clicks);
+    webButtonV(b0, lbl);
+
+    // 2) runtime-labelled slider — label shows the live value
+    sprintf(lbl, "Helligkeit = %d", sl);
+    webSliderV(sl, 0, 100, lbl);
+
+    // 3) fully hand-built raw-HTML control, wired with varIdx() + tcbtn()
+    sprintf(buf, "<div><button onclick='tcbtn(this,1,%d)' style='width:100%%;background:#4db6ac;color:#fff;border:0;padding:6px'>RAW-HTML Button (idx %d)</button></div>",
+            varIdx(rawbtn), varIdx(rawbtn));
+    webSend(buf);
+
+    sprintf(buf, "{s}clicks{m}%d{e}", clicks); webSend(buf);
+    sprintf(buf, "{s}slider value{m}%d{e}", sl); webSend(buf);
+}
+
+void EverySecond() {
+    if (b0 != 0)     { b0 = 0;     clicks = clicks + 1; addLog("webui_dynamic: webButtonV pulse"); }
+    if (rawbtn != 0) { rawbtn = 0; clicks = clicks + 1; addLog("webui_dynamic: raw-HTML button pulse"); }
+}
+
+int main() {
+    addLog("webui_dynamic started");
+    return 0;
+}
