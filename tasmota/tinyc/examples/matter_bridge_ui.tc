@@ -1,0 +1,281 @@
+// matter_bridge_ui.tc — interactive remote-device bridge for matter_c, the way
+// Berry Matter's HTTP bridge works: a web table on THIS device where you type a
+// remote ESP's IP, click Discover, it grabs that device's sensors + actuators
+// (by probing its HTTP Status), and offers to add them as Matter endpoints —
+// at runtime, no recompile. The config persists to /bridge.cfg and is
+// rebuilt into the Matter model on every (re)start.
+//
+// THIS device (USE_MATTER_C build) is the Matter node — pair it on /mt. Remote
+// ESPs keep running plain Tasmota; we only talk to their HTTP API:
+//   read sensors   GET /cm?cmnd=Status 10   (StatusSNS: Temperature/Humidity/Pressure)
+//   read actuators GET /cm?cmnd=Status 11   (StatusSTS: POWER/POWER1..)
+//   control        GET /cm?cmnd=Power1 ON | ...
+//
+// USAGE: open this device's main web page. Under "Matter Remote Bridge":
+//   1. type the remote IP, click "Discover" — found sensors/relays are listed
+//   2. click "Add these to Matter" — appended to the bridge + the slot restarts
+//      so the new endpoints appear in your Matter controller
+//   3. "Clear all bridged" wipes the config.
+//
+// SAFETY (project rules): ALL httpGet runs on ONE task (TaskLoop). Web buttons
+// only set flags (read in EverySecond); httpGet/discovery/polling happen in
+// TaskLoop. The Matter MODEL is (re)built only in main() — a config change saves
+// the file and restarts the slot (TinyCRun 0), so matterReset/Start never run
+// off the main task or race the poller.
+
+// ───────────── capacity + config (persisted to /bridge.cfg) ─────────────
+// kind: 0=temperature 1=humidity 2=pressure 4=relay  (extend: co2/voc/illum/dimmer)
+char cfg_ip[8][16];      // remote IP per bridged item
+int  cfg_kind[8];        // what it is
+char cfg_key[8][16];     // JSON key ("Temperature", "POWER1", …)
+char cfg_name[8][24];    // Matter endpoint label
+int  cfg_ep[8];          // Matter endpoint id (runtime)
+int  ncfg = 0;
+
+// discovery scratch (filled by TaskLoop, shown by WebCall)
+char disc_ip[16];
+int  disc_kind[8];
+char disc_key[8][16];
+char disc_name[8][24];
+int  disc_n = 0;
+
+char buf[512];           // shared httpGet response — TaskLoop only
+
+// web → task handshakes (buttons pulse the btn_*; EverySecond sets the *_req)
+char ip_in[16];
+watch int btn_disc = 0; watch int btn_add = 0; watch int btn_clear = 0;
+int disc_req = 0; int add_req = 0; int clear_req = 0; int restart_req = 0;
+
+// control queue (MatterInvoke fills, TaskLoop sends; flag set LAST)
+char pend_ip[16]; char pending[40]; int cmd_ready = 0;
+int poll_tick = 0;
+
+// ── tiny JSON helpers (daikin dfield pattern) ──
+float jget(char src[], char key[]) {            // key incl. colon -> number, else -99999
+    char v[16]; int p;
+    p = strFind(src, key); if (p < 0) { return -99999.0; }
+    strSub(v, src, p + strlen(key), 14); return atof(v);
+}
+int jbool(char src[], char key[]) {             // key e.g. "POWER1" -> 1/0, -1 absent
+    char v[10]; int p;
+    p = strFind(src, key); if (p < 0) { return -1; }
+    strSub(v, src, p + strlen(key), 8);
+    if (strFind(v, "ON") >= 0) { return 1; } return 0;
+}
+
+// ── persistence ──
+// Config is stored as flat comma-separated 4-field tuples (ip,kind,key,name,)
+// — a single delimiter strToken handles reliably (newline as a strToken
+// delimiter does not split in TinyC).
+void save_cfg() {
+    char line[80]; int i; int f;
+    f = fileOpen("/bridge.cfg", 1);                 // 1 = write/truncate
+    if (f < 0) { return; }
+    i = 0;
+    while (i < ncfg) {
+        sprintf(line, "%s,%d,%s,%s,", cfg_ip[i], cfg_kind[i], cfg_key[i], cfg_name[i]);
+        fileWrite(f, line, strlen(line));
+        i = i + 1;
+    }
+    fileClose(f);
+}
+void load_cfg() {
+    char blob[640]; char tip[16]; char tk[16]; char tn[24]; char tf[8];
+    int f; int n; int t;
+    ncfg = 0;
+    f = fileOpen("/bridge.cfg", 0);                 // 0 = read
+    if (f < 0) { return; }
+    n = fileRead(f, blob, 639); fileClose(f);
+    if (n <= 0) { return; }
+    blob[n] = 0;
+    t = 1;                                          // strToken is 1-indexed!
+    while (ncfg < 8) {
+        // strToken must write a plain 1D array, NOT a 2D-array row -> use temps
+        strToken(tip, blob, ',', t);
+        if (strlen(tip) < 7) { break; }             // no valid IP -> end of list
+        strToken(tf, blob, ',', t + 1);
+        strToken(tk, blob, ',', t + 2);
+        strToken(tn, blob, ',', t + 3);
+        strcpy(cfg_ip[ncfg], tip);   cfg_kind[ncfg] = (int)atof(tf);
+        strcpy(cfg_key[ncfg], tk);   strcpy(cfg_name[ncfg], tn);
+        ncfg = ncfg + 1; t = t + 4;
+    }
+}
+
+// ── build the Matter model from the config (main task only) ──
+void build_model() {
+    int i; int t;
+    matterReset();
+    i = 0;
+    while (i < ncfg) {
+        t = cfg_kind[i];
+        if (t == 0) { cfg_ep[i] = matterAdd(MATTER_TEMP_SENSOR);  matterCluster(cfg_ep[i], CLUSTER_TEMP);  matterAttr(cfg_ep[i], CLUSTER_TEMP, 0, MTR_S16); }
+        if (t == 1) { cfg_ep[i] = matterAdd(MATTER_HUM_SENSOR);   matterCluster(cfg_ep[i], CLUSTER_HUM);   matterAttr(cfg_ep[i], CLUSTER_HUM, 0, MTR_U16); }
+        if (t == 2) { cfg_ep[i] = matterAdd(MATTER_PRESS_SENSOR); matterCluster(cfg_ep[i], CLUSTER_PRESS); matterAttr(cfg_ep[i], CLUSTER_PRESS, 0, MTR_S16); }
+        if (t == 4) { cfg_ep[i] = matterAdd(MATTER_PLUG); }       // OnOff auto-attached
+        matterName(cfg_ep[i], cfg_name[i]);
+        i = i + 1;
+    }
+    matterStart();
+}
+
+// ── discovery: probe known keys against the remote's Status (TaskLoop only) ──
+void probe_sensor(char k[], int kind, char nm[]) {
+    char fk[20];
+    if (disc_n >= 8) { return; }
+    sprintf(fk, "\"%s\":", k);                          // e.g. "Temperature":
+    if (strFind(buf, fk) >= 0) {
+        strcpy(disc_key[disc_n], k); disc_kind[disc_n] = kind; strcpy(disc_name[disc_n], nm);
+        disc_n = disc_n + 1;
+    }
+}
+void probe_relay(char k[], char nm[]) {
+    char fk[16];
+    if (disc_n >= 8) { return; }
+    sprintf(fk, "\"%s\"", k);                            // e.g. "POWER1"
+    if (strFind(buf, fk) >= 0) {
+        strcpy(disc_key[disc_n], k); disc_kind[disc_n] = 4; strcpy(disc_name[disc_n], nm);
+        disc_n = disc_n + 1;
+    }
+}
+void do_discover() {
+    char url[64]; char k[16]; char nm[24];
+    disc_n = 0;
+    sprintf(url, "http://%s/cm?cmnd=Status%%2010", disc_ip); buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "Temperature"); strcpy(nm, "Temperatur"); probe_sensor(k, 0, nm);
+        strcpy(k, "Humidity");    strcpy(nm, "Feuchte");    probe_sensor(k, 1, nm);
+        strcpy(k, "Pressure");    strcpy(nm, "Luftdruck");  probe_sensor(k, 2, nm);
+    }
+    sprintf(url, "http://%s/cm?cmnd=Status%%2011", disc_ip); buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "POWER");  strcpy(nm, "Relais");   probe_relay(k, nm);
+        strcpy(k, "POWER1"); strcpy(nm, "Relais 1"); probe_relay(k, nm);
+        strcpy(k, "POWER2"); strcpy(nm, "Relais 2"); probe_relay(k, nm);
+    }
+}
+void do_add() {
+    int i;
+    i = 0;
+    while (i < disc_n && ncfg < 8) {
+        strcpy(cfg_ip[ncfg], disc_ip);   cfg_kind[ncfg] = disc_kind[i];
+        strcpy(cfg_key[ncfg], disc_key[i]); strcpy(cfg_name[ncfg], disc_name[i]);
+        ncfg = ncfg + 1; i = i + 1;
+    }
+    disc_n = 0;
+    save_cfg();
+    restart_req = 1;                                    // EverySecond restarts the slot
+}
+
+// ── poll every configured remote and mirror state into Matter (TaskLoop) ──
+void poll_all() {
+    char url[64]; char k[20]; float v; int on; int i;
+    i = 0;
+    while (i < ncfg) {
+        if (cfg_kind[i] == 4) {
+            sprintf(url, "http://%s/cm?cmnd=Status%%2011", cfg_ip[i]); buf[0] = 0;
+            if (httpGet(url, buf) > 0) {
+                sprintf(k, "\"%s\"", cfg_key[i]); on = jbool(buf, k);
+                if (on >= 0) { matterSet(cfg_ep[i], CLUSTER_ONOFF, 0, on); }
+            }
+        } else {
+            sprintf(url, "http://%s/cm?cmnd=Status%%2010", cfg_ip[i]); buf[0] = 0;
+            if (httpGet(url, buf) > 0) {
+                sprintf(k, "\"%s\":", cfg_key[i]); v = jget(buf, k);
+                if (cfg_kind[i] == 0 && v > -90.0) { matterSetFloat(cfg_ep[i], CLUSTER_TEMP,  0, v, 100); }
+                if (cfg_kind[i] == 1 && v >=  0.0) { matterSetFloat(cfg_ep[i], CLUSTER_HUM,   0, v, 100); }
+                if (cfg_kind[i] == 2 && v >=  0.0) { matterSetFloat(cfg_ep[i], CLUSTER_PRESS, 0, v, 1); }
+            }
+        }
+        delay(50);
+        i = i + 1;
+    }
+}
+void send_cmd() {
+    char url[96]; char ip[16]; char c[40];
+    strcpy(ip, pend_ip); strcpy(c, pending); cmd_ready = 0;   // snapshot before httpGet
+    sprintf(url, "http://%s/cm?cmnd=%s", ip, c);
+    httpGet(url, buf); addLog(url);
+}
+
+// ── a Matter controller toggled a bridged relay → queue the cmnd ──
+void MatterInvoke(int ep, int cluster, int cmd) {
+    int i; char suf[6]; char c[40];
+    i = 0;
+    while (i < ncfg) {
+        if (cfg_ep[i] == ep && cfg_kind[i] == 4) {
+            strSub(suf, cfg_key[i], 5, 4);              // "" for POWER, "1".. for POWERn
+            if (matterGet(ep, CLUSTER_ONOFF, 0)) { sprintf(c, "Power%s%%20ON",  suf); }
+            else                                 { sprintf(c, "Power%s%%20OFF", suf); }
+            strcpy(pend_ip, cfg_ip[i]); strcpy(pending, c); cmd_ready = 1;   // flag LAST
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+// ── the only HTTP task ──
+void TaskLoop() {
+    delay(15000);                                       // let WiFi + Matter come up
+    while (1) {
+        if (cmd_ready)  { send_cmd(); }
+        if (disc_req)   { do_discover(); disc_req = 0; }
+        if (add_req)    { do_add();      add_req = 0; }
+        if (clear_req)  { ncfg = 0; save_cfg(); restart_req = 1; clear_req = 0; }
+        if (poll_tick % 17 == 0 && ncfg > 0) { poll_all(); }
+        poll_tick = poll_tick + 1;
+        delay(300);
+    }
+}
+
+// ── web buttons → flags; restart on the main task ──
+void EverySecond() {
+    char r[16];
+    if (btn_disc  != 0) { strcpy(disc_ip, ip_in); disc_req = 1; btn_disc = 0; }
+    if (btn_add   != 0) { add_req   = 1; btn_add   = 0; }
+    if (btn_clear != 0) { clear_req = 1; btn_clear = 0; }
+    if (restart_req != 0) { restart_req = 0; tasmCmd("TinyCRun 0", r); }
+}
+
+// ── web UI (the Berry-style table) — widgets MUST live in WebCall ──
+char kind_names[] = "Temp|Feuchte|Druck|?|Relais";
+void WebCall() {
+    char b[120]; char kn[12]; char st[4]; int i;
+    webSend("{s}<b>Matter Remote Bridge</b>{m}{e}");
+    webText(ip_in, 16, "Remote IP");
+    webButton(btn_disc, "Discover|scanning…");
+
+    if (disc_n > 0) {
+        sprintf(b, "{s}<i>found on %s</i>{m}%d{e}", disc_ip, disc_n); webSend(b);
+        i = 0;
+        while (i < disc_n) {
+            strToken(kn, kind_names, '|', disc_kind[i] + 1);   // strToken is 1-indexed
+            sprintf(b, "{s}&nbsp;&nbsp;%s{m}%s (%s){e}", disc_name[i], disc_key[i], kn); webSend(b);
+            i = i + 1;
+        }
+        webButton(btn_add, "Add these to Matter|added");
+    }
+
+    sprintf(b, "{s}<b>Bridged endpoints</b>{m}%d{e}", ncfg); webSend(b);
+    i = 0;
+    while (i < ncfg) {
+        strToken(kn, kind_names, '|', cfg_kind[i] + 1);    // strToken is 1-indexed
+        if (cfg_kind[i] == 4) {
+            if (matterGet(cfg_ep[i], CLUSTER_ONOFF, 0)) { strcpy(st, "ON"); } else { strcpy(st, "OFF"); }
+            sprintf(b, "{s}&nbsp;&nbsp;%s{m}%s @ %s{e}", cfg_name[i], st, cfg_ip[i]);
+        } else {
+            sprintf(b, "{s}&nbsp;&nbsp;%s{m}%s @ %s{e}", cfg_name[i], kn, cfg_ip[i]);
+        }
+        webSend(b);
+        i = i + 1;
+    }
+    if (ncfg > 0) { webButton(btn_clear, "Clear all bridged|cleared"); }
+    sprintf(b, "{s}heap{m}%d kb{e}", tasm_heap / 1000); webSend(b);
+}
+
+int main() {
+    ip_in[0] = 0; disc_n = 0; cmd_ready = 0;
+    load_cfg();        // read the persisted bridge config
+    build_model();     // matterReset + matterAdd(each) + matterStart
+    return 0;
+}

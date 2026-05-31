@@ -1,0 +1,178 @@
+// matter_remote_bridge.tc — bridge ANOTHER Tasmota ESP's sensors + actuators
+// into THIS device's matter_c node, the way Berry Matter's HTTP bridge does it,
+// but in TinyC. Requires a USE_MATTER_C build on THIS device; pair it on /mt.
+//
+// THIS device becomes the Matter node. The REMOTE ESP keeps running plain
+// Tasmota — we just talk to its HTTP API:
+//   • read  sensors   : GET /cm?cmnd=Status 10   (StatusSNS  — Temperature, Humidity, …)
+//   • read  actuators : GET /cm?cmnd=Status 11   (StatusSTS  — POWER, POWER1.., Dimmer, …)
+//   • write actuators : GET /cm?cmnd=Power ON | Dimmer 50 | …
+// Sensor values are pushed into Matter sensor attributes; Matter on/off/level
+// commands from the controller are forwarded back to the remote as `cmnd=`.
+//
+// This is exactly Berry Matter's "http_*" bridge model: a sensor/actuator type
+// + a "Sensor#Attribute" filter. The Tasmota Workbench "Sensors / Outputs" scan
+// tells you which keys a given device exposes — copy them into the CONFIG below.
+//
+// SAFETY (project rule): ALL httpGet runs on ONE task (TaskLoop). The
+// MatterInvoke callback runs on the Matter/main task and must NOT call httpGet
+// (two blocking httpGets from different tasks corrupt the HTTP-client heap →
+// delayed crash). So MatterInvoke only QUEUES a command (flag set last) and
+// TaskLoop performs the round-trip.
+
+// ───────────────────────── CONFIG — edit for your remote ─────────────────────
+char REMOTE[] = "192.168.188.51";    // <-- the remote Tasmota ESP's IP
+// This example matches a common device: a temp/humidity sensor + ONE relay.
+//   SHT3X/BME280 -> Temperature, Humidity   (two read-only sensors)
+//   POWER        -> a relay                  (plug: read + control)
+// For a multi-relay board use "POWER1"/"POWER2"; a dimmable light adds a
+// "Dimmer" key — see the commented "dimmable light" block at the bottom.
+// ─────────────────────────────────────────────────────────────────────────────
+
+int e_temp; int e_hum; int e_plug;   // Matter endpoint ids
+
+char buf[512];                 // shared httpGet response (>64 B -> heap)
+
+// Control queue: MatterInvoke fills `pending` then sets `cmd_ready` LAST
+// (publish-after-fill). TaskLoop is the only place that sends it over HTTP.
+char pending[48];
+int  cmd_ready = 0;
+
+// ── JSON-ish field parser (same pattern as daikin_control.tc / dfield) ──
+// key already includes the colon, e.g. "\"Temperature\":" — atof stops at ','.
+float jget(char src[], char key[]) {
+    char v[16]; int p;
+    p = strFind(src, key);
+    if (p < 0) { return -99999.0; }
+    strSub(v, src, p + strlen(key), 14);
+    return atof(v);
+}
+// 1 if the relay key is followed by "ON", 0 if "OFF", -1 if absent.
+int jbool(char src[], char key[]) {
+    char v[10]; int p;
+    p = strFind(src, key);
+    if (p < 0) { return -1; }
+    strSub(v, src, p + strlen(key), 8);     // v = :"ON" or :"OFF"
+    if (strFind(v, "ON") >= 0) { return 1; }
+    return 0;
+}
+
+// ── A Matter controller changed the relay → queue the cmnd ──
+void MatterInvoke(int ep, int cluster, int cmd) {
+    char c[48];
+    if (ep == e_plug) {                          // relay (OnOff)
+        if (matterGet(e_plug, CLUSTER_ONOFF, 0)) { strcpy(c, "Power%20ON"); }
+        else                                     { strcpy(c, "Power%20OFF"); }
+        strcpy(pending, c); cmd_ready = 1;       // flag LAST
+        return;
+    }
+}
+
+// ── Forward one queued control command to the remote (TaskLoop only) ──
+void send_pending() {
+    char url[96]; char c[48];
+    strcpy(c, pending); cmd_ready = 0;           // snapshot + clear BEFORE httpGet
+    sprintf(url, "http://%s/cm?cmnd=%s", REMOTE, c);
+    httpGet(url, buf);
+    addLog(url);
+}
+
+// ── Poll the remote and mirror its state into Matter (TaskLoop only) ──
+void poll_remote() {
+    char url[72]; char k[20]; float v; int on;
+
+    // sensors — Status 10 (StatusSNS)
+    sprintf(url, "http://%s/cm?cmnd=Status%%2010", REMOTE);
+    buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "\"Temperature\":"); v = jget(buf, k);
+        if (v > -90.0) { matterSetFloat(e_temp, CLUSTER_TEMP, 0, v, 100); }   // 0.01 C
+        strcpy(k, "\"Humidity\":");    v = jget(buf, k);
+        if (v >= 0.0)  { matterSetFloat(e_hum,  CLUSTER_HUM,  0, v, 100); }   // 0.01 %
+    }
+
+    // actuator state — Status 11 (StatusSTS) — keeps Matter in sync if the
+    // remote is toggled physically / by another controller
+    sprintf(url, "http://%s/cm?cmnd=Status%%2011", REMOTE);
+    buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "\"POWER\""); on = jbool(buf, k);
+        if (on >= 0) { matterSet(e_plug, CLUSTER_ONOFF, 0, on); }
+    }
+}
+
+// ── The only task that touches HTTP: control first (snappy), then sensors ──
+void TaskLoop() {
+    int t = 0;
+    delay(15000);                                // let WiFi + Matter come up
+    while (1) {
+        if (cmd_ready)     { send_pending(); }   // forward a control cmnd ASAP (~0.3 s)
+        if (t % 17 == 0)   { poll_remote(); }    // refresh sensors/state ~every 5 s
+        t = t + 1;
+        delay(300);
+    }
+}
+
+// ── Web status page on THIS device ──
+void WebCall() {
+    char b[96];
+    sprintf(b, "{s}<b>Remote</b>{m}%s{e}", REMOTE);                                       webSend(b);
+    sprintf(b, "{s}Temperatur{m}%.1f C{e}",  matterGet(e_temp, CLUSTER_TEMP, 0) / 100.0); webSend(b);
+    sprintf(b, "{s}Feuchte{m}%.0f %%{e}",     matterGet(e_hum,  CLUSTER_HUM,  0) / 100.0); webSend(b);
+    sprintf(b, "{s}Steckdose{m}%d{e}",        matterGet(e_plug, CLUSTER_ONOFF, 0));        webSend(b);
+    sprintf(b, "{s}heap{m}%d kb{e}", tasm_heap / 1000);                                   webSend(b);
+}
+
+int main() {
+    matterReset();
+
+    // read-only sensors
+    e_temp = matterAdd(MATTER_TEMP_SENSOR);
+    matterCluster(e_temp, CLUSTER_TEMP); matterAttr(e_temp, CLUSTER_TEMP, 0, MTR_S16);   // signed
+    matterName(e_temp, "Remote Temperatur");
+
+    e_hum = matterAdd(MATTER_HUM_SENSOR);
+    matterCluster(e_hum, CLUSTER_HUM); matterAttr(e_hum, CLUSTER_HUM, 0, MTR_U16);
+    matterName(e_hum, "Remote Feuchte");
+
+    // actuator — read state AND accept controller commands (forwarded via HTTP)
+    e_plug = matterAdd(MATTER_PLUG);                       // OnOff auto-attached
+    matterName(e_plug, "Remote Steckdose");
+
+    cmd_ready = 0;
+    matterStart();                                         // Matter on; pair on /mt
+    return 0;
+}
+
+// ─────────────────── OPTIONAL: a dimmable light on the remote ────────────────
+// If the remote also has a dimmable light (a "Dimmer" key + e.g. POWER2),
+// add a Matter endpoint for it and wire read + control like the relay above:
+//
+//   int e_lamp;                                   // declare near e_plug
+//
+//   // in main(), after the plug:
+//   e_lamp = matterAdd(MATTER_DIMM_LIGHT);        // OnOff + Level
+//   matterCluster(e_lamp, CLUSTER_ONOFF); matterAttr(e_lamp, CLUSTER_ONOFF, 0, MTR_BOOL);
+//   matterCluster(e_lamp, CLUSTER_LEVEL); matterAttr(e_lamp, CLUSTER_LEVEL, 0, MTR_U8);
+//   matterSet(e_lamp, CLUSTER_LEVEL, 0, 254);
+//   matterName(e_lamp, "Remote Lampe");
+//
+//   // in MatterInvoke():
+//   if (ep == e_lamp) {
+//       char c[48];
+//       if (cluster == CLUSTER_LEVEL) {
+//           int pct = (matterGet(e_lamp, CLUSTER_LEVEL, 0) * 100) / 254;
+//           sprintf(c, "Dimmer%%20%d", pct);
+//       } else {
+//           if (matterGet(e_lamp, CLUSTER_ONOFF, 0)) { strcpy(c, "Power2%20ON"); }
+//           else                                     { strcpy(c, "Power2%20OFF"); }
+//       }
+//       strcpy(pending, c); cmd_ready = 1;
+//       return;
+//   }
+//
+//   // in poll_remote(), in the Status 11 block:
+//   strcpy(k, "\"POWER2\"");  on = jbool(buf, k);
+//   if (on >= 0) { matterSet(e_lamp, CLUSTER_ONOFF, 0, on); }
+//   strcpy(k, "\"Dimmer\":"); v = jget(buf, k);
+//   if (v >= 0.0) { matterSet(e_lamp, CLUSTER_LEVEL, 0, (int)(v * 254.0 / 100.0)); }
