@@ -123,7 +123,11 @@ int mtrc_tlv_end_container(mtrc_tlv_writer *w) {
 }
 
 // ---- reader ------------------------------------------------------------
-static int r_avail(mtrc_tlv_reader *r, size_t n) { return r->off + n <= r->len; }
+// SECURITY: compute remaining as (len - off) — NEVER (off + n) which overflows
+// in 32-bit size_t for an attacker-chosen length, wrapping below len and passing
+// a bogus bounds check. The off<=len invariant holds throughout (off only advances
+// after a passing check).
+static int r_avail(mtrc_tlv_reader *r, size_t n) { return r->off <= r->len && n <= r->len - r->off; }
 
 static uint64_t r_le(const uint8_t *p, int n) {
   uint64_t v = 0;
@@ -196,7 +200,9 @@ int mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
     int ln = 1 << (et - base);
     if (!r_avail(r, (size_t)ln)) goto bad;
     uint64_t slen = r_le(r->buf + r->off, ln); r->off += ln;
-    if (!r_avail(r, (size_t)slen)) goto bad;
+    // SECURITY: compare the full 64-bit length against remaining BEFORE the
+    // (size_t) cast — a 4/8-byte length form can exceed size_t and truncate.
+    if (slen > (uint64_t)(r->len - r->off)) goto bad;
     e->type = (base == 0x10) ? MTRC_TLV_BYTES : MTRC_TLV_UTF8;
     e->bytes = r->buf + r->off; e->bytes_len = (uint32_t)slen;
     r->off += (size_t)slen;

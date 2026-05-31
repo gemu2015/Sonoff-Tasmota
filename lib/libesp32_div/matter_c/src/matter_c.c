@@ -1031,6 +1031,12 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   if (!mtrc_case_s3k(g.case_shared, op_ipk, h12, s3k)) return;
 
   static uint8_t tbe3[1024];
+  // SECURITY: encrypted3_len is straight off the wire; case_open memcpy's
+  // (encrypted3_len - 16) into tbe3 BEFORE tag verification. Bound it or an
+  // oversized Sigma3 overflows tbe3 (BSS corruption) regardless of key validity.
+  if (s3.encrypted3_len < 16 || s3.encrypted3_len - 16 > sizeof(tbe3)) {
+    mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE oversize"); return;
+  }
   if (!case_open(s3k, MTRC_CASE_NONCE_SIGMA3, s3.encrypted3, s3.encrypted3_len, tbe3)) {
     mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE decrypt failed"); return;
   }

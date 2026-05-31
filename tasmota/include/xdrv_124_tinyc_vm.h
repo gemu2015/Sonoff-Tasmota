@@ -8112,6 +8112,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t arr_ref = TC_POP(vm);
       int32_t *arr = tc_resolve_ref(vm, arr_ref);
       if (arr) {
+        // SECURITY: count is attacker-controlled bytecode; clamp to the array's
+        // real capacity or this is an arbitrary-length heap overwrite (TLSF corruption).
+        int32_t cap = tc_ref_maxlen(vm, arr_ref);
+        if (count > cap) count = cap;
         for (int32_t i = 0; i < count; i++) {
           arr[i] = value;
         }
@@ -8126,6 +8130,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       int32_t *src = tc_resolve_ref(vm, src_ref);
       if (dst && src) {
+        // SECURITY: clamp count to the SMALLER of the two capacities (count is
+        // attacker-controlled) — else OOB write to dst and OOB read from src.
+        int32_t dcap = tc_ref_maxlen(vm, dst_ref);
+        int32_t scap = tc_ref_maxlen(vm, src_ref);
+        if (count > dcap) count = dcap;
+        if (count > scap) count = scap;
         for (int32_t i = 0; i < count; i++) {
           dst[i] = src[i];
         }
@@ -12255,7 +12265,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (_tc) {
         int32_t *base = tc_resolve_ref(vm, ref);
         if (base) {
+          // SECURITY: the remote peer controls available(); clamp to the VM
+          // array capacity or a large response overflows it.
+          int32_t cap = tc_ref_maxlen(vm, ref);
+          if (cap < 0) cap = 0;
           uint16_t slen = _tc->available();
+          if ((int32_t)slen > cap) slen = (uint16_t)cap;
           for (uint16_t i = 0; i < slen; i++) {
             base[i] = _tc->read();
           }
