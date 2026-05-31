@@ -3902,11 +3902,14 @@ int SML_print(const char *format, ...) {
 	va_list copy;
 	va_start(arg, format);
 	va_copy(copy, arg);
-	len = vsnprintf(NULL, 0, format, arg);
+	// Size with the COPY, format with the original — a va_list must not be
+	// reused after a v*printf consumes it (UB; garbage args / crash on %s).
+	len = vsnprintf(NULL, 0, format, copy);
 	va_end(copy);
 	if (len >= sizeof(loc_buf)) {
 		temp = (char*)malloc(len + 1);
 		if (temp == NULL) {
+	  	va_end(arg);
 	  	return 0;
 	  }
 	}
@@ -4174,6 +4177,11 @@ void SML_Init(void) {
   if (*lp == '>' && *(lp + 1) == 'M') {
     lp += 2;
     sml_globs.meters_used = strtol(lp, &lp, 10);
+    // SECURITY: meter_desc[] is a fixed MAX_METERS array; a `>M <n>` header with
+    // n > MAX_METERS (a config typo) would make reset_sml_vars()/the init loops
+    // free()/delete wild pointers and write past the array → boot-loop / heap
+    // corruption. Clamp here (the per-line checks validate against this value).
+    if (sml_globs.meters_used > MAX_METERS) sml_globs.meters_used = MAX_METERS;
   } else {
     return;
   }
@@ -4528,6 +4536,9 @@ next_line:
   for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
     METER_DESC *mp = &meter_desc[meters];
     if (mp->type == 'c') {
+        // SECURITY: sml_counters[]/sml_cnt_index[] are MAX_COUNTERS deep; don't
+        // index/increment cindex past them (the command path already clamps).
+        if (cindex >= MAX_COUNTERS) break;
         if (mp->flag & ANALOG_FLG) {
 
         } else {
@@ -5519,12 +5530,18 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
       *ucp++ = lowByte(crc);
 
       // now check for escapes
-      uint8_t ksbuff[24];
+      // SECURITY: a byte in the escape set expands to 2 output bytes, so the
+      // escaped frame can be ~2x slen. The old ksbuff[24] (and the memcpy back
+      // into sbuff[48]) overflowed for a long escape-heavy payload sent via
+      // SML_Write/SmlSend on a 'k' meter. Size ksbuff for the worst case and
+      // stop before klen+trailing-0x0d could exceed sbuff (the memcpy target).
+      uint8_t ksbuff[2 * sizeof(sbuff)];
       ucp = ksbuff;
       *ucp++ = 0x80;
       uint8_t klen = 1;
       for (uint16_t cnt = 0; cnt < slen; cnt++) {
         uint8_t iob = sbuff[cnt];
+        if (klen + 2 > sizeof(sbuff) - 1) break;   // keep slen=klen+1 <= sizeof(sbuff)
         if ((iob == 0x80) || (iob == 0x40) || (iob == 0x0d) || (iob == 0x06) || (iob == 0x1b)) {
           *ucp++ = 0x1b;
           *ucp++ = iob ^= 0xff;
