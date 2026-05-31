@@ -1093,6 +1093,7 @@ export class CodeGenerator {
                     this.addSourceMap(node.line);
                     this.emitPushInt(i);        // index
                     this.compileExpr(node.init[i]); // value
+                    this._coerceTo(node.varType, this.inferType(node.init[i]));
                     if (isHeap) {
                         this.emit(Op.STORE_HEAP_ARR);
                         this.emitByte(g.heapHandle);
@@ -1849,6 +1850,7 @@ export class CodeGenerator {
                 for (let i = 0; i < node.init.length; i++) {
                     this.emitPushInt(i);
                     this.compileExpr(node.init[i]);
+                    this._coerceTo(node.varType, this.inferType(node.init[i]));
                     this.emit(Op.STORE_HEAP_ARR);
                     this.emitByte(heapInfo.heapHandle);
                 }
@@ -1876,6 +1878,7 @@ export class CodeGenerator {
             for (let i = 0; i < node.init.length; i++) {
                 this.emitPushInt(i);
                 this.compileExpr(node.init[i]);
+                this._coerceTo(node.varType, this.inferType(node.init[i]));
                 this.emit(Op.STORE_LOCAL_ARR);
                 this.emitByte(info.index);
             }
@@ -1943,13 +1946,26 @@ export class CodeGenerator {
     }
 
     compileTernary(node) {
+        // The whole ternary has ONE result type (inferType folds the branches);
+        // coerce each branch to it, else `c ? 5 : 2.5` pushes raw int bits on
+        // the true branch where a float is expected → denormal garbage.
+        const rt = this.inferType(node);
         this.compileExpr(node.condition);
         const elseJump = this.emitJump(Op.JZ);
         this.compileExpr(node.consequent);
+        this._coerceTo(rt, this.inferType(node.consequent));
         const endJump = this.emitJump(Op.JMP);
         this.patchJump(elseJump);
         this.compileExpr(node.alternate);
+        this._coerceTo(rt, this.inferType(node.alternate));
         this.patchJump(endJump);
+    }
+
+    // Emit an int↔float conversion so a just-compiled value of type `have`
+    // ends up as type `want`. No-op for non-numeric or matching types.
+    _coerceTo(want, have) {
+        if (want === 'float' && have !== 'float') this.emit(Op.I2F);
+        else if (want === 'int' && have === 'float') this.emit(Op.F2I);
     }
 
     compileFor(node) {
@@ -2007,50 +2023,46 @@ export class CodeGenerator {
 
         this.breakTargets.push([]);
         const caseJumps = [];
-        let defaultJump = null;
 
-        // Emit case comparisons
+        // Comparison chain — emit ALL case comparisons first. `default` is NOT
+        // emitted inline here: doing so (old code) both jumped to the wrong
+        // body AND short-circuited any case listed after the default.
         for (const clause of node.cases) {
-            if (clause.isDefault) {
-                defaultJump = this.emitJump(Op.JMP);
-            } else {
-                this.emit(Op.DUP);
-                this.compileExpr(clause.value);
-                this.emit(Op.EQ);
-                const jump = this.emitJump(Op.JNZ);
-                caseJumps.push({ jump, clause });
-            }
+            if (clause.isDefault) continue;
+            this.emit(Op.DUP);
+            this.compileExpr(clause.value);
+            this.emit(Op.EQ);
+            const jump = this.emitJump(Op.JNZ);
+            caseJumps.push({ jump, clause });
         }
 
-        // Jump to end if no match and no default
-        const endJump = defaultJump ? null : this.emitJump(Op.JMP);
-        if (defaultJump) {
-            this.patchJump(defaultJump);
-        }
+        // After the chain: one jump to the default body (if any) else to the
+        // end. Patched once its real target address is known.
+        const hasDefault = node.cases.some(c => c.isDefault);
+        const dispatchJump = this.emitJump(Op.JMP);
 
-        // Emit case bodies
+        // Body section (source order — C fall-through preserved). Patch each
+        // case's compare-jump to its own body, and the dispatch jump to the
+        // default clause's body exactly where it appears.
         for (let i = 0; i < node.cases.length; i++) {
             const clause = node.cases[i];
-            // Patch case comparison jump
             const cj = caseJumps.find(c => c.clause === clause);
-            if (cj) {
-                this.patchJump(cj.jump);
-            }
-            if (clause.isDefault && defaultJump) {
-                // Already patched above
-            }
+            if (cj) this.patchJump(cj.jump);
+            if (clause.isDefault) this.patchJump(dispatchJump);
             for (const stmt of clause.body) {
                 this.compileStmt(stmt);
             }
         }
 
-        if (endJump) this.patchJump(endJump);
-        this.emit(Op.POP); // pop discriminant
-
+        // Convergence point: reached by fall-through off the last body, by the
+        // no-match dispatch when there is no default, AND by every `break`.
+        // The single discriminant POP lives here so EXACTLY ONE pop runs on
+        // every path — the old code popped only on fall-through, leaking a
+        // stack slot on every break (→ STACK_OVERFLOW inside a loop).
+        if (!hasDefault) this.patchJump(dispatchJump);
         const breaks = this.breakTargets.pop();
-        for (const bp of breaks) {
-            this.patchJump(bp);
-        }
+        for (const bp of breaks) this.patchJump(bp);
+        this.emit(Op.POP); // pop discriminant
     }
 
     compileReturn(node) {
@@ -2079,6 +2091,11 @@ export class CodeGenerator {
         }
         if (node.value) {
             this.compileExpr(node.value);
+            // Coerce to the declared return type: `float f(){ return 5; }` must
+            // I2F or the caller receives int bits reinterpreted as a denormal.
+            if (typeof retType === 'string' && !retType.startsWith('struct:')) {
+                this._coerceTo(retType, this.inferType(node.value));
+            }
             this.emit(Op.RET_VAL);
         } else {
             this.emit(Op.RET);
@@ -2474,14 +2491,18 @@ export class CodeGenerator {
                 this.emit(Op.BIT_NOT);
                 break;
             case 'pre++':
+                // For a float operand the "+1" must be a float add, else the
+                // integer ADD mangles the operand's IEEE bit-pattern.
                 this.emitPushInt(1);
-                this.emit(Op.ADD);
+                if (isFloat) this.emit(Op.I2F);
+                this.emit(isFloat ? Op.FADD : Op.ADD);
                 this.emit(Op.DUP);
                 this.emitStore(node.operand);
                 break;
             case 'pre--':
                 this.emitPushInt(1);
-                this.emit(Op.SUB);
+                if (isFloat) this.emit(Op.I2F);
+                this.emit(isFloat ? Op.FSUB : Op.SUB);
                 this.emit(Op.DUP);
                 this.emitStore(node.operand);
                 break;
@@ -2493,14 +2514,18 @@ export class CodeGenerator {
     compilePostfixExpr(node) {
         // Load current value
         this.compileExpr(node.operand);
+        const isFloat = this.isFloatType(this.inferType(node.operand));
         this.emit(Op.DUP); // keep original value on stack as result
 
-        // Increment/decrement and store
+        // Increment/decrement and store. For a float operand the "+1" must be
+        // a float add, else the integer ADD mangles the IEEE bit-pattern
+        // (e.g. (1.0f)++ → 0x3F800001, a denormal-ish 1.0000001, not 2.0).
         this.emitPushInt(1);
+        if (isFloat) this.emit(Op.I2F);
         if (node.op === '++') {
-            this.emit(Op.ADD);
+            this.emit(isFloat ? Op.FADD : Op.ADD);
         } else {
-            this.emit(Op.SUB);
+            this.emit(isFloat ? Op.FSUB : Op.SUB);
         }
         this.emitStore(node.operand);
     }
