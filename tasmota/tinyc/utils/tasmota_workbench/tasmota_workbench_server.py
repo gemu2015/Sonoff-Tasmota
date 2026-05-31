@@ -650,7 +650,12 @@ def _share_csv():
 
 # Isolated esptool venv (PEP 668 / "externally-managed" safe — never
 # touches system Python; created on user request for non-developers).
-ESPVENV = os.path.expanduser('~/.serial_monitor_venv')
+# Rename-aware: if the legacy ~/.serial_monitor_venv exists (the tool was
+# previously called Serial Monitor), keep using it — no point forcing a
+# 10-30 s re-install. New installs land in ~/.tasmota_workbench_venv.
+ESPVENV_LEGACY = os.path.expanduser('~/.serial_monitor_venv')
+ESPVENV = (ESPVENV_LEGACY if os.path.isdir(ESPVENV_LEGACY)
+           else os.path.expanduser('~/.tasmota_workbench_venv'))
 _esptool_cache = None                         # None | False | python-exe
 install_state = {'running': False, 'ok': None, 'error': ''}
 
@@ -692,14 +697,15 @@ def _have_esptool(refresh=False):
 
 
 def _install_esptool():
-    """Create ~/.serial_monitor_venv and pip-install esptool into it.
+    """Create the isolated venv at ESPVENV and pip-install esptool into it.
     venv sidesteps PEP 668 'externally-managed-environment' and keeps
     the system Python pristine. Output streams to the console log."""
     if install_state['running']:
         return
     install_state.update(running=True, ok=None, error='')
-    _flog('installing esptool into an isolated venv '
-          '(~/.serial_monitor_venv) — one-time, ~10-30s …')
+    _flog(f'installing esptool into an isolated venv '
+          f'({ESPVENV.replace(os.path.expanduser("~"), "~")}) '
+          f'— one-time, ~10-30s …')
     try:
         if not _venv_py():
             r = subprocess.run([sys.executable, '-m', 'venv', ESPVENV],
@@ -1329,7 +1335,7 @@ def _flash_cancel():
 
 HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Serial Monitor</title>
+<title>Tasmota Workbench</title>
 <style>
  :root{--bg:#0e1116;--bar:#161b22;--fg:#d6deeb;--mut:#7a8aa0;--acc:#3b82f6;
        --rx:#cde7ff;--info:#9ece6a;--err:#ff6b6b}
@@ -2028,11 +2034,11 @@ function renderScanTable(devs){
     scanbodyEl.innerHTML='<tr><td colspan="9" style="color:var(--mut);'
       +'padding:9px;white-space:normal">No Tasmota devices answered on '
       +'this subnet.<br>• Check the <b>LogHost</b> IP (top bar) is on the '
-      +'same LAN as your devices.<br>• If you opened <b>Serial Monitor.app</b> '
+      +'same LAN as your devices.<br>• If you opened <b>Tasmota Workbench.app</b> '
       +'from Finder, macOS may be blocking its LAN access — enable it under '
       +'<b>System Settings → Privacy &amp; Security → Local Network</b> '
-      +'(Serial Monitor / Python) and relaunch, <i>or</i> just run '
-      +'<b>Serial Monitor.command</b> from Terminal (which already has '
+      +'(Tasmota Workbench / Python) and relaunch, <i>or</i> just run '
+      +'<b>Tasmota Workbench.command</b> from Terminal (which already has '
       +'Local-Network access).</td></tr>';
     scanwrapEl.classList.remove('hide');
     return;
@@ -2173,15 +2179,15 @@ $('#hex').onchange=()=>{
   for(const s of logEl.querySelectorAll('.l>span:last-child')) render(s);
 };
 $('#quit').onclick=async()=>{
-  if(!confirm('Stop the Serial Monitor server?'))return;
+  if(!confirm('Stop the Tasmota Workbench server?'))return;
   if(pollTimer)clearInterval(pollTimer);
   try{await fetch('/api/quit',{method:'POST'});}catch(e){}
-  document.title='Serial Monitor (stopped)';
+  document.title='Tasmota Workbench (stopped)';
   document.body.innerHTML=
     '<div style="font:1.2em -apple-system,sans-serif;padding:60px;'+
     'text-align:center;color:#7a8aa0;background:#0e1116;'+
     'height:100vh;margin:0;">'+
-    '<h2 style="color:#d6deeb">Serial Monitor stopped.</h2>'+
+    '<h2 style="color:#d6deeb">Tasmota Workbench stopped.</h2>'+
     '<p>You can close this tab.</p></div>';
 };
 
@@ -2450,7 +2456,7 @@ def main():
     except OSError:
         running = False
     if running:
-        print('Serial Monitor already running — replacing it')
+        print('Tasmota Workbench already running — replacing it')
         try:
             c = http.client.HTTPConnection('127.0.0.1', HTTP_PORT,
                                             timeout=2)
@@ -2485,7 +2491,7 @@ def main():
     # failed"). Loopback is exempt → instant, and still reachable as
     # 127.0.0.1. (Syslog has its own 0.0.0.0 UDP socket — unrelated.)
     srv = ThreadingHTTPServer(('127.0.0.1', HTTP_PORT), H)
-    print(f'Serial Monitor on {url}  (history {HISTORY} lines)')
+    print(f'Tasmota Workbench on {url}  (history {HISTORY} lines)')
     threading.Timer(0.6, lambda: _open_url(url)).start()
     try:
         srv.serve_forever()
