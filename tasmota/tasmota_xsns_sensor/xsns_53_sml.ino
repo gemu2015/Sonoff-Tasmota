@@ -4280,7 +4280,7 @@ void SML_Init(void) {
             lp1++;
 #ifdef USE_SML_TCP
 #ifdef USE_SML_TCP_IP_STR
-            strcpy(mmp->ip_addr, str);
+            strlcpy(mmp->ip_addr, str, sizeof(mmp->ip_addr));  // SECURITY: str[32] into ip_addr[16]
 #else
             mmp->ip_addr.fromString(str);
 #endif
@@ -4520,6 +4520,10 @@ next_line:
     struct METER_DESC *mp = &meter_desc[meters];
     if (mp->sbsiz) {
       mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
+      // SECURITY: the entire RX path writes mp->sbuff[...] unconditionally; on a
+      // failed alloc (likely on RAM-tight ESP8266 with a large sbsiz) that's a
+      // NULL deref. Disable the meter rather than crash.
+      if (!mp->sbuff) { mp->type = 0; mp->sbsiz = 0; continue; }
 			memory += mp->sbsiz;
     }
   }
@@ -5423,7 +5427,12 @@ MODBUS_TCP_HEADER tcph;
   tcph.U_ID = *sbuff;
 
   sbuff++;
-  for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
+  // SECURITY: bound the copy to the payload field (8 bytes on ESP8266 / non-
+  // USE_BAT_CTRL builds) — a long modbus/FC16 frame otherwise overruns it. Also
+  // guard slen<3 (the slen-3 / SIZE math underflows as unsigned otherwise).
+  uint16_t pcnt = (slen >= 3) ? (slen - 3) : 0;
+  if (pcnt > sizeof(tcph.payload)) pcnt = sizeof(tcph.payload);
+  for (uint16_t cnt = 0; cnt < pcnt; cnt++) {
     tcph.payload[cnt] = *sbuff++;
   }
 
