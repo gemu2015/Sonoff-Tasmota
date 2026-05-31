@@ -1430,9 +1430,15 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
    border-bottom:1px solid #1c2230;white-space:nowrap;vertical-align:top}
  #shtbl th{color:var(--mut);position:sticky;top:0;background:var(--bar);
    z-index:1;font-weight:600}
- #shtbl tbody tr:nth-child(even){background:#12161d}
+ #shtbl tbody tr{border-left:3px solid transparent}     /* per-source accent */
+ #shtbl tbody tr.grp-start{border-top:2px solid #2a3340} /* visible break between source groups */
+ #shtbl tbody tr.grp-start:first-child{border-top:0}
  #shtbl tbody tr.clash{background:#2c1414}
+ #shtbl tbody tr:not(.clash):hover{background:#1b2230}
  #shtbl b{color:var(--fg)}
+ #shtbl td.dev{font-weight:600;max-width:160px;overflow:hidden;
+   text-overflow:ellipsis;white-space:nowrap}
+ #shtbl td.src{font-family:ui-monospace,Menlo,Consolas,monospace}
  #shtbl td.val{color:#7ab0ff;max-width:340px;overflow:hidden;
    text-overflow:ellipsis;white-space:nowrap}
  #shtbl td.type{color:var(--mut);font-size:10px}
@@ -1774,6 +1780,13 @@ $('#modeShare').onclick = ()=>setMode('share');
 function escHtml(s){return String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
   .replace(/"/g,'&quot;');}
+// Stable per-source accent color: hash the IP into a hue, then pick a fixed
+// pleasant saturation/lightness so colors are deterministic AND legible on the
+// dark bg. Same source → same color forever, including across reloads.
+function srcColor(src){
+  let h=0; for(let i=0;i<src.length;i++) h=((h*31)+src.charCodeAt(i))>>>0;
+  return 'hsl('+(h%360)+',55%,65%)';
+}
 let _sharePoll = null;
 async function sharePoll(){
   try {
@@ -1792,19 +1805,29 @@ async function sharePoll(){
       clash.innerHTML = '<b>'+s.clashes.length+' clash(es)</b> — same global emitted by &gt;1 device: '
         + s.clashes.map(c => escHtml(c.name)+' ('+c.sources.join(', ')+')').join('  ·  ');
     } else { clash.classList.add('hide'); clash.textContent=''; }
-    // Rows
+    // Rows — grouped by source IP, each source gets a stable hash-derived
+    // accent color (left border + IP/Device text) so a scan of column 2 makes
+    // the source obvious even before reading the text.
     const tb = $('#shbody');
     const clashNames = new Set((s.clashes||[]).map(c=>c.name));
-    tb.innerHTML = (s.results||[]).map(r =>
-      '<tr'+(clashNames.has(r.name)?' class="clash"':'')+'>'
-      + '<td>'+escHtml(r.device||'')+'</td>'
-      + '<td>'+escHtml(r.src)+'</td>'
-      + '<td><b>'+escHtml(r.name)+'</b></td>'
-      + '<td class="val" title="'+escHtml(r.value)+'">'+escHtml(r.value)+'</td>'
-      + '<td class="type">'+escHtml(r.type)+'</td>'
-      + '<td>'+r.count+'</td>'
-      + '<td class="age">'+r.last_age+'</td>'
-      + '</tr>').join('');
+    const rows = s.results||[];
+    let prevSrc = null;
+    tb.innerHTML = rows.map(r => {
+      const c = srcColor(r.src);
+      const newGroup = (r.src !== prevSrc); prevSrc = r.src;
+      let cls = clashNames.has(r.name) ? 'clash' : '';
+      if (newGroup) cls = cls ? cls + ' grp-start' : 'grp-start';
+      return '<tr'+(cls?' class="'+cls+'"':'')
+        + ' style="border-left-color:'+c+'">'
+        + '<td class="dev" style="color:'+c+'">'+escHtml(r.device||'')+'</td>'
+        + '<td class="src" style="color:'+c+'">'+escHtml(r.src)+'</td>'
+        + '<td><b>'+escHtml(r.name)+'</b></td>'
+        + '<td class="val" title="'+escHtml(r.value)+'">'+escHtml(r.value)+'</td>'
+        + '<td class="type">'+escHtml(r.type)+'</td>'
+        + '<td>'+r.count+'</td>'
+        + '<td class="age">'+r.last_age+'</td>'
+        + '</tr>';
+    }).join('');
     // Auto-repoll while scanning, then once more 1 s after done.
     if(s.scanning) _sharePoll = setTimeout(sharePoll, 1000);
     else { clearTimeout(_sharePoll); _sharePoll = null; }
