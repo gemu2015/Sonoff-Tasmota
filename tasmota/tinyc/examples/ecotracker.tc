@@ -81,21 +81,31 @@ void WebOn() {
     req_count = req_count + 1;
 }
 
-// ── Every second: midnight check + power smoothing ──
+// ── Every second: register mDNS (once WLAN is up), then smoothing + midnight ──
 void EverySecond() {
-    if (tasm_year < 2020) return;
-    float pwr = smlGet(1);
-    if (pwr == 0.0) return;  // no meter data yet
-
-    // Register mDNS once SML + NTP are healthy.
+    // Advertise the EcoTracker over mDNS as soon as the NETWORK (WLAN) is up —
+    // gated on `tasm_wifi` (1 = up), NOT on NTP time or a live power reading.
+    // A PV battery (NOAH / Jackery / Marstek …) must DISCOVER the meter via mDNS
+    // *before* any data flows, and 0 W is a perfectly valid reading. The old
+    // `tasm_year < 2020` + `pwr == 0` guards meant that on a bench with simulated
+    // SML data and/or no internet (NTP never syncs) the service was never
+    // announced — hence "der NOAH findet den Ecotracker nicht mal". We never
+    // touch the mDNS/network stack before tasm_wifi, and retry each second until
+    // mdnsRegister() returns 0 (MDNS.begin succeeds).
     if (once == 0) {
-        mdnsRegister("ecotracker-", "-", "everhome");
-        once = 1;
-        addLog("EcoTracker: mDNS registered");
+        if (tasm_wifi == 0) return;                  // WLAN not up yet — wait
+        if (mdnsRegister("ecotracker-", "-", "everhome") == 0) {
+            once = 1;
+            addLog("EcoTracker: mDNS registered");
+        }
+        return;                                      // retry next second if needed
     }
 
     if (do_init) { initVars(); do_init = 0; }
     if (do_save) { saveVars(); do_save = 0; }
+
+    float pwr = smlGet(1);
+    if (pwr == 0.0) return;   // no meter data yet → keep serving the last cpwr
 
     // Power smoothing — halve peaks above 500 W so the battery doesn't
     // chase spikes. Same heuristic as ottelo's Scripter version.
@@ -106,22 +116,24 @@ void EverySecond() {
         cpwr = pwr + (float)pwroffset;
     }
 
-    // Midnight rollover.
-    int hr = tasm_hour;
-    if (hr == 0 && last_hr != 0) {
-        dval  = smlGet(2);
-        dval2 = smlGet(3);
-        if (tasm_day == 1) {
-            mval  = smlGet(2);
-            mval2 = smlGet(3);
+    // Midnight rollover — needs a valid wall clock, so keep this NTP-gated.
+    if (tasm_year >= 2020) {
+        int hr = tasm_hour;
+        if (hr == 0 && last_hr != 0) {
+            dval  = smlGet(2);
+            dval2 = smlGet(3);
+            if (tasm_day == 1) {
+                mval  = smlGet(2);
+                mval2 = smlGet(3);
+            }
+            if (tasm_day == 1 && tasm_month == 1) {
+                yval  = smlGet(2);
+                yval2 = smlGet(3);
+            }
+            saveVars();
         }
-        if (tasm_day == 1 && tasm_month == 1) {
-            yval  = smlGet(2);
-            yval2 = smlGet(3);
-        }
-        saveVars();
+        last_hr = hr;
     }
-    last_hr = hr;
 }
 
 // ── Web display: sensor rows on Tasmota main page ──
