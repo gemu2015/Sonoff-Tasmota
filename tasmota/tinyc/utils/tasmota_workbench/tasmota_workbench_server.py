@@ -806,12 +806,19 @@ def _classify_fw(blob):
             'note': 'whole-image (ESP8266) → 0x0'}
 
 
-def _flash_guard():
+def _flash_claim():
+    # Atomic check-and-claim: set running=True in the SAME locked region that
+    # tests it, so two near-simultaneous POSTs can't both pass the guard and
+    # launch two flashers on the same port/file (which stomped flash_proc and
+    # could half-write / brick a device). Call AFTER validating port/host so an
+    # input-error path never leaves running stuck True. The worker clears
+    # running in its finally.
+    if not fw_path or not os.path.isfile(fw_path):
+        return 'no firmware uploaded'
     with fw_lock:
         if flash_state['running']:
             return 'a flash job is already running'
-    if not fw_path or not os.path.isfile(fw_path):
-        return 'no firmware uploaded'
+        flash_state['running'] = True   # claim
     return None
 
 
@@ -2328,9 +2335,11 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             body = {}
         if path == '/api/flash/serial':
-            err = _flash_guard()
-            if not err and not body.get('port'):
+            err = None
+            if not body.get('port'):
                 err = 'no serial port selected'
+            if not err:
+                err = _flash_claim()   # validate input FIRST, then atomically claim
             if err:
                 self._json({'ok': False, 'error': err})
             else:
@@ -2342,9 +2351,11 @@ class H(BaseHTTPRequestHandler):
                 self._json({'ok': True})
             return
         if path == '/api/flash/ota':
-            err = _flash_guard()
-            if not err and not body.get('host'):
+            err = None
+            if not body.get('host'):
                 err = 'no device host/IP'
+            if not err:
+                err = _flash_claim()
             if err:
                 self._json({'ok': False, 'error': err})
             else:

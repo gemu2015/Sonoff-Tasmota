@@ -469,6 +469,13 @@ def _handle_modbus_rtu_frame(buf: bytes):
         if crc16modbus(buf[:frame_len-2]) != crc_rx: return None
         start_reg = (buf[2] << 8) | buf[3]
         reg_count = (buf[4] << 8) | buf[5]
+        # Validate reg_count against the declared byte_count BEFORE indexing the
+        # payload — else a frame claiming more registers than it carries reads
+        # past the buffer (IndexError), which un-trimmed wedges the RX thread for
+        # ALL protocols until restart. This emulator assembles float32 from
+        # register pairs, so reg_count must be even (mirrors the TCP FC16 path).
+        if reg_count < 1 or reg_count > 123 or reg_count % 2 != 0 or byte_count != reg_count * 2:
+            return None
         for i in range(0, reg_count, 2):
             off  = 7 + i * 2
             hi   = (buf[off] << 8)   | buf[off+1]

@@ -71,13 +71,24 @@ def _read_lines(path):
     return path.read_text().splitlines(keepends=False)
 
 def _write_lines(path, lines):
-    # rotating one-deep backup
-    try:
+    # Back up the current file one-deep BEFORE touching it. This file is the
+    # user's gitignored, irreplaceable user_config_override.h / platformio_
+    # override.ini — if the backup can't be written we must NOT proceed to
+    # overwrite (the old code swallowed the error then overwrote anyway,
+    # destroying the only copy).
+    if path.exists():
         bak = path.with_suffix(path.suffix + '.bak')
-        bak.write_bytes(path.read_bytes())
-    except Exception:
-        pass
-    path.write_text('\n'.join(lines) + '\n')
+        try:
+            bak.write_bytes(path.read_bytes())
+        except Exception as e:
+            raise RuntimeError(f"refusing to save: backup to {bak.name} failed: {e}")
+    # Atomic write: write a temp file in the same dir, then os.replace() it
+    # over the target. A crash/kill mid-write leaves the original intact
+    # instead of a truncated config.
+    data = '\n'.join(lines) + '\n'
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(data)
+    os.replace(str(tmp), str(path))
 
 def parse_uco():
     """Return {name: {'sel_line':N, 'active':bool, 'block_start':N|None,
@@ -397,6 +408,12 @@ def _compile_worker(env_name):
             _compile_proc = None
 
 def start_compile(env_name):
+    # Mutual exclusion is symmetric with start_flash (which refuses when a
+    # compile runs). Without this check a compile launched mid-flash would
+    # _compile_log.clear() the in-progress flash log and interleave output.
+    with _flash_lock:
+        if _flash_state.get('running'):
+            return False, 'a flash is running'
     with _compile_lock:
         if _compile_state['running']:
             return False, 'already running'
