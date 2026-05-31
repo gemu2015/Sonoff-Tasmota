@@ -1,45 +1,65 @@
 #!/usr/bin/env python3
-# Serial Monitor — a browser-based console for ESP devices with a LARGE
-# scrollback history so events never scroll away. Two capture sources,
-# usable at the same time, feeding one shared ring:
+# Tasmota Workbench — a browser-based control surface for ESP / Tasmota
+# devices. One dependency-light Python server (pyserial for the serial pane;
+# stdlib sockets for everything else) serving an embedded SPA with three tabs:
 #
-#   • Serial  — a local USB/serial port (pyserial).
-#   • Syslog  — a UDP syslog listener for devices you can NOT reach
-#               physically: set Tasmota `LogHost <this-ip>` /
-#               `LogPort <port>` / `SysLog 2`; each line is tagged with
-#               the sending device's IP so several devices can be
-#               watched together.
+#   • Monitor — a large-scrollback console. Two capture sources, usable at
+#       the same time, feeding one shared ring:
+#         - Serial : a local USB/serial port (pyserial)
+#         - Syslog : a UDP syslog listener; set Tasmota
+#                    `LogHost <this-ip>` / `LogPort <port>` / `SysLog 2`;
+#                    each line is tagged with the sending device's IP.
+#   • Devices — LAN scan of Tasmota devices (CPU / build / partitions / heap),
+#               inline rename of DeviceName + Hostname, OTA-flash one or many.
+#   • Shares  — Tasmota multicast share-protocol monitor (the `g:` global-
+#               variable broadcast on 239.255.255.250:1999): live table of
+#               which device emits which global, with clash detection (same
+#               name from multiple devices) and CSV export.
 #
-# Built like the SML emulator: one dependency-light Python server
-# (pyserial only — syslog uses stdlib sockets) serving an embedded SPA.
+# Was historically called "Serial Monitor"; the name shifted as the tool
+# grew the Devices and Shares panes. Settings/launch-log paths migrated:
+# old `~/.serial_monitor.json` is auto-read for backward compat on first run.
 #
-#   Port · Baud · Syslog · Clear · Save · Quit · hex · command input
-#
-# Run:  python3 serial_monitor_server.py   (opens http://127.0.0.1:8124/)
-# or double-click "Serial Monitor.app" / "Serial Monitor.command".
+# Run:  python3 tasmota_workbench_server.py   (opens http://127.0.0.1:8124/)
+# or double-click "Tasmota Workbench.app" / "Tasmota Workbench.command".
 
 import os, sys, json, threading, time, socket, subprocess, webbrowser
-import tempfile, http.client, base64, shutil, re as _re
+import tempfile, http.client, base64, shutil, re as _re, struct
 import urllib.request, concurrent.futures
-from collections import deque
+from collections import deque, OrderedDict
 from http.server import (HTTPServer, ThreadingHTTPServer,
                           BaseHTTPRequestHandler)
 from urllib.parse import urlparse, parse_qs
 
 HTTP_PORT  = 8124
 # Big ring so events do NOT scroll away. ~200k lines ≈ tens of MB RAM;
-# override with SERIAL_MONITOR_HISTORY=<lines>.
-HISTORY    = int(os.environ.get('SERIAL_MONITOR_HISTORY', '200000'))
-# Remember the last-used port/baud across restarts.
-SETTINGS   = os.path.expanduser('~/.serial_monitor.json')
+# override with TASMOTA_WORKBENCH_HISTORY=<lines>.
+HISTORY    = int(os.environ.get('TASMOTA_WORKBENCH_HISTORY',
+                  os.environ.get('SERIAL_MONITOR_HISTORY', '200000')))
+# Remember the last-used port/baud across restarts. New canonical path;
+# read the legacy `~/.serial_monitor.json` on first run if present.
+SETTINGS        = os.path.expanduser('~/.tasmota_workbench.json')
+SETTINGS_LEGACY = os.path.expanduser('~/.serial_monitor.json')
+
+# Tasmota share-protocol multicast (Scripter/TinyC `g:` globals broadcast).
+SHARE_MCAST_GRP  = '239.255.255.250'
+SHARE_MCAST_PORT = 1999
 
 
 def _load_settings():
-    try:
-        with open(SETTINGS) as f:
-            return json.load(f) or {}
-    except Exception:
-        return {}
+    # Try canonical path first. Fall back to legacy ~/.serial_monitor.json so
+    # existing users keep their last-used port/baud after the rename. The
+    # legacy file is read-only here; the next _save_settings() writes to the
+    # canonical path so subsequent runs use the new file directly.
+    for p in (SETTINGS, SETTINGS_LEGACY):
+        try:
+            with open(p) as f:
+                d = json.load(f)
+                if isinstance(d, dict):
+                    return d
+        except Exception:
+            continue
+    return {}
 
 
 def _save_settings(**kw):
@@ -416,6 +436,212 @@ def _stop_syslog(quiet=False):
             pass
         if not quiet:
             add_line('info', f'[syslog stopped (was UDP {p})]')
+
+
+# --------------------- share-protocol monitor ----------------------
+# Tasmota's Scripter/TinyC `g:` cross-device global broadcasts (multicast
+# 239.255.255.250:1999). One line per global per packet, either
+#   name=value          (text)        OR
+#   name:<2B little-endian count><count*float32 little-endian>    (binary)
+# We bind the multicast group, capture for a user-chosen duration, decode
+# every packet, build a per-(source-IP, name) table, detect name clashes
+# (same global emitted by >1 IP), then resolve each sender's device name
+# via HTTP /cm?cmnd=DeviceName so the table reads device-friendly.
+
+share_state = {
+    'scanning': False, 'started': None, 'finished': None,
+    'duration': 0, 'progress': 0, 'packets': 0,
+    'status': 'idle', 'results': [], 'clashes': [], 'stop_flag': False,
+}
+share_lock = threading.Lock()
+
+
+def _share_parse_packet(data):
+    """Yield (name, value, ptype) tuples from one UDP datagram."""
+    text = data.decode('latin-1')
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('=>'):
+            line = line[2:]
+        eq  = line.find('=')
+        col = line.find(':')
+        if eq >= 0 and (col < 0 or eq < col):
+            yield (line[:eq], line[eq + 1:], 'ascii')
+            continue
+        if col >= 0:
+            name = line[:col]
+            idx  = data.find(line.encode('latin-1'))
+            raw  = data[idx + col + 1:] if idx >= 0 else b''
+            if len(raw) > 4:
+                alen = raw[0] | (raw[1] << 8)
+                if alen > 0 and len(raw) - 2 == alen * 4:
+                    floats = []
+                    for i in range(alen):
+                        floats.append(struct.unpack('<f', raw[2 + i*4:2 + i*4 + 4])[0])
+                    val = '[' + ', '.join(f'{f:.2f}' for f in floats[:8])
+                    if alen > 8:
+                        val += f', … ({alen} total)'
+                    val += ']'
+                    yield (name, val, f'bin float[{alen}]')
+                    continue
+            if len(raw) >= 4:
+                f = struct.unpack('<f', raw[:4])[0]
+                yield (name, f'{f:.2f}', 'bin float')
+
+
+def _share_resolve_name(ip):
+    """Best-effort DeviceName / Hostname lookup for an IP — short timeout."""
+    for cmd in ('DeviceName', 'Status%205'):
+        try:
+            with urllib.request.urlopen(f'http://{ip}/cm?cmnd={cmd}',
+                                        timeout=3) as r:
+                d = json.loads(r.read() or b'{}')
+                if cmd == 'DeviceName':
+                    n = d.get('DeviceName') or ''
+                else:
+                    n = (d.get('StatusNET') or {}).get('Hostname') or ''
+                if n:
+                    return n
+        except Exception:
+            continue
+    return ''
+
+
+def _share_worker(duration):
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
+                             socket.IPPROTO_UDP)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, 'SO_REUSEPORT'):
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except Exception:
+                pass
+        sock.bind(('', SHARE_MCAST_PORT))
+        mreq = struct.pack('4s4s',
+                           socket.inet_aton(SHARE_MCAST_GRP),
+                           socket.inet_aton('0.0.0.0'))
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        sock.settimeout(1.0)
+    except Exception as e:
+        with share_lock:
+            share_state.update({'scanning': False, 'status': f'bind failed: {e}',
+                                'finished': time.time()})
+        if sock:
+            try: sock.close()
+            except Exception: pass
+        return
+
+    seen = OrderedDict()           # (src, name) -> info dict
+    start = time.time()
+    end   = start + duration
+    while True:
+        with share_lock:
+            stop = share_state['stop_flag']
+        if stop or time.time() >= end:
+            break
+        try:
+            data, addr = sock.recvfrom(2048)
+        except socket.timeout:
+            with share_lock:
+                share_state['progress'] = min(100,
+                    int((time.time() - start) * 100.0 / max(0.001, duration)))
+            continue
+        src = addr[0]
+        now = time.time()
+        for name, val, ptype in _share_parse_packet(data):
+            key = (src, name)
+            if key in seen:
+                seen[key]['value'] = val
+                seen[key]['count'] += 1
+                seen[key]['last'] = now
+            else:
+                seen[key] = {'src': src, 'name': name, 'value': val,
+                             'type': ptype, 'count': 1,
+                             'first': now, 'last': now}
+        with share_lock:
+            share_state['packets'] += 1
+            share_state['progress'] = min(100,
+                int((time.time() - start) * 100.0 / max(0.001, duration)))
+
+    try: sock.close()
+    except Exception: pass
+
+    # Resolve device names per IP (parallel)
+    sender_ips = sorted(set(info['src'] for info in seen.values()),
+                        key=lambda ip: tuple(int(p) for p in ip.split('.')))
+    names = {}
+    if sender_ips:
+        with share_lock:
+            share_state['status'] = 'resolving device names…'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            fut = {pool.submit(_share_resolve_name, ip): ip for ip in sender_ips}
+            for f in concurrent.futures.as_completed(fut):
+                ip = fut[f]
+                try: names[ip] = f.result() or ''
+                except Exception: names[ip] = ''
+
+    # Detect clashes (same name emitted by >1 IP)
+    by_name = {}
+    for info in seen.values():
+        by_name.setdefault(info['name'], set()).add(info['src'])
+    clashes = sorted([{'name': n, 'sources': sorted(s)}
+                       for n, s in by_name.items() if len(s) > 1],
+                      key=lambda c: c['name'])
+
+    rows = []
+    for info in seen.values():
+        rows.append({'src': info['src'], 'device': names.get(info['src'], ''),
+                     'name': info['name'], 'value': info['value'],
+                     'type': info['type'], 'count': info['count'],
+                     'last_age': round(time.time() - info['last'], 1)})
+    rows.sort(key=lambda r: (r['src'], r['name']))
+
+    with share_lock:
+        share_state.update({'scanning': False, 'finished': time.time(),
+                            'status': f"done — {len(rows)} entries, "
+                                       f"{len(clashes)} clashes",
+                            'progress': 100,
+                            'results': rows, 'clashes': clashes})
+
+
+def _share_start(duration):
+    duration = max(1, min(int(duration), 600))
+    with share_lock:
+        if share_state['scanning']:
+            return False, 'already scanning'
+        share_state.update({'scanning': True, 'started': time.time(),
+                            'finished': None, 'duration': duration,
+                            'progress': 0, 'packets': 0,
+                            'status': f'scanning {duration}s…',
+                            'results': [], 'clashes': [],
+                            'stop_flag': False})
+    threading.Thread(target=_share_worker, args=(duration,),
+                     daemon=True).start()
+    return True, None
+
+
+def _share_stop():
+    with share_lock:
+        if not share_state['scanning']:
+            return False
+        share_state['stop_flag'] = True
+    return True
+
+
+def _share_csv():
+    """Return current results as CSV (utf-8 bytes) — safe to call any time."""
+    with share_lock:
+        rows = list(share_state['results'])
+    out = ['src,device,name,value,type,count,last_age_s']
+    for r in rows:
+        v = (r['value'] or '').replace('"', '""')
+        out.append(f'{r["src"]},{r["device"]},"{r["name"]}","{v}",'
+                   f'"{r["type"]}",{r["count"]},{r["last_age"]}')
+    return ('\n'.join(out) + '\n').encode('utf-8')
 
 
 # ----------------------------- flasher ------------------------------
@@ -1111,7 +1337,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  body{margin:0;font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;
       background:var(--bg);color:var(--fg);height:100vh;display:flex;
       flex-direction:column}
- #bar,#modebar,#monpanel,#devpanel{display:flex;flex-wrap:wrap;gap:8px;
+ #bar,#modebar,#monpanel,#devpanel,#sharepanel{display:flex;flex-wrap:wrap;gap:8px;
       align-items:center;padding:8px 10px;background:var(--bar);
       border-bottom:1px solid #222}
  #modebar{gap:6px}
@@ -1191,11 +1417,32 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #scantbl .rn{cursor:pointer;color:#5a6b86;margin-left:3px;
       -webkit-user-select:none;user-select:none}
  #scantbl .rn:hover{color:var(--acc)}
+ /* Share-monitor results table — same style as scan table */
+ #sharemain{flex:1;display:flex;flex-direction:column;overflow:auto;
+   padding:4px 10px;gap:6px}
+ #shclash{padding:6px 10px;border:1px solid #5a2424;background:#2c1414;
+   border-radius:4px;color:#ffb6b6;font:11px/1.5 ui-monospace,Menlo,monospace}
+ #shclash b{color:#ff8a8a}
+ #shwrap{flex:1;overflow:auto;border:1px solid #222;border-radius:6px}
+ #shtbl{border-collapse:collapse;width:100%;
+   font:11px/1.4 ui-monospace,Menlo,Consolas,monospace}
+ #shtbl th,#shtbl td{padding:3px 7px;text-align:left;
+   border-bottom:1px solid #1c2230;white-space:nowrap;vertical-align:top}
+ #shtbl th{color:var(--mut);position:sticky;top:0;background:var(--bar);
+   z-index:1;font-weight:600}
+ #shtbl tbody tr:nth-child(even){background:#12161d}
+ #shtbl tbody tr.clash{background:#2c1414}
+ #shtbl b{color:var(--fg)}
+ #shtbl td.val{color:#7ab0ff;max-width:340px;overflow:hidden;
+   text-overflow:ellipsis;white-space:nowrap}
+ #shtbl td.type{color:var(--mut);font-size:10px}
+ #shtbl td.age{color:var(--mut);text-align:right}
  #log.notime .t{display:none}
 </style></head><body>
 <div id="modebar">
   <button id="modeMon" class="tab on" title="Serial / UDP-syslog console">📟 Monitor</button>
   <button id="modeDev" class="tab" title="Scan the LAN · OTA-flash · rename devices">🔧 Devices · Scan &amp; OTA</button>
+  <button id="modeShare" class="tab" title="Tasmota multicast share-protocol monitor (239.255.255.250:1999)">🛰 Shares</button>
   <span style="width:1px;height:22px;background:#30363d;margin:0 4px"></span>
   <label title="This PC's LAN IP — used as the Tasmota LogHost target (Monitor) AND as the subnet to scan (Devices)">IP</label>
   <select id="hostip" title="this PC's LAN IP — LogHost target / scan subnet; click 📋 to copy"></select>
@@ -1283,7 +1530,24 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
       <th></th></tr></thead>
     <tbody id="scanbody"></tbody></table></div>
 </div>
+<div id="sharepanel" class="hide">
+  <label title="Listen on multicast 239.255.255.250:1999 for this many seconds">Duration</label>
+  <input id="shdur" type="number" min="1" max="600" value="30" style="width:78px">
+  <button id="shstart" class="go">Start</button>
+  <button id="shstop" class="stop hide">Stop</button>
+  <span id="shstat" style="color:var(--mut);font-size:12px"></span>
+  <progress id="shpct" max="100" value="0" class="hide" style="width:120px"></progress>
+  <span style="flex:1"></span>
+  <button id="shcsv" title="Download the current results as CSV" disabled>Export CSV</button>
+</div>
 <div id="log" class="" tabindex="0"></div>
+<div id="sharemain" class="hide">
+  <div id="shclash" class="hide"></div>
+  <div id="shwrap"><table id="shtbl">
+    <thead><tr><th>Device</th><th>IP</th><th>Global</th><th>Last value</th>
+      <th>Type</th><th>Count</th><th>Age (s)</th></tr></thead>
+    <tbody id="shbody"></tbody></table></div>
+</div>
 <div id="cmdbar">
   <input id="cmd" placeholder="type a command, Enter to send"
     autocomplete="off" disabled>
@@ -1485,18 +1749,78 @@ syslogEl.onclick=async()=>{
 };
 $('#srcck').onchange=e=>logEl.classList.toggle('nosrc',!e.target.checked);
 
-// ---- mode switch (Monitor  |  Devices · Scan & OTA) ----
+// ---- mode switch (Monitor  |  Devices · Scan & OTA  |  Shares) ----
 function setMode(m){
-  const dev=(m==='dev');
-  $('#devpanel').classList.toggle('hide',!dev);
-  $('#monpanel').classList.toggle('hide',dev);
-  $('#cmdbar').classList.toggle('hide',dev);   // command input = Monitor only
-  $('#modeMon').classList.toggle('on',!dev);
-  $('#modeDev').classList.toggle('on',dev);
+  const dev   = (m==='dev');
+  const share = (m==='share');
+  const mon   = (!dev && !share);
+  $('#monpanel').classList.toggle('hide', !mon);
+  $('#devpanel').classList.toggle('hide', !dev);
+  $('#sharepanel').classList.toggle('hide', !share);
+  $('#cmdbar').classList.toggle('hide', !mon);           // command input = Monitor only
+  $('#log').classList.toggle('hide', share);             // log area hidden under Shares
+  $('#sharemain').classList.toggle('hide', !share);      // share table only under Shares
+  $('#modeMon').classList.toggle('on',   mon);
+  $('#modeDev').classList.toggle('on',   dev);
+  $('#modeShare').classList.toggle('on', share);
   if(dev && $('#host').value.trim()) loadDevInfo();
+  if(share) sharePoll();                                  // refresh state on entry
 }
-$('#modeMon').onclick=()=>setMode('mon');
-$('#modeDev').onclick=()=>setMode('dev');
+$('#modeMon').onclick   = ()=>setMode('mon');
+$('#modeDev').onclick   = ()=>setMode('dev');
+$('#modeShare').onclick = ()=>setMode('share');
+
+// ---- share-protocol monitor ----
+function escHtml(s){return String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;');}
+let _sharePoll = null;
+async function sharePoll(){
+  try {
+    const r = await fetch('/api/share/status');
+    const s = await r.json();
+    $('#shstat').textContent = s.status || 'idle';
+    $('#shpct').classList.toggle('hide', !s.scanning);
+    $('#shpct').value = s.progress || 0;
+    $('#shstart').classList.toggle('hide',  s.scanning);
+    $('#shstop' ).classList.toggle('hide', !s.scanning);
+    $('#shcsv'  ).disabled = !(s.results && s.results.length);
+    // Clash box
+    const clash = $('#shclash');
+    if(s.clashes && s.clashes.length){
+      clash.classList.remove('hide');
+      clash.innerHTML = '<b>'+s.clashes.length+' clash(es)</b> — same global emitted by &gt;1 device: '
+        + s.clashes.map(c => escHtml(c.name)+' ('+c.sources.join(', ')+')').join('  ·  ');
+    } else { clash.classList.add('hide'); clash.textContent=''; }
+    // Rows
+    const tb = $('#shbody');
+    const clashNames = new Set((s.clashes||[]).map(c=>c.name));
+    tb.innerHTML = (s.results||[]).map(r =>
+      '<tr'+(clashNames.has(r.name)?' class="clash"':'')+'>'
+      + '<td>'+escHtml(r.device||'')+'</td>'
+      + '<td>'+escHtml(r.src)+'</td>'
+      + '<td><b>'+escHtml(r.name)+'</b></td>'
+      + '<td class="val" title="'+escHtml(r.value)+'">'+escHtml(r.value)+'</td>'
+      + '<td class="type">'+escHtml(r.type)+'</td>'
+      + '<td>'+r.count+'</td>'
+      + '<td class="age">'+r.last_age+'</td>'
+      + '</tr>').join('');
+    // Auto-repoll while scanning, then once more 1 s after done.
+    if(s.scanning) _sharePoll = setTimeout(sharePoll, 1000);
+    else { clearTimeout(_sharePoll); _sharePoll = null; }
+  } catch(e){ /* server gone — leave UI as-is */ }
+}
+$('#shstart').onclick = async ()=>{
+  const dur = Math.max(1, Math.min(600, +$('#shdur').value || 30));
+  await fetch('/api/share/start',{method:'POST',headers:{'Content-Type':'application/json'},
+                                   body:JSON.stringify({duration: dur})});
+  sharePoll();
+};
+$('#shstop').onclick  = async ()=>{
+  await fetch('/api/share/stop',{method:'POST'});
+  sharePoll();
+};
+$('#shcsv').onclick   = ()=>{ window.location = '/api/share/csv'; };
 
 // ---- flasher ----
 fmodeEl.onchange=()=>{
@@ -1919,6 +2243,15 @@ class H(BaseHTTPRequestHandler):
                        'text/plain; charset=utf-8',
                        {'Content-Disposition':
                         f'attachment; filename="{fn}"'})
+        elif path == '/api/share/status':
+            with share_lock:
+                self._json(dict(share_state))
+        elif path == '/api/share/csv':
+            fn = time.strftime('shares-%Y%m%d-%H%M%S.csv')
+            self._send(200, _share_csv(),
+                       'text/csv; charset=utf-8',
+                       {'Content-Disposition':
+                        f'attachment; filename="{fn}"'})
         else:
             self._send(404, b'not found', 'text/plain')
 
@@ -2058,6 +2391,12 @@ class H(BaseHTTPRequestHandler):
         elif path == '/api/clear':
             with state_lock:
                 log_buf.clear()
+            self._json({'ok': True})
+        elif path == '/api/share/start':
+            ok, err = _share_start(body.get('duration', 30))
+            self._json({'ok': ok, 'error': err})
+        elif path == '/api/share/stop':
+            _share_stop()
             self._json({'ok': True})
         elif path == '/api/quit':
             self._json({'ok': True})

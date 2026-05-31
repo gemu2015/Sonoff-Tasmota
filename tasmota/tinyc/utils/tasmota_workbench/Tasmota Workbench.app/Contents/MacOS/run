@@ -1,25 +1,25 @@
 #!/bin/bash
-# macOS .app launcher for the Serial Monitor. Double-click in Finder
+# macOS .app launcher for Tasmota Workbench. Double-click in Finder
 # (no Terminal window).
 #
 # WHY THE SERVER IS BUNDLED INSIDE THE .app:
 # Modern macOS (TCC privacy) blocks a Finder-launched unsigned app from
 # reading ~/Desktop, ~/Documents, ~/Downloads. This repo lives under
-# ~/Desktop, so running the repo's serial_monitor_server.py directly
+# ~/Desktop, so running the repo's tasmota_workbench_server.py directly
 # fails with "[Errno 1] Operation not permitted" and the app appears to
 # do nothing. An app reading files INSIDE ITS OWN BUNDLE is exempt, so
-# the server is shipped at Contents/Resources/serial_monitor_server.py
+# the server is shipped at Contents/Resources/tasmota_workbench_server.py
 # and run from there. (Same approach the SML Emulator .app uses.)
 # Refresh the bundled copy with sync_app.command after editing the
-# canonical serial_monitor_server.py.
+# canonical tasmota_workbench_server.py.
 export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
-LOG="${HOME}/Library/Logs/SerialMonitor-launch.log"
+LOG="${HOME}/Library/Logs/TasmotaWorkbench-launch.log"
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 echo "=== $(date '+%F %T') launch: \$0=$0 cwd=$(pwd) ===" >>"$LOG"
 
 die() {                       # die "message"
     echo "FATAL: $1" >>"$LOG"
-    /usr/bin/osascript -e "display alert \"Serial Monitor\" message \"$1\"" >>"$LOG" 2>&1
+    /usr/bin/osascript -e "display alert \"Tasmota Workbench\" message \"$1\"" >>"$LOG" 2>&1
     exit 1
 }
 
@@ -34,10 +34,10 @@ echo "RES=$RES UTIL=$UTIL" >>"$LOG"
 # TCC-protected Desktop). Fall back to the repo copy for the rare case
 # the app sits outside a protected folder.
 SERVER=""
-[ -f "${RES}/serial_monitor_server.py" ]  && SERVER="${RES}/serial_monitor_server.py"
-[ -z "$SERVER" ] && [ -f "${UTIL}/serial_monitor_server.py" ] && \
-    SERVER="${UTIL}/serial_monitor_server.py"
-[ -n "$SERVER" ] || die "serial_monitor_server.py not found in the app bundle. Re-run sync_app.command."
+[ -f "${RES}/tasmota_workbench_server.py" ]  && SERVER="${RES}/tasmota_workbench_server.py"
+[ -z "$SERVER" ] && [ -f "${UTIL}/tasmota_workbench_server.py" ] && \
+    SERVER="${UTIL}/tasmota_workbench_server.py"
+[ -n "$SERVER" ] || die "tasmota_workbench_server.py not found in the app bundle. Re-run sync_app.command."
 
 PYTHON=""
 for p in /usr/local/bin/python3 /opt/homebrew/bin/python3 /usr/bin/python3; do
@@ -50,5 +50,5 @@ cd "$RES" 2>/dev/null || cd /tmp
 "$PYTHON" "$SERVER" >>"$LOG" 2>&1
 rc=$?
 echo "=== server exited rc=$rc ===" >>"$LOG"
-[ $rc -eq 0 ] || die "Serial Monitor stopped (exit $rc). See ${LOG}."
+[ $rc -eq 0 ] || die "Tasmota Workbench stopped (exit $rc). See ${LOG}."
 exit 0

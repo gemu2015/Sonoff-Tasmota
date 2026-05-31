@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Tasmota Workbench
+Comment=Browser SPA: serial/syslog console + LAN scan/OTA + UDP-share monitor
+Exec=bash -c 'cd "$(dirname "$(readlink -f %k)")" && exec python3 tasmota_workbench_server.py'
+Terminal=false
+Categories=Development;Utility;
+Keywords=tasmota;esp;serial;syslog;ota;monitor;workbench;
