@@ -1,0 +1,100 @@
+// Matter Home — Alexa edition (slimmed bridge).
+//
+// Amazon Alexa rejects a large Matter bridge with RN002 during "getting device
+// ready": the full matter_home_bridge.tc (11 endpoints / ~561 attribute paths)
+// is more than Alexa will interrogate over a single-core ESP32-C3, even though
+// the device serves it all correctly. This curated 5-endpoint variant stays
+// well under that limit and exposes the controllable lights + the most useful
+// sensors. Apple Home / Google Home users should use matter_home_bridge.tc
+// (the full set); this file is for Alexa.
+//
+// Requires the Groups/ColorControl matter_c build (Alexa needs the mandatory
+// Groups 0x0004 cluster + ColorControl base attrs, served by firmware).
+//
+//   OUT (controller -> global -> auto-broadcast to the real devices)
+//     Licht     colour light -> mh_pwr / mh_hue / mh_sat / mh_bri
+//     Ecklicht  switch        -> elamp
+//   IN  (global auto-updated by other Scripter devices -> Matter sensor)
+//     Aussen        temperature      -> atmp
+//     Wohnzimmer    temp + humidity  -> wtemp / whumi
+
+global float mh_pwr; global float mh_hue; global float mh_sat; global float mh_bri;   // OUT: Licht
+global float elamp;                                                                   // OUT: Ecklicht
+global float atmp;                                                                    // IN: outside
+global float wtemp; global float whumi;                                               // IN: Wohnzimmer
+
+int licht; int ecklicht;
+int e_atmp; int e_wtemp; int e_whumi;
+int tick;
+
+// A Matter controller changed a writable accessory. Assigning a `global`
+// auto-broadcasts it to the real light. Matter stores hue/sat/level 0..254;
+// convert to the HomeKit ranges the remote light expects (hue 0..360, %0..100).
+void MatterInvoke(int e, int cluster, int cmd) {
+    if (e == licht) {
+        if (cluster == CLUSTER_ONOFF) { mh_pwr = matterGet(licht, CLUSTER_ONOFF, 0); }
+        if (cluster == CLUSTER_LEVEL) {
+            mh_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+            mh_bri = (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254;
+        }
+        if (cluster == 0x0300) {
+            mh_hue = (matterGet(licht, 0x0300, 0) * 360) / 254;
+            mh_sat = (matterGet(licht, 0x0300, 1) * 100) / 254;
+        }
+        return;
+    }
+    if (e == ecklicht) {
+        if (cluster == CLUSTER_ONOFF) { elamp = matterGet(ecklicht, CLUSTER_ONOFF, 0); }
+        return;
+    }
+}
+
+void EverySecond() {
+    tick = tick + 1;
+    if (tick % 5 == 0) {                                  // received globals -> Matter attrs
+        matterSetFloat(e_atmp,  CLUSTER_TEMP, 0, atmp,  100);
+        matterSetFloat(e_wtemp, CLUSTER_TEMP, 0, wtemp, 100);
+        matterSetFloat(e_whumi, CLUSTER_HUM,  0, whumi, 100);
+    }
+}
+
+void WebCall() {
+    char b[80];
+    sprintf(b, "{s}<b>Licht</b>{m}%d%%{e}", (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254); webSend(b);
+    sprintf(b, "{s}Aussentemperatur{m}%.1f C{e}", atmp);   webSend(b);
+    sprintf(b, "{s}Wohnzimmer Temp{m}%.1f C{e}",  wtemp);  webSend(b);
+    sprintf(b, "{s}Wohnzimmer Feuchte{m}%.0f %%{e}", whumi); webSend(b);
+}
+
+int add_temp() {
+    int e; e = matterAdd(MATTER_TEMP_SENSOR);
+    matterCluster(e, CLUSTER_TEMP); matterAttr(e, CLUSTER_TEMP, 0, MTR_S16);   // signed: outside < 0
+    return e;
+}
+
+int main() {
+    tick = 0;
+    matterReset();
+
+    // OUT: colour light (Licht)
+    licht = matterAdd(MATTER_COLOR_LIGHT);
+    matterCluster(licht, CLUSTER_ONOFF); matterAttr(licht, CLUSTER_ONOFF, 0, MTR_BOOL);
+    matterCluster(licht, CLUSTER_LEVEL); matterAttr(licht, CLUSTER_LEVEL, 0, MTR_U8);
+    matterCluster(licht, 0x0300); matterAttr(licht, 0x0300, 0, MTR_U8); matterAttr(licht, 0x0300, 1, MTR_U8);
+    matterSet(licht, CLUSTER_LEVEL, 0, 254);
+    matterName(licht, "Licht");
+
+    // OUT: corner lamp (Ecklicht)
+    ecklicht = matterAdd(MATTER_ONOFF_LIGHT);
+    matterName(ecklicht, "Ecklicht");
+
+    // IN: a few key sensors
+    e_atmp  = add_temp();                       matterName(e_atmp,  "Aussentemperatur");
+    e_wtemp = add_temp();                       matterName(e_wtemp, "Wohnzimmer Temp");
+    e_whumi = matterAdd(MATTER_HUM_SENSOR);
+    matterCluster(e_whumi, CLUSTER_HUM); matterAttr(e_whumi, CLUSTER_HUM, 0, MTR_U16);
+    matterName(e_whumi, "Wohnzimmer Feuchte");
+
+    matterStart();                                   // Matter on; Bind on /mt to pair
+    return 0;
+}
