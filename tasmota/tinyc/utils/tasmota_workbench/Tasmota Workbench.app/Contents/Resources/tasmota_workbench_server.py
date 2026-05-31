@@ -1435,14 +1435,19 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #shtbl tbody tr.grp-start:first-child{border-top:0}
  #shtbl tbody tr.clash{background:#2c1414}
  #shtbl tbody tr:not(.clash):hover{background:#1b2230}
- #shtbl b{color:var(--fg)}
+ /* Eye-flow per row (left to right):
+    [src-color stripe] · device/IP (src-color) · GLOBAL NAME (warm gold,
+    the headline) · last value (sky blue) · type/count/age (legible
+    mid-tones, not graveyard grey). */
+ #shtbl b{color:#facc15;font-weight:600}                 /* Global name — warm gold */
  #shtbl td.dev{font-weight:600;max-width:160px;overflow:hidden;
    text-overflow:ellipsis;white-space:nowrap}
  #shtbl td.src{font-family:ui-monospace,Menlo,Consolas,monospace}
  #shtbl td.val{color:#7ab0ff;max-width:340px;overflow:hidden;
    text-overflow:ellipsis;white-space:nowrap}
- #shtbl td.type{color:var(--mut);font-size:10px}
- #shtbl td.age{color:var(--mut);text-align:right}
+ #shtbl td.type{color:#9aa9bf;font-size:10px}            /* was var(--mut) #7a8aa0 — too low contrast */
+ #shtbl td.cnt {color:#b8c2d4;text-align:right}          /* mid-tone, readable but subordinate */
+ #shtbl td.age {color:#b8c2d4;text-align:right}
  #log.notime .t{display:none}
 </style></head><body>
 <div id="modebar">
@@ -1824,7 +1829,7 @@ async function sharePoll(){
         + '<td><b>'+escHtml(r.name)+'</b></td>'
         + '<td class="val" title="'+escHtml(r.value)+'">'+escHtml(r.value)+'</td>'
         + '<td class="type">'+escHtml(r.type)+'</td>'
-        + '<td>'+r.count+'</td>'
+        + '<td class="cnt">'+r.count+'</td>'
         + '<td class="age">'+r.last_age+'</td>'
         + '</tr>';
     }).join('');
