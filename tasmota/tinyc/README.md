@@ -2,9 +2,18 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-> **Current firmware: v1.6.14** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to the [`testing` GitHub release](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing).
+> **Current firmware: v1.6.28** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to the [`testing` GitHub release](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing). The full per-version changelog lives in the `TC_RELEASE` comment in `tasmota/include/xdrv_124_tinyc_vm.h`.
 
-## What's new in v1.6.14
+## What's new (v1.6.28 highlights)
+
+- **Update the IDE from the console** — new `TinyCIde` command + an **Update IDE** button on the TinyC Console (`/tc`) fetch the latest `tinyc_ide.html.gz` from the repository and replace the served IDE on the device — no file manager needed. See [Updating the IDE from the console](#updating-the-ide-from-the-console-no-file-manager).
+- **Matter, pure-C (`matter_c`)** — a from-scratch Matter 1.4 stack (no Berry, no HomeKit): define the device in a `.tc` script (`matterAdd` / `matterSetFloat` / `matterName`) and pair from the `/mt` web page. Sensors, plugs, lights (incl. RGB/CCT), power meter, air quality. **Works on Apple Home, Google Home AND Amazon Alexa** — including the full mixed actuators+sensors bridge on one node. See `examples/matter_*.tc`.
+- **ESP32-S3 Mini support** — a build for the 4 MB-flash / 2 MB **quad-PSRAM** S3 module (e.g. Lolin/Wemos S3 Mini, chip ESP32-S3FH4R2); a compact dual-core Matter host. See [TinyC_Custom_Builds.md](TinyC_Custom_Builds.md).
+- **Bluetooth LE scripting** (`USE_TINYC_BLE`) — `bleScan` + a GATT client (`bleTarget` / `bleReadStart` / …); reads e.g. an Etekcity ESF37 body-composition scale. See `examples/ble_scan.tc`.
+- **eBUS active master** (`USE_SML_EBUS_MASTER`, xsns_53) — query non-broadcast eBUS values via `smlWrite`, with adapter-delegated arbitration.
+- **Tasmota Workbench** — the Mac/Windows/Linux companion tool (`utils/tasmota_workbench/`): a serial + UDP-syslog monitor, a LAN device scanner with **per-device sensor + relay/lamp detection**, an OTA flasher, and a multicast-share monitor.
+
+## Earlier — What's new in v1.6.14
 
 - **DMX512 TX via RMT** — `dmxInit(gpio)` (single GPIO, no UART consumed). Frame built as `rmt_symbol_word_t[]` and pushed through `rmt_new_tx_channel` + copy encoder at 1 MHz — hardware-clocked BREAK/MAB/250 kbaud, no busy-wait, all UARTs stay free for SML/Modbus/`tc_serial`. 30 s watchdog forces all-zero so a dimmer can safe-off. See `examples/dmx_dimmer_panel.tc`.
 - **Boot-loop false-positive fix (1.6.11)** — rapid back-to-back `Restart 1`s no longer leave the four slots marked `autoexec=0`. Real PANIC/WDT/BROWNOUT loops still trip the protection.
@@ -37,10 +46,29 @@ Add the following to your `user_config_override.h`:
 
 After compiling and flashing Tasmota, upload the IDE file to the device filesystem:
 
-1. Run `bash bundle.sh` to generate `tinyc_ide.html.gz`
+1. Grab `tinyc_ide.html.gz` from the [`testing` release](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) (or run `bash bundle.sh` to build it)
 2. Upload `tinyc_ide.html.gz` to the device via **Consoles > Manage File System** (or `http://<device-ip>/ufsd`)
-3. Open `http://<device-ip>/tinyc_ide.html` in a browser
+3. Open the **TinyC Console** at `http://<device-ip>/tc` and click **Open IDE** (the IDE is served on a background task, port 82 on ESP32)
 4. Write code, press **Ctrl+Enter** to compile, **Ctrl+Shift+Enter** to run
+
+The TinyC Console (`/tc`) is the per-device control page — VM slots, load/upload bytecode, and the IDE buttons:
+
+![TinyC Console — Open IDE / Update IDE](docs/img/tinyc_console.png)
+
+### Updating the IDE from the console (no file manager)
+
+Once the IDE is on the device you can update it to the latest repo build straight from the **TinyC Console** — no file manager, no PC. Click **Update IDE**, or run:
+
+```
+TinyCIde            # fetch the latest tinyc_ide.html.gz from the repo
+TinyCIde <url>      # …or from a specific URL (e.g. a branch / self-hosted build)
+```
+
+It downloads `tinyc_ide.html.gz`, validates it (gzip magic + size), then atomically replaces the served IDE — a failed or truncated download keeps the old one. (The ~190 KB write briefly pauses running scripts.)
+
+The browser IDE itself — editor, compile/run, disassembly / AST / hex / VM-state views, and the device bar (IP · slot · upload · run-on-device):
+
+![TinyC browser IDE](docs/img/tinyc_ide.png)
 
 ## Language
 
@@ -127,6 +155,7 @@ Callbacks run automatically from Tasmota's main loop:
 | `TinyCReset [s]` | Reset slot s (default 0) |
 | `TinyCExec <n>` | Set instructions per tick (default 1000) |
 | `TinyCInfo 0\|1` | Show/hide VM status rows on main page |
+| `TinyCIde [url]` | Update the browser IDE from the repo (or a given URL) — downloads + atomically replaces `/tinyc_ide.html.gz`, no file manager needed (needs `USE_UFILESYS`) |
 | `TinyCChkpt` | Show partition table (ESP32 only) |
 | `TinyCChkpt p` | Auto-resize app partition to fit firmware, expand filesystem. **Warning: filesystem is formatted!** |
 | `TinyCChkpt p <KB>` | Set app partition to specific size in KB |

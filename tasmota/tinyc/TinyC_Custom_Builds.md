@@ -177,6 +177,43 @@ lib_extra_dirs          = ${common.lib_extra_dirs}
                           lib/libesp32_div
 ```
 
+### ESP32-S3 Mini (4MB flash, 2MB quad PSRAM) — Matter host
+
+The small dual-core S3 module (e.g. Lolin/Wemos S3 Mini, chip **ESP32-S3FH4R2**:
+4 MB flash + 2 MB **quad/QSPI** PSRAM). A compact Matter host — dual-core + PSRAM
+(so `matter_ctx` offloads to PSRAM, freeing internal DRAM) in the footprint of a
+classic ESP32. Native USB-CDC console (single USB-C port).
+
+Key differences from the 16 MB S3 build: the `qio_qspi` board selects **quad**
+PSRAM — **not** the `qio_opi` (octal) used by larger S3s; octal mode would fail
+PSRAM init and boot-loop. The partition is overridden to the 4 MB `app1856k`
+layout (Matter fits at ~81 %) so the 1.3 MB filesystem holds the IDE + scripts +
+Matter fabric store. **No camera, no BLE** — 4 MB can't fit Matter + either.
+
+```ini
+[env:tinyc32s3-mini]
+extends                 = env:tasmota32_base
+board                   = esp32s3-qio_qspi          ; quad PSRAM (NOT qio_opi/octal)
+board_build.f_cpu       = 240000000L
+board_build.mcu         = esp32s3
+board_build.partitions  = partitions/esp32_partition_app1856k_fs1344k.csv
+build_flags             = ${env:tinyc_base.build_flags}
+                          -DTINYC_MATTER -DMTRC_ATTEST_TEST_CREDS
+build_unflags           = -DTINYC_HOMEKIT
+lib_ignore              = ${env:tasmota32_base.lib_ignore}
+                          TTGO TWatch Library
+                          Micro-RTSP
+                          epdiy
+                          esp32-camera
+lib_extra_dirs          = ${common.lib_extra_dirs}
+                          lib/libesp32
+                          lib/libesp32_div
+```
+
+First flash over the single USB-C port (native USB): `esptool ... write_flash
+0x0 .pio/build/tinyc32s3-mini/firmware.factory.bin`. Updates: OTA via the
+safeboot flow (`GET /u4?u4=fct&api=1` → poll `true` → POST `firmware.bin` to `/u2`).
+
 ### ESP32-C3 (4MB) — no Camera
 
 RISC-V single-core. Camera library not available (requires Xtensa).

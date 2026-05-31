@@ -4704,14 +4704,19 @@ int main() {
 3. Pair with any on-network Matter controller (chip-tool, Apple Home, …);
    the commissioning info is shown at `http://<device>/mt`
 
-> Status: the data-model scripting API (`matter*`) and the `MatterInvoke`
-> command callback are live and device-verified. The CSA reference controller
-> **chip-tool fully commissions** the device over IPv6 (PASE → attestation →
-> CSR → AddNOC → CASE) and the fabric persists across reboots. Operational
-> discovery is advertised under `_matter._tcp` per spec. Full pairing with the
-> commercial controllers (Apple Home / Google / Alexa) is still being hardened
-> (multi-fabric / concurrent operational sessions). The Bind/Unbind buttons and
-> on-device QR live at `http://<device>/mt`.
+> Status: device-verified across all three major ecosystems. The data-model
+> scripting API (`matter*`) and the `MatterInvoke` callback are live; the CSA
+> reference controller **chip-tool**, **Apple Home**, **Google Home**, and
+> **Amazon Alexa** all commission and control the node over IPv6 (PASE →
+> attestation → CSR → AddNOC → CASE), with the fabric persisting across reboots.
+> Operational discovery is advertised under `_matter._tcp` per spec, and
+> multi-fabric / concurrent operational sessions are supported.
+>
+> As of **v1.6.28 the full mixed actuators + sensors bridge** (`matter_home_bridge.tc`)
+> **commissions and controls on Alexa too**, on one node — earlier guidance to
+> split a node into a separate lights node + sensors node for Alexa is **obsolete**
+> (that limit was a stale-firmware false negative; a verified-fresh flash pairs the
+> full bridge). Bind/Unbind + the on-device QR live at `http://<device>/mt`.
 
 #### Predefined File Constants
 
@@ -5006,6 +5011,7 @@ All commands default to slot 0 if no slot number is given (backward-compatible).
 | `TinyCReset [slot]`           | Stop and reset slot                              |
 | `TinyCExec <n>`               | Set instructions per tick (default 1000)         |
 | `TinyCInfo 0\|1`              | Show/hide VM debug rows on main web page         |
+| `TinyCIde [url]`              | Update the browser IDE from the repo (or a URL); replaces `/tinyc_ide.html.gz`, no file manager (needs `USE_UFILESYS`) |
 | `TinyC ?<query>`              | Query global variables by index (see below)      |
 | `TinyCChkpt`                  | Show partition table (ESP32 only)                |
 | `TinyCChkpt p`                | Pack: shrink `app0` to fit, expand `spiffs`      |

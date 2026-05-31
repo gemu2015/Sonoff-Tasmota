@@ -12,8 +12,9 @@ Three tabs:
   (serial port via `pyserial` + UDP syslog from devices over WiFi), with
   one shared ring so timeline cause-and-effect is obvious.
 - **🔧 Devices · Scan & OTA** — LAN scan of Tasmota devices (CPU family /
-  firmware build / partitions / heap), inline rename of `DeviceName` and
-  `Hostname`, OTA-flash one or many devices.
+  firmware build / partitions / heap), **per-device sensor + relay/lamp
+  detection**, inline rename of `DeviceName` and `Hostname`, OTA-flash one
+  or many devices.
 - **🛰 Shares** — Tasmota multicast share-protocol monitor (the
   Scripter/TinyC `g:` global-variable broadcast on
   `239.255.255.250:1999`). Live table of which device emits which global,
@@ -75,11 +76,30 @@ one your devices should send to.
   Scan**), type a `WebPassword` if one is set, **Flash**.
 - For Serial: pick the port, baud, offset (auto-detected from the bin);
   optional **erase** before flashing.
-- The scan table is sortable and colour-coded by CPU family. Each device
-  row shows IP · Name · Hostname · CPU · Tasmota build · Flash · Free
-  heap · Partitions. The IP is a clickable link to the device's web UI.
+- The scan table is colour-coded by CPU family. Each device row shows
+  IP · Name · Hostname · CPU · Tasmota build · Flash · Free heap ·
+  **Sensors / Outputs** · Partitions. The IP is a clickable link to the
+  device's web UI.
+- **Sensors / Outputs** — the scan also reads each device's `Status 10`
+  (`StatusSNS`) and `Status 11` (`StatusSTS`) and shows what it exposes,
+  as colour-coded pills:
+  - 🔵 **sensors** — temperature · humidity · pressure · illuminance ·
+    CO₂ · VOC · PM1/2.5/10 · CO, plus electrical voltage/current/power/
+    energy. Each is classified into a Matter sensor type and a
+    `Sensor#Attribute` filter path (the scheme Matter HTTP bridges use),
+    so the data is ready to bridge an ESP as a remote sensor.
+  - 🟠 **relays** — `⏻ relay ×N` (and how many are on), from
+    `POWER`/`POWER1…n`.
+  - 🟢 **lamps** — `💡 lamp·RGB 80%` etc., classified by channel count
+    into on/off · dim · CCT · RGB · RGBW · RGBCCT. A light consumes one
+    `POWER` output, so a bulb shows just the lamp and a relay+LED device
+    splits cleanly.
+  - Hover any cell for the full list with live values
+    (`BME280#Temperature = 22.4 °C`, `POWER1 = ON`, …).
 - Inline rename via the ✎ icon on Name (`DeviceName`) or Hostname
   (Hostname + Restart).
+
+![Devices scan with per-device sensor + relay/lamp detection](../../docs/img/workbench_scanner.png)
 
 ESP32-S3/C3 quirks: on those boards, prefer the **USB JTAG/serial debug
 unit** port. If `Failed to write to target RAM / Checksum error` appears,

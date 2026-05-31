@@ -3726,15 +3726,21 @@ int main() {
 3. Mit einem beliebigen On-Network-Matter-Controller koppeln (chip-tool,
    Apple Home, …); die Kopplungsinfo wird unter `http://<Geraet>/mt` angezeigt
 
-> Status: die Datenmodell-Skripting-API (`matter*`) und der `MatterInvoke`-
-> Befehls-Callback sind aktiv und am Geraet verifiziert. Der CSA-Referenz-
-> Controller **chip-tool koppelt vollstaendig** ueber IPv6 (PASE → Attestation
-> → CSR → AddNOC → CASE), und die Fabric bleibt ueber Neustarts erhalten. Die
-> operative Discovery wird spezifikationskonform unter `_matter._tcp`
-> beworben. Die vollstaendige Kopplung mit den kommerziellen Controllern
-> (Apple Home / Google / Alexa) wird noch gehaertet (Multi-Fabric / mehrere
-> gleichzeitige operative Sessions). Die Bind/Unbind-Buttons und der
-> On-Device-QR liegen unter `http://<Geraet>/mt`.
+> Status: an allen drei grossen Ecosystemen am Geraet verifiziert. Die
+> Datenmodell-Skripting-API (`matter*`) und der `MatterInvoke`-Callback sind
+> aktiv; der CSA-Referenz-Controller **chip-tool**, **Apple Home**, **Google
+> Home** und **Amazon Alexa** koppeln und steuern den Knoten ueber IPv6 (PASE →
+> Attestation → CSR → AddNOC → CASE), und die Fabric bleibt ueber Neustarts
+> erhalten. Die operative Discovery wird spezifikationskonform unter
+> `_matter._tcp` beworben; Multi-Fabric / mehrere gleichzeitige operative
+> Sessions werden unterstuetzt.
+>
+> Seit **v1.6.28 koppelt und steuert die volle gemischte Bridge** (Aktoren +
+> Sensoren, `matter_home_bridge.tc`) **auch unter Alexa**, auf einem Knoten —
+> der fruehere Rat, fuer Alexa in einen Lampen-Knoten + einen Sensor-Knoten zu
+> teilen, ist **hinfaellig** (das war ein False-Negative durch veraltete
+> Firmware; ein frisch verifizierter Flash koppelt die volle Bridge). Die
+> Bind/Unbind-Buttons und der On-Device-QR liegen unter `http://<Geraet>/mt`.
 
 #### Vordefinierte Datei-Konstanten
 
@@ -3850,6 +3856,7 @@ Alle Befehle verwenden standardmaessig Slot 0, wenn keine Slot-Nummer angegeben 
 | `TinyCReset [slot]`           | Slot stoppen und zuruecksetzen                   |
 | `TinyCExec <n>`               | Instruktionen pro Tick setzen (Standard 1000)    |
 | `TinyCInfo 0\|1`              | VM-Debug-Zeilen auf Hauptseite ein-/ausblenden   |
+| `TinyCIde [url]`              | Browser-IDE aus dem Repo (oder einer URL) aktualisieren; ersetzt `/tinyc_ide.html.gz`, kein Dateimanager (benoetigt `USE_UFILESYS`) |
 | `TinyC ?<abfrage>`            | Globale Variablen per Index abfragen (siehe unten)|
 
 **Beispiele:**

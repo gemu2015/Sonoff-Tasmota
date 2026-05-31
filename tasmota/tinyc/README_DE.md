@@ -2,9 +2,18 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
-> **Aktuelle Firmware: v1.6.14** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen am [`testing`-Release auf GitHub](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing).
+> **Aktuelle Firmware: v1.6.28** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen am [`testing`-Release auf GitHub](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing). Das vollstaendige Changelog pro Version steht im `TC_RELEASE`-Kommentar in `tasmota/include/xdrv_124_tinyc_vm.h`.
 
-## Was ist neu in v1.6.14
+## Was ist neu (Highlights v1.6.28)
+
+- **IDE aus der Konsole aktualisieren** — neuer Befehl `TinyCIde` + ein **Update-IDE**-Button in der TinyC-Konsole (`/tc`) laden das aktuelle `tinyc_ide.html.gz` aus dem Repository und ersetzen die auf dem Geraet ausgelieferte IDE — ohne Dateimanager. Siehe [IDE aus der Konsole aktualisieren](#ide-aus-der-konsole-aktualisieren-ohne-dateimanager).
+- **Matter in reinem C (`matter_c`)** — ein von Grund auf neuer Matter-1.4-Stack (kein Berry, kein HomeKit): das Geraet wird in einem `.tc`-Script definiert (`matterAdd` / `matterSetFloat` / `matterName`), gekoppelt wird ueber die `/mt`-Webseite. Sensoren, Steckdosen, Lampen (inkl. RGB/CCT), Energiezaehler, Luftqualitaet. **Funktioniert mit Apple Home, Google Home UND Amazon Alexa** — inkl. der vollen gemischten Bridge (Aktoren + Sensoren) auf einem Knoten. Siehe `examples/matter_*.tc`.
+- **ESP32-S3-Mini-Unterstuetzung** — Build fuer das S3-Modul mit 4 MB Flash / 2 MB **Quad-PSRAM** (z. B. Lolin/Wemos S3 Mini, Chip ESP32-S3FH4R2); ein kompakter Dual-Core-Matter-Host. Siehe [TinyC_Custom_Builds.md](TinyC_Custom_Builds.md).
+- **Bluetooth-LE-Scripting** (`USE_TINYC_BLE`) — `bleScan` + GATT-Client (`bleTarget` / `bleReadStart` / …); liest z. B. eine Etekcity-ESF37-Koerperfettwaage. Siehe `examples/ble_scan.tc`.
+- **eBUS-Active-Master** (`USE_SML_EBUS_MASTER`, xsns_53) — nicht-gebroadcastete eBUS-Werte via `smlWrite` abfragen, Arbitrierung vom Adapter erledigt.
+- **Tasmota Workbench** — das Begleit-Tool fuer Mac/Windows/Linux (`utils/tasmota_workbench/`): serieller + UDP-Syslog-Monitor, LAN-Geraetescanner mit **Sensor- und Relais/Lampen-Erkennung pro Geraet**, OTA-Flasher und Multicast-Share-Monitor.
+
+## Frueher — Was war neu in v1.6.14
 
 - **DMX512-TX via RMT** — `dmxInit(gpio)` (ein GPIO, kein UART belegt). Der Frame wird als `rmt_symbol_word_t[]` aufgebaut und ueber `rmt_new_tx_channel` + Copy-Encoder mit 1 MHz hardware-getaktet ausgegeben (BREAK/MAB/250 kBaud, kein Busy-Wait). Alle UARTs bleiben frei fuer SML/Modbus/`tc_serial`. 30-Sekunden-Watchdog zwingt auf Null, damit ein Heizstab-Dimmer sicher abschalten kann. Siehe `examples/dmx_dimmer_panel.tc`.
 - **Boot-Loop-False-Positive-Fix (1.6.11)** — schnelle `Restart 1`-Folgen markieren die vier Slots nicht mehr faelschlich als `autoexec=0`. Echte PANIC/WDT/BROWNOUT-Loops loesen die Schutzlogik weiterhin aus.
@@ -25,9 +34,28 @@ In `user_config_override.h` hinzufuegen:
 
 ## Schnellstart
 
-1. `tinyc_ide.html.gz` auf das Flash-Dateisystem des Geraets hochladen
-2. `http://<geraete-ip>/tinyc_ide.html` im Browser oeffnen
+1. `tinyc_ide.html.gz` auf das Flash-Dateisystem des Geraets hochladen (Konsolen > Dateisystem verwalten, oder `http://<geraete-ip>/ufsd`)
+2. Die **TinyC-Konsole** unter `http://<geraete-ip>/tc` oeffnen und **Open IDE** klicken (die IDE wird auf einem Hintergrund-Task ausgeliefert, Port 82 auf ESP32)
 3. Code schreiben, **Ctrl+Enter** zum Kompilieren, **Ctrl+Shift+Enter** zum Ausfuehren
+
+Die TinyC-Konsole (`/tc`) ist die Steuerseite pro Geraet — VM-Slots, Bytecode laden/hochladen und die IDE-Buttons:
+
+![TinyC-Konsole — Open IDE / Update IDE](docs/img/tinyc_console.png)
+
+### IDE aus der Konsole aktualisieren (ohne Dateimanager)
+
+Sobald die IDE auf dem Geraet liegt, laesst sie sich direkt aus der **TinyC-Konsole** auf den neuesten Repo-Stand aktualisieren — ohne Dateimanager, ohne PC. **Update IDE** klicken, oder:
+
+```
+TinyCIde            # neuestes tinyc_ide.html.gz aus dem Repo holen
+TinyCIde <url>      # …oder von einer bestimmten URL (z. B. ein Branch-Build)
+```
+
+Es laedt `tinyc_ide.html.gz`, prueft es (gzip-Magic + Groesse) und ersetzt die ausgelieferte IDE atomar — ein fehlgeschlagener Download behaelt die alte. (Der ~190-KB-Schreibvorgang pausiert laufende Scripts kurz.)
+
+Die Browser-IDE selbst — Editor, Kompilieren/Ausfuehren, Disassembly/AST/Hex/VM-State-Ansichten und die Geraeteleiste (IP · Slot · Upload · Run-on-Device):
+
+![TinyC-Browser-IDE](docs/img/tinyc_ide.png)
 
 ## Sprache
 
@@ -119,6 +147,7 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 | `TinyCReset [s]` | Slot s zuruecksetzen (Standard 0) |
 | `TinyCExec <n>` | Instruktionen pro Tick setzen (Standard 1000) |
 | `TinyCInfo 0\|1` | VM-Statuszeilen auf Hauptseite ein-/ausblenden |
+| `TinyCIde [url]` | Browser-IDE aus dem Repo (oder einer URL) aktualisieren — ersetzt `/tinyc_ide.html.gz`, kein Dateimanager noetig (benoetigt `USE_UFILESYS`) |
 | `TinyCChkpt` | Partitionstabelle anzeigen (nur ESP32) |
 | `TinyCChkpt p` | App-Partition automatisch verkleinern, Dateisystem vergroessern. **Achtung: Dateisystem wird formatiert!** |
 | `TinyCChkpt p <KB>` | App-Partition auf bestimmte Groesse in KB setzen |
