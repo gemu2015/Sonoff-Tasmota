@@ -1218,6 +1218,121 @@ def _status(host, cmnd, user='admin', password=''):
         return {}
 
 
+# Tasmota StatusSNS keys that are NOT sensor measurements (units / metadata).
+_SENSOR_SKIP_KEYS = {'time', 'tempunit', 'pressureunit', 'speedunit',
+                     'weightunit', 'id', 'serialnumber'}
+
+
+def _classify_attr(keyl):
+    """Map a lowercased StatusSNS measurement key → (matter_type, unit,
+    matter_cluster_id). Mirrors the way Berry Matter's HTTP bridge classifies
+    a remote device's sensors so the result is directly usable to bridge the
+    ESP as a remote Matter sensor. Returns None for non-measurement keys.
+    Ordered most-specific-first; short ambiguous tokens (co) are exact-only."""
+    if 'temperature' in keyl or 'dewpoint' in keyl: return ('temperature', '°C', 0x0402)
+    if 'humidity' in keyl:                          return ('humidity', '%', 0x0405)
+    if 'pressure' in keyl:                          return ('pressure', 'hPa', 0x0403)
+    if 'illuminance' in keyl or 'illumination' in keyl: return ('illuminance', 'lx', 0x0400)
+    if 'carbondioxide' in keyl or 'eco2' in keyl or 'co2' in keyl: return ('co2', 'ppm', 0x040D)
+    if 'tvoc' in keyl or 'voc' in keyl:             return ('voc', 'ppb', 0x042E)
+    if 'pm2.5' in keyl or 'pm2_5' in keyl or 'pm25' in keyl: return ('pm25', 'µg/m³', 0x042A)
+    if 'pm10' in keyl:                              return ('pm10', 'µg/m³', 0x042C)
+    if 'pm1' in keyl:                               return ('pm1', 'µg/m³', 0x042B)
+    if keyl == 'co':                                return ('co', 'ppm', 0x040C)
+    if 'moisture' in keyl:                          return ('humidity', '%', 0x0405)
+    if 'distance' in keyl:                          return ('distance', 'cm', None)
+    # electrical (maps to matter_c power-meter, not an env-sensor cluster)
+    if 'voltage' in keyl:                           return ('voltage', 'V', None)
+    if 'current' in keyl:                           return ('current', 'A', None)
+    if 'power' in keyl:                             return ('power', 'W', None)
+    if keyl.startswith('energy') or keyl in ('today', 'yesterday', 'total'):
+        return ('energy', 'kWh', None)
+    return None
+
+
+def _parse_sensors(sns):
+    """Walk a Tasmota StatusSNS dict → a flat list of detected sensors, each
+    classified the way Berry Matter's HTTP bridge does: a Matter sensor 'type'
+    plus the 'SensorName#Attribute' filter path the bridge would poll. So the
+    scanner output can drive adding these ESPs as remote Matter sensors.
+    Each entry: {sensor, attr, type, unit, cluster, filter, value}."""
+    out = []
+    if not isinstance(sns, dict):
+        return out
+    tunit = sns.get('TempUnit')          # 'C' / 'F'
+    punit = sns.get('PressureUnit')      # 'hPa' / 'mmHg' / 'inHg'
+
+    def walk(block, path):
+        for k, v in block.items():
+            if k.lower() in _SENSOR_SKIP_KEYS:
+                continue
+            if isinstance(v, dict):
+                walk(v, path + [k])
+            elif isinstance(v, bool):
+                continue                 # bool is an int subclass — skip flags
+            elif isinstance(v, (int, float)):
+                cls = _classify_attr(k.lower())
+                if not cls:
+                    continue
+                typ, unit, cl = cls
+                if typ == 'temperature' and tunit: unit = '°' + tunit
+                elif typ == 'pressure' and punit:  unit = punit
+                out.append({'sensor': path[0] if path else k, 'attr': k,
+                            'type': typ, 'unit': unit, 'cluster': cl,
+                            'filter': '#'.join(path + [k]) if path else k,
+                            'value': v})
+    walk(sns, [])
+    return out
+
+
+def _light_subtype(sts):
+    """Classify a Tasmota light from its StatusSTS keys → a subtype string,
+    or None if the device is not a light. Mirrors Berry Matter's http_light*
+    taxonomy (on/off, dimmable, CCT, RGB, RGBW, RGBCCT). Channel count comes
+    from the Color hex length (RRGGBB=3 … RRGGBBWWCC=5)."""
+    color = sts.get('Color')
+    if isinstance(color, str) and color:
+        ch = len(color.replace('#', '')) // 2
+        if ch >= 5: return 'rgbcct'
+        if ch == 4: return 'rgbw'
+        if ch >= 3: return 'rgb'
+    if 'HSBColor' in sts: return 'rgb'
+    if 'CT' in sts:       return 'cct'
+    if 'Dimmer' in sts:   return 'dim'
+    return None
+
+
+def _parse_actuators(sts):
+    """Walk a Tasmota StatusSTS dict → a list of detected ACTUATORS (relays +
+    one light), classified the way Berry Matter's HTTP bridge does (http_relay
+    / http_light*) so the result can drive adding the ESP as a remote Matter
+    actuator. A light consumes one POWER output; the rest are plain relays.
+    Each entry: {type:'relay'|'light', ...state/subtype/filter}."""
+    out = []
+    if not isinstance(sts, dict):
+        return out
+    powers = []
+    if 'POWER' in sts:
+        powers.append('POWER')
+    i = 1
+    while ('POWER%d' % i) in sts:
+        powers.append('POWER%d' % i)
+        i += 1
+    sub = _light_subtype(sts)
+    rest = powers
+    if sub:
+        lkey = powers[0] if powers else 'POWER'
+        out.append({'type': 'light', 'subtype': sub,
+                    'dimmer': sts.get('Dimmer'), 'color': sts.get('Color'),
+                    'state': sts.get(lkey, sts.get('POWER')), 'filter': lkey})
+        rest = powers[1:]
+    for key in rest:
+        idx = int(key[5:]) if key[5:].isdigit() else 1
+        out.append({'type': 'relay', 'index': idx,
+                    'state': sts.get(key), 'filter': key})
+    return out
+
+
 def _dev_info(host, user='admin', password=''):
     """Tasmota status → a concise confirm-before-flash card. Tries the
     one-shot `Status 0`; if that doesn't parse (some devices — e.g. an
@@ -1231,7 +1346,7 @@ def _dev_info(host, user='admin', password=''):
     if 'Status' not in j or 'StatusFWR' not in j:
         j = {}
         for c in ('Status', 'Status 2', 'Status 4', 'Status 5',
-                  'Status 11'):
+                  'Status 10', 'Status 11'):
             part = _status(host, c, user, password)
             if part.get('__http__') == 401:
                 return {'ok': False, 'locked': True}
@@ -1271,6 +1386,8 @@ def _dev_info(host, user='admin', password=''):
             'mac': N.get('Mac', ''),
             'uptime': T.get('Uptime', ''),
             'rssi': (T.get('Wifi') or {}).get('RSSI', ''),
+            'sensors': _parse_sensors(j.get('StatusSNS', {})),
+            'actuators': _parse_actuators(T),
             'parts': _dev_partitions(host, user, password)}
 
 
@@ -1550,7 +1667,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <div id="devinfo"></div>
   <div id="scanwrap" class="hide"><table id="scantbl">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
-      <th>Tasmota</th><th>Flash</th><th>Free</th><th>Partitions</th>
+      <th>Tasmota</th><th>Flash</th><th>Free</th><th>Sensors / Outputs</th><th>Partitions</th>
       <th></th></tr></thead>
     <tbody id="scanbody"></tbody></table></div>
 </div>
@@ -2029,6 +2146,46 @@ function _freeCell(d){
     cls = kb<20?'free-low':(kb<45?'free-warn':'free-ok');}
   return '<span class="'+cls+'">'+_esc(s)+'</span>';
 }
+const _SENS_ICON={temperature:'🌡',humidity:'💧',pressure:'⏲',illuminance:'💡',
+  co2:'CO₂',voc:'VOC',pm25:'PM2.5',pm10:'PM10',pm1:'PM1',co:'CO',
+  voltage:'V',current:'A',power:'⚡',energy:'∑',distance:'↔'};
+const _LIGHT_LBL={onoff:'lamp',dim:'lamp·dim',cct:'lamp·CCT',
+  rgb:'lamp·RGB',rgbw:'lamp·RGBW',rgbcct:'lamp·RGBCCT'};
+function _pill(txt,bg){return '<span style="display:inline-block;padding:1px 5px;'
+  +'margin:1px;border-radius:8px;background:'+bg+';font-size:11px;'
+  +'white-space:nowrap">'+_esc(txt)+'</span>';}
+function _actPills(acts,tip){
+  if(!acts||!acts.length) return '';
+  const light=acts.find(a=>a.type==='light'), relays=acts.filter(a=>a.type==='relay');
+  let out=[];
+  if(light){
+    let lbl='💡 '+(_LIGHT_LBL[light.subtype]||'lamp');
+    if(light.dimmer!=null) lbl+=' '+light.dimmer+'%';
+    out.push(_pill(lbl,'#1d4d2a'));         // green = light
+    tip.push(light.filter+' = '+(light.state==null?'?':light.state)
+      +' ('+light.subtype+(light.dimmer!=null?(', dim '+light.dimmer+'%'):'')+')');
+  }
+  if(relays.length){
+    const on=relays.filter(r=>r.state==='ON').length;
+    out.push(_pill('⏻ relay ×'+relays.length+(on?(' · '+on+' on'):''),'#5a4310')); // amber = relay
+    relays.forEach(r=>tip.push(r.filter+' = '+(r.state==null?'?':r.state)));
+  }
+  return out.join(' ');
+}
+function _sensorsCell(d){
+  const ss=d.sensors||[], tip=[];
+  const acts=_actPills(d.actuators, tip);
+  const grp={};
+  ss.forEach(s=>{ (grp[s.type]=grp[s.type]||[]).push(s);
+    tip.push(s.filter+' = '+s.value+(s.unit?(' '+s.unit):''));});
+  const sens=Object.keys(grp).map(t=>{
+    const n=grp[t].length;
+    return _pill((_SENS_ICON[t]||t)+(n>1?(' ×'+n):''),'#2a3550');  // blue = sensor
+  }).join(' ');
+  const body=[acts,sens].filter(Boolean).join(' ');
+  if(!body) return '<span style="color:var(--mut)">—</span>';
+  return '<span title="'+_esc(tip.join('\n'))+'">'+body+'</span>';
+}
 function selectDevice(ip,tr){
   $('#host').value=ip;
   [...scanbodyEl.children].forEach(r=>r.classList.remove('sel'));
@@ -2038,7 +2195,7 @@ function selectDevice(ip,tr){
 function renderScanTable(devs){
   scanbodyEl.innerHTML='';
   if(!devs||!devs.length){
-    scanbodyEl.innerHTML='<tr><td colspan="9" style="color:var(--mut);'
+    scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut);'
       +'padding:9px;white-space:normal">No Tasmota devices answered on '
       +'this subnet.<br>• Check the <b>LogHost</b> IP (top bar) is on the '
       +'same LAN as your devices.<br>• If you opened <b>Tasmota Workbench.app</b> '
@@ -2056,7 +2213,7 @@ function renderScanTable(devs){
       const why=d.locked?'🔒 locked — type WebPassword below + rescan'
         :('✗ '+(d.error||'no Status'));
       tr.innerHTML='<td>'+_ipCell(d)+'</td><td><b>'+(d.name||'')+'</b></td>'
-        +'<td class="lk" colspan="7">'+why+'</td>';
+        +'<td class="lk" colspan="8">'+why+'</td>';
     }else{
       const parts=(d.parts||[]).map(p=>{
         let u='';
@@ -2071,6 +2228,7 @@ function renderScanTable(devs){
         +'<td>'+_esc(d.version)+(d.core?' <span style="color:var(--mut)">('+_esc(d.core)+')</span>':'')+'</td>'
         +'<td style="color:var(--mut)">'+_esc(d.flash)+'</td>'
         +'<td>'+_freeCell(d)+'</td>'
+        +'<td>'+_sensorsCell(d)+'</td>'
         +'<td class="parts">'+parts+'</td>'
         +'<td><button class="go">OTA ▸</button></td>';
     }
@@ -2126,8 +2284,8 @@ hostscanEl.onclick=async()=>{
   const net=ip.split('.').slice(0,3).join('.');
   hostscanEl.disabled=true;
   const ot=hostscanEl.textContent; hostscanEl.textContent='scanning…';
-  scanbodyEl.innerHTML='<tr><td colspan="9" style="color:var(--mut)">'
-    +'scanning '+(net||'LAN')+'.x — reading CPU / version / partitions …'
+  scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut)">'
+    +'scanning '+(net||'LAN')+'.x — reading CPU / version / sensors / partitions …'
     +'</td></tr>'; scanwrapEl.classList.remove('hide');
   try{
     const pw=encodeURIComponent($('#fwpass').value||'');
@@ -2146,7 +2304,7 @@ hostscanEl.onclick=async()=>{
       hostselEl.appendChild(o);});
     if((j.devices||[]).length===1) selectDevice(j.devices[0].ip,
       scanbodyEl.firstChild);
-  }catch(e){ scanbodyEl.innerHTML='<tr><td colspan="9" class="lk">'
+  }catch(e){ scanbodyEl.innerHTML='<tr><td colspan="10" class="lk">'
     +'scan failed: '+e+'</td></tr>'; }
   hostscanEl.textContent=ot; hostscanEl.disabled=false;
 };
