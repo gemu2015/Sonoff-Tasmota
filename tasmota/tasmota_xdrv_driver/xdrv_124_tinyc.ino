@@ -35,6 +35,10 @@
 // Default TinyC bytecode repository (used when /tinyc_repo.cfg is not present)
 #define TINYC_DEFAULT_REPO "https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode"
 
+// Default URL for the TinyC IDE itself (one level up from the bytecode repo).
+// Used by `TinyCIde` to self-update the served /tinyc_ide.html.gz from the repo.
+#define TINYC_DEFAULT_IDE_URL "https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/tinyc_ide.html.gz"
+
 // Global pause flag — set by filesystem upload handler (xdrv_50) to pause VM during uploads
 bool tc_global_pause = false;
 
@@ -753,12 +757,13 @@ static const char TC_NOT_INIT[] PROGMEM = "Not initialized";
 #define D_PRFX_TINYC "TinyC"
 
 void CmndCheckPartition(void);
+void CmndTinyCIde(void);
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
 #endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
-  "|Run|Stop|Reset|Exec|Info"
+  "|Run|Stop|Reset|Exec|Info|Ide"
 #ifdef ESP32
   "|Chkpt"
 #endif
@@ -769,7 +774,7 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
 
 void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
-  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo
+  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde
 #ifdef ESP32
   , &CmndCheckPartition
 #endif
@@ -1741,9 +1746,17 @@ static void HandleTinyCPage(void) {
   WSContentSend_P(PSTR(
     "<p style='text-align:center'>"
     "<button onclick=\"window.open('/ide','tinyc_ide')\" "
-    "class='button bgrn'>Open IDE</button>"
+    "class='button bgrn'>Open IDE</button> "
+    "<button id='tcide_upd' onclick=\""
+    "if(!confirm('Update the IDE from the repository? (downloads tinyc_ide.html.gz, ~190 KB, and replaces the served IDE)'))return;"
+    "var b=this;b.disabled=1;b.textContent='Updating...';"
+    "fetch('/cm?cmnd=TinyCIde').then(r=>r.json()).then(j=>{var d=j.TinyCIde||{};"
+    "if(d.updated){b.textContent='Updated '+d.updated+' B';alert('IDE updated ('+d.updated+' bytes). Re-open the IDE.');}"
+    "else{b.disabled=0;b.textContent='Update IDE';alert('IDE update failed (error '+d.error+'). The old IDE was kept.');}})"
+    ".catch(e=>{b.disabled=0;b.textContent='Update IDE';alert('IDE update request failed.');});\" "
+    "class='button'>Update IDE</button>"
     "</p>"
-    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82 background task on real hw, port 80 fallback otherwise)</p>"));
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82 background task on real hw, port 80 fallback otherwise). \"Update IDE\" fetches the latest from the repo &mdash; no file manager needed.</p>"));
 #else
   WSContentSend_P(PSTR(
     "<div class='tc-ide-url'>"
@@ -1913,6 +1926,117 @@ void TinyCFsWriteResume(void) {
       }
     }
   }
+#endif
+}
+
+#ifdef USE_UFILESYS
+// Fetch the TinyC IDE (tinyc_ide.html.gz) from `url` and replace the on-FS
+// /tinyc_ide.html.gz that the /ide handler serves — lets the IDE be self-updated
+// from the console (TinyCIde) without the Tasmota file-manager upload page.
+// Safety: stream to a .tmp first, validate the gzip magic + a sane size, and
+// only then rename over the live IDE (a failed/short fetch must NOT brick the
+// served IDE). The ~150-190 KB LittleFS write is bracketed by TinyCFsWritePause
+// (stops VM tasks so none touch flash during the cache-disabled close) + a
+// loop-WDT hold, mirroring the /ufsu big-write path. Returns bytes (>0) or <0.
+static int tc_fetch_ide(const char *url) {
+  if (!ufsp || !url || !url[0]) return -1;
+  const char *dst = "/tinyc_ide.html.gz";
+  const char *tmp = "/tinyc_ide.html.gz.tmp";
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+  HTTPClientLight http;
+#else
+  WiFiClient http_client;
+  HTTPClient http;
+#endif
+  http.setTimeout(15000);
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+  bool begun = http.begin(url);
+#else
+  bool begun = http.begin(http_client, url);
+#endif
+  if (!begun) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch begin() failed")); return -2; }
+  int code = http.GET();
+  if (code != HTTP_CODE_OK && code != HTTP_CODE_MOVED_PERMANENTLY) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch HTTP %d"), code);
+    http.end(); return -3;
+  }
+  TinyCFsWritePause(0x40000);                       // big write: quiesce VM tasks
+  File f = ufsp->open(tmp, "w");
+  int written = 0; bool magic = false;
+  if (f) {
+    WiFiClient *stream = http.getStreamPtr();
+    int32_t len = http.getSize();
+    bool unknown = (len < 0);
+    if (unknown) len = 0x7fffffff;
+    uint8_t *buf = (uint8_t *)malloc(1024);
+    if (buf) {
+      uint32_t t0 = millis();
+      bool first = true;
+      while (http.connected() && len > 0 && (millis() - t0) < 30000) {
+        size_t avail = stream->available();
+        if (avail) {
+          if (avail > 1024) avail = 1024;
+          int rd = stream->readBytes(buf, avail);
+          if (rd <= 0) break;
+          if (first) { magic = (rd >= 2 && buf[0] == 0x1f && buf[1] == 0x8b); first = false; }
+          f.write(buf, rd);
+          written += rd;
+          if (!unknown) len -= rd;
+        } else {
+          delay(1);                                 // yield to WiFi/other tasks
+        }
+      }
+      free(buf);
+    }
+#ifdef ESP32
+    disableLoopWDT();                               // the cache-disabled close() can run multi-second
+#endif
+    f.close();
+#ifdef ESP32
+    feedLoopWDT(); enableLoopWDT();
+#endif
+  }
+  http.end();
+  TinyCFsWriteResume();
+  if (written < 1000 || !magic) {                   // reject garbage/short downloads — keep the old IDE
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch rejected (%d B, gzip=%d) — kept old"), written, magic);
+    ufsp->remove(tmp);
+    return -5;
+  }
+  // Atomically replace the live IDE. Try a direct rename first — LittleFS
+  // overwrites atomically, so there is no window where the served IDE is
+  // missing. Only if that fails (e.g. a FAT/SD backend that can't rename over
+  // an existing file) fall back to remove + retry.
+  if (!ufsp->rename(tmp, dst)) {
+    ufsp->remove(dst);
+    if (!ufsp->rename(tmp, dst)) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE rename failed"));
+      ufsp->remove(tmp);
+      return -6;
+    }
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE updated %d bytes from %s"), written, url);
+  return written;
+}
+#endif // USE_UFILESYS
+
+// TinyCIde [url] — download tinyc_ide.html.gz from the repo (or a given URL) and
+// replace the served IDE on the filesystem. No Tasmota file-manager needed.
+//   TinyCIde            -> default repo (TINYC_DEFAULT_IDE_URL)
+//   TinyCIde <full-url> -> a specific URL (e.g. a self-hosted / branch build)
+void CmndTinyCIde(void) {
+#ifdef USE_UFILESYS
+  char url[200];
+  if (XdrvMailbox.data_len > 0 && XdrvMailbox.data[0]) {
+    strlcpy(url, XdrvMailbox.data, sizeof(url));
+  } else {
+    strlcpy(url, TINYC_DEFAULT_IDE_URL, sizeof(url));
+  }
+  int n = tc_fetch_ide(url);
+  if (n > 0) { Response_P(PSTR("{\"TinyCIde\":{\"updated\":%d}}"), n); }
+  else       { Response_P(PSTR("{\"TinyCIde\":{\"error\":%d}}"), n); }
+#else
+  ResponseCmndChar_P(PSTR("no filesystem"));
 #endif
 }
 
