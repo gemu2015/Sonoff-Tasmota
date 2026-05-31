@@ -193,12 +193,8 @@ void do_discover() {
     char url[64]; char k[16]; char nm[24]; char fk[12];
     disc_n = 0;
     get_devname(disc_ip, disc_src);                 // friendly "from where" name (or IP)
-    sprintf(url, "http://%s/cm?cmnd=Status%%2010", disc_ip); buf[0] = 0;
-    if (httpGet(url, buf) > 0) {
-        strcpy(k, "Temperature"); strcpy(nm, "Temperatur"); probe_sensor(k, 0, nm);
-        strcpy(k, "Humidity");    strcpy(nm, "Feuchte");    probe_sensor(k, 1, nm);
-        strcpy(k, "Pressure");    strcpy(nm, "Luftdruck");  probe_sensor(k, 2, nm);
-    }
+    // Probe ACTUATORS first so they're stored (and thus rendered) right under the
+    // device's name+IP header, ahead of the sensor readings.
     sprintf(url, "http://%s/cm?cmnd=Status%%2011", disc_ip); buf[0] = 0;
     if (httpGet(url, buf) > 0) {
         strcpy(fk, "\"Dimmer\":");
@@ -209,6 +205,12 @@ void do_discover() {
             strcpy(k, "POWER1"); strcpy(nm, "Relais 1"); probe_act(k, 4, nm);
             strcpy(k, "POWER2"); strcpy(nm, "Relais 2"); probe_act(k, 4, nm);
         }
+    }
+    sprintf(url, "http://%s/cm?cmnd=Status%%2010", disc_ip); buf[0] = 0;
+    if (httpGet(url, buf) > 0) {
+        strcpy(k, "Temperature"); strcpy(nm, "Temperatur"); probe_sensor(k, 0, nm);
+        strcpy(k, "Humidity");    strcpy(nm, "Feuchte");    probe_sensor(k, 1, nm);
+        strcpy(k, "Pressure");    strcpy(nm, "Luftdruck");  probe_sensor(k, 2, nm);
     }
 }
 void do_add() {
@@ -347,10 +349,11 @@ void EverySecond() {
 // ── web UI ──
 char kind_names[] = "Temp|Feuchte|Druck|?|Relais|Lampe";
 void WebCall() {
-    char b[120]; char kn[12]; char st[4]; char prevsrc[24]; int i; int cc; int t;
+    char b[200]; char kn[12]; char st[4]; char stcol[10]; char prevsrc[24]; int i; int cc; int t;
     webSend("{s}<b>Matter Remote Bridge</b>{m}{e}");
     webText(ip_in, 16, "Remote IP");
     webButton(btn_disc, "Discover|scanning…");
+    if (ncfg > 0) { webButton(btn_clear, "Clear all bridged|cleared"); }   // top-level action, right after Discover
 
     if (disc_n > 0) {
         sprintf(b, "{s}<i>found on %s (%s)</i>{m}%d{e}", disc_src, disc_ip, disc_n); webSend(b);
@@ -363,42 +366,47 @@ void WebCall() {
         webButton(btn_add, "Add these to Matter|added");
     }
 
-    sprintf(b, "{s}<b>Bridged endpoints</b>{m}%d{e}", ncfg); webSend(b);
+    // ── Bridged endpoints as a 3-column table: Name | Value/State | Control ──
+    // Everything webSend()'d lands inside Tasmota's sensor <table>, so we emit our
+    // own <tr> rows. The control widget (webButton/webSlider) is dropped into the
+    // row's 3rd <td> — a <div><button> is valid inside a cell — so each actuator's
+    // toggle/slider sits on the actuator's own line, directly under its device
+    // (name+IP) header. Actuators are stored before sensors, so they list first.
+    webSend("{s}<b>Bridged endpoints</b>{m}{e}");
+    // styling for the bridge table (one <style>, replaced on every /?m=1 refresh)
+    webSend("<style>.dh{background:#0e3a42;border-left:3px solid #4db6ac;padding:6px 8px}.rw{background:#e3e3e3;color:#222}.rw td{border-bottom:1px solid #c8c8c8;padding:3px 6px}.nm{padding-left:16px}.va{text-align:right;white-space:nowrap}.un{opacity:.6;font-size:.82em}.ip{opacity:.5;float:right;font-weight:normal}.c3{width:160px}</style>");
     cc = 0; i = 0; prevsrc[0] = 0;
     while (i < ncfg) {
-        if (strcmp(cfg_src[i], prevsrc) != 0) {            // group header: source device
+        if (strcmp(cfg_src[i], prevsrc) != 0) {            // device group header (spans all 3 cols)
             strcpy(prevsrc, cfg_src[i]);
-            sprintf(b, "{s}<b>&#9679; %s</b>{m}<i>%s</i>{e}", cfg_src[i], cfg_ip[i]); webSend(b);
+            sprintf(b, "<tr><td colspan='3' class='dh'><b style='color:#4db6ac'>&#9679;</b> <b>%s</b><span class='ip'>%s</span></td></tr>", cfg_src[i], cfg_ip[i]); webSend(b);
         }
         t = cfg_kind[i];
-        if (t == 0) { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%.1f C{e}",   cfg_name[i], cfg_val[i]); webSend(b); }
-        if (t == 1) { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%.0f %%{e}",  cfg_name[i], cfg_val[i]); webSend(b); }
-        if (t == 2) { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%.0f hPa{e}", cfg_name[i], cfg_val[i]); webSend(b); }
+        if (t == 0) { sprintf(b, "<tr class='rw'><td class='nm'>%s</td><td class='va'>%.1f<span class='un'> C</span></td><td></td></tr>",   cfg_name[i], cfg_val[i]); webSend(b); }
+        if (t == 1) { sprintf(b, "<tr class='rw'><td class='nm'>%s</td><td class='va'>%.0f<span class='un'> %%</span></td><td></td></tr>",  cfg_name[i], cfg_val[i]); webSend(b); }
+        if (t == 2) { sprintf(b, "<tr class='rw'><td class='nm'>%s</td><td class='va'>%.0f<span class='un'> hPa</span></td><td></td></tr>", cfg_name[i], cfg_val[i]); webSend(b); }
         if (t == 4 || t == 5) {
-            if (cfg_val[i] > 0.5) { strcpy(st, "ON"); } else { strcpy(st, "OFF"); }
-            if (t == 5) { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%s  %d%%{e}", cfg_name[i], st, cfg_dim[i]); }
-            else        { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%s{e}",       cfg_name[i], st); }
-            webSend(b);
-            // toggle button + (lamp) dimmer slider for this actuator. webButton/
-            // webSlider labels MUST be string literals — the actuator name is in
-            // the status row just above, so a generic "schalten N" is clear.
-            if (cc < 4) {
-                if (cc == 0) { webButton(ctl0, "schalten 1"); }
-                if (cc == 1) { webButton(ctl1, "schalten 2"); }
-                if (cc == 2) { webButton(ctl2, "schalten 3"); }
-                if (cc == 3) { webButton(ctl3, "schalten 4"); }
+            if (cfg_val[i] > 0.5) { strcpy(st, "ON"); strcpy(stcol, "#66bb6a"); } else { strcpy(st, "OFF"); strcpy(stcol, "#999"); }
+            if (t == 5) { sprintf(b, "<tr class='rw'><td class='nm'>%s</td><td class='va' style='color:%s'>%s<span class='un'> %d%%</span></td><td class='c3'>", cfg_name[i], stcol, st, cfg_dim[i]); }
+            else        { sprintf(b, "<tr class='rw'><td class='nm'>%s</td><td class='va' style='color:%s'>%s</td><td class='c3'>", cfg_name[i], stcol, st); }
+            webSend(b);                                    // open the row + its control cell
+            if (cc < 4) {                                  // control widget(s) go INSIDE this <td>
+                if (cc == 0) { webButton(ctl0, "schalten"); }
+                if (cc == 1) { webButton(ctl1, "schalten"); }
+                if (cc == 2) { webButton(ctl2, "schalten"); }
+                if (cc == 3) { webButton(ctl3, "schalten"); }
                 if (t == 5) {
-                    if (cc == 0) { webSlider(dmv0, 0, 100, "Helligkeit 1"); }
-                    if (cc == 1) { webSlider(dmv1, 0, 100, "Helligkeit 2"); }
-                    if (cc == 2) { webSlider(dmv2, 0, 100, "Helligkeit 3"); }
-                    if (cc == 3) { webSlider(dmv3, 0, 100, "Helligkeit 4"); }
+                    if (cc == 0) { webSlider(dmv0, 0, 100, "Helligkeit"); }
+                    if (cc == 1) { webSlider(dmv1, 0, 100, "Helligkeit"); }
+                    if (cc == 2) { webSlider(dmv2, 0, 100, "Helligkeit"); }
+                    if (cc == 3) { webSlider(dmv3, 0, 100, "Helligkeit"); }
                 }
                 cc = cc + 1;
             }
+            webSend("</td></tr>");                          // close control cell + row
         }
         i = i + 1;
     }
-    if (ncfg > 0) { webButton(btn_clear, "Clear all bridged|cleared"); }
     sprintf(b, "{s}heap{m}%d kb{e}", tasm_heap / 1000); webSend(b);
 }
 
