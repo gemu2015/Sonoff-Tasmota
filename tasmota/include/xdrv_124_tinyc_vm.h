@@ -3057,8 +3057,13 @@ static void tc_udp_poll(void) {
 #define TC_IPUSHF(val) do { \
   if (_sp >= _stack_size) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
   _stack[_sp++] = f2i(val); } while(0)
-#define TC_IPOP()  (_stack[--_sp])
-#define TC_IPEEK() (_stack[_sp - 1])
+// SECURITY: clamp at 0 so a crafted/corrupt .tcb that pops an empty stack
+// reads _stack[0] instead of underflowing _sp (uint16) to 0xFFFF and reading
+// ~256 KB out of bounds. Valid compiler output never pops empty, so this is
+// transparent for real programs; the switch interpreter (tc_vm_step) likewise
+// guards underflow. (TC_IPUSH already guards the upper bound.)
+#define TC_IPOP()  (_stack[_sp ? --_sp : 0])
+#define TC_IPEEK() (_stack[_sp ? _sp - 1 : 0])
 #define TC_IPOPF() i2f(TC_IPOP())
 
 /*********************************************************************************************\
@@ -15513,7 +15518,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   _op_push_f32: TC_IPUSHF(_RD_F32()); NEXT();
   _op_push_i8:  TC_IPUSH((int32_t)_RD_I8()); NEXT();
   _op_push_i16: { int16_t sv = (int16_t)_RD_U16(); TC_IPUSH((int32_t)sv); NEXT(); }
-  _op_pop:   _sp--; NEXT();
+  _op_pop:   if (_sp) _sp--; NEXT();   // SECURITY: no underflow on crafted bytecode
   _op_dup:   _a = TC_IPEEK(); TC_IPUSH(_a); NEXT();
 
   // Integer arithmetic

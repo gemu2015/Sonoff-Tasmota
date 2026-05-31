@@ -3430,6 +3430,7 @@ void Unlink_Named_Module(char *name) {
 }
 
 void Unlink_Module(uint32_t module) {
+  if (module >= MAX_PLUGINS) return;   // SECURITY: bound web-supplied index (also catches the module-1=0xFFFFFFFF underflow)
   if (modules[module].mod_addr) {
     if (modules[module].flags.initialized) {
       // call deiniz
@@ -3451,6 +3452,7 @@ void Unlink_Module(uint32_t module) {
 
 
 void Read_Module_Data(uint32_t module, uint32_t *data) {
+  if (module >= MAX_PLUGINS) return;   // SECURITY: bound web-supplied index
   if (modules[module].mod_addr) {
     FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     if (fm->sync == MODULE_SYNC) {
@@ -3470,6 +3472,7 @@ void Read_Module_Data(uint32_t module, uint32_t *data) {
 }
 
 void Update_Module_Data(uint32_t module, uint32_t *data) {
+  if (module >= MAX_PLUGINS) return;   // SECURITY: bound web-supplied index (else OOB mod_addr -> arbitrary flash erase)
   if (modules[module].mod_addr) {
     uint8_t flag = modules[module].flags.initialized;
     if (flag) {
@@ -3730,6 +3733,7 @@ static void tc_blib_register_module(uint8_t module_idx) {
 }
 
 int32_t Init_module(uint32_t module) {
+  if (module >= MAX_PLUGINS) return 0;   // SECURITY: bound web-supplied index
   if (modules[module].mod_addr && !modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     uint32_t mtv = fm->mtv;
@@ -3877,6 +3881,7 @@ void Module_iniz(void) {
 }
 
 void Deiniz_module(uint32_t module) {
+  if (module >= MAX_PLUGINS) return;   // SECURITY: bound web-supplied index
   if (modules[module].mod_addr && modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     int32_t result = MOD_EXEC(pFUNC_DEINIT);
