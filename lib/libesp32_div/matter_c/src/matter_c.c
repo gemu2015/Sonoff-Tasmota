@@ -246,6 +246,11 @@ typedef struct {
   int              rpt_cursor;        // next path index to emit
   int              rpt_npaths;        // total paths
   struct { uint16_t ep; uint32_t cl; uint32_t attr; } rpt_paths[1024];  // wildcard-read path buffer; sized for ~32 endpoints (see MTRC_DM_MAX_ENDPOINTS)
+  // Concrete read paths that matched nothing -> a StatusIB must be returned
+  // (Matter spec; an empty report makes a strict controller, e.g. Alexa, retry
+  // the read and restart its whole interrogation -> RN002 "getting device ready").
+  struct { uint16_t ep; uint32_t cl; uint32_t attr; uint8_t st; } rpt_status[16];
+  int              rpt_nstatus;
 
   // App-data generation: bumped whenever an app-endpoint attribute is written
   // (sensor/light values). Per-session subscriptions compare it to detect a
@@ -2326,6 +2331,49 @@ static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t wan
   #undef RPT_PUT
 }
 
+// Does endpoint `ep` exist in the data model? (root ep0 always does.)
+static int dm_ep_present(uint16_t ep) {
+  if (ep == 0) return 1;
+  uint32_t dt; return mtrc_dm_endpoint_device_type(ep, &dt);
+}
+// Does cluster `cl` exist on endpoint `ep`? Descriptor is synthetic on every
+// endpoint; root clusters synthetic on ep0; 0x0039 on named/bridged eps; the
+// rest come from the registry.
+static int dm_cl_present(uint16_t ep, uint32_t cl) {
+  if (cl == MTRC_CL_DESCRIPTOR) return 1;
+  if (ep == 0 && is_root_cluster(cl)) return 1;
+  if (cl == 0x0039 && ep_is_bridged(ep)) return 1;
+  for (int i = 0; i < mtrc_dm_cluster_count(); i++) {
+    const mtrc_dm_cluster_t *c = mtrc_dm_cluster_at(i);
+    if (c && c->endpoint == ep && c->cluster == cl) return 1;
+  }
+  return 0;
+}
+// Matter IM status for an unmatched concrete read path (Core Spec §8.4.3.2).
+static uint8_t read_status_for(uint16_t ep, uint32_t cl, uint32_t attr) {
+  (void)attr;
+  if (!dm_ep_present(ep))     return 0x7F;   // UNSUPPORTED_ENDPOINT
+  if (!dm_cl_present(ep, cl)) return 0xC3;   // UNSUPPORTED_CLUSTER
+  return 0x86;                               // UNSUPPORTED_ATTRIBUTE
+}
+// Emit an AttributeReportIB carrying a StatusIB (the AttributeStatusIB variant,
+// tag ctx(0)) for a path the node can't serve — vs the data variant ctx(1).
+static void emit_status_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+                             uint32_t attr, uint8_t st) {
+  mtrc_tlv_start_struct(w, mtrc_tlv_anon());            // AttributeReportIB
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(0));            // AttributeStatusIB
+  mtrc_tlv_start_list(w, mtrc_tlv_ctx(0));              // AttributePathIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));            // StatusIB
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), st);            // Status
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+  mtrc_tlv_end_container(w);
+}
+
 // Build and send one ReportData chunk from g.rpt_paths[g.rpt_cursor:]. Sets
 // MoreChunkedMessages while paths remain; the controller's StatusResponse pulls
 // the next chunk. `ack` is the counter of the message that triggered this chunk.
@@ -2346,6 +2394,21 @@ static void send_report_chunk(uint32_t ack) {
     size_t flen = mtrc_tlv_writer_len(&fw);
     if (emitted > 0 && mtrc_tlv_writer_len(&w) + flen > MAX_PAYLOAD) break;   // chunk full
     mtrc_tlv_put_raw(&w, frag, flen); emitted++; g.rpt_cursor++;
+  }
+  // On the final chunk (all data paths drained), append a StatusIB for each
+  // concrete read path that matched nothing. Required by spec; without it the
+  // report is empty and a strict controller (Alexa) retries -> RN002.
+  if (g.rpt_cursor >= g.rpt_npaths && !g.rpt_is_sub) {
+    for (int s = 0; s < g.rpt_nstatus; s++) {
+      mtrc_tlv_writer fw; mtrc_tlv_writer_init(&fw, frag, sizeof(frag));
+      emit_status_path(&fw, g.rpt_status[s].ep, g.rpt_status[s].cl,
+                       g.rpt_status[s].attr, g.rpt_status[s].st);
+      if (!mtrc_tlv_writer_ok(&fw)) continue;
+      size_t flen = mtrc_tlv_writer_len(&fw);
+      if (emitted > 0 && mtrc_tlv_writer_len(&w) + flen > MAX_PAYLOAD) break;
+      mtrc_tlv_put_raw(&w, frag, flen); emitted++;
+    }
+    g.rpt_nstatus = 0;
   }
   mtrc_tlv_end_container(&w);                             // end AttributeReports
   int more = (g.rpt_cursor < g.rpt_npaths);
@@ -2370,7 +2433,7 @@ static void send_report_chunk(uint32_t ack) {
 // controller's StatusResponse (see send_report_chunk / secured_dispatch).
 static void im_handle_read(const uint8_t *payload, size_t plen,
                            uint16_t exch, uint32_t ack) {
-  g.rpt_npaths = 0;
+  g.rpt_npaths = 0; g.rpt_nstatus = 0;
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, payload, plen);
   mtrc_tlv_elem e;
   while (mtrc_tlv_read(&r, &e)) {
@@ -2384,7 +2447,18 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
       else if (ie.tag.number == 3) { cl   = (uint32_t)ie.u; have_cl = 1; }
       else if (ie.tag.number == 4) { attr = (uint32_t)ie.u; have_attr = 1; }
     }
+    int _before = g.rpt_npaths;
     rpt_add_query(have_ep, ep, have_cl, cl, have_attr, attr);
+    // A fully-concrete path (ep+cl+attr all specified) that matched nothing must
+    // get a StatusIB, not an empty report (Matter Core Spec §8.4.3.2). Queue it.
+    if (have_ep && have_cl && have_attr && g.rpt_npaths == _before &&
+        g.rpt_nstatus < (int)(sizeof(g.rpt_status)/sizeof(g.rpt_status[0]))) {
+      g.rpt_status[g.rpt_nstatus].ep = ep;
+      g.rpt_status[g.rpt_nstatus].cl = cl;
+      g.rpt_status[g.rpt_nstatus].attr = attr;
+      g.rpt_status[g.rpt_nstatus].st = read_status_for(ep, cl, attr);
+      g.rpt_nstatus++;
+    }
   }
   g.rpt_active = true; g.rpt_is_sub = false; g.rpt_phase = 0;
   g.rpt_exch = exch; g.rpt_cursor = 0;
@@ -2414,7 +2488,7 @@ static void im_handle_subscribe(const uint8_t *payload, size_t plen,
     g.sub_active = false;
   }
 
-  g.rpt_npaths = 0;
+  g.rpt_npaths = 0; g.rpt_nstatus = 0;
   rpt_add_query(have, ep, have, cl, have, attr);          // wildcard when !have
   g.rpt_active = true; g.rpt_is_sub = true; g.rpt_phase = 0;
   g.rpt_exch = exch; g.rpt_cursor = 0;
