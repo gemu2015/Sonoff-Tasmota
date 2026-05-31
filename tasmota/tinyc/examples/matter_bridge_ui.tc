@@ -36,6 +36,7 @@ char cfg_ip[8][16];      // remote IP per bridged item
 int  cfg_kind[8];        // what it is
 char cfg_key[8][16];     // JSON key ("Temperature", "POWER1", …)
 char cfg_name[8][24];    // Matter endpoint label
+char cfg_src[8][24];     // source remote's friendly DeviceName ("from where")
 int  cfg_ep[8];          // Matter endpoint id (runtime)
 float cfg_val[8];        // last polled value (sensor reading; relay/lamp = 0/1)
 int  cfg_dim[8];         // last polled dimmer % (lamps)
@@ -43,6 +44,7 @@ int  ncfg = 0;
 
 // discovery scratch (filled by TaskLoop, shown by WebCall)
 char disc_ip[16];
+char disc_src[24];       // discovered remote's DeviceName (falls back to IP)
 int  disc_kind[8];
 char disc_key[8][16];
 char disc_name[8][24];
@@ -77,6 +79,16 @@ int jbool(char src[], char key[]) {             // key e.g. "POWER1" -> 1/0, -1 
     strSub(v, src, p + strlen(key), 8);
     if (strFind(v, "ON") >= 0) { return 1; } return 0;
 }
+// fetch a remote's friendly DeviceName into dst (TaskLoop only; falls back to ip).
+// Uses the firmware jsonStr() builtin (Tasmota's JsonParser) — robust, unlike the
+// earlier hand-rolled string slicing which tripped over TinyC quote/char quirks.
+void get_devname(char ip[], char dst[]) {
+    char url[64];
+    dst[0] = 0;
+    sprintf(url, "http://%s/cm?cmnd=DeviceName", ip); buf[0] = 0;   // {"DeviceName":"NAME"}
+    if (httpGet(url, buf) > 0) { jsonStr(buf, "DeviceName", dst); }
+    if (strlen(dst) < 1) { strcpy(dst, ip); }                       // fallback: show the IP
+}
 
 // queue a Tasmota cmnd to a remote (TaskLoop sends it; skip if one is pending)
 void queue_cmd(char ip[], char c[]) {
@@ -93,24 +105,24 @@ void power_cmd(char c[], char key[], int on) {
 
 // ── persistence (flat comma tuples; strToken is 1-indexed; write 1D temp then strcpy) ──
 void save_cfg() {
-    char line[80]; int i; int f;
+    char line[120]; int i; int f;
     f = fileOpen("/bridge.cfg", 1);
     if (f < 0) { return; }
     i = 0;
-    while (i < ncfg) {
-        sprintf(line, "%s,%d,%s,%s,", cfg_ip[i], cfg_kind[i], cfg_key[i], cfg_name[i]);
+    while (i < ncfg) {                              // tuple: ip,kind,key,name,src,
+        sprintf(line, "%s,%d,%s,%s,%s,", cfg_ip[i], cfg_kind[i], cfg_key[i], cfg_name[i], cfg_src[i]);
         fileWrite(f, line, strlen(line));
         i = i + 1;
     }
     fileClose(f);
 }
 void load_cfg() {
-    char blob[640]; char tip[16]; char tk[16]; char tn[24]; char tf[8];
-    int f; int n; int t;
+    char blob[760]; char tip[16]; char tk[16]; char tn[24]; char tf[8]; char ts[24];
+    int f; int n; int t; int dots; int j;
     ncfg = 0;
     f = fileOpen("/bridge.cfg", 0);
     if (f < 0) { return; }
-    n = fileRead(f, blob, 639); fileClose(f);
+    n = fileRead(f, blob, 759); fileClose(f);
     if (n <= 0) { return; }
     blob[n] = 0;
     t = 1;                                          // strToken is 1-indexed
@@ -120,10 +132,17 @@ void load_cfg() {
         strToken(tf, blob, ',', t + 1);
         strToken(tk, blob, ',', t + 2);
         strToken(tn, blob, ',', t + 3);
+        strToken(ts, blob, ',', t + 4);             // src — OR next-record ip (old 4-field cfg)
         strcpy(cfg_ip[ncfg], tip);   cfg_kind[ncfg] = (int)atof(tf);
         strcpy(cfg_key[ncfg], tk);   strcpy(cfg_name[ncfg], tn);
         cfg_val[ncfg] = 0.0; cfg_dim[ncfg] = 0;
-        ncfg = ncfg + 1; t = t + 4;
+        // an IP-looking 5th field (>=2 dots) means this is the OLD 4-field format
+        // (ts is actually the next record's ip) → no src here, advance only 4.
+        dots = 0; j = 0;
+        while (ts[j] != 0) { if (ts[j] == '.') { dots = dots + 1; } j = j + 1; }
+        if (dots >= 2) { strcpy(cfg_src[ncfg], cfg_ip[ncfg]); t = t + 4; }
+        else           { strcpy(cfg_src[ncfg], ts);          t = t + 5; }
+        ncfg = ncfg + 1;
     }
 }
 
@@ -173,6 +192,7 @@ void probe_act(char k[], int kind, char nm[]) {     // relay (4) / lamp (5): key
 void do_discover() {
     char url[64]; char k[16]; char nm[24]; char fk[12];
     disc_n = 0;
+    get_devname(disc_ip, disc_src);                 // friendly "from where" name (or IP)
     sprintf(url, "http://%s/cm?cmnd=Status%%2010", disc_ip); buf[0] = 0;
     if (httpGet(url, buf) > 0) {
         strcpy(k, "Temperature"); strcpy(nm, "Temperatur"); probe_sensor(k, 0, nm);
@@ -203,6 +223,7 @@ void do_add() {
         if (dup == 0) {
             strcpy(cfg_ip[ncfg], disc_ip);   cfg_kind[ncfg] = disc_kind[i];
             strcpy(cfg_key[ncfg], disc_key[i]); strcpy(cfg_name[ncfg], disc_name[i]);
+            strcpy(cfg_src[ncfg], disc_src);                 // remember the source device
             cfg_val[ncfg] = 0.0; cfg_dim[ncfg] = 0;
             ncfg = ncfg + 1;
         }
@@ -326,13 +347,13 @@ void EverySecond() {
 // ── web UI ──
 char kind_names[] = "Temp|Feuchte|Druck|?|Relais|Lampe";
 void WebCall() {
-    char b[120]; char kn[12]; char st[4]; int i; int cc; int t;
+    char b[120]; char kn[12]; char st[4]; char prevsrc[24]; int i; int cc; int t;
     webSend("{s}<b>Matter Remote Bridge</b>{m}{e}");
     webText(ip_in, 16, "Remote IP");
     webButton(btn_disc, "Discover|scanning…");
 
     if (disc_n > 0) {
-        sprintf(b, "{s}<i>found on %s</i>{m}%d{e}", disc_ip, disc_n); webSend(b);
+        sprintf(b, "{s}<i>found on %s (%s)</i>{m}%d{e}", disc_src, disc_ip, disc_n); webSend(b);
         i = 0;
         while (i < disc_n) {
             strToken(kn, kind_names, '|', disc_kind[i] + 1);   // strToken is 1-indexed
@@ -343,8 +364,12 @@ void WebCall() {
     }
 
     sprintf(b, "{s}<b>Bridged endpoints</b>{m}%d{e}", ncfg); webSend(b);
-    cc = 0; i = 0;
+    cc = 0; i = 0; prevsrc[0] = 0;
     while (i < ncfg) {
+        if (strcmp(cfg_src[i], prevsrc) != 0) {            // group header: source device
+            strcpy(prevsrc, cfg_src[i]);
+            sprintf(b, "{s}<b>&#9679; %s</b>{m}<i>%s</i>{e}", cfg_src[i], cfg_ip[i]); webSend(b);
+        }
         t = cfg_kind[i];
         if (t == 0) { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%.1f C{e}",   cfg_name[i], cfg_val[i]); webSend(b); }
         if (t == 1) { sprintf(b, "{s}&nbsp;&nbsp;%s{m}%.0f %%{e}",  cfg_name[i], cfg_val[i]); webSend(b); }

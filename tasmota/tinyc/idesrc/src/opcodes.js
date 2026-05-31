@@ -447,6 +447,8 @@ export const Syscall = {
     BLE_WRITE_START:419, // (chr16, buf, len)        -> int   bleWriteStart(): connect + write char; 1=started, <0=busy
     BLE_DONE:       420, // ()                       -> int   bleDone(): 0=pending, >0=result len, <0=failed
     BLE_RESULT:     421, // (buf)                    -> int   bleResult(): copy received notify/read bytes; returns len
+    JSON_NUM:       422, // (src_ref, path_ref)           -> float  jsonNum(): parse JSON in src by '#'-path, return numeric value
+    JSON_STR:       423, // (src_ref, path_ref, dst_ref)  -> int    jsonStr(): parse JSON string value into dst, return length (-1 absent)
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void
