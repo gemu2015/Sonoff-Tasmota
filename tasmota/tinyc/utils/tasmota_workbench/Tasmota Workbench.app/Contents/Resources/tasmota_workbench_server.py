@@ -1512,7 +1512,9 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
  #devinfo.bad{color:var(--err)}
  #devinfo .parts{margin-top:3px;color:var(--mut);font-size:11px}
  #devinfo .parts b{color:var(--fg)}
- #scanwrap{flex-basis:100%;overflow:auto;max-height:240px;margin-top:4px;
+ #devpanel{flex:1;flex-direction:column;flex-wrap:nowrap;align-items:stretch;overflow:hidden}
+ #devtools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+ #scanwrap{flex:1;min-height:0;overflow:auto;margin-top:4px;
       border:1px solid #222;border-radius:6px}
  #scantbl{border-collapse:collapse;width:100%;
       font:11px/1.4 ui-monospace,Menlo,Consolas,monospace}
@@ -1617,6 +1619,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     style="vertical-align:middle"> src</label>
 </div>
 <div id="devpanel" class="hide">
+  <div id="devtools">
   <label>Firmware</label>
   <input type="file" id="fwfile" accept=".bin">
   <span id="fwinfo" style="color:var(--mut);font-size:12px">no file</span>
@@ -1665,6 +1668,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <progress id="fwpct" max="100" value="0" class="hide"></progress>
   <span id="fwstat" style="color:var(--mut);font-size:12px"></span>
   <div id="devinfo"></div>
+  </div>
   <div id="scanwrap" class="hide"><table id="scantbl">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
       <th>Tasmota</th><th>Flash</th><th>Free</th><th>Sensors / Outputs</th><th>Partitions</th>
@@ -1899,7 +1903,7 @@ function setMode(m){
   $('#devpanel').classList.toggle('hide', !dev);
   $('#sharepanel').classList.toggle('hide', !share);
   $('#cmdbar').classList.toggle('hide', !mon);           // command input = Monitor only
-  $('#log').classList.toggle('hide', share);             // log area hidden under Shares
+  $('#log').classList.toggle('hide', !mon);              // log area = Monitor tab only (else it steals the Devices/Shares height)
   $('#sharemain').classList.toggle('hide', !share);      // share table only under Shares
   $('#modeMon').classList.toggle('on',   mon);
   $('#modeDev').classList.toggle('on',   dev);
