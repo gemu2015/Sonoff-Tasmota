@@ -1904,11 +1904,21 @@ void TinyCFsWritePause(uint32_t fsize) {
   // re-run on resume; the bridge's main() starts with matterReset() and
   // rebuilds its endpoints (identical to a normal boot — the Matter fabric
   // persists on UFS), so no commissioning is lost.
+  // Stop EVERY loaded slot — NOT just those whose TaskLoop task is running.
+  // A main()-only slot that spawned a worker (spawnTask, e.g. an httpGet poller
+  // like ShellyPoll/StromTask) has task_running==false, yet its worker FreeRTOS
+  // task is alive and keeps allocating. On a heap already fragmented by the
+  // loaded VMs, that worker firing an httpGet/TLS alloc (~tens of KB) mid-write
+  // collapses the largest free block — Andreas's .104 trace: START maxblk=51100
+  // → after +2 KB write Heap=20 KB, LoadAvg=999, WiFi drop, hard hang (needs a
+  // power reset). TinyCStopVM() reaps the slot's spawnTask workers
+  // (tc_spawn_task_cleanup_slot) AND stops the VM task; TinyCStartVM() on resume
+  // re-runs main(), which re-spawns the workers — so none is lost.
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
-    if (s && s->loaded && s->task_running) {
+    if (s && s->loaded) {
       s->fs_was_running = true;
-      TinyCStopVM(s);                 // sets task_stop + waits for the task to exit
+      TinyCStopVM(s);                 // reaps spawn workers + stops the VM task
     }
   }
 #endif
