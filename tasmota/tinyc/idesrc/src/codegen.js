@@ -351,7 +351,7 @@ const BUILTINS = {
     'webButtonV':       { syscall: Syscall.WEB_BUTTON_V,    args: 2, returns: false, refArgs: [0], strArgs: [1] },
     'webSliderV':       { syscall: Syscall.WEB_SLIDER_V,    args: 4, returns: false, refArgs: [0], strArgs: [3] },
     'varIdx':           { syscall: Syscall.VAR_IDX,         args: 1, returns: true,  refArgs: [0] },
-    // fastMux(flag, time, buf, len): HW-timer GPIO multiplexer (ESP32-S3 only, USE_TINYC_FAST_MUX).
+    // fastMux(flag, time, buf, len): HW-timer GPIO multiplexer (classic ESP32 / ESP32-S3, USE_TINYC_FAST_MUX).
     // buf is your scan-buffer int[] — pass it for every flag (its value is ignored for stop/pos).
     'fastMux':          { syscall: Syscall.FAST_MUX,       args: 4, returns: true,  refArgs: [2] },
     'webCheckbox':      { syscall: Syscall.WEB_CHECKBOX,    args: 2, returns: false, refArgs: [0], constArgs: [1] },

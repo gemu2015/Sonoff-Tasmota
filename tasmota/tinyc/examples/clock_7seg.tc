@@ -1,9 +1,9 @@
 // clock_7seg.tc — big 7-segment HH:MM wall clock, multiplexed with fastMux().
 // Ported from a Tasmota Scripter script (the original drove the same display with mux()).
 //
-//   *** ESP32-S3 ONLY, firmware built with -DUSE_TINYC_FAST_MUX ***
-//   (fastMux() is the HW-timer GPIO multiplexer; it returns -1 on any other build, in
-//    which case this example logs that and exits.)
+//   *** classic ESP32 or ESP32-S3 ONLY, firmware built with -DUSE_TINYC_FAST_MUX ***
+//   (fastMux() is the HW-timer GPIO multiplexer; the RISC-V C-series is excluded, and it
+//    returns -1 on any other build — this example then logs that and exits.)
 //
 // The display is a 16x5 cm 4-digit 7-segment panel (HH:MM) plus a colon, wired as a small
 // charlieplex/scan matrix: two groups (mux1 / mux2) are enabled in turn by pulling pin 19
@@ -23,9 +23,9 @@
 //   0x20 clear-> SINGLE-PIN write: pin = b & 0x1f, level = (b >> 6) & 1
 //   0x80      -> step boundary (ISR advances one step per timer tick)
 //
-// NOTE ON PINS: this list is from the original classic-ESP32 wiring. fastMux is S3-only, so
-// for your board map these to valid ESP32-S3 GPIOs (avoid 19/20 = native USB and the
-// SPI-flash/PSRAM pins). The values below are kept verbatim for reference.
+// NOTE ON PINS: this list is the original classic-ESP32 wiring and is used as-is on a plain
+// ESP32 (this clock's hardware). If you instead run it on an ESP32-S3, remap these to valid
+// S3 GPIOs (avoid 19/20 = native USB and the SPI-flash/PSRAM pins). All drive pins are 0..31.
 
 // 15 output pins: 14 segment/digit drive lines + the colon (last). pa[0..13] = segments,
 // pa[14] = colon.

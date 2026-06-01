@@ -1,6 +1,7 @@
 // fast_mux.tc — HW-timer GPIO multiplexer (ported from Scripter's ESP32_FAST_MUX).
 //
-//   *** ESP32-S3 ONLY, and only if the firmware was built with -DUSE_TINYC_FAST_MUX ***
+//   *** classic ESP32 or ESP32-S3 ONLY, and only if the firmware was built with
+//       -DUSE_TINYC_FAST_MUX *** (the RISC-V C-series C3/C6/... are excluded.)
 //   On any other target / build, fastMux() simply returns -1 (this example then logs
 //   that and exits cleanly).
 //
