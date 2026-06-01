@@ -175,13 +175,39 @@ void logMeasurement() {
   char line[200];
   sprintf(line, "%s\t%.2f\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\n",
           ts, w_kg, w_imp, c_bmi, c_fat, c_lean, c_water, c_muscle);
-  int fh = fileOpen("/esf37.log", "a");
+  int newfile = (fileExists("/esf37.log") == 0);   // write the column header once, so the
+  int fh = fileOpen("/esf37.log", "a");             // TAB-delimited log drops straight into Excel
   if (fh < 0) { addLog("esf37: log open failed"); return; }
+  if (newfile) {
+    char hdr[80];
+    strcpy(hdr, "Time\tWeight_kg\tImpedance_Ohm\tBMI\tFat_%\tLean_kg\tWater_%\tMuscle_kg\n");
+    fileWrite(fh, hdr, strlen(hdr));
+  }
   fileWrite(fh, line, strlen(line));
   fileClose(fh);
   char m[64];
   sprintf(m, "esf37: LOGGED %.2f kg / %d ohm", w_kg, w_imp);
   addLog(m);
+}
+
+// Announce the completed weigh-in in German via the I2SAUDIO picotts plugin
+// (I2Stts command). No-op on builds without the plugin — tasmCmd just gets
+// "Command":"Unknown" back, harmless. Integer-part + "Komma" + tenths avoids
+// relying on the engine's decimal-separator handling; ASCII-only (no umlauts)
+// so it's safe through the .tc string literal + bytecode.
+void speakResult() {
+  int kg10 = (int)(w_kg * 10.0 + 0.5);     // weight to 1 decimal
+  int ki = kg10 / 10; int kd = kg10 % 10;
+  char cmd[160];
+  char resp[64];
+  if (c_have == 1) {
+    int ft10 = (int)(c_fat * 10.0 + 0.5);  // body-fat % to 1 decimal
+    int fi = ft10 / 10; int fd = ft10 % 10;
+    sprintf(cmd, "I2Stts Sie wiegen %d Komma %d Kilogramm. Fettanteil %d Komma %d Prozent.", ki, kd, fi, fd);
+  } else {
+    sprintf(cmd, "I2Stts Sie wiegen %d Komma %d Kilogramm.", ki, kd);
+  }
+  tasmCmd(cmd, resp);
 }
 
 // Decode one measurement frame already validated as TYPE 0xD0 / LEN 8.
@@ -215,7 +241,7 @@ void decodeD0() {
       w_imp = imp;
       shareSetInt("scale_imp", w_imp);
       computeComp();
-      if (logged == 0) { logMeasurement(); logged = 1; }   // one log row per weigh-in
+      if (logged == 0) { logMeasurement(); speakResult(); logged = 1; }   // one log row + one announcement per weigh-in
       char m[110];
       sprintf(m, "esf37: LOCKED %.2f kg  imp=%d ohm  BMI %.1f  fat %.1f%%  (#%d)",
               w_kg, w_imp, c_bmi, c_fat, nlock);
@@ -267,8 +293,7 @@ void renderTable() {
   int fsz = fileSize("/esf37.log");
   int fh = fileOpen("/esf37.log", "r");
   if (fh < 0) { return; }
-  int skip = 0;
-  if (fsz > 1390) { fileSeek(fh, fsz - 1390, 0); skip = 1; }   // tail window; drop partial 1st line
+  if (fsz > 1390) { fileSeek(fh, fsz - 1390, 0); }   // tail window (the renderer drops the first line either way)
   int n = fileRead(fh, fbuf, 1390);
   fileClose(fh);
   if (n <= 0) { webSend("<tr><td colspan=2><i>log empty</i></td></tr>"); return; }
@@ -280,7 +305,9 @@ void renderTable() {
   webSend("<tr style='text-align:left'><th>Time<th>kg<th>&#937;<th>BMI<th>Fat%<th>Lean<th>H2O%<th>Musc");
 
   int i = 0;
-  if (skip == 1) { while (i < n && fbuf[i] != 10) { i = i + 1; } i = i + 1; }
+  // Always drop the window's first line: the column-header row when reading from
+  // the file start, or the partial row when tail-windowed.
+  while (i < n && fbuf[i] != 10) { i = i + 1; } i = i + 1;
   char row[240];
   strcpy(row, "<tr><td>");
   int rl = strlen(row);

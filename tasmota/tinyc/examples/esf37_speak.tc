@@ -1,0 +1,121 @@
+// esf37_speak.tc — Etekcity ESF37 BLE scale → SPEAK the weight in German (picotts).
+//
+// Scan for the scale (mfr 0x06D0), subscribe its notify char 0x2C12, decode the
+// 0xD0 measurement frame, and the moment the reading LOCKS (stable=1) announce it
+// ONCE through the I2SAUDIO picotts plugin: "Sie wiegen NN Komma N Kilogramm".
+//
+// Frame (plaintext, no localKey): FE EF C0 A3 | D0 | LEN | payload | cksum
+//   payload[0:2] = kg ×100, u16 BE  → frame[6]<<8 | frame[7]
+//   payload[4]   = stable (0 measuring / 1 locked) → frame[10]
+//
+// BUILD: env tinyc32s3-mini-tts-ble (TTS + BLE, Matter+display stripped).
+// PREREQ on the device: I2SAUDIO plugin loaded + init'd (CODEC 0, DOUT 4/BCK 5/WS 6),
+//        picotts_ta / picotts_sg voice partitions populated. bleScan auto-enables BLE.
+// SAFETY: read-only — subscribe + receive only, never writes to the scale.
+
+int mfg[40];
+int mac[8];
+int tmac[8];
+int ttype;
+int frame[80];
+int phase;        // 0 = scan for scale, 1 = subscribe + read
+int started;
+int inflight;
+int fails;
+int spoken;       // 1 once the current weigh-in has been announced (debounce)
+int hb;
+
+int main() {
+  phase = 0; started = 0; inflight = 0; fails = 0; spoken = 0; hb = 0; ttype = 0;
+  return 0;
+}
+
+// Speak "Sie wiegen <int> Komma <tenths> Kilogramm" via the picotts plugin.
+void speakKg(int kg100) {
+  int ip = kg100 / 100;
+  int fp = (kg100 % 100) / 10;          // tenths
+  char cmd[96];
+  char resp[96];
+  // Volume left at the plugin default (unity, I2Svol 100): clean + loud with a
+  // properly-powered amp (5 V + a real speaker). Boosting >100 amplifies picotts
+  // past full-scale → clipping/"scratch", so don't.
+  sprintf(cmd, "I2Stts Sie wiegen %d Komma %d Kilogramm", ip, fp);
+  tasmCmd(cmd, resp);                    // runs the I2SAUDIO plugin's TTS command
+  char m[64];
+  sprintf(m, "esf37speak: announced %d,%d kg", ip, fp);
+  addLog(m);
+}
+
+void TaskLoop() {
+
+  // ── Phase 0: scan and lock onto the scale ──────────────────────────────
+  if (phase == 0) {
+    if (started == 0) {
+      bleScan(0);
+      started = 1;
+      addLog("esf37speak: scanning for scale (mfr 0x06D0) — step on it to wake it");
+    }
+    int got = bleNext();
+    while (got) {
+      int ml = bleMfg(mfg);
+      int isScale = 0;
+      if (ml >= 2 && mfg[0] == 0xD0 && mfg[1] == 0x06) { isScale = 1; }  // company id 0x06D0 LE
+      if (isScale) {
+        bleMac(mac);
+        ttype = bleAddrType();
+        int i = 0;
+        while (i < 6) { tmac[i] = mac[i]; i = i + 1; }
+        bleScanStop();                    // stop scanning before a GATT connect
+        bleTarget(tmac, ttype, 0x1910);   // GATT target + custom service UUID
+        phase = 1; inflight = 0; fails = 0; spoken = 0;
+        addLog("esf37speak: scale found — subscribing");
+        got = 0;
+      } else {
+        got = bleNext();
+      }
+    }
+    delay(200);
+    return;
+  }
+
+  // ── Phase 1: subscribe notify 0x2C12, decode, speak on lock ────────────
+  if (inflight == 0) {
+    int rc = bleReadStart(0x2C12);        // connect + subscribe (read-only)
+    if (rc == 1) { inflight = 1; } else { delay(400); }
+  } else {
+    int d = bleDone();                    // 0 pending / >0 frame length / <0 failed
+    if (d > 0) {
+      int n = bleResult(frame);
+      inflight = 0;
+      fails = 0;
+      if (n >= 11 && frame[0] == 0xFE && frame[1] == 0xEF && frame[2] == 0xC0 &&
+          frame[3] == 0xA3 && (frame[4] & 0xFF) == 0xD0) {
+        int kg100 = ((frame[6] & 0xFF) << 8) | (frame[7] & 0xFF);
+        int stable = frame[10] & 0xFF;
+        if (stable == 1) {
+          if (spoken == 0 && kg100 > 0) {
+            speakKg(kg100);
+            spoken = 1;                    // one announcement per weigh-in
+          }
+        } else {
+          spoken = 0;                      // measuring again → re-arm for next lock
+        }
+      }
+    } else {
+      if (d < 0) {
+        inflight = 0;
+        fails = fails + 1;
+        if (fails >= 8) {                  // scale asleep / MAC rotated → rescan
+          addLog("esf37speak: 8 fails — rescanning");
+          phase = 0; started = 0; fails = 0;
+        }
+        delay(300);
+      }
+      // d == 0: still pending — keep polling
+    }
+  }
+
+  hb = hb + 1;
+  if (hb >= 25) { hb = 0; addLog("esf37speak: alive"); }
+  delay(150);
+}

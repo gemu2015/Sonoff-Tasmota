@@ -1712,14 +1712,16 @@ sel &= 0xff;
   return 0;
 }
 
-#if defined(ESP32) && defined(JPEG_PICTS)
+#if defined(ESP32) && defined(JPEG_PICTS) && defined(USE_DISPLAY)
 // Draw_jpeg lives in xdrv_13_display; its prototype used to come from the
 // Scripter (xdrv_10_scripter). Declare it here so JPEG_PICTS works in
-// scripter-less builds (TINYC_NO_SCRIPTER) too.
+// scripter-less builds (TINYC_NO_SCRIPTER) too. Gate on USE_DISPLAY: Draw_jpeg
+// is only DEFINED when a display driver is built, so a display-less build
+// (TINYC_NO_DISPLAY) must compile jpeg_picture out to avoid an undefined ref.
 void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t scale);
 #endif
 uint32_t tmod_jpeg_picture(uint32_t mem, uint32_t jpgsize, uint32_t xp, uint32_t yp, uint32_t scale) {
-#if  defined(ESP32) && defined(JPEG_PICTS)
+#if  defined(ESP32) && defined(JPEG_PICTS) && defined(USE_DISPLAY)
   Draw_jpeg((uint8_t*)mem, jpgsize, xp, yp, scale);
 #endif
   return 0;

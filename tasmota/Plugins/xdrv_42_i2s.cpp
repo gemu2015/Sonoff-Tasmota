@@ -1665,14 +1665,20 @@ void SetVolume(void) {
     char *cp = XdrvMailbox->data;
     while (*cp == ' ') cp++;
     gain = strtol(cp, &cp, 10);
-    if (gain > 100) {
-        gain = 100;
+    // 100 = unity (gain_div 64). Allow up to 400 = ~4x amplification: picotts /
+    // SAM TTS output well below full-scale, so unity is too quiet on a plain I2S
+    // amp. Write_Samples clamps to pclamp/mclamp, so boosting only hard-clips the
+    // rare peak. gain_div is uint8_t → cap at 255 (~3.98x).
+    if (gain > 400) {
+        gain = 400;
     }
     if (gain < 1) {
       gain = 1;
     }
     float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(64));
-    gain_div = fixunssfsi(xgain);
+    uint32_t xg = fixunssfsi(xgain);
+    if (xg > 255) { xg = 255; }
+    gain_div = xg;
   } 
   gain = fixunssfsi(fmul(fdiv(floatunsisf(gain_div) , floatunsisf(64)), floatunsisf(100)));
   ResponseCmndNumber(gain);
