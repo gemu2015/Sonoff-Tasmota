@@ -91,15 +91,19 @@ Konsolenausgaben erscheinen im Tasmota-Tab **Konsole**.
 | **New** | Leerer Editor + neuer Dateiname |
 | **Open** | `.tc`-Quelldatei vom PC laden |
 | **Save** | Aktuelle Quelle auf PC speichern |
-| **Load Example…** | Eines von ~65 mitgelieferten Programmen waehlen (Sensoren, Displays, Netzwerk) |
-| **-DBOARD_…** | Board- / Feature-Flag-Vorgabe — setzt `#define`s fuer den Compiler |
+| **Load Example…** | Eines der 51 mitgelieferten Programme waehlen (Sensoren, Displays, Charts, Matter, BLE, Netzwerk) |
+| **Repo Examples…** | Das groessere Online-Beispiel-Repository (~150 Programme) durchsuchen und direkt laden |
+| **Incl** | Einen Ordner mit `.tc` / `.h` / `.c`-Dateien als `#include`-Quellen ins Programm holen |
 | **Compile** | Parsen + Bytecode erzeugen (Ausgabe im linken Bereich) |
+| **Save .tcb** | Den kompilierten Bytecode (`.tcb`) auf den PC herunterladen |
 | **Run** | Bytecode in der Browser-VM ausfuehren (ohne Geraet) |
+| **Slot** | Ziel-VM-Slot (0–5) fuer die folgenden Geraete-Aktionen |
+| **Device IP** | Adresse des Tasmota-Geraets (wird automatisch gesetzt, wenn die IDE vom Geraet ausgeliefert wird) |
 | **Upload** | `.tcb` an das Dateisystem des verbundenen Geraets senden |
-| **Run on Device** | Hochladen + in Slot laden + starten, alles in einem Klick |
+| **Run on Device** | Hochladen + in den gewaehlten Slot laden + starten, alles in einem Klick |
 | **Device Files…** | Dateien auf dem Geraet auflisten / herunterladen / loeschen |
 | **Save File** | Quelltext und Bytecode gemeinsam auf dem Geraet ablegen |
-| **Close** | Aktuellen Tab schliessen |
+| **✕ Close** | Aktuellen Tab schliessen |
 | **EN / DE** | Sprachumschaltung der Oberflaeche |
 
 **Linker Bereich — Tabs** (Compiler-Einblicke):
@@ -116,8 +120,9 @@ Konsolenausgaben erscheinen im Tasmota-Tab **Konsole**.
 - **SML Descriptor** — separater Textpuffer fuer Smart-Meter-Descriptor-Zeilen;
   wird bei Bedarf zusammen mit dem Programm zum Geraet geschickt
 
-**Statusleiste (unten)** — `19 files on device` zeigt die Anzahl der Dateien im
-Dateisystem des Geraets; aktualisiert sich bei jedem Upload oder Loeschen.
+**Statusleiste (unten)** — zeigt `Ready` / Statusmeldungen; sobald eine IP eingetragen
+ist und das Geraet antwortet, auch die Anzahl der Dateien im Dateisystem des Geraets
+(aktualisiert sich bei jedem Upload oder Loeschen).
 
 ## 4. Wohin als Naechstes
 

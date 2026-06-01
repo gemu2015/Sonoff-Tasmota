@@ -89,15 +89,19 @@ Console output appears in the Tasmota **Console** tab.
 | **New** | Empty editor + fresh filename |
 | **Open** | Load a `.tc` source file from your PC |
 | **Save** | Save the current source to your PC |
-| **Load Example…** | Pick from ~65 bundled programs (sensors, displays, networking) |
-| **-DBOARD_…** | Board / feature-flag preset — sets `#define`s the compiler sees |
+| **Load Example…** | Pick from the 51 bundled programs (sensors, displays, charts, Matter, BLE, networking) |
+| **Repo Examples…** | Browse the larger online example repository (~150 programs) and load one without leaving the IDE |
+| **Incl** | Pull in a folder of `.tc` / `.h` / `.c` files as `#include` sources for the current program |
 | **Compile** | Parse + generate bytecode (output on the left pane) |
+| **Save .tcb** | Download the compiled bytecode (`.tcb`) to your PC |
 | **Run** | Execute the compiled bytecode in the in-browser VM (no device needed) |
+| **Slot** | Target VM slot (0–5) for the device actions that follow |
+| **Device IP** | Address of the Tasmota device to talk to (auto-filled when the IDE is served from the device) |
 | **Upload** | Send the `.tcb` to the connected device's filesystem |
-| **Run on Device** | Upload + load into slot + start, all in one click |
+| **Run on Device** | Upload + load into the chosen slot + start, all in one click |
 | **Device Files…** | List / download / delete files on the device filesystem |
 | **Save File** | Save both source and compiled bytecode to the device |
-| **Close** | Close the current tab |
+| **✕ Close** | Close the current tab |
 | **EN / DE** | UI language toggle |
 
 **Left pane tabs** — compiler introspection:
@@ -114,8 +118,9 @@ Console output appears in the Tasmota **Console** tab.
 - **SML Descriptor** — separate text buffer for smart-meter descriptor lines; sent
   to the device alongside the program when present
 
-**Status bar (bottom)** — `19 files on device` shows the count of files on the
-device's filesystem; updates as you upload or delete.
+**Status bar (bottom)** — shows `Ready` / status messages; once an IP is entered and
+the device responds it also reports the device's filesystem file count (updates as you
+upload or delete).
 
 ## 4. Where to go next
 
