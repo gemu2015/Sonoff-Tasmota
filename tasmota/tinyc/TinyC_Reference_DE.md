@@ -1369,6 +1369,25 @@ Alternative: fuer die Elementgroesse eines Arrays `sizeof(typ)` direkt nutzen, z
 | `gpioInit(int pin, int mode)`        | Pin von Tasmota freigeben + pinMode   |
 | `int pinFree(int pin)`               | Weiche Pruefung: liefert 1, wenn der Pin frei nutzbar ist (nicht von der laufenden Tasmota-Konfiguration belegt/gesperrt), sonst 0. Haelt das Programm **nicht** an — so kann ein Skript `pinMode`/`owSetPin` usw. an einem konfigurierbaren Pin absichern, statt bei veralteter Konfiguration abzustuerzen. |
 
+### Schneller GPIO-Multiplexer (`fastMux`)
+
+Eine IRAM-Hardware-Timer-ISR, die einen Scan-Puffer aus Pin-Mustern direkt in die
+GPIO-Set/Clear-Register (Pins 0–31) schreibt — jitterfreies LED-Matrix- / 7-Segment-
+/ Charlieplex-Multiplexing, weit ruhiger als das Schalten der Pins aus der VM-Schleife.
+Portiert vom Scripter `ESP32_FAST_MUX`. **Per `USE_TINYC_FAST_MUX` aktiviert, standardmaessig
+aus, nur Dual-Core-Xtensa** (klassischer ESP32 oder ESP32-S3; RISC-V C-Serie und ESP8266
+ausgeschlossen → der Aufruf liefert `-1`).
+
+| Aufruf | Beschreibung |
+|--------|--------------|
+| `int fastMux(0, period_us, buf, len)` | **Start**: die `len` in `buf[]` aufgelisteten GPIOs als Ausgaenge konfigurieren und die Scan-ISR alle `period_us` Mikrosekunden laufen lassen (1-MHz-Timer-Basis). Liefert 0 bei Erfolg, -1 wenn nicht unterstuetzt / nicht gebaut. |
+| `int fastMux(1, 0, buf, 0)`           | Timer + ISR **stoppen**. |
+| `int fastMux(2, 0, buf, len)`         | Scan-Sequenz **laden** (`buf[]`, `len` Schritte), die die ISR durchlaeuft, um die konfigurierten Pins zu setzen/loeschen. |
+| `int fastMux(3, 0, buf, 0)`           | Aktuelle Scan-Position **lesen**. |
+
+Den Scan-Puffer-Aufbau zeigen `examples/fast_mux.tc` und `examples/clock_7seg.tc`
+(eine 7-Segment-Uhr).
+
 ### DMX-Ausgabe
 
 DMX-512-Universum ueber einen GPIO ausgeben (nutzt das RMT-Peripheral). Kanaele

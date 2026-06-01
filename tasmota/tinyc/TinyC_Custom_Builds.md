@@ -521,6 +521,8 @@ firmware versions of different sizes.
 | `chkpt a1` | Add 64 KB custom partition (for plugin drivers), taken from filesystem |
 | `chkpt a2`..`a4` | Add 128/192/256 KB custom partition |
 | `chkpt r` | Remove custom partition, return space to filesystem |
+| `chkpt n <name> <kb>` | Add a **named DATA partition** of `<kb>` KB (64 KB-aligned), carved from the filesystem tail — for large read-only blobs you want to memory-map. Any partition already after the filesystem (e.g. `custom`) keeps its flash offset. |
+| `chkpt d <name>` | Delete a named partition (must be the one directly after the filesystem); space returns to the filesystem |
 
 ### Examples
 
@@ -546,6 +548,62 @@ chkpt p
 - The `chkpt` infrastructure is always compiled into TinyC firmware, no extra build flags needed
 - App size is aligned to 64 KB boundaries
 - `chkpt p` requires a safeboot partition — devices without safeboot are refused (no recovery if partition table gets corrupted)
+
+## Named Data Partitions (for memory-mapped blobs)
+
+`chkpt n` / `chkpt d` + the `/partu` upload let you carve a **named, memory-mappable
+DATA partition** at runtime and fill it over the network — for large *read-only*
+blobs that you want to access directly from flash (`esp_partition_mmap`) instead of
+copying into RAM: TTS voices, fonts, ML models, lookup tables, images.
+
+Why a partition and not a file: a LittleFS file isn't contiguous, so to get a single
+addressable pointer you'd have to read it into RAM. A raw partition **is** contiguous
+and mmap-able — the CPU cache fetches bytes on demand, costing **0 RAM**. On a
+RAM-tight board that's the difference between fitting and not.
+
+**Workflow** (all OTA, no serial, no custom partition table baked into the build):
+
+```
+# 1. Carve the partition(s) — each carves from the filesystem tail and reboots.
+#    Carve the LATER one first so offsets line up (it lands further from the FS).
+chkpt n picotts_sg 640      # 640 KB DATA partition named "picotts_sg"
+chkpt n picotts_ta 448      # 448 KB DATA partition named "picotts_ta"
+
+# 2. Upload a blob straight into each partition (the multipart FILENAME picks the
+#    target partition). Streams to flash with per-sector erase+write — bypasses
+#    the (now possibly tiny) filesystem entirely.
+curl -F "f=@de-DE_sg.bin;filename=picotts_sg" http://<device-ip>/partu
+curl -F "f=@de-DE_ta.bin;filename=picotts_ta" http://<device-ip>/partu
+```
+
+A consumer then mmaps it by name, e.g. `esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+ESP_PARTITION_SUBTYPE_ANY, "picotts_ta")` + `esp_partition_mmap(...)`.
+
+### Notes
+
+- Created partitions are type **DATA**, subtype **0x40** (user-data, not auto-mounted).
+- `/partu` only writes DATA/0x40 partitions — it cannot clobber `app0`, `nvs`,
+  `safeboot`, or the filesystem.
+- Resizing the filesystem reformats it — **back up files first** (same as `chkpt p`).
+- Safeboot-gated and self-logged (the new table is printed before it's written);
+  a bad table is recoverable via safeboot.
+
+### Example: German TTS on a 4 MB / 2 MB-PSRAM ESP32-S3
+
+picotts (SVOX) needs a ~1.1 MB engine arena **plus** the ~1.05 MB de-DE voice. Both
+in PSRAM = ~2.15 MB, which won't fit a 2 MB part. Putting the **voice in mmap'd flash
+partitions** (0 PSRAM) leaves the whole arena for PSRAM, so it fits:
+
+1. Build with `USE_PICOTTS` (the I2SAUDIO BinPlugin carries the codec + `I2Stts`
+   command; the engine is in the firmware).
+2. `chkpt n picotts_sg 640` then `chkpt n picotts_ta 448` (reboots between).
+3. `/partu` the two `de-DE_{sg,ta}.bin` voice files into them.
+4. Leave the FS voice files **absent** → `PicoLazyInit` skips `picotts_set_resources()`
+   and the engine memory-maps the partitions directly.
+5. `I2Stts "Hallo"` → German speech, voice at **0 PSRAM**.
+
+See `examples/esf37_scale.tc` (a BLE body-composition scale that announces your
+weight in German via this path) and `examples/esf37_speak.tc` (the minimal version).
 
 ## After Flashing
 

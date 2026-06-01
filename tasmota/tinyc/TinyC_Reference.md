@@ -2240,6 +2240,25 @@ void process() {
 | `gpioInit(int pin, int mode)`        | Release pin from Tasmota + pinMode   |
 | `int pinFree(int pin)`               | Soft check: returns 1 if the pin is free to use (not claimed/forbidden by the running Tasmota config), 0 otherwise. Does **not** halt — lets a script gate `pinMode`/`owSetPin`/etc. on a user-configurable pin instead of crashing on a stale config. |
 
+### Fast GPIO Multiplexer (`fastMux`)
+
+An IRAM hardware-timer ISR that steps a scan buffer of pin patterns straight on the
+GPIO set/clear registers (pins 0–31) — jitter-free LED-matrix / 7-segment /
+charlieplex multiplexing, far steadier than toggling pins from the VM loop. Ported
+from the Scripter `ESP32_FAST_MUX`. **Gated `USE_TINYC_FAST_MUX`, off by default,
+dual-core Xtensa only** (classic ESP32 or ESP32-S3; RISC-V C-series and ESP8266 are
+excluded → the call returns `-1`).
+
+| Call | Description |
+|------|-------------|
+| `int fastMux(0, period_us, buf, len)` | **Start**: configure the `len` GPIOs listed in `buf[]` as outputs and run the scan ISR every `period_us` µs (1 MHz timer base). Returns 0 on success, -1 if unsupported / not built. |
+| `int fastMux(1, 0, buf, 0)`           | **Stop** the timer + ISR. |
+| `int fastMux(2, 0, buf, len)`         | **Load** the scan sequence (`buf[]`, `len` steps) the ISR walks to set/clear the configured pins. |
+| `int fastMux(3, 0, buf, 0)`           | **Read** the current scan position. |
+
+See `examples/fast_mux.tc` and `examples/clock_7seg.tc` (a 7-segment clock) for the
+scan-buffer layout.
+
 ### DMX Output
 
 Drive a DMX-512 universe over a GPIO (uses the RMT peripheral). Channels are
