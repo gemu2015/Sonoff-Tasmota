@@ -73,7 +73,7 @@
       <input id="impTasFile" type="file" accept=".csv,.txt,*/*" style="display:none">
       <span class="stats" id="impTasMsg"></span>
     </div>
-    <div class="hint">Migration path from ottelo's <code>2_SML_Chart_PV.tas</code>: the Scripter writes 5 lines (481 / 1441 / 31 / 31 / 24). This button reorders them into the TinyC PV layout (2008 floats, 6 arrays) and selects the <b>pv</b> preset so you can review + Save to device. <code>mcon[24]</code> is split into <code>sml_mcon[12]</code> (consumption) + <code>sml_mprod[12]</code> (production) per the .tas writer order.</div>
+    <div class="hint">Migration path from ottelo's <code>2_SML_Chart_PV.tas</code>: the Scripter writes 5 lines (481 / 1441 / 31 / 31 / 24). This button splits them into the TinyC port's <b>two</b> bins and downloads both: <code>sml_chart.bin</code> (1965: s4h·s24h·dcon·mcon) + <code>sml_chart_pv.bin</code> (43: dprod·mprod). <code>mcon[24]</code> is split into <code>sml_mcon[12]</code> (→ sml_chart.bin) + <code>sml_mprod[12]</code> (→ sml_chart_pv.bin). <b>Upload BOTH</b> to the device's file manager, then restart the slot.</div>
   </div>
 
   <div class="card">
@@ -102,10 +102,11 @@
 
 // ─── Presets ──────────────────────────────────────────────────────────────────
 // Each entry: file path on device, slot path, and the float32 layout (in file
-// order). totals: standard=1965, pv=2008. Add new variants here as the script
-// family grows (e.g. sml_chart_modbus.tc shares PV's layout, so its preset
-// would reuse the pv schema). 'pv' covers ottelo's `2_SML_Chart_PV.tas` port
-// (sml_chart_pv.tc).
+// order). totals: standard=1965, pv=43. 'pv' covers ottelo's `2_SML_Chart_PV.tas`
+// port (sml_chart_pv.tc) — which stores production-only (dprod|mprod=43) in
+// /sml_chart_pv.bin and the consumption arrays (s4h|s24h|dcon|mcon=1965) in
+// /sml_chart.bin (= the 'standard' preset, shared with sml_chart.tc). So a PV
+// device has BOTH files; the data.csv importer below writes both.
 const PRESETS = {
   standard: {
     file: "/sml_chart.bin",
@@ -120,11 +121,9 @@ const PRESETS = {
   pv: {
     file: "/sml_chart_pv.bin",
     slot: "/sml_chart_pv.tcb",
+    // sml_chart_pv.tc's /sml_chart_pv.bin holds production-only (43 floats).
+    // The consumption arrays live in /sml_chart.bin (the 'standard' preset).
     schema: [
-      { name: "sml_s4h   (4 h chart)",       count: 481  },
-      { name: "sml_s24h  (24 h chart)",      count: 1441 },
-      { name: "sml_dcon  (daily consumption, 31)", count: 31 },
-      { name: "sml_mcon  (monthly consumption, 12)", count: 12 },
       { name: "sml_dprod (daily production, 31)",   count: 31 },
       { name: "sml_mprod (monthly production, 12)", count: 12 },
     ],
@@ -361,6 +360,12 @@ function dlBlob(blob, fname) {
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fname;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+// Download a flat float array as a raw little-endian float32 .bin (device format).
+function dlFloats(arr, fname) {
+  const buf = new ArrayBuffer(arr.length * 4); const dv = new DataView(buf);
+  arr.forEach((v, i) => dv.setFloat32(i * 4, v, true)); // little-endian
+  dlBlob(new Blob([buf], { type: "application/octet-stream" }), fname);
+}
 $("dlBin").onclick = () => {
   const arrays = collectArrays(); const flat = [].concat(...arrays);
   const buf = new ArrayBuffer(flat.length * 4); const dv = new DataView(buf);
@@ -465,18 +470,22 @@ $("resync").onclick = () => { if (lastFloats) renderSegments(); };
 // hard-wired for plain sml_chart.tc's 1965-float layout.
 $("presetSel").addEventListener("change", e => applyPreset(e.target.value));
 
-// ── Scripter data.csv → TinyC sml_chart_pv.bin migration ──────────────────────
+// ── Scripter data.csv → TinyC two-bin migration ───────────────────────────────
 // ottelo's 2_SML_Chart_PV.tas (Scripter) writes 5 lines via fwa():
 //   line 0: s4h    (481)
 //   line 1: s24h   (1441)
 //   line 2: dcon   (31)
 //   line 3: dprod  (31)
 //   line 4: mcon   (24, with [0..11]=consumption, [12..23]=production)
-// The TinyC port (sml_chart_pv.tc) keeps each chart as its own persist[] in a
-// different order: s4h | s24h | dcon | mcon[12] | dprod | mprod[12] = 2008.
-// This importer reads the 5-line CSV, validates the column counts, performs
-// the reorder + the mcon split, and loads the result into the editor with
-// the pv preset selected for review/save.
+// The TinyC port (sml_chart_pv.tc) persists into TWO bins — NOT one combined
+// file. (Writing all 2008 floats to /sml_chart_pv.bin was the migration bug
+// mi-hol hit: the firmware reads only the first 43 floats there as dprod|mprod
+// — i.e. the START of the 4h chart — so the month chart showed garbage.):
+//   /sml_chart.bin    = s4h | s24h | dcon | mcon   (1965)  ← sml_chart_common
+//   /sml_chart_pv.bin = dprod | mprod              (43)    ← sml_chart_pv_common
+// The dual month chart reads sml_mcon from /sml_chart.bin AND sml_mprod from
+// /sml_chart_pv.bin, so both files must be migrated. This importer validates the
+// counts, splits mcon24, and writes BOTH .bin files. Upload both + restart slot.
 const TAS_EXPECT = [481, 1441, 31, 31, 24];
 
 function parseTabFloats(line) {
@@ -504,20 +513,29 @@ function importScripterCsv(text, fname) {
       return false;
     }
   }
-  // TinyC layout: s4h | s24h | dcon | mcon(=mcon24[0..11]) | dprod | mprod(=mcon24[12..23])
   const mcon  = rows[4].slice(0, 12);
   const mprod = rows[4].slice(12, 24);
-  const out = [].concat(rows[0], rows[1], rows[2], mcon, rows[3], mprod);
-  if (out.length !== 2008) {
-    setMsg($("impTasMsg"), `Internal error: produced ${out.length} floats, expected 2008.`, "warn");
+  // Two files matching the firmware's two bins:
+  const cons = [].concat(rows[0], rows[1], rows[2], mcon);   // s4h|s24h|dcon|mcon = 1965
+  const prod = [].concat(rows[3], mprod);                    // dprod|mprod       = 43
+  if (cons.length !== 1965 || prod.length !== 43) {
+    setMsg($("impTasMsg"), `Internal error: produced ${cons.length}+${prod.length} floats (expected 1965+43).`, "warn");
     return false;
   }
-  applyPreset("pv");
-  lastFloats = out;
-  lastName = (fname || "imported").replace(/\.(csv|txt|dat)$/i, "");
+  // Download both binaries (LE float32). The download filename becomes the
+  // on-device path when uploaded via the file manager — keep the exact names.
+  dlFloats(cons, "sml_chart.bin");
+  setTimeout(() => dlFloats(prod, "sml_chart_pv.bin"), 350);  // stagger: some browsers drop a 2nd instant download
+  // Load the consumption file into the editor (standard preset) for review — it
+  // holds sml_mcon (the monthly 'Verbrauch' series). The PV file is just 43 floats.
+  applyPreset("standard");
+  lastFloats = cons;
+  lastName = "sml_chart";
   renderSegments();
   setMsg($("impTasMsg"),
-    `Imported ${out.length} floats from "${fname}" — review the arrays below, then Save to device.`,
+    `Imported "${fname}" → wrote TWO files (downloaded): sml_chart.bin (1965 = s4h|s24h|dcon|mcon) ` +
+    `+ sml_chart_pv.bin (43 = dprod|mprod). Upload BOTH to the device, then restart the slot. ` +
+    `Showing sml_chart.bin (consumption) below for review.`,
     "ok");
   return true;
 }
