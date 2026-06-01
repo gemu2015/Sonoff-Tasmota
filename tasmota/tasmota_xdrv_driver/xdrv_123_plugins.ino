@@ -1989,7 +1989,7 @@ uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3
 
 void *tmod_special_malloc(uint32_t size) {
   void *ptr = special_malloc(size);
-  memset(ptr, 0, size);
+  if (ptr) { memset(ptr, 0, size); }   // SECURITY: don't memset() a NULL on OOM
   return ptr;
 };
 
@@ -3185,7 +3185,7 @@ uint32_t eeprom_block;
         blocksize *= SPI_FLASH_SEC_SIZE;
       } else {
         // free module block, check required size
-        uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
+        uint32_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;   // was uint8_t: truncates for >=255-sector modules
         //AddLog(LOG_LEVEL_INFO, PSTR("needed blocks: %d"), blocks);
         uint32_t *bp = lp;
         uint8_t free = 1;
@@ -3282,8 +3282,13 @@ uint32_t Store_Module_Block(uint8_t *fdesc, uint8_t index) {
 #ifdef ESP32
   //AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
   uint32_t offset = eeprom_block - plugins.free_flash_start;
-  esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
-  err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ESP32_PLUGIN_HSIZE);
+  esp_err_t err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
+  if (err == ESP_OK) {
+    err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ESP32_PLUGIN_HSIZE);
+  }
+  if (err != ESP_OK) {   // a failed erase/write leaves a slot that will crash on iniz — surface it
+    AddLog(LOG_LEVEL_ERROR, PSTR("MOD: flash store FAILED off=%08x err=%d (slot may be unusable)"), offset, err);
+  }
   yield();
 #endif // ESP32
 
@@ -3460,6 +3465,7 @@ void Read_Module_Data(uint32_t module, uint32_t *data) {
       uint32_t num = fm->arch & 0xff000000;
       if (num) {
         num = num >> 24;
+        if (num > 16) { num = 16; }   // SECURITY: clamp untrusted header store-count to caller vals[16]
       } else {
         num = MAX_MOD_STORES;
       }
@@ -3489,6 +3495,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         uint32_t num = fm->arch & 0xff000000;
         if (num) {
           num = num >> 24;
+          if (num > 16) { num = 16; }   // SECURITY: clamp untrusted header store-count to caller vals[16]
         } else {
           num = MAX_MOD_STORES;
         }
@@ -3512,6 +3519,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         uint32_t num = fm->arch & 0xff000000;
         if (num) {
           num = num >> 24;
+          if (num > 16) { num = 16; }   // SECURITY: clamp untrusted header store-count to caller vals[16]
         } else {
           num = MAX_MOD_STORES;
         }
@@ -3922,6 +3930,7 @@ void Module_dump(void) {
         }
       }
       uint16_t size = 512;
+      if (!modules[module].mod_addr) { AddLog(LOG_LEVEL_INFO, PSTR("MOD: slot %d empty"), module + 1); return; }  // SECURITY: don't deref a NULL slot
       uint32_t *lp = (uint32_t*) modules[module].mod_addr;
       lp += (512 / sizeof(uint32_t)) * block; 
       for (uint32_t cnt = 0; cnt < (size / 32) + 1; cnt ++) {
@@ -4092,6 +4101,7 @@ typedef struct {
   int num_partitions;
 
   uint8_t *mp = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE >> 2, 4);
+  if (!mp) { AddLog(LOG_LEVEL_ERROR, PSTR("MOD: partition scan OOM")); return; }  // SECURITY: don't read into a NULL buffer
   esp_err_t ret = esp_flash_read(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
   if (ret) { 
     AddLog(LOG_LEVEL_INFO, "partition read error:", ret);
@@ -4337,8 +4347,10 @@ void Modul_Check_HTML_Setvars(void) {
       // should better update values on closing menu
       uint32_t vals[16];
       Read_Module_Data(mind, vals);
-      uint32_t old = vals[pinn] & 0xff;
-      vals[pinn] = (vals[pinn] & 0xffffff00) | pind;
+      if (pinn < 16) {                       // SECURITY: bound web 'sv' index into vals[16] (was OOB stack r/w for pinn 16..255)
+        uint32_t old = vals[pinn] & 0xff;
+        vals[pinn] = (vals[pinn] & 0xffffff00) | pind;
+      }
       //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
       Update_Module_Data(mind, vals);
     }
@@ -4422,6 +4434,7 @@ void Module_upload() {
       uint32_t num = fm->arch & 0xff000000;
       if (num) {
         num = num >> 24;
+        if (num > 16) { num = 16; }   // SECURITY: clamp untrusted header store-count to caller vals[16]
       } else {
         num = MAX_MOD_STORES;
       }
@@ -4599,7 +4612,8 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
       return false;
     }
 
-    // allocate 1 sector size
+    // allocate 1 sector size (free any buffer leaked by a prior aborted upload first)
+    if (plugins.module_input_buffer) { free(plugins.module_input_buffer); plugins.module_input_buffer = nullptr; }
     plugins.module_input_buffer = (uint8_t *)special_malloc(SPI_FLASH_SEC_SIZE + 4);
     if (!plugins.module_input_buffer) {
       AddLog(LOG_LEVEL_INFO,PSTR("memory error"));
@@ -4614,6 +4628,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
   
   if (plugins.module_bytes_read == 0) {
     //AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 1; %d"),plugins.module_bytes_read);
+    if (current_size > SPI_FLASH_SEC_SIZE) { plugins.upload_error = MOD_UPL_ERR_MEM; return false; }  // SECURITY: bound write to the sector buffer
     memcpy(plugins.module_input_ptr, upload_buf, current_size);
     plugins.module_bytes_read += current_size;
     if (current_size < 2048) {
@@ -4623,6 +4638,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
     }
   } else {
     //AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 2; %d"),plugins.module_bytes_read);
+    if ((uint32_t)plugins.module_bytes_read + current_size > SPI_FLASH_SEC_SIZE) { plugins.upload_error = MOD_UPL_ERR_MEM; return false; }  // SECURITY: bound write to the sector buffer
     memcpy(plugins.module_input_ptr + plugins.module_bytes_read, upload_buf, current_size);
     Store_Module_Block(plugins.module_input_buffer, plugins.upload_slot);
     plugins.upload_start_block++;
@@ -4639,6 +4655,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 void Module_upload_stop(void) {
   if (plugins.module_input_buffer) {
     free(plugins.module_input_buffer);
+    plugins.module_input_buffer = nullptr;   // avoid double-free if stop runs twice
   }
 }
 
