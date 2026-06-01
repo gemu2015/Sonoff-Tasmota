@@ -4278,7 +4278,26 @@ const char HTTP_MODULES_SCRIPT[] PROGMEM =
   "setTimeout(function(){"
    "window.location.reload();"
   "}, 500);"
-"}";
+"}"
+// seva() is the GPIO/store selector handler used by the per-module pin
+// dropdowns below. When the Scripter web layer is compiled in, HTTP_SCRIPT_ROOT
+// expands to HTTP_SCRIPT_ROOT_WEB_DISPLAY.h which already defines seva(), so we
+// must NOT redefine it (harmless, but redundant). Builds that strip the Scripter
+// (e.g. the TinyC images, USE_SCRIPT_WEB_DISPLAY undefined) get
+// HTTP_SCRIPT_ROOT_NO_WEB_DISPLAY.h which has no seva() — the dropdowns'
+// onchange='seva(...)' then threw a ReferenceError and pin changes were silently
+// lost. Define it locally for exactly that case so /modu is self-contained:
+// la()'s '.?m=1' resolves to the root page from /modu, hitting FUNC_WEB_SENSOR ->
+// Modul_Check_HTML_Setvars() which writes the store back to flash.
+#ifndef USE_SCRIPT_WEB_DISPLAY
+"function seva(par,ivar){"
+  "la('&sv='+ivar+'_'+par);"
+  "setTimeout(function(){"
+   "window.location.reload();"
+  "}, 500);"
+"}"
+#endif
+;
 
 const char MOD_DIRECTORY[] PROGMEM =
   "<p><form action='" "mo_upl" "' method='get'><button>" "%s" "</button></form></p>";
