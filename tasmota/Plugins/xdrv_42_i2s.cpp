@@ -2183,17 +2183,27 @@ MODULE_PART bool PicoLazyInit(void) {
   char ta_path[40], sg_path[40];
   ptt_make_ta_path(ta_path, sizeof(ta_path), picotts_lang);
   ptt_make_sg_path(sg_path, sizeof(sg_path), picotts_lang);
-  if (!PicoLoadVoice(ta_path, &picotts_ta_buf, &picotts_ta_size) ||
-      !PicoLoadVoice(sg_path, &picotts_sg_buf, &picotts_sg_size)) {
-    if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; }
-    if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; }
-    picotts_init_failed = true;
-    return false;
+  // Two ways to supply the ~1 MB voice resources to the engine:
+  //  (1) FS+PSRAM: load /picotts_<lang>_{ta,sg}.bin from LittleFS into PSRAM and
+  //      hand the pointers to the engine. Costs ~1 MB PSRAM for the voice on top
+  //      of the engine arena — fine on >=4 MB-PSRAM boards (e.g. 8 MB S3).
+  //  (2) PARTITION: if the FS files are absent, leave the runtime pointers unset
+  //      so the engine mmaps the picotts_ta / picotts_sg flash partitions
+  //      directly — the voice then costs 0 PSRAM. This is how a 2 MB-PSRAM board
+  //      fits picotts; create the partitions with "chkpt n picotts_ta <kb>" /
+  //      "chkpt n picotts_sg <kb>" and upload the .bins via /partu.
+  bool have_ta = PicoLoadVoice(ta_path, &picotts_ta_buf, &picotts_ta_size);
+  bool have_sg = have_ta && PicoLoadVoice(sg_path, &picotts_sg_buf, &picotts_sg_size);
+  if (have_ta && have_sg) {
+    // FS+PSRAM mode — hand voice pointers to the engine before picotts_init.
+    picotts_set_resources(picotts_ta_buf, picotts_sg_buf);
+  } else {
+    // Partition mode — drop any partial PSRAM buffer; the engine will mmap the
+    // picotts_ta / picotts_sg partitions via find_*_bin_start().
+    if (picotts_ta_buf) { free(picotts_ta_buf); picotts_ta_buf = NULL; picotts_ta_size = 0; }
+    if (picotts_sg_buf) { free(picotts_sg_buf); picotts_sg_buf = NULL; picotts_sg_size = 0; }
+    picotts_set_resources(NULL, NULL);
   }
-
-  // Hand voice pointers to the engine BEFORE picotts_init — its
-  // internal find_*_bin_start() will pick them up.
-  picotts_set_resources(picotts_ta_buf, picotts_sg_buf);
 
   // Function pointers passed across the binplugin boundary need
   // EXEC_OFFSET applied so the firmware sees the actual code address.

@@ -18,8 +18,14 @@
 #include <math.h>
 
 // Yep, that's 1.1MB needed by PicoTTS, not counting the resource files which
-// we access directly from flash.
+// we access directly from flash. Overridable via -DPICO_MEM_SIZE=<bytes> so a
+// PSRAM-tight board (e.g. 2 MB ESP32-S3) that loads the ~1.05 MB voice into
+// PSRAM rather than mmap'ing it from flash can shrink the engine arena to fit
+// voice + arena under its PSRAM ceiling. 1.1 MB is the comfortable default
+// (8 MB-PSRAM boards keep it); lower values trade synthesis head-room for fit.
+#ifndef PICO_MEM_SIZE
 #define PICO_MEM_SIZE 1100000
+#endif
 
 #define PICOTASK_EXIT  0x0000001u
 
@@ -333,7 +339,20 @@ bool picotts_init(unsigned prio, picotts_output_fn cb, int core)
     ESP_LOGE(tag, "already initialized");
     return false;
   }
+  // The 1.1 MB SVOX engine arena does not fit the internal heap on a
+  // 4 MB ESP32-S3 (~200 KB free), so plain malloc() failed here and
+  // picotts_init() returned "insufficient memory". Route it through
+  // Tasmota's PSRAM-aware special_malloc() so the arena lands in PSRAM
+  // (the voice resources already do). pico_arena_malloc is a C-linkage
+  // shim around special_malloc defined in xdrv_123_plugins.ino under the
+  // same USE_PICOTTS+ESP32 gate; on a no-PSRAM board special_malloc()
+  // falls back to plain malloc(). free() works on either.
+#ifdef USE_PICOTTS
+  extern void *pico_arena_malloc(size_t size);
+  picoMemArea = pico_arena_malloc(PICO_MEM_SIZE);
+#else
   picoMemArea = malloc(PICO_MEM_SIZE);
+#endif
   if (!picoMemArea)
   {
     ESP_LOGE(tag, "insufficient memory to initialize picotts");

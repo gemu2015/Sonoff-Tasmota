@@ -839,6 +839,15 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 // spell out the function-pointer types explicitly. Don't replace with
 // `picotts_output_cb_t` / `picotts_notify_cb_t` — the build will fail
 // with "type not declared" against the auto-generated prototype block.
+#if defined(USE_PICOTTS) && defined(ESP32)
+// C-linkage shim so the pure-C SVOX engine (lib/libesp32_div/pico/esp_picotts.c)
+// can allocate its ~1.1 MB working arena via Tasmota's PSRAM-aware special_malloc.
+// special_malloc is a C++-mangled .ino symbol not directly callable from a .c TU;
+// without routing through it the arena went to the ~200 KB internal heap and
+// picotts_init() failed with "insufficient memory" on a 4 MB ESP32-S3.
+extern "C" void *pico_arena_malloc(size_t size) { return special_malloc(size); }
+#endif
+
 bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned count), int core) {
 #if defined(USE_PICOTTS) && defined(ESP32)
   return picotts_init(prio, cb, core);
@@ -4009,6 +4018,10 @@ void Check_partition(void) {
   uint8_t add = 0;
   uint8_t remove = 0;
   uint8_t pack = 0;
+  uint8_t mkpart = 0;       // chkpt n <name> <kb> : create a named DATA partition
+  uint8_t delpart = 0;      // chkpt d <name>      : delete a named DATA partition
+  char    pname[16] = {0};  // partition label (max 15 + NUL)
+  uint32_t pkb = 0;         // requested size in KB (64k-aligned)
   if (XdrvMailbox.data_len) {
     char *cp = XdrvMailbox.data;
     while (*cp == ' ') cp++;
@@ -4038,6 +4051,27 @@ void Check_partition(void) {
           new_app_size = (new_app_size + 0xFFFF) & ~0xFFFF;
         }
       }
+    } else if (*cp == 'n') {
+      // create a named DATA partition: "chkpt n <name> <kb>".
+      // Carved from the TAIL of spiffs, so any partition already after spiffs
+      // (e.g. the plugin "custom") keeps its flash offset. General-purpose:
+      // mmap'able blobs (TTS voices, fonts, models, lookup tables, ...).
+      cp++;
+      while (*cp == ' ') cp++;
+      uint8_t i = 0;
+      while (*cp && *cp != ' ' && i < sizeof(pname) - 1) { pname[i++] = *cp++; }
+      pname[i] = 0;
+      while (*cp == ' ') cp++;
+      pkb = strtol(cp, &cp, 10);
+      if (pname[0] && pkb >= 64) { mkpart = 1; }
+    } else if (*cp == 'd') {
+      // delete a named DATA partition: "chkpt d <name>" (space merged back to spiffs)
+      cp++;
+      while (*cp == ' ') cp++;
+      uint8_t i = 0;
+      while (*cp && *cp != ' ' && i < sizeof(pname) - 1) { pname[i++] = *cp++; }
+      pname[i] = 0;
+      if (pname[0]) { delpart = 1; }
     }
   }
 
@@ -4076,6 +4110,11 @@ void Check_partition(void) {
         return;
       }
     }
+    LittleFS.format();
+  }
+
+  if (mkpart || delpart) {
+    // resizing spiffs invalidates the LittleFS; reformat so it remounts cleanly
     LittleFS.format();
   }
 
@@ -4130,7 +4169,62 @@ typedef struct {
             break;
           }
         }
-        if (pack) {
+        if (mkpart || delpart) {
+          // general named DATA-partition create/delete, carved from spiffs.
+          esp_partition_info_t *pe = (esp_partition_info_t*)mp;
+          int8_t sp = hasspiffs, np_idx = -1;
+          for (uint32_t c = 0; c < num_partitions; c++) {
+            if (!strcmp((char*)pe[c].label, pname)) np_idx = c;
+          }
+          if (sp < 0) {
+            AddLog(LOG_LEVEL_INFO, PSTR("chkpt: no spiffs partition to carve from"));
+            mkpart = delpart = 0;
+          } else if (mkpart) {
+            uint32_t psize = ((pkb * 1024) + 0xFFFF) & ~0xFFFF;   // 64k align
+            if (np_idx >= 0) {
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: partition '%s' already exists"), pname);
+              mkpart = 0;
+            } else if (pe[sp].pos.size < psize + 0x8000) {        // keep >=32k FS
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: spiffs %dKB too small for '%s' %dKB"),
+                     pe[sp].pos.size / 1024, pname, psize / 1024);
+              mkpart = 0;
+            } else {
+              uint32_t new_sp  = pe[sp].pos.size - psize;
+              uint32_t new_off = pe[sp].pos.offset + new_sp;      // carve from spiffs TAIL
+              // open a slot at sp+1 (any later partitions keep their flash offsets)
+              memmove(&pe[sp + 2], &pe[sp + 1], (num_partitions - sp - 1) * sizeof(esp_partition_info_t));
+              pe[sp].pos.size = new_sp;
+              esp_partition_info_t *n = &pe[sp + 1];
+              n->magic = ESP_PARTITION_MAGIC;
+              n->type = PART_TYPE_DATA;
+              n->subtype = 0x40;                                  // user data (not auto-mounted)
+              n->pos.offset = new_off;
+              n->pos.size = psize;
+              memset(n->label, 0, sizeof(n->label));
+              strncpy((char *)n->label, pname, sizeof(n->label) - 1);
+              n->flags = 0;
+              num_partitions++;
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: + '%s' DATA %dKB @ 0x%06x; spiffs -> %dKB"),
+                     pname, psize / 1024, new_off, new_sp / 1024);
+            }
+          } else { // delpart
+            if (np_idx < 0) {
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: partition '%s' not found"), pname);
+              delpart = 0;
+            } else if (np_idx != sp + 1) {
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: '%s' not adjacent to spiffs - delete the one right after spiffs first"), pname);
+              delpart = 0;
+            } else {
+              uint32_t freed = pe[np_idx].pos.size;
+              pe[sp].pos.size += freed;                           // hand the space back to spiffs
+              memmove(&pe[np_idx], &pe[np_idx + 1], (num_partitions - np_idx - 1) * sizeof(esp_partition_info_t));
+              memset(&pe[num_partitions - 1], 0, sizeof(esp_partition_info_t));
+              num_partitions--;
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: - '%s' (%dKB); spiffs -> %dKB"),
+                     pname, freed / 1024, pe[sp].pos.size / 1024);
+            }
+          }
+        } else if (pack) {
           // pack: resize app0 and spiffs, preserve custom
           int8_t hasapp0 = -1;
           int8_t hascustom = -1;
@@ -4238,11 +4332,11 @@ typedef struct {
   wf.close();
 #endif
 
-  if (add || remove || pack) {
+  if (add || remove || pack || mkpart || delpart) {
     scan_ptable(mp, num_partitions);
   }
 
-  if (add || remove || pack) {
+  if (add || remove || pack || mkpart || delpart) {
     // ESP_PARTITION_MAGIC_MD5
     // esp_partition_is_flash_region_writable
     ret = esp_flash_erase_region(NULL, PART_OFFSET, SPI_FLASH_SEC_SIZE);
@@ -4678,10 +4772,83 @@ void Module_upload_stop(void) {
   }
 }
 
+// ---- generic raw upload of a blob into a named DATA partition ----------------
+// Populates a partition created with "chkpt n <name> <kb>" (TTS voice, font,
+// model, ...) straight from an HTTP upload, bypassing the (possibly tiny) FS.
+// The multipart *filename* selects the target partition. For safety only
+// type=DATA subtype=0x40 partitions (exactly what "chkpt n" creates) are
+// writable, so app0/nvs/safeboot/spiffs can never be clobbered. Erase is
+// per-sector (spread across the transfer) to stay WDT-friendly.
+static const esp_partition_t *partu_part = nullptr;
+static uint8_t  *partu_buf  = nullptr;   // one-sector staging buffer
+static uint32_t  partu_off  = 0;         // next flash offset within the partition
+static uint32_t  partu_fill = 0;         // bytes buffered in partu_buf
+static bool      partu_err  = false;
+
+static bool Partition_flush_sector(void) {
+  if (partu_off + SPI_FLASH_SEC_SIZE > partu_part->size) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PARTU: overflow — partition too small"));
+    partu_err = true; plugins.upload_error = MOD_UPL_ERR_MEM; return false;
+  }
+  esp_err_t e = esp_partition_erase_range(partu_part, partu_off, SPI_FLASH_SEC_SIZE);
+  if (e == ESP_OK) { e = esp_partition_write(partu_part, partu_off, partu_buf, SPI_FLASH_SEC_SIZE); }
+  if (e != ESP_OK) { AddLog(LOG_LEVEL_ERROR, PSTR("PARTU: flash err=%d @0x%x"), e, partu_off); partu_err = true; plugins.upload_error = MOD_UPL_ERR_MEM; return false; }
+  partu_off += SPI_FLASH_SEC_SIZE; partu_fill = 0;
+  return true;
+}
+
+bool Partition_upload_start(const char *name) {
+  partu_part = nullptr; partu_off = 0; partu_fill = 0; partu_err = false;
+  if (partu_buf) { free(partu_buf); partu_buf = nullptr; }
+  const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, name);
+  if (!p) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PARTU: no writable DATA(0x40) partition '%s' (create via 'chkpt n')"), name);
+    partu_err = true; plugins.upload_error = MOD_UPL_ERR_MEM; return false;
+  }
+  partu_buf = (uint8_t *)special_malloc(SPI_FLASH_SEC_SIZE);
+  if (!partu_buf) { AddLog(LOG_LEVEL_ERROR, PSTR("PARTU: OOM")); partu_err = true; plugins.upload_error = MOD_UPL_ERR_MEM; return false; }
+  partu_part = p;
+  plugins.upload_error = 0;
+  AddLog(LOG_LEVEL_INFO, PSTR("PARTU: writing '%s' into %dKB partition @0x%06x"), name, p->size / 1024, p->address);
+  return true;
+}
+
+bool Partition_upload_write(uint8_t *buf, size_t len) {
+  if (partu_err || !partu_part || !partu_buf) return false;
+  while (len) {
+    size_t space = SPI_FLASH_SEC_SIZE - partu_fill;
+    size_t n = (len < space) ? len : space;
+    memcpy(partu_buf + partu_fill, buf, n);
+    partu_fill += n; buf += n; len -= n;
+    if (partu_fill == SPI_FLASH_SEC_SIZE) { if (!Partition_flush_sector()) return false; }
+  }
+  return true;
+}
+
+void Partition_upload_stop(void) {
+  if (partu_part && partu_buf && !partu_err && partu_fill) {
+    memset(partu_buf + partu_fill, 0xff, SPI_FLASH_SEC_SIZE - partu_fill);  // pad final partial sector
+    Partition_flush_sector();
+  }
+  if (partu_buf) { free(partu_buf); partu_buf = nullptr; }
+  if (partu_part && !partu_err) { AddLog(LOG_LEVEL_INFO, PSTR("PARTU: done, %d bytes"), partu_off); }
+  partu_part = nullptr;
+}
+
+void Partition_HandleUploadLoop(void) {
+  if (HTTP_USER == Web.state) { return; }
+  HTTPUpload& upload = Webserver->upload();
+  switch (upload.status) {
+    case UPLOAD_FILE_START: Partition_upload_start(upload.filename.c_str()); break;
+    case UPLOAD_FILE_WRITE: Partition_upload_write(upload.buf, upload.currentSize); break;
+    case UPLOAD_FILE_END:   Partition_upload_stop(); break;
+  }
+}
+
 void Module_HandleUploadLoop(void) {
 
   if (HTTP_USER == Web.state) { return; }
-    
+
   HTTPUpload& upload = Webserver->upload();
 
   switch (upload.status) {
@@ -4782,6 +4949,7 @@ bool Xdrv123(uint32_t function) {
         Webserver->on("/mo_upl", Module_upload);
         Webserver->on("/modu", HTTP_GET, Module_upload);
         Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Module_HandleUploadLoop);
+        Webserver->on("/partu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Partition_HandleUploadLoop);
         Module_Execute(pFUNC_WEB_ADD_HANDLER);
       }
       break;
