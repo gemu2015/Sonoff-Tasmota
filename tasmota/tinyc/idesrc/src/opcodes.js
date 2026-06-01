@@ -452,6 +452,7 @@ export const Syscall = {
     VAR_IDX:        424, // (var_ref)                     -> int    varIdx(): global index of a var (for hand-built tcbtn/seva/siva HTML)
     WEB_BUTTON_V:   425, // (var_ref, label_ref)          -> void   webButtonV(): like webButton but RUNTIME label (char[])
     WEB_SLIDER_V:   426, // (var_ref, min, max, label_ref)-> void   webSliderV(): like webSlider but RUNTIME label (char[])
+    FAST_MUX:       427, // (flag, time, buf_ref, len)    -> int    fastMux(): HW-timer GPIO multiplexer (ESP32-S3 + USE_TINYC_FAST_MUX; -1 if not built)
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

@@ -68,6 +68,8 @@ EXAMPLES = [
     ('benchmark',      'Benchmark'),
     ('display_demo',   'Display Drawing'),
     ('touch_buttons',  'Touch Buttons'),
+    ('fast_mux',       'Fast GPIO Mux (S3, HW timer)'),
+    ('clock_7seg',     '7-Segment Clock (Fast Mux)'),
     # HomeKit is deprecated (TINYC_HOMEKIT is no longer enabled in any build env —
     # replaced by Matter). The homekit_*.tc files are kept in examples/ for
     # reference but are no longer bundled into the IDE dropdown.

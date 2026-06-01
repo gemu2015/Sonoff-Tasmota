@@ -1,0 +1,166 @@
+// clock_7seg.tc — big 7-segment HH:MM wall clock, multiplexed with fastMux().
+// Ported from a Tasmota Scripter script (the original drove the same display with mux()).
+//
+//   *** ESP32-S3 ONLY, firmware built with -DUSE_TINYC_FAST_MUX ***
+//   (fastMux() is the HW-timer GPIO multiplexer; it returns -1 on any other build, in
+//    which case this example logs that and exits.)
+//
+// The display is a 16x5 cm 4-digit 7-segment panel (HH:MM) plus a colon, wired as a small
+// charlieplex/scan matrix: two groups (mux1 / mux2) are enabled in turn by pulling pin 19
+// or 21 low, and within each group every segment pin is driven in sequence by the fastMux
+// IRAM timer ISR. A digit's 7 segments are scattered across specific positions of the scan
+// buffer; sseg() just flips the "level" bit (0x40) of those positions to light a pattern.
+//
+// Segment bit order in n2s[] is a,b,c,d,e,f,g (bit0..bit6):
+//      A          0 = ABCDEF    -> 0x3F     5 = ACDFG   -> 0x6D
+//   F     B       1 = BC        -> 0x06     6 = ACDEFG  -> 0x7D
+//      G          2 = ABDEG     -> 0x5B     7 = ABC     -> 0x07
+//   E     C       3 = ABCDG     -> 0x4F     8 = ABCDEFG -> 0x7F
+//      D          4 = BCFG      -> 0x66     9 = ABCFG   -> 0x67
+//
+// fastMux scan-buffer byte encoding (low 8 bits of each int):
+//   0x20 set  -> COMMAND: 0x01 clear all "low" pins, 0x02 set all "high" pins
+//   0x20 clear-> SINGLE-PIN write: pin = b & 0x1f, level = (b >> 6) & 1
+//   0x80      -> step boundary (ISR advances one step per timer tick)
+//
+// NOTE ON PINS: this list is from the original classic-ESP32 wiring. fastMux is S3-only, so
+// for your board map these to valid ESP32-S3 GPIOs (avoid 19/20 = native USB and the
+// SPI-flash/PSRAM pins). The values below are kept verbatim for reference.
+
+// 15 output pins: 14 segment/digit drive lines + the colon (last). pa[0..13] = segments,
+// pa[14] = colon.
+int pa[15]   = {2, 4, 5, 12, 13, 15, 16, 17, 18, 22, 23, 25, 26, 27, 14};
+
+// digit 0..9 -> 7-segment bit pattern (a..g in bits 0..6)
+int n2s[10]  = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x67};
+
+// For each of the 4 digits (HH-tens, HH-ones, MM-tens, MM-ones), the scan-buffer index of
+// each segment a..g. (These are the original 1-based Scripter indices minus 1 — i.e. they
+// point at the single-pin-write byte in the scan buffer built below.)
+int segs[28] = {
+    55, 21,  3, 59, 27, 23, 23,    // digit 0  (hours tens)
+     9, 29, 25, 57, 35, 41, 61,    // digit 1  (hours ones)
+    43, 45, 37,  5, 15, 11, 13,    // digit 2  (minutes tens)
+     7, 17, 19, 51, 47, 39, 49     // digit 3  (minutes ones)
+};
+
+int array[80];      // the fastMux scan buffer (also reused for the start-up pin config)
+int alen    = 0;    // length of the scan buffer (64)
+int lastmin = -1;   // last displayed minute (for change detection)
+
+// temperatures shown on the web tile (set these from a sensor / rule / MQTT if you want)
+float atmp  = 0.0;  // outside temp
+float wtemp = 0.0;  // living-room temp
+
+// ---- build the pin config + scan sequence, start the multiplexer --------------------------
+// Returns the fastMux(0) result: 0 on success, -1 if fastMux is not available on this build.
+int build_mux() {
+    int w;
+    int cnt;
+    int r;
+
+    // 1) Pin-config buffer for fastMux(0): the mux-enable pins start HIGH (off -> "high"
+    //    group, bit 0x40), the 15 drive pins start LOW (off -> "low" group).
+    array[0] = 0x40 + 19;          // mux1 enable pin, initial HIGH
+    array[1] = 0x40 + 21;          // mux2 enable pin, initial HIGH
+    for (cnt = 0; cnt < 15; cnt++) {
+        array[2 + cnt] = pa[cnt];  // drive pins, initial LOW
+    }
+    r = fastMux(0, 625, array, 17);   // start: 625 us / step on the 1 MHz timer
+    if (r < 0) {
+        return r;                  // not built in / not ESP32-S3
+    }
+
+    // 2) Scan sequence (overwrites `array`): for each mux group, blank everything, enable
+    //    the group, then walk the 15 drive pins (each [clear low][drive pin + boundary]).
+    w = 0;
+    array[w] = 0x23; w = w + 1;            // clear all low + set all high (blank)
+    array[w] = 19;   w = w + 1;            // enable mux1: pin 19 LOW
+    for (cnt = 0; cnt < 15; cnt++) {
+        array[w] = 0x21;            w = w + 1;   // clear low pins
+        array[w] = 0x80 + pa[cnt];  w = w + 1;   // drive this pin (level set by sseg) + boundary
+    }
+    array[w] = 0x23; w = w + 1;            // blank
+    array[w] = 21;   w = w + 1;            // enable mux2: pin 21 LOW
+    for (cnt = 0; cnt < 15; cnt++) {
+        array[w] = 0x21;            w = w + 1;
+        array[w] = 0x80 + pa[cnt];  w = w + 1;
+    }
+    alen = w;                              // 64
+    fastMux(2, 0, array, alen);            // load the scan sequence
+    return 0;
+}
+
+// ---- light one digit (val 0..9) at position ind (0=HH-tens,1=HH-ones,2=MM-tens,3=MM-ones) --
+void sseg(int val, int ind) {
+    int pat;
+    int base;
+    int shift;
+    int cnt;
+    int pos;
+
+    pat = 0;
+    if (ind != 0 || val != 0) {     // blank a leading zero on the hours-tens digit
+        pat = n2s[val];
+    }
+    base  = ind * 7;
+    shift = 0x01;
+    for (cnt = 0; cnt < 7; cnt++) {
+        pos = segs[base + cnt];
+        if ((pat & shift) > 0) {
+            array[pos] = array[pos] | 0x40;     // segment ON  (set level bit)
+        } else {
+            array[pos] = array[pos] & 0xbf;     // segment OFF (clear level bit)
+        }
+        shift = shift * 2;
+    }
+}
+
+// ---- write the current time onto the four digits + re-upload the scan buffer --------------
+void settime() {
+    char ts[24];
+    int hh;
+    int mm;
+    timeStamp(ts);                  // "YYYY-MM-DDTHH:MM:SS" (local time)
+    hh = (ts[11] - 48) * 10 + (ts[12] - 48);
+    mm = (ts[14] - 48) * 10 + (ts[15] - 48);
+    sseg(hh / 10, 0);
+    sseg(hh % 10, 1);
+    sseg(mm / 10, 2);
+    sseg(mm % 10, 3);
+    fastMux(2, 0, array, alen);     // push the updated buffer to the multiplexer
+}
+
+void EverySecond() {
+    char ts[24];
+    int mm;
+    if (alen == 0) { return; }      // mux not running (not available) -> nothing to do
+
+    timeStamp(ts);
+    mm = (ts[14] - 48) * 10 + (ts[15] - 48);
+    if (mm != lastmin) {            // minute changed -> refresh the digits
+        lastmin = mm;
+        settime();
+    }
+
+    // blink the colon: array[63] is the colon pin's scan byte (mux2, pa[14] = pin 14)
+    array[63] = array[63] ^ 0x40;
+    fastMux(2, 0, array, alen);
+}
+
+// web tile (parity with the original >W section)
+void WebCall() {
+    char m[96];
+    sprintf(m, "{s}Au&szlig;entemperatur{m}%.1f &deg;C{e}", atmp);  webSend(m);
+    sprintf(m, "{s}Wohnzimmer Temperatur{m}%.1f &deg;C{e}", wtemp); webSend(m);
+}
+
+int main() {
+    if (build_mux() < 0) {
+        addLog("clock_7seg: fastMux not available (needs ESP32-S3 + a -DUSE_TINYC_FAST_MUX build)");
+        return 0;
+    }
+    settime();
+    addLog("clock_7seg: running — HH:MM on the multiplexed 7-segment panel");
+    return 0;
+}

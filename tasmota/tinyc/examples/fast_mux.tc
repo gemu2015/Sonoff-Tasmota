@@ -1,0 +1,73 @@
+// fast_mux.tc — HW-timer GPIO multiplexer (ported from Scripter's ESP32_FAST_MUX).
+//
+//   *** ESP32-S3 ONLY, and only if the firmware was built with -DUSE_TINYC_FAST_MUX ***
+//   On any other target / build, fastMux() simply returns -1 (this example then logs
+//   that and exits cleanly).
+//
+// A hardware timer fires an IRAM ISR that walks a small "scan buffer" of pin-encoding
+// bytes and toggles GPIOs directly (GPIO.out_w1ts / out_w1tc, pins 0..31). This drives a
+// multiplexed display (LED matrix / 7-segment / charlieplex) with rock-steady timing,
+// independent of the TinyC VM loop — the mux keeps running even while main() is busy.
+//
+// fastMux(flag, time, buf, len):
+//   flag 0 = start : configure pins from buf[] + create the 1 MHz timer, period = `time` us
+//   flag 1 = stop  : tear the timer down
+//   flag 2 = load  : copy buf[] (len bytes) into the live scan sequence
+//   flag 3 = pos   : return the current scan index
+//   (Always pass your scan-buffer array as `buf`; its value is ignored for stop/pos.)
+//
+// Scan-buffer byte encoding (low 8 bits of each int):
+//   bit5 (0x20) set  -> COMMAND byte:
+//        0x01 -> clear all "low"  pins   (the pins you configured WITHOUT bit 0x40)
+//        0x02 -> set   all "high" pins   (the pins you configured WITH    bit 0x40)
+//        0x04 -> retime: alarm = time * ((b & 0x1f) >> 2)
+//   bit5 (0x20) clear -> SINGLE-PIN write: pin = b & 0x1f (0..31), level = (b >> 6) & 1
+//   bit7 (0x80)       -> step boundary: the ISR stops after this byte until the next tick
+//
+// Demo: a 4-column one-hot scan on GPIO 4,5,6,7 — exactly one column high at a time,
+// advancing one column every timer tick. Useful as the "digit select" of a multiplexed
+// 7-segment or the column drive of an LED matrix.
+
+// Configure the 4 column pins, all starting LOW -> they form the "low" group, so the
+// 0x21 command (clear-all-low) can blank the previously-lit column in one register write.
+int cfg[4] = {4, 5, 6, 7};
+
+// 4 steps, 2 bytes each: [clear all columns] then [drive one column high + step boundary].
+//   0x21       = command: clear all "low" pins
+//   0xC4..0xC7 = single-pin write, level 1 (0x40), step boundary (0x80), pin 4..7
+int scan[8] = {
+    0x21, 0xC4,    // step 0: blank all, light column on GPIO4
+    0x21, 0xC5,    // step 1: blank all, light column on GPIO5
+    0x21, 0xC6,    // step 2: blank all, light column on GPIO6
+    0x21, 0xC7     // step 3: blank all, light column on GPIO7
+};
+
+char msg[80];
+
+int main() {
+    // Start: 1500 us per step -> 4 steps = 6 ms per full cycle (~167 Hz refresh).
+    int r = fastMux(0, 1500, cfg, 4);
+    if (r < 0) {
+        addLog("fast_mux: NOT available (needs ESP32-S3 + a -DUSE_TINYC_FAST_MUX build)");
+        return 0;
+    }
+
+    // Load the rotating one-hot scan sequence; the ISR now drives the columns by itself.
+    fastMux(2, 0, scan, 8);
+    addLog("fast_mux: running — 4-column one-hot scan on GPIO 4..7");
+
+    // main() is free to do anything; here we just report the live scan position.
+    int i = 0;
+    while (i < 20) {
+        int pos = fastMux(3, 0, scan, 0);     // read current scan index
+        sprintf(msg, "fast_mux: scan pos = %d", pos);
+        addLog(msg);
+        delay(1000);
+        i++;
+    }
+
+    // Stop the multiplexer when done (the columns hold their last state).
+    fastMux(1, 0, scan, 0);
+    addLog("fast_mux: stopped");
+    return 0;
+}
