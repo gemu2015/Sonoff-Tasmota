@@ -48,9 +48,39 @@ int array[80];      // the fastMux scan buffer (also reused for the start-up pin
 int alen    = 0;    // length of the scan buffer (64)
 int lastmin = -1;   // last displayed minute (for change detection)
 
-// temperatures shown on the web tile (set these from a sensor / rule / MQTT if you want)
-float atmp  = 0.0;  // outside temp
-float wtemp = 0.0;  // living-room temp
+// ═══════════════ Proven reusable WebUI clock-header block ═══════════════
+// Copied verbatim from examples/clock_header.tc (also used by energy_dashboard.tc /
+// core2_energy.tc): a big green HH:MM:SS readout + German weekday/date + a
+// sunrise→daylight→sunset row, with a live-tick badge proving the /?m=1 poll fires.
+// Requires a `char scratch[256]` buffer in scope.
+char scratch[256];
+int web_clock_tick = 0;            // increments per WebCall poll
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
+// ═══════════════ end clock-header block ═══════════════
 
 // ---- build the pin config + scan sequence, start the multiplexer --------------------------
 // Returns the fastMux(0) result: 0 on success, -1 if fastMux is not available on this build.
@@ -148,11 +178,9 @@ void EverySecond() {
     fastMux(2, 0, array, alen);
 }
 
-// web tile (parity with the original >W section)
+// web UI: our proven digital clock header (HH:MM:SS + date + sunrise/sunset)
 void WebCall() {
-    char m[96];
-    sprintf(m, "{s}Au&szlig;entemperatur{m}%.1f &deg;C{e}", atmp);  webSend(m);
-    sprintf(m, "{s}Wohnzimmer Temperatur{m}%.1f &deg;C{e}", wtemp); webSend(m);
+    web_clock_header();
 }
 
 int main() {
