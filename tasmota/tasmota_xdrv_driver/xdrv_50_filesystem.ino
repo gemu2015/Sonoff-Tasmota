@@ -102,6 +102,8 @@ File ufs_upload_file;
 #define UFS_BIG_WRITE 16384      // bytes: uploads >= this (or undeclared size) get the WDT bound
 #endif                          // + SML serial quiesce around the blocking LittleFS close().
 bool ufs_upload_big = false;     // set per /ufsu upload in UfsUploadFileOpen
+uint32_t ufs_upload_bytes = 0;     // bytes received this /ufsu upload (heap-trace throttle)
+uint32_t ufs_upload_tracenext = 0; // next byte count at which to log a heap sample
 uint8_t ufs_dir;
 // 0 = None, 1 = SD, 2 = ffat, 3 = littlefs
 uint8_t ufs_type;
@@ -1767,6 +1769,18 @@ bool UfsUploadFileOpen(const char* upload_filename) {
   // SML serial quiesce. Threshold matches TinyCFsWritePause()'s internal gate.
   uint32_t ufs_fsz = Webserver->hasArg(F("fsz")) ? (uint32_t)Webserver->arg(F("fsz")).toInt() : 0;
   ufs_upload_big = (ufs_fsz == 0 || ufs_fsz >= UFS_BIG_WRITE);
+  // Heap-trace instrumentation (diagnostic only — no behavior change) for the big-write
+  // hang: a large write on a heap fragmented by loaded VMs/workers collapses silently
+  // (Andreas .104, 3 slots). We log free heap + largest contiguous block (maxblk — the
+  // metric a future graceful-reject guard will key on) at the START (here, before the VM
+  // pause = the real incoming state), every 32 KB during the write, and at the end — so
+  // the reject threshold can be set from real numbers instead of guessed.
+  ufs_upload_bytes = 0;
+  ufs_upload_tracenext = 0;
+  if (ufs_upload_big) {
+    AddLog(LOG_LEVEL_INFO, PSTR("UPL: heap-trace START fsz=%u free=%u maxblk=%u"),
+           ufs_fsz, ESP_getFreeHeap(), ESP_getMaxAllocHeap());
+  }
 #ifdef USE_TINYC
   // Stop TinyC VM tasks before a LARGE internal-flash write: a multi-block
   // LittleFS write while a VM task exists deadlocks a dual-core node. Size-gated
@@ -1788,6 +1802,14 @@ bool UfsUploadFileOpen(const char* upload_filename) {
 bool UfsUploadFileWrite(uint8_t *upload_buf, size_t current_size) {
   if (ufs_upload_file) {
     ufs_upload_file.write(upload_buf, current_size);
+    if (ufs_upload_big) {                 // heap-trace: sample free/maxblk every 32 KB
+      ufs_upload_bytes += current_size;
+      if (ufs_upload_bytes >= ufs_upload_tracenext) {
+        ufs_upload_tracenext = ufs_upload_bytes + 32768;
+        AddLog(LOG_LEVEL_INFO, PSTR("UPL: heap-trace +%uK free=%u maxblk=%u"),
+               ufs_upload_bytes / 1024, ESP_getFreeHeap(), ESP_getMaxAllocHeap());
+      }
+    }
   } else {
     return false;
   }
@@ -1807,6 +1829,12 @@ void UfsUploadFileClose(void) {
 #ifdef ESP32
   if (ufs_upload_big) { feedLoopWDT(); enableLoopWDT(); }
 #endif
+  // heap-trace: post-write / PRE-resume sample — this is the heap the VM tasks find when
+  // they restart below; if maxblk here is too small, the resume's allocations wedge.
+  if (ufs_upload_big) {
+    AddLog(LOG_LEVEL_INFO, PSTR("UPL: heap-trace DONE bytes=%u free=%u maxblk=%u"),
+           ufs_upload_bytes, ESP_getFreeHeap(), ESP_getMaxAllocHeap());
+  }
 #ifdef USE_TINYC
   extern void TinyCFsWriteResume(void);
   TinyCFsWriteResume();   // resume TinyC VM tasks (HandleUploadUFSDone also clears, as a safety net)
