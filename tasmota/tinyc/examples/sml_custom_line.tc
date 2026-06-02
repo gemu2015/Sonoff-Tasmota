@@ -1,0 +1,73 @@
+// sml_custom_line.tc — two SML web-table techniques.
+//
+// (1) SUPPRESS a raw meter line in the descriptor (give its name the single
+//     character '*') and render ONE custom line instead — e.g. a combined
+//     "230 V , 2 A , 640 W" — by reading the still-decoded values with smlGet().
+//     The '*' only hides the web row; the value is still decoded + in the JSON
+//     + readable from a script.
+//
+// (2) ALIGN stacked numbers at the decimal separator. You can do this cleanly
+//     precisely BECAUSE the script emits the cell itself: wrap the number in a
+//     fixed-width, right-aligned, tabular-figures box (the unit stays outside).
+//     Equal decimal counts then line the separators up — and because the script
+//     re-emits this HTML on every web refresh, it survives the AJAX redraw (a
+//     plain CSS tweak on Tasmota's own value cells does not, and can't target
+//     the decimal anyway: each value is one "number + unit" text cell).
+//
+// =====================  /sml_meter.def  setup  =======================
+// Mark every line you want to fold away with name '*'. The value is still
+// DECODED and readable via smlGet() by its 1-based position in the descriptor:
+//
+//   +1,3,s,0,9600,MT                     ; your meter header (ADAPT to yours!)
+//   1,=h0100200700ff@1,*,V,Volt,1        ; [1] voltage  L1 (1-0:32.7.0) -> hidden
+//   1,=h01001f0700ff@1,*,A,Strom,2       ; [2] current  L1 (1-0:31.7.0) -> hidden
+//   1,=h0100100700ff@1,*,W,Leistung,0    ; [3] power    +A (1-0:16.7.0) -> hidden
+//
+// [n] is the smlGet() index. Adapt the OBIS codes + the header to YOUR meter;
+// the only thing that matters for this demo is: name == '*'  =>  row hidden,
+// value still decoded. (Without a meter the demo falls back to sample numbers
+// so the page still shows the formatting.)
+// =====================================================================
+
+char buf[256];
+
+// Emit one sensor-table row whose value is decimal-aligned: the number sits
+// right-aligned in a fixed-width box with tabular figures (every digit the same
+// width), the unit trails outside. Stack several of these with the SAME number
+// of decimals and the separators line up. min-width 8ch fits up to "99999.99".
+void alignedRow(char label[], float val, char unit[]) {
+  char row[256];
+  sprintf(row, "{s}%s{m}<span style='display:inline-block;min-width:8ch;text-align:right;font-variant-numeric:tabular-nums'>%.2f</span> %s{e}", label, val, unit);
+  webSend(row);
+}
+
+int main() {
+  addLog("sml_custom_line: WebCall renders a combined line + an aligned stack");
+  return 0;
+}
+
+// WebCall() appends rows to Tasmota's live sensor table (the /?m=1 AJAX redraw).
+void WebCall() {
+  // ---- (1) ONE combined line from the '*'-suppressed V / A / W values ----
+  float volt = smlGet(1);       // descriptor line [1], name '*' (hidden)
+  float amp  = smlGet(2);       // descriptor line [2], name '*' (hidden)
+  float watt = smlGet(3);       // descriptor line [3], name '*' (hidden)
+  if (volt == 0.0 && amp == 0.0 && watt == 0.0) { volt = 230.0; amp = 2.0; watt = 640.0; } // no meter -> demo
+  sprintf(buf, "{s}Netz L1{m}%.0f V , %.0f A , %.0f W{e}", volt, amp, watt);
+  webSend(buf);
+
+  // ---- (2) decimal alignment: same kWh values shown ragged vs. aligned ----
+  // (use your own smlGet() energy totals in practice). The 'roh' rows are
+  // Tasmota's default left-aligned cell; the aligned rows line up at the comma.
+  float d = 5.2;
+  float m = 150.45;
+  float y = 1850.3;
+
+  sprintf(buf, "{s}Bezug Tag (roh){m}%.2f kWh{e}",   d); webSend(buf);
+  sprintf(buf, "{s}Bezug Monat (roh){m}%.2f kWh{e}", m); webSend(buf);
+  sprintf(buf, "{s}Bezug Jahr (roh){m}%.2f kWh{e}",  y); webSend(buf);
+
+  alignedRow("Bezug Tag",   d, "kWh");
+  alignedRow("Bezug Monat", m, "kWh");
+  alignedRow("Bezug Jahr",  y, "kWh");
+}
