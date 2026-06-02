@@ -448,11 +448,20 @@ $("resync").onclick = () => { if (lastFloats) renderSegments(); };
     fd.append("ufsu", file);
     setDevMsg("Saving " + ab.byteLength + " B to " + fname + " …");
     try {
+      // STOP FIRST, then upload, then run. The chart scripts flush their data
+      // to the .bin on OnExit/CleanUp; if we uploaded *before* stopping, that
+      // flush would overwrite the file we just wrote (the import-clobber bug).
+      // With the slot stopped the arrays are no longer touched, so the later
+      // TinyCRun teardown is a no-op (sml_chart_dirty == 0) and our upload
+      // survives for the fresh instance to read.
+      if (slot) {
+        const sn = (slot.match(/^\d+/) || ["0"])[0];
+        await fetch("/cm?cmnd=" + encodeURIComponent("TinyCStop " + sn), { cache: "no-store" });
+      }
       const r = await fetch("/ufsu?fsz=" + ab.byteLength, { method: "POST", body: fd });
       if (!r.ok) throw new Error("upload HTTP " + r.status);
       if (slot) {
-        const cmd = "Backlog TinyCStop 0; TinyCRun " + slot;
-        const r2 = await fetch("/cm?cmnd=" + encodeURIComponent(cmd), { cache: "no-store" });
+        const r2 = await fetch("/cm?cmnd=" + encodeURIComponent("TinyCRun " + slot), { cache: "no-store" });
         if (!r2.ok) throw new Error("restart HTTP " + r2.status);
         setDevMsg("Saved " + ab.byteLength + " B; reloaded " + slot, "ok");
       } else {
@@ -534,7 +543,9 @@ function importScripterCsv(text, fname) {
   renderSegments();
   setMsg($("impTasMsg"),
     `Imported "${fname}" → wrote TWO files (downloaded): sml_chart.bin (1965 = s4h|s24h|dcon|mcon) ` +
-    `+ sml_chart_pv.bin (43 = dprod|mprod). Upload BOTH to the device, then restart the slot. ` +
+    `+ sml_chart_pv.bin (43 = dprod|mprod). To install: STOP the slot first (console: TinyCStop 0), ` +
+    `upload BOTH files via the file manager, THEN run it (TinyCRun 0). Uploading while the slot runs ` +
+    `lets the chart's auto-save overwrite sml_chart.bin before it is read. ` +
     `Showing sml_chart.bin (consumption) below for review.`,
     "ok");
   return true;

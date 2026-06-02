@@ -88,6 +88,11 @@ int sml_hr_last;                // last seen tasm_hour (midnight edge detect)
 #define CHART_CSV_DEC 3
 #endif
 
+// Set whenever the meter modifies the chart arrays (5s/60s ticks). Gates the
+// OnExit/CleanUp flush so a freshly-imported .bin is never clobbered — see the
+// comment on CleanUp()/OnExit() below. NOT persisted (it is run-state only).
+int sml_chart_dirty = 0;
+
 void sml_chart_save() {
 #ifdef CHART_CSV
     int h = fileOpen("/sml_chart.csv", "w");
@@ -110,9 +115,11 @@ void sml_chart_save() {
     fileWriteBin(h, sml_mcon, 12);
 #endif
     fileClose(h);
+    sml_chart_dirty = 0;        // file now matches the in-RAM arrays
 }
 
 void sml_chart_load() {
+    sml_chart_dirty = 0;        // about to (re)sync arrays from the file
 #ifdef CHART_CSV
     int h = fileOpen("/sml_chart.csv", "r");
 #else
@@ -133,15 +140,23 @@ void sml_chart_load() {
     fileClose(h);
 }
 
-// Flush chart data to file whenever the script is going away, so the post-boot
+// Flush chart data to file when the script is going away, so the post-boot
 // sml_chart_load() never reads a stale .bin and shows a gap:
 //   CleanUp() — device Restart / OTA (FUNC_SAVE_BEFORE_RESTART). The .tas `>R`.
 //   OnExit()  — this slot stopped / re-run / unlinked (per-slot teardown).
+// GUARDED by sml_chart_dirty: only flush if the meter actually changed the
+// arrays since the last load/save. This is essential for the "import new data,
+// then restart" workflow — without the guard, the outgoing slot's teardown
+// save overwrites a freshly-uploaded /sml_chart.bin *before* the new instance
+// reads it (the clobber that made imports silently revert). With it, a
+// stop → upload → run cycle preserves the import: the stop-save flushes and
+// clears dirty, the upload overwrites the file, and the run-teardown sees
+// dirty == 0 and skips. => Always upload the .bin while the slot is STOPPED.
 void CleanUp() {
-    sml_chart_save();
+    if (sml_chart_dirty) sml_chart_save();
 }
 void OnExit() {
-    sml_chart_save();
+    if (sml_chart_dirty) sml_chart_save();
 }
 
 // ============================================================================
@@ -207,6 +222,7 @@ void sml_chart_5s_tick() {
         sml_s24h[idx24] = s24h_avg;
         sml_s24h_pos = idx24;
     }
+    sml_chart_dirty = 1;        // meter modified the high-res arrays
 }
 
 // ============================================================================
@@ -220,6 +236,7 @@ void sml_chart_60s_tick() {
 
     if (d >= 1 && d <= 31) sml_dcon[d - 1] = ein - sml_dval;
     if (m >= 1 && m <= 12) sml_mcon[m - 1] = ein - sml_mval;
+    sml_chart_dirty = 1;        // meter modified the daily/monthly counters
 
     int hr = tasm_hour;
     if (sml_hr_last != hr && hr == 0) {
