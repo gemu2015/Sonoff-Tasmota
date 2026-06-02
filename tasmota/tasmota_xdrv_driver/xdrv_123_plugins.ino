@@ -4781,6 +4781,7 @@ void Module_upload_stop(void) {
 // type=DATA subtype=0x40 partitions (exactly what "chkpt n" creates) are
 // writable, so app0/nvs/safeboot/spiffs can never be clobbered. Erase is
 // per-sector (spread across the transfer) to stay WDT-friendly.
+#ifdef ESP32   // esp_partition_* are ESP-IDF only; the named-partition /partu facility is ESP32-only
 static const esp_partition_t *partu_part = nullptr;
 static uint8_t  *partu_buf  = nullptr;   // one-sector staging buffer
 static uint32_t  partu_off  = 0;         // next flash offset within the partition
@@ -4846,6 +4847,7 @@ void Partition_HandleUploadLoop(void) {
     case UPLOAD_FILE_END:   Partition_upload_stop(); break;
   }
 }
+#endif  // ESP32 (named-partition /partu facility)
 
 void Module_HandleUploadLoop(void) {
 
@@ -4951,7 +4953,9 @@ bool Xdrv123(uint32_t function) {
         Webserver->on("/mo_upl", Module_upload);
         Webserver->on("/modu", HTTP_GET, Module_upload);
         Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Module_HandleUploadLoop);
+#ifdef ESP32
         Webserver->on("/partu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Partition_HandleUploadLoop);
+#endif
         Module_Execute(pFUNC_WEB_ADD_HANDLER);
       }
       break;
