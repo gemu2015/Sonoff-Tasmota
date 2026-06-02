@@ -3740,7 +3740,15 @@ export class CodeGenerator {
     // expose it (sprintf → pendingPush) or discard it (addLog → POP).
     emitSprintfChain(emitDst, fmtStr, valArgs, isAppend, name, line) {
         const resolveArg = (arg) => {
-            if (arg.type === NodeType.Identifier && this.defines.has(arg.name)) {
+            // A local/global variable SHADOWS a #define of the same name (matching
+            // getVarType + compileExpr). Without this guard, a variable named like a
+            // built-in define (e.g. a local `a`/`w`/`r`, which collide with the
+            // file-mode defines) resolved to the define's literal here — so inferType
+            // saw an int and emitted a spurious I2F that reinterpreted the float's
+            // bit pattern (e.g. 2.0 → "1073741824"). That broke any sprintf whose
+            // float arg's name matched a define (notably the 2nd+ %f). See tinyc_bugs.md.
+            if (arg.type === NodeType.Identifier && this.defines.has(arg.name) &&
+                !(this.scope && this.scope.lookup(arg.name)) && !this.globals.has(arg.name)) {
                 return this.defines.get(arg.name);
             }
             return arg;
@@ -3828,9 +3836,13 @@ export class CodeGenerator {
             throw new CodeGenError(`${node.name} expects at least 3 arguments (dst, fmt, val [, ...])`, node.line);
         }
 
-        // Helper: resolve defines
+        // Helper: resolve defines — but a local/global variable shadows a #define
+        // of the same name (else a var named like a built-in define, e.g. `a`/`w`/`r`,
+        // mis-resolves to the define's literal and inferType emits a corrupting I2F
+        // on a float sprintf arg). Mirrors getVarType + compileExpr. See tinyc_bugs.md.
         const resolveArg = (arg) => {
-            if (arg.type === NodeType.Identifier && this.defines.has(arg.name)) {
+            if (arg.type === NodeType.Identifier && this.defines.has(arg.name) &&
+                !(this.scope && this.scope.lookup(arg.name)) && !this.globals.has(arg.name)) {
                 return this.defines.get(arg.name);
             }
             return arg;
