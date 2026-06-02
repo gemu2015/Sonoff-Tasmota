@@ -70,7 +70,42 @@ unaffected. This remains a flash/modularity play.
 ---
 
 ## Fork B — CHOSEN (gemu, 2026-06-02): concrete implementation spec
-Base provides crypto + transport via the jumptable; the plugin bundles **only matter_c**.
+The plugin bundles **only matter_c**; the base provides the BearSSL crypto subset.
+
+### Plugin shape: `MODULE_TYPE_BLIB` (gemu redirect 2026-06-02 — model on `xblib_01_crc.cpp`)
+matter_c is a **reactive, flat-API** library with all its I/O behind a `matter_port_t` HAL
+handed in at `matter_init()` — i.e. it has **no lifecycle of its own**. That maps onto a BLIB,
+not a DRIVER:
+- The plugin is a `MODULE_TYPE_BLIB` that exports the matter_c API
+  (`matter_init`/`add_endpoint`/`start`/`loop`/`set_attr`/…) in a `BLIB_EXPORTS[]` table. The
+  loader EXEC_OFFSET-corrects + registers each at `iniz`; `tc_blib_lookup("matter_*")` (an
+  `extern "C"` in `xdrv_123_plugins.ino`) returns the ready-to-call native fn pointer — usable
+  by firmware (cast to the real signature), not just by TinyC `bcall`.
+- **The HAL needs NO jumptable shims.** The *firmware* fills `matter_port_t` with its own
+  function addresses (udp/mdns/kv/log/millis/random) and passes the struct into the plugin's
+  `matter_init`; the plugin calls back through those pointers — ordinary indirect calls into
+  firmware. So transport/mdns/kv/log come for free, NOT as `tmod_ext_call` selectors.
+- **Lifecycle stays in the firmware**, where `matter_port_t` is already wired
+  (FUNC_NETWORK_UP→`matter_init`, FUNC_LOOP→`matter_loop`). The firmware's matter syscall layer
+  resolves the exports via `tc_blib_lookup` when built **lean** (no built-in lib), else calls the
+  built-in lib directly — a **build-time gate** (`#ifdef TINYC_MATTER` → lib, else plugin, else
+  bail). The full-lib build stays byte-identical; no runtime `g_matter` refactor.
+- **The ONLY host seam left is the BearSSL subset** matter_c needs. jt[192..198] export only
+  `br_gcm_*` (AES-GCM, for SML decrypt) — a *different* subset. The matter subset (AES-CCM /
+  EC-P256-i15 / ECDSA / HKDF / HMAC / SHA) is either **bundled** in the plugin (Fork A) or
+  **exported** from a lean base via `tmod_ext_call`/the jumptable (Fork B).
+
+### Stage 1 (DONE 2026-06-02) — probe BLIB builds + loads
+`tasmota/Plugins/xblib_02_matter.cpp` (gate `USE_MATTER_MOD`): a trivial BLIB exporting
+`matter_probe`→`0x4D545201` and `matter_abi`→`14`, NO matter_c yet. Validates build → load →
+`tc_blib_lookup`/`bcall` round-trip before amalgamating matter_c. Built for esp32 (S3, `_32.bin`)
++ esp32_riscv (C3/C6, `_32r.bin`).
+HARDWARE-VERIFIED on .156 (ESP32-S3, 15.4.0.1, has a 128 KB `custom` partition): upload via
+`POST /modu` → `mdir` shows MOD #1 MATTER/xblb/292 B → `iniz 1` → log `BLIB: registered
+'matter_probe' fn=0x423700d0 / 'matter_abi' fn=0x423700d8` → `blibtest matter_probe 00` →
+`{"result":1297371649,"hex":"4d545201"}` = the exact export return. The whole loop
+(build → upload → mmap → EXEC_OFFSET → tc_blib_lookup → native call) is proven — this is the
+mechanism the firmware will use to resolve the real matter_c exports.
 
 ### Build environment (GATING — must be the main checkout)
 `build_plugin.py` → `pio run -e tasmota32c3-plugin` needs `platformio_override.ini` +
@@ -79,15 +114,21 @@ worktree). So every Fork-B step below (jumptable edits, base BearSSL, build) run
 checkout (or after copying those two files in). **First action: get a TRIVIAL matter-plugin
 stub to build end-to-end — validate the loop before porting.**
 
-### Jumptable exports to ADD (highest slot today ≈ 219 → new ones at jt[220+])
-Already available for the `matter_port_t` HAL: `log`=jt[5], `millis`=jt[73],
-`malloc`=`special_malloc`, `free`=jt[18], and **kv** via `jfile_open/close/seek/read/write/size`
-(jt[142..160]). **Missing → add ~4 host exports + the 23 br_*:**
-- `udp_send(ip6[16], port, buf, len)` — lwIP UDP6 (SML routes net via jt[171] op-codes; add a UDP op or a slot)
-- `mdns_publish(service, instance, port, txt[], n)` + `mdns_remove(service, instance)` — esp-mDNS
-- `random_bytes(buf, len)` — CSPRNG (`esp_fill_random`)
-- the **23 `br_*`** (AES-CCM/CT, EC-P256-m15 + i15, ECDSA-i15, HKDF, HMAC, SHA-224/256) — link the
-  BearSSL subset (the matter_c lib's own ~26-file subset) into the lean base, then export.
+### Host interface via `tmod_ext_call` (jt[219] selector dispatch — NOT new jt slots) [gemu]
+The jumptable is frozen 0..218 (byte-identical across plugins); new host functions go through
+**`tmod_ext_call(uint32_t sel, uint32_t a, uint32_t b, uint32_t c) -> int32_t`** (jt[219],
+defined in `xdrv_123_plugins.ino`) as new `case sel:` entries — ABI-stable, no plugin-wide
+rebuild, no new slots. So all of Fork B's additions are **new `tmod_ext_call` selectors**:
+- Already available directly: `log`=jt[5], `millis`=jt[73], `malloc`/`free`, **kv** via
+  `jfile_open/close/seek/read/write/size` (jt[142..160]).
+- Add as `tmod_ext_call` selectors: `udp_send(ip6,port,buf,len)`, `mdns_publish(...)`,
+  `mdns_remove(...)`, `random_bytes(buf,len)` — pass pointers/lengths via a/b/c, or a small
+  args-struct pointer for the >3-arg ones (same pattern SML uses for `client_*` via jt[171]).
+- Add as `tmod_ext_call` selectors: the **23 `br_*`** (AES-CCM/CT, EC-P256-m15 + i15, ECDSA-i15,
+  HKDF, HMAC, SHA-224/256). The lean **base** links the BearSSL subset (the matter_c lib's own
+  ~26-file subset) compiled **normally**, and each selector forwards to the linked `br_*`.
+- Plugin side: thin macros wrap `tmod_ext_call(SEL_x, …)` per function (a `matter_port_t` HAL
+  shim layer + a `br_*` shim header), so matter_c's `mtrc_crypto.c` calls resolve to the seam.
 
 ### Plugin entry (`tasmota/Plugins/xdrv_NNN_matter.cpp`)
 - `#ifdef USE_MATTER_MOD`; `MODULE_DESCRIPTOR(MODULE_TYPE_DRIVER, …)`; `MODULE_MEMORY` = matter
