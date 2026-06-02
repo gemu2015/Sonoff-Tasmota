@@ -1721,10 +1721,18 @@ static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap handle %d >= max %d"), handle, TC_MAX_HEAP_HANDLES);
       return nullptr;
     }
-    if (!vm->heap_data || !vm->heap_handles || !vm->heap_handles[handle].alive) {
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap handle %d invalid (data=%d handles=%d alive=%d)"),
-             handle, vm->heap_data != nullptr, vm->heap_handles != nullptr,
-             vm->heap_handles ? vm->heap_handles[handle].alive : 0);
+    if (!vm->heap_data || !vm->heap_handles) {
+      // The whole heap is absent — the VM is being torn down (slot stop/reload,
+      // e.g. a persist-layout-change .pvs rotation) or not yet built. Heap-backed
+      // persist / OnExit / CleanUp refs resolved in that window are a benign
+      // teardown race, not a script bug: return null safely WITHOUT alarming the
+      // user (mi-hol #83 reported the ERROR spam on the first run of a new .tcb).
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: heap ref during teardown (handle %d, heap gone)"), handle);
+      return nullptr;
+    }
+    if (!vm->heap_handles[handle].alive) {
+      // Live heap, but this specific handle was freed — a genuine dangling ref.
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap handle %d invalid (dead handle)"), handle);
       return nullptr;
     }
     if (offset >= vm->heap_handles[handle].size) {
