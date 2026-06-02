@@ -1,8 +1,18 @@
 // mtrc_crypto.c — BearSSL-backed crypto primitives for matter_c.
 // See mtrc_crypto.h. GPLv3; crypto via BearSSL (BSD).
+//
+// PLUGIN (Fork B) build note: the BearSSL primitives are NOT linked into the
+// plugin. They are supplied BY POINTER by the firmware at load (mtrc_crypto_ops,
+// bound via mtrc_crypto_bind) — see mtrc_crypto_ops.h. Every br_xxx(...) call
+// below therefore goes through g_cr->xxx(...). The br_* *types* still come from
+// the BearSSL headers (via mtrc_crypto_ops.h) so the local contexts and the two
+// const vtable pointers are laid out identically on both sides. The built-in
+// firmware lib (lib/libesp32_div/matter_c) keeps calling br_* directly and is
+// left untouched; only this PLUGIN copy diverges to the by-pointer seam, and the
+// firmware's plugin-resolution path is what calls mtrc_crypto_bind().
 
 #include "mtrc_crypto.h"
-#include "t_bearssl.h"
+#include "mtrc_crypto_ops.h"   // br_* types + the by-pointer crypto seam (pulls t_bearssl.h + _ec.h)
 #include <string.h>
 
 #define MTRC_CURVE  BR_EC_secp256r1   // 23
@@ -13,51 +23,63 @@ static const uint8_t P256_N[32] = {
   0xbc,0xe6,0xfa,0xad,0xa7,0x17,0x9e,0x84,0xf3,0xb9,0xca,0xc2,0xfc,0x63,0x25,0x51
 };
 
-static const br_ec_impl *EC(void) { return &br_ec_p256_m15; }
+// Crypto primitives supplied by the firmware (Fork B), bound once at plugin
+// load. Until bound, g_cr is NULL and every entry point fails safe (returns
+// 0 / no-op) rather than wild-jumping through an unset pointer.
+static const mtrc_crypto_ops *g_cr = 0;
+void mtrc_crypto_bind(const mtrc_crypto_ops *ops) { g_cr = ops; }
+
+static const br_ec_impl *EC(void) { return g_cr->ec_p256_m15; }
 
 // ---- hashing / MAC / KDF ----------------------------------------------
 void mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
+  if (!g_cr) return;
   br_sha256_context c;
-  br_sha256_init(&c);
-  br_sha256_update(&c, data, len);
-  br_sha256_out(&c, out);
+  g_cr->sha256_init(&c);
+  g_cr->sha256_update(&c, data, len);
+  g_cr->sha256_out(&c, out);
 }
 
 void mtrc_hmac_sha256(const uint8_t *key, size_t key_len,
                       const uint8_t *data, size_t data_len, uint8_t out[32]) {
+  if (!g_cr) return;
   br_hmac_key_context kc;
   br_hmac_context hc;
-  br_hmac_key_init(&kc, &br_sha256_vtable, key, key_len);
-  br_hmac_init(&hc, &kc, 0);                 // 0 = full-length output (32)
-  br_hmac_update(&hc, data, data_len);
-  br_hmac_out(&hc, out);
+  g_cr->hmac_key_init(&kc, g_cr->sha256_vtable, key, key_len);
+  g_cr->hmac_init(&hc, &kc, 0);              // 0 = full-length output (32)
+  g_cr->hmac_update(&hc, data, data_len);
+  g_cr->hmac_out(&hc, out);
 }
 
 int mtrc_hkdf_sha256(const uint8_t *salt, size_t salt_len,
                      const uint8_t *ikm, size_t ikm_len,
                      const uint8_t *info, size_t info_len,
                      uint8_t *out, size_t out_len) {
+  if (!g_cr) return 0;
   br_hkdf_context hc;
-  br_hkdf_init(&hc, &br_sha256_vtable, salt, salt_len);
-  br_hkdf_inject(&hc, ikm, ikm_len);
-  br_hkdf_flip(&hc);
-  br_hkdf_produce(&hc, info, info_len, out, out_len);
+  g_cr->hkdf_init(&hc, g_cr->sha256_vtable, salt, salt_len);
+  g_cr->hkdf_inject(&hc, ikm, ikm_len);
+  g_cr->hkdf_flip(&hc);
+  g_cr->hkdf_produce(&hc, info, info_len, out, out_len);
   return 1;
 }
 
 // ---- P-256 EC ops ------------------------------------------------------
 int mtrc_ec_mulgen(uint8_t out[65], const uint8_t *k, size_t k_len) {
+  if (!g_cr) return 0;
   size_t r = EC()->mulgen(out, k, k_len, MTRC_CURVE);
   return r != 0;
 }
 
 int mtrc_ec_mul(uint8_t point[65], const uint8_t *k, size_t k_len) {
+  if (!g_cr) return 0;
   return (int)EC()->mul(point, MTRC_P256_POINT_LEN, k, k_len, MTRC_CURVE);
 }
 
 int mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
                    const uint8_t *a, size_t a_len,
                    const uint8_t *b, size_t b_len) {
+  if (!g_cr) return 0;
   // BearSSL: muladd(A, B, len, x, xlen, y, ylen, curve) => A = x*A + y*B
   return (int)EC()->muladd(A, B, MTRC_P256_POINT_LEN,
                            a, a_len, b, b_len, MTRC_CURVE);
@@ -76,17 +98,19 @@ int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t pr
 }
 
 int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]) {
+  if (!g_cr) return 0;
   br_ec_private_key sk;
   sk.curve = MTRC_CURVE; sk.x = (unsigned char *)priv; sk.xlen = 32;
   // Deterministic (RFC 6979): hf drives the internal HMAC-DRBG.
-  size_t n = br_ecdsa_i15_sign_raw(EC(), &br_sha256_vtable, hash, &sk, sig);
+  size_t n = g_cr->ecdsa_sign_raw(EC(), g_cr->sha256_vtable, hash, &sk, sig);
   return n == 64 ? 1 : 0;
 }
 
 int mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]) {
+  if (!g_cr) return 0;
   br_ec_public_key pk;
   pk.curve = MTRC_CURVE; pk.q = (unsigned char *)pub; pk.qlen = 65;
-  return br_ecdsa_i15_vrfy_raw(EC(), hash, 32, &pk, sig, 64) ? 1 : 0;
+  return g_cr->ecdsa_vrfy_raw(EC(), hash, 32, &pk, sig, 64) ? 1 : 0;
 }
 
 void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
@@ -132,15 +156,16 @@ int mtrc_aes_ccm_encrypt(const uint8_t key[16],
                          const uint8_t *aad, size_t aad_len,
                          uint8_t *data, size_t data_len,
                          uint8_t *tag, size_t tag_len) {
+  if (!g_cr) return 0;
   br_aes_ct_ctrcbc_keys bc;
-  br_aes_ct_ctrcbc_init(&bc, key, 16);
+  g_cr->aes_ct_ctrcbc_init(&bc, key, 16);
   br_ccm_context ctx;
-  br_ccm_init(&ctx, &bc.vtable);
-  if (!br_ccm_reset(&ctx, nonce, nonce_len, aad_len, data_len, tag_len)) return 0;
-  if (aad_len) br_ccm_aad_inject(&ctx, aad, aad_len);
-  br_ccm_flip(&ctx);
-  if (data_len) br_ccm_run(&ctx, 1, data, data_len);
-  br_ccm_get_tag(&ctx, tag);
+  g_cr->ccm_init(&ctx, &bc.vtable);
+  if (!g_cr->ccm_reset(&ctx, nonce, nonce_len, aad_len, data_len, tag_len)) return 0;
+  if (aad_len) g_cr->ccm_aad_inject(&ctx, aad, aad_len);
+  g_cr->ccm_flip(&ctx);
+  if (data_len) g_cr->ccm_run(&ctx, 1, data, data_len);
+  g_cr->ccm_get_tag(&ctx, tag);
   return 1;
 }
 
@@ -149,15 +174,16 @@ int mtrc_aes_ccm_decrypt(const uint8_t key[16],
                          const uint8_t *aad, size_t aad_len,
                          uint8_t *data, size_t data_len,
                          const uint8_t *tag, size_t tag_len) {
+  if (!g_cr) return 0;
   br_aes_ct_ctrcbc_keys bc;
-  br_aes_ct_ctrcbc_init(&bc, key, 16);
+  g_cr->aes_ct_ctrcbc_init(&bc, key, 16);
   br_ccm_context ctx;
-  br_ccm_init(&ctx, &bc.vtable);
-  if (!br_ccm_reset(&ctx, nonce, nonce_len, aad_len, data_len, tag_len)) return 0;
-  if (aad_len) br_ccm_aad_inject(&ctx, aad, aad_len);
-  br_ccm_flip(&ctx);
-  if (data_len) br_ccm_run(&ctx, 0, data, data_len);
-  return br_ccm_check_tag(&ctx, tag) ? 1 : 0;
+  g_cr->ccm_init(&ctx, &bc.vtable);
+  if (!g_cr->ccm_reset(&ctx, nonce, nonce_len, aad_len, data_len, tag_len)) return 0;
+  if (aad_len) g_cr->ccm_aad_inject(&ctx, aad, aad_len);
+  g_cr->ccm_flip(&ctx);
+  if (data_len) g_cr->ccm_run(&ctx, 0, data, data_len);
+  return g_cr->ccm_check_tag(&ctx, tag) ? 1 : 0;
 }
 
 int mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
