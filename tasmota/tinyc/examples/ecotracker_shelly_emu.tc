@@ -1,14 +1,19 @@
-// Unified Marstek PV-battery emulator — EcoTracker + Shelly Pro 3EM
+// Unified PV-battery meter emulator — EcoTracker + Shelly Pro 3EM
 // TinyC port of ottelo's *_EcoTrackerEmu / *_ShellyEmu Scripter scripts.
 //
+// Emulates a power meter that a PV-battery / storage reads for zero-feed-in
+// (Nulleinspeisung) — works with any such battery (Marstek Venus/Jupiter/
+// B2500, Hoymiles, Jackery, NOAH, …). It is NOT Marstek-specific; the name
+// reflects the two METER dialects it speaks, not any one battery brand.
+//
 // ONE file, two builds via a compile-time toggle (replaces the former
-// separate marstek_emu.tc / marstek_emu_chart.tc — they had silently
-// diverged, which is exactly what caused ottelo's smlf=-1 / SIMULATE-on
-// bugs; a single source can't drift):
+// separate slim + chart scripts — they had silently diverged, which is
+// exactly what caused ottelo's smlf=-1 / SIMULATE-on bugs; a single
+// source can't drift):
 //
 //   default (toggle off)  — slim emulator, smallest bytecode, best for
 //                           RAM-tight ESP8266. No charts.
-//   -DMARSTEK_CHARTS       — adds 4h/24h line charts + 31-day/12-month
+//   -DEMU_CHARTS       — adds 4h/24h line charts + 31-day/12-month
 //                           bar charts (Google Charts via WebChart),
 //                           auto-persisted ring buffers, auto-reload.
 //
@@ -21,15 +26,15 @@
 // Requires: USE_SML (or USE_SML_M). SML descriptor loaded separately via
 // the IDE SML tab or /sml_meter.def.
 //
-// NOTE: enabling/disabling MARSTEK_CHARTS changes the persist layout, so
+// NOTE: enabling/disabling EMU_CHARTS changes the persist layout, so
 // the FNV-1a .pvs hash flips and persisted values (incl. chart history)
 // reset once on the first boot of the new build — expected, harmless.
 
 // ─── Build toggle ──────────────────────────────────────────────────────────
-// Uncomment for the charts build (or pass -DMARSTEK_CHARTS to tc_deploy).
-//#define MARSTEK_CHARTS
+// Uncomment for the charts build (or pass -DEMU_CHARTS to tc_deploy).
+//#define EMU_CHARTS
 
-// ─── Simulator toggle (DEV ONLY — requires MARSTEK_CHARTS) ─────────────────
+// ─── Simulator toggle (DEV ONLY — requires EMU_CHARTS) ─────────────────
 // MUST stay commented out for any real deployment. When defined (charts
 // build only): getSml() returns a fake triangle-wave instead of the real
 // meter (the emulator would then feed fake power to the battery), chart
@@ -37,7 +42,7 @@
 // ONLY to eyeball chart rendering on hardware with no meter.
 //#define SIMULATE 1
 
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 // ─── Chart sizing ──────────────────────────────────────────────────────────
 #define N4H    240    // 4h at 1-min raster (real mode)
 #define N24H   288    // 24h at 5-min raster (real mode)
@@ -51,7 +56,7 @@
 #define SAMPLE_4H_SEC   60    // 1-min raster
 #define SAMPLE_24H_SEC  300   // 5-min raster
 #endif
-#endif  // MARSTEK_CHARTS
+#endif  // EMU_CHARTS
 
 // ─── Persistent settings (auto-saved to /tinyc_pvars.bin) ──────────────────
 persist int   emu_mode;        // 0 = EcoTracker, 1 = Shelly Pro 3EM
@@ -60,7 +65,7 @@ persist int   pwroffset;       // zero-feed offset [W]
 persist int   ctrlopt;         // regulator optimization 0/1
 persist int   throttle;        // update rate [s] (Shelly)
 persist int   pwrforce;        // Shelly: push UDP even without request 0/1
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 persist int   chart_refresh;   // auto-reload interval [s] (0 = off)
 #endif
 persist watch int meter_sel;   // SML descriptor picker — index into ottelo's repo
@@ -74,7 +79,7 @@ persist float yval;            // year baseline in
 persist float yval2;           // year baseline out
 persist watch int sml_activ;   // SML enable (mirrors tasm_rule)
 persist watch int smlfo;       // SML median filter enable (0 = off, 1 = on → smlf 0/16)
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 persist watch int sndpwr;      // MQTT: periodic power publish (0/1)
 
 // ─── Chart ring buffers (auto-persisted) ───────────────────────────────────
@@ -88,7 +93,7 @@ persist int s4h_pos;  persist int s4h_cnt;
 persist int s24h_pos; persist int s24h_cnt;
 persist int day_pos;  persist int day_cnt;
 persist int mon_pos;  persist int mon_cnt;
-#endif  // MARSTEK_CHARTS
+#endif  // EMU_CHARTS
 
 // ─── Runtime state ─────────────────────────────────────────────────────────
 float cpwr;                    // regulated power [W] (current)
@@ -98,7 +103,7 @@ int   once_udp;                // UDP bound once
 int   last_hr;                 // midnight edge-detect
 int   udp_api_last;            // 0=none, 1=EM.GetStatus, 2=Shelly.GetStatus
 int   udp_bind_port;           // resolved UDP port used
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 float power2;                  // light LPF for chart sampling
 int   mqtt_last;               // last uptime when we published
 #endif
@@ -108,21 +113,21 @@ char  rxbuf[256];              // UDP receive buffer
 char  body[640];               // HTTP/UDP response body (reused)
 char  wrap[768];               // Shelly UDP RPC envelope
 char  hdr[160];                // raw HTTP response header (EcoTracker keep-alive path)
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 char  pubbuf[96];              // MQTT publish command scratch
 #endif
 
 // ─── Transient UI flags ────────────────────────────────────────────────────
 int do_init;                   // button: init counters from meter
 int do_save;                   // button: manual save
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 int do_init2;                  // button: reset chart buffers
 #endif
 
 // ─── Meter access (wraps smlGet so SIMULATE can inject fake data) ──────────
 // In every non-SIMULATE build this is a thin pass-through to smlGet() —
 // identical behaviour to calling smlGet() directly, one indirection.
-#if defined(MARSTEK_CHARTS) && defined(SIMULATE)
+#if defined(EMU_CHARTS) && defined(SIMULATE)
 float sim_ein;      // fake total energy consumed  [kWh]
 float sim_eout;     // fake total energy fed-in    [kWh]
 float sim_pwr;      // fake instantaneous power    [W]
@@ -211,10 +216,10 @@ void initVars() {
     mval  = ein;  mval2  = eout;
     yval  = ein;  yval2  = eout;
     saveVars();
-    addLog("MarstekEmu: counters initialized from meter");
+    addLog("MeterEmu: counters initialized from meter");
 }
 
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 void resetCharts() {
     int i;
     for (i = 0; i < N4H;  i = i + 1) s4h[i]  = 0.0;
@@ -226,7 +231,7 @@ void resetCharts() {
     day_pos = 0;  day_cnt = 0;
     mon_pos = 0;  mon_cnt = 0;
     saveVars();
-    addLog("MarstekEmu: chart buffers cleared");
+    addLog("MeterEmu: chart buffers cleared");
 }
 #endif
 
@@ -338,7 +343,7 @@ void EverySecond() {
         tasmCmd("Sensor53 r", body);
     }
 
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     // Persist MQTT-publish toggle across reboots
     if (changed(sndpwr)) { snapshot(sndpwr); saveVars(); }
 #endif
@@ -350,8 +355,37 @@ void EverySecond() {
         smlScripterLoad("/sml_meter.def");
     }
 
+    // ── Discovery transport comes up as soon as the NETWORK (WLAN) is up,
+    // BEFORE NTP sync or any meter data. A PV battery (Jackery / NOAH /
+    // Marstek / …) must DISCOVER the meter via mDNS *before* data flows, and
+    // 0 W / 0 kWh is a perfectly valid reading. Gating discovery on a live
+    // meter or NTP was the "battery never finds the EcoTracker" bug — fixed
+    // the same way in ecotracker.tc. Only the smoothing/rollover work below
+    // stays behind the meter+NTP guards.
+    if (tasm_wifi == 1) {
+        // One-time mDNS registration (depends on persisted mode)
+        if (once_mdns == 0) {
+            if (emu_mode == 1) {
+                mdnsRegister("shellypro3em-", "-", "shelly");
+                addLog("MeterEmu: Shelly Pro 3EM mDNS registered");
+            } else {
+                mdnsRegister("ecotracker-", "-", "everhome");
+                addLog("MeterEmu: EcoTracker mDNS registered");
+            }
+            once_mdns = 1;
+        }
+        // One-time UDP bind (Shelly only)
+        if (emu_mode == 1 && once_udp == 0) {
+            udp_bind_port = 1010;
+            if (udp_port_sel == 1) udp_bind_port = 2220;
+            udp(0, udp_bind_port);
+            addLog("MeterEmu: Shelly UDP listening on port %d", udp_bind_port);
+            once_udp = 1;
+        }
+    }
+
     // Simulator advances before the guards so getSml() has current values
-#if defined(MARSTEK_CHARTS) && defined(SIMULATE)
+#if defined(EMU_CHARTS) && defined(SIMULATE)
     simTick();
 #else
     // ── From here on: work that needs a live meter + NTP ──
@@ -359,31 +393,10 @@ void EverySecond() {
     if (getSml(2) == 0.0) return;
 #endif
 
-    // One-time mDNS registration (depends on persisted mode)
-    if (once_mdns == 0) {
-        if (emu_mode == 1) {
-            mdnsRegister("shellypro3em-", "-", "shelly");
-            addLog("MarstekEmu: Shelly Pro 3EM mDNS registered");
-        } else {
-            mdnsRegister("ecotracker-", "-", "everhome");
-            addLog("MarstekEmu: EcoTracker mDNS registered");
-        }
-        once_mdns = 1;
-    }
-
-    // One-time UDP bind (Shelly only)
-    if (emu_mode == 1 && once_udp == 0) {
-        udp_bind_port = 1010;
-        if (udp_port_sel == 1) udp_bind_port = 2220;
-        udp(0, udp_bind_port);
-        addLog("MarstekEmu: Shelly UDP listening on port %d", udp_bind_port);
-        once_udp = 1;
-    }
-
     // WebUI button actions
     if (do_init) { initVars(); do_init = 0; }
     if (do_save) { saveVars(); do_save = 0; }
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     if (do_init2) { resetCharts(); do_init2 = 0; }
 #endif
 
@@ -403,13 +416,13 @@ void EverySecond() {
         }
         // Heavy low-pass for EcoTracker's powerAvg
         power3 = (0.9 * power3) + (0.1 * cpwr);
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
         // Light low-pass for chart sampling
         power2 = (0.7 * power2) + (0.3 * cpwr);
 #endif
     }
 
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     // MQTT publish (sndpwr) — every 10s
     if (sndpwr > 0 && (tasm_uptime - mqtt_last) >= 10) {
         sprintf(pubbuf, "Publish stat/PVEmu/PWR {\"Power\":%.0f}", cpwr);
@@ -437,7 +450,7 @@ void EverySecond() {
     if (hr == 0 && last_hr != 0) {
         float ein  = getSml(2);
         float eout = getSml(3);
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
         // Ring push uses the OLD baselines — must run before they refresh
         dcon[day_pos]  = ein  - dval;
         dprod[day_pos] = eout - dval2;
@@ -488,12 +501,12 @@ void WebCall() {
     sprintf(body, "{s}Monatseinspeisung{m}%.2f kWh{e}", eout - mval2); webSend(body);
     sprintf(body, "{s}Jahreseinspeisung{m}%.2f kWh{e}", eout - yval2); webSend(body);
     sprintf(body, "{s}Uptime{m}%d min{e}", tasm_uptime / 60);          webSend(body);
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     sprintf(body, "{s}Chart 4h / 24h{m}%d / %d pts{e}", s4h_cnt, s24h_cnt); webSend(body);
 #endif
 }
 
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
 // ─── Charts on the main page (emitted once per page load) ──────────────────
 void WebPage() {
     // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
@@ -525,7 +538,7 @@ void WebUI() {
 
     webSend("<style>.mke-panel{max-width:320px;margin:12px auto;background:#f0f0f0;color:#000;padding:18px;border:2px solid #ccc;border-radius:6px;text-align:left}.mke-panel h3{margin:0 0 8px;font-size:15px}.mke-panel hr{border:0;border-top:1px solid #bbb;margin:14px 0}.mke-panel b{display:inline-block;margin-bottom:4px;font-size:13px}.mke-panel div{margin:6px 0}.mke-panel input[type=checkbox]{transform:scale(1.3);margin-left:6px}.mke-panel button{padding:6px 10px;border-radius:4px}</style>");
     webSend("<div class='mke-panel'>");
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     webSend("<h3>&#x1F50C; PV-Akku Emulator (Charts)</h3>");
 #else
     webSend("<h3>&#x1F50C; PV-Akku Emulator</h3>");
@@ -563,7 +576,7 @@ void WebUI() {
     webPulldown(tx_pin, "TX Pin",  "@getfreepins");
     webCheckbox(smlfo, "Median-Filter");
 
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     // Telemetry
     webSend("<hr>");
     webSend("<b>&#x1F4E1; Telemetrie</b>");
@@ -579,7 +592,7 @@ void WebUI() {
     webSend("<b>&#x1F4BE; Daten</b>");
     webButton(do_init, "Zaehler initialisieren|initialisiert");
     webButton(do_save, "Daten speichern|gespeichert");
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     webButton(do_init2, "Diagramme zuruecksetzen|zurueckgesetzt");
 #endif
 
@@ -608,7 +621,7 @@ int main() {
     power3       = 0.0;
     do_init      = 0;
     do_save      = 0;
-#ifdef MARSTEK_CHARTS
+#ifdef EMU_CHARTS
     power2       = 0.0;
     mqtt_last    = 0;
     do_init2     = 0;
@@ -620,7 +633,7 @@ int main() {
     // First-run pin-picker defaults (persist 0 is a real GPIO; -1 = unset).
     if (rx_pin == 0 && tx_pin == 0) { rx_pin = -1; tx_pin = -1; }
 
-#if defined(MARSTEK_CHARTS) && defined(SIMULATE)
+#if defined(EMU_CHARTS) && defined(SIMULATE)
     if (sim_ein == 0.0)  sim_ein  = 100.0;
     if (sim_eout == 0.0) sim_eout =   5.0;
     sim_pwr = 0.0;
@@ -629,9 +642,9 @@ int main() {
     if (yval == 0.0) { yval = sim_ein - 500.0; yval2 = sim_eout - 200.0; }
     if (s4h_cnt == 0 && s24h_cnt == 0 && day_cnt == 0 && mon_cnt == 0) {
         simSeedHistory();
-        addLog("MarstekEmu: seeded all chart rings with fake history");
+        addLog("MeterEmu: seeded all chart rings with fake history");
     }
-    addLog("MarstekEmu: SIMULATE mode — fake meter data, accelerated sampling");
+    addLog("MeterEmu: SIMULATE mode — fake meter data, accelerated sampling");
 #endif
 
     // Checkbox is the single source of truth at boot — make sure Rule1 is
@@ -661,6 +674,6 @@ int main() {
     // change-triggered load never fires here.
     smlScripterLoad("/sml_meter.def");
 
-    addLog("MarstekEmu: started mode=%d mac=%s rx=%d tx=%d meter=%d", emu_mode, mac, rx_pin, tx_pin, meter_sel);
+    addLog("MeterEmu: started mode=%d mac=%s rx=%d tx=%d meter=%d", emu_mode, mac, rx_pin, tx_pin, meter_sel);
     return 0;
 }

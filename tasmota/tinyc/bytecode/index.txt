@@ -27,6 +27,7 @@ dummy5.tcb
 dmx_dimmer_panel.tcb
 dysv17f.tcb
 ecotracker.tcb
+ecotracker_shelly_emu.tcb
 editor.tcb
 energy_dashboard.tcb
 epaper29.tcb
@@ -52,8 +53,6 @@ ledbar.tcb
 live_chart.tcb
 ltr308.tcb
 mail_test.tcb
-marstek_emu.tcb
-marstek_emu_chart.tcb
 max31855.tcb
 meter_pin_unlock.tcb
 mlx90614.tcb

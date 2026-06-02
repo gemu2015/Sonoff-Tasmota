@@ -342,7 +342,7 @@ ESP32 multitasking (USE_SCRIPT_TASK) — pulse sequence on core 1
 ; -- Live status box at the top of the setup page ----------
 ;    Gate on `wm>0` so we only emit during actual page rendering,
 ;    not during the invisible form-submit pass — otherwise the
-;    block gets rendered twice. Same trick the marstek emulator
+;    block gets rendered twice. Same trick the meter emulator
 ;    example uses for its #daysub / #dayprod / #monthsub blocks.
 #stat
 if wm>0 {

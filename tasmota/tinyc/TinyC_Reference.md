@@ -3416,7 +3416,7 @@ void WebOn() {
 int main() { webOn(1, "/"); return 0; }
 ```
 
-This is what `examples/ecotracker.tc` and `examples/marstek_emu.tc` use.
+This is what `examples/ecotracker.tc` and `examples/ecotracker_shelly_emu.tc` use.
 No `webSend()` calls in the handler at all — the raw 3-header response
 is byte-identical to what a real EcoTracker emits.
 

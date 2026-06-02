@@ -194,7 +194,7 @@ void Unlocker() {
 // table, no risk of picking a reserved pin.
 //
 // Styled with a self-contained .mpu-panel CSS block (mirrors
-// the marstek_emu.tc layout): scoped class names so this won't
+// the ecotracker_shelly_emu.tc layout): scoped class names so this won't
 // collide with other tabs that ship their own panel CSS.
 // Single-line CSS string because TinyC has no adjacent-literal
 // concatenation.
