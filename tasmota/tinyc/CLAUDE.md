@@ -500,7 +500,8 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 
 **GPIO / basic** — `blink.tc`, `sensor_read.tc`, `fibonacci.tc`
 **Sensors (I²C)** — `bme280.tc`, `bmp280.tc`, `scd30.tc`, `sht31.tc`, `ccs811.tc`, `sgp30.tc`, `ltr308.tc`, `veml6075.tc`, `tcs34725.tc`, `vl53l0x.tc`, `ads1115.tc`, `max31855.tc`, `mlx90614.tc`, `sps30.tc`, `ld2410.tc`
-**Sensors (other)** — `onewire.tc` (DS18B20), `bresser.tc` (weather), `ecotracker.tc` (BLE)
+**Sensors (other)** — `onewire.tc` (DS18B20), `bresser.tc` (weather)
+**BLE (ESP32)** — `ble_scan.tc` (scan + GATT), `esf37_scale.tc` / `esf37_probe.tc` (Etekcity ESF37 body-comp scale), `esf37_speak.tc` (scale → German TTS)
 **Display** — `display_demo.tc`, `lcd_i2c.tc`, `lcd_chart.tc`, `chart.tc`, `chart_types.tc`, `epaper29.tc`, `sunton_display.tc`, `guiton_display.tc`, `analog_clock.tc`, `voltmeter.tc` (canvas), `text_on_image.tc`, `watch_demo.tc`
 **LEDs** — `ledbar.tc`
 **Touch / UI** — `touch_buttons.tc`, `tinyui_demo.tc`, `tinyui_dashboard.tc`, `multipage_demo.tc`
@@ -509,7 +510,7 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 **Audio** — `wav_player.tc` (I²S + WM8960)
 **Camera (ESP32)** — `camera.tc`, `webcam.tc`, `webcam_tinyc.tc`, `snap_with_timestamp.tc`
 **Power / energy** — `powerwall.tc` (Tesla), `sma_speedwire.tc`, `core2_energy.tc`
-**SML smart meter** — `sml_ebus.tc`
+**SML smart meter** — `sml_ebus.tc`; **meter emulators** `ecotracker.tc` (everHome EcoTracker) + `ecotracker_shelly_emu.tc` (EcoTracker + Shelly Pro 3EM — feeds PV batteries Jackery / NOAH / Marstek for zero-feed-in)
 **Tasks / concurrency (ESP32)** — `spawn_tasks.tc`, `callbacks.tc`, `callback_test.tc`
 **Cross-VM share (ESP32)** — `share_writer.tc` (slot 0 EverySecond writer) + `share_reader.tc` (slot 1 Command reader)
 **Binary libs (BLIB)** — `blib_crc_demo.tc` (calls `mb_crc16` / `crc32` / `crc8_dallas` exported by the `xblib_01_crc` plugin)

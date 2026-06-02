@@ -4214,7 +4214,7 @@ typedef struct {
               AddLog(LOG_LEVEL_INFO, PSTR("chkpt: partition '%s' not found"), pname);
               delpart = 0;
             } else if (np_idx != sp + 1) {
-              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: '%s' not adjacent to spiffs - delete the one right after spiffs first"), pname);
+              AddLog(LOG_LEVEL_INFO, PSTR("chkpt: named partitions are LIFO - delete the most-recent one (directly after the filesystem) before '%s'"), pname);
               delpart = 0;
             } else {
               uint32_t freed = pe[np_idx].pos.size;

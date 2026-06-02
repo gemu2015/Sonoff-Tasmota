@@ -582,6 +582,15 @@ ESP_PARTITION_SUBTYPE_ANY, "picotts_ta")` + `esp_partition_mmap(...)`.
 ### Notes
 
 - Created partitions are type **DATA**, subtype **0x40** (user-data, not auto-mounted).
+- **Ordering is LIFO.** Each `chkpt n` carves from the filesystem tail, so the
+  newest partition sits directly after the filesystem and older carves stack
+  outward (toward `custom`). `chkpt d` can therefore only remove the partition
+  **directly after the filesystem** — the most-recently-carved one; to drop an
+  older partition, delete the newer ones first. This is deliberate: it keeps the
+  layout **gap-free** (freed space always merges straight back into the
+  filesystem) and lets every partition past the carve zone — e.g. `custom` —
+  keep its flash offset. There is no way to leave a hole between the filesystem
+  and a named partition.
 - `/partu` only writes DATA/0x40 partitions — it cannot clobber `app0`, `nvs`,
   `safeboot`, or the filesystem.
 - Resizing the filesystem reformats it — **back up files first** (same as `chkpt p`).
