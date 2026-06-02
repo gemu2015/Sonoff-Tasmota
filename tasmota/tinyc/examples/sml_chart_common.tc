@@ -244,6 +244,13 @@ void sml_chart_60s_tick() {
 // Render helpers — chart + table blocks for the WebUI main page
 // ============================================================================
 void sml_chart_render_totals() {
+    // Datum + Uptime (Paritaet zum .tas-Original; auf der Hauptseite gewuenscht)
+    sprintf(sml_buf, "{s}Datum{m}%02d.%02d.%04d %02d:%02d{e}", tasm_day, tasm_month, tasm_year, tasm_hour, tasm_minute); webSend(sml_buf);
+    int up_d = tasm_uptime / 86400;
+    int up_h = (tasm_uptime / 3600) % 24;
+    int up_m = (tasm_uptime / 60) % 60;
+    sprintf(sml_buf, "{s}Uptime{m}%d d %d h %d min{e}", up_d, up_h, up_m); webSend(sml_buf);
+
     float ein = smlGet(2);
     sprintf(sml_buf, "{s}Tagesverbrauch{m}%.2f kWh{e}",   ein - sml_dval); webSend(sml_buf);
     sprintf(sml_buf, "{s}Monatsverbrauch{m}%.2f kWh{e}",  ein - sml_mval); webSend(sml_buf);

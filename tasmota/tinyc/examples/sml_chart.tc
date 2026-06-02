@@ -138,11 +138,18 @@ void WebPage() {
 void WebUI() {
     sml_render_settings_panel();
     webSend("<hr><b>&#x1F4BE; Daten</b>");
-    webButton(do_init,  "Zaehlerwerte initialisieren|initialisiert");
-    webButton(do_init2, "Balkendiagramme zuruecksetzen|zurueckgesetzt");
-    webButton(do_save,  "Diagrammdaten speichern|gespeichert");
+    // Destruktive Aktionen mit Sicherheitsabfrage (confirm) + Klartext-Label.
+    webSend("<div style='font-size:11px;color:#a00;margin:4px 0'>&#9888; Die folgenden zwei Aktionen ueberschreiben Verlaufsdaten.</div>");
+    webSend("<div><button style='width:100%' data-a='erledigt' onclick='if(confirm(\"Setzt Tages-/Monats-/Jahres-Nullpunkt NEU vom aktuellen Zaehlerstand und loescht die 4h/24h-Charts. Fortfahren?\"))tcbtn(this,1,");
+    sprintf(sml_buf, "%d)'>Zaehler-Nullpunkte setzen (Tag/Monat/Jahr) + Power-Charts leeren</button></div>", varIdx(do_init));
+    webSend(sml_buf);
+    webSend("<div><button style='width:100%' data-a='erledigt' onclick='if(confirm(\"Loescht ALLE Tages- und Monats-Balken (Verbrauchsverlauf). Fortfahren?\"))tcbtn(this,1,");
+    sprintf(sml_buf, "%d)'>Balkendiagramme (Tage/Monate) zuruecksetzen</button></div>", varIdx(do_init2));
+    webSend(sml_buf);
+    webButton(do_save,  "Diagrammdaten jetzt speichern|gespeichert");
     webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
-    webButton(do_reset, "Sensor53 r|SML neu geladen");
+    webButton(do_reset, "SML-Treiber neu laden (Sensor53 r)|SML neu geladen");
+    webSend("<div style='font-size:11px;color:#777;margin:4px 0'>Laedt nur den SML-Treiber neu (Pins/Descriptor) - aendert KEINE Zaehler- oder Chart-Daten.</div>");
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_chart.tc</b><br>TinyC port of ottelo's 1_SML_Chart.tas</div></div>");
 }
 
