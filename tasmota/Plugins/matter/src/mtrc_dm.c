@@ -8,11 +8,11 @@ static struct {
   mtrc_dm_attr_t     at[MTRC_DM_MAX_ATTRS];        int at_n;
 } dm;
 
-void mtrc_dm_reset(void) {
+MODULE_PART void mtrc_dm_reset(void) {
   dm.ep_n = 0; dm.cl_n = 0; dm.at_n = 0;
 }
 
-int mtrc_dm_add_endpoint(uint16_t endpoint, uint32_t device_type) {
+MODULE_PART int mtrc_dm_add_endpoint(uint16_t endpoint, uint32_t device_type) {
   for (int i = 0; i < dm.ep_n; i++)
     if (dm.ep[i].endpoint == endpoint) { dm.ep[i].device_type = device_type; return i; }
   if (dm.ep_n >= MTRC_DM_MAX_ENDPOINTS) return -1;
@@ -21,7 +21,7 @@ int mtrc_dm_add_endpoint(uint16_t endpoint, uint32_t device_type) {
   return dm.ep_n++;
 }
 
-int mtrc_dm_add_cluster(uint16_t endpoint, uint32_t cluster) {
+MODULE_PART int mtrc_dm_add_cluster(uint16_t endpoint, uint32_t cluster) {
   for (int i = 0; i < dm.cl_n; i++)
     if (dm.cl[i].endpoint == endpoint && dm.cl[i].cluster == cluster) return 0;
   if (dm.cl_n >= MTRC_DM_MAX_CLUSTERS) return -1;
@@ -31,7 +31,7 @@ int mtrc_dm_add_cluster(uint16_t endpoint, uint32_t cluster) {
   return 0;
 }
 
-int mtrc_dm_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
+MODULE_PART int mtrc_dm_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
                      mtrc_dm_type_t type, uint8_t flags, uint64_t initial) {
   if (mtrc_dm_add_cluster(endpoint, cluster) < 0) return -1;
   mtrc_dm_attr_t *a = mtrc_dm_find(endpoint, cluster, attr);
@@ -43,21 +43,21 @@ int mtrc_dm_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
   return 0;
 }
 
-mtrc_dm_attr_t *mtrc_dm_find(uint16_t endpoint, uint32_t cluster, uint32_t attr) {
+MODULE_PART mtrc_dm_attr_t *mtrc_dm_find(uint16_t endpoint, uint32_t cluster, uint32_t attr) {
   for (int i = 0; i < dm.at_n; i++)
     if (dm.at[i].endpoint == endpoint && dm.at[i].cluster == cluster &&
         dm.at[i].attr == attr) return &dm.at[i];
   return NULL;
 }
 
-int mtrc_dm_get(uint16_t endpoint, uint32_t cluster, uint32_t attr, uint64_t *out) {
+MODULE_PART int mtrc_dm_get(uint16_t endpoint, uint32_t cluster, uint32_t attr, uint64_t *out) {
   mtrc_dm_attr_t *a = mtrc_dm_find(endpoint, cluster, attr);
   if (!a) return 0;
   if (out) *out = a->value;
   return 1;
 }
 
-int mtrc_dm_set(uint16_t endpoint, uint32_t cluster, uint32_t attr, uint64_t value) {
+MODULE_PART int mtrc_dm_set(uint16_t endpoint, uint32_t cluster, uint32_t attr, uint64_t value) {
   mtrc_dm_attr_t *a = mtrc_dm_find(endpoint, cluster, attr);
   if (!a) return 0;
   if (a->value == value) return 0;
@@ -65,20 +65,20 @@ int mtrc_dm_set(uint16_t endpoint, uint32_t cluster, uint32_t attr, uint64_t val
   return 1;
 }
 
-int mtrc_dm_endpoint_count(void) { return dm.ep_n; }
-const mtrc_dm_endpoint_t *mtrc_dm_endpoint_at(int i) {
+MODULE_PART int mtrc_dm_endpoint_count(void) { return dm.ep_n; }
+MODULE_PART const mtrc_dm_endpoint_t *mtrc_dm_endpoint_at(int i) {
   return (i >= 0 && i < dm.ep_n) ? &dm.ep[i] : NULL;
 }
-int mtrc_dm_cluster_count(void) { return dm.cl_n; }
-const mtrc_dm_cluster_t *mtrc_dm_cluster_at(int i) {
+MODULE_PART int mtrc_dm_cluster_count(void) { return dm.cl_n; }
+MODULE_PART const mtrc_dm_cluster_t *mtrc_dm_cluster_at(int i) {
   return (i >= 0 && i < dm.cl_n) ? &dm.cl[i] : NULL;
 }
-int mtrc_dm_attr_count(void) { return dm.at_n; }
-const mtrc_dm_attr_t *mtrc_dm_attr_at(int i) {
+MODULE_PART int mtrc_dm_attr_count(void) { return dm.at_n; }
+MODULE_PART const mtrc_dm_attr_t *mtrc_dm_attr_at(int i) {
   return (i >= 0 && i < dm.at_n) ? &dm.at[i] : NULL;
 }
 
-int mtrc_dm_endpoint_device_type(uint16_t endpoint, uint32_t *out) {
+MODULE_PART int mtrc_dm_endpoint_device_type(uint16_t endpoint, uint32_t *out) {
   for (int i = 0; i < dm.ep_n; i++)
     if (dm.ep[i].endpoint == endpoint) { if (out) *out = dm.ep[i].device_type; return 1; }
   return 0;

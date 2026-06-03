@@ -10,7 +10,7 @@
 // Production adds 0..MRP_BACKOFF_JITTER (0.25) via the port RNG; omitted
 // here so retransmit timing is deterministic for the self-test.
 #define MRP_BACKOFF_THRESHOLD 1
-static uint32_t mrp_interval(uint32_t base, int attempt /*1-based tx count*/) {
+MODULE_PART uint32_t mrp_interval(uint32_t base, int attempt /*1-based tx count*/) {
   // attempt 1 (first send) -> wait before retransmit #1 uses exponent 0.
   int e = attempt - 1 - MRP_BACKOFF_THRESHOLD;
   if (e < 0) e = 0;
@@ -19,12 +19,12 @@ static uint32_t mrp_interval(uint32_t base, int attempt /*1-based tx count*/) {
   return (uint32_t)t;
 }
 
-void mtrc_mrp_init(mtrc_mrp_ctx *c, uint32_t base_ms) {
+MODULE_PART void mtrc_mrp_init(mtrc_mrp_ctx *c, uint32_t base_ms) {
   memset(c, 0, sizeof(*c));
   c->base_ms = base_ms ? base_ms : MTRC_MRP_DEFAULT_BASE_MS;
 }
 
-int mtrc_mrp_on_send(mtrc_mrp_ctx *c, const uint8_t *frame, size_t len,
+MODULE_PART int mtrc_mrp_on_send(mtrc_mrp_ctx *c, const uint8_t *frame, size_t len,
                      uint32_t msg_counter, bool reliable, uint32_t now_ms) {
   if (!reliable) return 1;                 // nothing to track
   if (len > MTRC_MRP_MAX_FRAME) return 0;
@@ -37,7 +37,7 @@ int mtrc_mrp_on_send(mtrc_mrp_ctx *c, const uint8_t *frame, size_t len,
   return 1;
 }
 
-int mtrc_mrp_on_ack(mtrc_mrp_ctx *c, uint32_t ack_counter) {
+MODULE_PART int mtrc_mrp_on_ack(mtrc_mrp_ctx *c, uint32_t ack_counter) {
   if (c->tx_pending && ack_counter == c->tx_msg_counter) {
     c->tx_pending = false;
     return 1;
@@ -45,7 +45,7 @@ int mtrc_mrp_on_ack(mtrc_mrp_ctx *c, uint32_t ack_counter) {
   return 0;
 }
 
-int mtrc_mrp_is_duplicate(mtrc_mrp_ctx *c, uint32_t msg_counter) {
+MODULE_PART int mtrc_mrp_is_duplicate(mtrc_mrp_ctx *c, uint32_t msg_counter) {
   if (!c->have_rx) {
     c->have_rx = true; c->rx_max = msg_counter; c->rx_window = 0;
     return 0;
@@ -68,7 +68,7 @@ int mtrc_mrp_is_duplicate(mtrc_mrp_ctx *c, uint32_t msg_counter) {
   return 0;
 }
 
-mtrc_mrp_tick_result mtrc_mrp_tick(mtrc_mrp_ctx *c, uint32_t now_ms,
+MODULE_PART mtrc_mrp_tick_result mtrc_mrp_tick(mtrc_mrp_ctx *c, uint32_t now_ms,
                                    uint8_t *out, size_t cap, size_t *out_len) {
   if (!c->tx_pending) return MTRC_MRP_IDLE;
   if ((int32_t)(now_ms - c->tx_next_ms) < 0) return MTRC_MRP_IDLE;  // not due
@@ -84,7 +84,7 @@ mtrc_mrp_tick_result mtrc_mrp_tick(mtrc_mrp_ctx *c, uint32_t now_ms,
   return MTRC_MRP_RETRANSMIT;
 }
 
-int mtrc_mrp_build_ack(uint8_t *out, size_t cap,
+MODULE_PART int mtrc_mrp_build_ack(uint8_t *out, size_t cap,
                        uint16_t session_id, uint32_t local_counter,
                        uint16_t exchange_id, bool initiator,
                        uint32_t ack_counter) {

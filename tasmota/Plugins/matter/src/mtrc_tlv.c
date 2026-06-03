@@ -4,24 +4,24 @@
 #include <string.h>
 
 // ---- writer low-level --------------------------------------------------
-static int w_raw(mtrc_tlv_writer *w, const uint8_t *p, size_t n) {
+MODULE_PART int w_raw(mtrc_tlv_writer *w, const uint8_t *p, size_t n) {
   if (w->err) return 0;
   if (w->len + n > w->cap) { w->err = 1; return 0; }
   memcpy(w->buf + w->len, p, n);
   w->len += n;
   return 1;
 }
-static int w_byte(mtrc_tlv_writer *w, uint8_t b) { return w_raw(w, &b, 1); }
+MODULE_PART int w_byte(mtrc_tlv_writer *w, uint8_t b) { return w_raw(w, &b, 1); }
 
 // little-endian write of n bytes from a 64-bit value
-static int w_le(mtrc_tlv_writer *w, uint64_t v, int n) {
+MODULE_PART int w_le(mtrc_tlv_writer *w, uint64_t v, int n) {
   uint8_t b[8];
   for (int i = 0; i < n; i++) b[i] = (uint8_t)(v >> (8 * i));
   return w_raw(w, b, (size_t)n);
 }
 
 // write the tag bytes for `tag` (control bits go into the control byte).
-static int w_tag(mtrc_tlv_writer *w, mtrc_tlv_tag tag) {
+MODULE_PART int w_tag(mtrc_tlv_writer *w, mtrc_tlv_tag tag) {
   switch (tag.ctrl) {
     case MTRC_TLV_TAG_ANON:    return 1;
     case MTRC_TLV_TAG_CONTEXT: return w_byte(w, (uint8_t)tag.number);
@@ -40,21 +40,21 @@ static int w_tag(mtrc_tlv_writer *w, mtrc_tlv_tag tag) {
 }
 
 // emit control byte (tag_control<<5 | element_type) then the tag bytes.
-static int w_head(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t elem_type) {
+MODULE_PART int w_head(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t elem_type) {
   if (!w_byte(w, (uint8_t)(((uint8_t)tag.ctrl << 5) | elem_type))) return 0;
   return w_tag(w, tag);
 }
 
-void mtrc_tlv_writer_init(mtrc_tlv_writer *w, uint8_t *buf, size_t cap) {
+MODULE_PART void mtrc_tlv_writer_init(mtrc_tlv_writer *w, uint8_t *buf, size_t cap) {
   w->buf = buf; w->cap = cap; w->len = 0; w->depth = 0; w->err = 0;
 }
-size_t mtrc_tlv_writer_len(const mtrc_tlv_writer *w) { return w->len; }
-int    mtrc_tlv_writer_ok (const mtrc_tlv_writer *w) { return !w->err && w->depth == 0; }
+MODULE_PART size_t mtrc_tlv_writer_len(const mtrc_tlv_writer *w) { return w->len; }
+MODULE_PART int    mtrc_tlv_writer_ok (const mtrc_tlv_writer *w) { return !w->err && w->depth == 0; }
 // Append already-encoded TLV bytes verbatim (e.g. a pre-built AttributeReportIB
 // fragment into a ReportData array). Does not touch container depth.
-int mtrc_tlv_put_raw(mtrc_tlv_writer *w, const uint8_t *p, size_t n) { return w_raw(w, p, n); }
+MODULE_PART int mtrc_tlv_put_raw(mtrc_tlv_writer *w, const uint8_t *p, size_t n) { return w_raw(w, p, n); }
 
-int mtrc_tlv_put_uint(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint64_t v) {
+MODULE_PART int mtrc_tlv_put_uint(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint64_t v) {
   uint8_t t; int n;
   if      (v <= 0xFFu)        { t = MTRC_TLV_UINT + 0; n = 1; }
   else if (v <= 0xFFFFu)      { t = MTRC_TLV_UINT + 1; n = 2; }
@@ -63,7 +63,7 @@ int mtrc_tlv_put_uint(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint64_t v) {
   return w_head(w, tag, t) && w_le(w, v, n);
 }
 
-int mtrc_tlv_put_int(mtrc_tlv_writer *w, mtrc_tlv_tag tag, int64_t v) {
+MODULE_PART int mtrc_tlv_put_int(mtrc_tlv_writer *w, mtrc_tlv_tag tag, int64_t v) {
   uint8_t t; int n;
   if      (v >= -128 && v <= 127)             { t = MTRC_TLV_SINT + 0; n = 1; }
   else if (v >= -32768 && v <= 32767)         { t = MTRC_TLV_SINT + 1; n = 2; }
@@ -72,23 +72,23 @@ int mtrc_tlv_put_int(mtrc_tlv_writer *w, mtrc_tlv_tag tag, int64_t v) {
   return w_head(w, tag, t) && w_le(w, (uint64_t)v, n);
 }
 
-int mtrc_tlv_put_bool(mtrc_tlv_writer *w, mtrc_tlv_tag tag, bool b) {
+MODULE_PART int mtrc_tlv_put_bool(mtrc_tlv_writer *w, mtrc_tlv_tag tag, bool b) {
   return w_head(w, tag, (uint8_t)(MTRC_TLV_BOOL + (b ? 1 : 0)));
 }
-int mtrc_tlv_put_null(mtrc_tlv_writer *w, mtrc_tlv_tag tag) {
+MODULE_PART int mtrc_tlv_put_null(mtrc_tlv_writer *w, mtrc_tlv_tag tag) {
   return w_head(w, tag, MTRC_TLV_NULL);
 }
-int mtrc_tlv_put_float(mtrc_tlv_writer *w, mtrc_tlv_tag tag, float f) {
+MODULE_PART int mtrc_tlv_put_float(mtrc_tlv_writer *w, mtrc_tlv_tag tag, float f) {
   uint32_t u; memcpy(&u, &f, 4);
   return w_head(w, tag, MTRC_TLV_FLOAT) && w_le(w, u, 4);
 }
-int mtrc_tlv_put_double(mtrc_tlv_writer *w, mtrc_tlv_tag tag, double dd) {
+MODULE_PART int mtrc_tlv_put_double(mtrc_tlv_writer *w, mtrc_tlv_tag tag, double dd) {
   uint64_t u; memcpy(&u, &dd, 8);
   return w_head(w, tag, MTRC_TLV_DOUBLE) && w_le(w, u, 8);
 }
 
 // length-prefixed value (UTF8/BYTES): pick the minimal length-field width.
-static int w_lenval(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t base,
+MODULE_PART int w_lenval(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t base,
                     const uint8_t *data, size_t len) {
   uint8_t t; int ln;
   if      (len <= 0xFFu)       { t = base + 0; ln = 1; }
@@ -98,24 +98,24 @@ static int w_lenval(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t base,
   if (!w_head(w, tag, t) || !w_le(w, (uint64_t)len, ln)) return 0;
   return len ? w_raw(w, data, len) : 1;
 }
-int mtrc_tlv_put_bytes(mtrc_tlv_writer *w, mtrc_tlv_tag tag,
+MODULE_PART int mtrc_tlv_put_bytes(mtrc_tlv_writer *w, mtrc_tlv_tag tag,
                        const uint8_t *data, size_t len) {
   return w_lenval(w, tag, MTRC_TLV_BYTES, data, len);
 }
-int mtrc_tlv_put_utf8(mtrc_tlv_writer *w, mtrc_tlv_tag tag,
+MODULE_PART int mtrc_tlv_put_utf8(mtrc_tlv_writer *w, mtrc_tlv_tag tag,
                       const char *s, size_t len) {
   return w_lenval(w, tag, MTRC_TLV_UTF8, (const uint8_t *)s, len);
 }
 
-static int w_start(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t t) {
+MODULE_PART int w_start(mtrc_tlv_writer *w, mtrc_tlv_tag tag, uint8_t t) {
   if (!w_head(w, tag, t)) return 0;
   w->depth++;
   return 1;
 }
-int mtrc_tlv_start_struct(mtrc_tlv_writer *w, mtrc_tlv_tag tag) { return w_start(w, tag, MTRC_TLV_STRUCT); }
-int mtrc_tlv_start_array (mtrc_tlv_writer *w, mtrc_tlv_tag tag) { return w_start(w, tag, MTRC_TLV_ARRAY); }
-int mtrc_tlv_start_list  (mtrc_tlv_writer *w, mtrc_tlv_tag tag) { return w_start(w, tag, MTRC_TLV_LIST); }
-int mtrc_tlv_end_container(mtrc_tlv_writer *w) {
+MODULE_PART int mtrc_tlv_start_struct(mtrc_tlv_writer *w, mtrc_tlv_tag tag) { return w_start(w, tag, MTRC_TLV_STRUCT); }
+MODULE_PART int mtrc_tlv_start_array (mtrc_tlv_writer *w, mtrc_tlv_tag tag) { return w_start(w, tag, MTRC_TLV_ARRAY); }
+MODULE_PART int mtrc_tlv_start_list  (mtrc_tlv_writer *w, mtrc_tlv_tag tag) { return w_start(w, tag, MTRC_TLV_LIST); }
+MODULE_PART int mtrc_tlv_end_container(mtrc_tlv_writer *w) {
   if (w->depth <= 0) { w->err = 1; return 0; }
   if (!w_byte(w, MTRC_TLV_END)) return 0;
   w->depth--;
@@ -127,19 +127,19 @@ int mtrc_tlv_end_container(mtrc_tlv_writer *w) {
 // in 32-bit size_t for an attacker-chosen length, wrapping below len and passing
 // a bogus bounds check. The off<=len invariant holds throughout (off only advances
 // after a passing check).
-static int r_avail(mtrc_tlv_reader *r, size_t n) { return r->off <= r->len && n <= r->len - r->off; }
+MODULE_PART int r_avail(mtrc_tlv_reader *r, size_t n) { return r->off <= r->len && n <= r->len - r->off; }
 
-static uint64_t r_le(const uint8_t *p, int n) {
+MODULE_PART uint64_t r_le(const uint8_t *p, int n) {
   uint64_t v = 0;
   for (int i = 0; i < n; i++) v |= (uint64_t)p[i] << (8 * i);
   return v;
 }
 
-void mtrc_tlv_reader_init(mtrc_tlv_reader *r, const uint8_t *buf, size_t len) {
+MODULE_PART void mtrc_tlv_reader_init(mtrc_tlv_reader *r, const uint8_t *buf, size_t len) {
   r->buf = buf; r->len = len; r->off = 0; r->err = 0;
 }
 
-int mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
+MODULE_PART int mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
   if (r->err || r->off >= r->len) return 0;
   uint8_t ctrl = r->buf[r->off++];
   uint8_t tag_ctrl = (uint8_t)(ctrl >> 5);

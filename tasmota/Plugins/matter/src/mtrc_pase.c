@@ -12,7 +12,7 @@ static const uint8_t INFO_CONFIRM[]  = { 'C','o','n','f','i','r','m','a','t','i'
 static const uint8_t INFO_SESSION_PASE[]  = { 'S','e','s','s','i','o','n','K','e','y','s' };
 #define SPAKE_WS 40   // kSpake2p_WS_Length = kP256_FE_Length(32) + 8
 
-int mtrc_pase_derive_w0w1(uint32_t passcode, const uint8_t *salt, size_t salt_len,
+MODULE_PART int mtrc_pase_derive_w0w1(uint32_t passcode, const uint8_t *salt, size_t salt_len,
                           uint32_t iterations, uint8_t w0[32], uint8_t w1[32]) {
   uint8_t pin[4] = { (uint8_t)passcode, (uint8_t)(passcode >> 8),
                      (uint8_t)(passcode >> 16), (uint8_t)(passcode >> 24) }; // LE
@@ -23,7 +23,7 @@ int mtrc_pase_derive_w0w1(uint32_t passcode, const uint8_t *salt, size_t salt_le
   return 1;
 }
 
-void mtrc_pase_context(const uint8_t *req, size_t req_len,
+MODULE_PART void mtrc_pase_context(const uint8_t *req, size_t req_len,
                        const uint8_t *resp, size_t resp_len, uint8_t ctx[32]) {
   // ctx = SHA256(prefix || req || resp). Streamed via HMAC-less SHA: build
   // one buffer (small messages) — keeps mtrc_crypto's one-shot hash API.
@@ -36,7 +36,7 @@ void mtrc_pase_context(const uint8_t *req, size_t req_len,
   mtrc_sha256(tmp, off, ctx);
 }
 
-int mtrc_pase_keys(const uint8_t ctx[32], const uint8_t pA[65], const uint8_t pB[65],
+MODULE_PART int mtrc_pase_keys(const uint8_t ctx[32], const uint8_t pA[65], const uint8_t pB[65],
                    const uint8_t Z[65], const uint8_t V[65], const uint8_t w0[32],
                    mtrc_pase_keys_t *out) {
   uint8_t K_main[32];
@@ -61,7 +61,7 @@ int mtrc_pase_keys(const uint8_t ctx[32], const uint8_t pA[65], const uint8_t pB
 }
 
 // ---- message TLV codecs (anonymous outer struct, context tags) ---------
-int mtrc_pase_encode_param_req(uint8_t *out, size_t cap, const mtrc_pase_param_req *r) {
+MODULE_PART int mtrc_pase_encode_param_req(uint8_t *out, size_t cap, const mtrc_pase_param_req *r) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), r->initiator_random, 32);
@@ -72,7 +72,7 @@ int mtrc_pase_encode_param_req(uint8_t *out, size_t cap, const mtrc_pase_param_r
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_pase_decode_param_req(const uint8_t *in, size_t len, mtrc_pase_param_req *r) {
+MODULE_PART int mtrc_pase_decode_param_req(const uint8_t *in, size_t len, mtrc_pase_param_req *r) {
   mtrc_tlv_reader rd; mtrc_tlv_reader_init(&rd, in, len);
   mtrc_tlv_elem e;
   memset(r, 0, sizeof(*r));
@@ -99,7 +99,7 @@ int mtrc_pase_decode_param_req(const uint8_t *in, size_t len, mtrc_pase_param_re
   return !rd.err;
 }
 
-int mtrc_pase_encode_param_resp(uint8_t *out, size_t cap, const mtrc_pase_param_resp *r) {
+MODULE_PART int mtrc_pase_encode_param_resp(uint8_t *out, size_t cap, const mtrc_pase_param_resp *r) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), r->initiator_random, 32);
@@ -113,7 +113,7 @@ int mtrc_pase_encode_param_resp(uint8_t *out, size_t cap, const mtrc_pase_param_
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_pase_decode_param_resp(const uint8_t *in, size_t len, mtrc_pase_param_resp *r) {
+MODULE_PART int mtrc_pase_decode_param_resp(const uint8_t *in, size_t len, mtrc_pase_param_resp *r) {
   mtrc_tlv_reader rd; mtrc_tlv_reader_init(&rd, in, len);
   mtrc_tlv_elem e;
   memset(r, 0, sizeof(*r));
@@ -141,14 +141,14 @@ int mtrc_pase_decode_param_resp(const uint8_t *in, size_t len, mtrc_pase_param_r
   return !rd.err;
 }
 
-static int enc_one_bytes(uint8_t *out, size_t cap, uint8_t tag, const uint8_t *d, size_t n) {
+MODULE_PART int enc_one_bytes(uint8_t *out, size_t cap, uint8_t tag, const uint8_t *d, size_t n) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(tag), d, n);
   mtrc_tlv_end_container(&w);
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
-static int dec_field_bytes(const uint8_t *in, size_t len, uint8_t tag, uint8_t *d, size_t n) {
+MODULE_PART int dec_field_bytes(const uint8_t *in, size_t len, uint8_t tag, uint8_t *d, size_t n) {
   mtrc_tlv_reader rd; mtrc_tlv_reader_init(&rd, in, len);
   mtrc_tlv_elem e;
   if (!mtrc_tlv_read(&rd, &e) || e.type != MTRC_TLV_STRUCT) return 0;
@@ -161,12 +161,12 @@ static int dec_field_bytes(const uint8_t *in, size_t len, uint8_t tag, uint8_t *
   return found && !rd.err;
 }
 
-int mtrc_pase_encode_pake1(uint8_t *out, size_t cap, const uint8_t pA[65]) { return enc_one_bytes(out, cap, 1, pA, 65); }
-int mtrc_pase_decode_pake1(const uint8_t *in, size_t len, uint8_t pA[65])  { return dec_field_bytes(in, len, 1, pA, 65); }
-int mtrc_pase_encode_pake3(uint8_t *out, size_t cap, const uint8_t cA[32]) { return enc_one_bytes(out, cap, 1, cA, 32); }
-int mtrc_pase_decode_pake3(const uint8_t *in, size_t len, uint8_t cA[32])  { return dec_field_bytes(in, len, 1, cA, 32); }
+MODULE_PART int mtrc_pase_encode_pake1(uint8_t *out, size_t cap, const uint8_t pA[65]) { return enc_one_bytes(out, cap, 1, pA, 65); }
+MODULE_PART int mtrc_pase_decode_pake1(const uint8_t *in, size_t len, uint8_t pA[65])  { return dec_field_bytes(in, len, 1, pA, 65); }
+MODULE_PART int mtrc_pase_encode_pake3(uint8_t *out, size_t cap, const uint8_t cA[32]) { return enc_one_bytes(out, cap, 1, cA, 32); }
+MODULE_PART int mtrc_pase_decode_pake3(const uint8_t *in, size_t len, uint8_t cA[32])  { return dec_field_bytes(in, len, 1, cA, 32); }
 
-int mtrc_pase_encode_pake2(uint8_t *out, size_t cap, const uint8_t pB[65], const uint8_t cB[32]) {
+MODULE_PART int mtrc_pase_encode_pake2(uint8_t *out, size_t cap, const uint8_t pB[65], const uint8_t cB[32]) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), pB, 65);
@@ -174,7 +174,7 @@ int mtrc_pase_encode_pake2(uint8_t *out, size_t cap, const uint8_t pB[65], const
   mtrc_tlv_end_container(&w);
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
-int mtrc_pase_decode_pake2(const uint8_t *in, size_t len, uint8_t pB[65], uint8_t cB[32]) {
+MODULE_PART int mtrc_pase_decode_pake2(const uint8_t *in, size_t len, uint8_t pB[65], uint8_t cB[32]) {
   mtrc_tlv_reader rd; mtrc_tlv_reader_init(&rd, in, len);
   mtrc_tlv_elem e; int got = 0;
   if (!mtrc_tlv_read(&rd, &e) || e.type != MTRC_TLV_STRUCT) return 0;

@@ -9,14 +9,14 @@
 #define MTRC_SEC_MAX_BODY 1280
 #endif
 
-void mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
+MODULE_PART void mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
                     uint32_t msg_counter, uint64_t src_node_id) {
   nonce[0] = security_flags;
   for (int i = 0; i < 4; i++) nonce[1 + i] = (uint8_t)(msg_counter >> (8 * i));
   for (int i = 0; i < 8; i++) nonce[5 + i] = (uint8_t)(src_node_id >> (8 * i));
 }
 
-int mtrc_sec_encode(uint8_t *out, size_t cap,
+MODULE_PART int mtrc_sec_encode(uint8_t *out, size_t cap,
                     const mtrc_msg_header *mh, const mtrc_proto_header *ph,
                     const uint8_t *payload, size_t payload_len,
                     const uint8_t key[16]) {
@@ -46,7 +46,7 @@ int mtrc_sec_encode(uint8_t *out, size_t cap,
   return hl + bl + MTRC_CCM_TAG_LEN;
 }
 
-int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
+MODULE_PART int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
                     uint64_t peer_node_id,
                     mtrc_msg_header *mh, mtrc_proto_header *ph,
                     uint8_t *pt_buf, size_t pt_cap,
