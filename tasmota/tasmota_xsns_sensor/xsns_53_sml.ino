@@ -4048,6 +4048,21 @@ void SML_Clean_Meters(void) {
 }
 #endif // USE_SML_TCP
 
+// True if `pin` is NOT a physically usable GPIO on this chip: it doesn't exist
+// (out of range / chip-specific gap) or is flash-reserved. A meter .def pointing
+// at such a pin would otherwise reach uart_set_pin()/pinMode()/attachInterrupt()
+// and abort in the IDF, BOOTLOOPING the device (mi-hol's ESP32-C6 case). This is
+// stronger than the existing Gpio_used() duplicate check. Caller passes the
+// absolute GPIO number; TCP meters (TCP_MODE_FLG) and "no TX pin" (-1) are
+// filtered at the call sites, not here.
+bool SML_PinUnusable(int32_t pin) {
+#ifdef ESP32
+  return (pin < 0) || !digitalPinIsValid((uint8_t)pin) || FlashPin((uint32_t)pin);
+#else
+  return (pin < 0) || (pin >= MAX_GPIO_PIN) || FlashPin((uint32_t)pin);
+#endif
+}
+
 void SML_Init(void) {
 
   sml_globs.ready = false;
@@ -4294,6 +4309,10 @@ dddef_exit:
               sml_globs.script_meter = 0;
               return;
             }
+            if (SML_PinUnusable(abs(srcpin))) {
+              AddLog(LOG_LEVEL_INFO, PSTR("SML: Invalid/flash RX GPIO %d in meter number %d - skipped (prevents bootloop)"), abs(srcpin), index + 1);
+              goto dddef_exit;
+            }
           }
           mmp->srcpin = srcpin;
           if (*lp1 != ',') goto next_line;
@@ -4349,6 +4368,10 @@ dddef_exit:
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
                 goto dddef_exit;
               }
+              if (mmp->trxpin >= 0 && SML_PinUnusable(mmp->trxpin)) {   // -1 = no TX pin (skip)
+                AddLog(LOG_LEVEL_INFO, PSTR("SML: Invalid/flash TX GPIO %d in meter number %d - skipped (prevents bootloop)"), mmp->trxpin, index + 1);
+                goto dddef_exit;
+              }
             }
             // optional transmit enable pin
             if (*lp1 == '(') {
@@ -4366,6 +4389,10 @@ dddef_exit:
               lp1++;
               if (Gpio_used(mmp->trx_en.trxenpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX enable in meter number %d"), meter_desc[index].trx_en.trxenpin, index + 1);
+                goto dddef_exit;
+              }
+              if (SML_PinUnusable(mmp->trx_en.trxenpin)) {
+                AddLog(LOG_LEVEL_INFO, PSTR("SML: Invalid/flash TX-enable GPIO %d in meter number %d - skipped (prevents bootloop)"), mmp->trx_en.trxenpin, index + 1);
                 goto dddef_exit;
               }
               mmp->trx_en.trxen = 1;
