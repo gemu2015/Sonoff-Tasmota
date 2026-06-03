@@ -1,0 +1,164 @@
+// webradio.tc — Internet-radio player for an I2S audio board.
+//
+// Port of mi-hol's Tasmota Scripter web-radio to TinyC. Streams MP3/AAC internet
+// radio through the I2SAUDIO BinPlugin and offers a web UI with a station list,
+// a volume slider and a Stop button.
+//
+// ── What the device needs ────────────────────────────────────────────────────
+//   * a TinyC firmware (e.g. tasmota32s3-tinyc) on the audio board
+//   * the  I2SAUDIO  BinPlugin loaded + its pins set (DOUT/BCK/WS/CODEC) on /modu;
+//     it supplies the  I2SWR <url>=play / I2SWR=stop / I2SVol <0..100>  commands
+//     and performs all WM8978 codec init (so NO i2cWrite codec poking is needed).
+//   * a station file  /webradios.txt  with one  name<TAB>url  line per station.
+//     Upload it via the file manager.  Edit it, then re-run the slot to reload.
+//
+// ── Design (important) ───────────────────────────────────────────────────────
+// Every side-effecting Tasmota command goes through tasmDefer() so it runs on the
+// MAIN task. The web UI only sets watch-int flags (sel_req / loud / offreq); the
+// VM-task EverySecond() reads those flags and defers the commands. We NEVER invoke
+// the command dispatcher from the VM task (e.g. tasmCmd("Status 10")) — doing that
+// while a stream is starting on the main task watchdog-resets the device.
+//
+// The live ICY title (path "StatusSNS#WebRadio#Title") is intentionally NOT polled
+// here for the same reason; it needs a VM-safe read (deferred) — a v2 item.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#define STATION_FILE "/webradios.txt"
+
+// web-settable state ("watch" = the web UI can write it via seva())
+watch int sel_req = 0;               // a station button writes its number here (1..N)
+watch int loud    = 40;              // volume slider 0..100  -> I2SGain
+watch int offreq  = 0;               // the Stop button writes 1 here
+
+int  sel       = 0;                  // station currently playing (0 = none) -> highlight
+int  last_loud = 40;                 // change-detect for the gain (set to -1 to force re-apply)
+int  nstations = 0;                  // station count parsed from the file
+int  idx_sel   = 0;                  // cached global index of sel_req (for seva HTML)
+int  idx_off   = 0;                  // cached global index of offreq
+
+char fbuf[4096];                     // the whole /webradios.txt, kept in RAM
+char curr[48];                       // current station name
+char buf[420];                       // scratch (HTML / log)
+
+// ── load /webradios.txt into fbuf and count the stations ──
+void loadStations() {
+  char line[200];
+  char nm[64];
+  nstations = 0;
+  int h = fileOpen(STATION_FILE, 0);           // 0 = read
+  if (h < 0) { addLog("webradio: /webradios.txt missing"); return; }
+  int n = fileRead(h, fbuf, 4090);
+  fileClose(h);
+  if (n < 0) { n = 0; }
+  fbuf[n] = 0;
+  int i = 1;
+  while (i <= 60) {
+    strToken(line, fbuf, 10, i);               // 10 = '\n'  -> line i
+    if (line[0] == 0) { break; }
+    strToken(nm, line, 9, 1);                  //  9 = '\t'  -> name field
+    if (nm[0] == 0) { break; }
+    nstations = i;
+    i = i + 1;
+  }
+  sprintf(buf, "webradio: %d stations loaded", nstations);
+  addLog(buf);
+}
+
+// ── name (field 1) + url (field 2) of station n (1-based) from the in-RAM file ──
+void station(int n, char nm[], char url[]) {
+  char line[200];
+  nm[0] = 0; url[0] = 0;
+  strToken(line, fbuf, 10, n);
+  strToken(nm,  line, 9, 1);
+  strToken(url, line, 9, 2);
+}
+
+// NOTE: the firmware's deferred-command buffer holds exactly ONE command and
+// drops any second one queued before the first drains. So we defer at most ONE
+// command per VM callback (EverySecond enforces this with early returns).
+void playStation(int n) {
+  char url[220];
+  char cmd[240];
+  station(n, curr, url);                        // fills curr (name) + url
+  if (url[0] == 0) { return; }
+  sprintf(cmd, "I2SWR %s", url);  tasmDefer(cmd);   // start the stream on the main task
+  last_loud = -1;                                   // force EverySecond to apply the gain on the
+  sel = n;                                          //   next tick (once the stream output exists)
+  sprintf(buf, "webradio: play %d = %s", n, curr);
+  addLog(buf);
+}
+
+void stopRadio() {
+  char cmd[24];
+  strcpy(cmd, "I2SWR");    tasmDefer(cmd);      // empty arg -> stop
+  sel = 0; curr[0] = 0;
+  addLog("webradio: stopped");
+}
+
+int main() {
+  curr[0] = 0;
+  loadStations();
+  idx_sel = varIdx(sel_req);
+  idx_off = varIdx(offreq);
+  last_loud = loud;                             // don't disturb the current volume on (re)deploy
+  addLog("webradio: ready");
+  return 0;
+}
+
+// At most ONE tasmDefer() per tick (the deferred buffer holds one command).
+// Priority: start a station, then stop, then volume. Each path returns so a
+// second command is never queued before the first has drained.
+void EverySecond() {
+  if (sel_req != 0) {
+    int n = sel_req; sel_req = 0;
+    if (n >= 1 && n <= nstations) { playStation(n); }   // defers I2SWR <url>
+    return;
+  }
+  if (offreq != 0) { offreq = 0; stopRadio(); return; }  // defers I2SWR (stop)
+  // volume: apply on change, and ~1s after a station starts (last_loud == -1)
+  if (loud != last_loud) {
+    char cmd[24];
+    sprintf(cmd, "I2SVol %d", loud);     // I2SAUDIO plugin volume cmd (0..100); I2SGain is dead
+    tasmDefer(cmd);
+    last_loud = loud;
+  }
+}
+
+// WebCall() renders into Tasmota's /?m=1 sensor area. We emit a fixed-width,
+// light-grey HTML table for the station list (own layout, survives the AJAX
+// redraw) and keep the Tasmota slider widget for volume above it.
+void WebCall() {
+  char nm[64];
+  char url[220];
+  char cls[8];
+  char lbl[48];
+
+  // volume slider (Tasmota widget) with a live-value label
+  sprintf(lbl, "Lautstärke: %d", loud);
+  webSliderV(loud, 0, 100, lbl);
+
+  // Styles ONCE as classes — keeps each station row tiny (~70 B) so the web
+  // content buffer never overflows (24 rows of full inline style truncated it).
+  // .n = narrow Nr cell; .wr button = idle; .sel = playing; .stp = Stop.
+  webSend("<style>.wr{width:360px;margin:8px auto;border-collapse:collapse;background:#d9d9d9;color:#111;border:1px solid #999}.wr td,.wr th{border-top:1px solid #c8c8c8;padding:3px}.wr .n{width:1%;white-space:nowrap;text-align:center;padding:3px 8px}.wr button{box-sizing:border-box;width:100%;border:0;border-radius:0.3rem;padding:4px;color:#fff;background:#607d8b}.wr .sel{background:#2e7d32}.wr .stp{background:#b71c1c}</style>");
+  webSend("<table class='wr'>");
+  webSend("<tr><th colspan='2' style='padding:6px;background:#c2c2c2;font-size:1.1rem;text-align:center'>Web-Radio</th></tr>");
+  webSend("<tr><th class='n'>Nr</th><th style='background:#cfcfcf'>Sender</th></tr>");
+  int i = 1;
+  int fl = 0;
+  while (i <= nstations) {
+    station(i, nm, url);
+    if (i == sel) { strcpy(cls, "sel"); } else { cls[0] = 0; }
+    sprintf(buf, "<tr><td class='n'>%d</td><td><button onclick='seva(%d,%d)' class='%s'>%s</button></td></tr>",
+            i, i, idx_sel, cls, nm);
+    webSend(buf);
+    fl = fl + 1;
+    if (fl >= 8) { webFlush(); fl = 0; }       // flush every 8 rows -> no buffer overflow
+    i = i + 1;
+  }
+  sprintf(buf, "<tr><td class='n'>Aus</td><td><button onclick='seva(1,%d)' class='stp'>Stop</button></td></tr>",
+          idx_off);
+  webSend(buf);
+  webSend("</table>");
+  webFlush();
+}
