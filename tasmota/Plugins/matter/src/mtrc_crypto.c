@@ -18,7 +18,7 @@
 #define MTRC_CURVE  BR_EC_secp256r1   // 23
 
 // P-256 subgroup order n (big-endian).
-static const uint8_t P256_N[32] = {
+const uint8_t P256_N[32] PROGMEM = {
   0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
   0xbc,0xe6,0xfa,0xad,0xa7,0x17,0x9e,0x84,0xf3,0xb9,0xca,0xc2,0xfc,0x63,0x25,0x51
 };
@@ -26,7 +26,9 @@ static const uint8_t P256_N[32] = {
 // Crypto primitives supplied by the firmware (Fork B), bound once at plugin
 // load. Until bound, g_cr is NULL and every entry point fails safe (returns
 // 0 / no-op) rather than wild-jumping through an unset pointer.
-static const mtrc_crypto_ops *g_cr = 0;
+#ifndef MTRC_PLUGIN_BUILD
+static const mtrc_crypto_ops *g_cr = 0;   // plugin build: g_cr == MTRC_MEM->cr (mtrc_plugin_mem.h),
+#endif                                     // a file-scope mutable pointer would crash after relocation
 MODULE_PART void mtrc_crypto_bind(const mtrc_crypto_ops *ops) { g_cr = ops; }
 
 MODULE_PART const br_ec_impl *EC(void) { return g_cr->ec_p256_m15; }
@@ -117,7 +119,7 @@ MODULE_PART void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
   // neg = n - s  (256-bit big-endian subtract; assumes 0 < s < n)
   int borrow = 0;
   for (int i = 31; i >= 0; i--) {
-    int d = (int)P256_N[i] - (int)s[i] - borrow;
+    int d = (int)MP8(P256_N)[i] - (int)s[i] - borrow;
     if (d < 0) { d += 256; borrow = 1; } else { borrow = 0; }
     neg[i] = (uint8_t)d;
   }
@@ -131,7 +133,7 @@ MODULE_PART int be32_ge(const uint8_t a[32], const uint8_t b[32]) {
 MODULE_PART void be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
   int borrow = 0;
   for (int i = 31; i >= 0; i--) {
-    int d = (int)a[i] - (int)P256_N[i] - borrow;
+    int d = (int)a[i] - (int)MP8(P256_N)[i] - borrow;
     if (d < 0) { d += 256; borrow = 1; } else borrow = 0;
     a[i] = (uint8_t)d;
   }
@@ -146,7 +148,7 @@ MODULE_PART void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t
     int carry = bit;
     for (int j = 31; j >= 0; j--) { int v = ((int)acc[j] << 1) | carry; acc[j] = (uint8_t)v; carry = v >> 8; }
     if (carry) be32_sub_n(acc);                 // 257th bit set -> definitely >= n
-    else if (be32_ge(acc, P256_N)) be32_sub_n(acc);
+    else if (be32_ge(acc, MP8(P256_N))) be32_sub_n(acc);
   }
   memcpy(out, acc, 32);
 }

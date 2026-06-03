@@ -2,11 +2,16 @@
 
 #include "mtrc_dm.h"
 
+#ifdef MTRC_PLUGIN_BUILD
+#define dm (g.dm)              // storage rides the PSRAM ctx (g); a ~9 KB file-scope
+                               // mutable struct can't relocate in a BinPlugin
+#else
 static struct {
   mtrc_dm_endpoint_t ep[MTRC_DM_MAX_ENDPOINTS];   int ep_n;
   mtrc_dm_cluster_t  cl[MTRC_DM_MAX_CLUSTERS];     int cl_n;
   mtrc_dm_attr_t     at[MTRC_DM_MAX_ATTRS];        int at_n;
 } dm;
+#endif
 
 MODULE_PART void mtrc_dm_reset(void) {
   dm.ep_n = 0; dm.cl_n = 0; dm.at_n = 0;

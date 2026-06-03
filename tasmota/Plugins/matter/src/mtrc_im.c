@@ -179,7 +179,7 @@ MODULE_PART int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
   mtrc_tlv_end_container(&w);                          //    end CommandPath
   mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //    CommandFields
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), field0);      //     0: errorCode
-  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(1), "", 0);       //     1: debugText ""
+  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(1), PSTR(""), 0);       //     1: debugText ""
   mtrc_tlv_end_container(&w);                          //    end CommandFields
   mtrc_tlv_end_container(&w);                          //   end CommandDataIB
   mtrc_tlv_end_container(&w);                          //  end InvokeResponseIB

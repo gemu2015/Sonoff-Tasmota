@@ -29,18 +29,18 @@ MODULE_PART size_t der_int(uint8_t *out, const uint8_t v[32]) {
 
 // AlgorithmIdentifier for an EC public key on prime256v1:
 //   SEQ { OID id-ecPublicKey (1.2.840.10045.2.1), OID prime256v1 (..3.1.7) }
-static const uint8_t ALG_ECPK[] = {
+const uint8_t ALG_ECPK[] PROGMEM = {
   0x30,0x13, 0x06,0x07,0x2A,0x86,0x48,0xCE,0x3D,0x02,0x01,
              0x06,0x08,0x2A,0x86,0x48,0xCE,0x3D,0x03,0x01,0x07 };
 // AlgorithmIdentifier ecdsa-with-SHA256 (1.2.840.10045.4.3.2)
-static const uint8_t ALG_ECDSA_SHA256[] = {
+const uint8_t ALG_ECDSA_SHA256[] PROGMEM = {
   0x30,0x0A, 0x06,0x08,0x2A,0x86,0x48,0xCE,0x3D,0x04,0x03,0x02 };
 
 MODULE_PART int mtrc_csr_build(uint8_t *out, size_t cap,
                    const uint8_t op_priv[32], const uint8_t op_pub[65]) {
   // SubjectPublicKeyInfo = SEQ { ALG_ECPK, BITSTRING(0x00 || op_pub) }
   uint8_t spki_c[128]; size_t sc = 0;
-  memcpy(spki_c + sc, ALG_ECPK, sizeof(ALG_ECPK)); sc += sizeof(ALG_ECPK);
+  memcpy(spki_c + sc, MP8(ALG_ECPK), sizeof(ALG_ECPK)); sc += sizeof(ALG_ECPK);
   uint8_t bits[3 + 1 + 65]; size_t bo = 0;
   bits[bo++] = 0x03; bo += der_len(bits + bo, 66); bits[bo++] = 0x00;
   memcpy(bits + bo, op_pub, 65); bo += 65;
@@ -72,7 +72,7 @@ MODULE_PART int mtrc_csr_build(uint8_t *out, size_t cap,
   // CertificationRequest = SEQ { CRI, sigAlg, signature BITSTRING }
   uint8_t csr_c[512]; size_t xc = 0;
   memcpy(csr_c + xc, cri, cl);                          xc += cl;
-  memcpy(csr_c + xc, ALG_ECDSA_SHA256, sizeof(ALG_ECDSA_SHA256));
+  memcpy(csr_c + xc, MP8(ALG_ECDSA_SHA256), sizeof(ALG_ECDSA_SHA256));
   xc += sizeof(ALG_ECDSA_SHA256);
   memcpy(csr_c + xc, sigbits, sb);                      xc += sb;
 

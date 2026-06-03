@@ -25,9 +25,15 @@
 #ifndef MTRC_PLUGIN_MEM_H
 #define MTRC_PLUGIN_MEM_H
 
-typedef struct { matter_ctx_t *mtrc_ctx; } MODULE_MEMORY;  // the plugin's only persistent state
+struct mtrc_crypto_ops;                 // tagged — fwd-decl so we don't depend on include order
+typedef struct {
+  matter_ctx_t *mtrc_ctx;               // the ~22 KB PSRAM context (g), heap-allocated by matter_init
+  const struct mtrc_crypto_ops *cr;     // crypto seam — bound by mtrc_crypto_bind() BEFORE matter_init,
+                                        // so it can't live in g (still NULL then); rides MODULE_MEMORY
+} MODULE_MEMORY;                         // the plugin's only persistent RAM (ALLOCMEM at iniz)
 #define MTRC_MEM ((MODULE_MEMORY *)gettbl()->mod_memory)
 #define g_ptr    (MTRC_MEM->mtrc_ctx)   // lvalue → both `if(!g_ptr)` and `g_ptr = …` work
 #define g        (*g_ptr)
+#define g_cr     (MTRC_MEM->cr)         // was `static g_cr` in mtrc_crypto.c (lvalue: bind + deref both work)
 
 #endif // MTRC_PLUGIN_MEM_H

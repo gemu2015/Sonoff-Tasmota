@@ -7,9 +7,9 @@
 #include "mtrc_tlv.h"
 #include <string.h>
 
-static const char SPAKE_CTX_PREFIX[] = "CHIP PAKE V1 Commissioning";
-static const uint8_t INFO_CONFIRM[]  = { 'C','o','n','f','i','r','m','a','t','i','o','n','K','e','y','s' };
-static const uint8_t INFO_SESSION_PASE[]  = { 'S','e','s','s','i','o','n','K','e','y','s' };
+const char SPAKE_CTX_PREFIX[] PROGMEM = "CHIP PAKE V1 Commissioning";
+const uint8_t INFO_CONFIRM[] PROGMEM = { 'C','o','n','f','i','r','m','a','t','i','o','n','K','e','y','s' };
+const uint8_t INFO_SESSION_PASE[] PROGMEM = { 'S','e','s','s','i','o','n','K','e','y','s' };
 #define SPAKE_WS 40   // kSpake2p_WS_Length = kP256_FE_Length(32) + 8
 
 MODULE_PART int mtrc_pase_derive_w0w1(uint32_t passcode, const uint8_t *salt, size_t salt_len,
@@ -30,7 +30,7 @@ MODULE_PART void mtrc_pase_context(const uint8_t *req, size_t req_len,
   static uint8_t tmp[1024];
   size_t off = 0, pfx = sizeof(SPAKE_CTX_PREFIX) - 1;
   if (pfx + req_len + resp_len > sizeof(tmp)) { memset(ctx, 0, 32); return; }
-  memcpy(tmp + off, SPAKE_CTX_PREFIX, pfx); off += pfx;
+  memcpy(tmp + off, MP8(SPAKE_CTX_PREFIX), pfx); off += pfx;
   memcpy(tmp + off, req,  req_len);  off += req_len;
   memcpy(tmp + off, resp, resp_len); off += resp_len;
   mtrc_sha256(tmp, off, ctx);
@@ -47,13 +47,13 @@ MODULE_PART int mtrc_pase_keys(const uint8_t ctx[32], const uint8_t pA[65], cons
 
   // KcA || KcB = HKDF(salt=nil, IKM=Ka, "ConfirmationKeys", 32)
   uint8_t kcab[32];
-  mtrc_hkdf_sha256(NULL, 0, Ka, 16, INFO_CONFIRM, sizeof(INFO_CONFIRM), kcab, 32);
+  mtrc_hkdf_sha256(NULL, 0, Ka, 16, MP8(INFO_CONFIRM), sizeof(INFO_CONFIRM), kcab, 32);
   mtrc_hmac_sha256(kcab,      16, pB, 65, out->cA);   // cA = HMAC(KcA, pB)
   mtrc_hmac_sha256(kcab + 16, 16, pA, 65, out->cB);   // cB = HMAC(KcB, pA)
 
   // I2R || R2I || AttChallenge = HKDF(salt=nil, IKM=Ke, "SessionKeys", 48)
   uint8_t sek[48];
-  mtrc_hkdf_sha256(NULL, 0, Ke, 16, INFO_SESSION_PASE, sizeof(INFO_SESSION_PASE), sek, 48);
+  mtrc_hkdf_sha256(NULL, 0, Ke, 16, MP8(INFO_SESSION_PASE), sizeof(INFO_SESSION_PASE), sek, 48);
   memcpy(out->i2r, sek,      16);
   memcpy(out->r2i, sek + 16, 16);
   memcpy(out->att, sek + 32, 16);

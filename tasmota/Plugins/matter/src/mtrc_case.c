@@ -5,14 +5,14 @@
 #include "mtrc_crypto.h"
 #include <string.h>
 
-const uint8_t MTRC_CASE_NONCE_SIGMA2[13] =
+const uint8_t MTRC_CASE_NONCE_SIGMA2[13] PROGMEM =
   { 'N','C','A','S','E','_','S','i','g','m','a','2','N' };
-const uint8_t MTRC_CASE_NONCE_SIGMA3[13] =
+const uint8_t MTRC_CASE_NONCE_SIGMA3[13] PROGMEM =
   { 'N','C','A','S','E','_','S','i','g','m','a','3','N' };
 
-static const uint8_t INFO_SIGMA2[]  = { 'S','i','g','m','a','2' };
-static const uint8_t INFO_SIGMA3[]  = { 'S','i','g','m','a','3' };
-static const uint8_t INFO_SESSION[] = { 'S','e','s','s','i','o','n','K','e','y','s' };
+const uint8_t INFO_SIGMA2[] PROGMEM = { 'S','i','g','m','a','2' };
+const uint8_t INFO_SIGMA3[] PROGMEM = { 'S','i','g','m','a','3' };
+const uint8_t INFO_SESSION[] PROGMEM = { 'S','e','s','s','i','o','n','K','e','y','s' };
 
 MODULE_PART void put_le64(uint8_t *p, uint64_t v) {
   for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i));
@@ -43,7 +43,7 @@ MODULE_PART int mtrc_case_s2k(const uint8_t shared[32], const uint8_t ipk[16],
   memcpy(salt + o, resp_eph_pub, 65); o += 65;
   memcpy(salt + o, hash_sigma1, 32);  o += 32;
   return mtrc_hkdf_sha256(salt, o, shared, 32,
-                          INFO_SIGMA2, sizeof(INFO_SIGMA2), s2k, 16);
+                          MP8(INFO_SIGMA2), sizeof(INFO_SIGMA2), s2k, 16);
 }
 
 MODULE_PART int mtrc_case_s3k(const uint8_t shared[32], const uint8_t ipk[16],
@@ -53,7 +53,7 @@ MODULE_PART int mtrc_case_s3k(const uint8_t shared[32], const uint8_t ipk[16],
   memcpy(salt, ipk, 16);
   memcpy(salt + 16, hash_sigma12, 32);
   return mtrc_hkdf_sha256(salt, sizeof(salt), shared, 32,
-                          INFO_SIGMA3, sizeof(INFO_SIGMA3), s3k, 16);
+                          MP8(INFO_SIGMA3), sizeof(INFO_SIGMA3), s3k, 16);
 }
 
 MODULE_PART int mtrc_case_session_keys(const uint8_t shared[32], const uint8_t ipk[16],
@@ -64,7 +64,7 @@ MODULE_PART int mtrc_case_session_keys(const uint8_t shared[32], const uint8_t i
   memcpy(salt, ipk, 16);
   memcpy(salt + 16, hash_all, 32);
   if (!mtrc_hkdf_sha256(salt, sizeof(salt), shared, 32,
-                        INFO_SESSION, sizeof(INFO_SESSION), sek, 48)) return 0;
+                        MP8(INFO_SESSION), sizeof(INFO_SESSION), sek, 48)) return 0;
   memcpy(i2r, sek,      16);
   memcpy(r2i, sek + 16, 16);
   memcpy(att, sek + 32, 16);

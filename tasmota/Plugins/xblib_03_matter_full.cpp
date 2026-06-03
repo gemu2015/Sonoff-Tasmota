@@ -47,6 +47,16 @@ PUSH_OPTIONS
 // the sources are in comments). Just remove the macro for the matter region.
 #undef millis
 
+// EXEC_OFFSET (module_defines.h) reads the relocation delta from `mt` — the
+// per-call module table. matter functions don't carry an `mt` local, so define
+// it to gettbl() for the matter region (same self-resolving trick as `jt`). This
+// is what PSTR("…") (string→.plugin.mod_string + EXEC_OFFSET) and MP8(arr)
+// (const-array base + EXEC_OFFSET) need to land at valid relocated addresses.
+// #undef'd after the matter region so the harness's own GET_MTBL (which declares
+// a real `mt`) is unaffected.
+#define mt gettbl()
+#define MP8(x) ((const uint8_t *)(x) + EXEC_OFFSET)   // relocate a const-array base ptr
+
 // matter_c calls matter_special_malloc() (a firmware shim) for the PSRAM context;
 // here it allocates through the framework malloc (now resolved via the jt define).
 extern "C" void *matter_special_malloc(size_t n) { return malloc(n); }
@@ -72,6 +82,8 @@ extern "C" void *matter_special_malloc(size_t n) { return malloc(n); }
 #include "matter/src/qrcodegen.c"
 
 #undef jt   // restore: the harness's own ALLOCMEM/GET_JT below need the real local jt
+#undef mt   // restore: the harness's GET_MTBL declares a real `volatile MODULES_TABLE *mt`
+#undef MP8
 
 // ── plugin descriptor ────────────────────────────────────────────────────────
 // MODULE_MEMORY is now defined (by mtrc_plugin_mem.h inside matter_c.c) = the
