@@ -90,10 +90,10 @@ int numCharCountBits(enum qrcodegen_Mode mode, int version);
 
 // The set of all legal characters in alphanumeric mode, where each character
 // value maps to the index in the string. For checking text and encoding segments.
-static const char *ALPHANUMERIC_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+static const char ALPHANUMERIC_CHARSET[] PROGMEM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
 
 // For generating error correction codes.
-testable const int8_t ECC_CODEWORDS_PER_BLOCK[4][41] = {
+testable const int8_t ECC_CODEWORDS_PER_BLOCK[4][41] PROGMEM = {
 	// Version: (note that index 0 is for padding, and is set to an illegal value)
 	//0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40    Error correction level
 	{-1,  7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},  // Low
@@ -105,7 +105,7 @@ testable const int8_t ECC_CODEWORDS_PER_BLOCK[4][41] = {
 #define qrcodegen_REED_SOLOMON_DEGREE_MAX 30  // Based on the table above
 
 // For generating error correction codes.
-testable const int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41] = {
+testable const int8_t NUM_ERROR_CORRECTION_BLOCKS[4][41] PROGMEM = {
 	// Version: (note that index 0 is for padding, and is set to an illegal value)
 	//0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40    Error correction level
 	{-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4,  4,  4,  4,  4,  6,  6,  6,  6,  7,  8,  8,  9,  9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},  // Low
@@ -291,8 +291,8 @@ MODULE_PART bool qrcodegen_encodeSegmentsAdvanced(const struct qrcodegen_Segment
 MODULE_PART testable void addEccAndInterleave(uint8_t data[], int version, enum qrcodegen_Ecc ecl, uint8_t result[]) { SETMEMREGS
 	// Calculate parameter numbers
 	assert(0 <= (int)ecl && (int)ecl < 4 && qrcodegen_VERSION_MIN <= version && version <= qrcodegen_VERSION_MAX);
-	int numBlocks = NUM_ERROR_CORRECTION_BLOCKS[(int)ecl][version];
-	int blockEccLen = ECC_CODEWORDS_PER_BLOCK  [(int)ecl][version];
+	int numBlocks = MP2D(int8_t,NUM_ERROR_CORRECTION_BLOCKS,41)[(int)ecl][version];
+	int blockEccLen = MP2D(int8_t,ECC_CODEWORDS_PER_BLOCK,41)[(int)ecl][version];
 	int rawCodewords = getNumRawDataModules(version) / 8;
 	int dataLen = getNumDataCodewords(version, ecl);
 	int numShortBlocks = numBlocks - rawCodewords % numBlocks;
@@ -325,8 +325,8 @@ MODULE_PART testable int getNumDataCodewords(int version, enum qrcodegen_Ecc ecl
 	int v = version, e = (int)ecl;
 	assert(0 <= e && e < 4);
 	return getNumRawDataModules(v) / 8
-		- ECC_CODEWORDS_PER_BLOCK    [e][v]
-		* NUM_ERROR_CORRECTION_BLOCKS[e][v];
+		- MP2D(int8_t,ECC_CODEWORDS_PER_BLOCK,41)[e][v]
+		* MP2D(int8_t,NUM_ERROR_CORRECTION_BLOCKS,41)[e][v];
 }
 
 
@@ -511,8 +511,8 @@ MODULE_PART void drawWhiteFunctionModules(uint8_t qrcode[], int version) { SETME
 MODULE_PART void drawFormatBits(enum qrcodegen_Ecc ecl, enum qrcodegen_Mask mask, uint8_t qrcode[]) { SETMEMREGS
 	// Calculate error correction code and pack bits
 	assert(0 <= (int)mask && (int)mask <= 7);
-	static const int table[] = {1, 0, 3, 2};
-	int data = table[(int)ecl] << 3 | (int)mask;  // errCorrLvl is uint2, mask is uint3
+	static const int table[]  PROGMEM = {1, 0, 3, 2};
+	int data = MPT(int, table)[(int)ecl] << 3 | (int)mask;  // errCorrLvl is uint2, mask is uint3
 	int rem = data;
 	for (int i = 0; i < 10; i++)
 		rem = (rem << 1) ^ ((rem >> 9) * 0x537);
@@ -797,7 +797,7 @@ MODULE_PART bool getBit(int x, int i) { SETMEMREGS
 MODULE_PART bool qrcodegen_isAlphanumeric(const char *text) { SETMEMREGS
 	assert(text != NULL);
 	for (; *text != '\0'; text++) {
-		if (strchr(ALPHANUMERIC_CHARSET, *text) == NULL)
+		if (strchr(MPT(char, ALPHANUMERIC_CHARSET), *text) == NULL)
 			return false;
 	}
 	return true;
@@ -924,9 +924,9 @@ MODULE_PART struct qrcodegen_Segment qrcodegen_makeAlphanumeric(const char *text
 	unsigned int accumData = 0;
 	int accumCount = 0;
 	for (; *text != '\0'; text++) {
-		const char *temp = strchr(ALPHANUMERIC_CHARSET, *text);
+		const char *temp = strchr(MPT(char, ALPHANUMERIC_CHARSET), *text);
 		assert(temp != NULL);
-		accumData = accumData * 45 + (unsigned int)(temp - ALPHANUMERIC_CHARSET);
+		accumData = accumData * 45 + (unsigned int)(temp - MPT(char, ALPHANUMERIC_CHARSET));
 		accumCount++;
 		if (accumCount == 2) {
 			appendBitsToBuffer(accumData, 11, buf, &result.bitLength);
@@ -1000,10 +1000,10 @@ MODULE_PART int numCharCountBits(enum qrcodegen_Mode mode, int version) { SETMEM
 	assert(qrcodegen_VERSION_MIN <= version && version <= qrcodegen_VERSION_MAX);
 	int i = (version + 7) / 17;
 	switch (mode) {
-		case qrcodegen_Mode_NUMERIC     : { static const int temp[] = {10, 12, 14}; return temp[i]; }
-		case qrcodegen_Mode_ALPHANUMERIC: { static const int temp[] = { 9, 11, 13}; return temp[i]; }
-		case qrcodegen_Mode_BYTE        : { static const int temp[] = { 8, 16, 16}; return temp[i]; }
-		case qrcodegen_Mode_KANJI       : { static const int temp[] = { 8, 10, 12}; return temp[i]; }
+		case qrcodegen_Mode_NUMERIC     : { static const int temp[]  PROGMEM = {10, 12, 14}; return MPT(int, temp)[i]; }
+		case qrcodegen_Mode_ALPHANUMERIC: { static const int temp[]  PROGMEM = { 9, 11, 13}; return MPT(int, temp)[i]; }
+		case qrcodegen_Mode_BYTE        : { static const int temp[]  PROGMEM = { 8, 16, 16}; return MPT(int, temp)[i]; }
+		case qrcodegen_Mode_KANJI       : { static const int temp[]  PROGMEM = { 8, 10, 12}; return MPT(int, temp)[i]; }
 		case qrcodegen_Mode_ECI         : return 0;
 		default:  assert(false);  return -1;  // Dummy value
 	}

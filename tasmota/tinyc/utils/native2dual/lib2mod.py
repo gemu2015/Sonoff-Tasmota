@@ -351,6 +351,69 @@ def pass_destatic_decls(text):
     return text, len(edits)
 
 
+# `static` may be mid-line (after `{` or `case …:`), so anchor on a word
+# boundary, not line start. groups: 1=type 2=name 3=dim.
+_CLOCAL = re.compile(
+    r'(?<![A-Za-z0-9_])static\s+const\s+'
+    r'((?:unsigned\s+)?(?:u?int(?:8|16|32|64)_t|int8_t|int16_t|int32_t|int|'
+    r'char|long))\s+([A-Za-z_]\w*)\s*\[([^\]\[]*)\]\s*=')
+
+
+def pass_const_local(text):
+    """Function-local `static const T NAME[DIM] = {…}` (1D scalar) → PROGMEM,
+    and every use of NAME inside its enclosing block → MPT(T, NAME). Scoped to
+    the block so short names (a, glob, sev) can't collide with locals
+    elsewhere; sizeof(NAME) and the decl are left intact. 2D arrays (`x[a][b]`)
+    and pointer arrays (`char *x[]`) are NOT matched here. Returns (new, n)."""
+    clean, _ = scan_mask(text)               # strings/comments/#-lines blanked
+    n = len(clean)
+    edits = []
+    cnt = 0
+    for m in _CLOCAL.finditer(clean):
+        ty, name = m.group(1).strip(), m.group(2)
+        ds, de = m.start(), m.end()
+        # enclosing block: nearest unmatched '{' scanning back from the decl
+        depth, ob, j = 0, -1, ds
+        while j >= 0:
+            if clean[j] == '}':
+                depth += 1
+            elif clean[j] == '{':
+                if depth == 0:
+                    ob = j
+                    break
+                depth -= 1
+            j -= 1
+        if ob < 0:
+            continue
+        depth, cb, j = 0, -1, ob
+        while j < n:
+            if clean[j] == '{':
+                depth += 1
+            elif clean[j] == '}':
+                depth -= 1
+                if depth == 0:
+                    cb = j
+                    break
+            j += 1
+        if cb < 0:
+            continue
+        edits.append((de - 1, de - 1, ' PROGMEM '))   # PROGMEM before the '='
+        for um in re.finditer(r'\b' + re.escape(name) + r'\b', clean[ob:cb + 1]):
+            up = ob + um.start()
+            if ds <= up < de:                  # the declaration's own NAME
+                continue
+            pre = clean[:up]
+            if re.search(r'sizeof\s*\(\s*$', pre):     # keep sizeof(NAME)
+                continue
+            if re.search(r'\bMPT?\s*\([^)]*$', pre):    # already MP-wrapped
+                continue
+            edits.append((up, up + len(name), f'MPT({ty}, {name})'))
+            cnt += 1
+    for s0, e0, rep in sorted(set(edits), key=lambda r: -r[0]):
+        text = text[:s0] + rep + text[e0:]
+    return text, cnt
+
+
 def pass_setmemregs(text):
     """Inject SETMEMREGS at the top of every MODULE_PART function body —
     the reg-bind prologue (GET_MTBL; GET_JT; MODULE_MEMORY *mem = …) that
@@ -468,6 +531,10 @@ def main():
             if ds or (bidx - before):
                 print(f'  {f.name:18} de-static {ds} decl / {bidx-before} '
                       f'scratch buffer(s) → ctx')
+        if 'C' in a.passes:
+            nb, nc = pass_const_local(nb)
+            if nc:
+                print(f'  {f.name:18} local const arrays → MPT {nc} use(s)')
         if 'R' in a.passes:
             nb, nr = pass_setmemregs(nb)
             if nr:

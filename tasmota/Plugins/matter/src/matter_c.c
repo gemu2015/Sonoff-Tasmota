@@ -302,22 +302,22 @@ void matter_failsafe_disarm(bool committed);
 // ---- onboarding payload (Core Spec §5.1) -------------------------------
 // Verhoeff check digit over the decimal string s (manual pairing code).
 MODULE_PART uint8_t mtrc_verhoeff(const char *s) { SETMEMREGS
-  static const uint8_t d[10][10] = {
+  static const uint8_t d[10][10] PROGMEM = {
     {0,1,2,3,4,5,6,7,8,9},{1,2,3,4,0,6,7,8,9,5},{2,3,4,0,1,7,8,9,5,6},
     {3,4,0,1,2,8,9,5,6,7},{4,0,1,2,3,9,5,6,7,8},{5,9,8,7,6,0,4,3,2,1},
     {6,5,9,8,7,1,0,4,3,2},{7,6,5,9,8,2,1,0,4,3},{8,7,6,5,9,3,2,1,0,4},
     {9,8,7,6,5,4,3,2,1,0}};
-  static const uint8_t p[8][10] = {
+  static const uint8_t p[8][10] PROGMEM = {
     {0,1,2,3,4,5,6,7,8,9},{1,5,7,6,2,8,3,0,9,4},{5,8,0,3,7,9,6,1,4,2},
     {8,9,1,6,0,4,3,5,2,7},{9,4,5,3,1,2,6,8,7,0},{4,2,8,6,5,7,3,9,0,1},
     {2,7,9,3,8,0,6,4,1,5},{7,0,4,6,9,1,3,2,5,8}};
-  static const uint8_t inv[10] = {0,4,3,2,1,5,6,7,8,9};
+  static const uint8_t inv[10]  PROGMEM = {0,4,3,2,1,5,6,7,8,9};
   int c = 0, len = (int)strlen(s);
   for (int i = 0; i < len; i++) {
     int dig = s[len - 1 - i] - '0';
-    c = d[c][p[(i + 1) % 8][dig]];
+    c = MP2D(uint8_t,d,10)[c][MP2D(uint8_t,p,10)[(i + 1) % 8][dig]];
   }
-  return inv[c];
+  return MPT(uint8_t, inv)[c];
 }
 
 // QR module matrix for the onboarding payload, so the host can draw the code
@@ -357,14 +357,14 @@ MODULE_PART void mtrc_build_onboarding(void) { SETMEMREGS
   MTRC_PUTBITS(pass, 27);
   MTRC_PUTBITS(0, 4);               // padding
   #undef MTRC_PUTBITS
-  static const char B38[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+  static const char B38[]  PROGMEM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
   char *o = g.qr; *o++ = 'M'; *o++ = 'T'; *o++ = ':';
   for (int i = 0; i < 11; i += 3) {
     int cl = (11 - i >= 3) ? 3 : (11 - i);
     uint32_t v = 0;
     for (int j = 0; j < cl; j++) v |= (uint32_t)buf[i + j] << (8 * j);
     int nch = (cl == 3) ? 5 : (cl == 2) ? 4 : 2;
-    for (int k = 0; k < nch; k++) { *o++ = B38[v % 38]; v /= 38; }
+    for (int k = 0; k < nch; k++) { *o++ = MPT(char, B38)[v % 38]; v /= 38; }
   }
   *o = '\0';
 
@@ -1518,7 +1518,9 @@ MODULE_PART void publish_operational_mdns(const mtrc_fabric *f) { SETMEMREGS
   // Apple Home tolerates SAT missing; Google Nest rejects ("kann nicht
   // verbinden" right after CASE completes — Hans report 2026-05-27).
   // Default SAT per spec is 4000 ms.
-  static const char *txt[] = { "SII=5000", "SAI=300", "SAT=4000", "T=0" };
+  // local (stack) array of EXEC_OFFSET-corrected string pointers — a file-scope
+  // `const char *[]` would relocate BOTH the array and each string it points to.
+  const char *txt[] = { PSTR("SII=5000"), PSTR("SAI=300"), PSTR("SAT=4000"), PSTR("T=0") };
   g.port.mdns_publish(g.port.ctx, PSTR("matter"), instance, MTRC_COMMISSION_PORT, txt, 4);
   // Operational discovery is published by the host under _matter._TCP per Core
   // Spec §4.3.1 (transport is still UDP). The host port chooses the proto; this
@@ -2032,8 +2034,8 @@ MODULE_PART void emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t a
 // everything else comes from the data-model registry.
 MODULE_PART int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) { SETMEMREGS
   int n = 0;
-  #define CFA_LIST(...) do { static const uint32_t a[]={__VA_ARGS__}; \
-    for (unsigned i=0;i<sizeof(a)/sizeof(a[0]) && n<cap;i++) out[n++]=a[i]; return n; } while(0)
+  #define CFA_LIST(...) do { static const uint32_t a[] PROGMEM={__VA_ARGS__}; \
+    for (unsigned i=0;i<sizeof(a)/sizeof(a[0]) && n<cap;i++) out[n++]=MPT(uint32_t,a)[i]; return n; } while(0)
   if (cl == 0x001D) CFA_LIST(0,1,2,3);                                  // Descriptor
   if (cl == 0x0039) CFA_LIST(0x0003,0x0005,0x000A,0x000F,0x0011,0x0012);// Bridged Device Basic Information
   if (ep == 0) switch (cl) {                                            // root-node clusters
@@ -2090,7 +2092,7 @@ MODULE_PART void emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, uint32_t
 // Group Key Management and Access Control. Modeled on Berry Matter_Plugin_1_Root.
 MODULE_PART void emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) { SETMEMREGS
   const uint16_t ep = 0;
-  static const char *UNIQUE_ID = "TASMOTA-MATTER-C6-0001";
+  const char *UNIQUE_ID = PSTR("TASMOTA-MATTER-C6-0001");   // EXEC_OFFSET-corrected ptr
   if (cl == 0x0028) {                                   // Basic Information
     switch (attr) {
       case 0x0000: emit_attr_report_uint(w,ep,cl,attr,18); return;            // DataModelRevision
@@ -2272,22 +2274,22 @@ MODULE_PART void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uin
 
     case 0xFFFB: {                                                              // AttributeList
       uint32_t fa[80]; int fn = cluster_func_attrs(ep, cl, fa, 74);
-      static const uint32_t glob[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
-      for (unsigned i=0;i<6 && fn<80;i++) fa[fn++]=glob[i];
+      static const uint32_t glob[] PROGMEM ={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+      for (unsigned i=0;i<6 && fn<80;i++) fa[fn++]=MPT(uint32_t, glob)[i];
       emit_report_list(w, ep, cl, attr, fa, fn); return;
     }
     case 0xFFFA:                                                                // EventList
-      if (cl == 0x003B) { static const uint32_t sev[]={1,2,3,4,5,6};            // Switch events
-        emit_report_list(w, ep, cl, attr, sev, 6); return; }
+      if (cl == 0x003B) { static const uint32_t sev[] PROGMEM ={1,2,3,4,5,6};            // Switch events
+        emit_report_list(w, ep, cl, attr, MPT(uint32_t, sev), 6); return; }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;
     case 0xFFF8:                                                               // GeneratedCommandList
       if (cl == 0x003E) {                                  // OperationalCredentials responses
-        static const uint32_t g_noc[] = {0x01,0x03,0x05,0x08};                 // Attestation/CertChain/CSR/NOCResponse
-        emit_report_list(w, ep, cl, attr, g_noc, 4); return;
+        static const uint32_t g_noc[]  PROGMEM = {0x01,0x03,0x05,0x08};                 // Attestation/CertChain/CSR/NOCResponse
+        emit_report_list(w, ep, cl, attr, MPT(uint32_t, g_noc), 4); return;
       }
       if (cl == 0x0004) {                                  // Groups responses
-        static const uint32_t g_grp[] = {0x00,0x01,0x02,0x03};                 // Add/View/GetMembership/Remove Response
-        emit_report_list(w, ep, cl, attr, g_grp, 4); return;
+        static const uint32_t g_grp[]  PROGMEM = {0x00,0x01,0x02,0x03};                 // Add/View/GetMembership/Remove Response
+        emit_report_list(w, ep, cl, attr, MPT(uint32_t, g_grp), 4); return;
       }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;   // our app clusters generate none
     case 0xFFF9: {                                                             // AcceptedCommandList
@@ -2295,24 +2297,24 @@ MODULE_PART void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uin
       // cluster accepts NO commands is treated as non-functional: an On/Off
       // Plug-in Unit with an empty OnOff list never appears in Apple Home, and a
       // light whose OnOff list is empty shows as dimmer-only (no on/off button).
-      static const uint32_t c_ident[] = {0x00,0x40};                            // Identify, TriggerEffect
-      static const uint32_t c_groups[]= {0x00,0x01,0x02,0x03,0x04,0x05};        // Add/View/GetMembership/Remove/RemoveAll/AddIfIdentifying
-      static const uint32_t c_onoff[] = {0x00,0x01,0x02};                       // Off, On, Toggle
-      static const uint32_t c_level[] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
-      static const uint32_t c_color[] = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
-      static const uint32_t c_wcov[]  = {0x00,0x01,0x02,0x05};                  // Up/Down/Stop/GoToLift%
+      static const uint32_t c_ident[]  PROGMEM = {0x00,0x40};                            // Identify, TriggerEffect
+      static const uint32_t c_groups[] PROGMEM = {0x00,0x01,0x02,0x03,0x04,0x05};        // Add/View/GetMembership/Remove/RemoveAll/AddIfIdentifying
+      static const uint32_t c_onoff[]  PROGMEM = {0x00,0x01,0x02};                       // Off, On, Toggle
+      static const uint32_t c_level[]  PROGMEM = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
+      static const uint32_t c_color[]  PROGMEM = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
+      static const uint32_t c_wcov[]   PROGMEM = {0x00,0x01,0x02,0x05};                  // Up/Down/Stop/GoToLift%
       // OperationalCredentials commands we accept (responses are GeneratedCommandList,
       // not here). Advertising UpdateFabricLabel(0x09) signals Alexa we honour it.
-      static const uint32_t c_noc[]   = {0x00,0x02,0x04,0x06,0x09,0x0A,0x0B};
+      static const uint32_t c_noc[]    PROGMEM = {0x00,0x02,0x04,0x06,0x09,0x0A,0x0B};
       const uint32_t *l = NULL; int ln = 0;
       switch (cl) {
-        case 0x0003: l=c_ident; ln=2; break;
-        case 0x0004: l=c_groups;ln=6; break;
-        case 0x0006: l=c_onoff; ln=3; break;
-        case 0x0008: l=c_level; ln=8; break;
-        case 0x0102: l=c_wcov;  ln=4; break;
-        case 0x0300: l=c_color; ln=5; break;
-        case 0x003E: l=c_noc;   ln=7; break;
+        case 0x0003: l=MPT(uint32_t, c_ident); ln=2; break;
+        case 0x0004: l=MPT(uint32_t, c_groups);ln=6; break;
+        case 0x0006: l=MPT(uint32_t, c_onoff); ln=3; break;
+        case 0x0008: l=MPT(uint32_t, c_level); ln=8; break;
+        case 0x0102: l=MPT(uint32_t, c_wcov);  ln=4; break;
+        case 0x0300: l=MPT(uint32_t, c_color); ln=5; break;
+        case 0x003E: l=MPT(uint32_t, c_noc);   ln=7; break;
         default: break;
       }
       emit_report_list(w, ep, cl, attr, l, ln); return;
@@ -2329,7 +2331,7 @@ MODULE_PART void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uin
 // query paths accumulate (a ReadRequest may carry several AttributePathIBs).
 MODULE_PART void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t want_cl,
                           int has_attr, uint32_t want_attr) { SETMEMREGS
-  static const uint32_t globals[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+  static const uint32_t globals[] PROGMEM ={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
   int cap = (int)(sizeof(g.rpt_paths)/sizeof(g.rpt_paths[0]));
   #define RPT_PUT(EP,CL,AT) do { uint32_t _a=(AT); \
     if ((!has_attr || _a==want_attr) && g.rpt_npaths<cap) { \
@@ -2663,8 +2665,8 @@ MODULE_PART void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t 
     // without this the Nest stalls (no follow-up, retries the TimedRequest, then reports
     // "device can't be added"). This device has no command requiring strict timed gating, so
     // the follow-up is accepted unconditionally (timeout value not enforced).
-    static const uint8_t sr[] = { 0x15, 0x24, 0x00, 0x00, 0x24, 0xFF, 0x0C, 0x18 }; // {0:SUCCESS, 0xFF:IMrev=12}
-    secured_send(MTRC_IM_STATUS_RESPONSE, MTRC_PROTO_IM, sr, sizeof(sr),
+    static const uint8_t sr[]  PROGMEM = { 0x15, 0x24, 0x00, 0x00, 0x24, 0xFF, 0x0C, 0x18 }; // {0:SUCCESS, 0xFF:IMrev=12}
+    secured_send(MTRC_IM_STATUS_RESPONSE, MTRC_PROTO_IM, MPT(uint8_t, sr), sizeof(sr),
                  ph.exchange_id, true, mh.msg_counter, true);
     mlog(MATTER_LOG_INFO, PSTR("IM TimedRequest -> StatusResponse SUCCESS"));
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE

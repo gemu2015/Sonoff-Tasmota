@@ -41,6 +41,8 @@ PUSH_OPTIONS
 #undef millis
 
 #define MP8(x) ((const uint8_t *)(x) + EXEC_OFFSET)   // relocate a const-array base ptr
+#define MPT(T, x) ((const T *)((const uint8_t *)(x) + EXEC_OFFSET))  // typed variant
+#define MP2D(T, x, cols) ((const T (*)[cols])((const uint8_t *)(x) + EXEC_OFFSET))  // 2D
 
 // matter_c calls matter_special_malloc() for the PSRAM context. It is NOT a
 // MODULE_PART matter fn (no SETMEMREGS prologue), so bind mt/jt here for the
@@ -101,6 +103,8 @@ extern "C" MODULE_PART int mtrc_memcmp(const void *a, const void *b, size_t n) {
 #include "matter/src/qrcodegen.c"
 
 #undef MP8   // matter-region only; the harness below doesn't use it
+#undef MPT
+#undef MP2D
 
 // ── plugin descriptor ────────────────────────────────────────────────────────
 // MODULE_MEMORY is now defined (by mtrc_plugin_mem.h inside matter_c.c) = the
