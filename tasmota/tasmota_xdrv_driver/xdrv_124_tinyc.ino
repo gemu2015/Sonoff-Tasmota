@@ -1993,6 +1993,18 @@ static void HandleTinyCUploadCORS(void) {
                                      // deadlock, so they skip the bridge-disrupting
                                      // stop/restart. Override with -DTC_FS_BIG_WRITE=N.
 #endif
+#ifndef TC_FS_STOP_MINBLK
+#define TC_FS_STOP_MINBLK (24 * 1024) // (D) Heap-health gate: only STOP the VM slots
+                                     // for a big write when the heap is actually at
+                                     // risk. On a device with PSRAM (big allocs/TLS go
+                                     // to PSRAM, not the internal largest block) AND an
+                                     // internal largest-free block >= this, the write
+                                     // runs fine with the slots LIVE — and stopping them
+                                     // would risk an UNRECOVERABLE restart (post-write
+                                     // fragmentation < 16 KB-contiguous stack). So skip
+                                     // the stop there; keep it for heap-tight C3/.104 +
+                                     // a tight S3 bridge. Override -DTC_FS_STOP_MINBLK=N.
+#endif
 void TinyCFsWritePause(uint32_t fsize) {
   // Size-gate: skip the VM stop for small writes (the common case — config /
   // small .tc / data files). fsize==0 means the client didn't declare a size
@@ -2020,11 +2032,28 @@ void TinyCFsWritePause(uint32_t fsize) {
   // power reset). TinyCStopVM() reaps the slot's spawnTask workers
   // (tc_spawn_task_cleanup_slot) AND stops the VM task; TinyCStartVM() on resume
   // re-runs main(), which re-spawns the workers — so none is lost.
-  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    TcSlot *s = Tinyc->slots[i];
-    if (s && s->loaded) {
-      s->fs_was_running = true;
-      TinyCStopVM(s);                 // reaps spawn workers + stops the VM task
+  //
+  // (D) HEAP-HEALTH GATE (Andreas KRITISCH 2026-06-02): on a heap-HEALTHY device
+  // this stop is both unnecessary and dangerous. Unnecessary: with PSRAM the
+  // write's + workers' big allocs draw from PSRAM, so the internal heap doesn't
+  // collapse and the write goes through with the slots live. Dangerous: after
+  // the write the internal heap is fragmented, and TinyCStartVM()'s xTaskCreate
+  // needs 16 KB CONTIGUOUS (TC_VM_TASK_STACK) — which may no longer exist, so the
+  // restart fails and the slots (display/controls) stay dead until a reboot. So
+  // only stop when the heap is actually at risk; otherwise keep every slot live.
+  uint32_t maxblk = ESP_getMaxAllocHeap();
+  bool heap_healthy = UsePSRAM() && (maxblk >= TC_FS_STOP_MINBLK);
+  if (heap_healthy) {
+    AddLog(LOG_LEVEL_DEBUG,
+           PSTR("TC: ufsu big-write — heap healthy (PSRAM, maxblk %u) — keeping slots live"),
+           (unsigned)maxblk);
+  } else {
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (s && s->loaded) {
+        s->fs_was_running = true;
+        TinyCStopVM(s);               // reaps spawn workers + stops the VM task
+      }
     }
   }
 #endif
@@ -2038,8 +2067,39 @@ void TinyCFsWriteResume(void) {
       TcSlot *s = Tinyc->slots[i];
       if (s && s->fs_was_running) {
         s->fs_was_running = false;
-        TinyCStartVM(s);              // re-runs main() (re-runs matterReset()+rebuild for the bridge)
+        if (!TinyCStartVM(s)) {       // re-runs main() (re-runs matterReset()+rebuild for the bridge)
+          // (B) restart FAILED — almost always post-write heap fragmentation
+          // (no 16 KB-contiguous block for the task stack). Do NOT leave the slot
+          // silently dead (the old bug): flag it for a main-loop retry that keeps
+          // trying until the heap defragments enough — deterministic recovery,
+          // no forced reboot.
+          s->fs_restart_pending = true;
+          AddLog(LOG_LEVEL_INFO,
+                 PSTR("TC: slot %d restart after write FAILED (maxblk %u) — deferring, will retry"),
+                 i, (unsigned)ESP_getMaxAllocHeap());
+        }
       }
+    }
+  }
+#endif
+}
+
+// (B) Main-loop retry for slots whose post-write restart failed (fs_restart_pending).
+// Called once per second from FUNC_EVERY_SECOND. As the write's transient buffers
+// free and the heap defragments, TinyCStartVM() eventually finds its 16 KB-contiguous
+// stack and the slot comes back — without a forced reboot. A no-op when nothing pends.
+void TinyCFsRestartRetry(void) {
+#ifdef ESP32
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s && s->fs_restart_pending) {
+      if (TinyCStartVM(s)) {
+        s->fs_restart_pending = false;
+        AddLog(LOG_LEVEL_INFO, PSTR("TC: slot %d restarted after write (heap recovered, maxblk %u)"),
+               i, (unsigned)ESP_getMaxAllocHeap());
+      }
+      // else: keep the flag and retry next second
     }
   }
 #endif
@@ -5423,6 +5483,7 @@ bool Xdrv124(uint32_t function) {
       // to declare the boot a success and clear the marker so future
       // recovery cycles work.
       TinyCCheckBootStable();
+      TinyCFsRestartRetry();   // (B) re-start any slot whose post-write restart failed
 #ifdef USE_MATTER_C
 #ifdef TC_MATTER_AUTOSTART
       mtrc_want_start = true;   // compile-time opt-in: start Matter without a script

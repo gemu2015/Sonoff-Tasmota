@@ -1379,6 +1379,10 @@ struct TcSlot {
                                   //   concurrently with VM flash-XIP / network /
                                   //   heap ops on the other core — which hard-hangs
                                   //   the device, see TinyCFsWritePause)
+  volatile bool fs_restart_pending; // resume's TinyCStartVM() failed (post-write heap
+                                  //   fragmentation: no 16 KB-contiguous task stack) —
+                                  //   retry from the main loop until the heap recovers,
+                                  //   so a stopped slot never stays silently dead (B).
   SemaphoreHandle_t vm_mutex;     // serialize VM access between task and main thread
 #endif
 };
