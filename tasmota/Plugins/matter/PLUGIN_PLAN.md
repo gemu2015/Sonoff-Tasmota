@@ -342,3 +342,27 @@ function-local `static` scratch buffers → `g.arena[]` (stack-discipline or non
 ~73 inline literals ≥2048 → `const uint32_t[] PROGMEM`+GUI32p; ~15 `static const` tables + ~195
 strings → PROGMEM+EXEC_OFFSET (GU8/PSTR). THEN wire the real entry (BLIB_EXPORTS + HAL + crypto-bind +
 ALLOCMEM) and commission. None of this is compile-catchable — needs the device.
+
+#### ⛔ BLOCKER (framework): the module extractor doesn't capture a large amalgamation
+Wired `BLIB_EXPORTS` (matter_init/start/loop/udp_rx/add_endpoint/set_attr_uint/qr_uri/factory_reset)
++ an unreachable `if (sel==0xFFFFFFFF)` retention branch that CALLS them (a const pointer table alone
+doesn't stop LTO GC). matter IS now retained — objdump of firmware.elf: matter_init @ 0x400d5a74 …
+mtrc_store_alloc @ 0x400ddf68, ≈34 KB in `.flash.text`. **But the extracted module is still only 764 B.**
+Root cause: `patch_linker_file.py` gathers the module (between the sync markers) ONLY from
+`*(.text.mod_desc/mod_string/mod_*/mod_part/mod_end)` — i.e. what `MODULE_PART`
+(`__attribute__((section(".text.mod_part")))`) emits. matter_c's hundreds of PLAIN functions land in
+Tasmota's default `.flash.text` → OUTSIDE the bracket → not extracted; the module's export pointers
+would then dangle (point into the build firmware's `.flash.text`, absent on-device). The de-risk only
+worked because LTO INLINED its few tiny crypto wrappers into the one `MODULE_PART` selftest; matter_c
+is far too large to inline. `-fno-lto` (added to the esp32 plugin env) does NOT help — it's section
+PLACEMENT, not GC. **Needs a framework decision (gemu owns patch_linker_file.py + the module model):**
+1. **Build `-ffunction-sections` + an object-scoped gather** in patch_linker_file.py:
+   `*xblib_03_matter_full*.o(.flash.text .flash.text.* .text .text.*)` into the module section (+ its
+   literals) — pulls the WHOLE plugin object's code into the bracket regardless of MODULE_PART. Cleanest
+   + generic for any large amalgamation. (Risk: keep mod_desc first / mod_end last around it.)
+2. OR force the xblib_03 TU's default text section to `.text.mod_part` (no clean per-TU GCC pragma).
+3. OR first confirm the LOADER can EXEC_OFFSET-relocate a multi-KB code blob at all — existing modules
+   are ≤~1 KB; a ~40 KB matter module + its relocations is a new regime (verify on .156's 128 KB custom
+   partition before investing more).
+This is the gate to ANY on-device matter test. Until resolved, the module loads but contains no matter
+code. Progress backed up on branch `matter-plugin-stage3-wip`.

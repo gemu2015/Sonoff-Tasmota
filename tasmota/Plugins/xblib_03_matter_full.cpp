@@ -82,11 +82,53 @@ MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
 MODULE_END
 
+// ── exports: retain + register the core matter API ───────────────────────────
+// Referencing these in BLIB_EXPORTS keeps LTO from dead-stripping matter_c (their
+// call graph covers ~the whole library) and lets the firmware resolve them via
+// tc_blib_lookup later. REGISTERING them at iniz does NOT call them — this is the
+// SAFE "does the full module load + relocate + register on .156" hardware test;
+// executing matter (the relocation-discipline iterate-loop) comes after. Names are
+// NON-static PROGMEM arrays (plugin discipline — inline literals crash).
+const char NAME_M_INIT[]  PROGMEM = "matter_init";
+const char NAME_M_START[] PROGMEM = "matter_start";
+const char NAME_M_LOOP[]  PROGMEM = "matter_loop";
+const char NAME_M_RESET[] PROGMEM = "matter_factory_reset";
+const char NAME_M_UDPRX[] PROGMEM = "matter_udp_rx";
+const char NAME_M_ADDEP[] PROGMEM = "matter_add_endpoint";
+const char NAME_M_SETU[]  PROGMEM = "matter_set_attr_uint";
+const char NAME_M_QRURI[] PROGMEM = "matter_qr_uri";
+
+const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
+  { NAME_M_INIT,  (void *)matter_init,          2, TC_RET_INT, { TC_ARG_BUF, TC_ARG_BUF, TC_ARG_END } },
+  { NAME_M_START, (void *)matter_start,         0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_M_LOOP,  (void *)matter_loop,          0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_M_RESET, (void *)matter_factory_reset, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_M_UDPRX, (void *)matter_udp_rx,        4, TC_RET_INT, { TC_ARG_BUF, TC_ARG_INT, TC_ARG_BUF, TC_ARG_INT, TC_ARG_END } },
+  { NAME_M_ADDEP, (void *)matter_add_endpoint,  1, TC_RET_INT, { TC_ARG_INT, TC_ARG_END } },
+  { NAME_M_SETU,  (void *)matter_set_attr_uint, 4, TC_RET_INT, { TC_ARG_INT, TC_ARG_INT, TC_ARG_INT, TC_ARG_INT, TC_ARG_END } },
+  { NAME_M_QRURI, (void *)matter_qr_uri,        0, TC_RET_INT, { TC_ARG_END } },
+  { NULL, NULL, 0, 0, { 0 } }
+};
+
 int32_t mod_func_execute(uint32_t sel) {
   if (sel == pFUNC_INIT) {
     ALLOCMEM;                 // allocate MODULE_MEMORY (the ctx pointer holder)
     initialized = 1;
     return 1;
+  }
+  if (sel == pFUNC_GET_TINYC_EXPORTS) {
+    return (int32_t)(uintptr_t)&BLIB_EXPORTS[0];   // loader EXEC_OFFSET-corrects + registers
+  }
+  // RETENTION ONLY — 0xFFFFFFFF is never a real selector, so this never executes,
+  // but the compiler can't prove sel != that, so it keeps these CALLS — which keeps
+  // LTO from dead-stripping the matter API + its whole call graph (a const table of
+  // pointers, read only for its address, is NOT enough to retain them). Remove once
+  // the firmware actually invokes the exports.
+  if (sel == 0xFFFFFFFFu) {
+    (void)matter_init(NULL, NULL); (void)matter_start(); matter_loop();
+    (void)matter_factory_reset(); matter_udp_rx(NULL, 0, NULL, 0);
+    (void)matter_add_endpoint(0); (void)matter_set_attr_uint(0, 0, 0, 0);
+    (void)matter_qr_uri();
   }
   if (sel == pFUNC_DEINIT) {
     GET_MTBL;                 // RETMEM needs mt (+ jfree needs the local jt)
