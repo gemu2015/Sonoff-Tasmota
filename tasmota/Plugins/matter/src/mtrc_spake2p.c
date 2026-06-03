@@ -84,7 +84,7 @@ MODULE_PART int mtrc_spake2p_transcript(const uint8_t *context, size_t context_l
                             uint8_t K_main[32]) {
   // TT = (len||val) for: Context, idProver, idVerifier, M, N, X, Y, Z, V, w0
   // Sized for the RFC 9383 layout: 10 length prefixes + payloads.
-  static uint8_t tt[8 + 256 + 8 + 64 + 8 + 64 + 8*7 + 65*6 + 32 + 64];
+  uint8_t (&tt)[8 + 256 + 8 + 64 + 8 + 64 + 8*7 + 65*6 + 32 + 64] = g.scr_25;
   size_t off = 0;
   if (context_len > 256 || idProver_len > 64 || idVerifier_len > 64) return 0;
   tt_put(tt, &off, context, context_len);

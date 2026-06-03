@@ -277,6 +277,7 @@ typedef struct {
     mtrc_dm_cluster_t  cl[MTRC_DM_MAX_CLUSTERS];  int cl_n;
     mtrc_dm_attr_t     at[MTRC_DM_MAX_ATTRS];     int at_n;
   } dm;
+  #include "mtrc_scratch_fields.h"   // pass-B scratch buffers
 } matter_ctx_t;
 
 // Context-pointer access. Plugin (Fork B): the pointer can't be a file-scope
@@ -296,7 +297,7 @@ MODULE_PART void mlog(matter_log_level_t lvl, const char *msg) {
 
 // Fail-Safe disarm/rollback (defined after the fabric-store helpers it uses);
 // forward-declared so the PASE handler can abandon a prior tentative fabric.
-static void matter_failsafe_disarm(bool committed);
+void matter_failsafe_disarm(bool committed);
 
 // ---- onboarding payload (Core Spec §5.1) -------------------------------
 // Verhoeff check digit over the decimal string s (manual pairing code).
@@ -368,7 +369,7 @@ MODULE_PART void mtrc_build_onboarding(void) {
   *o = '\0';
 
   // Pre-render the QR module matrix so the host can draw it without a CDN.
-  static uint8_t tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
+  uint8_t (&tmp)[qrcodegen_BUFFER_LEN_FOR_VERSION(6)] = g.scr_0;
   g_qr_ok = qrcodegen_encodeText(g.qr, tmp, g_qrbuf, qrcodegen_Ecc_MEDIUM,
                                  qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
 }
@@ -546,8 +547,8 @@ MODULE_PART void dm_seed_root(void) {
 // reboots and stays reachable to its controllers (Apple/chip-tool).
 #define MTRC_KV_FABRICS "fab"
 #define MTRC_KV_BLOB_MAX  5632      // max serialized fabric table (5 fabrics * ~1 KB worst case w/ ICAC); transient malloc
-static void publish_operational_mdns(const mtrc_fabric *f);   // fwd (defined below)
-static void unpublish_operational_mdns(const mtrc_fabric *f); // fwd (defined below)
+void publish_operational_mdns(const mtrc_fabric *f);   // fwd (defined below)
+void unpublish_operational_mdns(const mtrc_fabric *f); // fwd (defined below)
 
 MODULE_PART void mtrc_persist_fabrics(void) {
   if (!g.port.kv_set) return;
@@ -675,7 +676,7 @@ MODULE_PART matter_err_t matter_start(void) {
 MODULE_PART matter_err_t mtrc_publish_commissionable(uint16_t disc, int cm) {
   g.commissionable = true;
   if (!g.port.mdns_publish) return MATTER_OK;
-  static char txt_d[16], txt_cm[8], txt_vp[24];
+  char (&txt_d)[16] = g.scr_1; char (&txt_cm)[8] = g.scr_2; char (&txt_vp)[24] = g.scr_3;
   snprintf(txt_d,  sizeof(txt_d),  PSTR("D=%u"), (unsigned)disc);
   snprintf(txt_cm, sizeof(txt_cm), PSTR("CM=%d"), cm);   // 1 = standard, 2 = enhanced
   snprintf(txt_vp, sizeof(txt_vp), PSTR("VP=%u+%u"), (unsigned)g.cfg.vendor_id,
@@ -998,7 +999,7 @@ MODULE_PART void case_handle_sigma1(const uint8_t *pl, size_t pll,
   if (!mtrc_case_s2k(g.case_shared, op_ipk, g.case_resp_random, g.case_re_pub, h1, s2k))
     return;
 
-  static uint8_t tmp[1100];
+  uint8_t (&tmp)[1100] = g.scr_4;
   mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
   tbs.noc = f->noc; tbs.noc_len = f->noc_len;
   tbs.icac = f->icac; tbs.icac_len = f->icac_len;     // include ICAC if fabric uses one
@@ -1022,7 +1023,7 @@ MODULE_PART void case_handle_sigma1(const uint8_t *pl, size_t pll,
   int ne = mtrc_case_tbe_encode(tmp, sizeof(tmp), &tbe);
   if (ne < 0) return;
 
-  static uint8_t enc2[1100];
+  uint8_t (&enc2)[1100] = g.scr_5;
   if (!case_seal(s2k, MP8(MTRC_CASE_NONCE_SIGMA2), tmp, (size_t)ne, enc2)) return;
 
   mtrc_sigma2 s2; memset(&s2, 0, sizeof(s2));
@@ -1030,7 +1031,7 @@ MODULE_PART void case_handle_sigma1(const uint8_t *pl, size_t pll,
   s2.responder_session_id = g.case_hs_my_sid;
   memcpy(s2.responder_eph_pub, g.case_re_pub, 65);
   s2.encrypted2 = enc2; s2.encrypted2_len = (size_t)ne + 16;
-  static uint8_t s2buf[1280];
+  uint8_t (&s2buf)[1280] = g.scr_6;
   int n2 = mtrc_sigma2_encode(s2buf, sizeof(s2buf), &s2);
   if (n2 < 0) return;
   if (g.case_tt_len + (size_t)n2 <= sizeof(g.case_tt)) {
@@ -1058,7 +1059,7 @@ MODULE_PART void case_handle_sigma3(const uint8_t *pl, size_t pll,
   uint8_t s3k[16];
   if (!mtrc_case_s3k(g.case_shared, op_ipk, h12, s3k)) return;
 
-  static uint8_t tbe3[1024];
+  uint8_t (&tbe3)[1024] = g.scr_7;
   // SECURITY: encrypted3_len is straight off the wire; case_open memcpy's
   // (encrypted3_len - 16) into tbe3 BEFORE tag verification. Bound it or an
   // oversized Sigma3 overflows tbe3 (BSS corruption) regardless of key validity.
@@ -1087,7 +1088,7 @@ MODULE_PART void case_handle_sigma3(const uint8_t *pl, size_t pll,
     tbs.icac = t3.icac; tbs.icac_len = t3.icac_len;
     memcpy(tbs.sender_pub, g.case_init_eph, 65);   // initiator was sender
     memcpy(tbs.receiver_pub, g.case_re_pub, 65);
-    static uint8_t tmp[1100];
+    uint8_t (&tmp)[1100] = g.scr_8;
     int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
     if (nt > 0) {
       uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
@@ -1238,7 +1239,7 @@ MODULE_PART void secured_send(uint8_t opcode, uint16_t protocol_id,
       reliable ? PSTR(" R") : PSTR(""), has_ack ? PSTR(" ack") : PSTR(""));
     mlog(MATTER_LOG_INFO, dt); }
 #endif
-  static uint8_t out[1280];
+  uint8_t (&out)[1280] = g.scr_9;
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
   if (n > 0 && g.port.udp_send) {
     // Cache as the "last secured reply" so an MRP retransmit (same inbound
@@ -1327,11 +1328,11 @@ MODULE_PART int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32
     g.have_pending_op = true;
   }
 
-  static uint8_t csr[400];
+  uint8_t (&csr)[400] = g.scr_10;
   int csrlen = mtrc_csr_build(csr, sizeof(csr), g.pending_op_priv, g.pending_op_pub);
   if (csrlen < 0) return -1;
 
-  static uint8_t nocsr[480];
+  uint8_t (&nocsr)[480] = g.scr_11;
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, nocsr, sizeof(nocsr));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), csr, (size_t)csrlen);
@@ -1349,7 +1350,7 @@ MODULE_PART int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32
   uint8_t dacbuf[32]; memset(dacbuf, 0x55, 32);
   const uint8_t *dac = dacbuf;
 #endif
-  static uint8_t hin[480 + 16];
+  uint8_t (&hin)[480 + 16] = g.scr_12;
   memcpy(hin, nocsr, nocsr_len); memcpy(hin + nocsr_len, g.att, 16);
   uint8_t h[32]; mtrc_sha256(hin, nocsr_len + 16, h);
   uint8_t attsig[64]; if (!mtrc_ecdsa_sign(attsig, h, dac)) return -1;
@@ -1416,7 +1417,7 @@ MODULE_PART int build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t ep, uint
 MODULE_PART int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
                                       uint32_t cl, const uint8_t *nonce, size_t nlen) {
 #ifdef MTRC_ATTEST_TEST_CREDS
-  static uint8_t ae[768];
+  uint8_t (&ae)[768] = g.scr_13;
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, ae, sizeof(ae));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), MTRC_CD, (size_t)MTRC_CD_LEN);  // certificationDeclaration
@@ -1425,7 +1426,7 @@ MODULE_PART int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep
   mtrc_tlv_end_container(&w);
   if (!mtrc_tlv_writer_ok(&w)) return -1;
   size_t ael = mtrc_tlv_writer_len(&w);
-  static uint8_t hin[768 + 16];
+  uint8_t (&hin)[768 + 16] = g.scr_14;
   memcpy(hin, ae, ael); memcpy(hin + ael, g.att, 16);
   uint8_t h[32]; mtrc_sha256(hin, ael + 16, h);
   uint8_t sig[64]; if (!mtrc_ecdsa_sign(sig, h, MTRC_DAC_PRIV)) return -1;
@@ -1625,7 +1626,7 @@ MODULE_PART void im_handle_invoke(const uint8_t *payload, size_t plen,
            (unsigned)ep, (unsigned)cl, (unsigned)cmd);
   mlog(MATTER_LOG_DEBUG, m);
 
-  static uint8_t resp[1024];          // CSA DAC/PAI (~500B) + CD (~540B) responses
+  uint8_t (&resp)[1024] = g.scr_15;          // CSA DAC/PAI (~500B) + CD (~540B) responses
   int n = -1;
   if (cl == 0x003E && cmd == 0x02) {  // CertificateChainRequest -> Response(0x03)
 #ifdef MTRC_ATTEST_TEST_CREDS
@@ -2401,8 +2402,8 @@ MODULE_PART void emit_status_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
 // MoreChunkedMessages while paths remain; the controller's StatusResponse pulls
 // the next chunk. `ack` is the counter of the message that triggered this chunk.
 MODULE_PART void send_report_chunk(uint32_t ack) {
-  static uint8_t chunk[1280];
-  static uint8_t frag[1024];   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
+  uint8_t (&chunk)[1280] = g.scr_16;
+  uint8_t (&frag)[1024] = g.scr_17;   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(chunk));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());             // ReportDataMessage
   if (g.rpt_is_sub) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), g.rpt_sub_id);   // SubscriptionId
@@ -2552,7 +2553,7 @@ MODULE_PART void tlv_skip_container(mtrc_tlv_reader *r) {
 // with matterGet). Complex values (e.g. the ACL list) are accepted but skipped.
 MODULE_PART void im_handle_write(const uint8_t *payload, size_t plen,
                             uint16_t exch, uint32_t ack) {
-  static uint8_t resp[512];
+  uint8_t (&resp)[512] = g.scr_18;
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // WriteResponseMessage
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(0));           // WriteResponses [AttributeStatusIB]
@@ -2618,7 +2619,7 @@ MODULE_PART void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t 
                              uint64_t peer_node_id) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
-  static uint8_t pt[1280];
+  uint8_t (&pt)[1280] = g.scr_19;
   if (!mtrc_sec_decode(buf, len, rx_key, peer_node_id, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
     // MIC/decrypt failures usually mean wrong key (no session yet for that peer)
     // OR Google rotated keys silently. Include session id + peer node so we know
@@ -2672,7 +2673,7 @@ MODULE_PART void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t 
     // chunk. Pull the next chunk; for a subscribe, after the final chunk send the
     // SubscribeResponse. The reply piggybacks the MRP ack for this StatusResponse.
     if (g.rpt_phase == 1) {                 // subscribe priming done -> SubscribeResponse
-      static uint8_t sr[80];
+      uint8_t (&sr)[80] = g.scr_20;
       int m2 = mtrc_im_build_subscribe_response(sr, sizeof(sr), g.rpt_sub_id, g.rpt_sub_max_s);
       if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, sr, (size_t)m2,
                                g.rpt_exch, true, mh.msg_counter, true);
@@ -2822,7 +2823,7 @@ MODULE_PART void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port
 // one datagram. The caller loads the session and points g.reply_ip6 at its
 // controller first. Reports reuse the subscription's exchange id.
 MODULE_PART void send_subscription_report(uint32_t sub_id, uint16_t exch) {
-  static uint8_t buf[1100];
+  uint8_t (&buf)[1100] = g.scr_21;
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);            // SubscriptionId
@@ -2850,7 +2851,7 @@ MODULE_PART void matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
     mtrc_case_sess *s = &g.case_sess[i];
     if (!s->in_use || !s->sub_active) continue;
-    static uint8_t buf[256];
+    uint8_t (&buf)[256] = g.scr_22;
     mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
     mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
     mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), s->sub_id);         // SubscriptionId
@@ -2959,7 +2960,7 @@ MODULE_PART void matter_loop(void) {
     uint64_t v = attr_value(g.sub_ep, g.sub_cl, g.sub_attr);
     if (v != g.sub_last_val || (now - g.sub_last_ms) >= (uint32_t)g.sub_max_s * 1000u) {
       g.sub_last_val = v; g.sub_last_ms = now;
-      static uint8_t rep[160];
+      uint8_t (&rep)[160] = g.scr_23;
       int n = mtrc_im_build_report_uint(rep, sizeof(rep), g.sub_id,
                                         g.sub_ep, g.sub_cl, g.sub_attr, v);
       if (n > 0) {

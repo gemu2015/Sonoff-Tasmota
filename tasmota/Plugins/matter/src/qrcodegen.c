@@ -64,25 +64,25 @@ testable void calcReedSolomonRemainder(const uint8_t data[], int dataLen,
 testable uint8_t finiteFieldMultiply(uint8_t x, uint8_t y);
 
 testable void initializeFunctionModules(int version, uint8_t qrcode[]);
-static void drawWhiteFunctionModules(uint8_t qrcode[], int version);
-static void drawFormatBits(enum qrcodegen_Ecc ecl, enum qrcodegen_Mask mask, uint8_t qrcode[]);
+void drawWhiteFunctionModules(uint8_t qrcode[], int version);
+void drawFormatBits(enum qrcodegen_Ecc ecl, enum qrcodegen_Mask mask, uint8_t qrcode[]);
 testable int getAlignmentPatternPositions(int version, uint8_t result[7]);
-static void fillRectangle(int left, int top, int width, int height, uint8_t qrcode[]);
+void fillRectangle(int left, int top, int width, int height, uint8_t qrcode[]);
 
-static void drawCodewords(const uint8_t data[], int dataLen, uint8_t qrcode[]);
-static void applyMask(const uint8_t functionModules[], uint8_t qrcode[], enum qrcodegen_Mask mask);
-static long getPenaltyScore(const uint8_t qrcode[]);
-static void addRunToHistory(unsigned char run, unsigned char history[7]);
-static bool hasFinderLikePattern(const unsigned char runHistory[7]);
+void drawCodewords(const uint8_t data[], int dataLen, uint8_t qrcode[]);
+void applyMask(const uint8_t functionModules[], uint8_t qrcode[], enum qrcodegen_Mask mask);
+long getPenaltyScore(const uint8_t qrcode[]);
+void addRunToHistory(unsigned char run, unsigned char history[7]);
+bool hasFinderLikePattern(const unsigned char runHistory[7]);
 
 testable bool getModule(const uint8_t qrcode[], int x, int y);
 testable void setModule(uint8_t qrcode[], int x, int y, bool isBlack);
 testable void setModuleBounded(uint8_t qrcode[], int x, int y, bool isBlack);
-static bool getBit(int x, int i);
+bool getBit(int x, int i);
 
 testable int calcSegmentBitLength(enum qrcodegen_Mode mode, size_t numChars);
 testable int getTotalBits(const struct qrcodegen_Segment segs[], size_t len, int version);
-static int numCharCountBits(enum qrcodegen_Mode mode, int version);
+int numCharCountBits(enum qrcodegen_Mode mode, int version);
 
 
 

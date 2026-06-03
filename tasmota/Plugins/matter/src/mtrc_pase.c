@@ -27,7 +27,7 @@ MODULE_PART void mtrc_pase_context(const uint8_t *req, size_t req_len,
                        const uint8_t *resp, size_t resp_len, uint8_t ctx[32]) {
   // ctx = SHA256(prefix || req || resp). Streamed via HMAC-less SHA: build
   // one buffer (small messages) — keeps mtrc_crypto's one-shot hash API.
-  static uint8_t tmp[1024];
+  uint8_t (&tmp)[1024] = g.scr_24;
   size_t off = 0, pfx = sizeof(SPAKE_CTX_PREFIX) - 1;
   if (pfx + req_len + resp_len > sizeof(tmp)) { memset(ctx, 0, 32); return; }
   memcpy(tmp + off, MP8(SPAKE_CTX_PREFIX), pfx); off += pfx;
