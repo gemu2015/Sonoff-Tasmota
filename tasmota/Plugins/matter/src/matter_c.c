@@ -264,10 +264,26 @@ typedef struct {
 #define MTRC_EV_QUEUE 8
   struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
   volatile uint8_t ev_head, ev_tail;
+
+  // Relocation-safe globals (Fork-B plugin discipline): moved out of file-scope
+  // statics into the heap/PSRAM context so they ride the `g` keystone — file-scope
+  // mutable data doesn't relocate in a relocatable plugin. See PLUGIN_PLAN.md "Stage 3".
+  int         qr_ok;                                     // was static g_qr_ok
+  uint8_t     qrbuf[qrcodegen_BUFFER_LEN_FOR_VERSION(6)]; // was static g_qrbuf
+  struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } txp; // was static g_tx
+  mtrc_fabric fab[MTRC_MAX_FABRICS];                     // was static g_fab (mtrc_store.c)
 } matter_ctx_t;
 
-static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
-#define g (*g_ptr)                    // every g.field below dereferences the heap context
+// Context-pointer access. Plugin (Fork B): the pointer can't be a file-scope
+// mutable global (won't relocate) — it lives in MODULE_MEMORY, reached via
+// gettbl(); the lvalue macros keep every `g_ptr`/`g.` site below UNCHANGED. The
+// built-in lib / host build keeps the plain static pointer. See mtrc_plugin_mem.h.
+#ifdef MTRC_PLUGIN_BUILD
+#include "mtrc_plugin_mem.h"          // defines g_ptr (lvalue) + g via MODULE_MEMORY
+#else
+static matter_ctx_t *g_ptr = NULL;    // NULL until matter_init() — zero RAM when unused
+#define g (*g_ptr)                     // every g.field below dereferences the heap context
+#endif
 
 static void mlog(matter_log_level_t lvl, const char *msg) {
   if (g.port.log) g.port.log(g.port.ctx, lvl, msg);
@@ -300,8 +316,10 @@ static uint8_t mtrc_verhoeff(const char *s) {
 
 // QR module matrix for the onboarding payload, so the host can draw the code
 // itself (no external/CDN QR library). Encoded once from g.qr.
-static uint8_t g_qrbuf[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
-static int     g_qr_ok = 0;
+// g_qrbuf / g_qr_ok now live in the context (ride the g keystone) — no file-scope
+// mutable statics. The not-inited accessors below guard with `g_ptr &&`.
+#define g_qrbuf (g.qrbuf)
+#define g_qr_ok (g.qr_ok)
 
 // Build the manual pairing code (11 digits) and the "MT:" QR string into g.
 static void mtrc_build_onboarding(void) {
@@ -350,9 +368,9 @@ static void mtrc_build_onboarding(void) {
                                  qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
 }
 
-int matter_qr_size(void) { return g_qr_ok ? qrcodegen_getSize(g_qrbuf) : 0; }
+int matter_qr_size(void) { return (g_ptr && g_qr_ok) ? qrcodegen_getSize(g_qrbuf) : 0; }
 bool matter_qr_dark(int x, int y) {
-  return g_qr_ok ? qrcodegen_getModule(g_qrbuf, x, y) : false;
+  return (g_ptr && g_qr_ok) ? qrcodegen_getModule(g_qrbuf, x, y) : false;
 }
 
 // Cluster ids used by the data model.
@@ -1165,8 +1183,8 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
 // Active secure-session TX context (PASE or CASE), selected before each
 // dispatch / report so secured_send addresses the right session id, response
 // key (R2I) and message counter.
-static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } g_tx =
-  { NULL, 0, NULL, 0, 0 };
+// g_tx now lives in the context (g.txp) — zero-initialised by matter_init's memset(&g,0).
+#define g_tx (g.txp)
 static void tx_use_pase(void) {
   g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
   g_tx.src = 0;   // commissioning peer has no operational node id -> nonce src 0

@@ -3,7 +3,14 @@
 #include "mtrc_store.h"
 #include <string.h>
 
+#ifdef MTRC_PLUGIN_BUILD
+// Fork-B plugin: the fabric table lives in the matter context (g.fab) — no
+// file-scope mutable static (won't relocate). mtrc_store.c is amalgamated AFTER
+// matter_c.c, so the `g` keystone macro + matter_ctx_t are in scope here.
+#define g_fab (g.fab)
+#else
 static mtrc_fabric g_fab[MTRC_MAX_FABRICS];
+#endif
 
 void mtrc_store_reset(void) { memset(g_fab, 0, sizeof(g_fab)); }
 

@@ -9,7 +9,7 @@
 
 static const char SPAKE_CTX_PREFIX[] = "CHIP PAKE V1 Commissioning";
 static const uint8_t INFO_CONFIRM[]  = { 'C','o','n','f','i','r','m','a','t','i','o','n','K','e','y','s' };
-static const uint8_t INFO_SESSION[]  = { 'S','e','s','s','i','o','n','K','e','y','s' };
+static const uint8_t INFO_SESSION_PASE[]  = { 'S','e','s','s','i','o','n','K','e','y','s' };
 #define SPAKE_WS 40   // kSpake2p_WS_Length = kP256_FE_Length(32) + 8
 
 int mtrc_pase_derive_w0w1(uint32_t passcode, const uint8_t *salt, size_t salt_len,
@@ -53,7 +53,7 @@ int mtrc_pase_keys(const uint8_t ctx[32], const uint8_t pA[65], const uint8_t pB
 
   // I2R || R2I || AttChallenge = HKDF(salt=nil, IKM=Ke, "SessionKeys", 48)
   uint8_t sek[48];
-  mtrc_hkdf_sha256(NULL, 0, Ke, 16, INFO_SESSION, sizeof(INFO_SESSION), sek, 48);
+  mtrc_hkdf_sha256(NULL, 0, Ke, 16, INFO_SESSION_PASE, sizeof(INFO_SESSION_PASE), sek, 48);
   memcpy(out->i2r, sek,      16);
   memcpy(out->r2i, sek + 16, 16);
   memcpy(out->att, sek + 32, 16);

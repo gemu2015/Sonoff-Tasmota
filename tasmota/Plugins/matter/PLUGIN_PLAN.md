@@ -214,3 +214,131 @@ Build/flash notes: plugin env needs `-I tasmota/Plugins/matter/include -I lib/li
 `tinyc32s3-mini[-home]` (board `esp32s3-qio_qspi`), NOT `tinyc32s3` (octal PSRAM → PSRAM-init
 boot-loop → safeboot rollback; wrong-variant OTA cost a creds reset). BLIB swap: `unlink N` → POST
 `/modu` (field `modu`) → `iniz N` → `TinyCMtrCrypto`.
+
+### Stage 3 — discipline port: audit + foundation laid (2026-06-03), bulk pending
+Re-audit (the old "~0 mutable file-scope data" was wrong — it missed `g_cr`). Real fatal counts:
+**4 mutable file-scope globals** (`g_qr_ok`,`g_tx` matter_c.c; `g_cr` mtrc_crypto.c [done via the
+by-pointer seam]; `g_fab[]` mtrc_store.c) + **24 function-local `static` scratch buffers** (~15-18 KB,
+mostly matter_c.c, 80-1280 B). Plus ~73 inline literals ≥2048 (59 in matter_c.c), ~15 `static const`
+tables (+~195 strings), 16 float ops, ~1 64-bit `/`.
+
+**KEY structural finding:** matter_c does NOT thread a `ctx`; it uses `static matter_ctx_t *g_ptr` +
+`#define g (*g_ptr)` (the ~22 KB ctx is in PSRAM, task #75) with thousands of `g.field` sites. So the
+globals/buffers mostly **collapse into that one context** — only the *pointer* is the true
+plugin-illegal global.
+
+**DECISION (gemu): gettbl()-macro.** Keep all `g.field`; hold the ctx POINTER in MODULE_MEMORY,
+reached via gettbl(); ctx stays in PSRAM. **DONE:** `include/mtrc_plugin_mem.h` (MODULE_MEMORY =
+`{matter_ctx_t *mtrc_ctx;}`; `#define g_ptr (MTRC_MEM->mtrc_ctx)` LVALUE so all 13 `g_ptr` sites +
+all `g.` compile unchanged; `#define g (*g_ptr)`) + the gated keystone in matter_c.c
+(`#ifdef MTRC_PLUGIN_BUILD` → include the header; else the plain static — keeps host/lib compile).
+
+**Remaining bulk (mechanical-but-careful; verify at the amalgamation build):**
+1. **Field-moves into `matter_ctx_t`** (ride the PSRAM ctx via `g.`): `g_qr_ok`→`g.qr_ok`,
+   `g_tx`→`g.tx`, `g_fab[]`→`g.fab[]`. ⚠ NULL-safety: these were readable while `g_ptr==NULL`
+   (`matter_qr_size`/`matter_qr_module`, `matter_is_commissionable`, `matter_qr_uri`/`manual_code`) —
+   after the move, guard every not-inited accessor with `g_ptr &&` before the `g.` deref. `g_fab` is
+   cross-file (mtrc_store.c): needs the `g` macro visible (amalgamation order: matter_c.c before
+   mtrc_store.c) and `mtrc_fabric` defined before `matter_ctx_t` (check include order).
+2. **24 scratch buffers → a `g.arena[]` field** (PSRAM, in ctx). Carve via stack-discipline
+   high-water mark (save/restore at each fn entry/exit incl. early returns) OR fixed non-overlapping
+   offsets from a call-graph "which buffers are live together" analysis. Size to worst-case nesting
+   depth (NOT the 15-18 KB sum). Sites (pre-edit matter_c.c lines): 348,655,978,1002,1010,1038,1067,
+   1218,1307,1311,1329,1396,1405,1605,2381-2,2532,2598,2652,2802,2830,2939 + mtrc_pase.c:30 +
+   mtrc_spake2p.c:87.
+3. **Other categories** (separate passes): ~73 literals ≥2048 → `const uint32_t[] PROGMEM` + GUI32p
+   (pico_uconst); ~15 `static const` tables + ~195 strings → non-static PROGMEM + EXEC_OFFSET (GU8/
+   PSTR); 16 float → fdiv/fmul; the BearSSL umbrella mem*/jt shims (as in the de-risk).
+
+**Firmware integration (eventual lean base / real plugin entry .cpp):** ALLOCMEM the MODULE_MEMORY at
+iniz; set the module register before every firmware→matter entry call so gettbl() resolves;
+matter_init's `g_ptr = matter_special_malloc(sizeof(matter_ctx_t))` becomes an `MTRC_MEM->mtrc_ctx`
+assignment — PSRAM ctx, MODULE_MEMORY holds only the 4-byte pointer.
+
+**Verification:** only the full amalgamation build (plugin .cpp `#include`s the 16 sources +
+module_defines + bearssl, `-DMTRC_PLUGIN_BUILD`). Host-compile (flag undefined) syntax-checks the
+field-moves meanwhile. Honest: multi-day, best done in a session that stands up that amalgamation
+build so each step is verified.
+
+#### Amalgamation harness stood up (2026-06-03) + first-build landscape
+`tasmota/Plugins/xblib_03_matter_full.cpp` (gate `USE_MATTER_FULL_MOD`, also added commented to
+user_config_override.h so build_plugin.py finds it): `-DMTRC_PLUGIN_BUILD`, non-static byte-loop
+mem* shims, an `extern "C" matter_special_malloc` stub, `#include`s all 16 `matter/src/*.c`
+(matter_c.c FIRST for matter_ctx_t + g + MODULE_MEMORY), then MODULE_DESCRIPTOR + a minimal
+mod_func_execute (ALLOCMEM/RETMEM). Build: `build_plugin.py --plugin USE_MATTER_FULL_MOD --cpu esp32`.
+**First build → the #1 compile blocker: jt-redirected libc/framework calls.** The framework `#define`s
+`malloc`(→jcalloc), `free`(jfree), `millis`, `strlen`, `strcmp/strncmp`, `memcmp`, `snprintf`,
+`realloc`(jt[189]), `strchr`(jstrchr), `atoi`(jatoi)… to jumptable calls needing `jt` in scope — only
+present in functions with SETMEMREGS, which matter_c's hundreds of functions lack → "`jt` not declared"
+everywhere. **NEXT ENABLER (the keystone for compiling, analogous to the `g` macro):** a
+`mtrc_plugin_jt.h` that `#undef`s each redirected name and redefines it to fetch `jt` via
+`gettbl()->jt[INDEX]` (no local `jt` needed) — pure-compute ones (mem*/str*) can stay byte-loop
+shims, but firmware services (malloc/free/millis/snprintf) must route through the jumptable. matter_c
+includes it under MTRC_PLUGIN_BUILD. After that compiles, expect a second wave (C-vs-C++ strictness,
+missing externs, MODULE_MEMORY ordering), THEN the relocation discipline (statics→ctx, literals→uconst)
+verified on .156 hardware. The de-risk crash showed compile-clean ≠ runtime-correct, so hardware test
+is mandatory per stage. Files added this session are UNCOMMITTED (held for review).
+
+#### Compile wave 1 CLEARED + wave 2 mapped (2026-06-03)
+**Wave 1 (jt-redirect) SOLVED** with a one-liner in the harness: `#define jt (gettbl()->jt)` for the
+matter-include region (then `#undef jt` before the harness's own ALLOCMEM/GET_JT). Every framework jX
+macro (jmalloc/jmemcmp/jsnprintf_P/…) now resolves the jumptable per call with no local `jt`; matter
+uses the firmware's real fast memcpy/snprintf. Verified safe: no matter source uses `jt` as an ident,
+none uses snprintf's (void) return. **Wave 2 (next, all compile-level):**
+1. **`millis` collision** — the framework `#define millis jmillis` collides with `matter_port_t`'s
+   `millis` field (matter_c.h:68 + module_defines.h:146 ×14). Fix: `#undef millis` (and any other
+   libc name used as a matter struct FIELD — audit `matter_port_t`/config for collisions) around the
+   header/struct decls, re-`#define` for the call sites. (Built-in lib doesn't hit this: there `millis`
+   is a function, not a macro.)
+2. **C++ strictness** — matter_c is C, amalgamated into a `.cpp`: many `const char*`→`char*` (the jX
+   macro signatures take non-const) + `int`→enum (qrcodegen) conversions. Add `-fpermissive` to the
+   plugin TU (or cast at sites). Consider compiling the amalgamation `extern "C"`-wrapped / as C if
+   feasible.
+3. **Static name collisions across files** — `INFO_SESSION[]` defined in BOTH mtrc_case.c:15 and
+   mtrc_pase.c:12 (also check other short `static const` names: INFO_*, ALG_*, etc.) → redefinition in
+   the single amalgamated TU. Rename per-file (e.g. CASE_/PASE_ prefix) or `#define`-scope.
+4. Harness nit: pFUNC_DEINIT's `RETMEM` needs `GET_MTBL; GET_JT;` first (mt/jt in scope).
+Then expect a wave 3 (more cross-file collisions / missing externs / link), THEN the relocation
+discipline (statics→ctx, literals→uconst) — hardware-verified on .156. Iterative; multi-session.
+
+#### ✅ MILESTONE: the full 16-source matter_c AMALGAMATION COMPILES (2026-06-03, zero errors)
+Wave 2 fixes (all in the harness/env, NOT the matter sources except one rename): `#undef millis`
+(framework object-macro vs the matter_port_t `millis` field + the 12 `g.port.millis(...)` HAL calls —
+matter never calls raw millis(), only the comments do); `-fpermissive` on the plugin env (matter_c is
+C amalgamated into a .cpp → downgrade the const-char*→char* / int→enum C-isms); rename
+`INFO_SESSION`→`INFO_SESSION_PASE` in mtrc_pase.c (collided with mtrc_case.c's static); harness RETMEM
+`GET_MTBL`/`GET_JT`. **Result: `build_plugin.py --plugin USE_MATTER_FULL_MOD --cpu esp32` SUCCEEDS,
+zero compile errors.** The xblib_03 `.o` (752 KB LTO) contains every matter fn (matter_init/loop/
+add_endpoint/case_handle_sigma1/mtrc_spake2p_*/mtrc_store_*/qrcodegen_*) — proven via objdump; the
+final module is only 312 B because mod_func_execute references none of them, so LTO dead-strips. So the
+whole compile-port (jt-redirect, millis, C++ strictness, cross-file collisions) is DONE in 2 waves —
+matter_c amalgamates as a plugin.
+
+**Remaining (two distinct phases, both still ahead):**
+1. **Wire the real plugin entry** so the code is RETAINED + callable: `BLIB_EXPORTS` for
+   matter_init/loop/add_endpoint/set_attr/…, fill `matter_port_t` (HAL by pointer) + the crypto ops
+   (the de-risked by-pointer seam), `mtrc_crypto_bind`, ALLOCMEM the MODULE_MEMORY, and the firmware
+   side resolving the exports via tc_blib_lookup (build-time lib-else-plugin gate). Module grows to its
+   real size; commission on .156.
+2. **The RELOCATION discipline (RUNTIME-correctness, compile-clean but crashes — like the de-risk):**
+   the gettbl `g`/`g_ptr` keystone is laid; still TODO = the 4 globals→ctx + 24 buffers→`g.arena[]` +
+   ~73 literals≥2048→uconst + ~15 const tables/~195 strings→PROGMEM+EXEC_OFFSET. ONLY hardware test on
+   .156 catches these. Do them incrementally with a commission/selftest after each.
+Files this session (xblib_03 + the keystone + env -I/-fpermissive + the rename) are UNCOMMITTED.
+
+#### ✅ Relocation discipline — FATAL GLOBALS category DONE (2026-06-03, amalgamation still compiles)
+All 4 remaining fatal mutable file-scope globals moved into `matter_ctx_t` so they ride the `g`
+keystone (was the exact class that crashed the de-risk via `g_cr`): `g_qr_ok`→`g.qr_ok`,
+`g_qrbuf`→`g.qrbuf`, `g_tx`→`g.txp` (matter_c.c, via `#define g_x (g.y)` macros — source sites
+unchanged; added fields to the struct; NULL-guarded `matter_qr_size`/`matter_qr_dark` with `g_ptr &&`),
+`g_fab[]`→`g.fab` (mtrc_store.c, `#ifdef MTRC_PLUGIN_BUILD` macro / else static — amalgamated after
+matter_c.c so `g` is in scope). `g_tx` init was all-zero → memset(&g,0) covers it. Rebuild clean
+(`--force`: build_plugin.py only mtime-checks the .cpp, NOT the #included sources — touch xblib_03 +
+--force after editing matter/src). **So every fatal mutable file-scope datum (g_ptr/g_cr + these 4) is
+now relocation-safe.**
+
+**Remaining relocation work (compile-clean, RUNTIME-crashy — hardware-verify on .156):** the 24
+function-local `static` scratch buffers → `g.arena[]` (stack-discipline or non-overlap analysis);
+~73 inline literals ≥2048 → `const uint32_t[] PROGMEM`+GUI32p; ~15 `static const` tables + ~195
+strings → PROGMEM+EXEC_OFFSET (GU8/PSTR). THEN wire the real entry (BLIB_EXPORTS + HAL + crypto-bind +
+ALLOCMEM) and commission. None of this is compile-catchable — needs the device.
