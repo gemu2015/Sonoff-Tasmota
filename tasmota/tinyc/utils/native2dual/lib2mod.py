@@ -218,7 +218,7 @@ _ARR_LOCAL = re.compile(
     r'([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=')
 
 
-def collect_arrays(files):
+def collect_arrays(files, verbose=False):
     """name -> elem-type, for every FILE-SCOPE `const uint8_t/char NAME[]=`."""
     arrays = {}
     locals_ = set()
@@ -228,7 +228,7 @@ def collect_arrays(files):
             arrays[m.group(3)] = m.group(2)
         for m in _ARR_LOCAL.finditer(txt):
             locals_.add(f'{f.name}:{m.group(1)}')
-    if locals_:
+    if verbose and locals_:
         print('LOCAL static const arrays (handle by hand — relocation-unsafe '
               'until MP8-wrapped in their own scope):')
         for x in sorted(locals_):
@@ -277,6 +277,44 @@ def pass_ro_arrays(b, names):
     return b, len(decl_edits), n_uses
 
 
+def manual_flags(b):
+    """Relocation-unsafe const constructs lib2mod does NOT auto-handle —
+    a human finishes these in the editor. Returns [(line, note)]."""
+    clean, _ = scan_mask(b)
+    out = []
+
+    def ln(p):
+        return b.count('\n', 0, p) + 1
+    for m in re.finditer(r'(?m)^[ \t]*(?:static\s+)?const\s[\w \t*]+?\w+\s*'
+                         r'\[[^\]]*\]\s*\[', clean):
+        out.append((ln(m.start()), '2D const array — copy to a stack array '
+                    'at fn entry (memcpy from MP8-corrected source)'))
+    for m in re.finditer(r'(?m)const\s+char\s*\*\s*\w+\s*\[\s*\]\s*=\s*\{',
+                         clean):
+        out.append((ln(m.start()), 'const char *[] — both the pointer array '
+                    'AND each string relocate; rebuild at runtime'))
+    for m in re.finditer(r'(?m)^[ \t]+(?:static\s+)const\s+(?:uint8_t|char)'
+                         r'\s+\w+\s*\[[^\]]*\]\s*=', clean):
+        out.append((ln(m.start()), 'function-local const array — PROGMEM + '
+                    'scoped MP8() (name may collide; edit in place)'))
+    for m in re.finditer(r'(?<![\w.])\d+\.\d+(?![\w.])', clean):
+        out.append((ln(m.start()), 'float literal — FP_CONST/FLTC'))
+    out.sort()
+    return out
+
+
+def translate_text(text, names):
+    """Apply the auto passes (S + A) to one file's text. Returns
+    (new_text, flags) — flags = PSTR non-call flags + manual_flags."""
+    nb, _w, sfl = pass_strings(text)
+    nb, _nd, _nu = pass_ro_arrays(nb, names) if names else (nb, 0, 0)
+    flags = [(ln, 'string literal — not a call-arg; PSTR by hand if its '
+              'address is used: ' + sn) for ln, sn in sfl]
+    flags += [(ln, n) for ln, n in manual_flags(text)]
+    flags.sort()
+    return nb, flags
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--dir', required=True)
@@ -285,7 +323,7 @@ def main():
     a = ap.parse_args()
     src = Path(a.dir)
     files = sorted(src.glob('*.c'))
-    arrays = collect_arrays(files) if 'A' in a.passes else {}
+    arrays = collect_arrays(files, verbose=True) if 'A' in a.passes else {}
     if arrays:
         print(f'RO arrays: {", ".join(sorted(arrays))}')
     tot_w = 0

@@ -32,6 +32,47 @@ try:
     import triage as _triage                    # for class labels
 except Exception:
     _triage = None
+try:
+    import lib2mod as _lib2mod                   # multi-file library-module path
+except Exception:
+    _lib2mod = None
+
+# Lib-module (lib2mod) mode: a multi-file C library that is ONLY ever a
+# BinPlugin (no dual/native form). matter_c is the first such target. The
+# auto passes (PSTR, RO-array→MP8) run; the editor surfaces NEEDS-MANUAL
+# items (2D / string-pointer / local const arrays, floats) for a human.
+LIB_DIR    = os.path.join(REPO, 'tasmota', 'Plugins', 'matter', 'src')
+LIB_PLUGIN = 'USE_MATTER_FULL_MOD'
+
+
+def _lib_resolve(rel):
+    full = os.path.realpath(os.path.join(LIB_DIR, os.path.basename(rel)))
+    return full if (full.startswith(LIB_DIR + os.sep)
+                    and os.path.isfile(full)) else None
+
+
+def lib_translate(src):
+    """Run lib2mod's text passes on one file's source. Returns
+    {'ok', 'code', 'flags':[{line,note}]} — a NEEDS-MANUAL header is
+    prepended to code so the human sees what to finish in the editor."""
+    if _lib2mod is None:
+        return {'ok': False, 'error': 'lib2mod not importable'}
+    try:
+        import pathlib
+        names = _lib2mod.collect_arrays(
+            sorted(pathlib.Path(LIB_DIR).glob('*.c')))
+        code, flags = _lib2mod.translate_text(src, names)
+        if flags:
+            hdr = ['// ===== NEEDS-MANUAL (lib2mod) — finish these by hand, '
+                   'then Save: =====']
+            for ln, note in flags:
+                hdr.append(f'//   line {ln}: {note}')
+            code = '\n'.join(hdr) + '\n' + code
+        return {'ok': True, 'code': code,
+                'flags': [{'line': ln, 'note': n} for ln, n in flags],
+                'lines': code.count('\n') + 1}
+    except Exception as e:
+        return {'ok': False, 'error': f'{type(e).__name__}: {e}'}
 
 DEFAULT_REL  = 'tasmota_xsns_sensor/xsns_14_sht3x.ino'   # a CHEAP driver
 def _read(rel):
@@ -118,6 +159,9 @@ PAGE = '''<!doctype html><html><head><meta charset="utf-8">
 <header><b>native2dual</b><span>native xsns_/xdrv_&nbsp;→&nbsp;BinPlugin C++ · PoC</span>
 <label for="fp" style="background:#37373d;padding:7px 12px;border-radius:4px;cursor:pointer">📂 Open…</label>
 <input id="fp" type="file" accept=".ino,.cpp,.c,.h,.txt" style="display:none">
+<select id="mode" style="background:#37373d;color:#4ec9b0;border:0;padding:7px;border-radius:4px;cursor:pointer;font-weight:bold" title="Native driver = scaffold.py (single .ino → dual-format). Lib module = lib2mod (multi-file plugin-only C library, e.g. matter).">
+ <option value="native">⚙ Native driver</option>
+ <option value="lib">📦 Lib module</option></select>
 <select id="ex" style="background:#37373d;color:#ddd;border:0;padding:7px;border-radius:4px;cursor:pointer;max-width:340px">
  <option value="">— drivers (triaged) —</option></select>
 <button id="go">Translate ▶</button>
@@ -127,10 +171,10 @@ PAGE = '''<!doctype html><html><head><meta charset="utf-8">
 <button id="quit" style="background:#a33;color:#fff;border:0;padding:8px 14px;border-radius:4px;cursor:pointer;margin-left:auto">Exit ✕</button>
 <span id="st"></span></header>
 <div class="wrap">
- <div class="col"><div class="lbl">Native Tasmota driver (.ino/.cpp) — faithful, no feature drop</div>
+ <div class="col"><div class="lbl" id="lblIn">Native Tasmota driver (.ino/.cpp) — faithful, no feature drop</div>
    <div class="ed"><pre id="inhl" aria-hidden="true"></pre>
    <textarea id="in" spellcheck="false">__SRC__</textarea></div></div>
- <div class="col" id="outwrap"><div class="lbl">Generated dual-format BinPlugin C++ (editable; honest NEEDS-* flags)</div>
+ <div class="col" id="outwrap"><div class="lbl" id="lblOut">Generated dual-format BinPlugin C++ (editable; honest NEEDS-* flags)</div>
    <div class="ed"><pre id="outhl" aria-hidden="true"></pre>
    <textarea id="out" spellcheck="false" title="Editable: finish the flagged lines then Compile. Translate ▶ regenerates and discards edits."></textarea></div></div>
 </div>
@@ -139,6 +183,7 @@ const go=document.getElementById('go'),inp=document.getElementById('in'),
       out=document.getElementById('out'),st=document.getElementById('st'),
       inhl=document.getElementById('inhl'),outhl=document.getElementById('outhl');
 let curName='__NAME__';
+let libMode=false;
 const KW=new Set(('int float char void bool if else while for return '
  +'break continue struct typedef const static unsigned signed short long '
  +'double sizeof switch case default goto enum union volatile').split(' '));
@@ -150,7 +195,7 @@ const MAC=new Set(('PSTR SETREGS SETMEMREGS ALLOCMEM RETMEM STGLOB '
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
  .replace(/>/g,'&gt;');}
 function hl(t){
- const re=/(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)|("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')|(^[ \\t]*#[^\\n]*)|(\\b\\d[\\w.]*\\b)|([A-Za-z_]\\w*)|([^])/gm;
+ const re=/(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)|("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')|(^[ \\t]*#[^\\n]*)|(\\b\\d[\\w.]*\\b)|([A-Za-z_]\\w*)|([^A-Za-z0-9_"'\\/#]+)|([^])/gm;
  let o='',m;
  while((m=re.exec(t))){
   if(m[1])o+='<span class="tk-c">'+esc(m[1])+'</span>';
@@ -159,15 +204,22 @@ function hl(t){
   else if(m[4])o+='<span class="tk-n">'+esc(m[4])+'</span>';
   else if(m[5]){const w=m[5];o+=KW.has(w)?'<span class="tk-k">'+w+'</span>'
     :(TY.has(w)||MAC.has(w))?'<span class="tk-t">'+w+'</span>':esc(w);}
-  else o+=esc(m[6]);
+  else if(m[6])o+=esc(m[6]);          // batched operators/whitespace (fast path)
+  else o+=esc(m[7]);                  // lone / # ' that don't start a token
  }
  return o;
 }
+const HLNOW=40000,HLCAP=600000,hlT=new WeakMap();
+function ssync(ta,pre){pre.scrollTop=ta.scrollTop;pre.scrollLeft=ta.scrollLeft;}
 function paint(ta,pre){
  const v=ta.value;
- if(v.length>40000){pre.textContent=v;}
- else{pre.innerHTML=hl(v)+'\\n';}
- pre.scrollTop=ta.scrollTop;pre.scrollLeft=ta.scrollLeft;
+ if(v.length>HLCAP){pre.textContent=v;ssync(ta,pre);return;}   // huge: plain only
+ if(v.length<=HLNOW){pre.innerHTML=hl(v)+'\\n';ssync(ta,pre);return;} // small: instant colour
+ // big (e.g. matter_c.c ~110KB): show plain instantly, colour after idle so
+ // typing stays responsive (transparent textarea is always editable).
+ pre.textContent=v;ssync(ta,pre);
+ clearTimeout(hlT.get(pre));
+ hlT.set(pre,setTimeout(()=>{pre.innerHTML=hl(ta.value)+'\\n';ssync(ta,pre);},120));
 }
 const pIn=()=>paint(inp,inhl),pOut=()=>paint(out,outhl);
 inp.addEventListener('input',pIn);
@@ -183,13 +235,15 @@ function setRestore(on){rs.disabled=!on;
   rs.style.background=on?'#a60':'#777';
   rs.textContent=on&&showingLog?'Restore ↩':(on?'Show log ↪':'Restore ↩');}
 async function tr(){
-  st.textContent='scaffolding…';
+  st.textContent=libMode?'running lib2mod…':'scaffolding…';
   try{
-    const r=await fetch('/translate?name='+encodeURIComponent(curName),
-                        {method:'POST',body:inp.value});
+    const url=libMode?('/lib-translate?name='+encodeURIComponent(curName))
+                     :('/translate?name='+encodeURIComponent(curName));
+    const r=await fetch(url,{method:'POST',body:inp.value});
     const j=await r.json();
-    out.value=j.ok?j.code:('// SCAFFOLD ERROR\\n// '+j.error);
-    st.textContent=j.ok?('ok · '+j.lines+' lines · '+curName):'error';
+    out.value=j.ok?j.code:('// '+(libMode?'LIB2MOD':'SCAFFOLD')+' ERROR\\n// '+j.error);
+    const nf=(j.flags&&j.flags.length)?(' · '+j.flags.length+' NEEDS-MANUAL'):'';
+    st.textContent=j.ok?('ok · '+j.lines+' lines · '+curName+nf):'error';
   }catch(e){out.value='// '+e;st.textContent='error';}
   savedSrc=null;savedLog=null;showingLog=false;setRestore(false);
   pOut();
@@ -203,15 +257,20 @@ rs.onclick=()=>{
     showingLog=true;st.textContent='showing build log';}
   pOut();setRestore(true);};
 cc.onclick=async()=>{
-  if(!out.value.trim()||out.value.startsWith('// SCAFFOLD ERROR')){
+  if(libMode){
+    if(!confirm('Build the whole library module — uses the SAVED files.\\n'
+       +'Save your edits first (Save ▼). Continue?'))return;
+  }else if(!out.value.trim()||out.value.startsWith('// SCAFFOLD ERROR')){
     st.textContent='translate first';return;}
   const code=out.value;
   savedSrc=code;savedLog=null;showingLog=true;setRestore(false);
   cc.disabled=true;st.textContent='compiling (forking build_plugin.py)…';
-  out.value='# Compile: USE_<NAME>_N2D_MOD → build_plugin.py …\\n';
+  out.value=(libMode?'# Lib-module build → build_plugin.py …\\n'
+                    :'# Compile: USE_<NAME>_N2D_MOD → build_plugin.py …\\n');
   pOut();
   try{
-    const r=await fetch('/compile?name='+encodeURIComponent(curName),
+    const r=await fetch(libMode?'/compile?lib=1'
+                    :('/compile?name='+encodeURIComponent(curName)),
                         {method:'POST',body:code});
     const rd=r.body.getReader(),dec=new TextDecoder();
     for(;;){const{done,value}=await rd.read();if(done)break;
@@ -224,9 +283,19 @@ cc.onclick=async()=>{
     st.textContent+=' · Restore ↩ to get your edited source back';}
 };
 const sv=document.getElementById('sv');
-sv.onclick=()=>{
-  if(!out.value.trim()||out.value.startsWith('// SCAFFOLD ERROR')
-     ||out.value.startsWith('# Compile')){
+sv.onclick=async()=>{
+  if(!out.value.trim()){st.textContent='nothing to save';return;}
+  if(libMode){                       // write the edited file back into the repo
+    let body=out.value.replace(/^\\/\\/ ===== NEEDS-MANUAL[\\s\\S]*?\\n(?=[^\\/]|\\/[^\\/])/,'');
+    if(!confirm('Save '+curName+' back into '+
+        'tasmota/Plugins/matter/src/ ?'))return;
+    try{const r=await fetch('/lib-save?path='+encodeURIComponent(curName),
+          {method:'POST',body:body});const j=await r.json();
+      st.textContent=j.ok?('saved → '+j.path):('save error: '+j.error);
+    }catch(e){st.textContent='save error: '+e;}
+    return;
+  }
+  if(out.value.startsWith('// SCAFFOLD ERROR')||out.value.startsWith('# Compile')){
     st.textContent='nothing to save — translate first';return;}
   const mod=curName.replace(/.*\\//,'').replace(/\\.[^.]*$/,'')
             .replace(/\\W/g,'_').replace(/^_+|_+$/g,'').toLowerCase()
@@ -245,14 +314,38 @@ fp.onchange=e=>{const f=e.target.files[0];if(!f)return;
     pIn();st.textContent='loaded '+f.name;tr();};
   rd.readAsText(f);fp.value='';};
 ex.onchange=async()=>{if(!ex.value)return;
-  const r=await fetch('/file?path='+encodeURIComponent(ex.value));
-  const j=await r.json();
+  const url=(libMode?'/lib-file?path=':'/file?path=')+encodeURIComponent(ex.value);
+  const r=await fetch(url);const j=await r.json();
   if(j.ok){inp.value=j.text;curName=ex.value;pIn();
     st.textContent='loaded '+ex.value;tr();}
   else{st.textContent='err: '+j.error;}};
-(async()=>{try{const r=await fetch('/examples');const j=await r.json();
-  for(const e of j.files){const o=document.createElement('option');
-    o.value=e.v;o.textContent=e.t;ex.appendChild(o);}}catch(e){}})();
+async function loadExamples(){
+  ex.innerHTML='';
+  const ph=document.createElement('option');ph.value='';
+  ph.textContent=libMode?'— matter sources (.c) —':'— drivers (triaged) —';
+  ex.appendChild(ph);
+  try{const r=await fetch(libMode?'/lib-examples':'/examples');
+    const j=await r.json();
+    for(const e of (j.files||[])){const o=document.createElement('option');
+      o.value=e.v;o.textContent=e.t;ex.appendChild(o);}
+  }catch(e){}
+}
+const modeEl=document.getElementById('mode'),
+      lblIn=document.getElementById('lblIn'),lblOut=document.getElementById('lblOut');
+modeEl.onchange=()=>{
+  libMode=(modeEl.value==='lib');
+  lblIn.textContent=libMode
+    ?'Library source (.c) — multi-file, plugin-only (lib2mod)'
+    :'Native Tasmota driver (.ino/.cpp) — faithful, no feature drop';
+  lblOut.textContent=libMode
+    ?'lib2mod output — finish NEEDS-MANUAL flags, then Save ▼ writes back to the file'
+    :'Generated dual-format BinPlugin C++ (editable; honest NEEDS-* flags)';
+  sv.textContent=libMode?'Save ▼ (→file)':'Save ▼';
+  inp.value='';out.value='';curName='';pIn();pOut();
+  st.textContent=libMode?'lib2mod mode — pick a source file':'native mode';
+  loadExamples();
+};
+loadExamples();
 document.getElementById('quit').onclick=async()=>{
   st.textContent='shutting down…';
   try{await fetch('/quit',{method:'POST'});}catch(e){}
@@ -361,6 +454,39 @@ class H(http.server.BaseHTTPRequestHandler):
                 pass
             w("# cleaned up: override.h restored, temp .cpp removed\n")
 
+    # ---- Lib-module compile: build the whole plugin (LIB_PLUGIN) ----
+    # Save the edited files first; this just forks build_plugin.py, which
+    # amalgamates the (already-saved) library sources — no per-file slot.
+    def do_lib_compile(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+
+        def w(s):
+            try:
+                self.wfile.write(s.encode('utf-8', 'replace'))
+                self.wfile.flush()
+            except Exception:
+                pass
+        bp = os.path.join(REPO, 'tasmota', 'Plugins', 'build_plugin.py')
+        cmd = [sys.executable, bp, '--plugin', LIB_PLUGIN,
+               '--cpu', 'esp32', '--force']
+        w(f"# lib-module compile — {LIB_PLUGIN}\n"
+          f"# (Save your edits first — this builds the saved files)\n"
+          f"# $ build_plugin.py --plugin {LIB_PLUGIN} --cpu esp32 --force\n"
+          + "-" * 64 + "\n")
+        try:
+            p = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, bufsize=1, text=True)
+            for line in p.stdout:
+                w(line)
+            rc = p.wait()
+            w("-" * 64 + f"\n# build_plugin.py exit code: {rc}\n")
+        except Exception as e:
+            w(f"\n# lib-compile error: {type(e).__name__}: {e}\n")
+
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == '/examples':
@@ -371,6 +497,24 @@ class H(http.server.BaseHTTPRequestHandler):
         if u.path == '/file':
             q = parse_qs(u.query).get('path', [''])[0]
             full = self._resolve(q)
+            if not full:
+                return self._json({'ok': False, 'error': 'not found'})
+            try:
+                with open(full, encoding='utf-8', errors='replace') as fh:
+                    return self._json({'ok': True, 'text': fh.read()})
+            except OSError as e:
+                return self._json({'ok': False, 'error': str(e)})
+        if u.path == '/lib-examples':            # lib-module mode file list
+            try:
+                fs = sorted(f for f in os.listdir(LIB_DIR)
+                            if f.endswith('.c'))
+            except OSError:
+                fs = []
+            return self._json({'files': [{'v': f, 't': f} for f in fs],
+                               'dir': os.path.relpath(LIB_DIR, REPO),
+                               'plugin': LIB_PLUGIN})
+        if u.path == '/lib-file':
+            full = _lib_resolve(parse_qs(u.query).get('path', [''])[0])
             if not full:
                 return self._json({'ok': False, 'error': 'not found'})
             try:
@@ -393,9 +537,25 @@ class H(http.server.BaseHTTPRequestHandler):
             return
         n = int(self.headers.get('Content-Length', 0))
         src = self.rfile.read(n).decode('utf-8', 'replace')
-        raw = parse_qs(urlparse(self.path).query).get('name', [''])[0]
+        path = urlparse(self.path).path
+        qs = parse_qs(urlparse(self.path).query)
+        raw = qs.get('name', [''])[0]
         mod = _modname(raw)
-        if urlparse(self.path).path == '/compile':
+        if path == '/lib-translate':              # lib-module: run lib2mod passes
+            return self._json(lib_translate(src))
+        if path == '/lib-save':                   # lib-module: write back to the file
+            full = _lib_resolve(qs.get('path', [''])[0])
+            if not full:
+                return self._json({'ok': False, 'error': 'not found'})
+            try:
+                open(full, 'w', encoding='utf-8').write(src)
+                return self._json({'ok': True,
+                                   'path': os.path.relpath(full, REPO)})
+            except OSError as e:
+                return self._json({'ok': False, 'error': str(e)})
+        if path == '/compile':
+            if qs.get('lib', ['0'])[0] in ('1', 'true'):
+                return self.do_lib_compile()      # build the whole library module
             return self.do_compile(src, mod)
         try:
             code = scaffold(src, mod)
