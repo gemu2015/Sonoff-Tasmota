@@ -1,6 +1,6 @@
 // webradio.tc — Internet-radio player for an I2S audio board.
 //
-// Port of mi-hol's Tasmota Scripter web-radio to TinyC. Streams MP3/AAC internet
+// Port of Tasmota Scripter web-radio to TinyC. Streams MP3/AAC internet
 // radio through the I2SAUDIO BinPlugin and offers a web UI with a station list,
 // a volume slider and a Stop button.
 //
