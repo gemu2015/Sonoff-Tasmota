@@ -1095,6 +1095,7 @@ uint32_t tmod_dummy() {
 
 #if defined(ESP32) && defined(USE_TLS)
 #include "WiFiClientSecureLightBearSSL.h"
+#include "HttpClientLight.h"
 #endif
 
 uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
@@ -1191,6 +1192,24 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       break;
     case 19:
       sclient->setTimeout(p2);
+      break;
+    // ---- HTTPClientLight: Tasmota's BearSSL https-capable HTTP client ----
+    case 45:
+      return (uint32_t) new HTTPClientLight;
+    case 46:
+      return ((HTTPClientLight*)p1)->begin((char*)p2);
+    case 47:
+      return ((HTTPClientLight*)p1)->GET();
+    case 48:
+      return (uint32_t)((HTTPClientLight*)p1)->getStreamPtr();
+    case 49:
+      return ((HTTPClientLight*)p1)->connected();
+    case 54:
+      ((HTTPClientLight*)p1)->end();
+      break;
+    case 55:
+      delete (HTTPClientLight*)p1;
+      break;
 #endif // ESP32 + USE_TLS
 
     // class http
@@ -4469,6 +4488,13 @@ void Modul_Check_HTML_Setvars(void) {
       //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
       Update_Module_Data(mind, vals);
     }
+    else if (!strncmp(cp, "auto", 4)) {
+      // autostart checkbox in the plugin-menu header: flip the Option_A7 flag
+      // (gpio_optiona.shelly_pro) only — nothing else.
+      cp += 4;
+      if (*cp == '_') { cp++; }
+      TasmotaGlobal.gpio_optiona.shelly_pro = strtol(cp, &cp, 10) ? 1 : 0;
+    }
   }
 
 }
@@ -4499,6 +4525,10 @@ void Module_upload() {
   } 
 
   WSContentSend_P(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots(),color,GetTextIndexed(type, sizeof(type), plugins.upload_error, MOD_UPL_ERRMSG));
+
+  // Autostart-at-boot toggle (Option_A7 / gpio_optiona.shelly_pro) — moved into the plugin menu.
+  WSContentSend_P(PSTR("<p style='text-align:left'><label><input type='checkbox' onclick='seva(this.checked?1:0,\"auto\")'%s>&nbsp;Autostart plugins at boot</label></p>"),
+    TasmotaGlobal.gpio_optiona.shelly_pro ? " checked" : "");
 
 #ifdef EXECUTE_FROM_BINARY
   WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload disabled"));

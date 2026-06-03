@@ -949,6 +949,7 @@ typedef union {
 #define sclient_read(A) (uint8_t)jtmod_wifi(14,(uint32_t)A,0,0,0)
 #define sclient_readn(A,B,C) (int32_t)jtmod_wifi(15,(uint32_t)A,(uint32_t)B,C,0)
 #define sclient_stop(A) jtmod_wifi(16,(uint32_t)A,0,0,0)
+#define sclient_delete(A) jtmod_wifi(17,(uint32_t)A,0,0,0)
 #define sclient_setInsecure(A) jtmod_wifi(18,(uint32_t)A,0,0,0)
 #define sclient_setTimeout(A,B) jtmod_wifi(19,(uint32_t)A,B,0,0)
 
@@ -968,6 +969,16 @@ typedef union {
 #define http_hasHeader(A,B) jtmod_wifi(42,(uint32_t)A,(uint32_t)B,0,0)
 #define http_setFollowRedirects(A,B) jtmod_wifi(43,(uint32_t)A,(uint32_t)B,0,0)
 #define http_begin1(A,B,C) (bool)jtmod_wifi(44,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
+
+// HTTPClientLight (BearSSL https-capable) — self-contained: begin(url) does its
+// own TLS; getStreamPtr() returns the body WiFiClient* (read via plain client_*).
+#define New_HTTPLight()       (void*)jtmod_wifi(45,0,0,0,0)
+#define httpl_begin(A,B)      (bool)jtmod_wifi(46,(uint32_t)A,(uint32_t)B,0,0)
+#define httpl_GET(A)          (int32_t)jtmod_wifi(47,(uint32_t)A,0,0,0)
+#define httpl_getStreamPtr(A) (void*)jtmod_wifi(48,(uint32_t)A,0,0,0)
+#define httpl_connected(A)    (bool)jtmod_wifi(49,(uint32_t)A,0,0,0)
+#define httpl_end(A)          jtmod_wifi(54,(uint32_t)A,0,0,0)
+#define httpl_delete(A)       jtmod_wifi(55,(uint32_t)A,0,0,0)
 
 
 // tasmota serial

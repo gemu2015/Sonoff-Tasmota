@@ -162,6 +162,13 @@ typedef struct {
   void *wclient;
   uint16_t icyMetaInt;
   char meta[128];
+  char wr_url[256];        // persistent copy of the stream URL (for reconnect)
+  uint8_t *wr_ring;        // PSRAM jitter ring buffer (buffering)
+  uint32_t wr_rsize;       // ring capacity (power of two)
+  uint32_t wr_rhead;       // producer index (monotonic)
+  uint32_t wr_rtail;       // consumer index (monotonic)
+  uint32_t wr_icycount;    // data bytes since last ICY metadata block
+  uint8_t  wr_secure;      // 1 = https (TLS client)
 #endif
 
 #ifdef USE_SAY
@@ -238,6 +245,13 @@ typedef struct {
 #define codec mem->codec
 #define icyMetaInt mem->icyMetaInt
 #define meta mem->meta
+#define wr_url mem->wr_url
+#define wr_ring mem->wr_ring
+#define wr_rsize mem->wr_rsize
+#define wr_rhead mem->wr_rhead
+#define wr_rtail mem->wr_rtail
+#define wr_icycount mem->wr_icycount
+#define wr_secure mem->wr_secure
 #define tx_ready mem->tx_ready
 #define cmd_param mem->cmd_param
 #define codec_bus mem->codec_bus
@@ -2438,6 +2452,122 @@ const char hdr_4[] PROGMEM = "icy-sr";
 
 const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
 
+// Large webradio constants — MUST live in a PROGMEM array (loaded via
+// EXEC_OFFSET); inline >= 2048 literals become l32r and miscompile in the
+// relocatable plugin build.
+//   [0] PSRAM ring size   [1] internal-RAM fallback ring size (both power of 2)
+//   [2] underrun->reconnect timeout (ms)   [3] reconnect backoff cap (ms)
+const uint32_t wr_uconst[4] PROGMEM = { 512 * 1024, 16 * 1024, 4000, 3000 };
+
+// Body reads always go through the PLAIN client_* selectors on `wclient`:
+//   http  -> wclient is the WiFiClient handed to HTTPClient
+//   https -> wclient is HTTPClientLight::getStreamPtr() (a WiFiClient* that is
+//            really a BearSSL secure client; read() dispatches virtually -> TLS)
+#define WR_AVAIL()      client_available(wclient)
+#define WR_READ()       client_read(wclient)
+#define WR_READN(b,n)   client_readn(wclient,(uint8_t*)(b),(n))
+// http-object ops are type-aware (Arduino HTTPClient vs Tasmota HTTPClientLight)
+#define WR_CONNECTED()  (wr_secure ? httpl_connected(http) : http_connected(http))
+#define WR_HTTP_END()   do { if (wr_secure) { httpl_end(http); } else { http_end(http); } } while(0)
+#define WR_STOPCLIENT() do { if (!wr_secure) { client_stop(wclient); } } while(0)  // https stream owned by httpl
+#define WR_MAX_RETRY 8
+
+// (re)connect the HTTP(S) stream on the stored URL; parse ICY metaint + sample
+// rate. Returns the GET status code (200 = ok). Used by initial connect AND
+// every reconnect.
+MODULE_PART int32_t wr_connect(void) {
+  SETMEMREGS
+  if (wr_secure) {
+    // https: Tasmota's BearSSL HTTPClientLight (does its own TLS). No ICY
+    // metadata header support on the light client -> icyMetaInt = 0.
+    if (!httpl_begin(http, wr_url)) { return -1; }
+    int32_t hcode = httpl_GET(http);
+    if (200 == hcode) {
+      wclient = httpl_getStreamPtr(http);   // body stream; read via plain client_*
+      icyMetaInt = 0;
+    }
+    return hcode;
+  }
+  bool res = http_begin(http, wclient, wr_url);
+  if (!res) { return -1; }
+  delay(100);
+  http_addHeader(http, GSTR(head_1), GSTR(head_2));
+  http_collectHeaders(http, GUI32p(hdr), 4);
+  http_setReuse(http, true);
+  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
+  int32_t code = http_GET(http);
+  if (200 == code) {
+    volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+    srate = icp[6];
+    if (http_hasHeader(http, GSTR(hdr_4))) {
+      char *ret = http_header(http, GSTR(hdr_4));
+      srate = strtol(ret, 0, 10);
+      free(ret);
+    }
+    if (http_hasHeader(http, GSTR(hdr_1))) {
+      char *ret = http_header(http, GSTR(hdr_1));
+      icyMetaInt = strtol(ret, 0, 10);
+      free(ret);
+    } else {
+      icyMetaInt = 0;
+    }
+  }
+  return code;
+}
+
+// Read up to `want` pure MP3 bytes into dest, stripping inline ICY metadata.
+// Non-blocking: returns however many bytes were available now (0..want).
+MODULE_PART uint32_t wr_read_data(uint8_t *dest, uint32_t want) {
+  SETMEMREGS
+  uint32_t got = 0;
+  while (got < want) {
+    if (icyMetaInt && wr_icycount >= icyMetaInt) {
+      if (WR_AVAIL() < 1) { break; }
+      uint32_t icylen = (uint32_t)WR_READ() << 4;
+      wr_icycount = 0;
+      if (icylen) {
+        uint32_t st = millis();
+        while ((uint32_t)WR_AVAIL() < icylen) {
+          if (millis() - st > 300) { break; }
+          delay(1);
+        }
+        char mbuf[272];
+        if (icylen <= sizeof(mbuf)) {
+          int32_t r = WR_READN(mbuf, icylen);
+          if (r > 12 && !strncmp_P(mbuf, PSTR("StreamTitle="), 12)) {
+            uint32_t j = 0;
+            for (uint32_t i = 12; i < (uint32_t)r && j < sizeof(meta) - 1; i++) {
+              char c = mbuf[i];
+              if (c == 0 || c == ';') { break; }
+              meta[j++] = c;
+            }
+            meta[j] = 0;
+          }
+        } else {
+          for (uint32_t i = 0; i < icylen; i++) { WR_READ(); }
+        }
+      }
+      continue;
+    }
+    uint32_t chunk = want - got;
+    if (icyMetaInt) {
+      // http: bound the read to the next ICY metadata boundary + what's buffered
+      int32_t avail = WR_AVAIL();
+      if (avail <= 0) { break; }
+      uint32_t toMeta = icyMetaInt - wr_icycount;
+      if (chunk > toMeta) { chunk = toMeta; }
+      if (chunk > (uint32_t)avail) { chunk = avail; }
+    }
+    // https (icyMetaInt==0): read straight from the stream — read() pumps the
+    // BearSSL record machine (available() can be 0 between records).
+    int32_t r = WR_READN(dest + got, chunk);
+    if (r <= 0) { break; }
+    got += (uint32_t)r;
+    wr_icycount += (uint32_t)r;
+  }
+  return got;
+}
+
 // webradio task
 void I2sTaskWR(char *url) {
   SETREGS
@@ -2455,123 +2585,100 @@ void I2sTaskWR(char *url) {
   volatile const uint32_t *ucp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   uint32_t ibsize = GET_IBS;
 
-  uint32_t buffer_bytes = 0;
+  uint8_t *scratch = (uint8_t*)special_malloc(ibsize + 16);
+  if (!scratch) { running = false; }
 
-  int32_t bytesread;
-  uint32_t icycount = 0;
+  const uint32_t *wrcp = (const uint32_t *) ((uint8_t *)wr_uconst + EXEC_OFFSET);
+  uint32_t t_reconn  = wrcp[2];     // underrun->reconnect timeout (ms)
+  uint32_t t_backmax = wrcp[3];     // backoff cap (ms)
+  uint32_t mask = wr_rsize - 1;     // wr_rsize is a power of two
+  uint32_t prebuf = wr_rsize >> 3;  // pre-buffer ~1/8 of the ring before playback
+  int primed = 0;                   //   (absorbs bursty TLS/network delivery)
+  uint32_t retries = 0;
+  uint32_t lastdata = millis();
 
-  uint32_t avail;
   while (running) {
-    uint32_t start = millis();
-    while (1) {
-      avail = client_available(wclient);
-      if (avail >= ibsize) {
-        break;
-      }
-      if (millis() - start > 1000) {
-        // timeout
-        avail = 0;
-        break;
-      }
-      delay(1);
-    }
-    if (!avail) {
-      AddLog(LOG_LEVEL_INFO, PSTR("timeout"));
-      break;
+
+    // ---- FILL: drain the socket into the ring (read-ahead, ICY-stripped) ----
+    while (running) {
+      uint32_t rfree = wr_rsize - (wr_rhead - wr_rtail);
+      if (rfree < ibsize) { break; }              // ring full enough for now
+      if (icyMetaInt && WR_AVAIL() <= 0) { break; }  // http: nothing buffered (https pumps via read())
+      uint32_t got = wr_read_data(scratch, ibsize);
+      if (got == 0) { break; }
+      uint32_t pos = wr_rhead & mask;
+      uint32_t toend = wr_rsize - pos;
+      uint32_t n1 = (got < toend) ? got : toend;
+      memcpy(&wr_ring[pos], scratch, n1);
+      if (n1 < got) { memcpy(&wr_ring[0], scratch + n1, got - n1); }
+      wr_rhead += got;
+      lastdata = millis();
     }
 
-    uint32_t bytestoread = ibsize - buffer_bytes;
- 
-    uint8_t *ip = &m_inBuff[buffer_bytes];
-    if (icyMetaInt) {
-      if (icyMetaInt - icycount < ibsize) {
-        // falls into buffer
-        for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
-          *ip++ = client_read(wclient);
-          icycount +=  1;
-          if (icycount == icyMetaInt) {
-            uint16_t icylen = (client_read(wclient) << 4);
-            if (icylen) {
-              //AddLog(LOG_LEVEL_INFO, PSTR("icylen = %d"), icylen);
-              char buff[128];
-              if (icylen <= sizeof(buff)) {
-                client_readn(wclient, buff, icylen);
-                if (!strncmp_P(buff, PSTR("StreamTitle="), 12)) {
-                  for (uint32_t  cnt = 0; cnt < sizeof(meta); cnt++) {
-                    char iob = buff[12 + cnt];
-                    if (!iob || iob == ';') {
-                      meta[cnt] = 0;
-                      break;
-                    }
-                    meta[cnt] = iob;
-                  }
-                }
-              } else {
-                // throw away
-                for (uint32_t cnt = 0; cnt < icylen; cnt++) {
-                  client_read(wclient);
-                }
-              }
-            }
-            icycount = 0;
-          }
-        }
+    // ---- DECODE one MP3 frame out of the ring (only once primed) ----
+    uint32_t rcount = wr_rhead - wr_rtail;
+    if (!primed && rcount >= prebuf) { primed = 1; }     // first fill reached the cushion
+    if (primed && rcount >= ibsize) {
+      uint32_t pos = wr_rtail & mask;
+      uint32_t toend = wr_rsize - pos;
+      uint32_t n1 = (ibsize < toend) ? ibsize : toend;
+      memcpy(m_inBuff, &wr_ring[pos], n1);
+      if (n1 < ibsize) { memcpy(m_inBuff + n1, &wr_ring[0], ibsize - n1); }
+
+      m_bytesLeft = ibsize;
+      int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
+      if (m_decodeError) {
+        wr_rtail += 1;                             // resync: skip a byte, retry next loop
       } else {
-        // read block
-        bytesread = client_readn(wclient, m_inBuff + buffer_bytes, bytestoread);
-        icycount += bytesread;
+        uint32_t bytesDecoded = ibsize - m_bytesLeft;
+        if (bytesDecoded == 0) { bytesDecoded = 1; }   // guard against no progress
+        wr_rtail += bytesDecoded;
+
+        uint32_t sr = MP3GetSampRate();
+        if (sr && sr != srate) {
+          srate = sr;
+          chans = MP3GetChannels();
+          I2S_SetRate(srate, chans, 1);
+        }
+        uint32_t samples = MP3GetOutputSamps();
+        if (samples <= (GET_OBS >> 1)) {
+          Write_Samples(m_outBuff, samples);
+        }
+        retries = 0;                               // making progress -> reset retry budget
       }
     } else {
-      for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
-        *ip++ = client_read(wclient);
+      // ---- still priming, ring underrun, or dropped stream ----
+      if (rcount == 0) { primed = 0; }                   // full underrun -> re-buffer
+      int connected = WR_CONNECTED();
+      if (!connected || (millis() - lastdata > t_reconn)) {
+        if (retries >= WR_MAX_RETRY) {
+          AddLog(LOG_LEVEL_INFO, PSTR("WR: give up after %d retries"), retries);
+          break;
+        }
+        retries++;
+        AddLog(LOG_LEVEL_INFO, PSTR("WR: reconnect %d"), retries);
+        WR_HTTP_END();
+        WR_STOPCLIENT();
+        uint32_t backoff = retries * 400;
+        if (backoff > t_backmax) { backoff = t_backmax; }
+        delay(backoff);
+        if (!running) { break; }
+        if (200 == wr_connect()) { lastdata = millis(); }
+        // (failed reconnect: loop retries until WR_MAX_RETRY)
+      } else {
+        delay(2);                                  // just waiting for the ring to refill
       }
     }
-    
-    buffer_bytes = ibsize;
-    m_bytesLeft = ibsize;
-
-    int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
-    if (m_decodeError) {
-      AddLog(LOG_LEVEL_INFO, PSTR("mp3 header error = %d"), m_decodeError);
-      break;
-    }
-
-    uint32_t sr = MP3GetSampRate();
-    if (sr && sr != srate) {
-      srate = sr;
-      chans = MP3GetChannels();
-      I2S_SetRate(srate, chans, 1);
-    }
-
-    uint32_t bytesDecoded = buffer_bytes - m_bytesLeft;
-    buffer_bytes -= bytesDecoded;
-    memmove(m_inBuff, m_inBuff + bytesDecoded, ibsize - bytesDecoded);
-    
-    //AddLog(LOG_LEVEL_INFO, PSTR(">> %d"), bytesDecoded );
-
-    uint32_t samples = MP3GetOutputSamps();
-
-    if (samples > GET_OBS >> 1) {
-      AddLog(LOG_LEVEL_INFO, PSTR("mp3 output buffer overflow = %d"), samples);
-      running = 0;
-    } else {
-      Write_Samples(m_outBuff, samples);
-    }
-
-    if (!http_connected(http)) {
-      // should reconnect
-      break;
-    }
-
   }
 
-  http_end(http);
+  if (scratch) { free(scratch); }
 
-  http_delete(http);
+  WR_HTTP_END();
+  if (wr_secure) { httpl_delete(http); } else { http_delete(http); }
   http = 0;
-  client_delete(wclient);
-  wclient = 0;
-
+  if (wr_secure) { wclient = 0; }                          // https stream owned by httpl
+  else { client_stop(wclient); client_delete(wclient); wclient = 0; }
+  if (wr_ring) { free(wr_ring); wr_ring = 0; }
 
   I2S_Wait_Ready();
   I2S_Enable(0);
@@ -2579,7 +2686,7 @@ void I2sTaskWR(char *url) {
   running = false;
   i2s_busy = false;
   AudioPwr(0);
-  
+
   //AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
   vTaskDelete(0);
 }
@@ -2607,78 +2714,67 @@ void WebRadio(void) {
     return;
   }
 
-  if (!wclient) {
-    wclient = New_WiFiClient();
+  // persistent copy of the URL (the task needs it for reconnect) + scheme detect
+  uint32_t ul = 0;
+  while (url[ul] && ul < sizeof(wr_url) - 1) { wr_url[ul] = url[ul]; ul++; }
+  wr_url[ul] = 0;
+  wr_secure = (!strncmp_P(wr_url, PSTR("https:"), 6)) ? 1 : 0;
+
+  // (re)create the right objects (the task deletes + nulls them on stop):
+  //   http  -> Arduino HTTPClient + a plain WiFiClient
+  //   https -> HTTPClientLight (its own BearSSL TLS); wclient set from getStreamPtr
+  if (wr_secure) {
+    if (!http) { http = New_HTTPLight(); }
+    if (!http) { AddLog(LOG_LEVEL_INFO, PSTR("WR: no httpl")); return; }
+  } else {
+    if (!wclient) { wclient = New_WiFiClient(); }
+    if (!http) { http = New_HTTP(); }
+    if (!wclient || !http) { AddLog(LOG_LEVEL_INFO, PSTR("WR: no client/http")); return; }
   }
 
-  if (!http) {
-    http = New_HTTP();
+  // jitter ring buffer (power of two): a big PSRAM ring when PSRAM is present,
+  // else a small internal-RAM ring. special_malloc is PSRAM-preferred and
+  // returns NULL when the (large) request can't be met on a no-PSRAM device,
+  // so the size adapts to what's actually available.
+  if (wr_ring) { free(wr_ring); wr_ring = 0; }
+  const uint32_t *wrcp = (const uint32_t *) ((uint8_t *)wr_uconst + EXEC_OFFSET);
+  wr_rsize = wrcp[0];                                 // ~32 s @128 kbps (PSRAM)
+  wr_ring = (uint8_t*)special_malloc(wr_rsize);
+  if (!wr_ring) {
+    wr_rsize = wrcp[1];                               // no PSRAM -> small internal ring (~1 s)
+    wr_ring = (uint8_t*)special_malloc(wr_rsize);
   }
-
-  bool res = http_begin(http, wclient, url);
-  
-  if (!res) {
-    http_end(http);
-    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s"),url);
+  if (!wr_ring) {
+    AddLog(LOG_LEVEL_INFO, PSTR("WR: no ring mem"));
     return;
   }
+  wr_rhead = 0; wr_rtail = 0; wr_icycount = 0;
+  AddLog(LOG_LEVEL_INFO, PSTR("WR: ring %u bytes"), wr_rsize);
 
-  // without this delay it fails mostly ??????
-  delay(100);
+  int32_t code = wr_connect();
+  AddLog(LOG_LEVEL_INFO, PSTR("WR result: %d (secure %d)"), code, wr_secure);
 
-  http_addHeader(http, GSTR(head_1), GSTR(head_2));
-
-  http_collectHeaders(http, GUI32p(hdr), 4 );
-
-  http_setReuse(http, true);
-
-  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
-
-  int32_t code = http_GET(http);
-  
-  AddLog(LOG_LEVEL_INFO, PSTR("WR result: %d"), code);
-  
   if (200 == code) {
-    volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
-    srate = icp[6];
-
-    if (http_hasHeader(http, GSTR(hdr_4))) {
-      char *ret = http_header(http, GSTR(hdr_4));
-      AddLog(LOG_LEVEL_INFO, PSTR("WR sr = %s"), ret);
-      srate = strtol(ret, 0, 10);
-      free(ret);
-    } else {
-      srate = icp[6];
-    }
-    
-    if (http_hasHeader(http, GSTR(hdr_1))) {
-      char *ret = http_header(http, GSTR(hdr_1));
-      AddLog(LOG_LEVEL_INFO, PSTR("ici metaint = %s"), ret);
-      icyMetaInt = strtol(ret, 0, 10);
-      free(ret);
-    } else {
-      icyMetaInt = 0;
-    }
-
-    //int32_t size = http_getSize(http);
-
     i2s_busy = true;
-
-#define URL_SIZE 256
-    // play webradio stream
-    //char *urlcopy = (char*)calloc(URL_SIZE, 1);
     const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
     TASKPARS tp;
     tp.pvTaskCode = GVOID(I2sTaskWR);
     tp.constpcName = GSTR(tname);
     tp.usStackDepth = uicp[1];
-    tp.constpvParameters = url;
+    tp.constpvParameters = (void*)wr_url;
     tp.uxPriority = 3;
     tp.constpvCreatedTask = nullptr;
     tp.xCoreID = 1;
     xTaskCreatePinnedToCore(&tp);
     ResponseCmndDone();
   } else {
+    // connect failed: free what we set up here (the task that frees them never launches)
+    if (wr_ring) { free(wr_ring); wr_ring = 0; }
+    WR_HTTP_END();
+    if (wr_secure) { httpl_delete(http); } else { http_delete(http); }
+    http = 0;
+    if (!wr_secure) { client_delete(wclient); }
+    wclient = 0;
     ResponseCmndNumber(code);
   }
 #endif
