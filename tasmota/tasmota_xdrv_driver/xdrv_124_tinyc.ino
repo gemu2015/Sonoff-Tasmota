@@ -5529,6 +5529,7 @@ bool Xdrv124(uint32_t function) {
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
       if (!result && Tinyc) {
         // Check each slot for registered command prefix match
+        bool tc_busy = false;   // a prefix matched but its VM was busy -> answer "Busy", not "Unknown"
         for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
           TcSlot *s = Tinyc->slots[i];
           if (!s || !s->loaded) continue;
@@ -5554,6 +5555,7 @@ bool Xdrv124(uint32_t function) {
             // — keeps the web server responsive and the user retries.
             if (s->vm_mutex &&
                 xSemaphoreTake(s->vm_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+              tc_busy = true;   // ours, but locked past 200 ms (slot busy) — transient
               continue;
             }
 #endif
@@ -5561,6 +5563,7 @@ bool Xdrv124(uint32_t function) {
 #ifdef ESP32
               if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
+              tc_busy = true;   // ours, but VM mid-execution / not idle — transient
               continue;
             }
             tc_current_slot = s;
@@ -5572,6 +5575,16 @@ bool Xdrv124(uint32_t function) {
             result = true;
             break;
           }
+        }
+        // 1.6.34 (Andreas, .107 UI-flicker) — a registered prefix matched a
+        // slot but it was busy: the bounded 200 ms try-lock (1.6.23) timed
+        // out, or the VM was mid-execution. Reply a DISTINCT {"Command":
+        // "Busy"} instead of falling through to the generic {"Command":
+        // "Unknown"}, so a polling HTML UI can keep its last good value on a
+        // transient busy rather than blanking (which looked like data loss).
+        if (!result && tc_busy) {
+          Response_P(PSTR("{\"Command\":\"Busy\"}"));
+          result = true;
         }
       }
       break;
