@@ -1,0 +1,24 @@
+WDR1	http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
+WDR2	http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
+WDR3	http://wdr-wdr3-live.icecastssl.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3
+WDR4	http://wdr-wdr4-live.icecastssl.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3
+WDR COSMO	http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3
+WDR Edge	http://wdr-edge-300f-dus-ts-cdn.cast.addradio.de/wdr/wdr4/live/mp3/128/stream.mp3
+NDR1 Hannover	http://icecast.ndr.de/ndr/ndr1niedersachsen/hannover/mp3/128/stream.mp3
+NDR2 Niedersachsen	http://icecast.ndr.de/ndr/ndr2/niedersachsen/mp3/128/stream.mp3
+Bayern3	http://dispatcher.rndfnk.com/br/br3/live/mp3/low
+Bayern Klassik	http://dispatcher.rndfnk.com/br/brklassik/live/mp3/low
+Antenne Bayern	http://stream.antenne.de/antenne
+Hessen3	http://dispatcher.rndfnk.com/hr/hr3/live/mp3/48/stream.mp3
+NRW Rockradio	http://rnrw.cast.addradio.de/rnrw-0182/deinrock/low/stream.mp3
+NRW 90er	http://rnrw.cast.addradio.de/rnrw-0182/dein90er/low/stream.mp3
+RBB	http://dispatcher.rndfnk.com/rbb/rbb888/live/mp3/mid
+MDR	http://mdr-284280-1.cast.mdr.de/mdr/284280/1/mp3/low/stream.mp3
+SWR	http://swr-edge-10b5-fra-dtag-cdn.cast.addradio.de/swr/swr3/live/mp3/128/stream.mp3
+Radio Hagen	http://radiohagen.cast.addradio.de/radiohagen/simulcast/high/stream.mp3
+Deutschlandfunk	http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3
+Radio 1A Rock	http://stream.1a-webradio.de/saw-rock/
+Neue Deutsche Welle	http://streams.80s80s.de/ndw/mp3-192/streams.80s80s.de
+N-JOY	http://icecast.ndr.de/ndr/njoy/live/mp3/128/stream.mp3
+RT1 Rock	http://mp3.hitradiort1.c.nmdn.net/rt1rockwl/livestream.mp3
+Antenne 1	http://stream.antenne1.de/80er/livestream2.mp3

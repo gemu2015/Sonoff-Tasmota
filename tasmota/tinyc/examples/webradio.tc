@@ -45,10 +45,25 @@ int  last_loud = 40;                 // change-detect for the gain (set to -1 to
 int  nstations = 0;                  // station count parsed from the file
 int  idx_sel   = 0;                  // cached global index of sel_req (for seva HTML)
 int  idx_off   = 0;                  // cached global index of offreq
+int  pending   = 0;                  // station to start AFTER a switch-stop drains (0 = none)
 
 char fbuf[4096];                     // the whole /webradios.txt, kept in RAM
 char curr[48];                       // current station name
 char buf[420];                       // scratch (HTML / log)
+
+// ── seed a minimal /webradios.txt with 3 known-good 48 kHz streams when none
+//    exists yet, so the app is usable the first time it runs (the user then
+//    edits the file to taste and re-runs the slot to reload) ──
+void writeDefaultStations() {
+  int h = fileOpen(STATION_FILE, 1);           // 1 = write (create / truncate)
+  if (h < 0) { addLog("webradio: cannot create /webradios.txt"); return; }
+  strcpy(fbuf, "Bayern3\thttp://dispatcher.rndfnk.com/br/br3/live/mp3/low\n");
+  strcat(fbuf, "Bayern Klassik\thttp://dispatcher.rndfnk.com/br/brklassik/live/mp3/low\n");
+  strcat(fbuf, "Deutschlandfunk\thttp://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3\n");
+  fileWrite(h, fbuf, strlen(fbuf));
+  fileClose(h);
+  addLog("webradio: wrote default /webradios.txt (3 stations)");
+}
 
 // ── load /webradios.txt into fbuf and count the stations ──
 void loadStations() {
@@ -56,7 +71,12 @@ void loadStations() {
   char nm[64];
   nstations = 0;
   int h = fileOpen(STATION_FILE, 0);           // 0 = read
-  if (h < 0) { addLog("webradio: /webradios.txt missing"); return; }
+  if (h < 0) {                                 // no list yet -> seed a default + retry
+    addLog("webradio: /webradios.txt missing -> writing default");
+    writeDefaultStations();
+    h = fileOpen(STATION_FILE, 0);
+    if (h < 0) { addLog("webradio: /webradios.txt unavailable"); return; }
+  }
   int n = fileRead(h, fbuf, 4090);
   fileClose(h);
   if (n < 0) { n = 0; }
@@ -116,15 +136,31 @@ int main() {
 }
 
 // At most ONE tasmDefer() per tick (the deferred buffer holds one command).
-// Priority: start a station, then stop, then volume. Each path returns so a
-// second command is never queued before the first has drained.
+// Priority: a station click, then a pending switch-start, then stop, then
+// volume. Each path returns so a second command is never queued before the
+// first drains. Switching stations is STOP-THEN-START: starting a new stream
+// while the old one is still live blocks the I2S on the main task and the
+// device goes unresponsive, so we tear the old stream down one tick first.
 void EverySecond() {
   if (sel_req != 0) {
     int n = sel_req; sel_req = 0;
-    if (n >= 1 && n <= nstations) { playStation(n); }   // defers I2SWR <url>
+    if (n < 1 || n > nstations) { return; }
+    if (n == sel)               { return; }   // already playing this one
+    if (sel != 0) {                            // a station is playing -> stop it,
+      stopRadio();                             //   (defers I2SWR stop, sel -> 0)
+      pending = n;                             //   then start n on the next tick
+      return;
+    }
+    if (pending != 0) { pending = n; return; } // mid-switch -> just retarget
+    playStation(n);                            // idle -> start now
     return;
   }
-  if (offreq != 0) { offreq = 0; stopRadio(); return; }  // defers I2SWR (stop)
+  if (pending != 0) {                          // the switch-stop has drained -> start
+    int n = pending; pending = 0;
+    playStation(n);
+    return;
+  }
+  if (offreq != 0) { offreq = 0; pending = 0; stopRadio(); return; }  // defers I2SWR (stop)
   // volume: apply on change, and ~1s after a station starts (last_loud == -1)
   if (loud != last_loud) {
     char cmd[24];
@@ -150,23 +186,35 @@ void WebCall() {
   // Styles ONCE as classes — keeps each station row tiny (~70 B) so the web
   // content buffer never overflows (24 rows of full inline style truncated it).
   // .n = narrow Nr cell; .wr button = idle; .sel = playing; .stp = Stop.
-  webSend("<style>.wr{width:360px;margin:8px auto;border-collapse:collapse;background:#d9d9d9;color:#111;border:1px solid #999}.wr td,.wr th{border-top:1px solid #c8c8c8;padding:3px}.wr .n{width:1%;white-space:nowrap;text-align:center;padding:3px 8px}.wr button{box-sizing:border-box;width:100%;border:0;border-radius:0.3rem;padding:4px;color:#fff;background:#607d8b}.wr .sel{background:#2e7d32}.wr .stp{background:#b71c1c}</style>");
+  // 3 stations per row (a 3-column grid of station buttons). Each cell is one
+  // station; the playing one is highlighted (.sel). Styles ONCE as classes so
+  // each cell stays tiny and the web content buffer never overflows.
+  webSend("<style>.wr{width:560px;max-width:97%;margin:8px auto;border-collapse:collapse;background:#d9d9d9;color:#111;border:1px solid #999}.wr td{width:33%;border-top:1px solid #c8c8c8;padding:3px}.wr button{box-sizing:border-box;width:100%;border:0;border-radius:0.3rem;padding:6px 3px;color:#fff;background:#607d8b;font-size:0.82rem}.wr .sel{background:#2e7d32}.wr .stp{background:#b71c1c}</style>");
   webSend("<table class='wr'>");
-  webSend("<tr><th colspan='2' style='padding:6px;background:#c2c2c2;font-size:1.1rem;text-align:center'>Web-Radio</th></tr>");
-  webSend("<tr><th class='n'>Nr</th><th style='background:#cfcfcf'>Sender</th></tr>");
+  webSend("<tr><th colspan='3' style='padding:6px;background:#c2c2c2;font-size:1.1rem;text-align:center'>Web-Radio</th></tr>");
   int i = 1;
+  int col = 0;                                 // 0..2 within the current row
   int fl = 0;
   while (i <= nstations) {
     station(i, nm, url);
+    if (col == 0) { webSend("<tr>"); }         // open a new row every 3 stations
     if (i == sel) { strcpy(cls, "sel"); } else { cls[0] = 0; }
-    sprintf(buf, "<tr><td class='n'>%d</td><td><button onclick='seva(%d,%d)' class='%s'>%s</button></td></tr>",
-            i, i, idx_sel, cls, nm);
+    sprintf(buf, "<td><button onclick='seva(%d,%d)' class='%s'>%s</button></td>",
+            i, idx_sel, cls, nm);
     webSend(buf);
-    fl = fl + 1;
-    if (fl >= 8) { webFlush(); fl = 0; }       // flush every 8 rows -> no buffer overflow
+    col = col + 1;
+    if (col >= 3) {                            // row full -> close it
+      webSend("</tr>"); col = 0;
+      fl = fl + 1;
+      if (fl >= 2) { webFlush(); fl = 0; }     // flush every 2 rows -> no buffer overflow
+    }
     i = i + 1;
   }
-  sprintf(buf, "<tr><td class='n'>Aus</td><td><button onclick='seva(1,%d)' class='stp'>Stop</button></td></tr>",
+  if (col != 0) {                              // pad + close a partial last row
+    while (col < 3) { webSend("<td></td>"); col = col + 1; }
+    webSend("</tr>");
+  }
+  sprintf(buf, "<tr><td colspan='3' style='text-align:center;padding:5px'><button onclick='seva(1,%d)' class='stp' style='width:auto;padding:4px 28px'>Stop</button></td></tr>",
           idx_off);
   webSend(buf);
   webSend("</table>");
