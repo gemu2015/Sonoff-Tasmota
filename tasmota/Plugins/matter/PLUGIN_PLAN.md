@@ -182,3 +182,35 @@ PROGMEM the 40 const tables + ~195 strings; consolidate the few mutable globals 
 Multi-day, every step build-gated (main-checkout env). Cadence: (1) trivial matter stub builds →
 loop proven; (2) add the HAL + 23 `br_*` exports + base BearSSL link; (3) discipline-port
 matter_c; (4) amalgamate → build → commission on .156.
+
+### Stage 2 — by-pointer crypto seam DE-RISKED (PASSED, 2026-06-03, live on .156)
+Harness: firmware (`xdrv_124` `CmndMatterCryptoTest`) fills `mtrc_crypto_ops` with its linked `br_*`
++ the two const vtables and passes it (with KAT input vectors) to a plugin export
+`matter_crypto_selftest` (`xblib_02_matter.cpp` + `mtrc_crypto_selftest.h`); the plugin runs SHA-256
+/ HMAC / HKDF / EC-mulgen / ECDSA / AES-CCM **through `io->ops`** and writes outputs back; firmware
+checks each vs known-answer vectors → `mask`. **Result: `{"ran":90,"mask":"0x3f","pass":true}`,
+repeatable, no reboot (Uptime climbing).** Bit 3 (`ec`) green = `ec_p256_m15->mulgen` called THROUGH
+the base-`.rodata` vtable with **NO EXEC_OFFSET** on the method pointers → the flagged vtable risk is
+**cleared**; the by-pointer crypto model is sound. The eventual lean-base just fills the struct and
+calls the plugin's `mtrc_crypto_bind`.
+
+**Discipline findings (the real cost of amalgamating matter_c — confirmed live, not theory):**
+1. **`static` mutable file-scope data is fatal.** First cut amalgamated `mtrc_crypto.c`, whose bound
+   ops sit in `static const mtrc_crypto_ops *g_cr` → in the PIC plugin that doesn't relocate →
+   `bind()` wrote a wild address → first `g_cr->…` call = `Software reset CPU` (caught on .156). The
+   full amalgamation must move every such global into `MODULE_MEMORY` (via `ALLOCMEM`/`SETMEMREGS`),
+   or keep the touching code stateless/parameter-driven (what the de-risk did).
+2. **`static const` too** (export-name arrays etc.) → make non-static.
+3. **Inline integer literals ≥ 2048 miscompile** (l32r literal-pool, PIC). E.g. the probe's
+   `0x4D545201` → moved to a non-static `const uint32_t matter_uconst[] PROGMEM` read via
+   `GUI32p()`+`EXEC_OFFSET` (the `pico_uconst` pattern). matter_c has MANY such constants.
+4. **libc `mem*` in pulled-in headers** (the BearSSL umbrella `t_bearssl.h` has inline fns using
+   `memcpy`/`memmove`) expand to the framework's `jt[91..92]` jumptable calls needing `jt` in scope —
+   absent at file scope → won't even parse. Neutralized with plain (non-static) byte-loop `mem*`
+   before the include. Functions that genuinely need libc `mem*` must carry `jt` via `SETMEMREGS`.
+
+Build/flash notes: plugin env needs `-I tasmota/Plugins/matter/include -I lib/lib_ssl/bearssl-esp8266/src`
+(added to the `*-plugin` envs). .156 is an **S3-mini2 (S3FH4R2, QUAD PSRAM)** → base env is
+`tinyc32s3-mini[-home]` (board `esp32s3-qio_qspi`), NOT `tinyc32s3` (octal PSRAM → PSRAM-init
+boot-loop → safeboot rollback; wrong-variant OTA cost a creds reset). BLIB swap: `unlink N` → POST
+`/modu` (field `modu`) → `iniz N` → `TinyCMtrCrypto`.

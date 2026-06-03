@@ -760,6 +760,7 @@ void CmndCheckPartition(void);
 void CmndTinyCIde(void);
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
+void CmndMatterCryptoTest(void);
 #endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
@@ -768,7 +769,7 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Chkpt"
 #endif
 #ifdef USE_MATTER_C
-  "|MtrReset"
+  "|MtrReset|MtrCrypto"
 #endif
   ;
 
@@ -780,6 +781,7 @@ void (* const TinyCCommand[])(void) PROGMEM = {
 #endif
 #ifdef USE_MATTER_C
   , &CmndMatterReset
+  , &CmndMatterCryptoTest
 #endif
 };
 
@@ -793,6 +795,110 @@ void CmndMatterReset(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("MTR: factory reset — fabrics wiped, restarting"));
   ResponseCmndDone();
   TasmotaGlobal.restart_flag = 2;
+}
+
+// ── TinyCMtrCrypto — Fork-B Stage-2 crypto-seam de-risk (task #125) ──────────
+// ⚠ TEMPORARY SCAFFOLD — remove this command (+ the KAT vectors + the plugin's
+// matter_crypto_selftest export + mtrc_crypto_selftest.h) once the real matter_c
+// amalgamation + the firmware-fills-ops / mtrc_crypto_bind path lands. Proven
+// green on .156 2026-06-03 ({"ran":90,"mask":"0x3f","pass":true}).
+// Hands the LOADED matter BinPlugin the firmware's BearSSL primitives BY POINTER
+// (mtrc_crypto_ops — incl. the two base-.rodata vtables br_ec_p256_m15 +
+// br_sha256_vtable), has it run SHA-256/HMAC/HKDF/EC/ECDSA/AES-CCM through the
+// by-pointer seam (its mtrc_crypto.c), and checks each result here against a
+// known-answer vector. A 0x3F mask proves the seam + both vtables work on a
+// mmap'd plugin with NO EXEC_OFFSET on the method pointers — the gate before the
+// full matter_c amalgamation. Requires the matter BLIB (xblib_02) loaded + iniz'd.
+#include "../Plugins/matter/include/mtrc_crypto_selftest.h"  // io struct + ops (pulls t_bearssl)
+
+// Known-answer vectors (firmware .rodata — no plugin relocation question).
+static const uint8_t MTRC_KAT_SHA[32] = {   // SHA-256("abc")
+  0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
+  0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad };
+static const uint8_t MTRC_KAT_HMAC[32] = {  // RFC4231 TC2: HMAC-SHA256("Jefe", "what do ya want for nothing?")
+  0x5b,0xdc,0xc1,0x46,0xbf,0x60,0x75,0x4e,0x6a,0x04,0x24,0x26,0x08,0x95,0x75,0xc7,
+  0x5a,0x00,0x3f,0x08,0x9d,0x27,0x39,0x83,0x9d,0xec,0x58,0xb9,0x64,0xec,0x38,0x43 };
+static const uint8_t MTRC_KAT_HKDF[42] = {  // RFC5869 TC1 OKM
+  0x3c,0xb2,0x5f,0x25,0xfa,0xac,0xd5,0x7a,0x90,0x43,0x4f,0x64,0xd0,0x36,0x2f,0x2a,
+  0x2d,0x2d,0x0a,0x90,0xcf,0x1a,0x5a,0x4c,0x5d,0xb0,0x2d,0x56,0xec,0xc4,0xc5,0xbf,
+  0x34,0x00,0x72,0x08,0xd5,0xb8,0x87,0x18,0x58,0x65 };
+static const uint8_t MTRC_HKDF_SALT[13] = { 0,1,2,3,4,5,6,7,8,9,10,11,12 };
+static const uint8_t MTRC_HKDF_IKM[22]  = { 0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,
+                                            0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b,0x0b };
+static const uint8_t MTRC_HKDF_INFO[10] = { 0xf0,0xf1,0xf2,0xf3,0xf4,0xf5,0xf6,0xf7,0xf8,0xf9 };
+static const uint8_t MTRC_EC_PRIV[32] = {   // NIST P-256 ECDH test scalar d
+  0xc9,0xaf,0xa9,0xd8,0x45,0xba,0x75,0x16,0x6b,0x5c,0x21,0x57,0x67,0xb1,0xd6,0x93,
+  0x4e,0x50,0xc3,0xdb,0x36,0xe8,0x9b,0x12,0x7b,0x8a,0x62,0x2b,0x12,0x0f,0x67,0x21 };
+static const uint8_t MTRC_KAT_ECPUB[65] = { // 0x04 || Qx || Qy  (Q = d*G)
+  0x04,
+  0x60,0xfe,0xd4,0xba,0x25,0x5a,0x9d,0x31,0xc9,0x61,0xeb,0x74,0xc6,0x35,0x6d,0x68,
+  0xc0,0x49,0xb8,0x92,0x3b,0x61,0xfa,0x6c,0xe6,0x69,0x62,0x2e,0x60,0xf2,0x9f,0xb6,
+  0x79,0x03,0xfe,0x10,0x08,0xb8,0xbc,0x99,0xa4,0x1a,0xe9,0xe9,0x56,0x28,0xbc,0x64,
+  0xf2,0xf1,0xb2,0x0c,0x2d,0x7e,0x9f,0x51,0x77,0xa3,0xc2,0x94,0xd4,0x46,0x22,0x99 };
+static const uint8_t MTRC_CCM_KEY[16]   = { 0x40,0x41,0x42,0x43,0x44,0x45,0x46,0x47,
+                                            0x48,0x49,0x4a,0x4b,0x4c,0x4d,0x4e,0x4f };
+static const uint8_t MTRC_CCM_NONCE[13] = { 0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c };
+static const uint8_t MTRC_CCM_AAD[8]    = { 0,1,2,3,4,5,6,7 };
+static const uint8_t MTRC_CCM_PT[16]    = { 0x20,0x21,0x22,0x23,0x24,0x25,0x26,0x27,
+                                            0x28,0x29,0x2a,0x2b,0x2c,0x2d,0x2e,0x2f };
+
+void CmndMatterCryptoTest(void) {
+  // 1) Fill the ops struct with the base's linked BearSSL primitives. The
+  //    __typeof__ fields make each assignment compiler-checked against the real
+  //    br_* prototype; the two vtables are passed as base-.rodata addresses as-is.
+  static mtrc_crypto_ops ops;
+  ops.sha256_init   = br_sha256_init;     ops.sha256_update = br_sha256_update;
+  ops.sha256_out    = br_sha256_out;
+  ops.hmac_key_init = br_hmac_key_init;   ops.hmac_init     = br_hmac_init;
+  ops.hmac_update   = br_hmac_update;     ops.hmac_out      = br_hmac_out;
+  ops.hkdf_init     = br_hkdf_init;       ops.hkdf_inject   = br_hkdf_inject;
+  ops.hkdf_flip     = br_hkdf_flip;       ops.hkdf_produce  = br_hkdf_produce;
+  ops.ecdsa_sign_raw= br_ecdsa_i15_sign_raw; ops.ecdsa_vrfy_raw= br_ecdsa_i15_vrfy_raw;
+  ops.aes_ct_ctrcbc_init = br_aes_ct_ctrcbc_init;
+  ops.ccm_init      = br_ccm_init;        ops.ccm_reset     = br_ccm_reset;
+  ops.ccm_aad_inject= br_ccm_aad_inject;  ops.ccm_flip      = br_ccm_flip;
+  ops.ccm_run       = br_ccm_run;         ops.ccm_get_tag   = br_ccm_get_tag;
+  ops.ccm_check_tag = br_ccm_check_tag;
+  ops.ec_p256_m15   = &br_ec_p256_m15;    ops.sha256_vtable = &br_sha256_vtable;
+
+  // 2) Fill the io struct: ops + firmware-owned input vectors.
+  static mtrc_crypto_selftest_io io;
+  memset(&io, 0, sizeof(io));
+  io.ops = &ops;
+  io.sha_in  = (const uint8_t *)"abc";                          io.sha_in_len  = 3;
+  io.hmac_key= (const uint8_t *)"Jefe";                         io.hmac_key_len= 4;
+  io.hmac_in = (const uint8_t *)"what do ya want for nothing?"; io.hmac_in_len = 28;
+  io.hkdf_salt = MTRC_HKDF_SALT; io.hkdf_salt_len = 13;
+  io.hkdf_ikm  = MTRC_HKDF_IKM;  io.hkdf_ikm_len  = 22;
+  io.hkdf_info = MTRC_HKDF_INFO; io.hkdf_info_len = 10; io.hkdf_out_len = 42;
+  io.ec_priv   = MTRC_EC_PRIV;
+  io.ccm_key   = MTRC_CCM_KEY;
+  io.ccm_nonce = MTRC_CCM_NONCE; io.ccm_nonce_len = 13;
+  io.ccm_aad   = MTRC_CCM_AAD;   io.ccm_aad_len   = 8;
+  io.ccm_pt    = MTRC_CCM_PT;    io.ccm_pt_len    = 16;
+
+  // 3) Resolve the plugin export (xdrv_123 registry, same TU) + call it through
+  //    the (buf,int)->int ABI, passing &io as the buf arg.
+  TC_BLIB_REG_ENTRY *r = tc_blib_lookup("matter_crypto_selftest");
+  if (!r) { ResponseCmndChar_P(PSTR("matter BLIB not loaded/iniz'd (no matter_crypto_selftest)")); return; }
+  int32_t ran = ((int32_t (*)(uint8_t *, int))r->fn)((uint8_t *)&io, (int)sizeof(io));
+
+  // 4) Compare the plugin's outputs against the KATs -> per-primitive pass bits.
+  uint32_t m = 0;
+  if (ran == 0x5A) {
+    if (memcmp(io.sha_out,  MTRC_KAT_SHA,   32) == 0) m |= 0x01;
+    if (memcmp(io.hmac_out, MTRC_KAT_HMAC,  32) == 0) m |= 0x02;
+    if (memcmp(io.hkdf_out, MTRC_KAT_HKDF,  42) == 0) m |= 0x04;
+    if (memcmp(io.ec_pub,   MTRC_KAT_ECPUB, 65) == 0) m |= 0x08;   // mulgen vtable
+    if (io.ecdsa_verify == 1)                         m |= 0x10;
+    if (io.ccm_dec_ok == 1 && memcmp(io.ccm_dec, MTRC_CCM_PT, 16) == 0) m |= 0x20;
+  }
+  AddLog(LOG_LEVEL_INFO,
+         PSTR("MTR crypto seam: ran=%d mask=0x%02x  sha=%d hmac=%d hkdf=%d ec=%d ecdsa=%d ccm=%d  %s"),
+         ran, m, !!(m&1), !!(m&2), !!(m&4), !!(m&8), !!(m&16), !!(m&32),
+         (m == 0x3F) ? "ALL PASS" : "FAIL");
+  Response_P(PSTR("{\"MtrCrypto\":{\"ran\":%d,\"mask\":\"0x%02x\",\"pass\":%s}}"),
+             ran, m, (m == 0x3F) ? "true" : "false");
 }
 #endif
 
