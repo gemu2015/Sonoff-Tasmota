@@ -107,6 +107,36 @@ HARDWARE-VERIFIED on .156 (ESP32-S3, 15.4.0.1, has a 128 KB `custom` partition):
 (build → upload → mmap → EXEC_OFFSET → tc_blib_lookup → native call) is proven — this is the
 mechanism the firmware will use to resolve the real matter_c exports.
 
+### Stage 2 (in progress 2026-06-02) — the BearSSL seam: subset enumerated, Fork B confirmed
+matter_c's BearSSL use is isolated to `mtrc_crypto.c` (includes `t_bearssl.h`). Exact subset:
+- functions (~21): `br_aes_ct_ctrcbc_init`; `br_ccm_{init,reset,aad_inject,flip,run,get_tag,check_tag}`;
+  `br_ecdsa_i15_{sign,vrfy}_raw`; `br_hkdf_{init,inject,flip,produce}`; `br_hmac_{init,key_init,update,out}`;
+  `br_sha256_{init,update,out}`.
+- const vtables (2): `br_ec_p256_m15` (`br_ec_impl`), `br_sha256_vtable` (`br_hash_class`).
+- NOTE: no GCM — does NOT overlap the `br_gcm_*`/`br_aes` already on jt[192..198] (SML decrypt).
+File closure in `lib/lib_ssl/bearssl-esp8266/src/`: `symcipher/aes_ct_ctrcbc.c`, `aead/ccm.c`,
+`kdf/hkdf.c`, `hash/sha2small.c`, `ssl/prf_sha256.c`, `ec/ecdsa_i15_{sign,vrfy}_raw.c`,
+`ec/ec_all_m15.c` + `ec_p256_m15.c` (2111 lines) + `ec_prime_i15.c` (826) + ~10 `int/i15_*.c`
+bignum files. The i15 EC/bignum is the heavy part. This tree already compiles+links on ESP32 (both
+the built-in matter lib and the SML-decrypt `br_gcm` exports pull from it).
+
+**DECISION: Fork B.** Fork A would mean PROGMEM/no-intrinsic hand-porting the 2111-line EC impl +
+i15 bignum, bit-exact — high risk, multi-day. Fork B links the subset NORMALLY into a lean base and
+hands it to the plugin.
+
+**REFINEMENT (supersedes tmod_ext_call for crypto): pass crypto BY POINTER, like the HAL.** Extend
+the plugin's `matter_port_t` (duplicated copy) with a crypto-ops sub-struct holding the ~21 `br_*`
+fn pointers + the 2 vtable addresses; the firmware fills it with its linked `br_*` and passes it at
+`matter_init`. The plugin's `mtrc_crypto.c` (duplicated copy) is refactored to call through the
+struct (`crypto->ccm_init(...)`) instead of the direct `br_*` symbols. Signatures match → no
+arg-packing and **NO tmod_ext_call / jumptable changes at all** — both HAL and crypto arrive as
+init-time fn-pointer structs, the natural extension of the BLIB/HAL-by-pointer model. (tmod_ext_call
+selectors stay a fallback if a by-pointer field proves awkward, e.g. a vtable whose inner fn
+pointers also need EXEC_OFFSET handling.) Only base change: force-link the subset (the struct-fill
+references it) + fill the struct. Open risk to verify first: the 2 const vtables hold fn pointers
+into base `.rodata`; confirm the plugin can call through them as-is (base absolute addresses, no
+EXEC_OFFSET) before committing to the by-pointer path for the vtables.
+
 ### Build environment (GATING — must be the main checkout)
 `build_plugin.py` → `pio run -e tasmota32c3-plugin` needs `platformio_override.ini` +
 `user_config_override.h`, which are **gitignored / main-checkout-only** (absent in this
