@@ -1126,22 +1126,66 @@ def _flash_ota(host, user, password):
 _NOPROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def _port80_open(ip):
+def _port80_open(ip, timeout=3.0):
+    """Phase-A liveness probe: is :80 accepting connections?
+
+    The old 0.6 s connect MISSED real devices the browser reaches fine.
+    Two distinct failure modes were observed and both are covered here:
+
+      • A heavily-loaded device (e.g. .21, a busy TinyC S3 rendering
+        charts + a stream) has a *variable, multi-second* TCP handshake —
+        2.2 s one moment, >3 s the next. Splitting the budget into short
+        retries does NOT help: each attempt independently needs the whole
+        handshake, so 2×1.2 s still timed out. The cure is ONE generous
+        window (the OS already retransmits the SYN within it, covering a
+        busy device that drops the first SYN).
+      • A definitive refuse / no-route / unreachable (nothing there)
+        raises OSError immediately, so a sparse subnet still scans fast —
+        only genuinely-present-but-slow hosts pay the full 3 s."""
     try:
-        socket.create_connection((ip, 80), 0.6).close()
+        socket.create_connection((ip, 80), timeout).close()
         return ip
-    except OSError:
+    except OSError:                    # timeout / refused / no route → not live
         return None
+
+
+def _http_root_probe(ip):
+    """Fallback identity probe: GET / and sniff the 'Server: Tasmota/…'
+    header. A heavily-loaded device (busy TinyC / charts / stream S3, e.g.
+    .21) serves its web UI but stalls /cm?cmnd=Status for many seconds —
+    so the primary probe never lands even though a browser opens the page
+    fine. The Server header is a definitive Tasmota fingerprint; the name
+    is read from the page's <h2> friendly-name (then <title>)."""
+    try:
+        r = _NOPROXY.open('http://%s/' % ip, timeout=8)
+        srv = (r.headers.get('Server') or '')
+        head = r.read(12288).decode('utf-8', 'replace')
+    except Exception:
+        return None
+    if not srv.lower().startswith('tasmota') and 'tasmota' not in head.lower():
+        return None                              # serves :80 but isn't Tasmota
+    nm = ''
+    mo = _re.search(r'<h2>\s*([^<]{1,40})\s*</h2>', head)
+    if mo:
+        nm = mo.group(1).strip()
+    if not nm:
+        mo = _re.search(r'<title>\s*([^<]{1,60})</title>', head)
+        if mo:                       # strip the localized "… Main Menu" suffix
+            nm = _re.sub(r'\s+(Hauptmen|Main Menu|Menu|Module|Hauptmenu).*$',
+                         '', mo.group(1)).strip()
+    return {'ip': ip, 'name': nm or '(Tasmota)'}
 
 
 def _http_status(ip):
     """HTTP Status probe of a host already known to have :80 open.
-    One retry — under server load a single attempt is flaky."""
+    One retry — under server load a single attempt is flaky. If /cm never
+    lands (a maxed-out device stalls it), fall back to a GET / fingerprint
+    so the device still shows up — exactly what the browser reaches."""
     body = None
     for attempt in (1, 2):
         try:
             r = _NOPROXY.open('http://%s/cm?cmnd=Status' % ip,
-                              timeout=4)
+                              timeout=5)
             body = r.read(2048).decode('utf-8', 'replace')
             break
         except urllib.error.HTTPError as e:
@@ -1161,18 +1205,22 @@ def _http_status(ip):
                 if ('warning' in b or 'tasmota' in b) else None
         except Exception:
             if attempt == 2:
-                return None
+                break              # /cm unreachable — try the GET / fallback
             time.sleep(0.25)
-    try:
-        st = json.loads(body).get('Status', {})
-        nm = st.get('DeviceName') \
-            or (st.get('FriendlyName') or [''])[0] \
-            or st.get('Topic') or ''
-        return {'ip': ip, 'name': nm}
-    except Exception:
-        if body and ('WARNING' in body or 'tasmota' in body.lower()):
-            return {'ip': ip, 'name': '(locked)'}
-    return None
+    if body:
+        try:
+            st = json.loads(body).get('Status', {})
+            nm = st.get('DeviceName') \
+                or (st.get('FriendlyName') or [''])[0] \
+                or st.get('Topic') or ''
+            return {'ip': ip, 'name': nm}
+        except Exception:
+            if 'WARNING' in body or 'tasmota' in body.lower():
+                return {'ip': ip, 'name': '(locked)'}
+    # /cm gave nothing usable — a maxed-out device stalls /cm but still
+    # serves its web root. Sniff that (what the browser reaches) before
+    # giving up, so the device is no longer invisible to the scan.
+    return _http_root_probe(ip)
 
 
 def _dev_partitions(host, user='admin', password=''):
@@ -1443,6 +1491,123 @@ def _scan_full(net, pw=''):
         out = list(ex.map(enrich, base))
     out.sort(key=lambda d: tuple(int(x) for x in d['ip'].split('.')))
     return out
+
+
+# ── Background scan with live progress ──────────────────────────────────
+# The old /api/scan blocked until the whole subnet was done, so the UI
+# could only show a static "scanning…" and then dump the final table — no
+# "devices found counting up". This worker runs the same two-phase scan in
+# a background thread, publishing progress to scan_state as each host
+# resolves; the frontend polls /api/scan/progress and renders devices
+# incrementally. A monotonically-increasing token lets a fresh scan cancel
+# an in-flight one (the worker bails the moment its token is superseded).
+scan_lock  = threading.Lock()
+scan_state = {
+    'running': False, 'done': False, 'phase': 'idle', 'net': '',
+    'a_done': 0, 'a_total': 0,        # phase A — port-80 sweep (of 254)
+    'b_done': 0, 'b_total': 0,        # phase B — confirm + enrich live hosts
+    'found': 0, 'devices': [],        # confirmed devices so far (incremental)
+    'error': '', 'token': 0,
+}
+
+
+def _scan_worker(net, pw, full, token):
+    cf = concurrent.futures
+
+    def _fail(msg):
+        with scan_lock:
+            if scan_state['token'] == token:
+                scan_state.update({'running': False, 'done': True,
+                                   'phase': 'done', 'error': msg})
+
+    def _superseded():
+        with scan_lock:
+            return scan_state['token'] != token
+
+    try:
+        net2 = net.strip().rstrip('.')
+        if not _re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}$', net2):
+            return _fail('bad subnet')
+        ips = ['%s.%d' % (net2, i) for i in range(1, 255)]
+        with scan_lock:
+            if scan_state['token'] != token:
+                return
+            scan_state.update({'phase': 'ports', 'a_total': len(ips),
+                               'a_done': 0})
+
+        # Phase A — port-80 liveness, progress as each connect resolves.
+        live = []
+        with cf.ThreadPoolExecutor(max_workers=64) as ex:
+            futs = [ex.submit(_port80_open, ip) for ip in ips]
+            for fu in cf.as_completed(futs):
+                if _superseded():
+                    return
+                r = fu.result()
+                with scan_lock:
+                    scan_state['a_done'] += 1
+                    if r:
+                        live.append(r)
+        if _superseded():
+            return
+        live.sort(key=lambda x: tuple(int(p) for p in x.split('.')))
+        with scan_lock:
+            scan_state.update({'phase': 'probe', 'b_total': len(live),
+                               'b_done': 0})
+
+        # Phase B — confirm each live host is Tasmota (+ enrich when full).
+        def probe(ip):
+            d = _http_status(ip)
+            if not d:
+                return None
+            if not full:
+                return d
+            info = _dev_info(ip, 'admin', pw)          # Status 0 + partitions
+            if info.get('ok'):
+                info['ip'] = ip
+                if not info.get('name'):
+                    info['name'] = d.get('name', '')
+                return info
+            return {'ip': ip, 'name': d.get('name', ''), 'ok': False,
+                    'locked': bool(info.get('locked')),
+                    'error': info.get('error', '')}
+
+        with cf.ThreadPoolExecutor(max_workers=8) as ex:
+            futs = [ex.submit(probe, ip) for ip in live]
+            for fu in cf.as_completed(futs):
+                if _superseded():
+                    return
+                d = fu.result()
+                with scan_lock:
+                    scan_state['b_done'] += 1
+                    if d:
+                        scan_state['devices'].append(d)
+                        scan_state['found'] = len(scan_state['devices'])
+
+        with scan_lock:
+            if scan_state['token'] != token:
+                return
+            scan_state['devices'].sort(
+                key=lambda d: tuple(int(x) for x in d['ip'].split('.')))
+            scan_state.update({'running': False, 'done': True,
+                               'phase': 'done'})
+    except Exception as e:
+        _fail(str(e))
+
+
+def _scan_start(net, pw, full):
+    """Kick off a background scan unless one is already running. Returns
+    the active token (a new one if we started, the live one otherwise)."""
+    with scan_lock:
+        if scan_state['running']:
+            return scan_state['token'], False
+        tok = scan_state['token'] + 1
+        scan_state.update({'running': True, 'done': False, 'phase': 'ports',
+                           'net': net, 'a_done': 0, 'a_total': 254,
+                           'b_done': 0, 'b_total': 0, 'found': 0,
+                           'devices': [], 'error': '', 'token': tok})
+    threading.Thread(target=_scan_worker, args=(net, pw, full, tok),
+                     daemon=True).start()
+    return tok, True
 
 
 def _flash_cancel():
@@ -2283,33 +2448,73 @@ async function applyRename(d, field, value, tr){
     }
   }catch(e){ alert('Rename error: '+e); }
 }
+// Live progress row while a background scan runs: shows the subnet sweep
+// position and the running "devices found" count, with any already-found
+// devices rendered above it so they appear one-by-one (counting up).
+function renderScanProgress(st){
+  let line;
+  if(st.phase==='ports'){
+    const a=st.a_total?(st.a_done+'/'+st.a_total):'…';
+    line='scanning '+st.net+'.x — checked '+a+' host(s) · '
+        +st.found+' device(s) so far';
+  }else{
+    line='reading devices — '+st.b_done+'/'+st.b_total+' · '
+        +st.found+' found';
+  }
+  const devs=st.devices||[];
+  if(devs.length){
+    renderScanTable(devs);                 // incremental: rows so far
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td colspan="10" style="color:var(--mut)">⟳ '+line+'</td>';
+    scanbodyEl.appendChild(tr);            // …then the live status line
+  }else{
+    scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut)">⟳ '
+      +line+'</td></tr>';
+    scanwrapEl.classList.remove('hide');
+  }
+}
 hostscanEl.onclick=async()=>{
   const ip=(hostipEl&&hostipEl.value)||'';
   const net=ip.split('.').slice(0,3).join('.');
   hostscanEl.disabled=true;
   const ot=hostscanEl.textContent; hostscanEl.textContent='scanning…';
-  scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut)">'
-    +'scanning '+(net||'LAN')+'.x — reading CPU / version / sensors / partitions …'
-    +'</td></tr>'; scanwrapEl.classList.remove('hide');
+  scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut)">⟳ '
+    +'starting scan of '+(net||'LAN')+'.x …</td></tr>';
+  scanwrapEl.classList.remove('hide');
+  const pw=encodeURIComponent($('#fwpass').value||'');
   try{
-    const pw=encodeURIComponent($('#fwpass').value||'');
-    const j=await(await fetch('/api/scan?full=1'+(net?'&net='+net:'')
-      +'&pw='+pw)).json();
-    renderScanTable(j.devices);
-    // keep the compact dropdown in sync as a fallback picker
-    hostselEl.innerHTML='';
-    const o0=document.createElement('option');
-    o0.value='';o0.textContent=(j.devices||[]).length
-      ? '— '+j.devices.length+' on '+j.net+'.x —'
-      : '— none found on '+j.net+'.x —';
-    hostselEl.appendChild(o0);
-    (j.devices||[]).forEach(d=>{const o=document.createElement('option');
-      o.value=d.ip;o.textContent=d.ip+(d.name?'  ('+d.name+')':'');
-      hostselEl.appendChild(o);});
-    if((j.devices||[]).length===1) selectDevice(j.devices[0].ip,
-      scanbodyEl.firstChild);
-  }catch(e){ scanbodyEl.innerHTML='<tr><td colspan="10" class="lk">'
-    +'scan failed: '+e+'</td></tr>'; }
+    await fetch('/api/scan/start?full=1'+(net?'&net='+net:'')+'&pw='+pw);
+  }catch(e){
+    scanbodyEl.innerHTML='<tr><td colspan="10" class="lk">scan start failed: '
+      +e+'</td></tr>';
+    hostscanEl.textContent=ot; hostscanEl.disabled=false; return;
+  }
+  // Poll progress until done; render devices as they come in.
+  for(;;){
+    await new Promise(r=>setTimeout(r,350));
+    let st;
+    try{ st=await(await fetch('/api/scan/progress')).json(); }
+    catch(e){ continue; }                  // transient — keep polling
+    hostscanEl.textContent='⟳ '+(st.found||0)+' found';
+    if(st.done){
+      renderScanTable(st.devices);
+      // keep the compact dropdown in sync as a fallback picker
+      hostselEl.innerHTML='';
+      const o0=document.createElement('option');
+      o0.value='';o0.textContent=(st.devices||[]).length
+        ? '— '+st.devices.length+' on '+st.net+'.x —'
+        : '— none found on '+st.net+'.x —';
+      hostselEl.appendChild(o0);
+      (st.devices||[]).forEach(d=>{const o=document.createElement('option');
+        o.value=d.ip;o.textContent=d.ip+(d.name?'  ('+d.name+')':'');
+        hostselEl.appendChild(o);});
+      if((st.devices||[]).length===1) selectDevice(st.devices[0].ip,
+        scanbodyEl.firstChild);
+      if(st.error) console.warn('scan error:', st.error);
+      break;
+    }
+    renderScanProgress(st);
+  }
   hostscanEl.textContent=ot; hostscanEl.disabled=false;
 };
 function updateFlash(j){
@@ -2406,6 +2611,21 @@ class H(BaseHTTPRequestHandler):
                 net = _default_ip().rsplit('.', 1)[0]
             devs = _scan_full(net, pw) if full else _scan_tasmota(net)
             self._json({'net': net, 'devices': devs})
+        elif path == '/api/scan/start':
+            # Non-blocking: kick off a background scan + return immediately.
+            # The UI then polls /api/scan/progress for "devices found" counts.
+            qs = parse_qs(urlparse(self.path).query)
+            net = (qs.get('net') or [''])[0]
+            pw = (qs.get('pw') or [''])[0]
+            full = (qs.get('full') or ['1'])[0] in ('1', 'true', 'yes')
+            if not net:
+                net = _default_ip().rsplit('.', 1)[0]
+            tok, started = _scan_start(net, pw, full)
+            self._json({'ok': True, 'net': net, 'token': tok,
+                        'started': started})
+        elif path == '/api/scan/progress':
+            with scan_lock:
+                self._json(dict(scan_state))
         elif path == '/api/devinfo':
             qs = parse_qs(urlparse(self.path).query)
             host = (qs.get('host') or [''])[0]
