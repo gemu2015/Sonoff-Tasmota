@@ -27,39 +27,58 @@
 
 PUSH_OPTIONS
 
-// ── jumptable seam (the compile keystone) ────────────────────────────────────
-// The framework #defines every libc/firmware call matter_c makes (memcpy/memset/
-// memcmp/malloc/free/millis/strlen/strncpy/snprintf/strchr/…) to its jX macro,
-// each of which expands to `jt[N]` — and `jt` is a LOCAL brought in only by
-// SETMEMREGS, which matter_c's functions don't carry. Define `jt` itself as
-// `(gettbl()->jt)` for the matter-include region: every jX macro then resolves
-// the jumptable per call with no local needed, and matter uses the firmware's
-// real (fast) memcpy/snprintf/…. Verified safe: no matter source uses `jt` as an
-// identifier, and none uses snprintf's (void jsnprintf_P) return value. We #undef
-// it after the matter region so the harness's own ALLOCMEM/GET_JT still works.
-// (RUNTIME caveat for later: const string literals — snprintf formats etc. — still
-// need the PROGMEM + EXEC_OFFSET discipline; this is compile-correctness only.)
-#define jt (gettbl()->jt)
+// ── reg-bind seam ────────────────────────────────────────────────────────────
+// Every matter function is MODULE_PART and carries a SETMEMREGS prologue
+// (GET_MTBL; GET_JT; MODULE_MEMORY *mem = …) injected by lib2mod pass R — the
+// idiomatic plugin pattern. So each binds, ONCE at entry (before any nested
+// firmware call could flip the module register): `mt` → EXEC_OFFSET (PSTR/MP8),
+// `jt` → the libc redirect (memcpy/snprintf/…), `mem` → the ctx (mtrc_plugin_mem
+// .h). No global jt/mt macro — it would collide with SETMEMREGS' own jt/mt decls.
 
-// The framework's OBJECT-like `#define millis jmillis` expands the matter_port_t
-// `millis` field declaration AND every `g.port.millis(...)`/`port->millis` access
-// (matter uses the HAL 12x and never calls raw millis() — the only `millis(` in
-// the sources are in comments). Just remove the macro for the matter region.
+// The framework's OBJECT-like `#define millis jmillis` would expand the
+// matter_port_t `millis` field decl AND every g.port.millis(...) HAL call (matter
+// never calls raw millis()). Remove it for the matter region.
 #undef millis
 
-// EXEC_OFFSET (module_defines.h) reads the relocation delta from `mt` — the
-// per-call module table. matter functions don't carry an `mt` local, so define
-// it to gettbl() for the matter region (same self-resolving trick as `jt`). This
-// is what PSTR("…") (string→.plugin.mod_string + EXEC_OFFSET) and MP8(arr)
-// (const-array base + EXEC_OFFSET) need to land at valid relocated addresses.
-// #undef'd after the matter region so the harness's own GET_MTBL (which declares
-// a real `mt`) is unaffected.
-#define mt gettbl()
 #define MP8(x) ((const uint8_t *)(x) + EXEC_OFFSET)   // relocate a const-array base ptr
 
-// matter_c calls matter_special_malloc() (a firmware shim) for the PSRAM context;
-// here it allocates through the framework malloc (now resolved via the jt define).
-extern "C" void *matter_special_malloc(size_t n) { return malloc(n); }
+// matter_c calls matter_special_malloc() for the PSRAM context. It is NOT a
+// MODULE_PART matter fn (no SETMEMREGS prologue), so bind mt/jt here for the
+// framework malloc redirect.
+extern "C" void *matter_special_malloc(size_t n) { GET_MTBL; GET_JT; return malloc(n); }
+
+// The BearSSL umbrella header (pulled by mtrc_crypto_ops.h) has inline functions
+// (br_eax_*, br_ssl_*) that call memcpy/memset/… at FILE scope — outside any
+// SETMEMREGS prologue, so the framework's jX redirect (which needs a local `jt`)
+// won't compile there. Replace the mem* redirect with self-contained MODULE_PART
+// byte-loop shims: no jt, no baked libc address — relocation-safe, callable from
+// BearSSL inlines AND matter. (matter is not a hot path; crypto runs occasionally.)
+#undef memcpy
+#undef memmove
+#undef memset
+#undef memcmp
+extern "C" MODULE_PART void *mtrc_memcpy(void *d, const void *s, size_t n) {
+  uint8_t *D = (uint8_t *)d; const uint8_t *S = (const uint8_t *)s;
+  while (n--) *D++ = *S++; return d;
+}
+extern "C" MODULE_PART void *mtrc_memmove(void *d, const void *s, size_t n) {
+  uint8_t *D = (uint8_t *)d; const uint8_t *S = (const uint8_t *)s;
+  if (D < S) { while (n--) *D++ = *S++; }
+  else { D += n; S += n; while (n--) *--D = *--S; }
+  return d;
+}
+extern "C" MODULE_PART void *mtrc_memset(void *d, int c, size_t n) {
+  uint8_t *D = (uint8_t *)d; while (n--) *D++ = (uint8_t)c; return d;
+}
+extern "C" MODULE_PART int mtrc_memcmp(const void *a, const void *b, size_t n) {
+  const uint8_t *A = (const uint8_t *)a, *B = (const uint8_t *)b;
+  for (size_t i = 0; i < n; i++) if (A[i] != B[i]) return A[i] < B[i] ? -1 : 1;
+  return 0;
+}
+#define memcpy  mtrc_memcpy
+#define memmove mtrc_memmove
+#define memset  mtrc_memset
+#define memcmp  mtrc_memcmp
 
 // ── amalgamate the 16 matter_c sources ───────────────────────────────────────
 // matter_c.c FIRST: it defines matter_ctx_t + (via mtrc_plugin_mem.h) MODULE_MEMORY
@@ -81,9 +100,7 @@ extern "C" void *matter_special_malloc(size_t n) { return malloc(n); }
 #include "matter/src/mtrc_im.c"
 #include "matter/src/qrcodegen.c"
 
-#undef jt   // restore: the harness's own ALLOCMEM/GET_JT below need the real local jt
-#undef mt   // restore: the harness's GET_MTBL declares a real `volatile MODULES_TABLE *mt`
-#undef MP8
+#undef MP8   // matter-region only; the harness below doesn't use it
 
 // ── plugin descriptor ────────────────────────────────────────────────────────
 // MODULE_MEMORY is now defined (by mtrc_plugin_mem.h inside matter_c.c) = the

@@ -23,14 +23,14 @@ const uint8_t SPAKE_N[65] PROGMEM = {
 const uint8_t SCALAR_ONE[1] PROGMEM = { 0x01 };
 
 MODULE_PART int mtrc_spake2p_prover_X(const uint8_t w0[32], const uint8_t x[32],
-                          uint8_t X[65]) {
+                          uint8_t X[65]) { SETMEMREGS
   // X = w0*M + x*G   (muladd: A=M, a=w0; B=NULL=generator, b=x)
   memcpy(X, MP8(SPAKE_M), 65);
   return mtrc_ec_muladd(X, NULL, w0, 32, x, 32);
 }
 
 MODULE_PART int mtrc_spake2p_verifier_Y(const uint8_t w0[32], const uint8_t y[32],
-                            uint8_t Y[65]) {
+                            uint8_t Y[65]) { SETMEMREGS
   // Y = w0*N + y*G
   memcpy(Y, MP8(SPAKE_N), 65);
   return mtrc_ec_muladd(Y, NULL, w0, 32, y, 32);
@@ -38,7 +38,7 @@ MODULE_PART int mtrc_spake2p_verifier_Y(const uint8_t w0[32], const uint8_t y[32
 
 MODULE_PART int mtrc_spake2p_prover_ZV(const uint8_t w0[32], const uint8_t w1[32],
                            const uint8_t x[32], const uint8_t Y[65],
-                           uint8_t Z[65], uint8_t V[65]) {
+                           uint8_t Z[65], uint8_t V[65]) { SETMEMREGS
   // T = Y - w0*N = 1*Y + (n-w0)*N   (muladd: A=Y, a=1; B=N, b=neg_w0)
   uint8_t neg_w0[32], T[65];
   mtrc_ec_scalar_neg(w0, neg_w0);
@@ -54,7 +54,7 @@ MODULE_PART int mtrc_spake2p_prover_ZV(const uint8_t w0[32], const uint8_t w1[32
 
 MODULE_PART int mtrc_spake2p_verifier_ZV(const uint8_t w0[32], const uint8_t y[32],
                              const uint8_t X[65], const uint8_t L[65],
-                             uint8_t Z[65], uint8_t V[65]) {
+                             uint8_t Z[65], uint8_t V[65]) { SETMEMREGS
   // T = X - w0*M = 1*X + (n-w0)*M
   uint8_t neg_w0[32], T[65];
   mtrc_ec_scalar_neg(w0, neg_w0);
@@ -69,7 +69,7 @@ MODULE_PART int mtrc_spake2p_verifier_ZV(const uint8_t w0[32], const uint8_t y[3
 }
 
 // Append an 8-byte little-endian length then the value, into buf at *off.
-MODULE_PART void tt_put(uint8_t *buf, size_t *off, const uint8_t *val, size_t len) {
+MODULE_PART void tt_put(uint8_t *buf, size_t *off, const uint8_t *val, size_t len) { SETMEMREGS
   uint64_t l = (uint64_t)len;
   for (int i = 0; i < 8; i++) buf[(*off)++] = (uint8_t)(l >> (8 * i));
   if (len) { memcpy(buf + *off, val, len); *off += len; }
@@ -81,7 +81,7 @@ MODULE_PART int mtrc_spake2p_transcript(const uint8_t *context, size_t context_l
                             const uint8_t X[65], const uint8_t Y[65],
                             const uint8_t Z[65], const uint8_t V[65],
                             const uint8_t w0[32],
-                            uint8_t K_main[32]) {
+                            uint8_t K_main[32]) { SETMEMREGS
   // TT = (len||val) for: Context, idProver, idVerifier, M, N, X, Y, Z, V, w0
   // Sized for the RFC 9383 layout: 10 length prefixes + payloads.
   uint8_t (&tt)[8 + 256 + 8 + 64 + 8 + 64 + 8*7 + 65*6 + 32 + 64] = g.scr_25;
@@ -104,7 +104,7 @@ MODULE_PART int mtrc_spake2p_transcript(const uint8_t *context, size_t context_l
 MODULE_PART int mtrc_spake2p_confirm(const uint8_t K_main[32],
                          const uint8_t X[65], const uint8_t Y[65],
                          uint8_t K_confirmP[32], uint8_t K_confirmV[32],
-                         uint8_t cA[32], uint8_t cB[32]) {
+                         uint8_t cA[32], uint8_t cB[32]) { SETMEMREGS
   // K_confirmP || K_confirmV = HKDF(nil, K_main, "ConfirmationKeys", 64)
   static const uint8_t info[] PROGMEM = "ConfirmationKeys";
   uint8_t okm[64];

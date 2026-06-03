@@ -6,18 +6,18 @@
 
 // ---- minimal DER (X.690) helpers ---------------------------------------
 // Write a DER length. Returns bytes written (1..3; CSRs are well under 64 KB).
-MODULE_PART size_t der_len(uint8_t *p, size_t len) {
+MODULE_PART size_t der_len(uint8_t *p, size_t len) { SETMEMREGS
   if (len < 0x80)  { p[0] = (uint8_t)len; return 1; }
   if (len < 0x100) { p[0] = 0x81; p[1] = (uint8_t)len; return 2; }
   p[0] = 0x82; p[1] = (uint8_t)(len >> 8); p[2] = (uint8_t)len; return 3;
 }
 // Emit tag + length + content. Returns total bytes written.
-MODULE_PART size_t der_wrap(uint8_t *out, uint8_t tag, const uint8_t *content, size_t clen) {
+MODULE_PART size_t der_wrap(uint8_t *out, uint8_t tag, const uint8_t *content, size_t clen) { SETMEMREGS
   size_t o = 0; out[o++] = tag; o += der_len(out + o, clen);
   memcpy(out + o, content, clen); o += clen; return o;
 }
 // Emit a DER INTEGER from a 32-byte big-endian scalar (minimal, sign-safe).
-MODULE_PART size_t der_int(uint8_t *out, const uint8_t v[32]) {
+MODULE_PART size_t der_int(uint8_t *out, const uint8_t v[32]) { SETMEMREGS
   size_t i = 0; while (i < 31 && v[i] == 0) i++;       // strip leading zeros
   int pad = (v[i] & 0x80) ? 1 : 0;                      // keep it positive
   size_t clen = (32 - i) + (size_t)pad;
@@ -37,7 +37,7 @@ const uint8_t ALG_ECDSA_SHA256[] PROGMEM = {
   0x30,0x0A, 0x06,0x08,0x2A,0x86,0x48,0xCE,0x3D,0x04,0x03,0x02 };
 
 MODULE_PART int mtrc_csr_build(uint8_t *out, size_t cap,
-                   const uint8_t op_priv[32], const uint8_t op_pub[65]) {
+                   const uint8_t op_priv[32], const uint8_t op_pub[65]) { SETMEMREGS
   // SubjectPublicKeyInfo = SEQ { ALG_ECPK, BITSTRING(0x00 || op_pub) }
   uint8_t spki_c[128]; size_t sc = 0;
   memcpy(spki_c + sc, MP8(ALG_ECPK), sizeof(ALG_ECPK)); sc += sizeof(ALG_ECPK);

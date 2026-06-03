@@ -351,6 +351,47 @@ def pass_destatic_decls(text):
     return text, len(edits)
 
 
+def pass_setmemregs(text):
+    """Inject SETMEMREGS at the top of every MODULE_PART function body —
+    the reg-bind prologue (GET_MTBL; GET_JT; MODULE_MEMORY *mem = …) that
+    binds mt/jt/mem ONCE at entry. This is the idiomatic plugin pattern
+    (scaffold.py does it for native drivers): mt drives EXEC_OFFSET
+    (PSTR/MP8), jt the libc redirect, mem the MODULE_MEMORY access — all
+    captured at entry so a nested firmware call that flips the module
+    register can't corrupt them. Idempotent. Returns (new_text, n)."""
+    clean, _ = scan_mask(text)
+    n = len(clean)
+    inserts = []
+    for m in re.finditer(r'\bMODULE_PART\b', clean):
+        p = clean.find('(', m.end())
+        if p < 0:
+            continue
+        depth, j, close = 0, p, -1
+        while j < n:
+            if clean[j] == '(':
+                depth += 1
+            elif clean[j] == ')':
+                depth -= 1
+                if depth == 0:
+                    close = j
+                    break
+            j += 1
+        if close < 0:
+            continue
+        k = close + 1
+        while k < n and clean[k] in ' \t\r\n':
+            k += 1
+        if k >= n or clean[k] != '{':          # forward decl (';') — skip
+            continue
+        bo = k + 1                              # just past the body '{'
+        if re.match(r'\s*SETMEMREGS\b', clean[bo:bo + 40]):
+            continue                            # already injected
+        inserts.append(bo)
+    for bo in sorted(inserts, reverse=True):
+        text = text[:bo] + ' SETMEMREGS' + text[bo:]
+    return text, len(inserts)
+
+
 def manual_flags(b):
     """Relocation-unsafe const constructs lib2mod does NOT auto-handle —
     a human finishes these in the editor. Returns [(line, note)]."""
@@ -427,6 +468,10 @@ def main():
             if ds or (bidx - before):
                 print(f'  {f.name:18} de-static {ds} decl / {bidx-before} '
                       f'scratch buffer(s) → ctx')
+        if 'R' in a.passes:
+            nb, nr = pass_setmemregs(nb)
+            if nr:
+                print(f'  {f.name:18} SETMEMREGS prologue → {nr} function(s)')
         if not a.dry_run and nb != b:
             f.write_text(nb)
     if 'B' in a.passes and bfields:

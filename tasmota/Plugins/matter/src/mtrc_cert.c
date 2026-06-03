@@ -15,7 +15,7 @@ enum { X_BASIC=1, X_KEYUSAGE=2, X_BASIC_ISCA=1 };
 
 // Read a DN list (caller already consumed the list header). Extracts the
 // Matter id attributes into the cert, choosing subject vs issuer fields.
-MODULE_PART void read_dn(mtrc_tlv_reader *r, mtrc_cert *c, int is_subject) {
+MODULE_PART void read_dn(mtrc_tlv_reader *r, mtrc_cert *c, int is_subject) { SETMEMREGS
   mtrc_tlv_elem e;
   while (mtrc_tlv_read(r, &e) && e.type != MTRC_TLV_END) {
     if (e.tag.ctrl != MTRC_TLV_TAG_CONTEXT) continue;
@@ -36,7 +36,7 @@ MODULE_PART void read_dn(mtrc_tlv_reader *r, mtrc_cert *c, int is_subject) {
 }
 
 // Read the extensions list (header already consumed): pull basicConstraints.isCA.
-MODULE_PART void read_ext(mtrc_tlv_reader *r, mtrc_cert *c) {
+MODULE_PART void read_ext(mtrc_tlv_reader *r, mtrc_cert *c) { SETMEMREGS
   mtrc_tlv_elem e;
   while (mtrc_tlv_read(r, &e) && e.type != MTRC_TLV_END) {
     if (e.type == MTRC_TLV_STRUCT && e.tag.ctrl == MTRC_TLV_TAG_CONTEXT
@@ -60,7 +60,7 @@ MODULE_PART void read_ext(mtrc_tlv_reader *r, mtrc_cert *c) {
   }
 }
 
-MODULE_PART int mtrc_cert_parse(const uint8_t *tlv, size_t len, mtrc_cert *out) {
+MODULE_PART int mtrc_cert_parse(const uint8_t *tlv, size_t len, mtrc_cert *out) { SETMEMREGS
   if (!tlv || !out) return 0;
   memset(out, 0, sizeof(*out));
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, tlv, len);
@@ -103,7 +103,7 @@ MODULE_PART int mtrc_cert_parse(const uint8_t *tlv, size_t len, mtrc_cert *out) 
 }
 
 MODULE_PART int mtrc_cert_chain_check(const mtrc_cert *noc, const mtrc_cert *icac,
-                          uint64_t fabric_id, uint32_t now_epoch) {
+                          uint64_t fabric_id, uint32_t now_epoch) { SETMEMREGS
   if (!noc) return 0;
 
   // --- NOC: must be a leaf operational cert bound to the matched fabric -------

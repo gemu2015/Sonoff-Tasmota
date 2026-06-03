@@ -10,7 +10,7 @@
 #endif
 
 MODULE_PART void mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
-                    uint32_t msg_counter, uint64_t src_node_id) {
+                    uint32_t msg_counter, uint64_t src_node_id) { SETMEMREGS
   nonce[0] = security_flags;
   for (int i = 0; i < 4; i++) nonce[1 + i] = (uint8_t)(msg_counter >> (8 * i));
   for (int i = 0; i < 8; i++) nonce[5 + i] = (uint8_t)(src_node_id >> (8 * i));
@@ -19,7 +19,7 @@ MODULE_PART void mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
 MODULE_PART int mtrc_sec_encode(uint8_t *out, size_t cap,
                     const mtrc_msg_header *mh, const mtrc_proto_header *ph,
                     const uint8_t *payload, size_t payload_len,
-                    const uint8_t key[16]) {
+                    const uint8_t key[16]) { SETMEMREGS
   if (!out || !mh || !ph || !key) return -1;
 
   // message header -> AAD, written first into the output
@@ -50,7 +50,7 @@ MODULE_PART int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key
                     uint64_t peer_node_id,
                     mtrc_msg_header *mh, mtrc_proto_header *ph,
                     uint8_t *pt_buf, size_t pt_cap,
-                    const uint8_t **payload, size_t *payload_len) {
+                    const uint8_t **payload, size_t *payload_len) { SETMEMREGS
   if (!in || !mh || !ph || !key || !pt_buf) return 0;
 
   int hl = mtrc_frame_decode_msg_header(in, len, mh);

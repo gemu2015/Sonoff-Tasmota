@@ -5,7 +5,7 @@
 
 MODULE_PART int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
                                 uint16_t *endpoint, uint32_t *cluster,
-                                uint32_t *command) {
+                                uint32_t *command) { SETMEMREGS
   // The only TLV list in an InvokeRequest is the CommandPath
   // {0:endpoint, 1:cluster, 2:command}. Scan for it.
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, buf, len);
@@ -27,7 +27,7 @@ MODULE_PART int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
 
 MODULE_PART int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
                                   uint16_t *endpoint, uint32_t *cluster,
-                                  uint32_t *attribute) {
+                                  uint32_t *attribute) { SETMEMREGS
   // AttributePathIB is the only list in a ReadRequest: {2:ep,3:cluster,4:attr}.
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, buf, len);
   mtrc_tlv_elem e;
@@ -48,7 +48,7 @@ MODULE_PART int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
 
 MODULE_PART int mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
                             uint16_t *endpoint, uint32_t *cluster,
-                            uint32_t *attribute, uint16_t *max_interval) {
+                            uint32_t *attribute, uint16_t *max_interval) { SETMEMREGS
   // MaxIntervalCeiling = top-level ctx2 (u16); attribute path = AttributePathIB.
   *max_interval = 0;
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, buf, len);
@@ -72,7 +72,7 @@ MODULE_PART int mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
 }
 
 MODULE_PART int mtrc_im_build_subscribe_response(uint8_t *out, size_t cap,
-                                     uint32_t sub_id, uint16_t max_interval) {
+                                     uint32_t sub_id, uint16_t max_interval) { SETMEMREGS
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // SubscribeResponseMessage
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);      // SubscriptionId
@@ -84,7 +84,7 @@ MODULE_PART int mtrc_im_build_subscribe_response(uint8_t *out, size_t cap,
 
 MODULE_PART int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
                               uint16_t endpoint, uint32_t cluster,
-                              uint32_t attribute, uint64_t value) {
+                              uint32_t attribute, uint64_t value) { SETMEMREGS
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // ReportDataMessage
   if (sub_id) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);   // SubscriptionId
@@ -109,7 +109,7 @@ MODULE_PART int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub
 // Shared opener: emit the ReportData envelope down to the AttributePathIB,
 // leaving the writer positioned to append the Data value. `w` is initialized.
 MODULE_PART void report_open(mtrc_tlv_writer *w, uint8_t *out, size_t cap, uint32_t sub_id,
-                        uint16_t endpoint, uint32_t cluster, uint32_t attribute) {
+                        uint16_t endpoint, uint32_t cluster, uint32_t attribute) { SETMEMREGS
   mtrc_tlv_writer_init(w, out, cap);
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // ReportDataMessage
   if (sub_id) mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), sub_id);   // SubscriptionId
@@ -126,7 +126,7 @@ MODULE_PART void report_open(mtrc_tlv_writer *w, uint8_t *out, size_t cap, uint3
 }
 
 // Shared closer: end AttributeDataIB/ReportIB/array + interactionModelRevision.
-MODULE_PART int report_close(mtrc_tlv_writer *w) {
+MODULE_PART int report_close(mtrc_tlv_writer *w) { SETMEMREGS
   mtrc_tlv_end_container(w);                           //   end AttributeDataIB
   mtrc_tlv_end_container(w);                           //  end AttributeReportIB
   mtrc_tlv_end_container(w);                           // end AttributeReports
@@ -138,7 +138,7 @@ MODULE_PART int report_close(mtrc_tlv_writer *w) {
 MODULE_PART int mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_t sub_id,
                                    uint16_t endpoint, uint32_t cluster,
                                    uint32_t attribute,
-                                   const uint32_t *vals, int count) {
+                                   const uint32_t *vals, int count) { SETMEMREGS
   mtrc_tlv_writer w;
   report_open(&w, out, cap, sub_id, endpoint, cluster, attribute);
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(2));           //    Data = array
@@ -151,7 +151,7 @@ MODULE_PART int mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_
 MODULE_PART int mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint32_t sub_id,
                                      uint16_t endpoint, uint32_t cluster,
                                      uint32_t attribute,
-                                     uint32_t device_type, uint16_t revision) {
+                                     uint32_t device_type, uint16_t revision) { SETMEMREGS
   mtrc_tlv_writer w;
   report_open(&w, out, cap, sub_id, endpoint, cluster, attribute);
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(2));           //    Data = array
@@ -165,7 +165,7 @@ MODULE_PART int mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint3
 
 MODULE_PART int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
                                   uint16_t endpoint, uint32_t cluster,
-                                  uint32_t resp_command, uint8_t field0) {
+                                  uint32_t resp_command, uint8_t field0) { SETMEMREGS
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // InvokeResponseMessage
   mtrc_tlv_put_bool (&w, mtrc_tlv_ctx(0), false);      // suppressResponse
@@ -191,7 +191,7 @@ MODULE_PART int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
 
 MODULE_PART int mtrc_im_build_status(uint8_t *out, size_t cap,
                          uint16_t endpoint, uint32_t cluster, uint32_t command,
-                         uint8_t status) {
+                         uint8_t status) { SETMEMREGS
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // InvokeResponseMessage
   mtrc_tlv_put_bool (&w, mtrc_tlv_ctx(0), false);      // suppressResponse

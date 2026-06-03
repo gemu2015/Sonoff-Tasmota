@@ -23,19 +23,19 @@
 #define XF_V           0x10
 
 typedef struct { uint8_t *p; size_t cap, len; int err; } wbuf;
-MODULE_PART void wb_u8 (wbuf *w, uint8_t v){ if(w->err||w->len+1>w->cap){w->err=1;return;} w->p[w->len++]=v; }
-MODULE_PART void wb_le (wbuf *w, uint64_t v, int n){ for(int i=0;i<n;i++) wb_u8(w,(uint8_t)(v>>(8*i))); }
-MODULE_PART void wb_raw(wbuf *w, const uint8_t *d, size_t n){
+MODULE_PART void wb_u8 (wbuf *w, uint8_t v){ SETMEMREGS if(w->err||w->len+1>w->cap){w->err=1;return;} w->p[w->len++]=v; }
+MODULE_PART void wb_le (wbuf *w, uint64_t v, int n){ SETMEMREGS for(int i=0;i<n;i++) wb_u8(w,(uint8_t)(v>>(8*i))); }
+MODULE_PART void wb_raw(wbuf *w, const uint8_t *d, size_t n){ SETMEMREGS
   if(w->err||w->len+n>w->cap){w->err=1;return;} if(n){memcpy(w->p+w->len,d,n); w->len+=n;}
 }
 
-MODULE_PART uint8_t mtrc_frame_security_flags(const mtrc_msg_header *mh) {
+MODULE_PART uint8_t mtrc_frame_security_flags(const mtrc_msg_header *mh) { SETMEMREGS
   uint8_t sf = (uint8_t)(mh->session_type & SF_STYPE_MASK);
   if (mh->control) sf |= SF_C;
   return sf;
 }
 
-MODULE_PART int mtrc_frame_encode_msg_header(uint8_t *out, size_t cap, const mtrc_msg_header *mh) {
+MODULE_PART int mtrc_frame_encode_msg_header(uint8_t *out, size_t cap, const mtrc_msg_header *mh) { SETMEMREGS
   if (!out || !mh) return -1;
   wbuf w = { out, cap, 0, 0 };
   uint8_t mf = (uint8_t)((mh->version & 0x07) << MF_VER_SHIFT);
@@ -52,7 +52,7 @@ MODULE_PART int mtrc_frame_encode_msg_header(uint8_t *out, size_t cap, const mtr
 }
 
 MODULE_PART int mtrc_frame_encode_proto(uint8_t *out, size_t cap, const mtrc_proto_header *ph,
-                            const uint8_t *payload, size_t payload_len) {
+                            const uint8_t *payload, size_t payload_len) { SETMEMREGS
   if (!out || !ph) return -1;
   wbuf w = { out, cap, 0, 0 };
   uint8_t xf = 0;
@@ -72,7 +72,7 @@ MODULE_PART int mtrc_frame_encode_proto(uint8_t *out, size_t cap, const mtrc_pro
 
 MODULE_PART int mtrc_frame_encode(uint8_t *out, size_t cap,
                       const mtrc_msg_header *mh, const mtrc_proto_header *ph,
-                      const uint8_t *payload, size_t payload_len) {
+                      const uint8_t *payload, size_t payload_len) { SETMEMREGS
   int hn = mtrc_frame_encode_msg_header(out, cap, mh);
   if (hn < 0) return -1;
   int pn = mtrc_frame_encode_proto(out + hn, cap - (size_t)hn, ph, payload, payload_len);
@@ -81,14 +81,14 @@ MODULE_PART int mtrc_frame_encode(uint8_t *out, size_t cap,
 }
 
 typedef struct { const uint8_t *p; size_t len, off; int err; } rbuf;
-MODULE_PART int rb_avail(rbuf *r, size_t n){ return r->off + n <= r->len; }
-MODULE_PART uint8_t  rb_u8(rbuf *r){ if(!rb_avail(r,1)){r->err=1;return 0;} return r->p[r->off++]; }
-MODULE_PART uint64_t rb_le(rbuf *r, int n){
+MODULE_PART int rb_avail(rbuf *r, size_t n){ SETMEMREGS return r->off + n <= r->len; }
+MODULE_PART uint8_t  rb_u8(rbuf *r){ SETMEMREGS if(!rb_avail(r,1)){r->err=1;return 0;} return r->p[r->off++]; }
+MODULE_PART uint64_t rb_le(rbuf *r, int n){ SETMEMREGS
   if(!rb_avail(r,(size_t)n)){r->err=1;return 0;}
   uint64_t v=0; for(int i=0;i<n;i++) v|=(uint64_t)r->p[r->off+i]<<(8*i); r->off+=n; return v;
 }
 
-MODULE_PART int mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtrc_msg_header *mh) {
+MODULE_PART int mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtrc_msg_header *mh) { SETMEMREGS
   if (!buf || !mh) return -1;
   rbuf r = { buf, len, 0, 0 };
   memset(mh, 0, sizeof(*mh));
@@ -110,7 +110,7 @@ MODULE_PART int mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtr
 }
 
 MODULE_PART int mtrc_frame_decode_proto(const uint8_t *buf, size_t len, mtrc_proto_header *ph,
-                            const uint8_t **payload, size_t *payload_len) {
+                            const uint8_t **payload, size_t *payload_len) { SETMEMREGS
   if (!buf || !ph) return -1;
   rbuf r = { buf, len, 0, 0 };
   memset(ph, 0, sizeof(*ph));
@@ -133,7 +133,7 @@ MODULE_PART int mtrc_frame_decode_proto(const uint8_t *buf, size_t len, mtrc_pro
 
 MODULE_PART int mtrc_frame_decode(const uint8_t *buf, size_t len,
                       mtrc_msg_header *mh, mtrc_proto_header *ph,
-                      const uint8_t **payload, size_t *payload_len) {
+                      const uint8_t **payload, size_t *payload_len) { SETMEMREGS
   int hn = mtrc_frame_decode_msg_header(buf, len, mh);
   if (hn < 0) return -1;
   if (!mtrc_frame_decode_proto(buf + hn, len - (size_t)hn, ph, payload, payload_len))

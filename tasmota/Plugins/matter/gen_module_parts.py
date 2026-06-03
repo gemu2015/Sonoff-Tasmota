@@ -144,7 +144,11 @@ def is_func_def(seg):
     idents = re.findall(r'[A-Za-z_]\w*', pre)
     if not idents:
         return None
-    if idents[0] in KEYWORDS or idents[-1] in KEYWORDS:
+    # struct/enum/union may LEAD a return type (`struct Seg foo(...)`) — only
+    # the control keywords / typedef rule out a function. (A struct/var/array
+    # *definition* is already excluded above via '='/'[' or the no-'(' path.)
+    LEADING = KEYWORDS - {'struct', 'enum', 'union'}
+    if idents[0] in LEADING or idents[-1] in KEYWORDS:
         return None
     return idents[-1]
 

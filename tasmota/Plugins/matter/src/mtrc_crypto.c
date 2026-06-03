@@ -29,12 +29,12 @@ const uint8_t P256_N[32] PROGMEM = {
 #ifndef MTRC_PLUGIN_BUILD
 static const mtrc_crypto_ops *g_cr = 0;   // plugin build: g_cr == MTRC_MEM->cr (mtrc_plugin_mem.h),
 #endif                                     // a file-scope mutable pointer would crash after relocation
-MODULE_PART void mtrc_crypto_bind(const mtrc_crypto_ops *ops) { g_cr = ops; }
+MODULE_PART void mtrc_crypto_bind(const mtrc_crypto_ops *ops) { SETMEMREGS g_cr = ops; }
 
-MODULE_PART const br_ec_impl *EC(void) { return g_cr->ec_p256_m15; }
+MODULE_PART const br_ec_impl *EC(void) { SETMEMREGS return g_cr->ec_p256_m15; }
 
 // ---- hashing / MAC / KDF ----------------------------------------------
-MODULE_PART void mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
+MODULE_PART void mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) { SETMEMREGS
   if (!g_cr) return;
   br_sha256_context c;
   g_cr->sha256_init(&c);
@@ -43,7 +43,7 @@ MODULE_PART void mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
 }
 
 MODULE_PART void mtrc_hmac_sha256(const uint8_t *key, size_t key_len,
-                      const uint8_t *data, size_t data_len, uint8_t out[32]) {
+                      const uint8_t *data, size_t data_len, uint8_t out[32]) { SETMEMREGS
   if (!g_cr) return;
   br_hmac_key_context kc;
   br_hmac_context hc;
@@ -56,7 +56,7 @@ MODULE_PART void mtrc_hmac_sha256(const uint8_t *key, size_t key_len,
 MODULE_PART int mtrc_hkdf_sha256(const uint8_t *salt, size_t salt_len,
                      const uint8_t *ikm, size_t ikm_len,
                      const uint8_t *info, size_t info_len,
-                     uint8_t *out, size_t out_len) {
+                     uint8_t *out, size_t out_len) { SETMEMREGS
   if (!g_cr) return 0;
   br_hkdf_context hc;
   g_cr->hkdf_init(&hc, g_cr->sha256_vtable, salt, salt_len);
@@ -67,31 +67,31 @@ MODULE_PART int mtrc_hkdf_sha256(const uint8_t *salt, size_t salt_len,
 }
 
 // ---- P-256 EC ops ------------------------------------------------------
-MODULE_PART int mtrc_ec_mulgen(uint8_t out[65], const uint8_t *k, size_t k_len) {
+MODULE_PART int mtrc_ec_mulgen(uint8_t out[65], const uint8_t *k, size_t k_len) { SETMEMREGS
   if (!g_cr) return 0;
   size_t r = EC()->mulgen(out, k, k_len, MTRC_CURVE);
   return r != 0;
 }
 
-MODULE_PART int mtrc_ec_mul(uint8_t point[65], const uint8_t *k, size_t k_len) {
+MODULE_PART int mtrc_ec_mul(uint8_t point[65], const uint8_t *k, size_t k_len) { SETMEMREGS
   if (!g_cr) return 0;
   return (int)EC()->mul(point, MTRC_P256_POINT_LEN, k, k_len, MTRC_CURVE);
 }
 
 MODULE_PART int mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
                    const uint8_t *a, size_t a_len,
-                   const uint8_t *b, size_t b_len) {
+                   const uint8_t *b, size_t b_len) { SETMEMREGS
   if (!g_cr) return 0;
   // BearSSL: muladd(A, B, len, x, xlen, y, ylen, curve) => A = x*A + y*B
   return (int)EC()->muladd(A, B, MTRC_P256_POINT_LEN,
                            a, a_len, b, b_len, MTRC_CURVE);
 }
 
-MODULE_PART int mtrc_ec_pub_from_priv(uint8_t pub[65], const uint8_t priv[32]) {
+MODULE_PART int mtrc_ec_pub_from_priv(uint8_t pub[65], const uint8_t priv[32]) { SETMEMREGS
   return mtrc_ec_mulgen(pub, priv, 32);
 }
 
-MODULE_PART int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t priv[32]) {
+MODULE_PART int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t priv[32]) { SETMEMREGS
   uint8_t pt[65];
   memcpy(pt, peer_pub, 65);
   if (!mtrc_ec_mul(pt, priv, 32)) return 0;   // pt = priv * peer_pub
@@ -99,7 +99,7 @@ MODULE_PART int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], cons
   return 1;
 }
 
-MODULE_PART int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]) {
+MODULE_PART int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]) { SETMEMREGS
   if (!g_cr) return 0;
   br_ec_private_key sk;
   sk.curve = MTRC_CURVE; sk.x = (unsigned char *)priv; sk.xlen = 32;
@@ -108,14 +108,14 @@ MODULE_PART int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const u
   return n == 64 ? 1 : 0;
 }
 
-MODULE_PART int mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]) {
+MODULE_PART int mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]) { SETMEMREGS
   if (!g_cr) return 0;
   br_ec_public_key pk;
   pk.curve = MTRC_CURVE; pk.q = (unsigned char *)pub; pk.qlen = 65;
   return g_cr->ecdsa_vrfy_raw(EC(), hash, 32, &pk, sig, 64) ? 1 : 0;
 }
 
-MODULE_PART void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
+MODULE_PART void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) { SETMEMREGS
   // neg = n - s  (256-bit big-endian subtract; assumes 0 < s < n)
   int borrow = 0;
   for (int i = 31; i >= 0; i--) {
@@ -126,11 +126,11 @@ MODULE_PART void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
 }
 
 // 32-byte big-endian helpers for the mod-n reduction.
-MODULE_PART int be32_ge(const uint8_t a[32], const uint8_t b[32]) {
+MODULE_PART int be32_ge(const uint8_t a[32], const uint8_t b[32]) { SETMEMREGS
   for (int i = 0; i < 32; i++) if (a[i] != b[i]) return a[i] > b[i];
   return 1;  // equal counts as >=
 }
-MODULE_PART void be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
+MODULE_PART void be32_sub_n(uint8_t a[32]) { SETMEMREGS  // a = (a - n) mod 2^256
   int borrow = 0;
   for (int i = 31; i >= 0; i--) {
     int d = (int)a[i] - (int)MP8(P256_N)[i] - borrow;
@@ -139,7 +139,7 @@ MODULE_PART void be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
   }
 }
 
-MODULE_PART void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
+MODULE_PART void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) { SETMEMREGS
   // Bit-by-bit: acc = (acc << 1 | bit); if it reached >= n, subtract n once.
   // acc stays < n throughout (value before each subtract is < 2n).
   uint8_t acc[32] = {0};
@@ -157,7 +157,7 @@ MODULE_PART int mtrc_aes_ccm_encrypt(const uint8_t key[16],
                          const uint8_t *nonce, size_t nonce_len,
                          const uint8_t *aad, size_t aad_len,
                          uint8_t *data, size_t data_len,
-                         uint8_t *tag, size_t tag_len) {
+                         uint8_t *tag, size_t tag_len) { SETMEMREGS
   if (!g_cr) return 0;
   br_aes_ct_ctrcbc_keys bc;
   g_cr->aes_ct_ctrcbc_init(&bc, key, 16);
@@ -175,7 +175,7 @@ MODULE_PART int mtrc_aes_ccm_decrypt(const uint8_t key[16],
                          const uint8_t *nonce, size_t nonce_len,
                          const uint8_t *aad, size_t aad_len,
                          uint8_t *data, size_t data_len,
-                         const uint8_t *tag, size_t tag_len) {
+                         const uint8_t *tag, size_t tag_len) { SETMEMREGS
   if (!g_cr) return 0;
   br_aes_ct_ctrcbc_keys bc;
   g_cr->aes_ct_ctrcbc_init(&bc, key, 16);
@@ -190,7 +190,7 @@ MODULE_PART int mtrc_aes_ccm_decrypt(const uint8_t key[16],
 
 MODULE_PART int mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
                        const uint8_t *salt, size_t salt_len,
-                       uint32_t iterations, uint8_t *out, size_t out_len) {
+                       uint32_t iterations, uint8_t *out, size_t out_len) { SETMEMREGS
   if (salt_len > 64 || iterations == 0) return 0;
   uint8_t block[64 + 4];
   uint32_t i = 1; size_t done = 0;
