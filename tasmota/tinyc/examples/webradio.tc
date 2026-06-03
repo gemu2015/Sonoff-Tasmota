@@ -6,11 +6,21 @@
 //
 // ── What the device needs ────────────────────────────────────────────────────
 //   * a TinyC firmware (e.g. tasmota32s3-tinyc) on the audio board
-//   * the  I2SAUDIO  BinPlugin loaded + its pins set (DOUT/BCK/WS/CODEC) on /modu;
-//     it supplies the  I2SWR <url>=play / I2SWR=stop / I2SVol <0..100>  commands
-//     and performs all WM8978 codec init (so NO i2cWrite codec poking is needed).
+//   * the  I2SAUDIO  BinPlugin (the audio driver) MUST be installed on /modu and
+//     its pins set (DOUT/BCK/WS/CODEC) — nothing plays without it. It supplies
+//     the  I2SWR <url>=play / I2SWR=stop / I2SVol <0..100>  commands this app
+//     drives, and performs all codec init (so NO i2cWrite codec poking is needed).
 //   * a station file  /webradios.txt  with one  name<TAB>url  line per station.
 //     Upload it via the file manager.  Edit it, then re-run the slot to reload.
+//
+// ── Supported streams (current limits) ───────────────────────────────────────
+//   * HTTP only.  https:// is not supported here (it connects but stutters over
+//     WAN distance) — use plain  http://  station URLs.
+//   * 48 kHz sample-rate family only (48 / 24 / 12 kHz — e.g. DLF, Bayern 3).
+//     This board's audio clock is locked to a 48 kHz crystal (12.288 MHz), so
+//     44.1 kHz-family streams (44.1 / 22.05 kHz — many commercial stations) come
+//     out pitch-shifted / distorted.  Where a station offers both, pick its
+//     48 kHz variant.  (MP3 / AAC, as decoded by the I2SAUDIO plugin.)
 //
 // ── Design (important) ───────────────────────────────────────────────────────
 // Every side-effecting Tasmota command goes through tasmDefer() so it runs on the
