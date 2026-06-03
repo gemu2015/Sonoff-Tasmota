@@ -106,10 +106,10 @@ MODULE_PART int mtrc_spake2p_confirm(const uint8_t K_main[32],
                          uint8_t K_confirmP[32], uint8_t K_confirmV[32],
                          uint8_t cA[32], uint8_t cB[32]) {
   // K_confirmP || K_confirmV = HKDF(nil, K_main, "ConfirmationKeys", 64)
-  static const uint8_t info[] = "ConfirmationKeys";
+  static const uint8_t info[] PROGMEM = "ConfirmationKeys";
   uint8_t okm[64];
   if (!mtrc_hkdf_sha256(NULL, 0, K_main, 32,
-                        info, sizeof(info) - 1, okm, 64)) return 0;
+                        MP8(info), sizeof(info) - 1, okm, 64)) return 0;
   memcpy(K_confirmP, okm, 32);
   memcpy(K_confirmV, okm + 32, 32);
   // cA = HMAC(K_confirmP, Y),  cB = HMAC(K_confirmV, X)

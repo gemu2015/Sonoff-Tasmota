@@ -48,14 +48,14 @@ MODULE_PART int mtrc_csr_build(uint8_t *out, size_t cap,
   uint8_t spki[160]; size_t sp = der_wrap(spki, 0x30, spki_c, sc);
 
   // CertificationRequestInfo = SEQ { INTEGER 0, Name{}, SPKI, [0]{} }
-  static const uint8_t VER[]  = { 0x02,0x01,0x00 };   // version 0
-  static const uint8_t SUBJ[] = { 0x30,0x00 };        // empty Name
-  static const uint8_t ATTR[] = { 0xA0,0x00 };        // empty attributes [0]
+  static const uint8_t VER[]  PROGMEM = { 0x02,0x01,0x00 };   // version 0
+  static const uint8_t SUBJ[] PROGMEM = { 0x30,0x00 };        // empty Name
+  static const uint8_t ATTR[] PROGMEM = { 0xA0,0x00 };        // empty attributes [0]
   uint8_t cri_c[256]; size_t cc = 0;
-  memcpy(cri_c + cc, VER, sizeof(VER));   cc += sizeof(VER);
-  memcpy(cri_c + cc, SUBJ, sizeof(SUBJ)); cc += sizeof(SUBJ);
+  memcpy(cri_c + cc, MP8(VER), sizeof(VER));   cc += sizeof(VER);
+  memcpy(cri_c + cc, MP8(SUBJ), sizeof(SUBJ)); cc += sizeof(SUBJ);
   memcpy(cri_c + cc, spki, sp);           cc += sp;
-  memcpy(cri_c + cc, ATTR, sizeof(ATTR)); cc += sizeof(ATTR);
+  memcpy(cri_c + cc, MP8(ATTR), sizeof(ATTR)); cc += sizeof(ATTR);
   uint8_t cri[300]; size_t cl = der_wrap(cri, 0x30, cri_c, cc);
 
   // signature = ECDSA(op_priv, SHA256(CertificationRequestInfo)), DER {r,s}
