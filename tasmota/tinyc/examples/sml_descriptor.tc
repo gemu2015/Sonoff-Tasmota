@@ -54,6 +54,12 @@ void sml_descriptor_apply() {
         snapshot(sml_tx_pin);
         snapshot(sml_filter);
         tasmCmd("Sensor53 r", sml_buf);
+        // Persist the new pins/filter/activ NOW. TinyC only auto-saves persist
+        // vars at slot-stop; a main()-only SML slot (sml_simple / deye / charts)
+        // stops right after main(), so a UI pin/activ change made while it runs
+        // would otherwise never reach flash and be lost on the next reboot
+        // (slot would come back with -1/-1 pins and SML deactivated).
+        saveVars();
     }
     if (meter_changed) {
         snapshot(sml_meter_sel);
