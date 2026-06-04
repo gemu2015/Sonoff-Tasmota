@@ -1,0 +1,78 @@
+// ============================================================================
+// deye.tc — Rolf's Deye hybrid-inverter Modbus reader (.198)
+// ============================================================================
+//
+// Based on sml_simple.tc (descriptor + pin management via sml_descriptor.tc),
+// with one addition for Rolf's setup: a one-click "Deye-Descriptor
+// wiederherstellen" button — the repo-descriptor pulldown can overwrite
+// /sml_meter.def, and the Deye descriptor is NOT on the ottelo repo, so we keep
+// a backup at /deye_backup.def and can restore it (placeholders + re-applied
+// pins) without internet.
+//
+// No custom value readout: the Deye's 13 values publish in the standard SML
+// sensor block; WebCall only surfaces the off-state.
+// ============================================================================
+
+#include "sml_descriptor.tc"
+
+int do_reset;               // webButton → Sensor53 r
+int do_restore;             // webButton → restore /sml_meter.def from /deye_backup.def
+char restore_buf[1024];     // own buffer (sml_buf is only 160 B)
+
+// Copy /deye_backup.def → /sml_meter.def, re-apply the chosen pins, reload.
+void deye_restore() {
+  int h = fileOpen("/deye_backup.def", 0);          // 0 = read
+  if (h < 0) { addLog("deye: /deye_backup.def missing"); return; }
+  int n = fileRead(h, restore_buf, 1020);
+  fileClose(h);
+  if (n <= 0) { addLog("deye: backup empty"); return; }
+  int w = fileOpen("/sml_meter.def", 1);            // 1 = write (truncate)
+  if (w < 0) { addLog("deye: cannot write /sml_meter.def"); return; }
+  fileWrite(w, restore_buf, n);
+  fileClose(w);
+  if (sml_rx_pin >= 0 || sml_tx_pin >= 0) {         // re-substitute the current pins
+    int fv = sml_filter ? 16 : 0;
+    smlApplyPins("/sml_meter.def", sml_rx_pin, sml_tx_pin, fv);
+  }
+  tasmCmd("Sensor53 r", sml_buf);
+  addLog("deye: descriptor restored from /deye_backup.def");
+}
+
+void EverySecond() {
+  sml_descriptor_apply();                            // pins / filter / activ
+  if (do_reset)   { tasmCmd("Sensor53 r", sml_buf); do_reset = 0; }
+  if (do_restore) { deye_restore();                 do_restore = 0; }
+}
+
+// ── Main sensor page ──
+// The SML driver publishes all 13 Deye values in its own sensor block — no
+// custom rows here. Only show the off-state so a blank sensor area isn't
+// mistaken for "no data".
+void WebCall() {
+  if (!sml_activ) {
+    webSend("{s}Deye SML{m}aus (Rule1 off){e}");
+  }
+}
+
+// ── Settings page (Einstellungen menu button) ──
+void WebUI() {
+  sml_render_settings_panel();                       // SML aktiv + pins + repo + filter
+  webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
+  webButton(do_reset, "Sensor53 r|SML neu geladen");
+  webSend("<hr><b>&#x267B; Deye-Descriptor</b>");
+  webSend("<div class='hint'>Falls versehentlich ein Repo-Descriptor geladen wurde: stellt /sml_meter.def aus /deye_backup.def wieder her, Pins bleiben.</div>");
+  webButton(do_restore, "Deye-Descriptor wiederherstellen|wiederhergestellt");
+  webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>deye.tc</b> &mdash; Rolf</div></div>");
+}
+
+int main() {
+  if (sml_rx_pin == 0 && sml_tx_pin == 0) {          // first-run: leave placeholders
+    sml_rx_pin = -1;
+    sml_tx_pin = -1;
+  }
+  if (sml_activ != tasm_rule) { tasm_rule = sml_activ; }
+  webPageLabel(0, "SML-Einstellungen");
+  smlScripterLoad("/sml_meter.def");
+  addLog("deye: started rx=%d tx=%d active=%d", sml_rx_pin, sml_tx_pin, sml_activ);
+  return 0;
+}
