@@ -92,7 +92,14 @@ int PartEdit_ReadTable(uint8_t *buf) {
 }
 
 // Find an entry by label; returns index or -1.
-int PartEdit_Find(esp_partition_info_t *pe, int num, const char *label) {
+// NB: these 4 helpers take the table as `void*` (cast to esp_partition_info_t*
+// inside) ON PURPOSE. With esp_partition_info_t in the signature, the Arduino
+// .ino auto-prototype generator emits a prototype into tasmota.ino BEFORE
+// esp_flash_partitions.h is included (gated behind safeboot-only USE_PARTEDIT)
+// → "esp_partition_info_t not declared" on every non-safeboot build. void*
+// keeps the type out of the generated prototype.
+int PartEdit_Find(void *pe_v, int num, const char *label) {
+  esp_partition_info_t *pe = (esp_partition_info_t *)pe_v;
   for (int i = 0; i < num; i++) { if (!strcmp((char *)pe[i].label, label)) return i; }
   return -1;
 }
@@ -102,7 +109,8 @@ int PartEdit_Find(esp_partition_info_t *pe, int num, const char *label) {
 // at 0x10000, app1 directly after it (same size), spiffs after that and filling to
 // the end of flash, and the old app slot is >= the safeboot size. Anything else
 // (extra "binary" part, odd offsets, non-contiguous) is rejected, not guessed.
-bool PartEdit_IsConvertibleOld(esp_partition_info_t *pe, int num) {
+bool PartEdit_IsConvertibleOld(void *pe_v, int num) {
+  esp_partition_info_t *pe = (esp_partition_info_t *)pe_v;
   if (num != 5) return false;
   if (PartEdit_Find(pe, num, "safeboot") >= 0) return false;   // already converted
   int a0 = PartEdit_Find(pe, num, "app0");
@@ -119,7 +127,8 @@ bool PartEdit_IsConvertibleOld(esp_partition_info_t *pe, int num) {
          S >= PE_SB_SIZE;                                            // safeboot fits the old app slot
 }
 
-void PartEdit_DumpTable(const char *tag, esp_partition_info_t *pe, int num) {
+void PartEdit_DumpTable(const char *tag, void *pe_v, int num) {
+  esp_partition_info_t *pe = (esp_partition_info_t *)pe_v;
   AddLog(LOG_LEVEL_INFO, PSTR("PE: %s — %d entries:"), tag, num);
   for (int i = 0; i < num; i++) {
     AddLog(LOG_LEVEL_INFO, PSTR("PE:   %-10s t=%02x st=%02x  @0x%06x  0x%06x (%uK)"),
@@ -130,7 +139,8 @@ void PartEdit_DumpTable(const char *tag, esp_partition_info_t *pe, int num) {
 
 // Rewrite buf in place: app0→safeboot(factory), app1→app0(ota_0), move spiffs. Refresh md5.
 // Caller must have passed PartEdit_IsConvertibleOld (so the target exists).
-void PartEdit_BuildNew(esp_partition_info_t *pe, int num) {
+void PartEdit_BuildNew(void *pe_v, int num) {
+  esp_partition_info_t *pe = (esp_partition_info_t *)pe_v;
   const pe_target_t *t = PartEdit_Target(ESP.getFlashChipSize());
   if (!t) return;
   int a0 = PartEdit_Find(pe, num, "app0");
