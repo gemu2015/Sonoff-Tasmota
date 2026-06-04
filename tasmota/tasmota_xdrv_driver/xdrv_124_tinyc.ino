@@ -1225,6 +1225,8 @@ void CmndTinyCStop(void) {
   TcSlot *s = Tinyc->slots[slot_num];
   if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   TinyCStopVM(s);
+  s->cmd_prefix_saved[0] = '\0';   // deliberate stop — don't let the per-second
+                                   // self-heal resurrect this slot's command prefix.
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d stopped"), slot_num);
   ResponseCmndDone();
 }
@@ -1243,6 +1245,9 @@ void CmndTinyCReset(void) {
   if (s->vm.constants) { free(s->vm.constants); }
   if (s->vm.const_data) { free(s->vm.const_data); }
   memset(&s->vm, 0, sizeof(TcVM));  // zero all fields and pointers
+  s->cmd_prefix_saved[0] = '\0';   // deliberate reset — drop the sticky prefix too
+                                   // (it lives in TcSlot, not TcVM, so the memset
+                                   // above doesn't clear it).
   s->output_len = 0;
   s->output[0] = '\0';
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d reset"), slot_num);
@@ -1330,6 +1335,9 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
   uint32_t fsize = file.size();
   if (fsize == 0 || fsize > TC_MAX_PROGRAM) { file.close(); return false; }
   TinyCStopVM(s);
+  s->cmd_prefix_saved[0] = '\0';   // replacing the program — drop the old program's
+                                   // sticky command prefix so the self-heal can't
+                                   // resurrect it before the new main() registers.
   if (s->program) { free(s->program); s->program = nullptr; }
   // Internal DRAM first — small programs (the common case) stay in fast RAM.
   // Only when the internal heap can't satisfy (very large .tcb, or DRAM
@@ -1394,6 +1402,7 @@ static void HandleTinyCPage(void) {
       if (cs) TinyCStartVM(cs);
     } else if (cmd == "stop" && cs) {
       TinyCStopVM(cs);
+      cs->cmd_prefix_saved[0] = '\0';   // deliberate (web) stop — no prefix self-heal
     } else if (cmd == "reset" && cs) {
       TinyCStopVM(cs);
       // Free remaining dynamic VM allocations before zeroing struct
@@ -1402,6 +1411,7 @@ static void HandleTinyCPage(void) {
       if (cs->vm.constants) { free(cs->vm.constants); }
       if (cs->vm.const_data) { free(cs->vm.const_data); }
       memset(&cs->vm, 0, sizeof(TcVM));
+      cs->cmd_prefix_saved[0] = '\0';   // deliberate (web) reset — drop sticky prefix
       cs->output_len = 0;
       cs->output[0] = '\0';
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d reset (web)"), cmd_slot);
@@ -2105,6 +2115,31 @@ void TinyCFsRestartRetry(void) {
 #endif
 }
 
+// (Andreas .107, 2026-06-04) Keep a loaded slot's registered command prefix
+// alive even when it was lost WITHOUT a full main() re-run. cmd_prefix is set
+// only by main()'s addCommand() (vm.h SYS_ADD_COMMAND) and cleared only by
+// TinyCStopVM teardown — so any worker stop+resume whose main() doesn't reach
+// addCommand() again (heap-tight boot, or the SD->Flash-sync worker-stop), or a
+// stray write clobbering the field, leaves the slot Running:1 while every BAT*/
+// command silently falls through to {"Command":"Unknown"}, recoverable until now
+// only by a full slot-restart (a reboot does NOT fix it). cmd_prefix_saved is the
+// sticky copy, cleared only on a deliberate stop/reset/program-replace; if a
+// loaded slot has the sticky copy but an empty live prefix, restore it so the
+// command/HTML interface keeps working. A no-op in the normal case (one strlcpy
+// guard per loaded slot per second). Skipped during an FS-write quiesce.
+void TinyCPrefixReheal(void) {
+  if (!Tinyc || tc_global_pause) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s && s->loaded && s->cmd_prefix_saved[0] && !s->cmd_prefix[0]) {
+      strlcpy(s->cmd_prefix, s->cmd_prefix_saved, sizeof(s->cmd_prefix));
+      AddLog(LOG_LEVEL_INFO,
+             PSTR("TCC: re-registered command prefix \"%s\" (slot %d) — was lost without a main() re-run"),
+             s->cmd_prefix, i);
+    }
+  }
+}
+
 #ifdef USE_UFILESYS
 // Fetch the TinyC IDE (tinyc_ide.html.gz) from `url` and replace the on-FS
 // /tinyc_ide.html.gz that the /ide handler serves — lets the IDE be self-updated
@@ -2248,6 +2283,8 @@ static void HandleTinyCUpload(void) {
 
     // Stop any running program in this slot
     TinyCStopVM(s);
+    s->cmd_prefix_saved[0] = '\0';   // a new .tcb is being uploaded — drop the old
+                                     // program's sticky prefix (new main() re-registers).
     // Allocate upload buffer.
     //
     // Sizing: the HTTP client may send `?fsz=N` (matches the `/ufsu` upload
@@ -2421,6 +2458,7 @@ static void HandleTinyCApi(void) {
     TcSlot *s = Tinyc->slots[slot_num];
     if (s) {
       TinyCStopVM(s);
+      s->cmd_prefix_saved[0] = '\0';   // deliberate (API) stop — no prefix self-heal
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped (API, slot %d)"), slot_num);
     }
     WSSendJSON_P(200, PSTR("{\"ok\":true,\"running\":false}"));
@@ -5484,6 +5522,7 @@ bool Xdrv124(uint32_t function) {
       // recovery cycles work.
       TinyCCheckBootStable();
       TinyCFsRestartRetry();   // (B) re-start any slot whose post-write restart failed
+      TinyCPrefixReheal();     // re-arm a loaded slot's command prefix if it was lost without a main() re-run
 #ifdef USE_MATTER_C
 #ifdef TC_MATTER_AUTOSTART
       mtrc_want_start = true;   // compile-time opt-in: start Matter without a script
