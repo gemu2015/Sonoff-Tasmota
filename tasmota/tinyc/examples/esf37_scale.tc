@@ -296,10 +296,10 @@ void renderTable() {
   if (fsz > 1390) { fileSeek(fh, fsz - 1390, 0); }   // tail window (the renderer drops the first line either way)
   int n = fileRead(fh, fbuf, 1390);
   fileClose(fh);
-  if (n <= 0) { webSend("<tr><td colspan=2><i>log empty</i></td></tr>"); return; }
+  if (n <= 0) { webSend("<br><tr><td colspan=2><i>log empty</i></td></tr>"); return; }
   fbuf[n] = 0;
 
-  webSend("<tr><td colspan=2><b>History</b></td></tr>");
+  webSend("<br><tr><td colspan=2><center><b>History</b></td></tr>");
   webSend("<tr><td colspan=2><div style='max-height:170px;overflow:auto'>");
   webSend("<table style='width:100%;font-size:75%'>");
   webSend("<tr style='text-align:left'><th>Time<th>kg<th>&#937;<th>BMI<th>Fat%<th>Lean<th>H2O%<th>Musc");
@@ -435,7 +435,7 @@ void WebCall() {
   webSend("<tr><td colspan=2>"); webPulldown(u_sex, "Sex", "Female|Male");     webSend("</td></tr>");
 
   if (have == 0) {
-    webSend("{s}<b>Etekcity ESF37</b>{m}step on scale{e}");
+    webSend("{s}<b>Etekcity ESF37</b>{m} step on scale{e}");
     renderTable();
     return;
   }
