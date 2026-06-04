@@ -2745,7 +2745,11 @@ void SML_Decode(uint8_t index) {
           if (sml_globs.mp[mindex].type == 's') {
             // sml
             uint8_t val = sml_hexnibble(*mp++) << 4;
-            val |= sml_hexnibble(*mp++);
+            // a 2-char hex read must not consume the terminator: on an odd-length
+            // (malformed) pattern with no '@', reading the 2nd nibble here would
+            // step PAST the '\0' and the loop top-check then reads out of bounds
+            // -> boot loop (mi-hol's "1,0x0100000000ff,SID,,meter_id,0,").
+            if (*mp && *mp != '@') val |= sml_hexnibble(*mp++);
             if (val != *cp++) {
               found = 0;
             }
@@ -2813,7 +2817,7 @@ void SML_Decode(uint8_t index) {
 									}
 								} else {
 									iob = sml_hexnibble(*mp++) << 4;
-									iob |= sml_hexnibble(*mp++);
+									if (*mp && *mp != '@') iob |= sml_hexnibble(*mp++);   // guard odd-length pattern -> no OOB step past '\0'/'@'
 								}
 								pattern[cnt] = iob;
 							}
@@ -3134,7 +3138,7 @@ void SML_Decode(uint8_t index) {
             }
             else {
               uint8_t val = sml_hexnibble(*mp++) << 4;
-              val |= sml_hexnibble(*mp++);
+              if (*mp && *mp != '@') val |= sml_hexnibble(*mp++);   // guard odd-length pattern -> no OOB step past '\0'/'@'
               if (val != *cp++) {
                 found = 0;
               }
