@@ -183,6 +183,9 @@
 
 #define USE_TLS
 #define USE_WEBSERVER
+#define USE_PARTEDIT                                 // xdrv_125: in-place dual-OTA->safeboot partition converter (rides in safeboot, stays resident)
+#undef  USE_TLS                                      // partedit-safeboot uses plain local OTA; and this fork's safeboot TLS path
+                                                     // (tasmota_ca.ino br_x509_trust_anchor) does not currently compile — revisit if HTTPS recovery is wanted
 
 #undef USE_ESP32_WDT                                  // disable watchdog on SAFEBOOT until more testing is done
 
