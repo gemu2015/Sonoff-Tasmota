@@ -2,7 +2,7 @@
 // Walks AST and emits stack-based bytecode
 
 import { NodeType } from './parser.js';
-import { Op, Syscall, MAGIC, VERSION } from './opcodes.js';
+import { Op, Syscall, MAGIC, VERSION, SYSCALL_ABI } from './opcodes.js';
 
 export class CodeGenError extends Error {
     constructor(message, line) {
@@ -4522,8 +4522,23 @@ export class CodeGenerator {
         header.push((globalsTableSize >> 8) & 0xFF);
         header.push(globalsTableSize & 0xFF);
 
+        // ─── V6 header tail (bytes 20..39): self-describing + integrity + ABI rev ───
+        const HEADER_SIZE_V6 = 40;
+        header.push((HEADER_SIZE_V6 >> 8) & 0xFF);    // header_size (B20-21) — const pool begins here
+        header.push(HEADER_SIZE_V6 & 0xFF);
+        const totalSizeOffset = header.length;        // 22; patched below once all sizes are known
+        header.push(0, 0, 0, 0);                      // total_size placeholder (B22-25, big-endian u32)
+        header.push((SYSCALL_ABI >> 8) & 0xFF);       // abi_rev (B26-27)
+        header.push(SYSCALL_ABI & 0xFF);
+        for (let i = 0; i < 12; i++) header.push(0);  // reserved[12] (B28-39), zero-filled for future fields
+
         // Combine: header + constant pool + heap declarations + function table + persist table + globals table + code
         const totalSize = header.length + constPool.length + heapDecl.length + funcTable.length + persistTable.length + globalsTable.length + this.code.length;
+        // Patch the V6 total_size field now that the full length is known (load-time integrity / truncation check).
+        header[totalSizeOffset]     = (totalSize >>> 24) & 0xFF;
+        header[totalSizeOffset + 1] = (totalSize >>> 16) & 0xFF;
+        header[totalSizeOffset + 2] = (totalSize >>> 8) & 0xFF;
+        header[totalSizeOffset + 3] = totalSize & 0xFF;
         const binary = new Uint8Array(totalSize);
         let offset = 0;
         binary.set(header, offset); offset += header.length;
