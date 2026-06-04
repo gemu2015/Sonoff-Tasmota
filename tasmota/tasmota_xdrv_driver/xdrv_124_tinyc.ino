@@ -304,7 +304,13 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
 #ifndef TC_BOOT_STABLE_S
 #define TC_BOOT_STABLE_S 30   // uptime at which boot is considered "succeeded"
 #endif
+#ifndef TC_BOOT_MAIN_WAIT_MS
+#define TC_BOOT_MAIN_WAIT_MS 2000  // serial autoexec: max ms to wait for a slot's main() to
+#endif                             //   finish before starting the next (main() is usually <300 ms)
 static bool tc_boot_marker_cleared = false;
+// Set when a slot's durable command prefix (slot_config[].cmd_prefix) changed —
+// TinyCPrefixReheal() flushes /tinyc.cfg once on the main task (never from the VM task).
+static bool tc_cfg_prefix_dirty = false;
 
 #ifdef USE_UFILESYS
 // Save current slot configuration to /tinyc.cfg
@@ -315,12 +321,28 @@ static void TinyCSaveSettings(void) {
   File f = fs->open(TC_CFG_FILE, "w");
   if (!f) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Cannot write " TC_CFG_FILE)); return; }
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    f.printf("%s,%d\n", Tinyc->slot_config[i].filename, Tinyc->slot_config[i].autoexec ? 1 : 0);
+    // filename,autoexec[,cmd_prefix] — the 3rd field is the durable command prefix
+    // (back-compat: old 2-field lines load with an empty prefix).
+    f.printf("%s,%d,%s\n", Tinyc->slot_config[i].filename,
+             Tinyc->slot_config[i].autoexec ? 1 : 0, Tinyc->slot_config[i].cmd_prefix);
   }
   // Extra line for show_info
   f.printf("_info,%d\n", Tinyc->show_info ? 1 : 0);
   f.close();
   AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Settings saved"));
+}
+
+// Drop a slot's DURABLE command prefix on a program-replace / reset, so the
+// per-second self-heal can't resurrect the old program's prefix for a new
+// program. Marks /tinyc.cfg dirty; flushed by TinyCPrefixReheal (main task).
+// NB: NOT called on a plain stop or a same-file reload (incl. boot autoexec) —
+// the durable prefix must survive those so the heal can use it.
+static void TinyCClearDurablePrefix(uint8_t slot) {
+  if (!Tinyc || slot >= TC_MAX_VMS) return;
+  if (Tinyc->slot_config[slot].cmd_prefix[0]) {
+    Tinyc->slot_config[slot].cmd_prefix[0] = '\0';
+    tc_cfg_prefix_dirty = true;
+  }
 }
 
 // Boot-loop detector — primary signal is filesystem-only.
@@ -503,10 +525,13 @@ static void TinyCLoadSettings(void) {
     line.trim();
     if (line.length() == 0) { slot++; continue; }
 
-    // Parse: filename,autoexec
+    // Parse: filename,autoexec[,cmd_prefix]
     int comma = line.indexOf(',');
     String fname = (comma >= 0) ? line.substring(0, comma) : line;
     int autoexec = (comma >= 0 && comma + 1 < (int)line.length()) ? line.substring(comma + 1).toInt() : 0;
+    int comma2 = (comma >= 0) ? line.indexOf(',', comma + 1) : -1;
+    String pfx = (comma2 >= 0) ? line.substring(comma2 + 1) : String();
+    pfx.trim();
 
     // Special _info line
     if (fname == "_info") {
@@ -521,7 +546,8 @@ static void TinyCLoadSettings(void) {
       // Store config (lightweight — no RAM allocation for the VM)
       strlcpy(Tinyc->slot_config[slot].filename, fname.c_str(), sizeof(Tinyc->slot_config[slot].filename));
       Tinyc->slot_config[slot].autoexec = (autoexec != 0);
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d: %s (autoexec=%d)"), slot, fname.c_str(), autoexec);
+      strlcpy(Tinyc->slot_config[slot].cmd_prefix, pfx.c_str(), sizeof(Tinyc->slot_config[slot].cmd_prefix));
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d: %s (autoexec=%d prefix=%s)"), slot, fname.c_str(), autoexec, pfx.c_str());
     }
     slot++;
   }
@@ -588,7 +614,20 @@ static void TinyCStartAutoexec(void) {
       if (TinyCLoadFile(Tinyc->slot_config[i].filename, i)) {
         TinyCStartVM(Tinyc->slots[i]);
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d (deferred from FUNC_INIT)"), i);
-        delay(100);  // stagger VM starts to avoid heap/stack exhaustion
+        // Serial load: wait for THIS slot's main() (Phase 1) to finish before
+        // starting the next, so two main()s never contend for heap at boot. On a
+        // heap-tight S3/PSRAM (Andreas .107) concurrent load starved main() of the
+        // headroom it needs to reach addCommand(), leaving BAT* unregistered.
+        // Bounded by TC_BOOT_MAIN_WAIT_MS; delay() feeds the WDT. ESP32 only —
+        // main() runs in a FreeRTOS task there (concurrency to serialize); the
+        // non-ESP32 path runs the VM cooperatively from the main loop (no race).
+#ifdef ESP32
+        uint32_t t0 = millis();
+        TcSlot *as = Tinyc->slots[i];
+        while (as && !as->main_done && (millis() - t0) < TC_BOOT_MAIN_WAIT_MS) {
+          delay(20);
+        }
+#endif
       }
     }
   }
@@ -1248,6 +1287,7 @@ void CmndTinyCReset(void) {
   s->cmd_prefix_saved[0] = '\0';   // deliberate reset — drop the sticky prefix too
                                    // (it lives in TcSlot, not TcVM, so the memset
                                    // above doesn't clear it).
+  TinyCClearDurablePrefix(slot_num);  // and the persisted copy (slot is being wiped)
   s->output_len = 0;
   s->output[0] = '\0';
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d reset"), slot_num);
@@ -1338,6 +1378,12 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
   s->cmd_prefix_saved[0] = '\0';   // replacing the program — drop the old program's
                                    // sticky command prefix so the self-heal can't
                                    // resurrect it before the new main() registers.
+  // Only drop the DURABLE prefix when this is a genuinely DIFFERENT program
+  // (s->filename still holds the old name here). A same-file reload or the boot
+  // autoexec load must keep it — that durable copy is what heals a heap-tight boot.
+  if (s->filename[0] && strcmp(s->filename, path) != 0) {
+    TinyCClearDurablePrefix(slot_num);
+  }
   if (s->program) { free(s->program); s->program = nullptr; }
   // Internal DRAM first — small programs (the common case) stay in fast RAM.
   // Only when the internal heap can't satisfy (very large .tcb, or DRAM
@@ -1412,6 +1458,7 @@ static void HandleTinyCPage(void) {
       if (cs->vm.const_data) { free(cs->vm.const_data); }
       memset(&cs->vm, 0, sizeof(TcVM));
       cs->cmd_prefix_saved[0] = '\0';   // deliberate (web) reset — drop sticky prefix
+      TinyCClearDurablePrefix(cmd_slot);  // and the persisted copy
       cs->output_len = 0;
       cs->output[0] = '\0';
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d reset (web)"), cmd_slot);
@@ -2131,13 +2178,40 @@ void TinyCPrefixReheal(void) {
   if (!Tinyc || tc_global_pause) return;
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
-    if (s && s->loaded && s->cmd_prefix_saved[0] && !s->cmd_prefix[0]) {
-      strlcpy(s->cmd_prefix, s->cmd_prefix_saved, sizeof(s->cmd_prefix));
-      AddLog(LOG_LEVEL_INFO,
-             PSTR("TCC: re-registered command prefix \"%s\" (slot %d) — was lost without a main() re-run"),
-             s->cmd_prefix, i);
+    if (!s || !s->loaded) continue;
+
+    // (1) LEARN: mirror a freshly-registered prefix into the DURABLE /tinyc.cfg
+    //     copy so the expected prefix is known even on a future heap-tight boot
+    //     where main() never re-reaches addCommand(). Flushed once below.
+    if (s->cmd_prefix_saved[0] &&
+        strcmp(Tinyc->slot_config[i].cmd_prefix, s->cmd_prefix_saved) != 0) {
+      strlcpy(Tinyc->slot_config[i].cmd_prefix, s->cmd_prefix_saved,
+              sizeof(Tinyc->slot_config[i].cmd_prefix));
+      tc_cfg_prefix_dirty = true;
+    }
+
+    // (2) HEAL: a RUNNING slot whose live prefix went empty. Restore from the
+    //     sticky RAM copy (prefix was set then lost — path A / B(i)), OR from the
+    //     durable config when this boot's main() never reached addCommand() so
+    //     cmd_prefix_saved is empty (path B(ii) — Andreas .107 heap-tight reboot).
+    //     The `running` gate re-arms only an executing VM (state initialised) —
+    //     never a deliberately-stopped slot whose durable prefix still lingers.
+    if (s->running && !s->cmd_prefix[0]) {
+      bool from_ram = (s->cmd_prefix_saved[0] != 0);
+      const char *want = from_ram ? s->cmd_prefix_saved : Tinyc->slot_config[i].cmd_prefix;
+      if (want[0]) {
+        strlcpy(s->cmd_prefix, want, sizeof(s->cmd_prefix));
+        if (!from_ram) strlcpy(s->cmd_prefix_saved, want, sizeof(s->cmd_prefix_saved));
+        AddLog(LOG_LEVEL_INFO,
+               PSTR("TCC: re-registered command prefix \"%s\" (slot %d) — %s"),
+               s->cmd_prefix, i,
+               from_ram ? "was lost without a main() re-run"
+                        : "main() never reached addCommand() (restored from persisted config)");
+      }
     }
   }
+  // Flush the durable prefix change once, on the main task (never the VM task).
+  if (tc_cfg_prefix_dirty) { tc_cfg_prefix_dirty = false; TinyCSaveSettings(); }
 }
 
 #ifdef USE_UFILESYS
@@ -2285,6 +2359,7 @@ static void HandleTinyCUpload(void) {
     TinyCStopVM(s);
     s->cmd_prefix_saved[0] = '\0';   // a new .tcb is being uploaded — drop the old
                                      // program's sticky prefix (new main() re-registers).
+    TinyCClearDurablePrefix(slot_num);  // and the persisted copy — new program may differ
     // Allocate upload buffer.
     //
     // Sizing: the HTTP client may send `?fsz=N` (matches the `/ufsu` upload
