@@ -2067,7 +2067,9 @@ SETREGS
       uint8_t found = 1;
       double ebus_dval = SFPC_99;
       double mbus_dval = SFPC_99;
-      while (*mptr != '@') {
+      // `&& *mptr` stops the scan at end-of-string so a value line missing its
+      // '@' scale can't run past the buffer (OOB read -> crash -> boot loop).
+      while (*mptr != '@' && *mptr) {
         if (found == 0) {
           // skip rest of decoder part
           mptr++;
@@ -2081,7 +2083,7 @@ SETREGS
           if (sml_globs.mptr[mindex].type == 's') {
             // sml
             uint8_t val = hexnibble(*mptr++) << 4;
-            val |= hexnibble(*mptr++);
+            if (*mptr && *mptr != '@') val |= hexnibble(*mptr++);   // odd-length pattern guard -> no OOB step past '\0'/'@'
             if (val != *cp++) {
               found = 0;
             }
@@ -2149,7 +2151,7 @@ SETREGS
 									}
 								} else {
 									iob = hexnibble(*mptr++) << 4;
-									iob |= hexnibble(*mptr++);
+									if (*mptr && *mptr != '@') iob |= hexnibble(*mptr++);   // odd-length pattern guard -> no OOB
 								}
 								pattern[cnt] = iob;
 							}
@@ -2474,13 +2476,26 @@ SETREGS
             }
             else {
               uint8_t val = hexnibble(*mptr++) << 4;
-              val |= hexnibble(*mptr++);
+              if (*mptr && *mptr != '@') val |= hexnibble(*mptr++);   // odd-length pattern guard -> no OOB
               if (val != *cp++) {
                 found = 0;
               }
             }
           }
         }
+      }
+      if (*mptr != '@') {
+        // malformed: value pattern has no '@' scale -> reject the line (else the
+        // post-loop / scale parser runs off the end of the string -> OOB -> boot
+        // loop). Warn once per boot (this runs per frame).
+        if (found) {
+          static bool sml_warned_no_at = false;
+          if (!sml_warned_no_at) {
+            sml_warned_no_at = true;
+            AddLog(LOG_LEVEL_INFO, PSTR("SML: a decoder line is missing its '@' scale — line ignored (meter %d)"), mindex + 1);
+          }
+        }
+        found = 0;
       }
       if (found) {
         // matches, get value
