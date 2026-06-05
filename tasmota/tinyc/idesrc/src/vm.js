@@ -120,8 +120,11 @@ export class VM {
         const constPoolSize = view.getUint16(10, false);
         const heapDeclSize = view.getUint16(12, false);
 
+        // V6 stores its own header_size at bytes 20-21 (self-describing — read it so the
+        // const pool / tables / codeOffset stay aligned no matter how the header grows).
         // V5 adds globalsTableSize at bytes 18-19; V4 adds persistTableSize at bytes 16-17; V3 adds funcTableSize at bytes 14-15; V2 has 14-byte header
-        const headerSize = version >= 5 ? 20 : (version >= 4 ? 18 : (version >= 3 ? 16 : 14));
+        const headerSize = version >= 6 ? view.getUint16(20, false)
+                         : (version >= 5 ? 20 : (version >= 4 ? 18 : (version >= 3 ? 16 : 14)));
         const funcTableSize = version >= 3 ? view.getUint16(14, false) : 0;
         const persistTableSize = version >= 4 ? view.getUint16(16, false) : 0;
         const globalsTableSize = version >= 5 ? view.getUint16(18, false) : 0;
@@ -2494,7 +2497,7 @@ export class VM {
                 const bus = this.pop();
                 const ci = this.pop();
                 const addr = this.pop();
-                const type = this.getConstant(ci) || '?';
+                const type = this.constants[ci] || '?';
                 this.onOutput(`[I2C${bus}] SetActiveFound addr=0x${(addr & 0xFF).toString(16)} type="${type}"\n`);
                 break;
             }
