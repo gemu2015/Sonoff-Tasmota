@@ -2285,6 +2285,24 @@ void tmod_vTaskExitCritical( void *mux ) {
 #define DIRECT_WRITE_HIGH(base, mask)   (GPOS = (mask))             //GPIO_OUT_W1TS_ADDRESS
 */
 
+// On the ESP32-P4 the SOC headers type the GPIO bank-0 registers (in / out_w1tc /
+// out_w1ts / enable_w1tc / enable_w1ts) as structs (gpio_in_reg_t, …), so the raw
+// 32-bit word must be reached via .val — exactly like the bank-1 (pin>=32) regs
+// below already do. Other targets keep GPIO.in / GPIO.out_w1tc as plain words.
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+  #define TMOD_GPIO_IN           (GPIO.in.val)
+  #define TMOD_GPIO_OUT_W1TC(m)  (GPIO.out_w1tc.val  = (m))
+  #define TMOD_GPIO_OUT_W1TS(m)  (GPIO.out_w1ts.val  = (m))
+  #define TMOD_GPIO_EN_W1TC(m)   (GPIO.enable_w1tc.val = (m))
+  #define TMOD_GPIO_EN_W1TS(m)   (GPIO.enable_w1ts.val = (m))
+#else
+  #define TMOD_GPIO_IN           (GPIO.in)
+  #define TMOD_GPIO_OUT_W1TC(m)  (GPIO.out_w1tc  = (m))
+  #define TMOD_GPIO_OUT_W1TS(m)  (GPIO.out_w1ts  = (m))
+  #define TMOD_GPIO_EN_W1TC(m)   (GPIO.enable_w1tc = (m))
+  #define TMOD_GPIO_EN_W1TS(m)   (GPIO.enable_w1ts = (m))
+#endif
+
 uint32_t tmod_directRead(uint32_t pin) {
 
 #ifdef ESP32
@@ -2295,7 +2313,7 @@ uint32_t tmod_directRead(uint32_t pin) {
     return (GPIO.in.val >> pin) & 0x1;
 #else  // ESP32 with over 32 gpios
     if ( pin < 32 )
-        return (GPIO.in >> pin) & 0x1;
+        return (TMOD_GPIO_IN >> pin) & 0x1;
     else
         return (GPIO.in1.val >> (pin - 32)) & 0x1;
 #endif
@@ -2316,7 +2334,7 @@ void tmod_directWriteLow(uint32_t pin) {
     GPIO.out_w1tc.val = ((uint32_t)1 << pin);
 #else  // ESP32 with over 32 gpios
     if ( pin < 32 )
-        GPIO.out_w1tc = ((uint32_t)1 << pin);
+        TMOD_GPIO_OUT_W1TC((uint32_t)1 << pin);
     else
         GPIO.out1_w1tc.val = ((uint32_t)1 << (pin - 32));
 #endif
@@ -2337,7 +2355,7 @@ void tmod_directWriteHigh(uint32_t pin) {
     GPIO.out_w1ts.val = ((uint32_t)1 << pin);
 #else  // ESP32 with over 32 gpios
     if ( pin < 32 )
-        GPIO.out_w1ts = ((uint32_t)1 << pin);
+        TMOD_GPIO_OUT_W1TS((uint32_t)1 << pin);
     else
         GPIO.out1_w1ts.val = ((uint32_t)1 << (pin - 32));
 #endif
@@ -2360,7 +2378,7 @@ void tmod_directModeInput(uint32_t pin) {
         GPIO.enable_w1tc.val = ((uint32_t)1 << (pin));
 #else  // ESP32 with over 32 gpios
         if ( pin < 32 )
-            GPIO.enable_w1tc = ((uint32_t)1 << pin);
+            TMOD_GPIO_EN_W1TC((uint32_t)1 << pin);
         else
             GPIO.enable1_w1tc.val = ((uint32_t)1 << (pin - 32));
 #endif
@@ -2384,7 +2402,7 @@ void tmod_directModeOutput(uint32_t pin) {
         GPIO.enable_w1ts.val = ((uint32_t)1 << (pin));
 #else  // ESP32 with over 32 gpios
         if ( pin < 32 )
-            GPIO.enable_w1ts = ((uint32_t)1 << pin);
+            TMOD_GPIO_EN_W1TS((uint32_t)1 << pin);
         else
             GPIO.enable1_w1ts.val = ((uint32_t)1 << (pin - 32));
 #endif
