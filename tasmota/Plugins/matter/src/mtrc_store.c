@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_store.c — Matter fabric table. See mtrc_store.h. GPLv3.
 
 #include "mtrc_store.h"
@@ -5,22 +8,22 @@
 
 static mtrc_fabric g_fab[MTRC_MAX_FABRICS];
 
-void mtrc_store_reset(void) { memset(g_fab, 0, sizeof(g_fab)); }
+void MODULE_PART mtrc_store_reset(void) { memset(g_fab, 0, sizeof(g_fab)); }
 
-mtrc_fabric *mtrc_store_by_index(uint8_t fabric_index) {
+mtrc_fabric *MODULE_PART mtrc_store_by_index(uint8_t fabric_index) {
   if (fabric_index == 0) return NULL;
   for (int i = 0; i < MTRC_MAX_FABRICS; i++)
     if (g_fab[i].in_use && g_fab[i].fabric_index == fabric_index) return &g_fab[i];
   return NULL;
 }
 
-mtrc_fabric *mtrc_store_by_fabric_id(uint64_t fabric_id) {
+mtrc_fabric *MODULE_PART mtrc_store_by_fabric_id(uint64_t fabric_id) {
   for (int i = 0; i < MTRC_MAX_FABRICS; i++)
     if (g_fab[i].in_use && g_fab[i].fabric_id == fabric_id) return &g_fab[i];
   return NULL;
 }
 
-mtrc_fabric *mtrc_store_alloc(void) {
+mtrc_fabric *MODULE_PART mtrc_store_alloc(void) {
   // Find a free slot.
   int slot = -1;
   for (int i = 0; i < MTRC_MAX_FABRICS; i++)
@@ -38,20 +41,20 @@ mtrc_fabric *mtrc_store_alloc(void) {
   return &g_fab[slot];
 }
 
-int mtrc_store_count(void) {
+int MODULE_PART mtrc_store_count(void) {
   int n = 0;
   for (int i = 0; i < MTRC_MAX_FABRICS; i++) if (g_fab[i].in_use) n++;
   return n;
 }
 
-mtrc_fabric *mtrc_store_at(int i) {
+mtrc_fabric *MODULE_PART mtrc_store_at(int i) {
   int n = 0;
   for (int k = 0; k < MTRC_MAX_FABRICS; k++)
     if (g_fab[k].in_use) { if (n == i) return &g_fab[k]; n++; }
   return NULL;
 }
 
-int mtrc_store_remove(uint8_t fabric_index) {
+int MODULE_PART mtrc_store_remove(uint8_t fabric_index) {
   mtrc_fabric *f = mtrc_store_by_index(fabric_index);
   if (!f) return 0;
   memset(f, 0, sizeof(*f));
@@ -67,14 +70,14 @@ int mtrc_store_remove(uint8_t fabric_index) {
 // device already commissioned under the old format keeps its fabrics.
 #define MTRC_STORE_VER 2
 
-static void put_u16(uint8_t *p, uint16_t v) { p[0]=v&0xFF; p[1]=(v>>8)&0xFF; }
-static void put_u64(uint8_t *p, uint64_t v) { for (int i=0;i<8;i++) p[i]=(v>>(8*i))&0xFF; }
-static uint16_t get_u16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1]<<8)); }
-static uint64_t get_u64(const uint8_t *p) {
+static void MODULE_PART put_u16(uint8_t *p, uint16_t v) { p[0]=v&0xFF; p[1]=(v>>8)&0xFF; }
+static void MODULE_PART put_u64(uint8_t *p, uint64_t v) { for (int i=0;i<8;i++) p[i]=(v>>(8*i))&0xFF; }
+static uint16_t MODULE_PART get_u16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1]<<8)); }
+static uint64_t MODULE_PART get_u64(const uint8_t *p) {
   uint64_t v=0; for (int i=0;i<8;i++) v |= (uint64_t)p[i]<<(8*i); return v;
 }
 
-int mtrc_store_serialize(uint8_t *buf, size_t cap) {
+int MODULE_PART mtrc_store_serialize(uint8_t *buf, size_t cap) {
   size_t o = 0;
   if (cap < 5) return -1;
   buf[o++]='M'; buf[o++]='F'; buf[o++]='B';
@@ -102,7 +105,7 @@ int mtrc_store_serialize(uint8_t *buf, size_t cap) {
   return (int)o;
 }
 
-int mtrc_store_deserialize(const uint8_t *buf, size_t len) {
+int MODULE_PART mtrc_store_deserialize(const uint8_t *buf, size_t len) {
   if (len < 5 || buf[0]!='M' || buf[1]!='F' || buf[2]!='B') return 0;
   uint8_t ver = buf[3];
   if (ver != 1 && ver != MTRC_STORE_VER) return 0;   // ver 1 = no label (legacy)

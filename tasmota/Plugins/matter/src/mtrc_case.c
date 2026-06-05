@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_case.c — Matter CASE key schedule. See mtrc_case.h. GPLv3.
 // Constants verbatim from connectedhomeip.
 
@@ -14,11 +17,11 @@ static const uint8_t INFO_SIGMA2[]  = { 'S','i','g','m','a','2' };
 static const uint8_t INFO_SIGMA3[]  = { 'S','i','g','m','a','3' };
 static const uint8_t INFO_SESSION[] = { 'S','e','s','s','i','o','n','K','e','y','s' };
 
-static void put_le64(uint8_t *p, uint64_t v) {
+static void MODULE_PART put_le64(uint8_t *p, uint64_t v) {
   for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i));
 }
 
-void mtrc_case_destination_id(const uint8_t ipk[16],
+void MODULE_PART mtrc_case_destination_id(const uint8_t ipk[16],
                               const uint8_t init_random[32],
                               const uint8_t root_pub[65],
                               uint64_t fabric_id, uint64_t node_id,
@@ -33,7 +36,7 @@ void mtrc_case_destination_id(const uint8_t ipk[16],
   mtrc_hmac_sha256(ipk, 16, msg, o, out);
 }
 
-int mtrc_case_s2k(const uint8_t shared[32], const uint8_t ipk[16],
+int MODULE_PART mtrc_case_s2k(const uint8_t shared[32], const uint8_t ipk[16],
                   const uint8_t resp_random[32], const uint8_t resp_eph_pub[65],
                   const uint8_t hash_sigma1[32], uint8_t s2k[16]) {
   // salt = IPK(16) || respRandom(32) || respEphPub(65) || SHA256(Σ1)(32)
@@ -46,7 +49,7 @@ int mtrc_case_s2k(const uint8_t shared[32], const uint8_t ipk[16],
                           INFO_SIGMA2, sizeof(INFO_SIGMA2), s2k, 16);
 }
 
-int mtrc_case_s3k(const uint8_t shared[32], const uint8_t ipk[16],
+int MODULE_PART mtrc_case_s3k(const uint8_t shared[32], const uint8_t ipk[16],
                   const uint8_t hash_sigma12[32], uint8_t s3k[16]) {
   // salt = IPK(16) || SHA256(Σ1||Σ2)(32)
   uint8_t salt[16 + 32];
@@ -56,7 +59,7 @@ int mtrc_case_s3k(const uint8_t shared[32], const uint8_t ipk[16],
                           INFO_SIGMA3, sizeof(INFO_SIGMA3), s3k, 16);
 }
 
-int mtrc_case_session_keys(const uint8_t shared[32], const uint8_t ipk[16],
+int MODULE_PART mtrc_case_session_keys(const uint8_t shared[32], const uint8_t ipk[16],
                            const uint8_t hash_all[32],
                            uint8_t i2r[16], uint8_t r2i[16], uint8_t att[16]) {
   // salt = IPK(16) || SHA256(Σ1||Σ2||Σ3)(32); info "SessionKeys"; 48 bytes

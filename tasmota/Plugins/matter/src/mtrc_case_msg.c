@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_case_msg.c — CASE Sigma message TLV codecs. See mtrc_case_msg.h.
 // GPLv3.
 
@@ -6,7 +9,7 @@
 #include <string.h>
 
 // ---- Sigma1 ------------------------------------------------------------
-int mtrc_sigma1_encode(uint8_t *out, size_t cap, const mtrc_sigma1 *s) {
+int MODULE_PART mtrc_sigma1_encode(uint8_t *out, size_t cap, const mtrc_sigma1 *s) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), s->initiator_random, 32);
@@ -17,7 +20,7 @@ int mtrc_sigma1_encode(uint8_t *out, size_t cap, const mtrc_sigma1 *s) {
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_sigma1_decode(const uint8_t *in, size_t len, mtrc_sigma1 *s) {
+int MODULE_PART mtrc_sigma1_decode(const uint8_t *in, size_t len, mtrc_sigma1 *s) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, in, len);
   mtrc_tlv_elem e; memset(s, 0, sizeof(*s));
   if (!mtrc_tlv_read(&r, &e) || e.type != MTRC_TLV_STRUCT) return 0;
@@ -44,7 +47,7 @@ int mtrc_sigma1_decode(const uint8_t *in, size_t len, mtrc_sigma1 *s) {
 }
 
 // ---- Sigma2 ------------------------------------------------------------
-int mtrc_sigma2_encode(uint8_t *out, size_t cap, const mtrc_sigma2 *s) {
+int MODULE_PART mtrc_sigma2_encode(uint8_t *out, size_t cap, const mtrc_sigma2 *s) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), s->responder_random, 32);
@@ -55,7 +58,7 @@ int mtrc_sigma2_encode(uint8_t *out, size_t cap, const mtrc_sigma2 *s) {
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_sigma2_decode(const uint8_t *in, size_t len, mtrc_sigma2 *s) {
+int MODULE_PART mtrc_sigma2_decode(const uint8_t *in, size_t len, mtrc_sigma2 *s) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, in, len);
   mtrc_tlv_elem e; memset(s, 0, sizeof(*s));
   if (!mtrc_tlv_read(&r, &e) || e.type != MTRC_TLV_STRUCT) return 0;
@@ -72,7 +75,7 @@ int mtrc_sigma2_decode(const uint8_t *in, size_t len, mtrc_sigma2 *s) {
 }
 
 // ---- Sigma3 ------------------------------------------------------------
-int mtrc_sigma3_encode(uint8_t *out, size_t cap, const mtrc_sigma3 *s) {
+int MODULE_PART mtrc_sigma3_encode(uint8_t *out, size_t cap, const mtrc_sigma3 *s) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), s->encrypted3, s->encrypted3_len);
@@ -80,7 +83,7 @@ int mtrc_sigma3_encode(uint8_t *out, size_t cap, const mtrc_sigma3 *s) {
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_sigma3_decode(const uint8_t *in, size_t len, mtrc_sigma3 *s) {
+int MODULE_PART mtrc_sigma3_decode(const uint8_t *in, size_t len, mtrc_sigma3 *s) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, in, len);
   mtrc_tlv_elem e; memset(s, 0, sizeof(*s));
   if (!mtrc_tlv_read(&r, &e) || e.type != MTRC_TLV_STRUCT) return 0;
@@ -91,7 +94,7 @@ int mtrc_sigma3_decode(const uint8_t *in, size_t len, mtrc_sigma3 *s) {
 }
 
 // ---- TBEData (encrypted inner body) ------------------------------------
-int mtrc_case_tbe_encode(uint8_t *out, size_t cap, const mtrc_case_tbe *t) {
+int MODULE_PART mtrc_case_tbe_encode(uint8_t *out, size_t cap, const mtrc_case_tbe *t) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), t->noc, t->noc_len);
@@ -102,7 +105,7 @@ int mtrc_case_tbe_encode(uint8_t *out, size_t cap, const mtrc_case_tbe *t) {
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_case_tbe_decode(const uint8_t *in, size_t len, mtrc_case_tbe *t) {
+int MODULE_PART mtrc_case_tbe_decode(const uint8_t *in, size_t len, mtrc_case_tbe *t) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, in, len);
   mtrc_tlv_elem e; memset(t, 0, sizeof(*t));
   if (!mtrc_tlv_read(&r, &e) || e.type != MTRC_TLV_STRUCT) return 0;
@@ -119,7 +122,7 @@ int mtrc_case_tbe_decode(const uint8_t *in, size_t len, mtrc_case_tbe *t) {
 }
 
 // ---- TBSData (signed body) — encode only (re-encoded to sign/verify) ---
-int mtrc_case_tbs_encode(uint8_t *out, size_t cap, const mtrc_case_tbs *t) {
+int MODULE_PART mtrc_case_tbs_encode(uint8_t *out, size_t cap, const mtrc_case_tbs *t) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), t->noc, t->noc_len);

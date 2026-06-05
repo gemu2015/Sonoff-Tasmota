@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_sec.c — Matter secured message layer (AES-CCM). See mtrc_sec.h.
 // GPLv3.
 
@@ -9,14 +12,14 @@
 #define MTRC_SEC_MAX_BODY 1280
 #endif
 
-void mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
+void MODULE_PART mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
                     uint32_t msg_counter, uint64_t src_node_id) {
   nonce[0] = security_flags;
   for (int i = 0; i < 4; i++) nonce[1 + i] = (uint8_t)(msg_counter >> (8 * i));
   for (int i = 0; i < 8; i++) nonce[5 + i] = (uint8_t)(src_node_id >> (8 * i));
 }
 
-int mtrc_sec_encode(uint8_t *out, size_t cap,
+int MODULE_PART mtrc_sec_encode(uint8_t *out, size_t cap,
                     const mtrc_msg_header *mh, const mtrc_proto_header *ph,
                     const uint8_t *payload, size_t payload_len,
                     const uint8_t key[16]) {
@@ -46,7 +49,7 @@ int mtrc_sec_encode(uint8_t *out, size_t cap,
   return hl + bl + MTRC_CCM_TAG_LEN;
 }
 
-int mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
+int MODULE_PART mtrc_sec_decode(const uint8_t *in, size_t len, const uint8_t key[16],
                     uint64_t peer_node_id,
                     mtrc_msg_header *mh, mtrc_proto_header *ph,
                     uint8_t *pt_buf, size_t pt_cap,

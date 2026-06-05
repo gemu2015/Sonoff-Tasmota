@@ -51,4 +51,14 @@
 #define snprintf(B,N,...)  (( void (*)(char*,size_t,const char*,...) )   MTRC_JT[22])((B),(N),##__VA_ARGS__)
 #define sprintf(B,...)     (( void (*)(char*,size_t,const char*,...) )   MTRC_JT[22])((B),0x7fffffff,##__VA_ARGS__)
 
+// matter uses `millis` ONLY as a matter_port_t HAL member (g.port.millis); it
+// never calls the global millis(). The framework's `#define millis jmillis`
+// clobbers the `.millis` member access (g.port.jmillis → "expected unqualified-id")
+// → drop the remap entirely so the member name stays literal.
+#undef millis
+// strchr IS a real libc call (qrcodegen alphanumeric scan). jstrchr = jt[110];
+// route it through gettbl() like the rest so `jt` resolves at file scope.
+#undef strchr
+#define strchr(A,B)     (( char* (*)(const char*,int) )                 MTRC_JT[110])((A),(B))
+
 #endif // MTRC_PLUGIN_LIBC_H

@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_spake2p.c — SPAKE2+ (RFC 9383, P256) implementation. See header.
 // Implemented from RFC 9383 + Matter Core spec; crypto via BearSSL. GPLv3.
 
@@ -22,21 +25,21 @@ static const uint8_t SPAKE_N[65] = {
 
 static const uint8_t SCALAR_ONE[1] = { 0x01 };
 
-int mtrc_spake2p_prover_X(const uint8_t w0[32], const uint8_t x[32],
+int MODULE_PART mtrc_spake2p_prover_X(const uint8_t w0[32], const uint8_t x[32],
                           uint8_t X[65]) {
   // X = w0*M + x*G   (muladd: A=M, a=w0; B=NULL=generator, b=x)
   memcpy(X, SPAKE_M, 65);
   return mtrc_ec_muladd(X, NULL, w0, 32, x, 32);
 }
 
-int mtrc_spake2p_verifier_Y(const uint8_t w0[32], const uint8_t y[32],
+int MODULE_PART mtrc_spake2p_verifier_Y(const uint8_t w0[32], const uint8_t y[32],
                             uint8_t Y[65]) {
   // Y = w0*N + y*G
   memcpy(Y, SPAKE_N, 65);
   return mtrc_ec_muladd(Y, NULL, w0, 32, y, 32);
 }
 
-int mtrc_spake2p_prover_ZV(const uint8_t w0[32], const uint8_t w1[32],
+int MODULE_PART mtrc_spake2p_prover_ZV(const uint8_t w0[32], const uint8_t w1[32],
                            const uint8_t x[32], const uint8_t Y[65],
                            uint8_t Z[65], uint8_t V[65]) {
   // T = Y - w0*N = 1*Y + (n-w0)*N   (muladd: A=Y, a=1; B=N, b=neg_w0)
@@ -52,7 +55,7 @@ int mtrc_spake2p_prover_ZV(const uint8_t w0[32], const uint8_t w1[32],
   return 1;
 }
 
-int mtrc_spake2p_verifier_ZV(const uint8_t w0[32], const uint8_t y[32],
+int MODULE_PART mtrc_spake2p_verifier_ZV(const uint8_t w0[32], const uint8_t y[32],
                              const uint8_t X[65], const uint8_t L[65],
                              uint8_t Z[65], uint8_t V[65]) {
   // T = X - w0*M = 1*X + (n-w0)*M
@@ -69,13 +72,13 @@ int mtrc_spake2p_verifier_ZV(const uint8_t w0[32], const uint8_t y[32],
 }
 
 // Append an 8-byte little-endian length then the value, into buf at *off.
-static void tt_put(uint8_t *buf, size_t *off, const uint8_t *val, size_t len) {
+static void MODULE_PART tt_put(uint8_t *buf, size_t *off, const uint8_t *val, size_t len) {
   uint64_t l = (uint64_t)len;
   for (int i = 0; i < 8; i++) buf[(*off)++] = (uint8_t)(l >> (8 * i));
   if (len) { memcpy(buf + *off, val, len); *off += len; }
 }
 
-int mtrc_spake2p_transcript(const uint8_t *context, size_t context_len,
+int MODULE_PART mtrc_spake2p_transcript(const uint8_t *context, size_t context_len,
                             const uint8_t *idProver, size_t idProver_len,
                             const uint8_t *idVerifier, size_t idVerifier_len,
                             const uint8_t X[65], const uint8_t Y[65],
@@ -101,7 +104,7 @@ int mtrc_spake2p_transcript(const uint8_t *context, size_t context_len,
   return 1;
 }
 
-int mtrc_spake2p_confirm(const uint8_t K_main[32],
+int MODULE_PART mtrc_spake2p_confirm(const uint8_t K_main[32],
                          const uint8_t X[65], const uint8_t Y[65],
                          uint8_t K_confirmP[32], uint8_t K_confirmV[32],
                          uint8_t cA[32], uint8_t cB[32]) {

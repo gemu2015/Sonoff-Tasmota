@@ -1,9 +1,12 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_im.c — Matter Interaction Model subset. See mtrc_im.h. GPLv3.
 
 #include "mtrc_im.h"
 #include "mtrc_tlv.h"
 
-int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
+int MODULE_PART mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
                                 uint16_t *endpoint, uint32_t *cluster,
                                 uint32_t *command) {
   // The only TLV list in an InvokeRequest is the CommandPath
@@ -25,7 +28,7 @@ int mtrc_im_parse_first_command(const uint8_t *buf, size_t len,
   return 0;
 }
 
-int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
+int MODULE_PART mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
                                   uint16_t *endpoint, uint32_t *cluster,
                                   uint32_t *attribute) {
   // AttributePathIB is the only list in a ReadRequest: {2:ep,3:cluster,4:attr}.
@@ -46,7 +49,7 @@ int mtrc_im_parse_first_attribute(const uint8_t *buf, size_t len,
   return 0;
 }
 
-int mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
+int MODULE_PART mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
                             uint16_t *endpoint, uint32_t *cluster,
                             uint32_t *attribute, uint16_t *max_interval) {
   // MaxIntervalCeiling = top-level ctx2 (u16); attribute path = AttributePathIB.
@@ -71,7 +74,7 @@ int mtrc_im_parse_subscribe(const uint8_t *buf, size_t len,
   return mtrc_im_parse_first_attribute(buf, len, endpoint, cluster, attribute);
 }
 
-int mtrc_im_build_subscribe_response(uint8_t *out, size_t cap,
+int MODULE_PART mtrc_im_build_subscribe_response(uint8_t *out, size_t cap,
                                      uint32_t sub_id, uint16_t max_interval) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // SubscribeResponseMessage
@@ -82,7 +85,7 @@ int mtrc_im_build_subscribe_response(uint8_t *out, size_t cap,
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
+int MODULE_PART mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
                               uint16_t endpoint, uint32_t cluster,
                               uint32_t attribute, uint64_t value) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
@@ -108,7 +111,7 @@ int mtrc_im_build_report_uint(uint8_t *out, size_t cap, uint32_t sub_id,
 
 // Shared opener: emit the ReportData envelope down to the AttributePathIB,
 // leaving the writer positioned to append the Data value. `w` is initialized.
-static void report_open(mtrc_tlv_writer *w, uint8_t *out, size_t cap, uint32_t sub_id,
+static void MODULE_PART report_open(mtrc_tlv_writer *w, uint8_t *out, size_t cap, uint32_t sub_id,
                         uint16_t endpoint, uint32_t cluster, uint32_t attribute) {
   mtrc_tlv_writer_init(w, out, cap);
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // ReportDataMessage
@@ -126,7 +129,7 @@ static void report_open(mtrc_tlv_writer *w, uint8_t *out, size_t cap, uint32_t s
 }
 
 // Shared closer: end AttributeDataIB/ReportIB/array + interactionModelRevision.
-static int report_close(mtrc_tlv_writer *w) {
+static int MODULE_PART report_close(mtrc_tlv_writer *w) {
   mtrc_tlv_end_container(w);                           //   end AttributeDataIB
   mtrc_tlv_end_container(w);                           //  end AttributeReportIB
   mtrc_tlv_end_container(w);                           // end AttributeReports
@@ -135,7 +138,7 @@ static int report_close(mtrc_tlv_writer *w) {
   return mtrc_tlv_writer_ok(w) ? (int)mtrc_tlv_writer_len(w) : -1;
 }
 
-int mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_t sub_id,
+int MODULE_PART mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_t sub_id,
                                    uint16_t endpoint, uint32_t cluster,
                                    uint32_t attribute,
                                    const uint32_t *vals, int count) {
@@ -148,7 +151,7 @@ int mtrc_im_build_report_list_uint(uint8_t *out, size_t cap, uint32_t sub_id,
   return report_close(&w);
 }
 
-int mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint32_t sub_id,
+int MODULE_PART mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint32_t sub_id,
                                      uint16_t endpoint, uint32_t cluster,
                                      uint32_t attribute,
                                      uint32_t device_type, uint16_t revision) {
@@ -163,7 +166,7 @@ int mtrc_im_build_report_devtypelist(uint8_t *out, size_t cap, uint32_t sub_id,
   return report_close(&w);
 }
 
-int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
+int MODULE_PART mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
                                   uint16_t endpoint, uint32_t cluster,
                                   uint32_t resp_command, uint8_t field0) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
@@ -189,7 +192,7 @@ int mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
   return mtrc_tlv_writer_ok(&w) ? (int)mtrc_tlv_writer_len(&w) : -1;
 }
 
-int mtrc_im_build_status(uint8_t *out, size_t cap,
+int MODULE_PART mtrc_im_build_status(uint8_t *out, size_t cap,
                          uint16_t endpoint, uint32_t cluster, uint32_t command,
                          uint8_t status) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);

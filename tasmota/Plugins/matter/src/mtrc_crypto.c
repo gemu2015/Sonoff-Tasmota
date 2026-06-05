@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_crypto.c — BearSSL-backed crypto primitives for matter_c.
 // See mtrc_crypto.h. GPLv3; crypto via BearSSL (BSD).
 //
@@ -27,12 +30,12 @@ static const uint8_t P256_N[32] = {
 // load. Until bound, g_cr is NULL and every entry point fails safe (returns
 // 0 / no-op) rather than wild-jumping through an unset pointer.
 static const mtrc_crypto_ops *g_cr = 0;
-void mtrc_crypto_bind(const mtrc_crypto_ops *ops) { g_cr = ops; }
+void MODULE_PART mtrc_crypto_bind(const mtrc_crypto_ops *ops) { g_cr = ops; }
 
-static const br_ec_impl *EC(void) { return g_cr->ec_p256_m15; }
+static const br_ec_impl *MODULE_PART EC(void) { return g_cr->ec_p256_m15; }
 
 // ---- hashing / MAC / KDF ----------------------------------------------
-void mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
+void MODULE_PART mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
   if (!g_cr) return;
   br_sha256_context c;
   g_cr->sha256_init(&c);
@@ -40,7 +43,7 @@ void mtrc_sha256(const uint8_t *data, size_t len, uint8_t out[32]) {
   g_cr->sha256_out(&c, out);
 }
 
-void mtrc_hmac_sha256(const uint8_t *key, size_t key_len,
+void MODULE_PART mtrc_hmac_sha256(const uint8_t *key, size_t key_len,
                       const uint8_t *data, size_t data_len, uint8_t out[32]) {
   if (!g_cr) return;
   br_hmac_key_context kc;
@@ -51,7 +54,7 @@ void mtrc_hmac_sha256(const uint8_t *key, size_t key_len,
   g_cr->hmac_out(&hc, out);
 }
 
-int mtrc_hkdf_sha256(const uint8_t *salt, size_t salt_len,
+int MODULE_PART mtrc_hkdf_sha256(const uint8_t *salt, size_t salt_len,
                      const uint8_t *ikm, size_t ikm_len,
                      const uint8_t *info, size_t info_len,
                      uint8_t *out, size_t out_len) {
@@ -65,18 +68,18 @@ int mtrc_hkdf_sha256(const uint8_t *salt, size_t salt_len,
 }
 
 // ---- P-256 EC ops ------------------------------------------------------
-int mtrc_ec_mulgen(uint8_t out[65], const uint8_t *k, size_t k_len) {
+int MODULE_PART mtrc_ec_mulgen(uint8_t out[65], const uint8_t *k, size_t k_len) {
   if (!g_cr) return 0;
   size_t r = EC()->mulgen(out, k, k_len, MTRC_CURVE);
   return r != 0;
 }
 
-int mtrc_ec_mul(uint8_t point[65], const uint8_t *k, size_t k_len) {
+int MODULE_PART mtrc_ec_mul(uint8_t point[65], const uint8_t *k, size_t k_len) {
   if (!g_cr) return 0;
   return (int)EC()->mul(point, MTRC_P256_POINT_LEN, k, k_len, MTRC_CURVE);
 }
 
-int mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
+int MODULE_PART mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
                    const uint8_t *a, size_t a_len,
                    const uint8_t *b, size_t b_len) {
   if (!g_cr) return 0;
@@ -85,11 +88,11 @@ int mtrc_ec_muladd(uint8_t A[65], const uint8_t *B,
                            a, a_len, b, b_len, MTRC_CURVE);
 }
 
-int mtrc_ec_pub_from_priv(uint8_t pub[65], const uint8_t priv[32]) {
+int MODULE_PART mtrc_ec_pub_from_priv(uint8_t pub[65], const uint8_t priv[32]) {
   return mtrc_ec_mulgen(pub, priv, 32);
 }
 
-int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t priv[32]) {
+int MODULE_PART mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t priv[32]) {
   uint8_t pt[65];
   memcpy(pt, peer_pub, 65);
   if (!mtrc_ec_mul(pt, priv, 32)) return 0;   // pt = priv * peer_pub
@@ -97,7 +100,7 @@ int mtrc_ecdh(uint8_t shared_x[32], const uint8_t peer_pub[65], const uint8_t pr
   return 1;
 }
 
-int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]) {
+int MODULE_PART mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[32]) {
   if (!g_cr) return 0;
   br_ec_private_key sk;
   sk.curve = MTRC_CURVE; sk.x = (unsigned char *)priv; sk.xlen = 32;
@@ -106,14 +109,14 @@ int mtrc_ecdsa_sign(uint8_t sig[64], const uint8_t hash[32], const uint8_t priv[
   return n == 64 ? 1 : 0;
 }
 
-int mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]) {
+int MODULE_PART mtrc_ecdsa_verify(const uint8_t sig[64], const uint8_t hash[32], const uint8_t pub[65]) {
   if (!g_cr) return 0;
   br_ec_public_key pk;
   pk.curve = MTRC_CURVE; pk.q = (unsigned char *)pub; pk.qlen = 65;
   return g_cr->ecdsa_vrfy_raw(EC(), hash, 32, &pk, sig, 64) ? 1 : 0;
 }
 
-void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
+void MODULE_PART mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
   // neg = n - s  (256-bit big-endian subtract; assumes 0 < s < n)
   int borrow = 0;
   for (int i = 31; i >= 0; i--) {
@@ -124,11 +127,11 @@ void mtrc_ec_scalar_neg(const uint8_t s[32], uint8_t neg[32]) {
 }
 
 // 32-byte big-endian helpers for the mod-n reduction.
-static int be32_ge(const uint8_t a[32], const uint8_t b[32]) {
+static int MODULE_PART be32_ge(const uint8_t a[32], const uint8_t b[32]) {
   for (int i = 0; i < 32; i++) if (a[i] != b[i]) return a[i] > b[i];
   return 1;  // equal counts as >=
 }
-static void be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
+static void MODULE_PART be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
   int borrow = 0;
   for (int i = 31; i >= 0; i--) {
     int d = (int)a[i] - (int)P256_N[i] - borrow;
@@ -137,7 +140,7 @@ static void be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
   }
 }
 
-void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
+void MODULE_PART mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
   // Bit-by-bit: acc = (acc << 1 | bit); if it reached >= n, subtract n once.
   // acc stays < n throughout (value before each subtract is < 2n).
   uint8_t acc[32] = {0};
@@ -151,7 +154,7 @@ void mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
   memcpy(out, acc, 32);
 }
 
-int mtrc_aes_ccm_encrypt(const uint8_t key[16],
+int MODULE_PART mtrc_aes_ccm_encrypt(const uint8_t key[16],
                          const uint8_t *nonce, size_t nonce_len,
                          const uint8_t *aad, size_t aad_len,
                          uint8_t *data, size_t data_len,
@@ -169,7 +172,7 @@ int mtrc_aes_ccm_encrypt(const uint8_t key[16],
   return 1;
 }
 
-int mtrc_aes_ccm_decrypt(const uint8_t key[16],
+int MODULE_PART mtrc_aes_ccm_decrypt(const uint8_t key[16],
                          const uint8_t *nonce, size_t nonce_len,
                          const uint8_t *aad, size_t aad_len,
                          uint8_t *data, size_t data_len,
@@ -186,7 +189,7 @@ int mtrc_aes_ccm_decrypt(const uint8_t key[16],
   return g_cr->ccm_check_tag(&ctx, tag) ? 1 : 0;
 }
 
-int mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
+int MODULE_PART mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
                        const uint8_t *salt, size_t salt_len,
                        uint32_t iterations, uint8_t *out, size_t out_len) {
   if (salt_len > 64 || iterations == 0) return 0;

@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // mtrc_csr.c — PKCS#10 CSR (DER) builder. See mtrc_csr.h. GPLv3.
 
 #include "mtrc_csr.h"
@@ -6,18 +9,18 @@
 
 // ---- minimal DER (X.690) helpers ---------------------------------------
 // Write a DER length. Returns bytes written (1..3; CSRs are well under 64 KB).
-static size_t der_len(uint8_t *p, size_t len) {
+static size_t MODULE_PART der_len(uint8_t *p, size_t len) {
   if (len < 0x80)  { p[0] = (uint8_t)len; return 1; }
   if (len < 0x100) { p[0] = 0x81; p[1] = (uint8_t)len; return 2; }
   p[0] = 0x82; p[1] = (uint8_t)(len >> 8); p[2] = (uint8_t)len; return 3;
 }
 // Emit tag + length + content. Returns total bytes written.
-static size_t der_wrap(uint8_t *out, uint8_t tag, const uint8_t *content, size_t clen) {
+static size_t MODULE_PART der_wrap(uint8_t *out, uint8_t tag, const uint8_t *content, size_t clen) {
   size_t o = 0; out[o++] = tag; o += der_len(out + o, clen);
   memcpy(out + o, content, clen); o += clen; return o;
 }
 // Emit a DER INTEGER from a 32-byte big-endian scalar (minimal, sign-safe).
-static size_t der_int(uint8_t *out, const uint8_t v[32]) {
+static size_t MODULE_PART der_int(uint8_t *out, const uint8_t v[32]) {
   size_t i = 0; while (i < 31 && v[i] == 0) i++;       // strip leading zeros
   int pad = (v[i] & 0x80) ? 1 : 0;                      // keep it positive
   size_t clen = (32 - i) + (size_t)pad;
@@ -36,7 +39,7 @@ static const uint8_t ALG_ECPK[] = {
 static const uint8_t ALG_ECDSA_SHA256[] = {
   0x30,0x0A, 0x06,0x08,0x2A,0x86,0x48,0xCE,0x3D,0x04,0x03,0x02 };
 
-int mtrc_csr_build(uint8_t *out, size_t cap,
+int MODULE_PART mtrc_csr_build(uint8_t *out, size_t cap,
                    const uint8_t op_priv[32], const uint8_t op_pub[65]) {
   // SubjectPublicKeyInfo = SEQ { ALG_ECPK, BITSTRING(0x00 || op_pub) }
   uint8_t spki_c[128]; size_t sc = 0;

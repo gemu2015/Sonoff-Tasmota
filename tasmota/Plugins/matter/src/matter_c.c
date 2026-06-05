@@ -1,3 +1,6 @@
+#ifndef MODULE_PART
+#define MODULE_PART
+#endif
 // matter_c.c — lifecycle skeleton + stubs for the pure-C Matter library.
 //
 // This file compiles and links today so the host integration (gate,
@@ -277,7 +280,7 @@ static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM wh
 #endif
 #define g (*g_ptr)                    // every g.field below dereferences the heap context
 
-static void mlog(matter_log_level_t lvl, const char *msg) {
+static void MODULE_PART mlog(matter_log_level_t lvl, const char *msg) {
   if (g.port.log) g.port.log(g.port.ctx, lvl, msg);
 }
 
@@ -287,7 +290,7 @@ static void matter_failsafe_disarm(bool committed);
 
 // ---- onboarding payload (Core Spec §5.1) -------------------------------
 // Verhoeff check digit over the decimal string s (manual pairing code).
-static uint8_t mtrc_verhoeff(const char *s) {
+static uint8_t MODULE_PART mtrc_verhoeff(const char *s) {
   static const uint8_t d[10][10] = {
     {0,1,2,3,4,5,6,7,8,9},{1,2,3,4,0,6,7,8,9,5},{2,3,4,0,1,7,8,9,5,6},
     {3,4,0,1,2,8,9,5,6,7},{4,0,1,2,3,9,5,6,7,8},{5,9,8,7,6,0,4,3,2,1},
@@ -312,7 +315,7 @@ static uint8_t g_qrbuf[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
 static int     g_qr_ok = 0;
 
 // Build the manual pairing code (11 digits) and the "MT:" QR string into g.
-static void mtrc_build_onboarding(void) {
+static void MODULE_PART mtrc_build_onboarding(void) {
   uint16_t disc = g.cfg.discriminator & 0x0FFF;
   uint32_t pass = g.cfg.passcode & 0x07FFFFFF;
 
@@ -358,8 +361,8 @@ static void mtrc_build_onboarding(void) {
                                  qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
 }
 
-int matter_qr_size(void) { return g_qr_ok ? qrcodegen_getSize(g_qrbuf) : 0; }
-bool matter_qr_dark(int x, int y) {
+int MODULE_PART matter_qr_size(void) { return g_qr_ok ? qrcodegen_getSize(g_qrbuf) : 0; }
+bool MODULE_PART matter_qr_dark(int x, int y) {
   return g_qr_ok ? qrcodegen_getModule(g_qrbuf, x, y) : false;
 }
 
@@ -381,7 +384,7 @@ bool matter_qr_dark(int x, int y) {
 // appeared in Home). It is therefore added to EVERY app endpoint in
 // matter_add_endpoint, not per-device-type here. IdentifyTime (0x0000 u16) +
 // IdentifyType (0x0001 enum8, 0 = None).
-static void dm_add_identify(uint16_t ep) {
+static void MODULE_PART dm_add_identify(uint16_t ep) {
   mtrc_dm_add_attr(ep, 0x0003, 0x0000, MTRC_DM_T_U16, MTRC_DM_F_WRITABLE, 0);
   mtrc_dm_add_attr(ep, 0x0003, 0x0001, MTRC_DM_T_U8,  0, 0);
 }
@@ -392,7 +395,7 @@ static void dm_add_identify(uint16_t ep) {
 // device ("Alexa is getting your device ready" -> GS014 / RN002) when it is
 // missing. NameSupport (0x0000, bitmap8) is its sole mandatory attribute;
 // bit7 = GroupNames feature (0 = not supported, matching FeatureMap 0).
-static void dm_add_groups(uint16_t ep) {
+static void MODULE_PART dm_add_groups(uint16_t ep) {
   mtrc_dm_add_attr(ep, 0x0004, 0x0000, MTRC_DM_T_U8, 0, 0);   // Groups.NameSupport = 0
 }
 
@@ -402,14 +405,14 @@ static void dm_add_groups(uint16_t ep) {
 // mixed actuator+sensor node treats the OnOff cluster as non-spec → GS014
 // (single-light pairs but multi-class node rejects). Per-EP FeatureMap dispatch
 // in emit_one_path matches: only Light EPs claim FeatureMap bit 0 (LT).
-static void dm_add_onoff_lt(uint16_t ep) {
+static void MODULE_PART dm_add_onoff_lt(uint16_t ep) {
   mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4000, MTRC_DM_T_BOOL,  0, 1); // GlobalSceneControl (default TRUE)
   mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4001, MTRC_DM_T_U16,   0, 0); // OnTime
   mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4002, MTRC_DM_T_U16,   0, 0); // OffWaitTime
   mtrc_dm_add_attr(ep, MTRC_CL_ONOFF, 0x4003, MTRC_DM_T_ENUM8, 0, 0); // StartUpOnOff (0 = Off)
 }
 
-static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
+static void MODULE_PART dm_attach_device_type(uint16_t ep, uint32_t dt) {
   switch (dt) {
     case MATTER_DEVTYPE_ON_OFF_PLUGIN:
       // Plug: OnOff base only — LT does NOT apply to OnOff Plug-in Unit per spec.
@@ -461,12 +464,12 @@ static void dm_attach_device_type(uint16_t ep, uint32_t dt) {
 // Per-endpoint bridge label lookup (NULL if the endpoint was never named). An
 // endpoint that has a label is a "Bridged Node": its Descriptor DeviceTypeList
 // gains 0x0013 and it carries a Bridged Device Basic Information cluster.
-static const char *dm_label_for(uint16_t ep) {
+static const char *MODULE_PART dm_label_for(uint16_t ep) {
   for (int i = 0; i < g.label_count; i++)
     if (g.labels[i].ep == ep) return g.labels[i].name;
   return NULL;
 }
-static int ep_is_bridged(uint16_t ep) { return dm_label_for(ep) != NULL; }
+static int MODULE_PART ep_is_bridged(uint16_t ep) { return dm_label_for(ep) != NULL; }
 
 // NON_BRIDGE_VENDOR (Berry-matter parity): Amazon Alexa (vendor 0x1217) and
 // Amazon (0x1381) do not accept the Bridged Node device type (0x0013) in an
@@ -478,7 +481,7 @@ static int ep_is_bridged(uint16_t ep) { return dm_label_for(ep) != NULL; }
 // accepts), keyed on the reading CASE session's fabric admin vendor id (captured
 // at AddNOC field 4). The Aggregator (0x000E) itself is tolerated by Alexa, so it
 // stays. Returns 1 when the current session's fabric is a non-bridge vendor.
-static int fabric_is_non_bridge(void) {
+static int MODULE_PART fabric_is_non_bridge(void) {
   mtrc_fabric *f = mtrc_store_by_index(g.case_fabric_index);
   if (!f) return 0;
   return f->admin_vendor_id == 0x1217 || f->admin_vendor_id == 0x1381;
@@ -489,7 +492,7 @@ static int fabric_is_non_bridge(void) {
 // operational session before the real commissioning flow (A2/A3) exists. The
 // matching credentials live in the Python prover. Gated OFF by default — never
 // ship test keys; enable via -DMTRC_CASE_TEST_FABRIC for the device test only.
-static void case_seed_test_fabric(void) {
+static void MODULE_PART case_seed_test_fabric(void) {
   if (mtrc_store_count() > 0) return;
   mtrc_fabric *f = mtrc_store_alloc();
   if (!f) return;
@@ -508,7 +511,7 @@ static void case_seed_test_fabric(void) {
 #endif
 
 // Seed endpoint 0 (root node): Descriptor + Basic Information VID/PID.
-static void dm_seed_root(void) {
+static void MODULE_PART dm_seed_root(void) {
   mtrc_dm_add_endpoint(0, 0x0016);   // Root Node device type
   mtrc_dm_add_cluster(0, MTRC_CL_DESCRIPTOR);   // mandatory on every endpoint
   mtrc_dm_add_attr(0, MTRC_CL_BASIC_INFO, 0x0002, MTRC_DM_T_U16, 0, g.cfg.vendor_id);
@@ -534,7 +537,7 @@ static void dm_seed_root(void) {
 static void publish_operational_mdns(const mtrc_fabric *f);   // fwd (defined below)
 static void unpublish_operational_mdns(const mtrc_fabric *f); // fwd (defined below)
 
-static void mtrc_persist_fabrics(void) {
+static void MODULE_PART mtrc_persist_fabrics(void) {
   if (!g.port.kv_set) return;
   uint8_t *blob = (uint8_t *)malloc(MTRC_KV_BLOB_MAX);   // transient — not static BSS
   if (!blob) return;
@@ -547,7 +550,7 @@ static void mtrc_persist_fabrics(void) {
   mlog(MATTER_LOG_INFO, m);
 }
 
-static void mtrc_load_fabrics(void) {
+static void MODULE_PART mtrc_load_fabrics(void) {
   if (!g.port.kv_get) return;
   uint8_t *blob = (uint8_t *)malloc(MTRC_KV_BLOB_MAX);
   if (!blob) return;
@@ -562,7 +565,7 @@ static void mtrc_load_fabrics(void) {
 }
 
 // ---- lifecycle ---------------------------------------------------------
-matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) {
+matter_err_t MODULE_PART matter_init(const matter_port_t *port, const matter_config_t *cfg) {
   if (!port || !cfg) return MATTER_ERR_INVALID_ARG;
   // Minimum viable port: persistence + time + entropy must be present.
   if (!port->kv_get || !port->kv_set || !port->millis || !port->random_bytes)
@@ -614,7 +617,7 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
 
 #define MTRC_COMMISSION_PORT 5540   // Matter operational/commissioning UDP port
 
-matter_err_t matter_start(void) {
+matter_err_t MODULE_PART matter_start(void) {
   if (!g.inited)   return MATTER_ERR_NOT_INIT;
   if (g.started)   return MATTER_OK;
 
@@ -657,7 +660,7 @@ matter_err_t matter_start(void) {
 // opened by AdministratorCommissioning, external verifier). disc is the 12-bit
 // discriminator the controller will browse for (host derives _L<disc>/_S<disc>
 // subtypes from the D= TXT value). Marks g.commissionable so PASE is accepted.
-static matter_err_t mtrc_publish_commissionable(uint16_t disc, int cm) {
+static matter_err_t MODULE_PART mtrc_publish_commissionable(uint16_t disc, int cm) {
   g.commissionable = true;
   if (!g.port.mdns_publish) return MATTER_OK;
   static char txt_d[16], txt_cm[8], txt_vp[24];
@@ -678,7 +681,7 @@ static matter_err_t mtrc_publish_commissionable(uint16_t disc, int cm) {
   return e;
 }
 
-matter_err_t matter_open_commissioning_window(void) {
+matter_err_t MODULE_PART matter_open_commissioning_window(void) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   g.ocw_active = false; g.ocw_expiry_ms = 0;   // standard (on-device passcode) window
   return mtrc_publish_commissionable(g.cfg.discriminator, 1);
@@ -687,21 +690,21 @@ matter_err_t matter_open_commissioning_window(void) {
 // Toggle the commissionable flag (host closes the window on timeout/Unbind).
 // While closed the PASE responder ignores new commissioning; existing fabrics
 // (CASE/operational) are unaffected.
-void matter_set_commissionable(int on) {
+void MODULE_PART matter_set_commissionable(int on) {
   if (!g_ptr) return;
   g.commissionable = on ? true : false;
   if (!on) { g.ocw_active = false; g.ocw_expiry_ms = 0; }   // closing the window ends any enhanced OCW
 }
-int matter_is_commissionable(void) { return (g_ptr && g.commissionable) ? 1 : 0; }
+int MODULE_PART matter_is_commissionable(void) { return (g_ptr && g.commissionable) ? 1 : 0; }
 
-matter_err_t matter_stop(void) {
+matter_err_t MODULE_PART matter_stop(void) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   g.started = false;
   mlog(MATTER_LOG_INFO, "matter_c stop (stub)");
   return MATTER_OK;
 }
 
-matter_err_t matter_factory_reset(void) {
+matter_err_t MODULE_PART matter_factory_reset(void) {
   if (!g_ptr || !g.inited) return MATTER_ERR_NOT_INIT;
   for (int i = 0; i < mtrc_store_count(); i++)           // withdraw operational mDNS
     unpublish_operational_mdns(mtrc_store_at(i));        // before the table is wiped
@@ -718,7 +721,7 @@ matter_err_t matter_factory_reset(void) {
 // ---- PASE responder ----------------------------------------------------
 // Send a Secure Channel message on the unsecured session (id 0). The
 // response always reflects the initiator's exchange and (optionally) acks.
-static void pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
+static void MODULE_PART pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
                       bool has_ack, uint32_t ack_counter, bool reliable) {
   mtrc_msg_header mh; memset(&mh, 0, sizeof(mh));
   mh.session_id = 0; mh.session_type = 0; mh.msg_counter = ++g.tx_counter;
@@ -746,7 +749,7 @@ static void pase_send(uint8_t opcode, const uint8_t *payload, size_t plen,
 }
 
 // PBKDFParamRequest -> PBKDFParamResponse (we choose salt + iterations).
-static void pase_handle_param_req(const uint8_t *payload, size_t plen,
+static void MODULE_PART pase_handle_param_req(const uint8_t *payload, size_t plen,
                                   const mtrc_msg_header *mh) {
   if (!g.commissionable) {            // commissioning window closed -> not pairable
     mlog(MATTER_LOG_INFO, "PASE: ignored (commissioning window closed)");
@@ -808,7 +811,7 @@ static void pase_handle_param_req(const uint8_t *payload, size_t plen,
 }
 
 // Pake1 (pA) -> Pake2 (pB, cB). Verifier-side SPAKE2+ (heavy: PBKDF2 + EC).
-static void pase_handle_pake1(const uint8_t *payload, size_t plen,
+static void MODULE_PART pase_handle_pake1(const uint8_t *payload, size_t plen,
                               const mtrc_msg_header *mh) {
   uint8_t pA[65];
   if (!mtrc_pase_decode_pake1(payload, plen, pA)) return;
@@ -843,7 +846,7 @@ static void pase_handle_pake1(const uint8_t *payload, size_t plen,
 
 // Pake3 (cA) -> verify, then StatusReport. On success the PASE session keys
 // are live (g.i2r / g.r2i / g.att).
-static void pase_handle_pake3(const uint8_t *payload, size_t plen,
+static void MODULE_PART pase_handle_pake3(const uint8_t *payload, size_t plen,
                               const mtrc_msg_header *mh) {
   uint8_t cA[32];
   if (!mtrc_pase_decode_pake3(payload, plen, cA)) return;
@@ -869,12 +872,12 @@ static void pase_handle_pake3(const uint8_t *payload, size_t plen,
 // ---- CASE responder (operational session establishment) ----------------
 // Raw AES-CCM seal/open for the CASE TBE blobs: blob = ciphertext || tag,
 // AAD empty (Core Spec §4.13.2). Returns 1 on success.
-static int case_seal(const uint8_t key[16], const uint8_t nonce[13],
+static int MODULE_PART case_seal(const uint8_t key[16], const uint8_t nonce[13],
                      const uint8_t *pt, size_t pt_len, uint8_t *out) {
   memcpy(out, pt, pt_len);
   return mtrc_aes_ccm_encrypt(key, nonce, 13, NULL, 0, out, pt_len, out + pt_len, 16);
 }
-static int case_open(const uint8_t key[16], const uint8_t nonce[13],
+static int MODULE_PART case_open(const uint8_t key[16], const uint8_t nonce[13],
                      const uint8_t *blob, size_t blob_len, uint8_t *out) {
   if (blob_len < 16) return 0;
   size_t ct = blob_len - 16;
@@ -889,7 +892,7 @@ static int case_open(const uint8_t key[16], const uint8_t nonce[13],
 // + §4.14.2 destinationId). Berry: Matter_Fabric.get_ipk_group_key(). Using the
 // raw epoch IPK makes the responder's destinationId never match a real
 // controller (Apple) -> "no fabric matches destinationId" and CASE never starts.
-static void fabric_op_ipk(const mtrc_fabric *f, uint8_t op_ipk[16]) {
+static void MODULE_PART fabric_op_ipk(const mtrc_fabric *f, uint8_t op_ipk[16]) {
   uint8_t salt[8];
   for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
   uint8_t cfid[8];
@@ -903,7 +906,7 @@ static void fabric_op_ipk(const mtrc_fabric *f, uint8_t op_ipk[16]) {
 
 // ---- CASE session table (concurrent operational sessions) --------------
 // Copy the current working set (g.case_*) into a session slot, and back.
-static void case_session_save(mtrc_case_sess *s) {
+static void MODULE_PART case_session_save(mtrc_case_sess *s) {
   s->in_use       = true;
   s->my_sid       = g.case_my_sid;
   s->peer_sid     = g.case_peer_sid;
@@ -914,7 +917,7 @@ static void case_session_save(mtrc_case_sess *s) {
   memcpy(s->r2i, g.case_r2i, 16);
   memcpy(s->att, g.case_att, 16);
 }
-static void case_session_load(const mtrc_case_sess *s) {
+static void MODULE_PART case_session_load(const mtrc_case_sess *s) {
   g.case_my_sid         = s->my_sid;
   g.case_peer_sid       = s->peer_sid;
   g.case_fabric_index   = s->fabric_index;
@@ -925,7 +928,7 @@ static void case_session_load(const mtrc_case_sess *s) {
   memcpy(g.case_att, s->att, 16);
   g.case_secure = true;
 }
-static mtrc_case_sess *case_session_find(uint16_t my_sid) {
+static mtrc_case_sess *MODULE_PART case_session_find(uint16_t my_sid) {
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)
     if (g.case_sess[i].in_use && g.case_sess[i].my_sid == my_sid) return &g.case_sess[i];
   return NULL;
@@ -934,7 +937,7 @@ static mtrc_case_sess *case_session_find(uint16_t my_sid) {
 // least-recently-active session (smallest sub_last_ms; never-subscribed slots
 // have sub_last_ms==0 and are reclaimed first). Evicting slot 0 unconditionally
 // would tend to kill a live controller; LRU keeps the busy ones alive.
-static mtrc_case_sess *case_session_alloc(uint16_t my_sid) {
+static mtrc_case_sess *MODULE_PART case_session_alloc(uint16_t my_sid) {
   mtrc_case_sess *s = case_session_find(my_sid);
   if (s) return s;
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)
@@ -948,7 +951,7 @@ static mtrc_case_sess *case_session_alloc(uint16_t my_sid) {
 
 // Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
 // NOC + a signature over TBSData2 with the operational key, send Sigma2.
-static void case_handle_sigma1(const uint8_t *pl, size_t pll,
+static void MODULE_PART case_handle_sigma1(const uint8_t *pl, size_t pll,
                                const mtrc_msg_header *mh) {
   mtrc_sigma1 s1;
   if (!mtrc_sigma1_decode(pl, pll, &s1)) return;
@@ -1028,7 +1031,7 @@ static void case_handle_sigma1(const uint8_t *pl, size_t pll,
 
 // Sigma3 -> operational session. Decrypt TBEData3, verify the initiator's
 // signature with the public key from its NOC, derive the session keys.
-static void case_handle_sigma3(const uint8_t *pl, size_t pll,
+static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
                                const mtrc_msg_header *mh) {
   if (g.case_phase != 1) return;
   mtrc_fabric *f = mtrc_store_by_index(g.case_hs_fabric_index);
@@ -1175,12 +1178,12 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
 // key (R2I) and message counter.
 static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } g_tx =
   { NULL, 0, NULL, 0, 0 };
-static void tx_use_pase(void) {
+static void MODULE_PART tx_use_pase(void) {
   g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
   g_tx.src = 0;   // commissioning peer has no operational node id -> nonce src 0
   g_tx.dst = 0;
 }
-static void tx_use_case(void) {
+static void MODULE_PART tx_use_case(void) {
   g_tx.key = g.case_r2i; g_tx.sid = g.case_peer_sid; g_tx.ctr = &g.case_sec_tx_counter;
   // Operational responses: the NONCE source is OUR node id (not carried in the
   // header), and the header carries the DESTINATION = the controller's node id
@@ -1194,7 +1197,7 @@ static void tx_use_case(void) {
 // Send an encrypted message on the active secured session (PASE or CASE):
 // the R2I key, our session-id assigned to the peer, our secured counter,
 // acking the inbound message.
-static void secured_send(uint8_t opcode, uint16_t protocol_id,
+static void MODULE_PART secured_send(uint8_t opcode, uint16_t protocol_id,
                          const uint8_t *payload, size_t plen,
                          uint16_t exch, bool has_ack, uint32_t ack_counter,
                          bool reliable) {
@@ -1241,7 +1244,7 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
 //   1. host's on_attr_read (the firmware owns it, e.g. the real relay state),
 //   2. the data-model registry (script/host-pushed cache),
 //   3. legacy fallbacks (kept until every attribute is registered).
-static uint64_t attr_value(uint16_t ep, uint32_t cl, uint32_t attr) {
+static uint64_t MODULE_PART attr_value(uint16_t ep, uint32_t cl, uint32_t attr) {
   uint64_t v = 0;
   if (g.port.on_attr_read &&
       g.port.on_attr_read(g.port.ctx, ep, cl, attr, &v) == MATTER_OK) return v;
@@ -1255,7 +1258,7 @@ static uint64_t attr_value(uint16_t ep, uint32_t cl, uint32_t attr) {
 // Extract a context-tagged field from the first command's CommandFields in an
 // InvokeRequest (msg struct -> ctx2 array -> CommandDataIB -> ctx1 fields).
 // want_bytes: 1 -> fill *bp/*blen (BYTES); 0 -> fill *uv (UINT). Returns 1/0.
-static int inv_field(const uint8_t *buf, size_t len, uint32_t tag, int want_bytes,
+static int MODULE_PART inv_field(const uint8_t *buf, size_t len, uint32_t tag, int want_bytes,
                      const uint8_t **bp, size_t *blen, uint64_t *uv) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, buf, len);
   mtrc_tlv_elem e;
@@ -1297,7 +1300,7 @@ static int inv_field(const uint8_t *buf, size_t len, uint32_t tag, int want_byte
 // an attestationSignature over (NOCSRElements || attestationChallenge). The
 // DAC key is a placeholder until A2 supplies the real device DAC. Returns the
 // InvokeResponse length, or -1.
-static int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+static int MODULE_PART build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                               const uint8_t *nonce, size_t nlen) {
   // Generate the operational keypair ONCE per commissioning. MRP retransmits
   // the CSRRequest if our first CSRResponse is slow/lost; re-minting a key here
@@ -1366,7 +1369,7 @@ static int build_csr_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
 // Build an InvokeResponse carrying a command (resp_cmd) whose CommandFields are
 // one or two byte strings: {0:f0} and (if f1) {1:f1}. Covers CertificateChain
 // Response, AttestationResponse, and similar. Returns length, or -1.
-static int build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+static int MODULE_PART build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                                 uint32_t resp_cmd,
                                 const uint8_t *f0, size_t f0len,
                                 const uint8_t *f1, size_t f1len) {
@@ -1398,7 +1401,7 @@ static int build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t ep, uint32_t 
 // {1:CD, 2:nonce, 3:timestamp}; attestationSignature = ECDSA(DAC, SHA256(
 // attestationElements || attestationChallenge)). The challenge is the PASE
 // Att key (g.att). DAC/CD come from the gated dev cred set (A2).
-static int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
+static int MODULE_PART build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
                                       uint32_t cl, const uint8_t *nonce, size_t nlen) {
 #ifdef MTRC_ATTEST_TEST_CREDS
   static uint8_t ae[768];
@@ -1422,7 +1425,7 @@ static int build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
 
 // Build a NOCResponse (NOC cluster cmd 0x08): {0:statusCode, 1:fabricIndex,
 // 2:debugText}. statusCode 0 = OK (NodeOperationalCertStatusEnum).
-static int build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+static int MODULE_PART build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                               uint8_t status, uint8_t fabric_index) {
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, out, cap);
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // InvokeResponseMessage
@@ -1457,7 +1460,7 @@ static int build_noc_response(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl
 // _I<compressedFabricId> browse subtype. CFID = Crypto_KDF(rootPubKey[1..64],
 // salt=fabricId(BE64), info="CompressedFabric", 64 bits).
 // Compute a fabric's operational DNS-SD instance name: <CFID(16hex)>-<nodeId(16hex)>.
-static int fabric_op_instance(const mtrc_fabric *f, char *instance, size_t cap) {
+static int MODULE_PART fabric_op_instance(const mtrc_fabric *f, char *instance, size_t cap) {
   if (!f) return 0;
   uint8_t salt[8];
   for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
@@ -1466,22 +1469,24 @@ static int fabric_op_instance(const mtrc_fabric *f, char *instance, size_t cap) 
                         (const uint8_t *)"CompressedFabric", 16, cfid, sizeof(cfid)))
     return 0;
   int p = 0;
-  for (int i = 0; i < 8; i++) p += snprintf(instance + p, cap - p, "%02X", cfid[i]);
+  for (int i = 0; i < 8; i++) { snprintf(instance + p, cap - p, "%02X", cfid[i]); p += 2; }  // %02X = 2 chars (plugin snprintf shim is void)
   // Node id as 16 hex, big-endian, formatted byte-by-byte. Do NOT use "%016llX":
   // ESP-IDF's newlib-nano printf (default on several Tasmota envs) ignores the
   // 'll' length modifier and emits garbage ("...lX") for a 64-bit value, which
   // corrupts the operational DNS-SD instance name so a controller can never
   // resolve the node for CASE (commissioning ends at "connecting"/"no response").
   if (p < (int)cap - 1) instance[p++] = '-';
-  for (int i = 7; i >= 0; i--)
-    p += snprintf(instance + p, cap - p, "%02X",
+  for (int i = 7; i >= 0; i--) {
+    snprintf(instance + p, cap - p, "%02X",
                   (unsigned)((f->node_id >> (i * 8)) & 0xFF));
+    p += 2;
+  }
   return 1;
 }
 
 // Withdraw a fabric's operational _matter._tcp record (RemoveFabric / Unbind),
 // so a removed controller's stale instance does not linger until reboot.
-static void unpublish_operational_mdns(const mtrc_fabric *f) {
+static void MODULE_PART unpublish_operational_mdns(const mtrc_fabric *f) {
   if (!g.port.mdns_remove || !f) return;
   char instance[40];
   if (!fabric_op_instance(f, instance, sizeof(instance))) return;
@@ -1490,7 +1495,7 @@ static void unpublish_operational_mdns(const mtrc_fabric *f) {
   mlog(MATTER_LOG_INFO, m);
 }
 
-static void publish_operational_mdns(const mtrc_fabric *f) {
+static void MODULE_PART publish_operational_mdns(const mtrc_fabric *f) {
   if (!g.port.mdns_publish || !f) return;
   char instance[40];
   if (!fabric_op_instance(f, instance, sizeof(instance))) return;
@@ -1511,7 +1516,7 @@ static void publish_operational_mdns(const mtrc_fabric *f) {
   mlog(MATTER_LOG_INFO, m);
 }
 
-static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
+static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
                         const uint8_t *payload, size_t plen) {
   const uint8_t *noc = NULL, *ipk = NULL; size_t noclen = 0, ipklen = 0;
   const uint8_t *icac = NULL; size_t icaclen = 0;
@@ -1577,7 +1582,7 @@ static int build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint32_t cl,
 // expired / was disarmed / a new commissioning started before
 // CommissioningComplete => roll back the tentative fabric so a failed attempt
 // does not leak a persisted fabric (the AddNOC=TableFull root cause).
-static void matter_failsafe_disarm(bool committed) {
+static void MODULE_PART matter_failsafe_disarm(bool committed) {
   uint8_t idx = g.fs_added_fabric;
   if (!committed && idx) {
     mtrc_fabric *rf = mtrc_store_by_index(idx);
@@ -1601,7 +1606,7 @@ static void matter_failsafe_disarm(bool committed) {
 // Handle a decrypted IM InvokeRequest. P3b.1 answers the General
 // Commissioning commands ({errorCode, debugText}); anything else gets an
 // UNSUPPORTED_COMMAND status.
-static void im_handle_invoke(const uint8_t *payload, size_t plen,
+static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
                              uint16_t exch, uint32_t ack) {
   uint16_t ep; uint32_t cl, cmd;
   if (!mtrc_im_parse_first_command(payload, plen, &ep, &cl, &cmd)) return;
@@ -1833,7 +1838,7 @@ static void im_handle_invoke(const uint8_t *payload, size_t plen,
 // and Basic Information are scalars; everything else reports 0.
 // Is (ep,cl,attr) an attribute we can serve a value for? Mirrors the coverage
 // of emit_attr_value_field below.
-static int attr_known(uint16_t ep, uint32_t cl, uint32_t attr) {
+static int MODULE_PART attr_known(uint16_t ep, uint32_t cl, uint32_t attr) {
   if (cl == 0x0030 && (attr <= 0x0005 || attr == 0xFFFC || attr == 0xFFFD)) return 1; // GeneralCommissioning
   if (cl == 0x0028 && (attr == 0x0000 || attr == 0x0002 || attr == 0x0004 ||
                        attr == 0xFFFC || attr == 0xFFFD)) return 1;                   // Basic Information (VID=2,PID=4)
@@ -1843,7 +1848,7 @@ static int attr_known(uint16_t ep, uint32_t cl, uint32_t attr) {
 
 // Write the Data field (context tag 2) for a known attribute, with the correct
 // TLV type (controllers reject e.g. a bool returned as uint).
-static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+static void MODULE_PART emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   if (cl == 0x0030) {                                  // General Commissioning
     switch (attr) {
       case 0x0000: mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), g.breadcrumb); return;     // Breadcrumb (u64)
@@ -1903,7 +1908,7 @@ static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, 
 }
 
 // One AttributeReportIB carrying AttributeData (DataVersion + path + value).
-static void emit_attr_report(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+static void MODULE_PART emit_attr_report(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // AttributeReportIB
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));           //  AttributeDataIB
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //   DataVersion
@@ -1920,7 +1925,7 @@ static void emit_attr_report(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint3
 // ---- wildcard attribute enumeration (Apple/Google subscribe to '*') --------
 // Emit one AttributeReportIB fragment whose Data is an array of uints (Descriptor
 // ServerList/ClientList/PartsList, AttributeList, etc.) into a shared writer.
-static void emit_report_list(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+static void MODULE_PART emit_report_list(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                              uint32_t attr, const uint32_t *vals, int count) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
@@ -1938,7 +1943,7 @@ static void emit_report_list(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
 }
 
 // Emit the Descriptor (0x001D) DeviceTypeList fragment (array of {0:type,1:rev}).
-static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt) {
+static void MODULE_PART emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
@@ -1965,7 +1970,7 @@ static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt
 
 // Emit one AttributeReportIB fragment carrying a scalar uint Data value
 // (FeatureMap, ClusterRevision, and other scalar globals).
-static void emit_attr_report_uint(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+static void MODULE_PART emit_attr_report_uint(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                                   uint32_t attr, uint64_t val) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
@@ -1981,7 +1986,7 @@ static void emit_attr_report_uint(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
 }
 
 // Emit a single Descriptor (0x001D) list attribute fragment.
-static void emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
+static void MODULE_PART emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
   if (attr == 0x0000) { uint32_t dt = 0; mtrc_dm_endpoint_device_type(ep, &dt);
     emit_report_devtypelist(w, ep, dt); return; }
   if (attr == 0x0001) {                                  // ServerList
@@ -2014,7 +2019,7 @@ static void emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) 
 // Functional (non-global) attribute ids a cluster exposes. Synthetic clusters
 // (Descriptor / GeneralCommissioning / BasicInformation) have fixed lists;
 // everything else comes from the data-model registry.
-static int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) {
+static int MODULE_PART cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) {
   int n = 0;
   #define CFA_LIST(...) do { static const uint32_t a[]={__VA_ARGS__}; \
     for (unsigned i=0;i<sizeof(a)/sizeof(a[0]) && n<cap;i++) out[n++]=a[i]; return n; } while(0)
@@ -2040,7 +2045,7 @@ static int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) 
 }
 
 // AttributeReportIB header up to (not incl.) the Data field at context tag 2.
-static void frag_open(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+static void MODULE_PART frag_open(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());            // AttributeReportIB
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));            //  AttributeDataIB
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //   DataVersion
@@ -2050,17 +2055,17 @@ static void frag_open(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t att
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(4), attr);
   mtrc_tlv_end_container(w);                            //   end path
 }
-static void frag_close(mtrc_tlv_writer *w) {
+static void MODULE_PART frag_close(mtrc_tlv_writer *w) {
   mtrc_tlv_end_container(w);                            //  end AttributeDataIB
   mtrc_tlv_end_container(w);                            // end AttributeReportIB
 }
-static void emit_attr_report_str(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+static void MODULE_PART emit_attr_report_str(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                                  uint32_t attr, const char *s) {
   frag_open(w, ep, cl, attr);
   mtrc_tlv_put_utf8(w, mtrc_tlv_ctx(2), (const uint8_t *)s, s ? strlen(s) : 0);
   frag_close(w);
 }
-static void emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+static void MODULE_PART emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                                   uint32_t attr, bool b) {
   frag_open(w, ep, cl, attr);
   mtrc_tlv_put_bool(w, mtrc_tlv_ctx(2), b);
@@ -2072,7 +2077,7 @@ static void emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
 // Commissioning, Network Commissioning, General Diagnostics, Administrator
 // Commissioning, Operational Credentials (fabric-scoped lists from mtrc_store),
 // Group Key Management and Access Control. Modeled on Berry Matter_Plugin_1_Root.
-static void emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
+static void MODULE_PART emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
   const uint16_t ep = 0;
   static const char *UNIQUE_ID = "TASMOTA-MATTER-C6-0001";
   if (cl == 0x0028) {                                   // Basic Information
@@ -2199,7 +2204,7 @@ static void emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
 }
 
 // True for root-node (ep0) clusters served by emit_root_attr.
-static int is_root_cluster(uint32_t cl) {
+static int MODULE_PART is_root_cluster(uint32_t cl) {
   return cl==0x0028 || cl==0x0030 || cl==0x0031 || cl==0x0033 ||
          cl==0x003C || cl==0x003E || cl==0x003F || cl==0x001F;
 }
@@ -2207,7 +2212,7 @@ static int is_root_cluster(uint32_t cl) {
 // Bridged Device Basic Information (0x0039) on a named (bridged) endpoint. The
 // per-endpoint name a controller (Apple Home) displays as the accessory title
 // comes from NodeLabel (0x0005); the rest are mandatory metadata.
-static void emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
+static void MODULE_PART emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
   const char *label = dm_label_for(ep);
   char uid[24]; snprintf(uid, sizeof uid, "TASMOTA-MTRC-EP%u", (unsigned)ep);
   switch (attr) {
@@ -2222,7 +2227,7 @@ static void emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
 
 // Emit one AttributeReportIB fragment for any (ep,cl,attr), including the
 // mandatory global attributes every cluster must expose (Core Spec §7.13).
-static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
+static void MODULE_PART emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   if (cl == 0x001D && attr <= 0x0003) { emit_descriptor_one(w, ep, attr); return; }
   switch (attr) {
     case 0xFFFD: emit_attr_report_uint(w, ep, cl, attr,
@@ -2311,7 +2316,7 @@ static void emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t
 // Append every (ep,cl,attr) path matching a (possibly wildcard) filter to
 // g.rpt_paths, including each cluster's mandatory global attributes. Multiple
 // query paths accumulate (a ReadRequest may carry several AttributePathIBs).
-static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t want_cl,
+static void MODULE_PART rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t want_cl,
                           int has_attr, uint32_t want_attr) {
   static const uint32_t globals[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
   int cap = (int)(sizeof(g.rpt_paths)/sizeof(g.rpt_paths[0]));
@@ -2340,14 +2345,14 @@ static void rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t wan
 }
 
 // Does endpoint `ep` exist in the data model? (root ep0 always does.)
-static int dm_ep_present(uint16_t ep) {
+static int MODULE_PART dm_ep_present(uint16_t ep) {
   if (ep == 0) return 1;
   uint32_t dt; return mtrc_dm_endpoint_device_type(ep, &dt);
 }
 // Does cluster `cl` exist on endpoint `ep`? Descriptor is synthetic on every
 // endpoint; root clusters synthetic on ep0; 0x0039 on named/bridged eps; the
 // rest come from the registry.
-static int dm_cl_present(uint16_t ep, uint32_t cl) {
+static int MODULE_PART dm_cl_present(uint16_t ep, uint32_t cl) {
   if (cl == MTRC_CL_DESCRIPTOR) return 1;
   if (ep == 0 && is_root_cluster(cl)) return 1;
   if (cl == 0x0039 && ep_is_bridged(ep)) return 1;
@@ -2358,7 +2363,7 @@ static int dm_cl_present(uint16_t ep, uint32_t cl) {
   return 0;
 }
 // Matter IM status for an unmatched concrete read path (Core Spec §8.4.3.2).
-static uint8_t read_status_for(uint16_t ep, uint32_t cl, uint32_t attr) {
+static uint8_t MODULE_PART read_status_for(uint16_t ep, uint32_t cl, uint32_t attr) {
   (void)attr;
   if (!dm_ep_present(ep))     return 0x7F;   // UNSUPPORTED_ENDPOINT
   if (!dm_cl_present(ep, cl)) return 0xC3;   // UNSUPPORTED_CLUSTER
@@ -2366,7 +2371,7 @@ static uint8_t read_status_for(uint16_t ep, uint32_t cl, uint32_t attr) {
 }
 // Emit an AttributeReportIB carrying a StatusIB (the AttributeStatusIB variant,
 // tag ctx(0)) for a path the node can't serve — vs the data variant ctx(1).
-static void emit_status_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
+static void MODULE_PART emit_status_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                              uint32_t attr, uint8_t st) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());            // AttributeReportIB
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(0));            // AttributeStatusIB
@@ -2385,7 +2390,7 @@ static void emit_status_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
 // Build and send one ReportData chunk from g.rpt_paths[g.rpt_cursor:]. Sets
 // MoreChunkedMessages while paths remain; the controller's StatusResponse pulls
 // the next chunk. `ack` is the counter of the message that triggered this chunk.
-static void send_report_chunk(uint32_t ack) {
+static void MODULE_PART send_report_chunk(uint32_t ack) {
   static uint8_t chunk[1280];
   static uint8_t frag[1024];   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(chunk));
@@ -2439,7 +2444,7 @@ static void send_report_chunk(uint32_t ack) {
 // AttributePathIB plus each cluster's mandatory global attributes. Large
 // responses (wildcard reads) are split across ReportData chunks driven by the
 // controller's StatusResponse (see send_report_chunk / secured_dispatch).
-static void im_handle_read(const uint8_t *payload, size_t plen,
+static void MODULE_PART im_handle_read(const uint8_t *payload, size_t plen,
                            uint16_t exch, uint32_t ack) {
   g.rpt_npaths = 0; g.rpt_nstatus = 0;
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, payload, plen);
@@ -2479,7 +2484,7 @@ static void im_handle_read(const uint8_t *payload, size_t plen,
 // SubscribeResponse. A concrete hosted attribute is also registered for
 // periodic/change reports from matter_loop. Chunk continuation + the final
 // SubscribeResponse are driven from secured_dispatch's StatusResponse handler.
-static void im_handle_subscribe(const uint8_t *payload, size_t plen,
+static void MODULE_PART im_handle_subscribe(const uint8_t *payload, size_t plen,
                                 uint16_t exch, uint32_t ack) {
   uint16_t ep = 0, maxc = 0; uint32_t cl = 0, attr = 0;
   int have = mtrc_im_parse_subscribe(payload, plen, &ep, &cl, &attr, &maxc);
@@ -2520,7 +2525,7 @@ static void im_handle_subscribe(const uint8_t *payload, size_t plen,
 
 // Consume the rest of a container whose opening element was just read (skips
 // nested structs/arrays/lists) so the flat walker resyncs on the next element.
-static void tlv_skip_container(mtrc_tlv_reader *r) {
+static void MODULE_PART tlv_skip_container(mtrc_tlv_reader *r) {
   int depth = 1; mtrc_tlv_elem e;
   while (depth > 0 && mtrc_tlv_read(r, &e)) {
     if (e.type == MTRC_TLV_STRUCT || e.type == MTRC_TLV_ARRAY || e.type == MTRC_TLV_LIST) depth++;
@@ -2535,7 +2540,7 @@ static void tlv_skip_container(mtrc_tlv_reader *r) {
 // SCALAR write to an app endpoint is applied to the data model (so a writable
 // attribute — e.g. Fan PercentSetting — actually takes effect; a script reads it
 // with matterGet). Complex values (e.g. the ACL list) are accepted but skipped.
-static void im_handle_write(const uint8_t *payload, size_t plen,
+static void MODULE_PART im_handle_write(const uint8_t *payload, size_t plen,
                             uint16_t exch, uint32_t ack) {
   static uint8_t resp[512];
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
@@ -2599,7 +2604,7 @@ static void im_handle_write(const uint8_t *payload, size_t plen,
 
 // A message arrived on the established PASE secure session: decrypt with the
 // I2R key, parse the inner protocol header, dispatch the IM.
-static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_key,
+static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_key,
                              uint64_t peer_node_id) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
@@ -2621,8 +2626,9 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
   {
     char hx[64]; int hp = 0;
     size_t nh = ipll < 24 ? ipll : 24;
-    for (size_t i = 0; i < nh && hp < 58; i++)
-      hp += snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]);
+    for (size_t i = 0; i < nh && hp < 58; i++) {
+      snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]); hp += 2;   // void snprintf shim
+    }
     char dm[120];
     snprintf(dm, sizeof(dm),
              "DIAG secured rx proto=0x%04X op=0x%02X exch=0x%04X plen=%u %s",
@@ -2672,7 +2678,7 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
     // status after our ReportData means the controller rejected it. -DMTRC_DIAG.
     if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == 0x01 && ipll <= 24) {
       char hx[56]; int hp = 0;
-      for (size_t i = 0; i < ipll && hp < 52; i++) hp += snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]);
+      for (size_t i = 0; i < ipll && hp < 52; i++) { snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]); hp += 2; }
       char sm[80]; snprintf(sm, sizeof(sm), "DIAG IM StatusResponse raw=%s", hx);
       mlog(MATTER_LOG_INFO, sm);
     }
@@ -2693,7 +2699,7 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
   }
 }
 
-static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
+static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
   { char m[40]; snprintf(m, sizeof(m), "rx %u B (dispatch)", (unsigned)len);
     mlog(MATTER_LOG_DEBUG, m); }
@@ -2806,7 +2812,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
 // app-endpoint attributes (the dynamic sensor/light values). Small enough for
 // one datagram. The caller loads the session and points g.reply_ip6 at its
 // controller first. Reports reuse the subscription's exchange id.
-static void send_subscription_report(uint32_t sub_id, uint16_t exch) {
+static void MODULE_PART send_subscription_report(uint32_t sub_id, uint16_t exch) {
   static uint8_t buf[1100];
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
@@ -2828,7 +2834,7 @@ static void send_subscription_report(uint32_t sub_id, uint16_t exch) {
 
 // Send one Matter Event as an EventReport (ReportData) to every subscribed
 // session — used by Generic Switch button events. Runs in the main loop.
-static void matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
+static void MODULE_PART matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
                               int32_t a, int32_t b) {
   uint64_t evno = ++g.event_number;
   uint32_t now  = g.port.millis(g.port.ctx);
@@ -2873,7 +2879,7 @@ static void matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
 
 // matterEvent() backend: enqueue an event; the actual send happens in
 // matter_loop (main loop) so it is safe to call from a VM-task callback.
-matter_err_t matter_queue_event(uint16_t ep, uint32_t cl, uint32_t event_id,
+matter_err_t MODULE_PART matter_queue_event(uint16_t ep, uint32_t cl, uint32_t event_id,
                                 int32_t a, int32_t b) {
   if (!g_ptr || !g.inited) return MATTER_ERR_NOT_INIT;
   uint8_t nh = (uint8_t)((g.ev_head + 1) % MTRC_EV_QUEUE);
@@ -2884,7 +2890,7 @@ matter_err_t matter_queue_event(uint16_t ep, uint32_t cl, uint32_t event_id,
   return MATTER_OK;
 }
 
-void matter_loop(void) {
+void MODULE_PART matter_loop(void) {
   if (!g_ptr || !g.inited || !g.started) return;   // off / not started -> no-op
   // Fail-safe expiry (Core Spec §11.10): if a commissioning armed the fail-safe
   // but never sent CommissioningComplete, roll back its tentative fabric so the
@@ -2957,7 +2963,7 @@ void matter_loop(void) {
 
 // ---- inbound transport pumps ------------------------------------------
 // May run in a network task — only copy + flag; processing is in matter_loop.
-void matter_udp_rx(const uint8_t src_ip6[16], uint16_t src_port,
+void MODULE_PART matter_udp_rx(const uint8_t src_ip6[16], uint16_t src_port,
                    const void *buf, size_t len) {
   if (!g_ptr || !g.inited) return;
   if (len == 0 || len > sizeof(g.rx_q[0].buf)) return;
@@ -2970,13 +2976,13 @@ void matter_udp_rx(const uint8_t src_ip6[16], uint16_t src_port,
   g.rx_head = nh;                                     // publish AFTER fields written
 }
 
-void matter_ble_rx(const void *buf, size_t len) {
+void MODULE_PART matter_ble_rx(const void *buf, size_t len) {
   (void)buf; (void)len;
   // TODO Phase 3: BTP reassembly -> PASE/commissioning message handler.
 }
 
 // ---- endpoints / attributes -------------------------------------------
-int matter_add_endpoint(uint32_t device_type_id) {
+int MODULE_PART matter_add_endpoint(uint32_t device_type_id) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   uint16_t ep = g.next_ep;
   if (mtrc_dm_add_endpoint(ep, device_type_id) < 0) return MATTER_ERR_NO_MEM;
@@ -2995,7 +3001,7 @@ int matter_add_endpoint(uint32_t device_type_id) {
 // the name. Idempotent — calling again just updates the label. Call AFTER the
 // endpoint exists (i.e. after matterAdd); a re-declared model (matterReset)
 // drops all labels and the aggregator.
-matter_err_t matter_set_label(uint16_t ep, const char *name) {
+matter_err_t MODULE_PART matter_set_label(uint16_t ep, const char *name) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   if (ep == 0) return MATTER_ERR_INVALID_ARG;
   uint32_t dt; if (!mtrc_dm_endpoint_device_type(ep, &dt)) return MATTER_ERR_INVALID_ARG;
@@ -3028,7 +3034,7 @@ matter_err_t matter_set_label(uint16_t ep, const char *name) {
 }
 
 // Decode a leading TLV scalar (uint/bool) into a u64. Returns 1 on success.
-static int tlv_scalar_u64(const uint8_t *tlv, size_t len, uint64_t *out) {
+static int MODULE_PART tlv_scalar_u64(const uint8_t *tlv, size_t len, uint64_t *out) {
   mtrc_tlv_reader r; mtrc_tlv_reader_init(&r, tlv, len);
   mtrc_tlv_elem e;
   if (!mtrc_tlv_read(&r, &e)) return 0;
@@ -3037,7 +3043,7 @@ static int tlv_scalar_u64(const uint8_t *tlv, size_t len, uint64_t *out) {
   return 0;
 }
 
-matter_err_t matter_set_attr(uint16_t endpoint, uint32_t cluster,
+matter_err_t MODULE_PART matter_set_attr(uint16_t endpoint, uint32_t cluster,
                              uint32_t attr, const uint8_t *tlv, size_t tlv_len) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   if (!tlv || tlv_len == 0) return MATTER_ERR_INVALID_ARG;
@@ -3054,7 +3060,7 @@ matter_err_t matter_set_attr(uint16_t endpoint, uint32_t cluster,
 }
 
 // ---- TinyC / script data-model bridge (Phase C2) -----------------------
-void matter_reset_model(void) {
+void MODULE_PART matter_reset_model(void) {
   if (!g.inited) return;
   mtrc_dm_reset();
   dm_seed_root();
@@ -3063,12 +3069,12 @@ void matter_reset_model(void) {
   g.label_count = 0;
 }
 
-matter_err_t matter_add_cluster(uint16_t endpoint, uint32_t cluster) {
+matter_err_t MODULE_PART matter_add_cluster(uint16_t endpoint, uint32_t cluster) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   return mtrc_dm_add_cluster(endpoint, cluster) == 0 ? MATTER_OK : MATTER_ERR_NO_MEM;
 }
 
-matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
+matter_err_t MODULE_PART matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
                              int type, int writable) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   if (type < 0 || type > MTRC_DM_T_FLOAT) type = MTRC_DM_T_U32;
@@ -3077,7 +3083,7 @@ matter_err_t matter_add_attr(uint16_t endpoint, uint32_t cluster, uint32_t attr,
          ? MATTER_OK : MATTER_ERR_NO_MEM;
 }
 
-matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
+matter_err_t MODULE_PART matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
                                   uint32_t attr, uint64_t value) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   int changed;
@@ -3099,7 +3105,7 @@ matter_err_t matter_set_attr_uint(uint16_t endpoint, uint32_t cluster,
 // is stored (as its 32-bit bits); for any other type the value is scaled to an
 // integer round(f*scale) — so one builtin serves both float wire attrs (air
 // quality) and scaled-int wire attrs (temperature 0.01C, power mW, ...).
-matter_err_t matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
+matter_err_t MODULE_PART matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
                                     uint32_t attr, float f, int32_t scale) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   mtrc_dm_attr_t *a = mtrc_dm_find(endpoint, cluster, attr);
@@ -3117,14 +3123,14 @@ matter_err_t matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
   return MATTER_OK;
 }
 
-int matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
+int MODULE_PART matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
                          uint32_t attr, uint64_t *out) {
   if (!g.inited) return 0;
   return mtrc_dm_get(endpoint, cluster, attr, out);
 }
 
 // ---- onboarding + introspection ---------------------------------------
-const char *matter_qr_uri(void)      { return g_ptr ? g.qr : ""; }
-const char *matter_manual_code(void) { return g_ptr ? g.manual : ""; }
-const char *matter_version(void)     { return MATTER_C_VERSION_STR; }
-bool        matter_is_commissioned(void) { return false; } // TODO Phase 3
+const char *MODULE_PART matter_qr_uri(void)      { return g_ptr ? g.qr : ""; }
+const char *MODULE_PART matter_manual_code(void) { return g_ptr ? g.manual : ""; }
+const char *MODULE_PART matter_version(void)     { return MATTER_C_VERSION_STR; }
+bool        MODULE_PART matter_is_commissioned(void) { return false; } // TODO Phase 3
