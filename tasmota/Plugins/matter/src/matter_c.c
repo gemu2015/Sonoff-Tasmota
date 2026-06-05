@@ -266,7 +266,15 @@ typedef struct {
   volatile uint8_t ev_head, ev_tail;
 } matter_ctx_t;
 
+#ifdef MTRC_PLUGIN_BUILD
+// Fork-B BinPlugin build: g_ptr cannot be a PIC-relocatable file-scope static —
+// it becomes an lvalue into the per-module MODULE_MEMORY (the ctx itself still
+// lives in PSRAM). Included HERE (after matter_ctx_t is defined) so MODULE_MEMORY
+// can hold a matter_ctx_t*. See mtrc_plugin_mem.h.
+#include "mtrc_plugin_mem.h"
+#else
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
+#endif
 #define g (*g_ptr)                    // every g.field below dereferences the heap context
 
 static void mlog(matter_log_level_t lvl, const char *msg) {

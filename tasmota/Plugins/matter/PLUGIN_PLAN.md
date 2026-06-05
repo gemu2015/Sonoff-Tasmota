@@ -214,3 +214,46 @@ Build/flash notes: plugin env needs `-I tasmota/Plugins/matter/include -I lib/li
 `tinyc32s3-mini[-home]` (board `esp32s3-qio_qspi`), NOT `tinyc32s3` (octal PSRAM → PSRAM-init
 boot-loop → safeboot rollback; wrong-variant OTA cost a creds reset). BLIB swap: `unlink N` → POST
 `/modu` (field `modu`) → `iniz N` → `TinyCMtrCrypto`.
+
+### Stage 3 — amalgamation foundation RECREATED + key enabler VALIDATED (2026-06-04, autonomous, UNCOMMITTED — held for review)
+The 2026-06-03 Stage-3 foundation (`mtrc_plugin_mem.h` + the gated keystone) was uncommitted
+and did NOT survive; recreated from the documented design, plus the libc enabler that makes the
+whole amalgamation tractable. Build loop confirmed: `build_plugin.py --plugin USE_MATTER_MOD
+--cpu esp32` → `MATTER_32.bin` (Tensilica, for .156 S3).
+
+**Recreated / new artifacts (working tree, uncommitted):**
+1. `matter/include/mtrc_plugin_mem.h` — `MODULE_MEMORY { matter_ctx_t *mtrc_ctx; const mtrc_crypto_ops *cr; }`
+   + `#define MTRC_MEM ((MODULE_MEMORY*)gettbl()->mod_memory)` + `#define g_ptr (MTRC_MEM->mtrc_ctx)`.
+   gettbl() is the framework's global MODULES_TABLE accessor → `g_ptr` (and `#define g (*g_ptr)`)
+   resolve in ANY function with NO per-function `SETMEMREGS`. ctx stays in PSRAM; only the ptr is in
+   the tiny jcalloc'd MODULE_MEMORY.
+2. `matter/src/matter_c.c` keystone GATED: `#ifdef MTRC_PLUGIN_BUILD` → `#include "mtrc_plugin_mem.h"`
+   `#else static matter_ctx_t *g_ptr=NULL; #endif` (non-plugin/lib copy unchanged).
+3. **`matter/include/mtrc_plugin_libc.h` — THE amalgamation enabler, COMPILE-VALIDATED on Tensilica.**
+   Same gettbl() trick applied to libc: `#undef`s the framework's local-jt remaps and redefines
+   memcpy/memmove(jt92) memset(91) memcmp(89) strlen(59) strncpy(97) calloc/malloc(9) free(18)
+   realloc(189) snprintf/sprintf(jt22, variadic) as `((sig)gettbl()->jt[N])(...)`. This is what lets
+   all 61 matter_c functions (60 memcpy, 38 snprintf, 25 memset, …) amalgamate WITHOUT adding
+   SETMEMREGS to each. Validated by a probe inside the building de-risk plugin → SUCCESS, 0 errors.
+   ⚠ Caveats for the real port: jt[22] (snprintf) returns VOID → any `int n = snprintf(...)` in
+   matter_c must drop the return; string literals (format strings, ~195 of them) still need PROGMEM
+   /EXEC_OFFSET handling (separate discipline item, NOT solved by this shim).
+
+**Structural standup target (NEXT — do in a NEW file, NOT xblib_02):** the override already carries a
+commented `//#define USE_MATTER_FULL_MOD  // xblib_03_matter_full.cpp` gate → the FULL amalgamation
+lives in **`xblib_03_matter_full.cpp`** (keep xblib_02 as the proven de-risk). Skeleton order:
+`tasmota_options.h` → `#ifdef USE_MATTER_FULL_MOD` → `#define MTRC_PLUGIN_BUILD 1` → `module.h` +
+`module_defines.h` → `PUSH_OPTIONS` → `mtrc_plugin_libc.h` → the 16 `#include "matter/src/*.c"`
+(matter_c.c defines `matter_ctx_t` + pulls `mtrc_plugin_mem.h` → defines `MODULE_MEMORY`) →
+`MODULE_DESCRIPTOR`/`MODULE_END` → exports (matter_init/add_endpoint/start/loop/set_attr…) +
+`mod_func_execute` (ALLOCMEM in pFUNC_INIT) → `PULL_OPTIONS`.
+**Ordering gotcha:** `MODULE_DESCRIPTOR` + ALLOCMEM need `MODULE_MEMORY` defined first, but it's defined
+inside matter_c.c. Either (a) #include the matter sources BEFORE the descriptor (verify the SYNC-MARKER
+extraction still brackets the object), or (b) give the ctx a struct TAG (`typedef struct matter_ctx_s
+{…} matter_ctx_t;`) and forward-declare it so MODULE_MEMORY can hold the ptr above the sources.
+**Remaining runtime discipline (audit, build-compiles-but-runtime-fatal — NOT caught by the compiler):**
+g_qr_ok(304)+g_tx(1168) → move into `matter_ctx_t` (unconditional, both builds); g_cr(crypto.c:29) →
+`MTRC_MEM->cr` (gated); g_fab[](store.c:6) → ctx `g.fab[]` (gated, needs mtrc_fabric in scope); ~73
+inline literals ≥2048 → `const uint32_t[] PROGMEM` + GUI32p/EXEC_OFFSET (pico_uconst); ~15 static const
+tables → non-static PROGMEM; ~195 string literals → PROGMEM; 16 float ops → fdiv/fmul. Then build →
+flash .156 → iniz → commission.
