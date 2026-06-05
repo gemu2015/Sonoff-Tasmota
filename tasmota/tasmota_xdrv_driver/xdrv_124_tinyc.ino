@@ -609,18 +609,25 @@ static void TinyCStartAutoexec(void) {
     tc_bootloop_marker_write();
   }
 
+  // TWO-PHASE BOOT (Andreas .107, ESP32-S3+PSRAM, heap-tight).
+  //   Phase 1: start each slot and wait for its main() to reach addCommand/halt
+  //            (main_done) before starting the next — so only ONE main() runs at
+  //            a time. EACH slot's TaskLoop is held (hold_taskloop) the moment it
+  //            finishes main(), so it does NOT spin while later slots are still
+  //            initialising. Without this, slot-0's TaskLoop ran while slot-3's
+  //            main() tried to register, starved it of VM time/heap → BAT*/EM*
+  //            Unknown and a durable-prefix column that never got written.
+  //   Phase 2: once EVERY slot's main() has run, release all TaskLoops together.
+  // delay()/vTaskDelay feed the WDT. ESP32 only — the non-ESP32 path runs the VM
+  // cooperatively from the main loop (no task concurrency to serialise).
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     if (Tinyc->slot_config[i].autoexec && Tinyc->slot_config[i].filename[0]) {
       if (TinyCLoadFile(Tinyc->slot_config[i].filename, i)) {
+#ifdef ESP32
+        Tinyc->slots[i]->hold_taskloop = true;   // park its TaskLoop until all mains have run
+#endif
         TinyCStartVM(Tinyc->slots[i]);
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d (deferred from FUNC_INIT)"), i);
-        // Serial load: wait for THIS slot's main() (Phase 1) to finish before
-        // starting the next, so two main()s never contend for heap at boot. On a
-        // heap-tight S3/PSRAM (Andreas .107) concurrent load starved main() of the
-        // headroom it needs to reach addCommand(), leaving BAT* unregistered.
-        // Bounded by TC_BOOT_MAIN_WAIT_MS; delay() feeds the WDT. ESP32 only —
-        // main() runs in a FreeRTOS task there (concurrency to serialize); the
-        // non-ESP32 path runs the VM cooperatively from the main loop (no race).
 #ifdef ESP32
         uint32_t t0 = millis();
         TcSlot *as = Tinyc->slots[i];
@@ -631,6 +638,13 @@ static void TinyCStartAutoexec(void) {
       }
     }
   }
+#ifdef ESP32
+  // Phase 2: every autoexec main() has run (or timed out) — release the held
+  // TaskLoops together so none competed with a still-initialising slot's main().
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slots[i]) { Tinyc->slots[i]->hold_taskloop = false; }
+  }
+#endif
 #endif
 }
 
