@@ -282,7 +282,7 @@ const BUILTINS = {
     'sensorGet':        { syscall: Syscall.SENSOR_GET,      args: 1, returns: true,  constArgs: [0] },
     // Generic JSON parsing on ANY char[] buffer (e.g. an httpGet response from a
     // remote device). Path is '#'-separated like sensorGet ("StatusSNS#SHT3X#Temperature").
-    'jsonNum':          { syscall: Syscall.JSON_NUM,        args: 2, returns: true,  strArgs: [0, 1] },
+    'jsonNum':          { syscall: Syscall.JSON_NUM,        args: 2, returns: true,  strArgs: [0, 1], returnFloat: true },
     'jsonStr':          { syscall: Syscall.JSON_STR,        args: 3, returns: true,  strArgs: [0, 1, 2] },
 
     // Cross-VM shared key/value store — let two slots share named scalars/strings
