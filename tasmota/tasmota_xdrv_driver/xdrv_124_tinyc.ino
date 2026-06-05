@@ -1609,6 +1609,12 @@ static void HandleTinyCPage(void) {
   // Custom styles for this page
   WSContentSend_P(PSTR(
     "<style>"
+    // Fixed page width again: Tasmota's content wrapper is display:inline-block, so
+    // it sizes to its widest child — and the Repository/Load <select>s grow to fit
+    // the LONGEST .tcb filename, which made the console width drift as the repo list
+    // changed. Pin the wrapper width and let the dropdowns shrink instead of stretch.
+    "body>div{width:480px;max-width:96vw;box-sizing:border-box}"
+    "select{min-width:0}"
     ".tc-run{color:#0a0}.tc-load{color:#fa0}.tc-empty{color:var(--c_txt);opacity:.5}"
     ".tc-err{color:#f44}"
     ".tc-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #333}"
