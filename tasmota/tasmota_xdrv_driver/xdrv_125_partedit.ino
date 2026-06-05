@@ -31,10 +31,12 @@
   0x8000 erase+write. Everything else lands in a console-capable safeboot. Test on a
   serial-recoverable device first.
 
-  SAFETY: refuses unless the current table is a SIMPLE dual-OTA layout (exactly
-  nvs,otadata,app0@0x10000,app1,spiffs, contiguous, filling flash) AND we have a
+  SAFETY: refuses unless the current table is a SIMPLE dual-OTA layout
+  (nvs,otadata,app0@0x10000,app1,spiffs, contiguous, filling flash — optionally
+  with ONE trailing partition after spiffs, e.g. a BinPlugins "custom", which is
+  preserved untouched while the new spiffs is shrunk to stop at it) AND we have a
   standard safeboot target for this flash size (PE_TARGETS: 4 MB + 16 MB so far).
-  Anything else (extra partitions, odd offsets, unknown flash size) is rejected,
+  Anything else (odd offsets, non-contiguous, unknown flash size) is rejected,
   not guessed. Add a flash size by adding one PE_TARGETS row (its stock Tasmota
   safeboot CSV: safeboot 0x10000/0xD0000, app0 0xE0000/<app>, spiffs <off>/<rest>).
 
@@ -104,27 +106,51 @@ int PartEdit_Find(void *pe_v, int num, const char *label) {
   return -1;
 }
 
-// Is the current table a recognized SIMPLE dual-OTA layout (exactly nvs,otadata,
-// app0,app1,spiffs) for a flash size we have a safeboot target for? Strict: app0
-// at 0x10000, app1 directly after it (same size), spiffs after that and filling to
-// the end of flash, and the old app slot is >= the safeboot size. Anything else
-// (extra "binary" part, odd offsets, non-contiguous) is rejected, not guessed.
+// Find an entry whose region starts exactly at `off`; returns index or -1.
+// Used to spot a partition sitting directly after spiffs (e.g. a trailing
+// BinPlugins "custom" partition) so the conversion can preserve it.
+int PartEdit_FindByOffset(void *pe_v, int num, uint32_t off) {
+  esp_partition_info_t *pe = (esp_partition_info_t *)pe_v;
+  for (int i = 0; i < num; i++) { if (pe[i].pos.offset == off) return i; }
+  return -1;
+}
+
+// Is the current table a recognized SIMPLE dual-OTA layout for a flash size we have
+// a safeboot target for? Strict: nvs,otadata,app0@0x10000, app1 directly after it
+// (same size), spiffs after that, and the old app slot is >= the safeboot size.
+// The 5-entry form has spiffs filling to the end of flash. A 6-entry form is also
+// accepted iff the 6th entry sits directly after spiffs and the two together fill
+// flash (e.g. a trailing BinPlugins "custom" partition) — it is PRESERVED and the
+// new spiffs is shrunk to stop at it. Anything else (odd offsets, non-contiguous,
+// an unknown flash size) is rejected, not guessed.
 bool PartEdit_IsConvertibleOld(void *pe_v, int num) {
   esp_partition_info_t *pe = (esp_partition_info_t *)pe_v;
-  if (num != 5) return false;
+  if (num != 5 && num != 6) return false;
   if (PartEdit_Find(pe, num, "safeboot") >= 0) return false;   // already converted
   int a0 = PartEdit_Find(pe, num, "app0");
   int a1 = PartEdit_Find(pe, num, "app1");
   int sp = PartEdit_Find(pe, num, "spiffs");
   if (a0 < 0 || a1 < 0 || sp < 0) return false;
   uint32_t flash = ESP.getFlashChipSize();
-  if (!PartEdit_Target(flash)) return false;                   // no safeboot target for this flash
+  const pe_target_t *t = PartEdit_Target(flash);
+  if (!t) return false;                                        // no safeboot target for this flash
   uint32_t S = pe[a0].pos.size;
-  return pe[a0].type == PART_TYPE_APP && pe[a0].pos.offset == PE_SB_OFF &&
-         pe[a1].type == PART_TYPE_APP && pe[a1].pos.offset == PE_SB_OFF + S && pe[a1].pos.size == S &&
-         pe[sp].pos.offset == PE_SB_OFF + 2 * S &&
-         (uint64_t)pe[sp].pos.offset + pe[sp].pos.size == flash &&   // spiffs fills to end of flash
-         S >= PE_SB_SIZE;                                            // safeboot fits the old app slot
+  bool base = pe[a0].type == PART_TYPE_APP && pe[a0].pos.offset == PE_SB_OFF &&
+              pe[a1].type == PART_TYPE_APP && pe[a1].pos.offset == PE_SB_OFF + S && pe[a1].pos.size == S &&
+              pe[sp].pos.offset == PE_SB_OFF + 2 * S &&
+              S >= PE_SB_SIZE;                                  // safeboot fits the old app slot
+  if (!base) return false;
+  uint32_t sp_end = pe[sp].pos.offset + pe[sp].pos.size;
+  if (num == 5) {
+    return (uint64_t)sp_end == flash;                          // spiffs fills to end of flash
+  }
+  // num == 6: a trailing partition (e.g. a BinPlugins "custom") sits directly after
+  // spiffs and the two fill flash. We KEEP it (the new spiffs is shrunk to stop at
+  // it) — so it must leave room for a non-empty spiffs in the converted layout.
+  int cu = PartEdit_FindByOffset(pe, num, sp_end);
+  if (cu < 0) return false;                                    // 6th entry not contiguous → reject
+  return (uint64_t)pe[cu].pos.offset + pe[cu].pos.size == flash &&  // custom fills to flash end
+         pe[cu].pos.offset > t->spiffs_off;                         // new spiffs has positive size
 }
 
 void PartEdit_DumpTable(const char *tag, void *pe_v, int num) {
@@ -157,9 +183,15 @@ void PartEdit_BuildNew(void *pe_v, int num) {
   pe[a1].subtype    = PART_SUBTYPE_OTA_FLAG;     // 0x10 = ota_0
   pe[a1].pos.offset = PE_APP0_OFF;
   pe[a1].pos.size   = t->app0_size;
-  // spiffs grows + moves (type/subtype/label kept)
+  // spiffs grows + moves (type/subtype/label kept). If a trailing partition (e.g. a
+  // BinPlugins "custom") sits right after the OLD spiffs, preserve it untouched and
+  // shrink the new spiffs to stop exactly at it; otherwise spiffs fills to the end
+  // of flash per the target.
+  uint32_t old_sp_end = pe[sp].pos.offset + pe[sp].pos.size;
+  int cu = PartEdit_FindByOffset(pe, num, old_sp_end);   // -1 → no trailing partition (5-entry)
   pe[sp].pos.offset = t->spiffs_off;
-  pe[sp].pos.size   = t->spiffs_size;
+  pe[sp].pos.size   = (cu >= 0) ? (pe[cu].pos.offset - t->spiffs_off) : t->spiffs_size;
+  // (the trailing custom entry, if any, is left exactly as-is → preserved)
   // refresh the ESP_PARTITION_MAGIC_MD5 trailer (esp_partition_table_verify checks it)
   MD5Builder md5; md5.begin();
   md5.add((uint8_t *)pe, num * sizeof(esp_partition_info_t));
