@@ -1,23 +1,49 @@
 // ============================================================================
-// deye.tc — Rolf's Deye hybrid-inverter Modbus reader (.198)
+// deye.tc — Rolf's Deye hybrid-inverter Modbus reader (.198) + go-e wallbox
 // ============================================================================
 //
-// Based on sml_simple.tc (descriptor + pin management via sml_descriptor.tc),
-// with one addition for Rolf's setup: a one-click "Deye-Descriptor
-// wiederherstellen" button — the repo-descriptor pulldown can overwrite
-// /sml_meter.def, and the Deye descriptor is NOT on the ottelo repo, so we keep
-// a backup at /deye_backup.def and can restore it (placeholders + re-applied
-// pins) without internet.
+// Reads the Deye's 13 values via the SML/Modbus driver (sml_descriptor.tc) and
+// publishes them in the standard SML sensor block.
 //
-// No custom value readout: the Deye's 13 values publish in the standard SML
-// sensor block; WebCall only surfaces the off-state.
+// EXTENSION — go-e wallbox PV-surplus control (Rolf, charger @ 192.168.1.114):
+// when "E-Auto laden" is checked, every 5 s push the live Deye power values to
+// the charger so it does PV-surplus charging:
+//   GET /api/set?ids={"pGrid":<TotalGrid>,"pPv":<PV1+PV2+TotalGen>,"pAkku":<Batt>}
+//     pGrid = smlGet(1)                       Total_Grid_Power
+//     pPv   = smlGet(8)+smlGet(9)+smlGet(10)  PV1 + PV2 + Total_Gen
+//     pAkku = smlGet(7)                        Battery_Power
+// Every second read /api/status?filter=nrg,wh → show charging power (nrg[11], W)
+// + session energy (wh). Buttons start/stop charging via go-e force-state frc
+// (2 = charge, 1 = off). The JSON ids are URL-encoded (%7B…%7D) so httpGet's URL
+// parser is happy.
+//
+// Plus the original one-click "Deye-Descriptor wiederherstellen" (restores
+// /sml_meter.def from /deye_backup.def, since the Deye descriptor is not on the
+// ottelo repo).
 // ============================================================================
 
 #include "sml_descriptor.tc"
 
+#define GOE "http://192.168.1.114"
+
 int do_reset;               // webButton → Sensor53 r
 int do_restore;             // webButton → restore /sml_meter.def from /deye_backup.def
 char restore_buf[1024];     // own buffer (sml_buf is only 160 B)
+
+// ── go-e wallbox state (two-level control, Rolf) ──
+//   goe_on = MASTER "E-Auto laden": only when set do we talk to the wallbox at
+//            all (read Ladeleistung/Energiemenge + show tiles + charge).
+//   goe_pv = "PV-Überschuss laden": ON  → Eco/PV regulation (lmo=4, frc=0, push);
+//                                   OFF → normal full charge (lmo=3, frc=2).
+persist watch int goe_on = 0;   // master: "E-Auto laden"
+persist watch int goe_pv = 0;   // sub:    "PV-Überschuss laden"
+int goe_w;                      // charging power (W)  = nrg[11]
+int goe_wh;                     // session energy (Wh) = wh
+char goe_url[224];              // request URL
+char goe_resp[320];             // response (filtered status is small)
+char goe_elem[16];              // one parsed nrg element
+char goe_tile[80];              // WebCall tile scratch
+int  goe_tick;                  // 5 s assert/push counter
 
 // Copy /deye_backup.def → /sml_meter.def, re-apply the chosen pins, reload.
 void deye_restore() {
@@ -38,31 +64,152 @@ void deye_restore() {
   addLog("deye: descriptor restored from /deye_backup.def");
 }
 
+// ── go-e helpers ──
+// Force-state: 2 = charge (start), 1 = off (stop), 0 = neutral (go-e decides).
+// NB the go-e ignores `frc` inside the ids={} batch (returns {"ids":true} but
+// doesn't apply it) — it must be a DIRECT query param: /api/set?frc=N.
+void goe_set_frc(int v) {
+  sprintf(goe_url, "%s/api/set?frc=%d", GOE, v);
+  httpGet(goe_url, goe_resp);
+  addLog("goe: frc=%d", v);
+}
+
+// Logic mode: 3 = Default (chargest full, IGNORES pGrid!), 4 = Eco/PV-surplus.
+// lmo=4 is what makes the go-e actually regulate the current from our pushed
+// pGrid (web-confirmed + live-verified: lmo=3 drains the battery, lmo=4 throttles).
+void goe_set_lmo(int v) {
+  sprintf(goe_url, "%s/api/set?lmo=%d", GOE, v);
+  httpGet(goe_url, goe_resp);
+  addLog("goe: lmo=%d", v);
+}
+
+// fup = "use PV surplus" (boolean). Needed together with lmo=4 + acp=true.
+void goe_set_fup(int v) {
+  if (v) { sprintf(goe_url, "%s/api/set?fup=true",  GOE); }
+  else   { sprintf(goe_url, "%s/api/set?fup=false", GOE); }
+  httpGet(goe_url, goe_resp);
+  addLog("goe: fup=%d", v);
+}
+
+// Push live Deye power to the charger for PV-surplus: pGrid/pPv/pAkku.
+// CRITICAL — battery-aware pGrid: the go-e has no own meter and regulates the
+// car current to drive pGrid → 0. Sending the RAW grid power drains the house
+// battery: when the battery discharges to cover the car, the grid stays ≈0, so
+// the go-e thinks the surplus is perfectly used and keeps charging at full from
+// the battery. Fix: treat battery DISCHARGE as grid draw, so the go-e backs off
+// and the car charges ONLY from true export surplus, never from the battery.
+//   Deye signs: Total_Grid_Power neg=export/pos=import; Battery_Power neg=charge/pos=discharge.
+//   pGrid_send = grid + max(0, battery_discharge)
+void goe_push() {
+  int pg  = (int)smlGet(1);                                    // Total_Grid_Power (neg=export)
+  int pb  = (int)smlGet(7);                                    // Battery_Power (neg=charge, pos=discharge)
+  int pp  = (int)smlGet(8) + (int)smlGet(9) + (int)smlGet(10); // PV1 + PV2 + Total_Gen
+  int pgr = pg;
+  if (pb > 0) { pgr = pg + pb; }                               // battery discharging → count as grid draw
+  sprintf(goe_url, "%s/api/set?ids=%%7B%%22pGrid%%22%%3A%d%%2C%%22pPv%%22%%3A%d%%2C%%22pAkku%%22%%3A%d%%7D",
+          GOE, pgr, pp, pb);
+  httpGet(goe_url, goe_resp);
+}
+
+// Extract the want-th (0-based) comma element of the nrg[] array in goe_resp.
+// goe_resp = {...,"nrg":[235,235,239,0,...,0]} — the only '['. nrg[11] = total W.
+int goe_nrg(int want) {
+  int p = strFind(goe_resp, "[");
+  if (p < 0) return 0;
+  p = p + 1;
+  int idx = 0;
+  int start = p;
+  while (goe_resp[p] != 0 && goe_resp[p] != ']') {
+    if (goe_resp[p] == ',') {
+      if (idx == want) { strSub(goe_elem, goe_resp, start, p - start); return strToInt(goe_elem); }
+      idx = idx + 1;
+      start = p + 1;
+    }
+    p = p + 1;
+  }
+  if (idx == want) { strSub(goe_elem, goe_resp, start, p - start); return strToInt(goe_elem); }
+  return 0;
+}
+
+// Integer part of the "wh" value (current charging-session energy) in goe_resp.
+// NB: (int)jsonNum(...,"wh") returns the raw float BITS, not the value (~2150 →
+// 1158194312) — so parse it by hand like goe_nrg(). wh is a float in the JSON
+// ("wh":2186.67); we want the whole Wh, so read up to the decimal point.
+int goe_wh_val() {
+  int p = strFind(goe_resp, "\"wh\":");
+  if (p < 0) return 0;
+  p = p + 5;                                    // past "wh":
+  int start = p;
+  if (goe_resp[p] == '-') { p = p + 1; }
+  while (goe_resp[p] >= '0' && goe_resp[p] <= '9') { p = p + 1; }   // stop at '.'/','/'}'
+  strSub(goe_elem, goe_resp, start, p - start);
+  return strToInt(goe_elem);
+}
+
+// Read charging power + session energy for the display tiles.
+void goe_status() {
+  sprintf(goe_url, "%s/api/status?filter=nrg,wh", GOE);
+  if (httpGet(goe_url, goe_resp) > 0) {
+    goe_wh = goe_wh_val();                       // wh = current session energy (Wh)
+    goe_w  = goe_nrg(11);                       // nrg[11] = total active power (W)
+  }
+}
+
 void EverySecond() {
-  sml_descriptor_apply();                            // pins / filter / activ
+  sml_descriptor_apply();                       // pins / filter / activ
   if (do_reset)   { tasmCmd("Sensor53 r", sml_buf); do_reset = 0; }
   if (do_restore) { deye_restore();                 do_restore = 0; }
+
+  // React fast to a checkbox toggle: re-assert the mode next second, and when the
+  // MASTER is switched OFF send one final frc=1 (stop) before going silent.
+  int chg = 0;
+  if (changed(goe_on)) { snapshot(goe_on); chg = 1; if (!goe_on) { goe_set_frc(1); } }
+  if (changed(goe_pv)) { snapshot(goe_pv); chg = 1; }
+  if (chg) { goe_tick = 5; }
+
+  // MASTER "E-Auto laden": only talk to the wallbox at all when it's set.
+  if (goe_on) {
+    goe_status();                               // read Ladeleistung/Energiemenge (tiles), 1 s
+    goe_tick = goe_tick + 1;
+    if (goe_tick >= 5) {                         // every 5 s: assert the charging mode
+      goe_tick = 0;
+      if (goe_pv) {
+        // PV-surplus regulation: Eco mode + neutral + battery-aware surplus push.
+        // lmo=4 makes the go-e regulate the current to the true surplus (lmo=3
+        // would ignore pGrid + charge full + drain the battery). fup=use-surplus.
+        goe_set_lmo(4); goe_set_fup(1); goe_set_frc(0); goe_push();
+      } else {
+        // Normal charging: Default mode + force full charge (no surplus regulation).
+        goe_set_lmo(3); goe_set_frc(2);
+      }
+    }
+  }
 }
 
 // ── Main sensor page ──
-// The SML driver publishes all 13 Deye values in its own sensor block — no
-// custom rows here. Only show the off-state so a blank sensor area isn't
-// mistaken for "no data".
 void WebCall() {
   if (!sml_activ) {
     webSend("{s}Deye SML{m}aus (Rule1 off){e}");
+  }
+  if (goe_on) {                                 // wallbox tiles only when "E-Auto laden" is on
+    sprintf(goe_tile, "{s}Wallbox Ladeleistung{m}%d W{e}", goe_w);  webSend(goe_tile);
+    sprintf(goe_tile, "{s}Wallbox Energiemenge{m}%d Wh{e}", goe_wh); webSend(goe_tile);
   }
 }
 
 // ── Settings page (Einstellungen menu button) ──
 void WebUI() {
-  sml_render_settings_panel();                       // SML aktiv + pins + repo + filter
+  sml_render_settings_panel();                  // SML aktiv + pins + repo + filter
+  webSend("<hr><b>&#x1F50C; go-e Wallbox</b>");
+  webCheckbox(goe_on, "E-Auto laden (Wallbox aktiv: Anzeige + Laden)");
+  webCheckbox(goe_pv, "&#x2514;&nbsp;PV-&Uuml;berschuss laden (sonst normales Vollladen)");
+  webSend("<div class='hint'><b>E-Auto laden</b> EIN &rarr; Wallbox-Werte werden angezeigt und das Auto wird geladen (AUS &rarr; keine Kommunikation mit der Wallbox). <b>PV-&Uuml;berschuss laden</b> EIN &rarr; der go-e regelt auf den echten Solar-&Uuml;berschuss (Eco); AUS &rarr; normales Vollladen.</div>");
   webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
   webButton(do_reset, "Sensor53 r|SML neu geladen");
   webSend("<hr><b>&#x267B; Deye-Descriptor</b>");
   webSend("<div class='hint'>Falls versehentlich ein Repo-Descriptor geladen wurde: stellt /sml_meter.def aus /deye_backup.def wieder her, Pins bleiben.</div>");
   webButton(do_restore, "Deye-Descriptor wiederherstellen|wiederhergestellt");
-  webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>deye.tc</b> &mdash; Rolf</div></div>");
+  webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>deye.tc</b> &mdash; Rolf (+ go-e)</div></div>");
 }
 
 int main() {
@@ -73,6 +220,6 @@ int main() {
   if (sml_activ != tasm_rule) { tasm_rule = sml_activ; }
   webPageLabel(0, "SML-Einstellungen");
   smlScripterLoad("/sml_meter.def");
-  addLog("deye: started rx=%d tx=%d active=%d", sml_rx_pin, sml_tx_pin, sml_activ);
+  addLog("deye: started rx=%d tx=%d active=%d goe_on=%d goe_pv=%d", sml_rx_pin, sml_tx_pin, sml_activ, goe_on, goe_pv);
   return 0;
 }
