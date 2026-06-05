@@ -2574,8 +2574,15 @@ static void HandleTinyCApi(void) {
     WSSendJSON(200, json);
   }
   else if (cmd == "status") {
-    // Return array of all slot statuses
-    String result = F("{\"ok\":true,\"slots\":[");
+    // Return firmware version markers (so the IDE can warn on a version/ABI
+    // mismatch — see the IDE's checkDeviceVersion) + an array of slot statuses.
+    //   release = TinyC firmware release string   (e.g. "1.6.38")
+    //   tcb     = bytecode FORMAT version the firmware accepts (TC_VERSION)
+    //   abi     = syscall ABI revision (TC_SYSCALL_ABI) — the one that matters:
+    //             a .tcb compiled against a different abi can dispatch syscalls
+    //             to the WRONG firmware function (silent UB), not just fail to load.
+    String result = String(F("{\"ok\":true,\"release\":\"" TC_RELEASE "\",\"tcb\":"))
+                    + TC_VERSION + F(",\"abi\":") + TC_SYSCALL_ABI + F(",\"slots\":[");
     bool first = true;
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
       TcSlot *s = Tinyc->slots[i];

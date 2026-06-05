@@ -516,6 +516,8 @@
     </style>
 </head>
 <body>
+    <!-- IDE <-> firmware version/ABI mismatch warning (filled by checkDeviceVersion) -->
+    <div id="verWarn" role="alert" style="display:none;background:#5a1212;color:#ffdada;padding:9px 14px;font-size:13px;line-height:1.45;border-bottom:2px solid #e44"></div>
     <!-- Header -->
     <div class="header">
         <div>
@@ -703,7 +705,7 @@ int main() {
     </div>
 
     <script type="module">
-        import { compile, compileAndRun, VM, CompilerError } from './src/compiler.js';
+        import { compile, compileAndRun, VM, CompilerError, SYSCALL_ABI, VERSION } from './src/compiler.js';
 
         // ─── Internationalization ────────────────────────
         const I18N = {
@@ -802,6 +804,72 @@ int main() {
         function getDeviceIp() {
             return document.getElementById('deviceIp').value.trim();
         }
+
+        // --- IDE <-> firmware version / syscall-ABI mismatch warning -------------
+        // A .tcb is bound to the firmware's syscall NUMBERING. If the IDE that
+        // compiled it speaks a different SYSCALL_ABI than the device firmware, an
+        // uploaded .tcb can dispatch a syscall to the WRONG firmware function
+        // (crash / memory corruption / silent wrong behaviour) — not merely fail
+        // to load. We query /tc_api?cmd=status (firmware reports release/tcb/abi)
+        // and warn in the IDE banner before the user uploads anything.
+        function _ideRelease() {
+            const h = document.querySelector('.header h1');
+            const m = h && h.textContent.match(/v([\w.]+)/);
+            return m ? m[1] : '?';
+        }
+        function _showVerWarn(html) {
+            const el = document.getElementById('verWarn');
+            if (el) { el.innerHTML = html; el.style.display = 'block'; }
+        }
+        function _hideVerWarn() {
+            const el = document.getElementById('verWarn');
+            if (el) el.style.display = 'none';
+        }
+        let _verLastIp = '';
+        async function checkDeviceVersion(ip) {
+            ip = (ip || '').trim();
+            _verLastIp = ip;
+            if (!ip) { _hideVerWarn(); return; }
+            let d;
+            try {
+                const r = await fetch(`http://${ip}/tc_api?cmd=status`, { mode: 'cors' });
+                d = await r.json();
+            } catch (e) {
+                _hideVerWarn();          // unreachable / CORS / not a TinyC device — stay quiet
+                return;
+            }
+            if (ip !== _verLastIp) return;   // a newer check superseded this one
+            if (!d || d.abi === undefined) {
+                _showVerWarn('&#9888;&#65039; <b>Device firmware predates the version handshake</b> '
+                    + '(no ABI report). It cannot self-check a .tcb &mdash; update the device firmware so '
+                    + 'version/ABI mismatches can be caught.');
+                return;
+            }
+            const msgs = [];
+            if (d.abi !== SYSCALL_ABI) {
+                msgs.push('<b>Syscall-ABI mismatch</b>: device firmware ABI v' + d.abi
+                    + ', this IDE compiles ABI v' + SYSCALL_ABI
+                    + '. An uploaded .tcb can call the <b>wrong firmware function</b> (crash / corruption), not just fail to load. &rarr; '
+                    + (d.abi < SYSCALL_ABI
+                        ? '<b>Update the device firmware.</b>'
+                        : '<b>Use the matching IDE</b> (press &ldquo;Update&nbsp;IDE&rdquo; on the device, or reflash).'));
+            }
+            if (VERSION > d.tcb) {
+                msgs.push('Bytecode format v' + VERSION + ' from this IDE will be <b>rejected</b> by this firmware '
+                    + '(accepts &le; v' + d.tcb + '). &rarr; Update the device firmware.');
+            }
+            if (msgs.length) {
+                _showVerWarn('&#9888;&#65039; ' + msgs.join(' &nbsp;&middot;&nbsp; ')
+                    + ' <span style="opacity:.65">(device ' + (d.release || '?') + ' &middot; IDE v' + _ideRelease() + ')</span>');
+            } else {
+                _hideVerWarn();
+            }
+        }
+        // Re-check whenever the device IP field changes.
+        (function () {
+            const _ipEl = document.getElementById('deviceIp');
+            if (_ipEl) _ipEl.addEventListener('change', function () { checkDeviceVersion(_ipEl.value); });
+        })();
 
         // ─── #include local-files map (v1.5.2) ─────────────
         // When the user opens main + companion files via "Open" (multi-
@@ -1911,6 +1979,8 @@ int main() {
                     if (savedIp) document.getElementById('deviceIp').value = savedIp;
                 } catch(e) {}
             }
+            // Initial IDE<->firmware version/ABI check against the restored device IP.
+            checkDeviceVersion(getDeviceIp());
         }
 
 

@@ -10,7 +10,7 @@ export { Lexer, LexerError } from './lexer.js';
 export { Parser, ParseError, NodeType } from './parser.js';
 export { CodeGenerator, CodeGenError } from './codegen.js';
 export { VM, VMError } from './vm.js';
-export { Op, OpName, Syscall, SyscallName } from './opcodes.js';
+export { Op, OpName, Syscall, SyscallName, SYSCALL_ABI, VERSION } from './opcodes.js';
 
 // Combines Preprocessor + Lexer + Parser + CodeGen into one convenient interface
 
