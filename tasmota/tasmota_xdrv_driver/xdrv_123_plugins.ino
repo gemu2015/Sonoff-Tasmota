@@ -525,6 +525,84 @@ extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
 }
 
+#ifdef USE_PLUGIN_FLOAT_BITS
+// ════════════════════════════════════════════════════════════════════════
+//  Bit-int float jumptable variants  (USE_PLUGIN_FLOAT_BITS, FIRMWARE-ONLY)
+// ════════════════════════════════════════════════════════════════════════
+// Every jt[] entry that takes or returns a `float` is swapped (below, via
+// PFB() in MODULE_JUMPTABLE) for a wrapper that carries the IEEE-754
+// binary32 BITS in an integer register. The two RISC-V float ABIs differ
+// ONLY in where a `float`-TYPED value is passed (ilp32 soft-float -> a*
+// regs; ilp32f hard-float -> fa* regs); a uint32_t is placed identically.
+// So these wrappers read/return a0,a1,... on BOTH ABIs (on P4 the math runs
+// on the FPU internally), and a soft-float _32r plugin — whose UNCHANGED
+// float(float,float) macro already passes operands in a0/a1 under ilp32 —
+// lands on them correctly even on a hard-float P4 firmware. Hence NO
+// plugin-side change: an existing _32r binary runs unmodified on a flag-ON
+// P4 firmware (Check_Arch below also accepts arch byte 2 = _32r there).
+//
+// double-only entries (jt[181..184,190,191]) are NOT wrapped — doubles
+// already cross in GPR pairs on both ABIs (P4 has no D-ext). Only `float`
+// args/returns are unpacked; bool/int/void/char*/pointer/uint args are
+// ABI-stable. Wrappers are defined before MODULE_JUMPTABLE so no fwd-decl.
+static inline uint32_t pfb_f2u(float f)    { uint32_t u; __builtin_memcpy(&u, &f, 4); return u; }
+static inline float    pfb_u2f(uint32_t u) { float f;    __builtin_memcpy(&f, &u, 4); return f; }
+
+// shape generators: W = wrapper name, F = wrapped firmware fn
+#define PFB_uF(W,F)   uint32_t W(uint32_t a){ return pfb_f2u(F(pfb_u2f(a))); }                       // float(float)
+#define PFB_uFF(W,F)  uint32_t W(uint32_t a,uint32_t b){ return pfb_f2u(F(pfb_u2f(a),pfb_u2f(b))); } // float(float,float)
+#define PFB_bF(W,F)   bool     W(uint32_t a){ return F(pfb_u2f(a)); }                                 // bool(float)
+#define PFB_bFF(W,F)  bool     W(uint32_t a,uint32_t b){ return F(pfb_u2f(a),pfb_u2f(b)); }           // bool(float,float)
+
+PFB_uFF(tmod_fdiv_bits,  tmod_fdiv)                      // jt[39]
+PFB_uFF(tmod_fmul_bits,  tmod_fmul)                      // jt[40]
+PFB_uFF(tmod_fdiff_bits, tmod_fdiff)                     // jt[41]
+PFB_uFF(tmod_fadd_bits,  tmod_fadd)                      // jt[43]
+PFB_uFF(FastPrecisePowf_bits,     FastPrecisePowf)       // jt[80]
+PFB_uFF(CalcTempHumToAbsHum_bits, CalcTempHumToAbsHum)   // jt[119]
+PFB_uF(ConvertTemp_bits,     ConvertTemp)                // jt[32]
+PFB_uF(ConvertHumidity_bits, ConvertHumidity)            // jt[33]
+PFB_uF(tmod_sinf_bits,  tmod_sinf)                       // jt[205]
+PFB_uF(tmod_cosf_bits,  tmod_cosf)                       // jt[206]
+PFB_uF(tmod_logf_bits,  tmod_logf)                       // jt[207]
+PFB_uF(tmod_sqrtf_bits, tmod_sqrtf)                      // jt[208]
+PFB_uF(tmod_expf_bits,  tmod_expf)                       // jt[215]
+PFB_bF(tmod_isnan_bits, tmod_isnan)                      // jt[31]
+PFB_bF(tmod_iseq_bits,  tmod_iseq)                       // jt[38]
+PFB_bF(tmod_isinf_bits, tmod_isinf)                      // jt[99]
+PFB_bFF(tmod_gtsf2_bits, tmod_gtsf2)                     // jt[49]
+PFB_bFF(tmod_ltsf2_bits, tmod_ltsf2)                     // jt[50]
+PFB_bFF(tmod_eqsf2_bits, tmod_eqsf2)                     // jt[51]
+#undef PFB_uF
+#undef PFB_uFF
+#undef PFB_bF
+#undef PFB_bFF
+
+// irregular shapes (hand-written; signature verified against the firmware fn)
+int      ResponseAppendTHD_bits(uint32_t a, uint32_t b)        { return ResponseAppendTHD(pfb_u2f(a), pfb_u2f(b)); }       // jt[95]  int(float,float)
+uint32_t tmod_tofloat_bits(uint64_t in)                        { return pfb_f2u(tmod_tofloat(in)); }                        // jt[42]  float(uint64_t)
+uint32_t tmod_NAN_bits(void)                                   { return pfb_f2u(tmod_NAN()); }                              // jt[48]  float(void)
+uint32_t tmod__floatsisf_bits(int32_t a)                       { return pfb_f2u(tmod__floatsisf(a)); }                      // jt[78]  float(int32_t)
+uint32_t tmod__floatunsisf_bits(uint32_t a)                    { return pfb_f2u(tmod__floatunsisf(a)); }                    // jt[79]  float(uint32_t)
+uint32_t GetTasmotaGlobalf_bits(uint32_t sel)                  { return pfb_f2u(GetTasmotaGlobalf(sel)); }                  // jt[81]  float(uint32_t)
+uint32_t tmod__fixunssfsi_bits(uint32_t a)                     { return tmod__fixunssfsi(pfb_u2f(a)); }                     // jt[83]  uint32_t(float)
+int32_t  tmod_fixsfti_bits(uint32_t a)                         { return tmod_fixsfti(pfb_u2f(a)); }                         // jt[133] int32_t(float)
+uint32_t fl_const_bits(int32_t m, int32_t d)                   { return pfb_f2u(fl_const(m, d)); }                          // jt[104] float(int32,int32)
+uint32_t CharToFloat_bits(const char* s)                       { return pfb_f2u(CharToFloat(s)); }                          // jt[147] float(const char*)
+double   tmod_extendsfdf2_bits(uint32_t a)                     { return tmod_extendsfdf2(pfb_u2f(a)); }                     // jt[187] double(float)
+uint32_t modff_bits(uint32_t a, float* p)                      { return pfb_f2u(modff(pfb_u2f(a), p)); }                    // jt[103] float(float,float*)
+char*    ftostrfd_bits(uint32_t a, unsigned char prec, char* s){ return ftostrfd(pfb_u2f(a), prec, s); }                    // jt[8]   char*(float,uint8_t,char*)
+uint32_t fscale_bits(int32_t n, uint32_t mul, uint32_t sub)    { return pfb_f2u(fscale(n, pfb_u2f(mul), pfb_u2f(sub))); }   // jt[10]  float(int32,float,float)
+void     ResponseCmndFloat_bits(uint32_t a, uint32_t dec)      { ResponseCmndFloat(pfb_u2f(a), dec); }                      // jt[94]  void(float,uint32_t)
+void     WSContentSend_THD_bits(const char* s, uint32_t t, uint32_t h) { WSContentSend_THD(s, pfb_u2f(t), pfb_u2f(h)); }    // jt[96]  void(const char*,float,float)
+void     WSContentSend_Temp_bits(const char* s, uint32_t v)    { WSContentSend_Temp(s, pfb_u2f(v)); }                       // jt[105] void(const char*,float)
+void     TempHumDewShow_bits(bool j, bool p, const char* t, uint32_t tm, uint32_t hm) { TempHumDewShow(j, p, t, pfb_u2f(tm), pfb_u2f(hm)); } // jt[34]  void(...)
+
+#define PFB(fn) fn##_bits     // jumptable: float entry -> bit-int wrapper
+#else
+#define PFB(fn) fn            // flag off: jumptable uses the native float fn
+#endif  // USE_PLUGIN_FLOAT_BITS
+
 #define JMPTBL (void (*)())
 
 // this vector table table must contain all api calls needed by module
@@ -552,9 +630,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_ResponseAppend_P,
   JMPTBL&tmod_WSContentSend_PD,
 #endif
-  JMPTBL&ftostrfd,
+  JMPTBL&PFB(ftostrfd),
   JMPTBL&calloc,
-  JMPTBL&fscale,
+  JMPTBL&PFB(fscale),
   JMPTBL&Serial_print,
   JMPTBL&tmod_beginTransmission,
   JMPTBL&tmod_write,
@@ -580,10 +658,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&IndexSeparator,
   JMPTBL&Response_P,
   JMPTBL&I2cResetActive,
-  JMPTBL&tmod_isnan,
-  JMPTBL&ConvertTemp,
-  JMPTBL&ConvertHumidity,
-  JMPTBL&TempHumDewShow,
+  JMPTBL&PFB(tmod_isnan),
+  JMPTBL&PFB(ConvertTemp),
+  JMPTBL&PFB(ConvertHumidity),
+  JMPTBL&PFB(TempHumDewShow),
   JMPTBL&strlcpy,
 #if defined(ESP8266) || defined(__riscv)
   JMPTBL&GetTextIndexed,
@@ -591,20 +669,20 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_GetTextIndexed,
 #endif
   JMPTBL&GetTasmotaGlobal,
-  JMPTBL&tmod_iseq,
-  JMPTBL&tmod_fdiv,
-  JMPTBL&tmod_fmul,
-  JMPTBL&tmod_fdiff,
-  JMPTBL&tmod_tofloat,
-  JMPTBL&tmod_fadd,
+  JMPTBL&PFB(tmod_iseq),     // jt[38]  bit-int under USE_PLUGIN_FLOAT_BITS
+  JMPTBL&PFB(tmod_fdiv),     // jt[39]
+  JMPTBL&PFB(tmod_fmul),     // jt[40]
+  JMPTBL&PFB(tmod_fdiff),    // jt[41]
+  JMPTBL&PFB(tmod_tofloat),  // jt[42]
+  JMPTBL&PFB(tmod_fadd),     // jt[43]
   JMPTBL&I2cRead8,
   JMPTBL&I2cWrite8,
   JMPTBL&tmod_available,
   JMPTBL&AddLogMissed,
-  JMPTBL&tmod_NAN,
-  JMPTBL&tmod_gtsf2,
-  JMPTBL&tmod_ltsf2,
-  JMPTBL&tmod_eqsf2,
+  JMPTBL&PFB(tmod_NAN),
+  JMPTBL&PFB(tmod_gtsf2),
+  JMPTBL&PFB(tmod_ltsf2),
+  JMPTBL&PFB(tmod_eqsf2),
   JMPTBL&tmod_Pin,
   JMPTBL&tmod_newTS,
   JMPTBL&tmod_writeTS,
@@ -639,12 +717,12 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&AddlogT,
   JMPTBL&tmod__divsi3,
   JMPTBL&tmod__udivsi3,
-  JMPTBL&tmod__floatsisf,
-  JMPTBL&tmod__floatunsisf,
-  JMPTBL&FastPrecisePowf,
-  JMPTBL&GetTasmotaGlobalf,
+  JMPTBL&PFB(tmod__floatsisf),
+  JMPTBL&PFB(tmod__floatunsisf),
+  JMPTBL&PFB(FastPrecisePowf),
+  JMPTBL&PFB(GetTasmotaGlobalf),
   JMPTBL&tmod__muldi3,
-  JMPTBL&tmod__fixunssfsi,
+  JMPTBL&PFB(tmod__fixunssfsi),
   JMPTBL&tmod__umodsi3,
   JMPTBL&twi_readFrom,
   JMPTBL&MT_DecodeCommand,
@@ -659,22 +737,22 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_memmove_P,
 #endif
   JMPTBL&ResponseCmndNumber,
-  JMPTBL&ResponseCmndFloat,
-  JMPTBL&ResponseAppendTHD,
-  JMPTBL&WSContentSend_THD,
+  JMPTBL&PFB(ResponseCmndFloat),
+  JMPTBL&PFB(ResponseAppendTHD),
+  JMPTBL&PFB(WSContentSend_THD),
 #if defined(ESP8266) || defined(__riscv)
   JMPTBL&strncpy_P,
 #else
   JMPTBL&tmod_strncpy_P,
 #endif
   JMPTBL&isprint,
-  JMPTBL&tmod_isinf,
+  JMPTBL&PFB(tmod_isinf),
   JMPTBL&copyStr,
   JMPTBL&tmod_setClockStretchLimit,
   JMPTBL&tmod_writen,
-  JMPTBL&modff,
-  JMPTBL&fl_const,
-  JMPTBL&WSContentSend_Temp,
+  JMPTBL&PFB(modff),
+  JMPTBL&PFB(fl_const),
+  JMPTBL&PFB(WSContentSend_Temp),
   JMPTBL&delayMicroseconds,
   JMPTBL&digitalRead,
   JMPTBL&digitalWrite,
@@ -688,7 +766,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_directWriteHigh,
   JMPTBL&tmod_directModeInput,
   JMPTBL&tmod_directModeOutput,
-  JMPTBL&CalcTempHumToAbsHum,
+  JMPTBL&PFB(CalcTempHumToAbsHum),
 #if defined(ESP8266) || defined(__riscv)
   JMPTBL&WSContentSend_P,
 #else
@@ -706,7 +784,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&atoi,
   JMPTBL&tmod_strcpy_P,
   JMPTBL&SetTasmotaGlobal,
-  JMPTBL&tmod_fixsfti,
+  JMPTBL&PFB(tmod_fixsfti),
   JMPTBL&tmod_gtbl,
   JMPTBL&Settings,
   #ifdef USE_SPI
@@ -729,7 +807,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_file_seek,
   JMPTBL&tmod_file_read,
   JMPTBL&tmod_file_write,
-  JMPTBL&CharToFloat,
+  JMPTBL&PFB(CharToFloat),
   JMPTBL&tmod_AddLogData,
   JMPTBL&tmod_file_exists,
 #if defined(ESP8266) || defined(__riscv)
@@ -782,7 +860,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_floatunsidf,
   JMPTBL&tmod_fixdfdi,
   JMPTBL&tmod_fixunsdfsi,
-  JMPTBL&tmod_extendsfdf2,
+  JMPTBL&PFB(tmod_extendsfdf2),
   JMPTBL&tmod_random,
   JMPTBL&realloc,
   JMPTBL&tmod_floattidf,
@@ -804,10 +882,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_wc,
   JMPTBL&tmod_jpeg_picture,
   JMPTBL&tmod_shine,
-  JMPTBL&tmod_sinf,       // 205
-  JMPTBL&tmod_cosf,       // 206
-  JMPTBL&tmod_logf,       // 207
-  JMPTBL&tmod_sqrtf,      // 208
+  JMPTBL&PFB(tmod_sinf),       // 205
+  JMPTBL&PFB(tmod_cosf),       // 206
+  JMPTBL&PFB(tmod_logf),       // 207
+  JMPTBL&PFB(tmod_sqrtf),      // 208
   // PicoTTS engine API — exposed at indices 209-214 so the BinPlugin
   // (tasmota/Plugins/xdrv_42_i2s.cpp) can drive picotts directly.
   // Slots stay reserved even when USE_PICOTTS isn't compiled in so
@@ -821,12 +899,25 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_picotts_set_idle_notify,     // 212
   JMPTBL&tmod_picotts_set_error_notify,    // 213
   JMPTBL&tmod_picotts_set_resources,       // 214
-  JMPTBL&tmod_expf,                        // 215  expf() — append-only, 0..214 unchanged
+  JMPTBL&PFB(tmod_expf),                        // 215  expf() — append-only, 0..214 unchanged
   JMPTBL&tmod_I2cWrite8Bus,                // 216  I2cWrite8 4-arg dual-bus (jt[45] 3-arg left intact)
   JMPTBL&tmod_I2cWrite0,                   // 217  I2cWrite0 dual-bus
   JMPTBL&tmod_I2cReadBuffer0,              // 218  I2cReadBuffer0 dual-bus
   JMPTBL&tmod_ext_call                     // 219  selector-dispatched extensible helper (ONE slot for many fns; new helper = new case, never a new jt slot)
 };
+
+// ── Completeness guard for USE_PLUGIN_FLOAT_BITS (and jt[] stability) ──────
+// Fails the build ON PURPOSE if MODULE_JUMPTABLE grows or shrinks. When you
+// add an entry: bump the count below — AND, if the new entry takes OR returns
+// a `float`, you MUST add a tmod_*_bits wrapper above and wrap the entry with
+// PFB(), or a soft-float _32r plugin will SILENTLY misread it on a hard-float
+// P4 firmware (the exact bug USE_PLUGIN_FLOAT_BITS prevents). `double`-only
+// entries need no wrapper — doubles already cross in GPR pairs on both ABIs.
+// (All config branches — ESP8266/__riscv, USE_SPI, ESP32 — keep the same
+// length, so this count is build-invariant.)
+static_assert(sizeof(MODULE_JUMPTABLE) / sizeof(MODULE_JUMPTABLE[0]) == 220,
+  "MODULE_JUMPTABLE length changed: bump this count, and if the new entry uses "
+  "float add a tmod_*_bits wrapper + PFB() (see USE_PLUGIN_FLOAT_BITS above).");
 
 // Engine prototypes come from lib/libesp32_div/pico/picotts.h, included
 // at the top of this file under USE_PICOTTS. The wrappers below add a
@@ -4689,7 +4780,20 @@ bool Check_Arch(FLASH_MODULE *fm) {
       return false;
     }
 
-    if ((fm->arch & 0x000000ff) != CURR_ARCH) {
+    uint32_t mod_arch = fm->arch & 0x000000ff;
+    bool arch_ok = (mod_arch == CURR_ARCH);
+#ifdef USE_PLUGIN_FLOAT_BITS
+    // With the bit-int float jumptable, every float jt[] entry crosses in
+    // integer regs, so a soft-float _32r module (ARCH_ESP32_RV) is ABI-
+    // compatible with THIS hard-float P4 firmware. Accept it in addition to
+    // the native _32p. (On C3/C6 firmware CURR_ARCH is itself ARCH_ESP32_RV,
+    // so this branch adds nothing there — it only widens acceptance on P4.)
+    if (!arch_ok && CURR_ARCH == ARCH_ESP32_P4 && mod_arch == ARCH_ESP32_RV) {
+      arch_ok = true;
+      AddLog(LOG_LEVEL_INFO, PSTR("PLG: accept _32r soft-float module on P4 (float-bits ABI)"));
+    }
+#endif
+    if (!arch_ok) {
       AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
       plugins.upload_error = MOD_UPL_ERR_ARCH;
       return false;

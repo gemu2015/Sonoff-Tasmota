@@ -105,6 +105,12 @@ typedef struct {
 #define jGetTextIndexed(DST,DSIZE,INDEX,HSTCK)(( char *(*)(char*,size_t,uint32_t,const char*) )    jt[36])(DST,DSIZE,INDEX,HSTCK)
 #define JGetTasmotaGlobal(SEL)          ((uint32_t (*)(uint32_t) )                     jt[37])(SEL)
 #define jiseq(FVAL)                     (( bool (*)(float) )                           jt[38])(FVAL)
+// NOTE: these float jumptable macros are UNCHANGED for USE_PLUGIN_FLOAT_BITS.
+// That flag is firmware-side only (the jt[] targets become bit-int wrappers).
+// A soft-float _32r plugin's `float(float,float)` call already passes operands
+// in a0/a1 and reads the result from a0 under the ilp32 ABI — which is exactly
+// what the firmware bit-wrappers read/return — so an existing _32r binary runs
+// unchanged on a flag-ON P4 firmware. See xdrv_123_plugins.ino.
 #define jfdiv(P1,P2)                    (( float (*)(float,float) )                    jt[39])(P1,P2)
 // 40
 #define jfmul(P1,P2)                    (( float (*)(float,float) )                    jt[40])(P1,P2)
