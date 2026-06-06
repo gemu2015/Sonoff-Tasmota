@@ -113,7 +113,9 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #undef GPIO_SET_SLOW
 #undef GPIO_CLR_SLOW
 
-#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32P4
+// P4's newer soc/gpio_struct.h types out_w1ts/out_w1tc as strict reg structs
+// (not int-assignable) — use the .val union accessor like the C3/C6 path.
 #define GPIO_CLR(A) GPIO.out_w1tc.val = (1 << A)
 #define GPIO_SET(A) GPIO.out_w1ts.val = (1 << A)
 #else // plain ESP32

@@ -4722,7 +4722,11 @@ void Set_Module_Start(uint8_t slot, uint32_t start) {
 bool Module_upload_start(const char* upload_filename) {
   strlcpy(plugins.mod_name, upload_filename, sizeof(plugins.mod_name));
   // Filename layout: <MODULE_NAME>_<arch>.bin (e.g. "I2SAUDIO_32.bin",
-  // "CRC_BLIB_32.bin", "DS18X20_32r.bin"). The arch suffix begins at
+  // "CRC_BLIB_32.bin", "DS18X20_32r.bin", "I2SAUDIO_32p.bin" for P4).
+  // Arch is validated by the sync-header byte (Check_Arch vs CURR_ARCH),
+  // NOT by this suffix — the suffix is only a human/curation tag. The
+  // strrchr('_') strip below handles any suffix width (_32 / _32r / _32p).
+  // The arch suffix begins at
   // the LAST underscore, so we strip from there, not the first one —
   // module names are allowed to contain underscores themselves
   // (e.g. CRC_BLIB). Using strchr(name, '_') stripped at the FIRST

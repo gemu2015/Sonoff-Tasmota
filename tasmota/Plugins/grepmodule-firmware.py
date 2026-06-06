@@ -72,9 +72,26 @@ if 1==1 :
                         start = 1
                         dummy = fp.read(4)
                         xname = fp.read(16)
-                        fname = xname.decode('ascii') 
+                        fname = xname.decode('ascii')
                         name = fname.replace('\x00','')
                         mod_file = dir_path + "/" + name + "_32r.bin"
+                        if os.path.isfile(mod_file):
+                            os.remove(mod_file)
+                        fwp = open(mod_file, "wb")
+                        fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
+                        fwp.write(dummy)
+                        fwp.write(xname)
+                        size += 28
+                    if arch == 3 and type <= 4:
+                        print("found start sync")
+                        start = 1
+                        dummy = fp.read(4)
+                        xname = fp.read(16)
+                        fname = xname.decode('ascii')
+                        name = fname.replace('\x00','')
+                        mod_file = dir_path + "/" + name + "_32p.bin"   # ESP32-P4 (RV32IMAFC hard-float)
                         if os.path.isfile(mod_file):
                             os.remove(mod_file)
                         fwp = open(mod_file, "wb")

@@ -6,7 +6,7 @@
 // native speed. See the TC_EXPORT struct + pFUNC_GET_TINYC_EXPORTS
 // selector below for the discovery contract.
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER, MODULE_TYPE_BLIB};
-enum {ARCH_ESP8266, ARCH_ESP32,ARCH_ESP32_RV};
+enum {ARCH_ESP8266, ARCH_ESP32,ARCH_ESP32_RV,ARCH_ESP32_P4};
 #endif
 
 enum {iD_TEMPERATURE,iD_PRESSURE,iD_HUMIDITY,iD_ABSOLUTE_HUMIDITY,iD_DISTANCE};
@@ -18,7 +18,11 @@ enum {iD_TEMPERATURE,iD_PRESSURE,iD_HUMIDITY,iD_ABSOLUTE_HUMIDITY,iD_DISTANCE};
 #define CURR_ARCH ARCH_ESP8266
 #else
 #ifdef __riscv
-#define CURR_ARCH ARCH_ESP32_RV
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#define CURR_ARCH ARCH_ESP32_P4      // RV32IMAFC hard-float (ilp32f) — ABI-incompatible with C3/C6 (_32r)
+#else
+#define CURR_ARCH ARCH_ESP32_RV      // RV32IMC/IMAC soft-float (ilp32) — C3 / C6
+#endif
 #else
 #define CURR_ARCH ARCH_ESP32
 #endif

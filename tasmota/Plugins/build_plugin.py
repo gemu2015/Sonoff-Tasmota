@@ -72,6 +72,7 @@ CPU_ENVS = {
     'esp8266':     ('tasmota-plugin',     'ESP8266 (plugin-host)'),
     'esp32':       ('tasmota32-plugin',   'ESP32 Tensilica (plugin-host, orig / S2 / S3)'),
     'esp32_riscv': ('tasmota32c3-plugin', 'ESP32 RISC-V (plugin-host, C3 / C6 / …)'),
+    'esp32p4':     ('tasmota32p4-plugin', 'ESP32-P4 RISC-V hard-float (plugin-host)'),
 }
 
 # Full firmware envs — kept as a documented fallback. To use, swap
@@ -82,6 +83,7 @@ _FULL_CPU_ENVS = {
     'esp8266':     ('tasmota-4M',     'ESP8266 (full)'),
     'esp32':       ('tasmota32-4M',   'ESP32 Tensilica (full)'),
     'esp32_riscv': ('tasmota32c3-4M', 'ESP32 RISC-V (full)'),
+    'esp32p4':     ('tinyc32-p4',     'ESP32-P4 RISC-V hard-float (full)'),
 }
 
 # --------------------------------------------------------------------
@@ -97,6 +99,7 @@ _CPU_TO_ARCH_DIR = {
     'esp8266':     'ESP8266',
     'esp32':       'ESP32/TENSILICA',
     'esp32_riscv': 'ESP32/RISC',
+    'esp32p4':     'ESP32/P4',
 }
 
 # --------------------------------------------------------------------
@@ -261,7 +264,7 @@ def _retroactive_stamps(on_line=lambda *a: None):
         for cpu, arch in _CPU_TO_ARCH_DIR.items():
             if _read_stamp(cpu, plug_name) is not None:
                 continue
-            suffix = '' if cpu == 'esp8266' else ('_32' if cpu == 'esp32' else '_32r')
+            suffix = {'esp8266': '', 'esp32': '_32', 'esp32_riscv': '_32r', 'esp32p4': '_32p'}.get(cpu, '_32r')
             bin_path = None
             for modname in candidates:
                 cand = (REPO / 'build_output' / 'firmware' / 'Plugins'

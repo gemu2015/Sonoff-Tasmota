@@ -25,6 +25,11 @@ print("patching linker file")
 
 core3path = "framework-arduinoespressif32/tools/esp32-arduino-libs/esp32/ld/sections.ld"
 
+# Safety: an mcu not handled below (e.g. a future target) must not leave
+# `libpath` unbound — the idf5 fallback at line ~54 references it. Default
+# to the classic esp32 sections.ld; the fallback re-checks isfile().
+libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
+
 if mcu == "esp8266":
         libpath = platform.get_package_dir("framework-arduinoespressif8266")+"/tools/sdk/ld/eagle.app.v6.common.ld.h"
         match = "*(.ver_number)"
@@ -47,6 +52,22 @@ if mcu == "esp32s3":
         mlen = len(match)
 if mcu == "esp32c3":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32c3/ld/sections.ld"
+        match = " _text_end = ABSOLUTE(.);"
+        mlen = len(match)
+if mcu == "esp32c6":
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32c6/ld/sections.ld"
+        match = " _text_end = ABSOLUTE(.);"
+        mlen = len(match)
+if mcu == "esp32p4":
+        # P4 arduino-libs live under a chip-variant subdir (esp32p4_es for the
+        # _es silicon currently shipped, esp32p4 for a future R3). Glob for it
+        # rather than hardcoding, so a libs rev that renames the variant still
+        # patches. Pick the first esp32p4*/ld/sections.ld found.
+        import glob
+        libbase = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/"
+        cand = sorted(glob.glob(libbase+"esp32p4*/ld/sections.ld"))
+        if cand:
+                libpath = cand[0]
         match = " _text_end = ABSOLUTE(.);"
         mlen = len(match)
 
