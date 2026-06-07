@@ -83,13 +83,15 @@ void loadData() {
 }
 
 // ── OLED: temp/hum/tvoc/eco2 on lines 1,3,5,7 ──
+// tasmCmd(cmd, resp): arg0 is the FULL Tasmota command line, arg1 receives the
+// response (a runtime char[] command auto-routes to the TASM_CMD_REF variant).
 void updateDisplay() {
-    char b[48];
-    sprintf(b, "[l1c1f1]temp=%.1f", aztemp); tasmCmd("DisplayText", b);
-    sprintf(b, "[l3c1f1]hum=%.1f",  azhumi); tasmCmd("DisplayText", b);
-    sprintf(b, "[l5c1f1]tvoc=%.0f", aztvoc); tasmCmd("DisplayText", b);
-    sprintf(b, "[l7c1f1]eco2=%.0f", azeco2); tasmCmd("DisplayText", b);
-    tasmCmd("DisplayText", "[d]");
+    char cmd[64]; char resp[48];
+    sprintf(cmd, "DisplayText [l1c1f1]temp=%.1f", aztemp); tasmCmd(cmd, resp);
+    sprintf(cmd, "DisplayText [l3c1f1]hum=%.1f",  azhumi); tasmCmd(cmd, resp);
+    sprintf(cmd, "DisplayText [l5c1f1]tvoc=%.0f", aztvoc); tasmCmd(cmd, resp);
+    sprintf(cmd, "DisplayText [l7c1f1]eco2=%.0f", azeco2); tasmCmd(cmd, resp);
+    tasmCmd("DisplayText [d]", resp);
 }
 
 void EverySecond() {
@@ -160,8 +162,9 @@ void WebPage() {
 }
 
 int main() {
-    tasmCmd("SetOption64", "1");          // ">B" boot command from the original
-    tasmCmd("DisplayText", "[zD0]");      // clear the display
+    char resp[48];
+    tasmCmd("SetOption64 1", resp);       // ">B" boot command from the original
+    tasmCmd("DisplayText [zD0]", resp);   // clear the display
     loadData();
     prevM15 = -1;
     prevHr  = -1;
