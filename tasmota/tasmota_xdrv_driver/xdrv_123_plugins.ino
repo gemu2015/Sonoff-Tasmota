@@ -604,6 +604,29 @@ void     TempHumDewShow_bits(bool j, bool p, const char* t, uint32_t tm, uint32_
 #define PFB(fn) fn            // flag off: jumptable uses the native float fn
 #endif
 
+// ── I2C-less builds (e.g. lean ESP8266 SML images built with USE_I2C off) ──────
+// USE_BINPLUGINS exposes the Tasmota I2C helpers to plugins, but all of
+// support_a_i2c.ino is #ifdef USE_I2C, so those symbols don't exist when I2C is
+// disabled. Provide no-op stubs (read -> 0, write -> false) so the jumptable and
+// the tmod_ I2C wrappers still compile and the plugin ABI numbering stays
+// identical; the I2C plugin syscalls simply do nothing on a firmware without I2C.
+#ifndef USE_I2C
+bool     I2cValidRead16(uint16_t *data, uint8_t addr, uint8_t reg, uint8_t bus = 0)     { if (data) { *data = 0; } return false; }
+uint8_t  I2cRead8(uint8_t addr, uint8_t reg, uint8_t bus = 0)                           { return 0; }
+uint16_t I2cRead16(uint8_t addr, uint8_t reg, uint8_t bus = 0)                          { return 0; }
+uint16_t I2cRead16LE(uint8_t addr, uint8_t reg, uint8_t bus = 0)                        { return 0; }
+int16_t  I2cReadS16_LE(uint8_t addr, uint8_t reg, uint8_t bus = 0)                      { return 0; }
+int32_t  I2cRead24(uint8_t addr, uint8_t reg, uint8_t bus = 0)                          { return 0; }
+bool     I2cWrite0(uint8_t addr, uint8_t reg, uint8_t bus = 0)                          { return false; }
+bool     I2cWrite8(uint8_t addr, uint8_t reg, uint32_t val, uint8_t bus = 0)            { return false; }
+bool     I2cWrite16(uint8_t addr, uint8_t reg, uint32_t val, uint8_t bus = 0)           { return false; }
+bool     I2cReadBuffer0(uint8_t addr, uint8_t *reg_data, uint16_t len, uint8_t bus = 0) { return false; }
+void     I2cResetActive(uint32_t addr, uint8_t bus = 0)                                 { }
+void     I2cSetActiveFound(uint32_t addr, const char *types, uint8_t bus = 0)           { }
+bool     I2cActive(uint32_t addr, uint8_t bus = 0)                                      { return false; }
+bool     I2cSetDevice(uint32_t addr, uint8_t bus = 0)                                   { return false; }
+#endif  // !USE_I2C
+
 #define JMPTBL (void (*)())
 
 // this vector table table must contain all api calls needed by module
