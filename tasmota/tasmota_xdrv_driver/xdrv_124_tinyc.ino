@@ -4342,10 +4342,17 @@ static void TC_CamMotionDetect(void) {
   uint8_t *rgb = (uint8_t*)heap_caps_malloc(pixels * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!rgb) return;
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+  // P4 has no DVP fmt2rgb888 software decoder; motion-detect via JPEG decode is
+  // a TODO on the HW jpeg_decode engine. Skip for now (capture/save still work).
+  free(rgb);
+  return;
+#else
   if (!fmt2rgb888(tc_cam_slot[0].buf, tc_cam_slot[0].len, PIXFORMAT_JPEG, rgb)) {
     free(rgb);
     return;
   }
+#endif
 
   // Allocate reference buffer if needed
   if (!tc_cam_motion.ref_buf || tc_cam_motion.ref_size != pixels) {

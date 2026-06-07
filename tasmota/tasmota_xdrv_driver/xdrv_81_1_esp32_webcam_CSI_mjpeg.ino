@@ -75,6 +75,62 @@ uint32_t WcSetupJpegEncoder(void) {
 
 
 // --- MJPEG / HTTP Streaming Module ---
+// ─────────────────────────────────────────────────────────────────────────────
+// Synchronous one-shot JPEG capture for the TinyC builtin camera on P4 MIPI-CSI.
+// The TinyC VM's capture syscall calls this instead of the DVP esp_camera_fb_get()
+// (which doesn't exist on P4). Brings the CSI pipeline up on demand, waits for a
+// fresh frame, then HW-encodes it to JPEG into the shared Wc.jpeg.buffer — the
+// same jpeg_encoder_process path MjpegProcessingTask uses. Returns the JPEG
+// length (0 on failure). *buf points INTO Wc.jpeg.buffer (valid only until the
+// next capture/stream encode) — the caller must copy it out immediately (TinyC
+// copies into its PSRAM slot). Serialized against the streaming task via both
+// mutexes. NOTE: the fresh-frame wait is conservative; tune on hardware.
+uint32_t WcCsiCaptureJpeg(uint8_t **buf, uint32_t *len, int *w, int *h) {
+  if (buf) { *buf = nullptr; }
+  if (len) { *len = 0; }
+  if (w)   { *w = 0; }
+  if (h)   { *h = 0; }
+
+  // Bring the pipeline up on demand (idempotent if already streaming).
+  if (Wc.core.state == CAM_IDLE) { if (!WcInitPipeline()) { return 0; } }
+  if (Wc.core.state == CAM_INIT) { if (!WcStart()) { return 0; } }
+  if (Wc.core.state != CAM_STREAMING) { return 0; }
+  if (!Wc.jpeg.handle || !Wc.jpeg.buffer) { return 0; }
+
+  // Wait for the ISR to capture a fresh frame (up to ~600 ms).
+  uint32_t start_frames = WcStats.frames_captured;
+  uint32_t t0 = millis();
+  while (WcStats.frames_captured == start_frames && (millis() - t0) < 600) { delay(5); }
+  if (WcStats.frames_captured == start_frames) { return 0; }   // no frame in time
+
+  if (xSemaphoreTake(Wc.core.frame_mutex, pdMS_TO_TICKS(200)) != pdTRUE) { return 0; }
+  if (xSemaphoreTake(Wc.jpeg.mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    xSemaphoreGive(Wc.core.frame_mutex);
+    return 0;
+  }
+
+  uint8_t *src = Wc.core.frame_buffer[Wc.core.read_idx];
+  esp_cache_msync(src, Wc.core.frame_buffer_size, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+
+  uint32_t jpeg_size = 0;
+  esp_err_t ret = jpeg_encoder_process(Wc.jpeg.handle, &Wc.jpeg.cfg,
+                                       src, Wc.core.frame_buffer_size,
+                                       (uint8_t*)Wc.jpeg.buffer, Wc.jpeg.buffer_size,
+                                       &jpeg_size);
+  if (ret == ESP_OK && jpeg_size > 0) {
+    if (buf) { *buf = (uint8_t*)Wc.jpeg.buffer; }
+    if (len) { *len = jpeg_size; }
+    if (w)   { *w = Wc.core.config.width; }
+    if (h)   { *h = Wc.core.config.height; }
+  } else {
+    jpeg_size = 0;
+  }
+
+  xSemaphoreGive(Wc.jpeg.mutex);
+  xSemaphoreGive(Wc.core.frame_mutex);
+  return jpeg_size;
+}
+
 void MjpegProcessingTask(void *pvParameters) {
   const TickType_t xMaxBlockTime = pdMS_TO_TICKS(100); // 100ms timeout
   uint32_t last_fps_calc = millis();

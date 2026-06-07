@@ -49,6 +49,18 @@
 #include "driver/jpeg_encode.h"
 #include "esp_ldo_regulator.h"
 
+#ifndef USE_BERRY
+// The CSI driver delegates SENSOR-specific bring-up (SCCB/I2C, register config,
+// reset/power GPIO) to Berry via callBerryEventDispatcher("camera", ...). On a
+// Berry-less build (e.g. the TinyC-only P4 kitchen-sink) provide a no-op so the
+// C-core + the TinyC WcCsiCaptureJpeg() bridge link. NOTE: with this stub the
+// CSI controller + JPEG encoder build, but no sensor gets initialized — actual
+// capture needs either USE_BERRY (sensor logic) or a C/TinyC sensor-init port.
+int32_t callBerryEventDispatcher(const char *type, const char *cmd, int32_t idx, const char *payload, uint32_t data_len) {
+  return 0;
+}
+#endif  // !USE_BERRY
+
 // H.264 encoder for RTP session (ESP32-P4 hardware)
 extern "C" {
 #include "esp_h264_enc_single_hw.h"

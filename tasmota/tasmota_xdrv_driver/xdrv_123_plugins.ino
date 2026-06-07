@@ -599,9 +599,10 @@ void     WSContentSend_Temp_bits(const char* s, uint32_t v)    { WSContentSend_T
 void     TempHumDewShow_bits(bool j, bool p, const char* t, uint32_t tm, uint32_t hm) { TempHumDewShow(j, p, t, pfb_u2f(tm), pfb_u2f(hm)); } // jt[34]  void(...)
 
 #define PFB(fn) fn##_bits     // jumptable: float entry -> bit-int wrapper
-#else
-#define PFB(fn) fn            // flag off: jumptable uses the native float fn
 #endif  // USE_PLUGIN_FLOAT_BITS
+#ifndef PFB
+#define PFB(fn) fn            // flag off: jumptable uses the native float fn
+#endif
 
 #define JMPTBL (void (*)())
 

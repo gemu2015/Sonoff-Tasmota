@@ -80,8 +80,16 @@ void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
 #endif
 
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+// P4 has no DVP esp32-camera (esp_camera.h). The TinyC builtin camera captures
+// over MIPI-CSI via the xdrv_81 CSI driver (USE_CSI_WEBCAM). Forward-declare its
+// synchronous one-shot JPEG capture; the SYS_CAM capture/init branches below use
+// it instead of esp_camera_fb_get()/esp_camera_init().
+uint32_t WcCsiCaptureJpeg(uint8_t **buf, uint32_t *len, int *w, int *h);
+#else
 #include "esp_camera.h"
 #include "img_converters.h"
+#endif
 
 // C-linkage wrapper so camera C library can call Tasmota's AddLog
 // Only compiled when TC_CAM_DEBUG is defined (add -DTC_CAM_DEBUG to build_flags)
@@ -10624,12 +10632,19 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         // ── Direct esp_camera API (sel 8-13) ──
         case 8: {
           // getSensorPID() -> PID value (e.g. 0x3660 for OV3660)
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+          res = -1;  // P4 CSI: no DVP esp_camera sensor API (PID via the CSI/ISP driver)
+#else
           sensor_t *s = esp_camera_sensor_get();
           res = s ? (int32_t)s->id.PID : -1;
+#endif
           break;
         }
         case 9: {
           // sensorSet(param, value) -> 0=ok, -1=err
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+          res = -1;  // P4 CSI: sensor/ISP tuning is via the CSI driver, not this DVP API
+#else
           sensor_t *s = esp_camera_sensor_get();
           if (s) {
             switch (p1) {
@@ -10657,6 +10672,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
               default: res = -1; break;
             }
           } else { res = -1; }
+#endif  // !CONFIG_IDF_TARGET_ESP32P4
           break;
         }
         case 10: {
@@ -10674,6 +10690,36 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             res = 0; break;  // skip — use TaskLoop for camera captures
           }
 #endif
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+          // P4: MIPI-CSI one-shot capture via the CSI driver. JPEG lands in a
+          // shared buffer — copy into the PSRAM slot before the next capture.
+          uint8_t *cbuf = nullptr; uint32_t clen = 0; int cw = 0, ch = 0;
+          WcCsiCaptureJpeg(&cbuf, &clen, &cw, &ch);
+          if (!cbuf || !clen) {
+            AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: CSI capture timeout (slot %d)"), slot + 1);
+            res = 0; break;
+          }
+          if (tc_cam_slot[slot].buf && tc_cam_slot[slot].len < clen) {
+            free(tc_cam_slot[slot].buf);
+            tc_cam_slot[slot].buf = nullptr;
+          }
+          if (!tc_cam_slot[slot].buf) {
+            tc_cam_slot[slot].buf = (uint8_t*)heap_caps_malloc(clen, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+          }
+          if (tc_cam_slot[slot].buf) {
+            tc_cam_slot[slot].writing = 1;
+            memcpy(tc_cam_slot[slot].buf, cbuf, clen);
+            tc_cam_slot[slot].len = clen;
+            tc_cam_slot[slot].width = cw;
+            tc_cam_slot[slot].height = ch;
+            tc_cam_slot[slot].writing = 0;
+            res = (int32_t)clen;
+          } else {
+            tc_cam_slot[slot].len = 0;
+            res = -1;
+            AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cam slot %d PSRAM alloc failed (%d bytes)"), slot + 1, clen);
+          }
+#else
           camera_fb_t *fb = esp_camera_fb_get();
           if (!fb) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: cam fb_get timeout (slot %d)"), slot + 1);
@@ -10701,6 +10747,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cam slot %d PSRAM alloc failed (%d bytes)"), slot + 1, fb->len);
           }
           esp_camera_fb_return(fb);  // return camera fb immediately
+#endif
           break;
         }
         case 11: {
@@ -10817,10 +10864,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         case 19: {
           // readSensorReg(addr, mask, 0) — read sensor register
           // p1=register address (e.g. 0x3820), p2=mask (0xff for full byte)
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+          res = -1;  // P4 CSI: no DVP sensor register API
+#else
           sensor_t *s19 = esp_camera_sensor_get();
           if (s19) {
             res = s19->get_reg(s19, p1, p2 ? p2 : 0xff);
           } else { res = -1; }
+#endif
           break;
         }
         case 20: {
@@ -10828,10 +10879,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           // p1=register address, p2=value, p3 used as mask (passed via sel hack)
           // Usage from TinyC: camControl(20, addr, value)
           // writes full byte (mask=0xff)
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+          res = -1;  // P4 CSI: no DVP sensor register API
+#else
           sensor_t *s20 = esp_camera_sensor_get();
           if (s20) {
             res = s20->set_reg(s20, p1, 0xff, p2);
           } else { res = -1; }
+#endif
           break;
         }
 #endif // USE_WEBCAM || USE_TINYC_CAMERA
@@ -10879,6 +10934,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // fb_count:  0 = auto (1 no PSRAM, 2 with PSRAM), >0 = explicit
       // grab_mode: -1 = auto, 0 = GRAB_WHEN_EMPTY, 1 = GRAB_LATEST
       // fb_loc:    0 = auto (PSRAM if available), 1 = force DRAM
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+      // P4 MIPI-CSI: pins/format/framesize are fixed by the board's CSI config;
+      // the pipeline lazy-inits on the first WcCsiCaptureJpeg(). Pop the 8 args
+      // to keep the VM stack balanced, then report success.
+      for (int _i = 0; _i < 8; _i++) { (void)TC_POP(vm); }
+      TC_PUSH(vm, (int32_t)0);
+      break;
+#else
       int32_t fb_loc_arg    = TC_POP(vm);
       int32_t grab_mode_arg = TC_POP(vm);
       int32_t fb_count_arg  = TC_POP(vm);
@@ -10999,6 +11062,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       TC_PUSH(vm, res);
       break;
+#endif  // !CONFIG_IDF_TARGET_ESP32P4 (DVP esp_camera init)
     }
 #else
     case SYS_CAM_INIT_PINS: {
@@ -11389,6 +11453,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       uint16_t h = tc_img_store[img_slot].h;
       uint8_t *out_buf = nullptr;
       size_t   out_len = 0;
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+      // P4: img_converters fmt2jpg (software RGB565->JPEG) isn't available; this
+      // render-to-JPEG path is a TODO on the P4 HW jpeg encoder. Report failure
+      // (the error path below frees nothing/returns -1).
+      bool ok = false;
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: imgToJpg unsupported on P4 (TODO HW jpeg)"));
+#else
       OsWatchLoop();
       bool ok = fmt2jpg((uint8_t*)tc_img_store[img_slot].buf,
                         (size_t)w * h * 2,
@@ -11397,6 +11468,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                         (uint8_t)q,
                         &out_buf, &out_len);
       OsWatchLoop();
+#endif
       if (!ok || !out_buf || !out_len) {
         if (out_buf) free(out_buf);
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fmt2jpg failed (%dx%d q=%d)"), w, h, (int)q);
