@@ -311,6 +311,10 @@ static bool tc_boot_marker_cleared = false;
 // Set when a slot's durable command prefix (slot_config[].cmd_prefix) changed —
 // TinyCPrefixReheal() flushes /tinyc.cfg once on the main task (never from the VM task).
 static bool tc_cfg_prefix_dirty = false;
+// Per-slot "already warned" bits for the dual-claim guard in TinyCPrefixReheal()'s
+// LEARN step — keeps the per-second loop from spamming the log while a stray
+// cross-slot prefix write persists. (TC_MAX_VMS is small, fits a uint32 bitmask.)
+static uint32_t tc_prefix_dupwarn = 0;
 
 #ifdef USE_UFILESYS
 // Save current slot configuration to /tinyc.cfg
@@ -2217,9 +2221,38 @@ void TinyCPrefixReheal(void) {
     //     where main() never re-reaches addCommand(). Flushed once below.
     if (s->cmd_prefix_saved[0] &&
         strcmp(Tinyc->slot_config[i].cmd_prefix, s->cmd_prefix_saved) != 0) {
-      strlcpy(Tinyc->slot_config[i].cmd_prefix, s->cmd_prefix_saved,
-              sizeof(Tinyc->slot_config[i].cmd_prefix));
-      tc_cfg_prefix_dirty = true;
+      // DUAL-CLAIM GUARD (Andreas .142, 2026-06-07): refuse to persist a prefix
+      // that ANOTHER slot already owns in /tinyc.cfg. A stray cross-slot write
+      // (seen once via the IDE upload/autoexec path) can land slot X's freshly-
+      // registered prefix in slot Y's cmd_prefix_saved; without this guard the
+      // LEARN below would mirror it into slot_config[Y] and flush, leaving TWO
+      // slots claiming one prefix — dispatch then returns {"TinyC":"UNKNOWN"}
+      // (registered but undeliverable). Keep slot i's existing durable value and
+      // log the conflict instead (once per occurrence; the upstream stray write
+      // is task #151 / the deeper tc_current_slot audit).
+      bool dup = false;
+      for (uint8_t j = 0; j < TC_MAX_VMS; j++) {
+        if (j != i && Tinyc->slot_config[j].cmd_prefix[0] &&
+            strcmp(Tinyc->slot_config[j].cmd_prefix, s->cmd_prefix_saved) == 0) {
+          dup = true;
+          break;
+        }
+      }
+      if (dup) {
+        if (!(tc_prefix_dupwarn & (1u << i))) {
+          tc_prefix_dupwarn |= (1u << i);
+          AddLog(LOG_LEVEL_INFO,
+                 PSTR("TCC: prefix \"%s\" already owned by another slot — NOT persisting for slot %d (dual-claim guard; keeping \"%s\")"),
+                 s->cmd_prefix_saved, i, Tinyc->slot_config[i].cmd_prefix);
+        }
+      } else {
+        tc_prefix_dupwarn &= ~(1u << i);
+        strlcpy(Tinyc->slot_config[i].cmd_prefix, s->cmd_prefix_saved,
+                sizeof(Tinyc->slot_config[i].cmd_prefix));
+        tc_cfg_prefix_dirty = true;
+      }
+    } else {
+      tc_prefix_dupwarn &= ~(1u << i);   // no pending mismatch → re-arm the warn
     }
 
     // (2) HEAL: a RUNNING slot whose live prefix went empty. Restore from the
