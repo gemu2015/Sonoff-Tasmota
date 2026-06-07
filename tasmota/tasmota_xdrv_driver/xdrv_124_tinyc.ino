@@ -865,7 +865,13 @@ void CmndMatterReset(void) {
 // ── TinyCMtrCrypto — Fork-B Stage-2 crypto-seam de-risk (task #125) ──────────
 // Off by default: this dev scaffold #includes a matter-BinPlugin-internal header
 // (mtrc_crypto_selftest.h) and needs the matter BLIB loaded, so it must NOT compile in
-// normal user builds. Enable with -DTINYC_MTRC_CRYPTO_SELFTEST for matter-plugin dev.
+// normal user builds. Enable with -DTINYC_MTRC_CRYPTO_SELFTEST for matter-plugin dev;
+// the *-plugin envs additionally supply the -Itasmota/Plugins/matter/include +
+// -Ilib/lib_ssl/bearssl-esp8266/src that the header chain (mtrc_crypto_ops.h →
+// t_bearssl.h/_ec.h) pulls in.  NB the include below uses "./Plugins/..." (NOT
+// "../Plugins/..."): Tasmota concatenates every .ino into .pio/build/<env>/src/
+// tasmota.ino.cpp, so a "../" path would resolve against the build dir, not tasmota/.
+// "./Plugins/..." matches the working xdrv_123_plugins.ino:37 include (Hans, 2026-06-07).
 // ⚠ TEMPORARY SCAFFOLD — remove this command (+ the KAT vectors + the plugin's
 // matter_crypto_selftest export + mtrc_crypto_selftest.h) once the real matter_c
 // amalgamation + the firmware-fills-ops / mtrc_crypto_bind path lands. Proven
@@ -877,7 +883,7 @@ void CmndMatterReset(void) {
 // known-answer vector. A 0x3F mask proves the seam + both vtables work on a
 // mmap'd plugin with NO EXEC_OFFSET on the method pointers — the gate before the
 // full matter_c amalgamation. Requires the matter BLIB (xblib_02) loaded + iniz'd.
-#include "../Plugins/matter/include/mtrc_crypto_selftest.h"  // io struct + ops (pulls t_bearssl)
+#include "./Plugins/matter/include/mtrc_crypto_selftest.h"  // io struct + ops (pulls t_bearssl)
 
 // Known-answer vectors (firmware .rodata — no plugin relocation question).
 static const uint8_t MTRC_KAT_SHA[32] = {   // SHA-256("abc")
