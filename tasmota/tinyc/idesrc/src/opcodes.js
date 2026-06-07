@@ -490,6 +490,9 @@ export const Syscall = {
     LVGL_CHART_COUNT:   483, // (chart,n)           -> void  lvglChartCount()
     LVGL_IMAGE:         484, // (parent)            -> int   lvglImage()
     LVGL_IMAGE_SRC:     485, // (h,path)            -> void  lvglImageSrc() — LVGL FS path
+    LVGL_SCREEN_CREATE: 486, // ()                  -> int   lvglScreenCreate() — detached screen
+    LVGL_SCREEN_LOAD:   487, // (h)                 -> void  lvglScreenLoad()
+    LVGL_SCREEN_LOAD_ANIM:488,//(h,anim,ms)         -> void  lvglScreenLoadAnim() — anim:5=MOVE_LEFT,6=MOVE_RIGHT,9=FADE_IN
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

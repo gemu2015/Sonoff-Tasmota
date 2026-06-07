@@ -661,13 +661,36 @@ void tc_lvgl_unlock(void) { if (tc_lvgl_mtx) { xSemaphoreGiveRecursive(tc_lvgl_m
 
 int tc_lvgl_active(void) { return lvgl_started() ? 1 : 0; }
 
+// Branded startup splash, shown once when LVGL starts. Drawn on the TOP layer so it
+// sits above every screen and survives screen switches (the program can build/load its
+// own screens underneath immediately). Auto-removes after ~1.8 s — fully non-blocking.
+static void tc_lvgl_splash(void) {
+  lv_obj_t *sp = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(sp);
+  lv_obj_set_size(sp, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(sp, lv_color_hex(0x0b1c2c), 0);
+  lv_obj_set_style_bg_opa(sp, LV_OPA_COVER, 0);
+  lv_obj_t *t = lv_label_create(sp);
+  lv_label_set_text(t, "TinyC LVGL");
+  lv_obj_set_style_text_color(t, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_font(t, &lv_font_montserrat_tasmota_28, 0);
+  lv_obj_align(t, LV_ALIGN_CENTER, 0, -10);
+  lv_obj_t *s = lv_label_create(sp);
+  lv_label_set_text(s, "starting ...");
+  lv_obj_set_style_text_color(s, lv_color_hex(0x66aadd), 0);
+  lv_obj_align(s, LV_ALIGN_CENTER, 0, 22);
+  lv_obj_delete_delayed(sp, 1800);
+}
+
 // Idempotent. Reuses the already-running Universal Display (renderer != null) by passing
 // nullptr to start_lvgl(). Holds the lock across start_lvgl so FUNC_LOOP can't run
-// lv_task_handler on a half-initialised lvgl_glue.
+// lv_task_handler on a half-initialised lvgl_glue. Shows the splash on the first start.
 int tc_lvgl_init(void) {
   if (!tc_lvgl_mtx) { tc_lvgl_mtx = xSemaphoreCreateRecursiveMutex(); }
   tc_lvgl_lock();
-  if (!lvgl_started()) { start_lvgl(nullptr); }
+  bool fresh = !lvgl_started();
+  if (fresh) { start_lvgl(nullptr); }
+  if (fresh && lvgl_started()) { tc_lvgl_splash(); }
   tc_lvgl_unlock();
   return lvgl_started() ? 1 : 0;
 }
@@ -883,6 +906,19 @@ int tc_lv_image(int parent) { tc_lvgl_lock(); int h = tc_lv_store(lv_image_creat
 void tc_lv_image_src(int h, const char *path) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o || !path) { return; }
   tc_lvgl_lock(); lv_image_set_src(o, path); tc_lvgl_unlock();
+}
+
+// screen management — a screen is an object with no parent (lv_obj_create(NULL))
+int tc_lv_screen_create(void) { tc_lvgl_lock(); int h = tc_lv_store(lv_obj_create(NULL)); tc_lvgl_unlock(); return h; }
+void tc_lv_screen_load(int h) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o || h < 1) { return; }
+  tc_lvgl_lock(); lv_screen_load(o); tc_lvgl_unlock();
+}
+void tc_lv_screen_load_anim(int h, int anim, int ms) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o || h < 1) { return; }
+  tc_lvgl_lock();
+  lv_screen_load_anim(o, (lv_screen_load_anim_t)anim, (uint32_t)(ms < 0 ? 0 : ms), 0, false);
+  tc_lvgl_unlock();
 }
 #endif // USE_TINYC_LVGL
 

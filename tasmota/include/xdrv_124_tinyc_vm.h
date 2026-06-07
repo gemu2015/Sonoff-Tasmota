@@ -991,6 +991,10 @@ enum TcSyscall {
   SYS_LVGL_CHART_COUNT      = 483, // (chart_h, n)        -> void  point count
   SYS_LVGL_IMAGE            = 484, // (parent)            -> int handle
   SYS_LVGL_IMAGE_SRC        = 485, // (h, path)           -> void  (LVGL FS path, e.g. "A:/img.bin")
+  // Screen management (multi-screen apps). 489-499 reserved.
+  SYS_LVGL_SCREEN_CREATE    = 486, // ()                  -> int handle  (a detached screen; parent objects onto it)
+  SYS_LVGL_SCREEN_LOAD      = 487, // (h)                 -> void  switch to screen h
+  SYS_LVGL_SCREEN_LOAD_ANIM = 488, // (h, anim, ms)       -> void  switch with transition (anim: 5=MOVE_LEFT,6=MOVE_RIGHT,9=FADE_IN)
 
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
@@ -5042,6 +5046,9 @@ void tc_lv_chart_range(int h, int axis, int mn, int mx);
 void tc_lv_chart_count(int h, int n);
 int  tc_lv_image(int parent);
 void tc_lv_image_src(int h, const char *path);
+int  tc_lv_screen_create(void);
+void tc_lv_screen_load(int h);
+void tc_lv_screen_load_anim(int h, int anim, int ms);
 #endif // USE_TINYC_LVGL
 
 /*********************************************************************************************\
@@ -13537,6 +13544,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_CHART_COUNT:  { int32_t n = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_chart_count(h, n); break; }
     case SYS_LVGL_IMAGE:        { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_image(p)); break; }
     case SYS_LVGL_IMAGE_SRC:    { a = TC_POP(vm); int32_t h = TC_POP(vm); char pbuf[160]; tc_ref_to_cstr(vm, a, pbuf, sizeof(pbuf)); tc_lv_image_src(h, pbuf); break; }
+    case SYS_LVGL_SCREEN_CREATE: TC_PUSH(vm, tc_lv_screen_create()); break;
+    case SYS_LVGL_SCREEN_LOAD:   { int32_t h = TC_POP(vm); tc_lv_screen_load(h); break; }
+    case SYS_LVGL_SCREEN_LOAD_ANIM: { int32_t ms = TC_POP(vm); int32_t an = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_screen_load_anim(h, an, ms); break; }
 #else
     case SYS_LVGL_INIT:     TC_PUSH(vm, 0); break;
     case SYS_LVGL_ACTIVE:   TC_PUSH(vm, 0); break;
@@ -13555,6 +13565,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_CHART_SERIES: TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_LVGL_CHART_NEXT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_CHART_RANGE: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_SCREEN_CREATE: TC_PUSH(vm, 0); break;
+    case SYS_LVGL_SCREEN_LOAD: TC_POP(vm); break;
+    case SYS_LVGL_SCREEN_LOAD_ANIM: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
 #endif
 
     // ── MQTT Subscribe/Publish ────────────────────────

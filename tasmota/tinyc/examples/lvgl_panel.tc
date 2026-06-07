@@ -1,0 +1,140 @@
+// lvgl_panel.tc — a multi-screen LVGL app for TinyC (requires firmware with USE_TINYC_LVGL)
+//
+// A small "smart panel" with a HOME menu and three sub-screens, animated transitions,
+// and live data. Demonstrates most of the lvgl* API together:
+//   • multiple screens (lvglScreenCreate / lvglScreenLoadAnim) with slide transitions
+//   • navigation buttons + Back buttons (CLICKED events)
+//   • Lights:  a brightness slider (live % label) + an on/off switch (tints the screen)
+//   • Climate: a target-temp slider (live label) + a bar that eases toward the target
+//   • Stats:   a live scrolling chart + a self-counted uptime label
+//
+//   HOME ──tap──▶ Lights / Climate / Stats ──Back──▶ HOME
+//
+// Handle 0 = active screen; here every widget is parented onto its own screen handle.
+
+// ── LVGL 9.5 constants (passed as plain ints) ───────────────────────────────
+#define AL_TOP_MID   2
+#define AL_CENTER    9
+#define AL_BOT_MID   5
+#define EV_CLICK     10
+#define EV_CHANGE    35
+#define ST_RADIUS    120
+#define ANIM_LEFT    5      // slide new screen in from the right (forward)
+#define ANIM_RIGHT   6      // slide back (return to HOME)
+#define ANIM_MS      300
+
+// screens
+int scrHome; int scrLights; int scrClimate; int scrStats;
+// home nav
+int btnLights; int btnClimate; int btnStats;
+// lights
+int lSlider; int lSwitch; int lVal; int lBack;
+// climate
+int cSlider; int cBar; int cVal; int cBack;
+// stats
+int sChart; int sSeries; int sUp; int sBack;
+// state
+int bright = 50;
+int target = 22;
+int curTemp = 18;     // climate "current", eases toward target
+int wave = 0; int wdir = 1;
+int subtick = 0; int secs = 0;
+
+// helpers (no string params -> compile-safe)
+int mkLabel(int parent, int color, int align, int dx, int dy) {
+    int h = lvglLabel(parent);
+    lvglSetTextColor(h, color);
+    lvglAlign(h, align, dx, dy);
+    return h;
+}
+int mkButton(int parent, int w, int hgt, int align, int dx, int dy) {
+    int b = lvglButton(parent);
+    lvglSetSize(b, w, hgt);
+    lvglAlign(b, align, dx, dy);
+    return b;
+}
+
+int main() {
+    lvglInit();
+
+    // ── HOME ───────────────────────────────────────────────
+    scrHome = lvglScreenCreate();
+    lvglSetBgColor(scrHome, 0x0b1c2c);
+    int ht = mkLabel(scrHome, 0xFFFFFF, AL_TOP_MID, 0, 14);  lvglSetText(ht, "TinyC . LVGL Panel");
+    btnLights  = mkButton(scrHome, 200, 50, AL_CENTER, 0, -60); lvglSetText(mkLabel(btnLights,  0xFFFFFF, AL_CENTER, 0, 0), "Lights");
+    btnClimate = mkButton(scrHome, 200, 50, AL_CENTER, 0,   0); lvglSetText(mkLabel(btnClimate, 0xFFFFFF, AL_CENTER, 0, 0), "Climate");
+    btnStats   = mkButton(scrHome, 200, 50, AL_CENTER, 0,  60); lvglSetText(mkLabel(btnStats,   0xFFFFFF, AL_CENTER, 0, 0), "Stats");
+    lvglEventEnable(btnLights, EV_CLICK);
+    lvglEventEnable(btnClimate, EV_CLICK);
+    lvglEventEnable(btnStats, EV_CLICK);
+    lvglSetText(mkLabel(scrHome, 0x6688aa, AL_BOT_MID, 0, -8), "tap a tile");
+
+    // ── LIGHTS ─────────────────────────────────────────────
+    scrLights = lvglScreenCreate();
+    lvglSetBgColor(scrLights, 0x101820);
+    lvglSetText(mkLabel(scrLights, 0xffd060, AL_TOP_MID, 0, 14), "Lights");
+    lVal = mkLabel(scrLights, 0xFFFFFF, AL_CENTER, 0, -45); lvglSetText(lVal, "50%");
+    lSlider = lvglSlider(scrLights); lvglSetSize(lSlider, 220, 18); lvglSetRange(lSlider, 0, 100);
+    lvglSetValue(lSlider, bright, 0); lvglAlign(lSlider, AL_CENTER, 0, 0); lvglEventEnable(lSlider, EV_CHANGE);
+    lSwitch = lvglSwitch(scrLights); lvglAlign(lSwitch, AL_CENTER, 40, 50); lvglEventEnable(lSwitch, EV_CHANGE);
+    lvglSetText(mkLabel(scrLights, 0x88aacc, AL_CENTER, -50, 50), "Lamp");
+    lBack = mkButton(scrLights, 90, 40, AL_BOT_MID, 0, -8); lvglSetText(mkLabel(lBack, 0xFFFFFF, AL_CENTER, 0, 0), "Back");
+    lvglEventEnable(lBack, EV_CLICK);
+
+    // ── CLIMATE ────────────────────────────────────────────
+    scrClimate = lvglScreenCreate();
+    lvglSetBgColor(scrClimate, 0x12181f);
+    lvglSetText(mkLabel(scrClimate, 0x66ccff, AL_TOP_MID, 0, 14), "Climate");
+    cVal = mkLabel(scrClimate, 0xFFFFFF, AL_CENTER, 0, -55); lvglSetText(cVal, "22 C");
+    cSlider = lvglSlider(scrClimate); lvglSetSize(cSlider, 220, 18); lvglSetRange(cSlider, 16, 28);
+    lvglSetValue(cSlider, target, 0); lvglAlign(cSlider, AL_CENTER, 0, -15); lvglEventEnable(cSlider, EV_CHANGE);
+    lvglSetText(mkLabel(scrClimate, 0x88aacc, AL_CENTER, 0, 20), "current");
+    cBar = lvglBar(scrClimate); lvglSetSize(cBar, 220, 16); lvglSetRange(cBar, 16, 28);
+    lvglSetValue(cBar, curTemp, 0); lvglSetStyleInt(cBar, ST_RADIUS, 8); lvglAlign(cBar, AL_CENTER, 0, 45);
+    cBack = mkButton(scrClimate, 90, 40, AL_BOT_MID, 0, -8); lvglSetText(mkLabel(cBack, 0xFFFFFF, AL_CENTER, 0, 0), "Back");
+    lvglEventEnable(cBack, EV_CLICK);
+
+    // ── STATS ──────────────────────────────────────────────
+    scrStats = lvglScreenCreate();
+    lvglSetBgColor(scrStats, 0x0c1410);
+    lvglSetText(mkLabel(scrStats, 0x60ffa0, AL_TOP_MID, 0, 14), "Stats");
+    sChart = lvglChart(scrStats); lvglSetSize(sChart, 260, 150); lvglAlign(sChart, AL_CENTER, 0, -10);
+    lvglChartType(sChart, 1); lvglChartCount(sChart, 40); lvglChartRange(sChart, 0, 0, 100);
+    sSeries = lvglChartSeries(sChart, 0x60ffa0);
+    sUp = mkLabel(scrStats, 0xFFFFFF, AL_CENTER, 0, 85); lvglSetText(sUp, "uptime 0s");
+    sBack = mkButton(scrStats, 90, 40, AL_BOT_MID, 0, -8); lvglSetText(mkLabel(sBack, 0xFFFFFF, AL_CENTER, 0, 0), "Back");
+    lvglEventEnable(sBack, EV_CLICK);
+
+    lvglScreenLoad(scrHome);
+
+    // ── event + live-data loop ─────────────────────────────
+    char buf[24];
+    while (1) {
+        while (lvglEvent()) {
+            int o = lvglEventObj();
+            if (o == btnLights)       { lvglScreenLoadAnim(scrLights,  ANIM_LEFT, ANIM_MS); }
+            else if (o == btnClimate) { lvglScreenLoadAnim(scrClimate, ANIM_LEFT, ANIM_MS); }
+            else if (o == btnStats)   { lvglScreenLoadAnim(scrStats,   ANIM_LEFT, ANIM_MS); }
+            else if (o == lBack || o == cBack || o == sBack) { lvglScreenLoadAnim(scrHome, ANIM_RIGHT, ANIM_MS); }
+            else if (o == lSlider)    { bright = lvglGetValue(lSlider); sprintf(buf, "%d%%", bright); lvglSetText(lVal, buf); }
+            else if (o == cSlider)    { target = lvglGetValue(cSlider); sprintf(buf, "%d C", target); lvglSetText(cVal, buf); }
+            else if (o == lSwitch)    { if (lvglIsChecked(lSwitch)) { lvglSetBgColor(scrLights, 0x1a2a1a); } else { lvglSetBgColor(scrLights, 0x101820); } }
+        }
+
+        // live data — scroll the chart, ease climate "current" toward target, count uptime
+        wave = wave + wdir * 8;
+        if (wave >= 100) { wave = 100; wdir = -1; }
+        if (wave <= 0)   { wave = 0;   wdir = 1; }
+        lvglChartNext(sChart, sSeries, wave);
+
+        if (curTemp < target) { curTemp = curTemp + 1; }
+        else if (curTemp > target) { curTemp = curTemp - 1; }
+        lvglSetValue(cBar, curTemp, 1);
+
+        subtick = subtick + 1;
+        if (subtick >= 16) { subtick = 0; secs = secs + 1; sprintf(buf, "uptime %ds", secs); lvglSetText(sUp, buf); }
+
+        delay(60);
+    }
+    return 0;
+}
