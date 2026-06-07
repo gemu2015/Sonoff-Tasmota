@@ -155,6 +155,8 @@ int main() {
         addLog("CCS811 init failed (addr 0x%x)", ccs_addr);
         return 0;
     }
+	
+	ccs_ok = 1;
 
     return 0;
 }
