@@ -192,7 +192,7 @@ Renderer *Init_uDisplay(const char *desc) {
         strcpy_P(display_name, PSTR("Display"));
         cp = strstr(ddesc, ":H,");
         if (cp) {
-          // :H,SH1106,128,64,1,I2C,3c,22,21,*
+          // :H,SH1106,128,64,-1,I2C,3c,22,21,*
           cp += 3;
           char *lp = strchr(cp, ',');
           if (lp) {

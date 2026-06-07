@@ -18,7 +18,7 @@ Options to select a display driver:
 
 ```
 #define DSP_ROM_DESC \
-":H,SH1106,128,64,1,I2C,3c,*,*,*\n" \
+":H,SH1106,128,64,-1,I2C,3c,*,*,*\n" \
 ":S,0,1,1,0,40,20\n" \
 ":I\n" \
 "AE\n" \
@@ -44,6 +44,13 @@ Options to select a display driver:
 "#\n"
 ```
 
+
+Note on the BPP field (the 5th `:H` value) for 1-bit monochrome panels: its **sign**
+selects the framebuffer layout the `/tc_display` web mirror uses to decode the panel —
+`-1` = column-major / page layout (SSD1306 / SH1106 / SH1107 OLEDs), `+1` = row-major
+(e-paper). uDisplay drives the panel with `abs(bpp)`, so the display itself renders the
+same either way; only the mirror reads the sign. Use `-1` for OLEDs, `+1` for e-paper.
+(Colour panels use 16 — the sign is irrelevant there.)
 
 for further info about display descriptors read the tasmota docs display part.
 
