@@ -48,21 +48,21 @@ MODULE_PART int32_t mod_func_execute(uint32_t sel);
 // MODULE_MEMORY) + the `g`/`g_ptr` macros that the mtrc_*.c bodies below rely on.
 // The mtrc_*.c headers are already included by matter_c.c; including the .c files
 // here supplies their definitions in the same TU (unity build).
-#include "matter/src/matter_c.c"
-#include "matter/src/mtrc_tlv.c"
-#include "matter/src/mtrc_frame.c"
-#include "matter/src/mtrc_crypto.c"
-#include "matter/src/mtrc_sec.c"
-#include "matter/src/mtrc_spake2p.c"
-#include "matter/src/mtrc_pase.c"
-#include "matter/src/mtrc_case.c"
-#include "matter/src/mtrc_case_msg.c"
-#include "matter/src/mtrc_cert.c"
-#include "matter/src/mtrc_csr.c"
-#include "matter/src/mtrc_store.c"
-#include "matter/src/mtrc_dm.c"
-#include "matter/src/mtrc_im.c"
-#include "matter/src/qrcodegen.c"
+#include "matter/src/matter_c_c.h"
+#include "matter/src/mtrc_tlv_c.h"
+#include "matter/src/mtrc_frame_c.h"
+#include "matter/src/mtrc_crypto_c.h"
+#include "matter/src/mtrc_sec_c.h"
+#include "matter/src/mtrc_spake2p_c.h"
+#include "matter/src/mtrc_pase_c.h"
+#include "matter/src/mtrc_case_c.h"
+#include "matter/src/mtrc_case_msg_c.h"
+#include "matter/src/mtrc_cert_c.h"
+#include "matter/src/mtrc_csr_c.h"
+#include "matter/src/mtrc_store_c.h"
+#include "matter/src/mtrc_dm_c.h"
+#include "matter/src/mtrc_im_c.h"
+#include "matter/src/qrcodegen_c.h"
 
 // Firmware seam: the built-in lib gets matter_special_malloc (PSRAM-aware) from
 // xdrv_124; the standalone plugin routes it to the framework allocator

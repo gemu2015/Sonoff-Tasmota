@@ -166,7 +166,10 @@ rebuild, no new slots. So all of Fork B's additions are **new `tmod_ext_call` se
 - Fill `matter_port_t`: kv→`jfile_*`, millis→`jmillis`, log→`jAddLog`, udp_send/mdns_*/random→the new slots.
 - `mod_func_execute`: `pFUNC_INIT`→`matter_init(&port,&cfg)`+`add_endpoint`+`matter_start`;
   `pFUNC_LOOP`→`matter_loop()`; `pFUNC_COMMAND`→console cmds; `pFUNC_WEB_*`→QR/commissioning.
-- Amalgamate matter_c via `#include "matter/src/<each>.c"` (unity) — AFTER the discipline pass.
+- Amalgamate matter_c via `#include "matter/src/<each>_c.h"` (unity) — AFTER the discipline pass.
+  (Sources carry a `_c.h` extension so PlatformIO never standalone-compiles them under src_dir;
+  they are only pulled in by the xblib_03 amalgamation. See the `_c.h` convention used by
+  cc1101 / VL53L0X / the Audio plugins.)
 
 ### matter_c discipline pass (on the duplicated copy in `tasmota/Plugins/matter/`)
 PROGMEM the 40 const tables + ~195 strings; consolidate the few mutable globals into
@@ -243,7 +246,7 @@ whole amalgamation tractable. Build loop confirmed: `build_plugin.py --plugin US
 commented `//#define USE_MATTER_FULL_MOD  // xblib_03_matter_full.cpp` gate → the FULL amalgamation
 lives in **`xblib_03_matter_full.cpp`** (keep xblib_02 as the proven de-risk). Skeleton order:
 `tasmota_options.h` → `#ifdef USE_MATTER_FULL_MOD` → `#define MTRC_PLUGIN_BUILD 1` → `module.h` +
-`module_defines.h` → `PUSH_OPTIONS` → `mtrc_plugin_libc.h` → the 16 `#include "matter/src/*.c"`
+`module_defines.h` → `PUSH_OPTIONS` → `mtrc_plugin_libc.h` → the 16 `#include "matter/src/*_c.h"`
 (matter_c.c defines `matter_ctx_t` + pulls `mtrc_plugin_mem.h` → defines `MODULE_MEMORY`) →
 `MODULE_DESCRIPTOR`/`MODULE_END` → exports (matter_init/add_endpoint/start/loop/set_attr…) +
 `mod_func_execute` (ALLOCMEM in pFUNC_INIT) → `PULL_OPTIONS`.
