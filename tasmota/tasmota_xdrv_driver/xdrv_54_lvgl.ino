@@ -661,6 +661,35 @@ void tc_lvgl_unlock(void) { if (tc_lvgl_mtx) { xSemaphoreGiveRecursive(tc_lvgl_m
 
 int tc_lvgl_active(void) { return lvgl_started() ? 1 : 0; }
 
+// ── /tc_display LVGL screen mirror ──────────────────────────────────────────
+// LVGL renders in PARTIAL mode (small flush buffers) — there is no full-screen
+// framebuffer to read, and on HW-DMA panels renderer->framebuffer is null. So when
+// LVGL is driving the screen the mirror snapshots the active screen to a fresh
+// full-screen RGB565 buffer (lv_snapshot, LV_USE_SNAPSHOT). On-demand only: the
+// caller streams *data (sw*sh*2 bytes) then MUST call tc_lvgl_snapshot_free(handle).
+// The buffer is allocated via LVGL's allocator (PSRAM on PSRAM boards).
+int tc_lvgl_snapshot(uint8_t **data, uint16_t *w, uint16_t *h, void **handle) {
+  if (!tc_lvgl_active() || !data || !w || !h || !handle) { return 0; }
+  tc_lvgl_lock();
+  lv_draw_buf_t *snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+  tc_lvgl_unlock();
+  if (!snap || !snap->data) {
+    if (snap) { tc_lvgl_lock(); lv_draw_buf_destroy(snap); tc_lvgl_unlock(); }
+    return 0;
+  }
+  *data   = (uint8_t *)snap->data;
+  *w      = (uint16_t)snap->header.w;
+  *h      = (uint16_t)snap->header.h;
+  *handle = (void *)snap;
+  return 1;
+}
+void tc_lvgl_snapshot_free(void *handle) {
+  if (!handle) { return; }
+  tc_lvgl_lock();
+  lv_draw_buf_destroy((lv_draw_buf_t *)handle);
+  tc_lvgl_unlock();
+}
+
 // Branded startup splash, shown once when LVGL starts. Drawn on the TOP layer so it
 // sits above every screen and survives screen switches (the program can build/load its
 // own screens underneath immediately). Auto-removes after 5 s — fully non-blocking.

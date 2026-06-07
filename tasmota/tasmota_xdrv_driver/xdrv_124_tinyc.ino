@@ -1985,7 +1985,11 @@ static void HandleTinyCPage(void) {
     "</script>"));
 
 #ifdef USE_DISPLAY
-  if (renderer && (((uintptr_t)renderer->framebuffer >= 0x3C000000) || ((uintptr_t)renderer->rgb_fb >= 0x3C000000))) {
+  bool tc_show_mirror = renderer && (((uintptr_t)renderer->framebuffer >= 0x3C000000) || ((uintptr_t)renderer->rgb_fb >= 0x3C000000));
+#ifdef USE_TINYC_LVGL
+  if (renderer && tc_lvgl_active()) { tc_show_mirror = true; }   // LVGL mirrors via on-demand snapshot (no panel framebuffer)
+#endif
+  if (tc_show_mirror) {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Display </b></legend>"
       "<p style='text-align:center'>"
@@ -3866,6 +3870,43 @@ static void HandleTinyCDisplayRaw(void) {
   tc_global_pause = true;   // pause VM during framebuffer read
   delay(0);  // yield to let VM finish current cycle
 
+#ifdef USE_TINYC_LVGL
+  // LVGL active: mirror the LVGL screen via an on-demand RGB565 snapshot. LVGL
+  // renders in PARTIAL mode (no full panel framebuffer) and renderer->framebuffer
+  // is null on HW-DMA panels, so lv_snapshot of the active screen is the only way.
+  if (tc_lvgl_active()) {
+    uint8_t *sdata; uint16_t sw, sh; void *shandle;
+    if (tc_lvgl_snapshot(&sdata, &sw, &sh, &shandle)) {
+      uint32_t lv_fb_size = (uint32_t)sw * sh * 2;   // RGB565, 2 bytes/px
+      uint8_t lh[8];
+      lh[0] = sw & 0xFF; lh[1] = (sw >> 8) & 0xFF;
+      lh[2] = sh & 0xFF; lh[3] = (sh >> 8) & 0xFF;
+      lh[4] = 16;        // bpp 16 (RGB565)
+      lh[5] = 0;         // swap=0, rot=0 — snapshot is already in logical orientation
+      lh[6] = 0; lh[7] = 0;
+      Webserver->sendHeader(F("Connection"), F("close"));
+      Webserver->setContentLength(8 + lv_fb_size);
+      Webserver->send(200, F("application/octet-stream"), "");
+      WiFiClient lc = Webserver->client();
+      lc.setNoDelay(true); lc.setTimeout(5);
+      lc.write(lh, 8);
+      uint32_t lsent = 0;
+      while (lsent < lv_fb_size) {
+        if (!lc.connected()) break;
+        uint32_t chunk = lv_fb_size - lsent; if (chunk > 512) chunk = 512;
+        lc.write(sdata + lsent, chunk);
+        lsent += chunk; yield();
+      }
+      lc.flush(); delay(50); lc.stop();
+      tc_lvgl_snapshot_free(shandle);
+      tc_mirror_busy = false;
+      tc_global_pause = false;
+      return;
+    }
+    // snapshot failed — fall through to the framebuffer path below
+  }
+#endif
+
   int8_t bpp = renderer->disp_bpp;
   uint8_t *fb = renderer->framebuffer;
   uint16_t *rgb = renderer->rgb_fb;
@@ -4160,7 +4201,11 @@ static void HandleTinyCDisplay(void) {
   uint16_t *rgb = r->rgb_fb;
   bool fb_ok = fb && ((uintptr_t)fb >= 0x3C000000);
   bool rgb_ok = rgb && ((uintptr_t)rgb >= 0x3C000000);
-  if (!fb_ok && !rgb_ok) {
+  bool lvgl_on = false;
+#ifdef USE_TINYC_LVGL
+  lvgl_on = tc_lvgl_active();   // LVGL mirrors via an on-demand screen snapshot
+#endif
+  if (!fb_ok && !rgb_ok && !lvgl_on) {
     Webserver->send(503, "text/plain", "No framebuffer (display uses HW DMA)");
     return;
   }

@@ -5011,6 +5011,9 @@ int  tc_lvgl_init(void);     // idempotent start_lvgl(nullptr); returns 1 if act
 int  tc_lvgl_active(void);   // 1 if LVGL is running, else 0
 void tc_lvgl_lock(void);     // take the LVGL recursive mutex (no-op before init)
 void tc_lvgl_unlock(void);   // release the LVGL recursive mutex
+// /tc_display LVGL screen mirror: snapshot active screen to RGB565 (caller frees handle).
+int  tc_lvgl_snapshot(uint8_t **data, uint16_t *w, uint16_t *h, void **handle);
+void tc_lvgl_snapshot_free(void *handle);
 // Phase 1 object API (defined in xdrv_54_lvgl.ino; only int/const char* cross the boundary).
 int  tc_lv_obj(int parent);
 int  tc_lv_label(int parent);
