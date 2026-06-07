@@ -949,6 +949,49 @@ enum TcSyscall {
   SYS_BLE_DONE              = 420, // () -> int          0=pending, >0=result length ready, <0=failed
   SYS_BLE_RESULT            = 421, // (buf_ref) -> int   copy received notify/read bytes; returns len
 
+  // LVGL on-device GUI (gated USE_TINYC_LVGL -> USE_LVGL + USE_UNIVERSAL_DISPLAY; built on xdrv_54_lvgl).
+  // Reuses xdrv_54's start_lvgl()/flush->renderer/touch-indev/FUNC_LOOP lv_task_handler (all Berry-free).
+  // 452-499 reserved for the object/widget/event family (Phase 1+).
+  SYS_LVGL_INIT             = 450, // () -> int   idempotent start_lvgl(nullptr); returns 1 if active
+  SYS_LVGL_ACTIVE           = 451, // () -> int   1 if LVGL is running, else 0
+  // Phase 1: objects + props + event poll. Handle 0 = active screen. 467-499 reserved.
+  SYS_LVGL_OBJ              = 452, // (parent)            -> int handle   base container
+  SYS_LVGL_LABEL            = 453, // (parent)            -> int handle
+  SYS_LVGL_BUTTON           = 454, // (parent)            -> int handle
+  SYS_LVGL_SET_POS          = 455, // (h, x, y)           -> void
+  SYS_LVGL_SET_SIZE         = 456, // (h, w, ht)          -> void
+  SYS_LVGL_ALIGN            = 457, // (h, align, dx, dy)  -> void  (align = lv_align_t; 9=CENTER)
+  SYS_LVGL_SET_TEXT         = 458, // (h, str)            -> void  (label text)
+  SYS_LVGL_SET_BG_COLOR     = 459, // (h, rgb888)         -> void
+  SYS_LVGL_SET_TEXT_COLOR   = 460, // (h, rgb888)         -> void
+  SYS_LVGL_EVENT_ENABLE     = 461, // (h, filter)         -> void  (lv_event_code_t; LVGL9.5: 0=ALL,10=CLICKED,11=RELEASED,35=VALUE_CHANGED)
+  SYS_LVGL_EVENT            = 462, // ()                  -> int   pop next event into current; 1=got, 0=empty
+  SYS_LVGL_EVENT_OBJ        = 463, // ()                  -> int   handle of current event
+  SYS_LVGL_EVENT_CODE       = 464, // ()                  -> int   code of current event
+  SYS_LVGL_DELETE           = 465, // (h)                 -> int   delete object; 1=ok
+  SYS_LVGL_CLEAN            = 466, // (h)                 -> int   delete object's children; 1=ok
+  // Phase 2: value widgets + value/range/checked + style. 478-499 reserved.
+  SYS_LVGL_SLIDER           = 467, // (parent)            -> int handle
+  SYS_LVGL_BAR              = 468, // (parent)            -> int handle
+  SYS_LVGL_ARC              = 469, // (parent)            -> int handle
+  SYS_LVGL_SWITCH           = 470, // (parent)            -> int handle
+  SYS_LVGL_CHECKBOX         = 471, // (parent)            -> int handle
+  SYS_LVGL_SET_VALUE        = 472, // (h, v, anim)        -> void  (slider/bar/arc)
+  SYS_LVGL_GET_VALUE        = 473, // (h)                 -> int
+  SYS_LVGL_SET_RANGE        = 474, // (h, min, max)       -> void
+  SYS_LVGL_SET_CHECKED      = 475, // (h, on)             -> void  (switch/checkbox/LV_STATE_CHECKED)
+  SYS_LVGL_IS_CHECKED       = 476, // (h)                 -> int
+  SYS_LVGL_SET_STYLE_INT    = 477, // (h, prop, val)      -> void  (prop=lv_style_prop_t; 120=RADIUS,56=BORDER_WIDTH,112=OPA)
+  // Phase 3: chart (+series) + image-from-FS. 486-499 reserved.
+  SYS_LVGL_CHART            = 478, // (parent)            -> int handle
+  SYS_LVGL_CHART_TYPE       = 479, // (h, type)           -> void  (1=LINE, 2=BAR)
+  SYS_LVGL_CHART_SERIES     = 480, // (chart_h, rgb888)   -> int   series handle
+  SYS_LVGL_CHART_NEXT       = 481, // (chart_h, series_h, v) -> void  shift in next value
+  SYS_LVGL_CHART_RANGE      = 482, // (chart_h, axis, min, max) -> void  (axis 0 = PRIMARY_Y)
+  SYS_LVGL_CHART_COUNT      = 483, // (chart_h, n)        -> void  point count
+  SYS_LVGL_IMAGE            = 484, // (parent)            -> int handle
+  SYS_LVGL_IMAGE_SRC        = 485, // (h, path)           -> void  (LVGL FS path, e.g. "A:/img.bin")
+
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
                                   //                              data arrives, all immediately-
@@ -4946,6 +4989,60 @@ int  tc_ble_gatt_start(const uint8_t *mac, int addrtype, int svc, int chr, int n
 int  tc_ble_gatt_poll(void);                  // 0=pending, 1=done(result ready), <0=failed (GEN_STATE_*)
 int  tc_ble_gatt_copy(uint8_t *out, int max); // copy result bytes into out, return len, release the op
 #endif // USE_TINYC_BLE
+
+/*********************************************************************************************\
+ * TinyC -> LVGL (xdrv_54_lvgl). The on-device retained-mode GUI for big touch panels.
+ * xdrv_54 sorts AFTER xdrv_124 in the .ino TU, so the tc_lvgl_* definitions live there
+ * (where lvgl.h / start_lvgl() are in scope) and the VM only calls these plain-C shims.
+ * LVGL is not reentrant: tc_lvgl_lock()/unlock() guard lv_task_handler (main task,
+ * xdrv_54 FUNC_LOOP) against the lvgl* syscalls (VM task) — a single recursive mutex.
+\*********************************************************************************************/
+#if defined(ESP32) && defined(USE_TINYC_LVGL)
+#if !defined(USE_LVGL) || !defined(USE_UNIVERSAL_DISPLAY)
+#error "USE_TINYC_LVGL requires USE_LVGL + USE_UNIVERSAL_DISPLAY (the LVGL driver xdrv_54_lvgl)"
+#endif
+int  tc_lvgl_init(void);     // idempotent start_lvgl(nullptr); returns 1 if active, else 0
+int  tc_lvgl_active(void);   // 1 if LVGL is running, else 0
+void tc_lvgl_lock(void);     // take the LVGL recursive mutex (no-op before init)
+void tc_lvgl_unlock(void);   // release the LVGL recursive mutex
+// Phase 1 object API (defined in xdrv_54_lvgl.ino; only int/const char* cross the boundary).
+int  tc_lv_obj(int parent);
+int  tc_lv_label(int parent);
+int  tc_lv_button(int parent);
+void tc_lv_set_pos(int h, int x, int y);
+void tc_lv_set_size(int h, int w, int ht);
+void tc_lv_align(int h, int a, int dx, int dy);
+void tc_lv_set_text(int h, const char *s);
+void tc_lv_set_bg_color(int h, int rgb);
+void tc_lv_set_text_color(int h, int rgb);
+void tc_lv_event_enable(int h, int filter);
+int  tc_lv_event_next(void);
+int  tc_lv_event_obj(void);
+int  tc_lv_event_code(void);
+int  tc_lv_del(int h);
+int  tc_lv_clean(int h);
+// Phase 2 value widgets
+int  tc_lv_slider(int parent);
+int  tc_lv_bar(int parent);
+int  tc_lv_arc(int parent);
+int  tc_lv_switch(int parent);
+int  tc_lv_checkbox(int parent);
+void tc_lv_set_value(int h, int v, int anim);
+int  tc_lv_get_value(int h);
+void tc_lv_set_range(int h, int mn, int mx);
+void tc_lv_set_checked(int h, int on);
+int  tc_lv_is_checked(int h);
+void tc_lv_set_style_int(int h, int prop, int val);
+// Phase 3 chart + image
+int  tc_lv_chart(int parent);
+void tc_lv_chart_type(int h, int type);
+int  tc_lv_chart_series(int h, int rgb);
+void tc_lv_chart_next(int h, int ser, int v);
+void tc_lv_chart_range(int h, int axis, int mn, int mx);
+void tc_lv_chart_count(int h, int n);
+int  tc_lv_image(int parent);
+void tc_lv_image_src(int h, const char *path);
+#endif // USE_TINYC_LVGL
 
 /*********************************************************************************************\
  * VM: Fast pin multiplexer  —  classic ESP32 / ESP32-S3 only, opt-in via USE_TINYC_FAST_MUX
@@ -13400,6 +13497,64 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_BLE_WRITE_START: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
     case SYS_BLE_DONE:      TC_PUSH(vm, -1); break;
     case SYS_BLE_RESULT:    TC_POP(vm); TC_PUSH(vm, 0); break;
+#endif
+
+    // ── LVGL on-device GUI (xdrv_54_lvgl) ──────────────
+#if defined(ESP32) && defined(USE_TINYC_LVGL)
+    case SYS_LVGL_INIT:     TC_PUSH(vm, tc_lvgl_init());   break;   // lvglInit()   -> 1 if active
+    case SYS_LVGL_ACTIVE:   TC_PUSH(vm, tc_lvgl_active()); break;   // lvglActive() -> 0/1
+    case SYS_LVGL_OBJ:      { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_obj(p));    break; }
+    case SYS_LVGL_LABEL:    { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_label(p));  break; }
+    case SYS_LVGL_BUTTON:   { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_button(p)); break; }
+    case SYS_LVGL_SET_POS:  { int32_t y = TC_POP(vm); int32_t x = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_pos(h, x, y);  break; }
+    case SYS_LVGL_SET_SIZE: { int32_t ht = TC_POP(vm); int32_t w = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_size(h, w, ht); break; }
+    case SYS_LVGL_ALIGN:    { int32_t dy = TC_POP(vm); int32_t dx = TC_POP(vm); int32_t al = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_align(h, al, dx, dy); break; }
+    case SYS_LVGL_SET_TEXT: { a = TC_POP(vm); int32_t h = TC_POP(vm); char tbuf[160]; tc_ref_to_cstr(vm, a, tbuf, sizeof(tbuf)); tc_lv_set_text(h, tbuf); break; }
+    case SYS_LVGL_SET_BG_COLOR:   { int32_t c = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_bg_color(h, c);   break; }
+    case SYS_LVGL_SET_TEXT_COLOR: { int32_t c = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_text_color(h, c); break; }
+    case SYS_LVGL_EVENT_ENABLE:   { int32_t f = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_event_enable(h, f);   break; }
+    case SYS_LVGL_EVENT:      TC_PUSH(vm, tc_lv_event_next()); break;
+    case SYS_LVGL_EVENT_OBJ:  TC_PUSH(vm, tc_lv_event_obj());  break;
+    case SYS_LVGL_EVENT_CODE: TC_PUSH(vm, tc_lv_event_code()); break;
+    case SYS_LVGL_DELETE:   { int32_t h = TC_POP(vm); TC_PUSH(vm, tc_lv_del(h));   break; }
+    case SYS_LVGL_CLEAN:    { int32_t h = TC_POP(vm); TC_PUSH(vm, tc_lv_clean(h)); break; }
+    case SYS_LVGL_SLIDER:   { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_slider(p));   break; }
+    case SYS_LVGL_BAR:      { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_bar(p));      break; }
+    case SYS_LVGL_ARC:      { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_arc(p));      break; }
+    case SYS_LVGL_SWITCH:   { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_switch(p));   break; }
+    case SYS_LVGL_CHECKBOX: { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_checkbox(p)); break; }
+    case SYS_LVGL_SET_VALUE: { int32_t an = TC_POP(vm); int32_t v = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_value(h, v, an); break; }
+    case SYS_LVGL_GET_VALUE: { int32_t h = TC_POP(vm); TC_PUSH(vm, tc_lv_get_value(h)); break; }
+    case SYS_LVGL_SET_RANGE: { int32_t mx = TC_POP(vm); int32_t mn = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_range(h, mn, mx); break; }
+    case SYS_LVGL_SET_CHECKED: { int32_t on = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_checked(h, on); break; }
+    case SYS_LVGL_IS_CHECKED:  { int32_t h = TC_POP(vm); TC_PUSH(vm, tc_lv_is_checked(h)); break; }
+    case SYS_LVGL_SET_STYLE_INT: { int32_t val = TC_POP(vm); int32_t pr = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_style_int(h, pr, val); break; }
+    case SYS_LVGL_CHART:        { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_chart(p)); break; }
+    case SYS_LVGL_CHART_TYPE:   { int32_t t = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_chart_type(h, t); break; }
+    case SYS_LVGL_CHART_SERIES: { int32_t c = TC_POP(vm); int32_t h = TC_POP(vm); TC_PUSH(vm, tc_lv_chart_series(h, c)); break; }
+    case SYS_LVGL_CHART_NEXT:   { int32_t v = TC_POP(vm); int32_t s = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_chart_next(h, s, v); break; }
+    case SYS_LVGL_CHART_RANGE:  { int32_t mx = TC_POP(vm); int32_t mn = TC_POP(vm); int32_t ax = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_chart_range(h, ax, mn, mx); break; }
+    case SYS_LVGL_CHART_COUNT:  { int32_t n = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_chart_count(h, n); break; }
+    case SYS_LVGL_IMAGE:        { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_image(p)); break; }
+    case SYS_LVGL_IMAGE_SRC:    { a = TC_POP(vm); int32_t h = TC_POP(vm); char pbuf[160]; tc_ref_to_cstr(vm, a, pbuf, sizeof(pbuf)); tc_lv_image_src(h, pbuf); break; }
+#else
+    case SYS_LVGL_INIT:     TC_PUSH(vm, 0); break;
+    case SYS_LVGL_ACTIVE:   TC_PUSH(vm, 0); break;
+    case SYS_LVGL_OBJ: case SYS_LVGL_LABEL: case SYS_LVGL_BUTTON: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_SET_POS: case SYS_LVGL_SET_SIZE: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_ALIGN:   TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_SET_TEXT: case SYS_LVGL_SET_BG_COLOR: case SYS_LVGL_SET_TEXT_COLOR: case SYS_LVGL_EVENT_ENABLE: TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_EVENT: case SYS_LVGL_EVENT_OBJ: case SYS_LVGL_EVENT_CODE: TC_PUSH(vm, 0); break;
+    case SYS_LVGL_DELETE: case SYS_LVGL_CLEAN: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_SLIDER: case SYS_LVGL_BAR: case SYS_LVGL_ARC: case SYS_LVGL_SWITCH: case SYS_LVGL_CHECKBOX: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_SET_VALUE: case SYS_LVGL_SET_RANGE: case SYS_LVGL_SET_STYLE_INT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_GET_VALUE: case SYS_LVGL_IS_CHECKED: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_SET_CHECKED: TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_CHART: case SYS_LVGL_IMAGE: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_CHART_TYPE: case SYS_LVGL_CHART_COUNT: case SYS_LVGL_IMAGE_SRC: TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_CHART_SERIES: TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_CHART_NEXT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_CHART_RANGE: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
 #endif
 
     // ── MQTT Subscribe/Publish ────────────────────────

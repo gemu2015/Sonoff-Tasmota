@@ -1,0 +1,69 @@
+// lvgl_widgets.tc — LVGL Phase 2 demo (requires firmware with USE_TINYC_LVGL)
+//
+// A slider drives a bar + a value label; a switch tints the background. Shows the
+// Phase 2 value-widget API: slider/bar/switch, SetValue/GetValue/SetRange, IsChecked,
+// and the VALUE_CHANGED event routed through the poll ring.
+//
+// LVGL 9.5 event codes: 0=ALL, 10=CLICKED, 11=RELEASED, 35=VALUE_CHANGED.
+// LVGL aligns: 2=TOP_MID, 9=CENTER.  Style props: 120=RADIUS.
+
+#define ALIGN_TOP_MID        2
+#define ALIGN_CENTER         9
+#define EV_VALUE_CHANGED     35
+#define STYLE_RADIUS         120
+
+int sld;        // slider
+int bar;        // mirror bar
+int vlabel;     // value text
+int sw;         // switch
+
+int main() {
+    lvglInit();
+    lvglSetBgColor(0, 0x101820);
+
+    int title = lvglLabel(0);
+    lvglSetText(title, "Phase 2: value widgets");
+    lvglSetTextColor(title, 0xFFFFFF);
+    lvglAlign(title, ALIGN_TOP_MID, 0, 10);
+
+    sld = lvglSlider(0);
+    lvglSetSize(sld, 240, 18);
+    lvglSetRange(sld, 0, 100);
+    lvglSetValue(sld, 30, 0);
+    lvglAlign(sld, ALIGN_CENTER, 0, -40);
+    lvglEventEnable(sld, EV_VALUE_CHANGED);
+
+    bar = lvglBar(0);
+    lvglSetSize(bar, 240, 18);
+    lvglSetRange(bar, 0, 100);
+    lvglSetValue(bar, 30, 0);
+    lvglSetStyleInt(bar, STYLE_RADIUS, 9);     // rounded bar
+    lvglAlign(bar, ALIGN_CENTER, 0, 0);
+
+    vlabel = lvglLabel(0);
+    lvglSetText(vlabel, "30");
+    lvglSetTextColor(vlabel, 0x40c0ff);
+    lvglAlign(vlabel, ALIGN_CENTER, 0, 45);
+
+    sw = lvglSwitch(0);
+    lvglAlign(sw, ALIGN_CENTER, 0, 95);
+    lvglEventEnable(sw, EV_VALUE_CHANGED);
+
+    char buf[16];
+    while (1) {
+        while (lvglEvent()) {
+            int o = lvglEventObj();
+            if (o == sld) {
+                int v = lvglGetValue(sld);
+                lvglSetValue(bar, v, 1);            // mirror slider -> bar (animated)
+                sprintf(buf, "%d", v);
+                lvglSetText(vlabel, buf);
+            } else if (o == sw) {
+                if (lvglIsChecked(sw)) { lvglSetBgColor(0, 0x0a3a1a); }   // green when ON
+                else { lvglSetBgColor(0, 0x101820); }
+            }
+        }
+        delay(30);
+    }
+    return 0;
+}

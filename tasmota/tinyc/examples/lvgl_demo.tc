@@ -1,0 +1,51 @@
+// lvgl_demo.tc — LVGL Phase 1 demo (requires firmware built with USE_TINYC_LVGL)
+//
+// Builds a tiny touch UI on the device panel: a label + a button. Tapping the button
+// toggles the label text and the screen background. Demonstrates the Phase 1 API:
+// object create, position/size/align/text/colour props, and the event poll ring.
+//
+// Handle 0 = the active screen (use it as a parent, or to style the screen itself).
+
+#define LV_ALIGN_CENTER   9
+#define LV_EVENT_CLICKED  10      // LVGL 9.5 enum value (NOT 7 — there are SINGLE/DOUBLE/TRIPLE_CLICKED before it)
+
+int lbl;        // status label (on the screen)
+int btn;        // the button
+int on = 0;     // toggle state
+
+int main() {
+    lvglInit();                              // bring LVGL up on the panel
+    lvglSetBgColor(0, 0x10243a);             // screen background (dark blue)
+
+    lbl = lvglLabel(0);                       // label parented to the screen
+    lvglSetText(lbl, "Tap the button");
+    lvglSetTextColor(lbl, 0xFFFFFF);
+    lvglAlign(lbl, LV_ALIGN_CENTER, 0, -50);
+
+    btn = lvglButton(0);
+    lvglSetSize(btn, 180, 60);
+    lvglAlign(btn, LV_ALIGN_CENTER, 0, 30);
+    lvglEventEnable(btn, LV_EVENT_CLICKED);   // route CLICKED into the poll ring
+
+    int cap = lvglLabel(btn);                 // caption is a child of the button
+    lvglSetText(cap, "PRESS");
+    lvglAlign(cap, LV_ALIGN_CENTER, 0, 0);
+
+    // poll loop — LVGL itself renders in the firmware FUNC_LOOP; we just react to events
+    while (1) {
+        while (lvglEvent()) {
+            if (lvglEventObj() == btn && lvglEventCode() == LV_EVENT_CLICKED) {
+                on = 1 - on;
+                if (on) {
+                    lvglSetText(lbl, "Button tapped!");
+                    lvglSetBgColor(0, 0x0a3a1a);     // green
+                } else {
+                    lvglSetText(lbl, "Tap the button");
+                    lvglSetBgColor(0, 0x10243a);     // blue
+                }
+            }
+        }
+        delay(30);
+    }
+    return 0;
+}

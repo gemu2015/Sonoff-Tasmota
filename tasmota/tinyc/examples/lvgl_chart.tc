@@ -1,0 +1,44 @@
+// lvgl_chart.tc — LVGL Phase 3 demo (requires firmware with USE_TINYC_LVGL)
+//
+// A live line chart that scrolls a triangle wave. Shows the Phase 3 chart API:
+// chart create + type + point count + axis range + a coloured series + set-next.
+// (Phase 3 also adds lvglImage()/lvglImageSrc() for FS images — not shown here as
+// it needs an image asset uploaded to the device FS.)
+
+#define ALIGN_TOP_MID   2
+#define ALIGN_CENTER    9
+#define CHART_LINE      1     // lv_chart_type_t: 1=LINE, 2=BAR
+#define AXIS_PRIMARY_Y  0
+
+int chart;
+int ser;
+int v = 0;
+int dir = 1;
+
+int main() {
+    lvglInit();
+    lvglSetBgColor(0, 0x101820);
+
+    int title = lvglLabel(0);
+    lvglSetText(title, "Phase 3: live chart");
+    lvglSetTextColor(title, 0xFFFFFF);
+    lvglAlign(title, ALIGN_TOP_MID, 0, 8);
+
+    chart = lvglChart(0);
+    lvglSetSize(chart, 280, 180);
+    lvglAlign(chart, ALIGN_CENTER, 0, 20);
+    lvglChartType(chart, CHART_LINE);
+    lvglChartCount(chart, 50);
+    lvglChartRange(chart, AXIS_PRIMARY_Y, 0, 100);
+    ser = lvglChartSeries(chart, 0x40c0ff);
+
+    // scroll a 0..100 triangle wave across the chart
+    while (1) {
+        v = v + dir * 5;
+        if (v >= 100) { v = 100; dir = -1; }
+        if (v <= 0)   { v = 0;   dir = 1; }
+        lvglChartNext(chart, ser, v);
+        delay(150);
+    }
+    return 0;
+}

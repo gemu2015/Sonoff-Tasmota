@@ -4988,6 +4988,108 @@ void TaskLoop() {
 }
 ```
 
+### LVGL GUI (ESP32 — requires USE_TINYC_LVGL)
+
+Build a **retained-mode, touch-interactive GUI** on the device's panel using the LVGL 9 engine
+(buttons, sliders, charts, …). Built on Tasmota's `xdrv_54_lvgl` over Universal Display, so it draws
+to the same panel as `drawLine()`/TinyUI and reads the same touch driver (GT911 etc.). **Requires a
+firmware built with `USE_TINYC_LVGL`** (pulls in `USE_LVGL`, ≈ **+250 KB flash** + a partial draw
+buffer in RAM/PSRAM). On a build without it every `lvgl*` builtin is a no-op returning `0`. ESP32
+family only.
+
+LVGL is *not* re-entrant: the firmware renders it on the main loop while your `lvgl*` calls run on
+the VM task, so a mutex serialises them for you — just call the builtins normally.
+
+**Model.** Objects are addressed by an integer **handle** (1…). **Handle `0` is the active screen** —
+use it as a parent (`lvglLabel(0)`) or to style the screen itself (`lvglSetBgColor(0, …)`). Objects
+are auto-removed from the handle table when LVGL deletes them, so handles never dangle. There is **no
+callback into TinyC**; instead you **poll** an event ring in your loop (same idea as BLE):
+`while (lvglEvent()) { if (lvglEventObj()==btn && lvglEventCode()==10) … }`.
+
+Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
+- **Align:** `1`=TOP_LEFT, `2`=TOP_MID, `5`=BOTTOM_MID, `9`=CENTER.
+- **Event codes:** `0`=ALL, `1`=PRESSED, `4`=SHORT_CLICKED, `10`=CLICKED, `11`=RELEASED, `35`=VALUE_CHANGED.
+- **Style props (`lvglSetStyleInt`):** `120`=RADIUS, `56`=BORDER_WIDTH, `112`=OPA.
+- **Chart:** type `1`=LINE, `2`=BAR; axis `0`=PRIMARY_Y.
+
+**Lifecycle & objects**
+
+| Function | Description |
+|---|---|
+| `int lvglInit()` | Start LVGL on the panel (idempotent). Returns 1 if active. Call once before any other `lvgl*`. |
+| `int lvglActive()` | 1 if LVGL is running, else 0 |
+| `int lvglObj(int parent)` | Create a base container. `parent` = a handle or 0 (screen). Returns a handle (0 = table full) |
+| `int lvglLabel(int parent)` | Create a label |
+| `int lvglButton(int parent)` | Create a button (add a child label for its caption) |
+| `int lvglDelete(int h)` | Delete an object (and its children). 1=ok |
+| `int lvglClean(int h)` | Delete an object's children only |
+
+**Common properties**
+
+| Function | Description |
+|---|---|
+| `void lvglSetPos(int h, int x, int y)` | Absolute position within the parent |
+| `void lvglSetSize(int h, int w, int ht)` | Size in pixels |
+| `void lvglAlign(int h, int align, int dx, int dy)` | Align within parent (e.g. `9`=CENTER) + offset |
+| `void lvglSetText(int h, str)` | Set label / checkbox text |
+| `void lvglSetBgColor(int h, int rgb888)` | Background colour (opaque) |
+| `void lvglSetTextColor(int h, int rgb888)` | Text colour |
+| `void lvglSetStyleInt(int h, int prop, int val)` | Generic int style on MAIN part (e.g. `120`=RADIUS) |
+
+**Events (poll)**
+
+| Function | Description |
+|---|---|
+| `void lvglEventEnable(int h, int filter)` | Route events of code `filter` (0=ALL) from object `h` into the ring |
+| `int lvglEvent()` | Pop the next event into "current"; 1=got one, 0=empty |
+| `int lvglEventObj()` | Handle of the current event's object |
+| `int lvglEventCode()` | Code of the current event (e.g. `10`=CLICKED, `35`=VALUE_CHANGED) |
+
+**Value widgets**
+
+| Function | Description |
+|---|---|
+| `int lvglSlider(int parent)` / `lvglBar` / `lvglArc` | Create a slider / bar / arc |
+| `int lvglSwitch(int parent)` / `lvglCheckbox(int parent)` | Create a switch / checkbox |
+| `void lvglSetValue(int h, int v, int anim)` | Set value (slider/bar/arc). `anim`=1 animates (arc ignores it) |
+| `int lvglGetValue(int h)` | Current value (slider/bar/arc) |
+| `void lvglSetRange(int h, int min, int max)` | Value range |
+| `void lvglSetChecked(int h, int on)` | Set checked state (switch/checkbox) |
+| `int lvglIsChecked(int h)` | 1 if checked |
+
+**Chart & image**
+
+| Function | Description |
+|---|---|
+| `int lvglChart(int parent)` | Create a chart |
+| `void lvglChartType(int h, int type)` | `1`=LINE, `2`=BAR |
+| `int lvglChartSeries(int chart, int rgb888)` | Add a coloured series; returns a series handle |
+| `void lvglChartNext(int chart, int series, int v)` | Shift in the next value (scrolling) |
+| `void lvglChartRange(int chart, int axis, int min, int max)` | Y-axis range (`axis` 0=PRIMARY_Y) |
+| `void lvglChartCount(int chart, int n)` | Number of points |
+| `int lvglImage(int parent)` | Create an image |
+| `void lvglImageSrc(int h, str path)` | Set image source from an LVGL FS path (e.g. `"A:/logo.bin"`) |
+
+```c
+// Tap a button -> change a label (see examples/lvgl_demo.tc)
+int lbl, btn;
+int main() {
+  lvglInit();
+  lbl = lvglLabel(0);  lvglSetText(lbl, "Tap me");  lvglAlign(lbl, 9, 0, -40);
+  btn = lvglButton(0); lvglSetSize(btn, 160, 60);   lvglAlign(btn, 9, 0, 30);
+  lvglEventEnable(btn, 10);                          // 10 = CLICKED
+  while (1) {
+    while (lvglEvent()) {
+      if (lvglEventObj() == btn) { lvglSetText(lbl, "Tapped!"); }
+    }
+    delay(30);
+  }
+}
+```
+
+Examples: `lvgl_demo.tc` (button → label), `lvgl_widgets.tc` (slider/bar/switch), `lvgl_chart.tc`
+(live chart), `lvgl_smoke.tc` (bring-up test).
+
 ### Debug
 
 | Function      | Description                |

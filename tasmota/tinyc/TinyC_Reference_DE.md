@@ -3835,6 +3835,92 @@ void Command(char cmd[]) {
 int main() { addCommand("RDR"); return 0; }
 ```
 
+### LVGL-GUI (ESP32 — benötigt USE_TINYC_LVGL)
+
+Baue eine **retained-mode, berührungsfähige GUI** auf dem Display des Geräts mit der LVGL-9-Engine
+(Buttons, Slider, Diagramme, …). Aufgesetzt auf Tasmotas `xdrv_54_lvgl` über Universal Display —
+zeichnet also auf dasselbe Panel wie `drawLine()`/TinyUI und nutzt denselben Touch-Treiber (GT911
+usw.). **Benötigt eine Firmware mit `USE_TINYC_LVGL`** (zieht `USE_LVGL` mit, ≈ **+250 KB Flash** +
+ein partieller Zeichenpuffer in RAM/PSRAM). Ohne diesen Build ist jeder `lvgl*`-Builtin ein No-op und
+liefert `0`. Nur ESP32-Familie.
+
+LVGL ist *nicht* reentrant: Die Firmware rendert es im Haupt-Loop, während deine `lvgl*`-Aufrufe auf
+dem VM-Task laufen — ein Mutex serialisiert das automatisch, du rufst die Builtins einfach normal auf.
+
+**Modell.** Objekte werden über einen Integer-**Handle** (1…) angesprochen. **Handle `0` ist der
+aktive Screen** — als Parent (`lvglLabel(0)`) oder zum Stylen des Screens selbst
+(`lvglSetBgColor(0, …)`). Handles werden automatisch ungültig entfernt, wenn LVGL ein Objekt löscht
+(keine baumelnden Handles). Es gibt **keinen Callback nach TinyC**; stattdessen **pollst** du einen
+Event-Ring in deiner Schleife (wie bei BLE):
+`while (lvglEvent()) { if (lvglEventObj()==btn && lvglEventCode()==10) … }`.
+
+Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
+- **Align:** `1`=TOP_LEFT, `2`=TOP_MID, `5`=BOTTOM_MID, `9`=CENTER.
+- **Event-Codes:** `0`=ALL, `1`=PRESSED, `4`=SHORT_CLICKED, `10`=CLICKED, `11`=RELEASED, `35`=VALUE_CHANGED.
+- **Style-Props (`lvglSetStyleInt`):** `120`=RADIUS, `56`=BORDER_WIDTH, `112`=OPA.
+- **Chart:** Typ `1`=LINE, `2`=BAR; Achse `0`=PRIMARY_Y.
+
+**Lebenszyklus & Objekte**
+
+| Funktion | Beschreibung |
+|---|---|
+| `int lvglInit()` | LVGL auf dem Panel starten (idempotent). 1 = aktiv. Einmal vor allen anderen `lvgl*` aufrufen. |
+| `int lvglActive()` | 1 wenn LVGL läuft, sonst 0 |
+| `int lvglObj(int parent)` | Basis-Container. `parent` = Handle oder 0 (Screen). Liefert Handle (0 = Tabelle voll) |
+| `int lvglLabel(int parent)` | Label erzeugen |
+| `int lvglButton(int parent)` | Button erzeugen (Beschriftung als Kind-Label hinzufügen) |
+| `int lvglDelete(int h)` | Objekt (samt Kindern) löschen. 1=ok |
+| `int lvglClean(int h)` | Nur die Kinder eines Objekts löschen |
+
+**Allgemeine Eigenschaften**
+
+| Funktion | Beschreibung |
+|---|---|
+| `void lvglSetPos(int h, int x, int y)` | Absolute Position im Parent |
+| `void lvglSetSize(int h, int w, int ht)` | Größe in Pixeln |
+| `void lvglAlign(int h, int align, int dx, int dy)` | Ausrichtung im Parent (z. B. `9`=CENTER) + Offset |
+| `void lvglSetText(int h, str)` | Label-/Checkbox-Text setzen |
+| `void lvglSetBgColor(int h, int rgb888)` | Hintergrundfarbe (deckend) |
+| `void lvglSetTextColor(int h, int rgb888)` | Textfarbe |
+| `void lvglSetStyleInt(int h, int prop, int val)` | Generischer Int-Style auf MAIN (z. B. `120`=RADIUS) |
+
+**Events (Polling)**
+
+| Funktion | Beschreibung |
+|---|---|
+| `void lvglEventEnable(int h, int filter)` | Events mit Code `filter` (0=ALL) von Objekt `h` in den Ring leiten |
+| `int lvglEvent()` | Nächstes Event in „current" holen; 1=erhalten, 0=leer |
+| `int lvglEventObj()` | Handle des aktuellen Events |
+| `int lvglEventCode()` | Code des aktuellen Events (z. B. `10`=CLICKED, `35`=VALUE_CHANGED) |
+
+**Wert-Widgets**
+
+| Funktion | Beschreibung |
+|---|---|
+| `int lvglSlider(int parent)` / `lvglBar` / `lvglArc` | Slider / Bar / Arc erzeugen |
+| `int lvglSwitch(int parent)` / `lvglCheckbox(int parent)` | Switch / Checkbox erzeugen |
+| `void lvglSetValue(int h, int v, int anim)` | Wert setzen (Slider/Bar/Arc). `anim`=1 animiert (Arc ignoriert es) |
+| `int lvglGetValue(int h)` | Aktueller Wert (Slider/Bar/Arc) |
+| `void lvglSetRange(int h, int min, int max)` | Wertebereich |
+| `void lvglSetChecked(int h, int on)` | Checked-Zustand setzen (Switch/Checkbox) |
+| `int lvglIsChecked(int h)` | 1 wenn checked |
+
+**Diagramm & Bild**
+
+| Funktion | Beschreibung |
+|---|---|
+| `int lvglChart(int parent)` | Diagramm erzeugen |
+| `void lvglChartType(int h, int type)` | `1`=LINE, `2`=BAR |
+| `int lvglChartSeries(int chart, int rgb888)` | Farbige Serie hinzufügen; liefert Serien-Handle |
+| `void lvglChartNext(int chart, int series, int v)` | Nächsten Wert einschieben (scrollend) |
+| `void lvglChartRange(int chart, int axis, int min, int max)` | Y-Achsen-Bereich (`axis` 0=PRIMARY_Y) |
+| `void lvglChartCount(int chart, int n)` | Anzahl der Punkte |
+| `int lvglImage(int parent)` | Bild erzeugen |
+| `void lvglImageSrc(int h, str path)` | Bildquelle aus LVGL-FS-Pfad (z. B. `"A:/logo.bin"`) |
+
+Beispiele: `lvgl_demo.tc` (Button → Label), `lvgl_widgets.tc` (Slider/Bar/Switch), `lvgl_chart.tc`
+(Live-Diagramm), `lvgl_smoke.tc` (Bring-up-Test).
+
 ### Debug
 
 | Funktion      | Beschreibung                    |

@@ -463,6 +463,12 @@
 				</dict>
 				<dict>
 					<key>name</key>
+					<string>support.function.lvgl.tinyc</string>
+					<key>match</key>
+					<string>\b(lvgl[A-Z][A-Za-z]*)\b</string>
+				</dict>
+				<dict>
+					<key>name</key>
 					<string>support.function.sml.tinyc</string>
 					<key>match</key>
 					<string>\b(smlGet|smlGetStr|smlGetV|smlWrite|smlRead|smlSetBaud|smlSetWStr|smlSetOptions|smlCopy|smlApplyPins|smlScripterLoad)\b</string>

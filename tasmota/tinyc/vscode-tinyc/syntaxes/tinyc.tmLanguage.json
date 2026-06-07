@@ -270,6 +270,11 @@
           "match": "\\b(smlGet|smlGetStr|smlWrite|smlRead|smlSetBaud|smlSetWStr|smlSetOpt|smlGetV)\\b"
         },
         {
+          "comment": "LVGL on-device GUI (USE_TINYC_LVGL) — any lvgl* builtin",
+          "name": "support.function.lvgl.tinyc",
+          "match": "\\b(lvgl[A-Z][A-Za-z]*)\\b"
+        },
+        {
           "comment": "mDNS",
           "name": "support.function.mdns.tinyc",
           "match": "\\b(mdnsRegister)\\b"

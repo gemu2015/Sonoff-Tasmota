@@ -453,6 +453,43 @@ export const Syscall = {
     WEB_BUTTON_V:   425, // (var_ref, label_ref)          -> void   webButtonV(): like webButton but RUNTIME label (char[])
     WEB_SLIDER_V:   426, // (var_ref, min, max, label_ref)-> void   webSliderV(): like webSlider but RUNTIME label (char[])
     FAST_MUX:       427, // (flag, time, buf_ref, len)    -> int    fastMux(): HW-timer GPIO multiplexer (classic ESP32 / ESP32-S3 + USE_TINYC_FAST_MUX; -1 if not built)
+    // LVGL on-device GUI (firmware: USE_TINYC_LVGL -> USE_LVGL + USE_UNIVERSAL_DISPLAY). 452-499 reserved for widgets/events.
+    LVGL_INIT:      450, // ()                            -> int    lvglInit(): start LVGL on the panel (idempotent); returns 1 if active
+    LVGL_ACTIVE:    451, // ()                            -> int    lvglActive(): 1 if LVGL is running, else 0
+    LVGL_OBJ:           452, // (parent)            -> int   lvglObj(): base container; parent 0 = active screen
+    LVGL_LABEL:         453, // (parent)            -> int   lvglLabel()
+    LVGL_BUTTON:        454, // (parent)            -> int   lvglButton()
+    LVGL_SET_POS:       455, // (h,x,y)             -> void  lvglSetPos()
+    LVGL_SET_SIZE:      456, // (h,w,ht)            -> void  lvglSetSize()
+    LVGL_ALIGN:         457, // (h,align,dx,dy)     -> void  lvglAlign() — align: 9=CENTER,1=TOP_LEFT,5=BOTTOM_MID
+    LVGL_SET_TEXT:      458, // (h,str)             -> void  lvglSetText() (label text)
+    LVGL_SET_BG_COLOR:  459, // (h,rgb888)          -> void  lvglSetBgColor()
+    LVGL_SET_TEXT_COLOR:460, // (h,rgb888)          -> void  lvglSetTextColor()
+    LVGL_EVENT_ENABLE:  461, // (h,filter)          -> void  lvglEventEnable() — LVGL9.5 codes: 0=ALL,4=SHORT_CLICKED,10=CLICKED,11=RELEASED,35=VALUE_CHANGED
+    LVGL_EVENT:         462, // ()                  -> int   lvglEvent(): pop next event; 1=got,0=empty
+    LVGL_EVENT_OBJ:     463, // ()                  -> int   lvglEventObj(): handle of current event
+    LVGL_EVENT_CODE:    464, // ()                  -> int   lvglEventCode(): code of current event
+    LVGL_DELETE:        465, // (h)                 -> int   lvglDelete()
+    LVGL_CLEAN:         466, // (h)                 -> int   lvglClean(): delete children
+    LVGL_SLIDER:        467, // (parent)            -> int   lvglSlider()
+    LVGL_BAR:           468, // (parent)            -> int   lvglBar()
+    LVGL_ARC:           469, // (parent)            -> int   lvglArc()
+    LVGL_SWITCH:        470, // (parent)            -> int   lvglSwitch()
+    LVGL_CHECKBOX:      471, // (parent)            -> int   lvglCheckbox()
+    LVGL_SET_VALUE:     472, // (h,v,anim)          -> void  lvglSetValue() (slider/bar/arc)
+    LVGL_GET_VALUE:     473, // (h)                 -> int   lvglGetValue()
+    LVGL_SET_RANGE:     474, // (h,min,max)         -> void  lvglSetRange()
+    LVGL_SET_CHECKED:   475, // (h,on)              -> void  lvglSetChecked() (switch/checkbox)
+    LVGL_IS_CHECKED:    476, // (h)                 -> int   lvglIsChecked()
+    LVGL_SET_STYLE_INT: 477, // (h,prop,val)        -> void  lvglSetStyleInt() — prop:120=RADIUS,56=BORDER_WIDTH,112=OPA
+    LVGL_CHART:         478, // (parent)            -> int   lvglChart()
+    LVGL_CHART_TYPE:    479, // (h,type)            -> void  lvglChartType() — 1=LINE, 2=BAR
+    LVGL_CHART_SERIES:  480, // (chart,rgb)         -> int   lvglChartSeries()
+    LVGL_CHART_NEXT:    481, // (chart,series,v)    -> void  lvglChartNext()
+    LVGL_CHART_RANGE:   482, // (chart,axis,min,max)-> void  lvglChartRange() — axis 0=PRIMARY_Y
+    LVGL_CHART_COUNT:   483, // (chart,n)           -> void  lvglChartCount()
+    LVGL_IMAGE:         484, // (parent)            -> int   lvglImage()
+    LVGL_IMAGE_SRC:     485, // (h,path)            -> void  lvglImageSrc() — LVGL FS path
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

@@ -1091,7 +1091,7 @@
 #define LV_USE_BARCODE 0
 
 /** FreeType library */
-#define LV_USE_FREETYPE 1       // TASMOTA
+#define LV_USE_FREETYPE 0       // TASMOTA (TinyC LVGL: built-in fonts only — no external FreeType/ft2build.h)
 #if LV_USE_FREETYPE
     /** Let FreeType use LVGL memory and file porting */
     #define LV_FREETYPE_USE_LVGL_PORT 0

@@ -1,0 +1,21 @@
+// lvgl_smoke.tc — LVGL Phase 0 smoke test (requires firmware built with USE_TINYC_LVGL)
+//
+// Brings LVGL up on the device's panel via lvglInit() and parks, so the firmware's
+// FUNC_LOOP keeps driving lv_timer_handler(). No widgets yet (Phase 0) — success looks
+// like: the screen clears to the LVGL default background, the slot stays running with
+// error "OK" in /tc_api, heap is stable, and the device does NOT reboot.
+//
+// lvglInit()   -> 1 if LVGL is active (idempotent start_lvgl(nullptr))
+// lvglActive() -> 1 while LVGL is running
+
+int main() {
+    int ok  = lvglInit();      // lv_init + display flush->renderer + GT911/touch indev + tick
+    int act = lvglActive();    // expect 1
+
+    // Park so /tc_api shows the slot running and LVGL keeps rendering on the panel.
+    // (lv_task_handler runs firmware-side every loop once lvgl_glue exists.)
+    while (1) {
+        delay(250);
+    }
+    return ok + act;           // unreachable; keeps both reads "used"
+}
