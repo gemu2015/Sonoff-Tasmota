@@ -1,0 +1,171 @@
+// wd_logger.tc — indoor air-quality logger, TinyC port of the Tasmota Scripter "wd".
+// Sensors: SHT3X (temperature, humidity) + CCS811 (TVOC, eCO2), read from the firmware
+// drivers via sensorGet(). Built for the ESP32-C3 at .143, slot 0.
+//
+//   • every second: read the 4 values, accumulate
+//   • every 15 min: store the average into the daily ring buffers (96 = 24 h)
+//   • every hour  : store the average into the weekly ring buffers (168 = 7 d)
+//   • persist the ring buffers + write heads to /wd_log.txt (binary), reload at boot
+//   • drive the OLED (DisplayText) + render three charts via the native WebChart()
+//
+// Charts use WebChart(): it rotates the ring by the write-head `pos` so the newest
+// sample is at the RIGHT edge (oldest at left), and the `unit`/legend arg carries the
+// real series name. Two WebChart() calls with the same chart (2nd has an empty title)
+// stack both series on one graph — the gc() "l2" equivalent.
+//
+// Scripter→TinyC notes:
+//   • Scripter has NO operator precedence (strict left-to-right): the originals
+//       m15 = hours*60+mins/15+1   and   hr = wday-1*24+hours
+//     mean ((hours*60+mins)/15)+1 and ((wday-1)*24)+hours — ported with explicit parens.
+//   • chg[x]>0 ("x stepped up since last tick") -> explicit prevM15/prevHr compare.
+//   • TinyC has no hours/mins/wday builtins -> parsed from timeStamp() + Sakamoto DOW.
+//   • the >S power1 toggle was dead code (cnt was never incremented) -> dropped.
+
+#define DATAFILE   "/wd_log.txt"
+#define DISP_EVERY 10            // refresh the display every N seconds (Scripter used 'tper')
+#define NDAY       96            // 24 h / 15 min
+#define NWK        168           // 7 d / 1 h
+
+// ── ring-buffer history (float) + monotonic write heads ──
+float ahum[96]; float atmp[96]; float aco2[96]; float atvc[96];   // daily, head = dpos
+float tv_w[168]; float ec_w[168];                                 // weekly, head = wpos
+int dpos = 0;
+int wpos = 0;
+int hdr[2];      // persisted header: [dpos, wpos]
+
+// ── live sensor values ──
+float aztemp = 0.0;  float azhumi = 0.0;  float aztvoc = 0.0;  float azeco2 = 0.0;
+
+// ── accumulators ──
+float sumh = 0.0; float sumt = 0.0; float sumc = 0.0; float sumv = 0.0; int scnt = 0;
+float wsumv = 0.0; float wsumc = 0.0; int wcnt = 0;
+
+int prevM15 = -1;
+int prevHr  = -1;
+int dispcnt = 0;
+
+// ── time parsing (timeStamp -> "YYYY-MM-DDTHH:MM:SS") ──
+char ts[24];
+int two(int off) { return (ts[off] - 48) * 10 + (ts[off + 1] - 48); }
+int four(int off) {
+    return (ts[off]-48)*1000 + (ts[off+1]-48)*100 + (ts[off+2]-48)*10 + (ts[off+3]-48);
+}
+// Sakamoto's day-of-week: returns 1=Sunday .. 7=Saturday (Tasmota wday convention)
+int wdayOf(int y, int m, int d) {
+    int off = 0;
+    if (m == 2) { off = 3; } if (m == 3) { off = 2; } if (m == 4) { off = 5; }
+    if (m == 5) { off = 0; } if (m == 6) { off = 3; } if (m == 7) { off = 5; }
+    if (m == 8) { off = 1; } if (m == 9) { off = 4; } if (m == 10) { off = 6; }
+    if (m == 11) { off = 2; } if (m == 12) { off = 4; }
+    if (m < 3) { y = y - 1; }
+    return ((y + y/4 - y/100 + y/400 + off + d) % 7) + 1;
+}
+
+// ── file persistence (own the file; header + raw binary float arrays) ──
+void saveData() {
+    int h = fileOpen(DATAFILE, 1);          // 1 = write (truncate)
+    if (h < 0) { return; }
+    hdr[0] = dpos; hdr[1] = wpos;
+    fileWriteBin(h, hdr, 2);
+    fileWriteBin(h, ahum, 96); fileWriteBin(h, atmp, 96);
+    fileWriteBin(h, aco2, 96); fileWriteBin(h, atvc, 96);
+    fileWriteBin(h, tv_w, 168); fileWriteBin(h, ec_w, 168);
+    fileClose(h);
+}
+void loadData() {
+    int h = fileOpen(DATAFILE, 0);          // 0 = read
+    if (h < 0) { return; }                   // first run: arrays stay zero
+    fileReadBin(h, hdr, 2); dpos = hdr[0]; wpos = hdr[1];
+    fileReadBin(h, ahum, 96); fileReadBin(h, atmp, 96);
+    fileReadBin(h, aco2, 96); fileReadBin(h, atvc, 96);
+    fileReadBin(h, tv_w, 168); fileReadBin(h, ec_w, 168);
+    fileClose(h);
+}
+
+// ── OLED: temp/hum/tvoc/eco2 on lines 1,3,5,7 ──
+void updateDisplay() {
+    char b[48];
+    sprintf(b, "[l1c1f1]temp=%.1f", aztemp); tasmCmd("DisplayText", b);
+    sprintf(b, "[l3c1f1]hum=%.1f",  azhumi); tasmCmd("DisplayText", b);
+    sprintf(b, "[l5c1f1]tvoc=%.0f", aztvoc); tasmCmd("DisplayText", b);
+    sprintf(b, "[l7c1f1]eco2=%.0f", azeco2); tasmCmd("DisplayText", b);
+    tasmCmd("DisplayText", "[d]");
+}
+
+void EverySecond() {
+    aztemp = sensorGet("SHT3X#Temperature");
+    azhumi = sensorGet("SHT3X#Humidity");
+    aztvoc = sensorGet("CCS811#TVOC");
+    azeco2 = sensorGet("CCS811#eCO2");
+
+    sumh = sumh + azhumi; sumt = sumt + aztemp;
+    sumc = sumc + azeco2; sumv = sumv + aztvoc; scnt = scnt + 1;
+    wsumv = wsumv + aztvoc; wsumc = wsumc + azeco2; wcnt = wcnt + 1;
+
+    timeStamp(ts);
+    int year = four(0); int mon = two(5); int day = two(8);
+    int hh = two(11); int mm = two(14);
+    int wd = wdayOf(year, mon, day);
+
+    // entered a new 15-minute slot? (explicit parens — Scripter is left-to-right)
+    int m15 = (hh*60 + mm)/15 + 1;
+    if (m15 > prevM15 && prevM15 >= 0 && scnt > 0) {     // chg[m15]>0
+        ahum[dpos % NDAY] = sumh/scnt;  atmp[dpos % NDAY] = sumt/scnt;
+        aco2[dpos % NDAY] = sumc/scnt;  atvc[dpos % NDAY] = sumv/scnt;
+        dpos = dpos + 1;
+        scnt = 0; sumh = 0.0; sumt = 0.0; sumc = 0.0; sumv = 0.0;
+        saveData();
+    }
+    prevM15 = m15;
+
+    // entered a new hour?
+    int hr = (wd - 1)*24 + hh;
+    if (hr > prevHr && prevHr >= 0 && wcnt > 0) {        // chg[hr]>0
+        tv_w[wpos % NWK] = wsumv/wcnt;  ec_w[wpos % NWK] = wsumc/wcnt;
+        wpos = wpos + 1;
+        wcnt = 0; wsumv = 0.0; wsumc = 0.0;
+    }
+    prevHr = hr;
+
+    dispcnt = dispcnt + 1;
+    if (dispcnt >= DISP_EVERY) { dispcnt = 0; updateDisplay(); }
+}
+
+// ── three charts on the main web page (gc() "l2" equivalent via native WebChart) ──
+// The `interval` arg (minutes per sample) gives the X-axis a real time base: 15 min
+// for the daily ring, 60 min for the weekly one. WebChartTimeBase(0) anchors the
+// newest sample to "now" at the right edge, so labels run back over the last 24 h / 7 d.
+void WebPage() {
+    WebChartTimeBase(0);
+    webSend("<div style='margin-left:-30px'>");   // chart-centering compensation (ottelo)
+
+    // air quality, last 24 h — TVOC (left axis) + eCO2 (right axis).
+    // Explicit, DIFFERENT per-series ymin/ymax is what puts each series on its own
+    // y-axis (left = series 0, right = series 1); the `unit` arg labels each axis.
+    WebChartSize(640, 200);
+    WebChart('l', "Luftqualitaet (24h)", "TVOC", 0xf38ba8, dpos, NDAY, atvc, 0, 15, 0.0, 1000.0);
+    WebChart('l', "", "eCO2", 0x89b4fa, dpos, NDAY, aco2, 0, 15, 400.0, 2500.0);
+
+    // climate, last 24 h — humidity (left) + temperature (right)
+    WebChartSize(640, 200);
+    WebChart('l', "Klima (24h)", "Feuchte %", 0x3498db, dpos, NDAY, ahum, 1, 15, 0.0, 100.0);
+    WebChart('l', "", "Temp C", 0xe74c3c, dpos, NDAY, atmp, 1, 15, 10.0, 35.0);
+
+    // air quality, last 7 days — hourly TVOC (left) + eCO2 (right), 60-min interval
+    WebChartSize(640, 250);
+    WebChart('l', "Luftqualitaet (7 Tage)", "TVOC", 0xf38ba8, wpos, NWK, tv_w, 0, 60, 0.0, 1000.0);
+    WebChart('l', "", "eCO2", 0x89b4fa, wpos, NWK, ec_w, 0, 60, 400.0, 2500.0);
+
+    webSend("</div>");
+}
+
+int main() {
+    tasmCmd("SetOption64", "1");          // ">B" boot command from the original
+    tasmCmd("DisplayText", "[zD0]");      // clear the display
+    loadData();
+    prevM15 = -1;
+    prevHr  = -1;
+    dispcnt = 0;
+    printStr("wd_logger: air-quality logger started\n");
+    return 0;
+}
