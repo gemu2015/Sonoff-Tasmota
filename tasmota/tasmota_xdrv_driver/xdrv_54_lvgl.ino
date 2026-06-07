@@ -663,7 +663,7 @@ int tc_lvgl_active(void) { return lvgl_started() ? 1 : 0; }
 
 // Branded startup splash, shown once when LVGL starts. Drawn on the TOP layer so it
 // sits above every screen and survives screen switches (the program can build/load its
-// own screens underneath immediately). Auto-removes after ~1.8 s — fully non-blocking.
+// own screens underneath immediately). Auto-removes after 5 s — fully non-blocking.
 static void tc_lvgl_splash(void) {
   lv_obj_t *sp = lv_obj_create(lv_layer_top());
   lv_obj_remove_style_all(sp);
@@ -679,7 +679,7 @@ static void tc_lvgl_splash(void) {
   lv_label_set_text(s, "starting ...");
   lv_obj_set_style_text_color(s, lv_color_hex(0x66aadd), 0);
   lv_obj_align(s, LV_ALIGN_CENTER, 0, 22);
-  lv_obj_delete_delayed(sp, 1800);
+  lv_obj_delete_delayed(sp, 5000);
 }
 
 // Idempotent. Reuses the already-running Universal Display (renderer != null) by passing
