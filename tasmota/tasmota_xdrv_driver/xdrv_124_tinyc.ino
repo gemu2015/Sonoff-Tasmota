@@ -813,7 +813,9 @@ void CmndCheckPartition(void);
 void CmndTinyCIde(void);
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
+#ifdef TINYC_MTRC_CRYPTO_SELFTEST
 void CmndMatterCryptoTest(void);
+#endif
 #endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
@@ -822,7 +824,10 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Chkpt"
 #endif
 #ifdef USE_MATTER_C
-  "|MtrReset|MtrCrypto"
+  "|MtrReset"
+#ifdef TINYC_MTRC_CRYPTO_SELFTEST
+  "|MtrCrypto"
+#endif
 #endif
   ;
 
@@ -834,7 +839,9 @@ void (* const TinyCCommand[])(void) PROGMEM = {
 #endif
 #ifdef USE_MATTER_C
   , &CmndMatterReset
+#ifdef TINYC_MTRC_CRYPTO_SELFTEST
   , &CmndMatterCryptoTest
+#endif
 #endif
 };
 
@@ -850,7 +857,11 @@ void CmndMatterReset(void) {
   TasmotaGlobal.restart_flag = 2;
 }
 
+#ifdef TINYC_MTRC_CRYPTO_SELFTEST
 // ── TinyCMtrCrypto — Fork-B Stage-2 crypto-seam de-risk (task #125) ──────────
+// Off by default: this dev scaffold #includes a matter-BinPlugin-internal header
+// (mtrc_crypto_selftest.h) and needs the matter BLIB loaded, so it must NOT compile in
+// normal user builds. Enable with -DTINYC_MTRC_CRYPTO_SELFTEST for matter-plugin dev.
 // ⚠ TEMPORARY SCAFFOLD — remove this command (+ the KAT vectors + the plugin's
 // matter_crypto_selftest export + mtrc_crypto_selftest.h) once the real matter_c
 // amalgamation + the firmware-fills-ops / mtrc_crypto_bind path lands. Proven
@@ -953,7 +964,8 @@ void CmndMatterCryptoTest(void) {
   Response_P(PSTR("{\"MtrCrypto\":{\"ran\":%d,\"mask\":\"0x%02x\",\"pass\":%s}}"),
              ran, m, (m == 0x3F) ? "true" : "false");
 }
-#endif
+#endif // TINYC_MTRC_CRYPTO_SELFTEST (Fork-B crypto-seam scaffold — off by default)
+#endif // USE_MATTER_C
 
 // --- TinyCChkpt: partition table manager (no USE_BINPLUGINS needed) ---
 #ifdef ESP32
