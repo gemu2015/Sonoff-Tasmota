@@ -50,13 +50,220 @@
 #include "esp_ldo_regulator.h"
 
 #ifndef USE_BERRY
-// The CSI driver delegates SENSOR-specific bring-up (SCCB/I2C, register config,
-// reset/power GPIO) to Berry via callBerryEventDispatcher("camera", ...). On a
-// Berry-less build (e.g. the TinyC-only P4 kitchen-sink) provide a no-op so the
-// C-core + the TinyC WcCsiCaptureJpeg() bridge link. NOTE: with this stub the
-// CSI controller + JPEG encoder build, but no sensor gets initialized — actual
-// capture needs either USE_BERRY (sensor logic) or a C/TinyC sensor-init port.
+// ════════════════════════════════════════════════════════════════════════════
+//  C OV5647 MIPI-CSI sensor driver  (Berry-less build — port of
+//  tasmota/berry/camera_sensor/ov5647.be)
+// ════════════════════════════════════════════════════════════════════════════
+// The CSI C-core delegates SENSOR bring-up (SCCB/I2C, register config, PLL,
+// stream on/off) to Berry via callBerryEventDispatcher("camera", ...). On a
+// Berry-less build (the TinyC P4 kitchen-sink) we provide that hook in C for the
+// OV5647 (the Waveshare-class MIPI module). SCCB is on a Tasmota I2C bus (the
+// .be used tasmota.wire_scan); we scan Wire (+ Wire1) for the sensor at 0x36.
+// The C-core passes config_addr → a 28-byte CSI_Config struct (same layout the
+// .be read/wrote): [0:2]=out w, [2:4]=out h, [4:6]=2592, [6:8]=1944, [8]=fmt,
+// [9]=lanes(2), [10:12]=mipi_clock(Mbps/lane), [12:14]=in x, [14:16]=in y,
+// [16]=bin, [17]=fps, [18:24]="OV5647", [26]=in res_idx.
+#include <Wire.h>
+#define OV5647_ADDR     0x36
+#define OV5647_CHIP_ID  0x5647
+
+static TwoWire *ov5647_wire   = nullptr;
+static bool     ov5647_inited = false;
+static uint16_t ov5647_w = 640, ov5647_h = 480;
+static uint16_t ov5647_mipi_clock = 291;
+static uint8_t  ov5647_fmt = 1, ov5647_bin = 2;
+
+static bool ov5647_wr(uint16_t reg, uint8_t val) {
+  if (!ov5647_wire) { return false; }
+  ov5647_wire->beginTransmission(OV5647_ADDR);
+  ov5647_wire->write((reg >> 8) & 0xFF);
+  ov5647_wire->write(reg & 0xFF);
+  ov5647_wire->write(val);
+  return ov5647_wire->endTransmission() == 0;
+}
+static int ov5647_rd(uint16_t reg) {           // -1 on error
+  if (!ov5647_wire) { return -1; }
+  ov5647_wire->beginTransmission(OV5647_ADDR);
+  ov5647_wire->write((reg >> 8) & 0xFF);
+  ov5647_wire->write(reg & 0xFF);
+  if (ov5647_wire->endTransmission(false) != 0) { return -1; }
+  if (ov5647_wire->requestFrom((int)OV5647_ADDR, 1) < 1) { return -1; }
+  return ov5647_wire->available() ? ov5647_wire->read() : -1;
+}
+static bool ov5647_probe(TwoWire *w) {
+  if (!w) { return false; }
+  w->beginTransmission(OV5647_ADDR);
+  return w->endTransmission() == 0;
+}
+static bool ov5647_detect() {
+  ov5647_wire = nullptr;
+  if (ov5647_probe(&Wire)) { ov5647_wire = &Wire; }
+#ifdef USE_I2C_BUS2
+  else if (ov5647_probe(&Wire1)) { ov5647_wire = &Wire1; }
+#endif
+  if (!ov5647_wire) { AddLog(LOG_LEVEL_INFO, PSTR("OV5647: I2C scan failed")); return false; }
+  delay(10);
+  int idh = ov5647_rd(0x300A), idl = ov5647_rd(0x300B);
+  if (idh < 0 || idl < 0) { return false; }
+  uint16_t id = (idh << 8) | idl;
+  AddLog(LOG_LEVEL_INFO, PSTR("OV5647: Chip ID = 0x%04X"), id);
+  return id == OV5647_CHIP_ID;
+}
+static bool ov5647_common_regs() {            // sleep + soft reset + clock-lane gate
+  if (!ov5647_wr(0x0100, 0x00)) { return false; }
+  if (!ov5647_wr(0x0103, 0x01)) { return false; }
+  delay(10);
+  return ov5647_wr(0x4800, 0x01);
+}
+// Dynamic PLL/geometry register generation (faithful to ov5647.be regs_custom).
+static bool ov5647_regs_custom(int x, int y, int w, int h, int bin, int fps, int fmt) {
+  w = (w / 8) * 8;  if (w < 16) { w = 16; }
+  if (h < 16) { h = 16; }  if (fps < 1) { fps = 1; }
+  ov5647_w = w; ov5647_h = h; ov5647_fmt = fmt; ov5647_bin = bin;
+
+  int vts_min = h + 50, pll_mult;
+  if (bin == 2) {
+    pll_mult = (1896 * vts_min * fps + 417592) / 417593;
+    if (pll_mult < 175) { pll_mult = 175; }
+    if (pll_mult > 252) { pll_mult = 252; }
+    if (pll_mult >= 128) { pll_mult = (pll_mult + 1) & 0xFE; }
+    ov5647_mipi_clock = (4 * pll_mult + 1) / 3;
+  } else {
+    pll_mult = (2500 * vts_min * fps + 839999) / 840000;
+    if (pll_mult < 80) { pll_mult = 80; }
+    if (pll_mult > 252) { pll_mult = 252; }
+    if (pll_mult >= 128) { pll_mult = (pll_mult + 1) & 0xFE; }
+    ov5647_mipi_clock = 4 * pll_mult;
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("OV5647: CFG %dx%d Bin=%d Fmt=%d FPS=%d PLL=%d MIPI=%dMbps"),
+         w, h, bin, fmt, fps, pll_mult, ov5647_mipi_clock);
+
+  bool ok = true;
+  if (bin == 2) {
+    int start_x = (1296 - w) / 2 + x, start_y = (972 - h) / 2 + y;
+    int off_x = 9 + start_x, off_y = start_y, hts = 1896;
+    int vts = pll_mult * 417593 / (hts * fps);  if (vts < h + 50) { vts = h + 50; }
+    ok &= ov5647_wr(0x3034, fmt == 0 ? 0x18 : 0x1a);
+    ok &= ov5647_wr(0x3035, 0x41); ok &= ov5647_wr(0x3036, pll_mult);
+    ok &= ov5647_wr(0x303c, 0x11); ok &= ov5647_wr(0x3106, 0xf5);
+    ok &= ov5647_wr(0x3814, 0x31); ok &= ov5647_wr(0x3815, 0x31); ok &= ov5647_wr(0x3820, 0x41); ok &= ov5647_wr(0x3821, 0x03);
+    ok &= ov5647_wr(0x3827, 0xec); ok &= ov5647_wr(0x370c, 0x0f); ok &= ov5647_wr(0x3612, 0x59); ok &= ov5647_wr(0x3618, 0x00);
+    ok &= ov5647_wr(0x5000, 0xff); ok &= ov5647_wr(0x583e, 0xf0); ok &= ov5647_wr(0x583f, 0x20); ok &= ov5647_wr(0x5002, 0x41); ok &= ov5647_wr(0x5003, 0x08); ok &= ov5647_wr(0x5a00, 0x08);
+    ok &= ov5647_wr(0x3000, 0x00); ok &= ov5647_wr(0x3001, 0x00); ok &= ov5647_wr(0x3002, 0x00); ok &= ov5647_wr(0x3016, 0x08); ok &= ov5647_wr(0x3017, 0xe0);
+    ok &= ov5647_wr(0x3018, 0x44); ok &= ov5647_wr(0x301c, 0xf8); ok &= ov5647_wr(0x301d, 0xf0);
+    ok &= ov5647_wr(0x3a18, 0x00); ok &= ov5647_wr(0x3a19, 0xf8); ok &= ov5647_wr(0x3c01, 0x80); ok &= ov5647_wr(0x3c00, 0x40); ok &= ov5647_wr(0x3b07, 0x0c);
+    ok &= ov5647_wr(0x380c, 0x07); ok &= ov5647_wr(0x380d, 0x68);
+    ok &= ov5647_wr(0x380e, (vts >> 8) & 0xFF); ok &= ov5647_wr(0x380f, vts & 0xFF);
+    ok &= ov5647_wr(0x3800, 0x00); ok &= ov5647_wr(0x3801, 0x00); ok &= ov5647_wr(0x3802, 0x00); ok &= ov5647_wr(0x3803, 0x00);
+    ok &= ov5647_wr(0x3804, 0x0a); ok &= ov5647_wr(0x3805, 0x3f); ok &= ov5647_wr(0x3806, 0x07); ok &= ov5647_wr(0x3807, 0xa1);
+    ok &= ov5647_wr(0x3808, (w >> 8) & 0xFF); ok &= ov5647_wr(0x3809, w & 0xFF);
+    ok &= ov5647_wr(0x380a, (h >> 8) & 0xFF); ok &= ov5647_wr(0x380b, h & 0xFF);
+    ok &= ov5647_wr(0x3810, (off_x >> 8) & 0xFF); ok &= ov5647_wr(0x3811, off_x & 0xFF);
+    ok &= ov5647_wr(0x3812, (off_y >> 8) & 0xFF); ok &= ov5647_wr(0x3813, off_y & 0xFF);
+    ok &= ov5647_wr(0x3630, 0x2e); ok &= ov5647_wr(0x3632, 0xe2); ok &= ov5647_wr(0x3633, 0x23); ok &= ov5647_wr(0x3634, 0x44); ok &= ov5647_wr(0x3636, 0x06);
+    ok &= ov5647_wr(0x3620, 0x64); ok &= ov5647_wr(0x3621, 0xe0); ok &= ov5647_wr(0x3600, 0x37);
+    ok &= ov5647_wr(0x3704, 0xa0); ok &= ov5647_wr(0x3703, 0x5a); ok &= ov5647_wr(0x3715, 0x78); ok &= ov5647_wr(0x3717, 0x01); ok &= ov5647_wr(0x3731, 0x02);
+    ok &= ov5647_wr(0x370b, 0x60); ok &= ov5647_wr(0x3705, 0x1a);
+    ok &= ov5647_wr(0x3f05, 0x02); ok &= ov5647_wr(0x3f06, 0x10); ok &= ov5647_wr(0x3f01, 0x0a);
+    ok &= ov5647_wr(0x3a08, 0x01); ok &= ov5647_wr(0x3a09, 0x27); ok &= ov5647_wr(0x3a0a, 0x00); ok &= ov5647_wr(0x3a0b, 0xf6); ok &= ov5647_wr(0x3a0d, 0x04);
+    ok &= ov5647_wr(0x3a0e, 0x03); ok &= ov5647_wr(0x3a0f, 0x58); ok &= ov5647_wr(0x3a10, 0x50); ok &= ov5647_wr(0x3a1b, 0x58); ok &= ov5647_wr(0x3a1e, 0x50);
+    ok &= ov5647_wr(0x3a11, 0x60); ok &= ov5647_wr(0x3a1f, 0x28);
+    ok &= ov5647_wr(0x4001, 0x02); ok &= ov5647_wr(0x4004, 0x02); ok &= ov5647_wr(0x4000, 0x09);
+    ok &= ov5647_wr(0x4837, 0x28); ok &= ov5647_wr(0x4050, 0x6e); ok &= ov5647_wr(0x4051, 0x8f);
+  } else {
+    int start_x = (2592 - w) / 2 + x, start_y = (1944 - h) / 2 + y;
+    int win_x = start_x + 12, win_y = start_y + 2;
+    int end_x = win_x + w + 8 - 1, end_y = win_y + h + 8 - 1;
+    if (end_x > 2611) { end_x = 2611; }  if (end_y > 1953) { end_y = 1953; }
+    int hts = 2500;
+    int vts = pll_mult * 840000 / (hts * fps);  if (vts < h + 50) { vts = h + 50; }
+    ok &= ov5647_wr(0x3034, fmt == 0 ? 0x18 : 0x1a);
+    ok &= ov5647_wr(0x3035, 0x21); ok &= ov5647_wr(0x3036, pll_mult); ok &= ov5647_wr(0x303c, 0x11); ok &= ov5647_wr(0x3106, 0xf5);
+    ok &= ov5647_wr(0x3814, 0x11); ok &= ov5647_wr(0x3815, 0x11); ok &= ov5647_wr(0x3820, 0x00); ok &= ov5647_wr(0x3821, 0x02);
+    ok &= ov5647_wr(0x3800, (win_x >> 8) & 0xFF); ok &= ov5647_wr(0x3801, win_x & 0xFF);
+    ok &= ov5647_wr(0x3802, (win_y >> 8) & 0xFF); ok &= ov5647_wr(0x3803, win_y & 0xFF);
+    ok &= ov5647_wr(0x3804, (end_x >> 8) & 0xFF); ok &= ov5647_wr(0x3805, end_x & 0xFF);
+    ok &= ov5647_wr(0x3806, (end_y >> 8) & 0xFF); ok &= ov5647_wr(0x3807, end_y & 0xFF);
+    ok &= ov5647_wr(0x3808, (w >> 8) & 0xFF); ok &= ov5647_wr(0x3809, w & 0xFF);
+    ok &= ov5647_wr(0x380a, (h >> 8) & 0xFF); ok &= ov5647_wr(0x380b, h & 0xFF);
+    ok &= ov5647_wr(0x3810, 0x00); ok &= ov5647_wr(0x3811, 0x05); ok &= ov5647_wr(0x3812, 0x00); ok &= ov5647_wr(0x3813, 0x02);
+    ok &= ov5647_wr(0x380c, (hts >> 8) & 0xFF); ok &= ov5647_wr(0x380d, hts & 0xFF);
+    ok &= ov5647_wr(0x380e, (vts >> 8) & 0xFF); ok &= ov5647_wr(0x380f, vts & 0xFF);
+    ok &= ov5647_wr(0x3708, 0x64); ok &= ov5647_wr(0x3709, 0x12); ok &= ov5647_wr(0x3827, 0xec); ok &= ov5647_wr(0x370c, 0x03);
+    ok &= ov5647_wr(0x3612, 0x5b); ok &= ov5647_wr(0x3618, 0x04);
+    ok &= ov5647_wr(0x3630, 0x2e); ok &= ov5647_wr(0x3632, 0xe2); ok &= ov5647_wr(0x3633, 0x23); ok &= ov5647_wr(0x3634, 0x44); ok &= ov5647_wr(0x3636, 0x06);
+    ok &= ov5647_wr(0x3620, 0x64); ok &= ov5647_wr(0x3621, 0xe0); ok &= ov5647_wr(0x3600, 0x37);
+    ok &= ov5647_wr(0x3704, 0xa0); ok &= ov5647_wr(0x3703, 0x5a); ok &= ov5647_wr(0x3715, 0x78); ok &= ov5647_wr(0x3717, 0x01); ok &= ov5647_wr(0x3731, 0x02);
+    ok &= ov5647_wr(0x370b, 0x60); ok &= ov5647_wr(0x3705, 0x1a);
+    ok &= ov5647_wr(0x5000, 0xff); ok &= ov5647_wr(0x583e, 0xf0); ok &= ov5647_wr(0x583f, 0x4f);
+    ok &= ov5647_wr(0x5003, 0x08); ok &= ov5647_wr(0x5a00, 0x08);
+    ok &= ov5647_wr(0x3a0f, 0x30); ok &= ov5647_wr(0x3a10, 0x28); ok &= ov5647_wr(0x3a1b, 0x30); ok &= ov5647_wr(0x3a1e, 0x26);
+    ok &= ov5647_wr(0x3a18, 0xff); ok &= ov5647_wr(0x3a19, 0x00);
+    ok &= ov5647_wr(0x3a08, 0x01); ok &= ov5647_wr(0x3a09, 0x4b); ok &= ov5647_wr(0x3a0a, 0x01); ok &= ov5647_wr(0x3a0b, 0x13);
+    ok &= ov5647_wr(0x3000, 0x00); ok &= ov5647_wr(0x3001, 0x00); ok &= ov5647_wr(0x3002, 0x00);
+    ok &= ov5647_wr(0x3016, 0x08); ok &= ov5647_wr(0x3017, 0xe0);
+    ok &= ov5647_wr(0x3018, 0x44); ok &= ov5647_wr(0x301c, 0xf8); ok &= ov5647_wr(0x301d, 0xf0);
+    ok &= ov5647_wr(0x3c00, 0x40); ok &= ov5647_wr(0x3b07, 0x0c);
+    ok &= ov5647_wr(0x3a11, 0x60); ok &= ov5647_wr(0x3a1f, 0x28);
+    ok &= ov5647_wr(0x4001, 0x02); ok &= ov5647_wr(0x4004, 0x04); ok &= ov5647_wr(0x4000, 0x09);
+    ok &= ov5647_wr(0x4837, 0x19); ok &= ov5647_wr(0x4800, 0x34);
+  }
+  return ok;
+}
+static bool ov5647_stream(bool on) {
+  if (!ov5647_wire) { return false; }
+  if (on) {
+    if (!ov5647_wr(0x4800, 0x14)) { return false; }   // MIPI enable
+    if (!ov5647_wr(0x0100, 0x01)) { return false; }   // stream enable
+    AddLog(LOG_LEVEL_INFO, PSTR("OV5647: Stream ON"));
+  } else {
+    if (!ov5647_wr(0x0100, 0x00)) { return false; }
+    AddLog(LOG_LEVEL_INFO, PSTR("OV5647: Stream OFF"));
+  }
+  return true;
+}
+
+// C replacement for the Berry "camera" event hook. type=="camera": cmd "init"
+// (idx = config_addr) / "stream" (idx = 1 on / 0 off). Other events: no-op.
 int32_t callBerryEventDispatcher(const char *type, const char *cmd, int32_t idx, const char *payload, uint32_t data_len) {
+  if (!type || strcmp(type, "camera") != 0 || !cmd) { return 0; }
+
+  if (strcmp(cmd, "init") == 0) {
+    if (!ov5647_inited) {
+      if (!ov5647_detect()) { return 0; }
+      ov5647_inited = true;
+    }
+    if (!ov5647_common_regs()) { return 0; }
+
+    int req_w = 640, req_h = 480, req_bin = 2, req_fps = 30, req_fmt = 1, req_x = 0, req_y = 0;
+    uint8_t *b = (uint8_t*)(uintptr_t)idx;
+    if (b) {
+      uint8_t res_idx = b[26];
+      if      (res_idx == 255) { req_w = b[0] | (b[1] << 8); req_h = b[2] | (b[3] << 8); req_fmt = b[8]; req_bin = b[16]; req_fps = b[17]; req_x = b[12] | (b[13] << 8); req_y = b[14] | (b[15] << 8); }
+      else if (res_idx == 0)   { req_w = 640;  req_h = 480;  req_bin = 2; req_fmt = 1; }
+      else if (res_idx == 1)   { req_w = 1280; req_h = 720;  req_bin = 2; req_fmt = 1; }
+      else if (res_idx == 2)   { req_w = 1296; req_h = 972;  req_bin = 2; req_fmt = 1; }
+      else if (res_idx == 3)   { req_w = 1920; req_h = 1080; req_bin = 1; req_fmt = 1; }
+      else if (res_idx == 4)   { req_w = 2592; req_h = 1944; req_bin = 1; req_fmt = 1; req_fps = 15; }
+    }
+    if (!ov5647_regs_custom(req_x, req_y, req_w, req_h, req_bin, req_fps, req_fmt)) { return 0; }
+
+    if (b) {   // write actual config back for the C-core (same 28B layout as the .be)
+      b[0] = ov5647_w & 0xFF;       b[1] = (ov5647_w >> 8) & 0xFF;
+      b[2] = ov5647_h & 0xFF;       b[3] = (ov5647_h >> 8) & 0xFF;
+      b[4] = 2592 & 0xFF;           b[5] = (2592 >> 8) & 0xFF;
+      b[6] = 1944 & 0xFF;           b[7] = (1944 >> 8) & 0xFF;
+      b[8] = ov5647_fmt;            b[9] = 2;   // 2 data lanes
+      b[10] = ov5647_mipi_clock & 0xFF; b[11] = (ov5647_mipi_clock >> 8) & 0xFF;
+      b[16] = ov5647_bin;           b[17] = (uint8_t)req_fps;
+      memcpy(&b[18], "OV5647", 6);
+    }
+    return 1;
+  }
+
+  if (strcmp(cmd, "stream") == 0) {
+    return ov5647_stream(idx == 1) ? 1 : 0;
+  }
   return 0;
 }
 #endif  // !USE_BERRY
