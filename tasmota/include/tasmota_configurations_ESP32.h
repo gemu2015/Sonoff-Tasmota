@@ -837,6 +837,17 @@
 
 #endif // USE_MATTER_DEVICE
 
+#ifdef USE_MATTER_C
+// matter_c (the C/TinyC Matter stack) needs mDNS for commissioning + operational
+// discovery: the glue calls StartMdns(), whose definition is #ifdef USE_DISCOVERY.
+// USE_DISCOVERY is OFF by default, so a slim custom env (USE_MATTER_C without
+// FIRMWARE_TASMOTA32) fails to link with "undefined reference to StartMdns()".
+// Auto-enable it here, same as the USE_MATTER_DEVICE block above. (matter_c brings
+// its own C crypto, so the USE_BERRY_CRYPTO_* defines are intentionally NOT set.)
+  #undef  USE_DISCOVERY
+  #define USE_DISCOVERY
+#endif // USE_MATTER_C
+
 /*********************************************************************************************\
  * Post-process for switched off Ethernet support in Arduino static libs
 \*********************************************************************************************/
