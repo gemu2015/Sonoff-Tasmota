@@ -4095,6 +4095,7 @@ static void HandleTinyCDisplayHTML(void) {
     "<option value='2' selected>2x</option>"
     "<option value='4'>4x</option>"
     "</select></label>"
+    "<button onclick='dl()'>Save PNG</button>"
     "</div>"
   ));
 
@@ -4105,6 +4106,15 @@ static void HandleTinyCDisplayHTML(void) {
     "function rsc(){"
     "if(cv.width&&cv.height){var s=+document.getElementById('sc').value;"
     "cv.style.width=(cv.width*s)+'px';cv.style.height=(cv.height*s)+'px';}}"
+    "function dl(){try{"
+    "if(!cv.width){return;}"
+    "var s=+document.getElementById('sc').value;"
+    "var t=document.createElement('canvas');t.width=cv.width*s;t.height=cv.height*s;"
+    "var tx=t.getContext('2d');tx.imageSmoothingEnabled=false;"
+    "tx.drawImage(cv,0,0,t.width,t.height);"
+    "var a=document.createElement('a');a.download='display.png';"
+    "a.href=t.toDataURL('image/png');a.click();"
+    "}catch(e){document.getElementById('st').textContent='Save failed: '+e;}}"
   ));
 
   // Pixel decoders per bpp
