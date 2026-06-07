@@ -907,6 +907,18 @@ void tc_lv_image_src(int h, const char *path) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o || !path) { return; }
   tc_lvgl_lock(); lv_image_set_src(o, path); tc_lvgl_unlock();
 }
+// rotate an image around its pivot. angle in 0.1° units (3600 = 360°), wrapped to 0..3599.
+void tc_lv_image_angle(int h, int angle) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  angle %= 3600; if (angle < 0) { angle += 3600; }
+  tc_lvgl_lock(); lv_image_set_rotation(o, angle); tc_lvgl_unlock();
+}
+// set the rotation pivot (px, relative to the image's top-left). Set this so a hand
+// rotates around the watch centre rather than its own middle.
+void tc_lv_image_pivot(int h, int x, int y) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  tc_lvgl_lock(); lv_image_set_pivot(o, x, y); tc_lvgl_unlock();
+}
 
 // screen management — a screen is an object with no parent (lv_obj_create(NULL))
 int tc_lv_screen_create(void) { tc_lvgl_lock(); int h = tc_lv_store(lv_obj_create(NULL)); tc_lvgl_unlock(); return h; }

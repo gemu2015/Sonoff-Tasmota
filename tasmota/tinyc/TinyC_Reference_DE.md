@@ -3916,7 +3916,9 @@ Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
 | `void lvglChartRange(int chart, int axis, int min, int max)` | Y-Achsen-Bereich (`axis` 0=PRIMARY_Y) |
 | `void lvglChartCount(int chart, int n)` | Anzahl der Punkte |
 | `int lvglImage(int parent)` | Bild erzeugen |
-| `void lvglImageSrc(int h, str path)` | Bildquelle aus LVGL-FS-Pfad (z. B. `"A:/logo.bin"`) |
+| `void lvglImageSrc(int h, str path)` | Bildquelle aus LVGL-FS-Pfad (z. B. `"A:/logo.bin"` oder `"A:/img.png"` — PNG-Dekodierung ist eingebaut) |
+| `void lvglImageAngle(int h, int deci_deg)` | Bild drehen, 0,1°-Einheiten (3600 = 360°) — z. B. ein Uhrzeiger |
+| `void lvglImagePivot(int h, int x, int y)` | Drehpunkt setzen, px ab Bild-Ecke oben links (Standard = Bildmitte) |
 
 Beispiele: `lvgl_demo.tc` (Button → Label), `lvgl_widgets.tc` (Slider/Bar/Switch), `lvgl_chart.tc`
 (Live-Diagramm), `lvgl_smoke.tc` (Bring-up-Test).

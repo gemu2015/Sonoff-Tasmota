@@ -5068,7 +5068,9 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `void lvglChartRange(int chart, int axis, int min, int max)` | Y-axis range (`axis` 0=PRIMARY_Y) |
 | `void lvglChartCount(int chart, int n)` | Number of points |
 | `int lvglImage(int parent)` | Create an image |
-| `void lvglImageSrc(int h, str path)` | Set image source from an LVGL FS path (e.g. `"A:/logo.bin"`) |
+| `void lvglImageSrc(int h, str path)` | Set image source from an LVGL FS path (e.g. `"A:/logo.bin"`, or `"A:/img.png"` — PNG decode is built in) |
+| `void lvglImageAngle(int h, int deci_deg)` | Rotate the image, 0.1° units (3600 = 360°) — e.g. a clock hand |
+| `void lvglImagePivot(int h, int x, int y)` | Set the rotation pivot, px from the image's top-left (default is image centre) |
 
 ```c
 // Tap a button -> change a label (see examples/lvgl_demo.tc)

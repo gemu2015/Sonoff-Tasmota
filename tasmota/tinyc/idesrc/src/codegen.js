@@ -397,6 +397,8 @@ const BUILTINS = {
     'lvglScreenCreate': { syscall: Syscall.LVGL_SCREEN_CREATE,    args: 0, returns: true },
     'lvglScreenLoad':   { syscall: Syscall.LVGL_SCREEN_LOAD,      args: 1, returns: false },
     'lvglScreenLoadAnim':{ syscall: Syscall.LVGL_SCREEN_LOAD_ANIM, args: 3, returns: false },
+    'lvglImageAngle':   { syscall: Syscall.LVGL_IMAGE_ANGLE,  args: 2, returns: false },
+    'lvglImagePivot':   { syscall: Syscall.LVGL_IMAGE_PIVOT,  args: 3, returns: false },
     'webCheckbox':      { syscall: Syscall.WEB_CHECKBOX,    args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'webText':          { syscall: Syscall.WEB_TEXT,         args: 3, returns: false, refArgs: [0], constArgs: [2] },
     'webNumber':        { syscall: Syscall.WEB_NUMBER,      args: 4, returns: false, refArgs: [0], constArgs: [3] },

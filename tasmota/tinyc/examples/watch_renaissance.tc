@@ -1,0 +1,79 @@
+// watch_renaissance.tc — analog "Waldhoff Renaissance" watchface for a 240x240 screen.
+// A 1:1 TinyC port of the Berry autoexec.be (LVGL). Requires firmware with USE_TINYC_LVGL
+// including image rotation (lvglImageAngle / lvglImagePivot, SYS 489/490).
+//
+// Assets — upload these to the device FS ROOT (they are reached via the LVGL "A:" drive):
+//   /watch_ren_back_240.png   (240x240 dial)
+//   /watch_ren_hour_240.png   (21x146 hour hand)
+//   /watch_ren_min_240.png    (240x240 minute hand, centred)
+//   /watch_ren_sec_240.png    (20x215 second hand)
+// PNG decoding + the "A:" filesystem driver are built into the LVGL foundation.
+//
+// Assets borrowed from https://www.facer.io/watchface/HC77XaKNNM (Waldhoff Renaissance).
+
+#define AL_CENTER 9
+#define WCX 120          // watch centre X within the 240x240 dial
+#define WCY 120          // watch centre Y
+
+int back; int hourH; int minH; int secH; int dayL;
+int prevDay = -1;
+
+int main() {
+    lvglInit();
+
+    // black background on the active screen (handle 0)
+    lvglSetBgColor(0, 0x000000);
+
+    // dial, centred on the screen
+    back = lvglImage(0);
+    lvglImageSrc(back, "A:/watch_ren_back_240.png");
+    lvglAlign(back, AL_CENTER, 0, 0);
+
+    // day-of-month label on the dial face
+    dayL = lvglLabel(back);
+    lvglSetTextColor(dayL, 0x000000);
+    lvglSetText(dayL, "");
+    lvglSetPos(dayL, 184, 112);
+
+    // hands are children of the dial. The rotation pivot is given in image-local px;
+    // set it to (watch-centre - hand-position) so every hand turns about (120,120)
+    // in the dial's coordinate system, regardless of where the dial sits on screen.
+    hourH = lvglImage(back);
+    lvglImageSrc(hourH, "A:/watch_ren_hour_240.png");
+    lvglSetPos(hourH, 110, 45);
+    lvglImagePivot(hourH, WCX - 110, WCY - 45);     // (10, 75)
+
+    minH = lvglImage(back);
+    lvglImageSrc(minH, "A:/watch_ren_min_240.png");
+    lvglSetPos(minH, 0, 0);
+    lvglImagePivot(minH, WCX, WCY);                 // (120,120) — full-size hand
+
+    secH = lvglImage(back);
+    lvglImageSrc(secH, "A:/watch_ren_sec_240.png");
+    lvglSetPos(secH, 110, 10);
+    lvglImagePivot(secH, WCX - 110, WCY - 10);      // (10,110)
+
+    // update loop — parse the local ISO timestamp "YYYY-MM-DDTHH:MM:SS"
+    char ts[24];
+    while (1) {
+        timeStamp(ts);
+        int day  = (ts[8]  - 48) * 10 + (ts[9]  - 48);
+        int hour = (ts[11] - 48) * 10 + (ts[12] - 48);
+        int mn   = (ts[14] - 48) * 10 + (ts[15] - 48);
+        int sec  = (ts[17] - 48) * 10 + (ts[18] - 48);
+
+        // angles in 0.1° units (3600 = 360°)
+        lvglImageAngle(secH, 60 * sec);                       //  6°/sec
+        lvglImageAngle(minH, 60 * mn);                        //  6°/min
+        lvglImageAngle(hourH, 300 * (hour % 12) + mn * 5);    // 30°/hour + 0.5°/min
+
+        if (day != prevDay) {
+            char db[8];
+            sprintf(db, "%d", day);
+            lvglSetText(dayL, db);
+            prevDay = day;
+        }
+        delay(100);
+    }
+    return 0;
+}

@@ -493,6 +493,8 @@ export const Syscall = {
     LVGL_SCREEN_CREATE: 486, // ()                  -> int   lvglScreenCreate() — detached screen
     LVGL_SCREEN_LOAD:   487, // (h)                 -> void  lvglScreenLoad()
     LVGL_SCREEN_LOAD_ANIM:488,//(h,anim,ms)         -> void  lvglScreenLoadAnim() — anim:5=MOVE_LEFT,6=MOVE_RIGHT,9=FADE_IN
+    LVGL_IMAGE_ANGLE:   489, // (h,deci_deg)         -> void  lvglImageAngle() — rotate image, 0.1° units (3600=360°)
+    LVGL_IMAGE_PIVOT:   490, // (h,x,y)              -> void  lvglImagePivot() — rotation pivot, px from image top-left
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

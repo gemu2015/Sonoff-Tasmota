@@ -995,6 +995,8 @@ enum TcSyscall {
   SYS_LVGL_SCREEN_CREATE    = 486, // ()                  -> int handle  (a detached screen; parent objects onto it)
   SYS_LVGL_SCREEN_LOAD      = 487, // (h)                 -> void  switch to screen h
   SYS_LVGL_SCREEN_LOAD_ANIM = 488, // (h, anim, ms)       -> void  switch with transition (anim: 5=MOVE_LEFT,6=MOVE_RIGHT,9=FADE_IN)
+  SYS_LVGL_IMAGE_ANGLE      = 489, // (h, deci_deg)       -> void  rotate image, 0.1° units (3600 = 360°)
+  SYS_LVGL_IMAGE_PIVOT      = 490, // (h, x, y)           -> void  rotation pivot, px from image top-left
 
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
@@ -5049,6 +5051,8 @@ void tc_lv_image_src(int h, const char *path);
 int  tc_lv_screen_create(void);
 void tc_lv_screen_load(int h);
 void tc_lv_screen_load_anim(int h, int anim, int ms);
+void tc_lv_image_angle(int h, int angle);
+void tc_lv_image_pivot(int h, int x, int y);
 #endif // USE_TINYC_LVGL
 
 /*********************************************************************************************\
@@ -13547,6 +13551,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_SCREEN_CREATE: TC_PUSH(vm, tc_lv_screen_create()); break;
     case SYS_LVGL_SCREEN_LOAD:   { int32_t h = TC_POP(vm); tc_lv_screen_load(h); break; }
     case SYS_LVGL_SCREEN_LOAD_ANIM: { int32_t ms = TC_POP(vm); int32_t an = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_screen_load_anim(h, an, ms); break; }
+    case SYS_LVGL_IMAGE_ANGLE:  { int32_t an = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_image_angle(h, an); break; }
+    case SYS_LVGL_IMAGE_PIVOT:  { int32_t y = TC_POP(vm); int32_t x = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_image_pivot(h, x, y); break; }
 #else
     case SYS_LVGL_INIT:     TC_PUSH(vm, 0); break;
     case SYS_LVGL_ACTIVE:   TC_PUSH(vm, 0); break;
@@ -13568,6 +13574,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_SCREEN_CREATE: TC_PUSH(vm, 0); break;
     case SYS_LVGL_SCREEN_LOAD: TC_POP(vm); break;
     case SYS_LVGL_SCREEN_LOAD_ANIM: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_IMAGE_ANGLE: TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_IMAGE_PIVOT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
 #endif
 
     // ── MQTT Subscribe/Publish ────────────────────────
