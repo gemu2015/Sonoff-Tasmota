@@ -819,7 +819,19 @@ int main() {
         }
         function _showVerWarn(html) {
             const el = document.getElementById('verWarn');
-            if (el) { el.innerHTML = html; el.style.display = 'block'; }
+            if (el) {
+                el.style.background = '#5a1212'; el.style.color = '#ffdada';
+                el.style.borderBottom = '2px solid #e44';
+                el.innerHTML = html; el.style.display = 'block';
+            }
+        }
+        function _showVerOk(html) {     // positive "compatible" indicator (Andreas QoL) — green, not just hidden
+            const el = document.getElementById('verWarn');
+            if (el) {
+                el.style.background = '#12331a'; el.style.color = '#bff0c8';
+                el.style.borderBottom = '2px solid #3a7';
+                el.innerHTML = html; el.style.display = 'block';
+            }
         }
         function _hideVerWarn() {
             const el = document.getElementById('verWarn');
@@ -862,7 +874,9 @@ int main() {
                 _showVerWarn('&#9888;&#65039; ' + msgs.join(' &nbsp;&middot;&nbsp; ')
                     + ' <span style="opacity:.65">(device ' + (d.release || '?') + ' &middot; IDE v' + _ideRelease() + ')</span>');
             } else {
-                _hideVerWarn();
+                _showVerOk('&#9989; <b>Firmware compatible</b> &mdash; syscall-ABI v' + SYSCALL_ABI
+                    + ' &middot; bytecode v' + VERSION
+                    + ' <span style="opacity:.7">(device ' + (d.release || '?') + ' &middot; IDE v' + _ideRelease() + ')</span>');
             }
         }
         // Re-check whenever the device IP field changes.

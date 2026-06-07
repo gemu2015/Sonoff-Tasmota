@@ -48,7 +48,7 @@ top of `bundle.py` (the `EXAMPLES` array).
 | Component | Status |
 |---|---|
 | `src/preprocessor.js` | ✅ Synced to live |
-| `src/opcodes.js`      | ✅ Synced to live (335 Syscall entries, TINYC_RELEASE = 1.3.20) |
+| `src/opcodes.js`      | ✅ Synced to live (Syscall table + `VERSION`/`SYSCALL_ABI` — the compat-decisive pair the IDE shows vs the device. `TINYC_RELEASE` is an internal opcodes-changelog tag, NOT the displayed release: the version banner is auto-injected from the firmware's `TC_RELEASE` by `bundle.py`.) |
 | `src/lexer.js`        | ✅ Synced to live |
 | `src/parser.js`       | ✅ Synced to live |
 | `src/codegen.js`      | ✅ Synced to live (305 BUILTINS entries — all recent patches included) |
