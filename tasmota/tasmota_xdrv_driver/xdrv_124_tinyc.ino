@@ -2293,9 +2293,10 @@ void TinyCPrefixReheal(void) {
 // Fetch the TinyC IDE (tinyc_ide.html.gz) from `url` and replace the on-FS
 // /tinyc_ide.html.gz that the /ide handler serves — lets the IDE be self-updated
 // from the console (TinyCIde) without the Tasmota file-manager upload page.
-// Safety: stream to a .tmp first, validate the gzip magic + a sane size, and
-// only then rename over the live IDE (a failed/short fetch must NOT brick the
-// served IDE). The ~150-190 KB LittleFS write is bracketed by TinyCFsWritePause
+// Safety: stream to a .tmp first, validate the gzip magic + the persisted on-disk
+// size (not just the byte counter — an SD/FAT backend can short-write), and only
+// then rename over the live IDE (a failed/short fetch must NOT brick the served
+// IDE). The ~150-190 KB LittleFS/SD write is bracketed by TinyCFsWritePause
 // (stops VM tasks so none touch flash during the cache-disabled close) + a
 // loop-WDT hold, mirroring the /ufsu big-write path. Returns bytes (>0) or <0.
 static int tc_fetch_ide(const char *url) {
@@ -2322,7 +2323,7 @@ static int tc_fetch_ide(const char *url) {
   }
   TinyCFsWritePause(0x40000);                       // big write: quiesce VM tasks
   File f = ufsp->open(tmp, "w");
-  int written = 0; bool magic = false;
+  int written = 0; bool magic = false; bool write_err = false;
   if (f) {
     WiFiClient *stream = http.getStreamPtr();
     int32_t len = http.getSize();
@@ -2339,7 +2340,16 @@ static int tc_fetch_ide(const char *url) {
           int rd = stream->readBytes(buf, avail);
           if (rd <= 0) break;
           if (first) { magic = (rd >= 2 && buf[0] == 0x1f && buf[1] == 0x8b); first = false; }
-          f.write(buf, rd);
+          // Write the full chunk. An SD/FAT backend can short-write a big file, so
+          // retry the remainder; if the backend stalls (write returns 0) bail —
+          // a partial write must NOT silently truncate the .tmp (Andreas: brick).
+          int off = 0;
+          while (off < rd) {
+            size_t wr = f.write(buf + off, rd - off);
+            if (wr == 0) { write_err = true; break; }
+            off += (int)wr;
+          }
+          if (write_err) break;
           written += rd;
           if (!unknown) len -= rd;
         } else {
@@ -2362,6 +2372,19 @@ static int tc_fetch_ide(const char *url) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch rejected (%d B, gzip=%d) — kept old"), written, magic);
     ufsp->remove(tmp);
     return -5;
+  }
+  // `written` counts what was DOWNLOADED, not what the FS actually persisted — an
+  // SD/FAT backend can short-write a big file (return < requested, or even a wrong
+  // count). Reopen the .tmp and require the on-disk size to match before renaming
+  // over the live IDE; a truncated-but-gzip-magic file would otherwise pass the
+  // check above and brick the served IDE (Andreas, S3-ETH SD/FAT, cut at 12-37 KB).
+  uint32_t on_disk = 0;
+  { File vf = ufsp->open(tmp, "r"); if (vf) { on_disk = (uint32_t)vf.size(); vf.close(); } }
+  if (write_err || on_disk != (uint32_t)written) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE write incomplete (%u/%d B on disk%s) — kept old"),
+           on_disk, written, write_err ? ", short-write" : "");
+    ufsp->remove(tmp);
+    return -7;
   }
   // Atomically replace the live IDE. Try a direct rename first — LittleFS
   // overwrites atomically, so there is no window where the served IDE is
