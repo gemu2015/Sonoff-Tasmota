@@ -32,14 +32,17 @@ RELEASE_TAG="${RELEASE_TAG:-testing}"
 # Standard firmware targets (env name in platformio_override.ini). The ESP32
 # targets now ship with Matter (USE_MATTER_C) — at ~57 kB it fits where HomeKit
 # (~156 kB) did not, so testers can pair over Apple Home / Google / Alexa.
-# ESP8266 stays non-Matter (no resident crypto/IPv6 budget).
+# ESP8266 is no longer shipped: ~16 KB free heap (with TinyC not even started) is
+# too low to load the VM — a small script crashes at start, and the platform is
+# RAM+flash bound (Flash 92%, RAM 63%). It stays buildable (env tinyc8266-4M) for
+# lean custom images (e.g. ottelo's SML build) but is dropped from the released
+# TinyC binaries.
 STD_TARGETS=(
   tinyc32-4M-plain # ESP32 4MB classic WROOM — plain (no Matter / no camera / no HomeKit)
   tinyc32-4M-cam   # ESP32 4MB WROVER + PSRAM — Matter + camera
   tinyc32s3        # ESP32-S3 16MB flash (Matter + camera)
   tinyc32c3        # ESP32-C3           (Matter)
   tinyc32c6        # ESP32-C6           (Matter)
-  tinyc8266-4M     # ESP8266 4MB flash  (no Matter)
 )
 
 # ─────────── Argument parsing ────────────────────────────────────────────────
@@ -156,17 +159,10 @@ run "mkdir -p '$STAGE_DIR'"
 
 for env in "${STD_TARGETS[@]}"; do
   src="$FW_DIR/${env}.bin"
-  if [[ "$env" == tinyc8266* ]]; then
-    # ESP8266: ship .bin and .bin.gz (no factory image)
-    [[ -f "$src" ]] || $DRY_RUN || die "Missing $src"
-    run "cp '$src' '$STAGE_DIR/'"
-    run "gzip -kf -9 '$STAGE_DIR/${env}.bin'"   # produces .bin.gz alongside
-  else
-    # ESP32 family: ship .bin (OTA) + .factory.bin (esptool / web installer)
-    [[ -f "$src" ]] || $DRY_RUN || die "Missing $src"
-    [[ -f "${src%.bin}.factory.bin" ]] || $DRY_RUN || die "Missing ${src%.bin}.factory.bin"
-    run "cp '$src' '${src%.bin}.factory.bin' '$STAGE_DIR/'"
-  fi
+  # ESP32 family: ship .bin (OTA) + .factory.bin (esptool / web installer)
+  [[ -f "$src" ]] || $DRY_RUN || die "Missing $src"
+  [[ -f "${src%.bin}.factory.bin" ]] || $DRY_RUN || die "Missing ${src%.bin}.factory.bin"
+  run "cp '$src' '${src%.bin}.factory.bin' '$STAGE_DIR/'"
 done
 
 # IDE + docs
@@ -224,7 +220,6 @@ else
 | \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** + camera |
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
-| \`tinyc8266-4M.bin\` / \`.bin.gz\` | ESP8266 4MB flash |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
