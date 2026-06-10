@@ -1663,8 +1663,24 @@ uint8_t ebus_feed_byte(uint32_t meters, uint8_t iob) {
   if (iob == EBUS_SYNC) {
     // should be end of telegram: QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
     if (mp->spos > 5 && mp->spos > mp->sbuff[4] + 5) {
-      uint16_t tlen = mp->sbuff[4] + 5 + check_ebus_esc(mp->sbuff, mp->spos);
-      if (mp->sbuff[tlen] == ebus_CalculateCRC(mp->sbuff, tlen)) {
+      // Locate the master CRC in the RAW (still-escaped) buffer: an a9 escape plus
+      // its next byte is ONE logical byte, so consume (NN+5) logical bytes to reach
+      // it. The old code counted escapes over the WHOLE buffer (incl. the ACK + the
+      // slave reply), so any a9/aa in the slave part shifted tlen one past the CRC,
+      // the check failed, and the whole telegram was silently dropped — content-
+      // dependent, ~42 of ~150 telegram types at any time (Andreas, .104).
+      uint16_t need = mp->sbuff[4] + 5;        // QQ ZZ PB SB NN + NN data (logical)
+      uint16_t tlen = 0;
+      for (uint16_t l = 0; l < need && tlen < mp->spos; l++) {
+        tlen += (mp->sbuff[tlen] == EBUS_ESC) ? 2 : 1;
+      }
+      // the master CRC byte itself is escaped on the wire when its value is a9/aa
+      uint8_t wcrc = 0;
+      if (tlen < mp->spos) {
+        wcrc = (mp->sbuff[tlen] == EBUS_ESC && tlen + 1 < mp->spos)
+               ? (uint8_t)(EBUS_ESC + mp->sbuff[tlen + 1]) : mp->sbuff[tlen];
+      }
+      if (tlen < mp->spos && wcrc == ebus_CalculateCRC(mp->sbuff, tlen)) {
         ebus_esc(mp->sbuff, mp->spos);
         SML_Decode(meters);
       } else {
