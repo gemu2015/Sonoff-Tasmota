@@ -815,6 +815,9 @@ static const char TC_NOT_INIT[] PROGMEM = "Not initialized";
 
 void CmndCheckPartition(void);
 void CmndTinyCIde(void);
+#ifdef ESP32
+void CmndTinyCStack(void);
+#endif
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
 #ifdef TINYC_MTRC_CRYPTO_SELFTEST
@@ -825,7 +828,7 @@ void CmndMatterCryptoTest(void);
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Run|Stop|Reset|Exec|Info|Ide"
 #ifdef ESP32
-  "|Chkpt"
+  "|Chkpt|Stack"
 #endif
 #ifdef USE_MATTER_C
   "|MtrReset"
@@ -839,7 +842,7 @@ void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde
 #ifdef ESP32
-  , &CmndCheckPartition
+  , &CmndCheckPartition, &CmndTinyCStack
 #endif
 #ifdef USE_MATTER_C
   , &CmndMatterReset
@@ -5261,6 +5264,24 @@ static void tc_spawn_pool_lock(void) {
 }
 static void tc_spawn_pool_unlock(void) {
   if (tc_spawn_pool_mutex) xSemaphoreGive(tc_spawn_pool_mutex);
+}
+
+// TinyCStack — list every live spawnTask worker with its FreeRTOS stack high-water
+// mark (uxTaskGetStackHighWaterMark = the minimum free stack ever seen; words*4 =
+// bytes still unused at the worst point) so worker stacks can be sized from data
+// instead of guessed (Andreas's wish). Reports the configured VM-task stack too.
+void CmndTinyCStack(void) {
+  Response_P(PSTR("{\"" D_PRFX_TINYC "Stack\":{\"VmTaskStack\":%d"), (int)TC_VM_TASK_STACK);
+  tc_spawn_pool_lock();
+  for (int i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    TcSpawnTask *e = &tc_spawn_pool[i];
+    if (!e->running || !e->handle || !e->name[0]) { continue; }
+    uint32_t freeb = (uint32_t)uxTaskGetStackHighWaterMark(e->handle) * 4;
+    ResponseAppend_P(PSTR(",\"%s\":{\"Slot\":%d,\"StackFreeMin\":%u}"),
+                     e->name, e->slot_idx, freeb);
+  }
+  tc_spawn_pool_unlock();
+  ResponseAppend_P(PSTR("}}"));
 }
 
 // FreeRTOS task body — executes the user function to completion or stop-request.
