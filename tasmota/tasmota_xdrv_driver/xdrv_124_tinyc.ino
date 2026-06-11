@@ -5267,16 +5267,21 @@ static void tc_spawn_pool_unlock(void) {
 }
 
 // TinyCStack — list every live spawnTask worker with its FreeRTOS stack high-water
-// mark (uxTaskGetStackHighWaterMark = the minimum free stack ever seen; words*4 =
-// bytes still unused at the worst point) so worker stacks can be sized from data
-// instead of guessed (Andreas's wish). Reports the configured VM-task stack too.
+// mark (uxTaskGetStackHighWaterMark = the minimum free stack ever seen) so worker
+// stacks can be sized from data instead of guessed (Andreas's wish). Reports the
+// configured VM-task stack too.
+// NB the high-water mark is in StackType_t units. On ESP-IDF (both Xtensa and RISC-V)
+// StackType_t is uint8_t, so the value is already BYTES — do NOT multiply by 4 (the
+// vanilla-FreeRTOS "words*4" assumption, which over-reported a 10 KB worker as 23 KB
+// free; Andreas caught it). xTaskCreate's stack arg is likewise in bytes on ESP-IDF,
+// so VmTaskStack/stack_bytes and this number are the same unit and directly comparable.
 void CmndTinyCStack(void) {
   Response_P(PSTR("{\"" D_PRFX_TINYC "Stack\":{\"VmTaskStack\":%d"), (int)TC_VM_TASK_STACK);
   tc_spawn_pool_lock();
   for (int i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
     TcSpawnTask *e = &tc_spawn_pool[i];
     if (!e->running || !e->handle || !e->name[0]) { continue; }
-    uint32_t freeb = (uint32_t)uxTaskGetStackHighWaterMark(e->handle) * 4;
+    uint32_t freeb = (uint32_t)uxTaskGetStackHighWaterMark(e->handle);  // already bytes on ESP-IDF
     ResponseAppend_P(PSTR(",\"%s\":{\"Slot\":%d,\"StackFreeMin\":%u}"),
                      e->name, e->slot_idx, freeb);
   }
