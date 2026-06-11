@@ -24,7 +24,7 @@
 
   Build via the existing BinPlugin pipeline:
 
-      python3 tasmota/Plugins/build_plugin.py --plugin USE_CRC_BLIB --cpu esp32
+      python3 tasmota/Plugins/build_plugin.py --plugin USE_CRC_BLIB_MOD --cpu esp32
 
   Upload the resulting build_output/firmware/CRC_BLIB.bin to a free
   plugin slot via Tasmota's "Mod" web form. Reboot. The blib is now
@@ -62,6 +62,8 @@ MODULE_DESCRIPTOR("CRC_BLIB", MODULE_TYPE_BLIB, 1<<16|5,
 MODULE_PART int      blib_crc16_modbus(uint8_t *buf, int len);
 MODULE_PART uint32_t blib_crc32_iso(uint8_t *buf, int len);
 MODULE_PART uint8_t  blib_crc8_dallas(uint8_t *buf, int len);
+MODULE_PART float    blib_fadd(float a, float b);
+MODULE_PART float    blib_fmul(float a, float b);
 MODULE_PART int32_t  mod_func_execute(uint32_t sel);
 
 MODULE_END
@@ -114,6 +116,20 @@ uint8_t blib_crc8_dallas(uint8_t *buf, int len) {
   return crc;
 }
 
+// Float ABI test exports. Verify that floats pass correctly TinyC -> plugin ->
+// TinyC: fcall() hands the two args in as raw bits (soft-float _32r ABI), the
+// plugin does the float math, and the result returns as bits. On the hard-float
+// P4 (USE_PLUGIN_FLOAT_BITS) this also exercises the plugin->firmware float
+// syscalls the arithmetic compiles to. Expected: fadd(2.5,0.25)=2.75,
+// fmul(1.5,4.0)=6.0.
+// Float math in a BinPlugin MUST use the float jumptable macros (fadd/fmul =
+// jt[43]/jt[40]), never raw C operators: raw a+b/a*b emit __addsf3/__mulsf3,
+// which aren't relocated into the plugin -> instruction-access-fault. fadd/fmul
+// route through the firmware (the _bits wrappers under USE_PLUGIN_FLOAT_BITS),
+// so this also exercises the plugin->firmware float-bits path.
+float blib_fadd(float a, float b) { SETREGS; return fadd(a, b); }
+float blib_fmul(float a, float b) { SETREGS; return fmul(a, b); }
+
 // ─── exports table ───────────────────────────────────────────────
 // The plugin loader reads this via mod_func_execute(pFUNC_GET_TINYC_EXPORTS)
 // after mapping the module. Function pointers carry their plugin-relative
@@ -134,6 +150,8 @@ uint8_t blib_crc8_dallas(uint8_t *buf, int len) {
 static const char NAME_MB_CRC16[]    PROGMEM = "mb_crc16";
 static const char NAME_CRC32[]       PROGMEM = "crc32";
 static const char NAME_CRC8_DALLAS[] PROGMEM = "crc8_dallas";
+static const char NAME_FADD[]        PROGMEM = "fadd";
+static const char NAME_FMUL[]        PROGMEM = "fmul";
 
 const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
   // mb_crc16(buf[], len) → int
@@ -147,6 +165,11 @@ const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
                       { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
   { NAME_CRC8_DALLAS, (void *)blib_crc8_dallas,  2, TC_RET_INT,
                       { TC_ARG_BUF,  TC_ARG_INT, TC_ARG_END } },
+  // Float ABI test: fcall("fadd"/"fmul", a, b) -> float. Floats cross as bits.
+  { NAME_FADD,        (void *)blib_fadd,         2, TC_RET_FLOAT,
+                      { TC_ARG_FLOAT, TC_ARG_FLOAT, TC_ARG_END } },
+  { NAME_FMUL,        (void *)blib_fmul,         2, TC_RET_FLOAT,
+                      { TC_ARG_FLOAT, TC_ARG_FLOAT, TC_ARG_END } },
   // Sentinel — name == NULL marks end of list.
   { NULL, NULL, 0, 0, { 0 } }
 };

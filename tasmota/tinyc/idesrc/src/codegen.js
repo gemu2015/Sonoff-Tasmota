@@ -192,6 +192,12 @@ const BUILTINS = {
     'bcall':                { syscall: Syscall.BLIB_CALL,             args: 3, returns: true,
                               constArgs: [0], strArgs: [1] },
 
+    // Float binary-library call: fcall("name", a, b) -> float. Name is a const
+    // string; the two args are pushed as float bits and the result is a float.
+    // Verifies the bit-int float ABI in the TinyC->plugin (blib) direction.
+    'fcall':                { syscall: Syscall.BLIB_CALL_F,           args: 3, returns: true,
+                              returnFloat: true, constArgs: [0], floatArgs: [1, 2] },
+
     // TWAI / CAN-bus syscalls.
     'twaiBegin':            { syscall: Syscall.TWAI_BEGIN,             args: 4, returns: true },
     'twaiEnd':              { syscall: Syscall.TWAI_END,               args: 0, returns: false },

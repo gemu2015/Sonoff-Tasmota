@@ -3703,6 +3703,20 @@ export class VM {
                 this.push(-1);
                 break;
             }
+            case Syscall.BLIB_CALL_F: { // fcall("name", a, b) -> float
+                const b        = this.popf();
+                const a        = this.popf();
+                const name_ci  = this.pop();
+                const name     = (this.consts && this.consts[name_ci]) || '?';
+                // Host has no blib registry; emulate the test exports so the IDE
+                // 'Run' shows the expected float (the real call runs on-device).
+                let r = 0;
+                if (name === 'fadd') r = a + b;
+                else if (name === 'fmul') r = a * b;
+                this.onOutput(`[BLIB] fcall("${name}", ${a}, ${b}) — simulator stub -> ${r}\n`);
+                this.pushf(r);
+                break;
+            }
             case Syscall.TWAI_BEGIN: { // twaiBegin(rx, tx, kbps, mode) -> int
                 const mode    = this.pop();
                 const kbps    = this.pop();

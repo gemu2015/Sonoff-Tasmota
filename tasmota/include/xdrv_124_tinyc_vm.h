@@ -291,7 +291,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     1
+#define TC_SYSCALL_ABI     2     // V2: + SYS_BLIB_CALL_F (371, fcall float blib call) — pure append; bumped to flag fcall .tcb built against pre-fcall firmware
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
 // maintained; got stuck at "v1.3.20" through 5 releases until Andreas's
@@ -784,6 +784,19 @@ enum TcSyscall {
                                   //   int32 slot) into a contiguous uint8_t before the
                                   //   call. Stack-allocated up to 256 B; larger frames
                                   //   malloc briefly.
+  SYS_BLIB_CALL_F           = 371, // fcall("name", float a, float b) -> float
+                                  //   Float blib call. Requires argc==2,
+                                  //   arg_types == { TC_ARG_FLOAT, TC_ARG_FLOAT },
+                                  //   ret_type == TC_RET_FLOAT. The two float args
+                                  //   and the result cross as raw 32-bit BITS in
+                                  //   integer registers (the soft-float _32r plugin
+                                  //   ABI) — so on the hard-float P4 the call is
+                                  //   issued via an int(int,int) cast to keep the
+                                  //   bits out of fa0/fa1. This is the TinyC->plugin
+                                  //   analog of the PFB float-bits jumptable wrappers,
+                                  //   and the end-to-end check that float passing works.
+                                  //   Returns: result float bits; 0 (0.0f) on
+                                  //   unknown name / signature mismatch / no BinPlugins.
 
   // ────────────────────────── TWAI / CAN-bus (380..386) ─────────────────
   // ESP32-only (gated on SOC_TWAI_SUPPORTED at the dispatcher site).
@@ -13221,6 +13234,43 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 #endif  // USE_BINPLUGINS — closes the #ifndef branch's split case
+
+    case SYS_BLIB_CALL_F: {  // fcall("name", a, b) -> float (float args/ret as bits)
+      // Pop reverse-push order: b, a, name. The two args are float BITS on the
+      // TinyC stack (the compiler pushed them via floatArgs).
+      int32_t b_bits  = TC_POP(vm);
+      int32_t a_bits  = TC_POP(vm);
+      int32_t name_ci = TC_POP(vm);
+#ifndef USE_BINPLUGINS
+      (void)b_bits; (void)a_bits; (void)name_ci;
+      TC_PUSH(vm, 0);                 // 0.0f bits — BinPlugins not in this build
+      break;
+    }
+#else
+      const char *name = tc_get_const_str(vm, name_ci);
+      if (!name) { TC_PUSH(vm, 0); break; }
+      TC_BLIB_REG_ENTRY *r = tc_blib_lookup(name);
+      if (!r) { TC_PUSH(vm, 0); break; }
+      // Require the (FLOAT, FLOAT) -> FLOAT shape.
+      if (r->argc != 2 ||
+          r->arg_types[0] != TC_ARG_FLOAT ||
+          r->arg_types[1] != TC_ARG_FLOAT ||
+          r->ret_type != TC_RET_FLOAT) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+      // Issue via an INTEGER-ABI cast so the two float args travel as raw bits
+      // in a0/a1 and the result returns as bits in a0 — exactly what the
+      // soft-float _32r plugin expects. On the hard-float P4 VM this keeps the
+      // bits out of fa0/fa1 (the mirror of the PFB jumptable wrappers, which do
+      // the same for the plugin->firmware direction). The stack already holds
+      // float bits, so no i2f/f2i is needed on this path.
+      typedef int32_t (*tc_blib_ff_f_fn)(int32_t, int32_t);
+      int32_t ret_bits = ((tc_blib_ff_f_fn)r->fn)(a_bits, b_bits);
+      TC_PUSH(vm, ret_bits);          // float bits; compiler tagged fcall returnFloat
+      break;
+    }
+#endif  // USE_BINPLUGINS
 
     // ── TWAI / CAN-bus syscalls (380..386) ────────────
     // ESP32-only with TWAI peripheral. ESP8266 + ESP32 variants without

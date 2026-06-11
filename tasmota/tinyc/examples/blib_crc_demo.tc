@@ -45,5 +45,21 @@ void EverySecond() {
 
 int main() {
     addLog("blib_crc_demo: every second exercises the bcall syscall");
+
+    // One-shot float ABI check (fcall): the two float args travel to the plugin
+    // as raw bits, the plugin does the math, the float returns. On the hard-float
+    // P4 this is the end-to-end proof that bit-int float passing works in the
+    // TinyC->plugin direction. Scale to millis + integer-compare so the verdict
+    // doesn't depend on %f formatting. Expect fadd(2.5,0.25)=2.75, fmul(1.5,4)=6.
+    float fa = fcall("fadd", 2.5, 0.25);
+    float fm = fcall("fmul", 1.5, 4.0);
+    int ia = fa * 1000.0;   // 2750 if the float survived the round trip
+    int im = fm * 1000.0;   // 6000
+    if (ia == 2750 && im == 6000) {
+        addLog("blib fcall FLOAT ABI: PASS (fadd=2.75, fmul=6.0)");
+    } else {
+        sprintf(msg, "blib fcall FLOAT ABI: FAIL ia=%d im=%d (expect 2750/6000)", ia, im);
+        addLog(msg);
+    }
     return 0;
 }
