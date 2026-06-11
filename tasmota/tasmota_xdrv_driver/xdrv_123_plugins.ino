@@ -598,8 +598,15 @@ void     WSContentSend_THD_bits(const char* s, uint32_t t, uint32_t h) { WSConte
 void     WSContentSend_Temp_bits(const char* s, uint32_t v)    { WSContentSend_Temp(s, pfb_u2f(v)); }                       // jt[105] void(const char*,float)
 void     TempHumDewShow_bits(bool j, bool p, const char* t, uint32_t tm, uint32_t hm) { TempHumDewShow(j, p, t, pfb_u2f(tm), pfb_u2f(hm)); } // jt[34]  void(...)
 
+// The Arduino .ino->.cpp prototype generator re-emits this macro region (it rewrites
+// `fn##_bits` -> `fn ##_bits`) and ends up presenting BOTH branch defines to the
+// compiler -> "'PFB' redefined". The structure here is a clean #ifdef/#else, so it's
+// a builder artifact, not a logic bug; `#undef PFB` before each define makes the
+// (re)definition idempotent so no warning fires either way.
+#undef  PFB
 #define PFB(fn) fn##_bits     // jumptable: float entry -> bit-int wrapper
-#else  // !USE_PLUGIN_FLOAT_BITS — exactly one PFB define (no #ifndef that a stray pre-define could defeat)
+#else  // !USE_PLUGIN_FLOAT_BITS
+#undef  PFB
 #define PFB(fn) fn            // flag off: jumptable uses the native float fn
 #endif  // USE_PLUGIN_FLOAT_BITS
 
