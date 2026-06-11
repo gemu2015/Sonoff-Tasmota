@@ -1,0 +1,58 @@
+// ─────────────────────────────────────────────────────────────────────
+// hourly_chime.tc — play a sound file at the top of every full hour
+//
+// On an audio-capable board (e.g. ESP32-P4 with an ES8311 codec) this
+// plays /Glass.mp3 through the I2S speaker once per hour, on the hour.
+//
+// Pure time-trigger demo: EverySecond watches tasm_hour for a change
+// and, on a genuine hour transition, fires the Tasmota `I2SPlay`
+// command via tasmCmd(). I2SPlay returns immediately (playback runs on
+// the audio task), so the VM is never blocked.
+//
+// The sound file must already be on the device filesystem — Tasmota
+// audio builds ship a handful (/Glass.mp3, /Ping.mp3, /Startup.mp3, …);
+// upload your own via the file manager and change CHIME below.
+//
+// Console: `CHIMETEST` plays the sound immediately, to verify audio.
+// ─────────────────────────────────────────────────────────────────────
+
+int  last_hour = -1;       // hour-change edge detector
+char chime_resp[48];       // tasmCmd response scratch
+
+// One place to change the played command/file.
+void play_chime() {
+    tasmCmd("I2SPlay /Glass.mp3", chime_resp);
+}
+
+void EverySecond() {
+    // Wait until NTP has set the clock — otherwise tasm_hour is bogus at
+    // boot and the chime would fire spuriously.
+    if (tasm_year < 2025) return;
+
+    int hr = tasm_hour;
+    if (hr != last_hour) {
+        // Chime only on a genuine hour transition, not the first hour
+        // read after boot (last_hour == -1).
+        if (last_hour >= 0) {
+            play_chime();
+            addLog("CHIME: full hour %02d:00 -> /Glass.mp3", hr);
+        }
+        last_hour = hr;
+    }
+}
+
+// Console command prefix CHIME — `CHIMETEST` plays the sound now.
+void Command(char cmd[]) {
+    if (strcmp(cmd, "TEST") == 0) {
+        play_chime();
+        responseCmnd("CHIME: played /Glass.mp3");
+    } else {
+        responseCmnd("CHIME: TEST");
+    }
+}
+
+int main() {
+    addLog("CHIME: hourly chime started");
+    addCommand("CHIME");       // CHIMETEST — play now
+    return 0;
+}
