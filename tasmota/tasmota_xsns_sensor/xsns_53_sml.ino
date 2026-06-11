@@ -1119,7 +1119,7 @@ void dump2log(void) {
             	// new packet, plot last one
             	sml_globs.log_data[sml_globs.sml_logindex] = 0;
             	AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
-            	strlcpy(sml_globs.log_data, ": aa ", sizeof(sml_globs.log_data));
+            	strlcpy(sml_globs.log_data, ": aa ", sml_globs.logsize);   // log_data is a char* — sizeof() would be the pointer size (4) and truncate ": aa "->": a"
             	sml_globs.sml_logindex = 5;
           	}
           	continue;
@@ -1656,10 +1656,47 @@ void sml_empty_receiver(uint32_t meters) {
 
 void SML_Decode(uint8_t index);
 
+#ifdef USE_SML_EBUS_ARB
+// sensor53 d<n> raw-sniff for an arb (soF) eBUS meter. In arb mode the onReceive
+// RX-event task is the SOLE UART reader (see the comment at Eba_RxTask below), so
+// dump2log()'s SML_SAVAILABLE path — driven from SML_Poll on the main task — sees an
+// empty buffer and prints nothing: the wire is invisible exactly when you most want it
+// (Andreas, .104, d1 blind since soF). ebus_feed_byte() is the single choke point every
+// arb byte passes through, INCLUDING frames the CRC gate later discards (the broken /
+// escape / arbitration-remnant bytes an ebusd `grab` never shows), so mirror each raw
+// byte into the dump log here. Same per-telegram ": aa <hex>" format as dump2log()'s
+// case 'e', flushed on the SYNC (telegram) boundary. Runs on the RX-event task — same
+// task that already AddLog()s the "ebus crc error" line, so the logging path is proven.
+void ebus_dump_arb_byte(uint8_t iob) {
+  if (!sml_globs.log_data) return;
+  if (iob == EBUS_SYNC) {
+    if (sml_globs.sml_logindex > 5) {          // a telegram accumulated -> emit it
+      sml_globs.log_data[sml_globs.sml_logindex] = 0;
+      AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+    }
+    strlcpy(sml_globs.log_data, ": aa ", sml_globs.logsize);   // restart the line on the SYNC
+    sml_globs.sml_logindex = 5;
+    return;
+  }
+  if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
+    sprintf_P(&sml_globs.log_data[sml_globs.sml_logindex], PSTR("%02x "), iob);
+    sml_globs.sml_logindex += 3;
+  }
+}
+#endif // USE_SML_EBUS_ARB
+
 // Passive eBUS frame accumulator (refactored out of case 'e' so the enhanced-protocol
 // de-framer can feed it too). Returns 1 when iob was a SYNC (frame boundary), else 0.
 uint8_t ebus_feed_byte(uint32_t meters, uint8_t iob) {
   struct METER_DESC *mp = &meter_desc[meters];
+#ifdef USE_SML_EBUS_ARB
+  // d<n> raw-sniff: in arb mode dump2log() is blind (event task is the sole UART reader),
+  // so dump the wire from this choke point instead. Gated on ebm_arb so a normal passive
+  // 'e' meter's dump stays with dump2log() (byte-identical, no double-dump).
+  if (mp->ebm_arb && sml_globs.dump2log && (uint8_t)(sml_globs.dump2log & 7) == meters + 1) {
+    ebus_dump_arb_byte(iob);
+  }
+#endif
   if (iob == EBUS_SYNC) {
     // should be end of telegram: QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
     if (mp->spos > 5 && mp->spos > mp->sbuff[4] + 5) {

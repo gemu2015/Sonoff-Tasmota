@@ -189,3 +189,19 @@ retries, no bus crash" = exactly `Eba_OnSymbol`).
   rule is reads are the goal; the clock harness already proved the write encoder).
 - S3/C6 arbitration (different TX-lead constant) — C3 is Andreas's target.
 - The `soE` enhanced-client path stays for a hypothetical enhanced adapter; `soR` stays for the harness.
+
+## 8. Diagnostics: `sensor53 d<n>` raw-sniff in soF/arb mode
+In arb (`soF`) mode the `onReceive` RX-event task is the **sole** UART reader (draining in
+`SML_Poll` too would double-consume bus symbols and wreck arbitration timing). `dump2log()` runs on
+the main task and reads via `SML_SAVAILABLE`, so on an arb meter it sees an **empty buffer and prints
+nothing** — `d1` looked dead from 30.05 (the `soF` date) onward (Andreas, .104, 11.06). It is **not**
+a defect: an ebusd `grab` on the bus is a partial substitute (it only shows complete CRC-valid
+telegrams — never the broken frames, discarded-CRC cases, escape raw-bytes or arbitration remnants you
+want when debugging the gate/decode), and it needs an ebusd on the same bus.
+**Fixed:** `ebus_feed_byte()` is the single choke point every arb byte passes through (incl. everything
+the CRC gate later rejects), so `ebus_dump_arb_byte()` mirrors each raw byte into the dump log from
+there — gated on `mp->ebm_arb` so a normal passive `'e'` meter still dumps via `dump2log()` unchanged.
+Output is the same per-telegram `": aa <hex>"` format, flushed on the SYNC boundary. So `sensor53 d1`
+shows the wire again in arb mode. (Also fixed in passing: the `": aa "` prefix reset used
+`sizeof(log_data)` — but `log_data` is a `char*`, so `sizeof` is the pointer size (4) and `strlcpy`
+truncated it to `": a"`; now bounded by the real `logsize`.)
