@@ -3701,6 +3701,128 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-plugin pin-config sidecar  /<MODNAME>.cfg  (CSV "field,value")
+// ---------------------------------------------------------------------------
+// The pin/selector values live in the plugin's flash header (ms[]), which is
+// overwritten on every re-upload — so the user had to re-enter pins after each
+// plugin update. These sidecar files live on the FS and survive both plugin
+// re-upload AND firmware reflash: ship a /<MODNAME>.cfg and the user never has
+// to set pins. Loaded at Init_module; rewritten on any /modu pin change so the
+// file always mirrors the live config. Generic — works for every plugin.
+//
+// Names are read from a RAM copy of the header: byte access to the INST-mmap'd
+// flash can fault (same reason Module_mdir copies first).
+
+#ifdef USE_UFILESYS
+
+// No FLASH_MODULE in any signature here: the .ino auto-prototype generator
+// emits prototypes at the top of the TU, before module_defines.h defines the
+// type. So FLASH_MODULE stays a local cast of the RAM buffer.
+//
+// Read the module's flash header sector into buff (>= one sector); false if not
+// a valid module. Names are then read from this RAM copy (byte access to the
+// INST-mmap'd flash can fault, same reason Module_mdir copies first).
+static bool Plugin_ReadHeader(uint32_t module, uint8_t *buff) {
+  if (module >= MAX_PLUGINS || !modules[module].mod_addr) { return false; }
+#ifdef ESP32
+  uint32_t offset = (uint32_t)modules[module].mod_addr - plugins.free_flash_start;
+  if (esp_partition_read(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE) != ESP_OK) { return false; }
+#endif
+#ifdef ESP8266
+  ESP.flashRead((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+#endif
+  return (((FLASH_MODULE*)buff)->sync == MODULE_SYNC);
+}
+
+// Build "/<MODNAME>.cfg" from the 16-byte module name (passed from a RAM copy).
+static void Plugin_CfgPath(const char *modname, char *path, uint32_t plen) {
+  char name[18];
+  memcpy(name, modname, 16);
+  name[16] = 0;
+  for (char *p = name; *p; p++) {              // stop at first non-printable (defensive)
+    if ((uint8_t)*p < 33 || (uint8_t)*p > 126) { *p = 0; break; }
+  }
+  snprintf(path, plen, "/%s.cfg", name);
+}
+
+// Write the live pin/selector values to /<MODNAME>.cfg as "field,value" CSV.
+void Plugin_SavePinCfg(uint32_t module, uint32_t *vals) {
+  if (module >= MAX_PLUGINS || !modules[module].mod_addr || !ffsp) { return; }
+  uint8_t *buff = (uint8_t *)calloc(SPI_FLASH_SEC_SIZE, 1);
+  if (!buff) { return; }
+  if (Plugin_ReadHeader(module, buff)) {
+    FLASH_MODULE *fm = (FLASH_MODULE*)buff;       // RAM copy — safe byte access
+    uint32_t num = fm->arch & 0xff000000;
+    num = num ? (((num >> 24) > 16) ? 16 : (num >> 24)) : MAX_MOD_STORES;
+    char path[24];
+    Plugin_CfgPath(fm->name, path, sizeof(path));
+    File f = ffsp->open(path, "w");
+    if (f) {
+      char nm[10];
+      memcpy(nm, fm->name, 8); nm[8] = 0;
+      f.printf("# %s pins (field,value) - delete to reset to plugin defaults\n", nm);
+      for (uint32_t i = 0; i < num; i++) {
+        memcpy(nm, fm->ms[i].name, 8); nm[8] = 0;
+        if (nm[0]) { f.printf("%s,%d\n", nm, (int32_t)vals[i]); }
+      }
+      f.close();
+      AddLog(LOG_LEVEL_INFO, PSTR("Plugin: pin config saved %s"), path);
+    }
+  }
+  free(buff);
+}
+
+// If /<MODNAME>.cfg exists, apply its values (matched by field name) to the
+// module header. Only writes flash when something actually differs. Runs inside
+// Init_module (module not yet initialized) so the Update_Module_Data below never
+// re-enters Init_module. Returns true if the header was updated.
+bool Plugin_LoadPinCfg(uint32_t module) {
+  if (module >= MAX_PLUGINS || !modules[module].mod_addr || !ffsp) { return false; }
+  uint8_t *buff = (uint8_t *)calloc(SPI_FLASH_SEC_SIZE, 1);
+  if (!buff) { return false; }
+  bool changed = false;
+  if (Plugin_ReadHeader(module, buff)) {
+    FLASH_MODULE *fm = (FLASH_MODULE*)buff;       // RAM copy — safe byte access
+    uint32_t num = fm->arch & 0xff000000;
+    num = num ? (((num >> 24) > 16) ? 16 : (num >> 24)) : MAX_MOD_STORES;
+    char path[24];
+    Plugin_CfgPath(fm->name, path, sizeof(path));
+    File f = ffsp->open(path, "r");
+    if (f) {
+      uint32_t cur[16], want[16];
+      for (uint32_t i = 0; i < num; i++) { cur[i] = want[i] = fm->ms[i].value; }
+      while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (!line.length() || line[0] == '#') { continue; }
+        int comma = line.indexOf(',');
+        if (comma < 1) { continue; }
+        String fn = line.substring(0, comma); fn.trim();
+        int32_t val = (int32_t)line.substring(comma + 1).toInt();
+        char nm[10];
+        for (uint32_t i = 0; i < num; i++) {
+          memcpy(nm, fm->ms[i].name, 8); nm[8] = 0;
+          if (nm[0] && fn.equals(nm)) { want[i] = (uint32_t)val; break; }
+        }
+      }
+      f.close();
+      if (memcmp(cur, want, num * sizeof(uint32_t)) != 0) {
+        Update_Module_Data(module, want);
+        AddLog(LOG_LEVEL_INFO, PSTR("Plugin: pin config applied %s"), path);
+        changed = true;
+      }
+    }
+  }
+  free(buff);
+  return changed;
+}
+
+#else
+void Plugin_SavePinCfg(uint32_t module, uint32_t *vals) {}
+bool Plugin_LoadPinCfg(uint32_t module) { return false; }
+#endif // USE_UFILESYS
+
 // link 1 module from file
 void Module_link(void) {
   uint8_t *fdesc = 0;
@@ -3905,6 +4027,11 @@ static void tc_blib_register_module(uint8_t module_idx) {
 int32_t Init_module(uint32_t module) {
   if (module >= MAX_PLUGINS) return 0;   // SECURITY: bound web-supplied index
   if (modules[module].mod_addr && !modules[module].flags.initialized) {
+    // Restore pins from /<MODNAME>.cfg (if present) before the plugin inits, so
+    // a re-uploaded plugin keeps its pins without the user re-entering them.
+    // Safe from re-entrancy: we're inside the !initialized gate, so the
+    // Update_Module_Data it may call won't loop back into Init_module.
+    Plugin_LoadPinCfg(module);
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     uint32_t mtv = fm->mtv;
     uint32_t jtab = fm->jtab;
@@ -4623,12 +4750,22 @@ void Modul_Check_HTML_Setvars(void) {
       // should better update values on closing menu
       uint32_t vals[16];
       Read_Module_Data(mind, vals);
+      bool pin_changed = false;
       if (pinn < 16) {                       // SECURITY: bound web 'sv' index into vals[16] (was OOB stack r/w for pinn 16..255)
         uint32_t old = vals[pinn] & 0xff;
-        vals[pinn] = (vals[pinn] & 0xffffff00) | pind;
+        if (old != (uint32_t)pind) {         // only touch flash when the pin actually changed
+          vals[pinn] = (vals[pinn] & 0xffffff00) | pind;
+          pin_changed = true;
+        }
       }
-      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
-      Update_Module_Data(mind, vals);
+      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d -> %d"), mind, pinn, pind);
+      if (pin_changed) {
+        // Persist the new pins to /<MODNAME>.cfg FIRST, so the re-init that
+        // Update_Module_Data triggers reloads a matching cfg (no clobber loop).
+        // Both writes (cfg file + plugin header) are skipped on a no-op select.
+        Plugin_SavePinCfg(mind, vals);
+        Update_Module_Data(mind, vals);
+      }
     }
     else if (!strncmp(cp, "auto", 4)) {
       // autostart checkbox in the plugin-menu header: flip the Option_A7 flag
