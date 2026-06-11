@@ -3944,6 +3944,16 @@ int32_t Init_module(uint32_t module) {
           AddLog(LOG_LEVEL_INFO, PSTR("part update"));
           fm->mtv = (uint32_t)&modules[module];
           fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
+          // The plugin's flash-MMU mmap address changed (firmware-size change), so
+          // coffs != the stored execution_offset. mtv/jtab alone is NOT enough: the
+          // dispatch entry mod_func_execute and execution_offset must be re-derived
+          // too, exactly like the ESP8266 branch above and the initial-store branch.
+          // Without this, mod_func_execute(FUNC_INIT) jumps to the OLD mapping
+          // (illegal instruction) and exoffs!=coffs stays true so the re-link
+          // re-fires every boot instead of converging.
+          fm->execution_offset = coffs;
+          uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
+          *lp = (uint32_t)fm->mod_func_execute_org + coffs;
           err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
           err = esp_partition_write(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
         }
