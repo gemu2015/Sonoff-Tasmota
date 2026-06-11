@@ -66,6 +66,7 @@ codec settings access
 #include "Audio/es8156/src/audio_hal.h"
 #include "Audio/es8156/src/es8156.h"
 #include "Audio/es7243e/src/es7243e.h"
+#include "Audio/es8311/src/es8311.h"
 int32_t pW8960_Init();
 #endif
 
@@ -307,7 +308,7 @@ typedef struct {
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000201,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
+MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000301,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -667,7 +668,7 @@ int32_t I2SAudio_Init() {
         return -2;
       }
       break;
-    case 2: 
+    case 2:
       if (pes8156_codec_init(AUDIO_HAL_MODE_SLAVE, AUDIO_HAL_BIT_LENGTH_16BITS, &codec_bus) < 0) {
         I2SAudio_Deinit();
         AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
@@ -679,6 +680,14 @@ int32_t I2SAudio_Init() {
         AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
         return -2;
       }
+      break;
+    case 3:   // ES8311 DAC (e.g. ESP32-P4 Nano, codec on I2C bus 1 @ 0x18)
+      if (pes8311_codec_init(AUDIO_HAL_MODE_SLAVE, AUDIO_HAL_BIT_LENGTH_16BITS, &codec_bus) < 0) {
+        I2SAudio_Deinit();
+        AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
+        return -2;
+      }
+      pes8311_codec_set_voice_volume(75);
       break;
   }
 #endif
@@ -1319,6 +1328,13 @@ SETREGS
         make_mono(packet_buffer, bytes_read);
         i2sp.dlen = bytes_read;
         i2s_write_samples_t(&i2sp);
+      } else {
+        // No RX data — or no RX channel at all (DIN/mic pin not configured, so
+        // i2s_channel_read returns ESP_ERR_INVALID_ARG immediately). Without this
+        // yield the loopback busy-spins at prio 3 pinned to core 1 and starves the
+        // core into a watchdog hang. The non-loopback READ branch below already
+        // delays on empty; mirror it here so a missing mic pin can't hang the device.
+        delay(1);
       }
     } else {
       if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
@@ -1868,6 +1884,7 @@ void I2sTaskMP3(void) {
 #include "Audio/WM8960/p_wm8960_c.h"
 #include "Audio/es8156/src/p_es8156_c.h"
 #include "Audio/es7243e/src/p_es7243e_c.h"
+#include "Audio/es8311/src/p_es8311_c.h"
 #endif
 
 #ifdef USE_SAY
@@ -2868,6 +2885,9 @@ void I2SAudio_Deinit() {
     case 2:
       I2cResetActive(ES8156_ADDR, codec_bus);
       I2cResetActive(ES7243_ADDR, codec_bus);
+      break;
+    case 3:
+      I2cResetActive(ES8311_ADDR, codec_bus);
       break;
   }
 #endif
