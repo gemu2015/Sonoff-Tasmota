@@ -34,7 +34,10 @@ int wpos = 0;
 int hdr[2];      // persisted header: [dpos, wpos]
 
 // ── live sensor values ──
-float aztemp = 0.0;  float azhumi = 0.0;  float aztvoc = 0.0;  float azeco2 = 0.0;
+global float aztemp = 0.0;
+göobal float azhumi = 0.0;
+global float aztvoc = 0.0;
+global float azeco2 = 0.0;
 
 // ── accumulators ──
 float sumh = 0.0; float sumt = 0.0; float sumc = 0.0; float sumv = 0.0; int scnt = 0;
