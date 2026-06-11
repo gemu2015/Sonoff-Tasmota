@@ -3744,7 +3744,7 @@ static int32_t tc_sprintf_float(char *out, int outSize, const char *fmt, float f
 
 // Forward declarations (defined after tc_vm_load)
 static void tc_persist_save(TcVM *vm);
-static void tc_persist_load(TcVM *vm);
+static void tc_persist_load(TcVM *vm, bool heap_phase);
 static uint32_t tc_persist_layout_hash(TcVM *vm);  // fwd: used by SYS_PERSIST_DUMP, defined later
 
 /*********************************************************************************************\
@@ -14976,7 +14976,17 @@ static void tc_persist_demote(TcVM *vm) {
 #endif
 }
 
-static void tc_persist_load(TcVM *vm) {
+// TWO-PHASE load. heap_phase=false (phase 0, called pre-main right after tc_vm_load):
+// restore GLOBAL persist vars and rotate the file on a layout/legacy mismatch.
+// heap_phase=true (phase 1, called from tc_vm_task the moment main() returns):
+// restore HEAP persist arrays (idx 0x8000|handle). The heap entries CANNOT load in
+// phase 0 because the program allocates those arrays IN main(), so the heap handle
+// isn't alive yet (tc_persist load's alive-check below dropped them silently) — which
+// left any heap-persist array (e.g. a charted history buffer) reset to 0 on every
+// restart, even though it was saved fine. Phase 1 re-reads the same .pvs and applies
+// only the heap entries, now that the arrays exist. Phase 1 never rotates (phase 0
+// already did, if the layout changed).
+static void tc_persist_load(TcVM *vm, bool heap_phase) {
   if (vm->persist_count == 0 || vm->persist_file[0] == '\0') return;
 #ifdef USE_UFILESYS
   File f;
@@ -14996,19 +15006,23 @@ static void tc_persist_load(TcVM *vm) {
   if (buf[2] != 'H') {
     // Legacy format (pre-layout-hash) — raw indexes can't be safely mapped
     // across layout changes. Discard rather than risk corrupting state.
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: legacy persist file — rotating %s"), vm->persist_file);
+    if (!heap_phase) {   // only phase 0 rotates; phase 1 bails (already handled)
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: legacy persist file — rotating %s"), vm->persist_file);
+      tc_persist_demote(vm);
+    }
     free(buf);
-    tc_persist_demote(vm);
     return;
   }
   uint32_t stored_hash = (uint32_t)buf[3] | ((uint32_t)buf[4] << 8)
                        | ((uint32_t)buf[5] << 16) | ((uint32_t)buf[6] << 24);
   uint32_t expected_hash = tc_persist_layout_hash(vm);
   if (stored_hash != expected_hash) {
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: persist layout changed (%08X->%08X) — rotating %s"),
-           stored_hash, expected_hash, vm->persist_file);
+    if (!heap_phase) {   // phase 0 rotates the stale file; phase 1 just bails
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: persist layout changed (%08X->%08X) — rotating %s"),
+             stored_hash, expected_hash, vm->persist_file);
+      tc_persist_demote(vm);
+    }
     free(buf);
-    tc_persist_demote(vm);
     return;
   }
   uint8_t count = buf[7];
@@ -15020,6 +15034,9 @@ static void tc_persist_load(TcVM *vm) {
     pos += 2;
     uint16_t slotCount = buf[pos] | (buf[pos + 1] << 8);
     pos += 2;
+    // Two-phase split: GLOBAL entries (no 0x8000 bit) load in phase 0; HEAP entries
+    // (idx 0x8000|handle) load in phase 1, once main() has allocated the arrays.
+    if (((idx & 0x8000) != 0) != heap_phase) { pos += slotCount * 4; continue; }
     // Find matching persist entry
     for (uint8_t j = 0; j < vm->persist_count; j++) {
       if (vm->persist[j].index == idx) {
@@ -15058,7 +15075,8 @@ static void tc_persist_load(TcVM *vm) {
   }
 
   free(buf);
-  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: persist loaded from %s"), vm->persist_file);
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: persist %s-loaded from %s"),
+         heap_phase ? "heap" : "vars", vm->persist_file);
 #endif
 }
 
@@ -16627,6 +16645,14 @@ static void tc_vm_task(void *param) {
 
   slot->main_done = true;   // Phase 1 (main) finished — unblocks the serial autoexec loader
 
+  // Phase-1 persist restore: main() has now allocated the program's heap arrays, so
+  // re-apply the heap-persist entries (idx 0x8000|handle) from the .pvs — the pre-main
+  // phase-0 load had to skip them (handle not alive yet), which silently reset any
+  // heap-persist array (e.g. a charted history buffer) to 0 on every restart. Globals
+  // were already restored in phase 0. Only when main() halted cleanly (a crash/abort
+  // leaves the heap state suspect).
+  if (vm->halted && vm->error == TC_OK) { tc_persist_load(vm, true); }
+
   // Cleanup after main() exits
   tc_free_all_frames(vm);
   tc_close_all_files();
@@ -16990,9 +17016,11 @@ static bool TinyCStartVM(TcSlot *s) {
   // for the dev loop: every script reload needs hardware re-init).
   s->boot_init_pending = true;
 
-  // Set persist filename and load saved values
+  // Set persist filename and load saved values (phase 0: globals; heap-persist
+  // arrays aren't allocated until main() runs, so they're restored in phase 1 —
+  // tc_persist_load(vm,true) right after main_done in tc_vm_task).
   TinyCSetPersistFile(s, s->filename);
-  tc_persist_load(&s->vm);
+  tc_persist_load(&s->vm, false);
 
   // Register UDP global variables (V5: auto-update from packets)
   if (s->vm.udp_global_count > 0) {
