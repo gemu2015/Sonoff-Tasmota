@@ -1680,11 +1680,19 @@ uint8_t ebus_feed_byte(uint32_t meters, uint8_t iob) {
         wcrc = (mp->sbuff[tlen] == EBUS_ESC && tlen + 1 < mp->spos)
                ? (uint8_t)(EBUS_ESC + mp->sbuff[tlen + 1]) : mp->sbuff[tlen];
       }
-      if (tlen < mp->spos && wcrc == ebus_CalculateCRC(mp->sbuff, tlen)) {
+      uint8_t ccrc = (tlen < mp->spos) ? ebus_CalculateCRC(mp->sbuff, tlen) : 0xff;
+      if (tlen < mp->spos && wcrc == ccrc) {
         ebus_esc(mp->sbuff, mp->spos);
         SML_Decode(meters);
       } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("ebus crc error"));
+        // Enriched so a reject can be pinned to one telegram (Andreas eBUS debugging):
+        // QQ ZZ PB SB + NN, where the master CRC was read (tlen) vs the buffer end
+        // (spos), and the wire-CRC (de-escaped) vs the computed CRC. If a telegram a
+        // descriptor expects NEVER shows up here, its master CRC passed and the value
+        // is decoded — so a still-zero slot is then a descriptor/offset issue, not CRC.
+        AddLog(LOG_LEVEL_INFO, PSTR("ebus crc error QQ=%02x ZZ=%02x PB=%02x SB=%02x NN=%u tlen=%u spos=%u wcrc=%02x calc=%02x"),
+               mp->sbuff[0], mp->sbuff[1], mp->sbuff[2], mp->sbuff[3], mp->sbuff[4],
+               tlen, mp->spos, wcrc, ccrc);
       }
     }
 #ifdef USE_SML_EBUS_MASTER
@@ -3429,7 +3437,15 @@ void SML_Show(boolean json) {
   char name[24];
   char unit[8];
   char jname[24];
-  int8_t index = 0, mid = 0;
+  // index walks one decode line per loop up to maxvars-1 (line ~3605). maxvars is
+  // uint8_t (up to 255), so an int8_t index overflows to -128 at the 128th line and
+  // meter_vars[index]/dvalid[index] become wild OOB reads; the garbage double then
+  // overflows tpowstr[32] in DOUBLE2CHAR, smashing the return address with ASCII
+  // digits -> "Instruction access fault EPC=30303030". Andreas hit this at 131 lines
+  // (118/124 fine, 131 crash — the 128 cliff). uint16_t can address the full uint8_t
+  // maxvars range with margin.
+  uint16_t index = 0;
+  int8_t mid = 0;
   char *mp = (char*)sml_globs.meter_p;
   char *cp, nojson = 0;
   bool group_open = false;
@@ -4266,6 +4282,11 @@ void SML_Init(void) {
           sml_globs.script_meter = (uint8_t*)calloc(mlen, 1);
 					memory += mlen;
           if (!sml_globs.script_meter) {
+            // Loud-fail: a `sensor53 r` live reload on a fragmented heap can't grab
+            // this (multi-KB) buffer and used to bail SILENTLY -> "meters: 0" with no
+            // clue (Andreas: 131-line def reload n=0 at 69 KB heap, fresh boot fine).
+            AddLog(LOG_LEVEL_INFO, PSTR("SML: meter def alloc failed (%u bytes, heap %u — too low/fragmented) — SML not started"),
+                   (unsigned)mlen, (unsigned)ESP_getFreeHeap());
             goto dddef_exit;
           }
           tp = sml_globs.script_meter;
@@ -4569,8 +4590,13 @@ next_line:
       mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
       // SECURITY: the entire RX path writes mp->sbuff[...] unconditionally; on a
       // failed alloc (likely on RAM-tight ESP8266 with a large sbsiz) that's a
-      // NULL deref. Disable the meter rather than crash.
-      if (!mp->sbuff) { mp->type = 0; mp->sbsiz = 0; continue; }
+      // NULL deref. Disable the meter rather than crash — but say so (used to be a
+      // silent continue -> a meter just vanished from the output with no clue).
+      if (!mp->sbuff) {
+        AddLog(LOG_LEVEL_INFO, PSTR("SML: meter %u sbuff alloc failed (%u bytes) — meter disabled"),
+               (unsigned)meters, (unsigned)mp->sbsiz);
+        mp->type = 0; mp->sbsiz = 0; continue;
+      }
 			memory += mp->sbsiz;
     }
   }
