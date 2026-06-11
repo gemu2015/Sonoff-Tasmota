@@ -90,19 +90,34 @@ global float hp_out = 0.0;     // Ausgangstemp / supply water (°C, r191)
 global float hp_at  = 0.0;     // HP's own outside-air sensor (°C, r190)
 
 // ── Persist (snapshot at midnight, used to compute "today" deltas) ──
+// Scalar baselines, NOT chart data — scalar persist (.pvs) is reliable,
+// so these stay `persist`.
 persist float gas_m   = 0.0;
 persist float was_m   = 0.0;
 persist float hwp_m   = 0.0;
 persist float zrz_m   = 0.0;     // not float-y but kept for symmetry
 persist float auto_m  = 0.0;
 
+// ── Chart arrays — stored in a dedicated binary file, NOT in .pvs ───
+// The four rolling chart arrays below (dvals / days_w / days_t /
+// fast_h) and their ring cursors are persisted to
+// /energy_dashboard.bin via energy_dash_save()/energy_dash_load() —
+// the same fileWriteBin/fileReadBin approach the sml_chart family uses
+// (see sml_chart_common.tc). They are deliberately NOT `persist`:
+// heap-backed persist arrays proved unreliable across reboot and device
+// migration, so chart state lives in one self-contained file we load
+// explicitly in main() (after the arrays are allocated) and flush on
+// data-commit + teardown. Because the ring cursors travel in the file
+// header too, the whole chart history transfers by copying this single
+// file — no .pvs dependency.
+
 // 24h heat-pump kWh trace, 15-minute resolution. Plain ring buffer:
 // slot N = kWh consumed during 15-min window N. dvals_pos = current
 // write cursor (0..95). The Scripter version used dvals[0] as the
 // cursor and 1..96 as data; we use a separate scalar instead so the
 // array lays out cleanly for WebChart() consumption.
-persist float dvals[96];
-persist int   dvals_pos = 0;
+float dvals[96];
+int   dvals_pos = 0;
 
 // Display-only scratch — 24 hourly averages computed from dvals[]
 // for the "Heizungs-WP 24h" chart. Each entry is the sum of 4
@@ -116,13 +131,13 @@ float dvals_kw[24];
 float fast_h_kw[60];
 
 // 31-day historical: parallel arrays of (heat-pump kWh, average temp).
-persist float days_w[31];
-persist float days_t[31];
-persist int   days_pos  = 0;
+float days_w[31];
+float days_t[31];
+int   days_pos  = 0;
 
 // Per-minute heat-pump current trace (last 60 minutes).
-persist float fast_h[60];
-persist int   fast_pos  = 0;
+float fast_h[60];
+int   fast_pos  = 0;
 
 // Vattenfall meter offset captured 2023-09-01 — fixed reference,
 // never overwritten. Kept in source for a public example; if the
@@ -180,6 +195,70 @@ void log_evt(char msg[]) {
     sprintf(line, "%s\t%s\n", tsbuf, msg);
     fileWrite(h, line, strlen(line));
     fileClose(h);
+}
+
+// ── Chart-array persistence — dedicated binary file (NOT .pvs) ──────
+//
+// /energy_dashboard.bin layout (all int32 slots; floats bit-stored,
+// exactly as WebChart reads them back):
+//   [0..3]  header: magic, dvals_pos, days_pos, fast_pos
+//   [4..]   dvals[96], days_w[31], days_t[31], fast_h[60]
+//
+// energy_dash_load() runs once in main() after the arrays exist;
+// energy_dash_save() is called at each data-commit point (15-min slot,
+// midnight rollover, console fill/clear) and flushed on teardown.
+#define ED_MAGIC 0x45440001          // 'ED' + format version 1
+
+int ed_hdr[4];        // marshalling buffer for the file header
+int ed_dirty = 0;     // set on any chart-array change; gates teardown flush
+
+void energy_dash_save() {
+    int h = fileOpen("/energy_dashboard.bin", "w");
+    if (h < 0) { addLog("ENERGY: chart save fileOpen failed"); return; }
+    ed_hdr[0] = ED_MAGIC;
+    ed_hdr[1] = dvals_pos;
+    ed_hdr[2] = days_pos;
+    ed_hdr[3] = fast_pos;
+    fileWriteBin(h, ed_hdr, 4);
+    fileWriteBin(h, dvals,  96);
+    fileWriteBin(h, days_w, 31);
+    fileWriteBin(h, days_t, 31);
+    fileWriteBin(h, fast_h, 60);
+    fileClose(h);
+    ed_dirty = 0;     // file now matches the in-RAM arrays
+}
+
+void energy_dash_load() {
+    ed_dirty = 0;
+    int h = fileOpen("/energy_dashboard.bin", "r");
+    if (h < 0) return;            // no file yet — arrays stay zero
+    fileReadBin(h, ed_hdr, 4);
+    if (ed_hdr[0] != ED_MAGIC) {  // unknown/garbage file — ignore it
+        fileClose(h);
+        addLog("ENERGY: chart file bad magic, ignored");
+        return;
+    }
+    dvals_pos = ed_hdr[1];
+    days_pos  = ed_hdr[2];
+    fast_pos  = ed_hdr[3];
+    fileReadBin(h, dvals,  96);
+    fileReadBin(h, days_w, 31);
+    fileReadBin(h, days_t, 31);
+    fileReadBin(h, fast_h, 60);
+    fileClose(h);
+    addLog("ENERGY: chart arrays loaded from /energy_dashboard.bin");
+}
+
+// Flush chart data when this slot is going away so a post-boot load
+// never reads stale data. GUARDED by ed_dirty so a freshly-uploaded
+// .bin (import while the slot is STOPPED) is not clobbered by the
+// outgoing instance's teardown save — same rule as sml_chart_common.
+// => Always upload /energy_dashboard.bin while the slot is STOPPED.
+void CleanUp() {     // device Restart / OTA (FUNC_SAVE_BEFORE_RESTART)
+    if (ed_dirty) energy_dash_save();
+}
+void OnExit() {      // this slot stopped / re-run / unlinked
+    if (ed_dirty) energy_dash_save();
 }
 
 // One sensor section — two rows: a horizontal rule and a magenta
@@ -252,13 +331,15 @@ void EverySecond() {
             days_t[days_pos] = oavgt;
             days_pos = days_pos + 1;
             if (days_pos >= 31) days_pos = 0;
+            ed_dirty = 1;
 
             // Snapshot meter values so today-counters reset.
             was_m  = t_ws;
             hwp_m  = t_hwp;
             zrz_m  = zwzi;
             auto_m = t_wb;
-            saveVars();
+            energy_dash_save();   // 31-day arrays → /energy_dashboard.bin
+            saveVars();           // scalar baselines → .pvs
             log_evt("midnight rollover");
         }
         last_hour = hr;
@@ -288,7 +369,8 @@ void EverySecond() {
                 c_hwp = delta;
                 dvals[m15] = c_hwp;
                 dvals_pos  = m15;
-                saveVars();   // 15-min cadence is fine for flash wear
+                ed_dirty = 1;
+                energy_dash_save();   // 24h array → file (15-min cadence)
             }
             dsel = t_hwp;
         } else {
@@ -311,6 +393,7 @@ void EverySecond() {
         for (int i = 0; i < 59; i = i + 1) fast_h[i] = fast_h[i + 1];
         fast_h[59] = hwp;
         fast_pos = 60;     // sentinel — tells WebChart "render slots 0..59"
+        ed_dirty = 1;      // committed at the next 15-min save / teardown
         last_minute = mn;
     }
 }
@@ -531,7 +614,7 @@ void WebCall() {
 
     // Reload control — small in-row link instead of a full-width
     // button, less visually intrusive. Triggers location.reload() so
-    // WebPage() re-runs and the charts pick up fresh persist data.
+    // WebPage() re-runs and the charts pick up the latest array data.
     webSend("{s}{m}<a href='#' onclick='location.reload();return false;' style='color:#1fa3ec;'>↻ Charts aktualisieren</a>{e}");
 }
 
@@ -660,10 +743,10 @@ void WebPage() {
 //   DASHFILLALL    both
 //   DASHCLEAR      zero out all three preview arrays
 //
-// Each preset writes through the persist layer (saveVars()) so a
-// reload preserves the preview data — handy when iterating on chart
-// styles. Real readings overwrite the synthetic data on the next
-// 15-min boundary / midnight rollover.
+// Each preset writes the chart file (energy_dash_save()) so a reload
+// preserves the preview data — handy when iterating on chart styles.
+// Real readings overwrite the synthetic data on the next 15-min
+// boundary / midnight rollover.
 //
 // Why register these instead of auto-firing in main(): main() runs
 // on every boot. Auto-fill would clobber real accumulated data if
@@ -685,7 +768,7 @@ void Command(char cmd[]) {
             dvals[i] = 0.3 + morn + even;
         }
         dvals_pos = 95;
-        saveVars();
+        energy_dash_save();
         responseCmnd("ED: 24h chart filled (synthetic bimodal HP day)");
     }
     else if (strcmp(cmd, "FILL31") == 0) {
@@ -698,7 +781,7 @@ void Command(char cmd[]) {
             days_t[i] = -3.0 + 22.0 * frac + 2.0 * wkl;
         }
         days_pos = 30;
-        saveVars();
+        energy_dash_save();
         responseCmnd("ED: 31d chart filled (warming month)");
     }
     else if (strcmp(cmd, "FILLALL") == 0) {
@@ -717,7 +800,7 @@ void Command(char cmd[]) {
             days_t[i] = -3.0 + 22.0 * frac + 2.0 * wkl;
         }
         days_pos = 30;
-        saveVars();
+        energy_dash_save();
         responseCmnd("ED: 24h + 31d charts filled");
     }
     else if (strcmp(cmd, "CLEAR") == 0) {
@@ -726,7 +809,7 @@ void Command(char cmd[]) {
         for (int i = 0; i < 31; i = i + 1) days_t[i] = 0.0;
         dvals_pos = 0;
         days_pos  = 0;
-        saveVars();
+        energy_dash_save();
         responseCmnd("ED: cleared dvals + days_w + days_t");
     }
     else {
@@ -737,5 +820,6 @@ void Command(char cmd[]) {
 int main() {
     addLog("ENERGY: dashboard starting");
     addCommand("DASH");         // DASHFILL24 / DASHFILL31 / DASHFILLALL / DASHCLEAR
+    energy_dash_load();         // chart arrays from /energy_dashboard.bin (NOT .pvs)
     return 0;
 }
