@@ -176,6 +176,7 @@ const BUILTINS = {
     'tcpDisconnect':    { syscall: Syscall.TCP_DISCONNECT,  args: 0, returns: false },
     'tcpConnected':     { syscall: Syscall.TCP_CONNECTED,   args: 0, returns: true  },
     'tcpSelect':        { syscall: Syscall.TCP_SELECT,      args: 1, returns: false },
+    'tcpConnectTimeout':{ syscall: Syscall.TCP_CONNECT_TIMEOUT, args: 1, returns: false }, // bound outbound connects (tcpConnect + httpGet/httpPost) (ms); 0=default
     // Per-slot TCP tuning (v1.5.1). Operate on the currently selected slot.
     'tcpKeepalive':         { syscall: Syscall.TCP_KEEPALIVE,         args: 3, returns: true  },
     'tcpNoDelay':           { syscall: Syscall.TCP_NODELAY,           args: 1, returns: false },

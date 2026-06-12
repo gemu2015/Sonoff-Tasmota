@@ -593,6 +593,7 @@ export const Syscall = {
     TCP_CONNECTED:   292, // () -> int — 1 if selected slot connected, else 0
     TCP_SELECT:      293, // (slot) -> void — pick outgoing TCP slot 0..TC_TCP_CLI_SLOTS-1
     TCP_CONNECT_REF: 294, // (ip_ref, port) -> int — connect with IP from runtime char array
+    TCP_CONNECT_TIMEOUT: 491, // (ms) -> void — bound subsequent outbound connects (tcpConnect + httpGet/httpPost); 0=default; probe absent hosts fast (WDT-safe)
 
     // MQTT — gated by USE_MQTT in firmware (no-ops returning -1 if not compiled)
     MQTT_SUBSCRIBE:   295, // (topic_const) -> int slot or -1
