@@ -9445,6 +9445,17 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         } else {
           result = httpCode;                         // transport error
         }
+        // Abort-close (SO_LINGER 0 -> RST instead of FIN) so the socket frees
+        // its lwIP PCB IMMEDIATELY instead of sitting ~6 s in TIME_WAIT. A
+        // program doing many connects (the fleet scanner sweeps ~40 devices)
+        // would otherwise exhaust the 16-slot CONFIG_LWIP_MAX_ACTIVE_TCP pool
+        // and wedge the network stack. Status polling tolerates the peer RST.
+        {
+          WiFiClient *_lc = http.getStreamPtr();
+          if (_lc) { int _fd = _lc->fd();
+            if (_fd >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0;
+              setsockopt(_fd, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }
+        }
         http.end();
         bool transport_err = (httpCode <= 0);
         // ---- re-take vm_mutex before touching the VM again ----
@@ -9515,6 +9526,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int httpCode = http.POST(postData);
       String payload;
       if (httpCode > 0) payload = http.getString();
+      {                                              // abort-close: free the PCB now, no TIME_WAIT (see SYS_HTTP_GET)
+        WiFiClient *_lc = http.getStreamPtr();
+        if (_lc) { int _fd = _lc->fd();
+          if (_fd >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0;
+            setsockopt(_fd, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }
+      }
       http.end();
 #ifdef ESP32
       if (_ps && _ps->vm_mutex) { xSemaphoreTake(_ps->vm_mutex, portMAX_DELAY); tc_current_slot = _ps; }
