@@ -2705,7 +2705,17 @@ static void HandleTinyCApi(void) {
       result += json;
     }
     result += F("],\"heap\":");
-    result += String(ESP_getFreeHeap());
+    {
+      // free heap + fragmentation %% (0 = healthy, ->100 = badly fragmented).
+      // frag = 100 - largest_free_block*100/free_heap. Computed here (the stock
+      // Status JSON never exposes it); works on ESP32 + ESP8266 (both provide
+      // ESP_getMaxAllocHeap/ESP_getFreeHeap). Used by the device-scanner Frag column.
+      uint32_t fh = ESP_getFreeHeap();
+      result += String(fh);
+      int frag = fh ? (int)(100 - (uint64_t)ESP_getMaxAllocHeap() * 100 / fh) : 0;
+      result += F(",\"frag\":");
+      result += String(frag);
+    }
     result += '}';
     Webserver->send(200, F("application/json"), result);
     return;
