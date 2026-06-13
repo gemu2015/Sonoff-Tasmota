@@ -1,0 +1,59 @@
+// touch_coords.tc — live touch coordinates on the LVGL screen.
+//
+// Needs firmware with USE_TINYC_LVGL + the touchGet() syscall (TinyC syscall ABI v3,
+// SYS_TOUCH_GET 492). touchGet(sel) mirrors the firmware Touch_Status():
+//   touchGet(0) -> 1 if pressed, else 0
+//   touchGet(1) -> x   (0..width)
+//   touchGet(2) -> y   (0..height)
+//   touchGet(-1)/touchGet(-2) -> raw x/y (pre-calibration)
+//
+// Shows a big x=.. y=.. readout + PRESSED/released state, and moves a red dot to the
+// touch point so you can see the coordinates track your finger live. Doubles as the
+// GT9271 touch bring-up test on the P4 10.1" panel.
+
+#define ALIGN_TOP_MID   2
+#define ALIGN_CENTER    9
+
+int main() {
+    lvglInit();
+    lvglSetBgColor(0, 0x101820);
+
+    int title = lvglLabel(0);
+    lvglSetText(title, "Touch coords - touchGet()");
+    lvglSetTextColor(title, 0xFFFFFF);
+    lvglAlign(title, ALIGN_TOP_MID, 0, 12);
+
+    int coord = lvglLabel(0);
+    lvglSetText(coord, "x=--- y=---");
+    lvglSetTextColor(coord, 0x40c0ff);
+    lvglAlign(coord, ALIGN_CENTER, 0, -30);
+
+    int state = lvglLabel(0);
+    lvglSetText(state, "released");
+    lvglSetTextColor(state, 0xffd040);
+    lvglAlign(state, ALIGN_CENTER, 0, 20);
+
+    // red dot that follows the finger (a 28px box; top-left positioned, so offset by half)
+    int dot = lvglObj(0);
+    lvglSetSize(dot, 28, 28);
+    lvglSetBgColor(dot, 0xff4040);
+
+    char buf[48];
+    int px = 0;
+    while (1) {
+        int p = touchGet(0);
+        int x = touchGet(1);
+        int y = touchGet(2);
+        sprintf(buf, "x=%d  y=%d", x, y);
+        lvglSetText(coord, buf);
+        if (p) {
+            lvglSetText(state, "PRESSED");
+            lvglSetPos(dot, x - 14, y - 14);   // centre the 28px dot on the touch point
+        } else if (px) {
+            lvglSetText(state, "released");
+        }
+        px = p;
+        delay(50);
+    }
+    return 0;
+}

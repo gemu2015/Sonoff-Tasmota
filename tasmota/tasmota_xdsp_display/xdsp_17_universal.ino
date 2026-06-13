@@ -25,6 +25,7 @@
 #include <uDisplay.h>
 
 bool udisp_init_done = false;
+bool udisp_dsi_fb = false;   // DSI (DPI) uses a PSRAM framebuffer that needs a periodic cache-writeback flush
 uint8_t ctouch_counter;
 
 #ifdef USE_UFILESYS
@@ -501,6 +502,7 @@ Renderer *Init_uDisplay(const char *desc) {
 #endif // SHOW_SPLASH
 
     udisp_init_done = true;
+    udisp_dsi_fb = (udisp->get_interface() == _UDSP_DSI);   // DSI: legacy draw path needs a periodic FB flush (LVGL has its own)
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: %s initialized"), renderer->devname());
 
     return renderer;
@@ -611,6 +613,14 @@ bool Xdsp17(uint32_t function) {
     switch (function) {
       case FUNC_DISPLAY_MODEL:
         result = true;
+        break;
+
+      case FUNC_DISPLAY_EVERY_50_MSECOND:
+        // DSI/DPI draws into a PSRAM framebuffer over the legacy (non-LVGL) path; the DPI DMA
+        // reads PSRAM directly, so CPU-cached writes must be flushed. Updateframe() does the
+        // CACHE_WRITEBACK and is a no-op when nothing changed (framebuffer_dirty gate). Gated to
+        // DSI so SPI/I2C panels (whose Updateframe re-pushes the buffer) are not over-flushed.
+        if (udisp_dsi_fb) { renderer->Updateframe(); }
         break;
 
 #ifdef USE_DISPLAY_MODES1TO5

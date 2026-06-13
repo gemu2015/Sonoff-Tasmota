@@ -195,6 +195,7 @@ bool DSIPanel::drawPixel(int16_t x, int16_t y, uint16_t color) {
 }
 
 bool DSIPanel::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+    if (!framebuffer) return true;   // fail-safe: DSI init failed -> no FB, never deref null (no boot brick)
     for (int16_t yp = y; yp < y + h; yp++) {
         uint16_t* line_start = &framebuffer[yp * cfg.width + x];
         for (int16_t i = 0; i < w; i++) {
@@ -215,6 +216,7 @@ bool DSIPanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 }
 
 bool DSIPanel::pushColors(uint16_t *data, uint32_t len, bool not_swapped) {
+    if (!panel_handle) return false;   // fail-safe: DSI init failed -> no panel, skip draw (no boot brick)
     esp_err_t ret = esp_lcd_panel_draw_bitmap(panel_handle, window_x0, window_y0, window_x1, window_y1, data);
     return (ret == ESP_OK);
 }
@@ -276,6 +278,7 @@ bool DSIPanel::setRotation(uint8_t rot) {
 }
 
 bool DSIPanel::updateFrame() {
+    if (!framebuffer) return true;   // fail-safe: DSI init failed -> no FB, skip cache writeback (no boot brick)
     if (!framebuffer_dirty) {
         return true;
     }

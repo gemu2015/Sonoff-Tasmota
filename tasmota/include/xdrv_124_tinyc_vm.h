@@ -291,7 +291,8 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     2     // V2: + SYS_BLIB_CALL_F (371, fcall float blib call) — pure append; bumped to flag fcall .tcb built against pre-fcall firmware
+#define TC_SYSCALL_ABI     3     // V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
 // maintained; got stuck at "v1.3.20" through 5 releases until Andreas's
@@ -1011,6 +1012,7 @@ enum TcSyscall {
   SYS_LVGL_SCREEN_LOAD_ANIM = 488, // (h, anim, ms)       -> void  switch with transition (anim: 5=MOVE_LEFT,6=MOVE_RIGHT,9=FADE_IN)
   SYS_LVGL_IMAGE_ANGLE      = 489, // (h, deci_deg)       -> void  rotate image, 0.1° units (3600 = 360°)
   SYS_LVGL_IMAGE_PIVOT      = 490, // (h, x, y)           -> void  rotation pivot, px from image top-left
+  SYS_TOUCH_GET             = 492, // (sel)               -> int   touchGet(sel): firmware Touch_Status — 0=pressed,1=x,2=y, -1/-2=raw x/y
 
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
@@ -13736,6 +13738,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_SCREEN_LOAD_ANIM: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_IMAGE_ANGLE: TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_IMAGE_PIVOT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+#endif
+
+    // ── Touch screen (xdrv_55 Touch_Status) — works with or without LVGL ──
+#if defined(USE_FT5206) || defined(USE_XPT2046) || defined(USE_GT911) || defined(USE_LILYGO47) || defined(USE_UNIVERSAL_TOUCH) || defined(USE_TOUCH_BUTTONS) || defined(SIMPLE_RES_TOUCH)
+    case SYS_TOUCH_GET: { int32_t sel = TC_POP(vm); TC_PUSH(vm, (int32_t)Touch_Status(sel)); break; }   // touchGet(sel): 0=pressed,1=x,2=y, -1/-2=raw
+#else
+    case SYS_TOUCH_GET: TC_POP(vm); TC_PUSH(vm, 0); break;
 #endif
 
     // ── MQTT Subscribe/Publish ────────────────────────

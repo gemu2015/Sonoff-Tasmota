@@ -388,6 +388,7 @@ const BUILTINS = {
     'lvglCheckbox':     { syscall: Syscall.LVGL_CHECKBOX,      args: 1, returns: true },
     'lvglSetValue':     { syscall: Syscall.LVGL_SET_VALUE,     args: 3, returns: false },
     'lvglGetValue':     { syscall: Syscall.LVGL_GET_VALUE,     args: 1, returns: true },
+    'touchGet':         { syscall: Syscall.TOUCH_GET,          args: 1, returns: true },   // touchGet(sel): 0=pressed,1=x,2=y, -1/-2=raw
     'lvglSetRange':     { syscall: Syscall.LVGL_SET_RANGE,     args: 3, returns: false },
     'lvglSetChecked':   { syscall: Syscall.LVGL_SET_CHECKED,   args: 2, returns: false },
     'lvglIsChecked':    { syscall: Syscall.LVGL_IS_CHECKED,    args: 1, returns: true },
