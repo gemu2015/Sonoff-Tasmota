@@ -91,6 +91,13 @@ uint32_t WcCsiCaptureJpeg(uint8_t **buf, uint32_t *len, int *w, int *h);
 #include "img_converters.h"
 #endif
 
+#if defined(JPEG_PICTS) && defined(CONFIG_IDF_TARGET_ESP32P4)
+// P4 hardware JPEG decode (defined in support_jpeg.ino) — the dspLoadImage /
+// dspLoadImageFromCam paths below call this in place of the absent software
+// esp_jpeg_decode. Returns a special_malloc'd w*h*2 RGB565 buffer (caller frees), or nullptr.
+uint16_t *jpg_hw_decode_rgb565(const uint8_t *jpg, uint32_t jpglen, uint16_t *width, uint16_t *height);
+#endif
+
 // C-linkage wrapper so camera C library can call Tasmota's AddLog
 // Only compiled when TC_CAM_DEBUG is defined (add -DTC_CAM_DEBUG to build_flags)
 #ifdef TC_CAM_DEBUG
@@ -11330,7 +11337,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       uint16_t xsize, ysize;
       get_jpeg_size(mem, size, &xsize, &ysize);
       if (!xsize || !ysize) { free(mem); TC_PUSH(vm, -1); break; }
-      uint32_t outsize = xsize * ysize * 2;
+      uint32_t outsize = (uint32_t)xsize * ysize * 2;
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+      // P4 hardware JPEG decode (helper allocs + sizes the RGB565 buffer itself).
+      uint16_t *out_buf = jpg_hw_decode_rgb565(mem, size, &xsize, &ysize);
+      free(mem);
+      if (!out_buf) { TC_PUSH(vm, -1); break; }
+      outsize = (uint32_t)xsize * ysize * 2;
+#else
       uint16_t *out_buf = (uint16_t *)special_malloc(outsize + 4);
       if (!out_buf) { free(mem); TC_PUSH(vm, -1); break; }
       esp_jpeg_image_cfg_t jpeg_cfg = {
@@ -11348,6 +11362,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       OsWatchLoop();
       free(mem);
       if (err != ESP_OK) { free(out_buf); TC_PUSH(vm, -1); break; }
+#endif
       tc_img_store[slot].buf = out_buf;
       tc_img_store[slot].w = xsize;
       tc_img_store[slot].h = ysize;
@@ -11630,6 +11645,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       get_jpeg_size(jpg, jlen, &xsize, &ysize);
       if (!xsize || !ysize) { TC_PUSH(vm, -1); break; }
       uint32_t outsize = (uint32_t)xsize * ysize * 2;
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+      // P4 hardware JPEG decode of the captured camera frame.
+      uint16_t *out_buf = jpg_hw_decode_rgb565(jpg, jlen, &xsize, &ysize);
+      if (!out_buf) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: JPEG decode failed (cam %d)"), cam + 1);
+        TC_PUSH(vm, -1); break;
+      }
+      outsize = (uint32_t)xsize * ysize * 2;
+#else
       uint16_t *out_buf = (uint16_t *)special_malloc(outsize + 4);
       if (!out_buf) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: img %dx%d RGB565 alloc failed (%u KB)"),
@@ -11654,6 +11678,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: JPEG decode failed (cam %d, err=%d)"), cam + 1, err);
         TC_PUSH(vm, -1); break;
       }
+#endif
       tc_img_store[slot].buf = out_buf;
       tc_img_store[slot].w = xsize;
       tc_img_store[slot].h = ysize;
@@ -13043,6 +13068,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           TC_PUSH(vm, -1);
         } else {
           WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+          // abort-close (SO_LINGER 0 -> RST) the previous socket so its lwIP PCB
+          // frees IMMEDIATELY instead of lingering ~TIME_WAIT. A connect-heavy app
+          // (the /24 fleet scanner = ~60 connects/sweep) otherwise slowly exhausts
+          // the PCB/pbuf pool over many cycles → the whole network stack wedges
+          // (no ping, no HTTP, no reboot). Mirrors the SYS_HTTP_GET abort-close.
+          { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }
           _oc->stop();  // close any previous connection on this slot
           IPAddress _ipa;
           bool _cok;
@@ -13081,6 +13112,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           TC_PUSH(vm, -1);
         } else {
           WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+          { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }  // abort-close prior PCB (see SYS_TCP_CONNECT)
           _oc->stop();
           IPAddress _ipa;
           bool _cok;
@@ -13106,6 +13138,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_TCP_DISCONNECT: {  // tcpDisconnect()
       WiFiClient *_oc = TC_TCP_OUT_CLIENT();
       if (_oc->connected()) {
+        { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }  // abort-close: RST, free the PCB now (see SYS_TCP_CONNECT)
         _oc->stop();
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] disconnected"), Tinyc->tcp_cli_slot);
       }

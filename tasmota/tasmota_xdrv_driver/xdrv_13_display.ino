@@ -2398,6 +2398,12 @@ char ppath[16];
 #ifdef JPEG_PICTS
 
 #define USE_NEW_JPG
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+// P4: hardware JPEG codec only — the software esp_jpeg / img_converters / ROM tjpgd
+// headers are absent on RISC-V. jpg_hw_decode_rgb565() lives in support_jpeg.ino.
+#include "driver/jpeg_decode.h"
+uint16_t *jpg_hw_decode_rgb565(const uint8_t *jpg, uint32_t jpglen, uint16_t *width, uint16_t *height);
+#else
 #include "img_converters.h"
 #include "jpeg_decoder.h"
 
@@ -2405,6 +2411,7 @@ char ppath[16];
 #include "esp_jpg_decode.h"
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
 bool jpg2rgb565(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
+#endif
 #endif
 
 
@@ -2513,7 +2520,17 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
           }
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
-#ifdef USE_NEW_JPG
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+            // P4 hardware JPEG decode -> RGB565 (shared helper in support_jpeg.ino).
+            uint16_t dw = 0, dh = 0;
+            uint16_t *out_buf = jpg_hw_decode_rgb565(mem, size, &dw, &dh);
+            if (out_buf) {
+              renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
+              renderer->pushColors(out_buf, (uint32_t)xsize * ysize, true);
+              renderer->setAddrWindow(0, 0, 0, 0);
+              free(out_buf);
+            }
+#elif defined(USE_NEW_JPG)
             uint16_t *out_buf = (uint16_t *)special_malloc((xsize * ysize * 2) + 4);
             if (out_buf) {
               uint32_t outsize = xsize * ysize * 2;
@@ -2589,7 +2606,17 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
     xsize /= fac;
     ysize /= fac;
 
-#ifdef USE_NEW_JPG
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+    // P4 hardware JPEG decode. The HW codec has no fractional downscale, so `scale`
+    // is ignored here — decode at full resolution and push the real decoded size.
+    uint16_t dw = 0, dh = 0;
+    uint16_t *rgbmem = jpg_hw_decode_rgb565(mem, jpgsize, &dw, &dh);
+    if (rgbmem) {
+      renderer->setAddrWindow(xp, yp, xp + dw, yp + dh);
+      renderer->pushColors(rgbmem, (uint32_t)dw * dh, true);
+      free(rgbmem);
+    }
+#elif defined(USE_NEW_JPG)
     uint32_t osize = xsize * ysize * 2;
     uint16_t *rgbmem = (uint16_t *)special_malloc(osize);
     if (rgbmem) {

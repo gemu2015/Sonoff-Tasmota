@@ -21,10 +21,80 @@
 #ifdef ESP32
 #ifdef JPEG_PICTS
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+// RISC-V P4 has no software esp_jpeg / img_converters / ROM tjpgd — only the on-chip
+// JPEG codec (esp_driver_jpeg). Pull in the hardware decoder; jpg_hw_decode_rgb565()
+// below is the shared decode entry the xdrv_13 / xdrv_124 JPEG paths call on P4.
+#include "driver/jpeg_decode.h"
+#else
 #include "img_converters.h"
 #include "jpeg_decoder.h"
+#endif
 
 #define USE_NEW_JPG
+
+#if defined(CONFIG_IDF_TARGET_ESP32P4)
+// Hardware JPEG decode (esp_driver_jpeg) -> tightly packed RGB565.
+// The software esp_jpeg_decode / tjpgd paths don't exist on the RISC-V P4, so the
+// on-chip JPEG codec is the only decoder. Returns a special_malloc'd w*h*2 buffer
+// (caller frees with free()), or nullptr on any failure. The decoder engine handle
+// is created once and cached across calls.
+uint16_t *jpg_hw_decode_rgb565(const uint8_t *jpg, uint32_t jpglen, uint16_t *width, uint16_t *height) {
+  static jpeg_decoder_handle_t s_dec = nullptr;
+  if (!s_dec) {
+    jpeg_decode_engine_cfg_t eng = { .intr_priority = 0, .timeout_ms = 250 };
+    if (jpeg_new_decoder_engine(&eng, &s_dec) != ESP_OK) { s_dec = nullptr; return nullptr; }
+  }
+  jpeg_decode_picture_info_t info;
+  if (jpeg_decoder_get_info(jpg, jpglen, &info) != ESP_OK) { return nullptr; }
+  uint16_t w = info.width, h = info.height;
+  if (!w || !h) { return nullptr; }
+  uint16_t ow = (w + 15) & ~15;            // HW output stride is padded to a 16-px multiple
+  uint16_t oh = (h + 15) & ~15;
+  size_t out_need = (size_t)ow * oh * 2;
+
+  // The engine reads the bitstream and writes the output via DMA, so both buffers
+  // must come from the JPEG memory allocator (DMA-capable + correctly aligned).
+  jpeg_decode_memory_alloc_cfg_t in_cfg  = { .buffer_direction = JPEG_DEC_ALLOC_INPUT_BUFFER };
+  jpeg_decode_memory_alloc_cfg_t out_cfg = { .buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER };
+  size_t in_got = 0, out_got = 0;
+  uint8_t *in_buf  = (uint8_t *)jpeg_alloc_decoder_mem(jpglen, &in_cfg, &in_got);
+  uint8_t *out_buf = (uint8_t *)jpeg_alloc_decoder_mem(out_need, &out_cfg, &out_got);
+  if (!in_buf || !out_buf) {
+    if (in_buf) { free(in_buf); }
+    if (out_buf) { free(out_buf); }
+    return nullptr;
+  }
+  memcpy(in_buf, jpg, jpglen);
+
+  jpeg_decode_cfg_t dcfg = {
+    .output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
+    .rgb_order     = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,    // matches pushColors(...,true) panel order; flip to _RGB if R/B swap
+    .conv_std      = JPEG_YUV_RGB_CONV_STD_BT601,
+  };
+  uint32_t got = 0;
+  OsWatchLoop();
+  esp_err_t err = jpeg_decoder_process(s_dec, &dcfg, in_buf, jpglen, out_buf, out_got, &got);
+  OsWatchLoop();
+  free(in_buf);
+  if (err != ESP_OK) { free(out_buf); return nullptr; }
+
+  // Repack into a tight w*h RGB565 buffer (strip the 16-px row padding) so callers
+  // get exactly the layout the software esp_jpeg_decode path produced.
+  uint16_t *tight = (uint16_t *)special_malloc((size_t)w * h * 2 + 4);
+  if (!tight) { free(out_buf); return nullptr; }
+  if (ow == w) {
+    memcpy(tight, out_buf, (size_t)w * h * 2);
+  } else {
+    for (uint16_t y = 0; y < h; y++) {
+      memcpy(tight + (size_t)y * w, out_buf + (size_t)y * ow * 2, (size_t)w * 2);
+    }
+  }
+  free(out_buf);
+  *width = w; *height = h;
+  return tight;
+}
+#endif // CONFIG_IDF_TARGET_ESP32P4
 
 
 #ifndef USE_NEW_JPG
