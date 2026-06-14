@@ -67,6 +67,7 @@ codec settings access
 #include "Audio/es8156/src/es8156.h"
 #include "Audio/es7243e/src/es7243e.h"
 #include "Audio/es8311/src/es8311.h"
+#include "Audio/es7210/src/es7210.h"
 int32_t pW8960_Init();
 #endif
 
@@ -308,7 +309,7 @@ typedef struct {
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000301,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
+MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000401,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -688,6 +689,15 @@ int32_t I2SAudio_Init() {
         return -2;
       }
       pes8311_codec_set_voice_volume(75);
+      break;
+    case 4:   // ESP32-P4 Waveshare 10.1" display board: ES8311 DAC (0x18) + ES7210 4-mic ADC (0x40), shared I2C
+      if (pes8311_codec_init(AUDIO_HAL_MODE_SLAVE, AUDIO_HAL_BIT_LENGTH_16BITS, &codec_bus) < 0) {
+        I2SAudio_Deinit();
+        AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
+        return -2;
+      }
+      pes8311_codec_set_voice_volume(75);
+      pes7210_codec_init(&codec_bus);   // 4-mic ADC; non-fatal — speaker (ES8311) works without it
       break;
   }
 #endif
@@ -1885,6 +1895,7 @@ void I2sTaskMP3(void) {
 #include "Audio/es8156/src/p_es8156_c.h"
 #include "Audio/es7243e/src/p_es7243e_c.h"
 #include "Audio/es8311/src/p_es8311_c.h"
+#include "Audio/es7210/src/p_es7210_c.h"
 #endif
 
 #ifdef USE_SAY
@@ -2319,7 +2330,11 @@ void Cmnd_TTS(void) {
   // sentence and starts emitting promptly (rather than buffering until
   // the next call).
   picotts_add(XdrvMailbox->data, XdrvMailbox->data_len);
-  static const char nul = '\0';
+  // NUL must live in RAM: picotts_add() is a firmware fn that byte-reads the
+  // pointer (xQueueSendToBack → memcpy). A `static const` lands in the plugin's
+  // mmap'd .rodata, and a byte load there faults (Load access fault on the P4 /
+  // LoadStoreError on the S3) — see the MMAP_INST note below. Stack byte = RAM.
+  char nul = 0;
   picotts_add(&nul, 1);
 
   // Wait for synthesis + drain. picotts_last_audio_ms gets bumped from
@@ -2888,6 +2903,10 @@ void I2SAudio_Deinit() {
       break;
     case 3:
       I2cResetActive(ES8311_ADDR, codec_bus);
+      break;
+    case 4:
+      I2cResetActive(ES8311_ADDR, codec_bus);
+      I2cResetActive(ES7210_ADDR, codec_bus);
       break;
   }
 #endif
