@@ -94,6 +94,13 @@ static void (*const TinyCWebOnHandlers[])(void) = {
   extern "C" void *matter_special_malloc(size_t n) { return special_malloc(n); }
 #endif
 
+// Fork-owned TinyC-controlled MIPI-CSI camera (ESP32-P4). Included BEFORE the VM
+// header so its WcCsiCaptureJpeg / tcam_init / tcam_deinit / tcam_sensor_pid are
+// visible to the camControl dispatch. Compiles to nothing unless
+// USE_TINYC_CAMERA && !USE_CSI_WEBCAM on P4 — so the upstream xdrv_81 webcam driver
+// stays untouched and Tasmota initializes the camera at no point.
+#include "include/xdrv_124_tinyc_camera.h"
+
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
 

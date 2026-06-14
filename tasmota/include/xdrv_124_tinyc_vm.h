@@ -10841,7 +10841,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         case 8: {
           // getSensorPID() -> PID value (e.g. 0x3660 for OV3660)
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(USE_TINYC_CAMERA) && !defined(USE_CSI_WEBCAM)
+          res = tcam_sensor_pid();   // OV5647 chip id (0x5647) once the sensor is up
+#else
           res = -1;  // P4 CSI: no DVP esp_camera sensor API (PID via the CSI/ISP driver)
+#endif
 #else
           sensor_t *s = esp_camera_sensor_get();
           res = s ? (int32_t)s->id.PID : -1;
@@ -11008,6 +11012,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           // Note: NOT calling esp_camera_deinit() here — OV3660 doesn't recover
           // from deinit without power cycle. Camera stays initialized for reuse.
           // cameraInit() will deinit+reinit if called again (via tc_cam_inited flag).
+#if defined(USE_TINYC_CAMERA) && !defined(USE_CSI_WEBCAM) && defined(CONFIG_IDF_TARGET_ESP32P4)
+          tcam_deinit();   // release the CSI pipeline + MIPI LDO (TinyC-owned camera)
+#endif
           res = 0;
           break;
         }
@@ -11143,11 +11150,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // grab_mode: -1 = auto, 0 = GRAB_WHEN_EMPTY, 1 = GRAB_LATEST
       // fb_loc:    0 = auto (PSRAM if available), 1 = force DRAM
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
-      // P4 MIPI-CSI: pins/format/framesize are fixed by the board's CSI config;
-      // the pipeline lazy-inits on the first WcCsiCaptureJpeg(). Pop the 8 args
-      // to keep the VM stack balanced, then report success.
+      // P4 MIPI-CSI: pins/format/framesize are fixed by the board's CSI config.
+      // Pop the 8 args to keep the VM stack balanced, then bring the pipeline up
+      // via the fork-owned TinyC camera driver (Tasmota itself inits nothing).
+      // Returns 0 on success / -1 on failure (matches the DVP path convention).
       for (int _i = 0; _i < 8; _i++) { (void)TC_POP(vm); }
-      TC_PUSH(vm, (int32_t)0);
+#if defined(USE_TINYC_CAMERA) && !defined(USE_CSI_WEBCAM)
+      TC_PUSH(vm, tcam_init() ? (int32_t)0 : (int32_t)-1);
+#else
+      TC_PUSH(vm, (int32_t)0);   // upstream CSI driver lazy-inits on first capture
+#endif
       break;
 #else
       int32_t fb_loc_arg    = TC_POP(vm);
