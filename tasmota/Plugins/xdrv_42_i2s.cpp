@@ -2136,10 +2136,19 @@ MODULE_PART bool PicoLoadVoice(const char *path, uint8_t **buf, uint32_t *size) 
     jfile_close(f);
     return false;
   }
-  int32_t got = jfile_read(f, p, sz);
+  // jfile_read maps to a single File::read() in firmware (xdrv_123 tmod_file_read),
+  // and SD/FATFS read() can return FEWER bytes than requested for a large read
+  // (observed: 483328 of 634996 from the SD; LittleFS happened to fill in one call).
+  // Loop until the whole voice file is in, or a real EOF/error (got <= 0) stops us.
+  uint32_t off = 0;
+  while (off < sz) {
+    int32_t got = jfile_read(f, p + off, sz - off);
+    if (got <= 0) { break; }   // EOF or read error
+    off += (uint32_t)got;
+  }
   jfile_close(f);
-  if (got != (int32_t)sz) {
-    ptt_log_short_read((int)got, (unsigned)sz, path);
+  if (off != sz) {
+    ptt_log_short_read((int)off, (unsigned)sz, path);
     free(p);
     return false;
   }
