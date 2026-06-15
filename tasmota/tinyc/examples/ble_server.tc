@@ -1,0 +1,68 @@
+// ble_server.tc — TinyC BLE GATT server (peripheral / "device-as-peripheral").
+//
+// A phone (BLE central) connects to THIS device and exchanges data with it — the
+// normal phone-app <-> IoT pattern. Nordic-UART-style custom 128-bit service:
+//   RX  (WRITE)        phone -> device : first byte 0/1 toggles Power1
+//   TX  (READ|NOTIFY)  device -> phone : an incrementing counter, pushed every ~2 s
+//
+// Needs firmware built with USE_TINYC_BLE (pulls in USE_BLE_ESP32 / xdrv_79).
+// bleServer() auto-enables BLE at runtime — no SetOption115 needed.
+//
+// Test with nRF Connect (Android/iOS):
+//   1. Scan, connect to "TasmotaBLE".
+//   2. On the TX characteristic tap the notify (down-arrow) icon — the counter ticks.
+//   3. Write 01 / 00 (hex) to the RX characteristic — Power1 turns on / off.
+//
+// API: bleServer(name) -> bleService(uuid) -> bleChar(uuid, props) [returns handle]
+//      -> bleServerStart(). Then poll bleConnected() / bleCharWritten()+bleCharRead()
+//      and push with bleCharSet() / bleNotify(). props: BLE_READ | BLE_WRITE | BLE_NOTIFY.
+//      UUIDs are strings: 16-bit "180a" or full 128-bit "xxxxxxxx-....".
+
+#define SVC  "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+#define RX   "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone writes here
+#define TX   "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // device notifies here
+
+int  hrx;          // RX characteristic handle (phone -> device)
+int  htx;          // TX characteristic handle (device -> phone)
+int  counter;
+int  tick;
+char buf[64];      // RX read + cmd result
+char tx[8];        // TX notify payload
+
+int main() {
+  bleServer("TasmotaBLE");
+  bleService(SVC);
+  hrx = bleChar(RX, BLE_WRITE);
+  htx = bleChar(TX, BLE_READ | BLE_NOTIFY);
+  bleServerStart();
+  counter = 0;
+  tick = 0;
+  addLog("ble_server: advertising as 'TasmotaBLE' — connect with a phone (nRF Connect)");
+  return 0;
+}
+
+void TaskLoop() {
+  // ── incoming: did the phone write to RX? ──
+  int n = bleCharWritten(hrx);
+  if (n > 0) {
+    bleCharRead(hrx, buf);
+    char m[64];
+    sprintf(m, "ble_server: RX %d bytes, b0=%d", n, buf[0]);
+    addLog(m);
+    if (buf[0] == 0) { tasmCmd("Power1 0", buf); }
+    else             { tasmCmd("Power1 1", buf); }
+  }
+
+  // ── outgoing: push a counter to the phone every ~2 s (40 * 50 ms) when connected ──
+  tick = tick + 1;
+  if (tick >= 40) {
+    tick = 0;
+    if (bleConnected()) {
+      counter = counter + 1;
+      tx[0] = counter & 0xff;
+      tx[1] = (counter >> 8) & 0xff;
+      bleNotify(htx, tx, 2);
+    }
+  }
+  delay(50);
+}

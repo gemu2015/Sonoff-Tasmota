@@ -55,6 +55,19 @@ const BUILTINS = {
     'bleDone':          { syscall: Syscall.BLE_DONE,        args: 0, returns: true },
     'bleResult':        { syscall: Syscall.BLE_RESULT,      args: 1, returns: true, strArgs: [0] },
 
+    // BLE GATT server (peripheral): bleServer()/bleService()/bleChar()/bleServerStart() to set up,
+    // then poll bleConnected()/bleCharWritten()+bleCharRead() and push with bleCharSet()/bleNotify().
+    'bleServer':        { syscall: Syscall.BLE_SRV_INIT,    args: 1, returns: true, constArgs: [0] },
+    'bleService':       { syscall: Syscall.BLE_SRV_SERVICE, args: 1, returns: true, constArgs: [0] },
+    'bleChar':          { syscall: Syscall.BLE_SRV_CHAR,    args: 2, returns: true, constArgs: [0] },
+    'bleServerStart':   { syscall: Syscall.BLE_SRV_GO,      args: 0, returns: true },
+    'bleConnected':     { syscall: Syscall.BLE_SRV_CONN,    args: 0, returns: true },
+    'bleCharWritten':   { syscall: Syscall.BLE_SRV_WRITTEN, args: 1, returns: true },
+    'bleCharRead':      { syscall: Syscall.BLE_SRV_READ,    args: 2, returns: true, strArgs: [1] },
+    'bleCharSet':       { syscall: Syscall.BLE_SRV_SET,     args: 3, returns: true, strArgs: [1] },
+    'bleNotify':        { syscall: Syscall.BLE_SRV_NOTIFY,  args: 3, returns: true, strArgs: [1] },
+    'bleServerStop':    { syscall: Syscall.BLE_SRV_STOP,    args: 0, returns: true },
+
     // Timing
     'delay':            { syscall: Syscall.DELAY,           args: 1, returns: false },
     'delayMicroseconds':{ syscall: Syscall.DELAY_MICRO,     args: 1, returns: false },
@@ -710,7 +723,9 @@ export class CodeGenerator {
             MTR_BOOL: 0, MTR_U8: 1, MTR_U16: 2, MTR_U32: 3, MTR_U64: 4, MTR_ENUM8: 5,
             MTR_S16: 6, MTR_S32: 7, MTR_S64: 8, MTR_FLOAT: 9,
         };
-        const allDefs = { ...colorDefs, ...hkDefs, ...fileDefs, ...matterDefs };
+        // BLE GATT server characteristic properties for bleChar(uuid, props) — combine with |
+        const bleDefs = { BLE_READ: 1, BLE_WRITE: 2, BLE_NOTIFY: 4 };
+        const allDefs = { ...colorDefs, ...hkDefs, ...fileDefs, ...matterDefs, ...bleDefs };
         for (const [name, value] of Object.entries(allDefs)) {
             this.defines.set(name, { type: 'IntLiteral', value, line: 0 });
         }

@@ -453,6 +453,17 @@ export const Syscall = {
     WEB_BUTTON_V:   425, // (var_ref, label_ref)          -> void   webButtonV(): like webButton but RUNTIME label (char[])
     WEB_SLIDER_V:   426, // (var_ref, min, max, label_ref)-> void   webSliderV(): like webSlider but RUNTIME label (char[])
     FAST_MUX:       427, // (flag, time, buf_ref, len)    -> int    fastMux(): HW-timer GPIO multiplexer (classic ESP32 / ESP32-S3 + USE_TINYC_FAST_MUX; -1 if not built)
+    // BLE GATT server (peripheral) — device-as-peripheral so a phone connects. props: BLE_READ|BLE_WRITE|BLE_NOTIFY.
+    BLE_SRV_INIT:    428, // (name)              -> int   bleServer(): begin server config + adv name
+    BLE_SRV_SERVICE: 429, // (uuid)              -> int   bleService(): service UUID (16-bit "180a" or full 128-bit)
+    BLE_SRV_CHAR:    430, // (uuid, props)       -> int   bleChar(): add characteristic; returns handle (>=0) or -1
+    BLE_SRV_GO:      431, // ()                  -> int   bleServerStart(): build service + start advertising
+    BLE_SRV_CONN:    432, // ()                  -> int   bleConnected(): 1 if a central is connected
+    BLE_SRV_WRITTEN: 433, // (h)                 -> int   bleCharWritten(): bytes the central wrote since last read, else 0
+    BLE_SRV_READ:    434, // (h, buf)            -> int   bleCharRead(): copy the written bytes; returns len
+    BLE_SRV_SET:     435, // (h, buf, len)       -> int   bleCharSet(): set the value a central reads
+    BLE_SRV_NOTIFY:  436, // (h, buf, len)       -> int   bleNotify(): set value + notify the subscribed central
+    BLE_SRV_STOP:    437, // ()                  -> int   bleServerStop(): stop advertising + tear down
     // LVGL on-device GUI (firmware: USE_TINYC_LVGL -> USE_LVGL + USE_UNIVERSAL_DISPLAY). 452-499 reserved for widgets/events.
     LVGL_INIT:      450, // ()                            -> int    lvglInit(): start LVGL on the panel (idempotent); returns 1 if active
     LVGL_ACTIVE:    451, // ()                            -> int    lvglActive(): 1 if LVGL is running, else 0

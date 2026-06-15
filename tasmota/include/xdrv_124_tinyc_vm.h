@@ -971,6 +971,20 @@ enum TcSyscall {
   SYS_BLE_DONE              = 420, // () -> int          0=pending, >0=result length ready, <0=failed
   SYS_BLE_RESULT            = 421, // (buf_ref) -> int   copy received notify/read bytes; returns len
 
+  // BLE GATT server (peripheral) — device advertises a service a phone/central connects to.
+  // Poll-based, mirrors the client. NimBLE server build + notify run on the main task; the VM
+  // sets request flags + buffers. props bitmask: BLE_READ=1 | BLE_WRITE=2 | BLE_NOTIFY=4.
+  SYS_BLE_SRV_INIT          = 428, // (name_str) -> int          begin server config + adv name; 1=ok
+  SYS_BLE_SRV_SERVICE       = 429, // (uuid_str) -> int          set service UUID (16-bit "180a" or full 128-bit); 1=ok
+  SYS_BLE_SRV_CHAR          = 430, // (uuid_str, props) -> int   add characteristic; returns handle (>=0) or -1
+  SYS_BLE_SRV_GO            = 431, // () -> int                  build service + start advertising; 1=ok
+  SYS_BLE_SRV_CONN          = 432, // () -> int                  1 if a central is connected, else 0
+  SYS_BLE_SRV_WRITTEN       = 433, // (h) -> int                 >0 = central wrote n bytes since last read, else 0
+  SYS_BLE_SRV_READ          = 434, // (h, buf_ref) -> int        copy the written bytes; clears the pending flag
+  SYS_BLE_SRV_SET           = 435, // (h, buf_ref, len) -> int   set the value a central reads; 1=ok
+  SYS_BLE_SRV_NOTIFY        = 436, // (h, buf_ref, len) -> int   set value + notify the subscribed central; 1=ok
+  SYS_BLE_SRV_STOP          = 437, // () -> int                  stop advertising + tear down; 1=ok
+
   // LVGL on-device GUI (gated USE_TINYC_LVGL -> USE_LVGL + USE_UNIVERSAL_DISPLAY; built on xdrv_54_lvgl).
   // Reuses xdrv_54's start_lvgl()/flush->renderer/touch-indev/FUNC_LOOP lv_task_handler (all Berry-free).
   // 452-499 reserved for the object/widget/event family (Phase 1+).
@@ -5021,6 +5035,18 @@ void tc_ble_glue_register(void);
 int  tc_ble_gatt_start(const uint8_t *mac, int addrtype, int svc, int chr, int notify, const uint8_t *wbuf, int wlen);
 int  tc_ble_gatt_poll(void);                  // 0=pending, 1=done(result ready), <0=failed (GEN_STATE_*)
 int  tc_ble_gatt_copy(uint8_t *out, int max); // copy result bytes into out, return len, release the op
+// GATT server (peripheral) bridge — defined in xdrv_79_tinyc_ble_glue.ino. NimBLE server build +
+// notify run on the main task (tc_ble_srv_loop); these only set request flags / copy buffers.
+void tc_ble_srv_init(const char *name);             // begin config + request BLE up + set adv name
+void tc_ble_srv_service(const char *uuid);          // set service UUID (16-bit or 128-bit string)
+int  tc_ble_srv_char(const char *uuid, int props);  // add characteristic -> handle (>=0) or -1
+void tc_ble_srv_go(void);                            // build + advertise
+int  tc_ble_srv_connected(void);                     // 1 if a central is connected
+int  tc_ble_srv_written(int h);                      // bytes the central wrote since last read, else 0
+int  tc_ble_srv_read(int h, uint8_t *out, int max);  // copy written bytes, clear pending flag
+void tc_ble_srv_set(int h, const uint8_t *buf, int len, int notify);  // set value (+notify if notify)
+void tc_ble_srv_stop(void);                          // stop advertising + tear down
+void tc_ble_srv_loop(void);                          // main-task: build server when NimBLE up + apply set/notify
 #endif // USE_TINYC_BLE
 
 /*********************************************************************************************\
@@ -13711,6 +13737,76 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, i);
       break;
     }
+    // ── BLE GATT server (peripheral) ──────────────────────────────────────────
+    case SYS_BLE_SRV_INIT: {             // bleServer(name) -> 1
+      int32_t cs = TC_POP(vm);
+      const char *name = tc_get_const_str(vm, cs);
+      tc_ble_srv_init(name ? name : "TinyC");
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_SRV_SERVICE: {          // bleService(uuid) -> 1
+      int32_t cs = TC_POP(vm);
+      const char *uuid = tc_get_const_str(vm, cs);
+      if (!uuid) { TC_PUSH(vm, 0); break; }
+      tc_ble_srv_service(uuid);
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_SRV_CHAR: {             // bleChar(uuid, props) -> handle (>=0) / -1
+      int32_t pr = TC_POP(vm);
+      int32_t cs = TC_POP(vm);
+      const char *uuid = tc_get_const_str(vm, cs);
+      if (!uuid) { TC_PUSH(vm, -1); break; }
+      TC_PUSH(vm, tc_ble_srv_char(uuid, pr));
+      break;
+    }
+    case SYS_BLE_SRV_GO: {               // bleServerStart() -> 1
+      tc_ble_srv_go();
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_SRV_CONN: {             // bleConnected() -> 0/1
+      TC_PUSH(vm, tc_ble_srv_connected());
+      break;
+    }
+    case SYS_BLE_SRV_WRITTEN: {          // bleCharWritten(h) -> len (0 = nothing new)
+      int32_t hh = TC_POP(vm);
+      TC_PUSH(vm, tc_ble_srv_written(hh));
+      break;
+    }
+    case SYS_BLE_SRV_READ: {             // bleCharRead(h, buf) -> len
+      int32_t vref = TC_POP(vm);
+      int32_t hh   = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, vref);
+      if (!buf) { TC_PUSH(vm, 0); break; }
+      int32_t maxc = tc_ref_maxlen(vm, vref);
+      uint8_t tmp[MAX_BLE_DATA_LEN_TC];
+      int n = tc_ble_srv_read(hh, tmp, sizeof(tmp));
+      int i = 0;
+      for (; i < n && i < maxc; i++) buf[i] = (int32_t)tmp[i];
+      TC_PUSH(vm, i);
+      break;
+    }
+    case SYS_BLE_SRV_SET:                // bleCharSet(h, buf, len)  -> 1
+    case SYS_BLE_SRV_NOTIFY: {           // bleNotify(h, buf, len)   -> 1
+      int32_t vlen = TC_POP(vm);
+      int32_t vref = TC_POP(vm);
+      int32_t hh   = TC_POP(vm);
+      uint8_t wb[MAX_BLE_DATA_LEN_TC];
+      int32_t *p = tc_resolve_ref(vm, vref);
+      if (vlen < 0) vlen = 0;
+      if (vlen > (int32_t)sizeof(wb)) vlen = sizeof(wb);
+      if (p) { for (int i = 0; i < vlen; i++) wb[i] = (uint8_t)(p[i] & 0xff); }
+      tc_ble_srv_set(hh, p ? wb : nullptr, p ? vlen : 0, (id == SYS_BLE_SRV_NOTIFY) ? 1 : 0);
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_SRV_STOP: {             // bleServerStop() -> 1
+      tc_ble_srv_stop();
+      TC_PUSH(vm, 1);
+      break;
+    }
 #else
     case SYS_BLE_SCAN:      TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_BLE_SCAN_STOP: TC_PUSH(vm, 0); break;
@@ -13725,6 +13821,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_BLE_WRITE_START: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
     case SYS_BLE_DONE:      TC_PUSH(vm, -1); break;
     case SYS_BLE_RESULT:    TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_INIT:    TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_SERVICE: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_CHAR:    TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_BLE_SRV_GO:      TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_CONN:    TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_WRITTEN: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_READ:    TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_SET:     TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_NOTIFY:  TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SRV_STOP:    TC_PUSH(vm, 0); break;
 #endif
 
     // ── LVGL on-device GUI (xdrv_54_lvgl) ──────────────

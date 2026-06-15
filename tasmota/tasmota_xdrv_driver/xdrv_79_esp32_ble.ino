@@ -159,6 +159,14 @@ i.e. the Bluetooth of the ESP can be shared without conflict.
 #include "NimBLEEddystoneTLM.h"
 #include "NimBLEBeacon.h"
 
+#if defined(CONFIG_IDF_TARGET_ESP32P4) && defined(CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE)
+// P4 has no local BT controller — it lives on the on-board C6 (esp-hosted/SDIO).
+// The host must explicitly power it up via esp_hosted_bt_controller_init/enable
+// before NimBLE init; nothing else does (NimBLE-cpp #if's out its own controller
+// init under CONFIG_NIMBLE_CPP_IDF, and arduino esp32-hal-bt is SOC_BT_SUPPORTED-gated).
+#include <esp_hosted.h>
+#endif
+
 // The LOG_LEVEL macros are used to set the log level for the NimBLE stack, but they pollute the global namespace and would override the loglevel enum of Tasmota.
 // So we undefine them here to avoid conflicts.
 #undef LOG_LEVEL_DEBUG
@@ -1740,6 +1748,21 @@ static void BLETaskStopStartNimBLE(NimBLEClient **ppClient, bool start = true){
 
   if (start){
     AddLog(LOG_LEVEL_INFO,PSTR("BLE: BLETask:Starting NimBLE"));
+#if defined(CONFIG_IDF_TARGET_ESP32P4) && defined(CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE)
+    // The C6 BT controller (reached over esp-hosted/SDIO) must be powered up before
+    // NimBLE init, else NimBLEDevice::init() blocks forever at while(!m_synced) — the
+    // controller never sends its sync event. Done once; the controller then stays up
+    // across NimBLE start/stop cycles (no disable on stop).
+    {
+      static bool s_hosted_bt_up = false;
+      if (!s_hosted_bt_up) {
+        esp_err_t e1 = esp_hosted_bt_controller_init();
+        esp_err_t e2 = esp_hosted_bt_controller_enable();
+        AddLog(LOG_LEVEL_INFO, PSTR("BLE: hosted C6 BT controller init=%d enable=%d"), e1, e2);
+        if (e1 == ESP_OK && e2 == ESP_OK) { s_hosted_bt_up = true; }
+      }
+    }
+#endif
     NimBLEDevice::init("BLE_ESP32");
 
     *ppClient = NimBLEDevice::createClient();
@@ -3739,6 +3762,9 @@ bool Xdrv79(uint32_t function)
   switch (function) {
     case FUNC_EVERY_50_MSECOND:
       BLE_ESP32::BLEEvery50mSecond();
+#ifdef USE_TINYC_BLE
+      tc_ble_srv_loop();   // TinyC GATT server: build when NimBLE is up + apply pending set/notify (main task)
+#endif
       //############################# DEBUG
       TasmotaGlobal.seriallog_timer = 0;
       break;
