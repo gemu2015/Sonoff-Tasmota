@@ -4912,13 +4912,13 @@ for (int i = 0; i < 32; i = i + 1) {
 
 ### Bluetooth LE (ESP32)
 
-Scan BLE advertisements and act as a GATT **client** (connect / read / write / subscribe to
-notifications). Built on Tasmota's common-BLE driver (`xdrv_79`), so it shares one radio with the
+Scan BLE advertisements, act as a GATT **client** (connect / read / write / subscribe to
+notifications), or run a GATT **server** (advertise as a peripheral so a phone connects to you).
+Built on Tasmota's common-BLE driver (`xdrv_79`), so it shares one radio with the
 MI32 / iBeacon scanners. **Requires a firmware built with `USE_TINYC_BLE`** (which pulls in
 `USE_BLE_ESP32` ≈ **+292 KB flash / +9 KB RAM**). On a build without it, every BLE builtin is a
-no-op returning a sentinel (`0` / `-1`). ESP32 family only (no ESP8266). The first `bleScan()`
-enables BLE at runtime — no `SetOption115` needed. GATT **server** (advertising as a peripheral) is
-not provided.
+no-op returning a sentinel (`0` / `-1`). ESP32 family only (no ESP8266). The first `bleScan()` /
+`bleServer()` enables BLE at runtime — no `SetOption115` needed.
 
 **Threading:** advertisement and GATT-completion callbacks run on the NimBLE/main task, never on the
 VM. They publish into small buffers; your script drains them in `TaskLoop()` — so the API is
@@ -4985,6 +4985,69 @@ void TaskLoop() {
     } else if (d < 0) { st = 0; bleScan(0); }       // failed — rescan
   }
   delay(250);
+}
+```
+
+**GATT server (peripheral)** — advertise a service so a phone (or any BLE central) connects to the
+device and exchanges data, the usual phone-app ↔ IoT pattern. Configure once (`bleServer` →
+`bleService` → `bleChar` × N → `bleServerStart`), then poll/push at runtime. UUIDs are strings:
+16-bit (`"180a"`) or full 128-bit (`"6e400001-…"`). Characteristic properties combine with `|`:
+
+| Constant | Meaning |
+|---|---|
+| `BLE_READ` | central may read the value |
+| `BLE_WRITE` | central may write the value |
+| `BLE_NOTIFY` | device may push notifications to a subscribed central |
+
+| Function | Description |
+|---|---|
+| `int bleServer(char name[])` | Begin server config; `name` is the advertised device name. Enables BLE at runtime. Returns 1 |
+| `int bleService(char uuid[])` | Set the service UUID (16- or 128-bit string). Returns 1 |
+| `int bleChar(char uuid[], int props)` | Add a characteristic; `props` = `BLE_READ`/`BLE_WRITE`/`BLE_NOTIFY` OR-combined. Returns a **handle** (≥ 0) used by the calls below, or -1 |
+| `int bleServerStart()` | Build the service and start advertising. Returns 1 |
+| `int bleConnected()` | 1 if a central (phone) is connected, else 0 |
+| `int bleCharWritten(int h)` | Bytes the central wrote to characteristic `h` since the last read (0 = nothing new) |
+| `int bleCharRead(int h, char buf[])` | Copy those written bytes into `buf`, clear the pending flag. Returns the length |
+| `int bleCharSet(int h, char buf[], int len)` | Set the value a central reads from `h` (no notification). Returns 1 |
+| `int bleNotify(int h, char buf[], int len)` | Set the value **and** push a notification to the subscribed central. Returns 1 |
+| `int bleServerStop()` | Stop advertising. Returns 1 |
+
+Build the server in `main()`, then in `TaskLoop()` poll `bleCharWritten()` / `bleCharRead()` for
+phone→device data and push with `bleNotify()` / `bleCharSet()`. The GATT layout is built **once per
+boot** — to change the services/characteristics, reboot the device (re-running the script re-attaches
+to the existing server). Works on any ESP32 with BLE: on the ESP32-P4 the radio is the on-board C6
+over esp-hosted, on other ESP32s the native controller — the API is identical. Test with a phone app
+such as **nRF Connect**.
+
+See `examples/ble_server.tc` for a Nordic-UART-style server (phone writes RX → toggles Power1; device
+notifies an incrementing counter on TX).
+
+```c
+// GATT server: phone writes 00/01 to RX -> Power1; device notifies a counter on TX.
+#define RX "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+#define TX "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+int hrx; int htx; int n; char buf[64];
+
+int main() {
+  bleServer("TasmotaBLE");
+  bleService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+  hrx = bleChar(RX, BLE_WRITE);
+  htx = bleChar(TX, BLE_READ | BLE_NOTIFY);
+  bleServerStart();
+  n = 0;
+  return 0;
+}
+
+void TaskLoop() {
+  if (bleCharWritten(hrx)) {                 // phone -> device
+    bleCharRead(hrx, buf);
+    tasmCmd(buf[0] ? "Power1 1" : "Power1 0", buf);
+  }
+  if (bleConnected()) {                      // device -> phone
+    n = n + 1; buf[0] = n & 0xff; buf[1] = (n >> 8) & 0xff;
+    bleNotify(htx, buf, 2);
+  }
+  delay(1000);
 }
 ```
 

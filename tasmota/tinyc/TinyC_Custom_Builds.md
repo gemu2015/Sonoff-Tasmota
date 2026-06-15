@@ -109,7 +109,7 @@ them on firmware built without the flag will fail to compile in the IDE
 | `-DTINYC_CAMERA` (`USE_TINYC_CAMERA`) | `cameraInit`, `camControl`, `dspLoadImageFromCam`, `dspImageToCam` |
 | `-DTINYC_HOMEKIT` (`USE_HOMEKIT`) | `hkInit`, `hkAdd`, `hkStart`, `hkStop`, `hkReset`, `hkReady`, `hkVar`, `hkSetCode`, `HomeKitWrite` callback |
 | `-DTINYC_MATTER` (`USE_MATTER_C`) | `matterReset`, `matterAdd`, `matterCluster`, `matterAttr`, `matterSet`, `matterGet`, `matterStart`, `MatterInvoke` callback (replaces HomeKit — same slot) |
-| `-DUSE_TINYC_BLE` (`USE_BLE_ESP32`) | `bleScan`, `bleScanStop`, `bleNext`, `bleMac`, `bleAddrType`, `bleRssi`, `bleName`, `bleMfg`, `bleTarget`, `bleReadStart`, `bleWriteStart`, `bleDone`, `bleResult`. Unlike the camera/HomeKit builtins these are always present in the IDE compiler (scripts compile anywhere) and simply no-op at runtime on a non-BLE build |
+| `-DUSE_TINYC_BLE` (`USE_BLE_ESP32`) | scan + GATT client: `bleScan`, `bleScanStop`, `bleNext`, `bleMac`, `bleAddrType`, `bleRssi`, `bleName`, `bleMfg`, `bleTarget`, `bleReadStart`, `bleWriteStart`, `bleDone`, `bleResult`. GATT **server** (peripheral): `bleServer`, `bleService`, `bleChar`, `bleServerStart`, `bleConnected`, `bleCharWritten`, `bleCharRead`, `bleCharSet`, `bleNotify`, `bleServerStop` (+ consts `BLE_READ`/`BLE_WRITE`/`BLE_NOTIFY`). Unlike the camera/HomeKit builtins these are always present in the IDE compiler (scripts compile anywhere) and simply no-op at runtime on a non-BLE build |
 
 Since the 4 MB / C3 pre-built firmware ships **without** HomeKit, the `hk*`
 builtins are unavailable there — use an S3/16 MB build for HomeKit scripts.
