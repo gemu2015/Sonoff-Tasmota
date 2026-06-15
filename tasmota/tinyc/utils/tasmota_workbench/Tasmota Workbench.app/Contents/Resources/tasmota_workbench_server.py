@@ -930,6 +930,229 @@ def _cm(host, port, cmnd, user, password, timeout=8):
         return 0, str(e)
 
 
+def _get_template(host, user, pw):
+    """Read a device's Template (the {"NAME":...} object) + active Module number
+    so it can be cloned onto another device. Returns
+    {ok, template(obj), module(int)} or {ok:False, locked/error}."""
+    dport = 80
+    if ':' in host:
+        host, p = host.split(':', 1)
+        dport = int(p)
+    st, txt = _cm(host, dport, 'Template', user, pw, timeout=8)
+    if st == 401:
+        return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+    if st != 200:
+        return {'ok': False, 'error': 'Template /cm returned %s' % st}
+    try:
+        tpl = json.loads(txt)                 # the reply IS the template object
+    except Exception:
+        return {'ok': False, 'error': 'unparseable Template reply'}
+    module = 0                                # 0 = "use the user Template"
+    st2, txt2 = _cm(host, dport, 'Module', user, pw, timeout=6)
+    if st2 == 200:
+        try:
+            m = json.loads(txt2).get('Module', {})
+            if isinstance(m, dict) and m:
+                module = int(next(iter(m.keys())))
+        except Exception:
+            pass
+    return {'ok': True, 'template': tpl, 'module': module}
+
+
+def _split_host_port(host):
+    """'1.2.3.4' or '1.2.3.4:8080' → (host, port)."""
+    dport = 80
+    if ':' in host:
+        host, p = host.split(':', 1)
+        try:
+            dport = int(p)
+        except ValueError:
+            dport = 80
+    return host, dport
+
+
+def _auth_url(base, user, pw, sep='?'):
+    """Append Tasmota web-auth query params (?user=&password=) to a page URL
+    (works for /dl, /s10, /exs — Tasmota's WebAuthenticate honours them)."""
+    if not pw:
+        return base
+    import urllib.parse
+    return base + '%suser=%s&password=%s' % (
+        sep, urllib.parse.quote(user or 'admin'), urllib.parse.quote(pw))
+
+
+def _dl_dump(host, user, pw, timeout=15):
+    """Download the device config dump (GET /dl → the binary Settings .dmp,
+    same as Tobias's tasdump2file). Returns {ok, b64, size} or {ok:False,...}."""
+    host, dport = _split_host_port(host)
+    url = _auth_url('http://%s:%d/dl' % (host, dport), user, pw)
+    try:
+        r = _NOPROXY.open(url, timeout=timeout)
+        data = r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+        return {'ok': False, 'error': 'HTTP %s' % e.code}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    if not data:
+        return {'ok': False, 'error': 'empty /dl response'}
+    # An auth-failure or no-config build serves an HTML page, not a binary dump.
+    head = data[:200].lower()
+    if data[:5] == b'<!DOC' or b'<html' in head or b'<form' in head:
+        return {'ok': False, 'error': 'login required (set WebPassword in the Flash bar)'}
+    return {'ok': True, 'b64': base64.b64encode(data).decode('ascii'),
+            'size': len(data)}
+
+
+def _get_setoptions(host, user, pw, hi=146):
+    """Read SetOption0..hi into a 'SetOptionN value' text block (Tobias's
+    tasgetoptions). ~147 /cm calls — slow but it's a manual action."""
+    host, dport = _split_host_port(host)
+    lines = []
+    for i in range(0, hi + 1):
+        st, txt = _cm(host, dport, 'SetOption%d' % i, user, pw, timeout=4)
+        if st == 401:
+            return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+        if st != 200:
+            continue
+        try:
+            j = json.loads(txt)
+        except Exception:
+            continue
+        key = 'SetOption%d' % i
+        if key in j:
+            val = j[key]
+            lines.append('%s %s' % (key, val))
+    if not lines:
+        return {'ok': False, 'error': 'no SetOptions read'}
+    return {'ok': True, 'text': '\n'.join(lines), 'count': len(lines)}
+
+
+def _apply_setoptions(host, user, pw, text):
+    """Apply a SetOptions dump as batched Backlogs. Mirrors Tobias's
+    tassetoptions safety: batches of 10, skips the critical
+    SetOption15/19/55, and defers SetOption3 to the very end."""
+    host, dport = _split_host_port(host)
+    SKIP = {'SetOption15', 'SetOption19', 'SetOption55'}
+    batch = []
+    applied = 0
+    skipped = []
+    so3 = None
+    locked = [False]
+
+    def flush():
+        if not batch:
+            return True
+        st, _t = _cm(host, dport, 'Backlog ' + ';'.join(batch), user, pw,
+                     timeout=12)
+        del batch[:]
+        time.sleep(1)
+        if st == 401:
+            locked[0] = True
+            return False
+        return True
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        name = line.split()[0]
+        if not name.startswith('SetOption'):
+            continue
+        if name in SKIP:
+            skipped.append(name)
+            continue
+        if name == 'SetOption3':
+            so3 = line
+            continue
+        batch.append(line)
+        applied += 1
+        if len(batch) >= 10 and not flush():
+            break
+    if not locked[0]:
+        flush()
+        if so3 and not locked[0]:
+            st, _t = _cm(host, dport, so3, user, pw, timeout=8)
+            if st == 401:
+                locked[0] = True
+            else:
+                applied += 1
+    if locked[0]:
+        return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+    return {'ok': True, 'applied': applied, 'skipped': skipped}
+
+
+def _get_script(host, user, pw, timeout=8):
+    """Read the Berry/Scripter rules-script editor textarea (GET /s10),
+    HTML-unescaped (Tobias's tasgetscript). {ok, script} or {ok:False,...}."""
+    host, dport = _split_host_port(host)
+    url = _auth_url('http://%s:%d/s10?' % (host, dport), user, pw, sep='&')
+    try:
+        r = _NOPROXY.open(url, timeout=timeout)
+        page = r.read().decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+        if e.code == 404:
+            return {'ok': False, 'error': 'no Scripter on this device'}
+        return {'ok': False, 'error': 'HTTP %s' % e.code}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    m = _re.search(r'<textarea[^>]*>(.*?)</textarea>', page, _re.S | _re.I)
+    if not m:
+        return {'ok': False,
+                'error': 'no Scripter editor (USE_SCRIPT off, or login required)'}
+    import html as _html
+    return {'ok': True, 'script': _html.unescape(m.group(1))}
+
+
+def _put_script(host, user, pw, script, timeout=15):
+    """Upload a Scripter script (multipart POST /exs) then `Script on`
+    (Tobias's tassetscript)."""
+    host, dport = _split_host_port(host)
+    url = _auth_url('http://%s:%d/exs?execute_script' % (host, dport),
+                    user, pw, sep='&')
+    boundary = '----TasmotaWorkbenchScriptBoundary7e1f'
+    pre = ('--%s\r\nContent-Disposition: form-data; name="uploaded"; '
+           'filename="execute_script"\r\nContent-Type: '
+           'application/octet-stream\r\n\r\n' % boundary).encode('utf-8')
+    post = ('\r\n--%s--\r\n' % boundary).encode('utf-8')
+    data = pre + script.encode('utf-8') + post
+    req = urllib.request.Request(
+        url, data=data,
+        headers={'Content-Type':
+                 'multipart/form-data; boundary=%s' % boundary})
+    try:
+        r = _NOPROXY.open(req, timeout=timeout)
+        r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+        return {'ok': False, 'error': 'HTTP %s' % e.code}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    st, txt = _cm(host, dport, 'Script on', user, pw, timeout=6)
+    return {'ok': True, 'reply': txt if st == 200 else 'Script on -> %s' % st}
+
+
+def _get_health(host, user, pw):
+    """BootCount / RestartReason / Uptime from Status 1 (StatusPRM) —
+    Tobias's tasboot, for the Tools read-panel."""
+    host, dport = _split_host_port(host)
+    st, txt = _cm(host, dport, 'Status 1', user, pw, timeout=6)
+    if st == 401:
+        return {'ok': False, 'locked': True}
+    if st != 200:
+        return {'ok': False, 'error': 'Status 1 -> %s' % st}
+    try:
+        p = json.loads(txt).get('StatusPRM', {})
+    except Exception:
+        return {'ok': False, 'error': 'unparseable Status 1'}
+    return {'ok': True, 'bootcount': p.get('BootCount'),
+            'restart': p.get('RestartReason'), 'uptime': p.get('Uptime')}
+
+
 def _fw_version(host, port, user, password):
     s, t = _cm(host, port, 'Status 2', user, password, timeout=4)
     try:
@@ -1381,6 +1604,47 @@ def _parse_actuators(sts):
     return out
 
 
+def _dev_caps(host, user='admin', password=''):
+    """Best-effort capability probe for two scan columns:
+      scripter — device has the Scripter (USE_SCRIPT): `/cm?cmnd=Script`
+                 replies with a 'Script' key (a non-Scripter build → 'Command':'Unknown').
+      tinyc    — device has TinyC (xdrv_124): `/tc_api?cmd=status` exists and
+                 returns {"ok":true,...} (the endpoint is only compiled with USE_TINYC).
+    Both fail fast on real Tasmota (immediate 'Unknown' / 404), so this adds
+    little to the scan. Returns {'scripter': bool, 'tinyc': bool}."""
+    h, dport = _split_host_port(host)
+    caps = {'scripter': False, 'tinyc': False, 'frag': None}
+    # Scripter (USE_SCRIPT): the bare `Script` console command is recognised
+    # only when the Scripter is compiled in — a Scripter build answers the
+    # (arg-less) form with {"Command":"Error"}, a non-Scripter build with
+    # {"Command":"Unknown"}. So "no 'Unknown' in the reply" == has Scripter.
+    # Verified fleet-wide (30 devices, Tasmota 10.x–15.x) to agree
+    # exactly with the /s10-textarea ground truth, but on a tiny /cm reply
+    # instead of fetching the whole /s10 editor page (much faster to scan).
+    st, txt = _cm(h, dport, 'Script', user, password, timeout=4)
+    if st == 200:
+        caps['scripter'] = 'Unknown' not in txt
+    # TinyC (xdrv_124): /tc_api?cmd=status only exists with USE_TINYC. It also
+    # carries the live ESP heap + fragmentation (the same numbers the TinyC
+    # scanner grids), so we lift `frag` here for the Frag column. The reply is
+    # small even with 6 slots — read it whole and json.loads (a short read would
+    # truncate the slots array mid-way and the parse would fail).
+    try:
+        url = _auth_url('http://%s:%d/tc_api?cmd=status' % (h, dport),
+                        user, password, sep='&')
+        r = _NOPROXY.open(url, timeout=4)
+        if r.status == 200:
+            j = json.loads(r.read(16384).decode('utf-8', 'replace'))
+            if j.get('ok'):
+                caps['tinyc'] = True
+                fr = j.get('frag')
+                if isinstance(fr, (int, float)):
+                    caps['frag'] = int(fr)
+    except Exception:
+        pass
+    return caps
+
+
 def _dev_info(host, user='admin', password=''):
     """Tasmota status → a concise confirm-before-flash card. Tries the
     one-shot `Status 0`; if that doesn't parse (some devices — e.g. an
@@ -1428,7 +1692,10 @@ def _dev_info(host, user='admin', password=''):
             'flash': _mb(M.get('FlashSize')),      # total flash chip
             'appflash': _mb(M.get('ProgramFlashSize')),
             'used': _mb(M.get('ProgramSize')),
-            'free': _mb(M.get('Free')),
+            'free': _mb(M.get('Free')),            # free PROGRAM flash (OTA room)
+            'heap': M.get('Heap'),                 # free heap, KB (universal)
+            'psrfree': M.get('PsrFree'),           # free PSRAM, KB (0/None = none)
+            'psrmax': M.get('PsrMax'),             # total PSRAM, KB
             'host': N.get('Hostname', ''),
             'ip': N.get('IPAddress', host),
             'mac': N.get('Mac', ''),
@@ -1436,7 +1703,8 @@ def _dev_info(host, user='admin', password=''):
             'rssi': (T.get('Wifi') or {}).get('RSSI', ''),
             'sensors': _parse_sensors(j.get('StatusSNS', {})),
             'actuators': _parse_actuators(T),
-            'parts': _dev_partitions(host, user, password)}
+            'parts': _dev_partitions(host, user, password),
+            **_dev_caps(host, user, password)}
 
 
 def _scan_tasmota(net):
@@ -1836,9 +2104,63 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   </div>
   <div id="scanwrap" class="hide"><table id="scantbl">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
-      <th>Tasmota</th><th>Flash</th><th>Free</th><th>Sensors / Outputs</th><th>Partitions</th>
-      <th></th></tr></thead>
+      <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th>
+      <th>Flash</th><th title="Freier Programm-Flash (OTA-Platz)">Free</th>
+      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="PSRAM gesamt / frei">PSRAM</th>
+      <th>Sensors / Outputs</th><th>Partitions</th>
+      <th></th><th>Tools</th></tr></thead>
     <tbody id="scanbody"></tbody></table></div>
+  <!-- Per-device Tools panel (opened by the 🔧 Tools button in each row) -->
+  <div id="dtmodal" class="hide" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;overflow:auto">
+    <div style="background:var(--bg,#1e1e1e);border:1px solid rgba(128,128,128,.4);border-radius:10px;max-width:660px;width:92%;margin:36px auto;padding:14px;box-shadow:0 12px 44px rgba(0,0,0,.5)">
+      <div style="margin-bottom:4px"><b>🔧 Device Tools — <span id="dt_ip"></span></b>
+        <span id="dt_name" style="color:var(--mut)"></span>
+        <button onclick="closeDevTools()" style="float:right">✕</button></div>
+      <div id="dt_health" style="color:var(--mut);font-size:11px;margin:0 0 6px">…</div>
+      <div style="margin:6px 0">
+        <button onclick="dtBackup()" title="Volle Geräte-Konfiguration (/dl) als .dmp-Datei herunterladen">💾 Config-Backup (.dmp)</button>
+        <span id="dt_bkstat" style="color:var(--mut);font-size:11px;margin-left:6px"></span>
+      </div>
+      <div style="margin:8px 0"><b>Template</b>
+        <span id="dt_src" style="color:var(--mut);font-size:11px"></span>
+        <textarea id="dt_tpl" spellcheck="false" placeholder='{&quot;NAME&quot;:&quot;...&quot;,&quot;GPIO&quot;:[...],&quot;FLAG&quot;:0,&quot;BASE&quot;:1}' style="width:100%;height:84px;font-family:monospace;font-size:11px;margin-top:4px;box-sizing:border-box"></textarea>
+        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+          Module <input id="dt_mod" type="number" value="0" style="width:58px">
+          <button onclick="dtRead()">Vom Gerät lesen</button>
+          <button onclick="dtSaveDisk()">Auf Disk speichern</button>
+          <button onclick="dtLoadDisk()">Von Disk laden</button>
+          <button onclick="dtWrite()" style="color:#e66;font-weight:bold">Auf Gerät schreiben</button>
+        </div>
+      </div>
+      <div style="margin:11px 0 0"><b>SetOptions</b>
+        <span id="dt_optsrc" style="color:var(--mut);font-size:11px"></span>
+        <textarea id="dt_opts" spellcheck="false" placeholder="SetOption0 1&#10;SetOption3 0&#10;… (eine pro Zeile)" style="width:100%;height:70px;font-family:monospace;font-size:11px;margin-top:4px;box-sizing:border-box"></textarea>
+        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+          <button onclick="dtOptRead()" title="SetOption0..146 vom Gerät lesen (~10 s)">Vom Gerät lesen</button>
+          <button onclick="dtOptSaveDisk()">Auf Disk speichern</button>
+          <button onclick="dtOptLoadDisk()">Von Disk laden</button>
+          <button onclick="dtOptWrite()" style="color:#e66;font-weight:bold" title="In Backlog-Bündeln anwenden; SetOption15/19/55 werden übersprungen, SetOption3 zuletzt">Auf Gerät schreiben</button>
+        </div>
+      </div>
+      <div style="margin:11px 0 0"><b>Scripter</b>
+        <span id="dt_scrsrc" style="color:var(--mut);font-size:11px"></span>
+        <textarea id="dt_script" spellcheck="false" placeholder=">D&#10;>B&#10;… (Tasmota-Script)" style="width:100%;height:84px;font-family:monospace;font-size:11px;margin-top:4px;box-sizing:border-box"></textarea>
+        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+          <button onclick="dtScrRead()">Vom Gerät lesen</button>
+          <button onclick="dtScrSaveDisk()">Auf Disk speichern</button>
+          <button onclick="dtScrLoadDisk()">Von Disk laden</button>
+          <button onclick="dtScrWrite()" style="color:#e66;font-weight:bold" title="Script hochladen und „Script on“ setzen">Auf Gerät schreiben</button>
+        </div>
+      </div>
+      <div style="margin:11px 0 0"><b>Konsole</b>
+        <div style="display:flex;gap:5px;margin-top:4px">
+          <input id="dt_cmd" placeholder="Befehl, z.B. Status 0  ·  Enter = senden" onkeydown="if(event.key==='Enter')dtSend()" style="flex:1">
+          <button onclick="dtSend()">Senden</button></div>
+        <pre id="dt_out" style="max-height:170px;overflow:auto;background:#111;color:#ddd;padding:6px;font-size:11px;margin-top:4px;white-space:pre-wrap;border-radius:4px"></pre>
+      </div>
+    </div>
+  </div>
+  <input id="dt_file" type="file" accept=".json,.dat,.txt" style="display:none">
 </div>
 <div id="sharepanel" class="hide">
   <label title="Listen on multicast 239.255.255.250:1999 for this many seconds">Duration</label>
@@ -2290,6 +2612,36 @@ const scanwrapEl=$('#scanwrap'), scanbodyEl=$('#scanbody');
 function _fmtKB(k){return k>=1024?(Math.round(k/102.4)/10+' MB'):(k+' KB');}
 function _esc(s){return String(s==null?'':s).replace(/[&<>"]/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function _capCell(v){
+  if(v===true)  return '<span title="verfügbar" style="color:#3fb950;font-weight:bold">✓</span>';
+  if(v===false) return '<span title="nicht kompiliert" style="color:var(--mut)">–</span>';
+  return '<span title="unbekannt" style="color:var(--mut)">?</span>';
+}
+function _heapCell(d){                 // free heap, KB (StatusMEM.Heap)
+  const k=d.heap;
+  if(k==null||k==='') return '<span style="color:var(--mut)">–</span>';
+  const c = k<12?'var(--err)':(k<24?'#e0a84e':'var(--fg)');
+  const w = k<12?';font-weight:700':'';
+  return '<span style="color:'+c+w+'">'+k+' KB</span>';
+}
+function _fragCell(d){                 // heap fragmentation %, TinyC only
+  const f=d.frag;
+  if(f==null) return '<span style="color:var(--mut)" title="nur TinyC-Geräte melden Fragmentierung">–</span>';
+  const c = f>=60?'var(--err)':(f>=40?'#e0a84e':'var(--fg)');
+  const w = f>=60?';font-weight:700':'';
+  return '<span style="color:'+c+w+'">'+f+'%</span>';
+}
+function _psrCell(d){                  // PSRAM total / free (StatusMEM.PsrMax/PsrFree, KB)
+  const mx=d.psrmax;
+  if(!mx) return '<span style="color:var(--mut)" title="kein PSRAM">–</span>';
+  const fr=d.psrfree||0;
+  // total / free, one shared unit when both are MB (mirrors the flash size + free)
+  const both = (mx>=1024 && fr>=1024)
+    ? (Math.round(mx/102.4)/10+' / '+Math.round(fr/102.4)/10+' MB')
+    : (_fmtKB(mx)+' / '+_fmtKB(fr));
+  const c = (mx && fr/mx<0.1) ? 'var(--err)' : 'var(--fg)';   // <10% free → red
+  return '<span style="color:'+c+'" title="gesamt '+_fmtKB(mx)+' · frei '+_fmtKB(fr)+'">'+both+'</span>';
+}
 function _nameCell(d){return '<b>'+_esc(d.name)+'</b> <span class="rn" '
   +'data-f="devicename" title="rename device name (instant)">✎</span>';}
 function _hostCell(d){return _esc(d.host)+' <span class="rn" '
@@ -2364,7 +2716,7 @@ function selectDevice(ip,tr){
 function renderScanTable(devs){
   scanbodyEl.innerHTML='';
   if(!devs||!devs.length){
-    scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut);'
+    scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut);'
       +'padding:9px;white-space:normal">No Tasmota devices answered on '
       +'this subnet.<br>• Check the <b>LogHost</b> IP (top bar) is on the '
       +'same LAN as your devices.<br>• If you opened <b>Tasmota Workbench.app</b> '
@@ -2382,7 +2734,7 @@ function renderScanTable(devs){
       const why=d.locked?'🔒 locked — type WebPassword below + rescan'
         :('✗ '+(d.error||'no Status'));
       tr.innerHTML='<td>'+_ipCell(d)+'</td><td><b>'+(d.name||'')+'</b></td>'
-        +'<td class="lk" colspan="8">'+why+'</td>';
+        +'<td class="lk" colspan="14">'+why+'</td>';
     }else{
       const parts=(d.parts||[]).map(p=>{
         let u='';
@@ -2395,18 +2747,24 @@ function renderScanTable(devs){
         +'<td>'+_hostCell(d)+'</td>'
         +'<td>'+_cpuCell(d)+'</td>'
         +'<td>'+_esc(d.version)+(d.core?' <span style="color:var(--mut)">('+_esc(d.core)+')</span>':'')+'</td>'
+        +'<td style="text-align:center">'+_capCell(d.scripter)+'</td>'
+        +'<td style="text-align:center">'+_capCell(d.tinyc)+'</td>'
         +'<td style="color:var(--mut)">'+_esc(d.flash)+'</td>'
         +'<td>'+_freeCell(d)+'</td>'
+        +'<td>'+_heapCell(d)+'</td>'
+        +'<td style="text-align:center">'+_fragCell(d)+'</td>'
+        +'<td>'+_psrCell(d)+'</td>'
         +'<td>'+_sensorsCell(d)+'</td>'
         +'<td class="parts">'+parts+'</td>'
-        +'<td><button class="go">OTA ▸</button></td>';
+        +'<td><button class="go">OTA ▸</button></td>'
+        +'<td><button class="tdev" title="Geräte-Werkzeuge: Template lesen/schreiben, auf Disk speichern, Konsole">🔧 Tools</button></td>';
     }
     tr.onclick=(e)=>{
-      if(e.target&&e.target.classList&&e.target.classList.contains('rn')){
-        startRename(d, e.target.dataset.f, tr); return;   // ✎ pencil
-      }
+      const cl=(e.target&&e.target.classList)||{contains:()=>false};
+      if(cl.contains('rn')){ startRename(d, e.target.dataset.f, tr); return; }  // ✎ pencil
+      if(cl.contains('tdev')){ openDevTools(d); return; } // 🔧 device tools panel
       selectDevice(d.ip,tr);
-      if(e.target&&e.target.tagName==='BUTTON'){
+      if(cl.contains('go')){     // only the OTA button flashes
         if(!fwReady){alert('Choose a firmware .bin first (top of the '
           +'Flash bar), then click OTA on the device.');return;}
         flashgoEl.click();           // confirms, then OTAs $('#host')
@@ -2448,6 +2806,217 @@ async function applyRename(d, field, value, tr){
     }
   }catch(e){ alert('Rename error: '+e); }
 }
+// ── Per-device Tools panel: read/write Template, save to disk, command console ──
+let dtDev = null;   // device the panel is bound to {ip,name,...}
+function _tplPw(){ return ($('#fwpass')&&$('#fwpass').value)||''; }
+function openDevTools(d){
+  dtDev = d;
+  $('#dt_ip').textContent = d.ip;
+  $('#dt_name').textContent = d.name ? '('+d.name+')' : '';
+  $('#dt_out').textContent = '';
+  // reset all panels so stale data from a previous device can't leak across
+  $('#dt_tpl').value=''; $('#dt_mod').value='0'; $('#dt_src').textContent='';
+  $('#dt_opts').value=''; $('#dt_optsrc').textContent='';
+  $('#dt_script').value=''; $('#dt_scrsrc').textContent='';
+  $('#dt_bkstat').textContent='';
+  $('#dt_health').textContent='…';
+  $('#dtmodal').classList.remove('hide');
+  dtLoadHealth();
+  $('#dt_cmd').focus();
+}
+function closeDevTools(){ $('#dtmodal').classList.add('hide'); }
+// ── disk helpers (text blobs) shared by SetOptions + Scripter panels ──
+function _dtDownload(text, fname){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));
+  a.download=fname; a.click();
+}
+function _dtPickFile(accept, cb){
+  const inp=$('#dt_file'); inp.value=''; inp.accept=accept;
+  inp.onchange=()=>{ const f=inp.files[0]; if(!f) return;
+    const r=new FileReader(); r.onload=()=>cb(r.result, f.name); r.readAsText(f); };
+  inp.click();
+}
+async function dtLoadHealth(){
+  if(!dtDev) return;
+  try{
+    const j=await(await fetch('/api/health?host='+encodeURIComponent(dtDev.ip)
+      +'&pw='+encodeURIComponent(_tplPw()))).json();
+    if(!j.ok){ $('#dt_health').textContent = j.locked?'(WebPassword nötig für Status)':''; return; }
+    $('#dt_health').textContent =
+      'Uptime '+(j.uptime||'?')+'  ·  BootCount '+(j.bootcount!=null?j.bootcount:'?')
+      +'  ·  Restart: '+(j.restart||'?');
+  }catch(e){ $('#dt_health').textContent=''; }
+}
+// ── Config backup (.dmp) ──
+async function dtBackup(){
+  if(!dtDev) return;
+  const st=$('#dt_bkstat'); st.textContent='lade /dl …';
+  try{
+    const j=await(await fetch('/api/backup',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,password:_tplPw()})})).json();
+    if(!j.ok){ st.textContent=''; alert(j.locked?'WebPassword nötig (Flash-Balken)'
+      :('Backup fehlgeschlagen: '+(j.error||'?'))); return; }
+    const bin=atob(j.b64), arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([arr],{type:'application/octet-stream'}));
+    a.download=dtDev.ip.replace(/[.:]/g,'_')+'.dmp'; a.click();
+    st.textContent='✓ '+j.size+' B gespeichert';
+  }catch(e){ st.textContent=''; alert('Backup-Fehler: '+e); }
+}
+// ── SetOptions read / apply / disk ──
+async function dtOptRead(){
+  if(!dtDev) return;
+  $('#dt_optsrc').textContent='lese SetOptions … (~10 s)';
+  try{
+    const j=await(await fetch('/api/getoptions',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,password:_tplPw()})})).json();
+    if(!j.ok){ $('#dt_optsrc').textContent=''; alert(j.locked?'WebPassword nötig (Flash-Balken)'
+      :('Lesen fehlgeschlagen: '+(j.error||'?'))); return; }
+    $('#dt_opts').value=j.text;
+    $('#dt_optsrc').textContent=j.count+' Optionen von '+dtDev.ip;
+  }catch(e){ $('#dt_optsrc').textContent=''; alert('Lesen-Fehler: '+e); }
+}
+async function dtOptWrite(){
+  if(!dtDev) return;
+  const text=$('#dt_opts').value.trim();
+  if(!text){ alert('SetOptions sind leer — erst lesen oder von Disk laden.'); return; }
+  if(!confirm('SetOptions auf '+dtDev.ip+' anwenden?\n\n'
+    +'In Backlog-Bündeln; SetOption15/19/55 werden übersprungen, SetOption3 zuletzt.')) return;
+  $('#dt_optsrc').textContent='schreibe …';
+  try{
+    const j=await(await fetch('/api/setoptions',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,text:text,password:_tplPw()})})).json();
+    if(!j.ok){ $('#dt_optsrc').textContent=''; alert(j.locked?'WebPassword nötig'
+      :('Schreiben fehlgeschlagen: '+(j.error||'?'))); return; }
+    $('#dt_optsrc').textContent='✓ '+j.applied+' angewendet'
+      +(j.skipped&&j.skipped.length?(' · übersprungen: '+j.skipped.join(',')):'');
+  }catch(e){ $('#dt_optsrc').textContent=''; alert('Schreiben-Fehler: '+e); }
+}
+function dtOptSaveDisk(){
+  const t=$('#dt_opts').value.trim();
+  if(!t){ alert('SetOptions sind leer.'); return; }
+  _dtDownload(t, (dtDev?dtDev.ip.replace(/[.:]/g,'_'):'device')+'.setoptions');
+}
+function dtOptLoadDisk(){
+  _dtPickFile('.setoptions,.txt',(text,name)=>{
+    $('#dt_opts').value=text; $('#dt_optsrc').textContent='geladen: '+name; });
+}
+// ── Scripter read / write / disk ──
+async function dtScrRead(){
+  if(!dtDev) return;
+  $('#dt_scrsrc').textContent='lese Script …';
+  try{
+    const j=await(await fetch('/api/getscript',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,password:_tplPw()})})).json();
+    if(!j.ok){ $('#dt_scrsrc').textContent=''; alert(j.locked?'WebPassword nötig (Flash-Balken)'
+      :('Lesen fehlgeschlagen: '+(j.error||'?'))); return; }
+    $('#dt_script').value=j.script;
+    $('#dt_scrsrc').textContent=j.script.length+' Zeichen von '+dtDev.ip;
+  }catch(e){ $('#dt_scrsrc').textContent=''; alert('Lesen-Fehler: '+e); }
+}
+async function dtScrWrite(){
+  if(!dtDev) return;
+  const script=$('#dt_script').value;
+  if(!script.trim()){ alert('Script ist leer — erst lesen oder von Disk laden.'); return; }
+  if(!confirm('Script auf '+dtDev.ip+' hochladen und „Script on“ setzen?\n\n'
+    +'Das bestehende Script wird überschrieben.')) return;
+  $('#dt_scrsrc').textContent='schreibe …';
+  try{
+    const j=await(await fetch('/api/setscript',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,script:script,password:_tplPw()})})).json();
+    if(!j.ok){ $('#dt_scrsrc').textContent=''; alert(j.locked?'WebPassword nötig'
+      :('Schreiben fehlgeschlagen: '+(j.error||'?'))); return; }
+    $('#dt_scrsrc').textContent='✓ hochgeladen + Script on';
+  }catch(e){ $('#dt_scrsrc').textContent=''; alert('Schreiben-Fehler: '+e); }
+}
+function dtScrSaveDisk(){
+  const t=$('#dt_script').value;
+  if(!t.trim()){ alert('Script ist leer.'); return; }
+  _dtDownload(t, (dtDev?dtDev.ip.replace(/[.:]/g,'_'):'device')+'.script');
+}
+function dtScrLoadDisk(){
+  _dtPickFile('.script,.txt',(text,name)=>{
+    $('#dt_script').value=text; $('#dt_scrsrc').textContent='geladen: '+name; });
+}
+async function dtRead(){
+  if(!dtDev) return;
+  const u='/api/template?host='+encodeURIComponent(dtDev.ip)
+    +'&pw='+encodeURIComponent(_tplPw());
+  try{
+    const j=await(await fetch(u)).json();
+    if(!j.ok){ alert(j.locked?'WebPassword nötig (Flash-Balken)'
+      :('Lesen fehlgeschlagen: '+(j.error||'?'))); return; }
+    $('#dt_tpl').value = JSON.stringify(j.template);
+    $('#dt_mod').value = j.module;
+    $('#dt_src').textContent = 'gelesen von '+dtDev.ip;
+  }catch(e){ alert('Lesen-Fehler: '+e); }
+}
+function _dtTplObj(){
+  const t=$('#dt_tpl').value.trim();
+  if(!t){ alert('Template ist leer — erst „Vom Gerät lesen“ oder „Von Disk laden“.'); return null; }
+  try{ return JSON.parse(t); }catch(e){ alert('Template-JSON ungültig: '+e); return null; }
+}
+function dtSaveDisk(){
+  const tpl=_dtTplObj(); if(!tpl) return;
+  const mod=Number($('#dt_mod').value||'0');
+  const blob=new Blob([JSON.stringify({template:tpl,module:mod},null,2)],
+                      {type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(dtDev?dtDev.ip:'device')+'.template.json';
+  a.click();
+}
+function dtLoadDisk(){
+  const inp=$('#dt_file'); inp.value='';
+  inp.onchange=()=>{
+    const f=inp.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ try{
+        const o=JSON.parse(r.result);
+        const tpl=(o&&o.template)||o;
+        $('#dt_tpl').value=JSON.stringify(tpl);
+        if(o&&o.module!=null) $('#dt_mod').value=o.module;
+        $('#dt_src').textContent='geladen: '+f.name;
+      }catch(e){ alert('Datei ist kein gültiges Template-JSON: '+e); } };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function dtWrite(){
+  if(!dtDev) return;
+  const tpl=_dtTplObj(); if(!tpl) return;
+  const mod=Number($('#dt_mod').value||'0');
+  if(!confirm('Template + Module ('+mod+') auf '+dtDev.ip+' schreiben?\n\n'
+    +'Die Hardware-Konfiguration wird überschrieben.')) return;
+  dtRunCmd('Backlog Template '+JSON.stringify(tpl)+'; Module '+mod,
+           'Template geschrieben');
+}
+function dtSend(){
+  const c=$('#dt_cmd').value.trim(); if(!c) return;
+  $('#dt_cmd').value='';
+  dtRunCmd(c, null);
+}
+async function dtRunCmd(cmd, okmsg){
+  if(!dtDev) return;
+  const out=$('#dt_out');
+  out.textContent += '> '+cmd+'\n';
+  try{
+    const j=await(await fetch('/api/cmd',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,cmd:cmd,password:_tplPw()})})).json();
+    if(!j.ok){ out.textContent += '✗ '+(j.locked?'WebPassword nötig':(j.error||'?'))+'\n'; }
+    else{ out.textContent += (j.reply||'(ok)')+'\n';
+          if(okmsg) out.textContent += '✓ '+okmsg+'\n'; }
+  }catch(e){ out.textContent += '✗ '+e+'\n'; }
+  out.scrollTop = out.scrollHeight;
+}
 // Live progress row while a background scan runs: shows the subnet sweep
 // position and the running "devices found" count, with any already-found
 // devices rendered above it so they appear one-by-one (counting up).
@@ -2465,10 +3034,10 @@ function renderScanProgress(st){
   if(devs.length){
     renderScanTable(devs);                 // incremental: rows so far
     const tr=document.createElement('tr');
-    tr.innerHTML='<td colspan="10" style="color:var(--mut)">⟳ '+line+'</td>';
+    tr.innerHTML='<td colspan="16" style="color:var(--mut)">⟳ '+line+'</td>';
     scanbodyEl.appendChild(tr);            // …then the live status line
   }else{
-    scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut)">⟳ '
+    scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut)">⟳ '
       +line+'</td></tr>';
     scanwrapEl.classList.remove('hide');
   }
@@ -2478,14 +3047,14 @@ hostscanEl.onclick=async()=>{
   const net=ip.split('.').slice(0,3).join('.');
   hostscanEl.disabled=true;
   const ot=hostscanEl.textContent; hostscanEl.textContent='scanning…';
-  scanbodyEl.innerHTML='<tr><td colspan="10" style="color:var(--mut)">⟳ '
+  scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut)">⟳ '
     +'starting scan of '+(net||'LAN')+'.x …</td></tr>';
   scanwrapEl.classList.remove('hide');
   const pw=encodeURIComponent($('#fwpass').value||'');
   try{
     await fetch('/api/scan/start?full=1'+(net?'&net='+net:'')+'&pw='+pw);
   }catch(e){
-    scanbodyEl.innerHTML='<tr><td colspan="10" class="lk">scan start failed: '
+    scanbodyEl.innerHTML='<tr><td colspan="16" class="lk">scan start failed: '
       +e+'</td></tr>';
     hostscanEl.textContent=ot; hostscanEl.disabled=false; return;
   }
@@ -2634,6 +3203,22 @@ class H(BaseHTTPRequestHandler):
                 self._json({'ok': False, 'error': 'no host'})
             else:
                 self._json(_dev_info(host, 'admin', pw))
+        elif path == '/api/template':
+            qs = parse_qs(urlparse(self.path).query)
+            host = (qs.get('host') or [''])[0]
+            pw = (qs.get('pw') or [''])[0]
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+            else:
+                self._json(_get_template(host, 'admin', pw))
+        elif path == '/api/health':
+            qs = parse_qs(urlparse(self.path).query)
+            host = (qs.get('host') or [''])[0]
+            pw = (qs.get('pw') or [''])[0]
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+            else:
+                self._json(_get_health(host, 'admin', pw))
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])
@@ -2782,6 +3367,89 @@ class H(BaseHTTPRequestHandler):
                       ' (rebooting)' if field == 'hostname' else ''))
                 self._json({'ok': True, 'value': v,
                             'rebooting': field == 'hostname'})
+            return
+        if path == '/api/cmd':
+            host = str(body.get('host', '')).strip()
+            cmnd = str(body.get('cmd', ''))
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not host or not cmnd:
+                self._json({'ok': False, 'error': 'host and cmd required'})
+                return
+            dport = 80
+            if ':' in host:
+                h, p = host.split(':', 1)
+                host, dport = h, int(p)
+            st, txt = _cm(host, dport, cmnd, 'admin', pw, timeout=10)
+            if st == 401:
+                self._json({'ok': False, 'locked': True,
+                            'error': 'WebPassword required'})
+            elif st != 200:
+                self._json({'ok': False,
+                            'error': 'device /cm returned %s' % st})
+            else:
+                _flog('%s cmd: %s' % (host, cmnd[:80]))
+                self._json({'ok': True, 'reply': txt})
+            return
+        if path == '/api/backup':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+                return
+            res = _dl_dump(host, 'admin', pw)
+            if res.get('ok'):
+                _flog('%s config backup (%d B)' % (host, res.get('size', 0)))
+            self._json(res)
+            return
+        if path == '/api/getoptions':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+                return
+            res = _get_setoptions(host, 'admin', pw)
+            if res.get('ok'):
+                _flog('%s read %d SetOptions' % (host, res.get('count', 0)))
+            self._json(res)
+            return
+        if path == '/api/setoptions':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            text = str(body.get('text', ''))
+            if not host or not text.strip():
+                self._json({'ok': False, 'error': 'host and text required'})
+                return
+            res = _apply_setoptions(host, 'admin', pw, text)
+            if res.get('ok'):
+                _flog('%s applied %d SetOptions (skipped %s)'
+                      % (host, res.get('applied', 0),
+                         ','.join(res.get('skipped', [])) or 'none'))
+            self._json(res)
+            return
+        if path == '/api/getscript':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+                return
+            res = _get_script(host, 'admin', pw)
+            if res.get('ok'):
+                _flog('%s read Scripter (%d chars)'
+                      % (host, len(res.get('script', ''))))
+            self._json(res)
+            return
+        if path == '/api/setscript':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            script = str(body.get('script', ''))
+            if not host or not script:
+                self._json({'ok': False, 'error': 'host and script required'})
+                return
+            res = _put_script(host, 'admin', pw, script)
+            if res.get('ok'):
+                _flog('%s wrote Scripter (%d chars) + Script on'
+                      % (host, len(script)))
+            self._json(res)
             return
         if path == '/api/flash/cancel':
             _flash_cancel()
