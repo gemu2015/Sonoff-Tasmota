@@ -1,0 +1,228 @@
+// music_ui.tc — a TinyC-LVGL "music player" screen, inspired by LVGL's lv_demo_music.
+// Runs as a normal TinyC app on a USE_TINYC_LVGL firmware (e.g. the P4 .164). No reflash.
+//
+// Layout is portrait 800x1280 (the 10.1" JD9365 panel). All geometry is in the
+// constants block — tweak SCR_W/SCR_H + the *_Y rows to re-flow for another size.
+//
+// Asset: upload a square cover image to the device FS root, reachable as "A:/cover.png".
+//   (The P4 has a HW JPEG decoder too, so "A:/cover.jpg" works as well.)
+//
+// What maps to what (vs the C demo):
+//   album art      -> lvglImage + lvglImageSrc          (rotates slowly = vinyl feel)
+//   title/artist   -> lvglLabel + lvglSetText           (default font; see notes)
+//   spectrum       -> a row of vertical lvglBar, animated each frame from this loop
+//   seek bar       -> lvglSlider (VALUE_CHANGED scrubs) + 0:00 / total time labels
+//   transport      -> lvglButton x3 (prev / play-pause / next), CLICKED events
+//
+// LVGL 9 constants we use:
+#define AL_TOP_MID     2
+#define AL_CENTER      9
+#define EV_CLICKED     10
+#define EV_VALUE_CHG   35
+#define ST_RADIUS      120
+#define ST_CLIP        128          // LV_STYLE_CLIP_CORNER
+#define ST_BG_OPA      72           // LV_STYLE_BG_OPA
+
+#define SCR_W          800
+#define SCR_H          1280
+
+#define COVER          480          // album-art side length
+#define COVER_Y        110          // top offset of the cover
+
+#define NBARS          24           // spectrum bars
+#define BAR_W          14
+#define BAR_GAP        20           // centre-to-centre spacing
+#define BAR_MAXH       170
+#define SPEC_Y         830          // top of the spectrum row
+
+#define SEEK_W         600
+#define SEEK_Y         1050
+
+#define BTN_Y          1150
+
+// colours (light "demo" palette; flip these for a dark theme)
+#define COL_BG         0xF3F0FB     // lavender-white
+#define COL_TEXT       0x2B2B40     // slate
+#define COL_SUB        0x8A86A6     // muted subtitle
+#define COL_ACCENT     0x7B61FF     // purple
+#define COL_BARTRK     0xE3DEF5     // faint bar track
+
+int cover;
+int title; int artist; int meta;
+int bar[NBARS];
+int seek; int tCur; int tTot;
+int bPrev; int bPlay; int bNext; int bPlayLbl;
+
+int playing = 1;
+int pos = 0;                 // fake playback position, 0..DURATION (seconds)
+int DURATION = 215;          // 3:35 track
+int frame = 0;
+
+// 16-entry integer sine LUT (50 + 45*sin), values 0..95 — drives the spectrum
+// without any float math. Indexed mod 16.
+int spec[16];
+
+// write "M:SS" of `secs` into buf
+void mmss(char buf[], int secs) {
+    int m; int s;
+    m = secs / 60;
+    s = secs - m * 60;
+    sprintf(buf, "%d:%02d", m, s);
+}
+
+int main() {
+    lvglInit();
+    lvglClean(0);                // drop any prior app's widgets from the active screen
+    lvglSetBgColor(0, COL_BG);
+
+    // ---- album art (centred near the top), slow vinyl rotation ----
+    cover = lvglImage(0);
+    lvglImageSrc(cover, "A:/cover.png");
+    lvglSetSize(cover, COVER, COVER);
+    lvglAlign(cover, AL_TOP_MID, 0, COVER_Y);
+    lvglSetStyleInt(cover, ST_RADIUS, COVER / 2);    // round to a circle...
+    lvglSetStyleInt(cover, ST_CLIP, 1);              // ...and CLIP, so the asset's square white backdrop is hidden
+
+    // ---- title / artist / album·year ----
+    title = lvglLabel(0);
+    lvglSetText(title, "Need a Better Future");
+    lvglSetTextColor(title, COL_TEXT);
+    lvglSetFont(title, 28);                           // big title
+    lvglAlign(title, AL_TOP_MID, 0, COVER_Y + COVER + 40);
+
+    artist = lvglLabel(0);
+    lvglSetText(artist, "My True Name");
+    lvglSetTextColor(artist, COL_TEXT);
+    lvglSetFont(artist, 20);                          // medium subtitle
+    lvglAlign(artist, AL_TOP_MID, 0, COVER_Y + COVER + 96);
+
+    meta = lvglLabel(0);
+    lvglSetText(meta, "Drum'n bass  -  2016");
+    lvglSetTextColor(meta, COL_SUB);
+    lvglAlign(meta, AL_TOP_MID, 0, COVER_Y + COVER + 140);
+
+    // sine LUT (50 + 45*sin, sampled every 22.5°), pure integers
+    spec[0]=50;  spec[1]=67;  spec[2]=82;  spec[3]=92;
+    spec[4]=95;  spec[5]=92;  spec[6]=82;  spec[7]=67;
+    spec[8]=50;  spec[9]=33;  spec[10]=18; spec[11]=8;
+    spec[12]=5;  spec[13]=8;  spec[14]=18; spec[15]=33;
+
+    // ---- spectrum: NBARS vertical bars, centred on the screen ----
+    int i;
+    int x0;
+    x0 = -((NBARS - 1) * BAR_GAP) / 2;     // x offset of the first bar from centre
+    i = 0;
+    while (i < NBARS) {
+        bar[i] = lvglBar(0);
+        lvglSetSize(bar[i], BAR_W, BAR_MAXH);   // taller than wide -> fills bottom->top
+        lvglSetRange(bar[i], 0, 100);
+        lvglSetValue(bar[i], 10, 0);
+        lvglSetStyleInt(bar[i], ST_RADIUS, BAR_W / 2);
+        lvglSetBgColor(bar[i], COL_BARTRK);
+        lvglAlign(bar[i], AL_TOP_MID, x0 + i * BAR_GAP, SPEC_Y);
+        i = i + 1;
+    }
+
+    // ---- seek slider + time labels ----
+    seek = lvglSlider(0);
+    lvglSetSize(seek, SEEK_W, 16);
+    lvglSetRange(seek, 0, DURATION);
+    lvglSetValue(seek, 0, 0);
+    lvglAlign(seek, AL_TOP_MID, 0, SEEK_Y);
+    lvglEventEnable(seek, EV_VALUE_CHG);
+
+    tCur = lvglLabel(0);
+    lvglSetText(tCur, "0:00");
+    lvglSetTextColor(tCur, COL_SUB);
+    lvglAlign(tCur, AL_TOP_MID, -(SEEK_W / 2) + 18, SEEK_Y + 26);
+
+    char tb[8];
+    mmss(tb, DURATION);
+    tTot = lvglLabel(0);
+    lvglSetText(tTot, tb);
+    lvglSetTextColor(tTot, COL_SUB);
+    lvglAlign(tTot, AL_TOP_MID, (SEEK_W / 2) - 18, SEEK_Y + 26);
+
+    // ---- transport buttons ----
+    bPrev = lvglButton(0);
+    lvglSetSize(bPrev, 96, 96);
+    lvglSetStyleInt(bPrev, ST_RADIUS, 48);     // round -> circle
+    lvglAlign(bPrev, AL_TOP_MID, -200, BTN_Y);
+    lvglEventEnable(bPrev, EV_CLICKED);
+    int pl;
+    pl = lvglLabel(bPrev);
+    lvglSetText(pl, "|<");
+    lvglAlign(pl, AL_CENTER, 0, 0);
+
+    bPlay = lvglButton(0);
+    lvglSetSize(bPlay, 120, 120);
+    lvglSetStyleInt(bPlay, ST_RADIUS, 60);     // round -> circle
+    lvglSetBgColor(bPlay, COL_ACCENT);         // accent purple, like the demo
+    lvglAlign(bPlay, AL_TOP_MID, 0, BTN_Y - 12);
+    lvglEventEnable(bPlay, EV_CLICKED);
+    bPlayLbl = lvglLabel(bPlay);
+    lvglSetText(bPlayLbl, "II");          // "II" = playing; ">" when paused
+    lvglAlign(bPlayLbl, AL_CENTER, 0, 0);
+
+    bNext = lvglButton(0);
+    lvglSetSize(bNext, 96, 96);
+    lvglSetStyleInt(bNext, ST_RADIUS, 48);     // round -> circle
+    lvglAlign(bNext, AL_TOP_MID, 200, BTN_Y);
+    lvglEventEnable(bNext, EV_CLICKED);
+    int nl;
+    nl = lvglLabel(bNext);
+    lvglSetText(nl, ">|");
+    lvglAlign(nl, AL_CENTER, 0, 0);
+
+    // ---- main loop: handle taps + animate spectrum + advance playback ----
+    char cb[8];
+    int seekDrag = 0;
+    while (1) {
+        while (lvglEvent()) {
+            int o; int c;
+            o = lvglEventObj();
+            c = lvglEventCode();
+            if (o == bPlay && c == EV_CLICKED) {
+                playing = 1 - playing;
+                if (playing) { lvglSetText(bPlayLbl, "II"); }
+                else { lvglSetText(bPlayLbl, ">"); }
+            } else if (o == bNext && c == EV_CLICKED) {
+                pos = 0;
+            } else if (o == bPrev && c == EV_CLICKED) {
+                pos = 0;
+            } else if (o == seek && c == EV_VALUE_CHG) {
+                pos = lvglGetValue(seek);     // user scrubbed
+                seekDrag = 6;                  // hold auto-follow off briefly
+            }
+        }
+
+        // spectrum animation — two LUT phases mixed for a lively pseudo-FFT,
+        // idle dip when paused. Pure integer, no float.
+        i = 0;
+        while (i < NBARS) {
+            int v;
+            v = (spec[(frame + i * 3) % 16] + spec[(frame * 2 + i * 5) % 16]) / 2;
+            if (!playing) { v = 6 + (v / 10); }
+            if (v < 4) { v = 4; }
+            if (v > 100) { v = 100; }
+            lvglSetValue(bar[i], v, 0);
+            i = i + 1;
+        }
+
+        // advance playback ~ once/sec (loop is ~40ms -> every 25 frames)
+        if (playing && (frame % 25) == 0) {
+            if (seekDrag > 0) { seekDrag = seekDrag - 1; }
+            else {
+                pos = pos + 1;
+                if (pos > DURATION) { pos = 0; }
+                lvglSetValue(seek, pos, 0);
+            }
+            mmss(cb, pos);
+            lvglSetText(tCur, cb);
+        }
+
+        frame = frame + 1;
+        delay(40);
+    }
+    return 0;
+}

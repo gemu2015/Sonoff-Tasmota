@@ -298,7 +298,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     3     // V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     6     // V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -1034,6 +1034,11 @@ enum TcSyscall {
   SYS_LVGL_IMAGE_ANGLE      = 489, // (h, deci_deg)       -> void  rotate image, 0.1° units (3600 = 360°)
   SYS_LVGL_IMAGE_PIVOT      = 490, // (h, x, y)           -> void  rotation pivot, px from image top-left
   SYS_TOUCH_GET             = 492, // (sel)               -> int   touchGet(sel): firmware Touch_Status — 0=pressed,1=x,2=y, -1/-2=raw x/y
+  SYS_LVGL_SET_FONT         = 493, // (h, size)           -> void  label font size, snapped to montserrat_tasmota 10/14/20/28
+  SYS_LVGL_IMAGE_SCALE      = 494, // (h, sx, sy)         -> void  per-axis image zoom, 256 = 100% (lv_image_set_scale_x/y)
+  SYS_LVGL_LINE             = 495, // (parent)            -> int handle  (lv_line; cheap radial/vector bars)
+  SYS_LVGL_LINE_POINTS      = 496, // (h, x1,y1, x2,y2)   -> void  set the 2 endpoints (absolute screen px)
+  SYS_LVGL_LINE_STYLE       = 497, // (h, rgb, width)     -> void  line colour + width (rounded ends)
 
   SYS_TCP_TRANSACT          = 351, // (req_ref, req_len, resp_ref, resp_max, timeout_ms) -> int
                                   //   Returns: bytes received  (>=0  on success — the moment any
@@ -5109,6 +5114,11 @@ void tc_lv_screen_load(int h);
 void tc_lv_screen_load_anim(int h, int anim, int ms);
 void tc_lv_image_angle(int h, int angle);
 void tc_lv_image_pivot(int h, int x, int y);
+void tc_lv_set_font(int h, int size);
+void tc_lv_image_scale(int h, int sx, int sy);
+int  tc_lv_line(int parent);
+void tc_lv_line_points(int h, int x1, int y1, int x2, int y2);
+void tc_lv_line_style(int h, int rgb, int width);
 #endif // USE_TINYC_LVGL
 
 /*********************************************************************************************\
@@ -13876,6 +13886,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_SCREEN_LOAD_ANIM: { int32_t ms = TC_POP(vm); int32_t an = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_screen_load_anim(h, an, ms); break; }
     case SYS_LVGL_IMAGE_ANGLE:  { int32_t an = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_image_angle(h, an); break; }
     case SYS_LVGL_IMAGE_PIVOT:  { int32_t y = TC_POP(vm); int32_t x = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_image_pivot(h, x, y); break; }
+    case SYS_LVGL_SET_FONT:     { int32_t sz = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_set_font(h, sz); break; }
+    case SYS_LVGL_IMAGE_SCALE:  { int32_t sy = TC_POP(vm); int32_t sx = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_image_scale(h, sx, sy); break; }
+    case SYS_LVGL_LINE:         { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_line(p)); break; }
+    case SYS_LVGL_LINE_POINTS:  { int32_t y2 = TC_POP(vm); int32_t x2 = TC_POP(vm); int32_t y1 = TC_POP(vm); int32_t x1 = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_line_points(h, x1, y1, x2, y2); break; }
+    case SYS_LVGL_LINE_STYLE:   { int32_t w = TC_POP(vm); int32_t rgb = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_line_style(h, rgb, w); break; }
 #else
     case SYS_LVGL_INIT:     TC_PUSH(vm, 0); break;
     case SYS_LVGL_ACTIVE:   TC_PUSH(vm, 0); break;
@@ -13899,6 +13914,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_SCREEN_LOAD_ANIM: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_IMAGE_ANGLE: TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_IMAGE_PIVOT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_SET_FONT: TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_IMAGE_SCALE: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_LINE: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_LINE_POINTS: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_LINE_STYLE: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
 #endif
 
     // ── Touch screen (xdrv_55 Touch_Status) — works with or without LVGL ──

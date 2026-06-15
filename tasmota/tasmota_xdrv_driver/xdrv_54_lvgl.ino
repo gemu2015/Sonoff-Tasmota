@@ -894,6 +894,21 @@ void tc_lv_set_style_int(int h, int prop, int val) {
   lv_obj_set_local_style_prop(o, (lv_style_prop_t)prop, sv, LV_PART_MAIN | LV_STATE_DEFAULT);
   tc_lvgl_unlock();
 }
+// set a label's text font by pixel size, snapped to the built-in Tasmota Montserrat
+// set (10/14/20/28 — all LV_FONT_DECLARE'd in tasmota_lv_conf.h, default is 14). The
+// style lands on LV_PART_MAIN, which labels use for their text; on a button, pass its
+// child label handle. Lets TinyC LVGL UIs use big titles without a new font in the build.
+void tc_lv_set_font(int h, int size) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  const lv_font_t *f;
+  if (size >= 28)      { f = &lv_font_montserrat_tasmota_28; }
+  else if (size >= 20) { f = &lv_font_montserrat_tasmota_20; }
+  else if (size >= 14) { f = &lv_font_montserrat_tasmota_14; }
+  else                 { f = &lv_font_montserrat_tasmota_10; }
+  tc_lvgl_lock();
+  lv_obj_set_style_text_font(o, f, LV_PART_MAIN | LV_STATE_DEFAULT);
+  tc_lvgl_unlock();
+}
 
 /* ── Phase 3: chart (+series) + image-from-FS ─────────────────────────────────
    Chart series are lv_chart_series_t* (not lv_obj_t*), so they get their own small
@@ -947,6 +962,59 @@ void tc_lv_image_angle(int h, int angle) {
 void tc_lv_image_pivot(int h, int x, int y) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
   tc_lvgl_lock(); lv_image_set_pivot(o, x, y); tc_lvgl_unlock();
+}
+// per-axis image zoom. sx/sy in 1/256 units (256 = 100%, 512 = 2x, 128 = 50%). Drives
+// beat-pulsing covers (sx=sy) and length-modulated bar images (one axis) from TinyC.
+void tc_lv_image_scale(int h, int sx, int sy) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  if (sx < 1) { sx = 1; } if (sy < 1) { sy = 1; }
+  tc_lvgl_lock();
+  lv_image_set_scale_x(o, (uint32_t)sx);
+  lv_image_set_scale_y(o, (uint32_t)sy);
+  tc_lvgl_unlock();
+}
+
+// ── radial / vector bars via lv_line (cheap SW raster, no rotozoom) ──────────────
+// lv_line keeps a POINTER to its points array, so we hold a persistent pool and stash
+// each line's pool index in the object's user_data. A "bar" is just a thick rounded
+// line from the inner radius to the outer radius — far cheaper than a rotated bitmap.
+#define TC_LV_LINE_MAX 48
+static lv_point_precise_t tc_lv_line_pts[TC_LV_LINE_MAX][2];
+static int tc_lv_line_n = 0;
+
+int tc_lv_line(int parent) {
+  tc_lvgl_lock();
+  lv_obj_t *o = lv_line_create(tc_lv_resolve(parent));
+  if (o && tc_lv_line_n < TC_LV_LINE_MAX) {
+    int idx = tc_lv_line_n++;
+    lv_obj_set_user_data(o, (void *)(intptr_t)idx);
+    tc_lv_line_pts[idx][0].x = 0; tc_lv_line_pts[idx][0].y = 0;
+    tc_lv_line_pts[idx][1].x = 0; tc_lv_line_pts[idx][1].y = 0;
+    lv_line_set_points(o, tc_lv_line_pts[idx], 2);
+    lv_obj_set_pos(o, 0, 0);                          // points are absolute screen px
+    lv_obj_set_style_line_rounded(o, true, LV_PART_MAIN | LV_STATE_DEFAULT);
+  }
+  int h = tc_lv_store(o);
+  tc_lvgl_unlock();
+  return h;
+}
+void tc_lv_line_points(int h, int x1, int y1, int x2, int y2) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  int idx = (int)(intptr_t)lv_obj_get_user_data(o);
+  if (idx < 0 || idx >= TC_LV_LINE_MAX) { return; }
+  tc_lvgl_lock();
+  tc_lv_line_pts[idx][0].x = x1; tc_lv_line_pts[idx][0].y = y1;
+  tc_lv_line_pts[idx][1].x = x2; tc_lv_line_pts[idx][1].y = y2;
+  lv_line_set_points(o, tc_lv_line_pts[idx], 2);      // re-set -> invalidates -> repaints
+  tc_lvgl_unlock();
+}
+void tc_lv_line_style(int h, int rgb, int width) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  tc_lvgl_lock();
+  lv_obj_set_style_line_color(o, lv_color_hex((uint32_t)rgb), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_line_width(o, width, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_line_rounded(o, true, LV_PART_MAIN | LV_STATE_DEFAULT);
+  tc_lvgl_unlock();
 }
 
 // screen management — a screen is an object with no parent (lv_obj_create(NULL))

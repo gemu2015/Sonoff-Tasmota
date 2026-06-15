@@ -1,0 +1,249 @@
+// music_fft.tc — "wrapped FFT" music player: a ring of spectrum bars radiating AROUND
+// the album art, cover zooms with the beat. Inspired by lv_demo_music.
+// Requires USE_TINYC_LVGL firmware incl. lvglLine/Points/Style (495-497), lvglImageScale
+// (494), lvglSetFont (493).
+//
+// WHY LINES, not rotated images: the P4's PPA accelerator only rotates in 90° steps, so a
+// rotated bar BITMAP can't be HW-accelerated and is a slow per-pixel rotozoom in software.
+// A radial bar is really just a thick line from the inner radius to the outer radius, which
+// rasterises cheaply — so the ring animates smoothly with no GPU.
+//
+// Asset: /cover.png on the FS root (square art, clipped to a circle, pulses with the beat).
+
+#define AL_TOP_MID   2
+#define AL_CENTER    9
+#define EV_CLICKED   10
+#define EV_VALUE_CHG 35
+#define ST_RADIUS    120
+#define ST_CLIP      128
+
+#define CX           400
+#define CY           360
+#define COVER        300
+#define COVER_R      150
+#define NBARS        28
+#define RIN          168        // inner radius of the bars (just outside the cover)
+#define BARW         12         // bar thickness
+#define LMIN         28         // shortest bar
+#define LMAX         172        // longest bar
+
+#define SEEK_W       600
+#define SEEK_Y       1018
+#define BTN_Y        1120
+
+#define COL_BG       0xF3F0FB
+#define COL_TEXT     0x2B2B40
+#define COL_SUB      0x8A86A6
+#define COL_ACCENT   0x7B61FF
+#define COL_BAR      0x4A7BFF
+
+int cover;
+int ring[NBARS];
+int inX[NBARS]; int inY[NBARS];     // precomputed inner endpoints (fixed)
+int lastL[NBARS];                   // last bar length (update-on-change)
+int sinT[NBARS];
+int cosT[NBARS];
+int spec[16];
+
+int title; int artist; int meta;
+int seek; int tCur; int tTot;
+int bPrev; int bPlay; int bNext; int bPlayLbl;
+
+int playing = 1;
+int pos = 0;
+int DURATION = 215;
+int frame = 0;
+int lastz = -100;
+
+void mmss(char buf[], int secs) {
+    int m; int s;
+    m = secs / 60;
+    s = secs - m * 60;
+    sprintf(buf, "%d:%02d", m, s);
+}
+
+int main() {
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, COL_BG);
+
+    sinT[0]=0; sinT[1]=57; sinT[2]=111; sinT[3]=160; sinT[4]=200; sinT[5]=231; sinT[6]=250;
+    sinT[7]=256; sinT[8]=250; sinT[9]=231; sinT[10]=200; sinT[11]=160; sinT[12]=111; sinT[13]=57;
+    sinT[14]=0; sinT[15]=-57; sinT[16]=-111; sinT[17]=-160; sinT[18]=-200; sinT[19]=-231; sinT[20]=-250;
+    sinT[21]=-256; sinT[22]=-250; sinT[23]=-231; sinT[24]=-200; sinT[25]=-160; sinT[26]=-111; sinT[27]=-57;
+    cosT[0]=256; cosT[1]=250; cosT[2]=231; cosT[3]=200; cosT[4]=160; cosT[5]=111; cosT[6]=57;
+    cosT[7]=0; cosT[8]=-57; cosT[9]=-111; cosT[10]=-160; cosT[11]=-200; cosT[12]=-231; cosT[13]=-250;
+    cosT[14]=-256; cosT[15]=-250; cosT[16]=-231; cosT[17]=-200; cosT[18]=-160; cosT[19]=-111; cosT[20]=-57;
+    cosT[21]=0; cosT[22]=57; cosT[23]=111; cosT[24]=160; cosT[25]=200; cosT[26]=231; cosT[27]=250;
+
+    spec[0]=50;  spec[1]=67;  spec[2]=82;  spec[3]=92;
+    spec[4]=95;  spec[5]=92;  spec[6]=82;  spec[7]=67;
+    spec[8]=50;  spec[9]=33;  spec[10]=18; spec[11]=8;
+    spec[12]=5;  spec[13]=8;  spec[14]=18; spec[15]=33;
+
+    // ring of line-bars (built under the cover); inner endpoints are fixed
+    int i;
+    i = 0;
+    while (i < NBARS) {
+        int ix; int iy; int ox; int oy;
+        ix = CX + (RIN * sinT[i]) / 256;
+        iy = CY - (RIN * cosT[i]) / 256;
+        ox = CX + ((RIN + LMIN) * sinT[i]) / 256;
+        oy = CY - ((RIN + LMIN) * cosT[i]) / 256;
+        ring[i] = lvglLine(0);
+        lvglLineStyle(ring[i], COL_BAR, BARW);
+        lvglLinePoints(ring[i], ix, iy, ox, oy);
+        inX[i] = ix; inY[i] = iy;
+        lastL[i] = LMIN;
+        i = i + 1;
+    }
+
+    // album art (circular, pulses)
+    cover = lvglImage(0);
+    lvglImageSrc(cover, "A:/cover.png");
+    lvglSetSize(cover, COVER, COVER);
+    lvglSetPos(cover, CX - COVER_R, CY - COVER_R);
+    lvglSetStyleInt(cover, ST_RADIUS, COVER_R);
+    lvglSetStyleInt(cover, ST_CLIP, 1);
+    lvglImagePivot(cover, COVER_R, COVER_R);
+
+    // text
+    title = lvglLabel(0);
+    lvglSetText(title, "Need a Better Future");
+    lvglSetTextColor(title, COL_TEXT);
+    lvglSetFont(title, 28);
+    lvglAlign(title, AL_TOP_MID, 0, 706);
+
+    artist = lvglLabel(0);
+    lvglSetText(artist, "My True Name");
+    lvglSetTextColor(artist, COL_TEXT);
+    lvglSetFont(artist, 20);
+    lvglAlign(artist, AL_TOP_MID, 0, 760);
+
+    meta = lvglLabel(0);
+    lvglSetText(meta, "Drum'n bass  -  2016");
+    lvglSetTextColor(meta, COL_SUB);
+    lvglAlign(meta, AL_TOP_MID, 0, 800);
+
+    // seek + time
+    seek = lvglSlider(0);
+    lvglSetSize(seek, SEEK_W, 16);
+    lvglSetRange(seek, 0, DURATION);
+    lvglSetValue(seek, 0, 0);
+    lvglAlign(seek, AL_TOP_MID, 0, SEEK_Y);
+    lvglEventEnable(seek, EV_VALUE_CHG);
+
+    tCur = lvglLabel(0);
+    lvglSetText(tCur, "0:00");
+    lvglSetTextColor(tCur, COL_SUB);
+    lvglAlign(tCur, AL_TOP_MID, -(SEEK_W / 2) + 18, SEEK_Y + 26);
+
+    char tb[8];
+    mmss(tb, DURATION);
+    tTot = lvglLabel(0);
+    lvglSetText(tTot, tb);
+    lvglSetTextColor(tTot, COL_SUB);
+    lvglAlign(tTot, AL_TOP_MID, (SEEK_W / 2) - 18, SEEK_Y + 26);
+
+    // transport
+    bPrev = lvglButton(0);
+    lvglSetSize(bPrev, 96, 96);
+    lvglSetStyleInt(bPrev, ST_RADIUS, 48);
+    lvglAlign(bPrev, AL_TOP_MID, -200, BTN_Y);
+    lvglEventEnable(bPrev, EV_CLICKED);
+    int pl;
+    pl = lvglLabel(bPrev);
+    lvglSetText(pl, "|<");
+    lvglAlign(pl, AL_CENTER, 0, 0);
+
+    bPlay = lvglButton(0);
+    lvglSetSize(bPlay, 120, 120);
+    lvglSetStyleInt(bPlay, ST_RADIUS, 60);
+    lvglSetBgColor(bPlay, COL_ACCENT);
+    lvglAlign(bPlay, AL_TOP_MID, 0, BTN_Y - 12);
+    lvglEventEnable(bPlay, EV_CLICKED);
+    bPlayLbl = lvglLabel(bPlay);
+    lvglSetText(bPlayLbl, "II");
+    lvglAlign(bPlayLbl, AL_CENTER, 0, 0);
+
+    bNext = lvglButton(0);
+    lvglSetSize(bNext, 96, 96);
+    lvglSetStyleInt(bNext, ST_RADIUS, 48);
+    lvglAlign(bNext, AL_TOP_MID, 200, BTN_Y);
+    lvglEventEnable(bNext, EV_CLICKED);
+    int nl;
+    nl = lvglLabel(bNext);
+    lvglSetText(nl, ">|");
+    lvglAlign(nl, AL_CENTER, 0, 0);
+
+    // loop: events @20fps, spectrum @~10fps update-on-change, cover pulse @~4fps
+    char cb[8];
+    int seekDrag = 0;
+    int sf = 0;
+    while (1) {
+        while (lvglEvent()) {
+            int o; int c;
+            o = lvglEventObj();
+            c = lvglEventCode();
+            if (o == bPlay && c == EV_CLICKED) {
+                playing = 1 - playing;
+                if (playing) { lvglSetText(bPlayLbl, "II"); }
+                else { lvglSetText(bPlayLbl, ">"); }
+            } else if (o == bNext && c == EV_CLICKED) {
+                pos = 0;
+            } else if (o == bPrev && c == EV_CLICKED) {
+                pos = 0;
+            } else if (o == seek && c == EV_VALUE_CHG) {
+                pos = lvglGetValue(seek);
+                seekDrag = 4;
+            }
+        }
+
+        frame = frame + 1;
+
+        if ((frame % 2) == 0) {
+            sf = sf + 1;
+            i = 0;
+            while (i < NBARS) {
+                int v; int ln; int d; int orad; int ox; int oy;
+                v = (spec[(sf + i * 2) % 16] + spec[(sf * 2 + i * 3) % 16]) / 2;
+                if (!playing) { v = 8 + (v / 8); }
+                ln = LMIN + (v * (LMAX - LMIN)) / 100;
+                d = ln - lastL[i];
+                if (d < 0) { d = 0 - d; }
+                if (d >= 6) {
+                    orad = RIN + ln;
+                    ox = CX + (orad * sinT[i]) / 256;
+                    oy = CY - (orad * cosT[i]) / 256;
+                    lvglLinePoints(ring[i], inX[i], inY[i], ox, oy);
+                    lastL[i] = ln;
+                }
+                i = i + 1;
+            }
+        }
+
+        if ((frame % 5) == 0) {
+            int bass; int z; int dz;
+            bass = (spec[sf % 16] + spec[(sf + 1) % 16]) / 2;
+            if (!playing) { bass = 6; }
+            z = 256 + (bass * 40) / 100;       // gentle, up to ~+15%
+            dz = z - lastz;
+            if (dz < 0) { dz = 0 - dz; }
+            if (dz >= 6) { lvglImageScale(cover, z, z); lastz = z; }
+        }
+
+        if (playing && (frame % 20) == 0) {
+            if (seekDrag > 0) { seekDrag = seekDrag - 1; }
+            else {
+                pos = pos + 1;
+                if (pos > DURATION) { pos = 0; }
+                lvglSetValue(seek, pos, 0);
+            }
+            mmss(cb, pos);
+            lvglSetText(tCur, cb);
+        }
+
+        delay(50);
+    }
+    return 0;
+}
