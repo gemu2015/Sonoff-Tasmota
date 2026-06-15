@@ -3725,10 +3725,25 @@ static void HandleTinyCIde(void) {
     // instead. Bug: gemu's setup AND Andreas's VBox setup both saw
     // `Location: http://_I:-1883461440/ide` with the regression
     // introduced by commit bb72b46f7.
-    IPAddress ip = WiFi.localIP();
-    char loc[80];
-    snprintf_P(loc, sizeof(loc), PSTR("http://%u.%u.%u.%u:%d/ide"),
-               ip[0], ip[1], ip[2], ip[3], TC_DLPORT);
+    // Prefer the Host header the browser already used to reach us. On
+    // Ethernet-only devices — or when WiFi is in AP-fallback with the STA
+    // side unconfigured — WiFi.localIP() returns 0.0.0.0, which produced an
+    // unreachable http://0.0.0.0:82/ide redirect. The Host header carries the
+    // IP or mDNS name the client actually connected on, so it is correct
+    // across Ethernet, WiFi-STA and reverse-proxy setups alike. Strip any
+    // :port before re-appending the dedicated download port. (Andreas, ETH-only.)
+    String host = Webserver->hostHeader();
+    int colon = host.indexOf(':');
+    if (colon >= 0) { host = host.substring(0, colon); }
+    char loc[128];
+    if (host.length()) {
+      snprintf_P(loc, sizeof(loc), PSTR("http://%s:%d/ide"),
+                 host.c_str(), TC_DLPORT);
+    } else {
+      IPAddress ip = WiFi.localIP();  // last-resort fallback
+      snprintf_P(loc, sizeof(loc), PSTR("http://%u.%u.%u.%u:%d/ide"),
+                 ip[0], ip[1], ip[2], ip[3], TC_DLPORT);
+    }
     Webserver->sendHeader(F("Location"), loc);
     WSSend_P(302, PSTR("text/plain"), PSTR("Redirecting to background IDE server"));
     return;
