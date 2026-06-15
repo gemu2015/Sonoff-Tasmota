@@ -272,6 +272,8 @@ void UfsCheckSDCardInit(void) {
       if (ffsp) {ufs_dir = 1;}
       // make sd card the global filesystem
       AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "SDCard mounted (SDIO %i-bit) with %d kB free"), bit_4_mode ? 4 : 1, UfsInfo(1, 0));
+    } else {
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UFS "SDCard SDIO mount failed (%i-bit clk=%i cmd=%i d0=%i)"), bit_4_mode ? 4 : 1, sdio_clk, sdio_cmd, sdio_d0);
     }
   }
 #endif
