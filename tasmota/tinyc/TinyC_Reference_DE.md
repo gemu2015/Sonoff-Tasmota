@@ -3835,6 +3835,148 @@ void Command(char cmd[]) {
 int main() { addCommand("RDR"); return 0; }
 ```
 
+### Bluetooth LE (ESP32)
+
+BLE-Advertisements scannen, als GATT-**Client** agieren (verbinden / lesen / schreiben / Notifications
+abonnieren) oder einen GATT-**Server** betreiben (als Peripheral werben, sodass sich ein Handy mit dem
+Gerät verbindet). Baut auf Tasmotas Common-BLE-Treiber (`xdrv_79`) auf und teilt sich daher ein
+Funkmodul mit den MI32-/iBeacon-Scannern. **Benötigt eine Firmware mit `USE_TINYC_BLE`** (zieht
+`USE_BLE_ESP32` ≈ **+292 KB Flash / +9 KB RAM** nach). Ohne dieses Flag ist jeder BLE-Builtin ein
+No-op und liefert einen Sentinel-Wert (`0` / `-1`). Nur ESP32-Familie (kein ESP8266). Der erste
+`bleScan()` / `bleServer()` aktiviert BLE zur Laufzeit — kein `SetOption115` nötig.
+
+**Threading:** Advertisement- und GATT-Completion-Callbacks laufen auf dem NimBLE-/Haupt-Task, nie auf
+der VM. Sie schreiben in kleine Puffer; dein Skript leert sie in `TaskLoop()` — die API ist also
+**nicht-blockierend** (pollen, nicht warten).
+
+**Scannen / beobachten** — einen Scan starten, dann die gepufferten Adverts einzeln abholen:
+
+| Funktion | Beschreibung |
+|---|---|
+| `int bleScan(int ms)` | Adverts in einen Ring aufnehmen. `ms` > 0 stoppt automatisch nach so vielen ms; `ms = 0` läuft bis `bleScanStop()`. Leert die Queue. Liefert 1 |
+| `int bleScanStop()` | Aufnahme stoppen. Liefert 1 |
+| `int bleNext()` | Das nächste Advert aus der Queue in den „aktuellen" Slot holen. Liefert 1, wenn eines vorhanden war, 0 bei leerer Queue. Danach die Getter unten für das aktuelle Advert aufrufen |
+| `int bleMac(char buf[])` | Die 6 MAC-Bytes des aktuellen Adverts in `buf[0..5]` schreiben (Anzeige-Reihenfolge, MSB zuerst). Liefert 6 |
+| `int bleAddrType()` | Adresstyp des aktuellen Adverts: 0 = public, 1/2/3 = random. Zum Verbinden nötig |
+| `int bleRssi()` | RSSI des aktuellen Adverts in dBm (negativ) |
+| `int bleName(char buf[])` | Den lokalen Namen des Adverts in `buf` kopieren (NUL-terminiert). Liefert die Länge (0 falls keiner) |
+| `int bleMfg(char buf[])` | Die herstellerspezifischen Daten-Bytes in `buf` kopieren. Liefert die Länge. Die ersten beiden Bytes sind die Company-ID, Little-Endian (z. B. `buf[0]=0xD0, buf[1]=0x06` → 0x06D0) |
+
+**GATT-Client** — ein Ziel setzen, dann eine Lese- oder Schreib-Transaktion starten und auf Abschluss
+pollen. Jede Transaktion ist ein Verbinden → (optional Schreiben) → (optional Abonnieren-und-eine-
+Notification-abwarten) → Trennen:
+
+| Funktion | Beschreibung |
+|---|---|
+| `int bleTarget(char mac[], int addrtype, int svc16)` | GATT-Ziel setzen: 6 MAC-Bytes (Anzeige-Reihenfolge, wie von `bleMac()`), Adresstyp (von `bleAddrType()`) und die 16-Bit-Service-UUID (z. B. `0x180D`). Liefert 1 |
+| `int bleReadStart(int notify16)` | Mit dem Ziel verbinden, die Notify-Charakteristik `notify16` des Service abonnieren und auf eine Notification warten. Liefert 1 = gestartet, < 0 = busy/Fehler. `bleDone()` pollen |
+| `int bleWriteStart(int chr16, char buf[], int len)` | Mit dem Ziel verbinden und `buf[0..len-1]` in die Charakteristik `chr16` schreiben. Liefert 1 = gestartet, < 0 = busy/Fehler. `bleDone()` pollen |
+| `int bleDone()` | Die laufende Transaktion pollen: 0 = läuft noch, > 0 = fertig (der Wert ist die Ergebnislänge in Bytes), < 0 = fehlgeschlagen (negativer xdrv_79-Statuscode, z. B. -5 = Service nicht gefunden, -8 = Notify-Timeout, -11 = Verbindung fehlgeschlagen) |
+| `int bleResult(char buf[])` | Nach `bleDone() > 0` die empfangenen Notification-/Lese-Bytes in `buf` kopieren. Liefert die Länge |
+
+Es ist immer nur eine GATT-Transaktion gleichzeitig in Bearbeitung (ein einziger Half-Duplex-Slot).
+Geräte mit **random**-Adresse wechseln diese zwischen Sitzungen — jedes Mal neu per Hersteller-ID /
+Name suchen und mit der aktuell beworbenen Adresse verbinden; die MAC niemals fest verdrahten.
+
+**Diagnose:** Der Konsolenbefehl `BLEDebug 1` lässt den Common-BLE-Treiber die tatsächlichen Services
++ Charakteristiken eines Geräts ausgeben, wenn ein angeforderter Service nicht gefunden wird —
+praktisch bei der Inbetriebnahme eines neuen Geräts mit unbekannten UUIDs.
+
+Siehe `examples/ble_scan.tc` für einen vollständigen Scanner mit Geräte-Filter-Vorlage.
+
+```c
+// Eine Notification von einem BLE-Peripheral lesen (Service 0x180D, Notify-Char 0x2A37)
+char nm[40]; int mac[8]; char frame[40]; int st;
+
+int main() { st = 0; bleScan(0); return 0; }       // Scan starten
+
+void TaskLoop() {
+  if (st == 0) {                                    // per Name finden, dann verbinden
+    if (bleNext()) {
+      bleName(nm);
+      if (strFind(nm, "MyDevice") >= 0) {
+        bleMac(mac); int t = bleAddrType();
+        bleScanStop();
+        bleTarget(mac, t, 0x180D);
+        if (bleReadStart(0x2a37) == 1) { st = 1; }
+      }
+    }
+  } else if (st == 1) {                             // auf die Notification warten
+    int d = bleDone();
+    if (d > 0) {
+      int n = bleResult(frame);
+      char m[64]; sprintf(m, "got %d bytes, b0=%02x", n, frame[0]); addLog(m);
+      st = 2;
+    } else if (d < 0) { st = 0; bleScan(0); }       // fehlgeschlagen — neu scannen
+  }
+  delay(250);
+}
+```
+
+**GATT-Server (Peripheral)** — einen Service bewerben, sodass sich ein Handy (oder ein beliebiger
+BLE-Central) mit dem Gerät verbindet und Daten austauscht — das übliche Handy-App-↔-IoT-Muster.
+Einmalig konfigurieren (`bleServer` → `bleService` → `bleChar` × N → `bleServerStart`), dann zur
+Laufzeit pollen/pushen. UUIDs sind Strings: 16-Bit (`"180a"`) oder vollständige 128-Bit
+(`"6e400001-…"`). Charakteristik-Eigenschaften werden mit `|` kombiniert:
+
+| Konstante | Bedeutung |
+|---|---|
+| `BLE_READ` | Central darf den Wert lesen |
+| `BLE_WRITE` | Central darf den Wert schreiben |
+| `BLE_NOTIFY` | Gerät darf Notifications an einen abonnierten Central pushen |
+
+| Funktion | Beschreibung |
+|---|---|
+| `int bleServer(char name[])` | Server-Konfiguration beginnen; `name` ist der beworbene Gerätename. Aktiviert BLE zur Laufzeit. Liefert 1 |
+| `int bleService(char uuid[])` | Die Service-UUID setzen (16- oder 128-Bit-String). Liefert 1 |
+| `int bleChar(char uuid[], int props)` | Eine Charakteristik hinzufügen; `props` = `BLE_READ`/`BLE_WRITE`/`BLE_NOTIFY` (mit `|` kombiniert). Liefert ein **Handle** (≥ 0) für die Aufrufe unten, oder -1 |
+| `int bleServerStart()` | Den Service aufbauen und das Werben starten. Liefert 1 |
+| `int bleConnected()` | 1, wenn ein Central (Handy) verbunden ist, sonst 0 |
+| `int bleCharWritten(int h)` | Anzahl der Bytes, die der Central seit dem letzten Lesen in Charakteristik `h` geschrieben hat (0 = nichts Neues) |
+| `int bleCharRead(int h, char buf[])` | Diese geschriebenen Bytes in `buf` kopieren; löscht das Pending-Flag. Liefert die Länge |
+| `int bleCharSet(int h, char buf[], int len)` | Den Wert setzen, den ein Central von `h` liest (ohne Notification). Liefert 1 |
+| `int bleNotify(int h, char buf[], int len)` | Den Wert setzen **und** eine Notification an den abonnierten Central pushen. Liefert 1 |
+| `int bleServerStop()` | Das Werben stoppen. Liefert 1 |
+
+Den Server in `main()` aufbauen, dann in `TaskLoop()` mit `bleCharWritten()` / `bleCharRead()` auf
+Handy→Gerät-Daten pollen und mit `bleNotify()` / `bleCharSet()` pushen. Das GATT-Layout wird **einmal
+pro Boot** aufgebaut — um die Services/Charakteristiken zu ändern, das Gerät neu starten (ein erneuter
+Skript-Lauf hängt sich an den bestehenden Server an). Funktioniert auf jedem ESP32 mit BLE: Auf dem
+ESP32-P4 ist das Funkmodul der On-Board-C6 über esp-hosted, auf anderen ESP32 der native Controller —
+die API ist identisch. Mit einer Handy-App wie **nRF Connect** testen.
+
+Siehe `examples/ble_server.tc` für einen Server im Nordic-UART-Stil (Handy schreibt auf RX → schaltet
+Power1; Gerät benachrichtigt einen hochzählenden Zähler auf TX).
+
+```c
+// GATT-Server: Handy schreibt 00/01 auf RX -> Power1; Gerät benachrichtigt einen Zähler auf TX.
+#define RX "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+#define TX "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+int hrx; int htx; int n; char buf[64];
+
+int main() {
+  bleServer("TasmotaBLE");
+  bleService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+  hrx = bleChar(RX, BLE_WRITE);
+  htx = bleChar(TX, BLE_READ | BLE_NOTIFY);
+  bleServerStart();
+  n = 0;
+  return 0;
+}
+
+void TaskLoop() {
+  if (bleCharWritten(hrx)) {                 // Handy -> Gerät
+    bleCharRead(hrx, buf);
+    tasmCmd(buf[0] ? "Power1 1" : "Power1 0", buf);
+  }
+  if (bleConnected()) {                      // Gerät -> Handy
+    n = n + 1; buf[0] = n & 0xff; buf[1] = (n >> 8) & 0xff;
+    bleNotify(htx, buf, 2);
+  }
+  delay(1000);
+}
+```
+
 ### LVGL-GUI (ESP32 — benötigt USE_TINYC_LVGL)
 
 Baue eine **retained-mode, berührungsfähige GUI** auf dem Display des Geräts mit der LVGL-9-Engine
