@@ -58,16 +58,17 @@
 #define PROBE_TMO   700
 
 // Octets to SKIP — remote/protected devices NOT on this LAN, the controlling
-// Mac, and KNOWN-SLOW devices whose ~5 s status response would stall the sweep
-// and trip the watchdog. .118/.179 are the P4's own Ethernet+WiFi interfaces
-// (busy ~5 s; the P4 self-reports via SELF_OCT, so skipping them loses nothing).
+// Mac, and any KNOWN-SLOW device whose ~5 s status response would stall the sweep
+// and trip the watchdog. The P4 nano used to be skipped for that slow-status reason;
+// it now answers in ~0.14 s, so .118 (its Ethernet interface) is included like any
+// other host. .179 is the SAME physical P4 (its other interface), so it stays
+// excluded to avoid a duplicate row.
 int is_excluded(int oct) {
     if (oct == 104) return 1;
     if (oct == 112) return 1;
-    if (oct == 118) return 1;   // P4 Ethernet (slow ~5 s)
     if (oct == 142) return 1;
     if (oct == 158) return 1;
-    if (oct == 179) return 1;   // P4 WiFi (slow ~5 s; = SELF on the P4)
+    if (oct == 179) return 1;   // P4 nano's 2nd interface — same device as .118, skip to avoid a dup row
     if (oct == 198) return 1;
     return 0;
 }
