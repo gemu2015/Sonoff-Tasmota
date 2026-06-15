@@ -1,0 +1,593 @@
+// device_scanner.tc — home Tasmota fleet health monitor (v2: auto-discovery).
+//
+// Runs on one always-on device (the P4) and SWEEPS the whole /24 each scan to
+// auto-discover every Tasmota in the house (like the Tasmota Workbench), then
+// records per device: reachability, uptime + heap + WiFi RSSI, Hostname, chip
+// type, firmware version, and — for TinyC devices — whether any auto-started
+// program FAILED (an autoexec slot that should run but isn't). It also flags
+// any device that REBOOTED since the previous scan (uptime went backwards).
+//
+// The result table renders on the main Tasmota page (WebPage), sorted by IP,
+// with a status-colored grid. Console: SCANGO / SCANSHOW / SCANHOSTS.
+//
+// DESIGN — slow + reliable, never holds the VM task. ONE probe per TICK_GAP-second
+// tick (the gap keeps CPU0's idle task fed so the task-WDT never trips). Three
+// phases: (0) discover via a tcpConnect liveness gate then Status 11; (1) Status 2
+// version/chip; (2) tc_api TinyC health. The tcpConnect gate finds every live host
+// (the TCP handshake stays fast even when the HTTP app is busy), and each data
+// fetch is retried up to MAX_TRY times so transient busy-spikes don't leave blank
+// fields. A full /24 scan takes ~20-30 min on purpose — it runs at 03:00.
+//
+// Needs the bounded-connect firmware (tcpConnectTimeout, syscall 491). Set
+// SELF_OCT to the octet this runs on (179 for the P4).
+
+#define MAXH        50      // max discovered devices
+#define SELF_OCT    39      // octet THIS device runs on (set 179 for the P4)
+// Pacing: a fast sweep saturates CPU0's WiFi/lwIP tasks and starves the idle
+// task past the 5 s task-WDT -> reset. The cure is to probe ONE host at a time
+// and leave several fully-idle seconds between probes, so CPU0 quiesces and the
+// idle task always runs. An absent IP also keeps lwIP retransmitting ARP for
+// ~5 s after the connect gives up; spacing probes >= TICK_GAP seconds means only
+// ONE such ARP sequence is ever in flight, never a storm. This is meant to be
+// SLOW — it runs at 03:00, a full /24 sweep takes ~15-20 min, and it never
+// stalls or reboots the device.
+#define TICK_GAP     8      // seconds of idle between probes (raise = slower+safer).
+                            // 5 was marginal — survived one full sweep, starved the
+                            // idle task past the 5 s WDT on another. 8 leaves a clean
+                            // ~3 s of quiet after each absent IP's ARP retransmits
+                            // drain (lwIP gives up after ~5 s). /24 sweep ~30 min.
+// Reliability over speed (gemu: "fill every field, time is not important"). Each
+// httpGet data-fetch (Status 11 / Status 2 / tc_api) is RETRIED up to MAX_TRY
+// times across ticks: a live device that's transiently busy times out on one
+// attempt but answers fast on the next (measured: response time spikes to 2-6 s
+// then drops back to <0.3 s). Discovery does NOT rely on httpGet — it uses a
+// tcpConnect liveness gate (the TCP handshake is served by lwIP and stays fast
+// even when the HTTP app is busy), so no live device is ever missed.
+#define MAX_TRY      4      // data-fetch attempts per host/field before giving up
+// Sweep .1 .. SWEEP_END only. Probing empty octets is the main cost (time +
+// ARP/SYN churn that pushes LoadAvg up during the scan), so cap it just above
+// the highest device. Raise it if you add devices on higher octets.
+#define SWEEP_END   180
+// per-probe connect timeout (ms). MUST stay small: it applies to every ABSENT IP
+// too (~150 of them), and a longer connect keeps lwIP doing ARP/SYN work that
+// piles onto CPU0 and starves the idle task past the 5 s WDT -> reset. 2000 ms
+// crashed mid-sweep; 700 ms is the proven-stable value (full clean sweeps).
+// Trade-off: a busy Matter C6 whose first handshake takes ~1 s (e.g. .122) is
+// occasionally missed — it's usually caught on another day's scan as the live
+// set fluctuates. Don't raise this without re-proving stability on .39.
+#define PROBE_TMO   700
+
+// Octets to SKIP — remote/protected devices NOT on this LAN, the controlling
+// Mac, and KNOWN-SLOW devices whose ~5 s status response would stall the sweep
+// and trip the watchdog. .118/.179 are the P4's own Ethernet+WiFi interfaces
+// (busy ~5 s; the P4 self-reports via SELF_OCT, so skipping them loses nothing).
+int is_excluded(int oct) {
+    if (oct == 104) return 1;
+    if (oct == 112) return 1;
+    if (oct == 118) return 1;   // P4 Ethernet (slow ~5 s)
+    if (oct == 142) return 1;
+    if (oct == 158) return 1;
+    if (oct == 179) return 1;   // P4 WiFi (slow ~5 s; = SELF on the P4)
+    if (oct == 198) return 1;
+    return 0;
+}
+
+// ── Discovered fleet (parallel arrays, 0..nhosts-1, sorted by octet) ─
+int hosts[MAXH];
+int nhosts = 0;
+int st_up[MAXH];      // uptime sec
+int st_heap[MAXH];    // free heap KB
+int st_flags[MAXH];   // F_UP | F_TINYC | F_FAIL | F_REBT
+int st_rssi[MAXH];    // WiFi RSSI %, -1 unknown
+int st_frag[MAXH];    // heap fragmentation % (0=healthy), -1 unknown. Only TinyC
+                      // devices on fw with the tc_api "frag" field report it.
+char host_name[MAXH][28];
+char host_ver[MAXH][18];
+char host_cpu[MAXH][8];
+
+// ── PUBLISHED set = the last COMPLETED scan. The main-page table renders from
+// these, so it always shows a full, finished result even while a new scan is
+// rebuilding the working arrays above. scan_finish copies working -> published.
+int pub_hosts[MAXH];
+int pub_n = 0;
+int pub_scan_no = 0;
+int pub_up[MAXH];
+int pub_heap[MAXH];
+int pub_flags[MAXH];
+int pub_rssi[MAXH];
+int pub_frag[MAXH];
+char pub_name[MAXH][28];
+char pub_ver[MAXH][18];
+char pub_cpu[MAXH][8];
+
+// previous-scan octet->uptime snapshot (for reboot detection across the rebuild)
+int pmap_oct[MAXH];
+int pmap_up[MAXH];
+int pmap_n = 0;
+
+#define F_UP    1
+#define F_TINYC 2
+#define F_FAIL  4
+#define F_REBT  8
+
+int scan_no = 0;
+
+// ── Persistence (.bin, int state only — fileWriteBin count is int32 ──
+// ELEMENTS, so the name/ver/cpu char arrays are NOT persisted; they refill
+// each scan). Lets SCANSHOW + the table survive the host's own reboot.
+#define SC_MAGIC 0x44530007        // 'DS' v7 (persist PUBLISHED int arrays)
+int sc_hdr[4];
+
+// Persist the PUBLISHED (last-completed) int arrays only — names/ver/cpu stay
+// RAM-only (fileWriteBin's count is int32 ELEMENTS; the [18]-wide char rows don't
+// divide cleanly and over-ran the buffer last time → crash). After a reboot the
+// table shows octets/up/heap/frag/status immediately; names refill on first scan.
+void scan_save() {
+    int h = fileOpen("/device_scanner.bin", "w");
+    if (h < 0) { addLog("SCAN: save fileOpen failed"); return; }
+    sc_hdr[0] = SC_MAGIC; sc_hdr[1] = pub_scan_no; sc_hdr[2] = pub_n; sc_hdr[3] = 0;
+    fileWriteBin(h, sc_hdr,     4);
+    fileWriteBin(h, pub_hosts,  MAXH);
+    fileWriteBin(h, pub_up,     MAXH);
+    fileWriteBin(h, pub_heap,   MAXH);
+    fileWriteBin(h, pub_flags,  MAXH);
+    fileWriteBin(h, pub_rssi,   MAXH);
+    fileWriteBin(h, pub_frag,   MAXH);
+    fileClose(h);
+}
+
+void scan_load() {
+    int h = fileOpen("/device_scanner.bin", "r");
+    if (h < 0) return;
+    fileReadBin(h, sc_hdr, 4);
+    if (sc_hdr[0] != SC_MAGIC) { fileClose(h); addLog("SCAN: bin bad magic, ignored"); return; }
+    pub_scan_no = sc_hdr[1];
+    scan_no = pub_scan_no;
+    fileReadBin(h, pub_hosts,  MAXH);
+    fileReadBin(h, pub_up,     MAXH);
+    fileReadBin(h, pub_heap,   MAXH);
+    fileReadBin(h, pub_flags,  MAXH);
+    fileReadBin(h, pub_rssi,   MAXH);
+    fileReadBin(h, pub_frag,   MAXH);
+    fileClose(h);
+    pub_n = sc_hdr[2];
+    addLog("SCAN: state restored from /device_scanner.bin");
+}
+
+char resp[1400];
+char url[96];
+char summ[140];
+
+// FAIL = an autoexec slot that did NOT load. The old check used "running":0, but
+// that's WRONG: a healthy event-driven program returns from main() and then runs
+// via callbacks (EverySecond/WebCall/Command) with running:0 / loaded:1 /
+// error:"OK" — that's the NORMAL state of almost every autoexec program (growatt,
+// ledbar, sensor readers, displays). The real failure is a slot set to auto-start
+// (autoexec:1) that isn't even loaded (loaded:0 = file missing / load failed), or
+// one whose VM raised an error (error != "OK"). Compact-JSON inline literals.
+int tinyc_failed(char s[]) {
+    if (strContains(s, "\"loaded\":0,\"running\":0,\"autoexec\":1")) return 1;  // never loaded
+    if (strContains(s, "\"autoexec\":1") && strContains(s, "\"error\":\"") &&
+        !strContains(s, "\"error\":\"OK\"")) return 1;                          // VM error
+    return 0;
+}
+
+// previous uptime for an octet, -1 if it wasn't known last scan
+int pmap_find_up(int oct) {
+    int k = 0;
+    while (k < pmap_n) { if (pmap_oct[k] == oct) return pmap_up[k]; k++; }
+    return -1;
+}
+
+// ── Non-blocking discovery state machine ───────────────────────────
+int sc_active = 0;
+int sc_phase  = 0;     // 0 = sweep, 1 = version/chip, 2 = TinyC health
+int sc_oct    = 1;     // current octet during the sweep
+int sc_di     = 0;     // current host index during detail phases
+int sc_tick   = 0;     // EverySecond counter -> one probe every TICK_GAP seconds
+int sc_try    = 0;     // retry counter for the current octet/host (0..MAX_TRY)
+int boot_cd   = 20;    // first sweep ~20 s after boot (disarmed by scan_begin)
+int last_dh   = -1;    // last day the 03:00 sweep ran
+int last_scan_up = 0;  // tasm_uptime at the last scan start (for the soak-test timer)
+int t_up = 0; int t_tc = 0; int t_fail = 0; int t_rebt = 0;
+
+void scan_begin() {
+    if (sc_active) return;
+    boot_cd = 0;           // disarm the startup countdown: it only ticks while NOT
+                           // scanning, so a manual SCANGO would otherwise freeze it
+                           // mid-count and fire a stray 2nd scan ~20 s after finish.
+    last_scan_up = tasm_uptime;   // arm the next soak-test interval from here
+    tcpConnectTimeout(PROBE_TMO);
+    scan_no++;
+    // snapshot the last PUBLISHED scan -> pmap for reboot detection (works on the
+    // first scan after our own reboot too, since pub_ is restored from .bin), then
+    // rebuild the working set.
+    pmap_n = pub_n;
+    int k = 0;
+    while (k < pub_n) { pmap_oct[k] = pub_hosts[k]; pmap_up[k] = pub_up[k]; k++; }
+    nhosts = 0;
+    sc_active = 1; sc_phase = 0; sc_oct = 1; sc_di = 0;
+    addLog("SCAN: discovery sweep started (slow/gentle, ~15-20 min)");
+}
+
+void add_host(int oct) {
+    if (nhosts >= MAXH) return;
+    int i = nhosts;
+    hosts[i] = oct;
+    st_up[i] = -1; st_heap[i] = 0; st_flags[i] = 0; st_rssi[i] = -1; st_frag[i] = -1;
+    host_name[i][0] = 0; host_ver[i][0] = 0; host_cpu[i][0] = 0;
+    nhosts++;
+}
+
+// Probe one octet during discovery. Two-step so a busy device is never missed:
+//   1. tcpConnect liveness gate — a reachable host ALWAYS completes the TCP
+//      handshake fast (lwIP serves it regardless of how busy the HTTP app is),
+//      so this reliably separates present from absent without depending on a
+//      flaky-under-load HTTP response.
+//   2. Status 11 — confirms it's actually a Tasmota (vs router/NAS/other web
+//      server on :80) and reads uptime/heap/RSSI/name. This is the part that can
+//      glitch under load, so the caller RETRIES it (isRetry skips the gate).
+// Returns: 0 absent · 1 confirmed Tasmota (added) · 2 live but Status 11 timed
+// out (retry me) · 3 live but NOT a Tasmota (skip, don't retry).
+int sweep_one(int oct, int isRetry) {
+    char numbuf[24];
+    char ipbuf[20];
+    if (oct == SELF_OCT) {                 // own health, read directly
+        add_host(oct);
+        int i = nhosts - 1;
+        st_up[i] = tasm_uptime;
+        st_heap[i] = tasm_heap / 1024;
+        st_flags[i] = F_UP | F_TINYC;
+        strcpy(host_name[i], "(self)");
+        int p0 = pmap_find_up(oct);
+        if (p0 > 0 && st_up[i] >= 0 && st_up[i] < p0) st_flags[i] = st_flags[i] | F_REBT;
+        return 1;
+    }
+    if (!isRetry) {                        // liveness gate (skipped on retries)
+        sprintf(ipbuf, "192.168.188.%d", oct);
+        if (tcpConnect(ipbuf, 80) != 0) return 0;   // no handshake -> truly absent
+        tcpDisconnect();
+    }
+    sprintf(url, "http://192.168.188.%d/cm?cmnd=Status%%2011", oct);
+    resp[0] = 0;
+    int n = httpGet(url, resp);
+    if (n <= 0) return 2;                                  // live but no answer -> retry
+    if (strFind(resp, "UptimeSec") < 0) return 3;          // answered, but not a Tasmota
+    add_host(oct);
+    int i = nhosts - 1;
+    int up = -1;
+    int pu = strFind(resp, "\"UptimeSec\":");
+    if (pu >= 0) { strSub(numbuf, resp, pu + 12, 18); up = atoi(numbuf); }
+    int ph = strFind(resp, "\"Heap\":");
+    if (ph >= 0) { strSub(numbuf, resp, ph + 7, 18); st_heap[i] = atoi(numbuf); }
+    int pr = strFind(resp, "\"RSSI\":");
+    if (pr >= 0) { strSub(numbuf, resp, pr + 7, 6); st_rssi[i] = atoi(numbuf); }
+    int pnm = strFind(resp, "\"Hostname\":\"");
+    if (pnm >= 0) {
+        strSub(host_name[i], resp, pnm + 12, 26);
+        int q = strFind(host_name[i], "\"");
+        if (q >= 0) host_name[i][q] = 0;
+    }
+    st_up[i] = up;
+    st_flags[i] = F_UP;
+    int p2 = pmap_find_up(oct);
+    if (p2 > 0 && up >= 0 && up < p2) st_flags[i] = st_flags[i] | F_REBT;
+    return 1;
+}
+
+// Status 2 -> version + chip (+ DeviceName fallback for the name). Returns 1 when
+// the version field is filled, 0 to ask for a retry (transient httpGet failure).
+int detail_ver(int i) {
+    if (hosts[i] == SELF_OCT) return 1;
+    sprintf(url, "http://192.168.188.%d/cm?cmnd=Status%%202", hosts[i]);
+    resp[0] = 0;
+    int v = httpGet(url, resp);
+    if (v <= 0) return 0;
+    int pv = strFind(resp, "\"Version\":\"");
+    if (pv >= 0) {
+        strSub(host_ver[i], resp, pv + 11, 16);
+        int qp = strFind(host_ver[i], "(");
+        if (qp < 0) qp = strFind(host_ver[i], "\"");
+        if (qp >= 0) host_ver[i][qp] = 0;
+    }
+    int pc = strFind(resp, "\"Hardware\":\"");
+    if (pc >= 0) {
+        char hw[28];
+        strSub(hw, resp, pc + 12, 24);
+        if      (strContains(hw, "-S3")) strcpy(host_cpu[i], "S3");
+        else if (strContains(hw, "-C3")) strcpy(host_cpu[i], "C3");
+        else if (strContains(hw, "-C6")) strcpy(host_cpu[i], "C6");
+        else if (strContains(hw, "-C2")) strcpy(host_cpu[i], "C2");
+        else if (strContains(hw, "-S2")) strcpy(host_cpu[i], "S2");
+        else if (strContains(hw, "-P4")) strcpy(host_cpu[i], "P4");
+        else if (strContains(hw, "ESP32")) strcpy(host_cpu[i], "ESP32");
+        else if (strContains(hw, "8285")) strcpy(host_cpu[i], "8266");   // ESP8285 = 8266 family
+        else if (strContains(hw, "8266")) strcpy(host_cpu[i], "8266");
+    }
+    // Old Tasmota (pre-Hostname in Status 11) has no name yet — fall back to the
+    // friendly DeviceName via its dedicated command (a tiny ~30-byte reply, NOT
+    // the 2.9 KB Status 0, which overloaded the scan).
+    if (strlen(host_name[i]) == 0) {
+        sprintf(url, "http://192.168.188.%d/cm?cmnd=DeviceName", hosts[i]);
+        resp[0] = 0;
+        int s0 = httpGet(url, resp);
+        if (s0 > 0) {
+            int pd = strFind(resp, "\"DeviceName\":\"");
+            if (pd >= 0) {
+                strSub(host_name[i], resp, pd + 14, 26);
+                int qd = strFind(host_name[i], "\"");
+                if (qd >= 0) host_name[i][qd] = 0;
+            }
+        }
+    }
+    if (strlen(host_ver[i]) == 0) return 0;     // no version yet -> retry
+    return 1;
+}
+
+// tc_api -> TinyC present? failed? Returns 1 on a definitive answer (TinyC device
+// or confirmed non-TinyC), 0 to retry (the fetch timed out on a busy device).
+int detail_tinyc(int i) {
+    if (hosts[i] == SELF_OCT) return 1;    // self is already F_TINYC
+    sprintf(url, "http://192.168.188.%d/tc_api?cmd=status", hosts[i]);
+    resp[0] = 0;
+    int m = httpGet(url, resp);
+    if (m <= 0) return 0;                  // no answer -> retry (don't mislabel busy as no-TinyC)
+    if (strFind(resp, "slots") >= 0) {
+        st_flags[i] = st_flags[i] | F_TINYC;
+        if (tinyc_failed(resp)) st_flags[i] = st_flags[i] | F_FAIL;
+    }
+    // heap fragmentation % — only present on fw with the tc_api "frag" field; older
+    // fw (and non-TinyC devices) lack it, so st_frag stays -1 -> shown as "—".
+    char fragbuf[12];
+    int pf = strFind(resp, "\"frag\":");
+    if (pf >= 0) { strSub(fragbuf, resp, pf + 7, 6); st_frag[i] = atoi(fragbuf); }
+    return 1;
+}
+
+void scan_finish() {
+    sc_active = 0;
+    tcpConnectTimeout(0);
+    t_up = 0; t_tc = 0; t_fail = 0; t_rebt = 0;
+    int i = 0;
+    while (i < nhosts) {
+        int f = st_flags[i];
+        if (f & F_UP)    t_up++;
+        if (f & F_TINYC) t_tc++;
+        if (f & F_FAIL) { t_fail++; sprintf(summ, "SCAN: .%d TinyC autoexec FAILED", hosts[i]); addLog(summ); }
+        if (f & F_REBT) { t_rebt++; sprintf(summ, "SCAN: .%d REBOOTED (uptime %ds)", hosts[i], st_up[i]); addLog(summ); }
+        i++;
+    }
+    // PUBLISH: copy the just-finished working set -> published, so the main-page
+    // table now reflects this completed scan (and stays put during the next one).
+    pub_n = nhosts; pub_scan_no = scan_no;
+    int j = 0;
+    while (j < nhosts) {
+        pub_hosts[j] = hosts[j]; pub_up[j] = st_up[j]; pub_heap[j] = st_heap[j];
+        pub_flags[j] = st_flags[j]; pub_rssi[j] = st_rssi[j]; pub_frag[j] = st_frag[j];
+        strcpy(pub_name[j], host_name[j]); strcpy(pub_ver[j], host_ver[j]); strcpy(pub_cpu[j], host_cpu[j]);
+        j++;
+    }
+    scan_save();
+    sprintf(summ, "SCAN #%d: %d found  tinyc %d  FAIL %d  reboot %d", scan_no, nhosts, t_tc, t_fail, t_rebt);
+    addLog(summ);
+}
+
+// One probe per active (every-TICK_GAP) tick. Each phase advances one octet/host
+// per tick, but stays on the current one (up to MAX_TRY ticks) when a data fetch
+// times out — so a transiently-busy device is re-tried instead of left blank.
+void scan_step() {
+    if (!sc_active) return;
+    if (sc_phase == 0) {                    // --- discovery: liveness gate + Status 11 ---
+        while (sc_oct <= SWEEP_END && is_excluded(sc_oct)) sc_oct++;   // skip excluded, no probe
+        if (sc_oct > SWEEP_END) { sc_phase = 1; sc_di = 0; sc_try = 0; return; }
+        int r = sweep_one(sc_oct, sc_try > 0);
+        if (r == 2 && sc_try < MAX_TRY) { sc_try++; return; }          // live but no answer -> retry
+        sc_try = 0; sc_oct++;
+        return;
+    }
+    if (sc_phase == 1) {                    // --- version + chip (retry until filled) ---
+        if (sc_di >= nhosts) { sc_phase = 2; sc_di = 0; sc_try = 0; return; }
+        if (detail_ver(sc_di) == 0 && sc_try < MAX_TRY) { sc_try++; return; }
+        sc_try = 0; sc_di++;
+        return;
+    }
+    if (sc_di >= nhosts) { scan_finish(); return; }   // --- TinyC health (retry on timeout) ---
+    if (detail_tinyc(sc_di) == 0 && sc_try < MAX_TRY) { sc_try++; return; }
+    sc_try = 0; sc_di++;
+}
+
+// ── Reporting ──────────────────────────────────────────────────────
+void scan_log_detail() {
+    int i = 0;
+    char line[140];
+    while (i < pub_n) {                       // the published (last-completed) scan
+        int f = pub_flags[i];
+        char tags[48]; tags[0] = 0;
+        if (f & F_TINYC) strcat(tags, "TinyC ");
+        if (f & F_FAIL)  strcat(tags, "[FAIL] ");
+        if (f & F_REBT)  strcat(tags, "[REBOOTED]");
+        sprintf(line, "  .%d %s up=%ds heap=%dKB rssi=%d %s",
+                pub_hosts[i], pub_name[i], pub_up[i], pub_heap[i], pub_rssi[i], tags);
+        addLog(line);
+        i++;
+    }
+}
+
+// ── Main-page result table (status-colored grid, sorted by IP) ─────
+char wrow[220];
+
+void fmt_uptime(char out[], int sec) {
+    if (sec < 0) { strcpy(out, "-"); return; }
+    int d = sec / 86400;
+    int h = (sec % 86400) / 3600;
+    int mn = (sec % 3600) / 60;
+    if (d > 0)      sprintf(out, "%dd %dh", d, h);
+    else if (h > 0) sprintf(out, "%dh %dm", h, mn);
+    else            sprintf(out, "%dm", mn);
+}
+
+// Renders the PUBLISHED (last-completed) scan, so the table never blanks while a
+// new scan is rebuilding the working arrays. A small "scan .X…" note shows live
+// progress without disturbing the table.
+void WebPage() {
+    int fail = 0; int rebt = 0;
+    int i = 0;
+    while (i < pub_n) {
+        int f = pub_flags[i];
+        if (f & F_FAIL) fail++;
+        if (f & F_REBT) rebt++;
+        i++;
+    }
+    webSend("<div style='width:100%;box-sizing:border-box'>");
+    sprintf(wrow, "<div style='font-weight:bold;margin:8px 0 2px'>&#128225; Fleet-Scanner &mdash; #%d: %d Geraete", pub_scan_no, pub_n);
+    webSend(wrow);
+    if (fail > 0) { sprintf(wrow, " &middot; <span style='color:#c00'>%d FAIL</span>", fail); webSend(wrow); }
+    if (rebt > 0) { sprintf(wrow, " &middot; <span style='color:#e80'>%d reboot</span>", rebt); webSend(wrow); }
+    if (sc_active) { sprintf(wrow, " &middot; <i style='color:#888'>scan .%d&hellip;</i>", sc_oct); webSend(wrow); }
+    webSend("</div>");
+
+    webSend("<style>.fsc{border-collapse:collapse;width:100%;table-layout:fixed;font-size:11px;word-break:break-word}");
+    webSend(".fsc th,.fsc td{border:1px solid rgba(128,128,128,.55);padding:3px 5px;text-align:center}");
+    webSend(".fsc th{background:#2b2b2b;color:#fff}.fsc td.hn{text-align:left}.fsc a{color:inherit;text-decoration:underline}");
+    webSend(".fsc tr.r-ok{background:rgba(40,170,70,.16)}.fsc tr.r-fail{background:rgba(210,40,40,.26)}");
+    webSend(".fsc tr.r-down{background:rgba(140,140,140,.22)}.fsc tr.r-rebt{background:rgba(235,150,20,.24)}</style>");
+    webSend("<table class='fsc'><colgroup><col style='width:24%'><col style='width:12%'><col style='width:11%'><col style='width:9%'><col style='width:10%'><col style='width:11%'><col style='width:14%'><col style='width:9%'></colgroup>");
+    webSend("<tr><th style='text-align:left'>Host</th><th>Up</th><th>Heap</th><th>Frag</th><th>RSSI</th><th>CPU</th><th>Ver</th><th>TinyC</th></tr>");
+    char up_s[24];
+    i = 0;
+    while (i < pub_n) {
+        int f = pub_flags[i];
+        if (!(f & F_UP))      webSend("<tr class='r-down'>");
+        else if (f & F_FAIL)  webSend("<tr class='r-fail'>");
+        else if (f & F_REBT)  webSend("<tr class='r-rebt'>");
+        else                  webSend("<tr class='r-ok'>");
+        // device name links to the device's own web page (like the Workbench)
+        if (strlen(pub_name[i]) > 0)
+            sprintf(wrow, "<td class='hn'><a href='http://192.168.188.%d/' target='_blank'><b>%s</b></a> <span style='font-size:10px;opacity:.6'>.%d</span></td>", pub_hosts[i], pub_name[i], pub_hosts[i]);
+        else
+            sprintf(wrow, "<td class='hn'><a href='http://192.168.188.%d/' target='_blank'>.%d</a></td>", pub_hosts[i], pub_hosts[i]);
+        webSend(wrow);
+        if (f & F_UP) {
+            fmt_uptime(up_s, pub_up[i]);
+            if (f & F_REBT) sprintf(wrow, "<td><b>&#8635; %s</b></td>", up_s);
+            else            sprintf(wrow, "<td>%s</td>", up_s);
+            webSend(wrow);
+            sprintf(wrow, "<td>%dK</td>", pub_heap[i]); webSend(wrow);
+            if (pub_frag[i] >= 0) {
+                if (pub_frag[i] >= 50) sprintf(wrow, "<td style='color:#e07000'><b>%d%%</b></td>", pub_frag[i]);
+                else sprintf(wrow, "<td>%d%%</td>", pub_frag[i]);
+                webSend(wrow);
+            } else webSend("<td>&mdash;</td>");
+            if (pub_rssi[i] >= 0) { sprintf(wrow, "<td>%d%%</td>", pub_rssi[i]); webSend(wrow); }
+            else webSend("<td>&mdash;</td>");
+            if (strlen(pub_cpu[i]) > 0) { sprintf(wrow, "<td style='font-size:10px'>%s</td>", pub_cpu[i]); webSend(wrow); }
+            else webSend("<td>&mdash;</td>");
+            if (strlen(pub_ver[i]) > 0) { sprintf(wrow, "<td style='font-size:10px'>%s</td>", pub_ver[i]); webSend(wrow); }
+            else webSend("<td>&mdash;</td>");
+            if (f & F_FAIL)       webSend("<td><b>FAIL</b></td>");
+            else if (f & F_TINYC) webSend("<td>ok</td>");
+            else                  webSend("<td>&mdash;</td>");
+        } else {
+            webSend("<td colspan='7'>DOWN</td>");
+        }
+        webSend("</tr>");
+        i++;
+    }
+    webSend("</table>");
+    webSend("<div style='margin:4px 0'><button style='width:100%' onclick=\"fetch('/cm?cmnd=SCANGO');this.innerHTML='scanne&hellip;';setInterval(function(){location.reload()},60000)\">Jetzt scannen (~20-30 min, l&auml;uft im Hintergrund)</button></div>");
+    webSend("</div>");
+}
+
+// ── Live progress banner in the auto-refreshing sensor section ──────────
+// WebCall() renders into Tasmota's main-page /?m=1 AJAX block, which the page
+// polls every few seconds — so the scan stage + progress (and the live-tick dot,
+// which increments each poll to prove it's refreshing) update WITHOUT a reload.
+// While idle it shows the last completed scan. The big WebPage() table only
+// updates on a full reload, hence the live status lives here in the sensor area.
+int web_tick = 0;
+
+void WebCall() {
+    web_tick = web_tick + 1;
+    if (!sc_active) {
+        sprintf(wrow, "<tr><td colspan=2 style='text-align:left;background:#333;color:#bbb;padding:6px 9px;border-radius:6px'>&#128225; Scanner bereit &middot; letzter Lauf #%d: %d Geraete <span style='font-size:.8em;opacity:.45'>&#9679;%d</span></td></tr>", pub_scan_no, pub_n, web_tick);
+        webSend(wrow);
+        return;
+    }
+    int cur; int tot;
+    if (sc_phase == 0) { cur = sc_oct; tot = 254; }   // discovery sweeps octets 1..254
+    else               { cur = sc_di;  tot = nhosts; } // detail phases walk the found hosts
+    if (tot < 1) { tot = 1; }
+    int pct = cur * 100 / tot;
+    if (pct > 100) { pct = 100; }
+    webSend("<tr><td colspan=2 style='text-align:left;background:#1d3a5f;color:#fff;padding:6px 9px;border-radius:6px'>");
+    if (sc_phase == 0)      sprintf(wrow, "<b>&#128225; Scanner laeuft</b> &middot; Phase 1/3 Suche .%d/254 (%d%%) &middot; %d gefunden", cur, pct, nhosts);
+    else if (sc_phase == 1) sprintf(wrow, "<b>&#128225; Scanner laeuft</b> &middot; Phase 2/3 Versionen %d/%d (%d%%)", cur, tot, pct);
+    else                    sprintf(wrow, "<b>&#128225; Scanner laeuft</b> &middot; Phase 3/3 TinyC %d/%d (%d%%)", cur, tot, pct);
+    webSend(wrow);
+    sprintf(wrow, " <span style='font-size:.8em;opacity:.45'>&#9679;%d</span><div style='height:7px;background:rgba(255,255,255,.18);border-radius:4px;margin-top:5px;overflow:hidden'><div style='height:7px;width:%d%%;background:#39d353;transition:width .4s'></div></div></td></tr>", web_tick, pct);
+    webSend(wrow);
+}
+
+void Command(char cmd[]) {
+    char cbuf[64];
+    if (strFind(cmd, "GO") >= 0) {
+        scan_begin();
+        responseCmnd("SCAN: slow sweep started — SCANSHOW in ~20-30 min");
+    } else if (strFind(cmd, "SHOW") >= 0) {
+        scan_log_detail();
+        if (pub_scan_no == 0) { responseCmnd("SCAN: no completed scan yet"); }
+        else {
+            // report the PUBLISHED (last-completed) scan, matching the table; t_*
+            // counters were set at that scan's finish.
+            sprintf(cbuf, "SCAN #%d: %d found  tinyc %d  FAIL %d  reboot %d", pub_scan_no, pub_n, t_tc, t_fail, t_rebt);
+            responseCmnd(cbuf);
+        }
+    } else if (strFind(cmd, "HOSTS") >= 0) {
+        sprintf(cbuf, "SCAN: %d devices discovered", pub_n);   // last-completed count
+        responseCmnd(cbuf);
+    } else {
+        responseCmnd("SCAN: SCANGO | SCANSHOW | SCANHOSTS");
+    }
+}
+
+// ── Scheduling ─────────────────────────────────────────────────────
+// (boot_cd / last_dh declared up with the state machine so scan_begin can
+//  disarm boot_cd — see there.)
+
+void EverySecond() {
+    if (sc_active) {
+        // Probe only once every TICK_GAP seconds. The intervening idle ticks let
+        // CPU0's WiFi/lwIP quiesce and the idle task run, so the task-WDT never
+        // trips and pending ARP for the previous absent IP clears before the next.
+        sc_tick++;
+        if (sc_tick >= TICK_GAP) { sc_tick = 0; scan_step(); }
+        return;
+    }
+    if (boot_cd > 0) {
+        boot_cd--;
+        if (boot_cd == 0) { addLog("SCAN: startup sweep"); scan_begin(); }
+        return;
+    }
+    // ── TEMPORARY SOAK TEST (gemu 2026-06-13) ───────────────────────────────
+    // Fire a fresh sweep every 60 min of wall-clock to prove stability across many
+    // back-to-back scans (run all day, watch for any reboot). A scan takes ~25 min,
+    // so the next starts ~35 min after the previous one finishes. REVERT to the
+    // daily-03:00 trigger below once the soak is proven.
+    if (tasm_uptime - last_scan_up >= 3600) {
+        addLog("SCAN: hourly soak-test sweep");
+        scan_begin();
+    }
+    // Normal schedule (disabled during the soak test):
+    // if (tasm_hour == 3 && last_dh != tasm_day) {
+    //     last_dh = tasm_day;
+    //     addLog("SCAN: daily 03:00 sweep");
+    //     scan_begin();
+    // }
+}
+
+int main() {
+    scan_load();          // restore last results (table populated before first sweep)
+    addCommand("SCAN");
+    addLog("SCAN: ready — discovery sweep in 20s (SCANGO to force)");
+    return 0;
+}
