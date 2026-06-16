@@ -298,7 +298,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     6     // V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     8     // V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -518,10 +518,16 @@ enum TcSyscall {
   SYS_LOG_LVL          = 269, // (level, char_ref) -> void — AddLog with explicit level
   SYS_LOG_LVL_STR       = 270, // (level, const_idx) -> void — AddLog string literal with level
   // Minimal I2S output (no USE_I2S_AUDIO needed)
-  SYS_I2S_BEGIN         = 271, // (bclk, lrclk, dout, sampleRate) -> int — init I2S TX, returns 0=ok
+  SYS_I2S_BEGIN         = 271, // (mclk, bclk, lrclk, dout, sampleRate) -> int — init I2S TX, returns 0=ok
   SYS_I2S_WRITE         = 272, // (arr_ref, len) -> int — write int16 PCM samples, returns written
   SYS_I2S_STOP          = 273, // () -> void — stop and release I2S
   SYS_FILE_READ_PCM16   = 274, // (handle, arr_ref, max_samples, channels) -> samples_read
+  // Minimal I2S mic input (RX, standalone — independent of the audio plugin; codec
+  // config, if any, is the script's job via the i2c* syscalls). Works on any ESP32.
+  SYS_I2S_MIC_BEGIN     = 498, // (mclk, bclk, lrclk, din, sampleRate) -> int — init I2S RX mic (master), 0=ok
+  SYS_I2S_MIC_READ      = 499, // (arr_ref, max) -> int — read int16 mono samples into int[], returns count
+  SYS_I2S_MIC_LEVEL     = 500, // () -> int — RMS loudness 0..32767 over one ~256-sample block
+  SYS_I2S_MIC_STOP      = 501, // () -> void — stop and release the mic RX channel
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -1641,6 +1647,7 @@ struct TINYC {
 #ifdef ESP32
   // Minimal I2S output (standalone, no USE_I2S_AUDIO needed)
   i2s_chan_handle_t i2s_tx_handle;   // I2S TX channel handle (nullptr = not active)
+  i2s_chan_handle_t i2s_rx_handle;   // I2S RX (mic) channel handle (nullptr = not active)
   int32_t  i2s_sample_rate;          // current sample rate
   int16_t *i2s_pcm_buf;             // stereo PCM buffer (alloc in i2sBegin, free in i2sStop)
 #endif
@@ -12758,11 +12765,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     // ── Minimal I2S output (standalone, no USE_I2S_AUDIO needed) ──
 #ifdef ESP32
     case SYS_I2S_BEGIN: {
-      // i2sBegin(bclk, lrclk, dout, sampleRate) -> 0=ok, -1=error
+      // i2sBegin(mclk, bclk, lrclk, dout, sampleRate) -> 0=ok, -1=error.
+      // mclk=-1 → no MCLK (raw I2S amp like MAX98357). A codec DAC (ES8311) needs
+      // MCLK = 256*fs on the mclk pin AND its registers set over I2C from the script.
       int32_t sample_rate = TC_POP(vm);
       int32_t dout_pin    = TC_POP(vm);
       int32_t lrclk_pin   = TC_POP(vm);
       int32_t bclk_pin    = TC_POP(vm);
+      int32_t mclk_pin    = TC_POP(vm);
 
       // Stop any previous I2S session
       if (Tinyc->i2s_tx_handle) {
@@ -12793,7 +12803,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)sample_rate),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
-          .mclk = I2S_GPIO_UNUSED,
+          .mclk = (mclk_pin >= 0) ? (gpio_num_t)mclk_pin : I2S_GPIO_UNUSED,
           .bclk = (gpio_num_t)bclk_pin,
           .ws   = (gpio_num_t)lrclk_pin,
           .dout = (gpio_num_t)dout_pin,
@@ -12801,6 +12811,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           .invert_flags = { .mclk_inv = false, .bclk_inv = false, .ws_inv = false },
         },
       };
+      std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;  // MCLK = 256*fs (codec DACs)
 
       err = i2s_channel_init_std_mode(Tinyc->i2s_tx_handle, &std_cfg);
       if (err != ESP_OK) {
@@ -12815,8 +12826,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Allocate stereo PCM buffer: 512 mono samples → 1024 stereo int16
       if (Tinyc->i2s_pcm_buf) free(Tinyc->i2s_pcm_buf);
       Tinyc->i2s_pcm_buf = (int16_t *)malloc(1024 * sizeof(int16_t));
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX started bclk=%d lrclk=%d dout=%d rate=%d"),
-             bclk_pin, lrclk_pin, dout_pin, sample_rate);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX started mclk=%d bclk=%d lrclk=%d dout=%d rate=%d"),
+             mclk_pin, bclk_pin, lrclk_pin, dout_pin, sample_rate);
       TC_PUSH(vm, 0);
       break;
     }
@@ -12871,11 +12882,118 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX stopped"));
       break;
     }
+
+    case SYS_I2S_MIC_BEGIN: {
+      // i2sMicBegin(mclk, bclk, lrclk, din, sampleRate) -> 0=ok, -1=error.
+      // Own RX channel on a separate I2S port (I2S_NUM_AUTO), master, mono 16-bit —
+      // fully independent of the audio plugin. mclk=-1 → no MCLK (raw MEMS mic). A
+      // codec mic (ES7210/ES8311) needs MCLK = 256*fs on the mclk pin AND its ADC
+      // enabled over I2C from the script via the i2c* syscalls.
+      int32_t sample_rate = TC_POP(vm);
+      int32_t din_pin     = TC_POP(vm);
+      int32_t lrclk_pin   = TC_POP(vm);
+      int32_t bclk_pin    = TC_POP(vm);
+      int32_t mclk_pin    = TC_POP(vm);
+
+      if (Tinyc->i2s_rx_handle) {
+        i2s_channel_disable(Tinyc->i2s_rx_handle);
+        i2s_del_channel(Tinyc->i2s_rx_handle);
+        Tinyc->i2s_rx_handle = nullptr;
+      }
+      if (sample_rate < 8000)  sample_rate = 8000;
+      if (sample_rate > 48000) sample_rate = 48000;
+
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+      chan_cfg.dma_desc_num  = 4;
+      chan_cfg.dma_frame_num = 256;
+
+      esp_err_t err = i2s_new_channel(&chan_cfg, NULL, &Tinyc->i2s_rx_handle);
+      if (err != ESP_OK) { Tinyc->i2s_rx_handle = nullptr; TC_PUSH(vm, -1); break; }
+
+      i2s_std_config_t std_cfg = {
+        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)sample_rate),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+          .mclk = (mclk_pin >= 0) ? (gpio_num_t)mclk_pin : I2S_GPIO_UNUSED,
+          .bclk = (gpio_num_t)bclk_pin,
+          .ws   = (gpio_num_t)lrclk_pin,
+          .dout = I2S_GPIO_UNUSED,
+          .din  = (gpio_num_t)din_pin,
+          .invert_flags = { .mclk_inv = false, .bclk_inv = false, .ws_inv = false },
+        },
+      };
+      std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;  // MCLK = 256*fs (codec ADCs)
+      err = i2s_channel_init_std_mode(Tinyc->i2s_rx_handle, &std_cfg);
+      if (err != ESP_OK) {
+        i2s_del_channel(Tinyc->i2s_rx_handle);
+        Tinyc->i2s_rx_handle = nullptr;
+        TC_PUSH(vm, -1);
+        break;
+      }
+      i2s_channel_enable(Tinyc->i2s_rx_handle);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S mic RX mclk=%d bclk=%d lrclk=%d din=%d rate=%d"),
+             mclk_pin, bclk_pin, lrclk_pin, din_pin, sample_rate);
+      TC_PUSH(vm, 0);
+      break;
+    }
+
+    case SYS_I2S_MIC_READ: {
+      // i2sMicRead(arr, max) -> count. Read up to max int16 mono samples into int[].
+      int32_t maxn    = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+      if (!Tinyc->i2s_rx_handle) { TC_PUSH(vm, -1); break; }
+      int32_t *arr = tc_resolve_ref(vm, arr_ref);
+      int32_t cap  = tc_ref_maxlen(vm, arr_ref);
+      if (!arr || maxn <= 0) { TC_PUSH(vm, 0); break; }
+      if (maxn > cap) maxn = cap;
+      if (maxn > 256) maxn = 256;
+      int16_t tmp[256];
+      size_t got = 0;
+      esp_err_t err = i2s_channel_read(Tinyc->i2s_rx_handle, tmp, maxn * sizeof(int16_t),
+                                       &got, 50 / portTICK_PERIOD_MS);
+      if (err != ESP_OK) { TC_PUSH(vm, 0); break; }
+      int32_t n = got / sizeof(int16_t);
+      for (int32_t i = 0; i < n; i++) { arr[i] = tmp[i]; }
+      TC_PUSH(vm, n);
+      break;
+    }
+
+    case SYS_I2S_MIC_LEVEL: {
+      // i2sMicLevel() -> RMS amplitude 0..32767 over one ~256-sample block.
+      // 0 = no data this call, -1 = no mic open.
+      if (!Tinyc->i2s_rx_handle) { TC_PUSH(vm, -1); break; }
+      int16_t tmp[256];
+      size_t got = 0;
+      esp_err_t err = i2s_channel_read(Tinyc->i2s_rx_handle, tmp, sizeof(tmp),
+                                       &got, 50 / portTICK_PERIOD_MS);
+      int32_t n = got / sizeof(int16_t);
+      if (err != ESP_OK || n <= 0) { TC_PUSH(vm, 0); break; }
+      uint64_t sumsq = 0;
+      for (int32_t i = 0; i < n; i++) { int32_t s = tmp[i]; sumsq += (uint64_t)(s * s); }
+      int32_t rms = (int32_t)sqrtf((float)((double)sumsq / (double)n));
+      TC_PUSH(vm, rms);
+      break;
+    }
+
+    case SYS_I2S_MIC_STOP: {
+      // i2sMicStop() -> void
+      if (Tinyc->i2s_rx_handle) {
+        i2s_channel_disable(Tinyc->i2s_rx_handle);
+        i2s_del_channel(Tinyc->i2s_rx_handle);
+        Tinyc->i2s_rx_handle = nullptr;
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S mic stopped"));
+      break;
+    }
 #else
     // ESP8266: no I2S support
-    case SYS_I2S_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
+    case SYS_I2S_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
     case SYS_I2S_WRITE: { TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
     case SYS_I2S_STOP:  { break; }
+    case SYS_I2S_MIC_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
+    case SYS_I2S_MIC_READ:  { TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break; }
+    case SYS_I2S_MIC_LEVEL: { TC_PUSH(vm, 0); break; }
+    case SYS_I2S_MIC_STOP:  { break; }
 #endif
 
     // ── fileReadPCM16: read 16-bit LE PCM from file into int[] (native speed) ──

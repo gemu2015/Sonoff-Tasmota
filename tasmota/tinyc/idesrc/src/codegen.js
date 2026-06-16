@@ -533,9 +533,13 @@ const BUILTINS = {
     'audioSay':         { syscall: Syscall.AUDIO_SAY,        args: 1, returns: false, constArgs: [0] },
 
     // Minimal I2S output
-    'i2sBegin':         { syscall: Syscall.I2S_BEGIN,        args: 4, returns: true },
+    'i2sBegin':         { syscall: Syscall.I2S_BEGIN,        args: 5, returns: true },
     'i2sWrite':         { syscall: Syscall.I2S_WRITE,        args: 2, returns: true, strArgs: [0] },
     'i2sStop':          { syscall: Syscall.I2S_STOP,         args: 0, returns: false },
+    'i2sMicBegin':      { syscall: Syscall.I2S_MIC_BEGIN,    args: 5, returns: true },
+    'i2sMicRead':       { syscall: Syscall.I2S_MIC_READ,     args: 2, returns: true, strArgs: [0] },
+    'i2sMicLevel':      { syscall: Syscall.I2S_MIC_LEVEL,    args: 0, returns: true },
+    'i2sMicStop':       { syscall: Syscall.I2S_MIC_STOP,     args: 0, returns: false },
     'fileReadPCM16':    { syscall: Syscall.FILE_READ_PCM16,  args: 4, returns: true, strArgs: [1] },
 
     // Persistent variables

@@ -4090,10 +4090,21 @@ Lower-level access to an I2S DAC/amplifier for streaming your own PCM samples
 
 | Function | Description |
 |----------|-------------|
-| `int i2sBegin(int bclk, int lrclk, int dout, int sampleRate)` | Configure the I2S output pins and sample rate (Hz). Returns 0 on success, -1 on error. |
+| `int i2sBegin(int mclk, int bclk, int lrclk, int dout, int sampleRate)` | Configure the I2S output pins and sample rate (Hz). `mclk=-1` for a raw I2S amp (MAX98357); a codec DAC (ES8311) needs the MCLK pin (256·fs) **and** its registers set over I2C from the script. Returns 0 on success, -1 on error. |
 | `int i2sWrite(int[] pcm, int frames)` | Write `frames` 16-bit stereo PCM samples from the `pcm` array to the I2S bus (blocks until queued). Returns frames written. |
 | `i2sStop()` | Release the I2S driver and pins. |
 | `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Read up to `frames` 16-bit samples from an open WAV file into `pcm`, up-mixing mono→stereo when `wavChannels == 1`. Returns frames read (0 at EOF). Pairs with `i2sWrite()`. |
+
+**Microphone input (RX, ABI ≥ 7).** An *independent* I2S RX channel on its own I2S port — separate from the audio plugin, so it works on any ESP32 with an I2S mic. For a raw MEMS mic (INMP441/ICS-43434/SPH0645) just wire the pins; for a codec mic (ES8311/ES7210) enable the codec's ADC first via the `i2c*` syscalls (or let the audio plugin init it) and point `din` at the codec's data line. 16-bit mono, master.
+
+| Function | Description |
+|---|---|
+| `int i2sMicBegin(int bclk, int lrclk, int din, int sampleRate)` | Open the mic RX channel. Returns 0 on success, -1 on error. |
+| `int i2sMicLevel()` | RMS loudness (0..32767) over one ~256-sample block. -1 = no mic open, 0 = no data this call. The cheap loudness/VU path. |
+| `int i2sMicRead(int[] buf, int max)` | Read up to `max` (≤256) raw int16 mono samples into `buf`. Returns the count. For FFT / custom DSP. |
+| `i2sMicStop()` | Release the mic RX channel. |
+
+See `examples/loudness.tc`.
 
 ### Persistent Variables
 

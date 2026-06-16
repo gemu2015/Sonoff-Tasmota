@@ -1,0 +1,115 @@
+// loudness_p4.tc — mic loudness/VU meter for the Waveshare ESP32-P4 10.1" board.
+//
+// Drives the on-board ES7210 4-mic ADC DIRECTLY over I2C (no audio plugin needed),
+// then opens an independent TinyC I2S RX channel for the samples. This is the
+// "codec mic" case: the ES7210 is an I2S slave that needs MCLK = 256*fs from us,
+// plus its ADC enabled over I2C.
+//
+// Board wiring (Waveshare ESP32-P4-WIFI6-Touch-LCD-X): I2S MCLK=13 BCLK=12 WS=10
+// DIN=11 (DOUT=9 is the speaker). ES7210 @ I2C 0x40. 16 kHz, 16-bit, slave.
+//
+// Requires firmware ABI >= 7 (i2sMicBegin with MCLK).
+// Console:  MIC  -> prints the current level.
+
+#define MIC_MCLK   13
+#define MIC_BCLK   12
+#define MIC_WS     10
+#define MIC_DIN    11
+#define MIC_RATE   16000
+
+#define ES_ADDR    0x40
+#define ES_BUS     0          // I2C bus the ES7210 is on (set to 1 if not found on 0)
+
+int micok = 0;
+int level = 0;
+int peak  = 0;
+
+// ── ES7210 register helpers ──
+void esw(int reg, int val) { i2cWrite8(ES_ADDR, reg, val, ES_BUS); }
+int  esr(int reg)          { return i2cRead8(ES_ADDR, reg, ES_BUS); }
+void esupd(int reg, int mask, int val) {
+    int v = esr(reg);
+    v = (v & (255 - mask)) | (mask & val);
+    esw(reg, v);
+}
+
+// enable all 4 mics (mirrors es7210_mic_select(MIC_ALL))
+void es_mic_all() {
+    int i;
+    for (i = 0; i < 4; i = i + 1) { esupd(0x43 + i, 0x10, 0x00); }
+    esw(0x4B, 0xff); esw(0x4C, 0xff);
+    esupd(0x01, 0x0b, 0x00); esw(0x4B, 0x00); esupd(0x43, 0x10, 0x10);  // MIC1
+    esupd(0x01, 0x0b, 0x00); esw(0x4B, 0x00); esupd(0x44, 0x10, 0x10);  // MIC2
+    esupd(0x01, 0x15, 0x00); esw(0x4C, 0x00); esupd(0x45, 0x10, 0x10);  // MIC3
+    esupd(0x01, 0x15, 0x00); esw(0x4C, 0x00); esupd(0x46, 0x10, 0x10);  // MIC4
+}
+
+// full ES7210 init (SLAVE, 16 kHz, 16-bit, I2S normal). Mirrors pes7210_codec_init.
+void es7210_init() {
+    esw(0x00, 0xff);            // reset
+    esw(0x00, 0x41);
+    esw(0x01, 0x1f);            // clock off
+    esw(0x09, 0x30);
+    esw(0x0A, 0x30);
+    esw(0x40, 0xC3);            // analog power
+    esw(0x41, 0x70); esw(0x42, 0x70);   // mic bias
+    esw(0x07, 0x20);            // OSR
+    esw(0x02, 0xC1);            // main clock (256*fs)
+    esw(0x07, 0x20);
+    esw(0x04, 0x01); esw(0x05, 0x00);   // LRCK div (16 kHz)
+    es_mic_all();
+    int iface = esr(0x11) & 0x1f; esw(0x11, iface | 0x60);   // 16-bit
+    iface = esr(0x11) & 0xfc;    esw(0x11, iface);           // I2S normal
+    esw(0x12, 0x00);
+    esupd(0x43, 0x0f, 14); esupd(0x44, 0x0f, 14);            // MIC1/2 = +37.5 dB
+    esupd(0x45, 0x0f, 0);  esupd(0x46, 0x0f, 0);             // MIC3/4 = 0 dB
+    int regv = esr(0x01); esw(0x01, regv);                  // start
+    esw(0x06, 0x00);                                        // power up
+    esw(0x47, 0x00); esw(0x48, 0x00); esw(0x49, 0x00); esw(0x4A, 0x00);
+    es_mic_all();
+}
+
+int isqrt(int n) {
+    if (n <= 0) { return 0; }
+    int x = n; int y = (x + 1) / 2;
+    while (y < x) { x = y; y = (x + n / x) / 2; }
+    return x;
+}
+int pct_of(int rms) {
+    int p = (isqrt(rms) * 100) / 181;
+    if (p > 100) { p = 100; }
+    return p;
+}
+
+void Every100ms() {
+    if (!micok) { return; }
+    int v = i2sMicLevel();
+    if (v < 0) { return; }
+    level = v;
+    if (v > peak) { peak = v; } else { peak = (peak * 9) / 10; }
+}
+
+void Command(char cmd[]) {
+    char resp[64];
+    sprintf(resp, "rms=%d (%d%%) peak=%d", level, pct_of(level), pct_of(peak));
+    responseCmnd(resp);
+}
+
+void WebUI() {
+    char buf[256];
+    int p = pct_of(level);
+    int pk = pct_of(peak);
+    sprintf(buf, "{s}Loudness{m}%d %% (rms %d){e}", p, level);
+    webSend(buf);
+    sprintf(buf, "{s}Level{m}<div style='position:relative;background:#222;width:170px;height:14px;border-radius:7px'><div style='background:#3ddc84;height:14px;width:%d%%;border-radius:7px'></div><div style='position:absolute;top:0;left:%d%%;width:2px;height:14px;background:#e66'></div></div>{e}", p, pk);
+    webSend(buf);
+}
+
+int main() {
+    es7210_init();                                  // bring up the ADC over I2C
+    micok = (i2sMicBegin(MIC_MCLK, MIC_BCLK, MIC_WS, MIC_DIN, MIC_RATE) == 0);
+    if (micok) { addLog("loudness_p4: ES7210 + mic RX started"); }
+    else { addLog("loudness_p4: i2sMicBegin FAILED — check firmware ABI>=7"); }
+    addCommand("MIC");
+    return 0;
+}

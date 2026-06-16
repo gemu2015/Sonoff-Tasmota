@@ -1,0 +1,238 @@
+// loudness_gauge.tc — plugin-INDEPENDENT sound I/O demo for the Waveshare ESP32-P4 10.1".
+//
+//   OUTPUT: on boot, init the ES8311 DAC over I2C and play an intro .wav (i2sBegin TX).
+//   INPUT : then init the ES7210 4-mic ADC over I2C and show a live loudness gauge
+//           (arc dial + % + peak + VU bar) on the LVGL display (i2sMicBegin RX).
+//
+// No audio plugin needed — both codecs are driven entirely from this script via the
+// i2c* syscalls. Board: I2S MCLK=13 BCLK=12 WS=10 DOUT=9(spkr) DIN=11(mic) ; ES8311
+// @0x18, ES7210 @0x40 ; display 800x1280. Needs USE_TINYC_LVGL firmware, ABI >= 7.
+//
+// The intro .wav MUST be 16 kHz mono 16-bit PCM (the ES8311 here is clocked for 16 kHz).
+//   ffmpeg -i in.wav -ar 16000 -ac 1 -c:a pcm_s16le /intro.wav
+
+#define INTRO_WAV  "/Startup.wav"
+#define MIC_MCLK   13
+#define MIC_BCLK   12
+#define MIC_WS     10
+#define MIC_DIN    11
+#define DAC_DOUT   9
+#define MIC_RATE   16000
+#define PA_EN      53          // speaker power-amp enable (Waveshare P4: GPIO53)
+#define OUTPUT     0x03
+
+#define ES7210_ADDR 0x40
+#define ES8311_ADDR 0x18
+#define ES_BUS      0           // I2C bus the codecs are on
+
+#define AL_TOP_MID  2
+#define COL_BG      0x0e1016
+#define COL_GREEN   0x3ddc84
+#define COL_YELLOW  0xffcc44
+#define COL_RED     0xff5555
+#define COL_DIM     0x7a8aa0
+
+int micok = 0;
+int level = 0;
+int peak  = 0;
+int arc; int lblPct; int lblPeak; int lblTitle; int bar;
+
+int wav_channels = 1; int wav_rate = 16000; int wav_bits = 16; int wav_data_size = 0;
+int pcm[512];
+
+// ───────── ES7210 mic ADC over I2C (port of pes7210_codec_init) ─────────
+void aw(int reg, int val) { i2cWrite8(ES7210_ADDR, reg, val, ES_BUS); }
+int  ar_(int reg)         { return i2cRead8(ES7210_ADDR, reg, ES_BUS); }
+void aupd(int reg, int mask, int val) { int v = ar_(reg); v = (v & (255 - mask)) | (mask & val); aw(reg, v); }
+void a_mic_all() {
+    int i;
+    for (i = 0; i < 4; i = i + 1) { aupd(0x43 + i, 0x10, 0x00); }
+    aw(0x4B, 0xff); aw(0x4C, 0xff);
+    aupd(0x01, 0x0b, 0x00); aw(0x4B, 0x00); aupd(0x43, 0x10, 0x10);
+    aupd(0x01, 0x0b, 0x00); aw(0x4B, 0x00); aupd(0x44, 0x10, 0x10);
+    aupd(0x01, 0x15, 0x00); aw(0x4C, 0x00); aupd(0x45, 0x10, 0x10);
+    aupd(0x01, 0x15, 0x00); aw(0x4C, 0x00); aupd(0x46, 0x10, 0x10);
+}
+void es7210_init() {
+    aw(0x00, 0xff); aw(0x00, 0x41); aw(0x01, 0x1f);
+    aw(0x09, 0x30); aw(0x0A, 0x30); aw(0x40, 0xC3);
+    aw(0x41, 0x70); aw(0x42, 0x70); aw(0x07, 0x20);
+    aw(0x02, 0xC1); aw(0x07, 0x20); aw(0x04, 0x01); aw(0x05, 0x00);
+    a_mic_all();
+    int iface = ar_(0x11) & 0x1f; aw(0x11, iface | 0x60);
+    iface = ar_(0x11) & 0xfc;     aw(0x11, iface);
+    aw(0x12, 0x00);
+    aupd(0x43, 0x0f, 14); aupd(0x44, 0x0f, 14);
+    aupd(0x45, 0x0f, 0);  aupd(0x46, 0x0f, 0);
+    int regv = ar_(0x01); aw(0x01, regv);
+    aw(0x06, 0x00);
+    aw(0x47, 0x00); aw(0x48, 0x00); aw(0x49, 0x00); aw(0x4A, 0x00);
+    a_mic_all();
+}
+
+// ───────── ES8311 DAC over I2C (port of pes8311_codec_init, slave 16-bit 16 kHz) ─────────
+void dw(int reg, int val) { i2cWrite8(ES8311_ADDR, reg, val, ES_BUS); }
+int  dr(int reg)          { return i2cRead8(ES8311_ADDR, reg, ES_BUS); }
+void es8311_init() {
+    int v;
+    dw(0x01, 0x30); dw(0x02, 0x00); dw(0x03, 0x10); dw(0x16, 0x24);
+    dw(0x04, 0x10); dw(0x05, 0x00); dw(0x0B, 0x00); dw(0x0C, 0x00);
+    dw(0x10, 0x1F); dw(0x11, 0x7F); dw(0x00, 0x80);
+    v = dr(0x00) & 0xBF; dw(0x00, v);                    // slave
+    dw(0x01, 0x3F);
+    v = dr(0x01) & 0x7F; dw(0x01, v);                    // mclk from pin
+    v = dr(0x02) & 0x07; dw(0x02, v);                    // pre_div/multi = 1
+    dw(0x05, 0x00);                                       // adc/dac div = 1
+    v = (dr(0x03) & 0x80) | 0x10; dw(0x03, v);           // adc_osr
+    v = (dr(0x04) & 0x80) | 0x10; dw(0x04, v);           // dac_osr
+    v = dr(0x07) & 0xC0; dw(0x07, v);                    // lrck_h
+    dw(0x08, 0xff);                                       // lrck_l
+    v = (dr(0x06) & 0xE0) | 3; dw(0x06, v);             // bclk_div = 4
+    v = dr(0x01) & (255 - 0x40); dw(0x01, v);            // mclk not inverted
+    v = dr(0x06) & (255 - 0x20); dw(0x06, v);            // sclk not inverted
+    dw(0x13, 0x10); dw(0x1B, 0x0A); dw(0x1C, 0x6A);
+    v = dr(0x09) | 0x0c; dw(0x09, v);                    // 16-bit
+    v = dr(0x0A) | 0x0c; dw(0x0A, v);
+    v = dr(0x09) & 0xFC; dw(0x09, v);                    // I2S normal
+    v = dr(0x0A) & 0xFC; dw(0x0A, v);
+    v = dr(0x09) & 0xBF; v = v & (255 - 0x40); dw(0x09, v);  // enable DAC serial in
+    v = dr(0x0A) & 0xBF; v = v & (255 - 0x40); dw(0x0A, v);
+    dw(0x17, 0xBF); dw(0x0E, 0x02); dw(0x12, 0x00); dw(0x14, 0x1A);
+    v = dr(0x14) & (255 - 0x40); dw(0x14, v);            // IS_DMIC = 0
+    dw(0x0D, 0x01); dw(0x15, 0x40); dw(0x37, 0x48); dw(0x45, 0x00);
+    v = dr(0x31) & 0x9f; dw(0x31, v);                    // unmute
+    dw(0x12, 0x00);
+}
+void es8311_volume(int vol) {            // 0..100
+    if (vol > 100) { vol = 100; }
+    dw(0x32, (vol * 2550) / 1000);       // -> 0..255
+}
+
+// ───────── WAV parse + play (16-bit, walks chunks; from wav_player) ─────────
+int parse_wav(int f) {
+    char hdr[12]; int n = fileRead(f, hdr, 12);
+    if (n < 12) { return -1; }
+    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') { return -1; }
+    int got_fmt = 0; int got_data = 0;
+    char ck[8]; char fmt[16]; char skip[64];
+    while (got_fmt == 0 || got_data == 0) {
+        n = fileRead(f, ck, 8);
+        if (n < 8) { return -1; }
+        int csz = (ck[4]&255) | ((ck[5]&255)<<8) | ((ck[6]&255)<<16) | ((ck[7]&255)<<24);
+        if (ck[0]=='f' && ck[1]=='m' && ck[2]=='t' && ck[3]==' ') {
+            n = fileRead(f, fmt, 16);
+            if (n < 16) { return -1; }
+            wav_channels = (fmt[2]&255) | ((fmt[3]&255)<<8);
+            wav_rate = (fmt[4]&255) | ((fmt[5]&255)<<8) | ((fmt[6]&255)<<16) | ((fmt[7]&255)<<24);
+            wav_bits = (fmt[14]&255) | ((fmt[15]&255)<<8);
+            got_fmt = 1;
+            int rem = csz - 16;
+            while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
+        } else if (ck[0]=='d' && ck[1]=='a' && ck[2]=='t' && ck[3]=='a') {
+            wav_data_size = csz; got_data = 1;
+        } else {
+            int rem = csz;
+            while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
+        }
+    }
+    return 0;
+}
+void play_wav(char path[]) {
+    int f = fileOpen(path, "r");
+    if (f < 0) { addLog("intro: %s not found", path); return; }
+    if (parse_wav(f) < 0 || wav_bits != 16) { addLog("intro: bad/!16-bit wav"); fileClose(f); return; }
+    // ES8311 is clocked at MIC_RATE; upsample (sample-repeat) lower-rate WAVs so
+    // they play at the right pitch (e.g. 8 kHz -> ratio 2).
+    int ratio = MIC_RATE / wav_rate;
+    if (ratio < 1) { ratio = 1; }
+    if (ratio > 4) { ratio = 4; }
+    if (i2sBegin(MIC_MCLK, MIC_BCLK, MIC_WS, DAC_DOUT, MIC_RATE) < 0) { addLog("intro: i2sBegin failed"); fileClose(f); return; }
+    int remaining = wav_data_size / (wav_channels * 2);
+    int read_chunk = 256 / ratio;
+    while (remaining > 0) {
+        int chunk = read_chunk;
+        if (chunk > remaining) { chunk = remaining; }
+        int frames = fileReadPCM16(f, pcm, chunk, wav_channels);
+        if (frames <= 0) { break; }
+        if (ratio > 1) {                          // expand in place (backwards)
+            int i;
+            for (i = frames - 1; i >= 0; i = i - 1) {
+                int j;
+                for (j = 0; j < ratio; j = j + 1) { pcm[i * ratio + j] = pcm[i]; }
+            }
+            frames = frames * ratio;
+        }
+        i2sWrite(pcm, frames);
+        remaining = remaining - chunk;
+    }
+    fileClose(f);
+    i2sStop();
+    addLog("intro: played");
+}
+
+// ───────── loudness meter ─────────
+int isqrt(int n) {
+    if (n <= 0) { return 0; }
+    int x = n; int y = (x + 1) / 2;
+    while (y < x) { x = y; y = (x + n / x) / 2; }
+    return x;
+}
+int pct_of(int rms) { int p = (isqrt(rms) * 100) / 181; if (p > 100) { p = 100; } return p; }
+
+void Every100ms() {
+    if (!micok) { return; }
+    int v = i2sMicLevel();
+    if (v < 0) { return; }
+    level = v;
+    if (v > peak) { peak = v; } else { peak = (peak * 9) / 10; }
+    int p  = pct_of(level);
+    int pk = pct_of(peak);
+    lvglSetValue(arc, p, 0);
+    lvglSetValue(bar, p, 0);
+    char b[24];
+    sprintf(b, "%d%%", p);        lvglSetText(lblPct, b);
+    sprintf(b, "peak  %d%%", pk); lvglSetText(lblPeak, b);
+    int col = COL_GREEN;
+    if (p >= 85) { col = COL_RED; } else if (p >= 60) { col = COL_YELLOW; }
+    lvglSetTextColor(lblPct, col);
+}
+
+void Command(char cmd[]) {
+    char resp[64];
+    sprintf(resp, "rms=%d (%d%%) peak=%d%%", level, pct_of(level), pct_of(peak));
+    responseCmnd(resp);
+}
+
+void build_gauge() {
+    lvglInit(); lvglClean(0); lvglSetBgColor(0, COL_BG);
+    lblTitle = lvglLabel(0); lvglSetText(lblTitle, "AUDIO  LEVEL");
+    lvglSetFont(lblTitle, 28); lvglSetTextColor(lblTitle, COL_DIM); lvglAlign(lblTitle, AL_TOP_MID, 0, 150);
+    arc = lvglArc(0); lvglSetSize(arc, 600, 600); lvglSetRange(arc, 0, 100); lvglSetValue(arc, 0, 0);
+    lvglAlign(arc, AL_TOP_MID, 0, 300);
+    lblPct = lvglLabel(0); lvglSetText(lblPct, "0%"); lvglSetFont(lblPct, 28);
+    lvglSetTextColor(lblPct, COL_GREEN); lvglAlign(lblPct, AL_TOP_MID, 0, 580);
+    lblPeak = lvglLabel(0); lvglSetText(lblPeak, "peak  0%"); lvglSetTextColor(lblPeak, COL_DIM);
+    lvglAlign(lblPeak, AL_TOP_MID, 0, 940);
+    bar = lvglBar(0); lvglSetSize(bar, 640, 44); lvglSetRange(bar, 0, 100); lvglSetValue(bar, 0, 0);
+    lvglAlign(bar, AL_TOP_MID, 0, 1030);
+}
+
+int main() {
+    i2sMicStop();                        // release any I2S RX/TX held by a previous run
+    i2sStop();                           // (handles are global → the intro TX needs the pins free)
+
+    build_gauge();                       // show the gauge first
+
+    // INTRO PLAYBACK PARKED — the ES8311 DAC path (es8311_init / play_wav) produces
+    // scrambled audio (I2S clock/format mismatch vs the codec) and i2sWrite can block
+    // forever on a misconfigured TX, leaving the amp on. Re-enable only once the codec
+    // clocking is matched AND i2sWrite has a finite timeout. The mic gauge below is the
+    // proven, safe part.
+
+    es7210_init();                       // mic for the live gauge
+    micok = (i2sMicBegin(MIC_MCLK, MIC_BCLK, MIC_WS, MIC_DIN, MIC_RATE) == 0);
+    if (!micok) { addLog("loudness_gauge: mic FAILED"); }
+
+    addCommand("MIC");
+    return 0;
+}

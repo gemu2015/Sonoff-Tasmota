@@ -1,0 +1,80 @@
+// loudness.tc — microphone loudness / VU meter using the TinyC I2S mic (RX) syscalls.
+//
+// Uses an OWN I2S RX channel (a separate I2S port), fully independent of the audio
+// plugin — so it works on ANY ESP32 with an I2S mic:
+//   • raw I2S MEMS mic (INMP441 / ICS-43434 / SPH0645): just wire BCLK / WS / DIN.
+//   • codec mic (ES8311 / ES7210, e.g. the P4 board): enable the codec's ADC first
+//     via the i2c* syscalls (or let the audio plugin init it), then point DIN at the
+//     codec's I2S data line.
+//
+// Requires firmware ABI >= 7:
+//   int  i2sMicBegin(mclk, bclk, lrclk, din, rate)  // 0 = ok, -1 = error (mclk=-1 = none)
+//   int  i2sMicLevel()                               // RMS amplitude 0..32767 (loudness)
+//   int  i2sMicRead(int arr[], max)                  // raw int16 mono samples (FFT/custom)
+//   void i2sMicStop()
+//
+// This file is for a RAW I2S MEMS mic (INMP441/ICS-43434) — MCLK not needed (-1).
+// For the P4 board's ES7210 codec mic, see loudness_p4.tc (needs MCLK + I2C init).
+//
+// Console:  MIC   -> prints the current level.
+
+// ── set these to YOUR mic wiring ──
+#define MIC_MCLK   -1      // -1 = none (raw MEMS mic); a codec needs the MCLK pin
+#define MIC_BCLK   15
+#define MIC_WS     16
+#define MIC_DIN    17
+#define MIC_RATE   16000
+
+int micok = 0;
+int level = 0;        // current RMS (0..32767)
+int peak  = 0;        // meter peak (fast attack, slow decay)
+
+// integer sqrt — gives a more ear-like meter than a linear map (no float needed)
+int isqrt(int n) {
+    if (n <= 0) { return 0; }
+    int x = n;
+    int y = (x + 1) / 2;
+    while (y < x) { x = y; y = (x + n / x) / 2; }
+    return x;
+}
+
+// 0..32767 RMS -> 0..100 %, sqrt-shaped (sqrt(32767) = 181)
+int pct_of(int rms) {
+    int p = (isqrt(rms) * 100) / 181;
+    if (p > 100) { p = 100; }
+    return p;
+}
+
+void Every100ms() {
+    if (!micok) { return; }
+    int v = i2sMicLevel();              // RMS over one ~256-sample block
+    if (v < 0) { return; }              // mic not open
+    level = v;
+    if (v > peak) { peak = v; }         // fast attack
+    else { peak = (peak * 9) / 10; }    // slow decay
+}
+
+void Command(char cmd[]) {
+    char resp[64];
+    sprintf(resp, "rms=%d (%d%%) peak=%d", level, pct_of(level), pct_of(peak));
+    responseCmnd(resp);
+}
+
+void WebUI() {
+    char buf[256];
+    int p = pct_of(level);
+    int pk = pct_of(peak);
+    sprintf(buf, "{s}Loudness{m}%d %% (rms %d){e}", p, level);
+    webSend(buf);
+    // a little bar with a peak marker
+    sprintf(buf, "{s}Level{m}<div style='position:relative;background:#222;width:170px;height:14px;border-radius:7px'><div style='background:#3ddc84;height:14px;width:%d%%;border-radius:7px'></div><div style='position:absolute;top:0;left:%d%%;width:2px;height:14px;background:#e66'></div></div>{e}", p, pk);
+    webSend(buf);
+}
+
+int main() {
+    micok = (i2sMicBegin(MIC_MCLK, MIC_BCLK, MIC_WS, MIC_DIN, MIC_RATE) == 0);
+    if (micok) { addLog("loudness: mic RX started"); }
+    else { addLog("loudness: i2sMicBegin FAILED — check pins / firmware ABI>=7"); }
+    addCommand("MIC");
+    return 0;
+}

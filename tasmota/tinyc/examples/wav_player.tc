@@ -226,7 +226,7 @@ void doPlayWav(char path[]) {
     if (ratio < 1) ratio = 1;
     if (ratio > 4) ratio = 4;
 
-    int err = i2sBegin(pin_bclk, pin_lrclk, pin_dout, pin_rate);
+    int err = i2sBegin(-1, pin_bclk, pin_lrclk, pin_dout, pin_rate);
     if (err < 0) {
         addLog("WAV: i2sBegin failed");
         fileClose(f);
@@ -275,7 +275,7 @@ void doPlayWav(char path[]) {
 
 // Generate a sine wave test tone (called from TaskLoop — no instruction limit)
 void doPlayTone(int freq, int duration_ms, int volume) {
-    int err = i2sBegin(pin_bclk, pin_lrclk, pin_dout, pin_rate);
+    int err = i2sBegin(-1, pin_bclk, pin_lrclk, pin_dout, pin_rate);
     if (err < 0) {
         addLog("i2sBegin failed");
         return;
