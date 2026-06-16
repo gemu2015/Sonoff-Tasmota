@@ -439,7 +439,7 @@ void WebPage() {
         if (f & F_REBT) rebt++;
         i++;
     }
-    webSend("<div style='width:100%;box-sizing:border-box'>");
+    webSend("<div style='width:100%;max-width:600px;box-sizing:border-box'>");
     sprintf(wrow, "<div style='font-weight:bold;margin:8px 0 2px'>&#128225; Fleet-Scanner &mdash; #%d: %d Geraete", pub_scan_no, pub_n);
     webSend(wrow);
     if (fail > 0) { sprintf(wrow, " &middot; <span style='color:#c00'>%d FAIL</span>", fail); webSend(wrow); }
