@@ -18,11 +18,12 @@
 // fetch is retried up to MAX_TRY times so transient busy-spikes don't leave blank
 // fields. A full /24 scan takes ~20-30 min on purpose — it runs at 03:00.
 //
-// Needs the bounded-connect firmware (tcpConnectTimeout, syscall 491). Set
-// SELF_OCT to the octet this runs on (179 for the P4).
+// Needs the bounded-connect firmware (tcpConnectTimeout, syscall 491). The
+// device's own octet is auto-derived from its IP (derive_self_oct), so the
+// "(self)" row follows the app when it's moved between hosts — nothing to set.
 
 #define MAXH        50      // max discovered devices
-#define SELF_OCT    39      // octet THIS device runs on (set 179 for the P4)
+int self_oct = 0;           // octet THIS device runs on — auto-derived from the local IP
 // Pacing: a fast sweep saturates CPU0's WiFi/lwIP tasks and starves the idle
 // task past the 5 s task-WDT -> reset. The cure is to probe ONE host at a time
 // and leave several fully-idle seconds between probes, so CPU0 quiesces and the
@@ -192,8 +193,24 @@ int last_dh   = -1;    // last day the 03:00 sweep ran
 int last_scan_up = 0;  // tasm_uptime at the last scan start (for the soak-test timer)
 int t_up = 0; int t_tc = 0; int t_fail = 0; int t_rebt = 0;
 
+// derive this device's own last IP octet (so the "(self)" row follows the device
+// when the app is moved between hosts — no hardcoded octet to maintain)
+int derive_self_oct() {
+    char lip[24]; tasmInfo(2, lip);
+    int i = strlen(lip) - 1;
+    int oct = 0; int mul = 1;
+    while (i >= 0 && lip[i] != '.') {
+        oct = oct + (lip[i] - 48) * mul;
+        mul = mul * 10;
+        i = i - 1;
+    }
+    if (oct > 0) return oct;
+    return self_oct;       // keep the last good value if the IP isn't up yet
+}
+
 void scan_begin() {
     if (sc_active) return;
+    self_oct = derive_self_oct();   // refresh in case the app was moved to another host
     boot_cd = 0;           // disarm the startup countdown: it only ticks while NOT
                            // scanning, so a manual SCANGO would otherwise freeze it
                            // mid-count and fire a stray 2nd scan ~20 s after finish.
@@ -233,7 +250,7 @@ void add_host(int oct) {
 int sweep_one(int oct, int isRetry) {
     char numbuf[24];
     char ipbuf[20];
-    if (oct == SELF_OCT) {                 // own health, read directly
+    if (oct == self_oct) {                 // own health, read directly
         add_host(oct);
         int i = nhosts - 1;
         st_up[i] = tasm_uptime;
@@ -279,7 +296,7 @@ int sweep_one(int oct, int isRetry) {
 // Status 2 -> version + chip (+ DeviceName fallback for the name). Returns 1 when
 // the version field is filled, 0 to ask for a retry (transient httpGet failure).
 int detail_ver(int i) {
-    if (hosts[i] == SELF_OCT) return 1;
+    if (hosts[i] == self_oct) return 1;
     sprintf(url, "http://192.168.188.%d/cm?cmnd=Status%%202", hosts[i]);
     resp[0] = 0;
     int v = httpGet(url, resp);
@@ -328,7 +345,7 @@ int detail_ver(int i) {
 // tc_api -> TinyC present? failed? Returns 1 on a definitive answer (TinyC device
 // or confirmed non-TinyC), 0 to retry (the fetch timed out on a busy device).
 int detail_tinyc(int i) {
-    if (hosts[i] == SELF_OCT) return 1;    // self is already F_TINYC
+    if (hosts[i] == self_oct) return 1;    // self is already F_TINYC
     sprintf(url, "http://192.168.188.%d/tc_api?cmd=status", hosts[i]);
     resp[0] = 0;
     int m = httpGet(url, resp);
@@ -588,6 +605,7 @@ void EverySecond() {
 
 int main() {
     scan_load();          // restore last results (table populated before first sweep)
+    self_oct = derive_self_oct();   // who am I (refreshed again at each scan_begin)
     addCommand("SCAN");
     addLog("SCAN: ready — discovery sweep in 20s (SCANGO to force)");
     return 0;
