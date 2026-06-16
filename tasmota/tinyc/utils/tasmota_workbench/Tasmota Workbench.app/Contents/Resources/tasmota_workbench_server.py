@@ -1005,6 +1005,70 @@ def _dl_dump(host, user, pw, timeout=15):
             'size': len(data)}
 
 
+def _safe_name(s):
+    """Filesystem-safe device name: keep alnum (incl. umlauts) + space . _ - ( ),
+    everything else → '_'. Trimmed, no leading/trailing dot, capped at 64."""
+    s = ''.join(c if (c.isalnum() or c in ' ._-()') else '_' for c in (s or ''))
+    return s.strip().strip('.')[:64]
+
+
+def _backup_all(devices, user, pw):
+    """Fleet config backup: pull every device's /dl dump and write each to
+    ~/Tasmota_Workbench_Backups/<timestamp>/<name>.dmp (in parallel). `devices`
+    is a list of {ip,name} (or bare IP strings). Falls back to the IP when a
+    device has no name, and disambiguates name collisions with the IP. Returns
+    {ok, folder, saved:[{ip,file,size}], failed:[{ip,error}]}."""
+    base = os.path.expanduser('~/Tasmota_Workbench_Backups')
+    folder = os.path.join(base, time.strftime('%Y-%m-%d_%H%M%S'))
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except Exception as e:
+        return {'ok': False, 'error': 'cannot create %s: %s' % (folder, e)}
+
+    # Assign filenames up front (single-threaded → no race on the dedup set).
+    used = set()
+    plan = []
+    for d in devices:
+        ip = str((d.get('ip') if isinstance(d, dict) else d) or '').strip()
+        if not ip:
+            continue
+        name = (d.get('name') if isinstance(d, dict) else '') or ''
+        ip4 = ip.replace(':', '_').replace('.', '_')
+        stem = _safe_name(name) or ip4
+        cand = stem
+        if cand.lower() in used:
+            cand = stem + '_' + ip4            # same name → disambiguate with IP
+        n = 2
+        while cand.lower() in used:
+            cand = stem + '_' + str(n)
+            n += 1
+        used.add(cand.lower())
+        plan.append((ip, cand + '.dmp'))
+
+    def one(item):
+        ip, fn = item
+        res = _dl_dump(ip, user, pw)
+        if not res.get('ok'):
+            return {'ip': ip, 'ok': False,
+                    'error': 'WebPassword' if res.get('locked')
+                             else res.get('error', '?')}
+        try:
+            data = base64.b64decode(res['b64'])
+            with open(os.path.join(folder, fn), 'wb') as f:
+                f.write(data)
+            return {'ip': ip, 'ok': True, 'size': len(data), 'file': fn}
+        except Exception as e:
+            return {'ip': ip, 'ok': False, 'error': str(e)}
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        for r in ex.map(one, plan):
+            results.append(r)
+    return {'ok': True, 'folder': folder,
+            'saved': [r for r in results if r['ok']],
+            'failed': [r for r in results if not r['ok']]}
+
+
 def _get_setoptions(host, user, pw, hi=146):
     """Read SetOption0..hi into a 'SetOptionN value' text block (Tobias's
     tasgetoptions). ~147 /cm calls — slow but it's a manual action."""
@@ -2102,7 +2166,12 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <span id="fwstat" style="color:var(--mut);font-size:12px"></span>
   <div id="devinfo"></div>
   </div>
-  <div id="scanwrap" class="hide"><table id="scantbl">
+  <div id="scanwrap" class="hide">
+    <div style="margin:4px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button id="backupAll" title="Konfigurations-Dump (.dmp) ALLER gefundenen Geräte in einen Backup-Ordner sichern">💾 Backup all (.dmp)</button>
+      <span id="backupAllStat" style="color:var(--mut);font-size:12px"></span>
+    </div>
+    <table id="scantbl">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
       <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th>
       <th>Flash</th><th title="Freier Programm-Flash (OTA-Platz)">Free</th>
@@ -2714,6 +2783,7 @@ function selectDevice(ip,tr){
   loadDevInfo();
 }
 function renderScanTable(devs){
+  window.lastScanDevs = devs || [];     // remembered for fleet actions (Backup all)
   scanbodyEl.innerHTML='';
   if(!devs||!devs.length){
     scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut);'
@@ -3086,6 +3156,30 @@ hostscanEl.onclick=async()=>{
   }
   hostscanEl.textContent=ot; hostscanEl.disabled=false;
 };
+// ── Fleet config backup: save every scanned device's .dmp into a folder ──
+const backupAllEl=$('#backupAll');
+if(backupAllEl) backupAllEl.onclick=async()=>{
+  const devs=(window.lastScanDevs||[]).filter(d=>d&&d.ip&&d.ok!==false);
+  if(!devs.length){ alert('Keine Geräte gefunden — erst scannen.'); return; }
+  if(!confirm('Konfigurations-Backup (.dmp) von '+devs.length+' Gerät(en) in einen Backup-Ordner sichern?')) return;
+  const st=$('#backupAllStat'); const ot=backupAllEl.textContent;
+  backupAllEl.disabled=true; backupAllEl.textContent='sichere…';
+  st.textContent='lade '+devs.length+' Dumps…';
+  try{
+    const j=await(await fetch('/api/backup/all',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({devices:devs.map(d=>({ip:d.ip,name:d.name||''})),password:($('#fwpass').value||'')})})).json();
+    if(!j.ok){ st.textContent=''; alert('Backup fehlgeschlagen: '+(j.error||'?')); }
+    else{
+      const ns=(j.saved||[]).length, nf=(j.failed||[]).length;
+      st.innerHTML='✓ '+ns+' gesichert'
+        +(nf?(' · <span style="color:var(--err)">'+nf+' fehlgeschlagen</span>'):'')
+        +' → '+_esc(j.folder);
+      if(nf) console.log('Backup-Fehler:', j.failed);
+    }
+  }catch(e){ st.textContent=''; alert('Backup-Fehler: '+e); }
+  finally{ backupAllEl.disabled=false; backupAllEl.textContent=ot; }
+};
 function updateFlash(j){
   const fs=j.flash||{}; flashing=!!fs.running;
   if(j.fw&&!fwReady){fwReady=true; fwName=j.fw;
@@ -3399,6 +3493,24 @@ class H(BaseHTTPRequestHandler):
             res = _dl_dump(host, 'admin', pw)
             if res.get('ok'):
                 _flog('%s config backup (%d B)' % (host, res.get('size', 0)))
+            self._json(res)
+            return
+        if path == '/api/backup/all':
+            devices = body.get('devices') or body.get('hosts') or []
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not isinstance(devices, list) or not devices:
+                self._json({'ok': False, 'error': 'no devices to back up'})
+                return
+            res = _backup_all(devices, 'admin', pw)
+            if res.get('ok'):
+                _flog('fleet backup: %d saved, %d failed -> %s'
+                      % (len(res.get('saved', [])), len(res.get('failed', [])),
+                         res.get('folder', '')))
+                try:                          # reveal the folder (best-effort)
+                    if res.get('saved') and sys.platform == 'darwin':
+                        subprocess.Popen(['open', res['folder']])
+                except Exception:
+                    pass
             self._json(res)
             return
         if path == '/api/getoptions':
