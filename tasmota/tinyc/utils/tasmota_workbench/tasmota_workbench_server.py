@@ -24,7 +24,7 @@
 # or double-click "Tasmota Workbench.app" / "Tasmota Workbench.command".
 
 import os, sys, json, threading, time, socket, subprocess, webbrowser
-import tempfile, http.client, base64, shutil, re as _re, struct
+import tempfile, http.client, base64, shutil, re as _re, struct, html
 import urllib.request, concurrent.futures
 from collections import deque, OrderedDict
 from http.server import (HTTPServer, ThreadingHTTPServer,
@@ -93,7 +93,7 @@ fw_name     = ''
 fw_size     = 0
 flash_proc  = None                        # running esptool Popen or None
 flash_state = {'running': False, 'pct': 0, 'phase': '',
-               'ok': None, 'error': ''}
+               'ok': None, 'error': '', 'path': ''}
 
 
 def _run(cmd, timeout=4):
@@ -901,6 +901,105 @@ def _flash_serial(port, baud, offset, erase, nostub=False):
         _flog('ERROR ' + str(e), err=True)
 
 
+def _flash_claim_busy():
+    # Atomic claim for a no-input flash job (read_flash backup): only checks the
+    # busy flag, NOT fw_path — reading needs no uploaded firmware. Mirrors
+    # _flash_claim's locked check-and-set so two reads can't both launch on the
+    # same port. The worker clears running in its finally/error paths.
+    with fw_lock:
+        if flash_state['running']:
+            return 'a flash job is already running'
+        flash_state['running'] = True   # claim
+    return None
+
+
+def _flash_read(port, baud, nostub=False):
+    """Read the device's ENTIRE flash to a timestamped .bin backup, the inverse
+    of _flash_serial. Uses `esptool read_flash 0 ALL <dest>` (size auto-detected
+    from the chip). Streams progress into the same flash_state/log as a write.
+    The dump lands in ~/Tasmota_Workbench_Backups/ (same root as the config
+    backups) and is revealed in Finder on success. Like the write path it
+    auto-retries once with the ROM loader (--no-stub) if the RAM stub upload
+    fails (the S3/C3 'Failed to write to target RAM / Checksum error' case)."""
+    global flash_proc
+    pybin = _have_esptool()
+    if not pybin:
+        _flash_set(running=False, ok=False, error='esptool not found')
+        _flog('esptool not found — click "Install esptool" in the Flash panel '
+              '(reading the flash needs esptool too).', err=True)
+        return
+    base = os.path.expanduser('~/Tasmota_Workbench_Backups')
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception as e:
+        _flash_set(running=False, ok=False, error=str(e))
+        _flog('cannot create backup folder %s: %s' % (base, e), err=True)
+        return
+    dest = os.path.join(base, time.strftime('flashdump-%Y%m%d-%H%M%S.bin'))
+    _close_serial(quiet=True)                 # esptool needs the port
+    _flash_set(running=True, pct=0, ok=None, error='', phase='read', path='')
+    baud = int(baud)
+    if nostub and baud > 115200:
+        # ROM loader can't do the high-baud switch reliably (see _flash_serial).
+        _flog(f'no-stub: capping baud {baud} -> 115200 for ROM loader '
+              f'reliability')
+        baud = 115200
+    cmd = [pybin, '-u', '-m', 'esptool',
+           '--chip', 'auto', '--port', port, '--baud', str(baud)]
+    if nostub:
+        cmd += ['--no-stub']
+    cmd += ['read_flash', '0', 'ALL', dest]   # ALL = whole chip, size detected
+    try:
+        _flog('read: ' + ' '.join(cmd[3:]))
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, bufsize=1)
+        with fw_lock:
+            flash_proc = p
+        tail = ''
+        for ln in p.stdout:
+            ln = ln.rstrip('\r\n')
+            if ln:
+                _flog(ln)
+                tail += ln + '\n'
+            mm = _re.search(r'(\d+)\s*%', ln)
+            if mm:
+                _flash_set(pct=int(mm.group(1)))
+        rc = p.wait()
+        with fw_lock:
+            flash_proc = None
+        if rc != 0:
+            if (not nostub and _re.search(
+                    r'write to target RAM|Checksum error|stub', tail, _re.I)):
+                _flog('stub upload failed — retrying read with --no-stub '
+                      '(ROM loader, slower).')
+                return _flash_read(port, baud, nostub=True)
+            # A partial/zero-byte dump is useless — don't leave it lying around.
+            try:
+                if os.path.isfile(dest) and os.path.getsize(dest) == 0:
+                    os.remove(dest)
+            except Exception:
+                pass
+            _flash_set(running=False, ok=False, error=f'read exited {rc}')
+            _flog(f'FAILED (read exit {rc})', err=True)
+            return
+        try:
+            sz = os.path.getsize(dest)
+        except Exception:
+            sz = 0
+        _flash_set(running=False, ok=True, pct=100, phase='done', path=dest)
+        _flog('flash backup OK -> %s (%s bytes)' % (dest, f'{sz:,}'))
+        if sys.platform == 'darwin':           # reveal the .bin in Finder
+            try:
+                subprocess.Popen(['open', '-R', dest])
+            except Exception:
+                pass
+    except Exception as e:
+        with fw_lock:
+            flash_proc = None
+        _flash_set(running=False, ok=False, error=str(e))
+        _flog('ERROR ' + str(e), err=True)
+
+
 def _pick_local_ip(dev_ip):
     """Our LAN IP on the device's /24 (so the device can fetch the
     firmware back from us), else the default route IP."""
@@ -911,9 +1010,11 @@ def _pick_local_ip(dev_ip):
     return _default_ip()
 
 
-def _cm(host, port, cmnd, user, password, timeout=8):
+def _cm(host, port, cmnd, user, password, timeout=8, maxbytes=4000):
     """Tasmota /cm command → (status, text). Auth via user/password
-    query params (Tasmota's scheme when WebPassword is set)."""
+    query params (Tasmota's scheme when WebPassword is set). maxbytes caps the
+    read; bump it for big replies like UfsList on a full directory (the default
+    4000 truncates → unparseable JSON, same gotcha as /tc_api's slots array)."""
     import urllib.parse
     q = 'cmnd=' + urllib.parse.quote(cmnd)
     if password:
@@ -923,7 +1024,7 @@ def _cm(host, port, cmnd, user, password, timeout=8):
     try:
         r = _NOPROXY.open('http://%s:%d/cm?%s' % (host, port, q),
                           timeout=timeout)
-        return r.status, r.read(4000).decode('utf-8', 'replace')
+        return r.status, r.read(maxbytes).decode('utf-8', 'replace')
     except urllib.error.HTTPError as e:
         return e.code, ''
     except Exception as e:
@@ -1198,6 +1299,177 @@ def _put_script(host, user, pw, script, timeout=15):
         return {'ok': False, 'error': str(e)}
     st, txt = _cm(host, dport, 'Script on', user, pw, timeout=6)
     return {'ok': True, 'reply': txt if st == 200 else 'Script on -> %s' % st}
+
+
+# ─────────────────────── device UFS file manager ───────────────────────
+# Tasmota serves its filesystem (LittleFS / SD) over HTTP, so we proxy it
+# rather than parsing flash images (cf. ESPConnect's USB approach). List via
+# /cm?cmnd=UfsList, download via /ufsd?download=, upload via multipart /ufsu,
+# delete via UfsDelete.
+
+def _ufs_list(host, user, pw, path='/'):
+    """List a device UFS directory. Returns {ok, type(0/1/2), total_kb, free_kb,
+    path, flat?, entries:[{name,path,date,size,dir}]}.
+
+    Recent firmware: /cm?cmnd=UfsList (clean name/date/size + per-dir nav; a dir
+    has an EMPTY date field since Tasmota only stamps files). OLDER firmware (and
+    most non-TinyC builds) lacks the UfsList command → returns {"Command":
+    "Unknown"} → fall back to scraping the UNIVERSAL /ufsd web page, which every
+    Tasmota with a filesystem has had for years (flat full-path file list)."""
+    host, dport = _split_host_port(host)
+    st, txt = _cm(host, dport, 'UfsType', user, pw, timeout=6)
+    if st == 401:
+        return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+    try:
+        tj = json.loads(txt) if st == 200 else {}
+    except Exception:
+        tj = {}
+    has_type = 'UfsType' in tj
+    ftype = int(tj.get('UfsType', 0)) if has_type else None
+    if has_type and ftype == 0:                  # genuine "no filesystem"
+        return {'ok': True, 'type': 0, 'entries': [], 'path': path,
+                'note': 'device has no filesystem (UfsType 0)'}
+
+    def _num(cmd, key):
+        s, t = _cm(host, dport, cmd, user, pw, timeout=6)
+        try:
+            return int(json.loads(t).get(key, 0))
+        except Exception:
+            return 0
+    total_kb = _num('UfsSize', 'UfsSize')
+    free_kb = _num('UfsFree', 'UfsFree')
+
+    p = (path or '/').strip() or '/'
+    cmd = 'UfsList' + ((' ' + p) if p != '/' else '')
+    st, txt = _cm(host, dport, cmd, user, pw, timeout=12, maxbytes=200000)
+    if st == 200:
+        try:
+            val = json.loads(txt)
+        except Exception:
+            val = {}
+        if 'UfsList' in val:                     # command supported here
+            lst = val.get('UfsList')
+            entries = []
+            if isinstance(lst, list):            # "Done" string = empty dir
+                for e in lst:
+                    if isinstance(e, list) and len(e) >= 3:
+                        nm, dt = str(e[0]), str(e[1] or '')
+                        try:
+                            sz = int(e[2])
+                        except Exception:
+                            sz = 0
+                        entries.append({'name': nm, 'path': _ufs_join(p, nm),
+                                        'date': dt, 'size': sz,
+                                        'dir': (dt == '')})
+            entries.sort(key=lambda x: (not x['dir'], x['name'].lower()))
+            return {'ok': True, 'type': ftype or 2, 'total_kb': total_kb,
+                    'free_kb': free_kb, 'path': p, 'entries': entries}
+    # UfsList unavailable (older / non-TinyC firmware) → universal /ufsd scrape
+    return _ufs_list_html(host, user, pw, ftype, total_kb, free_kb)
+
+
+def _ufs_list_html(host, user, pw, ftype, total_kb, free_kb):
+    """Universal listing fallback: scrape the /ufsd web page (present on every
+    Tasmota with USE_UFILESYS, long predating the UfsList command). /ufsd renders
+    the whole tree, so this returns a FLAT list of full-path files (flat=True →
+    the UI drops per-directory navigation). Row template (xdrv_50 UFS_FORM_SDC_DIRb):
+      <pre%s><a href='ufsd?download=<path>' file='<name>'>text</a> %19s %8d del edit</pre>
+    where %19s is the date (EMPTY for a directory) and %8d the size (0 for a dir)."""
+    host, dport = _split_host_port(host)
+    url = _auth_url('http://%s:%d/ufsd' % (host, dport),
+                    'admin' if pw else '', pw, sep='?')
+    try:
+        r = _NOPROXY.open(url, timeout=15)
+        page = r.read(500000).decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+        return {'ok': False, 'error': '/ufsd HTTP %s' % e.code}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    entries = []
+    seen = set()
+    for m in _re.finditer(r'<pre[^>]*>(.*?)</pre>', page, _re.S):
+        row = m.group(1)
+        dm = _re.search(r"download=([^'\"&]+)", row)
+        if not dm:
+            continue
+        fpath = urllib.parse.unquote(dm.group(1))
+        if not fpath.startswith('/'):
+            fpath = '/' + fpath
+        fpath = fpath.rstrip('/') or '/'
+        # strip inner <a>…</a> (download/delete/edit) + any tags, leaving the
+        # template's trailing "DATE SIZE" text (empty date + 0 size ⇒ directory).
+        tail = _re.sub(r'<a\b.*?</a>', ' ', row, flags=_re.S)
+        tail = html.unescape(_re.sub(r'<[^>]+>', ' ', tail)).strip()
+        toks = tail.split()
+        if not toks:                              # the ".." parent row → skip
+            continue
+        size = 0
+        if _re.fullmatch(r'\d+', toks[-1]):
+            size = int(toks[-1])
+            toks = toks[:-1]
+        date = ' '.join(toks)
+        is_dir = (size == 0 and date == '')
+        if is_dir or fpath in seen:
+            continue                              # flat view = files only
+        seen.add(fpath)
+        entries.append({'name': fpath.rsplit('/', 1)[-1], 'path': fpath,
+                        'date': date, 'size': size, 'dir': False})
+    entries.sort(key=lambda x: x['path'].lower())
+    return {'ok': True, 'type': ftype or 2, 'total_kb': total_kb or 0,
+            'free_kb': free_kb or 0, 'path': '/', 'flat': True,
+            'entries': entries}
+
+
+def _ufs_join(path, name):
+    """Join a UFS dir + entry into an absolute device path ('/a' + 'b' → '/a/b')."""
+    base = (path or '/').rstrip('/')
+    return (base + '/' + name.lstrip('/')) if name else (base or '/')
+
+
+def _ufs_upload(host, user, pw, dest, blob, timeout=60):
+    """Upload bytes to a device UFS file via multipart POST /ufsu. The multipart
+    filename IS the destination path on the device FS (Tasmota opens it for
+    write). fsz lets the device pre-check free space and reject if too big."""
+    host, dport = _split_host_port(host)
+    url = _auth_url('http://%s:%d/ufsu?fsz=%d' % (host, dport, len(blob)),
+                    user, pw, sep='&')
+    boundary = '----TasmotaWorkbenchUfsBoundary7e1f'
+    safe = dest.replace('"', '').replace('\r', '').replace('\n', '')
+    pre = ('--%s\r\nContent-Disposition: form-data; name="file"; '
+           'filename="%s"\r\nContent-Type: application/octet-stream\r\n\r\n'
+           % (boundary, safe)).encode('utf-8')
+    post = ('\r\n--%s--\r\n' % boundary).encode('utf-8')
+    data = pre + blob + post
+    req = urllib.request.Request(
+        url, data=data,
+        headers={'Content-Type':
+                 'multipart/form-data; boundary=%s' % boundary})
+    try:
+        r = _NOPROXY.open(req, timeout=timeout)
+        reply = r.read(2000).decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+        return {'ok': False, 'error': 'HTTP %s' % e.code}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    # Tasmota's /ufsu serves an HTML page; an error mentions it in the body.
+    if 'rror' in reply and ('full' in reply.lower() or 'fail' in reply.lower()):
+        return {'ok': False, 'error': reply[:200]}
+    return {'ok': True, 'size': len(blob), 'name': dest}
+
+
+def _ufs_delete(host, user, pw, path):
+    """Delete a device UFS file via the UfsDelete console command."""
+    host, dport = _split_host_port(host)
+    st, txt = _cm(host, dport, 'UfsDelete ' + path, user, pw, timeout=8)
+    if st == 401:
+        return {'ok': False, 'locked': True, 'error': 'WebPassword required'}
+    if st != 200:
+        return {'ok': False, 'error': 'UfsDelete /cm returned %s' % st}
+    return {'ok': True, 'reply': txt}
 
 
 def _get_health(host, user, pw):
@@ -2139,6 +2411,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
       title="Auto-set from the firmware (factory/ESP8266 → 0x0). Manual override possible.">
     <label><input type="checkbox" id="ferase"> erase</label>
     <label title="ESP32-S3/C3: use the ROM loader, skip the RAM stub upload — fixes 'Failed to write to target RAM / Checksum error'"><input type="checkbox" id="fnostub"> no-stub</label>
+    <button id="freadflash" title="Read the device's ENTIRE flash to a .bin backup (esptool read_flash 0 ALL) — saved to ~/Tasmota_Workbench_Backups/. No firmware file needed.">⬇ Read flash → backup</button>
     <span style="color:var(--mut);font-size:12px">for ESP32-S3 prefer
       the &ldquo;USB JTAG/serial debug unit&rdquo; port</span>
     <span id="noesptool" class="hide" style="color:var(--err);
@@ -2221,6 +2494,15 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
           <button onclick="dtScrWrite()" style="color:#e66;font-weight:bold" title="Script hochladen und „Script on“ setzen">Auf Gerät schreiben</button>
         </div>
       </div>
+      <div style="margin:11px 0 0"><b>Dateien</b>
+        <span id="dt_fsinfo" style="color:var(--mut);font-size:11px"></span>
+        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+          <button onclick="dtFsList('/')" title="Geräte-Dateisystem (LittleFS/SD) auflisten">⟳ Liste</button>
+          <button onclick="dtFsUpload()" title="Eine Datei vom Mac in den aktuellen Ordner hochladen">⬆ Hochladen</button>
+          <span id="dt_fspath" style="color:var(--mut);font-size:11px"></span>
+        </div>
+        <div id="dt_fsbox" style="max-height:180px;overflow:auto;background:#111;border-radius:4px;margin-top:4px;font-size:11px"></div>
+      </div>
       <div style="margin:11px 0 0"><b>Konsole</b>
         <div style="display:flex;gap:5px;margin-top:4px">
           <input id="dt_cmd" placeholder="Befehl, z.B. Status 0  ·  Enter = senden" onkeydown="if(event.key==='Enter')dtSend()" style="flex:1">
@@ -2230,6 +2512,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     </div>
   </div>
   <input id="dt_file" type="file" accept=".json,.dat,.txt" style="display:none">
+  <input id="dt_fsfile" type="file" style="display:none">
 </div>
 <div id="sharepanel" class="hide">
   <label title="Listen on multicast 239.255.255.250:1999 for this many seconds">Duration</label>
@@ -2269,6 +2552,7 @@ const logEl=$('#log'), portEl=$('#port'), baudEl=$('#baud'),
       hostipEl=$('#hostip'), copyipEl=$('#copyip'),
       fwfileEl=$('#fwfile'), fmodeEl=$('#fmode'),
       flashgoEl=$('#flashgo'), flashcancelEl=$('#flashcancel'),
+      freadflashEl=$('#freadflash'),
       fwpctEl=$('#fwpct'), fwstatEl=$('#fwstat'), fwinfoEl=$('#fwinfo');
 let cmdHist=[], histIdx=0, prefsApplied=false, syslogOn=false,
     fwReady=false, flashing=false, fwName='', fwKind='', fwOffset='';
@@ -2617,6 +2901,26 @@ flashgoEl.onclick=async()=>{
   poll();
 };
 flashcancelEl.onclick=()=>fetch('/api/flash/cancel',{method:'POST'});
+freadflashEl.onclick=async()=>{
+  // Read the WHOLE flash to a .bin backup — no firmware file needed, just a port.
+  if(fmodeEl.value!=='serial'){
+    alert('Switch Mode to "Serial (esptool)" to read the flash over USB.');
+    return;}
+  const port=$('#fport').value;
+  if(!port){alert('Select the serial Port in the Serial-flash group first');
+    return;}
+  if(!confirm('Read the ENTIRE flash from '+port+' into a .bin backup?\n\n'
+    +'• closes the serial monitor on that port\n'
+    +'• reads the whole chip (esptool read_flash 0 ALL — a few MB, ~1-3 min)\n'
+    +'• saves to ~/Tasmota_Workbench_Backups/ and reveals it in Finder\n\n'
+    +'This only READS — the device is not modified. Proceed?'))return;
+  const bdy={port,baud:+$('#fbaud').value,nostub:$('#fnostub').checked};
+  const j=await(await fetch('/api/flash/read',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(bdy)})).json();
+  if(!j.ok) alert('Read flash: '+(j.error||'failed'));
+  poll();
+};
 document.addEventListener('click',e=>{
   if(e.target&&e.target.id==='espinstall'){
     e.target.disabled=true;
@@ -2889,6 +3193,8 @@ function openDevTools(d){
   $('#dt_opts').value=''; $('#dt_optsrc').textContent='';
   $('#dt_script').value=''; $('#dt_scrsrc').textContent='';
   $('#dt_bkstat').textContent='';
+  dtFsPath='/'; $('#dt_fsinfo').textContent=''; $('#dt_fspath').textContent='';
+  $('#dt_fsbox').innerHTML='<div style="padding:6px;color:#888">„⟳ Liste“ drücken</div>';
   $('#dt_health').textContent='…';
   $('#dtmodal').classList.remove('hide');
   dtLoadHealth();
@@ -3087,6 +3393,88 @@ async function dtRunCmd(cmd, okmsg){
   }catch(e){ out.textContent += '✗ '+e+'\n'; }
   out.scrollTop = out.scrollHeight;
 }
+// ── Geräte-Dateisystem (UFS: LittleFS / SD): auflisten, herunter-/hochladen, löschen ──
+let dtFsPath='/';
+function _fmtKB(kb){ return kb>=1024 ? (kb/1024).toFixed(1)+' MB' : (kb||0)+' KB'; }
+function _fsGetUrl(path){
+  return '/api/fs/get?host='+encodeURIComponent(dtDev.ip)
+    +'&pw='+encodeURIComponent(_tplPw())+'&path='+encodeURIComponent(path);
+}
+async function dtFsList(path){
+  if(!dtDev) return;
+  if(path!=null) dtFsPath = path||'/';
+  const box=$('#dt_fsbox');
+  box.innerHTML='<div style="padding:6px;color:#888">lade …</div>';
+  try{
+    const j=await(await fetch('/api/fs/list',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({host:dtDev.ip,path:dtFsPath,password:_tplPw()})})).json();
+    if(!j.ok){ box.innerHTML=''; alert(j.locked?'WebPassword nötig (Flash-Balken)'
+      :('Liste fehlgeschlagen: '+(j.error||'?'))); return; }
+    if(j.type===0){ box.innerHTML='<div style="padding:6px;color:#888">'
+      +'kein Dateisystem auf diesem Gerät</div>';
+      $('#dt_fsinfo').textContent=''; $('#dt_fspath').textContent=''; return; }
+    $('#dt_fsinfo').textContent=' · '+(j.type===1?'SD':'Flash')+'  '
+      +_fmtKB(j.free_kb)+' frei / '+_fmtKB(j.total_kb)
+      +(j.flat?'  · ältere Firmware: ganze Liste':'');
+    dtFsPath = j.path||'/';
+    $('#dt_fspath').textContent = j.flat ? '' : ('Pfad: '+dtFsPath);
+    let html='<table style="width:100%;border-collapse:collapse">';
+    if(!j.flat && dtFsPath!=='/'){
+      const up=dtFsPath.replace(/\/[^/]*$/,'')||'/';
+      html+='<tr><td colspan="4" style="padding:3px 6px;cursor:pointer;color:#6cf" '
+        +'onclick="dtFsList(\''+_esc(up)+'\')">⬆ ..</td></tr>';
+    }
+    for(const e of j.entries){
+      const full=e.path||((dtFsPath==='/'?'':dtFsPath)+'/'+e.name);
+      const label=j.flat?full:e.name;     // flat mode shows the full path
+      if(e.dir){
+        html+='<tr><td colspan="3" style="padding:3px 6px;cursor:pointer;color:#6cf" '
+          +'onclick="dtFsList(\''+_esc(full)+'\')">📁 '+_esc(e.name)+'</td><td></td></tr>';
+      }else{
+        html+='<tr><td style="padding:3px 6px">📄 '+_esc(label)+'</td>'
+          +'<td style="padding:3px 6px;color:#888;text-align:right;white-space:nowrap">'
+          +e.size.toLocaleString()+' B</td>'
+          +'<td style="padding:3px 6px;color:#888;white-space:nowrap">'+_esc(e.date||'')+'</td>'
+          +'<td style="padding:3px 6px;white-space:nowrap">'
+          +'<a title="Herunterladen" style="text-decoration:none" href="'+_fsGetUrl(full)+'">⬇</a> '
+          +'<span title="Löschen" style="cursor:pointer" onclick="dtFsDel(\''+_esc(full)+'\')">🔥</span>'
+          +'</td></tr>';
+      }
+    }
+    html+='</table>';
+    box.innerHTML = j.entries.length ? html
+      : '<div style="padding:6px;color:#888">(keine Dateien)</div>';
+  }catch(e){ box.innerHTML=''; alert('Liste-Fehler: '+e); }
+}
+function dtFsDel(path){
+  if(!dtDev) return;
+  if(!confirm('Datei auf dem Gerät löschen?\n\n'+path))return;
+  fetch('/api/fs/del',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({host:dtDev.ip,path:path,password:_tplPw()})})
+    .then(r=>r.json()).then(j=>{
+      if(!j.ok){ alert('Löschen fehlgeschlagen: '+(j.locked?'WebPassword nötig':(j.error||'?'))); return; }
+      dtFsList(dtFsPath);
+    }).catch(e=>alert('Löschen-Fehler: '+e));
+}
+function dtFsUpload(){
+  if(!dtDev) return;
+  const inp=$('#dt_fsfile'); inp.value='';
+  inp.onchange=async()=>{
+    const f=inp.files[0]; if(!f) return;
+    const url='/api/fs/put?host='+encodeURIComponent(dtDev.ip)
+      +'&dir='+encodeURIComponent(dtFsPath||'/')+'&pw='+encodeURIComponent(_tplPw());
+    const fd=new FormData(); fd.append('file',f,f.name);
+    $('#dt_fsinfo').textContent=' · lade '+f.name+' hoch …';
+    try{
+      const j=await(await fetch(url,{method:'POST',body:fd})).json();
+      if(!j.ok){ alert(j.locked?'WebPassword nötig (Flash-Balken)'
+        :('Upload fehlgeschlagen: '+(j.error||'?'))); }
+      dtFsList(dtFsPath);
+    }catch(e){ alert('Upload-Fehler: '+e); }
+  };
+  inp.click();
+}
 // Live progress row while a background scan runs: shows the subnet sweep
 // position and the running "devices found" count, with any already-found
 // devices rendered above it so they appear one-by-one (counting up).
@@ -3195,12 +3583,14 @@ function updateFlash(j){
     fwstatEl.textContent='installing esptool (see log) …';
   else if(fs.running)
     fwstatEl.textContent=(fs.phase||'')+' '+(fs.pct||0)+'%';
-  else if(fs.ok===true) fwstatEl.textContent='✓ done';
+  else if(fs.ok===true) fwstatEl.textContent='✓ done'
+    +(fs.path?(' → '+fs.path.replace(/^.*[\\/]/,'')):'');
   else if(fs.ok===false) fwstatEl.textContent='✗ '+(fs.error||'failed');
   else fwstatEl.textContent='';
   fwpctEl.classList.toggle('hide',!fs.running);
   fwpctEl.value=fs.pct||0;
   flashgoEl.disabled=fs.running||!!j.esptool_installing;
+  freadflashEl.disabled=fs.running||!!j.esptool_installing;
   flashcancelEl.classList.toggle('hide',!fs.running);
 }
 
@@ -3313,6 +3703,47 @@ class H(BaseHTTPRequestHandler):
                 self._json({'ok': False, 'error': 'no host'})
             else:
                 self._json(_get_health(host, 'admin', pw))
+        elif path == '/api/fs/get':
+            # Download a device UFS file → stream it back as an attachment
+            # (chunked, so large SD files don't buffer fully in memory).
+            qs = parse_qs(urlparse(self.path).query)
+            host = (qs.get('host') or [''])[0]
+            pw = (qs.get('pw') or [''])[0]
+            fpath = (qs.get('path') or [''])[0]
+            if not host or not fpath:
+                self._send(400, b'host/path required', 'text/plain')
+                return
+            h, dport = _split_host_port(host)
+            durl = _auth_url('http://%s:%d/ufsd?download=%s'
+                             % (h, dport, urllib.parse.quote(fpath)),
+                             pw and 'admin', pw, sep='&')
+            try:
+                up = _NOPROXY.open(durl, timeout=30)
+            except urllib.error.HTTPError as e:
+                self._send(e.code, b'device returned HTTP %d' % e.code,
+                           'text/plain')
+                return
+            except Exception as e:
+                self._send(502, ('device error: %s' % e).encode(), 'text/plain')
+                return
+            base = os.path.basename(fpath) or 'download.bin'
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            clen = up.headers.get('Content-Length')
+            if clen:
+                self.send_header('Content-Length', clen)
+            self.send_header('Content-Disposition',
+                             'attachment; filename="%s"' % base)
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            try:
+                while True:
+                    chunk = up.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            except Exception:
+                pass
         elif path == '/api/poll':
             qs = parse_qs(urlparse(self.path).query)
             since = int((qs.get('since') or ['0'])[0])
@@ -3391,6 +3822,28 @@ class H(BaseHTTPRequestHandler):
                         'kind': cls['kind'], 'offset': cls['offset'],
                         'note': cls['note']})
             return
+        if path == '/api/fs/put':
+            # Upload a file onto a device's UFS. Host/dir/pw ride in the query;
+            # the file is the multipart body (drag-drop or picker in the modal).
+            qs = parse_qs(urlparse(self.path).query)
+            host = (qs.get('host') or [''])[0]
+            ddir = (qs.get('dir') or ['/'])[0]
+            pw = (qs.get('pw') or [''])[0]
+            fn, blob = _multipart_first_file(
+                raw, self.headers.get('Content-Type', ''))
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+                return
+            if not blob:
+                self._json({'ok': False, 'error': 'no file'})
+                return
+            dest = _ufs_join(ddir, os.path.basename(fn or 'upload.bin'))
+            res = _ufs_upload(host, 'admin', pw, dest, blob)
+            if res.get('ok'):
+                _flog('%s uploaded %s (%d bytes)'
+                      % (host, dest, res.get('size', 0)))
+            self._json(res)
+            return
         try:
             body = json.loads(raw) if raw else {}
         except Exception:
@@ -3408,6 +3861,20 @@ class H(BaseHTTPRequestHandler):
                     body['port'], body.get('baud', 460800),
                     body.get('offset', '0x0'),
                     bool(body.get('erase')),
+                    bool(body.get('nostub'))), daemon=True).start()
+                self._json({'ok': True})
+            return
+        if path == '/api/flash/read':
+            err = None
+            if not body.get('port'):
+                err = 'no serial port selected'
+            if not err:
+                err = _flash_claim_busy()   # validate input FIRST, then claim
+            if err:
+                self._json({'ok': False, 'error': err})
+            else:
+                threading.Thread(target=_flash_read, args=(
+                    body['port'], body.get('baud', 460800),
                     bool(body.get('nostub'))), daemon=True).start()
                 self._json({'ok': True})
             return
@@ -3566,6 +4033,27 @@ class H(BaseHTTPRequestHandler):
         if path == '/api/flash/cancel':
             _flash_cancel()
             self._json({'ok': True})
+            return
+        if path == '/api/fs/list':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            if not host:
+                self._json({'ok': False, 'error': 'no host'})
+                return
+            self._json(_ufs_list(host, 'admin', pw,
+                                 str(body.get('path', '/') or '/')))
+            return
+        if path == '/api/fs/del':
+            host = str(body.get('host', '')).strip()
+            pw = str(body.get('password', '') or body.get('pw', ''))
+            fpath = str(body.get('path', '')).strip()
+            if not host or not fpath:
+                self._json({'ok': False, 'error': 'host/path required'})
+                return
+            res = _ufs_delete(host, 'admin', pw, fpath)
+            if res.get('ok'):
+                _flog('%s deleted %s' % (host, fpath))
+            self._json(res)
             return
         if path == '/api/esptool/install':
             if _have_esptool():
