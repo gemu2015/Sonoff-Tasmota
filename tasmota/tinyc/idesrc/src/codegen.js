@@ -540,6 +540,7 @@ const BUILTINS = {
     'i2sMicRead':       { syscall: Syscall.I2S_MIC_READ,     args: 2, returns: true, strArgs: [0] },
     'i2sMicLevel':      { syscall: Syscall.I2S_MIC_LEVEL,    args: 0, returns: true },
     'i2sMicStop':       { syscall: Syscall.I2S_MIC_STOP,     args: 0, returns: false },
+    'i2sDuplexBegin':   { syscall: Syscall.I2S_DUPLEX_BEGIN, args: 6, returns: true },
     'fileReadPCM16':    { syscall: Syscall.FILE_READ_PCM16,  args: 4, returns: true, strArgs: [1] },
 
     // Persistent variables

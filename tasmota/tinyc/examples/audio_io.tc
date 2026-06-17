@@ -1,0 +1,140 @@
+// audio_io.tc — simultaneous WAV PLAYBACK + MIC READ from one TinyC app, full-duplex.
+// Target: ESP32-S3 .39 with a WM8960 codec (DAC + ADC) @ 0x1A on I2C bus 1.
+//
+// The WM8960 clocks its ADC from the I2S TX, so the mic only works while the TX runs.
+// i2sDuplexBegin() opens ONE full-duplex channel pair (TX+RX, shared clock); then i2sWrite()
+// plays on the TX and i2sMicLevel() reads the mic AT THE SAME TIME. No stop/restart needed.
+//
+// Console:  AIO            -> report mic level / state
+//           AIO play       -> play /doorbell16.wav (mic keeps reading during playback)
+//           AIO play /x.wav -> play a specific 16-bit WAV
+
+#define WM_ADDR    0x1A
+#define WM_BUS     1
+#define I2S_MCLK   -1
+#define I2S_BCLK   10
+#define I2S_WS     18
+#define I2S_DOUT   17        // DAC data to WM8960 (playback)
+#define I2S_DIN    16        // ADC data from WM8960 (mic)
+#define RATE       16000
+#define OUT_CHUNK  128
+#define BUF_SAMPLES 512
+
+int pcm[BUF_SAMPLES];
+int wav_rate; int wav_bits; int wav_channels; int wav_data_size;
+int dup_ok = 0; int level = 0; int peak = 0;
+int playing = 0; int play_req = 0; char req_file[64];
+char def_file[20];
+
+// ───────── WM8960 (7-bit reg + 9-bit data, 2 bytes) ─────────
+void wmW(int reg, int data) {
+    int b1 = (reg << 1) | ((data >> 8) & 1);
+    i2cWrite8(WM_ADDR, b1, data & 0xFF, WM_BUS);
+}
+void wm8960_init() {                                       // full DAC+ADC+mic (from p_wm8960_c.h)
+    wmW(0x0f, 0x0000);
+    wmW(0x19, (1<<8)|(1<<7)|(1<<6)|(1<<5)|(1<<4)|(1<<3)|(1<<2)|(1<<1)); // PWR1
+    wmW(0x1A, (1<<8)|(1<<7)|(1<<6)|(1<<5)|(1<<4)|(1<<3));  // PWR2
+    wmW(0x2F, (1<<5)|(1<<4)|(1<<3)|(1<<2));                // PWR3
+    wmW(0x04, 0x0000); wmW(0x05, 0x0000); wmW(0x07, 0x0022);
+    wmW(0x02, 0x017f); wmW(0x03, 0x017f);
+    wmW(0x28, 0x0177); wmW(0x29, 0x0177);
+    wmW(0x31, 0x0080);
+    wmW(0x0a, 0x01FF); wmW(0x0b, 0x01FF);
+    wmW(0x22, (1<<8)|(1<<7)); wmW(0x25, (1<<8)|(1<<7));
+    wmW(0x00, 0x0127); wmW(0x01, 0x0127);
+    wmW(0x15, 0x01c3); wmW(0x16, 0x01c3);
+    wmW(0x2d, 0x0000); wmW(0x2e, 0x0000);
+    wmW(0x20, 0x0020|(1<<8)|(1<<3)); wmW(0x21, 0x0020|(1<<8)|(1<<3));
+}
+
+int parse_wav(int f) {
+    char hdr[12]; int n = fileRead(f, hdr, 12); if (n < 12) { return -1; }
+    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') { return -1; }
+    int gf = 0; int gd = 0; char ck[8]; char fmt[16]; char skip[64];
+    while (gf == 0 || gd == 0) {
+        n = fileRead(f, ck, 8); if (n < 8) { return -1; }
+        int csz = (ck[4]&255) | ((ck[5]&255)<<8) | ((ck[6]&255)<<16) | ((ck[7]&255)<<24);
+        if (ck[0]=='f' && ck[1]=='m' && ck[2]=='t' && ck[3]==' ') {
+            n = fileRead(f, fmt, 16); if (n < 16) { return -1; }
+            wav_channels = (fmt[2]&255) | ((fmt[3]&255)<<8);
+            wav_rate = (fmt[4]&255) | ((fmt[5]&255)<<8) | ((fmt[6]&255)<<16) | ((fmt[7]&255)<<24);
+            wav_bits = (fmt[14]&255) | ((fmt[15]&255)<<8); gf = 1;
+            int rem = csz - 16; while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
+        } else if (ck[0]=='d' && ck[1]=='a' && ck[2]=='t' && ck[3]=='a') { wav_data_size = csz; gd = 1; }
+        else { int rem = csz; while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; } }
+    }
+    return 0;
+}
+
+void do_play(char path[]) {
+    int f = fileOpen(path, "r");
+    if (f < 0) { addLog("AIO: %s not found", path); return; }
+    if (parse_wav(f) < 0 || wav_bits != 16) { addLog("AIO: not 16-bit wav"); fileClose(f); return; }
+    playing = 1;
+    int ratio = RATE / wav_rate; if (ratio < 1) { ratio = 1; } if (ratio > 4) { ratio = 4; }
+    int remaining = wav_data_size / (wav_channels * 2);
+    int read_chunk = OUT_CHUNK / ratio; if (read_chunk < 1) { read_chunk = 1; }
+    int cnt = 0;
+    while (remaining > 0) {                                 // duplex TX already running — just feed it
+        int chunk = read_chunk; if (chunk > remaining) { chunk = remaining; }
+        int frames = fileReadPCM16(f, pcm, chunk, wav_channels);
+        if (frames <= 0) { break; }
+        if (ratio > 1) {
+            int i; for (i = frames - 1; i >= 0; i = i - 1) { int j; for (j = 0; j < ratio; j = j + 1) { pcm[i * ratio + j] = pcm[i]; } }
+            frames = frames * ratio;
+        }
+        if (i2sWrite(pcm, frames) < frames) { break; }
+        cnt = cnt + 1;
+        if (cnt >= 16) { cnt = 0; int v = i2sMicLevel(); if (v >= 0) { level = v; } }  // mic DURING playback
+        remaining = remaining - chunk;
+    }
+    fileClose(f);
+    playing = 0;
+    addLog("AIO: played");
+}
+
+void TaskLoop() {
+    while (1) {
+        if (play_req) { play_req = 0; do_play(req_file); }
+        if (dup_ok && !playing) {
+            int v = i2sMicLevel();
+            if (v >= 0) { level = v; if (v > peak) { peak = v; } else { peak = (peak * 9) / 10; } }
+        }
+        delay(50);
+    }
+}
+
+void WebCall() {
+    char buf[64];
+    int p = (level * 100) / 32767;
+    if (playing) { sprintf(buf, "{s}Playing + mic{m}%d (%d%%){e}", level, p); }
+    else { sprintf(buf, "{s}Mic level{m}%d (%d%%){e}", level, p); }
+    webSend(buf);
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'p' || cmd[i] == 'P') {
+        int sp = strFind(cmd, " ");
+        char file[64]; file[0] = 0;
+        if (sp >= 0) { strSub(file, cmd, sp + 1, strlen(cmd) - sp - 1); }
+        if (strlen(file) < 2) { strcpy(file, def_file); }
+        strcpy(req_file, file); play_req = 1;
+        responseCmnd("PLAY");
+        return;
+    }
+    char r[90]; int p = (level * 100) / 32767;
+    sprintf(r, "mic=%d (%d%%) peak=%d dup=%d playing=%d", level, p, peak, dup_ok, playing);
+    responseCmnd(r);
+}
+
+int main() {
+    strcpy(def_file, "/doorbell16.wav");
+    wm8960_init();
+    dup_ok = (i2sDuplexBegin(I2S_MCLK, I2S_BCLK, I2S_WS, I2S_DOUT, I2S_DIN, RATE) == 0);
+    if (!dup_ok) { addLog("audio_io: duplex begin FAILED"); }
+    addCommand("AIO");
+    addLog("audio_io: full-duplex ready (ok=%d)", dup_ok);
+    return 0;
+}

@@ -99,7 +99,15 @@ void es8311_init() {
     v=dr(0x31)&0x9f;dw(0x31,v); dw(0x12,0x00);
     addLog("ES8311: initialized");
 }
-void es8311_volume(int v100) { if (v100 > 100) { v100 = 100; } dw(0x32, (v100 * 2550) / 1000); }
+void es8311_volume(int v100) {
+    if (v100 <= 0) { dw(0x32, 0); return; }            // mute
+    if (v100 > 100) { v100 = 100; }
+    // ES8311 reg 0x32 is ~0.5 dB/step (logarithmic), so linear-in-register == linear-in-dB
+    // == perceptually even. Map the slider into a usable band: v=1..100 -> reg ~110..195
+    // (~-40 dB .. +2 dB). A raw 0-255 map buried the bottom half below hearing (v=25->reg63
+    // ≈ -64 dB = silent), which is why the old linear slider felt dead until near the top.
+    dw(0x32, 110 + (v100 * 85) / 100);
+}
 #endif
 
 // ═══════════════ codec abstraction ═══════════════
@@ -291,7 +299,7 @@ void OnExit() { i2sStop(); codecPaOff(); }
 int main() {
 #ifdef CODEC_P4
     pin_mclk = 13; pin_bclk = 12; pin_lrclk = 10; pin_dout = 9; pin_rate = 16000;
-    dac_vol = 170;        // ES8311 reg ~170 ≈ -12dB; reg 255 (dac_vol 255) is painfully loud
+    dac_vol = 170;        // comfortable default (~reg 166, -14dB via the perceptual curve); slider 255 = loud
 #else
     if (pin_bclk == 0)  { pin_bclk = 10; }
     if (pin_lrclk == 0) { pin_lrclk = 18; }

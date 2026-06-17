@@ -298,7 +298,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     8     // V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     9     // V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -528,6 +528,7 @@ enum TcSyscall {
   SYS_I2S_MIC_READ      = 499, // (arr_ref, max) -> int — read int16 mono samples into int[], returns count
   SYS_I2S_MIC_LEVEL     = 500, // () -> int — RMS loudness 0..32767 over one ~256-sample block
   SYS_I2S_MIC_STOP      = 501, // () -> void — stop and release the mic RX channel
+  SYS_I2S_DUPLEX_BEGIN  = 502, // (mclk, bclk, ws, dout, din, sampleRate) -> int — full-duplex I2S TX+RX pair (one channel, shared clock). For combined codecs (WM8960) whose ADC is clocked by the I2S TX → enables simultaneous i2sWrite()+i2sMicLevel(). 0=ok
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -12991,6 +12992,76 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S mic stopped"));
       break;
     }
+
+    case SYS_I2S_DUPLEX_BEGIN: {
+      // i2sDuplexBegin(mclk, bclk, ws, dout, din, sampleRate) -> 0=ok, -1=error.
+      // ONE full-duplex I2S channel PAIR: TX (dout) + RX (din) share bclk/ws and the clock.
+      // A combined codec like the WM8960 clocks its ADC from the I2S TX, so the mic only
+      // works while the TX is running — hence a duplex pair, not a separate RX-only channel.
+      // After this, i2sWrite() plays on the TX and i2sMicLevel()/i2sMicRead() read the mic,
+      // SIMULTANEOUSLY (both handles are set). Stop with i2sStop() + i2sMicStop().
+      int32_t sample_rate = TC_POP(vm);
+      int32_t din_pin     = TC_POP(vm);
+      int32_t dout_pin    = TC_POP(vm);
+      int32_t ws_pin      = TC_POP(vm);
+      int32_t bclk_pin    = TC_POP(vm);
+      int32_t mclk_pin    = TC_POP(vm);
+
+      if (Tinyc->i2s_tx_handle) { i2s_channel_disable(Tinyc->i2s_tx_handle); i2s_del_channel(Tinyc->i2s_tx_handle); Tinyc->i2s_tx_handle = nullptr; }
+      if (Tinyc->i2s_rx_handle) { i2s_channel_disable(Tinyc->i2s_rx_handle); i2s_del_channel(Tinyc->i2s_rx_handle); Tinyc->i2s_rx_handle = nullptr; }
+      if (Tinyc->i2s_pcm_buf)   { free(Tinyc->i2s_pcm_buf); Tinyc->i2s_pcm_buf = nullptr; }
+
+      if (sample_rate < 8000)  sample_rate = 8000;
+      if (sample_rate > 48000) sample_rate = 48000;
+
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+      chan_cfg.dma_desc_num  = 8;
+      chan_cfg.dma_frame_num = 512;
+      chan_cfg.auto_clear    = true;   // TX outputs silence when idle (keeps clock running, speaker quiet)
+      // create BOTH tx and rx on ONE channel = full duplex (shared clock)
+      esp_err_t err = i2s_new_channel(&chan_cfg, &Tinyc->i2s_tx_handle, &Tinyc->i2s_rx_handle);
+      if (err != ESP_OK) { Tinyc->i2s_tx_handle = nullptr; Tinyc->i2s_rx_handle = nullptr; TC_PUSH(vm, -1); break; }
+
+      i2s_std_config_t std_cfg = {
+        .clk_cfg  = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)sample_rate),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .gpio_cfg = {
+          .mclk = (mclk_pin >= 0) ? (gpio_num_t)mclk_pin : I2S_GPIO_UNUSED,
+          .bclk = (gpio_num_t)bclk_pin,
+          .ws   = (gpio_num_t)ws_pin,
+          .dout = (gpio_num_t)dout_pin,
+          .din  = (gpio_num_t)din_pin,
+          .invert_flags = { .mclk_inv = false, .bclk_inv = false, .ws_inv = false },
+        },
+      };
+      std_cfg.clk_cfg.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+
+      // init each direction with ONLY its data pin set (shared bclk/ws/mclk) — like the
+      // plugin's full-duplex. Passing both dout+din to both channels makes the 2nd init
+      // clash on the shared output pin and hang.
+      std_cfg.gpio_cfg.din  = I2S_GPIO_UNUSED;                 // TX: dout only
+      err = i2s_channel_init_std_mode(Tinyc->i2s_tx_handle, &std_cfg);
+      if (err == ESP_OK) {
+        std_cfg.gpio_cfg.dout = I2S_GPIO_UNUSED;               // RX: din only
+        std_cfg.gpio_cfg.din  = (gpio_num_t)din_pin;
+        err = i2s_channel_init_std_mode(Tinyc->i2s_rx_handle, &std_cfg);
+      }
+      if (err != ESP_OK) {
+        if (Tinyc->i2s_tx_handle) { i2s_del_channel(Tinyc->i2s_tx_handle); Tinyc->i2s_tx_handle = nullptr; }
+        if (Tinyc->i2s_rx_handle) { i2s_del_channel(Tinyc->i2s_rx_handle); Tinyc->i2s_rx_handle = nullptr; }
+        TC_PUSH(vm, -1);
+        break;
+      }
+
+      i2s_channel_enable(Tinyc->i2s_tx_handle);
+      i2s_channel_enable(Tinyc->i2s_rx_handle);
+      Tinyc->i2s_sample_rate = sample_rate;
+      Tinyc->i2s_pcm_buf = (int16_t *)malloc(1024 * sizeof(int16_t));   // for i2sWrite (512 mono -> 1024 stereo)
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S DUPLEX tx+rx mclk=%d bclk=%d ws=%d dout=%d din=%d rate=%d"),
+             mclk_pin, bclk_pin, ws_pin, dout_pin, din_pin, sample_rate);
+      TC_PUSH(vm, 0);
+      break;
+    }
 #else
     // ESP8266: no I2S support
     case SYS_I2S_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
@@ -13000,6 +13071,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_I2S_MIC_READ:  { TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break; }
     case SYS_I2S_MIC_LEVEL: { TC_PUSH(vm, 0); break; }
     case SYS_I2S_MIC_STOP:  { break; }
+    case SYS_I2S_DUPLEX_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
 #endif
 
     // ── fileReadPCM16: read 16-bit LE PCM from file into int[] (native speed) ──
