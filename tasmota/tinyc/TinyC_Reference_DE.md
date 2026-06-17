@@ -3126,10 +3126,15 @@ PCM-Samples zu streamen (z. B. eine WAV-Datei stueckweise abzuspielen).
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `int i2sBegin(int bclk, int lrclk, int dout, int sampleRate)` | I2S-Ausgabepins und Abtastrate (Hz) konfigurieren. Liefert 0 bei Erfolg, -1 bei Fehler. |
+| `int i2sBegin(int mclk, int bclk, int lrclk, int dout, int sampleRate)` | I2S-TX-Pins und Abtastrate (Hz) konfigurieren. `mclk=-1` für einen reinen I2S-Verstärker (MAX98357A/PCM5102); ein Codec-DAC (ES8311/WM8960) braucht den MCLK-Pin (256·fs) **und** seine per I2C aus dem Skript gesetzten Register. Gibt 0 bei Erfolg, -1 bei Fehler zurück. |
 | `int i2sWrite(int[] pcm, int frames)` | `frames` 16-Bit-Stereo-PCM-Samples aus `pcm` an den I2S-Bus schreiben (blockiert bis eingereiht). Liefert geschriebene Frames. |
 | `i2sStop()` | I2S-Treiber und Pins freigeben. |
-| `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Bis zu `frames` 16-Bit-Samples aus einer offenen WAV-Datei nach `pcm` lesen, bei `wavChannels == 1` Mono→Stereo hochmischen. Liefert gelesene Frames (0 bei EOF). Passt zu `i2sWrite()`. |
+| `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Liest bis zu `frames` 16-Bit-Samples aus einer offenen WAV-Datei in `pcm` (Stereo→Mono-Mischung wenn `wavChannels == 2`). Gibt gelesene Frames zurück (0 bei EOF). Passt zu `i2sWrite()`. |
+| `int i2sMicBegin(int mclk, int bclk, int lrclk, int din, int sampleRate)` | Öffnet einen I2S-RX-(Mikrofon-)Kanal als Master. `mclk=-1` für ein reines MEMS-/PDM-Mikro; ein Codec-ADC (ES7210) braucht MCLK (256·fs) + per I2C gesetzte Register. Gibt 0 bei Erfolg, -1 bei Fehler zurück. |
+| `int i2sMicRead(int[] buf, int max)` | Liest bis zu `max` 16-Bit-Mono-Samples vom Mikrofon in `buf`. Gibt die gelesene Anzahl zurück. |
+| `int i2sMicLevel()` | RMS-Lautstärke 0..32767 über einen ~256-Sample-Block — ein günstiger Pegelmesser, kein Puffer nötig. |
+| `void i2sMicStop()` | Stoppt den Mikrofon-RX-Kanal und gibt ihn frei. |
+| `int i2sDuplexBegin(int mclk, int bclk, int ws, int dout, int din, int sampleRate)` | Öffnet EIN Vollduplex-I2S-Kanalpaar (TX+RX, gemeinsamer Takt). Nötig für einen kombinierten Codec (z. B. WM8960), dessen ADC vom I2S-TX getaktet wird — ein separater `i2sMicBegin`-RX-Kanal bekommt keinen Takt und bleibt stumm. Danach spielt `i2sWrite()` auf dem TX ab und `i2sMicLevel()`/`i2sMicRead()` lesen das Mikrofon **gleichzeitig**. Stop mit `i2sStop()` + `i2sMicStop()`. Gibt 0 bei Erfolg, -1 bei Fehler zurück. |
 
 ### Persistente Variablen
 
@@ -4061,6 +4066,11 @@ Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
 | `void lvglImageSrc(int h, str path)` | Bildquelle aus LVGL-FS-Pfad (z. B. `"A:/logo.bin"` oder `"A:/img.png"` — PNG-Dekodierung ist eingebaut) |
 | `void lvglImageAngle(int h, int deci_deg)` | Bild drehen, 0,1°-Einheiten (3600 = 360°) — z. B. ein Uhrzeiger |
 | `void lvglImagePivot(int h, int x, int y)` | Drehpunkt setzen, px ab Bild-Ecke oben links (Standard = Bildmitte) |
+| `void lvglSetFont(int h, int size)` | Schriftgröße eines Labels setzen; auf die eingebauten Montserrat-Größen (10/14/20/28) gerundet. |
+| `void lvglImageScale(int h, int sx, int sy)` | Bild pro Achse skalieren, 256 = 100% (z. B. ein pulsierendes Cover). |
+| `int lvglLine(int parent)` | Ein Linien-Objekt erstellen. |
+| `void lvglLinePoints(int h, int x1, int y1, int x2, int y2)` | Die zwei Endpunkte einer Linie setzen. |
+| `void lvglLineStyle(int h, int rgb, int width)` | Farbe (0xRRGGBB) und Breite (px) einer Linie setzen. |
 
 Beispiele: `lvgl_demo.tc` (Button → Label), `lvgl_widgets.tc` (Slider/Bar/Switch), `lvgl_chart.tc`
 (Live-Diagramm), `lvgl_smoke.tc` (Bring-up-Test).

@@ -4090,19 +4090,20 @@ Lower-level access to an I2S DAC/amplifier for streaming your own PCM samples
 
 | Function | Description |
 |----------|-------------|
-| `int i2sBegin(int mclk, int bclk, int lrclk, int dout, int sampleRate)` | Configure the I2S output pins and sample rate (Hz). `mclk=-1` for a raw I2S amp (MAX98357); a codec DAC (ES8311) needs the MCLK pin (256·fs) **and** its registers set over I2C from the script. Returns 0 on success, -1 on error. |
+| `int i2sBegin(int mclk, int bclk, int lrclk, int dout, int sampleRate)` | Configure the I2S TX pins and sample rate (Hz). `mclk=-1` for a raw I2S amp (MAX98357A/PCM5102); a codec DAC (ES8311/WM8960) needs the MCLK pin (256·fs) **and** its registers set over I2C from the script. Returns 0 on success, -1 on error. |
 | `int i2sWrite(int[] pcm, int frames)` | Write `frames` 16-bit stereo PCM samples from the `pcm` array to the I2S bus (blocks until queued). Returns frames written. |
 | `i2sStop()` | Release the I2S driver and pins. |
-| `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Read up to `frames` 16-bit samples from an open WAV file into `pcm`, up-mixing mono→stereo when `wavChannels == 1`. Returns frames read (0 at EOF). Pairs with `i2sWrite()`. |
+| `int fileReadPCM16(int handle, int[] pcm, int frames, int wavChannels)` | Read up to `frames` 16-bit samples from an open WAV file into `pcm` (downmixing stereo→mono when `wavChannels == 2`). Returns frames read (0 at EOF). Pairs with `i2sWrite()`. |
 
 **Microphone input (RX, ABI ≥ 7).** An *independent* I2S RX channel on its own I2S port — separate from the audio plugin, so it works on any ESP32 with an I2S mic. For a raw MEMS mic (INMP441/ICS-43434/SPH0645) just wire the pins; for a codec mic (ES8311/ES7210) enable the codec's ADC first via the `i2c*` syscalls (or let the audio plugin init it) and point `din` at the codec's data line. 16-bit mono, master.
 
 | Function | Description |
 |---|---|
-| `int i2sMicBegin(int bclk, int lrclk, int din, int sampleRate)` | Open the mic RX channel. Returns 0 on success, -1 on error. |
-| `int i2sMicLevel()` | RMS loudness (0..32767) over one ~256-sample block. -1 = no mic open, 0 = no data this call. The cheap loudness/VU path. |
-| `int i2sMicRead(int[] buf, int max)` | Read up to `max` (≤256) raw int16 mono samples into `buf`. Returns the count. For FFT / custom DSP. |
-| `i2sMicStop()` | Release the mic RX channel. |
+| `int i2sMicBegin(int mclk, int bclk, int lrclk, int din, int sampleRate)` | Open an I2S RX (mic) channel as master. `mclk=-1` for a raw MEMS/PDM-on-I2S mic; a codec ADC (ES7210) needs MCLK (256·fs) + its registers set over I2C. Returns 0 on success, -1 on error. |
+| `int i2sMicRead(int[] buf, int max)` | Read up to `max` 16-bit mono samples from the mic into `buf`. Returns the count read. |
+| `int i2sMicLevel()` | RMS loudness 0..32767 over one ~256-sample mic block — a cheap level meter, no buffer needed. |
+| `void i2sMicStop()` | Stop and release the mic RX channel. |
+| `int i2sDuplexBegin(int mclk, int bclk, int ws, int dout, int din, int sampleRate)` | Open ONE full-duplex I2S channel pair (TX+RX, shared clock). Needed for a combined codec (e.g. WM8960) whose ADC is clocked by the I2S TX — a separate `i2sMicBegin` RX-only channel never gets a clock and stays silent. After this, `i2sWrite()` plays on the TX and `i2sMicLevel()`/`i2sMicRead()` read the mic **at the same time**. Stop with `i2sStop()` + `i2sMicStop()`. Returns 0 on success, -1 on error. |
 
 See `examples/loudness.tc`.
 
@@ -5145,6 +5146,11 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `void lvglImageSrc(int h, str path)` | Set image source from an LVGL FS path (e.g. `"A:/logo.bin"`, or `"A:/img.png"` — PNG decode is built in) |
 | `void lvglImageAngle(int h, int deci_deg)` | Rotate the image, 0.1° units (3600 = 360°) — e.g. a clock hand |
 | `void lvglImagePivot(int h, int x, int y)` | Set the rotation pivot, px from the image's top-left (default is image centre) |
+| `void lvglSetFont(int h, int size)` | Set a label's font size; snapped to the built-in Montserrat sizes (10/14/20/28). |
+| `void lvglImageScale(int h, int sx, int sy)` | Scale an image per-axis, 256 = 100% (e.g. a pulsing cover). |
+| `int lvglLine(int parent)` | Create a line object. |
+| `void lvglLinePoints(int h, int x1, int y1, int x2, int y2)` | Set a line's two endpoints. |
+| `void lvglLineStyle(int h, int rgb, int width)` | Set a line's color (0xRRGGBB) and width (px). |
 
 ```c
 // Tap a button -> change a label (see examples/lvgl_demo.tc)
