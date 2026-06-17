@@ -9442,15 +9442,21 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           http.addHeader(Tinyc->http_hdr_name[i], Tinyc->http_hdr_value[i]);
         }
         // ---- release vm_mutex around the blocking connect + read ----
-        // FIX A (Andreas 2026-06-13): TASK-AWARE. Only hand the mutex back when we
-        // run on the slot's OWN VM task. On the MAIN-LOOP task (EverySecond/Command
-        // dispatch) keep it HELD — releasing it there lets the slot's VM task grab
-        // it mid-I/O, then the main loop's re-take blocks unbounded behind it =
-        // webserver/lwIP wedge under multi-slot httpGet bursts (.142/.136/.107). On
-        // the main loop the 2 s connect-bound + no-retry already cap the stall ~2 s.
+        // FIX A (Andreas 2026-06-13) + 2026-06-17 night-stall follow-up (fix a):
+        // ALWAYS hand the mutex back across the blocking net I/O — on the slot's
+        // own VM task AND on the main-loop task (EverySecond/Command dispatch). The
+        // earlier task-aware version kept it HELD on the main loop to avoid a
+        // re-take wedge, trusting the 2 s connect-bound to cap the stall. But a slot
+        // that polls httpGet from EverySecond then holds the mutex over the WHOLE
+        // request every tick; under sustained load that contention compounds into a
+        // multi-hour stall (Andreas slot-3 .142: EM chart empty 00:00–05:15, live
+        // EMs 100→2000 ms + Busy). The caller ALWAYS holds the mutex here
+        // (tc_slot_callback* and the VM task both take it before dispatch) so the
+        // give is always balanced. The re-take blocks at most behind one bytecode
+        // slice of a contending task — which itself releases around its own net I/O
+        // — not the whole request, so the original multi-slot wedge stays bounded.
 #ifdef ESP32
-        bool _on_vm_task = (_hs && _hs->task_handle && xTaskGetCurrentTaskHandle() == _hs->task_handle);
-        if (_on_vm_task && _hs->vm_mutex) xSemaphoreGive(_hs->vm_mutex);
+        if (_hs && _hs->vm_mutex) xSemaphoreGive(_hs->vm_mutex);
 #endif
         int httpCode = http.GET();
         if (httpCode > 0 && lbuf) {
@@ -9518,9 +9524,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         }
         http.end();
         bool transport_err = (httpCode <= 0);
-        // ---- re-take vm_mutex before touching the VM again (only if we released) ----
+        // ---- re-take vm_mutex before touching the VM again ----
 #ifdef ESP32
-        if (_on_vm_task && _hs->vm_mutex) { xSemaphoreTake(_hs->vm_mutex, portMAX_DELAY); tc_current_slot = _hs; }
+        if (_hs && _hs->vm_mutex) { xSemaphoreTake(_hs->vm_mutex, portMAX_DELAY); tc_current_slot = _hs; }
 #endif
         // C: do NOT retry a transport error (connect refused/timeout) — the retry
         // was only ever for HTTP-200 empty bodies; on a dead host it just triples
@@ -9581,10 +9587,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // window; we touch the VM heap (buf) only after re-taking. Mirrors SendMail.
       TcSlot *_ps = tc_current_slot;
 #ifdef ESP32
-      // FIX A (task-aware): only release on the slot's own VM task; keep it held on
-      // the main-loop dispatch to avoid the multi-slot wedge (see SYS_HTTP_GET).
-      bool _on_vm_task = (_ps && _ps->task_handle && xTaskGetCurrentTaskHandle() == _ps->task_handle);
-      if (_on_vm_task && _ps->vm_mutex) xSemaphoreGive(_ps->vm_mutex);
+      // FIX A + 2026-06-17 (fix a): release on BOTH the VM task and the main loop —
+      // the caller always holds the mutex, so the give is balanced (see SYS_HTTP_GET).
+      if (_ps && _ps->vm_mutex) xSemaphoreGive(_ps->vm_mutex);
 #endif
       int httpCode = http.POST(postData);
       String payload;
@@ -9597,7 +9602,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       http.end();
 #ifdef ESP32
-      if (_on_vm_task && _ps->vm_mutex) { xSemaphoreTake(_ps->vm_mutex, portMAX_DELAY); tc_current_slot = _ps; }
+      if (_ps && _ps->vm_mutex) { xSemaphoreTake(_ps->vm_mutex, portMAX_DELAY); tc_current_slot = _ps; }
 #endif
       int32_t result = -1;
       if (httpCode > 0) {
@@ -14391,16 +14396,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // which is why its `mail` token works without this).
       TcSlot *_email_slot = tc_current_slot;
 #ifdef ESP32
-      // FIX A (task-aware): only release on the slot's own VM task; keep it held on
-      // the main-loop dispatch to avoid the multi-slot wedge (see SYS_HTTP_GET).
-      bool _on_vm_task = (_email_slot && _email_slot->task_handle && xTaskGetCurrentTaskHandle() == _email_slot->task_handle);
-      if (_on_vm_task && _email_slot->vm_mutex) {
+      // FIX A + 2026-06-17 (fix a): release on BOTH the VM task and the main loop —
+      // the caller always holds the mutex, so the give is balanced (see SYS_HTTP_GET).
+      if (_email_slot && _email_slot->vm_mutex) {
         xSemaphoreGive(_email_slot->vm_mutex);
       }
 #endif
       uint16_t result = SendMail(cmd);
 #ifdef ESP32
-      if (_on_vm_task && _email_slot->vm_mutex) {
+      if (_email_slot && _email_slot->vm_mutex) {
         xSemaphoreTake(_email_slot->vm_mutex, portMAX_DELAY);
         tc_current_slot = _email_slot;  // restore — other tasks may have changed it
       }
