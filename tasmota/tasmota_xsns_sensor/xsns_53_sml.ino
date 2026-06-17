@@ -5557,6 +5557,7 @@ MODBUS_TCP_HEADER tcph;
 }
 
 #ifdef USE_SML_TCP
+int32_t sml_tcp_init(struct METER_DESC *mp) {
   //if (!TasmotaGlobal.global_state.wifi_down) {
   if (!TasmotaGlobal.global_state.wifi_down || !TasmotaGlobal.global_state.eth_down) {
     if (!mp->client) {
