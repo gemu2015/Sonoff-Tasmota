@@ -1,436 +1,307 @@
-// WAV Player — I2S audio output with optional WM8960 codec
-// Works with any I2S DAC (MAX98357A, PCM5102, UDA1334, etc.)
-// If WM8960 is detected on I2C, volume control is enabled
+// WAV Player — plugin-independent I2S audio output, selectable codec.
 //
-// Commands: WAVtone <freq>  — play sine tone for 1 second
-//           WAVplay <path>  — play 16-bit mono/stereo WAV file
+// Pick ONE codec below. The script drives the codec over I2C itself (no audio plugin).
+//   CODEC_NONE   — raw I2S amp (MAX98357A / PCM5102 / UDA1334), no I2C, no MCLK.
+//   CODEC_WM8960 — WM8960 codec (auto-detected on I2C), HW volume.
+//   CODEC_P4     — Waveshare ESP32-P4 10.1": ES8311 DAC @0x18, MCLK=13 BCLK=12 WS=10
+//                  DOUT=9, speaker power-amp enable on GPIO53. 16 kHz.
 //
-// Upload 16-bit WAV files to device filesystem
+// Commands: WAVtone <freq> — 1 s sine tone ; WAVplay <path> — 16-bit mono/stereo WAV.
 
-// Default I2S pins — changeable via WebUI (persist across reboot)
-persist int pin_bclk = 10;
+#define CODEC_NONE
+//#define CODEC_WM8960
+//#define CODEC_P4
+
+#define OUTPUT 0x03
+
+// Default I2S pins — for NONE/WM8960 they're WebUI-configurable (persist); CODEC_P4
+// overrides them in main() with the fixed board pins.
+persist int pin_mclk  = -1;
+persist int pin_bclk  = 10;
 persist int pin_lrclk = 18;
-persist int pin_dout = 17;
-persist int pin_rate = 16000;
-persist int dac_vol = 255;     // 0-255: codec=HW volume, no codec=SW scaling
+persist int pin_dout  = 17;
+persist int pin_rate  = 16000;
+persist int dac_vol   = 255;     // 0-255: codec=HW volume, no codec=SW scaling
 
-// Audio buffer — global for heap allocation
 #define BUF_SAMPLES 512
+// Stream the I2S in SMALL chunks. A big read+blocking-write starves the I2S DMA on the
+// ESP32-P4 (SD read holds the feed too long → underrun → loud scramble). 128-frame writes
+// keep the DMA topped up — the plugin's principle, done in script. (Raw amps/WM8960 work
+// at any size, so this is safe everywhere.)
+#define OUT_CHUNK 128
 int pcm[BUF_SAMPLES];
 
-// WAV header fields
-int wav_rate;
-int wav_bits;
-int wav_channels;
-int wav_data_size;
-
-// State
+int wav_rate; int wav_bits; int wav_channels; int wav_data_size;
 int playing = 0;
 int codec_ok = 0;
-int wm_bus = -1;   // detected I2C bus (-1 = no codec)
+int wm_bus = -1;
 
-// Request state for TaskLoop (set by Command/Every50ms, consumed by TaskLoop)
-// req_action: 0=idle, 1=tone, 2=play WAV
-int req_action = 0;
+int req_action = 0;          // 0 idle, 1 tone, 2 play
 int req_freq = 1000;
 char req_file[64];
 
-// ═══════════════════════════════════════════════════════════
-// WM8960 codec driver (optional — only if detected on I2C)
-// ═══════════════════════════════════════════════════════════
-
-#define WM_ADDR  0x1A
-
-// WM8960 uses 7-bit register address + 9-bit data in a 2-byte I2C write
+// ═══════════════ WM8960 codec ═══════════════
+#ifdef CODEC_WM8960
+#define WM_ADDR 0x1A
 void wmWrite(int reg, int data) {
     int b1 = (reg << 1) | ((data >> 8) & 1);
-    int b2 = data & 0xFF;
-    i2cWrite8(WM_ADDR, b1, b2, wm_bus);
+    i2cWrite8(WM_ADDR, b1, data & 0xFF, wm_bus);
 }
-
 int wmInit() {
-    // Scan both I2C buses for WM8960
-    if (i2cExists(WM_ADDR, 0)) {
-        wm_bus = 0;
-    } else if (i2cExists(WM_ADDR, 1)) {
-        wm_bus = 1;
-    } else {
-        return -1;
-    }
-
-    // Claim I2C address
+    if (i2cExists(WM_ADDR, 0)) { wm_bus = 0; }
+    else if (i2cExists(WM_ADDR, 1)) { wm_bus = 1; }
+    else { return -1; }
     i2cSetDevice(WM_ADDR, wm_bus);
     i2cSetActiveFound(WM_ADDR, "WM8960", wm_bus);
-
-    // Reset all registers
-    wmWrite(0x0F, 0x0000);
-    delay(10);
-
-    // Power management 1: VREF, VMIDSEL=50k, ADC L+R, AINL+AINR, MICB
+    wmWrite(0x0F, 0x0000); delay(10);
     wmWrite(0x19, (1<<8)|(1<<7)|(1<<6)|(1<<5)|(1<<4)|(1<<3)|(1<<2)|(1<<1));
-    // Power management 2: DAC L+R, LOUT1, ROUT1, SPK L+R
     wmWrite(0x1A, (1<<8)|(1<<7)|(1<<6)|(1<<5)|(1<<4)|(1<<3));
-    // Power management 3: LOMIX, ROMIX, LMIC, RMIC
     wmWrite(0x2F, (1<<5)|(1<<4)|(1<<3)|(1<<2));
-
-    // Clocking 1: default (MCLK source, no dividers)
-    wmWrite(0x04, 0x0000);
-    // ADC/DAC control 1: no de-emphasis, no mute
-    wmWrite(0x05, 0x0000);
-    // Audio interface: I2S format, 16-bit word length, slave mode
-    wmWrite(0x07, 0x0022);
-
-    // Headphone output volume L+R: +6dB (127=0x7F) with volume update
-    wmWrite(0x02, 0x017F);
-    wmWrite(0x03, 0x017F);
-    // Speaker output volume L+R: +6dB (0x7F) with volume update
-    wmWrite(0x28, 0x017F);
-    wmWrite(0x29, 0x017F);
-    // Class D control: enable BOTH L+R speakers
-    wmWrite(0x31, 0x00C0);
-    // Class D boost: max DC and AC gain (+13.5dB)
-    wmWrite(0x33, 0x003B);
-
-    // DAC volume L+R: 0dB (0xFF) with volume update
-    wmWrite(0x0A, 0x01FF);
-    wmWrite(0x0B, 0x01FF);
-
-    // Output mixer: DAC to output ONLY (bit8=LD2LO/RD2RO)
-    // Do NOT set bit7 (LI2LO/RI2RO) — routes floating input to output
-    wmWrite(0x22, (1<<8));
-    wmWrite(0x25, (1<<8));
-
-    // Input volume L+R
-    wmWrite(0x00, 0x0127);
-    wmWrite(0x01, 0x0127);
-    // ADC volume L+R
-    wmWrite(0x15, 0x01C3);
-    wmWrite(0x16, 0x01C3);
-    // Disable bypass
-    wmWrite(0x2D, 0x0000);
-    wmWrite(0x2E, 0x0000);
-    // Input boost
-    wmWrite(0x20, 0x0020 | (1<<8) | (1<<3));
-    wmWrite(0x21, 0x0020 | (1<<8) | (1<<3));
-
+    wmWrite(0x04, 0x0000); wmWrite(0x05, 0x0000); wmWrite(0x07, 0x0022);
+    wmWrite(0x02, 0x017F); wmWrite(0x03, 0x017F);
+    wmWrite(0x28, 0x017F); wmWrite(0x29, 0x017F);
+    wmWrite(0x31, 0x00C0); wmWrite(0x33, 0x003B);
+    wmWrite(0x0A, 0x01FF); wmWrite(0x0B, 0x01FF);
+    wmWrite(0x22, (1<<8)); wmWrite(0x25, (1<<8));
     addLog("WM8960: initialized");
     return 0;
 }
-
-// Set DAC output volume — maps slider 0-255 to usable register range
-// WM8960 DAC reg: 255=0dB, each step=0.5dB, below ~200 is inaudible
-// Slider 0=mute, 1-255 maps to register 200-255 (-27.5dB to 0dB)
 void wmSetVolume(int vol) {
-    if (vol <= 0) {
-        wmWrite(0x0A, 0x0100);
-        wmWrite(0x0B, 0x0100);
-        return;
-    }
+    if (vol <= 0) { wmWrite(0x0A, 0x0100); wmWrite(0x0B, 0x0100); return; }
     int reg = 200 + (vol * 55 / 255);
-    if (reg > 255) reg = 255;
-    wmWrite(0x0A, 0x0100 | reg);
-    wmWrite(0x0B, 0x0100 | reg);
+    if (reg > 255) { reg = 255; }
+    wmWrite(0x0A, 0x0100 | reg); wmWrite(0x0B, 0x0100 | reg);
+}
+#endif
+
+// ═══════════════ ES8311 DAC (Waveshare P4) ═══════════════
+#ifdef CODEC_P4
+#define ES_ADDR 0x18
+#define PA_EN   53
+void dw(int reg, int val) { i2cWrite8(ES_ADDR, reg, val, 0); }
+int  dr(int reg)          { return i2cRead8(ES_ADDR, reg, 0); }
+void es8311_init() {
+    int v;
+    dw(0x01,0x30);dw(0x02,0x00);dw(0x03,0x10);dw(0x16,0x24);
+    dw(0x04,0x10);dw(0x05,0x00);dw(0x0B,0x00);dw(0x0C,0x00);
+    dw(0x10,0x1F);dw(0x11,0x7F);dw(0x00,0x80);
+    v=dr(0x00)&0xBF;dw(0x00,v); dw(0x01,0x3F);
+    v=dr(0x01)&0x7F;dw(0x01,v); v=dr(0x02)&0x07;dw(0x02,v); dw(0x05,0x00);
+    v=(dr(0x03)&0x80)|0x10;dw(0x03,v); v=(dr(0x04)&0x80)|0x10;dw(0x04,v);
+    v=dr(0x07)&0xC0;dw(0x07,v); dw(0x08,0xff); v=(dr(0x06)&0xE0)|3;dw(0x06,v);
+    v=dr(0x01)&(255-0x40);dw(0x01,v); v=dr(0x06)&(255-0x20);dw(0x06,v);
+    dw(0x13,0x10);dw(0x1B,0x0A);dw(0x1C,0x6A);
+    v=dr(0x09)|0x0c;dw(0x09,v); v=dr(0x0A)|0x0c;dw(0x0A,v);
+    v=dr(0x09)&0xFC;dw(0x09,v); v=dr(0x0A)&0xFC;dw(0x0A,v);
+    v=dr(0x09)&0xBF;v=v&(255-0x40);dw(0x09,v); v=dr(0x0A)&0xBF;v=v&(255-0x40);dw(0x0A,v);
+    dw(0x17,0xBF);dw(0x0E,0x02);dw(0x12,0x00);dw(0x14,0x1A);
+    v=dr(0x14)&(255-0x40);dw(0x14,v); dw(0x0D,0x01);dw(0x15,0x40);dw(0x37,0x48);dw(0x45,0x00);
+    v=dr(0x31)&0x9f;dw(0x31,v); dw(0x12,0x00);
+    addLog("ES8311: initialized");
+}
+void es8311_volume(int v100) { if (v100 > 100) { v100 = 100; } dw(0x32, (v100 * 2550) / 1000); }
+#endif
+
+// ═══════════════ codec abstraction ═══════════════
+int codecInit() {
+#ifdef CODEC_WM8960
+    return wmInit();
+#endif
+#ifdef CODEC_P4
+    es8311_init();
+    return 0;
+#endif
+#ifdef CODEC_NONE
+    return -1;
+#endif
+}
+void codecVolume(int v) {
+#ifdef CODEC_WM8960
+    wmSetVolume(v);
+#endif
+#ifdef CODEC_P4
+    es8311_volume(v * 100 / 255);
+#endif
+}
+void codecPaOn() {
+#ifdef CODEC_P4
+    if (pinFree(PA_EN)) { pinMode(PA_EN, OUTPUT); }
+    digitalWrite(PA_EN, 1);
+#endif
+}
+void codecPaOff() {
+#ifdef CODEC_P4
+    digitalWrite(PA_EN, 0);
+#endif
 }
 
-// Software volume (no-codec mode only): scale pcm[] by dac_vol/256
+// Software volume (no-codec mode only)
 void applyVolume(int len) {
-    if (codec_ok) return;     // codec uses hardware DAC register
-    if (dac_vol >= 255) return;
+    if (codec_ok) { return; }
+    if (dac_vol >= 255) { return; }
     int i;
-    for (i = 0; i < len; i++) {
-        pcm[i] = (pcm[i] * dac_vol) / 256;
-    }
+    for (i = 0; i < len; i++) { pcm[i] = (pcm[i] * dac_vol) / 256; }
 }
 
-// ═══════════════════════════════════════════════════════════
-// WAV file playback (called from TaskLoop — no instruction limit)
-// ═══════════════════════════════════════════════════════════
-
+// ═══════════════ WAV parse + play ═══════════════
 int parseWavHeader(int f) {
     char hdr[12];
     int n = fileRead(f, hdr, 12);
-    if (n < 12) return -1;
-
-    // Check RIFF/WAVE
-    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') return -1;
-    if (hdr[8] != 'W' || hdr[9] != 'A' || hdr[10] != 'V' || hdr[11] != 'E') return -1;
-
-    // Walk through chunks to find "fmt " and "data"
-    int found_fmt = 0;
-    int found_data = 0;
-    char ck[8];
-    char fmt[16];
-    char skip[64];
-
+    if (n < 12) { return -1; }
+    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') { return -1; }
+    if (hdr[8] != 'W' || hdr[9] != 'A' || hdr[10] != 'V' || hdr[11] != 'E') { return -1; }
+    int found_fmt = 0; int found_data = 0;
+    char ck[8]; char fmt[16]; char skip[64];
     while (found_fmt == 0 || found_data == 0) {
         n = fileRead(f, ck, 8);
-        if (n < 8) return -1;
+        if (n < 8) { return -1; }
         int csz = (ck[4] & 0xFF) | ((ck[5] & 0xFF) << 8) | ((ck[6] & 0xFF) << 16) | ((ck[7] & 0xFF) << 24);
-
         if (ck[0] == 'f' && ck[1] == 'm' && ck[2] == 't' && ck[3] == ' ') {
             n = fileRead(f, fmt, 16);
-            if (n < 16) return -1;
+            if (n < 16) { return -1; }
             int audio_fmt = (fmt[0] & 0xFF) | ((fmt[1] & 0xFF) << 8);
-            if (audio_fmt != 1) return -1;
+            if (audio_fmt != 1) { return -1; }
             wav_channels = (fmt[2] & 0xFF) | ((fmt[3] & 0xFF) << 8);
             wav_rate = (fmt[4] & 0xFF) | ((fmt[5] & 0xFF) << 8) | ((fmt[6] & 0xFF) << 16) | ((fmt[7] & 0xFF) << 24);
             wav_bits = (fmt[14] & 0xFF) | ((fmt[15] & 0xFF) << 8);
             found_fmt = 1;
-            // Skip remainder of fmt chunk
             int rem = csz - 16;
-            while (rem > 0) {
-                int rd = 64;
-                if (rd > rem) rd = rem;
-                fileRead(f, skip, rd);
-                rem = rem - rd;
-            }
+            while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
         } else if (ck[0] == 'd' && ck[1] == 'a' && ck[2] == 't' && ck[3] == 'a') {
-            wav_data_size = csz;
-            found_data = 1;
+            wav_data_size = csz; found_data = 1;
         } else {
-            // Skip unknown chunk
             int rem = csz;
-            while (rem > 0) {
-                int rd = 64;
-                if (rd > rem) rd = rem;
-                fileRead(f, skip, rd);
-                rem = rem - rd;
-            }
+            while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
         }
     }
-
     return 0;
 }
 
 void doPlayWav(char path[]) {
     int f = fileOpen(path, "r");
-    if (f < 0) {
-        addLog("WAV: file not found");
-        return;
-    }
-
-    if (parseWavHeader(f) < 0) {
-        addLog("WAV: invalid header");
-        fileClose(f);
-        return;
-    }
-
-    if (wav_bits != 16 || (wav_channels != 1 && wav_channels != 2)) {
-        addLog("WAV: need 16-bit mono/stereo");
-        fileClose(f);
-        return;
-    }
-
-    // Always output at pin_rate — upsample if WAV rate is lower
+    if (f < 0) { addLog("WAV: file not found"); return; }
+    if (parseWavHeader(f) < 0) { addLog("WAV: invalid header"); fileClose(f); return; }
+    if (wav_bits != 16 || (wav_channels != 1 && wav_channels != 2)) { addLog("WAV: need 16-bit mono/stereo"); fileClose(f); return; }
     int ratio = pin_rate / wav_rate;
-    if (ratio < 1) ratio = 1;
-    if (ratio > 4) ratio = 4;
-
-    int err = i2sBegin(-1, pin_bclk, pin_lrclk, pin_dout, pin_rate);
-    if (err < 0) {
-        addLog("WAV: i2sBegin failed");
-        fileClose(f);
-        return;
-    }
-
-    if (codec_ok) wmSetVolume(dac_vol);
-
+    if (ratio < 1) { ratio = 1; }
+    if (ratio > 4) { ratio = 4; }
+    if (i2sBegin(pin_mclk, pin_bclk, pin_lrclk, pin_dout, pin_rate) < 0) { addLog("WAV: i2sBegin failed"); fileClose(f); return; }
+    codecVolume(dac_vol);
+    codecPaOn();
     addLog("WAV: %dHz ratio %d %dch %d bytes", wav_rate, ratio, wav_channels, wav_data_size);
     playing = 1;
-
-    int bytes_per_frame = wav_channels * 2;  // 2 or 4 bytes per frame
-    int remaining = wav_data_size / bytes_per_frame;  // remaining in frames
-    int read_chunk = BUF_SAMPLES / ratio;  // read fewer samples, expand to fill buffer
-
+    int remaining = wav_data_size / (wav_channels * 2);
+    int read_chunk = OUT_CHUNK / ratio;            // small write chunk (see OUT_CHUNK note)
+    if (read_chunk < 1) { read_chunk = 1; }
     while (remaining > 0) {
         int chunk = read_chunk;
-        if (chunk > remaining) chunk = remaining;
-
-        // Native C read + int16-to-int32 conversion
+        if (chunk > remaining) { chunk = remaining; }
         int frames = fileReadPCM16(f, pcm, chunk, wav_channels);
-        if (frames <= 0) break;
-
-        // Upsample in-place (backwards to avoid overwrite)
+        if (frames <= 0) { break; }
         if (ratio > 1) {
             int i;
-            for (i = frames - 1; i >= 0; i--) {
+            for (i = frames - 1; i >= 0; i = i - 1) {
                 int j;
-                for (j = 0; j < ratio; j++) {
-                    pcm[i * ratio + j] = pcm[i];
-                }
+                for (j = 0; j < ratio; j = j + 1) { pcm[i * ratio + j] = pcm[i]; }
             }
             frames = frames * ratio;
         }
-
         applyVolume(frames);
-        i2sWrite(pcm, frames);
+        if (i2sWrite(pcm, frames) < frames) { break; }   // TX stalled/timeout — stop, don't loop on noise
         remaining = remaining - chunk;
     }
-
     fileClose(f);
+    delay(400);                                          // let the last DMA buffer drain before stopping
     i2sStop();
+    codecPaOff();
     playing = 0;
     addLog("WAV: done");
 }
 
-// Generate a sine wave test tone (called from TaskLoop — no instruction limit)
 void doPlayTone(int freq, int duration_ms, int volume) {
-    int err = i2sBegin(-1, pin_bclk, pin_lrclk, pin_dout, pin_rate);
-    if (err < 0) {
-        addLog("i2sBegin failed");
-        return;
-    }
-
-    if (codec_ok) wmSetVolume(dac_vol);
+    if (i2sBegin(pin_mclk, pin_bclk, pin_lrclk, pin_dout, pin_rate) < 0) { addLog("i2sBegin failed"); return; }
+    codecVolume(dac_vol);
+    codecPaOn();
     playing = 1;
-
     int total = pin_rate * duration_ms / 1000;
     float phase = 0.0;
-    float step = 6.2832 * freq / pin_rate;  // 2*PI * freq / sampleRate
-
+    float step = 6.2832 * freq / pin_rate;
     while (total > 0) {
         int chunk = BUF_SAMPLES;
-        if (chunk > total) chunk = total;
-
+        if (chunk > total) { chunk = total; }
         int i;
-        for (i = 0; i < chunk; i++) {
+        for (i = 0; i < chunk; i = i + 1) {
             pcm[i] = sin(phase) * volume;
             phase = phase + step;
-            if (phase >= 6.2832) phase = phase - 6.2832;
+            if (phase >= 6.2832) { phase = phase - 6.2832; }
         }
-
         applyVolume(chunk);
-        i2sWrite(pcm, chunk);
+        if (i2sWrite(pcm, chunk) < chunk) { break; }   // TX stalled/timeout — stop, don't loop on noise
         total = total - chunk;
     }
-
     i2sStop();
+    codecPaOff();
     playing = 0;
 }
 
-// ═══════════════════════════════════════════════════════════
-// TaskLoop — runs in FreeRTOS task, no instruction limit
-// ═══════════════════════════════════════════════════════════
-
 void TaskLoop() {
     while (1) {
-        if (req_action == 1) {
-            int f = req_freq;
-            req_action = 0;
-            doPlayTone(f, 1000, 16000);
-        }
-        if (req_action == 2) {
-            req_action = 0;
-            doPlayWav(req_file);
-        }
+        if (req_action == 1) { int fr = req_freq; req_action = 0; doPlayTone(fr, 1000, 16000); }
+        if (req_action == 2) { req_action = 0; doPlayWav(req_file); }
         delay(50);
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// WebUI — pin config, volume, test buttons
-// ═══════════════════════════════════════════════════════════
-int tone_btn;
-int tone2_btn;
-int play_btn;
-
+int tone_btn; int tone2_btn; int play_btn;
 void WebUI() {
     webPageLabel(1, "I2S Audio");
-    webPulldown(pin_bclk, "BCLK Pin", "@getfreepins");
-    webPulldown(pin_lrclk, "LRCLK Pin", "@getfreepins");
-    webPulldown(pin_dout, "DOUT Pin", "@getfreepins");
     webNumber(pin_rate, 8000, 48000, "Sample Rate");
     webSlider(dac_vol, 0, 255, "Volume");
     webButton(tone_btn, "Test 1kHz");
     webButton(tone2_btn, "Test 440Hz");
-    webButton(play_btn, "Play /doorbell.wav");
+    webButton(play_btn, "Play /Startup.wav");
 }
-
-// Poll webButton toggles
 void Every50ms() {
-    if (playing) return;
-    if (tone_btn) {
-        tone_btn = 0;
-        req_freq = 1000;
-        req_action = 1;
-    }
-    if (tone2_btn) {
-        tone2_btn = 0;
-        req_freq = 440;
-        req_action = 1;
-    }
-    if (play_btn) {
-        play_btn = 0;
-        char file[] = "/doorbell.wav";
-        strcpy(req_file, file);
-        req_action = 2;
-    }
+    if (playing) { return; }
+    if (tone_btn) { tone_btn = 0; req_freq = 1000; req_action = 1; }
+    if (tone2_btn) { tone2_btn = 0; req_freq = 440; req_action = 1; }
+    if (play_btn) { play_btn = 0; char file[] = "/Startup.wav"; strcpy(req_file, file); req_action = 2; }
 }
-
 void WebCall() {
     char buf[64];
-    if (playing) {
-        webSend("{s}I2S Audio{m}Playing{e}");
-    } else if (codec_ok) {
-        sprintf(buf, "{s}WM8960{m}Ready (vol %d){e}", dac_vol);
-        webSend(buf);
-    } else {
-        webSend("{s}I2S Audio{m}Ready (no codec){e}");
-    }
+    if (playing) { webSend("{s}I2S Audio{m}Playing{e}"); }
+    else if (codec_ok) { sprintf(buf, "{s}Codec{m}Ready (vol %d){e}", dac_vol); webSend(buf); }
+    else { webSend("{s}I2S Audio{m}Ready (no codec){e}"); }
 }
-
-// Command callback: WAVtone <freq> | WAVplay <path>
 void Command(char cmd[]) {
-    char sub[16];
-    char arg[64];
+    char sub[16]; char arg[64];
     int sp = strFind(cmd, " ");
-    if (sp < 0) {
-        strcpy(sub, cmd);
-        arg[0] = 0;
-    } else {
-        strSub(sub, cmd, 0, sp);
-        strSub(arg, cmd, sp + 1, strlen(cmd) - sp - 1);
-    }
-
-    char c_tone[] = "TONE";
-    char c_play[] = "PLAY";
-    if (strcmp(sub, c_tone) == 0) {
+    if (sp < 0) { strcpy(sub, cmd); arg[0] = 0; }
+    else { strSub(sub, cmd, 0, sp); strSub(arg, cmd, sp + 1, strlen(cmd) - sp - 1); }
+    if (strcmp(sub, "TONE") == 0) {
         int freq = atoi(arg);
-        if (freq < 100) freq = 1000;
-        req_freq = freq;
-        req_action = 1;
-        responseCmnd(sub);
+        if (freq < 100) { freq = 1000; }
+        req_freq = freq; req_action = 1; responseCmnd(sub);
     }
-    if (strcmp(sub, c_play) == 0) {
-        strcpy(req_file, arg);
-        req_action = 2;
-        responseCmnd(sub);
-    }
+    if (strcmp(sub, "PLAY") == 0) { strcpy(req_file, arg); req_action = 2; responseCmnd(sub); }
 }
 
-void OnExit() {
-    i2sStop();
-    if (wm_bus >= 0) I2cResetActive(WM_ADDR, wm_bus);
-}
+void OnExit() { i2sStop(); codecPaOff(); }
 
 int main() {
-    // Apply defaults if persist values are zero (first run)
-    if (pin_bclk == 0) pin_bclk = 10;
-    if (pin_lrclk == 0) pin_lrclk = 18;
-    if (pin_dout == 0) pin_dout = 17;
-    if (pin_rate == 0) pin_rate = 16000;
-    if (dac_vol == 0) dac_vol = 255;
+#ifdef CODEC_P4
+    pin_mclk = 13; pin_bclk = 12; pin_lrclk = 10; pin_dout = 9; pin_rate = 16000;
+    dac_vol = 170;        // ES8311 reg ~170 ≈ -12dB; reg 255 (dac_vol 255) is painfully loud
+#else
+    if (pin_bclk == 0)  { pin_bclk = 10; }
+    if (pin_lrclk == 0) { pin_lrclk = 18; }
+    if (pin_dout == 0)  { pin_dout = 17; }
+    if (pin_rate == 0)  { pin_rate = 16000; }
+#endif
+    if (dac_vol == 0) { dac_vol = 255; }
 
-    // Register WAV commands: WAVtone <freq>, WAVplay <path>
     addCommand("WAV");
-
-    // Try to initialize WM8960 codec — optional, works without it
-    if (wmInit() == 0) {
-        codec_ok = 1;
-    } else {
-        addLog("I2S: no codec, direct DAC mode");
-    }
-
-    addLog("I2S: BCLK=%d LRCLK=%d DOUT=%d", pin_bclk, pin_lrclk, pin_dout);
+    if (codecInit() == 0) { codec_ok = 1; } else { addLog("I2S: no codec, direct DAC mode"); }
+    addLog("I2S: mclk=%d bclk=%d lrclk=%d dout=%d", pin_mclk, pin_bclk, pin_lrclk, pin_dout);
     return 0;
 }

@@ -12861,9 +12861,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         i2s_pcm_buf[i * 2 + 1] = (int16_t)s;  // right
       }
 
+      // Finite timeout (was portMAX_DELAY) so a MISCONFIGURED TX whose DMA never
+      // drains can't block here forever — that left the codec/amp stuck on, screaming,
+      // until a power-cycle. 1 s is well above the worst-case healthy block (the DMA
+      // buffer is ~256 ms @16k / ~512 ms @8k), so it never drops good audio; on a
+      // stuck TX it returns a SHORT write (bytes_written < requested) and the script's
+      // play loop should break on that.
       size_t bytes_written = 0;
       i2s_channel_write(Tinyc->i2s_tx_handle, i2s_pcm_buf, len * 2 * sizeof(int16_t),
-                        &bytes_written, portMAX_DELAY);
+                        &bytes_written, 1000 / portTICK_PERIOD_MS);
       TC_PUSH(vm, (int32_t)(bytes_written / (2 * sizeof(int16_t))));
       break;
     }
