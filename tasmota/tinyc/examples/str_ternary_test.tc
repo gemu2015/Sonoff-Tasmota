@@ -1,0 +1,17 @@
+// str_ternary_test.tc — verify `cond ? "a" : "b"` as a string argument (new codegen).
+// Covers: sprintf %s with literal branches + array branches, strcpy source ternary,
+// and addLog %s ternary (the case that used to error). Console: TT 1 / TT 0.
+
+char buf[80]; char arrA[10]; char arrB[10]; int sel = 1;
+
+void Command(char cmd[]) {
+    sel = atoi(cmd);                                  // TT 1 / TT 0
+    strcpy(arrA, "AAA"); strcpy(arrB, "BBB");
+    strcpy(buf, sel ? "yes" : "no");                  // strcpy source = literal ternary
+    char r[160];
+    sprintf(r, "lit=%s arr=%s cpy=%s", sel ? "ON" : "OFF", sel ? arrA : arrB, buf);
+    responseCmnd(r);
+    addLog("TT log %s", sel ? "HI" : "LO");           // addLog %s ternary (was a CodeGen error)
+}
+
+int main() { addCommand("TT"); addLog("str_ternary_test ready"); return 0; }

@@ -2471,6 +2471,10 @@ export class CodeGenerator {
         if (node.type === NodeType.BinaryExpr && node.op === '+') {
             return this.isStringNode(node.left) && this.isStringNode(node.right);
         }
+        // cond ? strA : strB  is a string node iff both branches are strings
+        if (node.type === NodeType.TernaryExpr) {
+            return this.isStringNode(node.consequent) && this.isStringNode(node.alternate);
+        }
         return false;
     }
 
@@ -2492,7 +2496,24 @@ export class CodeGenerator {
             this.compileBinaryExpr(node); // leaves scratch_ref on stack
             return;
         }
+        if (node.type === NodeType.TernaryExpr && this.isStringNode(node)) {
+            this.emitStringTernary(node); // leaves the chosen branch's ref on stack
+            return;
+        }
         this.emitArrayRef(node); // char[] variable, member array field
+    }
+
+    // cond ? strA : strB  as a string ref: evaluate the condition, then push the
+    // chosen branch's ref (string literal → const-pool ref, char[] → addr, concat →
+    // scratch). A pointer-select — exactly one ref is left on the stack.
+    emitStringTernary(node) {
+        this.compileExpr(node.condition);          // JZ pops the condition
+        const elseJ = this.emitJump(Op.JZ);
+        this.emitStringArg(node.consequent);       // true branch ref
+        const endJ = this.emitJump(Op.JMP);
+        this.patchJump(elseJ);
+        this.emitStringArg(node.alternate);        // false branch ref
+        this.patchJump(endJ);
     }
 
     compileBinaryExpr(node) {
@@ -2760,6 +2781,11 @@ export class CodeGenerator {
         // Compiles to STRCONCAT syscall which pushes scratch_ref onto the stack.
         if (node.type === NodeType.BinaryExpr && node.op === '+' && this.isStringNode(node)) {
             this.compileBinaryExpr(node);
+            return;
+        }
+        // cond ? strA : strB → push the chosen branch's ref (pointer-select).
+        if (node.type === NodeType.TernaryExpr && this.isStringNode(node)) {
+            this.emitStringTernary(node);
             return;
         }
         // ── Phase 1 2D row reference: arr[i] of a 2D char array → ADDR_HEAP_OFF
