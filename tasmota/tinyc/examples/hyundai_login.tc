@@ -1,0 +1,180 @@
+// hyundai_login.tc — re-mint the Bluelink refresh token ON-DEVICE via the IDPConnect
+// RSA login, when the stored one expires. Reads /hyundai.cfg (mail/pw/pin), runs
+// authorize → certs → RSA-encrypt password → signin → token, writes the new
+// refresh token to /hytoken.cfg. No Mac/Pi. Console: HYL (run) · HYL? (status).
+//
+// Flow (traced from KiaUvoApiEU): step1 GET authorize → 302 sets the `account`
+// cookie; step2 GET certs (w/ cookie) → JWK n,e,kid; step3 rsaEncrypt(pw); step4
+// POST signin (cookie + encrypted pw) → 302 Location ?code=; step5 POST token →
+// new refresh_token. Only ONE cookie (`account`) is carried.
+
+#define TOKHOST "idpconnect-eu.hyundai.com"
+#define SVCID   "6d477c38-3ca4-4cf3-9557-2a1929a94654"
+#define SECRET  "KUy49XxPzLpLuoK0xhBC77W6VXhmtQR9iQhmIFjjoY4IpxsV"
+#define RUENC   "https%3A%2F%2Fprd.eu-ccapi.hyundai.com%3A8080%2Fapi%2Fv1%2Fuser%2Foauth2%2Ftoken"
+#define UA      "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
+
+char mail[80]; char pw[44];
+char cookie[100]; char jn[360]; char je[8]; char kid[64]; char enc[540];
+char code[140]; char resp[1500]; char hdr[768]; char body[1100];
+int st1 = -9; int st2 = -9; int st4 = -9; int st5 = -9; int rt_ok = 0; int login_req = 0;
+
+void loadCreds() {
+    mail[0] = 0; pw[0] = 0;
+    int f = fileOpen("/hyundai.cfg", "r");
+    if (f < 0) { return; }
+    char buf[170]; int n = fileRead(f, buf, 160); fileClose(f);
+    if (n < 0) { n = 0; } buf[n] = 0;
+    int i = 0; int k = 0;
+    while (buf[i] != 0 && buf[i] != 10 && buf[i] != 13 && k < 78) { mail[k] = buf[i]; i = i + 1; k = k + 1; }
+    mail[k] = 0;
+    while (buf[i] == 10 || buf[i] == 13) { i = i + 1; }
+    k = 0;
+    while (buf[i] != 0 && buf[i] != 10 && buf[i] != 13 && k < 42) { pw[k] = buf[i]; i = i + 1; k = k + 1; }
+    pw[k] = 0;
+}
+
+// connect with retry — rapid same-host TLS reconnects can transiently fail to get
+// an 8KB buffer on a fragmented heap; a short pause lets the prior socket/heap free.
+int tlsConn() {
+    int t = 0;
+    while (t < 5) {
+        if (tlsConnect(TOKHOST, 443) == 0) { return 0; }
+        t = t + 1; delay(1500);
+    }
+    return -1;
+}
+
+int readStatus() {                              // status line → HTTP code
+    char ln[200]; tlsReadLine(ln);
+    char c[8]; strSub(c, ln, 9, 3); return atoi(c);
+}
+
+void skipHeaders() { int m = 1; while (m > 0) { m = tlsReadLine(hdr); } }
+
+// read headers until the blank line; capture the `account` cookie + any ?code=
+void capHeaders() {
+    while (1) {
+        int n = tlsReadLine(hdr);
+        if (n <= 0) { break; }
+        if (strFind(hdr, "Set-Cookie: account=") == 0) {
+            int vs = 20; int k = 0;
+            while (hdr[vs + k] != 0 && hdr[vs + k] != 59 && k < 95) { cookie[k] = hdr[vs + k]; k = k + 1; }
+            cookie[k] = 0;
+        }
+        int lp = strFind(hdr, "code=");
+        if (lp >= 0 && code[0] == 0) {
+            int vs = lp + 5; int k = 0;
+            while (hdr[vs + k] != 0 && hdr[vs + k] != 38 && hdr[vs + k] != 32 && k < 130) { code[k] = hdr[vs + k]; k = k + 1; }
+            code[k] = 0;
+        }
+    }
+}
+
+void step1() {                                  // GET authorize → account cookie
+    cookie[0] = 0;
+    if (tlsConn() != 0) { st1 = -1; return; }
+    sprintf(body, "GET /auth/api/v2/user/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=%s&lang=en&state=ccsp&country=de HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n",
+            SVCID, RUENC, TOKHOST, UA);
+    tlsWrite(body);
+    st1 = readStatus();
+    capHeaders();
+    tlsStop();
+}
+
+void step2() {                                  // GET certs → JWK n,e,kid
+    jn[0] = 0; je[0] = 0; kid[0] = 0;
+    if (tlsConn() != 0) { st2 = -1; return; }
+    sprintf(body, "GET /auth/api/v1/accounts/certs HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nCookie: account=%s\r\nConnection: close\r\n\r\n",
+            TOKHOST, UA, cookie);
+    tlsWrite(body);
+    st2 = readStatus();
+    skipHeaders();
+    tlsRead(resp, 1400);
+    int p = strFind(resp, "\"n\":\"");
+    if (p >= 0) { int vs = p + 5; int k = 0; while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 350) { jn[k] = resp[vs + k]; k = k + 1; } jn[k] = 0; }
+    p = strFind(resp, "\"e\":\"");
+    if (p >= 0) { int vs = p + 5; int k = 0; while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 6) { je[k] = resp[vs + k]; k = k + 1; } je[k] = 0; }
+    p = strFind(resp, "\"kid\":\"");
+    if (p >= 0) { int vs = p + 7; int k = 0; while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 60) { kid[k] = resp[vs + k]; k = k + 1; } kid[k] = 0; }
+    tlsStop();
+}
+
+void step4() {                                  // POST signin → 302 ?code=
+    code[0] = 0;
+    if (tlsConn() != 0) { st4 = -1; return; }
+    // body built in pieces (sprintf caps ~512B; the encrypted pw alone is 512 chars)
+    sprintf(body, "client_id=%s&encryptedPassword=true&password=", SVCID);
+    strcat(body, enc);
+    strcat(body, "&redirect_uri=");
+    strcat(body, RUENC);
+    strcat(body, "&scope=&nonce=&state=ccsp&username=");
+    strcat(body, mail);
+    strcat(body, "&connector_session_key=&kid=");
+    strcat(body, kid);
+    strcat(body, "&_csrf=");
+    int blen = strlen(body);
+    sprintf(hdr, "POST /auth/account/signin HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nCookie: account=%s\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\nContent-Length: %d\r\n\r\n",
+            TOKHOST, UA, cookie, blen);
+    tlsWrite(hdr); tlsWrite(body);
+    st4 = readStatus();
+    capHeaders();
+    tlsStop();
+}
+
+void step5() {                                  // POST token → new refresh_token
+    rt_ok = 0;
+    if (tlsConn() != 0) { st5 = -1; return; }
+    sprintf(body, "grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
+            code, RUENC, SVCID, SECRET);
+    int blen = strlen(body);
+    sprintf(hdr, "POST /auth/api/v2/user/oauth2/token HTTP/1.0\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\nContent-Length: %d\r\n\r\n",
+            TOKHOST, blen);
+    tlsWrite(hdr); tlsWrite(body);
+    st5 = readStatus();
+    skipHeaders();
+    tlsRead(resp, 1400);
+    int p = strFind(resp, "refresh_token");
+    if (p >= 0) {
+        char nrt[60]; int vs = p + 16; int k = 0;
+        while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 55) { nrt[k] = resp[vs + k]; k = k + 1; }
+        nrt[k] = 0;
+        int valid = (k == 48); int q = 0;
+        while (valid && q < 48) { int c = nrt[q]; if (!((c >= 48 && c <= 57) || (c >= 65 && c <= 90))) { valid = 0; } q = q + 1; }
+        if (valid) {
+            int f = fileOpen("/hytoken.cfg", "w");
+            if (f >= 0) { fileWrite(f, nrt, 48); fileClose(f); rt_ok = 1; addLog("HYL: new refresh token saved"); }
+        }
+    }
+    tlsStop();
+}
+
+void doLogin() {
+    st1 = -9; st2 = -9; st4 = -9; st5 = -9; rt_ok = 0;
+    loadCreds();
+    if (strlen(mail) < 5 || strlen(pw) < 3) { st1 = -8; return; }
+    step1();
+    if (st1 == 302) { step2(); }
+    if (st2 == 200 && strlen(jn) > 100) {
+        int n = rsaEncrypt(jn, je, pw, enc);
+        if (n > 0) { step4(); }
+    }
+    if (st4 == 302 && strlen(code) > 10) { step5(); }
+    addLog("HYL: st1=%d st2=%d st4=%d st5=%d saved=%d", st1, st2, st4, st5, rt_ok);
+}
+
+void TaskLoop() {
+    delay(3000);
+    while (1) { if (login_req) { login_req = 0; doLogin(); } delay(500); }
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'r') { login_req = 1; responseCmnd("login queued"); return; }
+    char r[200];
+    sprintf(r, "st1=%d st2=%d st4=%d st5=%d | cookie=%d n=%d kid=%d enc=%d code=%d saved=%d",
+            st1, st2, st4, st5, strlen(cookie), strlen(jn), strlen(kid), strlen(enc), strlen(code), rt_ok);
+    responseCmnd(r);
+}
+
+int main() { addCommand("HYL"); addLog("hyundai_login ready"); return 0; }
