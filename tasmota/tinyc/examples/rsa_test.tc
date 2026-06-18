@@ -1,0 +1,33 @@
+// rsa_test.tc — verify the rsaEncrypt syscall (RSA PKCS#1 v1.5) end-to-end.
+// Encrypts a known string with a throwaway pubkey; writes the hex to /rsa_out.txt.
+// Decrypt that hex on the Mac with /tmp/rsa_test_priv.pem → must equal the plaintext.
+// Console: RSA  (run + report length) · RSA d (dump hex tail)
+
+#define N_B64 "1cR1ao2h1y4BO-Bbh2R6jyvaKqVj-OR9tYbHH913Y9MB2F8yu_XK5HOlqT25OCdPnMGp6sZ3nD7ogDfRG-YfZXsRibK-TfuQSiZ-xcjplWoHORqeHBjne1jLX1fcwmhGRC_BMCl8432ZXgdL8QCWK2MK1kIWsZ5XW7wKnF-SiIpGGQ23-ENY246mZsLa_S0tJZvZEWgjnlR6VsvISRtxPG00eBsis-2iu1URALpNS21i4p7eFr78CsC69AWILMP_j2X8SN6OFV9-rAXEqbWfMOVaQgq2wIiA_BYoSr1dKq822m-jtj78rhLkIvPvVXk0jKusxMy_E_7njajcdJPJlw"
+#define E_B64 "AQAB"
+
+char out[600]; char pt[24]; int hexlen = -9;
+
+void doTest() {
+    strcpy(pt, "TinyC-RSA-OK-42");
+    hexlen = rsaEncrypt(N_B64, E_B64, pt, out);
+    if (hexlen > 0) {
+        int f = fileOpen("/rsa_out.txt", "w");
+        if (f >= 0) { fileWrite(f, out, hexlen); fileClose(f); }
+    }
+    addLog("RSA: pt=%s hexlen=%d", pt, hexlen);
+}
+
+void TaskLoop() { delay(3000); doTest(); while (1) { delay(1000); } }
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'r') { doTest(); responseCmnd("ran"); return; }
+    char r[120]; char tail[40]; int L = hexlen; if (L < 0) { L = 0; }
+    int s = L - 32; if (s < 0) { s = 0; }
+    strSub(tail, out, s, 32);
+    sprintf(r, "hexlen=%d pt=%s tail=%s", hexlen, pt, tail);
+    responseCmnd(r);
+}
+
+int main() { addCommand("RSA"); addLog("rsa_test ready"); return 0; }

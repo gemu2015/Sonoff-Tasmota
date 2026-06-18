@@ -367,6 +367,7 @@ const BUILTINS = {
     'tlsStop':          { syscall: Syscall.TLS_STOP,        args: 0, returns: false },
     'base64Enc':        { syscall: Syscall.BASE64_ENC,      args: 3, returns: true,  strArgs: [0, 2] }, // (in, in_len, out) -> encoded len
     'utcSecs':          { syscall: Syscall.UTC_SECS,        args: 0, returns: true }, // current UTC unix epoch (true UTC, for stamps)
+    'rsaEncrypt':       { syscall: Syscall.RSA_ENCRYPT,     args: 4, returns: true,  strArgs: [0, 1, 2, 3] }, // (n_b64url, e_b64url, plaintext, out_hex) -> hex len; RSA PKCS#1 v1.5
 
     // MQTT — firmware has handlers gated on USE_MQTT; CLAUDE.md + Reference.md
     // documented them, but the BUILTINS entries were missing until 2026-05-14.

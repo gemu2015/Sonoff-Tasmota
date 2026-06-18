@@ -299,7 +299,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     11    // V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     12    // V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -540,6 +540,7 @@ enum TcSyscall {
   SYS_TLS_STOP          = 509, // () -> void — close + free the TLS client
   SYS_BASE64_ENC        = 510, // (in_ref, in_len, out_ref) -> int — base64-encode in_len bytes of in[] into out[]; encoded length (binary-safe for request signing)
   SYS_UTC_SECS          = 511, // () -> int — current UTC unix epoch (UtcTime()). True UTC (unlike timeToSecs(timeStamp()) which is local-as-UTC). For stamps/signing.
+  SYS_RSA_ENCRYPT       = 512, // (n_b64url, e_b64url, plaintext, out_hex) -> hexlen — RSA PKCS#1 v1.5 (type 2) encrypt with pubkey (n,e), output as hex. For IDPConnect-style login (RSA-encrypted password). Uses BearSSL br_rsa_public.
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -2308,6 +2309,22 @@ static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
 #define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
 #define TC_TLS_TX_BUF   1024
 #define TC_TLS_IDLE_MS  3000      // give up a read after this long with no byte
+
+// base64url (RFC 4648, padding optional) → bytes. Normalizes -_ → +/ and re-pads,
+// then mbedtls_base64_decode. Used by rsaEncrypt() to decode the JWK pubkey (n,e).
+static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, size_t *outlen) {
+  char tmp[800]; int n = 0;
+  for (const char *p = in; *p && n < (int)sizeof(tmp) - 4; p++) {
+    char c = *p;
+    if (c == '-') c = '+';
+    else if (c == '_') c = '/';
+    else if (c == '=' || c == '\r' || c == '\n' || c == ' ') continue;
+    tmp[n++] = c;
+  }
+  while (n & 3) tmp[n++] = '=';                 // restore padding
+  tmp[n] = 0;
+  return mbedtls_base64_decode(out, outcap, outlen, (const unsigned char *)tmp, n);
+}
 #endif
 
 /*********************************************************************************************\
@@ -13269,6 +13286,61 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // utcSecs() -> current UTC unix epoch. True UTC (timeToSecs(timeStamp())
       // returns the LOCAL wall-clock as if UTC). For request signing / stamps.
       TC_PUSH(vm, (int32_t)UtcTime());
+      break;
+    }
+
+    case SYS_RSA_ENCRYPT: {
+      // rsaEncrypt(n_b64url, e_b64url, plaintext, out_hex) -> hex length, or -1.
+      // RSA PKCS#1 v1.5 type-2 encryption of `plaintext` with the public key
+      // (n,e), output lowercase hex. n,e are base64url (JWK style). BearSSL's
+      // br_rsa_public does m^e mod n; the type-2 padding is built here.
+      int32_t out_ref = TC_POP(vm);
+      int32_t pw_ref  = TC_POP(vm);
+      int32_t e_ref   = TC_POP(vm);
+      int32_t n_ref   = TC_POP(vm);
+#ifdef ESP32
+      int32_t ret = -1;
+      char n_b64[600]; char e_b64[24]; char pw[160];
+      tc_ref_to_cstr(vm, n_ref, n_b64, sizeof(n_b64));
+      tc_ref_to_cstr(vm, e_ref, e_b64, sizeof(e_b64));
+      tc_ref_to_cstr(vm, pw_ref, pw,   sizeof(pw));
+      unsigned char nbuf[300]; size_t nlen = 0;
+      unsigned char ebuf[8];   size_t elen = 0;
+      int pwlen = strlen(pw);
+      if (tc_b64url_decode(n_b64, nbuf, sizeof(nbuf), &nlen) == 0 &&
+          tc_b64url_decode(e_b64, ebuf, sizeof(ebuf), &elen) == 0 &&
+          nlen >= 64 && nlen <= 256 && elen >= 1 &&
+          pwlen > 0 && (int)nlen >= pwlen + 11) {
+        unsigned char blk[256];
+        blk[0] = 0x00; blk[1] = 0x02;                  // PKCS#1 v1.5 type 2
+        int pslen = (int)nlen - pwlen - 3;             // random non-zero padding
+        for (int i = 0; i < pslen; i++) {
+          unsigned char r;
+          do { r = (unsigned char)(esp_random() & 0xFF); } while (r == 0);
+          blk[2 + i] = r;
+        }
+        blk[2 + pslen] = 0x00;                         // separator
+        memcpy(blk + 3 + pslen, pw, pwlen);            // message
+        br_rsa_public_key pk;
+        pk.n = nbuf; pk.nlen = nlen; pk.e = ebuf; pk.elen = elen;
+        br_rsa_public pub = br_rsa_public_get_default();
+        if (pub && pub(blk, nlen, &pk) == 1) {         // in-place m^e mod n
+          int32_t *obuf = tc_resolve_ref(vm, out_ref);
+          int32_t omax  = tc_ref_maxlen(vm, out_ref);
+          if (obuf && omax > (int)(nlen * 2)) {
+            static const char HX[] = "0123456789abcdef";
+            for (size_t i = 0; i < nlen; i++) {
+              obuf[i * 2]     = HX[(blk[i] >> 4) & 0xF];
+              obuf[i * 2 + 1] = HX[blk[i] & 0xF];
+            }
+            obuf[nlen * 2] = 0; ret = (int32_t)(nlen * 2);
+          }
+        }
+      }
+      TC_PUSH(vm, ret);
+#else
+      (void)n_ref; (void)e_ref; (void)pw_ref; (void)out_ref; TC_PUSH(vm, -1);
+#endif
       break;
     }
 
