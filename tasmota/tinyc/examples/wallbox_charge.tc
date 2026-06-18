@@ -1,0 +1,179 @@
+// wallbox_charge.tc — PV-surplus charging control for an ON/OFF wallbox at .146.
+//
+// Binary ~3.5 kW load. Charge the EV from solar surplus WITHOUT draining the
+// Powerwall — but guarantee a minimum charge when the car runs low. Inputs are
+// shared globals (UDP multicast) + car SOC via the inter-VM share store:
+//
+//   sop=Solar(W) hip=Haus(W) sip=Netz(W) bip=Batterie(W,-=charge) pwl=PW SOC(%)
+//   auto=car charging power(W, "Auto"=car DE)   csoc=car SOC(%) [share, hyundai_soc.tc]
+//
+//   surplus = sop - hip + auto      // spare power if the car weren't charging
+//
+// PERSISTENT, ADJUSTABLE RULES (survive reboot, set via web sliders or console):
+//   max_soc  — stop charging at this %.
+//   min_soc  — below this the car MUST charge, even if the Powerwall discharges.
+// Modes:
+//   csoc >= max_soc           -> stop (full enough).
+//   csoc <  min_soc           -> ZWANGSLADEN: charge now, ignore surplus + PW reserve.
+//   manual Force Load button  -> same as above until max_soc, on demand.
+//   otherwise, if armed       -> PV-surplus charging (ON >= ON_W, OFF < OFF_W, PW>=reserve).
+// Hysteresis + min on/off keep the relay from chattering. Web: tiles + buttons +
+// rule sliders. Console: WB · WB auto · WB force · WB stop · WB max <n> · WB min <n>
+
+#define WB_IP       "192.168.188.146"
+#define CAR_W       3500    // wallbox draw (W)
+#define ON_W        3700    // surplus to START PV charging (car + margin)
+#define OFF_W       3200    // surplus to STOP PV charging (car - margin)
+#define PW_RESERVE  45      // PV mode: don't charge if Powerwall SOC < this %
+#define TICK_S      10      // control decision period (s)
+#define MIN_ON      30      // min ON  = 5 min (30 * 10s)
+#define MIN_OFF     30      // min OFF = 5 min
+#define STREAK      3       // consecutive decisions before switching
+
+global float sop; global float hip; global float sip; global float bip;
+global float pwl; global float auto;          // Powerwall aggregates + car power
+
+persist int max_soc   = 80;   // RULE: stop the car at this %
+persist int min_soc   = 25;   // RULE: below this, force-charge despite PW discharge
+persist int armed     = 0;    // PV-AUTO mode on/off (survives reboot)
+persist int force_load = 0;   // manual Zwangsladen on/off (cleared at max_soc)
+
+int charging = 0; int since = 999; int on_s = 0; int off_s = 0;
+int l_sur = 0; int l_sol = 0; int l_hou = 0; int l_grd = 0; int l_bat = 0;
+int l_pw = -1; int l_car = 0; int l_csoc = -1; int l_force = 0;
+int btn_auto = 0; int btn_force = 0; int btn_stop = 0;     // web button flags
+int last_max = -1; int last_min = -1; int dirty = 0;       // persist dirty-tracking
+
+void setCharge(int on) {
+    char url[80]; char r[64];
+    if (on) { sprintf(url, "http://%s/cm?cmnd=Power%%20ON", WB_IP); }
+    else    { sprintf(url, "http://%s/cm?cmnd=Power%%20OFF", WB_IP); }
+    httpGet(url, r);
+    charging = on; since = 0; on_s = 0; off_s = 0;
+    char w[4]; if (on) { strcpy(w, "ON"); } else { strcpy(w, "OFF"); }
+    addLog("WB: %s  surplus=%dW pw=%d%% car=%d%% force=%d", w, l_sur, l_pw, l_csoc, force_load);
+}
+
+void tick() {
+    int sol = (int)sop; int hou = (int)hip; int grd = (int)sip; int bat = (int)bip;
+    int pw = (int)pwl; int car = (int)auto; int cs = shareGetInt("csoc");
+    int sur = sol - hou + car;                       // spare power if the car were off
+    l_sur = sur; l_sol = sol; l_hou = hou; l_grd = grd; l_bat = bat;
+    l_pw = pw; l_car = car; l_csoc = cs;
+    if (since < 9000) { since = since + 1; }
+
+    int known = (cs > 0);                            // share returns 0 when SOC unknown
+    int full  = (known && cs >= max_soc);
+    if (full && force_load == 1) { force_load = 0; dirty = 1; }   // target reached → clear manual force
+    int autoForce = (known && cs < min_soc);         // below minimum → must charge
+    int doForce = (force_load == 1 || autoForce == 1);
+    l_force = doForce;
+    int pwLow = (pw >= 0 && pw < PW_RESERVE);
+
+    int desire;                                      // 1 = want charging
+    if (full) { desire = 0; }
+    else if (doForce) { desire = 1; }                // force: ignore surplus + PW reserve
+    else if (armed == 0) { desire = 0; }
+    else if (pwLow) { desire = 0; }
+    else if (charging) { desire = (sur >= OFF_W); }  // hysteresis: keep until below OFF_W
+    else { desire = (sur >= ON_W); }                 // start at ON_W
+
+    if (desire == 1) {
+        if (charging == 0) {
+            on_s = on_s + 1; off_s = 0;
+            if (on_s >= STREAK && (since >= MIN_OFF || doForce)) { setCharge(1); }   // force skips min-off
+        }
+    } else {
+        if (charging == 1) {
+            off_s = off_s + 1; on_s = 0;
+            int hard = (full || (pwLow && doForce == 0));
+            if ((hard && since >= 6) || (off_s >= STREAK && since >= MIN_ON)) { setCharge(0); }
+        }
+    }
+}
+
+void pollButtons() {
+    if (btn_auto)  { btn_auto = 0;  armed = 1 - armed; dirty = 1; addLog("WB: armed=%d", armed); }
+    if (btn_force) { btn_force = 0; force_load = 1 - force_load; dirty = 1;
+                     if (force_load == 1) { setCharge(1); } addLog("WB: force=%d", force_load); }
+    if (btn_stop)  { btn_stop = 0;  armed = 0; force_load = 0; dirty = 1; setCharge(0); }
+    if (max_soc != last_max || min_soc != last_min) { dirty = 1; last_max = max_soc; last_min = min_soc; }
+    if (dirty) { dirty = 0; saveVars(); }            // persist rule/mode changes
+}
+
+void TaskLoop() {
+    delay(5000);
+    int c = 0;
+    while (1) {
+        pollButtons();
+        c = c + 1;
+        if (c >= TICK_S) { c = 0; tick(); }
+        delay(1000);
+    }
+}
+
+void WebCall() {
+    char b[140];
+    char st[26];
+    if (charging) { if (l_force) { strcpy(st, "&#9889; ZWANGSLADEN"); } else { strcpy(st, "&#9889; PV-Laden"); } }
+    else { if (armed) { strcpy(st, "AUTO bereit"); } else { strcpy(st, "aus"); } }
+    sprintf(b, "{s}Wallbox{m}%s{e}", st);                                    webSend(b);
+    sprintf(b, "{s}&#9728; Solar / Haus{m}%d / %d W{e}", l_sol, l_hou);      webSend(b);
+    sprintf(b, "{s}&#128268; Netz{m}%d W{e}", l_grd);                       webSend(b);
+    sprintf(b, "{s}&#128267; Batterie{m}%d W &middot; %d%%{e}", l_bat, l_pw); webSend(b);
+    sprintf(b, "{s}&#128663; Auto{m}%d W &middot; %d%%{e}", l_car, l_csoc);   webSend(b);
+    sprintf(b, "{s}&#9211; &Uuml;berschuss{m}%d W{e}", l_sur);               webSend(b);
+    sprintf(b, "{s}Regeln{m}max %d%% &middot; min %d%%{e}", max_soc, min_soc); webSend(b);
+    // control buttons ON THE MAIN PAGE (onclick → WB commands; tile shows the state)
+    webSend("<div style='display:flex;gap:4px;margin:6px 0'>");
+    webSend("<button onclick=\"fetch('/cm?cmnd=WB%20a')\">PV-AUTO</button>");
+    webSend("<button class='bred' onclick=\"fetch('/cm?cmnd=WB%20f')\">&#9889; ZWANGSLADEN</button>");
+    webSend("<button style='background:#666' onclick=\"fetch('/cm?cmnd=WB%20s')\">STOP</button>");
+    webSend("</div>");
+    // rule sliders ON THE MAIN PAGE — pause the 2.3s refresh on grab, send on release
+    char sb[360];
+    sprintf(sb, "<div style='margin:4px 2px'>Max-SOC <b>%d%%</b><input type='range' min='50' max='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=WB%%20max%%20'+this.value);la()\"></div>", max_soc, max_soc);
+    webSend(sb);
+    sprintf(sb, "<div style='margin:4px 2px'>Min-SOC <b>%d%%</b><input type='range' min='5' max='60' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=WB%%20min%%20'+this.value);la()\"></div>", min_soc, min_soc);
+    webSend(sb);
+}
+
+void WebUI() {
+    webSend("<hr><b>&#128663; Wallbox-Steuerung</b>");
+    webSend("<div class='hint'>PV-AUTO = nur aus Solar-&Uuml;berschuss (Powerwall geschont). ZWANGSLADEN = sofort laden, auch aus der Powerwall, bis Max-SOC. Unter Min-SOC l&auml;dt das Auto automatisch zwangsweise.</div>");
+    webButton(btn_auto,  "PV-AUTO an/aus|umgeschaltet");
+    webButton(btn_force, "&#9889; ZWANGSLADEN an/aus|umgeschaltet");
+    webButton(btn_stop,  "STOP (alles aus)|gestoppt");
+    webSend("<hr><b>Regeln (gespeichert)</b>");
+    webSlider(max_soc, 50, 100, "Max Auto-SOC %");
+    webSlider(min_soc, 5,  60,  "Min SOC Zwangsladen %");
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'a') { btn_auto = 1;  responseCmnd("AUTO toggled"); return; }
+    if (cmd[i] == 's') { btn_stop = 1;  responseCmnd("STOP");         return; }
+    if (cmd[i] == 'f') { btn_force = 1; responseCmnd("FORCE toggled"); return; }
+    if (cmd[i] == 'm' && cmd[i + 1] == 'a') { char nb[8]; strSub(nb, cmd, i + 4, 5); int v = atoi(nb);
+        if (v >= 0 && v <= 100) { max_soc = v; dirty = 1; } responseCmnd("max set"); return; }
+    if (cmd[i] == 'm' && cmd[i + 1] == 'i') { char nb[8]; strSub(nb, cmd, i + 4, 5); int v = atoi(nb);
+        if (v >= 0 && v <= 100) { min_soc = v; dirty = 1; } responseCmnd("min set"); return; }
+    char r[170];
+    sprintf(r, "charging=%d armed=%d force=%d max=%d min=%d surplus=%d pw=%d car=%d",
+            charging, armed, force_load, max_soc, min_soc, l_sur, l_pw, l_csoc);
+    responseCmnd(r);
+}
+
+int main() {
+    addCommand("WB");
+    // persist ints load 0 on first run (the `= 80` initializer is not applied to
+    // persisted vars) → seed sane defaults and save them once.
+    int changed = 0;
+    if (max_soc < 50 || max_soc > 100) { max_soc = 80; changed = 1; }
+    if (min_soc < 5  || min_soc > 60)  { min_soc = 25; changed = 1; }  // 0 = unset → default 25
+    if (min_soc >= max_soc)            { min_soc = 25; changed = 1; }
+    last_max = max_soc; last_min = min_soc;
+    if (changed) { saveVars(); }                     // bootstrap defaults on first run only
+    addLog("wallbox_charge ready (max=%d min=%d armed=%d)", max_soc, min_soc, armed);
+    return 0;
+}

@@ -101,6 +101,7 @@ void getStatus() {
     int p = strFind(resp, "batteryStatus");         // evStatus.batteryStatus = SoC %
     if (p >= 0) { char num[8]; strSub(num, resp, p + 15, 6); soc = atoi(num); }
     chg = (strFind(resp, "batteryCharge\":true") >= 0);
+    if (soc >= 0) { shareSetInt("csoc", soc); shareSetInt("cchg", chg); }   // inter-VM share
     tlsStop();
     addLog("HYS: s_sta=%d soc=%d", s_sta, soc);
 }
