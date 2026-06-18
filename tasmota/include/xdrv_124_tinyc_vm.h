@@ -2306,6 +2306,16 @@ static void tc_send_raw(const char *buf, int len) {
 #ifdef ESP32
 #include "WiFiClientSecureLightBearSSL.h"
 static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
+// Global-var crash fix: while a raw-TLS transaction is open, the UDP multicast socket
+// is STOPPED (its queued pbufs freed) so the heavy BearSSL buffers + handshake aren't
+// starved of LwIP resources by the fleet broadcast flood. The VM task only SETS this
+// flag (tlsConnect) / clears it (tlsStop); the MAIN task (tc_udp_poll) does the actual
+// udp.stop()/tc_udp_init() — never touch the socket cross-task (that races + UAF-crashes).
+static volatile bool tc_udp_pause_req = false;
+// RAII guard for the Powerwall path (ESP_SSLClient), which has many early-exit stop()s:
+// set the pause flag on entry, auto-clear on ANY return so a missed clear can't strand
+// the multicast paused. (The raw-TLS path sets/clears the flag explicitly instead.)
+struct TcUdpPauseGuard { TcUdpPauseGuard() { tc_udp_pause_req = true; } ~TcUdpPauseGuard() { tc_udp_pause_req = false; } };
 #define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
 #define TC_TLS_TX_BUF   1024
 #define TC_TLS_IDLE_MS  3000      // give up a read after this long with no byte
@@ -2581,6 +2591,8 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
   // Get auth cookie from Powerwall (POST /api/login/Basic)
   // Auth response is small (~500 bytes) — JsonParser is fine here.
   static String tc_pwl_get_cookie(void) {
+    // (No guard here — only ever called from tc_pwl_get_request, whose guard already
+    //  covers this nested cookie fetch; a second bool guard would clear the flag early.)
     AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: requesting auth cookie from %s"), tc_pwl_ip.c_str());
 
     tc_ssl_client.setInsecure();
@@ -2651,6 +2663,7 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
 
   // GET request — reads body, fills bindings via string scanning, stores for ad-hoc access
   static int32_t tc_pwl_get_request(TcVM *vm, const String &url) {
+    TcUdpPauseGuard _pwl_pause;  // pause the UDP multicast for this TLS txn (global-var crash fix)
     AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: GET %s"), url.c_str());
 
     tc_ssl_client.setInsecure();
@@ -3174,8 +3187,15 @@ static void tc_udp_stop(void) {
 // Poll for incoming UDP packets — called from FUNC_LOOP (standalone only)
 static void tc_udp_poll(void) {
   if (!Tinyc || !Tinyc->udp_used) return;
+  // TLS-pause handoff (set by tlsConnect on the VM task): stop the multicast here on
+  // the MAIN task so its queued pbufs free for BearSSL, and don't re-init or drain
+  // until the transaction clears the flag — frees the LwIP resources TLS needs.
+  if (tc_udp_pause_req) {
+    if (Tinyc->udp_connected) { Tinyc->udp.stop(); Tinyc->udp_connected = false; }
+    return;
+  }
   if (!Tinyc->udp_connected) {
-    tc_udp_init();
+    tc_udp_init();   // (re)connect after a pause, or on first use
     return;
   }
 
@@ -3203,7 +3223,7 @@ static void tc_udp_poll(void) {
       }
       break;
     }
-    if (millis() - timeout > 100) break;  // max 100ms processing
+    if (millis() - timeout > 100) break;  // cap main-loop time per poll
 
     got_packet = true;
     int32_t len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
@@ -3231,7 +3251,11 @@ static void tc_udp_poll(void) {
     // Forward to shared handler
     tc_udp_on_receive(lp, umode, data, datalen);
 
-    optimistic_yield(100);
+    // optimistic_yield() is a NO-OP on ESP32 (esp32-hal.h: `#define optimistic_yield(u)`),
+    // so on a busy multicast network this drain loop hogged the CPU for the whole budget
+    // and starved the WiFi/network task — fatal when a heavy TLS client (Powerwall/Hyundai)
+    // is also competing. yield() forces a real reschedule so the network stack keeps running.
+    yield();
   }
 
   // Reset watchdog timer on any received packet
@@ -13133,6 +13157,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       char host[128];
       tc_ref_to_cstr(vm, host_ref, host, sizeof(host));
       if (port <= 0) port = 443;
+      tc_udp_pause_req = true;   // ask the main task to pause the multicast for this TLS txn
       if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
       tc_tls = new BearSSL::WiFiClientSecure_light(TC_TLS_RX_BUF, TC_TLS_TX_BUF);
       tc_tls->setTimeout(5000);
@@ -13249,6 +13274,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_TLS_STOP: {
 #ifdef ESP32
       if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
+      tc_udp_pause_req = false;  // main task re-inits the multicast on its next poll
 #endif
       break;
     }
