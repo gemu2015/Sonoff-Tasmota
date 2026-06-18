@@ -979,6 +979,16 @@ buf = buf + name;       // entspricht strcat(buf, name)
 
 **Hinweis:** Der `+`-Operator funktioniert nur, wenn die linke Seite von `=` dieselbe Variable wie die linke Seite von `+` ist (d.h. `buf = buf + ...`). Variablenueberschreitende Verkettung wie `a = b + c` wird nicht unterstuetzt — verwenden Sie dafuer `strcpy` + `strcat`.
 
+**String-Ternary:** Ein Ternary mit String-Zweigen (Literale und/oder `char[]`) ist direkt als String-Argument verwendbar — die Bedingung waehlt zur Laufzeit den Zweig (kein Kopieren):
+
+```c
+addLog("Relais %s", on ? "EIN" : "AUS");
+sprintf(buf, "modus=%s", autom ? "AUTO" : name);   // Literal- oder char[]-Zweig
+strcpy(dst, ok ? "ja" : "nein");
+```
+
+Frueher ergab das den Fehler *"String functions require array variable, not expression"* und erforderte eine Hilfsvariable (`char w[4]; if (on) strcpy(w,"EIN"); …`) — dieser Umweg entfaellt jetzt.
+
 ### Eingebaute Zeichenketten-Funktionen
 ```c
 int len = strlen(greeting);             // Laenge (ohne \0)
@@ -4633,7 +4643,7 @@ int main() {
 | `const`                       | Typgeprueft        | Akzeptiert (Dokumentationshinweis, zur Laufzeit nicht erzwungen) |
 | `static` lokale Variablen     | Volle Unterstuetzung | Unterstuetzt: nullinitialisiert, bleibt zwischen Aufrufen erhalten. Nicht-null-Initialisierer werden nicht ausgefuehrt |
 | sizeof                        | Volle Unterstuetzung | Nur zur Uebersetzungszeit: `sizeof(typ)` und `sizeof(name)` unterstuetzt; `sizeof(ausdruck)` nicht unterstuetzt. Siehe [sizeof-Operator](#sizeof-operator) |
-| Ternaerer Operator `?:`       | Volle Unterstuetzung | Unterstuetzt, auch verschachtelt |
+| Ternaerer Operator `?:`       | Volle Unterstuetzung | Unterstuetzt, auch verschachtelt; **String-Zweige** (`cond ? "a" : "b"`, Literale und/oder `char[]`) direkt als String-Argument nutzbar (sprintf `%s`, addLog, strcpy, webSend, …) |
 | do-while                      | Volle Unterstuetzung | Unterstuetzt                 |
 | Zusammengesetzte Zuweisungen  | Volle Unterstuetzung | Unterstuetzt: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
 | Hex-Escape `\xNN`             | Volle Unterstuetzung | Unterstuetzt in String- und Char-Literalen |

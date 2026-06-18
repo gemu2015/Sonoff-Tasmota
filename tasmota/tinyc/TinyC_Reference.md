@@ -1941,6 +1941,23 @@ int grade = (score >= 90) ? 3 : (score >= 70) ? 2 : 1;
 
 Result type follows normal int/float promotion rules.
 
+**String ternary** — a ternary whose branches are both strings (string literals
+and/or `char[]` variables) may be used directly as a string argument to any string
+function (`sprintf`/`printf` `%s`, `addLog`, `strcpy`/`strcat` source, `webSend`,
+`responseCmnd`, …):
+
+```c
+addLog("Relay %s", on ? "ON" : "OFF");
+sprintf(buf, "mode=%s", auto ? "AUTO" : manual_name);   // literal or char[] branch
+strcpy(dst, ok ? "yes" : "no");
+webSend(charging ? "<b>charging</b>" : "idle");
+```
+
+The condition is evaluated and only the chosen branch's string is used (a pointer
+select — no copy). Previously this raised *"String functions require array variable,
+not expression"* and needed an explicit temp (`char w[4]; if (on) strcpy(w,"ON"); …`);
+that workaround is no longer necessary.
+
 ---
 
 ## enum
