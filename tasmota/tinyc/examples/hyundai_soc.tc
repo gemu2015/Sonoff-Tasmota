@@ -1,7 +1,9 @@
 // hyundai_soc.tc — EV state-of-charge from myHyundai/Bluelink, ENTIRELY on the ESP.
 // refresh token (/hytoken.cfg) → access token → vehicle list → cached status → SoC.
-// All over the raw TLS + base64/stamp + jsonStr primitives. Console: HYS / HYS r.
-// Web: a "Car SOC" sensor line.
+// SELF-HEALING: when the refresh token expires, it re-mints a fresh one on-device
+// via the IDPConnect RSA login from /hyundai.cfg (mail/pw/pin) and retries — no Mac.
+// All over the raw TLS + base64/stamp + rsaEncrypt primitives. Console: HYS / HYS r
+// (poll) / HYS l (force re-login). Web: a "Car SOC" sensor line.
 
 #define HOST    "prd.eu-ccapi.hyundai.com"
 #define PORT    8080
@@ -10,6 +12,8 @@
 #define SVCID   "6d477c38-3ca4-4cf3-9557-2a1929a94654"
 #define SECRET  "KUy49XxPzLpLuoK0xhBC77W6VXhmtQR9iQhmIFjjoY4IpxsV"
 #define DEVID   "590bfcdc-6f9c-4fa3-918d-205b81aefa5b"
+#define RUENC   "https%3A%2F%2Fprd.eu-ccapi.hyundai.com%3A8080%2Fapi%2Fv1%2Fuser%2Foauth2%2Ftoken"
+#define UA      "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
 
 int cfb[50] = {68,91,104,70,175,239,13,114,102,70,119,104,101,166,80,201,243,168,
                183,179,171,34,161,149,22,63,122,137,141,150,47,124,178,31,150,127,
@@ -18,7 +22,12 @@ int cfb[50] = {68,91,104,70,175,239,13,114,102,70,119,104,101,166,80,201,243,168
 char stamp[80]; char rtoken[80]; char access[800]; char vid[60];
 char resp[3200]; char snip[170];
 int s_tok = -9; int s_veh = -9; int s_sta = -9; int soc = -1; int chg = 0;
-int flow_req = 0;
+int flow_req = 0; int relog_req = 0;
+
+// re-login state (the login reuses resp for request bodies + responses to save RAM)
+char lmail[80]; char lpw[44]; char lcookie[100]; char ljn[360]; char lje[8];
+char lkid[64]; char lenc[540]; char lcode[140]; char lhdr[768];
+int rl_st1 = 0; int rl_st2 = 0; int rl_st4 = 0; int rl_st5 = 0; int rl_ok = 0; int rl_skip = 0;
 
 void makeStamp() {
     int epoch = utcSecs();
@@ -39,7 +48,6 @@ void loadToken() {
     rtoken[n] = 0;
 }
 
-// write the common authenticated GET header block (short headers + Authorization)
 void authGet(char path[]) {
     char p1[560];
     sprintf(p1, "GET %s HTTP/1.0\r\nHost: %s:%d\r\nccsp-service-id: %s\r\nccsp-application-id: %s\r\nStamp: %s\r\nccsp-device-id: %s\r\nConnection: close\r\nUser-Agent: okhttp/3.12.1\r\n",
@@ -48,15 +56,16 @@ void authGet(char path[]) {
     tlsWrite(p1); tlsWrite(p2);
 }
 
-int readStatus() {                                 // status line → HTTP code
+int readStatus() {                                 // status line → HTTP code, skip headers
     char sline[120]; tlsReadLine(sline);
     char code[8]; strSub(code, sline, 9, 3);
-    int m = 1; while (m > 0) { m = tlsReadLine(sline); }   // skip headers
+    int m = 1; while (m > 0) { m = tlsReadLine(sline); }
     return atoi(code);
 }
 
 void getToken() {
     loadToken();
+    access[0] = 0;
     if (strlen(rtoken) < 10) { s_tok = -2; return; }
     if (tlsConnect(TOKHOST, 443) != 0) { s_tok = -1; return; }
     char body[280];
@@ -66,12 +75,132 @@ void getToken() {
     tlsWrite(hdr); tlsWrite(body);
     s_tok = readStatus();
     tlsRead(resp, 1550);
-    access[0] = 0;
     int p = strFind(resp, "access_token");
     if (p >= 0) { int vs = p + 15; int k = 0;
         while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 780) { access[k] = resp[vs + k]; k = k + 1; }
         access[k] = 0; }
     tlsStop();
+}
+
+// ───────────── on-device re-login (refresh token expired) ─────────────
+void loadCreds() {
+    lmail[0] = 0; lpw[0] = 0;
+    int f = fileOpen("/hyundai.cfg", "r");
+    if (f < 0) { return; }
+    char buf[170]; int n = fileRead(f, buf, 160); fileClose(f);
+    if (n < 0) { n = 0; } buf[n] = 0;
+    int i = 0; int k = 0;
+    while (buf[i] != 0 && buf[i] != 10 && buf[i] != 13 && k < 78) { lmail[k] = buf[i]; i = i + 1; k = k + 1; }
+    lmail[k] = 0;
+    while (buf[i] == 10 || buf[i] == 13) { i = i + 1; }
+    k = 0;
+    while (buf[i] != 0 && buf[i] != 10 && buf[i] != 13 && k < 42) { lpw[k] = buf[i]; i = i + 1; k = k + 1; }
+    lpw[k] = 0;
+}
+
+int lConn() {                                      // connect TOKHOST, retry on fragmented heap
+    int t = 0;
+    while (t < 5) { if (tlsConnect(TOKHOST, 443) == 0) { return 0; } t = t + 1; delay(1500); }
+    return -1;
+}
+int lStat() { char ln[200]; tlsReadLine(ln); char c[8]; strSub(c, ln, 9, 3); return atoi(c); }
+void lSkip() { int m = 1; while (m > 0) { m = tlsReadLine(lhdr); } }
+void lCap() {                                      // read headers; grab account cookie + ?code=
+    while (1) {
+        int n = tlsReadLine(lhdr);
+        if (n <= 0) { break; }
+        if (strFind(lhdr, "Set-Cookie: account=") == 0) {
+            int vs = 20; int k = 0;
+            while (lhdr[vs + k] != 0 && lhdr[vs + k] != 59 && k < 95) { lcookie[k] = lhdr[vs + k]; k = k + 1; }
+            lcookie[k] = 0;
+        }
+        int lp = strFind(lhdr, "code=");
+        if (lp >= 0 && lcode[0] == 0) {
+            int vs = lp + 5; int k = 0;
+            while (lhdr[vs + k] != 0 && lhdr[vs + k] != 38 && lhdr[vs + k] != 32 && k < 130) { lcode[k] = lhdr[vs + k]; k = k + 1; }
+            lcode[k] = 0;
+        }
+    }
+}
+
+void rlStep1() {                                   // GET authorize → account cookie
+    lcookie[0] = 0;
+    if (lConn() != 0) { rl_st1 = -1; return; }
+    sprintf(lhdr, "GET /auth/api/v2/user/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=%s&lang=en&state=ccsp&country=de HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n",
+            SVCID, RUENC, TOKHOST, UA);
+    tlsWrite(lhdr);
+    rl_st1 = lStat(); lCap(); tlsStop();
+}
+
+void rlStep2() {                                   // GET certs → JWK n,e,kid
+    ljn[0] = 0; lje[0] = 0; lkid[0] = 0;
+    if (lConn() != 0) { rl_st2 = -1; return; }
+    sprintf(lhdr, "GET /auth/api/v1/accounts/certs HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nCookie: account=%s\r\nConnection: close\r\n\r\n",
+            TOKHOST, UA, lcookie);
+    tlsWrite(lhdr);
+    rl_st2 = lStat(); lSkip(); tlsRead(resp, 1400);
+    int p = strFind(resp, "\"n\":\"");
+    if (p >= 0) { int vs = p + 5; int k = 0; while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 350) { ljn[k] = resp[vs + k]; k = k + 1; } ljn[k] = 0; }
+    p = strFind(resp, "\"e\":\"");
+    if (p >= 0) { int vs = p + 5; int k = 0; while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 6) { lje[k] = resp[vs + k]; k = k + 1; } lje[k] = 0; }
+    p = strFind(resp, "\"kid\":\"");
+    if (p >= 0) { int vs = p + 7; int k = 0; while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 60) { lkid[k] = resp[vs + k]; k = k + 1; } lkid[k] = 0; }
+    tlsStop();
+}
+
+void rlStep4() {                                   // POST signin → 302 ?code=
+    lcode[0] = 0;
+    if (lConn() != 0) { rl_st4 = -1; return; }
+    sprintf(resp, "client_id=%s&encryptedPassword=true&password=", SVCID);   // body in resp
+    strcat(resp, lenc);
+    strcat(resp, "&redirect_uri=");
+    strcat(resp, RUENC);
+    strcat(resp, "&scope=&nonce=&state=ccsp&username=");
+    strcat(resp, lmail);
+    strcat(resp, "&connector_session_key=&kid=");
+    strcat(resp, lkid);
+    strcat(resp, "&_csrf=");
+    int blen = strlen(resp);
+    sprintf(lhdr, "POST /auth/account/signin HTTP/1.0\r\nHost: %s\r\nUser-Agent: %s\r\nCookie: account=%s\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\nContent-Length: %d\r\n\r\n",
+            TOKHOST, UA, lcookie, blen);
+    tlsWrite(lhdr); tlsWrite(resp);
+    rl_st4 = lStat(); lCap(); tlsStop();
+}
+
+void rlStep5() {                                   // POST token → new refresh_token → save
+    rl_ok = 0;
+    if (lConn() != 0) { rl_st5 = -1; return; }
+    sprintf(resp, "grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
+            lcode, RUENC, SVCID, SECRET);
+    int blen = strlen(resp);
+    sprintf(lhdr, "POST /auth/api/v2/user/oauth2/token HTTP/1.0\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\nContent-Length: %d\r\n\r\n",
+            TOKHOST, blen);
+    tlsWrite(lhdr); tlsWrite(resp);
+    rl_st5 = lStat(); lSkip(); tlsRead(resp, 1400);
+    int p = strFind(resp, "refresh_token");
+    if (p >= 0) {
+        char nrt[60]; int vs = p + 16; int k = 0;
+        while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 55) { nrt[k] = resp[vs + k]; k = k + 1; }
+        nrt[k] = 0;
+        int valid = (k == 48); int q = 0;
+        while (valid && q < 48) { int c = nrt[q]; if (!((c >= 48 && c <= 57) || (c >= 65 && c <= 90))) { valid = 0; } q = q + 1; }
+        if (valid) {
+            int fo = fileOpen("/hytoken.cfg", "w");
+            if (fo >= 0) { fileWrite(fo, nrt, 48); fileClose(fo); rl_ok = 1; addLog("HYS: re-login saved a fresh token"); }
+        }
+    }
+    tlsStop();
+}
+
+void doRelogin() {
+    rl_st1 = 0; rl_st2 = 0; rl_st4 = 0; rl_st5 = 0; rl_ok = 0;
+    loadCreds();
+    if (strlen(lmail) < 5 || strlen(lpw) < 3) { rl_st1 = -8; return; }
+    rlStep1();
+    if (rl_st1 == 302) { rlStep2(); }
+    if (rl_st2 == 200 && strlen(ljn) > 100) { int n = rsaEncrypt(ljn, lje, lpw, lenc); if (n > 0) { rlStep4(); } }
+    if (rl_st4 == 302 && strlen(lcode) > 10) { rlStep5(); }
+    addLog("HYS relogin: st1=%d st2=%d st4=%d st5=%d ok=%d", rl_st1, rl_st2, rl_st4, rl_st5, rl_ok);
 }
 
 void getVehicles() {
@@ -94,32 +223,41 @@ void getStatus() {
     char path[110]; sprintf(path, "/api/v1/spa/vehicles/%s/status/latest", vid);
     authGet(path);
     s_sta = readStatus();
-    tlsRead(resp, 3100);                            // status JSON is large
+    tlsRead(resp, 3100);
     int j; for (j = 0; j < 160; j = j + 1) { int c = resp[j]; if (c == 0) break; if (c == 34 || c == 123 || c == 125) c = 32; snip[j] = c; }
     snip[j] = 0;
     soc = -1;
-    int p = strFind(resp, "batteryStatus");         // evStatus.batteryStatus = SoC %
+    int p = strFind(resp, "batteryStatus");
     if (p >= 0) { char num[8]; strSub(num, resp, p + 15, 6); soc = atoi(num); }
     chg = (strFind(resp, "batteryCharge\":true") >= 0);
-    if (soc >= 0) { shareSetInt("csoc", soc); shareSetInt("cchg", chg); }   // inter-VM share
+    if (soc >= 0) { shareSetInt("csoc", soc); shareSetInt("cchg", chg); }
     tlsStop();
     addLog("HYS: s_sta=%d soc=%d", s_sta, soc);
 }
 
 void doFlow() {
     getToken();
+    // self-heal: got a response (not a connect error) but no usable access token →
+    // the refresh token is bad/expired → re-mint it from creds and retry once.
+    int authfail = (s_tok != -1 && strlen(access) < 20);
+    if ((authfail && rl_skip == 0) || relog_req == 1) {
+        relog_req = 0;
+        doRelogin();
+        if (rl_ok == 1) { getToken(); } else { rl_skip = 12; }   // backoff ~6h on failure
+    }
+    if (rl_skip > 0) { rl_skip = rl_skip - 1; }
     if (s_tok == 200) { getVehicles(); }
     if (s_veh == 200 && strlen(vid) > 8) { getStatus(); }
 }
 
 void TaskLoop() {
     int t = 0;
-    delay(8000);                              // let main() settle before the first poll
-    doFlow();                                 // poll once on start
+    delay(8000);
+    doFlow();
     while (1) {
-        if (flow_req) { flow_req = 0; doFlow(); }       // on-demand: HYS r
+        if (flow_req) { flow_req = 0; doFlow(); }
         t = t + 1;
-        if (t >= 3600) { t = 0; doFlow(); }   // auto every ~30 min (3 req/poll, EU-limit safe)
+        if (t >= 3600) { t = 0; doFlow(); }
         delay(500);
     }
 }
@@ -135,9 +273,11 @@ void WebCall() {
 void Command(char cmd[]) {
     int i = 0; while (cmd[i] == ' ') { i = i + 1; }
     if (cmd[i] == 'r' || cmd[i] == 'R') { flow_req = 1; responseCmnd("RUN"); return; }
+    if (cmd[i] == 'l' || cmd[i] == 'L') { relog_req = 1; flow_req = 1; responseCmnd("RELOGIN queued"); return; }
     char r[240];
-    sprintf(r, "s_tok=%d s_veh=%d s_sta=%d soc=%d chg=%d snip=[%s]", s_tok, s_veh, s_sta, soc, chg, snip);
+    sprintf(r, "s_tok=%d s_veh=%d s_sta=%d soc=%d chg=%d relog_ok=%d skip=%d snip=[%s]",
+            s_tok, s_veh, s_sta, soc, chg, rl_ok, rl_skip, snip);
     responseCmnd(r);
 }
 
-int main() { addCommand("HYS"); addLog("hyundai_soc ready"); return 0; }
+int main() { addCommand("HYS"); addLog("hyundai_soc ready (self-healing token)"); return 0; }
