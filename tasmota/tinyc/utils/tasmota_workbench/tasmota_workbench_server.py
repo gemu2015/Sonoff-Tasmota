@@ -822,6 +822,21 @@ def _flash_claim():
     return None
 
 
+def _esptool_pct(ln):
+    """Parse a progress % from an esptool output line. esptool 5.x prints
+    'NN.N% 12288/1048576 bytes' — the byte counts are exact, so use them; else
+    fall back to the float percent. (The old r'(\\d+)\\s*%' grabbed the FRACTIONAL
+    digit of 'NN.N%' — e.g. '12.3%'->3, '100.0%'->0 — so the progress bar bounced
+    0-9 the whole read and looked like it kept restarting.)"""
+    m = _re.search(r'(\d+)\s*/\s*(\d+)\s*bytes', ln)
+    if m and int(m.group(2)):
+        return min(100, int(m.group(1)) * 100 // int(m.group(2)))
+    m = _re.search(r'(\d+(?:\.\d+)?)\s*%', ln)
+    if m:
+        return min(100, int(float(m.group(1))))
+    return None
+
+
 def _flash_serial(port, baud, offset, erase, nostub=False):
     global flash_proc
     pybin = _have_esptool()
@@ -866,9 +881,9 @@ def _flash_serial(port, baud, offset, erase, nostub=False):
                 if ln:
                     _flog(ln)
                     tail += ln + '\n'
-                mm = _re.search(r'(\d+)\s*%', ln)
-                if mm:
-                    _flash_set(pct=int(mm.group(1)))
+                pct = _esptool_pct(ln)
+                if pct is not None:
+                    _flash_set(pct=pct)
             rc = p.wait()
             with fw_lock:
                 flash_proc = None
@@ -956,20 +971,32 @@ def _flash_read(port, baud, nostub=False):
         with fw_lock:
             flash_proc = p
         tail = ''
+        last_log_pct = -1
         for ln in p.stdout:
             ln = ln.rstrip('\r\n')
-            if ln:
+            if not ln:
+                continue
+            pct = _esptool_pct(ln)
+            if pct is not None:
+                _flash_set(pct=pct)
+                # a 16 MB read emits ~4096 progress lines — log only every ~10%
+                # so we don't flood the console or contend on the state lock.
+                if pct >= last_log_pct + 10 or pct == 100:
+                    _flog(ln)
+                    last_log_pct = pct
+            else:
                 _flog(ln)
-                tail += ln + '\n'
-            mm = _re.search(r'(\d+)\s*%', ln)
-            if mm:
-                _flash_set(pct=int(mm.group(1)))
+                tail += ln + '\n'      # only non-progress lines feed error-detect
         rc = p.wait()
         with fw_lock:
             flash_proc = None
         if rc != 0:
+            # Retry with the ROM loader ONLY on a genuine stub-upload failure —
+            # NOT on the normal "Stub flasher running." line (don't match bare
+            # 'stub', or every failed read would needlessly re-run at 115200).
             if (not nostub and _re.search(
-                    r'write to target RAM|Checksum error|stub', tail, _re.I)):
+                    r'Failed to write to target RAM|Checksum error|'
+                    r'Invalid head of packet', tail, _re.I)):
                 _flog('stub upload failed — retrying read with --no-stub '
                       '(ROM loader, slower).')
                 return _flash_read(port, baud, nostub=True)
@@ -2402,9 +2429,10 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <select id="fport" style="min-width:170px"></select>
     <button id="frefresh" title="Rescan serial ports">⟳</button>
     <label>Baud</label>
-    <select id="fbaud">
-      <option>115200</option><option selected>460800</option>
-      <option>921600</option><option>230400</option>
+    <select id="fbaud" title="Higher = faster read/flash on a native USB Serial/JTAG port (1500000 ≈ 2× over 460800, then it plateaus). Drop to 115200 if a UART bridge is flaky.">
+      <option>115200</option><option>230400</option>
+      <option selected>460800</option><option>921600</option>
+      <option>1500000</option><option>2000000</option>
     </select>
     <label title="Auto-detected from the image when you pick a file; override only if you know better">Offset</label>
     <input id="foffset" value="0x0" style="width:74px"
