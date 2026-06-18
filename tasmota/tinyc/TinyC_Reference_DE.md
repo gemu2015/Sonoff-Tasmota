@@ -2240,6 +2240,50 @@ void EverySecond() {
 
 Vorgefertigte Helfer `mbFC03/04/06/16` in `examples/modbus_lib.tc`.
 
+### Raw-TLS-Client (HTTPS)
+
+**Nur ESP32.** Ein roher TLS-Socket (leichtgewichtiges BearSSL, eine Verbindung zur Zeit) — du sprichst HTTPS selbst: Anfrage schreiben, Statuszeile / Header / Body lesen. Dafuer gedacht, wenn `httpGet` zu hoch-level ist: OAuth-Redirect+Cookie-Abläufe, eigenes Signieren von Anfragen (z.B. ein API-"Stamp"), oder jedes Protokoll, bei dem du die rohe Antwort brauchst. Alles bleibt im `.tcb` — eine Cloud-API die sich aendert ist ein `tc_upload`, kein Firmware-Reflash.
+
+> ⚠️ Handshake und Lesevorgänge **blockieren** (ein TLS-Handshake dauert 1–3 s). Diese aus einer **TaskLoop** aufrufen, nie aus `EverySecond`/`Command` (dort hielten sie die Slot-Mutex wie ein langsames `httpGet`).
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `int tlsConnect(host, port)` | DNS + TLS-Connect (SNI aus `host`); `0`=ok, `-1`=Fehler. `host` = Literal oder `char[]` |
+| `int tlsWrite(char req[])` | Anfrage-String schreiben; gibt geschriebene Bytes zurueck, `-1` wenn nicht verbunden |
+| `int tlsReadLine(char buf[])` | Eine Zeile lesen (bis `\n`, entfernt `\r`) nach `buf`; Laenge, `-1` wenn keine. Fuer Statuszeile + Header |
+| `int tlsRead(char buf[], int maxbytes)` | Bis zu `maxbytes` rohe Bytes nach `buf` lesen; Anzahl. Fuer den Body |
+| `int tlsAvailable()` | Verfuegbare Bytes |
+| `int tlsConnected()` | `1` wenn verbunden |
+| `void tlsStop()` | Schliessen + TLS-Client freigeben |
+| `int base64Enc(char in[], int inlen, char out[])` | `inlen` Bytes aus `in[]` Base64-kodieren nach `out[]` (binaersicher — fuer Signieren / Basic-Auth); kodierte Laenge |
+
+Zertifikatspruefung ist aus (`setInsecure`, wie beim Scripter-httpsget). Empfangspuffer 8 KB (`TC_TLS_RX_BUF` erhoehen, falls ein Server groessere TLS-Records nutzt).
+
+**Beispiel — GET https://example.com/ (auf Hardware bewiesen):**
+```c
+char sline[200];
+char body[300];
+
+void doFetch() {
+    if (tlsConnect("example.com", 443) != 0) { addLog("TLS connect fail"); return; }
+    char req[160];
+    sprintf(req, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n");
+    tlsWrite(req);
+    tlsReadLine(sline);                       // "HTTP/1.1 200 OK"
+    int ok = (strFind(sline, "200") >= 0);
+    int n = 1;
+    while (n > 0) { n = tlsReadLine(body); }  // Header bis zur Leerzeile ueberspringen
+    int len = tlsRead(body, 250);             // erster Teil des Body
+    tlsStop();
+    addLog("TLS: ok200=%d len=%d", ok, len);
+}
+
+void TaskLoop() {                             // TLS-I/O ausserhalb der Main-Loop
+    doFetch();
+    while (1) { delay(60000); }
+}
+```
+
 ### MQTT Abonnieren / Publizieren
 
 MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige Payloads publizieren. Benoetigt `USE_MQTT` in der Firmware (standardmaessig aktiviert).

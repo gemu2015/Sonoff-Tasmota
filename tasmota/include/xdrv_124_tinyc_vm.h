@@ -53,6 +53,7 @@ void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
 #include <mbedtls/aes.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/md.h>
+#include <mbedtls/base64.h>     // base64Enc() syscall (request signing, e.g. Bluelink stamp)
 // LwIP socket-option constants for tcpKeepalive() syscall (TCP_KEEPIDLE,
 // TCP_KEEPINTVL, TCP_KEEPCNT, SO_KEEPALIVE). lwip/sockets.h pulls in
 // setsockopt and the IPPROTO_*/SOL_SOCKET/SO_*/TCP_* macros transitively.
@@ -298,7 +299,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     9     // V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     10    // V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -529,6 +530,15 @@ enum TcSyscall {
   SYS_I2S_MIC_LEVEL     = 500, // () -> int — RMS loudness 0..32767 over one ~256-sample block
   SYS_I2S_MIC_STOP      = 501, // () -> void — stop and release the mic RX channel
   SYS_I2S_DUPLEX_BEGIN  = 502, // (mclk, bclk, ws, dout, din, sampleRate) -> int — full-duplex I2S TX+RX pair (one channel, shared clock). For combined codecs (WM8960) whose ADC is clocked by the I2S TX → enables simultaneous i2sWrite()+i2sMicLevel(). 0=ok
+  // ── Raw TLS client (one connection at a time; ESP32; call from a TaskLoop — these BLOCK) ──
+  SYS_TLS_CONNECT       = 503, // (host_ref, port) -> int — DNS+TLS connect (SNI); 0=ok, -1=fail
+  SYS_TLS_WRITE         = 504, // (str_ref) -> int — write a (request) string; bytes written, -1 if not connected
+  SYS_TLS_READ_LINE     = 505, // (buf_ref) -> int — read one line (to '\n', strips '\r') into buf; length, -1 if none
+  SYS_TLS_READ          = 506, // (buf_ref, maxbytes) -> int — read up to maxbytes raw into buf; count
+  SYS_TLS_AVAILABLE     = 507, // () -> int — bytes available
+  SYS_TLS_CONNECTED     = 508, // () -> int — 1 if connected
+  SYS_TLS_STOP          = 509, // () -> void — close + free the TLS client
+  SYS_BASE64_ENC        = 510, // (in_ref, in_len, out_ref) -> int — base64-encode in_len bytes of in[] into out[]; encoded length (binary-safe for request signing)
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -2282,6 +2292,21 @@ static void tc_send_raw(const char *buf, int len) {
     }
 #endif
   }
+#endif
+
+// ── Generic raw TLS client for TinyC (tlsConnect/tlsWrite/tlsReadLine/tlsRead…) ──
+// ONE TLS connection at a time. Uses Tasmota's lightweight BearSSL client (the
+// same WiFiClientSecure_light that HTTPClientLight + the Scripter httpsget use),
+// so it links on any ESP32 TinyC build — no TESLA_POWERWALL needed. Lets a TinyC
+// app speak RAW HTTPS (write a request, read status/headers/body itself) → OAuth
+// redirect/cookie flows + custom request signing stay in the hot-reloadable .tcb
+// instead of firmware. Call these from a TaskLoop (the handshake + reads BLOCK).
+#ifdef ESP32
+#include "WiFiClientSecureLightBearSSL.h"
+static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
+#define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
+#define TC_TLS_TX_BUF   1024
+#define TC_TLS_IDLE_MS  3000      // give up a read after this long with no byte
 #endif
 
 /*********************************************************************************************\
@@ -13078,6 +13103,166 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_I2S_MIC_STOP:  { break; }
     case SYS_I2S_DUPLEX_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
 #endif
+
+    // ── Raw TLS client — tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/  ──
+    // tlsConnected/tlsStop + base64Enc. ESP32 only (ESP8266 stubs). One connection
+    // at a time. Use from a TaskLoop: the handshake + reads BLOCK (no instr limit
+    // there), and on the main loop they'd hold vm_mutex like a slow httpGet.
+    case SYS_TLS_CONNECT: {
+      int32_t port     = TC_POP(vm);
+      int32_t host_ref = TC_POP(vm);
+#ifdef ESP32
+      char host[128];
+      tc_ref_to_cstr(vm, host_ref, host, sizeof(host));
+      if (port <= 0) port = 443;
+      if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
+      tc_tls = new BearSSL::WiFiClientSecure_light(TC_TLS_RX_BUF, TC_TLS_TX_BUF);
+      tc_tls->setTimeout(5000);
+      tc_tls->setInsecure();                 // no cert pinning (like Scripter httpsget)
+      if (!tc_tls->connect(host, (uint16_t)port)) {
+        delete tc_tls; tc_tls = nullptr;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tlsConnect %s:%d FAIL"), host, (int)port);
+        TC_PUSH(vm, -1); break;
+      }
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tlsConnect %s:%d ok"), host, (int)port);
+      TC_PUSH(vm, 0);
+#else
+      (void)host_ref; (void)port; TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_TLS_WRITE: {
+      int32_t ref = TC_POP(vm);
+#ifdef ESP32
+      int32_t wrote = -1;
+      if (tc_tls && tc_tls->connected()) {
+        int32_t maxn = tc_ref_maxlen(vm, ref);
+        int cap = (maxn > 0 ? maxn : 256) + 1;
+        char *wb = (char *)malloc(cap);
+        if (wb) {
+          int len = tc_ref_to_cstr(vm, ref, wb, cap);
+          wrote = tc_tls->write((const uint8_t *)wb, len);
+          tc_tls->flush();
+          free(wb);
+        }
+      }
+      TC_PUSH(vm, wrote);
+#else
+      (void)ref; TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_TLS_READ_LINE: {
+      int32_t ref = TC_POP(vm);
+#ifdef ESP32
+      int32_t n = -1;
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      int32_t maxLen = tc_ref_maxlen(vm, ref);
+      if (tc_tls && buf && maxLen > 0) {
+        int i = 0; uint32_t last = millis(); bool got = false;
+        while (i < maxLen - 1) {
+          if (tc_tls->available()) {
+            int c = tc_tls->read();
+            if (c < 0) break;
+            last = millis();
+            if (c == '\n') { got = true; break; }
+            if (c != '\r') buf[i++] = (int32_t)(uint8_t)c;
+          } else if (!tc_tls->connected()) {
+            break;
+          } else if (millis() - last > TC_TLS_IDLE_MS) {
+            break;
+          } else { delay(1); }
+        }
+        buf[i] = 0;
+        if (got || i > 0) n = i;
+      }
+      TC_PUSH(vm, n);
+#else
+      (void)ref; TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_TLS_READ: {
+      int32_t maxb = TC_POP(vm);
+      int32_t ref  = TC_POP(vm);
+#ifdef ESP32
+      int32_t cnt = 0;
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      int32_t maxLen = tc_ref_maxlen(vm, ref);
+      if (tc_tls && buf && maxLen > 0) {
+        int cap = maxLen - 1;
+        if (maxb > 0 && maxb < cap) cap = maxb;
+        int i = 0; uint32_t last = millis();
+        while (i < cap) {
+          if (tc_tls->available()) {
+            int c = tc_tls->read();
+            if (c < 0) break;
+            buf[i++] = (int32_t)(uint8_t)c; last = millis();
+          } else if (!tc_tls->connected()) {
+            break;
+          } else if (millis() - last > TC_TLS_IDLE_MS) {
+            break;
+          } else { delay(1); }
+        }
+        buf[i] = 0; cnt = i;
+      }
+      TC_PUSH(vm, cnt);
+#else
+      (void)ref; (void)maxb; TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_TLS_AVAILABLE: {
+#ifdef ESP32
+      TC_PUSH(vm, tc_tls ? (int32_t)tc_tls->available() : 0);
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_TLS_CONNECTED: {
+#ifdef ESP32
+      TC_PUSH(vm, (tc_tls && tc_tls->connected()) ? 1 : 0);
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_TLS_STOP: {
+#ifdef ESP32
+      if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
+#endif
+      break;
+    }
+    case SYS_BASE64_ENC: {
+      int32_t out_ref = TC_POP(vm);
+      int32_t in_len  = TC_POP(vm);
+      int32_t in_ref  = TC_POP(vm);
+#ifdef ESP32
+      int32_t ret = -1;
+      int32_t *inb = tc_resolve_ref(vm, in_ref);
+      int32_t inmax = tc_ref_maxlen(vm, in_ref);
+      if (inb && in_len > 0) {
+        if (in_len > inmax) in_len = inmax;
+        if (in_len > 512) in_len = 512;
+        unsigned char raw[512];
+        for (int i = 0; i < in_len; i++) raw[i] = (unsigned char)(inb[i] & 0xFF);
+        unsigned char ob[704]; size_t olen = 0;
+        if (mbedtls_base64_encode(ob, sizeof(ob), &olen, raw, in_len) == 0) {
+          int32_t *obuf = tc_resolve_ref(vm, out_ref);
+          int32_t omax = tc_ref_maxlen(vm, out_ref);
+          if (obuf && omax > 0) {
+            int i; for (i = 0; i < (int)olen && i < omax - 1; i++) obuf[i] = ob[i];
+            obuf[i] = 0; ret = i;
+          }
+        }
+      }
+      TC_PUSH(vm, ret);
+#else
+      (void)in_ref; (void)in_len; (void)out_ref; TC_PUSH(vm, -1);
+#endif
+      break;
+    }
 
     // ── fileReadPCM16: read 16-bit LE PCM from file into int[] (native speed) ──
     case SYS_FILE_READ_PCM16: {

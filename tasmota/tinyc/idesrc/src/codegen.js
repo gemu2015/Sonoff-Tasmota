@@ -355,6 +355,18 @@ const BUILTINS = {
     'httpHeader':       { syscall: Syscall.HTTP_HEADER,      args: 2, returns: false, strArgs: [0, 1] },
     'webParse':         { syscall: Syscall.WEB_PARSE,        args: 4, returns: true,  strArgs: [0, 3], constArgs: [1] },
 
+    // Raw TLS client (one connection at a time; ESP32; call from a TaskLoop — these BLOCK).
+    // Speak raw HTTPS yourself: write a request, read status/headers/body → OAuth flows,
+    // redirects, cookies, request signing all stay in the .tcb (hot-reloadable).
+    'tlsConnect':       { syscall: Syscall.TLS_CONNECT,     args: 2, returns: true,  strArgs: [0] },     // (host, port) 0=ok -1=fail
+    'tlsWrite':         { syscall: Syscall.TLS_WRITE,       args: 1, returns: true,  strArgs: [0] },     // (request) -> bytes written
+    'tlsReadLine':      { syscall: Syscall.TLS_READ_LINE,   args: 1, returns: true,  strArgs: [0] },     // (buf) -> len, -1 none (headers)
+    'tlsRead':          { syscall: Syscall.TLS_READ,        args: 2, returns: true,  strArgs: [0] },     // (buf, maxbytes) -> count (body)
+    'tlsAvailable':     { syscall: Syscall.TLS_AVAILABLE,   args: 0, returns: true },
+    'tlsConnected':     { syscall: Syscall.TLS_CONNECTED,   args: 0, returns: true },
+    'tlsStop':          { syscall: Syscall.TLS_STOP,        args: 0, returns: false },
+    'base64Enc':        { syscall: Syscall.BASE64_ENC,      args: 3, returns: true,  strArgs: [0, 2] }, // (in, in_len, out) -> encoded len
+
     // MQTT — firmware has handlers gated on USE_MQTT; CLAUDE.md + Reference.md
     // documented them, but the BUILTINS entries were missing until 2026-05-14.
     // All take const-pool string args.

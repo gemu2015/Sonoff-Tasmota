@@ -1,0 +1,49 @@
+// tls_test.tc — verify the raw TLS syscalls end-to-end: GET https://example.com/
+// over the new tlsConnect/tlsWrite/tlsReadLine/tlsRead. Console: `TLS` -> fetch.
+// Proves: rc=0 (TLS handshake ok), ok200 (status line had 200), bodyok ("Example"
+// in the body). Run the fetch from TaskLoop — the handshake + reads BLOCK.
+
+#define HOST "example.com"
+
+char sline[200];
+char body[300];
+int t_rc = -9; int t_ok200 = -9; int t_blen = -9; int t_bodyok = -9;
+int fetch_req = 0;
+
+void doFetch() {
+    t_rc = tlsConnect(HOST, 443);
+    if (t_rc != 0) { addLog("TLS: connect fail %d", t_rc); return; }
+    char req[160];
+    sprintf(req, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", HOST);
+    tlsWrite(req);
+    tlsReadLine(sline);                       // "HTTP/1.1 200 OK"
+    t_ok200 = (strFind(sline, "200") >= 0);
+    int n = 1;
+    while (n > 0) { n = tlsReadLine(body); }  // skip headers until the blank line
+    t_blen = tlsRead(body, 250);              // first chunk of the HTML body
+    t_bodyok = (strFind(body, "Example") >= 0);
+    tlsStop();
+    addLog("TLS: rc=%d ok200=%d blen=%d bodyok=%d", t_rc, t_ok200, t_blen, t_bodyok);
+}
+
+void TaskLoop() {
+    doFetch();                                // once on start
+    while (1) {
+        if (fetch_req) { fetch_req = 0; doFetch(); }  // TLS I/O stays off the main loop
+        delay(500);
+    }
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'r' || cmd[i] == 'R') { fetch_req = 1; responseCmnd("REFETCH"); return; }
+    char r[80];
+    sprintf(r, "rc=%d ok200=%d blen=%d bodyok=%d", t_rc, t_ok200, t_blen, t_bodyok);
+    responseCmnd(r);
+}
+
+int main() {
+    addCommand("TLS");
+    addLog("tls_test ready");
+    return 0;
+}
