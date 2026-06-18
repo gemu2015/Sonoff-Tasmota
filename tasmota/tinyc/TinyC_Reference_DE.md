@@ -1955,6 +1955,8 @@ HTTP GET/POST-Anfragen an externe APIs stellen. URLs koennen Zeichenketten-Liter
 | `int httpGet(char url[], char response[])` | HTTP GET, gibt Antwortlaenge oder negativen Fehler zurueck |
 | `int httpPost(char url[], char data[], char response[])` | HTTP POST, gibt Antwortlaenge oder negativen Fehler zurueck |
 | `void httpHeader(char name[], char value[])` | Benutzerdefinierten Header fuer die naechste Anfrage setzen |
+| `int jsonStr(char json[], "pfad", char out[])` | JSON parsen, String-Wert am `#`-Pfad nach `out` schreiben; gibt Laenge zurueck (`-1` wenn nicht vorhanden) |
+| `float jsonNum(char json[], "pfad")` | JSON parsen, numerischen Wert am `#`-Pfad (in eine **float**-Variable zuweisen — siehe Hinweis) |
 | `int webParse(char source[], "delim", int index, char result[])` | Nicht-JSON Antworttext parsen (siehe unten) |
 
 **Rueckgabewerte:** `> 0` = Laenge des Antwortkoerpers, `0` = leere Antwort, negativ = HTTP-Fehlercode (z.B. -404).
@@ -2044,6 +2046,35 @@ void main() {
         // Split Modus: 4. komma-getrenntes Feld holen
         webParse(response, ",", 4, value);  // value = "otemp=7.0"
         printString(value);
+    }
+}
+```
+
+**jsonNum() / jsonStr() — JSON-Web-Antworten parsen**
+
+Fuer JSON (statt key=value-Text) den eingebauten Parser nutzen — das ist Tasmotas `JsonParser`, du musst also nicht selbst mit `strFind`/`strToken` parsen. Der Pfad ist `#`-getrennt fuer verschachtelte Objekte, dieselbe Syntax wie `sensorGet()` (z.B. `"StatusSNS#ENERGY#Power"`); fuer einen flachen Schluessel einfach den Namen (`"soc"`). Das Quell-JSON wird bis ~640 Bytes geparst.
+
+- `jsonStr(json, "pfad", out)` — schreibt den Wert als String nach `out`, gibt die Laenge zurueck (`-1` wenn der Schluessel fehlt). Zahlen kommen als Text (`"35"` → `atoi`), Booleans als `"true"`/`"false"`.
+- `jsonNum(json, "pfad")` — gibt den Wert als **float** zurueck.
+
+> ⚠️ `jsonNum` gibt die rohen float-**Bits** zurueck, wenn du es einer `int`-Variable zuweist. In eine `float`-Variable lesen, oder `jsonStr` + `atoi`/`atof` verwenden, wenn du eine Ganzzahl willst.
+
+**Beispiel — EV-Ladezustand von einem lokalen JSON-Endpunkt lesen:**
+```c
+char url[64];
+char resp[384];
+char tmp[24];
+
+void main() {
+    strcpy(url, "http://192.168.188.158:8129/soc");
+    int n = httpGet(url, resp);
+    // resp = {"ok":true,"soc":73,"charging":false,"range_km":320,"power_kw":11.0}
+    if (n > 0) {
+        jsonStr(resp, "soc", tmp);       int soc   = atoi(tmp);   // 73
+        jsonStr(resp, "range_km", tmp);  int range = atoi(tmp);   // 320
+        jsonStr(resp, "charging", tmp);  int chg   = (strFind(tmp, "true") >= 0);
+        float pkw = jsonNum(resp, "power_kw");   // 11.0 — OK in einer float-Variable
+        print(soc);
     }
 }
 ```

@@ -2832,6 +2832,8 @@ Make HTTP GET/POST requests to external APIs. URLs can be string literals or dyn
 | `int httpGet(char url[], char response[])` | HTTP GET, returns response length or negative error |
 | `int httpPost(char url[], char data[], char response[])` | HTTP POST, returns response length or negative error |
 | `void httpHeader(char name[], char value[])` | Set custom header for the next request |
+| `int jsonStr(char json[], "path", char out[])` | Parse JSON, write the string value at a `#`-path into `out`; returns length (`-1` if absent) |
+| `float jsonNum(char json[], "path")` | Parse JSON, numeric value at a `#`-path (assign to a **float** — see note) |
 | `int webParse(char source[], "delim", int index, char result[])` | Parse non-JSON response text (see below) |
 
 **Return values:** `> 0` = response body length, `0` = empty response, negative = HTTP error code (e.g., -404).
@@ -2921,6 +2923,35 @@ void main() {
         // split mode: get 4th comma-separated field
         webParse(response, ",", 4, value);  // value = "otemp=7.0"
         printString(value);
+    }
+}
+```
+
+**jsonNum() / jsonStr() — Parse JSON web responses**
+
+For JSON (not key=value text), use the built-in parser — it's Tasmota's `JsonParser`, so you don't hand-roll `strFind`/`strToken`. The path is `#`-delimited for nested objects, the same syntax as `sensorGet()` (e.g. `"StatusSNS#ENERGY#Power"`); for a flat key just use the name (`"soc"`). The source JSON is parsed up to ~640 bytes.
+
+- `jsonStr(json, "path", out)` — writes the value into `out` as a string, returns its length (`-1` if the key is absent). Numbers come back as text (`"35"` → `atoi`), booleans as `"true"`/`"false"`.
+- `jsonNum(json, "path")` — returns the value as a **float**.
+
+> ⚠️ `jsonNum` returns the raw float **bits** if you assign it to an `int`. Read it into a `float` variable, or use `jsonStr` + `atoi`/`atof` when you want an integer.
+
+**Example — read an EV state-of-charge from a local JSON endpoint:**
+```c
+char url[64];
+char resp[384];
+char tmp[24];
+
+void main() {
+    strcpy(url, "http://192.168.188.158:8129/soc");
+    int n = httpGet(url, resp);
+    // resp = {"ok":true,"soc":73,"charging":false,"range_km":320,"power_kw":11.0}
+    if (n > 0) {
+        jsonStr(resp, "soc", tmp);       int soc   = atoi(tmp);   // 73
+        jsonStr(resp, "range_km", tmp);  int range = atoi(tmp);   // 320
+        jsonStr(resp, "charging", tmp);  int chg   = (strFind(tmp, "true") >= 0);
+        float pkw = jsonNum(resp, "power_kw");   // 11.0 — OK in a float var
+        print(soc);
     }
 }
 ```
