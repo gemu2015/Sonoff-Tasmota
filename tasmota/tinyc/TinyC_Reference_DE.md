@@ -1961,6 +1961,25 @@ Daten direkt an Tasmota's Telemetrie- und Websysteme aus Callback-Funktionen sen
 
 HTTP GET/POST-Anfragen an externe APIs stellen. URLs koennen Zeichenketten-Literale oder dynamisch in char-Arrays erstellt sein. Anfragen sind blockierend mit einem 5-Sekunden-Timeout.
 
+> **⚠ Wiederholte/blockierende Netzwerkaufrufe aus einem `spawnTask`-Worker ausfuehren — nicht aus `EverySecond`/`Every50ms`/Befehls-Callbacks.**
+> `httpGet`/`httpPost`/`sendMail` blockieren fuer die gesamte Anfrage (Verbindung + Uebertragung — bis zu mehreren Sekunden bei einem langsamen oder **toten** Host). Auf dem **Main-Loop-Task** (der `EverySecond`, `Every50ms` und Befehls-Callbacks ausfuehrt) haelt die Firmware den VM-Mutex des Slots die ganze Zeit, was alle anderen Slots und die Tasmota-Weboberflaeche blockiert, bis der Aufruf zurueckkehrt. Er wird dort **bewusst** gehalten: gibt man den Mutex auf dem Main-Loop frei und nimmt ihn neu, kann ein konkurrierender Task den Main-Loop dauerhaft verkeilen — Web/LwIP tot, nur ein Spannungsreset hilft (die `4f947fb8d`-Regression). Fuer periodisches Polling die Anfrage daher in einem **Worker-Task** ausfuehren, wo der Mutex um die blockierende E/A herum **freigegeben** wird → kein Stall *und* kein Wedge. Der Worker schreibt Ergebnisse in Globals (oder ein `shareSet*`), die deine Callbacks lesen.
+>
+> ```c
+> char url[96]; char resp[256]; float temp = 0;
+>
+> void poller() {                         // laeuft in seinem EIGENEN FreeRTOS-Task
+>     while (taskRunning("poller")) {
+>         strcpy(url, "http://192.168.1.100/cm?cmnd=Status%208");
+>         if (httpGet(url, resp) > 0) {
+>             temp = jsonNum(resp, "StatusSNS#DS18B20#Temperature");
+>         }
+>         delay(5000);                     // alle 5 s pollen, ABSEITS des Main-Loops
+>     }
+> }
+> int main() { spawnTask("poller", 8); return 0; }   // 8 KB Stack fuer reines HTTP, 10–16 fuer TLS
+> ```
+> Ein einmaliger Abruf in `main()` (das bereits in seinem eigenen Task laeuft) ist in Ordnung — es ist der *wiederholte* Main-Loop-Callback-Fall, der blockiert.
+
 | Funktion | Beschreibung |
 |----------|-------------|
 | `int httpGet(char url[], char response[])` | HTTP GET, gibt Antwortlaenge oder negativen Fehler zurueck |
@@ -1994,7 +2013,7 @@ void main() {
 }
 ```
 
-**Beispiel — Tasmota-Befehl an ein anderes Geraet:**
+**Beispiel — Tasmota-Befehl an ein anderes Geraet** (hier in `EverySecond` zur Kuerze; fuer *periodisches* Polling das Worker-Muster oben verwenden, damit die Anfrage abseits des Main-Loops laeuft):
 ```c
 char url[128];
 char response[512];

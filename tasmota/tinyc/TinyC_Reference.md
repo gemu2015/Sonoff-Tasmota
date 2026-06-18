@@ -2845,6 +2845,25 @@ Send data directly to Tasmota's telemetry and web systems from callback function
 
 Make HTTP GET/POST requests to external APIs. URLs can be string literals or dynamically built in char arrays. Requests are blocking with a 5-second timeout.
 
+> **⚠ Run repeated/blocking network calls from a `spawnTask` worker — not from `EverySecond`/`Every50ms`/command callbacks.**
+> `httpGet`/`httpPost`/`sendMail` block for the whole request (connect + transfer — up to several seconds on a slow or **dead** host). On the **main-loop task** (which runs `EverySecond`, `Every50ms`, and command callbacks) the firmware holds the slot's VM mutex for that entire time, stalling every other slot and the Tasmota web UI until the call returns. It is held there **deliberately**: releasing the mutex on the main loop and re-taking it lets a contending task wedge the main loop indefinitely — web/LwIP dead, only a power-cycle recovers (the `4f947fb8d` regression). So for periodic polling, do the request in a **worker task**, where the mutex **is** released around the blocking I/O → no stall *and* no wedge. The worker writes results into globals (or a `shareSet*`) that your callbacks read.
+>
+> ```c
+> char url[96]; char resp[256]; float temp = 0;
+>
+> void poller() {                         // runs in its OWN FreeRTOS task
+>     while (taskRunning("poller")) {
+>         strcpy(url, "http://192.168.1.100/cm?cmnd=Status%208");
+>         if (httpGet(url, resp) > 0) {
+>             temp = jsonNum(resp, "StatusSNS#DS18B20#Temperature");
+>         }
+>         delay(5000);                     // poll every 5 s, OFF the main loop
+>     }
+> }
+> int main() { spawnTask("poller", 8); return 0; }   // 8 KB stack for plain HTTP, 10–16 for TLS
+> ```
+> A one-shot fetch in `main()` (which already runs in its own task) is fine — it's the *repeated* main-loop-callback case that stalls.
+
 | Function | Description |
 |----------|-------------|
 | `int httpGet(char url[], char response[])` | HTTP GET, returns response length or negative error |
@@ -2878,7 +2897,7 @@ void main() {
 }
 ```
 
-**Example — Tasmota command to another device:**
+**Example — Tasmota command to another device** (shown in `EverySecond` for brevity; for *periodic* polling use the worker pattern above so the request runs off the main loop):
 ```c
 char url[128];
 char response[512];
