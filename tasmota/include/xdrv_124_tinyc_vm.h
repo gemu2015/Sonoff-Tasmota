@@ -4954,18 +4954,23 @@ typedef struct TcShareEntry {
   char     key[TC_SHARE_KEY_LEN + 1];
   uint8_t  type;                                // TC_SHARE_TYPE_*
   union { int32_t i; float f; } v;
-  char     s[TC_SHARE_STR_LEN + 1];             // populated only when type == STR
+  char    *s;                                   // value string, special_malloc'd lazily on
+                                                // first shareSetStr (PSRAM on S3); NULL until then
 } TcShareEntry;
 
-// 1.6.6 — moved from internal DRAM to PSRAM BSS on ESP32 boards with
-// CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY enabled (Andreas's
-// Waveshare-S3-ETH with TC_SHARE_STR_LEN=2560/TC_SHARE_MAX=32 → ~83 KB
-// table that was eating internal DRAM unconditionally). On boards
-// without PSRAM-BSS support EXT_RAM_BSS_ATTR resolves to empty, so the
-// table stays in internal DRAM as before — byte-identical behaviour.
-// Initializer dropped: BSS section is zero-init by definition; an
-// explicit `= { }` forces the compiler to emit a data-section copy,
-// defeating the EXT_RAM_BSS_ATTR placement.
+// Heap fix (Andreas 2026-06-18) — the value string is a LAZY POINTER, not an inline
+// char[TC_SHARE_STR_LEN+1] in every entry. With a large TC_SHARE_STR_LEN the inline
+// form made the static table a huge internal-BSS block (Andreas's Bat3 config
+// 2560×48 ≈ 124 KB) even though typically ONE entry ever carries a big string — and
+// that block fragmented internal DRAM, capping the largest free block at ~31 KB. Now
+// `s` is special_malloc'd on demand (→ PSRAM on S3) only for keys that actually store
+// a string; the static table shrinks to ~TC_SHARE_MAX × sizeof(entry). Measured on
+// .107: free internal heap 67→191 KB, largest block ~31→114 KB.
+// (This supersedes the 1.6.6 EXT_RAM_BSS_ATTR move, which was a no-op on the Arduino
+// framework — the prebuilt IDF S3 lib has CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+// off, so the macro resolved to empty and the table stayed internal regardless.)
+// EXT_RAM_BSS_ATTR is moot on the now-tiny table; kept, harmless. No zero-initializer:
+// BSS is zero-init, so every entry starts type==NONE and s==NULL.
 #ifdef ESP32
 EXT_RAM_BSS_ATTR
 #endif
@@ -5020,7 +5025,7 @@ static int tc_share_find_or_alloc(const char *key) {
   for (int i = 0; i < TC_SHARE_MAX; i++) {
     if (tc_share_table[i].type == TC_SHARE_TYPE_NONE) {
       strlcpy(tc_share_table[i].key, key, sizeof(tc_share_table[i].key));
-      tc_share_table[i].s[0] = '\0';
+      tc_share_table[i].s = nullptr;            // value buffer allocated lazily on shareSetStr
       return i;
     }
   }
@@ -15192,8 +15197,20 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       tc_share_lock();
       int idx = tc_share_find_or_alloc(key);
       if (idx >= 0) {
-        tc_share_table[idx].type = TC_SHARE_TYPE_STR;
-        strlcpy(tc_share_table[idx].s, buf, sizeof(tc_share_table[idx].s));
+        // Lazily allocate the value buffer (PSRAM on S3) — reused on re-set to the
+        // same key. On alloc failure leave the entry non-STR (s stays NULL) + log.
+        if (!tc_share_table[idx].s) {
+          tc_share_table[idx].s = (char *)special_malloc(TC_SHARE_STR_LEN + 1);
+        }
+        if (tc_share_table[idx].s) {
+          tc_share_table[idx].type = TC_SHARE_TYPE_STR;
+          strlcpy(tc_share_table[idx].s, buf, TC_SHARE_STR_LEN + 1);
+        } else {
+          tc_share_unlock();
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: shareSetStr(\"%s\") — out of memory for the %d B value buffer"),
+                 key, (int)(TC_SHARE_STR_LEN + 1));
+          break;
+        }
       } else {
         int used = tc_share_count_used();
         tc_share_unlock();
@@ -15219,7 +15236,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         // concurrent writers); we hold it just long enough for strlcpy.
         if (tc_share_try_lock_ms(50)) {
           int idx = tc_share_find(key);
-          if (idx >= 0 && tc_share_table[idx].type == TC_SHARE_TYPE_STR) {
+          if (idx >= 0 && tc_share_table[idx].type == TC_SHARE_TYPE_STR && tc_share_table[idx].s) {
             strlcpy(buf, tc_share_table[idx].s, sizeof(buf));
           }
           tc_share_unlock();
@@ -15251,7 +15268,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         if (idx >= 0) {
           tc_share_table[idx].type = TC_SHARE_TYPE_NONE;
           tc_share_table[idx].key[0] = '\0';
-          tc_share_table[idx].s[0] = '\0';
+          if (tc_share_table[idx].s) { free(tc_share_table[idx].s); tc_share_table[idx].s = nullptr; }
           removed = 1;
         }
         tc_share_unlock();
@@ -15286,7 +15303,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                  i, tc_share_table[i].key, tname, fbuf);
         } else if (tc_share_table[i].type == TC_SHARE_TYPE_STR) {
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: share[%d] key=\"%s\" type=%s value=\"%s\""),
-                 i, tc_share_table[i].key, tname, tc_share_table[i].s);
+                 i, tc_share_table[i].key, tname, tc_share_table[i].s ? tc_share_table[i].s : "");
         } else {  // INT
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: share[%d] key=\"%s\" type=%s value=%d"),
                  i, tc_share_table[i].key, tname, (int)tc_share_table[i].v.i);

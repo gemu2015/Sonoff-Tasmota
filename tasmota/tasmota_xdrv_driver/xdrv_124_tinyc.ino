@@ -1226,8 +1226,16 @@ void CmndTinyC(void) {
     return;
   }
 
-  // Show status for all slots
+  // Show status for all slots. MaxBlk = largest contiguous INTERNAL-DRAM block
+  // (the metric the share-table heap fix lifts ~31->~120 KB); PsrFree = free PSRAM.
+#ifdef ESP32
+  Response_P(PSTR("{\"TinyC\":{\"Heap\":%d,\"MaxBlk\":%d,\"PsrFree\":%d,\"Slots\":["),
+    ESP_getFreeHeap(),
+    (int)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+    (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+#else
   Response_P(PSTR("{\"TinyC\":{\"Heap\":%d,\"Slots\":["), ESP_getFreeHeap());
+#endif
   bool first = true;
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
