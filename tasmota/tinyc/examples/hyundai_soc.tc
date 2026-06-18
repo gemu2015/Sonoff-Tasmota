@@ -1,0 +1,142 @@
+// hyundai_soc.tc — EV state-of-charge from myHyundai/Bluelink, ENTIRELY on the ESP.
+// refresh token (/hytoken.cfg) → access token → vehicle list → cached status → SoC.
+// All over the raw TLS + base64/stamp + jsonStr primitives. Console: HYS / HYS r.
+// Web: a "Car SOC" sensor line.
+
+#define HOST    "prd.eu-ccapi.hyundai.com"
+#define PORT    8080
+#define TOKHOST "idpconnect-eu.hyundai.com"
+#define APPID   "014d2225-8495-4735-812d-2616334fd15d"
+#define SVCID   "6d477c38-3ca4-4cf3-9557-2a1929a94654"
+#define SECRET  "KUy49XxPzLpLuoK0xhBC77W6VXhmtQR9iQhmIFjjoY4IpxsV"
+#define DEVID   "590bfcdc-6f9c-4fa3-918d-205b81aefa5b"
+
+int cfb[50] = {68,91,104,70,175,239,13,114,102,70,119,104,101,166,80,201,243,168,
+               183,179,171,34,161,149,22,63,122,137,141,150,47,124,178,31,150,127,
+               165,75,229,82,26,166,11,16,246,183,224,250,229,36};
+
+char stamp[80]; char rtoken[80]; char access[800]; char vid[60];
+char resp[3200]; char snip[170];
+int s_tok = -9; int s_veh = -9; int s_sta = -9; int soc = -1; int chg = 0;
+int flow_req = 0;
+
+void makeStamp() {
+    int epoch = utcSecs();
+    char raw[60]; sprintf(raw, "%s:%d", APPID, epoch);
+    int n = strlen(raw); char xb[60]; int i;
+    for (i = 0; i < n; i = i + 1) { xb[i] = (raw[i] ^ cfb[i]) & 255; }
+    base64Enc(xb, n, stamp);
+}
+
+void loadToken() {
+    rtoken[0] = 0;
+    int f = fileOpen("/hytoken.cfg", "r");
+    if (f < 0) { return; }
+    int n = fileRead(f, rtoken, 70);
+    fileClose(f);
+    if (n < 0) { n = 0; }
+    while (n > 0 && rtoken[n - 1] <= 32) { n = n - 1; }
+    rtoken[n] = 0;
+}
+
+// write the common authenticated GET header block (short headers + Authorization)
+void authGet(char path[]) {
+    char p1[560];
+    sprintf(p1, "GET %s HTTP/1.0\r\nHost: %s:%d\r\nccsp-service-id: %s\r\nccsp-application-id: %s\r\nStamp: %s\r\nccsp-device-id: %s\r\nConnection: close\r\nUser-Agent: okhttp/3.12.1\r\n",
+            path, HOST, PORT, SVCID, APPID, stamp, DEVID);
+    char p2[700]; strcpy(p2, "Authorization: Bearer "); strcat(p2, access); strcat(p2, "\r\n\r\n");
+    tlsWrite(p1); tlsWrite(p2);
+}
+
+int readStatus() {                                 // status line → HTTP code
+    char sline[120]; tlsReadLine(sline);
+    char code[8]; strSub(code, sline, 9, 3);
+    int m = 1; while (m > 0) { m = tlsReadLine(sline); }   // skip headers
+    return atoi(code);
+}
+
+void getToken() {
+    loadToken();
+    if (strlen(rtoken) < 10) { s_tok = -2; return; }
+    if (tlsConnect(TOKHOST, 443) != 0) { s_tok = -1; return; }
+    char body[280];
+    sprintf(body, "grant_type=refresh_token&refresh_token=%s&client_id=%s&client_secret=%s", rtoken, SVCID, SECRET);
+    char hdr[360];
+    sprintf(hdr, "POST /auth/api/v2/user/oauth2/token HTTP/1.0\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nConnection: close\r\nContent-Length: %d\r\n\r\n", TOKHOST, strlen(body));
+    tlsWrite(hdr); tlsWrite(body);
+    s_tok = readStatus();
+    tlsRead(resp, 1550);
+    access[0] = 0;
+    int p = strFind(resp, "access_token");
+    if (p >= 0) { int vs = p + 15; int k = 0;
+        while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 780) { access[k] = resp[vs + k]; k = k + 1; }
+        access[k] = 0; }
+    tlsStop();
+}
+
+void getVehicles() {
+    makeStamp();
+    if (tlsConnect(HOST, PORT) != 0) { s_veh = -1; return; }
+    authGet("/api/v1/spa/vehicles");
+    s_veh = readStatus();
+    tlsRead(resp, 2150);
+    vid[0] = 0;
+    int p = strFind(resp, "vehicleId");
+    if (p >= 0) { int vs = p + 12; int k = 0;
+        while (resp[vs + k] != 0 && resp[vs + k] != 34 && k < 55) { vid[k] = resp[vs + k]; k = k + 1; }
+        vid[k] = 0; }
+    tlsStop();
+}
+
+void getStatus() {
+    makeStamp();
+    if (tlsConnect(HOST, PORT) != 0) { s_sta = -1; return; }
+    char path[110]; sprintf(path, "/api/v1/spa/vehicles/%s/status/latest", vid);
+    authGet(path);
+    s_sta = readStatus();
+    tlsRead(resp, 3100);                            // status JSON is large
+    int j; for (j = 0; j < 160; j = j + 1) { int c = resp[j]; if (c == 0) break; if (c == 34 || c == 123 || c == 125) c = 32; snip[j] = c; }
+    snip[j] = 0;
+    soc = -1;
+    int p = strFind(resp, "batteryStatus");         // evStatus.batteryStatus = SoC %
+    if (p >= 0) { char num[8]; strSub(num, resp, p + 15, 6); soc = atoi(num); }
+    chg = (strFind(resp, "batteryCharge\":true") >= 0);
+    tlsStop();
+    addLog("HYS: s_sta=%d soc=%d", s_sta, soc);
+}
+
+void doFlow() {
+    getToken();
+    if (s_tok == 200) { getVehicles(); }
+    if (s_veh == 200 && strlen(vid) > 8) { getStatus(); }
+}
+
+void TaskLoop() {
+    int t = 0;
+    delay(8000);                              // let main() settle before the first poll
+    doFlow();                                 // poll once on start
+    while (1) {
+        if (flow_req) { flow_req = 0; doFlow(); }       // on-demand: HYS r
+        t = t + 1;
+        if (t >= 3600) { t = 0; doFlow(); }   // auto every ~30 min (3 req/poll, EU-limit safe)
+        delay(500);
+    }
+}
+
+void WebCall() {
+    char b[80];
+    if (soc < 0) { webSend("{s}Car SOC{m}- (not read){e}"); return; }
+    char st[12]; if (chg) { strcpy(st, " +laden"); } else { st[0] = 0; }
+    sprintf(b, "{s}Car SOC (IONIQ){m}%d%%%s{e}", soc, st);
+    webSend(b);
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'r' || cmd[i] == 'R') { flow_req = 1; responseCmnd("RUN"); return; }
+    char r[240];
+    sprintf(r, "s_tok=%d s_veh=%d s_sta=%d soc=%d chg=%d snip=[%s]", s_tok, s_veh, s_sta, soc, chg, snip);
+    responseCmnd(r);
+}
+
+int main() { addCommand("HYS"); addLog("hyundai_soc ready"); return 0; }

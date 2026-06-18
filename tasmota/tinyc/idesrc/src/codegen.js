@@ -366,6 +366,7 @@ const BUILTINS = {
     'tlsConnected':     { syscall: Syscall.TLS_CONNECTED,   args: 0, returns: true },
     'tlsStop':          { syscall: Syscall.TLS_STOP,        args: 0, returns: false },
     'base64Enc':        { syscall: Syscall.BASE64_ENC,      args: 3, returns: true,  strArgs: [0, 2] }, // (in, in_len, out) -> encoded len
+    'utcSecs':          { syscall: Syscall.UTC_SECS,        args: 0, returns: true }, // current UTC unix epoch (true UTC, for stamps)
 
     // MQTT — firmware has handlers gated on USE_MQTT; CLAUDE.md + Reference.md
     // documented them, but the BUILTINS entries were missing until 2026-05-14.

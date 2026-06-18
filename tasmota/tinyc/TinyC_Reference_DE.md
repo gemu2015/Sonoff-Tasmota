@@ -1768,6 +1768,7 @@ Zeitstempel-Konvertierung und -Arithmetik. Unterstuetzt ISO-Webformat (`2024-01-
 | `int timeOffset(char buf[], days)` | `days` Tage zum Zeitstempel in buf addieren (in-place). Gibt 0 zurueck |
 | `int timeOffset(char buf[], days, zeroFlag)` | Mit `zeroFlag`=1: zusaetzlich Uhrzeit auf Null setzen (HH:MM:SS→00:00:00) |
 | `int timeToSecs(char buf[])` | Zeitstempel-String in Epochensekunden umwandeln. Gibt Sekunden zurueck |
+| `int utcSecs()` | Aktuelle **UTC**-Unix-Epoche (echtes UTC, anders als `timeToSecs(timeStamp())` = lokal-als-UTC). Fuer Request-Signierung / API-Stamps |
 | `int secsToTime(char buf[], secs)` | Epochensekunden in ISO-Zeitstempel-String in buf umwandeln. Gibt 0 zurueck |
 
 **Format-Erkennung:** `timeConvert` und `timeOffset` erkennen das Eingabeformat automatisch (ISO wenn `T` enthalten, sonst Deutsch) und konvertieren entsprechend.

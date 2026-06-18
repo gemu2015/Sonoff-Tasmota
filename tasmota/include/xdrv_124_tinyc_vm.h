@@ -299,7 +299,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     10    // V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     11    // V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -539,6 +539,7 @@ enum TcSyscall {
   SYS_TLS_CONNECTED     = 508, // () -> int — 1 if connected
   SYS_TLS_STOP          = 509, // () -> void — close + free the TLS client
   SYS_BASE64_ENC        = 510, // (in_ref, in_len, out_ref) -> int — base64-encode in_len bytes of in[] into out[]; encoded length (binary-safe for request signing)
+  SYS_UTC_SECS          = 511, // () -> int — current UTC unix epoch (UtcTime()). True UTC (unlike timeToSecs(timeStamp()) which is local-as-UTC). For stamps/signing.
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -13261,6 +13262,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #else
       (void)in_ref; (void)in_len; (void)out_ref; TC_PUSH(vm, -1);
 #endif
+      break;
+    }
+
+    case SYS_UTC_SECS: {
+      // utcSecs() -> current UTC unix epoch. True UTC (timeToSecs(timeStamp())
+      // returns the LOCAL wall-clock as if UTC). For request signing / stamps.
+      TC_PUSH(vm, (int32_t)UtcTime());
       break;
     }
 
