@@ -19,6 +19,9 @@
 //   otherwise, if armed       -> PV-surplus charging (ON >= ON_W, OFF < OFF_W, PW>=reserve).
 // Hysteresis + min on/off keep the relay from chattering. Web: tiles + buttons +
 // rule sliders. Console: WB · WB auto · WB force · WB stop · WB max <n> · WB min <n>
+//
+// Status LED (onboard WS2812 on GPIO LED_PIN): green = PV-charging · orange =
+//   ZWANGSLADEN · cyan = car full · blue = armed/waiting · yellow = no SOC · white = idle.
 
 #define WB_IP       "192.168.188.146"
 #define CAR_W       3500    // wallbox draw (W)
@@ -29,6 +32,7 @@
 #define MIN_ON      30      // min ON  = 5 min (30 * 10s)
 #define MIN_OFF     30      // min OFF = 5 min
 #define STREAK      3       // consecutive decisions before switching
+#define LED_PIN     21      // onboard WS2812 RGB status LED (board-specific: Lolin S3 Mini = GPIO21)
 
 global float sop; global float hip; global float sip; global float bip;
 global float pwl; global float auto;          // Powerwall aggregates + car power
@@ -101,11 +105,26 @@ void pollButtons() {
     if (dirty) { dirty = 0; saveVars(); }            // persist rule/mode changes
 }
 
+// Status LED — map the controller state to the onboard WS2812 (kept dim: it's an
+// indicator, not a lamp). Called once a second from TaskLoop, so it tracks button
+// presses immediately and the tick() inputs as they refresh.
+void updateLed() {
+    int col;
+    if (l_csoc <= 0)              { col = 0x1A1A00; }   // no car SOC yet     — yellow
+    else if (charging && l_force) { col = 0x401200; }   // ZWANGSLADEN        — orange (forced)
+    else if (charging)            { col = 0x004000; }   // PV-surplus charging — green
+    else if (l_csoc >= max_soc)   { col = 0x001818; }   // car full           — cyan
+    else if (armed)               { col = 0x000040; }   // armed, waiting sun  — blue
+    else                          { col = 0x060606; }   // idle / disarmed     — dim white
+    rgbLed(LED_PIN, col);
+}
+
 void TaskLoop() {
     delay(5000);
     int c = 0;
     while (1) {
         pollButtons();
+        updateLed();
         c = c + 1;
         if (c >= TICK_S) { c = 0; tick(); }
         delay(1000);
