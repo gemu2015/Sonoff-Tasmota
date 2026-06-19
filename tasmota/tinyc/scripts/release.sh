@@ -123,6 +123,22 @@ fi
 FW_DIR="$TASMOTA_ROOT/build_output/firmware"
 STAGE_DIR="/tmp/tinyc_release_v${VERSION}"
 
+# ─────────── Recompile TinyC examples + regenerate the download index ────────
+# Keep bytecode/*.tcb fresh (current compiler/ABI) and bytecode/index.txt — the
+# repo download list the device fetches — complete, so a release never ships
+# stale or missing example binaries. Cheap; runs every time, honors --dry-run.
+if $DRY_RUN; then
+  printf '\033[2m[dry-run]\033[0m node %s\n' "$TINYC_DIR/scripts/compile_examples.mjs"
+else
+  command -v node >/dev/null || die "node not in PATH (needed to compile TinyC examples)"
+  log "Recompiling TinyC examples + regenerating bytecode/index.txt…"
+  node "$TINYC_DIR/scripts/compile_examples.mjs" || die "compile_examples.mjs failed"
+  if command -v git >/dev/null && \
+     [[ -n "$(git -C "$TASMOTA_ROOT" status --porcelain tasmota/tinyc/bytecode 2>/dev/null)" ]]; then
+    log "  NOTE: bytecode/ changed — commit the refreshed .tcb + index.txt so devices fetch them."
+  fi
+fi
+
 # ─────────── Build firmware ──────────────────────────────────────────────────
 if $SKIP_BUILD; then
   log "Skipping build (--skip-build) — reusing $FW_DIR"
