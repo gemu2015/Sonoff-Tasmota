@@ -40,9 +40,10 @@ RELEASE_TAG="${RELEASE_TAG:-testing}"
 STD_TARGETS=(
   tinyc32-4M-plain # ESP32 4MB classic WROOM — plain (no Matter / no camera / no HomeKit)
   tinyc32-4M-cam   # ESP32 4MB WROVER + PSRAM — Matter + camera
-  tinyc32s3        # ESP32-S3 16MB flash (Matter + camera)
+  tinyc32s3        # ESP32-S3 16MB flash (Matter + camera + LVGL)
   tinyc32c3        # ESP32-C3           (Matter)
   tinyc32c6        # ESP32-C6           (Matter)
+  tinyc32-p4-full  # ESP32-P4 16MB+PSRAM — FULL: DSI display + LVGL, Matter, MIPI camera, audio
 )
 
 # ─────────── Argument parsing ────────────────────────────────────────────────
@@ -217,9 +218,10 @@ else
 |------|-------------|
 | \`tinyc32-4M-plain.bin\` / \`.factory.bin\` | ESP32 4MB classic WROOM — plain (no Matter / no camera) |
 | \`tinyc32-4M-cam.bin\` / \`.factory.bin\` | ESP32 4MB WROVER + PSRAM — **Matter** + camera |
-| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** + camera |
+| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** + camera + **LVGL** GUI |
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
+| \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, **Matter**, MIPI camera, audio |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
