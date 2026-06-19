@@ -103,6 +103,10 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
+#ifdef ESP8266
+#include <coredecls.h>   // can_yield() — used to skip the VM tick in a can't-yield
+                         // (ctx:sys / re-entrant) context, avoiding a __yield panic
+#endif
 
 /*********************************************************************************************\
  * Email body callback — called from script_send_email_body() when TinyC initiated the send
@@ -754,6 +758,12 @@ static void TinyCEvery50ms(void) {
   }
 #else
   // ESP8266: slice-based execution in 50ms tick (no FreeRTOS task support)
+  // Skip the whole tick when the cont stack can't yield (e.g. this tick was
+  // re-entered while a /cm web request is in flight — ctx:sys). Running the VM
+  // here would reach a bare yield()/delay() (the slice WDT-feed below, or a
+  // delay() syscall inside the program) and panic __yield (core_esp8266_main.cpp:
+  // 133). The slice just resumes on the next clean tick. (gemu's 8266 TinyC test.)
+  if (!can_yield()) return;
   // Only slot 0 on ESP8266
   TcSlot *s = Tinyc->slots[0];
   if (s && s->loaded && s->running) {
@@ -778,11 +788,16 @@ static void TinyCEvery50ms(void) {
         s->running = false;
       }
     } else {
-      yield();  // Feed WDT before VM execution
+      // Feed the WDT around the slice. MUST be optimistic_yield, NOT bare yield():
+      // this 8266 VM tick can run RE-ENTRANTLY while a /cm web request is in flight
+      // (HandleHttpCommand yields -> loop -> FUNC_EVERY_50ms -> here). A bare yield()
+      // in that nested can't-yield context panics __yield (core_esp8266_main.cpp:133,
+      // "ctx: sys"). optimistic_yield() yields only when can_yield() is true.
+      optimistic_yield(1000);  // feed WDT before VM execution (skipped if can't yield)
       tc_current_slot = s;
       int err = tc_vm_run_slice(&s->vm, Tinyc->instr_per_tick);
       tc_current_slot = nullptr;
-      yield();  // Feed WDT after VM execution
+      optimistic_yield(1000);  // feed WDT after VM execution
 
       if (err != TC_OK && err != TC_ERR_PAUSED) {
         tc_free_all_frames(&s->vm);
