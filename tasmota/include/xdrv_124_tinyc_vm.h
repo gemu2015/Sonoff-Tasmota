@@ -8326,7 +8326,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
     case SYS_ADD_COMMAND: {
-      // addCommand("MP3") — register command prefix for this slot
+      // addCommand("MP3") — register command prefix for this slot.
+      // KNOWN ESP8266 LIMITATION (2026-06-19, Tobias's 8266 test): registering a
+      // prefix keeps the slot "running" (event-driven, to receive the command) after
+      // main() halts. On the 8266 that state tips Tasmota's per-second CORE loop into
+      // a WDT reset (rst cause:4) — the hang is in core, AFTER XdrvCall(FUNC_EVERY_
+      // SECOND) returns, NOT in the TinyC VM or its callbacks (verified by tracing:
+      // VM runs+halts clean, reheal/EverySecond complete, then the next loop iteration
+      // never starts). So command-driven TinyC programs don't run on ESP8266 yet;
+      // plain (non-addCommand) programs do. ESP32 unaffected. Left as a follow-up.
       a = TC_POP(vm);  // const index
       if (tc_current_slot && a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
         strlcpy(tc_current_slot->cmd_prefix, vm->constants[a].str.ptr, sizeof(tc_current_slot->cmd_prefix));

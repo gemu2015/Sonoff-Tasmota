@@ -1831,6 +1831,7 @@ static void HandleTinyCPage(void) {
           strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
         }
         if (repo_url[0]) {
+#ifndef ESP8266   // repo index.txt fetch is disabled on ESP8266 — see the #else note below
           bool cache_fresh = tc_repo_index.length() > 0 &&
                              (millis() - tc_repo_index_ms) < TC_REPO_CACHE_MS;
           bool force_refresh = Webserver->hasArg(F("refresh"));
@@ -1897,6 +1898,16 @@ static void HandleTinyCPage(void) {
                 (unsigned)fetch_dt, (unsigned)TC_REPO_FETCH_MS);
             }
           }
+#else
+          // Repo index.txt fetch is DISABLED on ESP8266: the default repo is an HTTPS
+          // GitHub URL the 8266 can't reach, so every attempt timed out ~5 s and — a
+          // failed fetch never populates the cache — re-blocked on EVERY /tc page poll,
+          // pegging LoadAvg into a WDT reset (rst cause:4). The remote-.tcb dropdown is
+          // simply empty on 8266; local .tcb upload + TinyCRun are unaffected. The
+          // crash that looked like "addCommand" was just its Settings-save flash write
+          // landing on top of this 5 s block. (gemu 2026-06-19)
+          (void)tc_repo_index_ms;  // only the (disabled) fetch uses it on 8266
+#endif
           // Render from cache (whether just-fetched or older). If empty
           // (first-ever visit failed), the section is silently omitted —
           // a subsequent visit will retry and populate it.
@@ -2319,7 +2330,18 @@ void TinyCPrefixReheal(void) {
     }
   }
   // Flush the durable prefix change once, on the main task (never the VM task).
+#ifndef ESP8266
   if (tc_cfg_prefix_dirty) { tc_cfg_prefix_dirty = false; TinyCSaveSettings(); }
+#else
+  // ESP8266: do NOT persist the durable command prefix. TinyCSaveSettings() writes
+  // the 4 KB Tasmota Settings block to flash; doing that on the addCommand() that
+  // every program with a Command() handler runs (via the reheal LEARN above) WDT-
+  // reset the 8266 (rst cause:4) — the blocking flash write in the tick context tips
+  // LoadAvg over. The LIVE cmd_prefix (set directly by SYS_ADD_COMMAND) handles
+  // command dispatch and the RAM-sticky cmd_prefix_saved handles re-registration; only
+  // the cross-reboot durable copy (an ESP32 multi-slot robustness feature) is dropped.
+  tc_cfg_prefix_dirty = false;  // clear so it doesn't linger set
+#endif
 }
 
 #ifdef USE_UFILESYS
