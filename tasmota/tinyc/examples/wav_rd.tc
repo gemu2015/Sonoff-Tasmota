@@ -1,0 +1,62 @@
+// wav_rd.tc — READ-ONLY WAV diagnostic (no audio). Console: RD
+// Opens /doorbell16.wav, parses header, then reports BOTH the raw data bytes
+// (via fileRead) AND fileReadPCM16's samples, so we can see which one corrupts.
+// Expected (from the real file): raw = 01 00 01 00 00 00 ff ff ; pcm = 1,1,0,-1,0,0,0,3
+int wav_channels = 1; int wav_rate = 0; int wav_bits = 0; int wav_data_size = 0;
+int pcm[16];
+
+int parse_wav(int f) {
+    char hdr[12]; int n = fileRead(f, hdr, 12); if (n < 12) { return -1; }
+    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') { return -1; }
+    int gf = 0; int gd = 0; char ck[8]; char fmt[16]; char skip[64];
+    while (gf == 0 || gd == 0) {
+        n = fileRead(f, ck, 8); if (n < 8) { return -1; }
+        int csz = (ck[4] & 255) | ((ck[5] & 255) << 8) | ((ck[6] & 255) << 16) | ((ck[7] & 255) << 24);
+        if (ck[0] == 'f' && ck[1] == 'm' && ck[2] == 't' && ck[3] == ' ') {
+            n = fileRead(f, fmt, 16); if (n < 16) { return -1; }
+            wav_channels = (fmt[2] & 255) | ((fmt[3] & 255) << 8);
+            wav_rate = (fmt[4] & 255) | ((fmt[5] & 255) << 8) | ((fmt[6] & 255) << 16) | ((fmt[7] & 255) << 24);
+            wav_bits = (fmt[14] & 255) | ((fmt[15] & 255) << 8); gf = 1;
+            int rem = csz - 16; while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
+        } else if (ck[0] == 'd' && ck[1] == 'a' && ck[2] == 't' && ck[3] == 'a') { wav_data_size = csz; gd = 1; }
+        else { int rem = csz; while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; } }
+    }
+    return 0;
+}
+
+void Command(char cmd[]) {
+    char r[200];
+    if (cmd[0] == 'I') {
+        // Read the SAME 8 samples but with I2S TX ACTIVE (PA stays off = no audio).
+        // If these come out garbled vs the idle read, concurrent SD+I2S DMA is the bug.
+        int f = fileOpen("/doorbell16.wav", "r");
+        if (f < 0) { responseCmnd("open failed"); return; }
+        parse_wav(f);
+        int ib = i2sBegin(13, 12, 10, 9, 16000);
+        int fr = fileReadPCM16(f, pcm, 8, wav_channels);
+        i2sStop();
+        fileClose(f);
+        sprintf(r, "RDI i2s=%d fr=%d pcm=%d,%d,%d,%d,%d,%d,%d,%d",
+            ib, fr, pcm[0], pcm[1], pcm[2], pcm[3], pcm[4], pcm[5], pcm[6], pcm[7]);
+        responseCmnd(r);
+        return;
+    }
+    // Pass 1: raw data bytes after the header
+    int f = fileOpen("/doorbell16.wav", "r");
+    if (f < 0) { responseCmnd("open failed"); return; }
+    int ph = parse_wav(f);
+    char raw[16]; int nr = fileRead(f, raw, 16);
+    fileClose(f);
+    // Pass 2: same file, read via fileReadPCM16
+    f = fileOpen("/doorbell16.wav", "r");
+    parse_wav(f);
+    int fr = fileReadPCM16(f, pcm, 8, wav_channels);
+    fileClose(f);
+    sprintf(r, "parse=%d rate=%d ch=%d dsz=%d | raw=%02x %02x %02x %02x %02x %02x %02x %02x | nr=%d fr=%d pcm=%d,%d,%d,%d,%d,%d,%d,%d",
+        ph, wav_rate, wav_channels, wav_data_size,
+        raw[0] & 255, raw[1] & 255, raw[2] & 255, raw[3] & 255, raw[4] & 255, raw[5] & 255, raw[6] & 255, raw[7] & 255,
+        nr, fr, pcm[0], pcm[1], pcm[2], pcm[3], pcm[4], pcm[5], pcm[6], pcm[7]);
+    responseCmnd(r);
+}
+
+int main() { addCommand("RD"); return 0; }

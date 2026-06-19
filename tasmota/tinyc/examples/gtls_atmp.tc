@@ -1,0 +1,22 @@
+// gtls_atmp.tc — REPRO: a TLS-using script (heavy BearSSL buffer, like Powerwall/
+// Hyundai) + a READ-ONLY global `atmp` (outside temp, broadcast on the net; never
+// written). Does the TLS + global-receive combination crash? Console: GA (status).
+global float atmp;
+int lat = -99; int n = 0; int tls_rc = -9;
+void TaskLoop() {
+    delay(3000);
+    while (1) {
+        tls_rc = tlsConnect("192.168.188.158", 8443);          // allocate the 8KB BearSSL buffer
+        if (tls_rc == 0) {
+            tlsWrite("GET / HTTP/1.0\r\nHost: 192.168.188.158\r\nConnection: close\r\n\r\n");
+            char r[80]; tlsReadLine(r);
+            tlsStop();
+        }
+        lat = (int)atmp;                                   // READ the received global
+        n = n + 1;
+        addLog("GA: cycle=%d tls=%d atmp=%d", n, tls_rc, lat);
+        delay(6000);
+    }
+}
+void Command(char cmd[]) { char r[80]; sprintf(r, "cycles=%d tls_rc=%d atmp=%d", n, tls_rc, lat); responseCmnd(r); }
+int main() { addCommand("GA"); addLog("gtls_atmp ready"); return 0; }

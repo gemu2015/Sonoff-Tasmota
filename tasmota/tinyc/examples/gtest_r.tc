@@ -1,0 +1,4 @@
+// gtest_r.tc — declare + READ the shared global `gdup` (never writes it).
+global float gdup; int v = -1;
+void TaskLoop() { delay(2500); v = (int)gdup; addLog("GR: read gdup=%d", v); while (1) { delay(3000); } }
+int main() { addLog("gtest_r ready"); return 0; }

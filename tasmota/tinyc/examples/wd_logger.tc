@@ -35,7 +35,7 @@ int hdr[2];      // persisted header: [dpos, wpos]
 
 // ── live sensor values ──
 global float aztemp = 0.0;
-göobal float azhumi = 0.0;
+global float azhumi = 0.0;
 global float aztvoc = 0.0;
 global float azeco2 = 0.0;
 

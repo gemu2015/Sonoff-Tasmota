@@ -1,0 +1,142 @@
+// wav_ram.tc — load doorbell16.wav into RAM, then play from RAM (no SD reads during
+// playback). Splits "corrupt during repeated reads" from "corrupt during streaming".
+//   WR L = load 1s to RAM, report loaded count + max|amp| + samples at 0/4000/8000/15000
+//   WR P = play the loaded RAM buffer (audio; PA on then off)
+#define OUTPUT 0x03
+#define PA_EN 53
+#define MCLK 13
+#define BCLK 12
+#define WS 10
+#define DOUT 9
+int wav_channels = 1; int wav_rate = 0; int wav_bits = 0; int wav_data_size = 0;
+int pcm[512];
+int buf[4000];
+int loaded = 0;
+int dbg_f = -99;
+int dbg_ib = -99;
+int dbg_wrote = 0;
+
+void dw(int reg, int val) { i2cWrite8(0x18, reg, val, 0); }
+int  dr(int reg)          { return i2cRead8(0x18, reg, 0); }
+void es8311_init() {
+    int v;
+    dw(0x01,0x30);dw(0x02,0x00);dw(0x03,0x10);dw(0x16,0x24);
+    dw(0x04,0x10);dw(0x05,0x00);dw(0x0B,0x00);dw(0x0C,0x00);
+    dw(0x10,0x1F);dw(0x11,0x7F);dw(0x00,0x80);
+    v=dr(0x00)&0xBF;dw(0x00,v); dw(0x01,0x3F);
+    v=dr(0x01)&0x7F;dw(0x01,v); v=dr(0x02)&0x07;dw(0x02,v); dw(0x05,0x00);
+    v=(dr(0x03)&0x80)|0x10;dw(0x03,v); v=(dr(0x04)&0x80)|0x10;dw(0x04,v);
+    v=dr(0x07)&0xC0;dw(0x07,v); dw(0x08,0xff); v=(dr(0x06)&0xE0)|3;dw(0x06,v);
+    v=dr(0x01)&(255-0x40);dw(0x01,v); v=dr(0x06)&(255-0x20);dw(0x06,v);
+    dw(0x13,0x10);dw(0x1B,0x0A);dw(0x1C,0x6A);
+    v=dr(0x09)|0x0c;dw(0x09,v); v=dr(0x0A)|0x0c;dw(0x0A,v);
+    v=dr(0x09)&0xFC;dw(0x09,v); v=dr(0x0A)&0xFC;dw(0x0A,v);
+    v=dr(0x09)&0xBF;v=v&(255-0x40);dw(0x09,v); v=dr(0x0A)&0xBF;v=v&(255-0x40);dw(0x0A,v);
+    dw(0x17,0xBF);dw(0x0E,0x02);dw(0x12,0x00);dw(0x14,0x1A);
+    v=dr(0x14)&(255-0x40);dw(0x14,v); dw(0x0D,0x01);dw(0x15,0x40);dw(0x37,0x48);dw(0x45,0x00);
+    v=dr(0x31)&0x9f;dw(0x31,v); dw(0x12,0x00);
+}
+void es8311_volume(int v) { if (v > 100) { v = 100; } dw(0x32, (v * 2550) / 1000); }
+
+int parse_wav(int f) {
+    char hdr[12]; int n = fileRead(f, hdr, 12); if (n < 12) { return -1; }
+    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') { return -1; }
+    int gf = 0; int gd = 0; char ck[8]; char fmt[16]; char skip[64];
+    while (gf == 0 || gd == 0) {
+        n = fileRead(f, ck, 8); if (n < 8) { return -1; }
+        int csz = (ck[4] & 255) | ((ck[5] & 255) << 8) | ((ck[6] & 255) << 16) | ((ck[7] & 255) << 24);
+        if (ck[0] == 'f' && ck[1] == 'm' && ck[2] == 't' && ck[3] == ' ') {
+            n = fileRead(f, fmt, 16); if (n < 16) { return -1; }
+            wav_channels = (fmt[2] & 255) | ((fmt[3] & 255) << 8);
+            wav_rate = (fmt[4] & 255) | ((fmt[5] & 255) << 8) | ((fmt[6] & 255) << 16) | ((fmt[7] & 255) << 24);
+            wav_bits = (fmt[14] & 255) | ((fmt[15] & 255) << 8); gf = 1;
+            int rem = csz - 16; while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; }
+        } else if (ck[0] == 'd' && ck[1] == 'a' && ck[2] == 't' && ck[3] == 'a') { wav_data_size = csz; gd = 1; }
+        else { int rem = csz; while (rem > 0) { int rd = 64; if (rd > rem) { rd = rem; } fileRead(f, skip, rd); rem = rem - rd; } }
+    }
+    return 0;
+}
+
+void loadram() {
+    int f = fileOpen("/doorbell16.wav", "r");
+    dbg_f = f;
+    if (f < 0) { loaded = -1; return; }
+    if (parse_wav(f) != 0) { loaded = -2; fileClose(f); return; }
+    // skip the ~0.2s near-silent lead-in so the loud onset fits a small RAM buffer
+    int skip = 3000;
+    while (skip > 0) { int w = 512; if (w > skip) { w = skip; } int g = fileReadPCM16(f, pcm, w, wav_channels); if (g <= 0) { break; } skip = skip - g; }
+    loaded = 0;
+    while (loaded + 512 <= 4000) {
+        int got = fileReadPCM16(f, pcm, 512, wav_channels);
+        if (got <= 0) { break; }
+        int i; for (i = 0; i < got; i++) { buf[loaded + i] = pcm[i]; }
+        loaded = loaded + got;
+    }
+    fileClose(f);
+}
+
+void playram() {
+    dbg_wrote = 0;
+    if (loaded <= 0) { return; }
+    es8311_init(); dw(0x32, 170);               // moderate ≈ -12dB (reg 229 was very loud, reg 63 inaudible)
+    if (pinFree(PA_EN)) { pinMode(PA_EN, OUTPUT); }
+    dbg_ib = i2sBegin(MCLK, BCLK, WS, DOUT, 16000);
+    if (dbg_ib < 0) { return; }
+    digitalWrite(PA_EN, 1);
+    int rep;
+    for (rep = 0; rep < 2; rep = rep + 1) {     // 2 reps of ~0.22s ≈ 0.45s, well under the 200k instr limit
+        int off = 0;
+        while (off < loaded) {
+            int chunk = 512; if (chunk > loaded - off) { chunk = loaded - off; }
+            int i; for (i = 0; i < chunk; i = i + 1) { pcm[i] = buf[off + i]; }
+            int w = i2sWrite(pcm, chunk);
+            dbg_wrote = dbg_wrote + w;
+            if (w < chunk) { break; }
+            off = off + chunk;
+        }
+    }
+    i2sStop();
+    digitalWrite(PA_EN, 0);
+}
+
+// Stream the SAME loud region (samples 3000..7000) straight from SD, but in SMALL chunks
+// like the plugin (no big read + big blocking write). If clean → chunk granularity was it.
+int strm_chunk = 128;
+void streamSD() {
+    dbg_wrote = 0;
+    int f = fileOpen("/doorbell16.wav", "r");
+    if (f < 0) { return; }
+    if (parse_wav(f) != 0) { fileClose(f); return; }
+    int skip = 3000;
+    while (skip > 0) { int w = 256; if (w > skip) { w = skip; } int g = fileReadPCM16(f, pcm, w, wav_channels); if (g <= 0) { break; } skip = skip - g; }
+    es8311_init(); dw(0x32, 170);
+    if (pinFree(PA_EN)) { pinMode(PA_EN, OUTPUT); }
+    dbg_ib = i2sBegin(MCLK, BCLK, WS, DOUT, 16000);
+    if (dbg_ib < 0) { fileClose(f); return; }
+    digitalWrite(PA_EN, 1);
+    int n = 10000;                    // > 4096 DMA frames so it blocks + plays out in real time
+    while (n > 0) {
+        int chunk = strm_chunk; if (chunk > n) { chunk = n; }
+        int got = fileReadPCM16(f, pcm, chunk, wav_channels);
+        if (got <= 0) { break; }
+        int w = i2sWrite(pcm, got);
+        dbg_wrote = dbg_wrote + w;
+        if (w < got) { break; }
+        n = n - got;
+    }
+    fileClose(f);
+    delay(400);                       // let the last DMA buffer drain before disabling
+    i2sStop();
+    digitalWrite(PA_EN, 0);
+}
+
+void Command(char cmd[]) {
+    if (cmd[0] == 'L' || cmd[1] == 'L') { loadram(); }
+    if (cmd[0] == 'P' || cmd[1] == 'P') { playram(); }
+    if (cmd[0] == 'S' || cmd[1] == 'S') { streamSD(); }       // stream 128-chunk from SD
+    char r[80];
+    sprintf(r, "loaded=%d ib=%d wrote=%d chunk=%d", loaded, dbg_ib, dbg_wrote, strm_chunk);
+    responseCmnd(r);
+}
+
+int main() { addCommand("WR"); loadram(); return 0; }

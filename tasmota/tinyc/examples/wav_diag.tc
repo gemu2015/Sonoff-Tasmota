@@ -1,0 +1,89 @@
+// wav_diag.tc — diagnose the ES8311 DAC playback path on the P4. Console: WDGO to play,
+// WD to read the report. Reports each stage so we can see where the DAC path breaks.
+#define DAC_DOUT 9
+#define MCLK 13
+#define BCLK 12
+#define WS 10
+#define PA_EN 53
+#define OUTPUT 0x03
+
+int d_ack=0; int d_id1=0; int d_id2=0; int d_pafree=0;
+int d_fileok=0; int d_i2s=0; int d_frames=0;
+int wav_channels=1; int wav_rate=0; int wav_bits=0; int wav_data_size=0;
+int pcm[512];
+
+void dw(int reg,int val){ i2cWrite8(0x18,reg,val,0); }
+int  dr(int reg){ return i2cRead8(0x18,reg,0); }
+void es8311_init(){
+    int v;
+    dw(0x01,0x30);dw(0x02,0x00);dw(0x03,0x10);dw(0x16,0x24);
+    dw(0x04,0x10);dw(0x05,0x00);dw(0x0B,0x00);dw(0x0C,0x00);
+    dw(0x10,0x1F);dw(0x11,0x7F);dw(0x00,0x80);
+    v=dr(0x00)&0xBF;dw(0x00,v); dw(0x01,0x3F);
+    v=dr(0x01)&0x7F;dw(0x01,v); v=dr(0x02)&0x07;dw(0x02,v); dw(0x05,0x00);
+    v=(dr(0x03)&0x80)|0x10;dw(0x03,v); v=(dr(0x04)&0x80)|0x10;dw(0x04,v);
+    v=dr(0x07)&0xC0;dw(0x07,v); dw(0x08,0xff); v=(dr(0x06)&0xE0)|3;dw(0x06,v);
+    v=dr(0x01)&(255-0x40);dw(0x01,v); v=dr(0x06)&(255-0x20);dw(0x06,v);
+    dw(0x13,0x10);dw(0x1B,0x0A);dw(0x1C,0x6A);
+    v=dr(0x09)|0x0c;dw(0x09,v); v=dr(0x0A)|0x0c;dw(0x0A,v);
+    v=dr(0x09)&0xFC;dw(0x09,v); v=dr(0x0A)&0xFC;dw(0x0A,v);
+    v=dr(0x09)&0xBF;v=v&(255-0x40);dw(0x09,v); v=dr(0x0A)&0xBF;v=v&(255-0x40);dw(0x0A,v);
+    dw(0x17,0xBF);dw(0x0E,0x02);dw(0x12,0x00);dw(0x14,0x1A);
+    v=dr(0x14)&(255-0x40);dw(0x14,v); dw(0x0D,0x01);dw(0x15,0x40);dw(0x37,0x48);dw(0x45,0x00);
+    v=dr(0x31)&0x9f;dw(0x31,v); dw(0x12,0x00);
+}
+void es8311_volume(int v){ if(v>100){v=100;} dw(0x32,(v*2550)/1000); }
+int parse_wav(int f){
+    char hdr[12]; int n=fileRead(f,hdr,12); if(n<12){return -1;}
+    if(hdr[0]!='R'||hdr[1]!='I'||hdr[2]!='F'||hdr[3]!='F'){return -1;}
+    int gf=0; int gd=0; char ck[8]; char fmt[16]; char skip[64];
+    while(gf==0||gd==0){
+        n=fileRead(f,ck,8); if(n<8){return -1;}
+        int csz=(ck[4]&255)|((ck[5]&255)<<8)|((ck[6]&255)<<16)|((ck[7]&255)<<24);
+        if(ck[0]=='f'&&ck[1]=='m'&&ck[2]=='t'&&ck[3]==' '){
+            n=fileRead(f,fmt,16); if(n<16){return -1;}
+            wav_channels=(fmt[2]&255)|((fmt[3]&255)<<8);
+            wav_rate=(fmt[4]&255)|((fmt[5]&255)<<8)|((fmt[6]&255)<<16)|((fmt[7]&255)<<24);
+            wav_bits=(fmt[14]&255)|((fmt[15]&255)<<8); gf=1;
+            int rem=csz-16; while(rem>0){int rd=64;if(rd>rem){rd=rem;}fileRead(f,skip,rd);rem=rem-rd;}
+        } else if(ck[0]=='d'&&ck[1]=='a'&&ck[2]=='t'&&ck[3]=='a'){ wav_data_size=csz; gd=1; }
+        else { int rem=csz; while(rem>0){int rd=64;if(rd>rem){rd=rem;}fileRead(f,skip,rd);rem=rem-rd;} }
+    }
+    return 0;
+}
+void play(){
+    i2sMicStop(); i2sStop();
+    d_ack = i2cWrite8(0x18,0x00,0x80,0);          // ES8311 ACK on bus 0?
+    d_id1 = dr(0xFD); d_id2 = dr(0xFE);           // chip ID (ES8311 -> ~0x83 0x11)
+    es8311_init(); es8311_volume(90);
+    d_pafree = pinFree(PA_EN);
+    pinMode(PA_EN,OUTPUT); digitalWrite(PA_EN,1);
+    int f=fileOpen("/Startup.wav","r"); d_fileok=(f>=0);
+    if(f>=0){
+        if(parse_wav(f)==0){
+            int ratio=16000/wav_rate; if(ratio<1){ratio=1;} if(ratio>4){ratio=4;}
+            d_i2s=(i2sBegin(MCLK,BCLK,WS,DAC_DOUT,16000)>=0);
+            if(d_i2s){
+                int remaining=wav_data_size/(wav_channels*2); int rc=256/ratio;
+                while(remaining>0){
+                    int chunk=rc; if(chunk>remaining){chunk=remaining;}
+                    int fr=fileReadPCM16(f,pcm,chunk,wav_channels); if(fr<=0){break;}
+                    if(ratio>1){int i;for(i=fr-1;i>=0;i=i-1){int j;for(j=0;j<ratio;j=j+1){pcm[i*ratio+j]=pcm[i];}}fr=fr*ratio;}
+                    if(i2sWrite(pcm,fr)<fr){break;}   // TX stalled/timeout — stop, no stuck noise
+                    d_frames=d_frames+fr; remaining=remaining-chunk;
+                }
+                i2sStop();
+            }
+        }
+        fileClose(f);
+    }
+    digitalWrite(PA_EN,0);
+}
+void Command(char cmd[]){
+    if(strcmp(cmd,"GO")==0){ d_frames=0; play(); }
+    char r[150];
+    sprintf(r,"ack=%d id=%02x:%02x pafree=%d fileok=%d rate=%d ch=%d dsz=%d i2s=%d frames=%d",
+        d_ack,d_id1,d_id2,d_pafree,d_fileok,wav_rate,wav_channels,wav_data_size,d_i2s,d_frames);
+    responseCmnd(r);
+}
+int main(){ addCommand("WD"); return 0; }

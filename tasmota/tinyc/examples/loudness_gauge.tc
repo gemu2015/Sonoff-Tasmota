@@ -11,7 +11,8 @@
 // The intro .wav MUST be 16 kHz mono 16-bit PCM (the ES8311 here is clocked for 16 kHz).
 //   ffmpeg -i in.wav -ar 16000 -ac 1 -c:a pcm_s16le /intro.wav
 
-#define INTRO_WAV  "/Startup.wav"
+#define INTRO_WAV  "/doorbell16.wav"   // 16 kHz → no upsampling (8 kHz Startup.wav's upsample
+                                       // loop blows the 200k-instruction/call limit in main)
 #define MIC_MCLK   13
 #define MIC_BCLK   12
 #define MIC_WS     10
@@ -39,6 +40,7 @@ int arc; int lblPct; int lblPeak; int lblTitle; int bar;
 
 int wav_channels = 1; int wav_rate = 16000; int wav_bits = 16; int wav_data_size = 0;
 int pcm[512];
+int dbg_fk = -9; int dbg_pr = -9; int dbg_rate = 0; int dbg_bits = 0; int dbg_ib = -9; int dbg_fr = 0; int dbg_path = -1; int dbg_stage = -1;
 
 // ───────── ES7210 mic ADC over I2C (port of pes7210_codec_init) ─────────
 void aw(int reg, int val) { i2cWrite8(ES7210_ADDR, reg, val, ES_BUS); }
@@ -103,9 +105,12 @@ void es8311_init() {
     v = dr(0x31) & 0x9f; dw(0x31, v);                    // unmute
     dw(0x12, 0x00);
 }
-void es8311_volume(int vol) {            // 0..100
+void es8311_volume(int vol) {            // 0..100, perceptual
+    if (vol <= 0) { dw(0x32, 0); return; }
     if (vol > 100) { vol = 100; }
-    dw(0x32, (vol * 2550) / 1000);       // -> 0..255
+    // reg 0x32 is ~0.5 dB/step (log) → linear-in-reg = perceptually even. Use a usable band
+    // (reg ~110..195 ≈ -40..+2 dB); a raw 0-255 map left the bottom half inaudible.
+    dw(0x32, 110 + (vol * 85) / 100);
 }
 
 // ───────── WAV parse + play (16-bit, walks chunks; from wav_player) ─────────
@@ -138,17 +143,26 @@ int parse_wav(int f) {
     return 0;
 }
 void play_wav(char path[]) {
-    int f = fileOpen(path, "r");
-    if (f < 0) { addLog("intro: %s not found", path); return; }
-    if (parse_wav(f) < 0 || wav_bits != 16) { addLog("intro: bad/!16-bit wav"); fileClose(f); return; }
+    char p[96];
+    int f = fileOpen(path, "r"); dbg_path = 0;          // default route (ufsp)
+    if (f < 0) { sprintf(p, "/ffs%s", path); f = fileOpen(p, "r"); dbg_path = 1; }    // flash FS
+    if (f < 0) { sprintf(p, "/sdfs%s", path); f = fileOpen(p, "r"); dbg_path = 2; }   // SD FS (explicit)
+    dbg_fk = f;
+    if (f < 0) { addLog("intro: %s not found (all FS)", path); return; }
+    int pr = parse_wav(f); dbg_pr = pr; dbg_rate = wav_rate; dbg_bits = wav_bits;
+    if (pr < 0 || wav_bits != 16) { addLog("intro: bad/!16-bit wav"); fileClose(f); return; }
     // ES8311 is clocked at MIC_RATE; upsample (sample-repeat) lower-rate WAVs so
     // they play at the right pitch (e.g. 8 kHz -> ratio 2).
     int ratio = MIC_RATE / wav_rate;
     if (ratio < 1) { ratio = 1; }
     if (ratio > 4) { ratio = 4; }
-    if (i2sBegin(MIC_MCLK, MIC_BCLK, MIC_WS, DAC_DOUT, MIC_RATE) < 0) { addLog("intro: i2sBegin failed"); fileClose(f); return; }
+    dbg_ib = i2sBegin(MIC_MCLK, MIC_BCLK, MIC_WS, DAC_DOUT, MIC_RATE);
+    if (dbg_ib < 0) { addLog("intro: i2sBegin failed"); fileClose(f); return; }
+    if (pinFree(PA_EN)) { pinMode(PA_EN, OUTPUT); }
+    digitalWrite(PA_EN, 1);              // enable the speaker power amp for the intro
     int remaining = wav_data_size / (wav_channels * 2);
-    int read_chunk = 256 / ratio;
+    int read_chunk = 128 / ratio;        // small chunks keep the P4 I2S DMA fed (512/256 scrambled)
+    if (read_chunk < 1) { read_chunk = 1; }
     while (remaining > 0) {
         int chunk = read_chunk;
         if (chunk > remaining) { chunk = remaining; }
@@ -162,11 +176,14 @@ void play_wav(char path[]) {
             }
             frames = frames * ratio;
         }
-        i2sWrite(pcm, frames);
+        int w = i2sWrite(pcm, frames); dbg_fr = dbg_fr + w;
+        if (w < frames) { break; }   // TX stalled/timeout — stop, don't loop on noise
         remaining = remaining - chunk;
     }
     fileClose(f);
+    delay(400);                          // drain the last DMA buffer before stopping
     i2sStop();
+    digitalWrite(PA_EN, 0);              // amp off after the intro (mic gauge doesn't need it)
     addLog("intro: played");
 }
 
@@ -198,8 +215,9 @@ void Every100ms() {
 }
 
 void Command(char cmd[]) {
-    char resp[64];
-    sprintf(resp, "rms=%d (%d%%) peak=%d%%", level, pct_of(level), pct_of(peak));
+    char resp[120];
+    sprintf(resp, "stage=%d | intro path=%d fk=%d rate=%d bits=%d ib=%d fr=%d | rms=%d",
+        dbg_stage, dbg_path, dbg_fk, dbg_rate, dbg_bits, dbg_ib, dbg_fr, level);
     responseCmnd(resp);
 }
 
@@ -218,21 +236,26 @@ void build_gauge() {
 }
 
 int main() {
+    addCommand("MIC");                   // register FIRST so MIC is queryable even if main aborts
+    dbg_stage = 0;
     i2sMicStop();                        // release any I2S RX/TX held by a previous run
     i2sStop();                           // (handles are global → the intro TX needs the pins free)
 
-    build_gauge();                       // show the gauge first
+    // Intro startup sound FIRST — before build_gauge. The LVGL init consumes the (4) global
+    // file handles, which made play_wav's fileOpen fail (fk=-1) when the gauge was built first;
+    // playing the intro before any LVGL work keeps the handles free. play_wav streams in
+    // 128-frame chunks (P4 DMA-safe), i2sWrite has a finite timeout, breaks on a short write.
+    es8311_init();                       // DAC for the intro
+    es8311_volume(60);                   // moderate
+    play_wav(INTRO_WAV);
+    dbg_stage = 1;                        // intro done
 
-    // INTRO PLAYBACK PARKED — the ES8311 DAC path (es8311_init / play_wav) produces
-    // scrambled audio (I2S clock/format mismatch vs the codec) and i2sWrite can block
-    // forever on a misconfigured TX, leaving the amp on. Re-enable only once the codec
-    // clocking is matched AND i2sWrite has a finite timeout. The mic gauge below is the
-    // proven, safe part.
+    build_gauge();                       // then show the gauge
+    dbg_stage = 2;                        // gauge built
 
     es7210_init();                       // mic for the live gauge
     micok = (i2sMicBegin(MIC_MCLK, MIC_BCLK, MIC_WS, MIC_DIN, MIC_RATE) == 0);
     if (!micok) { addLog("loudness_gauge: mic FAILED"); }
-
-    addCommand("MIC");
+    dbg_stage = 3;                        // complete
     return 0;
 }

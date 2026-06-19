@@ -1,0 +1,4 @@
+// gtest_w.tc — declare + WRITE the shared global `gdup`.
+global float gdup;
+void TaskLoop() { delay(2500); gdup = 42.0; addLog("GW: wrote gdup"); while (1) { delay(3000); } }
+int main() { addLog("gtest_w ready"); return 0; }

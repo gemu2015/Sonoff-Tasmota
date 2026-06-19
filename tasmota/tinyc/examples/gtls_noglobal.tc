@@ -1,0 +1,17 @@
+// gtls_noglobal.tc — CONTROL: identical TLS loop, NO global var. Should stay reachable.
+int lat = 0; int n = 0; int tls_rc = -9;
+void TaskLoop() {
+    delay(3000);
+    while (1) {
+        tls_rc = tlsConnect("192.168.188.158", 8443);
+        if (tls_rc == 0) {
+            tlsWrite("GET / HTTP/1.0\r\nHost: 192.168.188.158\r\nConnection: close\r\n\r\n");
+            char r[80]; tlsReadLine(r); tlsStop();
+        }
+        lat = 31; n = n + 1;
+        addLog("GN: cycle=%d tls=%d", n, tls_rc);
+        delay(6000);
+    }
+}
+void Command(char cmd[]) { char r[80]; sprintf(r, "cycles=%d tls_rc=%d", n, tls_rc); responseCmnd(r); }
+int main() { addCommand("GN"); addLog("gtls_noglobal ready"); return 0; }

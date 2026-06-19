@@ -100,12 +100,11 @@ int main() {
 
     // album art (circular, pulses)
     cover = lvglImage(0);
-    lvglImageSrc(cover, "A:/cover.png");
+    lvglImageSrc(cover, "A:/cover.png");           // already a circle w/ transparent corners
     lvglSetSize(cover, COVER, COVER);
     lvglSetPos(cover, CX - COVER_R, CY - COVER_R);
-    lvglSetStyleInt(cover, ST_RADIUS, COVER_R);
-    lvglSetStyleInt(cover, ST_CLIP, 1);
-    lvglImagePivot(cover, COVER_R, COVER_R);
+    lvglImagePivot(cover, COVER_R, COVER_R);        // scale/pulse about centre; no clip (alpha is the circle)
+    lvglImageScale(cover, 226, 226);                // rest at ~88%; the beat grows it toward 100% (never above -> never clipped to a square)
 
     // text
     title = lvglLabel(0);
@@ -226,7 +225,7 @@ int main() {
             int bass; int z; int dz;
             bass = (spec[sf % 16] + spec[(sf + 1) % 16]) / 2;
             if (!playing) { bass = 6; }
-            z = 256 + (bass * 40) / 100;       // gentle, up to ~+15%
+            z = 226 + (bass * 30) / 100;       // 88%..~99%, stays <=256 so the circle never scales past its box (no square cut)
             dz = z - lastz;
             if (dz < 0) { dz = 0 - dz; }
             if (dz >= 6) { lvglImageScale(cover, z, z); lastz = z; }
