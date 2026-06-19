@@ -8,6 +8,14 @@
 #ifndef _XDRV_124_TINYC_VM_H_
 #define _XDRV_124_TINYC_VM_H_
 
+// TinyC-LVGL bridge needs LVGL, which is ESP32-only. If USE_TINYC_LVGL leaks in
+// from a shared config block on an ESP8266 build, drop it — otherwise the
+// tc_lvgl_*() call sites compile but their implementation (xdrv_54_lvgl) doesn't,
+// giving undefined-reference link errors.
+#if defined(USE_TINYC_LVGL) && !defined(ESP32)
+  #undef USE_TINYC_LVGL
+#endif
+
 #ifndef HARDWARE_FALLBACK
 #define HARDWARE_FALLBACK 2
 #endif
@@ -1464,6 +1472,14 @@ typedef struct {
   #define TC_MAX_VMS 1    // ESP8266: single VM only
 #endif
 
+// Inter-VM share store (shareSetInt/Float/Str + shareGet/Has/Delete/Dump) is only
+// meaningful with >1 slot — a single-slot build (ESP8266) has no other VM to share
+// with, so the whole table + helpers + 10 syscall handlers are compiled out (frees
+// the static tc_share_table[] BSS + the handler/lock code from flash).
+#if TC_MAX_VMS > 1
+  #define TC_USE_SHARE
+#endif
+
 struct TcSlot {
   TcVM     vm;
   uint8_t *program;
@@ -2303,15 +2319,17 @@ static void tc_send_raw(const char *buf, int len) {
 // app speak RAW HTTPS (write a request, read status/headers/body itself) → OAuth
 // redirect/cookie flows + custom request signing stay in the hot-reloadable .tcb
 // instead of firmware. Call these from a TaskLoop (the handshake + reads BLOCK).
-#ifdef ESP32
-#include "WiFiClientSecureLightBearSSL.h"
-static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
 // Global-var crash fix: while a raw-TLS transaction is open, the UDP multicast socket
 // is STOPPED (its queued pbufs freed) so the heavy BearSSL buffers + handshake aren't
 // starved of LwIP resources by the fleet broadcast flood. The VM task only SETS this
 // flag (tlsConnect) / clears it (tlsStop); the MAIN task (tc_udp_poll) does the actual
 // udp.stop()/tc_udp_init() — never touch the socket cross-task (that races + UAF-crashes).
+// Declared for BOTH platforms — tc_udp_poll reads it; only the ESP32 raw-TLS/Powerwall
+// paths ever SET it, so it stays false on ESP8266 (single VM, no raw TLS).
 static volatile bool tc_udp_pause_req = false;
+#ifdef ESP32
+#include "WiFiClientSecureLightBearSSL.h"
+static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
 // RAII guard for the Powerwall path (ESP_SSLClient), which has many early-exit stop()s:
 // set the pause flag on entry, auto-clear on ANY return so a missed clear can't strand
 // the multicast paused. (The raw-TLS path sets/clears the flag explicitly instead.)
@@ -4950,6 +4968,7 @@ static int tc_mscr_load(const char *path) {
 #define TC_SHARE_TYPE_FLT  2
 #define TC_SHARE_TYPE_STR  3
 
+#ifdef TC_USE_SHARE
 typedef struct TcShareEntry {
   char     key[TC_SHARE_KEY_LEN + 1];
   uint8_t  type;                                // TC_SHARE_TYPE_*
@@ -5043,6 +5062,7 @@ static int tc_share_count_used(void) {
   }
   return used;
 }
+#endif // TC_USE_SHARE
 
 /*********************************************************************************************\
  * BLE scan/observe — built on the xdrv_79 common-BLE driver (BLE_ESP32::), gated.
@@ -9507,7 +9527,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         WiFiClient http_client;
         HTTPClient http;
         http.setTimeout(5000);
-        http.setConnectTimeout(_http_ctmo);
+#ifndef ESP8266
+        http.setConnectTimeout(_http_ctmo);   // ESP8266 HTTPClient has no setConnectTimeout
+#endif
         http.begin(http_client, url);
 #endif
         for (int i = 0; i < Tinyc->http_hdr_count; i++) {     // staged headers read while LOCKED
@@ -9588,12 +9610,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         // program doing many connects (the fleet scanner sweeps ~40 devices)
         // would otherwise exhaust the 16-slot CONFIG_LWIP_MAX_ACTIVE_TCP pool
         // and wedge the network stack. Status polling tolerates the peer RST.
+#ifdef ESP32                                   // ESP8266 WiFiClient has no fd()/SO_LINGER — plain end() closes
         {
           WiFiClient *_lc = http.getStreamPtr();
           if (_lc) { int _fd = _lc->fd();
             if (_fd >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0;
               setsockopt(_fd, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }
         }
+#endif
         http.end();
         bool transport_err = (httpCode <= 0);
         // ---- re-take vm_mutex before touching the VM again (only if we released) ----
@@ -9645,7 +9669,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       WiFiClient http_client;
       HTTPClient http;
       http.setTimeout(5000);
-      http.setConnectTimeout(_post_ctmo);
+#ifndef ESP8266
+      http.setConnectTimeout(_post_ctmo);   // ESP8266 HTTPClient has no setConnectTimeout
+#endif
       http.begin(http_client, url);
 #endif
       http.addHeader(F("Content-Type"), F("application/x-www-form-urlencoded"));
@@ -9668,12 +9694,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int httpCode = http.POST(postData);
       String payload;
       if (httpCode > 0) payload = http.getString();
-      {                                              // abort-close: free the PCB now, no TIME_WAIT (see SYS_HTTP_GET)
+#ifdef ESP32                                     // abort-close: free the PCB now, no TIME_WAIT (see SYS_HTTP_GET). ESP8266: plain end()
+      {
         WiFiClient *_lc = http.getStreamPtr();
         if (_lc) { int _fd = _lc->fd();
           if (_fd >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0;
             setsockopt(_fd, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }
       }
+#endif
       http.end();
 #ifdef ESP32
       if (_on_vm_task && _ps->vm_mutex) { xSemaphoreTake(_ps->vm_mutex, portMAX_DELAY); tc_current_slot = _ps; }
@@ -13608,7 +13636,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           // (the /24 fleet scanner = ~60 connects/sweep) otherwise slowly exhausts
           // the PCB/pbuf pool over many cycles → the whole network stack wedges
           // (no ping, no HTTP, no reboot). Mirrors the SYS_HTTP_GET abort-close.
+#ifdef ESP32
           { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }
+#endif
           _oc->stop();  // close any previous connection on this slot
           IPAddress _ipa;
           bool _cok;
@@ -13616,7 +13646,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             // bounded probe path: the IPAddress overload skips DNS, and the
             // non-blocking connect + select(timeout) bounds even the
             // no-ARP-answer (absent host) case — keeps the VM/WDT safe.
+#ifdef ESP32
             _cok = _oc->connect(_ipa, port, (int32_t)Tinyc->tcp_connect_timeout_ms);
+#else
+            _cok = _oc->connect(_ipa, port);   // ESP8266: 2-arg connect only (no timeout overload)
+#endif
           } else {
             _cok = _oc->connect(ip, port);
           }
@@ -13647,12 +13681,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           TC_PUSH(vm, -1);
         } else {
           WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+#ifdef ESP32
           { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }  // abort-close prior PCB (see SYS_TCP_CONNECT)
+#endif
           _oc->stop();
           IPAddress _ipa;
           bool _cok;
           if (Tinyc->tcp_connect_timeout_ms && _ipa.fromString(ip_tmp)) {
+#ifdef ESP32
             _cok = _oc->connect(_ipa, port, (int32_t)Tinyc->tcp_connect_timeout_ms);  // bounded, no DNS
+#else
+            _cok = _oc->connect(_ipa, port);   // ESP8266: 2-arg connect only (no timeout overload)
+#endif
           } else {
             _cok = _oc->connect(ip_tmp, port);
           }
@@ -13673,7 +13713,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_TCP_DISCONNECT: {  // tcpDisconnect()
       WiFiClient *_oc = TC_TCP_OUT_CLIENT();
       if (_oc->connected()) {
+#ifdef ESP32
         { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }  // abort-close: RST, free the PCB now (see SYS_TCP_CONNECT)
+#endif
         _oc->stop();
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] disconnected"), Tinyc->tcp_cli_slot);
       }
@@ -15058,6 +15100,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     // All handlers: pop key as a const-pool index, look up key string, do
     // mutex-protected table op, push result if any. Missing-key reads return
     // 0 / 0.0 / "" so polling loops stay simple. See section header above.
+#ifdef TC_USE_SHARE
     case SYS_SHARE_SET_INT: {
       int32_t val = TC_POP(vm);
       int32_t ki  = TC_POP(vm);
@@ -15314,6 +15357,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, live);
       break;
     }
+#endif // TC_USE_SHARE
     case SYS_PERSIST_DUMP: {
       // dumpPersist() — snapshot every persist entry to the log so a
       // user can back values up BEFORE a persist-layout-change flash
