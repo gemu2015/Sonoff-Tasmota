@@ -307,7 +307,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     14    // V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     15    // V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -553,6 +553,10 @@ enum TcSyscall {
   SYS_LVGL_CANVAS       = 514, // (parent) -> int handle — create an lv_canvas (an lv_image subclass, so lvglImageScale/Angle work on it)
   SYS_LVGL_CANVAS_IMG   = 515, // (canvas_handle, img_slot) -> void — point the canvas at a PSRAM RGB565 image slot (zero-copy) + invalidate. For live camera frames (dspLoadImageFromCam → here → lvglImageAngle/Scale).
   SYS_DSP_FREE_IMAGE    = 516, // (img_slot) -> void — free one tc_img_store RGB565 slot, so a per-frame dspLoadImageFromCam loop doesn't exhaust the 4 slots
+  SYS_LVGL_LINE_POLY     = 517, // (h, xs_ref, ys_ref, n) -> void — one lv_line draws a whole N-point polyline (series/gridline/arc); absolute screen px
+  SYS_LVGL_ARC_BG_ANGLES = 518, // (h, start_deg, end_deg) -> void — arc background sweep (135,45 = 270° dial; 180,360 = top semicircle)
+  SYS_LVGL_ARC_STYLE     = 519, // (h, part, color, width) -> void — arc colour+thickness; part 0=MAIN/track, 1=INDICATOR/value, 2=KNOB
+  SYS_LVGL_ROTATE        = 520, // (h, deci_deg) -> void — rotate any object about its centre (vertical y-axis titles)
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -5225,6 +5229,10 @@ void tc_lv_image_scale(int h, int sx, int sy);
 int  tc_lv_line(int parent);
 void tc_lv_line_points(int h, int x1, int y1, int x2, int y2);
 void tc_lv_line_style(int h, int rgb, int width);
+void tc_lv_line_poly(int h, int *xs, int *ys, int n);
+void tc_lv_arc_bg_angles(int h, int start, int end);
+void tc_lv_arc_style(int h, int part, int color, int width);
+void tc_lv_rotate(int h, int deci_deg);
 #endif // USE_TINYC_LVGL
 
 /*********************************************************************************************\
@@ -14470,6 +14478,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_LINE:         { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_line(p)); break; }
     case SYS_LVGL_LINE_POINTS:  { int32_t y2 = TC_POP(vm); int32_t x2 = TC_POP(vm); int32_t y1 = TC_POP(vm); int32_t x1 = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_line_points(h, x1, y1, x2, y2); break; }
     case SYS_LVGL_LINE_STYLE:   { int32_t w = TC_POP(vm); int32_t rgb = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_line_style(h, rgb, w); break; }
+    case SYS_LVGL_LINE_POLY:    { int32_t n = TC_POP(vm); int32_t ys_ref = TC_POP(vm); int32_t xs_ref = TC_POP(vm); int32_t h = TC_POP(vm);
+                                  int32_t *xs = tc_resolve_ref(vm, xs_ref); int32_t *ys = tc_resolve_ref(vm, ys_ref); tc_lv_line_poly(h, xs, ys, n); break; }
+    case SYS_LVGL_ARC_BG_ANGLES:{ int32_t en = TC_POP(vm); int32_t st = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_arc_bg_angles(h, st, en); break; }
+    case SYS_LVGL_ARC_STYLE:    { int32_t w = TC_POP(vm); int32_t c = TC_POP(vm); int32_t pt = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_arc_style(h, pt, c, w); break; }
+    case SYS_LVGL_ROTATE:       { int32_t d = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_rotate(h, d); break; }
 #else
     case SYS_LVGL_INIT:     TC_PUSH(vm, 0); break;
     case SYS_LVGL_ACTIVE:   TC_PUSH(vm, 0); break;
@@ -14500,6 +14513,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_LINE: TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_LVGL_LINE_POINTS: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_LINE_STYLE: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_LINE_POLY: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_ARC_BG_ANGLES: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_ARC_STYLE: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_LVGL_ROTATE: TC_POP(vm); TC_POP(vm); break;
 #endif
 
     // ── Touch screen (xdrv_55 Touch_Status) — works with or without LVGL ──

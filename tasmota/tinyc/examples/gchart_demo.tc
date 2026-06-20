@@ -1,0 +1,267 @@
+// gchart_demo.tc — Google-Charts-style LINE + COLUMN + GAUGE on LVGL (P4 playground)
+//
+// v2 (firmware ABI >= 15): uses the new chart primitives —
+//   - line series  = ONE lvglLinePoly (was N segments)
+//   - gauge zones   = 3 lvglLinePoly arcs (green/amber/red) + a line needle
+//   - y-axis title  = a label rotated 270° via lvglRotate
+//   - columns       = one lvglObj per bar (flat fill, border off, slight radius)
+//   - gridlines     = light lvglLine; baseline a touch darker
+// Portrait 800x1280: white cards on a black screen. Needs USE_TINYC_LVGL firmware
+// with the v15 bindings (lvglLinePoly / lvglArc* / lvglRotate).
+
+#define ST_RADIUS    120
+#define ST_BORDER     56          // BORDER_WIDTH
+#define ST_BCOLOR     57          // BORDER_COLOR (0xRRGGBB on little-endian)
+#define ST_BOPA       58          // BORDER_OPA
+#define AL_CENTER      9
+#define PI         3.14159265
+
+// Material palette (Google 2020)
+#define C_BG     0x000000         // black screen
+#define C_CARD   0xFFFFFF
+#define C_CARDB  0xDADCE0
+#define C_GRID   0xE8EAED
+#define C_BASE   0xDADCE0
+#define C_AXIS   0x5F6368
+#define C_TITLE  0x202124
+#define C_BLUE   0x4285F4
+#define C_GREEN  0x34A853
+#define C_AMBER  0xFBBC04
+#define C_RED    0xEA4335
+
+int gdat[32];                     // chart data for whichever chart is drawn
+int px[40]; int py[40];           // polyline scratch (lvglLinePoly copies it, so reuse is safe)
+
+int ymap(int v, int vmin, int vmax, int y0, int h) {
+    return y0 + h - ((v - vmin) * h) / (vmax - vmin);
+}
+
+void card(int x, int y, int w, int h) {
+    int c = lvglObj(0);
+    lvglSetPos(c, x, y);
+    lvglSetSize(c, w, h);
+    lvglSetBgColor(c, C_CARD);
+    lvglSetStyleInt(c, ST_RADIUS, 12);
+    lvglSetStyleInt(c, ST_BORDER, 1);
+    lvglSetStyleInt(c, ST_BOPA, 255);
+    lvglSetStyleInt(c, ST_BCOLOR, C_CARDB);
+}
+
+void drawGrid(int x0, int y0, int w, int h, int vmin, int vmax, int ndiv) {
+    int i = 0;
+    while (i <= ndiv) {
+        int gy = y0 + (h * i) / ndiv;
+        int gl = lvglLine(0);
+        if (i == ndiv) { lvglLineStyle(gl, C_BASE, 1); } else { lvglLineStyle(gl, C_GRID, 1); }
+        lvglLinePoints(gl, x0, gy, x0 + w, gy);
+        int val = vmax - ((vmax - vmin) * i) / ndiv;
+        char lb[12];
+        sprintf(lb, "%d", val);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb);
+        lvglSetTextColor(t, C_AXIS);
+        lvglSetFont(t, 14);
+        lvglSetPos(t, x0 - 42, gy - 11);
+        i = i + 1;
+    }
+}
+
+// line series as a SINGLE polyline + dot markers
+void drawLine(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color) {
+    int step = w / (n - 1);
+    int i = 0;
+    while (i < n) {
+        px[i] = x0 + step * i;
+        py[i] = ymap(gdat[i], vmin, vmax, y0, h);
+        i = i + 1;
+    }
+    int ln = lvglLine(0);
+    lvglLineStyle(ln, color, 4);
+    lvglLinePoly(ln, px, py, n);
+    i = 0;
+    while (i < n) {
+        int m = lvglObj(0);
+        lvglSetStyleInt(m, ST_BORDER, 0);
+        lvglSetSize(m, 10, 10);
+        lvglSetStyleInt(m, ST_RADIUS, 5);
+        lvglSetBgColor(m, color);
+        lvglSetPos(m, px[i] - 5, py[i] - 5);
+        i = i + 1;
+    }
+}
+
+void drawCols(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color) {
+    int slot = w / n;
+    int bw = (slot * 6) / 10;
+    int pad = (slot - bw) / 2;
+    int i = 0;
+    while (i < n) {
+        int top = ymap(gdat[i], vmin, vmax, y0, h);
+        int bh = (y0 + h) - top;
+        if (bh < 2) { bh = 2; }
+        int bx = x0 + slot * i + pad;
+        int b = lvglObj(0);
+        lvglSetStyleInt(b, ST_BORDER, 0);
+        lvglSetSize(b, bw, bh);
+        lvglSetStyleInt(b, ST_RADIUS, 3);
+        lvglSetBgColor(b, color);
+        lvglSetPos(b, bx, top);
+        i = i + 1;
+    }
+}
+
+void lineXLabels(int x0, int w, int n, int every, int hour0, int hourStep, int y) {
+    int step = w / (n - 1);
+    int i = 0;
+    while (i < n) {
+        if ((i % every) == 0) {
+            char lb[8];
+            sprintf(lb, "%d", hour0 + i * hourStep);
+            int t = lvglLabel(0);
+            lvglSetText(t, lb);
+            lvglSetTextColor(t, C_AXIS);
+            lvglSetFont(t, 14);
+            lvglSetPos(t, x0 + step * i - 8, y);
+        }
+        i = i + 1;
+    }
+}
+
+void colXLabels(int x0, int w, int n, int hour0, int hourStep, int y) {
+    int slot = w / n;
+    int i = 0;
+    while (i < n) {
+        char lb[8];
+        sprintf(lb, "%d", hour0 + i * hourStep);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb);
+        lvglSetTextColor(t, C_AXIS);
+        lvglSetFont(t, 14);
+        lvglSetPos(t, x0 + slot * i + slot / 2 - 8, y);
+        i = i + 1;
+    }
+}
+
+// one zone band (p0..p1 percent of the top semicircle) as a thick rounded polyline
+void zoneArc(int cx, int cy, int r, int p0, int p1, int color, int thick) {
+    int N = 14;
+    int i = 0;
+    float pi = PI;
+    while (i <= N) {
+        float f = ((float)p0 + (float)(p1 - p0) * ((float)i / (float)N)) / 100.0;
+        float a = pi - pi * f;            // 180deg(left)..0deg(right) over the top, y-up
+        px[i] = cx + (int)((float)r * cos(a));
+        py[i] = cy - (int)((float)r * sin(a));
+        i = i + 1;
+    }
+    int arc = lvglLine(0);
+    lvglLineStyle(arc, color, thick);
+    lvglLinePoly(arc, px, py, N + 1);
+}
+
+void gauge(int cx, int cy, int r, int value, int vmax) {
+    int thick = 18;
+    zoneArc(cx, cy, r, 0, 60, C_GREEN, thick);
+    zoneArc(cx, cy, r, 60, 85, C_AMBER, thick);
+    zoneArc(cx, cy, r, 85, 100, C_RED, thick);
+    float pi = PI;
+    float fv = (float)value / (float)vmax;
+    if (fv < 0.0) { fv = 0.0; }
+    if (fv > 1.0) { fv = 1.0; }
+    float av = pi - pi * fv;
+    int nx = cx + (int)((float)(r - 22) * cos(av));
+    int ny = cy - (int)((float)(r - 22) * sin(av));
+    int nd = lvglLine(0);
+    lvglLineStyle(nd, C_TITLE, 5);
+    lvglLinePoints(nd, cx, cy, nx, ny);
+    int hub = lvglObj(0);
+    lvglSetStyleInt(hub, ST_BORDER, 0);
+    lvglSetSize(hub, 20, 20);
+    lvglSetStyleInt(hub, ST_RADIUS, 10);
+    lvglSetBgColor(hub, C_TITLE);
+    lvglSetPos(hub, cx - 10, cy - 10);
+}
+
+int main() {
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, C_BG);
+
+    // ===== LINE CHART — temperature, last 24 h =====
+    card(40, 28, 720, 410);
+    int t1 = lvglLabel(0);
+    lvglSetText(t1, "Temperature - last 24 h");
+    lvglSetTextColor(t1, C_TITLE);
+    lvglSetFont(t1, 20);
+    lvglSetPos(t1, 64, 46);
+
+    gdat[0]=14; gdat[1]=13; gdat[2]=13; gdat[3]=15; gdat[4]=18; gdat[5]=21; gdat[6]=24;
+    gdat[7]=26; gdat[8]=27; gdat[9]=25; gdat[10]=22; gdat[11]=19; gdat[12]=16;
+
+    drawGrid(110, 96, 620, 300, 10, 30, 4);
+    drawLine(13, 110, 96, 620, 300, 10, 30, C_BLUE);
+    lineXLabels(110, 620, 13, 3, 0, 2, 408);
+
+    // rotated y-axis title (270deg = reads bottom-to-top), centred on the plot's left
+    int yt = lvglLabel(0);
+    lvglSetText(yt, "deg C");
+    lvglSetTextColor(yt, C_AXIS);
+    lvglSetFont(yt, 14);
+    lvglSetPos(yt, 30, 237);
+    lvglRotate(yt, 2700);
+
+    // ===== COLUMN CHART — energy by hour =====
+    card(40, 476, 720, 416);
+    int t2 = lvglLabel(0);
+    lvglSetText(t2, "Energy by hour - kWh");
+    lvglSetTextColor(t2, C_TITLE);
+    lvglSetFont(t2, 20);
+    lvglSetPos(t2, 64, 494);
+
+    gdat[0]=2; gdat[1]=3; gdat[2]=4; gdat[3]=5; gdat[4]=6; gdat[5]=5; gdat[6]=3; gdat[7]=2;
+
+    drawGrid(110, 556, 620, 300, 0, 8, 4);
+    drawCols(8, 110, 556, 620, 300, 0, 8, C_BLUE);
+    colXLabels(110, 620, 8, 0, 3, 868);
+
+    // ===== GAUGE — power, zoned semicircle =====
+    card(40, 912, 720, 300);
+    int t3 = lvglLabel(0);
+    lvglSetText(t3, "Power");
+    lvglSetTextColor(t3, C_TITLE);
+    lvglSetFont(t3, 20);
+    lvglSetPos(t3, 64, 930);
+
+    int pval = 44; int pmax = 100;          // 4.4 of 10.0 kW
+    gauge(400, 1100, 130, pval, pmax);
+
+    char pb[12];
+    sprintf(pb, "%d.%d", pval / 10, pval - (pval / 10) * 10);
+    int gv = lvglLabel(0);
+    lvglSetText(gv, pb);
+    lvglSetTextColor(gv, C_TITLE);
+    lvglSetFont(gv, 28);
+    lvglAlign(gv, AL_CENTER, 0, 395);
+
+    int gu = lvglLabel(0);
+    lvglSetText(gu, "kW");
+    lvglSetTextColor(gu, C_AXIS);
+    lvglSetFont(gu, 14);
+    lvglAlign(gu, AL_CENTER, 0, 432);
+
+    int gmn = lvglLabel(0);
+    lvglSetText(gmn, "0");
+    lvglSetTextColor(gmn, C_AXIS);
+    lvglSetFont(gmn, 14);
+    lvglSetPos(gmn, 262, 1104);
+
+    char mb[8];
+    sprintf(mb, "%d", pmax / 10);
+    int gmx = lvglLabel(0);
+    lvglSetText(gmx, mb);
+    lvglSetTextColor(gmx, C_AXIS);
+    lvglSetFont(gmx, 14);
+    lvglSetPos(gmx, 520, 1104);
+
+    return 0;
+}

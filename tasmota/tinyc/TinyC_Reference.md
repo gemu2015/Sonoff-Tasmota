@@ -5256,6 +5256,8 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `void lvglSetValue(int h, int v, int anim)` | Set value (slider/bar/arc). `anim`=1 animates (arc ignores it) |
 | `int lvglGetValue(int h)` | Current value (slider/bar/arc) |
 | `void lvglSetRange(int h, int min, int max)` | Value range |
+| `void lvglArcBgAngles(int h, int start, int end)` | Set an arc's **background sweep** in degrees (LVGL: 0°=right, 90°=bottom, 180°=left, 270°=top). `135,45` = a 270° dial; `180,360` = a top semicircle. |
+| `void lvglArcStyle(int h, int part, int rgb, int width)` | Colour + thickness of an arc **part**: `0`=MAIN (background track), `1`=INDICATOR (value arc), `2`=KNOB. Unlocks zoned gauges + coloured value arcs (the generic `lvglSetBgColor`/`lvglSetStyleInt` only reach MAIN). `width<=0` keeps the part's current thickness. |
 | `void lvglSetChecked(int h, int on)` | Set checked state (switch/checkbox) |
 | `int lvglIsChecked(int h)` | 1 if checked |
 
@@ -5280,6 +5282,8 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `int lvglLine(int parent)` | Create a line object. |
 | `void lvglLinePoints(int h, int x1, int y1, int x2, int y2)` | Set a line's two endpoints. |
 | `void lvglLineStyle(int h, int rgb, int width)` | Set a line's color (0xRRGGBB) and width (px). |
+| `void lvglLinePoly(int h, int xs[], int ys[], int n)` | Draw a whole **N-point polyline** with one `lvglLine` object — pass parallel `xs`/`ys` int arrays (absolute screen px). Far cheaper than N two-point segments and gives proper joins; use it for a chart series, a gridline run, or a gauge arc band (sample the arc into `xs`/`ys`). The arrays are copied, so reusing a shared scratch buffer is fine. |
+| `void lvglRotate(int h, int deci_deg)` | Rotate **any** object about its centre via LVGL transform, 0.1° units (`2700` = 270°). Use for a vertical y-axis title (a rotated `lvglLabel`). Renders on the partial-render DSI. |
 
 ```c
 // Tap a button -> change a label (see examples/lvgl_demo.tc)
