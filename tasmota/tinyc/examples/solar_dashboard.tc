@@ -1,0 +1,384 @@
+// solar_dashboard.tc — REAL energy dashboard on LVGL (P4), built on the gchart primitives.
+//
+//   CHART 1: solar power of 4 inverters (4 time series, ONE shared y-axis), 24 h / 5 min
+//   CHART 2: Powerwall SOC (%), 24 h / 5 min
+//   GAUGE  : live SUM of the 4 inverters (kW), real-time
+//
+// Data comes from UDP-published Scripter global vars (read-only consume):
+//   sedc=Dach, wrgh=Gartenhaus, wrga=Garage, wrgg=Garten, pwl=Powerwall SOC.
+// History is a rolling 24 h ring buffer (288 x 5 min) sampled live every 5 min.
+// SEED fills a synthetic day so the charts show immediately — set SEED 0 for pure-real.
+// Tune SOLAR_MAX_W to your biggest inverter; values assumed in WATTS.
+
+// ---- live globals (read-only consume of existing UDP vars) ----
+global float sedc;   // Dach
+global float wrgh;   // Gartenhaus
+global float wrga;   // Garage
+global float wrgg;   // Garten
+global float pwl;    // Powerwall SOC %
+
+#define SEED         1            // 1 = pre-fill a synthetic day (demo); 0 = real-accumulate only
+#define NBINS        288          // 24 h / 5 min
+#define SOLAR_MAX_W  5000         // y-axis full scale (W) -> labelled 0..5 kW
+#define GAUGE_MAXT   100          // gauge full scale in tenths of kW (100 = 10.0 kW)
+#define SAMPLE_SEC   300          // history sample interval (s) = 5 min (24 h / 288 bins)
+
+#define ST_RADIUS    120
+#define ST_BORDER     56
+#define ST_BCOLOR     57
+#define ST_BOPA       58
+#define AL_CENTER      9
+#define PI         3.14159265
+
+#define C_BG     0x000000
+#define C_CARD   0xFFFFFF
+#define C_CARDB  0xDADCE0
+#define C_GRID   0xBDC1C6
+#define C_BASE   0x9AA0A6
+#define C_PLOT   0xF1F3F4
+#define C_AXIS   0x5F6368
+#define C_TITLE  0x202124
+#define C_BLUE   0x4285F4
+#define C_GREEN  0x34A853
+#define C_AMBER  0xFBBC04
+#define C_RED    0xEA4335
+
+// solar plot rect / powerwall plot rect
+#define SX 100
+#define SY 110
+#define SW 600
+#define SH 330
+#define PX 100
+#define PY 582
+#define PW 600
+#define PH 196
+
+int px[300]; int py[300];                  // polyline scratch
+int wSolar[4][288];                        // 4 inverter series x 288 bins (heap, 2D)
+int wPwl[288];                             // Powerwall SOC per bin
+int wp = 0; int cnt = 0;                   // ring write pointer + filled count
+int gln[4];                                // 4 solar polyline handles
+int plLine = 0;                            // Powerwall polyline handle
+int g_needle = 0; int g_value = 0;         // live gauge parts
+int g_cx; int g_cy; int g_r; int g_pmax;
+int g_vals[5];                             // raw-value readout labels (control)
+int tick = 0;                              // sample counter (EverySecond ticks)
+int seeded = 0;                            // 1 while the ring holds synthetic seed data
+
+int ymap(int v, int vmin, int vmax, int y0, int h) {
+    return y0 + h - ((v - vmin) * h) / (vmax - vmin);
+}
+
+void card(int x, int y, int w, int h) {
+    int c = lvglObj(0);
+    lvglSetPos(c, x, y); lvglSetSize(c, w, h);
+    lvglSetBgColor(c, C_CARD);
+    lvglSetStyleInt(c, ST_RADIUS, 12);
+    lvglSetStyleInt(c, ST_BORDER, 1);
+    lvglSetStyleInt(c, ST_BOPA, 255);
+    lvglSetStyleInt(c, ST_BCOLOR, C_CARDB);
+}
+
+void plotBg(int x, int y, int w, int h) {
+    int p = lvglObj(0);
+    lvglSetStyleInt(p, ST_BORDER, 0);
+    lvglSetSize(p, w, h);
+    lvglSetStyleInt(p, ST_RADIUS, 0);
+    lvglSetBgColor(p, C_PLOT);
+    lvglSetPos(p, x, y);
+}
+
+void drawGrid(int x0, int y0, int w, int h, int ndiv, int nxdiv) {
+    int i = 0;
+    while (i <= ndiv) {
+        int gy = y0 + (h * i) / ndiv;
+        int gl = lvglLine(0);
+        if (i == ndiv) { lvglLineStyle(gl, C_BASE, 1); } else { lvglLineStyle(gl, C_GRID, 1); }
+        lvglLinePoints(gl, x0, gy, x0 + w, gy);
+        i = i + 1;
+    }
+    if (nxdiv >= 1) {
+        i = 0;
+        while (i <= nxdiv) {
+            int gx = x0 + (w * i) / nxdiv;
+            int vl = lvglLine(0);
+            lvglLineStyle(vl, C_GRID, 1);
+            lvglLinePoints(vl, gx, y0, gx, y0 + h);
+            i = i + 1;
+        }
+    }
+}
+
+void yAxis(int x, int y0, int h, int vmin, int vmax, int ndiv, int color) {
+    int i = 0;
+    while (i <= ndiv) {
+        int gy = y0 + (h * i) / ndiv;
+        int val = vmax - ((vmax - vmin) * i) / ndiv;
+        char lb[12]; sprintf(lb, "%d", val);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb); lvglSetTextColor(t, color); lvglSetFont(t, 14);
+        lvglSetPos(t, x, gy - 11);
+        i = i + 1;
+    }
+}
+
+// 0,6,12,18,24 h labels under a 24 h plot
+void xHours(int x0, int w, int y) {
+    int i = 0;
+    while (i <= 4) {
+        int lx = x0 + (w * i) / 4;
+        char lb[8]; sprintf(lb, "%d", i * 6);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb); lvglSetTextColor(t, C_AXIS); lvglSetFont(t, 14);
+        lvglSetPos(t, lx - 8, y);
+        i = i + 1;
+    }
+}
+
+void legSquare(int x, int y, int color) {
+    int s = lvglObj(0);
+    lvglSetStyleInt(s, ST_BORDER, 0);
+    lvglSetSize(s, 12, 12);
+    lvglSetStyleInt(s, ST_RADIUS, 2);
+    lvglSetBgColor(s, color);
+    lvglSetPos(s, x, y);
+}
+
+// plot a ring row (24 h) as a polyline into an existing line handle
+void plotSeries(int row[], int handle, int x0, int y0, int w, int h, int vmax) {
+    int denom = cnt - 1;
+    if (denom < 1) { denom = 1; }
+    int j = 0;
+    while (j < cnt) {
+        int idx = (wp - cnt + j + 576) % 288;     // chronological: oldest -> newest
+        px[j] = x0 + (w * j) / denom;
+        py[j] = ymap(row[idx], 0, vmax, y0, h);
+        j = j + 1;
+    }
+    if (cnt >= 2) { lvglLinePoly(handle, px, py, cnt); }
+}
+
+void updateCharts() {
+    plotSeries(wSolar[0], gln[0], SX, SY, SW, SH, SOLAR_MAX_W);
+    plotSeries(wSolar[1], gln[1], SX, SY, SW, SH, SOLAR_MAX_W);
+    plotSeries(wSolar[2], gln[2], SX, SY, SW, SH, SOLAR_MAX_W);
+    plotSeries(wSolar[3], gln[3], SX, SY, SW, SH, SOLAR_MAX_W);
+    plotSeries(wPwl, plLine, PX, PY, PW, PH, 100);
+}
+
+// inverters report production with mixed sign (3 are negative) — chart/gauge use the magnitude
+float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
+
+// persist the rolling history to /solar.bin (SD by default — avoids the P4 internal-FS wipe)
+void saveHist() {
+    int h = fileOpen("/solar.bin", 1);              // 1 = write (truncate)
+    if (h < 0) { return; }
+    int hdr[4]; hdr[0] = 0x534F4C31; hdr[1] = wp; hdr[2] = cnt; hdr[3] = 0;   // magic 'SOL1'
+    fileWriteBin(h, hdr, 4);
+    fileWriteBin(h, wSolar[0], 288);
+    fileWriteBin(h, wSolar[1], 288);
+    fileWriteBin(h, wSolar[2], 288);
+    fileWriteBin(h, wSolar[3], 288);
+    fileWriteBin(h, wPwl, 288);
+    fileClose(h);
+}
+
+// reload persisted history on boot; returns 1 if a valid file was read
+int loadHist() {
+    if (fileSize("/solar.bin") < 16) { return 0; }
+    int h = fileOpen("/solar.bin", 0);              // 0 = read
+    if (h < 0) { return 0; }
+    int hdr[4];
+    fileReadBin(h, hdr, 4);
+    if (hdr[0] != 0x534F4C31) { fileClose(h); return 0; }
+    wp = hdr[1]; cnt = hdr[2];
+    fileReadBin(h, wSolar[0], 288);
+    fileReadBin(h, wSolar[1], 288);
+    fileReadBin(h, wSolar[2], 288);
+    fileReadBin(h, wSolar[3], 288);
+    fileReadBin(h, wPwl, 288);
+    fileClose(h);
+    return 1;
+}
+
+void sampleNow() {
+    if (seeded) { seeded = 0; wp = 0; cnt = 0; }    // drop the synthetic seed on the first real sample
+    wSolar[0][wp] = (int)pabs(sedc);
+    wSolar[1][wp] = (int)pabs(wrgh);
+    wSolar[2][wp] = (int)pabs(wrga);
+    wSolar[3][wp] = (int)pabs(wrgg);
+    wPwl[wp] = (int)pwl;
+    wp = (wp + 1) % 288;
+    if (cnt < 288) { cnt = cnt + 1; }
+    saveHist();                                     // persist after each sample
+}
+
+void seedData() {
+    float pk0 = 4500.0; float pk1 = 2000.0; float pk2 = 1500.0; float pk3 = 1000.0;
+    int j = 0;
+    while (j < 288) {
+        float t = 24.0 * (float)j / 288.0;
+        float hump = 0.0;
+        if (t > 6.0) { if (t < 20.0) { float s = sin(PI * (t - 6.0) / 14.0); hump = s * s; } }
+        wSolar[0][j] = (int)(pk0 * hump);
+        wSolar[1][j] = (int)(pk1 * hump);
+        wSolar[2][j] = (int)(pk2 * hump);
+        wSolar[3][j] = (int)(pk3 * hump);
+        int soc;
+        if (t < 9.0) { soc = 30; }
+        else { if (t < 16.0) { soc = 30 + (int)(65.0 * (t - 9.0) / 7.0); }
+        else { soc = 95 - (int)(55.0 * (t - 16.0) / 8.0); } }
+        wPwl[j] = soc;
+        j = j + 1;
+    }
+    wp = 0; cnt = 288;
+}
+
+// ---- gauge (live sum) ----
+void needlePoint(int value) {
+    float pi = PI;
+    float fv = (float)value / (float)g_pmax;
+    if (fv < 0.0) { fv = 0.0; } if (fv > 1.0) { fv = 1.0; }
+    float av = pi - pi * fv;
+    int nx = g_cx + (int)((float)(g_r - 22) * cos(av));
+    int ny = g_cy - (int)((float)(g_r - 22) * sin(av));
+    lvglLinePoints(g_needle, g_cx, g_cy, nx, ny);
+}
+
+void zoneArc(int cx, int cy, int r, int p0, int p1, int color, int thick) {
+    int N = 14; int i = 0; float pi = PI;
+    while (i <= N) {
+        float f = ((float)p0 + (float)(p1 - p0) * ((float)i / (float)N)) / 100.0;
+        float a = pi - pi * f;
+        px[i] = cx + (int)((float)r * cos(a));
+        py[i] = cy - (int)((float)r * sin(a));
+        i = i + 1;
+    }
+    int arc = lvglLine(0);
+    lvglLineStyle(arc, color, thick);
+    lvglLinePoly(arc, px, py, N + 1);
+}
+
+void gaugeScale(int cx, int cy, int r, int vmax, int nticks) {
+    float pi = PI; int i = 0;
+    while (i <= nticks) {
+        float f = (float)i / (float)nticks;
+        float a = pi - pi * f;
+        int lx = cx + (int)((float)(r + 24) * cos(a));
+        int ly = cy - (int)((float)(r + 24) * sin(a));
+        int val = (vmax * i) / nticks;
+        char lb[8]; sprintf(lb, "%d", val);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb); lvglSetTextColor(t, C_AXIS); lvglSetFont(t, 14);
+        lvglSetPos(t, lx - 7, ly - 9);
+        i = i + 1;
+    }
+}
+
+void buildGauge(int cx, int cy, int r) {
+    int thick = 18;
+    zoneArc(cx, cy, r, 0, 60, C_GREEN, thick);
+    zoneArc(cx, cy, r, 60, 85, C_AMBER, thick);
+    zoneArc(cx, cy, r, 85, 100, C_RED, thick);
+    g_cx = cx; g_cy = cy; g_r = r; g_pmax = GAUGE_MAXT;
+    g_needle = lvglLine(0);
+    lvglLineStyle(g_needle, C_TITLE, 5);
+    needlePoint(0);
+    int hub = lvglObj(0);
+    lvglSetStyleInt(hub, ST_BORDER, 0);
+    lvglSetSize(hub, 20, 20);
+    lvglSetStyleInt(hub, ST_RADIUS, 10);
+    lvglSetBgColor(hub, C_TITLE);
+    lvglSetPos(hub, cx - 10, cy - 10);
+}
+
+void updateGauge(int valuet) {
+    needlePoint(valuet);
+    char b[12];
+    sprintf(b, "%d.%d", valuet / 10, valuet - (valuet / 10) * 10);
+    lvglSetText(g_value, b);
+}
+
+// raw live values of all 5 globals beneath the gauge (for control / verification)
+void updateReadout() {
+    char b[24];
+    sprintf(b, "Dach %d",   (int)sedc); lvglSetText(g_vals[0], b);
+    sprintf(b, "GHaus %d",  (int)wrgh); lvglSetText(g_vals[1], b);
+    sprintf(b, "Garage %d", (int)wrga); lvglSetText(g_vals[2], b);
+    sprintf(b, "Garten %d", (int)wrgg); lvglSetText(g_vals[3], b);
+    sprintf(b, "SOC %d",    (int)pwl);  lvglSetText(g_vals[4], b);
+}
+
+int main() {
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, C_BG);
+
+    // ===== CHART 1: solar — 4 inverters, one y-axis (kW) =====
+    card(40, 28, 720, 462);
+    int t1 = lvglLabel(0);
+    lvglSetText(t1, "Solar power"); lvglSetTextColor(t1, C_TITLE); lvglSetFont(t1, 20); lvglSetPos(t1, 64, 46);
+    legSquare(410, 50, C_BLUE);  int la = lvglLabel(0); lvglSetText(la, "Dach");   lvglSetTextColor(la, C_AXIS); lvglSetFont(la, 14); lvglSetPos(la, 426, 47);
+    legSquare(496, 50, C_RED);   int lb = lvglLabel(0); lvglSetText(lb, "GHaus");  lvglSetTextColor(lb, C_AXIS); lvglSetFont(lb, 14); lvglSetPos(lb, 512, 47);
+    legSquare(592, 50, C_GREEN); int lc = lvglLabel(0); lvglSetText(lc, "Garage"); lvglSetTextColor(lc, C_AXIS); lvglSetFont(lc, 14); lvglSetPos(lc, 608, 47);
+    legSquare(690, 50, C_AMBER); int ld = lvglLabel(0); lvglSetText(ld, "Garten"); lvglSetTextColor(ld, C_AXIS); lvglSetFont(ld, 14); lvglSetPos(ld, 706, 47);
+    plotBg(SX - 4, SY - 4, SW + 8, SH + 8);
+    drawGrid(SX, SY, SW, SH, 5, 4);
+    yAxis(56, SY, SH, 0, 5, 5, C_AXIS);             // kW labels 0..5
+    xHours(SX, SW, SY + SH + 10);
+    gln[0] = lvglLine(0); lvglLineStyle(gln[0], C_BLUE, 3);
+    gln[1] = lvglLine(0); lvglLineStyle(gln[1], C_RED, 3);
+    gln[2] = lvglLine(0); lvglLineStyle(gln[2], C_GREEN, 3);
+    gln[3] = lvglLine(0); lvglLineStyle(gln[3], C_AMBER, 3);
+
+    // ===== CHART 2: Powerwall SOC (%) =====
+    card(40, 510, 720, 300);
+    int t2 = lvglLabel(0);
+    lvglSetText(t2, "Powerwall SOC"); lvglSetTextColor(t2, C_TITLE); lvglSetFont(t2, 20); lvglSetPos(t2, 64, 528);
+    plotBg(PX - 4, PY - 4, PW + 8, PH + 8);
+    drawGrid(PX, PY, PW, PH, 4, 4);
+    yAxis(52, PY, PH, 0, 100, 4, C_AXIS);
+    xHours(PX, PW, PY + PH + 10);
+    plLine = lvglLine(0); lvglLineStyle(plLine, C_GREEN, 3);
+
+    // ===== GAUGE: live sum of the 4 inverters (kW) =====
+    card(40, 830, 720, 400);
+    int t3 = lvglLabel(0);
+    lvglSetText(t3, "Solar total"); lvglSetTextColor(t3, C_TITLE); lvglSetFont(t3, 20); lvglSetPos(t3, 64, 848);
+    buildGauge(400, 1110, 130);
+    g_value = lvglLabel(0);
+    lvglSetText(g_value, "0.0"); lvglSetTextColor(g_value, C_TITLE); lvglSetFont(g_value, 28); lvglAlign(g_value, AL_CENTER, 0, 405);
+    int gu = lvglLabel(0);
+    lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglAlign(gu, AL_CENTER, 0, 442);
+    gaugeScale(400, 1110, 130, 10, 5);
+
+    // raw-value readout beneath the gauge (control), colour-keyed to the series
+    g_vals[0] = lvglLabel(0); lvglSetTextColor(g_vals[0], C_BLUE);  lvglSetFont(g_vals[0], 14); lvglSetPos(g_vals[0], 56,  1182);
+    g_vals[1] = lvglLabel(0); lvglSetTextColor(g_vals[1], C_RED);   lvglSetFont(g_vals[1], 14); lvglSetPos(g_vals[1], 194, 1182);
+    g_vals[2] = lvglLabel(0); lvglSetTextColor(g_vals[2], C_GREEN); lvglSetFont(g_vals[2], 14); lvglSetPos(g_vals[2], 332, 1182);
+    g_vals[3] = lvglLabel(0); lvglSetTextColor(g_vals[3], C_AMBER); lvglSetFont(g_vals[3], 14); lvglSetPos(g_vals[3], 470, 1182);
+    g_vals[4] = lvglLabel(0); lvglSetTextColor(g_vals[4], C_AXIS);  lvglSetFont(g_vals[4], 14); lvglSetPos(g_vals[4], 608, 1182);
+    updateReadout();
+
+    if (loadHist() == 0) {         // real history from /solar.bin (SD) if present, else seed a demo day
+#if SEED
+        seedData(); seeded = 1;
+#endif
+    }
+    updateCharts();
+    return 0;                       // main MUST return — a while(1) here blocks the firmware
+}                                   // from injecting UDP global updates (the vars would stay 0)
+
+// Tasmota calls this every second AFTER main returns, so the global vars stay live.
+// Light work, no delay: live gauge + control readout; 5-min history sample + redraw.
+void EverySecond() {
+    float sum = pabs(sedc) + pabs(wrgh) + pabs(wrga) + pabs(wrgg);
+    updateGauge((int)(sum / 100.0));            // W -> tenths of kW (production magnitude)
+    updateReadout();                            // live raw values for control
+    tick = tick + 1;
+    if (tick >= SAMPLE_SEC) {                   // sample + persist + redraw
+        tick = 0;
+        sampleNow();
+        updateCharts();
+    }
+}

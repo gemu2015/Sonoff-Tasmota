@@ -22,8 +22,9 @@ ESP8266 is a subset with tighter limits.
 - Tasmota then calls your **callbacks** (`EverySecond`, `Command`, `WebUI`, …)
   on its own schedule. Callbacks run synchronously with an instruction budget;
   **`delay()` in a callback is wrong** — use `TaskLoop()` or `spawnTask()`.
-- No preprocessor beyond `#define`, no pointers, no dynamic linking.
-  Strings are `char[]` buffers you `strcpy`/`strcmp`/`strcat` by name.
+- Preprocessor: `#define` **plus conditional compilation** — `#if` / `#ifdef` / `#ifndef`
+  / `#else` / `#endif` all work (e.g. `#define SEED 1` then `#if SEED ... #endif`). No
+  pointers, no dynamic linking. Strings are `char[]` buffers you `strcpy`/`strcmp`/`strcat` by name.
 
 ## 2. Minimum working skeleton
 
@@ -368,6 +369,13 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     wins, page renders as a mess. When porting Scripter → TinyC, clear the
     Scripter source via IDE *Tools → Edit Script* before activating SML.
     See `TinyC_Reference.md §Smart Meter (SML)` for the full callout.
+12. **Blocking in `main()` (a `while(1)` loop) while consuming `global` UDP vars** —
+    the firmware injects received UDP values into `global` vars between callbacks, so a
+    `main()` that never returns leaves every `global` stuck at its init value (`0`). The
+    gauge/chart silently reads zeros. Build the UI in `main()`, **`return`**, and do the
+    periodic live work in `EverySecond()` / `TaskLoop()`. (A self-contained `while(1)`
+    animation in `main()` with no globals is fine — `music_fft` does it — the trap is
+    specifically blocking main *and* relying on `global` vars to update.)
 
 ---
 
