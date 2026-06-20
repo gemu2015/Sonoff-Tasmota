@@ -233,39 +233,48 @@ bool DSIPanel::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 bool DSIPanel::pushColors(uint16_t *data, uint32_t len, bool not_swapped) {
     if (!panel_handle) return false;   // fail-safe: DSI init failed -> no panel, skip draw (no boot brick)
 
-    if (rotation == 0 || !framebuffer) {
-        // Fast path: straight DMA blit (no rotation, or no direct framebuffer access).
+    // Fastest path: no rotation AND no byte-swap (the LVGL flush at rot 0), or no direct framebuffer
+    // access -> let the LCD driver DMA-blit the buffer as-is.
+    if ((rotation == 0 && not_swapped) || !framebuffer) {
         esp_err_t ret = esp_lcd_panel_draw_bitmap(panel_handle, window_x0, window_y0, window_x1, window_y1, data);
         return (ret == ESP_OK);
     }
 
-    // Rotated: the window + data are in LOGICAL (rotated) coordinates and the panel scans PORTRAIT,
-    // so write the block into the physical framebuffer with x/y swapped. This is the "switch x and y"
-    // done as a block copy (no per-pixel function call): for 90/270 each logical row becomes a
-    // framebuffer column (strided write); 180 is a reversed row. Handedness matches DSIPanel::drawPixel.
+    // Otherwise write into the physical framebuffer ourselves, applying the rotation (x/y swap into the
+    // portrait-scanning panel) and/or the RGB565 byte swap. not_swapped==false comes from the standard
+    // display path (e.g. dspPicture), whose two bytes are the other way round and must be swapped. For
+    // 90/270 each logical row becomes a framebuffer column (strided); 180 is a reversed row; handedness
+    // matches DSIPanel::drawPixel.
     const int16_t win_w = window_x1 - window_x0;
     const int16_t win_h = window_y1 - window_y0;
     const int16_t fbw = cfg.width, fbh = cfg.height;
+    const bool bswap = !not_swapped;
     for (int16_t ry = 0; ry < win_h; ry++) {
         const int16_t ly = window_y0 + ry;
         const uint16_t *src = data + (uint32_t)ry * win_w;
-        if (rotation == 1) {                                  // 90:  px = fbw-1-ly (const), py = lx
+        if (rotation == 0) {                                  // byte-swap only, no rotation
+            if ((uint16_t)ly >= (uint16_t)fbh) continue;
+            uint16_t *dst = framebuffer + (uint32_t)ly * fbw + window_x0;
+            for (int16_t rx = 0; rx < win_w; rx++) {
+                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbw) dst[rx] = bswap ? __builtin_bswap16(src[rx]) : src[rx];
+            }
+        } else if (rotation == 1) {                           // 90:  px = fbw-1-ly (const), py = lx
             if ((uint16_t)(fbw - 1 - ly) >= (uint16_t)fbw) continue;
             uint16_t *dst = framebuffer + (uint32_t)window_x0 * fbw + (fbw - 1 - ly);
             for (int16_t rx = 0; rx < win_w; rx++, dst += fbw) {
-                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbh) *dst = src[rx];
+                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbh) *dst = bswap ? __builtin_bswap16(src[rx]) : src[rx];
             }
         } else if (rotation == 3) {                           // 270: px = ly (const), py = fbh-1-lx
             if ((uint16_t)ly >= (uint16_t)fbw) continue;
             uint16_t *dst = framebuffer + (uint32_t)(fbh - 1 - window_x0) * fbw + ly;
             for (int16_t rx = 0; rx < win_w; rx++, dst -= fbw) {
-                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbh) *dst = src[rx];
+                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbh) *dst = bswap ? __builtin_bswap16(src[rx]) : src[rx];
             }
         } else {                                              // 180: py = fbh-1-ly (const), reversed row
             if ((uint16_t)(fbh - 1 - ly) >= (uint16_t)fbh) continue;
             uint16_t *dst = framebuffer + (uint32_t)(fbh - 1 - ly) * fbw + (fbw - 1 - window_x0);
             for (int16_t rx = 0; rx < win_w; rx++, dst--) {
-                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbw) *dst = src[rx];
+                if ((uint16_t)(window_x0 + rx) < (uint16_t)fbw) *dst = bswap ? __builtin_bswap16(src[rx]) : src[rx];
             }
         }
     }
