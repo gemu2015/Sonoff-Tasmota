@@ -59,6 +59,7 @@ int wPwl[288];                             // Powerwall SOC per bin
 int wp = 0; int cnt = 0;                   // ring write pointer + filled count
 int gln[4];                                // 4 solar polyline handles
 int plLine = 0;                            // Powerwall polyline handle
+int xlS[5]; int xlP[5];                    // x-axis HH:MM label handles (solar / powerwall)
 int g_needle = 0; int g_value = 0;         // live gauge parts
 int g_cx; int g_cy; int g_r; int g_pmax;
 int g_vals[5];                             // raw-value readout labels (control)
@@ -122,15 +123,32 @@ void yAxis(int x, int y0, int h, int vmin, int vmax, int ndiv, int color) {
     }
 }
 
-// 0,6,12,18,24 h labels under a 24 h plot
-void xHours(int x0, int w, int y) {
+// create the 5 x-axis tick labels (HH:MM, set later) and store their handles in dst[]
+void makeXLabels(int dst[], int x0, int w, int y) {
     int i = 0;
     while (i <= 4) {
         int lx = x0 + (w * i) / 4;
-        char lb[8]; sprintf(lb, "%d", i * 6);
         int t = lvglLabel(0);
-        lvglSetText(t, lb); lvglSetTextColor(t, C_AXIS); lvglSetFont(t, 14);
-        lvglSetPos(t, lx - 8, y);
+        lvglSetTextColor(t, C_AXIS); lvglSetFont(t, 14);
+        lvglSetPos(t, lx - 18, y);          // ~centre "HH:MM"
+        dst[i] = t;
+        i = i + 1;
+    }
+}
+
+// rolling 24 h window: right edge = now, each tick steps back 6 h. Refresh HH:MM each redraw.
+void updateXLabels() {
+    char ts[24];
+    timeStamp(ts);                                  // local "YYYY-MM-DDTHH:MM:SS" (HH at 11,12 / MM at 14,15)
+    int nowMin = ((ts[11] - 48) * 10 + (ts[12] - 48)) * 60 + (ts[14] - 48) * 10 + (ts[15] - 48);
+    int i = 0;
+    while (i <= 4) {
+        int tm = nowMin - (4 - i) * 360;
+        tm = ((tm % 1440) + 1440) % 1440;
+        char lb[8];
+        sprintf(lb, "%02d:%02d", tm / 60, tm - (tm / 60) * 60);
+        lvglSetText(xlS[i], lb);
+        lvglSetText(xlP[i], lb);
         i = i + 1;
     }
 }
@@ -146,12 +164,10 @@ void legSquare(int x, int y, int color) {
 
 // plot a ring row (24 h) as a polyline into an existing line handle
 void plotSeries(int row[], int handle, int x0, int y0, int w, int h, int vmax) {
-    int denom = cnt - 1;
-    if (denom < 1) { denom = 1; }
     int j = 0;
     while (j < cnt) {
-        int idx = (wp - cnt + j + 576) % 288;     // chronological: oldest -> newest
-        px[j] = x0 + (w * j) / denom;
+        int idx = (wp - cnt + j + 576) % 288;        // chronological: oldest -> newest
+        px[j] = x0 + w - (w * (cnt - 1 - j)) / 287;  // newest at the right edge (now); 5 min = w/287
         py[j] = ymap(row[idx], 0, vmax, y0, h);
         j = j + 1;
     }
@@ -164,6 +180,7 @@ void updateCharts() {
     plotSeries(wSolar[2], gln[2], SX, SY, SW, SH, SOLAR_MAX_W);
     plotSeries(wSolar[3], gln[3], SX, SY, SW, SH, SOLAR_MAX_W);
     plotSeries(wPwl, plLine, PX, PY, PW, PH, 100);
+    updateXLabels();
 }
 
 // inverters report production with mixed sign (3 are negative) — chart/gauge use the magnitude
@@ -325,7 +342,7 @@ int main() {
     plotBg(SX - 4, SY - 4, SW + 8, SH + 8);
     drawGrid(SX, SY, SW, SH, 5, 4);
     yAxis(56, SY, SH, 0, 5, 5, C_AXIS);             // kW labels 0..5
-    xHours(SX, SW, SY + SH + 10);
+    makeXLabels(xlS, SX, SW, SY + SH + 10);
     gln[0] = lvglLine(0); lvglLineStyle(gln[0], C_BLUE, 3);
     gln[1] = lvglLine(0); lvglLineStyle(gln[1], C_RED, 3);
     gln[2] = lvglLine(0); lvglLineStyle(gln[2], C_GREEN, 3);
@@ -338,7 +355,7 @@ int main() {
     plotBg(PX - 4, PY - 4, PW + 8, PH + 8);
     drawGrid(PX, PY, PW, PH, 4, 4);
     yAxis(52, PY, PH, 0, 100, 4, C_AXIS);
-    xHours(PX, PW, PY + PH + 10);
+    makeXLabels(xlP, PX, PW, PY + PH + 10);
     plLine = lvglLine(0); lvglLineStyle(plLine, C_GREEN, 3);
 
     // ===== GAUGE: live sum of the 4 inverters (kW) =====
