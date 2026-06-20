@@ -578,7 +578,7 @@ int main() {
 
 ### Dynamische Task-Erzeugung (ESP32)
 
-Ueber den festen `TaskLoop()` hinaus koennen **bis zu 4 zusaetzliche Hintergrund-Tasks** dynamisch per Namen gestartet werden. Jeder gespawnte Task teilt sich den VM-Zustand des aufrufenden Slots — Globals, Heap, Konstanten — und laeuft parallel zu `main()`, Callbacks und `TaskLoop()`. Ideal als Ersatz fuer einmalige Timer, verzoegerte Jobs oder lang laufende Hintergrundarbeiter.
+Ueber den festen `TaskLoop()` hinaus kann **ein zusaetzlicher Hintergrund-Task pro Slot** dynamisch per Namen gestartet werden (der Task-Pool ist global — bis zu 4 gleichzeitig ueber alle Slots). Jeder gespawnte Task teilt sich den VM-Zustand des aufrufenden Slots — Globals, Heap, Konstanten — und laeuft parallel zu `main()`, Callbacks und `TaskLoop()`. Ideal als Ersatz fuer einmalige Timer, verzoegerte Jobs oder lang laufende Hintergrundarbeiter. **Hinweis:** nur ein spawnTask pro Slot — siehe „Ein Worker pro Slot" weiter unten.
 
 | Funktion | Beschreibung |
 |----------|--------------|
@@ -598,7 +598,7 @@ Ueber den festen `TaskLoop()` hinaus koennen **bis zu 4 zusaetzliche Hintergrund
 **Semantik:**
 
 - **Geteilte VM**: Gespawnte Tasks sehen und veraendern die gleichen Globals/Heap wie `main()`. Ideal fuer Worker-Jobs, die globalen Zustand aktualisieren.
-- **Ein Name pro Slot**: Ein zweites `spawnTask("foo")` waehrend `foo` noch laeuft gibt -1 zurueck. Erst `killTask("foo")` + `taskRunning("foo")` pollen.
+- **Ein Worker pro Slot**: Pro Slot darf nur **ein** spawnTask laufen. Ein zweites `spawnTask(...)` auf einem Slot mit bereits aktivem Worker — **auch mit anderem Namen** — gibt -1 zurueck und loggt einen Fehler. Die einzelne VM/der Mutex des Slots kann keine zwei parallelen Worker treiben: der zweite liefe, aber der **erste friert nach einer Schleife stillschweigend ein** (kein Crash, kein Log). Den Rest in `TaskLoop()` erledigen oder in den laufenden Worker integrieren; zum Wechseln erst `killTask(...)` + `taskRunning(...)` pollen.
 - **Kooperatives Toeten**: `killTask` ist nicht-blockierend. Der Task terminiert am naechsten Instruktions-Boundary oder nachdem das laufende `delay()` aufwacht. Verwenden Sie `while (taskRunning("foo")) delay(10);` zum Warten.
 - **Mutex-Disziplin**: SpawnTasks ehren denselben Mutex wie `TaskLoop()`. `delay()` in einem SpawnTask gibt den Mutex frei, sodass andere Tasks und Callbacks laufen koennen.
 - **Auto-Cleanup**: Beim Stoppen des Scripts (TinyCStop) werden alle gespawnten Tasks signalisiert und erhalten 2 s zum Beenden.
@@ -3026,6 +3026,7 @@ Alle Primitiven verwenden die aktuelle Position, die durch `dspPos()` gesetzt wu
 | `int dspTextHeight()` | Pixelhoehe fuer aktuellen Font und Textgroesse |
 | `dspImgText(slot, x, y, color, fieldWidth, align, text)` | Text auf ein Bild-Teilrechteck im RAM zusammensetzen und das Ergebnis in einer einzigen SPI-Transaktion uebertragen (flimmerfrei). Der Bildpuffer liefert die Hintergrundpixel; nur Vordergrund-Fontpixel werden ueberschrieben. `slot`: Bild-Slot von `dspLoadImage()`. `x, y`: Pixelposition auf dem Bild (und Bildschirm). `color`: RGB565-Textfarbe. `fieldWidth`: Gesamtfeldbreite in Zeichen — wenn groesser als Textlaenge, zeigt der Rest den Bildhintergrund; 0 fuer automatisch (passt genau zum Text). `align`: 0=links, 1=rechts, 2=zentriert (Ausrichtung innerhalb des Feldes). `text`: der darzustellende String. Funktioniert mit EPD-Fonts 1-4 (gesetzt via `dspText("[f1]")`..`dspText("[f4]")`) bei jeder Textgroesse. Beispiel: `dspText("[f2s1]"); dspImgText(img, 10, 10, 0, 28, 0, buf);` |
 | `int dspLoadImageFromCam(cam_slot)` | JPEG aus einem PSRAM **Cam-Slot** (1-4, gefuellt ueber `camControl(10, ...)`) in einen freien RGB565 **Bild-Slot** (0-3) dekodieren. Gibt den neuen Bild-Slot zurueck, -1 bei Fehler. Der Quell-Cam-Slot bleibt unveraendert. Nur ESP32+JPEG_PICTS+Kamera |
+| `void dspFreeImage(img_slot)` | Einen RGB565-**Bild-Slot** (0-3) freigeben, der zuvor mit `dspLoadImage` / `dspLoadImageFromCam` geladen wurde. In einer Per-Frame-Kameraschleife unverzichtbar, damit die 4 Bild-Slots nicht ausgehen: dekodieren → anzeigen/`lvglCanvasSetImgSlot` → den Slot des Vorframes freigeben. |
 | `dspImgTextBurn(slot, x, y, color, fieldWidth, align, text)` | Glyphen-Pixel direkt **in** den Bildpuffer schreiben — im Gegensatz zu `dspImgText` wird das Display NICHT angefasst. Fuer kopflose Cam-Boards (kein TFT angeschlossen), um Zeitstempel/Label in ein Frame zu brennen, bevor es neu kodiert wird. Faellt auf Font12 Groesse 1 zurueck, wenn kein Renderer aktiv ist; bei vorhandenem Display werden aktueller Font und Groesse respektiert (`dspText("[f2s1]")` etc.). Parameter identisch zu `dspImgText` |
 | `int dspImageToCam(img_slot, cam_slot, quality)` | RGB565-Bild-Slot zurueck in einen Cam-Slot als JPEG kodieren (ueber esp32-camera `fmt2jpg`). `quality` 1..63 (esp_camera-Konvention, niedriger=besser; 12 ≈ JPEG Q=85). Gibt kodierte Byte-Groesse zurueck, -1 bei Fehler. Das Ergebnis ist sofort einsatzbereit fuer `camControl(11, cam_slot, fh)` (Datei speichern), Mail-Anhang oder jeden anderen Cam-Slot-Konsument |
 | `dspText(buf)` | Rohen DisplayText-Befehl ausfuehren (z.B. `"[z][x50][y20]Hello"`) |
@@ -3215,8 +3216,16 @@ Siehe `examples/tinyui_demo.tc` fuer ein 3-Screen-Demo mit Live-Werten, Arc-Gaug
 | `audioVol(int vol)` | Audiolautstaerke setzen (0-100) |
 | `audioPlay("file.mp3")` | MP3-Datei vom Dateisystem abspielen |
 | `audioSay("hello")` | Text-zu-Sprache-Ausgabe |
+| `audioMicGain(int gain)` | Mikrofon-Eingangsverstaerkung (1-100) fuer den Codec-ADC (ES7210/ES8311) des Audio-Plugins setzen — das Eingangs-Pendant zu `audioVol`. Laeuft ueber das Audio-BinPlugin, also der Weg, die Mic-Verstaerkung auf Boards zu setzen, wo das Plugin den Codec besitzt (z. B. P4). |
 
 Erfordert einen auf dem Geraet konfigurierten I2S-Audiotreiber.
+
+**Plugin-Mikrofon (Boards mit geteiltem Codec, z. B. P4).** Wo das Audio-Plugin den Codec besitzt
+(der Vollduplex-ES8311 + ES7210 des P4), kann der native `i2sMic*`-Pfad weiter unten keinen zweiten
+I2S-Kanal oeffnen. Stattdessen die Verstaerkung mit `audioMicGain(gain)` setzen und die Live-Lautheit
+ueber `pluginQuery(buf, 42, 0, 10)` lesen — Audio-Plugin **Modul 42, Selektor 10 = Mic-Pegel** (siehe
+`examples/mic_plugin_level.tc`). Hinweis: gleichzeitiges Abspielen **und** Mic wird auf diesem
+Vollduplex-Codec noch nicht unterstuetzt — es ist ein Pegel-/Listen-Pfad.
 
 ```c
 audioVol(50);              // Lautstaerke auf 50% setzen
@@ -4099,6 +4108,13 @@ liefert `0`. Nur ESP32-Familie.
 LVGL ist *nicht* reentrant: Die Firmware rendert es im Haupt-Loop, während deine `lvgl*`-Aufrufe auf
 dem VM-Task laufen — ein Mutex serialisiert das automatisch, du rufst die Builtins einfach normal auf.
 
+**Rotation.** `DisplayRotate 0|1|2|3` (0/90/180/270°) dreht das gesamte Panel — Legacy-`dsp*`-Zeichnen,
+LVGL **und** Touch folgen alle — auf dem P4-MIPI-DSI-Panel; der Renderer transponiert in den
+Portrait-Framebuffer, kein Code pro App nötig. Für eine **Querformat**-LVGL-UI `DisplayRotate 1`
+**persistent setzen und neu starten**, damit das Panel gedreht hochkommt, *bevor* `lvglInit()` den
+Screen in der getauschten Auflösung anlegt. (Ein Wechsel zur Laufzeit unter einem laufenden
+LVGL-Screen kann das gerade gerenderte Frame stören.)
+
 **Modell.** Objekte werden über einen Integer-**Handle** (1…) angesprochen. **Handle `0` ist der
 aktive Screen** — als Parent (`lvglLabel(0)`) oder zum Stylen des Screens selbst
 (`lvglSetBgColor(0, …)`). Handles werden automatisch ungültig entfernt, wenn LVGL ein Objekt löscht
@@ -4173,6 +4189,8 @@ Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
 | `void lvglImagePivot(int h, int x, int y)` | Drehpunkt setzen, px ab Bild-Ecke oben links (Standard = Bildmitte) |
 | `void lvglSetFont(int h, int size)` | Schriftgröße eines Labels setzen; auf die eingebauten Montserrat-Größen (10/14/20/28) gerundet. |
 | `void lvglImageScale(int h, int sx, int sy)` | Bild pro Achse skalieren, 256 = 100% (z. B. ein pulsierendes Cover). |
+| `int lvglCanvas(int parent)` | Ein Live-Bild-Objekt mit rohem RGB565-Puffer erzeugen. Trotz des Namens ist es ein `lv_image`, also wirken `lvglImageScale`/`lvglImageAngle`/`lvglImagePivot` darauf — für Kamera-Frames oder jeden dynamischen Pixelpuffer. |
+| `void lvglCanvasSetImgSlot(int canvas, int img_slot)` | Ein `lvglCanvas` ohne Kopie auf einen PSRAM-RGB565-**Bild-Slot** (0-3, z. B. aus `dspLoadImageFromCam`) zeigen lassen und neu zeichnen. Der Slot muss bis zum nächsten Aufruf gültig bleiben; den Slot des Vorframes mit `dspFreeImage` freigeben. So wird ein Live-Kamerabild auf dem LVGL-Screen getrieben (siehe `examples/cam_view_lvgl.tc`). |
 | `int lvglLine(int parent)` | Ein Linien-Objekt erstellen. |
 | `void lvglLinePoints(int h, int x1, int y1, int x2, int y2)` | Die zwei Endpunkte einer Linie setzen. |
 | `void lvglLineStyle(int h, int rgb, int width)` | Farbe (0xRRGGBB) und Breite (px) einer Linie setzen. |
