@@ -5555,13 +5555,22 @@ int tc_spawn_task_create(const char *name, uint16_t stack_kb) {
   }
 
   tc_spawn_pool_lock();
-  // Already running on same slot? Refuse — user must killTask first.
+  // ONE worker per slot. The slot's single vm_mutex / VM can't drive two parallel spawnTask
+  // workers: the second runs but the FIRST silently freezes after one loop (no error/log) —
+  // Andreas hit exactly this with a timer-worker + an arm-worker on one slot. So refuse ANY
+  // second spawn on the same slot (not just a same-named one); the script must keep to a single
+  // spawnTask and do the rest in TaskLoop().
   for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
-    if (tc_spawn_pool[i].running
-        && tc_spawn_pool[i].slot_idx == sidx
-        && strcmp(tc_spawn_pool[i].name, name) == 0) {
+    if (tc_spawn_pool[i].running && tc_spawn_pool[i].slot_idx == sidx) {
+      bool same_name = (strcmp(tc_spawn_pool[i].name, name) == 0);
+      char other[TC_SPAWN_NAME_LEN];
+      strlcpy(other, tc_spawn_pool[i].name, sizeof(other));
       tc_spawn_pool_unlock();
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') already running on slot %d"), name, sidx);
+      if (same_name) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') already running on slot %d"), name, sidx);
+      } else {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') refused — slot %d already runs worker '%s'; only ONE spawnTask per slot, do the rest in TaskLoop()"), name, sidx, other);
+      }
       return -1;
     }
   }

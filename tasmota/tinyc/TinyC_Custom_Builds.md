@@ -56,6 +56,7 @@ configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 | `-DTINYC_CAMERA` | Enable integrated camera driver (ESP32/S3 only, not RISC-V) — **≈+42 KB flash** | ESP32/S3 builds |
 | `-DUSE_TINYC_BLE` | Enable BLE scripting (scan + GATT client). Pulls in `USE_BLE_ESP32` (the common-BLE driver) — **≈+292 KB flash / +9 KB RAM**. Requires NimBLE-capable framework (BT enabled in sdkconfig) and `-DCONFIG_NIMBLE_CPP_IDF` globally. ESP32 family only. Off → BLE builtins are runtime no-ops | Opt-in (e.g. the `tinyc32s3-ble` env) |
 | `-DTINYC_NO_DISPLAY` | Exclude display support (~80 KB flash saved) | Optional |
+| `-DARDUINO_SERIAL_EVENT_TASK_STACK_SIZE=8192` | Raise the Arduino `uart_event_task` stack (default **2 KB**). **eBUS active-master builds** (`USE_SML_EBUS_MASTER`, the `*-ebus*` envs) need this: the eBUS RX decode (`SML_Decode`/`sml_getvalue`, with ~2 KB stack buffers) runs **in that task** — not the VM or a spawnTask — and overflows the 2 KB default under heavy b555/active-read sweeps → silent reboot. 8 KB covers it (Andreas 2026-06, verified at 16 KB). Nearly impossible to diagnose without a COM port, since the `stack overflow in task uart_event_task` message only appears on serial | eBUS-master envs |
 
 ## Flash Budget (measured, `tinyc32-4M` — classic ESP32 4 MB, the tightest target)
 

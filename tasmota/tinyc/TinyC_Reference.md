@@ -625,7 +625,7 @@ int main() {
 
 ### Dynamic Task Spawn (ESP32)
 
-Beyond the fixed `TaskLoop()`, you can launch **up to 4 additional background tasks** on demand by name. Each spawned task shares the calling VM's state — globals, heap, constants — and runs concurrently with `main()`, callbacks, and `TaskLoop()`. Ideal replacements for one-shot timers, delayed jobs, or long background workers.
+Beyond the fixed `TaskLoop()`, you can launch **one additional background task per slot** on demand by name (the task pool is global — up to 4 live across all slots). Each spawned task shares the calling VM's state — globals, heap, constants — and runs concurrently with `main()`, callbacks, and `TaskLoop()`. Ideal replacements for one-shot timers, delayed jobs, or long background workers. **Note:** only one spawnTask per slot — see "One worker per slot" below.
 
 | Function | Description |
 |----------|-------------|
@@ -645,7 +645,7 @@ Beyond the fixed `TaskLoop()`, you can launch **up to 4 additional background ta
 **Semantics:**
 
 - **Shared VM**: spawned tasks see and mutate the same globals/heap as `main()`. Use this for worker jobs that update global state.
-- **One name per slot**: a second `spawnTask("foo")` while `foo` is still running returns -1. Use `killTask("foo")` + `taskRunning("foo")` poll first.
+- **One worker per slot**: only **one** spawnTask may run per slot. A second `spawnTask(...)` on a slot that already has a live worker — **even with a different name** — returns -1 and logs an error. The slot's single VM/mutex cannot drive two parallel workers: the second would run but the **first silently freezes after one loop** (no crash, no log). Put the rest of the work into `TaskLoop()` or fold it into the running worker; to swap workers, `killTask(...)` + poll `taskRunning(...)` first.
 - **Cooperative kill**: `killTask` is non-blocking. The task will self-terminate at its next instruction boundary or after the current `delay()` wakes up. Use `while (taskRunning("foo")) delay(10);` to wait.
 - **Mutex discipline**: spawnTasks honor the same mutex as `TaskLoop()`. `delay()` inside a spawn task releases the mutex so other tasks and callbacks can run.
 - **Auto-cleanup**: when the script stops (TinyCStop) all spawned tasks are signaled and given 2 s to exit.
@@ -3997,6 +3997,7 @@ All primitives use the current position set by `dspPos()` and the current foregr
 | `int dspTextHeight()` | Get pixel height for current font and text size |
 | `dspImgText(slot, x, y, color, fieldWidth, align, text)` | Composite text onto an image sub-rect in RAM and push the result in a single SPI transaction (flicker-free). The image buffer provides the background pixels; only foreground font pixels are overwritten. `slot`: image slot from `dspLoadImage()`. `x, y`: pixel position on the image (and screen). `color`: RGB565 text color. `fieldWidth`: total field width in characters — if larger than text length, remaining area shows image background; use 0 for auto (fits text exactly). `align`: 0=left, 1=right, 2=center (alignment within the field). `text`: the string to render. Works with EPD fonts 1-4 (set via `dspText("[f1]")`..`dspText("[f4]")`) at any text size. Example: `dspText("[f2s1]"); dspImgText(img, 10, 10, 0, 28, 0, buf);` |
 | `int dspLoadImageFromCam(cam_slot)` | Decode the JPEG already held in a PSRAM **cam slot** (1-4, captured via `camControl(10, ...)`) into a free RGB565 **image slot** (0-3). Returns the new image slot, or -1 on failure. The source cam slot is untouched. ESP32+JPEG_PICTS+camera only |
+| `void dspFreeImage(img_slot)` | Free one RGB565 **image slot** (0-3) previously loaded by `dspLoadImage` / `dspLoadImageFromCam`. Essential in a per-frame camera loop so the 4 image slots don't run out: decode → display/`lvglCanvasSetImgSlot` → free the previous frame's slot. |
 | `dspImgTextBurn(slot, x, y, color, fieldWidth, align, text)` | Write glyph pixels directly **into** an image buffer — unlike `dspImgText` this does NOT touch the display. Use on headless cam boards (no TFT attached) to burn timestamps/labels into a frame before re-encoding. Falls back to built-in Font12 at size 1 if no renderer is active; if a display IS attached, honors its current font + size (`dspText("[f2s1]")` etc.). Parameters identical to `dspImgText` |
 | `int dspImageToCam(img_slot, cam_slot, quality)` | Re-encode an RGB565 image slot back into a cam slot as JPEG (via esp32-camera `fmt2jpg`). `quality` range 1..63 (esp_camera convention, lower=better; 12 ≈ JPEG Q=85). Returns encoded byte size, or -1 on failure. Result is ready for `camControl(11, cam_slot, fh)` to save-to-file, email attach, or any other cam-slot consumer |
 | `dspText(buf)` | Execute raw DisplayText command string (e.g., `"[z][x50][y20]Hello"`) |
@@ -4186,8 +4187,16 @@ See `examples/tinyui_demo.tc` for a 3-screen demo with live values, an arc gauge
 | `audioVol(int vol)` | Set audio volume (0-100) |
 | `audioPlay("file.mp3")` | Play MP3 file from filesystem |
 | `audioSay("hello")` | Text-to-speech output |
+| `audioMicGain(int gain)` | Set the microphone input gain (1-100) for the audio plugin's codec ADC (ES7210/ES8311) — the input-side mirror of `audioVol`. Routes through the audio BinPlugin, so it's the way to set mic gain on boards where the plugin owns the codec (e.g. P4). |
 
 Requires I2S audio driver configured on the device.
+
+**Plugin microphone (shared-codec boards, e.g. P4).** Where the audio plugin owns the codec
+(the P4's full-duplex ES8311 + ES7210), the native `i2sMic*` path below can't open a second I2S
+channel. Instead set gain with `audioMicGain(gain)` and read live loudness via
+`pluginQuery(buf, 42, 0, 10)` — audio plugin **module 42, selector 10 = mic level** (see
+`examples/mic_plugin_level.tc`). Note: simultaneous playback **and** mic isn't supported on that
+full-duplex codec yet — it's a level/listen path.
 
 ```c
 audioVol(50);              // set volume to 50%
@@ -5187,6 +5196,12 @@ family only.
 LVGL is *not* re-entrant: the firmware renders it on the main loop while your `lvgl*` calls run on
 the VM task, so a mutex serialises them for you — just call the builtins normally.
 
+**Rotation.** `DisplayRotate 0|1|2|3` (0/90/180/270°) rotates the whole panel — legacy `dsp*` drawing,
+LVGL, **and** touch all follow — on the P4 MIPI-DSI panel; the renderer transposes into the portrait
+framebuffer, no per-app code needed. For a **landscape** LVGL UI, set `DisplayRotate 1` **persisted
+and reboot** so the panel comes up rotated *before* `lvglInit()` lays out the screen at the swapped
+resolution. (Switching rotation at runtime under a live LVGL screen can glitch the in-flight frame.)
+
 **Model.** Objects are addressed by an integer **handle** (1…). **Handle `0` is the active screen** —
 use it as a parent (`lvglLabel(0)`) or to style the screen itself (`lvglSetBgColor(0, …)`). Objects
 are auto-removed from the handle table when LVGL deletes them, so handles never dangle. There is **no
@@ -5260,6 +5275,8 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `void lvglImagePivot(int h, int x, int y)` | Set the rotation pivot, px from the image's top-left (default is image centre) |
 | `void lvglSetFont(int h, int size)` | Set a label's font size; snapped to the built-in Montserrat sizes (10/14/20/28). |
 | `void lvglImageScale(int h, int sx, int sy)` | Scale an image per-axis, 256 = 100% (e.g. a pulsing cover). |
+| `int lvglCanvas(int parent)` | Create a live-image object backed by a raw RGB565 buffer. Despite the name it is an `lv_image`, so `lvglImageScale`/`lvglImageAngle`/`lvglImagePivot` all work on it — use it for camera frames or any dynamic pixel buffer. |
+| `void lvglCanvasSetImgSlot(int canvas, int img_slot)` | Point a `lvglCanvas` at a PSRAM RGB565 **image slot** (0-3, e.g. from `dspLoadImageFromCam`) zero-copy and redraw. The slot must stay valid until the next call; free the previous frame's slot with `dspFreeImage`. This is how a live camera view is driven on the LVGL screen (see `examples/cam_view_lvgl.tc`). |
 | `int lvglLine(int parent)` | Create a line object. |
 | `void lvglLinePoints(int h, int x1, int y1, int x2, int y2)` | Set a line's two endpoints. |
 | `void lvglLineStyle(int h, int rgb, int width)` | Set a line's color (0xRRGGBB) and width (px). |
