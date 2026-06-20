@@ -115,26 +115,28 @@ void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 
 void uDisplay::setRotation(uint8_t rotation) {
     cur_rot = rotation;
-    if (universal_panel->setRotation(rotation)) {
-        // Update Renderer dimensions based on rotation
-        switch (rotation) {
-            case 0:
-            case 2:
-                _width = gxs;
-                _height = gys;
-                break;
-            case 1:
-            case 3:
-                _width = gys;
-                _height = gxs;
-                break;
-        }
-        return;
+
+    bool handled = universal_panel->setRotation(rotation);
+    if (!handled && framebuffer) {
+        // Non-panel framebuffer displays do the software rotation in the base Renderer.
+        Renderer::setRotation(cur_rot);
     }
 
-    if (framebuffer) {
-        Renderer::setRotation(cur_rot);
-        return;
+    // Always reflect the rotation in the renderer dimensions. The DSI panel keeps its framebuffer
+    // INSIDE the panel object, so the base uDisplay::framebuffer is null and the old `if (framebuffer)`
+    // gate was never taken for it -> _width/_height stayed native at rot 1/3, which clipped framebuffer
+    // drawing and made TS_RotConvert (touch) wrong in the swap orientations.
+    switch (rotation) {
+        case 0:
+        case 2:
+            _width = gxs;
+            _height = gys;
+            break;
+        case 1:
+        case 3:
+            _width = gys;
+            _height = gxs;
+            break;
     }
 }
 

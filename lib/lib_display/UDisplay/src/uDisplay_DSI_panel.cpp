@@ -178,17 +178,24 @@ DSIPanel::~DSIPanel() {
 }
 
 bool DSIPanel::drawPixel(int16_t x, int16_t y, uint16_t color) {
-    if (!framebuffer || x < 0 || y < 0 || x >= cfg.width || y >= cfg.height) return true;
+    if (!framebuffer) return true;
 
-    int16_t w = cfg.width, h = cfg.height;
+    // Map the logical (rotated) coordinate to the physical framebuffer (cfg.width x cfg.height).
+    // The axis flip must use the PHYSICAL dimension, not the swapped logical one — the old code
+    // flipped against the swapped width (e.g. 1280 instead of 800 at rot 1), shifting every pixel
+    // by the dimension difference and wrapping it into the next row (the rot-1/3 "Y offset").
+    // rot 2 has no axis swap so its mapping was already correct.
+    int16_t px, py;
     switch (rotation) {
-        case 1: std::swap(w, h); std::swap(x, y); x = w - x - 1; break;
-        case 2: x = w - x - 1; y = h - y - 1; break;
-        case 3: std::swap(w, h); std::swap(x, y); y = h - y - 1; break;
+        default:
+        case 0: px = x;                  py = y;                  break;
+        case 1: px = cfg.width - 1 - y;  py = x;                  break;  // 90deg
+        case 2: px = cfg.width - 1 - x;  py = cfg.height - 1 - y; break;  // 180deg
+        case 3: px = y;                  py = cfg.height - 1 - x; break;  // 270deg
     }
+    if (px < 0 || py < 0 || px >= cfg.width || py >= cfg.height) return true;
 
-    uint16_t* p = &framebuffer[y * cfg.width + x];
-    *p = color;
+    framebuffer[py * cfg.width + px] = color;
     framebuffer_dirty = true;
 
     return true;
@@ -196,6 +203,14 @@ bool DSIPanel::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
 bool DSIPanel::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
     if (!framebuffer) return true;   // fail-safe: DSI init failed -> no FB, never deref null (no boot brick)
+    if (rotation != 0) {
+        // rotated: each pixel must be remapped, so go through drawPixel (the fast linear fill below
+        // assumes an un-rotated row layout).
+        for (int16_t yp = y; yp < y + h; yp++) {
+            for (int16_t xp = x; xp < x + w; xp++) { drawPixel(xp, yp, color); }
+        }
+        return true;
+    }
     for (int16_t yp = y; yp < y + h; yp++) {
         uint16_t* line_start = &framebuffer[yp * cfg.width + x];
         for (int16_t i = 0; i < w; i++) {
@@ -252,29 +267,16 @@ bool DSIPanel::setRotation(uint8_t rot) {
     if (!io_handle) return false;
     
     rotation = rot & 3;
-    
-    // Standard MIPI DCS MADCTL (0x36) values for rotation
-    // These are common values but may need adjustment for specific displays
-    uint8_t madctl_val = 0;
-    
-    switch (rotation) {
-    case 0:  // Portrait
-        madctl_val = 0x00;  // Normal
-        break;
-    case 1:  // Landscape (90° clockwise)
-        madctl_val = 0x60;  // MX + MV
-        break;
-    case 2:  // Portrait inverted (180°)
-        madctl_val = 0xC0;  // MX + MY
-        break;
-    case 3:  // Landscape inverted (270° clockwise)
-        madctl_val = 0xA0;  // MY + MV
-        break;
-    }
-    
-    // Send MADCTL command (0x36) with rotation value
-    esp_err_t ret = esp_lcd_panel_io_tx_param(io_handle, 0x36, &madctl_val, 1);
-    return false; // pass job to Renderer
+
+    // Rotation is done in SOFTWARE by the Renderer (framebuffer drawPixel / pushColors
+    // coordinate-swap) — and ALL drawing, including LVGL, flushes through pushColors, so it
+    // all rotates that way. Do NOT also rotate via MADCTL: this video-mode DSI panel doesn't
+    // honor the MADCTL axis-swap (MV) mid-scan, only the mirror bits, which then STACK on top
+    // of the software rotation and come out mirrored (the "rotated text is mirrored" bug).
+    // Keep the panel scan NORMAL (MADCTL 0x00) and let the Renderer do the whole rotation.
+    uint8_t madctl_val = 0x00;
+    esp_lcd_panel_io_tx_param(io_handle, 0x36, &madctl_val, 1);
+    return false; // pass job to Renderer (software framebuffer rotation)
 }
 
 bool DSIPanel::updateFrame() {

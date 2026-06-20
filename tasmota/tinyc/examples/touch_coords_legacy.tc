@@ -1,0 +1,79 @@
+// touch_coords_legacy.tc — live touch coordinates using the LEGACY (non-LVGL) display API.
+//
+// Mirror of touch_coords.tc, but draws straight to the framebuffer (dspText/dspFillCircle) so it
+// verifies touch tracking under DisplayRotate in NORMAL (non-LVGL) mode. touchGet() returns the
+// post-rotation coords (Touch_Status / TS_RotConvert); the red dot is drawn there via the legacy
+// renderer (drawPixel). GREEN markers sit at every corner + edge midpoint (in screen coords) so
+// you can see exactly where the dot lands vs each edge — handy for the rot 1/3 touch offset.
+//
+//   touchGet(0) -> 1 if pressed   touchGet(1) -> x   touchGet(2) -> y
+
+int ox;
+int oy;
+int op;
+int lw;
+
+void drawMarkers() {
+    int W = dspWidth();
+    int H = dspHeight();
+    dspColor(0x07E0, 0x0000);                 // green
+    dspPos(0, 0);          dspFillRect(26, 26);          // TL
+    dspPos(W - 26, 0);     dspFillRect(26, 26);          // TR
+    dspPos(0, H - 26);     dspFillRect(26, 26);          // BL
+    dspPos(W - 26, H - 26); dspFillRect(26, 26);         // BR
+    dspPos(W / 2 - 13, 0);      dspFillRect(26, 13);     // top mid
+    dspPos(W / 2 - 13, H - 13); dspFillRect(26, 13);     // bottom mid
+    dspPos(0, H / 2 - 13);      dspFillRect(13, 26);     // left mid
+    dspPos(W - 13, H / 2 - 13); dspFillRect(13, 26);     // right mid
+    dspSize(2);
+    dspPos(32, 4);          dspText("TL");
+    dspPos(W - 64, 4);      dspText("TR");
+    dspPos(32, H - 24);     dspText("BL");
+    dspPos(W - 64, H - 24); dspText("BR");
+}
+
+int main() {
+    dspColor(0xFFFF, 0x0000);
+    dspClear();
+    dspUpdate();
+    ox = 0; oy = 0; op = 0;
+    lw = dspWidth();
+
+    while (1) {
+        if (dspWidth() != lw) {                 // orientation changed -> full clear once
+            lw = dspWidth();
+            dspColor(0xFFFF, 0x0000); dspClear();
+            op = 0;
+        }
+
+        int p = touchGet(0);
+        int x = touchGet(1);
+        int y = touchGet(2);
+
+        if (op == 1) {                          // erase the previous dot
+            dspColor(0x0000, 0x0000); dspPos(ox, oy); dspFillCircle(20);
+        }
+
+        dspColor(0x0000, 0x0000); dspPos(34, 40); dspFillRect(520, 72);   // wipe text area (2 lines)
+        dspColor(0xFFFF, 0x0000); dspSize(3); dspPos(38, 44);
+        char buf[56];
+        sprintf(buf, "x=%d y=%d %s", x, y, p == 1 ? "PRESSED" : "rel");
+        dspText(buf);
+        dspColor(0x07E0, 0x0000); dspSize(2); dspPos(38, 80);
+        char buf2[40];
+        sprintf(buf2, "W=%d H=%d", dspWidth(), dspHeight());
+        dspText(buf2);
+
+        drawMarkers();
+
+        if (p == 1) {                           // draw the dot at the touch point
+            dspColor(0xF800, 0x0000); dspPos(x, y); dspFillCircle(18);
+            ox = x; oy = y;
+        }
+
+        op = p;
+        dspUpdate();
+        delay(40);
+    }
+    return 0;
+}
