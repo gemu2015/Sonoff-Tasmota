@@ -775,10 +775,10 @@ void I2sTask(void) {
 
   I2S_Wait_Ready();
   I2S_Enable(0);
-  
+
   AudioPwr(0);
   i2s_busy = false;
-  
+
   vTaskDelete(0);
 }
 #endif
@@ -2871,15 +2871,102 @@ void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebR
 
 
 
+// Plugin_Query(42, sel) selectors reachable from TinyC/Scripter — the bit31 branch
+// in mod_func_execute routes here. index 0/1/2 mirror the play/vol/say console
+// commands (the param string arrives in cmd_param); I2S_Q_MICGAIN sets the mic gain
+// (1..100, takes a param like vol); I2S_Q_MICLEVEL reads the mic loudness (no param,
+// e.g. pluginQuery(buf, 42, 0, 10)).
+#define I2S_Q_MICLEVEL 10
+#define I2S_Q_MICGAIN  11
+
 int32_t i2s_script_cmd(uint32_t sel) {
 SETREGS
-  
+
   uint8_t index = sel & 0xff;
-  uint8_t type = sel >> 8;
-  if (type == 0) {
-    if (cmd_param) {
-      I2S_Play(cmd_param);
+
+  switch (index) {
+    case 0:                                     // play <file>
+      if (cmd_param) {
+        I2S_Play(cmd_param);
+      }
+      break;
+
+    case 1:                                     // vol <n>
+    case 2:                                     // say <text>
+#ifdef USE_MIC
+    case I2S_Q_MICGAIN:                         // mic gain <n> (1..100)
+#endif
+      if (cmd_param) {
+        // these cmd fns read XdrvMailbox->data — point it at the script param.
+        // They also end in ResponseCmnd*, which formats XdrvMailbox->command as a
+        // %s JSON key. The plugin-query path never sets ->command, so without this
+        // it dereferences a stale pointer and faults. Point it at cmd_param — a
+        // firmware/DRAM string. Do NOT use a plugin string literal here (e.g.
+        // "PQ"): its bytes live in the INST-only-mmap'd plugin partition, and the
+        // firmware reads a %s arg byte-by-byte (unlike the format, which goes via
+        // pgm_read), so a plugin-pointer %s arg faults too. Plugin_Query discards
+        // the response; restore ->command after so the mailbox isn't left dirty.
+        char *save_cmd        = XdrvMailbox->command;
+        XdrvMailbox->data     = cmd_param;
+        XdrvMailbox->data_len = strlen(cmd_param);
+        XdrvMailbox->payload  = atoi(cmd_param);
+        XdrvMailbox->command  = cmd_param;
+        if (index == 1)      { SetVolume(); }
+        else if (index == 2) { Say(); }
+#ifdef USE_MIC
+        else                 { SetGain(); }
+#endif
+        XdrvMailbox->command  = save_cmd;
+      }
+      break;
+
+#ifdef USE_MIC
+    case I2S_Q_MICLEVEL: {                      // mic loudness (peak |sample|, 0..32767; -1 = no mic)
+      char *r = (char *)special_malloc(16);
+      if (!r) { break; }
+      int peak = -1;                            // -1 = RX channel not available / not running
+      // The firmware read handler (xdrv_123) guards on txhandle but then reads
+      // rxhandle, so a null/stale rxhandle would call i2s_channel_read(NULL,...)
+      // and crash. And i2sp.timeout is passed to i2s_channel_read as a FreeRTOS
+      // tick count, not ms — so a one-shot read from the main loop must use 0
+      // (non-blocking peek, like the firmware's own getMicLevel) to never stall
+      // the loop into a watchdog reset.
+      if (i2sp.rxhandle) {
+        int16_t  sbuf[128];
+        int16_t *save_dptr = i2sp.dptr;
+        uint16_t save_dlen = i2sp.dlen;
+        uint16_t save_to   = i2sp.timeout;
+        i2sp.dptr    = sbuf;
+        i2sp.dlen    = sizeof(sbuf);
+        i2sp.timeout = 0;                       // ticks! 0 = do-not-wait peek
+        uint32_t nbytes = i2s_read_samples_r(&i2sp);
+        i2sp.dptr = save_dptr; i2sp.dlen = save_dlen; i2sp.timeout = save_to;
+        peak = 0;
+        uint32_t cnt = nbytes / 2;
+        for (uint32_t i = 0; i < cnt; i++) {
+          int v = sbuf[i];
+          if (v < 0) { v = -v; }
+          if (v > peak) { peak = v; }
+        }
+      }
+      // Format peak by hand — NOT sprintf. A raw sprintf in a plugin passes a
+      // plugin-region format-string pointer to the firmware's siprintf, whose
+      // byte-wise format parse faults: the plugin partition is mmap'd INST-only
+      // (xdrv_123 line ~3179), so byte reads of plugin rodata fault (Load access
+      // fault in _svfiprintf_r). The rest of this plugin only formats via the
+      // jumptable Response_P/ResponseCmnd*; here we must RETURN a string, so we
+      // build the decimal by hand (no format pointer, no printf).
+      char *p = r;
+      int   v = peak;
+      if (v < 0) { *p++ = '-'; v = -v; }
+      char tmp[8];
+      int  ti = 0;
+      do { tmp[ti++] = (char)('0' + (v % 10)); v /= 10; } while (v > 0);
+      while (ti > 0) { *p++ = tmp[--ti]; }
+      *p = '\0';
+      return (int32_t)r;                        // Plugin_Query returns this; caller frees it
     }
+#endif
   }
 
   return 0;

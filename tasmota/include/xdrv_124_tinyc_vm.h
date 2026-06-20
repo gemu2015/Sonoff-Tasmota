@@ -307,7 +307,7 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     12    // V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     14    // V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -549,6 +549,10 @@ enum TcSyscall {
   SYS_BASE64_ENC        = 510, // (in_ref, in_len, out_ref) -> int — base64-encode in_len bytes of in[] into out[]; encoded length (binary-safe for request signing)
   SYS_UTC_SECS          = 511, // () -> int — current UTC unix epoch (UtcTime()). True UTC (unlike timeToSecs(timeStamp()) which is local-as-UTC). For stamps/signing.
   SYS_RSA_ENCRYPT       = 512, // (n_b64url, e_b64url, plaintext, out_hex) -> hexlen — RSA PKCS#1 v1.5 (type 2) encrypt with pubkey (n,e), output as hex. For IDPConnect-style login (RSA-encrypted password). Uses BearSSL br_rsa_public.
+  SYS_AUDIO_MICGAIN     = 513, // (gain) -> void — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11). Mirror of audioVol, for the ES7210 mic ADC.
+  SYS_LVGL_CANVAS       = 514, // (parent) -> int handle — create an lv_canvas (an lv_image subclass, so lvglImageScale/Angle work on it)
+  SYS_LVGL_CANVAS_IMG   = 515, // (canvas_handle, img_slot) -> void — point the canvas at a PSRAM RGB565 image slot (zero-copy) + invalidate. For live camera frames (dspLoadImageFromCam → here → lvglImageAngle/Scale).
+  SYS_DSP_FREE_IMAGE    = 516, // (img_slot) -> void — free one tc_img_store RGB565 slot, so a per-frame dspLoadImageFromCam loop doesn't exhaust the 4 slots
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -5209,6 +5213,8 @@ void tc_lv_chart_range(int h, int axis, int mn, int mx);
 void tc_lv_chart_count(int h, int n);
 int  tc_lv_image(int parent);
 void tc_lv_image_src(int h, const char *path);
+int  tc_lv_canvas(int parent);
+void tc_lv_canvas_set_rgb565(int h, uint16_t *buf, int w, int hgt);
 int  tc_lv_screen_create(void);
 void tc_lv_screen_load(int h);
 void tc_lv_screen_load_anim(int h, int anim, int ms);
@@ -12848,6 +12854,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
+    case SYS_AUDIO_MICGAIN: {
+      int32_t g = TC_POP(vm);
+      char cmd[24];
+      snprintf(cmd, sizeof(cmd), "%d", g);
+      Plugin_Query(42, 11, cmd);   // 11 = I2S_Q_MICGAIN in the audio plugin
+      break;
+    }
 #else
     case SYS_AUDIO_VOL: {
       int32_t vol = TC_POP(vm);
@@ -12874,6 +12887,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         snprintf(cmd, sizeof(cmd), "I2SSay %s", text);
         tc_defer_command(cmd);
       }
+      break;
+    }
+    case SYS_AUDIO_MICGAIN: {
+      int32_t g = TC_POP(vm);
+      char cmd[24];
+      snprintf(cmd, sizeof(cmd), "I2SGain %d", g);
+      tc_defer_command(cmd);
       break;
     }
 #endif
@@ -14430,6 +14450,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_CHART_COUNT:  { int32_t n = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_chart_count(h, n); break; }
     case SYS_LVGL_IMAGE:        { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_image(p)); break; }
     case SYS_LVGL_IMAGE_SRC:    { a = TC_POP(vm); int32_t h = TC_POP(vm); char pbuf[160]; tc_ref_to_cstr(vm, a, pbuf, sizeof(pbuf)); tc_lv_image_src(h, pbuf); break; }
+    case SYS_LVGL_CANVAS:       { int32_t p = TC_POP(vm); TC_PUSH(vm, tc_lv_canvas(p)); break; }
+    case SYS_LVGL_CANVAS_IMG:   { int32_t slot = TC_POP(vm); int32_t h = TC_POP(vm);
+                                  if (slot >= 0 && slot < TC_IMG_SLOTS && tc_img_store[slot].buf) {
+                                    tc_lv_canvas_set_rgb565(h, tc_img_store[slot].buf, tc_img_store[slot].w, tc_img_store[slot].h);
+                                  } break; }
+    case SYS_DSP_FREE_IMAGE:    { int32_t slot = TC_POP(vm);
+                                  if (slot >= 0 && slot < TC_IMG_SLOTS) {
+                                    if (tc_img_store[slot].canvas) { delete tc_img_store[slot].canvas; tc_img_store[slot].canvas = nullptr; }
+                                    if (tc_img_store[slot].buf) { free(tc_img_store[slot].buf); tc_img_store[slot].buf = nullptr; tc_img_store[slot].w = 0; tc_img_store[slot].h = 0; }
+                                  } break; }
     case SYS_LVGL_SCREEN_CREATE: TC_PUSH(vm, tc_lv_screen_create()); break;
     case SYS_LVGL_SCREEN_LOAD:   { int32_t h = TC_POP(vm); tc_lv_screen_load(h); break; }
     case SYS_LVGL_SCREEN_LOAD_ANIM: { int32_t ms = TC_POP(vm); int32_t an = TC_POP(vm); int32_t h = TC_POP(vm); tc_lv_screen_load_anim(h, an, ms); break; }
@@ -14453,7 +14483,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_LVGL_SET_VALUE: case SYS_LVGL_SET_RANGE: case SYS_LVGL_SET_STYLE_INT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_GET_VALUE: case SYS_LVGL_IS_CHECKED: TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_LVGL_SET_CHECKED: TC_POP(vm); TC_POP(vm); break;
-    case SYS_LVGL_CHART: case SYS_LVGL_IMAGE: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_CHART: case SYS_LVGL_IMAGE: case SYS_LVGL_CANVAS: TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_LVGL_CANVAS_IMG: TC_POP(vm); TC_POP(vm); break;
+    case SYS_DSP_FREE_IMAGE: TC_POP(vm); break;
     case SYS_LVGL_CHART_TYPE: case SYS_LVGL_CHART_COUNT: case SYS_LVGL_IMAGE_SRC: TC_POP(vm); TC_POP(vm); break;
     case SYS_LVGL_CHART_SERIES: TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_LVGL_CHART_NEXT: TC_POP(vm); TC_POP(vm); TC_POP(vm); break;

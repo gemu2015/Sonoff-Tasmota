@@ -951,6 +951,32 @@ void tc_lv_image_src(int h, const char *path) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o || !path) { return; }
   tc_lvgl_lock(); lv_image_set_src(o, path); tc_lvgl_unlock();
 }
+// A live RGB565 frame is rendered through a real lv_image (an lv_image_dsc_t wrapping the
+// PSRAM buffer), NOT an lv_canvas: lv_image_set_scale/rotation do NOT render on a canvas in
+// this LVGL build (canvas shows raw at 1:1 but blanks under any transform), whereas a plain
+// lv_image supports scale + rotation fully.
+int tc_lv_canvas(int parent) { tc_lvgl_lock(); int h = tc_lv_store(lv_image_create(tc_lv_resolve(parent))); tc_lvgl_unlock(); return h; }
+// Point the image at a PSRAM RGB565 buffer (zero-copy) and redraw. The buffer (an image slot
+// from dspLoadImageFromCam) must stay valid until this is called again with a new buffer; the
+// caller frees the previous slot with dspFreeImage. One static dsc => one live image-from-
+// buffer at a time, which is all a camera view needs.
+static lv_image_dsc_t tc_cam_dsc;
+void tc_lv_canvas_set_rgb565(int h, uint16_t *buf, int w, int hgt) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o || !buf || w <= 0 || hgt <= 0) { return; }
+  tc_lvgl_lock();
+  tc_cam_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+  tc_cam_dsc.header.cf     = LV_COLOR_FORMAT_RGB565;
+  tc_cam_dsc.header.flags  = 0;
+  tc_cam_dsc.header.w      = (uint32_t)w;
+  tc_cam_dsc.header.h      = (uint32_t)hgt;
+  tc_cam_dsc.header.stride = (uint32_t)w * 2;
+  tc_cam_dsc.data_size     = (uint32_t)w * (uint32_t)hgt * 2;
+  tc_cam_dsc.data          = (const uint8_t *)buf;
+  lv_image_cache_drop(&tc_cam_dsc);          // drop any cached decode so the new pixels render
+  lv_image_set_src(o, &tc_cam_dsc);
+  lv_obj_invalidate(o);
+  tc_lvgl_unlock();
+}
 // rotate an image around its pivot. angle in 0.1° units (3600 = 360°), wrapped to 0..3599.
 void tc_lv_image_angle(int h, int angle) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }

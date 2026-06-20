@@ -429,6 +429,8 @@ const BUILTINS = {
     'lvglChartCount':   { syscall: Syscall.LVGL_CHART_COUNT,  args: 2, returns: false },
     'lvglImage':        { syscall: Syscall.LVGL_IMAGE,        args: 1, returns: true },
     'lvglImageSrc':     { syscall: Syscall.LVGL_IMAGE_SRC,    args: 2, returns: false, strArgs: [1] },
+    'lvglCanvas':       { syscall: Syscall.LVGL_CANVAS,       args: 1, returns: true },
+    'lvglCanvasSetImgSlot': { syscall: Syscall.LVGL_CANVAS_IMG, args: 2, returns: false },
     'lvglScreenCreate': { syscall: Syscall.LVGL_SCREEN_CREATE,    args: 0, returns: true },
     'lvglScreenLoad':   { syscall: Syscall.LVGL_SCREEN_LOAD,      args: 1, returns: false },
     'lvglScreenLoadAnim':{ syscall: Syscall.LVGL_SCREEN_LOAD_ANIM, args: 3, returns: false },
@@ -520,6 +522,7 @@ const BUILTINS = {
     'dspTextHeight':    { syscall: Syscall.DSP_TEXT_HEIGHT, args: 0, returns: true },
     'dspImgText':       { syscall: Syscall.DSP_IMG_TEXT,   args: 7, returns: false, strArgs: [6] },
     'dspLoadImageFromCam':{ syscall: Syscall.DSP_LOAD_IMG_CAM,   args: 1, returns: true },
+    'dspFreeImage':     { syscall: Syscall.DSP_FREE_IMAGE,  args: 1, returns: false },
     'dspImgTextBurn':   { syscall: Syscall.DSP_IMG_TEXT_BURN,    args: 7, returns: false, strArgs: [6] },
     'dspImageToCam':    { syscall: Syscall.DSP_IMG_TO_CAM,       args: 3, returns: true  },  // (slot, x, y, color, fieldw, align, text_buf)
 
@@ -545,6 +548,7 @@ const BUILTINS = {
     'audioVol':         { syscall: Syscall.AUDIO_VOL,        args: 1, returns: false },
     'audioPlay':        { syscall: Syscall.AUDIO_PLAY,       args: 1, returns: false, constArgs: [0] },
     'audioSay':         { syscall: Syscall.AUDIO_SAY,        args: 1, returns: false, constArgs: [0] },
+    'audioMicGain':     { syscall: Syscall.AUDIO_MICGAIN,    args: 1, returns: false },
 
     // Minimal I2S output
     'i2sBegin':         { syscall: Syscall.I2S_BEGIN,        args: 5, returns: true },

@@ -1,0 +1,40 @@
+// jpg_view_lvgl.tc — show a JPEG FILE from the filesystem on the LVGL screen, rotatable + scalable.
+//
+// LVGL has no JPEG decoder, BUT dspLoadImage HW-decodes a JPEG file into a PSRAM RGB565
+// image slot, and lvglCanvasSetImgSlot puts that on an LVGL canvas (= an lv_image, so
+// lvglImageScale/Angle size + rotate it). (PNG files instead go straight through
+// lvglImageSrc, which has an LVGL PNG decoder.)  Needs ABI >= 14 + USE_TINYC_LVGL.
+//
+// NOTE: dspLoadImage's path is a compile-time constant. For a runtime/dynamic path,
+// ask for dspLoadImageF (string-arg variant).
+
+#define JPG_FILE  "/photo.jpg"
+#define ZOOM      256            // lvglImageScale: 256 = 100%, 128 = 50%
+
+int canvas;
+
+int main() {
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, 0x101418);
+
+    int slot = dspLoadImage(JPG_FILE);       // read file + HW-decode JPEG -> PSRAM RGB565 slot
+    if (slot < 0) { addLog("jpg_view: load %s FAILED (missing or not JPEG)", JPG_FILE); return -1; }
+
+    canvas = lvglCanvas(0);                   // an lv_image subclass
+    lvglCanvasSetImgSlot(canvas, slot);       // show the decoded JPEG through LVGL
+    lvglImagePivot(canvas, 0, 0);
+    lvglImageScale(canvas, ZOOM, ZOOM);       // size
+    lvglImageAngle(canvas, 0);                // rotation (900 = 90.0°)
+    lvglAlign(canvas, 2, 0, 80);              // top-mid
+
+    addCommand("ROT");                         // "ROT 900" -> rotate 90°
+    addLog("jpg_view: %s on screen", JPG_FILE);
+    return 0;
+}
+
+void Command(char cmd[]) {
+    int a = atoi(cmd);
+    if (a >= 0 && a < 3600) { lvglImageAngle(canvas, a); }
+    responseCmnd("ok");
+}

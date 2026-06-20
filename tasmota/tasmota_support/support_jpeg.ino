@@ -46,9 +46,10 @@ uint16_t *jpg_hw_decode_rgb565(const uint8_t *jpg, uint32_t jpglen, uint16_t *wi
     if (jpeg_new_decoder_engine(&eng, &s_dec) != ESP_OK) { s_dec = nullptr; return nullptr; }
   }
   jpeg_decode_picture_info_t info;
-  if (jpeg_decoder_get_info(jpg, jpglen, &info) != ESP_OK) { return nullptr; }
+  esp_err_t gie = jpeg_decoder_get_info(jpg, jpglen, &info);
+  if (gie != ESP_OK) { AddLog(LOG_LEVEL_INFO, PSTR("JPGHW: get_info err=%d len=%u"), gie, (unsigned)jpglen); return nullptr; }
   uint16_t w = info.width, h = info.height;
-  if (!w || !h) { return nullptr; }
+  if (!w || !h) { AddLog(LOG_LEVEL_INFO, PSTR("JPGHW: bad size %ux%u"), w, h); return nullptr; }
   uint16_t ow = (w + 15) & ~15;            // HW output stride is padded to a 16-px multiple
   uint16_t oh = (h + 15) & ~15;
   size_t out_need = (size_t)ow * oh * 2;
@@ -61,6 +62,7 @@ uint16_t *jpg_hw_decode_rgb565(const uint8_t *jpg, uint32_t jpglen, uint16_t *wi
   uint8_t *in_buf  = (uint8_t *)jpeg_alloc_decoder_mem(jpglen, &in_cfg, &in_got);
   uint8_t *out_buf = (uint8_t *)jpeg_alloc_decoder_mem(out_need, &out_cfg, &out_got);
   if (!in_buf || !out_buf) {
+    AddLog(LOG_LEVEL_INFO, PSTR("JPGHW: alloc fail in=%p(%u) out=%p(%u/need %u)"), in_buf, (unsigned)in_got, out_buf, (unsigned)out_got, (unsigned)out_need);
     if (in_buf) { free(in_buf); }
     if (out_buf) { free(out_buf); }
     return nullptr;
@@ -77,7 +79,8 @@ uint16_t *jpg_hw_decode_rgb565(const uint8_t *jpg, uint32_t jpglen, uint16_t *wi
   esp_err_t err = jpeg_decoder_process(s_dec, &dcfg, in_buf, jpglen, out_buf, out_got, &got);
   OsWatchLoop();
   free(in_buf);
-  if (err != ESP_OK) { free(out_buf); return nullptr; }
+  if (err != ESP_OK) { AddLog(LOG_LEVEL_INFO, PSTR("JPGHW: process err=%d (%ux%u in=%u out_got=%u got=%u)"), err, w, h, (unsigned)jpglen, (unsigned)out_got, (unsigned)got); free(out_buf); return nullptr; }
+  AddLog(LOG_LEVEL_DEBUG, PSTR("JPGHW: OK %ux%u got=%u"), w, h, (unsigned)got);
 
   // Repack into a tight w*h RGB565 buffer (strip the 16-px row padding) so callers
   // get exactly the layout the software esp_jpeg_decode path produced.

@@ -1,0 +1,31 @@
+// mic_plugin_level.tc — read the microphone loudness from the audio BinPlugin
+// (module 42) via pluginQuery, so it COEXISTS with the plugin's audio output.
+//
+// No native i2sMic here: on a board where the audio plugin owns the full-duplex
+// I2S (e.g. the ESP32-P4 display — ES8311 speaker + ES7210 mic), a second
+// i2s_new_channel would conflict. Instead we just ask the plugin for the current
+// peak level (0..32767), exactly like audio play/vol/say ask it to do things:
+//   pluginQuery(buf, 42, 0, 10)   // 10 = I2S_Q_MICLEVEL selector in xdrv_42_i2s
+//
+// Prereq: the audio plugin (xdrv_42_i2s, USE_MIC) is loaded + running.
+
+char buf[16];
+int  level;
+
+void EverySecond() {
+    int n = pluginQuery(buf, 42, 0, 10);     // ask audio plugin (mod 42) for the mic peak
+    if (n > 0) {
+        level = atoi(buf);                   // 0..32767
+        addLog("mic level: %d / 32767", level);
+        // → drive an LVGL bar, a WS2812, or a web gauge from `level` here.
+    } else {
+        addLog("mic level: plugin not loaded / no mic");
+    }
+}
+
+int main() {
+    level = 0;
+    audioMicGain(50);    // set the ES7210 mic gain to 50% (1..100) — needs ABI-13 firmware
+    addLog("mic_plugin_level: polling audio plugin (mod 42) for mic loudness");
+    return 0;
+}

@@ -1,0 +1,63 @@
+// cam_view_lvgl.tc — live ESP32-P4 camera on the LVGL screen, with ROTATION + sizing.
+//
+// LVGL has no JPEG decoder, but it CAN render a raw RGB565 buffer. The P4 MIPI-CSI
+// camera gives JPEG → dspLoadImageFromCam HW-decodes it to RGB565 in PSRAM → we point
+// an LVGL CANVAS at that buffer. A canvas IS an lv_image, so lvglImageScale (size) and
+// lvglImageAngle (rotation) work on it — no file, no JPEG-in-LVGL.
+//
+// Needs ABI >= 14 firmware (lvglCanvas / lvglCanvasSetImgSlot / dspFreeImage),
+// USE_TINYC_LVGL, and the P4 camera (USE_CSI_WEBCAM). Capture blocks → run it in
+// TaskLoop (the VM task thread).
+
+#define CAM_SLOT  1
+#define ZOOM      64          // lvglImageScale: 256 = 100%, 64 = 25% (small thumbnail)
+
+int canvas;
+int cur;                      // image slot the canvas currently shows (-1 = none)
+int g_zoom;
+int g_angle;                  // rotation, 0.1° units (900 = 90°)
+int frames;
+
+int main() {
+    cur     = -1;
+    g_zoom  = ZOOM;
+    g_angle = 0;
+    frames  = 0;
+
+    cameraInit("", 4, 8, 12, 0, 0, -1, -1);   // P4: pins/format/size fixed by the CSI driver
+
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, 0x101418);
+
+    canvas = lvglCanvas(0);                    // an lv_image subclass → it can rotate + scale
+    lvglAlign(canvas, 2, 0, 120);              // 2 = top-mid, 120 px down
+
+    addCommand("CAM");                         // "CAM <deci-deg>" rotates live; "CAM" reports
+    addLog("cam_view_lvgl: ready (zoom=%d)", g_zoom);
+    return 0;
+}
+
+void TaskLoop() {
+    if (camControl(10, CAM_SLOT, 0) <= 0) { delay(200); return; }   // capture JPEG → PSRAM
+    int img = dspLoadImageFromCam(CAM_SLOT);                        // HW-decode → RGB565 slot
+    if (img < 0) { delay(200); return; }
+
+    lvglCanvasSetImgSlot(canvas, img);         // LVGL shows the PSRAM frame (zero-copy)
+    lvglImagePivot(canvas, 0, 0);
+    lvglImageScale(canvas, g_zoom, g_zoom);    // size
+    lvglImageAngle(canvas, g_angle);           // rotation
+
+    if (cur >= 0) { dspFreeImage(cur); }        // free the previous frame's slot
+    cur = img;
+    frames = frames + 1;
+    delay(120);                                 // a few FPS
+}
+
+void Command(char cmd[]) {
+    int i = 0;
+    int hasdigit = 0;
+    while (cmd[i] != 0) { if (cmd[i] >= '0' && cmd[i] <= '9') { hasdigit = 1; } i = i + 1; }
+    if (hasdigit == 1) { int a = atoi(cmd); if (a >= 0 && a < 3600) { g_angle = a; } }  // bare "CAM" just reports
+    char r[56]; sprintf(r, "frames=%d angle=%d zoom=%d", frames, g_angle, g_zoom); responseCmnd(r);
+}

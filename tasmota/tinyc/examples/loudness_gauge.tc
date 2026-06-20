@@ -10,6 +10,17 @@
 //
 // The intro .wav MUST be 16 kHz mono 16-bit PCM (the ES8311 here is clocked for 16 kHz).
 //   ffmpeg -i in.wav -ar 16000 -ac 1 -c:a pcm_s16le /intro.wav
+//
+// ── TWO BUILD TARGETS ───────────────────────────────────────────────────────
+//   DEFAULT (no define): plugin-INDEPENDENT — this script drives ES8311 + ES7210
+//     itself via i2c*/i2sMic. Use on any board WITHOUT the audio BinPlugin.
+//   -DPLUGIN_MIC: the audio BinPlugin (xdrv_42_i2s) already owns the full-duplex
+//     I2S — its native i2sMic would conflict, so instead read the mic level via
+//     pluginQuery(42,0,10) and play the intro via audioPlay. Use on the P4 display
+//     where the plugin is loaded + inited (iniz). The ES7210/ES8311 I2C init and
+//     the WAV streamer are compiled OUT — the plugin does all of that.
+//     Enable by compiling with -DPLUGIN_MIC, or uncomment the next line:
+// // @defines: -DPLUGIN_MIC
 
 #define INTRO_WAV  "/doorbell16.wav"   // 16 kHz → no upsampling (8 kHz Startup.wav's upsample
                                        // loop blows the 200k-instruction/call limit in main)
@@ -33,15 +44,30 @@
 #define COL_RED     0xff5555
 #define COL_DIM     0x7a8aa0
 
+// (PLUGIN_MIC only) the plugin returns a RAW peak |sample| and its analog mic gain is
+// modest, so the signal sits low (e.g. ~40 quiet, a few hundred on speech). Map a
+// noise-floor..full-scale window onto 0..100% so the dial actually moves. Tune to taste:
+// lower MIC_FS = more sensitive; raise MIC_FLOOR if a silent room still shows a few %.
+#define MIC_FLOOR   40         // raw level treated as 0%
+#define MIC_FS      2500       // DEFAULT raw level for 100% (lower = more sensitive).
+                               // Tune LIVE with no rebuild: send "MIC <n>" (e.g. MIC 4000).
+
 int micok = 0;
 int level = 0;
 int peak  = 0;
+int g_pct = 0;                          // last gauge percent (echoed in the MIC debug line)
+int g_fs  = MIC_FS;                     // (PLUGIN_MIC) runtime full-scale; set live via "MIC <n>"
 int arc; int lblPct; int lblPeak; int lblTitle; int bar;
 
+#ifdef PLUGIN_MIC
+char qbuf[16];                          // pluginQuery dst for the mic peak string
+#else
 int wav_channels = 1; int wav_rate = 16000; int wav_bits = 16; int wav_data_size = 0;
-int pcm[512];
+int pcm[512];                           // WAV streaming buffer (native intro only)
+#endif
 int dbg_fk = -9; int dbg_pr = -9; int dbg_rate = 0; int dbg_bits = 0; int dbg_ib = -9; int dbg_fr = 0; int dbg_path = -1; int dbg_stage = -1;
 
+#ifndef PLUGIN_MIC   // ── native codec drivers + WAV streamer (plugin build drops all of this) ──
 // ───────── ES7210 mic ADC over I2C (port of pes7210_codec_init) ─────────
 void aw(int reg, int val) { i2cWrite8(ES7210_ADDR, reg, val, ES_BUS); }
 int  ar_(int reg)         { return i2cRead8(ES7210_ADDR, reg, ES_BUS); }
@@ -186,6 +212,7 @@ void play_wav(char path[]) {
     digitalWrite(PA_EN, 0);              // amp off after the intro (mic gauge doesn't need it)
     addLog("intro: played");
 }
+#endif   // !PLUGIN_MIC (native codec + WAV block)
 
 // ───────── loudness meter ─────────
 int isqrt(int n) {
@@ -198,12 +225,23 @@ int pct_of(int rms) { int p = (isqrt(rms) * 100) / 181; if (p > 100) { p = 100; 
 
 void Every100ms() {
     if (!micok) { return; }
-    int v = i2sMicLevel();
+#ifdef PLUGIN_MIC
+    int n = pluginQuery(qbuf, 42, 0, 10);   // 10 = I2S_Q_MICLEVEL: peak |sample| 0..32767
+    int v = (n > 0) ? atoi(qbuf) : -1;
+#else
+    int v = i2sMicLevel();                  // native RMS-ish level 0..32767
+#endif
     if (v < 0) { return; }
     level = v;
     if (v > peak) { peak = v; } else { peak = (peak * 9) / 10; }
-    int p  = pct_of(level);
+#ifdef PLUGIN_MIC
+    int p  = (level > MIC_FLOOR ? (level - MIC_FLOOR) * 100 / g_fs : 0); if (p  > 100) { p  = 100; }
+    int pk = (peak  > MIC_FLOOR ? (peak  - MIC_FLOOR) * 100 / g_fs : 0); if (pk > 100) { pk = 100; }
+#else
+    int p  = pct_of(level);              // native i2sMicLevel = RMS, perceptual sqrt curve
     int pk = pct_of(peak);
+#endif
+    g_pct = p;
     lvglSetValue(arc, p, 0);
     lvglSetValue(bar, p, 0);
     char b[24];
@@ -215,9 +253,13 @@ void Every100ms() {
 }
 
 void Command(char cmd[]) {
+#ifdef PLUGIN_MIC
+    int f = atoi(cmd);                          // "MIC <n>" sets full-scale live (atoi skips spaces)
+    if (f >= 50 && f <= 32000) { g_fs = f; }
+#endif
     char resp[120];
-    sprintf(resp, "stage=%d | intro path=%d fk=%d rate=%d bits=%d ib=%d fr=%d | rms=%d",
-        dbg_stage, dbg_path, dbg_fk, dbg_rate, dbg_bits, dbg_ib, dbg_fr, level);
+    sprintf(resp, "stage=%d rms=%d pct=%d%% fs=%d cmd=[%s]",
+        dbg_stage, level, g_pct, g_fs, cmd);
     responseCmnd(resp);
 }
 
@@ -238,24 +280,40 @@ void build_gauge() {
 int main() {
     addCommand("MIC");                   // register FIRST so MIC is queryable even if main aborts
     dbg_stage = 0;
+#ifndef PLUGIN_MIC
     i2sMicStop();                        // release any I2S RX/TX held by a previous run
     i2sStop();                           // (handles are global → the intro TX needs the pins free)
+#endif
 
     // Intro startup sound FIRST — before build_gauge. The LVGL init consumes the (4) global
     // file handles, which made play_wav's fileOpen fail (fk=-1) when the gauge was built first;
-    // playing the intro before any LVGL work keeps the handles free. play_wav streams in
-    // 128-frame chunks (P4 DMA-safe), i2sWrite has a finite timeout, breaks on a short write.
+    // playing the intro before any LVGL work keeps the handles free.
+#ifdef PLUGIN_MIC
+    // No intro by default on the plugin build: the plugin owns ONE full-duplex I2S channel,
+    // and its I2S_Play (TX) stops the shared clock when it ends, which wedges the always-on
+    // mic RX → the gauge then reads silence (the native path below can play first because it
+    // starts the mic AFTER the intro). Opt in with -DPLUGIN_INTRO if you accept that risk.
+#ifdef PLUGIN_INTRO
+    audioPlay(INTRO_WAV);
+#endif
+#else
     es8311_init();                       // DAC for the intro
     es8311_volume(60);                   // moderate
-    play_wav(INTRO_WAV);
+    play_wav(INTRO_WAV);                 // native: 128-frame chunks (P4 DMA-safe), finite TX timeout
+#endif
     dbg_stage = 1;                        // intro done
 
     build_gauge();                       // then show the gauge
     dbg_stage = 2;                        // gauge built
 
+#ifdef PLUGIN_MIC
+    micok = 1;                            // the audio plugin already owns + inited the ES7210 mic;
+                                          // a quiet plugin just yields n=0 → level read skips (no crash)
+#else
     es7210_init();                       // mic for the live gauge
     micok = (i2sMicBegin(MIC_MCLK, MIC_BCLK, MIC_WS, MIC_DIN, MIC_RATE) == 0);
     if (!micok) { addLog("loudness_gauge: mic FAILED"); }
+#endif
     dbg_stage = 3;                        // complete
     return 0;
 }

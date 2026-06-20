@@ -1,0 +1,82 @@
+// cam_view.tc — draw a small LIVE camera picture on the ESP32-P4 DSI screen.
+//
+// The P4 MIPI-CSI camera produces JPEG. LVGL in this build has no JPEG decoder
+// (and no cam→LVGL bridge), so we use the legacy display path instead:
+//
+//   camControl(10, slot, 0)        capture one JPEG frame into a PSRAM cam slot
+//   camControl(11, slot, fh)       write that JPEG to a file
+//   dspPos(x, y) + dspPicture(f,s) HW-decode the file and blit it at (x,y),
+//                                  downscaled by factor s  → a SMALL picture
+//
+// dspPicture holds no persistent image slot, so this loops forever (unlike
+// dspLoadImageFromCam, which would exhaust the 4 image slots). The capture
+// blocks, so it MUST run on the VM task thread → use TaskLoop(), not EverySecond.
+//
+// SCALE is the JPEG hardware downscale (powers of two: 1=full, 2=half, 4=quarter,
+// 8=eighth). POS_X/POS_Y is the top-left of the picture on the panel.
+// NOTE: no rotation on this path — that is the one thing LVGL would add, but LVGL
+// can't decode the cam JPEG here. Tune SCALE/POS live with the CAM command below.
+
+#define CAM_SLOT   1
+#define CAM_FILE   "/cam.jpg"
+#define CAM_FS     8          // framesize VGA (640x480); the P4 CSI may fix this
+#define CAM_QUAL   12         // JPEG quality (lower number = higher quality)
+
+int scale;                    // runtime downscale factor (1/2/4/8)
+int posx;
+int posy;
+int frames;
+int lastlen;
+
+int main() {
+    scale   = 4;              // 640x480 / 4 = 160x120 → a small thumbnail
+    posx    = 60;
+    posy    = 90;
+    frames  = 0;
+    lastlen = 0;
+
+    // P4: pins/format/framesize are fixed by the CSI driver; args are accepted
+    // but ignored. On DVP boards they configure the sensor.
+    int ok = cameraInit("", 4, CAM_FS, CAM_QUAL, 0, 0, -1, -1);
+    if (ok != 0) { addLog("cam_view: cameraInit FAILED (%d)", ok); }
+
+    dspClear();
+    dspColor(0xFFFF, 0x0000);
+    dspSize(2);
+    dspPos(posx, posy - 28);
+    dspDraw("CAM");
+    addCommand("CAM");         // "CAM <scale>" to tune live; "CAM" to read status
+    addLog("cam_view: ready (scale=%d at %d,%d)", scale, posx, posy);
+    return 0;
+}
+
+void TaskLoop() {
+    int sz = camControl(10, CAM_SLOT, 0);          // capture JPEG → cam slot
+    if (sz <= 0) { delay(300); return; }           // timeout / not ready
+    lastlen = sz;
+
+    int fh = fileOpen(CAM_FILE, "w");
+    if (fh >= 0) {
+        camControl(11, CAM_SLOT, fh);              // save JPEG to file
+        fileClose(fh);
+        dspPos(posx, posy);
+        dspPicture(CAM_FILE, scale);               // HW-decode + draw, downscaled
+        frames = frames + 1;
+    }
+    delay(150);                                    // a few FPS — gentle on the FS
+}
+
+// "CAM"      -> report frames / last JPEG size / scale
+// "CAM 2"    -> set downscale to 2 (bigger picture); 4/8 = smaller
+void Command(char cmd[]) {
+    int s = atoi(cmd);
+    if (s == 1 || s == 2 || s == 4 || s == 8) {
+        scale = s;
+        dspClear();                                // wipe the old (larger) frame
+        dspColor(0xFFFF, 0x0000); dspSize(2);
+        dspPos(posx, posy - 28); dspDraw("CAM");
+    }
+    char r[64];
+    sprintf(r, "frames=%d jpglen=%d scale=%d pos=%d,%d", frames, lastlen, scale, posx, posy);
+    responseCmnd(r);
+}
