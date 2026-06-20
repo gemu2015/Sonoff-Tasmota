@@ -1,27 +1,26 @@
-// gchart_demo.tc — Google-Charts-style LINE + COLUMN + GAUGE on LVGL (P4 playground)
+// gchart_demo.tc — Google-Charts-style dual-axis dashboard on LVGL (P4 playground)
 //
-// v2 (firmware ABI >= 15): uses the new chart primitives —
-//   - line series  = ONE lvglLinePoly (was N segments)
-//   - gauge zones   = 3 lvglLinePoly arcs (green/amber/red) + a line needle
-//   - y-axis title  = a label rotated 270° via lvglRotate
-//   - columns       = one lvglObj per bar (flat fill, border off, slight radius)
-//   - gridlines     = light lvglLine; baseline a touch darker
-// Portrait 800x1280: white cards on a black screen. Needs USE_TINYC_LVGL firmware
-// with the v15 bindings (lvglLinePoly / lvglArc* / lvglRotate).
+// v3 (firmware ABI >= 15): two time series per chart, each on its own y-axis —
+//   - LINE   : temp (blue, left scale) + humidity (red, RIGHT scale), each a lvglLinePoly
+//   - COLUMN : energy (blue, left scale) + cost (green, RIGHT scale), grouped bars
+//   - GAUGE  : zoned semicircle (3 lvglLinePoly arcs) + needle
+//   - shared gridlines; left axis gray, right axis coloured to its series; legend per card
+//   - left y-axis title rotated 270° via lvglRotate
+// Portrait 800x1280: white cards on a black screen. Needs USE_TINYC_LVGL ABI>=15.
 
 #define ST_RADIUS    120
-#define ST_BORDER     56          // BORDER_WIDTH
-#define ST_BCOLOR     57          // BORDER_COLOR (0xRRGGBB on little-endian)
-#define ST_BOPA       58          // BORDER_OPA
+#define ST_BORDER     56
+#define ST_BCOLOR     57
+#define ST_BOPA       58
 #define AL_CENTER      9
 #define PI         3.14159265
 
-// Material palette (Google 2020)
-#define C_BG     0x000000         // black screen
+#define C_BG     0x000000
 #define C_CARD   0xFFFFFF
 #define C_CARDB  0xDADCE0
-#define C_GRID   0xE8EAED
-#define C_BASE   0xDADCE0
+#define C_GRID   0xBDC1C6         // medium grey gridlines, visible on the light grey plot
+#define C_BASE   0x9AA0A6         // baseline / axis line (darker still)
+#define C_PLOT   0xF1F3F4         // light grey plot-area background
 #define C_AXIS   0x5F6368
 #define C_TITLE  0x202124
 #define C_BLUE   0x4285F4
@@ -29,8 +28,10 @@
 #define C_AMBER  0xFBBC04
 #define C_RED    0xEA4335
 
-int gdat[32];                     // chart data for whichever chart is drawn
-int px[40]; int py[40];           // polyline scratch (lvglLinePoly copies it, so reuse is safe)
+int gdat[32];                     // data for whichever series is being drawn
+int px[40]; int py[40];           // polyline scratch (lvglLinePoly copies it)
+int g_needle = 0; int g_value = 0;          // dynamic gauge parts (updated live)
+int g_cx; int g_cy; int g_r; int g_pmax;    // stored gauge geometry for the updater
 
 int ymap(int v, int vmin, int vmax, int y0, int h) {
     return y0 + h - ((v - vmin) * h) / (vmax - vmin);
@@ -47,27 +48,57 @@ void card(int x, int y, int w, int h) {
     lvglSetStyleInt(c, ST_BCOLOR, C_CARDB);
 }
 
-void drawGrid(int x0, int y0, int w, int h, int vmin, int vmax, int ndiv) {
+// light grey plot-area panel (draw BEFORE the grid + data so they sit on top)
+void plotBg(int x, int y, int w, int h) {
+    int p = lvglObj(0);
+    lvglSetStyleInt(p, ST_BORDER, 0);
+    lvglSetSize(p, w, h);
+    lvglSetStyleInt(p, ST_RADIUS, 0);
+    lvglSetBgColor(p, C_PLOT);
+    lvglSetPos(p, x, y);
+}
+
+// shared gridlines: ndiv horizontal rows (baseline darker) + nxdiv vertical columns
+void drawGrid(int x0, int y0, int w, int h, int ndiv, int nxdiv) {
     int i = 0;
     while (i <= ndiv) {
         int gy = y0 + (h * i) / ndiv;
         int gl = lvglLine(0);
         if (i == ndiv) { lvglLineStyle(gl, C_BASE, 1); } else { lvglLineStyle(gl, C_GRID, 1); }
         lvglLinePoints(gl, x0, gy, x0 + w, gy);
+        i = i + 1;
+    }
+    if (nxdiv >= 1) {
+        i = 0;
+        while (i <= nxdiv) {
+            int gx = x0 + (w * i) / nxdiv;
+            int vl = lvglLine(0);
+            lvglLineStyle(vl, C_GRID, 1);
+            lvglLinePoints(vl, gx, y0, gx, y0 + h);
+            i = i + 1;
+        }
+    }
+}
+
+// y-axis value labels at the gridline rows, anchored at x (left edge), coloured
+void yAxis(int x, int y0, int h, int vmin, int vmax, int ndiv, int color) {
+    int i = 0;
+    while (i <= ndiv) {
+        int gy = y0 + (h * i) / ndiv;
         int val = vmax - ((vmax - vmin) * i) / ndiv;
         char lb[12];
         sprintf(lb, "%d", val);
         int t = lvglLabel(0);
         lvglSetText(t, lb);
-        lvglSetTextColor(t, C_AXIS);
+        lvglSetTextColor(t, color);
         lvglSetFont(t, 14);
-        lvglSetPos(t, x0 - 42, gy - 11);
+        lvglSetPos(t, x, gy - 11);
         i = i + 1;
     }
 }
 
-// line series as a SINGLE polyline + dot markers
-void drawLine(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color) {
+// one line series (reads gdat) as a single polyline, on its own scale; markers optional
+void drawLine(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color, int markers) {
     int step = w / (n - 1);
     int i = 0;
     while (i < n) {
@@ -78,28 +109,33 @@ void drawLine(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color
     int ln = lvglLine(0);
     lvglLineStyle(ln, color, 4);
     lvglLinePoly(ln, px, py, n);
-    i = 0;
-    while (i < n) {
-        int m = lvglObj(0);
-        lvglSetStyleInt(m, ST_BORDER, 0);
-        lvglSetSize(m, 10, 10);
-        lvglSetStyleInt(m, ST_RADIUS, 5);
-        lvglSetBgColor(m, color);
-        lvglSetPos(m, px[i] - 5, py[i] - 5);
-        i = i + 1;
+    if (markers) {
+        i = 0;
+        while (i < n) {
+            int m = lvglObj(0);
+            lvglSetStyleInt(m, ST_BORDER, 0);
+            lvglSetSize(m, 9, 9);
+            lvglSetStyleInt(m, ST_RADIUS, 5);
+            lvglSetBgColor(m, color);
+            lvglSetPos(m, px[i] - 4, py[i] - 4);
+            i = i + 1;
+        }
     }
 }
 
-void drawCols(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color) {
+// one grouped-column series (reads gdat); sidx in 0..nser-1 places the sub-bar
+void drawCols(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color, int sidx, int nser) {
     int slot = w / n;
-    int bw = (slot * 6) / 10;
-    int pad = (slot - bw) / 2;
+    int gw = (slot * 8) / 10;            // group = 80% of the slot
+    int sub = gw / nser;
+    int bw = sub - 4;
+    if (bw < 2) { bw = 2; }
     int i = 0;
     while (i < n) {
         int top = ymap(gdat[i], vmin, vmax, y0, h);
         int bh = (y0 + h) - top;
         if (bh < 2) { bh = 2; }
-        int bx = x0 + slot * i + pad;
+        int bx = x0 + slot * i + (slot - gw) / 2 + sidx * sub;
         int b = lvglObj(0);
         lvglSetStyleInt(b, ST_BORDER, 0);
         lvglSetSize(b, bw, bh);
@@ -142,14 +178,23 @@ void colXLabels(int x0, int w, int n, int hour0, int hourStep, int y) {
     }
 }
 
-// one zone band (p0..p1 percent of the top semicircle) as a thick rounded polyline
+// small legend colour swatch (the text label is set inline by the caller)
+void legSquare(int x, int y, int color) {
+    int s = lvglObj(0);
+    lvglSetStyleInt(s, ST_BORDER, 0);
+    lvglSetSize(s, 12, 12);
+    lvglSetStyleInt(s, ST_RADIUS, 2);
+    lvglSetBgColor(s, color);
+    lvglSetPos(s, x, y);
+}
+
 void zoneArc(int cx, int cy, int r, int p0, int p1, int color, int thick) {
     int N = 14;
     int i = 0;
     float pi = PI;
     while (i <= N) {
         float f = ((float)p0 + (float)(p1 - p0) * ((float)i / (float)N)) / 100.0;
-        float a = pi - pi * f;            // 180deg(left)..0deg(right) over the top, y-up
+        float a = pi - pi * f;
         px[i] = cx + (int)((float)r * cos(a));
         py[i] = cy - (int)((float)r * sin(a));
         i = i + 1;
@@ -159,21 +204,27 @@ void zoneArc(int cx, int cy, int r, int p0, int p1, int color, int thick) {
     lvglLinePoly(arc, px, py, N + 1);
 }
 
+// set the needle endpoints for a value (uses the stored gauge geometry)
+void needlePoint(int value) {
+    float pi = PI;
+    float fv = (float)value / (float)g_pmax;
+    if (fv < 0.0) { fv = 0.0; }
+    if (fv > 1.0) { fv = 1.0; }
+    float av = pi - pi * fv;
+    int nx = g_cx + (int)((float)(g_r - 22) * cos(av));
+    int ny = g_cy - (int)((float)(g_r - 22) * sin(av));
+    lvglLinePoints(g_needle, g_cx, g_cy, nx, ny);
+}
+
 void gauge(int cx, int cy, int r, int value, int vmax) {
     int thick = 18;
     zoneArc(cx, cy, r, 0, 60, C_GREEN, thick);
     zoneArc(cx, cy, r, 60, 85, C_AMBER, thick);
     zoneArc(cx, cy, r, 85, 100, C_RED, thick);
-    float pi = PI;
-    float fv = (float)value / (float)vmax;
-    if (fv < 0.0) { fv = 0.0; }
-    if (fv > 1.0) { fv = 1.0; }
-    float av = pi - pi * fv;
-    int nx = cx + (int)((float)(r - 22) * cos(av));
-    int ny = cy - (int)((float)(r - 22) * sin(av));
-    int nd = lvglLine(0);
-    lvglLineStyle(nd, C_TITLE, 5);
-    lvglLinePoints(nd, cx, cy, nx, ny);
+    g_cx = cx; g_cy = cy; g_r = r; g_pmax = vmax;
+    g_needle = lvglLine(0);                 // kept global so the loop can move it
+    lvglLineStyle(g_needle, C_TITLE, 5);
+    needlePoint(value);
     int hub = lvglObj(0);
     lvglSetStyleInt(hub, ST_BORDER, 0);
     lvglSetSize(hub, 20, 20);
@@ -182,47 +233,98 @@ void gauge(int cx, int cy, int r, int value, int vmax) {
     lvglSetPos(hub, cx - 10, cy - 10);
 }
 
+// realtime: move the needle + refresh the centre readout to a new value (tenths)
+void updateGauge(int value) {
+    needlePoint(value);
+    char b[12];
+    sprintf(b, "%d.%d", value / 10, value - (value / 10) * 10);
+    lvglSetText(g_value, b);
+}
+
+// numbered outer scale around the gauge arc: nticks intervals -> nticks+1 labels (0..vmax)
+void gaugeScale(int cx, int cy, int r, int vmax, int nticks) {
+    float pi = PI;
+    int i = 0;
+    while (i <= nticks) {
+        float f = (float)i / (float)nticks;
+        float a = pi - pi * f;
+        int lx = cx + (int)((float)(r + 24) * cos(a));
+        int ly = cy - (int)((float)(r + 24) * sin(a));
+        int val = (vmax * i) / nticks;
+        char lb[8];
+        sprintf(lb, "%d", val);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb);
+        lvglSetTextColor(t, C_AXIS);
+        lvglSetFont(t, 14);
+        lvglSetPos(t, lx - 7, ly - 9);
+        i = i + 1;
+    }
+}
+
 int main() {
     lvglInit();
     lvglClean(0);
     lvglSetBgColor(0, C_BG);
 
-    // ===== LINE CHART — temperature, last 24 h =====
+    // ===== LINE — temp (left, blue) + humidity (right, red) =====
     card(40, 28, 720, 410);
     int t1 = lvglLabel(0);
-    lvglSetText(t1, "Temperature - last 24 h");
+    lvglSetText(t1, "Temperature & humidity - 24 h");
     lvglSetTextColor(t1, C_TITLE);
     lvglSetFont(t1, 20);
     lvglSetPos(t1, 64, 46);
+    legSquare(540, 50, C_BLUE);
+    int l1 = lvglLabel(0); lvglSetText(l1, "temp"); lvglSetTextColor(l1, C_AXIS); lvglSetFont(l1, 14); lvglSetPos(l1, 558, 47);
+    legSquare(636, 50, C_RED);
+    int l2 = lvglLabel(0); lvglSetText(l2, "hum"); lvglSetTextColor(l2, C_AXIS); lvglSetFont(l2, 14); lvglSetPos(l2, 654, 47);
+
+    plotBg(96, 92, 608, 308);
+    drawGrid(100, 96, 600, 300, 4, 4);           // 4 rows + 4 columns (x grid)
+    yAxis(56, 96, 300, 10, 30, 4, C_AXIS);       // left: temp scale (gray)
+    yAxis(706, 96, 300, 0, 100, 4, C_RED);       // right: humidity scale (red)
 
     gdat[0]=14; gdat[1]=13; gdat[2]=13; gdat[3]=15; gdat[4]=18; gdat[5]=21; gdat[6]=24;
     gdat[7]=26; gdat[8]=27; gdat[9]=25; gdat[10]=22; gdat[11]=19; gdat[12]=16;
+    drawLine(13, 100, 96, 600, 300, 10, 30, C_BLUE, 1);   // primary series: markers
 
-    drawGrid(110, 96, 620, 300, 10, 30, 4);
-    drawLine(13, 110, 96, 620, 300, 10, 30, C_BLUE);
-    lineXLabels(110, 620, 13, 3, 0, 2, 408);
+    gdat[0]=70; gdat[1]=72; gdat[2]=71; gdat[3]=65; gdat[4]=58; gdat[5]=50; gdat[6]=44;
+    gdat[7]=40; gdat[8]=38; gdat[9]=45; gdat[10]=55; gdat[11]=62; gdat[12]=68;
+    drawLine(13, 100, 96, 600, 300, 0, 100, C_RED, 0);    // secondary: no markers
 
-    // rotated y-axis title (270deg = reads bottom-to-top), centred on the plot's left
+    lineXLabels(100, 600, 13, 3, 0, 2, 408);
+
     int yt = lvglLabel(0);
     lvglSetText(yt, "deg C");
     lvglSetTextColor(yt, C_AXIS);
     lvglSetFont(yt, 14);
-    lvglSetPos(yt, 30, 237);
+    lvglSetPos(yt, 24, 237);
     lvglRotate(yt, 2700);
 
-    // ===== COLUMN CHART — energy by hour =====
+    // ===== COLUMN — energy (left, blue) + cost (right, green), grouped =====
     card(40, 476, 720, 416);
     int t2 = lvglLabel(0);
-    lvglSetText(t2, "Energy by hour - kWh");
+    lvglSetText(t2, "Energy & cost - by hour");
     lvglSetTextColor(t2, C_TITLE);
     lvglSetFont(t2, 20);
     lvglSetPos(t2, 64, 494);
+    legSquare(520, 498, C_BLUE);
+    int l3 = lvglLabel(0); lvglSetText(l3, "kWh"); lvglSetTextColor(l3, C_AXIS); lvglSetFont(l3, 14); lvglSetPos(l3, 538, 495);
+    legSquare(626, 498, C_GREEN);
+    int l4 = lvglLabel(0); lvglSetText(l4, "ct"); lvglSetTextColor(l4, C_AXIS); lvglSetFont(l4, 14); lvglSetPos(l4, 644, 495);
+
+    plotBg(96, 552, 608, 308);
+    drawGrid(100, 556, 600, 300, 4, 0);          // rows only (bars give the vertical structure)
+    yAxis(56, 556, 300, 0, 8, 4, C_AXIS);        // left: energy (gray)
+    yAxis(706, 556, 300, 0, 40, 4, C_GREEN);     // right: cost (green)
 
     gdat[0]=2; gdat[1]=3; gdat[2]=4; gdat[3]=5; gdat[4]=6; gdat[5]=5; gdat[6]=3; gdat[7]=2;
+    drawCols(8, 100, 556, 600, 300, 0, 8, C_BLUE, 0, 2);
 
-    drawGrid(110, 556, 620, 300, 0, 8, 4);
-    drawCols(8, 110, 556, 620, 300, 0, 8, C_BLUE);
-    colXLabels(110, 620, 8, 0, 3, 868);
+    gdat[0]=12; gdat[1]=18; gdat[2]=22; gdat[3]=28; gdat[4]=33; gdat[5]=26; gdat[6]=17; gdat[7]=13;
+    drawCols(8, 100, 556, 600, 300, 0, 40, C_GREEN, 1, 2);
+
+    colXLabels(100, 600, 8, 0, 3, 868);
 
     // ===== GAUGE — power, zoned semicircle =====
     card(40, 912, 720, 300);
@@ -232,16 +334,16 @@ int main() {
     lvglSetFont(t3, 20);
     lvglSetPos(t3, 64, 930);
 
-    int pval = 44; int pmax = 100;          // 4.4 of 10.0 kW
+    int pval = 44; int pmax = 100;
     gauge(400, 1100, 130, pval, pmax);
 
     char pb[12];
     sprintf(pb, "%d.%d", pval / 10, pval - (pval / 10) * 10);
-    int gv = lvglLabel(0);
-    lvglSetText(gv, pb);
-    lvglSetTextColor(gv, C_TITLE);
-    lvglSetFont(gv, 28);
-    lvglAlign(gv, AL_CENTER, 0, 395);
+    g_value = lvglLabel(0);
+    lvglSetText(g_value, pb);
+    lvglSetTextColor(g_value, C_TITLE);
+    lvglSetFont(g_value, 28);
+    lvglAlign(g_value, AL_CENTER, 0, 395);
 
     int gu = lvglLabel(0);
     lvglSetText(gu, "kW");
@@ -249,19 +351,17 @@ int main() {
     lvglSetFont(gu, 14);
     lvglAlign(gu, AL_CENTER, 0, 432);
 
-    int gmn = lvglLabel(0);
-    lvglSetText(gmn, "0");
-    lvglSetTextColor(gmn, C_AXIS);
-    lvglSetFont(gmn, 14);
-    lvglSetPos(gmn, 262, 1104);
+    gaugeScale(400, 1100, 130, 10, 5);           // outer scale 0,2,4,6,8,10
 
-    char mb[8];
-    sprintf(mb, "%d", pmax / 10);
-    int gmx = lvglLabel(0);
-    lvglSetText(gmx, mb);
-    lvglSetTextColor(gmx, C_AXIS);
-    lvglSetFont(gmx, 14);
-    lvglSetPos(gmx, 520, 1104);
-
+    // ===== real-time gauge: sweep the needle ~16 fps. Swap the demo sweep for a live
+    // reading, e.g.  int v = (int)(sensorGet("ENERGY#Power") * 10.0);  (0.1 kW units) =====
+    float ph = 0.0;
+    while (1) {
+        ph = ph + 0.08;
+        if (ph > 6.2832) { ph = ph - 6.2832; }
+        int v = 50 + (int)(45.0 * sin(ph));      // demo sweep 5..95 (= 0.5..9.5 kW)
+        updateGauge(v);
+        delay(60);
+    }
     return 0;
 }
