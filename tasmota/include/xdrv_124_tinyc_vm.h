@@ -3772,6 +3772,18 @@ static const char* tc_get_const_str(TcVM *vm, int32_t idx) {
   return nullptr;
 }
 
+// Resolve a string ref to a const-pool C-string, or nullptr if it is NOT a
+// const-pool ref (i.e. it is a normal heap/global/local int32 array, which
+// tc_resolve_ref handles). This lets the read-string syscalls (strlen/strcmp/
+// strcat/print) accept a string LITERAL passed through a user-function char[]
+// param — the same const-ref case that sprintf "%s" already handles via
+// tc_ref_to_cstr. Without it tc_resolve_ref() returns nullptr for such a ref
+// and those ops silently saw an empty string.
+static inline const char* tc_const_ref_str(TcVM *vm, int32_t ref) {
+  if (!tc_is_const_ref(ref)) return nullptr;
+  return tc_get_const_str(vm, (int32_t)(((uint32_t)ref) & 0x7FFF));
+}
+
 /*********************************************************************************************\
  * VM: sprintf helper — format into temp buf, copy to VM int32 array
  * Returns number of chars written (excluding null terminator)
@@ -6010,9 +6022,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     // ── String operations (all bounds-checked via tc_ref_maxlen) ──
     case SYS_STRLEN: {
       a = TC_POP(vm);  // array ref
-      int32_t *p = tc_resolve_ref(vm, a);
       int32_t len = 0;
-      if (p) { int32_t max = tc_ref_maxlen(vm, a); while (p[len] != 0 && len < max) len++; }
+      const char *cs = tc_const_ref_str(vm, a);   // literal passed via char[] param
+      if (cs) {
+        len = (int32_t)strlen(cs);
+      } else {
+        int32_t *p = tc_resolve_ref(vm, a);
+        if (p) { int32_t max = tc_ref_maxlen(vm, a); while (p[len] != 0 && len < max) len++; }
+      }
       TC_PUSH(vm, len);
       break;
     }
@@ -6049,30 +6066,46 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t src_ref = TC_POP(vm);
       int32_t dst_ref = TC_POP(vm);
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
-      int32_t *src = tc_resolve_ref(vm, src_ref);
-      if (dst && src) {
-        int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
-        int32_t di = 0;
-        while (dst[di] != 0 && di < max) di++;
+      if (!dst) break;
+      int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
+      int32_t di = 0;
+      while (dst[di] != 0 && di < max) di++;
+      const char *cs = tc_const_ref_str(vm, src_ref);   // literal passed via char[] param
+      if (cs) {
         int32_t si = 0;
-        while (src[si] != 0 && di < max) { dst[di++] = src[si++]; }
+        while (cs[si] != 0 && di < max) { dst[di++] = (int32_t)(uint8_t)cs[si++]; }
         dst[di] = 0;
+      } else {
+        int32_t *src = tc_resolve_ref(vm, src_ref);
+        if (src) {
+          int32_t si = 0;
+          while (src[si] != 0 && di < max) { dst[di++] = src[si++]; }
+          dst[di] = 0;
+        }
       }
       break;
     }
     case SYS_STRCMP: {
       int32_t b_ref = TC_POP(vm);
       int32_t a_ref = TC_POP(vm);
-      int32_t *pa = tc_resolve_ref(vm, a_ref);
-      int32_t *pb = tc_resolve_ref(vm, b_ref);
+      // Either side may be a const-pool ref (string literal passed through a
+      // char[] param); fall back to tc_resolve_ref for normal int32 arrays.
+      const char *ca = tc_const_ref_str(vm, a_ref);
+      const char *cb = tc_const_ref_str(vm, b_ref);
+      int32_t *pa = ca ? nullptr : tc_resolve_ref(vm, a_ref);
+      int32_t *pb = cb ? nullptr : tc_resolve_ref(vm, b_ref);
       int32_t result = 0;
-      if (pa && pb) {
-        int32_t max_a = tc_ref_maxlen(vm, a_ref);
-        int32_t max_b = tc_ref_maxlen(vm, b_ref);
-        int32_t max = max_a < max_b ? max_a : max_b;
+      if ((ca || pa) && (cb || pb)) {
+        int32_t max_a = ca ? 0 : tc_ref_maxlen(vm, a_ref);
+        int32_t max_b = cb ? 0 : tc_ref_maxlen(vm, b_ref);
         int32_t i = 0;
-        while (pa[i] != 0 && pb[i] != 0 && pa[i] == pb[i] && i < max) i++;
-        result = pa[i] - pb[i];
+        while (1) {
+          int32_t va = ca ? (int32_t)(uint8_t)ca[i] : (i < max_a ? (pa[i] & 0xFF) : 0);
+          int32_t vb = cb ? (int32_t)(uint8_t)cb[i] : (i < max_b ? (pb[i] & 0xFF) : 0);
+          if (va != vb) { result = va - vb; break; }
+          if (va == 0)  { result = 0;       break; }
+          i++;
+        }
       }
       TC_PUSH(vm, result);
       break;
@@ -6096,13 +6129,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_STR_PRINT: {
       a = TC_POP(vm);  // array ref
-      int32_t *p = tc_resolve_ref(vm, a);
-      if (p) {
-        int32_t max = tc_ref_maxlen(vm, a);
-        int32_t i = 0;
-        while (p[i] != 0 && i < max) {
-          tc_output_char((char)(p[i] & 0xFF));
-          i++;
+      const char *cs = tc_const_ref_str(vm, a);   // literal passed via char[] param
+      if (cs) {
+        while (*cs) tc_output_char(*cs++);
+      } else {
+        int32_t *p = tc_resolve_ref(vm, a);
+        if (p) {
+          int32_t max = tc_ref_maxlen(vm, a);
+          int32_t i = 0;
+          while (p[i] != 0 && i < max) {
+            tc_output_char((char)(p[i] & 0xFF));
+            i++;
+          }
         }
       }
       break;
@@ -9128,52 +9166,64 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t pos = TC_POP(vm);         // start position (0-based, neg=from end)
       int32_t src_ref = TC_POP(vm);
       int32_t dst_ref = TC_POP(vm);
-      int32_t *src = tc_resolve_ref(vm, src_ref);
+      // src may be a const-pool ref (literal passed via char[] param); dst is
+      // always a writable array.
+      const char *sc = tc_const_ref_str(vm, src_ref);
+      int32_t *src = sc ? nullptr : tc_resolve_ref(vm, src_ref);
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       int32_t result = 0;
-      if (src && dst) {
-        int32_t src_max = tc_ref_maxlen(vm, src_ref);
+      if ((sc || src) && dst) {
+        int32_t src_max = sc ? 0x7FFFFFFF : tc_ref_maxlen(vm, src_ref);
         int32_t dst_max = tc_ref_maxlen(vm, dst_ref) - 1;
+        #define TC_SC(i) (sc ? (int32_t)(uint8_t)sc[i] : ((i) < src_max ? (src[i] & 0xFF) : 0))
         // compute source string length
         int32_t srclen = 0;
-        while (srclen < src_max && src[srclen] != 0) srclen++;
+        while (TC_SC(srclen) != 0) srclen++;
         if (pos < 0) pos = srclen + pos;  // negative = from end
         if (pos < 0) pos = 0;
         if (pos > srclen) pos = srclen;
         if (slen <= 0 || pos + slen > srclen) slen = srclen - pos;
         if (slen > dst_max) slen = dst_max;
         for (int32_t i = 0; i < slen; i++) {
-          dst[i] = src[pos + i];
+          dst[i] = TC_SC(pos + i);
         }
         dst[slen] = 0;
         result = slen;
+        #undef TC_SC
       }
       TC_PUSH(vm, result);
       break;
     }
     case SYS_STR_FIND: {
       // strFind(haystack, needle) -> position (-1 if not found)
+      // Either side may be a const-pool ref (string literal passed via a
+      // char[] param); a long heap/array buffer stays on the int32 path
+      // (no 256-byte copy), so HTTP-size haystacks still work.
       int32_t needle_ref = TC_POP(vm);
       int32_t haystack_ref = TC_POP(vm);
-      int32_t *haystack = tc_resolve_ref(vm, haystack_ref);
-      int32_t *needle = tc_resolve_ref(vm, needle_ref);
+      const char *hc = tc_const_ref_str(vm, haystack_ref);
+      const char *nc = tc_const_ref_str(vm, needle_ref);
+      int32_t *haystack = hc ? nullptr : tc_resolve_ref(vm, haystack_ref);
+      int32_t *needle   = nc ? nullptr : tc_resolve_ref(vm, needle_ref);
       int32_t result = -1;
-      if (haystack && needle) {
-        int32_t hmax = tc_ref_maxlen(vm, haystack_ref);
-        int32_t nmax = tc_ref_maxlen(vm, needle_ref);
-        int32_t hlen = 0;
-        while (hlen < hmax && haystack[hlen] != 0) hlen++;
-        int32_t nlen = 0;
-        while (nlen < nmax && needle[nlen] != 0) nlen++;
+      if ((hc || haystack) && (nc || needle)) {
+        int32_t hmax = hc ? 0x7FFFFFFF : tc_ref_maxlen(vm, haystack_ref);
+        int32_t nmax = nc ? 0x7FFFFFFF : tc_ref_maxlen(vm, needle_ref);
+        #define TC_HC(i) (hc ? (int32_t)(uint8_t)hc[i] : ((i) < hmax ? (haystack[i] & 0xFF) : 0))
+        #define TC_NC(i) (nc ? (int32_t)(uint8_t)nc[i] : ((i) < nmax ? (needle[i]   & 0xFF) : 0))
+        int32_t hlen = 0; while (TC_HC(hlen) != 0) hlen++;
+        int32_t nlen = 0; while (TC_NC(nlen) != 0) nlen++;
         if (nlen > 0 && nlen <= hlen) {
           for (int32_t i = 0; i <= hlen - nlen; i++) {
             bool match = true;
             for (int32_t j = 0; j < nlen; j++) {
-              if (haystack[i + j] != needle[j]) { match = false; break; }
+              if (TC_HC(i + j) != TC_NC(j)) { match = false; break; }
             }
             if (match) { result = i; break; }
           }
         }
+        #undef TC_HC
+        #undef TC_NC
       }
       TC_PUSH(vm, result);
       break;
