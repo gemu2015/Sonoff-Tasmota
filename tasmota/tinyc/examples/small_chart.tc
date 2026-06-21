@@ -1,0 +1,121 @@
+// small_chart.tc — a compact LVGL line chart for SMALL displays.
+//
+// Shows the Google-Charts-style chart scaled down to a 232x144 card: one white
+// card on black, light-grey plot panel, gridlines, a blue line series, and axis
+// labels in the crisp 8 px pixel font. Placed top-left so it shows on any panel.
+//
+// Key small-display points:
+//   - lvglSetFont(t, 8) -> unscii_8 (a pixel/monospace font); Montserrat smears
+//     below ~10 px on a TFT, the pixel font stays sharp. (firmware ABI >= 15, the
+//     same build that has lvglLinePoly.)
+//   - lvglLinePoly draws the whole series as one polyline.
+// Verified on a 480x320 ILI9488 S3 panel. Needs USE_TINYC_LVGL.
+
+#define ST_RADIUS 120
+#define ST_BORDER  56
+#define ST_BCOLOR  57
+#define ST_BOPA    58
+
+#define C_BG     0x000000
+#define C_CARD   0xFFFFFF
+#define C_CARDB  0xDADCE0
+#define C_GRID   0xBDC1C6
+#define C_BASE   0x9AA0A6
+#define C_PLOT   0xF1F3F4
+#define C_AXIS   0x5F6368
+#define C_TITLE  0x202124
+#define C_BLUE   0x4285F4
+
+int px[16]; int py[16];
+int gdat[12];
+
+int ymap(int v, int vmin, int vmax, int y0, int h) {
+    return y0 + h - ((v - vmin) * h) / (vmax - vmin);
+}
+void card(int x, int y, int w, int h) {
+    int c = lvglObj(0);
+    lvglSetPos(c, x, y); lvglSetSize(c, w, h);
+    lvglSetBgColor(c, C_CARD);
+    lvglSetStyleInt(c, ST_RADIUS, 6);
+    lvglSetStyleInt(c, ST_BORDER, 1);
+    lvglSetStyleInt(c, ST_BOPA, 255);
+    lvglSetStyleInt(c, ST_BCOLOR, C_CARDB);
+}
+void plotBg(int x, int y, int w, int h) {
+    int p = lvglObj(0);
+    lvglSetStyleInt(p, ST_BORDER, 0);
+    lvglSetSize(p, w, h);
+    lvglSetStyleInt(p, ST_RADIUS, 0);
+    lvglSetBgColor(p, C_PLOT);
+    lvglSetPos(p, x, y);
+}
+void drawGrid(int x0, int y0, int w, int h, int ndiv) {
+    int i = 0;
+    while (i <= ndiv) {
+        int gy = y0 + (h * i) / ndiv;
+        int gl = lvglLine(0);
+        if (i == ndiv) { lvglLineStyle(gl, C_BASE, 1); } else { lvglLineStyle(gl, C_GRID, 1); }
+        lvglLinePoints(gl, x0, gy, x0 + w, gy);
+        i = i + 1;
+    }
+}
+// y-axis labels in the small pixel font (size 8 -> unscii_8)
+void yAxis(int x, int y0, int h, int vmin, int vmax, int ndiv) {
+    int i = 0;
+    while (i <= ndiv) {
+        int gy = y0 + (h * i) / ndiv;
+        int val = vmax - ((vmax - vmin) * i) / ndiv;
+        char lb[8];
+        sprintf(lb, "%d", val);
+        int t = lvglLabel(0);
+        lvglSetText(t, lb);
+        lvglSetTextColor(t, C_AXIS);
+        lvglSetFont(t, 8);
+        lvglSetPos(t, x, gy - 4);
+        i = i + 1;
+    }
+}
+void drawLine(int n, int x0, int y0, int w, int h, int vmin, int vmax, int color) {
+    int step = w / (n - 1);
+    int i = 0;
+    while (i < n) {
+        px[i] = x0 + step * i;
+        py[i] = ymap(gdat[i], vmin, vmax, y0, h);
+        i = i + 1;
+    }
+    int ln = lvglLine(0);
+    lvglLineStyle(ln, color, 2);
+    lvglLinePoly(ln, px, py, n);
+}
+
+int main() {
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, C_BG);
+
+    int X = 16; int Y = 16; int CW = 232; int CH = 144;
+    card(X, Y, CW, CH);
+
+    int tt = lvglLabel(0);
+    lvglSetText(tt, "Temp 24h  -  8px unscii");
+    lvglSetTextColor(tt, C_TITLE);
+    lvglSetFont(tt, 8);
+    lvglSetPos(tt, X + 10, Y + 6);
+
+    int PX = X + 26; int PY = Y + 26; int PW = CW - 26 - 10; int PH = CH - 26 - 16;
+    plotBg(PX, PY, PW, PH);
+    drawGrid(PX, PY, PW, PH, 4);
+    yAxis(X + 4, PY, PH, 10, 30, 4);
+
+    gdat[0]=14; gdat[1]=13; gdat[2]=15; gdat[3]=18; gdat[4]=22; gdat[5]=25;
+    gdat[6]=27; gdat[7]=26; gdat[8]=23; gdat[9]=20; gdat[10]=17; gdat[11]=15;
+    drawLine(12, PX, PY, PW, PH, 10, 30, C_BLUE);
+
+    // x-axis labels (direct literals -> the const-aware lvglSetText path)
+    int xt;
+    xt = lvglLabel(0); lvglSetText(xt, "0h");  lvglSetTextColor(xt, C_AXIS); lvglSetFont(xt, 8); lvglSetPos(xt, PX - 2, PY + PH + 2);
+    xt = lvglLabel(0); lvglSetText(xt, "12h"); lvglSetTextColor(xt, C_AXIS); lvglSetFont(xt, 8); lvglSetPos(xt, PX + PW/2 - 8, PY + PH + 2);
+    xt = lvglLabel(0); lvglSetText(xt, "24h"); lvglSetTextColor(xt, C_AXIS); lvglSetFont(xt, 8); lvglSetPos(xt, PX + PW - 16, PY + PH + 2);
+
+    return 0;
+}
