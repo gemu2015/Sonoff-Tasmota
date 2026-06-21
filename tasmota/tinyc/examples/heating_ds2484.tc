@@ -1,0 +1,574 @@
+// ============================================================================
+// heating_ds2484.tc — Heizungssteuerung über DS2484-1-Wire (Beispiel)
+// ============================================================================
+// Vollständige, im Betrieb erprobte Heizungssteuerung (aus Rolfs Anlage),
+// portiert von einem Tasmota-Scripter-.tas nach TinyC. Dient zugleich als
+// Beispiel für eine komplette HAUPTSEITEN-Web-UI ganz ohne Untermenü:
+//   * alle Schalter als Checkboxen, Solltemperatur als Zahlenfeld
+//   * Vierwegehahn als Radio-Buttons (Zu=blau, Auf=rot, per CSS eingefärbt)
+//   * Temperaturen trend-eingefärbt (steigend=orange, fallend=hellblau, gleich=weiss)
+//   * Live-1-h-Verlaufschart des Heizkessels (WebChart) direkt auf der Hauptseite
+// Web-Bausteine: webCheckbox / webNumber / webRadio / WebChart in WebCall()+WebPage().
+//
+// Selbstständig: DS2484 (I2C) 1-Wire + DS18x20-Temperaturen + DS2406-Schalter
+// + die Heizautomatik (Pumpe / Vierwegehahn aus Vorlauf vs. Solltemperatur).
+//
+// Original-Scripter benutzte Tasmotas eingebautes ow() auf einem GPIO. Hier
+// läuft der Bus über die DS2484-Bridge (wie onewire32.tc), die ow()-Aufrufe
+// sind 1:1 auf die DS2484-Funktionen abgebildet:
+//   ow(0)  Bus init+scan   -> ow_reinit()
+//   ow(5/6/10)+get_owid    -> ow_scan() (Bitbang-ROM-Suche über die Bridge)
+//   ow(8 id+par<<6)        -> set_act()/set6pin() (DS2406 PIO setzen)
+//   ow(9 id[+0x80])        -> ow_read_temp() (DS18x20)
+//
+// WICHTIG: Die Geräte werden über ihre **ROM-Adresse** den Namen zugeordnet
+// (Tabelle unten). Das sind Rolfs ECHTE Anlagen-ROMs. Auf einem Testaufbau mit
+// Ersatz-Chips passt keine — dann bleiben die benannten Sensoren -1 / 0; der
+// Bus-Scan und das Schalten funktionieren trotzdem.
+//
+// FAITHFUL: Das Pumpen-Verhalten ist bewusst wie im Original — die Automatik
+// (Heizung an) besitzt die Pumpe; bei Heizung AUS wird pump=0 erzwungen. Siehe
+// Notiz am Ende für die optionale Entkopplung.
+// ============================================================================
+
+// ---- DS2484 / 1-Wire ----
+#define OW_MAX 24
+
+#define OW_SEARCH_ROM  0xF0
+#define OW_MATCH_ROM   0x55
+#define DS_CONVERT      0x44
+#define DS_READ_SCRATCH 0xBE
+#define FAM_DS18B20  0x28
+#define FAM_DS18S20  0x10
+#define FAM_DS1822   0x22
+#define FAM_DS2406       0x12
+#define DS2406_CH_ACCESS 0xF5
+
+#define DS84_ADDR     0x18
+#define DS84_DRST     0xF0
+#define DS84_SRP      0xE1
+#define DS84_WCFG     0xD2
+#define DS84_1WRS     0xB4
+#define DS84_1WSB     0x87
+#define DS84_1WRB     0x96
+#define DS84_1WWB     0xA5
+#define DS84_RP_RDATA 0xE1
+#define DS84_ST_1WB   0x01
+#define DS84_ST_PPD   0x02
+#define DS84_ST_SBR   0x20
+
+persist int ow_i2c_bus;
+int ow_ok = 0;
+
+// Ein gemeinsames Geräte-Array (Temperaturen + Schalter gemischt).
+int   ow_cnt = 0;
+char  ow_rom[24][8];
+int   ow_fam[24];
+float ow_t[24];          // letzte Temperatur (DS18x20)
+int   ow_tvalid[24];
+int   ow_trend[24];      // -1 fallend (hellblau) · 0 gleich (weiss) · +1 steigend (orange)
+int   ow_conv[24];       // Konvertierung gestartet?
+int   ow_swch[24];       // 1- oder 2-kanaliger DS2406
+int   ow_swstate[24];    // Soll: bit0=A bit1=B (0=leitend/EIN, 1=AUS)
+int   ow_swin[24];       // Istzustand (Rücklesung)
+int   ow_swvalid[24];
+
+char  ow_buf[16];
+char  ow_84_buf[2];
+char  fhex[20];          // ROM-Hex eines gefundenen Geräts (für den Abgleich)
+
+// ---- Rollen -> Geräteindex (aus dem ROM-Abgleich) ----
+int vl_id=-1; int hk_id=-1; int kv_id=-1; int sp1_id=-1; int sp2_id=-1;
+int sp3_id=-1; int olks_id=-1; int sol_id=-1; int rm_id=-1; int atmp_id=-1; int rl_id=-1;
+int led_id=-1; int pump_id=-1; int fan_id=-1; int olhz_id=-1; int pwstrip_id=-1; int mixer_id=-1;
+
+// ---- Benannte Temperaturwerte ----
+float vorlauf=0; float holzkessel=0; float kesselvorlauf=0;
+float speicher1=0; float speicher2=0; float speicher3=0;
+float olkessel=0; float solar=0; float raum=0; float aussen=0; float rucklauf=0;
+
+// ---- Heizkessel-Verlauf fürs 1-h-Webchart (60 Slots × 1 Min) ----
+#define HK_N 60
+float hk_hist[HK_N];   // Ringpuffer der Holzkessel-Temperatur
+int hk_pos=0;          // Schreibkopf (nächster Slot)
+int hk_filled=0;       // gefüllte Slots (0..HK_N) -> x-Achse wächst bis 1 h
+int hk_sec=0;          // Sekundenzähler fürs 1-Min-Sampling
+
+// ---- UI / Steuerung (persistent) ----
+persist int hzg=0; persist int solltmp=50;
+persist int led=0; persist int pump=0; persist int fan=0;
+persist int olhz=0; persist int pwstrip=0; persist int mixer=1;   // 0=Zu 1=Neutral 2=Auf
+// Vorwerte für die Änderungserkennung (chg[])
+int hzg_p=0; int led_p=0; int pump_p=0; int fan_p=0; int olhz_p=0; int pwstrip_p=0; int mixer_p=1;
+int once=0;
+
+// Nicht-blockierender Mischer-Puls (statt der delay()-Schleifen im Original)
+int mix_active=0; int mix_until=0; int mix_led=0; int mix_pulsems=0; int mix_cool=0;
+
+// Automatik-Trigger
+float vl_prev=-999; int soll_prev=-999;
+
+int ow_ti=0;            // Round-Robin-Index
+int scnt=0;            // Temp-Lese-Index
+
+// ============================================================================
+// DS2484-Bridge
+// ============================================================================
+int ow_crc8(int len) {
+    int crc=0; int i=0;
+    while (i<len) {
+        int b=ow_buf[i]&0xFF; int j=0;
+        while (j<8) { int mix=(crc^b)&1; crc=crc>>1; if (mix) crc=crc^0x8C; b=b>>1; j=j+1; }
+        i=i+1;
+    }
+    return crc;
+}
+int ow_84_cfg(int v) { return (((~v)&0x0F)<<4)|(v&0x0F); }
+int ow_84_wait() {
+    int i=0;
+    while (i<50) {
+        if (i2cRead0(DS84_ADDR, ow_84_buf, 1, ow_i2c_bus)>0) {
+            int st=ow_84_buf[0]&0xFF; if (!(st&DS84_ST_1WB)) return st;
+        }
+        delay(1); i=i+1;
+    }
+    return 0xFF;
+}
+int ow_84_init() {
+    int b=0;
+    while (b<2) {
+        if (i2cExists(DS84_ADDR, b)) {
+            ow_i2c_bus=b;
+            if (!i2cWrite0(DS84_ADDR, DS84_DRST, b)) return 0;
+            delay(1);
+            i2cWrite8(DS84_ADDR, DS84_WCFG, ow_84_cfg(0x01), b);   // APU an (Standard, Lüfter ok)
+            return 1;
+        }
+        b=b+1;
+    }
+    return 0;
+}
+int ow_reset() {
+    if (!i2cWrite0(DS84_ADDR, DS84_1WRS, ow_i2c_bus)) return 0;
+    int st=ow_84_wait(); if (st==0xFF) return 0;
+    return (st&DS84_ST_PPD)?1:0;
+}
+void ow_write(int v) { i2cWrite8(DS84_ADDR, DS84_1WWB, v&0xFF, ow_i2c_bus); ow_84_wait(); }
+int ow_read() {
+    i2cWrite0(DS84_ADDR, DS84_1WRB, ow_i2c_bus); ow_84_wait();
+    i2cWrite8(DS84_ADDR, DS84_SRP, DS84_RP_RDATA, ow_i2c_bus);
+    if (i2cRead0(DS84_ADDR, ow_84_buf, 1, ow_i2c_bus)>0) return ow_84_buf[0]&0xFF;
+    return 0xFF;
+}
+void ow_wbit(int b) { i2cWrite8(DS84_ADDR, DS84_1WSB, b?0x80:0x00, ow_i2c_bus); ow_84_wait(); }
+int ow_rbit() { i2cWrite8(DS84_ADDR, DS84_1WSB, 0x80, ow_i2c_bus); int st=ow_84_wait(); return (st&DS84_ST_SBR)?1:0; }
+
+// ============================================================================
+// ROM-Suche (Bitbang über die Bridge — DS2484 hat kein natives owSearch)
+// ============================================================================
+char ow_srom[8];
+
+void ow_rom_hex(char dst[], int idx) {
+    char hx[4]; int i=7; dst[0]=0;
+    while (i>=0) { sprintf(hx, "%02X", ow_rom[idx][i]&0xFF); strcat(dst, hx); i=i-1; }
+}
+
+void ow_record_found() {
+    int fam=ow_srom[0]&0xFF;
+    if (ow_cnt>=OW_MAX) return;
+    int i=0; while (i<8) { ow_rom[ow_cnt][i]=ow_srom[i]; i=i+1; }
+    ow_fam[ow_cnt]=fam;
+    ow_tvalid[ow_cnt]=0; ow_conv[ow_cnt]=0;
+    ow_swstate[ow_cnt]=0xFF; ow_swin[ow_cnt]=0x05; ow_swvalid[ow_cnt]=0; ow_swch[ow_cnt]=2;
+    ow_cnt=ow_cnt+1;
+}
+
+void ow_scan() {
+    ow_cnt=0;
+    int last_disc=0; int last_done=0; int i=0;
+    while (i<8) { ow_srom[i]=0; i=i+1; }
+    int total=0;
+    while (total<OW_MAX) {
+        if (last_done) break;
+        if (!ow_reset()) break;
+        ow_write(OW_SEARCH_ROM);
+        int last_zero=0; int pos=1; int ok=1;
+        while (pos<=64) {
+            int id_bit=ow_rbit(); int cmp_bit=ow_rbit();
+            if (id_bit==1 && cmp_bit==1) { ok=0; break; }
+            int dir=0;
+            if (id_bit==0 && cmp_bit==0) {
+                if (pos==last_disc) dir=1;
+                else if (pos>last_disc) dir=0;
+                else { int bN=(pos-1)/8; int btN=(pos-1)%8; dir=(ow_srom[bN]>>btN)&1; }
+                if (dir==0) last_zero=pos;
+            } else dir=id_bit;
+            int bN=(pos-1)/8; int btN=(pos-1)%8;
+            if (dir) ow_srom[bN]=ow_srom[bN]|(1<<btN); else ow_srom[bN]=ow_srom[bN]&~(1<<btN);
+            ow_wbit(dir); pos=pos+1;
+        }
+        if (!ok) break;
+        last_disc=last_zero;
+        if (last_disc==0) last_done=1;
+        i=0; while (i<8) { ow_buf[i]=ow_srom[i]; i=i+1; }
+        if (ow_crc8(8)!=0) { total=total+1; continue; }
+        ow_record_found();
+        total=total+1;
+    }
+}
+
+void ow_select(int idx) {
+    ow_write(OW_MATCH_ROM);
+    int i=0; while (i<8) { ow_write(ow_rom[idx][i]&0xFF); i=i+1; }
+}
+
+// ============================================================================
+// DS18x20-Temperatur
+// ============================================================================
+// HINWEIS Kalibrierung: das Original las ow(9 id+0x80)*6.25/100 (= roh/16,
+// DS18B20-Standard) und multiplizierte die beiden DS18S20 (Rücklauf, Speicher3)
+// zusätzlich mit 4.97. Hier wird der DS18S20-Standard (roh/2) verwendet. Stimmt
+// ein Wert nicht mit der alten Anlage überein -> #define KORR_DS18S20 anpassen.
+#define KORR_DS18S20 1.0
+
+void ow_read_temp(int idx) {
+    if (!ow_reset()) return;
+    ow_select(idx);
+    ow_write(DS_READ_SCRATCH);
+    int i=0; while (i<9) { ow_buf[i]=ow_read(); i=i+1; }
+    if (ow_crc8(9)!=0) return;
+    int lsb=ow_buf[0]&0xFF; int msb=ow_buf[1]&0xFF;
+    int raw=(msb<<8)|lsb; if (raw&0x8000) raw=raw|0xFFFF0000;
+    if (ow_fam[idx]==FAM_DS18S20) ow_t[idx]=(raw/2.0)*KORR_DS18S20;
+    else                         ow_t[idx]=raw/16.0;
+    ow_tvalid[idx]=1;
+}
+
+// ============================================================================
+// DS2406-Schalter  (PIO-Latch, aktiv-low wie in der Anlage)
+// ============================================================================
+// ow_swstate bit0=PIO-A bit1=PIO-B; 0 = Transistor leitend, 1 = AUS.
+int ow_ds2406_write(int idx) {
+    if (!ow_reset()) return 0;
+    ow_select(idx);
+    ow_write(DS2406_CH_ACCESS);
+    ow_write(0x0C);                          // CCB1 = 0x0C IMMER (CHS=11) — wie der native ow(8)
+    ow_write(0xFF);
+    int info=ow_read();
+    int a_on=((ow_swstate[idx]&0x01)==0);
+    int b_on=((ow_swstate[idx]&0x02)==0);
+    // Ausgabe-Byte exakt wie der native ow(8 sid+par<<6): PIO in Bit6/Bit7.
+    // bit6=PIO-A, bit7=PIO-B; gesetzt=AUS, 0=EIN. (Das alte 0x55/0xAA/0xFF + CCB1=0x04
+    // haben den Ausgang nie wirklich gesetzt — Rolfs "zeigt EIN, ist es aber nicht".)
+    int data=0;
+    if (!a_on) data=data|0x40;               // bit6 = PIO-A
+    if (!b_on) data=data|0x80;               // bit7 = PIO-B
+    ow_write(data);
+    ow_reset();
+    int mapped=0x05;
+    if (a_on) mapped=mapped&0xFE;
+    if (b_on) mapped=mapped&0xFB;
+    ow_swin[idx]=mapped; ow_swvalid[idx]=1;
+    return 1;
+}
+int ow_ds2406_read(int idx) {
+    if (!ow_reset()) return 0;
+    ow_select(idx);
+    ow_write(DS2406_CH_ACCESS);
+    if (ow_swch[idx]>=2) ow_write(0x4C); else ow_write(0x44);
+    ow_write(0xFF);
+    int info=ow_read();
+    if (info&0x40) ow_swch[idx]=2; else ow_swch[idx]=1;
+    int mapped=0x05;
+    if ((info&0x01)==0) mapped=mapped&0xFE;
+    if ((info&0x02)==0) mapped=mapped&0xFB;
+    ow_swin[idx]=mapped; ow_swvalid[idx]=1;
+    ow_reset();
+    return 1;
+}
+
+// set_act(idx,par): einkanalig — PIO-A-Ausgabebit = par, wie nativ ow(8 sid+par<<6)
+// (Aufruf wie Original mit led^1). ow_swstate bit0 wird DIREKT auf par gesetzt, weil
+// ow_ds2406_write jetzt bit6 = bit0 schreibt (vorher invertiert -> es schaltete nichts).
+void set_act(int idx, int par) {
+    if (idx<0) return;
+    if (par) ow_swstate[idx]=ow_swstate[idx]|0x01; else ow_swstate[idx]=ow_swstate[idx]&0xFE;
+    ow_ds2406_write(idx);
+}
+// set6pin(idx,par): zweikanalig — PIO-A-Bit=par&1, PIO-B-Bit=par&2 (wie nativ par<<6)
+void set6pin(int idx, int par) {
+    if (idx<0) return;
+    ow_swch[idx]=2;
+    if (par&1) ow_swstate[idx]=ow_swstate[idx]|0x01; else ow_swstate[idx]=ow_swstate[idx]&0xFE;
+    if (par&2) ow_swstate[idx]=ow_swstate[idx]|0x02; else ow_swstate[idx]=ow_swstate[idx]&0xFD;
+    ow_ds2406_write(idx);
+}
+
+// ============================================================================
+// ROM -> Rolle  (Rolfs echte Anlagen-Adressen)
+// ============================================================================
+void ow_map_roles() {
+    vl_id=-1; hk_id=-1; kv_id=-1; sp1_id=-1; sp2_id=-1; sp3_id=-1;
+    olks_id=-1; sol_id=-1; rm_id=-1; atmp_id=-1; rl_id=-1;
+    led_id=-1; pump_id=-1; fan_id=-1; olhz_id=-1; pwstrip_id=-1; mixer_id=-1;
+    int i=0;
+    while (i<ow_cnt) {
+        ow_rom_hex(fhex, i);
+        // Temperaturen
+        // Temperatur-ROMs aus Rolfs NEUEM Skript (2026-06-21). Die alten DS18S20
+        // (Rücklauf/Speicher3, Familie 10) sind durch DS18B20 ersetzt; mehrere
+        // Sensoren wurden neu zugeordnet.
+        if      (strcmp(fhex,"A803168C0D00FF28")==0) vl_id=i;
+        else if (strcmp(fhex,"9900000238A41528")==0) rl_id=i;    // war Vorlauf, jetzt Rücklauf
+        else if (strcmp(fhex,"770000023881C528")==0) hk_id=i;
+        else if (strcmp(fhex,"1C0516853013FF28")==0) kv_id=i;
+        else if (strcmp(fhex,"130516941725FF28")==0) sp1_id=i;
+        else if (strcmp(fhex,"2A03168C3086FF28")==0) sp2_id=i;   // Sensor getauscht (war 01000000BB3CE928)
+        else if (strcmp(fhex,"57031683FA86FF28")==0) sp3_id=i;
+        else if (strcmp(fhex,"44000002389B9128")==0) olks_id=i;
+        else if (strcmp(fhex,"A000000238874D28")==0) sol_id=i;
+        else if (strcmp(fhex,"7F000000BB9A0228")==0) rm_id=i;
+        else if (strcmp(fhex,"AE051693DA31FF28")==0) atmp_id=i;
+        // Schalter
+        else if (strcmp(fhex,"2A0000007D299F12")==0) led_id=i;
+        else if (strcmp(fhex,"9F00000036B09812")==0) pump_id=i;
+        else if (strcmp(fhex,"A300000036A69C12")==0) fan_id=i;
+        else if (strcmp(fhex,"EC0000007D323612")==0) olhz_id=i;
+        else if (strcmp(fhex,"9E0000007D593812")==0) pwstrip_id=i;
+        else if (strcmp(fhex,"0C00000072DB6A12")==0) mixer_id=i;
+        i=i+1;
+    }
+}
+
+// ============================================================================
+// Initialisierung
+// ============================================================================
+void ow_reinit() {
+    ow_ok=0; ow_cnt=0;
+    if (!ow_84_init()) { addLog("Heizung26: kein DS2484 auf I2C"); return; }
+    addLog("Heizung26: DS2484 auf I2C-Bus %d", ow_i2c_bus);
+    if (!ow_reset()) { addLog("Heizung26: Bus leer"); return; }
+    ow_scan();
+    ow_map_roles();
+    addLog("Heizung26: %d Geraete, Vorlauf=%d Pumpe=%d Mischer=%d", ow_cnt, vl_id, pump_id, mixer_id);
+    ow_ok=1;
+    once=0;
+}
+
+// ============================================================================
+// Schalter anwenden (chg[]-Äquivalent) + Heizautomatik
+// ============================================================================
+void apply_switches() {
+    if (hzg!=hzg_p)         hzg_p=hzg;            // hzg steuert nur die Logik
+    if (led!=led_p)         { set_act(led_id, led^1);         led_p=led; }
+    if (pump!=pump_p)       { set_act(pump_id, pump^1);       pump_p=pump; }
+    if (fan!=fan_p)         { set_act(fan_id, fan^1);         fan_p=fan; }
+    if (olhz!=olhz_p)       { set_act(olhz_id, olhz^1);       olhz_p=olhz; }
+    if (pwstrip!=pwstrip_p) { set_act(pwstrip_id, pwstrip^1); pwstrip_p=pwstrip; }
+    if (mixer!=mixer_p) {
+        if      (mixer==0) set6pin(mixer_id, 2);   // Zu
+        else if (mixer==1) set6pin(mixer_id, 3);   // Neutral
+        else if (mixer==2) set6pin(mixer_id, 1);   // Auf
+        mixer_p=mixer;
+    }
+}
+
+// nicht-blockierender Mischer-Puls (ersetzt die delay()-Schleifen aus >t2).
+// pulse_ms = Stellzeit; danach (in EverySecond) zurück auf neutral + Abkühlzeit.
+void mixer_pulse(int dir, int pulse_ms, int withled) {
+    mixer=dir;                 // 2=öffnen (Auf), 0=schließen (Zu)
+    mix_until=millis()+pulse_ms;
+    mix_pulsems=pulse_ms;
+    mix_active=1; mix_led=withled;
+    if (withled) led=1;
+}
+
+void heizautomatik() {
+    if (hzg>0) {
+        if (kesselvorlauf>=solltmp) {
+            pump=1;
+            float d=solltmp-vorlauf; if (d<0) d=-d;          // abs
+            int pms=((int)d)*1800;                            // Stellzeit = Abweichung * 1800 ms (neues Skript)
+            if (d>1 && !mix_active && millis()>=mix_cool) {   // nicht während Puls oder Abkühlzeit
+                if (vorlauf<solltmp)           mixer_pulse(2, pms, 0);   // zu kalt -> öffnen (Auf)
+                else if ((int)vorlauf>solltmp) mixer_pulse(0, pms, 1);    // zu warm -> schließen (Zu) (+LED)
+            }
+        }
+    }
+    // Heizung AUS: Pumpe NICHT mehr zwangsweise auf 0 — sonst überschrieb die Automatik
+    // bei jeder Temp-Messung die Handschaltung (das war Rolfs "Pumpe schaltet nicht").
+    // Bei Heizung-AUS ist die Pumpe jetzt manuell; bei Heizung-AN folgt sie weiter dem Kessel.
+    // Mischer-Endlage erreicht?
+    if (hzg>0 && vorlauf>solltmp && mixer==3) mixer=2;
+    if (hzg>0 && vorlauf<solltmp && mixer==1) mixer=2;
+}
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+void EverySecond() {
+    if (!ow_ok) return;
+
+    // Erststart: alle Schalter auf den gespeicherten Zustand bringen
+    if (!once) {
+        set_act(led_id, led^1); set_act(pump_id, pump^1); set_act(fan_id, fan^1);
+        set_act(olhz_id, olhz^1); set_act(pwstrip_id, pwstrip^1);
+        set6pin(mixer_id, 3); mixer=1;   // Mischer-Start: neutral (Hardware + Variable)
+        hzg_p=hzg; led_p=led; pump_p=pump; fan_p=fan; olhz_p=olhz; pwstrip_p=pwstrip; mixer_p=mixer;
+        once=1;
+    }
+
+    // Mischer-Puls beenden -> neutral, dann Abkühlzeit (Original: pulse*4 + 10 s)
+    if (mix_active && millis()>=mix_until) {
+        mixer=1; if (mix_led) led=0;   // zurück auf Neutral
+        mix_active=0;
+        mix_cool=millis()+mix_pulsems*4+10000;
+    }
+
+    // Round-Robin: ein Gerät pro Tick lesen
+    if (ow_cnt>0) {
+        int i=ow_ti;
+        if (ow_fam[i]==FAM_DS2406) {
+            ow_ds2406_read(i);
+        } else {
+            if (ow_conv[i]) {
+                float oldv=ow_t[i]; int wasv=ow_tvalid[i];
+                ow_read_temp(i);
+                if (!wasv)             ow_trend[i]=0;   // erste Messung: weiss
+                else if (ow_t[i]>oldv) ow_trend[i]=1;   // steigend -> orange
+                else if (ow_t[i]<oldv) ow_trend[i]=-1;  // fallend  -> hellblau
+                else                   ow_trend[i]=0;   // unverändert -> weiss
+            }
+            if (ow_reset()) { ow_select(i); ow_write(DS_CONVERT); ow_conv[i]=1; }
+        }
+        ow_ti=ow_ti+1; if (ow_ti>=ow_cnt) ow_ti=0;
+    }
+
+    // benannte Temperaturen übernehmen
+    if (vl_id>=0)   vorlauf=ow_t[vl_id];
+    if (hk_id>=0)   holzkessel=ow_t[hk_id];
+    if (kv_id>=0)   kesselvorlauf=ow_t[kv_id];
+    if (sp1_id>=0)  speicher1=ow_t[sp1_id];
+    if (sp2_id>=0)  speicher2=ow_t[sp2_id];
+    if (sp3_id>=0)  speicher3=ow_t[sp3_id];
+    if (olks_id>=0) olkessel=ow_t[olks_id];
+    if (sol_id>=0)  solar=ow_t[sol_id];
+    if (rm_id>=0)   raum=ow_t[rm_id];
+    if (atmp_id>=0) aussen=ow_t[atmp_id];
+    if (rl_id>=0)   rucklauf=ow_t[rl_id];
+
+    // Holzkessel fürs 1-h-Webchart. Beim ERSTEN gültigen Wert den ganzen Ring
+    // vorbelegen -> Chart sofort sichtbar, festes 1-h-Fenster (kein Anwachsen).
+    if (hk_id>=0 && ow_tvalid[hk_id]) {
+        if (hk_filled==0) {
+            int k=0; while (k<HK_N) { hk_hist[k]=holzkessel; k=k+1; }
+            hk_filled=HK_N; hk_pos=0;
+        }
+        hk_sec=hk_sec+1;
+        if (hk_sec>=60) {
+            hk_sec=0;
+            hk_hist[hk_pos]=holzkessel;
+            hk_pos=(hk_pos+1)%HK_N;
+        }
+    }
+
+    // Automatik bei Änderung von Vorlauf oder Solltemperatur (chg[]-Gate)
+    if (vorlauf!=vl_prev || solltmp!=soll_prev) {
+        vl_prev=vorlauf; soll_prev=solltmp;
+        heizautomatik();
+    }
+
+    apply_switches();
+}
+
+void Rescan() { ow_reinit(); }
+
+// ---- MQTT ----
+void JsonCall() {
+    if (!ow_ok) return;
+    char b[64];
+    sprintf(b, ",\"Vorlauf\":%.1f", vorlauf); responseAppend(b);
+    sprintf(b, ",\"Ruecklauf\":%.1f", rucklauf); responseAppend(b);
+    sprintf(b, ",\"Holzkessel\":%.1f", holzkessel); responseAppend(b);
+    sprintf(b, ",\"KesselVorlauf\":%.1f", kesselvorlauf); responseAppend(b);
+    sprintf(b, ",\"Speicher1\":%.1f", speicher1); responseAppend(b);
+    sprintf(b, ",\"Speicher2\":%.1f", speicher2); responseAppend(b);
+    sprintf(b, ",\"Speicher3\":%.1f", speicher3); responseAppend(b);
+    sprintf(b, ",\"Oelkessel\":%.1f", olkessel); responseAppend(b);
+    sprintf(b, ",\"Solar\":%.1f", solar); responseAppend(b);
+    sprintf(b, ",\"Raum\":%.1f", raum); responseAppend(b);
+    sprintf(b, ",\"Aussen\":%.1f", aussen); responseAppend(b);
+    sprintf(b, ",\"Heizung\":%d", hzg); responseAppend(b);
+    sprintf(b, ",\"Pumpe\":%d", pump); responseAppend(b);
+    sprintf(b, ",\"Mischer\":%d", mixer); responseAppend(b);
+}
+
+// Trend-Farbe der Temperaturen: steigend=orange, fallend=hellblau, gleich=weiss
+void setcol(char dst[], int t) {
+    if (t>0)      strcpy(dst, "orange");
+    else if (t<0) strcpy(dst, "#5cf");
+    else          strcpy(dst, "#fff");
+}
+
+void WebCall() {
+    if (!ow_ok) { webSend("{s}Heizung26{m}kein Bus{e}"); return; }
+    char vt[96]; char col[8];
+    if (vl_id>=0)   { setcol(col, ow_trend[vl_id]);   sprintf(vt, "{s}Vorlauf{m}<span style='color:%s'>%.2f °C</span>{e}", col, vorlauf); webSend(vt); }
+    if (rl_id>=0)   { setcol(col, ow_trend[rl_id]);   sprintf(vt, "{s}Rücklauf{m}<span style='color:%s'>%.2f °C</span>{e}", col, rucklauf); webSend(vt); }
+    if (hk_id>=0)   { setcol(col, ow_trend[hk_id]);   sprintf(vt, "{s}Holzkessel{m}<span style='color:%s'>%.2f °C</span>{e}", col, holzkessel); webSend(vt); }
+    if (kv_id>=0)   { setcol(col, ow_trend[kv_id]);   sprintf(vt, "{s}Kessel-Vorlauf{m}<span style='color:%s'>%.2f °C</span>{e}", col, kesselvorlauf); webSend(vt); }
+    if (sp1_id>=0)  { setcol(col, ow_trend[sp1_id]);  sprintf(vt, "{s}Speicher 1{m}<span style='color:%s'>%.2f °C</span>{e}", col, speicher1); webSend(vt); }
+    if (sp2_id>=0)  { setcol(col, ow_trend[sp2_id]);  sprintf(vt, "{s}Speicher 2{m}<span style='color:%s'>%.2f °C</span>{e}", col, speicher2); webSend(vt); }
+    if (sp3_id>=0)  { setcol(col, ow_trend[sp3_id]);  sprintf(vt, "{s}Speicher 3{m}<span style='color:%s'>%.2f °C</span>{e}", col, speicher3); webSend(vt); }
+    if (olks_id>=0) { setcol(col, ow_trend[olks_id]); sprintf(vt, "{s}Ölkessel{m}<span style='color:%s'>%.2f °C</span>{e}", col, olkessel); webSend(vt); }
+    if (sol_id>=0)  { setcol(col, ow_trend[sol_id]);  sprintf(vt, "{s}Solar{m}<span style='color:%s'>%.2f °C</span>{e}", col, solar); webSend(vt); }
+    if (rm_id>=0)   { setcol(col, ow_trend[rm_id]);   sprintf(vt, "{s}Raum{m}<span style='color:%s'>%.2f °C</span>{e}", col, raum); webSend(vt); }
+    if (atmp_id>=0) { setcol(col, ow_trend[atmp_id]); sprintf(vt, "{s}Aussen{m}<span style='color:%s'>%.2f °C</span>{e}", col, aussen); webSend(vt); }
+    sprintf(vt, "{s}Status{m}Heizung %d · Pumpe %d · Mischer %d{e}", hzg, pump, mixer); webSend(vt);
+    sprintf(vt, "{s}Geräte am Bus{m}%d (Vorlauf-ID %d){e}", ow_cnt, vl_id); webSend(vt);
+
+    // --- Steuerung direkt auf der Hauptseite (wie Scripter >W) ---
+    // Alle Bedienelemente in einem gemeinsamen Rahmen (fieldset)
+    webSend("<fieldset style='border:1px solid #888;border-radius:5px;padding:6px 12px;margin-top:8px'><legend><b>Steuerung</b></legend>");
+    webCheckbox(hzg, "Heizung");
+    webNumber(solltmp, 0, 100, "Soll-Temperatur °C");
+    webCheckbox(led, "LED");
+    webCheckbox(pump, "Pumpe");
+    webCheckbox(fan, "Ventilator");
+    webCheckbox(olhz, "Ölheizung");
+    webCheckbox(pwstrip, "Steckerleiste");
+    webSend("<b>Vierwegehahn</b>");
+    webSend("<div id='hzgmix'>");
+    webRadio(mixer, "Zu|Neutral|Auf");                    // Zu=Option1, Neutral=2, Auf=3
+    webSend("</div><style>#hzgmix fieldset>div:nth-of-type(1) label{color:#48f}#hzgmix fieldset>div:nth-of-type(3) label{color:#f44}</style>");
+    webSend("</fieldset>");
+}
+
+// (Die Steuerung liegt jetzt direkt in WebCall() auf der Hauptseite — kein Untermenü.)
+
+// ---- 1-h-Verlaufschart des Heizkessels (Holzkessel) auf der Hauptseite ----
+void WebPage() {
+    if (hk_id<0 || hk_filled==0) return;   // ab dem ersten gültigen Wert (Ring vorbelegt)
+    webSend("<div style='margin-left:-30px'>");   // ottelos Chart-Zentrierung (neg. x-Offset)
+    WebChartSize(600, 260);
+    // FESTES 1-h-Fenster: count=HK_N (60 × 1-Min), Ring beim Start vorbelegt -> sofort sichtbar.
+    // 1 Nachkommastelle, interval=1 Min, ymin/ymax=0 -> Auto-Skala.
+    WebChart(0, "Heizkessel (1 h)", "°C", 0xe74c3c, hk_pos, HK_N, hk_hist, 1, 1, 0.0, 0.0);
+    webSend("</div>");
+}
+
+// ---- Konsole: HZG ----
+void Command(char cmd[]) {
+    char cs[64]; strcpy(cs, cmd); int len=strlen(cs);
+    int pos=0; while (pos<len && cs[pos]==' ') pos=pos+1;
+    if (pos>=len) { ow_reinit(); }   // "HZG" allein = neu scannen
+    char r[96];
+    sprintf(r, "Geraete %d, Vorlauf %.1f, Pumpe %d, Mischer %d", ow_cnt, vorlauf, pump, mixer);
+    responseCmnd(r);
+}
+
+int main() {
+    ow_reinit();
+    addCommand("HZG");
+    return 0;
+}
