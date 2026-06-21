@@ -671,34 +671,25 @@ int ow_ds2406_write(int idx) {
     ow_sw_select(idx);
     ow_write(DS2406_CH_ACCESS);
 
-    // CCB1: IM=0(write), CHS based on channel count, no CRC
-    if (ow_sw_ch[idx] >= 2) {
-        ow_write(0x0C);  // CHS=11 both channels
-    } else {
-        ow_write(0x04);  // CHS=01 channel A only
-    }
-    ow_write(0xFF);  // CCB2
+    // CCB1 = 0x0C always (CHS=11) — exactly like the firmware's native ow(8),
+    // even for single-channel chips. CCB2 = 0xFF.
+    ow_write(0x0C);
+    ow_write(0xFF);
 
     // read Channel Info byte (always sent by device)
     int info = ow_read();
 
-    // Invert: ow_sw_state has 0=ON (DS2413 convention)
-    // DS2406 needs 1=conducting, so invert bits
+    // st: bit set = channel conducting/ON (ow_sw_state has 0=ON, so invert)
     int st = (~ow_sw_state[idx]) & 0x03;
 
-    // DS2406 Channel Access writes bits sequentially to PIO flip-flops.
-    // Only the LAST bit for each channel determines the final state.
-    // CHS=01: all 8 bits → PIO-A, bit7 is last
-    // CHS=11: bits alternate A,B,A,B... bit6→A(last), bit7→B(last)
+    // Output byte exactly like native ow(8 sid+par<<6): the PIO flip-flops live
+    // in bit6 (PIO-A) and bit7 (PIO-B). FF=0 -> transistor conducting (ON),
+    // FF=1 -> off; so set the bit when the channel is NOT conducting. (The old
+    // 0x55/0xAA pattern + CCB1=0x04 never actually drove the output — it only
+    // toggled the flip-flop's weak internal pull-up, so a real load never switched.)
     int data = 0;
-    if (ow_sw_ch[idx] >= 2) {
-        // CHS=11: 0x55 pattern sets A bits, 0xAA sets B bits
-        if (st & 0x01) data = data | 0x55;  // PIO-A conducting
-        if (st & 0x02) data = data | 0xAA;  // PIO-B conducting
-    } else {
-        // CHS=01: 0xFF for A=ON, 0x00 for A=OFF
-        if (st & 0x01) data = 0xFF;
-    }
+    if (!(st & 0x01)) data = data | 0x40;  // bit6 = PIO-A
+    if (!(st & 0x02)) data = data | 0x80;  // bit7 = PIO-B
     ow_write(data);
 
     // End channel access
