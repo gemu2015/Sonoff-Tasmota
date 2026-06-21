@@ -5241,7 +5241,7 @@ void tc_lv_image_scale(int h, int sx, int sy);
 int  tc_lv_line(int parent);
 void tc_lv_line_points(int h, int x1, int y1, int x2, int y2);
 void tc_lv_line_style(int h, int rgb, int width);
-void tc_lv_line_poly(int h, int *xs, int *ys, int n);
+void tc_lv_line_poly(int h, int32_t *xs, int32_t *ys, int n);
 void tc_lv_arc_bg_angles(int h, int start, int end);
 void tc_lv_arc_style(int h, int part, int color, int width);
 void tc_lv_rotate(int h, int deci_deg);

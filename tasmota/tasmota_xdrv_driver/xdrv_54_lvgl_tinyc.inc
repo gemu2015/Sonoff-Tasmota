@@ -247,17 +247,21 @@ void tc_lv_set_style_int(int h, int prop, int val) {
   lv_obj_set_local_style_prop(o, (lv_style_prop_t)prop, sv, LV_PART_MAIN | LV_STATE_DEFAULT);
   tc_lvgl_unlock();
 }
-// set a label's text font by pixel size, snapped to the built-in Tasmota Montserrat
-// set (10/14/20/28 — all LV_FONT_DECLARE'd in tasmota_lv_conf.h, default is 14). The
-// style lands on LV_PART_MAIN, which labels use for their text; on a button, pass its
-// child label handle. Lets TinyC LVGL UIs use big titles without a new font in the build.
+// set a label's text font by pixel size. Montserrat (proportional, Tasmota subset
+// 10/14/20/28) for normal UI sizes; unscii (crisp 8/16 px pixel/monospace, already
+// compiled via LV_FONT_UNSCII_8/16=1 in tasmota_lv_conf.h) for the small end where
+// Montserrat goes fuzzy — ideal for dense numeric axis labels on small displays.
+// The style lands on LV_PART_MAIN, which labels use for their text; on a button,
+// pass its child label handle. Existing apps only use 14/20/28 → unchanged.
 void tc_lv_set_font(int h, int size) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
   const lv_font_t *f;
   if (size >= 28)      { f = &lv_font_montserrat_tasmota_28; }
   else if (size >= 20) { f = &lv_font_montserrat_tasmota_20; }
+  else if (size >= 16) { f = &lv_font_unscii_16; }            // 16-19: crisp 16 px mono
   else if (size >= 14) { f = &lv_font_montserrat_tasmota_14; }
-  else                 { f = &lv_font_montserrat_tasmota_10; }
+  else if (size >= 10) { f = &lv_font_montserrat_tasmota_10; }
+  else                 { f = &lv_font_unscii_8; }             // <10: crisp 8 px mono (small displays)
   tc_lvgl_lock();
   lv_obj_set_style_text_font(o, f, LV_PART_MAIN | LV_STATE_DEFAULT);
   tc_lvgl_unlock();
@@ -391,8 +395,10 @@ void tc_lv_line_points(int h, int x1, int y1, int x2, int y2) {
   tc_lvgl_unlock();
 }
 // one lv_line draws a whole N-point polyline (series / gridline / gauge arc). Grows
-// the line's points buffer to N via realloc; xs/ys are TinyC int arrays (absolute px).
-void tc_lv_line_poly(int h, int *xs, int *ys, int n) {
+// the line's points buffer to N via realloc; xs/ys are TinyC int32 arrays (absolute px).
+// Params are int32_t* (not int*) to match tc_resolve_ref's return on toolchains where
+// int32_t == long int (e.g. this S3 core) — otherwise the call is a hard -fpermissive error.
+void tc_lv_line_poly(int h, int32_t *xs, int32_t *ys, int n) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o || !xs || !ys || n < 2) { return; }
   tc_lvgl_lock();
   lv_point_precise_t *pts = (lv_point_precise_t *)realloc(lv_obj_get_user_data(o), (size_t)n * sizeof(lv_point_precise_t));
