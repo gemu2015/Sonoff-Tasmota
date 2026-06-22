@@ -103,25 +103,36 @@ void state_set(char fields[]) {                    // {"msg":"STATE-SET",...,"da
   char lg[64]; sprintf(lg, "dyson: STATE-SET {%s}", fields); addLog(lg);
 }
 
-void parse_status(char b[]) {                      // tolerant substring parse of the JSON burst
-  int p; char v[8];
-  p = strFind(b, "\"fnsp\":\"");
-  if (p >= 0) { strSub(v, b, p + 8, 4); d_speed = atof(v); shareSetInt("dyson_speed", d_speed); }  // "AUTO" -> 0
-  p = strFind(b, "\"pact\":\"");
-  if (p >= 0) { strSub(v, b, p + 8, 4); d_dust = atof(v); shareSetInt("dyson_dust", d_dust); }
-  p = strFind(b, "\"vact\":\"");
-  if (p >= 0) { strSub(v, b, p + 8, 4); d_voc = atof(v); shareSetInt("dyson_voc", d_voc); }
-  if (strFind(b, "\"oson\":\"ON")  >= 0) { d_osc = 1;  shareSetInt("dyson_osc", 1); }
-  else if (strFind(b, "\"oson\":\"OFF") >= 0) { d_osc = 0; shareSetInt("dyson_osc", 0); }
-  if (strFind(b, "\"nmod\":\"ON")  >= 0) { d_night = 1; shareSetInt("dyson_night", 1); }
-  else if (strFind(b, "\"nmod\":\"OFF") >= 0) { d_night = 0; shareSetInt("dyson_night", 0); }
-  if (strFind(b, "\"fmod\":\"OFF")  >= 0) { d_mode = 0; }
-  else if (strFind(b, "\"fmod\":\"AUTO") >= 0) { d_mode = 2; }
-  else if (strFind(b, "\"fmod\":\"FAN")  >= 0) { d_mode = 1; }
-  shareSetInt("dyson_mode", d_mode);
+// Value of a product-state field, handling BOTH message forms the Dyson sends:
+//   CURRENT-STATE: "fnsp":"0006"            STATE-CHANGE: "fnsp":["old","new"]  (take [1]=new).
+// Empty out[] if the field is absent (so the caller keeps the previous value).
+void dy_get(char b[], char pat[], char out[]) {
+  out[0] = 0;
+  int p = strFind(b, pat);
+  if (p < 0) return;
+  int i = p + strlen(pat);
+  if (b[i] == '[') { i = i + 1; while (b[i] != 0 && b[i] != ',') i = i + 1; if (b[i] == ',') i = i + 1; }  // -> "new"
+  if (b[i] == '"') i = i + 1;                       // skip opening quote
+  int j = 0;
+  while (b[i] != 0 && b[i] != '"' && j < 7) { out[j] = b[i]; i = i + 1; j = j + 1; }
+  out[j] = 0;
+}
 
-  // Mirror device state into the control widgets — but never overwrite a click that
-  // TaskLoop hasn't dispatched yet (c_X != c_X_prev = pending). First status forces sync.
+void parse_status(char b[]) {                      // CURRENT-STATE / STATE-CHANGE / ENV bursts
+  char v[8];
+  dy_get(b, "\"fnsp\":", v); if (v[0]) { d_speed = atof(v); shareSetInt("dyson_speed", d_speed); }  // "AUTO"->0
+  dy_get(b, "\"pact\":", v); if (v[0]) { d_dust  = atof(v); shareSetInt("dyson_dust",  d_dust); }
+  dy_get(b, "\"vact\":", v); if (v[0]) { d_voc   = atof(v); shareSetInt("dyson_voc",   d_voc); }
+  dy_get(b, "\"oson\":", v); if (v[0]) { d_osc   = (v[0]=='O' && v[1]=='N') ? 1 : 0; shareSetInt("dyson_osc",   d_osc); }
+  dy_get(b, "\"nmod\":", v); if (v[0]) { d_night = (v[0]=='O' && v[1]=='N') ? 1 : 0; shareSetInt("dyson_night", d_night); }
+  dy_get(b, "\"fmod\":", v); if (v[0]) {
+    if (v[0]=='O') { d_mode = 0; } else if (v[0]=='A') { d_mode = 2; } else { d_mode = 1; }  // OFF/AUTO/FAN
+    shareSetInt("dyson_mode", d_mode);
+  }
+
+  // Mirror device state into the control widgets — never overwrite a click that TaskLoop
+  // hasn't dispatched yet (c_X != c_X_prev = pending). First status forces sync. With
+  // STATE-CHANGE now parsed, d_* is fresh right after a change, so this no longer snaps back.
   if (c_init == 0 || c_mode  == c_mode_prev)  { c_mode  = d_mode;  c_mode_prev  = d_mode; }
   if (c_init == 0 || c_osc   == c_osc_prev)   { c_osc   = d_osc;   c_osc_prev   = d_osc; }
   if (c_init == 0 || c_night == c_night_prev) { c_night = d_night; c_night_prev = d_night; }
