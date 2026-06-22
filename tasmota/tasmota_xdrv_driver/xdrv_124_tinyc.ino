@@ -1817,25 +1817,42 @@ static void HandleTinyCPage(void) {
       // under the ESP32 task watchdog (which is 5 s by default but bumpable).
       #define TC_REPO_FETCH_MS   5000
       #endif
+      // 2026-06-22: backoff after a FAILED/skipped fetch so an offline device (no
+      // internet route — e.g. a pure eBUS master) doesn't re-hammer the synchronous
+      // loop fetch on every /tc render or boot-loop-recovery tick (Andreas .144).
+      #ifndef TC_REPO_BACKOFF_MS
+      #define TC_REPO_BACKOFF_MS 300000   // 5 min between failed attempts
+      #endif
       static String   tc_repo_index;        // last successful index.txt body
       static uint32_t tc_repo_index_ms = 0; // millis() of last successful fetch
+      static uint32_t tc_repo_try_ms   = 0; // millis() of last fetch ATTEMPT (ok OR fail) — backoff base
       {
         char repo_url[200] = {};
+        bool cfg_present = false;
         File rcfg = ufsp->open("/tinyc_repo.cfg", "r");
         if (rcfg) {
+          cfg_present = true;
           int rl = rcfg.readBytesUntil('\n', repo_url, sizeof(repo_url) - 1);
           rcfg.close();
           while (rl > 0 && (repo_url[rl-1] == '\r' || repo_url[rl-1] == ' ')) { repo_url[--rl] = 0; }
         }
-        if (!repo_url[0]) {
+        // No cfg file -> default repo. An EMPTY /tinyc_repo.cfg = repo sync OFF
+        // (repo_url stays empty -> the fetch below is skipped entirely).
+        if (!repo_url[0] && !cfg_present) {
           strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
         }
         if (repo_url[0]) {
 #ifndef ESP8266   // repo index.txt fetch is disabled on ESP8266 — see the #else note below
           bool cache_fresh = tc_repo_index.length() > 0 &&
                              (millis() - tc_repo_index_ms) < TC_REPO_CACHE_MS;
+          bool backoff = tc_repo_try_ms != 0 &&
+                         (millis() - tc_repo_try_ms) < TC_REPO_BACKOFF_MS;
           bool force_refresh = Webserver->hasArg(F("refresh"));
-          if (!cache_fresh || force_refresh) {
+          // Skip on a down network (offline eBUS masters): http.begin() would fail every
+          // trigger and starve the synchronous loop fetch. Backoff also throttles a
+          // failing-but-online fetch so it can't re-hammer on every /tc poll / recovery tick.
+          if (((!cache_fresh && !backoff) || force_refresh) && !TasmotaGlobal.global_state.network_down) {
+            tc_repo_try_ms = millis();   // stamp the attempt up front so a failure backs off too
             // Fetch index.txt from repo (bounded by TC_REPO_FETCH_MS)
             String idx_url = String(repo_url);
             if (!idx_url.endsWith("/")) idx_url += "/";
