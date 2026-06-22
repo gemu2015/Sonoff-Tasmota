@@ -5405,6 +5405,21 @@ static int32_t tc_fast_mux(uint32_t flag, uint32_t time, int32_t *buf, uint32_t 
  * VM: Syscall dispatch
 \*********************************************************************************************/
 
+// Encode the CURRENT rendering slot into a web-widget id so that main-page
+// widgets (?sv=<id>_<value>) route back to the slot that drew them instead of a
+// hardcoded slot 0. Low 12 bits = global index (TC_MAX_GLOBALS=512, fits 0x0FFF),
+// bits 12-14 = slot index (TC_MAX_VMS=6). An id with no high bits decodes to
+// slot 0 -> backward compatible with the old single-slot behaviour.
+static inline uint16_t tc_widget_id(int32_t gref) {
+  uint16_t gidx = (uint16_t)(((uint32_t)gref) & 0x0FFF);
+  if (Tinyc && tc_current_slot) {
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      if (Tinyc->slots[i] == tc_current_slot) { return ((uint16_t)i << 12) | gidx; }
+    }
+  }
+  return gidx;
+}
+
 static int tc_syscall(TcVM *vm, uint16_t id) {
   int32_t a, b;
   float fa;
@@ -9914,7 +9929,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_WEB_BUTTON: {
       int32_t ci = TC_POP(vm);   // label const idx
       int32_t gref = TC_POP(vm); // variable ref
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label = tc_get_const_str(vm, ci);
@@ -9941,7 +9956,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_WEB_TOGGLE: {
       int32_t ci = TC_POP(vm);   // label const idx
       int32_t gref = TC_POP(vm); // variable ref
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label = tc_get_const_str(vm, ci);
@@ -9973,7 +9988,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t vmax = TC_POP(vm);
       int32_t vmin = TC_POP(vm);
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label = tc_get_const_str(vm, ci);
@@ -9986,15 +10001,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
     // ── Dynamic-HTML enablers: var index + runtime-label widgets ──
-    case SYS_VAR_IDX: {            // varIdx(var) -> global index (for hand-built tcbtn/seva HTML)
+    case SYS_VAR_IDX: {            // varIdx(var) -> slot-encoded widget id (for hand-built tcbtn/seva HTML)
       int32_t gref = TC_POP(vm);
-      TC_PUSH(vm, (int32_t)(((uint32_t)gref) & 0xFFFF));
+      TC_PUSH(vm, (int32_t)tc_widget_id(gref));
       break;
     }
     case SYS_WEB_BUTTON_V: {       // webButtonV(var, labelbuf) — like webButton, runtime label
       int32_t lref = TC_POP(vm);   // label ref (runtime char[])
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       char label[80];
@@ -10020,7 +10035,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t vmax = TC_POP(vm);
       int32_t vmin = TC_POP(vm);
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       char label[64];
@@ -10052,7 +10067,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_WEB_CHECKBOX: {
       int32_t ci = TC_POP(vm);
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label = tc_get_const_str(vm, ci);
@@ -10068,7 +10083,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);      // label const idx
       int32_t maxlen = TC_POP(vm);  // max char length
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       char tbuf[128];
       tc_ref_to_cstr(vm, gref, tbuf, sizeof(tbuf));
       const char *label = tc_get_const_str(vm, ci);
@@ -10086,7 +10101,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t vmax = TC_POP(vm);
       int32_t vmin = TC_POP(vm);
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label = tc_get_const_str(vm, ci);
@@ -10103,7 +10118,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t oi = TC_POP(vm);   // options const idx ("opt1|opt2|opt3" or "@getfreepins")
       int32_t li = TC_POP(vm);   // label const idx
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label = tc_get_const_str(vm, li);
@@ -10318,7 +10333,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ji   = TC_POP(vm);   // json_url const idx
       int32_t li   = TC_POP(vm);   // label const idx
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;
       const char *label    = tc_get_const_str(vm, li);
@@ -10390,7 +10405,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_WEB_RADIO: {
       int32_t ci = TC_POP(vm);   // options const idx ("opt1|opt2|opt3")
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;  // 0-based selected index
       const char *opts = tc_get_const_str(vm, ci);
@@ -10415,7 +10430,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_WEB_TIME: {
       int32_t ci = TC_POP(vm);
       int32_t gref = TC_POP(vm);
-      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      uint16_t idx = tc_widget_id(gref);
       int32_t *p = tc_resolve_ref(vm, gref);
       int32_t val = p ? *p : 0;  // HHMM format
       const char *label = tc_get_const_str(vm, ci);

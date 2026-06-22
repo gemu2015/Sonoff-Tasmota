@@ -3918,7 +3918,7 @@ static void TinyC_WebSetVar(uint8_t slot_idx) {
   String sv = Webserver->arg(F("sv"));
   int sep = sv.indexOf('_');
   if (sep > 0) {
-    int32_t gidx = sv.substring(0, sep).toInt();
+    int32_t gidx = sv.substring(0, sep).toInt() & 0x0FFF;   // strip slot bits 12-14 (tc_widget_id)
     String val = sv.substring(sep + 1);
     if (gidx >= 0 && gidx < TC_MAX_GLOBALS) {
       if (val.startsWith("s_")) {
@@ -5987,13 +5987,20 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(true);
       break;
 #ifdef USE_WEBSERVER
-    case FUNC_WEB_GET_ARG:
-      // Process sv= widget value updates from main page AJAX. The main
-      // page renders WebPage() for all slots; slot 0 remains the write
-      // target here (pre-existing multi-slot main-page assumption — the
-      // /tc_ui path above is slot-accurate).
-      TinyC_WebSetVar(0);
+    case FUNC_WEB_GET_ARG: {
+      // Process sv= widget value updates from main-page AJAX. The widget id
+      // (sv=<id>_<value>) now encodes the rendering slot in bits 12-14 (see
+      // tc_widget_id), so route the write to that slot instead of a hardcoded
+      // slot 0 — main-page widgets now work from any slot, not just slot 0.
+      uint8_t wslot = 0;
+      if (Webserver->hasArg(F("sv"))) {
+        String sva = Webserver->arg(F("sv"));
+        int wsep = sva.indexOf('_');
+        if (wsep > 0) { wslot = (uint8_t)((sva.substring(0, wsep).toInt() >> 12) & 0x07); }
+      }
+      TinyC_WebSetVar(wslot);
       break;
+    }
     case FUNC_WEB_SENSOR:
       TinyCShow(false);
       break;
