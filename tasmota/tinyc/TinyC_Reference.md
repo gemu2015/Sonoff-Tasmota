@@ -3293,6 +3293,7 @@ Both callbacks use the same widget functions.
 | `webPageLabel(page, "label")` | Register page 0–5 with a button label on the main page |
 | `int webPage()` | Returns current page number being rendered (use in `WebUI()` to branch) |
 | `webConsoleButton("/url", "label")` | Register button in Tasmota Utilities menu (max 4). Navigates to URL on click |
+| `webCard(on)` | Per-slot toggle for the main-page **card frame** (see below). Default on; `webCard(0)` in `main()` renders this script's main-page rows bare, with no frame |
 
 The first argument of widget functions is always a **global variable** that the widget reads from and writes to. The compiler automatically passes the variable's address to the syscall.
 
@@ -3306,6 +3307,16 @@ void WebCall() {
     webSlider(brightness, 0, 100, "Brightness");
 }
 ```
+
+**Per-script cards (main page).** When several scripts render widgets on the main page at once, each script's `WebCall()` output is automatically framed in its own card — a bordered box with a `slot N` legend and a gap between cards — so the apps are visually separated instead of running together. This is **on by default**; no code is needed. To opt a script out and render its rows bare (the pre-card look), call `webCard(0)` once in `main()`:
+
+```c
+void main() {
+    webCard(0);   // this script's main-page rows render without a card frame
+}
+```
+
+The setting is per slot, so the other scripts keep their cards. (Requires firmware with syscall ABI ≥ 16.)
 
 **Example — Multiple pages with custom buttons:**
 

@@ -2408,6 +2408,7 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 | `webPageLabel(page, "label")` | Seite 0–5 mit einer Schaltflaechenbeschriftung auf der Hauptseite registrieren |
 | `int webPage()` | Gibt die aktuelle Seitennummer zurueck, die gerendert wird (in `WebUI()` zur Verzweigung verwenden) |
 | `webConsoleButton("/url", "label")` | Schaltflaeche im Tasmota-Utilities-Menue registrieren (max 4). Navigiert zu URL bei Klick |
+| `webCard(on)` | Pro-Slot-Schalter fuer den **Karten-Rahmen** auf der Hauptseite (siehe unten). Standard ein; `webCard(0)` in `main()` rendert die Hauptseiten-Zeilen dieses Skripts ohne Rahmen |
 
 Das erste Argument der Widget-Funktionen ist immer eine **globale Variable**, die das Widget liest und in die es schreibt. Der Compiler uebergibt automatisch die Adresse der Variable an den Syscall.
 
@@ -2421,6 +2422,16 @@ void WebCall() {
     webSlider(brightness, 0, 100, "Brightness");
 }
 ```
+
+**Karten pro Skript (Hauptseite).** Wenn mehrere Skripte gleichzeitig Widgets auf der Hauptseite rendern, wird die `WebCall()`-Ausgabe jedes Skripts automatisch in eine eigene Karte gerahmt — ein umrandeter Kasten mit einer `slot N`-Beschriftung und einem Abstand zwischen den Karten — sodass die Apps optisch getrennt sind statt ineinanderzulaufen. Das ist **standardmaessig ein**; kein Code noetig. Um ein Skript auszunehmen und seine Zeilen ohne Rahmen darzustellen (die Optik vor den Karten), rufen Sie `webCard(0)` einmal in `main()` auf:
+
+```c
+void main() {
+    webCard(0);   // Hauptseiten-Zeilen dieses Skripts ohne Karten-Rahmen
+}
+```
+
+Die Einstellung gilt pro Slot, die anderen Skripte behalten ihre Karten. (Benoetigt Firmware mit Syscall-ABI ≥ 16.)
 
 **Beispiel — Mehrere Seiten mit benutzerdefinierten Schaltflaechen:**
 
