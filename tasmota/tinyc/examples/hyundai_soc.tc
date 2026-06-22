@@ -52,7 +52,7 @@ void authGet(char path[]) {
     char p1[560];
     sprintf(p1, "GET %s HTTP/1.0\r\nHost: %s:%d\r\nccsp-service-id: %s\r\nccsp-application-id: %s\r\nStamp: %s\r\nccsp-device-id: %s\r\nConnection: close\r\nUser-Agent: okhttp/3.12.1\r\n",
             path, HOST, PORT, SVCID, APPID, stamp, DEVID);
-    char p2[700]; strcpy(p2, "Authorization: Bearer "); strcat(p2, access); strcat(p2, "\r\n\r\n");
+    char p2[860]; strcpy(p2, "Authorization: Bearer "); strcat(p2, access); strcat(p2, "\r\n\r\n");  // must hold "Authorization: Bearer "(22)+access[800]+"\r\n\r\n"(4); was 700 -> heap overflow on long JWT tokens
     tlsWrite(p1); tlsWrite(p2);
 }
 
@@ -252,12 +252,13 @@ void doFlow() {
 
 void TaskLoop() {
     int t = 0;
-    delay(8000);
+    while (!tasm_wifi) { delay(500); }   // never start TLS before WiFi is up — TLS-before-link corrupts the heap and crashes at boot
+    delay(2000);                          // let DHCP/DNS settle after association
     doFlow();
     while (1) {
-        if (flow_req) { flow_req = 0; doFlow(); }
+        if (flow_req && tasm_wifi) { flow_req = 0; doFlow(); }   // defer a queued run until the link is back
         t = t + 1;
-        if (t >= 3600) { t = 0; doFlow(); }
+        if (t >= 3600) { t = 0; if (tasm_wifi) { doFlow(); } }
         delay(500);
     }
 }
