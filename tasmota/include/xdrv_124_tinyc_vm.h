@@ -13301,6 +13301,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       char host[128];
       tc_ref_to_cstr(vm, host_ref, host, sizeof(host));
       if (port <= 0) port = 443;
+      if (TasmotaGlobal.global_state.network_down) {   // mirror SYS_TCP_CONNECT: TLS before the link is up (e.g. a TaskLoop poll at early boot) drives BearSSL/DNS into a dead stack -> heap corruption -> delayed crash. Fail cleanly instead.
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tlsConnect %s skipped - network down"), host);
+        TC_PUSH(vm, -1); break;
+      }
       tc_udp_pause_req = true;   // ask the main task to pause the multicast for this TLS txn
       if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
       tc_tls = new BearSSL::WiFiClientSecure_light(TC_TLS_RX_BUF, TC_TLS_TX_BUF);
