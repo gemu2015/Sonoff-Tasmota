@@ -2340,6 +2340,34 @@ static volatile bool tc_udp_pause_req = false;
 #ifdef ESP32
 #include "WiFiClientSecureLightBearSSL.h"
 static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
+// RST-close the raw-TLS socket so its lwIP PCB frees NOW (no ~12 s TIME_WAIT). With only
+// CONFIG_LWIP_MAX_ACTIVE_TCP=16 PCBs, repeated TLS polls otherwise leak TIME_WAITs and can
+// exhaust the pool -> the whole net stack wedges (no ping/HTTP) until they age out. Mirrors
+// the SO_LINGER abort-close in SYS_HTTP_GET / SYS_TCP_CONNECT. Call right before stop().
+static inline void tc_tls_abort_linger() {
+  if (!tc_tls) return;
+  int _fd = tc_tls->fd();
+  if (_fd >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0;
+    setsockopt(_fd, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); }
+}
+// --- lwIP TCP-PCB census: diagnostic for the self-healing network-stack wedge (PCB-pool
+// exhaustion). CONFIG_LWIP_TCPIP_CORE_LOCKING is unset on these builds, so the PCB lists
+// (tcp_active_pcbs / tcp_tw_pcbs) MUST be walked on the tcpip task — tcpip_api_call() does that.
+#include "lwip/priv/tcpip_priv.h"
+#include "lwip/priv/tcp_priv.h"
+struct tc_pcb_census_t { struct tcpip_api_call_data ncall; uint8_t active; uint8_t tw; };
+static err_t tc_pcb_census_run(struct tcpip_api_call_data *c) {
+  struct tc_pcb_census_t *p = (struct tc_pcb_census_t *)c;
+  p->active = 0; p->tw = 0;
+  for (struct tcp_pcb *t = tcp_active_pcbs; t; t = t->next) { if (p->active < 250) p->active++; }
+  for (struct tcp_pcb *t = tcp_tw_pcbs;     t; t = t->next) { if (p->tw     < 250) p->tw++; }
+  return ERR_OK;
+}
+static void tc_pcb_census(uint8_t *active, uint8_t *tw) {
+  struct tc_pcb_census_t s;
+  tcpip_api_call(tc_pcb_census_run, &s.ncall);
+  *active = s.active; *tw = s.tw;
+}
 // RAII guard for the Powerwall path (ESP_SSLClient), which has many early-exit stop()s:
 // set the pause flag on entry, auto-clear on ANY return so a missed clear can't strand
 // the multicast paused. (The raw-TLS path sets/clears the flag explicitly instead.)
@@ -13306,7 +13334,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         TC_PUSH(vm, -1); break;
       }
       tc_udp_pause_req = true;   // ask the main task to pause the multicast for this TLS txn
-      if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
+      if (tc_tls) { tc_tls_abort_linger(); tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
       tc_tls = new BearSSL::WiFiClientSecure_light(TC_TLS_RX_BUF, TC_TLS_TX_BUF);
       tc_tls->setTimeout(5000);
       tc_tls->setInsecure();                 // no cert pinning (like Scripter httpsget)
@@ -13421,7 +13449,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_TLS_STOP: {
 #ifdef ESP32
-      if (tc_tls) { tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
+      if (tc_tls) { tc_tls_abort_linger(); tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
       tc_udp_pause_req = false;  // main task re-inits the multicast on its next poll
 #endif
       break;

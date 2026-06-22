@@ -5904,6 +5904,19 @@ bool Xdrv124(uint32_t function) {
       TinyCCheckBootStable();
       TinyCFsRestartRetry();   // (B) re-start any slot whose post-write restart failed
       TinyCPrefixReheal();     // re-arm a loaded slot's command prefix if it was lost without a main() re-run
+#ifdef ESP32
+      // lwIP TCP-PCB census every ~10 s: warn when the 16-slot pool is filling. A TIME_WAIT
+      // pile-up from socket churn (web auto-refresh / un-RST-closed connects) exhausts the pool
+      // and wedges the whole net stack (no ping/HTTP) until it ages out — the self-healing freeze.
+      { static uint8_t tc_pcb_tick = 0;
+        if (++tc_pcb_tick >= 10) { tc_pcb_tick = 0;
+          uint8_t _a, _tw; tc_pcb_census(&_a, &_tw);
+          if (_a + _tw >= 12) {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: lwIP TCP PCBs active=%u time_wait=%u (pool=16) - net-wedge risk, check socket churn"), _a, _tw);
+          }
+        }
+      }
+#endif
 #ifdef USE_MATTER_C
 #ifdef TC_MATTER_AUTOSTART
       mtrc_want_start = true;   // compile-time opt-in: start Matter without a script
