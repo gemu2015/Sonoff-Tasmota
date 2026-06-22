@@ -2922,6 +2922,10 @@ export class VM {
                 this.onOutput(`[WebUI] Button: ${label}=${txt} (gidx=${resolved.base})\n`);
                 break;
             }
+            case 521: { // WEB_CARD — per-slot main-page card frame toggle (no-op in sim)
+                this.pop();
+                break;
+            }
             case 394: { // WEB_TOGGLE
                 const labelIdx = this.pop();
                 const gref = this.pop();

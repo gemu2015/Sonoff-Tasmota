@@ -384,6 +384,7 @@ const BUILTINS = {
     // plus varIdx() to get a var's global index for fully hand-built tcbtn/seva HTML.
     'webButtonV':       { syscall: Syscall.WEB_BUTTON_V,    args: 2, returns: false, refArgs: [0], strArgs: [1] },
     'webSliderV':       { syscall: Syscall.WEB_SLIDER_V,    args: 4, returns: false, refArgs: [0], strArgs: [3] },
+    'webCard':          { syscall: Syscall.WEB_CARD,       args: 1, returns: false }, // per-slot main-page card frame; webCard(0)=bare
     'varIdx':           { syscall: Syscall.VAR_IDX,         args: 1, returns: true,  refArgs: [0] },
     // fastMux(flag, time, buf, len): HW-timer GPIO multiplexer (classic ESP32 / ESP32-S3, USE_TINYC_FAST_MUX).
     // buf is your scan-buffer int[] — pass it for every flag (its value is ignored for stop/pos).

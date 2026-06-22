@@ -516,6 +516,7 @@ export const Syscall = {
     LVGL_ARC_BG_ANGLES:    518, // (h,start,end)        -> void  lvglArcBgAngles() — arc sweep (135,45=270° dial; 180,360=semicircle)
     LVGL_ARC_STYLE:        519, // (h,part,color,width) -> void  lvglArcStyle() — arc part colour+width (0=track,1=value,2=knob)
     LVGL_ROTATE:           520, // (h,deci_deg)         -> void  lvglRotate() — rotate any object about its centre
+    WEB_CARD:              521, // (on)                 -> void  webCard() — per-slot main-page card frame toggle (0=bare)
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

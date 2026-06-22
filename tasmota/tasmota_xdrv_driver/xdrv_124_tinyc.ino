@@ -4771,8 +4771,22 @@ static void TinyCShow(bool json) {
       // Call user's WebCall() on this slot — pre-check restored 2026-05-07,
       // see JsonCall comment above. The /?m=1 polling path is the primary
       // trigger for the multi-slot hang regression introduced by 7be97b97b.
+      // Each script's WebCall output is framed in its own card (a fieldset in a
+      // full-width cell, with its own nested table so the 2-column layout is
+      // preserved) so multiple scripts on the main page are visually separated
+      // with a gap. webCard(0) opts a slot out (s->web_nocard) -> bare rows.
       if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
+        bool card = (!s->web_nocard) && tc_has_callback(&s->vm, "WebCall");
+        if (card) {
+          WSContentSend_P(PSTR(
+            "<tr><td colspan='2' style='padding:0'>"
+            "<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;"
+            "margin:5px 2px;padding:2px 9px 5px'>"
+            "<legend style='font-size:11px;opacity:.55;padding:0 5px'>slot %d</legend>"
+            "<table style='width:100%%'>"), i);
+        }
         tc_slot_callback(s, "WebCall");
+        if (card) { WSContentSend_P(PSTR("</table></fieldset></td></tr>")); }
       }
     }
   }
