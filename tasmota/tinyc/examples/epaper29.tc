@@ -173,6 +173,7 @@ void WebCall() {
 }
 
 void WebPage() {
+	webSend("<div style='margin-left:-30px'>");
     WebChartSize(640, 200);
     // Dual Y-axis: TVOC (left 0-3000 ppb) + CO2 (right 0-2000 ppm)
     WebChart(0, "Air Quality", "TVOC|ppb", 0xFF0000, atvc[0], 96, atvc, 0, 15, 0.0, 3000.0);
@@ -180,6 +181,7 @@ void WebPage() {
     // Dual Y-axis: Humidity (left 0-100 %) + Temperature (right 0-40 C)
     WebChart(0, "Climate", "Humidity|%", 0xFF0000, axhum[0], 96, axhum, 1, 15, 0.0, 100.0);
     WebChart(0, "", "Temperature|C", 0x0000FF, tmpa[0], 96, tmpa, 1, 15, 0.0, 40.0);
+	webSend("</div>");
 }
 
 int main() {
