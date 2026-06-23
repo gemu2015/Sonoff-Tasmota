@@ -20,6 +20,8 @@ bug4_http_taskloop_diag.tcb
 c_extensions_demo.tcb
 callback_test.tcb
 callbacks.tcb
+cam_view.tcb
+cam_view_lvgl.tcb
 camera.tcb
 can_sniffer.tcb
 ccs811.tcb
@@ -54,6 +56,7 @@ esf37_speak.tcb
 fast_mux.tcb
 fibonacci.tcb
 file_io.tcb
+gchart_demo.tcb
 globals_toctou_soak.tcb
 gpio_sweep.tcb
 gpio_toggle_test.tcb
@@ -63,6 +66,7 @@ gtest_w.tcb
 gtls_atmp.tcb
 gtls_noglobal.tcb
 guiton_display.tcb
+heating_ds2484.tcb
 heatpump_map_full.tcb
 heatpump_test.tcb
 homekit_demo.tcb
@@ -72,6 +76,7 @@ hyundai_login.tcb
 hyundai_soc.tcb
 igmp_leave_smoke.tcb
 jpg_on_canvas.tcb
+jpg_view_lvgl.tcb
 lcd_chart.tcb
 lcd_i2c.tcb
 ld2410.tcb
@@ -88,6 +93,7 @@ lvgl_smoke.tcb
 lvgl_widgets.tcb
 m5_epd47.tcb
 mail_test.tcb
+marstek_sim.tcb
 matter_airquality.tcb
 matter_battery.tcb
 matter_bridge.tcb
@@ -106,6 +112,7 @@ matter_sensors.tcb
 matter_shutter.tcb
 max31855.tcb
 meter_pin_unlock.tcb
+mic_plugin_level.tcb
 mlx90614.tcb
 multipage_demo.tcb
 music_fft.tcb
@@ -137,6 +144,7 @@ slot1_test.tcb
 slot2_test.tcb
 slot3_test.tcb
 sma_speedwire.tcb
+small_chart.tcb
 sml_chart.tcb
 sml_chart_bezug.tcb
 sml_chart_modbus.tcb
@@ -147,6 +155,7 @@ sml_enable.tcb
 sml_simple.tcb
 sml_water.tcb
 snap_with_timestamp.tcb
+solar_dashboard.tcb
 sort.tcb
 spawn_tasks.tcb
 sprintf_crash_test.tcb
@@ -170,6 +179,7 @@ tinyui_demo.tcb
 tls_test.tcb
 touch_buttons.tcb
 touch_coords.tcb
+touch_coords_legacy.tcb
 tuya_pool_heater.tcb
 uart_tx_test.tcb
 udp.tcb

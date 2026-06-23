@@ -1,0 +1,227 @@
+// marstek_sim.tc — Marstek Venus E (5.12 kWh) surplus/reserve controller — SIMULATED.
+//
+// Goal of the strategy (your case: NO dynamic tariff; relieve the aging
+// Powerwall + hold a small blackout reserve):
+//
+//   * CHARGE the Venus E first from real PV surplus  -> Powerwall cycles less.
+//   * DISCHARGE the Venus E first to cover the house -> Powerwall discharges less.
+//   * Never go below mk_min (= backup reserve kept for a grid outage).
+//   * Never charge above mk_max.
+//
+// There is NO real battery here. The Venus E is fully SIMULATED: SOC is
+// integrated from the computed power setpoint, so you can watch the control
+// logic behave against your live Powerwall data before buying hardware.
+//
+// INPUTS — read-only consume of the existing UDP globals that powerwall.tc
+// broadcasts on .39 (same names wallbox_charge.tc already uses):
+//   sop=Solar(W)  hip=Haus(W)  sip=Netz(W)  bip=PW-Batt(W,-=laden)  pwl=PW-SOC(%)
+// We only READ these (never assign) — that is the safe, validated pattern.
+//
+//   surplus = sop - hip   (>0 = PV-Ueberschuss, der sonst PW/Netz laedt)
+//   deficit = hip - sop   (>0 = Hausverbrauch, den sonst Batterie/Netz deckt)
+//
+// Console: MK · MK a (AUTO an/aus) · MK s (STOP) · MK c (Laden erzw.) ·
+//          MK d (Entladen erzw.) · MK max <n> · MK min <n> · MK soc <n> (Sim-SOC setzen)
+//
+// ─── Going LIVE later ────────────────────────────────────────────────────────
+// Compile with -DMK_REAL to additionally drive a real Venus E over Modbus-TCP
+// (firmware >= V144, RS485-LAN). The mk_write_real() stub below documents the
+// exact registers (from the Duravolt/Marstek Modbus map) so it becomes a small
+// fill-in job, not a redesign:
+//   42000  RS485 control enable   (21930 = on, 21947 = off)
+//   42010  mode                   (0 = stop, 1 = charge, 2 = discharge)
+//   42020  charge power  (W, abs)
+//   42021  discharge power (W, abs)
+//   44000  charge cutoff SOC %    44001 discharge cutoff SOC %
+//   32104  read SOC %    32202 read battery power (int32, +discharge/-charge)
+
+#define MK_CAP_WH   5120    // usable energy (5.12 kWh)
+#define MK_PMAX     2500    // max charge/discharge power on a dedicated circuit (W)
+#define MK_EFF      93      // round-trip-ish efficiency, integer % (charge side)
+#define TICK_S      10      // control + integration period (s)
+#define DB          150     // deadband (W) — ignore tiny surplus/deficit, no hunting
+
+// Inputs — UDP globals from powerwall.tc (READ ONLY).
+global float sop; global float hip; global float sip; global float bip; global float pwl;
+
+// Persistent rules + simulated battery state (survive reboot, like a real cell).
+persist int   armed   = 1;      // AUTO mode on/off
+persist int   mk_max  = 95;     // stop charging at this SOC %
+persist int   mk_min  = 20;     // backup reserve — never discharge below this %
+persist float mk_soc  = 50.0;   // SIMULATED state of charge (%)
+persist int   seeded  = 0;      // one-time default bootstrap flag
+
+// Runtime (not persisted).
+int   mforce  = 0;      // 0 none, 1 force-charge, 2 force-discharge (manual, transient)
+int   mk_setp = 0;      // current power setpoint: + = discharge, - = charge, 0 = idle
+int   l_sur   = 0;      // last surplus  (W)
+int   l_def   = 0;      // last deficit  (W)
+int   l_pw    = -1;     // last PW SOC
+int   data_ok = 0;      // PW globals seen yet?
+float relief_wh = 0.0;  // energy the Venus E handled that the PW would have (Wh, since boot)
+
+// web button flags + persist dirty tracking
+int btn_chg = 0; int btn_dis = 0; int btn_stop = 0;
+int last_max = -1; int last_min = -1; int dirty = 0;
+
+#ifdef MK_REAL
+#define MB_IP "192.168.188.XXX"   // <- Venus E IP when you go live
+// Skeleton only — fill the Modbus-TCP writes (see modbus_lib.tc for framing).
+void mk_write_real(int setp) {
+    // mode/power from setp: setp<0 -> reg42010=1 (charge), |setp| to 42020
+    //                       setp>0 -> reg42010=2 (discharge), setp to 42021
+    //                       setp==0-> reg42010=0 (stop)
+    // also: write 44000=mk_max, 44001=mk_min once; enable 42000=21930 at start.
+    addLog("MK: (real) would write setp=%dW", setp);   // TODO: real Modbus frame
+}
+#endif
+
+// ─── Control decision — runs every TICK_S seconds ────────────────────────────
+void decide() {
+    int sol = (int)sop; int hou = (int)hip; int pw = (int)pwl;
+    l_pw = pw;
+
+    // PV vs house balance.
+    int surplus = sol - hou; if (surplus < 0) { surplus = 0; }
+    int deficit = hou - sol; if (deficit < 0) { deficit = 0; }
+    l_sur = surplus; l_def = deficit;
+
+    // Data sanity: all-zero means powerwall.tc hasn't published yet.
+    data_ok = (sol != 0 || hou != 0 || pw != 0);
+
+    int soc = (int)mk_soc;
+    int setp = 0;
+
+    // Manual force overrides AUTO, but still respects the physical SOC limits.
+    if (mforce == 1) {                              // force charge
+        if (soc < mk_max) { setp = -MK_PMAX; } else { mforce = 0; }
+    } else if (mforce == 2) {                        // force discharge
+        if (soc > mk_min) { setp = MK_PMAX; } else { mforce = 0; }
+    } else if (armed && data_ok) {
+        if (surplus > DB && soc < mk_max) {
+            setp = surplus; if (setp > MK_PMAX) { setp = MK_PMAX; }
+            setp = -setp;                            // negative = charging
+        } else if (deficit > DB && soc > mk_min) {
+            setp = deficit; if (setp > MK_PMAX) { setp = MK_PMAX; }
+        }
+    }
+    mk_setp = setp;
+}
+
+// ─── Battery model — integrate SOC + relief metric from the setpoint ──────────
+void integrate() {
+    // Wh moved this tick. dt_h = TICK_S/3600.
+    // charge:  energy stored = P * dt * eff   -> SOC up
+    // discharge: energy drawn = P * dt / eff  -> SOC down
+    if (mk_setp < 0) {
+        float p = (float)(-mk_setp);
+        float wh = p * (float)TICK_S / 3600.0 * (float)MK_EFF / 100.0;
+        mk_soc = mk_soc + wh / (float)MK_CAP_WH * 100.0;
+        relief_wh = relief_wh + p * (float)TICK_S / 3600.0;
+    } else if (mk_setp > 0) {
+        float p = (float)mk_setp;
+        float wh = p * (float)TICK_S / 3600.0 * 100.0 / (float)MK_EFF;
+        mk_soc = mk_soc - wh / (float)MK_CAP_WH * 100.0;
+        relief_wh = relief_wh + p * (float)TICK_S / 3600.0;
+    }
+    if (mk_soc > 100.0) { mk_soc = 100.0; }
+    if (mk_soc < 0.0)   { mk_soc = 0.0; }
+
+#ifdef MK_REAL
+    mk_write_real(mk_setp);
+#endif
+}
+
+void tick() {
+    decide();
+    integrate();
+    addLog("MK: soc=%.1f%% setp=%dW sur=%d def=%d pw=%d%% mode=%s",
+           mk_soc, mk_setp, l_sur, l_def, l_pw,
+           (mforce ? "FORCE" : (armed ? "AUTO" : "OFF")));
+}
+
+void pollButtons() {
+    if (btn_chg)  { btn_chg = 0;  mforce = 1; addLog("MK: force charge"); }
+    if (btn_dis)  { btn_dis = 0;  mforce = 2; addLog("MK: force discharge"); }
+    if (btn_stop) { btn_stop = 0; mforce = 0; armed = 0; dirty = 1; addLog("MK: STOP"); }
+    if (mk_max != last_max || mk_min != last_min) { dirty = 1; last_max = mk_max; last_min = mk_min; }
+    if (dirty) { dirty = 0; saveVars(); }
+}
+
+void TaskLoop() {
+    delay(5000);
+    int c = 0;
+    while (1) {
+        pollButtons();
+        c = c + 1;
+        if (c >= TICK_S) { c = 0; tick(); }
+        delay(1000);
+    }
+}
+
+void WebCall() {
+    char b[160];
+    char st[40];
+    if (mforce == 1)      { strcpy(st, "&#9889; Laden (erzwungen)"); }
+    else if (mforce == 2) { strcpy(st, "&#9889; Entladen (erzwungen)"); }
+    else if (mk_setp < 0) { strcpy(st, "&#128268; Laden (PV-&Uuml;berschuss)"); }
+    else if (mk_setp > 0) { strcpy(st, "&#128267; Entladen (entlastet PW)"); }
+    else if (armed)       { strcpy(st, "AUTO bereit"); }
+    else                  { strcpy(st, "aus"); }
+
+    webSend("<tr><td colspan=2 style='text-align:center;background:#3a2a00;color:#fc6;padding:4px;border-radius:6px'>&#129514; SIMULATION &middot; Marstek Venus E (keine echte Batterie)</td></tr>");
+    sprintf(b, "{s}Status{m}%s{e}", st);                                            webSend(b);
+    sprintf(b, "{s}&#128267; Venus-E SOC{m}%.1f %% &middot; %.2f kWh{e}",
+            mk_soc, mk_soc / 100.0 * (float)MK_CAP_WH / 1000.0);                    webSend(b);
+    sprintf(b, "{s}&#9889; Setpoint{m}%d W{e}", mk_setp);                           webSend(b);
+    sprintf(b, "{s}&#9728; Solar / Haus{m}%d / %d W{e}", (int)sop, (int)hip);       webSend(b);
+    sprintf(b, "{s}&#9211; &Uuml;berschuss / Defizit{m}%d / %d W{e}", l_sur, l_def); webSend(b);
+    sprintf(b, "{s}&#128267; Powerwall{m}%d %%{e}", l_pw);                          webSend(b);
+    sprintf(b, "{s}&#9851; PW entlastet (seit Start){m}%.2f kWh{e}", relief_wh / 1000.0); webSend(b);
+    sprintf(b, "{s}Regeln{m}max %d%% &middot; Reserve %d%%{e}", mk_max, mk_min);    webSend(b);
+    if (!data_ok) { webSend("{s}{m}<span style='color:#f88'>warte auf Powerwall-Daten&hellip;</span>{e}"); }
+}
+
+void WebUI() {
+    webSend("<hr><b>&#128267; Marstek Venus E &mdash; Steuerung (Sim)</b>");
+    webSend("<div class='hint'>AUTO: l&auml;dt aus PV-&Uuml;berschuss und entl&auml;dt zur Hausdeckung &mdash; <b>vor</b> der Powerwall, nie unter die Backup-Reserve.</div>");
+    webToggle(armed, "AUTO an|AUTO aus");
+    webButton(btn_chg,  "&#9889; Laden erzwingen|l&auml;dt");
+    webButton(btn_dis,  "&#9889; Entladen erzwingen|entl&auml;dt");
+    webButton(btn_stop, "STOP (AUTO aus)|gestoppt");
+    webSend("<b>Regeln (gespeichert)</b>");
+    webSlider(mk_max, 50, 100, "Lade-Limit %");
+    webSlider(mk_min, 5,  60,  "Backup-Reserve %");
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'a') { armed = 1 - armed; dirty = 1; pollButtons(); responseCmnd("AUTO toggled"); return; }
+    if (cmd[i] == 's' && cmd[i + 1] != 'o') { btn_stop = 1; responseCmnd("STOP"); return; }
+    if (cmd[i] == 'c') { btn_chg = 1;  responseCmnd("force charge"); return; }
+    if (cmd[i] == 'd') { btn_dis = 1;  responseCmnd("force discharge"); return; }
+    if (cmd[i] == 'm' && cmd[i + 1] == 'a') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
+        if (v >= 50 && v <= 100) { mk_max = v; dirty = 1; } responseCmnd("max set"); return; }
+    if (cmd[i] == 'm' && cmd[i + 1] == 'i') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
+        if (v >= 5 && v <= 60) { mk_min = v; dirty = 1; } responseCmnd("min set"); return; }
+    if (cmd[i] == 's' && cmd[i + 1] == 'o') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
+        if (v >= 0 && v <= 100) { mk_soc = (float)v; saveVars(); } responseCmnd("sim soc set"); return; }
+    char r[150];
+    sprintf(r, "soc=%.1f setp=%d armed=%d force=%d max=%d min=%d sur=%d def=%d pw=%d",
+            mk_soc, mk_setp, armed, mforce, mk_max, mk_min, l_sur, l_def, l_pw);
+    responseCmnd(r);
+}
+
+int main() {
+    addCommand("MK");
+    // persist vars load 0 on first run — seed sane defaults once.
+    if (seeded == 0) {
+        armed = 1; mk_max = 95; mk_min = 20; mk_soc = 50.0; seeded = 1;
+        saveVars();
+    }
+    if (mk_max < 50 || mk_max > 100) { mk_max = 95; }
+    if (mk_min < 5  || mk_min > 60)  { mk_min = 20; }
+    last_max = mk_max; last_min = mk_min;
+    addLog("marstek_sim ready (soc=%.1f max=%d min=%d armed=%d)", mk_soc, mk_max, mk_min, armed);
+    return 0;
+}
