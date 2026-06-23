@@ -861,6 +861,15 @@ void WSContentBegin(int code, int ctype) {
 /*-------------------------------------------------------------------------------------------*/
 
 void _WSContentSend(const char* content, size_t size) {  // Lowest level sendContent for all core versions
+#ifdef ESP32
+  // Feed the loop Task-WDT per chunk. A large page (e.g. /zeiten ~59 KB) is built and
+  // chunk-sent inside ONE handleClient() call (one loop() iteration), so on a slow or
+  // contended client (eBUS master stealing CPU on a single core) the loopTask never
+  // returns to reset the 5 s loop WDT during the send -> Task-WDT panic reboot
+  // (Andreas .144, addr2line = esp_vApplicationIdleHook). Resetting here per chunk keeps a
+  // long send under the WDT without disabling it (a genuine stall between chunks still trips).
+  feedLoopWDT();
+#endif
   Webserver->sendContent(content, size);
 
   SHOW_FREE_MEM(PSTR("WSContentSend"));
