@@ -495,8 +495,8 @@ def _share_resolve_name(ip):
     """Best-effort DeviceName / Hostname lookup for an IP — short timeout."""
     for cmd in ('DeviceName', 'Status%205'):
         try:
-            with urllib.request.urlopen(f'http://{ip}/cm?cmnd={cmd}',
-                                        timeout=3) as r:
+            with _open_ref(f'http://{ip}/cm?cmnd={cmd}',
+                           timeout=3) as r:
                 d = json.loads(r.read() or b'{}')
                 if cmd == 'DeviceName':
                     n = d.get('DeviceName') or ''
@@ -1049,8 +1049,8 @@ def _cm(host, port, cmnd, user, password, timeout=8, maxbytes=4000):
              % (urllib.parse.quote(user or 'admin'),
                 urllib.parse.quote(password))) + q
     try:
-        r = _NOPROXY.open('http://%s:%d/cm?%s' % (host, port, q),
-                          timeout=timeout)
+        r = _open_ref('http://%s:%d/cm?%s' % (host, port, q),
+                      timeout=timeout)
         return r.status, r.read(maxbytes).decode('utf-8', 'replace')
     except urllib.error.HTTPError as e:
         return e.code, ''
@@ -1712,6 +1712,22 @@ def _flash_ota(host, user, password):
 _NOPROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
+def _open_ref(url, **kw):
+    """Open `url` via _NOPROXY with a same-host Referer header. Tasmota's
+    SetOption128 (HTTP-API anti-CSRF, default-ON in recent firmware) denies /cm
+    when the Referer is empty or a foreign host; it accepts one whose host ==
+    the device IP/hostname right after 'http://' (offset 7, per the check in
+    xdrv_01_9_webserver.ino). A Referer of 'http://<netloc>/' built from the
+    target URL satisfies it. Harmless on SO128=1 / older firmware (ignored).
+    Without this, /cm-based probes (Scripter detection, Status reads) silently
+    fail on SO128-default devices — they connect but get the empty-Referer deny."""
+    import urllib.parse
+    p = urllib.parse.urlsplit(url)
+    req = urllib.request.Request(
+        url, headers={'Referer': '%s://%s/' % (p.scheme, p.netloc)})
+    return _NOPROXY.open(req, **kw)
+
+
 def _port80_open(ip, timeout=3.0):
     """Phase-A liveness probe: is :80 accepting connections?
 
@@ -1770,8 +1786,8 @@ def _http_status(ip):
     body = None
     for attempt in (1, 2):
         try:
-            r = _NOPROXY.open('http://%s/cm?cmnd=Status' % ip,
-                              timeout=5)
+            r = _open_ref('http://%s/cm?cmnd=Status' % ip,
+                          timeout=5)
             body = r.read(2048).decode('utf-8', 'replace')
             break
         except urllib.error.HTTPError as e:
@@ -1843,7 +1859,7 @@ def _status(host, cmnd, user='admin', password=''):
     if password:
         q = ('user=%s&password=%s&' % (user or 'admin', password)) + q
     try:
-        r = _NOPROXY.open('http://%s/cm?%s' % (host, q), timeout=4)
+        r = _open_ref('http://%s/cm?%s' % (host, q), timeout=4)
         j = json.loads(r.read(16000).decode('utf-8', 'replace'))
         return j if isinstance(j, dict) else {}
     except urllib.error.HTTPError as e:
@@ -1973,10 +1989,13 @@ def _dev_caps(host, user='admin', password=''):
                  replies with a 'Script' key (a non-Scripter build → 'Command':'Unknown').
       tinyc    — device has TinyC (xdrv_124): `/tc_api?cmd=status` exists and
                  returns {"ok":true,...} (the endpoint is only compiled with USE_TINYC).
-    Both fail fast on real Tasmota (immediate 'Unknown' / 404), so this adds
-    little to the scan. Returns {'scripter': bool, 'tinyc': bool}."""
+      berry    — device has Berry (USE_BERRY): the `/bc` Berry-console page exists
+                 (404 otherwise). A plain page, so it skips the SetOption128 Referer
+                 gate — unlike /cm. (The `Berry` command is NOT it: replies 'Unknown'.)
+    All fail fast on real Tasmota (immediate 'Unknown' / 404), so this adds
+    little to the scan. Returns {'scripter': bool, 'tinyc': bool, 'berry': bool}."""
     h, dport = _split_host_port(host)
-    caps = {'scripter': False, 'tinyc': False, 'frag': None}
+    caps = {'scripter': False, 'tinyc': False, 'berry': False, 'frag': None}
     # Scripter (USE_SCRIPT): the bare `Script` console command is recognised
     # only when the Scripter is compiled in — a Scripter build answers the
     # (arg-less) form with {"Command":"Error"}, a non-Scripter build with
@@ -1987,6 +2006,17 @@ def _dev_caps(host, user='admin', password=''):
     st, txt = _cm(h, dport, 'Script', user, password, timeout=4)
     if st == 200:
         caps['scripter'] = 'Unknown' not in txt
+    # Berry (USE_BERRY): the Berry-console page /bc exists ONLY when Berry is
+    # compiled in (404 otherwise). It's a plain page, so it skips the SetOption128
+    # HTTP-API Referer gate — no Referer needed, unlike /cm. (The `Berry` console
+    # COMMAND is not it — that replies {"Command":"Unknown"} even on a Berry build.)
+    # Verified: .172 -> 200 'Berry Console', .170/.118 -> 404.
+    try:
+        burl = _auth_url('http://%s:%d/bc?' % (h, dport), user, password, sep='&')
+        rb = _NOPROXY.open(burl, timeout=4)
+        caps['berry'] = (rb.status == 200)
+    except Exception:
+        pass
     # TinyC (xdrv_124): /tc_api?cmd=status only exists with USE_TINYC. It also
     # carries the live ESP heap + fragmentation (the same numbers the TinyC
     # scanner grids), so we lift `frag` here for the Frag column. The reply is
@@ -2474,7 +2504,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     </div>
     <table id="scantbl">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
-      <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th>
+      <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th><th title="Berry (USE_BERRY) verfügbar">Berry</th>
       <th>Flash</th><th title="Freier Programm-Flash (OTA-Platz)">Free</th>
       <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="PSRAM gesamt / frei">PSRAM</th>
       <th>Sensors / Outputs</th><th>Partitions</th>
@@ -3118,7 +3148,7 @@ function renderScanTable(devs){
   window.lastScanDevs = devs || [];     // remembered for fleet actions (Backup all)
   scanbodyEl.innerHTML='';
   if(!devs||!devs.length){
-    scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut);'
+    scanbodyEl.innerHTML='<tr><td colspan="17" style="color:var(--mut);'
       +'padding:9px;white-space:normal">No Tasmota devices answered on '
       +'this subnet.<br>• Check the <b>LogHost</b> IP (top bar) is on the '
       +'same LAN as your devices.<br>• If you opened <b>Tasmota Workbench.app</b> '
@@ -3136,7 +3166,7 @@ function renderScanTable(devs){
       const why=d.locked?'🔒 locked — type WebPassword below + rescan'
         :('✗ '+(d.error||'no Status'));
       tr.innerHTML='<td>'+_ipCell(d)+'</td><td><b>'+(d.name||'')+'</b></td>'
-        +'<td class="lk" colspan="14">'+why+'</td>';
+        +'<td class="lk" colspan="15">'+why+'</td>';
     }else{
       const parts=(d.parts||[]).map(p=>{
         let u='';
@@ -3151,6 +3181,7 @@ function renderScanTable(devs){
         +'<td>'+_esc(d.version)+(d.core?' <span style="color:var(--mut)">('+_esc(d.core)+')</span>':'')+'</td>'
         +'<td style="text-align:center">'+_capCell(d.scripter)+'</td>'
         +'<td style="text-align:center">'+_capCell(d.tinyc)+'</td>'
+        +'<td style="text-align:center">'+_capCell(d.berry)+'</td>'
         +'<td style="color:var(--mut)">'+_esc(d.flash)+'</td>'
         +'<td>'+_freeCell(d)+'</td>'
         +'<td>'+_heapCell(d)+'</td>'
@@ -3520,10 +3551,10 @@ function renderScanProgress(st){
   if(devs.length){
     renderScanTable(devs);                 // incremental: rows so far
     const tr=document.createElement('tr');
-    tr.innerHTML='<td colspan="16" style="color:var(--mut)">⟳ '+line+'</td>';
+    tr.innerHTML='<td colspan="17" style="color:var(--mut)">⟳ '+line+'</td>';
     scanbodyEl.appendChild(tr);            // …then the live status line
   }else{
-    scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut)">⟳ '
+    scanbodyEl.innerHTML='<tr><td colspan="17" style="color:var(--mut)">⟳ '
       +line+'</td></tr>';
     scanwrapEl.classList.remove('hide');
   }
@@ -3533,14 +3564,14 @@ hostscanEl.onclick=async()=>{
   const net=ip.split('.').slice(0,3).join('.');
   hostscanEl.disabled=true;
   const ot=hostscanEl.textContent; hostscanEl.textContent='scanning…';
-  scanbodyEl.innerHTML='<tr><td colspan="16" style="color:var(--mut)">⟳ '
+  scanbodyEl.innerHTML='<tr><td colspan="17" style="color:var(--mut)">⟳ '
     +'starting scan of '+(net||'LAN')+'.x …</td></tr>';
   scanwrapEl.classList.remove('hide');
   const pw=encodeURIComponent($('#fwpass').value||'');
   try{
     await fetch('/api/scan/start?full=1'+(net?'&net='+net:'')+'&pw='+pw);
   }catch(e){
-    scanbodyEl.innerHTML='<tr><td colspan="16" class="lk">scan start failed: '
+    scanbodyEl.innerHTML='<tr><td colspan="17" class="lk">scan start failed: '
       +e+'</td></tr>';
     hostscanEl.textContent=ot; hostscanEl.disabled=false; return;
   }
