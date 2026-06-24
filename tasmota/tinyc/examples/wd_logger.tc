@@ -150,18 +150,18 @@ void WebPage() {
     // Explicit, DIFFERENT per-series ymin/ymax is what puts each series on its own
     // y-axis (left = series 0, right = series 1); the `unit` arg labels each axis.
     WebChartSize(640, 200);
-    WebChart('l', "Luftqualitaet (24h)", "TVOC", 0xf38ba8, dpos, NDAY, atvc, 0, 15, 0.0, 1000.0);
-    WebChart('l', "", "eCO2", 0x89b4fa, dpos, NDAY, aco2, 0, 15, 400.0, 2500.0);
+    WebChart('l', "Luftqualitaet (24h)", "TVOC", 0xf38ba8, dpos % NDAY, NDAY, atvc, 0, 15, 0.0, 1000.0);
+    WebChart('l', "", "eCO2", 0x89b4fa, dpos % NDAY, NDAY, aco2, 0, 15, 400.0, 2500.0);
 
     // climate, last 24 h — humidity (left) + temperature (right)
     WebChartSize(640, 200);
-    WebChart('l', "Klima (24h)", "Feuchte %", 0x3498db, dpos, NDAY, ahum, 1, 15, 0.0, 100.0);
-    WebChart('l', "", "Temp C", 0xe74c3c, dpos, NDAY, atmp, 1, 15, 10.0, 35.0);
+    WebChart('l', "Klima (24h)", "Feuchte %", 0x3498db, dpos % NDAY, NDAY, ahum, 1, 15, 0.0, 100.0);
+    WebChart('l', "", "Temp C", 0xe74c3c, dpos % NDAY, NDAY, atmp, 1, 15, 10.0, 35.0);
 
     // air quality, last 7 days — hourly TVOC (left) + eCO2 (right), 60-min interval
     WebChartSize(640, 250);
-    WebChart('l', "Luftqualitaet (7 Tage)", "TVOC", 0xf38ba8, wpos, NWK, tv_w, 0, 60, 0.0, 1000.0);
-    WebChart('l', "", "eCO2", 0x89b4fa, wpos, NWK, ec_w, 0, 60, 400.0, 2500.0);
+    WebChart('l', "Luftqualitaet (7 Tage)", "TVOC", 0xf38ba8, wpos % NWK, NWK, tv_w, 0, 60, 0.0, 1000.0);
+    WebChart('l', "", "eCO2", 0x89b4fa, wpos % NWK, NWK, ec_w, 0, 60, 400.0, 2500.0);
 
     webSend("</div>");
     webSend("</fieldset>");

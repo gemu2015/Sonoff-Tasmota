@@ -203,13 +203,15 @@ void WebPage() {
     // Frame the charts in a card (WebPage is not auto-carded like WebCall slots).
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>slot 4 charts</legend>");
 	webSend("<div style='margin-left:-30px'>");
+    int cpos = last_m15 - 1;          // chart write-head: one past the newest WRITTEN slot
+    if (cpos < 0) { cpos = 0; }       // (arr[last_m15-1] is the current, still-accumulating slot)
     WebChartSize(640, 200);
     // Dual Y-axis: TVOC (left 0-3000 ppb) + CO2 (right 0-2000 ppm)
-    WebChart(0, "Air Quality", "TVOC|ppb", 0xFF0000, 0, 96, atvc, 0, 15, 0.0, 3000.0);
-    WebChart(0, "", "CO2|ppm", 0x0000FF, 0, 96, aco2, 0, 15, 0.0, 2000.0);
+    WebChart(0, "Air Quality", "TVOC|ppb", 0xFF0000, cpos, 96,atvc, 0, 15, 0.0, 3000.0);
+    WebChart(0, "", "CO2|ppm", 0x0000FF, cpos, 96,aco2, 0, 15, 0.0, 2000.0);
     // Dual Y-axis: Humidity (left 0-100 %) + Temperature (right 0-40 C)
-    WebChart(0, "Climate", "Humidity|%", 0xFF0000, 0, 96, axhum, 1, 15, 0.0, 100.0);
-    WebChart(0, "", "Temperature|C", 0x0000FF, 0, 96, tmpa, 1, 15, 0.0, 40.0);
+    WebChart(0, "Climate", "Humidity|%", 0xFF0000, cpos, 96,axhum, 1, 15, 0.0, 100.0);
+    WebChart(0, "", "Temperature|C", 0x0000FF, cpos, 96,tmpa, 1, 15, 0.0, 40.0);
 	webSend("</div>");
     webSend("</fieldset>");
 }

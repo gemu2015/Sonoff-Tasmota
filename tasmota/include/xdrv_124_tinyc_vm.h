@@ -10999,7 +10999,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Unwind ring buffer: oldest entry first, interpret as float
       // Use count (not arr_len) for wrap — arr_len is "remaining globals" not array size
       for (int32_t i = 0; i < count; i++) {
-        int32_t idx = pos - count + i;
+        // Full ring wrap. pos-count+i is congruent to pos+i (mod count), but the
+        // old "only wrap the low side" form assumed pos in [0,count]: an unbounded
+        // write-head (e.g. wd_logger's ever-incrementing dpos) made the high
+        // indices overflow past the array, so the newest sample fell outside the
+        // window and the chart froze at the right edge. (pos+i)%count tolerates any
+        // pos; the newest (arr[(pos-1)%count]) always lands at i=count-1 -> mins_ago 0.
+        int32_t idx = (pos + i) % count;
         if (idx < 0) idx += count;
         float fval;
         memcpy(&fval, &arr[idx], sizeof(float));
