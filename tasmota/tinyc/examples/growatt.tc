@@ -32,7 +32,19 @@
 
 int do_reset;               // webButton → Sensor53 r
 int do_restore;             // webButton → restore /sml_meter.def from /growatt_backup.def
-char restore_buf[1024];     // own buffer (sml_buf is only 160 B)
+char restore_buf[1024];     // own buffer (sml_buf is only 160 B); also reused as the descriptor-parse scratch
+
+// ── SML values → this slot's card ───────────────────────────────────────────
+// Instead of letting the SML driver draw the 7 values in its own (separate)
+// sensor block, we suppress it (smlj bit SML_OPTIONS_NO_WEB = 4, set in main)
+// and render them here so they land inside THIS card with the rest of the
+// Growatt tiles. Names/units/decimals come straight from /sml_meter.def, so it
+// tracks any descriptor edit. (Generic pattern: examples/sml_card.tc.)
+char sml_name[16][24];      // display name per value  (descriptor field 3)
+char sml_unit[16][8];       // unit per value          (field 4)
+int  sml_ndec[16];          // decimals per value      (field 6)
+int  sml_nval;              // number of value lines parsed
+char sml_line[160];         // one-line parse scratch
 
 // ── House meter (ZRZ / Zweirichtungszähler) — Scripter g:zwz* via UDP-multicast.
 // `global` = the direct TinyC equivalent of Scripter `g:`: auto-updates by NAME
@@ -115,6 +127,54 @@ void growatt_restore() {
   addLog("growatt: descriptor restored from /growatt_backup.def");
 }
 
+// Parse /sml_meter.def once: cache name (field 3), unit (field 4) and decimals
+// (field 6) for every value line. Reuses restore_buf as read scratch.
+void sml_parse_descriptor() {
+  int h; int total; int p; int q; char dc;
+  sml_nval = 0;
+  h = fileOpen("/sml_meter.def", 0);                 // 0 = read
+  if (h < 0) { return; }
+  total = fileRead(h, restore_buf, 1020);
+  fileClose(h);
+  if (total < 0) { total = 0; }
+  restore_buf[total] = 0;
+  p = 0;
+  while (p < total && sml_nval < 16) {
+    q = 0;
+    while (p < total && restore_buf[p] != 10 && q < 159) { sml_line[q] = restore_buf[p]; q++; p++; }
+    sml_line[q] = 0;
+    while (p < total && (restore_buf[p] == 10 || restore_buf[p] == 13)) { p++; }
+    // value lines start with a meter number (1..9) followed by ','
+    if (sml_line[0] >= '1' && sml_line[0] <= '9' && sml_line[1] == ',') {
+      webParse(sml_line, ",", 3, sml_name[sml_nval]);                    // name
+      webParse(sml_line, ",", 4, sml_unit[sml_nval]);                    // unit
+      if (sml_unit[sml_nval][0] == '%' && sml_unit[sml_nval][1] == '%') {
+        sml_unit[sml_nval][1] = 0;                                       // descriptor escapes % as %%
+      }
+      webParse(sml_line, ",", 6, sml_buf);                              // decimals (digit string)
+      dc = sml_buf[0];
+      if (dc >= '0' && dc <= '9') { sml_ndec[sml_nval] = dc - '0'; } else { sml_ndec[sml_nval] = 0; }
+      sml_nval++;
+    }
+  }
+}
+
+// Draw every descriptor value as a {s}name{m}value unit{e} row with the
+// descriptor's own decimal count.
+void sml_render_values() {
+  int i; int d;
+  i = 0;
+  while (i < sml_nval) {
+    d = sml_ndec[i];
+    if (d <= 0)      { sprintf(sml_buf, "{s}%s{m}%.0f %s{e}", sml_name[i], smlGet(i + 1), sml_unit[i]); }
+    else if (d == 1) { sprintf(sml_buf, "{s}%s{m}%.1f %s{e}", sml_name[i], smlGet(i + 1), sml_unit[i]); }
+    else if (d == 2) { sprintf(sml_buf, "{s}%s{m}%.2f %s{e}", sml_name[i], smlGet(i + 1), sml_unit[i]); }
+    else             { sprintf(sml_buf, "{s}%s{m}%.3f %s{e}", sml_name[i], smlGet(i + 1), sml_unit[i]); }
+    webSend(sml_buf);
+    i++;
+  }
+}
+
 void EverySecond() {
   sml_descriptor_apply();                            // pins / filter / activ
   if (do_reset)   { tasmCmd("Sensor53 r", sml_buf); do_reset = 0; }
@@ -154,13 +214,14 @@ void EverySecond() {
 }
 
 // ── Main sensor page ──
-// The SML driver publishes all 7 Growatt values in its own sensor block. Here
-// we surface the off-state, the house-meter (ZRZ) tiles, and the current limit.
+// The driver's own SML block is suppressed (main: smlj |= 4); we draw the 7
+// Growatt values here so they share this card with the ZRZ tiles + the limit.
 void WebCall() {
   if (!sml_activ) {
     webSend("{s}Growatt SML{m}aus (Rule1 off){e}");
     return;
   }
+  sml_render_values();                                // the descriptor values (Netzspannung … Total Energy)
   // ── House-meter (ZRZ) tiles, from the UDP globals (Scripter >W section) ──
   sprintf(zbuf, "{s}ZRZ Verbrauch total{m}<b style='color:#c0392b'>%.1f kWh</b>{e}", zwzi);
   webSend(zbuf);
@@ -216,6 +277,8 @@ int main() {
   if (sml_activ != tasm_rule) { tasm_rule = sml_activ; }
   webPageLabel(0, "SML-Einstellungen");
   smlScripterLoad("/sml_meter.def");
-  addLog("growatt: started rx=%d tx=%d active=%d gl=%d auto=%d", sml_rx_pin, sml_tx_pin, sml_activ, gl, g_auto);
+  tasm_smlj = tasm_smlj | 4;                          // SML_OPTIONS_NO_WEB: suppress the driver's own web block
+  sml_parse_descriptor();                             // cache names/units/decimals for sml_render_values()
+  addLog("growatt: started rx=%d tx=%d active=%d gl=%d auto=%d vals=%d", sml_rx_pin, sml_tx_pin, sml_activ, gl, g_auto, sml_nval);
   return 0;
 }
