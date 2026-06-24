@@ -2,7 +2,9 @@
 // Sensors + EPaper display + 24h logging + WebChart + UDP globals
 
 // 24h data logging arrays (96 x 15-min intervals)
-// Index 0 = ring buffer position pointer, 1-96 = data.
+// Data lives in [0..95] (the 15-min slot of the day, last_m15-1); the charts
+// read arr[0..95] so all 96 slots show with no spurious leading 0. (Arrays sized
+// [97] for back-compat with the older .bin layout; index 96 is now unused.)
 // Stored in a dedicated .bin (NOT .pvs): .pvs is unreliable for chart arrays, so
 // we own the file and fileWriteBin/fileReadBin it -- mirrors sml_chart_pv_save().
 float aco2[97];
@@ -134,10 +136,10 @@ void EverySecond() {
     int m15 = (tasm_hour * 60 + tasm_minute) / 15 + 1;
     if (m15 != last_m15 && last_m15 > 0) {
         if (mcnt > 0) {
-            aco2[last_m15] = co2s / (float)mcnt;
-            atvc[last_m15] = tvcs / (float)mcnt;
-            tmpa[last_m15] = tmps / (float)mcnt;
-            axhum[last_m15] = hums / (float)mcnt;
+            aco2[last_m15 - 1] = co2s / (float)mcnt;     // store 0-based: slot 1..96 -> index 0..95
+            atvc[last_m15 - 1] = tvcs / (float)mcnt;
+            tmpa[last_m15 - 1] = tmps / (float)mcnt;
+            axhum[last_m15 - 1] = hums / (float)mcnt;
             epaper_chart_save();
         }
         mcnt = 0;
@@ -203,11 +205,11 @@ void WebPage() {
 	webSend("<div style='margin-left:-30px'>");
     WebChartSize(640, 200);
     // Dual Y-axis: TVOC (left 0-3000 ppb) + CO2 (right 0-2000 ppm)
-    WebChart(0, "Air Quality", "TVOC|ppb", 0xFF0000, atvc[0], 96, atvc, 0, 15, 0.0, 3000.0);
-    WebChart(0, "", "CO2|ppm", 0x0000FF, aco2[0], 96, aco2, 0, 15, 0.0, 2000.0);
+    WebChart(0, "Air Quality", "TVOC|ppb", 0xFF0000, 0, 96, atvc, 0, 15, 0.0, 3000.0);
+    WebChart(0, "", "CO2|ppm", 0x0000FF, 0, 96, aco2, 0, 15, 0.0, 2000.0);
     // Dual Y-axis: Humidity (left 0-100 %) + Temperature (right 0-40 C)
-    WebChart(0, "Climate", "Humidity|%", 0xFF0000, axhum[0], 96, axhum, 1, 15, 0.0, 100.0);
-    WebChart(0, "", "Temperature|C", 0x0000FF, tmpa[0], 96, tmpa, 1, 15, 0.0, 40.0);
+    WebChart(0, "Climate", "Humidity|%", 0xFF0000, 0, 96, axhum, 1, 15, 0.0, 100.0);
+    WebChart(0, "", "Temperature|C", 0x0000FF, 0, 96, tmpa, 1, 15, 0.0, 40.0);
 	webSend("</div>");
     webSend("</fieldset>");
 }
