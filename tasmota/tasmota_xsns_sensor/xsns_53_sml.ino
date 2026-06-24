@@ -796,6 +796,10 @@ int8_t index;
 };
 
 #define SML_OPTIONS_JSON_ENABLE 1
+// bit 1 (2) = obis_line_mode (see the `smlj` variable docs)
+#define SML_OPTIONS_NO_WEB      4   // suppress the SML driver's own web (FUNC_WEB_SENSOR) rendering. A TinyC/Scripter program can
+                                    // then read the descriptor and render the values inside its OWN card (one card, no duplicate).
+                                    // Set from a script via `smlj |= 4` (Scripter) or `tasm_smlj = tasm_smlj | 4` (TinyC).
 
 struct SML_GLOBS {
   uint8_t sml_send_blocks;
@@ -6030,7 +6034,11 @@ bool Xsns53(uint32_t function) {
         break;
 #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
-        if (sml_globs.ready) {
+        // The smlj/tasm_smlj bit SML_OPTIONS_NO_WEB suppresses the driver's own web
+        // rendering, so a TinyC/Scripter program can read the descriptor and render the
+        // values inside its OWN card -- avoids a duplicate SML block next to the script's
+        // card on the main page. (gemu 2026-06-23)
+        if (sml_globs.ready && !(sml_globs.sml_options & SML_OPTIONS_NO_WEB)) {
           SML_Show(0);
         }
         break;
