@@ -220,7 +220,16 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #undef SUPPORT_MQTT_EVENT
 #define SUPPORT_MQTT_EVENT
 #undef USE_SCRIPT_WEB_DISPLAY
+#ifndef USE_TINYC
+// TinyC replaces the Scripter's web UI. TinyC widgets POST numeric ?sv= ids
+// (e.g. seva(1,4113)); the Scripter's HTML setvar handler tries to resolve them
+// as Scripter variables and null-derefs in Run_script_sub (LoadProhibited,
+// EXCVADDR 0). It only fires once a TinyC slot makes the Scripter look "active"
+// (SML's smlScripterLoad sets script_ram + Rule1 via tasm_rule) -> hence Rolf's
+// "multi-slot only". Keep the Scripter core (SML descriptor parsing) but compile
+// out its web display on TinyC builds. (gemu 2026-06-24)
 #define USE_SCRIPT_WEB_DISPLAY
+#endif
 #undef SCRIPT_FULL_WEBPAGE
 #define SCRIPT_FULL_WEBPAGE
 #undef USE_WEBSEND_RESPONSE
