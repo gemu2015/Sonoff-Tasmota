@@ -145,6 +145,7 @@ slot2_test.tcb
 slot3_test.tcb
 sma_speedwire.tcb
 small_chart.tcb
+sml_card.tcb
 sml_chart.tcb
 sml_chart_bezug.tcb
 sml_chart_modbus.tcb

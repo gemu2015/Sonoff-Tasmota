@@ -1,0 +1,77 @@
+// ============================================================================
+// sml_card.tc — render ANY SML meter's values inside a TinyC slot card
+// ============================================================================
+//
+// Problem: SML meter values are drawn by the SML driver itself (xsns_53,
+// FUNC_WEB_SENSOR) as bare {s}{m}{e} rows, so they float OUTSIDE the per-slot
+// "cards" that TinyC WebCall() scripts get on the main web page. Wrapping the
+// driver's output in its own card would just produce a SECOND card next to any
+// script that already renders.
+//
+// Solution (no per-meter editing — works with every descriptor):
+//   1. Suppress the SML driver's own web rendering with the smlj bit
+//      SML_OPTIONS_NO_WEB (4):  tasm_smlj = tasm_smlj | 4
+//      (firmware: xsns_53_sml.ino skips SML_Show(0) when this bit is set).
+//   2. Read /sml_meter.def, parse each value line for its display name (field 3)
+//      and unit (field 4), and re-render them here in WebCall() — so they land
+//      inside THIS slot's card (one card, no duplicate).
+//
+// A value line looks like:   1,010404UUuu@i0:10,Netzspannung,V,mainsv,1
+//   field 1 = meter#   field 2 = obis@idx:scale   field 3 = NAME
+//   field 4 = UNIT     field 5 = json name        field 6 = decimals
+// The Nth value line (in file order) corresponds to smlGet(N)  (1-based;
+// smlGet(0) returns the value count).
+//
+// Requires firmware with the SML_OPTIONS_NO_WEB bit (>= 1.6.41) + USE_SML_M +
+// USE_UFILESYS. Drop this into a free slot, autoexec on — done.
+// ============================================================================
+
+char defbuf[1600];      // raw descriptor text (one fileRead of /sml_meter.def)
+char names[24][24];     // cached display name per value (descriptor field 3)
+char units[24][8];      // cached unit per value         (descriptor field 4)
+char line[160];         // scratch: one descriptor line
+char buf[96];           // scratch: one rendered table row
+int  nval;              // number of value lines parsed
+
+// ── Parse the descriptor once: cache name + unit for every value line ───────
+void parse_def() {
+  int h; int total; int p; int q;
+  nval = 0;
+  h = fileOpen("/sml_meter.def", "r");
+  if (h < 0) { return; }
+  total = fileRead(h, defbuf, 1599);
+  fileClose(h);
+  if (total < 0) { total = 0; }
+  defbuf[total] = 0;
+  p = 0;
+  while (p < total && nval < 24) {
+    // copy one line (up to LF) into 'line'
+    q = 0;
+    while (p < total && defbuf[p] != 10 && q < 159) { line[q] = defbuf[p]; q++; p++; }
+    line[q] = 0;
+    while (p < total && (defbuf[p] == 10 || defbuf[p] == 13)) { p++; }
+    // value lines start with a meter number (1..9) followed by ','
+    // (header '>M', comment ';'/'#' and meter '+1,' lines are skipped)
+    if (line[0] >= '1' && line[0] <= '9' && line[1] == ',') {
+      webParse(line, ",", 3, names[nval]);   // 1-based field 3 = display name
+      webParse(line, ",", 4, units[nval]);   // 1-based field 4 = unit
+      nval++;
+    }
+  }
+}
+
+void main() {
+  tasm_smlj = tasm_smlj | 4;   // SML_OPTIONS_NO_WEB: silence the driver's web rows
+  parse_def();
+}
+
+// ── Draw every value as a {s}name{m}value unit{e} row inside this slot's card ─
+void WebCall() {
+  int i;
+  i = 0;
+  while (i < nval) {
+    sprintf(buf, "{s}%s{m}%.2f %s{e}", names[i], smlGet(i + 1), units[i]);
+    webSend(buf);
+    i++;
+  }
+}

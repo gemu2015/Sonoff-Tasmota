@@ -2,11 +2,15 @@
 // Sensors + EPaper display + 24h logging + WebChart + UDP globals
 
 // 24h data logging arrays (96 x 15-min intervals)
-// Index 0 = ring buffer position pointer, 1-96 = data
-persist float aco2[97];
-persist float atvc[97];
-persist float tmpa[97];
-persist float axhum[97];
+// Index 0 = ring buffer position pointer, 1-96 = data.
+// Stored in a dedicated .bin (NOT .pvs): .pvs is unreliable for chart arrays, so
+// we own the file and fileWriteBin/fileReadBin it -- mirrors sml_chart_pv_save().
+float aco2[97];
+float atvc[97];
+float tmpa[97];
+float axhum[97];
+
+#define CHART_FILE "/epaper29_chart.bin"
 
 // Sensor readings — shared via UDP (auto-send on assignment)
 global float wtemp = 0.0;
@@ -40,6 +44,27 @@ int cnt = 0;
 
 char dt[128];
 char lbl[32];
+
+// Persist the four 24h chart rings to their own binary file (mirrors
+// sml_chart_pv_save()). Called on the 15-min tick instead of saveVars().
+void epaper_chart_save() {
+    int h = fileOpen(CHART_FILE, "w");
+    if (h < 0) return;
+    fileWriteBin(h, aco2, 97);
+    fileWriteBin(h, atvc, 97);
+    fileWriteBin(h, tmpa, 97);
+    fileWriteBin(h, axhum, 97);
+    fileClose(h);
+}
+void epaper_chart_load() {
+    int h = fileOpen(CHART_FILE, "r");
+    if (h < 0) return;             // first run: arrays stay zero
+    fileReadBin(h, aco2, 97);
+    fileReadBin(h, atvc, 97);
+    fileReadBin(h, tmpa, 97);
+    fileReadBin(h, axhum, 97);
+    fileClose(h);
+}
 
 void read_sensors() {
     wtemp = sensorGet("BME280#Temperature");
@@ -113,7 +138,7 @@ void EverySecond() {
             atvc[last_m15] = tvcs / (float)mcnt;
             tmpa[last_m15] = tmps / (float)mcnt;
             axhum[last_m15] = hums / (float)mcnt;
-            saveVars();
+            epaper_chart_save();
         }
         mcnt = 0;
         co2s = 0.0;
@@ -173,6 +198,8 @@ void WebCall() {
 }
 
 void WebPage() {
+    // Frame the charts in a card (WebPage is not auto-carded like WebCall slots).
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>slot 4 charts</legend>");
 	webSend("<div style='margin-left:-30px'>");
     WebChartSize(640, 200);
     // Dual Y-axis: TVOC (left 0-3000 ppb) + CO2 (right 0-2000 ppm)
@@ -182,9 +209,11 @@ void WebPage() {
     WebChart(0, "Climate", "Humidity|%", 0xFF0000, axhum[0], 96, axhum, 1, 15, 0.0, 100.0);
     WebChart(0, "", "Temperature|C", 0x0000FF, tmpa[0], 96, tmpa, 1, 15, 0.0, 40.0);
 	webSend("</div>");
+    webSend("</fieldset>");
 }
 
 int main() {
+    epaper_chart_load();                  // restore the chart rings from CHART_FILE
     // Initial display setup: clear, draw separator lines
     dspText("[zD0]");
     dspText("[x0y20h296x0y40h296]");

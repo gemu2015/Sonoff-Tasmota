@@ -142,6 +142,8 @@ void EverySecond() {
 // newest sample to "now" at the right edge, so labels run back over the last 24 h / 7 d.
 void WebPage() {
     WebChartTimeBase(0);
+    // Frame the charts in a card (WebPage is not auto-carded like WebCall slots).
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>slot 0 charts</legend>");
     webSend("<div style='margin-left:-30px'>");   // chart-centering compensation (ottelo)
 
     // air quality, last 24 h — TVOC (left axis) + eCO2 (right axis).
@@ -162,6 +164,7 @@ void WebPage() {
     WebChart('l', "", "eCO2", 0x89b4fa, wpos, NWK, ec_w, 0, 60, 400.0, 2500.0);
 
     webSend("</div>");
+    webSend("</fieldset>");
 }
 
 int main() {
