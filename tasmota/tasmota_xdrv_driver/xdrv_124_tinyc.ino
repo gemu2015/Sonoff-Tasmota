@@ -1788,44 +1788,7 @@ static void HandleTinyCPage(void) {
         "Delete All .tcb</button>"
         "</div></form></p></fieldset>"));
 
-      // --- Remote repository selector ---
-      // Read repo URL from /tinyc_repo.cfg, fall back to default repo.
-      //
-      // The HTTPS GET to fetch index.txt runs synchronously on the loop
-      // task — on weak WiFi (RSSI worse than ~-75 dBm) it has been
-      // observed to take 50+ seconds, starving Tasmota's main loop and
-      // crashing the device via the RTC watchdog. Two safeguards:
-      //
-      //   1. Cache the index across visits (TC_REPO_CACHE_MS, default
-      //      60 s). Re-rendering from cache is instant; only the first
-      //      visit per minute hits the network. Force a refresh by
-      //      adding ?refresh=1 to /tc.
-      //   2. Cap any single fetch at TC_REPO_FETCH_MS (default 2000 ms).
-      //      `setTimeout()` is interpreted differently across
-      //      Arduino-ESP32 versions (sometimes seconds, sometimes ms);
-      //      `setConnectTimeout()` is the unambiguous one. We set both,
-      //      narrow, so the worst-case loop-task block is bounded.
-      //
-      // Override at build time: -DTC_REPO_CACHE_MS=N -DTC_REPO_FETCH_MS=N
-      #ifndef TC_REPO_CACHE_MS
-      #define TC_REPO_CACHE_MS  60000
-      #endif
-      #ifndef TC_REPO_FETCH_MS
-      // 2026-05-07: bumped 2000 → 5000. The 2 s cap was too tight for github's
-      // TLS handshake from devices with moderate WiFi (RSSI ~-66 dBm) — fetch
-      // silently timed out, repo section vanished from /tc. 5 s is still well
-      // under the ESP32 task watchdog (which is 5 s by default but bumpable).
-      #define TC_REPO_FETCH_MS   5000
-      #endif
-      // 2026-06-22: backoff after a FAILED/skipped fetch so an offline device (no
-      // internet route — e.g. a pure eBUS master) doesn't re-hammer the synchronous
-      // loop fetch on every /tc render or boot-loop-recovery tick (Andreas .144).
-      #ifndef TC_REPO_BACKOFF_MS
-      #define TC_REPO_BACKOFF_MS 300000   // 5 min between failed attempts
-      #endif
-      static String   tc_repo_index;        // last successful index.txt body
-      static uint32_t tc_repo_index_ms = 0; // millis() of last successful fetch
-      static uint32_t tc_repo_try_ms   = 0; // millis() of last fetch ATTEMPT (ok OR fail) — backoff base
+      // --- Remote repository selector (fetched CLIENT-SIDE; see the <script> below) ---
       {
         char repo_url[200] = {};
         bool cfg_present = false;
@@ -1842,128 +1805,54 @@ static void HandleTinyCPage(void) {
           strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
         }
         if (repo_url[0]) {
-#ifndef ESP8266   // repo index.txt fetch is disabled on ESP8266 — see the #else note below
-          bool cache_fresh = tc_repo_index.length() > 0 &&
-                             (millis() - tc_repo_index_ms) < TC_REPO_CACHE_MS;
-          bool backoff = tc_repo_try_ms != 0 &&
-                         (millis() - tc_repo_try_ms) < TC_REPO_BACKOFF_MS;
-          bool force_refresh = Webserver->hasArg(F("refresh"));
-          // Skip on a down network (offline eBUS masters): http.begin() would fail every
-          // trigger and starve the synchronous loop fetch. Backoff also throttles a
-          // failing-but-online fetch so it can't re-hammer on every /tc poll / recovery tick.
-          if (((!cache_fresh && !backoff) || force_refresh) && !TasmotaGlobal.global_state.network_down) {
-            tc_repo_try_ms = millis();   // stamp the attempt up front so a failure backs off too
-            // Fetch index.txt from repo (bounded by TC_REPO_FETCH_MS)
-            String idx_url = String(repo_url);
-            if (!idx_url.endsWith("/")) idx_url += "/";
-            idx_url += "index.txt";
-#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-            HTTPClientLight http;
-#else
-            WiFiClient http_client;
-            HTTPClient http;
-#endif
-#ifdef ESP32
-            // ESP32 HTTPClient + HTTPClientLight both expose setConnectTimeout
-            // (bounds the TCP connect + TLS handshake phase). ESP8266's
-            // ESP8266HTTPClient class doesn't have it, so we rely on
-            // setTimeout alone there — sufficient since ESP8266 builds
-            // generally use plain HTTP (no TLS handshake to bound).
-            http.setConnectTimeout(TC_REPO_FETCH_MS);
-#endif
-            http.setTimeout(TC_REPO_FETCH_MS);
-#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-            bool begun = http.begin(idx_url);
-#else
-            bool begun = http.begin(http_client, idx_url);
-#endif
-            uint32_t fetch_t0 = millis();
-            int httpCode = -1;
-            int body_len = 0;
-            if (begun) {
-              httpCode = http.GET();
-              if (httpCode == HTTP_CODE_OK) {
-                String body = http.getString();
-                body_len = body.length();
-                if (body_len > 0) {
-                  tc_repo_index    = body;
-                  tc_repo_index_ms = millis();
-                }
-              }
-              http.end();
-            }
-            uint32_t fetch_dt = millis() - fetch_t0;
-            // Log whenever the fetch fails OR took longer than the cap +
-            // some slack — so silent "Repository section disappeared from
-            // /tc" cases are diagnosable from the serial log.
-            if (!begun) {
-              AddLog(LOG_LEVEL_INFO,
-                PSTR("TCC: repo index.txt fetch — http.begin() failed for %s"),
-                idx_url.c_str());
-            } else if (httpCode != HTTP_CODE_OK) {
-              AddLog(LOG_LEVEL_INFO,
-                PSTR("TCC: repo index.txt fetch — HTTP %d after %u ms (cap %u, %s)"),
-                httpCode, (unsigned)fetch_dt, (unsigned)TC_REPO_FETCH_MS,
-                (httpCode < 0) ? "timeout/conn err" : "non-200");
-            } else if (body_len == 0) {
-              AddLog(LOG_LEVEL_INFO,
-                PSTR("TCC: repo index.txt fetch — empty body after %u ms"),
-                (unsigned)fetch_dt);
-            } else if (fetch_dt > TC_REPO_FETCH_MS + 500) {
-              AddLog(LOG_LEVEL_INFO,
-                PSTR("TCC: repo index.txt fetch took %u ms (cap %u) — slow link?"),
-                (unsigned)fetch_dt, (unsigned)TC_REPO_FETCH_MS);
-            }
+          // Repo index + .tcb download run CLIENT-SIDE (in the browser): the device
+          // does ZERO remote I/O for the repository. A synchronous HTTPS GET on the
+          // loop task here (index.txt, on every /tc render) blocked the whole device
+          // for minutes when DNS/TLS was slow -- worst on a multi-slot C3 with a
+          // fragmented heap, since setConnectTimeout/setTimeout don't bound DNS -- and
+          // the loop block didn't trip the watchdog, so the device went dead-but-not-
+          // rebooting. GitHub raw sends access-control-allow-origin:* so the browser
+          // fetches index.txt + each .tcb directly; the .tcb is POSTed to /tc_upload
+          // (local FS only). (gemu 2026-06-24)
+          WSContentSend_P(PSTR(
+            "<fieldset><legend><b> Repository </b></legend>"
+            "<div style='display:flex;gap:8px;align-items:center'>"
+            "<select id='tcrf' style='flex:1'><option>loading...</option></select>"
+            "<select id='tcrs' style='width:auto'>"));
+          for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+            WSContentSend_P(PSTR("<option value='%d'>Slot %d</option>"), i, i);
           }
-#else
-          // Repo index.txt fetch is DISABLED on ESP8266: the default repo is an HTTPS
-          // GitHub URL the 8266 can't reach, so every attempt timed out ~5 s and — a
-          // failed fetch never populates the cache — re-blocked on EVERY /tc page poll,
-          // pegging LoadAvg into a WDT reset (rst cause:4). The remote-.tcb dropdown is
-          // simply empty on 8266; local .tcb upload + TinyCRun are unaffected. The
-          // crash that looked like "addCommand" was just its Settings-save flash write
-          // landing on top of this 5 s block. (gemu 2026-06-19)
-          (void)tc_repo_index_ms;  // only the (disabled) fetch uses it on 8266
-#endif
-          // Render from cache (whether just-fetched or older). If empty
-          // (first-ever visit failed), the section is silently omitted —
-          // a subsequent visit will retry and populate it.
-          if (tc_repo_index.length() > 0) {
-            WSContentSend_P(PSTR(
-              "<fieldset><legend><b> Repository </b></legend>"
-              "<p><form action='/tc' method='get'>"
-              "<div style='display:flex;gap:8px;align-items:center'>"
-              "<select name='rfile' style='flex:1'>"));
-            // Parse index.txt: one filename per line
-            int pos = 0;
-            while (pos < (int)tc_repo_index.length()) {
-              int nl = tc_repo_index.indexOf('\n', pos);
-              if (nl < 0) nl = tc_repo_index.length();
-              String line = tc_repo_index.substring(pos, nl);
-              line.trim();
-              if (line.length() > 0 && line.endsWith(".tcb")) {
-                WSContentSend_P(PSTR("<option value='%s'>%s</option>"),
-                  line.c_str(), line.c_str());
-              }
-              pos = nl + 1;
-            }
-            WSContentSend_P(PSTR(
-              "</select>"
-              "<select name='slot' style='width:auto'>"));
-            for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-              WSContentSend_P(PSTR("<option value='%d'>Slot %d</option>"), i, i);
-            }
-            // Include a "Refresh" button so the user can force a fresh
-            // GET when they've added a new .tcb to the repo.
-            uint32_t age_s = (millis() - tc_repo_index_ms) / 1000;
-            WSContentSend_P(PSTR(
-              "</select></div>"
-              "<br><button name='cmd' value='download' class='button bgrn'>"
-              "Download &amp; Load</button>"
-              " <a href='/tc?refresh=1' class='button' style='background:#888;padding:4px 10px'>"
-              "&#x21bb; Refresh list (cached %us)</a>"
-              "</form></p></fieldset>"), (unsigned)age_s);
-          }
+          WSContentSend_P(PSTR(
+            "</select></div>"
+            "<br><button id='tcdlb' class='button bgrn' onclick='tcDl()'>Download &amp; Load</button>"
+            " <button class='button' style='background:#888' onclick='tcFill(1)'>&#x21bb; Refresh list</button>"
+            "<div id='tcrmsg' style='font-size:.85em;opacity:.7;margin-top:4px'></div>"
+            "</fieldset>"));
+          WSContentSend_P(PSTR(
+            "<script>var TCREPO='%s';"
+            "function tcB(){var b=TCREPO;return b.charAt(b.length-1)=='/'?b.slice(0,-1):b}"
+            "function tcFill(f){var s=document.getElementById('tcrf');"
+            "fetch(tcB()+'/index.txt',{cache:f?'reload':'default'}).then(function(r){"
+            "if(!r.ok)throw r.status;return r.text()}).then(function(t){"
+            "var ls=t.split(String.fromCharCode(10)).map(function(x){return x.trim()})"
+            ".filter(function(x){return x.slice(-4)=='.tcb'});s.innerHTML='';"
+            "if(!ls.length){s.innerHTML='<option>(empty)</option>';return}"
+            "ls.forEach(function(n){var o=document.createElement('option');"
+            "o.value=n;o.textContent=n;s.appendChild(o)})}).catch(function(e){"
+            "s.innerHTML='<option>(list failed)</option>';"
+            "document.getElementById('tcrmsg').textContent='Repo list fetch failed: '+e})}"
+            "function tcDl(){var f=document.getElementById('tcrf').value,"
+            "sl=document.getElementById('tcrs').value,b=document.getElementById('tcdlb'),"
+            "m=document.getElementById('tcrmsg');if(!f||f.charAt(0)=='('){return}"
+            "b.disabled=1;b.textContent='Downloading...';m.textContent='';"
+            "fetch(tcB()+'/'+f).then(function(r){if(!r.ok)throw r.status;return r.arrayBuffer()})"
+            ".then(function(buf){var fd=new FormData();fd.append('file',new Blob([buf]),f);"
+            "return fetch('/tc_upload?api=1&slot='+sl+'&fsz='+buf.byteLength,{method:'POST',body:fd})})"
+            ".then(function(r){if(!r.ok)throw r.status;"
+            "m.textContent='Loaded '+f+' to slot '+sl+', reloading...';"
+            "setTimeout(function(){location.reload()},900)}).catch(function(e){"
+            "b.disabled=0;b.textContent='Download & Load';m.textContent='Failed: '+e})}"
+            "tcFill(0);</script>"), repo_url);
         }
       }
     }
