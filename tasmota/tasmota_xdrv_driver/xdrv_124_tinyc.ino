@@ -3937,11 +3937,15 @@ static void TinyC_WebSetVar(uint8_t slot_idx) {
   if (sep > 0) {
     int32_t gidx = sv.substring(0, sep).toInt() & 0x0FFF;   // strip slot bits 12-14 (tc_widget_id)
     String val = sv.substring(sep + 1);
-    if (gidx >= 0 && gidx < TC_MAX_GLOBALS) {
+    // Bound to the slot's ACTUAL globals array (max(64, script's global_size)),
+    // NOT TC_MAX_GLOBALS (512). globals is calloc'd to globals_size, so an out-of-
+    // range widget id (crafted/stale ?sv=) would otherwise write past the array
+    // -> heap corruption. (gemu 2026-06-24)
+    if (gidx >= 0 && gidx < (int32_t)s->vm.globals_size) {
       if (val.startsWith("s_")) {
         // String value: write chars as int32 into globals[gidx..]
         const char *str = val.c_str() + 2;
-        int32_t maxLen = TC_MAX_GLOBALS - gidx - 1;
+        int32_t maxLen = (int32_t)s->vm.globals_size - gidx - 1;
         int i;
         for (i = 0; i < maxLen && str[i]; i++) {
           s->vm.globals[gidx + i] = (int32_t)(uint8_t)str[i];

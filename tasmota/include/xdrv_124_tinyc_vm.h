@@ -16169,6 +16169,7 @@ static void tc_scan_watch_indices(TcVM *vm) {
 // shadow = previous value, written-flag = 1. Caller passes the OLD value.
 static inline void tc_global_write_with_watch(TcVM *vm, uint16_t gidx,
                                               int32_t newval, int32_t oldval) {
+  if (gidx >= vm->globals_size) return;   // out-of-range widget id -> ignore (the main write was unchecked OOB)
   vm->globals[gidx] = newval;
   for (uint8_t i = 0; i < vm->watch_count; i++) {
     if (vm->watch_indices[i] == gidx) {
