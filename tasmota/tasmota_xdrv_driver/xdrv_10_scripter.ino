@@ -224,10 +224,13 @@ char *Get_esc_char(char *cp, char *esc_chr);
 // TinyC replaces the Scripter's web UI. TinyC widgets POST numeric ?sv= ids
 // (e.g. seva(1,4113)); the Scripter's HTML setvar handler tries to resolve them
 // as Scripter variables and null-derefs in Run_script_sub (LoadProhibited,
-// EXCVADDR 0). It only fires once a TinyC slot makes the Scripter look "active"
-// (SML's smlScripterLoad sets script_ram + Rule1 via tasm_rule) -> hence Rolf's
-// "multi-slot only". Keep the Scripter core (SML descriptor parsing) but compile
-// out its web display on TinyC builds. (gemu 2026-06-24)
+// EXCVADDR 0). It fires whenever the Scripter is compiled in next to TinyC and
+// Rule1 is on: script_ram already points at Settings->rules[0], and a TinyC SML
+// slot enables Rule1 via sml_activ->tasm_rule -> the guard passes -> crash (hence
+// Rolf's "multi-slot only"). SML itself does NOT need the Scripter (file-based
+// /sml_meter.def; smlScripterLoad uses TinyC's own tc_mscr, not script_ram), so
+// the rest of the Scripter is irrelevant here -- just compile out its web display
+// on every TinyC build. (gemu 2026-06-24)
 #define USE_SCRIPT_WEB_DISPLAY
 #endif
 #undef SCRIPT_FULL_WEBPAGE
