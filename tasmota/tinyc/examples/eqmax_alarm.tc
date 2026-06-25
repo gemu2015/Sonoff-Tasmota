@@ -1,0 +1,141 @@
+// eqmax_alarm.tc — house alarm derived from the EqMAX / Moritz (CC1101 MAX!)
+// window contacts. Converted from the RA8867 Scripter on .117 (the >S alarm
+// logic + #getwc subroutine). The thermostat + window/energy DISPLAY is already
+// handled by the moritz plugin (xsns_126) and stays as-is — this slot adds ONLY
+// the house-alarm state machine.
+//
+// SIM mode: with `#define SIM` the window contacts are simulated (toggle them from
+// the web page) so the WHOLE state machine — arm, "noch offen", armed, alarm,
+// email — can be tested on a plain device (e.g. .39) with no EqMAX plugin. Remove
+// the #define for the real .117 board (reads the plugin via pluginQuery(126)).
+//
+// Real window contacts via Plugin_Query(126,...) -> mo_getvars():
+//   pluginQuery(buf,126,1,0)  -> COUNT of type-1 (window) contacts (a number)
+//   pluginQuery(buf,126,1,N)  -> "name,enabled,rferr,batlow,rssi,is_open"
+//                                webParse field 1 = name, field 6 = is_open (1 = open)
+//
+// State machine (arequest):  0 disarmed | 1 arming | 2 armed.
+//   arm toggle ON  -> request arm; a window still open => can't arm, picoTTS-announces
+//                     it ("Fenster <name> ist noch offen"); all closed => armed.
+//   armed + a window opens -> ALARM: email ONCE (deferred) + siren.
+
+#define SIM 1          // <-- comment out this line for the real EqMAX board (.117)
+
+#define MAXWC 30
+
+int arm_on     = 0;     // web toggle: user wants the alarm armed
+int prev_arm   = 0;
+int arequest   = 0;     // 0 disarmed, 1 arming, 2 armed
+int email_sent = 0;
+int wopn       = 0;     // 1-based index of an open contact (0 = all closed)
+int wcnt       = 0;
+int tick5      = 0;
+
+char qbuf[64];          // pluginQuery dst / parse scratch
+char fld[8];
+char open_name[24];     // name of an open contact (for the TTS + alarm text)
+char cmd[160];
+
+#ifdef SIM
+int sw1 = 0;            // simulated window contacts (web checkboxes)
+int sw2 = 0;
+int sw3 = 0;
+#endif
+
+// --- read the window contacts -> set wopn + open_name ---
+void getwc() {
+    wopn = 0;
+#ifdef SIM
+    if (sw1 > 0) { wopn = 1; sprintf(open_name, "%s", "Arbeitszimmer"); }
+    if (sw2 > 0) { wopn = 2; sprintf(open_name, "%s", "Schlafzimmer"); }
+    if (sw3 > 0) { wopn = 3; sprintf(open_name, "%s", "Kueche"); }
+#else
+    pluginQuery(qbuf, 126, 1, 0);              // count of window contacts
+    wcnt = strToInt(qbuf);
+    if (wcnt > MAXWC) { wcnt = MAXWC; }
+    int i = 1;
+    while (i <= wcnt) {
+        pluginQuery(qbuf, 126, 1, i);          // "name,en,rferr,bat,rssi,is_open"
+        webParse(qbuf, ",", 6, fld);           // field 6 = is_open
+        if (strToInt(fld) > 0) {
+            wopn = i;
+            webParse(qbuf, ",", 1, open_name); // field 1 = name
+        }
+        i = i + 1;
+    }
+#endif
+}
+
+// --- alarm tick (every 5 s, mirrors the Scripter `upsecs%5==0`) ---
+void alarm_tick() {
+    getwc();
+    if (arm_on != prev_arm) {                  // arm toggle edge
+        if (arm_on > 0) {
+            arequest = 1;                      // arm requested
+        } else {
+            arequest = 0;                      // disarm
+            email_sent = 0;
+        }
+        prev_arm = arm_on;
+    }
+    if (arequest == 1) {
+        if (wopn > 0) {
+            // can't arm: a window is open -> ANNOUNCE which one via picoTTS (de-DE).
+            // Replaces the old per-window /SND/<name>.mp3 recordings: universal for any
+            // contact name. NOTE the command is I2STTS = picoTTS (natural, multi-language),
+            // NOT I2SSay (that's the SAM engine: robotic, English-only). de-DE voice files
+            // must be on the FS (/picotts_de-DE_ta.bin + _sg.bin). Dynamic text -> build+defer.
+            sprintf(cmd, "I2STTS Fenster %s ist noch offen", open_name);
+            tasmDefer(cmd);
+        } else {
+            arequest = 2;                      // all closed -> armed
+        }
+    }
+    if (arequest == 2) {
+        if (wopn > 0) {                        // ALARM
+            if (email_sent == 0) {             // email only once
+                sprintf(cmd, "sendmail [smtp.gmail.com:587:gmutz2010:uxguxhggcjzpdtat:gmutz2010@googlemail.com:gmutz2010@googlemail.com:ALARM]Fenster offen: %s", open_name);
+                tasmDefer(cmd);                // deferred: sendmail must NOT block the loop
+                email_sent = 1;
+            }
+            audioPlay("/SND/lalarm.mp3");       // siren
+        }
+    }
+}
+
+void EverySecond() {
+    tick5 = tick5 + 1;
+    if (tick5 >= 5) {
+        tick5 = 0;
+        alarm_tick();
+    }
+}
+
+// --- main-page card: arm toggle + live status ---
+void WebCall() {
+#ifdef SIM
+    webCheckbox(sw1, "[SIM] Fenster Arbeitszimmer");
+    webCheckbox(sw2, "[SIM] Fenster Schlafzimmer");
+    webCheckbox(sw3, "[SIM] Fenster Kueche");
+#endif
+    webCheckbox(arm_on, "Alarmanlage scharf");
+    if (arequest == 2) {
+        webSend("{s}Alarm{m}<b style='color:#3fb950'>scharf</b>{e}");
+    } else {
+        if (arequest == 1) {
+            webSend("{s}Alarm{m}<span style='color:#e0a84e'>aktiviere...</span>{e}");
+        } else {
+            webSend("{s}Alarm{m}aus{e}");
+        }
+    }
+    if (wopn > 0) {
+        sprintf(cmd, "{s}Fenster{m}<span style='color:#e0a84e'>%s offen</span>{e}", open_name);
+        webSend(cmd);
+    } else {
+        webSend("{s}Fenster{m}alle zu{e}");
+    }
+}
+
+int main() {
+    return 0;
+}

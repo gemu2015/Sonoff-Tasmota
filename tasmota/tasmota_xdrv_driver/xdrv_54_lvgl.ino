@@ -18,7 +18,10 @@
 */
 
 #ifdef ESP32
-#if defined(USE_LVGL) && defined(USE_UNIVERSAL_DISPLAY)
+// Renderer display: USE_UNIVERSAL_DISPLAY (uDisplay) OR a standalone renderer-based driver
+// that sets the global `renderer` (e.g. USE_DISPLAY_RA8876, xdsp_10). LVGL flushes through the
+// generic Renderer API (setAddrWindow/pushColors/Updateframe), not anything uDisplay-specific.
+#if defined(USE_LVGL) && (defined(USE_UNIVERSAL_DISPLAY) || defined(USE_DISPLAY_RA8876))
 
 #include <renderer.h>
 #include "lvgl.h"
@@ -487,9 +490,14 @@ void start_lvgl(const char * uconfig) {
   }
 
   if (!renderer || uconfig) {
+#ifdef USE_UNIVERSAL_DISPLAY
     renderer  = Init_uDisplay((char*)uconfig);
-    AddLog(LOG_LEVEL_ERROR, "LVG: Could not start Universal Display");
-    if (!renderer) return;
+    if (!renderer) { AddLog(LOG_LEVEL_ERROR, "LVG: Could not start Universal Display"); return; }
+#else
+    // Renderer-based driver (e.g. RA8876 / xdsp_10) sets the global `renderer` at display
+    // init; LVGL renders onto it. No uDisplay to fall back on -> if it isn't up yet, bail.
+    if (!renderer) { AddLog(LOG_LEVEL_ERROR, "LVG: no renderer (display not initialized)"); return; }
+#endif
   }
 
   renderer->DisplayOnff(true);
@@ -690,5 +698,5 @@ bool Xdrv54(uint32_t function) {
   return result;
 }
 
-#endif  // defined(USE_LVGL) && defined(USE_UNIVERSAL_DISPLAY)
+#endif  // defined(USE_LVGL) && (USE_UNIVERSAL_DISPLAY || USE_DISPLAY_RA8876)
 #endif  // ESP32

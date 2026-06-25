@@ -5212,8 +5212,8 @@ void tc_ble_srv_loop(void);                          // main-task: build server 
  * xdrv_54 FUNC_LOOP) against the lvgl* syscalls (VM task) — a single recursive mutex.
 \*********************************************************************************************/
 #if defined(ESP32) && defined(USE_TINYC_LVGL)
-#if !defined(USE_LVGL) || !defined(USE_UNIVERSAL_DISPLAY)
-#error "USE_TINYC_LVGL requires USE_LVGL + USE_UNIVERSAL_DISPLAY (the LVGL driver xdrv_54_lvgl)"
+#if !defined(USE_LVGL) || (!defined(USE_UNIVERSAL_DISPLAY) && !defined(USE_DISPLAY_RA8876))
+#error "USE_TINYC_LVGL requires USE_LVGL + a Renderer display (USE_UNIVERSAL_DISPLAY or USE_DISPLAY_RA8876)"
 #endif
 int  tc_lvgl_init(void);     // idempotent start_lvgl(nullptr); returns 1 if active, else 0
 int  tc_lvgl_active(void);   // 1 if LVGL is running, else 0
