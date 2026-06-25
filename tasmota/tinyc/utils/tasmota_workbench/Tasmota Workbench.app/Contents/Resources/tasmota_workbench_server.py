@@ -161,7 +161,7 @@ def list_ports():
 def _serial_reader():
     """Accumulate bytes, emit a log line per newline; flush a pending
     partial line after a short idle so promptless output still shows."""
-    global rx_bytes
+    global rx_bytes, serial_port, cur_device, cur_baud
     buf = bytearray()
     last = time.time()
     while True:
@@ -174,8 +174,24 @@ def _serial_reader():
         try:
             chunk = sp.read(4096)
         except Exception as e:
-            add_line('err', f'[serial read error: {e}]')
-            _close_serial()
+            # Tear down ONLY if this sp is still the active port. During a
+            # reconnect, _open_serial() closes the OLD port (which raises here)
+            # then immediately opens a NEW one; calling the global _close_serial()
+            # now would clobber that just-opened port -> the reconnect silently
+            # "doesn't take" and the user has to click Connect again. So if a swap
+            # already happened, just drop our own stale handle and carry on.
+            with state_lock:
+                active = (serial_port is sp)
+                if active:
+                    serial_port = None
+                    cur_device = ''
+                    cur_baud = 0
+            try:
+                sp.close()
+            except Exception:
+                pass
+            if active:
+                add_line('err', f'[serial read error: {e}]')
             continue
         now = time.time()
         if chunk:
@@ -2506,7 +2522,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
       <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th><th title="Berry (USE_BERRY) verfügbar">Berry</th>
       <th>Flash</th><th title="Freier Programm-Flash (OTA-Platz)">Free</th>
-      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="PSRAM gesamt / frei">PSRAM</th>
+      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="PSRAM gesamt / frei">PSRAM</th><th title="Uptime seit letztem Reboot — kurz = kürzlich neu gestartet/abgestürzt">Uptime</th>
       <th>Sensors / Outputs</th><th>Partitions</th>
       <th></th><th>Tools</th></tr></thead>
     <tbody id="scanbody"></tbody></table></div>
@@ -2719,17 +2735,20 @@ async function poll(){
 }
 
 connEl.onclick=async()=>{
-  if(connected){ await fetch('/api/close',{method:'POST'}); }
-  else{
-    const dev=portEl.value;
-    if(!dev){alert('Select a serial port');return;}
-    const r=await fetch('/api/open',{method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({device:dev,baud:+baudEl.value})});
-    const j=await r.json();
-    if(!j.ok) alert('Open failed: '+(j.error||'unknown'));
-  }
-  poll();
+  connEl.disabled=true;                 // ignore extra clicks while the op is in flight
+  try{
+    if(connected){ await fetch('/api/close',{method:'POST'}); }
+    else{
+      const dev=portEl.value;
+      if(!dev){alert('Select a serial port');return;}
+      const r=await fetch('/api/open',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({device:dev,baud:+baudEl.value})});
+      const j=await r.json();
+      if(!j.ok) alert('Open failed: '+(j.error||'unknown'));
+    }
+    await poll();                       // refresh state before re-enabling
+  } finally { connEl.disabled=false; }
 };
 async function sendCmd(){
   const t=cmdEl.value;
@@ -3073,6 +3092,17 @@ function _psrCell(d){                  // PSRAM total / free (StatusMEM.PsrMax/P
   const c = (mx && fr/mx<0.1) ? 'var(--err)' : 'var(--fg)';   // <10% free → red
   return '<span style="color:'+c+'" title="gesamt '+_fmtKB(mx)+' · frei '+_fmtKB(fr)+'">'+both+'</span>';
 }
+function _uptimeCell(d){               // uptime since last reboot (StatusSTS.Uptime "DThh:mm:ss")
+  const u=d.uptime; if(!u) return '<span style="color:var(--mut)">–</span>';
+  const m=String(u).match(/(\d+)T(\d+):(\d+):(\d+)/);
+  if(!m) return '<span title="'+_esc(String(u))+'">'+_esc(String(u))+'</span>';
+  const dd=+m[1], hh=+m[2], mm=+m[3];
+  const tot=dd*1440+hh*60+mm;          // total minutes
+  let s; if(dd>0) s=dd+'d '+hh+'h'; else if(hh>0) s=hh+'h '+mm+'m'; else s=mm+'m';
+  const c = tot<5?'var(--err)':(tot<60?'#e0a84e':'var(--fg)');   // <5m red, <1h amber → recent reboot
+  const w = tot<5?';font-weight:700':'';
+  return '<span style="color:'+c+w+'" title="'+_esc(String(u))+'">'+s+'</span>';
+}
 function _nameCell(d){return '<b>'+_esc(d.name)+'</b> <span class="rn" '
   +'data-f="devicename" title="rename device name (instant)">✎</span>';}
 function _hostCell(d){return _esc(d.host)+' <span class="rn" '
@@ -3187,6 +3217,7 @@ function renderScanTable(devs){
         +'<td>'+_heapCell(d)+'</td>'
         +'<td style="text-align:center">'+_fragCell(d)+'</td>'
         +'<td>'+_psrCell(d)+'</td>'
+        +'<td style="text-align:center">'+_uptimeCell(d)+'</td>'
         +'<td>'+_sensorsCell(d)+'</td>'
         +'<td class="parts">'+parts+'</td>'
         +'<td><button class="go">OTA ▸</button></td>'
