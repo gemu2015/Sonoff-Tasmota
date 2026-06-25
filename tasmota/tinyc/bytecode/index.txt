@@ -50,6 +50,7 @@ epaper42.tcb
 epaper_clock_test.tcb
 epd_compare_test.tcb
 epd_ssd1680_test.tcb
+eqmax_alarm.tcb
 esf37_probe.tcb
 esf37_scale.tcb
 esf37_speak.tcb
