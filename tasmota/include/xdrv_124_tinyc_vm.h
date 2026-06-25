@@ -17815,10 +17815,21 @@ static void tc_vm_task(void *param) {
 // Bug #1 fix: mutex-first. Checking halted/error without the mutex is a TOCTOU race
 // on dual-core ESP32 — Core 1's TaskLoop can flip halted=false between our check and
 // the mutex take, causing concurrent VM execution (PC=0 crash, frame corruption).
-static void tc_slot_callback(TcSlot *s, const char *name) {
+// Web-render callers pass TC_WEB_CB_WAIT so one busy slot (its VM mid-I2C / epaper /
+// serial, holding vm_mutex) can't hang the whole HTTP loop -- that slot's content is
+// skipped for this render and retried next refresh. Non-web callers keep the
+// portMAX_DELAY default (a dropped MQTT/event callback is worse than a brief block).
+#ifdef ESP32
+#define TC_WEB_CB_WAIT pdMS_TO_TICKS(250)
+#else
+#define TC_WEB_CB_WAIT 0xFFFFFFFFUL   // ESP8266: single-slot, no vm_mutex -- value unused
+#endif
+static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 0xFFFFFFFFUL) {
   if (!s || !s->loaded) return;
 #ifdef ESP32
-  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+  if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, (TickType_t)wait_ticks) != pdTRUE) return;
+#else
+  (void)wait_ticks;
 #endif
   if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32

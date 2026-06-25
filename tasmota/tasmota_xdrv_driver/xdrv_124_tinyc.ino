@@ -1549,79 +1549,6 @@ static void HandleTinyCPage(void) {
       if (cs) cs->autoexec = Tinyc->slot_config[cmd_slot].autoexec;
       TinyCSaveSettings();
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d autoexec=%d"), cmd_slot, Tinyc->slot_config[cmd_slot].autoexec ? 1 : 0);
-    } else if (cmd == "download" && Webserver->hasArg(F("rfile"))) {
-#ifdef USE_UFILESYS
-      // Download .tcb from remote repository
-      String rfile = Webserver->arg(F("rfile"));
-      if (rfile.length() > 0) {
-        // Read base URL from /tinyc_repo.cfg, fall back to default repo
-        char repo_url[200] = {};
-        File rcfg = ufsp->open("/tinyc_repo.cfg", "r");
-        if (rcfg) {
-          int rl = rcfg.readBytesUntil('\n', repo_url, sizeof(repo_url) - 1);
-          rcfg.close();
-          while (rl > 0 && (repo_url[rl-1] == '\r' || repo_url[rl-1] == ' ')) { repo_url[--rl] = 0; }
-        }
-        if (!repo_url[0]) {
-          strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
-        }
-        if (repo_url[0]) {
-          // Build full URL: base_url/filename
-          String url = String(repo_url);
-          if (!url.endsWith("/")) url += "/";
-          url += rfile;
-          // Download to filesystem
-          char fpath[48];
-          snprintf(fpath, sizeof(fpath), "/%s", rfile.c_str());
-#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-          HTTPClientLight http;
-#else
-          WiFiClient http_client;
-          HTTPClient http;
-#endif
-          http.setTimeout(10000);
-#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-          bool begun = http.begin(url);
-#else
-          bool begun = http.begin(http_client, url);
-#endif
-          if (begun) {
-            int httpCode = http.GET();
-            if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
-              File f = ufsp->open(fpath, "w");
-              if (f) {
-                WiFiClient *stream = http.getStreamPtr();
-                int32_t len = http.getSize();
-                if (len < 0) len = 999999;
-                uint8_t *dbuf = (uint8_t *)malloc(512);
-                if (dbuf) {
-                  while (http.connected() && (len > 0)) {
-                    size_t avail = stream->available();
-                    if (avail) {
-                      if (avail > 512) avail = 512;
-                      int rd = stream->readBytes(dbuf, avail);
-                      f.write(dbuf, rd);
-                      len -= rd;
-                    }
-                    delay(1);
-                  }
-                  free(dbuf);
-                }
-                int fsize = (int)f.size();
-                f.close();
-                AddLog(LOG_LEVEL_INFO, PSTR("TCC: Downloaded %s (%d bytes)"), fpath, fsize);
-                // Load into selected slot
-                TinyCLoadFile(fpath, cmd_slot);
-                TinyCSaveSettings();
-              }
-            } else {
-              AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Download failed HTTP %d"), httpCode);
-            }
-            http.end();
-          }
-        }
-      }
-#endif
     } else if (cmd == "delall") {
 #ifdef USE_UFILESYS
       // Delete all .tcb files from both filesystems
@@ -4297,7 +4224,7 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
   // a kept-alive TCP socket — Jackery Homepower 2000 Ultra and friends.
   // Existing webOn scripts that just call webSend() see byte-identical
   // wire format vs. the old eager-WSContentBegin path.
-  tc_slot_callback(s, "WebOn");
+  tc_slot_callback(s, "WebOn", TC_WEB_CB_WAIT);
 
   if (Tinyc->web_content_begun) {
     WSContentEnd();
@@ -4557,7 +4484,7 @@ static void HandleTinyCUI(void) {
   // AJAX mode (m=1): just re-render widgets via WebUI() callback
   if (Webserver->hasArg(F("m"))) {
     WSContentBegin(200, CT_HTML);
-    tc_slot_callback(s, "WebUI");
+    tc_slot_callback(s, "WebUI", TC_WEB_CB_WAIT);
     WSContentEnd();
     return;
   }
@@ -4603,7 +4530,7 @@ static void HandleTinyCUI(void) {
     "</script>"
   ), page);
   WSContentSend_P(PSTR("<div id='ui'>"));
-  tc_slot_callback(s, "WebUI");
+  tc_slot_callback(s, "WebUI", TC_WEB_CB_WAIT);
   WSContentSend_P(PSTR("</div>"));
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
@@ -4654,7 +4581,7 @@ static void TinyCShow(bool json) {
       // problem, address it via xSemaphoreTake-with-timeout in tc_slot_callback
       // rather than by removing the pre-check.
       if (s->loaded && s->vm.halted && s->vm.error == TC_OK && s != tc_sensor_get_slot) {
-        tc_slot_callback(s, "JsonCall");
+        tc_slot_callback(s, "JsonCall", TC_WEB_CB_WAIT);
       }
     }
   }
@@ -4695,7 +4622,7 @@ static void TinyCShow(bool json) {
             "<legend style='font-size:11px;opacity:.55;padding:0 5px'>slot %d</legend>"
             "<table style='width:100%%'>"), i);
         }
-        tc_slot_callback(s, "WebCall");
+        tc_slot_callback(s, "WebCall", TC_WEB_CB_WAIT);
         if (card) { WSContentSend_P(PSTR("</table></fieldset></td></tr>")); }
       }
     }
@@ -5977,7 +5904,7 @@ bool Xdrv124(uint32_t function) {
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
         if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
-        tc_slot_callback(s, "WebPage");
+        tc_slot_callback(s, "WebPage", TC_WEB_CB_WAIT);
       }
       WSContentSend_P(PSTR("</div>"));
       // Inject JavaScript for widget interactions on main page (all slots)
