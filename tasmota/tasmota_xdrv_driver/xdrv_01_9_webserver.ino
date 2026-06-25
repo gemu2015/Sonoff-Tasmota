@@ -850,8 +850,31 @@ void WSSend(int code, int ctype, const String& content)
  * HTTP Content Chunk handler
 \*********************************************************************************************/
 
+#ifdef ESP32
+// Bound how long the loopTask can block pushing one chunked response to a slow /
+// non-draining client. Without this, sendContent() blocks indefinitely on a stalled
+// TCP send buffer; the per-chunk feedLoopWDT() in _WSContentSend then keeps the WDT
+// fed, so the old self-healing Task-WDT reboot never happens -> PERMANENT web wedge
+// under repeated reloads of a big page on a contended single core (Andreas .144
+// /zeiten, tips after 6-12 sequential reloads, stays dead until power-cycle).
+#ifndef WS_SEND_BUDGET_MS
+#define WS_SEND_BUDGET_MS 8000      // total per-response send budget (ms)
+#endif
+static uint32_t ws_send_t0 = 0;     // millis() at chunked-response start
+#endif
+
 void WSContentBegin(int code, int ctype) {
   Webserver->client().flush();
+#ifdef ESP32
+  // Per-write cap: SO_SNDTIMEO makes each send() give up after 2 s instead of blocking
+  // forever on a full send buffer. ws_send_t0 anchors the total-budget check below.
+  int _wsfd = Webserver->client().fd();
+  if (_wsfd >= 0) {
+    struct timeval _wstv = { 2, 0 };
+    setsockopt(_wsfd, SOL_SOCKET, SO_SNDTIMEO, (const void *)&_wstv, sizeof(_wstv));
+  }
+  ws_send_t0 = millis();
+#endif
   WSHeaderSend();
   Webserver->setContentLength(CONTENT_LENGTH_UNKNOWN);
   WSSend(code, ctype, "");                         // Signal start of chunked content
@@ -869,6 +892,15 @@ void _WSContentSend(const char* content, size_t size) {  // Lowest level sendCon
   // (Andreas .144, addr2line = esp_vApplicationIdleHook). Resetting here per chunk keeps a
   // long send under the WDT without disabling it (a genuine stall between chunks still trips).
   feedLoopWDT();
+  // Total-send budget: if pushing this response has already blocked the loopTask too
+  // long (slow/stalled client), drop the connection and stop -- the loop is freed
+  // within the budget instead of wedging forever. SO_SNDTIMEO (set in WSContentBegin)
+  // bounds each individual write; this bounds the sum. Inert for normal fast clients
+  // (a full page sends in well under the budget, so this never fires).
+  if ((uint32_t)(millis() - ws_send_t0) > WS_SEND_BUDGET_MS) {
+    Webserver->client().stop();
+    return;
+  }
 #endif
   Webserver->sendContent(content, size);
 
