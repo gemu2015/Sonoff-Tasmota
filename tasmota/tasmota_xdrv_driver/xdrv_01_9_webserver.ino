@@ -861,6 +861,9 @@ void WSSend(int code, int ctype, const String& content)
 #define WS_SEND_BUDGET_MS 8000      // total per-response send budget (ms)
 #endif
 static uint32_t ws_send_t0 = 0;     // millis() at chunked-response start
+#include <lwip/sockets.h>   // setsockopt / SOL_SOCKET / SO_SNDTIMEO for the per-send cap in
+                            // WSContentBegin -- self-sufficient (not every device config pulls
+                            // lwip sockets in transitively; e.g. a build without USE_FTP)
 #endif
 
 void WSContentBegin(int code, int ctype) {
