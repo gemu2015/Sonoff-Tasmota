@@ -823,7 +823,12 @@ static void TinyCEvery50ms(void) {
     bool busy = false;
     for (uint32_t i = 0; i < TC_MAX_VMS; i++) {
       TcSlot *s = Tinyc->slots[i];
-      if (s && s->loaded && (s->running || s->task_running)) { busy = true; break; }
+      // task_running = the FreeRTOS TaskLoop flag; ESP32-only (ESP8266 has no TaskLoop task).
+      if (s && s->loaded && (s->running
+#ifdef ESP32
+            || s->task_running
+#endif
+          )) { busy = true; break; }
     }
     if (!busy) {
       tc_deferred_exec();
