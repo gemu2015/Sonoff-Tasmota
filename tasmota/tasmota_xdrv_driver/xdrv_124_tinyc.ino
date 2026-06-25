@@ -813,12 +813,19 @@ static void TinyCEvery50ms(void) {
   }
 #endif  // ESP32 vs ESP8266
 
-  // Execute deferred commands (audio etc.) only when VM is halted and idle
-  // Must not run while VM task is active -- concurrent SD access causes crashes
-  // Check slot 0 for deferred exec (shared infrastructure)
-  {
-    TcSlot *s0 = Tinyc->slots[0];
-    if (s0 && s0->loaded && s0->vm.halted && s0->vm.error == TC_OK) {
+  // Execute deferred commands (audio etc.) only when NO slot is actively executing --
+  // running a blocking command (SD/audio) concurrently with a VM callback or a TaskLoop
+  // task causes crashes. (Previously gated on slot 0 being vm.halted, which is NEVER true
+  // for an event-driven slot -- one with EverySecond/WebCall callbacks -- nor when slot 0
+  // is empty; so deferred commands from such slots stalled forever, e.g. an alarm's
+  // I2STTS never fired. Scan every slot's running + task_running instead of trusting slot 0.)
+  if (Tinyc->deferred_pending) {
+    bool busy = false;
+    for (uint32_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (s && s->loaded && (s->running || s->task_running)) { busy = true; break; }
+    }
+    if (!busy) {
       tc_deferred_exec();
     }
   }
