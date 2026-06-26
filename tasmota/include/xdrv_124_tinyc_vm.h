@@ -5545,13 +5545,15 @@ static void   (* volatile tc_freep)(void *)   = &free;
 static void * tc_scratch_alloc(size_t n) { return tc_mallocp(n); }
 static void   tc_scratch_dealloc(void *p) { if (p) tc_freep(p); }
 static inline void tc_arr_free(void *pp) { void **p = (void **)pp; tc_scratch_dealloc(*p); *p = nullptr; }
-#ifdef ESP8266
+// Heap-allocate on ALL platforms (was ESP8266-only). As stack arrays the ~50
+// un-unioned scratch buffers kept tc_syscall's frame at ~3 KB, which also overran
+// the ESP32 loopTask stack under a deep call chain (Matter+SML + TinyC on one
+// task) -> Exception 28/29 (LoadStoreProhibited) on e.g. DS2484 I2C reads
+// (Rolf .200). Per-call malloc/free is cheap at TinyC syscall rates; this drops
+// the frame to ~32 B everywhere. Per-call alloc keeps it reentrancy-safe across
+// the ESP32 per-slot VM tasks.
 #define TC_BUF(name, sz)  char (*name##_hp)[sz] __attribute__((cleanup(tc_arr_free))) = (char (*)[sz])tc_scratch_alloc(sz); char (&name)[sz] = *name##_hp
 #define TC_UBUF(name, sz) uint8_t (*name##_hp)[sz] __attribute__((cleanup(tc_arr_free))) = (uint8_t (*)[sz])tc_scratch_alloc(sz); uint8_t (&name)[sz] = *name##_hp
-#else
-#define TC_BUF(name, sz)  char name[sz]
-#define TC_UBUF(name, sz) uint8_t name[sz]
-#endif
 
 static int tc_syscall(TcVM *vm, uint16_t id) {
   int32_t a, b;
