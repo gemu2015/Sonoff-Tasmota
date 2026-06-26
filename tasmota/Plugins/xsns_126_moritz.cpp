@@ -26,7 +26,7 @@
 
 #include "module.h"
 #include "module_defines.h"
-#include "../Tasmota/include/i18n.h"
+//#include "../Tasmota/include/i18n.h"
 
 #define XSNS_126 126
 
@@ -118,6 +118,7 @@ typedef struct {
 /********************************************************************************************/
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("MORITZ",MODULE_TYPE_SENSOR,1<<16|5,"CS",MORITZ_DEFAULT_CS,"",0,"",0,"",0)
+
 MODULE_PART void ccInitChip(void);
 MODULE_PART void cc_factory_reset(void);
 MODULE_PART void ccDump(void);
