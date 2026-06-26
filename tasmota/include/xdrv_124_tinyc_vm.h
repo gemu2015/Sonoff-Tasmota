@@ -290,6 +290,9 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_HEAP_HANDLES   128    // max concurrent heap arrays (energy script uses 68+)
 #endif
 #endif
+// Reserved per-slot heap region (in int32 slots) for callback string args — one
+// char per slot, 512 chars + null. See tc_cb_arg_handle().
+#define TC_CB_ARG_SLOTS         513
 // responseCmnd(buf) stack buffer cap. Old hardcoded 255 silently
 // truncated longer JSON into invalid JSON (rendered as empty {}).
 // #ifndef-guarded so user_config_override.h can raise it; Tasmota's
@@ -1419,6 +1422,8 @@ typedef struct {
   uint16_t      heap_capacity;   // allocated capacity in int32_t slots
   TcHeapHandle *heap_handles;    // malloc'd on first heap alloc, NULL if no heap used
   uint8_t       heap_handle_count;
+  int16_t       cb_arg_handle;   // reserved heap handle for callback string args (-1 = none yet)
+  int16_t       cb_arg_handle2;  // 2nd reserved handle for 2-arg callbacks, e.g. OnMqttData
   // Callback function table (V3)
   TcCallback    callbacks[TC_MAX_CALLBACKS];
   uint8_t       callback_count;
@@ -3549,6 +3554,27 @@ static void tc_heap_free_all(TcVM *vm) {
   vm->heap_used = 0;
   vm->heap_capacity = 0;
   vm->heap_handle_count = 0;
+  vm->cb_arg_handle = -1;   // reserved handles invalidated with the heap
+  vm->cb_arg_handle2 = -1;
+}
+
+// Lazily reserve a fixed per-slot heap region for callback string arguments,
+// reused across calls instead of allocating per call. A per-call tc_heap_alloc
+// must GROW the bump heap via special_realloc (needs a contiguous block); on a
+// long-running, fragmented heap that realloc fails even with plenty of free
+// memory, so EVERY command/event callback of the slot dies ("Event callback —
+// heap alloc failed") until reboot (Andreas, ESP32-C6 .144). Reserving ONCE while
+// the heap is still healthy, then reusing, makes the callback arg immune to
+// fragmentation. Safe: callbacks are not reentrant within a slot (single-threaded
+// VM, command/event run sequentially). which: 0 = first arg, 1 = second arg.
+static int tc_cb_arg_handle(TcVM *vm, int which) {
+  int16_t *hp = (which == 0) ? &vm->cb_arg_handle : &vm->cb_arg_handle2;
+  if (*hp < 0) {
+    int h = tc_heap_alloc(vm, TC_CB_ARG_SLOTS);   // one-time reserve
+    if (h < 0) return -1;
+    *hp = (int16_t)h;
+  }
+  return *hp;
 }
 
 /*********************************************************************************************\
@@ -16704,27 +16730,25 @@ static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) 
   if (!vm->halted || vm->error != TC_OK) return vm->error;
 
   int32_t slen = str ? strlen(str) : 0;
-  int32_t slots = slen + 1;  // include null terminator
-  if (slots > 512) slots = 512;  // cap at 512 chars
+  if (slen > TC_CB_ARG_SLOTS - 1) slen = TC_CB_ARG_SLOTS - 1;  // cap at 512 chars
 
-  // Save heap position so we can reclaim the temp buffer after the callback.
-  // tc_heap_free_handle() only marks alive=false but never rewinds heap_used
-  // (bump allocator), so without this every Command call leaks 'slots' permanently.
-  uint16_t saved_heap_used = vm->heap_used;
-
-  // Allocate temporary heap buffer
-  int handle = tc_heap_alloc(vm, slots);
+  // Use the per-slot RESERVED callback-arg buffer (reserved once, reused) instead
+  // of a per-call tc_heap_alloc — see tc_cb_arg_handle(). The old per-call alloc
+  // had to grow the bump heap via realloc, which fails on a fragmented long-running
+  // heap and killed every command callback of the slot until reboot (Andreas C6).
+  int handle = tc_cb_arg_handle(vm, 0);
   if (handle < 0) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Event callback — heap alloc failed (%d slots)"), slots);
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Event callback — arg buffer reserve failed"));
     return TC_OK;  // non-fatal, skip callback
   }
+  // Reclaim any heap the callback's script allocates. The reserved arg buffer sits
+  // below this baseline (allocated earlier), so this restore never touches it.
+  uint16_t saved_heap_used = vm->heap_used;
 
-  // Copy string into heap buffer (one char per int32_t slot)
+  // Copy string into the reserved buffer (one char per int32_t slot)
   int32_t *buf = &vm->heap_data[vm->heap_handles[handle].offset];
-  for (int32_t i = 0; i < slots - 1 && i < slen; i++) {
-    buf[i] = (int32_t)(uint8_t)str[i];
-  }
-  buf[slots - 1] = 0;
+  for (int32_t i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)str[i];
+  buf[slen] = 0;
 
   // Push heap ref onto stack for the callback parameter.
   // Capture SP *before* the push: tc_vm_call_callback_idx captures its own
@@ -16741,10 +16765,7 @@ static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) 
   // Balance the pre-call push (covers both the success path — idx restored
   // to post-push — and the early-return path where the arg was never consumed).
   vm->sp = pre_push_sp;
-
-  // Free temp buffer and rewind bump allocator to reclaim the space
-  tc_heap_free_handle(vm, handle);
-  vm->heap_used = saved_heap_used;
+  vm->heap_used = saved_heap_used;   // reclaim callback-script heap; reserved buf untouched
 
   return err;
 }
@@ -16764,25 +16785,24 @@ static int tc_vm_call_callback_str2(TcVM *vm, const char *name,
 
   int32_t len1 = str1 ? strlen(str1) : 0;
   int32_t len2 = str2 ? strlen(str2) : 0;
-  int32_t slots1 = (len1 < 511 ? len1 : 511) + 1;
-  int32_t slots2 = (len2 < 511 ? len2 : 511) + 1;
+  if (len1 > TC_CB_ARG_SLOTS - 1) len1 = TC_CB_ARG_SLOTS - 1;
+  if (len2 > TC_CB_ARG_SLOTS - 1) len2 = TC_CB_ARG_SLOTS - 1;
+
+  // Two RESERVED arg buffers (reserved once, reused) — no per-call heap alloc.
+  // See tc_cb_arg_handle(): immune to the fragmentation that killed callbacks.
+  int h1 = tc_cb_arg_handle(vm, 0);
+  int h2 = tc_cb_arg_handle(vm, 1);
+  if (h1 < 0 || h2 < 0) return TC_OK;
 
   uint16_t saved_heap_used = vm->heap_used;
 
-  int h1 = tc_heap_alloc(vm, slots1);
-  int h2 = tc_heap_alloc(vm, slots2);
-  if (h1 < 0 || h2 < 0) {
-    vm->heap_used = saved_heap_used;
-    return TC_OK;
-  }
-
   int32_t *buf1 = &vm->heap_data[vm->heap_handles[h1].offset];
-  for (int32_t i = 0; i < slots1 - 1; i++) buf1[i] = (int32_t)(uint8_t)str1[i];
-  buf1[slots1 - 1] = 0;
+  for (int32_t i = 0; i < len1; i++) buf1[i] = (int32_t)(uint8_t)str1[i];
+  buf1[len1] = 0;
 
   int32_t *buf2 = &vm->heap_data[vm->heap_handles[h2].offset];
-  for (int32_t i = 0; i < slots2 - 1; i++) buf2[i] = (int32_t)(uint8_t)str2[i];
-  buf2[slots2 - 1] = 0;
+  for (int32_t i = 0; i < len2; i++) buf2[i] = (int32_t)(uint8_t)str2[i];
+  buf2[len2] = 0;
 
   // Push in declaration order: topic first (bottom), payload second (top).
   // TinyC frame builder reads params left-to-right from the pushed stack.
@@ -16794,10 +16814,7 @@ static int tc_vm_call_callback_str2(TcVM *vm, const char *name,
 
   int err = tc_vm_call_callback(vm, name);
   vm->sp = pre_push_sp;   // balance the 2 pushes
-
-  tc_heap_free_handle(vm, h2);
-  tc_heap_free_handle(vm, h1);
-  vm->heap_used = saved_heap_used;
+  vm->heap_used = saved_heap_used;   // reclaim callback-script heap; reserved bufs untouched
 
   return err;
 }
