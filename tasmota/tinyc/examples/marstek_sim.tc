@@ -23,17 +23,17 @@
 // Console: MK · MK a (AUTO an/aus) · MK s (STOP) · MK c (Laden erzw.) ·
 //          MK d (Entladen erzw.) · MK max <n> · MK min <n> · MK soc <n> (Sim-SOC setzen)
 //
-// ─── Going LIVE later ────────────────────────────────────────────────────────
-// Compile with -DMK_REAL to additionally drive a real Venus E over Modbus-TCP
-// (firmware >= V144, RS485-LAN). The mk_write_real() stub below documents the
-// exact registers (from the Duravolt/Marstek Modbus map) so it becomes a small
-// fill-in job, not a redesign:
-//   42000  RS485 control enable   (21930 = on, 21947 = off)
-//   42010  mode                   (0 = stop, 1 = charge, 2 = discharge)
-//   42020  charge power  (W, abs)
-//   42021  discharge power (W, abs)
-//   44000  charge cutoff SOC %    44001 discharge cutoff SOC %
-//   32104  read SOC %    32202 read battery power (int32, +discharge/-charge)
+// ─── Going LIVE ──────────────────────────────────────────────────────────────
+// Compile with -DMK_REAL to additionally drive a real Venus E over its local
+// JSON-RPC API (enable "local API" in the Marstek app; UDP port 30000, FW>=V144).
+// Verified live on a VenusE 3.0 (ver 148). The MK_REAL block below implements it
+// natively in TinyC via udp() — no Modbus, no bridge. Key API surface:
+//   read  ES.GetStatus {"id":0} -> bat_soc(%), bat_cap(Wh), pv_power, ongrid_power,
+//                                  offgrid_power, total_*_energy
+//   ctrl  ES.SetMode {"id":0,"config":{"mode":"Passive",
+//                       "passive_cfg":{"power":<W>,"cd_time":<s>}}}
+//         power: NEGATIVE=charge, POSITIVE=discharge, 0=idle (±10000 W) — matches
+//         mk_setp's sign exactly. cd_time = auto-revert-to-idle countdown (safety).
 
 #define MK_CAP_WH   5120    // usable energy (5.12 kWh)
 #define MK_PMAX     2500    // max charge/discharge power on a dedicated circuit (W)
@@ -65,14 +65,89 @@ int btn_chg = 0; int btn_dis = 0; int btn_stop = 0;
 int last_max = -1; int last_min = -1; int dirty = 0;
 
 #ifdef MK_REAL
-#define MB_IP "192.168.188.XXX"   // <- Venus E IP when you go live
-// Skeleton only — fill the Modbus-TCP writes (see modbus_lib.tc for framing).
+// ─── LIVE control of a real Venus E over its local UDP JSON-RPC API ──────────
+// Marstek "local API" (enable it in the Marstek app): JSON-RPC over UDP on port
+// 30000, FW >= V144. Verified live on a VenusE 3.0 (ver 148):
+//   read  : ES.GetStatus            -> bat_soc / ongrid_power / pv_power ...
+//   write : ES.SetMode "Passive"    -> passive_cfg{power, cd_time}
+// TinyC speaks it natively (udp(6)=send to ip:port, udp(0)/udp(1)=listen/read),
+// so there is NO Modbus, NO Python bridge and NO firmware change.
+char mk_ip[]  = "192.168.188.182";   // Venus E IP (DHCP — pin a lease in the router!)
+#define MK_PORT   30000              // Marstek local-API UDP port
+#define MK_LPORT  30000              // local UDP port we bind to receive the reply
+#define MK_CD     (TICK_S * 3)       // passive_cfg countdown (s): the battery auto-
+                                      // reverts to idle if we stop pushing -> dead-man safety.
+                                      // Always > TICK_S so a normal tick re-arms it in time.
+
+char mk_req[288];                     // SetMode request scratch (sprintf target)
+char mk_rsp[512];                     // response scratch
+int  mk_udp_open = 0;                 // listen port opened yet?
+int  mk_ongrid   = 0;                 // last ongrid_power read (W) — operational log
+int  mk_wr_ok    = 0;                 // did the last SetMode get acked?
+
+// Fixed ES.GetStatus request (no per-call formatting needed).
+char mk_get[] = "{\"id\":1,\"method\":\"ES.GetStatus\",\"params\":{\"id\":0}}";
+
+// Pull an integer value for "key" out of a JSON reply (skips the ": <ws>" gap;
+// the Venus pretty-prints with tabs). Returns -999999 if the key is absent.
+int mk_json_int(char src[], char key[]) {
+    int p = strFind(src, key);
+    if (p < 0) { return -999999; }
+    int len = strlen(src);
+    p = p + strlen(key);
+    while (p < len) {
+        int c = src[p];
+        if (c == 45 || (c >= 48 && c <= 57)) { break; }   // '-' or 0..9
+        p = p + 1;
+    }
+    char num[16];
+    strSub(num, src, p, 12);
+    return atoi(num);
+}
+
+// One request -> response round-trip; the reply lands in mk_rsp. Returns its
+// length (0 = no reply this tick, device busy/offline -> caller retries).
+int mk_xfer(char req[]) {
+    if (!mk_udp_open) { udp(0, MK_LPORT); mk_udp_open = 1; }
+    udp(6, mk_ip, MK_PORT, req);
+    int n = 0; int i = 0;
+    while (i < 20) { delay(40); n = udp(1, mk_rsp); if (n > 0) { i = 99; } i = i + 1; }
+    return n;                          // up to ~800 ms for a reply, then give up
+}
+
+// Read REAL SOC (bat_soc %) -> mk_soc; integrate REAL grid power into the relief
+// metric. Replaces the simulated SOC integration when -DMK_REAL.
+void mk_read_real() {
+    if (mk_xfer(mk_get) <= 0) { return; }            // offline this tick — retry next
+    int soc = mk_json_int(mk_rsp, "bat_soc");
+    if (soc != -999999) { mk_soc = (float)soc; }
+    int og = mk_json_int(mk_rsp, "ongrid_power");    // grid-tied power (W)
+    if (og != -999999) {
+        mk_ongrid = og;
+        float ap = (float)og; if (ap < 0.0) { ap = -ap; }
+        relief_wh = relief_wh + ap * (float)TICK_S / 3600.0;
+    }
+}
+
+// Push the setpoint via Passive mode: setp<0 charge, setp>0 discharge, 0 idle.
+// The Marstek power sign convention matches mk_setp exactly (neg=charge), so it
+// maps straight through. cd_time auto-reverts to idle if we ever stop pushing.
+// The device drops ~half its SetMode *responses* (reads are reliable, writes are
+// flaky), so retry until we see "set_result" in the reply — typically lands by
+// try 2. Runs in the TaskLoop worker, so the per-try waits never stall the main
+// loop. If all tries miss, the previous setpoint simply holds (cd_time spans 3
+// ticks), and the next tick tries again.
 void mk_write_real(int setp) {
-    // mode/power from setp: setp<0 -> reg42010=1 (charge), |setp| to 42020
-    //                       setp>0 -> reg42010=2 (discharge), setp to 42021
-    //                       setp==0-> reg42010=0 (stop)
-    // also: write 44000=mk_max, 44001=mk_min once; enable 42000=21930 at start.
-    addLog("MK: (real) would write setp=%dW", setp);   // TODO: real Modbus frame
+    sprintf(mk_req,
+        "{\"id\":1,\"method\":\"ES.SetMode\",\"params\":{\"id\":0,\"config\":{\"mode\":\"Passive\",\"passive_cfg\":{\"power\":%d,\"cd_time\":%d}}}}",
+        setp, MK_CD);
+    mk_wr_ok = 0;
+    int k = 0;
+    while (k < 4) {
+        int n = mk_xfer(mk_req);
+        if (n > 0 && strFind(mk_rsp, "set_result") >= 0) { mk_wr_ok = 1; k = 99; }   // acked
+        else { k = k + 1; delay(200); }
+    }
 }
 #endif
 
@@ -110,6 +185,12 @@ void decide() {
 
 // ─── Battery model — integrate SOC + relief metric from the setpoint ──────────
 void integrate() {
+#ifdef MK_REAL
+    // Real device: SOC was refreshed from the battery in tick(); just push the
+    // setpoint and let the Venus E perform the actual charge/discharge.
+    mk_write_real(mk_setp);
+#else
+    // SIMULATED battery — integrate SOC + relief from the setpoint.
     // Wh moved this tick. dt_h = TICK_S/3600.
     // charge:  energy stored = P * dt * eff   -> SOC up
     // discharge: energy drawn = P * dt / eff  -> SOC down
@@ -126,18 +207,24 @@ void integrate() {
     }
     if (mk_soc > 100.0) { mk_soc = 100.0; }
     if (mk_soc < 0.0)   { mk_soc = 0.0; }
-
-#ifdef MK_REAL
-    mk_write_real(mk_setp);
 #endif
 }
 
 void tick() {
+#ifdef MK_REAL
+    mk_read_real();    // refresh REAL SOC (+ relief) from the battery before deciding
+#endif
     decide();
     integrate();
+#ifdef MK_REAL
+    addLog("MK: soc=%.1f%% setp=%dW ongrid=%dW wr=%d sur=%d def=%d pw=%d%% mode=%s",
+           mk_soc, mk_setp, mk_ongrid, mk_wr_ok, l_sur, l_def, l_pw,
+           (mforce ? "FORCE" : (armed ? "AUTO" : "OFF")));
+#else
     addLog("MK: soc=%.1f%% setp=%dW sur=%d def=%d pw=%d%% mode=%s",
            mk_soc, mk_setp, l_sur, l_def, l_pw,
            (mforce ? "FORCE" : (armed ? "AUTO" : "OFF")));
+#endif
 }
 
 void pollButtons() {
@@ -169,7 +256,11 @@ void WebCall() {
     else if (armed)       { strcpy(st, "AUTO bereit"); }
     else                  { strcpy(st, "aus"); }
 
+#ifdef MK_REAL
+    webSend("<tr><td colspan=2 style='text-align:center;background:#0a3a0a;color:#6f6;padding:4px;border-radius:6px'>&#128268; LIVE &middot; Marstek Venus E (Local API / UDP)</td></tr>");
+#else
     webSend("<tr><td colspan=2 style='text-align:center;background:#3a2a00;color:#fc6;padding:4px;border-radius:6px'>&#129514; SIMULATION &middot; Marstek Venus E (keine echte Batterie)</td></tr>");
+#endif
     sprintf(b, "{s}Status{m}%s{e}", st);                                            webSend(b);
     sprintf(b, "{s}&#128267; Venus-E SOC{m}%.1f %% &middot; %.2f kWh{e}",
             mk_soc, mk_soc / 100.0 * (float)MK_CAP_WH / 1000.0);                    webSend(b);
@@ -216,7 +307,13 @@ int main() {
     addCommand("MK");
     // persist vars load 0 on first run — seed sane defaults once.
     if (seeded == 0) {
-        armed = 1; mk_max = 95; mk_min = 20; mk_soc = 50.0; seeded = 1;
+#ifdef MK_REAL
+        armed = 0;   // real battery: start with AUTO OFF — flip it on (MK a) after
+                     // watching it read the live SOC, so control is a conscious step
+#else
+        armed = 1;
+#endif
+        mk_max = 95; mk_min = 20; mk_soc = 50.0; seeded = 1;
         saveVars();
     }
     if (mk_max < 50 || mk_max > 100) { mk_max = 95; }
