@@ -319,6 +319,20 @@ extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
 #define TC_MAX_WATCH       16          // max `watch` global variables (each takes var+shadow+written)
 
+// ESP8266 heap-leak diagnosis. Logs free-heap + largest-free-block at the
+// load/run PHASE BOUNDARIES (never inside the VM step loop) so it can't
+// Heisenbug-mask the WiFi-heap crash the way the old per-instruction AddLog
+// instrumentation did. Build with -DTINYC_HEAP_DEBUG, then on the device run a
+// minimal script repeatedly (`TinyCRun 0 /min.tcb`) and read the per-phase
+// deltas in the console — the phase whose `free=` keeps dropping across reloads
+// is the culprit. No-op (and zero code) in normal builds.
+#if defined(ESP8266) && defined(TINYC_HEAP_DEBUG)
+  #define TC_HEAPLOG(tag) AddLog(LOG_LEVEL_INFO, PSTR("TCHEAP %-15s free=%5u maxblk=%5u"), \
+      PSTR(tag), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxFreeBlockSize())
+#else
+  #define TC_HEAPLOG(tag) do{}while(0)
+#endif
+
 // Flash-safe byte read — enables execute-from-flash on ESP32
 // When USE_TINYC_FLASH_EXEC is defined, bytecode can reside in memory-mapped flash.
 // pgm_read_byte() handles the aligned 32-bit read + byte extraction required by Xtensa.
@@ -5450,6 +5464,31 @@ static inline uint16_t tc_widget_id(int32_t gref) {
   return gidx;
 }
 
+// ESP8266: tc_syscall is a 10k-line switch where ~57 cases carry a char[256]/[128]
+// scratch buffer. GCC can't coalesce them (their addresses escape to sprintf/AddLog),
+// so the frame balloons to ~3.1 KB — and on the 4 KB cont stack that leaves ~300 B,
+// so the moment a syscall calls AddLog the cont stack overflows → cont-task
+// corruption → HWDT. TC_BUF moves the buffer to the HEAP (malloc on entry, auto-freed
+// on every exit path via __attribute__((cleanup)) — break/return/error, no leaks),
+// and binds an array-typed REFERENCE so sizeof(name) still yields the real size and
+// the ~96 existing sizeof() uses keep working unchanged. Per-syscall malloc is cheap
+// at TinyC tick rates; OOM is rarer than today's guaranteed overflow. ESP32 keeps the
+// buffers on its large FreeRTOS task stack (no per-syscall malloc).
+// Route through VOLATILE function pointers so GCC can't recognise the malloc/free
+// pair and "optimise" it back onto the stack (which silently defeats the point).
+static void * (* volatile tc_mallocp)(size_t) = &malloc;
+static void   (* volatile tc_freep)(void *)   = &free;
+static void * tc_scratch_alloc(size_t n) { return tc_mallocp(n); }
+static void   tc_scratch_dealloc(void *p) { if (p) tc_freep(p); }
+static inline void tc_arr_free(void *pp) { void **p = (void **)pp; tc_scratch_dealloc(*p); *p = nullptr; }
+#ifdef ESP8266
+#define TC_BUF(name, sz)  char (*name##_hp)[sz] __attribute__((cleanup(tc_arr_free))) = (char (*)[sz])tc_scratch_alloc(sz); char (&name)[sz] = *name##_hp
+#define TC_UBUF(name, sz) uint8_t (*name##_hp)[sz] __attribute__((cleanup(tc_arr_free))) = (uint8_t (*)[sz])tc_scratch_alloc(sz); uint8_t (&name)[sz] = *name##_hp
+#else
+#define TC_BUF(name, sz)  char name[sz]
+#define TC_UBUF(name, sz) uint8_t name[sz]
+#endif
+
 static int tc_syscall(TcVM *vm, uint16_t id) {
   int32_t a, b;
   float fa;
@@ -5893,7 +5932,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       b = TC_POP(vm);  // handle
       TasmotaSerial *p = tc_serial_get(b);
       if (p) {
-        char tbuf[256];
+        TC_BUF(tbuf, 256);
         int len = tc_ref_to_cstr(vm, a, tbuf, sizeof(tbuf));
         if (len > 0) p->write(tbuf, len);
       }
@@ -5910,7 +5949,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         if (buf) {
           int32_t maxLen = tc_ref_maxlen(vm, a);
           if (b > maxLen) b = maxLen;
-          uint8_t tbuf[256];
+          TC_UBUF(tbuf, 256);
           for (int i = 0; i < b; i++) tbuf[i] = (uint8_t)(buf[i] & 0xFF);
           p->write(tbuf, b);
         }
@@ -6014,7 +6053,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       // Extract command string from VM int32 array
       int32_t cmdMax = tc_ref_maxlen(vm, cmd_ref);
-      char cmdbuf[128];
+      TC_BUF(cmdbuf, 128);
       int32_t ci = 0;
       while (cmd_arr[ci] != 0 && ci < cmdMax && ci < (int32_t)sizeof(cmdbuf) - 1) {
         cmdbuf[ci] = (char)(cmd_arr[ci] & 0xFF); ci++;
@@ -6043,7 +6082,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t *cmd_arr = tc_resolve_ref(vm, cmd_ref);
       if (!cmd_arr) break;
       int32_t cmdMax = tc_ref_maxlen(vm, cmd_ref);
-      char cmdbuf[256];
+      TC_BUF(cmdbuf, 256);
       int32_t ci = 0;
       while (ci < cmdMax && ci < (int32_t)sizeof(cmdbuf) - 1 && cmd_arr[ci] != 0) {
         cmdbuf[ci] = (char)(cmd_arr[ci] & 0xFF); ci++;
@@ -6239,7 +6278,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      char tmp[256];
+      TC_BUF(tmp, 256);
       snprintf(tmp, sizeof(tmp), fmt, val);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -6252,7 +6291,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      char tmp[256];
+      TC_BUF(tmp, 256);
       tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -6271,9 +6310,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // expected (via user-function `char foo[]` params). The const-ref
       // path needs to read from the const pool, not via tc_resolve_ref —
       // tc_ref_to_cstr handles both transparently.
-      char srcbuf[256];
+      TC_BUF(srcbuf, 256);
       tc_ref_to_cstr(vm, src_ref, srcbuf, sizeof(srcbuf));
-      char tmp[256];
+      TC_BUF(tmp, 256);
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -6289,7 +6328,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      char tmp[256];
+      TC_BUF(tmp, 256);
       snprintf(tmp, sizeof(tmp), fmt, val);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -6304,7 +6343,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      char tmp[256];
+      TC_BUF(tmp, 256);
       tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -6320,9 +6359,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
       // Const-ref-aware source extraction (same fix as SPRINTF_STR).
-      char srcbuf[256];
+      TC_BUF(srcbuf, 256);
       tc_ref_to_cstr(vm, src_ref, srcbuf, sizeof(srcbuf));
-      char tmp[256];
+      TC_BUF(tmp, 256);
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -6339,7 +6378,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *srcStr = tc_get_const_str(vm, src_ci);
       if (!dst || !fmt || !srcStr) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      char tmp[256];
+      TC_BUF(tmp, 256);
       snprintf(tmp, sizeof(tmp), fmt, srcStr);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -6354,7 +6393,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!dst || !fmt || !srcStr) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      char tmp[256];
+      TC_BUF(tmp, 256);
       snprintf(tmp, sizeof(tmp), fmt, srcStr);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -6368,7 +6407,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);         // const pool index for path
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
@@ -6425,7 +6464,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxSlots = tc_ref_maxlen(vm, buf_ref);
       if (maxBytes > maxSlots) maxBytes = maxSlots;
       // Read via temp byte buffer (File reads bytes, VM stores int32 per element)
-      uint8_t tmp[256];
+      TC_UBUF(tmp, 256);
       int32_t total = 0;
       while (total < maxBytes) {
         int32_t chunk = maxBytes - total;
@@ -6453,7 +6492,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxSlots = tc_ref_maxlen(vm, buf_ref);
       if (len > maxSlots) len = maxSlots;
       // Convert int32 array elements to bytes and write
-      uint8_t tmp[256];
+      TC_UBUF(tmp, 256);
       int32_t total = 0;
       while (total < len) {
         int32_t chunk = len - total;
@@ -6474,7 +6513,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, 0); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, 0); break; }
@@ -6492,7 +6531,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
@@ -6511,7 +6550,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #ifdef USE_UFILESYS
       int32_t mode = tc_file_mode(TC_POP(vm));  // 0/'r'=read, 1/'w'=write, 2/'a'=append
       int32_t path_ref = TC_POP(vm);
-      char path[128];
+      TC_BUF(path, 128);
       tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
       if (!path[0]) { TC_PUSH(vm, -1); break; }
       FS *fsp = tc_file_path(path);
@@ -6547,7 +6586,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_FILE_EXISTS_REF: {
 #ifdef USE_UFILESYS
       int32_t path_ref = TC_POP(vm);
-      char path[128];
+      TC_BUF(path, 128);
       tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
       if (!path[0]) { TC_PUSH(vm, 0); break; }
       FS *fsp = tc_file_path(path);
@@ -6564,7 +6603,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_FILE_DELETE_REF: {
 #ifdef USE_UFILESYS
       int32_t path_ref = TC_POP(vm);
-      char path[128];
+      TC_BUF(path, 128);
       tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
       if (!path[0]) { TC_PUSH(vm, -1); break; }
       FS *fsp = tc_file_path(path);
@@ -6585,7 +6624,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
@@ -6614,7 +6653,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_FILE_OPENDIR_REF: {
 #ifdef USE_UFILESYS
       int32_t path_ref = TC_POP(vm);
-      char path[128];
+      TC_BUF(path, 128);
       tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
       if (!path[0]) { TC_PUSH(vm, -1); break; }
       FS *fsp = tc_file_path(path);
@@ -6710,7 +6749,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Save and seek to start
       tc_file_handles[h].seek(0, SeekSet);
 
-      char line[512];
+      TC_BUF(line, 512);
       int32_t rows = 0;
       bool headerSkipped = false;
       char first_ts[24] = {0};
@@ -6785,7 +6824,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
@@ -6820,7 +6859,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, 0); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, 0); break; }
@@ -6838,7 +6877,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, 0); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, 0); break; }
@@ -6982,7 +7021,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (dstrlen == 0 || index < 1) { TC_PUSH(vm, 0); break; }
       // Phase 1: seek to start, find Nth delimiter with sliding window
       tc_file_handles[h].seek(0, SeekSet);
-      char fstr[256];
+      TC_BUF(fstr, 256);
       memset(fstr, 0, dstrlen);
       bool match = false;
       int32_t count = index;
@@ -7074,7 +7113,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       uint8_t *fbuf = (uint8_t*)malloc(FBUF_SZ);
       if (!fbuf) { TC_PUSH(vm, 0); break; }
       int fbuf_len = 0, fbuf_pos = 0;
-      char line[512];
+      TC_BUF(line, 512);
       int32_t rowCount = 0;
       bool dflg = (accum < 0);                  // delta mode for absolute columns
       int32_t accumN = (accum < 0) ? -accum : (accum > 0 ? accum : 1);
@@ -7472,11 +7511,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci     = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
-      char payload[256];
+      TC_BUF(payload, 256);
       tc_ref_to_cstr(vm, strRef, payload, sizeof(payload));
       // Append payload + newline
       File f = fsp->open(path, "a");
@@ -7938,7 +7977,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t maxLen = tc_ref_maxlen(vm, str_ref);
         if (arr && maxLen > 0) {
           // Convert char array (1 int32 per char) to C string
-          char sbuf[256];
+          TC_BUF(sbuf, 256);
           int32_t slen = 0;
           for (int32_t i = 0; i < maxLen && i < 255; i++) {
             if (arr[i] == 0) break;
@@ -8006,7 +8045,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             if (plen > 0) {
               Tinyc->udp_port_last_rx = millis();  // packet received — reset watchdog
               // 1024 bytes covers SMA Speedwire (~600B) and most binary UDP telegrams.
-              char packet[1024];
+              TC_BUF(packet, 1024);
               int32_t len = Tinyc->udp_port.read(packet, sizeof(packet) - 1);
               if (len > 0) {
                 packet[len] = 0;
@@ -8027,7 +8066,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         case 2: { // udp(2, str) → reply to sender's IP:port
           int32_t str_ref = TC_POP(vm);
           if (Tinyc->udp_port_open) {
-            char payload[512];
+            TC_BUF(payload, 512);
             tc_ref_to_cstr(vm, str_ref, payload, sizeof(payload));
             Tinyc->udp_port.beginPacket(
               Tinyc->udp_port.remoteIP(),
@@ -8044,7 +8083,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           if (Tinyc->udp_port_open) {
             char url[64];
             tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
-            char payload[512];
+            TC_BUF(payload, 512);
             tc_ref_to_cstr(vm, str_ref, payload, sizeof(payload));
             IPAddress adr;
             adr.fromString(url);
@@ -8086,7 +8125,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           int32_t url_ref = TC_POP(vm);
           char url[64];
           tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
-          char payload[512];
+          TC_BUF(payload, 512);
           tc_ref_to_cstr(vm, str_ref, payload, sizeof(payload));
           IPAddress adr;
           adr.fromString(url);
@@ -8302,7 +8341,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (arr && len > 0) {
         if (len > maxLen) len = maxLen;
         if (len > 255) len = 255;  // I2C practical limit
-        uint8_t tmpbuf[256];
+        TC_UBUF(tmpbuf, 256);
         bool err = I2cReadBuffer((uint8_t)a, (int)b, tmpbuf, (uint16_t)len, (uint8_t)bus);
         if (!err) {  // I2cReadBuffer returns 0=OK, 1=Error
           for (int32_t i = 0; i < len; i++) { arr[i] = (int32_t)tmpbuf[i]; }
@@ -8366,7 +8405,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (arr && len > 0) {
         if (len > maxLen) len = maxLen;
         if (len > 255) len = 255;
-        uint8_t tmpbuf[256];
+        TC_UBUF(tmpbuf, 256);
         for (int32_t i = 0; i < len; i++) { tmpbuf[i] = (uint8_t)(arr[i] & 0xFF); }
         TC_PUSH(vm, I2cWriteBuffer((uint8_t)a, (uint8_t)b, tmpbuf, (uint16_t)len, (uint8_t)bus) ? 0 : 1);  // returns 0=OK,1=Err
       } else {
@@ -8502,7 +8541,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (arr && len > 0) {
         if (len > maxLen) len = maxLen;
         if (len > 255) len = 255;
-        uint8_t tmpbuf[256];
+        TC_UBUF(tmpbuf, 256);
         bool err = I2cReadBuffer0((uint8_t)a, tmpbuf, (uint16_t)len, (uint8_t)bus);
         if (!err) {  // I2cReadBuffer0 returns 0=OK, 1=Error
           for (int32_t i = 0; i < len; i++) { arr[i] = (int32_t)tmpbuf[i]; }
@@ -8582,7 +8621,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ref = TC_POP(vm);  // hex string buffer ref
       a = TC_POP(vm);            // meter index
 #if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
-      char tmp[256];
+      TC_BUF(tmp, 256);
       tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
       TC_PUSH(vm, (int32_t)SML_Write(a, tmp));
 #else
@@ -8595,7 +8634,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ref = TC_POP(vm);  // output buffer ref
       a = TC_POP(vm);            // meter index
 #if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
-      char tmp[256];
+      TC_BUF(tmp, 256);
       int32_t maxLen = tc_ref_maxlen(vm, ref);
       uint32_t slen = (maxLen > 0 && maxLen < (int32_t)sizeof(tmp)) ? maxLen : sizeof(tmp) - 1;
       uint32_t got = SML_Read(a, tmp, slen);
@@ -8629,7 +8668,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ref = TC_POP(vm);  // hex string buffer ref
       a = TC_POP(vm);            // meter index
 #if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
-      char tmp[256];
+      TC_BUF(tmp, 256);
       tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
       TC_PUSH(vm, (int32_t)SML_Set_WStr((uint32_t)a, tmp));
 #else
@@ -9547,7 +9586,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_JSON_NUM: {                 // jsonNum(src, path) -> float
       int32_t path_ref = TC_POP(vm);
       int32_t src_ref  = TC_POP(vm);
-      char jpath[64]; char jbuf[640];
+      char jpath[64]; TC_BUF(jbuf, 640);
       tc_ref_to_cstr(vm, path_ref, jpath, sizeof(jpath));
       tc_ref_to_cstr(vm, src_ref,  jbuf,  sizeof(jbuf));   // local mutable copy (JsonParser tokenises in place)
       float fval = 0.0f;
@@ -9570,7 +9609,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t dst_ref  = TC_POP(vm);
       int32_t path_ref = TC_POP(vm);
       int32_t src_ref  = TC_POP(vm);
-      char jpath[64]; char jbuf[640];
+      char jpath[64]; TC_BUF(jbuf, 640);
       tc_ref_to_cstr(vm, path_ref, jpath, sizeof(jpath));
       tc_ref_to_cstr(vm, src_ref,  jbuf,  sizeof(jbuf));
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
@@ -9604,7 +9643,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_HTTP_GET: {
       b = TC_POP(vm);  // response buffer ref
       a = TC_POP(vm);  // url ref
-      char url[256];
+      TC_BUF(url, 256);
       tc_ref_to_cstr(vm, a, url, sizeof(url));
       int32_t cap;
       { int32_t *bf0 = tc_resolve_ref(vm, b); cap = bf0 ? tc_ref_maxlen(vm, b) : 0; }
@@ -9770,7 +9809,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t respRef = TC_POP(vm);  // response buffer ref
       int32_t dataRef = TC_POP(vm);  // POST data ref
       a = TC_POP(vm);                // url ref
-      char url[256];
+      TC_BUF(url, 256);
       tc_ref_to_cstr(vm, a, url, sizeof(url));
       char postData[TC_OUTPUT_SIZE];
       tc_ref_to_cstr(vm, dataRef, postData, sizeof(postData));
@@ -9886,7 +9925,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
 
       // Convert source int32 array to C string
-      char sbuf[512];
+      TC_BUF(sbuf, 512);
       int32_t slen = 0;
       for (int32_t i = 0; i < srcMax && i < (int32_t)sizeof(sbuf) - 1; i++) {
         if (src[i] == 0) break;
@@ -9895,7 +9934,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       sbuf[slen] = 0;
 
-      char rbuf[256];
+      TC_BUF(rbuf, 256);
       rbuf[0] = 0;
       int32_t rlen = 0;
 
@@ -10114,7 +10153,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxlen = TC_POP(vm);  // max char length
       int32_t gref = TC_POP(vm);
       uint16_t idx = tc_widget_id(gref);
-      char tbuf[128];
+      TC_BUF(tbuf, 128);
       tc_ref_to_cstr(vm, gref, tbuf, sizeof(tbuf));
       const char *label = tc_get_const_str(vm, ci);
       if (!label) label = "?";
@@ -10177,7 +10216,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         }
       } else {
         // Static pipe-separated options
-        char obuf[256];
+        TC_BUF(obuf, 256);
         strlcpy(obuf, opts, sizeof(obuf));
         int oi = 0;
         char *op = obuf;
@@ -10212,7 +10251,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #ifdef USE_UFILESYS
       const char *cpath = tc_get_const_str(vm, pi);
       if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
+      TC_BUF(path, 128);
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
@@ -10441,7 +10480,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *opts = tc_get_const_str(vm, ci);
       if (!opts) opts = "";
       WSContentSend_P(PSTR("<div><fieldset><legend></legend>"));
-      char obuf[256];
+      TC_BUF(obuf, 256);
       strlcpy(obuf, opts, sizeof(obuf));
       int oi = 0;
       char *op = obuf;
@@ -10521,7 +10560,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         if (ufsp) f = ufsp->open(path, "r");
         if (!f && ffsp) f = ffsp->open(path, "r");
         if (f) {
-          char buf[256];
+          TC_BUF(buf, 256);
 #ifdef USE_WEBSERVER
           tc_web_lazy_begin();
 #endif
@@ -10750,7 +10789,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t js_ref = TC_POP(vm);
 #ifdef USE_WEBSERVER
       if (tc_chart_seq > 0) {
-        char js[384];
+        TC_BUF(js, 384);
         int n = tc_ref_to_cstr(vm, js_ref, js, sizeof(js));   // literal OR runtime char[]
         if (n > 0) {
           WSContentSend_P(PSTR("<script>if(_tcC[%d])_tcC[%d].j=function(dt,o,el){%s};</script>"),
@@ -12111,7 +12150,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_TEXT: {
       int32_t ref = TC_POP(vm);
       if (!renderer) break;  // display not yet initialized
-      char tbuf[256];
+      TC_BUF(tbuf, 256);
       tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
       char *savptr = XdrvMailbox.data;
       XdrvMailbox.data = tbuf;
@@ -12156,7 +12195,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_DRAW: {
       int32_t ref = TC_POP(vm);
       if (!renderer) break;
-      char tbuf[128];
+      TC_BUF(tbuf, 128);
       tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
       tc_display_text_padded(tbuf);
       break;
@@ -12273,7 +12312,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!renderer) break;
       const char *cmd = tc_get_const_str(vm, ci);
       if (cmd) {
-        char tbuf[256];
+        TC_BUF(tbuf, 256);
         strlcpy(tbuf, cmd, sizeof(tbuf));
         char *savptr = XdrvMailbox.data;
         XdrvMailbox.data = tbuf;
@@ -12344,7 +12383,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!renderer) break;
       if (slot < 0 || slot >= TC_IMG_SLOTS || !tc_img_store[slot].buf) break;
 
-      char text[128];
+      TC_BUF(text, 128);
       tc_ref_to_cstr(vm, ref, text, sizeof(text));
       int tlen = strlen(text);
       if (tlen == 0 && fieldw == 0) break;
@@ -12456,7 +12495,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t slot   = TC_POP(vm);
       if (slot < 0 || slot >= TC_IMG_SLOTS || !tc_img_store[slot].buf) break;
 
-      char text[128];
+      TC_BUF(text, 128);
       tc_ref_to_cstr(vm, ref, text, sizeof(text));
       int tlen = strlen(text);
       if (tlen == 0 && fieldw == 0) break;
@@ -12988,7 +13027,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *file = tc_get_const_str(vm, ci);
       if (file) {
-        char cmd[128];
+        TC_BUF(cmd, 128);
         snprintf(cmd, sizeof(cmd), "I2SPlay %s", file);
         tc_defer_command(cmd);
       }
@@ -12998,7 +13037,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci = TC_POP(vm);
       const char *text = tc_get_const_str(vm, ci);
       if (text) {
-        char cmd[256];
+        TC_BUF(cmd, 256);
         snprintf(cmd, sizeof(cmd), "I2SSay %s", text);
         tc_defer_command(cmd);
       }
@@ -13332,7 +13371,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t port     = TC_POP(vm);
       int32_t host_ref = TC_POP(vm);
 #ifdef ESP32
-      char host[128];
+      TC_BUF(host, 128);
       tc_ref_to_cstr(vm, host_ref, host, sizeof(host));
       if (port <= 0) port = 443;
       if (TasmotaGlobal.global_state.network_down) {   // mirror SYS_TCP_CONNECT: TLS before the link is up (e.g. a TaskLoop poll at early boot) drives BearSSL/DNS into a dead stack -> heap corruption -> delayed crash. Fail cleanly instead.
@@ -13471,9 +13510,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (inb && in_len > 0) {
         if (in_len > inmax) in_len = inmax;
         if (in_len > 512) in_len = 512;
-        unsigned char raw[512];
+        TC_UBUF(raw, 512);
         for (int i = 0; i < in_len; i++) raw[i] = (unsigned char)(inb[i] & 0xFF);
-        unsigned char ob[704]; size_t olen = 0;
+        TC_UBUF(ob, 704); size_t olen = 0;
         if (mbedtls_base64_encode(ob, sizeof(ob), &olen, raw, in_len) == 0) {
           int32_t *obuf = tc_resolve_ref(vm, out_ref);
           int32_t omax = tc_ref_maxlen(vm, out_ref);
@@ -13512,7 +13551,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       tc_ref_to_cstr(vm, n_ref, n_b64, sizeof(n_b64));
       tc_ref_to_cstr(vm, e_ref, e_b64, sizeof(e_b64));
       tc_ref_to_cstr(vm, pw_ref, pw,   sizeof(pw));
-      unsigned char nbuf[300]; size_t nlen = 0;
+      TC_UBUF(nbuf, 300); size_t nlen = 0;
       unsigned char ebuf[8];   size_t elen = 0;
       int pwlen = strlen(pw);
       if (tc_b64url_decode(n_b64, nbuf, sizeof(nbuf), &nlen) == 0 &&
@@ -13576,7 +13615,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t read_bytes = max_samples * bytes_per_frame;
       // Use a temp buffer on stack (max 2048 bytes = 512 stereo frames or 1024 mono frames)
       if (read_bytes > 2048) { max_samples = 2048 / bytes_per_frame; read_bytes = max_samples * bytes_per_frame; }
-      uint8_t tmpbuf[2048];
+      TC_UBUF(tmpbuf, 2048);
       int32_t got = f.read(tmpbuf, read_bytes);
       if (got <= 0) { TC_PUSH(vm, 0); break; }
       int32_t frames = got / bytes_per_frame;
@@ -13685,7 +13724,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ref = TC_POP(vm);
       WiFiClient *_tc = TC_TCP_ACTIVE_CLIENT();
       if (_tc) {
-        char buf[256];
+        TC_BUF(buf, 256);
         tc_ref_to_cstr(vm, ref, buf, sizeof(buf));
         _tc->write(buf, strlen(buf));
       }
@@ -15012,7 +15051,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t *buf = tc_resolve_ref(vm, buf_ref);
       if (path && buf && Tinyc->pwl_json) {
         int32_t maxLen = tc_ref_maxlen(vm, buf_ref) - 1;
-        char tmp[256];
+        TC_BUF(tmp, 256);
         int32_t slen = tc_pwl_scan_str(Tinyc->pwl_json, strlen(Tinyc->pwl_json), path, tmp, sizeof(tmp));
         if (slen > maxLen) slen = maxLen;
         for (int32_t i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)tmp[i];
@@ -16265,6 +16304,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // Close any open file handles from previous run
   tc_close_all_files();
 
+  TC_HEAPLOG("vmload.in");
   // Free any previously allocated dynamic memory
   tc_free_all_frames(vm);
   tc_heap_free_all(vm);
@@ -16273,6 +16313,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   if (vm->constants) { free(vm->constants); vm->constants = nullptr; vm->const_capacity = 0; }
   if (vm->const_data) { free(vm->const_data); vm->const_data = nullptr; vm->const_data_size = 0; }
   if (vm->udp_globals) { free(vm->udp_globals); vm->udp_globals = nullptr; vm->udp_global_count = 0; }
+  TC_HEAPLOG("vmload.freed");
 
   // Allocate stack
   vm->stack = (int32_t *)calloc(TC_STACK_SIZE, sizeof(int32_t));
@@ -16503,6 +16544,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // bump shadow + written-flag the same way OP_STORE_WATCH does.
   tc_scan_watch_indices(vm);
 
+  TC_HEAPLOG("vmload.done");
   return TC_OK;
 }
 
@@ -17570,7 +17612,9 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     vm->sp = _sp; vm->pc = _pc;  // write back
     int scerr = tc_syscall(vm, _idx);
     _sp = vm->sp; _pc = vm->pc;  // reload (syscall may change sp/pc)
-    if (scerr == TC_ERR_PAUSED) goto _vm_yield;
+    if (scerr == TC_ERR_PAUSED) {
+      goto _vm_yield;
+    }
     if (scerr != TC_OK) { _err = scerr; goto _vm_exit; }
     NEXT();
   }
@@ -18028,6 +18072,7 @@ static void TinyCStopVM(TcSlot *s) {
 // Helper: start the VM in a specific slot
 static bool TinyCStartVM(TcSlot *s) {
   if (!Tinyc || !s || !s->loaded) return false;
+  TC_HEAPLOG("startvm.in");
 
 #ifdef ESP32
   // Auto-stop a slot that is already running BEFORE we reset the VM.
@@ -18041,7 +18086,25 @@ static bool TinyCStartVM(TcSlot *s) {
   if (s->task_handle) {
     TinyCStopVM(s);
   }
+#else
+  // ESP8266: no FreeRTOS task, but if this slot has already executed (mid-main
+  // → s->running, or main() returned and it is now an idle event-driven slot
+  // → s->vm.halted) it MUST be torn down first. tc_vm_load() below only frees
+  // the CORE VM arrays (frames/heap/stack/globals/constants/const_data/udp);
+  // the subsystem buffers a script may have claimed — OneWire bus, serial, SPI,
+  // image store, I2S PCM, HTTP-header arrays, mini-scripter state — plus
+  // OnExit() (which releases I2C and other hardware) and the persist-save all
+  // live ONLY in TinyCStopVM(). Skipping them leaks heap on every re-run and
+  // never releases the script's hardware — the ESP32/ESP8266 asymmetry behind
+  // the long-run heap decline. A freshly loaded-but-unrun slot has
+  // running==false && vm.halted==false (TinyCLoadFile already ran TinyCStopVM),
+  // so it is left alone — tearing it down would persist-save its zeroed globals
+  // and clobber the saved values.
+  if (s->running || s->vm.halted) {
+    TinyCStopVM(s);
+  }
 #endif
+  TC_HEAPLOG("startvm.tdn");
 
   // Reset VM
   int err = tc_vm_load(&s->vm, s->program, s->program_size);
@@ -18120,6 +18183,7 @@ static bool TinyCStartVM(TcSlot *s) {
     strlcpy(s->cmd_prefix, s->cmd_prefix_saved, sizeof(s->cmd_prefix));
   }
 
+  TC_HEAPLOG("startvm.done");
   s->running = true;
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started (%s)"), s->filename);
   return true;

@@ -808,6 +808,25 @@ static void TinyCEvery50ms(void) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error: %s (PC=%d, instr=%u)"),
           tc_error_str(err), s->vm.pc - s->vm.code_offset, s->vm.instruction_count);
         s->running = false;
+      } else if (s->vm.halted) {
+        // Clean halt DURING this slice (main() returned: the slice returns
+        // TC_OK, so the error branch above does NOT catch it). Finalize the halt
+        // HERE, in the SAME tick — do not leave the slot "halted-but-still-
+        // running" until the next tick's top-of-tick halt branch. That one-tick
+        // window is the ESP8266 WDT wedge: loop()'s SleepDelay() then runs
+        // against a halted slot that just queued console output (print/addLog)
+        // and hangs — which is why every OUTPUT-producing program HW-WDT'd while
+        // no-output ones (which also halt, but quietly) survived to the next
+        // tick. Mirrors the top-of-tick clean-halt branch: free frames, flush
+        // output, clear running. Heap is kept — event-driven callbacks key on
+        // vm.halted (not running), so EverySecond/WebCall still fire after this.
+        tc_free_all_frames(&s->vm);
+        tc_current_slot = s;
+        tc_output_flush();
+        tc_current_slot = nullptr;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions, %d callbacks"),
+          s->vm.instruction_count, s->vm.callback_count);
+        s->running = false;
       }
     }
   }
@@ -1448,6 +1467,7 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
     }
   }
   TcSlot *s = Tinyc->slots[slot_num];
+  TC_HEAPLOG("loadfile.in");
 
   File file;
   if (ufsp) file = ufsp->open(path, "r");
@@ -1493,6 +1513,7 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
     strlcpy(Tinyc->slot_config[slot_num].filename, path, sizeof(Tinyc->slot_config[slot_num].filename));
     TinyCSetPersistFile(s, path);
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %s (%d bytes) into slot %d"), path, fsize, slot_num);
+    TC_HEAPLOG("loadfile.out");
     return true;
   }
   AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load %s failed: %s"), path, tc_error_str(err));
@@ -2404,6 +2425,7 @@ static void HandleTinyCUpload(void) {
     }
     Tinyc->upload_received = 0;
     Tinyc->upload_active = true;
+    TC_HEAPLOG("upload.start");
   }
   else if (upload.status == UPLOAD_FILE_WRITE) {
     // If a prior phase (malloc fail, slot fail) already marked this upload
@@ -2480,6 +2502,7 @@ static void HandleTinyCUpload(void) {
     } else {
       if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
     }
+    TC_HEAPLOG("upload.end");
     Tinyc->upload_active = false;
   }
 }
