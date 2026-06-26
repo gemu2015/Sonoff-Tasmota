@@ -1,14 +1,19 @@
-// BMx280 Temperature, Pressure & (optional) Humidity Sensor Driver
-// Auto-detects BMP280 (ID 0x58) vs BME280 (ID 0x60)
-// I2C addresses: 0x76 (SDO=GND) or 0x77 (SDO=VCC)
-// Scans both I2C buses, claims via Tasmota I2C system
-// Reads every second, displays on web UI + JSON teleperiod
-// Includes 6h chart history
+// BMx280 / BME68x Temperature, Pressure, Humidity & Gas Sensor Driver
+// Auto-detects:
+//   BMP280  (chip id 0x58) — temp + pressure
+//   BME280  (chip id 0x60) — temp + pressure + humidity
+//   BME680  (chip id 0x61, variant 0) — + gas (VOC) resistance
+//   BME688  (chip id 0x61, variant 1) — + gas; BME690 is register-compatible (variant 1)
+// I2C addresses: 0x76 (SDO=GND) or 0x77 (SDO=VCC). Scans both I2C buses.
+// BMP/BME280 run in normal mode; BME68x use forced mode with a gas-heater cycle
+// (trigger one measurement per second, read the previous one next tick — no delay()).
+// Reads every second, displays on web UI + JSON teleperiod, with 6h chart history.
 
 #define BMX_ADDR1  0x76
 #define BMX_ADDR2  0x77
 #define BMP_ID     0x58
 #define BME_ID     0x60
+#define BME680_ID  0x61
 
 // Measurement results
 float bmx_temp = 0.0;
@@ -16,39 +21,34 @@ float bmx_humi = 0.0;
 float bmx_pres = 0.0;
 float bmx_dewp = 0.0;
 float bmx_absh = 0.0;
+float bmx_gas  = 0.0;   // gas resistance, kOhm (BME68x only; higher = cleaner air)
 int bmx_ok = 0;
 int bmx_addr = 0;
 int bmx_bus = 0;
-int bmx_has_humi = 0;   // 1 = BME280, 0 = BMP280
+int bmx_has_humi = 0;   // 1 = BME280 / BME68x
+int bmx_is_680 = 0;     // 1 = BME680 / BME688 / BME690 family
+int bmx_has_gas = 0;    // 1 = gas sensor present (BME68x)
+int bmx_variant = 0;    // 0 = BME680, 1 = BME688 / BME690
+int bmx_gas_valid = 0;
 
 // I2C data buffer
 char bmx_buf[26];
 
-// Calibration data (registers 0x88..0x9F)
-// Temperature
-int dig_T1;
-int dig_T2;
-int dig_T3;
-// Pressure
-int dig_P1;
-int dig_P2;
-int dig_P3;
-int dig_P4;
-int dig_P5;
-int dig_P6;
-int dig_P7;
-int dig_P8;
-int dig_P9;
-// Humidity (BME280 only)
-int dig_H1;
-int dig_H2;
-int dig_H3;
-int dig_H4;
-int dig_H5;
-int dig_H6;
+// ── BMP280 / BME280 calibration (registers 0x88..0x9F + humidity block) ──
+int dig_T1; int dig_T2; int dig_T3;
+int dig_P1; int dig_P2; int dig_P3; int dig_P4; int dig_P5;
+int dig_P6; int dig_P7; int dig_P8; int dig_P9;
+int dig_H1; int dig_H2; int dig_H3; int dig_H4; int dig_H5; int dig_H6;
+int t_fine;             // shared between BME280 temp & pressure/humidity comp
 
-// t_fine shared between temp and pressure/humidity compensation
-int t_fine;
+// ── BME68x calibration (par_*, spread across 0x8A..0xA0 and 0xE1..0xEE) ──
+int par_t1; int par_t2; int par_t3;
+int par_p1; int par_p2; int par_p3; int par_p4; int par_p5;
+int par_p6; int par_p7; int par_p8; int par_p9; int par_p10;
+int par_h1; int par_h2; int par_h3; int par_h4; int par_h5; int par_h6; int par_h7;
+int par_g1; int par_g2; int par_g3;
+int res_heat_range; int res_heat_val; int range_sw_err;
+float bme_tfine;        // BME68x t_fine (float)
 
 #ifdef USE_CHARTS
 // Chart history (6h at 1 sample/min = 360 points)
@@ -56,6 +56,7 @@ int t_fine;
 float hist_temp[CHART_LEN];
 float hist_humi[CHART_LEN];
 float hist_pres[CHART_LEN];
+float hist_gas[CHART_LEN];
 int hist_pos;
 int hist_tick;
 #endif
@@ -74,15 +75,15 @@ int sign8(int val) {
     return val;
 }
 
-// Read calibration data
-int bmx_read_calib() {
+// ════════════════════════════════════════════════════════════════════
+// BMP280 / BME280 calibration
+// ════════════════════════════════════════════════════════════════════
+int bme280_read_calib() {
     // Read 24 bytes from 0x88..0x9F (temp + pressure)
     if (!i2cRead(bmx_addr, 0x88, bmx_buf, 24, bmx_bus)) return 0;
-
     dig_T1 = bmx_buf[0] | (bmx_buf[1] << 8);
     dig_T2 = sign16(bmx_buf[2] | (bmx_buf[3] << 8));
     dig_T3 = sign16(bmx_buf[4] | (bmx_buf[5] << 8));
-
     dig_P1 = bmx_buf[6] | (bmx_buf[7] << 8);
     dig_P2 = sign16(bmx_buf[8] | (bmx_buf[9] << 8));
     dig_P3 = sign16(bmx_buf[10] | (bmx_buf[11] << 8));
@@ -92,11 +93,8 @@ int bmx_read_calib() {
     dig_P7 = sign16(bmx_buf[18] | (bmx_buf[19] << 8));
     dig_P8 = sign16(bmx_buf[20] | (bmx_buf[21] << 8));
     dig_P9 = sign16(bmx_buf[22] | (bmx_buf[23] << 8));
-
     if (bmx_has_humi) {
-        // H1 at 0xA1
         dig_H1 = i2cRead8(bmx_addr, 0xA1, bmx_bus);
-        // Read 7 bytes from 0xE1..0xE7
         if (!i2cRead(bmx_addr, 0xE1, bmx_buf, 7, bmx_bus)) return 0;
         dig_H2 = sign16(bmx_buf[0] | (bmx_buf[1] << 8));
         dig_H3 = bmx_buf[2];
@@ -107,17 +105,93 @@ int bmx_read_calib() {
     return 1;
 }
 
-int bmx_configure() {
-    if (bmx_has_humi) {
-        // ctrl_hum (0xF2): humidity oversampling x1
-        if (!i2cWrite8(bmx_addr, 0xF2, 0x01, bmx_bus)) return 0;
-    }
-    // config (0xF5): standby 1000ms, filter off = 0xA0
-    if (!i2cWrite8(bmx_addr, 0xF5, 0xA0, bmx_bus)) return 0;
-    // ctrl_meas (0xF4): temp os x1, press os x1, normal mode = 0x27
-    // must be written AFTER ctrl_hum for BME280
-    if (!i2cWrite8(bmx_addr, 0xF4, 0x27, bmx_bus)) return 0;
+// ════════════════════════════════════════════════════════════════════
+// BME68x calibration (different layout than BME280)
+// Block A: 0x8A..0xA0 (23 bytes), Block B: 0xE1..0xEE (14 bytes),
+// plus res_heat_val(0x00), res_heat_range(0x02), range_sw_err(0x04).
+// ════════════════════════════════════════════════════════════════════
+int bme680_read_calib() {
+    if (!i2cRead(bmx_addr, 0x8A, bmx_buf, 23, bmx_bus)) return 0;
+    par_t2  = sign16(bmx_buf[0] | (bmx_buf[1] << 8));
+    par_t3  = sign8(bmx_buf[2]);
+    par_p1  = bmx_buf[4] | (bmx_buf[5] << 8);
+    par_p2  = sign16(bmx_buf[6] | (bmx_buf[7] << 8));
+    par_p3  = sign8(bmx_buf[8]);
+    par_p4  = sign16(bmx_buf[10] | (bmx_buf[11] << 8));
+    par_p5  = sign16(bmx_buf[12] | (bmx_buf[13] << 8));
+    par_p7  = sign8(bmx_buf[14]);
+    par_p6  = sign8(bmx_buf[15]);
+    par_p8  = sign16(bmx_buf[18] | (bmx_buf[19] << 8));
+    par_p9  = sign16(bmx_buf[20] | (bmx_buf[21] << 8));
+    par_p10 = bmx_buf[22];
+
+    if (!i2cRead(bmx_addr, 0xE1, bmx_buf, 14, bmx_bus)) return 0;
+    par_h2 = (bmx_buf[0] << 4) | (bmx_buf[1] >> 4);
+    par_h1 = (bmx_buf[2] << 4) | (bmx_buf[1] & 0x0F);
+    par_h3 = sign8(bmx_buf[3]);
+    par_h4 = sign8(bmx_buf[4]);
+    par_h5 = sign8(bmx_buf[5]);
+    par_h6 = bmx_buf[6];
+    par_h7 = sign8(bmx_buf[7]);
+    par_t1 = bmx_buf[8] | (bmx_buf[9] << 8);
+    par_g2 = sign16(bmx_buf[10] | (bmx_buf[11] << 8));
+    par_g1 = sign8(bmx_buf[12]);
+    par_g3 = sign8(bmx_buf[13]);
+
+    res_heat_val   = sign8(i2cRead8(bmx_addr, 0x00, bmx_bus));
+    res_heat_range = (i2cRead8(bmx_addr, 0x02, bmx_bus) >> 4) & 0x03;
+    range_sw_err   = sign8(i2cRead8(bmx_addr, 0x04, bmx_bus) & 0xF0) / 16;
     return 1;
+}
+
+// Heater resistance byte for a target temperature (°C), given ambient (°C)
+int bme680_calc_res_heat(int target, float amb) {
+    float var1 = ((float)par_g1 / 16.0) + 49.0;
+    float var2 = (((float)par_g2 / 32768.0) * 0.0005) + 0.00235;
+    float var3 = (float)par_g3 / 1024.0;
+    float var4 = var1 * (1.0 + (var2 * (float)target));
+    float var5 = var4 + (var3 * amb);
+    float rh = 3.4 * ((var5 * (4.0 / (4.0 + (float)res_heat_range)) *
+                       (1.0 / (1.0 + ((float)res_heat_val * 0.002)))) - 25.0);
+    int r = (int)rh;
+    if (r < 0) r = 0;
+    if (r > 255) r = 255;
+    return r;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Configure
+// ════════════════════════════════════════════════════════════════════
+int bme280_configure() {
+    if (bmx_has_humi) {
+        if (!i2cWrite8(bmx_addr, 0xF2, 0x01, bmx_bus)) return 0;  // ctrl_hum os x1
+    }
+    if (!i2cWrite8(bmx_addr, 0xF5, 0xA0, bmx_bus)) return 0;      // config: standby 1s, filter off
+    if (!i2cWrite8(bmx_addr, 0xF4, 0x27, bmx_bus)) return 0;      // ctrl_meas: T/P x1, normal mode
+    return 1;
+}
+
+int bme680_configure() {
+    if (!i2cWrite8(bmx_addr, 0x72, 0x01, bmx_bus)) return 0;      // ctrl_hum: os_h x1
+    i2cWrite8(bmx_addr, 0x75, 0x00, bmx_bus);                     // config: filter off
+    // Heater profile 0: ~300 °C target, ~100 ms heat
+    int rh = bme680_calc_res_heat(300, 25.0);
+    i2cWrite8(bmx_addr, 0x5A, rh, bmx_bus);                       // res_heat_0
+    i2cWrite8(bmx_addr, 0x64, 0x59, bmx_bus);                     // gas_wait_0 (~100 ms)
+    i2cWrite8(bmx_addr, 0x71, 0x10, bmx_bus);                     // ctrl_gas_1: run_gas=1, nb_conv=0
+    // ctrl_meas: os_t x1, os_p x1, forced mode (01) — kicks off the first measurement
+    i2cWrite8(bmx_addr, 0x74, 0x25, bmx_bus);
+    return 1;
+}
+
+int bmx_read_calib() {
+    if (bmx_is_680) return bme680_read_calib();
+    return bme280_read_calib();
+}
+
+int bmx_configure() {
+    if (bmx_is_680) return bme680_configure();
+    return bme280_configure();
 }
 
 // Scan both buses and addresses, auto-detect chip type
@@ -128,10 +202,22 @@ int bmx_scan() {
         while (addr <= BMX_ADDR2) {
             if (i2cSetDevice(addr, bus)) {
                 int id = i2cRead8(addr, 0xD0, bus);
-                if (id == BME_ID || id == BMP_ID) {
+                if (id == BME_ID || id == BMP_ID || id == BME680_ID) {
                     bmx_addr = addr;
                     bmx_bus = bus;
-                    if (id == BME_ID) {
+                    bmx_is_680 = 0;
+                    bmx_has_gas = 0;
+                    if (id == BME680_ID) {
+                        bmx_is_680 = 1;
+                        bmx_has_humi = 1;
+                        bmx_has_gas = 1;
+                        bmx_variant = i2cRead8(addr, 0xF0, bus);   // 0 = BME680, 1 = BME688/690
+                        if (bmx_variant == 0) {
+                            strcpy(bmx_name, "BME680");
+                        } else {
+                            strcpy(bmx_name, "BME688");
+                        }
+                    } else if (id == BME_ID) {
                         bmx_has_humi = 1;
                         strcpy(bmx_name, "BME280");
                     } else {
@@ -149,16 +235,17 @@ int bmx_scan() {
     return 0;
 }
 
-// Temperature compensation — sets t_fine
-int bmx_comp_temp(int adc_T) {
+// ════════════════════════════════════════════════════════════════════
+// BMP280 / BME280 compensation
+// ════════════════════════════════════════════════════════════════════
+int bme280_comp_temp(int adc_T) {
     int var1 = ((((adc_T >> 3) - (dig_T1 << 1))) * dig_T2) >> 11;
     int var2 = (((((adc_T >> 4) - dig_T1) * ((adc_T >> 4) - dig_T1)) >> 12) * dig_T3) >> 14;
     t_fine = var1 + var2;
     return (t_fine * 5 + 128) >> 8;
 }
 
-// Pressure compensation — returns Pa
-float bmx_comp_pres(int adc_P) {
+float bme280_comp_pres(int adc_P) {
     float var1 = (float)t_fine / 2.0 - 64000.0;
     float var2 = var1 * var1 * (float)dig_P6 / 32768.0;
     var2 = var2 + var1 * (float)dig_P5 * 2.0;
@@ -174,8 +261,7 @@ float bmx_comp_pres(int adc_P) {
     return p;
 }
 
-// Humidity compensation (BME280 only) — returns %RH
-float bmx_comp_humi(int adc_H) {
+float bme280_comp_humi(int adc_H) {
     float h = (float)t_fine - 76800.0;
     if (h == 0.0) return 0.0;
     h = ((float)adc_H - ((float)dig_H4 * 64.0 + (float)dig_H5 / 16384.0 * h)) *
@@ -185,6 +271,80 @@ float bmx_comp_humi(int adc_H) {
     if (h > 100.0) h = 100.0;
     if (h < 0.0) h = 0.0;
     return h;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// BME68x compensation (Bosch floating-point reference formulas)
+// ════════════════════════════════════════════════════════════════════
+float bme680_comp_temp(int adc_T) {
+    float v1 = ((float)adc_T / 16384.0 - (float)par_t1 / 1024.0) * (float)par_t2;
+    float d  = (float)adc_T / 131072.0 - (float)par_t1 / 8192.0;
+    float v2 = d * d * (float)par_t3 * 16.0;
+    bme_tfine = v1 + v2;
+    return bme_tfine / 5120.0;
+}
+
+float bme680_comp_pres(int adc_P) {
+    float v1 = (bme_tfine / 2.0) - 64000.0;
+    float v2 = v1 * v1 * ((float)par_p6 / 131072.0);
+    v2 = v2 + (v1 * (float)par_p5 * 2.0);
+    v2 = (v2 / 4.0) + ((float)par_p4 * 65536.0);
+    v1 = (((float)par_p3 * v1 * v1 / 16384.0) + ((float)par_p2 * v1)) / 524288.0;
+    v1 = (1.0 + (v1 / 32768.0)) * (float)par_p1;
+    if (v1 == 0.0) return 0.0;
+    float p = 1048576.0 - (float)adc_P;
+    p = ((p - (v2 / 4096.0)) * 6250.0) / v1;
+    v1 = ((float)par_p9 * p * p) / 2147483648.0;
+    v2 = p * ((float)par_p8 / 32768.0);
+    float v3 = (p / 256.0) * (p / 256.0) * (p / 256.0) * ((float)par_p10 / 131072.0);
+    p = p + (v1 + v2 + v3 + ((float)par_p7 * 128.0)) / 16.0;
+    return p;
+}
+
+float bme680_comp_humi(int adc_H) {
+    float tc = bme_tfine / 5120.0;
+    float v1 = (float)adc_H - (((float)par_h1 * 16.0) + (((float)par_h3 / 2.0) * tc));
+    float v2 = v1 * (((float)par_h2 / 262144.0) * (1.0 + (((float)par_h4 / 16384.0) * tc) +
+               (((float)par_h5 / 1048576.0) * tc * tc)));
+    float v3 = (float)par_h6 / 16384.0;
+    float v4 = (float)par_h7 / 2097152.0;
+    float h = v2 + ((v3 + (v4 * tc)) * v2 * v2);
+    if (h > 100.0) h = 100.0;
+    if (h < 0.0) h = 0.0;
+    return h;
+}
+
+// Gas-range lookup constants (BME680 variant 0 only)
+float bme680_lk1(int r) {
+    if (r == 5)  return -1.0;
+    if (r == 7)  return -0.8;
+    if (r == 10) return -0.2;
+    if (r == 11) return -0.5;
+    if (r == 13) return -1.0;
+    return 0.0;
+}
+float bme680_lk2(int r) {
+    if (r == 4) return 0.1;
+    if (r == 5) return 0.7;
+    if (r == 7) return -0.8;
+    if (r == 8) return -0.1;
+    return 0.0;
+}
+
+// Gas resistance in Ohm
+float bme680_comp_gas(int gas_adc, int gas_range) {
+    if (bmx_variant != 0) {
+        // BME688 / BME690 (variant 1)
+        int iv1 = 262144 >> gas_range;
+        float v2 = ((float)gas_adc - 512.0) * 3.0 + 4096.0;
+        return 1000000.0 * (float)iv1 / v2;
+    }
+    // BME680 (variant 0)
+    float v1 = 1340.0 + 5.0 * (float)range_sw_err;
+    float v2 = v1 * (1.0 + bme680_lk1(gas_range) / 100.0);
+    float v3 = 1.0 + bme680_lk2(gas_range) / 100.0;
+    return 1.0 / (v3 * 0.000000125 * (float)(1 << gas_range) *
+                  ((((float)gas_adc - 512.0) / v2) + 1.0));
 }
 
 // Dewpoint (Magnus formula), returns °C
@@ -200,6 +360,33 @@ float bmx_calc_abshumi(float t, float h) {
     return ah / (273.15 + t);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// BME68x forced-mode service: read the completed measurement, retrigger
+// ════════════════════════════════════════════════════════════════════
+void bme680_service() {
+    int st = i2cRead8(bmx_addr, 0x1D, bmx_bus);   // meas_status_0
+    if (st & 0x80) {                               // new_data_0
+        // 15 bytes from 0x1D..0x2B
+        if (i2cRead(bmx_addr, 0x1D, bmx_buf, 15, bmx_bus)) {
+            int adc_P = (bmx_buf[2] << 12) | (bmx_buf[3] << 4) | (bmx_buf[4] >> 4);
+            int adc_T = (bmx_buf[5] << 12) | (bmx_buf[6] << 4) | (bmx_buf[7] >> 4);
+            int adc_H = (bmx_buf[8] << 8) | bmx_buf[9];
+            int gas_adc = (bmx_buf[13] << 2) | (bmx_buf[14] >> 6);
+            int gas_range = bmx_buf[14] & 0x0F;
+            bmx_gas_valid = (bmx_buf[14] >> 5) & 1;
+            bmx_temp = bme680_comp_temp(adc_T);
+            bmx_pres = bme680_comp_pres(adc_P) / 100.0;
+            bmx_humi = bme680_comp_humi(adc_H);
+            bmx_dewp = bmx_calc_dewpoint(bmx_temp, bmx_humi);
+            bmx_absh = bmx_calc_abshumi(bmx_temp, bmx_humi);
+            if (bmx_gas_valid) bmx_gas = bme680_comp_gas(gas_adc, gas_range) / 1000.0;
+            bmx_ok = 1;
+        }
+    }
+    // Kick off the next forced measurement (os_t x1, os_p x1, forced)
+    i2cWrite8(bmx_addr, 0x74, 0x25, bmx_bus);
+}
+
 void EverySecond() {
     if (!bmx_addr) {
         if (!bmx_scan()) { bmx_ok = 0; return; }
@@ -207,41 +394,38 @@ void EverySecond() {
         if (!bmx_configure()) { bmx_ok = 0; bmx_addr = 0; return; }
     }
 
-    // Read from 0xF7: press[3] + temp[3] + humi[2] (8 for BME, 6 for BMP)
-    int rlen = 6;
-    if (bmx_has_humi) rlen = 8;
-    if (!i2cRead(bmx_addr, 0xF7, bmx_buf, rlen, bmx_bus)) {
-        bmx_ok = 0;
-        bmx_addr = 0;
-        return;
+    if (bmx_is_680) {
+        bme680_service();
+    } else {
+        int rlen = 6;
+        if (bmx_has_humi) rlen = 8;
+        if (!i2cRead(bmx_addr, 0xF7, bmx_buf, rlen, bmx_bus)) {
+            bmx_ok = 0;
+            bmx_addr = 0;
+            return;
+        }
+        int adc_P = (bmx_buf[0] << 12) | (bmx_buf[1] << 4) | (bmx_buf[2] >> 4);
+        int adc_T = (bmx_buf[3] << 12) | (bmx_buf[4] << 4) | (bmx_buf[5] >> 4);
+        int T100 = bme280_comp_temp(adc_T);
+        bmx_temp = (float)T100 / 100.0;
+        bmx_pres = bme280_comp_pres(adc_P) / 100.0;
+        if (bmx_has_humi) {
+            int adc_H = (bmx_buf[6] << 8) | bmx_buf[7];
+            bmx_humi = bme280_comp_humi(adc_H);
+            bmx_dewp = bmx_calc_dewpoint(bmx_temp, bmx_humi);
+            bmx_absh = bmx_calc_abshumi(bmx_temp, bmx_humi);
+        }
+        bmx_ok = 1;
     }
-
-    int adc_P = (bmx_buf[0] << 12) | (bmx_buf[1] << 4) | (bmx_buf[2] >> 4);
-    int adc_T = (bmx_buf[3] << 12) | (bmx_buf[4] << 4) | (bmx_buf[5] >> 4);
-
-    int T100 = bmx_comp_temp(adc_T);
-    bmx_temp = (float)T100 / 100.0;
-    bmx_pres = bmx_comp_pres(adc_P) / 100.0;
-
-    if (bmx_has_humi) {
-        int adc_H = (bmx_buf[6] << 8) | bmx_buf[7];
-        bmx_humi = bmx_comp_humi(adc_H);
-        bmx_dewp = bmx_calc_dewpoint(bmx_temp, bmx_humi);
-        bmx_absh = bmx_calc_abshumi(bmx_temp, bmx_humi);
-    }
-
-    bmx_ok = 1;
 
 #ifdef USE_CHARTS
-    // Chart history every minute
     hist_tick++;
     if (hist_tick >= 60) {
         hist_tick = 0;
         hist_temp[hist_pos % CHART_LEN] = bmx_temp;
         hist_pres[hist_pos % CHART_LEN] = bmx_pres;
-        if (bmx_has_humi) {
-            hist_humi[hist_pos % CHART_LEN] = bmx_humi;
-        }
+        if (bmx_has_humi) hist_humi[hist_pos % CHART_LEN] = bmx_humi;
+        if (bmx_has_gas)  hist_gas[hist_pos % CHART_LEN]  = bmx_gas;
         hist_pos++;
     }
 #endif
@@ -252,12 +436,14 @@ void WebPage() {
     int n = hist_pos;
     if (n > CHART_LEN) n = CHART_LEN;
     if (n > 0) {
-        // ottelo's chart-centering compensation (margin-left:-30px wrapper)
         webSend("<div style='margin-left:-30px'>");
-        WebChart('l', "Temperature", "\u00b0C", 0xe74c3c, hist_pos, CHART_LEN, hist_temp, 1, 0, 0, 0);
+        WebChart('l', "Temperature", "°C", 0xe74c3c, hist_pos, CHART_LEN, hist_temp, 1, 0, 0, 0);
         WebChart('l', "Pressure", "hPa", 0x27ae60, hist_pos, CHART_LEN, hist_pres, 1, 0, 0, 0);
         if (bmx_has_humi) {
             WebChart('l', "Humidity", "%RH", 0x3498db, hist_pos, CHART_LEN, hist_humi, 1, 0, 0, 0);
+        }
+        if (bmx_has_gas) {
+            WebChart('l', "Gas", "kOhm", 0xe67e22, hist_pos, CHART_LEN, hist_gas, 1, 0, 0, 0);
         }
         webSend("</div>");
     }
@@ -291,6 +477,12 @@ void WebCall() {
             sprintf(vt, "%.1f g/m&sup3;{e}", bmx_absh);
             webSend(vt);
         }
+        if (bmx_has_gas) {
+            sprintf(vt, "{s}%s Gas{m}", bmx_name);
+            webSend(vt);
+            sprintf(vt, "%.1f k&Omega;{e}", bmx_gas);
+            webSend(vt);
+        }
     } else {
         webSend("{s}BMx280{m}not found{e}");
     }
@@ -299,7 +491,6 @@ void WebCall() {
 void JsonCall() {
     if (!bmx_ok) return;
     char buf[96];
-    // ,\"BME280\":{\"Temperature\":23.5,\"Pressure\":1013.2,\"Humidity\":45.3}
     sprintf(buf, ",\"%s\":{", bmx_name);
     responseAppend(buf);
     sprintf(buf, "\"Temperature\":%.1f", bmx_temp);
@@ -312,6 +503,10 @@ void JsonCall() {
         sprintf(buf, ",\"DewPoint\":%.1f", bmx_dewp);
         responseAppend(buf);
         sprintf(buf, ",\"AbsHumidity\":%.1f", bmx_absh);
+        responseAppend(buf);
+    }
+    if (bmx_has_gas) {
+        sprintf(buf, ",\"Gas\":%.1f", bmx_gas);   // kOhm
         responseAppend(buf);
     }
     responseAppend("}");
@@ -345,7 +540,7 @@ int main() {
             bmx_addr = 0;
         }
     } else {
-        addLog("BMx280 not found on any bus");
+        addLog("BMx280/BME68x not found on any bus");
     }
     return 0;
 }
