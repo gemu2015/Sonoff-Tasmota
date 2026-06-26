@@ -293,6 +293,16 @@ static FS *tc_file_path(char *path) {
 // Reserved per-slot heap region (in int32 slots) for callback string args — one
 // char per slot, 512 chars + null. See tc_cb_arg_handle().
 #define TC_CB_ARG_SLOTS         513
+// Idle bump-heap shrink (tc_heap_maybe_shrink). The bump allocator only grows
+// (realloc up) and never gives capacity back, so a transient peak (e.g. a big
+// per-command JSON buffer hit under web-poll load) keeps the heap inflated for
+// the life of the slot — the device's free heap never recovers after load
+// subsides. Once per window we realloc the heap DOWN to the window's PEAK
+// heap_used + headroom: never below what the window actually used (so it can't
+// thrash against active polling), but it returns the peak once the load stops.
+#define TC_HEAP_MAINT_WINDOW    30    // seconds per measure/shrink window
+#define TC_HEAP_SHRINK_HEADROOM 64    // slots kept above the window peak
+#define TC_HEAP_SHRINK_GAP      256   // only shrink when >= this many slots (1 KB) would be freed
 // responseCmnd(buf) stack buffer cap. Old hardcoded 255 silently
 // truncated longer JSON into invalid JSON (rendered as empty {}).
 // #ifndef-guarded so user_config_override.h can raise it; Tasmota's
@@ -1424,6 +1434,8 @@ typedef struct {
   uint8_t       heap_handle_count;
   int16_t       cb_arg_handle;   // reserved heap handle for callback string args (-1 = none yet)
   int16_t       cb_arg_handle2;  // 2nd reserved handle for 2-arg callbacks, e.g. OnMqttData
+  uint16_t      heap_used_peak;  // high-water heap_used in the current window (idle-shrink)
+  uint16_t      heap_maint_ticks;// seconds since the last idle-shrink window boundary
   // Callback function table (V3)
   TcCallback    callbacks[TC_MAX_CALLBACKS];
   uint8_t       callback_count;
@@ -3530,6 +3542,7 @@ static int tc_heap_alloc(TcVM *vm, uint16_t size) {
   // Zero-initialize the new block
   memset(&vm->heap_data[vm->heap_used], 0, size * sizeof(int32_t));
   vm->heap_used += size;
+  if (vm->heap_used > vm->heap_used_peak) vm->heap_used_peak = vm->heap_used;  // idle-shrink window peak
   if ((uint8_t)(handle + 1) > vm->heap_handle_count) vm->heap_handle_count = handle + 1;
   return handle;
 }
@@ -3556,6 +3569,31 @@ static void tc_heap_free_all(TcVM *vm) {
   vm->heap_handle_count = 0;
   vm->cb_arg_handle = -1;   // reserved handles invalidated with the heap
   vm->cb_arg_handle2 = -1;
+  vm->heap_used_peak = 0;
+  vm->heap_maint_ticks = 0;
+}
+
+// Idle bump-heap shrink — call once per second per slot from FUNC_EVERY_SECOND
+// while holding the slot's vm_mutex (so no VM op runs concurrently and no raw
+// heap pointer is live — TinyC never holds one across a yield). Returns the bump
+// heap's transient PEAK capacity to the system heap after load subsides, so the
+// device's free heap recovers instead of staying pinned at the high-water mark.
+// Shrinks to the window's peak heap_used + headroom — never below what the window
+// actually used — so it cannot thrash against active polling (a window that keeps
+// hitting a big buffer keeps the capacity; a quiet window gives it back).
+static void tc_heap_maybe_shrink(TcVM *vm) {
+  if (++vm->heap_maint_ticks < TC_HEAP_MAINT_WINDOW) return;
+  vm->heap_maint_ticks = 0;
+  uint16_t target = vm->heap_used_peak + TC_HEAP_SHRINK_HEADROOM;
+  if (vm->heap_data && target < vm->heap_capacity &&
+      (uint16_t)(vm->heap_capacity - target) >= TC_HEAP_SHRINK_GAP) {
+    int32_t *p = (int32_t *)special_realloc(vm->heap_data, (size_t)target * sizeof(int32_t));
+    if (p) {                                 // realloc-down: keeps [0..target), live data is below heap_used <= peak <= target
+      vm->heap_data = p;
+      vm->heap_capacity = target;
+    }
+  }
+  vm->heap_used_peak = vm->heap_used;         // start a fresh window from current usage
 }
 
 // Lazily reserve a fixed per-slot heap region for callback string arguments,
