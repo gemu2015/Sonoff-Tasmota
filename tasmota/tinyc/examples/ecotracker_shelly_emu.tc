@@ -515,10 +515,19 @@ void WebPage() {
     webSend("<div style='margin-left:-30px'>");
     WebChart(0, "Leistung 4h",  "W", 0xe74c3c, s4h_pos,  s4h_cnt,  s4h,  0, 1, 0, 0);
     WebChart(0, "Leistung 24h", "W", 0x3498db, s24h_pos, s24h_cnt, s24h, 0, 5, 0, 0);
+    // Date-align the day/month ring charts. The midnight rollover pushes the
+    // COMPLETED (yesterday's) day into dcon[]/dprod[] — but WebChart dates the
+    // newest ring point as "now" (today), so without a shift yesterday's value
+    // would carry today's date (the off-by-one all users saw). Move the x-axis
+    // time base back one full bucket so the newest bar lands on the day/month it
+    // actually belongs to. WebChartTimeBase is global, so reset it to 0 after.
+    WebChartTimeBase(-1440);     // newest daily bar = yesterday (1 day = 1440 min)
     WebChart(1, "Tage (kWh)",   "Verbrauch",   0x27ae60, day_pos, day_cnt, dcon,  2, 1440, 0, 0);
     WebChart(1, "",             "Einspeisung", 0xf39c12, day_pos, day_cnt, dprod, 2, 1440, 0, 0);
+    WebChartTimeBase(-43200);    // newest month bar = last month (~30 days; approximate near month-end)
     WebChart(1, "Monate (kWh)", "Verbrauch",   0x27ae60, mon_pos, mon_cnt, mcon,  1, 43200, 0, 0);
     WebChart(1, "",             "Einspeisung", 0xf39c12, mon_pos, mon_cnt, mprod, 1, 43200, 0, 0);
+    WebChartTimeBase(0);         // reset base for the live 4h/24h charts on the next page load
     webSend("</div>");
 
     sprintf(body, "<div style='text-align:center;font-size:12px;color:#666;margin:6px 0'>Punkte: 4h=%d &middot; 24h=%d &middot; Tage=%d &middot; Monate=%d &middot; Leistung: %.0f W &middot; Auto-Reload: %ds</div>", s4h_cnt, s24h_cnt, day_cnt, mon_cnt, cpwr, chart_refresh);
