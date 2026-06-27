@@ -32,11 +32,11 @@ RELEASE_TAG="${RELEASE_TAG:-testing}"
 # Standard firmware targets (env name in platformio_override.ini). The ESP32
 # targets now ship with Matter (USE_MATTER_C) — at ~57 kB it fits where HomeKit
 # (~156 kB) did not, so testers can pair over Apple Home / Google / Alexa.
-# ESP8266 is no longer shipped: ~16 KB free heap (with TinyC not even started) is
-# too low to load the VM — a small script crashes at start, and the platform is
-# RAM+flash bound (Flash 92%, RAM 63%). It stays buildable (env tinyc8266-4M) for
-# lean custom images (e.g. ottelo's SML build) but is dropped from the released
-# TinyC binaries.
+# ESP8266 ships again as of 1.6.42: the output-program HWDT — tc_syscall scratch
+# buffers overflowing the loop-task stack — is fixed (buffers moved to heap, 53cd18108),
+# so a lean ESP8266 build (env tinyc8266-4M) runs basic TinyC programs again. It is
+# RAM+flash bound (no Matter / LVGL / camera) and ships .bin + .bin.gz only — no
+# .factory.bin (ESP8266 has no separate safeboot/factory image; the .bin is the full one).
 STD_TARGETS=(
   tinyc32-4M-plain # ESP32 4MB classic WROOM — plain (no Matter / no camera / no HomeKit)
   tinyc32-4M-cam   # ESP32 4MB WROVER + PSRAM — Matter + camera
@@ -44,6 +44,7 @@ STD_TARGETS=(
   tinyc32c3        # ESP32-C3           (Matter)
   tinyc32c6        # ESP32-C6           (Matter)
   tinyc32-p4-full  # ESP32-P4 16MB+PSRAM — FULL: DSI display + LVGL, Matter, MIPI camera, audio
+  tinyc8266-4M     # ESP8266 4MB — lean (no Matter / LVGL / camera); HWDT fix, runs basic programs
 )
 
 # ─────────── Argument parsing ────────────────────────────────────────────────
@@ -176,10 +177,17 @@ run "mkdir -p '$STAGE_DIR'"
 
 for env in "${STD_TARGETS[@]}"; do
   src="$FW_DIR/${env}.bin"
-  # ESP32 family: ship .bin (OTA) + .factory.bin (esptool / web installer)
   [[ -f "$src" ]] || $DRY_RUN || die "Missing $src"
-  [[ -f "${src%.bin}.factory.bin" ]] || $DRY_RUN || die "Missing ${src%.bin}.factory.bin"
-  run "cp '$src' '${src%.bin}.factory.bin' '$STAGE_DIR/'"
+  if [[ "$env" == tinyc8266* ]]; then
+    # ESP8266: ship .bin (OTA / esptool) + .bin.gz (compressed OTA). No .factory.bin —
+    # ESP8266 has no separate safeboot/factory image; the .bin is the full one.
+    run "cp '$src' '$STAGE_DIR/'"
+    [[ -f "${src}.gz" ]] && run "cp '${src}.gz' '$STAGE_DIR/'"
+  else
+    # ESP32 family: ship .bin (OTA) + .factory.bin (esptool / web installer)
+    [[ -f "${src%.bin}.factory.bin" ]] || $DRY_RUN || die "Missing ${src%.bin}.factory.bin"
+    run "cp '$src' '${src%.bin}.factory.bin' '$STAGE_DIR/'"
+  fi
 done
 
 # IDE + docs
@@ -238,6 +246,7 @@ else
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
 | \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, **Matter**, MIPI camera, audio |
+| \`tinyc8266-4M.bin\` / \`.bin.gz\` | **ESP8266** 4MB — lean (no Matter / LVGL / camera); runs basic TinyC programs (HWDT fix). Flash the \`.bin\` (OTA/esptool); no \`.factory.bin\` |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
