@@ -8072,6 +8072,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       switch (mode) {
         case 0: { // udp(0, port) → open listening port
           int32_t port = TC_POP(vm);
+          // No socket open before WiFi is up — binding/begin() against a dead stack
+          // at early boot corrupts the heap -> delayed tlsf_free crash + boot-loop on
+          // an autoexec slot (mirror SYS_TCP/TLS_CONNECT's network_down guard).
+          if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, 0); break; }
           if (port > 0 && port < 65536) {
             Tinyc->udp_port.stop();
             Tinyc->udp_port_mcast = IPAddress(0,0,0,0);  // plain unicast
@@ -8199,6 +8203,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           int32_t str_ref = TC_POP(vm);
           int32_t port = TC_POP(vm);
           int32_t url_ref = TC_POP(vm);
+          // No UDP send before WiFi — begin()/beginPacket() on a dead stack at early
+          // boot corrupts the heap + boot-loops an autoexec slot. Fail cleanly.
+          if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, 0); break; }
           char url[64];
           tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
           TC_BUF(payload, 512);
@@ -8219,6 +8226,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           int32_t arr_ref = TC_POP(vm);
           int32_t port = TC_POP(vm);
           int32_t url_ref = TC_POP(vm);
+          // No UDP send before WiFi (see mode 6).
+          if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, 0); break; }
           char url[64];
           tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
           int32_t *arr = tc_resolve_ref(vm, arr_ref);
@@ -9721,6 +9730,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       a = TC_POP(vm);  // url ref
       TC_BUF(url, 256);
       tc_ref_to_cstr(vm, a, url, sizeof(url));
+      // Mirror SYS_TCP/TLS_CONNECT: HTTP before the link is up drives the client/DNS
+      // into a dead stack -> heap corruption -> delayed crash + boot-loop. Fail clean.
+      if (TasmotaGlobal.global_state.network_down) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: httpGet %s skipped - network down"), url);
+        TC_PUSH(vm, -1); break;
+      }
       int32_t cap;
       { int32_t *bf0 = tc_resolve_ref(vm, b); cap = bf0 ? tc_ref_maxlen(vm, b) : 0; }
       int32_t result = -1;
@@ -9887,6 +9902,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       a = TC_POP(vm);                // url ref
       TC_BUF(url, 256);
       tc_ref_to_cstr(vm, a, url, sizeof(url));
+      // Mirror SYS_TCP/TLS_CONNECT: HTTP before the link is up corrupts the heap.
+      if (TasmotaGlobal.global_state.network_down) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: httpPost %s skipped - network down"), url);
+        TC_PUSH(vm, -1); break;
+      }
       char postData[TC_OUTPUT_SIZE];
       tc_ref_to_cstr(vm, dataRef, postData, sizeof(postData));
       // Bound the connect (2 s default, tcpConnectTimeout overrides) — a dead
