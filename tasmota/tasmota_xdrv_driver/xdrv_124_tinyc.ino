@@ -4491,8 +4491,26 @@ static void HandleTinyCUI(void) {
   }
   Tinyc->current_page = page;
 
-  // Find the slot that registered this page
-  uint8_t si = (page < Tinyc->page_count) ? Tinyc->page_slot[page] : 0;
+  // Pick the slot for this page. Prefer the slot that registered it; but if no page
+  // is registered (page_count==0) or that slot is gone/unloaded/has no WebUI, fall
+  // back to the first LOADED slot that actually has a WebUI callback — never a
+  // hardcoded slot 0, which may be empty and would 503 the generic "TinyC UI" button
+  // (the common case: one or more label-less WebUI slots, none of them slot 0).
+  uint8_t si = (page < Tinyc->page_count) ? Tinyc->page_slot[page] : 0xFF;
+  {
+    TcSlot *cand = (si < TC_MAX_VMS) ? Tinyc->slots[si] : nullptr;
+    if (!(cand && cand->loaded && cand->vm.error == TC_OK && tc_has_callback(&cand->vm, "WebUI"))) {
+      si = 0xFF;
+      for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+        TcSlot *c = Tinyc->slots[i];
+        if (c && c->loaded && c->vm.error == TC_OK && tc_has_callback(&c->vm, "WebUI")) { si = i; break; }
+      }
+    }
+  }
+  if (si >= TC_MAX_VMS) {     // no loaded slot has a WebUI -> nothing to render
+    Webserver->send(503, "text/plain", "TinyC not ready");
+    return;
+  }
   TcSlot *s = Tinyc->slots[si];
   if (!s || !s->loaded || s->vm.error != TC_OK) {     // truly fatal
     Webserver->send(503, "text/plain", "TinyC not ready");
@@ -5968,18 +5986,18 @@ bool Xdrv124(uint32_t function) {
             has_webui = true;
           }
         }
-        // Add buttons to /tc_ui pages if any slot has WebUI callback
-        if (has_webui) {
-          if (Tinyc->page_count > 0) {
-            for (uint8_t p = 0; p < Tinyc->page_count; p++) {
-              if (Tinyc->page_label[p][0]) {
-                WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
-                  "<input type='hidden' name='p' value='%d'>"
-                  "<button>%s</button></form>"), p, Tinyc->page_label[p]);
-              }
+        // /tc_ui sub-page buttons — ONLY for slots that explicitly registered a page
+        // via webPageLabel(). A bare WebUI() (no label) gets NO button: its controls
+        // are expected inline on the main page (raw HTML in WebCall, like wallbox/
+        // marstek). This kills the old generic "TinyC UI" button that appeared for any
+        // WebUI slot (and 503'd when it resolved to an empty slot 0).
+        if (has_webui && Tinyc->page_count > 0) {
+          for (uint8_t p = 0; p < Tinyc->page_count; p++) {
+            if (Tinyc->page_label[p][0]) {
+              WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
+                "<input type='hidden' name='p' value='%d'>"
+                "<button>%s</button></form>"), p, Tinyc->page_label[p]);
             }
-          } else {
-            WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'><button>TinyC UI</button></form>"));
           }
         }
       }

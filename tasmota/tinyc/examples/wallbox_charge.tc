@@ -157,16 +157,8 @@ void WebCall() {
     webSend(sb);
 }
 
-void WebUI() {
-    webSend("<hr><b>&#128663; Wallbox-Steuerung</b>");
-    webSend("<div class='hint'>PV-AUTO = nur aus Solar-&Uuml;berschuss (Powerwall geschont). ZWANGSLADEN = sofort laden, auch aus der Powerwall, bis Max-SOC. Unter Min-SOC l&auml;dt das Auto automatisch zwangsweise.</div>");
-    webButton(btn_auto,  "PV-AUTO an/aus|umgeschaltet");
-    webButton(btn_force, "&#9889; ZWANGSLADEN an/aus|umgeschaltet");
-    webButton(btn_stop,  "STOP (alles aus)|gestoppt");
-    webSend("<hr><b>Regeln (gespeichert)</b>");
-    webSlider(max_soc, 50, 100, "Max Auto-SOC %");
-    webSlider(min_soc, 5,  60,  "Min SOC Zwangsladen %");
-}
+// No WebUI()/tc_ui page — all controls are inline on the main page (WebCall), so the
+// firmware shows no "TinyC UI" button for this slot.
 
 void Command(char cmd[]) {
     int i = 0; while (cmd[i] == ' ') { i = i + 1; }

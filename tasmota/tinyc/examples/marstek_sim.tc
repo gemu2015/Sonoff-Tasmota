@@ -271,19 +271,26 @@ void WebCall() {
     sprintf(b, "{s}&#9851; PW entlastet (seit Start){m}%.2f kWh{e}", relief_wh / 1000.0); webSend(b);
     sprintf(b, "{s}Regeln{m}max %d%% &middot; Reserve %d%%{e}", mk_max, mk_min);    webSend(b);
     if (!data_ok) { webSend("{s}{m}<span style='color:#f88'>warte auf Powerwall-Daten&hellip;</span>{e}"); }
+    // Controls ON THE MAIN PAGE — same pattern as wallbox_charge: raw HTML calling
+    // /cm?cmnd=MK ... -> the MK Command() handler, so they sit right inside this
+    // status card (the webButton/webSlider widgets in WebUI() are the /tc_ui page).
+    // State shows in the rows above; sliders pause the page refresh while dragging
+    // (clearTimeout lt/ft) and send on release, then la() refreshes.
+    webSend("<div style='display:flex;gap:4px;margin:6px 0'>");
+    webSend("<button onclick=\"fetch('/cm?cmnd=MK%20a')\">AUTO</button>");
+    webSend("<button class='bred' onclick=\"fetch('/cm?cmnd=MK%20c')\">&#9889; Laden</button>");
+    webSend("<button onclick=\"fetch('/cm?cmnd=MK%20d')\">&#9889; Entladen</button>");
+    webSend("<button style='background:#666' onclick=\"fetch('/cm?cmnd=MK%20s')\">STOP</button>");
+    webSend("</div>");
+    char sb[360];
+    sprintf(sb, "<div style='margin:4px 2px'>Lade-Limit <b>%d%%</b><input type='range' min='50' max='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20ma%%20'+this.value);la()\"></div>", mk_max, mk_max);
+    webSend(sb);
+    sprintf(sb, "<div style='margin:4px 2px'>Backup-Reserve <b>%d%%</b><input type='range' min='5' max='60' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20mi%%20'+this.value);la()\"></div>", mk_min, mk_min);
+    webSend(sb);
 }
 
-void WebUI() {
-    webSend("<hr><b>&#128267; Marstek Venus E &mdash; Steuerung (Sim)</b>");
-    webSend("<div class='hint'>AUTO: l&auml;dt aus PV-&Uuml;berschuss und entl&auml;dt zur Hausdeckung &mdash; <b>vor</b> der Powerwall, nie unter die Backup-Reserve.</div>");
-    webToggle(armed, "AUTO an|AUTO aus");
-    webButton(btn_chg,  "&#9889; Laden erzwingen|l&auml;dt");
-    webButton(btn_dis,  "&#9889; Entladen erzwingen|entl&auml;dt");
-    webButton(btn_stop, "STOP (AUTO aus)|gestoppt");
-    webSend("<b>Regeln (gespeichert)</b>");
-    webSlider(mk_max, 50, 100, "Lade-Limit %");
-    webSlider(mk_min, 5,  60,  "Backup-Reserve %");
-}
+// No WebUI()/tc_ui page — all controls are inline on the main page (WebCall), so the
+// firmware shows no "TinyC UI" button for this slot.
 
 void Command(char cmd[]) {
     int i = 0; while (cmd[i] == ' ') { i = i + 1; }
