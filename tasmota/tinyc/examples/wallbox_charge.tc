@@ -49,6 +49,9 @@ int btn_auto = 0; int btn_force = 0; int btn_stop = 0;     // web button flags
 int last_max = -1; int last_min = -1; int dirty = 0;       // persist dirty-tracking
 
 void setCharge(int on) {
+    // No httpGet before WiFi is up — http-before-link corrupts the heap and boot-loops
+    // an autoexec device (cf. hyundai_soc.tc). Skip the switch; the next tick retries.
+    if (!tasm_wifi) { return; }
     char url[80]; char r[64];
     if (on) { sprintf(url, "http://%s/cm?cmnd=Power%%20ON", WB_IP); }
     else    { sprintf(url, "http://%s/cm?cmnd=Power%%20OFF", WB_IP); }

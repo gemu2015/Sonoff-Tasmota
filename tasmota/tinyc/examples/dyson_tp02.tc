@@ -141,6 +141,10 @@ void parse_status(char b[]) {                      // CURRENT-STATE / STATE-CHAN
 }
 
 void do_connect() {
+  // No tcpConnect before WiFi is up — tcp-before-link corrupts the heap and boot-loops
+  // an autoexec device (main() calls this immediately; cf. hyundai_soc.tc). TaskLoop
+  // retries every 3 s once the link is up.
+  if (!tasm_wifi) { return; }
   subscribed = 0;
   int rc = tcpConnect(host, 1883);
   if (rc == 0) { mqtt_connect(); t_ping = millis(); addLog("dyson: TCP up, CONNECT sent"); }
