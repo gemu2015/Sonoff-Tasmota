@@ -110,6 +110,8 @@ void queue_unit(int u, int stateidx, int tempv) {
 // (power/mode/setpoint). Updates the cached state for index u.
 void daikin_read(char ip[], int u) {
     char k[12]; float f;
+    // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    if (!tasm_wifi) { return; }
     d_ok[u] = 0;
 
     sprintf(url, "http://%s/aircon/get_sensor_info", ip);
@@ -135,6 +137,8 @@ void daikin_read(char ip[], int u) {
 // preserved exactly, as the Daikin requires).
 void daikin_set(char ip[], int pow, int mode, float stemp) {
     int shum; int fdir; char frate[8]; char tmp[12]; int p;
+    // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    if (!tasm_wifi) { return; }
     shum = 0; fdir = 0; strcpy(frate, "A");
 
     sprintf(url, "http://%s/aircon/get_control_info", ip);

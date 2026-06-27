@@ -64,6 +64,7 @@ float getPower(int len, int ch, int idx) {
 }
 
 void TaskLoop() {
+    while (!tasm_wifi) { delay(500); }   // no multicast join before WiFi is up — corrupts the heap + boot-loops an autoexec slot
     while (!joined) {
         joined = udp(9, SMA_MCAST, SMA_PORT);
         if (!joined) delay(5000);

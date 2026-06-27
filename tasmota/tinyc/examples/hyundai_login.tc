@@ -37,6 +37,7 @@ void loadCreds() {
 // connect with retry — rapid same-host TLS reconnects can transiently fail to get
 // an 8KB buffer on a fragmented heap; a short pause lets the prior socket/heap free.
 int tlsConn() {
+    if (!tasm_wifi) { return -1; }   // no tlsConnect before WiFi is up — corrupts the heap + boot-loops an autoexec slot
     int t = 0;
     while (t < 5) {
         if (tlsConnect(TOKHOST, 443) == 0) { return 0; }

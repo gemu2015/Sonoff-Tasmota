@@ -105,6 +105,7 @@ void poll_remote() {
 void TaskLoop() {
     int t = 0;
     delay(15000);                                // let WiFi + Matter come up
+    while (!tasm_wifi) { delay(500); }           // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
     while (1) {
         if (cmd_ready)     { send_pending(); }   // forward a control cmnd ASAP (~0.3 s)
         if (t % 17 == 0)   { poll_remote(); }    // refresh sensors/state ~every 5 s

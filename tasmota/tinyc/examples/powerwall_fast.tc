@@ -100,6 +100,8 @@ char ws_url[256];
 char ws_resp[64];
 
 void pwl_websend_publish() {
+    // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    if (!tasm_wifi) { return; }
     // Build URL: http://<target>/cm?cmnd=Script>pwl=...;sip=...;...
     // %% in sprintf format → literal %; %3E = >, %3D = =, %3B = ;
     // — Tasmota's HTTP server URL-decodes the cmnd before passing

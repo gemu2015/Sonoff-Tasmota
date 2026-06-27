@@ -160,6 +160,10 @@ void EverySecond() {
   if (do_reset)   { tasmCmd("Sensor53 r", sml_buf); do_reset = 0; }
   if (do_restore) { deye_restore();                 do_restore = 0; }
 
+  // no httpGet to the wallbox before WiFi is up — corrupts the heap + boot-loops
+  // an autoexec slot (goe_on is `persist`, so it can already be set at boot).
+  if (!tasm_wifi) { return; }
+
   // React fast to a checkbox toggle: re-assert the mode next second, and when the
   // MASTER is switched OFF send one final frc=1 (stop) before going silent.
   int chg = 0;

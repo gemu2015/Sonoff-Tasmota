@@ -78,6 +78,8 @@ char ws_url[256];
 char ws_resp[64];
 
 void pwl_publish() {
+    // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    if (!tasm_wifi) { return; }
     sprintf(ws_url,
         "http://%s/cm?cmnd=Script%%3Epwl%%3D%.2f%%3Bsip%%3D%.2f%%3Bsop%%3D%.2f%%3Bbip%%3D%.2f%%3Bhip%%3D%.2f%%3Btcap%%3D%.0f%%3Brcap%%3D%.2f%%3Brper%%3D%.1f%%3Bphs1%%3D%.2f%%3Bphs2%%3D%.2f%%3Bphs3%%3D%.2f",
         WS_TARGET,

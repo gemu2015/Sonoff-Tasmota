@@ -81,6 +81,8 @@ void refresh_self_ip() {
 // sure no other slot in the same device is mid-TCP when this fires
 // (or move to a dedicated slot).
 int probe_webui() {
+    // no tcpConnect before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    if (!tasm_wifi) return 1;             // WiFi down → nothing to probe; assume fine
     if (strlen(self_ip) == 0) return 1;   // can't probe; assume fine
     tcpSelect(0);
     int rc = tcpConnect(self_ip, 80);

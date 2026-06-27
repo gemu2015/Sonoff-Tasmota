@@ -154,6 +154,7 @@ void poll_aircon(char ip[], int ep) {
 // stalls EverySecond / the Matter network handling.
 void TaskLoop() {
     delay(15000);                                 // let WiFi + Matter come up first
+    while (!tasm_wifi) { delay(500); }            // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
     while (1) {
         poll_aircon("192.168.188.24", e_acwz);    // Wohnzimmer
         delay(3000);

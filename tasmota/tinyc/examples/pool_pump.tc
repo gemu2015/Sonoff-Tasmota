@@ -553,6 +553,8 @@ void json_get_str(char json[], char key[], char out[], int outmax) {
 // Connects, optionally does handshake (v3.4), sends body, reads response.
 // Returns decrypted-body length (>0 OK, 0 fail). Caller already tcpSelect'd.
 int tuya_round_trip_v(int version, int cmd, char body[], int body_len) {
+    // no tcpConnect before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    if (!tasm_wifi) return -1;
     // Pump only allows one concurrent local connection and has a cooldown
     // after each disconnect. Retry up to 3 times with growing back-off.
     int rc = -1;

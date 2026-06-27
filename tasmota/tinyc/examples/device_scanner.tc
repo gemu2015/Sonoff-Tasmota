@@ -210,6 +210,9 @@ int derive_self_oct() {
 
 void scan_begin() {
     if (sc_active) return;
+    // no tcpConnect/httpGet probing before WiFi is up — net-before-link corrupts the
+    // heap + boot-loops an autoexec slot. Re-arm boot_cd so the startup sweep retries.
+    if (!tasm_wifi) { boot_cd = 5; return; }
     self_oct = derive_self_oct();   // refresh in case the app was moved to another host
     boot_cd = 0;           // disarm the startup countdown: it only ticks while NOT
                            // scanning, so a manual SCANGO would otherwise freeze it

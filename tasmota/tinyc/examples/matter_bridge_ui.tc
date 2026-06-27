@@ -293,6 +293,7 @@ void MatterInvoke(int ep, int cluster, int cmd) {
 // ── the only HTTP task ──
 void TaskLoop() {
     delay(15000);
+    while (!tasm_wifi) { delay(500); }   // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
     while (1) {
         if (cmd_ready)  { send_cmd(); }
         if (disc_req)   { do_discover(); disc_req = 0; }
