@@ -250,25 +250,6 @@ static void tc_all_callbacks_str(const char *name, const char *str) {
   }
 }
 
-// Per-second bump-heap maintenance (idle-shrink): return each slot's transient
-// peak heap capacity to the system heap once load subsides, so free heap recovers
-// instead of staying pinned at the high-water mark. Holds the slot's vm_mutex so
-// the realloc can't race the VM task. Cheap (just a counter) until a window edge.
-static void tc_all_heap_maint(void) {
-  if (!Tinyc) return;
-  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    TcSlot *s = Tinyc->slots[i];
-    if (!s || !s->loaded) continue;
-#ifdef ESP32
-    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
-#endif
-    tc_heap_maybe_shrink(&s->vm);
-#ifdef ESP32
-    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
-#endif
-  }
-}
-
 // Touch button callback — called from xdrv_55_touch.ino on button/slider events
 // Pushes (btn, val) args onto VM stack and calls TouchButton callback on all active slots
 void tinyc_touch_button(uint8_t btn, int16_t val) {
@@ -5801,9 +5782,6 @@ bool Xdrv124(uint32_t function) {
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
       tc_all_callbacks_id(TC_CB_EVERY_SECOND);
-      // Return each slot's transient peak bump-heap capacity to the system heap
-      // once its load subsides (idle-shrink) — so free heap recovers after bursts.
-      tc_all_heap_maint();
       break;
     case FUNC_NETWORK_UP:
       if (!tc_init_done) {

@@ -3582,6 +3582,13 @@ static void tc_heap_free_all(TcVM *vm) {
 // actually used — so it cannot thrash against active polling (a window that keeps
 // hitting a big buffer keeps the capacity; a quiet window gives it back).
 static void tc_heap_maybe_shrink(TcVM *vm) {
+  // DISABLED 2026-06-27 — this was a heap-corruption regression. The realloc-down below
+  // can MOVE vm->heap_data, but the running program's live frame/stack/global/handle
+  // references into the heap are ABSOLUTE pointers, not offsets, so a move dangles all of
+  // them -> use-after-free -> heap corruption (Rolf's .200 crashed every ~30s tick;
+  // confirmed by OTA git-bisect + on-device test). Re-enabling needs a pointer-safe
+  // reclaim (offset-based refs, or rebasing every pointer after the move).
+  return;
   if (++vm->heap_maint_ticks < TC_HEAP_MAINT_WINDOW) return;
   vm->heap_maint_ticks = 0;
   uint16_t target = vm->heap_used_peak + TC_HEAP_SHRINK_HEADROOM;
