@@ -16539,6 +16539,15 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
   }
 
+  // [Andreas 2026-06-26, verified on C6] Eager-reserve the callback-arg buffer at LOAD, while
+  // the heap is still healthy/contiguous (before main()). The lazy reserve (in tc_cb_arg_handle,
+  // on a slot's FIRST string-callback) fails when a rarely-called Command/OnMqttData slot first
+  // fires AFTER the heap fragments: tc_heap_alloc must then grow the bump-heap (needs a contiguous
+  // block) -> "arg buffer reserve failed" -> ALL that slot's callbacks die until reboot. The lazy
+  // reserve stays as a fallback.
+  tc_cb_arg_handle(vm, 0);                                              // 1-arg Command
+  if (vm->cb_index[TC_CB_ON_MQTT_DATA] >= 0) tc_cb_arg_handle(vm, 1);   // 2-arg OnMqttData
+
   // Parse persist table (V4)
   vm->persist_count = 0;
   uint16_t persist_table_start = func_table_end;
