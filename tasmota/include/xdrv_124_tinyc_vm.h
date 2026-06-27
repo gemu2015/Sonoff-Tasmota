@@ -8283,6 +8283,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             TC_PUSH(vm, 0);
             break;
           }
+          // No multicast join before WiFi — beginMulticast() on a dead stack at early
+          // boot corrupts the heap + boot-loops an autoexec slot.
+          if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, 0); break; }
           Tinyc->udp_port.stop();
 #ifdef ESP8266
           bool ok = Tinyc->udp_port.beginMulticast(WiFi.localIP(), mcast, (uint16_t)port);
@@ -8350,6 +8353,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             TC_PUSH(vm, 0);
             break;
           }
+          // No socket re-begin before WiFi — the reopen below would touch a dead stack.
+          if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, 0); break; }
           // Sanity-check that the IP arg matches the currently-bound group.
           // Mismatch is allowed (we still proceed) but warn so the user
           // notices a typo'd IP literal.
