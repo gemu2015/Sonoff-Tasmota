@@ -58,7 +58,8 @@ char w_compass[24];
 float kwp = KWP;               // PV peak power [kWp] — overridden from CFG_FILE
 float pr  = PR;                // performance ratio  — overridden from CFG_FILE
 int   ndays = NDAYS;           // days to fetch/show — from CFG_FILE, clamped 4..NDAYS
-char  cfgbuf[80];
+char  cfgbuf[256];             // config file buffer (room for // comment lines)
+char  cfgline[64];             // one config line at a time
 
 // JS hook: line charts default to bare-index x-ticks over a >7-day span; relabel
 // them with the same "DD.MM." dates the column (rain) chart shows. Runs in the
@@ -134,14 +135,23 @@ void read_cfg() {
     if (fileExists(CFG_FILE) == 0) { return; }
     int h = fileOpen(CFG_FILE, 0);
     if (h < 0) { return; }
-    int n = fileRead(h, cfgbuf, 78);
+    int n = fileRead(h, cfgbuf, 254);
     fileClose(h);
     if (n <= 0) { return; }
     cfgbuf[n] = 0;
-    int p = strFind(cfgbuf, "KWP="); if (p >= 0) { strSub(w_tok, cfgbuf, p + 4, 12); kwp = atof(w_tok); }
-    p = strFind(cfgbuf, "PR=");      if (p >= 0) { strSub(w_tok, cfgbuf, p + 3, 12); pr  = atof(w_tok); }
-    p = strFind(cfgbuf, "DAYS=");    if (p >= 0) { strSub(w_tok, cfgbuf, p + 5, 12); ndays = atoi(w_tok);
-                                                   if (ndays < 4) { ndays = 4; } if (ndays > NDAYS) { ndays = NDAYS; } }
+    // Parse line by line so `//` comment lines are skipped. Keys: KWP= PR= NDAYS=
+    int li = 1;
+    while (strToken(cfgline, cfgbuf, '\n', li) > 0) {
+        strTrim(cfgline);
+        if (cfgline[0] != '/' || cfgline[1] != '/') {       // not a // comment
+            int p = strFind(cfgline, "NDAYS=");
+            if (p >= 0) { strSub(w_tok, cfgline, p + 6, 12); ndays = atoi(w_tok);
+                          if (ndays < 4) { ndays = 4; } if (ndays > NDAYS) { ndays = NDAYS; } }
+            p = strFind(cfgline, "KWP=");  if (p >= 0) { strSub(w_tok, cfgline, p + 4, 12); kwp = atof(w_tok); }
+            p = strFind(cfgline, "PR=");   if (p >= 0) { strSub(w_tok, cfgline, p + 3, 12); pr  = atof(w_tok); }
+        }
+        li = li + 1;
+    }
 }
 
 void do_fetch() {
@@ -257,7 +267,7 @@ int main() {
     // then read it. Edit /weather.cfg via the file manager to set your array.
     if (fileExists(CFG_FILE) == 0) {
         int hc = fileOpen(CFG_FILE, 1);
-        if (hc >= 0) { sprintf(cfgbuf, "KWP=%.2f\nPR=%.2f\nDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
+        if (hc >= 0) { sprintf(cfgbuf, "// weather.tc config - edit, then send WX to apply\n// PV peak power [kWp]\nKWP=%.2f\n// performance ratio (system losses)\nPR=%.2f\n// days to fetch/show forecast, clamped 4..16\nNDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
     }
     read_cfg();
     strcpy(jsdate, "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;");
