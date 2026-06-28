@@ -30,10 +30,11 @@ int email_sent = 0;
 int wopn       = 0;     // 1-based index of an open contact (0 = all closed)
 int wcnt       = 0;
 int tick5      = 0;
+int last_warned = 0;    // last-announced open-window index — throttles the 5 s re-warn
 
 char qbuf[64];          // pluginQuery dst / parse scratch
 char fld[8];
-char open_name[24];     // name of an open contact (for the TTS + alarm text)
+char open_name[48];     // name of an open contact (for the TTS + alarm text); room for expansion
 char cmd[160];
 
 #ifdef SIM
@@ -41,6 +42,50 @@ int sw1 = 0;            // simulated window contacts (web checkboxes)
 int sw2 = 0;
 int sw3 = 0;
 #endif
+
+int web_clock_tick = 0;            // increments per WebCall poll
+char scratch[256];
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    // Indexed lookup via the built-in `strToken(dst, src, delim, n)`
+    // syscall — 1-based index, which lines up directly with
+    // tasm_wday (1=Sun..7=Sat) and tasm_month (1..12). Replaces the
+    // previous if/else cascade and the Scripter-style `is()`/`is1()`
+    // builtins. Generally useful for any small indexed lookup
+    // (weekdays, months, status codes, error tables).
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    // Single dark-grey rounded card spanning both columns. Contains
+    // the big green clock, date row with live-tick badge, and the
+    // sunrise → daylight → sunset row. Emitted as raw `<tr><td>` so
+    // the whole thing is one full-width centered card (the {s}...{e}
+    // tags would split it into label/value columns instead).
+    // Two sprintfs because the full card exceeds the 256-byte
+    // scratch buffer; first call opens the card + emits clock+date,
+    // second call appends the sun row + closes the card.
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    // Sunrise / sunset row with day-length between the arrows, then
+    // close the card.
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
 
 // --- read the window contacts -> set wopn + open_name ---
 void getwc() {
@@ -60,6 +105,8 @@ void getwc() {
         if (strToInt(fld) > 0) {
             wopn = i;
             webParse(qbuf, ",", 1, open_name); // field 1 = name
+            strReplace(open_name, "AZ_", "Arbeitszimmer "); // expand abbrev + underscores
+            strReplace(open_name, "_", " ");                // for natural TTS + display
         }
         i = i + 1;
     }
@@ -72,9 +119,11 @@ void alarm_tick() {
     if (arm_on != prev_arm) {                  // arm toggle edge
         if (arm_on > 0) {
             arequest = 1;                      // arm requested
+            last_warned = 0;                   // fresh attempt -> allow one warning
         } else {
             arequest = 0;                      // disarm
             email_sent = 0;
+            last_warned = 0;
         }
         prev_arm = arm_on;
     }
@@ -85,10 +134,14 @@ void alarm_tick() {
             // contact name. NOTE the command is I2STTS = picoTTS (natural, multi-language),
             // NOT I2SSay (that's the SAM engine: robotic, English-only). de-DE voice files
             // must be on the FS (/picotts_de-DE_ta.bin + _sg.bin). Dynamic text -> build+defer.
-            sprintf(cmd, "I2STTS Fenster %s ist noch offen", open_name);
-            tasmDefer(cmd);
+            if (wopn != last_warned) {         // announce ONCE per open window (no 5 s spam)
+                sprintf(cmd, "I2STTS Fenster %s ist noch offen", open_name);
+                tasmDefer(cmd);
+                last_warned = wopn;
+            }
         } else {
             arequest = 2;                      // all closed -> armed
+            tasmDefer("I2STTS Alarmanlage ist scharf");
         }
     }
     if (arequest == 2) {
@@ -104,6 +157,7 @@ void alarm_tick() {
 }
 
 void EverySecond() {
+	web_clock_header();
     tick5 = tick5 + 1;
     if (tick5 >= 5) {
         tick5 = 0;
