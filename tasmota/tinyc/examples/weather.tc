@@ -53,6 +53,18 @@ char w_arr[400];
 char w_tok[24];
 char w_compass[24];
 
+// ── KWP / PR config (read from a file if present; KWP/PR are the defaults) ──
+#define CFG_FILE "/weather.cfg"
+float kwp = KWP;               // PV peak power [kWp] — overridden from CFG_FILE
+float pr  = PR;                // performance ratio  — overridden from CFG_FILE
+int   ndays = NDAYS;           // days to fetch/show — from CFG_FILE, clamped 4..NDAYS
+char  cfgbuf[80];
+
+// JS hook: line charts default to bare-index x-ticks over a >7-day span; relabel
+// them with the same "DD.MM." dates the column (rain) chart shows. Runs in the
+// chart draw scope (dt=DataTable col0=datetime, o=options).
+char  jsdate[220];
+
 // Parse NDAYS comma-separated numbers from the JSON array following `key`. `key`
 // must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
 void parse16(char json[], char key[], float out[]) {
@@ -115,8 +127,26 @@ void do_geocode(char name[]) {
     addLog("weather: set %s -> %s, %s", p_city, p_lat, p_lon);
 }
 
+// Read KWP / PR from CFG_FILE if it exists (format: "KWP=10.0" / "PR=0.80",
+// one per line). Missing keys keep the compiled defaults. Re-read on every fetch
+// so editing the file via the file manager takes effect on the next refresh.
+void read_cfg() {
+    if (fileExists(CFG_FILE) == 0) { return; }
+    int h = fileOpen(CFG_FILE, 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, cfgbuf, 78);
+    fileClose(h);
+    if (n <= 0) { return; }
+    cfgbuf[n] = 0;
+    int p = strFind(cfgbuf, "KWP="); if (p >= 0) { strSub(w_tok, cfgbuf, p + 4, 12); kwp = atof(w_tok); }
+    p = strFind(cfgbuf, "PR=");      if (p >= 0) { strSub(w_tok, cfgbuf, p + 3, 12); pr  = atof(w_tok); }
+    p = strFind(cfgbuf, "DAYS=");    if (p >= 0) { strSub(w_tok, cfgbuf, p + 5, 12); ndays = atoi(w_tok);
+                                                   if (ndays < 4) { ndays = 4; } if (ndays > NDAYS) { ndays = NDAYS; } }
+}
+
 void do_fetch() {
-    sprintf(w_url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum,windspeed_10m_max,windgusts_10m_max,winddirection_10m_dominant&forecast_days=%d&timezone=auto", p_lat, p_lon, NDAYS);
+    read_cfg();
+    sprintf(w_url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum,windspeed_10m_max,windgusts_10m_max,winddirection_10m_dominant&forecast_days=%d&timezone=auto", p_lat, p_lon, ndays);
     int r = httpGet(w_url, w_resp);
     if (r <= 0) { addLog("weather: httpGet failed (%d)", r); return; }
     parse16(w_resp, "temperature_2m_max\":[",         f_tmax);
@@ -127,11 +157,11 @@ void do_fetch() {
     parse16(w_resp, "windgusts_10m_max\":[",          f_gust);
     parse16(w_resp, "winddirection_10m_dominant\":[", f_wdir);
     int i = 0;
-    while (i < NDAYS) { f_yield[i] = f_rad[i] / 3.6 * KWP * PR; i = i + 1; }
+    while (i < ndays) { f_yield[i] = f_rad[i] / 3.6 * kwp * pr; i = i + 1; }
     valid = 1;
     fetched_at = tasm_uptime;
-    addLog("weather: 16d ok %s - today %.1f/%.1f C, yield ~%.0f kWh, wind %.0f/%.0f",
-           p_city, f_tmax[0], f_tmin[0], f_yield[0], f_wind[0], f_gust[0]);
+    addLog("weather: %dd ok %s - today %.1f/%.1f C, yield ~%.0f kWh, wind %.0f/%.0f",
+           ndays, p_city, f_tmax[0], f_tmin[0], f_yield[0], f_wind[0], f_gust[0]);
 }
 
 void TaskLoop() {
@@ -151,14 +181,15 @@ void TaskLoop() {
 
 float sum16(float a[]) {
     float s = 0.0; int i = 0;
-    while (i < NDAYS) { s = s + a[i]; i = i + 1; }
+    while (i < ndays) { s = s + a[i]; i = i + 1; }
     return s;
 }
 
 void WebCall() {
     char b[180];
     char wd[8];
-    sprintf(b, "{s}&#127780; Wetter %s &middot; 16 Tage{m}%s, %s{e}", p_city, p_lat, p_lon); webSend(b);
+    sprintf(b, "{s}&#127780; Wetter %s &middot; %d Tage{m}%s, %s{e}", p_city, ndays, p_lat, p_lon); webSend(b);
+    sprintf(b, "{s}&#9728; PV-Anlage (cfg){m}%.1f kWp &middot; PR %.2f{e}", kwp, pr); webSend(b);
     if (valid == 0) {
         webSend("{s}{m}<span style='color:#f88'>warte auf Wetterdaten&hellip;</span>{e}");
         return;
@@ -167,8 +198,8 @@ void WebCall() {
     compass((int)f_wdir[0], wd);
     sprintf(b, "{s}&#127788; Wind heute{m}%.0f km/h &middot; B&ouml;en %.0f &middot; aus %s{e}", f_wind[0], f_gust[0], wd); webSend(b);
     sprintf(b, "{s}&#9728; Solar heute (Prognose){m}%.0f kWh{e}", f_yield[0]);                                webSend(b);
-    sprintf(b, "{s}&#9728; Solar 16 Tage{m}%.0f kWh (&oslash; %.0f/Tag){e}", sum16(f_yield), sum16(f_yield) / NDAYS); webSend(b);
-    sprintf(b, "{s}&#127783; Regen 16 Tage{m}%.0f mm{e}", sum16(f_precip));                                   webSend(b);
+    sprintf(b, "{s}&#9728; Solar %d Tage{m}%.0f kWh (&oslash; %.0f/Tag){e}", ndays, sum16(f_yield), sum16(f_yield) / ndays); webSend(b);
+    sprintf(b, "{s}&#127783; Regen %d Tage{m}%.0f mm{e}", ndays, sum16(f_precip));                            webSend(b);
     sprintf(b, "{s}Aktualisiert vor{m}%d min{e}", (tasm_uptime - fetched_at) / 60);                           webSend(b);
 }
 
@@ -176,16 +207,20 @@ void WebPage() {
     if (valid == 0) { return; }
     // Forecast is in the FUTURE: set the chart time base so index 0 = today and
     // index 15 = +15 days (x-axis runs today -> +15).
-    webSend("<div style='margin-left:-30px'>");
-    WebChartTimeBase((NDAYS - 1) * 1440);
-    WebChart(0, "Temperatur 16 Tage (&deg;C)", "Max", 0xe74c3c, 0, NDAYS, f_tmax, 1, 1440, 0, 0);
-    WebChart(0, "",                             "Min", 0x3498db, 0, NDAYS, f_tmin, 1, 1440, 0, 0);
-    WebChart(1, "Regen 16 Tage (mm)",           "mm",  0x3498db, 0, NDAYS, f_precip, 1, 1440, 0, 0);
-    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, NDAYS, f_yield,  0, 1440, 0, 0);
-    WebChart(0, "Wind 16 Tage (km/h)",          "Max",       0x27ae60, 0, NDAYS, f_wind, 0, 1440, 0, 0);
-    WebChart(0, "",                             "B&ouml;en", 0xe67e22, 0, NDAYS, f_gust, 0, 1440, 0, 0);
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wetterprognose</legend>");
+    webSend("<div style='margin-left:-12px'>");
+    WebChartTimeBase((ndays - 1) * 1440);
+    WebChart(0, "Temperatur (&deg;C)",          "Max", 0xe74c3c, 0, ndays, f_tmax, 1, 1440, 0, 0);
+    WebChart(0, "",                             "Min", 0x3498db, 0, ndays, f_tmin, 1, 1440, 0, 0);
+    WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
+    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, ndays, f_precip, 1, 1440, 0, 0);
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, ndays, f_yield,  0, 1440, 0, 0);
+    WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, ndays, f_wind, 0, 1440, 0, 0);
+    WebChart(0, "",                             "B&ouml;en", 0xe67e22, 0, ndays, f_gust, 0, 1440, 0, 0);
+    WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
     WebChartTimeBase(0);
     webSend("</div>");
+    webSend("</fieldset>");
 }
 
 void Command(char cmd[]) {
@@ -218,6 +253,14 @@ void Command(char cmd[]) {
 
 int main() {
     addCommand("WX");
+    // KWP/PR config: drop a template with the compiled defaults if none exists yet,
+    // then read it. Edit /weather.cfg via the file manager to set your array.
+    if (fileExists(CFG_FILE) == 0) {
+        int hc = fileOpen(CFG_FILE, 1);
+        if (hc >= 0) { sprintf(cfgbuf, "KWP=%.2f\nPR=%.2f\nDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
+    }
+    read_cfg();
+    strcpy(jsdate, "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;");
     if (strlen(p_lat) < 2) {                  // first run — seed defaults
         strcpy(p_lat, DEF_LAT); strcpy(p_lon, DEF_LON); strcpy(p_city, DEF_CITY);
         loc_set = 0; saveVars();
