@@ -1,0 +1,231 @@
+// weather.tc — 16-day weather + solar-yield + wind forecast from Open-Meteo (FREE, no key)
+//
+// Location is auto-detected on first boot (IP geolocation, approximate) and can be set
+// exactly by the user. All over plain HTTP (no TLS). Shows temperature, rain, estimated
+// PV yield and wind as four 16-day charts on the device's main page, plus a summary.
+//
+//   WX loc <city>        set location by name  (e.g. `WX loc Köln`) — geocoded, exact
+//   WX coord <lat> <lon> set location by coordinates  (e.g. `WX coord 50.94 6.96`)
+//   WX auto              re-run IP auto-detect
+//   WX                   force an immediate refetch
+//
+// APIs (all free, no key, work over http://):
+//   forecast   api.open-meteo.com        (DWD ICON model for Germany; up to 16 days)
+//   geocoding  geocoding-api.open-meteo.com   (city name -> lat/lon)
+//   ip locate  ip-api.com                (public-IP -> approximate lat/lon/city)
+//
+// Solar yield is ESTIMATED from shortwave_radiation_sum (global horizontal irradiance):
+//     yield_kWh ≈ GHI[MJ/m²] / 3.6 * KWP * PR     — tune KWP/PR to your array.
+
+#define DEF_LAT  "50.94"       // neutral default (Köln); auto-detect or `WX loc` overrides
+#define DEF_LON  "6.96"
+#define DEF_CITY "Köln"
+#define KWP      10.0          // your PV peak power [kWp]
+#define PR       0.80          // performance ratio (system losses)
+#define POLL_H   6             // re-fetch every N hours
+#define NDAYS    16
+
+// ── location (persisted) ───────────────────────────────────────────────────
+persist char p_lat[14];        // current latitude string
+persist char p_lon[14];        // current longitude string
+persist char p_city[40];       // town name
+persist int  loc_set;          // 0 = auto-detect mode, 1 = user-fixed
+int want_geoip;                // queue an IP auto-detect (set in main / by `WX auto`)
+char want_geocode[40];         // queue a geocode of this city name (set by `WX loc`)
+
+// ── forecast arrays: index 0 = today ... index 15 = +15 days ───────────────
+float f_tmax[NDAYS];
+float f_tmin[NDAYS];
+float f_precip[NDAYS];         // [mm]
+float f_rad[NDAYS];            // shortwave radiation sum [MJ/m²]
+float f_yield[NDAYS];          // estimated PV yield [kWh]
+float f_wind[NDAYS];           // max wind [km/h]
+float f_gust[NDAYS];           // max gusts [km/h]
+float f_wdir[NDAYS];           // dominant direction [deg]
+int   valid;
+int   fetched_at;             // tasm_uptime [s] of last weather fetch (-1 = never)
+
+// ── work buffers (global — HTTP bodies up to ~1.4 KB, URL ~249 B) ──────────
+char w_resp[1800];
+char w_url[280];
+char w_chunk[420];
+char w_arr[400];
+char w_tok[24];
+char w_compass[24];
+
+// Parse NDAYS comma-separated numbers from the JSON array following `key`. `key`
+// must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
+void parse16(char json[], char key[], float out[]) {
+    int i = 0;
+    while (i < NDAYS) { out[i] = 0.0; i = i + 1; }
+    int p = strFind(json, key);
+    if (p < 0) { return; }
+    strSub(w_chunk, json, p + strlen(key), 380);
+    int rb = strFind(w_chunk, "]");
+    if (rb < 0) { return; }
+    strSub(w_arr, w_chunk, 0, rb);
+    i = 1;
+    while (i <= NDAYS) {
+        int n = strToken(w_tok, w_arr, ',', i);
+        if (n <= 0) { break; }
+        out[i - 1] = atof(w_tok);
+        i = i + 1;
+    }
+}
+
+// Wind direction (degrees) -> 8-point German compass.
+void compass(int deg, char out[]) {
+    strcpy(w_compass, "N|NO|O|SO|S|SW|W|NW");
+    int idx = ((deg + 22) / 45) % 8;
+    strToken(out, w_compass, '|', idx + 1);
+}
+
+// IP auto-detect: public IP -> approximate lat/lon/city.
+void do_geoip() {
+    int r = httpGet("http://ip-api.com/json/?fields=status,lat,lon,city", w_resp);
+    if (r <= 0) { addLog("weather: geoip failed (%d)", r); return; }
+    float la = jsonNum(w_resp, "lat");
+    float lo = jsonNum(w_resp, "lon");
+    if (la == 0.0 || lo == 0.0) { addLog("weather: geoip no fix"); return; }
+    sprintf(p_lat, "%.4f", la);
+    sprintf(p_lon, "%.4f", lo);
+    jsonStr(w_resp, "city", p_city);
+    fetched_at = -1;                       // force a weather refetch for the new spot
+    saveVars();
+    addLog("weather: auto-located %s (%s, %s)", p_city, p_lat, p_lon);
+}
+
+// City name -> exact lat/lon via Open-Meteo geocoding. Sets loc_set=1 (user-fixed).
+void do_geocode(char name[]) {
+    strReplace(name, " ", "%20");          // URL-encode spaces (e.g. "Bad Honnef")
+    sprintf(w_url, "http://geocoding-api.open-meteo.com/v1/search?name=%s&count=1&language=de", name);
+    int r = httpGet(w_url, w_resp);
+    if (r <= 0) { addLog("weather: geocode failed (%d)", r); return; }
+    int pla = strFind(w_resp, "latitude\":");
+    int plo = strFind(w_resp, "longitude\":");
+    if (pla < 0 || plo < 0) { addLog("weather: '%s' not found", name); return; }
+    strSub(w_chunk, w_resp, pla + 10, 14); sprintf(p_lat, "%.4f", atof(w_chunk));
+    strSub(w_chunk, w_resp, plo + 11, 14); sprintf(p_lon, "%.4f", atof(w_chunk));
+    strReplace(name, "%20", " ");          // restore for display
+    strcpy(p_city, name);
+    loc_set = 1;
+    want_geoip = 0;                        // user picked a location — cancel pending auto-detect
+    fetched_at = -1;
+    saveVars();
+    addLog("weather: set %s -> %s, %s", p_city, p_lat, p_lon);
+}
+
+void do_fetch() {
+    sprintf(w_url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum,windspeed_10m_max,windgusts_10m_max,winddirection_10m_dominant&forecast_days=%d&timezone=auto", p_lat, p_lon, NDAYS);
+    int r = httpGet(w_url, w_resp);
+    if (r <= 0) { addLog("weather: httpGet failed (%d)", r); return; }
+    parse16(w_resp, "temperature_2m_max\":[",         f_tmax);
+    parse16(w_resp, "temperature_2m_min\":[",         f_tmin);
+    parse16(w_resp, "precipitation_sum\":[",          f_precip);
+    parse16(w_resp, "shortwave_radiation_sum\":[",    f_rad);
+    parse16(w_resp, "windspeed_10m_max\":[",          f_wind);
+    parse16(w_resp, "windgusts_10m_max\":[",          f_gust);
+    parse16(w_resp, "winddirection_10m_dominant\":[", f_wdir);
+    int i = 0;
+    while (i < NDAYS) { f_yield[i] = f_rad[i] / 3.6 * KWP * PR; i = i + 1; }
+    valid = 1;
+    fetched_at = tasm_uptime;
+    addLog("weather: 16d ok %s - today %.1f/%.1f C, yield ~%.0f kWh, wind %.0f/%.0f",
+           p_city, f_tmax[0], f_tmin[0], f_yield[0], f_wind[0], f_gust[0]);
+}
+
+void TaskLoop() {
+    delay(3000);
+    while (1) {
+        // tasm_net = link up (WiFi OR Ethernet). Never httpGet before the link is up.
+        if (tasm_net) {
+            if (strlen(want_geocode) > 0) { do_geocode(want_geocode); strcpy(want_geocode, ""); }
+            if (want_geoip) { do_geoip(); want_geoip = 0; }
+            if (fetched_at < 0 || (tasm_uptime - fetched_at) >= POLL_H * 3600) {
+                do_fetch();
+            }
+        }
+        delay(10000);
+    }
+}
+
+float sum16(float a[]) {
+    float s = 0.0; int i = 0;
+    while (i < NDAYS) { s = s + a[i]; i = i + 1; }
+    return s;
+}
+
+void WebCall() {
+    char b[180];
+    char wd[8];
+    sprintf(b, "{s}&#127780; Wetter %s &middot; 16 Tage{m}%s, %s{e}", p_city, p_lat, p_lon); webSend(b);
+    if (valid == 0) {
+        webSend("{s}{m}<span style='color:#f88'>warte auf Wetterdaten&hellip;</span>{e}");
+        return;
+    }
+    sprintf(b, "{s}Heute{m}%.1f / %.1f &deg;C &middot; Regen %.1f mm{e}", f_tmax[0], f_tmin[0], f_precip[0]); webSend(b);
+    compass((int)f_wdir[0], wd);
+    sprintf(b, "{s}&#127788; Wind heute{m}%.0f km/h &middot; B&ouml;en %.0f &middot; aus %s{e}", f_wind[0], f_gust[0], wd); webSend(b);
+    sprintf(b, "{s}&#9728; Solar heute (Prognose){m}%.0f kWh{e}", f_yield[0]);                                webSend(b);
+    sprintf(b, "{s}&#9728; Solar 16 Tage{m}%.0f kWh (&oslash; %.0f/Tag){e}", sum16(f_yield), sum16(f_yield) / NDAYS); webSend(b);
+    sprintf(b, "{s}&#127783; Regen 16 Tage{m}%.0f mm{e}", sum16(f_precip));                                   webSend(b);
+    sprintf(b, "{s}Aktualisiert vor{m}%d min{e}", (tasm_uptime - fetched_at) / 60);                           webSend(b);
+}
+
+void WebPage() {
+    if (valid == 0) { return; }
+    // Forecast is in the FUTURE: set the chart time base so index 0 = today and
+    // index 15 = +15 days (x-axis runs today -> +15).
+    webSend("<div style='margin-left:-30px'>");
+    WebChartTimeBase((NDAYS - 1) * 1440);
+    WebChart(0, "Temperatur 16 Tage (&deg;C)", "Max", 0xe74c3c, 0, NDAYS, f_tmax, 1, 1440, 0, 0);
+    WebChart(0, "",                             "Min", 0x3498db, 0, NDAYS, f_tmin, 1, 1440, 0, 0);
+    WebChart(1, "Regen 16 Tage (mm)",           "mm",  0x3498db, 0, NDAYS, f_precip, 1, 1440, 0, 0);
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, NDAYS, f_yield,  0, 1440, 0, 0);
+    WebChart(0, "Wind 16 Tage (km/h)",          "Max",       0x27ae60, 0, NDAYS, f_wind, 0, 1440, 0, 0);
+    WebChart(0, "",                             "B&ouml;en", 0xe67e22, 0, NDAYS, f_gust, 0, 1440, 0, 0);
+    WebChartTimeBase(0);
+    webSend("</div>");
+}
+
+void Command(char cmd[]) {
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'l' && cmd[i + 1] == 'o') {                 // loc <city>
+        char name[40]; strSub(name, cmd, i + 4, 0); strTrim(name);
+        if (strlen(name) > 0) { strcpy(want_geocode, name); responseCmnd("geocoding queued"); }
+        else { responseCmnd("usage: WX loc <city>"); }
+        return;
+    }
+    if (cmd[i] == 'c' && cmd[i + 1] == 'o') {                 // coord <lat> <lon>
+        char rest[40]; strSub(rest, cmd, i + 6, 0);
+        char la[14]; char lo[14];
+        strToken(la, rest, ' ', 1); strToken(lo, rest, ' ', 2);
+        if (strlen(la) > 0 && strlen(lo) > 0) {
+            sprintf(p_lat, "%.4f", atof(la)); sprintf(p_lon, "%.4f", atof(lo));
+            strcpy(p_city, "manuell"); loc_set = 1; want_geoip = 0; fetched_at = -1; saveVars();
+            responseCmnd("coords set");
+        } else { responseCmnd("usage: WX coord <lat> <lon>"); }
+        return;
+    }
+    if (cmd[i] == 'a') {                                      // auto (IP detect)
+        loc_set = 0; want_geoip = 1; saveVars();
+        responseCmnd("auto-detect queued");
+        return;
+    }
+    fetched_at = -1;                                          // plain WX -> refetch
+    responseCmnd("refetch queued");
+}
+
+int main() {
+    addCommand("WX");
+    if (strlen(p_lat) < 2) {                  // first run — seed defaults
+        strcpy(p_lat, DEF_LAT); strcpy(p_lon, DEF_LON); strcpy(p_city, DEF_CITY);
+        loc_set = 0; saveVars();
+    }
+    want_geoip = (loc_set == 0) ? 1 : 0;      // auto-detect on boot unless user-fixed
+    strcpy(want_geocode, "");
+    valid = 0;
+    fetched_at = -1;
+    addLog("weather ready - %s (%s,%s) loc_set=%d", p_city, p_lat, p_lon, loc_set);
+    return 0;
+}
