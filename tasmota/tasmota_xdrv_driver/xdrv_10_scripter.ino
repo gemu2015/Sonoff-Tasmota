@@ -837,7 +837,7 @@ typedef struct {
 
 SCRIPT_MEM glob_script_mem;
 
-uint32_t Plugin_Query(uint16_t, uint8_t, char *);
+uint32_t Plugin_Query(uint16_t, uint16_t, char *);
 
 void script_setaflg(uint8_t flg) {
   glob_script_mem.tasm_cmd_activ = flg;

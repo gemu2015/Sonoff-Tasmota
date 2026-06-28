@@ -3255,7 +3255,7 @@ void Module_Execute(uint32_t sel) {
   }
 }
 
-uint32_t Plugin_Query(uint16_t index, uint8_t sel, char *params) {
+uint32_t Plugin_Query(uint16_t index, uint16_t sel, char *params) {
 uint32_t result = 0;
   for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
