@@ -824,6 +824,7 @@ export class CodeGenerator {
     //   tasm_teleperiod = 60;
     static TASM_VARS = {
         'tasm_wifi':        { index: 0, type: 'int',   writable: false },
+        'tasm_net':         { index: 0, type: 'int',   writable: false },  // alias of tasm_wifi — 1 = network up (WiFi OR Ethernet)
         'tasm_mqttcon':     { index: 1, type: 'int',   writable: false },
         'tasm_teleperiod':  { index: 2, type: 'int',   writable: true  },
         'tasm_uptime':      { index: 3, type: 'int',   writable: false },
@@ -851,6 +852,7 @@ export class CodeGenerator {
         'tasm_lon':         { index: 25, type: 'float', writable: true  },
         'tasm_maxblock':    { index: 26, type: 'int',   writable: false },
         'tasm_frag':        { index: 27, type: 'int',   writable: false },
+        'tasm_eth':         { index: 28, type: 'int',   writable: false },  // 1 = Ethernet link up (has IP); WiFi-only/ESP8266 builds read 0
     };
 
     // ─── Bytecode emission ──────────────────────────────────

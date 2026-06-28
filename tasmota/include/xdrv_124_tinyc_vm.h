@@ -9190,6 +9190,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         case 26: val = (int32_t)ESP_getMaxAllocHeap();     break;  // tasm_maxblock — largest contiguous free heap block (bytes)
         case 27: val = (int32_t)ESP_getHeapFragmentation(); break;  // tasm_frag — heap fragmentation 0..100 %
 #endif
+        case 28: val = TasmotaGlobal.global_state.eth_down ? 0 : 1; break;  // tasm_eth — 1=Ethernet link up (eth has IP)
         default: break;
       }
       TC_PUSH(vm, val);

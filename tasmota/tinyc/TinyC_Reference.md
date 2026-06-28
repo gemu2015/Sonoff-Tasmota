@@ -741,7 +741,9 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 
 | Variable | Type | R/W | Description |
 |----------|------|-----|-------------|
-| `tasm_wifi` | int | read | WiFi status (1 = connected, 0 = disconnected) |
+| `tasm_wifi` | int | read | **Network up** (1 = up, 0 = down). Despite the name it is NOT WiFi-specific — it is `!network_down`, i.e. 1 whenever **WiFi *or* Ethernet** has a link. Safe to gate boot-time network calls on LAN-only devices. |
+| `tasm_net` | int | read | Alias of `tasm_wifi` (clearer name) — 1 = network (WiFi or Ethernet) up |
+| `tasm_eth` | int | read | 1 = Ethernet link up (has an IP); reads 0 on WiFi-only / ESP8266 builds |
 | `tasm_mqttcon` | int | read | MQTT connection status (1 = connected) |
 | `tasm_teleperiod` | int | read/write | Telemetry period in seconds (10–3600, clamped) |
 | `tasm_uptime` | int | read | Device uptime in seconds |

@@ -694,7 +694,9 @@ TinyC stellt virtuelle `tasm_*`-Variablen bereit, die den Tasmota-Systemzustand 
 
 | Variable | Typ | L/S | Beschreibung |
 |----------|-----|-----|--------------|
-| `tasm_wifi` | int | lesen | WiFi-Status (1 = verbunden, 0 = getrennt) |
+| `tasm_wifi` | int | lesen | **Netzwerk aktiv** (1 = aktiv, 0 = aus). Trotz Name NICHT nur WLAN — es ist `!network_down`, also 1 sobald **WLAN *oder* Ethernet** eine Verbindung hat. Sicher zum Gaten von Boot-Netzwerkaufrufen auf reinen LAN-Geräten. |
+| `tasm_net` | int | lesen | Alias von `tasm_wifi` (klarerer Name) — 1 = Netzwerk (WLAN oder Ethernet) aktiv |
+| `tasm_eth` | int | lesen | 1 = Ethernet-Verbindung aktiv (hat IP); liest 0 auf reinen WLAN-/ESP8266-Builds |
 | `tasm_mqttcon` | int | lesen | MQTT-Verbindungsstatus (1 = verbunden) |
 | `tasm_teleperiod` | int | lesen/schreiben | Telemetrieperiode in Sekunden (10–3600, begrenzt) |
 | `tasm_uptime` | int | lesen | Geraete-Betriebszeit in Sekunden |
