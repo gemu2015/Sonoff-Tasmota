@@ -2011,7 +2011,7 @@ def _dev_caps(host, user='admin', password=''):
     All fail fast on real Tasmota (immediate 'Unknown' / 404), so this adds
     little to the scan. Returns {'scripter': bool, 'tinyc': bool, 'berry': bool}."""
     h, dport = _split_host_port(host)
-    caps = {'scripter': False, 'tinyc': False, 'berry': False, 'frag': None}
+    caps = {'scripter': False, 'tinyc': False, 'berry': False, 'frag': None, 'slots': None}
     # Scripter (USE_SCRIPT): the bare `Script` console command is recognised
     # only when the Scripter is compiled in — a Scripter build answers the
     # (arg-less) form with {"Command":"Error"}, a non-Scripter build with
@@ -2049,6 +2049,14 @@ def _dev_caps(host, user='admin', password=''):
                 fr = j.get('frag')
                 if isinstance(fr, (int, float)):
                     caps['frag'] = int(fr)
+                # Loaded-slot count for the multislot-vs-fragmentation analysis.
+                # Event-driven slots report running=0 (main returned) yet stay
+                # loaded and keep firing callbacks, so 'loaded' -- not 'running' --
+                # is the memory-pressure metric.
+                sl = j.get('slots')
+                if isinstance(sl, list):
+                    caps['slots'] = sum(1 for s in sl
+                                        if isinstance(s, dict) and s.get('loaded'))
     except Exception:
         pass
     return caps
@@ -2522,7 +2530,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
       <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th><th title="Berry (USE_BERRY) verfügbar">Berry</th>
       <th>Flash</th><th title="Freier Programm-Flash (OTA-Platz)">Free</th>
-      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="PSRAM gesamt / frei">PSRAM</th><th title="Uptime seit letztem Reboot — kurz = kürzlich neu gestartet/abgestürzt">Uptime</th>
+      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="Geladene/laufende TinyC-Slots — für die Multislot-vs-Fragmentierung-Analyse">Slots</th><th title="PSRAM gesamt / frei">PSRAM</th><th title="Uptime seit letztem Reboot — kurz = kürzlich neu gestartet/abgestürzt">Uptime</th>
       <th>Sensors / Outputs</th><th>Partitions</th>
       <th></th><th>Tools</th></tr></thead>
     <tbody id="scanbody"></tbody></table></div>
@@ -3081,6 +3089,12 @@ function _fragCell(d){                 // heap fragmentation %, TinyC only
   const w = f>=60?';font-weight:700':'';
   return '<span style="color:'+c+w+'">'+f+'%</span>';
 }
+function _slotsCell(d){                // # loaded TinyC slots (event-driven incl.), TinyC only
+  const n=d.slots;
+  if(n==null) return '<span style="color:var(--mut)" title="nur TinyC-Geräte">–</span>';
+  const c = n>=4?'#e0a84e':'var(--fg)';   // many concurrent slots → amber
+  return '<span style="color:'+c+'" title="geladene/laufende TinyC-Slots (event-driven inkl.)">'+n+'</span>';
+}
 function _psrCell(d){                  // PSRAM total / free (StatusMEM.PsrMax/PsrFree, KB)
   const mx=d.psrmax;
   if(!mx) return '<span style="color:var(--mut)" title="kein PSRAM">–</span>';
@@ -3196,7 +3210,7 @@ function renderScanTable(devs){
       const why=d.locked?'🔒 locked — type WebPassword below + rescan'
         :('✗ '+(d.error||'no Status'));
       tr.innerHTML='<td>'+_ipCell(d)+'</td><td><b>'+(d.name||'')+'</b></td>'
-        +'<td class="lk" colspan="15">'+why+'</td>';
+        +'<td class="lk" colspan="16">'+why+'</td>';
     }else{
       const parts=(d.parts||[]).map(p=>{
         let u='';
@@ -3216,6 +3230,7 @@ function renderScanTable(devs){
         +'<td>'+_freeCell(d)+'</td>'
         +'<td>'+_heapCell(d)+'</td>'
         +'<td style="text-align:center">'+_fragCell(d)+'</td>'
+        +'<td style="text-align:center">'+_slotsCell(d)+'</td>'
         +'<td>'+_psrCell(d)+'</td>'
         +'<td style="text-align:center">'+_uptimeCell(d)+'</td>'
         +'<td>'+_sensorsCell(d)+'</td>'
