@@ -5034,7 +5034,7 @@ static int tc_mscr_load(const char *path) {
   if (!f) return -1;
   size_t fsize = (size_t)f.size();
   if (fsize == 0 || fsize > 8192) { f.close(); return -1; }
-  char *buf = (char*)malloc(fsize + 1);
+  char *buf = (char*)special_malloc(fsize + 1);
   if (!buf) { f.close(); return -1; }
   size_t got = (size_t)f.read((uint8_t*)buf, fsize);
   buf[got] = 0;
@@ -7605,7 +7605,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         f = fsp->open(path, "r");
         if (f) {
           // Read entire file
-          char *buf = (char*)malloc(fsize + 1);
+          char *buf = (char*)special_malloc(fsize + 1);
           if (buf) {
             int rd = f.readBytes(buf, fsize);
             buf[rd] = 0;
@@ -9766,7 +9766,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // task may run this slot's bytecode and move/realloc the VM heap, so we must
       // not write into `buf` until after re-taking the mutex. Mirrors the SendMail
       // syscall's give/take + tc_current_slot restore.
-      uint8_t *lbuf = (cap > 1) ? (uint8_t*)malloc(cap) : nullptr;
+      uint8_t *lbuf = (cap > 1) ? (uint8_t*)special_malloc(cap) : nullptr;   // PSRAM when available — keeps the per-poll HTTP body buffer off the fragmentation-prone internal heap
       int len = 0;
       TcSlot *_hs = tc_current_slot;
       for (int attempt = 0; attempt < 3 && result <= 0; attempt++) {
@@ -10366,14 +10366,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         TC_PUSH(vm, -1);
         break;
       }
-      char *in_buf = (char*)malloc(fsize + 1);
+      char *in_buf = (char*)special_malloc(fsize + 1);
       if (!in_buf) { f.close(); TC_PUSH(vm, -1); break; }
       size_t got = (size_t)f.read((uint8_t*)in_buf, fsize);
       in_buf[got] = 0;
       f.close();
       // Worst case: every line gets a duplicated template comment → 2x.
       size_t out_cap = got * 2 + 64;
-      char *out_buf = (char*)malloc(out_cap);
+      char *out_buf = (char*)special_malloc(out_cap);
       if (!out_buf) { free(in_buf); TC_PUSH(vm, -1); break; }
       size_t out_len = 0;
       int subs = 0;
