@@ -103,7 +103,8 @@ void alarm_tick() {
     if (arequest == 2) {
         if (wopn > 0) {                        // ALARM
             if (email_sent == 0) {             // email only once
-                sprintf(cmd, "sendmail [smtp.gmail.com:587:gmutz2010:uxguxhggcjzpdtat:gmutz2010@googlemail.com:gmutz2010@googlemail.com:ALARM]Fenster offen: %s", open_name);
+                // creds come from EMAIL_* in user_config_override.h (gitignored); '*' = use compiled default
+                sprintf(cmd, "sendmail [*:*:*:*:*:gmutz2010@googlemail.com:ALARM]Fenster offen: %s", open_name);
                 tasmDefer(cmd);                // deferred: sendmail must NOT block the loop
                 email_sent = 1;
             }

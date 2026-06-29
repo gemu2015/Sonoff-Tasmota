@@ -1,0 +1,340 @@
+// moritz_dash.tc — LVGL dashboard + integrated house alarm for the MORITZ (CC1101 MAX!) system
+// on the RA8876 panel (.102, 1024x600). Consolidates the old moritz_dash + eqmax_alarm slots.
+//
+//   LEFT  = thermostats : big SETPOINT (Soll, amber) + -/+ buttons (MaxCmd), small measured (Ist).
+//   RIGHT = window contacts (compact zu/OFFEN cards) + an "Alarmanlage scharf" toggle + alarm state.
+//
+// Event-driven (main() returns): Every100ms polls the LVGL buttons/switch (responsive); EverySecond
+// drives the 5 s refresh + alarm state machine. Because callbacks let the VM halt, tasmDefer fires —
+// so TTS / email / siren defer cleanly (NOT a while(1) loop). The arm switch + web checkbox both
+// drive arm_on; the alarm logic is the proven eqmax_alarm state machine.
+//
+// Data via pluginQuery(126,...): type 18 thermostat = label,en,rfe,bat,rssi,valve,tmode,dtmp,mtmp
+//                                type 1  window      = label,...,is_open (6=is_open)
+// LVGL fonts have no umlauts -> umlaut() rewrites ue/oe/ae. -/+ send `MaxCmd <id> m <whole-deg>`.
+
+#define ST_RADIUS 120
+#define ST_BORDER  56
+#define ST_BCOLOR  57
+#define ST_BOPA    58
+#define AL_CENTER   9
+#define EV_CLICKED 10
+#define EV_VALCHG  35
+
+#define C_BG     0x0E1116
+#define C_CARD   0x1B2530
+#define C_CARDB  0x2C3A48
+#define C_TITLE  0xE8EAED
+#define C_SUB    0x9AA0A6
+#define C_AMBER  0xFBBC04
+#define C_GREEN  0x34A853
+#define C_RED    0xEA4335
+#define C_OPENBG 0x3A1414
+#define C_ZUBG   0x12281A
+
+#define TX     8
+#define WX   520
+#define GY    56
+#define CW   158
+#define CH   168
+#define COFF 167
+#define ROFF 180
+#define WCH   94
+#define WROFF 100
+#define MAXWC 30
+#define NEAR_MM 1000      // VL53L0X: person nearby if distance (mm) < this — TUNE to your mounting
+
+char IDS[] = "19879D|0E8BD2|0E8D48|0E7BC5|0E8D4D|0E8BEC|0E8C31|0E8B84|1300E8";
+
+char qbuf[120];
+char nm[28];
+char f6[12]; char f8[12]; char f9[12];
+char b[48];  char idbuf[10];
+int th_set[9]; int th_meas[9]; int th_val[9];
+int btn_dn[9]; int btn_up[9];
+int wn_state[9]; int wn_card[9];
+int nth; int nwn;
+
+// ---- alarm state ----
+int sw; int alarmMsg;            // LVGL: arm switch handle + state label
+int arm_on   = 0;                // user wants armed (LVGL switch OR web checkbox)
+int prev_arm = 0;
+int arequest = 0;                // 0 disarmed, 1 arming, 2 armed
+int email_sent = 0;
+int wopn     = 0;                // 1-based index of an open window (0 = all closed)
+int last_warned = 0;             // throttles the "noch offen" re-warn
+int tick = 0;
+global float galarm;             // door alarm switch (UDP-shared global) — mirrors the app "scharf" switch
+int prev_g = 0;                  // last galarm level seen (tells door-side changes from app-side changes)
+int idle_s = 0;                  // VL53L0X presence: seconds since a person was last near
+int dim_now = 0;                 // last DisplayDimmer % we set (0 = not yet set)
+char open_name[48];              // name of the open window (TTS + alarm text)
+char cmd[200];                   // deferred-command scratch (TTS / email)
+
+// ---- SMTP creds for the alarm email — read at boot from /alarm.cfg (device-only, NOT in git) ----
+// /alarm.cfg (one KEY=value per line, // comments ok):  SMTP=  PORT=  USER=  PASS=  FROM=  TO=
+#define ALARM_CFG "/alarm.cfg"
+char cfgbuf[256]; char cfgline[80];
+char m_smtp[40]; char m_port[8]; char m_user[40]; char m_pass[48]; char m_from[48]; char m_to[48];
+int mail_ok = 0;                 // 1 once /alarm.cfg supplied creds (else TTS+siren only, no email)
+
+void umlaut(char s[]) {
+    strReplace(s, "ü", "ue"); strReplace(s, "ö", "oe"); strReplace(s, "ä", "ae");
+    strReplace(s, "Ü", "Ue"); strReplace(s, "Ö", "Oe"); strReplace(s, "Ä", "Ae");
+    strReplace(s, "ß", "ss");
+}
+
+int makeCard(int x, int y, int h, char name[]) {
+    int c = lvglObj(0);
+    lvglSetPos(c, x, y); lvglSetSize(c, CW, h);
+    lvglSetBgColor(c, C_CARD);
+    lvglSetStyleInt(c, ST_RADIUS, 10);
+    lvglSetStyleInt(c, ST_BORDER, 1);
+    lvglSetStyleInt(c, ST_BOPA, 255);
+    lvglSetStyleInt(c, ST_BCOLOR, C_CARDB);
+    int t = lvglLabel(0);
+    lvglSetText(t, name); lvglSetTextColor(t, C_TITLE); lvglSetFont(t, 13);
+    lvglSetPos(t, x + 8, y + 6);
+    return c;
+}
+
+int mkBtn(int x, int y, char lab[]) {
+    int bt = lvglButton(0);
+    lvglSetPos(bt, x, y); lvglSetSize(bt, 40, 46);
+    lvglEventEnable(bt, EV_CLICKED);
+    int c = lvglLabel(bt);
+    lvglSetText(c, lab); lvglSetFont(c, 24); lvglAlign(c, AL_CENTER, 0, 0);
+    return bt;
+}
+
+void sendSet(int j) {
+    strToken(idbuf, IDS, '|', j + 1);
+    sprintf(cmd, "MaxCmd %s m %d", idbuf, th_val[j]);
+    tasmDefer(cmd);                       // event-driven slot: deferred fires from the 50 ms tick
+    sprintf(b, "%d", th_val[j]);
+    lvglSetText(th_set[j], b);
+}
+
+void refreshThermostats() {
+    int i = 1;
+    while (i <= nth) {
+        pluginQuery(qbuf, 126, 18, i);
+        webParse(qbuf, ",", 9, f9);
+        webParse(qbuf, ",", 6, f6);
+        sprintf(b, "Ist %s  V%s%%", f9, f6);
+        lvglSetText(th_meas[i - 1], b);
+        i = i + 1;
+    }
+}
+
+// read window contacts -> update cards + set wopn / open_name
+void refreshWindows() {
+    wopn = 0;
+    int i = 1;
+    while (i <= nwn) {
+        pluginQuery(qbuf, 126, 1, i);
+        webParse(qbuf, ",", 6, f6);
+        if (strToInt(f6) > 0) {
+            lvglSetText(wn_state[i - 1], "OFFEN"); lvglSetTextColor(wn_state[i - 1], C_RED); lvglSetBgColor(wn_card[i - 1], C_OPENBG);
+            wopn = i;
+            webParse(qbuf, ",", 1, open_name);
+            strReplace(open_name, "AZ_", "Arbeitszimmer ");
+            strReplace(open_name, "_", " "); umlaut(open_name);
+        } else {
+            lvglSetText(wn_state[i - 1], "zu"); lvglSetTextColor(wn_state[i - 1], C_GREEN); lvglSetBgColor(wn_card[i - 1], C_ZUBG);
+        }
+        i = i + 1;
+    }
+}
+
+void updateAlarmMsg() {
+    if (arequest == 2) {
+        if (wopn > 0) { sprintf(cmd, "ALARM\n%s offen", open_name); lvglSetText(alarmMsg, cmd); lvglSetTextColor(alarmMsg, C_RED); }
+        else { lvglSetText(alarmMsg, "scharf\nalles zu"); lvglSetTextColor(alarmMsg, C_GREEN); }
+    } else {
+        if (arequest == 1) {
+            if (wopn > 0) { sprintf(cmd, "noch offen\n%s", open_name); lvglSetText(alarmMsg, cmd); lvglSetTextColor(alarmMsg, C_AMBER); }
+            else { lvglSetText(alarmMsg, "aktiviere..."); lvglSetTextColor(alarmMsg, C_AMBER); }
+        } else {
+            lvglSetText(alarmMsg, "Anlage aus"); lvglSetTextColor(alarmMsg, C_SUB);
+        }
+    }
+}
+
+// load SMTP creds from /alarm.cfg at boot (weather.tc idiom: line-by-line, skip // comments)
+void read_cfg() {
+    mail_ok = 0; m_smtp[0] = 0; m_pass[0] = 0; m_to[0] = 0;
+    if (fileExists(ALARM_CFG) == 0) { return; }
+    int h = fileOpen(ALARM_CFG, 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, cfgbuf, 254);
+    fileClose(h);
+    if (n <= 0) { return; }
+    cfgbuf[n] = 0;
+    int li = 1;
+    while (strToken(cfgline, cfgbuf, '\n', li) > 0) {
+        strTrim(cfgline);
+        if (cfgline[0] != '/' || cfgline[1] != '/') {
+            int p = strFind(cfgline, "SMTP="); if (p >= 0) { strSub(m_smtp, cfgline, p + 5, 39); }
+            p = strFind(cfgline, "PORT="); if (p >= 0) { strSub(m_port, cfgline, p + 5, 7); }
+            p = strFind(cfgline, "USER="); if (p >= 0) { strSub(m_user, cfgline, p + 5, 39); }
+            p = strFind(cfgline, "PASS="); if (p >= 0) { strSub(m_pass, cfgline, p + 5, 47); }
+            p = strFind(cfgline, "FROM="); if (p >= 0) { strSub(m_from, cfgline, p + 5, 47); }
+            p = strFind(cfgline, "TO=");   if (p >= 0) { strSub(m_to,   cfgline, p + 3, 47); }
+        }
+        li = li + 1;
+    }
+    if (m_smtp[0] != 0 && m_pass[0] != 0 && m_to[0] != 0) { mail_ok = 1; }
+    addLog("alarm: SMTP cfg loaded=%d host=%s", mail_ok, m_smtp);   // host only — never logs user/pass/recipient
+}
+
+// proven eqmax_alarm state machine — arm -> "noch offen" -> scharf -> ALARM (TTS/email/siren)
+void alarm_tick() {
+    if (arm_on != prev_arm) {
+        if (arm_on > 0) { arequest = 1; last_warned = 0; }
+        else            { arequest = 0; email_sent = 0; last_warned = 0; }
+        prev_arm = arm_on;
+    }
+    if (arequest == 1) {
+        if (wopn > 0) {
+            if (wopn != last_warned) {                     // announce ONCE per open window
+                sprintf(cmd, "I2STTS Fenster %s ist noch offen", open_name);
+                tasmDefer(cmd);
+                last_warned = wopn;
+            }
+        } else {
+            arequest = 2;                                  // all closed -> armed
+            tasmDefer("I2STTS Alarmanlage ist scharf");
+        }
+    }
+    if (arequest == 2) {
+        if (wopn > 0) {
+            if (mail_ok && email_sent == 0) {              // creds from /alarm.cfg (none in source)
+                sprintf(cmd, "sendmail [%s:%s:%s:%s:%s:%s:ALARM]Fenster offen: %s", m_smtp, m_port, m_user, m_pass, m_from, m_to, open_name);
+                tasmDefer(cmd);                            // deferred: sendmail must not block
+                email_sent = 1;
+            }
+            audioPlay("/SND/lalarm.mp3");                  // siren
+        }
+    }
+}
+
+int main() {
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, C_BG);
+    read_cfg();                      // SMTP creds from /alarm.cfg — no credentials in this source
+
+    int title = lvglLabel(0);
+    lvglSetText(title, "Heizung & Fenster"); lvglSetTextColor(title, C_TITLE); lvglSetFont(title, 20); lvglSetPos(title, 10, 6);
+    int lt = lvglLabel(0); lvglSetText(lt, "Thermostate"); lvglSetTextColor(lt, C_SUB); lvglSetFont(lt, 16); lvglSetPos(lt, TX, 34);
+    int lw = lvglLabel(0); lvglSetText(lw, "Fenster");     lvglSetTextColor(lw, C_SUB); lvglSetFont(lw, 16); lvglSetPos(lw, WX, 34);
+
+    pluginQuery(qbuf, 126, 18, 0); nth = strToInt(qbuf); if (nth > 9) { nth = 9; }
+    int i = 1;
+    while (i <= nth) {
+        pluginQuery(qbuf, 126, 18, i);
+        webParse(qbuf, ",", 1, nm);
+        webParse(qbuf, ",", 8, f8); th_val[i - 1] = strToInt(f8);
+        strReplace(nm, "_", " "); umlaut(nm);
+        int x = TX + ((i - 1) % 3) * COFF;
+        int y = GY + ((i - 1) / 3) * ROFF;
+        makeCard(x, y, CH, nm);
+        btn_dn[i - 1] = mkBtn(x + 6,   y + 44, "-");
+        btn_up[i - 1] = mkBtn(x + 112, y + 44, "+");
+        th_set[i - 1] = lvglLabel(0); lvglSetFont(th_set[i - 1], 34); lvglSetTextColor(th_set[i - 1], C_AMBER); lvglSetPos(th_set[i - 1], x + 58, y + 50);
+        sprintf(b, "%d", th_val[i - 1]); lvglSetText(th_set[i - 1], b);
+        th_meas[i - 1] = lvglLabel(0); lvglSetFont(th_meas[i - 1], 12); lvglSetTextColor(th_meas[i - 1], C_SUB); lvglSetPos(th_meas[i - 1], x + 8, y + 132);
+        i = i + 1;
+    }
+
+    pluginQuery(qbuf, 126, 1, 0); nwn = strToInt(qbuf); if (nwn > 9) { nwn = 9; }
+    if (nwn > MAXWC) { nwn = MAXWC; }
+    i = 1;
+    while (i <= nwn) {
+        pluginQuery(qbuf, 126, 1, i);
+        webParse(qbuf, ",", 1, nm); strReplace(nm, "_", " "); umlaut(nm);
+        int x = WX + ((i - 1) % 3) * COFF;
+        int y = GY + ((i - 1) / 3) * WROFF;
+        wn_card[i - 1] = makeCard(x, y, WCH, nm);
+        wn_state[i - 1] = lvglLabel(0); lvglSetFont(wn_state[i - 1], 22); lvglSetPos(wn_state[i - 1], x + 18, y + 42);
+        i = i + 1;
+    }
+
+    // ---- alarm panel ----
+    int la = lvglLabel(0); lvglSetText(la, "Alarmanlage"); lvglSetTextColor(la, C_SUB); lvglSetFont(la, 16); lvglSetPos(la, WX, 360);
+    int ac = lvglObj(0);
+    lvglSetPos(ac, WX, 386); lvglSetSize(ac, 495, 196);
+    lvglSetBgColor(ac, C_CARD); lvglSetStyleInt(ac, ST_RADIUS, 10);
+    lvglSetStyleInt(ac, ST_BORDER, 1); lvglSetStyleInt(ac, ST_BOPA, 255); lvglSetStyleInt(ac, ST_BCOLOR, C_CARDB);
+    sw = lvglSwitch(0);
+    lvglSetPos(sw, WX + 24, 414); lvglEventEnable(sw, EV_VALCHG);
+    int sl = lvglLabel(0); lvglSetText(sl, "scharf"); lvglSetTextColor(sl, C_TITLE); lvglSetFont(sl, 18); lvglSetPos(sl, WX + 96, 418);
+    alarmMsg = lvglLabel(0); lvglSetFont(alarmMsg, 30); lvglSetPos(alarmMsg, WX + 24, 478);
+
+    refreshThermostats();
+    refreshWindows();
+    updateAlarmMsg();
+    return 0;
+}
+
+void Every100ms() {
+    while (lvglEvent()) {
+        int o = lvglEventObj();
+        int code = lvglEventCode();
+        if (o == sw) { arm_on = lvglIsChecked(sw); tick = 5; }   // force the alarm to process next second
+        else {
+            if (code == EV_CLICKED) {
+                int j = 0;
+                while (j < nth) {
+                    if (o == btn_up[j]) { th_val[j] = th_val[j] + 1; if (th_val[j] > 30) { th_val[j] = 30; } sendSet(j); }
+                    if (o == btn_dn[j]) { th_val[j] = th_val[j] - 1; if (th_val[j] < 5)  { th_val[j] = 5; }  sendSet(j); }
+                    j = j + 1;
+                }
+            }
+        }
+    }
+}
+
+void EverySecond() {
+    // mirror the door switch (galarm, UDP-shared) <-> the app's arm state
+    int g = 0; if (galarm > 0.5) { g = 1; }
+    if (g != prev_g) {                                  // changed on the door side -> app follows
+        arm_on = g; lvglSetChecked(sw, arm_on); prev_g = g; tick = 5;
+    } else {
+        int a = 0; if (arm_on > 0) { a = 1; }
+        if (a != prev_g) { galarm = a; prev_g = a; }    // changed in the app -> broadcast to the door
+    }
+
+    // presence-based backlight — VL53L0X distance published by slot 3 into the share store
+    float vd = shareGetFloat("vldist");
+    if (vd > 0.5 && vd < NEAR_MM) {                     // person nearby -> full brightness immediately
+        idle_s = 0;
+        if (dim_now != 100) { tasmDefer("DisplayDimmer 100"); dim_now = 100; addLog("dim: person %.0f mm -> 100", vd); }
+    } else {                                            // nobody near -> dim after a minute
+        idle_s = idle_s + 1;
+        if (idle_s >= 60 && dim_now != 10) { tasmDefer("DisplayDimmer 10"); dim_now = 10; addLog("dim: idle 60s -> 10"); }
+    }
+
+    tick = tick + 1;
+    if (tick >= 5) {
+        tick = 0;
+        refreshThermostats();
+        refreshWindows();
+        alarm_tick();
+        updateAlarmMsg();
+        lvglSetChecked(sw, arm_on);     // keep the LVGL switch in sync with the web checkbox
+    }
+}
+
+// web main-page card: arm checkbox + live status (bonus — control from a browser too)
+void WebCall() {
+    webCheckbox(arm_on, "Alarmanlage scharf");
+    if (arequest == 2) { webSend("{s}Alarm{m}<b style='color:#3fb950'>scharf</b>{e}"); }
+    else {
+        if (arequest == 1) { webSend("{s}Alarm{m}<span style='color:#e0a84e'>aktiviere...</span>{e}"); }
+        else { webSend("{s}Alarm{m}aus{e}"); }
+    }
+    if (wopn > 0) { sprintf(cmd, "{s}Fenster{m}<span style='color:#e0a84e'>%s offen</span>{e}", open_name); webSend(cmd); }
+    else { webSend("{s}Fenster{m}alle zu{e}"); }
+}

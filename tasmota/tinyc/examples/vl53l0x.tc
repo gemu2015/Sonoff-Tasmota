@@ -418,8 +418,10 @@ void EverySecond() {
   if (dist < 8190) {
     vl_range = (float)dist;
     vl_valid = 1;
+    shareSetFloat("vldist", vl_range);     // publish distance for moritz_dash presence dimmer
   } else {
     vl_valid = 0;
+    shareSetFloat("vldist", 9999.0);       // out of range -> "far" (no person nearby)
   }
 }
 
