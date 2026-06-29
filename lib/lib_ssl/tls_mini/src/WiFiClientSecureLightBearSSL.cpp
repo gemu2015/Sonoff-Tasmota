@@ -42,6 +42,9 @@
 #include "lwip/tcp.h"
 #include "lwip/inet.h"
 #include "lwip/netif.h"
+#if defined(ESP32)
+#include <esp_heap_caps.h>   // heap_caps_malloc / MALLOC_CAP_SPIRAM — route TLS I/O buffers to PSRAM
+#endif
 #ifdef ESP8266
   #include <include/ClientContext.h>
   #include "c_types.h"
@@ -238,8 +241,25 @@ void WiFiClientSecure_light::allocateBuffers(void) {
   LOG_HEAP_SIZE("allocateBuffers before");
   _sc = std::make_shared<br_ssl_client_context>();
   LOG_HEAP_SIZE("allocateBuffers ClientContext");
+#if defined(ESP32)
+  // Prefer PSRAM for the (up to ~16.7 KB recv) BearSSL I/O record buffers. On a
+  // PSRAM device this keeps the big contiguous block off the fragmentation-prone
+  // internal heap AND removes the "needs a large contiguous *internal* block"
+  // failure that breaks TLS handshakes once internal SRAM is fragmented (the
+  // GitHub IDE download, weather HTTPS, sendmail). heap_caps_malloc returns NULL
+  // when there is no/insufficient PSRAM, so we fall back to internal RAM and
+  // non-PSRAM boards are unaffected. free() handles both heaps on ESP-IDF.
+  auto _tls_buf_alloc = [](size_t n) -> unsigned char* {
+    unsigned char *p = (unsigned char*) heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) { p = (unsigned char*) malloc(n); }
+    return p;
+  };
+  _iobuf_in  = std::shared_ptr<unsigned char>(_tls_buf_alloc(_iobuf_in_size),  [](unsigned char* p){ free(p); });
+  _iobuf_out = std::shared_ptr<unsigned char>(_tls_buf_alloc(_iobuf_out_size), [](unsigned char* p){ free(p); });
+#else
   _iobuf_in = std::shared_ptr<unsigned char>(new unsigned char[_iobuf_in_size], std::default_delete<unsigned char[]>());
   _iobuf_out = std::shared_ptr<unsigned char>(new unsigned char[_iobuf_out_size], std::default_delete<unsigned char[]>());
+#endif
   LOG_HEAP_SIZE("allocateBuffers after");
 }
 
