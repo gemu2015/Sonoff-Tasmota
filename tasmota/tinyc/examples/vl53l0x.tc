@@ -501,9 +501,13 @@ void Command(char cmd[]) {
 // ── Main ─────────────────────────────────────────────
 
 void OnExit() {
-  if (vl_ok) {
-    I2cResetActive(VL_ADDR, vl_bus);
-  }
+  // Release the bus claim on EVERY exit path, not just vl_ok. Otherwise a run
+  // that claimed 0x29 (i2cSetActiveFound, below) but then failed in vlInit() —
+  // or was hard-stopped/reloaded before OnExit — leaves the address marked
+  // active, and the next run's i2cSetDevice() reports "already claimed" ->
+  // "VL53L0X: not found" forever, until a full reboot clears the active list.
+  I2cResetActive(VL_ADDR, 0);
+  I2cResetActive(VL_ADDR, 1);
 }
 
 int main() {
@@ -512,6 +516,12 @@ int main() {
   vl_bus = 0;
 
   addCommand("VL");
+
+  // Defensive: clear any stale claim a previous run leaked (failed init / hard
+  // stop) so the i2cSetDevice() probe below can re-acquire 0x29. Makes a
+  // restart-in-place reliable without needing a full reboot.
+  I2cResetActive(VL_ADDR, 0);
+  I2cResetActive(VL_ADDR, 1);
 
   // scan both buses
   while (vl_bus < 2) {
