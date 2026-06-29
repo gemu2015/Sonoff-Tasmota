@@ -18010,6 +18010,20 @@ static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 
 #endif
     return;
   }
+  // Reentrancy gate (Andreas C6 wedge; frame-depth map -> N=1). The slot is
+  // halted, but if it parked DEEP in a call chain (a while(1) TaskLoop suspended
+  // at delay() inside a read sub-call: frame_count >= 2, mutex free during the
+  // delay) rather than at its shallow base tick (frame_count <= 1), dispatching
+  // a callback now stacks it ON TOP of the suspended frames -> frame growth +
+  // the TaskLoop+WebCall NULL-locals race. Skip; the periodic sweep retries once
+  // the TaskLoop unwinds to its base tick. Event-driven slots (main returned,
+  // frame_count 0) and base-tick parks (1) still dispatch -> no starving.
+  if (s->vm.frame_count > 1) {
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+    return;
+  }
   tc_current_slot = s;
   tc_vm_call_callback(&s->vm, name);
   tc_current_slot = nullptr;
@@ -18038,6 +18052,20 @@ static void tc_slot_callback_id(TcSlot *s, TcCallbackId cid) {
   if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
   if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+    return;
+  }
+  // Reentrancy gate (Andreas C6 wedge; frame-depth map -> N=1) — the hot timer
+  // path (EverySecond/Every100ms/EveryLoop... via tc_all_callbacks_id). If the
+  // slot's while(1) TaskLoop is parked DEEP at a delay() inside a read sub-call
+  // (frame_count >= 2, mutex free during the delay), firing a timer callback now
+  // stacks it ON TOP of the suspended frames -> frame growth + NULL-locals race
+  // (exactly the readFreshOnce-at-frame_count-4 case). Skip; the next sweep
+  // retries once the TaskLoop is back at its base tick. frame_count <= 1
+  // (event-driven slot, or while(1) base tick) still dispatches -> no starving.
+  if (s->vm.frame_count > 1) {
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
