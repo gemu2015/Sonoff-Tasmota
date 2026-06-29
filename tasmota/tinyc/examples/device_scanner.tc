@@ -459,8 +459,8 @@ void WebPage() {
         if (f & F_REBT) rebt++;
         i++;
     }
-    webSend("<div style='width:100%;max-width:600px;box-sizing:border-box'>");
-    sprintf(wrow, "<div style='font-weight:bold;margin:8px 0 2px'>&#128225; Fleet-Scanner &mdash; #%d: %d Geraete", pub_scan_no, pub_n);
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:8px auto;padding:2px 12px 10px;max-width:680px;box-sizing:border-box'><legend style='font-size:12px;opacity:.6;padding:0 6px'>&#128225; Fleet-Scanner</legend><div style='width:100%;box-sizing:border-box'>");
+    sprintf(wrow, "<div style='font-weight:bold;margin:4px 0 2px'>#%d: %d Geraete", pub_scan_no, pub_n);
     webSend(wrow);
     if (fail > 0) { sprintf(wrow, " &middot; <span style='color:#c00'>%d FAIL</span>", fail); webSend(wrow); }
     if (rebt > 0) { sprintf(wrow, " &middot; <span style='color:#e80'>%d reboot</span>", rebt); webSend(wrow); }
@@ -516,7 +516,7 @@ void WebPage() {
     }
     webSend("</table>");
     webSend("<div style='margin:4px 0'><button style='width:100%' onclick=\"fetch('/cm?cmnd=SCANGO');this.innerHTML='scanne&hellip;';setInterval(function(){location.reload()},60000)\">Jetzt scannen (~20-30 min, l&auml;uft im Hintergrund)</button></div>");
-    webSend("</div>");
+    webSend("</div></fieldset>");
 }
 
 // ── Live progress banner in the auto-refreshing sensor section ──────────
@@ -529,8 +529,11 @@ int web_tick = 0;
 
 void WebCall() {
     web_tick = web_tick + 1;
+    // Render as standard {s}..{m}..{e} card rows so the firmware's per-slot card
+    // frames it cleanly (a raw <td colspan=2> banner gets hoisted out of the card's
+    // <table> wrapper by the browser and intermixes with the other slots).
     if (!sc_active) {
-        sprintf(wrow, "<tr><td colspan=2 style='text-align:left;background:#333;color:#bbb;padding:6px 9px;border-radius:6px'>&#128225; Scanner bereit &middot; letzter Lauf #%d: %d Geraete <span style='font-size:.8em;opacity:.45'>&#9679;%d</span></td></tr>", pub_scan_no, pub_n, web_tick);
+        sprintf(wrow, "{s}&#128225; Scanner{m}bereit &middot; #%d: %d Ger&auml;te &#9679;%d{e}", pub_scan_no, pub_n, web_tick);
         webSend(wrow);
         return;
     }
@@ -540,12 +543,9 @@ void WebCall() {
     if (tot < 1) { tot = 1; }
     int pct = cur * 100 / tot;
     if (pct > 100) { pct = 100; }
-    webSend("<tr><td colspan=2 style='text-align:left;background:#1d3a5f;color:#fff;padding:6px 9px;border-radius:6px'>");
-    if (sc_phase == 0)      sprintf(wrow, "<b>&#128225; Scanner laeuft</b> &middot; Phase 1/3 Suche .%d/254 (%d%%) &middot; %d gefunden", cur, pct, nhosts);
-    else if (sc_phase == 1) sprintf(wrow, "<b>&#128225; Scanner laeuft</b> &middot; Phase 2/3 Versionen %d/%d (%d%%)", cur, tot, pct);
-    else                    sprintf(wrow, "<b>&#128225; Scanner laeuft</b> &middot; Phase 3/3 TinyC %d/%d (%d%%)", cur, tot, pct);
-    webSend(wrow);
-    sprintf(wrow, " <span style='font-size:.8em;opacity:.45'>&#9679;%d</span><div style='height:7px;background:rgba(255,255,255,.18);border-radius:4px;margin-top:5px;overflow:hidden'><div style='height:7px;width:%d%%;background:#39d353;transition:width .4s'></div></div></td></tr>", web_tick, pct);
+    if (sc_phase == 0)      sprintf(wrow, "{s}&#128225; Scanner{m}Phase 1/3 &middot; .%d/254 (%d%%) &middot; %d gef. &#9679;%d{e}", cur, pct, nhosts, web_tick);
+    else if (sc_phase == 1) sprintf(wrow, "{s}&#128225; Scanner{m}Phase 2/3 &middot; Versionen %d/%d (%d%%) &#9679;%d{e}", cur, tot, pct, web_tick);
+    else                    sprintf(wrow, "{s}&#128225; Scanner{m}Phase 3/3 &middot; TinyC %d/%d (%d%%) &#9679;%d{e}", cur, tot, pct, web_tick);
     webSend(wrow);
 }
 
