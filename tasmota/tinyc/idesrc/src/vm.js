@@ -834,8 +834,13 @@ export class VM {
                 const idx = this.pop();
                 const ref = this.frameLocals[this.fp][localIdx];
                 const resolved = this.resolveRef(ref);
-                if (resolved.maxLen !== undefined && (idx < 0 || idx >= resolved.maxLen))
-                    throw new VMError(`Ref-array bounds: idx=${idx} len=${resolved.maxLen}`, this.pc);
+                // OOB read through a char[] ref-param -> 0 (don't fault the slot);
+                // mirrors the firmware ref-param read hardening. (Andreas C6 .144)
+                if (!resolved || !resolved.arr || resolved.maxLen === undefined ||
+                    idx < 0 || idx >= resolved.maxLen) {
+                    this.push(0);
+                    break;
+                }
                 this.push(resolved.arr[resolved.base + idx]);
                 break;
             }

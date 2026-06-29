@@ -10646,31 +10646,53 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
     case SYS_WEB_SEND_FILE: {
-      // Send file contents to web page (like Scripter's %/filename)
+      // Send a file to the web client. Prefers a pre-gzipped "<file>.gz"
+      // (served with Content-Encoding: gzip) and streams it via a raw
+      // Content-Length response + client().write() — the SAME fast path the
+      // TinyC IDE uses (xdrv_124_tinyc.ino, HandleTinyCIde). The old path sent
+      // 255-byte text pieces through WSContentSend_P("%s") with no gzip and no
+      // Content-Length, so on a heap-/loop-constrained C6 a 47 KB page
+      // (/zeiten) timed out under load while an 11 KB page slipped through.
+      // client().write() is length-based (binary-safe, unlike webRawWrite's
+      // null-terminated tc_stream_ref), so gzip bytes pass intact.
       int32_t ci = TC_POP(vm);
       const char *fname = tc_get_const_str(vm, ci);
-#ifdef USE_UFILESYS
+#if defined(USE_UFILESYS) && defined(USE_WEBSERVER)
       if (fname) {
-        char path[48];
+        char path[52];
         if (fname[0] != '/') {
           snprintf(path, sizeof(path), "/%s", fname);
         } else {
           strlcpy(path, fname, sizeof(path));
         }
-        // Try ufsp first, then ffsp
+        // Prefer a pre-gzipped sibling "<path>.gz" (much smaller on the wire).
+        bool gzipped = false;
         File f;
-        if (ufsp) f = ufsp->open(path, "r");
-        if (!f && ffsp) f = ffsp->open(path, "r");
+        char gzpath[56];
+        snprintf(gzpath, sizeof(gzpath), "%s.gz", path);
+        if (ufsp) f = ufsp->open(gzpath, "r");
+        if (!f && ffsp) f = ffsp->open(gzpath, "r");
         if (f) {
-          TC_BUF(buf, 256);
-#ifdef USE_WEBSERVER
-          tc_web_lazy_begin();
-#endif
-          WSContentFlush();
+          gzipped = true;
+        } else {
+          if (ufsp) f = ufsp->open(path, "r");
+          if (!f && ffsp) f = ffsp->open(path, "r");
+        }
+        if (f) {
+          // Emit the whole HTTP response ourselves (raw): suppress the auto
+          // chunked-text wrapper that HandleTinyCWebOn would add. (WSSend_P is
+          // .ino-static and not visible from this header, so call its wrapped
+          // Webserver->send() directly.)
+          if (Tinyc) Tinyc->web_raw_active = 1;
+          uint32_t fsize = f.size();
+          if (gzipped) Webserver->sendHeader(F("Content-Encoding"), F("gzip"));
+          Webserver->setContentLength(fsize);
+          Webserver->send(200, "text/html", "");
+          uint8_t buf[512];
           while (f.available()) {
-            int len = f.readBytes(buf, sizeof(buf) - 1);
-            buf[len] = 0;
-            WSContentSend_P(PSTR("%s"), buf);
+            int n = f.read(buf, sizeof(buf));
+            if (n > 0) Webserver->client().write(buf, n);
+            yield();
           }
           f.close();
         } else {
@@ -17236,9 +17258,14 @@ static int tc_vm_step(TcVM *vm) {
       if ((uint32_t)idx >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
       int32_t ref = vm->frames[vm->fp].locals[idx];
       int32_t *buf = tc_resolve_ref(vm, ref);
-      if (!buf) return TC_ERR_BOUNDS;
-      int32_t maxLen = tc_ref_maxlen(vm, ref);
-      if (a < 0 || a >= maxLen) return TC_ERR_BOUNDS;
+      int32_t maxLen = buf ? tc_ref_maxlen(vm, ref) : 0;
+      // Out-of-bounds READ through a char[] ref-param is a common parser hiccup
+      // — a `cmd+offset` sub-ref that pointer-arithmetic corrupted (offset folds
+      // into a heap ref's handle), or a bare command reading past its buffer.
+      // Return 0 instead of TC_ERR_BOUNDS so one stray read can't halt the whole
+      // slot until reload. (Andreas, C6 .144 — ref-param read hardening.)
+      // Writes (OP_STORE_REF_ARR) still fault — we won't corrupt memory silently.
+      if (!buf || a < 0 || a >= maxLen) { TC_PUSH(vm, 0); break; }
       TC_PUSH(vm, buf[a]);
       break;
     }
