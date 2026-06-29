@@ -53,6 +53,7 @@ char b[48];  char idbuf[10];
 int th_set[9]; int th_meas[9]; int th_val[9];
 int btn_dn[9]; int btn_up[9];
 int wn_state[9]; int wn_card[9];
+int bat_th[9]; int bat_wn[9];    // per-device "BAT" low-battery indicator labels
 int nth; int nwn;
 
 // ---- alarm state ----
@@ -120,9 +121,10 @@ void refreshThermostats() {
     while (i <= nth) {
         pluginQuery(qbuf, 126, 18, i);
         webParse(qbuf, ",", 9, f9);
-        webParse(qbuf, ",", 6, f6);
-        sprintf(b, "Ist %s  V%s%%", f9, f6);
+        sprintf(b, "Ist %s", f9);
         lvglSetText(th_meas[i - 1], b);
+        webParse(qbuf, ",", 4, f8);                        // field 4 = battery_low
+        if (strToInt(f8) > 0) { lvglSetText(bat_th[i - 1], "BAT"); } else { lvglSetText(bat_th[i - 1], ""); }
         i = i + 1;
     }
 }
@@ -143,6 +145,8 @@ void refreshWindows() {
         } else {
             lvglSetText(wn_state[i - 1], "zu"); lvglSetTextColor(wn_state[i - 1], C_GREEN); lvglSetBgColor(wn_card[i - 1], C_ZUBG);
         }
+        webParse(qbuf, ",", 4, f8);                        // field 4 = battery_low
+        if (strToInt(f8) > 0) { lvglSetText(bat_wn[i - 1], "BAT"); } else { lvglSetText(bat_wn[i - 1], ""); }
         i = i + 1;
     }
 }
@@ -245,6 +249,7 @@ int main() {
         th_set[i - 1] = lvglLabel(0); lvglSetFont(th_set[i - 1], 34); lvglSetTextColor(th_set[i - 1], C_AMBER); lvglSetPos(th_set[i - 1], x + 58, y + 50);
         sprintf(b, "%d", th_val[i - 1]); lvglSetText(th_set[i - 1], b);
         th_meas[i - 1] = lvglLabel(0); lvglSetFont(th_meas[i - 1], 12); lvglSetTextColor(th_meas[i - 1], C_SUB); lvglSetPos(th_meas[i - 1], x + 8, y + 132);
+        bat_th[i - 1] = lvglLabel(0); lvglSetFont(bat_th[i - 1], 14); lvglSetTextColor(bat_th[i - 1], C_RED); lvglSetPos(bat_th[i - 1], x + 120, y + 132);
         i = i + 1;
     }
 
@@ -258,6 +263,7 @@ int main() {
         int y = GY + ((i - 1) / 3) * WROFF;
         wn_card[i - 1] = makeCard(x, y, WCH, nm);
         wn_state[i - 1] = lvglLabel(0); lvglSetFont(wn_state[i - 1], 22); lvglSetPos(wn_state[i - 1], x + 18, y + 42);
+        bat_wn[i - 1] = lvglLabel(0); lvglSetFont(bat_wn[i - 1], 14); lvglSetTextColor(bat_wn[i - 1], C_RED); lvglSetPos(bat_wn[i - 1], x + 120, y + 44);
         i = i + 1;
     }
 
