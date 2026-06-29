@@ -994,7 +994,8 @@ void rf_moritz_task(void) {
 #endif
 
 // 18,04,10,92,a7
-          if (moritz_cfg.pair_enable) {
+          //if (moritz_cfg.pair_enable) {
+          {
             uint8_t payload[5];
             TIME_T *mt = tgbl->RtcTime;
             payload[0] = mt->year - 2000;
@@ -1891,6 +1892,7 @@ MODULE_PART void Moritz_SetLabel();
 MODULE_PART void Moritz_Pair();
 MODULE_PART void Moritz_Cmd();
 MODULE_PART void Moritz_SetBaseAddr();
+MODULE_PART void Moritz_SetTime();
 
 void Moritz_List() {
   SETREGS
@@ -2085,10 +2087,33 @@ SETREGS
   ResponseCmndNumber(mode);
 }
 
+// MaxTime <id_hex> — push the current RTC time to a thermostat (TimeInformation,
+// cmd 0x03), so you can set/sync its clock on demand. The auto-reply in the
+// receive path (case 3) only fires while pair_enable is on; this works anytime.
+void Moritz_SetTime(void) {
+  SETREGS
+  STGLOB
+  char *cp = XdrvMailbox->data;
+  while (*cp == ' ') cp++;
+  if (*cp) {
+    uint32_t man = (moritz_addr[0] << 16) | (moritz_addr[1] << 8) | (moritz_addr[2]);
+    uint32_t dst = strtol(cp, &cp, 16);
+    uint8_t payload[5];
+    TIME_T *mt = tgbl->RtcTime;
+    payload[0] = mt->year - 2000;
+    payload[1] = mt->day_of_month;
+    payload[2] = mt->hour;
+    payload[3] = mt->minute | ((mt->month & 0x0c) << 4);
+    payload[4] = mt->second | ((mt->month & 0x03) << 6);
+    moritz_sendMsg(3, man, dst, payload, DEFAULT_GROUPID, 4, 5, 0);
+  }
+  ResponseCmndDone();
+}
+
 const char Moritz_Commands[] PROGMEM =
     "Max|"  // Prefix
-    "List|Reset|Del|DelUn|Label|Pair|Cmd|Baddr";
-void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair,&Moritz_Cmd,&Moritz_SetBaseAddr};
+    "List|Reset|Del|DelUn|Label|Pair|Cmd|Baddr|Time";
+void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair,&Moritz_Cmd,&Moritz_SetBaseAddr,&Moritz_SetTime};
 
 
 void MORITZ_Deinit(void) {
