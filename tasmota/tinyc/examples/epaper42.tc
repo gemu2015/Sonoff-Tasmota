@@ -63,6 +63,12 @@ global float tcap =  0.0;     // total capacity (Wh)
 global float rcap =  0.0;     // remaining capacity (Wh)
 global float rper =  0.0;     // remaining percent
 
+// Phases
+global float phs1;
+global float phs2;
+global float phs3;
+
+
 // ── Solar / inverters / wallbox ──
 global float sedc =  0.0;     // Dach Solar DC (W) — current
 global float sedt =  0.0;     // Dach total Einspeisung (kWh) — counter
@@ -429,7 +435,9 @@ void EverySecond() {
     }
 	
 	
-	ledbar=0-(wrgh+wrga+wrgg);
+	//ledbar=0-(wrgh+wrga+wrgg);
+	ledbar=sip;
+	
 //	otmp=abs(zwzc)
 //	if otmp<80
 //	then
