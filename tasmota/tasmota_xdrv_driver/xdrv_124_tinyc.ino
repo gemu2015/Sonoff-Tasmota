@@ -432,6 +432,32 @@ static uint8_t tc_qpc_counter(void) {
 #endif
 }
 
+// Fix C: detect a fresh firmware image (an OTA flash). The running app's ELF
+// SHA-256 changes on every build, so a mismatch vs the recorded id means we
+// just flashed. Records the new id and returns true exactly once per new image.
+static bool tc_fresh_firmware_boot(void) {
+#ifdef ESP32
+  FS *fs = ufsp ? ufsp : ffsp;
+  if (!fs) return false;
+  uint32_t cur = 0;
+  esp_app_desc_t info;
+  const esp_partition_t *run = esp_ota_get_running_partition();
+  if (run && esp_ota_get_partition_description(run, &info) == ESP_OK) {
+    memcpy(&cur, info.app_elf_sha256, sizeof(cur));
+  }
+  if (cur == 0) return false;            // couldn't read app id -> stay conservative
+  uint32_t stored = 0;
+  File f = fs->open("/.tc_fwid", "r");
+  if (f) { f.read((uint8_t*)&stored, sizeof(stored)); f.close(); }
+  if (stored == cur) return false;       // same image already booted -> normal detection
+  File w = fs->open("/.tc_fwid", "w");   // record the new image id
+  if (w) { w.write((const uint8_t*)&cur, sizeof(cur)); w.close(); }
+  return true;                           // fresh flash (OTA)
+#else
+  return false;
+#endif
+}
+
 static void tc_bootloop_marker_delete(void);           // fwd (defined below)
 
 static bool tc_bootloop_detected(void) {
@@ -444,6 +470,17 @@ static bool tc_bootloop_detected(void) {
   // can never disable autoexec. Crash resets (PANIC/WDT/BROWNOUT) and
   // power-on (handled by the QPC counter) still go through detection.
   if (esp_reset_reason() == ESP_RST_SW) {
+    tc_bootloop_marker_delete();
+    return false;
+  }
+  // Fix C: a fresh firmware image (OTA) is several quick reboots (Upgrade ->
+  // safeboot -> new app, each <8 s) that inflate Tasmota's QPC flash counter
+  // even though it is NOT a crash loop. On the first boot of a new image, clear
+  // that inflation and don't trip. A genuine post-OTA crash loop (e.g. a slot
+  // touching the net before WiFi is up -> heap corruption -> unlogged reset)
+  // still trips on the following same-image boots.
+  if (tc_fresh_firmware_boot()) {
+    UpdateQuickPowerCycle(false);                      // clear the OTA's QPC inflation
     tc_bootloop_marker_delete();
     return false;
   }
