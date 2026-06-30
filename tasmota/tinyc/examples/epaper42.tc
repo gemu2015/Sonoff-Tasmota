@@ -570,6 +570,22 @@ void WebCall() {
     webSend(buf);
 }
 
+void Command(char cmd[]) {              // cmd[] = the JSON text after "PVSET"
+    pwl  = jsonNum(cmd, "pwl");
+    sip  = jsonNum(cmd, "sip");
+    sop  = jsonNum(cmd, "sop");
+    bip  = jsonNum(cmd, "bip");
+    hip  = jsonNum(cmd, "hip");
+    tcap = jsonNum(cmd, "tcap");
+    rcap = jsonNum(cmd, "rcap");
+    rper = jsonNum(cmd, "rper");
+    phs1 = jsonNum(cmd, "phs1");
+    phs2 = jsonNum(cmd, "phs2");
+    phs3 = jsonNum(cmd, "phs3");
+    char r[48]; sprintf(r, "OK pwl=%.2f sip=%.2f", pwl, sip);
+    responseCmnd(r);                    // sender's WebSend reply confirms the parse
+}
+
 
 // ─── TaskLoop and Every50ms intentionally REMOVED in v3 ──────────────
 // Hypothesis: TaskLoop's persistent tc_vm_task interferes with the
@@ -622,6 +638,8 @@ int main() {
     // it also lets the Scripter and TinyC versions share state
     // bidirectionally during the transition.
     load_wd_log();
+	
+	addCommand("PVSET"); addLog("json_recv ready");
 
     addLog("epaper42 ready: uptime=%d s (display init done)", tasm_uptime);
     return 0;
