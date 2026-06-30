@@ -14,7 +14,6 @@ blink.tcb
 bme280.tcb
 bmp280.tcb
 bmx280.tcb
-bresser.tcb
 bresser_chart.tcb
 bug4_http_taskloop_diag.tcb
 c_extensions_demo.tcb

@@ -508,7 +508,7 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 
 **GPIO / basic** — `blink.tc`, `sensor_read.tc`, `fibonacci.tc`
 **Sensors (I²C)** — `bme280.tc`, `bmp280.tc`, `scd30.tc`, `sht31.tc`, `ccs811.tc`, `sgp30.tc`, `ltr308.tc`, `veml6075.tc`, `tcs34725.tc`, `vl53l0x.tc`, `ads1115.tc`, `max31855.tc`, `mlx90614.tc`, `sps30.tc`, `ld2410.tc`
-**Sensors (other)** — `onewire.tc` (DS18B20), `bresser.tc` (weather)
+**Sensors (other)** — `onewire.tc` (DS18B20), `bresser_chart.tc` (weather)
 **BLE (ESP32)** — `ble_scan.tc` (scan + GATT), `esf37_scale.tc` / `esf37_probe.tc` (Etekcity ESF37 body-comp scale), `esf37_speak.tc` (scale → German TTS)
 **Display** — `display_demo.tc`, `lcd_i2c.tc`, `lcd_chart.tc`, `chart.tc`, `chart_types.tc`, `epaper29.tc`, `sunton_display.tc`, `guiton_display.tc`, `analog_clock.tc`, `voltmeter.tc` (canvas), `text_on_image.tc`, `watch_demo.tc`
 **LEDs** — `ledbar.tc`

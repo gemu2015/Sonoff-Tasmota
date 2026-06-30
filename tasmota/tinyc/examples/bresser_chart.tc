@@ -6,10 +6,14 @@
 // Globals: 6 × 288 = 1728 slots (of dynamic max on ESP32)
 
 // Uncomment to simulate sensor data (no CC1101 hardware needed)
-#define SIMULATE 1
+//#define SIMULATE 1
 #ifdef SIMULATE
 #define STORE_INTERVAL 10   // fast: 10 sec between samples for testing
 #endif
+
+// Comment out to build the lean receiver without the 24h charts + .bin store
+// (equivalent to the old bresser.tc). Defined = the full chart dashboard.
+#define WITH_CHARTS 1
 
 #define CS_PIN     8
 #define GDO0_PIN   7
@@ -80,14 +84,20 @@
 #define MSG_BUF_SIZE 27
 #define DATA_SIZE    26
 
+#ifdef WITH_CHARTS
 // Chart ring buffer: 288 points = 24h at 5-min intervals
 #define NPTS 288
 #ifndef SIMULATE
 #define STORE_INTERVAL 300  // seconds between samples (5 min)
 #endif
+#endif
 
 // Sensor data - weather station (live values)
-global float atmp = 0.0;  // auto-sent via UDP on assignment
+global float train = 0.0;  // total rain (mm) - auto-sent via UDP
+global float rtemp = 0.0;  // current temperature (C) - auto-sent via UDP
+#ifdef WITH_CHARTS
+global float avgt = 0.0;   // average temperature over the day 0-24h (C) - UDP
+#endif
 float br_temp = 0.0;
 int   br_hum = 0;
 float br_wind_gust = 0.0;
@@ -114,18 +124,28 @@ char  br_lbl[32];
 float br_lux = 0.0;     // brightness in lux
 float br_uvi = 0.0;     // UV index
 
+// Rain today (0-24h, since local midnight)
+float rain_today = 0.0;        // today's rain (mm) = br_rain - rain_base
+persist int   rain_day = -1;   // calendar day-number (timeToSecs/86400) of rain_base
+persist float rain_base = 0.0; // cumulative br_rain at the start of rain_day
+
+#ifdef WITH_CHARTS
 // Ring buffers for 24h charts (stored as native float values)
 // Charted variables: temp, hum, windavg, rain, brightness, uvi
-// persist auto-saves/restores these arrays and counters across reboots
-persist float h_temp[NPTS];
-persist float h_hum[NPTS];
-persist float h_wavg[NPTS];
-persist float h_rain[NPTS];
-persist float h_lux[NPTS];
-persist float h_uvi[NPTS];
-persist int h_pos = 0;       // ring buffer write position
-persist int h_count = 0;     // total samples stored (saturates at NPTS)
-persist int sec_cnt = 0;     // seconds counter for store interval
+// Stored in a dedicated binary file (CHARTFILE) via save_chart()/load_chart(),
+// NOT the .pvs persist store: 6x288 floats are too big to round-trip through
+// saveVars() every sample. The file owns header[2]={h_pos,h_count} + 6 arrays.
+float h_temp[NPTS];
+float h_hum[NPTS];
+float h_wavg[NPTS];
+float h_rain[NPTS];
+float h_lux[NPTS];
+float h_uvi[NPTS];
+int h_pos = 0;       // ring buffer write position
+int h_count = 0;     // total samples stored (saturates at NPTS)
+int sec_cnt = 0;     // seconds counter for store interval
+int chdr[3];         // file header: [magic, h_pos, h_count]
+#endif
 
 // Raw packet buffer and SPI buffer
 char msg[DATA_SIZE];
@@ -426,9 +446,9 @@ int decode_7in1() {
         br_wind_avg = (float)wavg * 0.1;
         br_rain = (float)rain_raw * 0.1;
 
-        // Light (lux) — 6 BCD digits in de-whitened bytes 17-19
+        // Light — 6 BCD digits (lux) in de-whitened bytes 17-19, stored as kLux
         int lght_raw = ((msgw[17] >> 4) & 0x0F) * 100000 + (msgw[17] & 0x0F) * 10000 + ((msgw[18] >> 4) & 0x0F) * 1000 + (msgw[18] & 0x0F) * 100 + ((msgw[19] >> 4) & 0x0F) * 10 + (msgw[19] & 0x0F);
-        br_lux = (float)lght_raw;
+        br_lux = (float)lght_raw * 0.001;   // kLux
 
         // UV Index — 3 BCD digits in de-whitened bytes 20-21, ×0.1
         int uv_raw = ((msgw[20] >> 4) & 0x0F) * 100 + (msgw[20] & 0x0F) * 10 + ((msgw[21] >> 4) & 0x0F);
@@ -504,6 +524,44 @@ void Every50ms() {
 }
 #endif
 
+#ifdef WITH_CHARTS
+// --- Chart persistence: own a dedicated binary file (not .pvs) ---
+// Layout: int header[2] = {h_pos, h_count}, then the 6 float[NPTS] arrays
+// back to back. Size = 2*4 + 6*NPTS*4 bytes.
+#define CHARTFILE "/bresser_chart.bin"
+#define CHART_MAGIC 0x42430101   // bump when stored layout/units change -> old file ignored
+
+void save_chart() {
+    int h = fileOpen(CHARTFILE, 1);          // 1 = write (truncate)
+    if (h < 0) return;
+    chdr[0] = CHART_MAGIC; chdr[1] = h_pos; chdr[2] = h_count;
+    fileWriteBin(h, chdr, 3);
+    fileWriteBin(h, h_temp, NPTS);
+    fileWriteBin(h, h_hum,  NPTS);
+    fileWriteBin(h, h_wavg, NPTS);
+    fileWriteBin(h, h_rain, NPTS);
+    fileWriteBin(h, h_lux,  NPTS);
+    fileWriteBin(h, h_uvi,  NPTS);
+    fileClose(h);
+}
+
+void load_chart() {
+    int want = 12 + 6 * NPTS * 4;            // magic + 2 ints + 6 float arrays
+    if (fileSize(CHARTFILE) != want) return; // missing/old-format -> fresh start
+    int h = fileOpen(CHARTFILE, 0);          // 0 = read
+    if (h < 0) return;
+    fileReadBin(h, chdr, 3);
+    if (chdr[0] != CHART_MAGIC) { fileClose(h); return; }  // version bump -> ignore old data
+    h_pos = chdr[1]; h_count = chdr[2];
+    fileReadBin(h, h_temp, NPTS);
+    fileReadBin(h, h_hum,  NPTS);
+    fileReadBin(h, h_wavg, NPTS);
+    fileReadBin(h, h_rain, NPTS);
+    fileReadBin(h, h_lux,  NPTS);
+    fileReadBin(h, h_uvi,  NPTS);
+    fileClose(h);
+}
+
 void store_sample() {
     h_temp[h_pos] = br_temp;
     h_hum[h_pos] = (float)br_hum;
@@ -514,9 +572,10 @@ void store_sample() {
     h_pos++;
     if (h_pos >= NPTS) h_pos = 0;
     if (h_count < NPTS) h_count++;
-    // Persist to flash after every sample
-    saveVars();
+    // Flush the chart arrays to their own binary file after every sample
+    save_chart();
 }
+#endif
 
 int sim_tick = 0;  // simulation counter
 
@@ -548,7 +607,21 @@ void EverySecond() {
     if (!br_ok) return;
 
     // Auto-sent via UDP on assignment (global float)
-    atmp = br_temp;
+    rtemp = br_temp;   // current temperature
+    train = br_rain;   // total rain (cumulative mm)
+    // rain today (0-24h, since local midnight) — only once NTP time is valid
+    char rts[32]; timeStamp(rts);
+    int rday = timeToSecs(rts) / 86400;
+    if (rday > 18000) {
+        if (br_rain < rain_base) { rain_base = br_rain; }   // sensor counter reset
+        if (rain_day != rday) { rain_base = br_rain; rain_day = rday; }
+        rain_today = br_rain - rain_base;
+    }
+#ifdef WITH_CHARTS
+    // average temperature over the day 0-24h = mean of stored chart samples
+    float st = 0.0; int jj;
+    for (jj = 0; jj < h_count; jj++) { st = st + h_temp[jj]; }
+    if (h_count > 0) { avgt = st / (float)h_count; }
 
     // Store first sample immediately so charts appear on first page load
     if (h_count == 0) {
@@ -562,8 +635,10 @@ void EverySecond() {
         sec_cnt = 0;
         store_sample();
     }
+#endif
 }
 
+#ifdef WITH_CHARTS
 // WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)
 // type: 0=line, 1=column
 // Empty title "" = add series to previous chart
@@ -575,69 +650,87 @@ void WebPage() {
         webSend("<p>Collecting data... Charts appear after first sample.</p>");
         return;
     }
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
-    webSend("<div style='margin-left:-30px'>");
-    WebChart(0, "Temperature (24h)", "\u00b0C", 0xe74c3c, h_pos, h_count, h_temp, 1, 5, -20, 50);
-    WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, h_count, h_hum,  1, 5, 0, 100);
-    WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, h_count, h_wavg, 1, 5, 0, 0);
-    WebChart(0, "Rain (24h)",        "mm",       0x2980b9, h_pos, h_count, h_rain, 1, 5, 0, 0);
-    WebChart(0, "Brightness (24h)",  "lux",      0xf39c12, h_pos, h_count, h_lux,  0, 5, 0, 0);
-    WebChart(0, "UV Index (24h)",    "UVI",      0x9b59b6, h_pos, h_count, h_uvi,  1, 5, 0, 12);
-    webSend("</div>");
+    // All charts in one fieldset "card frame". Match energy_dashboard's proven
+    // centering: WebChartSize(640,280) (width + margin:0 auto) PLUS ottelo's
+    // -30px wrapper that nudges the plot back to true-centre (the y-axis gutter).
+    WebChartSize(640, 280);
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:8px 2px;padding:4px 9px 8px'><legend style='font-weight:bold;padding:0 6px'>Wetterverlauf 24h</legend><div style='margin-left:-20px'>");
+    WebChart(0, "Temperature (24h)", "°C", 0xe74c3c, h_pos, NPTS, h_temp, 1, 5, -20, 50);
+    WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, NPTS, h_hum,  1, 5, 0, 100);
+    WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, NPTS, h_wavg, 1, 5, 0, 0);
+    WebChart(0, "Rain (24h)",        "mm",       0x2980b9, h_pos, NPTS, h_rain, 1, 5, 0, 0);
+    WebChart(0, "Brightness (24h)",  "kLux",     0xf39c12, h_pos, NPTS, h_lux,  1, 5, 0, 0);
+    WebChart(0, "UV Index (24h)",    "UVI",      0x9b59b6, h_pos, NPTS, h_uvi,  1, 5, 0, 12);
+    webSend("</div></fieldset>");
 }
+#endif
 
 void WebCall() {
     char out[80];
     if (br_ok) {
+        webSend("{s}{m}{e}<tr><td colspan=2 style='background:#2980b9;color:#fff;padding:6px 10px;font-weight:bold;text-align:center;border-radius:4px'>Wetterstation</td></tr>");
         sprintf(out, "{s}Bresser ID{m}0x%04X{e}", br_id);
         webSend(out);
         LGetString(0, br_lbl);
         sprintf(out, "{s}%s{m}", br_lbl);
         webSend(out);
-        sprintf(out, "%.1f C{e}", br_temp);
+        sprintf(out, "%.1f °C{e}", br_temp);
         webSend(out);
         LGetString(1, br_lbl);
         sprintf(out, "{s}%s{m}", br_lbl);
         webSend(out);
-        sprintf(out, "%d %{e}", br_hum);
+        sprintf(out, "%d %%{e}", br_hum);
         webSend(out);
         sprintf(out, "{s}Wind Avg{m}%.1f m/s{e}", br_wind_avg);
         webSend(out);
+        sprintf(out, "{s}Wind Max{m}%.1f m/s{e}", br_wind_gust);
+        webSend(out);
+        sprintf(out, "{s}Wind Dir{m}%.0f°{e}", br_wind_dir);
+        webSend(out);
         sprintf(out, "{s}Rain{m}%.1f mm{e}", br_rain);
+        webSend(out);
+        sprintf(out, "{s}Rain today{m}%.1f mm{e}", rain_today);
         webSend(out);
         LGetString(15, br_lbl);
         sprintf(out, "{s}%s{m}", br_lbl);
         webSend(out);
-        sprintf(out, "%.1f lux{e}", br_lux);
+        sprintf(out, "%.1f kLux{e}", br_lux);
         webSend(out);
         sprintf(out, "{s}UV Index{m}%.1f{e}", br_uvi);
         webSend(out);
         sprintf(out, "{s}RSSI{m}%.0f dBm{e}", br_rssi);
         webSend(out);
-        if (br_batt) { webSend("{s}Battery{m}OK{e}"); }
-        else { webSend("{s}Battery{m}Low{e}"); }
+        if (br_batt) { webSend("{s}Battery{m}<span style='color:#27ae60;font-weight:bold'>OK</span>{e}"); }
+        else { webSend("{s}Battery{m}<span style='color:#e74c3c;font-weight:bold'>Low</span>{e}"); }
         sprintf(out, "{s}Packets{m}%d{e}", br_cnt);
         webSend(out);
-        sprintf(out, "{s}Chart{m}%d / 288 pts{e}", h_count);
+#ifdef WITH_CHARTS
+        sprintf(out, "{s}Avg Temp 0-24h{m}%.1f °C{e}", avgt);
         webSend(out);
+#endif
     } else {
         webSend("{s}Bresser{m}waiting for data{e}");
     }
     if (soil_ok) {
+        webSend("{s}{m}{e}<tr><td colspan=2 style='background:#8e6b3f;color:#fff;padding:6px 10px;font-weight:bold;text-align:center;border-radius:4px'>Bodensensor</td></tr>");
         sprintf(out, "{s}Soil ID{m}0x%04X{e}", soil_id);
         webSend(out);
         LGetString(0, br_lbl);
         sprintf(out, "{s}Soil %s{m}", br_lbl);
         webSend(out);
-        sprintf(out, "%.1f C{e}", soil_temp);
+        sprintf(out, "%.1f °C{e}", soil_temp);
         webSend(out);
         LGetString(17, br_lbl);
         sprintf(out, "{s}Soil %s{m}", br_lbl);
         webSend(out);
-        sprintf(out, "%d %{e}", soil_moisture);
+        sprintf(out, "%d %%{e}", soil_moisture);
         webSend(out);
-        if (soil_batt) { webSend("{s}Soil Battery{m}OK{e}"); }
-        else { webSend("{s}Soil Battery{m}Low{e}"); }
+        if (soil_batt) { webSend("{s}Soil Battery{m}<span style='color:#27ae60;font-weight:bold'>OK</span>{e}"); }
+        else { webSend("{s}Soil Battery{m}<span style='color:#e74c3c;font-weight:bold'>Low</span>{e}"); }
+        sprintf(out, "{s}Soil RSSI{m}%.0f dBm{e}", soil_rssi);
+        webSend(out);
+        sprintf(out, "{s}Soil Packets{m}%d{e}", soil_cnt);
+        webSend(out);
     }
 }
 
@@ -654,7 +747,7 @@ void JsonCall() {
         responseAppend(out);
         sprintf(out, ",\"Rain\":%.1f", br_rain);
         responseAppend(out);
-        sprintf(out, ",\"Lux\":%.1f", br_lux);
+        sprintf(out, ",\"kLux\":%.1f", br_lux);
         responseAppend(out);
         sprintf(out, ",\"UVI\":%.1f", br_uvi);
         responseAppend(out);
@@ -711,15 +804,19 @@ int main() {
     soil_ok = 0;
     soil_cnt = 0;
 
-    // Chart data (h_temp, h_hum, etc.) and counters (h_pos, h_count, sec_cnt)
-    // are auto-restored by persist keyword
+#ifdef WITH_CHARTS
+    // Chart data + counters live in a dedicated binary file (not .pvs)
+    load_chart();
     if (h_count > 0) {
         char ibuf[64];
-        sprintf(ibuf, "Restored %d chart points from flash\n", h_count);
+        sprintf(ibuf, "Restored %d chart points from file\n", h_count);
         printString(ibuf);
     }
+#endif
 
-    printStr("Bresser CC1101 + 24h charts ready\n");
+    printStr("Bresser CC1101 ready\n");
+#ifdef WITH_CHARTS
     printStr("Charts: 6 variables, 288 pts each (5-min interval)\n");
+#endif
     return 0;
 }
