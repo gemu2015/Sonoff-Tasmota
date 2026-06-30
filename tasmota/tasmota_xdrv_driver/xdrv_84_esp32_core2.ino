@@ -291,9 +291,9 @@ void Core2Show(uint32_t json) {
       Settings->flag2.temperature_resolution, &core2_adc.temp);
   } else {
     WSContentSend_Voltage("VBus", core2_adc.vbus_v);
-    WSContentSend_CurrentMA("VBus", core2_adc.vbus_c);
+    WSContentSend_Current("VBus", core2_adc.vbus_c / 1000.0);
     WSContentSend_Voltage("Batt", core2_adc.batt_v);
-    WSContentSend_CurrentMA("Batt", core2_adc.batt_c);
+    WSContentSend_Current("Batt", core2_adc.batt_c / 1000.0);
     WSContentSend_Temp("Core2", core2_adc.temp);
   }
 }
