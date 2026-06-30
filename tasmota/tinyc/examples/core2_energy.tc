@@ -94,6 +94,7 @@ persist int gas_m;
 persist int was_m;
 persist int rain_m;
 persist int audvol;   // audio volume 0-100, survives reboot
+persist int dl_secs;  // unix secs of last collector download (>1 day -> refetch)
 
 // ═══════════════════════════════════════════════════════════════════
 // TIME-SERIES ARRAYS for daily charts (96 = 15-min intervals per day)
@@ -630,7 +631,16 @@ void WebPage() {
     // ottelo's chart-centering compensation (margin-left:-30px wrapper)
     webSend("<div style='margin-left:-30px'>");
     webSend("<div style='position:relative;width:640px;height:300px;'><canvas id='schart' width='640' height='300'></canvas></div>");
-    webSendFile("stream_tc.js");
+    // webSendFile() sets Content-Length as if the file were the whole response, so
+    // using it MID-page (webSend before/after) breaks the HTTP framing and the page
+    // hangs. Inline stream_tc.js via a fileRead+webSend chunk loop instead.
+    int cfr; cfr = fileOpen("/stream_tc.js", "r");
+    if (cfr >= 0) {
+        char cck[256]; int cn;
+        cn = fileRead(cfr, cck, 250);
+        while (cn > 0) { cck[cn] = 0; webSend(cck); cn = fileRead(cfr, cck, 250); }
+        fileClose(cfr);
+    }
     webSend("</div>");
 }
 
@@ -852,21 +862,32 @@ void loadWeekData() {
 
     // ── Download daily log from collector ──
     {
-        if (dl_done == 0) {
+        // Download the year-long daily log from the collector ONLY when the local
+        // cache is missing or older than a day; otherwise reuse the file on disk.
+        // (No startup/scheduled fetch — loads are on-demand via the chart pages.)
+        int now_s;
+        timeStamp(s1);
+        now_s = timeToSecs(s1);
+        int have_file;
+        have_file = 0;
+        int tf;
+        tf = fileOpen("/wdaylog.txt", "r");
+        if (tf >= 0) { have_file = 1; fileClose(tf); }
+        if (have_file == 0 || dl_secs == 0 || (now_s - dl_secs) > 86400) {
             timeStamp(s1);
             timeOffset(s1, -366, 1);     // full year for 52-week view
             timeStamp(s2);
             timeOffset(s2, 0, 1);        // today midnight
-
             buildUrl(0);                 // daily DB URL with @date
             strcpy(wstr, url);
             dres = fileDownload("/wdaylog.txt", wstr);
             sprintf(wstr, "TCC: daily HTTP=%d", dres);
             addLog(wstr);
-            dl_done = 1;                 // mark files as downloaded
+            if (dres == 200) { dl_secs = now_s; }   // remember fetch time (persisted)
         } else {
-            addLog("TCC: daily data reusing local file");
+            addLog("TCC: daily cache fresh (<1d) - skip download");
         }
+        dl_done = 1;
 
         // Get database date range from downloaded file
         fr = fileOpen("/wdaylog.txt", "r");
@@ -1065,8 +1086,6 @@ void load31DayData() {
 // TASK LOOP — background FreeRTOS task for data loading
 // ═══════════════════════════════════════════════════════════════════
 void TaskLoop() {
-    int last_3am;
-    last_3am = -1;
     while (1) {
         if (dotask == 1) {
             addLog("TCC: TaskLoop week start");
@@ -1113,15 +1132,8 @@ void TaskLoop() {
             }
             dotask = 0;
         }
-        // Auto-refresh at 3:00 AM daily (like Scripter)
-        if (dotask == 0 && tasm_hour == 3 && tasm_minute == 0 && last_3am != tasm_day) {
-            last_3am = tasm_day;
-            addLog("TCC: 3AM auto-refresh");
-            dy_loaded = 0;
-            dl_done = 0;          // force re-download from server
-            d_day_cached[0] = 0;  // force re-download
-            dotask = 1;  // full reload (week + daily log)
-        }
+        // (3AM scheduled auto-refresh removed — collector data now refreshes on
+        //  demand when a chart is opened and the cached data is >1 day stale.)
         delay(2000);
     }
 }
@@ -1713,6 +1725,7 @@ int main() {
 
 // ─── OnInit: called when WiFi is up — safe to do network operations ───
 void OnInit() {
-    addLog("TCC: WiFi up, loading week data");
-    dotask = 1;
+    // No startup fetch — chart data loads on demand when a chart page is opened,
+    // and only re-downloads from the collector when the cache is >1 day stale.
+    addLog("TCC: WiFi up (charts load on demand)");
 }
