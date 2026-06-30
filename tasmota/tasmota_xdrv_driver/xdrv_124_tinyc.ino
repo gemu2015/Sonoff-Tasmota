@@ -3868,6 +3868,74 @@ static void TinyC_WebSetVar(uint8_t slot_idx) {
 // Serve raw framebuffer binary: 8-byte header + raw pixel data
 static bool tc_mirror_busy = false;
 
+#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32P4)
+// JPEG sink: fmt2jpg_cb streams encoded chunks here (into a caller-owned PSRAM
+// buffer) so a big RGB565 frame leaves as a ~50-150KB JPEG instead of 1-2MB of
+// raw that the fragmented internal pbuf pool can't push out (the raw send stalled
+// at ~5% on the 85%-frag RA8876). index = running offset.
+struct TcJpgSink { uint8_t *buf; uint32_t cap; uint32_t len; };
+static size_t tc_jpg_sink_cb(void *arg, size_t index, const void *data, size_t len) {
+  TcJpgSink *s = (TcJpgSink *)arg;
+  if (data && len && (index + len) <= s->cap) {
+    memcpy(s->buf + index, data, len);
+    s->len = index + len;
+  }
+  return len;
+}
+// Encode an RGB565 buffer to JPEG (q85) and stream it as image/jpeg — used by both
+// the LVGL snapshot mirror and the internal framebuffer mirror (the latter drops
+// its old 2:1 downscale for a full-res JPEG). swap=true byte-swaps a PSRAM scratch
+// copy first (little-endian source; never mutate a live framebuffer in place).
+// rot(0..3) is sent as X-Rot so the viewer re-orients the decoded image.
+// (P4 has no SW jpeg encoder -> compiled out; callers fall back to raw/downscale.)
+static void tc_mirror_send_jpeg(const uint8_t *rgb565, uint16_t w, uint16_t h, bool swap, uint8_t rot) {
+  uint32_t npx = (uint32_t)w * h;
+  const uint8_t *src = rgb565;
+  uint8_t *scratch = nullptr;
+  if (swap) {
+    scratch = (uint8_t *)heap_caps_malloc(npx * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!scratch) { Webserver->send(503, F("text/plain"), "No PSRAM (swap)"); return; }
+    const uint16_t *si = (const uint16_t *)rgb565; uint16_t *di = (uint16_t *)scratch;
+    for (uint32_t i = 0; i < npx; i++) { uint16_t v = si[i]; di[i] = (uint16_t)((v >> 8) | (v << 8)); }
+    src = scratch;
+  }
+  uint32_t jcap = 384 * 1024;
+  uint8_t *jbuf = (uint8_t *)heap_caps_malloc(jcap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!jbuf) { if (scratch) heap_caps_free(scratch); Webserver->send(503, F("text/plain"), "No PSRAM (jpeg)"); return; }
+  TcJpgSink jsink = { jbuf, jcap, 0 };
+  OsWatchLoop();
+  bool jok = fmt2jpg_cb((uint8_t *)src, npx * 2, w, h, PIXFORMAT_RGB565, 85, tc_jpg_sink_cb, &jsink);
+  OsWatchLoop();
+  if (scratch) heap_caps_free(scratch);
+  if (jok && jsink.len > 0 && jsink.len <= jcap) {
+    char rs[2] = { (char)('0' + (rot & 3)), 0 };
+    Webserver->sendHeader(F("X-Rot"), rs);
+    Webserver->sendHeader(F("Connection"), F("close"));
+    Webserver->setContentLength(jsink.len);
+    Webserver->send(200, F("image/jpeg"), "");
+    WiFiClient lc = Webserver->client();
+    lc.setNoDelay(true); lc.setTimeout(5);
+    uint32_t lsent = 0; uint32_t t0 = millis();
+    while (lsent < jsink.len) {
+      if (!lc.connected()) break;
+      if ((uint32_t)(millis() - t0) > 35000) break;
+      uint32_t chunk = jsink.len - lsent; if (chunk > 1460) chunk = 1460;
+      int n = lc.write(jbuf + lsent, chunk);
+      if (n <= 0) { delay(2); continue; }
+      lsent += (uint32_t)n; yield();
+    }
+    lc.flush(); delay(50);
+    struct linger lin = {1, 0};
+    setsockopt(lc.fd(), SOL_SOCKET, SO_LINGER, &lin, sizeof(lin));
+    lc.stop();
+  } else {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mirror JPEG encode failed (%dx%d)"), w, h);
+    Webserver->send(500, F("text/plain"), "JPEG encode failed");
+  }
+  heap_caps_free(jbuf);
+}
+#endif
+
 static void HandleTinyCDisplayRaw(void) {
   // Reject if a previous transfer is still in progress
   if (tc_mirror_busy) {
@@ -3889,27 +3957,33 @@ static void HandleTinyCDisplayRaw(void) {
   if (tc_lvgl_active()) {
     uint8_t *sdata; uint16_t sw, sh; void *shandle;
     if (tc_lvgl_snapshot(&sdata, &sw, &sh, &shandle)) {
-      uint32_t lv_fb_size = (uint32_t)sw * sh * 2;   // RGB565, 2 bytes/px
-      uint8_t lh[8];
-      lh[0] = sw & 0xFF; lh[1] = (sw >> 8) & 0xFF;
-      lh[2] = sh & 0xFF; lh[3] = (sh >> 8) & 0xFF;
-      lh[4] = 16;        // bpp 16 (RGB565)
-      lh[5] = 0;         // swap=0, rot=0 — snapshot is already in logical orientation
-      lh[6] = 0; lh[7] = 0;
+#if !defined(CONFIG_IDF_TARGET_ESP32P4)
+      // snapshot is little-endian + already in logical orientation -> swap, rot 0
+      tc_mirror_send_jpeg((uint8_t *)sdata, sw, sh, true, 0);
+#else
+      // P4: no software JPEG encoder -> send raw RGB565 (bounded resilient loop)
+      uint32_t lv_fb_size = (uint32_t)sw * sh * 2;
+      uint8_t lh[8] = { (uint8_t)(sw & 0xFF), (uint8_t)(sw >> 8), (uint8_t)(sh & 0xFF), (uint8_t)(sh >> 8), 16, 0, 0, 0 };
       Webserver->sendHeader(F("Connection"), F("close"));
       Webserver->setContentLength(8 + lv_fb_size);
       Webserver->send(200, F("application/octet-stream"), "");
       WiFiClient lc = Webserver->client();
       lc.setNoDelay(true); lc.setTimeout(5);
       lc.write(lh, 8);
-      uint32_t lsent = 0;
+      uint32_t lsent = 0; uint32_t t0 = millis();
       while (lsent < lv_fb_size) {
         if (!lc.connected()) break;
-        uint32_t chunk = lv_fb_size - lsent; if (chunk > 512) chunk = 512;
-        lc.write(sdata + lsent, chunk);
-        lsent += chunk; yield();
+        if ((uint32_t)(millis() - t0) > 35000) break;
+        uint32_t chunk = lv_fb_size - lsent; if (chunk > 1460) chunk = 1460;
+        int n = lc.write(sdata + lsent, chunk);
+        if (n <= 0) { delay(2); continue; }
+        lsent += (uint32_t)n; yield();
       }
-      lc.flush(); delay(50); lc.stop();
+      lc.flush(); delay(50);
+      struct linger lin = {1, 0};
+      setsockopt(lc.fd(), SOL_SOCKET, SO_LINGER, &lin, sizeof(lin));
+      lc.stop();
+#endif
       tc_lvgl_snapshot_free(shandle);
       tc_mirror_busy = false;
       tc_global_pause = false;
@@ -3978,6 +4052,15 @@ static void HandleTinyCDisplayRaw(void) {
   // Scale factor: 2=half (400x240=192KB), 1=full (800x480=768KB)
   #define DISPLAY_MIRROR_SCALE 2
   if (abs_bpp == 16 && rgb && fb_size > 32768) {
+#if !defined(CONFIG_IDF_TARGET_ESP32P4)
+    // Full-res JPEG (no downscale) — sharper AND smaller than the old 2:1 raw.
+    // swap derived from the panel's swap_color (verify on-device; flip the '!' if
+    // red/blue come out wrong); rot so the viewer re-orients it.
+    tc_mirror_send_jpeg((uint8_t *)rgb, rw, rh, !(renderer->lvgl_param.swap_color), rot);
+    tc_mirror_busy = false;
+    tc_global_pause = false;
+    return;
+#endif
     uint16_t dw = rw / DISPLAY_MIRROR_SCALE;
     uint16_t dh = rh / DISPLAY_MIRROR_SCALE;
     uint32_t line_bytes = dw * 2;
@@ -4177,10 +4260,23 @@ static void HandleTinyCDisplayHTML(void) {
     "document.getElementById('st').textContent='Loading...';"
     "try{"
     "var ac=new AbortController();"
-    "var to=setTimeout(function(){ac.abort();},30000);"
+    "var to=setTimeout(function(){ac.abort();},40000);"
     "var r=await fetch('/tc_display?raw=1',{signal:ac.signal});"
     "clearTimeout(to);"
     "if(!r.ok)throw 'HTTP '+r.status;"
+    "var ct=r.headers.get('content-type')||'';"
+    "if(ct.indexOf('jpeg')>=0){"            // LVGL / RGB panels stream a JPEG — browser decodes it
+    "var rt=parseInt(r.headers.get('x-rot')||'0');"
+    "var bmp=await createImageBitmap(await r.blob());var bw=bmp.width,bh=bmp.height;"
+    "if(rt==1||rt==3){cv.width=bh;cv.height=bw;}else{cv.width=bw;cv.height=bh;}"
+    "cx.save();"
+    "if(rt==1){cx.translate(bh,0);cx.rotate(Math.PI/2);}"
+    "else if(rt==2){cx.translate(bw,bh);cx.rotate(Math.PI);}"
+    "else if(rt==3){cx.translate(0,bw);cx.rotate(-Math.PI/2);}"
+    "cx.drawImage(bmp,0,0);cx.restore();"
+    "rsc();"
+    "document.getElementById('st').textContent=cv.width+'x'+cv.height+' jpeg';"
+    "}else{"                                  // EPD/OLED panels send raw: 8-byte header + pixels
     "var ab=await r.arrayBuffer(),dv=new DataView(ab);"
     "var w=dv.getUint16(0,1),h=dv.getUint16(2,1),"
     "bpp=dv.getInt8(4),fl=dv.getUint8(5);"
@@ -4198,6 +4294,7 @@ static void HandleTinyCDisplayHTML(void) {
     "rsc();"
     "document.getElementById('st').textContent="
     "dw+'x'+dh+' bpp='+bpp;"
+    "}"
     "}catch(e){"
     "document.getElementById('st').textContent='Error: '+e;}}"
     "go();"
