@@ -94,7 +94,9 @@ persist int gas_m;
 persist int was_m;
 persist int rain_m;
 persist int audvol;   // audio volume 0-100, survives reboot
-persist int dl_secs;  // unix secs of last collector download (>1 day -> refetch)
+persist int dl_secs;  // unix secs of last week (/wdaylog.txt) download
+persist int dy_secs;  // unix secs of last day (/tmplog.txt) download
+persist int dy_day;   // day-number cached in /tmplog.txt (timeToSecs/86400)
 
 // ═══════════════════════════════════════════════════════════════════
 // TIME-SERIES ARRAYS for daily charts (96 = 15-min intervals per day)
@@ -702,9 +704,20 @@ void loadDayData() {
         timeOffset(s2, 0, 1);       // today midnight
     }
 
-    // Skip download if /tmplog.txt already has this day's data
-    if (strcmp(s1, d_day_cached) == 0) {
-        addLog("TCC: day data cached, skip download");
+    // Skip download if /tmplog.txt already holds THIS day AND it was fetched less
+    // than a day ago (dy_day/dy_secs are persisted, so it survives reboots).
+    int now_s;
+    timeStamp(sx1);
+    now_s = timeToSecs(sx1);
+    int req_day;
+    req_day = timeToSecs(s1) / 86400;     // requested day's day-number
+    int have_file;
+    have_file = 0;
+    int tf;
+    tf = fileOpen("/tmplog.txt", "r");
+    if (tf >= 0) { have_file = 1; fileClose(tf); }
+    if (have_file == 1 && req_day == dy_day && dy_secs > 0 && (now_s - dy_secs) < 86400) {
+        addLog("TCC: day cache fresh (<1d) - skip download");
         dres = 200;
     } else {
         buildUrl(1);                      // builds into 'url'
@@ -713,7 +726,9 @@ void loadDayData() {
         sprintf(wstr, "TCC: day HTTP=%d", dres);
         addLog(wstr);
         if (dres == 200) {
-            strcpy(d_day_cached, s1);     // remember what's cached
+            dy_day = req_day;             // remember which day + when (persisted)
+            dy_secs = now_s;
+            strcpy(d_day_cached, s1);
         }
     }
 
