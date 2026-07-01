@@ -128,6 +128,7 @@ float br_uvi = 0.0;     // UV index
 float rain_today = 0.0;        // today's rain (mm) = br_rain - rain_base
 persist int   rain_day = -1;   // calendar day-number (timeToSecs/86400) of rain_base
 persist float rain_base = 0.0; // cumulative br_rain at the start of rain_day
+persist float rain_prev = -1.0; // cumulative br_rain at the previous chart sample (for the per-interval delta; -1 = none yet)
 
 #ifdef WITH_CHARTS
 // Ring buffers for 24h charts (stored as native float values)
@@ -529,7 +530,7 @@ void Every50ms() {
 // Layout: int header[2] = {h_pos, h_count}, then the 6 float[NPTS] arrays
 // back to back. Size = 2*4 + 6*NPTS*4 bytes.
 #define CHARTFILE "/bresser_chart.bin"
-#define CHART_MAGIC 0x42430101   // bump when stored layout/units change -> old file ignored
+#define CHART_MAGIC 0x42430102   // bump when stored layout/units change -> old file ignored (0102: rain = per-interval delta, not accumulated)
 
 void save_chart() {
     int h = fileOpen(CHARTFILE, 1);          // 1 = write (truncate)
@@ -566,7 +567,13 @@ void store_sample() {
     h_temp[h_pos] = br_temp;
     h_hum[h_pos] = (float)br_hum;
     h_wavg[h_pos] = br_wind_avg;
-    h_rain[h_pos] = br_rain;
+    // rain chart = delta since the last sample (rainfall per interval), not the
+    // running total. rain_prev < 0 = first-ever sample -> 0 (no startup spike);
+    // br_rain < rain_prev = sensor counter reset -> clamp to 0.
+    float rd = 0.0;
+    if (rain_prev >= 0.0 && br_rain >= rain_prev) { rd = br_rain - rain_prev; }
+    h_rain[h_pos] = rd;
+    rain_prev = br_rain;
     h_lux[h_pos] = br_lux;
     h_uvi[h_pos] = br_uvi;
     h_pos++;
