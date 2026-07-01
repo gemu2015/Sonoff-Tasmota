@@ -1,0 +1,293 @@
+// house_monitor.tc — compact, table-driven house monitor with an LVGL dashboard
+// + spoken (German TTS) alarms. Runs on the ILI9488 480x320 audio+display node
+// (192.168.188.135), taking over the screen from the clock slot.
+//
+// DESIGNED TO GROW: adding a monitored variable = 3 small edits —
+//   1) add its name to `names`   2) add a setRule(...) line in main()
+//   3) add its value read in readVals()   (globals can't be indexed dynamically)
+// Everything else (day/night gate, debounce, alarm, TTS, the row list) is shared.
+//
+// Rule types:
+//   PEER   — solar peer-comparison (self-calibrating, capacity-agnostic): an
+//            inverter is "dead" if it's flat while >= PEER_MIN of the group are
+//            delivering. The peers ARE the "is it sunny" reference — no fixed
+//            threshold or sunrise math. Catches "3 deliver, 1 doesn't".
+//   DAYMIN — value >= p1 during daylight AND while it's actually sunny.
+//   RANGE  — value must stay within [p1, p2].
+//   FROZEN — value must CHANGE within p1 minutes, else it's stuck (e.g. PW SOC).
+//
+// Screen: date/time header (with seconds) + one thin card row per variable —
+// value green when ok, RED on detection/alarm. Alarm also speaks via deferred
+// I2STTS (needs the picotts de-DE voice on the device).
+
+#define N       9          // number of rules (grow this)
+#define DAYMIN  1
+#define RANGE   2
+#define FROZEN  3
+#define PEER    4
+#define INFO    5          // display only — never alarms
+#define PWALIVE 6          // alarms if the WHOLE Powerwall group stops updating (reader stalled)
+
+// LVGL style-int ids + colours (from the moritz dashboard)
+#define ST_RADIUS 120
+#define ST_BORDER  56
+#define ST_BCOLOR  57
+#define ST_BOPA    58
+#define C_BG      0x0E1116
+#define C_CARD    0x1B2530
+#define C_CARDB   0x2C3A48
+#define C_TITLE   0xE8EAED
+#define C_SUB     0x9AA0A6
+#define C_AMBER   0xFBBC04
+#define C_GREEN   0x34A853
+#define C_RED     0xEA4335
+#define C_ALARMBG 0x3A1414
+
+// tunables
+#define DAY_MARGIN     60      // (DAYMIN) min after sunrise / before sunset before judging
+#define SOLAR_ACTIVE_W 200.0   // (DAYMIN) only judge while some inverter makes > this
+#define PRODUCING_W    50.0    // (PEER) a healthy inverter in sun makes >> this
+#define DEAD_W         20.0    // (PEER) "flat" — delivering essentially nothing
+#define PEER_MIN       2       // (PEER) this many peers must deliver to trust the sun signal
+#define STALE_MIN      10      // (PWALIVE) reader stalled if NOTHING changed this long.
+                               // .20-relay refresh is irregular (~15-73s gaps), so 10 min
+                               // clears any normal lull yet still catches a halted reader
+                               // (its own 5-min watchdog can't run if the slot crashed).
+#define DEBOUNCE_S     300     // stay bad this long before the first alarm (5 min)
+#define REALARM_S      300     // re-speak this often while tripped (5 min)
+#define QUIET_START    22      // mute spoken alarms from 22:00 ...
+#define QUIET_END      6       // ... until 06:00 (still detect + show red, just silent)
+#define ROWH           28      // px per row (fits ~10 on 480x320)
+
+// ── the rule config (parallel columns) ──
+char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Netz|Solar|Batterie|Verbrauch";
+int   typ[N]; float p1[N]; float p2[N];
+
+// fleet globals (auto-received over UDP). SIGN: sedc is +producing, wr* are
+// -producing (matches energy_dashboard.tc) — normalised in readVals().
+global float sedc; global float wrgh; global float wrgg; global float wrga;
+// Powerwall group (one reader broadcasts all 5; if it stalls they all freeze together)
+global float pwl;  // battery %
+global float sip;  // grid power (net import)
+global float sop;  // solar power
+global float bip;  // battery power
+global float hip;  // house consumption
+
+// runtime state
+float val[N]; int viol[N]; int alm[N]; int spk[N];
+float lastv[N]; int lastchg[N];        // FROZEN change-tracking
+// PEER thresholds kept in vars (compare var-vs-var in if(); never float-literal-to-int)
+float producing_w; float dead_w; int peer_min; int grp_nprod;
+// PWALIVE heartbeat: reader is alive as long as the pw-group sum keeps changing
+float pw_lastsig; int pw_lastchg; int pw_stalled;
+
+// LVGL handles
+int clockL; int rowC[N]; int rowN[N]; int rowV[N];
+
+// scratch (globals — TinyC keeps buffers global)
+char g_cmd[160]; char g_msg[96]; char g_s[64]; char g_nm[20];
+char wdays[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+
+void speak(char m[]) {
+    // Quiet hours: detect + show red as usual, but stay silent (no I2STTS).
+    if (tasm_hour >= QUIET_START || tasm_hour < QUIET_END) {
+        sprintf(g_cmd, "HM: quiet hours - muted: %s", m); addLog(g_cmd); return;
+    }
+    sprintf(g_cmd, "I2STTS %s", m); tasmDefer(g_cmd); addLog(g_cmd);
+}
+void setRule(int i, int t, float a, float b) { typ[i] = t; p1[i] = a; p2[i] = b; }
+
+// The ONE place that reads the actual globals (with per-source sign).
+void readVals() {
+    val[0] =  sedc;      // Hausdach  (positive = producing)
+    val[1] = -wrgh;      // Gartenhaus (stored negative)
+    val[2] = -wrgg;      // Garten
+    val[3] = -wrga;      // Garage
+    val[4] =  pwl;       // Powerwall SOC %
+    val[5] =  sip;       // Netz (grid)
+    val[6] =  sop;       // Solar
+    val[7] =  bip;       // Batterie
+    val[8] =  hip;       // Verbrauch (house)
+}
+
+int main() {
+    producing_w = PRODUCING_W; dead_w = DEAD_W; peer_min = PEER_MIN;
+    pw_lastsig = -999999.0; pw_lastchg = 0; pw_stalled = 0;
+    // rule table: setRule(index, type, p1, p2).
+    // 0-3 solar inverters: PEER (judge each other, no fixed threshold).
+    setRule(0, PEER, 0.0, 0.0);
+    setRule(1, PEER, 0.0, 0.0);
+    setRule(2, PEER, 0.0, 0.0);
+    setRule(3, PEER, 0.0, 0.0);
+    // 4 Powerwall SOC row doubles as the reader-alive detector (whole group).
+    setRule(4, PWALIVE, 0.0, 0.0);
+    // 5-8 remaining Powerwall values: display only.
+    setRule(5, INFO, 0.0, 0.0);
+    setRule(6, INFO, 0.0, 0.0);
+    setRule(7, INFO, 0.0, 0.0);
+    setRule(8, INFO, 0.0, 0.0);
+
+    lvglInit(); lvglClean(0); lvglSetBgColor(0, C_BG);
+    clockL = lvglLabel(0);
+    lvglSetFont(clockL, 22); lvglSetTextColor(clockL, C_TITLE); lvglSetPos(clockL, 8, 6);
+    lvglSetText(clockL, "--");
+
+    int i = 0;
+    while (i < N) {
+        int y = 40 + i * ROWH;
+        rowC[i] = lvglObj(0);
+        lvglSetPos(rowC[i], 6, y); lvglSetSize(rowC[i], 468, ROWH - 3);
+        lvglSetBgColor(rowC[i], C_CARD);
+        lvglSetStyleInt(rowC[i], ST_RADIUS, 6);
+        lvglSetStyleInt(rowC[i], ST_BORDER, 1);
+        lvglSetStyleInt(rowC[i], ST_BOPA, 255);
+        lvglSetStyleInt(rowC[i], ST_BCOLOR, C_CARDB);
+        strToken(g_nm, names, '|', i + 1);
+        rowN[i] = lvglLabel(0);
+        lvglSetText(rowN[i], g_nm); lvglSetFont(rowN[i], 18); lvglSetTextColor(rowN[i], C_TITLE);
+        lvglSetPos(rowN[i], 16, y + 2);
+        rowV[i] = lvglLabel(0);
+        lvglSetFont(rowV[i], 18); lvglSetTextColor(rowV[i], C_SUB);
+        lvglSetPos(rowV[i], 320, y + 2);
+        lvglSetText(rowV[i], "--");
+        viol[i] = 0; alm[i] = 0; spk[i] = -100000; lastv[i] = 0.0; lastchg[i] = 0;
+        i = i + 1;
+    }
+    addLog("house_monitor: ready");
+    return 0;
+}
+
+int isBad(int i, int day, int active) {
+    int t = typ[i]; float v = val[i]; float a = p1[i]; float b = p2[i];
+    // float compares live inside if() only — never `return <float compare>`.
+    if (t == INFO)    { return 0; }               // display only
+    if (t == PWALIVE) { return pw_stalled; }       // group heartbeat (computed in EverySecond)
+    if (t == PEER) {
+        if (grp_nprod < peer_min) { return 0; }   // too few delivering -> can't judge (dark/overcast)
+        if (v < dead_w) { return 1; }             // flat while >= peer_min peers deliver -> dead
+        return 0;
+    }
+    if (t == DAYMIN) {
+        if (day == 0 || active == 0) { return 0; }
+        if (v < a) { return 1; }
+        return 0;
+    }
+    if (t == RANGE) {
+        if (v < a) { return 1; }
+        if (v > b) { return 1; }
+        return 0;
+    }
+    if (t == FROZEN) {
+        if (v != lastv[i]) { lastv[i] = v; lastchg[i] = tasm_uptime; return 0; }
+        int elapsed = tasm_uptime - lastchg[i];
+        if (elapsed >= (int)(a * 60.0)) { return 1; }
+        return 0;
+    }
+    return 0;
+}
+
+void problemPhrase(int i) {          // -> g_s
+    int t = typ[i];
+    if (t == DAYMIN || t == PEER) { strcpy(g_s, "liefert keine Leistung"); }
+    else if (t == PWALIVE) { strcpy(g_s, "sendet keine Daten mehr"); }
+    else if (t == FROZEN) { strcpy(g_s, "haengt fest"); }
+    else if (val[i] > p2[i]) { strcpy(g_s, "zu hoch"); }
+    else { strcpy(g_s, "zu niedrig"); }
+}
+
+void EverySecond() {
+    if (tasm_year < 2025) { return; }          // wait for NTP
+
+    // clock header — date + time WITH seconds
+    strToken(g_nm, wdays, '|', tasm_wday);     // tasm_wday 1=So..7=Sa
+    sprintf(g_s, "%s  %02d.%02d.%04d   %02d:%02d:%02d",
+            g_nm, tasm_day, tasm_month, tasm_year, tasm_hour, tasm_minute, tasm_second);
+    lvglSetText(clockL, g_s);
+
+    readVals();
+
+    // daylight + is-it-sunny gate (peak of the DAYMIN rules)
+    int now = tasm_time; int rise = tasm_sunrise; int set = tasm_sunset;
+    if (set <= 0) { rise = 420; set = 1140; }   // 07:00..19:00 fallback if USE_SUNRISE off
+    int day = (now > rise + DAY_MARGIN) && (now < set - DAY_MARGIN);
+    float pmax = -99999.0; int i = 0;
+    while (i < N) { if (typ[i] == DAYMIN && val[i] > pmax) { pmax = val[i]; } i = i + 1; }
+    // NOTE: TinyC miscompiles `int x = <float compare>` (assigning a float
+    // comparison straight to an int). Do the compare inside an if() instead.
+    float actthr = SOLAR_ACTIVE_W;
+    int active = 0;
+    if (pmax > actthr) { active = 1; }
+
+    // PEER producer count: how many solar inverters are actually delivering.
+    // This is the self-calibrating "is it sunny" signal for the PEER rules.
+    grp_nprod = 0; int jp = 0;
+    while (jp < N) {
+        if (typ[jp] == PEER) {
+            if (val[jp] > producing_w) { grp_nprod = grp_nprod + 1; }
+        }
+        jp = jp + 1;
+    }
+
+    // Powerwall reader heartbeat: the group sum shifts whenever the reader
+    // delivers a fresh sample; if it sits perfectly constant for STALE_MIN the
+    // reader has stalled (still up, no reboot, just no new values).
+    float pwsig = pwl + sip + sop + bip + hip;
+    if (pwsig != pw_lastsig) { pw_lastsig = pwsig; pw_lastchg = tasm_uptime; }
+    pw_stalled = 0;
+    int pwage = tasm_uptime - pw_lastchg;
+    if (pwage >= STALE_MIN * 60) { pw_stalled = 1; }
+
+    i = 0;
+    while (i < N) {
+        int bad = isBad(i, day, active);
+        if (bad) {
+            viol[i] = viol[i] + 1;
+            if (viol[i] >= DEBOUNCE_S) {
+                if (alm[i] == 0 || (tasm_uptime - spk[i]) >= REALARM_S) {
+                    strToken(g_nm, names, '|', i + 1); problemPhrase(i);
+                    sprintf(g_msg, "Achtung! %s %s", g_nm, g_s);
+                    speak(g_msg);
+                    spk[i] = tasm_uptime; alm[i] = 1;
+                }
+            }
+        } else {
+            alm[i] = 0; viol[i] = 0;
+        }
+
+        // row: value + colour. Value goes RED the moment a rule is violating
+        // (detected); the card background turns alarm-red once the spoken alarm
+        // is confirmed (alm) and re-announcing every REALARM_S. ok = green.
+        sprintf(g_s, "%.0f", val[i]);
+        lvglSetText(rowV[i], g_s);
+        if (bad || alm[i] == 1) { lvglSetTextColor(rowV[i], C_RED); }
+        else { lvglSetTextColor(rowV[i], C_GREEN); }
+        if (alm[i] == 1) { lvglSetBgColor(rowC[i], C_ALARMBG); }
+        else { lvglSetBgColor(rowC[i], C_CARD); }
+        i = i + 1;
+    }
+
+    // DEBUG (syslog, ~4x/min): day/active gate + the 4 values + Garage viol/alm.
+    // Remove once tuned. Readable via UDP syslog even when HMSTAT can't register.
+    if (tasm_second % 15 == 0) {
+        sprintf(g_msg, "HMdbg nprod=%d pw soc=%.0f sip=%.0f sop=%.0f bip=%.0f hip=%.0f age=%d st=%d",
+                grp_nprod, pwl, sip, sop, bip, hip, pwage, pw_stalled);
+        addLog(g_msg);
+    }
+}
+
+void Command(char cmd[]) {
+    if (strFind(cmd, "HMTEST") >= 0) {
+        speak("Haus Monitor Test");
+        responseCmnd("HM: test spoken");
+    } else if (strFind(cmd, "HMSTAT") >= 0) {
+        int i = 0;
+        while (i < N) {
+            strToken(g_nm, names, '|', i + 1);
+            sprintf(g_msg, "%s=%.0fW typ=%d min=%.0f viol=%d alm=%d", g_nm, val[i], typ[i], p1[i], viol[i], alm[i]);
+            addLog(g_msg); i = i + 1;
+        }
+        responseCmnd("HM: state logged");
+    } else {
+        responseCmnd("HM: HMTEST | HMSTAT");
+    }
+}
