@@ -4496,6 +4496,14 @@ export class CodeGenerator {
             case NodeType.BinaryExpr: {
                 if (node.op === '+' && this.isStringNode && this.isStringNode(node.left) && this.isStringNode(node.right))
                     return 'char'; // string concat result is a char[] ref
+                // Comparisons ALWAYS yield a boolean int — the FLT/FGT/FEQ/... opcodes
+                // push 0/1 as an int, regardless of operand types. Without this, a
+                // float compare was inferred 'float', so assigning it to an int emitted
+                // a bogus F2I that corrupted the boolean (e.g. `int a = x > 1.0;` -> 0,
+                // `return ok && (v < lim);` -> wrong). Only arithmetic propagates float.
+                if (node.op === '<' || node.op === '>' || node.op === '<=' ||
+                    node.op === '>=' || node.op === '==' || node.op === '!=')
+                    return 'int';
                 const lt = this.inferType(node.left);
                 const rt = this.inferType(node.right);
                 if (lt === 'float' || rt === 'float') return 'float';
