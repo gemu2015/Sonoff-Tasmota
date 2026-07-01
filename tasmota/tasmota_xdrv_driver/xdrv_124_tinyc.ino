@@ -3868,7 +3868,15 @@ static void TinyC_WebSetVar(uint8_t slot_idx) {
 // Serve raw framebuffer binary: 8-byte header + raw pixel data
 static bool tc_mirror_busy = false;
 
-#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32P4)
+// The JPEG mirror needs esp32-camera's software encoder (fmt2jpg_cb / PIXFORMAT_
+// RGB565), gated exactly like the img_converters.h include in xdrv_124_tinyc_vm.h:
+// ESP32 + a camera lib present + not P4 (which uses HW jpeg). Absent on C3/C6 etc.,
+// where the callers fall back to raw/downscale.
+#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32P4) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+#define TC_MIRROR_JPEG 1
+#endif
+
+#ifdef TC_MIRROR_JPEG
 // JPEG sink: fmt2jpg_cb streams encoded chunks here (into a caller-owned PSRAM
 // buffer) so a big RGB565 frame leaves as a ~50-150KB JPEG instead of 1-2MB of
 // raw that the fragmented internal pbuf pool can't push out (the raw send stalled
@@ -3957,11 +3965,11 @@ static void HandleTinyCDisplayRaw(void) {
   if (tc_lvgl_active()) {
     uint8_t *sdata; uint16_t sw, sh; void *shandle;
     if (tc_lvgl_snapshot(&sdata, &sw, &sh, &shandle)) {
-#if !defined(CONFIG_IDF_TARGET_ESP32P4)
+#ifdef TC_MIRROR_JPEG
       // snapshot is little-endian + already in logical orientation -> swap, rot 0
       tc_mirror_send_jpeg((uint8_t *)sdata, sw, sh, true, 0);
 #else
-      // P4: no software JPEG encoder -> send raw RGB565 (bounded resilient loop)
+      // no SW JPEG encoder (P4 HW jpeg / C3 / C6 / ...) -> send raw RGB565 (bounded resilient loop)
       uint32_t lv_fb_size = (uint32_t)sw * sh * 2;
       uint8_t lh[8] = { (uint8_t)(sw & 0xFF), (uint8_t)(sw >> 8), (uint8_t)(sh & 0xFF), (uint8_t)(sh >> 8), 16, 0, 0, 0 };
       Webserver->sendHeader(F("Connection"), F("close"));
@@ -4052,7 +4060,7 @@ static void HandleTinyCDisplayRaw(void) {
   // Scale factor: 2=half (400x240=192KB), 1=full (800x480=768KB)
   #define DISPLAY_MIRROR_SCALE 2
   if (abs_bpp == 16 && rgb && fb_size > 32768) {
-#if !defined(CONFIG_IDF_TARGET_ESP32P4)
+#ifdef TC_MIRROR_JPEG
     // Full-res JPEG (no downscale) — sharper AND smaller than the old 2:1 raw.
     // swap derived from the panel's swap_color (verify on-device; flip the '!' if
     // red/blue come out wrong); rot so the viewer re-orients it.
