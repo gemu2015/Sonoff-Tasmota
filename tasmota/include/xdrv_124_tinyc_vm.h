@@ -5408,6 +5408,8 @@ void tc_lv_rotate(int h, int deci_deg);
 #if defined(USE_TINYC_FAST_MUX) && (defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S3))
 #define TC_FAST_MUX_ACTIVE 1
 #define TC_MUX_SIZE 128
+#include "soc/gpio_struct.h"   // declares the `GPIO` register struct (out_w1ts/out_w1tc) used by the ISR below;
+                               // pulled in transitively on classic ESP32 but NOT on S3, so include it explicitly
 
 struct TC_FAST_PIN_MUX {
   volatile uint8_t scan_cnt;
