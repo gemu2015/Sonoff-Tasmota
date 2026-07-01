@@ -1698,6 +1698,7 @@ struct TINYC {
   // like I2SPlay, and long-blocking commands like sendmail).
   char     deferred_cmd[256];
   volatile bool deferred_pending;
+  uint32_t deferred_since;         // millis() when queued — starvation-timeout fallback (see TC_DEFER_MAX_WAIT_MS)
 #ifdef ESP32
   // Port 82 download server — background task for large file serving
 #ifndef TC_DLPORT
@@ -3389,9 +3390,18 @@ static void tc_udp_poll(void) {
  * causes crashes. Queue it here and execute from TinyCEvery50ms() in the main loop.
 \*********************************************************************************************/
 
+// Max time a deferred command may wait for ALL slots to go idle before it is run
+// anyway. Without this, a single slot with an infinite main() loop (task_running
+// stays true forever — e.g. a BLE-scale poller) starves the global deferred queue,
+// so every other slot's tasmDefer'd command (e.g. webradio I2SWR) never dispatches.
+#ifndef TC_DEFER_MAX_WAIT_MS
+#define TC_DEFER_MAX_WAIT_MS 400
+#endif
+
 static void tc_defer_command(const char *cmd) {
   if (!Tinyc || Tinyc->deferred_pending) return;  // drop if one is already pending
   strlcpy(Tinyc->deferred_cmd, cmd, sizeof(Tinyc->deferred_cmd));
+  Tinyc->deferred_since = millis();
   Tinyc->deferred_pending = true;
 }
 

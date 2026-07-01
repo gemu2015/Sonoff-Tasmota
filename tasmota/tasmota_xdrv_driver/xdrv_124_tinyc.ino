@@ -886,7 +886,18 @@ static void TinyCEvery50ms(void) {
 #endif
           )) { busy = true; break; }
     }
-    if (!busy) {
+    // Starvation-timeout fallback: a slot with an infinite main() loop (task_running
+    // stays true forever -- e.g. an esf37_scale BLE poller) would keep `busy` true
+    // forever and starve the GLOBAL deferred queue, so an event-driven slot's
+    // tasmDefer'd command (e.g. webradio I2SWR) never dispatches. Once a command has
+    // waited past TC_DEFER_MAX_WAIT_MS, run it anyway -- the deferring slot is idle and
+    // the still-busy slot is doing unrelated work; the main-loop exec already avoids
+    // the task-context crash that tasmDefer guards against.
+    if (!busy || (uint32_t)(millis() - Tinyc->deferred_since) > TC_DEFER_MAX_WAIT_MS) {
+      if (busy) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: deferred '%s' forced after %ums (slot busy)"),
+          Tinyc->deferred_cmd, (uint32_t)(millis() - Tinyc->deferred_since));
+      }
       tc_deferred_exec();
     }
   }
