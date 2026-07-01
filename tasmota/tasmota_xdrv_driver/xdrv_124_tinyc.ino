@@ -3879,12 +3879,17 @@ static void TinyC_WebSetVar(uint8_t slot_idx) {
 // Serve raw framebuffer binary: 8-byte header + raw pixel data
 static bool tc_mirror_busy = false;
 
-// The JPEG mirror needs esp32-camera's software encoder (fmt2jpg_cb / PIXFORMAT_
-// RGB565), gated exactly like the img_converters.h include in xdrv_124_tinyc_vm.h:
-// ESP32 + a camera lib present + not P4 (which uses HW jpeg). Absent on C3/C6 etc.,
-// where the callers fall back to raw/downscale.
-#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32P4) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+// The JPEG mirror needs esp32-camera's software encoder (fmt2jpg_cb / jpge, RGB565).
+// That encoder builds on the Xtensa ESP32 family (classic / S2 / S3) WITHOUT the
+// camera driver — so gate by ARCHITECTURE, not by USE_WEBCAM/USE_TINYC_CAMERA. A
+// camera-less display node (e.g. ILI9488p16) gets a real JPEG mirror this way;
+// verified on .135. Excluded: P4 (has HW jpeg, handled separately) and C3/C6
+// (RISC-V — the SW encoder isn't built there), whose callers fall back to raw.
+#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32P4) && \
+    !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(CONFIG_IDF_TARGET_ESP32C6)
+#ifndef TC_MIRROR_JPEG        // allow a user_config_override.h to force it elsewhere
 #define TC_MIRROR_JPEG 1
+#endif
 #endif
 
 #ifdef TC_MIRROR_JPEG
