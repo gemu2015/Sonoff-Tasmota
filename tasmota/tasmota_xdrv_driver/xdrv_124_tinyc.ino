@@ -6223,6 +6223,17 @@ bool Xdrv124(uint32_t function) {
       // disable autoexec. Real loops (no FUNC_SAVE_BEFORE_RESTART)
       // still leave the marker.
       tc_bootloop_marker_delete();
+      // Andreas 2026-07-01: also zero the QPC + fast-reboot counters, not just
+      // the marker. tc_should_skip_autoexec() checks those counters INDEPENDENTLY
+      // of the marker (qpc >= thr / fast_reboot_count >= thr), so a burst of
+      // *legitimate* reboots (an OTA + a couple of Restarts + a DeviceName/config
+      // save) can still cross the threshold on a later boot and skip autoexec.
+      // A commanded restart is graceful by definition — clear the counters so it
+      // can never be read as a crash loop. (Andreas .107, 2026-07-01.)
+      RtcReboot.fast_reboot_count = 0;
+#ifdef ESP32
+      UpdateQuickPowerCycle(false);
+#endif
       // Call user's CleanUp() callback on all active slots (like scripter's >R section)
       tc_all_callbacks_id(TC_CB_CLEAN_UP);
       // Save persist variables for all loaded slots

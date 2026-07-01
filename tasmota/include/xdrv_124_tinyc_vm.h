@@ -14149,6 +14149,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         TC_PUSH(vm, -3);
         break;
       }
+      // Andreas 2026-07-01: network_down backstop (SYS_TCP_CONNECT has one, this
+      // didn't). TRANSACT already returns -2 when the socket isn't connected
+      // (below), but if the link drops mid-session the WiFiClient can report
+      // 'connected' briefly — short-circuit so we never spin write/read on a
+      // stale socket while holding this slot's vm_mutex for up to timeout_ms.
+      if (TasmotaGlobal.global_state.network_down) {
+        TC_PUSH(vm, -2);
+        break;
+      }
       WiFiClient *_oc = TC_TCP_OUT_CLIENT();
       if (!_oc->connected()) {
         TC_PUSH(vm, -2);
