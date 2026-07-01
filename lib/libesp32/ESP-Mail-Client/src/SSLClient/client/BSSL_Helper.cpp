@@ -136,7 +136,7 @@ namespace key_bssl
 
     br_x509_decoder_init_libmail(dc.get(), byte_vector_append, (void *)&vdn);
     br_x509_decoder_push_libmail(dc.get(), xc->data, xc->data_len);
-    pk = br_x509_decoder_get_pkey(dc.get());
+    pk = br_x509_decoder_get_pkey_libmail(dc.get());
     if (pk == nullptr)
     {
       return false; // No key present, something broken in the cert!
@@ -151,7 +151,7 @@ namespace key_bssl
     memcpy(ta->dn.data, &vdn[0], vdn.size());
     ta->dn.len = vdn.size();
     ta->flags = 0;
-    if (br_x509_decoder_isCA(dc.get()))
+    if (br_x509_decoder_isCA_libmail(dc.get()))
     {
       ta->flags |= BR_X509_TA_CA;
     }

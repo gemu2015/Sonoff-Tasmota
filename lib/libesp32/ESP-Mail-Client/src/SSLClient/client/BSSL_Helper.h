@@ -74,6 +74,7 @@
 #endif
 
 #if defined(USE_LIB_SSL_ENGINE) || defined(USE_EMBED_SSL_ENGINE)
+#include "../bssl/x509_decoder_libmail.h"   // _libmail x509 decoder — moved out of bearssl_x509.h so it survives the core-BearSSL BR_BEARSSL_X509_H__ guard collision
 // Cache for a TLS session with a server
 // Use with BearSSL::WiFiClientSecure::setSession
 // to accelerate the TLS handshake

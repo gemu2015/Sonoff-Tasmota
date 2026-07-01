@@ -78,6 +78,7 @@ void br_x509_decoder_run_libmail(void *t0ctx);
 
 
 #include "inner.h"
+#include "x509_decoder_libmail.h"   /* br_x509_decoder_context_libmail + _libmail decls (moved out of bearssl_x509.h) */
 
 #define CTX   ((br_x509_decoder_context_libmail *)(void *)((unsigned char *)t0ctx - offsetof(br_x509_decoder_context_libmail, cpu)))
 #define CONTEXT_NAME   br_x509_decoder_context_libmail

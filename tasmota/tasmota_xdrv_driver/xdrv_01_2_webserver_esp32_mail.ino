@@ -25,64 +25,11 @@
  * and a section >m is found, the lines in this section (until #) are sent as email body
 \*********************************************************************************************/
 
-//
-// Black magic necessary for BearSSL and BearSSL in libmail to live in parallel
-//
-extern "C" {
-typedef struct {
-
-	/* Structure for returning the public key. */
-	br_x509_pkey pkey;
-
-	/* CPU for the T0 virtual machine. */
-	struct {
-		uint32_t *dp;
-		uint32_t *rp;
-		const unsigned char *ip;
-	} cpu;
-	uint32_t dp_stack[32];
-	uint32_t rp_stack[32];
-	int err;
-
-	/* The pad serves as destination for various operations. */
-	unsigned char pad[256];
-
-	/* Flag set when decoding succeeds. */
-	unsigned char decoded;
-
-	/* Validity dates. */
-	uint32_t notbefore_days, notbefore_seconds;
-	uint32_t notafter_days, notafter_seconds;
-
-	/* The "CA" flag. This is set to true if the certificate contains
-	   a Basic Constraints extension that asserts CA status. */
-	unsigned char isCA;
-
-	/* DN processing: the subject DN is extracted and pushed to the
-	   provided callback. */
-	unsigned char copy_dn;
-	void *append_dn_ctx;
-	void (*append_dn)(void *ctx, const void *buf, size_t len);
-
-	/* Certificate data chunk. */
-	const unsigned char *hbuf;
-	size_t hlen;
-
-	/* Buffer for decoded public key. */
-	unsigned char pkey_data[BR_X509_BUFSIZE_KEY];
-
-	/* Type of key and hash function used in the certificate signature. */
-	unsigned char signer_key_type;
-	unsigned char signer_hash_id;
-
-} br_x509_decoder_context_libmail;
-
-
-  void br_x509_decoder_push_libmail(br_x509_decoder_context_libmail *ctx, const void *data, size_t len);
-  void br_x509_decoder_init_libmail(br_x509_decoder_context_libmail *ctx,
-    void (*append_dn)(void *ctx, const void *buf, size_t len),
-    void *append_dn_ctx);
-}
+// NOTE: the _libmail X.509 decoder (br_x509_decoder_context_libmail +
+// br_x509_decoder_*_libmail) is now defined ONCE in ESP-Mail-Client's
+// bssl/x509_decoder_libmail.h and pulled in via SSLClient/ESP_SSLClient.h ->
+// BSSL_Helper.h (below). The old manual duplicate here ("black magic") is
+// removed to avoid a conflicting definition with that header.
 
 #include "SSLClient/ESP_SSLClient.h"
 #include <ESP_Mail_Client.h>
