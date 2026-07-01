@@ -48,8 +48,8 @@ float l_p3w = 0.0;
 // Per-CTS error strings — captured from the readings JSON each cycle
 // (Scripter's `str=PW_CTS1#error; perr=str` pattern). Empty string
 // means OK. Displayed in WebCall so we can spot CT-clamp problems.
-char l_cts1_err[16];
-char l_cts2_err[16];
+char l_cts1_err[48];   // pwlStr writes the CTS error string here — a long one
+char l_cts2_err[48];   // would overflow [16] the same way (bounds-checked -> halt)
 
 // ─── Publisher — pwl_publish() called every 30 s from EverySecond ───────────
 #ifdef PWL_DIRECT_GLOBALS
@@ -70,12 +70,13 @@ void pwl_publish() {
 
 #else
 
-// WebSend relay: POST `Script>pwl=...;sip=...` to a Scripter device (.76) that
+// WebSend relay: POST `Script>pwl=...;sip=...` to a Scripter device (.20) that
 // re-broadcasts via UDP globals — different SSL-state lifecycle, no contention.
 // %% → literal %; %3E = '>', %3D = '=', %3B = ';' (Tasmota URL-decodes cmnd).
-int  WS_TARGET[]   = "192.168.188.76";  // Scripter device that re-broadcasts
+int  WS_TARGET[]   = "192.168.188.20";  // Scripter re-broadcaster (moved from .76 → .20)
 char ws_url[256];
-char ws_resp[64];
+char ws_resp[256];   // the receiver echoes the whole Script command back (~146 B); 64 overflowed
+                     // -> httpGet char[]-ref bounds-check halts the slot ("Bounds error").
 
 void pwl_publish() {
     // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
