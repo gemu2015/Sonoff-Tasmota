@@ -34,15 +34,13 @@ float spmp;
 persist float d_at[DAY_LEN];
 persist float d_ss[DAY_LEN];
 persist float d_ct[DAY_LEN];
-persist int d_pos;
-int d_tick;
+persist int d_pos;              // current wall-clock 5-min slot (ring anchor)
 
 // weekly history (1 sample/30 min)
 persist float w_at[WEEK_LEN];
 persist float w_ss[WEEK_LEN];
 persist float w_ct[WEEK_LEN];
-persist int w_pos;
-int w_tick;
+persist int w_pos;             // current wall-clock 30-min slot (ring anchor)
 
 void resetMinMax() {
     min_at = 999.0; max_at = -999.0;
@@ -58,9 +56,8 @@ int main() {
     startup = 10;           // skip first 10 seconds for SML to deliver data
     last_day = tasm_day;
     resetMinMax();
-    // d_pos, w_pos are persist — keep chart history across restarts
-    d_tick = DAY_INT - 1;    // first sample after 1 second
-    w_tick = WEEK_INT - 1;   // first sample after 1 second
+    // d_pos, w_pos are persist — keep chart history across restarts.
+    // They now hold the current wall-clock ring slot, refreshed every second.
 }
 
 void EverySecond() {
@@ -68,9 +65,14 @@ void EverySecond() {
         tasm_rule = sml_activ;
         snapshot(sml_activ);
     }
-    scol = smlGet(1);
-    ssp = smlGet(2);
-    spmp = smlGet(3);
+    // Meter-def value order (see /sml_meter.def): 1 = Solarkollektor,
+    // 2 = Solarspeicher, 3 = Solarpumpe. scol feeds the "Solarspeicher"
+    // section+chart below and ssp the "Kollektortemperatur" one, so read
+    // them swapped to match those labels. (Flip these two lines if your
+    // descriptor lists Speicher first.)
+    scol = smlGet(2);       // Solarspeicher
+    ssp = smlGet(1);        // Solarkollektor
+    spmp = smlGet(3);       // Solarpumpe (read, not charted)
 
     // skip first seconds — SML hasn't delivered valid data yet
     if (startup > 0) {
@@ -101,28 +103,27 @@ void EverySecond() {
     if (ssp > max_ct) { max_ct = ssp; }
     if (ssp < min_ct) { min_ct = ssp; }
 
-    // 24h chart: sample every 5 min
-    d_tick = d_tick + 1;
-    if (d_tick >= DAY_INT) {
-        d_tick = 0;
-        int di;
-        di = d_pos % DAY_LEN;
+    // 24h chart: WALL-CLOCK 5-min slot (0..287 = minute-of-day / 5), so the
+    // x-axis lines up with real time. Each second overwrites the current slot
+    // (sample-and-hold); d_pos = the current slot for WebChart's ring anchor.
+    int di = (tasm_hour * 60 + tasm_minute) / 5;
+    if (di >= 0 && di < DAY_LEN) {
         d_at[di] = atmp;
         d_ss[di] = scol;
         d_ct[di] = ssp;
-        d_pos = d_pos + 1;
+        // WebChart's pos is the ring ANCHOR (oldest slot = one past the newest),
+        // so the newest sample (slot di) renders at "now" not 24 h ago.
+        d_pos = (di + 1) % DAY_LEN;
     }
 
-    // weekly chart: sample every 30 min
-    w_tick = w_tick + 1;
-    if (w_tick >= WEEK_INT) {
-        w_tick = 0;
-        int wi;
-        wi = w_pos % WEEK_LEN;
+    // weekly chart: WALL-CLOCK 30-min slot of the week (0..335). tasm_wday is
+    // 1=Sun..7=Sat, so (wday-1)*24+hour = hour-of-week (0..167).
+    int wi = (((tasm_wday - 1) * 24 + tasm_hour) * 60 + tasm_minute) / 30;
+    if (wi >= 0 && wi < WEEK_LEN) {
         w_at[wi] = atmp;
         w_ss[wi] = scol;
         w_ct[wi] = ssp;
-        w_pos = w_pos + 1;
+        w_pos = (wi + 1) % WEEK_LEN;
     }
 }
 
@@ -226,27 +227,23 @@ void WebPage() {
     webSend("</script>");
     webFlush();
 
-    if (d_pos < 1) {
-        webSend("<p>Daten werden gesammelt...</p>");
-        return;
-    }
-
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
-    // opened after the early-return guard + the independently centered
-    // clock header so the early path leaves no unclosed div.
+    // Charts always render: the ring is indexed by wall-clock slot, so pass the
+    // FULL length (24h / 7d axis). Un-recorded slots read 0.0 -> the WebChartJS
+    // snippet turns those into null (a gap) so the line shows real data at its
+    // real time instead of dropping to 0 C over the not-yet-filled slots.
     webSend("<div style='margin-left:-30px'>");
 
-    // --- 24h chart: 3 series, interval = 5 min ---
+    // --- 24h chart: 3 series, wall-clock 5-min slots, interval = 5 min ---
     WebChart(0, "Temperaturen 24h", "Aussen|C", 0x2196F3, d_pos, DAY_LEN, d_at, 1, 5, 0.0, 0.0);
     WebChart(0, "", "Speicher|C", 0xFF5722, d_pos, DAY_LEN, d_ss, 1, 5, 0.0, 0.0);
     WebChart(0, "", "Kollektor|C", 0x4CAF50, d_pos, DAY_LEN, d_ct, 1, 5, 0.0, 0.0);
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
 
-    // --- weekly chart: 3 series, interval = 30 min ---
-    if (w_pos > 0) {
-        WebChart(0, "Temperaturen Woche", "Aussen|C", 0x2196F3, w_pos, WEEK_LEN, w_at, 1, 30, 0.0, 0.0);
-        WebChart(0, "", "Speicher|C", 0xFF5722, w_pos, WEEK_LEN, w_ss, 1, 30, 0.0, 0.0);
-        WebChart(0, "", "Kollektor|C", 0x4CAF50, w_pos, WEEK_LEN, w_ct, 1, 30, 0.0, 0.0);
-    }
+    // --- weekly chart: 3 series, wall-clock 30-min slots, interval = 30 min ---
+    WebChart(0, "Temperaturen Woche", "Aussen|C", 0x2196F3, w_pos, WEEK_LEN, w_at, 1, 30, 0.0, 0.0);
+    WebChart(0, "", "Speicher|C", 0xFF5722, w_pos, WEEK_LEN, w_ss, 1, 30, 0.0, 0.0);
+    WebChart(0, "", "Kollektor|C", 0x4CAF50, w_pos, WEEK_LEN, w_ct, 1, 30, 0.0, 0.0);
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
     webSend("</div>");
 }
 
