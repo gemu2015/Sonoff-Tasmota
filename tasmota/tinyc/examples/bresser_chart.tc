@@ -665,7 +665,7 @@ void WebPage() {
     WebChart(0, "Temperature (24h)", "°C", 0xe74c3c, h_pos, NPTS, h_temp, 1, 5, -20, 50);
     WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, NPTS, h_hum,  1, 5, 0, 100);
     WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, NPTS, h_wavg, 1, 5, 0, 0);
-    WebChartJS("o.vAxis=o.vAxis||{};o.vAxis.viewWindow={min:0};");   // wind >= 0: pin axis floor at 0, auto-scale the top
+    WebChartJS("o.vAxis=o.vAxis||{};var mx=0;for(var r=0;r<dt.getNumberOfRows();r++){var v=dt.getValue(r,1);if(v>mx)mx=v;}o.vAxis.viewWindow={min:0,max:(mx<2?2:mx*1.15)};");   // wind>=0: floor 0, top=1.15x peak (>=2) so the axis never collapses to a negative default
     WebChart(1, "Rain (24h)",        "mm",       0x2980b9, h_pos, NPTS, h_rain, 1, 5, 0, 0);   // type 1 = column (per-interval rainfall)
     WebChart(0, "Brightness (24h)",  "kLux",     0xf39c12, h_pos, NPTS, h_lux,  1, 5, 0, 0);
     WebChart(0, "UV Index (24h)",    "UVI",      0x9b59b6, h_pos, NPTS, h_uvi,  1, 5, 0, 12);
