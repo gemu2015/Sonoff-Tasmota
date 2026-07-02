@@ -1,4 +1,6 @@
-// marstek_sim.tc — Marstek Venus E (5.12 kWh) surplus/reserve controller — SIMULATED.
+// marstek_venus.tc — Marstek Venus E (5.12 kWh) surplus/reserve controller.
+// Real control via -DMK_REAL (UDP-JSON to the Venus, live on .170); the default
+// build simulates the battery so the control logic can be tested without hardware.
 //
 // Goal of the strategy (your case: NO dynamic tariff; relieve the aging
 // Powerwall + hold a small blackout reserve):
@@ -38,11 +40,16 @@
 #define MK_CAP_WH   5120    // usable energy (5.12 kWh)
 #define MK_PMAX     2500    // max charge/discharge power on a dedicated circuit (W)
 #define MK_EFF      93      // round-trip-ish efficiency, integer % (charge side)
-#define TICK_S      10      // control + integration period (s)
+#define TICK_S      30      // control + integration period (s) — matches the ~30s PW data refresh
 #define DB          150     // deadband (W) — ignore tiny surplus/deficit, no hunting
+#define RAMP        400     // max setpoint change per tick (W) — slew-rate limit (anti-oscillation)
+#define FILT_N      4       // EMA window on the surplus/deficit input (anti-oscillation)
+#define MK_SELF_COMP 1      // subtract our own draw from the balance (assumes hip meters the Venus E)
 
 // Inputs — UDP globals from powerwall.tc (READ ONLY).
 global float sop; global float hip; global float sip; global float bip; global float pwl;
+// Output — broadcast the current Venus E SOC to the fleet (like powerwall.tc broadcasts pwl).
+global float msoc;
 
 // Persistent rules + simulated battery state (survive reboot, like a real cell).
 persist int   armed   = 1;      // AUTO mode on/off
@@ -58,6 +65,8 @@ int   l_sur   = 0;      // last surplus  (W)
 int   l_def   = 0;      // last deficit  (W)
 int   l_pw    = -1;     // last PW SOC
 int   data_ok = 0;      // PW globals seen yet?
+float sur_f   = 0.0;    // EMA-filtered surplus (W) — anti-oscillation
+float def_f   = 0.0;    // EMA-filtered deficit (W)
 float relief_wh = 0.0;  // energy the Venus E handled that the PW would have (Wh, since boot)
 
 // web button flags + persist dirty tracking
@@ -161,31 +170,49 @@ void decide() {
     int sol = (int)sop; int hou = (int)hip; int pw = (int)pwl;
     l_pw = pw;
 
-    // PV vs house balance.
-    int surplus = sol - hou; if (surplus < 0) { surplus = 0; }
-    int deficit = hou - sol; if (deficit < 0) { deficit = 0; }
+    // PV vs house balance. Self-compensate so our OWN charge/discharge doesn't
+    // pollute the reading: charging raises hip, discharging lowers it, so the
+    // metered hip already carries -mk_setp. Removing it (net -= mk_setp) breaks
+    // the feedback loop that fed the fight with the Powerwall.
+    int net = sol - hou;
+#ifdef MK_SELF_COMP
+    net = net - mk_setp;
+#endif
+    int surplus = net;  if (surplus < 0) { surplus = 0; }
+    int deficit = -net; if (deficit < 0) { deficit = 0; }
     l_sur = surplus; l_def = deficit;
 
     // Data sanity: all-zero means powerwall.tc hasn't published yet.
     data_ok = (sol != 0 || hou != 0 || pw != 0);
 
-    int soc = (int)mk_soc;
-    int setp = 0;
+    // EMA-filter the balance so the Powerwall's fast transients are averaged out.
+    sur_f = sur_f + ((float)surplus - sur_f) / (float)FILT_N;
+    def_f = def_f + ((float)deficit - def_f) / (float)FILT_N;
+    int fsur = (int)sur_f; int fdef = (int)def_f;
 
-    // Manual force overrides AUTO, but still respects the physical SOC limits.
+    int soc = (int)mk_soc;
+
+    // Manual force overrides AUTO — immediate full power (still respects SOC limits).
     if (mforce == 1) {                              // force charge
-        if (soc < mk_max) { setp = -MK_PMAX; } else { mforce = 0; }
+        if (soc < mk_max) { mk_setp = -MK_PMAX; } else { mforce = 0; mk_setp = 0; }
     } else if (mforce == 2) {                        // force discharge
-        if (soc > mk_min) { setp = MK_PMAX; } else { mforce = 0; }
-    } else if (armed && data_ok) {
-        if (surplus > DB && soc < mk_max) {
-            setp = surplus; if (setp > MK_PMAX) { setp = MK_PMAX; }
-            setp = -setp;                            // negative = charging
-        } else if (deficit > DB && soc > mk_min) {
-            setp = deficit; if (setp > MK_PMAX) { setp = MK_PMAX; }
+        if (soc > mk_min) { mk_setp = MK_PMAX; } else { mforce = 0; mk_setp = 0; }
+    } else {
+        // AUTO: target from the FILTERED balance, then slew-rate limit toward it.
+        int target = 0;
+        if (armed && data_ok) {
+            if (fsur > DB && soc < mk_max) {
+                target = fsur; if (target > MK_PMAX) { target = MK_PMAX; }
+                target = -target;                    // negative = charging
+            } else if (fdef > DB && soc > mk_min) {
+                target = fdef; if (target > MK_PMAX) { target = MK_PMAX; }
+            }
         }
+        int step = target - mk_setp;                 // move slow enough that the fast PW
+        if (step >  RAMP) { step =  RAMP; }          // settles between our steps -> no fight
+        if (step < -RAMP) { step = -RAMP; }
+        mk_setp = mk_setp + step;
     }
-    mk_setp = setp;
 }
 
 // ─── Battery model — integrate SOC + relief metric from the setpoint ──────────
@@ -221,6 +248,7 @@ void tick() {
 #endif
     decide();
     integrate();
+    msoc = mk_soc;    // broadcast current Venus SOC to the fleet (every TICK_S)
 #ifdef MK_REAL
     addLog("MK: soc=%.1f%% setp=%dW ongrid=%dW wr=%d sur=%d def=%d pw=%d%% mode=%s",
            mk_soc, mk_setp, mk_ongrid, mk_wr_ok, l_sur, l_def, l_pw,
