@@ -16,6 +16,7 @@ global float wrgh;   // Gartenhaus
 global float wrga;   // Garage
 global float wrgg;   // Garten
 global float pwl;    // Powerwall SOC %
+global float msoc;   // Marstek Venus E SOC % (broadcast by marstek_venus.tc on .170)
 
 #define SEED         1            // 1 = pre-fill a synthetic day (demo); 0 = real-accumulate only
 #define NBINS        288          // 24 h / 5 min
@@ -56,9 +57,11 @@ global float pwl;    // Powerwall SOC %
 int px[300]; int py[300];                  // polyline scratch
 int wSolar[4][288];                        // 4 inverter series x 288 bins (heap, 2D)
 int wPwl[288];                             // Powerwall SOC per bin
+int wMsoc[288];                            // Marstek Venus SOC per bin (-1 = no data yet, skipped)
 int wp = 0; int cnt = 0;                   // ring write pointer + filled count
 int gln[4];                                // 4 solar polyline handles
 int plLine = 0;                            // Powerwall polyline handle
+int mkLine = 0;                            // Marstek Venus SOC polyline handle
 int xlS[5]; int xlP[5];                    // x-axis HH:MM label handles (solar / powerwall)
 int g_needle = 0; int g_value = 0;         // live gauge parts
 int g_cx; int g_cy; int g_r; int g_pmax;
@@ -164,14 +167,17 @@ void legSquare(int x, int y, int color) {
 
 // plot a ring row (24 h) as a polyline into an existing line handle
 void plotSeries(int row[], int handle, int x0, int y0, int w, int h, int vmax) {
-    int j = 0;
+    int j = 0; int n = 0;
     while (j < cnt) {
         int idx = (wp - cnt + j + 576) % 288;        // chronological: oldest -> newest
-        px[j] = x0 + w - (w * (cnt - 1 - j)) / 287;  // newest at the right edge (now); 5 min = w/287
-        py[j] = ymap(row[idx], 0, vmax, y0, h);
+        if (row[idx] >= 0) {                          // skip -1 sentinel bins (Venus SOC before its first sample)
+            px[n] = x0 + w - (w * (cnt - 1 - j)) / 287;  // newest at the right edge (now); 5 min = w/287
+            py[n] = ymap(row[idx], 0, vmax, y0, h);
+            n = n + 1;
+        }
         j = j + 1;
     }
-    if (cnt >= 2) { lvglLinePoly(handle, px, py, cnt); }
+    if (n >= 2) { lvglLinePoly(handle, px, py, n); }
 }
 
 void updateCharts() {
@@ -180,6 +186,7 @@ void updateCharts() {
     plotSeries(wSolar[2], gln[2], SX, SY, SW, SH, SOLAR_MAX_W);
     plotSeries(wSolar[3], gln[3], SX, SY, SW, SH, SOLAR_MAX_W);
     plotSeries(wPwl, plLine, PX, PY, PW, PH, 100);
+    plotSeries(wMsoc, mkLine, PX, PY, PW, PH, 100);
     updateXLabels();
 }
 
@@ -225,6 +232,7 @@ void sampleNow() {
     wSolar[2][wp] = (int)pabs(wrga);
     wSolar[3][wp] = (int)pabs(wrgg);
     wPwl[wp] = (int)pwl;
+    wMsoc[wp] = (int)msoc;
     wp = (wp + 1) % 288;
     if (cnt < 288) { cnt = cnt + 1; }
     saveHist();                                     // persist after each sample
@@ -327,6 +335,7 @@ void updateReadout() {
 }
 
 int main() {
+    int mi = 0; while (mi < 288) { wMsoc[mi] = -1; mi = mi + 1; }   // Venus SOC starts empty (skipped until first sample)
     lvglInit();
     lvglClean(0);
     lvglSetBgColor(0, C_BG);
@@ -351,12 +360,15 @@ int main() {
     // ===== CHART 2: Powerwall SOC (%) =====
     card(40, 510, 720, 300);
     int t2 = lvglLabel(0);
-    lvglSetText(t2, "Powerwall SOC"); lvglSetTextColor(t2, C_TITLE); lvglSetFont(t2, 20); lvglSetPos(t2, 64, 528);
+    lvglSetText(t2, "Battery SOC"); lvglSetTextColor(t2, C_TITLE); lvglSetFont(t2, 20); lvglSetPos(t2, 64, 528);
+    legSquare(410, 532, C_GREEN); int lp = lvglLabel(0); lvglSetText(lp, "Powerwall"); lvglSetTextColor(lp, C_AXIS); lvglSetFont(lp, 14); lvglSetPos(lp, 426, 529);
+    legSquare(580, 532, C_BLUE);  int lm = lvglLabel(0); lvglSetText(lm, "Marstek");   lvglSetTextColor(lm, C_AXIS); lvglSetFont(lm, 14); lvglSetPos(lm, 596, 529);
     plotBg(PX - 4, PY - 4, PW + 8, PH + 8);
     drawGrid(PX, PY, PW, PH, 4, 4);
     yAxis(52, PY, PH, 0, 100, 4, C_AXIS);
     makeXLabels(xlP, PX, PW, PY + PH + 10);
     plLine = lvglLine(0); lvglLineStyle(plLine, C_GREEN, 3);
+    mkLine = lvglLine(0); lvglLineStyle(mkLine, C_BLUE, 3);   // Venus SOC (blue) on the same chart
 
     // ===== GAUGE: live sum of the 4 inverters (kW) =====
     card(40, 830, 720, 400);
