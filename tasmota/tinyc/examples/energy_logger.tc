@@ -282,8 +282,11 @@ void WebCall() {
 
     web_section("System");
     row_i("System Heap", tasm_heap / 1000, "kB");
-    webSend("{s}Tages-Log{m}<a href='/ufsd?download=/energy_m_log.txt'>download</a>{e}");
-    webSend("{s}15-min-Log{m}<a href='/ufsd?download=/energy_15_log.txt'>download</a>{e}");
+    // Download via TinyC's port-82 file server (streams on a core-1 task) instead of
+    // /ufsd on port 80 — the big-file stream would otherwise wedge the main loop.
+    // location.hostname keeps it on this device whether reached by IP or hostname.
+    webSend("{s}Tages-Log{m}<a href=\"#\" onclick=\"location.href='//'+location.hostname+':82/ufs/energy_m_log.txt'\">download</a>{e}");
+    webSend("{s}15-min-Log{m}<a href=\"#\" onclick=\"location.href='//'+location.hostname+':82/ufs/energy_15_log.txt'\">download</a>{e}");
 }
 
 void Command(char cmd[]) {
