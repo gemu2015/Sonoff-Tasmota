@@ -2972,6 +2972,11 @@ static bool tc_has_callback(TcVM *vm, const char *name) {
   return false;
 }
 
+// Fwd-decl: the watch-mirror bridge is defined near the VM loader. UDP receive
+// (below) routes scalar global updates through it so written()/changed() fire on
+// inbound UDP-global packets — not just local STORE_WATCH / URL ?sv= writes.
+static inline void tc_global_write_with_watch(TcVM *vm, uint16_t gidx, int32_t newval, int32_t oldval);
+
 // Called when a UDP variable is received (from own poll or Scripter hook)
 // name: variable name, umode: '=' (ASCII) or ':' (binary), data: raw bytes after delimiter
 // datalen: length of remaining data (for array detection)
@@ -3084,8 +3089,11 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
             }
           }
         } else if (cnt == 1 && idx < vmp->globals_size) {
-          // Scalar float: store as f2i bits
-          if (var) vmp->globals[idx] = f2i(var->value);
+          // Scalar float: store as f2i bits — routed through the watch bridge so
+          // written()/changed() fire on UDP-global updates (out-of-band write
+          // mirror, same as URL ?sv=). For non-watch globals the helper just does
+          // the plain write (no shadow/flag), so this is a no-cost change there.
+          if (var) tc_global_write_with_watch(vmp, idx, f2i(var->value), vmp->globals[idx]);
         } else if (cnt > 1 && var && var->arr_data) {
           // Float array: copy from UDP array data
           uint16_t n = (var->arr_count < cnt) ? var->arr_count : cnt;

@@ -20,13 +20,14 @@
 // value green when ok, RED on detection/alarm. Alarm also speaks via deferred
 // I2STTS (needs the picotts de-DE voice on the device).
 
-#define N       9          // number of rules (grow this)
+#define N       10         // number of rules (grow this)
 #define DAYMIN  1
 #define RANGE   2
 #define FROZEN  3
 #define PEER    4
 #define INFO    5          // display only — never alarms
 #define PWALIVE 6          // alarms if the WHOLE Powerwall group stops updating (reader stalled)
+#define ENALIVE 7          // alarms if the Energy_Manager (.61) stops broadcasting (no fresh UDP)
 
 // LVGL style-int ids + colours (from the moritz dashboard)
 #define ST_RADIUS 120
@@ -53,6 +54,9 @@
                                // .20-relay refresh is irregular (~15-73s gaps), so 10 min
                                // clears any normal lull yet still catches a halted reader
                                // (its own 5-min watchdog can't run if the slot crashed).
+#define EN_STALE_MIN   5       // (ENALIVE) .61 stalled if NO fresh sedc UDP arrived this long.
+                               // sedc broadcasts ~every 10-12s (>S round-robins 12 cases, ~1/s),
+                               // so 5 min is a wide safety margin (~25x).
 #define DEBOUNCE_S     300     // stay bad this long before the first alarm (5 min)
 #define REALARM_S      300     // re-speak this often while tripped (5 min)
 #define QUIET_START    22      // mute spoken alarms from 22:00 ...
@@ -60,12 +64,19 @@
 #define ROWH           28      // px per row (fits ~10 on 480x320)
 
 // ── the rule config (parallel columns) ──
-char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Netz|Solar|Batterie|Verbrauch";
+char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Netz|Solar|Batterie|Verbrauch|Energiemonitor";
 int   typ[N]; float p1[N]; float p2[N];
 
 // fleet globals (auto-received over UDP). SIGN: sedc is +producing, wr* are
 // -producing (matches energy_dashboard.tc) — normalised in readVals().
-global float sedc; global float wrgh; global float wrgg; global float wrga;
+// sedc is `watch` so written(sedc) fires on each inbound UDP packet — the .61
+// liveness heartbeat (see EverySecond). .61 re-broadcasts sedc every ~10-12s
+// REGARDLESS of value: Scripter sends g: vars on every assignment, not on change
+// (xdrv_10 script_udp_sendvar), and .61's >S loop re-assigns sedc every cycle. So
+// the flag ticks day AND night, even when the solar value sits flat at 0.
+// NOTE: needs firmware where UDP receive sets the watch flag (tc_udp_on_receive ->
+// tc_global_write_with_watch); on older firmware written() only fires on local writes.
+global watch float sedc; global float wrgh; global float wrgg; global float wrga;
 // Powerwall group (one reader broadcasts all 5; if it stalls they all freeze together)
 global float pwl;  // battery %
 global float sip;  // grid power (net import)
@@ -80,6 +91,8 @@ float lastv[N]; int lastchg[N];        // FROZEN change-tracking
 float producing_w; float dead_w; int peer_min; int grp_nprod;
 // PWALIVE heartbeat: reader is alive as long as the pw-group sum keeps changing
 float pw_lastsig; int pw_lastchg; int pw_stalled;
+// ENALIVE heartbeat: .61 is alive as long as fresh UDP writes keep arriving (written(sedc))
+int en_lastseen; int en_stalled;
 
 // LVGL handles
 int clockL; int rowC[N]; int rowN[N]; int rowV[N];
@@ -113,6 +126,7 @@ void readVals() {
 int main() {
     producing_w = PRODUCING_W; dead_w = DEAD_W; peer_min = PEER_MIN;
     pw_lastsig = -999999.0; pw_lastchg = 0; pw_stalled = 0;
+    en_lastseen = 0; en_stalled = 0;
     // rule table: setRule(index, type, p1, p2).
     // 0-3 solar inverters: PEER (judge each other, no fixed threshold).
     setRule(0, PEER, 0.0, 0.0);
@@ -126,6 +140,8 @@ int main() {
     setRule(6, INFO, 0.0, 0.0);
     setRule(7, INFO, 0.0, 0.0);
     setRule(8, INFO, 0.0, 0.0);
+    // 9 Energy_Manager (.61) liveness — alarms if no fresh sedc UDP for EN_STALE_MIN
+    setRule(9, ENALIVE, 0.0, 0.0);
 
     lvglInit(); lvglClean(0); lvglSetBgColor(0, C_BG);
     clockL = lvglLabel(0);
@@ -162,6 +178,7 @@ int isBad(int i, int day, int active) {
     // float compares live inside if() only — never `return <float compare>`.
     if (t == INFO)    { return 0; }               // display only
     if (t == PWALIVE) { return pw_stalled; }       // group heartbeat (computed in EverySecond)
+    if (t == ENALIVE) { return en_stalled; }       // .61 UDP-liveness (computed in EverySecond)
     if (t == PEER) {
         if (grp_nprod < peer_min) { return 0; }   // too few delivering -> can't judge (dark/overcast)
         if (v < dead_w) { return 1; }             // flat while >= peer_min peers deliver -> dead
@@ -190,6 +207,7 @@ void problemPhrase(int i) {          // -> g_s
     int t = typ[i];
     if (t == DAYMIN || t == PEER) { strcpy(g_s, "liefert keine Leistung"); }
     else if (t == PWALIVE) { strcpy(g_s, "sendet keine Daten mehr"); }
+    else if (t == ENALIVE) { strcpy(g_s, "Energiemonitor tot"); }
     else if (t == FROZEN) { strcpy(g_s, "haengt fest"); }
     else if (val[i] > p2[i]) { strcpy(g_s, "zu hoch"); }
     else { strcpy(g_s, "zu niedrig"); }
@@ -236,6 +254,16 @@ void EverySecond() {
     pw_stalled = 0;
     int pwage = tasm_uptime - pw_lastchg;
     if (pwage >= STALE_MIN * 60) { pw_stalled = 1; }
+
+    // Energy_Manager (.61) liveness: written(sedc) fires on EVERY UDP packet .61
+    // sends (even a flat 0 at night), so it's a true "is it broadcasting" signal —
+    // unlike a value heartbeat, which would false-alarm when the inverters sit at 0.
+    if (en_lastseen == 0) { en_lastseen = tasm_uptime; }   // prime on first tick (boot grace)
+    if (written(sedc)) { snapshot(sedc); en_lastseen = tasm_uptime; }
+    en_stalled = 0;
+    int en_age = tasm_uptime - en_lastseen;
+    if (en_age >= EN_STALE_MIN * 60) { en_stalled = 1; }
+    val[9] = (float)en_age;                            // display: seconds since last .61 packet
 
     i = 0;
     while (i < N) {
@@ -300,6 +328,7 @@ void WebCall() {
     while (i < N) {
         strToken(g_nm, names, '|', i + 1);
         if (i == 4) { sprintf(g_s, "%.0f %%", val[i]); }
+        else if (i == 9) { sprintf(g_s, "vor %.0f s", val[i]); }   // .61 liveness: age of last packet
         else { sprintf(g_s, "%.0f W", val[i]); }
         if (typ[i] == INFO) {
             sprintf(g_cmd, "{s}%s{m}<span style='color:#9aa0a6;'>%s</span>{e}", g_nm, g_s);

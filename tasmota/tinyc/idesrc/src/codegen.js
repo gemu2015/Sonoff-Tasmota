@@ -1227,6 +1227,27 @@ export class CodeGenerator {
             }
         }
 
+        // Register every declared `watch` global with the loader's static scanner
+        // (tc_scan_watch_indices), which records a var ONLY if it finds a
+        // STORE_WATCH opcode for it. A receive-only watch var — assigned solely
+        // over UDP, e.g. `global watch float sedc;` read via written()/snapshot()
+        // — is never locally assigned, so it emits NO STORE_WATCH and never lands
+        // in watch_indices. Then the firmware's out-of-band write bridge (UDP /
+        // URL ?sv= -> tc_global_write_with_watch) has no index to match and can't
+        // set the written flag, so written()/changed() stay false forever.
+        // Emit a harmless self-registration per watch var: LOAD the current value,
+        // STORE_WATCH it back (var unchanged; shadow<-value; written<-1), then
+        // clear the written flag so boot state is clean (written=0, shadow==var,
+        // i.e. an initial snapshot). STORE_WATCH does not broadcast, so this is
+        // safe for UDP globals (no boot-time =>name=0 storm).
+        for (const [, w] of this.watchGlobals) {
+            this.emit(Op.LOAD_GLOBAL);  this.emitU16(w.varIndex);
+            this.emit(Op.STORE_WATCH);  this.emitU16(w.varIndex);
+            this.emitU16(w.shadowIndex); this.emitU16(w.writtenIndex);
+            this.emitPushInt(0);
+            this.emit(Op.STORE_GLOBAL); this.emitU16(w.writtenIndex);
+        }
+
         // Emit: CALL main, HALT (after global inits)
         this.emit(Op.CALL);
         const mainCallAddr = this.code.length;
