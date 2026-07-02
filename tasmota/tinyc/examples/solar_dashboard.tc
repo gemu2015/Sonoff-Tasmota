@@ -23,6 +23,7 @@ global float msoc;   // Marstek Venus E SOC % (broadcast by marstek_venus.tc on 
 #define SOLAR_MAX_W  5000         // y-axis full scale (W) -> labelled 0..5 kW
 #define GAUGE_MAXT   100          // gauge full scale in tenths of kW (100 = 10.0 kW)
 #define SAMPLE_SEC   300          // history sample interval (s) = 5 min (24 h / 288 bins)
+#define SOLBIN_SIZE  5776         // exact valid size: 4-int hdr + 5 arrays x 288 x 4B (power-safe check)
 
 #define ST_RADIUS    120
 #define ST_BORDER     56
@@ -59,6 +60,8 @@ int wSolar[4][288];                        // 4 inverter series x 288 bins (heap
 int wPwl[288];                             // Powerwall SOC per bin
 int wMsoc[288];                            // Marstek Venus SOC per bin (-1 = no data yet, skipped)
 int wp = 0; int cnt = 0;                   // ring write pointer + filled count
+int save_tog = 0;                          // ping-pong: which file to write next (0=/solar.bin 1=/solar2.bin)
+int save_seq = 0;                          // monotonic save sequence (header) — loadHist picks the newest valid file
 int gln[4];                                // 4 solar polyline handles
 int plLine = 0;                            // Powerwall polyline handle
 int mkLine = 0;                            // Marstek Venus SOC polyline handle
@@ -193,11 +196,20 @@ void updateCharts() {
 // inverters report production with mixed sign (3 are negative) — chart/gauge use the magnitude
 float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
 
-// persist the rolling history to /solar.bin (SD by default — avoids the P4 internal-FS wipe)
+// Persist the rolling history — POWER-SAFE ping-pong. Truncate-write of the ONE
+// file (the old way) had a fatal window: a power cut mid-write left solar.bin
+// partial, loadHist() then failed, and main() re-seeded -> the whole ring reset
+// (that lost the history across the outage). Instead we alternate /solar.bin and
+// /solar2.bin with a rising seq in the header, so a crash can only corrupt the
+// file being written; the previous one stays intact. (TinyC has no fileRename,
+// so this is the atomic-replace substitute.)
 void saveHist() {
-    int h = fileOpen("/solar.bin", 1);              // 1 = write (truncate)
+    save_seq = save_seq + 1;
+    int hdr[4]; hdr[0] = 0x534F4C31; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL1' + seq
+    int h;
+    if (save_tog == 0) { h = fileOpen("/solar.bin", 1); }
+    else { h = fileOpen("/solar2.bin", 1); }
     if (h < 0) { return; }
-    int hdr[4]; hdr[0] = 0x534F4C31; hdr[1] = wp; hdr[2] = cnt; hdr[3] = 0;   // magic 'SOL1'
     fileWriteBin(h, hdr, 4);
     fileWriteBin(h, wSolar[0], 288);
     fileWriteBin(h, wSolar[1], 288);
@@ -205,17 +217,32 @@ void saveHist() {
     fileWriteBin(h, wSolar[3], 288);
     fileWriteBin(h, wPwl, 288);
     fileClose(h);
+    save_tog = 1 - save_tog;                        // next save -> the other file
 }
 
-// reload persisted history on boot; returns 1 if a valid file was read
+// Reload persisted history on boot. Probe BOTH ping-pong files; use the newest one
+// that is FULLY valid (magic + exact size). A partial/corrupt file (short size) is
+// skipped, so a power cut can never wipe the history. Returns 1 if a valid file was
+// read. (The old single pre-outage solar.bin has seq 0 and still loads.)
 int loadHist() {
-    if (fileSize("/solar.bin") < 16) { return 0; }
-    int h = fileOpen("/solar.bin", 0);              // 0 = read
+    int seq0; int seq1; int hdr[4];
+    seq0 = -1; seq1 = -1;
+    if (fileSize("/solar.bin") == SOLBIN_SIZE) {
+        int h = fileOpen("/solar.bin", 0);
+        if (h >= 0) { fileReadBin(h, hdr, 4); if (hdr[0] == 0x534F4C31) { seq0 = hdr[3]; } fileClose(h); }
+    }
+    if (fileSize("/solar2.bin") == SOLBIN_SIZE) {
+        int h = fileOpen("/solar2.bin", 0);
+        if (h >= 0) { fileReadBin(h, hdr, 4); if (hdr[0] == 0x534F4C31) { seq1 = hdr[3]; } fileClose(h); }
+    }
+    if (seq0 < 0 && seq1 < 0) { return 0; }         // neither valid -> caller seeds
+    int h;
+    // load the newer; point the next save at the OTHER file so the newest survives it
+    if (seq1 > seq0) { h = fileOpen("/solar2.bin", 0); save_tog = 0; }
+    else             { h = fileOpen("/solar.bin", 0);  save_tog = 1; }
     if (h < 0) { return 0; }
-    int hdr[4];
     fileReadBin(h, hdr, 4);
-    if (hdr[0] != 0x534F4C31) { fileClose(h); return 0; }
-    wp = hdr[1]; cnt = hdr[2];
+    wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
     fileReadBin(h, wSolar[0], 288);
     fileReadBin(h, wSolar[1], 288);
     fileReadBin(h, wSolar[2], 288);
