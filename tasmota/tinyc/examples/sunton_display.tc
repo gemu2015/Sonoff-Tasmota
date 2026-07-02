@@ -15,6 +15,7 @@ global float sop;       // solar power
 global float bip;       // battery power
 global float hip;       // house consumption
 global float hwp;       // heat pump power
+global float msoc;      // Marstek battery %
 
 // Solar inverters
 global float sedc;      // solar roof (Dach)
@@ -224,10 +225,14 @@ void updateDisplay() {
     sprintf(buf, "[f2s1Ci3x350y300p6]%.1f C", atmp);
     dspText(buf);
 
-    // ─── Battery % ───
+    // ─── Powerwall Battery % ───
     sprintf(buf, "[f2s1x370y350p6]%.1f %", pwl);
     dspText(buf);
 
+    // ─── Marstek Battery % ───
+    sprintf(buf, "[f2s1x370y400p6]%.1f %", msoc);
+    dspText(buf);
+	
     // ─── Left column: energy values ───
     dspText("[f2s1]");
     xp = 50;
