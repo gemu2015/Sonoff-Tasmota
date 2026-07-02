@@ -244,6 +244,15 @@ void UfsCheckSDCardInit(void) {
 #ifdef ESP32
       AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "SDCard mounted (SPI bus%d) with %d kB free"), spi_bus +1, UfsInfo(1, 0));
 #endif // ESP32
+    } else {
+      // SPI SD mount failed — was previously silent (only the SDMMC branch logged).
+      // cardType discriminates: 0 = no SPI response (reseat/contacts/CS/wiring or a
+      // bus conflict this boot); !=0 = card seen but FAT mount failed (fsck/reformat).
+#ifdef ESP32
+      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "SDCard SPI mount failed cs=%d bus%d cardType=%d"), cs, spi_bus, (int)SD.cardType());
+#else
+      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "SDCard SPI mount failed cs=%d bus%d"), cs, spi_bus);
+#endif
     }
   }
 #if defined(ESP32) && defined(SOC_SDMMC_HOST_SUPPORTED)     // ESP32 and SDMMC supported (not Esp32C3)

@@ -1,0 +1,304 @@
+// energy_logger.tc — stand-in SD logger for the Energy_Manager (.61)
+// ---------------------------------------------------------------------------
+// The Energy_Manager (.61, Scripter) still reads every meter/sensor and
+// broadcasts the values as UDP fleet globals (g:...), but its SD card died so
+// its own writes to /energy_15_log.txt fail. This TinyC script runs on ANY
+// TinyC device that HAS a working filesystem (SD preferred), receives those
+// same globals, and appends a row every 15 minutes in the EXACT column format
+// of energy_15_log.txt — so the data continues seamlessly and can later be
+// merged back / charted by solar_dashboard.tc, core2_energy.tc, etc.
+//
+// The cumulative kWh counters (WR1=t_ga, WR2=t_gh, WR3=t_gg, WB=t_wb, SD=sedt,
+// ZWZI/ZWZO, GAS, H20 ...) keep counting on .61's meters even while its SD is
+// dead, so these rows continue the same series with no discontinuity.
+//
+// It ALSO writes the parallel .ind index (TSTAMP<TAB>byteoffset) exactly like
+// the Energy_Manager, so the port-82 "@from_to" fast range-extract keeps working
+// on the new file.
+//
+// DEPLOY:
+//   node scratchpad/tc_compile.mjs tasmota/tinyc/examples/energy_logger.tc energy_logger.tcb
+//   upload energy_logger.tcb to a TinyC device WITH a filesystem, run it in a slot.
+//   To continue the existing history, first copy the 29 MB energy_15_log.txt
+//   (+ .ind) from the SD backup onto the new device; otherwise it starts fresh
+//   with a header. Verify with the ELOGNOW console command (forces one row now).
+//
+// NOTE: this logger only READS globals (never assigns them), so it is safe to
+// run alongside other receivers (house_monitor.tc, energy_dashboard.tc).
+//
+// Two columns (BTMP_a = boiler sml[29], RTMP_a = Rücklauf sml[30]) are NOT
+// broadcast by .61, so they are written as 0.0. If you want them, add
+// `g:bltmp=sml[29]` and `g:rltmp=sml[30]` on .61 and two globals + fields here.
+// ---------------------------------------------------------------------------
+
+#define LOG      "/energy_15_log.txt"
+#define LOGI     "/energy_15_log.ind"
+#define LOGD     "/energy_m_log.txt"     // daily rollup — one row at midnight
+#define LOGDI    "/energy_m_log.ind"
+#define SLOT_MIN  15                     // one row every 15 minutes (0..95/day)
+
+// ---- fleet globals broadcast by the Energy_Manager (.61) — RECEIVE-ONLY ----
+// CRITICAL: declare these WITHOUT an initializer. `global float x = 0.0;` compiles
+// to STORE_GLOBAL_UDP at startup, which BROADCASTS x=0 over the multicast and
+// clobbers .61's real value across the whole fleet. `global float x;` only receives.
+global float t_wb;   // WB     Wallbox total (kWh)          sml[12]
+global float t_ga;   // WR1    Solar Garage total (kWh)     sml[23]  <-- Fronius
+global float t_gh;   // WR2    Solar Gartenhaus total (kWh) sml[24]
+global float t_gg;   // WR3    Solar Garten total (kWh)     sml[25]
+global float atmp;   // ATMP_a Aussentemperatur (°C)
+global float bw_ww;   // WWTMP_a Brauchwasser (°C)
+global float scol;   // SKTMP_a Solarkollektor (°C)
+global float ssp;   // SSTMP_a Solarspeicher (°C)
+global float sedt;   // SD     Solar Hausdach total (kWh)   sml[36]
+global float zwzi;   // ZWZI   2-Richtungszähler in (kWh)   sml[39]
+global float zwzo;   // ZWZO   2-Richtungszähler out (kWh)  sml[40]
+global float t_ws;   // H20    Wasser total (m³)            sml[1]
+global float t_gs;   // GAS    Gas total (m³)               sml[2]
+global float pwl;   // PWL_a  Powerwall SOC (%)
+global float sip;   // SIP_a  PW Netz (W)
+global float sop;   // SOP_a  PW Solar (W)
+global float bip;   // BIP_a  PW Batterie (W)
+global float hip;   // HIP_a  PW Haus (W)
+global float rper;   // RCAP_a PW remaining (%)
+global float klima;   // KLI_a  Klima (W)  — logged negated
+global float pwp;   // PWP_a  Pool-WP (W) — logged negated
+global float t_kpwp;   // WP     Klima+Pool total (kWh)
+global float bwwp;   // BWWP   Brauchwasser-WP total (kWh)
+global float train;   // RAIN   Regen total (mm)
+global float hwp;   // HWP_a  Heizungs-WP current (W)
+global float t_hwp;   // HWP    Heizungs-WP total (kWh)
+global float ktmp;   // KTMP_a Kellertemperatur (°C)
+global float avgt;   // AVTMP_a gleitender Tagesmittel (°C)
+
+// ---- momentary-value globals, WEB DASHBOARD ONLY (not logged), receive-only ----
+global float sedc;   // Solar Hausdach momentary (W)
+global float wrga;   // Solar Garage momentary (W, negative = producing)
+global float wrgh;   // Solar Gartenhaus momentary (W)
+global float wrgg;   // Solar Garten momentary (W)
+global float auto;   // Wallbox momentary (W)
+global float zwzc;   // Hauszähler momentary (W)
+global float rtemp;  // Regen Außentemperatur (°C)
+global float spmp;   // Solarpumpe (0/1)
+
+// ---- working state ----
+int  last_slot = -1;         // last written 15-min slot (0..95); -1 = not primed
+int  last_day  = -1;         // last day written to the daily file; -1 = not primed
+int  rows      = 0;          // rows written this session
+char g_msg[160];             // scratch for logs / responses
+char scratch[256];           // scratch for web rows
+
+// Shared built row. NOTE: we do NOT pass the path as a char[] param — a literal
+// string passed through a fn hits the const-ref gap and the ref form of fileOpen
+// returns -1. So the row is built once here and each file uses LITERAL paths.
+char g_line[600];            // the built 31-field data row
+char g_ts[24];               // its "D.M.YY H:MM" timestamp
+
+// Write the 31-column header to an already-open handle (matches .61 exactly).
+void writeHeaderH(int h) {
+    char hd[400];
+    strcpy(hd, "TSTAMP\tWB\tWR1\tWR2\tWR3\tATMP_a\tWWTMP_a\tBTMP_a\tRTMP_a\tSKTMP_a\tSSTMP_a\t");
+    hd += "SD\tZWZI\tZWZO\tH20\tGAS\tPWL_a\tSIP_a\tSOP_a\tBIP_a\tHIP_a\t";
+    hd += "RCAP_a\tKLI_a\tPWP_a\tWP\tBWWP\tRAIN\tHWP_a\tHWP\tKTMP_a\tAVTMP_a\n";
+    fileWrite(h, hd, strlen(hd));
+}
+
+// Fill g_ts + g_line from the current globals (chunked sprintf keeps each small).
+void buildRow() {
+    timeStamp(g_ts);                     // "2026-07-02T11:03:00"
+    timeConvert(g_ts, 1);                // -> "2.7.26 11:03"  (Energy_Manager format)
+    char c2[256];
+    sprintf(g_line, "%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", g_ts, t_wb, t_ga, t_gh, t_gg, atmp);
+    sprintf(c2, "%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", bw_ww, 0.0, 0.0, scol, ssp);          g_line += c2; // WWTMP,BTMP,RTMP,SKTMP,SSTMP
+    sprintf(c2, "%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", sedt, zwzi, zwzo, t_ws, t_gs);         g_line += c2; // SD,ZWZI,ZWZO,H20,GAS
+    sprintf(c2, "%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", pwl, sip, sop, bip, hip);              g_line += c2; // PWL,SIP,SOP,BIP,HIP
+    sprintf(c2, "%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t", rper, 0.0-klima, 0.0-pwp, t_kpwp, bwwp); g_line += c2; // RCAP,KLI,PWP,WP,BWWP
+    sprintf(c2, "%.3f\t%.3f\t%.3f\t%.3f\t%.3f\n", train, hwp, t_hwp, ktmp, avgt);        g_line += c2; // RAIN,HWP_a,HWP,KTMP,AVTMP
+}
+
+// Append the built row + its .ind entry. daily=0 -> 15-min file, 1 -> daily file.
+void writeRow(int daily) {
+    buildRow();
+    int h; int hi; int off;
+    char idx[48];
+    if (daily) {
+        if (fileExists(LOGD) == 0) { int wh = fileOpen(LOGD, "w"); if (wh >= 0) { writeHeaderH(wh); fileClose(wh); } }
+        h = fileOpen(LOGD, "a");
+        if (h < 0) { addLog("ELOG: LOGD open FAIL"); return; }
+        fileSeek(h, 0, 2); off = fileTell(h);
+        fileWrite(h, g_line, strlen(g_line)); fileClose(h);
+        sprintf(idx, "%s\t%d\n", g_ts, off);
+        hi = fileOpen(LOGDI, "a"); if (hi >= 0) { fileWrite(hi, idx, strlen(idx)); fileClose(hi); }
+    } else {
+        if (fileExists(LOG) == 0) { int wh = fileOpen(LOG, "w"); if (wh >= 0) { writeHeaderH(wh); fileClose(wh); } }
+        h = fileOpen(LOG, "a");
+        if (h < 0) { addLog("ELOG: LOG open FAIL"); return; }
+        fileSeek(h, 0, 2); off = fileTell(h);
+        fileWrite(h, g_line, strlen(g_line)); fileClose(h);
+        sprintf(idx, "%s\t%d\n", g_ts, off);
+        hi = fileOpen(LOGI, "a"); if (hi >= 0) { fileWrite(hi, idx, strlen(idx)); fileClose(hi); }
+    }
+    rows = rows + 1;
+    sprintf(g_msg, "ELOG: wrote %s daily=%d WR1=%.3f off=%d", g_ts, daily, t_ga, off);
+    addLog(g_msg);
+}
+
+void main() {
+    last_slot = -1;
+    rows = 0;
+    addCommand("ELOG");          // console: ELOGnow (force a row), ELOGstat (status)
+    addLog("ELOG: energy_logger started (15-min -> /energy_15_log.txt)");
+    // globals auto-arrive via UDP; first row is written at the next 15-min boundary.
+}
+
+void EverySecond() {
+    if (tasm_year < 2025) { return; }                    // wait for NTP time
+
+    // guard: the 3 solar totals are always large (>1) once received; all-zero =
+    // .61 not yet heard, so skip writing rather than corrupt the log with a zero row.
+    float sum3 = t_ga + t_gh + t_gg;
+    int have = 0;
+    if (sum3 >= 1.0) { have = 1; }
+
+    // 15-min log — one row per 0..95 slot boundary
+    int slot = (tasm_hour * 60 + tasm_minute) / SLOT_MIN;
+    if (last_slot < 0) { last_slot = slot; }              // prime at boot (no stale first row)
+    else if (slot != last_slot) {
+        last_slot = slot;
+        if (have) { writeRow(0); }
+        else { addLog("ELOG: skip 15-min write — no globals yet"); }
+    }
+
+    // daily rollup — one row at midnight when the day changes (mirrors .61)
+    if (last_day < 0) { last_day = tasm_day; }            // prime at boot
+    else if (tasm_day != last_day) {
+        last_day = tasm_day;
+        if (have) { writeRow(1); }
+    }
+}
+
+// ── Web dashboard — mirrors the Energy_Manager (.61) >W page layout ──
+// Renders inline on the main Tasmota page. Magenta section headers + yellow
+// values, same sections/order as the Scripter original. Fields that came from
+// per-meter sml[] sub-readings (phase V/A, boiler/return temps, meter IDs) are
+// omitted until this script reads the meters directly (the future full replace).
+void web_section(char title[]) {
+    sprintf(scratch, "{s}<hr>{m}<hr>{e}{s}<span style='color:magenta;'>%s</span>{m}{e}", title);
+    webSend(scratch);
+}
+void row_i(char label[], int v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%d %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f1(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.1f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f2(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.2f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f3(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.3f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f4(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.4f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+
+void WebCall() {
+    sprintf(scratch, "{s}<h2 style='color:#2ecc71;text-align:center;margin:2px;'>%02d:%02d:%02d</h2>{m}%02d.%02d.%04d{e}",
+            tasm_hour, tasm_minute, tasm_second, tasm_day, tasm_month, tasm_year);
+    webSend(scratch);
+
+    web_section("Wasser");
+    row_f2("Zählerstand", t_ws, "m³");
+
+    // Gas section dropped — heat pump now, no gas meter (GAS column kept in the
+    // log file for format/column compatibility with the historical data).
+
+    web_section("Heizung");
+    row_f1("Außentemperatur", atmp, "°C");
+    row_f1("Mittlere Außentemp.", avgt, "°C");
+    row_f1("Kellertemperatur", ktmp, "°C");
+    row_f1("Warmwasser", bw_ww, "°C");
+
+    web_section("Solarthermie");
+    row_f1("Solarkollektor", scol, "°C");
+    row_f1("Solarspeicher", ssp, "°C");
+    row_i("Solarpumpe", (int)spmp, "");
+
+    web_section("Regen");
+    row_i("Außentemperatur", (int)rtemp, "°C");
+    row_f1("Regen total", train, "mm");
+
+    web_section("Haupt Hauszähler");
+    row_f4("Verbrauch", zwzi, "kWh");
+    row_f4("Einspeisung", zwzo, "kWh");
+    row_i("aktueller Verbrauch", (int)zwzc, "W");
+
+    web_section("Wallbox");
+    row_i("aktuell", (int)auto, "W");
+    row_f3("Total", t_wb, "kWh");
+
+    web_section("Klimaanlage");
+    row_i("aktuell", (int)(0.0 - klima), "W");
+    row_f3("Total", t_kpwp, "kWh");
+
+    web_section("Poolwärmepumpe");
+    row_i("aktuell", (int)(0.0 - pwp), "W");
+
+    web_section("Heizungswärmepumpe");
+    row_i("aktuell", (int)(0.0 - hwp), "W");
+    row_f3("Total", t_hwp, "kWh");
+
+    web_section("Solar Hausdach");
+    row_i("aktuell", (int)sedc, "W");
+    row_f3("Total", sedt, "kWh");
+
+    web_section("Solar Garage");
+    row_i("aktuell", (int)(0.0 - wrga), "W");
+    row_f3("Total", t_ga, "kWh");
+
+    web_section("Solar Gartenhaus");
+    row_i("aktuell", (int)(0.0 - wrgh), "W");
+    row_f3("Total", t_gh, "kWh");
+
+    web_section("Solar Garten");
+    row_i("aktuell", (int)(0.0 - wrgg), "W");
+    row_f3("Total", t_gg, "kWh");
+
+    web_section("Powerwall");
+    sprintf(scratch, "{s}Batterie Füllstand{m}<span style='color:yellow;'>%.0f%% (%.2f kWh)</span>{e}", pwl, pwl / 100.0 * 13.5);
+    webSend(scratch);
+    sprintf(scratch, "{s}Netz{m}<span style='color:yellow;'>%.0f W</span>{e}", sip); webSend(scratch);
+    sprintf(scratch, "{s}Solar{m}<span style='color:#2ecc71;'>%.0f W</span>{e}", sop); webSend(scratch);
+    sprintf(scratch, "{s}Batterie{m}<span style='color:yellow;'>%.0f W</span>{e}", bip); webSend(scratch);
+    sprintf(scratch, "{s}Haus{m}<span style='color:#e74c3c;'>%.0f W</span>{e}", hip); webSend(scratch);
+
+    web_section("Logfile");
+    row_i("Log Größe", fileSize(LOG) / 1000, "kB");
+    row_i("Zeilen (Sitzung)", rows, "");
+
+    web_section("System");
+    row_i("System Heap", tasm_heap / 1000, "kB");
+    webSend("{s}Tages-Log{m}<a href='/ufsd?download=/energy_m_log.txt'>download</a>{e}");
+    webSend("{s}15-min-Log{m}<a href='/ufsd?download=/energy_15_log.txt'>download</a>{e}");
+}
+
+void Command(char cmd[]) {
+    // "ELOG" prefix is stripped: ELOGNOW->"NOW", ELOGSTAT->"STAT", ELOGDAY->"DAY"
+    if (strFind(cmd, "NOW") >= 0) {                        // force a 15-min row now (test)
+        writeRow(0);
+        responseCmnd("ELOG: 15-min row written");
+    } else if (strFind(cmd, "DAY") >= 0) {                 // force a daily row now (test)
+        writeRow(1);
+        responseCmnd("ELOG: daily row written");
+    } else if (strFind(cmd, "STAT") >= 0) {
+        sprintf(g_msg, "ELOG rows=%d 15m=%d day=%d WR1=%.3f WR2=%.3f WR3=%.3f pwl=%.1f",
+                rows, fileSize(LOG), fileSize(LOGD), t_ga, t_gh, t_gg, pwl);
+        responseCmnd(g_msg);
+    } else {
+        responseCmnd("ELOG: ELOGnow | ELOGday | ELOGstat");
+    }
+}

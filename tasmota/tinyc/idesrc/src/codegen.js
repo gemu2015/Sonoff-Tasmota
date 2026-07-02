@@ -1173,7 +1173,14 @@ export class CodeGenerator {
                 const valType = this.inferType(node.init);
                 if (node.varType === 'float' && valType !== 'float') this.emit(Op.I2F);
                 else if (node.varType !== 'float' && valType === 'float') this.emit(Op.F2I);
-                this.emitStoreGlobal(g.index, node.name);
+                // Global initializers are LOCAL-ONLY — a declaration default must never
+                // broadcast. emitStoreGlobal() emits STORE_GLOBAL_UDP for a UDP global,
+                // which would send e.g. `=>t_wb=0` at boot and clobber the fleet source
+                // (every receiver momentarily reads 0). UDP-receive registration is done
+                // at declaration (udpGlobals), so a plain STORE_GLOBAL keeps receiving
+                // intact; runtime assignments still broadcast via STORE_GLOBAL_UDP.
+                this.emit(Op.STORE_GLOBAL);
+                this.emitU16(g.index);
             } else if (node.type === NodeType.ArrayDecl && node.stringInit) {
                 const g = this.globals.get(node.name);
                 const str = node.stringInit;
