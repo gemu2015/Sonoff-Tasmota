@@ -1,0 +1,73 @@
+>M 6
+; --- meter ports (PINS ARE .61's — remap for .190 hardware before enabling) ---
+; water=26  gas(OBIS)=-25  modbus(SDM530/630)=27(tx14)  eBUS=-32  OBIS=-33  SML=5
++1,26,c,1,-50,H20
++2,-25,o,0,9600,GAS
++3,27,m,0,9600,*,14,2,01040000,01040002,01040004,01040006,01040008,0104000a,
+0104000c,0104000e,01040010,01040048,0104004a,
+02040000,02040002,02040004,02040006,02040008,0204000a,
+0204000c,0204000e,02040010,02040166,02040168,0204016a,
+4104000b,4104000c,4104000d,41040000
++4,-32,e,0,2400,EBUS
++5,-33,s,16,9600,OBIS
++6,5,s,16,9600,SML
+
+; water / gas
+1,1-0:1.8.0*255(@100,*,cbm,Count,2
+2,1-0:1.8.0*255(@1,*,cbm,Count,2
+
+; SDM530 (meter 3, addr 01) — wallbox etc.  i0..i10
+3,010404ffffffffxxxx@i0:1,*,V,VP1,2
+3,010404ffffffffxxxx@i1:1,*,V,VP1,2
+3,010404ffffffffxxxx@i2:1,*,V,VP1,2
+3,010404ffffffffxxxx@i3:1,*,V,VP1,2
+3,010404ffffffffxxxx@i4:1,*,V,VP1,2
+3,010404ffffffffxxxx@i5:1,*,V,VP1,2
+3,010404ffffffffxxxx@i6:1,*,V,VP1,2
+3,010404ffffffffxxxx@i7:1,*,V,VP1,2
+3,010404ffffffffxxxx@i8:1,*,V,VP1,2
+3,010404ffffffffxxxx@i9:1,*,V,VP1,2
+3,010404ffffffffxxxx@i10:1,*,V,VP1,2
+
+; SDM630 (meter 3, addr 02) — 3 solar inverters  i11..i22
+3,020404ffffffffxxxx@i11:1,*,V,VP1,2
+3,020404ffffffffxxxx@i12:1,*,V,VP1,2
+3,020404ffffffffxxxx@i13:1,*,V,VP1,2
+3,020404ffffffffxxxx@i14:1,*,V,VP1,2
+3,020404ffffffffxxxx@i15:1,*,V,VP1,2
+3,020404ffffffffxxxx@i16:1,*,V,VP1,2
+3,020404ffffffffxxxx@i17:1,*,V,VP1,2
+3,020404ffffffffxxxx@i18:1,*,V,VP1,2
+3,020404ffffffffxxxx@i19:1,*,V,VP1,2
+3,020404ffffffffxxxx@i20:1,*,V,VP1,2
+3,020404ffffffffxxxx@i21:1,*,V,VP1,2
+3,020404ffffffffxxxx@i22:1,*,V,VP1,2
+
+; eBUS Wolf heater + solar water (meter 4)
+4,f1fe0503xxxxxxxxxxxxxxxxss@1,*,C,Outsidetemp,1
+4,xxxx5014xxxxxxxxxxuu@1,*,C,Roomtemp,1
+4,f1fe0503xxxxxxxxxxxxxxuu@1,*,C,Warmwater,1
+4,f1fe0503xxxxxxxxxxuu@2,*,C,Boiler,1
+4,03fe0503xxxxxxxxxxxxuu@1,*,C,Returns,1
+4,03fe0503xxxxuu@1,*,,Status,0
+4,03fe0503xxxxxxuu@b3:1,*,,Burner,0
+4,xxxx5017xxxxxxssSS@16,*,C,Collector,1
+4,xxxx5017xxxxxxxxxxssSS@16,*,C,Solarstorage,1
+4,xxxx5017xxuu@b0:1,*,,Solarpump,0
+
+; roof solar inverter SML (meter 5)
+5,77070100020800ff@1000,*,kWh,Total_out,4
+5,=d 36 10 @1,*,W,Power_curr,4
+5,77070100000009ff@#,*,Meter_number,0
+
+; house Landis&Gyr E320 SML (meter 6)
+6,77070100010800ff@1000,*,kWh, Total_in,3
+6,77070100020800ff@1000,*,kWh, Total_out,3
+6,77070100100700ff@1,*,W, Power_curr,0
+6,77070100600100ff@#,*,,Meter_number,0
+
+; SDM630 phase3 extras (meter 3, addr 41)  i23..i26
+3,410404UUuu@i23:10,*,V,volt3,1
+3,410404UUuu@i24:100,*,A,curr3,2
+3,410404UUuu@i25:1,*,W,pow3,0
+3,410404UUuuUUuu@i26:100,*,kWh,tot3,2

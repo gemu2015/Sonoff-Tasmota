@@ -87,6 +87,13 @@ int  rows      = 0;          // rows written this session
 char g_msg[160];             // scratch for logs / responses
 char scratch[256];           // scratch for web rows
 
+// ── SML meters (full .61 Energy_Manager replacement, staged) ──
+// When enabled, load /sml_meter.def and read the house meters DIRECTLY instead of
+// receiving fleet globals. REQUIRES: firmware rebuilt with USE_SML_M (+ the SML
+// defines in user_config_override.h) AND the descriptor pins remapped for .190's
+// hardware. Off by default — leave off until firmware + wiring are ready.
+persist watch int sml_activ;
+
 // Shared built row. NOTE: we do NOT pass the path as a char[] param — a literal
 // string passed through a fn hits the const-ref gap and the ref form of fileOpen
 // returns -1. So the row is built once here and each file uses LITERAL paths.
@@ -151,6 +158,19 @@ void main() {
 }
 
 void EverySecond() {
+    // SML-enable checkbox toggled -> (re)load the meter descriptor + restart SML.
+    // Needs the USE_SML_M firmware; a no-op on a build without it.
+    if (changed(sml_activ)) {
+        snapshot(sml_activ);
+        if (sml_activ) {
+            smlScripterLoad("/sml_meter.def");
+            tasmCmd("Sensor53 r", g_msg);            // force SML to re-read the descriptor
+            addLog("ELOG: SML meters ON (/sml_meter.def loaded)");
+        } else {
+            addLog("ELOG: SML meters OFF (reboot to fully release the serial ports)");
+        }
+    }
+
     if (tasm_year < 2025) { return; }                    // wait for NTP time
 
     // guard: the 3 solar totals are always large (>1) once received; all-zero =
@@ -210,6 +230,10 @@ void WebCall() {
     sprintf(scratch, "{s}<h2 style='color:#2ecc71;text-align:center;margin:2px;'>%02d:%02d:%02d</h2>{m}%02d.%02d.%04d{e}",
             tasm_hour, tasm_minute, tasm_second, tasm_day, tasm_month, tasm_year);
     webSend(scratch);
+
+    // control: read the meters directly via SML instead of the fleet globals
+    web_section("Steuerung");
+    webCheckbox(sml_activ, "SML Zähler direkt lesen (statt Fleet-Globals)");
 
     web_section("Wasser");
     row_f2("Zählerstand", t_ws, "m³");

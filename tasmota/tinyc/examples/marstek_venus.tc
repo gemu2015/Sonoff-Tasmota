@@ -117,11 +117,13 @@ int mk_json_int(char src[], char key[]) {
 // One request -> response round-trip; the reply lands in mk_rsp. Returns its
 // length (0 = no reply this tick, device busy/offline -> caller retries).
 int mk_xfer(char req[]) {
-    // NEVER touch the socket before WiFi is up. A udp() open/send/recv before the
-    // link is ready corrupts the heap -> tlsf_free/lwIP crash + boot-loop on an
-    // autoexec device (cf. hyundai_soc.tc's tasm_wifi guard). Return 0 = "no reply
-    // this tick"; mk_read_real/mk_write_real already retry next tick.
-    if (!tasm_wifi) { return 0; }
+    // NEVER touch the socket before the network is FULLY up. A udp() open/send/recv
+    // before the link is ready corrupts the heap -> tlsf_free/lwIP crash + boot-loop
+    // on an autoexec device. Gate on BOTH tasm_wifi (associated) AND tasm_net (IP
+    // obtained): WiFi-up-but-no-IP-yet (the post-reboot window) still wedged the
+    // TaskLoop, which stopped tick() -> msoc broadcast silently died until a manual
+    // restart. Return 0 = "no reply this tick"; the caller retries next tick.
+    if (!tasm_wifi || !tasm_net) { return 0; }
     if (!mk_udp_open) { udp(0, MK_LPORT); mk_udp_open = 1; }
     udp(6, mk_ip, MK_PORT, req);
     int n = 0; int i = 0;

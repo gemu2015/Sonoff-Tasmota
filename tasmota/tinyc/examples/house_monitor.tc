@@ -74,7 +74,7 @@ global float bip;  // battery power
 global float hip;  // house consumption
 
 // runtime state
-float val[N]; int viol[N]; int alm[N]; int spk[N];
+float val[N]; int viol[N]; int alm[N]; int spk[N]; int badf[N];  // badf = live bad flag (for WebUI)
 float lastv[N]; int lastchg[N];        // FROZEN change-tracking
 // PEER thresholds kept in vars (compare var-vs-var in if(); never float-literal-to-int)
 float producing_w; float dead_w; int peer_min; int grp_nprod;
@@ -240,6 +240,7 @@ void EverySecond() {
     i = 0;
     while (i < N) {
         int bad = isBad(i, day, active);
+        badf[i] = bad;                                 // publish live state for WebCall()
         if (bad) {
             viol[i] = viol[i] + 1;
             if (viol[i] >= DEBOUNCE_S) {
@@ -272,6 +273,45 @@ void EverySecond() {
         sprintf(g_msg, "HMdbg nprod=%d pw soc=%.0f sip=%.0f sop=%.0f bip=%.0f hip=%.0f age=%d st=%d",
                 grp_nprod, pwl, sip, sop, bip, hip, pwage, pw_stalled);
         addLog(g_msg);
+    }
+}
+
+// ── Web dashboard — all monitored variables, colour-coded by alarm state ──
+// Renders inline on the main Tasmota page (mirrors the LVGL cards): green = ok,
+// amber = detected/debouncing, red = alarm; INFO rows are neutral (display-only).
+void WebCall() {
+    int nalm = 0; int i = 0;
+    while (i < N) { if (badf[i] || alm[i] == 1) { nalm = nalm + 1; } i = i + 1; }
+
+    sprintf(g_cmd, "{s}<b>Haus-Monitor</b>{m}%02d:%02d:%02d  %02d.%02d.{e}",
+            tasm_hour, tasm_minute, tasm_second, tasm_day, tasm_month);
+    webSend(g_cmd);
+    if (nalm > 0) {
+        sprintf(g_cmd, "{s}Status{m}<span style='color:#ea4335;font-weight:bold;'>%d ALARM</span>{e}", nalm);
+    } else {
+        strcpy(g_cmd, "{s}Status{m}<span style='color:#34a853;font-weight:bold;'>alles OK</span>{e}");
+    }
+    webSend(g_cmd);
+    sprintf(g_cmd, "{s}Solar aktiv / PW-Reader{m}%d von 4 / %s{e}",
+            grp_nprod, pw_stalled ? "STALL" : "ok");
+    webSend(g_cmd);
+
+    i = 0;
+    while (i < N) {
+        strToken(g_nm, names, '|', i + 1);
+        if (i == 4) { sprintf(g_s, "%.0f %%", val[i]); }
+        else { sprintf(g_s, "%.0f W", val[i]); }
+        if (typ[i] == INFO) {
+            sprintf(g_cmd, "{s}%s{m}<span style='color:#9aa0a6;'>%s</span>{e}", g_nm, g_s);
+        } else if (badf[i] || alm[i] == 1) {
+            sprintf(g_cmd, "{s}%s{m}<span style='color:#ea4335;font-weight:bold;'>%s  !</span>{e}", g_nm, g_s);
+        } else if (viol[i] > 0) {
+            sprintf(g_cmd, "{s}%s{m}<span style='color:#fbbc04;'>%s  ?</span>{e}", g_nm, g_s);
+        } else {
+            sprintf(g_cmd, "{s}%s{m}<span style='color:#34a853;'>%s</span>{e}", g_nm, g_s);
+        }
+        webSend(g_cmd);
+        i = i + 1;
     }
 }
 
