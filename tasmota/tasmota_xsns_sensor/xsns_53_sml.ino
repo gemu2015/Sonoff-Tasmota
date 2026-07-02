@@ -2171,6 +2171,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 					len = mp->sbsiz;
 				}
 				memmove(mp->sbuff, payload, len);
+				mp->spos = len;   // expose the decrypted block to the script (sml(-1,2)/SML_Read); SML_Decode/OBIS ignore spos
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: decrypted block: %d bytes"), len);
 				SML_Decode(meters);
 			}
