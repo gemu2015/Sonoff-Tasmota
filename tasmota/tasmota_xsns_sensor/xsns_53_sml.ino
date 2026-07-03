@@ -5589,6 +5589,11 @@ int32_t sml_tcp_init(struct METER_DESC *mp) {
     }
   } else {
     AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP since wifi is down"));
+    // Free an existing client instead of just dropping the pointer — otherwise every
+    // wifi/eth-down pass through here (sml_tcp_check re-inits a disconnected meter)
+    // leaks the WiFiClient and its lwIP resources, slowly exhausting the TCP PCB pool
+    // (port-80 web + new Modbus connects then fail while established MQTT survives).
+    if (mp->client) { mp->client->stop(); delete mp->client; }
     mp->client = nullptr;
     return -1;
   }
