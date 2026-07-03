@@ -8,26 +8,42 @@
 // Everything else (day/night gate, debounce, alarm, TTS, the row list) is shared.
 //
 // Rule types:
-//   PEER   — solar peer-comparison (self-calibrating, capacity-agnostic): an
-//            inverter is "dead" if it's flat while >= PEER_MIN of the group are
-//            delivering. The peers ARE the "is it sunny" reference — no fixed
-//            threshold or sunrise math. Catches "3 deliver, 1 doesn't".
-//   DAYMIN — value >= p1 during daylight AND while it's actually sunny.
-//   RANGE  — value must stay within [p1, p2].
-//   FROZEN — value must CHANGE within p1 minutes, else it's stuck (e.g. PW SOC).
+//   PEER    — solar peer-comparison (self-calibrating, capacity-agnostic): an
+//             inverter is "dead" if it's flat while >= PEER_MIN of the group are
+//             delivering. The peers ARE the "is it sunny" reference.
+//   DAYMIN  — value >= p1 during daylight AND while it's actually sunny.
+//   RANGE   — value must stay within [p1, p2].
+//   FROZEN  — value must CHANGE within p1 minutes, else it's stuck.
+//   SOCLIVE — a battery-SOC row (Powerwall / Marstek). Shows the SOC %, and goes
+//             RED when its watched UDP global stops ARRIVING for p1 minutes.
+//             Uses written(var): the flag fires on every inbound UDP packet
+//             (even a flat SOC), so it's a true "is the device still broadcasting"
+//             signal — a packet-level heartbeat, not a value heartbeat.
+//   ENALIVE — pure UDP-liveness row (Energy_Manager .61). Shows the age of the
+//             last packet ("vor N s") and alarms if none arrived for p1 minutes.
+//   INFO    — display only, never alarms.
+//
+// SOCLIVE/ENALIVE need firmware where UDP-receive sets the watch flag
+// (tc_udp_on_receive -> tc_global_write_with_watch) AND a compiler that
+// self-registers receive-only watch vars (STORE_WATCH at init). On older builds
+// written() only fires on LOCAL writes, so these rows would false-alarm.
 //
 // Screen: date/time header (with seconds) + one thin card row per variable —
 // value green when ok, RED on detection/alarm. Alarm also speaks via deferred
 // I2STTS (needs the picotts de-DE voice on the device).
 
-#define N       10         // number of rules (grow this)
+#define N       7          // number of rules (grow this)
 #define DAYMIN  1
 #define RANGE   2
 #define FROZEN  3
 #define PEER    4
 #define INFO    5          // display only — never alarms
-#define PWALIVE 6          // alarms if the WHOLE Powerwall group stops updating (reader stalled)
-#define ENALIVE 7          // alarms if the Energy_Manager (.61) stops broadcasting (no fresh UDP)
+#define SOCLIVE 6          // battery-SOC row + UDP-liveness (Powerwall/Marstek)
+#define ENALIVE 7          // pure UDP-liveness row (Energy_Manager .61)
+
+// LVGL touch-event code (LVGL 9.5) + label align — for the on-screen mute switch
+#define EV_CLICKED 10
+#define AL_CENTER   9
 
 // LVGL style-int ids + colours (from the moritz dashboard)
 #define ST_RADIUS 120
@@ -50,13 +66,11 @@
 #define PRODUCING_W    50.0    // (PEER) a healthy inverter in sun makes >> this
 #define DEAD_W         20.0    // (PEER) "flat" — delivering essentially nothing
 #define PEER_MIN       2       // (PEER) this many peers must deliver to trust the sun signal
-#define STALE_MIN      10      // (PWALIVE) reader stalled if NOTHING changed this long.
-                               // .20-relay refresh is irregular (~15-73s gaps), so 10 min
-                               // clears any normal lull yet still catches a halted reader
-                               // (its own 5-min watchdog can't run if the slot crashed).
-#define EN_STALE_MIN   5       // (ENALIVE) .61 stalled if NO fresh sedc UDP arrived this long.
-                               // sedc broadcasts ~every 10-12s (>S round-robins 12 cases, ~1/s),
-                               // so 5 min is a wide safety margin (~25x).
+// per-device UDP-liveness stale thresholds (minutes). Set well above the observed
+// broadcast gap so a normal lull never false-alarms, but a stopped device is caught.
+#define PW_STALE_MIN  10       // (SOCLIVE) Powerwall pwl: relayed ~every 30 s via .20
+#define MA_STALE_MIN  15       // (SOCLIVE) Marstek msoc: app-driven, can be bursty/slow
+#define EN_STALE_MIN   5       // (ENALIVE) .61 sedc: broadcasts ~every 10-12 s (>S round-robin)
 #define DEBOUNCE_S     300     // stay bad this long before the first alarm (5 min)
 #define REALARM_S      300     // re-speak this often while tripped (5 min)
 #define QUIET_START    22      // mute spoken alarms from 22:00 ...
@@ -64,41 +78,46 @@
 #define ROWH           28      // px per row (fits ~10 on 480x320)
 
 // ── the rule config (parallel columns) ──
-char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Netz|Solar|Batterie|Verbrauch|Energiemonitor";
+char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Marstek|Energiemonitor";
 int   typ[N]; float p1[N]; float p2[N];
 
 // fleet globals (auto-received over UDP). SIGN: sedc is +producing, wr* are
 // -producing (matches energy_dashboard.tc) — normalised in readVals().
-// sedc is `watch` so written(sedc) fires on each inbound UDP packet — the .61
-// liveness heartbeat (see EverySecond). .61 re-broadcasts sedc every ~10-12s
-// REGARDLESS of value: Scripter sends g: vars on every assignment, not on change
-// (xdrv_10 script_udp_sendvar), and .61's >S loop re-assigns sedc every cycle. So
-// the flag ticks day AND night, even when the solar value sits flat at 0.
-// NOTE: needs firmware where UDP receive sets the watch flag (tc_udp_on_receive ->
-// tc_global_write_with_watch); on older firmware written() only fires on local writes.
-global watch float sedc; global float wrgh; global float wrgg; global float wrga;
-// Powerwall group (one reader broadcasts all 5; if it stalls they all freeze together)
-global float pwl;  // battery %
-global float sip;  // grid power (net import)
-global float sop;  // solar power
-global float bip;  // battery power
-global float hip;  // house consumption
+// sedc / pwl / msoc are `watch`: written(x) fires on each inbound UDP packet, so
+// EverySecond can tell a live source from a stalled one at the PACKET level (works
+// even when the value sits flat — a battery SOC or a night-time 0). Receive-only
+// watch vars are declared WITHOUT an initializer (an initializer would broadcast
+// at boot and clobber the fleet source).
+global watch float sedc;      // .61 Hausdach inverter — doubles as the .61 heartbeat
+global float wrgh; global float wrgg; global float wrga;   // other inverters (peer group)
+global watch float pwl;       // Powerwall SOC %  — Tesla gateway reader (.140 -> .20 relay)
+global watch float msoc;      // Marstek SOC %    — Venus E (.170)
 
 // runtime state
 float val[N]; int viol[N]; int alm[N]; int spk[N]; int badf[N];  // badf = live bad flag (for WebUI)
 float lastv[N]; int lastchg[N];        // FROZEN change-tracking
 // PEER thresholds kept in vars (compare var-vs-var in if(); never float-literal-to-int)
 float producing_w; float dead_w; int peer_min; int grp_nprod;
-// PWALIVE heartbeat: reader is alive as long as the pw-group sum keeps changing
-float pw_lastsig; int pw_lastchg; int pw_stalled;
-// ENALIVE heartbeat: .61 is alive as long as fresh UDP writes keep arriving (written(sedc))
-int en_lastseen; int en_stalled;
+// UDP-liveness per row: seen[i] = uptime of the last packet, liv[i] = stalled flag.
+// Only the SOCLIVE/ENALIVE rows use these; the rest stay 0.
+int seen[N]; int liv[N];
+// per-row acknowledge (mute). PERSISTED so a known, unfixable-for-now fault (e.g.
+// a dead inverter awaiting replacement) stays quiet across reboots. When acked[i],
+// the row still DETECTS + SHOWS the fault (amber, not red), only the spoken TTS
+// alarm is muted. Toggle via the web button or `HM ack <row>`; a muted PEER
+// inverter auto-re-arms once it delivers again (see EverySecond). NOT reset in
+// main() — persist restores it.
+persist int acked[N];
 
 // LVGL handles
 int clockL; int rowC[N]; int rowN[N]; int rowV[N];
+// on-screen (touch) mute switch per row + its label + a cached display-state
+// (btnSt: -2 uninit, -1 hidden, 0 shown-loud, 1 shown-muted) so we only touch LVGL
+// when the state actually changes.
+int muteBtn[N]; int muteLbl[N]; int btnSt[N];
 
 // scratch (globals — TinyC keeps buffers global)
-char g_cmd[160]; char g_msg[96]; char g_s[64]; char g_nm[20];
+char g_cmd[320]; char g_btn[200]; char g_msg[96]; char g_s[64]; char g_nm[20];
 char wdays[] = "So|Mo|Di|Mi|Do|Fr|Sa";
 
 void speak(char m[]) {
@@ -111,37 +130,31 @@ void speak(char m[]) {
 void setRule(int i, int t, float a, float b) { typ[i] = t; p1[i] = a; p2[i] = b; }
 
 // The ONE place that reads the actual globals (with per-source sign).
+// The Energiemonitor row (6) has no value of its own — its val is the packet age,
+// set in EverySecond.
 void readVals() {
     val[0] =  sedc;      // Hausdach  (positive = producing)
     val[1] = -wrgh;      // Gartenhaus (stored negative)
     val[2] = -wrgg;      // Garten
     val[3] = -wrga;      // Garage
     val[4] =  pwl;       // Powerwall SOC %
-    val[5] =  sip;       // Netz (grid)
-    val[6] =  sop;       // Solar
-    val[7] =  bip;       // Batterie
-    val[8] =  hip;       // Verbrauch (house)
+    val[5] =  msoc;      // Marstek SOC %
 }
 
 int main() {
+    addCommand("HM");        // `HM ack <row>` (mute) | `HM test` | `HM stat`
     producing_w = PRODUCING_W; dead_w = DEAD_W; peer_min = PEER_MIN;
-    pw_lastsig = -999999.0; pw_lastchg = 0; pw_stalled = 0;
-    en_lastseen = 0; en_stalled = 0;
-    // rule table: setRule(index, type, p1, p2).
+    // rule table: setRule(index, type, p1, p2). For SOCLIVE/ENALIVE, p1 = stale minutes.
     // 0-3 solar inverters: PEER (judge each other, no fixed threshold).
     setRule(0, PEER, 0.0, 0.0);
     setRule(1, PEER, 0.0, 0.0);
     setRule(2, PEER, 0.0, 0.0);
     setRule(3, PEER, 0.0, 0.0);
-    // 4 Powerwall SOC row doubles as the reader-alive detector (whole group).
-    setRule(4, PWALIVE, 0.0, 0.0);
-    // 5-8 remaining Powerwall values: display only.
-    setRule(5, INFO, 0.0, 0.0);
-    setRule(6, INFO, 0.0, 0.0);
-    setRule(7, INFO, 0.0, 0.0);
-    setRule(8, INFO, 0.0, 0.0);
-    // 9 Energy_Manager (.61) liveness — alarms if no fresh sedc UDP for EN_STALE_MIN
-    setRule(9, ENALIVE, 0.0, 0.0);
+    // 4 Powerwall SOC + liveness (written(pwl)); 5 Marstek SOC + liveness (written(msoc)).
+    setRule(4, SOCLIVE, PW_STALE_MIN, 0.0);
+    setRule(5, SOCLIVE, MA_STALE_MIN, 0.0);
+    // 6 Energy_Manager (.61) liveness (written(sedc)) — shows packet age.
+    setRule(6, ENALIVE, EN_STALE_MIN, 0.0);
 
     lvglInit(); lvglClean(0); lvglSetBgColor(0, C_BG);
     clockL = lvglLabel(0);
@@ -164,9 +177,19 @@ int main() {
         lvglSetPos(rowN[i], 16, y + 2);
         rowV[i] = lvglLabel(0);
         lvglSetFont(rowV[i], 18); lvglSetTextColor(rowV[i], C_SUB);
-        lvglSetPos(rowV[i], 320, y + 2);
+        lvglSetPos(rowV[i], 280, y + 2);           // left-shifted to make room for the mute switch
         lvglSetText(rowV[i], "--");
+        // per-row mute switch (LCD touch): a small button parked off-screen; EverySecond
+        // slides it in (x=414) only while the row alarms, and a tap toggles the mute.
+        muteBtn[i] = lvglButton(0);
+        lvglSetSize(muteBtn[i], 50, ROWH - 7);
+        lvglSetPos(muteBtn[i], 520, y);            // off-screen = hidden
+        lvglEventEnable(muteBtn[i], EV_CLICKED);
+        muteLbl[i] = lvglLabel(muteBtn[i]);
+        lvglSetFont(muteLbl[i], 12); lvglAlign(muteLbl[i], AL_CENTER, 0, 0);
+        lvglSetText(muteLbl[i], "Ruhe");
         viol[i] = 0; alm[i] = 0; spk[i] = -100000; lastv[i] = 0.0; lastchg[i] = 0;
+        seen[i] = 0; liv[i] = 0; btnSt[i] = -2;
         i = i + 1;
     }
     addLog("house_monitor: ready");
@@ -177,8 +200,8 @@ int isBad(int i, int day, int active) {
     int t = typ[i]; float v = val[i]; float a = p1[i]; float b = p2[i];
     // float compares live inside if() only — never `return <float compare>`.
     if (t == INFO)    { return 0; }               // display only
-    if (t == PWALIVE) { return pw_stalled; }       // group heartbeat (computed in EverySecond)
-    if (t == ENALIVE) { return en_stalled; }       // .61 UDP-liveness (computed in EverySecond)
+    if (t == SOCLIVE) { return liv[i]; }           // UDP-liveness (computed in EverySecond)
+    if (t == ENALIVE) { return liv[i]; }           // UDP-liveness (computed in EverySecond)
     if (t == PEER) {
         if (grp_nprod < peer_min) { return 0; }   // too few delivering -> can't judge (dark/overcast)
         if (v < dead_w) { return 1; }             // flat while >= peer_min peers deliver -> dead
@@ -206,11 +229,23 @@ int isBad(int i, int day, int active) {
 void problemPhrase(int i) {          // -> g_s
     int t = typ[i];
     if (t == DAYMIN || t == PEER) { strcpy(g_s, "liefert keine Leistung"); }
-    else if (t == PWALIVE) { strcpy(g_s, "sendet keine Daten mehr"); }
+    else if (t == SOCLIVE) { strcpy(g_s, "sendet keine Daten mehr"); }
     else if (t == ENALIVE) { strcpy(g_s, "Energiemonitor tot"); }
     else if (t == FROZEN) { strcpy(g_s, "haengt fest"); }
     else if (val[i] > p2[i]) { strcpy(g_s, "zu hoch"); }
     else { strcpy(g_s, "zu niedrig"); }
+}
+
+// One UDP-liveness row: prime seen[] on the first tick, refresh it whenever a new
+// packet arrived (written()), then flag stalled if nothing has arrived for
+// stale_min. `fired` is the caller's written(var) result (written() can't take a
+// dynamic arg, so the caller passes it in and snapshots on its own).
+void liveTick(int i, int fired, int stale_min) {
+    if (seen[i] == 0) { seen[i] = tasm_uptime; }   // prime on first tick (boot grace)
+    if (fired) { seen[i] = tasm_uptime; }
+    liv[i] = 0;
+    int age = tasm_uptime - seen[i];
+    if (age >= stale_min * 60) { liv[i] = 1; }
 }
 
 void EverySecond() {
@@ -230,14 +265,12 @@ void EverySecond() {
     int day = (now > rise + DAY_MARGIN) && (now < set - DAY_MARGIN);
     float pmax = -99999.0; int i = 0;
     while (i < N) { if (typ[i] == DAYMIN && val[i] > pmax) { pmax = val[i]; } i = i + 1; }
-    // NOTE: TinyC miscompiles `int x = <float compare>` (assigning a float
-    // comparison straight to an int). Do the compare inside an if() instead.
+    // NOTE: TinyC miscompiles `int x = <float compare>` — do the compare inside if().
     float actthr = SOLAR_ACTIVE_W;
     int active = 0;
     if (pmax > actthr) { active = 1; }
 
     // PEER producer count: how many solar inverters are actually delivering.
-    // This is the self-calibrating "is it sunny" signal for the PEER rules.
     grp_nprod = 0; int jp = 0;
     while (jp < N) {
         if (typ[jp] == PEER) {
@@ -246,24 +279,14 @@ void EverySecond() {
         jp = jp + 1;
     }
 
-    // Powerwall reader heartbeat: the group sum shifts whenever the reader
-    // delivers a fresh sample; if it sits perfectly constant for STALE_MIN the
-    // reader has stalled (still up, no reboot, just no new values).
-    float pwsig = pwl + sip + sop + bip + hip;
-    if (pwsig != pw_lastsig) { pw_lastsig = pwsig; pw_lastchg = tasm_uptime; }
-    pw_stalled = 0;
-    int pwage = tasm_uptime - pw_lastchg;
-    if (pwage >= STALE_MIN * 60) { pw_stalled = 1; }
-
-    // Energy_Manager (.61) liveness: written(sedc) fires on EVERY UDP packet .61
-    // sends (even a flat 0 at night), so it's a true "is it broadcasting" signal —
-    // unlike a value heartbeat, which would false-alarm when the inverters sit at 0.
-    if (en_lastseen == 0) { en_lastseen = tasm_uptime; }   // prime on first tick (boot grace)
-    if (written(sedc)) { snapshot(sedc); en_lastseen = tasm_uptime; }
-    en_stalled = 0;
-    int en_age = tasm_uptime - en_lastseen;
-    if (en_age >= EN_STALE_MIN * 60) { en_stalled = 1; }
-    val[9] = (float)en_age;                            // display: seconds since last .61 packet
+    // ── UDP-liveness rows — written(x) fires on every inbound packet (even a flat
+    //    SOC / a night-time 0), so it's a true "is the device still broadcasting"
+    //    signal. snapshot(x) clears the flag for the next detection. The three
+    //    watched vars are read explicitly (written() needs a literal arg).
+    if (written(pwl))  { snapshot(pwl);  liveTick(4, 1, PW_STALE_MIN); } else { liveTick(4, 0, PW_STALE_MIN); }
+    if (written(msoc)) { snapshot(msoc); liveTick(5, 1, MA_STALE_MIN); } else { liveTick(5, 0, MA_STALE_MIN); }
+    if (written(sedc)) { snapshot(sedc); liveTick(6, 1, EN_STALE_MIN); } else { liveTick(6, 0, EN_STALE_MIN); }
+    val[6] = (float)(tasm_uptime - seen[6]);       // Energiemonitor row shows the packet age
 
     i = 0;
     while (i < N) {
@@ -272,35 +295,87 @@ void EverySecond() {
         if (bad) {
             viol[i] = viol[i] + 1;
             if (viol[i] >= DEBOUNCE_S) {
-                if (alm[i] == 0 || (tasm_uptime - spk[i]) >= REALARM_S) {
+                // speak on first confirm + every REALARM_S — UNLESS acknowledged (muted).
+                if (acked[i] == 0 && (alm[i] == 0 || (tasm_uptime - spk[i]) >= REALARM_S)) {
                     strToken(g_nm, names, '|', i + 1); problemPhrase(i);
                     sprintf(g_msg, "Achtung! %s %s", g_nm, g_s);
                     speak(g_msg);
-                    spk[i] = tasm_uptime; alm[i] = 1;
+                    spk[i] = tasm_uptime;
                 }
+                alm[i] = 1;                            // confirmed alarm (shown) whether or not we spoke
             }
         } else {
             alm[i] = 0; viol[i] = 0;
         }
+        // Auto re-arm: a muted PEER inverter that starts delivering again clears its
+        // own mute, so a FUTURE failure alarms with sound (no stale mute lingering).
+        if (acked[i] == 1 && typ[i] == PEER) {
+            if (val[i] > producing_w) {
+                acked[i] = 0; saveVars();
+                strToken(g_nm, names, '|', i + 1);
+                sprintf(g_msg, "HM: %s liefert wieder - Ton reaktiviert", g_nm); addLog(g_msg);
+            }
+        }
 
-        // row: value + colour. Value goes RED the moment a rule is violating
-        // (detected); the card background turns alarm-red once the spoken alarm
-        // is confirmed (alm) and re-announcing every REALARM_S. ok = green.
-        sprintf(g_s, "%.0f", val[i]);
+        // row value + colour. SOC rows show "%.0f%%", the liveness row its age in
+        // seconds, the rest a bare number. RED when alarming; AMBER when muted
+        // (acknowledged) so a known fault reads as "seen, silenced"; green = ok.
+        if (typ[i] == SOCLIVE)      { sprintf(g_s, "%.0f%%", val[i]); }
+        else if (typ[i] == ENALIVE) { sprintf(g_s, "%.0fs", val[i]); }
+        else                        { sprintf(g_s, "%.0f", val[i]); }
         lvglSetText(rowV[i], g_s);
-        if (bad || alm[i] == 1) { lvglSetTextColor(rowV[i], C_RED); }
-        else { lvglSetTextColor(rowV[i], C_GREEN); }
-        if (alm[i] == 1) { lvglSetBgColor(rowC[i], C_ALARMBG); }
+        if ((bad || alm[i] == 1) && acked[i] == 1) { lvglSetTextColor(rowV[i], C_AMBER); }
+        else if (bad || alm[i] == 1)               { lvglSetTextColor(rowV[i], C_RED); }
+        else                                       { lvglSetTextColor(rowV[i], C_GREEN); }
+        if (alm[i] == 1 && acked[i] == 0) { lvglSetBgColor(rowC[i], C_ALARMBG); }
         else { lvglSetBgColor(rowC[i], C_CARD); }
+
+        // on-screen (touch) mute switch: visible only while the row alarms. Label +
+        // colour show the ACTION (like the web pill): red "Ruhe" to silence, green
+        // "Ton" to re-enable sound. Only touch LVGL when the state changes (btnSt).
+        int want = -1;                                    // hidden
+        if (badf[i] == 1 || alm[i] == 1) { want = acked[i]; }   // 0=loud, 1=muted
+        if (want != btnSt[i]) {
+            btnSt[i] = want;
+            if (want < 0) { lvglSetPos(muteBtn[i], 520, 40 + i * ROWH); }   // slide off-screen
+            else {
+                lvglSetPos(muteBtn[i], 414, 40 + i * ROWH);
+                if (want == 1) { lvglSetText(muteLbl[i], "Ton");  lvglSetBgColor(muteBtn[i], C_GREEN); }
+                else           { lvglSetText(muteLbl[i], "Ruhe"); lvglSetBgColor(muteBtn[i], C_RED); }
+            }
+        }
         i = i + 1;
     }
 
-    // DEBUG (syslog, ~4x/min): day/active gate + the 4 values + Garage viol/alm.
-    // Remove once tuned. Readable via UDP syslog even when HMSTAT can't register.
+    // DEBUG (syslog, ~4x/min): PEER count + the three liveness ages/flags.
     if (tasm_second % 15 == 0) {
-        sprintf(g_msg, "HMdbg nprod=%d pw soc=%.0f sip=%.0f sop=%.0f bip=%.0f hip=%.0f age=%d st=%d",
-                grp_nprod, pwl, sip, sop, bip, hip, pwage, pw_stalled);
+        sprintf(g_msg, "HMdbg nprod=%d pwl=%.0f(age%d st%d) msoc=%.0f(age%d st%d) en_age=%d(st%d)",
+                grp_nprod, pwl, tasm_uptime - seen[4], liv[4],
+                msoc, tasm_uptime - seen[5], liv[5],
+                tasm_uptime - seen[6], liv[6]);
         addLog(g_msg);
+    }
+}
+
+// LCD touch: poll the LVGL event queue for taps on a row's mute switch and toggle
+// that row's mute (persisted). Runs on the 100 ms tick for snappy touch response.
+void Every100ms() {
+    while (lvglEvent()) {
+        if (lvglEventCode() == EV_CLICKED) {
+            int o = lvglEventObj();
+            int j = 0;
+            while (j < N) {
+                if (o == muteBtn[j]) {
+                    acked[j] = 1 - acked[j]; saveVars();
+                    btnSt[j] = -2;                       // force switch label/colour refresh
+                    strToken(g_nm, names, '|', j + 1);
+                    if (acked[j] == 1) { sprintf(g_msg, "HM: %s stumm (touch)", g_nm); }
+                    else               { sprintf(g_msg, "HM: %s laut (touch)", g_nm); }
+                    addLog(g_msg);
+                }
+                j = j + 1;
+            }
+        }
     }
 }
 
@@ -308,32 +383,44 @@ void EverySecond() {
 // Renders inline on the main Tasmota page (mirrors the LVGL cards): green = ok,
 // amber = detected/debouncing, red = alarm; INFO rows are neutral (display-only).
 void WebCall() {
-    int nalm = 0; int i = 0;
-    while (i < N) { if (badf[i] || alm[i] == 1) { nalm = nalm + 1; } i = i + 1; }
+    int nalm = 0; int nmute = 0; int i = 0;
+    while (i < N) {
+        if (badf[i] || alm[i] == 1) { nalm = nalm + 1; if (acked[i] == 1) { nmute = nmute + 1; } }
+        i = i + 1;
+    }
 
     sprintf(g_cmd, "{s}<b>Haus-Monitor</b>{m}%02d:%02d:%02d  %02d.%02d.{e}",
             tasm_hour, tasm_minute, tasm_second, tasm_day, tasm_month);
     webSend(g_cmd);
     if (nalm > 0) {
-        sprintf(g_cmd, "{s}Status{m}<span style='color:#ea4335;font-weight:bold;'>%d ALARM</span>{e}", nalm);
+        sprintf(g_cmd, "{s}Status{m}<span style='color:#ea4335;font-weight:bold;'>%d ALARM</span> <span style='color:#9aa0a6;'>(%d stumm)</span>{e}", nalm, nmute);
     } else {
         strcpy(g_cmd, "{s}Status{m}<span style='color:#34a853;font-weight:bold;'>alles OK</span>{e}");
     }
     webSend(g_cmd);
-    sprintf(g_cmd, "{s}Solar aktiv / PW-Reader{m}%d von 4 / %s{e}",
-            grp_nprod, pw_stalled ? "STALL" : "ok");
+    sprintf(g_cmd, "{s}Solar aktiv{m}%d von 4{e}", grp_nprod);
     webSend(g_cmd);
 
     i = 0;
     while (i < N) {
         strToken(g_nm, names, '|', i + 1);
-        if (i == 4) { sprintf(g_s, "%.0f %%", val[i]); }
-        else if (i == 9) { sprintf(g_s, "vor %.0f s", val[i]); }   // .61 liveness: age of last packet
-        else { sprintf(g_s, "%.0f W", val[i]); }
+        if (typ[i] == SOCLIVE)      { sprintf(g_s, "%.0f %%", val[i]); }
+        else if (typ[i] == ENALIVE) { sprintf(g_s, "vor %.0f s", val[i]); }   // liveness: age of last packet
+        else                        { sprintf(g_s, "%.0f W", val[i]); }
+
+        int alarming = 0; if (badf[i] || alm[i] == 1) { alarming = 1; }
         if (typ[i] == INFO) {
             sprintf(g_cmd, "{s}%s{m}<span style='color:#9aa0a6;'>%s</span>{e}", g_nm, g_s);
-        } else if (badf[i] || alm[i] == 1) {
-            sprintf(g_cmd, "{s}%s{m}<span style='color:#ea4335;font-weight:bold;'>%s  !</span>{e}", g_nm, g_s);
+        } else if (alarming == 1 && acked[i] == 1) {
+            // muted alarm: amber value + bell-off marker + a compact un-mute ("Ton")
+            // pill. A <span> (not a <button>) avoids Tasmota's full-size button style,
+            // which overflowed the card.
+            sprintf(g_btn, "<span onclick=\"fetch('/cm?cmnd=HM%%20ack%%20%d')\" style='cursor:pointer;margin-left:10px;padding:1px 8px;font-size:12px;border-radius:9px;background:#2f7d3a;color:#fff'>&#128276; Ton</span>", i);
+            sprintf(g_cmd, "{s}%s{m}<span style='color:#fbbc04;font-weight:bold;'>%s &#128277;</span>%s{e}", g_nm, g_s, g_btn);
+        } else if (alarming == 1) {
+            // active alarm: red value + a compact mute ("Ruhe") pill — calms the audio.
+            sprintf(g_btn, "<span onclick=\"fetch('/cm?cmnd=HM%%20ack%%20%d')\" style='cursor:pointer;margin-left:10px;padding:1px 8px;font-size:12px;border-radius:9px;background:#b23b32;color:#fff'>&#128277; Ruhe</span>", i);
+            sprintf(g_cmd, "{s}%s{m}<span style='color:#ea4335;font-weight:bold;'>%s  !</span>%s{e}", g_nm, g_s, g_btn);
         } else if (viol[i] > 0) {
             sprintf(g_cmd, "{s}%s{m}<span style='color:#fbbc04;'>%s  ?</span>{e}", g_nm, g_s);
         } else {
@@ -344,19 +431,32 @@ void WebCall() {
     }
 }
 
+// Command "HM" — subcommands parsed from the payload (after "HM "):
+//   HM ack <row>  toggle the mute (calm the spoken alarm) for a row — PERSISTED
+//   HM test       speak a test phrase
+//   HM stat       log every row's state
 void Command(char cmd[]) {
-    if (strFind(cmd, "HMTEST") >= 0) {
-        speak("Haus Monitor Test");
-        responseCmnd("HM: test spoken");
-    } else if (strFind(cmd, "HMSTAT") >= 0) {
-        int i = 0;
-        while (i < N) {
-            strToken(g_nm, names, '|', i + 1);
-            sprintf(g_msg, "%s=%.0fW typ=%d min=%.0f viol=%d alm=%d", g_nm, val[i], typ[i], p1[i], viol[i], alm[i]);
-            addLog(g_msg); i = i + 1;
+    int i = 0; while (cmd[i] == ' ') { i = i + 1; }
+    if (cmd[i] == 'a') {                                   // ack <row>
+        char nb[8]; strSub(nb, cmd, i + 4, 3); int r = atoi(nb);
+        if (r >= 0 && r < N) {
+            acked[r] = 1 - acked[r]; saveVars();           // persist so it survives reboots
+            strToken(g_nm, names, '|', r + 1);
+            if (acked[r] == 1) { sprintf(g_msg, "HM: %s stumm (Ruhe)", g_nm); }
+            else               { sprintf(g_msg, "HM: %s wieder laut", g_nm); }
+            addLog(g_msg); responseCmnd(g_msg); return;
         }
-        responseCmnd("HM: state logged");
-    } else {
-        responseCmnd("HM: HMTEST | HMSTAT");
+        responseCmnd("HM: ack <0..N-1>"); return;
     }
+    if (cmd[i] == 't') { speak("Haus Monitor Test"); responseCmnd("HM: test spoken"); return; }
+    if (cmd[i] == 's') {                                   // stat
+        int k = 0;
+        while (k < N) {
+            strToken(g_nm, names, '|', k + 1);
+            sprintf(g_msg, "%s=%.0f typ=%d viol=%d alm=%d ack=%d", g_nm, val[k], typ[k], viol[k], alm[k], acked[k]);
+            addLog(g_msg); k = k + 1;
+        }
+        responseCmnd("HM: state logged"); return;
+    }
+    responseCmnd("HM: ack <n> | test | stat");
 }
