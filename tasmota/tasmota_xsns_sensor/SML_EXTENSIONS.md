@@ -100,3 +100,14 @@ comes from the `smlWrite` hex, not this option.
 Safe target by design: only the eBUS clock broadcast is written in testing — no
 solar/control register is ever touched. See the project memory note
 `ebus_active_master_xsns53` for the full status and the live-adapter (`soE`) gate.
+
+## 4. `/sml_meter.def` accepts `;` comments and blank lines
+
+The SML descriptor grammar itself has no comment syntax. Under Scripter the `>M`
+section is pre-stripped, but a **file-based** descriptor (`USE_SML_M`, filesystem
+`/sml_meter.def`) is parsed raw. `SML_Init` now strips, in-place at load, any line
+whose first non-blank char is `;` plus blank lines (and `\r` from CRLF-saved files),
+so a hand-written `.def` can be annotated and spaced for readability. It runs before
+the parse, so a `;` line placed *between* comma-continuation lines of a long Modbus
+register list is removed first and can't break the continuation. Scripter-fed
+descriptors are unaffected (they never hit the file branch).

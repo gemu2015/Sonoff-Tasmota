@@ -4196,6 +4196,27 @@ void SML_Init(void) {
       ef.read((uint8_t*)file_md, fsiz);
       ef.close();
       file_md[fsiz] = 0;
+      // Strip ';' comment lines and blank lines in-place so a hand-written
+      // /sml_meter.def can carry comments and blank spacers. The SML descriptor
+      // parser itself has no comment syntax — Scripter's >M section is pre-stripped
+      // before we see it, but a raw file is not. A line is a comment when its first
+      // non-blank char is ';'. Also drops '\r' so CRLF-saved files parse. (No-op for
+      // the Scripter path below, which never reaches this file branch.)
+      {
+        char *rd = file_md, *wr = file_md;
+        while (*rd) {
+          char *le = rd;
+          while (*le && *le != '\n') le++;                 // end of physical line
+          char *fc = rd;
+          while (fc < le && (*fc == ' ' || *fc == '\t' || *fc == '\r')) fc++;
+          if (fc < le && *fc != ';') {                     // keep: non-blank, non-comment
+            for (char *c = rd; c < le; c++) { if (*c != '\r') *wr++ = *c; }
+            *wr++ = '\n';
+          }
+          rd = (*le == '\n') ? le + 1 : le;
+        }
+        *wr = 0;
+      }
       lp = strstr_P(file_md, PSTR(">M"));
       if (!lp) {
         goto nfd;
