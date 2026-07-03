@@ -300,6 +300,13 @@ void PwlWorker() {
     delay(15000);
     addLog("PWL-FAST: 1.75x rate (~28 calls/min, aggregates every ~4s)");
 
+    // WebSend publish cadence tracked HERE (worker task). It used to run from
+    // EverySecond (loopTask); its httpGet then raced this worker's pwlRequest TLS
+    // on the same slot's single VM -> PC=0 frame corruption. Serialise all network
+    // I/O into this one task. (Firmware now also blocks net I/O from a callback
+    // while a spawnTask worker is active — this keeps the example correct anyway.)
+    int last_pub = 0;
+
     while (1) {
         // ── Aggregates on FIVE cnt slots out of 19 (was just cnt=0) ──
         // 0/2/6/10/16 evenly spaced, NEVER adjacent to a slow-call
@@ -376,6 +383,12 @@ void PwlWorker() {
         else if (pwl_cnt == 18) {
             pwl_cnt = -1;                        // next ++ → 0
         }
+        // WebSend publisher (WS_ENABLE) every ~30 s from THIS worker task — see the
+        // note above the loop. Sequential with pwlRequest, never concurrent.
+        if (WS_ENABLE && (tasm_uptime - last_pub >= 30)) {
+            last_pub = tasm_uptime;
+            pwl_websend_publish();
+        }
         pwl_cnt = pwl_cnt + 1;
         delay(1000);                             // 1 s between iterations — Scripter `>S`
     }
@@ -412,13 +425,10 @@ void EverySecond() {
         lcd_last_update = tasm_uptime;
     }
 
-    // WebSend publisher — gated by WS_ENABLE (default 0). When
-    // enabled, fires every 30 s exactly like the Scripter. Runs in
-    // loopTask (EverySecond's home task), separate from PwlWorker's
-    // tc_vm_task — so the HTTP-GET shouldn't contend with SSL state.
-    if (WS_ENABLE && (tasm_uptime % 30 == 0)) {
-        pwl_websend_publish();
-    }
+    // NOTE: the WebSend publisher (pwl_websend_publish, WS_ENABLE) moved to
+    // PwlWorker. Running its httpGet here in loopTask raced PwlWorker's TLS on the
+    // same slot's single VM -> PC=0 frame corruption (see powerwall.tc crash.log).
+    // All network I/O now lives in the one worker task.
 
     // Console heartbeat (every 30 s) — same as before
     if (tasm_uptime % 30 == 0) {

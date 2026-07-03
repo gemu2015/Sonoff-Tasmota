@@ -37,6 +37,11 @@ int tc_spawn_task_create(const char *name, uint16_t stack_kb);
 int tc_spawn_task_kill(const char *name);
 int tc_spawn_task_running(const char *name);
 void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
+// True if the CURRENT FreeRTOS task is a spawnTask worker (any slot). Used to
+// tell a worker's own blocking net syscall (allowed) apart from a loopTask
+// callback that stacked on top of that worker during its delay() (the PC=0
+// frame-corruption race — blocked). Defined in xdrv_124_tinyc.ino.
+bool tc_current_is_spawn_worker();
 #endif
 
 #include <OneWire.h>
@@ -3937,6 +3942,31 @@ static int32_t tc_strlen_ref(int32_t *p, int32_t maxSlots) {
   int32_t i = 0;
   while (i < maxSlots && p[i] != 0) i++;
   return i;
+}
+
+// Blocking-network-syscall guard. Returns true (and logs) when a blocking net
+// syscall (httpGet/httpPost/sendMail) is invoked from a loopTask callback while a
+// spawnTask worker owns this VM's borrow. That combination is the PC=0 frame-
+// corruption trigger: the callback stacks a frame on the parked worker and holds
+// vm_mutex through the multi-second request, racing the worker's delay/re-take
+// cycle -> vm->pc corrupts to 0 -> "Bounds error" (crash.log ctx=EverySecond, e.g.
+// powerwall.tc). Net I/O belongs in the ONE worker task; skip cleanly instead of
+// corrupting. The worker's OWN net syscalls run on the spawn task, so
+// tc_current_is_spawn_worker() is true there -> allowed. Single-task scripts (no
+// spawnTask) have worker_borrowed=false -> never affected. Caller pushes -1 and
+// breaks when this returns true.
+static bool tc_net_blocked_from_callback(TcVM *vm, const char *what) {
+#ifdef ESP32
+  if (vm && vm->worker_borrowed && !tc_current_is_spawn_worker()) {
+    AddLog(LOG_LEVEL_ERROR,
+           PSTR("TCC: %s from a callback while a spawnTask worker is active — skipped; "
+                "move network I/O into the worker (prevents PC=0 frame corruption)"), what);
+    return true;
+  }
+#else
+  (void)vm; (void)what;
+#endif
+  return false;
 }
 
 // Format a float using dtostrfd() (Arduino-safe, no %f dependency).
@@ -9754,6 +9784,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_HTTP_GET: {
       b = TC_POP(vm);  // response buffer ref
       a = TC_POP(vm);  // url ref
+      if (tc_net_blocked_from_callback(vm, "httpGet")) { TC_PUSH(vm, -1); break; }
       TC_BUF(url, 256);
       tc_ref_to_cstr(vm, a, url, sizeof(url));
       // Mirror SYS_TCP/TLS_CONNECT: HTTP before the link is up drives the client/DNS
@@ -9926,6 +9957,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t respRef = TC_POP(vm);  // response buffer ref
       int32_t dataRef = TC_POP(vm);  // POST data ref
       a = TC_POP(vm);                // url ref
+      if (tc_net_blocked_from_callback(vm, "httpPost")) { TC_PUSH(vm, -1); break; }
       TC_BUF(url, 256);
       tc_ref_to_cstr(vm, a, url, sizeof(url));
       // Mirror SYS_TCP/TLS_CONNECT: HTTP before the link is up corrupts the heap.
@@ -15059,6 +15091,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_EMAIL_SEND: {
       // mailSend(params) — send email, params = char[] with "[server:port:user:passwd:from:to:subject]"
       int32_t params_ref = TC_POP(vm);
+      if (tc_net_blocked_from_callback(vm, "mailSend")) { TC_PUSH(vm, 5); break; }  // 5 = blocked (nonzero = not sent)
       int32_t *pp = tc_resolve_ref(vm, params_ref);
       if (!pp) { TC_PUSH(vm, 1); break; }
       int32_t maxLen = tc_ref_maxlen(vm, params_ref);

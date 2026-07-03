@@ -5405,6 +5405,20 @@ static void tc_spawn_pool_unlock(void) {
   if (tc_spawn_pool_mutex) xSemaphoreGive(tc_spawn_pool_mutex);
 }
 
+// True if the current FreeRTOS task is a live spawnTask worker (any slot). The
+// blocking-net-syscall guard (tc_net_blocked_from_callback in vm.h) uses this to
+// allow a worker's OWN httpGet/httpPost/mailSend while blocking the same call from
+// a loopTask callback that stacked on the worker during its delay(). Lock-free:
+// plain atomic pointer compare; a freed entry has handle=nullptr (won't match a
+// valid current handle), and `running` guards against a stale handle value.
+bool tc_current_is_spawn_worker() {
+  TaskHandle_t cur = xTaskGetCurrentTaskHandle();
+  for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    if (tc_spawn_pool[i].running && tc_spawn_pool[i].handle == cur) return true;
+  }
+  return false;
+}
+
 // TinyCStack — list every live spawnTask worker with its FreeRTOS stack high-water
 // mark (uxTaskGetStackHighWaterMark = the minimum free stack ever seen) so worker
 // stacks can be sized from data instead of guessed (Andreas's wish). Reports the
