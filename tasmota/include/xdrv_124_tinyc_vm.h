@@ -18080,7 +18080,12 @@ static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 
   // the TaskLoop+WebCall NULL-locals race. Skip; the periodic sweep retries once
   // the TaskLoop unwinds to its base tick. Event-driven slots (main returned,
   // frame_count 0) and base-tick parks (1) still dispatch -> no starving.
-  if (s->vm.frame_count > 1) {
+  // ALSO skip when a spawnTask worker has BORROWED this VM (worker_borrowed): it
+  // parks at its base delay() with frame_count==1 (passes the >1 gate) but it OWNS
+  // the VM — stacking a callback frame on the worker's live base frame corrupts it
+  // (pc=0 / NULL-locals; the worker's base frame is the one with return_pc=0). This
+  // mirrors the UDP-global RX guard (~line 3069) which already rejects borrowed VMs.
+  if (s->vm.frame_count > 1 || s->vm.worker_borrowed) {
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
@@ -18127,7 +18132,10 @@ static void tc_slot_callback_id(TcSlot *s, TcCallbackId cid) {
   // (exactly the readFreshOnce-at-frame_count-4 case). Skip; the next sweep
   // retries once the TaskLoop is back at its base tick. frame_count <= 1
   // (event-driven slot, or while(1) base tick) still dispatches -> no starving.
-  if (s->vm.frame_count > 1) {
+  // ALSO skip a spawnTask-BORROWED VM (worker_borrowed): it parks at frame_count==1
+  // but owns the VM — stacking a timer-callback frame on it corrupts it (pc=0).
+  // See the tc_slot_callback twin above + the UDP-RX guard (~line 3069).
+  if (s->vm.frame_count > 1 || s->vm.worker_borrowed) {
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif

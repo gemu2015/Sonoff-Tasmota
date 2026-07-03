@@ -5498,6 +5498,9 @@ static void tc_spawn_task_body(void *param) {
     vm->running = true;
     TcFrame *frame = &vm->frames[vm->frame_count];
     frame->return_pc = 0;
+    frame->saved_sp = vm->sp;   // consistency: every other frame ctor sets this
+                                // (tc_vm_call_callback_idx / OP_CALL / tc_vm_task);
+                                // without it the RET leak-check compares vs garbage.
     if (!tc_frame_alloc(frame)) {
       vm->halted = true; vm->running = false;
       tc_current_slot = nullptr;
