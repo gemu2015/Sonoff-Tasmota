@@ -438,6 +438,59 @@ Definieren Sie einfach Funktionen mit diesen bekannten Namen — keine Registrie
 4. Callbacks laufen synchron mit einer Instruktionsbegrenzung — kein `delay()` erlaubt
 5. Wenn `TaskLoop()` definiert ist, laeuft es im selben FreeRTOS-Task nach dem Anhalten von main() — `delay()` funktioniert, laeuft unabhaengig von Tasmota's Haupt-Thread
 
+### Nebenlaeufigkeitsmodell — eine VM pro Slot
+
+Jeder Slot hat genau **eine VM** — einen Operandenstack, einen Aufrufstack, einen
+Programmzaehler — und sie ist **nicht wiedereintrittsfaehig**. Zwei Threads koennen
+ihren Bytecode ausfuehren wollen:
+
+- **Der eigene Task des Slots** (ESP32): wo `main()` laeuft und danach `TaskLoop()`
+  sowie ein etwaiger `spawnTask()`-Worker. `delay()` und blockierende Netzwerk-I/O
+  sind hier erlaubt.
+- **Tasmotas Hauptschleife (`loopTask`)**: wo jeder *Callback* ausgeloest wird —
+  `EverySecond`, `Every100ms`, `WebCall`, `WebUI`, `Command`, `Event`, Timer,
+  MQTT-Callbacks und Out-of-band-Schreibzugriffe auf Watch-Variablen.
+
+Nur einer von beiden darf zu einem Zeitpunkt VM-Bytecode ausfuehren. Was tatsaechlich
+passiert, haengt davon ab, was der eigene Task des Slots gerade tut:
+
+| Task-Zustand des Slots | Callbacks auf `loopTask` | Anmerkungen |
+|---|---|---|
+| `main()` angehalten, kein Worker | **laufen normal** | Der Standardfall. Die VM ist zwischen Callbacks im Leerlauf — voellig sicher, kein Nachdenken noetig. |
+| `TaskLoop()`, **kurze** Iterationen | **laufen, verschraenkt** | Der VM-Mutex serialisiert sie: Callbacks schieben sich zwischen die Iterationen. Ideal fuer schnelle Modbus-/Seriell-Abfragen (Sub-Millisekunde). |
+| `TaskLoop()`, **lange/blockierende** Iteration | **werden waehrenddessen verworfen** | Eine lange Iteration haelt den VM-Mutex; Callbacks, die dabei anfallen, werden uebersprungen. Iterationen kurz und nicht-blockierend halten. |
+| `spawnTask()`-Worker aktiv | **unterdrueckt — Slot wird kopflos** | Der Worker besitzt die VM ueber seine blockierenden Fenster hinweg, daher feuern `EverySecond` / `WebCall` / `WebUI` / `Command` fuer diesen Slot nicht mehr. Nur **ein** `spawnTask` pro Slot. |
+
+> ⚠️ **Ein `spawnTask()`-Worker schaltet die lokalen Callbacks seines Slots ab.** Sie
+> koennen nicht einen Hintergrund-Worker **und** ein lokales Web-UI / LCD /
+> `EverySecond` auf **demselben** Slot haben. Frueher hat das die VM beschaedigt
+> (`Bounds error PC=0`); jetzt ist es sicher, aber stumm — die Callbacks feuern
+> einfach nicht mehr.
+
+**Das Muster nach der Arbeitslast waehlen:**
+
+1. **Gelegentliche blockierende I/O + lokales UI → Single-Task, kein Worker.** Den
+   blockierenden Aufruf (z. B. ein Wechselrichter-/Powerwall-`httpGet`) direkt in
+   `EverySecond` auf `loopTask` ausfuehren; das LCD in `EverySecond` zeichnen und die
+   Web-Zeilen in `WebCall`. Ein ~1–2 s Stillstand pro Abfrage ist kooperativ und wird
+   von Tasmota toleriert — so hat die Scripter-Engine ueber Monate Displays +
+   blockierendes TLS betrieben. Einen Worker nur dann einsetzen, wenn die
+   Hintergrundarbeit lang oder kontinuierlich genug ist, dass ein Stillstand pro
+   Sekunde inakzeptabel ist.
+2. **Kurzes, haeufiges Hintergrund-Polling + lokales UI → `TaskLoop()`.**
+   Sub-Millisekunden-Iterationen (Modbus, Seriell) verschraenken sich ueber den
+   VM-Mutex sauber mit Callbacks. Jede Iteration kurz und nicht-blockierend halten,
+   damit Callbacks nicht ausgehungert werden.
+3. **Lange / kontinuierliche blockierende Arbeit, kein lokales UI noetig →
+   `spawnTask()` + Relay.** Die blockierende Arbeit kopflos laufen lassen, Ergebnisse
+   als `global` (UDP)-Variablen veroeffentlichen und ein **zweiter Slot oder ein
+   anderes Geraet** rendert das UI aus diesen Globalen.
+
+> **Niemals** Display- oder Web-Widget-Syscalls (`dspText`, `webButton`, …) aus einem
+> `spawnTask`-Worker aufrufen — sie veraendern geteilten Tasmota-Zustand, der
+> `loopTask` gehoert, und loesen einen Hard-Reset des Geraets aus. Einen Worker auf
+> Berechnung, Netzwerk und Datei-I/O beschraenken.
+
 ### Tasmota-Ausgabefunktionen
 
 Verwenden Sie diese Funktionen in Callbacks, um Daten an Tasmota zu senden:

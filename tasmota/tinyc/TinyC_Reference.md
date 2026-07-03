@@ -476,6 +476,52 @@ Simply define functions with these well-known names — no registration needed.
 4. Callbacks run synchronously with an instruction limit — no `delay()` allowed
 5. If `TaskLoop()` is defined, it runs in the same FreeRTOS task after main() halts — `delay()` works, runs independently of Tasmota's main thread
 
+### Concurrency model — one VM per slot
+
+Each slot has exactly **one VM** — one operand stack, one call stack, one program
+counter — and it is **not re-entrant**. Two threads can want to run its bytecode:
+
+- **The slot's own task** (ESP32): where `main()` runs, and afterwards `TaskLoop()`
+  and any `spawnTask()` worker. `delay()` and blocking network I/O are allowed here.
+- **Tasmota's main loop (`loopTask`)**: where every *callback* is dispatched —
+  `EverySecond`, `Every100ms`, `WebCall`, `WebUI`, `Command`, `Event`, timers, MQTT
+  callbacks, and out-of-band watch-variable writes.
+
+Only one of them may execute VM bytecode at a time. What actually happens depends on
+what the slot's own task is doing:
+
+| Slot task state | Callbacks on `loopTask` | Notes |
+|---|---|---|
+| `main()` halted, no worker | **run normally** | The default. The VM is idle between callbacks — fully safe, no thought needed. |
+| `TaskLoop()`, **short** iterations | **run, interleaved** | The VM mutex serializes them: callbacks slot in between iterations. Ideal for fast Modbus / serial polls (sub-millisecond). |
+| `TaskLoop()`, **long/blocking** iteration | **dropped while it runs** | A long iteration holds the VM mutex; callbacks that tick during it are skipped. Keep iterations short and non-blocking. |
+| `spawnTask()` worker alive | **suppressed — slot goes headless** | The worker owns the VM across its blocking windows, so `EverySecond` / `WebCall` / `WebUI` / `Command` no longer fire for that slot. Only **one** `spawnTask` per slot. |
+
+> ⚠️ **A `spawnTask()` worker turns off local callbacks for its slot.** You cannot
+> have a background worker **and** a local web UI / LCD / `EverySecond` on the
+> **same** slot. This used to corrupt the VM (`Bounds error PC=0`); it is now safe
+> but silent — the callbacks simply stop firing.
+
+**Choose the pattern by workload:**
+
+1. **Occasional blocking I/O + local UI → single-task, no worker.** Do the blocking
+   call (e.g. an inverter / Powerwall `httpGet`) directly in `EverySecond` on
+   `loopTask`; draw the LCD in `EverySecond` and the web rows in `WebCall`. A ~1–2 s
+   stall per poll is cooperative and Tasmota tolerates it — this is how the Scripter
+   engine drove displays + blocking TLS for months. Reach for a worker only when the
+   background work is long or continuous enough that a per-second stall is
+   unacceptable.
+2. **Short, frequent background polling + local UI → `TaskLoop()`.** Sub-millisecond
+   iterations (Modbus, serial) interleave cleanly with callbacks via the VM mutex.
+   Keep each iteration short and non-blocking so callbacks aren't starved.
+3. **Long / continuous blocking work, no local UI needed → `spawnTask()` + relay.**
+   Run the blocking work headless, publish results as `global` (UDP) variables, and
+   let a **second slot or another device** render the UI from those globals.
+
+> **Never** call display or web-widget syscalls (`dspText`, `webButton`, …) from a
+> `spawnTask` worker — they mutate shared Tasmota state owned by `loopTask` and will
+> hard-reset the device. Keep a worker to computation, network and file I/O only.
+
 ### Tasmota Output Functions
 
 Use these functions in callbacks to send data to Tasmota:
