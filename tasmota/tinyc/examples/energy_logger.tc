@@ -101,6 +101,7 @@ char g_line[600];            // the built 31-field data row
 char g_ts[24];               // its "D.M.YY H:MM" timestamp
 char g_first[24];            // first timestamp in the 15-min log (WebUI "Log vom")
 char g_last[24];             // last  timestamp in the 15-min log (WebUI "Log bis")
+char dbgbuf[4200];           // scratch for ELOGIX/ELOGRT range-extraction diagnostics
 
 // Write the 31-column header to an already-open handle (matches .61 exactly).
 void writeHeaderH(int h) {
@@ -380,7 +381,65 @@ void Command(char cmd[]) {
         sprintf(g_msg, "ELOG rows=%d 15m=%d day=%d WR1=%.3f WR2=%.3f WR3=%.3f pwl=%.1f",
                 rows, fileSize(LOG), fileSize(LOGD), t_ga, t_gh, t_gg, pwl);
         responseCmnd(g_msg);
+    } else if (strFind(cmd, "IX") >= 0) {                  // inspect the .ind (coverage + offsets)
+        int h; int sz; int n; int st; int i; int back;
+        char f1[48]; char l1[48];
+        f1[0] = 0; l1[0] = 0;
+        h = fileOpen(LOGI, "r");
+        if (h < 0) { responseCmnd("IX: LOGI open FAIL"); return; }
+        fileSeek(h, 0, 2); sz = fileTell(h);
+        // first data entry: read head, skip TSTAMP header line, take line 2 up to \n
+        fileSeek(h, 0, 0); n = fileRead(h, dbgbuf, 400);
+        st = 0;
+        if (n > 0 && (dbgbuf[0] < 48 || dbgbuf[0] > 57)) {
+            while (st < n && dbgbuf[st] != 10) { st = st + 1; } st = st + 1;
+        }
+        i = 0;
+        while (st < n && dbgbuf[st] != 10 && dbgbuf[st] != 13 && i < 47) { f1[i] = dbgbuf[st]; i = i + 1; st = st + 1; }
+        f1[i] = 0;
+        // last data entry: read tail, trim NL, back up to prev \n
+        back = 300; if (back > sz) { back = sz; }
+        fileSeek(h, sz - back, 0); n = fileRead(h, dbgbuf, back);
+        while (n > 0 && (dbgbuf[n-1] == 10 || dbgbuf[n-1] == 13)) { n = n - 1; }
+        st = n; while (st > 0 && dbgbuf[st-1] != 10) { st = st - 1; }
+        i = 0;
+        while (st < n && dbgbuf[st] != 10 && dbgbuf[st] != 13 && i < 47) { l1[i] = dbgbuf[st]; i = i + 1; st = st + 1; }
+        l1[i] = 0;
+        fileClose(h);
+        sprintf(g_msg, "IX size=%d logsz=%d first=[%s] last=[%s]", sz, fileSize(LOG), f1, l1);
+        responseCmnd(g_msg);
+    } else if (strFind(cmd, "RT") >= 0) {                  // range-test: parse the log tail, count July-26 rows
+        int h; int sz; int n; int st; int k; int D; int M; int Y;
+        int july; int tot; int i;
+        char t0[24]; char t1[24];
+        h = fileOpen(LOG, "r");
+        if (h < 0) { responseCmnd("RT: LOG open FAIL"); return; }
+        fileSeek(h, 0, 2); sz = fileTell(h);
+        n = 4000; if (n > sz) { n = sz; }
+        fileSeek(h, sz - n, 0); n = fileRead(h, dbgbuf, n);
+        fileClose(h);
+        st = 0; while (st < n && dbgbuf[st] != 10) { st = st + 1; } st = st + 1;  // drop partial 1st line
+        july = 0; tot = 0; t0[0] = 0; t1[0] = 0;
+        while (st < n) {
+            D = 0; M = 0; Y = 0; k = st;
+            while (k < n && dbgbuf[k] >= 48 && dbgbuf[k] <= 57) { D = D * 10 + (dbgbuf[k] - 48); k = k + 1; }
+            if (k < n && dbgbuf[k] == 46) { k = k + 1; }
+            while (k < n && dbgbuf[k] >= 48 && dbgbuf[k] <= 57) { M = M * 10 + (dbgbuf[k] - 48); k = k + 1; }
+            if (k < n && dbgbuf[k] == 46) { k = k + 1; }
+            while (k < n && dbgbuf[k] >= 48 && dbgbuf[k] <= 57) { Y = Y * 10 + (dbgbuf[k] - 48); k = k + 1; }
+            if (M >= 1 && M <= 12 && D >= 1 && D <= 31) {
+                tot = tot + 1;
+                i = 0; k = st;
+                while (k < n && dbgbuf[k] != 9 && dbgbuf[k] != 10 && dbgbuf[k] != 13 && i < 23) { t1[i] = dbgbuf[k]; i = i + 1; k = k + 1; }
+                t1[i] = 0;
+                if (t0[0] == 0) { strcpy(t0, t1); }
+                if (Y == 26 && M == 7) { july = july + 1; }
+            }
+            while (st < n && dbgbuf[st] != 10) { st = st + 1; } st = st + 1;
+        }
+        sprintf(g_msg, "RT tail=%d tot=%d july26=%d first=[%s] last=[%s]", n, tot, july, t0, t1);
+        responseCmnd(g_msg);
     } else {
-        responseCmnd("ELOG: ELOGnow | ELOGday | ELOGstat");
+        responseCmnd("ELOG: ELOGnow | ELOGday | ELOGstat | ELOGix | ELOGrt");
     }
 }

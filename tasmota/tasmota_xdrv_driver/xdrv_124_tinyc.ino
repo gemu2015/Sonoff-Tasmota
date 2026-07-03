@@ -4892,6 +4892,12 @@ static void tc_download_task(void *param) {
   WiFiClient client = Tinyc->dl_server->client();
   uint32_t fsize = file.size();
 
+  // Bound client.write() with a send timeout so a stalled or vanished peer (e.g. a
+  // curl that gave up during a slow scan) can't block this task forever — that would
+  // leave dl_busy stuck true and every future /ufs download would return 503.
+  { struct timeval _tv; _tv.tv_sec = 3; _tv.tv_usec = 0;
+    setsockopt(client.fd(), SOL_SOCKET, SO_SNDTIMEO, &_tv, sizeof(_tv)); }
+
   // Extract just the filename for Content-Disposition
   char *fname = strrchr(path, '/');
   if (fname) fname++; else fname = path;
@@ -4931,25 +4937,35 @@ static void tc_download_task(void *param) {
 
         File ind = ufsp->open(indpath, "r");
         if (ind) {
-          // Skip header
-          while (ind.available()) {
-            uint8_t c; ind.read(&c, 1);
-            if (c == '\n') break;
-          }
+          // Buffered scan: a byte-at-a-time read of a multi-MB .ind is ~25 s on SD,
+          // long enough that the client times out mid-scan -> hung write -> stuck
+          // dl_busy. Read in 1 KB blocks and accumulate lines in lbuf; a header line
+          // (cmp==0) is skipped naturally. Find the last index entry BEFORE cmp_from.
           uint32_t last_good_pos = 0;
-          while (ind.available()) {
-            li = 0;
-            while (ind.available() && li < 510) {
-              uint8_t c; ind.read(&c, 1);
-              lbuf[li++] = c;
-              if (c == '\n') break;
+          uint8_t *blk = (uint8_t*)malloc(1024);
+          if (blk) {
+            uint32_t li2 = 0;
+            bool done = false;
+            while (!done) {
+              int got = ind.read(blk, 1024);
+              if (got <= 0) break;
+              for (int bi = 0; bi < got; bi++) {
+                uint8_t c = blk[bi];
+                if (c == '\n') {
+                  lbuf[li2] = 0;
+                  uint32_t cmp = tc_ts_cmp(lbuf);
+                  if (cmp != 0) {
+                    if (cmp >= cmp_from) { done = true; break; }
+                    char *tab = strchr(lbuf, '\t');
+                    if (tab) last_good_pos = strtoul(tab + 1, NULL, 10);
+                  }
+                  li2 = 0;
+                } else if (li2 < 510) {
+                  lbuf[li2++] = c;
+                }
+              }
             }
-            lbuf[li] = 0;
-            uint32_t cmp = tc_ts_cmp(lbuf);
-            if (cmp == 0) continue;
-            if (cmp >= cmp_from) break;
-            char *tab = strchr(lbuf, '\t');
-            if (tab) last_good_pos = strtoul(tab + 1, NULL, 10);
+            free(blk);
           }
           seek_pos = last_good_pos;
           ind.close();
@@ -5004,6 +5020,7 @@ static void tc_download_task(void *param) {
       else file.seek(header_end, SeekSet);
 
       while (file.available()) {
+        if (!client.connected()) break;   // peer gave up -> stop so cleanup clears dl_busy
         li = 0;
         while (file.available() && li < 510) {
           uint8_t c; file.read(&c, 1);
@@ -5040,6 +5057,7 @@ static void tc_download_task(void *param) {
 
     uint8_t buf[512];
     while (fsize > 0) {
+      if (!client.connected()) break;   // peer gave up -> stop so cleanup clears dl_busy
       uint16_t len = (fsize < sizeof(buf)) ? fsize : sizeof(buf);
       file.read(buf, len);
       client.write(buf, len);
