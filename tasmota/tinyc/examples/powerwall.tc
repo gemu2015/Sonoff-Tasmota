@@ -85,6 +85,8 @@ int  lcd_initialized = 0;           // labels drawn once at boot
 int  lcd_last_update = -10;         // throttle LCD value refresh (uptime sec)
 int  pwl_cnt   = 0;                 // Scripter's `cnt` — walks 0..18 then resets to -1
 int  pwl_ok_up = 0;                 // uptime of last SUCCESSFUL soe read (watchdog liveness)
+int  p1_zc     = 0;                 // consecutive-zero count for solar leg 1 (glitch guard)
+int  p3_zc     = 0;                 // consecutive-zero count for solar leg 2 (glitch guard)
 
 // ═══════════════ CLOCK HEADER BLOCK (from examples/clock_header.tc) ═════
 int web_clock_tick = 0;
@@ -203,8 +205,18 @@ void EverySecond() {
                 // Per-CT error gate — keep last good values when a CTS reports an error.
                 pwlStr("PW_CTS1#error", l_cts1_err);
                 if (l_cts1_err[0] == 0) {
-                    l_p1w = pwlGet("p_W[1]");
-                    l_p3w = pwlGet("p_W[3]");
+                    // Solar-leg glitch guard: the CT clamps occasionally return a single
+                    // momentary 0 for a leg (same reason the grid phases below are
+                    // guarded). Solar IS legitimately 0 at night, so we can't blanket
+                    // "keep last on 0"; instead suppress a SINGLE stray 0 (keep last
+                    // good) and only accept a 0 that PERSISTS for 2 readings — a real
+                    // shutoff / genuine no-sun still reaches 0 within ~40 s.
+                    float new_p1w = pwlGet("p_W[1]");
+                    float new_p3w = pwlGet("p_W[3]");
+                    if (new_p1w != 0.0) { l_p1w = new_p1w; p1_zc = 0; }
+                    else { p1_zc = p1_zc + 1; if (p1_zc >= 2) { l_p1w = 0.0; } }
+                    if (new_p3w != 0.0) { l_p3w = new_p3w; p3_zc = 0; }
+                    else { p3_zc = p3_zc + 1; if (p3_zc >= 2) { l_p3w = 0.0; } }
                 }
                 pwlStr("PW_CTS2#error", l_cts2_err);
                 if (l_cts2_err[0] == 0) {
