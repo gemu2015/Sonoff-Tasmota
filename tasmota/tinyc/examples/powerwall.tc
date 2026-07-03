@@ -265,16 +265,19 @@ void PwlWorker() {
     delay(15000);
     addLog("PWL: Scripter-equivalent loop running (16 calls/min)");
 
-    // Publish cadence is tracked HERE, in the worker task. pwl_publish() used to
-    // run from EverySecond (loopTask); in relay mode it does an httpGet, so it ran
-    // CONCURRENTLY with this worker's pwlRequest TLS on the SAME slot. Two tasks
-    // doing network I/O on one VM each release vm_mutex mid-call, and a heap-move
-    // in one task's release window dangles the OTHER task's suspended VM frame ->
-    // vm->pc corrupts to 0 -> "Bounds error" at the next step (crash.log shows
-    // err=9 PC=0 ctx=EverySecond, e.g. 2026-07-02 22:35). Serialising all network
-    // I/O into this single task removes the race. (See the known anti-pattern:
-    // never httpGet from a loopTask handler while a TaskLoop worker runs.)
+    // EVERYTHING runs in THIS worker task — TLS reads, publish, LCD, heartbeat.
+    // There is deliberately NO EverySecond (or any per-second) callback: a loopTask
+    // callback that borrows this slot's shared VM while the worker is parked at
+    // delay() stacks a frame on it and corrupts the frame/pc -> "Bounds error"
+    // PC=0 (crash.log ctx=EverySecond). That recurred even after moving httpGet out
+    // of EverySecond, proving the trigger is the per-second borrow itself, not the
+    // net I/O. Removing the callback removes the borrow. (WebCall/JsonCall still
+    // borrow, but only on a web hit — rare — not every second.)
     int last_pub = 0;
+    int last_hb  = 0;
+
+    // Draw the static LCD labels now (display driver is ready after the 15 s wait).
+    lcd_init_labels(); lcd_initialized = 1;
 
     while (1) {
         if (pwl_cnt == 0) {
@@ -352,67 +355,39 @@ void PwlWorker() {
         else if (pwl_cnt == 18) {
             pwl_cnt = -1;                        // next ++ → 0
         }
-        // Publish every ~30 s from THIS task (see note above the loop) —
-        // sequential with pwlRequest, never concurrent, so no cross-task
-        // heap-move can dangle a suspended frame.
+        // Publish every ~30 s from THIS task — sequential with pwlRequest.
         if (tasm_uptime - last_pub >= 30) {
             last_pub = tasm_uptime;
             pwl_publish();
+        }
+        // LCD clock every loop (~1 s); the T/tS tags redraw from Tasmota's clock.
+        if (lcd_initialized) {
+            dspText("[Ci3x50y40T]");
+            dspText("[x150y40tS]");
+        }
+        // LCD values every 5 s.
+        if (lcd_initialized && (tasm_uptime - lcd_last_update) >= 5) {
+            lcd_update_values();
+            lcd_last_update = tasm_uptime;
+        }
+        // Console heartbeat every 30 s.
+        if (tasm_uptime - last_hb >= 30) {
+            last_hb = tasm_uptime;
+            sprintf(buf, "PWL: Bat=%.1f%%", l_pwl);  printString(buf);
+            sprintf(buf, " Grid=%.0fW", l_sip);       printString(buf);
+            sprintf(buf, " Sol=%.0fW", l_sop);        printString(buf);
+            sprintf(buf, " Home=%.0fW\n", l_hip);     printString(buf);
         }
         pwl_cnt = pwl_cnt + 1;
         delay(1000);                             // 1 s between iterations — Scripter `>S`
     }
 }
 
-void EverySecond() {
-    // First-tick: draw the static labels on the LCD. Done once,
-    // because the labels never change. main() can't reliably do this
-    // because the display driver isn't always ready by the time main
-    // runs — EverySecond gives the driver a few seconds of grace.
-    if (lcd_initialized == 0 && tasm_uptime > 3) {
-        lcd_init_labels();
-        lcd_initialized = 1;
-    }
-
-    // LCD clock — the `T` and `tS` format tags are interpreted by the
-    // display driver at draw time (same backend the Scripter used),
-    // so the values auto-refresh from Tasmota's clock. Drawn every
-    // second for a smooth tick. Two short calls (~ms each), don't
-    // contend with the Powerwall TaskLoop.
-    //   [Ci3x50y40T]   color 3, x=50,  y=40, T = current time HH:MM
-    //   [x150y40tS]    x=150, y=40, tS = small-format date
-    if (lcd_initialized) {
-        dspText("[Ci3x50y40T]");
-        dspText("[x150y40tS]");
-    }
-
-    // Refresh LCD values every 5s — matches the Scripter cadence and
-    // is plenty for a glance-able status screen. We throttle off
-    // tasm_uptime instead of `% 5 == 0` so a missed second doesn't
-    // skip the update for another 5s.
-    if (lcd_initialized && (tasm_uptime - lcd_last_update) >= 5) {
-        lcd_update_values();
-        lcd_last_update = tasm_uptime;
-    }
-
-    // NOTE: pwl_publish() moved to PwlWorker (worker task). Running it here in
-    // loopTask meant its relay httpGet raced PwlWorker's TLS on the same slot —
-    // both release vm_mutex mid-call, and a heap-move dangled the suspended frame
-    // -> vm->pc=0 -> "Bounds error" (crash.log ctx=EverySecond). All network I/O
-    // now lives in the single worker task.
-
-    // Console heartbeat (every 30 s) — same as before
-    if (tasm_uptime % 30 == 0) {
-        sprintf(buf, "PWL: Bat=%.1f%%", l_pwl);
-        printString(buf);
-        sprintf(buf, " Grid=%.0fW", l_sip);
-        printString(buf);
-        sprintf(buf, " Sol=%.0fW", l_sop);
-        printString(buf);
-        sprintf(buf, " Home=%.0fW\n", l_hip);
-        printString(buf);
-    }
-}
+// NOTE: there is intentionally NO EverySecond() (or any per-second callback).
+// Its old work — LCD labels/clock/values + console heartbeat — moved into
+// PwlWorker so nothing borrows the worker's shared VM every second. See the note
+// at the top of PwlWorker: a per-second loopTask callback stacking a frame on the
+// delay()-parked worker corrupts the VM -> "Bounds error" PC=0.
 
 void WebCall() {
     // Clock header (big green clock + sunrise/sunset row + live tick)
