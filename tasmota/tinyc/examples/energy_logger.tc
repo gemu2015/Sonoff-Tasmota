@@ -99,6 +99,8 @@ persist watch int sml_activ;
 // returns -1. So the row is built once here and each file uses LITERAL paths.
 char g_line[600];            // the built 31-field data row
 char g_ts[24];               // its "D.M.YY H:MM" timestamp
+char g_first[24];            // first timestamp in the 15-min log (WebUI "Log vom")
+char g_last[24];             // last  timestamp in the 15-min log (WebUI "Log bis")
 
 // Write the 31-column header to an already-open handle (matches .61 exactly).
 void writeHeaderH(int h) {
@@ -147,6 +149,56 @@ void writeRow(int daily) {
     rows = rows + 1;
     sprintf(g_msg, "ELOG: wrote %s daily=%d WR1=%.3f off=%d", g_ts, daily, t_ga, off);
     addLog(g_msg);
+}
+
+// Read the FIRST and LAST row timestamps of the 15-min log into g_first/g_last, so
+// the WebUI can show the log's date span (the Scripter "Log vom" / "Log bis").
+// Mirrors Scripter's fextract -2/-1 (xdrv_10 ~2444): FIRST = skip the TSTAMP header
+// line and take line 2; LAST = seek from the end, scan back to the previous '\n'.
+// Pure seeks + two tiny reads (head + tail) — NEVER scans the whole 29 MB file (the
+// built-in fileRange() would read every line). back must exceed one row (~340 B);
+// 768 is well past that AND past Scripter's own 256-byte FEXT_MAX_LINE_LENGTH.
+void read_log_span() {
+    g_first[0] = 0; g_last[0] = 0;
+    int h = fileOpen(LOG, "r");
+    if (h < 0) { return; }
+    fileSeek(h, 0, 2);
+    int sz = fileTell(h);
+    char c[800];
+    int i; int j; int st; int n; int f0;
+
+    // first data row — skip the "TSTAMP..." header line if present
+    fileSeek(h, 0, 0);
+    n = fileRead(h, c, 300);
+    if (n > 0) {
+        st = 0;
+        f0 = c[0] & 0xFF;
+        if (f0 < 48 || f0 > 57) {                        // line 1 not a digit -> header
+            while (st < n && c[st] != 10) { st = st + 1; }
+            st = st + 1;                                 // start of line 2
+        }
+        i = 0; j = st;
+        while (j < n && c[j] != 9 && c[j] != 10 && c[j] != 13 && i < 23) {
+            g_first[i] = c[j]; i = i + 1; j = j + 1;
+        }
+        g_first[i] = 0;
+    }
+
+    // last data row — read the tail (bigger than one ~300-450 B row so the line
+    // BEFORE it, hence its leading \n, is captured), take the last line's 1st field
+    int back = 768;
+    if (back > sz) { back = sz; }
+    fileSeek(h, sz - back, 0);
+    n = fileRead(h, c, back);
+    while (n > 0 && (c[n-1] == 10 || c[n-1] == 13)) { n = n - 1; }   // trim trailing NL
+    st = n;
+    while (st > 0 && c[st-1] != 10) { st = st - 1; }                 // back to line start
+    i = 0; j = st;
+    while (j < n && c[j] != 9 && c[j] != 10 && c[j] != 13 && i < 23) {
+        g_last[i] = c[j]; i = i + 1; j = j + 1;
+    }
+    g_last[i] = 0;
+    fileClose(h);
 }
 
 void main() {
@@ -301,6 +353,9 @@ void WebCall() {
     sprintf(scratch, "{s}Haus{m}<span style='color:#e74c3c;'>%.0f W</span>{e}", hip); webSend(scratch);
 
     web_section("Logfile");
+    read_log_span();                                       // first/last 15-min-log dates
+    sprintf(scratch, "{s}Log vom{m}%s{e}", g_first); webSend(scratch);
+    sprintf(scratch, "{s}Log bis{m}%s{e}", g_last);  webSend(scratch);
     row_i("Log Größe", fileSize(LOG) / 1000, "kB");
     row_i("Zeilen (Sitzung)", rows, "");
 
