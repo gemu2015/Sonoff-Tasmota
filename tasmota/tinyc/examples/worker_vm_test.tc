@@ -1,0 +1,77 @@
+// worker_vm_test.tc — exercise USE_TINYC_WORKER_VM (Option 2, dual execution context)
+// ---------------------------------------------------------------------------
+// A spawnTask worker runs on its OWN TcVM (aliasing the primary's globals) while the
+// primary VM keeps dispatching EverySecond + WebCall + Command.
+//
+// PROOF the dual-context works (vs the old headless worker_borrowed behavior):
+//   - `wloops`  is bumped by the WORKER each loop (own VM).
+//   - `eticks`  is bumped by EverySecond on the PRIMARY VM.
+//   With the OLD design a live spawnTask worker suppressed ALL callbacks, so `eticks`
+//   would FREEZE the moment the worker started. With Option 2 both keep advancing —
+//   watch `/cm?cmnd=WVM` (or the web panel): both counters climb together.
+//
+// It also stresses the shared globals path: the worker writes wloops + wsum every loop
+// while EverySecond/WebCall read them, all under globals_mux/vm_mutex.
+//
+// DEPLOY (needs a USE_TINYC_WORKER_VM firmware, e.g. .39):
+//   node scratchpad/tc_compile.mjs tasmota/tinyc/examples/worker_vm_test.tc worker_vm_test.tcb
+//   upload + TinyCRun <slot> /worker_vm_test.tcb   (do NOT autoexec until proven)
+// ---------------------------------------------------------------------------
+
+// PLAIN globals (NOT `global`): they are shared between the worker VM and the primary VM
+// via the aliased globals[] array, but are NOT UDP-broadcast — so the worker's tight write
+// loop doesn't flood the multicast socket. (Using `global` here firehosed UDP: every write
+// to a `global` multicasts.)
+float wloops;   // worker loop count (own VM)  — proves the worker runs
+float wsum;     // worker rolling sum          — shared-global write stress (globals_mux)
+float eticks;   // EverySecond count (primary) — proves callbacks stay live
+
+int started;
+char scratch[128];
+char g_msg[128];
+
+// The background worker: its own VM. Blocks in delay() (releases vm_mutex -> callbacks
+// run) and briefly busy-computes (holds vm_mutex -> callbacks drop-on-busy, must NOT
+// wedge loopTask). Never touches display/web syscalls (workers must not).
+void Worker() {
+    int i;
+    while (1) {
+        wloops = wloops + 1.0;
+        // brief busy compute while holding the VM (exercises callback drop-on-busy)
+        i = 0;
+        while (i < 60000) { wsum = wsum + 0.0; i = i + 1; }
+        delay(1500);        // releases vm_mutex — primary callbacks run in this window
+    }
+}
+
+void main() {
+    wloops = 0.0;
+    wsum = 0.0;
+    eticks = 0.0;
+    started = 0;
+    addCommand("WVM");
+    addLog("worker_vm_test: main done (waiting to spawn Worker)");
+}
+
+void EverySecond() {
+    eticks = eticks + 1.0;
+    // Spawn the worker AFTER main() has halted — from a callback, the recommended pattern.
+    if (started == 0) {
+        started = 1;
+        spawnTask("Worker");
+        addLog("worker_vm_test: spawned Worker (own VM)");
+    }
+}
+
+void WebCall() {
+    sprintf(scratch, "{s}Worker loops{m}<b>%.0f</b>{e}", wloops); webSend(scratch);
+    sprintf(scratch, "{s}EverySecond ticks{m}<b>%.0f</b>{e}", eticks); webSend(scratch);
+    webSend("{s}(both should climb together){m}{e}");
+}
+
+void Command(char cmd[]) {
+    // WVM -> report both counters. If eticks climbs while wloops climbs, callbacks are
+    // running concurrently with the worker = dual-context OK.
+    sprintf(g_msg, "WVM wloops=%.0f eticks=%.0f wsum=%.0f", wloops, eticks, wsum);
+    responseCmnd(g_msg);
+}

@@ -1386,6 +1386,34 @@ static const char * const TC_CB_NAME[TC_CB_COUNT] = {
   "OnExit",
 };
 
+/*********************************************************************************************\
+ * USE_TINYC_WORKER_VM (opt-in, ESP32-only) — dual-context worker scaffold
+ *
+ * OFF (default): compiles to NOTHING. A spawnTask worker borrows the slot's single
+ * shared VM (worker_borrowed) and the slot goes headless — current behavior, byte for
+ * byte: no extra RAM, no locks, no behavior change.
+ *
+ * ON: a spawnTask worker gets its OWN VM (own stack/frames/heap) that ALIASES the
+ * primary VM's globals/code/constants, so the primary keeps dispatching callbacks
+ * (EverySecond/WebCall) while the worker runs — a worker AND local UI on one slot.
+ * The only shared MUTABLE state is globals[]; TC_GLOBALS_LOCK guards its write sites.
+ * See TinyC_Reference.md "Concurrency model". The dual-context logic is filled in in a
+ * later stage; this scaffold (globals_mux field + null-guarded locks + clone stub) is
+ * a no-op until tc_clone_for_worker() is implemented.
+\*********************************************************************************************/
+#if defined(USE_TINYC_WORKER_VM) && !defined(ESP32)
+  #error "USE_TINYC_WORKER_VM requires ESP32 (spawnTask / dual-context is ESP32-only)"
+#endif
+#ifdef USE_TINYC_WORKER_VM
+  // globals_mux is created lazily only when a worker is cloned (NULL for single-VM
+  // slots), so even a flag-on build pays nothing on slots that never spawn a worker.
+  #define TC_GLOBALS_LOCK(vm)   do { if ((vm)->globals_mux) xSemaphoreTake((vm)->globals_mux, portMAX_DELAY); } while (0)
+  #define TC_GLOBALS_UNLOCK(vm) do { if ((vm)->globals_mux) xSemaphoreGive((vm)->globals_mux); } while (0)
+#else
+  #define TC_GLOBALS_LOCK(vm)   ((void)0)
+  #define TC_GLOBALS_UNLOCK(vm) ((void)0)
+#endif
+
 typedef struct {
   // Program
   const uint8_t *code;
@@ -1406,6 +1434,12 @@ typedef struct {
   // even though it looks halted/idle (its `halted=true` during a worker delay
   // would otherwise fool the guard and disturb the worker's loop state).
   volatile bool worker_borrowed;
+#ifdef USE_TINYC_WORKER_VM
+  // Guards writes to the shared globals[] when a worker VM aliases this VM's globals.
+  // Both the primary and the cloned worker VM point at the SAME semaphore. Created
+  // lazily by tc_clone_for_worker(); NULL (=> TC_GLOBALS_LOCK is a no-op) otherwise.
+  SemaphoreHandle_t globals_mux;
+#endif
   // 1-Wire (using TasmotaOneWire library)
   int8_t   ow_pin;
   OneWire  *ow_bus;
@@ -1591,6 +1625,11 @@ struct TcSlot {
                                   //   retry from the main loop until the heap recovers,
                                   //   so a stopped slot never stays silently dead (B).
   SemaphoreHandle_t vm_mutex;     // serialize VM access between task and main thread
+#ifdef USE_TINYC_WORKER_VM
+  volatile bool has_worker_vm;    // a spawnTask worker is running on its OWN TcVM (Option 2):
+                                  //   callbacks then DROP-ON-BUSY on vm_mutex instead of blocking
+                                  //   loopTask (the worker may hold it through a blocking op).
+#endif
 #endif
 };
 
@@ -3595,6 +3634,70 @@ static void tc_heap_free_all(TcVM *vm) {
   vm->heap_used_peak = 0;
   vm->heap_maint_ticks = 0;
 }
+
+#ifdef USE_TINYC_WORKER_VM
+/*********************************************************************************************\
+ * Dual execution context (USE_TINYC_WORKER_VM) — a spawnTask worker on its OWN TcVM.
+ *
+ * The worker VM has PRIVATE execution state (operand stack, call frames, program counter,
+ * heap) but ALIASES the primary VM's read-only program (code/constants) and its SHARED
+ * globals[] array. Because the two VMs have SEPARATE frame stacks, a callback dispatched
+ * on the primary VM (during the worker's vm_mutex-release window) can no longer stack a
+ * frame onto the worker's parked frame — which was the PC=0 corruption. vm_mutex still
+ * serialises bytecode execution between the two; globals_mux guards the raw globals[]
+ * writes against the async UDP-RX apply. Cross-context data must travel through scalar
+ * globals / the share-store — NOT heap objects (each VM has its own heap; a heap handle
+ * is meaningless in the other VM).
+\*********************************************************************************************/
+
+// Allocate + initialise a worker VM for slot `s`. Returns nullptr on OOM (caller then
+// falls back to the shared-VM borrow path). Aliased fields must NOT be freed by the worker.
+static TcVM *tc_alloc_worker_vm(TcSlot *s, int cb_idx) {
+  (void)cb_idx;
+  TcVM *w = (TcVM *)calloc(1, sizeof(TcVM));
+  if (!w) return nullptr;
+  w->stack = (int32_t *)calloc(TC_STACK_SIZE, sizeof(int32_t));
+  if (!w->stack) { free(w); return nullptr; }
+  w->stack_size = TC_STACK_SIZE;
+
+  TcVM *p = &s->vm;
+  // --- ALIASED (shared / read-only) — never freed by tc_free_worker_vm ---
+  w->code = p->code; w->code_size = p->code_size; w->code_offset = p->code_offset;
+  w->constants = p->constants; w->const_count = p->const_count;
+  w->const_capacity = p->const_capacity; w->const_data = p->const_data;
+  w->const_data_size = p->const_data_size; w->const_data_used = p->const_data_used;
+  w->globals = p->globals; w->globals_size = p->globals_size;          // SHARED MUTABLE
+  memcpy(w->callbacks, p->callbacks, sizeof(w->callbacks));
+  w->callback_count = p->callback_count;
+  memcpy(w->cb_index, p->cb_index, sizeof(w->cb_index));
+  memcpy(w->watch_indices, p->watch_indices, sizeof(w->watch_indices));
+  w->watch_count = p->watch_count;
+  // --- PRIVATE execution state (calloc already zeroed frames[]/timers/flags) ---
+  w->pc = 0; w->sp = 0; w->fp = 0; w->frame_count = 0;
+  w->halted = true; w->running = false; w->error = TC_OK; w->delayed = false;
+  w->ow_pin = -1; w->ow_bus = nullptr;
+  w->cb_arg_handle = -1; w->cb_arg_handle2 = -1;
+  w->worker_borrowed = false;              // owns its VM — does NOT borrow the primary
+  // Shared globals mutex: create once, both VMs point at it. TC_GLOBALS_LOCK no-ops while
+  // it is NULL, so single-VM slots (no worker) pay nothing even in a flag-on build.
+  if (!p->globals_mux) p->globals_mux = xSemaphoreCreateMutex();
+  w->globals_mux = p->globals_mux;
+  return w;
+}
+
+// Free ONLY the worker's private state. Aliased globals/constants/code belong to the
+// primary VM and are left untouched. globals_mux is shared and intentionally kept for the
+// primary VM's lifetime (TODO: free on slot destroy).
+static void tc_free_worker_vm(TcVM *w) {
+  if (!w) return;
+  tc_free_all_frames(w);   // frame locals (private)
+  tc_heap_free_all(w);     // worker heap (private)
+  if (w->stack) free(w->stack);
+  // Detach aliases so nothing can accidentally double-free the primary's arrays.
+  w->globals = nullptr; w->constants = nullptr; w->const_data = nullptr; w->code = nullptr;
+  free(w);
+}
+#endif  // USE_TINYC_WORKER_VM
 
 // Idle bump-heap shrink — call once per second per slot from FUNC_EVERY_SECOND
 // while holding the slot's vm_mutex (so no VM op runs concurrently and no raw
@@ -16401,6 +16504,7 @@ static void tc_scan_watch_indices(TcVM *vm) {
 static inline void tc_global_write_with_watch(TcVM *vm, uint16_t gidx,
                                               int32_t newval, int32_t oldval) {
   if (gidx >= vm->globals_size) return;   // out-of-range widget id -> ignore (the main write was unchecked OOB)
+  TC_GLOBALS_LOCK(vm);
   vm->globals[gidx] = newval;
   for (uint8_t i = 0; i < vm->watch_count; i++) {
     if (vm->watch_indices[i] == gidx) {
@@ -16409,9 +16513,10 @@ static inline void tc_global_write_with_watch(TcVM *vm, uint16_t gidx,
         vm->globals[gidx + 1] = oldval;
         vm->globals[gidx + 2] = 1;
       }
-      return;
+      break;   // single exit so the unlock below always runs
     }
   }
+  TC_GLOBALS_UNLOCK(vm);
 }
 
 /*********************************************************************************************\
@@ -17184,13 +17289,14 @@ static int tc_vm_step(TcVM *vm) {
     case OP_STORE_GLOBAL:
       addr=tc_read_u16(vm);
       if (addr >= vm->globals_size) { TC_POP(vm); return TC_ERR_BOUNDS; }
-      vm->globals[addr]=TC_POP(vm); break;
+      { int32_t _v = TC_POP(vm);                           // pop off the private stack first
+        TC_GLOBALS_LOCK(vm); vm->globals[addr]=_v; TC_GLOBALS_UNLOCK(vm); } break;
     case OP_STORE_GLOBAL_UDP: {
       uint16_t gidx = tc_read_u16(vm);
       uint16_t name_idx = tc_read_u16(vm);
       if (gidx >= vm->globals_size) { TC_POP(vm); return TC_ERR_BOUNDS; }
       int32_t val = TC_POP(vm);
-      vm->globals[gidx] = val;
+      TC_GLOBALS_LOCK(vm); vm->globals[gidx] = val; TC_GLOBALS_UNLOCK(vm);
       if (Tinyc && Tinyc->udp_connected && name_idx < vm->const_count && vm->constants[name_idx].type == 1) {
         tc_udp_send(vm->constants[name_idx].str.ptr, i2f(val));
       }
@@ -17202,9 +17308,11 @@ static int tc_vm_step(TcVM *vm) {
       uint16_t written_idx = tc_read_u16(vm);
       int32_t val = TC_POP(vm);
       if (var_idx < vm->globals_size && shadow_idx < vm->globals_size && written_idx < vm->globals_size) {
+        TC_GLOBALS_LOCK(vm);                               // triple must be atomic vs a reader
         vm->globals[shadow_idx] = vm->globals[var_idx];  // save old value
         vm->globals[written_idx] = 1;                     // set written flag
         vm->globals[var_idx] = val;                        // store new value
+        TC_GLOBALS_UNLOCK(vm);
       }
       break;
     }
@@ -17249,7 +17357,7 @@ static int tc_vm_step(TcVM *vm) {
         tc_log_bounds("global[]", addr+a, vm->globals_size, vm->pc);
         return TC_ERR_BOUNDS;
       }
-      vm->globals[addr+a]=b; break;
+      TC_GLOBALS_LOCK(vm); vm->globals[addr+a]=b; TC_GLOBALS_UNLOCK(vm); break;
 
     // ── Type conversion ────────────────────
     case OP_I2F: a=TC_POP(vm); TC_PUSHF(vm, (float)a); break;
@@ -18062,6 +18170,12 @@ static void tc_vm_task(void *param) {
 static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 0xFFFFFFFFUL) {
   if (!s || !s->loaded) return;
 #ifdef ESP32
+#ifdef USE_TINYC_WORKER_VM
+  // A worker VM (Option 2) may hold vm_mutex through a blocking op (httpGet). Never block
+  // loopTask on it: downgrade the blocking default to a try-take so this callback simply
+  // skips this tick and fires later, in the worker's next delay() window.
+  if (s->has_worker_vm && wait_ticks == 0xFFFFFFFFUL) wait_ticks = 0;
+#endif
   if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, (TickType_t)wait_ticks) != pdTRUE) return;
 #else
   (void)wait_ticks;
@@ -18116,7 +18230,12 @@ static void tc_slot_callback_id(TcSlot *s, TcCallbackId cid) {
   // "loaded" yet, which we already gated above).
   if (s->vm.cb_index[cid] < 0) return;
 #ifdef ESP32
-  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#ifdef USE_TINYC_WORKER_VM
+  if (s->has_worker_vm) {
+    if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, 0) != pdTRUE) return;  // worker busy -> skip tick
+  } else
+#endif
+  { if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY); }
 #endif
   if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32

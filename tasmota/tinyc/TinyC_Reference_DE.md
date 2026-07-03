@@ -467,6 +467,14 @@ passiert, haengt davon ab, was der eigene Task des Slots gerade tut:
 > (`Bounds error PC=0`); jetzt ist es sicher, aber stumm — die Callbacks feuern
 > einfach nicht mehr.
 
+> **Opt-in-Aufhebung — `USE_TINYC_WORKER_VM` (ESP32):** eine mit diesem Flag gebaute
+> Firmware gibt dem Worker eine EIGENE VM (privater Stack/Frames/Heap), die sich das
+> `globals[]` des Slots teilt — so verteilt die primaere VM weiter Callbacks: ein Worker
+> **und** lokales UI auf einem Slot. Callbacks nutzen dann drop-on-busy am VM-Mutex (ohne
+> loopTask zu blockieren). Standardmaessig AUS; die Tabelle oben beschreibt das
+> Standardverhalten (kopflos). Daten zwischen den Kontexten laufen weiterhin ueber skalare
+> Globale / den Share-Store, nicht ueber Heap-Objekte.
+
 **Das Muster nach der Arbeitslast waehlen:**
 
 1. **Gelegentliche blockierende I/O + lokales UI → Single-Task, kein Worker.** Den

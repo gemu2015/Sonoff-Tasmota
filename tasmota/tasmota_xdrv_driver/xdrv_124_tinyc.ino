@@ -5410,6 +5410,9 @@ struct TcSpawnTask {
   uint8_t       slot_idx;         // 0..TC_MAX_VMS-1
   volatile uint8_t stop_requested;
   volatile uint8_t running;       // 1 while FreeRTOS task alive
+#ifdef USE_TINYC_WORKER_VM
+  TcVM         *worker_vm;        // Option 2: the worker's OWN VM (NULL = borrow shared VM)
+#endif
 };
 
 static TcSpawnTask tc_spawn_pool[TC_MAX_SPAWN_TASKS];
@@ -5619,6 +5622,136 @@ static void tc_spawn_task_body(void *param) {
   vTaskDelete(NULL);
 }
 
+#ifdef USE_TINYC_WORKER_VM
+// Option 2 task body: runs the spawnTask entry function on the worker's OWN TcVM (which
+// aliases the primary's globals/code) so the primary VM keeps dispatching callbacks. Meets
+// the primary only in globals[], serialised via slot->vm_mutex (released during delay()).
+// NEVER sets worker_borrowed — the primary's frame stack is untouched, so no PC=0.
+static void tc_worker_vm_body(void *param) {
+  TcSpawnTask *entry = (TcSpawnTask *)param;
+  TcSlot *slot = entry->slot;
+  TcVM   *pvm  = &slot->vm;          // primary VM — main() runs here, owns globals
+  TcVM   *vm   = entry->worker_vm;   // the worker's OWN VM
+  const char *name = entry->name;
+
+  do {
+    // Wait for the primary main() to halt so globals are fully initialised.
+    uint32_t waited = 0;
+    while (!entry->stop_requested && slot->loaded && !pvm->halted && waited < TC_SPAWN_WAIT_MAIN) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      waited += 10;
+    }
+    if (entry->stop_requested || !slot->loaded) break;
+    if (!pvm->halted) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: workerVM('%s') aborted — main never halted"), name);
+      break;
+    }
+
+    int cb_idx = -1;
+    for (uint8_t i = 0; i < vm->callback_count; i++) {
+      if (strcmp(vm->callbacks[i].name, name) == 0) { cb_idx = i; break; }
+    }
+    if (cb_idx < 0) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: workerVM('%s') — function gone after wait"), name);
+      break;
+    }
+
+    if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+    tc_current_slot = slot;
+
+    // Fresh frame on the worker VM (frame_count starts at 0 — its own stack).
+    vm->halted = false; vm->running = true; vm->error = TC_OK;
+    vm->sp = 0; vm->fp = 0; vm->frame_count = 0;
+    TcFrame *frame = &vm->frames[0];
+    frame->return_pc = 0;
+    frame->saved_sp = 0;
+    if (!tc_frame_alloc(frame)) {
+      vm->halted = true; vm->running = false;
+      tc_current_slot = nullptr;
+      if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: workerVM('%s') stack alloc fail"), name);
+      break;
+    }
+    vm->fp = 0;
+    vm->frame_count = 1;
+    vm->pc = vm->code_offset + vm->callbacks[cb_idx].address;
+
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: workerVM('%s') running on slot %d (own VM)"), name, entry->slot_idx);
+
+    uint32_t count = 0;
+    while (vm->frame_count > 0
+           && !vm->halted
+           && vm->error == TC_OK
+           && !entry->stop_requested
+           && slot->loaded) {
+      int err = tc_vm_step(vm);
+      if (err == TC_ERR_PAUSED) {
+        if (vm->delayed) {
+          // Release the mutex during the sleep so primary callbacks run.
+          vm->halted = true; vm->running = false;
+          tc_current_slot = nullptr;
+          if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+          int32_t remaining = (int32_t)(vm->delay_until - millis());
+          while (remaining > 0 && !entry->stop_requested && slot->loaded) {
+            int32_t chunk = (remaining > 50) ? 50 : remaining;
+            vTaskDelay(pdMS_TO_TICKS(chunk));
+            remaining = (int32_t)(vm->delay_until - millis());
+          }
+          vm->delayed = false;
+          if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+          tc_current_slot = slot;
+          if (entry->stop_requested || !slot->loaded) break;
+          vm->halted = false; vm->running = true;
+        }
+        continue;
+      }
+      if (err != TC_OK) {
+        vm->error = err;
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: workerVM('%s') err %d at PC=%u"), name, err, vm->pc);
+        tc_crash_log(err, vm->pc, vm->instruction_count, name);
+        break;
+      }
+      count++;
+      vm->instruction_count++;
+      if ((count & 0xFFFF) == 0) {
+        vm->halted = true; vm->running = false;
+        if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+        vTaskDelay(1);
+        if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+        tc_current_slot = slot;
+        if (entry->stop_requested || !slot->loaded) break;
+        vm->halted = false; vm->running = true;
+      }
+    }
+
+    while (vm->frame_count > 0) {
+      tc_frame_free(&vm->frames[--vm->frame_count]);
+    }
+    vm->halted = true; vm->running = false;
+    tc_output_flush();
+    tc_current_slot = nullptr;
+    if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+  } while (0);
+
+  // Tear down the worker VM (private stack/frames/heap only; aliased arrays untouched).
+  slot->has_worker_vm = false;
+  tc_free_worker_vm(vm);
+  entry->worker_vm = nullptr;
+
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: workerVM('%s') finished%s"),
+         name, entry->stop_requested ? " (killed)" : "");
+  tc_spawn_pool_lock();
+  entry->handle = nullptr;
+  entry->running = 0;
+  entry->stop_requested = 0;
+  entry->slot = nullptr;
+  entry->slot_idx = 0xFF;
+  entry->name[0] = 0;
+  tc_spawn_pool_unlock();
+  vTaskDelete(NULL);
+}
+#endif  // USE_TINYC_WORKER_VM
+
 // Called from SYS_SPAWN_TASK / SYS_SPAWN_TASK_STACK syscalls.
 // stack_kb=0 → use default. Returns pool index (0..N-1) or -1.
 int tc_spawn_task_create(const char *name, uint16_t stack_kb) {
@@ -5689,19 +5822,40 @@ int tc_spawn_task_create(const char *name, uint16_t stack_kb) {
   entry->stop_requested = 0;
   entry->running = 1;
   entry->handle = nullptr;
+#ifdef USE_TINYC_WORKER_VM
+  entry->worker_vm = nullptr;
+#endif
   tc_spawn_pool_unlock();
+
+  TaskFunction_t body = tc_spawn_task_body;   // default: borrow the shared VM (headless)
+#ifdef USE_TINYC_WORKER_VM
+  // Option 2: give the worker its OWN VM so the primary VM keeps dispatching callbacks
+  // (worker + local UI on one slot). On OOM, worker_vm stays NULL -> fall back to borrow.
+  entry->worker_vm = tc_alloc_worker_vm(tc_current_slot, cb_idx);
+  if (entry->worker_vm) {
+    tc_current_slot->has_worker_vm = true;
+    body = tc_worker_vm_body;
+  }
+#endif
 
   uint16_t stack_bytes = (stack_kb ? stack_kb : TC_SPAWN_STACK_DEF) * 1024;
   char tname[24];
   snprintf(tname, sizeof(tname), "tc_spawn_%u", (unsigned)free_idx);
   BaseType_t rc = xTaskCreatePinnedToCore(
-    tc_spawn_task_body, tname, stack_bytes, entry,
+    body, tname, stack_bytes, entry,
     tskIDLE_PRIORITY + 1, &entry->handle, 1);
   if (rc != pdPASS) {
     tc_spawn_pool_lock();
     entry->running = 0;
     entry->handle = nullptr;
     entry->name[0] = 0;
+#ifdef USE_TINYC_WORKER_VM
+    if (entry->worker_vm) {
+      tc_free_worker_vm(entry->worker_vm);
+      entry->worker_vm = nullptr;
+      tc_current_slot->has_worker_vm = false;
+    }
+#endif
     tc_spawn_pool_unlock();
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask: xTaskCreate failed"));
     return -1;

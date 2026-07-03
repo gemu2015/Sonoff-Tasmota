@@ -502,6 +502,13 @@ what the slot's own task is doing:
 > **same** slot. This used to corrupt the VM (`Bounds error PC=0`); it is now safe
 > but silent — the callbacks simply stop firing.
 
+> **Opt-in lift — `USE_TINYC_WORKER_VM` (ESP32):** a firmware built with this flag gives
+> the worker its **own** VM (private stack/frames/heap) that shares the slot's `globals[]`,
+> so the primary VM keeps dispatching callbacks — a worker **and** local UI coexist on one
+> slot. Callbacks then drop-on-busy on the VM mutex (never blocking loopTask). Off by
+> default; the table above describes the default (headless) behaviour. Cross-context data
+> still travels through scalar globals / the share-store, not heap objects.
+
 **Choose the pattern by workload:**
 
 1. **Occasional blocking I/O + local UI → single-task, no worker.** Do the blocking
