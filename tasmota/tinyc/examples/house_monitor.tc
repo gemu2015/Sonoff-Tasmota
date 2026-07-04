@@ -32,7 +32,7 @@
 // value green when ok, RED on detection/alarm. Alarm also speaks via deferred
 // I2STTS (needs the picotts de-DE voice on the device).
 
-#define N       7          // number of rules (grow this)
+#define N       8          // number of rules (grow this)
 #define DAYMIN  1
 #define RANGE   2
 #define FROZEN  3
@@ -40,6 +40,7 @@
 #define INFO    5          // display only — never alarms
 #define SOCLIVE 6          // battery-SOC row + UDP-liveness (Powerwall/Marstek)
 #define ENALIVE 7          // pure UDP-liveness row (Energy_Manager .61)
+#define TMPLIVE 8          // temperature value + UDP-liveness (e.g. .150 Solarspeicher scol)
 
 // LVGL touch-event code (LVGL 9.5) + label align — for the on-screen mute switch
 #define EV_CLICKED 10
@@ -71,6 +72,7 @@
 #define PW_STALE_MIN  10       // (SOCLIVE) Powerwall pwl: relayed ~every 30 s via .20
 #define MA_STALE_MIN  15       // (SOCLIVE) Marstek msoc: app-driven, can be bursty/slow
 #define EN_STALE_MIN   5       // (ENALIVE) .61 sedc: broadcasts ~every 10-12 s (>S round-robin)
+#define SC_STALE_MIN   5       // (TMPLIVE) .150 scol: sml_ebus broadcasts every ~1 s
 #define DEBOUNCE_S     300     // stay bad this long before the first alarm (5 min)
 #define REALARM_S      300     // re-speak this often while tripped (5 min)
 #define QUIET_START    22      // mute spoken alarms from 22:00 ...
@@ -78,7 +80,7 @@
 #define ROWH           28      // px per row (fits ~10 on 480x320)
 
 // ── the rule config (parallel columns) ──
-char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Marstek|Energiemonitor";
+char  names[] = "Hausdach|Gartenhaus|Garten|Garage|Powerwall|Marstek|Energiemonitor|Solarspeicher";
 int   typ[N]; float p1[N]; float p2[N];
 
 // fleet globals (auto-received over UDP). SIGN: sedc is +producing, wr* are
@@ -92,6 +94,7 @@ global watch float sedc;      // .61 Hausdach inverter — doubles as the .61 he
 global float wrgh; global float wrgg; global float wrga;   // other inverters (peer group)
 global watch float pwl;       // Powerwall SOC %  — Tesla gateway reader (.140 -> .20 relay)
 global watch float msoc;      // Marstek SOC %    — Venus E (.170)
+global watch float scol;      // Solarspeicher temp — sml_ebus (.150) heartbeat
 
 // runtime state
 float val[N]; int viol[N]; int alm[N]; int spk[N]; int badf[N];  // badf = live bad flag (for WebUI)
@@ -139,6 +142,7 @@ void readVals() {
     val[3] = -wrga;      // Garage
     val[4] =  pwl;       // Powerwall SOC %
     val[5] =  msoc;      // Marstek SOC %
+    val[7] =  scol;      // Solarspeicher temp (.150)  [row 6 = packet age, set in EverySecond]
 }
 
 int main() {
@@ -155,6 +159,8 @@ int main() {
     setRule(5, SOCLIVE, MA_STALE_MIN, 0.0);
     // 6 Energy_Manager (.61) liveness (written(sedc)) — shows packet age.
     setRule(6, ENALIVE, EN_STALE_MIN, 0.0);
+    // 7 sml_ebus (.150) Solarspeicher temp + liveness (written(scol)).
+    setRule(7, TMPLIVE, SC_STALE_MIN, 0.0);
 
     lvglInit(); lvglClean(0); lvglSetBgColor(0, C_BG);
     clockL = lvglLabel(0);
@@ -202,6 +208,7 @@ int isBad(int i, int day, int active) {
     if (t == INFO)    { return 0; }               // display only
     if (t == SOCLIVE) { return liv[i]; }           // UDP-liveness (computed in EverySecond)
     if (t == ENALIVE) { return liv[i]; }           // UDP-liveness (computed in EverySecond)
+    if (t == TMPLIVE) { return liv[i]; }           // temp value + UDP-liveness (.150 Solarspeicher)
     if (t == PEER) {
         if (grp_nprod < peer_min) { return 0; }   // too few delivering -> can't judge (dark/overcast)
         if (v < dead_w) { return 1; }             // flat while >= peer_min peers deliver -> dead
@@ -231,6 +238,7 @@ void problemPhrase(int i) {          // -> g_s
     if (t == DAYMIN || t == PEER) { strcpy(g_s, "liefert keine Leistung"); }
     else if (t == SOCLIVE) { strcpy(g_s, "sendet keine Daten mehr"); }
     else if (t == ENALIVE) { strcpy(g_s, "Energiemonitor tot"); }
+    else if (t == TMPLIVE) { strcpy(g_s, "sendet keine Daten mehr"); }
     else if (t == FROZEN) { strcpy(g_s, "haengt fest"); }
     else if (val[i] > p2[i]) { strcpy(g_s, "zu hoch"); }
     else { strcpy(g_s, "zu niedrig"); }
@@ -286,6 +294,7 @@ void EverySecond() {
     if (written(pwl))  { snapshot(pwl);  liveTick(4, 1, PW_STALE_MIN); } else { liveTick(4, 0, PW_STALE_MIN); }
     if (written(msoc)) { snapshot(msoc); liveTick(5, 1, MA_STALE_MIN); } else { liveTick(5, 0, MA_STALE_MIN); }
     if (written(sedc)) { snapshot(sedc); liveTick(6, 1, EN_STALE_MIN); } else { liveTick(6, 0, EN_STALE_MIN); }
+    if (written(scol)) { snapshot(scol); liveTick(7, 1, SC_STALE_MIN); } else { liveTick(7, 0, SC_STALE_MIN); }
     val[6] = (float)(tasm_uptime - seen[6]);       // Energiemonitor row shows the packet age
 
     i = 0;
@@ -322,6 +331,7 @@ void EverySecond() {
         // (acknowledged) so a known fault reads as "seen, silenced"; green = ok.
         if (typ[i] == SOCLIVE)      { sprintf(g_s, "%.0f%%", val[i]); }
         else if (typ[i] == ENALIVE) { sprintf(g_s, "%.0fs", val[i]); }
+        else if (typ[i] == TMPLIVE) { sprintf(g_s, "%.0f C", val[i]); }
         else                        { sprintf(g_s, "%.0f", val[i]); }
         lvglSetText(rowV[i], g_s);
         if ((bad || alm[i] == 1) && acked[i] == 1) { lvglSetTextColor(rowV[i], C_AMBER); }
@@ -406,6 +416,7 @@ void WebCall() {
         strToken(g_nm, names, '|', i + 1);
         if (typ[i] == SOCLIVE)      { sprintf(g_s, "%.0f %%", val[i]); }
         else if (typ[i] == ENALIVE) { sprintf(g_s, "vor %.0f s", val[i]); }   // liveness: age of last packet
+        else if (typ[i] == TMPLIVE) { sprintf(g_s, "%.1f &deg;C", val[i]); }  // temperature row (.150 Solarspeicher)
         else                        { sprintf(g_s, "%.0f W", val[i]); }
 
         int alarming = 0; if (badf[i] || alm[i] == 1) { alarming = 1; }
