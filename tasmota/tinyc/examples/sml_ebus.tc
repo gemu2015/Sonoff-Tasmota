@@ -7,6 +7,8 @@
 #define DAY_INT     300       // sample interval in seconds (5 min)
 #define WEEK_LEN    336       // 7 days at 1 sample/30 min
 #define WEEK_INT    1800      // sample interval in seconds (30 min)
+#define CHARTFILE   "/sml_ebus.bin"
+#define CHART_MAGIC 0x53424531  // "SBE1" — bump to discard an old-layout .bin on load
 
 persist watch int sml_activ;
 float min_at;
@@ -26,26 +28,86 @@ char s1[8];
 char s2[8];
 
 global float atmp;
+// brauchwasser wärmepumpe total energy
+global float bwwpc;
+// solarpumpe total energy
+global float sppc;
+
 float scol;
 float ssp;
 float spmp;
 
-// 24h history (1 sample/5 min)
-persist float d_at[DAY_LEN];
-persist float d_ss[DAY_LEN];
-persist float d_ct[DAY_LEN];
-persist int d_pos;              // current wall-clock 5-min slot (ring anchor)
+// ── Chart history — stored in /sml_ebus.bin (NOT persist/.pvs). File storage
+// keeps the large arrays out of the .pvs, so adding a series never re-seeds the
+// persist store, and the history survives reloads/OTA. (Same pattern as
+// power_meter.tc / bresser_chart.tc.) ─────────────────────────────────────────
+// 24h history (1 sample/5 min): 3 temps + 2 energy deltas
+float d_at[DAY_LEN];
+float d_ss[DAY_LEN];
+float d_ct[DAY_LEN];
+float d_bww[DAY_LEN];          // kWh consumed per 5-min slot (Brauchwasser-WP)
+float d_spp[DAY_LEN];          // kWh consumed per 5-min slot (Solarpumpe)
+int   d_pos;                   // current wall-clock 5-min slot (ring anchor)
 
-// weekly history (1 sample/30 min)
-persist float w_at[WEEK_LEN];
-persist float w_ss[WEEK_LEN];
-persist float w_ct[WEEK_LEN];
-persist int w_pos;             // current wall-clock 30-min slot (ring anchor)
+// weekly history (1 sample/30 min): 3 temps + 2 energy deltas
+float w_at[WEEK_LEN];
+float w_ss[WEEK_LEN];
+float w_ct[WEEK_LEN];
+float w_bww[WEEK_LEN];
+float w_spp[WEEK_LEN];
+int   w_pos;                   // current wall-clock 30-min slot (ring anchor)
+
+// Energy delta state: the accumulated meter value at the START of the current
+// slot, so each slot shows the kWh consumed within it (diff of the accumulator).
+int   d_lastdi;                // 5-min slot the current base was snapshot for
+int   w_lastwi;                // 30-min slot the current base was snapshot for
+float d_bww_base; float d_spp_base;
+float w_bww_base; float w_spp_base;
+int   save_slot;               // last 5-min slot flushed to .bin (flush cadence)
+int   chart_dirty;             // 1 = arrays changed since last save (OnExit guard)
+
+// /sml_ebus.bin layout: int header + float arrays (5×DAY_LEN + 5×WEEK_LEN) + bases[4]
+int   chdr[8];                 // [magic, d_pos, w_pos, d_lastdi, w_lastwi, 0,0,0]
+float cbas[4];                 // [d_bww_base, d_spp_base, w_bww_base, w_spp_base]
 
 void resetMinMax() {
     min_at = 999.0; max_at = -999.0;
     min_ss = 999.0; max_ss = -999.0;
     min_ct = 999.0; max_ct = -999.0;
+}
+
+// ── Chart storage: /sml_ebus.bin (fileWriteBin/fileReadBin, like other SML examples) ──
+void sml_save() {
+    int h = fileOpen(CHARTFILE, "w");
+    if (h < 0) { addLog("sml_ebus save: fileOpen failed"); return; }
+    chdr[0] = CHART_MAGIC; chdr[1] = d_pos; chdr[2] = w_pos;
+    chdr[3] = d_lastdi; chdr[4] = w_lastwi; chdr[5] = 0; chdr[6] = 0; chdr[7] = 0;
+    fileWriteBin(h, chdr, 8);
+    fileWriteBin(h, d_at, DAY_LEN);  fileWriteBin(h, d_ss, DAY_LEN);  fileWriteBin(h, d_ct, DAY_LEN);
+    fileWriteBin(h, d_bww, DAY_LEN); fileWriteBin(h, d_spp, DAY_LEN);
+    fileWriteBin(h, w_at, WEEK_LEN); fileWriteBin(h, w_ss, WEEK_LEN); fileWriteBin(h, w_ct, WEEK_LEN);
+    fileWriteBin(h, w_bww, WEEK_LEN); fileWriteBin(h, w_spp, WEEK_LEN);
+    cbas[0] = d_bww_base; cbas[1] = d_spp_base; cbas[2] = w_bww_base; cbas[3] = w_spp_base;
+    fileWriteBin(h, cbas, 4);
+    fileClose(h);
+    chart_dirty = 0;
+}
+
+void sml_load() {
+    int want = (8 + 5 * DAY_LEN + 5 * WEEK_LEN + 4) * 4;   // exact byte size of the layout
+    if (fileSize(CHARTFILE) != want) { return; }           // missing / old format -> fresh start
+    int h = fileOpen(CHARTFILE, "r");
+    if (h < 0) { return; }
+    fileReadBin(h, chdr, 8);
+    if (chdr[0] != CHART_MAGIC) { fileClose(h); return; }  // version bump -> ignore old data
+    d_pos = chdr[1]; w_pos = chdr[2]; d_lastdi = chdr[3]; w_lastwi = chdr[4];
+    fileReadBin(h, d_at, DAY_LEN);  fileReadBin(h, d_ss, DAY_LEN);  fileReadBin(h, d_ct, DAY_LEN);
+    fileReadBin(h, d_bww, DAY_LEN); fileReadBin(h, d_spp, DAY_LEN);
+    fileReadBin(h, w_at, WEEK_LEN); fileReadBin(h, w_ss, WEEK_LEN); fileReadBin(h, w_ct, WEEK_LEN);
+    fileReadBin(h, w_bww, WEEK_LEN); fileReadBin(h, w_spp, WEEK_LEN);
+    fileReadBin(h, cbas, 4);
+    d_bww_base = cbas[0]; d_spp_base = cbas[1]; w_bww_base = cbas[2]; w_spp_base = cbas[3];
+    fileClose(h);
 }
 
 int main() {
@@ -56,8 +118,11 @@ int main() {
     startup = 10;           // skip first 10 seconds for SML to deliver data
     last_day = tasm_day;
     resetMinMax();
-    // d_pos, w_pos are persist — keep chart history across restarts.
-    // They now hold the current wall-clock ring slot, refreshed every second.
+    // Chart history lives in /sml_ebus.bin (not persist). The -1 sentinels force a
+    // fresh energy base-snapshot on first run; sml_load() overwrites them + all the
+    // arrays when a valid .bin exists, so history survives reloads/OTA.
+    d_lastdi = -1; w_lastwi = -1; save_slot = -1; chart_dirty = 0;
+    sml_load();
 }
 
 void EverySecond() {
@@ -125,6 +190,28 @@ void EverySecond() {
         w_ct[wi] = ssp;
         w_pos = (wi + 1) % WEEK_LEN;
     }
+
+    // --- Energy: bwwpc / sppc are ACCUMULATED kWh meters (UDP globals). Each slot
+    // holds the kWh consumed WITHIN it = current total - total at the slot start.
+    // Sample only once BOTH meters carry real values (skip startup zeros); a new
+    // slot re-snapshots the base (the -1 sentinel forces it on the very first run).
+    if (bwwpc != 0.0 && sppc != 0.0) {
+        if (di >= 0 && di < DAY_LEN) {
+            if (di != d_lastdi) { d_lastdi = di; d_bww_base = bwwpc; d_spp_base = sppc; }
+            d_bww[di] = bwwpc - d_bww_base;
+            d_spp[di] = sppc - d_spp_base;
+        }
+        if (wi >= 0 && wi < WEEK_LEN) {
+            if (wi != w_lastwi) { w_lastwi = wi; w_bww_base = bwwpc; w_spp_base = sppc; }
+            w_bww[wi] = bwwpc - w_bww_base;
+            w_spp[wi] = sppc - w_spp_base;
+        }
+    }
+
+    // Flush chart state to /sml_ebus.bin once per 5-min slot (bounded flash wear);
+    // OnExit / CleanUp flush any remaining samples on restart / OTA.
+    chart_dirty = 1;
+    if (di != save_slot) { save_slot = di; sml_save(); }
 }
 
 
@@ -244,8 +331,23 @@ void WebPage() {
     WebChart(0, "", "Speicher|C", 0xFF5722, w_pos, WEEK_LEN, w_ss, 1, 30, 0.0, 0.0);
     WebChart(0, "", "Kollektor|C", 0x4CAF50, w_pos, WEEK_LEN, w_ct, 1, 30, 0.0, 0.0);
     WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
+
+    // --- 24h energy: kWh consumed per 5-min slot (diff of the accumulated meters) ---
+    WebChart(0, "Energie 24h [kWh/5min]", "Brauchw.-WP|kWh", 0xE91E63, d_pos, DAY_LEN, d_bww, 3, 5, 0.0, 0.0);
+    WebChart(0, "", "Solarpumpe|kWh", 0x00BCD4, d_pos, DAY_LEN, d_spp, 3, 5, 0.0, 0.0);
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
+
+    // --- weekly energy: kWh consumed per 30-min slot ---
+    WebChart(0, "Energie Woche [kWh/30min]", "Brauchw.-WP|kWh", 0xE91E63, w_pos, WEEK_LEN, w_bww, 3, 30, 0.0, 0.0);
+    WebChart(0, "", "Solarpumpe|kWh", 0x00BCD4, w_pos, WEEK_LEN, w_spp, 3, 30, 0.0, 0.0);
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
     webSend("</div>");
 }
+
+// Flush chart history to /sml_ebus.bin on a clean shutdown (device Restart / OTA).
+// Dirty-guarded so a freshly-imported .bin is never clobbered before any new sample.
+void OnExit()  { if (chart_dirty) { sml_save(); } }
+void CleanUp() { if (chart_dirty) { sml_save(); } }
 
 
 void WebUI() {
