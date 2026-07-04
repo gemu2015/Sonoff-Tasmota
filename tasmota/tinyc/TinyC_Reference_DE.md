@@ -459,21 +459,23 @@ passiert, haengt davon ab, was der eigene Task des Slots gerade tut:
 | `main()` angehalten, kein Worker | **laufen normal** | Der Standardfall. Die VM ist zwischen Callbacks im Leerlauf — voellig sicher, kein Nachdenken noetig. |
 | `TaskLoop()`, **kurze** Iterationen | **laufen, verschraenkt** | Der VM-Mutex serialisiert sie: Callbacks schieben sich zwischen die Iterationen. Ideal fuer schnelle Modbus-/Seriell-Abfragen (Sub-Millisekunde). |
 | `TaskLoop()`, **lange/blockierende** Iteration | **werden waehrenddessen verworfen** | Eine lange Iteration haelt den VM-Mutex; Callbacks, die dabei anfallen, werden uebersprungen. Iterationen kurz und nicht-blockierend halten. |
-| `spawnTask()`-Worker aktiv | **unterdrueckt — Slot wird kopflos** | Der Worker besitzt die VM ueber seine blockierenden Fenster hinweg, daher feuern `EverySecond` / `WebCall` / `WebUI` / `Command` fuer diesen Slot nicht mehr. Nur **ein** `spawnTask` pro Slot. |
+| `spawnTask()`-Worker aktiv | **laufen, drop-on-busy** | Auf dem ESP32 laeuft der Worker in seiner **eigenen** VM (Dual-Context, Standard), daher verteilt die primaere VM weiter `EverySecond` / `WebCall` / `WebUI` / `Command` — ein Worker **und** lokales UI auf einem Slot. Ein Callback, der anfaellt waehrend der Worker den VM-Mutex haelt, wird uebersprungen (best-effort), ohne loopTask zu blockieren. Nur **ein** `spawnTask` pro Slot. |
 
-> ⚠️ **Ein `spawnTask()`-Worker schaltet die lokalen Callbacks seines Slots ab.** Sie
-> koennen nicht einen Hintergrund-Worker **und** ein lokales Web-UI / LCD /
-> `EverySecond` auf **demselben** Slot haben. Frueher hat das die VM beschaedigt
-> (`Bounds error PC=0`); jetzt ist es sicher, aber stumm — die Callbacks feuern
-> einfach nicht mehr.
+> **Dual-Context-Worker-VM — Standard auf ESP32 (`USE_TINYC_WORKER_VM`).** Ein
+> `spawnTask()`-Worker erhaelt seine **eigene** VM (privater Operandenstack / Aufruframes /
+> Heap), die sich nur das `globals[]` des Slots teilt — so koennen ein Hintergrund-Worker
+> **und** ein lokales Web-UI / LCD / `EverySecond` auf **demselben** Slot koexistieren. Daten
+> zwischen den Kontexten laufen ueber skalare `global`-Variablen / den Share-Store — **nicht**
+> ueber Heap-Objekte (jede VM hat ihren eigenen Heap, ein Heap-Handle ist ueber die Grenze
+> hinweg bedeutungslos). Schreibzugriffe auf globals[] sind per Lock geschuetzt; Callbacks
+> nutzen drop-on-busy am VM-Mutex, ohne loopTask zu blockieren.
 
-> **Opt-in-Aufhebung — `USE_TINYC_WORKER_VM` (ESP32):** eine mit diesem Flag gebaute
-> Firmware gibt dem Worker eine EIGENE VM (privater Stack/Frames/Heap), die sich das
-> `globals[]` des Slots teilt — so verteilt die primaere VM weiter Callbacks: ein Worker
-> **und** lokales UI auf einem Slot. Callbacks nutzen dann drop-on-busy am VM-Mutex (ohne
-> loopTask zu blockieren). Standardmaessig AUS; die Tabelle oben beschreibt das
-> Standardverhalten (kopflos). Daten zwischen den Kontexten laufen weiterhin ueber skalare
-> Globale / den Share-Store, nicht ueber Heap-Objekte.
+> **Deaktivieren — `USE_TINYC_NO_WORKER_VM`.** Mit diesem Flag gebaut, kehrt das Verhalten
+> zum Legacy-Pfad zurueck: ein Worker leiht sich die einzige gemeinsame VM des Slots und der
+> Slot wird **kopflos** — `EverySecond` / `WebCall` / `WebUI` / `Command` feuern fuer diesen
+> Slot nicht mehr, solange der Worker lebt. Nur einsetzen, um den kleinen VM-Overhead pro
+> Worker auf einem Slot zu sparen, der keine lokalen Callbacks braucht. (Der ESP8266 hat einen
+> einzigen Slot und kein `spawnTask`, dort greift dies also nicht.)
 
 **Das Muster nach der Arbeitslast waehlen:**
 
@@ -489,10 +491,13 @@ passiert, haengt davon ab, was der eigene Task des Slots gerade tut:
    Sub-Millisekunden-Iterationen (Modbus, Seriell) verschraenken sich ueber den
    VM-Mutex sauber mit Callbacks. Jede Iteration kurz und nicht-blockierend halten,
    damit Callbacks nicht ausgehungert werden.
-3. **Lange / kontinuierliche blockierende Arbeit, kein lokales UI noetig →
-   `spawnTask()` + Relay.** Die blockierende Arbeit kopflos laufen lassen, Ergebnisse
-   als `global` (UDP)-Variablen veroeffentlichen und ein **zweiter Slot oder ein
-   anderes Geraet** rendert das UI aus diesen Globalen.
+3. **Lange / kontinuierliche blockierende Arbeit + lokales UI → `spawnTask()`
+   (Dual-Context, Standard).** Auf dem ESP32 laeuft der Worker in seiner eigenen VM, daher
+   feuern `EverySecond` / `WebCall` weiter auf der primaeren VM — LCD / Web-Zeilen lokal
+   zeichnen, waehrend der Worker blockiert. Die Grenze mit skalaren `global`-Variablen / dem
+   Share-Store ueberbruecken, nie mit Heap-Objekten. (Bei einem `USE_TINYC_NO_WORKER_VM`-Build
+   wird der Slot stattdessen kopflos — dann Ergebnisse als `global` (UDP)-Variablen
+   veroeffentlichen und aus einem zweiten Slot oder Geraet rendern.)
 
 > **Niemals** Display- oder Web-Widget-Syscalls (`dspText`, `webButton`, …) aus einem
 > `spawnTask`-Worker aufrufen — sie veraendern geteilten Tasmota-Zustand, der

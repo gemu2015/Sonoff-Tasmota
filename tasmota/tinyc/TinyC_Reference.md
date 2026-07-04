@@ -495,19 +495,21 @@ what the slot's own task is doing:
 | `main()` halted, no worker | **run normally** | The default. The VM is idle between callbacks — fully safe, no thought needed. |
 | `TaskLoop()`, **short** iterations | **run, interleaved** | The VM mutex serializes them: callbacks slot in between iterations. Ideal for fast Modbus / serial polls (sub-millisecond). |
 | `TaskLoop()`, **long/blocking** iteration | **dropped while it runs** | A long iteration holds the VM mutex; callbacks that tick during it are skipped. Keep iterations short and non-blocking. |
-| `spawnTask()` worker alive | **suppressed — slot goes headless** | The worker owns the VM across its blocking windows, so `EverySecond` / `WebCall` / `WebUI` / `Command` no longer fire for that slot. Only **one** `spawnTask` per slot. |
+| `spawnTask()` worker alive | **run, drop-on-busy** | On ESP32 the worker runs on its **own** VM (dual-context, default), so the primary VM keeps dispatching `EverySecond` / `WebCall` / `WebUI` / `Command` — a worker **and** local UI coexist on one slot. A callback that ticks while the worker holds the VM mutex is skipped (best-effort), never blocking loopTask. Only **one** `spawnTask` per slot. |
 
-> ⚠️ **A `spawnTask()` worker turns off local callbacks for its slot.** You cannot
-> have a background worker **and** a local web UI / LCD / `EverySecond` on the
-> **same** slot. This used to corrupt the VM (`Bounds error PC=0`); it is now safe
-> but silent — the callbacks simply stop firing.
+> **Dual-context worker VM — default on ESP32 (`USE_TINYC_WORKER_VM`).** A `spawnTask()`
+> worker gets its **own** VM (private operand stack / call frames / heap) that shares only the
+> slot's `globals[]`, so a background worker **and** a local web UI / LCD / `EverySecond`
+> coexist on the **same** slot. Cross-context data travels through scalar `global` variables /
+> the share-store — **not** heap objects (each VM has its own heap, so a heap handle is
+> meaningless across the boundary). globals[] writes are guarded by a lock; callbacks
+> drop-on-busy on the VM mutex, never blocking loopTask.
 
-> **Opt-in lift — `USE_TINYC_WORKER_VM` (ESP32):** a firmware built with this flag gives
-> the worker its **own** VM (private stack/frames/heap) that shares the slot's `globals[]`,
-> so the primary VM keeps dispatching callbacks — a worker **and** local UI coexist on one
-> slot. Callbacks then drop-on-busy on the VM mutex (never blocking loopTask). Off by
-> default; the table above describes the default (headless) behaviour. Cross-context data
-> still travels through scalar globals / the share-store, not heap objects.
+> **Opt out — `USE_TINYC_NO_WORKER_VM`.** Building with this flag reverts to the legacy
+> path: a worker borrows the slot's single shared VM and the slot goes **headless** —
+> `EverySecond` / `WebCall` / `WebUI` / `Command` stop firing for that slot while the worker
+> lives. Use it only to save the small per-worker VM overhead on a slot that needs no local
+> callbacks. (The ESP8266 has a single slot and no `spawnTask`, so this does not apply there.)
 
 **Choose the pattern by workload:**
 
@@ -521,9 +523,12 @@ what the slot's own task is doing:
 2. **Short, frequent background polling + local UI → `TaskLoop()`.** Sub-millisecond
    iterations (Modbus, serial) interleave cleanly with callbacks via the VM mutex.
    Keep each iteration short and non-blocking so callbacks aren't starved.
-3. **Long / continuous blocking work, no local UI needed → `spawnTask()` + relay.**
-   Run the blocking work headless, publish results as `global` (UDP) variables, and
-   let a **second slot or another device** render the UI from those globals.
+3. **Long / continuous blocking work + local UI → `spawnTask()` (dual-context, default).**
+   On ESP32 the worker runs on its own VM, so `EverySecond` / `WebCall` keep firing on the
+   primary — draw the LCD / web rows locally while the worker blocks. Cross the boundary with
+   scalar `global` variables / the share-store, never heap objects. (On a
+   `USE_TINYC_NO_WORKER_VM` build the slot goes headless instead — then publish results as
+   `global` (UDP) variables and render from a second slot or another device.)
 
 > **Never** call display or web-widget syscalls (`dspText`, `webButton`, …) from a
 > `spawnTask` worker — they mutate shared Tasmota state owned by `loopTask` and will

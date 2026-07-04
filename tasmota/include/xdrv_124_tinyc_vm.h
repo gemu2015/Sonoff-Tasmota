@@ -1387,20 +1387,28 @@ static const char * const TC_CB_NAME[TC_CB_COUNT] = {
 };
 
 /*********************************************************************************************\
- * USE_TINYC_WORKER_VM (opt-in, ESP32-only) — dual-context worker scaffold
+ * USE_TINYC_WORKER_VM (ESP32-only) — dual-context worker VM
  *
- * OFF (default): compiles to NOTHING. A spawnTask worker borrows the slot's single
- * shared VM (worker_borrowed) and the slot goes headless — current behavior, byte for
- * byte: no extra RAM, no locks, no behavior change.
+ * ON (DEFAULT on ESP32): a spawnTask worker gets its OWN VM (own operand stack / call
+ * frames / heap) that ALIASES the primary VM's read-only code + constants and shared
+ * globals[], so the primary keeps dispatching callbacks (EverySecond / WebCall / WebUI /
+ * Command) while the worker blocks — a background worker AND a local web UI / LCD coexist
+ * on one slot. The only shared MUTABLE state is globals[]; TC_GLOBALS_LOCK guards its write
+ * sites. Callbacks drop-on-busy on the VM mutex, so a busy worker never blocks loopTask.
  *
- * ON: a spawnTask worker gets its OWN VM (own stack/frames/heap) that ALIASES the
- * primary VM's globals/code/constants, so the primary keeps dispatching callbacks
- * (EverySecond/WebCall) while the worker runs — a worker AND local UI on one slot.
- * The only shared MUTABLE state is globals[]; TC_GLOBALS_LOCK guards its write sites.
- * See TinyC_Reference.md "Concurrency model". The dual-context logic is filled in in a
- * later stage; this scaffold (globals_mux field + null-guarded locks + clone stub) is
- * a no-op until tc_clone_for_worker() is implemented.
+ * OFF (define USE_TINYC_NO_WORKER_VM to opt out): a spawnTask worker borrows the slot's
+ * single shared VM (worker_borrowed) and the slot goes headless — the legacy behavior,
+ * byte for byte: no extra RAM, no locks. Cross-context data always travels through scalar
+ * globals / the share-store, never heap objects (each VM has its own heap).
+ *
+ * See TinyC_Reference.md "Concurrency model".
 \*********************************************************************************************/
+// Enabled by default on ESP32; opt out with USE_TINYC_NO_WORKER_VM (e.g. in user_config_override.h).
+#if defined(ESP32) && !defined(USE_TINYC_NO_WORKER_VM)
+  #ifndef USE_TINYC_WORKER_VM
+    #define USE_TINYC_WORKER_VM
+  #endif
+#endif
 #if defined(USE_TINYC_WORKER_VM) && !defined(ESP32)
   #error "USE_TINYC_WORKER_VM requires ESP32 (spawnTask / dual-context is ESP32-only)"
 #endif
