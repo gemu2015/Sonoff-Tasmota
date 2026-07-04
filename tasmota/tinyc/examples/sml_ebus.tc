@@ -33,9 +33,9 @@ global float bwwpc;
 // solarpumpe total energy
 global float sppc;
 
-float scol;
-float ssp;
-float spmp;
+global float scol;
+global float ssp;
+global float spmp;
 
 // ── Chart history — stored in /sml_ebus.bin (NOT persist/.pvs). File storage
 // keeps the large arrays out of the .pvs, so adding a series never re-seeds the
