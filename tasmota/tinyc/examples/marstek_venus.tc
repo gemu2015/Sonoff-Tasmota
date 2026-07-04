@@ -59,6 +59,10 @@ persist float mk_soc  = 50.0;   // SIMULATED state of charge (%)
 persist int   seeded  = 0;      // one-time default bootstrap flag
 persist int   mk_pwlmin = 30;   // hold Marstek AUTO charging until Powerwall SOC >= this %
                                 //   (slider min 5). Both drained -> fill the Powerwall first.
+persist int   mk_dcap   = 2500; // max DISCHARGE power (W) — MIRROR the Marstek app's
+                                //   800/2500 output-limit switch (the Local API neither
+                                //   reads nor sets it), so we never command more than the
+                                //   device will actually deliver. Caps the discharge setpoint.
 
 // Runtime (not persisted).
 int   mforce  = 0;      // 0 none, 1 force-charge, 2 force-discharge (manual, transient)
@@ -200,7 +204,7 @@ void decide() {
     if (mforce == 1) {                              // force charge
         if (soc < mk_max) { mk_setp = -MK_PMAX; } else { mforce = 0; mk_setp = 0; }
     } else if (mforce == 2) {                        // force discharge
-        if (soc > mk_min) { mk_setp = MK_PMAX; } else { mforce = 0; mk_setp = 0; }
+        if (soc > mk_min) { mk_setp = mk_dcap; } else { mforce = 0; mk_setp = 0; }  // cap = app limit
     } else {
         // AUTO: target from the FILTERED balance, then slew-rate limit toward it.
         int target = 0;
@@ -212,7 +216,7 @@ void decide() {
                 target = fsur; if (target > MK_PMAX) { target = MK_PMAX; }
                 target = -target;                    // negative = charging
             } else if (fdef > DB && soc > mk_min) {
-                target = fdef; if (target > MK_PMAX) { target = MK_PMAX; }
+                target = fdef; if (target > mk_dcap) { target = mk_dcap; }   // app 800/2500 discharge limit
             }
         }
         int step = target - mk_setp;                 // move slow enough that the fast PW
@@ -309,7 +313,7 @@ void WebCall() {
     sprintf(b, "{s}&#9211; &Uuml;berschuss / Defizit{m}%d / %d W{e}", l_sur, l_def); webSend(b);
     sprintf(b, "{s}&#128267; Powerwall{m}%d %%{e}", l_pw);                          webSend(b);
     sprintf(b, "{s}&#9851; PW entlastet (seit Start){m}%.2f kWh{e}", relief_wh / 1000.0); webSend(b);
-    sprintf(b, "{s}Regeln{m}max %d%% &middot; Reserve %d%% &middot; Laden ab PW %d%%{e}", mk_max, mk_min, mk_pwlmin); webSend(b);
+    sprintf(b, "{s}Regeln{m}max %d%% &middot; Reserve %d%% &middot; Laden ab PW %d%% &middot; Entladen max %d W{e}", mk_max, mk_min, mk_pwlmin, mk_dcap); webSend(b);
     if (!data_ok) { webSend("{s}{m}<span style='color:#f88'>warte auf Powerwall-Daten&hellip;</span>{e}"); }
     // Controls ON THE MAIN PAGE — same pattern as wallbox_charge: raw HTML calling
     // /cm?cmnd=MK ... -> the MK Command() handler, so they sit right inside this
@@ -329,6 +333,8 @@ void WebCall() {
     webSend(sb);
     sprintf(sb, "<div style='margin:4px 2px'>Marstek laden ab PW <b>%d%%</b><input type='range' min='5' max='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20pw%%20'+this.value);la()\"></div>", mk_pwlmin, mk_pwlmin);
     webSend(sb);
+    sprintf(sb, "<div style='margin:4px 2px'>Entlade-Limit (App-Wert) <b>%d W</b><input type='range' min='200' max='2500' step='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20dc%%20'+this.value);la()\"></div>", mk_dcap, mk_dcap);
+    webSend(sb);
 }
 
 // No WebUI()/tc_ui page — all controls are inline on the main page (WebCall), so the
@@ -339,7 +345,7 @@ void Command(char cmd[]) {
     if (cmd[i] == 'a') { armed = 1 - armed; dirty = 1; pollButtons(); responseCmnd("AUTO toggled"); return; }
     if (cmd[i] == 's' && cmd[i + 1] != 'o') { btn_stop = 1; responseCmnd("STOP"); return; }
     if (cmd[i] == 'c') { btn_chg = 1;  responseCmnd("force charge"); return; }
-    if (cmd[i] == 'd') { btn_dis = 1;  responseCmnd("force discharge"); return; }
+    if (cmd[i] == 'd' && cmd[i + 1] != 'c') { btn_dis = 1;  responseCmnd("force discharge"); return; }
     if (cmd[i] == 'm' && cmd[i + 1] == 'a') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
         if (v >= 50 && v <= 100) { mk_max = v; dirty = 1; } responseCmnd("max set"); return; }
     if (cmd[i] == 'm' && cmd[i + 1] == 'i') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
@@ -348,9 +354,11 @@ void Command(char cmd[]) {
         if (v >= 0 && v <= 100) { mk_soc = (float)v; saveVars(); } responseCmnd("sim soc set"); return; }
     if (cmd[i] == 'p' && cmd[i + 1] == 'w') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
         if (v >= 5 && v <= 100) { mk_pwlmin = v; dirty = 1; } responseCmnd("pw-min set"); return; }
-    char r[150];
-    sprintf(r, "soc=%.1f setp=%d armed=%d force=%d max=%d min=%d pwmin=%d sur=%d def=%d pw=%d",
-            mk_soc, mk_setp, armed, mforce, mk_max, mk_min, mk_pwlmin, l_sur, l_def, l_pw);
+    if (cmd[i] == 'd' && cmd[i + 1] == 'c') { char nb[8]; strSub(nb, cmd, i + 3, 6); int v = atoi(nb);
+        if (v >= 100 && v <= 2500) { mk_dcap = v; dirty = 1; } responseCmnd("discharge cap set"); return; }
+    char r[160];
+    sprintf(r, "soc=%.1f setp=%d armed=%d force=%d max=%d min=%d pwmin=%d dcap=%d sur=%d def=%d pw=%d",
+            mk_soc, mk_setp, armed, mforce, mk_max, mk_min, mk_pwlmin, mk_dcap, l_sur, l_def, l_pw);
     responseCmnd(r);
 }
 
@@ -372,7 +380,8 @@ int main() {
     // New persist slot loads as 0 on an already-running device -> clamp gives it the
     // default; the slider then persists a chosen value in [5,100].
     if (mk_pwlmin < 5 || mk_pwlmin > 100) { mk_pwlmin = 30; }
+    if (mk_dcap < 100 || mk_dcap > 2500) { mk_dcap = 2500; }   // new slot loads 0 -> default
     last_max = mk_max; last_min = mk_min;
-    addLog("marstek_sim ready (soc=%.1f max=%d min=%d pwmin=%d armed=%d)", mk_soc, mk_max, mk_min, mk_pwlmin, armed);
+    addLog("marstek_sim ready (soc=%.1f max=%d min=%d pwmin=%d dcap=%d armed=%d)", mk_soc, mk_max, mk_min, mk_pwlmin, mk_dcap, armed);
     return 0;
 }
