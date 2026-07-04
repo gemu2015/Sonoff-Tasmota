@@ -333,7 +333,7 @@ void WebCall() {
     webSend(sb);
     sprintf(sb, "<div style='margin:4px 2px'>Marstek laden ab PW <b>%d%%</b><input type='range' min='5' max='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20pw%%20'+this.value);la()\"></div>", mk_pwlmin, mk_pwlmin);
     webSend(sb);
-    sprintf(sb, "<div style='margin:4px 2px'>Entlade-Limit (App-Wert) <b>%d W</b><input type='range' min='200' max='2500' step='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20dc%%20'+this.value);la()\"></div>", mk_dcap, mk_dcap);
+    sprintf(sb, "<div style='margin:4px 2px'>Entlade-Limit (App-Wert) <b>%d W</b><input type='range' min='800' max='2500' step='100' value='%d' onmousedown='clearTimeout(lt);clearTimeout(ft)' ontouchstart='clearTimeout(lt);clearTimeout(ft)' onchange=\"fetch('/cm?cmnd=MK%%20dc%%20'+this.value);la()\"></div>", mk_dcap, mk_dcap);
     webSend(sb);
 }
 
@@ -355,7 +355,7 @@ void Command(char cmd[]) {
     if (cmd[i] == 'p' && cmd[i + 1] == 'w') { char nb[8]; strSub(nb, cmd, i + 3, 5); int v = atoi(nb);
         if (v >= 5 && v <= 100) { mk_pwlmin = v; dirty = 1; } responseCmnd("pw-min set"); return; }
     if (cmd[i] == 'd' && cmd[i + 1] == 'c') { char nb[8]; strSub(nb, cmd, i + 3, 6); int v = atoi(nb);
-        if (v >= 100 && v <= 2500) { mk_dcap = v; dirty = 1; } responseCmnd("discharge cap set"); return; }
+        if (v >= 800 && v <= 2500) { mk_dcap = v; dirty = 1; } responseCmnd("discharge cap set"); return; }
     char r[160];
     sprintf(r, "soc=%.1f setp=%d armed=%d force=%d max=%d min=%d pwmin=%d dcap=%d sur=%d def=%d pw=%d",
             mk_soc, mk_setp, armed, mforce, mk_max, mk_min, mk_pwlmin, mk_dcap, l_sur, l_def, l_pw);
@@ -380,7 +380,7 @@ int main() {
     // New persist slot loads as 0 on an already-running device -> clamp gives it the
     // default; the slider then persists a chosen value in [5,100].
     if (mk_pwlmin < 5 || mk_pwlmin > 100) { mk_pwlmin = 30; }
-    if (mk_dcap < 100 || mk_dcap > 2500) { mk_dcap = 2500; }   // new slot loads 0 -> default
+    if (mk_dcap < 800 || mk_dcap > 2500) { mk_dcap = 2500; }   // new slot loads 0 -> default; app min = 800
     last_max = mk_max; last_min = mk_min;
     addLog("marstek_sim ready (soc=%.1f max=%d min=%d pwmin=%d dcap=%d armed=%d)", mk_soc, mk_max, mk_min, mk_pwlmin, mk_dcap, armed);
     return 0;
