@@ -24,7 +24,7 @@
 # or double-click "Tasmota Workbench.app" / "Tasmota Workbench.command".
 
 import os, sys, json, threading, time, socket, subprocess, webbrowser
-import tempfile, http.client, base64, shutil, re as _re, struct, html
+import tempfile, http.client, base64, shutil, re as _re, struct, html, io, zipfile
 import urllib.request, concurrent.futures
 from collections import deque, OrderedDict
 from http.server import (HTTPServer, ThreadingHTTPServer,
@@ -658,6 +658,108 @@ def _share_csv():
         out.append(f'{r["src"]},{r["device"]},"{r["name"]}","{v}",'
                    f'"{r["type"]}",{r["count"]},{r["last_age"]}')
     return ('\n'.join(out) + '\n').encode('utf-8')
+
+
+def _xlsx_bytes(headers, rows, sheet='Sheet1'):
+    """Minimal single-sheet .xlsx (utf-8) using only the stdlib (zipfile) — no
+    openpyxl/xlsxwriter to bundle into the .app. int/float -> numeric cells,
+    bool -> ja/nein, everything else -> inline string. Opens in Excel/Numbers."""
+    def _e(s):
+        return (str(s).replace('&', '&amp;').replace('<', '&lt;')
+                .replace('>', '&gt;').replace('"', '&quot;'))
+    def _colref(n):
+        s = ''; n += 1
+        while n:
+            n, r = divmod(n - 1, 26); s = chr(65 + r) + s
+        return s
+    def _cell(ci, ri, val):
+        ref = _colref(ci) + str(ri)
+        if isinstance(val, bool):
+            val = 'ja' if val else 'nein'
+        if isinstance(val, (int, float)):
+            return '<c r="%s"><v>%s</v></c>' % (ref, val)
+        return ('<c r="%s" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>'
+                % (ref, _e('' if val is None else val)))
+    body = []
+    for ri, row in enumerate([headers] + rows, 1):
+        body.append('<row r="%d">%s</row>'
+                    % (ri, ''.join(_cell(ci, ri, v) for ci, v in enumerate(row))))
+    sheet_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>%s</sheetData></worksheet>' % ''.join(body))
+    ct = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '</Types>')
+    rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '</Relationships>')
+    wb = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="%s" sheetId="1" r:id="rId1"/></sheets></workbook>' % _e(sheet)[:31])
+    wbrels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '</Relationships>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('[Content_Types].xml', ct)
+        z.writestr('_rels/.rels', rels)
+        z.writestr('xl/workbook.xml', wb)
+        z.writestr('xl/_rels/workbook.xml.rels', wbrels)
+        z.writestr('xl/worksheets/sheet1.xml', sheet_xml)
+    return buf.getvalue()
+
+
+def _scan_xlsx():
+    """The complete device-scan matrix as .xlsx bytes — every column the Devices
+    grid shows, with the sensor/output/partition cells flattened to text."""
+    with scan_lock:
+        devs = list(scan_state['devices'])
+    headers = ['IP', 'Name', 'Hostname', 'CPU', 'MHz', 'Tasmota', 'Core',
+               'Scripter', 'TinyC', 'Berry', 'Flash', 'Free', 'Heap KB',
+               'Frag %', 'Slots', 'PSRAM KB', 'PSRAM free KB', 'Uptime',
+               'Sensors', 'Outputs', 'Partitions', 'MAC']
+    def _cap(v):
+        return 'yes' if v is True else ('no' if v is False else '?')
+    def _sens(d):
+        out = []
+        for s in (d.get('sensors') or []):
+            u = (' ' + str(s['unit'])) if s.get('unit') else ''
+            out.append('%s=%s%s' % (s.get('filter', ''), s.get('value', ''), u))
+        return '; '.join(out)
+    def _acts(d):
+        out = []
+        for a in (d.get('actuators') or []):
+            out.append('%s=%s (%s)' % (a.get('filter', ''), a.get('state', ''), a.get('type', '')))
+        return '; '.join(out)
+    def _parts(d):
+        out = []
+        for p in (d.get('parts') or []):
+            kb = p.get('kb'); u = (' %d%%' % p['used']) if p.get('used') is not None else ''
+            out.append('%s %s%s' % (p.get('name', ''),
+                       ('%s KB' % kb) if kb is not None else '', u))
+        return '; '.join(out)
+    def _n(v):
+        return v if isinstance(v, (int, float)) and not isinstance(v, bool) else (v or '')
+    rows = []
+    for d in devs:
+        rows.append([
+            d.get('ip', ''), d.get('name', ''), d.get('host', ''),
+            d.get('hardware', ''), _n(d.get('cpufreq')), d.get('version', ''),
+            d.get('core', ''),
+            _cap(d.get('scripter')), _cap(d.get('tinyc')), _cap(d.get('berry')),
+            d.get('flash', ''), d.get('free', ''), _n(d.get('heap')),
+            _n(d.get('frag')), _n(d.get('slots')),
+            _n(d.get('psrmax')), _n(d.get('psrfree')), d.get('uptime', ''),
+            _sens(d), _acts(d), _parts(d), d.get('mac', ''),
+        ])
+    return _xlsx_bytes(headers, rows, 'Tasmota Devices')
 
 
 # ----------------------------- flasher ------------------------------
@@ -2524,6 +2626,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
   <div id="scanwrap" class="hide">
     <div style="margin:4px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button id="backupAll" title="Konfigurations-Dump (.dmp) ALLER gefundenen Geräte in einen Backup-Ordner sichern">💾 Backup all (.dmp)</button>
+      <button id="scanxlsx" title="Die komplette Geräte-Scan-Matrix als Tabellendatei (.xlsx) speichern — öffnet in Excel/Numbers">📊 Export XLSX</button>
       <span id="backupAllStat" style="color:var(--mut);font-size:12px"></span>
     </div>
     <table id="scantbl">
@@ -2908,6 +3011,7 @@ $('#shstop').onclick  = async ()=>{
   sharePoll();
 };
 $('#shcsv').onclick   = ()=>{ window.location = '/api/share/csv'; };
+$('#scanxlsx').onclick = ()=>{ window.location = '/api/scan/xlsx'; };
 
 // ---- flasher ----
 fmodeEl.onchange=()=>{
@@ -3888,6 +3992,12 @@ class H(BaseHTTPRequestHandler):
             fn = time.strftime('shares-%Y%m%d-%H%M%S.csv')
             self._send(200, _share_csv(),
                        'text/csv; charset=utf-8',
+                       {'Content-Disposition':
+                        f'attachment; filename="{fn}"'})
+        elif path == '/api/scan/xlsx':
+            fn = time.strftime('tasmota-scan-%Y%m%d-%H%M%S.xlsx')
+            self._send(200, _scan_xlsx(),
+                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                        {'Content-Disposition':
                         f'attachment; filename="{fn}"'})
         else:
