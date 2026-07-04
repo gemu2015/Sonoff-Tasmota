@@ -14,6 +14,7 @@
 #define DEVID   "590bfcdc-6f9c-4fa3-918d-205b81aefa5b"
 #define RUENC   "https%3A%2F%2Fprd.eu-ccapi.hyundai.com%3A8080%2Fapi%2Fv1%2Fuser%2Foauth2%2Ftoken"
 #define UA      "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
+#define FORCE_COOL 300    // min seconds between manual force-refreshes (protects the 12V aux battery + respects Hyundai's throttle)
 
 int cfb[50] = {68,91,104,70,175,239,13,114,102,70,119,104,101,166,80,201,243,168,
                183,179,171,34,161,149,22,63,122,137,141,150,47,124,178,31,150,127,
@@ -23,6 +24,7 @@ char stamp[80]; char rtoken[80]; char access[800]; char vid[60];
 char resp[3200]; char snip[170];
 int s_tok = -9; int s_veh = -9; int s_sta = -9; int soc = -1; int chg = 0;
 int flow_req = 0; int relog_req = 0;
+int force_req = 0; int g_force = 0; int last_force = 0;   // manual live-refresh (wakes the car): request flag, one-shot force-mode, rate-limit timestamp
 
 // re-login state (the login reuses resp for request bodies + responses to save RAM)
 char lmail[80]; char lpw[44]; char lcookie[100]; char ljn[360]; char lje[8];
@@ -218,10 +220,19 @@ void getVehicles() {
 }
 
 void getStatus() {
+    int force = g_force; g_force = 0;                    // consume the one-shot force flag (cleared on every path)
     makeStamp();
     if (tlsConnect(HOST, PORT) != 0) { s_sta = -1; return; }
-    char path[110]; sprintf(path, "/api/v1/spa/vehicles/%s/status/latest", vid);
+    char path[110];
+    if (force) { sprintf(path, "/api/v1/spa/vehicles/%s/status", vid); }         // FORCE: wakes the car -> live SoC (12V cost, throttled)
+    else       { sprintf(path, "/api/v1/spa/vehicles/%s/status/latest", vid); }  // cached: last value the car itself uploaded
     authGet(path);
+    if (force) {
+        // The server long-polls silently while the car wakes (~10-60s); tlsReadLine's
+        // 3s idle timeout would give up first, so wait on tlsAvailable() until the
+        // response actually starts, THEN read normally.
+        int w = 0; while (tlsAvailable() == 0 && tlsConnected() && w < 120) { delay(500); w = w + 1; }
+    }
     s_sta = readStatus();
     tlsRead(resp, 3100);
     int j; for (j = 0; j < 160; j = j + 1) { int c = resp[j]; if (c == 0) break; if (c == 34 || c == 123 || c == 125) c = 32; snip[j] = c; }
@@ -232,7 +243,7 @@ void getStatus() {
     chg = (strFind(resp, "batteryCharge\":true") >= 0);
     if (soc >= 0) { shareSetInt("csoc", soc); shareSetInt("cchg", chg); }
     tlsStop();
-    addLog("HYS: s_sta=%d soc=%d", s_sta, soc);
+    addLog("HYS: s_sta=%d soc=%d force=%d", s_sta, soc, force);
 }
 
 void doFlow() {
@@ -256,7 +267,8 @@ void TaskLoop() {
     delay(2000);                          // let DHCP/DNS settle after association
     doFlow();
     while (1) {
-        if (flow_req && tasm_wifi) { flow_req = 0; doFlow(); }   // defer a queued run until the link is back
+        if (force_req && tasm_wifi) { force_req = 0; g_force = 1; doFlow(); }   // manual live-refresh (wakes the car); one at a time
+        else if (flow_req && tasm_wifi) { flow_req = 0; doFlow(); }             // deferred cached run until the link is back
         t = t + 1;
         if (t >= 3600) { t = 0; if (tasm_wifi) { doFlow(); } }
         delay(500);
@@ -265,16 +277,29 @@ void TaskLoop() {
 
 void WebCall() {
     char b[80];
-    if (soc < 0) { webSend("{s}Car SOC{m}- (not read){e}"); return; }
-    char st[12]; if (chg) { strcpy(st, " +laden"); } else { st[0] = 0; }
-    sprintf(b, "{s}Car SOC (IONIQ){m}%d%%%s{e}", soc, st);
-    webSend(b);
+    if (soc < 0) { webSend("{s}Car SOC (IONIQ){m}- (not read){e}"); }
+    else {
+        char st[12]; if (chg) { strcpy(st, " +laden"); } else { st[0] = 0; }
+        sprintf(b, "{s}Car SOC (IONIQ){m}%d%%%s{e}", soc, st);
+        webSend(b);
+    }
+    // Manual live-refresh button: wakes the car for a fresh reading (rate-limited, ~40s).
+    webSend("{s}{m}<button onclick=\"fetch('/cm?cmnd=HYS%20f').then(r=>r.json()).then(j=>alert(j.TinyC))\" style='padding:4px 10px'>&#128260; Live-Abfrage (weckt Auto)</button>{e}");
 }
 
 void Command(char cmd[]) {
     int i = 0; while (cmd[i] == ' ') { i = i + 1; }
     if (cmd[i] == 'r' || cmd[i] == 'R') { flow_req = 1; responseCmnd("RUN"); return; }
     if (cmd[i] == 'l' || cmd[i] == 'L') { relog_req = 1; flow_req = 1; responseCmnd("RELOGIN queued"); return; }
+    if (cmd[i] == 'f' || cmd[i] == 'F') {                          // manual live-refresh (wakes the car), rate-limited
+        int now = utcSecs(); int since = now - last_force;
+        if (last_force != 0 && now > 1000000000 && since < FORCE_COOL) {
+            char m[52]; sprintf(m, "rate limited: wait %ds", FORCE_COOL - since);
+            responseCmnd(m); return;
+        }
+        last_force = now; force_req = 1;
+        responseCmnd("LIVE refresh queued (wakes car ~40s)"); return;
+    }
     char r[240];
     sprintf(r, "s_tok=%d s_veh=%d s_sta=%d soc=%d chg=%d relog_ok=%d skip=%d snip=[%s]",
             s_tok, s_veh, s_sta, soc, chg, rl_ok, rl_skip, snip);
