@@ -9,6 +9,7 @@
 #define WEEK_INT    1800      // sample interval in seconds (30 min)
 #define CHARTFILE   "/sml_ebus.bin"
 #define CHART_MAGIC 0x53424531  // "SBE1" — bump to discard an old-layout .bin on load
+#define ENERGY_VER  2           // energy arrays now hold AVG POWER (W); bump = one-time clear of old kWh data
 
 persist watch int sml_activ;
 float min_at;
@@ -88,7 +89,7 @@ void sml_save() {
     int h = fileOpen(CHARTFILE, "w");
     if (h < 0) { addLog("sml_ebus save: fileOpen failed"); return; }
     chdr[0] = CHART_MAGIC; chdr[1] = d_pos; chdr[2] = w_pos;
-    chdr[3] = d_lastdi; chdr[4] = w_lastwi; chdr[5] = 0; chdr[6] = 0; chdr[7] = 0;
+    chdr[3] = d_lastdi; chdr[4] = w_lastwi; chdr[5] = ENERGY_VER; chdr[6] = 0; chdr[7] = 0;
     fileWriteBin(h, chdr, 8);
     fileWriteBin(h, d_at, DAY_LEN);  fileWriteBin(h, d_ss, DAY_LEN);  fileWriteBin(h, d_ct, DAY_LEN);
     fileWriteBin(h, d_bww, DAY_LEN); fileWriteBin(h, d_spp, DAY_LEN);
@@ -123,6 +124,15 @@ void sml_load() {
     if (sz == want_new) {
         fileReadBin(h, d_kt, DAY_LEN);  fileReadBin(h, d_bw, DAY_LEN);
         fileReadBin(h, w_kt, WEEK_LEN); fileReadBin(h, w_bw, WEEK_LEN);
+    }
+    // One-time migration: the 4 energy arrays switched from kWh to W scaling — clear the
+    // old kWh values so the charts don't show mixed units until they refill (in W).
+    if (chdr[5] != ENERGY_VER) {
+        int i = 0;
+        while (i < DAY_LEN)  { d_bww[i] = 0.0; d_spp[i] = 0.0; i = i + 1; }
+        i = 0;
+        while (i < WEEK_LEN) { w_bww[i] = 0.0; w_spp[i] = 0.0; i = i + 1; }
+        d_lastdi = -1; w_lastwi = -1;   // fresh energy base on the first sample
     }
     fileClose(h);
 }
@@ -223,13 +233,13 @@ void EverySecond() {
     if (bwwpc != 0.0 && sppc != 0.0) {
         if (di >= 0 && di < DAY_LEN) {
             if (di != d_lastdi) { d_lastdi = di; d_bww_base = bwwpc; d_spp_base = sppc; }
-            d_bww[di] = bwwpc - d_bww_base;
-            d_spp[di] = sppc - d_spp_base;
+            d_bww[di] = (bwwpc - d_bww_base) * 12000.0;   // kWh/5min -> W (avg power = kWh*1000*60/5)
+            d_spp[di] = (sppc - d_spp_base) * 12000.0;
         }
         if (wi >= 0 && wi < WEEK_LEN) {
             if (wi != w_lastwi) { w_lastwi = wi; w_bww_base = bwwpc; w_spp_base = sppc; }
-            w_bww[wi] = bwwpc - w_bww_base;
-            w_spp[wi] = sppc - w_spp_base;
+            w_bww[wi] = (bwwpc - w_bww_base) * 2000.0;    // kWh/30min -> W (avg power = kWh*1000*60/30)
+            w_spp[wi] = (sppc - w_spp_base) * 2000.0;
         }
     }
 
@@ -368,14 +378,14 @@ void WebPage() {
     WebChart(0, "", "Warmwasser|C", 0xFF9800, w_pos, WEEK_LEN, w_bw, 1, 30, 0.0, 0.0);
     WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
 
-    // --- 24h energy: kWh consumed per 5-min slot (diff of the accumulated meters) ---
-    WebChart(0, "Energie 24h [kWh/5min]", "Brauchw.-WP|kWh", 0xE91E63, d_pos, DAY_LEN, d_bww, 3, 5, 0.0, 0.0);
-    WebChart(0, "", "Solarpumpe|kWh", 0x00BCD4, d_pos, DAY_LEN, d_spp, 3, 5, 0.0, 0.0);
+    // --- 24h consumption: avg power per 5-min slot in W (diff of accumulated kWh meters ×12000) ---
+    WebChart(0, "Verbrauch 24h [W]", "Brauchw.-WP|W", 0xE91E63, d_pos, DAY_LEN, d_bww, 1, 5, 0.0, 0.0);
+    WebChart(0, "", "Solarpumpe|W", 0x00BCD4, d_pos, DAY_LEN, d_spp, 1, 5, 0.0, 0.0);
     WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
 
-    // --- weekly energy: kWh consumed per 30-min slot ---
-    WebChart(0, "Energie Woche [kWh/30min]", "Brauchw.-WP|kWh", 0xE91E63, w_pos, WEEK_LEN, w_bww, 3, 30, 0.0, 0.0);
-    WebChart(0, "", "Solarpumpe|kWh", 0x00BCD4, w_pos, WEEK_LEN, w_spp, 3, 30, 0.0, 0.0);
+    // --- weekly consumption: avg power per 30-min slot in W (×2000) ---
+    WebChart(0, "Verbrauch Woche [W]", "Brauchw.-WP|W", 0xE91E63, w_pos, WEEK_LEN, w_bww, 1, 30, 0.0, 0.0);
+    WebChart(0, "", "Solarpumpe|W", 0x00BCD4, w_pos, WEEK_LEN, w_spp, 1, 30, 0.0, 0.0);
     WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
     webSend("</div>");
 }
