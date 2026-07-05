@@ -381,12 +381,14 @@ void WebPage() {
     // --- 24h consumption: avg power per 5-min slot in W (diff of accumulated kWh meters ×12000) ---
     WebChart(0, "Verbrauch 24h [W]", "Brauchw.-WP|W", 0xE91E63, d_pos, DAY_LEN, d_bww, 1, 5, 0.0, 0.0);
     WebChart(0, "", "Solarpumpe|W", 0x00BCD4, d_pos, DAY_LEN, d_spp, 1, 5, 0.0, 0.0);
-    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
+    // dual y-axis: WP (~700 W) left, Solarpumpe (~10 W) right — each auto-scaled independently
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);o.series={0:{targetAxisIndex:0},1:{targetAxisIndex:1}};o.vAxes={0:{title:'WP'},1:{title:'Solar'}};delete o.vAxis;");
 
     // --- weekly consumption: avg power per 30-min slot in W (×2000) ---
     WebChart(0, "Verbrauch Woche [W]", "Brauchw.-WP|W", 0xE91E63, w_pos, WEEK_LEN, w_bww, 1, 30, 0.0, 0.0);
     WebChart(0, "", "Solarpumpe|W", 0x00BCD4, w_pos, WEEK_LEN, w_spp, 1, 30, 0.0, 0.0);
-    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
+    // dual y-axis: WP left, Solarpumpe right — independent auto-scale
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);o.series={0:{targetAxisIndex:0},1:{targetAxisIndex:1}};o.vAxes={0:{title:'WP'},1:{title:'Solar'}};delete o.vAxis;");
     webSend("</div>");
 }
 
