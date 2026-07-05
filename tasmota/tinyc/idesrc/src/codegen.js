@@ -1115,7 +1115,7 @@ export class CodeGenerator {
             } else if (node.type === NodeType.VarDecl) {
                 const g = this.defineGlobal(node.name, node.varType);
                 if (node.isPersist) {
-                    this.persistGlobals.push({ index: g.index, slotCount: 1 });
+                    this.persistGlobals.push({ index: g.index, slotCount: 1, name: node.name });
                 }
                 if (node.isGlobal) {
                     if (node.name.length > 15) throw new CodeGenError("global var name too long for UDP (max 15 chars)", node.line);
@@ -1140,7 +1140,7 @@ export class CodeGenerator {
                 g.isStruct = true;
                 g.structTag = node.tag;
                 if (node.isPersist) {
-                    this.persistGlobals.push({ index: g.index, slotCount: slots });
+                    this.persistGlobals.push({ index: g.index, slotCount: slots, name: node.name });
                 }
             } else if (node.type === NodeType.ArrayDecl) {
                 const dims = this.arrayDims(node);
@@ -1150,9 +1150,9 @@ export class CodeGenerator {
                 if (node.isPersist) {
                     if (g.isHeap) {
                         // Heap persist: index field = 0x8000 | heapHandle (bit 15 = heap flag)
-                        this.persistGlobals.push({ index: 0x8000 | g.heapHandle, slotCount: size });
+                        this.persistGlobals.push({ index: 0x8000 | g.heapHandle, slotCount: size, name: node.name });
                     } else {
-                        this.persistGlobals.push({ index: g.index, slotCount: size });
+                        this.persistGlobals.push({ index: g.index, slotCount: size, name: node.name });
                     }
                 }
                 if (node.isGlobal) {
@@ -4794,9 +4794,18 @@ export class CodeGenerator {
 
     encodePersistTable() {
         if (this.persistGlobals.length === 0) return new Uint8Array(0);
-        const bytes = [this.persistGlobals.length]; // count (u8)
+        // Named format (V3, for name-keyed .pvs migration): [0xFF][ver=3][count u8],
+        // then per entry [nameLen u8][name bytes][index u16 BE][slotCount u16 BE].
+        // The 0xFF sentinel distinguishes it from the legacy [count u8][index,slotCount]
+        // layout — count is always < TC_MAX_PERSIST (64), never 0xFF — so a mismatched
+        // (older) firmware sees the sentinel instead of silently misreading a huge count.
+        const bytes = [0xFF, 0x03, this.persistGlobals.length];
+        const enc = new TextEncoder();
         for (const entry of this.persistGlobals) {
-            // index: u16, slotCount: u16
+            const nameBytes = enc.encode(entry.name || '');
+            const nlen = Math.min(nameBytes.length, 31);   // cap keeps .pvs entries small
+            bytes.push(nlen);
+            for (let k = 0; k < nlen; k++) bytes.push(nameBytes[k]);
             bytes.push((entry.index >> 8) & 0xFF, entry.index & 0xFF);
             bytes.push((entry.slotCount >> 8) & 0xFF, entry.slotCount & 0xFF);
         }
