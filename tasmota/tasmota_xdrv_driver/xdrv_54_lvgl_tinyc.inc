@@ -84,7 +84,7 @@ int tc_lvgl_init(void) {
    dangle when LVGL auto-deletes children. Events use a poll ring (TinyC has no
    C->VM callback) drained by lvglEvent()/lvglEventObj()/lvglEventCode().
    All LVGL access is under tc_lvgl_lock() (VM task) vs lv_task_handler (main task). */
-#define TC_LV_MAX   128
+#define TC_LV_MAX   256   // was 128; a 1024x600 dashboard (moritz_dash = 9 thermostats + 9 windows + alarm) already sits at ~125 objects, leaving no room. 256 pointers = ~1KB, trivial.
 #define TC_LV_EVQ   16
 static lv_obj_t  *tc_lv_obj_tab[TC_LV_MAX];
 static struct { uint16_t handle; uint16_t code; } tc_lv_evq[TC_LV_EVQ];
@@ -149,8 +149,10 @@ void tc_lv_align(int h, int a, int dx, int dy) { lv_obj_t *o = tc_lv_resolve(h);
 void tc_lv_set_text(int h, const char *s) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o || !s) { return; }
   tc_lvgl_lock();
-  if (lv_obj_check_type(o, &lv_checkbox_class)) { lv_checkbox_set_text(o, s); }  // checkbox label
-  else { lv_label_set_text(o, s); }
+  if      (lv_obj_check_type(o, &lv_checkbox_class)) { lv_checkbox_set_text(o, s); }  // checkbox label
+  else if (lv_obj_check_type(o, &lv_label_class))    { lv_label_set_text(o, s); }
+  // else: not a text widget — e.g. handle 0 (= screen) returned after a TC_LV_MAX overflow.
+  // No-op rather than lv_label_set_text() on a non-label, which corrupts it -> hard reset.
   tc_lvgl_unlock();
 }
 void tc_lv_set_bg_color(int h, int rgb) {
