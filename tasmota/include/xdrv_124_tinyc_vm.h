@@ -734,12 +734,12 @@ enum TcSyscall {
   SYS_TCP_READ_ARR    = 215, // (arr_ref) -> int — read bytes into int array
   SYS_TCP_WRITE_ARR   = 216, // (arr_ref, count, type) -> void — write array to client
   // TCP client (outgoing connections) — TC_TCP_CLI_SLOTS parallel slots, selected via tcpSelect()
-  SYS_TCP_CONNECT     = 290, // (ip_const, port) -> int — connect to remote ip:port (0=ok, -1=fail, -2=no net)
+  SYS_TCP_CONNECT     = 290, // (ip_const, port) -> int — connect to remote ip:port (0=ok, -1=fail, -2=no net). IP-literal connect bounded to 2s by default (tcpConnectTimeout overrides) so a dead peer can't wedge the VM.
   SYS_TCP_DISCONNECT  = 291, // () -> void — close selected TCP client slot
   SYS_TCP_CONNECTED   = 292, // () -> int — 1 if selected TCP client connected, 0 otherwise
   SYS_TCP_SELECT      = 293, // (slot) -> void — select outgoing TCP slot (0..TC_TCP_CLI_SLOTS-1)
   SYS_TCP_CONNECT_REF = 294, // (ip_ref, port) -> int — connect with IP from runtime char array
-  SYS_TCP_CONNECT_TIMEOUT = 491, // (ms) -> void — bound subsequent outbound connects: tcpConnect() AND httpGet()/httpPost() (0=lib default); probe absent hosts in ~ms instead of blocking ~5-75s (WDT-safe)
+  SYS_TCP_CONNECT_TIMEOUT = 491, // (ms) -> void — bound subsequent outbound connects: tcpConnect() AND httpGet()/httpPost(). 0 = reset to the built-in 2s default (NOT unbounded); probe absent hosts in ~ms instead of blocking ~5-75s (WDT-safe)
   // MQTT subscribe / publish-to-topic (USE_MQTT). Dispatches OnMqttData(topic,payload) callback.
   SYS_MQTT_SUBSCRIBE   = 295, // (topic_const)          -> int slot (0..9, -1=err)
   SYS_MQTT_UNSUBSCRIBE = 296, // (topic_const)          -> int (0=ok, -1=err)
@@ -2460,6 +2460,31 @@ static void tc_pcb_census(uint8_t *active, uint8_t *tw) {
 // set the pause flag on entry, auto-clear on ANY return so a missed clear can't strand
 // the multicast paused. (The raw-TLS path sets/clears the flag explicitly instead.)
 struct TcUdpPauseGuard { TcUdpPauseGuard() { tc_udp_pause_req = true; } ~TcUdpPauseGuard() { tc_udp_pause_req = false; } };
+
+// The loop task handle, captured each FUNC_LOOP by tc_udp_poll() (which only ever
+// runs there). Lets tc_udp_pause_sync() tell whether a blocking-TLS caller is on
+// the loop task (safe to touch the socket directly) or a worker (must not).
+static volatile TaskHandle_t tc_udp_main_task = nullptr;
+
+// SYNCHRONOUS multicast-pause for a blocking TLS that runs ON the loop task.
+// The deferred tc_udp_pause_req handoff only works when the TLS runs on a *worker*
+// task: the loop task stays free to run tc_udp_poll and actually stop the socket.
+// The single-task Powerwall does its blocking BearSSL in EverySecond ON the loop
+// task, so tc_udp_poll cannot run to honor the flag — the multicast socket stays
+// open the whole handshake, queuing the fleet broadcast flood into lwIP pbufs and
+// starving BearSSL -> heap corruption -> VM PC=0 / hard wedge (root cause of the
+// PWL_DIRECT_GLOBALS crash; any udp global on the device opens this shared socket).
+// Fix: if we ARE the loop task, stop the socket NOW — no cross-task race, since the
+// only other toucher (tc_udp_poll) runs on this same task. A worker caller falls
+// through and relies on the flag path (touching the socket cross-task races -> UAF).
+// tc_udp_poll re-inits the socket on its next run once tc_udp_pause_req clears.
+static inline void tc_udp_pause_sync(void) {
+  if (!Tinyc || !Tinyc->udp_connected) return;
+  if (!tc_udp_main_task || xTaskGetCurrentTaskHandle() != tc_udp_main_task) return;  // worker -> defer
+  Tinyc->udp.flush();
+  Tinyc->udp.stop();
+  Tinyc->udp_connected = false;
+}
 #define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
 #define TC_TLS_TX_BUF   1024
 #define TC_TLS_IDLE_MS  3000      // give up a read after this long with no byte
@@ -2808,6 +2833,9 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
   // GET request — reads body, fills bindings via string scanning, stores for ad-hoc access
   static int32_t tc_pwl_get_request(TcVM *vm, const String &url) {
     TcUdpPauseGuard _pwl_pause;  // pause the UDP multicast for this TLS txn (global-var crash fix)
+    tc_udp_pause_sync();         // ...and actually stop it NOW: single-task Powerwall blocks the loop
+                                 // task through the whole handshake, so the deferred pause above never
+                                 // fires (tc_udp_poll can't run to honor it). See tc_udp_pause_sync().
     AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: GET %s"), url.c_str());
 
     tc_ssl_client.setInsecure();
@@ -3338,7 +3366,11 @@ static void tc_udp_stop(void) {
 
 // Poll for incoming UDP packets — called from FUNC_LOOP (standalone only)
 static void tc_udp_poll(void) {
-  if (!Tinyc || !Tinyc->udp_used) return;
+  if (!Tinyc) return;
+#ifdef ESP32
+  tc_udp_main_task = xTaskGetCurrentTaskHandle();  // remember the loop task for tc_udp_pause_sync()
+#endif
+  if (!Tinyc->udp_used) return;
   // TLS-pause handoff (set by tlsConnect on the VM task): stop the multicast here on
   // the MAIN task so its queued pbufs free for BearSSL, and don't re-init or drain
   // until the transaction clears the flag — frees the LwIP resources TLS needs.
@@ -14119,12 +14151,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           _oc->stop();  // close any previous connection on this slot
           IPAddress _ipa;
           bool _cok;
-          if (Tinyc->tcp_connect_timeout_ms && _ipa.fromString(ip)) {
+          // Bound the connect: explicit tcpConnectTimeout() wins, else a 2 s DEFAULT
+          // (mirrors SYS_HTTP_GET at _post_ctmo). Without this default a dead peer — a
+          // Modbus BMU that stops answering, Andreas' wedge — blocks the connect ~5-75 s
+          // with vm_mutex held, freezing all TinyC. IP-literal only: the timeout overload
+          // skips DNS; a hostname still uses the lib-default connect (same as httpGet).
+          uint32_t _ctmo = Tinyc->tcp_connect_timeout_ms ? Tinyc->tcp_connect_timeout_ms : 2000;
+          if (_ipa.fromString(ip)) {
             // bounded probe path: the IPAddress overload skips DNS, and the
             // non-blocking connect + select(timeout) bounds even the
             // no-ARP-answer (absent host) case — keeps the VM/WDT safe.
 #ifdef ESP32
-            _cok = _oc->connect(_ipa, port, (int32_t)Tinyc->tcp_connect_timeout_ms);
+            _cok = _oc->connect(_ipa, port, (int32_t)_ctmo);
 #else
             _cok = _oc->connect(_ipa, port);   // ESP8266: 2-arg connect only (no timeout overload)
 #endif
@@ -14164,9 +14202,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           _oc->stop();
           IPAddress _ipa;
           bool _cok;
-          if (Tinyc->tcp_connect_timeout_ms && _ipa.fromString(ip_tmp)) {
+          // Same default-2s bound as SYS_TCP_CONNECT (see there) — dynamic-IP variant.
+          uint32_t _ctmo = Tinyc->tcp_connect_timeout_ms ? Tinyc->tcp_connect_timeout_ms : 2000;
+          if (_ipa.fromString(ip_tmp)) {
 #ifdef ESP32
-            _cok = _oc->connect(_ipa, port, (int32_t)Tinyc->tcp_connect_timeout_ms);  // bounded, no DNS
+            _cok = _oc->connect(_ipa, port, (int32_t)_ctmo);  // bounded, no DNS
 #else
             _cok = _oc->connect(_ipa, port);   // ESP8266: 2-arg connect only (no timeout overload)
 #endif
