@@ -52,6 +52,7 @@ char f6[12]; char f8[12]; char f9[12];
 char b[48];  char idbuf[10];
 int th_set[9]; int th_meas[9]; int th_val[9];
 int btn_dn[9]; int btn_up[9];
+int btn_mode[9]; int mlbl[9]; int th_mode[9];   // mode toggle button, its label, last tmode (0=auto 1=man 2=vac 3=boost)
 int wn_state[9]; int wn_card[9];
 int bat_th[9]; int bat_wn[9];    // per-device "BAT" low-battery indicator labels
 int nth; int nwn;
@@ -108,12 +109,36 @@ int mkBtn(int x, int y, char lab[]) {
     return bt;
 }
 
+// mode label text + colour: AUTO green (normal); MAN/vacation/boost amber (someone switched it)
+void setModeLabel(int j) {
+    if (th_mode[j] == 0)      { lvglSetText(mlbl[j], "AUTO");   lvglSetTextColor(mlbl[j], C_GREEN); }
+    else if (th_mode[j] == 1) { lvglSetText(mlbl[j], "MAN");    lvglSetTextColor(mlbl[j], C_AMBER); }
+    else if (th_mode[j] == 2) { lvglSetText(mlbl[j], "URLAUB"); lvglSetTextColor(mlbl[j], C_AMBER); }
+    else if (th_mode[j] == 3) { lvglSetText(mlbl[j], "BOOST");  lvglSetTextColor(mlbl[j], C_AMBER); }
+    else                      { lvglSetText(mlbl[j], "?");      lvglSetTextColor(mlbl[j], C_SUB); }
+}
+
 void sendSet(int j) {
     strToken(idbuf, IDS, '|', j + 1);
     sprintf(cmd, "MaxCmd %s m %d", idbuf, th_val[j]);
     tasmDefer(cmd);                       // event-driven slot: deferred fires from the 50 ms tick
     sprintf(b, "%d", th_val[j]);
     lvglSetText(th_set[j], b);
+    th_mode[j] = 1; setModeLabel(j);      // a manual setpoint forces MANUAL mode — reflect it now
+}
+
+// toggle AUTO <-> MANUAL from the card button (label shows the current mode)
+void toggleMode(int j) {
+    strToken(idbuf, IDS, '|', j + 1);
+    if (th_mode[j] == 0) {
+        sprintf(cmd, "MaxCmd %s m %d", idbuf, th_val[j]);   // AUTO -> MANUAL, hold the current setpoint
+        th_mode[j] = 1;
+    } else {
+        sprintf(cmd, "MaxCmd %s a %d", idbuf, th_val[j]);   // MANUAL/vac/boost -> AUTO (weekly program resumes)
+        th_mode[j] = 0;
+    }
+    tasmDefer(cmd);
+    setModeLabel(j);                      // optimistic; the 5 s refresh confirms the real tmode
 }
 
 void refreshThermostats() {
@@ -125,6 +150,8 @@ void refreshThermostats() {
         lvglSetText(th_meas[i - 1], b);
         webParse(qbuf, ",", 4, f8);                        // field 4 = battery_low
         if (strToInt(f8) > 0) { lvglSetText(bat_th[i - 1], "BAT"); } else { lvglSetText(bat_th[i - 1], ""); }
+        webParse(qbuf, ",", 7, f6);                        // field 7 = tmode (0=auto 1=man 2=vac 3=boost)
+        th_mode[i - 1] = strToInt(f6); setModeLabel(i - 1);
         i = i + 1;
     }
 }
@@ -240,6 +267,7 @@ int main() {
         pluginQuery(qbuf, 126, 18, i);
         webParse(qbuf, ",", 1, nm);
         webParse(qbuf, ",", 8, f8); th_val[i - 1] = strToInt(f8);
+        webParse(qbuf, ",", 7, f9); th_mode[i - 1] = strToInt(f9);   // field 7 = tmode
         strReplace(nm, "_", " "); umlaut(nm);
         int x = TX + ((i - 1) % 3) * COFF;
         int y = GY + ((i - 1) / 3) * ROFF;
@@ -250,6 +278,9 @@ int main() {
         sprintf(b, "%d", th_val[i - 1]); lvglSetText(th_set[i - 1], b);
         th_meas[i - 1] = lvglLabel(0); lvglSetFont(th_meas[i - 1], 12); lvglSetTextColor(th_meas[i - 1], C_SUB); lvglSetPos(th_meas[i - 1], x + 8, y + 132);
         bat_th[i - 1] = lvglLabel(0); lvglSetFont(bat_th[i - 1], 14); lvglSetTextColor(bat_th[i - 1], C_RED); lvglSetPos(bat_th[i - 1], x + 120, y + 132);
+        btn_mode[i - 1] = lvglButton(0); lvglSetPos(btn_mode[i - 1], x + 37, y + 96); lvglSetSize(btn_mode[i - 1], 84, 26); lvglEventEnable(btn_mode[i - 1], EV_CLICKED);
+        mlbl[i - 1] = lvglLabel(btn_mode[i - 1]); lvglSetFont(mlbl[i - 1], 15); lvglAlign(mlbl[i - 1], AL_CENTER, 0, 0);
+        setModeLabel(i - 1);
         i = i + 1;
     }
 
@@ -295,6 +326,7 @@ void Every100ms() {
                 while (j < nth) {
                     if (o == btn_up[j]) { th_val[j] = th_val[j] + 1; if (th_val[j] > 30) { th_val[j] = 30; } sendSet(j); }
                     if (o == btn_dn[j]) { th_val[j] = th_val[j] - 1; if (th_val[j] < 5)  { th_val[j] = 5; }  sendSet(j); }
+                    if (o == btn_mode[j]) { toggleMode(j); }
                     j = j + 1;
                 }
             }
