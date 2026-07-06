@@ -62,6 +62,7 @@ int  phase;         // 0 = scanning for the scale, 1 = subscribe-notify read loo
 int  started;       // has bleScan been kicked off this scan pass?
 int  inflight;      // is a GATT subscribe currently queued/running?
 int  fails;         // consecutive subscribe failures (triggers a rescan)
+int  pend;          // ticks the current GATT op has polled 0 (pending) — stuck-op watchdog
 int  hb;            // heartbeat tick
 
 // decoded / shared state (read by WebCall + JsonCall)
@@ -329,7 +330,7 @@ void renderTable() {
 }
 
 int main() {
-  phase = 0; started = 0; inflight = 0; fails = 0; hb = 0; ttype = 0;
+  phase = 0; started = 0; inflight = 0; fails = 0; pend = 0; hb = 0; ttype = 0;
   have = 0; w_kg = 0.0; w_stable = 0; w_imp = 0; lock_kg = 0.0;
   nframes = 0; nlock = 0; logged = 0;
   c_bmi = 0.0; c_fat = 0.0; c_lean = 0.0; c_water = 0.0; c_muscle = 0.0; c_have = 0;
@@ -390,7 +391,7 @@ void TaskLoop() {
   if (inflight == 0) {
     int rc = bleReadStart(0x2C12);           // connect + subscribe notify; read-only, no write
     if (rc == 1) {
-      inflight = 1;
+      inflight = 1; pend = 0;                // fresh op — arm the stuck-op watchdog
     } else {
       delay(400);                            // busy/err — back off and retry
     }
@@ -399,19 +400,28 @@ void TaskLoop() {
     if (d > 0) {
       int n = bleResult(frame);
       handleFrame(n);
-      fails = 0;
+      fails = 0; pend = 0;
       inflight = 0;
-    } else {
-      if (d < 0) {
-        inflight = 0;
-        fails = fails + 1;
-        if (fails >= 8) {
-          addLog("esf37: scale quiet — rescanning (MAC may have rotated / asleep)");
-          phase = 0; started = 0; fails = 0;
-        }
-        delay(300);
+    } else if (d < 0) {
+      inflight = 0; pend = 0;
+      fails = fails + 1;
+      if (fails >= 8) {
+        addLog("esf37: scale quiet — rescanning (MAC may have rotated / asleep)");
+        phase = 0; started = 0; fails = 0;
       }
-      // d == 0: still pending — just keep polling
+      delay(300);
+    } else {
+      // d == 0: op still in-flight. xdrv_79 fails a stuck subscribe at its own 20s
+      // notify-timeout, so a HEALTHY op resolves (>0 or <0) well within that. If we keep
+      // seeing 0 past ~30s (150 * 200ms) the completion was lost inside NimBLE — never
+      // wedge here: force a clean rescan so BLE always makes progress again.
+      pend = pend + 1;
+      if (pend >= 150) {
+        addLog("esf37: BLE read stuck >30s (lost completion) — forcing rescan");
+        inflight = 0; pend = 0;
+        bleScanStop();                       // quiesce any half-open GAP state
+        phase = 0; started = 0; fails = 0;   // clean restart: scan -> re-lock -> subscribe
+      }
     }
   }
 
