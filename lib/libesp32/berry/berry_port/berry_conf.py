@@ -44,6 +44,33 @@ BE_INTGER_TYPE = 0
 # #define BE_USE_SINGLE_FLOAT             1
 BE_USE_SINGLE_FLOAT = 1
 
+# /* Macro: BE_USE_COMPACT_KTAB
+#  * Store each function's constant table (ktab) as a structure-of-arrays:
+#  * a payload-word array (`union bvaldata`) plus a parallel type-byte array,
+#  * instead of an array of full `bvalue`. Saves ~37% of constant-table flash
+#  * on 32-bit targets. Read-only at runtime; constants are materialized on
+#  * access. This flag controls the *solidify output format* so that the
+#  * Python solidifier emits the same C source as the C implementation.
+#  * Must match the C build's BE_USE_COMPACT_KTAB for the generated code to
+#  * compile correctly.
+#  * Default: 0 (disabled)
+#  **/
+# #define BE_USE_COMPACT_KTAB             0
+BE_USE_COMPACT_KTAB = 1
+
+# /* Macro: BE_USE_COMPACT_MAP
+#  * Store the nodes of *constant* (solidified/flash) maps in a packed
+#  * 12-byte layout instead of the regular 16-byte `bmapnode`, by folding the
+#  * value's type byte into the spare bits of the key word. Saves 25% of the
+#  * flash used by solidified class/module member maps on 32-bit targets.
+#  * Mutable runtime maps are unchanged. This flag controls the *solidify
+#  * output format* so the Python solidifier emits the same C source as the C
+#  * implementation. Must match the C build's BE_USE_COMPACT_MAP.
+#  * Default: 0 (disabled)
+#  **/
+# #define BE_USE_COMPACT_MAP             0
+BE_USE_COMPACT_MAP = 1
+
 # ---------------------------------------------------------------------------
 # Bytes max size
 # ---------------------------------------------------------------------------
@@ -206,6 +233,17 @@ BE_USE_PREPROCESSOR = 1
 #  **/
 # #define BE_PREPROC_MAX_DEPTH            8
 BE_PREPROC_MAX_DEPTH = 8
+
+# /* Macro: BE_MAX_PARSER_DEPTH
+#  * Hard limit on parser recursion depth (nested expressions and blocks).
+#  * Each level costs ~hundreds of bytes of native C stack, so this protects
+#  * pathological source from overflowing the C stack at compile time.
+#  * Stored in a bbyte, so values above 255 are clamped.
+#  * Default: 25 (safe on ESP32 with an 8 KB task stack; well above any
+#  * realistic hand-written Berry code).
+#  **/
+# #define BE_MAX_PARSER_DEPTH             25
+BE_MAX_PARSER_DEPTH = 25
 
 # /* Macro: BE_USE_DEBUG_HOOK
 #  * Berry debug hook switch.

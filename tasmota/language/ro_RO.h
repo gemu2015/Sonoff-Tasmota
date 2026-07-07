@@ -1341,4 +1341,12 @@
 #define D_SENSOR_V9240_TX "V9240 TX"
 #define D_SENSOR_V9240_RX "V9240 RX"
 
+#define D_SENSOR_MBS_RX_ENA    "ModBr Rx Ena"
+
+// xdrv_94_modbus_relay.ino
+#define D_MODBUSRELAY_TX         "MbsRelay TX"
+#define D_MODBUSRELAY_TX_ENA     "MbsRelay TX Ena"
+#define D_MODBUSRELAY_RX         "MbsRelay RX"
+#define D_MODBUSRELAY_RX_ENA     "MbsRelay RX Ena"
+
 #endif  // _LANGUAGE_RO_RO_H_

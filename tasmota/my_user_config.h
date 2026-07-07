@@ -78,11 +78,17 @@
 #ifndef STA_PASS1
 #define STA_PASS1              ""                // [Password1] Wi-Fi password
 #endif
+#ifndef AP_BSSID1
+#define AP_BSSID1              ""                // [BSsid1] Wi-Fi desired AP BSSID to connect to
+#endif
 #ifndef STA_SSID2
 #define STA_SSID2              ""                // [Ssid2] Optional alternate AP Wi-Fi SSID
 #endif
 #ifndef STA_PASS2
 #define STA_PASS2              ""                // [Password2] Optional alternate AP Wi-Fi password
+#endif
+#ifndef AP_BSSID2
+#define AP_BSSID2              ""                // [BSsid2] Wi-Fi desired AP BSSID to connect to
 #endif
 #ifndef WIFI_AP_PASSPHRASE
 #define WIFI_AP_PASSPHRASE     ""                // AccessPoint passphrase. For WPA2 min 8 char, for open use "" (max 63 char).
@@ -95,7 +101,7 @@
 #define WIFI_SCAN_AT_RESTART   false             // [SetOption56] Scan Wi-Fi network at restart for configured AP's
 #define WIFI_SCAN_REGULARLY    true              // [SetOption57] Scan Wi-Fi network every 44 minutes for configured AP's
 #define WIFI_NO_SLEEP          false             // [SetOption127] Sets Wifi in no-sleep mode which improves responsiveness on some routers
-#define WIFI_DEFAULT_HOSTNAME  "%s-%04d"         // [Hostname] Expands to <MQTT_TOPIC>-<last 4 decimal chars of MAC address>
+#define WIFI_DEFAULT_HOSTNAME  "%s-%04d"         // [Hostname] Expands to <MQTT_TOPIC>-<last 4 decimal chars of chip ID>
 
 // -- Syslog --------------------------------------
 #define SYS_LOG_HOST           ""                // [LogHost] (Linux) syslog host
@@ -412,6 +418,9 @@
 #define WIFI_SOFT_AP_CHANNEL   1                 // Soft Access Point Channel number between 1 and 13 as used by Wi-Fi Manager web GUI
 #define USE_IMPROV                               // Add support for IMPROV serial protocol as used by esp-web-tools (+2k code)
 
+// -- Serial input --------------------------------
+//#define USE_SERIAL_BACKSPACE                     // Add support for backspace (0x08) in serial console input, removing the last typed character
+
 // -- IPv6 support -------------------------------
 // #define USE_IPV6                                 // Enable IPv6 support (if the underlying esp-idf is also configured to support it)
                                                  // Code size increase: ESP8266: +34.5kb
@@ -671,6 +680,8 @@
 //  #define USE_SGP40                              // [I2cDriver69] Enable Sensiron SGP40 sensor (I2C address 0x59) (+1k4 code)
 //  #define USE_SGP4X                              // [I2cDriver82] Enable Sensiron SGP41 sensor (I2C address 0x59) (+7k2 code)
 //  #define USE_SPS30                              // [I2cDriver30] Enable Sensiron SPS30 particle sensor (I2C address 0x69) (+1.7 code)
+//    #define SPS30_ENABLE_SLEEP                   // SPS30 v2.0: Adds support for sleep/wakeup to reduce power when not measuring (+0k2 code)
+//    #define SPS30_PARTS_PER_DECILITER            // Report NCPM as parts per deciliter instead of parts per cm3 (+0k1 code)
 //  #define USE_SI1145                             // [I2cDriver19] Enable SI1145/46/47 sensor (I2C address 0x60) (+1k code)
 //  #define USE_LM75AD                             // [I2cDriver20] Enable LM75AD sensor (I2C addresses 0x48 - 0x4F) (+0k6 code)
 //    #define LM75AD_MAX_SENSORS    8              // Max number of LM75AD sensors supported (default = 8 on 2 busses, max = 16 on 2 busses)
@@ -1145,7 +1156,8 @@
 //#define USE_HRE                                  // Add support for Badger HR-E Water Meter (+1k4 code)
 //#define USE_A4988_STEPPER                        // Add support for A4988/DRV8825 stepper-motor-driver-circuit (+10k5 code)
 //#define USE_VID6608                              // Add support for VID6608 Automotive analog gauge driver (+0k7 code)
-//  #define VID6608_RESET_ON_INIT  true            // Reset VID6608 on init (default: true), change if you control this manually
+//  #define VID6608_RESET_ON_INIT  1               // Reset VID6608 on init (default: true), change if you control this manually
+//  #define VID6608_RMT            0               // Use hardware RMT driver, ESP32 only. Warning: SoC have limited RMT count, amy conflict with others (WS2812b, IR and similar)
 
 //#define USE_PROMETHEUS                           // Add support for https://prometheus.io/ metrics exporting over HTTP /metrics endpoint
 
@@ -1353,6 +1365,7 @@
 //#define DEBUG_TASMOTA_DRIVER                     // Enable driver debug messages
 //#define DEBUG_TASMOTA_SENSOR                     // Enable sensor debug messages
 //#define USE_DEBUG_DRIVER                         // Use xdrv_99_debug.ino providing commands CpuChk, CfgXor, CfgDump, CfgPeek and CfgPoke
+//#define USE_ESP8266_DEBUG_HEAP                   // Add heap fragmentation display support. Needs build_flags -DUMM_STATS_FULL and -DUMM_INLINE_METRICS too (+2k5 code)
 
 /*********************************************************************************************\
  * Profiling features

@@ -410,22 +410,49 @@ void WifiBegin(uint8_t flag, uint8_t channel) {
   }
   if (Settings->ipv4_address[0]) {
     // AddLog(LOG_LEVEL_INFO, ">>>1: Wifi Config DNS %_I %_I", Settings->ipv4_address[3], Settings->ipv4_address[4]);
-    WiFi.config(Settings->ipv4_address[0], Settings->ipv4_address[1], Settings->ipv4_address[2], Settings->ipv4_address[3], Settings->ipv4_address[4]);  // Set static IP
+    WiFi.config(Settings->ipv4_address[0],
+                Settings->ipv4_address[1],
+                Settings->ipv4_address[2],
+                Settings->ipv4_address[3],
+                Settings->ipv4_address[4]);  // Set static IP
   }
   WiFi.hostname(TasmotaGlobal.hostname);  // ESP8266 needs this here (after WiFi.mode)
 
-  char stemp[40] = { 0 };
+  char stemp[50] = { 0 };
   if (channel) {
-    WiFiHelper::begin(SettingsText(SET_STASSID1 + Settings->sta_active), SettingsText(SET_STAPWD1 + Settings->sta_active), channel, Wifi.bssid);
+    char bssid_user[16] = " (LastUsed)";
+    if (strlen(SettingsText(SET_APBSSID1 + Settings->sta_active))) {  // Valid BSSID = 18:E8:29:CA:17:C1
+      char* mac_part = SettingsText(SET_APBSSID1 + Settings->sta_active);
+      for (uint32_t i = 0; i < 6; i++) {
+        Wifi.bssid[i] = strtol(mac_part, &mac_part, 16);
+        mac_part++;  // Skip ":"
+      }
+      snprintf_P(bssid_user, sizeof(bssid_user), PSTR(" (User)"));
+    }
+    else if (Settings->flag3.use_wifi_scan) {  // SetOption56 - Scan wifi network at restart for configured AP's
+      snprintf_P(bssid_user, sizeof(bssid_user), PSTR(" (Strongest)"));
+    }
+    WiFiHelper::begin(SettingsText(SET_STASSID1 + Settings->sta_active),
+                      SettingsText(SET_STAPWD1 + Settings->sta_active),
+                      channel,
+                      Wifi.bssid);
     // Add connected BSSID and channel for multi-AP installations
     char hex_char[18];
-    snprintf_P(stemp, sizeof(stemp), PSTR(" Channel %d BSSId %s"), channel, ToHex_P((unsigned char*)Wifi.bssid, 6, hex_char, sizeof(hex_char), ':'));
+    snprintf_P(stemp, sizeof(stemp), PSTR(" Channel %d BSSId %s%s"),
+      channel,
+      ToHex_P((unsigned char*)Wifi.bssid, 6, hex_char, sizeof(hex_char), ':'),
+      bssid_user);
   } else {
-    WiFiHelper::begin(SettingsText(SET_STASSID1 + Settings->sta_active), SettingsText(SET_STAPWD1 + Settings->sta_active));
+    WiFiHelper::begin(SettingsText(SET_STASSID1 + Settings->sta_active),
+                      SettingsText(SET_STAPWD1 + Settings->sta_active));
   }
   delay(500);
   AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_WIFI D_CONNECTING_TO_AP "%d %s%s " D_IN_MODE " %s " D_AS " %s..."),
-    Settings->sta_active +1, SettingsText(SET_STASSID1 + Settings->sta_active), stemp, WifiGetPhyMode().c_str(), TasmotaGlobal.hostname);
+    Settings->sta_active +1,
+    SettingsText(SET_STASSID1 + Settings->sta_active),
+    stemp,
+    WifiGetPhyMode().c_str(),
+    TasmotaGlobal.hostname);
 
   if (Settings->flag5.wait_for_wifi_result) {  // SetOption142 - (Wifi) Wait 1 second for wifi connection solving some FRITZ!Box modem issues (1)
     WiFi.waitForConnectResult(1000);  // https://github.com/arendst/Tasmota/issues/14985
@@ -1235,7 +1262,8 @@ void WifiCheckIp(void) {
         }
     }
     if (Wifi.retry) {
-      if (Settings->flag3.use_wifi_scan) {  // SetOption56 - Scan wifi network at restart for configured AP's
+      if ((Settings->flag3.use_wifi_scan) &&  // SetOption56 - Scan wifi network at restart for configured AP's
+          (!strlen(SettingsText(SET_APBSSID1 + Settings->sta_active)))) {  // No BSSID
         if (Wifi.retry_init == Wifi.retry) {
           Wifi.scan_state = 1;    // Select scanned SSID
         }
@@ -1300,7 +1328,8 @@ void WifiCheck(uint8_t param)
       }
       if ((WL_CONNECTED == WiFi.status()) && WifiHasIP() && !Wifi.config_type) {
         WifiSetState(1);
-        if (Settings->flag3.use_wifi_rescan) {  // SetOption57 - Scan wifi network every 44 minutes for configured AP's
+        if ((Settings->flag3.use_wifi_rescan) &&  // SetOption57 - Scan wifi network every 44 minutes for configured AP's
+           (!strlen(SettingsText(SET_APBSSID1 + Settings->sta_active)))) {  // No BSSID
           if (!(TasmotaGlobal.uptime % (60 * WIFI_RESCAN_MINUTES))) {
             if (!Wifi.scan_state) { Wifi.scan_state = 2; } // If wifi scan routine is free, use it. Otherwise, wait for next RESCAN TIME
           }
@@ -1530,6 +1559,15 @@ void WifiConnect(void)
     wifi_event_registered = true;
 #ifdef CONFIG_ESP_WIFI_REMOTE_ENABLED
     // Hosted MCU SDIO pins must be set before WiFi is initialized
+    char sdio_source[10] = "default";
+    uint32_t sdio_pins[7] = {   // From framework-arduinoespressif32 variants/esp32p4/pins_arduino.h
+      BOARD_SDIO_ESP_HOSTED_CLK,
+      BOARD_SDIO_ESP_HOSTED_CMD,
+      BOARD_SDIO_ESP_HOSTED_D0,
+      BOARD_SDIO_ESP_HOSTED_D1,
+      BOARD_SDIO_ESP_HOSTED_D2,
+      BOARD_SDIO_ESP_HOSTED_D3,
+      BOARD_SDIO_ESP_HOSTED_RESET };
     if (WiFi.setPins(Pin(GPIO_HSDIO_CLK),
                      Pin(GPIO_HSDIO_CMD),
                      Pin(GPIO_HSDIO_D0),
@@ -1537,8 +1575,17 @@ void WifiConnect(void)
                      Pin(GPIO_HSDIO_D2),
                      Pin(GPIO_HSDIO_D3),
                      Pin(GPIO_HSDIO_RST))) {
-//      AddLog(LOG_LEVEL_DEBUG, PSTR("HMC: Hosted MCU SDIO pins set"));
+      strlcpy(sdio_source, "template", sizeof(sdio_source));
+      sdio_pins[0] = Pin(GPIO_HSDIO_CLK);
+      sdio_pins[1] = Pin(GPIO_HSDIO_CMD);
+      sdio_pins[2] = Pin(GPIO_HSDIO_D0);
+      sdio_pins[3] = Pin(GPIO_HSDIO_D1);
+      sdio_pins[4] = Pin(GPIO_HSDIO_D2);
+      sdio_pins[5] = Pin(GPIO_HSDIO_D3);
+      sdio_pins[6] = Pin(GPIO_HSDIO_RST);
     }
+    AddLog(LOG_LEVEL_DEBUG, PSTR("HST: Hosted MCU using %s GPIO%02d(CLK), GPIO%02d(CMD), GPIO%02d(D0), GPIO%02d(D1), GPIO%02d(D2), GPIO%02d(D3) and GPIO%02d(RST)"),
+      sdio_source, sdio_pins[0], sdio_pins[1], sdio_pins[2], sdio_pins[3], sdio_pins[4], sdio_pins[5], sdio_pins[6]);
 #endif  // CONFIG_ESP_WIFI_REMOTE_ENABLED
   }
 #endif // ESP32

@@ -348,56 +348,71 @@ def buf_get1(attr, offset):
 
 # static void buf_set1(buf_impl* attr, size_t offset, uint8_t data)
 # {
-#     if ((int32_t)offset < attr->len) {
+#     if (attr->len > 0 && offset < (size_t)attr->len) {
 #         attr->bufptr[offset] = data;
 #     }
 # }
 def buf_set1(attr, offset, data):
-    if offset >= 0 and offset < attr.len:
+    if attr.len > 0 and 0 <= offset < attr.len:
         attr.bufptr[offset] = data & 0xFF
+
+# /* The buf_set/get helpers below operate on a `size_t` offset coming from
+#  * scripts. We use this helper to test that `offset + N` bytes are inside
+#  * the buffer, with no signed overflow / negative-cast hazard. attr->len
+#  * is non-negative (int32_t), so casting it to size_t is exact. */
+# static inline bbool buf_room(buf_impl* attr, size_t offset, size_t need)
+# {
+#     return attr->len > 0
+#         && offset < (size_t)attr->len
+#         && need <= (size_t)attr->len - offset;
+# }
+def buf_room(attr, offset, need):
+    # Python ints can't overflow, but we still reject negative offsets
+    # because bytearray[-n] would silently write near the end of the buffer.
+    return attr.len > 0 and 0 <= offset < attr.len and need <= attr.len - offset
 
 # static void buf_set2_le(buf_impl* attr, size_t offset, uint16_t data)
 def buf_set2_le(attr, offset, data):
     data = data & 0xFFFF
-    if offset + 1 < attr.len:
+    if buf_room(attr, offset, 2):
         attr.bufptr[offset] = data & 0xFF
         attr.bufptr[offset + 1] = (data >> 8) & 0xFF
 
 # static void buf_set2_be(buf_impl* attr, size_t offset, uint16_t data)
 def buf_set2_be(attr, offset, data):
     data = data & 0xFFFF
-    if offset + 1 < attr.len:
+    if buf_room(attr, offset, 2):
         attr.bufptr[offset + 1] = data & 0xFF
         attr.bufptr[offset] = (data >> 8) & 0xFF
 
 # static uint16_t buf_get2_le(buf_impl* attr, size_t offset)
 def buf_get2_le(attr, offset):
-    if offset + 1 < attr.len:
+    if buf_room(attr, offset, 2):
         return attr.bufptr[offset] | (attr.bufptr[offset + 1] << 8)
     return 0
 
 # static uint16_t buf_get2_be(buf_impl* attr, size_t offset)
 def buf_get2_be(attr, offset):
-    if offset + 1 < attr.len:
+    if buf_room(attr, offset, 2):
         return attr.bufptr[offset + 1] | (attr.bufptr[offset] << 8)
     return 0
 
 # static uint32_t buf_get3_le(buf_impl* attr, size_t offset)
 def buf_get3_le(attr, offset):
-    if offset + 2 < attr.len:
+    if buf_room(attr, offset, 3):
         return attr.bufptr[offset] | (attr.bufptr[offset+1] << 8) | (attr.bufptr[offset+2] << 16)
     return 0
 
 # static uint32_t buf_get3_be(buf_impl* attr, size_t offset)
 def buf_get3_be(attr, offset):
-    if offset + 2 < attr.len:
+    if buf_room(attr, offset, 3):
         return attr.bufptr[offset+2] | (attr.bufptr[offset+1] << 8) | (attr.bufptr[offset] << 16)
     return 0
 
 # static void buf_set3_le(buf_impl* attr, size_t offset, uint32_t data)
 def buf_set3_le(attr, offset, data):
     data = data & 0xFFFFFFFF
-    if offset + 2 < attr.len:
+    if buf_room(attr, offset, 3):
         attr.bufptr[offset]   = data & 0xFF
         attr.bufptr[offset+1] = (data >> 8) & 0xFF
         attr.bufptr[offset+2] = (data >> 16) & 0xFF
@@ -405,7 +420,7 @@ def buf_set3_le(attr, offset, data):
 # static void buf_set3_be(buf_impl* attr, size_t offset, uint32_t data)
 def buf_set3_be(attr, offset, data):
     data = data & 0xFFFFFFFF
-    if offset + 2 < attr.len:
+    if buf_room(attr, offset, 3):
         attr.bufptr[offset+2] = data & 0xFF
         attr.bufptr[offset+1] = (data >> 8) & 0xFF
         attr.bufptr[offset]   = (data >> 16) & 0xFF
@@ -413,7 +428,7 @@ def buf_set3_be(attr, offset, data):
 # static void buf_set4_le(buf_impl* attr, size_t offset, uint32_t data)
 def buf_set4_le(attr, offset, data):
     data = data & 0xFFFFFFFF
-    if offset + 3 < attr.len:
+    if buf_room(attr, offset, 4):
         attr.bufptr[offset]   = data & 0xFF
         attr.bufptr[offset+1] = (data >> 8) & 0xFF
         attr.bufptr[offset+2] = (data >> 16) & 0xFF
@@ -422,7 +437,7 @@ def buf_set4_le(attr, offset, data):
 # static void buf_set4_be(buf_impl* attr, size_t offset, uint32_t data)
 def buf_set4_be(attr, offset, data):
     data = data & 0xFFFFFFFF
-    if offset + 3 < attr.len:
+    if buf_room(attr, offset, 4):
         attr.bufptr[offset+3] = data & 0xFF
         attr.bufptr[offset+2] = (data >> 8) & 0xFF
         attr.bufptr[offset+1] = (data >> 16) & 0xFF
@@ -430,14 +445,14 @@ def buf_set4_be(attr, offset, data):
 
 # static uint32_t buf_get4_le(buf_impl* attr, size_t offset)
 def buf_get4_le(attr, offset):
-    if offset + 3 < attr.len:
+    if buf_room(attr, offset, 4):
         return (attr.bufptr[offset] | (attr.bufptr[offset+1] << 8) |
                 (attr.bufptr[offset+2] << 16) | (attr.bufptr[offset+3] << 24))
     return 0
 
 # static uint32_t buf_get4_be(buf_impl* attr, size_t offset)
 def buf_get4_be(attr, offset):
-    if offset + 3 < attr.len:
+    if buf_room(attr, offset, 4):
         return (attr.bufptr[offset+3] | (attr.bufptr[offset+2] << 8) |
                 (attr.bufptr[offset+1] << 16) | (attr.bufptr[offset] << 24))
     return 0
@@ -1083,6 +1098,171 @@ def m_addfloat(vm):
     be_api.be_raise(vm, "type_error", "operands must be int or float")
     return be_api.be_returnnilvalue(vm)
 
+# static int m_getbits(bvm *vm)
+# {
+#     int argc = be_top(vm);
+#     buf_impl attr = bytes_check_data(vm, 0);
+#     check_ptr(vm, &attr);
+#     if (argc >= 3 && be_isint(vm, 2) && be_isint(vm, 3)) {
+#         int32_t offset_bits = be_toint(vm, 2);
+#         int32_t len_bits = be_toint(vm, 3);
+#         if (len_bits < -32 || len_bits > 32) {
+#             be_raise(vm, "value_error", "length in bits must be between 0 and 32");
+#         }
+#         if (len_bits == 0) { be_return_nil(vm); }
+#         bbool big_endian = bfalse;
+#         if (len_bits < 0) { big_endian = btrue; len_bits = -len_bits; }
+#         uint32_t ret = 0;
+#         int32_t offset_bytes = offset_bits >> 3;
+#         offset_bits = offset_bits & 7;
+#         int bit_shift = 0;
+#         while (len_bits > 0) {
+#             int block_bits = 8 - offset_bits;
+#             if (block_bits > len_bits) { block_bits = len_bits; }
+#             uint8_t byte_val = buf_get1(&attr, offset_bytes);
+#             uint32_t mask_val = (1u << block_bits) - 1;
+#             if (big_endian) {
+#                 bit_shift = 8 - offset_bits - block_bits;
+#                 ret = (ret << block_bits) | ((byte_val >> bit_shift) & mask_val);
+#             } else {
+#                 ret |= (uint32_t)(((byte_val >> offset_bits) & mask_val) << bit_shift);
+#                 bit_shift += block_bits;
+#             }
+#             len_bits -= block_bits;
+#             offset_bits = 0;
+#             offset_bytes += 1;
+#         }
+#         be_pop(vm, argc - 1);
+#         be_pushint(vm, (bint) ret);
+#         be_return(vm);
+#     }
+#     be_raise(vm, "type_error", "operands must be int");
+#     be_return_nil(vm);
+# }
+def m_getbits(vm):
+    be_api = _lazy_be_api()
+    argc = be_api.be_top(vm)
+    attr = bytes_check_data(vm, 0)
+    check_ptr(vm, attr)
+    if argc >= 3 and be_api.be_isint(vm, 2) and be_api.be_isint(vm, 3):
+        offset_bits = be_api.be_toint(vm, 2)
+        len_bits = be_api.be_toint(vm, 3)
+        if len_bits < -32 or len_bits > 32:
+            be_api.be_raise(vm, "value_error", "length in bits must be between 0 and 32")
+        if len_bits == 0:
+            return be_api.be_returnnilvalue(vm)
+        big_endian = len_bits < 0
+        if big_endian:
+            len_bits = -len_bits
+        ret = 0
+        offset_bytes = offset_bits >> 3
+        offset_bits = offset_bits & 7
+        bit_shift = 0                       # bit number to write to
+        while len_bits > 0:
+            block_bits = 8 - offset_bits    # how many bits to read in the current block (block = byte)
+            if block_bits > len_bits:
+                block_bits = len_bits
+            byte_val = buf_get1(attr, offset_bytes)
+            mask_val = (1 << block_bits) - 1
+            if big_endian:
+                bit_shift = 8 - offset_bits - block_bits    # non-zero only on the last partial byte
+                ret = ((ret << block_bits) | ((byte_val >> bit_shift) & mask_val)) & 0xFFFFFFFF  # shift ret left to make space
+            else:
+                ret |= ((byte_val >> offset_bits) & mask_val) << bit_shift  # append to the left of ret
+                bit_shift += block_bits
+            # move the input window
+            len_bits -= block_bits
+            offset_bits = 0                 # start at full next byte
+            offset_bytes += 1
+        be_api.be_pop(vm, argc - 1)
+        be_api.be_pushint(vm, ret & 0xFFFFFFFF)
+        return be_api.be_returnvalue(vm)
+    be_api.be_raise(vm, "type_error", "operands must be int")
+    return be_api.be_returnnilvalue(vm)
+
+# static int m_setbits(bvm *vm)
+# {
+#     int argc = be_top(vm);
+#     buf_impl attr = bytes_check_data(vm, 0);
+#     check_ptr_modifiable(vm, &attr);
+#     if (argc >= 4 && be_isint(vm, 2) && be_isint(vm, 3) && (be_isint(vm, 4) || be_isbool(vm, 4))) {
+#         int32_t offset_bits = be_toint(vm, 2);
+#         int32_t len_bits = be_toint(vm, 3);
+#         uint32_t val = be_isint(vm, 4) ? (uint32_t)be_toint(vm, 4) : (be_tobool(vm, 4) ? 1u : 0u);
+#         if (len_bits < -32 || len_bits > 32) {
+#             be_raise(vm, "value_error", "length in bits must be between -32 and 32");
+#         }
+#         bbool big_endian = bfalse;
+#         if (len_bits < 0) { big_endian = btrue; len_bits = -len_bits; }
+#         int32_t offset_bytes = offset_bits >> 3;
+#         offset_bits = offset_bits & 7;
+#         while (len_bits > 0) {
+#             int block_bits = 8 - offset_bits;
+#             if (block_bits > len_bits) { block_bits = len_bits; }
+#             uint32_t mask_val = (1u << block_bits) - 1;
+#             len_bits -= block_bits;
+#             uint32_t extracted;
+#             if (big_endian) {
+#                 extracted = (val >> len_bits) & mask_val;
+#                 offset_bits = 8 - offset_bits - block_bits;
+#             } else {
+#                 extracted = val & mask_val;
+#                 val >>= block_bits;
+#             }
+#             uint8_t cur = buf_get1(&attr, offset_bytes);
+#             buf_set1(&attr, offset_bytes,
+#                      (uint8_t)((cur & ((mask_val << offset_bits) ^ 0xFF)) | (extracted << offset_bits)));
+#             offset_bits = 0;
+#             offset_bytes += 1;
+#         }
+#         be_pop(vm, argc - 1);
+#         be_return(vm);
+#     }
+#     be_raise(vm, "type_error", "operands must be int");
+#     be_return_nil(vm);
+# }
+def m_setbits(vm):
+    be_api = _lazy_be_api()
+    argc = be_api.be_top(vm)
+    attr = bytes_check_data(vm, 0)
+    check_ptr_modifiable(vm, attr)
+    if (argc >= 4 and be_api.be_isint(vm, 2) and be_api.be_isint(vm, 3)
+            and (be_api.be_isint(vm, 4) or be_api.be_isbool(vm, 4))):
+        offset_bits = be_api.be_toint(vm, 2)
+        len_bits = be_api.be_toint(vm, 3)
+        if be_api.be_isint(vm, 4):
+            val = be_api.be_toint(vm, 4) & 0xFFFFFFFF
+        else:
+            val = 1 if be_api.be_tobool(vm, 4) else 0
+        if len_bits < -32 or len_bits > 32:
+            be_api.be_raise(vm, "value_error", "length in bits must be between -32 and 32")
+        big_endian = len_bits < 0
+        if big_endian:
+            len_bits = -len_bits
+        offset_bytes = offset_bits >> 3
+        offset_bits = offset_bits & 7
+        while len_bits > 0:
+            block_bits = 8 - offset_bits    # how many bits to write in the current block (block = byte)
+            if block_bits > len_bits:
+                block_bits = len_bits
+            mask_val = (1 << block_bits) - 1
+            len_bits -= block_bits
+            if big_endian:
+                extracted = (val >> len_bits) & mask_val
+                offset_bits = 8 - offset_bits - block_bits  # non-zero only on the last partial byte
+            else:
+                extracted = val & mask_val
+                val >>= block_bits
+            cur = buf_get1(attr, offset_bytes)
+            buf_set1(attr, offset_bytes,
+                     (cur & (((mask_val << offset_bits) ^ 0xFF) & 0xFF)) | (extracted << offset_bits))
+            offset_bits = 0                 # start at full next byte
+            offset_bytes += 1
+        be_api.be_pop(vm, argc - 1)         # leave self on top of stack
+        return be_api.be_returnvalue(vm)    # return self
+    be_api.be_raise(vm, "type_error", "operands must be int")
+    return be_api.be_returnnilvalue(vm)
+
 # static int m_setbytes(bvm *vm) { ... }
 def m_setbytes(vm):
     be_api = _lazy_be_api()
@@ -1111,8 +1291,11 @@ def m_setbytes(vm):
         if argc >= 5 and be_api.be_isint(vm, 5):
             from_len = be_api.be_toint(vm, 5)
             if from_len < 0: from_len = 0
-            if from_len >= from_len_total: from_len = from_len_total
-        if idx + from_len >= attr.len:
+            # clamp against the bytes available *after* from_byte, not the
+            # total source length, otherwise the copy reads past src
+            if from_len > from_len_total - from_byte:
+                from_len = from_len_total - from_byte
+        if idx + from_len > attr.len:
             from_len = attr.len - idx
 
         if from_len > 0:
@@ -1140,7 +1323,9 @@ def m_reverse(vm):
     if argc >= 3 and be_api.be_isint(vm, 3):
         length = be_api.be_toint(vm, 3)
         if length < 0: length = attr.len - idx
-    if idx + length >= attr.len:
+    # clamp len without overflowing idx + len (and off-by-one: cutting at
+    # `>= attr.len` previously dropped the last valid byte)
+    if length > attr.len - idx:
         length = attr.len - idx
     if argc >= 4 and be_api.be_isint(vm, 4):
         grouplen = be_api.be_toint(vm, 4)
@@ -1280,7 +1465,13 @@ def m_merge(vm):
             buf = bytearray(s.encode('latin-1')) if isinstance(s, str) else bytearray(s)
             buf_len = len(buf)
 
-        bytes_new_object(vm, attr.len + buf_len)
+        # reject obvious over-large results up-front; otherwise
+        # bytes_realloc would silently clamp to bytesmaxsize and truncate
+        total = attr.len + buf_len
+        if total > vm.bytesmaxsize:
+            be_api.be_raise(vm, "memory_error", "bytes object too large")
+
+        bytes_new_object(vm, total)
         attr3 = m_read_attributes(vm, -1)
         check_ptr(vm, attr3)
         buf_add_buf(attr3, attr)
@@ -1613,5 +1804,7 @@ def be_load_byteslib(vm):
         ("..", m_connect),
         ("==", m_equal),
         ("!=", m_nequal),
+        ("getbits", m_getbits),
+        ("setbits", m_setbits),
     ]
     be_api.be_regclass(vm, "bytes", members)

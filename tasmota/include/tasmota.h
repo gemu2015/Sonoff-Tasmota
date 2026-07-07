@@ -389,6 +389,7 @@ enum TopicOptions { CMND, STAT, TELE, nu1, RESULT_OR_CMND, RESULT_OR_STAT, RESUL
 // Upload type used by HandleUploadLoop() to route incoming data.
 // Value 0 is invalid/unset. Each upload endpoint must set the appropriate
 // type before HandleUploadLoop() processes the first data block.
+// UPL_NONE           - No valid type
 // UPL_TASMOTA        - OTA firmware update (/u2)
 // UPL_SETTINGS       - Settings backup restore (/u2)
 // UPL_EFM8BB1        - Sonoff RF bridge EFM8BB1 firmware
@@ -397,7 +398,7 @@ enum TopicOptions { CMND, STAT, TELE, nu1, RESULT_OR_CMND, RESULT_OR_STAT, RESUL
 // UPL_SHD            - Shelly dimmer firmware
 // UPL_CCL            - CC2530 Zigbee firmware via CCLoader
 // UPL_UFSFILE        - Filesystem file upload (/ufsu)
-enum UploadTypes { UPL_TASMOTA = 1, UPL_SETTINGS, UPL_EFM8BB1, UPL_TASMOTACLIENT, UPL_EFR32, UPL_SHD, UPL_CCL, UPL_UFSFILE };
+enum UploadTypes { UPL_NONE, UPL_TASMOTA, UPL_SETTINGS, UPL_EFM8BB1, UPL_TASMOTACLIENT, UPL_EFR32, UPL_SHD, UPL_CCL, UPL_UFSFILE };
 
 enum ExecuteCommandPowerOptions { POWER_OFF, POWER_ON, POWER_TOGGLE, POWER_BLINK, POWER_BLINK_STOP, POWER_OFF_FORCE,
                                   POWER_OFF_NO_STATE = 8, POWER_ON_NO_STATE, POWER_TOGGLE_NO_STATE,
@@ -507,6 +508,7 @@ enum SettingsTextIndex { SET_OTAURL,
                          SET_INFLUXDB_HOST, SET_INFLUXDB_PORT, SET_INFLUXDB_ORG, SET_INFLUXDB_TOKEN, SET_INFLUXDB_BUCKET, SET_INFLUXDB_RP,
                          SET_CANVAS,
                          SET_TELEGRAM_FINGERPRINT,
+                         SET_APBSSID1, SET_APBSSID2,  // MAX_SSIDS
                          SET_MAX, // limit of texts stored in Settings
                          // Index above are not stored in Settings and should be handled specifically in SettingText()
                          SET_BUTTON17, SET_BUTTON18, SET_BUTTON19, SET_BUTTON20, SET_BUTTON21, SET_BUTTON22, SET_BUTTON23, SET_BUTTON24,

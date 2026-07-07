@@ -829,7 +829,7 @@ void MqttPublishPayloadPrefixTopic_P(uint32_t prefix, const char* subtopic, cons
     // compute the target topic
     char *topic = SettingsText(SET_MQTT_TOPIC);
     char topic2[strlen(topic)+1];       // save buffer onto stack
-    strcpy(topic2, topic);
+    strlcpy(topic2, topic, sizeof(topic2));
     // replace any '/' with '_'
     char *s = topic2;
     while (*s) {
@@ -1429,7 +1429,7 @@ void MqttReconnect(void) {
     MqttDisconnected(MqttClient.state());
   }
 #ifdef USE_MQTT_TLS
-  if (Mqtt.mqtt_tls) {
+  if (Mqtt.mqtt_tls && (tlsClient != NULL)) {
     int32_t cipher_suite = tlsClient->getLastCipherSuite();
     if (BR_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 == cipher_suite) {
       AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "TLS cipher suite: %s"), PSTR("ECDHE_RSA_AES_128_GCM_SHA256"));

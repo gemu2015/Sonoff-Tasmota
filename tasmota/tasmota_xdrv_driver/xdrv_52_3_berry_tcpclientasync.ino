@@ -64,7 +64,7 @@ public:
   }
 
   void stop() {
-    if (sockfd > 0) {
+    if (sockfd >= 0) {
       close(sockfd);
     }
     sockfd = -1;
@@ -151,14 +151,14 @@ public:
       res = getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &sockerr, &len);
 
       if (res < 0) {
-        AddLog(LOG_LEVEL_DEBUG, "BRY: getsockopt on fd %d, errno: %d, \"%s\"", sockfd, errno, strerror(errno));
+        AddLog(LOG_LEVEL_DEBUG_MORE, "BRY: getsockopt on fd %d, errno: %d, \"%s\"", sockfd, errno, strerror(errno));
         stop();
         state = AsyncTCPState::REFUSED;
         return;
       }
 
       if (sockerr != 0) {
-        AddLog(LOG_LEVEL_DEBUG, "BRY: socket error on fd %d, errno: %d, \"%s\"", sockfd, sockerr, strerror(sockerr));
+        AddLog(LOG_LEVEL_DEBUG_MORE, "BRY: socket error on fd %d, errno: %d, \"%s\"", sockfd, sockerr, strerror(sockerr));
         stop();
         state = AsyncTCPState::REFUSED;
         return;
@@ -347,7 +347,7 @@ public:
 
   void update_local_addr_port(void) {
     local_port = -1;      // default to unknwon
-    if (sockfd > 0) {
+    if (sockfd >= 0) {
       struct sockaddr_storage local_address;
       socklen_t addr_size = sizeof(local_address);
       // getpeername(fd, (struct sockaddr*)&addr, &len);

@@ -291,8 +291,8 @@ char *topicPrefix(int prefix, const uint8_t *addr, int useAlias){
   const char *id = addrStr(addr, useAlias);
   if (!EQ3TopicStyle){
     GetTopic_P(stopic, prefix, TasmotaGlobal.mqtt_topic, PSTR(""));
-    strcat(stopic, PSTR("EQ3/"));
-    strcat(stopic, id);
+    strlcat(stopic, PSTR("EQ3/"), sizeof(stopic));
+    strlcat(stopic, id, sizeof(stopic));
   } else {
     char p[] = "EQ3";
     GetTopic_P(stopic, prefix, p, id);
@@ -461,7 +461,7 @@ int EQ3ParseOp(BLE_ESP32::generic_sensor_t *op, bool success, int retries){
   if ((statlen >= 6) && (status[0] == 2) && (status[1] == 1)) {
     ResponseAppend_P(PSTR(",\"stattime\":%u"), stattime);
     eq3->TargetTemp = (float)status[5] / 2;
-    ResponseAppend_P(PSTR(",\"temp\":%2.1f"), eq3->TargetTemp);
+    ResponseAppend_P(PSTR(",\"temp\":%1_f"), &(eq3->TargetTemp));
     eq3->DutyCycle = status[3];
     ResponseAppend_P(PSTR(",\"posn\":%d"), eq3->DutyCycle);
     int stat = status[2];
@@ -518,11 +518,16 @@ int EQ3ParseOp(BLE_ESP32::generic_sensor_t *op, bool success, int retries){
       );
 
     if (statlen >= 15) {
-      ResponseAppend_P(PSTR(",\"windowtemp\":%2.1f"), ((float)status[10]) /  2);
+      float f_temp;
+      f_temp = ((float)status[10]) /  2;
+      ResponseAppend_P(PSTR(",\"windowtemp\":%1_f"), &f_temp);
       ResponseAppend_P(PSTR(",\"windowdur\":%d"), ((int)status[11]) * 5);
-      ResponseAppend_P(PSTR(",\"day\":%2.1f"), ((float)status[12]) / 2);
-      ResponseAppend_P(PSTR(",\"night\":%2.1f"), ((float)status[13]) / 2);
-      ResponseAppend_P(PSTR(",\"offset\":%2.1f"), ((float)status[14] - 7) / 2);
+      f_temp = ((float)status[12]) / 2;
+      ResponseAppend_P(PSTR(",\"day\":%1_f"), &f_temp);
+      f_temp = ((float)status[13]) / 2;
+      ResponseAppend_P(PSTR(",\"night\":%1_f"), &f_temp);
+      f_temp = ((float)status[14] - 7) / 2;
+      ResponseAppend_P(PSTR(",\"offset\":%1_f"), &f_temp);
     }
 
   }
@@ -554,7 +559,7 @@ int EQ3ParseOp(BLE_ESP32::generic_sensor_t *op, bool success, int retries){
         mm *= 10;
         int hh = mm / 60;
         mm = mm % 60;
-        ResponseAppend_P(PSTR("%2.1f-%02d:%02d"), t, hh, mm);
+        ResponseAppend_P(PSTR("%1_f-%02d:%02d"), &t, hh, mm);
         // stop if the last one is 24.
         if (hh == 24){
           break;
@@ -984,8 +989,8 @@ int EQ3SendResult(char *requested, const char *result){
   Response_P(PSTR("{\"result\":\"%s\"}"), result);
   static char stopic[TOPSZ];
   GetTopic_P(stopic, STAT, TasmotaGlobal.mqtt_topic, PSTR(""));
-  strcat(stopic, PSTR("EQ3/"));
-  strcat(stopic, requested);
+  strlcat(stopic, PSTR("EQ3/"), sizeof(stopic));
+  strlcat(stopic, requested, sizeof(stopic));
   MqttPublish(stopic, false);
   return 0;
 }

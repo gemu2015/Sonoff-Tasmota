@@ -1127,6 +1127,12 @@ void PerformEverySecond(void)
 {
   TasmotaGlobal.uptime++;
 
+#ifdef ESP8266
+#ifdef USE_ESP8266_DEBUG_HEAP
+  ESP_HeapUsageUpdate();
+#endif  // USE_ESP8266_DEBUG_HEAP
+#endif  // ESP8266
+
   if (POWER_CYCLE_TIME == TasmotaGlobal.uptime) {
     UpdateQuickPowerCycle(false);
   }
@@ -1871,6 +1877,11 @@ void SerialInput(void) {
           serial_buffer_overrun = true;                                            // Signal overrun but continue reading input to flush until '\n' (EOL)
         }
       }
+#ifdef USE_SERIAL_BACKSPACE
+      else if (TasmotaGlobal.serial_in_byte == 0x08 && TasmotaGlobal.serial_in_byte_counter > 0) { // Backspace (BS) - remove last char from buffer
+        TasmotaGlobal.serial_in_byte_counter--;
+      }
+#endif  // USE_SERIAL_BACKSPACE
     } else {
       if (TasmotaGlobal.serial_in_byte || Settings->flag.mqtt_serial_raw) {        // Any char between 1 and 127 or any char (0 - 255) - CMND_SERIALSEND3
         bool in_byte_is_delimiter =                                                // Char is delimiter when...
@@ -1991,6 +2002,11 @@ void TasConsoleInput(void) {
     if (XYZModemStart(TXMP_TASCONSOLE, console_in_byte)) { return; }
 #endif  // USE_XYZMODEM
 
+#ifdef USE_SERIAL_BACKSPACE
+    if (console_in_byte == 0x08 && console_buffer.length() > 0) { // Backspace (BS) - remove last char from buffer
+      console_buffer.remove(console_buffer.length() - 1);
+    } else
+#endif  // USE_SERIAL_BACKSPACE
     if (isprint(console_in_byte)) {                       // Any char between 32 and 127
       if (console_buffer.length() < INPUT_BUFFER_SIZE) {  // Add char to string if it still fits
         console_buffer += console_in_byte;
