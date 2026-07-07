@@ -76,7 +76,7 @@ char cmd[200];                   // deferred-command scratch (TTS / email)
 // ---- SMTP creds for the alarm email — read at boot from /alarm.cfg (device-only, NOT in git) ----
 // /alarm.cfg (one KEY=value per line, // comments ok):  SMTP=  PORT=  USER=  PASS=  FROM=  TO=
 #define ALARM_CFG "/alarm.cfg"
-char cfgbuf[256]; char cfgline[80];
+char cfgbuf[512]; char cfgline[80];   // 512 (was 256): comments + creds can exceed 254 -> last key (TO=) got truncated -> mail_ok=0
 char m_smtp[40]; char m_port[8]; char m_user[40]; char m_pass[48]; char m_from[48]; char m_to[48];
 int mail_ok = 0;                 // 1 once /alarm.cfg supplied creds (else TTS+siren only, no email)
 
@@ -198,7 +198,7 @@ void read_cfg() {
     if (fileExists(ALARM_CFG) == 0) { return; }
     int h = fileOpen(ALARM_CFG, 0);
     if (h < 0) { return; }
-    int n = fileRead(h, cfgbuf, 254);
+    int n = fileRead(h, cfgbuf, 510);
     fileClose(h);
     if (n <= 0) { return; }
     cfgbuf[n] = 0;
@@ -245,7 +245,7 @@ void alarm_tick() {
                 tasmDefer(cmd);                            // deferred: sendmail must not block
                 email_sent = 1;
             }
-            audioPlay("/SND/lalarm.mp3");                  // siren
+            audioPlay("/SND/alarm.mp3");                   // siren — short ~5s clip, re-fired every 5s tick = continuous
         }
     }
 }
@@ -255,6 +255,8 @@ int main() {
     lvglClean(0);
     lvglSetBgColor(0, C_BG);
     read_cfg();                      // SMTP creds from /alarm.cfg — no credentials in this source
+    char gr[16]; tasmCmd("I2SGain 50", gr);   // set audio gain at boot (else 0=muted -> silent siren/TTS); tune 0-100
+    addCommand("MZ");                // console/web test: "MZ" or "MZ m" = send test email, "MZ s" = play siren once
 
     int title = lvglLabel(0);
     lvglSetText(title, "Heizung & Fenster"); lvglSetTextColor(title, C_TITLE); lvglSetFont(title, 20); lvglSetPos(title, 10, 6);
@@ -375,4 +377,22 @@ void WebCall() {
     }
     if (wopn > 0) { sprintf(cmd, "{s}Fenster{m}<span style='color:#e0a84e'>%s offen</span>{e}", open_name); webSend(cmd); }
     else { webSend("{s}Fenster{m}alle zu{e}"); }
+}
+
+// Test command (verify siren + email without arming + opening a window):
+//   MZ   or  MZ m   -> send a test alarm email (same creds/path as the real alarm)
+//   MZ s            -> play the siren (/SND/alarm.mp3) once
+void Command(char carg[]) {
+    int i = 0; while (carg[i] == ' ') { i = i + 1; }
+    if (carg[i] == 's' || carg[i] == 'S') {            // MZ s -> siren test
+        audioPlay("/SND/alarm.mp3");
+        responseCmnd("siren test (alarm.mp3)"); return;
+    }
+    if (mail_ok) {                                     // MZ / MZ m -> email test (same sendmail as the alarm)
+        sprintf(cmd, "sendmail [%s:%s:%s:%s:%s:%s:MORITZ TEST]Test-Mail von der Alarmanlage", m_smtp, m_port, m_user, m_pass, m_from, m_to);
+        tasmDefer(cmd);
+        responseCmnd("test email queued - check inbox + console log");
+    } else {
+        responseCmnd("mail_ok=0 - no creds loaded from /alarm.cfg");
+    }
 }
