@@ -4797,8 +4797,14 @@ export class CodeGenerator {
         // Named format (V3, for name-keyed .pvs migration): [0xFF][ver=3][count u8],
         // then per entry [nameLen u8][name bytes][index u16 BE][slotCount u16 BE].
         // The 0xFF sentinel distinguishes it from the legacy [count u8][index,slotCount]
-        // layout — count is always < TC_MAX_PERSIST (64), never 0xFF — so a mismatched
-        // (older) firmware sees the sentinel instead of silently misreading a huge count.
+        // layout — count stays well under 0xFF — so a mismatched (older) firmware sees
+        // the sentinel instead of silently misreading a huge count.
+        // Warn if we exceed the firmware cap (ESP32 TC_MAX_PERSIST=128): the firmware
+        // parse truncates the excess, so those vars silently never persist (reload as 0).
+        // Surfacing it here turns a mystery data-loss bug into a build-time warning.
+        if (this.persistGlobals.length > 128) {
+            this.warnings.push(`${this.persistGlobals.length} persist variables exceeds the firmware cap of 128 - the last ${this.persistGlobals.length - 128} will NOT persist (they reload as 0). Reduce persist variables.`);
+        }
         const bytes = [0xFF, 0x03, this.persistGlobals.length];
         const enc = new TextEncoder();
         for (const entry of this.persistGlobals) {
