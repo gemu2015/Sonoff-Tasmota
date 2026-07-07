@@ -409,6 +409,7 @@
           Review queue only
         </label>
         <button id="btnEditPolicies" title="Edit always-keep / always-take glob lists">Edit policies</button>
+        <button id="btnTakeRemaining" class="primary" title="Mark every still-undecided upstream file (Modified / Upstream-new, not keep/take policy-covered) as 'Take theirs'. Nothing is written until Apply.">Take all remaining</button>
         <button id="btnApply" class="good">Apply decisions</button>
         <button id="btnClearDecisions" class="warn" title="Reset all manual decisions for this fork (policies are kept)">Clear decisions</button>
       </div>
@@ -596,20 +597,34 @@ async function loadDefaults() {
   $('#fld_url').value       = state.defaults.upstream_url;
   $('#fld_includes').value  = state.defaults.include_prefixes.join('\n');
   $('#fld_excludes').value  = state.defaults.exclude_globs.join('\n');
-  $('#chk_skip_dl').checked = state.defaults.has_cached_zip;
   if (state.defaults.has_cached_zip) {
     const sz = state.defaults.cached_zip_size;
     const mt = state.defaults.cached_zip_mtime;
-    const ageMin = Math.floor((Date.now()/1000 - mt) / 60);
+    const ageMin  = Math.floor((Date.now()/1000 - mt) / 60);
+    const ageDays = (Date.now()/1000 - mt) / 86400;
+    const STALE_DAYS = 3;
+    const stale = ageDays > STALE_DAYS;
     let ageStr;
     if (ageMin < 60)        ageStr = `${ageMin} min ago`;
     else if (ageMin < 1440) ageStr = `${Math.floor(ageMin/60)} h ago`;
     else                    ageStr = `${Math.floor(ageMin/1440)} d ago`;
-    $('#cacheInfo').textContent =
-      `(cached: ${(sz/1e6).toFixed(1)} MB, ${ageStr})`;
-    $('#chk_skip_dl').parentElement.title =
-      `${state.defaults.cache_dir}/upstream.zip`;
+    const dstr = new Date(mt*1000).toLocaleDateString();
+    // Only auto-reuse a FRESH cache. A stale cache defaults to UNCHECKED (fresh
+    // download) so you don't unknowingly diff against an old snapshot you already
+    // merged — the exact trap that made "nothing to take" look like a bug.
+    $('#chk_skip_dl').checked = !stale;
+    if (stale) {
+      $('#cacheInfo').style.color = 'var(--warn)';
+      $('#cacheInfo').textContent =
+        `⚠ cached ZIP is ${Math.floor(ageDays)} days old (${dstr}) — leave "Reuse" unchecked to fetch current upstream`;
+    } else {
+      $('#cacheInfo').style.color = 'var(--muted)';
+      $('#cacheInfo').textContent = `(cached: ${(sz/1e6).toFixed(1)} MB, ${ageStr}, ${dstr})`;
+    }
+    $('#chk_skip_dl').parentElement.title = `${state.defaults.cache_dir}/upstream.zip`;
   } else {
+    $('#chk_skip_dl').checked = false;
+    $('#cacheInfo').style.color = 'var(--muted)';
     $('#cacheInfo').textContent = '(no cache yet — first run will download ~80 MB)';
   }
 }
@@ -1091,6 +1106,22 @@ $('#btnClearDecisions').addEventListener('click', async () => {
   if (!confirm('Clear ALL decisions for this fork? (the on-disk decisions file will be wiped)')) return;
   await postJson('/api/clear_decisions');
   await refreshFiles();
+});
+
+$('#btnTakeRemaining').addEventListener('click', async () => {
+  // Same set the "need review" stat counts: undecided (no manual/policy) with upstream content.
+  const remaining = state.files.filter(f => !f.decision && f.category !== 'fork_only').length;
+  if (remaining === 0) {
+    alert('Nothing remaining — every upstream-changed file is already decided or policy-covered.');
+    return;
+  }
+  if (!confirm(`Mark ${remaining} still-undecided upstream file(s) as "Take theirs"?\n\n` +
+               `These are Modified / Upstream-new files not covered by a keep/take policy or a manual decision. ` +
+               `Your keep-listed and fork-only files are left untouched.\n\n` +
+               `Nothing is written yet — hit "Apply decisions" afterwards (every overwrite is backed up).`)) return;
+  const r = await postJson('/api/take_remaining');
+  await refreshFiles();
+  alert(`Marked ${r.count} file(s) as "Take theirs". Review the list, then click "Apply decisions".`);
 });
 
 $('#btnRestart').addEventListener('click', () => {

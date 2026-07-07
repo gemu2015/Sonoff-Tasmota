@@ -53,7 +53,11 @@ folder with both `tasmota/` and `platformio.ini` is found.
 
 2. **Download &amp; Compare** — fetches the ZIP (~80 MB), extracts to
    `~/.tasmota_merge_cache/`, and indexes every file. Re-running with
-   "Reuse cached ZIP" skips the download.
+   "Reuse cached ZIP" skips the download. The cached ZIP's **age is shown
+   next to the checkbox**; if it's older than 3 days the checkbox defaults
+   to **unchecked** (fresh download) with an amber warning — so you never
+   silently diff against a stale snapshot you've already merged (which
+   makes the whole review look empty / "nothing to take").
 
 3. **Review files** — table lists every file that differs:
    - **Modified** — exists in both, content differs
@@ -81,7 +85,12 @@ folder with both `tasmota/` and `platformio.ini` is found.
      point" to seed it)
    - **Mark resolved** — record decision without writing (audit-only)
 
-5. **Apply decisions** — back in the file list, hit *Apply decisions*.
+5. **Take all remaining → Apply decisions** — the toolbar's *Take all
+   remaining* button one-click marks every still-undecided upstream file
+   (Modified / Upstream-new, not covered by a keep/take policy or a manual
+   decision) as "Take theirs" — the fast path for absorbing the residual
+   after policies handle the bulk; fork-only and keep-listed files are left
+   alone. Then hit *Apply decisions*.
    The tool writes Take-theirs and Custom-merge files to the fork tree
    AND backs up the previous content to
    `<fork>/.tasmota_merge_backups/<timestamp>/<rel_path>`. Files are NOT
@@ -212,6 +221,7 @@ Override on the *Advanced filters* expander in the setup screen.
 | POST   | `/api/start`                    | Kick off download/extract/diff         |
 | POST   | `/api/decide`                   | `{path, action, merged_content?}`      |
 | POST   | `/api/apply`                    | Apply all decisions to the fork tree   |
+| POST   | `/api/take_remaining`           | Mark every undecided upstream file (Modified/Upstream-new, not policy-covered) as `take` |
 | POST   | `/api/clear_decisions`          | Wipe the on-disk decisions file        |
 | GET    | `/api/policies`                 | Current policy lists                   |
 | POST   | `/api/policies`                 | `{always_keep: [...], always_take: [...]}` |

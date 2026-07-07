@@ -833,6 +833,32 @@ class Handler(BaseHTTPRequestHandler):
                 _save_state(session['fork_root'], {})
             self._send_json(200, {'ok': True}); return
 
+        if p == '/api/take_remaining':
+            # Bulk "Take theirs" for every file that upstream changed/added and
+            # that has NO effective decision yet (no manual decision AND no
+            # policy). Fork-only files (no upstream content) are left alone, and
+            # keep-listed / already-decided files are respected. Writes nothing
+            # here — just records 'take' decisions, applied on the next Apply.
+            n = 0
+            with state_lock:
+                pol = dict(session['policies'])
+                for f in session['files']:
+                    rel = f['path']
+                    if f.get('category') not in ('modified', 'upstream_new'):
+                        continue                          # fork-only: nothing upstream to take
+                    if rel in session['decisions']:
+                        continue                          # respect an existing manual decision
+                    if _policy_decision_for(rel, pol):
+                        continue                          # already auto-decided by a policy
+                    session['decisions'][rel] = {
+                        'action': 'take',
+                        'ts':     time.strftime('%Y-%m-%d %H:%M:%S'),
+                        'bulk':   True,                   # marks it as a bulk take (not an individual click)
+                    }
+                    n += 1
+                _save_state(session['fork_root'], session['decisions'])
+            self._send_json(200, {'ok': True, 'count': n}); return
+
         if p == '/api/policies':
             d = self._read_json()
             ak = d.get('always_keep') or []
