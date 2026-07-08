@@ -191,9 +191,9 @@ void logMeasurement() {
   addLog(m);
 }
 
-// ESF37_SPEAK: speak the weigh-in via I2STTS/picotts. Commented out = OFF while we
-// isolate the picotts/audio-plugin INT-WDT crash (uncomment to restore the announce).
-//#define ESF37_SPEAK
+// ESF37_SPEAK: speak the weigh-in via I2STTS/picotts. ON again — the audio plugin
+// and the BLE scale now coexist after freeing IRAM (CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH).
+#define ESF37_SPEAK
 
 // Announce the completed weigh-in in German via the I2SAUDIO picotts plugin
 // (I2Stts command). No-op on builds without the plugin — tasmCmd just gets
