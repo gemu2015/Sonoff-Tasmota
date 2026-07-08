@@ -191,6 +191,10 @@ void logMeasurement() {
   addLog(m);
 }
 
+// ESF37_SPEAK: speak the weigh-in via I2STTS/picotts. Commented out = OFF while we
+// isolate the picotts/audio-plugin INT-WDT crash (uncomment to restore the announce).
+//#define ESF37_SPEAK
+
 // Announce the completed weigh-in in German via the I2SAUDIO picotts plugin
 // (I2Stts command). No-op on builds without the plugin — tasmCmd just gets
 // "Command":"Unknown" back, harmless. Integer-part + "Komma" + tenths avoids
@@ -242,7 +246,13 @@ void decodeD0() {
       w_imp = imp;
       shareSetInt("scale_imp", w_imp);
       computeComp();
-      if (logged == 0) { logMeasurement(); speakResult(); logged = 1; }   // one log row + one announcement per weigh-in
+      if (logged == 0) {                    // one log row + one announcement per weigh-in
+        logMeasurement();
+#ifdef ESF37_SPEAK
+        speakResult();
+#endif
+        logged = 1;
+      }
       char m[110];
       sprintf(m, "esf37: LOCKED %.2f kg  imp=%d ohm  BMI %.1f  fat %.1f%%  (#%d)",
               w_kg, w_imp, c_bmi, c_fat, nlock);
@@ -285,7 +295,10 @@ void handleFrame(int n) {
   // type == 0xD2 (idle heartbeat) and anything else: silently ignored.
 }
 
-// Render /esf37.log as a scrollable HTML table inside the sensor tile.
+// Render /esf37.log as a scrollable, cell-bordered colored table inside the sensor
+// tile. Each row is split into fields (tab-separated) so the ISO timestamp
+// (YYYY-MM-DDTHH:MM:SS) can be reformatted to DD:MM:YY HH:MM and the weight bolded;
+// rows alternate background (zebra) for readability, header is colored.
 void renderTable() {
   if (fileExists("/esf37.log") == 0) {
     webSend("<tr><td colspan=2><i>no weigh-ins logged yet</i></td></tr>");
@@ -294,38 +307,46 @@ void renderTable() {
   int fsz = fileSize("/esf37.log");
   int fh = fileOpen("/esf37.log", "r");
   if (fh < 0) { return; }
-  if (fsz > 1390) { fileSeek(fh, fsz - 1390, 0); }   // tail window (the renderer drops the first line either way)
+  if (fsz > 1390) { fileSeek(fh, fsz - 1390, 0); }   // tail window; line 1 dropped either way
   int n = fileRead(fh, fbuf, 1390);
   fileClose(fh);
   if (n <= 0) { webSend("<br><tr><td colspan=2><i>log empty</i></td></tr>"); return; }
   fbuf[n] = 0;
 
   webSend("<br><tr><td colspan=2><center><b>History</b></td></tr>");
-  webSend("<tr><td colspan=2><div style='max-height:170px;overflow:auto'>");
-  webSend("<table style='width:100%;font-size:75%'>");
-  webSend("<tr style='text-align:left'><th>Time<th>kg<th>&#937;<th>BMI<th>Fat%<th>Lean<th>H2O%<th>Musc");
+  webSend("<tr><td colspan=2><div style='max-height:190px;overflow:auto'>");
+  webSend("<table border=1 cellpadding=3 style='border-collapse:collapse;width:100%;font-size:73%;border-color:#9fb3c8'>");
+  webSend("<tr style='background:#2b6cb0;color:#fff'><th>Datum/Zeit<th>kg<th>&#937;<th>BMI<th>Fat%<th>Lean<th>H2O%<th>Musc");
 
-  int i = 0;
-  // Always drop the window's first line: the column-header row when reading from
-  // the file start, or the partial row when tail-windowed.
-  while (i < n && fbuf[i] != 10) { i = i + 1; } i = i + 1;
-  char row[240];
-  strcpy(row, "<tr><td>");
-  int rl = strlen(row);
-  while (i < n) {
-    int c = fbuf[i] & 0xFF;
-    if (c == 9) {                              // tab -> next cell
-      row[rl] = 0; strcat(row, "<td>"); rl = strlen(row);
-    } else if (c == 10) {                      // newline -> emit row
-      row[rl] = 0;
-      if (rl > 8) { webSend(row); }
-      strcpy(row, "<tr><td>"); rl = strlen(row);
-    } else {
-      if (c != 13 && rl < 235) { row[rl] = c; rl = rl + 1; }
-    }
-    i = i + 1;
+  char line[256];
+  char f1[28]; char f2[16]; char f3[16]; char f4[16];
+  char f5[16]; char f6[16]; char f7[16]; char f8[16];
+  char dt[20]; char row[440]; char bg[10];
+  int li = 2;            // skip line 1: the header row, or the partial tail-window line
+  int rowidx = 0;
+  while (strToken(line, fbuf, '\n', li) > 0) {         // strToken(dst, src, delim, n)
+    li = li + 1;
+    if (strlen(line) < 12) { continue; }               // skip short/blank lines
+    strToken(f1, line, '\t', 1);
+    strToken(f2, line, '\t', 2);
+    strToken(f3, line, '\t', 3);
+    strToken(f4, line, '\t', 4);
+    strToken(f5, line, '\t', 5);
+    strToken(f6, line, '\t', 6);
+    strToken(f7, line, '\t', 7);
+    strToken(f8, line, '\t', 8);
+    // ISO "YYYY-MM-DDTHH:MM:SS" -> "DD:MM:YY HH:MM"
+    if (strlen(f1) >= 16) {
+      dt[0]=f1[8]; dt[1]=f1[9]; dt[2]=':'; dt[3]=f1[5]; dt[4]=f1[6]; dt[5]=':';
+      dt[6]=f1[2]; dt[7]=f1[3]; dt[8]=' '; dt[9]=f1[11]; dt[10]=f1[12]; dt[11]=':';
+      dt[12]=f1[14]; dt[13]=f1[15]; dt[14]=0;
+    } else { strcpy(dt, f1); }
+    if ((rowidx & 1) == 0) { strcpy(bg, "#eef3f8"); } else { strcpy(bg, "#dbe6f0"); }
+    sprintf(row, "<tr style='background:%s;color:#1a1a1a'><td>%s<td align=right><b>%s</b><td align=right>%s<td align=right>%s<td align=right>%s<td align=right>%s<td align=right>%s<td align=right>%s",
+            bg, dt, f2, f3, f4, f5, f6, f7, f8);
+    webSend(row);
+    rowidx = rowidx + 1;
   }
-  if (rl > 8) { row[rl] = 0; webSend(row); }    // trailing line with no newline
   webSend("</table></div></td></tr>");
 }
 
