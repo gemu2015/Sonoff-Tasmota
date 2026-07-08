@@ -42,7 +42,8 @@
 #define WCH   94
 #define WROFF 100
 #define MAXWC 30
-#define NEAR_MM 1000      // VL53L0X: person nearby if distance (mm) < this — TUNE to your mounting
+#define NEAR_MM 500       // VL53L0X: person nearby if distance (mm) < this — TUNE to your mounting
+                          // (.102 background reads ~850 mm; 500 = only someone right at the display)
 
 char IDS[] = "19879D|0E8BD2|0E8D48|0E7BC5|0E8D4D|0E8BEC|0E8C31|0E8B84|1300E8";
 
