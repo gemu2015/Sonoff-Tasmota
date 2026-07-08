@@ -82,6 +82,12 @@ String GetHostedFwVersion(uint32_t device) {
 
 String GetHostedMCU(void) {
   char cp_name[30] = CONFIG_ESP_HOSTED_IDF_SLAVE_TARGET;  // Allow user selection of different hosted MCU until v2.12.2
+  // esp_hosted_get_cp_info() exists only from esp_hosted v2.12.2. The runtime guard below is
+  // not enough — the symbol must be DECLARED at compile time, so this whole branch has to be
+  // #if-gated too, else P4 (the only target that compiles this file) breaks on the currently
+  // framework-pinned esp_hosted 2.11.7 (Andreas, 2026-07-08). The new path auto-enables once
+  // the framework moves to esp_hosted >= 2.12.
+#if (ESP_HOSTED_VERSION_MAJOR_1 > 2) || (ESP_HOSTED_VERSION_MAJOR_1 == 2 && ESP_HOSTED_VERSION_MINOR_1 >= 12)
   if (GetHostedMCUFwVersion() >= 0x00020C02) {            // 2.12.2
     uint32_t cp_name_len = sizeof(cp_name);
     uint32_t cp_chip_id = 0;
@@ -94,6 +100,9 @@ String GetHostedMCU(void) {
     return String(cp_name);                               // esp32c6 as defined by CONFIG_ESP_HOSTED_IDF_SLAVE_TARGET
   }
   return String("Unknown");                               // Unknown
+#else
+  return String(cp_name);                                 // esp_hosted < 2.12.2: esp_hosted_get_cp_info() not yet declared
+#endif
 }
 
 void HostedMCUStatus(void) {
