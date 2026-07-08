@@ -5214,6 +5214,193 @@ static void TC_DLServeIDE(void) {
   // to the client. This matches the existing tc_download_task pattern.
 }
 
+/*********************************************************************************************\
+ * Port 83 Upload Server -- raw-socket large-file upload on its OWN FreeRTOS task
+ *
+ * Large uploads through the port-80 file manager (/ufsu) run the ENTIRE multipart body
+ * (network read + LittleFS write) inside ONE WebServer handleClient() call on loopTask,
+ * so a ~400 KB file blocks loopTask long enough to trip the task WDT -> truncation +
+ * reboot (Andreas / Gerhard both hit this uploading a ~420 KB MP3).
+ *
+ * This is an INDEPENDENT raw-TCP listener on its own task. loopTask is never touched, so
+ * arbitrarily large files stream in at task priority while the main loop stays live. It is
+ * ADDITIVE — the port-82 download WebServer is left completely untouched.
+ *
+ * Protocol (curl-friendly, NO multipart):
+ *   POST /ufs/<path> HTTP/1.1
+ *   Content-Length: <nbytes>            (or ?fsz=<nbytes> in the URL as a fallback)
+ *   <raw file bytes>
+ * Reply: "200 OK ... OK <n> bytes"  or  4xx/5xx with a one-line reason.
+ *
+ *   curl --data-binary @big.mp3 "http://<ip>:83/ufs/SND/big.mp3"
+\*********************************************************************************************/
+
+#ifndef TC_ULPORT
+#define TC_ULPORT 83
+#endif
+
+static WiFiServer *tc_ul_server = nullptr;
+
+// Minimal one-shot HTTP reply on the raw socket (Content-Length + close so curl
+// reads the whole body and tears down cleanly).
+static void tc_ul_reply(WiFiClient &client, const char *status, const char *body) {
+  client.printf_P(PSTR("HTTP/1.1 %s\r\nContent-Type: text/plain\r\n"
+                       "Connection: close\r\nContent-Length: %u\r\n\r\n%s"),
+                  status, (unsigned)strlen(body), body);
+}
+
+// Service one accepted upload connection. Runs on the upload task, never loopTask.
+static void tc_ul_handle(WiFiClient &client) {
+  // Bound the whole exchange with a socket recv timeout so a stalled peer can't
+  // pin the task forever.
+  { struct timeval _tv; _tv.tv_sec = 15; _tv.tv_usec = 0;
+    setsockopt(client.fd(), SOL_SOCKET, SO_RCVTIMEO, &_tv, sizeof(_tv)); }
+
+  // --- read the request line + headers into a bounded buffer, stopping EXACTLY at
+  // the blank line so any body bytes that arrived in the same TCP segment stay in
+  // the socket for the body loop below. ---
+  char hdr[600];
+  int hlen = 0;
+  bool have_hdr = false;
+  uint32_t idle = 0;
+  while (hlen < (int)sizeof(hdr) - 1) {
+    int c = client.read();
+    if (c < 0) {
+      if (!client.connected() && client.available() <= 0) break;
+      delay(3);
+      if ((idle += 3) > 15000) break;
+      continue;
+    }
+    idle = 0;
+    hdr[hlen++] = (char)c;
+    if (hlen >= 4 && hdr[hlen-1] == '\n' && hdr[hlen-2] == '\r'
+                  && hdr[hlen-3] == '\n' && hdr[hlen-4] == '\r') { have_hdr = true; break; }
+  }
+  hdr[hlen] = 0;
+  if (!have_hdr) { tc_ul_reply(client, "400 Bad Request", "headers too large or timeout"); return; }
+
+  // --- method must be POST ---
+  if (strncmp_P(hdr, PSTR("POST "), 5) != 0) {
+    tc_ul_reply(client, "405 Method Not Allowed", "POST /ufs/<path> only"); return;
+  }
+
+  // --- request target (between "POST " and " HTTP/..") ---
+  char target[160];
+  { char *ts = hdr + 5;
+    char *te = strchr(ts, ' ');
+    int tl = te ? (int)(te - ts) : 0;
+    if (tl <= 0 || tl >= (int)sizeof(target)) { tc_ul_reply(client, "400 Bad Request", "bad target"); return; }
+    memcpy(target, ts, tl); target[tl] = 0; }
+
+  // --- optional ?fsz= (fallback size), then strip the query ---
+  uint32_t fsz_url = 0;
+  { char *q = strchr(target, '?');
+    if (q) {
+      char *fp = strstr_P(q, PSTR("fsz="));
+      if (fp) fsz_url = (uint32_t)strtoul(fp + 4, nullptr, 10);
+      *q = 0;
+    } }
+
+  // --- require /ufs/ prefix; keep the leading '/' of the fs path ---
+  if (strncmp_P(target, PSTR("/ufs/"), 5) != 0) {
+    tc_ul_reply(client, "404 Not Found", "path must be /ufs/<file>"); return;
+  }
+  const char *path = target + 4;    // "/ufs/SND/x.mp3" -> "/SND/x.mp3"
+
+  // --- Content-Length (case-insensitive) ---
+  uint32_t clen = 0;
+  for (char *p = hdr; *p; p++) {
+    if ((*p == 'C' || *p == 'c') && 0 == strncasecmp(p, "content-length:", 15)) {
+      p += 15; while (*p == ' ' || *p == '\t') p++;
+      clen = (uint32_t)strtoul(p, nullptr, 10);
+      break;
+    }
+  }
+  uint32_t fsize = clen ? clen : fsz_url;
+  if (fsize == 0) { tc_ul_reply(client, "411 Length Required", "need Content-Length or ?fsz="); return; }
+  if (!ufsp)      { tc_ul_reply(client, "500 No Filesystem", "no ufs"); return; }
+  // No arbitrary size cap (plain Tasmota /ufsu has none) — reject ONLY if the file
+  // won't fit the filesystem, leaving a small margin for FS metadata. UfsFree() (xdrv_50)
+  // returns free kB of the active UFS; a 0 reading means "unknown" -> don't block. This
+  // also naturally rejects a garbage Content-Length.
+  extern uint32_t UfsFree(void);
+  uint32_t free_kb = UfsFree();
+  if (free_kb && (fsize / 1024 + 16) > free_kb) {
+    char m[64]; snprintf_P(m, sizeof(m), PSTR("no space: need %u kB, free %u kB"),
+                           (unsigned)(fsize / 1024), (unsigned)free_kb);
+    tc_ul_reply(client, "507 Insufficient Storage", m); return;
+  }
+
+  // Honor Expect: 100-continue (curl sends it for bodies > 1 KB) AFTER validation, so
+  // a rejected request gets its final error instead — otherwise the client stalls ~1 s.
+  if (strstr_P(hdr, PSTR("100-continue"))) {
+    client.print(F("HTTP/1.1 100 Continue\r\n\r\n"));
+  }
+
+  // --- quiesce the VM tasks around the big flash write (same proven coordination
+  // as /ufsu: on a heap-tight device it stops+restarts the slots; on healthy PSRAM
+  // it keeps them live). Balanced with the single Resume below on every exit. ---
+  extern void TinyCFsWritePause(uint32_t);
+  extern void TinyCFsWriteResume(void);
+  TinyCFsWritePause(fsize);
+
+  File f = ufsp->open(path, "w");
+  bool ok = false;
+  const char *err = "open failed";
+  uint32_t written = 0;
+  if (f) {
+    uint8_t *buf = (uint8_t *)malloc(2048);
+    if (!buf) { err = "oom"; }
+    else {
+      ok = true;
+      idle = 0;
+      while (written < fsize) {
+        if (client.available() <= 0) {
+          if (!client.connected() && client.available() <= 0) { ok = false; err = "peer closed"; break; }
+          delay(3);
+          if ((idle += 3) > 15000) { ok = false; err = "recv timeout"; break; }
+          continue;
+        }
+        idle = 0;
+        uint32_t want = fsize - written; if (want > 2048) want = 2048;
+        int got = client.read(buf, want);
+        if (got <= 0) { delay(2); continue; }
+        if ((uint32_t)f.write(buf, got) != (uint32_t)got) { ok = false; err = "write failed (fs full?)"; break; }
+        written += got;
+        if ((written & 0x1FFF) == 0) vTaskDelay(1);   // yield ~every 8 KB so loopTask + WDT breathe
+      }
+      free(buf);
+      if (ok && written != fsize) { ok = false; err = "short body"; }
+    }
+    f.close();
+    if (!ok) ufsp->remove(path);   // don't leave a truncated file behind
+  }
+
+  TinyCFsWriteResume();
+
+  if (ok) {
+    char msg[48]; snprintf_P(msg, sizeof(msg), PSTR("OK %u bytes"), (unsigned)written);
+    tc_ul_reply(client, "200 OK", msg);
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: upload %s <- %u bytes OK"), path, (unsigned)written);
+  } else {
+    char msg[96]; snprintf_P(msg, sizeof(msg), PSTR("FAIL %s (%u/%u)"), err, (unsigned)written, (unsigned)fsize);
+    tc_ul_reply(client, "500 Upload Failed", msg);
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: upload %s FAILED: %s (%u/%u)"), path, err, (unsigned)written, (unsigned)fsize);
+  }
+}
+
+// Dedicated task: accept + service upload connections. WiFiServer serializes them
+// (one accepted client at a time), so uploads never overlap.
+static void tc_upload_server_task(void *param) {
+  for (;;) {
+    WiFiClient client = tc_ul_server->available();
+    if (!client) { vTaskDelay(pdMS_TO_TICKS(25)); continue; }
+    tc_ul_handle(client);
+    delay(30);          // let the reply drain before FIN
+    client.stop();
+  }
+}
+
 // Initialize port 82 download server
 static void TC_DLServerInit(void) {
   if (!Tinyc || Tinyc->dl_server) return;  // already initialized
@@ -5224,6 +5411,17 @@ static void TC_DLServerInit(void) {
     Tinyc->dl_server->on("/", HTTP_GET, TC_DLRoot);
     Tinyc->dl_server->begin();
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Download server started on port %d"), TC_DLPORT);
+  }
+  // Raw-socket large-file upload server on its OWN task (port 83) — additive, keeps
+  // the whole upload off loopTask (see the Port 83 Upload Server block above).
+  if (!tc_ul_server) {
+    tc_ul_server = new WiFiServer(TC_ULPORT);
+    if (tc_ul_server) {
+      tc_ul_server->begin();
+      tc_ul_server->setNoDelay(true);
+      xTaskCreatePinnedToCore(tc_upload_server_task, "TCUL", 8192, NULL, 3, NULL, 1);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload server started on port %d"), TC_ULPORT);
+    }
   }
 }
 
