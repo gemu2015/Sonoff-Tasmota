@@ -2679,10 +2679,13 @@ static void HandleTinyCApi(void) {
       // Status JSON never exposes it); works on ESP32 + ESP8266 (both provide
       // ESP_getMaxAllocHeap/ESP_getFreeHeap). Used by the device-scanner Frag column.
       uint32_t fh = ESP_getFreeHeap();
+      uint32_t maxblk = ESP_getMaxAllocHeap();   // largest contiguous free block (the number that actually matters)
       result += String(fh);
-      int frag = fh ? (int)(100 - (uint64_t)ESP_getMaxAllocHeap() * 100 / fh) : 0;
+      int frag = fh ? (int)(100 - (uint64_t)maxblk * 100 / fh) : 0;
       result += F(",\"frag\":");
       result += String(frag);
+      result += F(",\"maxblk\":");               // absolute largest block; frag% is only maxblk/free, so this is what to watch
+      result += String(maxblk);
     }
     result += '}';
     Webserver->send(200, F("application/json"), result);
@@ -5355,19 +5358,25 @@ static void tc_ul_handle(WiFiClient &client) {
       ok = true;
       idle = 0;
       while (written < fsize) {
-        if (client.available() <= 0) {
-          if (!client.connected() && client.available() <= 0) { ok = false; err = "peer closed"; break; }
-          delay(3);
-          if ((idle += 3) > 15000) { ok = false; err = "recv timeout"; break; }
+        uint32_t want = fsize - written; if (want > 2048) want = 2048;
+        // Read DIRECTLY -- do NOT gate on client.available(). After the peer's FIN, ESP32's
+        // available() can report 0 while read()/recv() still returns the last buffered bytes;
+        // gating on available() dropped the tail (Andreas: reproducible -175 B on an SD-backed
+        // device, timing-dependent so a fast LittleFS test missed it). read() drains all
+        // buffered data first and only returns <=0 at a genuine timeout (SO_RCVTIMEO) or EOF.
+        int got = client.read(buf, want);
+        if (got > 0) {
+          if ((uint32_t)f.write(buf, got) != (uint32_t)got) { ok = false; err = "write failed (fs full?)"; break; }
+          written += got;
+          idle = 0;
+          if ((written & 0x1FFF) == 0) vTaskDelay(1);   // yield ~every 8 KB so loopTask + WDT breathe
           continue;
         }
-        idle = 0;
-        uint32_t want = fsize - written; if (want > 2048) want = 2048;
-        int got = client.read(buf, want);
-        if (got <= 0) { delay(2); continue; }
-        if ((uint32_t)f.write(buf, got) != (uint32_t)got) { ok = false; err = "write failed (fs full?)"; break; }
-        written += got;
-        if ((written & 0x1FFF) == 0) vTaskDelay(1);   // yield ~every 8 KB so loopTask + WDT breathe
+        // got <= 0: nothing readable this instant. If the peer has closed, that's real EOF
+        // (the buffer is now fully drained, since read() would have returned it above).
+        if (!client.connected()) { ok = false; err = "peer closed (short body)"; break; }
+        delay(3);
+        if ((idle += 3) > 15000) { ok = false; err = "recv timeout"; break; }
       }
       free(buf);
       if (ok && written != fsize) { ok = false; err = "short body"; }
