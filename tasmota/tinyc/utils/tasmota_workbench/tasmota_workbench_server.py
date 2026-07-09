@@ -723,7 +723,7 @@ def _scan_xlsx():
         devs = list(scan_state['devices'])
     headers = ['IP', 'Name', 'Hostname', 'CPU', 'MHz', 'Tasmota', 'Core',
                'Scripter', 'TinyC', 'Berry', 'Flash', 'Free', 'Heap KB',
-               'Frag %', 'Slots', 'PSRAM KB', 'PSRAM free KB', 'Uptime',
+               'Frag %', 'MaxBlk KB', 'Slots', 'PSRAM KB', 'PSRAM free KB', 'Uptime',
                'Sensors', 'Outputs', 'Partitions', 'MAC']
     def _cap(v):
         return 'yes' if v is True else ('no' if v is False else '?')
@@ -755,7 +755,10 @@ def _scan_xlsx():
             d.get('core', ''),
             _cap(d.get('scripter')), _cap(d.get('tinyc')), _cap(d.get('berry')),
             d.get('flash', ''), d.get('free', ''), _n(d.get('heap')),
-            _n(d.get('frag')), _n(d.get('slots')),
+            _n(d.get('frag')),
+            _n(round(d['heap'] * (100 - d['frag']) / 100)     # MaxBlk KB = heap*(100-frag)/100
+               if isinstance(d.get('heap'), (int, float)) and isinstance(d.get('frag'), (int, float)) else None),
+            _n(d.get('slots')),
             _n(d.get('psrmax')), _n(d.get('psrfree')), d.get('uptime', ''),
             _sens(d), _acts(d), _parts(d), d.get('mac', ''),
         ])
@@ -2633,7 +2636,7 @@ HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
     <thead><tr><th>IP</th><th>Name</th><th>Hostname</th><th>CPU</th>
       <th>Tasmota</th><th title="Scripter (USE_SCRIPT) verfügbar">Scripter</th><th title="TinyC (xdrv_124) verfügbar">TinyC</th><th title="Berry (USE_BERRY) verfügbar">Berry</th>
       <th>Flash</th><th title="Freier Programm-Flash (OTA-Platz)">Free</th>
-      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="Geladene/laufende TinyC-Slots — für die Multislot-vs-Fragmentierung-Analyse">Slots</th><th title="PSRAM gesamt / frei">PSRAM</th><th title="Uptime seit letztem Reboot — kurz = kürzlich neu gestartet/abgestürzt">Uptime</th>
+      <th title="Freier Heap (RAM)">Heap</th><th title="Heap-Fragmentierung — nur TinyC-Geräte melden sie">Frag</th><th title="Größter zusammenhängender freier Block (aus Heap+Frag berechnet) — die relevante Kennzahl, nicht Frag%">MaxBlk</th><th title="Geladene/laufende TinyC-Slots — für die Multislot-vs-Fragmentierung-Analyse">Slots</th><th title="PSRAM gesamt / frei">PSRAM</th><th title="Uptime seit letztem Reboot — kurz = kürzlich neu gestartet/abgestürzt">Uptime</th>
       <th>Sensors / Outputs</th><th>Partitions</th>
       <th></th><th>Tools</th></tr></thead>
     <tbody id="scanbody"></tbody></table></div>
@@ -3193,6 +3196,14 @@ function _fragCell(d){                 // heap fragmentation %, TinyC only
   const w = f>=60?';font-weight:700':'';
   return '<span style="color:'+c+w+'">'+f+'%</span>';
 }
+function _maxblkCell(d){               // largest contiguous free block, KB — the metric that actually matters
+  // frag = 100 - maxblk*100/heap  ->  maxblk = heap*(100-frag)/100. Both already reported, so invert it.
+  if(d.heap==null||d.heap===''||d.frag==null) return '<span style="color:var(--mut)" title="nur TinyC-Geräte melden Frag/MaxBlk">–</span>';
+  const kb = Math.round(d.heap*(100-d.frag)/100);
+  const c = kb<16?'var(--err)':(kb<24?'#e0a84e':'var(--fg)');
+  const w = kb<16?';font-weight:700':'';
+  return '<span style="color:'+c+w+'" title="größter zusammenhängender freier Block (aus Heap+Frag) — relevanter als Frag%; klein = Alloc-Fehler-Risiko">'+kb+' KB</span>';
+}
 function _slotsCell(d){                // # loaded TinyC slots (event-driven incl.), TinyC only
   const n=d.slots;
   if(n==null) return '<span style="color:var(--mut)" title="nur TinyC-Geräte">–</span>';
@@ -3334,6 +3345,7 @@ function renderScanTable(devs){
         +'<td>'+_freeCell(d)+'</td>'
         +'<td>'+_heapCell(d)+'</td>'
         +'<td style="text-align:center">'+_fragCell(d)+'</td>'
+        +'<td style="text-align:center">'+_maxblkCell(d)+'</td>'
         +'<td style="text-align:center">'+_slotsCell(d)+'</td>'
         +'<td>'+_psrCell(d)+'</td>'
         +'<td style="text-align:center">'+_uptimeCell(d)+'</td>'
