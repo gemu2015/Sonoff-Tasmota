@@ -737,6 +737,11 @@ static void TinyCInit(void) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Memory allocation failed (%d bytes)"), needed);
     return;
   }
+#ifdef ESP32
+  // Create the file-handle reservation mutex ONCE here (loopTask, before any VM task
+  // spawns) so tc_alloc_file_handle() has no lazy first-call race across slot tasks.
+  if (!tc_file_handle_mutex) tc_file_handle_mutex = xSemaphoreCreateMutex();
+#endif
   // calloc() zeroes memory but doesn't call C++ constructors for embedded objects.
   // WiFiUDP (NetworkUDP) needs proper construction or begin() crashes (NULL deref).
   new (&Tinyc->udp) WiFiUDP();

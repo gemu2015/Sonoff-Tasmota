@@ -1789,6 +1789,23 @@ static TcSlot *tc_current_slot = nullptr;
 
 // File handles stored as statics (not in calloc'd struct) so C++ File constructor runs properly
 static File tc_file_handles[TC_MAX_FILE_HANDLES];
+// Owning VM per open handle -> SELECTIVE cleanup: stopping/reloading ONE slot must not
+// close another slot's open files. nullptr = handle free.
+static TcVM *tc_file_owner[TC_MAX_FILE_HANDLES] = { nullptr };
+#ifdef ESP32
+// Serialises file-handle RESERVATION across slot tasks. tc_alloc_file_handle() must choose
+// an index AND mark it used atomically -- otherwise two tasks racing between "find free
+// index" and "mark used" get the SAME handle (the ms-long fsp->open window), so one writer's
+// File is clobbered -> writes land in the wrong file -> heap corruption (Andreas, .107).
+// Created eagerly at driver init (xdrv_124_tinyc.ino) so there is no lazy first-call race.
+static SemaphoreHandle_t tc_file_handle_mutex = nullptr;
+static inline void tc_file_handle_lock(void)   { if (tc_file_handle_mutex) xSemaphoreTake(tc_file_handle_mutex, portMAX_DELAY); }
+static inline void tc_file_handle_unlock(void) { if (tc_file_handle_mutex) xSemaphoreGive(tc_file_handle_mutex); }
+#else
+static inline void tc_file_handle_lock(void)   {}   // ESP8266: single task, no race
+static inline void tc_file_handle_unlock(void) {}
+#endif
+static void tc_close_vm_files(TcVM *owner);  // fwd decl (defined below) — close a vm's own open files
 
 // HomeKit descriptor build buffer (used by hkSetCode/hkAdd/hkStart API)
 // Provide Is_gpio_used() when Scripter is excluded (normally in xdrv_10_scripter.ino)
@@ -3738,6 +3755,7 @@ static TcVM *tc_alloc_worker_vm(TcSlot *s, int cb_idx) {
 // primary VM's lifetime (TODO: free on slot destroy).
 static void tc_free_worker_vm(TcVM *w) {
   if (!w) return;
+  tc_close_vm_files(w);    // close any files THIS worker left open (owner-keyed, no leak)
   tc_free_all_frames(w);   // frame locals (private)
   tc_heap_free_all(w);     // worker heap (private)
   if (w->stack) free(w->stack);
@@ -3801,15 +3819,21 @@ static int tc_cb_arg_handle(TcVM *vm, int which) {
 \*********************************************************************************************/
 
 // Close all open file handles (call on VM stop/reset)
-static void tc_close_all_files(void) {
+// Close open file handles owned by `owner`. owner==nullptr closes ALL (full shutdown).
+// Selective-by-owner so stopping/reloading ONE slot leaves other slots' open files intact
+// (Andreas: a slot reload was yanking another running slot's live handle -> corruption).
+static void tc_close_vm_files(TcVM *owner) {
   if (!Tinyc) return;
+  tc_file_handle_lock();
   for (int i = 0; i < TC_MAX_FILE_HANDLES; i++) {
-    if (Tinyc->file_used[i]) {
+    if (Tinyc->file_used[i] && (owner == nullptr || tc_file_owner[i] == owner)) {
       tc_file_handles[i].close();
       Tinyc->file_used[i] = false;
+      tc_file_owner[i]    = nullptr;
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: file cleanup handle %d"), i);
     }
   }
+  tc_file_handle_unlock();
 }
 
 static void tc_serial_close(int h) {
@@ -4045,12 +4069,31 @@ static inline int  tc_rgb_set(int, uint32_t) { return 0; }
 #endif  // ESP32
 
 // Find a free file handle slot, returns -1 if none available
-static int tc_alloc_file_handle(void) {
+// Reserve a free file handle ATOMICALLY: pick an index AND mark it used + tag its owner
+// under the lock, so two slot tasks can never be handed the same index. Returns -1 if none
+// free. The caller MUST tc_free_file_handle() it if the subsequent open() fails.
+static int tc_alloc_file_handle(TcVM *owner) {
   if (!Tinyc) return -1;
+  tc_file_handle_lock();
   for (int i = 0; i < TC_MAX_FILE_HANDLES; i++) {
-    if (!Tinyc->file_used[i]) return i;
+    if (!Tinyc->file_used[i]) {
+      Tinyc->file_used[i] = true;      // mark HERE, inside the lock -> no race window
+      tc_file_owner[i]    = owner;
+      tc_file_handle_unlock();
+      return i;
+    }
   }
+  tc_file_handle_unlock();
   return -1;
+}
+
+// Release a reservation (open() failed, or explicit free). Balanced with the alloc.
+static void tc_free_file_handle(int i) {
+  if (!Tinyc || i < 0 || i >= TC_MAX_FILE_HANDLES) return;
+  tc_file_handle_lock();
+  Tinyc->file_used[i] = false;
+  tc_file_owner[i]    = nullptr;
+  tc_file_handle_unlock();
 }
 
 // Get a constant string from the constant pool, returns nullptr on error
@@ -6688,7 +6731,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
-      int slot = tc_alloc_file_handle();
+      int slot = tc_alloc_file_handle(vm);
       if (slot < 0) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpen no free handle"));
         TC_PUSH(vm, -1);
@@ -6699,14 +6742,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         case 0:  mode_str = "r";  tc_file_handles[slot] = fsp->open(path, "r"); break;
         case 1:  mode_str = "w";  tc_file_handles[slot] = fsp->open(path, "w"); break;
         case 2:  mode_str = "a";  tc_file_handles[slot] = fsp->open(path, "a"); break;
-        default: mode_str = "?";  TC_PUSH(vm, -1); break;
+        default: mode_str = "?";  tc_free_file_handle(slot); TC_PUSH(vm, -1); break;
       }
-      if (mode > 2) break;  // invalid mode already pushed -1
+      if (mode < 0 || mode > 2) break;  // invalid mode: reservation freed, -1 pushed
       if (!tc_file_handles[slot]) {
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) failed"), path, mode_str);
+        tc_free_file_handle(slot);
         TC_PUSH(vm, -1);
       } else {
-        Tinyc->file_used[slot] = true;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) -> handle %d"), path, mode_str, slot);
         TC_PUSH(vm, slot);
       }
@@ -6832,7 +6875,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!path[0]) { TC_PUSH(vm, -1); break; }
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
-      int slot = tc_alloc_file_handle();
+      int slot = tc_alloc_file_handle(vm);
       if (slot < 0) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpen no free handle"));
         TC_PUSH(vm, -1);
@@ -6843,14 +6886,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         case 0:  mode_str = "r";  tc_file_handles[slot] = fsp->open(path, "r"); break;
         case 1:  mode_str = "w";  tc_file_handles[slot] = fsp->open(path, "w"); break;
         case 2:  mode_str = "a";  tc_file_handles[slot] = fsp->open(path, "a"); break;
-        default: mode_str = "?";  TC_PUSH(vm, -1); break;
+        default: mode_str = "?";  tc_free_file_handle(slot); TC_PUSH(vm, -1); break;
       }
-      if (mode > 2) break;
+      if (mode < 0 || mode > 2) break;  // invalid mode: reservation freed, -1 pushed
       if (!tc_file_handles[slot]) {
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) failed"), path, mode_str);
+        tc_free_file_handle(slot);
         TC_PUSH(vm, -1);
       } else {
-        Tinyc->file_used[slot] = true;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) -> handle %d"), path, mode_str, slot);
         TC_PUSH(vm, slot);
       }
@@ -6905,7 +6948,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       strlcpy(path, cpath, sizeof(path));
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
-      int slot = tc_alloc_file_handle();
+      int slot = tc_alloc_file_handle(vm);
       if (slot < 0) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpenDir no free handle"));
         TC_PUSH(vm, -1);
@@ -6914,10 +6957,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       tc_file_handles[slot] = fsp->open(path, "r");
       if (!tc_file_handles[slot] || !tc_file_handles[slot].isDirectory()) {
         tc_file_handles[slot].close();
+        tc_free_file_handle(slot);
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") not a directory"), path);
         TC_PUSH(vm, -1);
       } else {
-        Tinyc->file_used[slot] = true;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") -> handle %d"), path, slot);
         TC_PUSH(vm, slot);
       }
@@ -6935,7 +6978,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!path[0]) { TC_PUSH(vm, -1); break; }
       FS *fsp = tc_file_path(path);
       if (!fsp) { TC_PUSH(vm, -1); break; }
-      int slot = tc_alloc_file_handle();
+      int slot = tc_alloc_file_handle(vm);
       if (slot < 0) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpenDir no free handle"));
         TC_PUSH(vm, -1);
@@ -6944,10 +6987,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       tc_file_handles[slot] = fsp->open(path, "r");
       if (!tc_file_handles[slot] || !tc_file_handles[slot].isDirectory()) {
         tc_file_handles[slot].close();
+        tc_free_file_handle(slot);
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") not a directory"), path);
         TC_PUSH(vm, -1);
       } else {
-        Tinyc->file_used[slot] = true;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") -> handle %d"), path, slot);
         TC_PUSH(vm, slot);
       }
@@ -16695,8 +16738,8 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
   }
 
-  // Close any open file handles from previous run
-  tc_close_all_files();
+  // Close any open file handles from THIS vm's previous run (not other slots' live files)
+  tc_close_vm_files(vm);
 
   TC_HEAPLOG("vmload.in");
   // Free any previously allocated dynamic memory
@@ -18142,7 +18185,7 @@ static void tc_vm_task(void *param) {
 
   // Cleanup after main() exits
   tc_free_all_frames(vm);
-  tc_close_all_files();
+  tc_close_vm_files(vm);   // only THIS vm's handles -- leave other slots' open files alone
   tc_output_flush();
 
   if (vm->halted && vm->error == TC_OK) {
