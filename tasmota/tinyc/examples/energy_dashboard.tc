@@ -102,26 +102,25 @@ persist float hwp_m   = 0.0;
 persist float zrz_m   = 0.0;     // not float-y but kept for symmetry
 persist float auto_m  = 0.0;
 
-// ── Chart arrays — stored in a dedicated binary file, NOT in .pvs ───
+// ── Chart arrays — persisted in the slot .pvs (`persist` arrays) ────
 // The four rolling chart arrays below (dvals / days_w / days_t /
-// fast_h) and their ring cursors are persisted to
-// /energy_dashboard.bin via energy_dash_save()/energy_dash_load() —
-// the same fileWriteBin/fileReadBin approach the sml_chart family uses
-// (see sml_chart_common.tc). They are deliberately NOT `persist`:
-// heap-backed persist arrays proved unreliable across reboot and device
-// migration, so chart state lives in one self-contained file we load
-// explicitly in main() (after the arrays are allocated) and flush on
-// data-commit + teardown. Because the ring cursors travel in the file
-// header too, the whole chart history transfers by copying this single
-// file — no .pvs dependency.
+// fast_h) and their ring cursors are declared `persist`, so the
+// firmware restores them from the slot .pvs at load and re-writes them
+// on saveVars(). This replaces the earlier dedicated /energy_dashboard.bin
+// file: heap-backed persist arrays used to come back zero across a
+// reload/reboot, but fw 1.6.42 (commit 5a0f1f06f) fixed heap-persist
+// restore (restore-at-load + torn_down idempotent stop), and the PVS3
+// name-keyed format (3763abf02) means appending/reordering vars no longer
+// wipes the store. NOTE: this device therefore needs fw >= 1.6.42; on
+// older firmware fall back to the .bin approach (see git history).
 
 // 24h heat-pump kWh trace, 15-minute resolution. Plain ring buffer:
 // slot N = kWh consumed during 15-min window N. dvals_pos = current
 // write cursor (0..95). The Scripter version used dvals[0] as the
 // cursor and 1..96 as data; we use a separate scalar instead so the
 // array lays out cleanly for WebChart() consumption.
-float dvals[96];
-int   dvals_pos = 0;
+persist float dvals[96];
+persist int   dvals_pos = 0;
 
 // Display-only scratch — 24 hourly averages computed from dvals[]
 // for the "Heizungs-WP 24h" chart. Each entry is the sum of 4
@@ -135,13 +134,13 @@ float dvals_kw[24];
 float fast_h_kw[60];
 
 // 31-day historical: parallel arrays of (heat-pump kWh, average temp).
-float days_w[31];
-float days_t[31];
-int   days_pos  = 0;
+persist float days_w[31];
+persist float days_t[31];
+persist int   days_pos  = 0;
 
 // Per-minute heat-pump current trace (last 60 minutes).
-float fast_h[60];
-int   fast_pos  = 0;
+persist float fast_h[60];
+persist int   fast_pos  = 0;
 
 // ── Solar / battery 24h charts — port of the P4 LCD solar_dashboard.tc ─────
 // Two web charts that mirror what the P4 display shows:
@@ -150,15 +149,15 @@ int   fast_pos  = 0;
 // Rolling 24 h ring: 96 bins × 15 min. sol_pos is the write cursor (0..95) =
 // the NEXT slot to write, which is exactly what WebChart(pos,count) expects
 // (it reads (pos+i)%count, newest at pos-1). Sampled every 5 min in
-// EverySecond, persisted to /energy_solar.bin (separate from the HP .bin so
-// the proven HP-chart format is untouched).
-float inv0[96];   // Dach       (Hausdach, sedc)  kW
-float inv1[96];   // Gartenhaus (wrgh)            kW
-float inv2[96];   // Garage     (wrga)            kW
-float inv3[96];   // Garten     (wrgg)            kW
-float soc_pw[96]; // Powerwall SOC %
-float soc_ma[96]; // Marstek   SOC %
-int   sol_pos = 0; // shared ring write cursor (0..95)
+// EverySecond, persisted to the slot .pvs alongside the HP chart arrays
+// (both share the one saveVars() write).
+persist float inv0[96];   // Dach       (Hausdach, sedc)  kW
+persist float inv1[96];   // Gartenhaus (wrgh)            kW
+persist float inv2[96];   // Garage     (wrga)            kW
+persist float inv3[96];   // Garten     (wrgg)            kW
+persist float soc_pw[96]; // Powerwall SOC %
+persist float soc_ma[96]; // Marstek   SOC %
+persist int   sol_pos = 0; // shared ring write cursor (0..95)
 
 // Vattenfall meter offset captured 2023-09-01 — fixed reference,
 // never overwritten. Kept in source for a public example; if the
@@ -219,68 +218,28 @@ void log_evt(char msg[]) {
     fileClose(h);
 }
 
-// ── Chart-array persistence — dedicated binary file (NOT .pvs) ──────
-//
-// /energy_dashboard.bin layout (all int32 slots; floats bit-stored,
-// exactly as WebChart reads them back):
-//   [0..3]  header: magic, dvals_pos, days_pos, fast_pos
-//   [4..]   dvals[96], days_w[31], days_t[31], fast_h[60]
-//
-// energy_dash_load() runs once in main() after the arrays exist;
-// energy_dash_save() is called at each data-commit point (15-min slot,
-// midnight rollover, console fill/clear) and flushed on teardown.
-#define ED_MAGIC 0x45440001          // 'ED' + format version 1
-
-int ed_hdr[4];        // marshalling buffer for the file header
+// ── Chart-array persistence — now via .pvs (persist arrays) ─────────
+// The rolling chart arrays (dvals / days_w / days_t / fast_h) and their
+// ring cursors are declared `persist` above, so the firmware writes them
+// to the slot .pvs on saveVars() and restores them at slot load (before
+// main runs). Heap-persist array restore was fixed in fw 1.6.42
+// (commit 5a0f1f06f: restore-at-load + torn_down idempotent stop), so the
+// old dedicated /energy_dashboard.bin file is no longer needed.
+// energy_dash_save() is kept as a thin wrapper — a single saveVars() writes
+// EVERY persist var (scalars + all chart arrays) at once — so the many
+// existing call sites stay unchanged.
 int ed_dirty = 0;     // set on any chart-array change; gates teardown flush
 
 void energy_dash_save() {
-    int h = fileOpen("/energy_dashboard.bin", "w");
-    if (h < 0) { addLog("ENERGY: chart save fileOpen failed"); return; }
-    ed_hdr[0] = ED_MAGIC;
-    ed_hdr[1] = dvals_pos;
-    ed_hdr[2] = days_pos;
-    ed_hdr[3] = fast_pos;
-    fileWriteBin(h, ed_hdr, 4);
-    fileWriteBin(h, dvals,  96);
-    fileWriteBin(h, days_w, 31);
-    fileWriteBin(h, days_t, 31);
-    fileWriteBin(h, fast_h, 60);
-    fileClose(h);
-    ed_dirty = 0;     // file now matches the in-RAM arrays
-}
-
-void energy_dash_load() {
+    saveVars();        // one write persists every `persist` var (scalars + arrays)
     ed_dirty = 0;
-    int h = fileOpen("/energy_dashboard.bin", "r");
-    if (h < 0) return;            // no file yet — arrays stay zero
-    fileReadBin(h, ed_hdr, 4);
-    if (ed_hdr[0] != ED_MAGIC) {  // unknown/garbage file — ignore it
-        fileClose(h);
-        addLog("ENERGY: chart file bad magic, ignored");
-        return;
-    }
-    dvals_pos = ed_hdr[1];
-    days_pos  = ed_hdr[2];
-    fast_pos  = ed_hdr[3];
-    fileReadBin(h, dvals,  96);
-    fileReadBin(h, days_w, 31);
-    fileReadBin(h, days_t, 31);
-    fileReadBin(h, fast_h, 60);
-    fileClose(h);
-    addLog("ENERGY: chart arrays loaded from /energy_dashboard.bin");
 }
 
-// ── Solar / SOC chart persistence — dedicated /energy_solar.bin ────────────
-// Kept separate from /energy_dashboard.bin so the (working) HP-chart file
-// format is never touched. Same single-file + dirty-flag + "upload while
-// STOPPED" contract as energy_dash_save/load.
-//   [0..3] header: magic, sol_pos, 0, 0
-//   [4..]  inv0[96], inv1[96], inv2[96], inv3[96], soc_pw[96], soc_ma[96]
-#define SOL_MAGIC 0x534F4C57         // 'SOLW' — solar-web v1
-#define SOL_BINS  96
-
-int sol_hdr[4];
+// ── Solar / SOC chart persistence — now via .pvs (persist arrays) ──────────
+// inv0..3 / soc_pw / soc_ma / sol_pos are declared `persist` above and travel
+// in the slot .pvs exactly like the HP chart arrays. solar_save() is a thin
+// saveVars() wrapper (shares the one .pvs write with the HP arrays) so the
+// sample + console call sites stay unchanged.
 int sol_dirty = 0;
 
 // Inverters report production with mixed sign (Dach positive, the other three
@@ -288,49 +247,14 @@ int sol_dirty = 0;
 float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
 
 void solar_save() {
-    int h = fileOpen("/energy_solar.bin", "w");
-    if (h < 0) { addLog("ENERGY: solar save fileOpen failed"); return; }
-    sol_hdr[0] = SOL_MAGIC;
-    sol_hdr[1] = sol_pos;
-    sol_hdr[2] = 0;
-    sol_hdr[3] = 0;
-    fileWriteBin(h, sol_hdr, 4);
-    fileWriteBin(h, inv0,   SOL_BINS);
-    fileWriteBin(h, inv1,   SOL_BINS);
-    fileWriteBin(h, inv2,   SOL_BINS);
-    fileWriteBin(h, inv3,   SOL_BINS);
-    fileWriteBin(h, soc_pw, SOL_BINS);
-    fileWriteBin(h, soc_ma, SOL_BINS);
-    fileClose(h);
+    saveVars();        // shares the single .pvs with the HP chart arrays
     sol_dirty = 0;
 }
 
-void solar_load() {
-    sol_dirty = 0;
-    int h = fileOpen("/energy_solar.bin", "r");
-    if (h < 0) return;                 // no file yet — arrays stay zero, fill over 24h
-    fileReadBin(h, sol_hdr, 4);
-    if (sol_hdr[0] != SOL_MAGIC) {
-        fileClose(h);
-        addLog("ENERGY: solar file bad magic, ignored");
-        return;
-    }
-    sol_pos = sol_hdr[1];
-    fileReadBin(h, inv0,   SOL_BINS);
-    fileReadBin(h, inv1,   SOL_BINS);
-    fileReadBin(h, inv2,   SOL_BINS);
-    fileReadBin(h, inv3,   SOL_BINS);
-    fileReadBin(h, soc_pw, SOL_BINS);
-    fileReadBin(h, soc_ma, SOL_BINS);
-    fileClose(h);
-    addLog("ENERGY: solar arrays loaded from /energy_solar.bin");
-}
-
-// Flush chart data when this slot is going away so a post-boot load
-// never reads stale data. GUARDED by ed_dirty so a freshly-uploaded
-// .bin (import while the slot is STOPPED) is not clobbered by the
-// outgoing instance's teardown save — same rule as sml_chart_common.
-// => Always upload /energy_dashboard.bin while the slot is STOPPED.
+// Flush chart data to the .pvs when this slot is going away so a restart
+// restores the latest. GUARDED by the dirty flags so an unchanged slot
+// doesn't rewrite the .pvs on every teardown. The heap-persist restore
+// fix (fw 1.6.42) makes this safe across reload/reboot.
 void CleanUp() {     // device Restart / OTA (FUNC_SAVE_BEFORE_RESTART)
     if (ed_dirty)  energy_dash_save();
     if (sol_dirty) solar_save();
@@ -417,8 +341,7 @@ void EverySecond() {
             hwp_m  = t_hwp;
             zrz_m  = zwzi;
             auto_m = t_wb;
-            energy_dash_save();   // 31-day arrays → /energy_dashboard.bin
-            saveVars();           // scalar baselines → .pvs
+            energy_dash_save();   // one saveVars(): 31-day arrays + scalar baselines → .pvs
             log_evt("midnight rollover");
         }
         last_hour = hr;
@@ -449,7 +372,7 @@ void EverySecond() {
                 dvals[m15] = c_hwp;
                 dvals_pos  = m15;
                 ed_dirty = 1;
-                energy_dash_save();   // 24h array → file (15-min cadence)
+                energy_dash_save();   // 24h array → .pvs (15-min cadence)
             }
             dsel = t_hwp;
         } else {
@@ -877,7 +800,7 @@ void WebPage() {
 //   DASHFILLALL    both
 //   DASHCLEAR      zero out all three preview arrays
 //
-// Each preset writes the chart file (energy_dash_save()) so a reload
+// Each preset calls saveVars() (via energy_dash_save/solar_save) so a reload
 // preserves the preview data — handy when iterating on chart styles.
 // Real readings overwrite the synthetic data on the next 15-min
 // boundary / midnight rollover.
@@ -987,7 +910,7 @@ void Command(char cmd[]) {
 int main() {
     addLog("ENERGY: dashboard starting");
     addCommand("DASH");         // DASHFILL24 / FILL31 / FILLALL / FILLSOL / CLEAR
-    energy_dash_load();         // HP chart arrays from /energy_dashboard.bin (NOT .pvs)
-    solar_load();               // solar/SOC arrays from /energy_solar.bin
+    // Chart arrays are `persist` — the firmware restores them from the slot
+    // .pvs at load (before main runs), so no explicit load call is needed.
     return 0;
 }
