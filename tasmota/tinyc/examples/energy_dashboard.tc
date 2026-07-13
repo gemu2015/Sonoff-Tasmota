@@ -46,6 +46,10 @@ global float zwzi   = 0.0;     // 2-Richtungszähler in (kWh)
 global float zwzo   = 0.0;     // 2-Richtungszähler out (kWh)
 global float zwzc   = 0.0;     // 2-Richtungszähler current (W)
 global float pwl    = 0.0;     // Powerwall battery %
+// Marstek Venus E SOC % — broadcast by marstek_venus.tc on .170. Receive-only, so
+// declared WITHOUT an initializer (a `global float x = 0.0;` would broadcast =>x=0 at
+// boot and clobber the owner). Same var the P4 solar_dashboard.tc consumes.
+global float msoc;
 global float sip    = 0.0;     // PW Netz (W)
 global float sop    = 0.0;     // PW Solar (W)
 global float bip    = 0.0;     // PW Batterie (W)
@@ -139,6 +143,23 @@ int   days_pos  = 0;
 float fast_h[60];
 int   fast_pos  = 0;
 
+// ── Solar / battery 24h charts — port of the P4 LCD solar_dashboard.tc ─────
+// Two web charts that mirror what the P4 display shows:
+//   1) the 4 solar inverters (Dach/Gartenhaus/Garage/Garten), power in kW
+//   2) Powerwall + Marstek battery SOC (%)
+// Rolling 24 h ring: 96 bins × 15 min. sol_pos is the write cursor (0..95) =
+// the NEXT slot to write, which is exactly what WebChart(pos,count) expects
+// (it reads (pos+i)%count, newest at pos-1). Sampled every 5 min in
+// EverySecond, persisted to /energy_solar.bin (separate from the HP .bin so
+// the proven HP-chart format is untouched).
+float inv0[96];   // Dach       (Hausdach, sedc)  kW
+float inv1[96];   // Gartenhaus (wrgh)            kW
+float inv2[96];   // Garage     (wrga)            kW
+float inv3[96];   // Garten     (wrgg)            kW
+float soc_pw[96]; // Powerwall SOC %
+float soc_ma[96]; // Marstek   SOC %
+int   sol_pos = 0; // shared ring write cursor (0..95)
+
 // Vattenfall meter offset captured 2023-09-01 — fixed reference,
 // never overwritten. Kept in source for a public example; if the
 // real value should be private, move to /energy.cfg.
@@ -154,6 +175,7 @@ int   boot_logged  = 0;         // first-tick log marker
 int   last_hour    = -1;        // for hour-change detection
 int   last_m15     = -1;        // for 15-minute slot transition
 int   last_minute  = -1;        // for per-minute fast trace
+int   last_m5      = -1;        // for 15-minute solar/SOC history sample
 float oavgt        = 0.0;       // averaged temp snapshot (computed every 10s)
 float dsel         = 0.0;       // last t_hwp seen at slot rollover (for delta calc)
 float c_hwp        = 0.0;       // 15-minute heat-pump kWh delta
@@ -249,16 +271,73 @@ void energy_dash_load() {
     addLog("ENERGY: chart arrays loaded from /energy_dashboard.bin");
 }
 
+// ── Solar / SOC chart persistence — dedicated /energy_solar.bin ────────────
+// Kept separate from /energy_dashboard.bin so the (working) HP-chart file
+// format is never touched. Same single-file + dirty-flag + "upload while
+// STOPPED" contract as energy_dash_save/load.
+//   [0..3] header: magic, sol_pos, 0, 0
+//   [4..]  inv0[96], inv1[96], inv2[96], inv3[96], soc_pw[96], soc_ma[96]
+#define SOL_MAGIC 0x534F4C57         // 'SOLW' — solar-web v1
+#define SOL_BINS  96
+
+int sol_hdr[4];
+int sol_dirty = 0;
+
+// Inverters report production with mixed sign (Dach positive, the other three
+// negative = export). Chart magnitude is |value|, matching the P4.
+float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
+
+void solar_save() {
+    int h = fileOpen("/energy_solar.bin", "w");
+    if (h < 0) { addLog("ENERGY: solar save fileOpen failed"); return; }
+    sol_hdr[0] = SOL_MAGIC;
+    sol_hdr[1] = sol_pos;
+    sol_hdr[2] = 0;
+    sol_hdr[3] = 0;
+    fileWriteBin(h, sol_hdr, 4);
+    fileWriteBin(h, inv0,   SOL_BINS);
+    fileWriteBin(h, inv1,   SOL_BINS);
+    fileWriteBin(h, inv2,   SOL_BINS);
+    fileWriteBin(h, inv3,   SOL_BINS);
+    fileWriteBin(h, soc_pw, SOL_BINS);
+    fileWriteBin(h, soc_ma, SOL_BINS);
+    fileClose(h);
+    sol_dirty = 0;
+}
+
+void solar_load() {
+    sol_dirty = 0;
+    int h = fileOpen("/energy_solar.bin", "r");
+    if (h < 0) return;                 // no file yet — arrays stay zero, fill over 24h
+    fileReadBin(h, sol_hdr, 4);
+    if (sol_hdr[0] != SOL_MAGIC) {
+        fileClose(h);
+        addLog("ENERGY: solar file bad magic, ignored");
+        return;
+    }
+    sol_pos = sol_hdr[1];
+    fileReadBin(h, inv0,   SOL_BINS);
+    fileReadBin(h, inv1,   SOL_BINS);
+    fileReadBin(h, inv2,   SOL_BINS);
+    fileReadBin(h, inv3,   SOL_BINS);
+    fileReadBin(h, soc_pw, SOL_BINS);
+    fileReadBin(h, soc_ma, SOL_BINS);
+    fileClose(h);
+    addLog("ENERGY: solar arrays loaded from /energy_solar.bin");
+}
+
 // Flush chart data when this slot is going away so a post-boot load
 // never reads stale data. GUARDED by ed_dirty so a freshly-uploaded
 // .bin (import while the slot is STOPPED) is not clobbered by the
 // outgoing instance's teardown save — same rule as sml_chart_common.
 // => Always upload /energy_dashboard.bin while the slot is STOPPED.
 void CleanUp() {     // device Restart / OTA (FUNC_SAVE_BEFORE_RESTART)
-    if (ed_dirty) energy_dash_save();
+    if (ed_dirty)  energy_dash_save();
+    if (sol_dirty) solar_save();
 }
 void OnExit() {      // this slot stopped / re-run / unlinked
-    if (ed_dirty) energy_dash_save();
+    if (ed_dirty)  energy_dash_save();
+    if (sol_dirty) solar_save();
 }
 
 // One sensor section — two rows: a horizontal rule and a magenta
@@ -395,6 +474,25 @@ void EverySecond() {
         fast_pos = 60;     // sentinel — tells WebChart "render slots 0..59"
         ed_dirty = 1;      // committed at the next 15-min save / teardown
         last_minute = mn;
+    }
+
+    // 15-minute solar/SOC history sample (24h ring, 96 bins) — the two charts
+    // ported from the P4 LCD (solar_dashboard.tc). Store inverter magnitude in
+    // kW, batteries in %. sol_pos advances by one each sample; the file is
+    // flushed on every sample (same cadence as the HP 15-min save).
+    int m5 = (tasm_hour * 60 + tasm_minute) / 15;   // 0..95, wraps at midnight
+    if (m5 != last_m5) {
+        inv0[sol_pos]   = pabs(sedc) / 1000.0;
+        inv1[sol_pos]   = pabs(wrgh) / 1000.0;
+        inv2[sol_pos]   = pabs(wrga) / 1000.0;
+        inv3[sol_pos]   = pabs(wrgg) / 1000.0;
+        soc_pw[sol_pos] = pwl;
+        soc_ma[sol_pos] = msoc;
+        sol_pos = sol_pos + 1;
+        if (sol_pos >= 96) sol_pos = 0;
+        sol_dirty = 1;
+        solar_save();
+        last_m5 = m5;
     }
 }
 
@@ -573,6 +671,13 @@ void WebCall() {
     sprintf(scratch, "{s}Rcap{m}<span style='color:yellow;'>%d %%</span>{e}", (int)rper);
     webSend(scratch);
 
+    // ── Marstek Venus E ──────────────────────────────────────────
+    // Second home battery — SOC % broadcast by marstek_venus.tc on .170.
+    // Shown like the Powerwall "Batterie Füllstand" row above (%37; = '%').
+    web_section("Marstek Venus E");
+    sprintf(scratch, "{s}Batterie Füllstand{m}<span style='color:yellow;'>%d&#37;</span>{e}", (int)msoc);
+    webSend(scratch);
+
     // ── Büro ─────────────────────────────────────────────────────
     web_section("Büro");
     row_f1("Temperatur", btemp,  "°C");
@@ -640,6 +745,34 @@ void WebCall() {
 void WebPage() {
     // ottelo's chart-centering compensation (margin-left:-30px wrapper)
     webSend("<div style='margin-left:-30px'>");
+
+    // ── Solar + battery, 24h/5min — the two charts from the P4 LCD display
+    //    (solar_dashboard.tc). Placed first: headline energy view.
+    //
+    // Chart 1: the 4 solar inverters on ONE shared y-axis (kW). Multi-series =
+    // first WebChart with a title, the rest with "" (add to previous chart).
+    // The "name|unit" field routes the name to the legend, the unit to the
+    // y-axis; identical ymin/ymax on all series keeps them on one axis.
+    // decimals 1|8 = 1 decimal + smooth curve; interval 5 = 5 min/sample.
+    // Same colours/labels as the P4: Dach blue, GHaus red, Garage green,
+    // Garten amber.
+    WebChartSize(640, 300);
+    WebChart(0, "Solar Wechselrichter 24h", "Dach|kW",   0x4285f4, sol_pos, 96, inv0, 1 | 8, 15, 0.0, 5.0);
+    WebChart(0, "",                          "GHaus|kW",  0xea4335, sol_pos, 96, inv1, 1 | 8, 15, 0.0, 5.0);
+    WebChart(0, "",                          "Garage|kW", 0x34a853, sol_pos, 96, inv2, 1 | 8, 15, 0.0, 5.0);
+    WebChart(0, "",                          "Garten|kW", 0xfbbc04, sol_pos, 96, inv3, 1 | 8, 15, 0.0, 5.0);
+    // Google Charts squeezes a right-side legend against the fixed chartArea width and
+    // truncates every multi-series label to "..." — move it to the top (horizontal, roomy)
+    // and reclaim the freed right space. Runs per-chart via the WebChartJS hook (dt,o,el).
+    WebChartJS("o.legend={position:'top'};o.chartArea.width='88%';");
+
+    // Chart 2: Powerwall + Marstek SOC (%), one 0..100 axis. Powerwall green,
+    // Marstek blue (as on the P4). decimals 0|8 = whole % + smooth.
+    WebChartSize(640, 280);
+    WebChart(0, "Batterie SOC 24h", "Powerwall|%", 0x34a853, sol_pos, 96, soc_pw, 0 | 8, 15, 0.0, 100.0);
+    WebChart(0, "",                 "Marstek|%",   0x4285f4, sol_pos, 96, soc_ma, 0 | 8, 15, 0.0, 100.0);
+    WebChartJS("o.legend={position:'top'};o.chartArea.width='88%';");
+
     // Order (top→bottom): 60-min chart (W), 24-hour chart (kW),
     // 31-day chart (kWh + avg temp dual-axis), 31-day table.
     // Rationale: shortest timeframe at the top, longest at the
@@ -803,6 +936,32 @@ void Command(char cmd[]) {
         energy_dash_save();
         responseCmnd("ED: 24h + 31d charts filled");
     }
+    else if (strcmp(cmd, "FILLSOL") == 0) {
+        // Synthetic solar day + battery curve so the two P4-style charts show
+        // immediately (no 24h wait). Real 5-min samples overwrite it.
+        for (int i = 0; i < 96; i = i + 1) {
+            float t = 24.0 * i / 96.0;               // hour-of-day 0..24
+            float hump = 0.0;
+            if (t > 6.0) { if (t < 20.0) {
+                float s = sin(3.14159265 * (t - 6.0) / 14.0);
+                hump = s * s;
+            } }
+            inv0[i] = 4.5 * hump;                     // Dach (biggest string)
+            inv1[i] = 2.0 * hump;                     // Gartenhaus
+            inv2[i] = 1.5 * hump;                     // Garage
+            inv3[i] = 1.0 * hump;                     // Garten
+            float soc;
+            if (t < 9.0) { soc = 30.0; }
+            else { if (t < 16.0) { soc = 30.0 + 65.0 * (t - 9.0) / 7.0; }
+            else { soc = 95.0 - 55.0 * (t - 16.0) / 8.0; } }
+            soc_pw[i] = soc;
+            soc_ma[i] = soc - 10.0;
+        }
+        sol_pos = 0;
+        sol_dirty = 1;
+        solar_save();
+        responseCmnd("ED: solar+SOC charts seeded (synthetic day)");
+    }
     else if (strcmp(cmd, "CLEAR") == 0) {
         for (int i = 0; i < 96; i = i + 1) dvals[i]  = 0.0;
         for (int i = 0; i < 31; i = i + 1) days_w[i] = 0.0;
@@ -810,16 +969,24 @@ void Command(char cmd[]) {
         dvals_pos = 0;
         days_pos  = 0;
         energy_dash_save();
-        responseCmnd("ED: cleared dvals + days_w + days_t");
+        for (int i = 0; i < 96; i = i + 1) {
+            inv0[i]   = 0.0; inv1[i]   = 0.0;
+            inv2[i]   = 0.0; inv3[i]   = 0.0;
+            soc_pw[i] = 0.0; soc_ma[i] = 0.0;
+        }
+        sol_pos = 0;
+        solar_save();
+        responseCmnd("ED: cleared HP + solar/SOC arrays");
     }
     else {
-        responseCmnd("ED: FILL24 | FILL31 | FILLALL | CLEAR");
+        responseCmnd("ED: FILL24 | FILL31 | FILLALL | FILLSOL | CLEAR");
     }
 }
 
 int main() {
     addLog("ENERGY: dashboard starting");
-    addCommand("DASH");         // DASHFILL24 / DASHFILL31 / DASHFILLALL / DASHCLEAR
-    energy_dash_load();         // chart arrays from /energy_dashboard.bin (NOT .pvs)
+    addCommand("DASH");         // DASHFILL24 / FILL31 / FILLALL / FILLSOL / CLEAR
+    energy_dash_load();         // HP chart arrays from /energy_dashboard.bin (NOT .pvs)
+    solar_load();               // solar/SOC arrays from /energy_solar.bin
     return 0;
 }
