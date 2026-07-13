@@ -762,16 +762,17 @@ void WebPage() {
     WebChart(0, "",                          "Garage|kW", 0x34a853, sol_pos, 96, inv2, 1 | 8, 15, 0.0, 5.0);
     WebChart(0, "",                          "Garten|kW", 0xfbbc04, sol_pos, 96, inv3, 1 | 8, 15, 0.0, 5.0);
     // Google Charts squeezes a right-side legend against the fixed chartArea width and
-    // truncates every multi-series label to "..." — move it to the top (horizontal, roomy)
-    // and reclaim the freed right space. Runs per-chart via the WebChartJS hook (dt,o,el).
-    WebChartJS("o.legend={position:'top'};o.chartArea.width='88%';");
+    // truncates every multi-series label to "..." — move it to the top (horizontal, roomy).
+    // Keep chartArea width as-is (widening it truncates the y-axis title on the SOC chart's
+    // 3-digit ticks). Runs per-chart via the WebChartJS hook (dt,o,el).
+    WebChartJS("o.legend={position:'top'};");
 
     // Chart 2: Powerwall + Marstek SOC (%), one 0..100 axis. Powerwall green,
     // Marstek blue (as on the P4). decimals 0|8 = whole % + smooth.
     WebChartSize(640, 280);
     WebChart(0, "Batterie SOC 24h", "Powerwall|%", 0x34a853, sol_pos, 96, soc_pw, 0 | 8, 15, 0.0, 100.0);
     WebChart(0, "",                 "Marstek|%",   0x4285f4, sol_pos, 96, soc_ma, 0 | 8, 15, 0.0, 100.0);
-    WebChartJS("o.legend={position:'top'};o.chartArea.width='88%';");
+    WebChartJS("o.legend={position:'top'};");
 
     // Order (top→bottom): 60-min chart (W), 24-hour chart (kW),
     // 31-day chart (kWh + avg temp dual-axis), 31-day table.
