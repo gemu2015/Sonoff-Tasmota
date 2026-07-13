@@ -11305,6 +11305,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                 // plot rectangle; the outer `backgroundColor` keeps the
                 // legend / titles on the page's own background.
                 "var o={title:c.t,colors:colors,chartArea:{width:'75%%',height:'65%%',backgroundColor:'#f0f2f5'}};"
+                // Multi-series: a right-side legend is squeezed against the fixed chartArea
+                // width and Google Charts truncates every series label to "...". Move it to
+                // the top (horizontal, roomy) so the names show. Keep chartArea.width as-is
+                // — widening it steals the left margin the y-axis title/ticks need (a chart
+                // with 3-digit ticks then truncates its y-title to ".."). Single-series
+                // charts keep the default; a script WebChartJS hook can still override.
+                "if(c.s.length>1){o.legend={position:'top',maxLines:3};}"
                 "if(!isCol){"
                   "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
                   "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
