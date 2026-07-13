@@ -471,7 +471,8 @@ const char kEmulationOptions[] PROGMEM = D_NONE "|" D_BELKIN_WEMO "|" D_HUE_BRID
 
 const char kUploadErrors[] PROGMEM =
 //  D_UPLOAD_ERR_1 "|" D_UPLOAD_ERR_2 "|" D_UPLOAD_ERR_3 "|" D_UPLOAD_ERR_4 "|" D_UPLOAD_ERR_5 "|" D_UPLOAD_ERR_6 "|" D_UPLOAD_ERR_7 "|" D_UPLOAD_ERR_8 "|" D_UPLOAD_ERR_9;
-  D_UPLOAD_ERR_1 "|" D_UPLOAD_ERR_2 "|" D_UPLOAD_ERR_3 "|" D_UPLOAD_ERR_4 "| |" D_UPLOAD_ERR_6 "|" D_UPLOAD_ERR_7 "|" D_UPLOAD_ERR_8 "|" D_UPLOAD_ERR_9;
+  D_UPLOAD_ERR_1 "|" D_UPLOAD_ERR_2 "|" D_UPLOAD_ERR_3 "|" D_UPLOAD_ERR_4 "| |" D_UPLOAD_ERR_6 "|" D_UPLOAD_ERR_7 "|" D_UPLOAD_ERR_8 "|" D_UPLOAD_ERR_9 "|"
+  "File write failed - filesystem full or faulty";   // err 10 (English only; distinct from err 9 "too large")
 
 const uint16_t DNS_PORT = 53;
 enum HttpOptions { HTTP_OFF, HTTP_USER, HTTP_ADMIN, HTTP_MANAGER, HTTP_MANAGER_RESET_ONLY };
@@ -3525,7 +3526,7 @@ void HandleUploadDone(void) {
   if (Web.upload_error) {
     WSContentSend_P(PSTR("%06x'>" D_FAILED "</font></b><br><br>"), WebColor(COL_TEXT_WARNING));
     char error[100];
-    if (Web.upload_error < 10) {
+    if (Web.upload_error < 11) {
       GetTextIndexed(error, sizeof(error), Web.upload_error -1, kUploadErrors);
     } else {
       snprintf_P(error, sizeof(error), PSTR(D_UPLOAD_ERROR_CODE " %d"), Web.upload_error);
@@ -3729,7 +3730,7 @@ void HandleUploadLoop(void) {
 #ifdef USE_UFILESYS
     else if (!Web.upload_error && UPL_UFSFILE == Web.upload_file_type) {
       if (!UfsUploadFileWrite(upload.buf, upload.currentSize)) {
-        Web.upload_error = 9;  // File too large
+        Web.upload_error = 10;  // File write failed (short write) -- FS full or faulty, NOT "too large"
         return;
       }
     }
