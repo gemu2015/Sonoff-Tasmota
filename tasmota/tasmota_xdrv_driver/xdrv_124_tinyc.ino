@@ -4521,8 +4521,8 @@ static void TC_CamStreamTask(void) {
 
 void TC_CamStreamInit(void) {
   if (tc_cam_stream.server) return;  // already running
-  // Defer if WiFi not ready (early boot autoexec)
-  if (!WifiHasIP()) {
+  // Defer if no routable IP yet (early boot autoexec) -- WiFi OR Ethernet
+  if (!HasIP()) {
     tc_cam_stream.pending = 1;
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: stream server deferred (no WiFi)"));
     return;
@@ -4554,8 +4554,8 @@ void TC_CamStreamStop(void) {
 }
 
 static void TC_CamStreamLoop(void) {
-  // Deferred init: create server once WiFi is ready
-  if (tc_cam_stream.pending && !tc_cam_stream.server && WifiHasIP()) {
+  // Deferred init: create server once we have a routable IP (WiFi OR Ethernet)
+  if (tc_cam_stream.pending && !tc_cam_stream.server && HasIP()) {
     TC_CamStreamInit();
   }
   if (tc_cam_stream.server) {
@@ -6288,8 +6288,9 @@ bool Xdrv124(uint32_t function) {
       // Poll UDP multicast for incoming variables
       tc_udp_poll();
 #ifdef ESP32
-      // Lazy-init port 82 download server once WiFi is connected
-      if (!Tinyc->dl_server && WifiHasIP()) {
+      // Lazy-init port 82 download + port 83 upload servers once we have a
+      // routable IP -- WiFi OR Ethernet (Ethernet-only devices have no WiFi IP)
+      if (!Tinyc->dl_server && HasIP()) {
         TC_DLServerInit();
       }
       // Poll port 82 download server for incoming file requests

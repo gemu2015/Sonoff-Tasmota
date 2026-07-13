@@ -98,6 +98,7 @@ FS *dfsp;
 
 char ufs_path[UFS_FILENAME_SIZE];
 File ufs_upload_file;
+char ufs_upload_path[UFS_FILENAME_SIZE];   // full path of the in-progress upload (for cleanup on abort)
 #ifndef UFS_BIG_WRITE
 #define UFS_BIG_WRITE 16384      // bytes: uploads >= this (or undeclared size) get the WDT bound
 #endif                          // + SML serial quiesce around the blocking LittleFS close().
@@ -1772,6 +1773,7 @@ void download_task(void *path) {
 bool UfsUploadFileOpen(const char* upload_filename) {
   char npath[UFS_FILENAME_SIZE];
   snprintf_P(npath, sizeof(npath), PSTR("%s/%s"), ufs_path, upload_filename);
+  strlcpy(ufs_upload_path, npath, sizeof(ufs_upload_path));   // remember for abort cleanup
   // Declared upload size (?fsz= arg). 0 == undeclared (direct POST) -> assume large.
   // A large internal-flash (LittleFS) write blocks the single-core loop for several
   // seconds with the flash cache disabled; "big" gates the WDT bound (Close) and the
@@ -1804,6 +1806,9 @@ bool UfsUploadFileWrite(uint8_t *upload_buf, size_t current_size) {
     // Fail the upload loudly so the client gets an error instead of a corrupt one.
     if (ufs_upload_file.write(upload_buf, current_size) != current_size) {
       ufs_upload_file.close();
+      // Don't leave a truncated torso behind (Andreas: a 45 KB partial tinyc_ide.html.gz
+      // killed the IDE until repaired). Mirror the port-83 uploader's remove-on-fail.
+      if (ufs_upload_path[0]) { dfsp->remove(ufs_upload_path); }
       return false;
     }
   } else {
