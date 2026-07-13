@@ -1580,6 +1580,11 @@ struct TcSlot {
   uint8_t *program;
   uint32_t program_size;
   bool     loaded;
+  bool     torn_down;             // set true when TinyCStopVM finishes a teardown; makes a
+                                  // redundant 2nd stop (the double-stop on a reload) a no-op,
+                                  // so its teardown-save can't read the already-freed heap and
+                                  // write zeros over the .pvs's heap-persist arrays. Cleared
+                                  // when tc_vm_load() installs a fresh VM.
   bool     running;
   bool     autoexec;              // auto-run on boot
   bool     web_nocard;            // webCard(0) sets this — suppress this slot's main-page card frame (0 = carded)
@@ -18475,6 +18480,10 @@ static void TinyCSetPersistFile(TcSlot *s, const char *tcb_path) {
 // Helper: stop the VM in a specific slot
 static void TinyCStopVM(TcSlot *s) {
   if (!Tinyc || !s) return;
+  if (s->torn_down) return;   // already fully torn down (e.g. the double-stop on a reload:
+                              // CmndTinyCRun + TinyCLoadFile both stop). A 2nd teardown-save
+                              // would read the freed heap and write 0 over the .pvs's
+                              // heap-persist arrays.
 
 #ifdef ESP32
   // Kill any spawned (shared-VM) tasks FIRST so they stop touching the VM
@@ -18582,6 +18591,7 @@ static void TinyCStopVM(TcSlot *s) {
     s->vm_mutex = nullptr;
   }
 #endif
+  s->torn_down = true;   // teardown complete — a redundant 2nd stop is now a no-op (guarded above)
 }
 
 // Helper: start the VM in a specific slot
@@ -18624,17 +18634,25 @@ static bool TinyCStartVM(TcSlot *s) {
   // Reset VM
   int err = tc_vm_load(&s->vm, s->program, s->program_size);
   if (err != TC_OK) return false;
+  s->torn_down = false;   // fresh VM installed — a future stop must run its teardown/save
 
   // Arm BootInit() — fires once on the next FUNC_LOOP after main()
   // returns. Per-slot so TinyCStop+TinyCRun re-fires it (essential
   // for the dev loop: every script reload needs hardware re-init).
   s->boot_init_pending = true;
 
-  // Set persist filename and load saved values (phase 0: globals; heap-persist
-  // arrays aren't allocated until main() runs, so they're restored in phase 1 —
-  // tc_persist_load(vm,true) right after main_done in tc_vm_task).
+  // Set persist filename and load saved values. tc_vm_load() above already
+  // reserved every file-scope heap array from the .tcb heap table (alive=true),
+  // so BOTH phases can run here at load time: phase 0 = globals, phase 1 = heap
+  // arrays. The old design deferred the heap pass to right after main() returns
+  // (assuming arrays weren't allocated until main ran) — but with load-time
+  // pre-allocation that post-main pass silently landed nowhere on some slots, so
+  // heap-persist arrays (chart history) reset to 0 on every reload. Restoring
+  // them here, while their handles are freshly alive, fixes it. (The post-main
+  // tc_persist_load(vm,true) in tc_vm_task stays as an idempotent fallback.)
   TinyCSetPersistFile(s, s->filename);
-  tc_persist_load(&s->vm, false);
+  tc_persist_load(&s->vm, false);   // phase 0: global scalars
+  tc_persist_load(&s->vm, true);    // phase 1: heap-persist arrays (pre-allocated above)
 
   // Register UDP global variables (V5: auto-update from packets)
   if (s->vm.udp_global_count > 0) {
