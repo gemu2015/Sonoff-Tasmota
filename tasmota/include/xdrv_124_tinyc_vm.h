@@ -459,6 +459,7 @@ enum TcOp {
   OP_STORE_WATCH    = 0xA5,  // u16 varIdx, u16 shadowIdx, u16 writtenIdx — store with shadow update
   // Heap ref with slot offset — for strcpy(arr[i].field, ...)
   OP_ADDR_HEAP_OFF  = 0xA6,  // u8 handle; pop offset -> push ref: 0xC0000000 | (offset<<16) | handle
+  OP_REF_OFF        = 0xA7,  // pop off, pop ref -> push ref advanced by off slots (tag-aware; heap refs add into the offset bits, local/global into the index; const-pool refs unchanged)
   // Constants
   OP_LOAD_CONST   = 0x90,
 };
@@ -17592,6 +17593,28 @@ static int tc_vm_step(TcVM *vm) {
       if (off < 0) off = 0;
       if (off > 0x3FFF) off = 0x3FFF;
       TC_PUSH(vm, tc_make_heap_ref(handle, (uint16_t)off));
+      break;
+    }
+
+    case OP_REF_OFF: {
+      // pop off, pop ref -> push ref advanced by off slots, TAG-AWARE.
+      // Heap refs (tag 3) keep the 8-bit handle in the LOW byte, so a plain
+      // integer add would land in the handle (wrong array / dead handle) —
+      // the offset lives at bits 16..29. Local/global refs carry the slot
+      // index in the low bits, where integer add IS the offset arithmetic.
+      // Const-pool refs (tag 3 + bit15) cannot be offset -> unchanged.
+      int32_t off = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+      uint32_t uref = (uint32_t)ref;
+      if ((uref >> 30) == 3 && !(uref & 0x8000)) {
+        int32_t noff = (int32_t)((uref >> 16) & 0x3FFF) + off;
+        if (noff < 0) noff = 0;
+        if (noff > 0x3FFF) noff = 0x3FFF;
+        ref = (int32_t)(0xC0000000u | ((uint32_t)noff << 16) | (uref & 0xFF));
+      } else if ((uref >> 30) != 3) {
+        ref = (int32_t)(uref + (uint32_t)off);
+      }
+      TC_PUSH(vm, ref);
       break;
     }
 

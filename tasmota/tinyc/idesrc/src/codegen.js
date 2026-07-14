@@ -2803,6 +2803,75 @@ export class CodeGenerator {
         throw new CodeGenError(`Not an array: ${name}`, line);
     }
 
+    // `arr + off` (an additive chain around exactly ONE array identifier) as an
+    // array/string REF. Returns true when it matched and emitted, false to let
+    // the caller fall back to its existing path (nothing emitted on false).
+    //
+    // WHY: the generic expression path compiles `arr + off` as an INTEGER add
+    // on the encoded ref. That happens to be correct for local/global array
+    // refs (their encodings carry the slot index in the low bits) but silently
+    // corrupts a HEAP ref — tag-3 keeps the 8-bit handle in the low byte and
+    // the offset at bits 16..29, so `body + 5` became "handle+5" = a DIFFERENT
+    // array (or a dead handle -> runtime Bounds error at the callee's first
+    // access; found via growatt_shine.tc 2026-07-14). Heap bases now emit the
+    // real offset encoding via ADDR_HEAP_OFF (runtime offset, clamped 14-bit).
+    //
+    // Ref PARAMS (char x[] passed onward as `x + n`) emit REF_OFF, which adds
+    // tag-aware at runtime — the stored ref may be heap-backed (handle in the
+    // low byte) or local/global-backed (index in the low bits).
+    tryEmitArrayOffsetRef(node) {
+        if (!(node && node.type === NodeType.BinaryExpr && node.op === '+')) return false;
+        // Collect the additive chain: exactly one array-identifier base, all
+        // other terms are the offset. Bail out (untouched) on anything odd —
+        // two arrays / string literals are the STRCONCAT family, not offsets.
+        let base = null;
+        const parts = [];
+        let ok = true;
+        const walk = (n) => {
+            if (!ok) return;
+            if (n.type === NodeType.BinaryExpr && n.op === '+') { walk(n.left); walk(n.right); return; }
+            if (n.type === NodeType.Identifier && this.isArrayVar(n.name)) {
+                if (base) { ok = false; return; }   // two array bases -> not an offset ref
+                base = n;
+                return;
+            }
+            if (n.type === NodeType.StringLiteral) { ok = false; return; }
+            parts.push(n);
+        };
+        walk(node);
+        if (!ok || !base || parts.length === 0) return false;
+        const local = this.scope ? this.scope.lookup(base.name) : null;
+        const sym = (local && local.isArray) ? local : (this.globals.get(base.name) || null);
+        if (!sym || !sym.isArray) return false;
+        const emitOffset = () => {
+            this.compileExpr(parts[0]);
+            for (let k = 1; k < parts.length; k++) { this.compileExpr(parts[k]); this.emit(Op.ADD); }
+        };
+        if (sym.isHeap) {
+            emitOffset();
+            this.emit(Op.ADDR_HEAP_OFF);
+            this.emitByte(sym.heapHandle);
+            return true;
+        }
+        if (local && local.isArray && local.isRef) {
+            // Ref param passed onward with an offset (`h + n`): the stored ref
+            // may be heap-backed AT RUNTIME (tag 3, handle in the low byte), so
+            // integer add is wrong for it — REF_OFF adds tag-aware.
+            // NOTE: needs firmware with OP_REF_OFF (> 1.6.43).
+            this.emitArrayRefByName(base.name, node.line);
+            emitOffset();
+            this.emit(Op.REF_OFF);
+            return true;
+        }
+        // Plain local (frame) / global array: base ref + integer add is the
+        // correct offset arithmetic for those encodings (index in low bits) —
+        // and keeps the emitted code runnable on pre-REF_OFF firmware.
+        this.emitArrayRefByName(base.name, node.line);
+        emitOffset();
+        this.emit(Op.ADD);
+        return true;
+    }
+
     // Phase 2 helper: returns true when the AST node is arr[i] of a
     // 2D char array (i.e. a row reference candidate). Called from the
     // sprintf dispatcher to route %s args through emitArrayRef.
@@ -2887,6 +2956,10 @@ export class CodeGenerator {
             }
             return;
         }
+        // `arr + off` — emit a real offset ref (heap: ADDR_HEAP_OFF; local/
+        // global: base ref + integer add). Lets builtins take offset views,
+        // e.g. strFind(body + off, ...).
+        if (this.tryEmitArrayOffsetRef(node)) return;
         if (node.type !== NodeType.Identifier) {
             throw new CodeGenError('String functions require array variable, not expression', node.line);
         }
@@ -3014,6 +3087,8 @@ export class CodeGenerator {
                     this.emitArrayRefByName(node.args[i].name, node.line);
                 } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
                     this.emitStringArg(node.args[i]);
+                } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
+                    // `arr + off` array arg emitted as a proper offset ref
                 } else {
                     this.compileExpr(node.args[i]);
                     const argType = this.inferType(node.args[i]);
@@ -3471,6 +3546,8 @@ export class CodeGenerator {
                         this.emitArrayRefByName(node.args[i].name, node.line);
                     } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
                         this.emitStringArg(node.args[i]);
+                    } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
+                        // `arr + off` array arg emitted as a proper offset ref
                     } else {
                         this.compileExpr(node.args[i]);
                         const argType = this.inferType(node.args[i]);
@@ -3570,6 +3647,9 @@ export class CodeGenerator {
                 // (tag=3, handle = 0x8000|constIdx). Without this, LOAD_CONST pushes a
                 // plain int that the callee resolves as a garbage local ref.
                 this.emitStringArg(node.args[i]);
+            } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
+                // `arr + off` array arg emitted as a proper offset ref (heap bases
+                // need ADDR_HEAP_OFF — integer add corrupts the tag-3 handle field)
             } else {
                 this.compileExpr(node.args[i]);
                 // Insert type conversion if argument type doesn't match parameter type

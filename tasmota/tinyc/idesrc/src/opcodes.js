@@ -102,6 +102,7 @@ export const Op = {
     // Pops the computed offset (int32 slots) from the stack; packs it into the
     // ref so all downstream string ops see the sub-array starting at that offset.
     ADDR_HEAP_OFF:  0xA6,   // u8 handle; pop offset → push ref: 0xC0000000|(offset<<16)|handle
+    REF_OFF:        0xA7,   // pop off, pop ref → push ref advanced by off slots (tag-aware: heap refs add into the offset bits, local/global into the index; const-pool refs unchanged)
 
     // ─── System calls ─────────────────────────
     SYSCALL:        0x80,   // syscall with 1-byte function ID

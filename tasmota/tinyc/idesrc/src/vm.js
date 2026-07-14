@@ -827,6 +827,22 @@ export class VM {
                 this.push((0xC0000000 | (off << 16) | handle) | 0);
                 break;
             }
+            case Op.REF_OFF: {
+                // Tag-aware ref + offset — mirrors the firmware OP_REF_OFF.
+                const off = this.pop();
+                const uref = this.pop() >>> 0;
+                if ((uref >>> 30) === 3 && !(uref & 0x8000)) {
+                    let noff = ((uref >>> 16) & 0x3FFF) + off;
+                    if (noff < 0) noff = 0;
+                    if (noff > 0x3FFF) noff = 0x3FFF;
+                    this.push((0xC0000000 | (noff << 16) | (uref & 0xFF)) | 0);
+                } else if ((uref >>> 30) !== 3) {
+                    this.push((uref + off) | 0);
+                } else {
+                    this.push(uref | 0);   // const-pool ref — cannot offset
+                }
+                break;
+            }
 
             // ─── Runtime array ref (ref params) ──
             case Op.LOAD_REF_ARR: {
