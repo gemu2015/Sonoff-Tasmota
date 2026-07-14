@@ -1556,8 +1556,29 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
   }
 #endif
   if (!s->program) { file.close(); return false; }
-  file.read(s->program, fsize);
+  // VERIFY the read — under SD bus contention (e.g. .135: LVGL display flushes
+  // starving the SD while VM tasks run) file.read() can return short or fail
+  // outright; the old unchecked read handed a part-garbage buffer to
+  // tc_vm_load, which could "succeed" into a broken slot or leave the slot
+  // silently empty while the command reported Done. One re-read after a short
+  // pause rides out a transient stall; a second failure is LOUD and fatal.
+  size_t rd = file.read(s->program, fsize);
+  if (rd != fsize) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s short read (%u/%u) — retrying"),
+           path, (unsigned)rd, (unsigned)fsize);
+    delay(50);
+    file.seek(0);
+    rd = file.read(s->program, fsize);
+  }
   file.close();
+  if (rd != fsize) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load %s FAILED: read %u of %u bytes (SD busy/faulty?)"),
+           path, (unsigned)rd, (unsigned)fsize);
+    free(s->program);
+    s->program = nullptr;
+    s->program_size = 0;
+    return false;
+  }
   s->program_size = fsize;
   int err = tc_vm_load(&s->vm, s->program, fsize);
   if (err == TC_OK) {
