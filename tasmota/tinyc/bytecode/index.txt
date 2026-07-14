@@ -44,6 +44,7 @@ ecotracker.tcb
 ecotracker_shelly_emu.tcb
 editor.tcb
 energy_dashboard.tcb
+energy_logger.tcb
 epaper29.tcb
 epaper42.tcb
 epaper_clock_test.tcb
@@ -72,6 +73,7 @@ heatpump_test.tcb
 homekit_demo.tcb
 homekit_office.tcb
 hourly_chime.tcb
+house_monitor.tcb
 hyundai_login.tcb
 hyundai_soc.tcb
 igmp_leave_smoke.tcb
@@ -93,7 +95,7 @@ lvgl_smoke.tcb
 lvgl_widgets.tcb
 m5_epd47.tcb
 mail_test.tcb
-marstek_sim.tcb
+marstek_venus.tcb
 matter_airquality.tcb
 matter_battery.tcb
 matter_bridge.tcb
@@ -114,6 +116,7 @@ max31855.tcb
 meter_pin_unlock.tcb
 mic_plugin_level.tcb
 mlx90614.tcb
+moritz_dash.tcb
 multipage_demo.tcb
 music_fft.tcb
 music_ui.tcb
@@ -208,3 +211,4 @@ webradio.tcb
 webui_demo.tcb
 webui_dynamic.tcb
 webui_watchdog.tcb
+worker_vm_test.tcb
