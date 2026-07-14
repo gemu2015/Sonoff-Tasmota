@@ -64,6 +64,7 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 
 // UriGlob for port 82 download server wildcard routes
 #include <uri/UriGlob.h>
+#include <new>            // std::nothrow — port-82 download/IDE client-handoff (TcDlReq)
 
 // Raw socket API for SO_LINGER setsockopt() in HandleTinyCDisplayRaw —
 // pulls in struct linger, SOL_SOCKET, SO_LINGER on ESP32's lwIP.
@@ -4879,8 +4880,26 @@ static void TinyCShow(bool json) {
 #ifdef ESP32
 
 // Background task: streams file to client then exits
+// Download request handed from the port-82 handler to its background task.
+// CRITICAL: the WiFiClient (NetworkClient — a shared_ptr to the connection) is
+// copied IN THE HANDLER, while WebServer::_currentClient still owns the socket.
+// The handler returns without send(), so handleClient() immediately does
+// `_currentClient = NetworkClient()` — dropping the server's reference. On S3
+// the SD hangs on SPI (polling), so the spawned task keeps the CPU through
+// ufsp->open() and grabbed dl_server->client() before that reset (worked). On
+// the P4 the SD is native SDMMC/SDIO: open() blocks on a semaphore, loopTask
+// resumes and clears _currentClient first, and the task then grabbed an already
+// closed socket -> "Empty reply from server" (Andreas, P4/ETH). Holding our own
+// copy here keeps the socket alive scheduling-independently. (client is a full
+// member, not a pointer, so the copy's refcount is what matters.)
+struct TcDlReq {
+  WiFiClient client;
+  char path[128];
+};
+
 static void tc_download_task(void *param) {
-  char *path = (char*)param;
+  TcDlReq *req = (TcDlReq*)param;
+  char *path = req->path;
 
   // Parse @from_to time range from path
   uint32_t cmp_from = 0, cmp_to = 0;
@@ -4899,8 +4918,15 @@ static void tc_download_task(void *param) {
 
   File file = ufsp->open(path, "r");
   if (!file) {
+    // Previously the task just returned here — no HTTP response at all, so even
+    // on S3 a missing file gave "Empty reply" instead of a 404. Send a real 404
+    // over the held client now.
+    req->client.print(F("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
+                        "Connection: close\r\n\r\nNot found\r\n"));
+    delay(20);
+    req->client.stop();
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: DL file not found: %s"), path);
-    free(path);
+    delete req;
     Tinyc->dl_busy = false;
     vTaskDelete(NULL);
     return;
@@ -4918,7 +4944,7 @@ static void tc_download_task(void *param) {
     strcpy_P(ctype, PSTR("application/octet-stream"));
   }
 
-  WiFiClient client = Tinyc->dl_server->client();
+  WiFiClient &client = req->client;   // the copy grabbed in the handler (see TcDlReq)
   uint32_t fsize = file.size();
 
   // Bound client.write() with a send timeout so a stalled or vanished peer (e.g. a
@@ -5097,7 +5123,7 @@ static void tc_download_task(void *param) {
 
   file.close();
   client.stop();
-  free(path);
+  delete req;                 // frees the held WiFiClient copy + path buffer
   Tinyc->dl_busy = false;
   AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: DL task done"));
   vTaskDelete(NULL);
@@ -5124,14 +5150,23 @@ static void TC_DLServeFile(void) {
   }
 
   Tinyc->dl_busy = true;
-  char *path = (char*)malloc(128);
-  if (!path) {
+  // Grab the client HERE (handler context) — _currentClient is still valid.
+  // See TcDlReq: deferring this into the task races handleClient()'s client
+  // reset and loses deterministically on the P4 (SDMMC open() blocks).
+  TcDlReq *req = new (std::nothrow) TcDlReq();
+  if (!req) {
     Tinyc->dl_busy = false;
     Tinyc->dl_server->send(500, F("text/plain"), F("Out of memory"));
     return;
   }
-  strlcpy(path, cp, 128);
-  xTaskCreatePinnedToCore(tc_download_task, "TCDL", 6000, (void*)path, 3, NULL, 1);
+  req->client = Tinyc->dl_server->client();
+  strlcpy(req->path, cp, sizeof(req->path));
+  if (xTaskCreatePinnedToCore(tc_download_task, "TCDL", 6000, (void*)req, 3, NULL, 1) != pdPASS) {
+    delete req;
+    Tinyc->dl_busy = false;
+    Tinyc->dl_server->send(500, F("text/plain"), F("Task spawn failed"));
+    return;
+  }
 }
 
 // Root handler
@@ -5156,11 +5191,14 @@ static void TC_DLRoot(void) {
 static bool tc_ide_busy = false;
 
 static void tc_ide_serve_task(void *param) {
-  // Match the tc_download_task pattern: take the client from the dl_server
-  // INSIDE the task, not before spawning. This is what the existing /ufs/*
-  // path does and is known to work — the framework keeps the client alive
-  // after the handler returns since no send() was called.
-  WiFiClient client = Tinyc->dl_server->client();
+  // The client is copied in the HANDLER (TC_DLServeIDE) and handed over here,
+  // same as tc_download_task/TcDlReq. Grabbing it inside the task raced
+  // handleClient()'s _currentClient reset and lost on the P4 (SDMMC open()
+  // blocks the task, loopTask closes the socket first). We now own a copy from
+  // the handler, so the socket survives regardless of scheduling.
+  WiFiClient *cp = (WiFiClient*)param;
+  WiFiClient client = *cp;
+  delete cp;
 
   // Locate the file: try ufsp (SD/user) first then ffsp (flash). Prefer .gz.
   bool gzipped = false;
@@ -5232,9 +5270,17 @@ static void TC_DLServeIDE(void) {
     return;
   }
   tc_ide_busy = true;
+  // Grab the client in the handler (see tc_ide_serve_task / TcDlReq).
+  WiFiClient *cp = new (std::nothrow) WiFiClient(Tinyc->dl_server->client());
+  if (!cp) {
+    tc_ide_busy = false;
+    Tinyc->dl_server->send(500, F("text/plain"), F("Out of memory"));
+    return;
+  }
   BaseType_t rc = xTaskCreatePinnedToCore(
-      tc_ide_serve_task, "TCIDE", 4096, NULL, 3, NULL, 1);
+      tc_ide_serve_task, "TCIDE", 4096, (void*)cp, 3, NULL, 1);
   if (rc != pdPASS) {
+    delete cp;
     tc_ide_busy = false;
     Tinyc->dl_server->send(500, F("text/plain"), F("Task spawn failed"));
     return;
