@@ -58,6 +58,7 @@ char w_compass[24];
 float kwp = KWP;               // PV peak power [kWp] — overridden from CFG_FILE
 float pr  = PR;                // performance ratio  — overridden from CFG_FILE
 int   ndays = NDAYS;           // days to fetch/show — from CFG_FILE, clamped 4..NDAYS
+int   vdays = NDAYS;           // days with REAL data (<= ndays) — trailing open-meteo nulls dropped
 char  cfgbuf[256];             // config file buffer (room for // comment lines)
 char  cfgline[64];             // one config line at a time
 
@@ -68,22 +69,29 @@ char  jsdate[220];
 
 // Parse NDAYS comma-separated numbers from the JSON array following `key`. `key`
 // must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
-void parse16(char json[], char key[], float out[]) {
+// Returns the number of REAL (non-null) values parsed. Open-Meteo emits `null`
+// for forecast days beyond the model horizon (e.g. day 16 for some locations —
+// mi-hol's Geilenkirchen: "…,34.1,28.4,null"). atof("null") would be 0.0 and
+// plot a bogus zero at the right edge; instead we stop at the first null so the
+// caller can shrink the chart to the days that actually have data.
+int parse16(char json[], char key[], float out[]) {
     int i = 0;
     while (i < NDAYS) { out[i] = 0.0; i = i + 1; }
     int p = strFind(json, key);
-    if (p < 0) { return; }
+    if (p < 0) { return 0; }
     strSub(w_chunk, json, p + strlen(key), 380);
     int rb = strFind(w_chunk, "]");
-    if (rb < 0) { return; }
+    if (rb < 0) { return 0; }
     strSub(w_arr, w_chunk, 0, rb);
     i = 1;
     while (i <= NDAYS) {
         int n = strToken(w_tok, w_arr, ',', i);
         if (n <= 0) { break; }
+        if (w_tok[0] == 'n') { break; }   // "null" -> forecast horizon reached
         out[i - 1] = atof(w_tok);
         i = i + 1;
     }
+    return i - 1;
 }
 
 // Wind direction (degrees) -> 8-point German compass.
@@ -161,15 +169,21 @@ void do_fetch() {
     sprintf(w_url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum,windspeed_10m_max,windgusts_10m_max,winddirection_10m_dominant&forecast_days=%d&timezone=auto", p_lat, p_lon, ndays);
     int r = httpGet(w_url, w_resp);
     if (r <= 0) { addLog("weather: httpGet failed (%d)", r); return; }
-    parse16(w_resp, "temperature_2m_max\":[",         f_tmax);
-    parse16(w_resp, "temperature_2m_min\":[",         f_tmin);
-    parse16(w_resp, "precipitation_sum\":[",          f_precip);
-    parse16(w_resp, "shortwave_radiation_sum\":[",    f_rad);
-    parse16(w_resp, "windspeed_10m_max\":[",          f_wind);
-    parse16(w_resp, "windgusts_10m_max\":[",          f_gust);
-    parse16(w_resp, "winddirection_10m_dominant\":[", f_wdir);
+    // vdays = the smallest real-value count across the charted variables, so a
+    // trailing null day (open-meteo horizon) is dropped from every chart at once.
+    int c;
+    vdays = NDAYS;
+    c = parse16(w_resp, "temperature_2m_max\":[",         f_tmax);   if (c < vdays) { vdays = c; }
+    c = parse16(w_resp, "temperature_2m_min\":[",         f_tmin);   if (c < vdays) { vdays = c; }
+    c = parse16(w_resp, "precipitation_sum\":[",          f_precip); if (c < vdays) { vdays = c; }
+    c = parse16(w_resp, "shortwave_radiation_sum\":[",    f_rad);    if (c < vdays) { vdays = c; }
+    c = parse16(w_resp, "windspeed_10m_max\":[",          f_wind);   if (c < vdays) { vdays = c; }
+    c = parse16(w_resp, "windgusts_10m_max\":[",          f_gust);   if (c < vdays) { vdays = c; }
+    parse16(w_resp, "winddirection_10m_dominant\":[", f_wdir);   // today-only (compass), not charted
+    if (vdays < 4) { vdays = ndays; }   // safety: a bad/empty response shouldn't blank the charts
+    if (vdays > ndays) { vdays = ndays; }
     int i = 0;
-    while (i < ndays) { f_yield[i] = f_rad[i] / 3.6 * kwp * pr; i = i + 1; }
+    while (i < vdays) { f_yield[i] = f_rad[i] / 3.6 * kwp * pr; i = i + 1; }
     valid = 1;
     fetched_at = tasm_uptime;
     addLog("weather: %dd ok %s - today %.1f/%.1f C, yield ~%.0f kWh, wind %.0f/%.0f",
@@ -221,14 +235,14 @@ void WebPage() {
     // index 15 = +15 days (x-axis runs today -> +15).
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wetterprognose</legend>");
     webSend("<div style='margin-left:-12px'>");
-    WebChartTimeBase((ndays - 1) * 1440);
-    WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, ndays, f_tmax, 1, 1440, 0, 0);
-    WebChart(0, "",                             "Min", 0x3498db, 0, ndays, f_tmin, 1, 1440, 0, 0);
+    WebChartTimeBase((vdays - 1) * 1440);
+    WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, vdays, f_tmax, 1, 1440, 0, 0);
+    WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
-    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, ndays, f_precip, 1, 1440, 0, 0);
-    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, ndays, f_yield,  0, 1440, 0, 0);
-    WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, ndays, f_wind, 0, 1440, 0, 0);
-    WebChart(0, "",                             "Böen",      0xe67e22, 0, ndays, f_gust, 0, 1440, 0, 0);
+    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0, 0);
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  0, 1440, 0, 0);
+    WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
+    WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
     WebChartTimeBase(0);
     webSend("</div>");
