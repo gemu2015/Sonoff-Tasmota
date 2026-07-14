@@ -62,6 +62,7 @@ globals_toctou_soak.tcb
 gpio_sweep.tcb
 gpio_toggle_test.tcb
 growatt.tcb
+growatt_shine.tcb
 gtest_r.tcb
 gtest_w.tcb
 gtls_atmp.tcb
