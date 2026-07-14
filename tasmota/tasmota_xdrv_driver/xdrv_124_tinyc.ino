@@ -4916,7 +4916,13 @@ static void tc_download_task(void *param) {
     }
   }
 
-  File file = ufsp->open(path, "r");
+  // Resolve target FS from the path prefix, same as the port-83 upload server:
+  // "/ufs/ffs/backup.csv" -> flash, "/ufs/sdfs/x" -> SD, else ufsp. Lets a Flash
+  // backup be downloaded back for md5-verify without a global dir switch. (Done
+  // AFTER the @-range split so the prefix sees the clean path.)
+  FS *fsp = tc_file_path(path);
+  if (!fsp) fsp = ufsp;
+  File file = fsp->open(path, "r");
   if (!file) {
     // Previously the task just returned here — no HTTP response at all, so even
     // on S3 a missing file gave "Empty reply" instead of a 404. Send a real 404
@@ -4990,7 +4996,7 @@ static void tc_download_task(void *param) {
         if (dot) strcpy(dot, ".ind");
         else strcat(indpath, ".ind");
 
-        File ind = ufsp->open(indpath, "r");
+        File ind = fsp->open(indpath, "r");   // same FS as the data file
         if (ind) {
           // Buffered scan: a byte-at-a-time read of a multi-MB .ind is ~25 s on SD,
           // long enough that the client times out mid-scan -> hung write -> stuck
@@ -5380,7 +5386,13 @@ static void tc_ul_handle(WiFiClient &client) {
   if (strncmp_P(target, PSTR("/ufs/"), 5) != 0) {
     tc_ul_reply(client, "404 Not Found", "path must be /ufs/<file>"); return;
   }
-  const char *path = target + 4;    // "/ufs/SND/x.mp3" -> "/SND/x.mp3"
+  char *path = target + 4;          // "/ufs/SND/x.mp3" -> "/SND/x.mp3"
+  // Resolve the TARGET filesystem from the path prefix, same convention the VM
+  // file syscalls use (tc_file_path): "/ufs/ffs/backup.csv" -> flash (ffsp),
+  // "/ufs/sdfs/x" -> SD (ufsp), anything else -> ufsp (active/SD). This gives a
+  // Flash-backup target WITHOUT a global /ufsd?dir switch (Andreas's wish) — the
+  // prefix is stripped in place, so `path` is the on-fs path after this call.
+  FS *fsp = tc_file_path(path);
 
   // --- Content-Length (case-insensitive) ---
   uint32_t clen = 0;
@@ -5393,13 +5405,15 @@ static void tc_ul_handle(WiFiClient &client) {
   }
   uint32_t fsize = clen ? clen : fsz_url;
   if (fsize == 0) { tc_ul_reply(client, "411 Length Required", "need Content-Length or ?fsz="); return; }
-  if (!ufsp)      { tc_ul_reply(client, "500 No Filesystem", "no ufs"); return; }
+  if (!fsp)       { tc_ul_reply(client, "500 No Filesystem", "no target fs"); return; }
   // No arbitrary size cap (plain Tasmota /ufsu has none) — reject ONLY if the file
-  // won't fit the filesystem, leaving a small margin for FS metadata. UfsFree() (xdrv_50)
-  // returns free kB of the active UFS; a 0 reading means "unknown" -> don't block. This
-  // also naturally rejects a garbage Content-Length.
-  extern uint32_t UfsFree(void);
-  uint32_t free_kb = UfsFree();
+  // won't fit the TARGET filesystem, leaving a small margin for FS metadata.
+  // UfsInfo(1, type) reports free kB for either fs (type 0 = ufsp/SD, 1 = ffsp/
+  // flash), so the pre-check follows the resolved destination — not just the
+  // active UFS. A 0 reading means "unknown" -> don't block; also naturally
+  // rejects a garbage Content-Length.
+  extern uint32_t UfsInfo(uint32_t sel, uint32_t type);
+  uint32_t free_kb = UfsInfo(1, (fsp == ffsp) ? 1 : 0);
   if (free_kb && (fsize / 1024 + 16) > free_kb) {
     char m[64]; snprintf_P(m, sizeof(m), PSTR("no space: need %u kB, free %u kB"),
                            (unsigned)(fsize / 1024), (unsigned)free_kb);
@@ -5419,7 +5433,7 @@ static void tc_ul_handle(WiFiClient &client) {
   extern void TinyCFsWriteResume(void);
   TinyCFsWritePause(fsize);
 
-  File f = ufsp->open(path, "w");
+  File f = fsp->open(path, "w");
   bool ok = false;
   const char *err = "open failed";
   uint32_t written = 0;
@@ -5454,7 +5468,7 @@ static void tc_ul_handle(WiFiClient &client) {
       if (ok && written != fsize) { ok = false; err = "short body"; }
     }
     f.close();
-    if (!ok) ufsp->remove(path);   // don't leave a truncated file behind
+    if (!ok) fsp->remove(path);   // don't leave a truncated file behind
   }
 
   TinyCFsWriteResume();
