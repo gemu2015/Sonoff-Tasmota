@@ -17135,6 +17135,22 @@ static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
   // Flush output to Tasmota
   tc_output_flush();
 
+  // The per-callback instruction limit is a WATCHDOG against one overlong
+  // callback invocation, not a sign of VM corruption. The cleanup above has
+  // already restored SP, freed the callback's frames and rewound its heap, so
+  // the VM is back in a consistent halted-idle state. Leaving vm->error set
+  // would poison EVERY future dispatch (the guards in the callers short-circuit
+  // on vm->error != TC_OK) and make the slot answer a permanent "Busy" to
+  // commands with no self-heal — Andreas's err=8 wedge (7x since 2026-06-18,
+  // only cured by TinyCRun). Clear it so the next tick/Command runs fresh; the
+  // limit hit was already logged + crash-logged above, so it stays diagnosable.
+  // (A genuinely runaway callback simply re-aborts each call, logged each time,
+  // but the slot keeps serving its other callbacks instead of going dark.)
+  if (vm->error == TC_ERR_INSTRUCTION_LIMIT) {
+    vm->error = TC_OK;
+    return TC_ERR_INSTRUCTION_LIMIT;   // report THIS invocation was cut short…
+  }                                    // …but the VM is clean for the next one
+
   return vm->error;
 }
 
