@@ -1312,6 +1312,30 @@ const char UFS_FORM_FILE_UPGc1[] PROGMEM =
 const char UFS_FORM_FILE_UPGc2[] PROGMEM =
   "</div>";
 
+#ifdef USE_TINYC
+// TinyC fork: a file larger than 256 KB is POSTed to the port-83 raw upload
+// server (its own FreeRTOS task, off loopTask) via fetch() instead of the /ufsu
+// multipart path on loopTask, which panics + reboots on ~900 KB files (Andreas).
+// The port-83 reply sends Access-Control-Allow-Origin so this cross-port fetch
+// can read the result; a text/plain Blob body keeps it a CORS "simple request"
+// (no OPTIONS preflight to answer). In the flash view (dir=2) the /ffs/ prefix
+// routes the file to flash, matching the FS the manager is showing. Small files
+// keep the normal, fast multipart path.
+const char UFS_FORM_FILE_UPG[] PROGMEM =
+  "<form id='uff' method='post' action='ufsu?fsz=' enctype='multipart/form-data'>"
+  "<br><input type='file' name='ufsu'><br>"
+  "<br><button type='submit' onclick='return tcuf(this)'>" D_UPLOAD "</button></form>"
+  "<script>function tcuf(b){var fo=b.form,f=fo['ufsu'].files[0];if(!f)return false;"
+  "eb('f1').style.display='none';eb('but6').style.display='none';eb('f2').style.display='block';"
+  "if(f.size>262144){var d=(location.search.match(/dir=(\\d+)/)||[])[1]||'1';"
+  "var p=(d=='2'?'/ffs/':'/')+f.name;"
+  "eb('f2').innerHTML='uploading '+(f.size>>10)+' kB via :83 ...';"
+  "fetch(location.protocol+'//'+location.hostname+':83/ufs'+p,{method:'POST',body:new Blob([f],{type:'text/plain'})})"
+  ".then(r=>r.text()).then(t=>{eb('f2').innerHTML=t;setTimeout(function(){location.href='/ufsd?dir='+d;},1500);})"
+  ".catch(e=>{eb('f2').innerHTML='upload failed: '+e;});return false;}"
+  "fo.action+=f.size;fo.submit();return false;}</script>"
+  "<br><hr>";
+#else
 const char UFS_FORM_FILE_UPG[] PROGMEM =
   "<form method='post' action='ufsu?fsz=' enctype='multipart/form-data'>"
   "<br><input type='file' name='ufsu'><br>"
@@ -1319,6 +1343,7 @@ const char UFS_FORM_FILE_UPG[] PROGMEM =
   "onclick='eb(\"f1\").style.display=\"none\";eb(\"but6\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.action+=this.form[\"ufsu\"].files[0].size;this.form.submit();'"
   ">" D_UPLOAD "</button></form>"
   "<br><hr>";
+#endif
 const char UFS_FORM_SDC_DIRa[] PROGMEM =
   "<div style='text-align:left;overflow:auto;height:250px;'>";
 const char UFS_FORM_SDC_DIRc[] PROGMEM =

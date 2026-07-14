@@ -5325,7 +5325,13 @@ static WiFiServer *tc_ul_server = nullptr;
 // Minimal one-shot HTTP reply on the raw socket (Content-Length + close so curl
 // reads the whole body and tears down cleanly).
 static void tc_ul_reply(WiFiClient &client, const char *status, const char *body) {
+  // Access-Control-Allow-Origin: * lets a page served on port 80 (the file
+  // manager, or a user's own settings page) READ this reply after a CROSS-ORIGIN
+  // fetch() upload — a large file is POSTed here (own task, off loopTask) instead
+  // of to the panic-prone /ufsu on port 80. A text/plain body keeps the fetch a
+  // CORS "simple request" (no OPTIONS preflight to answer).
   client.printf_P(PSTR("HTTP/1.1 %s\r\nContent-Type: text/plain\r\n"
+                       "Access-Control-Allow-Origin: *\r\n"
                        "Connection: close\r\nContent-Length: %u\r\n\r\n%s"),
                   status, (unsigned)strlen(body), body);
 }
