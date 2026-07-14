@@ -144,9 +144,11 @@ void read_cfg() {
     while (strToken(cfgline, cfgbuf, '\n', li) > 0) {
         strTrim(cfgline);
         if (cfgline[0] != '/' || cfgline[1] != '/') {       // not a // comment
-            int p = strFind(cfgline, "NDAYS=");
-            if (p >= 0) { strSub(w_tok, cfgline, p + 6, 12); ndays = atoi(w_tok);
-                          if (ndays < 4) { ndays = 4; } if (ndays > NDAYS) { ndays = NDAYS; } }
+            int p = 0;
+            p = strFind(cfgline, "NDAYS="); if (p >= 0) { strSub(w_tok, cfgline, p + 6, 12); ndays = atoi(w_tok);
+                if (ndays < 4) { ndays = 4; } 
+                if (ndays > NDAYS) { ndays = NDAYS; } 
+            }
             p = strFind(cfgline, "KWP=");  if (p >= 0) { strSub(w_tok, cfgline, p + 4, 12); kwp = atof(w_tok); }
             p = strFind(cfgline, "PR=");   if (p >= 0) { strSub(w_tok, cfgline, p + 3, 12); pr  = atof(w_tok); }
         }
