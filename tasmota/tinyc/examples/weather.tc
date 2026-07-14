@@ -222,13 +222,13 @@ void WebPage() {
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wetterprognose</legend>");
     webSend("<div style='margin-left:-12px'>");
     WebChartTimeBase((ndays - 1) * 1440);
-    WebChart(0, "Temperatur (&deg;C)",          "Max", 0xe74c3c, 0, ndays, f_tmax, 1, 1440, 0, 0);
+    WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, ndays, f_tmax, 1, 1440, 0, 0);
     WebChart(0, "",                             "Min", 0x3498db, 0, ndays, f_tmin, 1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
     WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, ndays, f_precip, 1, 1440, 0, 0);
     WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, ndays, f_yield,  0, 1440, 0, 0);
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, ndays, f_wind, 0, 1440, 0, 0);
-    WebChart(0, "",                             "B&ouml;en", 0xe67e22, 0, ndays, f_gust, 0, 1440, 0, 0);
+    WebChart(0, "",                             "Böen",      0xe67e22, 0, ndays, f_gust, 0, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
     WebChartTimeBase(0);
     webSend("</div>");
