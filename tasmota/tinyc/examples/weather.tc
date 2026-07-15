@@ -61,6 +61,7 @@ int   ndays = NDAYS;           // days to fetch/show — from CFG_FILE, clamped 
 int   vdays = NDAYS;           // days with REAL data (<= ndays) — trailing open-meteo nulls dropped
 char  cfgbuf[256];             // config file buffer (room for // comment lines)
 char  cfgline[64];             // one config line at a time
+char  cfg_city[40];            // CITY= from the cfg — geocoded, overrides IP auto-detect
 
 // JS hook: line charts default to bare-index x-ticks over a >7-day span; relabel
 // them with the same "DD.MM." dates the column (rain) chart shows. Runs in the
@@ -147,18 +148,23 @@ void read_cfg() {
     fileClose(h);
     if (n <= 0) { return; }
     cfgbuf[n] = 0;
-    // Parse line by line so `//` comment lines are skipped. Keys: KWP= PR= NDAYS=
+    // Parse line by line so `//` comment lines are skipped. Keys: KWP= PR= NDAYS= CITY=
+    strcpy(cfg_city, "");                                    // re-derive from the current file each read
     int li = 1;
     while (strToken(cfgline, cfgbuf, '\n', li) > 0) {
         strTrim(cfgline);
         if (cfgline[0] != '/' || cfgline[1] != '/') {       // not a // comment
             int p = 0;
             p = strFind(cfgline, "NDAYS="); if (p >= 0) { strSub(w_tok, cfgline, p + 6, 12); ndays = atoi(w_tok);
-                if (ndays < 4) { ndays = 4; } 
-                if (ndays > NDAYS) { ndays = NDAYS; } 
+                if (ndays < 4) { ndays = 4; }
+                if (ndays > NDAYS) { ndays = NDAYS; }
             }
             p = strFind(cfgline, "KWP=");  if (p >= 0) { strSub(w_tok, cfgline, p + 4, 12); kwp = atof(w_tok); }
             p = strFind(cfgline, "PR=");   if (p >= 0) { strSub(w_tok, cfgline, p + 3, 12); pr  = atof(w_tok); }
+            // CITY=<name> pins the location by name (geocoded), overriding the
+            // approximate IP auto-detect. Rest of the line = the city (may have
+            // spaces, e.g. "Bad Honnef"). Blank/absent -> IP auto-detect as before.
+            p = strFind(cfgline, "CITY="); if (p >= 0) { strSub(cfg_city, cfgline, p + 5, 39); strTrim(cfg_city); }
         }
         li = li + 1;
     }
@@ -166,6 +172,10 @@ void read_cfg() {
 
 void do_fetch() {
     read_cfg();
+    // A CITY= edited into the cfg (then `WX`) re-geocodes without a reboot: queue
+    // it if the resolved city no longer matches. TaskLoop geocodes on the next
+    // cycle, which sets fetched_at=-1 and refetches with the new coords.
+    if (strlen(cfg_city) > 0 && strcmp(cfg_city, p_city) != 0) { strcpy(want_geocode, cfg_city); }
     sprintf(w_url, "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,shortwave_radiation_sum,windspeed_10m_max,windgusts_10m_max,winddirection_10m_dominant&forecast_days=%d&timezone=auto", p_lat, p_lon, ndays);
     int r = httpGet(w_url, w_resp);
     if (r <= 0) { addLog("weather: httpGet failed (%d)", r); return; }
@@ -283,7 +293,7 @@ int main() {
     // then read it. Edit /weather.cfg via the file manager to set your array.
     if (fileExists(CFG_FILE) == 0) {
         int hc = fileOpen(CFG_FILE, 1);
-        if (hc >= 0) { sprintf(cfgbuf, "// weather.tc config - edit, then send WX to apply\n// PV peak power [kWp]\nKWP=%.2f\n// performance ratio (system losses)\nPR=%.2f\n// days to fetch/show forecast, clamped 4..16\nNDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
+        if (hc >= 0) { sprintf(cfgbuf, "// weather.tc config - edit, then send WX to apply\n// Location by name (geocoded). Leave blank/commented to auto-detect by IP.\n// CITY=Erftstadt\n// PV peak power [kWp]\nKWP=%.2f\n// performance ratio (system losses)\nPR=%.2f\n// days to fetch/show forecast, clamped 4..16\nNDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
     }
     read_cfg();
     strcpy(jsdate, "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;");
@@ -291,8 +301,14 @@ int main() {
         strcpy(p_lat, DEF_LAT); strcpy(p_lon, DEF_LON); strcpy(p_city, DEF_CITY);
         loc_set = 0; saveVars();
     }
-    want_geoip = (loc_set == 0) ? 1 : 0;      // auto-detect on boot unless user-fixed
+    // Location precedence: CITY= in the cfg (geocoded) > user-fixed (WX loc/coord) > IP auto-detect.
     strcpy(want_geocode, "");
+    if (strlen(cfg_city) > 0) {
+        want_geoip = 0;                                    // cfg pins the city -> no IP guess
+        if (strcmp(cfg_city, p_city) != 0) { strcpy(want_geocode, cfg_city); }   // geocode if it changed
+    } else {
+        want_geoip = (loc_set == 0) ? 1 : 0;               // auto-detect on boot unless user-fixed
+    }
     valid = 0;
     fetched_at = -1;
     addLog("weather ready - %s (%s,%s) loc_set=%d", p_city, p_lat, p_lon, loc_set);
