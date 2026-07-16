@@ -1313,21 +1313,31 @@ const char UFS_FORM_FILE_UPGc2[] PROGMEM =
   "</div>";
 
 #ifdef USE_TINYC
-// TinyC fork: a file larger than 256 KB is POSTed to the port-83 raw upload
-// server (its own FreeRTOS task, off loopTask) via fetch() instead of the /ufsu
-// multipart path on loopTask, which panics + reboots on ~900 KB files (Andreas).
-// The port-83 reply sends Access-Control-Allow-Origin so this cross-port fetch
-// can read the result; a text/plain Blob body keeps it a CORS "simple request"
-// (no OPTIONS preflight to answer). In the flash view (dir=2) the /ffs/ prefix
-// routes the file to flash, matching the FS the manager is showing. Small files
-// keep the normal, fast multipart path.
+// Redirect threshold. A file larger than this is POSTed to the port-83 raw
+// upload server (its own FreeRTOS task, off loopTask) via fetch() instead of the
+// /ufsu multipart path on loopTask, which panics + reboots on large files. The
+// crash point scales with the CHIP, not free heap (the upload is chunked, not
+// buffered): a SINGLE-core chip (C3/C6/S2) holds loopTask through the whole write
+// with no second core for relief and dies ~200 KB (Andreas's C6); DUAL-core
+// (ESP32/S3/P4) tolerate ~900 KB. So the base threshold is core-count driven, and
+// gets floored further when free heap is genuinely low (a crowded device of any
+// class). The port-83 reply carries Access-Control-Allow-Origin so this cross-
+// port fetch can read the result; a text/plain Blob body keeps it a CORS "simple
+// request" (no OPTIONS preflight). In the flash view (dir=2) the /ffs/ prefix
+// routes the file to flash. Small files keep the fast, universally-reachable
+// native path (works even where port 83 is blocked — proxy/VBox/partial forward).
+#if CONFIG_FREERTOS_UNICORE
+  #define TC_UFSU_REDIR_BASE 131072   // 128 KB — single-core (C3/C6/S2), crash ~200 KB
+#else
+  #define TC_UFSU_REDIR_BASE 262144   // 256 KB — dual-core (ESP32/S3/P4), crash ~900 KB
+#endif
 const char UFS_FORM_FILE_UPG[] PROGMEM =
   "<form id='uff' method='post' action='ufsu?fsz=' enctype='multipart/form-data'>"
   "<br><input type='file' name='ufsu'><br>"
   "<br><button type='submit' onclick='return tcuf(this)'>" D_UPLOAD "</button></form>"
   "<script>function tcuf(b){var fo=b.form,f=fo['ufsu'].files[0];if(!f)return false;"
   "eb('f1').style.display='none';eb('but6').style.display='none';eb('f2').style.display='block';"
-  "if(f.size>262144){var d=(location.search.match(/dir=(\\d+)/)||[])[1]||'1';"
+  "if(f.size>%d){var d=(location.search.match(/dir=(\\d+)/)||[])[1]||'1';"
   "var p=(d=='2'?'/ffs/':'/')+f.name;"
   "eb('f2').innerHTML='uploading '+(f.size>>10)+' kB via :83 ...';"
   "fetch(location.protocol+'//'+location.hostname+':83/ufs'+p,{method:'POST',body:new Blob([f],{type:'text/plain'})})"
@@ -1523,7 +1533,15 @@ void UfsDirectory(void) {
   }
   WSContentSend_P(UFS_FORM_FILE_UPGc2);
 
+#ifdef USE_TINYC
+  // Inject the upload-redirect threshold live: core-count base, floored to 64 KB
+  // when free heap is tight (< 96 KB) so a heap-crowded device is protected too.
+  uint32_t tc_redir = TC_UFSU_REDIR_BASE;
+  if (ESP.getFreeHeap() < 96 * 1024 && tc_redir > 65536) { tc_redir = 65536; }
+  WSContentSend_P(UFS_FORM_FILE_UPG, (unsigned)tc_redir);
+#else
   WSContentSend_P(UFS_FORM_FILE_UPG);
+#endif
 
   if (isdir){
     // if a folder, show 'folder: xxx' if not '/'
