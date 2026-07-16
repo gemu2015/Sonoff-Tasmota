@@ -4928,6 +4928,7 @@ static void tc_download_task(void *param) {
     // on S3 a missing file gave "Empty reply" instead of a 404. Send a real 404
     // over the held client now.
     req->client.print(F("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
+                        "Access-Control-Allow-Origin: *\r\n"
                         "Connection: close\r\n\r\nNot found\r\n"));
     delay(20);
     req->client.stop();
@@ -4967,6 +4968,7 @@ static void tc_download_task(void *param) {
     // -- Time-filtered download --
     client.printf_P(PSTR("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
       "Content-Disposition: attachment; filename=\"%s\"\r\n"
+      "Access-Control-Allow-Origin: *\r\n"
       "Transfer-Encoding: chunked\r\n"
       "Connection: close\r\n\r\n"), ctype, fname);
 
@@ -5111,8 +5113,12 @@ static void tc_download_task(void *param) {
     }
   } else {
     // -- Full file download --
+    // Access-Control-Allow-Origin lets a page on port 80 (e.g. Andreas's SD<->Flash
+    // sync/restore UI) READ this body via a cross-port fetch(), the download twin of
+    // the port-83 upload CORS header — so a Flash restore needs no /ufsd?dir switch.
     client.printf_P(PSTR("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
       "Content-Disposition: attachment; filename=\"%s\"\r\n"
+      "Access-Control-Allow-Origin: *\r\n"
       "Content-Length: %d\r\n"
       "Connection: close\r\n\r\n"), ctype, fname, fsize);
 
