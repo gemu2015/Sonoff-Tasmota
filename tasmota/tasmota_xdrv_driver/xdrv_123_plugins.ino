@@ -61,7 +61,7 @@ extern "C" {
 
 #define MAX_MOD_STORES 4
 // this descriptor is in flash so only 32 bit access allowed
-#pragma pack(4)
+#pragma pack(push, 4)   // push/pop: sonst leakt pack(4) in xdrv_124+ (Struct-Größen-Mismatch .ino<->lib -> Heap-Korruption; Andreas-Befund 2026-07-16)
 typedef struct {
   MD_TYPE sync;
   MD_TYPE arch;
@@ -84,6 +84,7 @@ typedef struct {
   // 56
   MODULE_STORE ms[];
 } FLASH_MODULE;
+#pragma pack(pop)
 
 #define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
 

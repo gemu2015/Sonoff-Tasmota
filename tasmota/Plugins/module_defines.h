@@ -18,7 +18,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 
 // this descriptor is in flash so only 32 bit access allowed
-#pragma pack(4)
+#pragma pack(push, 4)   // push/pop: sonst leakt pack(4) in alle nachfolgend eingebundenen Treiber (Struct-Größen-Mismatch .ino<->lib -> Heap-Korruption)
 typedef struct {
   MD_TYPE sync;
   MD_TYPE arch;
@@ -45,9 +45,10 @@ typedef struct {
   MODULE_STORE ms[];
 #endif
 } FLASH_MODULE;
+#pragma pack(pop)
 
 
-#undef vsnprintf_P 
+#undef vsnprintf_P
 #undef br_aes_small_ctr_init
 #undef br_gcm_init
 #undef br_gcm_reset
