@@ -4214,17 +4214,25 @@ void SML_Init(void) {
       // non-blank char is ';'. Also drops '\r' so CRLF-saved files parse. (No-op for
       // the Scripter path below, which never reaches this file branch.)
       {
+        // LÄNGEN-begrenzt iterieren, NICHT null-terminiert (while(*rd)): endet die
+        // Datei ohne '\n' und wurde bis dahin nichts gestrippt (wr==rd — genau der
+        // Fall einer vom ext. Editor "komprimierten" .def ohne Kommentare/CR), dann
+        // überschrieb das angehängte '\n' die NUL bei file_md[fsiz] → die Schleife
+        // las UND schrieb hinter den Puffer → Heap-Korruption, C3-Bootloop (Ottelo,
+        // reproduziert + bisektiert 2026-07-23). Mit fester end-Grenze ist das
+        // Schreiben beweisbar ≤ file_md[fsiz+1] (Puffer hat fsiz+16).
+        char *end = file_md + strlen(file_md);
         char *rd = file_md, *wr = file_md;
-        while (*rd) {
+        while (rd < end) {
           char *le = rd;
-          while (*le && *le != '\n') le++;                 // end of physical line
+          while (le < end && *le != '\n') le++;            // end of physical line
           char *fc = rd;
           while (fc < le && (*fc == ' ' || *fc == '\t' || *fc == '\r')) fc++;
           if (fc < le && *fc != ';') {                     // keep: non-blank, non-comment
             for (char *c = rd; c < le; c++) { if (*c != '\r') *wr++ = *c; }
             *wr++ = '\n';
           }
-          rd = (*le == '\n') ? le + 1 : le;
+          rd = (le < end) ? le + 1 : end;
         }
         *wr = 0;
       }
