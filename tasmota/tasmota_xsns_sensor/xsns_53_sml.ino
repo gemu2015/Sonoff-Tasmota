@@ -4003,6 +4003,17 @@ int SML_print(const char *format, ...) {
 
 void reset_sml_vars(uint16_t maxmeters) {
 
+  // Defensive: meter_desc[] ist ein festes MAX_METERS-Array. Der erste
+  // reset_sml_vars()-Aufruf (Re-Init-Pfad in SML_Init) läuft VOR dem
+  // meters_used-Clamp — bei maxmeters > MAX_METERS liest die Schleife über das
+  // Array hinaus und gibt Müll-Pointer frei (Heap-Korruption / Bootloop; auf einem
+  // C3 mit neuerem esp32-Framework reproduziert: free() eines 0xa5a5a5a5-Stack-
+  // Musters). Hart begrenzen, egal woher maxmeters kommt.
+  if (maxmeters > MAX_METERS) {
+    AddLog(LOG_LEVEL_INFO, PSTR("SML: reset_sml_vars maxmeters %d > %d geklemmt (OOB verhindert)"), maxmeters, MAX_METERS);
+    maxmeters = MAX_METERS;
+  }
+
   for (uint32_t meters = 0; meters < maxmeters; meters++) {
 
 		struct METER_DESC *mp = &meter_desc[meters];
