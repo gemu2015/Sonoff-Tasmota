@@ -5989,6 +5989,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       if (vm->ow_bus) { delete vm->ow_bus; vm->ow_bus = nullptr; }
       vm->ow_bus = new OneWire(a);
+      // Every ow* consumer already tests `if (!vm->ow_bus)`, so a failed
+      // allocation degrades safely from here on — but say so once instead of
+      // leaving the script to wonder why every read returns 0, and do NOT
+      // record ow_pin: claiming a pin we cannot drive would block a later
+      // retry on the same GPIO. (The TC_OW_DEBUG block below dereferences
+      // the bus unconditionally, so it needs the bail-out too.)
+      if (!vm->ow_bus) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: owSetPin %d - out of memory"), (int)a);
+        break;
+      }
       vm->ow_pin = a;
 #ifdef TC_OW_DEBUG
       // Manual 1-Wire bring-up trace: bus reset, first 3 ROM-search bit
@@ -9171,6 +9181,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         } else {
           // Use HSPI (secondary bus)
           spi->spip = new SPIClass(HSPI);
+          if (!spi->spip) {
+            AddLog(LOG_LEVEL_ERROR, PSTR("TIC: SPI HSPI alloc failed - out of memory"));
+            spi->initialized = false;
+            TC_PUSH(vm, 0);
+            break;
+          }
           if (TasmotaGlobal.spi_enabled) {
             spi->spip->begin(Pin(GPIO_SPI_CLK, 1), Pin(GPIO_SPI_MISO, 1), Pin(GPIO_SPI_MOSI, 1), -1);
           } else {
