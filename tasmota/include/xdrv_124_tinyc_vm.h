@@ -13764,10 +13764,31 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       tc_udp_pause_req = true;   // ask the main task to pause the multicast for this TLS txn
       if (tc_tls) { tc_tls_abort_linger(); tc_tls->stop(); delete tc_tls; tc_tls = nullptr; }
       tc_tls = new BearSSL::WiFiClientSecure_light(TC_TLS_RX_BUF, TC_TLS_TX_BUF);
+      // The client object carries an 8 KB recv + 1 KB xmit record buffer, so this
+      // allocation is the largest single request a TinyC slot makes at runtime and
+      // it DOES fail on a fragmented heap (Arduino builds are -fno-exceptions, so
+      // `new` returns nullptr rather than throwing). Without this check the very
+      // next setTimeout() writes a member at a small offset of the null object —
+      // that is exactly the StoreProhibited/LoadProhibited at EXCVADDR 0x0000000c /
+      // 0x0000000d seen on .135 (growatt_shine TLS poll with 4 slots loaded) and
+      // in ottelo's report. Fail the syscall cleanly instead; the script sees -1
+      // from tlsConnect() and retries on its next poll.
+      if (!tc_tls) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: tlsConnect %s:%d - out of memory (need %d B, maxblk %d B)"),
+               host, (int)port, (int)(TC_TLS_RX_BUF + TC_TLS_TX_BUF),
+               (int)ESP.getMaxAllocHeap());
+        tc_udp_pause_req = false;   // we asked for the pause above — release it again
+        TC_PUSH(vm, -1); break;
+      }
       tc_tls->setTimeout(5000);
       tc_tls->setInsecure();                 // no cert pinning (like Scripter httpsget)
       if (!tc_tls->connect(host, (uint16_t)port)) {
         delete tc_tls; tc_tls = nullptr;
+        // Release the multicast pause here too: a script that gets -1 from
+        // tlsConnect() typically returns without calling tlsStop() (growatt_shine
+        // does exactly that), and only tlsStop() used to clear the flag — so a
+        // single failed connect left UDP globals paused for good.
+        tc_udp_pause_req = false;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tlsConnect %s:%d FAIL"), host, (int)port);
         TC_PUSH(vm, -1); break;
       }
