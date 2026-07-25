@@ -1168,6 +1168,8 @@ enum TcSyscall {
   SYS_FILE_OPEN_REF   = 224, // (path_ref, mode) -> int handle (-1=err)
   SYS_FILE_EXISTS_REF = 225, // (path_ref) -> int (1=yes, 0=no)
   SYS_FILE_DELETE_REF = 226, // (path_ref) -> int (0=ok, -1=err)
+  SYS_FILE_RENAME     = 522, // (const_idx_from, const_idx_to) -> int (0=ok, -1=err)
+  SYS_FILE_RENAME_REF = 523, // (from_ref, to_ref) -> int (0=ok, -1=err)
   SYS_FILE_OPENDIR    = 227, // (const_idx_path) -> int handle (-1=err)
   SYS_FILE_OPENDIR_REF= 228, // (path_ref) -> int handle (-1=err)
   SYS_FILE_READDIR    = 229, // (handle, name_buf_ref) -> int (1=entry, 0=end)
@@ -6876,6 +6878,51 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, ok ? 0 : -1);
 #else
       TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+
+    // fileRename(from, to) — Datei umbenennen/verschieben. Gab es bisher nicht;
+    // ohne sie musste man "einmal erledigt"-Zustaende ueber zusaetzliche
+    // Markierungsdateien nachbilden oder das Original loeschen (gemu 2026-07-25,
+    // beim Umstellen der sml_chart-Speicherung). LittleFS/FFat koennen es nativ.
+    // Ziel wird NICHT stillschweigend ueberschrieben: existiert es schon, gibt
+    // es -1 -- sonst koennte ein Tippfehler im Zielnamen Daten vernichten.
+    case SYS_FILE_RENAME:
+    case SYS_FILE_RENAME_REF: {
+#ifdef USE_UFILESYS
+      TC_BUF(pto, 128);
+      TC_BUF(pfrom, 128);
+      if (id == SYS_FILE_RENAME_REF) {
+        int32_t to_ref = TC_POP(vm), from_ref = TC_POP(vm);
+        tc_ref_to_cstr(vm, to_ref,   pto,   sizeof(pto));
+        tc_ref_to_cstr(vm, from_ref, pfrom, sizeof(pfrom));
+      } else {
+        int32_t cto = TC_POP(vm), cfrom = TC_POP(vm);
+        const char *sto = tc_get_const_str(vm, cto);
+        const char *sfrom = tc_get_const_str(vm, cfrom);
+        if (!sto || !sfrom) { TC_PUSH(vm, -1); break; }
+        strlcpy(pto,   sto,   sizeof(pto));
+        strlcpy(pfrom, sfrom, sizeof(pfrom));
+      }
+      if (!pfrom[0] || !pto[0]) { TC_PUSH(vm, -1); break; }
+      FS *fsf = tc_file_path(pfrom);
+      FS *fst = tc_file_path(pto);
+      // Quelle und Ziel muessen auf demselben Dateisystem liegen -- rename()
+      // kann nicht ueber Dateisystemgrenzen (Flash <-> SD) kopieren.
+      if (!fsf || !fst || fsf != fst) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRename(\"%s\",\"%s\") -> -1 (anderes Dateisystem)"), pfrom, pto);
+        TC_PUSH(vm, -1);
+        break;
+      }
+      if (!fsf->exists(pfrom)) { TC_PUSH(vm, -1); break; }
+      if (fsf->exists(pto))    { TC_PUSH(vm, -1); break; }   // nie stumm ueberschreiben
+      bool ok = fsf->rename(pfrom, pto);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRename(\"%s\",\"%s\") -> %d"), pfrom, pto, ok ? 0 : -1);
+      TC_PUSH(vm, ok ? 0 : -1);
+#else
+      TC_POP(vm); TC_POP(vm);
       TC_PUSH(vm, -1);
 #endif
       break;

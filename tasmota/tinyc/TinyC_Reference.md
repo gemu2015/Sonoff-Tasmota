@@ -2540,6 +2540,7 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 | `int fileClose(handle)`                    | Close file handle, returns 0 or -1               |
 | `int fileRead(handle, char buf[], max)`    | Read up to max bytes into buf, returns count     |
 | `int fileWrite(handle, char buf[], len)`   | Write len bytes from buf, returns count          |
+| `int fileRename(from, to)`                 | Rename/move a file. `0` = ok, `-1` = error. Fails (and changes nothing) if the source is missing, the **target already exists** (never silently overwrites — a typo in the target must not destroy data), or source and target are on different filesystems (`/ffs/` vs `/sdfs/` — `rename` cannot copy across them). Both paths may be string literals or `char[]` buffers. Handy for "already processed" bookkeeping: rename an input file to `<name>.done` and its mere presence is the marker — no extra state file needed. |
 | `int fileReadBin(handle, int arr[], count)`  | Read up to `count` int32 elements as 4-byte little-endian binary; returns elements actually read (or -1 on bad args). Works for both `int[]` and `float[]` since both are int32 in memory |
 | `int fileWriteBin(handle, int arr[], count)` | Write `count` int32 elements as 4-byte little-endian binary; returns elements actually written (or -1 on bad args). Same dual-type semantics as `fileReadBin` — useful for chart-history persistence and similar fixed-record formats |
 | `int fileExists("path")`                   | Check if file exists: 1=yes, 0=no                |

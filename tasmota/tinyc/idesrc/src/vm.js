@@ -1,4 +1,9 @@
-import { Op, OpName, SyscallName, MAGIC, VERSION } from './opcodes.js';
+import { Op, OpName, Syscall, SyscallName, MAGIC, VERSION } from './opcodes.js';
+// `Syscall` fehlte im Import, obwohl 63 case-Zweige es benutzen (ab PWL_REQUEST).
+// JS wertet switch-Faelle der Reihe nach aus: sobald ein Syscall keinen der
+// frueheren Zahlen-Faelle trifft, lief der Simulator in
+// `ReferenceError: Syscall is not defined` und brach ab -- im Browser-IDE also
+// jedes Programm, das z. B. fileWrite benutzt. (gemu 2026-07-25)
 
 // Runs the same bytecode as the ESP32 C VM
 // Used for in-browser testing and debugging
@@ -1567,6 +1572,25 @@ export class VM {
                 const exists = this.virtualFS.has(name) ? 1 : 0;
                 this.onOutput(`[FILE] exists("${name}") → ${exists}\n`);
                 this.push(exists);
+                break;
+            }
+            case 522: { // FILE_RENAME — Datei umbenennen (Simulator)
+                const toIdx = this.pop(), fromIdx = this.pop();
+                const to = this.constants[toIdx] || '', from = this.constants[fromIdx] || '';
+                if (!this.virtualFS.has(from)) {
+                    this.onOutput(`[FILE] rename("${from}","${to}") → Quelle fehlt\n`);
+                    this.push(-1);
+                } else if (this.virtualFS.has(to)) {
+                    // Wie in der Firmware: ein vorhandenes Ziel wird NICHT stumm
+                    // ueberschrieben.
+                    this.onOutput(`[FILE] rename("${from}","${to}") → Ziel existiert bereits\n`);
+                    this.push(-1);
+                } else {
+                    this.virtualFS.set(to, this.virtualFS.get(from));
+                    this.virtualFS.delete(from);
+                    this.onOutput(`[FILE] rename("${from}","${to}") → OK\n`);
+                    this.push(0);
+                }
                 break;
             }
             case 65: { // FILE_DELETE

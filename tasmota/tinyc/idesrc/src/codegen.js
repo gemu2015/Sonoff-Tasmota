@@ -247,6 +247,7 @@ const BUILTINS = {
     'fileWriteBin':     { syscall: Syscall.FILE_WRITE_BIN,  args: 3, returns: true,  strArgs: [1] },
     'fileExists':       { syscall: Syscall.FILE_EXISTS,     args: 1, returns: true,  constArgs: [0] },
     'fileDelete':       { syscall: Syscall.FILE_DELETE,     args: 1, returns: true,  constArgs: [0] },
+    'fileRename':       { syscall: Syscall.FILE_RENAME,     args: 2, returns: true,  constArgs: [0, 1] },
     'fileSize':         { syscall: Syscall.FILE_SIZE,       args: 1, returns: true,  constArgs: [0] },
     'fileFormat':       { syscall: Syscall.FILE_FORMAT,    args: 0, returns: true },
     'fileMkdir':        { syscall: Syscall.FILE_MKDIR,     args: 1, returns: true,  constArgs: [0] },

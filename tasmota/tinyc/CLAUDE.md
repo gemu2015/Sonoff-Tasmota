@@ -302,7 +302,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | I²C | `i2cRead8`, `i2cWrite8`, `i2cReadBuf`, `i2cWriteBuf`, `i2cScan` |
 | SPI | `spiInit`, `spiTransfer`, `spiSetCs` |
 | 1-Wire | `owReset`, `owRead`, `owWrite`, `owSearch` |
-| Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileSize`, `fileReadBin`/`fileWriteBin` |
+| Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileRename`, `fileSize`, `fileReadBin`/`fileWriteBin` |
 | HTTP | `httpGet`, `httpPost`, `httpHeader` |
 | TCP | `tcpConnect`, `tcpRead`, `tcpWrite`, `tcpAvailable`, `tcpSelect` (slot 0..3); tuning: `tcpKeepalive`, `tcpNoDelay`, `tcpTransact`, `tcpDisconnectReason` |
 | UDP (Scripter globalvars) | `udpSend(name, val)`, `udpRecv(name)`, `udpReady(name)`, `udpRecvArray(name, arr, max)` |
