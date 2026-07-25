@@ -1,0 +1,38 @@
+// Sender pushes:  WebSend [192.168.188.76] PVSET {"pwl":90,"sip":33.4,...}
+// "PVSET" is registered as a command; its payload (the JSON) reaches Command(cmd).
+global float pwl;  global float sip;  global float sop;  global float bip;  global float hip;
+global float tcap; global float rcap; global float rper;
+global float phs1; global float phs2; global float phs3;
+
+void Command(char cmd[]) {              // cmd[] = the JSON text after "PVSET"
+    pwl  = jsonNum(cmd, "pwl");
+    sip  = jsonNum(cmd, "sip");
+    sop  = jsonNum(cmd, "sop");
+    bip  = jsonNum(cmd, "bip");
+    hip  = jsonNum(cmd, "hip");
+    tcap = jsonNum(cmd, "tcap");
+    rcap = jsonNum(cmd, "rcap");
+    rper = jsonNum(cmd, "rper");
+    phs1 = jsonNum(cmd, "phs1");
+    phs2 = jsonNum(cmd, "phs2");
+    phs3 = jsonNum(cmd, "phs3");
+    char r[48]; sprintf(r, "OK pwl=%.2f sip=%.2f", pwl, sip);
+    responseCmnd(r);                    // sender's WebSend reply confirms the parse
+}
+
+int main() { addCommand("PVSET"); addLog("json_recv ready"); return 0; }
+
+
+
+
+void send_vars() {
+    char msg[256]; char resp[64];
+    sprintf(msg,
+        "WebSend [192.168.188.76] PVSET {\"pwl\":%.2f,\"sip\":%.2f,\"sop\":%.2f,\"bip\":%.2f,\"hip\":%.2f,\"tcap\":%.0f,\"rcap\":%.2f,\"rper\":%.1f,\"phs1\":%.2f,\"phs2\":%.2f,\"phs3\":%.2f}",
+        pwl, sip, sop, bip, hip, tcap, rcap, rper, phs1, phs2, phs3);
+    tasmCmd(msg, resp);
+}
+
+
+websend [192.168.188.76]PVSET {"pwl":%2pwl%,"sip":%2sip%,"sop":%2sop%,"bip":%2bip%,"hip":%2hip%,"tcap":%0tcap%,"rcap":%2rcap%,"rper":%1rper%,"phs1":%2phs1%,"phs2":%2phs2%,"phs3":%2phs3%}
+
