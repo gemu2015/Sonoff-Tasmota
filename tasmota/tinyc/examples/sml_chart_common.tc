@@ -73,90 +73,113 @@ int sml_hr_last;                // last seen tasm_hour (midnight edge detect)
 // sml_buf is declared in sml_descriptor.tc and shared by both modules
 
 // ============================================================================
-// Save / load chart arrays
+// Speicherung der Chart-Daten — .pvs (seit fw 1.6.42)
 // ----------------------------------------------------------------------------
-// By default the arrays are stored as compact BINARY (/sml_chart*.bin).
-// Define CHART_CSV (uncomment below, or `#define CHART_CSV` before the
-// #include in your main script) to instead store human-readable TAB-separated
-// CSV (/sml_chart*.csv) you can open / read / edit in a spreadsheet and
-// restore. CHART_CSV_DEC sets the decimal places (trailing zeros stripped).
-// Note: the two formats use different filenames, so toggling starts a fresh
-// chart file rather than misreading the other format.
+// ALLE Chart-Daten UND die Nullpunkte liegen jetzt in EINER Datei: der .pvs
+// des Slots. Die Arrays oben sind `persist` deklariert; die Firmware stellt sie
+// beim Laden wieder her und schreibt sie bei saveVars()/TinyCStop zurück.
+//
+// Warum die Umstellung (gemu 2026-07-25, nach ottelo9/tasmota-sml-images#50):
+// Vorher lagen die Arrays in /sml_chart.bin, die Nullpunkte sml_dval/mval/yval
+// aber in der .pvs. Wer die .bin sicherte und zurueckspielte, hatte die
+// Historie — aber nicht die Bezugswerte. Der naechste 60-s-Tick rechnete dann
+//     sml_dcon[d-1] = ein - sml_dval;    // sml_dval == 0
+// und schrieb den KOMPLETTEN Zaehlerstand in den heutigen Balken. Ein
+// Riesenausreisser, die Y-Achse skalierte mit, die ganze importierte Historie
+// war optisch weg. mi-hol im selben Thread: „Wuerden diese Infos in den Dateien
+// gespeichert, waere der Backup via Dateien trivial." Genau das ist es jetzt:
+//
+//     Sichern      = /sml_chart_pv.pvs kopieren (EINE Datei, alles drin)
+//     Zurueckspielen = zurueckkopieren, Slot neu starten. Fertig.
+//
+// Kein Nullpunkt-Tanz, keine heikle Reihenfolge, keine doppelte Buchfuehrung.
+// Vorbild ist energy_dashboard.tc, das schon so arbeitet.
+//
+// ⚠️ BRAUCHT FIRMWARE >= 1.6.42. Erst dort kommen heap-`persist`-Arrays ueber
+//    Reload und Neustart zurueck (5a0f1f06f) und die .pvs ist namensbasiert
+//    (PV3, 3763abf02) — Anhaengen/Umsortieren von persist-Variablen loescht
+//    den Stand nicht mehr. Auf aelterer Firmware NICHT verwenden: dort kaemen
+//    die Arrays als Nullen zurueck. Dann bei der .bin-Fassung bleiben
+//    (git history).
 // ============================================================================
-// #define CHART_CSV
+
+// ── Einmalige Uebernahme aus der alten /sml_chart.bin ──────────────────────
+// Bestandsgeraete haben ihre Historie noch in der .bin. Beim ersten Start nach
+// dem Umstieg wird sie EINMAL eingelesen, in die .pvs uebernommen und dann in
+// /sml_chart.bin.done umbenannt.
+//
+// Umbenannt, nicht geloescht: die Datei bleibt als Sicherung liegen, und ihr
+// blosses Vorhandensein ist zugleich die Markierung „schon uebernommen" — es
+// braucht keine zusaetzliche Zustandsdatei. (`fileRename` gab es in TinyC
+// bisher nicht; sie ist fuer genau diesen Fall dazugekommen, gemu 2026-07-25.)
+//
+// Das ist zugleich der IMPORT-WEG: wer eine .bin aus sml_chart_editor.html
+// einspielen will, laedt sie als /sml_chart.bin hoch und startet den Slot neu.
+// Fertig — kein Nullpunkte-Setzen, keine Reihenfolge, kein Slot-stoppen-Tanz.
 #ifndef CHART_CSV_DEC
 #define CHART_CSV_DEC 3
 #endif
 
-// Set whenever the meter modifies the chart arrays (5s/60s ticks). Gates the
-// OnExit/CleanUp flush so a freshly-imported .bin is never clobbered — see the
-// comment on CleanUp()/OnExit() below. NOT persisted (it is run-state only).
-int sml_chart_dirty = 0;
-
-void sml_chart_save() {
-#ifdef CHART_CSV
-    int h = fileOpen("/sml_chart.csv", "w");
-#else
-    int h = fileOpen("/sml_chart.bin", "w");
-#endif
-    if (h < 0) {
-        addLog("sml_chart_save: fileOpen failed");
-        return;
-    }
-#ifdef CHART_CSV
-    fileWriteArray(sml_s4h,  h, 481,  0, CHART_CSV_DEC);
-    fileWriteArray(sml_s24h, h, 1441, 0, CHART_CSV_DEC);
-    fileWriteArray(sml_dcon, h, 31,   0, CHART_CSV_DEC);
-    fileWriteArray(sml_mcon, h, 12,   0, CHART_CSV_DEC);
-#else
-    fileWriteBin(h, sml_s4h,  481);
-    fileWriteBin(h, sml_s24h, 1441);
-    fileWriteBin(h, sml_dcon, 31);
-    fileWriteBin(h, sml_mcon, 12);
-#endif
-    fileClose(h);
-    sml_chart_dirty = 0;        // file now matches the in-RAM arrays
-}
-
 void sml_chart_load() {
-    sml_chart_dirty = 0;        // about to (re)sync arrays from the file
-#ifdef CHART_CSV
-    int h = fileOpen("/sml_chart.csv", "r");
-#else
     int h = fileOpen("/sml_chart.bin", "r");
-#endif
-    if (h < 0) return;          // no file yet — arrays stay at persist defaults
-#ifdef CHART_CSV
-    fileReadArray(sml_s4h,  h, 481);
-    fileReadArray(sml_s24h, h, 1441);
-    fileReadArray(sml_dcon, h, 31);
-    fileReadArray(sml_mcon, h, 12);
-#else
+    if (h < 0) return;                         // nichts zu uebernehmen
     fileReadBin(h, sml_s4h,  481);
     fileReadBin(h, sml_s24h, 1441);
     fileReadBin(h, sml_dcon, 31);
     fileReadBin(h, sml_mcon, 12);
-#endif
     fileClose(h);
+    saveVars();                                 // ab jetzt gilt die .pvs
+    if (fileRename("/sml_chart.bin", "/sml_chart.bin.done") < 0) {
+        // Ziel liegt schon da (frueherer Import). Dann das alte Sicherungsstueck
+        // weg und erneut umbenennen -- sonst wuerde die .bin bei JEDEM Start
+        // wieder eingelesen und ueberschriebe neuere Daten.
+        fileDelete("/sml_chart.bin.done");
+        fileRename("/sml_chart.bin", "/sml_chart.bin.done");
+    }
+    addLog("sml_chart: .bin in die .pvs uebernommen, umbenannt in /sml_chart.bin.done");
 }
 
-// Flush chart data to file when the script is going away, so the post-boot
-// sml_chart_load() never reads a stale .bin and shows a gap:
-//   CleanUp() — device Restart / OTA (FUNC_SAVE_BEFORE_RESTART). The .tas `>R`.
-//   OnExit()  — this slot stopped / re-run / unlinked (per-slot teardown).
-// GUARDED by sml_chart_dirty: only flush if the meter actually changed the
-// arrays since the last load/save. This is essential for the "import new data,
-// then restart" workflow — without the guard, the outgoing slot's teardown
-// save overwrites a freshly-uploaded /sml_chart.bin *before* the new instance
-// reads it (the clobber that made imports silently revert). With it, a
-// stop → upload → run cycle preserves the import: the stop-save flushes and
-// clears dirty, the upload overwrites the file, and the run-teardown sees
-// dirty == 0 and skips. => Always upload the .bin while the slot is STOPPED.
+// Sichern = die persist-Werte schreiben. Erfasst Arrays UND Nullpunkte in einem
+// Zug — im Gegensatz zur alten .bin, die nur die Arrays kannte.
+void sml_chart_save() {
+    saveVars();
+}
+
+// Menschenlesbarer Export fuer Sicherung/Weitergabe (Tabellenkalkulation,
+// sml_chart_editor.html). KEINE Speicherung — die laeuft ueber die .pvs.
+// Absichtlich mit den Nullpunkten in der ersten Zeile: eine Sicherung ohne sie
+// war ja gerade das Problem.
+void sml_chart_export_csv() {
+    int h = fileOpen("/sml_chart.csv", "w");
+    if (h < 0) {
+        addLog("sml_chart_export_csv: fileOpen fehlgeschlagen");
+        return;
+    }
+    char kopf[96];
+    sprintf(kopf, "%.3f\t%.3f\t%.3f\t%d\n", sml_dval, sml_mval, sml_yval, sml_da);
+    fileWrite(h, kopf, strlen(kopf));
+    fileWriteArray(sml_s4h,  h, 481,  0, CHART_CSV_DEC);
+    fileWriteArray(sml_s24h, h, 1441, 0, CHART_CSV_DEC);
+    fileWriteArray(sml_dcon, h, 31,   0, CHART_CSV_DEC);
+    fileWriteArray(sml_mcon, h, 12,   0, CHART_CSV_DEC);
+    fileClose(h);
+    addLog("sml_chart: /sml_chart.csv geschrieben (Nullpunkte in Zeile 1)");
+}
+
+// Beim Herunterfahren die persist-Werte sichern:
+//   CleanUp() — Geraete-Neustart / OTA (FUNC_SAVE_BEFORE_RESTART)
+//   OnExit()  — dieser Slot gestoppt / neu gestartet / entfernt
+// Die Firmware sichert persist bei TinyCStop ohnehin selbst; diese beiden sind
+// der Guertel zum Hosentraeger fuer den Neustart-/OTA-Weg.
+// Die frueher noetige sml_chart_dirty-Sperre ist entfallen: sie verhinderte,
+// dass die Teardown-Sicherung eine frisch hochgeladene .bin ueberschreibt.
+// Mit der .pvs gibt es diesen Wettlauf nicht mehr — der Import laeuft ueber die
+// .mig-Marke und wird beim Laden angewandt, nicht beim Beenden.
 void CleanUp() {
-    if (sml_chart_dirty) sml_chart_save();
+    saveVars();
 }
 void OnExit() {
-    if (sml_chart_dirty) sml_chart_save();
+    saveVars();
 }
 
 // ============================================================================
@@ -222,7 +245,6 @@ void sml_chart_5s_tick() {
         sml_s24h[idx24] = s24h_avg;
         sml_s24h_pos = idx24;
     }
-    sml_chart_dirty = 1;        // meter modified the high-res arrays
 }
 
 // ============================================================================
@@ -236,7 +258,6 @@ void sml_chart_60s_tick() {
 
     if (d >= 1 && d <= 31) sml_dcon[d - 1] = ein - sml_dval;
     if (m >= 1 && m <= 12) sml_mcon[m - 1] = ein - sml_mval;
-    sml_chart_dirty = 1;        // meter modified the daily/monthly counters
 
     int hr = tasm_hour;
     if (sml_hr_last != hr && hr == 0) {

@@ -90,38 +90,47 @@ void sml_chart_pv_demo_fill() {
 // Production-side helpers — companion to sml_chart_common's consumption set
 // ============================================================================
 
+// Speicherung wie auf der Verbrauchsseite: alles in der .pvs des Slots.
+// sml_dprod/sml_mprod sind `persist`, ebenso die Nullpunkte sml_dval2/mval2/
+// yval2 — Historie und Bezugswerte liegen damit in EINER Datei und koennen
+// nicht mehr auseinanderlaufen. Siehe den ausfuehrlichen Kommentar in
+// sml_chart_common.tc. Braucht Firmware >= 1.6.42.
 void sml_chart_pv_save() {
-#ifdef CHART_CSV
-    int h = fileOpen("/sml_chart_pv.csv", "w");
-#else
-    int h = fileOpen("/sml_chart_pv.bin", "w");
-#endif
-    if (h < 0) return;
-#ifdef CHART_CSV
-    fileWriteArray(sml_dprod, h, 31, 0, CHART_CSV_DEC);
-    fileWriteArray(sml_mprod, h, 12, 0, CHART_CSV_DEC);
-#else
-    fileWriteBin(h, sml_dprod, 31);
-    fileWriteBin(h, sml_mprod, 12);
-#endif
-    fileClose(h);
+    saveVars();
 }
 
+// Einmalige Uebernahme aus der alten /sml_chart_pv.bin — gleiches Verfahren wie
+// auf der Verbrauchsseite: einlesen, in die .pvs sichern, dann umbenennen. Da
+// jede Datei ihre eigene Umbenennung traegt, spielt die Aufrufreihenfolge der
+// beiden load()-Funktionen keine Rolle.
 void sml_chart_pv_load() {
-#ifdef CHART_CSV
-    int h = fileOpen("/sml_chart_pv.csv", "r");
-#else
     int h = fileOpen("/sml_chart_pv.bin", "r");
-#endif
     if (h < 0) return;
-#ifdef CHART_CSV
-    fileReadArray(sml_dprod, h, 31);
-    fileReadArray(sml_mprod, h, 12);
-#else
     fileReadBin(h, sml_dprod, 31);
     fileReadBin(h, sml_mprod, 12);
-#endif
     fileClose(h);
+    saveVars();
+    if (fileRename("/sml_chart_pv.bin", "/sml_chart_pv.bin.done") < 0) {
+        fileDelete("/sml_chart_pv.bin.done");
+        fileRename("/sml_chart_pv.bin", "/sml_chart_pv.bin.done");
+    }
+    addLog("sml_chart_pv: .bin in die .pvs uebernommen, umbenannt in /sml_chart_pv.bin.done");
+}
+
+// Menschenlesbarer Export inkl. Nullpunkte (siehe sml_chart_export_csv).
+void sml_chart_pv_export_csv() {
+    int h = fileOpen("/sml_chart_pv.csv", "w");
+    if (h < 0) {
+        addLog("sml_chart_pv_export_csv: fileOpen fehlgeschlagen");
+        return;
+    }
+    char kopf[96];
+    sprintf(kopf, "%.3f\t%.3f\t%.3f\n", sml_dval2, sml_mval2, sml_yval2);
+    fileWrite(h, kopf, strlen(kopf));
+    fileWriteArray(sml_dprod, h, 31, 0, CHART_CSV_DEC);
+    fileWriteArray(sml_mprod, h, 12, 0, CHART_CSV_DEC);
+    fileClose(h);
+    addLog("sml_chart_pv: /sml_chart_pv.csv geschrieben (Nullpunkte in Zeile 1)");
 }
 
 void sml_chart_pv_init_baselines() {
