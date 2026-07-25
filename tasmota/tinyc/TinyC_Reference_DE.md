@@ -1670,6 +1670,7 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 | `int fileClose(handle)`                    | Datei-Handle schliessen, gibt 0 oder -1 zurueck      |
 | `int fileRead(handle, char buf[], max)`    | Bis zu max Bytes in buf lesen, gibt Anzahl zurueck    |
 | `int fileWrite(handle, char buf[], len)`   | len Bytes aus buf schreiben, gibt Anzahl zurueck      |
+| `int fileRename(von, nach)`                | Datei umbenennen/verschieben. `0` = ok, `-1` = Fehler. Schlaegt fehl (und aendert nichts), wenn die Quelle fehlt, das **Ziel schon existiert** (wird nie stillschweigend ueberschrieben — ein Tippfehler im Zielnamen darf keine Daten vernichten) oder Quelle und Ziel auf verschiedenen Dateisystemen liegen (`/ffs/` vs. `/sdfs/` — `rename` kann nicht dazwischen kopieren). Beide Pfade duerfen Zeichenketten oder `char[]`-Puffer sein. Praktisch fuer „schon erledigt"-Vermerke: eine Eingabedatei nach `<name>.done` umbenennen, dann ist ihr blosses Vorhandensein die Markierung — ohne zusaetzliche Zustandsdatei. |
 | `int fileExists("path")`                   | Pruefen ob Datei existiert: 1=ja, 0=nein             |
 | `int fileDelete("path")`                   | Datei loeschen, gibt 0=ok, -1=Fehler zurueck         |
 | `int fileSize("path")`                     | Dateigroesse in Bytes, -1 bei Fehler                  |
