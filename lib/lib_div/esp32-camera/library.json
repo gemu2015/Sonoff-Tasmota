@@ -24,7 +24,8 @@
     "srcFilter": [
       "-<*>",
       "+<driver>",
-      "-<driver/sccb-ng.c>",
+      "+<driver/sccb-ng.c>",
+      "-<driver/sccb.c>",
       "-<driver/esp_camera_af.c>",
       "+<conversions>",
       "+<sensors/ov3660.c>",
