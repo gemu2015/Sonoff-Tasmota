@@ -4319,6 +4319,8 @@ Alle Befehle verwenden standardmaessig Slot 0, wenn keine Slot-Nummer angegeben 
 | `TinyCExec <n>`               | Instruktionen pro Tick setzen (Standard 1000)    |
 | `TinyCInfo 0\|1`              | VM-Debug-Zeilen auf Hauptseite ein-/ausblenden   |
 | `TinyCIde [url]`              | Browser-IDE aus dem Repo (oder einer URL) aktualisieren; ersetzt `/tinyc_ide.html.gz`, kein Dateimanager (benoetigt `USE_UFILESYS`) |
+
+> ⚠️ **Ein Firmware-Flash tauscht die IDE NICHT mit aus.** Die Browser-IDE ist eine *Datei im Geraete-Dateisystem* (`/tinyc_ide.html.gz`) und nicht Teil des Firmware-Abbilds. Nach dem Flashen einer Version mit neuen Syscalls kennt die alte IDE diese nicht, und der Compiler meldet `Undefined function: <name>` — obwohl die Firmware es koennte. Nach jedem Firmware-Update, das neue Built-ins bringt, einmal **`TinyCIde`** in der Konsole aufrufen und die Browser-Seite hart neu laden.
 | `TinyC ?<abfrage>`            | Globale Variablen per Index abfragen (siehe unten)|
 
 **Beispiele:**

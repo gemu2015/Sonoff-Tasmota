@@ -369,6 +369,12 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     wins, page renders as a mess. When porting Scripter → TinyC, clear the
     Scripter source via IDE *Tools → Edit Script* before activating SML.
     See `TinyC_Reference.md §Smart Meter (SML)` for the full callout.
+13. **Telling a user their firmware is too old when the compiler says `Undefined function: <name>`** —
+    check the IDE first. The browser IDE is a FILE on the device FS (`/tinyc_ide.html.gz`), not part
+    of the firmware image; flashing does **not** replace it. A device on new firmware still serves the
+    old IDE, which doesn't know the new syscall — the error looks like a missing feature but is a
+    stale compiler. Fix: `TinyCIde` in the console, then hard-reload the page. (Hit teletapi on
+    `fileRename` right after 1.6.44 shipped.)
 12. **Blocking in `main()` (a `while(1)` loop) while consuming `global` UDP vars** —
     the firmware injects received UDP values into `global` vars between callbacks, so a
     `main()` that never returns leaves every `global` stuck at its init value (`0`). The

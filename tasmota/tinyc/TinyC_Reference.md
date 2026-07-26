@@ -5420,6 +5420,8 @@ All commands default to slot 0 if no slot number is given (backward-compatible).
 | `TinyCExec <n>`               | Set instructions per tick (default 1000)         |
 | `TinyCInfo 0\|1`              | Show/hide VM debug rows on main web page         |
 | `TinyCIde [url]`              | Update the browser IDE from the repo (or a URL); replaces `/tinyc_ide.html.gz`, no file manager (needs `USE_UFILESYS`) |
+
+> ⚠️ **Flashing firmware does NOT update the IDE.** The browser IDE is a *file on the device filesystem* (`/tinyc_ide.html.gz`), not part of the firmware image. After flashing a build that adds new syscalls, the old IDE still doesn't know them and the compiler reports `Undefined function: <name>` — even though the firmware supports it. Run **`TinyCIde`** once after every firmware update that adds built-ins, then hard-reload the browser page.
 | `TinyC ?<query>`              | Query global variables by index (see below)      |
 | `TinyCChkpt`                  | Show partition table (ESP32 only)                |
 | `TinyCChkpt p`                | Pack: shrink `app0` to fit, expand `spiffs`      |
