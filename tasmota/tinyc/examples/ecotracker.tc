@@ -90,30 +90,54 @@ void EverySecond() {
     // `tasm_year < 2020` + `pwr == 0` guards meant that on a bench with simulated
     // SML data and/or no internet (NTP never syncs) the service was never
     // announced — hence "der NOAH findet den Ecotracker nicht mal". We never
-    // touch the mDNS/network stack before tasm_wifi, and retry each second until
-    // mdnsRegister() returns 0 (MDNS.begin succeeds).
+    // touch the mDNS/network stack before tasm_wifi.
+    //
+    // We try mDNS exactly ONCE and deliberately IGNORE the return value.
+    // The earlier version retried every second until mdnsRegister() returned 0
+    // — that looked defensive but was the cause of gemu2015/Sonoff-Tasmota#100
+    // ("/v1/json shows 'TinyC busy — reloading in 1 s ...'"):
+    //   * mdnsRegister() returns -1 whenever MDNS.begin() fails, which happens
+    //     routinely when Tasmota's own USE_DISCOVERY already holds the mDNS
+    //     responder. So `once` never became 1.
+    //   * MDNS.begin() is a blocking network-stack call. Running it once per
+    //     second inside EverySecond keeps the VM non-halted, and the webOn
+    //     dispatcher (xdrv_124_tinyc.ino) serves its busy page whenever the
+    //     slot-0 VM isn't halted within 1.5 s.
+    //   * Worse, the `return` below the retry meant the smoothing block never
+    //     ran at all, so even a successful poll would have reported 0 W.
+    // ecotracker_shelly_emu.tc never had the bug because it sets its flag
+    // unconditionally — that is what we do here now.
     if (once == 0) {
         if (tasm_wifi == 0) return;                  // WLAN not up yet — wait
-        if (mdnsRegister("ecotracker-", "-", "everhome") == 0) {
-            once = 1;
-            addLog("EcoTracker: mDNS registered");
-        }
-        return;                                      // retry next second if needed
+        mdnsRegister("ecotracker-", "-", "everhome");
+        once = 1;                                    // one attempt, never again
+        addLog("EcoTracker: mDNS registered");
     }
+    // NO early return here — the smoothing / midnight work below must run
+    // from the very first second, whatever mDNS did.
 
     if (do_init) { initVars(); do_init = 0; }
     if (do_save) { saveVars(); do_save = 0; }
 
-    float pwr = smlGet(1);
-    if (pwr == 0.0) return;   // no meter data yet → keep serving the last cpwr
-
     // Power smoothing — halve peaks above 500 W so the battery doesn't
     // chase spikes. Same heuristic as ottelo's Scripter version.
-    float diff = pwr - cpwr;
-    if (diff > 500.0) {
-        cpwr = pwr - (diff / 2.0);
-    } else {
-        cpwr = pwr + (float)pwroffset;
+    //
+    // Guarded instead of `return`ed: 0.0 means "no meter data yet" and we keep
+    // serving the last cpwr, but the midnight rollover below must still run —
+    // with an early return it was skipped forever on a meter that legitimately
+    // sits at 0 W (balanced import/export), losing the daily baselines.
+    float pwr = smlGet(1);
+    if (pwr != 0.0) {
+        float diff = pwr - cpwr;
+        if (diff > 500.0) {
+            cpwr = pwr - (diff / 2.0);
+        } else {
+            cpwr = pwr;
+        }
+        // Offset applies in BOTH branches — previously it was only added in
+        // the else branch, so the zero-feed-in trim silently stopped working
+        // during exactly the load steps (>500 W) it matters most for.
+        cpwr = cpwr + (float)pwroffset;
     }
 
     // Midnight rollover — needs a valid wall clock, so keep this NTP-gated.

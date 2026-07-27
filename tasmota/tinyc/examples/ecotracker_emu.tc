@@ -1,0 +1,181 @@
+// ============================================================================
+// ecotracker_emu.tc — minimaler EcoTracker-Emulator zum EINBINDEN
+// ============================================================================
+//
+// Kein eigenstaendiges Programm, sondern ein Baustein:
+//
+//     #include "ecotracker_emu.tc"
+//
+// Damit kann ein bestehendes Skript (z. B. sml_chart_pv.tc) zusaetzlich als
+// everHome EcoTracker auftreten, ohne dass ein zweiter TinyC-Slot noetig ist.
+//
+// WARUM EINBINDEN UND NICHT ZWEITER SLOT:
+//   webOn() registriert die URL slot-unabhaengig, ABER der HTTP-Handler ruft
+//   fest `Tinyc->slots[0]` auf (xdrv_124_tinyc.ino, "Custom web handlers
+//   (webOn) -- uses slot 0"). Ein Emu in Slot 1 neben dem Chart in Slot 0
+//   wuerde also nie aufgerufen. Der Emu MUSS im selben Slot leben wie das
+//   Hauptskript — daher dieser Include-Baustein.
+//
+// ── EINBAU in sml_chart_pv.tc: drei Zeilen ─────────────────────────────────
+//
+//   1) unter das vorhandene #include:
+//        #include "ecotracker_emu.tc"
+//
+//   2) als ERSTE Zeile in EverySecond() — vor den Guards:
+//        eco_tick();
+//      WICHTIG: wirklich ganz oben. sml_chart_pv.tc steigt bei
+//        if (tasm_year < 2020) return;    // kein NTP
+//        if (smlGet(2) == 0.0) return;    // kein Zaehlerwert
+//      frueh aus. Stuende eco_tick() darunter, wuerde mDNS ohne Internet
+//      oder vor dem ersten Zaehlerwert nie registriert — genau der Fehler
+//      "der Akku findet den EcoTracker nicht mal". Die Batterie muss den
+//      Zaehler finden KOENNEN, bevor Daten fliessen; 0 W ist ein gueltiger
+//      Messwert.
+//
+//   3) in main(), vor dem return:
+//        eco_setup();
+//
+//   Optional in WebUI():   eco_render_settings();   // Offset-Eingabefeld
+//   Optional in WebCall(): eco_render_status();     // Zeile auf der Hauptseite
+//
+// ── Voraussetzungen ────────────────────────────────────────────────────────
+//   smlGet(1) = aktuelle Leistung [W]   (positiv = Bezug, negativ = Einspeisung)
+//   smlGet(2) = Energie Bezug     [kWh]
+//   smlGet(3) = Energie Einspeisung [kWh]
+//   Das ist die Belegung der sml_chart_*-Skripte; passt sie nicht, ECO_SML_PWR
+//   / ECO_SML_IN / ECO_SML_OUT vor dem #include umdefinieren.
+// ============================================================================
+
+#ifndef ECOTRACKER_EMU_TC
+#define ECOTRACKER_EMU_TC
+
+// ── Konfiguration (vor dem #include ueberschreibbar) ───────────────────────
+#ifndef ECO_HANDLER
+#define ECO_HANDLER 1          // webOn-Handlernummer (1..7, muss frei sein)
+#endif
+#ifndef ECO_SML_PWR
+#define ECO_SML_PWR 1
+#endif
+#ifndef ECO_SML_IN
+#define ECO_SML_IN  2
+#endif
+#ifndef ECO_SML_OUT
+#define ECO_SML_OUT 3
+#endif
+
+// ── Zustand ────────────────────────────────────────────────────────────────
+persist int eco_offset;        // Offset [W] fuer Nulleinspeisungs-Feinjustage
+int   eco_once;                // mDNS einmalig registriert
+int   eco_polls;               // Anzahl beantworteter Abfragen (Diagnose)
+float eco_pwr;                 // ausgelieferte Leistung (leicht geglaettet)
+float eco_avg;                 // stark geglaettet -> powerAvg
+char  eco_hdr[128];            // HTTP-Header
+char  eco_json[288];           // HTTP-Body
+char  eco_sbuf[96];            // Scratch fuer die optionalen Renderer
+
+// ── JSON-Body bauen ────────────────────────────────────────────────────────
+// Feldnamen und Wh-Konvention wie beim echten EcoTracker. Die drei
+// Phasen-Felder liefern wir bewusst mit — Jackery/NOAH lesen sie teils aus,
+// ein einphasiger Zaehler legt alles auf Phase 1.
+void eco_build() {
+    float ein  = smlGet(ECO_SML_IN)  * 1000.0;   // kWh -> Wh
+    float eout = smlGet(ECO_SML_OUT) * 1000.0;
+    sprintf(eco_json,
+        "{\"power\":%.0f,\"powerAvg\":%.0f,\"agePower\":1000,\"powerPhase1\":%.0f,\"powerPhase2\":0,\"powerPhase3\":0,\"energyCounterIn\":%.0f,\"energyCounterOut\":%.0f}",
+        eco_pwr, eco_avg, eco_pwr, ein, eout);
+}
+
+// ── Antwort roh auf den Socket schreiben ───────────────────────────────────
+// Genau die drei Header, die ein echter EcoTracker sendet (kein Server, kein
+// Date, kein Connection) — Tasmotas chunked-text/html-Wrapper wird per
+// webRawMode() unterdrueckt. webKeepAlive() haelt den Socket offen; ohne
+// USE_HTTP_KEEPALIVE in der Firmware ist der Aufruf ein No-op, schadet also
+// nicht. Jackery Homepower 2000 Ultra bricht ohne offenen Socket ab.
+void eco_serve() {
+    webRawMode();
+    eco_build();
+    int blen = strlen(eco_json);
+    sprintf(eco_hdr,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n",
+        blen);
+    webRawWrite(eco_hdr);
+    webRawWrite(eco_json);
+    webKeepAlive();
+    eco_polls = eco_polls + 1;
+}
+
+// ── Sekundentakt ───────────────────────────────────────────────────────────
+// Aus EverySecond() aufrufen, und zwar VOR allen Guards des Hauptskripts.
+void eco_tick() {
+    // mDNS genau EINMAL versuchen, sobald WLAN steht. Der Rueckgabewert wird
+    // absichtlich ignoriert: mdnsRegister() meldet -1, wenn MDNS.begin()
+    // fehlschlaegt (z. B. weil Tasmotas eigenes USE_DISCOVERY den Responder
+    // schon haelt) — ein Retry jede Sekunde ruft dann dauerhaft einen
+    // blockierenden Netzwerkstack-Aufruf im Sekundentakt auf und laesst die
+    // VM als "busy" erscheinen, worauf webOn-Anfragen die Seite
+    // "TinyC busy - reloading in 1 s ..." bekommen. Genau daran krankt das
+    // alte ecotracker.tc.
+    if (eco_once == 0) {
+        if (tasm_wifi == 0) return;
+        mdnsRegister("ecotracker-", "-", "everhome");
+        eco_once = 1;
+        addLog("EcoTracker-Emu: mDNS registriert, Endpunkt /v1/json");
+    }
+
+    // Leistung glaetten. Zwei Zeitkonstanten: eco_pwr regelt die Batterie
+    // (schnell genug zum Nachfuehren), eco_avg ist der traege Mittelwert.
+    float pwr = smlGet(ECO_SML_PWR) + (float)eco_offset;
+    eco_pwr = 0.7 * eco_pwr + 0.3 * pwr;
+    eco_avg = 0.95 * eco_avg + 0.05 * pwr;
+}
+
+// ── Endpunkt registrieren; aus main() aufrufen ─────────────────────────────
+void eco_setup() {
+    eco_once = 0;
+    eco_polls = 0;
+    webOn(ECO_HANDLER, "/v1/json");
+    addLog("EcoTracker-Emu: bereit (Handler %d, Offset %d W)", ECO_HANDLER, eco_offset);
+}
+
+// ── Optional: Zeile fuer die Tasmota-Hauptseite (aus WebCall aufrufen) ─────
+void eco_render_status() {
+    sprintf(eco_sbuf, "{s}EcoTracker (an Akku){m}%.0f W / %d Abfragen{e}",
+            eco_pwr, eco_polls);
+    webSend(eco_sbuf);
+}
+
+// ── Optional: Offset-Eingabe (aus WebUI aufrufen) ──────────────────────────
+void eco_render_settings() {
+    webSend("<hr><b>&#x1F50C; EcoTracker-Emulation</b>");
+    webNumber(eco_offset, -200, 200, "Offset [W] Nulleinspeisung");
+    sprintf(eco_sbuf,
+        "<div style='font-size:11px;color:#777;margin:4px 0'>Endpunkt /v1/json &middot; %d Abfragen beantwortet</div>",
+        eco_polls);
+    webSend(eco_sbuf);
+}
+
+// ── HTTP-Handler ───────────────────────────────────────────────────────────
+// Hat das Hauptskript bereits ein eigenes WebOn(), dann vor dem #include
+//     #define ECO_NO_WEBON
+// setzen und eco_serve() selbst aus dem passenden webHandler()-Zweig rufen:
+//     void WebOn() {
+//         int h = webHandler();
+//         if (h == ECO_HANDLER) { eco_serve(); }
+//         else if (h == 2)      { ... eigener Endpunkt ... }
+//     }
+//
+// ⚠️ Vergisst man ECO_NO_WEBON, gibt es KEINEN Compilerfehler. Der Codegen
+//    haelt Funktionen in einer Map und ueberschreibt bei gleichem Namen —
+//    die SPAETERE Definition gewinnt, die fruehere wird stiller toter Code.
+//    Da der #include oben steht, gewinnt das WebOn des Hauptskripts und der
+//    Emulator antwortet einfach nie. Verifiziert mit dem IDE-Compiler:
+//    beide Varianten uebersetzen fehlerfrei.
+#ifndef ECO_NO_WEBON
+void WebOn() {
+    if (webHandler() == ECO_HANDLER) {
+        eco_serve();
+    }
+}
+#endif
+
+#endif

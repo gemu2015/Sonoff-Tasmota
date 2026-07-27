@@ -382,6 +382,32 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     periodic live work in `EverySecond()` / `TaskLoop()`. (A self-contained `while(1)`
     animation in `main()` with no globals is fine — `music_fft` does it — the trap is
     specifically blocking main *and* relying on `global` vars to update.)
+14. **Putting a `webOn` REST endpoint in any slot but slot 0** — `webOn()` registers the
+    URL slot-blind (`SYS_WEB_ON` writes the global `Tinyc->web_handler_url[]`), but the
+    dispatcher `HandleTinyCWebOn()` calls **`Tinyc->slots[0]`** unconditionally. An endpoint
+    registered from slot 1 is reachable but invokes slot 0's `WebOn()` — no error, no log.
+    Two programs that both need endpoints must be merged into one file via `#include`,
+    not split across slots. Symptom decoder: *"TinyC not ready"* = slot 0 empty/errored;
+    *"TinyC busy — reloading in 1 s ..."* = slot 0 loaded but its VM stayed non-halted for
+    `TC_WEBON_HALTED_WAIT_MS` (1500 ms), i.e. a callback is hogging the VM.
+15. **Retrying `mdnsRegister()` until it returns 0** — it returns `-1` whenever
+    `MDNS.begin()` fails, which is routine when Tasmota's own `USE_DISCOVERY` already holds
+    the responder. A `if (mdnsRegister(...) == 0)` retry loop in `EverySecond` therefore
+    calls a blocking network-stack function every second forever, which keeps the VM
+    non-halted and makes every `webOn` request serve the busy page. Register **once**,
+    ignore the return value (`ecotracker_shelly_emu.tc` is the correct pattern; this was
+    the root cause of issue #100 in `ecotracker.tc`).
+16. **Assuming a duplicate function name is a compile error** — it is not. `codegen.js`
+    keeps functions in a `Map` and `.set()` overwrites, so the **later** definition wins and
+    the earlier one becomes dead code, silently. Matters most for `#include` building
+    blocks that define a callback: if the host file also defines it, the include's version
+    loses (the include sits above). Give such blocks an opt-out
+    (`#define ECO_NO_WEBON` in `ecotracker_emu.tc`).
+
+Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
+resolver, so `#include` lines are silently ignored — it cannot verify files like
+`sml_chart_pv.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`
+first, then `compile()`.
 
 ---
 
