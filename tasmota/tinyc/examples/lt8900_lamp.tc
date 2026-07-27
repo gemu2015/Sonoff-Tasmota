@@ -1,0 +1,218 @@
+// ============================================================================
+// lt8900_lamp.tc — GaoMei GM2.4G Deckenlampe fernsteuern (LT8900/LT8910)
+// ============================================================================
+//
+// ⚠️ UNGETESTET. Vollständig aus dem SPI-Mitschnitt der Original-Fernbedienung
+//    (~/Desktop/gm24g.sr, 2026-05-27) abgeleitet, aber mangels LT8900-Modul nie
+//    gegen echte Hardware gefahren. Erster Lauf = erster Test.
+//
+// VORGESCHICHTE: Frühere Versuche mit einem A7105 (XL7105-SY-B) scheiterten —
+// siehe a7105_gm24g.tc. Grund war nicht ein exotischer Klon mit proprietärer
+// Präambel, sondern schlicht der falsche Chip: Die Fernbedienung fährt einen
+// LT8900. Erkennungsmerkmal ohne jede Beschriftung: 21 Init-Register stimmen
+// Byte für Byte mit der LT8900-Bibliothek (github.com/MINI-Qiang/LT8910)
+// überein, und LT8900 hat 16-Bit-Register (Adresse + 2 Datenbytes), während
+// der A7105 8-Bit-Register bis 0x32 hat.
+//
+// ── PROTOKOLL (aus dem Mitschnitt, 810/810 Rahmen bestätigt) ───────────────
+//
+//   Paket im FIFO (Register 50 = 0x32), Längenbyte voran (PACK_LEN_ENABLE):
+//
+//     07  5A 4B 07 01  CC  VV  SUM
+//     │   └ Geräte-ID  └ Gr. │   └ SUM = (0x07+0x5A+0x4B+0x07+0x01+CC+VV) & 0xFF
+//     └ Länge = 7 Folgebytes  └ CC = Kommando, VV = Wert
+//
+//   Der konstante Teil summiert sich zu 0xB4, daher SUM = (0xB4+CC+VV) & 0xFF.
+//
+//   Beobachtete Rahmen (neun Tastendrücke): CC=0x09 mit VV=0x01, danach
+//   CC=0x19 mit VV=0x02..0x09. Welche Taste welchen Rahmen erzeugt, ist NICHT
+//   bekannt — der Mitschnitt sagt nur, dass neunmal gedrückt wurde. Das
+//   Hochzählen von VV sieht nach Helligkeit oder Farbtemperatur aus.
+//
+//   Sendeablauf je Rahmen, exakt wie die Fernbedienung:
+//     Reg 0x07 <- 0x0000          Leerlauf (TX aus)
+//     Reg 0x34 <- 0x8080          FIFO-Zeiger zurücksetzen
+//     Reg 0x32 <- 8 Byte Paket    ins FIFO
+//     Reg 0x07 <- 0x0100 | kanal  Bit 8 = TX-Enable -> senden
+//
+//   FHSS: Kanäle 4 / 39 / 74 (2406 / 2441 / 2476 MHz) reihum, 1,135 ms
+//   Abstand, 90 Sendungen pro Tastendruck (30 je Kanal).
+//
+// ── SYNCWORD, WICHTIG ──────────────────────────────────────────────────────
+//   Die Fernbedienung beschreibt NUR Reg 36 (0x151A) und Reg 39 (0x55AA);
+//   Reg 37 und 38 bleiben auf Reset-Vorgabe. Wir machen es GENAUSO und fassen
+//   37/38 nicht an — dann stimmt das Syncword automatisch überein, ohne dass
+//   wir die Vorgabewerte kennen müssen.
+//
+// ── VERDRAHTUNG (LT8900-Modul, echtes 4-Draht-SPI) ─────────────────────────
+//   SCK  -> Tasmota SPI CLK      MISO -> SPI MISO
+//   MOSI -> SPI MOSI             CS   -> CS_PIN unten
+//   VCC  -> 3V3 (NICHT 5V)       GND  -> GND
+//
+// ── BEFEHLE ────────────────────────────────────────────────────────────────
+//   LAMP TEST        -> Register zurücklesen, prüft Verdrahtung
+//   LAMP SEND c v    -> einen Rahmen senden (c und v dezimal)
+//   LAMP STEP n      -> die aufgezeichneten Rahmen: n=1 -> CC=09/VV=01,
+//                       n=2..9 -> CC=19/VV=n
+// ============================================================================
+
+#define CS_PIN   3
+#define SLOT     2
+
+#define R_CHANNEL   0x07
+#define R_SYNC1     0x24
+#define R_SYNC4     0x27
+#define R_PKTCFG    0x29
+#define R_FIFO      0x32
+#define R_FIFOCTRL  0x34
+
+#define TX_ENABLE   0x0100
+#define REPEATS     30       // je Kanal -> 90 Sendungen wie das Original
+
+char spi[12];
+char rsp[160];
+int  ch_list[3];
+int  pend_cmd;               // 0 = nichts zu senden
+int  pend_val;
+int  sent_total;
+
+// ── SPI: LT8900 hat 16-Bit-Register ───────────────────────────────────────
+void lt_write(int addr, int val) {
+    spi[0] = addr & 0x7F;
+    spi[1] = (val >> 8) & 0xFF;
+    spi[2] = val & 0xFF;
+    spiTransfer(SLOT, spi, 3, 1);
+}
+
+int lt_read(int addr) {
+    spi[0] = 0x80 | (addr & 0x7F);
+    spi[1] = 0;
+    spi[2] = 0;
+    spiTransfer(SLOT, spi, 3, 1);
+    return ((spi[1] & 0xFF) << 8) | (spi[2] & 0xFF);
+}
+
+// ── Init: exakt die Reihenfolge der Fernbedienung ─────────────────────────
+// Reg 37/38 bewusst ausgelassen (siehe Kopf).
+void lt_init() {
+    lt_write(0x00, 0x6FE0);  lt_write(0x01, 0x5681);
+    lt_write(0x02, 0x6617);  lt_write(0x04, 0x9CC9);
+    lt_write(0x05, 0x6637);  lt_write(0x07, 0x004C);
+    lt_write(0x08, 0x6C90);  lt_write(0x09, 0x4800);
+    lt_write(0x0A, 0x7FFD);  lt_write(0x0B, 0x0008);
+    lt_write(0x0C, 0x0000);  lt_write(0x0D, 0x48BD);
+    lt_write(0x16, 0x00FF);  lt_write(0x17, 0x8005);
+    lt_write(0x18, 0x0067);  lt_write(0x19, 0x1659);
+    lt_write(0x1A, 0x19E0);  lt_write(0x1B, 0x1300);
+    lt_write(0x1C, 0x1800);  lt_write(0x20, 0x4800);
+    lt_write(0x21, 0x3FC7);  lt_write(0x22, 0x2000);
+    lt_write(0x23, 0x0300);
+    lt_write(R_SYNC1, 0x151A);
+    lt_write(R_SYNC4, 0x55AA);
+    lt_write(0x28, 0x4402);
+    lt_write(R_PKTCFG, 0xB000);   // CRC an, SCRAMBLE AUS, Längenbyte an
+    lt_write(0x2A, 0xFDB0);  lt_write(0x2B, 0x000F);
+    lt_write(R_CHANNEL, 0x0000);
+    lt_write(0x23, 0x4300);       // die Fernbedienung ändert 0x23 nachträglich
+}
+
+// ── einen Rahmen auf einem Kanal senden ───────────────────────────────────
+void send_one(int cmd, int val, int chan) {
+    int sum = (0xB4 + cmd + val) & 0xFF;
+    lt_write(R_CHANNEL, 0x0000);      // Leerlauf
+    lt_write(R_FIFOCTRL, 0x8080);     // FIFO-Zeiger zurücksetzen
+    spi[0] = R_FIFO;
+    spi[1] = 0x07;                    // Länge
+    spi[2] = 0x5A;  spi[3] = 0x4B;    // Geräte-ID
+    spi[4] = 0x07;  spi[5] = 0x01;
+    spi[6] = cmd & 0xFF;
+    spi[7] = val & 0xFF;
+    spi[8] = sum;
+    spiTransfer(SLOT, spi, 9, 1);
+    lt_write(R_CHANNEL, TX_ENABLE | (chan & 0x7F));
+    sent_total = sent_total + 1;
+}
+
+// ── TaskLoop sendet, damit delay() erlaubt ist ────────────────────────────
+// 90 Rahmen a ~1,1 ms blockieren rund 100 ms — in einem Tick-Callback wäre
+// das falsch, im eigenen Task ist es richtig.
+void TaskLoop() {
+    if (pend_cmd == 0) {
+        delay(20);
+        return;
+    }
+    int c = pend_cmd;
+    int v = pend_val;
+    pend_cmd = 0;
+    int i = 0;
+    while (i < REPEATS) {
+        int k = 0;
+        while (k < 3) {
+            send_one(c, v, ch_list[k]);
+            delay(1);
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    addLog("lt8900: CC=0x%02X VV=0x%02X gesendet (%d Rahmen)", c, v, REPEATS * 3);
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "TEST") == 0) {
+        int r0 = lt_read(0x00);
+        int r41 = lt_read(R_PKTCFG);
+        int rs1 = lt_read(R_SYNC1);
+        int rs4 = lt_read(R_SYNC4);
+        sprintf(rsp, "Reg0=%04X (soll 6FE0) PktCfg=%04X (soll B000) Sync1=%04X (soll 151A) Sync4=%04X (soll 55AA)", r0, r41, rs1, rs4);
+        responseCmnd(rsp);
+        return;
+    }
+    // Argumente über strToken zerlegen — TinyC hat kein strncmp und keine
+    // Zeigerarithmetik auf char[]; strToken ist 1-basiert.
+    if (strStartsWith(cmd, "SEND")) {
+        char a1[16];
+        char a2[16];
+        strToken(a1, cmd, ' ', 2);
+        strToken(a2, cmd, ' ', 3);
+        int c = strToInt(a1);
+        int v = strToInt(a2);
+        pend_cmd = c;
+        pend_val = v;
+        sprintf(rsp, "eingereiht: CC=0x%02X VV=0x%02X", c, v);
+        responseCmnd(rsp);
+        return;
+    }
+    if (strStartsWith(cmd, "STEP")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int n = strToInt(a1);
+        if (n < 1) { n = 1; }
+        if (n > 9) { n = 9; }
+        if (n == 1) { pend_cmd = 0x09; pend_val = 0x01; }
+        else        { pend_cmd = 0x19; pend_val = n;    }
+        sprintf(rsp, "eingereiht: Schritt %d -> CC=0x%02X VV=0x%02X",
+                n, pend_cmd, pend_val);
+        responseCmnd(rsp);
+        return;
+    }
+    sprintf(rsp, "Befehle: TEST | SEND <cc> <vv> | STEP 1..9   (gesendet: %d)",
+            sent_total);
+    responseCmnd(rsp);
+}
+
+int main() {
+    ch_list[0] = 4;
+    ch_list[1] = 39;
+    ch_list[2] = 74;
+    pend_cmd = 0;
+    sent_total = 0;
+
+    spiInit(-1, -1, -1, 1);
+    spiSetCS(SLOT, CS_PIN);
+    delay(50);
+    lt_init();
+
+    addCommand("LAMP");
+    addLog("lt8900_lamp: bereit, Reg0=0x%04X (erwartet 0x6FE0)", lt_read(0x00));
+    return 0;
+}

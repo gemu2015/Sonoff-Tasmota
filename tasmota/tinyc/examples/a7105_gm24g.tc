@@ -16,34 +16,73 @@
 // useful as a starting point for any A7105 receive/transmit project.
 //
 // ============================================================================
-// GM2.4G CEILING LAMP — REVERSE-ENGINEERING NOTES (failed crack, for posterity)
+// GM2.4G CEILING LAMP — SOLVED 2026-07-27. THE CHIP IS NOT AN A7105.
 // ============================================================================
 //
-// RF layer (from HackRF SDR capture, /tmp/lamp_capture2.iq):
-//   - 100 kbps GFSK, ±50 kHz deviation
-//   - FHSS over A7105 channels 61..66 (2461..2466 MHz, 1 MHz grid)
-//   - Hop dwell 200..500 µs
-//   - Burst 4..11 ms during button press
+// This file's A7105 receiver could NEVER have worked on that lamp, and the
+// old explanation here ("A7105 clone with proprietary preamble/whitening")
+// was wrong. The remote runs an **LT8900/LT8910**. Everything below is
+// re-derived from the same capture that was already on disk
+// (~/Desktop/gm24g.sr) — no new measurement was needed.
 //
-// SPI sniff of the original remote (sigrok, /Users/.../gm24g.sr):
-//   - 12 MHz crystal, 16-pin SSOP radio (matches A7105 pinout)
-//   - Writes to reg 0x06 (IDDATA): `06 00 00` then `06 A4 5E`
-//   - Per datasheet §10.6.1 the IDDATA pointer resets at CS-high, so the
-//     captured ID is most likely `A4 5E XX XX` where XX XX are chip default
-//     (or `00 00 A4 5E` if pointer is preserved across CS, alternative interp)
-//   - DATA_RATE, PLL II/V, TX_I/II, CODE_I/II all captured
+// See examples/lt8900_lamp.tc for the working transmitter template.
 //
-// The wall we hit: even with maximum-permissive matcher (wildcard ID 0xAA*4 +
-// ETH=110 + PMDO preamble-only mode), our chip detected ZERO preamble pulses
-// across all 128 channels during continuous button-press. The HackRF clearly
-// saw the lamp transmitting, so RF reaches us — the chip rejects at the very
-// first stage (preamble detection). Most likely the lamp's transmitter is an
-// A7105 *clone* (A7106, A7129, or no-name Chinese variant) with a proprietary
-// preamble pattern or whitening seed that breaks standard A7105 preamble lock.
+// ── WHAT THE OLD ANALYSIS GOT WRONG ────────────────────────────────────────
 //
-// To proceed would require opening the LAMP itself (not the remote) and
-// reading its receiver chip's config — that's the exact config our receiver
-// would need to mirror. Parked here.
+// The SPI capture was decoded on the RISING SCK edge. Correct is the FALLING
+// edge. Every byte was therefore shifted by exactly one bit, which produced:
+//   * register addresses with a phantom bit 7 (81 82 83 85 8B 8C 8D) that
+//     looked like A7105 strobe commands but were plain writes underneath
+//   * the "ID = A4 5E" in reg 0x06 — that value never existed
+// Lesson: if decoded register addresses carry a stray high bit but ascend
+// cleanly once you mask it off, change the sampling edge before concluding
+// the protocol is exotic.
+//
+// The HackRF reading was also off: the lamp does NOT hop 61..66. See below.
+//
+// ── HOW THE CHIP WAS IDENTIFIED WITHOUT ANY MARKING ────────────────────────
+//
+// The part is sanded blank, so the init sequence was used as the fingerprint:
+// 21 of the remote's init registers match `begin()` in the LT8900 Arduino
+// library (github.com/MINI-Qiang/LT8910) byte for byte, zero deviations —
+// 0x00=6FE0, 0x01=5681, 0x02=6617, 0x04=9CC9, 0x05=6637, 0x08=6C90,
+// 0x0A=7FFD, 0x0D=48BD, 0x16=00FF, 0x17=8005, 0x18=0067, 0x19=1659,
+// 0x1A=19E0, 0x1B=1300, 0x1C=1800, 0x21=3FC7, 0x22=2000, 0x2A=FDB0,
+// 0x2B=000F, 0x34=8080, 0x0C=0000.
+//
+// That also explains the shape of the traffic: the LT8900 has 16-BIT
+// registers (hence addr + 2 data bytes per transaction, which no A7105 does),
+// its FIFO is register 50 = 0x32 (hence the 0x32 command byte on payload
+// writes), and PACK_LEN_ENABLE puts a length byte first in the FIFO.
+//
+// ── PROTOCOL ───────────────────────────────────────────────────────────────
+//
+//   FIFO packet:  07  5A 4B 07 01  CC  VV  SUM
+//                 │   └ device ID  └ grp │   └ SUM = sum of the 7 bytes & 0xFF
+//                 └ length = 7 following bytes
+//   Constant part sums to 0xB4, so SUM = (0xB4 + CC + VV) & 0xFF.
+//   Verified against ALL 810 captured frames — 810/810 correct.
+//
+//   Per-frame TX sequence:
+//     reg 0x07 <- 0x0000           idle
+//     reg 0x34 <- 0x8080           reset FIFO pointer
+//     reg 0x32 <- 8 payload bytes
+//     reg 0x07 <- 0x0100 | chan    bit 8 = TX enable
+//
+//   FHSS: channels 4 / 39 / 74 (2406 / 2441 / 2476 MHz), round-robin,
+//   1.135 ms apart, 90 transmissions per button press (30 per channel).
+//
+//   Packet config reg 0x29 = 0xB000 = CRC_ON | PACK_LEN_ENABLE | FW_TERM_TX.
+//   SCRAMBLE is OFF — there is no whitening to reverse.
+//
+//   Sync word: the remote writes ONLY reg 36 (0x151A) and reg 39 (0x55AA);
+//   regs 37/38 stay at reset default. Mirror that exactly and the sync word
+//   matches without needing to know the defaults.
+//
+// ── STILL OPEN ─────────────────────────────────────────────────────────────
+//   * Which physical button maps to which CC/VV. The capture only shows nine
+//     presses: CC=0x09 with VV=0x01, then CC=0x19 with VV=0x02..0x09.
+//   * Nothing has been verified on air — no LT8900 module on hand yet.
 //
 // ============================================================================
 // USAGE

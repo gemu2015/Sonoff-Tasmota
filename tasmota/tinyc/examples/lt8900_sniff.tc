@@ -1,0 +1,284 @@
+// ============================================================================
+// lt8900_sniff.tc — GM2.4G-Deckenlampe mit einem nRF24L01 MITHÖREN
+// ============================================================================
+//
+// Zweck: die aus dem SPI-Mitschnitt abgeleiteten Annahmen gegen die echte
+// Funkstrecke prüfen, BEVOR wir selbst senden. Die Fernbedienung funktioniert
+// ja noch — wir haben also einen unbestechlichen Testfall: Wir wissen bereits,
+// was im Paket stehen MUSS (siehe a7105_gm24g.tc):
+//
+//     07  5A 4B 07 01  CC  VV  SUM      SUM = (0xB4 + CC + VV) & 0xFF
+//
+// Taucht genau das auf, stimmt alles. Taucht es nicht auf, stimmt etwas nicht —
+// und wir sehen an den Rohbits, was.
+//
+// ── WARUM DAS MIT EINEM nRF24 GEHT ─────────────────────────────────────────
+// Der Sender ist ein LT8900 (kein A7105!). Das DIY-Multiprotocol-Projekt zeigt,
+// dass sich ein LT8900 mit einem nRF24L01 nachbilden lässt: Beide senden GFSK
+// mit 1 Mbit/s; man legt Präambel + Syncword des LT8900 in das ADRESSFELD des
+// nRF24, weil der Chip darauf matched, schaltet dessen CRC ab und dreht die
+// Bitreihenfolge der Nutzlast um.
+//   Quelle: DIY-Multiprotocol-TX-Module/Multiprotocol/NRF24l01_SPI.ino
+//
+// WICHTIG — Frequenzversatz: nRF24 sendet auf 2400+Kanal, LT8900 auf
+// 2402+Kanal. Die Lampenkanäle 4/39/74 sind also nRF24-Kanäle 6/41/76.
+//
+// ── STRATEGIE: ROHMITSCHNITT STATT RATEN ───────────────────────────────────
+// Unbekannt sind noch die genaue Syncword-Länge und die Präambellänge (Reg 32
+// der Lampe ist 0x4800, die Bibliothek nutzt 0x5000 — das Feld unterscheidet
+// sich). Statt Kandidaten durchzuprobieren, matchen wir NUR auf die Präambel
+// (0x55/0xAA, die kennen wir sicher) und lassen alles danach als Nutzlast
+// durchlaufen. Das komplette Syncword steht dann mit im Mitschnitt und wird
+// abgelesen statt geraten.
+//
+// ── VERDRAHTUNG (.177, ESP32-Bridge) ───────────────────────────────────────
+//   Tasmota-UI belegt bereits:  9 = MOSI, 10 = SCLK, 11 = MISO
+//   Hier gesetzt:               7 = CSN des nRF24L01
+//   Hier gesetzt:               8 = CE des nRF24L01
+//   (CE dauerhaft high waere zum Mithoeren auch ok, aber mit GPIO flexibler)
+//   ⚠️ 10–100 µF Elko direkt am Modul zwischen VCC und GND, sonst bricht die
+//      Versorgung ein und das Modul verhält sich sporadisch.
+//   ⚠️ Der CC1101 (CS 13) hängt am selben Bus; sein CS wird hier nicht
+//      angefasst und bleibt damit inaktiv.
+//
+// ── BEFEHLE ────────────────────────────────────────────────────────────────
+//   SNIF TEST   -> Register zurücklesen (prüft Verdrahtung)
+//   SNIF GO     -> mithören, Kanäle 6/41/76 reihum
+//   SNIF CH n   -> nur nRF24-Kanal n
+//   SNIF RAW    -> auch Pakete ohne Treffer ausgeben (viel Rauschen)
+//   SNIF OFF    -> Stopp
+// ============================================================================
+
+#define CSN_PIN   7
+#define CE_PIN    8          // CE verlötet auf GPIO 8 (-1 waere: fest auf 3V3)
+#define SLOT      1
+
+// nRF24L01 Befehle / Register
+#define N_R_REG    0x00
+#define N_W_REG    0x20
+#define N_R_RX     0x61
+#define N_FLUSH_RX 0xE2
+#define N_NOP      0xFF
+#define N_CONFIG   0x00
+#define N_EN_AA    0x01
+#define N_EN_RX    0x02
+#define N_AW       0x03
+#define N_RF_CH    0x05
+#define N_RF_SET   0x06
+#define N_STATUS   0x07
+#define N_RXADDR0  0x0A
+#define N_RXPW0    0x11
+#define N_FIFO     0x17
+
+char spi[40];
+char line[220];
+char hexb[100];
+int  ch_list[3];
+int  active;
+int  cur;
+int  show_raw;
+int  n_pkt;
+int  n_hit;
+int  pat_cur;   // Praeambelmuster: 0x55 oder 0xAA — beide werden durchprobiert
+
+// ── nRF24-Grundfunktionen ─────────────────────────────────────────────────
+void nrf_wr(int reg, int val) {
+    spi[0] = N_W_REG | (reg & 0x1F);
+    spi[1] = val & 0xFF;
+    spiTransfer(SLOT, spi, 2, 1);
+}
+
+int nrf_rd(int reg) {
+    spi[0] = N_R_REG | (reg & 0x1F);
+    spi[1] = 0;
+    spiTransfer(SLOT, spi, 2, 1);
+    return spi[1] & 0xFF;
+}
+
+void nrf_cmd(int c) {
+    spi[0] = c & 0xFF;
+    spiTransfer(SLOT, spi, 1, 1);
+}
+
+// Bits eines Bytes spiegeln — LT8900 sendet in umgekehrter Bitfolge zum nRF24
+int bitrev(int b) {
+    int r = 0;
+    int i = 0;
+    while (i < 8) {
+        r = (r << 1) | ((b >> i) & 1);
+        i = i + 1;
+    }
+    return r & 0xFF;
+}
+
+// ── Empfänger aufsetzen: nur auf die Präambel matchen ─────────────────────
+// Adresse = 5x 0x55. Die Präambel des LT8900 ist eine Folge von 0x55 (bzw.
+// 0xAA, je nach erstem Syncword-Bit) — wir matchen darauf und lassen alles
+// Weitere als Nutzlast durchlaufen.
+void nrf_setup(int chan, int pat) {
+    // CE runter, solange umkonfiguriert wird — RF_CH im laufenden Empfang zu
+    // aendern ist laut Datenblatt nicht zulaessig.
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+    nrf_wr(N_CONFIG, 0x00);          // Power down zum Umkonfigurieren
+    nrf_wr(N_EN_AA, 0x00);           // kein Auto-Ack
+    nrf_wr(N_EN_RX, 0x01);           // nur Pipe 0
+    nrf_wr(N_AW, 0x03);              // 5 Byte Adresse
+    nrf_wr(N_RF_CH, chan & 0x7F);
+    nrf_wr(N_RF_SET, 0x0E);          // 1 Mbit/s, 0 dBm  (LT8900-Vorgabe)
+    nrf_wr(N_RXPW0, 32);             // feste Nutzlastlänge 32
+    spi[0] = N_W_REG | N_RXADDR0;
+    spi[1] = pat;  spi[2] = pat;  spi[3] = pat;  spi[4] = pat;  spi[5] = pat;
+    spiTransfer(SLOT, spi, 6, 1);
+    nrf_cmd(N_FLUSH_RX);
+    nrf_wr(N_STATUS, 0x70);          // Statusflags löschen
+    nrf_wr(N_CONFIG, 0x03);          // PWR_UP | PRIM_RX, CRC AUS
+    delay(2);                        // Einschwingen (Tpd2stby)
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 1); }   // jetzt empfangen
+}
+
+// ── ein empfangenes Paket auswerten ───────────────────────────────────────
+// Sucht die bekannte Signatur 5A 4B 07 01 in den bitgespiegelten Daten und
+// prüft die Summenprüfsumme.
+void handle(char p[]) {
+    n_pkt = n_pkt + 1;
+    int i = 0;
+    while (i < 32) {
+        hexb[i] = bitrev(p[i] & 0xFF);
+        i = i + 1;
+    }
+    // Signatur suchen
+    int k = 0;
+    int found = -1;
+    while (k < 26) {
+        if (hexb[k] == 0x5A) {
+            if (hexb[k+1] == 0x4B) {
+                if (hexb[k+2] == 0x07) {
+                    if (hexb[k+3] == 0x01) { found = k; k = 99; }
+                }
+            }
+        }
+        k = k + 1;
+    }
+    if (found >= 0) {
+        int cc = hexb[found+4] & 0xFF;
+        int vv = hexb[found+5] & 0xFF;
+        int su = hexb[found+6] & 0xFF;
+        int soll = (0xB4 + cc + vv) & 0xFF;
+        n_hit = n_hit + 1;
+        sprintf(line, "TREFFER ch=%d pat=%02X off=%d CC=0x%02X VV=0x%02X SUM=0x%02X soll=0x%02X %s",
+                ch_list[cur], pat_cur, found, cc, vv, su, soll,
+                (su == soll) ? "OK" : "FALSCH");
+        addLog(line);
+        // Vorlauf mit ausgeben — dort steht das gesuchte Syncword
+        sprintf(line, "  Vorlauf: %02X %02X %02X %02X %02X %02X %02X %02X",
+                hexb[0] & 0xFF, hexb[1] & 0xFF, hexb[2] & 0xFF, hexb[3] & 0xFF,
+                hexb[4] & 0xFF, hexb[5] & 0xFF, hexb[6] & 0xFF, hexb[7] & 0xFF);
+        addLog(line);
+        return;
+    }
+    if (show_raw) {
+        sprintf(line, "roh ch=%d: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                ch_list[cur],
+                hexb[0] & 0xFF, hexb[1] & 0xFF, hexb[2] & 0xFF, hexb[3] & 0xFF,
+                hexb[4] & 0xFF, hexb[5] & 0xFF, hexb[6] & 0xFF, hexb[7] & 0xFF,
+                hexb[8] & 0xFF, hexb[9] & 0xFF, hexb[10] & 0xFF, hexb[11] & 0xFF);
+        addLog(line);
+    }
+}
+
+void TaskLoop() {
+    if (!active) {
+        delay(50);
+        return;
+    }
+    // Kanal wechseln und kurz lauschen. Die LT8900-Praeambel ist 0x55 ODER
+    // 0xAA, je nach erstem Syncword-Bit (siehe LT8900_BuildOverhead im
+    // Multiprotocol-Projekt) — welches, wissen wir nicht, also beide abwechselnd.
+    nrf_setup(ch_list[cur], pat_cur);
+    int t = 0;
+    while (t < 120) {                 // ~120 ms pro Kanal
+        int st = nrf_rd(N_STATUS);
+        if (st & 0x40) {              // RX_DR
+            spi[0] = N_R_RX;
+            int i = 1;
+            while (i <= 32) { spi[i] = 0; i = i + 1; }
+            spiTransfer(SLOT, spi, 33, 1);
+            char pk[34];
+            i = 0;
+            while (i < 32) { pk[i] = spi[i+1]; i = i + 1; }
+            nrf_wr(N_STATUS, 0x70);
+            nrf_cmd(N_FLUSH_RX);
+            handle(pk);
+        }
+        delay(1);
+        t = t + 1;
+    }
+    cur = cur + 1;
+    if (cur > 2) {
+        cur = 0;
+        pat_cur = (pat_cur == 0x55) ? 0xAA : 0x55;   // nach jedem Durchlauf umschalten
+    }
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "TEST") == 0) {
+        nrf_setup(6, 0x55);
+        int cfg = nrf_rd(N_CONFIG);
+        int aw = nrf_rd(N_AW);
+        int rf = nrf_rd(N_RF_SET);
+        int ch = nrf_rd(N_RF_CH);
+        sprintf(line, "CONFIG=%02X (soll 03) AW=%02X (soll 03) RF_SETUP=%02X (soll 0E) RF_CH=%d (soll 6)",
+                cfg, aw, rf, ch);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "GO") == 0) {
+        active = 1; cur = 0; n_pkt = 0; n_hit = 0;
+        responseCmnd("hoere mit auf 6/41/76 — jetzt Taste druecken");
+        return;
+    }
+    if (strcmp(cmd, "OFF") == 0) {
+        active = 0;
+        sprintf(line, "gestoppt: %d Pakete, %d Treffer", n_pkt, n_hit);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "RAW") == 0) {
+        show_raw = !show_raw;
+        responseCmnd(show_raw ? "Rohausgabe AN" : "Rohausgabe AUS");
+        return;
+    }
+    if (strStartsWith(cmd, "CH")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int n = strToInt(a1);
+        ch_list[0] = n; ch_list[1] = n; ch_list[2] = n;
+        active = 1; cur = 0;
+        sprintf(line, "nur Kanal %d", n);
+        responseCmnd(line);
+        return;
+    }
+    sprintf(line, "TEST | GO | CH n | RAW | OFF   (Pakete %d, Treffer %d)", n_pkt, n_hit);
+    responseCmnd(line);
+}
+
+int main() {
+    // Lampenkanaele 4/39/74 -> nRF24 +2
+    ch_list[0] = 6;
+    ch_list[1] = 41;
+    ch_list[2] = 76;
+    active = 0; cur = 0; show_raw = 0; n_pkt = 0; n_hit = 0; pat_cur = 0x55;
+
+    spiInit(-1, -1, -1, 4);
+    spiSetCS(SLOT, CSN_PIN);
+    if (CE_PIN >= 0) {
+        pinMode(CE_PIN, 3);          // OUTPUT (TinyC: 3, nicht 1)
+        digitalWrite(CE_PIN, 1);     // dauerhaft aktiv
+    }
+    delay(50);
+    nrf_setup(6, 0x55);
+
+    addCommand("SNIF");
+    addLog("lt8900_sniff: bereit, CONFIG=0x%02X (soll 0x03)", nrf_rd(N_CONFIG));
+    return 0;
+}
