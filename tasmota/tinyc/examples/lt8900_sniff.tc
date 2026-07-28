@@ -135,7 +135,10 @@ int  last_vv;    // Zaehler des letzten Pakets
 int  last_ms;    // millis() beim letzten gueltigen Paket
 int  cnt_ok;     // gueltige Pakete gesamt
 int  cnt_bad;    // Pakete mit falscher Pruefsumme
-int  hits[16];   // Zaehler je Befehlsnibble
+int  hits[16];
+int  tx_total;   // gesendete Rahmen
+int  tx_seq;
+int  tx_pend;    // -1 = nichts zu senden, sonst Befehlsnibble     // Zaehler VV beim Senden   // Zaehler je Befehlsnibble
 
 // Gemessene Bitfolge: Praeambel 55 55 55 55, Syncword 8A 85 5A AA,
 // dann Nutzlast E0 5A D2 E0 (= 07 5A 4B 07 bitgedreht). Die nRF24-Adresse ist
@@ -183,6 +186,69 @@ void btn_name(int nib, char out[]) {
     else if (nib == 0xE) { strcpy(out, "kalt"); }
     else if (nib == 0xF) { strcpy(out, "warm"); }
     else                 { strcpy(out, "unbekannt"); }
+}
+
+// ── SENDEN ────────────────────────────────────────────────────────────────
+// Der nRF24 schickt Praeambel + Adresse + Nutzlast. Adresse = Praeambel-Rest
+// plus Syncword (dieselbe wie beim Empfangen), die Nutzlast sind die
+// bitgedrehten Rahmenbytes plus die LT8900-CRC.
+//
+// CRC-16/CCITT, Poly 0x1021, Init 0x0000, MSB-first, ueber die LUFT-Bytes
+// (also die bitgedrehten) INKLUSIVE Laengenbyte; angehaengt als hi, lo und
+// NICHT gedreht. Aus HackRF-Messungen zurueckgerechnet und bestaetigt.
+int lt_crc(char d[], int n) {
+    int c = 0;
+    int i = 0;
+    while (i < n) {
+        c = c ^ ((d[i] & 0xFF) << 8);
+        int b = 0;
+        while (b < 8) {
+            if (c & 0x8000) { c = ((c << 1) ^ 0x1021) & 0xFFFF; }
+            else            { c = (c << 1) & 0xFFFF; }
+            b = b + 1;
+        }
+        i = i + 1;
+    }
+    return c & 0xFFFF;
+}
+
+// einen Rahmen senden: nib = Befehlsnibble, vv = Zaehler
+void tx_frame(int nib, int vv) {
+    int cc = 0x10 | (nib & 0x0F);
+    int sum = (0x07 + 0x5A + 0x4B + 0x07 + 0x00 + cc + vv) & 0xFF;
+    char air8[10];
+    air8[0] = bitrev(0x07); air8[1] = bitrev(0x5A); air8[2] = bitrev(0x4B);
+    air8[3] = bitrev(0x07); air8[4] = bitrev(0x00);
+    air8[5] = bitrev(cc);   air8[6] = bitrev(vv);   air8[7] = bitrev(sum);
+    int crc = lt_crc(air8, 8);
+
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+    nrf_wr(N_CONFIG, 0x00);
+    nrf_wr(N_EN_AA, 0x00);
+    nrf_wr(N_AW, 0x03);
+    nrf_wr(N_RF_CH, 41);
+    nrf_wr(N_RF_SET, RF_1MBIT);
+    // TX_ADDR (0x10) = dieselbe Adresse wie beim Empfangen
+    spi[0] = N_W_REG | 0x10;
+    spi[1] = 0xAA; spi[2] = 0x5A; spi[3] = 0x85; spi[4] = 0x8A; spi[5] = 0x55;
+    spiTransfer(SLOT, spi, 6, 1);
+    nrf_cmd(0xE1);                    // FLUSH_TX
+    nrf_wr(N_STATUS, 0x70);
+    nrf_wr(N_CONFIG, 0x02);           // PWR_UP, PRIM_RX=0, CRC AUS
+    delay(2);
+    // Nutzlast: 8 Luft-Bytes + CRC hi/lo
+    spi[0] = 0xA0;                    // W_TX_PAYLOAD
+    int k = 0;
+    while (k < 8) { spi[k+1] = air8[k]; k = k + 1; }
+    spi[9]  = (crc >> 8) & 0xFF;
+    spi[10] = crc & 0xFF;
+    spiTransfer(SLOT, spi, 11, 1);
+    if (CE_PIN >= 0) {
+        digitalWrite(CE_PIN, 1);
+        delay(1);
+        digitalWrite(CE_PIN, 0);
+    }
+    tx_total = tx_total + 1;
 }
 
 // ── nRF24-Grundfunktionen ─────────────────────────────────────────────────
@@ -355,6 +421,19 @@ void TaskLoop() {
         delay(50);
         return;
     }
+    if (tx_pend >= 0) {
+        int nb = tx_pend;
+        tx_pend = -1;
+        int r = 0;
+        while (r < 30) {                 // wie das Original: 30 Rahmen je Kanal
+            tx_frame(nb, tx_seq);
+            delay(3);
+            r = r + 1;
+        }
+        tx_seq = (tx_seq + 1) & 0xFF;
+        addLog("lt8900: %d Rahmen gesendet", 30);
+        return;
+    }
     if (real_mode) {
         nrf_setup_real(ch_list[cur]);
         int seen0 = n_pkt;
@@ -513,6 +592,30 @@ void Command(char cmd[]) {
             digitalWrite(csn, 1);
             responseCmnd("Dauer-SPI AUS");
         }
+        return;
+    }
+    if (strStartsWith(cmd, "TX")) {
+        // SNIFTX <nibble hex>: 4=dunkler 5=EIN 9=AUS C=heller E=kalt F=warm
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        strToUpper(a1);
+        int nib = -1;
+        if (strcmp(a1, "5") == 0)      { nib = 0x5; }
+        else if (strcmp(a1, "9") == 0) { nib = 0x9; }
+        else if (strcmp(a1, "4") == 0) { nib = 0x4; }
+        else if (strcmp(a1, "C") == 0) { nib = 0xC; }
+        else if (strcmp(a1, "E") == 0) { nib = 0xE; }
+        else if (strcmp(a1, "F") == 0) { nib = 0xF; }
+        if (nib < 0) {
+            responseCmnd("SNIFTX <nibble>: 5=EIN 9=AUS C=heller 4=dunkler F=warm E=kalt");
+            return;
+        }
+        tx_pend = nib;
+        char nm[16];
+        btn_name(nib, nm);
+        sprintf(line, "sende %s (CC=0x%02X, Zaehler 0x%02X) — 30 Rahmen",
+                nm, 0x10 | nib, tx_seq);
+        responseCmnd(line);
         return;
     }
     if (strcmp(cmd, "SWEEP") == 0) {
@@ -728,6 +831,7 @@ int main() {
     pinMode(CC_CS_PIN, 3);
     digitalWrite(CC_CS_PIN, 1);
 
+    tx_total = 0; tx_seq = 0x40; tx_pend = -1;
     last_nib = -1; last_vv = 0; last_ms = 0; cnt_ok = 0; cnt_bad = 0;
     int z = 0;
     while (z < 16) { hits[z] = 0; z = z + 1; }
