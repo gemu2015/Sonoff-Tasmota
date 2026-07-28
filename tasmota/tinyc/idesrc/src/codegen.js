@@ -3055,7 +3055,46 @@ export class CodeGenerator {
         throw new CodeGenError(`Unknown variable: '${node.name}'`, node.line);
     }
 
+    // A string-valued ternary passed as a call argument — `f(c ? "a" : "b")` —
+    // cannot be handed over as a reference: a string literal lives in the const
+    // pool, and most syscall handlers resolve their char[] arguments with
+    // tc_resolve_ref(), which deliberately returns nullptr for const-pool refs
+    // (see the comment on tc_resolve_ref in xdrv_124_tinyc_vm.h). The call then
+    // did nothing at all, silently — responseCmnd(flag ? "JA" : "NEIN") made
+    // Tasmota answer {"Command":"Error"} although the script had run fine, and
+    // the equivalent addLog line simply never appeared.
+    //
+    // Fix it in the compiler rather than in ~79 firmware handlers: emit the
+    // WHOLE call twice, once per branch, each with a plain literal argument.
+    // That reuses the existing literal paths (including the _STR fast variants),
+    // works on firmware already in the field, and costs only the duplicated call
+    // site. Exactly one branch ever executes, so a return value behaves normally.
+    splitStringTernaryArg(node) {
+        if (!node.args || !node.args.length) return false;
+        for (let i = 0; i < node.args.length; i++) {
+            const a = node.args[i];
+            if (!a || a.type !== NodeType.TernaryExpr) continue;
+            if (!this.isStringNode(a)) continue;
+            const withArg = (branch) => {
+                const copy = Object.assign({}, node);
+                copy.args = node.args.slice();
+                copy.args[i] = branch;
+                return copy;
+            };
+            this.compileExpr(a.condition);          // JZ pops the condition
+            const elseJ = this.emitJump(Op.JZ);
+            this.compileCallExpr(withArg(a.consequent));
+            const endJ = this.emitJump(Op.JMP);
+            this.patchJump(elseJ);
+            this.compileCallExpr(withArg(a.alternate));
+            this.patchJump(endJ);
+            return true;
+        }
+        return false;
+    }
+
     compileCallExpr(node) {
+        if (this.splitStringTernaryArg(node)) return;
         // Indirect call through a struct field: `obj.handler(args)` or
         // `arr[i].handler(args)`. The parser left node.callee = the
         // MemberAccess/MemberArrayAccess node and node.name = null.
