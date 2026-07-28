@@ -397,6 +397,21 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     non-halted and makes every `webOn` request serve the busy page. Register **once**,
     ignore the return value (`ecotracker_shelly_emu.tc` is the correct pattern; this was
     the root cause of issue #100 in `ecotracker.tc`).
+17. **Passing a string LITERAL through a `char[]` parameter into a streaming syscall**
+    (`webSend`, `responseAppend`, `mailBody`) — on firmware built before 2026-07-28 the
+    call emits **nothing at all**, silently. `tc_stream_ref()` opened with
+    `tc_resolve_ref()`, which returns `nullptr` for const-pool refs by design.
+    ```c
+    void row(char css[]) { webSend(css); }
+    row("position:absolute;left:57px;");   // → empty output, no error
+    ```
+    Tell-tale: `sprintf(buf, "%s", param)` with the *same* parameter works fine — so the
+    value is there, the streaming path drops it. Cost a debugging round on the GM2.4G lamp
+    panel, where it looked like broken CSS (every absolutely-positioned element stacked at
+    the default spot). Fixed in `tc_stream_ref()`; **needs a flash**. Until then, format
+    numbers with `sprintf` instead of handing strings down. Same root cause as the
+    string-ternary bug fixed the same day in `codegen.js` (that one is compiler-side and
+    works on shipped firmware).
 16. **Assuming a duplicate function name is a compile error** — it is not. `codegen.js`
     keeps functions in a `Map` and `.set()` overwrites, so the **later** definition wins and
     the earlier one becomes dead code, silently. Matters most for `#include` building
