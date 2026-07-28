@@ -2,9 +2,11 @@
 // lt8900_lamp.tc — GaoMei GM2.4G Deckenlampe fernsteuern (LT8900/LT8910)
 // ============================================================================
 //
-// ⚠️ UNGETESTET. Vollständig aus dem SPI-Mitschnitt der Original-Fernbedienung
-//    (~/Desktop/gm24g.sr, 2026-05-27) abgeleitet, aber mangels LT8900-Modul nie
-//    gegen echte Hardware gefahren. Erster Lauf = erster Test.
+// ⚠️ UNGETESTET auf der Sendeseite — es lag noch kein LT8900-Modul vor.
+//    Das PROTOKOLL ist dagegen vollständig verifiziert: erst aus dem SPI-Mit-
+//    schnitt der Fernbedienung (~/Desktop/gm24g.sr) abgeleitet, dann am
+//    2026-07-28 per HackRF über die Luft bestätigt und die Tastentabelle
+//    ausgemessen. Erster Lauf mit Hardware = erster Sendetest.
 //
 // VORGESCHICHTE: Frühere Versuche mit einem A7105 (XL7105-SY-B) scheiterten —
 // siehe a7105_gm24g.tc. Grund war nicht ein exotischer Klon mit proprietärer
@@ -24,10 +26,15 @@
 //
 //   Der konstante Teil summiert sich zu 0xB4, daher SUM = (0xB4+CC+VV) & 0xFF.
 //
-//   Beobachtete Rahmen (neun Tastendrücke): CC=0x09 mit VV=0x01, danach
-//   CC=0x19 mit VV=0x02..0x09. Welche Taste welchen Rahmen erzeugt, ist NICHT
-//   bekannt — der Mitschnitt sagt nur, dass neunmal gedrückt wurde. Das
-//   Hochzählen von VV sieht nach Helligkeit oder Farbtemperatur aus.
+//   TASTENTABELLE (HackRF-Messung 2026-07-28, je 100-340 Pakete pro Taste):
+//     CC = 0x10-Flag | Befehlsnibble. Das Bit 0x10 unterscheidet nur erste
+//     Betätigung von Wiederholung; das untere Nibble ist der Befehl:
+//        4 = dunkler     5 = EIN       9 = AUS
+//        C = heller      E = kalt      F = warm
+//     Die Fernbedienung hat genau diese sechs Tasten (EIN/AUS getrennt).
+//   VV ist ein Zähler, der pro Druck hochläuft und bei 0xFF überläuft.
+//   Byte 4 war bei der Luftmessung 0x00 (im SPI-Mitschnitt vom Mai 0x01);
+//   Bedeutung ungeklärt, für die Steuerung offenbar unkritisch.
 //
 //   Sendeablauf je Rahmen, exakt wie die Fernbedienung:
 //     Reg 0x07 <- 0x0000          Leerlauf (TX aus)
@@ -37,6 +44,9 @@
 //
 //   FHSS: Kanäle 4 / 39 / 74 (2406 / 2441 / 2476 MHz) reihum, 1,135 ms
 //   Abstand, 90 Sendungen pro Tastendruck (30 je Kanal).
+//   Per HackRF bestätigt: Kanal 39 liegt auf 2441.02 MHz, die LT8900-Abbildung
+//   2402+n stimmt also. Datenrate 1 Mbit/s, Burstdauer 182 us, Präambel 0x55,
+//   Syncword auf der Luft 8A 85 5A AA, Nutzlast bitgedreht.
 //
 // ── SYNCWORD, WICHTIG ──────────────────────────────────────────────────────
 //   Die Fernbedienung beschreibt NUR Reg 36 (0x151A) und Reg 39 (0x55AA);
@@ -50,10 +60,12 @@
 //   VCC  -> 3V3 (NICHT 5V)       GND  -> GND
 //
 // ── BEFEHLE ────────────────────────────────────────────────────────────────
-//   LAMP TEST        -> Register zurücklesen, prüft Verdrahtung
-//   LAMP SEND c v    -> einen Rahmen senden (c und v dezimal)
-//   LAMP STEP n      -> die aufgezeichneten Rahmen: n=1 -> CC=09/VV=01,
-//                       n=2..9 -> CC=19/VV=n
+//   Tasmota hängt Unterkommandos OHNE Leerzeichen an den Präfix an:
+//   LAMPTEST     -> Register zurücklesen, prüft Verdrahtung
+//   LAMPEIN      -> Lampe ein          LAMPAUS     -> Lampe aus
+//   LAMPHELL     -> heller             LAMPDUNKEL  -> dunkler
+//   LAMPWARM     -> wärmer             LAMPKALT    -> kälter
+//   LAMPRAW c    -> Befehlsnibble c (0..15) direkt senden
 // ============================================================================
 
 #define CS_PIN   3
@@ -69,11 +81,21 @@
 #define TX_ENABLE   0x0100
 #define REPEATS     30       // je Kanal -> 90 Sendungen wie das Original
 
+// Befehlsnibbles, per HackRF ausgemessen
+#define CMD_DUNKLER 0x4
+#define CMD_EIN     0x5
+#define CMD_AUS     0x9
+#define CMD_HELLER  0xC
+#define CMD_KALT    0xE
+#define CMD_WARM    0xF
+#define CMD_FLAG    0x10     // erste Betätigung vs. Wiederholung
+#define BYTE4       0x00     // bei der Luftmessung 0x00
+
 char spi[12];
 char rsp[160];
 int  ch_list[3];
-int  pend_cmd;               // 0 = nichts zu senden
-int  pend_val;
+int  pend_cmd;               // -1 = nichts zu senden
+int  seq;                    // Zähler VV, läuft pro Tastendruck hoch
 int  sent_total;
 
 // ── SPI: LT8900 hat 16-Bit-Register ───────────────────────────────────────
@@ -118,13 +140,14 @@ void lt_init() {
 
 // ── einen Rahmen auf einem Kanal senden ───────────────────────────────────
 void send_one(int cmd, int val, int chan) {
-    int sum = (0xB4 + cmd + val) & 0xFF;
+    // Prüfsumme = Summe der sieben Bytes: 07 + 5A + 4B + 07 + BYTE4 + cmd + val
+    int sum = (0x07 + 0x5A + 0x4B + 0x07 + BYTE4 + cmd + val) & 0xFF;
     lt_write(R_CHANNEL, 0x0000);      // Leerlauf
     lt_write(R_FIFOCTRL, 0x8080);     // FIFO-Zeiger zurücksetzen
     spi[0] = R_FIFO;
     spi[1] = 0x07;                    // Länge
     spi[2] = 0x5A;  spi[3] = 0x4B;    // Geräte-ID
-    spi[4] = 0x07;  spi[5] = 0x01;
+    spi[4] = 0x07;  spi[5] = BYTE4;
     spi[6] = cmd & 0xFF;
     spi[7] = val & 0xFF;
     spi[8] = sum;
@@ -137,13 +160,14 @@ void send_one(int cmd, int val, int chan) {
 // 90 Rahmen a ~1,1 ms blockieren rund 100 ms — in einem Tick-Callback wäre
 // das falsch, im eigenen Task ist es richtig.
 void TaskLoop() {
-    if (pend_cmd == 0) {
+    if (pend_cmd < 0) {
         delay(20);
         return;
     }
     int c = pend_cmd;
-    int v = pend_val;
-    pend_cmd = 0;
+    int v = seq;
+    pend_cmd = -1;
+    seq = (seq + 1) & 0xFF;      // Zähler wie im Original hochlaufen lassen
     int i = 0;
     while (i < REPEATS) {
         int k = 0;
@@ -157,6 +181,13 @@ void TaskLoop() {
     addLog("lt8900: CC=0x%02X VV=0x%02X gesendet (%d Rahmen)", c, v, REPEATS * 3);
 }
 
+void queue(int nibble, char name[]) {
+    // 0x10 setzen wie die Fernbedienung bei wiederholter Betaetigung
+    pend_cmd = CMD_FLAG | (nibble & 0x0F);
+    sprintf(rsp, "%s -> CC=0x%02X VV=0x%02X", name, pend_cmd, seq);
+    responseCmnd(rsp);
+}
+
 void Command(char cmd[]) {
     if (strcmp(cmd, "TEST") == 0) {
         int r0 = lt_read(0x00);
@@ -167,35 +198,19 @@ void Command(char cmd[]) {
         responseCmnd(rsp);
         return;
     }
-    // Argumente über strToken zerlegen — TinyC hat kein strncmp und keine
-    // Zeigerarithmetik auf char[]; strToken ist 1-basiert.
-    if (strStartsWith(cmd, "SEND")) {
-        char a1[16];
-        char a2[16];
-        strToken(a1, cmd, ' ', 2);
-        strToken(a2, cmd, ' ', 3);
-        int c = strToInt(a1);
-        int v = strToInt(a2);
-        pend_cmd = c;
-        pend_val = v;
-        sprintf(rsp, "eingereiht: CC=0x%02X VV=0x%02X", c, v);
-        responseCmnd(rsp);
-        return;
-    }
-    if (strStartsWith(cmd, "STEP")) {
+    if (strcmp(cmd, "EIN")    == 0) { queue(CMD_EIN,     "ein");     return; }
+    if (strcmp(cmd, "AUS")    == 0) { queue(CMD_AUS,     "aus");     return; }
+    if (strcmp(cmd, "HELL")   == 0) { queue(CMD_HELLER,  "heller");  return; }
+    if (strcmp(cmd, "DUNKEL") == 0) { queue(CMD_DUNKLER, "dunkler"); return; }
+    if (strcmp(cmd, "WARM")   == 0) { queue(CMD_WARM,    "warm");    return; }
+    if (strcmp(cmd, "KALT")   == 0) { queue(CMD_KALT,    "kalt");    return; }
+    if (strStartsWith(cmd, "RAW")) {
         char a1[16];
         strToken(a1, cmd, ' ', 2);
-        int n = strToInt(a1);
-        if (n < 1) { n = 1; }
-        if (n > 9) { n = 9; }
-        if (n == 1) { pend_cmd = 0x09; pend_val = 0x01; }
-        else        { pend_cmd = 0x19; pend_val = n;    }
-        sprintf(rsp, "eingereiht: Schritt %d -> CC=0x%02X VV=0x%02X",
-                n, pend_cmd, pend_val);
-        responseCmnd(rsp);
+        queue(strToInt(a1), "raw");
         return;
     }
-    sprintf(rsp, "Befehle: TEST | SEND <cc> <vv> | STEP 1..9   (gesendet: %d)",
+    sprintf(rsp, "EIN AUS HELL DUNKEL WARM KALT | RAW <nibble> | TEST   (gesendet: %d)",
             sent_total);
     responseCmnd(rsp);
 }
@@ -204,7 +219,8 @@ int main() {
     ch_list[0] = 4;
     ch_list[1] = 39;
     ch_list[2] = 74;
-    pend_cmd = 0;
+    pend_cmd = -1;
+    seq = 0;
     sent_total = 0;
 
     spiInit(-1, -1, -1, 1);

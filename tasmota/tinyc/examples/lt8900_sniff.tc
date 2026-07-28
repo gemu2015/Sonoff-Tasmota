@@ -23,7 +23,20 @@
 // WICHTIG — Frequenzversatz: nRF24 sendet auf 2400+Kanal, LT8900 auf
 // 2402+Kanal. Die Lampenkanäle 4/39/74 sind also nRF24-Kanäle 6/41/76.
 //
-// ── STRATEGIE: ROHMITSCHNITT STATT RATEN ───────────────────────────────────
+// ── GEMESSENE PARAMETER (HackRF, 2026-07-28) ──────────────────────────────
+// Nicht mehr geraten, sondern aus der Luft gemessen:
+//   Frequenz  2441.02 MHz  = LT8900-Kanal 39  -> Abbildung 2402+n BESTAETIGT
+//   Datenrate 1 Mbit/s
+//   Praeambel 0x55 (mehrfach)
+//   SYNCWORD AUF DER LUFT: 8A 85 5A AA
+//   Nutzlast bitgedreht (LSB zuerst), danach Laengenbyte + 6 Bytes + Summe
+//   Dekodiert: 07 5A 4B 07 00 0E DA 9B  (ID 5A 4B 07 wie im SPI-Dump vom Mai)
+//   25 von 28 Bursts mit gueltiger Pruefsumme.
+// Der nRF24 bekommt Praeambel+Syncword als ADRESSE, in umgekehrter Bytefolge:
+//   auf der Luft   55 8A 85 5A AA
+//   ins Register   AA 5A 85 8A 55
+//
+// ── STRATEGIE: ROHMITSCHNITT STATT RATEN (historisch, siehe SNIFSCAN) ──────
 // Unbekannt sind noch die genaue Syncword-Länge und die Präambellänge (Reg 32
 // der Lampe ist 0x4800, die Bibliothek nutzt 0x5000 — das Feld unterscheidet
 // sich). Statt Kandidaten durchzuprobieren, matchen wir NUR auf die Präambel
@@ -38,19 +51,42 @@
 //   (CE dauerhaft high waere zum Mithoeren auch ok, aber mit GPIO flexibler)
 //   ⚠️ 10–100 µF Elko direkt am Modul zwischen VCC und GND, sonst bricht die
 //      Versorgung ein und das Modul verhält sich sporadisch.
-//   ⚠️ Der CC1101 (CS 13) hängt am selben Bus; sein CS wird hier nicht
-//      angefasst und bleibt damit inaktiv.
+//   ⚠️ Der CC1101 (CS 13) haengt am SELBEN MISO. Sein CS muss aktiv auf HIGH
+//      gelegt werden, sonst treibt er die Leitung mit und der Bus liefert nur
+//      Muell. "Nicht anfassen" reicht NICHT — ein undefinierter Eingang ist
+//      nicht dasselbe wie abgewaehlt. (Genau daran lag es beim ersten Test:
+//      alle Register lasen 0xFF.)
 //
 // ── BEFEHLE ────────────────────────────────────────────────────────────────
-//   SNIF TEST   -> Register zurücklesen (prüft Verdrahtung)
-//   SNIF GO     -> mithören, Kanäle 6/41/76 reihum
-//   SNIF CH n   -> nur nRF24-Kanal n
-//   SNIF RAW    -> auch Pakete ohne Treffer ausgeben (viel Rauschen)
-//   SNIF OFF    -> Stopp
+//   Tasmota haengt das Unterkommando OHNE Leerzeichen an den Praefix an:
+//   SNIFTEST    -> Register zurücklesen (prüft Verdrahtung)
+//   SNIFGO      -> mithören, Kanäle 6/41/76 reihum
+//   SNIFOFF     -> Stopp, mit Zählerstand
+//   SNIFSCAN    -> zwischen gemessenen Parametern und Suchlauf umschalten
+//   SNIFRAW     -> auch Pakete ohne Treffer ausgeben
+//   SNIFCH n    -> nur ein Kanal
+//
+//   Diagnose (aus der Fehlersuche vom 2026-07-27, hat sich bewährt):
+//   SNIFCC      -> CC1101 am selben Bus auslesen. Antwortet er (VERSION=04),
+//                  sind CLK/MOSI/MISO bewiesen in Ordnung und der Fehler sitzt
+//                  beim nRF24. Bus gegen BEKANNT GUTE Hardware prüfen spart
+//                  enorm viel Raten.
+//   SNIFCCHI    -> CC1101 hart abwählen und sofort den nRF24 lesen
+//   SNIFDUMP    -> nRF24-Register 0x00..0x09 roh
+//   SNIFMAN     -> dasselbe mit CS von Hand statt über spiSetCS
+//   SNIFNOP     -> Statusbyte über NOP (lebender Chip != 0xFF)
+//   SNIFSLOW    -> Gegenprobe mit 1 MHz SPI-Takt
+//   SNIFPINS    -> schalten CSN und CE überhaupt?
+//   SNIFCS n    -> CS-Pin zur Laufzeit umstellen (isoliert Pin von Modul)
+//   SNIFSQ      -> Rechteck auf CS/CE fürs Oszilloskop (500 / 125 Hz)
+//   SNIFBUS     -> Dauer-SPI, damit SCK/MOSI/MISO messbar sind
+//   SNIFHOLD    -> CS dauerhaft low ohne Takt (trennt Übersprechen von
+//                  wirklich getriebener Leitung)
 // ============================================================================
 
 #define CSN_PIN   7
 #define CE_PIN    8          // CE verlötet auf GPIO 8 (-1 waere: fest auf 3V3)
+#define CC_CS_PIN 13         // CS des CC1101 am SELBEN Bus — muss HIGH = abgewaehlt sein
 #define SLOT      1
 
 // nRF24L01 Befehle / Register
@@ -79,7 +115,14 @@ int  cur;
 int  show_raw;
 int  n_pkt;
 int  n_hit;
-int  pat_cur;   // Praeambelmuster: 0x55 oder 0xAA — beide werden durchprobiert
+int  real_mode; // 1 = gemessene Parameter statt Suchlauf
+int  dr_cur;    // Datenrate: 0x0E=1M, 0x26=250k, 0x0F=2M — muss zum Sender passen
+int  aw_cur;    // Adressbreite 3..5 Byte — die LT8900-Praeambel ist evtl. kuerzer als 5
+int  pat_cur;   // Praeambelmuster im Suchlauf: 0x55 oder 0xAA
+int  csn;       // CS-Pin zur LAUFZEIT umstellbar (SNIFCS n) — fuer die Fehlersuche
+int  bus_mode;  // Dauerbetrieb auf dem SPI-Bus, damit SCK/MOSI/MISO am Oszi stehen
+int  sq_mode;   // Rechteck-Testsignal auf CS/CE fuer die Oszi-Messung
+int  sq_n;
 
 // ── nRF24-Grundfunktionen ─────────────────────────────────────────────────
 void nrf_wr(int reg, int val) {
@@ -115,20 +158,41 @@ int bitrev(int b) {
 // Adresse = 5x 0x55. Die Präambel des LT8900 ist eine Folge von 0x55 (bzw.
 // 0xAA, je nach erstem Syncword-Bit) — wir matchen darauf und lassen alles
 // Weitere als Nutzlast durchlaufen.
-void nrf_setup(int chan, int pat) {
+// Empfaenger auf die GEMESSENEN Parameter setzen: Adresse = Praeambel+Syncword
+void nrf_setup_real(int chan) {
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+    nrf_wr(N_CONFIG, 0x00);
+    nrf_wr(N_EN_AA, 0x00);
+    nrf_wr(N_EN_RX, 0x01);
+    nrf_wr(N_AW, 0x03);              // 5 Byte Adresse
+    nrf_wr(N_RF_CH, chan & 0x7F);
+    nrf_wr(N_RF_SET, 0x0E);          // 1 Mbit/s
+    nrf_wr(N_RXPW0, 32);
+    spi[0] = N_W_REG | N_RXADDR0;
+    spi[1] = 0xAA; spi[2] = 0x5A; spi[3] = 0x85; spi[4] = 0x8A; spi[5] = 0x55;
+    spiTransfer(SLOT, spi, 6, 1);
+    nrf_cmd(N_FLUSH_RX);
+    nrf_wr(N_STATUS, 0x70);
+    nrf_wr(N_CONFIG, 0x03);
+    delay(2);
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 1); }
+}
+
+void nrf_setup(int chan, int pat, int nb) {
     // CE runter, solange umkonfiguriert wird — RF_CH im laufenden Empfang zu
     // aendern ist laut Datenblatt nicht zulaessig.
     if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
     nrf_wr(N_CONFIG, 0x00);          // Power down zum Umkonfigurieren
     nrf_wr(N_EN_AA, 0x00);           // kein Auto-Ack
     nrf_wr(N_EN_RX, 0x01);           // nur Pipe 0
-    nrf_wr(N_AW, 0x03);              // 5 Byte Adresse
+    nrf_wr(N_AW, (nb - 2) & 0x03);   // nb Byte Adresse (3..5)
     nrf_wr(N_RF_CH, chan & 0x7F);
-    nrf_wr(N_RF_SET, 0x0E);          // 1 Mbit/s, 0 dBm  (LT8900-Vorgabe)
+    nrf_wr(N_RF_SET, dr_cur);        // Datenrate aus dem Sweep
     nrf_wr(N_RXPW0, 32);             // feste Nutzlastlänge 32
     spi[0] = N_W_REG | N_RXADDR0;
-    spi[1] = pat;  spi[2] = pat;  spi[3] = pat;  spi[4] = pat;  spi[5] = pat;
-    spiTransfer(SLOT, spi, 6, 1);
+    int z = 1;
+    while (z <= nb) { spi[z] = pat; z = z + 1; }
+    spiTransfer(SLOT, spi, nb + 1, 1);
     nrf_cmd(N_FLUSH_RX);
     nrf_wr(N_STATUS, 0x70);          // Statusflags löschen
     nrf_wr(N_CONFIG, 0x03);          // PWR_UP | PRIM_RX, CRC AUS
@@ -165,8 +229,8 @@ void handle(char p[]) {
         int su = hexb[found+6] & 0xFF;
         int soll = (0xB4 + cc + vv) & 0xFF;
         n_hit = n_hit + 1;
-        sprintf(line, "TREFFER ch=%d pat=%02X off=%d CC=0x%02X VV=0x%02X SUM=0x%02X soll=0x%02X %s",
-                ch_list[cur], pat_cur, found, cc, vv, su, soll,
+        sprintf(line, "TREFFER ch=%d pat=%02X aw=%d dr=%02X off=%d CC=0x%02X VV=0x%02X SUM=0x%02X soll=0x%02X %s",
+                ch_list[cur], pat_cur, aw_cur, dr_cur, found, cc, vv, su, soll,
                 (su == soll) ? "OK" : "FALSCH");
         addLog(line);
         // Vorlauf mit ausgeben — dort steht das gesuchte Syncword
@@ -187,16 +251,63 @@ void handle(char p[]) {
 }
 
 void TaskLoop() {
+    // Rechteck-Testsignal: CS mit ~500 Hz, CE mit ~125 Hz — unterschiedliche
+    // Frequenzen, damit die beiden Leitungen am Oszi eindeutig zuzuordnen sind,
+    // auch mit nur einem Tastkopf.
+    // Dauer-SPI: staendig Register 0x07 lesen. SCK und MOSI zeigen dann ein
+    // stehendes Muster; auf MISO muesste ein lebender Chip antworten.
+    if (bus_mode) {
+        int q = 0;
+        while (q < 200) {
+            spi[0] = 0x07;
+            spi[1] = 0x00;
+            spiTransfer(SLOT, spi, 2, 1);
+            q = q + 1;
+        }
+        delay(1);
+        return;
+    }
+    if (sq_mode) {
+        sq_n = sq_n + 1;
+        digitalWrite(csn, sq_n & 1);
+        digitalWrite(CE_PIN, (sq_n >> 2) & 1);
+        delay(1);
+        return;
+    }
     if (!active) {
         delay(50);
+        return;
+    }
+    if (real_mode) {
+        nrf_setup_real(ch_list[cur]);
+        int q = 0;
+        while (q < 200) {
+            int stt = nrf_rd(N_STATUS);
+            if (stt & 0x40) {
+                spi[0] = N_R_RX;
+                int w = 1;
+                while (w <= 32) { spi[w] = 0; w = w + 1; }
+                spiTransfer(SLOT, spi, 33, 1);
+                char pk2[34];
+                w = 0;
+                while (w < 32) { pk2[w] = spi[w+1]; w = w + 1; }
+                nrf_wr(N_STATUS, 0x70);
+                nrf_cmd(N_FLUSH_RX);
+                handle(pk2);
+            }
+            delay(1);
+            q = q + 1;
+        }
+        cur = cur + 1;
+        if (cur > 2) { cur = 0; }
         return;
     }
     // Kanal wechseln und kurz lauschen. Die LT8900-Praeambel ist 0x55 ODER
     // 0xAA, je nach erstem Syncword-Bit (siehe LT8900_BuildOverhead im
     // Multiprotocol-Projekt) — welches, wissen wir nicht, also beide abwechselnd.
-    nrf_setup(ch_list[cur], pat_cur);
+    nrf_setup(ch_list[cur], pat_cur, aw_cur);
     int t = 0;
-    while (t < 120) {                 // ~120 ms pro Kanal
+    while (t < 80) {                  // ~80 ms pro Kombination
         int st = nrf_rd(N_STATUS);
         if (st & 0x40) {              // RX_DR
             spi[0] = N_R_RX;
@@ -216,19 +327,207 @@ void TaskLoop() {
     cur = cur + 1;
     if (cur > 2) {
         cur = 0;
-        pat_cur = (pat_cur == 0x55) ? 0xAA : 0x55;   // nach jedem Durchlauf umschalten
+        pat_cur = (pat_cur == 0x55) ? 0xAA : 0x55;
+        if (pat_cur == 0x55) {                       // nach beiden Mustern: Breite wechseln
+            aw_cur = aw_cur + 1;
+            if (aw_cur > 5) {
+                aw_cur = 3;
+                // und nach allen Breiten: Datenrate wechseln
+                if (dr_cur == 0x0E)      { dr_cur = 0x26; }   // 250 kbit/s
+                else if (dr_cur == 0x26) { dr_cur = 0x0F; }   // 2 Mbit/s
+                else                     { dr_cur = 0x0E; }   // 1 Mbit/s
+            }
+        }
     }
 }
 
 void Command(char cmd[]) {
     if (strcmp(cmd, "TEST") == 0) {
-        nrf_setup(6, 0x55);
+        nrf_setup(6, 0x55, aw_cur);
         int cfg = nrf_rd(N_CONFIG);
         int aw = nrf_rd(N_AW);
         int rf = nrf_rd(N_RF_SET);
         int ch = nrf_rd(N_RF_CH);
         sprintf(line, "CONFIG=%02X (soll 03) AW=%02X (soll 03) RF_SETUP=%02X (soll 0E) RF_CH=%d (soll 6)",
                 cfg, aw, rf, ch);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "CCHI") == 0) {
+        // CC1101 hart abwaehlen und sofort den nRF24 lesen. Liegt sein CS auf 0 V,
+        // treibt er MISO permanent mit und kaempft gegen den nRF24 -> Zwischenpegel.
+        bus_mode = 0; sq_mode = 0; active = 0;
+        pinMode(CC_CS_PIN, 3);
+        digitalWrite(CC_CS_PIN, 1);
+        pinMode(csn, 3);
+        digitalWrite(csn, 1);
+        delay(5);
+        int rb = digitalRead(CC_CS_PIN);
+        sprintf(line, "CC-CS(GPIO%d) zurueckgelesen=%d | nRF24: 00=%02X 01=%02X 02=%02X 03=%02X 05=%02X 06=%02X",
+                CC_CS_PIN, rb, nrf_rd(0), nrf_rd(1), nrf_rd(2), nrf_rd(3), nrf_rd(5), nrf_rd(6));
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "HOLD") == 0) {
+        // CS dauerhaft LOW, KEIN Takt. Entscheidet zwischen Uebersprechen und
+        // schwach getriebener Leitung: Einkopplung von SCK verschwindet ohne
+        // Takt, ein wirklich getriebener MISO-Pegel bleibt stehen.
+        bus_mode = 0; sq_mode = 0; active = 0;
+        pinMode(csn, 3);
+        digitalWrite(csn, 0);            // Chip ausgewaehlt, Bus still
+        digitalWrite(CE_PIN, 0);
+        responseCmnd("CS liegt jetzt dauerhaft LOW, kein Takt — MISO-Gleichpegel messen. SNIFCS 7 oder SNIFBUS beendet das");
+        return;
+    }
+    if (strcmp(cmd, "BUS") == 0) {
+        bus_mode = !bus_mode;
+        sq_mode = 0; active = 0;
+        if (bus_mode) {
+            digitalWrite(CE_PIN, 0);
+            responseCmnd("Dauer-SPI AN: SCK/MOSI/MISO jetzt messbar. SNIFBUS nochmal = aus");
+        } else {
+            digitalWrite(csn, 1);
+            responseCmnd("Dauer-SPI AUS");
+        }
+        return;
+    }
+    if (strcmp(cmd, "SCAN") == 0) {
+        real_mode = !real_mode;
+        responseCmnd(real_mode ? "Modus: GEMESSENE Parameter (Syncword 8A855AAA)"
+                               : "Modus: Suchlauf ueber alle Kombinationen");
+        return;
+    }
+    if (strcmp(cmd, "SQ") == 0) {
+        sq_mode = !sq_mode;
+        active = 0;                      // Mithoeren aus, sonst stoert es
+        if (sq_mode) {
+            pinMode(csn, 3);
+            pinMode(CE_PIN, 3);
+            sprintf(line, "Rechteck AN: GPIO%d (CS) ~500 Hz, GPIO%d (CE) ~125 Hz — jetzt messen. SNIFSQ nochmal = aus",
+                    csn, CE_PIN);
+            responseCmnd(line);
+        } else {
+            digitalWrite(csn, 1);        // CS wieder inaktiv (high)
+            digitalWrite(CE_PIN, 0);
+            responseCmnd("Rechteck AUS, CS zurueck auf high");
+        }
+        return;
+    }
+    if (strStartsWith(cmd, "CS")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int n = strToInt(a1);
+        if (n > 0) {
+            csn = n;
+            pinMode(csn, 3);
+            digitalWrite(csn, 1);
+            spiSetCS(SLOT, csn);
+        }
+        sprintf(line, "CS-Pin ist jetzt GPIO %d", csn);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "NOP") == 0) {
+        // Kanonischer nRF24-Lebendtest: JEDES Kommando gibt schon waehrend des
+        // ERSTEN Bytes das Statusregister auf MISO zurueck. Bisher habe ich nur
+        // Byte 1 ausgewertet. Ein lebender Chip liefert hier z. B. 0x0E, ein
+        // fehlender/abgeklemmter 0xFF (Leitung haengt hoch) oder 0x00.
+        spi[0] = 0xFF;                      // NOP
+        spiTransfer(SLOT, spi, 1, 1);
+        int st1 = spi[0] & 0xFF;
+        spi[0] = 0x07;                      // R_REGISTER STATUS
+        spi[1] = 0x00;
+        spiTransfer(SLOT, spi, 2, 1);
+        int st2 = spi[0] & 0xFF;
+        int d2  = spi[1] & 0xFF;
+        sprintf(line, "NOP->Status=%02X | Read07: Byte0=%02X Byte1=%02X  (lebender Chip: 0E, tot: FF)",
+                st1, st2, d2);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "SLOW") == 0) {
+        // SPI auf 1 MHz herunter. Lange ungeschirmte Leitungen versagen bei
+        // 4 MHz eher als bei 1 MHz — der CC1101 sitzt evtl. naeher dran.
+        spiInit(-1, -1, -1, 1);
+        spiSetCS(SLOT, csn);
+        delay(5);
+        sprintf(line, "1 MHz: 00=%02X 01=%02X 02=%02X 03=%02X 05=%02X 06=%02X 07=%02X",
+                nrf_rd(0), nrf_rd(1), nrf_rd(2), nrf_rd(3),
+                nrf_rd(5), nrf_rd(6), nrf_rd(7));
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "PINS") == 0) {
+        // Schalten die CS-/CE-Pins ueberhaupt? Ausgang setzen und zuruecklesen.
+        pinMode(csn, 3);
+        pinMode(CE_PIN, 3);
+        digitalWrite(csn, 0); digitalWrite(CE_PIN, 0);
+        delay(2);
+        int c0 = digitalRead(CSN_PIN);
+        int e0 = digitalRead(CE_PIN);
+        digitalWrite(csn, 1); digitalWrite(CE_PIN, 1);
+        delay(2);
+        int c1 = digitalRead(CSN_PIN);
+        int e1 = digitalRead(CE_PIN);
+        digitalWrite(csn, 1);
+        sprintf(line, "GPIO%d (CSN): low=%d high=%d | GPIO%d (CE): low=%d high=%d  (soll 0 und 1)",
+                csn, c0, c1, CE_PIN, e0, e1);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "CC") == 0) {
+        // Bus gegen BEKANNT FUNKTIONIERENDE Hardware pruefen: Der CC1101 haengt
+        // am selben SPI. Antwortet er, sind CLK/MOSI/MISO in Ordnung und das
+        // Problem sitzt eindeutig beim nRF24 (Versorgung/Verdrahtung/Modul).
+        // CC1101: Statusregister werden mit 0xC0|addr gelesen.
+        // PARTNUM (0x30) -> meist 0x00, VERSION (0x31) -> 0x14.
+        digitalWrite(csn, 1);          // nRF24 sicher abgewaehlt
+        pinMode(CC_CS_PIN, 3);
+        spi[0] = 0xF0; spi[1] = 0x00;      // 0xC0 | 0x30 = PARTNUM
+        digitalWrite(CC_CS_PIN, 0);
+        spiTransfer(0, spi, 2, 1);
+        digitalWrite(CC_CS_PIN, 1);
+        int part = spi[1] & 0xFF;
+        spi[0] = 0xF1; spi[1] = 0x00;      // 0xC0 | 0x31 = VERSION
+        digitalWrite(CC_CS_PIN, 0);
+        spiTransfer(0, spi, 2, 1);
+        digitalWrite(CC_CS_PIN, 1);
+        int ver = spi[1] & 0xFF;
+        sprintf(line, "CC1101: PARTNUM=%02X VERSION=%02X  (Version 14 oder 04 = Bus OK)",
+                part, ver);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "MAN") == 0) {
+        // Gegenprobe: CS VON HAND statt ueber spiSetCS/Slot. Trennt einen
+        // Software-Fehler in der CS-Verwaltung von echtem Verdrahtungsproblem.
+        // bresser_chart.tc auf diesem Geraet macht es genauso.
+        pinMode(csn, 3);
+        digitalWrite(csn, 1);
+        delay(1);
+        int i = 0;
+        int vals[10];
+        while (i < 10) {
+            spi[0] = i;              // R_REGISTER | reg
+            spi[1] = 0xFF;
+            digitalWrite(csn, 0);
+            spiTransfer(0, spi, 2, 1);      // cs=0 -> keine automatische CS
+            digitalWrite(csn, 1);
+            vals[i] = spi[1] & 0xFF;
+            i = i + 1;
+        }
+        sprintf(line, "manuell: 00=%02X 01=%02X 02=%02X 03=%02X 04=%02X 05=%02X 06=%02X 07=%02X 08=%02X 09=%02X",
+                vals[0], vals[1], vals[2], vals[3], vals[4],
+                vals[5], vals[6], vals[7], vals[8], vals[9]);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "DUMP") == 0) {
+        // Rohdump: ein antwortender nRF24 liefert NIE ueberall 0xFF.
+        // Vorgabewerte nach Reset: 00=08 01=3F 02=03 03=03 04=03 05=02 06=0E 07=0E
+        sprintf(line, "00=%02X 01=%02X 02=%02X 03=%02X 04=%02X 05=%02X 06=%02X 07=%02X 08=%02X 09=%02X",
+                nrf_rd(0), nrf_rd(1), nrf_rd(2), nrf_rd(3), nrf_rd(4),
+                nrf_rd(5), nrf_rd(6), nrf_rd(7), nrf_rd(8), nrf_rd(9));
         responseCmnd(line);
         return;
     }
@@ -267,16 +566,22 @@ int main() {
     ch_list[0] = 6;
     ch_list[1] = 41;
     ch_list[2] = 76;
-    active = 0; cur = 0; show_raw = 0; n_pkt = 0; n_hit = 0; pat_cur = 0x55;
+    sq_mode = 0; sq_n = 0; bus_mode = 0;
+    active = 0; cur = 0; show_raw = 0; n_pkt = 0; n_hit = 0; pat_cur = 0x55; aw_cur = 4; dr_cur = 0x0E; real_mode = 1;
+    csn = CSN_PIN;
+
+    // ZUERST den CC1101 abwaehlen — er teilt sich MISO mit dem nRF24.
+    pinMode(CC_CS_PIN, 3);
+    digitalWrite(CC_CS_PIN, 1);
 
     spiInit(-1, -1, -1, 4);
-    spiSetCS(SLOT, CSN_PIN);
+    spiSetCS(SLOT, csn);
     if (CE_PIN >= 0) {
         pinMode(CE_PIN, 3);          // OUTPUT (TinyC: 3, nicht 1)
         digitalWrite(CE_PIN, 1);     // dauerhaft aktiv
     }
     delay(50);
-    nrf_setup(6, 0x55);
+    nrf_setup(6, 0x55, aw_cur);
 
     addCommand("SNIF");
     addLog("lt8900_sniff: bereit, CONFIG=0x%02X (soll 0x03)", nrf_rd(N_CONFIG));

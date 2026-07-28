@@ -79,10 +79,34 @@
 //   regs 37/38 stay at reset default. Mirror that exactly and the sync word
 //   matches without needing to know the defaults.
 //
+// ── CONFIRMED ON AIR (HackRF, 2026-07-28) ──────────────────────────────────
+//   Everything above was derived from the SPI capture; it has since been
+//   measured over the air and matches:
+//     2441.02 MHz for channel 39  -> the 2402+n mapping is correct
+//     1 Mbit/s, burst 182 us, preamble 0x55, on-air sync word 8A 85 5A AA,
+//     payload bit-reversed. Device ID 5A 4B 07 identical to the SPI capture.
+//     154 valid packets decoded in 19 s, every checksum correct.
+//
+//   BUTTON TABLE (one capture per button, 100-340 packets each):
+//     CC = 0x10 flag | command nibble. The 0x10 bit only distinguishes first
+//     press from repeat; the low nibble is the command:
+//       4 = dimmer   5 = ON     9 = OFF
+//       C = brighter E = cool   F = warm
+//     The remote has exactly these six buttons (ON and OFF are separate).
+//   VV is a counter that increments per press and wraps at 0xFF.
+//   Byte 4 read 0x00 on air but 0x01 in the May SPI capture — meaning unknown,
+//   apparently not critical.
+//
+//   Measuring recipe that worked (the first three attempts did not): hold the
+//   remote 1-2 cm from the HackRF antenna and turn the gain DOWN
+//   (-l 8 -g 12 -a 0). All three lamp frequencies sit inside the WiFi band;
+//   against WiFi only near-field helps, no amount of signal processing.
+//   Also discard the first second of every capture — the HackRF start-up
+//   transient produces phantom bursts that look exactly like signal.
+//
 // ── STILL OPEN ─────────────────────────────────────────────────────────────
-//   * Which physical button maps to which CC/VV. The capture only shows nine
-//     presses: CC=0x09 with VV=0x01, then CC=0x19 with VV=0x02..0x09.
-//   * Nothing has been verified on air — no LT8900 module on hand yet.
+//   * Transmitting has never been tried — no LT8900 module on hand yet.
+//     See lt8900_lamp.tc, which now carries the measured button table.
 //
 // ============================================================================
 // USAGE
