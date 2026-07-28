@@ -178,14 +178,37 @@ void air_window(int k) {
 
 // Befehlsnibble -> Klartext. Bewusst if/else statt Ternaer: String-Ternaere
 // kompilieren in TinyC zwar, scheitern aber zur Laufzeit.
+// Vierzehn Tasten, vierzehn frei vergebene Codes — kein arithmetisches Muster,
+// eine reine Tabelle. Byte 4 fuehrt die Zone redundant mit (00=alle, 01..04).
 void btn_name(int nib, char out[]) {
     if (nib == 0x4)      { strcpy(out, "dunkler"); }
-    else if (nib == 0x5) { strcpy(out, "EIN"); }
-    else if (nib == 0x9) { strcpy(out, "AUS"); }
+    else if (nib == 0x5) { strcpy(out, "EIN alle"); }
+    else if (nib == 0x9) { strcpy(out, "AUS alle"); }
     else if (nib == 0xC) { strcpy(out, "heller"); }
     else if (nib == 0xE) { strcpy(out, "kalt"); }
     else if (nib == 0xF) { strcpy(out, "warm"); }
+    else if (nib == 0x8) { strcpy(out, "EIN Zone 1"); }
+    else if (nib == 0xB) { strcpy(out, "AUS Zone 1"); }
+    else if (nib == 0xD) { strcpy(out, "EIN Zone 2"); }
+    else if (nib == 0x3) { strcpy(out, "AUS Zone 2"); }
+    else if (nib == 0x7) { strcpy(out, "EIN Zone 3"); }
+    else if (nib == 0xA) { strcpy(out, "AUS Zone 3"); }
+    else if (nib == 0x2) { strcpy(out, "EIN Zone 4"); }
+    else if (nib == 0x6) { strcpy(out, "AUS Zone 4"); }
     else                 { strcpy(out, "unbekannt"); }
+}
+
+// Nibble -> zugehoeriges Byte 4 (Zone)
+int nib_zone(int nib) {
+    if (nib == 0x8) { return 1; }
+    if (nib == 0xB) { return 1; }
+    if (nib == 0xD) { return 2; }
+    if (nib == 0x3) { return 2; }
+    if (nib == 0x7) { return 3; }
+    if (nib == 0xA) { return 3; }
+    if (nib == 0x2) { return 4; }
+    if (nib == 0x6) { return 4; }
+    return 0;
 }
 
 // ── SENDEN ────────────────────────────────────────────────────────────────
@@ -213,12 +236,13 @@ int lt_crc(char d[], int n) {
 }
 
 // einen Rahmen senden: nib = Befehlsnibble, vv = Zaehler
-void tx_frame(int nib, int vv) {
-    int cc = 0x10 | (nib & 0x0F);
-    int sum = (0x07 + 0x5A + 0x4B + 0x07 + 0x00 + cc + vv) & 0xFF;
+void tx_frame(int nib, int vv, int b4, int chan, int flag) {
+    int cc = (nib & 0x0F);
+    if (flag) { cc = cc | 0x10; }
+    int sum = (0x07 + 0x5A + 0x4B + 0x07 + b4 + cc + vv) & 0xFF;
     char air8[10];
     air8[0] = bitrev(0x07); air8[1] = bitrev(0x5A); air8[2] = bitrev(0x4B);
-    air8[3] = bitrev(0x07); air8[4] = bitrev(0x00);
+    air8[3] = bitrev(0x07); air8[4] = bitrev(b4);
     air8[5] = bitrev(cc);   air8[6] = bitrev(vv);   air8[7] = bitrev(sum);
     int crc = lt_crc(air8, 8);
 
@@ -226,23 +250,32 @@ void tx_frame(int nib, int vv) {
     nrf_wr(N_CONFIG, 0x00);
     nrf_wr(N_EN_AA, 0x00);
     nrf_wr(N_AW, 0x03);
-    nrf_wr(N_RF_CH, 41);
+    nrf_wr(N_RF_CH, chan & 0x7F);
     nrf_wr(N_RF_SET, RF_1MBIT);
-    // TX_ADDR (0x10) = dieselbe Adresse wie beim Empfangen
+    // TX_ADDR: Die Fernbedienung sendet VIER Praeambelbytes 0x55 vor dem
+    // Syncword. Der nRF24 stellt nur EIN Praeambelbyte voran; laege das ganze
+    // Syncword in der Adresse, kaemen nur zwei 0x55 zusammen — zu wenig, der
+    // LT8900 in der Lampe rastet dann nicht zuverlaessig ein (per HackRF
+    // nachgewiesen: Original "55 55 55 | 8A 85 5A AA", meiner "DC 55 55 | ...").
+    // Deshalb die Grenze verschieben: Adresse = 55 55 55 8A 85, der Rest des
+    // Syncwords (5A AA) wandert an den Anfang der Nutzlast. Der Lampe ist egal,
+    // wo unser Chip die Grenze zieht — sie sieht einen durchgehenden Bitstrom.
+    // Registerreihenfolge ist die umgekehrte Sendereihenfolge.
     spi[0] = N_W_REG | 0x10;
-    spi[1] = 0xAA; spi[2] = 0x5A; spi[3] = 0x85; spi[4] = 0x8A; spi[5] = 0x55;
+    spi[1] = 0x85; spi[2] = 0x8A; spi[3] = 0x55; spi[4] = 0x55; spi[5] = 0x55;
     spiTransfer(SLOT, spi, 6, 1);
     nrf_cmd(0xE1);                    // FLUSH_TX
     nrf_wr(N_STATUS, 0x70);
     nrf_wr(N_CONFIG, 0x02);           // PWR_UP, PRIM_RX=0, CRC AUS
     delay(2);
-    // Nutzlast: 8 Luft-Bytes + CRC hi/lo
+    // Nutzlast: Rest des Syncwords (5A AA) + 8 Luft-Bytes + CRC hi/lo
     spi[0] = 0xA0;                    // W_TX_PAYLOAD
+    spi[1] = 0x5A; spi[2] = 0xAA;
     int k = 0;
-    while (k < 8) { spi[k+1] = air8[k]; k = k + 1; }
-    spi[9]  = (crc >> 8) & 0xFF;
-    spi[10] = crc & 0xFF;
-    spiTransfer(SLOT, spi, 11, 1);
+    while (k < 8) { spi[k+3] = air8[k]; k = k + 1; }
+    spi[11] = (crc >> 8) & 0xFF;
+    spi[12] = crc & 0xFF;
+    spiTransfer(SLOT, spi, 13, 1);
     if (CE_PIN >= 0) {
         digitalWrite(CE_PIN, 1);
         delay(1);
@@ -424,14 +457,30 @@ void TaskLoop() {
     if (tx_pend >= 0) {
         int nb = tx_pend;
         tx_pend = -1;
+        // Das Original schickt 90 Rahmen ueber DREI Kanaele (LT8900 4/39/74 =
+        // nRF24 6/41/76), je 30 pro Kanal, im Abstand von gut einer Millisekunde.
+        // Nur auf einem Kanal zu senden reichte fuer manche Befehle nicht.
+        int tx_ch[3];
+        tx_ch[0] = 6; tx_ch[1] = 41; tx_ch[2] = 76;
+        // Die Fernbedienung sendet BEIDE Varianten: erst einige Rahmen OHNE das
+        // 0x10-Bit, dann die Mehrzahl MIT. Gemessen bei "Zone 1 AUS": 20x 0x0B
+        // gegen 64x 0x1B, also grob ein Drittel ohne Flag. Offenbar wertet die
+        // Lampe die Fassung ohne Flag als eigentlichen Tastendruck und die mit
+        // Flag nur als Wiederholung — mit nur einer Variante schaltete sie nicht.
         int r = 0;
-        while (r < 30) {                 // wie das Original: 30 Rahmen je Kanal
-            tx_frame(nb, tx_seq);
-            delay(3);
+        while (r < 30) {
+            int fl = 1;
+            if (r < 10) { fl = 0; }
+            int c2 = 0;
+            while (c2 < 3) {
+                tx_frame(nb, tx_seq, nib_zone(nb), tx_ch[c2], fl);
+                delay(1);
+                c2 = c2 + 1;
+            }
             r = r + 1;
         }
         tx_seq = (tx_seq + 1) & 0xFF;
-        addLog("lt8900: %d Rahmen gesendet", 30);
+        addLog("lt8900: 90 Rahmen ueber 3 Kanaele gesendet");
         return;
     }
     if (real_mode) {
@@ -600,21 +649,30 @@ void Command(char cmd[]) {
         strToken(a1, cmd, ' ', 2);
         strToUpper(a1);
         int nib = -1;
-        if (strcmp(a1, "5") == 0)      { nib = 0x5; }
-        else if (strcmp(a1, "9") == 0) { nib = 0x9; }
+        if (strcmp(a1, "0") == 0)      { nib = 0x0; }
+        else if (strcmp(a1, "2") == 0) { nib = 0x2; }
+        else if (strcmp(a1, "3") == 0) { nib = 0x3; }
         else if (strcmp(a1, "4") == 0) { nib = 0x4; }
+        else if (strcmp(a1, "5") == 0) { nib = 0x5; }
+        else if (strcmp(a1, "6") == 0) { nib = 0x6; }
+        else if (strcmp(a1, "7") == 0) { nib = 0x7; }
+        else if (strcmp(a1, "8") == 0) { nib = 0x8; }
+        else if (strcmp(a1, "9") == 0) { nib = 0x9; }
+        else if (strcmp(a1, "A") == 0) { nib = 0xA; }
+        else if (strcmp(a1, "B") == 0) { nib = 0xB; }
         else if (strcmp(a1, "C") == 0) { nib = 0xC; }
+        else if (strcmp(a1, "D") == 0) { nib = 0xD; }
         else if (strcmp(a1, "E") == 0) { nib = 0xE; }
         else if (strcmp(a1, "F") == 0) { nib = 0xF; }
         if (nib < 0) {
-            responseCmnd("SNIFTX <nibble>: 5=EIN 9=AUS C=heller 4=dunkler F=warm E=kalt");
+            responseCmnd("SNIFTX <hex>: alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6  dimm=C/4  Farbe=F/E");
             return;
         }
         tx_pend = nib;
         char nm[16];
         btn_name(nib, nm);
-        sprintf(line, "sende %s (CC=0x%02X, Zaehler 0x%02X) — 30 Rahmen",
-                nm, 0x10 | nib, tx_seq);
+        sprintf(line, "sende %s (CC=0x%02X b4=%02X Zaehler 0x%02X) — 30 Rahmen",
+                nm, 0x10 | nib, nib_zone(nib), tx_seq);
         responseCmnd(line);
         return;
     }
