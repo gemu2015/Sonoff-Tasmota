@@ -30,7 +30,7 @@
 //     CC = 0x10-Flag | Befehlsnibble. Das Bit 0x10 unterscheidet nur erste
 //     Betätigung von Wiederholung; das untere Nibble ist der Befehl:
 //        4 = dunkler     5 = EIN       9 = AUS
-//        C = heller      E = kalt      F = warm
+//        C = heller      E = warm      F = kalt
 //     Die Fernbedienung hat genau diese sechs Tasten (EIN/AUS getrennt).
 //   VV ist ein Zähler, der pro Druck hochläuft und bei 0xFF überläuft.
 //   Byte 4 war bei der Luftmessung 0x00 (im SPI-Mitschnitt vom Mai 0x01);
@@ -86,8 +86,8 @@
 #define CMD_EIN     0x5
 #define CMD_AUS     0x9
 #define CMD_HELLER  0xC
-#define CMD_KALT    0xE
-#define CMD_WARM    0xF
+#define CMD_WARM    0xE     // E und F waren zunaechst vertauscht notiert
+#define CMD_KALT    0xF
 #define CMD_FLAG    0x10     // erste Betätigung vs. Wiederholung
 #define BYTE4       0x00     // bei der Luftmessung 0x00
 

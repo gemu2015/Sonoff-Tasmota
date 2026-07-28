@@ -186,8 +186,8 @@ void btn_name(int nib, char out[]) {
     else if (nib == 0x5) { strcpy(out, "EIN alle"); }
     else if (nib == 0x9) { strcpy(out, "AUS alle"); }
     else if (nib == 0xC) { strcpy(out, "heller"); }
-    else if (nib == 0xE) { strcpy(out, "kalt"); }
-    else if (nib == 0xF) { strcpy(out, "warm"); }
+    else if (nib == 0xE) { strcpy(out, "warm"); }
+    else if (nib == 0xF) { strcpy(out, "kalt"); }
     else if (nib == 0x8) { strcpy(out, "EIN Zone 1"); }
     else if (nib == 0xB) { strcpy(out, "AUS Zone 1"); }
     else if (nib == 0xD) { strcpy(out, "EIN Zone 2"); }
@@ -635,7 +635,7 @@ void WebPage() {
     ui_row("Helligkeit");
     ui_btn(0xC, "heller");     ui_btn(0x4, "dunkler");
     ui_row("Farbe");
-    ui_btn(0xF, "warm");       ui_btn(0xE, "kalt");
+    ui_btn(0xE, "warm");       ui_btn(0xF, "kalt");
 
     webSend("</fieldset></div>");
 }
@@ -712,7 +712,7 @@ void Command(char cmd[]) {
         else if (strcmp(a1, "E") == 0) { nib = 0xE; }
         else if (strcmp(a1, "F") == 0) { nib = 0xF; }
         if (nib < 0) {
-            responseCmnd("SNIFTX <hex>: alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6  dimm=C/4  Farbe=F/E");
+            responseCmnd("SNIFTX <hex>: alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6  dimm=C/4  warm=E kalt=F");
             return;
         }
         tx_pend = nib;
