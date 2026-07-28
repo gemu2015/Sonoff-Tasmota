@@ -138,6 +138,7 @@ int  cnt_bad;    // Pakete mit falscher Pruefsumme
 int  hits[16];
 int  tx_total;   // gesendete Rahmen
 int  tx_seq;
+int  ui_cmd;     // von den Web-Knoepfen gesetzt: Befehlsnibble, 0 = nichts
 int  tx_pend;    // -1 = nichts zu senden, sonst Befehlsnibble     // Zaehler VV beim Senden   // Zaehler je Befehlsnibble
 
 // Gemessene Bitfolge: Praeambel 55 55 55 55, Syncword 8A 85 5A AA,
@@ -454,6 +455,10 @@ void TaskLoop() {
         delay(50);
         return;
     }
+    if (ui_cmd != 0) {
+        tx_pend = ui_cmd & 0x0F;
+        ui_cmd = 0;
+    }
     if (tx_pend >= 0) {
         int nb = tx_pend;
         tx_pend = -1;
@@ -562,6 +567,19 @@ void TaskLoop() {
     }
 }
 
+// Ein Knopf. Breite in PIXELN, nicht in Prozent — das %-Zeichen wuerde sonst
+// von sprintf als Formatanweisung gelesen.
+void ui_btn(int nib, char label[]) {
+    sprintf(line, "<button style='width:92px;margin:2px;padding:4px' onclick='tcbtn(this,%d,%d)'>%s</button>",
+            nib, varIdx(ui_cmd), label);
+    webSend(line);
+}
+
+void ui_row(char titel[]) {
+    sprintf(line, "<div style='margin-top:6px;font-size:11px;opacity:.6'>%s</div>", titel);
+    webSend(line);
+}
+
 // ── Anzeige auf der Tasmota-Hauptseite ─────────────────────────────────────
 void WebCall() {
     char nm[16];
@@ -579,10 +597,12 @@ void WebCall() {
     sprintf(line, "{s}Empfangen{m}%d gueltig / %d fehlerhaft{e}", cnt_ok, cnt_bad);
     webSend(line);
     // Zaehler je Taste, nur die benutzten
-    int nibs[6];
+    int nibs[14];
     nibs[0]=0x5; nibs[1]=0x9; nibs[2]=0xC; nibs[3]=0x4; nibs[4]=0xF; nibs[5]=0xE;
+    nibs[6]=0x8; nibs[7]=0xB; nibs[8]=0xD; nibs[9]=0x3;
+    nibs[10]=0x7; nibs[11]=0xA; nibs[12]=0x2; nibs[13]=0x6;
     int i = 0;
-    while (i < 6) {
+    while (i < 14) {
         int n = nibs[i];
         if (hits[n] > 0) {
             btn_name(n, nm);
@@ -591,6 +611,33 @@ void WebCall() {
         }
         i = i + 1;
     }
+    sprintf(line, "{s}Gesendet{m}%d Rahmen{e}", tx_total);
+    webSend(line);
+}
+
+// ── Bedienfeld: alle vierzehn Tasten zum Ausprobieren ──────────────────────
+// Eigene Seite, damit die Hauptseite uebersichtlich bleibt.
+void WebPage() {
+    webSend("<div style='margin-left:-30px'>");
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:4px 9px 8px'>");
+    webSend("<legend style='font-size:11px;opacity:.55;padding:0 5px'>Deckenlampe</legend>");
+
+    ui_row("alle Lampen");
+    ui_btn(0x5, "EIN");        ui_btn(0x9, "AUS");
+    ui_row("Zone 1");
+    ui_btn(0x8, "EIN");        ui_btn(0xB, "AUS");
+    ui_row("Zone 2");
+    ui_btn(0xD, "EIN");        ui_btn(0x3, "AUS");
+    ui_row("Zone 3");
+    ui_btn(0x7, "EIN");        ui_btn(0xA, "AUS");
+    ui_row("Zone 4");
+    ui_btn(0x2, "EIN");        ui_btn(0x6, "AUS");
+    ui_row("Helligkeit");
+    ui_btn(0xC, "heller");     ui_btn(0x4, "dunkler");
+    ui_row("Farbe");
+    ui_btn(0xF, "warm");       ui_btn(0xE, "kalt");
+
+    webSend("</fieldset></div>");
 }
 
 void Command(char cmd[]) {
@@ -889,7 +936,7 @@ int main() {
     pinMode(CC_CS_PIN, 3);
     digitalWrite(CC_CS_PIN, 1);
 
-    tx_total = 0; tx_seq = 0x40; tx_pend = -1;
+    tx_total = 0; tx_seq = 0x40; tx_pend = -1; ui_cmd = 0;
     last_nib = -1; last_vv = 0; last_ms = 0; cnt_ok = 0; cnt_bad = 0;
     int z = 0;
     while (z < 16) { hits[z] = 0; z = z + 1; }
