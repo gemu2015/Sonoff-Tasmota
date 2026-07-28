@@ -632,9 +632,30 @@ void WebCall() {
 // zerstoeren. Deshalb ist der Aufbau in „sprintf fuer die Zahlen" und
 // „webSend fuer das CSS" getrennt.
 
+// Eigener Klick-Handler statt des eingebauten tcbtn(). Zwei Gruende:
+//
+//  1. tcbtn setzt `e.textContent = "✓"` und stellt danach den GESICHERTEN TEXT
+//     wieder her. Das zerstoert Kindelemente: der weisse <span>-Punkt auf dem
+//     Ring war nach dem ersten Klick fuer immer weg (gesichert wurde "", denn
+//     der span traegt keinen Text). Und `e.style.color = ''` loescht die
+//     Inline-Textfarbe endgueltig — gesichert wird nur der Hintergrund, nicht
+//     die Farbe — danach steht Tasmotas helle Standardfarbe auf hellem Grund
+//     und die Zonenzeichen sind unsichtbar.
+//  2. tcbtn sperrt den Knopf 2,5 s (`dataset.b`). Bei einer Lampenfernbedienung
+//     falsch: „heller" will man mehrmals hintereinander druecken.
+//
+// gmb() fasst weder Inhalt noch Farben an, sondern staucht den Knopf kurz.
+// `seva(v,i)` stellt die Firmware auf der Hauptseite bereit, sobald ein Slot
+// ein WebCall() hat — das haben wir.
+void panel_js() {
+    webSend("<script>function gmb(e,v,i){seva(v,i);");
+    webSend("e.style.transform='scale(.85)';");
+    webSend("setTimeout(function(){e.style.transform='';},260);}</script>");
+}
+
 // oeffnet ein <button ...> mit onclick; das Styling folgt per webSend
 void btn_open(int nib) {
-    sprintf(line, "<button onclick='tcbtn(this,%d,%d)' style='", nib, varIdx(ui_cmd));
+    sprintf(line, "<button onclick='gmb(this,%d,%d)' style='", nib, varIdx(ui_cmd));
     webSend(line);
 }
 
@@ -669,7 +690,7 @@ void top_btn(int nib, char sym[], char extra[]) {
 // Tasmotas Stylesheet beansprucht die Button-Textfarbe fuer sich. Die echte
 // Fernbedienung hat ohnehin Punkte, keine Pfeile.
 void ring_btn(int nib, int x, int y, char tip[]) {
-    sprintf(line, "<button title='%s' onclick='tcbtn(this,%d,%d)' style='",
+    sprintf(line, "<button title='%s' onclick='gmb(this,%d,%d)' style='",
             tip, nib, varIdx(ui_cmd));
     webSend(line);
     webSend("border:0;cursor:pointer;background:transparent;padding:0;");
@@ -683,7 +704,7 @@ void ring_btn(int nib, int x, int y, char tip[]) {
 
 // halbe Wippe einer Zone (oben = ein, unten = aus); rund = 1 oben, 2 unten
 void rocker(int nib, char sym[], int rund) {
-    sprintf(line, "<button onclick='tcbtn(this,%d,%d)' style='", nib, varIdx(ui_cmd));
+    sprintf(line, "<button onclick='gmb(this,%d,%d)' style='", nib, varIdx(ui_cmd));
     webSend(line);
     webSend("border:0;cursor:pointer;font-family:inherit;color:#111;");
     webSend("background:#fff;width:40px;height:36px;font-size:16px;padding:0;");
@@ -705,6 +726,7 @@ void zone_col(int on_nib, int off_nib, int nr, int shift) {
 }
 
 void WebPage() {
+    panel_js();
     webSend("<div style='margin-left:-30px'>");
     // Gehaeuse
     webSend("<div style='max-width:246px;margin:10px auto;padding:16px 12px 14px;");
