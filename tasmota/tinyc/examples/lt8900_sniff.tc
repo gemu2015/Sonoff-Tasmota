@@ -236,7 +236,33 @@ int lt_crc(char d[], int n) {
     return c & 0xFFFF;
 }
 
-// einen Rahmen senden: nib = Befehlsnibble, vv = Zaehler
+// Sender EINMAL pro Burst aufsetzen. Frueher wurde der Chip fuer JEDEN Rahmen
+// komplett neu konfiguriert (Power-Down, alle Register, Power-Up, 2 ms warten)
+// — das kostete gut 3 ms statt der 1,135 ms des Originals und fuehrte zu
+// sporadischen Aussetzern ("manchmal muss man zweimal druecken").
+void tx_setup() {
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+    nrf_wr(N_CONFIG, 0x00);
+    nrf_wr(N_EN_AA, 0x00);
+    nrf_wr(N_AW, 0x03);
+    nrf_wr(N_RF_SET, RF_1MBIT);
+    // TX_ADDR: Die Fernbedienung sendet VIER Praeambelbytes 0x55 vor dem
+    // Syncword. Der nRF24 stellt nur EINES voran; laege das ganze Syncword in
+    // der Adresse, kaemen nur zwei zusammen — der LT8900 in der Lampe rastet
+    // dann nicht zuverlaessig ein (per HackRF nachgewiesen). Deshalb die
+    // Grenze verschieben: Adresse = 55 55 55 8A 85, der Rest des Syncwords
+    // (5A AA) wandert an den Anfang der Nutzlast.
+    spi[0] = N_W_REG | 0x10;
+    spi[1] = 0x85; spi[2] = 0x8A; spi[3] = 0x55; spi[4] = 0x55; spi[5] = 0x55;
+    spiTransfer(SLOT, spi, 6, 1);
+    nrf_cmd(0xE1);                    // FLUSH_TX
+    nrf_wr(N_STATUS, 0x70);
+    nrf_wr(N_CONFIG, 0x02);           // PWR_UP, PRIM_RX=0, CRC AUS
+    delay(2);                         // einmalig einschwingen lassen
+}
+
+// einen Rahmen senden. Setzt nur noch Kanal, Nutzlast und den CE-Impuls —
+// keine Neukonfiguration mehr.
 void tx_frame(int nib, int vv, int b4, int chan, int flag) {
     int cc = (nib & 0x0F);
     if (flag) { cc = cc | 0x10; }
@@ -247,28 +273,9 @@ void tx_frame(int nib, int vv, int b4, int chan, int flag) {
     air8[5] = bitrev(cc);   air8[6] = bitrev(vv);   air8[7] = bitrev(sum);
     int crc = lt_crc(air8, 8);
 
-    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
-    nrf_wr(N_CONFIG, 0x00);
-    nrf_wr(N_EN_AA, 0x00);
-    nrf_wr(N_AW, 0x03);
     nrf_wr(N_RF_CH, chan & 0x7F);
-    nrf_wr(N_RF_SET, RF_1MBIT);
-    // TX_ADDR: Die Fernbedienung sendet VIER Praeambelbytes 0x55 vor dem
-    // Syncword. Der nRF24 stellt nur EIN Praeambelbyte voran; laege das ganze
-    // Syncword in der Adresse, kaemen nur zwei 0x55 zusammen — zu wenig, der
-    // LT8900 in der Lampe rastet dann nicht zuverlaessig ein (per HackRF
-    // nachgewiesen: Original "55 55 55 | 8A 85 5A AA", meiner "DC 55 55 | ...").
-    // Deshalb die Grenze verschieben: Adresse = 55 55 55 8A 85, der Rest des
-    // Syncwords (5A AA) wandert an den Anfang der Nutzlast. Der Lampe ist egal,
-    // wo unser Chip die Grenze zieht — sie sieht einen durchgehenden Bitstrom.
-    // Registerreihenfolge ist die umgekehrte Sendereihenfolge.
-    spi[0] = N_W_REG | 0x10;
-    spi[1] = 0x85; spi[2] = 0x8A; spi[3] = 0x55; spi[4] = 0x55; spi[5] = 0x55;
-    spiTransfer(SLOT, spi, 6, 1);
     nrf_cmd(0xE1);                    // FLUSH_TX
     nrf_wr(N_STATUS, 0x70);
-    nrf_wr(N_CONFIG, 0x02);           // PWR_UP, PRIM_RX=0, CRC AUS
-    delay(2);
     // Nutzlast: Rest des Syncwords (5A AA) + 8 Luft-Bytes + CRC hi/lo
     spi[0] = 0xA0;                    // W_TX_PAYLOAD
     spi[1] = 0x5A; spi[2] = 0xAA;
@@ -279,9 +286,9 @@ void tx_frame(int nib, int vv, int b4, int chan, int flag) {
     spiTransfer(SLOT, spi, 13, 1);
     if (CE_PIN >= 0) {
         digitalWrite(CE_PIN, 1);
-        delay(1);
-        digitalWrite(CE_PIN, 0);
-    }
+        delay(1);                     // CE MUSS >=10 us hoch bleiben; zwei
+        digitalWrite(CE_PIN, 0);      // digitalWrite hintereinander sind zu kurz
+    }                                 // und der Chip sendet dann GAR NICHT.
     tx_total = tx_total + 1;
 }
 
@@ -467,6 +474,7 @@ void TaskLoop() {
         // Nur auf einem Kanal zu senden reichte fuer manche Befehle nicht.
         int tx_ch[3];
         tx_ch[0] = 6; tx_ch[1] = 41; tx_ch[2] = 76;
+        tx_setup();
         // Die Fernbedienung sendet BEIDE Varianten: erst einige Rahmen OHNE das
         // 0x10-Bit, dann die Mehrzahl MIT. Gemessen bei "Zone 1 AUS": 20x 0x0B
         // gegen 64x 0x1B, also grob ein Drittel ohne Flag. Offenbar wertet die
@@ -479,7 +487,6 @@ void TaskLoop() {
             int c2 = 0;
             while (c2 < 3) {
                 tx_frame(nb, tx_seq, nib_zone(nb), tx_ch[c2], fl);
-                delay(1);
                 c2 = c2 + 1;
             }
             r = r + 1;
@@ -688,6 +695,24 @@ void Command(char cmd[]) {
             digitalWrite(csn, 1);
             responseCmnd("Dauer-SPI AUS");
         }
+        return;
+    }
+    // NICHT auf eine Ziffer enden lassen — Tasmota liest eine abschliessende
+    // Ziffer als Geraeteindex (wie POWER1), das Unterkommando kaeme als "T" an.
+    if (strcmp(cmd, "ONE") == 0) {
+        // EINEN Rahmen senden und danach den Chip fragen, ob er ihn losgeworden
+        // ist. TX_DS (0x20) im STATUS = Rahmen raus. Bleibt es 0, sendet er nicht.
+        tx_setup();
+        int st0 = nrf_rd(N_STATUS);
+        int fi0 = nrf_rd(0x17);
+        tx_frame(0x9, 0x77, 0, 41, 1);
+        delay(3);
+        int st1 = nrf_rd(N_STATUS);
+        int fi1 = nrf_rd(0x17);
+        int cfg = nrf_rd(N_CONFIG);
+        sprintf(line, "vor: ST=%02X FIFO=%02X | nach: ST=%02X FIFO=%02X | CONFIG=%02X (TX_DS=0x20 erwartet)",
+                st0, fi0, st1, fi1, cfg);
+        responseCmnd(line);
         return;
     }
     if (strStartsWith(cmd, "TX")) {
