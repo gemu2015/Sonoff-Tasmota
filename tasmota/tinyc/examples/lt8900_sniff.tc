@@ -622,29 +622,103 @@ void WebCall() {
     webSend(line);
 }
 
-// ── Bedienfeld: alle vierzehn Tasten zum Ausprobieren ──────────────────────
-// Eigene Seite, damit die Hauptseite uebersichtlich bleibt.
+// ── Bedienfeld: der Fernbedienung nachempfunden ───────────────────────────
+// Aufbau wie das Original: oben Ein/Aus fuer alle, in der Mitte der Ring mit
+// vier Richtungen (oben/unten = Helligkeit, links/rechts = Farbtemperatur),
+// unten die vier Zonen-Wippen mit je | oben und O unten.
+//
+// ⚠️ Prozentzeichen NUR in webSend-Literalen verwenden, NIE in einem
+// sprintf-Format — dort wuerde % als Formatanweisung gelesen und das HTML
+// zerstoeren. Deshalb ist der Aufbau in „sprintf fuer die Zahlen" und
+// „webSend fuer das CSS" getrennt.
+
+// oeffnet ein <button ...> mit onclick; das Styling folgt per webSend
+void btn_open(int nib) {
+    sprintf(line, "<button onclick='tcbtn(this,%d,%d)' style='", nib, varIdx(ui_cmd));
+    webSend(line);
+}
+
+// KEINE implizite String-Verkettung in TinyC ("a" "b" ist ein Parserfehler)
+// -> gemeinsamer Stil als eigener webSend-Aufruf statt als #define-Praefix.
+void btn_base() {
+    webSend("border:0;cursor:pointer;font-family:inherit;color:#111;");
+}
+
+// Pillen-Knopf oben (Ein bzw. Aus fuer alle Lampen)
+void top_btn(int nib, char sym[], char extra[]) {
+    btn_open(nib);
+    btn_base();
+    webSend("background:#fff;border-radius:22px;width:74px;height:40px;");
+    webSend("box-shadow:0 1px 3px rgba(0,0,0,.35);font-size:19px;margin:3px 0;");
+    webSend(extra);
+    sprintf(line, "'>%s</button>", sym);
+    webSend(line);
+}
+
+// Richtungsknopf auf dem Ring; pos = absolute Platzierung
+void ring_btn(int nib, char pos[], char sym[]) {
+    btn_open(nib);
+    btn_base();
+    webSend("position:absolute;background:transparent;color:#fff;");
+    webSend("width:46px;height:46px;border-radius:50%;font-size:15px;line-height:1;");
+    webSend(pos);
+    sprintf(line, "'>%s</button>", sym);
+    webSend(line);
+}
+
+// halbe Wippe einer Zone (oben = ein, unten = aus)
+void rocker(int nib, char sym[], char round[]) {
+    btn_open(nib);
+    btn_base();
+    webSend("background:#fff;width:38px;height:34px;font-size:16px;");
+    webSend("box-shadow:0 1px 2px rgba(0,0,0,.3);");
+    webSend(round);
+    sprintf(line, "'>%s</button>", sym);
+    webSend(line);
+}
+
+void zone_col(int on_nib, int off_nib, char nr[], char shift[]) {
+    webSend("<div style='display:flex;flex-direction:column;align-items:center;");
+    webSend(shift);
+    webSend("'>");
+    rocker(on_nib,  "&#124;", "border-radius:17px 17px 3px 3px;");
+    rocker(off_nib, "&#9675;", "border-radius:3px 3px 17px 17px;");
+    sprintf(line, "<div style='font-size:10px;opacity:.55;margin-top:2px'>%s</div></div>", nr);
+    webSend(line);
+}
+
 void WebPage() {
     webSend("<div style='margin-left:-30px'>");
-    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:4px 9px 8px'>");
-    webSend("<legend style='font-size:11px;opacity:.55;padding:0 5px'>Deckenlampe</legend>");
+    // Gehaeuse
+    webSend("<div style='max-width:246px;margin:10px auto;padding:16px 12px 14px;");
+    webSend("background:linear-gradient(#fdfdfd,#ececed);border-radius:70px/54px;");
+    webSend("box-shadow:0 2px 10px rgba(0,0,0,.25);text-align:center'>");
 
-    ui_row("alle Lampen");
-    ui_btn(0x5, "EIN");        ui_btn(0x9, "AUS");
-    ui_row("Zone 1");
-    ui_btn(0x8, "EIN");        ui_btn(0xB, "AUS");
-    ui_row("Zone 2");
-    ui_btn(0xD, "EIN");        ui_btn(0x3, "AUS");
-    ui_row("Zone 3");
-    ui_btn(0x7, "EIN");        ui_btn(0xA, "AUS");
-    ui_row("Zone 4");
-    ui_btn(0x2, "EIN");        ui_btn(0x6, "AUS");
-    ui_row("Helligkeit");
-    ui_btn(0xC, "heller");     ui_btn(0x4, "dunkler");
-    ui_row("Farbe");
-    ui_btn(0xE, "warm");       ui_btn(0xF, "kalt");
+    top_btn(0x5, "&#124;",  "");                 // alle EIN
+    top_btn(0x9, "&#9675;", "");                 // alle AUS
 
-    webSend("</fieldset></div>");
+    // Ring
+    webSend("<div style='position:relative;width:158px;height:158px;margin:12px auto 10px;");
+    webSend("border-radius:50%;background:radial-gradient(circle,#3a3a3a 0 34%,#1b1b1b 35% 100%);");
+    webSend("box-shadow:inset 0 1px 3px rgba(255,255,255,.15)'>");
+    ring_btn(0xC, "top:4px;left:56px;",    "&#9650;");   // heller
+    ring_btn(0x4, "bottom:4px;left:56px;", "&#9660;");   // dunkler
+    ring_btn(0xE, "left:4px;top:56px;",    "&#9664;");   // warm
+    ring_btn(0xF, "right:4px;top:56px;",   "&#9654;");   // kalt
+    webSend("<div style='position:absolute;left:49px;top:49px;width:60px;height:60px;");
+    webSend("border-radius:50%;background:linear-gradient(#fbfbfb,#e6e6e6);");
+    webSend("box-shadow:0 1px 3px rgba(0,0,0,.4)'></div></div>");
+
+    // Zonen — leicht versetzt wie auf dem Original
+    webSend("<div style='display:flex;justify-content:center;gap:7px;margin-top:4px'>");
+    zone_col(0x8, 0xB, "1", "");
+    zone_col(0xD, 0x3, "2", "margin-top:14px;");
+    zone_col(0x7, 0xA, "3", "margin-top:14px;");
+    zone_col(0x2, 0x6, "4", "");
+    webSend("</div>");
+
+    webSend("<div style='font-size:9px;opacity:.45;margin-top:8px'>2.4G RF</div>");
+    webSend("</div></div>");
 }
 
 void Command(char cmd[]) {
