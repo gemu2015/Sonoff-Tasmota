@@ -1,0 +1,532 @@
+// ============================================================================
+// gm24g_lamp.tc — GM2.4G-Deckenlampe steuern (nRF24L01 als LT8900-Ersatz)
+// ============================================================================
+//
+// Sender-App: Bedienfeld auf der Tasmota-Hauptseite, der Fernbedienung
+// nachempfunden, plus Konsolenbefehl LAMPTX. Alle 14 Tasten der Original-
+// fernbedienung sind decodiert. Vorgeschichte: das Protokoll wurde am
+// 2026-07-27/28 aus einem SPI-Mitschnitt der Fernbedienung, HackRF-Messungen
+// und einem nRF24-Mithoerbetrieb erschlossen. Der Mithoerteil ist hier raus —
+// er steckt in der git-Historie unter examples/lt8900_sniff.tc, falls das
+// Protokoll je erneut vermessen werden muss.
+//
+// ── PROTOKOLL (gemessen, nicht geraten) ───────────────────────────────────
+// Die Lampe hoert auf einen LT8900, GFSK, 1 Mbit/s. Kanaele: LT8900 4/39/74.
+// LT8900 rechnet 2402+n, der nRF24 dagegen 2400+n — auf dem nRF24 sind das
+// also die Kanaele 6/41/76. (2441.02 MHz per HackRF nachgemessen.)
+//
+// Auf der Luft:   55 55 55 55 | 8A 85 5A AA | Nutzlast bitgedreht | CRC
+// Dekodiert:      07 | 5A 4B 07 b4 CC VV | SUM
+//                 07       = Laengenbyte
+//                 5A 4B 07 = Kennung des Fernbedienungspaars
+//                 b4       = Zone (00 = alle, 01..04)
+//                 CC       = Tastencode; Bit 0x10 = Wiederholung
+//                 VV       = Zaehler, steigt je Tastendruck
+//                 SUM      = (Summe der sieben Bytes) & 0xFF
+// CRC-16/CCITT, Poly 0x1021, Init 0x0000, MSB-first, ueber die LUFT-Bytes
+// (also die bitgedrehten) inklusive Laengenbyte, angehaengt als hi,lo und
+// NICHT gedreht.
+//
+// ── WARUM DAS MIT EINEM nRF24 GEHT ────────────────────────────────────────
+// Beide Chips senden GFSK mit 1 Mbit/s. Man legt Praeambel + Syncword des
+// LT8900 in das ADRESSFELD des nRF24, schaltet dessen CRC ab und dreht die
+// Bitreihenfolge der Nutzlast um.
+//   Quelle: DIY-Multiprotocol-TX-Module/Multiprotocol/NRF24l01_SPI.ino
+//
+// ── DREI FALLEN, die je eine Runde gekostet haben ─────────────────────────
+//  1. RF_SETUP 0x0E ist 2 Mbit/s, NICHT 1 Mbit/s (Bit 3 = RF_DR_HIGH).
+//     Richtig ist 0x06. Adresse und Kanal stimmten, die Symbolrate nicht.
+//  2. CE muss >=10 us high bleiben. Zwei digitalWrite direkt hintereinander
+//     sind zu kurz — der Chip sendet dann GAR NICHT, ohne Fehlermeldung.
+//     Das delay(1) in tx_frame() ist Absicht und liefert nebenbei die
+//     richtige Kadenz (~1,1 ms je Rahmen; das Original braucht 1,135 ms).
+//  3. Nicht pro Rahmen konfigurieren. Erst wurde der Chip fuer JEDEN Rahmen
+//     neu aufgesetzt (Power-Down, alle Register, Power-Up, 2 ms warten) —
+//     rund 3 ms statt 1,1 ms und sporadische Aussetzer ("manchmal muss man
+//     zweimal druecken"). Einmal pro Burst: tx_setup(), dann je Rahmen nur
+//     Kanal + Nutzlast + CE-Impuls.
+//
+// ── VERDRAHTUNG (.177, ESP32-Bridge) ──────────────────────────────────────
+//   Tasmota-UI belegt bereits:  9 = MOSI, 10 = SCLK, 11 = MISO
+//   Hier gesetzt:               7 = CSN des nRF24L01
+//   Hier gesetzt:               8 = CE des nRF24L01
+//   ⚠️ 10–100 µF Elko direkt am Modul zwischen VCC und GND, sonst bricht die
+//      Versorgung ein und das Modul verhaelt sich sporadisch.
+//   ⚠️ Der CC1101 (CS 13) haengt am SELBEN MISO. Sein CS muss aktiv auf HIGH
+//      gelegt werden, sonst treibt er die Leitung mit und der Bus liefert nur
+//      Muell. "Nicht anfassen" reicht NICHT — ein undefinierter Eingang ist
+//      nicht dasselbe wie abgewaehlt.
+//
+// ── BEFEHLE ───────────────────────────────────────────────────────────────
+//   Tasmota haengt das Unterkommando OHNE Leerzeichen an den Praefix an.
+//   LAMPTX <hex>  -> Taste senden. alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6
+//                    heller=C  dunkler=4  warm=E  kalt=F
+//   LAMPTEST      -> nRF24-Register zuruecklesen (prueft Bus und Modul)
+//   LAMPONE       -> EINEN Rahmen senden und TX_DS im Status pruefen.
+//                    Der schnellste Beweis, dass wirklich gesendet wird —
+//                    viel schneller als eine HackRF-Gegenmessung.
+//   ⚠️ Unterkommandos duerfen NICHT auf einer Ziffer enden: Tasmota liest
+//      eine abschliessende Ziffer als Geraeteindex (wie POWER1). Deshalb
+//      LAMPONE und nicht LAMPT1.
+// ============================================================================
+
+#define CSN_PIN   7
+#define CE_PIN    8          // CE verloetet auf GPIO 8
+#define CC_CS_PIN 13         // CS des CC1101 am SELBEN Bus — muss HIGH sein
+#define SLOT      1
+
+// nRF24L01 Befehle / Register
+#define N_R_REG    0x00
+#define N_W_REG    0x20
+#define N_FLUSH_TX 0xE1
+#define N_W_TX_PL  0xA0
+#define N_CONFIG   0x00
+#define N_EN_AA    0x01
+#define N_AW       0x03
+#define N_RF_CH    0x05
+#define N_RF_SET   0x06
+#define N_STATUS   0x07
+#define N_FIFO     0x17
+#define RF_1MBIT   0x06      // NICHT 0x0E — das waeren 2 Mbit/s
+
+char spi[40];
+char line[220];
+int  tx_total;   // gesendete Rahmen insgesamt
+int  tx_seq;     // Zaehler VV, steigt je Tastendruck
+int  ui_cmd;     // von den Web-Knoepfen gesetzt: Befehlsnibble, 0 = nichts
+int  tx_pend;    // -1 = nichts zu senden, sonst Befehlsnibble
+int  last_sent;  // zuletzt gesendetes Nibble, -1 = noch nichts
+int  last_ms;    // millis() beim letzten Senden
+
+// Befehlsnibble -> Klartext. Bewusst if/else statt Ternaer: String-Ternaere
+// scheiterten in TinyC lange still zur Laufzeit (im Codegen behoben am
+// 2026-07-28, aber alte Firmware/IDE im Feld hat den Fix nicht).
+// Vierzehn Tasten, vierzehn frei vergebene Codes — kein arithmetisches Muster,
+// eine reine Tabelle. Byte 4 fuehrt die Zone redundant mit (00=alle, 01..04).
+void btn_name(int nib, char out[]) {
+    if (nib == 0x4)      { strcpy(out, "dunkler"); }
+    else if (nib == 0x5) { strcpy(out, "EIN alle"); }
+    else if (nib == 0x9) { strcpy(out, "AUS alle"); }
+    else if (nib == 0xC) { strcpy(out, "heller"); }
+    else if (nib == 0xE) { strcpy(out, "warm"); }
+    else if (nib == 0xF) { strcpy(out, "kalt"); }
+    else if (nib == 0x8) { strcpy(out, "EIN Zone 1"); }
+    else if (nib == 0xB) { strcpy(out, "AUS Zone 1"); }
+    else if (nib == 0xD) { strcpy(out, "EIN Zone 2"); }
+    else if (nib == 0x3) { strcpy(out, "AUS Zone 2"); }
+    else if (nib == 0x7) { strcpy(out, "EIN Zone 3"); }
+    else if (nib == 0xA) { strcpy(out, "AUS Zone 3"); }
+    else if (nib == 0x2) { strcpy(out, "EIN Zone 4"); }
+    else if (nib == 0x6) { strcpy(out, "AUS Zone 4"); }
+    else                 { strcpy(out, "unbekannt"); }
+}
+
+// Nibble -> zugehoeriges Byte 4 (Zone)
+int nib_zone(int nib) {
+    if (nib == 0x8) { return 1; }
+    if (nib == 0xB) { return 1; }
+    if (nib == 0xD) { return 2; }
+    if (nib == 0x3) { return 2; }
+    if (nib == 0x7) { return 3; }
+    if (nib == 0xA) { return 3; }
+    if (nib == 0x2) { return 4; }
+    if (nib == 0x6) { return 4; }
+    return 0;
+}
+
+// ── nRF24-Grundfunktionen ─────────────────────────────────────────────────
+void nrf_wr(int reg, int val) {
+    spi[0] = N_W_REG | (reg & 0x1F);
+    spi[1] = val & 0xFF;
+    spiTransfer(SLOT, spi, 2, 1);
+}
+
+int nrf_rd(int reg) {
+    spi[0] = N_R_REG | (reg & 0x1F);
+    spi[1] = 0;
+    spiTransfer(SLOT, spi, 2, 1);
+    return spi[1] & 0xFF;
+}
+
+void nrf_cmd(int c) {
+    spi[0] = c & 0xFF;
+    spiTransfer(SLOT, spi, 1, 1);
+}
+
+// Bits eines Bytes spiegeln — LT8900 sendet in umgekehrter Bitfolge zum nRF24
+int bitrev(int b) {
+    int r = 0;
+    int i = 0;
+    while (i < 8) {
+        r = (r << 1) | ((b >> i) & 1);
+        i = i + 1;
+    }
+    return r & 0xFF;
+}
+
+// ── SENDEN ────────────────────────────────────────────────────────────────
+int lt_crc(char d[], int n) {
+    int c = 0;
+    int i = 0;
+    while (i < n) {
+        c = c ^ ((d[i] & 0xFF) << 8);
+        int b = 0;
+        while (b < 8) {
+            if (c & 0x8000) { c = ((c << 1) ^ 0x1021) & 0xFFFF; }
+            else            { c = (c << 1) & 0xFFFF; }
+            b = b + 1;
+        }
+        i = i + 1;
+    }
+    return c & 0xFFFF;
+}
+
+// Sender EINMAL pro Burst aufsetzen (siehe Falle 3 im Kopf).
+void tx_setup() {
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+    nrf_wr(N_CONFIG, 0x00);
+    nrf_wr(N_EN_AA, 0x00);
+    nrf_wr(N_AW, 0x03);
+    nrf_wr(N_RF_SET, RF_1MBIT);
+    // TX_ADDR: Die Fernbedienung sendet VIER Praeambelbytes 0x55 vor dem
+    // Syncword. Der nRF24 stellt nur EINES voran; laege das ganze Syncword in
+    // der Adresse, kaemen nur zwei zusammen — der LT8900 in der Lampe rastet
+    // dann nicht zuverlaessig ein (per HackRF nachgewiesen). Deshalb die
+    // Grenze verschieben: Adresse = 55 55 55 8A 85, der Rest des Syncwords
+    // (5A AA) wandert an den Anfang der Nutzlast.
+    spi[0] = N_W_REG | 0x10;
+    spi[1] = 0x85; spi[2] = 0x8A; spi[3] = 0x55; spi[4] = 0x55; spi[5] = 0x55;
+    spiTransfer(SLOT, spi, 6, 1);
+    nrf_cmd(N_FLUSH_TX);
+    nrf_wr(N_STATUS, 0x70);
+    nrf_wr(N_CONFIG, 0x02);           // PWR_UP, PRIM_RX=0, CRC AUS
+    delay(2);                         // einmalig einschwingen lassen
+}
+
+// einen Rahmen senden. Setzt nur Kanal, Nutzlast und den CE-Impuls.
+void tx_frame(int nib, int vv, int b4, int chan, int flag) {
+    int cc = (nib & 0x0F);
+    if (flag) { cc = cc | 0x10; }
+    int sum = (0x07 + 0x5A + 0x4B + 0x07 + b4 + cc + vv) & 0xFF;
+    char air8[10];
+    air8[0] = bitrev(0x07); air8[1] = bitrev(0x5A); air8[2] = bitrev(0x4B);
+    air8[3] = bitrev(0x07); air8[4] = bitrev(b4);
+    air8[5] = bitrev(cc);   air8[6] = bitrev(vv);   air8[7] = bitrev(sum);
+    int crc = lt_crc(air8, 8);
+
+    nrf_wr(N_RF_CH, chan & 0x7F);
+    nrf_cmd(N_FLUSH_TX);
+    nrf_wr(N_STATUS, 0x70);
+    // Nutzlast: Rest des Syncwords (5A AA) + 8 Luft-Bytes + CRC hi/lo
+    spi[0] = N_W_TX_PL;
+    spi[1] = 0x5A; spi[2] = 0xAA;
+    int k = 0;
+    while (k < 8) { spi[k+3] = air8[k]; k = k + 1; }
+    spi[11] = (crc >> 8) & 0xFF;
+    spi[12] = crc & 0xFF;
+    spiTransfer(SLOT, spi, 13, 1);
+    if (CE_PIN >= 0) {
+        digitalWrite(CE_PIN, 1);
+        delay(1);                     // CE MUSS >=10 us hoch bleiben; zwei
+        digitalWrite(CE_PIN, 0);      // digitalWrite hintereinander sind zu kurz
+    }                                 // und der Chip sendet dann GAR NICHT.
+    tx_total = tx_total + 1;
+}
+
+// Einen kompletten Tastendruck senden: 90 Rahmen ueber DREI Kanaele
+// (LT8900 4/39/74 = nRF24 6/41/76), je 30 pro Kanal. Nur auf einem Kanal zu
+// senden reichte fuer manche Befehle nicht.
+void send_button(int nib) {
+    int tx_ch[3];
+    tx_ch[0] = 6; tx_ch[1] = 41; tx_ch[2] = 76;
+    tx_setup();
+    // Die Fernbedienung sendet BEIDE Varianten: erst einige Rahmen OHNE das
+    // 0x10-Bit, dann die Mehrzahl MIT. Gemessen bei "Zone 1 AUS": 20x 0x0B
+    // gegen 64x 0x1B, also grob ein Drittel ohne Flag. Offenbar wertet die
+    // Lampe die Fassung ohne Flag als eigentlichen Tastendruck und die mit
+    // Flag nur als Wiederholung — mit nur einer Variante schaltete sie nicht.
+    int r = 0;
+    while (r < 30) {
+        int fl = 1;
+        if (r < 10) { fl = 0; }
+        int c2 = 0;
+        while (c2 < 3) {
+            tx_frame(nib, tx_seq, nib_zone(nib), tx_ch[c2], fl);
+            c2 = c2 + 1;
+        }
+        r = r + 1;
+    }
+    tx_seq = (tx_seq + 1) & 0xFF;
+    last_sent = nib;
+    last_ms = millis();
+}
+
+// Senden laeuft in der eigenen Task, nicht im Tick: ein Burst dauert rund
+// 100 ms und wuerde die Tasmota-Hauptschleife blockieren.
+void TaskLoop() {
+    if (ui_cmd != 0) {
+        tx_pend = ui_cmd & 0x0F;
+        ui_cmd = 0;
+    }
+    if (tx_pend >= 0) {
+        int nb = tx_pend;
+        tx_pend = -1;
+        send_button(nb);
+        char nm[16];
+        btn_name(nb, nm);
+        addLog("gm24g: %s gesendet (90 Rahmen, 3 Kanaele)", nm);
+        return;
+    }
+    delay(20);
+}
+
+// ── Anzeige auf der Tasmota-Hauptseite ─────────────────────────────────────
+void WebCall() {
+    char nm[16];
+    if (last_sent < 0) {
+        webSend("{s}Deckenlampe{m}bereit{e}");
+    } else {
+        btn_name(last_sent, nm);
+        int alt = (millis() - last_ms) / 1000;
+        sprintf(line, "{s}Zuletzt gesendet{m}<b>%s</b>  (vor %d s){e}", nm, alt);
+        webSend(line);
+        sprintf(line, "{s}Rahmen{m}CC=0x%02X  Zaehler=0x%02X{e}",
+                0x10 | last_sent, (tx_seq - 1) & 0xFF);
+        webSend(line);
+    }
+    sprintf(line, "{s}Gesendet gesamt{m}%d Rahmen{e}", tx_total);
+    webSend(line);
+}
+
+// ── Bedienfeld: der Fernbedienung nachempfunden ───────────────────────────
+// Aufbau wie das Original: oben Ein/Aus fuer alle, in der Mitte der Ring mit
+// vier Richtungen (oben/unten = Helligkeit, links/rechts = Farbtemperatur),
+// unten die vier Zonen-Wippen mit je | oben und O unten.
+//
+// ⚠️ Prozentzeichen NUR in webSend-Literalen verwenden, NIE in einem
+// sprintf-Format — dort wuerde % als Formatanweisung gelesen und das HTML
+// zerstoeren. Deshalb ist der Aufbau in „sprintf fuer die Zahlen" und
+// „webSend fuer das CSS" getrennt.
+
+// Eigener Klick-Handler statt des eingebauten tcbtn(). Zwei Gruende:
+//
+//  1. tcbtn setzt `e.textContent = "✓"` und stellt danach den GESICHERTEN TEXT
+//     wieder her. Das zerstoert Kindelemente: der weisse <span>-Punkt auf dem
+//     Ring war nach dem ersten Klick fuer immer weg (gesichert wurde "", denn
+//     der span traegt keinen Text). Und `e.style.color = ''` loescht die
+//     Inline-Textfarbe endgueltig — gesichert wird nur der Hintergrund, nicht
+//     die Farbe — danach steht Tasmotas helle Standardfarbe auf hellem Grund
+//     und die Zonenzeichen sind unsichtbar. (In der Firmware behoben am
+//     2026-07-28; alte Firmware im Feld hat den Fix nicht.)
+//  2. tcbtn sperrt den Knopf 2,5 s (`dataset.b`). Bei einer Lampenfernbedienung
+//     falsch: „heller" will man mehrmals hintereinander druecken.
+//
+// gmb() fasst weder Inhalt noch Farben an, sondern staucht den Knopf kurz.
+// `seva(v,i)` stellt die Firmware auf der Hauptseite bereit, sobald ein Slot
+// ein WebCall() hat — das haben wir.
+void panel_js() {
+    webSend("<script>function gmb(e,v,i){seva(v,i);");
+    webSend("e.style.transform='scale(.85)';");
+    webSend("setTimeout(function(){e.style.transform='';},260);}</script>");
+}
+
+// oeffnet ein <button ...> mit onclick; das Styling folgt per webSend
+void btn_open(int nib) {
+    sprintf(line, "<button onclick='gmb(this,%d,%d)' style='", nib, varIdx(ui_cmd));
+    webSend(line);
+}
+
+// KEINE implizite String-Verkettung in TinyC ("a" "b" ist ein Parserfehler)
+// -> gemeinsamer Stil als eigener webSend-Aufruf statt als #define-Praefix.
+void btn_base() {
+    webSend("border:0;cursor:pointer;font-family:inherit;color:#111;");
+}
+
+// Pillen-Knopf oben (Ein bzw. Aus fuer alle Lampen)
+void top_btn(int nib, char sym[], char extra[]) {
+    btn_open(nib);
+    btn_base();
+    // display:block + auto-Raender: zwei <button> hintereinander stehen sonst
+    // NEBENeinander — auf der Fernbedienung sitzen sie untereinander.
+    webSend("background:#fff;border-radius:24px;width:76px;height:44px;");
+    webSend("box-shadow:0 1px 3px rgba(0,0,0,.35);font-size:20px;");
+    webSend("display:block;margin:4px auto;");
+    webSend(extra);
+    sprintf(line, "'>%s</button>", sym);
+    webSend(line);
+}
+
+// Richtungsknopf auf dem Ring.
+// ⚠️ Position als ZAHLEN, nicht als String-Parameter: `webSend(param)` gibt
+// NICHTS aus, wenn param ein char[]-Parameter ist, der ein String-Literal
+// bekommen hat — tc_stream_ref() in der Firmware stieg bei Konstanten-Pool-
+// Referenzen stillschweigend aus (behoben 2026-07-28, aber alte Firmware im
+// Feld hat den Fix nicht). Ergebnis waren vier uebereinanderliegende Knoepfe,
+// nur ein sichtbarer Punkt. `sprintf %s` kann den Fall dagegen, deshalb ist
+// der Tooltip weiterhin ein String-Parameter.
+// Der Marker ist ein weisser Punkt als eigenes Element, kein Textzeichen —
+// Tasmotas Stylesheet beansprucht die Button-Textfarbe fuer sich. Die echte
+// Fernbedienung hat ohnehin Punkte, keine Pfeile.
+void ring_btn(int nib, int x, int y, char tip[]) {
+    sprintf(line, "<button title='%s' onclick='gmb(this,%d,%d)' style='",
+            tip, nib, varIdx(ui_cmd));
+    webSend(line);
+    webSend("border:0;cursor:pointer;background:transparent;padding:0;");
+    webSend("position:absolute;width:44px;height:44px;border-radius:50%;");
+    webSend("display:flex;align-items:center;justify-content:center;");
+    sprintf(line, "left:%dpx;top:%dpx;'>", x, y);
+    webSend(line);
+    webSend("<span style='width:10px;height:10px;border-radius:50%;");
+    webSend("background:#f2f2f2;display:block'></span></button>");
+}
+
+// halbe Wippe einer Zone (oben = ein, unten = aus); rund = 1 oben, 2 unten
+void rocker(int nib, char sym[], int rund) {
+    sprintf(line, "<button onclick='gmb(this,%d,%d)' style='", nib, varIdx(ui_cmd));
+    webSend(line);
+    webSend("border:0;cursor:pointer;font-family:inherit;color:#111;");
+    webSend("background:#fff;width:40px;height:36px;font-size:16px;padding:0;");
+    webSend("box-shadow:0 1px 2px rgba(0,0,0,.3);");
+    if (rund == 1) { webSend("border-radius:18px 18px 4px 4px;"); }
+    else           { webSend("border-radius:4px 4px 18px 18px;"); }
+    sprintf(line, "'>%s</button>", sym);
+    webSend(line);
+}
+
+void zone_col(int on_nib, int off_nib, int nr, int shift) {
+    webSend("<div style='display:flex;flex-direction:column;align-items:center;");
+    sprintf(line, "margin-top:%dpx'>", shift);
+    webSend(line);
+    rocker(on_nib,  "&#124;", 1);
+    rocker(off_nib, "&#9675;", 2);
+    sprintf(line, "<div style='font-size:11px;color:#555;margin-top:3px'>%d</div></div>", nr);
+    webSend(line);
+}
+
+void WebPage() {
+    panel_js();
+    webSend("<div style='margin-left:-30px'>");
+    // Gehaeuse
+    webSend("<div style='max-width:246px;margin:10px auto;padding:16px 12px 14px;");
+    webSend("background:linear-gradient(#fdfdfd,#eeeeef);border-radius:118px 118px 96px 96px/150px 150px 110px 110px;");
+    webSend("box-shadow:0 2px 10px rgba(0,0,0,.25);text-align:center'>");
+
+    top_btn(0x5, "&#124;",  "");                 // alle EIN
+    top_btn(0x9, "&#9675;", "");                 // alle AUS
+
+    // Ring
+    webSend("<div style='position:relative;width:158px;height:158px;margin:12px auto 10px;");
+    webSend("border-radius:50%;background:radial-gradient(circle,#3a3a3a 0 34%,#1b1b1b 35% 100%);");
+    webSend("box-shadow:inset 0 1px 3px rgba(255,255,255,.15)'>");
+    // Mittelscheibe zuerst — sie ist nur Blende, kein Knopf, und darf die
+    // Richtungsknoepfe nicht ueberdecken.
+    webSend("<div style='position:absolute;left:47px;top:47px;width:64px;height:64px;");
+    webSend("border-radius:50%;background:linear-gradient(#fbfbfb,#e8e8e8);");
+    webSend("box-shadow:0 1px 3px rgba(0,0,0,.45)'></div>");
+    // Ring 158 px, Knopf 44 px -> Mitte bei (158-44)/2 = 57
+    ring_btn(0xC, 57,  3, "heller");
+    ring_btn(0x4, 57, 111, "dunkler");
+    ring_btn(0xE,  3, 57, "warm");
+    ring_btn(0xF, 111, 57, "kalt");
+    webSend("</div>");
+
+    webSend("<div style='font-size:10px;color:#666;margin:0 0 10px'>");
+    webSend("oben/unten heller &amp; dunkler &middot; links/rechts warm &amp; kalt</div>");
+
+    // Zonen — leicht versetzt wie auf dem Original
+    webSend("<div style='display:flex;justify-content:center;gap:7px;margin-top:4px'>");
+    zone_col(0x8, 0xB, 1, 0);
+    zone_col(0xD, 0x3, 2, 16);
+    zone_col(0x7, 0xA, 3, 16);
+    zone_col(0x2, 0x6, 4, 0);
+    webSend("</div>");
+
+    webSend("<div style='font-size:10px;color:#888;margin-top:10px'>2.4G RF</div>");
+    webSend("</div></div>");
+}
+
+// Hex-Ziffer -> Zahl. strToInt liest nur dezimal, und die Tastencodes sind
+// nun einmal Nibbles.
+int hex_nib(char s[]) {
+    strToUpper(s);
+    if (strcmp(s, "0") == 0) { return 0x0; }
+    if (strcmp(s, "1") == 0) { return 0x1; }
+    if (strcmp(s, "2") == 0) { return 0x2; }
+    if (strcmp(s, "3") == 0) { return 0x3; }
+    if (strcmp(s, "4") == 0) { return 0x4; }
+    if (strcmp(s, "5") == 0) { return 0x5; }
+    if (strcmp(s, "6") == 0) { return 0x6; }
+    if (strcmp(s, "7") == 0) { return 0x7; }
+    if (strcmp(s, "8") == 0) { return 0x8; }
+    if (strcmp(s, "9") == 0) { return 0x9; }
+    if (strcmp(s, "A") == 0) { return 0xA; }
+    if (strcmp(s, "B") == 0) { return 0xB; }
+    if (strcmp(s, "C") == 0) { return 0xC; }
+    if (strcmp(s, "D") == 0) { return 0xD; }
+    if (strcmp(s, "E") == 0) { return 0xE; }
+    if (strcmp(s, "F") == 0) { return 0xF; }
+    return -1;
+}
+
+void Command(char cmd[]) {
+    if (strStartsWith(cmd, "TX")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int nib = hex_nib(a1);
+        if (nib < 0) {
+            responseCmnd("LAMPTX <hex>: alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6  heller=C dunkler=4  warm=E kalt=F");
+            return;
+        }
+        tx_pend = nib;
+        char nm[16];
+        btn_name(nib, nm);
+        sprintf(line, "sende %s (CC=0x%02X b4=%02X Zaehler 0x%02X) — 90 Rahmen",
+                nm, 0x10 | nib, nib_zone(nib), tx_seq);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "TEST") == 0) {
+        tx_setup();
+        sprintf(line, "CONFIG=%02X (soll 02) AW=%02X (soll 03) RF_SETUP=%02X (soll 06) STATUS=%02X (totes Modul: FF)",
+                nrf_rd(N_CONFIG), nrf_rd(N_AW), nrf_rd(N_RF_SET), nrf_rd(N_STATUS));
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "ONE") == 0) {
+        // EINEN Rahmen senden und danach den Chip fragen, ob er ihn losgeworden
+        // ist. TX_DS (0x20) im STATUS = Rahmen raus. Bleibt es 0, sendet er nicht.
+        tx_setup();
+        int st0 = nrf_rd(N_STATUS);
+        int fi0 = nrf_rd(N_FIFO);
+        tx_frame(0x9, 0x77, 0, 41, 1);
+        delay(3);
+        sprintf(line, "vor: ST=%02X FIFO=%02X | nach: ST=%02X FIFO=%02X | CONFIG=%02X (TX_DS=0x20 erwartet)",
+                st0, fi0, nrf_rd(N_STATUS), nrf_rd(N_FIFO), nrf_rd(N_CONFIG));
+        responseCmnd(line);
+        return;
+    }
+    sprintf(line, "LAMPTX <hex> | LAMPTEST | LAMPONE   (bisher %d Rahmen gesendet)", tx_total);
+    responseCmnd(line);
+}
+
+int main() {
+    tx_total = 0; tx_seq = 0x40; tx_pend = -1; ui_cmd = 0;
+    last_sent = -1; last_ms = 0;
+
+    // ZUERST den CC1101 abwaehlen — er teilt sich MISO mit dem nRF24.
+    pinMode(CC_CS_PIN, 3);
+    digitalWrite(CC_CS_PIN, 1);
+
+    spiInit(-1, -1, -1, 4);
+    spiSetCS(SLOT, CSN_PIN);
+    if (CE_PIN >= 0) {
+        pinMode(CE_PIN, 3);          // OUTPUT (TinyC: 3, nicht 1)
+        digitalWrite(CE_PIN, 0);     // im Sendebetrieb nur impulsweise high
+    }
+    delay(50);
+    tx_setup();
+
+    addCommand("LAMP");
+    addLog("gm24g_lamp: bereit, CONFIG=0x%02X (soll 0x02)", nrf_rd(N_CONFIG));
+    return 0;
+}
