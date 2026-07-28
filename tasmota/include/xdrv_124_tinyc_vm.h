@@ -2156,6 +2156,24 @@ static int tc_cstr_to_ref(TcVM *vm, int32_t ref, const char *src) {
 typedef void (*tc_send_fn)(const char *buf, int len);
 
 static void tc_stream_ref(TcVM *vm, int32_t ref, tc_send_fn sendFn) {
+  // A const-pool ref arrives here whenever a string LITERAL was handed through
+  // a char[] function parameter, e.g.
+  //     void row(char css[]) { webSend(css); }   row("width:44px");
+  // tc_resolve_ref() deliberately returns nullptr for those (see its comment),
+  // so the call used to emit NOTHING AT ALL, silently — a web panel built from
+  // such helpers rendered with every positioned element stacked at the default
+  // spot. Handle the const pool here like tc_ref_to_cstr() does.
+  if (tc_is_const_ref(ref)) {
+    uint16_t idx = (uint16_t)(((uint32_t)ref) & 0x7FFF);
+    if (idx < vm->const_count && vm->constants[idx].type == 1) {
+      const char *s = vm->constants[idx].str.ptr;
+      if (s) {
+        int n = (int)strlen(s);
+        if (n > 0) sendFn(s, n);
+      }
+    }
+    return;
+  }
   int32_t *buf = tc_resolve_ref(vm, ref);
   if (!buf) return;
   int32_t maxLen = tc_ref_maxlen(vm, ref);

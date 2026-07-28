@@ -658,35 +658,49 @@ void top_btn(int nib, char sym[], char extra[]) {
     webSend(line);
 }
 
-// Richtungsknopf auf dem Ring; pos = absolute Platzierung
-void ring_btn(int nib, char pos[], char sym[]) {
-    btn_open(nib);
-    btn_base();
-    webSend("position:absolute;background:transparent;color:#fff;");
-    webSend("width:46px;height:46px;border-radius:50%;font-size:15px;line-height:1;");
-    webSend(pos);
-    sprintf(line, "'>%s</button>", sym);
+// Richtungsknopf auf dem Ring.
+// ⚠️ Position als ZAHLEN, nicht als String-Parameter: `webSend(param)` gibt
+// NICHTS aus, wenn param ein char[]-Parameter ist, der ein String-Literal
+// bekommen hat — tc_stream_ref() in der Firmware steigt bei Konstanten-Pool-
+// Referenzen stillschweigend aus. Ergebnis waren vier uebereinanderliegende
+// Knoepfe (nur ein sichtbarer Punkt). `sprintf %s` kann den Fall dagegen,
+// deshalb ist der Tooltip weiterhin ein String-Parameter.
+// Der Marker ist ein weisser Punkt als eigenes Element, kein Textzeichen —
+// Tasmotas Stylesheet beansprucht die Button-Textfarbe fuer sich. Die echte
+// Fernbedienung hat ohnehin Punkte, keine Pfeile.
+void ring_btn(int nib, int x, int y, char tip[]) {
+    sprintf(line, "<button title='%s' onclick='tcbtn(this,%d,%d)' style='",
+            tip, nib, varIdx(ui_cmd));
     webSend(line);
+    webSend("border:0;cursor:pointer;background:transparent;padding:0;");
+    webSend("position:absolute;width:44px;height:44px;border-radius:50%;");
+    webSend("display:flex;align-items:center;justify-content:center;");
+    sprintf(line, "left:%dpx;top:%dpx;'>", x, y);
+    webSend(line);
+    webSend("<span style='width:10px;height:10px;border-radius:50%;");
+    webSend("background:#f2f2f2;display:block'></span></button>");
 }
 
-// halbe Wippe einer Zone (oben = ein, unten = aus)
-void rocker(int nib, char sym[], char round[]) {
-    btn_open(nib);
-    btn_base();
-    webSend("background:#fff;width:38px;height:34px;font-size:16px;");
+// halbe Wippe einer Zone (oben = ein, unten = aus); rund = 1 oben, 2 unten
+void rocker(int nib, char sym[], int rund) {
+    sprintf(line, "<button onclick='tcbtn(this,%d,%d)' style='", nib, varIdx(ui_cmd));
+    webSend(line);
+    webSend("border:0;cursor:pointer;font-family:inherit;color:#111;");
+    webSend("background:#fff;width:40px;height:36px;font-size:16px;padding:0;");
     webSend("box-shadow:0 1px 2px rgba(0,0,0,.3);");
-    webSend(round);
+    if (rund == 1) { webSend("border-radius:18px 18px 4px 4px;"); }
+    else           { webSend("border-radius:4px 4px 18px 18px;"); }
     sprintf(line, "'>%s</button>", sym);
     webSend(line);
 }
 
-void zone_col(int on_nib, int off_nib, char nr[], char shift[]) {
+void zone_col(int on_nib, int off_nib, int nr, int shift) {
     webSend("<div style='display:flex;flex-direction:column;align-items:center;");
-    webSend(shift);
-    webSend("'>");
-    rocker(on_nib,  "&#124;", "border-radius:17px 17px 3px 3px;");
-    rocker(off_nib, "&#9675;", "border-radius:3px 3px 17px 17px;");
-    sprintf(line, "<div style='font-size:10px;opacity:.55;margin-top:2px'>%s</div></div>", nr);
+    sprintf(line, "margin-top:%dpx'>", shift);
+    webSend(line);
+    rocker(on_nib,  "&#124;", 1);
+    rocker(off_nib, "&#9675;", 2);
+    sprintf(line, "<div style='font-size:11px;color:#555;margin-top:3px'>%d</div></div>", nr);
     webSend(line);
 }
 
@@ -709,21 +723,25 @@ void WebPage() {
     webSend("<div style='position:absolute;left:47px;top:47px;width:64px;height:64px;");
     webSend("border-radius:50%;background:linear-gradient(#fbfbfb,#e8e8e8);");
     webSend("box-shadow:0 1px 3px rgba(0,0,0,.45)'></div>");
-    ring_btn(0xC, "top:2px;left:56px;",    "&#9650;");   // heller
-    ring_btn(0x4, "bottom:2px;left:56px;", "&#9660;");   // dunkler
-    ring_btn(0xE, "left:2px;top:56px;",    "&#9664;");   // warm
-    ring_btn(0xF, "right:2px;top:56px;",   "&#9654;");   // kalt
+    // Ring 158 px, Knopf 44 px -> Mitte bei (158-44)/2 = 57
+    ring_btn(0xC, 57,  3, "heller");
+    ring_btn(0x4, 57, 111, "dunkler");
+    ring_btn(0xE,  3, 57, "warm");
+    ring_btn(0xF, 111, 57, "kalt");
     webSend("</div>");
+
+    webSend("<div style='font-size:10px;color:#666;margin:0 0 10px'>");
+    webSend("oben/unten heller &amp; dunkler &middot; links/rechts warm &amp; kalt</div>");
 
     // Zonen — leicht versetzt wie auf dem Original
     webSend("<div style='display:flex;justify-content:center;gap:7px;margin-top:4px'>");
-    zone_col(0x8, 0xB, "1", "");
-    zone_col(0xD, 0x3, "2", "margin-top:14px;");
-    zone_col(0x7, 0xA, "3", "margin-top:14px;");
-    zone_col(0x2, 0x6, "4", "");
+    zone_col(0x8, 0xB, 1, 0);
+    zone_col(0xD, 0x3, 2, 16);
+    zone_col(0x7, 0xA, 3, 16);
+    zone_col(0x2, 0x6, 4, 0);
     webSend("</div>");
 
-    webSend("<div style='font-size:9px;opacity:.45;margin-top:8px'>2.4G RF</div>");
+    webSend("<div style='font-size:10px;color:#888;margin-top:10px'>2.4G RF</div>");
     webSend("</div></div>");
 }
 
