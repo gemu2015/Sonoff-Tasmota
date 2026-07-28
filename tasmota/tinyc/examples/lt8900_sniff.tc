@@ -105,6 +105,7 @@
 #define N_RXADDR0  0x0A
 #define N_RXPW0    0x11
 #define N_FIFO     0x17
+#define RF_1MBIT   0x06      // NICHT 0x0E — das waeren 2 Mbit/s
 
 char spi[40];
 char line[220];
@@ -115,6 +116,11 @@ int  cur;
 int  show_raw;
 int  n_pkt;
 int  n_hit;
+int  air[14];   // gemessene Bitfolge auf der Luft (Praeambel..Nutzlastbeginn)
+int  sweep_k;   // Bit-Versatz der Adresse in dieser Folge
+int  sweep_on;  // 1 = Versatz automatisch durchfahren
+int  addr_inv;  // Adresse invertiert — Bitpolaritaet der Demodulation war mehrdeutig
+int  real_aw;   // Adressbreite im Messmodus: 3..5 Byte
 int  real_mode; // 1 = gemessene Parameter statt Suchlauf
 int  dr_cur;    // Datenrate: 0x0E=1M, 0x26=250k, 0x0F=2M — muss zum Sender passen
 int  aw_cur;    // Adressbreite 3..5 Byte — die LT8900-Praeambel ist evtl. kuerzer als 5
@@ -123,6 +129,61 @@ int  csn;       // CS-Pin zur LAUFZEIT umstellbar (SNIFCS n) — fuer die Fehler
 int  bus_mode;  // Dauerbetrieb auf dem SPI-Bus, damit SCK/MOSI/MISO am Oszi stehen
 int  sq_mode;   // Rechteck-Testsignal auf CS/CE fuer die Oszi-Messung
 int  sq_n;
+// ── Anzeige auf der Tasmota-Hauptseite ──
+int  last_nib;   // zuletzt empfangenes Befehlsnibble, -1 = noch nichts
+int  last_vv;    // Zaehler des letzten Pakets
+int  last_ms;    // millis() beim letzten gueltigen Paket
+int  cnt_ok;     // gueltige Pakete gesamt
+int  cnt_bad;    // Pakete mit falscher Pruefsumme
+int  hits[16];   // Zaehler je Befehlsnibble
+
+// Gemessene Bitfolge: Praeambel 55 55 55 55, Syncword 8A 85 5A AA,
+// dann Nutzlast E0 5A D2 E0 (= 07 5A 4B 07 bitgedreht). Die nRF24-Adresse ist
+// ein 5-Byte-Fenster daraus — an welcher Bitposition es enden muss, probieren
+// wir durch, statt es zu erraten.
+void air_init() {
+    air[0]=0x55; air[1]=0x55; air[2]=0x55; air[3]=0x55;
+    air[4]=0x8A; air[5]=0x85; air[6]=0x5A; air[7]=0xAA;
+    air[8]=0xE0; air[9]=0x5A; air[10]=0xD2; air[11]=0xE0;
+    air[12]=0x00; air[13]=0x00;
+}
+
+// 5 Byte ab Bit-Versatz k aus air[] holen, in spi[1..5] (Registerreihenfolge
+// = umgekehrte Sendereihenfolge)
+void air_window(int k) {
+    int tmp[5];
+    int i = 0;
+    while (i < 5) {
+        int v = 0;
+        int b = 0;
+        while (b < 8) {
+            int bit = k + i*8 + b;
+            int by = bit >> 3;
+            int sh = 7 - (bit & 7);
+            int x = 0;
+            if (by < 14) { x = (air[by] >> sh) & 1; }
+            v = (v << 1) | x;
+            b = b + 1;
+        }
+        if (addr_inv) { v = (~v) & 0xFF; }
+        tmp[i] = v;
+        i = i + 1;
+    }
+    spi[1] = tmp[4]; spi[2] = tmp[3]; spi[3] = tmp[2];
+    spi[4] = tmp[1]; spi[5] = tmp[0];
+}
+
+// Befehlsnibble -> Klartext. Bewusst if/else statt Ternaer: String-Ternaere
+// kompilieren in TinyC zwar, scheitern aber zur Laufzeit.
+void btn_name(int nib, char out[]) {
+    if (nib == 0x4)      { strcpy(out, "dunkler"); }
+    else if (nib == 0x5) { strcpy(out, "EIN"); }
+    else if (nib == 0x9) { strcpy(out, "AUS"); }
+    else if (nib == 0xC) { strcpy(out, "heller"); }
+    else if (nib == 0xE) { strcpy(out, "kalt"); }
+    else if (nib == 0xF) { strcpy(out, "warm"); }
+    else                 { strcpy(out, "unbekannt"); }
+}
 
 // ── nRF24-Grundfunktionen ─────────────────────────────────────────────────
 void nrf_wr(int reg, int val) {
@@ -164,13 +225,20 @@ void nrf_setup_real(int chan) {
     nrf_wr(N_CONFIG, 0x00);
     nrf_wr(N_EN_AA, 0x00);
     nrf_wr(N_EN_RX, 0x01);
-    nrf_wr(N_AW, 0x03);              // 5 Byte Adresse
+    nrf_wr(N_AW, (real_aw - 2) & 0x03);
     nrf_wr(N_RF_CH, chan & 0x7F);
-    nrf_wr(N_RF_SET, 0x0E);          // 1 Mbit/s
+    // RF_SETUP: Bit5=RF_DR_LOW, Bit3=RF_DR_HIGH, Bits2:1=Leistung.
+    //   0x06 = 1 Mbit/s   0x0E = 2 Mbit/s   0x26 = 250 kbit/s
+    // 0x0E hiess NICHT 1 Mbit/s — dieser Irrtum hat mehrere Messdurchlaeufe
+    // gekostet, weil Adresse und Kanal stimmten, aber die Symbolrate nicht.
+    nrf_wr(N_RF_SET, 0x06);          // 1 Mbit/s, 0 dBm
     nrf_wr(N_RXPW0, 32);
+    // Auf der Luft steht ... 55 | 8A 85 5A AA | Nutzlast.
+    // Ins Register kommt die umgekehrte Bytefolge, ggf. verkuerzt auf die
+    // hinteren Bytes (die dem Nutzlastbeginn am naechsten liegen).
     spi[0] = N_W_REG | N_RXADDR0;
-    spi[1] = 0xAA; spi[2] = 0x5A; spi[3] = 0x85; spi[4] = 0x8A; spi[5] = 0x55;
-    spiTransfer(SLOT, spi, 6, 1);
+    air_window(sweep_k);
+    spiTransfer(SLOT, spi, real_aw + 1, 1);
     nrf_cmd(N_FLUSH_RX);
     nrf_wr(N_STATUS, 0x70);
     nrf_wr(N_CONFIG, 0x03);
@@ -210,33 +278,42 @@ void handle(char p[]) {
         hexb[i] = bitrev(p[i] & 0xFF);
         i = i + 1;
     }
-    // Signatur suchen
+    // Signatur suchen: nur die drei ID-Bytes 5A 4B 07. Byte 4 NICHT mitpruefen —
+    // es war im SPI-Mitschnitt 01, in der Luftmessung 00, taugt also nicht als
+    // Erkennungsmerkmal.
     int k = 0;
     int found = -1;
     while (k < 26) {
         if (hexb[k] == 0x5A) {
             if (hexb[k+1] == 0x4B) {
-                if (hexb[k+2] == 0x07) {
-                    if (hexb[k+3] == 0x01) { found = k; k = 99; }
-                }
+                if (hexb[k+2] == 0x07) { found = k; k = 99; }
             }
         }
         k = k + 1;
     }
     if (found >= 0) {
+        int b4 = hexb[found+3] & 0xFF;
         int cc = hexb[found+4] & 0xFF;
         int vv = hexb[found+5] & 0xFF;
         int su = hexb[found+6] & 0xFF;
-        int soll = (0xB4 + cc + vv) & 0xFF;
+        // Pruefsumme = Summe der sieben Bytes: 07 5A 4B 07 b4 cc vv
+        int soll = (0x07 + 0x5A + 0x4B + 0x07 + b4 + cc + vv) & 0xFF;
         n_hit = n_hit + 1;
-        sprintf(line, "TREFFER ch=%d pat=%02X aw=%d dr=%02X off=%d CC=0x%02X VV=0x%02X SUM=0x%02X soll=0x%02X %s",
-                ch_list[cur], pat_cur, aw_cur, dr_cur, found, cc, vv, su, soll,
-                (su == soll) ? "OK" : "FALSCH");
-        addLog(line);
-        // Vorlauf mit ausgeben — dort steht das gesuchte Syncword
-        sprintf(line, "  Vorlauf: %02X %02X %02X %02X %02X %02X %02X %02X",
-                hexb[0] & 0xFF, hexb[1] & 0xFF, hexb[2] & 0xFF, hexb[3] & 0xFF,
-                hexb[4] & 0xFF, hexb[5] & 0xFF, hexb[6] & 0xFF, hexb[7] & 0xFF);
+        // KEIN Ternaer mit String-Literalen — das kompiliert, scheitert aber
+        // zur Laufzeit (Tasmota meldet dann Command:Error bzw. es kommt nichts).
+        int gut = 0;
+        if (su == soll) {
+            gut = 1;
+            cnt_ok = cnt_ok + 1;
+            last_nib = cc & 0x0F;
+            last_vv = vv;
+            last_ms = millis();
+            hits[last_nib] = hits[last_nib] + 1;
+        } else {
+            cnt_bad = cnt_bad + 1;
+        }
+        sprintf(line, "TREFFER ch=%d off=%d b4=%02X CC=%02X VV=%02X SUM=%02X soll=%02X ok=%d",
+                ch_list[cur], found, b4, cc, vv, su, soll, gut);
         addLog(line);
         return;
     }
@@ -280,8 +357,11 @@ void TaskLoop() {
     }
     if (real_mode) {
         nrf_setup_real(ch_list[cur]);
+        int seen0 = n_pkt;
         int q = 0;
-        while (q < 200) {
+        int lim = 200;
+        if (sweep_on) { lim = 60; }        // beim Durchfahren kuerzer verweilen
+        while (q < lim) {
             int stt = nrf_rd(N_STATUS);
             if (stt & 0x40) {
                 spi[0] = N_R_RX;
@@ -297,6 +377,19 @@ void TaskLoop() {
             }
             delay(1);
             q = q + 1;
+        }
+        if (sweep_on) {
+            if (n_pkt > seen0) {
+                sprintf(line, "SWEEP: k=%d inv=%d -> %d Pakete",
+                        sweep_k, addr_inv, n_pkt - seen0);
+                addLog(line);
+            }
+            sweep_k = sweep_k + 1;
+            if (sweep_k > 44) {
+                sweep_k = 8;
+                addr_inv = !addr_inv;      // nach allen Versaetzen Polaritaet wechseln
+                addLog("SWEEP: Polaritaet gewechselt");
+            }
         }
         cur = cur + 1;
         if (cur > 2) { cur = 0; }
@@ -338,6 +431,37 @@ void TaskLoop() {
                 else                     { dr_cur = 0x0E; }   // 1 Mbit/s
             }
         }
+    }
+}
+
+// ── Anzeige auf der Tasmota-Hauptseite ─────────────────────────────────────
+void WebCall() {
+    char nm[16];
+    if (last_nib < 0) {
+        webSend("{s}Deckenlampe{m}noch nichts empfangen{e}");
+    } else {
+        btn_name(last_nib, nm);
+        int alt = (millis() - last_ms) / 1000;
+        sprintf(line, "{s}Letzte Taste{m}<b>%s</b>  (vor %d s){e}", nm, alt);
+        webSend(line);
+        sprintf(line, "{s}Rahmen{m}CC=0x%02X  Zaehler=0x%02X{e}",
+                0x10 | last_nib, last_vv);
+        webSend(line);
+    }
+    sprintf(line, "{s}Empfangen{m}%d gueltig / %d fehlerhaft{e}", cnt_ok, cnt_bad);
+    webSend(line);
+    // Zaehler je Taste, nur die benutzten
+    int nibs[6];
+    nibs[0]=0x5; nibs[1]=0x9; nibs[2]=0xC; nibs[3]=0x4; nibs[4]=0xF; nibs[5]=0xE;
+    int i = 0;
+    while (i < 6) {
+        int n = nibs[i];
+        if (hits[n] > 0) {
+            btn_name(n, nm);
+            sprintf(line, "{s}&nbsp;&nbsp;%s{m}%d x{e}", nm, hits[n]);
+            webSend(line);
+        }
+        i = i + 1;
     }
 }
 
@@ -391,10 +515,37 @@ void Command(char cmd[]) {
         }
         return;
     }
+    if (strcmp(cmd, "SWEEP") == 0) {
+        sweep_on = !sweep_on;
+        sweep_k = 8; addr_inv = 0; real_mode = 1;
+        n_pkt = 0; n_hit = 0;
+        if (sweep_on) { active = 1; }
+        if (sweep_on) {
+            responseCmnd("SWEEP AN: Versatz 8..44 x beide Polaritaeten, ~60 ms je Schritt");
+        } else {
+            responseCmnd("SWEEP AUS");
+        }
+        return;
+    }
+    if (strcmp(cmd, "INV") == 0) {
+        addr_inv = !addr_inv;
+        sprintf(line, "Adresse %s (Bitpolaritaet)", addr_inv ? "INVERTIERT" : "normal");
+        responseCmnd(line);
+        return;
+    }
+    if (strStartsWith(cmd, "AW")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int n = strToInt(a1);
+        if (n >= 3) { if (n <= 5) { real_aw = n; } }
+        sprintf(line, "Adressbreite jetzt %d Byte", real_aw);
+        responseCmnd(line);
+        return;
+    }
     if (strcmp(cmd, "SCAN") == 0) {
         real_mode = !real_mode;
-        responseCmnd(real_mode ? "Modus: GEMESSENE Parameter (Syncword 8A855AAA)"
-                               : "Modus: Suchlauf ueber alle Kombinationen");
+        if (real_mode) { responseCmnd("Modus: GEMESSENE Parameter"); }
+        else            { responseCmnd("Modus: Suchlauf"); }
         return;
     }
     if (strcmp(cmd, "SQ") == 0) {
@@ -544,7 +695,8 @@ void Command(char cmd[]) {
     }
     if (strcmp(cmd, "RAW") == 0) {
         show_raw = !show_raw;
-        responseCmnd(show_raw ? "Rohausgabe AN" : "Rohausgabe AUS");
+        if (show_raw) { responseCmnd("Rohausgabe AN"); }
+        else          { responseCmnd("Rohausgabe AUS"); }
         return;
     }
     if (strStartsWith(cmd, "CH")) {
@@ -563,17 +715,23 @@ void Command(char cmd[]) {
 
 int main() {
     // Lampenkanaele 4/39/74 -> nRF24 +2
-    ch_list[0] = 6;
+    // Dauerbetrieb auf Kanal 41: die Fernbedienung sendet je Druck 30 Rahmen
+    // auf diesem Kanal, das reicht reichlich. Rotieren wuerde nur Pakete kosten.
+    ch_list[0] = 41;
     ch_list[1] = 41;
-    ch_list[2] = 76;
+    ch_list[2] = 41;
     sq_mode = 0; sq_n = 0; bus_mode = 0;
-    active = 0; cur = 0; show_raw = 0; n_pkt = 0; n_hit = 0; pat_cur = 0x55; aw_cur = 4; dr_cur = 0x0E; real_mode = 1;
+    active = 1; cur = 0; show_raw = 0; n_pkt = 0; n_hit = 0; pat_cur = 0x55; aw_cur = 4; dr_cur = 0x0E; real_mode = 1; real_aw = 5; addr_inv = 0; sweep_k = 24; sweep_on = 0;
     csn = CSN_PIN;
 
     // ZUERST den CC1101 abwaehlen — er teilt sich MISO mit dem nRF24.
     pinMode(CC_CS_PIN, 3);
     digitalWrite(CC_CS_PIN, 1);
 
+    last_nib = -1; last_vv = 0; last_ms = 0; cnt_ok = 0; cnt_bad = 0;
+    int z = 0;
+    while (z < 16) { hits[z] = 0; z = z + 1; }
+    air_init();
     spiInit(-1, -1, -1, 4);
     spiSetCS(SLOT, csn);
     if (CE_PIN >= 0) {
