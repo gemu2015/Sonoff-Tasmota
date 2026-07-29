@@ -83,6 +83,9 @@
 //   LAMPFORGET n  -> Kennung n loeschen
 //
 //   Diagnose, falls das Anlernen nichts findet — in dieser Reihenfolge:
+//   LAMPCC        -> ZUERST bei „alle Register FF": den CC1101 am SELBEN Bus
+//                    auslesen. Antwortet er (VERSION 04/14), sind CLK/MOSI/MISO
+//                    bewiesen in Ordnung und der Fehler sitzt beim nRF24.
 //   LAMPNOISE     -> 2 s mit 3-Byte-Adresse lauschen. >0 Pakete = Antenne,
 //                    MISO und Empfangszweig arbeiten; 0 = Empfang defekt.
 //   LAMPREG       -> Register UND Empfangsadresse zurueckliegen. Waehrend des
@@ -1029,6 +1032,31 @@ void Command(char cmd[]) {
                 learn_rx, learn_raw[0], learn_raw[1], learn_raw[2], learn_raw[3],
                 learn_raw[4], learn_raw[5], learn_raw[6], learn_raw[7],
                 learn_raw[8], learn_raw[9], learn_raw[10], learn_raw[11]);
+        responseCmnd(line);
+        return;
+    }
+    // BUS GEGEN BEKANNT GUTE HARDWARE PRUEFEN. Der CC1101 haengt am selben
+    // SPI und antwortet auf 0xC0|0x30 (PARTNUM) und 0xC0|0x31 (VERSION -> 04
+    // oder 14). Kommt das sauber, sind CLK/MOSI/MISO und die SPI-Schicht
+    // bewiesen in Ordnung und der Fehler sitzt beim nRF24 (Versorgung,
+    // Verdrahtung, Modul). Antwortet auch er nur FF, ist der Bus selbst tot.
+    // Die nuetzlichste Diagnose des ganzen Projekts — spart enorm viel Raten.
+    if (strcmp(cmd, "CC") == 0) {
+        digitalWrite(CSN_PIN, 1);          // nRF24 sicher abgewaehlt
+        pinMode(CC_CS_PIN, 3);
+        spi[0] = 0xF0; spi[1] = 0x00;      // 0xC0 | 0x30 = PARTNUM
+        digitalWrite(CC_CS_PIN, 0);
+        spiTransfer(0, spi, 2, 1);
+        digitalWrite(CC_CS_PIN, 1);
+        int part = spi[1] & 0xFF;
+        spi[0] = 0xF1; spi[1] = 0x00;      // 0xC0 | 0x31 = VERSION
+        digitalWrite(CC_CS_PIN, 0);
+        spiTransfer(0, spi, 2, 1);
+        digitalWrite(CC_CS_PIN, 1);
+        int ver = spi[1] & 0xFF;
+        digitalWrite(CC_CS_PIN, 1);        // wieder abwaehlen, teilt MISO!
+        sprintf(line, "CC1101: PARTNUM=%02X VERSION=%02X — Version 04 oder 14 = SPI-Bus OK, dann liegt es am nRF24. Beides FF = Bus tot.",
+                part, ver);
         responseCmnd(line);
         return;
     }
