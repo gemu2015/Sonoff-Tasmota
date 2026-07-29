@@ -74,6 +74,15 @@ char req[320];              // HTTP request builder (http_get / gw_login)
 char post[150];             // login POST body
 char gpath[140];            // request path builder
 char grow[320];             // web card row builder
+// Erkennungszustand. nplants = wie viele Anlagen die Anmeldung gemeldet hat,
+// have[i] = fuer diese Anlage wurde ein Wechselrichter gefunden. Beides ist
+// noetig, um „unvollstaendig erkannt" von „fertig" zu unterscheiden — vorher
+// gab es nur ninv, und das konnte beides bedeuten.
+int  nplants = 0;
+int  have[NINV_MAX];
+int  redisc_tick = 0;
+#define REDISC_POLLS 20     // so viele Abfragen zwischen zwei Nachfassversuchen
+
 int  next_poll = 15;        // first poll shortly after boot
 int  poll_tick = 0;
 
@@ -251,6 +260,7 @@ void gw_discover() {
         if (np == 2) { scopy(nm2, jval); }
         np = np + 1;
     }
+    nplants = np;
     addLog("GRT: %d plants", np);
     // per plant: device list -> first real inverter entry
     for (int i = 0; i < np; i = i + 1) {
@@ -259,7 +269,19 @@ void gw_discover() {
         if (i == 1) { scopy(pid, pid1); }
         if (i == 2) { scopy(pid, pid2); }
         sprintf(gpath, "/newTwoPlantAPI.do?op=getAllDeviceListTwo&plantId=%s&pageNum=1&pageSize=10", pid);
-        if (http_get(gpath) != 200) { continue; }
+        have[i] = 0;
+        // ZWEITER VERSUCH. Genau hier ging die Garage verloren: ein einzelner
+        // fehlgeschlagener Abruf liess die Anlage still ausfallen.
+        int ok = 0;
+        int tries = 0;
+        while (tries < 2) {
+            if (http_get(gpath) == 200) { ok = 1; tries = 9; }
+            else { delay(700); tries = tries + 1; }
+        }
+        if (ok == 0) {
+            addLog("GRT: Geraeteliste Anlage %d nicht abrufbar — fehlt vorerst", i);
+            continue;
+        }
         int found = 0;
         while (found == 0) {
             if (jtake("deviceSn", jval) == 0) { break; }
@@ -272,7 +294,7 @@ void gw_discover() {
                 if (i == 0) { scopy(sn0, jval); ty0 = t; }
                 if (i == 1) { scopy(sn1, jval); ty1 = t; }
                 if (i == 2) { scopy(sn2, jval); ty2 = t; }
-                ninv = i + 1;
+                have[i] = 1;
                 found = 1;
                 char nmx[24];
                 if (i == 0) { scopy(nmx, nm0); }
@@ -281,12 +303,27 @@ void gw_discover() {
                 addLog("GRT: found %s type=%d (%s)", jval, t, nmx);
             }
         }
+        if (found == 0) { addLog("GRT: Anlage %d ohne Wechselrichter-Eintrag", i); }
     }
+    // ninv bildet ab jetzt die ANLAGEN ab, nicht die Erfolge. Vorher stand hier
+    // ninv = i + 1 aus der Schleife — faellt Anlage 0 aus und 1 und 2 gelingen,
+    // ergab das ninv=3 mit einer leeren Seriennummer auf Platz 0.
+    ninv = np;
+}
+
+// Wie viele Anlagen noch ohne Wechselrichter sind.
+int disc_missing() {
+    int m = 0;
+    for (int i = 0; i < nplants; i = i + 1) {
+        if (have[i] == 0) { m = m + 1; }
+    }
+    return m;
 }
 
 // ── per-inverter poll + alarm rule ──────────────────────────────────────────
 
 void gw_poll_one(int i) {
+    if (have[i] == 0) { return; }       // Anlage ohne erkannten Wechselrichter
     char sn[24];
     int ty = 0;
     if (i == 0) { scopy(sn, sn0); ty = ty0; }
@@ -332,7 +369,23 @@ void gw_poll_one(int i) {
 void gw_poll_all() {
     if (logged_in == 0) {
         if (gw_login() == 0) { return; }
-        if (ninv == 0) { gw_discover(); }
+        if (nplants == 0) { gw_discover(); }
+    }
+    // NACHFASSEN, solange eine Anlage ohne Wechselrichter dasteht.
+    // Vorher lief die Erkennung nur bei ninv == 0 — ein einmal verlorener
+    // Wechselrichter kam deshalb NIE von selbst zurueck, auch nicht nach einer
+    // neuen Anmeldung; es half nur GRTL von Hand. Genau so ist die Garage
+    // wochenlang verschwunden geblieben.
+    if (disc_missing() > 0) {
+        redisc_tick = redisc_tick + 1;
+        if (redisc_tick >= REDISC_POLLS) {
+            redisc_tick = 0;
+            addLog("GRT: %d Anlage(n) unvollstaendig — Erkennung wird wiederholt",
+                   disc_missing());
+            gw_discover();
+        }
+    } else {
+        redisc_tick = 0;
     }
     for (int i = 0; i < ninv; i = i + 1) {
         gw_poll_one(i);
@@ -384,6 +437,13 @@ void web_row(int i) {
     if (i == 0) { scopy(nm, nm0); }
     if (i == 1) { scopy(nm, nm1); }
     if (i == 2) { scopy(nm, nm2); }
+    // Eine Anlage ohne erkannten Wechselrichter NICHT mit Nullen darstellen —
+    // das sieht aus wie „liefert gerade nichts" statt „wurde nicht gefunden".
+    if (have[i] == 0) {
+        sprintf(grow, "{s}%s{m}<span style='color:#e0a030'>nicht erkannt — Erkennung laeuft erneut</span>{e}", nm);
+        webSend(grow);
+        return;
+    }
     char c1[16]; char c2[16];
     // NB: a string ternary as a USER-function char[] arg bounds-crashes the VM
     // (works only for builtin string args) -> plain if/else here.
