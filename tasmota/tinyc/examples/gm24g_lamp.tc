@@ -56,8 +56,13 @@
 //     zweimal druecken"). Einmal pro Burst: tx_setup(), dann je Rahmen nur
 //     Kanal + Nutzlast + CE-Impuls.
 //
-// ── VERDRAHTUNG (.177, ESP32-Bridge) ──────────────────────────────────────
-//   Tasmota-UI belegt bereits:  9 = MOSI, 10 = SCLK, 11 = MISO
+// ── VERDRAHTUNG (.156 „Mini2", ESP32-S3, ESP32-Bridge) ────────────────────
+//   Vorgaenger .177 ist am 2026-07-29 bei einem Firmware-Update gestorben
+//   (nach dem OTA nicht mehr erreichbar, seriell nur noch Fehler). Die
+//   Funkchips wurden auf ein Ersatzgeraet umgesteckt. Die drei SPI-Pins sind
+//   im Tasmota-Template zu setzen, ein frisch geflashtes Geraet hat sie NICHT:
+//       GPIO9 = 704 (SPI MOSI)  GPIO10 = 736 (SPI CLK)  GPIO11 = 672 (SPI MISO)
+//   Tasmota-UI belegt damit:    9 = MOSI, 10 = SCLK, 11 = MISO
 //   Hier gesetzt:               7 = CSN des nRF24L01
 //   Hier gesetzt:               8 = CE des nRF24L01
 //   ⚠️ 10–100 µF Elko direkt am Modul zwischen VCC und GND, sonst bricht die
@@ -72,10 +77,19 @@
 //   LAMPTX <hex>  -> Taste senden. alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6
 //                    heller=C  dunkler=4  warm=E  kalt=F
 //   LAMPRC <n>    -> Fernbedienung waehlen (welche Lampengruppe zuhoert)
-//   LAMPLEARN     -> neue Fernbedienung anlernen: danach 20 s lang eine
-//                    beliebige Taste auf ihr druecken
-//   LAMPLIST      -> bekannte Kennungen + Anlernstatus
+//   LAMPLEARN     -> neue Fernbedienung anlernen: danach 60 s lang eine
+//                    beliebige Taste auf ihr druecken, NAH am Modul
+//   LAMPLIST      -> bekannte Kennungen + Anlernstatus (+ RX_DR-Zaehler)
 //   LAMPFORGET n  -> Kennung n loeschen
+//
+//   Diagnose, falls das Anlernen nichts findet — in dieser Reihenfolge:
+//   LAMPNOISE     -> 2 s mit 3-Byte-Adresse lauschen. >0 Pakete = Antenne,
+//                    MISO und Empfangszweig arbeiten; 0 = Empfang defekt.
+//   LAMPREG       -> Register UND Empfangsadresse zurueckliegen. Waehrend des
+//                    Anlernens erlaubt, weil es nichts umkonfiguriert.
+//   LAMPRAW       -> RX_DR-Zaehler + erstes Rohpaket des letzten Versuchs.
+//                    Trennt "es kommt nichts an" von "es kommt an, wird aber
+//                    verworfen" — genau daran hing es beim Geraetewechsel.
 //   LAMPTEST      -> nRF24-Register zuruecklesen (prueft Bus und Modul)
 //   LAMPONE       -> EINEN Rahmen senden und TX_DS im Status pruefen.
 //                    Der schnellste Beweis, dass wirklich gesendet wird —
@@ -143,9 +157,14 @@ int  last_ms;    // millis() beim letzten Senden
 // weg. persist-Initialisierer werden allerdings verworfen — alles startet auf
 // 0, deshalb saet main() die Voreinstellung erst, wenn rc_cnt == 0 ist.
 #define RC_MAX     4
-#define LEARN_MS   20000         // so lange auf einen Tastendruck warten
+#define LEARN_MS   60000         // Wartezeit auf einen Tastendruck.
+                                 // 20 s waren zu knapp: bis die Aufforderung
+                                 // gelesen und die Fernbedienung geholt war,
+                                 // lief das Fenster ab und die Meldung
+                                 // "nichts empfangen" sah wie ein Defekt aus.
 
-// ⚠️ USE_PERSIST BRAUCHT TinyC >= 1.6.43.
+// ⚠️ USE_PERSIST BRAUCHT TinyC >= 1.6.43. Auf .156 (1.6.44) VERIFIZIERT:
+// Slot laedt, Auswahl ueberlebt den Slot-Neustart, .pvs wird angelegt.
 // Auf 1.6.42 fuehrt SCHON DIE DEKLARATION einer persist-Variablen zum harten
 // Neustart des ESP — nicht zu einem VM-Fehler, das Geraet bootet weg. Am
 // 2026-07-29 auf .177 (Release 1.6.42, per /tc_api?cmd=status) mit einem
@@ -155,19 +174,17 @@ int  last_ms;    // millis() beim letzten Senden
 // Es entsteht nicht einmal eine .pvs — es kracht beim LADEN, also beim
 // Oeffnen der noch nicht vorhandenen Datei, nicht beim Speichern.
 // Die persist-Ueberholung (namensbasiertes PV3, Absturzkorrekturen) kam mit
-// 1.6.43. Nach einem Firmware-Update hier auf 1 stellen und einmal LAMPLEARN
-// samt Neustart gegenpruefen; ob genau dieser Ladepfad im aktuellen Quellstand
-// behoben ist, ist noch NICHT verifiziert.
-// Ohne die Zeile laufen die Kennungen nur bis zum naechsten Slot-Neustart —
-// die beiden gemessenen kommen als Voreinstellung ohnehin zurueck, angelernte
-// nicht.
+// 1.6.43. Auf einer aelteren Firmware also AUSKOMMENTIEREN, sonst bootet das
+// Geraet weg; ohne die Zeile laufen die Kennungen nur bis zum naechsten
+// Slot-Neustart (die beiden gemessenen kommen als Voreinstellung zurueck,
+// angelernte nicht).
 //
 // ⚠️ ZUM EINSCHALTEN DIE NAECHSTE ZEILE EINKOMMENTIEREN, nicht auf 1 setzen:
 // TinyCs `#if NAME` wertet den WERT NICHT AUS, es prueft nur, ob der Name
 // definiert ist — `#define USE_PERSIST 0` nimmt trotzdem den Ja-Zweig (am
 // 2026-07-29 am Praeprozessor nachgestellt). Nur `#ifdef`/`#ifndef` arbeiten
 // hier zuverlaessig.
-// #define USE_PERSIST
+#define USE_PERSIST
 
 #ifdef USE_PERSIST
 persist int rc_cnt;          // wie viele Fernbedienungen bekannt sind
@@ -196,6 +213,15 @@ int  learn_until;   // millis(), bis wann
 int  learn_res;     // 0 = nichts, 1 = neu gelernt, 2 = war schon bekannt,
                     // 3 = Abbruch/Zeit abgelaufen, 4 = kein Platz frei
 int  ui_learn;      // aus dem Web: 1 = anlernen, 2 = abbrechen, 10+n = loeschen
+// Diagnose: trennt „es kommt nichts an" von „es kommt an, wird aber verworfen".
+int  learn_rx;      // wie oft RX_DR waehrend des Anlernens gesetzt war
+int  learn_raw[16]; // erstes Rohpaket, bitgedreht
+int  learn_have;    // 1 = learn_raw gefuellt
+// Bestaetigungszaehler: erst nach mehreren gleichen Kennungen uebernehmen.
+int  cand1;
+int  cand2;
+int  cand3;
+int  cand_n;
 
 // Befehlsnibble -> Klartext. Bewusst if/else statt Ternaer: String-Ternaere
 // scheiterten in TinyC lange still zur Laufzeit (im Codegen behoben am
@@ -377,6 +403,7 @@ int got_i3;
 int rx_poll() {
     int st = nrf_rd(N_STATUS);
     if (!(st & 0x40)) { return 0; }          // kein RX_DR
+    learn_rx = learn_rx + 1;
     spi[0] = 0x61;                           // R_RX_PAYLOAD
     int w = 1;
     while (w <= 32) { spi[w] = 0; w = w + 1; }
@@ -386,17 +413,43 @@ int rx_poll() {
     char rxb[34];
     w = 0;
     while (w < 32) { rxb[w] = bitrev(spi[w+1] & 0xFF); w = w + 1; }
+    if (!learn_have) {
+        int c = 0;
+        while (c < 16) { learn_raw[c] = rxb[c] & 0xFF; c = c + 1; }
+        learn_have = 1;
+    }
+    // ⚠️ DAS LAENGENBYTE NICHT AUS DER LUFT VERLANGEN.
+    // Auf .156 kommt das erste Nutzlastbyte als 0x00 an, obwohl der Sender
+    // 0x07 schickt (auf .177 kam es korrekt — offenbar eine Eigenheit des
+    // Adress-/Nutzlast-Uebergangs bei diesem Chip). Der REST des Rahmens ist
+    // fehlerfrei, die Pruefsumme des Senders rechnet mit 0x07. Also 0x07 als
+    // Protokollkonstante einsetzen statt es als Anker zu fordern — sonst wird
+    // JEDER gueltige Rahmen verworfen, und es sieht aus, als kaeme nichts an.
+    // Gemessen: 1531 Pakete empfangen, 0 erkannt.
     int k = 0;
     while (k < 24) {
-        if (rxb[k] == 0x07) {
-            int t = (rxb[k] + rxb[k+1] + rxb[k+2] + rxb[k+3]
-                   + rxb[k+4] + rxb[k+5] + rxb[k+6]) & 0xFF;
-            if (t == (rxb[k+7] & 0xFF)) {
-                got_i1 = rxb[k+1] & 0xFF;
-                got_i2 = rxb[k+2] & 0xFF;
-                got_i3 = rxb[k+3] & 0xFF;
+        int t = (0x07 + rxb[k+1] + rxb[k+2] + rxb[k+3]
+               + rxb[k+4] + rxb[k+5] + rxb[k+6]) & 0xFF;
+        if (t == (rxb[k+7] & 0xFF)) {
+            int i1 = rxb[k+1] & 0xFF;
+            int i2 = rxb[k+2] & 0xFF;
+            int i3 = rxb[k+3] & 0xFF;
+            // Ohne das Laengenbyte als Anker traegt nur noch die Pruefsumme —
+            // das trifft rein zufaellig etwa jedes 256. Fenster. Bei 25 Paketen
+            // pro Sekunde waere das reichlich Rauschen. Deshalb erst nach DREI
+            // gleichen Kennungen uebernehmen; ein echter Tastendruck sendet 30
+            // Rahmen auf diesem Kanal, Rauschen wiederholt sich nicht.
+            if (i1 == cand1) {
+                if (i2 == cand2) {
+                    if (i3 == cand3) { cand_n = cand_n + 1; }
+                    else { cand1 = i1; cand2 = i2; cand3 = i3; cand_n = 1; }
+                } else { cand1 = i1; cand2 = i2; cand3 = i3; cand_n = 1; }
+            } else { cand1 = i1; cand2 = i2; cand3 = i3; cand_n = 1; }
+            if (cand_n >= 3) {
+                got_i1 = i1; got_i2 = i2; got_i3 = i3;
                 return 1;
             }
+            return 0;
         }
         k = k + 1;
     }
@@ -473,6 +526,8 @@ void TaskLoop() {
         if (w == 1) {
             learn_state = 1;
             learn_res = 0;
+            learn_rx = 0; learn_have = 0;
+            cand1 = -1; cand2 = -1; cand3 = -1; cand_n = 0;
             learn_until = millis() + LEARN_MS;
             rx_setup();
             addLog("gm24g: Anlernen laeuft — Taste auf der neuen Fernbedienung druecken");
@@ -917,8 +972,8 @@ void Command(char cmd[]) {
             z = z + 1;
         }
         if (learn_state == 1) {
-            sprintf(line, "ANLERNEN laeuft, noch %d s |%s",
-                    (learn_until - millis()) / 1000, acc);
+            sprintf(line, "ANLERNEN laeuft, noch %d s, RX_DR=%d |%s",
+                    (learn_until - millis()) / 1000, learn_rx, acc);
         } else {
             sprintf(line, "%d bekannt, aktiv %d |%s", rc_cnt, rc_sel + 1, acc);
         }
@@ -936,6 +991,90 @@ void Command(char cmd[]) {
         }
         sprintf(line, "Fernbedienung %d von %d (Kennung %02X %02X %02X)",
                 rc_sel + 1, rc_cnt, rc_i1[rc_sel], rc_i2[rc_sel], rc_i3[rc_sel]);
+        responseCmnd(line);
+        return;
+    }
+    // Reiner Lesebefehl — konfiguriert NICHTS um und ist deshalb als einziger
+    // auch waehrend des Anlernens erlaubt. Genau dafuer gedacht: nachsehen, ob
+    // der Chip wirklich auf Empfang steht (CONFIG=03), statt es anzunehmen.
+    // Rohpaket des letzten Anlernversuchs. RX_DR>0 mit unbrauchbarem Rohpaket
+    // heisst: es kommt etwas an, aber die Rahmenerkennung passt nicht.
+    // RX_DR=0 heisst: es kommt schlicht nichts an.
+    if (strcmp(cmd, "RAW") == 0) {
+        if (!learn_have) {
+            sprintf(line, "kein Paket empfangen (RX_DR=%d)", learn_rx);
+            responseCmnd(line);
+            return;
+        }
+        sprintf(line, "RX_DR=%d roh: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X (gesucht: Laenge 07, dann 6 Byte + Summe)",
+                learn_rx, learn_raw[0], learn_raw[1], learn_raw[2], learn_raw[3],
+                learn_raw[4], learn_raw[5], learn_raw[6], learn_raw[7],
+                learn_raw[8], learn_raw[9], learn_raw[10], learn_raw[11]);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "REG") == 0) {
+        // Erst die Einzelregister lesen, DANN die Adresse — und die Adresse
+        // sofort in Locals sichern.
+        // ⚠️ nrf_rd() benutzt denselben globalen spi[]-Puffer und ueberschreibt
+        // spi[0] und spi[1]. Wer die Adresse in spi[] stehen laesst und danach
+        // noch nrf_rd() im selben sprintf aufruft, liest als erstes Adressbyte
+        // den zuletzt gelesenen REGISTERWERT zurueck. Genau das sah hier nach
+        // einer falsch programmierten Adresse aus (0x20 statt 0xAA — das war
+        // RX_PW_P0=32) und haette uns auf eine falsche Faehrte geschickt.
+        int cfg = nrf_rd(N_CONFIG);
+        int aw  = nrf_rd(N_AW);
+        int ch  = nrf_rd(N_RF_CH);
+        int rf  = nrf_rd(N_RF_SET);
+        int st  = nrf_rd(N_STATUS);
+        int pw  = nrf_rd(0x11);
+        spi[0] = N_R_REG | 0x0A;
+        int z = 1;
+        while (z <= 5) { spi[z] = 0; z = z + 1; }
+        spiTransfer(SLOT, spi, 6, 1);
+        int a1 = spi[1] & 0xFF; int a2 = spi[2] & 0xFF; int a3 = spi[3] & 0xFF;
+        int a4 = spi[4] & 0xFF; int a5 = spi[5] & 0xFF;
+        sprintf(line, "CONFIG=%02X AW=%02X RF_CH=%d RF_SETUP=%02X STATUS=%02X PW=%d ADDR=%02X %02X %02X %02X %02X (soll AA 5A 85 8A 55)",
+                cfg, aw, ch, rf, st, pw, a1, a2, a3, a4, a5);
+        responseCmnd(line);
+        return;
+    }
+    // Diagnose des EMPFANGSPFADS ohne fremde Hilfe. Mit einer 3-Byte-Adresse
+    // aus lauter 0xAA rastet der Chip staendig auf Rauschen ein — kommen hier
+    // Pakete, funktionieren Antenne, MISO und der Empfangszweig, und ein
+    // Fehlschlag beim Anlernen ist ein Signal-/Reichweitenproblem.
+    // Kommt NICHTS, ist der Empfang selbst kaputt. (Der alte Sniffer sah so
+    // rund 3 Pakete/s.)
+    if (strcmp(cmd, "NOISE") == 0) {
+        if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+        nrf_wr(N_CONFIG, 0x00);
+        nrf_wr(N_EN_AA, 0x00);
+        nrf_wr(0x02, 0x01);
+        nrf_wr(N_AW, 0x01);              // 3 Byte Adresse
+        nrf_wr(N_RF_CH, 41);
+        nrf_wr(N_RF_SET, RF_1MBIT);
+        nrf_wr(0x11, 32);
+        spi[0] = N_W_REG | 0x0A;
+        spi[1] = 0xAA; spi[2] = 0xAA; spi[3] = 0xAA;
+        spiTransfer(SLOT, spi, 4, 1);
+        nrf_cmd(0xE2);
+        nrf_wr(N_STATUS, 0x70);
+        nrf_wr(N_CONFIG, 0x03);
+        delay(2);
+        if (CE_PIN >= 0) { digitalWrite(CE_PIN, 1); }
+        int n = 0;
+        int q = 0;
+        while (q < 2000) {
+            if (nrf_rd(N_STATUS) & 0x40) {
+                n = n + 1;
+                nrf_wr(N_STATUS, 0x70);
+                nrf_cmd(0xE2);
+            }
+            delay(1);
+            q = q + 1;
+        }
+        tx_setup();
+        sprintf(line, "%d Pakete in 2 s bei 3-Byte-Adresse (0 = Empfangspfad defekt, >0 = Empfang lebt)", n);
         responseCmnd(line);
         return;
     }
