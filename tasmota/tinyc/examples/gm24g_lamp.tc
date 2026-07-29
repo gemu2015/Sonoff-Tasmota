@@ -18,8 +18,18 @@
 // Auf der Luft:   55 55 55 55 | 8A 85 5A AA | Nutzlast bitgedreht | CRC
 // Dekodiert:      07 | 5A 4B 07 b4 CC VV | SUM
 //                 07       = Laengenbyte
-//                 5A 4B 07 = Kennung des Fernbedienungspaars
-//                 b4       = Zone (00 = alle, 01..04)
+//                 5A 4B 07 = Kennung des Fernbedienungspaars (siehe unten,
+//                            es gibt hier ZWEI verschiedene)
+//                 b4       = zuletzt ANGEWAEHLTE Zone, nicht die Zone des
+//                            Befehls. Nur die EIN-Tasten setzen sie; AUS- und
+//                            Ringtasten tragen sie unveraendert weiter.
+//                            (Gemessen 2026-07-29: nach vier EIN-Tasten
+//                            trugen alle vier AUS-Tasten b4=04, und Ringtasten
+//                            trugen b4=03, weil davor Zone 3 gewaehlt war.)
+//                            Die Zone des Befehls steckt allein im Nibble
+//                            von CC. Wir senden b4 = Zone des Befehls; das
+//                            entspricht dem Normalfall „erst EIN, dann AUS
+//                            derselben Zone" und funktioniert nachweislich.
 //                 CC       = Tastencode; Bit 0x10 = Wiederholung
 //                 VV       = Zaehler, steigt je Tastendruck
 //                 SUM      = (Summe der sieben Bytes) & 0xFF
@@ -61,6 +71,7 @@
 //   Tasmota haengt das Unterkommando OHNE Leerzeichen an den Praefix an.
 //   LAMPTX <hex>  -> Taste senden. alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6
 //                    heller=C  dunkler=4  warm=E  kalt=F
+//   LAMPRC <1|2>  -> Fernbedienung waehlen (welche Lampengruppe zuhoert)
 //   LAMPTEST      -> nRF24-Register zuruecklesen (prueft Bus und Modul)
 //   LAMPONE       -> EINEN Rahmen senden und TX_DS im Status pruefen.
 //                    Der schnellste Beweis, dass wirklich gesendet wird —
@@ -94,9 +105,30 @@ char line[220];
 int  tx_total;   // gesendete Rahmen insgesamt
 int  tx_seq;     // Zaehler VV, steigt je Tastendruck
 int  ui_cmd;     // von den Web-Knoepfen gesetzt: Befehlsnibble, 0 = nichts
+int  ui_rc;      // Fernbedienungswahl aus dem Web: 1 oder 2, 0 = nichts
 int  tx_pend;    // -1 = nichts zu senden, sonst Befehlsnibble
 int  last_sent;  // zuletzt gesendetes Nibble, -1 = noch nichts
 int  last_ms;    // millis() beim letzten Senden
+
+// ── ZWEI FERNBEDIENUNGEN ──────────────────────────────────────────────────
+// Jeder Rahmen fuehrt eine 3-Byte-Kennung des Fernbedienungspaars mit. Die
+// Lampen sind je auf EINE Fernbedienung angelernt und ignorieren alles andere.
+// Am 2026-07-29 gemessen (Empfaenger auf Laenge+Pruefsumme verankert statt auf
+// eine fest verdrahtete Kennung, sonst sieht man die zweite gar nicht):
+//
+//     Fernbedienung 1   5A 4B 07     Fernbedienung 2   5A 43 72
+//
+// Die Tastencodes sind bei BEIDEN identisch — Zone 1 EIN ist ueberall CC=08.
+// Nur die Kennung unterscheidet sie. Das war die Ursache dafuer, dass Zone 2
+// aus TinyC nichts bewirkte, mit der Fernbedienung aber einwandfrei ging:
+// gesendet wurde die richtige Taste an die falsche Lampengruppe.
+//
+// NICHT beide Kennungen nacheinander senden — Zone 2 an Fernbedienung 1 und
+// Zone 2 an Fernbedienung 2 sind VERSCHIEDENE Lampen; das schaltete beide.
+int  rc_sel;     // 0 = Fernbedienung 1, 1 = Fernbedienung 2
+int  rc_id1[2];
+int  rc_id2[2];
+int  rc_id3[2];
 
 // Befehlsnibble -> Klartext. Bewusst if/else statt Ternaer: String-Ternaere
 // scheiterten in TinyC lange still zur Laufzeit (im Codegen behoben am
@@ -207,10 +239,13 @@ void tx_setup() {
 void tx_frame(int nib, int vv, int b4, int chan, int flag) {
     int cc = (nib & 0x0F);
     if (flag) { cc = cc | 0x10; }
-    int sum = (0x07 + 0x5A + 0x4B + 0x07 + b4 + cc + vv) & 0xFF;
+    int i1 = rc_id1[rc_sel];
+    int i2 = rc_id2[rc_sel];
+    int i3 = rc_id3[rc_sel];
+    int sum = (0x07 + i1 + i2 + i3 + b4 + cc + vv) & 0xFF;
     char air8[10];
-    air8[0] = bitrev(0x07); air8[1] = bitrev(0x5A); air8[2] = bitrev(0x4B);
-    air8[3] = bitrev(0x07); air8[4] = bitrev(b4);
+    air8[0] = bitrev(0x07); air8[1] = bitrev(i1); air8[2] = bitrev(i2);
+    air8[3] = bitrev(i3);   air8[4] = bitrev(b4);
     air8[5] = bitrev(cc);   air8[6] = bitrev(vv);   air8[7] = bitrev(sum);
     int crc = lt_crc(air8, 8);
 
@@ -264,6 +299,11 @@ void send_button(int nib) {
 // Senden laeuft in der eigenen Task, nicht im Tick: ein Burst dauert rund
 // 100 ms und wuerde die Tasmota-Hauptschleife blockieren.
 void TaskLoop() {
+    if (ui_rc != 0) {
+        rc_sel = ui_rc - 1;
+        ui_rc = 0;
+        addLog("gm24g: Fernbedienung %d gewaehlt", rc_sel + 1);
+    }
     if (ui_cmd != 0) {
         tx_pend = ui_cmd & 0x0F;
         ui_cmd = 0;
@@ -283,6 +323,9 @@ void TaskLoop() {
 // ── Anzeige auf der Tasmota-Hauptseite ─────────────────────────────────────
 void WebCall() {
     char nm[16];
+    sprintf(line, "{s}Fernbedienung{m}<b>%d</b>  (Kennung %02X %02X %02X){e}",
+            rc_sel + 1, rc_id1[rc_sel], rc_id2[rc_sel], rc_id3[rc_sel]);
+    webSend(line);
     if (last_sent < 0) {
         webSend("{s}Deckenlampe{m}bereit{e}");
     } else {
@@ -324,10 +367,59 @@ void WebCall() {
 // gmb() fasst weder Inhalt noch Farben an, sondern staucht den Knopf kurz.
 // `seva(v,i)` stellt die Firmware auf der Hauptseite bereit, sobald ein Slot
 // ein WebCall() hat — das haben wir.
+// Der Wahlschalter braucht einen EIGENEN Handler. gmb() staucht nur kurz und
+// laesst das Aussehen sonst in Ruhe — richtig fuer Momentanknoepfe, falsch
+// fuer eine Zustandsanzeige: WebPage() wird NUR beim vollen Seitenaufbau
+// gerendert, der periodische Ajax-Refresh erneuert allein den Sensorblock aus
+// WebCall(). Ein serverseitig umgeschaltetes rc_sel erreicht die Knopffarbe
+// also nie, und FB 1 blieb dauerhaft schwarz. gmrc() faerbt darum im Browser
+// selbst um; beim naechsten Neuladen liefert der Server denselben Zustand.
+// ⚠️ TASMOTAS STYLESHEET MUSS FUER DAS PANEL ZURUECKGESETZT WERDEN.
+// Am 2026-07-29 im Browser nachgemessen, nicht geraten:
+//   div    { padding:5px; box-sizing:content-box }
+//   button { line-height:38.4px }
+// Folgen, die beide wie Rechenfehler von uns aussahen:
+//  * Der Ring war auf dem Schirm 168 px breit statt der gesetzten 158 —
+//    und absolut positionierte Kinder rechnen ab der POLSTERkante. Die vier
+//    Richtungspunkte sassen dadurch 5 px nach links oben verschoben
+//    (gemessen: heller bei -59, dunkler bei +49 statt symmetrisch ±54).
+//  * In einem 22 px hohen Knopf erzeugt line-height 38.4 px eine Textzeile,
+//    die oben 12 px tief beginnt und unten 3,5 px HERAUSRAGT.
+// Deshalb ein eigener Geltungsbereich #gmp mit gesetzten Grundwerten. Inline
+// gesetzte Eigenschaften gewinnen weiterhin, die Sonderfaelle bleiben also.
+void panel_css() {
+    webSend("<style>#gmp div{box-sizing:border-box;padding:0}");
+    webSend("#gmp button{box-sizing:border-box;line-height:1;margin:0;");
+    webSend("display:inline-flex;align-items:center;justify-content:center}");
+    webSend("</style>");
+}
+
 void panel_js() {
     webSend("<script>function gmb(e,v,i){seva(v,i);");
     webSend("e.style.transform='scale(.85)';");
-    webSend("setTimeout(function(){e.style.transform='';},260);}</script>");
+    webSend("setTimeout(function(){e.style.transform='';},260);}");
+    webSend("function gmrc(e,v,i){seva(v,i);");
+    webSend("var b=document.querySelectorAll('[data-rc]');");
+    webSend("for(var k=0;k<b.length;k++){");
+    webSend("var on=b[k].getAttribute('data-rc')==String(v);");
+    webSend("b[k].style.background=on?'#3a3a3a':'#fff';");
+    webSend("b[k].style.color=on?'#fff':'#666';}}</script>");
+}
+
+// Wahlschalter fuer die Fernbedienung. Die aktive ist dunkel hinterlegt —
+// eine Zustandsanzeige, kein Momentanknopf, deshalb faerbt sich die Auswahl
+// und springt nicht zurueck.
+void rc_btn(int which) {
+    sprintf(line, "<button data-rc='%d' title='Kennung %02X %02X %02X' onclick='gmrc(this,%d,%d)' style='",
+            which, rc_id1[which-1], rc_id2[which-1], rc_id3[which-1],
+            which, varIdx(ui_rc));
+    webSend(line);
+    webSend("border:0;cursor:pointer;font-family:inherit;font-size:11px;");
+    webSend("border-radius:11px;width:56px;height:22px;margin:0 3px;padding:0;");
+    if ((which - 1) == rc_sel) { webSend("background:#3a3a3a;color:#fff;"); }
+    else                       { webSend("background:#fff;color:#666;"); }
+    sprintf(line, "'>FB %d</button>", which);
+    webSend(line);
 }
 
 // oeffnet ein <button ...> mit onclick; das Styling folgt per webSend
@@ -346,11 +438,13 @@ void btn_base() {
 void top_btn(int nib, char sym[], char extra[]) {
     btn_open(nib);
     btn_base();
-    // display:block + auto-Raender: zwei <button> hintereinander stehen sonst
+    // display:flex + auto-Raender: zwei <button> hintereinander stehen sonst
     // NEBENeinander — auf der Fernbedienung sitzen sie untereinander.
+    // flex statt block, weil flex ebenfalls auf eigener Zeile steht UND den
+    // Inhalt senkrecht mittet; block ueberlaesst das der Schriftmetrik.
     webSend("background:#fff;border-radius:24px;width:76px;height:44px;");
     webSend("box-shadow:0 1px 3px rgba(0,0,0,.35);font-size:20px;");
-    webSend("display:block;margin:4px auto;");
+    webSend("display:flex;align-items:center;justify-content:center;margin:4px auto;");
     webSend(extra);
     sprintf(line, "'>%s</button>", sym);
     webSend(line);
@@ -404,12 +498,22 @@ void zone_col(int on_nib, int off_nib, int nr, int shift) {
 }
 
 void WebPage() {
+    panel_css();
     panel_js();
-    webSend("<div style='margin-left:-30px'>");
+    // Der frühere Ausgleich margin-left:-30px ist WEG — er kompensierte nur
+    // die 5-px-Polsterungen, die panel_css jetzt an der Wurzel abstellt.
+    webSend("<div id='gmp'>");
     // Gehaeuse
     webSend("<div style='max-width:246px;margin:10px auto;padding:16px 12px 14px;");
     webSend("background:linear-gradient(#fdfdfd,#eeeeef);border-radius:118px 118px 96px 96px/150px 150px 110px 110px;");
     webSend("box-shadow:0 2px 10px rgba(0,0,0,.25);text-align:center'>");
+
+    // Welche Fernbedienung wird nachgebildet? Steht ganz oben, weil davon
+    // abhaengt, WELCHE Lampen ueberhaupt zuhoeren.
+    webSend("<div style='margin:0 0 6px'>");
+    rc_btn(1);
+    rc_btn(2);
+    webSend("</div>");
 
     top_btn(0x5, "&#124;",  "");                 // alle EIN
     top_btn(0x9, "&#9675;", "");                 // alle AUS
@@ -485,6 +589,16 @@ void Command(char cmd[]) {
         responseCmnd(line);
         return;
     }
+    if (strStartsWith(cmd, "RC")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int n = strToInt(a1);
+        if (n >= 1) { if (n <= 2) { rc_sel = n - 1; } }
+        sprintf(line, "Fernbedienung %d (Kennung %02X %02X %02X)",
+                rc_sel + 1, rc_id1[rc_sel], rc_id2[rc_sel], rc_id3[rc_sel]);
+        responseCmnd(line);
+        return;
+    }
     if (strcmp(cmd, "TEST") == 0) {
         tx_setup();
         sprintf(line, "CONFIG=%02X (soll 02) AW=%02X (soll 03) RF_SETUP=%02X (soll 06) STATUS=%02X (totes Modul: FF)",
@@ -510,8 +624,12 @@ void Command(char cmd[]) {
 }
 
 int main() {
-    tx_total = 0; tx_seq = 0x40; tx_pend = -1; ui_cmd = 0;
+    tx_total = 0; tx_seq = 0x40; tx_pend = -1; ui_cmd = 0; ui_rc = 0;
     last_sent = -1; last_ms = 0;
+
+    rc_sel = 0;
+    rc_id1[0] = 0x5A; rc_id2[0] = 0x4B; rc_id3[0] = 0x07;   // Fernbedienung 1
+    rc_id1[1] = 0x5A; rc_id2[1] = 0x43; rc_id3[1] = 0x72;   // Fernbedienung 2
 
     // ZUERST den CC1101 abwaehlen — er teilt sich MISO mit dem nRF24.
     pinMode(CC_CS_PIN, 3);
