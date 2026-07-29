@@ -602,7 +602,10 @@ void WebCall() {
     if (rc_cnt < 1) {
         webSend("{s}Fernbedienung{m}<b>keine angelernt</b>{e}");
     } else {
-        sprintf(line, "{s}Fernbedienung{m}<b>%d</b> von %d  (Kennung %02X %02X %02X){e}",
+        // Die beiden <span> sind KEIN Schmuck: das Bedienfeld liest sie aus, um
+        // zu merken, dass sich hinter seinem Ruecken etwas geaendert hat.
+        // Dieser Block wird beim Ajax-Refresh erneuert, WebPage() nicht.
+        sprintf(line, "{s}Fernbedienung{m}<b><span id='gms'>%d</span></b> von <span id='gmn'>%d</span>  (Kennung %02X %02X %02X){e}",
                 rc_sel + 1, rc_cnt, rc_i1[rc_sel], rc_i2[rc_sel], rc_i3[rc_sel]);
         webSend(line);
     }
@@ -683,7 +686,20 @@ void panel_js() {
     webSend("for(var k=0;k<b.length;k++){");
     webSend("var on=b[k].getAttribute('data-rc')==String(v);");
     webSend("b[k].style.background=on?'#3a3a3a':'#fff';");
-    webSend("b[k].style.color=on?'#fff':'#666';}}</script>");
+    webSend("b[k].style.color=on?'#fff':'#666';}}");
+    // Loeschen und Anlernen aendern die STRUKTUR des Panels (eine Zeile faellt
+    // weg, ein Knopf kommt dazu). Umfaerben wie beim Wahlschalter reicht dafuer
+    // nicht, und WebPage() laeuft nur beim vollen Seitenaufbau — ohne das hier
+    // stand nach dem Loeschen weiter "2", und eine neu angelernte Fernbedienung
+    // wurde erst nach manuellem Neuladen sichtbar.
+    // Der WebCall-Block wird dagegen bei jedem Ajax-Refresh erneuert; er traegt
+    // Anzahl und Auswahl in #gmn/#gms. Weichen sie von dem ab, womit dieses
+    // Panel gerendert wurde, laedt die Seite EINMAL neu.
+    webSend("function gmwatch(n,s){setInterval(function(){");
+    webSend("var a=document.getElementById('gmn'),b=document.getElementById('gms');");
+    webSend("if(!a||!b)return;");
+    webSend("if(a.textContent!=String(n)||b.textContent!=String(s))location.reload();");
+    webSend("},1500);}</script>");
 }
 
 // Wahlschalter fuer die Fernbedienung. Die aktive ist dunkel hinterlegt —
@@ -881,6 +897,9 @@ void WebPage() {
     webSend("<div style='font-size:10px;color:#888;margin-top:10px'>2.4G RF</div>");
     webSend("</div>");          // Gehaeuse zu
     learn_panel();
+    // Mit dem Stand starten, mit dem dieses Panel gebaut wurde.
+    sprintf(line, "<script>gmwatch(%d,%d);</script>", rc_cnt, rc_sel + 1);
+    webSend(line);
     webSend("</div>");          // #gmp zu
 }
 
