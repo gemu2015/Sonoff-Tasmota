@@ -1157,6 +1157,35 @@ void Command(char cmd[]) {
         responseCmnd(line);
         return;
     }
+    // ENTSCHEIDET, OB GPIO13 WIRKLICH AM CS DES CC1101 HAENGT.
+    // LAMPCC beweist nur, dass der CC1101 antwortet, wenn wir GPIO13 toggeln —
+    // nicht, dass die Leitung ihn erreicht. Liegt sein CS lose oder auf Masse,
+    // ist er DAUERHAFT ausgewaehlt, treibt den geteilten MISO staendig mit, und
+    // der nRF24 kommt beim Lesen nicht durch. Senden ginge weiter, denn das
+    // braucht nur MOSI, SCK, CSN und CE — exakt unser Fehlerbild, und es
+    // erklaert auch, warum ZWEI Module gleich versagen.
+    // Test: einmal mit CS LOW lesen (soll antworten), einmal mit CS HIGH
+    // (darf NICHT antworten). Gleiches Ergebnis = CS-Leitung wirkungslos.
+    if (strcmp(cmd, "CCX") == 0) {
+        pinMode(CC_CS_PIN, 3);
+        digitalWrite(CSN_PIN, 1);          // nRF24 sicher abgewaehlt
+        // a) korrekt ausgewaehlt
+        digitalWrite(CC_CS_PIN, 0);
+        spi[0] = 0xF1; spi[1] = 0x00;
+        spiTransfer(0, spi, 2, 1);
+        digitalWrite(CC_CS_PIN, 1);
+        int lo = spi[1] & 0xFF;
+        // b) ABGEWAEHLT — hier darf nichts Sinnvolles kommen
+        delay(2);
+        digitalWrite(CC_CS_PIN, 1);
+        spi[0] = 0xF1; spi[1] = 0x00;
+        spiTransfer(0, spi, 2, 1);
+        int hi = spi[1] & 0xFF;
+        sprintf(line, "CC1101 VERSION: CS=low -> %02X | CS=high -> %02X  ==> gleich = CS-Leitung wirkungslos, Chip belegt MISO dauernd",
+                lo, hi);
+        responseCmnd(line);
+        return;
+    }
     if (strcmp(cmd, "REG") == 0) {
         // Erst die Einzelregister lesen, DANN die Adresse — und die Adresse
         // sofort in Locals sichern.
