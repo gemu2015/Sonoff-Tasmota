@@ -82,6 +82,22 @@
 //   LAMPLIST      -> bekannte Kennungen + Anlernstatus (+ RX_DR-Zaehler)
 //   LAMPFORGET n  -> Kennung n loeschen
 //
+//   Diagnose bei „alle Register FF" — in dieser Reihenfolge, jeder Schritt
+//   halbiert den Suchraum:
+//   LAMPCC        -> CC1101 am SELBEN Bus lesen. VERSION 04/14 = CLK/MOSI/MISO
+//                    und die SPI-Schicht sind bewiesen in Ordnung.
+//   LAMPPINS      -> schalten CSN und CE ueberhaupt? (je 0 und 1 erwartet)
+//   LAMPHI        -> CC1101 hart abwaehlen, dann lesen — schliesst aus, dass er
+//                    den geteilten MISO festhaelt.
+//   LAMPSLOW      -> dieselben Register mit 1 MHz statt 4. Unterscheidet
+//                    Signalqualitaet von Unterbrechung.
+//   LAMPMAN       -> ueber SPI-Slot 0 mit CS von Hand lesen, genau wie LAMPCC.
+//                    Trennt einen Fehler der Slot-/CS-Verwaltung von Hardware.
+//   ⚠️ Bestehen ALLE diese Tests und es bleibt FF, waehrend Senden noch geht:
+//      Senden braucht MISO nicht. Dann ist der MISO-Ausgang des Moduls hin —
+//      bei billigen nRF24-Klonen die wahrscheinlichste Erklaerung. Folge:
+//      Steuern funktioniert weiter, ANLERNEN nicht.
+//
 //   Diagnose, falls das Anlernen nichts findet — in dieser Reihenfolge:
 //   LAMPCC        -> ZUERST bei „alle Register FF": den CC1101 am SELBEN Bus
 //                    auslesen. Antwortet er (VERSION 04/14), sind CLK/MOSI/MISO
@@ -1057,6 +1073,87 @@ void Command(char cmd[]) {
         digitalWrite(CC_CS_PIN, 1);        // wieder abwaehlen, teilt MISO!
         sprintf(line, "CC1101: PARTNUM=%02X VERSION=%02X — Version 04 oder 14 = SPI-Bus OK, dann liegt es am nRF24. Beides FF = Bus tot.",
                 part, ver);
+        responseCmnd(line);
+        return;
+    }
+    // CC1101 HART abwaehlen und sofort den nRF24 lesen. Beide teilen sich MISO;
+    // liegt der CS des CC1101 nicht sicher auf HIGH, treibt er die Leitung mit
+    // und der nRF24 kommt nicht durch. „Nicht anfassen" reicht NICHT.
+    if (strcmp(cmd, "HI") == 0) {
+        pinMode(CC_CS_PIN, 3);
+        digitalWrite(CC_CS_PIN, 1);
+        pinMode(CSN_PIN, 3);
+        digitalWrite(CSN_PIN, 1);
+        delay(5);
+        int rb = digitalRead(CC_CS_PIN);
+        sprintf(line, "CC-CS(GPIO%d) zurueckgelesen=%d | nRF24 danach: 00=%02X 01=%02X 02=%02X 03=%02X 05=%02X 06=%02X",
+                CC_CS_PIN, rb, nrf_rd(0), nrf_rd(1), nrf_rd(2), nrf_rd(3), nrf_rd(5), nrf_rd(6));
+        responseCmnd(line);
+        return;
+    }
+    // Gegenprobe mit 1 MHz statt 4. Eine grenzwertige Leitung (Laenge, fehlende
+    // Masse-Fuehrung, fehlender Stuetzkondensator) liest bei 4 MHz Muell und bei
+    // 1 MHz sauber — das unterscheidet Signalqualitaet von Unterbrechung.
+    if (strcmp(cmd, "SLOW") == 0) {
+        spiInit(-1, -1, -1, 1);
+        spiSetCS(SLOT, CSN_PIN);
+        delay(5);
+        int a = nrf_rd(0); int b = nrf_rd(1); int c = nrf_rd(2);
+        int d = nrf_rd(3); int e = nrf_rd(5); int g = nrf_rd(6);
+        spiInit(-1, -1, -1, 4);          // zurueck auf 4 MHz
+        spiSetCS(SLOT, CSN_PIN);
+        sprintf(line, "1 MHz: 00=%02X 01=%02X 02=%02X 03=%02X 05=%02X 06=%02X (nach Reset erwartet 08/3F/03/03/02/0E)",
+                a, b, c, d, e, g);
+        responseCmnd(line);
+        return;
+    }
+    // Dieselben Register, aber ueber SPI-Slot 0 und mit CS VON HAND — genau so,
+    // wie LAMPCC den CC1101 erfolgreich liest. Trennt einen Fehler in der
+    // Slot-/CS-Verwaltung von einem echten Hardwareproblem: kommen hier
+    // plausible Werte, ist die Verdrahtung in Ordnung und der Fehler sitzt in
+    // der SPI-Slot-Nutzung des Skripts.
+    if (strcmp(cmd, "MAN") == 0) {
+        pinMode(CC_CS_PIN, 3);
+        digitalWrite(CC_CS_PIN, 1);        // CC1101 sicher weg
+        pinMode(CSN_PIN, 3);
+        digitalWrite(CSN_PIN, 1);
+        delay(1);
+        int v[6];
+        int regs[6];
+        regs[0]=0; regs[1]=1; regs[2]=2; regs[3]=3; regs[4]=5; regs[5]=6;
+        int i = 0;
+        while (i < 6) {
+            spi[0] = regs[i];              // R_REGISTER | reg
+            spi[1] = 0xFF;
+            digitalWrite(CSN_PIN, 0);
+            spiTransfer(0, spi, 2, 1);     // Slot 0, CS nicht vom Treiber
+            digitalWrite(CSN_PIN, 1);
+            v[i] = spi[1] & 0xFF;
+            i = i + 1;
+        }
+        sprintf(line, "manuell/Slot0: 00=%02X 01=%02X 02=%02X 03=%02X 05=%02X 06=%02X (nach Reset erwartet 08/3F/03/03/02/0E)",
+                v[0], v[1], v[2], v[3], v[4], v[5]);
+        responseCmnd(line);
+        return;
+    }
+    // Schalten CSN und CE ueberhaupt? Ausgang setzen und zuruecklesen. Wird ein
+    // Pin anderweitig belegt oder haengt er fest, ist der nRF24 nie ausgewaehlt
+    // — dann liest man FF UND es wird nicht gesendet.
+    if (strcmp(cmd, "PINS") == 0) {
+        pinMode(CSN_PIN, 3);
+        pinMode(CE_PIN, 3);
+        digitalWrite(CSN_PIN, 0); digitalWrite(CE_PIN, 0);
+        delay(2);
+        int c0 = digitalRead(CSN_PIN);
+        int e0 = digitalRead(CE_PIN);
+        digitalWrite(CSN_PIN, 1); digitalWrite(CE_PIN, 1);
+        delay(2);
+        int c1 = digitalRead(CSN_PIN);
+        int e1 = digitalRead(CE_PIN);
+        digitalWrite(CSN_PIN, 1);
+        digitalWrite(CE_PIN, 0);
+        sprintf(line, "GPIO%d (CSN): low=%d high=%d | GPIO%d (CE): low=%d high=%d  (erwartet je 0 und 1)",
+                CSN_PIN, c0, c1, CE_PIN, e0, e1);
         responseCmnd(line);
         return;
     }
