@@ -99,6 +99,9 @@
 //      Steuern funktioniert weiter, ANLERNEN nicht.
 //
 //   Diagnose, falls das Anlernen nichts findet — in dieser Reihenfolge:
+//   ⚠️ Anlernen findet nichts, obwohl die Register stimmen? Dann rastet das
+//      Modul auf die Adressbreite nicht ein. Das Anlernen faehrt 4/5/3 Byte
+//      durch; die getroffene Breite steht im Log und in LAMPLIST.
 //   LAMPCC        -> ZUERST bei „alle Register FF": den CC1101 am SELBEN Bus
 //                    auslesen. Antwortet er (VERSION 04/14), sind CLK/MOSI/MISO
 //                    bewiesen in Ordnung und der Fehler sitzt beim nRF24.
@@ -388,18 +391,32 @@ void tx_frame(int nib, int vv, int b4, int chan, int flag) {
 // Adresse = Praeambelrest + Syncword, in Registerreihenfolge (also umgekehrt
 // zur Sendereihenfolge). Genau diese Werte sind am 2026-07-28 als einzige
 // funktionierende Kombination herausgemessen worden.
+// Adressbreite, die gerade probiert wird (5, 4 oder 3 Byte).
+// Auf der Luft steht ... 55 8A 85 5A AA | Nutzlast. Der nRF24 vergleicht die
+// Bytes UNMITTELBAR vor der Nutzlast; in Registerreihenfolge sind das
+// AA, 5A, 85, 8A, 55 — eine kuerzere Adresse nimmt einfach die ersten w davon.
+// Warum ueberhaupt kuerzer: manche Klone rasten auf die volle 5-Byte-Folge
+// nicht ein, weil sie Praeambel und Adressbeginn strenger auswerten. Statt
+// gemu fuer jede Variante einzeln druecken zu lassen, faehrt das Anlernen die
+// Breiten im Wechsel durch.
+// Vorgabe 4 — auf dem Modul vom 2026-07-29 rastet NUR 4 Byte ein, bei 5 blieb
+// RX_DR auf 0, obwohl die Register nachweislich stimmten. Das alte Modul
+// brauchte 5. Deshalb bleibt der Wechsel drin: beim naechsten Tausch kann es
+// wieder anders sein, und ein Fenster probiert alle drei durch.
+int rx_aw = 4;
+
 void rx_setup() {
     if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
     nrf_wr(N_CONFIG, 0x00);
     nrf_wr(N_EN_AA, 0x00);
     nrf_wr(0x02, 0x01);              // EN_RXADDR: nur Pipe 0
-    nrf_wr(N_AW, 0x03);              // 5 Byte Adresse
+    nrf_wr(N_AW, (rx_aw - 2) & 0x03);   // 5, 4 oder 3 Byte
     nrf_wr(N_RF_CH, 41);             // Lampenkanal 39 + 2; dort landen je
     nrf_wr(N_RF_SET, RF_1MBIT);      // Tastendruck 30 Rahmen, das reicht
     nrf_wr(0x11, 32);                // RX_PW_P0: feste Nutzlastlaenge
     spi[0] = N_W_REG | 0x0A;         // RX_ADDR_P0
     spi[1] = 0xAA; spi[2] = 0x5A; spi[3] = 0x85; spi[4] = 0x8A; spi[5] = 0x55;
-    spiTransfer(SLOT, spi, 6, 1);
+    spiTransfer(SLOT, spi, rx_aw + 1, 1);
     nrf_cmd(0xE2);                   // FLUSH_RX
     nrf_wr(N_STATUS, 0x70);
     nrf_wr(N_CONFIG, 0x03);          // PWR_UP | PRIM_RX, CRC im nRF24 AUS
@@ -558,14 +575,20 @@ void TaskLoop() {
     // senden. Die Schleife arbeitet in kurzen Scheiben, damit „Abbrechen"
     // und die Zeitgrenze zuegig greifen.
     if (learn_state == 1) {
+        // Adressbreite alle ~3 s wechseln: 5 -> 4 -> 3 -> 5 ...
+        // Reihenfolge 4 -> 5 -> 3: die wahrscheinlichste zuerst.
+        if (rx_aw == 4)      { rx_aw = 5; }
+        else if (rx_aw == 5) { rx_aw = 3; }
+        else                 { rx_aw = 4; }
+        rx_setup();
         int q = 0;
         while (q < 50) {
             if (rx_poll()) {
                 learn_res = rc_store(got_i1, got_i2, got_i3);
                 learn_state = 0;
                 tx_setup();                      // zurueck auf Senden
-                addLog("gm24g: Kennung %02X %02X %02X (%d)",
-                       got_i1, got_i2, got_i3, learn_res);
+                addLog("gm24g: Kennung %02X %02X %02X (%d) bei %d-Byte-Adresse",
+                       got_i1, got_i2, got_i3, learn_res, rx_aw);
                 return;
             }
             delay(1);
@@ -1010,8 +1033,8 @@ void Command(char cmd[]) {
             z = z + 1;
         }
         if (learn_state == 1) {
-            sprintf(line, "ANLERNEN laeuft, noch %d s, RX_DR=%d |%s",
-                    (learn_until - millis()) / 1000, learn_rx, acc);
+            sprintf(line, "ANLERNEN laeuft, noch %d s, RX_DR=%d, Adresse %d Byte |%s",
+                    (learn_until - millis()) / 1000, learn_rx, rx_aw, acc);
         } else {
             sprintf(line, "%d bekannt, aktiv %d |%s", rc_cnt, rc_sel + 1, acc);
         }
