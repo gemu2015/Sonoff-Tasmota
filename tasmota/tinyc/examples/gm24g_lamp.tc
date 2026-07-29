@@ -71,7 +71,11 @@
 //   Tasmota haengt das Unterkommando OHNE Leerzeichen an den Praefix an.
 //   LAMPTX <hex>  -> Taste senden. alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6
 //                    heller=C  dunkler=4  warm=E  kalt=F
-//   LAMPRC <1|2>  -> Fernbedienung waehlen (welche Lampengruppe zuhoert)
+//   LAMPRC <n>    -> Fernbedienung waehlen (welche Lampengruppe zuhoert)
+//   LAMPLEARN     -> neue Fernbedienung anlernen: danach 20 s lang eine
+//                    beliebige Taste auf ihr druecken
+//   LAMPLIST      -> bekannte Kennungen + Anlernstatus
+//   LAMPFORGET n  -> Kennung n loeschen
 //   LAMPTEST      -> nRF24-Register zuruecklesen (prueft Bus und Modul)
 //   LAMPONE       -> EINEN Rahmen senden und TX_DS im Status pruefen.
 //                    Der schnellste Beweis, dass wirklich gesendet wird —
@@ -125,10 +129,73 @@ int  last_ms;    // millis() beim letzten Senden
 //
 // NICHT beide Kennungen nacheinander senden — Zone 2 an Fernbedienung 1 und
 // Zone 2 an Fernbedienung 2 sind VERSCHIEDENE Lampen; das schaltete beide.
-int  rc_sel;     // 0 = Fernbedienung 1, 1 = Fernbedienung 2
-int  rc_id1[2];
-int  rc_id2[2];
-int  rc_id3[2];
+// Die Kennungen sind NICHT mehr fest eingebaut — sie werden ANGELERNT.
+// Wer dieses Skript auf eigener Hardware benutzt, hat andere Fernbedienungen
+// und koennte eine fest verdrahtete Kennung nicht ermitteln, ohne sich den
+// Empfaenger aus der git-Historie zu holen und eine HackRF-Messung
+// nachzuvollziehen. Genau das nimmt LAMPLEARN bzw. das Untermenue
+// „Fernbedienung anlernen" ab: Knopf druecken, an der neuen Fernbedienung eine
+// beliebige Taste betaetigen, fertig.
+//
+// Ablage in `persist` statt in einer eigenen Datei: seit dem namensbasierten
+// PVS3 wandern Eintraege beim Neuuebersetzen ueber ihren NAMEN mit, ein
+// Hinzufuegen oder Umsortieren wirft die gelernten Kennungen also nicht mehr
+// weg. persist-Initialisierer werden allerdings verworfen — alles startet auf
+// 0, deshalb saet main() die Voreinstellung erst, wenn rc_cnt == 0 ist.
+#define RC_MAX     4
+#define LEARN_MS   20000         // so lange auf einen Tastendruck warten
+
+// ⚠️ USE_PERSIST BRAUCHT TinyC >= 1.6.43.
+// Auf 1.6.42 fuehrt SCHON DIE DEKLARATION einer persist-Variablen zum harten
+// Neustart des ESP — nicht zu einem VM-Fehler, das Geraet bootet weg. Am
+// 2026-07-29 auf .177 (Release 1.6.42, per /tc_api?cmd=status) mit einem
+// Sechszeiler nachgestellt:
+//     persist int pcount;
+//     int main() { pcount = pcount + 1; addCommand("PVT"); return 0; }
+// Es entsteht nicht einmal eine .pvs — es kracht beim LADEN, also beim
+// Oeffnen der noch nicht vorhandenen Datei, nicht beim Speichern.
+// Die persist-Ueberholung (namensbasiertes PV3, Absturzkorrekturen) kam mit
+// 1.6.43. Nach einem Firmware-Update hier auf 1 stellen und einmal LAMPLEARN
+// samt Neustart gegenpruefen; ob genau dieser Ladepfad im aktuellen Quellstand
+// behoben ist, ist noch NICHT verifiziert.
+// Ohne die Zeile laufen die Kennungen nur bis zum naechsten Slot-Neustart —
+// die beiden gemessenen kommen als Voreinstellung ohnehin zurueck, angelernte
+// nicht.
+//
+// ⚠️ ZUM EINSCHALTEN DIE NAECHSTE ZEILE EINKOMMENTIEREN, nicht auf 1 setzen:
+// TinyCs `#if NAME` wertet den WERT NICHT AUS, es prueft nur, ob der Name
+// definiert ist — `#define USE_PERSIST 0` nimmt trotzdem den Ja-Zweig (am
+// 2026-07-29 am Praeprozessor nachgestellt). Nur `#ifdef`/`#ifndef` arbeiten
+// hier zuverlaessig.
+// #define USE_PERSIST
+
+#ifdef USE_PERSIST
+persist int rc_cnt;          // wie viele Fernbedienungen bekannt sind
+persist int rc_sel;          // 0..rc_cnt-1
+persist int rc_i1[RC_MAX];
+persist int rc_i2[RC_MAX];
+persist int rc_i3[RC_MAX];
+#else
+int rc_cnt;
+int rc_sel;
+int rc_i1[RC_MAX];
+int rc_i2[RC_MAX];
+int rc_i3[RC_MAX];
+#endif
+
+// Einziger Ort, an dem gesichert wird — so kostet das Umschalten oben eine
+// Zeile statt einer Suche durch die Datei.
+void rc_save() {
+#ifdef USE_PERSIST
+    saveVars();
+#endif
+}
+
+int  learn_state;   // 0 = aus, 1 = lauscht
+int  learn_until;   // millis(), bis wann
+int  learn_res;     // 0 = nichts, 1 = neu gelernt, 2 = war schon bekannt,
+                    // 3 = Abbruch/Zeit abgelaufen, 4 = kein Platz frei
+int  ui_learn;      // aus dem Web: 1 = anlernen, 2 = abbrechen, 10+n = loeschen
 
 // Befehlsnibble -> Klartext. Bewusst if/else statt Ternaer: String-Ternaere
 // scheiterten in TinyC lange still zur Laufzeit (im Codegen behoben am
@@ -239,9 +306,9 @@ void tx_setup() {
 void tx_frame(int nib, int vv, int b4, int chan, int flag) {
     int cc = (nib & 0x0F);
     if (flag) { cc = cc | 0x10; }
-    int i1 = rc_id1[rc_sel];
-    int i2 = rc_id2[rc_sel];
-    int i3 = rc_id3[rc_sel];
+    int i1 = rc_i1[rc_sel];
+    int i2 = rc_i2[rc_sel];
+    int i3 = rc_i3[rc_sel];
     int sum = (0x07 + i1 + i2 + i3 + b4 + cc + vv) & 0xFF;
     char air8[10];
     air8[0] = bitrev(0x07); air8[1] = bitrev(i1); air8[2] = bitrev(i2);
@@ -266,6 +333,107 @@ void tx_frame(int nib, int vv, int b4, int chan, int flag) {
         digitalWrite(CE_PIN, 0);      // digitalWrite hintereinander sind zu kurz
     }                                 // und der Chip sendet dann GAR NICHT.
     tx_total = tx_total + 1;
+}
+
+// ── ANLERNEN: EMPFANGEN ───────────────────────────────────────────────────
+// Zum Anlernen muss der Chip kurz auf Empfang. Senden und Empfangen geht mit
+// EINEM nRF24 nicht gleichzeitig, das Anlernen ist deshalb ein eigener
+// Zustand, waehrend dessen nicht gesendet wird.
+//
+// Adresse = Praeambelrest + Syncword, in Registerreihenfolge (also umgekehrt
+// zur Sendereihenfolge). Genau diese Werte sind am 2026-07-28 als einzige
+// funktionierende Kombination herausgemessen worden.
+void rx_setup() {
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 0); }
+    nrf_wr(N_CONFIG, 0x00);
+    nrf_wr(N_EN_AA, 0x00);
+    nrf_wr(0x02, 0x01);              // EN_RXADDR: nur Pipe 0
+    nrf_wr(N_AW, 0x03);              // 5 Byte Adresse
+    nrf_wr(N_RF_CH, 41);             // Lampenkanal 39 + 2; dort landen je
+    nrf_wr(N_RF_SET, RF_1MBIT);      // Tastendruck 30 Rahmen, das reicht
+    nrf_wr(0x11, 32);                // RX_PW_P0: feste Nutzlastlaenge
+    spi[0] = N_W_REG | 0x0A;         // RX_ADDR_P0
+    spi[1] = 0xAA; spi[2] = 0x5A; spi[3] = 0x85; spi[4] = 0x8A; spi[5] = 0x55;
+    spiTransfer(SLOT, spi, 6, 1);
+    nrf_cmd(0xE2);                   // FLUSH_RX
+    nrf_wr(N_STATUS, 0x70);
+    nrf_wr(N_CONFIG, 0x03);          // PWR_UP | PRIM_RX, CRC im nRF24 AUS
+    delay(2);
+    if (CE_PIN >= 0) { digitalWrite(CE_PIN, 1); }
+}
+
+// Ein Paket abholen und auswerten. Rueckgabe 1, wenn ein gueltiger Rahmen
+// erkannt wurde; die Kennung steht dann in got_i1..got_i3.
+//
+// ⚠️ NICHT auf eine bekannte Kennung matchen. Der urspruengliche Empfaenger
+// suchte hart nach 5A 4B 07 und meldete sauber „0 Pakete", waehrend die
+// zweite Fernbedienung munter sendete — beim Anlernen ist die gesuchte
+// Kennung ja gerade unbekannt. Anker ist die STRUKTUR: Laengenbyte 0x07,
+// danach sechs Bytes und eine Summenpruefsumme darueber.
+int got_i1;
+int got_i2;
+int got_i3;
+
+int rx_poll() {
+    int st = nrf_rd(N_STATUS);
+    if (!(st & 0x40)) { return 0; }          // kein RX_DR
+    spi[0] = 0x61;                           // R_RX_PAYLOAD
+    int w = 1;
+    while (w <= 32) { spi[w] = 0; w = w + 1; }
+    spiTransfer(SLOT, spi, 33, 1);
+    nrf_wr(N_STATUS, 0x70);
+    nrf_cmd(0xE2);                           // FLUSH_RX
+    char rxb[34];
+    w = 0;
+    while (w < 32) { rxb[w] = bitrev(spi[w+1] & 0xFF); w = w + 1; }
+    int k = 0;
+    while (k < 24) {
+        if (rxb[k] == 0x07) {
+            int t = (rxb[k] + rxb[k+1] + rxb[k+2] + rxb[k+3]
+                   + rxb[k+4] + rxb[k+5] + rxb[k+6]) & 0xFF;
+            if (t == (rxb[k+7] & 0xFF)) {
+                got_i1 = rxb[k+1] & 0xFF;
+                got_i2 = rxb[k+2] & 0xFF;
+                got_i3 = rxb[k+3] & 0xFF;
+                return 1;
+            }
+        }
+        k = k + 1;
+    }
+    return 0;
+}
+
+// Kennung einsortieren. Rueckgabe: 1 = neu, 2 = war schon bekannt, 4 = voll.
+int rc_store(int i1, int i2, int i3) {
+    int z = 0;
+    while (z < rc_cnt) {
+        if (rc_i1[z] == i1) {
+            if (rc_i2[z] == i2) {
+                if (rc_i3[z] == i3) { rc_sel = z; return 2; }
+            }
+        }
+        z = z + 1;
+    }
+    if (rc_cnt >= RC_MAX) { return 4; }
+    rc_i1[rc_cnt] = i1; rc_i2[rc_cnt] = i2; rc_i3[rc_cnt] = i3;
+    rc_sel = rc_cnt;
+    rc_cnt = rc_cnt + 1;
+    rc_save();           // sofort sichern, nicht erst bei TinyCStop —
+    return 1;            // ein Stromausfall soll das Anlernen nicht fressen
+}
+
+void rc_forget(int idx) {
+    if (idx < 0) { return; }
+    if (idx >= rc_cnt) { return; }
+    int z = idx;
+    while (z < rc_cnt - 1) {
+        rc_i1[z] = rc_i1[z+1]; rc_i2[z] = rc_i2[z+1]; rc_i3[z] = rc_i3[z+1];
+        z = z + 1;
+    }
+    rc_cnt = rc_cnt - 1;
+    if (rc_sel >= rc_cnt) { rc_sel = rc_cnt - 1; }
+    if (rc_sel < 0) { rc_sel = 0; }
+    rc_save();
 }
 
 // Einen kompletten Tastendruck senden: 90 Rahmen ueber DREI Kanaele
@@ -299,9 +467,48 @@ void send_button(int nib) {
 // Senden laeuft in der eigenen Task, nicht im Tick: ein Burst dauert rund
 // 100 ms und wuerde die Tasmota-Hauptschleife blockieren.
 void TaskLoop() {
+    if (ui_learn != 0) {
+        int w = ui_learn;
+        ui_learn = 0;
+        if (w == 1) {
+            learn_state = 1;
+            learn_res = 0;
+            learn_until = millis() + LEARN_MS;
+            rx_setup();
+            addLog("gm24g: Anlernen laeuft — Taste auf der neuen Fernbedienung druecken");
+        }
+        if (w == 2) { learn_state = 0; learn_res = 3; tx_setup(); }
+        if (w >= 10) { rc_forget(w - 10); }
+    }
+    // Anlernen hat Vorrang: solange der Chip auf Empfang steht, kann er nicht
+    // senden. Die Schleife arbeitet in kurzen Scheiben, damit „Abbrechen"
+    // und die Zeitgrenze zuegig greifen.
+    if (learn_state == 1) {
+        int q = 0;
+        while (q < 50) {
+            if (rx_poll()) {
+                learn_res = rc_store(got_i1, got_i2, got_i3);
+                learn_state = 0;
+                tx_setup();                      // zurueck auf Senden
+                addLog("gm24g: Kennung %02X %02X %02X (%d)",
+                       got_i1, got_i2, got_i3, learn_res);
+                return;
+            }
+            delay(1);
+            q = q + 1;
+        }
+        if (millis() > learn_until) {
+            learn_state = 0;
+            learn_res = 3;
+            tx_setup();
+            addLog("gm24g: Anlernen abgelaufen — nichts empfangen");
+        }
+        return;
+    }
     if (ui_rc != 0) {
-        rc_sel = ui_rc - 1;
+        int n = ui_rc - 1;
         ui_rc = 0;
+        if (n >= 0) { if (n < rc_cnt) { rc_sel = n; rc_save(); } }
         addLog("gm24g: Fernbedienung %d gewaehlt", rc_sel + 1);
     }
     if (ui_cmd != 0) {
@@ -323,9 +530,27 @@ void TaskLoop() {
 // ── Anzeige auf der Tasmota-Hauptseite ─────────────────────────────────────
 void WebCall() {
     char nm[16];
-    sprintf(line, "{s}Fernbedienung{m}<b>%d</b>  (Kennung %02X %02X %02X){e}",
-            rc_sel + 1, rc_id1[rc_sel], rc_id2[rc_sel], rc_id3[rc_sel]);
-    webSend(line);
+    // Der Anlernstatus MUSS hier stehen, nicht im Panel: WebPage() wird nur
+    // beim vollen Seitenaufbau gerendert, dieser Block dagegen bei jedem
+    // Ajax-Refresh — nur so sieht man den Fortschritt ohne Neuladen.
+    if (learn_state == 1) {
+        int rest = (learn_until - millis()) / 1000;
+        if (rest < 0) { rest = 0; }
+        sprintf(line, "{s}Anlernen{m}<b>warte auf Tastendruck</b> (%d s){e}", rest);
+        webSend(line);
+    } else {
+        if (learn_res == 1) { webSend("{s}Anlernen{m}neue Fernbedienung uebernommen{e}"); }
+        if (learn_res == 2) { webSend("{s}Anlernen{m}war bereits bekannt — ausgewaehlt{e}"); }
+        if (learn_res == 3) { webSend("{s}Anlernen{m}nichts empfangen (Abbruch/Zeit){e}"); }
+        if (learn_res == 4) { webSend("{s}Anlernen{m}kein Platz frei — erst eine loeschen{e}"); }
+    }
+    if (rc_cnt < 1) {
+        webSend("{s}Fernbedienung{m}<b>keine angelernt</b>{e}");
+    } else {
+        sprintf(line, "{s}Fernbedienung{m}<b>%d</b> von %d  (Kennung %02X %02X %02X){e}",
+                rc_sel + 1, rc_cnt, rc_i1[rc_sel], rc_i2[rc_sel], rc_i3[rc_sel]);
+        webSend(line);
+    }
     if (last_sent < 0) {
         webSend("{s}Deckenlampe{m}bereit{e}");
     } else {
@@ -411,7 +636,7 @@ void panel_js() {
 // und springt nicht zurueck.
 void rc_btn(int which) {
     sprintf(line, "<button data-rc='%d' title='Kennung %02X %02X %02X' onclick='gmrc(this,%d,%d)' style='",
-            which, rc_id1[which-1], rc_id2[which-1], rc_id3[which-1],
+            which, rc_i1[which-1], rc_i2[which-1], rc_i3[which-1],
             which, varIdx(ui_rc));
     webSend(line);
     webSend("border:0;cursor:pointer;font-family:inherit;font-size:11px;");
@@ -497,6 +722,56 @@ void zone_col(int on_nib, int off_nib, int nr, int shift) {
     webSend(line);
 }
 
+// ── Untermenue „Fernbedienung anlernen" ───────────────────────────────────
+// Als <details> — ein natives, zugeklapptes Untermenue ohne eigenes
+// JavaScript, das den Blick auf das Bedienfeld nicht stoert.
+// Die Rueckmeldung steht bewusst NICHT hier, sondern in WebCall(): dieser
+// Block wird nur beim vollen Seitenaufbau erzeugt und koennte einen Fortschritt
+// gar nicht anzeigen.
+void learn_panel() {
+    webSend("<details style='max-width:246px;margin:6px auto 0;font-size:12px'>");
+    webSend("<summary style='cursor:pointer;color:#666'>Fernbedienung anlernen</summary>");
+    webSend("<div style='padding:6px 2px 2px;color:#666;line-height:1.4'>");
+    webSend("Auf <b>Anlernen</b> klicken, dann innerhalb von 20 Sekunden eine ");
+    webSend("beliebige Taste auf der neuen Fernbedienung druecken. Der Fortschritt ");
+    webSend("steht oben in der Statuszeile.<br>");
+    webSend("Waehrend des Anlernens wird nicht gesendet — ein nRF24 kann nicht ");
+    webSend("gleichzeitig senden und empfangen.");
+    webSend("</div>");
+
+    webSend("<div style='margin:4px 0'>");
+    sprintf(line, "<button onclick='gmb(this,1,%d)' style='", varIdx(ui_learn));
+    webSend(line);
+    webSend("border:0;cursor:pointer;font-family:inherit;font-size:12px;");
+    webSend("background:#2b6;color:#fff;border-radius:4px;height:26px;");
+    webSend("padding:0 10px;margin-right:4px'>Anlernen</button>");
+    sprintf(line, "<button onclick='gmb(this,2,%d)' style='", varIdx(ui_learn));
+    webSend(line);
+    webSend("border:0;cursor:pointer;font-family:inherit;font-size:12px;");
+    webSend("background:#ddd;color:#333;border-radius:4px;height:26px;");
+    webSend("padding:0 10px'>Abbrechen</button>");
+    webSend("</div>");
+
+    // Bekannte Fernbedienungen mit Kennung und Loeschknopf
+    int z = 0;
+    while (z < rc_cnt) {
+        webSend("<div style='display:flex;align-items:center;gap:6px;margin:3px 0'>");
+        sprintf(line, "<span style='width:150px'>FB %d &nbsp; %02X %02X %02X</span>",
+                z + 1, rc_i1[z], rc_i2[z], rc_i3[z]);
+        webSend(line);
+        sprintf(line, "<button onclick='gmb(this,%d,%d)' style='", 10 + z, varIdx(ui_learn));
+        webSend(line);
+        webSend("border:0;cursor:pointer;font-family:inherit;font-size:11px;");
+        webSend("background:#e55;color:#fff;border-radius:4px;height:22px;");
+        webSend("padding:0 8px'>loeschen</button></div>");
+        z = z + 1;
+    }
+    if (rc_cnt >= RC_MAX) {
+        webSend("<div style='color:#a00'>Alle Plaetze belegt — erst eine loeschen.</div>");
+    }
+    webSend("</details>");
+}
+
 void WebPage() {
     panel_css();
     panel_js();
@@ -511,8 +786,11 @@ void WebPage() {
     // Welche Fernbedienung wird nachgebildet? Steht ganz oben, weil davon
     // abhaengt, WELCHE Lampen ueberhaupt zuhoeren.
     webSend("<div style='margin:0 0 6px'>");
-    rc_btn(1);
-    rc_btn(2);
+    int z = 1;
+    while (z <= rc_cnt) { rc_btn(z); z = z + 1; }
+    if (rc_cnt < 1) {
+        webSend("<span style='font-size:11px;color:#a00'>keine Fernbedienung angelernt</span>");
+    }
     webSend("</div>");
 
     top_btn(0x5, "&#124;",  "");                 // alle EIN
@@ -546,7 +824,9 @@ void WebPage() {
     webSend("</div>");
 
     webSend("<div style='font-size:10px;color:#888;margin-top:10px'>2.4G RF</div>");
-    webSend("</div></div>");
+    webSend("</div>");          // Gehaeuse zu
+    learn_panel();
+    webSend("</div>");          // #gmp zu
 }
 
 // Hex-Ziffer -> Zahl. strToInt liest nur dezimal, und die Tastencodes sind
@@ -573,6 +853,21 @@ int hex_nib(char s[]) {
 }
 
 void Command(char cmd[]) {
+    // Waehrend des Anlernens steht der Chip auf EMPFANG. Jeder Befehl, der
+    // tx_setup() oder tx_frame() anfasst, wuerde ihn umkonfigurieren und den
+    // Empfang stillschweigend zerstoeren — beim Testen genau so passiert:
+    // LAMPONE lief durch, der Anlernvorgang lief scheinbar weiter und haette
+    // nie etwas empfangen.
+    if (learn_state == 1) {
+        int blockiert = 0;
+        if (strStartsWith(cmd, "TX"))       { blockiert = 1; }
+        if (strcmp(cmd, "ONE") == 0)        { blockiert = 1; }
+        if (strcmp(cmd, "TEST") == 0)       { blockiert = 1; }
+        if (blockiert) {
+            responseCmnd("Anlernen laeuft — erst abschliessen oder abbrechen (LAMPLEARN aus: sv-Knopf Abbrechen)");
+            return;
+        }
+    }
     if (strStartsWith(cmd, "TX")) {
         char a1[16];
         strToken(a1, cmd, ' ', 2);
@@ -589,13 +884,58 @@ void Command(char cmd[]) {
         responseCmnd(line);
         return;
     }
+    if (strcmp(cmd, "LEARN") == 0) {
+        if (rc_cnt >= RC_MAX) {
+            responseCmnd("kein Platz frei — erst LAMPFORGET n");
+            return;
+        }
+        ui_learn = 1;
+        responseCmnd("Anlernen: jetzt eine Taste auf der neuen Fernbedienung druecken (20 s). Status: LAMPLIST");
+        return;
+    }
+    if (strStartsWith(cmd, "FORGET")) {
+        char a1[16];
+        strToken(a1, cmd, ' ', 2);
+        int n = strToInt(a1);
+        if (n < 1) {
+            responseCmnd("LAMPFORGET <n> — n aus LAMPLIST");
+            return;
+        }
+        rc_forget(n - 1);
+        sprintf(line, "geloescht, jetzt %d Fernbedienung(en) bekannt", rc_cnt);
+        responseCmnd(line);
+        return;
+    }
+    if (strcmp(cmd, "LIST") == 0) {
+        char acc[160];
+        strcpy(acc, "");
+        int z = 0;
+        while (z < rc_cnt) {
+            char one[32];
+            sprintf(one, " [%d]%02X%02X%02X", z + 1, rc_i1[z], rc_i2[z], rc_i3[z]);
+            strcat(acc, one);
+            z = z + 1;
+        }
+        if (learn_state == 1) {
+            sprintf(line, "ANLERNEN laeuft, noch %d s |%s",
+                    (learn_until - millis()) / 1000, acc);
+        } else {
+            sprintf(line, "%d bekannt, aktiv %d |%s", rc_cnt, rc_sel + 1, acc);
+        }
+        responseCmnd(line);
+        return;
+    }
     if (strStartsWith(cmd, "RC")) {
         char a1[16];
         strToken(a1, cmd, ' ', 2);
         int n = strToInt(a1);
-        if (n >= 1) { if (n <= 2) { rc_sel = n - 1; } }
-        sprintf(line, "Fernbedienung %d (Kennung %02X %02X %02X)",
-                rc_sel + 1, rc_id1[rc_sel], rc_id2[rc_sel], rc_id3[rc_sel]);
+        if (n >= 1) { if (n <= rc_cnt) { rc_sel = n - 1; rc_save(); } }
+        if (rc_cnt < 1) {
+            responseCmnd("keine Fernbedienung angelernt — LAMPLEARN");
+            return;
+        }
+        sprintf(line, "Fernbedienung %d von %d (Kennung %02X %02X %02X)",
+                rc_sel + 1, rc_cnt, rc_i1[rc_sel], rc_i2[rc_sel], rc_i3[rc_sel]);
         responseCmnd(line);
         return;
     }
@@ -627,9 +967,20 @@ int main() {
     tx_total = 0; tx_seq = 0x40; tx_pend = -1; ui_cmd = 0; ui_rc = 0;
     last_sent = -1; last_ms = 0;
 
-    rc_sel = 0;
-    rc_id1[0] = 0x5A; rc_id2[0] = 0x4B; rc_id3[0] = 0x07;   // Fernbedienung 1
-    rc_id1[1] = 0x5A; rc_id2[1] = 0x43; rc_id3[1] = 0x72;   // Fernbedienung 2
+    learn_state = 0; learn_res = 0; ui_learn = 0;
+
+    // persist-Initialisierer werden verworfen, alles kommt als 0 hoch. Ein
+    // rc_cnt von 0 heisst also „noch nie angelernt" — dann die beiden hier
+    // gemessenen Kennungen als Startbestand setzen. Wer die Datei auf eigener
+    // Hardware benutzt, loescht sie mit LAMPFORGET und lernt seine eigenen an.
+    if (rc_cnt < 1) {
+        rc_i1[0] = 0x5A; rc_i2[0] = 0x4B; rc_i3[0] = 0x07;   // Fernbedienung 1
+        rc_i1[1] = 0x5A; rc_i2[1] = 0x43; rc_i3[1] = 0x72;   // Fernbedienung 2
+        rc_cnt = 2;
+        rc_sel = 0;
+        rc_save();
+    }
+    if (rc_sel >= rc_cnt) { rc_sel = 0; }
 
     // ZUERST den CC1101 abwaehlen — er teilt sich MISO mit dem nRF24.
     pinMode(CC_CS_PIN, 3);
