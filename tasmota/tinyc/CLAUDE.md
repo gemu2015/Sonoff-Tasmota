@@ -397,6 +397,28 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     non-halted and makes every `webOn` request serve the busy page. Register **once**,
     ignore the return value (`ecotracker_shelly_emu.tc` is the correct pattern; this was
     the root cause of issue #100 in `ecotracker.tc`).
+18. **Doing pixel maths in `WebPage()`/`WebUI()` without resetting Tasmota's stylesheet** —
+    it sets `div { padding:5px; box-sizing:content-box }` and `button { line-height:38.4px }`.
+    A `<div style='width:158px'>` therefore renders **168px** wide, and absolutely
+    positioned children resolve against the *padding* box, so every `left:`/`top:` you
+    computed is off by 5px. In a button shorter than ~38px the label starts ~12px down and
+    overhangs the bottom edge. Both look like arithmetic errors in your own code. Emit one
+    scoped reset instead of patching each element — inline properties still win, so
+    deliberate exceptions survive:
+    ```c
+    webSend("<style>#mypanel div{box-sizing:border-box;padding:0}");
+    webSend("#mypanel button{box-sizing:border-box;line-height:1;margin:0;");
+    webSend("display:inline-flex;align-items:center;justify-content:center}</style>");
+    ```
+    Verify by *measuring in a browser* (`getBoundingClientRect`), not by imagining the
+    result — a hand-drawn preview will unconsciously render what you intended.
+    Cost two rounds on the GM2.4G lamp panel.
+19. **Using `tcbtn()` for a button that shows STATE** — `WebPage()` renders only on a full
+    page load; the periodic ajax refresh replaces just the `WebCall()` sensor block. A
+    server-side variable change therefore never reaches a `WebPage()` button's colour, so a
+    selector button stays stuck on its initial state however often it is clicked. Either
+    put the state in a `WebCall()` row (that block *does* refresh), or give the button its
+    own handler that recolours client-side after calling `seva(v,i)`.
 17. **Passing a string LITERAL through a `char[]` parameter into a streaming syscall**
     (`webSend`, `responseAppend`, `mailBody`) — on firmware built before 2026-07-28 the
     call emits **nothing at all**, silently. `tc_stream_ref()` opened with
