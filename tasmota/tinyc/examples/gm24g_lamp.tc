@@ -125,6 +125,7 @@
 #define CE_PIN    8          // CE verloetet auf GPIO 8
 #define CC_CS_PIN 13         // CS des CC1101 am SELBEN Bus — muss HIGH sein
 #define SLOT      1
+#define LED_PIN     21      // onboard WS2812 RGB status LED (board-specific: Lolin S3 Mini = GPIO21)
 
 // nRF24L01 Befehle / Register
 #define N_R_REG    0x00
@@ -1329,6 +1330,8 @@ int main() {
     }
     delay(50);
     tx_setup();
+	
+	rgbLed(LED_PIN, 0x004000);  // green
 
     addCommand("LAMP");
     addLog("gm24g_lamp: bereit, CONFIG=0x%02X (soll 0x02)", nrf_rd(N_CONFIG));
