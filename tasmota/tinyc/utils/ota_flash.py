@@ -20,6 +20,15 @@ WHY THIS METHOD (and not POST /u2):
   device can reach our LAN IP, then poll Status 2 until the new build is up.
   If the device lands in safeboot recovery, we send one `Restart 1`.
 
+  ⚠️ SAFEBOOT DOES NOT KNOW `Backlog`. Its command table is reduced: OtaUrl,
+  Upgrade and Restart work, Backlog and Status do not. Sent there, the combined
+  command is answered with {"Command":"Unknown",...} and NOTHING is
+  transferred. trigger_upgrade() detects that and falls back to the two
+  commands on their own, which safeboot accepts. Before this check the script
+  waited out its full timeout and then printed "OTA UNCONFIRMED" — which reads
+  like a device that failed to boot the new image, when in truth it had never
+  received one. Cost an hour on .39 on 2026-07-31.
+
 USAGE:
   ota_flash.py <ip> <firmware.bin>
   ota_flash.py <ip> --env tinyc32c3-matter      # locate .pio/build/<env>/firmware.bin
@@ -104,7 +113,51 @@ def device_mode(host, user=None, password=None):
     return 'down', ''
 
 
-def make_handler(blob):
+def cmd_refused(text):
+    """True if Tasmota answered {"Command":"Unknown",...} to our command.
+
+    The safeboot firmware has a reduced command table: it knows OtaUrl,
+    Upgrade and Restart, but NOT Backlog (and not Status). Sending the
+    combined `Backlog OtaUrl …; Upgrade 1` there is silently refused —
+    nothing is transferred, and without this check the script would wait out
+    its whole timeout and then report a misleading "OTA UNCONFIRMED", as if
+    the image had been sent and the device had failed to boot it.
+    """
+    return '"Command"' in text and 'Unknown' in text
+
+
+def trigger_upgrade(host, url, user, password):
+    """Point the device at `url` and start the upgrade. -> (ok, note).
+
+    Preferred path is one Backlog (atomic, and what normal firmware likes).
+    If the device refuses Backlog — i.e. we are talking to safeboot — fall
+    back to the two commands on their own, which safeboot does accept.
+    """
+    st, t = cm(host, 'Backlog OtaUrl %s; Upgrade 1' % url, user, password, timeout=10)
+    if st == 401:
+        return False, 'auth'
+    if st == 200 and not cmd_refused(t):
+        return True, 'backlog: %s' % t.strip()[:120]
+
+    if st == 200 and cmd_refused(t):
+        log('  Backlog refused (safeboot?) — retrying as two separate commands…')
+    st1, t1 = cm(host, 'OtaUrl %s' % url, user, password, timeout=10)
+    if st1 != 200 or cmd_refused(t1):
+        return False, 'OtaUrl refused: %s' % (t1 or st1)
+    st2, t2 = cm(host, 'Upgrade 1', user, password, timeout=15)
+    if st2 != 200 or cmd_refused(t2):
+        return False, 'Upgrade refused: %s' % (t2 or st2)
+    return True, 'separate: %s' % t2.strip()[:120]
+
+
+def make_handler(blob, seen):
+    """`seen` is a one-element list used as a flag: the device pulled the image.
+
+    Needed because "device is in safeboot" alone does NOT mean recovery — it is
+    also the NORMAL state during an OTA: `Upgrade 1` reboots into safeboot,
+    and safeboot is what fetches the URL. Sending `Restart 1` there aborts the
+    transfer before it starts.
+    """
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -116,6 +169,7 @@ def make_handler(blob):
             self.end_headers()
             if body:
                 self.wfile.write(blob)
+                seen[0] = True
                 log('  → device pulled firmware (%d B)' % len(blob))
 
         def do_HEAD(self): self._serve(False)
@@ -146,23 +200,33 @@ def main():
     dev_ip = socket.gethostbyname(host.split(':')[0])
     my_ip = pick_local_ip(dev_ip)
     ThreadingHTTPServer.daemon_threads = True
-    srv = ThreadingHTTPServer(('0.0.0.0', 0), make_handler(blob))
+    pulled = [False]
+    srv = ThreadingHTTPServer(('0.0.0.0', 0), make_handler(blob, pulled))
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = 'http://%s:%d/fw.bin' % (my_ip, port)
     log('Serving %s' % url)
 
-    st, t = cm(host, 'Backlog OtaUrl %s; Upgrade 1' % url, a.user, a.password, timeout=10)
-    if st == 401:
-        log('ERROR: WebPassword required/incorrect (pass --user/--pass)'); sys.exit(3)
-    if st != 200:
-        log('ERROR: /cm Upgrade failed (%s) %s' % (st, t[:120])); sys.exit(3)
-    log('Upgrade triggered: %s' % t.strip()[:160])
+    ok, note = trigger_upgrade(host, url, a.user, a.password)
+    if not ok:
+        srv.shutdown()
+        if note == 'auth':
+            log('ERROR: WebPassword required/incorrect (pass --user/--pass)'); sys.exit(3)
+        log('ERROR: device did not accept the upgrade — %s' % note)
+        log('       Nothing was transferred. The device is not broken; it never got an image.')
+        sys.exit(3)
+    log('Upgrade triggered (%s)' % note)
 
     deadline = time.time() + a.timeout
     time.sleep(8)
     restart_kicked = False
     back = None
+    started = time.time()
+    # Gnadenfrist, bevor ein Safeboot als "haengengeblieben" gilt. Waehrend
+    # eines normalen OTA IST das Geraet im Safeboot — er ist es, der das Bild
+    # holt. Wer hier sofort `Restart 1` schickt, bricht die Uebertragung ab,
+    # bevor sie beginnt (auf .39 am 2026-07-31 zweimal genau so passiert).
+    SAFEBOOT_GRACE = 60
     while time.time() < deadline:
         mode, v = device_mode(host, a.user, a.password)
         if mode == 'normal' and v and v != before_v:
@@ -171,7 +235,14 @@ def main():
             # came back but unchanged — give the flash a moment more
             pass
         if mode == 'safeboot' and not restart_kicked:
-            log('Device in safeboot (%s) — sending Restart 1 to switch to app0…' % (v or '?'))
+            waited = time.time() - started
+            if pulled[0]:
+                # Bild ist abgeholt — jetzt flasht und startet er von selbst.
+                time.sleep(5); continue
+            if waited < SAFEBOOT_GRACE:
+                log('  safeboot, wartet auf den Abruf … (%ds)' % int(waited))
+                time.sleep(5); continue
+            log('Device sits in safeboot without fetching (%ds) — sending Restart 1…' % int(waited))
             cm(host, 'Restart 1', a.user, a.password, timeout=6)
             restart_kicked = True
             deadline = max(deadline, time.time() + 60)
