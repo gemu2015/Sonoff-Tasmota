@@ -142,6 +142,15 @@ class WiFiClientSecure_light : public WiFiClient {
       _domain = domain;
     }
 
+    // Nur die ZWEI von SHIP 9.1 definierten Cipher-Suites anbieten (0xC023 CBC = Pflicht,
+    // dann 0xC02B GCM = optional). Ohne diesen Schalter bleibt es bei der vollen Liste, die
+    // zusaetzlich 0xC02F (ECDHE_RSA) fuehrt — kein SHIP-Cipher, aber noetig fuer HTTPS/MQTT
+    // zu RSA-Servern. Wirkt PRO VERBINDUNG, andere Dienste bleiben unberuehrt.
+    // Vor connect() setzen.
+    void setShipCiphers(bool on) {
+      _ship_ciphers = on;
+    }
+
   private:
     uint32_t _loopTimeout=10000;
     void _clear();
@@ -161,6 +170,7 @@ class WiFiClientSecure_light : public WiFiClient {
     bool _fingerprint_any;            // accept all fingerprints
     bool _insecure;                   // force fingerprint
     bool _rsa_only;                   // restrict to RSA only key exchange (no ECDSA - enabled to force RSA fingerprints)
+    bool _ship_ciphers = false;       // nur die 2 SHIP-9.1-Suites anbieten (s. setShipCiphers)
     const uint8_t *_fingerprint1;          // fingerprint1 to be checked against
     const uint8_t *_fingerprint2;          // fingerprint2 to be checked against
     uint8_t _recv_fingerprint[20];   // fingerprint received
