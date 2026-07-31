@@ -843,6 +843,8 @@ extern "C" {
       int32_t curve = htonl(eckey.curve);
       sha1_update_len(&shactx, &curve, 4);   // curve id as int32be
       sha1_update_len(&shactx, eckey.q, eckey.qlen);       // public point
+
+      br_sha1_out(&shactx, xc->pubkey_recv_fingerprint); // copy to fingerprint
     }
   #endif
     else {
