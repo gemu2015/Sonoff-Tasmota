@@ -3535,7 +3535,7 @@ void EebusHarvest(const char *json, int src_ent) {
           ESp->lim_dur_s[lid]  = EebusIsoDurSecs(ESp->lim_dur[lid]);
           ESp->lim_dur_at[lid] = millis();
         } else {
-          ESp->lim_dur[lid][0] = ' ';
+          ESp->lim_dur[lid][0] = '\0';
         }
       }
       q += 10;
