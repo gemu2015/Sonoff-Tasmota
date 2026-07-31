@@ -249,13 +249,42 @@ void WiFiClientSecure_light::allocateBuffers(void) {
   // GitHub IDE download, weather HTTPS, sendmail). heap_caps_malloc returns NULL
   // when there is no/insufficient PSRAM, so we fall back to internal RAM and
   // non-PSRAM boards are unaffected. free() handles both heaps on ESP-IDF.
-  auto _tls_buf_alloc = [](size_t n) -> unsigned char* {
+  // Die beiden Puffer haben GEGENSAETZLICHE Anforderungen, deshalb werden sie getrennt entschieden.
+  // Vorher lagen bei aktivem EEBUS-Build BEIDE im DRAM — das behob zwar die Korruption, nahm aber
+  // dem grossen Empfangspuffer die PSRAM-Bevorzugung, um die es im Kommentar darueber geht.
+  //
+  //  * SENDEN: der Ausgabepuffer geht bei SPI-Ethernet (ETH_TYPE 4 DM9051, 8 W5500, 9 KSZ8851) per
+  //    DMA hinaus, und SPI-DMA kann nicht aus PSRAM lesen -> Speicherkorruption bei grossen
+  //    TLS-Records, an einem W5500-Geraet gemessen. Also DRAM zuerst. Kosten: hoechstens 4 KB
+  //    (groesster xmit im Baum ist MQTT-TLS mit 4096; AsyncHttpClientLight hat xmit 0).
+  //  * EMPFANGEN: bis 16384 Byte. GENAU dieser Block ist der Grund fuer die PSRAM-Bevorzugung —
+  //    im internen RAM scheitert er, sobald der fragmentiert ist (GitHub-Download, HTTPS, sendmail).
+  //    Also PSRAM zuerst, unveraendert.
+  //
+  // Bedingung ist NICHT USE_EEBUS_GUARD: der Fehler trifft jeden mit SPI-Ethernet und TLS, auch ohne
+  // EEBUS. Und nicht ETH_TYPE, weil der Typ zur Laufzeit umschaltbar ist (Kommando EthType) — ein
+  // Gate darauf waere nur die Vorgabe, keine Zusicherung. USE_ETHERNET ist die belastbare Grenze:
+  // wo kein Ethernet eincompiliert ist, bleibt alles wie bisher; wo eines ist, kostet es <= 4 KB,
+  // auch bei RMII-Chips ohne SPI. Beide Richtungen behalten ihren Rueckfall auf den anderen Heap.
+  auto _tls_buf_alloc = [](size_t n, bool dram_first) -> unsigned char* {
+    if (dram_first) {
+      unsigned char *p = (unsigned char*) malloc(n);
+      if (!p) { p = (unsigned char*) heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+      return p;
+    }
     unsigned char *p = (unsigned char*) heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!p) { p = (unsigned char*) malloc(n); }
     return p;
   };
-  _iobuf_in  = std::shared_ptr<unsigned char>(_tls_buf_alloc(_iobuf_in_size),  [](unsigned char* p){ free(p); });
-  _iobuf_out = std::shared_ptr<unsigned char>(_tls_buf_alloc(_iobuf_out_size), [](unsigned char* p){ free(p); });
+#if defined(USE_ETHERNET)
+  const bool _tls_out_dram_first = true;
+#else
+  const bool _tls_out_dram_first = false;
+#endif
+  _iobuf_in  = std::shared_ptr<unsigned char>(_tls_buf_alloc(_iobuf_in_size,  false),
+                                              [](unsigned char* p){ free(p); });
+  _iobuf_out = std::shared_ptr<unsigned char>(_tls_buf_alloc(_iobuf_out_size, _tls_out_dram_first),
+                                              [](unsigned char* p){ free(p); });
 #else
   _iobuf_in = std::shared_ptr<unsigned char>(new unsigned char[_iobuf_in_size], std::default_delete<unsigned char[]>());
   _iobuf_out = std::shared_ptr<unsigned char>(new unsigned char[_iobuf_out_size], std::default_delete<unsigned char[]>());
@@ -913,6 +942,21 @@ extern "C" {
   static const uint16_t suites_RSA_ONLY[] = {
     BR_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
   };
+#if defined(USE_EEBUS_GUARD)
+  // Cipher-Reihenfolge fuer SHIP: ECDSA zuerst. 0xC02F (RSA) ist kein SHIP-Cipher, bleibt aber am
+  // Ende der Liste — diese Lib bedient auch HTTPS/MQTT zu RSA-Servern.
+  static const uint16_t suites_eebus[] = {
+    BR_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,   // v116: 0xC023 = SHIP-§9.1-PFLICHT-Cipher (normkonforme Gegenstellen fuehren ihn ZUERST an)
+    BR_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,   // 0xC02B (bisher, optional in SHIP)
+    BR_TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,     // 0xC02F Fallback fuer Nicht-EEBUS-TLS (HTTPS/MQTT zu RSA-Servern)
+  };
+  // Genau die zwei von SHIP 9.1 vorgesehenen Suites. Nur aktiv nach setShipCiphers(true);
+  // alle uebrigen TLS-Verbindungen behalten die vollstaendige Liste oben.
+  static const uint16_t suites_ship_only[] = {
+    BR_TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,   // 0xC023 = SHIP 9.1 Pflicht-Cipher (fuehrt)
+    BR_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,   // 0xC02B = SHIP 9.1 optional
+  };
+#endif
 
   // Default initializion for our SSL clients
   static void br_ssl_client_base_init(br_ssl_client_context *cc, bool _rsa_only) {
@@ -921,7 +965,18 @@ extern "C" {
     br_ssl_engine_add_flags(&cc->eng, BR_OPT_NO_RENEGOTIATION);
 
     br_ssl_engine_set_versions(&cc->eng, BR_TLS12, BR_TLS12);
-#if defined(ESP32) || (defined(ESP8266) && defined(USE_MQTT_TLS_ECDSA))
+#if defined(USE_EEBUS_GUARD)
+    // EEBUS-Build: die SHIP-taugliche Liste verwenden (s. suites_eebus oben).
+    // ABER _rsa_only MUSS weiter greifen: wer RSA erzwingt, tut das, um einen RSA-Fingerabdruck
+    // pruefen zu koennen. Bekaeme er zusaetzlich ECDSA-Suiten angeboten, koennte der Server ECDSA
+    // waehlen und die Fingerabdruck-Pruefung liefe ins Leere — ein stiller Sicherheitsverlust
+    // fuer einen Nutzer, der mit EEBUS gar nichts zu tun hat.
+    if (_rsa_only) {
+      br_ssl_engine_set_suites(&cc->eng, suites_RSA_ONLY, (sizeof suites_RSA_ONLY) / (sizeof suites_RSA_ONLY[0]));
+    } else {
+      br_ssl_engine_set_suites(&cc->eng, suites_eebus, (sizeof suites_eebus) / (sizeof suites_eebus[0]));
+    }
+#elif defined(ESP32) || (defined(ESP8266) && defined(USE_MQTT_TLS_ECDSA))
     if (_rsa_only) {
       br_ssl_engine_set_suites(&cc->eng, suites_RSA_ONLY, (sizeof suites_RSA_ONLY) / (sizeof suites_RSA_ONLY[0]));
     } else {
@@ -941,6 +996,12 @@ extern "C" {
     br_ssl_engine_set_gcm(&cc->eng, &br_sslrec_in_gcm_vtable, &br_sslrec_out_gcm_vtable);
     br_ssl_engine_set_aes_ctr(&cc->eng, &br_aes_small_ctr_vtable);
     br_ssl_engine_set_ghash(&cc->eng, &br_ghash_ctmul32);
+#if defined(USE_EEBUS_GUARD)
+    // CBC-Engine registrieren: SHIP 9.1 fuehrt 0xC023 als Pflicht-Cipher, 0xC02B (GCM) nur als
+    // Option. Rein additiv — GCM bleibt registriert, HTTPS/MQTT zu RSA-Servern unberuehrt.
+    br_ssl_engine_set_cbc(&cc->eng, &br_sslrec_in_cbc_vtable, &br_sslrec_out_cbc_vtable);
+    br_ssl_engine_set_aes_cbc(&cc->eng, &br_aes_small_cbcenc_vtable, &br_aes_small_cbcdec_vtable);
+#endif
 
     // we support only P256 EC curve for AWS IoT, no EC curve for Letsencrypt unless forced
     br_ssl_engine_set_ec(&cc->eng, &br_ec_p256_m15);
@@ -979,6 +1040,13 @@ bool WiFiClientSecure_light::_connectSSL(const char* hostName) {
     _eng = &_sc->eng; // Allocation/deallocation taken care of by the _sc shared_ptr
 
     br_ssl_client_base_init(_sc.get(), _rsa_only);
+#if defined(USE_EEBUS_GUARD)
+    // Suite-Liste NACH der Basis-Initialisierung ueberschreiben, nur fuer markierte Clients —
+    // andere TLS-Nutzer bleiben unberuehrt.
+    if (_ship_ciphers) {
+      br_ssl_engine_set_suites(_eng, suites_ship_only, (sizeof suites_ship_only) / (sizeof suites_ship_only[0]));
+    }
+#endif
     if (_alpn_names && _alpn_num > 0) {
       br_ssl_engine_set_protocol_names(_eng, _alpn_names, _alpn_num);
     }
