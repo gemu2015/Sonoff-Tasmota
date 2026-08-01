@@ -4470,6 +4470,13 @@ void EebusDisconnectNow(void) {
   }
   ESp->sme = SME_OFF;
   ESp->state = SHIP_IDLE;
+   // Herzschlag-Ueberwachung stilllegen. Ohne Verbindung kommt kein Herzschlag mehr, und ein
+   // stehengebliebener Zeitstempel laesst die Anzeige weiter altern, als wuerde noch ueberwacht:
+   // gemessen zaehlte "PeerHerzschlagS" nach dem Trennen ungebremst von 43 auf 115 hoch. Ein
+   // Fehlalarm kann daraus zwar nicht entstehen (ohne Datenphase wird gar nicht geprueft), aber
+   // es waere genau die Sorte Anzeige, gegen die diese Ueberwachung gebaut wurde.
+   // ⚠️ Zaehler und Zeitpunkt der Vorfaelle bleiben ABSICHTLICH stehen — sie sind die Vorfallsliste.
+  ESp->peer_hb_at = 0; ESp->peer_hb_ctr = 0; ESp->peer_hb_tmo_s = 0; ESp->peer_hb_lost = false;
   if (ESp->via_srv) {
     EebusSrvFree();   // Server-Verbindung komplett schliessen (Socket+Unlink)
   } else if (ESp->client) {
