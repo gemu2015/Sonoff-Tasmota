@@ -59,6 +59,7 @@ fibonacci.tcb
 file_io.tcb
 gchart_demo.tcb
 globals_toctou_soak.tcb
+gm24g_lamp.tcb
 gpio_sweep.tcb
 gpio_toggle_test.tcb
 growatt.tcb
@@ -88,6 +89,7 @@ live_chart.tcb
 loudness.tcb
 loudness_gauge.tcb
 loudness_p4.tcb
+lt8900_lamp.tcb
 ltr308.tcb
 lvgl_chart.tcb
 lvgl_demo.tcb
