@@ -70,6 +70,12 @@
   Kommandos — Auslesen und Diagnose:
     EEBusDelDur -1|0|1            Geltungsdauer der Gegenstelle vor dem Schreiben loeschen:
                                   -1 automatisch, 0 nie, 1 immer
+    EEBusAutoConn                 Zustand des selbsttaetigen Wiederaufbaus anzeigen
+    EEBusAutoConn <sekunden>      Wartezeit nach dem Hochfahren (Vorgabe 120, 0 = abgeschaltet).
+                                  ⚠️ Wirkt nur bis zum naechsten Neustart — die Vorgabe steht im
+                                  Code. Bewusst so: der Wert ist erprobt, und ein nur zeitweise
+                                  verstellbarer Wert verleitet mehr zu Irrtuemern als er nuetzt.
+    EEBusAutoConn -1              gemerkte Gegenstelle vergessen (kein Wiederaufbau mehr)
     EEBusMess <ski>               Messwerte und Kenngroessen erneut abfragen (nur lesen)
     EEBusStruct <ski> [suchwort]  Entities, Features, Actors, Use Cases der Gegenstelle
     EEBusRead <ski> <ent> <feat> <typ>   ein Feature gezielt auslesen; <typ> ist ein Kuerzel
@@ -90,7 +96,44 @@
                                   bleibt deshalb wirkungslos, statt eine Pruefung vorzutaeuschen,
                                   die nicht stattfindet. Naeheres im Kopfkommentar.
 
-  Dateien (Flash-FS): /eebus_cert.der, /eebus_key.der
+  Wiederaufbau nach einem Neustart
+  --------------------------------
+  Die Fundliste des Scans liegt nur im Arbeitsspeicher. Nach einem Neustart wusste das Geraet
+  deshalb nicht mehr, mit wem es verbunden war — jemand musste von Hand scannen und verbinden.
+  Jetzt wird die SKI der Gegenstelle gemerkt, sobald eine Verbindung die Datenphase erreicht,
+  und beim Hochfahren einmal selbsttaetig wiederhergestellt (danach uebernimmt der Keep-Alive).
+  Ein bewusstes EEBusDisconnect legt den Wiederaufbau fuer den laufenden Betrieb stumm, LOESCHT
+  die Merkung aber NICHT: "vor dem Update trennen" ist die haeufigste Art zu trennen, und dabei
+  meint niemand "komm nicht wieder". Geloescht wird nur auf ausdrueckliche Ansage: EEBusAutoConn -1.
+
+  Herzschlag der Gegenstelle
+  --------------------------
+  Ueberwacht wurde bisher nur, wann zuletzt irgendetwas hereinkam. Das taugt nicht als Mass fuer
+  die Beziehung: ein Energiemanager schickt zwei Messwert-Meldungen je Sekunde, dieser Zeitpunkt
+  ist also nie alt — auch dann nicht, wenn die Gegenstelle uns laengst abgemeldet hat und in ihren
+  Failsafe gefallen ist. Genau das ist vorgekommen: die Verbindung lief danach dreizehn Stunden
+  weiter, und die Anzeige meldete elf Stunden lang einen Zustand, den es nicht mehr gab.
+  Der Herzschlag der Gegenstelle traegt dagegen eine ZUSAGE ("heartbeatTimeout", z.B. PT2M).
+  Sie wird jetzt ausgewertet: bleibt er laenger als das Doppelte davon aus, gilt die Beziehung als
+  verloren, es erscheint eine Zeile mit Uhrzeit im Protokoll, und EEBusStatus fuehrt Zaehler und
+  Zeitpunkt weiter (damit sich Vorfaelle auch spaeter noch nachlesen lassen).
+  ⚠️ Die Anmeldung wird nur dann selbsttaetig erneuert, wenn KEINE eigene Grenze aktiv ist —
+  eine Wiederholung wuerde eine gesetzte Begrenzung sonst aufheben.
+
+  ⚠️ Der Wiederaufbau beginnt ERST, wenn Netz UND Uhr stehen, und dann noch mit Wartezeit:
+    - Die Uhr, weil der Herzschlag einen UTC-Zeitstempel traegt. Ohne Zeitsynchronisation meldet
+      sich das Geraet mit einer Uhrzeit aus dem Jahr 1970 an; die Gegenstelle haelt den Herzschlag
+      fuer laengst abgelaufen und lehnt danach JEDES Limit ab — ohne dass irgendwo ein Fehler
+      erscheint. Gemessen: nach dem Einschalten stand das Netz rund zwei Minuten vor der Uhr.
+    - Die Wartezeit, weil ein zu frueher Verbindungsversuch in "cmi resp n=-1" endet und der
+      Verbindungs-Slot DANACH bis zum naechsten Neustart im Fehler bleibt. Nach einer
+      Spannungswiederkehr kommt hinzu, dass Switch, Router und die Gegenstelle selbst erst
+      hochfahren — per mDNS ist dann noch gar nichts zu finden.
+  Aus demselben Grund wachsen die Abstaende zwischen den Versuchen (30/60/120/300 s, dann Schluss),
+  und meldet die Gegenstelle "pending", wird 5 Minuten statt 8 Sekunden gewartet: "pending" heisst,
+  dass dort ein MENSCH eine Freigabe erteilen muss, und dichtes Wiederholen schadet nur.
+
+  Dateien (Flash-FS): /eebus_cert.der, /eebus_key.der, /eebus_peer.txt (gemerkte Gegenstelle)
   Mitschnitt (SD):    /eebus_ship.log — jede SHIP-Nachricht TX/RX mit Zeitstempel
                       (Rohdaten-Basis fuer das spaetere Pruefprotokoll)
   (DER statt PEM: die mbedTLS-PEM-Write-Funktionen sind im Tasmota-Framework nicht
@@ -136,6 +179,10 @@
 #define EEBUS_SCAN_TIMEOUT_MS   1500
 #define EEBUS_CERT_FILE         "/eebus_cert.der"
 #define EEBUS_KEY_FILE          "/eebus_key.der"
+   // Gemerkte Peer-SKI fuer den selbsttaetigen Wiederaufbau nach einem Neustart. Die Fundliste
+   // aus dem Scan liegt NUR im RAM — nach dem Hochfahren weiss das Geraet sonst nicht mehr,
+   // mit wem es verbunden war, und ein Mensch muesste jedes Mal von Hand scannen und verbinden.
+#define EEBUS_PEER_FILE         "/eebus_peer.txt"
 #define EEBUS_CERT_DER_SIZE     1024
 #define EEBUS_KEY_DER_SIZE      256
 
@@ -174,7 +221,7 @@ extern FS *ufsp;   // aktives FS (SD-Karte wenn gemountet) — fuer den SHIP-Mit
 const char kEebusCommands[] PROGMEM = D_PRFX_EEBUS "|"   // Prefix
   "Scan|Peers|Cert|Connect|Disconnect|Status|Trust|ConnectIp|Advertise|Log|"
   "Role|Lpc|ReleaseAll|Release|Target|Probe|Provide|Open|Hems|PeerMode|DelDur|"
-  "LppFrei|Lpp|Anmeld|Data|Mess|Struct|Read";   // ReleaseAll VOR Release, LppFrei VOR Lpp (Praefix-Match!)
+  "LppFrei|Lpp|Anmeld|Data|Mess|Struct|Read|AutoConn";   // ReleaseAll VOR Release, LppFrei VOR Lpp (Praefix-Match!)
 
 void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusScan, &CmndEebusPeers, &CmndEebusCert,
@@ -184,7 +231,7 @@ void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusTarget, &CmndEebusProbe, &CmndEebusProvide, &CmndEebusOpen, &CmndEebusHems,
   &CmndEebusPeerMode, &CmndEebusDelDur,
   &CmndEebusLppFrei, &CmndEebusLpp, &CmndEebusAnmeld, &CmndEebusData,
-  &CmndEebusMess, &CmndEebusStruct, &CmndEebusRead };
+  &CmndEebusMess, &CmndEebusStruct, &CmndEebusRead, &CmndEebusAutoConn };
 
 // Blind-Adressierung (Waermepumpen-Gateway liefert ihre Discovery nicht — VR940-Karte als Vorlage:
 // LoadControl/server auf entity 3 "HeatPumpAppliance"):
@@ -444,6 +491,82 @@ struct {
   char    mode_ski[EEBUS_MAX_PEERS][41];
   uint8_t mode_val[EEBUS_MAX_PEERS];   // 0 = SteuVE-Partner, 1 = HEMS-Partner
 } Eebus;
+
+/*********************************************************************************************\
+ * Selbsttaetiger Wiederaufbau nach einem Neustart
+ *
+ * Der vorhandene Auto-Reconnect haelt eine LAUFENDE Verbindung; nach einem Neustart greift er
+ * nicht, weil BEIDES weg ist: die Fundliste (nur RAM) und der Slot mit der gemerkten SKI.
+ * Deshalb: SKI in einer Datei merken, beim Hochfahren einmal suchen und verbinden.
+ *
+ * ⚠️ ZWEI BEDINGUNGEN, beide aus Schaden gelernt:
+ *   1. NICHT sofort verbinden. Ein zu schneller Verbindungsversuch endet in "cmi resp n=-1",
+ *      und der Slot bleibt DANACH BIS ZUM NAECHSTEN NEUSTART im Fehler. Nach einer
+ *      Spannungswiederkehr kommt hinzu, dass Switch, Router und die Gegenstelle selbst erst
+ *      hochfahren — per mDNS ist dann noch gar nichts zu finden.
+ *   2. ERST WENN DIE UHR STIMMT. Unser Herzschlag traegt einen UTC-Zeitstempel. Ohne
+ *      Zeitsynchronisation meldet sich die Box mit einer Uhrzeit aus dem Jahr 1970 an — die
+ *      Gegenstelle haelt den Herzschlag fuer uralt und lehnt JEDES Limit ab, ohne dass
+ *      irgendwo ein Fehler erscheint. Genau diese Klasse Fehler hat uns Wochen gekostet.
+\*********************************************************************************************/
+#define EEBUS_AC_DELAY_DEFAULT_S   120   // Wartezeit nach Netz+Uhr, bevor gesucht wird
+#define EEBUS_AC_SCAN_WAIT_MS     6000   // Zeit, die der mDNS-Scan zum Fuellen der Liste bekommt
+#define EEBUS_AC_MAX_TRY             4   // danach aufgeben — ein Mensch muss ran
+
+   // Abstaende zwischen den Versuchen: wachsend, NICHT die starren 8 s des Keep-Alive.
+   // Zu dichte Wiederholungen sind genau der Weg in "cmi resp n=-1".
+const uint16_t kEebusAcRetryS[EEBUS_AC_MAX_TRY] PROGMEM = { 30, 60, 120, 300 };
+
+enum EebusAcState : uint8_t { AC_IDLE, AC_WAIT, AC_SCAN, AC_DONE };
+
+uint16_t eebus_ac_delay_s = EEBUS_AC_DELAY_DEFAULT_S;   // 0 = Wiederaufbau abgeschaltet
+char     eebus_ac_ski[41] = { 0 };   // gemerkte Peer-SKI ("" = keine)
+uint8_t  eebus_ac_state   = AC_IDLE;
+uint32_t eebus_ac_next    = 0;       // millis() fuer den naechsten Schritt
+uint8_t  eebus_ac_try     = 0;       // Zaehler der Verbindungsversuche
+
+// Peer-SKI merken. Abgelegt wie Zertifikat und Schluessel im Flash-FS, damit sie einen
+// Neustart ueberlebt. Nur ECHTE SKIs (40 Hex-Zeichen) — der Platzhalter "manual" aus
+// EEBusConnectIp identifiziert kein Geraet und taugt zum Wiederfinden nicht.
+void EebusPeerRemember(const char *ski) {
+  if ((nullptr == ski) || (40 != strlen(ski))) { return; }
+  if (0 == strcmp(eebus_ac_ski, ski)) { return; }   // steht bereits so in der Datei
+  strlcpy(eebus_ac_ski, ski, sizeof(eebus_ac_ski));
+#ifdef USE_UFILESYS
+  if (TfsSaveFile(EEBUS_PEER_FILE, (const uint8_t*)ski, 40)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer %s gemerkt - nach einem Neustart wird selbsttaetig verbunden"), ski);
+  }
+#endif
+}
+
+// Bewusstes Trennen soll NICHT beim naechsten Start rueckgaengig gemacht werden.
+void EebusPeerForget(void) {
+  eebus_ac_ski[0] = '\0';
+  eebus_ac_state  = AC_DONE;
+#ifdef USE_UFILESYS
+  if (TfsFileExists(EEBUS_PEER_FILE)) {
+    TfsDeleteFile(EEBUS_PEER_FILE);
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: gemerkter Peer geloescht - kein selbsttaetiger Wiederaufbau mehr"));
+  }
+#endif
+}
+
+// Gemerkte SKI beim Hochfahren einlesen. true, wenn eine vollstaendige SKI vorliegt.
+bool EebusPeerRecall(void) {
+#ifdef USE_UFILESYS
+  eebus_ac_ski[0] = '\0';
+  if (!TfsFileExists(EEBUS_PEER_FILE)) { return false; }
+  File f = ffsp->open(EEBUS_PEER_FILE, "r");
+  if (!f) { return false; }
+  int n = f.read((uint8_t*)eebus_ac_ski, 40);
+  f.close();
+  if (n < 0) { n = 0; }
+  eebus_ac_ski[(n > 40) ? 40 : n] = '\0';
+  return (40 == strlen(eebus_ac_ski));
+#else
+  return false;
+#endif
+}
 
 // SKI -> Betriebsmodus. Index des Eintrags einer SKI, -1 wenn nicht zugeordnet.
 int EebusModeFind(const char *ski) {
@@ -1039,6 +1162,10 @@ enum EebusSmeState : uint8_t {
 #define EEBUS_SPINE_RXBUF            32768   // PSRAM-Empfangspuffer fuer SPINE-Datagramme. 8192 war ZU KLEIN: Energiemanager-DetailedDiscovery = 9713 B, Waermepumpen-Gateway = 10969 B -> WsRecv (Z.913) verwarf den Frame STILL ("WS-Nachricht > 8191 B, verworfen", nur DEBUG) -> wir bekamen die Peer-Discovery NIE. Live bewiesen . 32 KB deckt reale Discovery + Reserve (PSRAM, pro Slot).
 #define EEBUS_SPINE_VERSION          "1.3.0"   // SUPPORTED_SPINE_VERSION (wie Ladestation/Energiemanager/Waermepumpen-Gateway)
 #define EEBUS_SPINE_KEEPALIVE_MS     8000UL   // Auto-Reconnect, wenn nach Done die Leitung abfaellt
+   // Hat die Gegenstelle "pending" gemeldet, wartet dort ein MENSCH auf eine Freigabe
+   // (Portal/Hersteller-App). Dichtes Wiederholen bringt dann nichts, erzeugt aber
+   // "cmi resp n=-1" — und DAS legt den Slot bis zum naechsten Neustart lahm.
+#define EEBUS_PENDING_RETRY_MS     300000UL   // 5 min statt 8 s, solange der Peer "pending" meldet
 
 // MULTI-CONNECTION: bis zu 3 SHIP-Verbindungen GLEICHZEITIG (Ladestation + Waermepumpen-Gateway + Energiemanager).
 // Muster: ein Verbindungs-Slot pro Peer; ALLE bestehenden Funktionen arbeiten unveraendert
@@ -1179,6 +1306,19 @@ typedef struct {
   bool     hb_sub = false;   // hat der Peer unser DeviceDiagnosis (ent1/feat2) abonniert?
   int      hb_cli_ent = 0;   // Client-Adresse des Heartbeat-Abonnenten (aus clientAddress)
   int      hb_cli_feat = 0;
+   // --- Herzschlag der GEGENSTELLE: Ueberwachung in die andere Richtung ----------------------
+   // Zeitlich ueberwacht wurde bisher nur last_rx = "wann kam zuletzt IRGENDEINE Nachricht?".
+   // Als Mass fuer die Beziehung ist das untauglich: ein Energiemanager schickt zwei
+   // Messwert-Meldungen je Sekunde, last_rx ist damit nie alt — auch dann nicht, wenn die
+   // Gegenstelle uns laengst abgemeldet hat. Wir haben die Fuetterung gemessen und daraus auf
+   // die Beziehung geschlossen. Der Herzschlag der Gegenstelle traegt dagegen eine ZUSAGE
+   // ("heartbeatTimeout", z.B. PT2M): "spaetestens dann hoerst du wieder von mir."
+  uint32_t peer_hb_at = 0;      // millis() des zuletzt EMPFANGENEN Herzschlags der Gegenstelle
+  uint32_t peer_hb_ctr = 0;     // dessen Zaehler (Anzeige/Diagnose)
+  uint16_t peer_hb_tmo_s = 0;   // von der Gegenstelle ZUGESAGTE Frist in s (aus heartbeatTimeout)
+  bool     peer_hb_lost = false;   // Frist gerissen und bereits gemeldet (nicht wiederholen)
+  uint16_t hb_lost_cnt = 0;     // wie oft die Frist bisher riss (Vorfallszaehler)
+  char     hb_lost_at[24] = { 0 };   // Zeitpunkt des letzten Vorfalls, aus der Ortszeit
    // LPC-Steuerbox-Schreib-Sequenz an die LoadControl des Peers
   uint8_t  lpc_state = LPC_IDLE;
   uint32_t lpc_value = 0;   // Zielwert als BETRAG in W (bei Freigabe egal; Vorzeichen aus lpc_dir)
@@ -1565,6 +1705,9 @@ bool EebusShipConnect(int idx) {
   ESp->hb_cli_ent = 0;
   ESp->hb_cli_feat = 0;
   ESp->hb_next = 0;
+   // Herzschlag der Gegenstelle: frische Sitzung -> noch keiner empfangen, keine Zusage bekannt.
+   // Zaehler und Zeitpunkt der Vorfaelle bleiben ABSICHTLICH stehen — sie sind die Vorfallsliste.
+  ESp->peer_hb_at = 0; ESp->peer_hb_ctr = 0; ESp->peer_hb_tmo_s = 0; ESp->peer_hb_lost = false;
   ESp->spine_ctr = 1;
    // LPC-Sequenz ruecksetzen (frische TLS-Session -> Binding weg, limitId neu holen)
   ESp->lpc_state = LPC_IDLE;
@@ -3326,6 +3469,34 @@ int EebusMoFind(int ent, uint8_t id, bool anlegen) {
 void EebusHarvest(const char *json, int src_ent) {
   const char *p, *q, *nx;
 
+   // --- Herzschlag der GEGENSTELLE: Ankunft und Zusage merken --------------------------------
+   // Diese Funktion laeuft VOR der Verzweigung nach cmdClassifier und damit auch fuer "notify" —
+   // eine Nachrichtenart, fuer die es sonst gar keinen Zweig gibt. Genau deshalb sind diese
+   // Herzschlaege bisher spurlos durchgefallen, obwohl sie die ganze Zeit ankamen.
+   // ⚠️ NUR ein Datensatz MIT ZAEHLER gilt als Herzschlag. Der blosse Funktionsname steht auch in
+   // Nachrichten, die ueber das Leben der Gegenstelle nichts aussagen: beim Verbindungsaufbau
+   // gemessen (Discovery/Abo-Verkehr setzten die Uhr, bevor der erste echte Herzschlag da war —
+   // erkennbar daran, dass die zugesagte Frist noch fehlte), und ein blosser Read auf diese
+   // Funktion traegt ihn ebenfalls. Zaehlten die mit, verlaengerten sie die Frist, ohne dass
+   // jemand lebt — genau der Fehler, den diese Ueberwachung beheben soll.
+  uint32_t hc = 0;
+  if ((nullptr != strstr(json, "\"deviceDiagnosisHeartbeatData\"")) &&
+      EebusJsonInt(json, "heartbeatCounter", &hc)) {
+    ESp->peer_hb_ctr = hc;
+    char tmo[16] = { 0 };
+    if (EebusJsonStr(json, "heartbeatTimeout", tmo, sizeof(tmo))) {
+      long s = EebusIsoDurSecs(tmo);   // "PT2M" -> 120
+      if ((s > 0) && (s < 65535)) { ESp->peer_hb_tmo_s = (uint16_t)s; }
+    }
+    ESp->peer_hb_at = millis();
+    if (0 == ESp->peer_hb_at) { ESp->peer_hb_at = 1; }   // 0 ist reserviert fuer "noch keiner da"
+    if (ESp->peer_hb_lost) {
+      ESp->peer_hb_lost = false;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Herzschlag von %s ist wieder da (Zaehler %u) - %s"),
+             ESp->peer_ip, ESp->peer_hb_ctr, GetDateAndTime(DT_LOCAL).c_str());
+    }
+  }
+
    // --- Beschreibung der Messwerte: measurementId -> Bedeutung -------------------------------
   if (nullptr != strstr(json, "\"measurementDescriptionData\"")) {
    // Gehoert diese Beschreibung zum NETZANSCHLUSSPUNKT? Erkennungsmerkmal sind die Bedeutungen
@@ -3864,6 +4035,11 @@ void EebusSmeReachDone(const char *grund) {
   EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
   AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP-Handshake KOMPLETT (Done, %s) @ %s - Datenphase erreicht"),
          grund, ESp->peer_ip);
+   // Erst JETZT merken, nicht schon beim Verbinden: eine Verbindung, die es nicht bis in die
+   // Datenphase schafft, ist kein Partner, den man beim naechsten Start wieder suchen sollte.
+   // Server-Slots ausgenommen — dort steht die Peer-IP als Pseudo-SKI, die identifiziert niemanden.
+  if (!ESp->via_srv) { EebusPeerRemember(ESp->peer_ski); }
+  eebus_ac_state = AC_DONE;   // Wiederaufbau erledigt (oder gar nicht noetig gewesen)
   if (eebus_open_mode >= 1) {
    // Eroeffnungszug: SOFORT einen ADRESSLOSEN DetailedDiscovery-Read senden. Reaktiven
    // adressierten Read unterdruecken (peer_disco_read=true) + 3-s-Fallback loeschen (schon gesendet).
@@ -3888,7 +4064,7 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
       ESp->sme = SME_OFF;
       ESp->state = SHIP_IDLE;
       if (ESp->keepalive && (ESp->peer_idx >= 0)) {   // Keep-Alive: nach kurzem Warten neu verbinden
-        ESp->reconnect_at = millis() + EEBUS_SPINE_KEEPALIVE_MS;
+        ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);
       }
       EebusTeardownLater();   // Client verzoegert freigeben
     } else {   // Close VOR Done = abgewiesen
@@ -4014,7 +4190,7 @@ void EebusSmePoll(void) {
       ESp->sme = SME_OFF;
       ESp->state = SHIP_IDLE;
       if (ESp->keepalive && (ESp->peer_idx >= 0)) {   // Keep-Alive: bald neu verbinden
-        ESp->reconnect_at = millis() + EEBUS_SPINE_KEEPALIVE_MS;
+        ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);
       }
       EebusTeardownLater();   // Client verzoegert freigeben
     } else {
@@ -4146,6 +4322,100 @@ int EebusConnectPeer(int idx) {
   return ci;
 }
 
+// Selbsttaetiger Wiederaufbau nach einem Neustart — im Sekundentakt aufgerufen.
+// Uebergibt nach dem ersten geglueckten Verbindungsversuch an den vorhandenen Keep-Alive,
+// der eine LAUFENDE Verbindung ohnehin schon haelt (und den Peer dabei ueber die SKI
+// nachschlaegt, falls sich die Scan-Reihenfolge geaendert hat).
+void EebusAutoConnectRun(void) {
+  if (AC_DONE == eebus_ac_state) { return; }
+  if (0 == eebus_ac_delay_s) { eebus_ac_state = AC_DONE; return; }   // per EEBusAutoConn 0 abgeschaltet
+
+  switch (eebus_ac_state) {
+
+    case AC_IDLE:
+   // Drei Bedingungen, alle noetig (Begruendung im Kopf des Abschnitts):
+   // Netz steht · Uhr ist synchronisiert · eine SKI ist gemerkt.
+      if (!(WifiHasIP() || ((uint32_t)EthernetLocalIP() != 0))) { return; }
+      if (!RtcTime.valid) { return; }
+      if (!EebusPeerRecall()) { eebus_ac_state = AC_DONE; return; }   // nichts gemerkt
+      eebus_ac_next  = millis() + (eebus_ac_delay_s * 1000UL);
+      eebus_ac_state = AC_WAIT;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau zu %s vorgemerkt - Beginn in %u s (Netz und Uhr stehen)"),
+             eebus_ac_ski, eebus_ac_delay_s);
+      break;
+
+    case AC_WAIT:
+      if (!TimeReached(eebus_ac_next)) { return; }
+   // Ist die Verbindung inzwischen anderweitig zustande gekommen (von Hand oder eingehend)?
+   // Dann ist nichts mehr zu tun.
+      for (uint32_t i = 0; i < EEBUS_MAX_CONN; i++) {
+        if (EConn[i].active && (0 == strcmp(EConn[i].peer_ski, eebus_ac_ski))) {
+          eebus_ac_state = AC_DONE;
+          return;
+        }
+      }
+      if (!EebusStartScan()) { eebus_ac_next = millis() + 5000; return; }   // laeuft schon / kein mDNS
+      eebus_ac_next  = millis() + EEBUS_AC_SCAN_WAIT_MS;
+      eebus_ac_state = AC_SCAN;
+      break;
+
+    case AC_SCAN: {
+      if (!TimeReached(eebus_ac_next)) { return; }
+      int idx = -1;
+      for (uint32_t k = 0; k < Eebus.peer_count; k++) {
+        if (0 == strcmp(Eebus.peers[k].ski, eebus_ac_ski)) { idx = (int)k; break; }
+      }
+      eebus_ac_try++;
+      if (idx >= 0) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau - verbinde mit %s (Versuch %u von %u)"),
+               eebus_ac_ski, eebus_ac_try, EEBUS_AC_MAX_TRY);
+        if (EebusConnectPeer(idx) >= 0) {
+   // Ab hier uebernimmt der Keep-Alive: er haelt die Verbindung und baut sie bei Abriss
+   // selbst wieder auf. Ob der Versuch geglueckt ist, meldet der Slot in EEBusStatus.
+          eebus_ac_state = AC_DONE;
+          return;
+        }
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau - %s im Scan nicht gefunden (Versuch %u von %u)"),
+               eebus_ac_ski, eebus_ac_try, EEBUS_AC_MAX_TRY);
+      }
+      if (eebus_ac_try >= EEBUS_AC_MAX_TRY) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau aufgegeben - bitte von Hand scannen und verbinden"));
+        eebus_ac_state = AC_DONE;
+        return;
+      }
+      uint16_t warte_s = pgm_read_word(&kEebusAcRetryS[eebus_ac_try - 1]);
+      eebus_ac_next  = millis() + (warte_s * 1000UL);
+      eebus_ac_state = AC_WAIT;
+      break;
+    }
+  }
+}
+
+// EEBusAutoConn            Zustand anzeigen
+// EEBusAutoConn <sekunden> Wartezeit nach Netz+Uhr, bevor selbsttaetig gesucht wird (0 = aus)
+// EEBusAutoConn -1         gemerkten Peer vergessen (kein Wiederaufbau mehr)
+void CmndEebusAutoConn(void) {
+  if (XdrvMailbox.data_len > 0) {
+    long v = atol(XdrvMailbox.data);
+    if (v < 0) {
+      EebusPeerForget();
+    } else if (v <= 3600) {
+      eebus_ac_delay_s = (uint16_t)v;
+      if (0 == v) { eebus_ac_state = AC_DONE; }
+    } else {
+      ResponseCmndChar_P(PSTR("Wartezeit 0..3600 s, -1 = Peer vergessen"));
+      return;
+    }
+  }
+  const char *zst = (AC_IDLE == eebus_ac_state) ? "wartet auf Netz und Uhr" :
+                    (AC_WAIT == eebus_ac_state) ? "Wartezeit laeuft" :
+                    (AC_SCAN == eebus_ac_state) ? "sucht" : "abgeschlossen";
+  Response_P(PSTR("{\"%s\":{\"WarteS\":%u,\"Peer\":\"%s\",\"Zustand\":\"%s\",\"Versuche\":%u}}"),
+             XdrvMailbox.command, eebus_ac_delay_s,
+             eebus_ac_ski[0] ? eebus_ac_ski : "-", zst, eebus_ac_try);
+}
+
 void CmndEebusConnect(void) {
    // EEBusConnect <idx>  (Index aus EEBusPeers/EEBusScan). Bestehende Verbindungen zu
    // ANDEREN Peers bleiben stehen (Multi-Connection, EEBUS_MAX_CONN Slots).
@@ -4181,6 +4451,16 @@ void EebusDisconnectNow(void) {
   ESp->keepalive = false;   // Auto-Reconnect abschalten (bewusstes Trennen)
   ESp->reconnect_at = 0;
   ESp->peer_idx = -1;
+   // Bewusstes Trennen legt den Wiederaufbau fuer DIESEN Lauf still — sonst wuerde eine noch
+   // laufende Wartezeit die Verbindung gleich wieder herstellen.
+   // ⚠️ Die MERKUNG bleibt dabei erhalten. Frueher wurde sie hier geloescht, mit der Begruendung,
+   // ein bewusstes Trennen duerfe nicht beim naechsten Start stillschweigend rueckgaengig gemacht
+   // werden. In der Praxis ist das falsch herum: "vor dem Update trennen" ist die HAEUFIGSTE Art
+   // zu trennen, und dabei meint niemand "komm nicht wieder" — ausgerechnet nach einem
+   // Firmware-Update, also dem Fall, fuer den der Wiederaufbau gedacht ist, blieb er damit stumm.
+   // Eine Steuerbox muss sich auch nach einem Update selbst verbinden. Wer die Merkung wirklich
+   // loswerden will, sagt es ausdruecklich: EEBusAutoConn -1 (zum blossen Stilllegen: 0).
+  if (!ESp->via_srv && (0 == strcmp(eebus_ac_ski, ESp->peer_ski))) { eebus_ac_state = AC_DONE; }
   if (ESp->active && (ESp->client || ESp->via_srv) &&   // auch Server-Slots verabschieden sich
       (ESp->sme != SME_OFF) && (ESp->sme != SME_FAIL)) {
    // Sauberer SHIP-Abschied (13.4.7): connectionClose als End-Message (classifier 3)
@@ -4243,10 +4523,21 @@ void CmndEebusStatus(void) {
       case SHIP_ERROR:  st = "error"; break;
       default: st = "idle";
     }
+   // Herzschlag der Gegenstelle: Alter des letzten, ihre Zusage, und die Vorfaelle.
+   // Nur ausgeben, wenn es etwas zu sagen gibt — leere Slots sollen die Antwort nicht aufblaehen.
+   // ⚠️ Zaehler und Zeitpunkt ueberleben einen Neustart NICHT (sie liegen im Arbeitsspeicher);
+   // fuer eine laengere Beobachtung gehoert der Wert regelmaessig abgeholt.
+    char hbinfo[112] = { 0 };
+    if (cc->peer_hb_at || cc->hb_lost_cnt) {
+      snprintf_P(hbinfo, sizeof(hbinfo),
+                 PSTR("\"PeerHerzschlagS\":%ld,\"ZusageS\":%u,\"Verloren\":%u,\"VerlorenAm\":\"%s\","),
+                 cc->peer_hb_at ? (long)((millis() - cc->peer_hb_at) / 1000) : -1L,
+                 cc->peer_hb_tmo_s, cc->hb_lost_cnt, cc->hb_lost_at);
+    }
     ResponseAppend_P(PSTR("%s{\"Slot\":%d,\"State\":\"%s\",\"Sme\":\"%s\",\"Ip\":\"%s\",\"Port\":%u,"
-                          "\"PeerSki\":\"%s\",\"PeerId\":\"%s\",\"Lpc\":\"%s\",\"LpcResult\":\"%s\",\"Error\":\"%s\"}"),
+                          "\"PeerSki\":\"%s\",\"PeerId\":\"%s\",\"Lpc\":\"%s\",\"LpcResult\":\"%s\",%s\"Error\":\"%s\"}"),
                      (i) ? "," : "", i, st, EebusSmeName(cc->sme), cc->peer_ip, cc->peer_port,
-                     cc->peer_ski, cc->peer_id, EebusLpcName(cc->lpc_state), cc->lpc_result, cc->err);
+                     cc->peer_ski, cc->peer_id, EebusLpcName(cc->lpc_state), cc->lpc_result, hbinfo, cc->err);
   }
   ResponseAppend_P(PSTR("]}}"));
 }
@@ -5251,6 +5542,7 @@ void EebusSrvFree(void) {
     cc->state = SHIP_IDLE;
     cc->hb_sub = false;
     cc->hb_next = 0;
+    cc->peer_hb_at = 0; cc->peer_hb_ctr = 0; cc->peer_hb_tmo_s = 0; cc->peer_hb_lost = false;
     cc->lpc_state = LPC_IDLE;
     cc->lpc_write_tries = 0;   // 
     cc->lpc_write_retry_at = 0;   // 
@@ -5474,6 +5766,7 @@ void EebusSrvLinkConn(void) {
   cc->hb_cli_feat = 0;
   cc->hb_next = 0;
   cc->hb_counter = 1;
+  cc->peer_hb_at = 0; cc->peer_hb_ctr = 0; cc->peer_hb_tmo_s = 0; cc->peer_hb_lost = false;
   cc->spine_ctr = 1;
   cc->lpc_state = LPC_IDLE;
   cc->lpc_bound = false;
@@ -5842,6 +6135,7 @@ bool Xdrv126(uint32_t function) {
           (WifiHasIP() || ((uint32_t)EthernetLocalIP() != 0))) {
         EebusMdnsAdvertise();
       }
+      EebusAutoConnectRun();   // selbsttaetiger Wiederaufbau nach einem Neustart
 #ifdef USE_WEBSERVER
       EebusWebClickRun();   // vorgemerkte Verbinden/Trennen-Klicks (NIE im HTTP-Handler)
 #endif
@@ -6009,7 +6303,7 @@ bool Xdrv126(uint32_t function) {
    // Abbruchstellen den Wiederaufbau ein — blieb die Verbindung deshalb einfach weg,
    // obwohl keepalive gesetzt war. Lieber einmal zu viel geplant als eine Steuerbox, die still steht.
         if ((SME_OFF == ESp->sme) && ESp->keepalive && !ESp->reconnect_at && (ESp->peer_idx >= 0)) {
-          ESp->reconnect_at = millis() + EEBUS_SPINE_KEEPALIVE_MS;
+          ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);
         }
    // Heartbeat-NOTIFY alle 20 s an den DeviceDiagnosis-Leser/Abonnenten (Verbindungsueberwachung).
    // 20 s (war 30) — muss UNTER Ladestations Ablauf (unser gemeldeter PT30S -> ~31 s) bleiben, sonst
@@ -6018,6 +6312,32 @@ bool Xdrv126(uint32_t function) {
           ESp->hb_next = millis() + (eebus_hems_mode ? 8000 : 20000);   // HEMS 8 s (Vergleichs-Steuerbox-Takt), Ladestation 20 s
           EebusSpineSendHeartbeat("notify", false, 0, ESp->hb_cli_ent, ESp->hb_cli_feat);
           AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: Heartbeat %u an %s gesendet"), ESp->hb_counter - 1, ESp->peer_ip);
+        }
+   // HERZSCHLAG DER GEGENSTELLE UEBERWACHEN — die Gegenprobe zum Senden oben.
+   // Bewertet wird IHRE EIGENE Zusage (heartbeatTimeout), verdoppelt als Reserve: ein einzelner
+   // ausgefallener Herzschlag soll noch keinen Alarm ausloesen. Ohne je empfangenen Herzschlag
+   // (peer_hb_at == 0) wird NICHT geprueft — es gibt Gegenstellen, die gar keinen schicken, und
+   // die duerfen nicht dauerhaft als verloren gelten.
+        if ((SME_DONE == ESp->sme) && ESp->peer_hb_at && !ESp->peer_hb_lost) {
+          uint32_t frist_s = (uint32_t)(ESp->peer_hb_tmo_s ? ESp->peer_hb_tmo_s : 120) * 2;
+          if (TimeReached(ESp->peer_hb_at + (frist_s * 1000UL))) {
+            ESp->peer_hb_lost = true;
+            ESp->hb_lost_cnt++;
+            strlcpy(ESp->hb_lost_at, GetDateAndTime(DT_LOCAL).c_str(), sizeof(ESp->hb_lost_at));
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** Herzschlag von %s seit ueber %u s aus (zugesagt waren %u s) - Beziehung gilt als verloren. Vorfall %u am %s ***"),
+                   ESp->peer_ip, frist_s, ESp->peer_hb_tmo_s, ESp->hb_lost_cnt, ESp->hb_lost_at);
+   // ⚠️ ANMELDUNG NUR ERNEUERN, SOLANGE KEINE EIGENE GRENZE AKTIV IST. Die Anmeldung ist eine
+   // FREIGABE (isLimitActive:false) — sie wuerde eine gesetzte Begrenzung aufheben. Geprueft wird
+   // beides: der eigene Merker aus dem letzten Schreibauftrag UND der zuletzt zurueckgelesene
+   // Zustand beider Grenzen. Im Zweifel wird NICHT erneuert.
+            bool grenze_aktiv = ESp->lpc_our_limit || (1 == ESp->lim_act[0]) || (1 == ESp->lim_act[1]);
+            if (grenze_aktiv) {
+              AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung wird NICHT erneuert - eine Grenze ist aktiv und darf nicht aufgehoben werden"));
+            } else if (eebus_auto_reg && eebus_hems_mode && ESp->lpc_onboarded && ESp->hb_sub) {
+              ESp->lpc_reg_step = 1;   // beide Richtungen nacheinander erneut anmelden
+              AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung wird erneuert - keine eigene Grenze aktiv"));
+            }
+          }
         }
    // Keep-Alive — Verbindung nach Abbruch wieder aufbauen (gruenes Kettenglied halten).
    // Peer-Index gegen die SKI absichern: die Scan-Reihenfolge kann sich geaendert haben!
@@ -6035,7 +6355,7 @@ bool Xdrv126(uint32_t function) {
           if (idx >= 0) {
             AddLog(LOG_LEVEL_INFO, PSTR("EBG: Auto-Reconnect zu Peer %d (Slot %d)"), idx, ci);
             if (!EebusShipConnect(idx) && ESp->keepalive) {
-              ESp->reconnect_at = millis() + EEBUS_SPINE_KEEPALIVE_MS;   // fehlgeschlagen -> spaeter erneut
+              ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);   // fehlgeschlagen -> spaeter erneut
             }
           }
         }

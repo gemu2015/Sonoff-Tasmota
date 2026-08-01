@@ -773,6 +773,29 @@
         loadStruct();                     // Struktur der Gegenstelle (einmal je Gerät)
       } else if(slot){
         c.textContent = 'im Aufbau (' + slot.Sme + ')'; c.className = 'pill';
+      } else if(!p){
+        // ⚠️ KEIN Gerät gewählt heisst NICHT, dass nichts verbunden ist.
+        // Die Auswahl haengt an der Fundliste, und die wurde bisher NUR beim Oeffnen der Seite
+        // geholt. Wer die Seite ausgerechnet in dem Moment laedt, in dem die Steuerbox nach einem
+        // Neustart noch nicht gescannt hat, bekommt eine leere Liste — und danach meldete die
+        // Seite DAUERHAFT "nicht verbunden", obwohl die Verbindung laengst stand und der
+        // 20-Sekunden-Takt brav weiterlief. Nur ein Neuladen von Hand half. Das ist dieselbe Art
+        // Fehler, die uns anderswo teuer zu stehen kam: die Anzeige behauptet einen Zustand, den
+        // sie nicht geprueft hat. Also: den Zustand aus dem Verbindungs-Slot selbst nehmen, der
+        // ihn ohnehin kennt, und die Fundliste einmal nachholen.
+        var live = null;
+        (st.Slots || []).forEach(function(s){ if(!live && (s.Sme === 'done') && s.PeerSki) live = s; });
+        if(live){
+          c.textContent = 'verbunden · ' + (live.PeerId || live.Ip); c.className = 'pill ok';
+          if(!peers.length){
+            cmd('EEBusPeers').then(function(jp){
+              var r = jp && jp.EEBusPeers;
+              if(r && r.Peers && r.Peers.length){ fillDevices(r.Peers, live.PeerSki, true); showDevice(); }
+            });
+          }
+        } else {
+          c.textContent = 'nicht verbunden'; c.className = 'pill bad';
+        }
       } else {
         c.textContent = 'nicht verbunden'; c.className = 'pill bad';
       }
