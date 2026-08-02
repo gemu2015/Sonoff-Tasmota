@@ -1,0 +1,485 @@
+// sma_sunnyboy.tc — SMA Sunny Boy ueber Bluetooth Classic auslesen (SMAdata2+ / SPP).
+//
+// Erprobt am SB 5000TL-20 (Seriennummer 2100072694). Liest die DC-Leistung und
+// -Spannung GETRENNT JE MPPT-TRACKER sowie die AC-Wirkleistung — damit sieht man ohne
+// Gang in den Keller, ob noch beide Strang-Zweige liefern.
+//
+// VORAUSSETZUNGEN
+//   * Firmware mit USE_TINYC_SPP auf einem URSPRUENGLICHEN ESP32 (nur der hat
+//     Bluetooth Classic; S3/C3/C6/P4 koennen ausschliesslich BLE)
+//   * Der Wechselrichter bedient NUR EINE Gegenstelle. Sunny Beam, Handy-App oder
+//     ein zweiter Leser sperren einander aus. Nach dem Trennen haelt das Geraet den
+//     Platz noch etwa eine Minute.
+//
+// ⚠️ LAEUFT AUF EINEM WORKER, nicht im Hauptlauf. Eine Messung dauert mit Verbinden
+// und Anmelden leicht eine halbe Minute; im Hauptlauf wuerde Tasmota so lange stehen.
+//
+// DIE VIER FALLEN DIESES GERAETS (alle gemessen, nicht vermutet — sie haben uns
+// beim Entwickeln am Mac je einen halben Nachmittag gekostet):
+//   1. VOR der eigentlichen Antwort schickt der Wechselrichter zwei unaufgeforderte
+//      Statusmeldungen (Subtyp 0xFFFD, 20 Byte "aaaabbbb..."). Die richtige Antwort
+//      kam als DRITTES Paket.
+//   2. Deshalb wird auf die passende MARKE gewartet, statt einfach das naechste
+//      Paket zu nehmen: gesendet als tag|0x8000, zurueck als tag&0x7FFF.
+//   3. HINTER der Antwort haengt oft ein Rest, der sich nicht als Rahmen lesen
+//      laesst. Der darf die Suche nicht abbrechen, sondern wird uebersprungen.
+//   4. Datensaetze koennen ABGESCHNITTEN ankommen — die Spannungsantwort kam mit 46
+//      statt 56 Byte, der zweite Tracker endete nach 18 Byte. Sein WERT stand aber
+//      vollstaendig da. Wer volle 28 Byte verlangt, verwirft still die halbe Messung.
+//      Deshalb genuegen hier 12 Byte je Satz.
+
+// ---------------------------------------------------------------------------------
+// Einstellungen
+// ---------------------------------------------------------------------------------
+#define SMA_ADR   "00:80:25:09:AC:E7"   // Bluetooth-Adresse des Wechselrichters
+#define SMA_PASS  "0000"                // Benutzerkennwort, SMA-Vorgabe
+#define TAKT_S    900                   // Abstand der Messungen; nur EIN Platz!
+
+// Messwerte, ueberleben einen Neustart
+persist int  dc_a;      // W, Tracker A
+persist int  dc_b;      // W, Tracker B
+persist int  u_a;       // Hundertstel Volt
+persist int  u_b;
+persist int  ac_w;      // W
+persist int  letzte_zeit;
+
+int lauf_zaehler;
+int fehler_zaehler;
+int sofort_messen;   // vom Kommando gesetzt, vom Worker abgeraeumt
+
+// Puffer
+char rx[512];           // empfangener Rahmen
+char tx[256];           // zu sendender Rahmen
+char ppp[256];          // PPP-Zwischenstufe
+char inner[128];        // Inhalt vor der PPP-Verpackung
+int  marke;
+
+// ---------------------------------------------------------------------------------
+// PPP-Pruefsumme: CRC-16/X-25, gespiegelt, Polynom 0x8408, am Ende invertiert
+// ---------------------------------------------------------------------------------
+int sma_crc(char d[], int n) {
+    int c = 0xFFFF;
+    int i = 0;
+    while (i < n) {
+        c = c ^ (d[i] & 0xFF);
+        int b = 0;
+        while (b < 8) {
+            if (c & 1) { c = ((c >> 1) ^ 0x8408) & 0xFFFF; }
+            else       { c = (c >> 1) & 0xFFFF; }
+            b = b + 1;
+        }
+        i = i + 1;
+    }
+    return (~c) & 0xFFFF;
+}
+
+// ---------------------------------------------------------------------------------
+// Aeusserer Rahmen senden.
+// Aufbau: 7E | Laenge(2) | Pruefsumme | Absender(6) | Empfaenger(6) | Typ(2) | Nutzlast
+// ⚠️ Die Adressen stehen RUECKWAERTS auf der Leitung.
+// ---------------------------------------------------------------------------------
+void sma_sende_aussen(int an_geraet, int typ, char nutz[], int nlen) {
+    int plen = nlen + 18;
+    tx[0] = 0x7E;
+    tx[1] = plen & 0xFF;
+    tx[2] = 0;
+    tx[3] = (0x7E ^ tx[1] ^ tx[2]) & 0xFF;
+    // Absender: immer 00:00:00:00:00:00
+    int i = 0;
+    while (i < 6) { tx[4 + i] = 0; i = i + 1; }
+    // Empfaenger: entweder Rundruf (FF..) oder die Adresse des Geraets
+    i = 0;
+    while (i < 6) {
+        if (an_geraet) { tx[10 + i] = sma_adr_byte(5 - i); }
+        else           { tx[10 + i] = 0xFF; }
+        i = i + 1;
+    }
+    tx[16] = typ & 0xFF;
+    tx[17] = (typ >> 8) & 0xFF;
+    i = 0;
+    while (i < nlen) { tx[18 + i] = nutz[i]; i = i + 1; }
+    sppWrite(tx, plen);
+}
+
+// Ein Byte der Geraeteadresse (0 = erstes Byte 0x00, 5 = letztes 0xE7).
+// Aus dem Text SMA_ADR gelesen, damit nur eine Stelle geaendert werden muss.
+// ⚠️ Mit Initialisierung deklarieren, nicht spaeter zuweisen: die Zuweisung
+// einer Zeichenkette an ein spaeter deklariertes char[] endete in einer
+// Bereichsueberschreitung (Laufzeitfehler 9), obwohl 17 Zeichen in 20 passen.
+char adr_text[24];
+int sma_adr_byte(int idx) {
+    int p = idx * 3;
+    int hi = hexziffer(adr_text[p]);
+    int lo = hexziffer(adr_text[p + 1]);
+    return ((hi << 4) | lo) & 0xFF;
+}
+
+int hexziffer(int c) {
+    if (c >= 48 && c <= 57)  { return c - 48; }        // 0-9
+    if (c >= 65 && c <= 70)  { return c - 65 + 10; }   // A-F
+    if (c >= 97 && c <= 102) { return c - 97 + 10; }   // a-f
+    return 0;
+}
+
+// ---------------------------------------------------------------------------------
+// PPP verpacken: FF 03 60 65 | Inhalt | CRC, dann 7E-gerahmt und maskiert
+// ---------------------------------------------------------------------------------
+int sma_mache_ppp(char roh[], int n) {
+    // Kopf voranstellen
+    char mit[160];
+    mit[0] = 0xFF; mit[1] = 0x03; mit[2] = 0x60; mit[3] = 0x65;
+    int i = 0;
+    while (i < n) { mit[4 + i] = roh[i]; i = i + 1; }
+    int m = n + 4;
+    int crc = sma_crc(mit, m);
+    mit[m] = crc & 0xFF; m = m + 1;
+    mit[m] = (crc >> 8) & 0xFF; m = m + 1;
+
+    // Maskieren: 7E, 7D, 11, 13 werden zu 7D + (Wert ^ 0x20)
+    int o = 0;
+    ppp[o] = 0x7E; o = o + 1;
+    i = 0;
+    while (i < m) {
+        int c = mit[i] & 0xFF;
+        if (c == 0x7E || c == 0x7D || c == 0x11 || c == 0x13) {
+            ppp[o] = 0x7D; o = o + 1;
+            ppp[o] = c ^ 0x20; o = o + 1;
+        } else {
+            ppp[o] = c; o = o + 1;
+        }
+        i = i + 1;
+    }
+    ppp[o] = 0x7E; o = o + 1;
+    return o;
+}
+
+// Maskierung aufloesen. Gibt die Laenge zurueck, schreibt nach `aus`.
+int sma_loese_ppp(char roh[], int start, int rlen, char aus[]) {
+    if (rlen < 2) { return 0; }
+    if ((roh[start] & 0xFF) != 0x7E) { return 0; }
+    int o = 0;
+    int i = start + 1;
+    int ende = start + rlen - 1;
+    while (i < ende) {
+        if ((roh[i] & 0xFF) == 0x7D) {
+            i = i + 1;
+            aus[o] = (roh[i] ^ 0x20) & 0xFF;
+        } else {
+            aus[o] = roh[i] & 0xFF;
+        }
+        o = o + 1;
+        i = i + 1;
+    }
+    return o;
+}
+
+// ---------------------------------------------------------------------------------
+// Anfrage im 6560-Format zusammenbauen und senden
+// ---------------------------------------------------------------------------------
+void sma_sende_6560(int tag, int typ, int subtyp, int arg1, int arg2,
+                    char extra[], int elen, int b1, int b2, int c1, int c2) {
+    int n = 0;
+    inner[n] = ((elen + 36) / 4) & 0xFF; n = n + 1;
+    inner[n] = 0xA0; n = n + 1;
+    int i = 0;
+    while (i < 6) { inner[n] = 0xFF; n = n + 1; i = i + 1; }
+    inner[n] = b1 & 0xFF; n = n + 1;
+    inner[n] = b2 & 0xFF; n = n + 1;
+    i = 0;
+    while (i < 6) { inner[n] = 0; n = n + 1; i = i + 1; }
+    inner[n] = c1 & 0xFF; n = n + 1;
+    inner[n] = c2 & 0xFF; n = n + 1;
+    i = 0;
+    while (i < 4) { inner[n] = 0; n = n + 1; i = i + 1; }
+    // Marke mit gesetztem obersten Bit — die Antwort liefert sie ohne dieses Bit
+    int t = (tag | 0x8000) & 0xFFFF;
+    inner[n] = t & 0xFF; n = n + 1;
+    inner[n] = (t >> 8) & 0xFF; n = n + 1;
+    inner[n] = typ & 0xFF; n = n + 1;
+    inner[n] = (typ >> 8) & 0xFF; n = n + 1;
+    inner[n] = subtyp & 0xFF; n = n + 1;
+    inner[n] = (subtyp >> 8) & 0xFF; n = n + 1;
+    inner[n] = arg1 & 0xFF; n = n + 1;
+    inner[n] = (arg1 >> 8) & 0xFF; n = n + 1;
+    inner[n] = (arg1 >> 16) & 0xFF; n = n + 1;
+    inner[n] = (arg1 >> 24) & 0xFF; n = n + 1;
+    inner[n] = arg2 & 0xFF; n = n + 1;
+    inner[n] = (arg2 >> 8) & 0xFF; n = n + 1;
+    inner[n] = (arg2 >> 16) & 0xFF; n = n + 1;
+    inner[n] = (arg2 >> 24) & 0xFF; n = n + 1;
+    i = 0;
+    while (i < elen) { inner[n] = extra[i]; n = n + 1; i = i + 1; }
+
+    int plen = sma_mache_ppp(inner, n);
+    sma_sende_aussen(0, 0x01, ppp, plen);
+}
+
+// ---------------------------------------------------------------------------------
+// Einen vollstaendigen aeusseren Rahmen empfangen. Laenge steht im Kopf.
+// Gibt die Laenge zurueck, 0 bei Zeitueberschreitung.
+// ⚠️ NICHT blockierend lesen — sppRead liefert nur, was da ist. Das Skript wartet
+// selbst, damit die VM ansprechbar bleibt.
+// ---------------------------------------------------------------------------------
+int sma_empfange(int frist_ms) {
+    int ende = millis() + frist_ms;
+    int haben = 0;
+    // Erst den 4 Byte langen Kopf
+    while (haben < 4) {
+        int n = sppRead(rx, 4 - haben);
+        if (n > 0) {
+            int k = 0;
+            while (k < n) { rx[haben + k] = rx[k]; k = k + 1; }
+            haben = haben + n;
+        } else {
+            if (millis() > ende) { return 0; }
+            delay(20);
+        }
+    }
+    if ((rx[0] & 0xFF) != 0x7E) { return 0; }
+    int plen = (rx[1] & 0xFF) | ((rx[2] & 0xFF) << 8);
+    if (plen < 18) { return 0; }
+    if (plen > 512) { return 0; }
+    // Dann der Rest
+    while (haben < plen) {
+        int rest = plen - haben;
+        char tmp[256];
+        int n = sppRead(tmp, rest);
+        if (n > 0) {
+            int k = 0;
+            while (k < n) { rx[haben + k] = tmp[k]; k = k + 1; }
+            haben = haben + n;
+        } else {
+            if (millis() > ende) { return 0; }
+            delay(20);
+        }
+    }
+    return plen;
+}
+
+// ---------------------------------------------------------------------------------
+// Anmeldung
+// ---------------------------------------------------------------------------------
+int sma_begruessung() {
+    int n = sma_empfange(20000);
+    if (n < 18) { return 0; }
+    // Die Nutzlast der Begruessung wird unveraendert zurueckgespiegelt.
+    char echo[128];
+    int i = 0;
+    int m = n - 18;
+    if (m > 128) { m = 128; }
+    while (i < m) { echo[i] = rx[18 + i]; i = i + 1; }
+    sma_sende_aussen(1, 0x02, echo, m);
+    // Drei weitere Rahmen gehoeren zum Aufbau und werden nur weggelesen.
+    i = 0;
+    while (i < 3) { sma_empfange(5000); i = i + 1; }
+    return 1;
+}
+
+int sma_anmelden() {
+    char extra[24];
+    int i = 0;
+    while (i < 24) { extra[i] = 0; i = i + 1; }
+    extra[0] = 0xAA; extra[1] = 0xAA; extra[2] = 0xBB; extra[3] = 0xBB;
+    // Kennwort auf 12 Byte mit Null gefuellt, jedes Byte (c + 0x88) % 0xFF
+    char pw[13];
+    strcpy(pw, SMA_PASS);
+    i = 0;
+    while (i < 12) {
+        int c = 0;
+        if (i < strlen(pw)) { c = pw[i] & 0xFF; }
+        extra[8 + i] = ((c + 0x88) % 0xFF) & 0xFF;
+        i = i + 1;
+    }
+    marke = marke + 1;
+    sma_sende_6560(marke, 0x040C, 0xFFFD, 7, 900, extra, 20, 0, 1, 0, 1);
+
+    int n = sma_empfange(30000);
+    if (n < 18) { return 0; }
+    return 1;
+}
+
+// ---------------------------------------------------------------------------------
+// Eine Abfrage stellen und die Antwort mit PASSENDER MARKE abwarten.
+// Schreibt die Nutzdaten nach `daten`, gibt deren Laenge zurueck (0 = nichts).
+// ---------------------------------------------------------------------------------
+char daten[256];
+int sma_abfrage(int subtyp, int erst, int letzt) {
+    marke = marke + 1;
+    int meine = marke;
+    char leer[1];
+    sma_sende_6560(meine, 0x0200, subtyp, erst, letzt, leer, 0, 0, 0, 0, 0);
+
+    int versuch = 0;
+    while (versuch < 8) {
+        int n = sma_empfange(30000);
+        if (n < 18) { return 0; }
+        char roh[320];
+        int rl = sma_loese_ppp(rx, 18, n - 18, roh);
+        // Falle 3: unlesbarer Rest darf die Suche nicht abbrechen
+        if (rl >= 42) {
+            // roh[0..3] = FF 03 60 65, danach der Inhalt; CRC am Ende abziehen
+            int tag = ((roh[4 + 22] & 0xFF) | ((roh[4 + 23] & 0xFF) << 8)) & 0x7FFF;
+            int typ = (roh[4 + 24] & 0xFF) | ((roh[4 + 25] & 0xFF) << 8);
+            if (tag == meine) {
+                if (typ & 1) { return 0; }        // Fehlerbit gesetzt
+                int dlen = rl - 4 - 2 - 36;
+                if (dlen < 0) { dlen = 0; }
+                if (dlen > 256) { dlen = 256; }
+                int i = 0;
+                while (i < dlen) { daten[i] = roh[4 + 36 + i]; i = i + 1; }
+                return dlen;
+            }
+        }
+        versuch = versuch + 1;
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------------------------
+// Datensaetze auswerten.
+// Aufbau: 4 B Kennung (Bits 8..23 = LRI, Bits 0..7 = Klasse), 4 B Zeit,
+// dann viermal derselbe Wert. Abstand 28 Byte.
+// ⚠️ Falle 4: ein abgeschnittener letzter Satz MUSS gelten — 12 Byte genuegen.
+// ---------------------------------------------------------------------------------
+void sma_auswerten(int kennung, int dlen) {
+    int pos = 0;
+    while (pos + 12 <= dlen) {
+        int code = (daten[pos] & 0xFF) | ((daten[pos+1] & 0xFF) << 8)
+                 | ((daten[pos+2] & 0xFF) << 16) | ((daten[pos+3] & 0xFF) << 24);
+        int lri = (code >> 8) & 0xFFFF;
+        int klasse = code & 0xFF;
+        int wert = (daten[pos+8] & 0xFF) | ((daten[pos+9] & 0xFF) << 8)
+                 | ((daten[pos+10] & 0xFF) << 16) | ((daten[pos+11] & 0xFF) << 24);
+        if (lri == kennung) {
+            if (kennung == 0x251E) {
+                if (klasse == 1) { dc_a = wert; }
+                if (klasse == 2) { dc_b = wert; }
+            }
+            if (kennung == 0x451F) {
+                if (klasse == 1) { u_a = wert; }
+                if (klasse == 2) { u_b = wert; }
+            }
+            if (kennung == 0x263F) {
+                if (klasse == 1) { ac_w = wert; }
+            }
+        }
+        pos = pos + 28;
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Eine vollstaendige Messung
+// ---------------------------------------------------------------------------------
+int sma_messen() {
+    if (!sppInit()) { addLog("SMA: Bluetooth nicht verfuegbar"); return 0; }
+
+    sppConnect(adr_text, 1);             // Kanal 1 = Dienst "cluster network"
+
+    // Auf den Kanal warten (Zustand 3 = offen)
+    int ende = millis() + 25000;
+    while (sppState() != 3) {
+        if (millis() > ende) {
+            addLog("SMA: keine Verbindung — Platz belegt?");
+            sppClose();
+            return 0;
+        }
+        delay(200);
+    }
+
+    int ok = 0;
+    if (sma_begruessung()) {
+        if (sma_anmelden()) {
+            int gelesen = 0;
+            int d;
+            d = sma_abfrage(0x5380, 0x00251E00, 0x00251EFF);
+            if (d > 0) { sma_auswerten(0x251E, d); gelesen = gelesen + 1; }
+            d = sma_abfrage(0x5380, 0x00451F00, 0x00451FFF);
+            if (d > 0) { sma_auswerten(0x451F, d); gelesen = gelesen + 1; }
+            d = sma_abfrage(0x5100, 0x00263F00, 0x00263FFF);
+            if (d > 0) { sma_auswerten(0x263F, d); gelesen = gelesen + 1; }
+            if (gelesen > 0) { ok = 1; }
+        } else {
+            addLog("SMA: Anmeldung abgelehnt — Kennwort?");
+        }
+    } else {
+        addLog("SMA: Begruessung fehlgeschlagen");
+    }
+
+    sppClose();
+
+    if (ok) {
+        letzte_zeit = millis();
+        lauf_zaehler = lauf_zaehler + 1;
+        addLog("SMA: A %d W / %d.%02d V, B %d W / %d.%02d V, AC %d W",
+               dc_a, u_a / 100, u_a % 100, dc_b, u_b / 100, u_b % 100, ac_w);
+    } else {
+        fehler_zaehler = fehler_zaehler + 1;
+    }
+    return ok;
+}
+
+// ---------------------------------------------------------------------------------
+// Worker — hier laufen die langen Wartezeiten, nicht im Hauptlauf
+// ---------------------------------------------------------------------------------
+void SmaWorker() {
+    delay(15000);                 // Geraet erst hochfahren lassen
+    int naechste = 0;             // sofort einmal messen
+    while (1) {
+        if (sofort_messen || millis() > naechste) {
+            sofort_messen = 0;
+            sma_messen();
+            naechste = millis() + TAKT_S * 1000;
+        }
+        delay(500);               // haeufig genug, damit SMAREAD schnell greift
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Konsolenkommando: SMAREAD  — sofort messen
+// ---------------------------------------------------------------------------------
+void Command(char cmd[]) {
+    // ⚠️ Strings mit strcmp vergleichen, nicht mit == (das vergleicht Adressen).
+    // ⚠️ JEDER Zweig muss responseCmnd rufen, auch der unbekannte — sonst meldet
+    //    Tasmota {"Command":"Error"}, obwohl das Skript sauber gelaufen ist.
+    if (strcmp(cmd, "READ") == 0) {
+        // ⚠️ HIER NICHT MESSEN. Command laeuft synchron mit begrenztem
+        // Anweisungsbudget; sma_messen() wartet bis zu 25 s auf die Verbindung.
+        // Das Kommando bliebe ohne Antwort. Also nur anstossen.
+        sofort_messen = 1;
+        responseCmnd("Messung angestossen");
+    } else {
+        char antw[96];
+        sprintf(antw, "A=%d W B=%d W AC=%d W Laeufe=%d Fehler=%d",
+                dc_a, dc_b, ac_w, lauf_zaehler, fehler_zaehler);
+        responseCmnd(antw);
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Anzeige auf der Tasmota-Hauptseite
+// ---------------------------------------------------------------------------------
+void WebCall() {
+    char z[160];
+    sprintf(z, "{s}SMA Tracker A{m}%d W / %d.%02d V{e}", dc_a, u_a / 100, u_a % 100);
+    webSend(z);
+    sprintf(z, "{s}SMA Tracker B{m}%d W / %d.%02d V{e}", dc_b, u_b / 100, u_b % 100);
+    webSend(z);
+    sprintf(z, "{s}SMA DC / AC{m}%d W / %d W{e}", dc_a + dc_b, ac_w);
+    webSend(z);
+    if (dc_a + dc_b > 50) {
+        if (dc_a == 0 || dc_b == 0) {
+            webSend("{s}SMA{m}<b>ein Tracker liefert nichts</b>{e}");
+        }
+    }
+}
+
+int main() {
+    marke = 0;
+    // ⚠️ Zeichenketten gehoeren mit strcpy in ein char[] — `feld = "text"` endet
+    // in einer Bereichsueberschreitung (Laufzeitfehler 9).
+    strcpy(adr_text, SMA_ADR);
+    addCommand("SMA");              // Konsole: SMAREAD stoesst eine Messung an
+    spawnTask("SmaWorker", 8);      // 8 KB — das Protokoll braucht Platz
+    addLog("SMA: bereit fuer %s (erstes Adressbyte %02X)", adr_text, sma_adr_byte(0));
+    return 0;
+}

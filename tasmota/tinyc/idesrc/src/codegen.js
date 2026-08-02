@@ -248,6 +248,15 @@ const BUILTINS = {
     'fileExists':       { syscall: Syscall.FILE_EXISTS,     args: 1, returns: true,  constArgs: [0] },
     'fileDelete':       { syscall: Syscall.FILE_DELETE,     args: 1, returns: true,  constArgs: [0] },
     'fileRename':       { syscall: Syscall.FILE_RENAME,     args: 2, returns: true,  constArgs: [0, 1] },
+    'sppInit':          { syscall: Syscall.SPP_INIT,       args: 0, returns: true },
+    // sppConnect: Sonderfall in compileCallExpr — String-Literal -> SPP_CONNECT,
+    // char[]-Variable -> SPP_CONNECT_REF (Weiche nach Argumenttyp, wie bei tcpConnect).
+    'sppState':         { syscall: Syscall.SPP_STATE,      args: 0, returns: true },
+    'sppAvailable':     { syscall: Syscall.SPP_AVAILABLE,  args: 0, returns: true },
+    'sppRead':          { syscall: Syscall.SPP_READ,       args: 2, returns: true },
+    'sppWrite':         { syscall: Syscall.SPP_WRITE,      args: 2, returns: true },
+    'sppClose':         { syscall: Syscall.SPP_CLOSE,      args: 0, returns: true },
+    'sppScan':          { syscall: Syscall.SPP_SCAN,       args: 3, returns: true },
     'fileSize':         { syscall: Syscall.FILE_SIZE,       args: 1, returns: true,  constArgs: [0] },
     'fileFormat':       { syscall: Syscall.FILE_FORMAT,    args: 0, returns: true },
     'fileMkdir':        { syscall: Syscall.FILE_MKDIR,     args: 1, returns: true,  constArgs: [0] },
@@ -3186,6 +3195,12 @@ export class CodeGenerator {
             return this.compileTcpConnect(node);
         }
 
+        // sppConnect — genau wie tcpConnect: String-Literal → SPP_CONNECT,
+        // char[]-Variable → SPP_CONNECT_REF
+        if (node.name === 'sppConnect') {
+            return this.compileSppConnect(node);
+        }
+
         // spawnTask("Name") or spawnTask("Name", stack_kb), killTask("Name"), taskRunning("Name")
         // — register Name in the function table so the firmware can resolve it
         // from vm->callbacks[] when the worker task starts/stops.
@@ -3866,6 +3881,31 @@ export class CodeGenerator {
         } else {
             throw new CodeGenError(
                 "tcpConnect: first argument must be a string literal or a char[] variable",
+                node.line);
+        }
+    }
+
+    compileSppConnect(node) {
+        // sppConnect("00:80:25:..", kanal)   → SYS_SPP_CONNECT      (String-Literal)
+        // sppConnect(adr_char_array, kanal)  → SYS_SPP_CONNECT_REF  (char[] zur Laufzeit)
+        // Kanal 0 = ueber die Dienstsuche des Geraets ermitteln lassen.
+        if (node.args.length !== 2) {
+            throw new CodeGenError("sppConnect(adresse, kanal) erwartet 2 Argumente", node.line);
+        }
+        const a = node.args[0];
+        if (a.type === NodeType.StringLiteral) {
+            const idx = this.addConstant(a.value);
+            this.emit(Op.LOAD_CONST);
+            this.emitU16(idx);
+            this.compileExpr(node.args[1]);
+            this.emitSyscall(Syscall.SPP_CONNECT);
+        } else if (a.type === NodeType.Identifier && this.isCharArrayVar(a.name)) {
+            this.emitArrayRefByName(a.name, node.line);
+            this.compileExpr(node.args[1]);
+            this.emitSyscall(Syscall.SPP_CONNECT_REF);
+        } else {
+            throw new CodeGenError(
+                "sppConnect: erstes Argument muss ein String-Literal oder eine char[]-Variable sein",
                 node.line);
         }
     }

@@ -520,6 +520,15 @@ export const Syscall = {
     WEB_CARD:              521, // (on)                 -> void  webCard() — per-slot main-page card frame toggle (0=bare)
     FILE_RENAME:           522, // (from,to)            -> int   fileRename() — Datei umbenennen (0=ok, -1=Fehler)
     FILE_RENAME_REF:       523, // (from_ref,to_ref)    -> int   fileRename() mit char[]-Pfaden
+    SPP_INIT:              524, // ()                   -> int   sppInit() — Bluetooth Classic hochfahren
+    SPP_CONNECT:           525, // (addr,kanal)         -> int   sppConnect() — als Master verbinden
+    SPP_CONNECT_REF:       526, // (addr_ref,kanal)     -> int   sppConnect() mit char[]-Adresse
+    SPP_STATE:             527, // ()                   -> int   sppState() 0=aus 1=bereit 2=verbindet 3=offen
+    SPP_AVAILABLE:         528, // ()                   -> int   sppAvailable() — wartende Bytes
+    SPP_READ:              529, // (buf,n)              -> int   sppRead() — nicht blockierend
+    SPP_WRITE:             530, // (buf,n)              -> int   sppWrite()
+    SPP_CLOSE:             531, // ()                   -> int   sppClose()
+    SPP_SCAN:              532, // (buf,n,sekunden)     -> int   sppScan() — Geraete suchen
     UI_SCREEN:      310, // (id)                                       -> void
     UI_THEME:       311, // (bg, accent, text, border)                 -> void
     UI_CLEAR_SCREEN:312, // ()                                          -> void

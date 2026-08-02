@@ -325,7 +325,9 @@ static FS *tc_file_path(char *path) {
 // Syscall ABI generation — MUST match the IDE compiler's SYSCALL_ABI (opcodes.js).
 // Bump BOTH in lockstep whenever syscall NUMBERS are inserted/renumbered (pure
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
-#define TC_SYSCALL_ABI     16    // V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#include "xdrv_124_tinyc_spp.h"
+
+#define TC_SYSCALL_ABI     17    // V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || VORHER V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -1170,6 +1172,20 @@ enum TcSyscall {
   SYS_FILE_DELETE_REF = 226, // (path_ref) -> int (0=ok, -1=err)
   SYS_FILE_RENAME     = 522, // (const_idx_from, const_idx_to) -> int (0=ok, -1=err)
   SYS_FILE_RENAME_REF = 523, // (from_ref, to_ref) -> int (0=ok, -1=err)
+
+   // --- Bluetooth Classic (RFCOMM/SPP), ESP32 with USE_TINYC_SPP only ---------------
+   // Serial link to ANY Classic device; the protocol lives in the script. Reads do
+   // NOT block -- the script waits itself and stays in control (otherwise the VM
+   // would hang on the peer's timeouts).
+  SYS_SPP_INIT        = 524, // ()                    -> int  1=ready, 0=not possible
+  SYS_SPP_CONNECT     = 525, // (const_addr, channel) -> int  0=started, <0=error
+  SYS_SPP_CONNECT_REF = 526, // (addr_ref, channel)   -> int  same, address as char[]
+  SYS_SPP_STATE       = 527, // ()                    -> int  0=off 1=ready 2=connecting 3=open
+  SYS_SPP_AVAILABLE   = 528, // ()                    -> int  bytes waiting
+  SYS_SPP_READ        = 529, // (buf_ref, n)          -> int  bytes read (0 = nothing there)
+  SYS_SPP_WRITE       = 530, // (buf_ref, n)          -> int  bytes sent, -1=error
+  SYS_SPP_CLOSE       = 531, // ()                    -> int  0
+  SYS_SPP_SCAN        = 532, // (buf_ref, n, seconds) -> int  count; text "addr name\n" per line
   SYS_FILE_OPENDIR    = 227, // (const_idx_path) -> int handle (-1=err)
   SYS_FILE_OPENDIR_REF= 228, // (path_ref) -> int handle (-1=err)
   SYS_FILE_READDIR    = 229, // (handle, name_buf_ref) -> int (1=entry, 0=end)
@@ -6907,6 +6923,101 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     // beim Umstellen der sml_chart-Speicherung). LittleFS/FFat koennen es nativ.
     // Ziel wird NICHT stillschweigend ueberschrieben: existiert es schon, gibt
     // es -1 -- sonst koennte ein Tippfehler im Zielnamen Daten vernichten.
+    case SYS_SPP_INIT:
+    case SYS_SPP_STATE:
+    case SYS_SPP_AVAILABLE:
+    case SYS_SPP_CLOSE: {
+#ifdef USE_TINYC_SPP
+      if (id == SYS_SPP_INIT)           { TC_PUSH(vm, TcSppInit() ? 1 : 0); }
+      else if (id == SYS_SPP_STATE)     { TC_PUSH(vm, TcSpp.state); }
+      else if (id == SYS_SPP_AVAILABLE) { TC_PUSH(vm, TcSppAvailable()); }
+      else                              { TcSppClose(); TC_PUSH(vm, 0); }
+#else
+      TC_PUSH(vm, (id == SYS_SPP_INIT) ? 0 : 0);
+#endif
+      break;
+    }
+
+    case SYS_SPP_CONNECT:
+    case SYS_SPP_CONNECT_REF: {
+#ifdef USE_TINYC_SPP
+      int32_t kanal = TC_POP(vm);
+      TC_BUF(adr, 20);
+      if (id == SYS_SPP_CONNECT_REF) {
+        int32_t r = TC_POP(vm);
+        tc_ref_to_cstr(vm, r, adr, sizeof(adr));
+      } else {
+        int32_t c = TC_POP(vm);
+        const char *sa = tc_get_const_str(vm, c);
+        if (!sa) { TC_PUSH(vm, -2); break; }
+        strlcpy(adr, sa, sizeof(adr));
+      }
+      int32_t rc = TcSppConnect(adr, kanal);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: sppConnect(\"%s\",%d) -> %d"), adr, kanal, rc);
+      TC_PUSH(vm, rc);
+#else
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+
+    case SYS_SPP_READ:
+    case SYS_SPP_WRITE: {
+#ifdef USE_TINYC_SPP
+      int32_t n = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (!buf || n <= 0) { TC_PUSH(vm, (id == SYS_SPP_READ) ? 0 : -1); break; }
+       // The VM stores ONE int32 PER ELEMENT, even for byte data, so everything has
+       // to be copied through a scratch buffer -- exactly like fileRead does.
+      int32_t kap = tc_ref_maxlen(vm, ref);
+      if (n > kap) { n = kap; }
+      TC_UBUF(tmp, 256);
+      int32_t gesamt = 0;
+      while (gesamt < n) {
+        int32_t teil = n - gesamt;
+        if (teil > (int32_t)sizeof(tmp)) { teil = sizeof(tmp); }
+        if (id == SYS_SPP_READ) {
+          uint16_t got = TcSppPull(tmp, (uint16_t)teil);
+          if (!got) { break; }                       // nothing left -- do NOT wait
+          for (uint16_t i = 0; i < got; i++) { buf[gesamt + i] = (int32_t)tmp[i]; }
+          gesamt += got;
+        } else {
+          for (int32_t i = 0; i < teil; i++) { tmp[i] = (uint8_t)(buf[gesamt + i] & 0xFF); }
+          if (TcSppWrite(tmp, (uint16_t)teil) < 0) { gesamt = -1; break; }
+          gesamt += teil;
+        }
+      }
+      TC_PUSH(vm, gesamt);
+#else
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, (id == SYS_SPP_READ) ? 0 : -1);
+#endif
+      break;
+    }
+
+    case SYS_SPP_SCAN: {
+#ifdef USE_TINYC_SPP
+      int32_t sek = TC_POP(vm);
+      int32_t n   = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (!buf) { TC_PUSH(vm, -1); break; }
+      int32_t kap = tc_ref_maxlen(vm, ref);
+      if (n > kap) { n = kap; }
+      if (n > 512) { n = 512; }
+      TC_BUF(txt, 512);
+      int32_t anz = TcSppScan(txt, (uint16_t)n, sek);
+      for (int32_t i = 0; i < n; i++) { buf[i] = (int32_t)(uint8_t)txt[i]; if (!txt[i]) break; }
+      TC_PUSH(vm, anz);
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+
     case SYS_FILE_RENAME:
     case SYS_FILE_RENAME_REF: {
 #ifdef USE_UFILESYS
