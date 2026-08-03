@@ -253,10 +253,16 @@ const BUILTINS = {
     // char[]-Variable -> SPP_CONNECT_REF (Weiche nach Argumenttyp, wie bei tcpConnect).
     'sppState':         { syscall: Syscall.SPP_STATE,      args: 0, returns: true },
     'sppAvailable':     { syscall: Syscall.SPP_AVAILABLE,  args: 0, returns: true },
-    'sppRead':          { syscall: Syscall.SPP_READ,       args: 2, returns: true },
-    'sppWrite':         { syscall: Syscall.SPP_WRITE,      args: 2, returns: true },
+    // ⚠️ strArgs/intArgs sind PFLICHT, sonst wird der Puffer als WERT statt als
+    // Referenz uebergeben: der Syscall bekommt eine unsinnige Referenz, und der
+    // erste Zugriff endet in Laufzeitfehler 9 (Bereichsueberschreitung) OHNE die
+    // sonst uebliche BOUNDS-Zeile — sieht wie ein Firmwarefehler aus, ist aber der
+    // Compiler. (Gefunden 2026-08-03 an sppScan auf .185.)
+    'sppRead':          { syscall: Syscall.SPP_READ,       args: 2, returns: true,  strArgs: [0], intArgs: [1] },
+    'sppWrite':         { syscall: Syscall.SPP_WRITE,      args: 2, returns: true,  strArgs: [0], intArgs: [1] },
     'sppClose':         { syscall: Syscall.SPP_CLOSE,      args: 0, returns: true },
-    'sppScan':          { syscall: Syscall.SPP_SCAN,       args: 3, returns: true },
+    'sppScan':          { syscall: Syscall.SPP_SCAN,       args: 3, returns: true,  strArgs: [0], intArgs: [1, 2] },
+    'sppDeinit':        { syscall: Syscall.SPP_DEINIT,     args: 0, returns: true },
     'fileSize':         { syscall: Syscall.FILE_SIZE,       args: 1, returns: true,  constArgs: [0] },
     'fileFormat':       { syscall: Syscall.FILE_FORMAT,    args: 0, returns: true },
     'fileMkdir':        { syscall: Syscall.FILE_MKDIR,     args: 1, returns: true,  constArgs: [0] },
