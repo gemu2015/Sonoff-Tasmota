@@ -11,8 +11,13 @@
 //     ein zweiter Leser sperren einander aus. Nach dem Trennen haelt das Geraet den
 //     Platz noch etwa eine Minute.
 //
-// ⚠️ LAEUFT AUF EINEM WORKER, nicht im Hauptlauf. Eine Messung dauert mit Verbinden
-// und Anmelden leicht eine halbe Minute; im Hauptlauf wuerde Tasmota so lange stehen.
+// ⚠️ LAEUFT IN TaskLoop(), NICHT in einem spawnTask-Worker und nicht im Hauptlauf.
+// Eine Messung dauert mit Verbinden und Anmelden leicht eine halbe Minute — im Hauptlauf
+// wuerde Tasmota so lange stehen. Ein spawnTask-Worker waere aber FALSCH: der laeuft auf
+// einer eigenen VM mit eigenem Heap und kennt die Feld-Tabelle aus dem .tcb-Kopf nicht,
+// dort hat JEDES Feld Groesse 0 und der erste Zugriff endet in Laufzeitfehler 9
+// (TCC: BOUNDS heap[0] idx=0 size=0). Genau daran ist dieses Skript am 2026-08-02
+// dreimal gestorben. TaskLoop() laeuft auf der Haupt-VM: alle Felder da, delay() erlaubt.
 //
 // DIE VIER FALLEN DIESES GERAETS (alle gemessen, nicht vermutet — sie haben uns
 // beim Entwickeln am Mac je einen halben Nachmittag gekostet):
@@ -34,6 +39,35 @@
 #define SMA_ADR   "00:80:25:09:AC:E7"   // Bluetooth-Adresse des Wechselrichters
 #define SMA_PASS  "0000"                // Benutzerkennwort, SMA-Vorgabe
 #define TAKT_S    900                   // Abstand der Messungen; nur EIN Platz!
+#define UDP_TAKT_S 60                   // Abstand der UDP-Sendungen
+#define UDP_NAME  "sma"                 // Name im Scripter-Protokoll
+// Aeusserer Empfaenger der Abfragerahmen: 0 = Rundruf (FF..), 1 = die Adresse des
+// Geraets. ⚠️ RUNDRUF ist richtig — die erprobte Referenzumsetzung sendet AUCH nach der
+// Anmeldung an ff:ff:ff:ff:ff:ff. Gezielte Adressierung wurde geprueft und half nicht.
+#define ABFRAGE_GEZIELT 0
+
+#define SPUR      0                     // 1 = jeden Empfangsschritt protokollieren.
+                                        // Zum Nachstellen einschalten: zeigt jeden
+                                        // Rahmen, die Rohbytes der Anmeldeantwort, den
+                                        // gesendeten Abfragerahmen und den Speicherstand
+                                        // an jeder Station. Genau damit wurden die drei
+                                        // Fallen oben gefunden.
+
+// ⚠️ Wartezeiten je EINZELNEM Rahmen, nicht je Abfrage.
+//
+// ⭐ HANDSCHLAG UND MESSWERTE HABEN VOELLIG VERSCHIEDENE ANTWORTZEITEN. Begruessung und
+// Anmeldung kommen in etwa 200 ms zurueck. Die MESSWERTE brauchen rund ZEHN SEKUNDEN —
+// das Geraet sammelt sie erst zusammen. Wer daraus schliesst, 3 s seien grosszuegig,
+// schneidet genau die Antworten ab, auf die es ankommt: das Skript sieht dann nur
+// Zeitablaeufe und der Rahmen sieht schuldig aus, obwohl er stimmt. (Genau das ist mir
+// am 2026-08-03 passiert; die Referenzumsetzung ha-sma-sunnyboy-bluetooth arbeitet mit
+// 8 s Sockelfrist.)
+//
+// Die urspruenglichen 30 s x 8 Versuche x 3 Abfragen waren allerdings ebenfalls falsch:
+// ein fehlschlagender Zyklus dauerte damit bis zu ZWOELF MINUTEN ohne Lebenszeichen.
+#define FRIST_RAHMEN  15000             // auf einen Antwortrahmen einer Abfrage
+#define FRIST_ANMELD  8000              // auf die Antwort der Anmeldung
+#define VERSUCHE      4                 // Rahmen abwarten, bis die Marke passt
 
 // Messwerte, ueberleben einen Neustart
 persist int  dc_a;      // W, Tracker A
@@ -48,11 +82,52 @@ int fehler_zaehler;
 int sofort_messen;   // vom Kommando gesetzt, vom Worker abgeraeumt
 
 // Puffer
-char rx[512];           // empfangener Rahmen
-char tx[256];           // zu sendender Rahmen
-char ppp[256];          // PPP-Zwischenstufe
-char inner[128];        // Inhalt vor der PPP-Verpackung
+// ⚠️ JEDES BYTE ZAEHLT. Gemessen auf .185: vor sppInit 70 KB frei, nach dem Hochfahren
+// des Bluedroid-Stapels 21,7 KB, mit OFFENEM Kanal nur noch 2,3 KB — der Kanal allein
+// kostet 19 KB. Und jeder Funktionsaufruf der VM fordert 1 KB Rahmenspeicher an, dessen
+// Fehlschlag als "Stack overflow" gemeldet wird. Die Felder unten sind deshalb auf das
+// GEMESSENE Mass gestutzt: der groesste je gesehene Rahmen dieses Geraets hatte 109 Byte
+// (Begruessung 31, Aufbau 20/34, Anmeldung 83, Messwerte 28..109).
+char rx[256];           // empfangener Rahmen — 2x der groesste beobachtete
+char tx[192];           // zu sendender Rahmen
+char ppp[192];          // PPP-Zwischenstufe
+char inner[112];        // Inhalt vor der PPP-Verpackung
 int  marke;
+
+// ⚠️ Spurausgabe NUR ueber diese Hilfsfunktion. Ein addLog mit vier Werten direkt in
+// sma_empfange() hat den Operandenstapel der VM gesprengt (256 Plaetze, Aufrufkette
+// TaskLoop -> sma_messen -> sma_begruessung -> sma_empfange): Absturz mit
+// "Stack overflow" nach 576 Anweisungen, noch bevor die erste Spurzeile erschien.
+// Ein Aufruf mit EINEM Wert bleibt flach.
+char spur[64];
+
+// ⚠️ Speicherstand melden. JEDER Funktionsaufruf der VM fordert 1 KB Rahmenspeicher per
+// calloc an; schlaegt das fehl, meldet die VM "Stack overflow" (tc_frame_alloc gibt
+// TC_ERR_STACK_OVERFLOW zurueck, an fuenf Stellen im VM-Code). Der Fehlertext zeigt also
+// auf den Stapel, gemeint ist der HEAP. Hier zaehlt nicht die freie Summe, sondern der
+// GROESSTE ZUSAMMENHAENGENDE BLOCK — 30 KB frei in 700-Byte-Stuecken nuetzen nichts.
+void hp(char wo[]) {
+    sprintf(spur, "SPEICHER %s: frei %d, groesster Block %d", wo, tasm_heap, tasm_maxblock);
+    addLog(spur);
+}
+
+// Rohbytes aus rx zeigen, vier je Zeile. Flach halten: von sma_anmelden aus ist das
+// Ebene 4, tiefer darf es mit offenem Bluetooth-Kanal nicht werden.
+void roh_zeigen(int n) {
+    int i = 0;
+    if (n > 64) { n = 64; }
+    while (i + 4 <= n) {
+        sprintf(spur, "ROH %d: %02X %02X %02X %02X", i,
+                rx[i] & 0xFF, rx[i+1] & 0xFF, rx[i+2] & 0xFF, rx[i+3] & 0xFF);
+        addLog(spur);
+        i = i + 4;
+    }
+}
+
+void sp1(char text[], int wert) {
+    sprintf(spur, "EMPF: %s %d", text, wert);
+    addLog(spur);
+}
 
 // ---------------------------------------------------------------------------------
 // PPP-Pruefsumme: CRC-16/X-25, gespiegelt, Polynom 0x8408, am Ende invertiert
@@ -90,7 +165,7 @@ void sma_sende_aussen(int an_geraet, int typ, char nutz[], int nlen) {
     // Empfaenger: entweder Rundruf (FF..) oder die Adresse des Geraets
     i = 0;
     while (i < 6) {
-        if (an_geraet) { tx[10 + i] = sma_adr_byte(5 - i); }
+        if (an_geraet) { tx[10 + i] = adr_b[5 - i]; }
         else           { tx[10 + i] = 0xFF; }
         i = i + 1;
     }
@@ -107,6 +182,13 @@ void sma_sende_aussen(int an_geraet, int typ, char nutz[], int nlen) {
 // einer Zeichenkette an ein spaeter deklariertes char[] endete in einer
 // Bereichsueberschreitung (Laufzeitfehler 9), obwohl 17 Zeichen in 20 passen.
 char adr_text[24];
+// ⭐ Die sechs Adressbytes EINMAL beim Start ausrechnen, nicht bei jedem Rahmen neu.
+// Nicht aus Geschwindigkeitsgruenden, sondern wegen des Speichers: sma_sende_aussen()
+// rief sma_adr_byte(), das rief hexziffer() — zwei zusaetzliche Ebenen in der tiefsten
+// Aufrufkette. Jede Ebene kostet 1 KB Rahmenspeicher am STUECK, und mit offenem
+// Bluetooth-Kanal ist der groesste freie Block nur noch rund 6 KB (gemessen: 20 KB frei,
+// groesster Block 6044). Sieben Ebenen passten nicht mehr hinein, fuenf passen.
+int adr_b[6];
 int sma_adr_byte(int idx) {
     int p = idx * 3;
     int hi = hexziffer(adr_text[p]);
@@ -126,12 +208,26 @@ int hexziffer(int c) {
 // ---------------------------------------------------------------------------------
 int sma_mache_ppp(char roh[], int n) {
     // Kopf voranstellen
-    char mit[160];
+    char mit[144];
     mit[0] = 0xFF; mit[1] = 0x03; mit[2] = 0x60; mit[3] = 0x65;
     int i = 0;
     while (i < n) { mit[4 + i] = roh[i]; i = i + 1; }
     int m = n + 4;
-    int crc = sma_crc(mit, m);
+    // CRC hier eingebettet statt als Aufruf — spart eine Ebene Rahmenspeicher (siehe
+    // Hinweis bei adr_b). Identisch zu sma_crc(), das fuer andere Zwecke stehen bleibt.
+    int crc = 0xFFFF;
+    int ci = 0;
+    while (ci < m) {
+        crc = crc ^ (mit[ci] & 0xFF);
+        int cb = 0;
+        while (cb < 8) {
+            if (crc & 1) { crc = ((crc >> 1) ^ 0x8408) & 0xFFFF; }
+            else         { crc = (crc >> 1) & 0xFFFF; }
+            cb = cb + 1;
+        }
+        ci = ci + 1;
+    }
+    crc = (~crc) & 0xFFFF;
     mit[m] = crc & 0xFF; m = m + 1;
     mit[m] = (crc >> 8) & 0xFF; m = m + 1;
 
@@ -211,7 +307,22 @@ void sma_sende_6560(int tag, int typ, int subtyp, int arg1, int arg2,
     while (i < elen) { inner[n] = extra[i]; n = n + 1; i = i + 1; }
 
     int plen = sma_mache_ppp(inner, n);
-    sma_sende_aussen(0, 0x01, ppp, plen);
+    sma_sende_aussen(ABFRAGE_GEZIELT, 0x01, ppp, plen);
+#if SPUR
+    // Den GESENDETEN Rahmen zeigen. Solange die Abfragen unbeantwortet bleiben, ist die
+    // erste Frage, ob ueberhaupt das Richtige auf der Leitung liegt — und nur der
+    // Vergleich Byte fuer Byte mit einer erprobten Umsetzung beantwortet sie.
+    // Flach halten: hier sind wir schon vier Ebenen tief.
+    int si = 0;
+    int sn = plen + 18;
+    if (sn > 48) { sn = 48; }
+    while (si + 4 <= sn) {
+        sprintf(spur, "SEND %d: %02X %02X %02X %02X", si,
+                tx[si] & 0xFF, tx[si+1] & 0xFF, tx[si+2] & 0xFF, tx[si+3] & 0xFF);
+        addLog(spur);
+        si = si + 4;
+    }
+#endif
 }
 
 // ---------------------------------------------------------------------------------
@@ -224,35 +335,65 @@ int sma_empfange(int frist_ms) {
     int ende = millis() + frist_ms;
     int haben = 0;
     // Erst den 4 Byte langen Kopf
+    // ⚠️ In einen ZWISCHENPUFFER lesen. sppRead schreibt immer ab Index 0, und ein
+    // Umkopieren rx[haben+k] = rx[k] innerhalb DESSELBEN Feldes ueberschreibt sich
+    // selbst, sobald haben < n ist (haben=1, n=3: rx[2] liest das schon geaenderte
+    // rx[1]). Faellt nur bei zerstueckelten Paketen auf — also selten und dann falsch.
+    char kopf[4];
     while (haben < 4) {
-        int n = sppRead(rx, 4 - haben);
+        int n = sppRead(kopf, 4 - haben);
         if (n > 0) {
             int k = 0;
-            while (k < n) { rx[haben + k] = rx[k]; k = k + 1; }
+            while (k < n) { rx[haben + k] = kopf[k]; k = k + 1; }
             haben = haben + n;
         } else {
-            if (millis() > ende) { return 0; }
+            if (millis() > ende) {
+#if SPUR
+                sp1("KEINE ANTWORT, Zeitablauf im Kopf nach ms", frist_ms);
+#endif
+                return 0;
+            }
             delay(20);
         }
     }
-    if ((rx[0] & 0xFF) != 0x7E) { return 0; }
+#if SPUR
+    sp1("erstes Byte", rx[0] & 0xFF);
+#endif
+    if ((rx[0] & 0xFF) != 0x7E) {
+#if SPUR
+        sp1("kein 7E, verworfen", 0);
+#endif
+        return 0;
+    }
     int plen = (rx[1] & 0xFF) | ((rx[2] & 0xFF) << 8);
-    if (plen < 18) { return 0; }
-    if (plen > 512) { return 0; }
+    if (plen < 18 || plen > 256) {
+#if SPUR
+        sp1("Laenge unbrauchbar", plen);
+#endif
+        return 0;
+    }
     // Dann der Rest
     while (haben < plen) {
         int rest = plen - haben;
-        char tmp[256];
+        char tmp[128];
         int n = sppRead(tmp, rest);
         if (n > 0) {
             int k = 0;
             while (k < n) { rx[haben + k] = tmp[k]; k = k + 1; }
             haben = haben + n;
         } else {
-            if (millis() > ende) { return 0; }
+            if (millis() > ende) {
+#if SPUR
+                sp1("Zeitablauf im Rumpf, Byte", haben);
+#endif
+                return 0;
+            }
             delay(20);
         }
     }
+#if SPUR
+    sp1("Rahmen vollstaendig, Byte", plen);
+#endif
     return plen;
 }
 
@@ -263,10 +404,10 @@ int sma_begruessung() {
     int n = sma_empfange(20000);
     if (n < 18) { return 0; }
     // Die Nutzlast der Begruessung wird unveraendert zurueckgespiegelt.
-    char echo[128];
+    char echo[80];
     int i = 0;
     int m = n - 18;
-    if (m > 128) { m = 128; }
+    if (m > 80) { m = 80; }
     while (i < m) { echo[i] = rx[18 + i]; i = i + 1; }
     sma_sende_aussen(1, 0x02, echo, m);
     // Drei weitere Rahmen gehoeren zum Aufbau und werden nur weggelesen.
@@ -293,8 +434,21 @@ int sma_anmelden() {
     marke = marke + 1;
     sma_sende_6560(marke, 0x040C, 0xFFFD, 7, 900, extra, 20, 0, 1, 0, 1);
 
-    int n = sma_empfange(30000);
+    int n = sma_empfange(FRIST_ANMELD);
     if (n < 18) { return 0; }
+#if SPUR
+    roh_zeigen(n);
+#endif
+    // Erfolg pruefen — siehe den Hinweis bei sma_fehlerwort().
+    int rl = sma_loese_ppp(rx, 18, n - 18, roh);
+    if (rl >= 42) {
+        int fehler = sma_fehlerwort();
+        if (fehler != 0) {
+            sprintf(spur, "SMA: Anmeldung abgelehnt, Fehlerwort 0x%04X — Kennwort?", fehler);
+            addLog(spur);
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -302,7 +456,26 @@ int sma_anmelden() {
 // Eine Abfrage stellen und die Antwort mit PASSENDER MARKE abwarten.
 // Schreibt die Nutzdaten nach `daten`, gibt deren Laenge zurueck (0 = nichts).
 // ---------------------------------------------------------------------------------
-char daten[256];
+char daten[160];
+// ⚠️ EIN gemeinsamer Entmaskierungspuffer fuer Anmeldung UND Abfrage. Zwei ortsfeste
+// Felder gleicher Groesse haetten 900 Byte Heap doppelt belegt — bei rund 20 KB frei mit
+// offenem Bluetooth-Kanal ist das nicht zu verschenken. Sie werden nie gleichzeitig
+// gebraucht (beide leben nur innerhalb eines Rahmens).
+char roh[224];
+
+// ⭐ DAS FEHLERWORT — und die Falle, die uns den Nachmittag gekostet hat.
+//
+// Im 6560-Kopf steht an Position 18..19 ein FEHLERWORT (0 = alles gut). Das unterste Bit
+// des KOMMANDOWORTS dagegen ist KEIN Fehlerbit, sondern das ANTWORT-Bit: eine Erwiderung
+// auf 0x040C kommt als 0x040D zurueck, eine auf 0x0200 als 0x0201. Wer das als Fehler
+// deutet, verwirft JEDE gueltige Antwort — und sieht nur stumme Abfragen, obwohl das
+// Geraet ordentlich geantwortet hat. Genau das stand hier urspruenglich.
+// Belegt durch die Referenzumsetzung ha-sma-sunnyboy-bluetooth (Feld `response` =
+// `bool(typ_raw & 1)`, Feld `error` = `u16(data[18:20])`) und durch unseren eigenen
+// mitgeschnittenen Anmelderahmen: Fehlerwort 0x0000, Kommando 0x040D.
+int sma_fehlerwort() {
+    return ((roh[4 + 18] & 0xFF) | ((roh[4 + 19] & 0xFF) << 8)) & 0xFFFF;
+}
 int sma_abfrage(int subtyp, int erst, int letzt) {
     marke = marke + 1;
     int meine = marke;
@@ -310,10 +483,9 @@ int sma_abfrage(int subtyp, int erst, int letzt) {
     sma_sende_6560(meine, 0x0200, subtyp, erst, letzt, leer, 0, 0, 0, 0, 0);
 
     int versuch = 0;
-    while (versuch < 8) {
-        int n = sma_empfange(30000);
+    while (versuch < VERSUCHE) {
+        int n = sma_empfange(FRIST_RAHMEN);
         if (n < 18) { return 0; }
-        char roh[320];
         int rl = sma_loese_ppp(rx, 18, n - 18, roh);
         // Falle 3: unlesbarer Rest darf die Suche nicht abbrechen
         if (rl >= 42) {
@@ -321,10 +493,15 @@ int sma_abfrage(int subtyp, int erst, int letzt) {
             int tag = ((roh[4 + 22] & 0xFF) | ((roh[4 + 23] & 0xFF) << 8)) & 0x7FFF;
             int typ = (roh[4 + 24] & 0xFF) | ((roh[4 + 25] & 0xFF) << 8);
             if (tag == meine) {
-                if (typ & 1) { return 0; }        // Fehlerbit gesetzt
+                int fehler = sma_fehlerwort();
+                if (fehler != 0) {                // 0 = alles gut, siehe sma_fehlerwort()
+                    sprintf(spur, "SMA: Abfrage abgelehnt, Fehlerwort 0x%04X", fehler);
+                    addLog(spur);
+                    return 0;
+                }
                 int dlen = rl - 4 - 2 - 36;
                 if (dlen < 0) { dlen = 0; }
-                if (dlen > 256) { dlen = 256; }
+                if (dlen > 160) { dlen = 160; }
                 int i = 0;
                 while (i < dlen) { daten[i] = roh[4 + 36 + i]; i = i + 1; }
                 return dlen;
@@ -350,6 +527,10 @@ void sma_auswerten(int kennung, int dlen) {
         int klasse = code & 0xFF;
         int wert = (daten[pos+8] & 0xFF) | ((daten[pos+9] & 0xFF) << 8)
                  | ((daten[pos+10] & 0xFF) << 16) | ((daten[pos+11] & 0xFF) << 24);
+#if SPUR
+        sprintf(spur, "SATZ pos=%d lri=%04X klasse=%d wert=%d", pos, lri, klasse, wert);
+        addLog(spur);
+#endif
         if (lri == kennung) {
             if (kennung == 0x251E) {
                 if (klasse == 1) { dc_a = wert; }
@@ -371,33 +552,114 @@ void sma_auswerten(int kennung, int dlen) {
 // Eine vollstaendige Messung
 // ---------------------------------------------------------------------------------
 int sma_messen() {
+#if SPUR
+    hp("vor sppInit");
+#endif
+    // ⛔ NICHT HOCHFAHREN, WENN DER SPEICHER KNAPP IST — das ist kein Vorsichtsluxus,
+    // sondern verhindert einen HARTEN ABSTURZ des ganzen Geraets.
+    //
+    // Mit CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y legt Bluedroids bta_sys_init() seine
+    // Verwaltungsdaten per malloc an und macht anschliessend ein memset DARAUF, ohne den
+    // Rueckgabewert zu pruefen. Reicht der Speicher nicht, schreibt es auf NULL:
+    //     Exception 29 StoreProhibited, EXCVADDR 00000000
+    //     memset -> bta_sys_init (bta_sys_main.c:172) -> btu_task_start_up
+    // Kein Fehlercode, kein Log, Neustart. Gemessen am 2026-08-03 auf .185.
+    //
+    // Der Stapel braucht rund 48 KB, davon ein grosses zusammenhaengendes Stueck. Lieber
+    // eine Messung auslassen als das Geraet neu starten — beim naechsten Takt ist der
+    // Speicher meist wieder da (der Abbau nach jeder Messung gibt ihn frei).
+    if (tasm_heap < 60000 || tasm_maxblock < 30000) {
+        sprintf(spur, "SMA: Messung ausgelassen — nur %d Byte frei, groesster Block %d",
+                tasm_heap, tasm_maxblock);
+        addLog(spur);
+        return 0;
+    }
     if (!sppInit()) { addLog("SMA: Bluetooth nicht verfuegbar"); return 0; }
+#if SPUR
+    hp("nach sppInit");
+#endif
 
+    // ⚠️ IMMER zuerst trennen. Ein Kanal, der von einem frueheren Lauf (oder einem
+    // anderen Skript) noch offen steht, laesst sppConnect() sofort mit Erfolg
+    // zurueckkehren — ohne dass ein Verbindungsaufbau stattgefunden haette. Die
+    // Begruessung faellt dann mitten hinein und das Skript wartet ins Leere.
+    // Der Wechselrichter haelt seinen einzigen Platz nach dem Trennen noch etwa eine
+    // Minute; deshalb hier eine kurze Pause statt sofort neu zu rufen.
+    if (sppState() == 3) { addLog("SMA: alter Kanal noch offen — trenne"); }
+    sppClose();
+    delay(2000);
+
+    addLog("SMA: verbinde ...");
     sppConnect(adr_text, 1);             // Kanal 1 = Dienst "cluster network"
 
-    // Auf den Kanal warten (Zustand 3 = offen)
-    int ende = millis() + 25000;
-    while (sppState() != 3) {
+    // Auf den Kanal warten (Zustand 3 = offen, 4 = gescheitert).
+    // ⚠️ 30 s, weil die Firmware den Page-Timeout auf 20 s stellt (TC_SPP_PAGE_TIMEOUT).
+    // Wer hier kuerzer wartet, gibt vor dem Controller auf und sieht den echten Grund nie.
+    int ende = millis() + 30000;
+    int zst = sppState();
+    while (zst != 3) {
+        if (zst == 4) {
+            addLog("SMA: Verbindung gescheitert — Grund steht im SPP-Protokoll");
+            sppClose();
+            return 0;
+        }
         if (millis() > ende) {
             addLog("SMA: keine Verbindung — Platz belegt?");
             sppClose();
             return 0;
         }
         delay(200);
+        zst = sppState();
     }
 
+#if SPUR
+    hp("Kanal offen");
+#endif
+    addLog("SMA: Kanal offen, warte auf Begruessung");
     int ok = 0;
     if (sma_begruessung()) {
+        addLog("SMA: Begruessung beantwortet, melde an");
+    #if SPUR
+    hp("vor Anmeldung");
+#endif
         if (sma_anmelden()) {
+            addLog("SMA: angemeldet, frage Messwerte ab");
+        #if SPUR
+    hp("nach Anmeldung");
+#endif
+            // ⚠️ JEDE Abfrage einzeln melden. Frueher galt der Zyklus als gelungen,
+            // sobald EINE der drei Antworten kam — die uebrigen Werte behielten dann
+            // still ihren alten Inhalt und wanderten als vermeintlich frische Messung
+            // ins Netz. Aufgefallen ist das nur daran, dass die Spannungen ueber zwei
+            // Zyklen hinweg auf die zweite Nachkommastelle gleich blieben.
+            //
+            // ⚠️ Kurze Pause ZWISCHEN den Abfragen: dicht aufeinander folgende Anfragen
+            // laesst das Geraet gelegentlich unbeantwortet.
             int gelesen = 0;
             int d;
+
             d = sma_abfrage(0x5380, 0x00251E00, 0x00251EFF);
             if (d > 0) { sma_auswerten(0x251E, d); gelesen = gelesen + 1; }
+            else       { addLog("SMA: DC-Leistung ohne Antwort"); }
+            delay(500);
+
             d = sma_abfrage(0x5380, 0x00451F00, 0x00451FFF);
             if (d > 0) { sma_auswerten(0x451F, d); gelesen = gelesen + 1; }
+            else       { addLog("SMA: DC-Spannung ohne Antwort — die Spannungen unten sind ALT"); }
+            delay(500);
+
             d = sma_abfrage(0x5100, 0x00263F00, 0x00263FFF);
             if (d > 0) { sma_auswerten(0x263F, d); gelesen = gelesen + 1; }
+            else       { addLog("SMA: AC-Leistung ohne Antwort"); }
+
+            // Der Zyklus zaehlt nur als gelungen, wenn die DC-Leistung kam — sie ist
+            // der eigentliche Zweck (liefern beide Tracker?). Ohne sie ist das Alter
+            // im UDP-Paket eine Luege.
             if (gelesen > 0) { ok = 1; }
+            if (gelesen < 3) {
+                sprintf(spur, "SMA: nur %d von 3 Abfragen beantwortet", gelesen);
+                addLog(spur);
+            }
         } else {
             addLog("SMA: Anmeldung abgelehnt — Kennwort?");
         }
@@ -405,7 +667,17 @@ int sma_messen() {
         addLog("SMA: Begruessung fehlgeschlagen");
     }
 
+    // ⚠️ Nicht nur trennen, sondern den STAPEL ABBAUEN. Bluedroid Classic belegt rund
+    // 85 KB Heap, solange es laeuft, und gibt sie von selbst nie zurueck. Bei einer
+    // Messung alle 15 Minuten waere das Geraet die uebrige Zeit speicherarm — und der
+    // naechste Slot-Neustart scheitert dann an der Speicheranforderung, gemeldet als
+    // "Stack overflow" (die OOM-Pfade des Laders geben diesen Fehlercode zurueck).
+    // sppInit() in der naechsten Messung faehrt den Stapel in etwa 300 ms wieder hoch.
     sppClose();
+    sppDeinit();
+#if SPUR
+    hp("nach sppDeinit");
+#endif
 
     if (ok) {
         letzte_zeit = millis();
@@ -419,19 +691,62 @@ int sma_messen() {
 }
 
 // ---------------------------------------------------------------------------------
-// Worker — hier laufen die langen Wartezeiten, nicht im Hauptlauf
+// TaskLoop — hier laufen die langen Wartezeiten, nicht im Hauptlauf.
+// Kein while(1): TaskLoop wird von der Firmware immer wieder aufgerufen, der Zustand
+// steht in globalen Variablen. delay() ist hier erlaubt und gibt die VM zwischendurch
+// frei, damit Webseite und Kommandos ansprechbar bleiben.
 // ---------------------------------------------------------------------------------
-void SmaWorker() {
-    delay(15000);                 // Geraet erst hochfahren lassen
-    int naechste = 0;             // sofort einmal messen
-    while (1) {
-        if (sofort_messen || millis() > naechste) {
-            sofort_messen = 0;
-            sma_messen();
-            naechste = millis() + TAKT_S * 1000;
-        }
-        delay(500);               // haeufig genug, damit SMAREAD schnell greift
+// ---------------------------------------------------------------------------------
+// Werte ins lokale Netz geben — UDP-Multicast auf 239.255.255.250:1999,
+// vertraeglich mit dem Scripter-Protokoll. Gegenstelle liest sie mit
+//     float w[6];  int n = udpRecvArray("sma", w, 6);
+//
+// ⚠️ udpSendArray erwartet FLOAT. Unsere Messwerte sind Ganzzahlen (Spannungen in
+// Hundertstel Volt), deshalb wird hier in die lesbaren Einheiten umgerechnet — sonst
+// muesste jede Gegenstelle raten, was 19061 bedeutet.
+//
+// ⚠️ Gesendet wird JEDE MINUTE, gemessen nur alle TAKT_S. Dazwischen gehen also
+// dieselben Werte erneut hinaus. Das ist Absicht: der Wechselrichter hat genau EINEN
+// Verbindungsplatz, oefter messen geht nicht — aber eine Gegenstelle, die gerade erst
+// startet, soll nicht bis zu einer Viertelstunde auf das erste Paket warten.
+//
+//   [0] Tracker A, Watt          [3] Tracker B, Volt
+//   [1] Tracker B, Watt          [4] AC-Wirkleistung, Watt
+//   [2] Tracker A, Volt          [5] ALTER der Messung in Sekunden, -1 = noch keine
+//
+// Das Alter statt eines Zeitstempels: die Gegenstelle sieht damit sofort, ob die Werte
+// frisch sind, ohne die Uhren abgleichen zu muessen. Die Summe der beiden Tracker kann
+// sie selbst bilden, das Alter nicht.
+float gsma[6];
+int naechster_funk;     // millis() der naechsten Sendung
+
+void werte_senden() {
+    gsma[0] = dc_a;
+    gsma[1] = dc_b;
+    gsma[2] = u_a / 100.0;
+    gsma[3] = u_b / 100.0;
+    gsma[4] = ac_w;
+    if (lauf_zaehler > 0) { gsma[5] = (millis() - letzte_zeit) / 1000.0; }
+    else                  { gsma[5] = -1.0; }
+    udpSendArray(UDP_NAME, gsma, 6);
+}
+
+int naechste_messung;   // millis() der naechsten Messung
+int startfrist;         // vor dieser Zeit gar nichts tun
+
+void TaskLoop() {
+    if (millis() < startfrist) { delay(500); return; }   // Geraet erst hochfahren lassen
+    if (sofort_messen || millis() > naechste_messung) {
+        sofort_messen = 0;
+        sma_messen();
+        naechste_messung = millis() + TAKT_S * 1000;
+        naechster_funk   = 0;            // direkt nach einer Messung sofort senden
     }
+    if (millis() > naechster_funk) {
+        werte_senden();
+        naechster_funk = millis() + UDP_TAKT_S * 1000;
+    }
+    delay(500);               // haeufig genug, damit SMAREAD schnell greift
 }
 
 // ---------------------------------------------------------------------------------
@@ -473,13 +788,29 @@ void WebCall() {
     }
 }
 
+// ⚠️ WIRD BEIM STOPPEN DES SLOTS GERUFEN — und das ist hier keine Kosmetik.
+// Bluedroid belegt rund 85 KB Heap, solange es laeuft, und ueberlebt einen Slot-Wechsel.
+// Ohne diesen Abbau startet das neu geladene Skript in einen Speicher von ~20 KB und
+// scheitert schon an der ersten Feldanforderung — gemeldet als "Stack overflow", was
+// vollstaendig in die Irre fuehrt. Reihenfolge beim Hochladen: TinyCStop (ruft CleanUp,
+// gibt Bluetooth frei) → TinyCRun (laedt in einen aufgeraeumten Speicher).
+void CleanUp() {
+    sppClose();
+    sppDeinit();
+}
+
 int main() {
     marke = 0;
     // ⚠️ Zeichenketten gehoeren mit strcpy in ein char[] — `feld = "text"` endet
     // in einer Bereichsueberschreitung (Laufzeitfehler 9).
     strcpy(adr_text, SMA_ADR);
+    int ai = 0;
+    while (ai < 6) { adr_b[ai] = sma_adr_byte(ai); ai = ai + 1; }
     addCommand("SMA");              // Konsole: SMAREAD stoesst eine Messung an
-    spawnTask("SmaWorker", 8);      // 8 KB — das Protokoll braucht Platz
+    startfrist       = millis() + 25000;   // Netz/Funk hoch UND einen evtl. noch
+                                           // belegten Platz beim Geraet frei werden lassen
+    naechste_messung = 0;                  // danach sofort die erste Messung
+    naechster_funk   = 0;
     addLog("SMA: bereit fuer %s (erstes Adressbyte %02X)", adr_text, sma_adr_byte(0));
     return 0;
 }

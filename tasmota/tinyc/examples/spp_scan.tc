@@ -1,0 +1,118 @@
+// spp_scan.tc — Bluetooth-Classic-Geraete in der Umgebung suchen.
+//
+// Die einfachste Probe fuer den SPP-Unterbau: findet der ESP32 ueberhaupt ein
+// BR/EDR-Geraet? Solange hier nichts auftaucht, ist jeder Verbindungsversuch zu
+// einem bestimmten Geraet nicht auswertbar — man weiss dann nicht, ob es am
+// Gegenueber liegt oder am eigenen Funk.
+//
+// VORAUSSETZUNG: Firmware mit USE_TINYC_SPP auf einem URSPRUENGLICHEN ESP32.
+// S3/C3/C6/P4 koennen nur BLE und finden hiermit gar nichts.
+//
+// Bedienung: einmal laufen lassen sucht sofort. Danach jederzeit erneut mit
+//   SPPSCAN
+// in der Konsole.
+//
+// ---------------------------------------------------------------------------------
+// ⚠️⚠️ WARUM TaskLoop UND NICHT spawnTask
+// ---------------------------------------------------------------------------------
+// sppScan() wartet die Suchzeit ab, muss also aus einem Zusammenhang laufen, in dem
+// delay() erlaubt ist. Der naheliegende spawnTask-Worker ist hier aber FALSCH:
+//
+// Auf dem ESP32 laeuft ein spawnTask-Worker auf einer EIGENEN VM mit EIGENEM Heap
+// (USE_TINYC_WORKER_VM, Standard). Alle Felder mit mehr als 16 Elementen liegen im
+// Heap — und zwar in einer Tabelle im Kopf des .tcb, die der LADER beim Laden in den
+// Heap der HAUPT-VM anlegt. Die Worker-VM liest diese Tabelle nie. Jeder Feldzugriff
+// im Worker endet deshalb in Laufzeitfehler 9:
+//
+//     TCC: BOUNDS heap[0] idx=0 size=0
+//
+// Das gilt fuer globale UND fuer ortsfeste Felder gleichermassen (beide stehen in
+// derselben Tabelle) — Umdeklarieren hilft also nicht. Der Fehler sieht aus wie ein
+// Indexfehler im Skript und ist doch die Grenze zwischen den beiden Ausfuehrungs-
+// zusammenhaengen. Er hat uns einen halben Tag gekostet.
+//
+// TaskLoop() dagegen laeuft auf der HAUPT-VM, in derselben Aufgabe wie main(): alle
+// Felder sind da, und delay() ist erlaubt. Fuer alles, was grosse Puffer UND Warten
+// braucht, ist TaskLoop der richtige Ort.
+// ---------------------------------------------------------------------------------
+//
+// ⚠️ Gefunden wird nur, was gerade SICHTBAR ist. Viele Geraete schalten die
+// Sichtbarkeit ab, sobald sie verbunden sind; ein Wechselrichter mit belegtem
+// Verbindungsplatz (Sunny Beam!) antwortet auf Suchanfragen nicht mehr.
+//
+// Ausgabe geht in das Tasmota-Protokoll — Konsole oder Syslog mitlesen.
+
+#define DAUER_S   8      // Suchdauer in Sekunden (1..30)
+#define PUFFER    500    // Textbytes, die wir aus der Suche entgegennehmen
+
+char buf[512];
+char zeile[96];
+
+int suchen;              // 1 = beim naechsten Durchlauf suchen
+
+void suche() {
+    if (!sppInit()) {
+        addLog("SPPSCAN: Bluetooth-Stapel kam nicht hoch");
+        return;
+    }
+
+    sprintf(zeile, "SPPSCAN: Zustand %d, Speicher %d — Suche %d s ...",
+            sppState(), tasm_heap, DAUER_S);
+    addLog(zeile);
+
+    // Puffer leeren, damit ein Rest aus einem frueheren Lauf nicht mitgelesen wird.
+    int i = 0;
+    while (i < 512) { buf[i] = 0; i = i + 1; }
+
+    int anz = sppScan(buf, PUFFER, DAUER_S);
+
+    sprintf(zeile, "SPPSCAN: %d Geraet(e), Speicher %d", anz, tasm_heap);
+    addLog(zeile);
+
+    // Das Ergebnis kommt als Text, je Fund eine Zeile "AA:BB:CC:DD:EE:FF Name\n".
+    // Alle Hilfsgroessen VOR der Schleife anlegen — eine Deklaration im Rumpf ist
+    // hier einmal stillschweigend danebengegangen.
+    int p = 0;
+    int o = 0;
+    int c = 0;
+    while (p < PUFFER) {
+        c = buf[p] & 0xFF;
+        if (c == 0) { p = PUFFER; }
+        else {
+            if (c == 10) {
+                zeile[o] = 0;
+                if (o > 0) { addLog(zeile); }
+                o = 0;
+            } else {
+                if (o < 90) { zeile[o] = c; o = o + 1; }
+            }
+            p = p + 1;
+        }
+    }
+    if (o > 0) { zeile[o] = 0; addLog(zeile); }
+
+    addLog("SPPSCAN: fertig");
+}
+
+void TaskLoop() {
+    if (suchen) {
+        suchen = 0;
+        suche();
+    }
+    delay(500);
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "SCAN") == 0) {
+        suchen = 1;
+        responseCmnd("Suche angestossen");
+    } else {
+        responseCmnd("nur SPPSCAN");
+    }
+}
+
+int main() {
+    addCommand("SPP");   // Konsolenbefehl "SPPSCAN"
+    suchen = 1;          // einmal gleich beim Start suchen
+    return 0;
+}

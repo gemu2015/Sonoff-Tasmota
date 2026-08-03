@@ -1,0 +1,229 @@
+// spp_connect.tc — Verbindungsprobe fuer Bluetooth Classic (SPP).
+//
+// Verbindet sich mit EINER bekannten Adresse und schreibt mit, wie weit die
+// Verbindung kommt. Gedacht fuer Geraete, die bei einer Suche NICHT auftauchen —
+// viele antworten nur auf einen gezielten Verbindungsversuch, nicht auf Suchanfragen.
+// (Genau der Fall beim SMA-Wechselrichter.)
+//
+// VORAUSSETZUNG: Firmware mit USE_TINYC_SPP auf einem URSPRUENGLICHEN ESP32, und zwar
+// mit der Diagnosefassung von xdrv_124_tinyc_spp.h — erst die schreibt jedes SPP- und
+// GAP-Ereignis mit Statuscode ins Protokoll. OHNE die sieht man hier nur „Zustand
+// bleibt 2" und weiss nichts.
+//
+// ⚠️ TaskLoop, nicht spawnTask: ein Worker laeuft auf einer eigenen VM ohne die
+// Feld-Tabelle des Programms, dort hat JEDES Feld Groesse 0 (Laufzeitfehler 9).
+//
+// Bedienung in der Konsole:
+//   SPPCON       Verbindung auf dem voreingestellten Kanal
+//   SPPCON 0     Kanal ueber die Dienstsuche (SDP) ermitteln lassen
+//   SPPCON 1     Kanal 1 erzwingen
+//   SPPOFF       trennen
+//   SPPST        Zustand abfragen
+//
+// SO LIEST MAN DAS PROTOKOLL — die Schichten antworten in dieser Reihenfolge:
+//
+//   SPP: gap ACL_CONN_CMPL stat=0    Basisband steht. Funk, Adresse und Reichweite
+//                                    stimmen, das Geraet hat unser Paging angenommen.
+//   SPP: ev CL_INIT status=0         die RFCOMM-Anfrage ist raus
+//   SPP: gap AUTH_CMPL stat=0        Kopplung erledigt (nur falls das Geraet sie will)
+//   SPP: ev OPEN status=0            Kanal offen — erst jetzt meldet sppState() eine 3
+//
+// WO ES AUFHOERT, IST DIE DIAGNOSE:
+//   gar kein ACL_CONN_CMPL  -> das Geraet hat nicht geantwortet: zu weit weg, aus, oder
+//                              sein einziger Verbindungsplatz ist belegt (Sunny Beam!)
+//   ACL ja, aber kein OPEN  -> falsche Kanalnummer oder Kopplung. Dann SPPCON 0
+//                              versuchen, das laesst SDP den Kanal suchen.
+//   CLOSE direkt nach CL_INIT -> das Geraet hat die Verbindung aktiv abgelehnt
+
+#define ZIEL_ADR   "00:80:25:09:AC:E7"   // SMA Sunny Boy SB 5000TL-20
+#define ZIEL_KAN   1                     // SMA benutzt RFCOMM-Kanal 1
+#define FRIST_MS   30000                 // muss ueber TC_SPP_PAGE_TIMEOUT (20 s) liegen,
+                                         // sonst gibt das Skript vor dem Controller auf
+#define AUTO_START 0                     // 1 = beim Hochfahren AUTO_N Versuche von selbst
+#define AUTO_N     3                     // (fuer Aufstellorte ohne erreichbares WLAN)
+#define AUTO_PAUSE 30000                 // Pause zwischen den Selbstversuchen, ms
+#define PROTOKOLL  "/spp_probe.log"      // jeder Versuch landet hier
+
+char adr[24];
+char zeile[112];
+char rx[128];
+char rest[16];
+
+int auftrag;     // 1 = verbinden, 2 = trennen, 3 = Zustand melden
+int kanal;
+int rest_auto;   // noch offene Selbstversuche
+int naechster;   // millis() des naechsten Selbstversuchs
+
+persist int laeufe;      // wie oft insgesamt versucht
+persist int treffer;     // wie oft der Kanal aufging
+
+// Ergebnis in eine Datei schreiben. ⚠️ Ohne Netz gibt es keine Uhrzeit, deshalb steht
+// hier die Laufzeit seit dem Start statt eines Zeitstempels — die reicht, um Versuche
+// auseinanderzuhalten, und sie luegt nicht.
+void merken(char text[]) {
+    char zl[128];
+    sprintf(zl, "%d s  Lauf %d  %s", millis() / 1000, laeufe, text);
+    int f = fileOpen(PROTOKOLL, 2);      // 2 = anhaengen
+    if (f >= 0) {
+        strcat(zl, "\n");
+        fileWrite(f, zl, strlen(zl));
+        fileClose(f);
+    }
+    addLog(zl);
+}
+
+// Zustandsnamen — 4 gibt es erst mit der Diagnosefassung der Firmware.
+void zustand_melden(int st) {
+    if      (st == 0) { sprintf(zeile, "SPPCON: Zustand %d (aus)", st); }
+    else if (st == 1) { sprintf(zeile, "SPPCON: Zustand %d (bereit)", st); }
+    else if (st == 2) { sprintf(zeile, "SPPCON: Zustand %d (verbindet)", st); }
+    else if (st == 3) { sprintf(zeile, "SPPCON: Zustand %d (OFFEN)", st); }
+    else if (st == 4) { sprintf(zeile, "SPPCON: Zustand %d (letzter Versuch FEHLGESCHLAGEN)", st); }
+    else              { sprintf(zeile, "SPPCON: Zustand %d (unbekannt)", st); }
+    addLog(zeile);
+}
+
+void verbinden() {
+    if (!sppInit()) { addLog("SPPCON: Bluetooth-Stapel kam nicht hoch"); return; }
+
+    sppClose();          // einen Rest aus einem frueheren Versuch abraeumen
+    delay(500);
+
+    sprintf(zeile, "SPPCON: verbinde mit %s auf Kanal %d ...", adr, kanal);
+    addLog(zeile);
+
+    laeufe = laeufe + 1;
+    int rc = sppConnect(adr, kanal);
+    if (rc != 0) {
+        sprintf(zeile, "SPPCON: sppConnect abgelehnt, rc=%d", rc);
+        addLog(zeile);
+        return;
+    }
+
+    // Warten und JEDEN Zustandswechsel melden — so sieht man, ob es ueberhaupt
+    // vorangeht oder ob es sofort in 2 haengen bleibt.
+    int ende  = millis() + FRIST_MS;
+    int vor   = -1;
+    int st    = 0;
+    int fertig = 0;
+    while (fertig == 0) {
+        st = sppState();
+        if (st != vor) { zustand_melden(st); vor = st; }
+        if (st == 3) { fertig = 1; }
+        else {
+            if (st == 4) { addLog("SPPCON: abgebrochen — Grund steht oben im SPP-Protokoll"); fertig = 2; }
+            else {
+                if (millis() > ende) { addLog("SPPCON: Zeitueberschreitung, kein Kanal"); fertig = 3; }
+                else { delay(250); }
+            }
+        }
+    }
+    if (fertig != 1) {
+        if (fertig == 2) { merken("FEHLGESCHLAGEN (abgelehnt oder kein Basisband)"); }
+        else             { merken("FEHLGESCHLAGEN (Zeitueberschreitung)"); }
+        sppClose();
+        return;
+    }
+    treffer = treffer + 1;
+    merken("KANAL OFFEN");
+    saveVars();
+
+    // Kanal steht. Der SMA meldet sich von selbst — was auch immer kommt, roh anzeigen.
+    // Das ist der Beweis, dass nicht nur der Kanal, sondern auch die Gegenstelle lebt.
+    addLog("SPPCON: Kanal offen, lausche 5 s ...");
+    int bis = millis() + 5000;
+    int ges = 0;
+    while (millis() < bis) {
+        int n = sppAvailable();
+        if (n > 0) {
+            if (n > 128) { n = 128; }
+            int got = sppRead(rx, n);
+            if (got > 0) {
+                ges = ges + got;
+                sprintf(zeile, "SPPCON: %d Byte empfangen", got);
+                addLog(zeile);
+                // Erste 32 Byte als Hexwerte, 8 je Zeile
+                int i = 0;
+                int m = got;
+                if (m > 32) { m = 32; }
+                while (i < m) {
+                    sprintf(zeile, "  %02X %02X %02X %02X %02X %02X %02X %02X",
+                            rx[i] & 0xFF, rx[i+1] & 0xFF, rx[i+2] & 0xFF, rx[i+3] & 0xFF,
+                            rx[i+4] & 0xFF, rx[i+5] & 0xFF, rx[i+6] & 0xFF, rx[i+7] & 0xFF);
+                    addLog(zeile);
+                    i = i + 8;
+                }
+            }
+        }
+        delay(100);
+    }
+    sprintf(zeile, "SPPCON: insgesamt %d Byte in 5 s", ges);
+    addLog(zeile);
+}
+
+void TaskLoop() {
+    // Selbstversuche, falls dieser Aufstellort kein erreichbares WLAN hat
+    if (rest_auto > 0) {
+        if (millis() > naechster) {
+            rest_auto = rest_auto - 1;
+            naechster = millis() + AUTO_PAUSE;
+            auftrag = 1;
+        }
+    }
+    if (auftrag == 1) { auftrag = 0; verbinden(); }
+    else {
+        if (auftrag == 2) { auftrag = 0; sppClose(); addLog("SPPCON: getrennt"); }
+        else {
+            if (auftrag == 3) { auftrag = 0; zustand_melden(sppState()); }
+        }
+    }
+    delay(200);
+}
+
+void Command(char cmd[]) {
+    // ⚠️ Es gibt kein strncmp und kein atoi(puffer+N) in TinyC — strStartsWith und
+    // strSub/strToInt sind die vorgesehenen Mittel.
+    if (strStartsWith(cmd, "CON")) {
+        kanal = ZIEL_KAN;
+        if (strlen(cmd) > 4) {
+            strSub(rest, cmd, 4, 0);          // alles hinter "CON "
+            int k = strToInt(rest);
+            if (k >= 0 && k <= 30) { kanal = k; }
+        }
+        auftrag = 1;
+        sprintf(zeile, "Verbindungsversuch auf Kanal %d angestossen", kanal);
+        responseCmnd(zeile);
+    } else {
+        if (strcmp(cmd, "OFF") == 0) {
+            auftrag = 2;
+            responseCmnd("trenne");
+        } else {
+            if (strcmp(cmd, "ST") == 0) {
+                auftrag = 3;
+                responseCmnd("Zustand folgt im Protokoll");
+            } else {
+                responseCmnd("SPPCON [kanal] | SPPOFF | SPPST");
+            }
+        }
+    }
+}
+
+int main() {
+    strcpy(adr, ZIEL_ADR);
+    kanal = ZIEL_KAN;
+    addCommand("SPP");
+    // ⚠️ ABSICHTLICH kein Verbindungsversuch beim Start: das Geraet hat nur EINEN
+    // Verbindungsplatz, und nach dem Trennen haelt es ihn noch etwa eine Minute.
+    // Ein Versuch beim Hochfahren wuerde sich mit dem naechsten selbst blockieren.
+#if AUTO_START
+    rest_auto = AUTO_N;
+    naechster = millis() + 15000;   // Netz/Stapel erst hochkommen lassen
+    addLog("SPPCON: bereit — AUTO_START an, Versuche laufen von selbst");
+#else
+    rest_auto = 0;
+    addLog("SPPCON: bereit — SPPCON in der Konsole startet den Versuch");
+#endif
+    sprintf(zeile, "SPPCON: bisher %d Versuche, %d Treffer (siehe %s)", laeufe, treffer, PROTOKOLL);
+    addLog(zeile);
+    return 0;
+}
