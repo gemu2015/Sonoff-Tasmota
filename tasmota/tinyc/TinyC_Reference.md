@@ -5256,6 +5256,66 @@ void TaskLoop() {
 }
 ```
 
+### Bluetooth Classic — SPP (original ESP32 only, requires USE_TINYC_SPP)
+
+A **serial link to any Bluetooth Classic device**. The protocol on top lives in the
+script, not in the firmware, so the same primitive serves SMA inverters, OBD adapters,
+scales and receipt printers — and it can be changed without reflashing.
+
+| Function | Description |
+|----------|-------------|
+| `int sppInit()` | Bring the stack up (idempotent). `1` = ready. Costs ~48 KB of internal heap. |
+| `int sppConnect("aa:bb:..", channel)` | Connect as master. `channel 0` = let SDP find it. Address may also be a `char[]`. Returns `0` = started, `<0` = error. Returns IMMEDIATELY — poll `sppState()`. |
+| `int sppState()` | `0` off, `1` ready, `2` connecting, `3` **open**, `4` last connect FAILED |
+| `int sppAvailable()` | Bytes waiting |
+| `int sppRead(char buf[], int n)` | Non-blocking; returns what has arrived (may be 0) |
+| `int sppWrite(char buf[], int n)` | Send; returns bytes sent or `-1` |
+| `int sppClose()` | Disconnect (the stack stays up) |
+| `int sppDeinit()` | Tear the stack **down** and give its ~48 KB back |
+| `int sppScan(char buf[], int n, int seconds)` | Inquiry; writes `"AA:BB:CC:DD:EE:FF Name\n"` per line. Returns the count. Waits out the inquiry. |
+
+**Reads do not block.** `sppRead()` returns whatever has arrived and comes back at once —
+the script does its own waiting and stays in control. If the firmware waited instead, the
+VM would hang on the peer's timeouts.
+
+⚠️ **Run this from `TaskLoop()`, never from a `spawnTask()` worker.** A worker executes on
+its own VM whose heap-array table is never filled, so *every* `char[]` there has size 0 and
+the first access dies with runtime error 9 — see the anti-pattern in `CLAUDE.md`.
+
+⚠️ **`sppDeinit()` matters.** The stack costs ~48 KB while it runs and never gives it back
+on its own; an open RFCOMM channel costs ~19 KB more. On a 4 MB board that left 2.3 KB free
+with a largest block of 1.5 KB — and *every* VM function call needs 1 KB in one piece. The
+failure surfaces as **"Stack overflow"**, because the loader's out-of-memory paths return
+that code. Nothing in the message points at Bluetooth. Read a device every few minutes,
+then tear the stack down in between.
+
+⚠️ **Check free memory before `sppInit()`.** Bluedroid's own `bta_sys_init()` memsets an
+*unchecked* malloc; if memory is short it writes to NULL and the whole device reboots
+(`Exception 29 StoreProhibited`). Guard with `tasm_heap` / `tasm_maxblock` and skip a cycle
+rather than take the device down.
+
+**Diagnosis.** The firmware logs every SPP and GAP event with its status. The layers answer
+in this order, and where the log stops IS the diagnosis:
+
+```
+SPP: gap ACL_CONN_CMPL stat=0   baseband up -> radio, address and range are fine
+SPP: ev CL_INIT status=0        the RFCOMM request went out
+SPP: gap AUTH_CMPL stat=0       pairing done (only if the peer wants it)
+SPP: ev OPEN status=0           channel up -- only now does sppState() return 3
+```
+
+No `ACL_CONN_CMPL` at all means the peer never answered: out of range, switched off, or
+holding its single connection slot for someone else. GAP status values above 0x100 are HCI
+errors and are also printed in words (`stat=260` = HCI 0x04 = PAGE TIMEOUT).
+
+**Build requirements.** Bluetooth Classic exists only on the *original* ESP32 — S3, C3, C6
+and P4 are BLE-only. Tasmota ships a framework precompiled with NimBLE and has no Classic
+headers at all, so the environment must rebuild it with Bluedroid and add three `-I` paths
+by hand. Details in the header of `tasmota/include/xdrv_124_tinyc_spp.h`.
+
+See `examples/spp_scan.tc` (does inquiry work at all?), `examples/spp_connect.tc` (which
+layer does a connection die at?) and `examples/sma_sunnyboy.tc` (a full protocol on top).
+
 ### LVGL GUI (ESP32 — requires USE_TINYC_LVGL)
 
 Build a **retained-mode, touch-interactive GUI** on the device's panel using the LVGL 9 engine
@@ -5343,12 +5403,24 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `void lvglChartNext(int chart, int series, int v)` | Shift in the next value (scrolling) |
 | `void lvglChartRange(int chart, int axis, int min, int max)` | Y-axis range (`axis` 0=PRIMARY_Y) |
 | `void lvglChartCount(int chart, int n)` | Number of points |
+| `void lvglChartUpdateMode(int chart, int mode)` | `0` = SHIFT (LVGL default), `1` = CIRCULAR. **This is the difference between a fast live trace being possible and impossible** — see the note below. |
 | `int lvglImage(int parent)` | Create an image |
 | `void lvglImageSrc(int h, str path)` | Set image source from an LVGL FS path (e.g. `"A:/logo.bin"`, or `"A:/img.png"` — PNG decode is built in) |
 | `void lvglImageAngle(int h, int deci_deg)` | Rotate the image, 0.1° units (3600 = 360°) — e.g. a clock hand |
 | `void lvglImagePivot(int h, int x, int y)` | Set the rotation pivot, px from the image's top-left (default is image centre) |
 | `void lvglSetFont(int h, int size)` | Set a label's font size; snapped to the built-in Montserrat sizes (10/14/20/28). |
 | `void lvglImageScale(int h, int sx, int sy)` | Scale an image per-axis, 256 = 100% (e.g. a pulsing cover). |
+> **⭐ Fast live traces: pick the update mode, not just the rate.**
+> In **SHIFT** mode every new value moves *all* points, so the **whole chart area** is
+> invalidated and redrawn. In **CIRCULAR** mode the new value overwrites the oldest one in
+> place — a sweeping cursor, like a hospital monitor — and only a narrow column is
+> invalidated. For a 760×300 chart holding 250 points that is ~228 000 pixels per value
+> against ~900: a factor of about 250. At 250 Hz (an ECG) SHIFT is hopeless and CIRCULAR is
+> unremarkable. LVGL defaults to SHIFT, so a fast chart needs the call.
+>
+> With SHIFT, decouple the two rates instead: sample into a ring buffer at full speed and
+> append 8–10 points per frame at 25–30 fps. The eye cannot see more anyway.
+
 | `int lvglCanvas(int parent)` | Create a live-image object backed by a raw RGB565 buffer. Despite the name it is an `lv_image`, so `lvglImageScale`/`lvglImageAngle`/`lvglImagePivot` all work on it — use it for camera frames or any dynamic pixel buffer. |
 | `void lvglCanvasSetImgSlot(int canvas, int img_slot)` | Point a `lvglCanvas` at a PSRAM RGB565 **image slot** (0-3, e.g. from `dspLoadImageFromCam`) zero-copy and redraw. The slot must stay valid until the next call; free the previous frame's slot with `dspFreeImage`. This is how a live camera view is driven on the LVGL screen (see `examples/cam_view_lvgl.tc`). |
 | `int lvglLine(int parent)` | Create a line object. |

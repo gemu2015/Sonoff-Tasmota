@@ -301,6 +301,24 @@ void tc_lv_chart_range(int h, int axis, int mn, int mx) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
   tc_lvgl_lock(); lv_chart_set_axis_range(o, (lv_chart_axis_t)axis, mn, mx); tc_lvgl_unlock();
 }
+// ⭐ Schiebe- oder Umlaufmodus. Nicht Kosmetik, sondern der Unterschied zwischen
+// "geht" und "geht nicht", sobald die Kurve schnell laeuft:
+//
+//   SHIFT    (LVGL-Vorgabe) -- alle Punkte ruecken bei JEDEM neuen Wert nach links,
+//            also wird die GANZE Diagrammflaeche ungueltig. Auf einem 800x1280-Panel
+//            sind das bei einer 760x300-Flaeche 228.000 Pixel je Wert.
+//   CIRCULAR -- der neue Wert ueberschreibt den aeltesten an Ort und Stelle, ein
+//            wandernder Schreibstrich wie auf einem Krankenhausmonitor. Ungueltig wird
+//            nur eine schmale Spalte, bei 250 Punkten auf 760 px rund 900 Pixel.
+//
+// Das ist Faktor ~250. Fuer eine EKG-Kurve mit 250 Hz ist SHIFT aussichtslos und
+// CIRCULAR unproblematisch.
+void tc_lv_chart_update_mode(int h, int mode) {
+  lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
+  tc_lvgl_lock();
+  lv_chart_set_update_mode(o, mode ? LV_CHART_UPDATE_MODE_CIRCULAR : LV_CHART_UPDATE_MODE_SHIFT);
+  tc_lvgl_unlock();
+}
 void tc_lv_chart_count(int h, int n) {
   lv_obj_t *o = tc_lv_resolve(h); if (!o) { return; }
   tc_lvgl_lock(); lv_chart_set_point_count(o, (uint32_t)(n < 1 ? 1 : n)); tc_lvgl_unlock();

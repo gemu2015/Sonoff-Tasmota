@@ -323,6 +323,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | HomeKit | `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkInit`, `hkStop`, `hkReset`, `hkSetCode`, `HomeKitWrite` callback |
 | Tasks (ESP32) | `spawnTask("Name"[, stackKB])`, `killTask`, `taskRunning` |
 | Crypto (ESP32) | `aesEcb` (AES-128-ECB, 1 block), `aesCbc`, `hmacSha256`, `sha256`, `hex2bin` / `bin2hex` |
+| Bluetooth Classic / SPP (**original ESP32 only**, `USE_TINYC_SPP`) | `sppInit`, `sppConnect(addr, channel)`, `sppState` (3=open, 4=last connect failed), `sppAvailable`, `sppRead`, `sppWrite`, `sppClose`, **`sppDeinit`** (gives ~48 KB back), `sppScan`. A serial link to any Classic device; the protocol lives in the SCRIPT. ⚠️ `TaskLoop()` only — a `spawnTask` worker has no arrays. ⚠️ Tear the stack down between reads, or the next slot restart fails with a misleading "Stack overflow". S3/C3/C6/P4 are BLE-only. |
 | TWAI / CAN (ESP32) | `twaiBegin(rx, tx, kbits, mode)`, `twaiSend`, `twaiRecv`, `twaiAvailable`, `twaiStatus`, `twaiFilter`, `twaiEnd` |
 | Persist | `persist` decl, `saveVars()` |
 | Watch | `watch` decl, `changed`, `delta`, `written`, `snapshot` |
@@ -603,6 +604,7 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 **Sensors (I²C)** — `bme280.tc`, `bmp280.tc`, `scd30.tc`, `sht31.tc`, `ccs811.tc`, `sgp30.tc`, `ltr308.tc`, `veml6075.tc`, `tcs34725.tc`, `vl53l0x.tc`, `ads1115.tc`, `max31855.tc`, `mlx90614.tc`, `sps30.tc`, `ld2410.tc`
 **Sensors (other)** — `onewire.tc` (DS18B20), `bresser_chart.tc` (weather)
 **BLE (ESP32)** — `ble_scan.tc` (scan + GATT), `esf37_scale.tc` / `esf37_probe.tc` (Etekcity ESF37 body-comp scale), `esf37_speak.tc` (scale → German TTS)
+**Bluetooth Classic / SPP (original ESP32)** — `spp_scan.tc` (does inquiry find anything?), `spp_connect.tc` (which layer does a connection die at?), `sma_sunnyboy.tc` (SMAdata2+ over SPP: an SMA inverter's two MPPT trackers)
 **Display** — `display_demo.tc`, `lcd_i2c.tc`, `lcd_chart.tc`, `chart.tc`, `chart_types.tc`, `epaper29.tc`, `sunton_display.tc`, `guiton_display.tc`, `analog_clock.tc`, `voltmeter.tc` (canvas), `text_on_image.tc`, `watch_demo.tc`
 **LEDs** — `ledbar.tc`
 **Touch / UI** — `touch_buttons.tc`, `tinyui_demo.tc`, `tinyui_dashboard.tc`, `multipage_demo.tc`

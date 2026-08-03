@@ -444,6 +444,7 @@ const BUILTINS = {
     'lvglChartNext':    { syscall: Syscall.LVGL_CHART_NEXT,   args: 3, returns: false },
     'lvglChartRange':   { syscall: Syscall.LVGL_CHART_RANGE,  args: 4, returns: false },
     'lvglChartCount':   { syscall: Syscall.LVGL_CHART_COUNT,  args: 2, returns: false },
+    'lvglChartUpdateMode': { syscall: Syscall.LVGL_CHART_UPD, args: 2, returns: false },
     'lvglImage':        { syscall: Syscall.LVGL_IMAGE,        args: 1, returns: true },
     'lvglImageSrc':     { syscall: Syscall.LVGL_IMAGE_SRC,    args: 2, returns: false, strArgs: [1] },
     'lvglCanvas':       { syscall: Syscall.LVGL_CANVAS,       args: 1, returns: true },

@@ -4176,6 +4176,67 @@ void TaskLoop() {
 }
 ```
 
+### Bluetooth Classic — SPP (nur urspruenglicher ESP32, benoetigt USE_TINYC_SPP)
+
+Eine **serielle Verbindung zu jedem Bluetooth-Classic-Geraet**. Das Protokoll darueber
+steht im Skript, nicht in der Firmware — dasselbe Grundwerkzeug bedient SMA-Wechselrichter,
+OBD-Adapter, Waagen und Bondrucker, und es laesst sich ohne Flashen aendern.
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `int sppInit()` | Stapel hochfahren (mehrfach aufrufbar). `1` = bereit. Kostet ~48 KB internen Heap. |
+| `int sppConnect("aa:bb:..", kanal)` | Als Master verbinden. `kanal 0` = ueber die Dienstsuche ermitteln. Adresse auch als `char[]`. `0` = angestossen, `<0` = Fehler. Kehrt SOFORT zurueck — `sppState()` abfragen. |
+| `int sppState()` | `0` aus, `1` bereit, `2` verbindet, `3` **offen**, `4` letzter Versuch FEHLGESCHLAGEN |
+| `int sppAvailable()` | wartende Bytes |
+| `int sppRead(char buf[], int n)` | nicht blockierend; liefert, was da ist (auch 0) |
+| `int sppWrite(char buf[], int n)` | senden; gesendete Bytes oder `-1` |
+| `int sppClose()` | trennen (Stapel bleibt oben) |
+| `int sppDeinit()` | Stapel **abbauen**, die ~48 KB zurueckgeben |
+| `int sppScan(char buf[], int n, int sekunden)` | Suche; schreibt je Fund `"AA:BB:CC:DD:EE:FF Name\n"`. Gibt die Anzahl zurueck. Wartet die Suchzeit ab. |
+
+**Lesen blockiert nicht.** `sppRead()` liefert, was angekommen ist, und kehrt sofort
+zurueck — das Skript wartet selbst und bleibt Herr des Ablaufs. Wuerde die Firmware warten,
+haengte die VM an den Zeitueberschreitungen der Gegenstelle.
+
+⚠️ **Aus `TaskLoop()` betreiben, NIE aus einem `spawnTask()`-Worker.** Ein Worker laeuft auf
+einer eigenen VM, deren Feld-Tabelle nie gefuellt wird — dort hat *jedes* `char[]` die
+Groesse 0 und der erste Zugriff endet in Laufzeitfehler 9.
+
+⚠️ **`sppDeinit()` ist wichtig.** Der Stapel belegt ~48 KB, solange er laeuft, und gibt sie
+von selbst nie zurueck; ein offener RFCOMM-Kanal kostet weitere ~19 KB. Auf einem 4-MB-Board
+blieben damit 2,3 KB frei bei einem groessten Block von 1,5 KB — und *jeder* Funktionsaufruf
+der VM braucht 1 KB am Stueck. Der Fehlschlag meldet sich als **"Stack overflow"**, weil die
+OOM-Pfade des Laders diesen Code zurueckgeben. Nichts daran zeigt auf Bluetooth.
+
+⚠️ **Vor `sppInit()` den freien Speicher pruefen.** Bluedroids eigenes `bta_sys_init()` macht
+ein memset auf einen *ungeprueften* malloc; bei Speichermangel schreibt es auf NULL und das
+ganze Geraet startet neu (`Exception 29 StoreProhibited`). Mit `tasm_heap` / `tasm_maxblock`
+absichern und lieber einen Takt auslassen.
+
+**Fehlersuche.** Die Firmware protokolliert jedes SPP- und GAP-Ereignis mit Status. Die
+Schichten antworten in dieser Reihenfolge, und wo das Protokoll aufhoert, liegt der Fehler:
+
+```
+SPP: gap ACL_CONN_CMPL stat=0   Basisband steht -> Funk, Adresse und Reichweite stimmen
+SPP: ev CL_INIT status=0        die RFCOMM-Anfrage ist raus
+SPP: gap AUTH_CMPL stat=0       Kopplung erledigt (nur falls verlangt)
+SPP: ev OPEN status=0           Kanal offen — erst jetzt meldet sppState() eine 3
+```
+
+Gar kein `ACL_CONN_CMPL` heisst: die Gegenstelle hat nicht geantwortet — zu weit weg, aus,
+oder ihr einziger Verbindungsplatz ist belegt. GAP-Statuswerte ueber 0x100 sind HCI-Fehler
+und werden zusaetzlich im Klartext ausgegeben (`stat=260` = HCI 0x04 = PAGE TIMEOUT).
+
+**Voraussetzungen.** Bluetooth Classic gibt es nur auf dem *urspruenglichen* ESP32 — S3, C3,
+C6 und P4 koennen ausschliesslich BLE. Tasmota liefert ein mit NimBLE vorkompiliertes
+Framework ohne jeden Classic-Header; die Umgebung muss es mit Bluedroid neu bauen und drei
+`-I`-Pfade von Hand ergaenzen. Einzelheiten im Kopf von
+`tasmota/include/xdrv_124_tinyc_spp.h`.
+
+Siehe `examples/spp_scan.tc` (findet die Suche ueberhaupt etwas?), `examples/spp_connect.tc`
+(an welcher Schicht stirbt eine Verbindung?) und `examples/sma_sunnyboy.tc` (ein
+vollstaendiges Protokoll darueber).
+
 ### LVGL-GUI (ESP32 — benötigt USE_TINYC_LVGL)
 
 Baue eine **retained-mode, berührungsfähige GUI** auf dem Display des Geräts mit der LVGL-9-Engine
@@ -4263,6 +4324,20 @@ Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
 | `void lvglChartNext(int chart, int series, int v)` | Nächsten Wert einschieben (scrollend) |
 | `void lvglChartRange(int chart, int axis, int min, int max)` | Y-Achsen-Bereich (`axis` 0=PRIMARY_Y) |
 | `void lvglChartCount(int chart, int n)` | Anzahl der Punkte |
+| `void lvglChartUpdateMode(int chart, int mode)` | `0` = schieben (LVGL-Vorgabe), `1` = umlaufend. **Entscheidet, ob eine schnelle Messkurve ueberhaupt darstellbar ist** — siehe Hinweis unten. |
+
+> **⭐ Schnelle Messkurven: der Modus zaehlt, nicht nur die Rate.**
+> Beim **Schieben** wandern bei jedem neuen Wert *alle* Punkte, also wird die **ganze
+> Diagrammflaeche** ungueltig und neu gezeichnet. **Umlaufend** ueberschreibt den aeltesten
+> Wert an Ort und Stelle — ein wandernder Schreibstrich wie auf einem Krankenhausmonitor —
+> und nur eine schmale Spalte wird ungueltig. Bei einer 760x300-Flaeche mit 250 Punkten sind
+> das rund 228.000 Pixel je Wert gegen etwa 900, also Faktor ~250. Bei 250 Hz (EKG) ist
+> Schieben aussichtslos und Umlaufen unproblematisch. LVGL steht auf Schieben, der Aufruf
+> ist also noetig.
+>
+> Wer beim Schieben bleibt, entkoppelt stattdessen die Raten: mit voller Geschwindigkeit in
+> einen Ringpuffer abtasten und je Bild 8-10 Punkte anhaengen, 25-30 Bilder/s. Mehr sieht
+> das Auge ohnehin nicht.
 | `int lvglImage(int parent)` | Bild erzeugen |
 | `void lvglImageSrc(int h, str path)` | Bildquelle aus LVGL-FS-Pfad (z. B. `"A:/logo.bin"` oder `"A:/img.png"` — PNG-Dekodierung ist eingebaut) |
 | `void lvglImageAngle(int h, int deci_deg)` | Bild drehen, 0,1°-Einheiten (3600 = 360°) — z. B. ein Uhrzeiger |
