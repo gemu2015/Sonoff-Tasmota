@@ -515,7 +515,12 @@ struct {
 
    // Abstaende zwischen den Versuchen: wachsend, NICHT die starren 8 s des Keep-Alive.
    // Zu dichte Wiederholungen sind genau der Weg in "cmi resp n=-1".
-const uint16_t kEebusAcRetryS[EEBUS_AC_MAX_TRY] PROGMEM = { 30, 60, 120, 300 };
+   // ⚠️ Es sind EINS WENIGER als Versuche: bei vier Versuchen gibt es drei Zwischenraeume.
+   // Frueher stand hier ein vierter Wert (300 s), der NIE gelesen wurde — der Zaehler laeuft
+   // 1, 2, 3, und beim vierten Versuch wird aufgegeben, bevor indiziert wird. Kein Ueberlauf,
+   // aber Text und Code widersprachen sich. Bewusst die Tabelle gekuerzt statt die Zahl der
+   // Versuche erhoeht: so aendert sich am Verhalten nichts, nur die Beschreibung stimmt wieder.
+const uint16_t kEebusAcRetryS[EEBUS_AC_MAX_TRY - 1] PROGMEM = { 30, 60, 120 };
 
 enum EebusAcState : uint8_t { AC_IDLE, AC_WAIT, AC_SCAN, AC_DONE };
 
