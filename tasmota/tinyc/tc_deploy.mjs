@@ -20,8 +20,8 @@
 // What it does:
 //   1. Reads the .tc source (resolving #include files relatively)
 //   2. Compiles to bytecode using the in-IDE compiler
-//   3. POSTs the .tcb to http://<ip>/tc_upload?api=1&fsz=<size>
-//   4. Sends `TinyCStop 0` then `TinyCRun /<remote-name>` via /cm
+//   3. POSTs the .tcb to http://<ip>/tc_upload?api=1&fsz=<size>&slot=<slot>
+//   4. Sends `TinyCStop <slot>` then `TinyCRun <slot> /<remote-name>` via /cm
 // =====================================================================
 
 import fs from 'node:fs';
@@ -40,13 +40,27 @@ const args    = process.argv.slice(2);
 const positional = [];
 const defines   = [];
 let   noUpload   = false;       // --no-upload: compile only, write .tcb, skip device push
-for (const a of args) {
+// ⚠️ Ohne --slot geht ALLES in Slot 0. Auf einem Geraet mit mehreren belegten Slots
+// (der Hausmonitor .135 faehrt vier) wirft das den dort laufenden Slot 0 hinaus, ohne
+// zu fragen — und der Upload legt die Datei zusaetzlich in Slot 0 ab (?slot=N am
+// Endpunkt, Vorgabe 0). Deshalb muss der Slot mitgegeben werden koennen.
+let   slot       = 0;
+for (let i = 0; i < args.length; i++) {
+    const a = args[i];
     if (a.startsWith('-D')) defines.push(a.slice(2));
     else if (a === '--no-upload' || a === '-n') noUpload = true;
+    else if (a === '--slot' || a === '-s') { slot = parseInt(args[++i], 10); }
+    else if (a.startsWith('--slot=')) { slot = parseInt(a.slice(7), 10); }
     else positional.push(a);
 }
+if (!(slot >= 0 && slot < 6)) {
+    console.error(`Bad --slot ${slot}: must be 0..5`);
+    process.exit(2);
+}
 if (positional.length < 1) {
-    console.error('Usage: tc_deploy.mjs <file.tc> [<device-ip> [<remote-name>]] [-DDEFINE …] [--no-upload|-n]');
+    console.error('Usage: tc_deploy.mjs <file.tc> [<device-ip> [<remote-name>]] [-DDEFINE …] [--slot N] [--no-upload|-n]');
+    console.error('       --slot N      target VM slot 0..5 (default 0) — REQUIRED on devices');
+    console.error('                     that run several slots, or slot 0 is overwritten');
     console.error('       --no-upload   compile only, write .tcb to bytecode/, skip device push');
     process.exit(2);
 }
@@ -169,7 +183,9 @@ console.log(`  wrote ${localTcb}`);
 // Upload to device
 // --------------------------------------------------------------------
 async function uploadAndRun() {
-    const url = `http://${deviceIp}/tc_upload?api=1&fsz=${binary.length}`;
+    // ⚠️ slot=N muss MIT: der Upload-Endpunkt legt die Datei sonst in Slot 0 ab
+    // (xdrv_124_tinyc.ino, "Determine target slot from ?slot=N parameter (default 0)").
+    const url = `http://${deviceIp}/tc_upload?api=1&fsz=${binary.length}&slot=${slot}`;
     console.log(`Uploading to ${url} as ${remoteName} …`);
 
     // multipart/form-data, hand-built to avoid extra deps
@@ -206,14 +222,14 @@ async function uploadAndRun() {
         return t;
     }
 
-    console.log('  TinyCStop 0 …');
-    await cmnd('TinyCStop 0').catch(() => {});
+    console.log(`  TinyCStop ${slot} …`);
+    await cmnd(`TinyCStop ${slot}`).catch(() => {});
     // small grace
     await new Promise(r => setTimeout(r, 200));
 
     const runArg = '/' + remoteName.replace(/^\/+/, '');
-    console.log(`  TinyCRun ${runArg} …`);
-    const out = await cmnd(`TinyCRun ${runArg}`);
+    console.log(`  TinyCRun ${slot} ${runArg} …`);
+    const out = await cmnd(`TinyCRun ${slot} ${runArg}`);
     console.log('  device:', out.trim());
 
     console.log('Done.');

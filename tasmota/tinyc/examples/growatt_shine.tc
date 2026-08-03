@@ -86,6 +86,29 @@ int  redisc_tick = 0;
 int  next_poll = 15;        // first poll shortly after boot
 int  poll_tick = 0;
 
+// ── SMA Sunny Boy, per UDP von einem anderen Geraet ─────────────────────────
+// Der alte SB 5000TL-20 haengt an Bluetooth Classic und kann nur von EINEM Geraet
+// gleichzeitig gelesen werden — deshalb liest ihn ein eigener Knoten (die ESP32-Uhr
+// im Keller, examples/sma_sunnyboy.tc) und schickt die Werte einmal je Minute als
+// UDP-Multicast-Feld. Hier kommen sie nur noch an, damit alle vier Wechselrichter
+// auf EINER Seite stehen.
+//
+//   [0] Tracker A Watt   [2] Tracker A Volt   [4] AC-Wirkleistung Watt
+//   [1] Tracker B Watt   [3] Tracker B Volt   [5] ALTER der Messung in Sekunden
+//
+// ⭐ Als `global` deklariert — dann fuellt die FIRMWARE das Feld selbst, sobald ein
+// Paket mit diesem Namen eintrifft. Kein udpRecvArray, kein Abholen: der Compiler
+// meldet jedes `global` als udpGlobal an, und der Empfaenger kopiert die Werte direkt
+// nach globals[]. Der Variablenname IST der Name auf der Leitung, muss also zum
+// udpSendArray("sma", ...) der Gegenstelle passen (max. 15 Zeichen).
+//
+// ⚠️ Deshalb hoechstens 16 Elemente: groessere Felder wandern in den Heap, und die
+// Brücke schreibt nach globals[]. Sechs passen bequem.
+#define SMA_NAME     "sma"
+#define SMA_ALT_MAX  600      // aelter als 10 min = die Gegenstelle meldet sich nicht mehr
+global float sma[6];
+int   sma_da = 0;             // 1 = mindestens ein Paket empfangen
+
 // ── small helpers ───────────────────────────────────────────────────────────
 
 // copy src -> dst (sprintf-based; TinyC has no strcpy builtin)
@@ -397,6 +420,13 @@ void gw_poll_all() {
 
 void TaskLoop() {
     delay(1000);
+    // Die WERTE kommen von selbst — hier wird nur vermerkt, DASS je eines ankam.
+    // ⚠️ Ohne diese Unterscheidung waere ein nie eingetroffenes Paket nicht von einer
+    // echten Null zu trennen: globals[] startet auf 0, und "PV1 0W" liest sich wie
+    // „erzeugt gerade nichts" statt „Gegenstelle schweigt". udpReady() traegt ein
+    // Frische-Bit je Name und raeumt es beim Lesen ab.
+    if (udpReady(SMA_NAME)) { sma_da = 1; }
+
     if (tasm_net == 0) { return; }              // no net op before link-up!
     for (int i = 0; i < ninv; i = i + 1) { g_age[i] = g_age[i] + 1; }
     poll_tick = poll_tick + 1;
@@ -426,6 +456,7 @@ void Command(char cmd[]) {
                 g_p1[0], g_p2[0], g_alm[0],
                 g_p1[1], g_p2[1], g_alm[1],
                 g_p1[2], g_p2[2], g_alm[2]);
+        sprintfAppend(r, " | SMA: %.0f/%.0fW alt=%.0fs", sma[0], sma[1], sma[5]);
         responseCmnd(r);
     }
 }
@@ -460,6 +491,26 @@ void web_row(int i) {
     }
 }
 
+// Der SMA als vierte Zeile, im selben Aufbau wie die Growatt-Zeilen.
+// ⚠️ Kein kWh-Wert: der Wechselrichter liefert ueber SMAdata2+ Leistung und Spannung,
+// die Tagesarbeit holen wir nicht ab. Lieber weglassen als eine Null hinschreiben,
+// die wie „nichts erzeugt" aussieht.
+void sma_row() {
+    if (sma_da == 0) {
+        webSend("{s}SMA Sunny Boy{m}<span style='color:#e0a030'>noch kein Wert empfangen</span>{e}");
+        return;
+    }
+    if (sma[5] < 0.0 || sma[5] > SMA_ALT_MAX) {
+        // Das Alter kommt vom Sender mit; -1 heisst „noch nie erfolgreich gemessen".
+        sprintf(grow, "{s}SMA Sunny Boy{m}<span style='color:#e0a030'>veraltet (%.0f s)</span>{e}", sma[5]);
+        webSend(grow);
+        return;
+    }
+    sprintf(grow, "{s}SMA Sunny Boy{m}<span style='color:#9fd39f'>PV1 %.0fW %.0fV</span> &nbsp; <span style='color:#9fd39f'>PV2 %.0fW %.0fV</span> &nbsp; AC %.0fW{e}",
+            sma[0], sma[2], sma[1], sma[3], sma[4]);
+    webSend(grow);
+}
+
 void WebCall() {
     webSend("{s}<hr>{m}<hr>{e}{s}<b>Growatt Tracker</b>{m}");
     char hd[110];
@@ -469,6 +520,7 @@ void WebCall() {
     sprintf(hd, "%s &nbsp; vor %d min{e}", st, mins);
     webSend(hd);
     for (int i = 0; i < ninv; i = i + 1) { web_row(i); }
+    sma_row();
 }
 
 int main() {
