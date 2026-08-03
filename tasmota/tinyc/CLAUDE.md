@@ -434,6 +434,30 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     numbers with `sprintf` instead of handing strings down. Same root cause as the
     string-ternary bug fixed the same day in `codegen.js` (that one is compiler-side and
     works on shipped firmware).
+20. **Using ANY array inside a `spawnTask` worker (ESP32)** — a worker runs on its OWN
+    `TcVM` with its OWN heap (`USE_TINYC_WORKER_VM`, default-on). Every array > 16
+    elements lives in the heap, and the heap arrays come from a **table in the `.tcb`
+    header that only the LOADER fills in, into the PRIMARY VM's heap**. The worker never
+    reads that table, so in the worker every array has size 0 and the first access dies:
+    ```
+    TCC: BOUNDS heap[0] idx=0 size=0 pc=370
+    ```
+    Declaring the array locally inside the worker does **not** help — locals and globals
+    share the same table. Only **scalar** globals and the share-store cross the boundary
+    (the comment above `tc_alloc_worker_vm()` says so, but nobody reads the VM header
+    while writing a script). It looks exactly like an index bug, and it only shows at the
+    FIRST access, far from the declaration.
+    **Fix: if the job needs buffers AND waiting, use `TaskLoop()`, not `spawnTask()`.**
+    `TaskLoop` runs on the primary VM — all arrays present, `delay()` allowed. Cost a
+    morning on 2026-08-03 (`sma_sunnyboy.tc` + two SPP probes, all err=9).
+
+21. **Adding a syscall that takes a `char[]` without `strArgs` in `codegen.js`** — the
+    buffer is then passed **by value instead of by reference**. The call compiles, runs,
+    and fails with runtime error 9 **without** the usual `TCC: BOUNDS` line, which makes
+    it look like a firmware bug. Every buffer-taking builtin needs
+    `strArgs: [i], intArgs: [j, …]` (compare `sha256`, `hex2bin`). Hit all three of
+    `sppRead` / `sppWrite` / `sppScan` on 2026-08-03.
+
 16. **Assuming a duplicate function name is a compile error** — it is not. `codegen.js`
     keeps functions in a `Map` and `.set()` overwrites, so the **later** definition wins and
     the earlier one becomes dead code, silently. Matters most for `#include` building

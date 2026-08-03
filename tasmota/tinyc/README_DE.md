@@ -2,7 +2,12 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
-> **Aktuelle Firmware: v1.6.28** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen am [`testing`-Release auf GitHub](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing). Das vollstaendige Changelog pro Version steht im `TC_RELEASE`-Kommentar in `tasmota/include/xdrv_124_tinyc_vm.h`.
+> **Aktuelle Firmware: v1.6.45** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
+>
+> * [**Alle Releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — je Bau ein eigenes `v<version>`-Release. Wer das Repository beobachtet (*Custom → Releases*), wird ueber neue benachrichtigt.
+> * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — ein rollender Zeiger, der immer die neuesten Dateien traegt, fuer gleichbleibende Download-Adressen. Er wird absichtlich wiederverwendet und loest deshalb **keine** Release-Benachrichtigung aus.
+>
+> Das vollstaendige Changelog pro Version steht im `TC_RELEASE`-Kommentar in `tasmota/include/xdrv_124_tinyc_vm.h`.
 
 ## Was ist neu (Highlights v1.6.28)
 
