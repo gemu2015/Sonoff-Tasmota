@@ -127,7 +127,18 @@ export function preprocess(source, predefined = []) {
             }
         }
     }
-    const defines = new Set(predefined);  // track defined names (seed with predefined)
+    // Track defined names AND their replacement text. The values matter for #if:
+    // `#define S 0` followed by `#if S` must be FALSE, exactly as in C. Before the
+    // values were kept, an identifier in a #if only counted as "is it defined", so a
+    // feature switch turned OFF still compiled its block in.
+    const defines = new Set();       // defined names (seed with predefined below)
+    const defineValues = new Map();  // name -> replacement text ('' = valueless flag)
+    for (const p of predefined) {
+        const eq = p.indexOf('=');   // accept -DNAME and -DNAME=VALUE
+        const name = eq < 0 ? p : p.slice(0, eq);
+        defines.add(name);
+        defineValues.set(name, eq < 0 ? '' : p.slice(eq + 1));
+    }
     const macros = new Map();        // function-like macros: name -> { params: [], body: string }
     const condStack = [];            // stack of { active, parentActive, elseSeen }
 
@@ -155,6 +166,10 @@ export function preprocess(source, predefined = []) {
                 case 'define': {
                     if (isActive(condStack)) {
                         defines.add(directive.name);
+                        if (!directive.params) {
+                            const mv = raw.trim().match(/^#define\s+\w+(?:\s+([^\n]*))?$/);
+                            defineValues.set(directive.name, mv && mv[1] ? mv[1] : '');
+                        }
                         if (directive.params) {
                             // Function-like macro: #define NAME(A,B) body
                             macros.set(directive.name, { params: directive.params, body: directive.body });
@@ -175,6 +190,7 @@ export function preprocess(source, predefined = []) {
                 case 'undef': {
                     if (isActive(condStack)) {
                         defines.delete(directive.name);
+                        defineValues.delete(directive.name);
                     }
                     output.push('');  // strip #undef from output
                     break;
@@ -200,7 +216,7 @@ export function preprocess(source, predefined = []) {
                     const parentActive = isActive(condStack);
                     let active = false;
                     if (parentActive) {
-                        active = evalCondition(directive.expr, defines, lineNum);
+                        active = evalCondition(directive.expr, defines, lineNum, defineValues);
                     }
                     condStack.push({ active, parentActive, elseSeen: false });
                     output.push('');
@@ -340,7 +356,7 @@ function parseDirective(trimmed) {
 // Evaluate a #if condition expression
 // Supports: integer literals, defined(NAME), NAME (1 if defined, 0 if not),
 //           &&, ||, !, ==, !=, >, <, >=, <=, (, )
-function evalCondition(expr, defines, lineNum) {
+function evalCondition(expr, defines, lineNum, defineValues = new Map(), depth = 0) {
     // Tokenize the expression
     const tokens = tokenizeExpr(expr, lineNum);
     if (tokens.length === 0) {
@@ -453,10 +469,24 @@ function evalCondition(expr, defines, lineNum) {
             return tok.numValue;
         }
 
-        // Identifier — defined names evaluate to 1, undefined to 0
+        // Identifier — expands to its replacement text, like C. An undefined name is 0;
+        // a valueless flag (`#define FOO`) is 1; `#define S 0` is 0, NOT 1.
         if (tok.type === 'ident') {
             advance();
-            return defines.has(tok.value) ? 1 : 0;
+            if (!defines.has(tok.value)) { return 0; }
+            let body = (defineValues.get(tok.value) ?? '').replace(/\/\*.*?\*\//g, ' ')
+                                                          .replace(/\/\/.*$/, '').trim();
+            if (body === '') { return 1; }
+            const num = body.match(/^[+-]?(0[xX][0-9a-fA-F]+|\d+)$/);
+            if (num) { return Number(body); }
+            // Non-numeric body (another macro, an expression) — evaluate it, with a
+            // depth cap so `#define A A` cannot spin forever.
+            if (depth >= 8) { return 1; }
+            try {
+                return evalCondition(body, defines, lineNum, defineValues, depth + 1) ? 1 : 0;
+            } catch (e) {
+                return 1;   // unparsable body: fall back to the old "defined = true"
+            }
         }
 
         throw new PreprocessorError(`unexpected token '${tok.value}' in #if expression`, lineNum);

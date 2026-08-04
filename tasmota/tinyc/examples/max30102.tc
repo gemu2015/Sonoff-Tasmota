@@ -47,7 +47,7 @@
 // mitgeprueft. Damit laesst sich die Weboberflaeche fertig entwickeln, bevor
 // ueberhaupt ein Sensor da ist — und wenn der Sensor spaeter schweigt, weiss man,
 // dass es nicht an der Anzeige liegt.
-#define SIMULATION  1
+#define SIMULATION  0
 #define SIM_BPM     72        // Sollpuls der Simulation
 #define SIM_DC      100000    // Gleichanteil beider Kanaele
 #define SIM_AC_IR   2000      // Hub infrarot
@@ -82,6 +82,11 @@ int dc_ir; int dc_rot;   // Gleichanteil, gleitend nachgefuehrt
 int mn_ir; int mx_ir;    // Spitze und Tal im laufenden Fenster
 int mn_rot; int mx_rot;
 int fz;                  // Fensterzaehler
+int letzt_ir; int letzt_rot;  // vorheriger Rohwert, fuer die Ausreisser-Erkennung
+int spike_folge;         // wie viele Ausreisser hintereinander
+int spikes;              // Zaehler: verworfene Einzelwerte
+int ovf;                 // groesster Einzelstand des Ueberlaufzaehlers
+int nmax;                // wie voll der FIFO je wurde (Werte je Abholung)
 
 int ac_ir; int ac_rot;   // zuletzt gemessener Wechselanteil (Spitze-Tal)
 
@@ -186,7 +191,36 @@ void verarbeite(int rot, int ir) {
         finger = 1;
         dc_ir = ir; dc_rot = rot;
         mn_ir = ir; mx_ir = ir; mn_rot = rot; mx_rot = rot;
+        letzt_ir = ir; letzt_rot = rot;
+        spike_folge = 0;
         fz = 0;
+    }
+
+    // ⚠️ Einzelne Ausreisser verwerfen. Bei 100 Hz kann sich die Durchblutung von
+    // einem Wert zum naechsten nur um Promille aendern — ein Sprung um mehr als ein
+    // Achtel des Gleichanteils ist ein verrutschter FIFO-Satz oder ein Busfehler,
+    // nie ein Puls. Solche Werte werden GEHALTEN statt durchgereicht: eine einzelne
+    // Zacke waere sonst das Auffaelligste im Bild, und sie verdirbt zusaetzlich
+    // Min/Max und damit die SpO2-Rechnung fuer das ganze Fenster.
+    int grenze = dc_ir >> 3;
+    if (grenze < 2000) { grenze = 2000; }
+    int d_ir  = ir  - letzt_ir;   if (d_ir  < 0) { d_ir  = 0 - d_ir; }
+    int d_rot = rot - letzt_rot;  if (d_rot < 0) { d_rot = 0 - d_rot; }
+    if (d_ir > grenze || d_rot > grenze) {
+        spike_folge = spike_folge + 1;
+        // ⚠️ Nicht ewig halten. Bleibt der Wert mehrere Takte auf dem neuen Niveau,
+        // ist es kein Ausreisser sondern eine echte Verschiebung (Finger bewegt,
+        // anders aufgelegt) — dann muss die Kurve dorthin folgen, sonst steht sie fest.
+        if (spike_folge <= 3) {
+            spikes = spikes + 1;
+            ir = letzt_ir; rot = letzt_rot;
+        } else {
+            letzt_ir = ir; letzt_rot = rot;
+            spike_folge = 0;
+        }
+    } else {
+        spike_folge = 0;
+        letzt_ir = ir; letzt_rot = rot;
     }
 
     // Gleitender Gleichanteil. ⚠️ Die Zeitkonstante muss DEUTLICH LAENGER sein als
@@ -285,8 +319,16 @@ void verarbeite(int rot, int ir) {
 int max_lesen() {
     int wr = i2cRead8(MAX_ADDR, R_FIFO_WR, I2C_BUS);
     int rd = i2cRead8(MAX_ADDR, R_FIFO_RD, I2C_BUS);
+    // ⚠️ Ueberlaufzaehler mitlesen. Steht er ueber 0, hat der Sensor Werte
+    // WEGGEWORFEN, weil wir zu spaet abgeholt haben — die Kurve hat dann eine echte
+    // Luecke, und die sieht beim Zeichnen wie ein Sprung aus. Das ist der einzige
+    // Ausreisser, der NICHT am Bus liegt, deshalb getrennt zaehlen.
+    int o = i2cRead8(MAX_ADDR, R_OVF, I2C_BUS);
+    if (o > ovf) { ovf = o; }
+
     int n = wr - rd;
     if (n < 0) { n = n + 32; }          // FIFO ist 32 Werte tief und laeuft um
+    if (n > nmax) { nmax = n; }
     if (n == 0) { return 0; }
     if (n > 32) { n = 32; }
 
@@ -565,7 +607,8 @@ void Command(char cmd[]) {
             bereit = 0;
             responseCmnd("Sensor wird neu eingestellt");
         } else {
-            sprintf(zeile, "bereit=%d fehler=%d puls=%d spo2=%d", bereit, fehler, bpm, spo2);
+            sprintf(zeile, "bereit=%d fehler=%d puls=%d spo2=%d spikes=%d ovf=%d nmax=%d",
+                    bereit, fehler, bpm, spo2, spikes, ovf, nmax);
             responseCmnd(zeile);
         }
     }
