@@ -501,20 +501,34 @@ void WebPage() {
     webSend("if(rp<0)rp=0;");
     webSend("var f=h[4]=='1';document.getElementById('pv').textContent=f?");
     webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')):'kein Finger';");
-    webSend("}).catch(e=>{});}");
+    // ⚠️⚠️ IMMER NUR EIN ABRUF UNTERWEGS. Mit setInterval(pull,250) fragt der Browser
+    // unabhaengig davon, ob die vorige Antwort schon da ist. Antwortet das Geraet
+    // einmal langsam — und ein ESP mit 16 Socket-Plaetzen tut das unter Last —, sind
+    // zwei Abrufe mit DERSELBEN seit-Nummer gleichzeitig offen, und beide haengen
+    // ihren Abschnitt an: der Puffer bekommt dieselbe Zeit zweimal und die Kurve
+    // springt zurueck. Deshalb wird der naechste Abruf erst NACH dem vorigen
+    // angestossen. Nebeneffekt: hoechstens eine Verbindung statt beliebig vieler.
+    webSend("}).catch(e=>{}).finally(()=>setTimeout(pull,250));}");
     // --- zeichnen ---
-    webSend("function draw(now){if(!tl)tl=now;var dt=now-tl;tl=now;");
-    // Lesezeiger nach der Uhr weiterschieben; bei Rueckstand leicht aufholen,
-    // bei Vorlauf bremsen — sonst laeuft die Kurve auseinander.
-    webSend("var lag=b.length-rp,sp=R*(lag>N*2?1.15:(lag<N*0.5?0.85:1));");
-    webSend("rp+=dt*sp/1000;if(rp>b.length)rp=b.length;");
+    // ⚠️⚠️ MIT DEM NACHKOMMAANTEIL ZEICHNEN. Ein Abtastwert ist hier 2 px breit
+    // (480 px auf 240 Punkte), und bei 100 Werten/s gegen ~60 Bilder/s faellt nicht
+    // in jedes Bild ein neuer Wert. Wer bei Math.floor(rp) anfaengt, laesst die Kurve
+    // abwechselnd stehen und um 2 px springen — sichtbares Zittern, das man erst
+    // bemerkt, wenn alles andere ruhig laeuft. Der Bruchteil verschiebt die Kurve
+    // stattdessen stufenlos.
+    webSend("function draw(now){if(!tl)tl=now;var dt=now-tl;tl=now;if(dt>200)dt=200;");
+    // Lesezeiger nach der Uhr. Nachregeln nur SANFT (max. 2 %) — eine Korrektur um
+    // 15 % sieht man als Tempowechsel, und die Regelung faengt an zu pendeln.
+    webSend("var lag=b.length-rp,e=(lag-N)/N;if(e>1)e=1;if(e<-1)e=-1;");
+    webSend("rp+=dt*R*(1+0.02*e)/1000;if(rp>b.length)rp=b.length;");
+    webSend("var fi=Math.floor(rp),fr=rp-fi;");
     webSend("x.fillStyle='#111';x.fillRect(0,0,W,H);");
-    webSend("var st=Math.floor(rp)-N;if(st<0)st=0;var n=Math.min(N,b.length-st);");
+    webSend("var st=fi-N;if(st<0){st=0;fr=0;}var n=Math.min(N,b.length-st);");
     webSend("if(n>1){x.strokeStyle='#3ad13a';x.lineWidth=2;x.beginPath();");
-    webSend("for(var i=0;i<n;i++){var v=b[st+i],px=i*W/N,py=H-1-v*(H-2)/99;");
+    webSend("for(var i=0;i<n;i++){var v=b[st+i],px=(i-fr)*W/N,py=H-1-v*(H-2)/99;");
     webSend("if(i==0)x.moveTo(px,py);else x.lineTo(px,py);}x.stroke();}");
     webSend("requestAnimationFrame(draw);}");
-    webSend("setInterval(pull,250);pull();requestAnimationFrame(draw);})();</script>");
+    webSend("pull();requestAnimationFrame(draw);})();</script>");
 }
 
 void WebCall() {

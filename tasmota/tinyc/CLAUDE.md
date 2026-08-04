@@ -564,11 +564,31 @@ void WebOn() {
 
 ```js
 // Client: fetch into a buffer, draw from it on requestAnimationFrame
-setInterval(pull, 250);                 // fetch is slow and bursty
-requestAnimationFrame(draw);            // drawing is smooth and independent
-// in draw(): rp += dt * SAMPLE_RATE / 1000;   // read pointer follows the clock
-//            ease rp slightly when it runs ahead of / behind the buffer
+function pull(){ fetch('/data?seit='+sq).then(...)
+    .finally(()=>setTimeout(pull,250)); }   // ⚠️ NOT setInterval — see below
+pull(); requestAnimationFrame(draw);
+
+function draw(now){
+  rp += dt * SAMPLE_RATE / 1000;            // read pointer follows the clock
+  var fi = Math.floor(rp), fr = rp - fi;    // ⚠️ keep the FRACTION
+  for (var i=0;i<n;i++) { px = (i - fr) * W / N; … }   // sub-sample scrolling
+}
 ```
+
+Two things look optional and are not — both were found only on a device:
+
+* **`setTimeout` after the response, never `setInterval`.** setInterval fires whether
+  or not the previous answer arrived. One slow reply — and an ESP under load gives
+  plenty — leaves two requests in flight with the *same* sequence number, both append
+  their slice, and the buffer holds the same stretch of time twice. The curve jumps
+  backwards. Chaining also caps concurrency at one connection.
+* **Draw with the fractional part of the read pointer.** At 2 px per sample and 100
+  samples/s against ~60 fps, not every frame gets a new sample: starting at
+  `Math.floor(rp)` makes the trace stand still for a frame and then jump 2 px. It
+  looks like jitter and only becomes visible once everything else is smooth.
+
+Ease the rate by at most ±2 % when the buffer runs ahead or behind; ±15 % reads as a
+visible tempo change and the loop starts hunting.
 
 Payload drops with it — an incremental fetch is tens of bytes where a full buffer is
 hundreds, and that connection churn is not free (`CONFIG_LWIP_MAX_SOCKETS=16`).
