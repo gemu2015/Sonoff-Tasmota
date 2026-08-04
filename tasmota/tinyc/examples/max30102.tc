@@ -6,7 +6,10 @@
 //
 // AUFBAU
 //   MAX30102 an I2C, Adresse 0x57. Sonst nichts.
-//   Optional (siehe EKG_QUELLE): ein AD8232 am ESP-ADC oder ueber einen ADS1115.
+//   Zweiter Kanal (EKG_QUELLE): ein AD8232 am ESP-ADC (=1) oder ueber einen
+//   ADS1115 an I2C 0x48 (=2). Ohne angeschlossenen Verstaerker zeigt der Kanal das
+//   Rauschen des offenen Eingangs — die Kette laesst sich damit vollstaendig
+//   aufbauen und pruefen, bevor der Verstaerker da ist.
 //
 // ⚠️ MUSS IN SLOT 0 LAUFEN. webOn() traegt die Adresse zwar slot-blind ein, der
 // Verteiler ruft aber immer slots[0]. Aus Slot 1 waere der Endpunkt erreichbar und
@@ -34,9 +37,10 @@
 //   0 = aus (nur MAX30102)
 //   1 = AD8232 direkt am ESP-ADC        (schnell: 16.090 Lesungen/s gemessen)
 //   2 = AD8232 ueber ADS1115 an I2C     (langsamer, siehe Hinweis bei ekg_lesen)
-#define EKG_QUELLE  0
+#define EKG_QUELLE  2
 #define EKG_PIN     1        // nur bei EKG_QUELLE 1
 #define ADS_ADDR    0x48     // nur bei EKG_QUELLE 2
+#define EKG_FENSTER 300      // Werte, nach denen der Anzeigebereich neu bestimmt wird
 
 // Anzeige auf einem LVGL-Display (P4). Vorerst aus — der S3 zeigt die Kurve im WebUI.
 #define DISPLAY_LVGL 0
@@ -90,6 +94,13 @@ int ovf;                 // groesster Einzelstand des Ueberlaufzaehlers
 int nmax;                // wie voll der FIFO je wurde (Werte je Abholung)
 
 int ac_ir; int ac_rot;   // zuletzt gemessener Wechselanteil (Spitze-Tal)
+
+#if EKG_QUELLE
+int ekg_kurve[KURVE_N];  // zweiter Ring, ZEILENGLEICH mit kurve[] (siehe verarbeite)
+int ekg_mn; int ekg_mx;  // Anzeigebereich des letzten Fensters
+int ekg_mn_n; int ekg_mx_n;
+int ekg_fz;
+#endif
 
 int bpm;                 // Herzfrequenz
 int spo2;                // Sauerstoffsaettigung in Prozent, -1 = unbekannt
@@ -177,6 +188,28 @@ int max_init() {
 // Gleichanteil gleitend nachfuehren, Wechselanteil als Spitze-Tal ueber ein Fenster.
 // Das ist bewusst einfach gehalten: fuer SpO2 zaehlt nur das VERHAELTNIS der beiden
 // Wechselanteile zu ihren Gleichanteilen, nicht deren absolute Groesse.
+// Ein Schritt auf der gemeinsamen Zeitachse: beide Kurven bekommen genau einen Wert.
+// ⚠️ Das MUSS auch ohne Finger passieren. Sonst haengt der EKG-Kanal an der
+// Finger-Erkennung des Pulsoximeters — zwei voellig unabhaengige Messungen, von denen
+// die eine die andere stillstellt. Beim ersten Versuch stand der Ringschritt hinter
+// dem fruehen return von verarbeite(), und ohne Finger kam GAR NICHTS mehr an, auch
+// kein EKG.
+void ring_schritt(int y) {
+    kurve[kpos] = y;
+#if EKG_QUELLE
+    // ⭐ HIER, nicht in TaskLoop: so bekommen beide Ringe bei JEDEM Schritt genau
+    // einen Wert und koennen nicht auseinanderlaufen. Der Browser braucht dann nur
+    // EINEN Lesezeiger fuer beide Kurven — zwei Zeiger, die getrennt nachgeregelt
+    // werden, driften sonst gegeneinander und die Kurven verschieben sich zusehends.
+    ekg_kurve[kpos] = ekg_punkt(ekg_wert);
+#endif
+    kpos = kpos + 1;
+    if (kpos >= KURVE_N) { kpos = 0; }
+    kfolge = kfolge + 1;
+}
+
+// Rest der Auswertung, nur mit Finger sinnvoll.
+
 // Der mittlere der drei Werte der Groesse nach.
 int med3(int a, int b, int c) {
     if ((a <= b && b <= c) || (c <= b && b <= a)) { return b; }
@@ -191,6 +224,7 @@ void verarbeite(int rot, int ir) {
         finger = 0;
         bpm = 0;
         spo2 = -1;
+        ring_schritt(50);      // flache Mittellinie — die Zeitachse laeuft weiter
         return;
     }
     if (finger == 0) {
@@ -271,10 +305,7 @@ void verarbeite(int rot, int ir) {
     int y = 50 + ((ir - dc_ir) * 90) / hub;
     if (y < 0)  { y = 0; }
     if (y > 99) { y = 99; }
-    kurve[kpos] = y;
-    kpos = kpos + 1;
-    if (kpos >= KURVE_N) { kpos = 0; }
-    kfolge = kfolge + 1;
+    ring_schritt(y);
 
     // Schlagerkennung mit Hysterese: ausloesen beim Ueberschreiten von 70 % des Hubs,
     // scharfstellen erst wieder unter 40 %. Ohne die zweite Schwelle zaehlt jeder
@@ -394,6 +425,30 @@ int ekg_lesen() {
 #endif
 }
 
+// Auf 0..99 bringen. Anders als beim PPG gibt es hier keinen bekannten Massstab —
+// was der Verstaerker liefert, haengt an Elektroden, Lage und Verstaerkung. Also
+// gleitendes Selbst-Einmessen ueber ein Fenster.
+// ⚠️ Untergrenze fuer die Spanne: ohne sie wird bei stillstehendem Eingang das letzte
+// Bit Rauschen auf volle Schirmhoehe verstaerkt. Genau das ist der Zustand JETZT
+// (kein AD8232 angeschlossen) — ohne die Grenze saehe man Vollausschlag-Grasnarbe und
+// wuerde sie faelschlich fuer ein Signal halten.
+int ekg_punkt(int v) {
+    if (v < ekg_mn_n) { ekg_mn_n = v; }
+    if (v > ekg_mx_n) { ekg_mx_n = v; }
+    ekg_fz = ekg_fz + 1;
+    if (ekg_fz >= EKG_FENSTER) {
+        ekg_mn = ekg_mn_n; ekg_mx = ekg_mx_n;
+        ekg_mn_n = v; ekg_mx_n = v;
+        ekg_fz = 0;
+    }
+    int sp = ekg_mx - ekg_mn;
+    if (sp < 64) { sp = 64; }
+    int y = ((v - ekg_mn) * 99) / sp;
+    if (y < 0)  { y = 0; }
+    if (y > 99) { y = 99; }
+    return y;
+}
+
 void ekg_init() {
 #if EKG_QUELLE == 2
     char b[4];
@@ -402,6 +457,10 @@ void ekg_init() {
     delay(20);
     addLog("MAX: ADS1115 auf Dauerwandlung gestellt");
 #endif
+    ekg_wert = ekg_lesen();
+    ekg_mn = ekg_wert - 32; ekg_mx = ekg_wert + 32;
+    ekg_mn_n = ekg_wert; ekg_mx_n = ekg_wert;
+    ekg_fz = 0;
 }
 #endif
 
@@ -479,9 +538,20 @@ void TaskLoop() {
 #if EKG_QUELLE
     ekg_wert = ekg_lesen();
 #endif
+#if EKG_QUELLE
+    // ⚠️ Mit 40 ms bekaeme der EKG-Kanal nur 25 Werte/s — er wird ja einmal je Runde
+    // gelesen, waehrend der MAX30102 seine vier Werte gepuffert nachliefert. 10 ms
+    // ergeben 100/s und damit denselben Takt wie das PPG. Der FIFO haelt dabei nur
+    // noch ein bis zwei Werte, was reichlich Reserve laesst.
+    // Fuer ein ECHTES EKG sind 100 Hz die Untergrenze: der QRS-Komplex ist rund 80 ms
+    // breit, also acht Werte. Zum Anschauen reicht es, zum Vermessen von Zacken nicht
+    // — dafuer muesste die Schleife auf 4 ms und der Ring entsprechend groesser.
+    delay(10);
+#else
     // Bei 100 Hz und 32 Werten FIFO-Tiefe darf man bis 320 ms schlafen. 40 ms lassen
     // reichlich Luft und halten die Kurve im Browser fluessig.
     delay(40);
+#endif
 }
 
 // ---------------------------------------------------------------------------------
@@ -531,6 +601,28 @@ void WebOn() {
         }
         webSend(blk);
     }
+
+#if EKG_QUELLE
+    // Zweiter Abschnitt hinter einem weiteren '|'. Gleiche Anzahl, gleiche Reihenfolge
+    // wie oben — der Browser darf beide mit demselben Lesezeiger abfahren.
+    webSend("|");
+    p = kpos - neu;
+    if (p < 0) { p = p + KURVE_N; }
+    i = 0;
+    while (i < neu) {
+        int o2 = 0;
+        blk[0] = 0;
+        while (o2 < 48 && i < neu) {
+            sprintf(zeile, "%02d", ekg_kurve[p]);
+            strcat(blk, zeile);
+            p = p + 1;
+            if (p >= KURVE_N) { p = 0; }
+            o2 = o2 + 1;
+            i = i + 1;
+        }
+        webSend(blk);
+    }
+#endif
 }
 
 // ---------------------------------------------------------------------------------
@@ -549,17 +641,20 @@ void WebPage() {
     // Dasselbe Prinzip wie chartjs-plugin-streaming in core2_energy.tc, nur ohne
     // die 4 Bibliotheken vom CDN — bei 100 Hz kann man ohnehin nicht einen Punkt
     // je Abruf schicken.
-    webSend("<div style='margin:8px 0'><canvas id='pk' width='480' height='120' ");
-    webSend("style='width:100%;height:130px;background:#111;border-radius:4px'></canvas>");
+    webSend("<div style='margin:8px 0'><canvas id='pk' width='480' height='180' ");
+    webSend("style='width:100%;height:190px;background:#111;border-radius:4px'></canvas>");
     webSend("<div id='pv' style='text-align:center;font-size:0.9em;padding:4px'>--</div></div>");
     webSend("<script>(function(){var c=document.getElementById('pk');if(!c)return;");
-    webSend("var x=c.getContext('2d'),b=[],sq=0,rp=0,tl=0,W=480,H=120,N=240,R=100;");
+    webSend("var x=c.getContext('2d'),b=[],g=[],sq=0,rp=0,tl=0,W=480,H=180,N=240,R=100;");
     // --- abholen ---
     webSend("function pull(){fetch('/pulse?seit='+sq).then(r=>r.text()).then(t=>{");
     webSend("var p=t.split('|');if(p.length<2)return;var h=p[0].split(',');sq=+h[0];");
     webSend("var s=p[1],k=s.length>>1;for(var i=0;i<k;i++)b.push(+s.substr(i*2,2));");
+    // ⚠️ Der zweite Abschnitt MUSS gleich lang bleiben wie der erste, sonst laufen die
+    // Kurven auseinander. Deshalb wird auch gemeinsam gekuerzt (unten), nie einzeln.
+    webSend("if(p.length>2){var s2=p[2];for(var j=0;j<k;j++)g.push(+s2.substr(j*2,2));}");
     // Vorrat begrenzen und den Lesezeiger mitschieben
-    webSend("if(b.length>900){var d=b.length-900;b.splice(0,d);rp-=d;}");
+    webSend("if(b.length>900){var d=b.length-900;b.splice(0,d);g.splice(0,d);rp-=d;}");
     webSend("if(rp<0)rp=0;");
     webSend("var f=h[4]=='1';document.getElementById('pv').textContent=f?");
     webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')):'kein Finger';");
@@ -586,9 +681,18 @@ void WebPage() {
     webSend("var fi=Math.floor(rp),fr=rp-fi;");
     webSend("x.fillStyle='#111';x.fillRect(0,0,W,H);");
     webSend("var st=fi-N;if(st<0){st=0;fr=0;}var n=Math.min(N,b.length-st);");
-    webSend("if(n>1){x.strokeStyle='#3ad13a';x.lineWidth=2;x.beginPath();");
-    webSend("for(var i=0;i<n;i++){var v=b[st+i],px=(i-fr)*W/N,py=H-1-v*(H-2)/99;");
+    // Eine Zeichenroutine, zweimal aufgerufen — je Kanal ein eigenes Band. Uebereinander
+    // gelegt waeren die beiden Kurven bei Rauschen auf dem EKG-Kanal nicht zu trennen.
+    webSend("var LH=g.length?H/2:H;");
+    webSend("function tr(a,co,y0,hh){if(n<2)return;x.strokeStyle=co;x.lineWidth=2;");
+    webSend("x.beginPath();for(var i=0;i<n;i++){var v=a[st+i];if(v===undefined)break;");
+    webSend("var px=(i-fr)*W/N,py=y0+hh-1-v*(hh-2)/99;");
     webSend("if(i==0)x.moveTo(px,py);else x.lineTo(px,py);}x.stroke();}");
+    webSend("tr(b,'#3ad13a',0,LH);");
+    webSend("if(g.length){x.strokeStyle='#333';x.lineWidth=1;x.beginPath();");
+    webSend("x.moveTo(0,LH);x.lineTo(W,LH);x.stroke();tr(g,'#e08030',LH,LH);");
+    webSend("x.fillStyle='#666';x.font='11px sans-serif';");
+    webSend("x.fillText('PPG',4,12);x.fillText('EKG',4,LH+12);}");
     webSend("requestAnimationFrame(draw);}");
     webSend("pull();requestAnimationFrame(draw);})();</script>");
 }
