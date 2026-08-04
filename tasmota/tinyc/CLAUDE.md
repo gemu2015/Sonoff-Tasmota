@@ -543,6 +543,40 @@ void Command(char cmd[]) {
 int main() { addCommand("MY"); return 0; }
 ```
 
+### A live curve in the web UI that does not stutter
+
+Drawing when the data arrives makes the frame rate equal the fetch rate, and every
+variation in network latency shows as a jerk. Separate the two:
+
+```c
+// Server: hand out only what is NEW since the client's last sequence number
+void WebOn() {
+    if (webHandler() != 1) { return; }
+    int seit = 0; char a[16];
+    if (webArg("seit", a) > 0) { seit = strToInt(a); }
+    int neu = folge - seit;
+    if (neu < 0 || neu > RING_N) { neu = RING_N; }   // wrapped, or client was away
+    sprintf(buf, "%d,%d|", folge, neu);
+    webSend(buf);
+    // … emit the last `neu` values, oldest first …
+}
+```
+
+```js
+// Client: fetch into a buffer, draw from it on requestAnimationFrame
+setInterval(pull, 250);                 // fetch is slow and bursty
+requestAnimationFrame(draw);            // drawing is smooth and independent
+// in draw(): rp += dt * SAMPLE_RATE / 1000;   // read pointer follows the clock
+//            ease rp slightly when it runs ahead of / behind the buffer
+```
+
+Payload drops with it — an incremental fetch is tens of bytes where a full buffer is
+hundreds, and that connection churn is not free (`CONFIG_LWIP_MAX_SOCKETS=16`).
+`core2_energy.tc` gets the same effect from `chartjs-plugin-streaming`, which is the
+better choice when one point per fetch is enough; at 100 Hz it is not.
+See `examples/max30102.tc`, which also carries a `SIMULATION` mode so the whole chain
+can be built and tested with no sensor attached.
+
 ### Change detection (watch)
 ```c
 watch float power;
