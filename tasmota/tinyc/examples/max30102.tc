@@ -1,0 +1,439 @@
+// max30102.tc — Pulsoximeter MAX30102: Puls, SpO2 und eine MITLAUFENDE Kurve im WebUI.
+//
+// Ziel dieses Skripts ist zweierlei: der Treiber selbst, und die Probe, ob sich eine
+// schnelle Messkurve ueberhaupt fluessig in der Tasmota-Oberflaeche darstellen laesst.
+// Beides ist unabhaengig voneinander nutzbar.
+//
+// AUFBAU
+//   MAX30102 an I2C, Adresse 0x57. Sonst nichts.
+//   Optional (siehe EKG_QUELLE): ein AD8232 am ESP-ADC oder ueber einen ADS1115.
+//
+// ⚠️ MUSS IN SLOT 0 LAUFEN. webOn() traegt die Adresse zwar slot-blind ein, der
+// Verteiler ruft aber immer slots[0]. Aus Slot 1 waere der Endpunkt erreichbar und
+// wuerde trotzdem das falsche Programm aufrufen — ohne Fehlermeldung.
+//
+// ⚠️ Abtasten gehoert in TaskLoop(), nicht in einen Tick-Callback: die haben ein
+// Budget von 200.000 Anweisungen je Aufruf. Und NICHT in einen spawnTask-Worker —
+// der laeuft auf einer eigenen VM, in der jedes Feld die Groesse 0 hat.
+//
+// ⚠️ Das ist ein Bastelaufbau zum Anschauen, KEIN Medizingeraet. Der MAX30102 ist ein
+// Sensor ohne jede Zulassung, und die Zahlen unten sind zum Spielen, nicht zum
+// Entscheiden.
+
+// ---------------------------------------------------------------------------------
+// Einstellungen
+// ---------------------------------------------------------------------------------
+#define MAX_ADDR    0x57
+#define I2C_BUS     0
+
+#define ABTASTRATE  100      // Hz, muss zu SPO2_CONFIG unten passen
+#define KURVE_N     240      // Punkte im Ringpuffer = Breite der Kurve
+#define FENSTER     100      // Werte fuer die Spitze-Tal-Messung (= 1 s bei 100 Hz)
+
+// EKG-Zusatzkanal — spaeter, jetzt schon vorgesehen:
+//   0 = aus (nur MAX30102)
+//   1 = AD8232 direkt am ESP-ADC        (schnell: 16.090 Lesungen/s gemessen)
+//   2 = AD8232 ueber ADS1115 an I2C     (langsamer, siehe Hinweis bei ekg_lesen)
+#define EKG_QUELLE  0
+#define EKG_PIN     1        // nur bei EKG_QUELLE 1
+#define ADS_ADDR    0x48     // nur bei EKG_QUELLE 2
+
+// Anzeige auf einem LVGL-Display (P4). Vorerst aus — der S3 zeigt die Kurve im WebUI.
+#define DISPLAY_LVGL 0
+
+// ---------------------------------------------------------------------------------
+// MAX30102 — Register
+// ---------------------------------------------------------------------------------
+#define R_INT_ST1   0x00
+#define R_FIFO_WR   0x04
+#define R_OVF       0x05
+#define R_FIFO_RD   0x06
+#define R_FIFO_DATA 0x07
+#define R_FIFO_CFG  0x08
+#define R_MODE_CFG  0x09
+#define R_SPO2_CFG  0x0A
+#define R_LED1_PA   0x0C
+#define R_LED2_PA   0x0D
+#define R_PART_ID   0xFF
+
+// ---------------------------------------------------------------------------------
+// Zustand
+// ---------------------------------------------------------------------------------
+char fifo[192];          // 32 Messwerte a 6 Byte — mehr passt nie in einen Durchgang
+char zeile[160];
+
+int kurve[KURVE_N];      // IR-Wechselanteil, auf 0..99 skaliert (fuer die Anzeige)
+int kpos;                // Schreibzeiger im Ringpuffer
+int kfolge;              // zaehlt hoch, damit der Browser Neues von Altem trennen kann
+
+int dc_ir; int dc_rot;   // Gleichanteil, gleitend nachgefuehrt
+int mn_ir; int mx_ir;    // Spitze und Tal im laufenden Fenster
+int mn_rot; int mx_rot;
+int fz;                  // Fensterzaehler
+
+int ac_ir; int ac_rot;   // zuletzt gemessener Wechselanteil (Spitze-Tal)
+
+int bpm;                 // Herzfrequenz
+int spo2;                // Sauerstoffsaettigung in Prozent, -1 = unbekannt
+int finger;              // 1 = Finger liegt auf
+int letzter_schlag;      // millis() des letzten erkannten Schlags
+int ueber;               // Hysterese-Merker der Schlagerkennung
+
+int bereit;              // 1 = Sensor gefunden und eingestellt
+int fehler;              // letzter Fehlercode zur Anzeige
+
+// ---------------------------------------------------------------------------------
+// SpO2-Tabelle
+// ---------------------------------------------------------------------------------
+// ⭐ Die Tabelle wird beim Start AUS DER FORMEL ERZEUGT, aus der auch Maxim seine
+// 184 Werte erzeugt hat:
+//
+//     SpO2 = -45.060*R^2 + 30.354*R + 94.845        mit R = Verhaeltnis der Verhaeltnisse
+//
+// Das hat zwei Vorteile gegenueber dem Abtippen der Zahlenkolonne aus den C-Quellen:
+// es kann sich kein Wert verschreiben, und die Herkunft steht im Klartext da statt als
+// 184 unerklaerte Konstanten. Zur Laufzeit ist es trotzdem eine echte Tabelle — ein
+// Nachschlagen je Messung statt Gleitkommarechnung.
+//
+// Index = R * 100, also 0..183. Werte ueber 100 % gibt es physikalisch nicht und
+// werden gekappt; unter Index 25 (R < 0.25) ist die Kurve unbrauchbar.
+#define SPO2_N 184
+int spo2_tab[SPO2_N];
+
+void spo2_tabelle_bauen() {
+    int i = 0;
+    while (i < SPO2_N) {
+        float r = i / 100.0;
+        float v = 94.845 + 30.354 * r - 45.060 * r * r;
+        int w = v;
+        if (w > 100) { w = 100; }
+        if (w < 0)   { w = 0; }
+        spo2_tab[i] = w;
+        i = i + 1;
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Sensor einstellen
+// ---------------------------------------------------------------------------------
+int max_init() {
+    if (!i2cSetDevice(MAX_ADDR, I2C_BUS)) { fehler = 1; return 0; }
+
+    // ⭐ ERSTE PRUEFUNG IMMER PART_ID. Meldet der 0x15, ist der Sensor da und
+    // antwortet — alles Weitere ist dann Handwerk. Ohne diese Pruefung sucht man
+    // spaeter Fehler im Algorithmus, waehrend in Wahrheit ein Kabel ab ist.
+    int id = i2cRead8(MAX_ADDR, R_PART_ID, I2C_BUS);
+    if (id != 0x15) {
+        sprintf(zeile, "MAX: PART_ID %02X statt 15 — falscher Sensor oder Verdrahtung", id);
+        addLog(zeile);
+        fehler = 2;
+        return 0;
+    }
+
+    i2cWrite8(MAX_ADDR, R_MODE_CFG, 0x40, I2C_BUS);   // Ruecksetzen
+    delay(100);
+
+    // FIFO: keine Mittelung (die macht das Skript selbst), Ueberlauf erlaubt.
+    i2cWrite8(MAX_ADDR, R_FIFO_CFG,  0x1F, I2C_BUS);
+    // SpO2-Betrieb = rote UND infrarote LED
+    i2cWrite8(MAX_ADDR, R_MODE_CFG,  0x03, I2C_BUS);
+    // Messbereich 4096 nA, 100 Messungen/s, Pulsbreite 411 us (= volle 18 Bit)
+    i2cWrite8(MAX_ADDR, R_SPO2_CFG,  0x27, I2C_BUS);
+    // LED-Stroeme, je ~7 mA. Hoeher = mehr Signal, aber auch mehr Waerme und Strom.
+    i2cWrite8(MAX_ADDR, R_LED1_PA,   0x24, I2C_BUS);
+    i2cWrite8(MAX_ADDR, R_LED2_PA,   0x24, I2C_BUS);
+
+    // FIFO-Zeiger auf Null, damit der erste Durchgang keinen Altbestand liest
+    i2cWrite8(MAX_ADDR, R_FIFO_WR, 0, I2C_BUS);
+    i2cWrite8(MAX_ADDR, R_OVF,     0, I2C_BUS);
+    i2cWrite8(MAX_ADDR, R_FIFO_RD, 0, I2C_BUS);
+
+    fehler = 0;
+    addLog("MAX: MAX30102 bereit (PART_ID 15)");
+    return 1;
+}
+
+// ---------------------------------------------------------------------------------
+// Einen Messwert verarbeiten
+// ---------------------------------------------------------------------------------
+// Gleichanteil gleitend nachfuehren, Wechselanteil als Spitze-Tal ueber ein Fenster.
+// Das ist bewusst einfach gehalten: fuer SpO2 zaehlt nur das VERHAELTNIS der beiden
+// Wechselanteile zu ihren Gleichanteilen, nicht deren absolute Groesse.
+void verarbeite(int rot, int ir) {
+    // Finger da? Ohne Auflage liefert der Sensor nur Streulicht, und dann ist jede
+    // Zahl unten Rauschen. ⚠️ Das ist die haeufigste Fehlerquelle beim Ausprobieren.
+    if (ir < 5000) {
+        finger = 0;
+        bpm = 0;
+        spo2 = -1;
+        return;
+    }
+    if (finger == 0) {
+        // Frisch aufgelegt: Gleichanteile sofort auf den Istwert setzen, sonst
+        // braucht das gleitende Mittel Sekunden und die erste Messung ist Unsinn.
+        finger = 1;
+        dc_ir = ir; dc_rot = rot;
+        mn_ir = ir; mx_ir = ir; mn_rot = rot; mx_rot = rot;
+        fz = 0;
+    }
+
+    // Gleitender Gleichanteil (Zeitkonstante ~16 Werte)
+    dc_ir  = dc_ir  + (ir  - dc_ir)  / 16;
+    dc_rot = dc_rot + (rot - dc_rot) / 16;
+
+    // Spitze und Tal im laufenden Fenster
+    if (ir  < mn_ir)  { mn_ir  = ir; }
+    if (ir  > mx_ir)  { mx_ir  = ir; }
+    if (rot < mn_rot) { mn_rot = rot; }
+    if (rot > mx_rot) { mx_rot = rot; }
+
+    // Wechselanteil fuer die Anzeige: um den Gleichanteil zentriert und auf 0..99
+    // gestaucht. Der Massstab kommt aus dem zuletzt gemessenen Hub, damit die Kurve
+    // unabhaengig von Fingerdruck und Hautton immer den Schirm ausfuellt.
+    int hub = ac_ir;
+    if (hub < 200) { hub = 200; }
+    int y = 50 + ((ir - dc_ir) * 45) / hub;
+    if (y < 0)  { y = 0; }
+    if (y > 99) { y = 99; }
+    kurve[kpos] = y;
+    kpos = kpos + 1;
+    if (kpos >= KURVE_N) { kpos = 0; }
+    kfolge = kfolge + 1;
+
+    // Schlagerkennung mit Hysterese: ausloesen beim Ueberschreiten von 70 % des Hubs,
+    // scharfstellen erst wieder unter 40 %. Ohne die zweite Schwelle zaehlt jeder
+    // Zacken doppelt. Dazu eine Sperrzeit von 300 ms = hoechstens 200 Schlaege/min.
+    int schwelle_auf = dc_ir + (hub * 7) / 20;
+    int schwelle_ab  = dc_ir + (hub * 2) / 20;
+    if (ueber == 0) {
+        if (ir > schwelle_auf) {
+            ueber = 1;
+            int jetzt = millis();
+            int dt = jetzt - letzter_schlag;
+            if (dt > 300 && dt < 3000) {
+                int neu = 60000 / dt;
+                // sanft nachfuehren statt springen — einzelne Fehltreffer fallen so
+                // nicht als wilder Ausschlag auf
+                if (bpm == 0) { bpm = neu; }
+                else          { bpm = (bpm * 3 + neu) / 4; }
+            }
+            letzter_schlag = jetzt;
+        }
+    } else {
+        if (ir < schwelle_ab) { ueber = 0; }
+    }
+
+    // Fenster voll -> Wechselanteile und SpO2 neu bestimmen
+    fz = fz + 1;
+    if (fz >= FENSTER) {
+        fz = 0;
+        ac_ir  = mx_ir  - mn_ir;
+        ac_rot = mx_rot - mn_rot;
+        mn_ir = ir; mx_ir = ir; mn_rot = rot; mx_rot = rot;
+
+        // R = (AC_rot / DC_rot) / (AC_ir / DC_ir), mal 100 als Tabellenindex.
+        // ⚠️ Ganzzahlig gerechnet: erst multiplizieren, dann teilen, sonst bleibt
+        // von den Verhaeltnissen nichts uebrig.
+        if (ac_ir > 0 && dc_rot > 0 && dc_ir > 0) {
+            int idx = (ac_rot * dc_ir * 100) / (dc_rot * ac_ir);
+            if (idx >= 0 && idx < SPO2_N) { spo2 = spo2_tab[idx]; }
+            else                          { spo2 = -1; }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// FIFO leeren
+// ---------------------------------------------------------------------------------
+// ⚠️ In EINEM Zug lesen. i2cRead kann 255 Byte am Stueck, das sind 42 Messwerte —
+// je Wert einzeln zu lesen waere die 6-fache Bus-Zeit fuer dasselbe Ergebnis.
+int max_lesen() {
+    int wr = i2cRead8(MAX_ADDR, R_FIFO_WR, I2C_BUS);
+    int rd = i2cRead8(MAX_ADDR, R_FIFO_RD, I2C_BUS);
+    int n = wr - rd;
+    if (n < 0) { n = n + 32; }          // FIFO ist 32 Werte tief und laeuft um
+    if (n == 0) { return 0; }
+    if (n > 32) { n = 32; }
+
+    int bytes = n * 6;
+    if (!i2cRead(MAX_ADDR, R_FIFO_DATA, fifo, bytes, I2C_BUS)) { fehler = 3; return 0; }
+
+    int i = 0;
+    while (i < n) {
+        int p = i * 6;
+        // 18 Bit, rechtsbuendig — die oberen 6 Bit jedes 3-Byte-Blocks sind Muell
+        int rot = ((fifo[p]   & 0xFF) << 16) | ((fifo[p+1] & 0xFF) << 8) | (fifo[p+2] & 0xFF);
+        int ir  = ((fifo[p+3] & 0xFF) << 16) | ((fifo[p+4] & 0xFF) << 8) | (fifo[p+5] & 0xFF);
+        rot = rot & 0x03FFFF;
+        ir  = ir  & 0x03FFFF;
+        verarbeite(rot, ir);
+        i = i + 1;
+    }
+    return n;
+}
+
+// ---------------------------------------------------------------------------------
+// Optionaler EKG-Kanal
+// ---------------------------------------------------------------------------------
+#if EKG_QUELLE
+int ekg_wert;
+
+int ekg_lesen() {
+#if EKG_QUELLE == 1
+    // Direkt am ADC des ESP: 61 us je Lesung (gemessen auf einem S3), also rund
+    // 16.000/s — das 32-fache dessen, was ein EKG braucht.
+    return analogRead(EKG_PIN);
+#else
+    // ⚠️ ADS1115 NUR IN DAUERWANDLUNG. Der Einzelmessungs-Modus (Konfig schreiben,
+    // auf das Fertig-Bit warten, lesen) schafft gemessen nur 335 Werte/s und liegt
+    // damit UNTER dem Bedarf eines EKG. In Dauerwandlung sind es 1.568/s, begrenzt
+    // durch den Wandler selbst (860 Messungen/s laut Datenblatt).
+    // Konfigwort 0x42E3 = AIN0 gegen GND, +-2,048 V, 860 SPS, dauernd.
+    char b[4];
+    if (!i2cRead(ADS_ADDR, 0x00, b, 2, I2C_BUS)) { return 0; }
+    int raw = ((b[0] & 0xFF) << 8) | (b[1] & 0xFF);
+    if (raw > 32767) { raw = raw - 65536; }
+    return raw;
+#endif
+}
+
+void ekg_init() {
+#if EKG_QUELLE == 2
+    char b[4];
+    b[0] = 0x42; b[1] = 0xE3;
+    i2cWrite(ADS_ADDR, 0x01, b, 2, I2C_BUS);
+    delay(20);
+    addLog("MAX: ADS1115 auf Dauerwandlung gestellt");
+#endif
+}
+#endif
+
+// ---------------------------------------------------------------------------------
+// Laufende Arbeit
+// ---------------------------------------------------------------------------------
+void TaskLoop() {
+    if (bereit == 0) {
+        bereit = max_init();
+        if (bereit == 0) { delay(5000); return; }
+#if EKG_QUELLE
+        ekg_init();
+#endif
+    }
+    max_lesen();
+#if EKG_QUELLE
+    ekg_wert = ekg_lesen();
+#endif
+    // Bei 100 Hz und 32 Werten FIFO-Tiefe darf man bis 320 ms schlafen. 40 ms lassen
+    // reichlich Luft und halten die Kurve im Browser fluessig.
+    delay(40);
+}
+
+// ---------------------------------------------------------------------------------
+// Datenendpunkt fuer die Kurve
+// ---------------------------------------------------------------------------------
+// Liefert den Ringpuffer als kompakte Zeichenkette. Bewusst KEIN JSON: 240 Werte als
+// JSON-Feld sind rund 1,2 KB je Abruf und fuenfmal je Sekunde — als zweistellige
+// Zeichen sind es 480 Byte. Der Browser zerlegt sie mit einem Zweizeiler.
+char blk[128];
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) {
+        // ⚠️ KEIN webRawMode() hier. Das schaltet Tasmotas Antwortaufbau ab und
+        // verlangt, dass der Handler die HTTP-Kopfzeilen SELBST schreibt — wer nur
+        // den Rumpf sendet, bekommt eine kaputte Antwort, die der Browser wegwirft.
+        // Fuer eine schlichte Textantwort ist wiederholtes webSend() richtig; die
+        // Stuecke werden von der Weboberflaeche zusammengesetzt.
+        //
+        // Kopf: Folgenummer, Schreibzeiger, Puls, SpO2, Finger
+        sprintf(zeile, "%d,%d,%d,%d,%d|", kfolge, kpos, bpm, spo2, finger);
+        webSend(zeile);
+        // Werte in Bloecken zu 48, damit kein einzelner Aufruf zu lang wird
+        int i = 0;
+        while (i < KURVE_N) {
+            int o = 0;
+            blk[0] = 0;
+            while (o < 48 && i < KURVE_N) {
+                sprintf(zeile, "%02d", kurve[i]);
+                strcat(blk, zeile);
+                o = o + 1;
+                i = i + 1;
+            }
+            webSend(blk);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Anzeige auf der Hauptseite
+// ---------------------------------------------------------------------------------
+// ⚠️ WebPage() wird NUR beim vollstaendigen Laden der Seite gebaut, nicht bei der
+// Ajax-Aktualisierung. Deshalb steht hier das Geruest samt Zeichenprogramm, und die
+// Kurve holt sich ihre Werte selbst vom Endpunkt — unabhaengig von Tasmotas Takt.
+void WebPage() {
+    webSend("<div style='margin:8px 0'><canvas id='pk' width='240' height='100' ");
+    webSend("style='width:100%;height:120px;background:#111;border-radius:4px'></canvas>");
+    webSend("<div id='pv' style='text-align:center;font-size:0.9em;padding:4px'>--</div></div>");
+    webSend("<script>(function(){var c=document.getElementById('pk');if(!c)return;");
+    webSend("var x=c.getContext('2d');function d(){fetch('/pulse').then(r=>r.text()).then(t=>{");
+    webSend("var p=t.split('|');if(p.length<2)return;var h=p[0].split(',');var s=p[1];");
+    webSend("var n=Math.floor(s.length/2);var w=Math.floor(h[1]);");
+    webSend("x.fillStyle='#111';x.fillRect(0,0,240,100);");
+    webSend("x.strokeStyle='#3ad13a';x.lineWidth=1;x.beginPath();");
+    // Ab dem Schreibzeiger zeichnen, dann laeuft die Kurve von rechts herein statt
+    // bei jedem Abruf zu springen.
+    webSend("for(var i=0;i<n;i++){var k=(w+i)%n;var v=parseInt(s.substr(k*2,2),10);");
+    webSend("if(i==0)x.moveTo(0,100-v);else x.lineTo(i*240/n,100-v);}x.stroke();");
+    webSend("var f=h[4]=='1';document.getElementById('pv').textContent=f?");
+    webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')):'Finger auflegen';");
+    webSend("});}setInterval(d,200);d();})();</script>");
+}
+
+void WebCall() {
+    if (bereit == 0) {
+        sprintf(zeile, "{s}MAX30102{m}<span style='color:#e0a030'>nicht gefunden (Fehler %d)</span>{e}", fehler);
+        webSend(zeile);
+        return;
+    }
+    if (finger == 0) {
+        webSend("{s}MAX30102{m}<span style='color:#e0a030'>kein Finger aufgelegt</span>{e}");
+        return;
+    }
+    sprintf(zeile, "{s}Puls{m}%d bpm{e}", bpm);
+    webSend(zeile);
+    if (spo2 > 0) {
+        sprintf(zeile, "{s}SpO2{m}%d %%{e}", spo2);
+        webSend(zeile);
+    } else {
+        webSend("{s}SpO2{m}--{e}");
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Konsole
+// ---------------------------------------------------------------------------------
+void Command(char cmd[]) {
+    if (strcmp(cmd, "ROH") == 0) {
+        // Rohwerte zum Nachsehen, wenn die Zahlen unplausibel aussehen
+        sprintf(zeile, "dc_ir=%d ac_ir=%d dc_rot=%d ac_rot=%d finger=%d",
+                dc_ir, ac_ir, dc_rot, ac_rot, finger);
+        responseCmnd(zeile);
+    } else {
+        if (strcmp(cmd, "INIT") == 0) {
+            bereit = 0;
+            responseCmnd("Sensor wird neu eingestellt");
+        } else {
+            sprintf(zeile, "bereit=%d fehler=%d puls=%d spo2=%d", bereit, fehler, bpm, spo2);
+            responseCmnd(zeile);
+        }
+    }
+}
+
+int main() {
+    spo2_tabelle_bauen();
+    spo2 = -1;
+    addCommand("PULS");     // PULS / PULSROH / PULSINIT
+    webOn(1, "/pulse");
+    addLog("MAX: bereit — Kurve auf der Hauptseite, Daten unter /pulse");
+    return 0;
+}
