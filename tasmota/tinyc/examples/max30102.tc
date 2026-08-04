@@ -41,6 +41,18 @@
 // Anzeige auf einem LVGL-Display (P4). Vorerst aus — der S3 zeigt die Kurve im WebUI.
 #define DISPLAY_LVGL 0
 
+// ⭐ SIMULATION — erzeugt eine kuenstliche Pulskurve OHNE Sensor.
+// Nicht nur zum Anschauen: die erzeugten Werte laufen durch dieselbe verarbeite(),
+// also werden Gleichanteil-Nachfuehrung, Schlagerkennung UND die SpO2-Rechnung
+// mitgeprueft. Damit laesst sich die Weboberflaeche fertig entwickeln, bevor
+// ueberhaupt ein Sensor da ist — und wenn der Sensor spaeter schweigt, weiss man,
+// dass es nicht an der Anzeige liegt.
+#define SIMULATION  1
+#define SIM_BPM     72        // Sollpuls der Simulation
+#define SIM_DC      100000    // Gleichanteil beider Kanaele
+#define SIM_AC_IR   2000      // Hub infrarot
+#define SIM_AC_ROT  1200      // Hub rot -> R = 1200/2000 = 0.60 -> SpO2 ~97 %
+
 // ---------------------------------------------------------------------------------
 // MAX30102 — Register
 // ---------------------------------------------------------------------------------
@@ -177,9 +189,15 @@ void verarbeite(int rot, int ir) {
         fz = 0;
     }
 
-    // Gleitender Gleichanteil (Zeitkonstante ~16 Werte)
-    dc_ir  = dc_ir  + (ir  - dc_ir)  / 16;
-    dc_rot = dc_rot + (rot - dc_rot) / 16;
+    // Gleitender Gleichanteil. ⚠️ Die Zeitkonstante muss DEUTLICH LAENGER sein als
+    // ein Herzschlag, sonst folgt der "Gleich"anteil der Pulswelle selbst und frisst
+    // genau das Signal weg, das gemessen werden soll. 64 Werte sind bei 100 Hz rund
+    // 0,64 s gegen 0,83 s Schlagdauer — vorher standen hier 16 (0,16 s), und die
+    // Kurve war entsprechend flach.
+    // Fuer SpO2 ist das weniger kritisch als es klingt: beide Kanaele werden gleich
+    // gedaempft, und ins Ergebnis geht nur ihr VERHAELTNIS ein.
+    dc_ir  = dc_ir  + (ir  - dc_ir)  / 64;
+    dc_rot = dc_rot + (rot - dc_rot) / 64;
 
     // Spitze und Tal im laufenden Fenster
     if (ir  < mn_ir)  { mn_ir  = ir; }
@@ -190,9 +208,13 @@ void verarbeite(int rot, int ir) {
     // Wechselanteil fuer die Anzeige: um den Gleichanteil zentriert und auf 0..99
     // gestaucht. Der Massstab kommt aus dem zuletzt gemessenen Hub, damit die Kurve
     // unabhaengig von Fingerdruck und Hautton immer den Schirm ausfuellt.
+    // ⚠️ hub ist SPITZE-TAL, die Auslenkung um den Mittelwert also nur die Haelfte
+    // davon. Mit `* 45 / hub` fuellt die Kurve deshalb nur den halben Schirm (gemessen:
+    // 39..77 statt 0..99). Der Faktor muss 90 sein, damit ein voller Hub die vollen
+    // +-45 ergibt.
     int hub = ac_ir;
     if (hub < 200) { hub = 200; }
-    int y = 50 + ((ir - dc_ir) * 45) / hub;
+    int y = 50 + ((ir - dc_ir) * 90) / hub;
     if (y < 0)  { y = 0; }
     if (y > 99) { y = 99; }
     kurve[kpos] = y;
@@ -234,10 +256,23 @@ void verarbeite(int rot, int ir) {
         // R = (AC_rot / DC_rot) / (AC_ir / DC_ir), mal 100 als Tabellenindex.
         // ⚠️ Ganzzahlig gerechnet: erst multiplizieren, dann teilen, sonst bleibt
         // von den Verhaeltnissen nichts uebrig.
+        // ⚠️⚠️ NICHT als EINEN Bruch ausrechnen. `ac_rot * dc_ir * 100` sind bei
+        // typischen Werten (1200 * 100000 * 100) ZWOELF MILLIARDEN und sprengen int32
+        // um das Sechsfache — heraus kommt Unsinn, und spo2 bleibt stumm auf -1.
+        // Die Simulation hat das binnen Sekunden gezeigt; am echten Sensor waeren die
+        // Groessenordnungen dieselben gewesen, nur haette man dort den Sensor
+        // verdaechtigt statt die Rechnung.
+        //
+        // Deshalb beide Verhaeltnisse EINZELN auf 1000 skalieren — je Zwischenwert
+        // hoechstens 262143 * 1000 = 2,6e8, also reichlich Luft — und erst dann teilen.
         if (ac_ir > 0 && dc_rot > 0 && dc_ir > 0) {
-            int idx = (ac_rot * dc_ir * 100) / (dc_rot * ac_ir);
-            if (idx >= 0 && idx < SPO2_N) { spo2 = spo2_tab[idx]; }
-            else                          { spo2 = -1; }
+            int zaehler = (ac_rot * 1000) / ac_ir;    // 1000 * AC_rot/AC_ir
+            int nenner  = (dc_rot * 1000) / dc_ir;    // 1000 * DC_rot/DC_ir
+            if (nenner > 0) {
+                int idx = (zaehler * 100) / nenner;   // = 100 * R
+                if (idx >= 0 && idx < SPO2_N) { spo2 = spo2_tab[idx]; }
+                else                          { spo2 = -1; }
+            }
         }
     }
 }
@@ -309,9 +344,68 @@ void ekg_init() {
 #endif
 
 // ---------------------------------------------------------------------------------
+// Simulierte Kurve
+// ---------------------------------------------------------------------------------
+#if SIMULATION
+int sim_phase;
+int sim_per;        // Werte je Schlag
+int sim_rnd;        // einfacher Zufallszustand fuer etwas Rauschen
+int sim_last;       // millis() des zuletzt erzeugten Werts
+
+// Form einer Fingerkuppen-Pulswelle, in Prozent des Hubs ueber die Schlagdauer:
+// steiler Anstieg, Abfall, dikrote Welle (der zweite kleine Buckel vom
+// Aortenklappenschluss), dann zurueck auf Null. Bewusst stueckweise linear — es
+// geht um die FORM, nicht um Physiologie.
+int sim_form(int p) {          // p = 0..99
+    if (p < 12) { return (p * 100) / 12; }
+    if (p < 45) { return 100 - ((p - 12) * 55) / 33; }
+    if (p < 58) { return 45 + ((p - 45) * 18) / 13; }
+    return 63 - ((p - 58) * 63) / 42;
+}
+
+void sim_schritt() {
+    int p = (sim_phase * 100) / sim_per;
+    if (p > 99) { p = 99; }
+    int f = sim_form(p);
+
+    // etwas Rauschen, sonst sieht die Kurve unnatuerlich sauber aus und man
+    // erkennt nicht, ob die Schlagerkennung robust ist
+    sim_rnd = (sim_rnd * 1103515245 + 12345) & 0x3FFFFFFF;
+    int rausch = (sim_rnd % 41) - 20;          // -20..+20
+
+    int ir  = SIM_DC + (f * SIM_AC_IR)  / 100 + rausch;
+    int rot = SIM_DC + (f * SIM_AC_ROT) / 100 + rausch;
+    verarbeite(rot, ir);
+
+    sim_phase = sim_phase + 1;
+    if (sim_phase >= sim_per) { sim_phase = 0; }
+}
+#endif
+
+// ---------------------------------------------------------------------------------
 // Laufende Arbeit
 // ---------------------------------------------------------------------------------
 void TaskLoop() {
+#if SIMULATION
+    // ⚠️ NACH DER UHR erzeugen, nicht eine feste Zahl je Durchgang. Ein starres
+    // "vier Werte je Runde" ergibt nur dann 100 Hz, wenn eine Runde exakt 40 ms
+    // dauert — sie dauert aber 40 ms PLUS die Arbeit. Die simulierte Kurve lief
+    // dadurch zu langsam und der Puls wurde als 68 statt 72 gemessen. Die
+    // Schlagerkennung war dabei KORREKT: sie misst die echte Zeit zwischen den
+    // Spitzen, und die Spitzen kamen wirklich zu spaet.
+    int jetzt = millis();
+    int dt = jetzt - sim_last;
+    if (dt > 500) { dt = 500; sim_last = jetzt - 500; }   // nach einer Pause nicht aufholen
+    int n = (dt * ABTASTRATE) / 1000;
+    if (n > 0) {
+        sim_last = sim_last + (n * 1000) / ABTASTRATE;
+        int k = 0;
+        while (k < n) { sim_schritt(); k = k + 1; }
+    }
+    bereit = 1;
+    delay(20);
+    return;
+#endif
     if (bereit == 0) {
         bereit = max_init();
         if (bereit == 0) { delay(5000); return; }
@@ -335,32 +429,45 @@ void TaskLoop() {
 // JSON-Feld sind rund 1,2 KB je Abruf und fuenfmal je Sekunde — als zweistellige
 // Zeichen sind es 480 Byte. Der Browser zerlegt sie mit einem Zweizeiler.
 char blk[128];
+char argb[16];
 
+// Liefert NUR die Werte, die seit der mitgeschickten Folgenummer dazugekommen sind:
+//   GET /pulse?seit=<zuletzt gesehene Folgenummer>
+// Kopf: folge,anzahl,puls,spo2,finger|<anzahl Werte zu je 2 Zeichen>
+//
+// ⚠️ Frueher ging bei JEDEM Abruf der ganze Ringpuffer raus und der Browser zeichnete
+// erst beim Eintreffen neu. Damit war die Bildrate gleich der Abrufrate (5/s) UND von
+// der Netzlaufzeit abhaengig — die Kurve ruckelte sichtbar. Jetzt kommt nur der
+// Zuwachs, und gezeichnet wird unabhaengig davon (siehe WebPage).
 void WebOn() {
     int h = webHandler();
-    if (h == 1) {
-        // ⚠️ KEIN webRawMode() hier. Das schaltet Tasmotas Antwortaufbau ab und
-        // verlangt, dass der Handler die HTTP-Kopfzeilen SELBST schreibt — wer nur
-        // den Rumpf sendet, bekommt eine kaputte Antwort, die der Browser wegwirft.
-        // Fuer eine schlichte Textantwort ist wiederholtes webSend() richtig; die
-        // Stuecke werden von der Weboberflaeche zusammengesetzt.
-        //
-        // Kopf: Folgenummer, Schreibzeiger, Puls, SpO2, Finger
-        sprintf(zeile, "%d,%d,%d,%d,%d|", kfolge, kpos, bpm, spo2, finger);
-        webSend(zeile);
-        // Werte in Bloecken zu 48, damit kein einzelner Aufruf zu lang wird
-        int i = 0;
-        while (i < KURVE_N) {
-            int o = 0;
-            blk[0] = 0;
-            while (o < 48 && i < KURVE_N) {
-                sprintf(zeile, "%02d", kurve[i]);
-                strcat(blk, zeile);
-                o = o + 1;
-                i = i + 1;
-            }
-            webSend(blk);
+    if (h != 1) { return; }
+
+    int seit = 0;
+    if (webArg("seit", argb) > 0) { seit = strToInt(argb); }
+    int neu = kfolge - seit;
+    if (neu < 0)        { neu = KURVE_N; }   // Zaehler lief um oder erster Abruf
+    if (neu > KURVE_N)  { neu = KURVE_N; }   // laenger weg als der Puffer reicht
+
+    sprintf(zeile, "%d,%d,%d,%d,%d|", kfolge, neu, bpm, spo2, finger);
+    webSend(zeile);
+
+    // die letzten `neu` Werte, aeltester zuerst
+    int p = kpos - neu;
+    if (p < 0) { p = p + KURVE_N; }
+    int i = 0;
+    while (i < neu) {
+        int o = 0;
+        blk[0] = 0;
+        while (o < 48 && i < neu) {
+            sprintf(zeile, "%02d", kurve[p]);
+            strcat(blk, zeile);
+            p = p + 1;
+            if (p >= KURVE_N) { p = 0; }
+            o = o + 1;
+            i = i + 1;
         }
+        webSend(blk);
     }
 }
 
@@ -371,22 +478,43 @@ void WebOn() {
 // Ajax-Aktualisierung. Deshalb steht hier das Geruest samt Zeichenprogramm, und die
 // Kurve holt sich ihre Werte selbst vom Endpunkt — unabhaengig von Tasmotas Takt.
 void WebPage() {
-    webSend("<div style='margin:8px 0'><canvas id='pk' width='240' height='100' ");
-    webSend("style='width:100%;height:120px;background:#111;border-radius:4px'></canvas>");
+    // ⚠️ ZEICHNEN UND ABHOLEN SIND GETRENNT. Wer erst beim Eintreffen der Daten
+    // zeichnet, hat die Abrufrate als Bildrate — bei 5 Abrufen/s sichtbar ruckelig,
+    // und jede Schwankung der Netzlaufzeit schlaegt als Zucken durch. Deshalb:
+    //   * abholen alle 250 ms, nur den ZUWACHS, in einen Puffer im Browser
+    //   * zeichnen mit requestAnimationFrame (~60 Bilder/s) aus diesem Puffer,
+    //     mit einem Lesezeiger, der gleichmaessig nach der Uhr weiterlaeuft
+    // Dasselbe Prinzip wie chartjs-plugin-streaming in core2_energy.tc, nur ohne
+    // die 4 Bibliotheken vom CDN — bei 100 Hz kann man ohnehin nicht einen Punkt
+    // je Abruf schicken.
+    webSend("<div style='margin:8px 0'><canvas id='pk' width='480' height='120' ");
+    webSend("style='width:100%;height:130px;background:#111;border-radius:4px'></canvas>");
     webSend("<div id='pv' style='text-align:center;font-size:0.9em;padding:4px'>--</div></div>");
     webSend("<script>(function(){var c=document.getElementById('pk');if(!c)return;");
-    webSend("var x=c.getContext('2d');function d(){fetch('/pulse').then(r=>r.text()).then(t=>{");
-    webSend("var p=t.split('|');if(p.length<2)return;var h=p[0].split(',');var s=p[1];");
-    webSend("var n=Math.floor(s.length/2);var w=Math.floor(h[1]);");
-    webSend("x.fillStyle='#111';x.fillRect(0,0,240,100);");
-    webSend("x.strokeStyle='#3ad13a';x.lineWidth=1;x.beginPath();");
-    // Ab dem Schreibzeiger zeichnen, dann laeuft die Kurve von rechts herein statt
-    // bei jedem Abruf zu springen.
-    webSend("for(var i=0;i<n;i++){var k=(w+i)%n;var v=parseInt(s.substr(k*2,2),10);");
-    webSend("if(i==0)x.moveTo(0,100-v);else x.lineTo(i*240/n,100-v);}x.stroke();");
+    webSend("var x=c.getContext('2d'),b=[],sq=0,rp=0,tl=0,W=480,H=120,N=240,R=100;");
+    // --- abholen ---
+    webSend("function pull(){fetch('/pulse?seit='+sq).then(r=>r.text()).then(t=>{");
+    webSend("var p=t.split('|');if(p.length<2)return;var h=p[0].split(',');sq=+h[0];");
+    webSend("var s=p[1],k=s.length>>1;for(var i=0;i<k;i++)b.push(+s.substr(i*2,2));");
+    // Vorrat begrenzen und den Lesezeiger mitschieben
+    webSend("if(b.length>900){var d=b.length-900;b.splice(0,d);rp-=d;}");
+    webSend("if(rp<0)rp=0;");
     webSend("var f=h[4]=='1';document.getElementById('pv').textContent=f?");
-    webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')):'Finger auflegen';");
-    webSend("});}setInterval(d,200);d();})();</script>");
+    webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')):'kein Finger';");
+    webSend("}).catch(e=>{});}");
+    // --- zeichnen ---
+    webSend("function draw(now){if(!tl)tl=now;var dt=now-tl;tl=now;");
+    // Lesezeiger nach der Uhr weiterschieben; bei Rueckstand leicht aufholen,
+    // bei Vorlauf bremsen — sonst laeuft die Kurve auseinander.
+    webSend("var lag=b.length-rp,sp=R*(lag>N*2?1.15:(lag<N*0.5?0.85:1));");
+    webSend("rp+=dt*sp/1000;if(rp>b.length)rp=b.length;");
+    webSend("x.fillStyle='#111';x.fillRect(0,0,W,H);");
+    webSend("var st=Math.floor(rp)-N;if(st<0)st=0;var n=Math.min(N,b.length-st);");
+    webSend("if(n>1){x.strokeStyle='#3ad13a';x.lineWidth=2;x.beginPath();");
+    webSend("for(var i=0;i<n;i++){var v=b[st+i],px=i*W/N,py=H-1-v*(H-2)/99;");
+    webSend("if(i==0)x.moveTo(px,py);else x.lineTo(px,py);}x.stroke();}");
+    webSend("requestAnimationFrame(draw);}");
+    webSend("setInterval(pull,250);pull();requestAnimationFrame(draw);})();</script>");
 }
 
 void WebCall() {
@@ -432,6 +560,12 @@ void Command(char cmd[]) {
 int main() {
     spo2_tabelle_bauen();
     spo2 = -1;
+#if SIMULATION
+    sim_per = (ABTASTRATE * 60) / SIM_BPM;   // Werte je Schlag
+    sim_rnd = 12345;
+    sim_last = millis();
+    addLog("MAX: SIMULATION aktiv — kein Sensor noetig");
+#endif
     addCommand("PULS");     // PULS / PULSROH / PULSINIT
     webOn(1, "/pulse");
     addLog("MAX: bereit — Kurve auf der Hauptseite, Daten unter /pulse");
