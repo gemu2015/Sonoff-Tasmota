@@ -6441,14 +6441,30 @@ bool Xdrv124(uint32_t function) {
       TinyCFsRestartRetry();   // (B) re-start any slot whose post-write restart failed
       TinyCPrefixReheal();     // re-arm a loaded slot's command prefix if it was lost without a main() re-run
 #ifdef ESP32
-      // lwIP TCP-PCB census every ~10 s: warn when the 16-slot pool is filling. A TIME_WAIT
-      // pile-up from socket churn (web auto-refresh / un-RST-closed connects) exhausts the pool
-      // and wedges the whole net stack (no ping/HTTP) until it ages out — the self-healing freeze.
+      // lwIP TCP-PCB census every ~10 s. Warns when ACTIVE connections pile up — those are
+      // the ones nobody is closing, and they do not go away on their own.
+      //
+      // ⚠️ TIME_WAIT IS DELIBERATELY NOT PART OF THE THRESHOLD. It used to be (`_a + _tw >= 12`)
+      // and that was wrong twice over:
+      //   * TIME_WAIT is harmless. lwIP reclaims it on demand — tcp_alloc() kills the oldest
+      //     TIME_WAIT pcb when the pool is empty (core/tcp.c, tcp_kill_timewait()), then the
+      //     oldest LAST_ACK. A full TIME_WAIT list costs nothing but a reclaim.
+      //   * It fires constantly on a HEALTHY device. Every closed HTTP request sits in
+      //     TIME_WAIT for 2*TCP_MSL = 120 s, so a single browser tab on the Tasmota web UI
+      //     (auto-refresh every few seconds) parks the count at 16/16 permanently. Measured
+      //     2026-08-04 on an idle S3 with NO TinyC program loaded at all: polling it from a
+      //     shell held time_wait at 16, and it decayed to below 12 exactly 120 s after the
+      //     last request. The warning was reporting its own observer.
+      //
+      // A line that cries wolf during normal operation trains everyone to ignore it — and it
+      // sent this author down the wrong path while investigating a real port-80 outage
+      // (ottelo9/tasmota-sml-images#52). ACTIVE is the number that matters: connections that
+      // stay open and never close exhaust the socket layer for good, and only a reboot helps.
       { static uint8_t tc_pcb_tick = 0;
         if (++tc_pcb_tick >= 10) { tc_pcb_tick = 0;
           uint8_t _a, _tw; tc_pcb_census(&_a, &_tw);
-          if (_a + _tw >= 12) {
-            AddLog(LOG_LEVEL_INFO, PSTR("TCC: lwIP TCP PCBs active=%u time_wait=%u (pool=16) - net-wedge risk, check socket churn"), _a, _tw);
+          if (_a >= 8) {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: lwIP TCP PCBs active=%u (pool=16, time_wait=%u) - connections not closing?"), _a, _tw);
           }
         }
       }
