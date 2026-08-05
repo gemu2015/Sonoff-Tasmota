@@ -248,6 +248,33 @@ Things that changed recently and invalidate older examples or forum advice:
   checkbox; `webToggle` is the button-styled equivalent that matches the
   push-button aesthetic.
 
+- **BLE "SPP" — a persistent GATT client** (2026-08-05, `bleSppTarget`/`bleSppConnect`/
+  `bleSppState`/`bleSppSub`/`bleSppAvailable`/`bleSppRead`/`bleSppWrite`/`bleSppClose`,
+  plus `bleGattDump` for discovery). The existing GATT client (`bleTarget`/`bleReadStart`/
+  `bleWriteStart`/`bleDone`/`bleResult`) connects, does exactly one read/write/notify-wait,
+  and **disconnects** — confirmed by reading `BLETaskRunTaskDoneOperation()` in
+  `xdrv_79_esp32_ble.ino`, which calls `pClient->disconnect()` unconditionally after every
+  operation. Correct for a device that wakes, reports, and sleeps (a scale); wrong for a
+  continuous stream — a BlueRadios/Nordic-UART-style peripheral would lose the link before
+  a second sample could ever notify. `bleSpp*` is a second, independent `NimBLEClient` with
+  its own notify ring buffer, added entirely in the TinyC-owned `xdrv_79_tinyc_ble_glue.ino`
+  — it never touches the existing op queue, so the scale/MI32/EQ3 consumers are unaffected.
+  It also takes service/characteristic UUIDs as **string literals** (16-bit `"180a"` or full
+  128-bit), unlike the one-shot family's int16-only `svc16`/`chr16` — a proprietary
+  UART-style service is essentially always 128-bit, which int16 cannot address at all.
+  `bleGattDump(macbuf, addrtype, outbuf)` is the one-shot companion: connect, list every
+  service+characteristic+property (R/W/w/N/I) as text, disconnect — run this FIRST against
+  an unknown device, there is no datasheet lookup for a proprietary UUID.
+  ⭐ **Verified on real hardware** (2026-08-05, `.39`) against a BlueRadios dual module: connect
+  → `bleSppSub(BRSP_TX)` → `bleSppWrite(BRSP_MODE, 1)` → `bleSppWrite(BRSP_RX, "VS\r")` → the
+  device's answer arrived as 48 bytes in four notification chunks, and `bleSppState()` still
+  returned 1 afterwards. A second simultaneous NimBLE connection alongside `BLE_ESP32`'s own
+  background scan caused no trouble (if it ever does, raise `CONFIG_BT_NIMBLE_MAX_CONNECTIONS`).
+  ⚠️ **Connecting needs a far better link than scanning.** A peer heard at −88…−94 dBm refused
+  every connect; the one at −63 dBm worked first try. Both report a reason now via
+  `getLastError()` (rc=13 `BLE_HS_ETIMEOUT` = peer never answered). Probe an unknown device
+  with `ble_gatt_explore.tc` first — a proprietary UUID has no datasheet lookup. ABI 20.
+
 Features documented in `TinyC_Reference.md` VM-limits table may understate:
 on ESP32, constant pool is **1024**, heap is **64 KB** (`TC_MAX_HEAP`
 16384 slots × 4 B — default; overridable in `user_config_override.h`),
@@ -324,6 +351,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | Tasks (ESP32) | `spawnTask("Name"[, stackKB])`, `killTask`, `taskRunning` |
 | Crypto (ESP32) | `aesEcb` (AES-128-ECB, 1 block), `aesCbc`, `hmacSha256`, `sha256`, `hex2bin` / `bin2hex` |
 | Bluetooth Classic / SPP (**original ESP32 only**, `USE_TINYC_SPP`) | `sppInit`, `sppConnect(addr, channel)`, `sppState` (3=open, 4=last connect failed), `sppAvailable`, `sppRead`, `sppWrite`, `sppClose`, **`sppDeinit`** (gives ~48 KB back), `sppScan`. A serial link to any Classic device; the protocol lives in the SCRIPT. ⚠️ `TaskLoop()` only — a `spawnTask` worker has no arrays. ⚠️ Tear the stack down between reads, or the next slot restart fails with a misleading "Stack overflow". S3/C3/C6/P4 are BLE-only. |
+| BLE "SPP" — persistent GATT connection (ESP32/S3/C3/C6, `USE_TINYC_BLE`) | `bleSppTarget(macbuf, addrtype, "svc-uuid")`, `bleSppConnect()` (BLOCKS, `TaskLoop()` only), `bleSppState()`, `bleSppSub("notify-uuid")`, `bleSppAvailable()`, `bleSppRead(buf, max)`, `bleSppWrite("chr-uuid", buf, len)` (keeps the link up), `bleSppClose()`, `bleGattDump(macbuf, addrtype, outbuf)` (one-shot: list every service+characteristic+property — run this FIRST, proprietary UUIDs have no datasheet lookup). Unlike `bleTarget`/`bleReadStart`/`bleWriteStart` (one connect→op→disconnect cycle per call, fine for a scale that wakes and sleeps), this stays connected for a continuous stream — the case a BlueRadios/Nordic-UART-style peripheral needs. UUIDs are string literals (16-bit or full 128-bit); the one-shot family's `svc16`/`chr16` are int16-only and cannot reach a proprietary 128-bit service at all. ⭐ Verified 2026-08-05 against a BlueRadios (BRSP) module: connect → subscribe → set data mode → write `"VS\r"` → reply in 4 chunks, link still up afterwards. ⚠️ Connecting needs a far stronger link than scanning: −88 dBm refused every attempt, −63 dBm worked first try. Probe an unknown device with `bleGattDump` first. |
 | TWAI / CAN (ESP32) | `twaiBegin(rx, tx, kbits, mode)`, `twaiSend`, `twaiRecv`, `twaiAvailable`, `twaiStatus`, `twaiFilter`, `twaiEnd` |
 | Persist | `persist` decl, `saveVars()` |
 | Watch | `watch` decl, `changed`, `delta`, `written`, `snapshot` |
@@ -465,6 +493,35 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     blocks that define a callback: if the host file also defines it, the include's version
     loses (the include sits above). Give such blocks an opt-out
     (`#define ECO_NO_WEBON` in `ecotracker_emu.tc`).
+
+22. **Writing a column-0 function in ANY `.ino` whose parameters name a type declared
+    late in the build** (NimBLE, LVGL, any library type included from inside a driver
+    `.ino`) — PlatformIO concatenates every `.ino` into one `.cpp` and hoists
+    auto-generated prototypes to the position of the **first function definition in the
+    combined file**, i.e. inside `tasmota.ino`, thousands of lines above that library's
+    `#include`. The error points at a line number that doesn't exist in the real file:
+    ```
+    tasmota.ino:4363: error: variable or field 'tc_spp_notify_cb' declared void
+    tasmota.ino:4363: error: 'NimBLERemoteCharacteristic' was not declared in this scope
+    ```
+    (`tasmota.ino` is 894 lines long — 4363 is the injected prototype block.)
+    **The scanner runs on raw text and ignores `#ifdef`**, so one such function inside
+    an `#if defined(USE_TINYC_BLE)` block breaks **every** environment, including the
+    ones that never enable it. Three things make `PROTOTYPE_RE`
+    (`platformio/builder/tools/pioino.py`) skip a function:
+    1. an explicit forward declaration of the *same text* ending in `;` — Tasmota's
+       usual idiom, e.g. `xdrv_79_esp32_ble.ino:382` for `BLEGenNotifyCB`. ⚠️ Matched
+       on text, so renaming a parameter silently re-enables the hoist;
+    2. a `:` anywhere in the parameter list — the arg pattern is
+       `[a-z_,.*&\[\]\s\d]*`, no colon. This is why `BLE_ESP32::`-typed callbacks in
+       that file have always been safe. Luck, not design;
+    3. not being at column 0 — the regex is `^`-anchored with `re.M`, so class members
+       and **lambdas** are never scanned.
+    Prefer (3) for new code: keep NimBLE/LVGL types out of column-0 signatures, put the
+    callback in as a lambda at its call site, and delegate to a helper whose parameters
+    are primitive. Nothing an innocent later edit can undo. Cost the first BLE-SPP
+    build on 2026-08-05; the fix is documented at the top of
+    `xdrv_79_tinyc_ble_glue.ino`.
 
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
@@ -657,7 +714,7 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 **GPIO / basic** — `blink.tc`, `sensor_read.tc`, `fibonacci.tc`
 **Sensors (I²C)** — `bme280.tc`, `bmp280.tc`, `scd30.tc`, `sht31.tc`, `ccs811.tc`, `sgp30.tc`, `ltr308.tc`, `veml6075.tc`, `tcs34725.tc`, `vl53l0x.tc`, `ads1115.tc`, `max31855.tc`, `mlx90614.tc`, `sps30.tc`, `ld2410.tc`
 **Sensors (other)** — `onewire.tc` (DS18B20), `bresser_chart.tc` (weather)
-**BLE (ESP32)** — `ble_scan.tc` (scan + GATT), `esf37_scale.tc` / `esf37_probe.tc` (Etekcity ESF37 body-comp scale), `esf37_speak.tc` (scale → German TTS)
+**BLE (ESP32)** — `ble_scan.tc` (scan + GATT), `esf37_scale.tc` / `esf37_probe.tc` (Etekcity ESF37 body-comp scale), `esf37_speak.tc` (scale → German TTS), `ble_gatt_explore.tc` (list an unknown device's services/characteristics/UUIDs — run first), `ble_spp_probe.tc` (persistent-connection probe, carries the real BlueRadios/BRSP UUIDs — verified against gemu's ECG device)
 **Bluetooth Classic / SPP (original ESP32)** — `spp_scan.tc` (does inquiry find anything?), `spp_connect.tc` (which layer does a connection die at?), `sma_sunnyboy.tc` (SMAdata2+ over SPP: an SMA inverter's two MPPT trackers)
 **Display** — `display_demo.tc`, `lcd_i2c.tc`, `lcd_chart.tc`, `chart.tc`, `chart_types.tc`, `epaper29.tc`, `sunton_display.tc`, `guiton_display.tc`, `analog_clock.tc`, `voltmeter.tc` (canvas), `text_on_image.tc`, `watch_demo.tc`
 **LEDs** — `ledbar.tc`

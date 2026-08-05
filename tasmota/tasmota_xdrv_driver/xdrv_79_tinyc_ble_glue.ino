@@ -19,6 +19,45 @@
 
 #if defined(ESP32) && defined(USE_TINYC_BLE)
 
+// ⚠️⚠️ A column-0 function here whose parameters name an UNQUALIFIED NimBLE type needs
+// a hand-written forward declaration, or it breaks the build of EVERY environment.
+//
+// (Deliberately line comments, not a block comment: this text has to talk about
+// pointer types, and a stray "* /" written without the space would close a block
+// comment early. That cost a build round on 2026-08-05.)
+//
+// PlatformIO concatenates all .ino files into one .cpp and auto-generates prototypes
+// for the functions it recognises, hoisting them ALL to the position of the very first
+// function definition in the combined file — inside tasmota.ino, thousands of lines
+// ABOVE any NimBLE #include. A generated prototype naming a NimBLE class there cannot
+// compile:
+//
+//     tasmota.ino:4363: error: variable or field 'tc_spp_notify_cb' declared void
+//     tasmota.ino:4363: error: 'NimBLERemoteCharacteristic' was not declared in this scope
+//
+// The scanner (platformio/builder/tools/pioino.py, PROTOTYPE_RE) runs on RAW TEXT and
+// ignores #ifdef — so this fires even in builds that never define USE_TINYC_BLE.
+// Three things make it skip a function; all three are in use in this tree:
+//
+//  1. An explicit forward declaration of the same text somewhere in the file. pioino
+//     drops any prototype whose text it already saw ending in ';'. This is Tasmota's
+//     normal idiom — xdrv_79_esp32_ble.ino:382 hand-declares BLEGenNotifyCB(
+//     NimBLERemoteCharacteristic*, ...) for exactly this reason. ⚠️ The match is on
+//     the declaration TEXT, so a renamed parameter or different spacing silently
+//     re-enables the hoist.
+//  2. A ':' anywhere in the parameter list — the argument pattern has no colon in its
+//     character class. That is the only reason tc_ble_adv_cb(
+//     BLE_ESP32::ble_advertisment_t*) and tc_ble_gatt_done_cb(BLE_ESP32::
+//     generic_sensor_t*) below have always been safe. Luck, not design.
+//  3. Not being at column 0 — PROTOTYPE_RE is anchored ^ with re.M, so class members
+//     and lambdas are never scanned.
+//
+// The BLE-SPP code below takes route 3, because it is the only one that cannot be
+// broken later by an innocent-looking edit: the NimBLE-typed notify callback is a
+// LAMBDA at its call site, delegating to tc_spp_push(), whose parameters are
+// primitive and whose hoisted prototype is therefore harmless. Every other free
+// function here takes only primitive parameter types for the same reason.
+
 // ── Scan: advert sink (BLE task) ──────────────────────────────────────────────
 static int tc_ble_adv_cb(BLE_ESP32::ble_advertisment_t *p) {
   if (!p) { return 0; }
@@ -99,6 +138,208 @@ int tc_ble_gatt_copy(uint8_t *out, int max) {
   if (n > max) { n = max; }
   if (n > 0) { memcpy(out, tc_gatt_res.data, n); }
   return n;
+}
+
+// ── BLE "SPP": a PERSISTENT GATT client for continuous serial-style traffic ─────
+// The client above connects, does ONE op, and disconnects (BLETaskRunTaskDoneOperation
+// in xdrv_79_esp32_ble.ino calls pClient->disconnect() unconditionally after every
+// operation) — right for a device that wakes, reports, and sleeps, wrong for a stream:
+// a BlueRadios/Nordic-UART-style peripheral streaming continuously would lose the link
+// before a second notify could ever arrive. So this owns a SEPARATE NimBLEClient with
+// its own connect/subscribe/write/close and its own notify ring buffer — it never
+// touches BLE_ESP32's op queue (currentOperations/queuedOperations) above, so the
+// existing scan / one-shot client / MI32 / EQ3 consumers are unaffected.
+//
+// UUIDs are STRING literals here (16-bit "180a" or full 128-bit), unlike the one-shot
+// client's int16-only svc/chr above — a proprietary UART-style service is essentially
+// always a 128-bit UUID, which int16 cannot address. bleGattDump() (further below) is
+// the one-shot companion for finding out what those UUIDs even are on an unknown device.
+//
+// ⭐ VERIFIED on real hardware 2026-08-05 on .39 (ESP32-S3) against gemu's ECG device with a BlueRadios dual module (MAC EC:FE:7E:10:E1:EF, BRSP profile): connect, subscribe BRSP_TX, set data mode, write "VS\r" -- the reply came back as 48 bytes in four notification chunks ("0252-56-2097151:AA000000:def0.def:...") and bleSppState() still reported 1 AFTERWARDS. That is exactly what the one-shot client cannot do: it would have disconnected after the reply.
+// Still probe an UNKNOWN device with bleGattDump() first — a proprietary UUID has no
+// datasheet lookup, and connecting needs a far better link than passive advert
+// reception: a peer at -88..-94 dBm refused every connect while the one at -63 dBm
+// worked first try.
+// Runs a SECOND simultaneous NimBLE connection alongside whatever BLE_ESP32 itself is
+// doing (background scan, a one-shot op) — if that ever fails with a connection-slot
+// error, raise CONFIG_BT_NIMBLE_MAX_CONNECTIONS (nimconfig.h; commonly defaults to 3).
+static NimBLEClient         *tc_spp_client  = nullptr;
+static NimBLERemoteService  *tc_spp_service = nullptr;   // valid only while connected
+
+#define TC_BLE_SPP_RING 512   // bytes queued between TaskLoop polls
+
+static struct {
+  uint8_t  mac[6];
+  uint8_t  addrtype;
+  char     svc[40];                 // service UUID, string ("180a" or full 128-bit)
+  uint8_t  ring[TC_BLE_SPP_RING];
+  volatile uint16_t head;           // producer: NimBLE host task (notify callback)
+  volatile uint16_t tail;           // consumer: VM task (bleSppRead/bleSppAvailable)
+  portMUX_TYPE mux;
+} tc_spp = { .mux = portMUX_INITIALIZER_UNLOCKED };
+
+// Runs on the NimBLE host task (reached from the lambda in tc_ble_spp_sub()). Keep it
+// tiny and VM-free, same rule as tc_ble_push().
+// ⚠️ PRIMITIVE PARAMETERS ON PURPOSE — see the prototype warning at the top of this
+// file. Naming a NimBLE type here instead breaks every build in the project.
+static void tc_spp_push(const uint8_t *data, int len) {
+  if (!data || len <= 0) { return; }
+  portENTER_CRITICAL(&tc_spp.mux);
+  for (int i = 0; i < len; i++) {
+    uint16_t nh = (tc_spp.head + 1) % TC_BLE_SPP_RING;
+    if (nh == tc_spp.tail) { break; }        // ring full — drop the rest of this burst
+    tc_spp.ring[tc_spp.head] = data[i];
+    tc_spp.head = nh;
+  }
+  portEXIT_CRITICAL(&tc_spp.mux);
+}
+
+// onDisconnect runs on the NimBLE host task too — the service/characteristic pointers
+// die with the link, so drop the cached service pointer immediately.
+class TcSppClientCB : public NimBLEClientCallbacks {
+  void onDisconnect(NimBLEClient*, int) override { tc_spp_service = nullptr; }
+};
+static TcSppClientCB tc_spp_client_cb;
+
+void tc_ble_spp_target(const uint8_t *mac, int addrtype, const char *svc) {
+  if (!mac) { return; }
+  memcpy(tc_spp.mac, mac, 6);
+  tc_spp.addrtype = (uint8_t)addrtype;
+  strlcpy(tc_spp.svc, svc ? svc : "", sizeof(tc_spp.svc));
+}
+
+// BLOCKS on NimBLE's own connect timeout (a few seconds on failure) — call from
+// TaskLoop() only, same rule as sppConnect(). Reuses one NimBLEClient object across
+// reconnects instead of create/delete each time, to avoid churning NimBLE's small
+// client pool.
+int tc_ble_spp_connect(void) {
+  if (!tc_spp.svc[0]) { return 0; }
+  BLE_ESP32::BLEEnableUnsaved = 1;    // request NimBLE up, same as the other BLE entry points
+  if (!tc_spp_client) {
+    tc_spp_client = NimBLEDevice::createClient();
+    if (!tc_spp_client) { return 0; }
+    tc_spp_client->setClientCallbacks(&tc_spp_client_cb, false);
+  }
+  if (tc_spp_client->isConnected()) { tc_spp_client->disconnect(); }
+  tc_spp_service = nullptr;
+  NimBLEAddress addr(tc_spp.mac, tc_spp.addrtype);
+  if (!tc_spp_client->connect(addr, true)) {
+    // Same reasoning as in tc_ble_gatt_dump(): the return code is the difference
+    // between "move it closer" and "the address type is wrong".
+    int rc = tc_spp_client->getLastError();
+    AddLog(LOG_LEVEL_INFO, PSTR("BLE: SPP connect failed rc=%d %s"), rc,
+           NimBLEUtils::returnCodeToString(rc));
+    return 0;
+  }
+  tc_spp_service = tc_spp_client->getService(tc_spp.svc);
+  if (!tc_spp_service) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("BLE: SPP service %s not found on peer"), tc_spp.svc);
+    tc_spp_client->disconnect();
+    return 0;
+  }
+  return 1;
+}
+
+int tc_ble_spp_state(void) {
+  return (tc_spp_client && tc_spp_client->isConnected()) ? 1 : 0;
+}
+
+int tc_ble_spp_sub(const char *chruuid) {
+  if (!tc_spp_service || !chruuid) { return 0; }
+  NimBLERemoteCharacteristic *c = tc_spp_service->getCharacteristic(chruuid);
+  if (!c) { return 0; }
+  // ⚠️ LAMBDA, not a named function — see the prototype warning at the top of this
+  // file. Indented, so the .ino prototype scanner (anchored at column 0) cannot see
+  // it, and the NimBLE type in its signature never reaches tasmota.ino.
+  auto cb = [](NimBLERemoteCharacteristic*, uint8_t *d, size_t l, bool) {
+    tc_spp_push(d, (int)l);
+  };
+  if (c->canNotify())   { return c->subscribe(true,  cb, false) ? 1 : 0; }
+  if (c->canIndicate()) { return c->subscribe(false, cb, false) ? 1 : 0; }
+  return 0;
+}
+
+// Writes without disconnecting — the whole point of this being a separate connection
+// from the one-shot client above. "response" (acked write) only when the characteristic
+// doesn't support write-without-response, mirroring how most UART-TX characteristics
+// are written in practice (unacked, for throughput).
+int tc_ble_spp_write(const char *chruuid, const uint8_t *buf, int len) {
+  if (!tc_spp_service || !chruuid || !buf || len <= 0) { return 0; }
+  NimBLERemoteCharacteristic *c = tc_spp_service->getCharacteristic(chruuid);
+  if (!c || !(c->canWrite() || c->canWriteNoResponse())) { return 0; }
+  bool response = !c->canWriteNoResponse();
+  return c->writeValue(buf, (size_t)len, response) ? 1 : 0;
+}
+
+int tc_ble_spp_available(void) {
+  portENTER_CRITICAL(&tc_spp.mux);
+  int n = (tc_spp.head - tc_spp.tail + TC_BLE_SPP_RING) % TC_BLE_SPP_RING;
+  portEXIT_CRITICAL(&tc_spp.mux);
+  return n;
+}
+
+int tc_ble_spp_read(uint8_t *out, int max) {
+  if (!out || max <= 0) { return 0; }
+  int n = 0;
+  portENTER_CRITICAL(&tc_spp.mux);
+  while (n < max && tc_spp.tail != tc_spp.head) {
+    out[n++] = tc_spp.ring[tc_spp.tail];
+    tc_spp.tail = (tc_spp.tail + 1) % TC_BLE_SPP_RING;
+  }
+  portEXIT_CRITICAL(&tc_spp.mux);
+  return n;
+}
+
+void tc_ble_spp_close(void) {
+  if (tc_spp_client && tc_spp_client->isConnected()) { tc_spp_client->disconnect(); }
+  tc_spp_service = nullptr;
+}
+
+// One-shot: connect with a SHORT-LIVED client (not tc_spp_client — this must not disturb
+// a persistent bleSpp* session that may already be open), list every service and
+// characteristic with its R/W/N/I properties as text, disconnect, free the client.
+// Run this FIRST against any device whose UUIDs are unknown — which for a proprietary
+// UART-style profile is the normal case, there is no datasheet lookup for it.
+int tc_ble_gatt_dump(const uint8_t *mac, int addrtype, char *out, int max) {
+  if (!mac || !out || max <= 0) { return 0; }
+  out[0] = 0;
+  NimBLEClient *c = NimBLEDevice::createClient();
+  if (!c) { strlcpy(out, "no client slot free", max); return (int)strlen(out); }
+  NimBLEAddress addr(mac, (uint8_t)addrtype);
+  int len = 0;
+  if (c->connect(addr, true)) {
+    for (auto *svc : c->getServices(true)) {
+      len += snprintf(out + len, (len < max) ? (max - len) : 0, "SVC %s\n",
+                       svc->getUUID().toString().c_str());
+      if (len >= max) { break; }
+      for (auto *ch : svc->getCharacteristics(true)) {
+        len += snprintf(out + len, (len < max) ? (max - len) : 0, "  CHR %s %s%s%s%s\n",
+                         ch->getUUID().toString().c_str(),
+                         ch->canRead() ? "R" : "", ch->canWrite() ? "W" : "",
+                         ch->canWriteNoResponse() ? "w" : "",
+                         ch->canNotify() ? "N" : (ch->canIndicate() ? "I" : ""));
+        if (len >= max) { break; }
+      }
+      if (len >= max) { break; }
+    }
+    c->disconnect();
+  } else {
+    // ⚠️ Report WHY. A bare "connect failed" is worthless — it cannot tell a weak
+    // link from a busy peer from a wrong address type, and those need opposite
+    // fixes. getLastError() is the NimBLE host return code; the text is empty
+    // unless NIMBLE_CPP_ENABLE_RETURN_CODE_TEXT is on, so the NUMBER is what to
+    // read. Common ones: 13 = BLE_HS_ETIMEOUT (peer never answered — too far, off,
+    // or not accepting), 7 = BLE_HS_ENOMEM, 2 = BLE_HS_EALREADY (already
+    // connected), 6 = BLE_HS_ENOTCONN, 3 = BLE_HS_EINVAL (bad address/type),
+    // 14 = BLE_HS_EDONE, 0x0D-ish HCI codes appear as 0x200+n.
+    int rc = c->getLastError();
+    len = snprintf(out, max, "connect failed rc=%d %s", rc, NimBLEUtils::returnCodeToString(rc));
+  }
+  NimBLEDevice::deleteClient(c);
+  if (len >= max) { len = max - 1; }
+  if (len < 0) { len = 0; }
+  out[len] = 0;
+  return len;
 }
 
 // ── GATT server (peripheral) — device-as-peripheral so a phone (central) connects ──

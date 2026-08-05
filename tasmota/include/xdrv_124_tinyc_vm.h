@@ -327,7 +327,7 @@ static FS *tc_file_path(char *path) {
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
 #include "xdrv_124_tinyc_spp.h"
 
-#define TC_SYSCALL_ABI     19    // V19: + lvglChartUpdateMode (534) -- exposes lv_chart_set_update_mode. LVGL defaults to SHIFT, which moves EVERY point on every new value and therefore invalidates the WHOLE chart area; CIRCULAR overwrites the oldest point in place (a sweeping cursor like a hospital monitor) and invalidates one narrow column. On an 800x1280 DSI panel with a 760x300 chart that is 228000 pixels per value against about 900 -- roughly a factor of 250, and the difference between a 250 Hz live ECG trace being impossible and being unremarkable. Pure append, no .tcb format change. || VORHER V18: + sppDeinit (533) -- tears the Bluetooth Classic stack down and RETURNS ITS MEMORY (~85 KB measured on an ESP32-D0WD-V3: 114 KB free after boot, 29 KB with Bluedroid up). Without it a script that reads a device every few minutes pays for the stack around the clock, and the next slot restart cannot allocate -- which surfaces as "Stack overflow", because the loader's OOM paths return TC_ERR_STACK_OVERFLOW. Nothing in that message points at Bluetooth. sppInit() brings it back up; the teardown deliberately does NOT call esp_bt_controller_mem_release(), which would be one-way. Pure append, no .tcb format change. || VORHER V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || VORHER V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     20    // V20: + BLE "SPP" (535-543) -- bleSppTarget/Connect/State/Sub/Available/Read/Write/Close + bleGattDump. The existing GATT client (SYS_BLE_TARGET..RESULT, V-something-earlier) connects, does ONE read/write/notify-wait, and DISCONNECTS -- confirmed by reading BLETaskRunTaskDoneOperation() in xdrv_79_esp32_ble.ino, which calls pClient->disconnect() unconditionally after every operation. That is correct for a device that wakes, reports, and sleeps (a scale), but wrong for a continuous stream: a BlueRadios/Nordic-UART-style peripheral streaming an EKG would lose the link before a second sample could ever notify. So this is a SECOND, independent NimBLEClient (own connect/subscribe/write/close, own notify ring buffer), added entirely in the TinyC-owned glue file (xdrv_79_tinyc_ble_glue.ino) -- it never touches xdrv_79_esp32_ble.ino's op queue, so MI32/EQ3/the existing one-shot client are unaffected. It also takes service/characteristic UUIDs as STRING literals (16-bit or full 128-bit), unlike the one-shot family's int16-only svc/chr -- proprietary UART-style services are essentially always 128-bit, which int16 cannot address at all. bleGattDump() is the one-shot companion: connect, enumerate every service+characteristic+property, disconnect -- needed BEFORE any of the above, because a proprietary UUID has no datasheet lookup; the device has to be asked. ⭐ VERIFIED on real hardware 2026-08-05 (.39, ESP32-S3) against a BlueRadios dual module on gemu's ECG device: connect -> subscribe BRSP_TX -> write BRSP_MODE=1 (data mode) -> write "VS\r" -> the reply arrived as 48 bytes in four notification chunks, and bleSppState() still returned 1 AFTERWARDS -- the whole point, since the one-shot client disconnects after every operation. A second simultaneous NimBLE connection alongside BLE_ESP32's own background scan caused no trouble. ⚠️ Connecting needs a much better link than passive advert reception: a peer at -88..-94 dBm refused every attempt (rc reported via getLastError) while the one at -63 dBm connected first try. Pure append, no .tcb format change. || VORHER V19: + lvglChartUpdateMode (534) -- exposes lv_chart_set_update_mode. LVGL defaults to SHIFT, which moves EVERY point on every new value and therefore invalidates the WHOLE chart area; CIRCULAR overwrites the oldest point in place (a sweeping cursor like a hospital monitor) and invalidates one narrow column. On an 800x1280 DSI panel with a 760x300 chart that is 228000 pixels per value against about 900 -- roughly a factor of 250, and the difference between a 250 Hz live ECG trace being impossible and being unremarkable. Pure append, no .tcb format change. || VORHER V18: + sppDeinit (533) -- tears the Bluetooth Classic stack down and RETURNS ITS MEMORY (~85 KB measured on an ESP32-D0WD-V3: 114 KB free after boot, 29 KB with Bluedroid up). Without it a script that reads a device every few minutes pays for the stack around the clock, and the next slot restart cannot allocate -- which surfaces as "Stack overflow", because the loader's OOM paths return TC_ERR_STACK_OVERFLOW. Nothing in that message points at Bluetooth. sppInit() brings it back up; the teardown deliberately does NOT call esp_bt_controller_mem_release(), which would be one-way. Pure append, no .tcb format change. || VORHER V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || VORHER V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -1046,6 +1046,26 @@ enum TcSyscall {
   SYS_BLE_WRITE_START       = 419, // (chr16, buf_ref, len) -> int  connect target + write char; 1=started, <0=busy/err
   SYS_BLE_DONE              = 420, // () -> int          0=pending, >0=result length ready, <0=failed
   SYS_BLE_RESULT            = 421, // (buf_ref) -> int   copy received notify/read bytes; returns len
+
+  // BLE "SPP": a PERSISTENT GATT-client connection for continuous serial-style traffic
+  // (BlueRadios/Nordic-UART-style peripherals), as opposed to the one-shot connect->op->
+  // disconnect model above (SYS_BLE_TARGET..SYS_BLE_RESULT), which is right for a device
+  // that wakes, reports once, and sleeps, but drops the link before a second notify can
+  // ever arrive -- wrong for a stream. Service/characteristic UUIDs are STRING literals
+  // (16-bit "180a" or full 128-bit), unlike the one-shot family's int16-only svc/chr —
+  // most UART-style services use a proprietary 128-bit UUID, which int16 cannot reach.
+  SYS_BLE_SPP_TARGET        = 535, // (mac_ref, addrtype, svc_uuid) -> int   set persistent target; 1=ok
+  SYS_BLE_SPP_CONNECT       = 536, // () -> int          connect (BLOCKS -- TaskLoop only); 1=ok, 0=failed
+  SYS_BLE_SPP_STATE         = 537, // () -> int          1=connected, 0=not
+  SYS_BLE_SPP_SUB           = 538, // (notify_uuid) -> int   subscribe to a notify/indicate characteristic; 1=ok
+  SYS_BLE_SPP_AVAIL         = 539, // () -> int          bytes queued from notifications, not yet read
+  SYS_BLE_SPP_READ          = 540, // (buf_ref, max) -> int   drain queued notify bytes (like sppRead)
+  SYS_BLE_SPP_WRITE         = 541, // (chr_uuid, buf_ref, len) -> int   write WITHOUT dropping the connection; 1=ok
+  SYS_BLE_SPP_CLOSE         = 542, // () -> int          disconnect
+  // One-shot: connect, list every service+characteristic (UUID + R/W/N/I flags) as text,
+  // disconnect. Run this FIRST against an unknown device -- there is no datasheet lookup
+  // for a proprietary UUID, the device has to be asked.
+  SYS_BLE_GATT_DUMP         = 543, // (mac_ref, addrtype, out_buf) -> int   bleGattDump(): text length
 
   // BLE GATT server (peripheral) — device advertises a service a phone/central connects to.
   // Poll-based, mirrors the client. NimBLE server build + notify run on the main task; the VM
@@ -5561,6 +5581,17 @@ void tc_ble_glue_register(void);
 int  tc_ble_gatt_start(const uint8_t *mac, int addrtype, int svc, int chr, int notify, const uint8_t *wbuf, int wlen);
 int  tc_ble_gatt_poll(void);                  // 0=pending, 1=done(result ready), <0=failed (GEN_STATE_*)
 int  tc_ble_gatt_copy(uint8_t *out, int max); // copy result bytes into out, return len, release the op
+// BLE "SPP" — a PERSISTENT GATT client, independent of the one-shot queue above. Own
+// NimBLEClient, own notify ring. UUIDs are strings (16-bit "180a" or full 128-bit).
+void tc_ble_spp_target(const uint8_t *mac, int addrtype, const char *svc);
+int  tc_ble_spp_connect(void);                          // BLOCKS -- call from TaskLoop only
+int  tc_ble_spp_state(void);                             // 1=connected, 0=not
+int  tc_ble_spp_sub(const char *chruuid);                // subscribe notify/indicate; 1=ok
+int  tc_ble_spp_available(void);                         // queued notify bytes
+int  tc_ble_spp_read(uint8_t *out, int max);             // drain the ring
+int  tc_ble_spp_write(const char *chruuid, const uint8_t *buf, int len);  // write, keep the link up
+void tc_ble_spp_close(void);
+int  tc_ble_gatt_dump(const uint8_t *mac, int addrtype, char *out, int max);  // one-shot: list services+chars
 // GATT server (peripheral) bridge — defined in xdrv_79_tinyc_ble_glue.ino. NimBLE server build +
 // notify run on the main task (tc_ble_srv_loop); these only set request flags / copy buffers.
 void tc_ble_srv_init(const char *name);             // begin config + request BLE up + set adv name
@@ -15098,6 +15129,86 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, i);
       break;
     }
+    // ── BLE "SPP" — persistent GATT client, for continuous serial-style traffic ─
+    case SYS_BLE_SPP_TARGET: {           // bleSppTarget(macbuf, addrtype, "svc-uuid") -> 1/0
+      int32_t cs   = TC_POP(vm);
+      int32_t type = TC_POP(vm);
+      int32_t mref = TC_POP(vm);
+      int32_t *mb  = tc_resolve_ref(vm, mref);
+      const char *svc = tc_get_const_str(vm, cs);
+      if (!mb || !svc) { TC_PUSH(vm, 0); break; }
+      uint8_t mac[6];
+      for (int i = 0; i < 6; i++) mac[i] = (uint8_t)(mb[i] & 0xff);
+      tc_ble_spp_target(mac, type, svc);
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_SPP_CONNECT: {          // bleSppConnect() -> 1/0; BLOCKS -- TaskLoop only
+      TC_PUSH(vm, tc_ble_spp_connect());
+      break;
+    }
+    case SYS_BLE_SPP_STATE: {            // bleSppState() -> 1=connected, 0=not
+      TC_PUSH(vm, tc_ble_spp_state());
+      break;
+    }
+    case SYS_BLE_SPP_SUB: {              // bleSppSub("notify-uuid") -> 1/0
+      int32_t cs = TC_POP(vm);
+      const char *uuid = tc_get_const_str(vm, cs);
+      TC_PUSH(vm, uuid ? tc_ble_spp_sub(uuid) : 0);
+      break;
+    }
+    case SYS_BLE_SPP_AVAIL: {            // bleSppAvailable() -> queued notify bytes
+      TC_PUSH(vm, tc_ble_spp_available());
+      break;
+    }
+    case SYS_BLE_SPP_READ: {             // bleSppRead(buf, max) -> len; drains the notify ring
+      int32_t n   = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (!buf || n <= 0) { TC_PUSH(vm, 0); break; }
+      int32_t kap = tc_ref_maxlen(vm, ref);
+      if (n > kap) { n = kap; }
+      TC_UBUF(tmp, 256);
+      if (n > (int32_t)sizeof(tmp)) { n = sizeof(tmp); }
+      int got = tc_ble_spp_read(tmp, n);
+      for (int i = 0; i < got; i++) { buf[i] = (int32_t)tmp[i]; }
+      TC_PUSH(vm, got);
+      break;
+    }
+    case SYS_BLE_SPP_WRITE: {            // bleSppWrite("chr-uuid", buf, len) -> 1/0; keeps the link up
+      int32_t n   = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+      int32_t cs  = TC_POP(vm);
+      const char *uuid = tc_get_const_str(vm, cs);
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (!uuid || !buf || n <= 0) { TC_PUSH(vm, 0); break; }
+      int32_t kap = tc_ref_maxlen(vm, ref);
+      if (n > kap) { n = kap; }
+      TC_UBUF(tmp, 128);
+      if (n > (int32_t)sizeof(tmp)) { n = sizeof(tmp); }
+      for (int i = 0; i < n; i++) { tmp[i] = (uint8_t)(buf[i] & 0xff); }
+      TC_PUSH(vm, tc_ble_spp_write(uuid, tmp, n));
+      break;
+    }
+    case SYS_BLE_SPP_CLOSE: {            // bleSppClose() -> 1
+      tc_ble_spp_close();
+      TC_PUSH(vm, 1);
+      break;
+    }
+    case SYS_BLE_GATT_DUMP: {            // bleGattDump(macbuf, addrtype, outbuf) -> len; BLOCKS briefly
+      int32_t oref = TC_POP(vm);
+      int32_t type = TC_POP(vm);
+      int32_t mref = TC_POP(vm);
+      int32_t *mb  = tc_resolve_ref(vm, mref);
+      if (!mb) { TC_PUSH(vm, 0); break; }
+      uint8_t mac[6];
+      for (int i = 0; i < 6; i++) mac[i] = (uint8_t)(mb[i] & 0xff);
+      TC_BUF(txt, 700);
+      tc_ble_gatt_dump(mac, type, txt, sizeof(txt));
+      TC_PUSH(vm, tc_cstr_to_ref(vm, oref, txt));
+      break;
+    }
+
     // ── BLE GATT server (peripheral) ──────────────────────────────────────────
     case SYS_BLE_SRV_INIT: {             // bleServer(name) -> 1
       int32_t cs = TC_POP(vm);
@@ -15182,6 +15293,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_BLE_WRITE_START: TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
     case SYS_BLE_DONE:      TC_PUSH(vm, -1); break;
     case SYS_BLE_RESULT:    TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_TARGET:  TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_CONNECT: TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_STATE:   TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_SUB:     TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_AVAIL:   TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_READ:    TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_WRITE:   TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_BLE_SPP_CLOSE:   TC_PUSH(vm, 1); break;
+    case SYS_BLE_GATT_DUMP:   TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_BLE_SRV_INIT:    TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_BLE_SRV_SERVICE: TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_BLE_SRV_CHAR:    TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;

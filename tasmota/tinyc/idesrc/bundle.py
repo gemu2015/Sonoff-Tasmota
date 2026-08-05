@@ -84,6 +84,8 @@ EXAMPLES = [
     ('ledbar',         'WS2812 LED Strip (setPixels)'),
     ('camera',         'ESP Camera (DFRobot)'),
     ('ble_scan',       'BLE Scanner'),
+    ('ble_gatt_explore', 'BLE GATT Explorer (find UUIDs)'),
+    ('ble_spp_probe',  'BLE "SPP" (persistent connection) probe'),
 ]
 
 print("Bundling TinyC IDE...")

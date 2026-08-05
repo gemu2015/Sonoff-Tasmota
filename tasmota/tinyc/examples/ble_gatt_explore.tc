@@ -1,0 +1,174 @@
+// ble_gatt_explore.tc — herausfinden, WELCHE Dienste und Merkmale ein BLE-Geraet hat.
+//
+// Der erste Schritt vor jedem eigenen GATT-Zugriff, egal ob ueber den Einzelvorgangs-
+// Client (bleTarget/bleReadStart/bleWriteStart) oder die dauerhafte Verbindung
+// (bleSppTarget/bleSppConnect, siehe ble_spp_probe.tc). Ein proprietaeres Geraet wie ein
+// BlueRadios-Modul hat KEIN Datenblatt-Nachschlagen fuer seine UUIDs — man muss es fragen.
+//
+// bleGattDump(mac, addrtype, puffer) macht das in EINEM Zug: verbinden, alle Dienste und
+// deren Merkmale mit ihren Eigenschaften (R=lesbar, W=schreibbar mit Bestaetigung,
+// w=schreibbar ohne Bestaetigung, N=Notify, I=Indicate) auflisten, wieder trennen.
+// ⚠️ Das BLOCKIERT ein paar Sekunden — deshalb nur aus TaskLoop(), nie aus einem
+// Tick-Callback.
+//
+// Bedienung in der Konsole:
+//   GEXSCAN         Sichtbare Geraete mitschreiben (Name, MAC, RSSI)
+//   GEXMAC AABBCCDDEEFF 0    Ziel manuell setzen (MAC ohne Doppelpunkte, dann Adresstyp:
+//                             0=public, 1/2/3=random — steht in der GEXSCAN-Zeile dabei)
+//   GEXDUMP         Verbindung zum gesetzten Ziel aufbauen und alles auflisten
+//
+// Das Ergebnis landet per addLog UND in /gatt_dump.log, weil eine 128-Bit-UUID-Liste
+// leicht laenger ist als eine einzelne Logzeile bequem zeigt.
+
+char nm[40];
+int  scanmac[8];
+int  mfg[40];
+int  scanning;
+
+int  sel_mac[8];      // gesetztes Ziel
+int  sel_type;
+int  sel_ok;          // 1 = ein Ziel wurde gesetzt (Scan-Treffer oder GEXMAC)
+
+int  seen[24][6];     // schon gemeldete MACs, damit das Log nicht ueberlaeuft
+int  nseen;
+
+int  dump_req;        // 1 = TaskLoop soll bleGattDump ausfuehren
+char dump_buf[700];
+char zeile[140];
+
+// ---------------------------------------------------------------------------------
+// MAC-Text ("AABBCCDDEEFF", ohne Doppelpunkte) in 6 Bytes zerlegen
+// ---------------------------------------------------------------------------------
+int hexNibble(int c) {
+    if (c >= '0' && c <= '9') { return c - '0'; }
+    if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
+    if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
+    return 0;
+}
+
+// Schon gemeldet? Sonst eintragen. Gibt 1 bei NEU zurueck.
+int neu_gesehen(int m[]) {
+    int i = 0;
+    while (i < nseen) {
+        if (seen[i][0]==m[0] && seen[i][1]==m[1] && seen[i][2]==m[2] &&
+            seen[i][3]==m[3] && seen[i][4]==m[4] && seen[i][5]==m[5]) { return 0; }
+        i = i + 1;
+    }
+    if (nseen >= 24) { return 1; }
+    int k = 0;
+    while (k < 6) { seen[nseen][k] = m[k]; k = k + 1; }
+    nseen = nseen + 1;
+    return 1;
+}
+
+void macParse(char s[], int mac[]) {
+    int p = 0;
+    int i = 0;
+    while (i < 6) {
+        mac[i] = (hexNibble(s[p]) << 4) | hexNibble(s[p + 1]);
+        p = p + 2;
+        i = i + 1;
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Konsole
+// ---------------------------------------------------------------------------------
+void Command(char cmd[]) {
+    if (strcmp(cmd, "SCAN") == 0) {
+        nseen = 0;              // Tabelle leeren, sonst meldet ein zweiter Scan nichts
+        bleScan(0);
+        scanning = 1;
+        responseCmnd("scanne (dauerhaft, GEXSCAN erneut zum Weiterlesen der Log-Zeilen)");
+    } else if (strStartsWith(cmd, "MAC ")) {
+        char rest[24];
+        strcpy(rest, cmd + 4);
+        int sp = strFind(rest, " ");
+        if (sp < 0) { responseCmnd("Format: GEXMAC AABBCCDDEEFF 0"); return; }
+        char macs[16];
+        char typs[4];
+        strSub(macs, rest, 0, sp);
+        strSub(typs, rest, sp + 1, 0);
+        macParse(macs, sel_mac);
+        sel_type = atoi(typs);
+        sel_ok = 1;
+        sprintf(zeile, "Ziel gesetzt: %02X:%02X:%02X:%02X:%02X:%02X Typ %d",
+                sel_mac[0], sel_mac[1], sel_mac[2], sel_mac[3], sel_mac[4], sel_mac[5], sel_type);
+        responseCmnd(zeile);
+    } else if (strcmp(cmd, "DUMP") == 0) {
+        if (!sel_ok) { responseCmnd("erst GEXSCAN + GEXMAC, oder GEXMAC direkt"); return; }
+        dump_req = 1;
+        responseCmnd("verbinde und liste auf ...");
+    } else {
+        responseCmnd("GEXSCAN | GEXMAC <mac> <typ> | GEXDUMP");
+    }
+}
+
+int main() {
+    addCommand("GEX");
+    return 0;
+}
+
+// ---------------------------------------------------------------------------------
+// Laufende Arbeit
+// ---------------------------------------------------------------------------------
+void TaskLoop() {
+    if (dump_req) {
+        dump_req = 0;
+        // ⚠️ Den eigenen Scan VOR dem Verbinden anhalten. Empfangen und Verbinden
+        // teilen sich denselben Funkteil: laeuft der Scan weiter, bekommt der
+        // Verbindungsversuch nur die Luecken dazwischen und scheitert reihenweise.
+        // Das sieht dann wie ein zu schwaches oder zickiges Geraet aus.
+        int lief = scanning;
+        if (lief) { bleScanStop(); scanning = 0; delay(300); }
+        addLog("GEX: verbinde ...");
+        int n = bleGattDump(sel_mac, sel_type, dump_buf);
+        if (n <= 0) {
+            addLog("GEX: Verbindung fehlgeschlagen (Geraet ausser Reichweite, oder nicht mehr sichtbar)");
+        } else {
+            int f = fileOpen("/gatt_dump.log", 1);   // 1 = ueberschreiben
+            if (f >= 0) { fileWrite(f, dump_buf, n); fileClose(f); }
+            addLog("GEX: --- Dienste/Merkmale (auch in /gatt_dump.log) ---");
+            // dump_buf ist zeilenweise mit \n getrennt -- einzeln loggen, sonst
+            // schneidet addLog eine lange Zeile ab statt sie umzubrechen.
+            int p = 0;
+            while (p < n) {
+                int q = p;
+                while (q < n && dump_buf[q] != '\n') { q = q + 1; }
+                int l = q - p;
+                if (l > 0 && l < 130) {
+                    strSub(zeile, dump_buf, p, l);
+                    addLog(zeile);
+                }
+                p = q + 1;
+            }
+        }
+        // Scan wieder aufnehmen, falls er vorher lief
+        if (lief) { bleScan(0); scanning = 1; }
+        return;
+    }
+
+    if (!scanning) { delay(200); return; }
+
+    int got = bleNext();
+    while (got) {
+        bleMac(scanmac);
+        int r  = bleRssi();
+        int nl = bleName(nm);
+        int ml = bleMfg(mfg);
+        int at = bleAddrType();
+        // ⚠️ KEIN Filter auf "hat Namen oder Herstellerdaten". Genau der hat beim
+        // ersten Versuch den Blick verstellt: ein Geraet, das nur eine Dienst-UUID
+        // aussendet, waere stillschweigend verschwunden -- und "nichts gefunden"
+        // haette dann wie eine Aussage ueber das GERAET ausgesehen statt ueber das
+        // Skript. Jede Aussendung wird gemeldet, jede MAC aber nur EINMAL.
+        if (neu_gesehen(scanmac)) {
+            sprintf(zeile, "GEX: %02X%02X%02X%02X%02X%02X typ=%d r=%d mfg=%d name=%s",
+                    scanmac[0], scanmac[1], scanmac[2], scanmac[3], scanmac[4],
+                    scanmac[5], at, r, ml, nm);
+            addLog(zeile);
+        }
+        got = bleNext();
+    }
+    delay(300);
+}

@@ -1,0 +1,184 @@
+// ble_spp_probe.tc — Verbindungsprobe fuer eine DAUERHAFTE BLE-Verbindung ("BLE SPP").
+//
+// Anders als der Einzelvorgangs-Client (bleTarget/bleReadStart/bleWriteStart: verbinden,
+// EINEN Lese-/Schreib-/Notify-Vorgang, trennen) haelt bleSppConnect() die Verbindung
+// offen, bis das Skript sie mit bleSppClose() beendet — der richtige Zugang fuer ein
+// Geraet, das laufend meldet (ein BlueRadios-Modul im BLE-Modus, ein Nordic-UART-artiger
+// Sensor), statt einmal aufzuwachen und wieder zu schlafen.
+//
+// ⭐ VERIFIZIERT an echter Hardware 2026-08-05 auf .39 (ESP32-S3) gegen gemus EKG-Geraet mit BlueRadios-Dualmodul (MAC EC:FE:7E:10:E1:EF, BRSP-Profil): verbinden, BRSP_TX abonnieren, Datenmodus setzen, "VS\r" schreiben -- Antwort kam als 48 Byte in vier Haeppchen zurueck ("0252-56-2097151:AA000000:def0.def:..."), und bleSppState() meldete DANACH weiter 1. Genau das kann der Einzelvorgangs-Client nicht: er haette nach der Antwort getrennt.
+// Bei einem UNBEKANNTEN Geraet trotzdem zuerst ble_gatt_explore.tc — erst schauen,
+// dann verbinden, dann dem Protokoll vertrauen (so lief es auch bei Classic SPP).
+//
+// VORAUSSETZUNG: MAC-Adresse, Adresstyp, Dienst-UUID und Merkmals-UUIDs des Zielgeraets
+// muessen bekannt sein — bei einem proprietaeren Geraet stehen die NICHT im Datenblatt.
+// Zuerst ble_gatt_explore.tc laufen lassen und die Ausgabe hier eintragen.
+//
+// Bedienung in der Konsole:
+//   SPPBCON      Verbindung aufbauen + auf NOTIFY_CHR abonnieren
+//   SPPBOFF      trennen
+//   SPPBST       Zustand abfragen
+//   SPPBTX xy    Text xy auf WRITE_CHR schreiben (zum Testen einer Quittung)
+
+// ⭐ ECHTE WERTE, am Geraet ausgelesen (ble_gatt_explore.tc, 2026-08-05) und gegen
+// gemus eigene iPad-App gegengeprueft (VpOnline/Brsp.h + BRSP/.../Brsp.m): das ist
+// das BRSP-Profil (BlueRadios Serial Port), Zeile fuer Zeile deckungsgleich.
+//
+//   BRSP_SERVICE  da2b84f1-...   der Dienst
+//   BRSP_INFO     99564a02-...   R    Modulkennung
+//   BRSP_MODE     a87988b9-...   RW   0=Idle, 1=DATEN, 2=Fernbefehl
+//   BRSP_RX       bf03260c-...   W    hier schreibt der RECHNER hinein
+//   BRSP_TX       18cda784-...   N    hier meldet das GERAET  <- abonnieren
+//   BRSP_CTS      0a1934f5-...   RWw  Flusssteuerung, Rechner -> Modul
+//   BRSP_RTS      fdd6b4d3-...   RN   Flusssteuerung, Modul -> Rechner
+//
+// ⚠️ RX/TX sind aus Sicht des MODULS benannt. Wir schreiben auf RX und lesen von TX.
+#define ZIEL_TYP   0                                         // public (Scan meldete typ=0)
+#define ZIEL_SVC   "da2b84f1-6279-48de-bdc0-afbea0226079"
+#define NOTIFY_CHR "18cda784-4bd3-4370-85bb-bfed91ec86af"    // BRSP_TX
+#define WRITE_CHR  "bf03260c-7205-4c25-af43-93b1c299d159"    // BRSP_RX
+#define MODE_CHR   "a87988b9-694c-479c-900e-95dfa6c00a24"    // BRSP_MODE
+#define MODE_DATEN 1                                          // BrspModeData
+
+int  ziel_mac[6];     // in main() gesetzt -- MAC aus ble_gatt_explore.tc eintragen
+int  verbunden;       // 0 = nicht (mehr) verbunden, 1 = verbunden
+int  auftrag;         // 1=verbinden, 2=trennen, 3=Zustand melden
+
+char rx[256];
+char zeile[160];
+char txbuf[64];
+int  tx_len;
+int  tx_auftrag;      // 1 = txbuf senden
+
+persist int laeufe;
+persist int treffer;
+
+void zustand_melden() {
+    int st = bleSppState();
+    sprintf(zeile, "SPPB: Zustand %d (%s)", st, st ? "VERBUNDEN" : "getrennt");
+    addLog(zeile);
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "CON") == 0) {
+        auftrag = 1;
+        responseCmnd("verbinde ...");
+    } else if (strcmp(cmd, "OFF") == 0) {
+        auftrag = 2;
+        responseCmnd("trenne");
+    } else if (strcmp(cmd, "ST") == 0) {
+        zustand_melden();
+        responseCmnd("siehe Log");
+    } else if (strStartsWith(cmd, "TX ")) {
+        // ⚠️ Wagenruecklauf anhaengen: JEDER Variograf-Befehl endet auf \r
+        // (siehe [[variograf-protokoll-vponline]]), ohne ihn antwortet das Geraet nie.
+        strSub(txbuf, cmd, 3, 0);
+        strcat(txbuf, "\r");
+        tx_len = strlen(txbuf);
+        tx_auftrag = 1;
+        responseCmnd("sende ...");
+    } else {
+        responseCmnd("SPPBCON | SPPBOFF | SPPBST | SPPBTX <text>");
+    }
+}
+
+int main() {
+    addCommand("SPPB");
+    // MAC des EKG-Geraets, am 2026-08-05 mit GEXSCAN gefunden (-63 dBm, das naechste):
+    ziel_mac[0] = 0xEC; ziel_mac[1] = 0xFE; ziel_mac[2] = 0x7E;
+    ziel_mac[3] = 0x10; ziel_mac[4] = 0xE1; ziel_mac[5] = 0xEF;
+    bleSppTarget(ziel_mac, ZIEL_TYP, ZIEL_SVC);
+    return 0;
+}
+
+void TaskLoop() {
+    if (auftrag == 1) {
+        auftrag = 0;
+        laeufe = laeufe + 1;
+        saveVars();
+        addLog("SPPB: verbinde (blockiert ein paar Sekunden) ...");
+        int ok = bleSppConnect();
+        if (!ok) {
+            addLog("SPPB: Verbindung fehlgeschlagen (ausser Reichweite, Dienst nicht gefunden, oder schon verbunden anderswo)");
+            verbunden = 0;
+        } else {
+            int sub = bleSppSub(NOTIFY_CHR);
+            if (!sub) {
+                addLog("SPPB: verbunden, aber Abonnieren von BRSP_TX fehlgeschlagen -- UUID pruefen");
+            } else {
+                // ⭐ OHNE DAS FLIESST NICHTS. Das Modul liefert erst im Datenmodus;
+                // gemus App macht genau das in changeBrspMode(): EIN Byte auf
+                // BRSP_MODE. Der Kopfkommentar der App sagt zwar "Default ist
+                // BrspModeData", aber darauf zu bauen heisst raten -- also setzen.
+                char m[2];
+                m[0] = MODE_DATEN;
+                int mw = bleSppWrite(MODE_CHR, m, 1);
+                sprintf(zeile, "SPPB: verbunden, BRSP_TX abonniert, Datenmodus %s -- warte auf Daten",
+                        mw ? "gesetzt" : "NICHT gesetzt");
+                addLog(zeile);
+                treffer = treffer + 1;
+                saveVars();
+            }
+            verbunden = 1;
+        }
+        return;
+    }
+    if (auftrag == 2) {
+        auftrag = 0;
+        bleSppClose();
+        verbunden = 0;
+        addLog("SPPB: getrennt");
+        return;
+    }
+    if (auftrag == 3) {
+        auftrag = 0;
+        zustand_melden();
+        return;
+    }
+    if (tx_auftrag) {
+        tx_auftrag = 0;
+        int wok = bleSppWrite(WRITE_CHR, txbuf, tx_len);
+        sprintf(zeile, "SPPB: Schreiben %s", wok ? "ok" : "fehlgeschlagen");
+        addLog(zeile);
+        return;
+    }
+
+    if (!verbunden) { delay(200); return; }
+
+    // ⚠️ bleSppState() spiegelt einen Verbindungsabbruch, den das Geraet selbst ausloest
+    // (Reichweite, Batterie) -- ohne diese Pruefung wuerde das Skript ewig auf einer toten
+    // Verbindung auf Daten warten, ohne es zu merken.
+    if (!bleSppState()) {
+        addLog("SPPB: Verbindung verloren");
+        verbunden = 0;
+        return;
+    }
+
+    int n = bleSppAvailable();
+    if (n > 0) {
+        if (n > 255) { n = 255; }
+        int got = bleSppRead(rx, n);
+        sprintf(zeile, "SPPB: %d Byte:", got);
+        addLog(zeile);
+        // Als Hex ausgeben -- Biosignal-Rohdaten sind selten druckbarer Text.
+        int i = 0;
+        while (i < got) {
+            char hexz[64];
+            hexz[0] = 0;
+            int j = 0;
+            while (j < 16 && i < got) {
+                char b2[4];
+                sprintf(b2, "%02X ", rx[i] & 0xFF);
+                strcat(hexz, b2);
+                i = i + 1;
+                j = j + 1;
+            }
+            addLog(hexz);
+        }
+    }
+    delay(20);
+}
+
+void CleanUp() {
+    bleSppClose();
+}

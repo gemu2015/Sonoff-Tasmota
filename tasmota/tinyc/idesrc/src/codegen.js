@@ -55,6 +55,18 @@ const BUILTINS = {
     'bleDone':          { syscall: Syscall.BLE_DONE,        args: 0, returns: true },
     'bleResult':        { syscall: Syscall.BLE_RESULT,      args: 1, returns: true, strArgs: [0] },
 
+    // BLE "SPP" — persistent GATT-client connection (see opcodes.js BLE_SPP_* for why
+    // this is separate from the one-shot bleTarget/bleReadStart/bleWriteStart family).
+    'bleSppTarget':     { syscall: Syscall.BLE_SPP_TARGET,  args: 3, returns: true, strArgs: [0], constArgs: [2] },
+    'bleSppConnect':    { syscall: Syscall.BLE_SPP_CONNECT, args: 0, returns: true },
+    'bleSppState':      { syscall: Syscall.BLE_SPP_STATE,   args: 0, returns: true },
+    'bleSppSub':        { syscall: Syscall.BLE_SPP_SUB,     args: 1, returns: true, constArgs: [0] },
+    'bleSppAvailable':  { syscall: Syscall.BLE_SPP_AVAIL,   args: 0, returns: true },
+    'bleSppRead':       { syscall: Syscall.BLE_SPP_READ,    args: 2, returns: true, strArgs: [0], intArgs: [1] },
+    'bleSppWrite':      { syscall: Syscall.BLE_SPP_WRITE,   args: 3, returns: true, constArgs: [0], strArgs: [1], intArgs: [2] },
+    'bleSppClose':      { syscall: Syscall.BLE_SPP_CLOSE,   args: 0, returns: true },
+    'bleGattDump':      { syscall: Syscall.BLE_GATT_DUMP,   args: 3, returns: true, strArgs: [0, 2], intArgs: [1] },
+
     // BLE GATT server (peripheral): bleServer()/bleService()/bleChar()/bleServerStart() to set up,
     // then poll bleConnected()/bleCharWritten()+bleCharRead() and push with bleCharSet()/bleNotify().
     'bleServer':        { syscall: Syscall.BLE_SRV_INIT,    args: 1, returns: true, constArgs: [0] },
