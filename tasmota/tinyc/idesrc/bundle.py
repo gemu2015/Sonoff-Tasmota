@@ -86,6 +86,7 @@ EXAMPLES = [
     ('ble_scan',       'BLE Scanner'),
     ('ble_gatt_explore', 'BLE GATT Explorer (find UUIDs)'),
     ('ble_spp_probe',  'BLE "SPP" (persistent connection) probe'),
+    ('variograf_ekg',  'Variograf ECG over BLE (WIP - device stays silent)'),
 ]
 
 print("Bundling TinyC IDE...")

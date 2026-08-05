@@ -39,6 +39,7 @@
 #define WRITE_CHR  "bf03260c-7205-4c25-af43-93b1c299d159"    // BRSP_RX
 #define MODE_CHR   "a87988b9-694c-479c-900e-95dfa6c00a24"    // BRSP_MODE
 #define MODE_DATEN 1                                          // BrspModeData
+#define BRSP_CTS   "0a1934f5-24b8-4f13-9842-37bb167c6aff"    // Flusssteuerung Rechner->Modul
 
 int  ziel_mac[6];     // in main() gesetzt -- MAC aus ble_gatt_explore.tc eintragen
 int  verbunden;       // 0 = nicht (mehr) verbunden, 1 = verbunden
@@ -77,8 +78,13 @@ void Command(char cmd[]) {
         tx_len = strlen(txbuf);
         tx_auftrag = 1;
         responseCmnd("sende ...");
+    } else if (strcmp(cmd, "VS2") == 0) {
+        // ⭐ Der Test, der Modulpuffer von echter Antwort trennt: ZWEIMAL fragen.
+        // Aus einem Puffer kommt die Antwort einmal, vom Rekorder zweimal.
+        auftrag = 5;
+        responseCmnd("sende VS, warte, sende VS erneut");
     } else {
-        responseCmnd("SPPBCON | SPPBOFF | SPPBST | SPPBTX <text>");
+        responseCmnd("SPPBCON | SPPBOFF | SPPBST | SPPBTX <text> | SPPBVS2");
     }
 }
 
@@ -110,11 +116,21 @@ void TaskLoop() {
                 // gemus App macht genau das in changeBrspMode(): EIN Byte auf
                 // BRSP_MODE. Der Kopfkommentar der App sagt zwar "Default ist
                 // BrspModeData", aber darauf zu bauen heisst raten -- also setzen.
+                // ⚠️ RUECKGABEWERT PRUEFEN. Bisher stand hier ein ungeprueftes
+                // bleSppWrite -- und ob der Datenmodus ueberhaupt ankam, war damit
+                // reine Annahme. Genau das ist der Verdacht: dass unsere Schreib-
+                // vorgaenge das Modul nicht erreichen (ueber Classic PIEPT das
+                // Geraet bei VS, ueber BLE nicht -- gemu, 2026-08-05).
                 char m[2];
                 m[0] = MODE_DATEN;
                 int mw = bleSppWrite(MODE_CHR, m, 1);
-                sprintf(zeile, "SPPB: verbunden, BRSP_TX abonniert, Datenmodus %s -- warte auf Daten",
-                        mw ? "gesetzt" : "NICHT gesetzt");
+                // Flusssteuerung freigeben: CTS=0 heisst "du darfst senden".
+                // gemus App schaltet das fuer Dual-Module ausdruecklich um.
+                char cts[2];
+                cts[0] = 0;
+                int cw = bleSppWrite(BRSP_CTS, cts, 1);
+                sprintf(zeile, "SPPB: Datenmodus %s, CTS %s",
+                        mw ? "ok" : "FEHLGESCHLAGEN", cw ? "ok" : "FEHLGESCHLAGEN");
                 addLog(zeile);
                 treffer = treffer + 1;
                 saveVars();
@@ -133,6 +149,16 @@ void TaskLoop() {
     if (auftrag == 3) {
         auftrag = 0;
         zustand_melden();
+        return;
+    }
+    if (auftrag == 5) {
+        auftrag = 0;
+        addLog("SPPB: --- VS Nr. 1 (jetzt auf den Piep hoeren) ---");
+        strcpy(txbuf, "VS\r");
+        bleSppWrite(WRITE_CHR, txbuf, 3);
+        delay(4000);
+        addLog("SPPB: --- VS Nr. 2 ---");
+        bleSppWrite(WRITE_CHR, txbuf, 3);
         return;
     }
     if (tx_auftrag) {

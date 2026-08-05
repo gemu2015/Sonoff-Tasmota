@@ -1,0 +1,345 @@
+// variograf_ekg.tc — EKG eines Variograf-Rekorders ueber BLE, 256 Hz.
+//
+// ⛔⛔ FUNKTIONIERT NOCH NICHT. Dieses Skript hat bis heute (2026-08-05) NICHT EINEN
+// EINZIGEN MESSWERT geliefert. Es verbindet sich, es schickt den Startbefehl — und
+// das Geraet bleibt stumm. Wer es benutzt, faengt bei diesem Stand an, nicht bei
+// einem laufenden System.
+//
+// ⭐ DER GRUND IST GEFUNDEN, ABER NICHT BEHOBEN: unsere Schreibvorgaenge erreichen
+// den Rekorder ueber BLE gar nicht. Bewiesen durch gemus Kontrollversuch — das Geraet
+// PIEPT bei einem VS-Befehl, und zwar ueber Bluetooth CLASSIC vom Mac, ueber BLE
+// aber NICHT. Die Antwort, die ueber BLE trotzdem ankam, war der Puffer des
+// BlueRadios-Moduls, nicht die Reaktion des Geraets.
+// ⚠️ Verdacht: das Modul ist Dual-Mode und der serielle Port hat nur EINEN Besitzer —
+// haelt der Mac die Classic-Verbindung, darf die BRSP/BLE-Seite nichts hineinschreiben.
+// UNGEPRUEFT.
+//
+// ⚠️ Ich habe vorher lange die BEFEHLSFOLGE verdaechtigt und drei Dinge geaendert,
+// die alle schon richtig waren (Kanalmaske, Ratenwort, die Vorabfragen). Erst der
+// Piep hat es entschieden. Lehre: ein Geraet, das bei Empfang hoerbar quittiert, ist
+// der bessere Detektor fuer "kommt mein Befehl an" als jede Antwortanalyse — danach
+// fragen, BEVOR man Protokolle waelzt.
+//
+// ⭐ WAS HIER TROTZDEM GILT und beim Classic-Versuch unveraendert gebraucht wird:
+// die vollstaendig aufgeschluesselte oeko4.def (Abtastrate, Kanaltabelle, Umrechnung)
+// und der Aufbau des !W-Startbefehls. Das ist gegen den geprueften Parser aus
+// uVariotest26 und gegen die Original-App gerechnet, nicht geraten.
+//
+// Baut auf ble_spp_probe.tc auf (BRSP-Verbindung) und setzt den MESSBETRIEB obendrauf.
+// Alle Zahlen hier stammen aus oeko4.def, mit dem geprueften Feldschema aus
+// uVariotest26/src/DefParser.cpp aufgeloest — nicht geraten:
+//
+//   R: $012c = 300, F: erstes Byte $48 -> Modus 0 -> 300 * 0,0130208 ms = 3,90625 ms
+//   ⭐ GLOBALE ABTASTRATE 256 Hz. C02 (EKG) hat Teiler 1, laeuft also voll mit.
+//   C02:  phys[mV] = (roh - 32768) * 5 / 6940
+//   SAV: 0252-56-24  ->  Version 252, Subtyp 24
+//
+// ⚠️ C16 "HR" ist KEIN Geraetekanal: alias() = (size>>2)&0x1f ergibt bei $89 die 2,
+// der Kanal wird also aus C02 BERECHNET (typ $80 = QRS-Detektor). Das Geraet sendet
+// keine Herzfrequenz — die muessen wir selbst aus dem EKG gewinnen.
+//
+// Bedienung:
+//   VGCON    verbinden + Messbetrieb starten
+//   VGOFF    Messbetrieb beenden + trennen
+//   VGST     Zahlen: Saetze/s, Synchronfehler, Spanne in mV
+
+// ── BRSP (BlueRadios), am Geraet ausgelesen + gegen gemus iPad-App geprueft ──
+#define ZIEL_TYP   0
+#define ZIEL_SVC   "da2b84f1-6279-48de-bdc0-afbea0226079"
+#define BRSP_TX    "18cda784-4bd3-4370-85bb-bfed91ec86af"   // Geraet meldet hier
+#define BRSP_RX    "bf03260c-7205-4c25-af43-93b1c299d159"   // wir schreiben hier
+#define BRSP_MODE  "a87988b9-694c-479c-900e-95dfa6c00a24"
+
+// ── Welcher Kanal? ──
+// ⭐ ZUM AUSPROBIEREN DIE BESCHLEUNIGUNG NEHMEN, NICHT DAS EKG. Ein EKG ohne
+// angelegte Elektroden ist Rauschen — daran sieht man NICHT, ob die Uebertragung
+// stimmt. Ein Beschleunigungswert dagegen folgt dem KIPPEN des Geraets: flach ~0,
+// auf die Kante gestellt ~±1000 mg. Ein Signal, das man selbst steuert, ist der
+// einzige ehrliche Beweis, dass Rahmen, Reihenfolge und Skalierung stimmen.
+// (Idee von gemu, 2026-08-05.)
+//
+// Werte aus oeko4.def, Spalten $MULF $OFFS $DIVF:
+//   C09 X    mg   offs 2048   1/1      <- Testkanal, kippen
+//   C02 EKG  mV   offs 32768  5/6940   <- das eigentliche Ziel
+#define KANAL_NR   9
+#define KANAL_NAME "X-Beschleunigung"
+#define KANAL_EINH "mg"
+#define KANAL_OFFS 2048
+#define KANAL_MULF 1
+#define KANAL_DIVF 1
+#define KANAL_SKAL 1        // 1000 = in Tausendsteln rechnen (fuers EKG noetig)
+
+// ⚠️ Satzlaenge = 2*Kanaele+1, und sie ist FEST — unabhaengig von den Scan-Teilern.
+// Ein Kanal mit Teiler 8 kommt trotzdem in JEDEM Takt ueber den Draht, er wird nur
+// nicht jedes Mal abgelegt. Wer hier einen Kanal dazunimmt, muss KANAELE erhoehen.
+#define KANAELE    1
+#define SATZ_LEN   3
+
+// Version 252 >= 212 -> Ratenwort = gscan|0x8000; Subtyp 24 >= 7 -> br = $ff
+#define GSCAN      300
+#define BR_BYTE    0xff
+
+#define LEBEN_MS   5000     // XON-Takt (siehe unten -- NICHT optional)
+
+int  ziel_mac[6];
+char zeile[160];
+char rx[256];
+char roh[600];      // Sammelpuffer fuer angebrochene Saetze
+int  roh_n;
+
+int  verbunden;
+int  laeuft;        // 1 = Messbetrieb an
+int  auftrag;       // 1=start 2=stop 3=Zahlen
+
+char startcmd[40];
+int  efa[5];
+
+int  saetze;        // seit dem Start empfangene Saetze
+int  syncfehler;
+int  mn_mv; int mx_mv;
+int  letzter_wert;
+int  t_start; int t_leben; int t_melde;
+char txbuf[40];
+int  rohmodus;      // 1 = eingehende Bytes als Hex zeigen, nicht zerlegen
+
+void zahlen_melden() {
+    int dt = millis() - t_start;
+    int rate = 0;
+    if (dt > 0) { rate = (saetze * 1000) / dt; }
+    sprintf(zeile, "VG: %s = %d %s  |  %d Saetze, %d/s, Sync-Fehler %d, Spanne %d..%d",
+            KANAL_NAME, letzter_wert, KANAL_EINH, saetze, rate, syncfehler, mn_mv, mx_mv);
+    addLog(zeile);
+}
+
+// Startbefehl zusammensetzen, statt eine Hexkette von Hand hinzuschreiben —
+// so stimmt die Maske automatisch, wenn oben ein anderer Kanal eingetragen wird.
+// Maske: efa[c>>4] |= 1 << (15-(c&15))  mit c = Kanalnummer MINUS EINS.
+void startcmd_bauen() {
+    int i = 0;
+    while (i < 5) { efa[i] = 0; i = i + 1; }
+    int c = KANAL_NR - 1;
+    efa[c >> 4] = efa[c >> 4] | (1 << (15 - (c & 15)));
+    sprintf(startcmd, "!W%02x%04x%04x%04x%04x%04x%04x", BR_BYTE,
+            efa[0], efa[1], efa[2], efa[3], efa[4], GSCAN | 0x8000);
+}
+
+// EIN Satz: [hi][lo][0x0D]
+void satz(int hi, int lo) {
+    int r = ((hi & 0xFF) << 8) | (lo & 0xFF);
+    // ⚠️ Bei kleinen Faktoren in Ganzzahlarithmetik zuerst MULTIPLIZIEREN. Beim EKG
+    // ist der Faktor 5/6940 — (roh-32768)*5/6940 waere fuer fast jeden Wert 0.
+    // KANAL_SKAL zieht die Aufloesung vorher hoch.
+    int mv = ((r - KANAL_OFFS) * KANAL_MULF * KANAL_SKAL) / KANAL_DIVF;
+    letzter_wert = mv;
+    if (saetze == 0) { mn_mv = mv; mx_mv = mv; }
+    if (mv < mn_mv) { mn_mv = mv; }
+    if (mv > mx_mv) { mx_mv = mv; }
+    saetze = saetze + 1;
+}
+
+// Sammelpuffer zerlegen. Steht an der erwarteten Stelle kein 0x0D, ist der Strom
+// verrutscht -- dann bis zum naechsten 0x0D verwerfen und dort neu aufsetzen.
+void zerlegen() {
+    int p = 0;
+    while (roh_n - p >= SATZ_LEN) {
+        if ((roh[p + SATZ_LEN - 1] & 0xFF) == 0x0D) {
+            satz(roh[p], roh[p + 1]);
+            p = p + SATZ_LEN;
+        } else {
+            syncfehler = syncfehler + 1;
+            int q = p;
+            while (q < roh_n && (roh[q] & 0xFF) != 0x0D) { q = q + 1; }
+            if (q >= roh_n) { p = roh_n; break; }
+            p = q + 1;
+        }
+    }
+    // Rest nach vorne schieben
+    int k = 0;
+    while (p + k < roh_n) { roh[k] = roh[p + k]; k = k + 1; }
+    roh_n = k;
+}
+
+void sende(char s[]) {
+    char b[40];
+    strcpy(b, s);
+    strcat(b, "\r");
+    bleSppWrite(BRSP_RX, b, strlen(b));
+}
+
+// Befehl senden und die Antwort ABWARTEN UND VERWERFEN.
+// ⚠️ Beides ist Pflicht. Das Warten, weil das Geraet die Schritte der Reihe nach
+// erwartet; das Verwerfen, weil eine liegengebliebene Antwort nach dem Start als
+// Messrahmen gedeutet wuerde und lauter Synchronfehler produzierte.
+void frage(char c[], int wartems) {
+    sende(c);
+    int bis = millis() + wartems;
+    while (millis() < bis) {
+        int n = bleSppAvailable();
+        if (n > 0) {
+            if (n > 255) { n = 255; }
+            bleSppRead(rx, n);
+        }
+        delay(20);
+    }
+}
+
+void Command(char cmd[]) {
+    if      (strcmp(cmd, "CON") == 0) { auftrag = 1; responseCmnd("starte ..."); }
+    else if (strcmp(cmd, "OFF") == 0) { auftrag = 2; responseCmnd("beende"); }
+    else if (strcmp(cmd, "ST")  == 0) { auftrag = 3; responseCmnd("siehe Log"); }
+    else if (strStartsWith(cmd, "TX ")) {
+        // Zum Eingrenzen: beliebigen ASCII-Befehl schicken und die Antwort als Hex sehen.
+        strSub(txbuf, cmd, 3, 0);
+        auftrag = 4;
+        responseCmnd("sende ...");
+    }
+    else { responseCmnd("VGCON | VGOFF | VGST"); }
+}
+
+int main() {
+    addCommand("VG");
+    ziel_mac[0] = 0xEC; ziel_mac[1] = 0xFE; ziel_mac[2] = 0x7E;
+    ziel_mac[3] = 0x10; ziel_mac[4] = 0xE1; ziel_mac[5] = 0xEF;
+    bleSppTarget(ziel_mac, ZIEL_TYP, ZIEL_SVC);
+    return 0;
+}
+
+void TaskLoop() {
+    if (auftrag == 1) {
+        auftrag = 0;
+        // ⚠️ ERST DEN FUNKSTAPEL HOCHFAHREN. NimBLEClient::connect() steigt sofort
+        // und OHNE Fehlercode aus, wenn der Host noch nicht synchronisiert ist
+        // (NimBLEClient.cpp: `if (!NimBLEDevice::m_synced) return false`). Ein kurzer
+        // Scan bringt ihn hoch. Genau daran lag es, dass dieselbe Verbindung vorher
+        // klappte und nach einem Neustart nicht mehr: vorher lief der Scanner.
+        bleScan(600);
+        delay(900);
+        bleScanStop();
+        delay(200);
+        // ⚠️ MEHRFACH VERSUCHEN. Der Verbindungsaufbau ist nicht deterministisch:
+        // NimBLEClient::connect() steigt ohne Fehlercode aus, wenn der Host nicht
+        // synchronisiert ist ODER der laufende Scan sich nicht anhalten laesst —
+        // und BLE_ESP32 startet seinen Hintergrund-Scan immer wieder neu. Das Geraet
+        // selbst ist nachweislich da (sendet bei -62 dBm). Also nicht beim ersten
+        // Nein aufgeben.
+        int ok = 0;
+        int v = 0;
+        while (v < 6 && !ok) {
+            v = v + 1;
+            addLog("VG: verbinde ...");
+            ok = bleSppConnect();
+            if (!ok) { delay(1200); }
+        }
+        if (!ok) { addLog("VG: Verbindung nach 6 Versuchen fehlgeschlagen"); return; }
+        sprintf(zeile, "VG: verbunden im %d. Versuch", v);
+        addLog(zeile);
+        if (!bleSppSub(BRSP_TX)) { addLog("VG: BRSP_TX nicht abonniert"); return; }
+        char m[2];
+        m[0] = 1;                                  // BrspModeData
+        bleSppWrite(BRSP_MODE, m, 1);
+        verbunden = 1;
+        delay(200);
+
+        // ⚠️⚠️ DIESE REIHENFOLGE IST NICHT VERHANDELBAR. Beim ersten Versuch hatte ich
+        // die fuenf Abfragen uebersprungen und gleich %9220/%9401/!W geschickt — das
+        // Geraet blieb daraufhin im Befehlsmodus und sendete NICHTS, antwortete aber
+        // weiter brav auf VS. Kein Fehler, keine Meldung, nur Stille.
+        // Genau diese Folge steht in uVariotest26/src/AcquisitionWorker.cpp.
+        frage("VS",    400);      // 1. Kennung (der Port bricht ohne Antwort ab)
+        frage("%00",   400);      // 2. Rekorderstatus
+        frage("%13",   400);      // 3. Quarz/Subtyp
+        frage("%08",   400);      // 4. Batteriespannung
+        frage("%09",   400);      // 5. Geraetename
+
+        // ⚠️ %9220 schaltet im GERAET einen Zeitueberlauf scharf. Ab jetzt MUSS
+        // regelmaessig ein Lebenszeichen kommen, sonst bricht das Geraet die
+        // Uebertragung von selbst ab -- ohne Fehler, sie hoert einfach auf.
+        // ⚠️⚠️ HIER STAND EINMAL ZUSAETZLICH frage("%9401") — "Befehlsmodus" — aus
+        // uVariotest26/AcquisitionWorker.cpp uebernommen. Damit blieb das Geraet
+        // stumm: !W wurde ignoriert, VS aber weiter brav beantwortet. Die
+        // ORIGINAL-App (VpOnline/MainViewController.m StartOnline) schickt vor dem
+        // !W ausschliesslich %9220 — und wer ein Geraet in den Befehlsmodus
+        // schaltet, darf sich nicht wundern, dass es nicht sendet.
+        frage("%9220", 200);      // 6. Zeitueberlauf scharf machen -- und sonst nichts
+
+        roh_n = 0; saetze = 0; syncfehler = 0;
+        t_start = millis(); t_leben = t_start; t_melde = t_start;
+        startcmd_bauen();
+        sprintf(zeile, "VG: Startbefehl %s (%d Byte)", startcmd, strlen(startcmd) + 1);
+        addLog(zeile);
+        sende(startcmd);
+        laeuft = 1;
+        sprintf(zeile, "VG: laeuft — C%02d %s, Satzlaenge %d Byte", KANAL_NR, KANAL_NAME, SATZ_LEN);
+        addLog(zeile);
+        return;
+    }
+    if (auftrag == 2) {
+        auftrag = 0;
+        if (laeuft) { sende(""); delay(200); }      // "\r" allein beendet
+        laeuft = 0;
+        bleSppClose();
+        verbunden = 0;
+        zahlen_melden();
+        addLog("VG: beendet");
+        return;
+    }
+    if (auftrag == 3) { auftrag = 0; zahlen_melden(); return; }
+    if (auftrag == 4) {
+        auftrag = 0;
+        rohmodus = 1; laeuft = 0; roh_n = 0;
+        sende(txbuf);
+        sprintf(zeile, "VG: gesendet \"%s\"", txbuf);
+        addLog(zeile);
+        return;
+    }
+
+    if (!verbunden) { delay(200); return; }
+    if (!bleSppState()) {
+        addLog("VG: Verbindung verloren");
+        verbunden = 0; laeuft = 0;
+        return;
+    }
+
+    int jetzt = millis();
+    // ⚠️ Lebenszeichen VOR dem Lesen senden, nicht danach: kommt gerade nichts
+    // herein, verpasst man sonst den Takt und das Geraet steigt aus.
+    if (laeuft && jetzt - t_leben >= LEBEN_MS) {
+        t_leben = jetzt;
+        char x[2];
+        x[0] = 0x11;                                // XON
+        bleSppWrite(BRSP_RX, x, 1);
+    }
+
+    int n = bleSppAvailable();
+    if (n > 0) {
+        if (n > 255) { n = 255; }
+        int got = bleSppRead(rx, n);
+        int i = 0;
+        while (i < got) {
+            if (roh_n < 590) { roh[roh_n] = rx[i]; roh_n = roh_n + 1; }
+            i = i + 1;
+        }
+        if (rohmodus) {
+            int k = 0;
+            while (k < got) {
+                char hz[80]; hz[0] = 0;
+                int j = 0;
+                while (j < 24 && k < got) {
+                    char b2[4]; sprintf(b2, "%02X ", rx[k] & 0xFF);
+                    strcat(hz, b2); k = k + 1; j = j + 1;
+                }
+                addLog(hz);
+            }
+        } else {
+            zerlegen();
+        }
+    }
+
+    if (laeuft && jetzt - t_melde >= 1000) { t_melde = jetzt; zahlen_melden(); }
+    delay(10);
+}
+
+void CleanUp() {
+    if (laeuft) { sende(""); }
+    bleSppClose();
+}
