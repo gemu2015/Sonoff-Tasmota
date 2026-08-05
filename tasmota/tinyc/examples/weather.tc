@@ -250,7 +250,7 @@ void WebPage() {
     WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
     WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0, 0);
-    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  0, 1440, 0, 0);
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0, 0);
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
