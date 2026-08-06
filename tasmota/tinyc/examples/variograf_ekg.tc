@@ -1,6 +1,10 @@
 // variograf_ekg.tc — EKG eines Variograf-Rekorders ueber BLE, 256 Hz.
 //
-// ⭐ LAEUFT (2026-08-06). Zuvor kam kein einziger Messwert, und die Ursache lag NICHT
+// ⭐ LAEUFT (2026-08-06) -- auf C09 (Beschleunigung) UND auf C02 (EKG) nachgewiesen:
+// 250 Saetze/s bei nominal 256, null Synchronfehler. Ohne Elektroden steht der
+// EKG-Eingang an beiden Anschlaegen (+-23608 uV) -- das ist der rechnerische
+// Vollausschlag 32768*5/6940 auf ein Mikrovolt genau, bestaetigt also die Skalierung.
+// Zuvor kam kein einziger Messwert, und die Ursache lag NICHT
 // im Protokoll: der 29 Byte lange Startbefehl passte nicht in EINEN BLE-Schreibvorgang
 // (ATT-MTU 23 -> hoechstens 20 Byte Nutzlast). Er verliess den ESP nie. Kurze Befehle
 // gingen deshalb immer durch -- VS wurde beantwortet, ein nacktes CR liess das Geraet
@@ -25,6 +29,12 @@
 // der Kanal wird also aus C02 BERECHNET (typ $80 = QRS-Detektor). Das Geraet sendet
 // keine Herzfrequenz — die muessen wir selbst aus dem EKG gewinnen.
 //
+// ⚠️⚠️ DAS GERAET SCHALTET SICH NACH EINER MINUTE OHNE VERBINDUNG AB (gemu, 2026-08-06).
+// Das sieht von aussen exakt wie ein kaputter Verbindungsaufbau aus: "verbinde ..." und
+// sechsmal fehlgeschlagen, obwohl kurz zuvor alles lief. Wer zwischen zwei Versuchen
+// laenger nachdenkt, flasht oder Logs liest, faellt darauf herein. Vor dem Suchen auf
+// der ESP-Seite ALSO IMMER ZUERST: laeuft das Geraet ueberhaupt noch?
+//
 // Bedienung:
 //   VGCON    verbinden + Messbetrieb starten
 //   VGOFF    Messbetrieb beenden + trennen
@@ -48,13 +58,19 @@
 // Werte aus oeko4.def, Spalten $MULF $OFFS $DIVF:
 //   C09 X    mg   offs 2048   1/1      <- Testkanal, kippen
 //   C02 EKG  mV   offs 32768  5/6940   <- das eigentliche Ziel
-#define KANAL_NR   9
-#define KANAL_NAME "X-Beschleunigung"
-#define KANAL_EINH "mg"
-#define KANAL_OFFS 2048
-#define KANAL_MULF 1
-#define KANAL_DIVF 1
-#define KANAL_SKAL 1        // 1000 = in Tausendsteln rechnen (fuers EKG noetig)
+// ⭐ JETZT AUF DEM EKG-KANAL. Zum Nachpruefen der Uebertragung wieder auf C09
+// umstellen (Werte in der Tabelle darueber) -- die Kanalmaske rechnet sich selbst.
+#define KANAL_NR   2
+#define KANAL_NAME "EKG"
+#define KANAL_EINH "uV"
+#define KANAL_OFFS 32768
+#define KANAL_MULF 5
+#define KANAL_DIVF 6940
+// ⚠️ 1000 ist hier PFLICHT, nicht Kosmetik: der Faktor ist 5/6940 = 0,00072, und
+// ganzzahlig waere (roh-32768)*5/6940 fuer fast jeden Wert schlicht 0. Mit SKAL 1000
+// rechnen wir in Tausendstel mV, also MIKROVOLT -- daher auch die Einheit oben.
+// Ueberlauf ist geprueft: (+-32768)*5*1000 = +-164 Mio, passt in int32.
+#define KANAL_SKAL 1000
 
 // ⚠️ Satzlaenge = 2*Kanaele+1, und sie ist FEST — unabhaengig von den Scan-Teilern.
 // Ein Kanal mit Teiler 8 kommt trotzdem in JEDEM Takt ueber den Draht, er wird nur
