@@ -35,6 +35,13 @@
 // laenger nachdenkt, flasht oder Logs liest, faellt darauf herein. Vor dem Suchen auf
 // der ESP-Seite ALSO IMMER ZUERST: laeuft das Geraet ueberhaupt noch?
 //
+// ⭐ LIVE-KURVE auf der Hauptseite des Geraets (Canvas), Daten inkrementell ueber
+// /ekg?seit=<folge>. Muster wie in max30102.tc: holen und zeichnen sind entkoppelt,
+// gezeichnet wird auf requestAnimationFrame mit dem NACHKOMMAANTEIL des Lesezeigers,
+// der naechste Abruf haengt per setTimeout AN DER ANTWORT (nie setInterval).
+// ⚠️ Ohne Elektroden zeigt die Kurve Rauschen zwischen beiden Anschlaegen -- das ist
+// der offene Eingang, kein Fehler.
+//
 // Bedienung:
 //   VGCON    verbinden + Messbetrieb starten
 //   VGOFF    Messbetrieb beenden + trennen
@@ -82,6 +89,14 @@
 #define GSCAN      300
 #define BR_BYTE    0xff
 
+// ── Live-Kurve ──
+// ⚠️ MUSS IN SLOT 0 LAUFEN: webOn() traegt die Adresse zwar slot-blind ein, der
+// Verteiler ruft aber immer slots[0]. Aus Slot 1 waere /ekg erreichbar und wuerde
+// trotzdem das falsche Programm aufrufen -- ohne Fehlermeldung.
+#define KURVE_N    500      // Punkte im Ring = 2 s bei 250 Hz
+#define AR_FENSTER 750      // Werte, nach denen der Anzeigebereich neu bestimmt wird
+#define ANZ_RATE   250      // gemessene Satzrate, fuer den Lesezeiger im Browser
+
 #define LEBEN_MS   5000     // XON-Takt (siehe unten -- NICHT optional)
 
 int  ziel_mac[6];
@@ -93,6 +108,12 @@ int  roh_n;
 int  verbunden;
 int  laeuft;        // 1 = Messbetrieb an
 int  auftrag;       // 1=start 2=stop 3=Zahlen
+
+int  kurve[KURVE_N];   // auf 0..99 skaliert
+int  kpos; int kfolge;
+int  ar_mn; int ar_mx; int ar_mn_n; int ar_mx_n; int ar_fz; int ar_init;
+char blk[128];
+char argb[16];
 
 char startcmd[40];
 int  efa[5];
@@ -134,6 +155,28 @@ void satz(int hi, int lo) {
     // KANAL_SKAL zieht die Aufloesung vorher hoch.
     int mv = ((r - KANAL_OFFS) * KANAL_MULF * KANAL_SKAL) / KANAL_DIVF;
     letzter_wert = mv;
+
+    // ⚠️ Selbst-Einmessung: was ein EKG liefert, haengt an Elektroden und Lage. Der
+    // Bereich wird ueber ein Fenster neu bestimmt. Untergrenze fuer die Spanne, sonst
+    // wird bei stillem Eingang das letzte Bit Rauschen auf volle Hoehe verstaerkt.
+    if (!ar_init) { ar_mn = mv; ar_mx = mv; ar_mn_n = mv; ar_mx_n = mv; ar_init = 1; }
+    if (mv < ar_mn_n) { ar_mn_n = mv; }
+    if (mv > ar_mx_n) { ar_mx_n = mv; }
+    ar_fz = ar_fz + 1;
+    if (ar_fz >= AR_FENSTER) {
+        ar_mn = ar_mn_n; ar_mx = ar_mx_n;
+        ar_mn_n = mv; ar_mx_n = mv; ar_fz = 0;
+    }
+    int sp = ar_mx - ar_mn;
+    if (sp < 200) { sp = 200; }
+    int y = ((mv - ar_mn) * 99) / sp;
+    if (y < 0) { y = 0; }
+    if (y > 99) { y = 99; }
+    kurve[kpos] = y;
+    kpos = kpos + 1;
+    if (kpos >= KURVE_N) { kpos = 0; }
+    kfolge = kfolge + 1;
+
     if (saetze == 0) { mn_mv = mv; mx_mv = mv; }
     if (mv < mn_mv) { mn_mv = mv; }
     if (mv > mx_mv) { mx_mv = mv; }
@@ -207,8 +250,66 @@ void Command(char cmd[]) {
     else { responseCmnd("VGCON | VGOFF | VGST"); }
 }
 
+// Nur der Zuwachs seit der mitgeschickten Folgenummer -- siehe TinyC_Reference/CLAUDE.md
+// "A live curve in the web UI that does not stutter".
+void WebOn() {
+    if (webHandler() != 1) { return; }
+    int seit = 0;
+    if (webArg("seit", argb) > 0) { seit = strToInt(argb); }
+    int neu = kfolge - seit;
+    if (neu < 0)       { neu = KURVE_N; }
+    if (neu > KURVE_N) { neu = KURVE_N; }
+    sprintf(zeile, "%d,%d,%d,%d,%d|", kfolge, neu, letzter_wert, laeuft, syncfehler);
+    webSend(zeile);
+    int p = kpos - neu;
+    if (p < 0) { p = p + KURVE_N; }
+    int i = 0;
+    while (i < neu) {
+        int o = 0;
+        blk[0] = 0;
+        while (o < 48 && i < neu) {
+            sprintf(zeile, "%02d", kurve[p]);
+            strcat(blk, zeile);
+            p = p + 1;
+            if (p >= KURVE_N) { p = 0; }
+            o = o + 1; i = i + 1;
+        }
+        webSend(blk);
+    }
+}
+
+void WebPage() {
+    webSend("<div style='margin:8px 0'><canvas id='eg' width='500' height='150' ");
+    webSend("style='width:100%;height:160px;background:#111;border-radius:4px'></canvas>");
+    webSend("<div id='ev' style='text-align:center;font-size:0.9em;padding:4px'>--</div></div>");
+    webSend("<script>(function(){var c=document.getElementById('eg');if(!c)return;");
+    webSend("var x=c.getContext('2d'),b=[],sq=0,rp=0,tl=0,W=500,H=150,N=500,R=250;");
+    webSend("function pull(){fetch('/ekg?seit='+sq).then(r=>r.text()).then(t=>{");
+    webSend("var p=t.split('|');if(p.length<2)return;var h=p[0].split(',');sq=+h[0];");
+    webSend("var s=p[1],k=s.length>>1;for(var i=0;i<k;i++)b.push(+s.substr(i*2,2));");
+    webSend("if(b.length>1500){var d=b.length-1500;b.splice(0,d);rp-=d;}if(rp<0)rp=0;");
+    webSend("document.getElementById('ev').textContent=(h[3]=='1'?");
+    webSend("('EKG '+h[2]+' uV   Sync-Fehler '+h[4]):'Messbetrieb aus');");
+    // ⚠️ setTimeout NACH der Antwort, nie setInterval -- sonst sind zwei Abrufe mit
+    // derselben Folgenummer offen und die Kurve springt zurueck.
+    webSend("}).catch(e=>{}).finally(()=>setTimeout(pull,200));}");
+    webSend("function draw(now){if(!tl)tl=now;var dt=now-tl;tl=now;if(dt>200)dt=200;");
+    webSend("var lag=b.length-rp,e=(lag-N)/N;if(e>1)e=1;if(e<-1)e=-1;");
+    webSend("rp+=dt*R*(1+0.02*e)/1000;if(rp>b.length)rp=b.length;");
+    // ⚠️ MIT dem Nachkommaanteil zeichnen, sonst steht die Kurve abwechselnd und springt.
+    webSend("var fi=Math.floor(rp),fr=rp-fi;");
+    webSend("x.fillStyle='#111';x.fillRect(0,0,W,H);");
+    webSend("var st=fi-N;if(st<0){st=0;fr=0;}var n=Math.min(N,b.length-st);");
+    webSend("if(n>1){x.strokeStyle='#3ad13a';x.lineWidth=1.5;x.beginPath();");
+    webSend("for(var i=0;i<n;i++){var v=b[st+i],px=i*W/N-fr*W/N,py=H-1-v*(H-2)/99;");
+    webSend("if(i==0)x.moveTo(px,py);else x.lineTo(px,py);}x.stroke();}");
+    webSend("requestAnimationFrame(draw);}");
+    webSend("pull();requestAnimationFrame(draw);})();</script>");
+}
+
 int main() {
     addCommand("VG");
+    webOn(1, "/ekg");
     ziel_mac[0] = 0xEC; ziel_mac[1] = 0xFE; ziel_mac[2] = 0x7E;
     ziel_mac[3] = 0x10; ziel_mac[4] = 0xE1; ziel_mac[5] = 0xEF;
     bleSppTarget(ziel_mac, ZIEL_TYP, ZIEL_SVC);
