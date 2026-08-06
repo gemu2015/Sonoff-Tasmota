@@ -78,6 +78,13 @@ void Command(char cmd[]) {
         tx_len = strlen(txbuf);
         tx_auftrag = 1;
         responseCmnd("sende ...");
+    } else if (strcmp(cmd, "BEEP") == 0) {
+        // ⭐ gemus Test: ein NACKTES CR loest am Geraet immer einen Piep aus. Das ist
+        // der direkteste Nachweis, dass ein Schreibvorgang den REKORDER erreicht --
+        // unabhaengig von jeder Antwort, die auch aus dem Modulpuffer stammen koennte.
+        // Dreimal mit Abstand, damit ein ueberhoerter Einzelpiep ausgeschlossen ist.
+        auftrag = 6;
+        responseCmnd("sende 3x CR -- bitte zuhoeren");
     } else if (strcmp(cmd, "VS2") == 0) {
         // ⭐ Der Test, der Modulpuffer von echter Antwort trennt: ZWEIMAL fragen.
         // Aus einem Puffer kommt die Antwort einmal, vom Rekorder zweimal.
@@ -149,6 +156,21 @@ void TaskLoop() {
     if (auftrag == 3) {
         auftrag = 0;
         zustand_melden();
+        return;
+    }
+    if (auftrag == 6) {
+        auftrag = 0;
+        char cr[2];
+        cr[0] = 0x0D;
+        int i = 0;
+        while (i < 3) {
+            i = i + 1;
+            int w = bleSppWrite(WRITE_CHR, cr, 1);
+            sprintf(zeile, "SPPB: --- CR Nr. %d gesendet (Schreiben %s) ---", i, w ? "ok" : "FEHLER");
+            addLog(zeile);
+            delay(3000);
+        }
+        addLog("SPPB: --- drei CR raus. Wie oft hat es gepiept? ---");
         return;
     }
     if (auftrag == 5) {

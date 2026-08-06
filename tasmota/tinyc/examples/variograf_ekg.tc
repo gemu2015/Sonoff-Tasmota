@@ -1,29 +1,16 @@
 // variograf_ekg.tc — EKG eines Variograf-Rekorders ueber BLE, 256 Hz.
 //
-// ⛔⛔ FUNKTIONIERT NOCH NICHT. Dieses Skript hat bis heute (2026-08-05) NICHT EINEN
-// EINZIGEN MESSWERT geliefert. Es verbindet sich, es schickt den Startbefehl — und
-// das Geraet bleibt stumm. Wer es benutzt, faengt bei diesem Stand an, nicht bei
-// einem laufenden System.
-//
-// ⭐ DER GRUND IST GEFUNDEN, ABER NICHT BEHOBEN: unsere Schreibvorgaenge erreichen
-// den Rekorder ueber BLE gar nicht. Bewiesen durch gemus Kontrollversuch — das Geraet
-// PIEPT bei einem VS-Befehl, und zwar ueber Bluetooth CLASSIC vom Mac, ueber BLE
-// aber NICHT. Die Antwort, die ueber BLE trotzdem ankam, war der Puffer des
-// BlueRadios-Moduls, nicht die Reaktion des Geraets.
-// ⚠️ Verdacht: das Modul ist Dual-Mode und der serielle Port hat nur EINEN Besitzer —
-// haelt der Mac die Classic-Verbindung, darf die BRSP/BLE-Seite nichts hineinschreiben.
-// UNGEPRUEFT.
-//
-// ⚠️ Ich habe vorher lange die BEFEHLSFOLGE verdaechtigt und drei Dinge geaendert,
-// die alle schon richtig waren (Kanalmaske, Ratenwort, die Vorabfragen). Erst der
-// Piep hat es entschieden. Lehre: ein Geraet, das bei Empfang hoerbar quittiert, ist
-// der bessere Detektor fuer "kommt mein Befehl an" als jede Antwortanalyse — danach
-// fragen, BEVOR man Protokolle waelzt.
-//
-// ⭐ WAS HIER TROTZDEM GILT und beim Classic-Versuch unveraendert gebraucht wird:
-// die vollstaendig aufgeschluesselte oeko4.def (Abtastrate, Kanaltabelle, Umrechnung)
-// und der Aufbau des !W-Startbefehls. Das ist gegen den geprueften Parser aus
-// uVariotest26 und gegen die Original-App gerechnet, nicht geraten.
+// ⭐ LAEUFT (2026-08-06). Zuvor kam kein einziger Messwert, und die Ursache lag NICHT
+// im Protokoll: der 29 Byte lange Startbefehl passte nicht in EINEN BLE-Schreibvorgang
+// (ATT-MTU 23 -> hoechstens 20 Byte Nutzlast). Er verliess den ESP nie. Kurze Befehle
+// gingen deshalb immer durch -- VS wurde beantwortet, ein nacktes CR liess das Geraet
+// PIEPEN --, nur der Start nicht. Behoben in der Firmware: bleSppWrite zerlegt jetzt
+// an der MTU.
+// ⚠️ Sichtbar wurde es erst, als sende() den Rueckgabewert PRUEFTE. Vorher sah ein
+// fehlgeschlagener Schreibvorgang aus wie ein Geraet, das den Befehl empfaengt und
+// nicht reagiert -- und ich habe daraufhin die Befehlsfolge verdaechtigt statt die
+// Uebertragung. Ein ungeprueftes Schreiben verwandelt einen Transportfehler in ein
+// scheinbares Protokollraetsel.
 //
 // Baut auf ble_spp_probe.tc auf (BRSP-Verbindung) und setzt den MESSBETRIEB obendrauf.
 // Alle Zahlen hier stammen aus oeko4.def, mit dem geprueften Feldschema aus
@@ -119,7 +106,7 @@ void startcmd_bauen() {
     while (i < 5) { efa[i] = 0; i = i + 1; }
     int c = KANAL_NR - 1;
     efa[c >> 4] = efa[c >> 4] | (1 << (15 - (c & 15)));
-    sprintf(startcmd, "!W%02x%04x%04x%04x%04x%04x%04x", BR_BYTE,
+    sprintf(startcmd, "!W%02X%04x%04x%04x%04x%04x%04x", BR_BYTE,
             efa[0], efa[1], efa[2], efa[3], efa[4], GSCAN | 0x8000);
 }
 
@@ -159,11 +146,19 @@ void zerlegen() {
     roh_n = k;
 }
 
-void sende(char s[]) {
+// ⚠️ IMMER den Rueckgabewert pruefen und melden. Genau dieses ungeprueft gelassene
+// bleSppWrite hat die Fehlersuche um einen Tag verlaengert (siehe Kopf).
+int sende(char s[]) {
     char b[40];
     strcpy(b, s);
     strcat(b, "\r");
-    bleSppWrite(BRSP_RX, b, strlen(b));
+    int ok = bleSppWrite(BRSP_RX, b, strlen(b));
+    if (!ok) {
+        char w[64];
+        sprintf(w, "VG: SCHREIBEN FEHLGESCHLAGEN (%d Byte)", strlen(b));
+        addLog(w);
+    }
+    return ok;
 }
 
 // Befehl senden und die Antwort ABWARTEN UND VERWERFEN.
@@ -295,7 +290,8 @@ void TaskLoop() {
 
     if (!verbunden) { delay(200); return; }
     if (!bleSppState()) {
-        addLog("VG: Verbindung verloren");
+        sprintf(zeile, "VG: Verbindung verloren nach %d ms, %d Saetze", millis() - t_start, saetze);
+        addLog(zeile);
         verbunden = 0; laeuft = 0;
         return;
     }
@@ -307,7 +303,9 @@ void TaskLoop() {
         t_leben = jetzt;
         char x[2];
         x[0] = 0x11;                                // XON
-        bleSppWrite(BRSP_RX, x, 1);
+        int xo = bleSppWrite(BRSP_RX, x, 1);
+        sprintf(zeile, "VG: XON nach %d ms %s", jetzt - t_start, xo ? "ok" : "FEHLGESCHLAGEN");
+        addLog(zeile);
     }
 
     int n = bleSppAvailable();

@@ -215,12 +215,36 @@ void tc_ble_spp_target(const uint8_t *mac, int addrtype, const char *svc) {
 int tc_ble_spp_connect(void) {
   if (!tc_spp.svc[0]) { return 0; }
   BLE_ESP32::BLEEnableUnsaved = 1;    // request NimBLE up, same as the other BLE entry points
+  // ⚠️⚠️ NICHTS IN NIMBLE AUFRUFEN, SOLANGE DER HOST NICHT STEHT. BLEEnableUnsaved
+  // BITTET nur darum, dass BLE hochkommt -- es wartet nicht. Jede Host-Funktion nimmt
+  // aber ble_hs_lock(), und deren Mutex existiert vorher NICHT: der Zugriff endet in
+  // ble_npl_mutex_pend mit Exception 28 / LoadProhibited.
+  // Mit der passenden ELF decodiert (2026-08-06), nachdem ich es dreimal falsch
+  // geraten hatte -- erst auf "falscher Task" getippt, dann auf die falsche Funktion.
+  // Die Absturzadressen lagen alle in derselben Sperrlogik von ble_hs.c.
+  // tc_ble_srv_loop() weiter unten macht es seit jeher richtig und wartet genau so.
+  // Der Aufrufer versucht es einfach erneut; beim naechsten Mal steht der Stapel.
+  if (!NimBLEDevice::isInitialized()) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("BLE: SPP connect deferred -- NimBLE not up yet"));
+    return 0;
+  }
+  // Groessere MTU anfordern -- ERST JETZT, denn auch das nimmt die Host-Sperre.
+  NimBLEDevice::setMTU(247);
   if (!tc_spp_client) {
     tc_spp_client = NimBLEDevice::createClient();
     if (!tc_spp_client) { return 0; }
     tc_spp_client->setClientCallbacks(&tc_spp_client_cb, false);
   }
-  if (tc_spp_client->isConnected()) { tc_spp_client->disconnect(); }
+  if (tc_spp_client->isConnected()) {
+    tc_spp_client->disconnect();
+    // ⚠️ Auf den Abbau WARTEN. disconnect() ist asynchron, und solange die alte
+    // Verbindung im Host steht, lehnt connect() die neue ohne Fehlercode ab
+    // (ble_gap_conn_find_by_addr findet sie). Nur unser eigenes Client-Objekt
+    // abfragen -- kein Aufruf in den BLE-Stapel aus diesem Task.
+    for (int i = 0; i < 40 && tc_spp_client->isConnected(); i++) {
+      vTaskDelay(pdMS_TO_TICKS(25));
+    }
+  }
   tc_spp_service = nullptr;
   NimBLEAddress addr(tc_spp.mac, tc_spp.addrtype);
   if (!tc_spp_client->connect(addr, true)) {
@@ -241,7 +265,13 @@ int tc_ble_spp_connect(void) {
 }
 
 int tc_ble_spp_state(void) {
-  return (tc_spp_client && tc_spp_client->isConnected()) ? 1 : 0;
+  // ⚠️ Der DIENSTZEIGER gehoert zur Bedingung. onDisconnect() setzt ihn auf nullptr,
+  // und tc_ble_spp_write() gibt ohne ihn sofort 0 zurueck. Fragte man hier nur
+  // isConnected(), meldete der Zustand "VERBUNDEN", waehrend jedes Schreiben
+  // scheitert -- genau dieser Widerspruch stand am 2026-08-06 im Log und hat die
+  // Fehlersuche verlaengert. Ein Zustand, der dem Verhalten widerspricht, ist
+  // schlimmer als gar keiner.
+  return (tc_spp_client && tc_spp_client->isConnected() && tc_spp_service) ? 1 : 0;
 }
 
 int tc_ble_spp_sub(const char *chruuid) {
@@ -267,8 +297,27 @@ int tc_ble_spp_write(const char *chruuid, const uint8_t *buf, int len) {
   if (!tc_spp_service || !chruuid || !buf || len <= 0) { return 0; }
   NimBLERemoteCharacteristic *c = tc_spp_service->getCharacteristic(chruuid);
   if (!c || !(c->canWrite() || c->canWriteNoResponse())) { return 0; }
-  bool response = !c->canWriteNoResponse();
-  return c->writeValue(buf, (size_t)len, response) ? 1 : 0;
+  const bool response = !c->canWriteNoResponse();
+  // ⚠️⚠️ SPLIT AT THE MTU. One ATT write carries at most MTU-3 bytes, and the default
+  // ATT MTU is 23 -- i.e. 20 bytes. A single writeValue() beyond that just returns
+  // false. That is why every short command worked (VS = 3 bytes answered, %9220 = 6
+  // bytes acknowledged, a bare CR made the recorder BEEP) while the 29-byte Variograf
+  // start command "!WFF...." silently did nothing: the write never left the ESP.
+  // It cost a long session, because the calling script ignored the return value and
+  // so the failure looked like the device refusing to start streaming.
+  // A serial bridge does not care about write boundaries -- the module concatenates --
+  // so chunking is the correct fix and works whatever MTU was negotiated.
+  int mtu = tc_spp_client ? (int)tc_spp_client->getMTU() : 23;
+  int chunk = mtu - 3;
+  if (chunk < 1) { chunk = 20; }
+  int off = 0;
+  while (off < len) {
+    int n = len - off;
+    if (n > chunk) { n = chunk; }
+    if (!c->writeValue(buf + off, (size_t)n, response)) { return 0; }
+    off += n;
+  }
+  return 1;
 }
 
 int tc_ble_spp_available(void) {
@@ -303,6 +352,11 @@ void tc_ble_spp_close(void) {
 int tc_ble_gatt_dump(const uint8_t *mac, int addrtype, char *out, int max) {
   if (!mac || !out || max <= 0) { return 0; }
   out[0] = 0;
+  BLE_ESP32::BLEEnableUnsaved = 1;
+  if (!NimBLEDevice::isInitialized()) {   // same reason as in tc_ble_spp_connect()
+    strlcpy(out, "BLE stack not up yet -- try again", max);
+    return (int)strlen(out);
+  }
   NimBLEClient *c = NimBLEDevice::createClient();
   if (!c) { strlcpy(out, "no client slot free", max); return (int)strlen(out); }
   NimBLEAddress addr(mac, (uint8_t)addrtype);
