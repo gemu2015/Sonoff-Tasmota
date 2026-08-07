@@ -4435,11 +4435,17 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
     Webserver->send(503, "text/plain", "TinyC not ready");
     return;
   }
-  { uint32_t _t0 = millis();
-    while (!s->vm.halted && (millis() - _t0) < TC_WEBON_HALTED_WAIT_MS) {
-      delay(20); yield();
+  { // ⚠️ Wait for DISPATCHABLE, not for halted. A TaskLoop parked at a delay()
+    // one function deep is halted with the mutex free, so a halted-only wait
+    // returns instantly and tc_slot_callback then refuses on frame depth -- the
+    // 1500 ms below bought nothing. Measured 0 of 20 on .39, 2026-08-07.
+    // delay(2), not delay(20): the usable window between two TaskLoop iterations
+    // is about one tick wide, and a 20 ms poll steps straight over it.
+    uint32_t _t0 = millis();
+    while (!tc_slot_dispatchable(s) && (millis() - _t0) < TC_WEBON_HALTED_WAIT_MS) {
+      delay(2); yield();
     } }
-  if (!s->vm.halted) {
+  if (!tc_slot_dispatchable(s)) {
     Webserver->send_P(503, PSTR("text/html"), TC_BUSY_HTML);
     return;
   }
@@ -4720,11 +4726,17 @@ static void HandleTinyCUI(void) {
     Webserver->send(503, "text/plain", "TinyC not ready");
     return;
   }
-  { uint32_t _t0 = millis();
-    while (!s->vm.halted && (millis() - _t0) < TC_WEBON_HALTED_WAIT_MS) {
-      delay(20); yield();
+  { // ⚠️ Wait for DISPATCHABLE, not for halted. A TaskLoop parked at a delay()
+    // one function deep is halted with the mutex free, so a halted-only wait
+    // returns instantly and tc_slot_callback then refuses on frame depth -- the
+    // 1500 ms below bought nothing. Measured 0 of 20 on .39, 2026-08-07.
+    // delay(2), not delay(20): the usable window between two TaskLoop iterations
+    // is about one tick wide, and a 20 ms poll steps straight over it.
+    uint32_t _t0 = millis();
+    while (!tc_slot_dispatchable(s) && (millis() - _t0) < TC_WEBON_HALTED_WAIT_MS) {
+      delay(2); yield();
     } }
-  if (!s->vm.halted) {
+  if (!tc_slot_dispatchable(s)) {
     Webserver->send_P(503, PSTR("text/html"), TC_BUSY_HTML);
     return;
   }
@@ -4855,7 +4867,7 @@ static void TinyCShow(bool json) {
       // halted) burns the whole wait budget before being skipped anyway. And when we
       // ARE inside a sensorGet, nobody may wait at all — see may_wait.
       if (s != tc_sensor_get_slot &&
-          tc_slot_web_ready(s, tc_sensor_get_slot == nullptr)) {
+          tc_slot_web_ready(s, "JsonCall", tc_sensor_get_slot == nullptr)) {
         tc_slot_callback(s, "JsonCall", TC_WEB_CB_WAIT);
       }
     }
@@ -4889,7 +4901,7 @@ static void TinyCShow(bool json) {
       // full-width cell, with its own nested table so the 2-column layout is
       // preserved) so multiple scripts on the main page are visually separated
       // with a gap. webCard(0) opts a slot out (s->web_nocard) -> bare rows.
-      if (tc_slot_web_ready(s)) {
+      if (tc_slot_web_ready(s, "WebCall")) {
         bool card = (!s->web_nocard) && tc_has_callback(&s->vm, "WebCall");
         if (card) {
           WSContentSend_P(PSTR(
@@ -6667,7 +6679,7 @@ bool Xdrv124(uint32_t function) {
       tc_web_pass_begin();
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
-        if (!tc_slot_web_ready(s)) continue;
+        if (!tc_slot_web_ready(s, "WebPage")) continue;
         tc_slot_callback(s, "WebPage", TC_WEB_CB_WAIT);
       }
       tc_web_pass_end();

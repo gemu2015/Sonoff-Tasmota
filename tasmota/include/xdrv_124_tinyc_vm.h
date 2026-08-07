@@ -18747,6 +18747,31 @@ static uint32_t tc_web_pass_deadline = 0;
 static inline void tc_web_pass_begin(void) { tc_web_pass_deadline = millis() + TC_WEB_PASS_BUDGET_MS; }
 static inline void tc_web_pass_end(void)   { tc_web_pass_deadline = 0; }
 
+// Can a callback be dispatched into this slot RIGHT NOW? All four conditions,
+// not just halted.
+//
+// frame_count (Andreas C6 wedge; frame-depth map -> N=1): the slot may be halted
+// yet parked DEEP in a call chain -- a while(1) TaskLoop suspended at a delay()
+// inside a read sub-call sits at frame_count >= 2 with the mutex free. Dispatching
+// there stacks a callback frame ON TOP of the suspended frames: frame growth plus
+// the TaskLoop+WebCall NULL-locals race. Only its shallow base tick (<= 1) and
+// event-driven slots (main returned, 0) are safe.
+// worker_borrowed: a spawnTask worker parks at its base delay() with frame_count
+// == 1, so it passes the depth test, but it OWNS the VM -- stacking onto its live
+// base frame corrupts it (pc=0 / NULL-locals). Mirrors the UDP-global RX guard.
+//
+// ⚠️ Every place that WAITS for a slot must wait on THIS, never on vm.halted
+// alone. A TaskLoop parked at a delay() one function deep IS halted, with the
+// mutex free — so a halted-only wait returns "ready" instantly and the dispatch
+// is then refused by the frame_count gate a few lines later. Measured on .39,
+// 2026-08-07: with the delay() moved one frame deep, WebCall 0/20, WebPage 2/20
+// and even the 1500 ms webOn wait 0/20, while WebSkip climbed to 129. Waiting on
+// the wrong predicate is indistinguishable from not waiting at all.
+static inline bool tc_slot_dispatchable(const TcSlot *s) {
+  return s->vm.halted && s->vm.error == TC_OK
+      && s->vm.frame_count <= 1 && !s->vm.worker_borrowed;
+}
+
 // Is this slot worth rendering into the page right now?
 //
 // ⚠️ Read the history before "simplifying" this back to a plain `s->vm.halted`.
@@ -18768,9 +18793,17 @@ static inline void tc_web_pass_end(void)   { tc_web_pass_deadline = 0; }
 // inside a script's own callback, and there a 400 ms wait would land squarely in
 // the caller's TaskLoop. A telemetry line that is one poll late costs nothing; a
 // sensorGet() that suddenly takes 400 ms costs the whole loop.
-static bool tc_slot_web_ready(TcSlot *s, bool may_wait = true) {
+static bool tc_slot_web_ready(TcSlot *s, const char *name, bool may_wait = true) {
   if (!s || !s->loaded || s->vm.error != TC_OK) { return false; }
-  if (s->vm.halted) { return true; }
+  // ⚠️ Nothing to render means nothing to wait for AND nothing to report lost.
+  // Most scripts define one or two of WebCall/WebPage/WebUI/JsonCall, so without
+  // this the fan-out waits on -- and counts a skip for -- callbacks that do not
+  // exist. Measured on .39: a script with no JsonCall showed WebSkip climbing to
+  // 26 while all three of its real endpoints delivered 20/20. A counter that
+  // cries wolf is worse than no counter, because it sends the next person
+  // hunting a loss that never happened.
+  if (name && !tc_has_callback(&s->vm, name)) { return false; }
+  if (tc_slot_dispatchable(s)) { return true; }
   if (!may_wait) { return false; }
 #ifdef ESP32
   // No pass open (single-slot path): fall back to the per-slot budget.
@@ -18778,7 +18811,7 @@ static bool tc_slot_web_ready(TcSlot *s, bool may_wait = true) {
                                            : (millis() + TC_WEB_PASS_BUDGET_MS);
   while ((int32_t)(deadline - millis()) > 0) {
     delay(1);                      // yields to the VM task and feeds the WDT
-    if (s->vm.halted) { return true; }
+    if (tc_slot_dispatchable(s)) { return true; }
     if (s->vm.error != TC_OK) { return false; }
   }
   if (s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
@@ -18788,6 +18821,10 @@ static bool tc_slot_web_ready(TcSlot *s, bool may_wait = true) {
 
 static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 0xFFFFFFFFUL) {
   if (!s || !s->loaded) return;
+  // Script doesn't define it: no wait, no mutex, and above all no skip counted --
+  // see tc_slot_web_ready(). (cb_index/callbacks are load-time data, so this
+  // unlocked read is race-free; tc_slot_callback_id() takes the same shortcut.)
+  if (!tc_has_callback(&s->vm, name)) return;
 #ifdef ESP32
 #ifdef USE_TINYC_WORKER_VM
   // A worker VM (Option 2) may hold vm_mutex through a blocking op (httpGet). Never block
@@ -18795,51 +18832,47 @@ static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 
   // skips this tick and fires later, in the worker's next delay() window.
   if (s->has_worker_vm && wait_ticks == 0xFFFFFFFFUL) wait_ticks = 0;
 #endif
-  if (wait_ticks == TC_WEB_CB_WAIT && tc_web_pass_deadline) {
-    int32_t left_ms = (int32_t)(tc_web_pass_deadline - millis());
-    if (left_ms < 0) { left_ms = 0; }
-    uint32_t left = pdMS_TO_TICKS((uint32_t)left_ms);
-    if (left < wait_ticks) { wait_ticks = left; }
+  // ⚠️ Web renders must RETRY, not take-once. The dispatchable window of a busy
+  // TaskLoop can be a single tick wide, and between our check and our take the
+  // loop is free to start its next iteration -- a single take-then-check loses
+  // that race almost every time, which looks exactly like not waiting at all.
+  // So: take, decide UNDER the mutex (the only race-free place), and on a miss
+  // release and try again until the budget is gone.
+  bool web = (wait_ticks == TC_WEB_CB_WAIT);
+  uint32_t deadline = 0;
+  if (web) {
+    deadline = tc_web_pass_deadline ? tc_web_pass_deadline
+                                    : (millis() + TC_WEB_PASS_BUDGET_MS);
   }
-  if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, (TickType_t)wait_ticks) != pdTRUE) {
-    if (s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
-    return;
+  for (;;) {
+    uint32_t take = wait_ticks;
+    if (web) {
+      int32_t left_ms = (int32_t)(deadline - millis());
+      if (left_ms < 0) { left_ms = 0; }
+      uint32_t left = pdMS_TO_TICKS((uint32_t)left_ms);
+      if (left < take) { take = left; }
+    }
+    if (!s->vm_mutex || xSemaphoreTake(s->vm_mutex, (TickType_t)take) == pdTRUE) {
+      if (tc_slot_dispatchable(s)) { break; }     // -> dispatch below, mutex held
+      if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+    }
+    if (!web || (int32_t)(deadline - millis()) <= 0) {
+      if (s->vm.error == TC_OK && s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
+      return;
+    }
+    delay(1);
   }
 #else
   (void)wait_ticks;
-#endif
-  if (!s->vm.halted || s->vm.error != TC_OK) {
+  if (!tc_slot_dispatchable(s)) {
     if (s->vm.error == TC_OK && s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
-#ifdef ESP32
-    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
-#endif
     return;
   }
-  // Reentrancy gate (Andreas C6 wedge; frame-depth map -> N=1). The slot is
-  // halted, but if it parked DEEP in a call chain (a while(1) TaskLoop suspended
-  // at delay() inside a read sub-call: frame_count >= 2, mutex free during the
-  // delay) rather than at its shallow base tick (frame_count <= 1), dispatching
-  // a callback now stacks it ON TOP of the suspended frames -> frame growth +
-  // the TaskLoop+WebCall NULL-locals race. Skip; the periodic sweep retries once
-  // the TaskLoop unwinds to its base tick. Event-driven slots (main returned,
-  // frame_count 0) and base-tick parks (1) still dispatch -> no starving.
-  // ALSO skip when a spawnTask worker has BORROWED this VM (worker_borrowed): it
-  // parks at its base delay() with frame_count==1 (passes the >1 gate) but it OWNS
-  // the VM — stacking a callback frame on the worker's live base frame corrupts it
-  // (pc=0 / NULL-locals; the worker's base frame is the one with return_pc=0). This
-  // mirrors the UDP-global RX guard (~line 3069) which already rejects borrowed VMs.
-  // ⚠️ This gate is a CLIFF, not a slowdown, and nothing in the script hints at it:
-  // a TaskLoop calling delay() DIRECTLY parks at frame_count 1 and passes, but move
-  // the same delay() one function deep and frame_count is 2 — from then on the only
-  // window left is the one-tick gap between iterations and web callbacks mostly stop
-  // rendering. Count it, so `TinyC` can say so instead of the user guessing.
-  if (s->vm.frame_count > 1 || s->vm.worker_borrowed) {
-    if (s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
-#ifdef ESP32
-    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
-    return;
-  }
+  // Everything is checked in tc_slot_dispatchable() above -- halted, no error,
+  // frame depth, worker ownership -- and, on ESP32, checked while HOLDING the
+  // mutex. Do not re-add a separate gate here: a second check outside that
+  // decision point is what made the wait above wait on the wrong thing.
   tc_current_slot = s;
   tc_vm_call_callback(&s->vm, name);
   tc_current_slot = nullptr;

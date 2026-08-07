@@ -514,24 +514,35 @@ what the slot's own task is doing:
 > Raising the loop to `delay(30)` took the canvas from 4/8 to 11/12 — which proves the
 > cause but costs two thirds of the sample rate, so it is a diagnosis, not a fix.)
 >
-> **Since 2026-08-07 the render waits** for the slot's next idle window instead of
-> skipping it on the spot, bounded by a 400 ms budget for the whole page
-> (`TC_WEB_PASS_BUDGET_MS`) so one wedged slot cannot stall the rest. Skips that still
-> happen are **counted**: the bare `TinyC` console command reports `"WebSkip":N` per
-> slot, and `TinyCInfo` shows it in the web rows. A `WebSkip` that keeps climbing is the
-> firmware telling you the slot is too busy to draw itself.
+> **Since 2026-08-07 the render waits** for the slot's next dispatchable window instead
+> of skipping it on the spot, bounded by a 400 ms budget for the whole page
+> (`TC_WEB_PASS_BUDGET_MS`) so one wedged slot cannot stall the rest. Verified on
+> hardware the same day: 20/20 on `WebCall`, `WebPage` and `webOn` alike, both with the
+> `delay()` in the loop body and with it one function deep, at unchanged ~0.1 s latency.
 >
-> **The structural fix is to move heavy drawing out of `WebPage()` into a `webOn`
-> endpoint** and leave a small loader on the main page. It gets the longer wait, it is
-> fetched independently instead of holding up the page, and the payload is only fetched
-> when something actually looks at it.
+> A slot that *genuinely* hogs the VM still loses its block — with 1500 ms of work per
+> iteration there is no window to render in, and waiting for one would stall the page
+> just as long. What changed is that this is now **visible instead of silent**: the page
+> comes back in ~0.5 s and the bare `TinyC` console command reports `"WebSkip":N` for
+> that slot (`TinyCInfo` shows it in the web rows too). A `WebSkip` that keeps climbing
+> is the firmware telling you the slot is too busy to draw itself — give the `TaskLoop`
+> more `delay()`, or move the drawing off the page render.
 >
-> ⚠️ **Where the `delay()` sits decides whether callbacks get in at all.** The reentrancy
-> gate skips a callback whenever the VM is parked deeper than one call frame. A
-> `TaskLoop()` that calls `delay()` **directly in its own body** parks at depth 1 and
-> passes; move that same `delay()` into a helper function and it parks at depth 2, from
-> which point the only window left is the one-tick gap between iterations. Same script,
-> same rate, one refactor apart — and nothing in the source hints at it.
+> **Move heavy drawing out of `WebPage()` into a `webOn` endpoint** and leave a small
+> loader on the main page. It is fetched independently instead of holding up the page,
+> and only when something actually looks at it. This stays the better architecture even
+> now that the render waits.
+>
+> ⚠️ **Where the `delay()` sits used to decide whether callbacks got in at all** — and it
+> is worth knowing why, because the same trap catches anyone writing firmware around
+> this. The reentrancy gate refuses a dispatch whenever the VM is parked deeper than one
+> call frame. A `TaskLoop()` that calls `delay()` **directly in its own body** parks at
+> depth 1; move that same `delay()` into a helper and it parks at depth 2. But it is
+> `halted` either way, with the mutex free — so anything that waits for `halted` alone
+> returns "ready" instantly and is then refused by the depth gate. That is exactly how
+> the first attempt at this fix failed (0/20 in the deep case, including the 1500 ms
+> `webOn` wait). Both now wait on the complete predicate, and decide it while holding
+> the mutex, since the usable window can be a single tick wide.
 
 > **Dual-context worker VM — default on ESP32 (`USE_TINYC_WORKER_VM`).** A `spawnTask()`
 > worker gets its **own** VM (private operand stack / call frames / heap) that shares only the

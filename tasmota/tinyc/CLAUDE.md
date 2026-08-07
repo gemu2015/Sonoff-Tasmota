@@ -534,19 +534,32 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     contrast is the diagnostic: if `webOn` is reliable and `WebCall`/`WebPage` flicker, it
     is VM contention, not the network. Raising `delay(10)` → `delay(30)` took the canvas
     from 4/8 to 11/12, which confirms it but is no fix (33 Hz ECG).
-    **Fixed in firmware**: the render now waits for the slot's next idle window
-    (`tc_slot_web_ready()`), bounded by a 400 ms budget for the whole page so one wedged
-    slot can't stall it. Every skip that still happens is counted — `TinyC` reports
-    `"WebSkip":N` per slot, and `TinyCInfo` shows it in the web rows. **Needs a flash.**
-    Two things that remain true regardless:
-    * A heavy drawing program belongs in a **`webOn` endpoint**, not in `WebPage()`. It
-      gets the longer wait, it is fetched on its own instead of blocking the page, and
-      the main page then only needs a small loader. (This is what Rolf's script does now.)
-    * The `frame_count > 1` reentrancy gate is a **cliff, not a slowdown**: a `TaskLoop`
-      that calls `delay()` **directly** parks at depth 1 and web callbacks get in; move
-      the same `delay()` one function deep and they are skipped on every iteration,
-      leaving only the one-tick gap between iterations. Nothing in the script hints at
-      it — a rising `WebSkip` with a healthy-looking script is the tell.
+    **Fixed in firmware** (verified on `.39`, 2026-08-07 — **needs a flash**): the render
+    waits for the slot's next dispatchable window and retries **under the mutex**, bounded
+    by a 400 ms budget for the whole page. Measured after the fix, 20/20 on all three
+    endpoints in both the flat and the deep case, latency unchanged at ~0.1 s. A slot
+    that genuinely hogs the VM (1500 ms of work per iteration) still loses its block —
+    correctly, it cannot be rendered without stalling the page that long — but the page
+    returns in ~0.5 s and `TinyC` reports `"WebSkip":13` instead of staying silent.
+    Three things that took a measurement each and are easy to get wrong again:
+    * **Wait on `tc_slot_dispatchable()`, never on `vm.halted` alone.** A `TaskLoop`
+      parked at a `delay()` **one function deep** *is* halted, with the mutex free —
+      `frame_count` is 2, and the reentrancy gate refuses the dispatch a few lines later.
+      A halted-only wait therefore returns "ready" instantly and buys nothing: measured
+      WebCall 0/20, WebPage 2/20, and even the 1500 ms `webOn` wait 0/20. Waiting on the
+      wrong predicate is indistinguishable from not waiting.
+    * **Retry under the mutex, don't take-once.** The usable window can be one tick wide;
+      between an unlocked check and the take, the loop starts its next iteration and the
+      race is lost almost every time. Decide while holding the mutex. For the same reason
+      the `webOn` wait polls at `delay(2)` — the old `delay(20)` stepped over the window.
+    * **Don't count a skip for a callback the script doesn't define.** Most scripts define
+      one or two of `WebCall`/`WebPage`/`WebUI`/`JsonCall`; counting the rest made
+      `WebSkip` climb to 26 while every real endpoint delivered 20/20. A counter that
+      cries wolf sends the next person hunting a loss that never happened.
+
+    Still the better architecture regardless: a heavy drawing program belongs in a
+    **`webOn` endpoint**, not in `WebPage()` — fetched on its own instead of holding up
+    the page, with only a small loader on the main page.
 
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
