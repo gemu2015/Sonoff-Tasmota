@@ -6,10 +6,11 @@
 //
 // AUFBAU
 //   MAX30102 an I2C, Adresse 0x57. Sonst nichts.
-//   Zweiter Kanal (EKG_QUELLE): ein AD8232 am ESP-ADC (=1) oder ueber einen
-//   ADS1115 an I2C 0x48 (=2). Ohne angeschlossenen Verstaerker zeigt der Kanal das
-//   Rauschen des offenen Eingangs — die Kette laesst sich damit vollstaendig
-//   aufbauen und pruefen, bevor der Verstaerker da ist.
+//   Zweiter Kanal (EKG_QUELLE): AD8232 am ESP-ADC (=1), ueber einen ADS1115 an
+//   I2C 0x48 (=2), oder ein Varioport-Rekorder ueber BLE (=3, BRSP/BlueRadios).
+//   Umschalten ohne die Datei anzufassen: -DEKG_QUELLE=n beim Uebersetzen.
+//   Ohne angeschlossenen Verstaerker zeigt der Kanal das Rauschen des offenen
+//   Eingangs — die Kette laesst sich damit pruefen, bevor die Hardware da ist.
 //
 // ⚠️ MUSS IN SLOT 0 LAUFEN. webOn() traegt die Adresse zwar slot-blind ein, der
 // Verteiler ruft aber immer slots[0]. Aus Slot 1 waere der Endpunkt erreichbar und
@@ -18,6 +19,12 @@
 // ⚠️ Abtasten gehoert in TaskLoop(), nicht in einen Tick-Callback: die haben ein
 // Budget von 200.000 Anweisungen je Aufruf. Und NICHT in einen spawnTask-Worker —
 // der laeuft auf einer eigenen VM, in der jedes Feld die Groesse 0 hat.
+//
+// ⚠️ NOCH NICHT FEINGESCHLIFFEN (gemu, 2026-08-07: "sieht ganz gut aus, braucht aber
+// noch Feinschliff"). Offen sind mindestens: die schwankende Empfangsrate (182..278
+// statt nominal 256, mit vereinzelten Synchronfehlern -- riecht nach Paketverlusten),
+// die Empfindlichkeit VP_UV_SPANNE fuer andere Ableitungen, und ob die Grundlinien-
+// Zeitkonstante VP_BASIS_TK bei Bewegung schnell genug nachfuehrt.
 //
 // ⚠️ Das ist ein Bastelaufbau zum Anschauen, KEIN Medizingeraet. Der MAX30102 ist ein
 // Sensor ohne jede Zulassung, und die Zahlen unten sind zum Spielen, nicht zum
@@ -30,16 +37,79 @@
 #define I2C_BUS     0
 
 #define ABTASTRATE  100      // Hz, muss zu SPO2_CONFIG unten passen
-#define KURVE_N     240      // Punkte im Ringpuffer = Breite der Kurve
+// ⚠️⚠️ BEI QUELLE 3 GIBT DER VARIOPORT DEN TAKT VOR, nicht das Pulsoximeter.
+// Belegt durch den direkten Vergleich am selben Signal: der eigenstaendige Prober
+// (variograf_ekg.tc) schreibt JEDEN der 250 Werte/s in den Ring -- dort sah die Kurve
+// perfekt aus. Diese Fassung duennte auf die 100 Hz des PPG aus, und dieselbe Person,
+// dasselbe Geraet, derselbe Funk ergaben eine "sehr maessige" Kurve. Ein QRS-Komplex
+// ist bei 100 Hz nur zwei bis vier Werte breit -- JEDE Auswahl daraus verformt ihn,
+// egal wie clever sie ist (letzter Wert, Mittelwert, Extremwert: alle probiert).
+// Die Pulswelle ist dagegen so langsam und glatt, dass ihr das Wiederholen von Werten
+// optisch nichts ausmacht. Also laeuft der Ring mit 250 Hz und das PPG haelt dazwischen.
+#define KURVE_N     240      // PPG-Ring: 2,4 s bei 100 Hz
+#define ANZ_RATE    100      // Lesezeigertakt des PPG im Browser
+#if EKG_QUELLE == 3
+#define EKG_N       500      // EKG-Ring: eigener Takt, eigene Laenge (~2 s bei 250 Hz)
+#endif
 #define FENSTER     100      // Werte fuer die Spitze-Tal-Messung (= 1 s bei 100 Hz)
 
 // EKG-Zusatzkanal — spaeter, jetzt schon vorgesehen:
 //   0 = aus (nur MAX30102)
 //   1 = AD8232 direkt am ESP-ADC        (schnell: 16.090 Lesungen/s gemessen)
 //   2 = AD8232 ueber ADS1115 an I2C     (langsamer, siehe Hinweis bei ekg_lesen)
+//   3 = Varioport-Rekorder ueber BLE    (BRSP/BlueRadios, 250 Hz -- siehe unten)
+// ⚠️ Ein eigenes #define hier wuerde ein -DEKG_QUELLE=n von der Befehlszeile
+// UEBERSCHREIBEN (die spaetere Definition gewinnt). Mit #ifndef bleibt beides moeglich:
+// Vorgabe hier, Umschalten beim Uebersetzen ohne die Datei anzufassen.
+#ifndef EKG_QUELLE
 #define EKG_QUELLE  2
+#endif
 #define EKG_PIN     1        // nur bei EKG_QUELLE 1
 #define ADS_ADDR    0x48     // nur bei EKG_QUELLE 2
+
+// ── Nur bei EKG_QUELLE 3: Varioport ueber BLE ──
+// Alle Werte an der Hardware ermittelt und gegen gemus iPad-App geprueft; die
+// Herleitung steht ausfuehrlich in examples/variograf_ekg.tc (eigenstaendiger Prober).
+//   BRSP_RX/TX sind aus Sicht des MODULS benannt: wir SCHREIBEN auf RX, LESEN von TX.
+//   C02 (EKG): phys[uV] = (roh - 32768) * 5000 / 6940, Rate 256 Hz (gscan 300, Modus 0)
+#define VP_MAC0 0xEC
+#define VP_MAC1 0xFE
+#define VP_MAC2 0x7E
+#define VP_MAC3 0x10
+#define VP_MAC4 0xE1
+#define VP_MAC5 0xEF
+#define VP_TYP     0
+#define VP_SVC     "da2b84f1-6279-48de-bdc0-afbea0226079"
+#define VP_TX      "18cda784-4bd3-4370-85bb-bfed91ec86af"
+#define VP_RX      "bf03260c-7205-4c25-af43-93b1c299d159"
+#define VP_MODE    "a87988b9-694c-479c-900e-95dfa6c00a24"
+// ⚠️⚠️ DEN STARTBEFEHL NICHT ALS #define-ZEICHENKETTE. Ein Makro mit Zeichenketten-
+// inhalt ueberlebt die Uebergabe durch einen char[]-PARAMETER nicht: strcpy() bekam
+// nichts, herausgegangen ist ein einzelnes CR ("sende 1 Byte []"), und das Geraet hat
+// brav gepiept statt zu senden. Direkt hingeschriebene Literale ("VS", "%9220") gehen
+// dagegen durch -- der Unterschied ist von aussen unsichtbar und kostete eine Sitzung.
+// Also zur Laufzeit bauen; dann stimmt die Kanalmaske ausserdem automatisch mit.
+#define VP_KANAL   2         // C02 = EKG
+#define VP_GSCAN   300       // aus oeko4.def (R: $012c)
+#define VP_BR      0xff      // Subtyp 24 >= 7
+// Anzeige: FESTE Empfindlichkeit um eine mitlaufende Grundlinie -- wie ein echter
+// EKG-Monitor, nicht selbst-einmessend.
+// ⚠️ Selbst-Einmessung ist hier FALSCH: sie wird von einzelnen Bewegungsartefakten
+// beherrscht. Ein Ausschlag setzt das Maximum, und das eigentliche EKG wird in die
+// unteren 20 % der Hoehe gequetscht -- am Geraet als "sieht sehr schlecht aus"
+// sichtbar. Bei Quelle 1/2 (AD8232, unbekannte Verstaerkung) bleibt es beim
+// Einmessen; hier kennen wir die Einheit, also nehmen wir einen festen Massstab.
+// ⚠️ An der HARDWARE gemessen, nicht aus dem Lehrbuch: mit gemus Elektroden lagen die
+// Werte bei -1203..+3853 uV bzw. -2859..+3476. Mit +-1500 stiess die Kurve oben an
+// (Anzeige klebte auf 99). +-3000 fasst die R-Zacke und laesst noch Aufloesung fuer
+// P- und T-Welle. Bei anderen Elektroden/Ableitungen hier nachstellen.
+// Nachgemessen: mit +-3000 lag die Spur bei 39..99 und schlug oben an (R-Zacke
+// abgeschnitten). +-4000 laesst sie hineinpassen. Ein Wert, eine Zeile -- bei anderer
+// Ableitung oder anderen Elektroden hier nachstellen.
+#define VP_UV_SPANNE 4000
+#define VP_BASIS_TK  256     // Zeitkonstante der Grundlinie in Werten (~2,5 s)
+#define VP_SATZ    3                                 // 2*1 Kanal + Abschlussbyte 0x0D
+#define VP_LEBEN   5000                              // XON-Takt, NICHT optional
 #define EKG_FENSTER 300      // Werte, nach denen der Anzeigebereich neu bestimmt wird
 
 // Anzeige auf einem LVGL-Display (P4). Vorerst aus — der S3 zeigt die Kurve im WebUI.
@@ -95,9 +165,48 @@ int nmax;                // wie voll der FIFO je wurde (Werte je Abholung)
 
 int ac_ir; int ac_rot;   // zuletzt gemessener Wechselanteil (Spitze-Tal)
 
+#if EKG_QUELLE == 3
+char vp_rx[256];         // BLE-Empfangspuffer
+char vp_roh[600];        // Sammelpuffer fuer angebrochene Saetze
+int  vp_roh_n;
+int  vp_mac[6];
+int  vp_an;              // 1 = verbunden und Messbetrieb laeuft
+int  vp_letzter;         // juengster Rohwert (fuer den Fall, dass eine Runde leer ist)
+int  vp_rate;            // GEMESSENE Eingangsrate (Saetze/s) -- nicht geraten
+int  vp_rz; int vp_rt;   // Zaehler und Zeitmarke fuer die Messung
+int  vp_ausg;            // zuletzt ausgegebener Wert, in MIKROVOLT
+int  vp_basis; int vp_basis_da;   // gleitende Grundlinie der Anzeige
+int  ppg_y;              // ZIEL: juengster PPG-Anzeigewert vom Sensor
+int  ppg_anz;            // ANGEZEIGT: gleitet zwischen den Zielen (siehe vp_satz)
+int  vp_leben;           // millis() des letzten XON
+int  vp_saetze; int vp_sync;
+char vp_startcmd[40];
+int  vp_efa[5];
+int  vp_versuch;         // millis() des letzten Verbindungsversuchs
+int  vp_vers_n;          // wie viele Versuche insgesamt
+int  vp_calls;           // wie oft vp_lesen() lief   -- Messung statt Vermutung
+int  vp_avail_max;       // groesster Wert, den bleSppAvailable() je meldete
+#endif
+
+#if EKG_QUELLE == 3
+// ⭐⭐ EIGENER RING MIT EIGENEM TAKT. Zwei Signale verschiedener Rate auf EINE Zeitachse
+// zu zwingen war der Entwurfsfehler: erst zerhackte das Ausduennen das EKG, dann -- nach
+// dem Umstellen auf den EKG-Takt -- das Halten das PPG, und zuletzt lief der Lesezeiger
+// im Browser der schwankenden Ankunftsrate davon ("Daten kommen in Schueben"). GETRENNT
+// sahen beide Kurven vorher perfekt aus. Also je Kanal ein Ring, eine Folgenummer und
+// ein eigener Lesezeiger. Dass die beiden minimal gegeneinander driften, ist belanglos:
+// hier werden zwei Vorgaenge nebeneinander gezeigt, keine Zeitpunkte verglichen.
+int ekg_kurve[EKG_N];
+int ekpos; int ekfolge;
+#endif
+#if EKG_QUELLE == 1
+int ekg_kurve[KURVE_N];  // Q1/Q2: zweiter Ring, ZEILENGLEICH mit kurve[]
+#endif
+#if EKG_QUELLE == 2
+int ekg_kurve[KURVE_N];
+#endif
 #if EKG_QUELLE
-int ekg_kurve[KURVE_N];  // zweiter Ring, ZEILENGLEICH mit kurve[] (siehe verarbeite)
-int ekg_mn; int ekg_mx;  // Anzeigebereich des letzten Fensters
+int ekg_mn; int ekg_mx;  // Anzeigebereich der Selbst-Einmessung (nur Q1/Q2 genutzt)
 int ekg_mn_n; int ekg_mx_n;
 int ekg_fz;
 #endif
@@ -201,7 +310,11 @@ void ring_schritt(int y) {
     // einen Wert und koennen nicht auseinanderlaufen. Der Browser braucht dann nur
     // EINEN Lesezeiger fuer beide Kurven — zwei Zeiger, die getrennt nachgeregelt
     // werden, driften sonst gegeneinander und die Kurven verschieben sich zusehends.
+#if EKG_QUELLE == 3
+    // nichts -- der EKG-Ring hat seinen eigenen Takt (siehe vp_satz)
+#else
     ekg_kurve[kpos] = ekg_punkt(ekg_wert);
+#endif
 #endif
     kpos = kpos + 1;
     if (kpos >= KURVE_N) { kpos = 0; }
@@ -406,11 +519,220 @@ int max_lesen() {
 #if EKG_QUELLE
 int ekg_wert;
 
+#if EKG_QUELLE == 3
+// Ein Satz vom Varioport: [hi][lo][0x0D], 16 Bit big-endian.
+// ⚠️ ZACKENERHALTEND AUSDUENNEN. Der Rekorder liefert 250 Werte/s, diese Schleife holt
+// nur 100-mal je Sekunde ab -- es bleiben also 2-3 Werte je Runde uebrig, von denen
+// nur einer in den Ring darf. Einfach den LETZTEN zu nehmen verschluckt R-Zacken, und
+// zu MITTELN stumpft sie ab; beides waere bei einem EKG genau der falsche Verlust,
+// weil dort die Zackenhoehe der Informationstraeger ist. Genommen wird deshalb der
+// Wert mit dem groessten Abstand zur Bereichsmitte.
+void vp_satz(int hi, int lo) {
+    int r = ((hi & 0xFF) << 8) | (lo & 0xFF);
+    vp_letzter = r;
+    vp_saetze = vp_saetze + 1;
+
+    // ⭐ JEDER Wert kommt in den Ring -- keine Ausduennung, keine Warteschlange.
+    // Beides war noetig, solange das PPG den Takt vorgab, und beides hat die Kurve
+    // verdorben. Jetzt traegt der Geraetetakt die Zeitachse, und das PPG haelt seinen
+    // letzten Wert dazwischen.
+    // In MIKROVOLT umrechnen: (roh-32768)*5000/6940. Ueberlauf geprueft (164 Mio).
+    ekg_wert = ((r - 32768) * 5000) / 6940;
+    vp_ausg = ekg_wert;
+
+    // (frueher wurden hier PPG-Zwischenwerte berechnet -- entfaellt, eigener Ring)
+    // ⚠️ ALT: Der Ring laeuft mit dem Takt des
+    // Varioports (~250/s), das Pulsoximeter liefert aber nur 100 Werte/s -- jeder Wert
+    // wuerde also zweieinhalbmal wiederholt, und daraus wird im Bild eine TREPPE
+    // (am Geraet als "PPG sieht extrem zackig aus" aufgefallen).
+    // Halten beim Hochtakten ist dasselbe Uebel wie Wegwerfen beim Ausduennen: beide
+    // erzeugen Kanten, die im Signal nicht vorkommen. Die Pulswelle ist glatt und
+    // langsam, also darf dazwischen geglitten werden -- je Ringschritt die halbe
+    // Reststrecke zum Ziel.
+    ekg_kurve[ekpos] = ekg_punkt(ekg_wert);
+    ekpos = ekpos + 1;
+    if (ekpos >= EKG_N) { ekpos = 0; }
+    ekfolge = ekfolge + 1;
+
+    // ⚠️⚠️ AM EINGANGSTAKT AUSDUENNEN, NICHT AM ABHOLTAKT. Erster Versuch nahm je
+    // TaskLoop-Runde einen Wert -- und BLE liefert nicht gleichmaessig, sondern
+    // STOSSWEISE: alle 30-50 ms kommt ein Paket mit einem Dutzend Saetzen auf einmal.
+    // Die meisten Runden blieben dadurch leer (letzter Wert gehalten = flache Strecke),
+    // und in der Runde mit dem Paket wurde aus zwoelf Werten einer gepickt. Ergebnis:
+    // Treppen und Spruenge statt einer Kurve -- am Geraet als "EKG sieht sehr schlecht
+    // aus" sichtbar. Der GERAETETAKT ist dagegen exakt gleichmaessig, also zaehlen wir
+    // EINGANGSWERTE: je 250 herein genau 100 heraus.
+    // ⚠️ Die Eingangsrate NICHT annehmen. Nominal sind es 256 Hz, gemessen kamen je
+    // nach Funklage 168 bis 254 -- mit einer festen 250 lief die Warteschlange leer
+    // und 39 % der Kurvenpunkte waren Wiederholungen (sichtbare Treppen).
+    vp_rz = vp_rz + 1;
+    int jz = millis();
+    if (jz - vp_rt >= 1000) {
+        int gemessen = (vp_rz * 1000) / (jz - vp_rt);
+        if (gemessen > 50 && gemessen < 400) { vp_rate = gemessen; }
+        vp_rz = 0; vp_rt = jz;
+    }
+}
+
+// Sammelpuffer zerlegen; bei fehlendem 0x0D bis zum naechsten verwerfen.
+void vp_zerlegen() {
+    int p = 0;
+    while (vp_roh_n - p >= VP_SATZ) {
+        if ((vp_roh[p + VP_SATZ - 1] & 0xFF) == 0x0D) {
+            vp_satz(vp_roh[p], vp_roh[p + 1]);
+            p = p + VP_SATZ;
+        } else {
+            vp_sync = vp_sync + 1;
+            int q = p;
+            while (q < vp_roh_n && (vp_roh[q] & 0xFF) != 0x0D) { q = q + 1; }
+            if (q >= vp_roh_n) { p = vp_roh_n; break; }
+            p = q + 1;
+        }
+    }
+    int k = 0;
+    while (p + k < vp_roh_n) { vp_roh[k] = vp_roh[p + k]; k = k + 1; }
+    vp_roh_n = k;
+}
+
+// ⚠️ Rueckgabewert IMMER pruefen: ein stillschweigend gescheitertes Schreiben sieht
+// aus wie ein Geraet, das nicht reagiert -- das hat schon einmal zwei Tage gekostet.
+int vp_sende(char t[]) {
+    char b[40];
+    strcpy(b, t);
+    strcat(b, "\r");
+    int n = strlen(b);
+    int ok = bleSppWrite(VP_RX, b, n);
+    // ⚠️ LAENGE MITPROTOKOLLIEREN, nicht nur Erfolg/Misserfolg. Genau das hat den Fehler
+    // aufgedeckt: der Startbefehl ging als "1 Byte []" raus, weil ein #define-Makro mit
+    // Zeichenketteninhalt die Uebergabe durch den char[]-Parameter nicht ueberlebt.
+    // bleSppWrite meldete dabei brav "ok" -- es hatte ja etwas geschrieben, nur eben ein
+    // nacktes CR. Ohne die Laenge im Log haette man das nie gesehen.
+    if (!ok || n > 10) {
+        sprintf(zeile, "MAX: Varioport sendet %d Byte [%s] %s", n, b, ok ? "ok" : "FEHLER");
+        addLog(zeile);
+    }
+    return ok;
+}
+
+// Befehl schicken und die Antwort abwarten UND verwerfen -- liegengebliebene Antworten
+// wuerden nach dem Start als Messrahmen gedeutet.
+int vp_frage(char t[], int ms) {
+    vp_sende(t);
+    int bis = millis() + ms;
+    int ges = 0;
+    while (millis() < bis) {
+        int n = bleSppAvailable();
+        if (n > 0) { if (n > 255) { n = 255; } ges = ges + bleSppRead(vp_rx, n); }
+        delay(20);
+    }
+    return ges;   // wieviel hat das Geraet geantwortet -- 0 heisst: es hoert uns nicht
+}
+
+// EIN Verbindungsversuch samt Messbetriebsstart. Bewusst nur einer je Aufruf: sechs
+// blockierende Versuche am Stueck wuerden die PPG-Schleife sekundenlang anhalten und
+// damit die andere Kurve ruinieren.
+// Maske: efa[c>>4] |= 1 << (15-(c&15)) mit c = Kanalnummer MINUS EINS.
+void vp_startcmd_bauen() {
+    int i = 0;
+    while (i < 5) { vp_efa[i] = 0; i = i + 1; }
+    int c = VP_KANAL - 1;
+    vp_efa[c >> 4] = vp_efa[c >> 4] | (1 << (15 - (c & 15)));
+    sprintf(vp_startcmd, "!W%02X%04x%04x%04x%04x%04x%04x", VP_BR,
+            vp_efa[0], vp_efa[1], vp_efa[2], vp_efa[3], vp_efa[4], VP_GSCAN | 0x8000);
+}
+
+int vp_start() {
+    // ⚠️ Jeden Versuch MELDEN. Ein stiller Wiederholversuch ist ein blinder Fleck:
+    // man sieht nur "kein EKG" und weiss nicht, ob ueberhaupt jemand klopft.
+    vp_vers_n = vp_vers_n + 1;
+    if (!bleSppConnect()) {
+        sprintf(zeile, "MAX: Varioport-Versuch %d -- keine Verbindung", vp_vers_n);
+        addLog(zeile);
+        return 0;
+    }
+    if (!bleSppSub(VP_TX)) { addLog("MAX: Varioport BRSP_TX nicht abonniert"); return 0; }
+    char m[2];
+    m[0] = 1;                                   // BrspModeData -- ohne das fliesst nichts
+    // ⚠️ PRUEFEN, nicht annehmen. Ein ungeprueftes Schreiben hat schon einmal einen
+    // Transportfehler in ein vermeintliches Protokollraetsel verwandelt.
+    int mw = bleSppWrite(VP_MODE, m, 1);
+    if (!mw) { addLog("MAX: Varioport-Datenmodus NICHT gesetzt"); }
+    delay(200);
+    // Reihenfolge wie in der Original-App: erst die Abfragen, dann NUR %9220, dann !W.
+    // (Ein zusaetzliches %9401 -- "Befehlsmodus" -- laesst das Geraet stumm bleiben.)
+    // ⚠️ Die Antwort auf VS ist die Lebendprobe: kommt hier nichts, ist jedes weitere
+    // Kommando sinnlos, und der Fehler liegt vor dem Protokoll.
+    int vs = vp_frage("VS", 400);
+    sprintf(zeile, "MAX: Varioport VS -> %d Byte Antwort", vs);
+    addLog(zeile);
+    vp_frage("%00",   400);
+    vp_frage("%13",   400);
+    vp_frage("%08",   400);
+    vp_frage("%09",   400);
+    vp_frage("%9220", 200);
+    vp_roh_n = 0; vp_saetze = 0; vp_sync = 0;
+    vp_rate = 250; vp_rz = 0; vp_rt = millis();     // nur Diagnose
+    vp_leben = millis();
+    vp_startcmd_bauen();
+    if (!vp_sende(vp_startcmd)) { addLog("MAX: Varioport-Startbefehl NICHT geschrieben"); return 0; }
+    vp_an = 1;
+    addLog("MAX: Varioport laeuft (C02 EKG, 250 Hz -> auf die PPG-Rate ausgeduennt)");
+    return 1;
+}
+
+int vp_lesen() {
+    vp_calls = vp_calls + 1;
+    // ⚠️ WIEDERHOLT VERSUCHEN. Der Rekorder schaltet sich nach einer Minute ohne
+    // Verbindung ab und wird zwischendurch ein- und ausgeschaltet; eine Quelle, die
+    // sich nur beim Programmstart einmal meldet, waere fuer einen Monitor unbrauchbar.
+    if (!vp_an) {
+        int jetzt = millis();
+        if (jetzt - vp_versuch >= 15000) { vp_versuch = jetzt; vp_start(); }
+        return vp_letzter;
+    }
+    if (!bleSppState()) {
+        addLog("MAX: Varioport-Verbindung verloren");
+        vp_an = 0;
+        return vp_letzter;
+    }
+    // ⚠️ Lebenszeichen VOR dem Lesen: %9220 hat im Geraet einen Zeitueberlauf scharf
+    // gemacht: bleibt das XON aus, beendet es die Uebertragung von selbst -- ohne
+    // Fehler, sie hoert einfach auf.
+    int jetzt = millis();
+    if (jetzt - vp_leben >= VP_LEBEN) {
+        vp_leben = jetzt;
+        char x[2];
+        x[0] = 0x11;
+        bleSppWrite(VP_RX, x, 1);
+    }
+    int n = bleSppAvailable();
+    if (n > vp_avail_max) { vp_avail_max = n; }
+    if (n > 0) {
+        if (n > 255) { n = 255; }
+        int got = bleSppRead(vp_rx, n);
+        int i = 0;
+        while (i < got) {
+            if (vp_roh_n < 590) { vp_roh[vp_roh_n] = vp_rx[i]; vp_roh_n = vp_roh_n + 1; }
+            i = i + 1;
+        }
+        vp_zerlegen();
+    }
+    // Der Ring wurde schon in vp_satz() weitergeschaltet -- hier ist nur noch der
+    // aktuelle Wert fuer die Statusanzeige zurueckzugeben.
+    return vp_ausg;
+}
+#endif
+
+// ⚠️ KEIN #elif -- der TinyC-Praeprozessor kennt nur #if/#ifdef/#ifndef/#else/#endif.
+// Deshalb geschachtelt statt einer Kette.
 int ekg_lesen() {
 #if EKG_QUELLE == 1
     // Direkt am ADC des ESP: 61 us je Lesung (gemessen auf einem S3), also rund
     // 16.000/s — das 32-fache dessen, was ein EKG braucht.
     return analogRead(EKG_PIN);
+#else
+#if EKG_QUELLE == 3
+    return vp_lesen();
 #else
     // ⚠️ ADS1115 NUR IN DAUERWANDLUNG. Der Einzelmessungs-Modus (Konfig schreiben,
     // auf das Fertig-Bit warten, lesen) schafft gemessen nur 335 Werte/s und liegt
@@ -423,6 +745,7 @@ int ekg_lesen() {
     if (raw > 32767) { raw = raw - 65536; }
     return raw;
 #endif
+#endif
 }
 
 // Auf 0..99 bringen. Anders als beim PPG gibt es hier keinen bekannten Massstab —
@@ -432,6 +755,19 @@ int ekg_lesen() {
 // Bit Rauschen auf volle Schirmhoehe verstaerkt. Genau das ist der Zustand JETZT
 // (kein AD8232 angeschlossen) — ohne die Grenze saehe man Vollausschlag-Grasnarbe und
 // wuerde sie faelschlich fuer ein Signal halten.
+#if EKG_QUELLE == 3
+// Fester Massstab um eine gleitende Grundlinie. Die Grundlinie faengt die langsame
+// Drift durch Elektroden und Atmung ab, die Empfindlichkeit bleibt konstant -- so
+// bedeutet gleiche Hoehe im Bild immer dieselbe Spannung.
+int ekg_punkt(int v) {
+    if (!vp_basis_da) { vp_basis = v; vp_basis_da = 1; }
+    vp_basis = vp_basis + (v - vp_basis) / VP_BASIS_TK;
+    int y = 50 + ((v - vp_basis) * 49) / VP_UV_SPANNE;
+    if (y < 0)  { y = 0; }
+    if (y > 99) { y = 99; }
+    return y;
+}
+#else
 int ekg_punkt(int v) {
     if (v < ekg_mn_n) { ekg_mn_n = v; }
     if (v > ekg_mx_n) { ekg_mx_n = v; }
@@ -448,8 +784,22 @@ int ekg_punkt(int v) {
     if (y > 99) { y = 99; }
     return y;
 }
+#endif
 
 void ekg_init() {
+#if EKG_QUELLE == 3
+    vp_mac[0] = VP_MAC0; vp_mac[1] = VP_MAC1; vp_mac[2] = VP_MAC2;
+    vp_mac[3] = VP_MAC3; vp_mac[4] = VP_MAC4; vp_mac[5] = VP_MAC5;
+    bleSppTarget(vp_mac, VP_TYP, VP_SVC);
+    // Erster Versuch hier; scheitert er, wiederholt vp_lesen() ihn alle 15 s.
+    // ⚠️ Beim allerersten Aufruf nach dem Start ist ein Fehlschlag NORMAL: der
+    // NimBLE-Stapel ist dann meist noch nicht oben, und bleSppConnect() gibt dafuer
+    // sauber 0 zurueck. ⚠️⚠️ Und immer zuerst nachsehen, ob der REKORDER laeuft --
+    // er schaltet sich nach EINER MINUTE ohne Verbindung ab, was von aussen exakt
+    // wie ein kaputter Verbindungsaufbau aussieht.
+    vp_versuch = millis();
+    if (!vp_start()) { addLog("MAX: Varioport noch nicht da -- wird alle 15 s erneut versucht"); }
+#endif
 #if EKG_QUELLE == 2
     char b[4];
     b[0] = 0x42; b[1] = 0xE3;
@@ -506,6 +856,18 @@ void sim_schritt() {
 // ---------------------------------------------------------------------------------
 // Laufende Arbeit
 // ---------------------------------------------------------------------------------
+#if EKG_QUELLE == 3
+// ⚠️⚠️ VERBINDUNG BEIM STOPPEN SCHLIESSEN. TinyCStop haelt nur das PROGRAMM an -- die
+// BLE-Verbindung bleibt in der Firmware offen und die Notifications laufen weiter.
+// Beim Hochladen eines neuen .tcb ist das fatal: Flash-Schreiben schaltet den
+// Cache ab, und ~200 Pakete/s treffen auf nicht ausfuehrbaren Code -> der
+// Interrupt-Watchdog schlaegt zu (Exception 1 aus xt_highint4, mit der ELF decodiert).
+// Mehrere Uploads sind genau daran gescheitert, scheinbar grundlos.
+void CleanUp() {
+    bleSppClose();
+}
+#endif
+
 void TaskLoop() {
 #if SIMULATION
     // ⚠️ NACH DER UHR erzeugen, nicht eine feste Zahl je Durchgang. Ein starres
@@ -581,7 +943,20 @@ void WebOn() {
     if (neu < 0)        { neu = KURVE_N; }   // Zaehler lief um oder erster Abruf
     if (neu > KURVE_N)  { neu = KURVE_N; }   // laenger weg als der Puffer reicht
 
+#if EKG_QUELLE == 3
+    // ⚠️ ZWEI Folgenummern: die Kanaele laufen mit verschiedenen Takten, also kann der
+    // Browser sie nicht mit einem Zeiger abfahren. Kopf:
+    //   ppgfolge,ppgneu,puls,spo2,finger,ekgfolge,ekgneu,ekgrate | ppg | ekg
+    int eseit = 0;
+    if (webArg("eseit", argb) > 0) { eseit = strToInt(argb); }
+    int eneu = ekfolge - eseit;
+    if (eneu < 0)     { eneu = EKG_N; }
+    if (eneu > EKG_N) { eneu = EKG_N; }
+    sprintf(zeile, "%d,%d,%d,%d,%d,%d,%d,%d|", kfolge, neu, bpm, spo2, finger,
+            ekfolge, eneu, vp_rate);
+#else
     sprintf(zeile, "%d,%d,%d,%d,%d|", kfolge, neu, bpm, spo2, finger);
+#endif
     webSend(zeile);
 
     // die letzten `neu` Werte, aeltester zuerst
@@ -602,9 +977,26 @@ void WebOn() {
         webSend(blk);
     }
 
-#if EKG_QUELLE
-    // Zweiter Abschnitt hinter einem weiteren '|'. Gleiche Anzahl, gleiche Reihenfolge
-    // wie oben — der Browser darf beide mit demselben Lesezeiger abfahren.
+#if EKG_QUELLE == 3
+    // Zweiter Abschnitt: EIGENER Ring, EIGENE Anzahl.
+    webSend("|");
+    p = ekpos - eneu;
+    if (p < 0) { p = p + EKG_N; }
+    i = 0;
+    while (i < eneu) {
+        int o3 = 0;
+        blk[0] = 0;
+        while (o3 < 48 && i < eneu) {
+            sprintf(zeile, "%02d", ekg_kurve[p]);
+            strcat(blk, zeile);
+            p = p + 1;
+            if (p >= EKG_N) { p = 0; }
+            o3 = o3 + 1; i = i + 1;
+        }
+        webSend(blk);
+    }
+#endif
+#if EKG_QUELLE == 1
     webSend("|");
     p = kpos - neu;
     if (p < 0) { p = p + KURVE_N; }
@@ -645,7 +1037,49 @@ void WebPage() {
     webSend("style='width:100%;height:190px;background:#111;border-radius:4px'></canvas>");
     webSend("<div id='pv' style='text-align:center;font-size:0.9em;padding:4px'>--</div></div>");
     webSend("<script>(function(){var c=document.getElementById('pk');if(!c)return;");
-    webSend("var x=c.getContext('2d'),b=[],g=[],sq=0,rp=0,tl=0,W=480,H=180,N=240,R=100;");
+    // ⚠️ N und R muessen zum Ring passen -- bei Quelle 3 laeuft er mit 250 Hz und
+    // 500 Punkten, sonst mit 100 Hz und 240. Fest hineingeschriebene Werte waeren
+    // beim Umschalten der Quelle still falsch.
+#if EKG_QUELLE == 3
+    // ⚠️ ZWEI LESEZEIGER, und der des EKG folgt der GEMELDETEN Rate. Ein fest
+    // eingestelltes 250 lief der tatsaechlichen Ankunftsrate (gemessen 182..278) davon:
+    // der Zeiger rannte in den Anschlag, blieb stehen und sprang beim naechsten Paket
+    // weiter -- am Geraet als "Daten kommen in Schueben" sichtbar.
+    sprintf(zeile, "var x=c.getContext('2d'),b=[],g=[],sq=0,eq=0,rp=0,ep=0,tl=0,W=480,H=180,N=%d,EN=%d,R=%d,ER=%d;",
+            KURVE_N, EKG_N, ANZ_RATE, 250);
+    webSend(zeile);
+    webSend("function pull(){fetch('/pulse?seit='+sq+'&eseit='+eq).then(r=>r.text()).then(t=>{");
+    webSend("var p=t.split('|');if(p.length<3)return;var h=p[0].split(',');sq=+h[0];eq=+h[5];");
+    webSend("if(+h[7]>50)ER=+h[7];");
+    webSend("var s=p[1],k=s.length>>1;for(var i=0;i<k;i++)b.push(+s.substr(i*2,2));");
+    webSend("var s2=p[2],k2=s2.length>>1;for(var j=0;j<k2;j++)g.push(+s2.substr(j*2,2));");
+    sprintf(zeile, "if(b.length>%d){var d=b.length-%d;b.splice(0,d);rp-=d;}if(rp<0)rp=0;", KURVE_N*3, KURVE_N*3);
+    webSend(zeile);
+    sprintf(zeile, "if(g.length>%d){var e=g.length-%d;g.splice(0,e);ep-=e;}if(ep<0)ep=0;", EKG_N*3, EKG_N*3);
+    webSend(zeile);
+    webSend("var f=h[4]=='1';document.getElementById('pv').textContent=f?");
+    webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')+'   EKG '+ER+'/s'):'kein Finger';");
+    webSend("}).catch(e=>{}).finally(()=>setTimeout(pull,200));}");
+    webSend("function zeig(a,pz,rate,co,y0,hh,nn,dt){");
+    webSend("var lag=a.length-pz,e=(lag-nn)/nn;if(e>1)e=1;if(e<-1)e=-1;");
+    webSend("pz+=dt*rate*(1+0.02*e)/1000;if(pz>a.length)pz=a.length;");
+    webSend("var fi=Math.floor(pz),fr=pz-fi,st=fi-nn;if(st<0){st=0;fr=0;}");
+    webSend("var n=Math.min(nn,a.length-st);");
+    webSend("if(n>1){x.strokeStyle=co;x.lineWidth=2;x.beginPath();");
+    webSend("for(var i=0;i<n;i++){var v=a[st+i];if(v===undefined)break;");
+    webSend("var px=(i-fr)*W/nn,py=y0+hh-1-v*(hh-2)/99;");
+    webSend("if(i==0)x.moveTo(px,py);else x.lineTo(px,py);}x.stroke();}return pz;}");
+    webSend("function draw(now){if(!tl)tl=now;var dt=now-tl;tl=now;if(dt>200)dt=200;");
+    webSend("x.fillStyle='#111';x.fillRect(0,0,W,H);var LH=H/2;");
+    webSend("rp=zeig(b,rp,R,'#3ad13a',0,LH,N,dt);");
+    webSend("ep=zeig(g,ep,ER,'#e08030',LH,LH,EN,dt);");
+    webSend("x.strokeStyle='#333';x.lineWidth=1;x.beginPath();x.moveTo(0,LH);x.lineTo(W,LH);x.stroke();");
+    webSend("x.fillStyle='#666';x.font='11px sans-serif';x.fillText('PPG',4,12);x.fillText('EKG',4,LH+12);");
+    webSend("requestAnimationFrame(draw);}");
+#else
+    sprintf(zeile, "var x=c.getContext('2d'),b=[],g=[],sq=0,rp=0,tl=0,W=480,H=180,N=%d,R=%d;",
+            KURVE_N, ANZ_RATE);
+    webSend(zeile);
     // --- abholen ---
     webSend("function pull(){fetch('/pulse?seit='+sq).then(r=>r.text()).then(t=>{");
     webSend("var p=t.split('|');if(p.length<2)return;var h=p[0].split(',');sq=+h[0];");
@@ -654,7 +1088,9 @@ void WebPage() {
     // Kurven auseinander. Deshalb wird auch gemeinsam gekuerzt (unten), nie einzeln.
     webSend("if(p.length>2){var s2=p[2];for(var j=0;j<k;j++)g.push(+s2.substr(j*2,2));}");
     // Vorrat begrenzen und den Lesezeiger mitschieben
-    webSend("if(b.length>900){var d=b.length-900;b.splice(0,d);g.splice(0,d);rp-=d;}");
+    sprintf(zeile, "if(b.length>%d){var d=b.length-%d;b.splice(0,d);g.splice(0,d);rp-=d;}",
+            KURVE_N * 3, KURVE_N * 3);
+    webSend(zeile);
     webSend("if(rp<0)rp=0;");
     webSend("var f=h[4]=='1';document.getElementById('pv').textContent=f?");
     webSend("('Puls '+h[2]+' bpm   SpO2 '+(h[3]>0?h[3]+' %':'--')):'kein Finger';");
@@ -694,6 +1130,7 @@ void WebPage() {
     webSend("x.fillStyle='#666';x.font='11px sans-serif';");
     webSend("x.fillText('PPG',4,12);x.fillText('EKG',4,LH+12);}");
     webSend("requestAnimationFrame(draw);}");
+#endif
     webSend("pull();requestAnimationFrame(draw);})();</script>");
 }
 
@@ -731,8 +1168,13 @@ void Command(char cmd[]) {
             bereit = 0;
             responseCmnd("Sensor wird neu eingestellt");
         } else {
+            #if EKG_QUELLE == 3
+            sprintf(zeile, "puls=%d spo2=%d finger=%d | EKG an=%d saetze=%d rate=%d/s sync=%d uV=%d",
+                    bpm, spo2, finger, vp_an, vp_saetze, vp_rate, vp_sync, vp_ausg);
+#else
             sprintf(zeile, "bereit=%d fehler=%d puls=%d spo2=%d spikes=%d ovf=%d nmax=%d",
                     bereit, fehler, bpm, spo2, spikes, ovf, nmax);
+#endif
             responseCmnd(zeile);
         }
     }

@@ -246,8 +246,27 @@ int tc_ble_spp_connect(void) {
     }
   }
   tc_spp_service = nullptr;
+  // ⚠️⚠️ STOP THE RUNNING SCAN AT THE RADIO, or the connect loses the race.
+  // BLE_ESP32 scans continuously and restarts on its own. NimBLEClient::connect()
+  // does try to stop it, but on failure just returns false — with no error code, so
+  // it looks like the peer's fault. Observed 2026-08-07: the peer advertised at
+  // -58 dBm, BLE was healthy (25 scans, 12000 adverts), and EVERY attempt failed —
+  // while the same connect had succeeded first try shortly after a reboot, i.e. with
+  // the scanner still idle. TinyC's bleScanStop() does NOT help: it only clears
+  // tc_ble.capturing and never touches the radio.
+  // ⚠️ This sits deliberately AFTER the isInitialized() check above: called before the
+  // host is up it grabs a non-existent mutex and crashes (Exception 28 — decoded with
+  // the matching ELF; that is exactly how the first attempt at this failed).
+  ble_gap_disc_cancel();
+  vTaskDelay(pdMS_TO_TICKS(60));
   NimBLEAddress addr(tc_spp.mac, tc_spp.addrtype);
-  if (!tc_spp_client->connect(addr, true)) {
+  const bool verbunden = tc_spp_client->connect(addr, true);
+  // ⚠️ Re-allow scanning — but only by clearing the FLAG. Calling BLETaskStartScan()
+  // belongs to the BLE task and crashes from here. Without this the BLE task keeps
+  // believing its scan is running and never starts a new one: bleScan() then finds
+  // nothing at all until the next reboot.
+  BLE_ESP32::BLERunningScan = 0;
+  if (!verbunden) {
     // Same reasoning as in tc_ble_gatt_dump(): the return code is the difference
     // between "move it closer" and "the address type is wrong".
     int rc = tc_spp_client->getLastError();
