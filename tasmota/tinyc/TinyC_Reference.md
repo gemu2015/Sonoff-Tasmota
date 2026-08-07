@@ -5117,17 +5117,22 @@ for (int i = 0; i < 32; i = i + 1) {
 
 ### Bluetooth LE (ESP32)
 
-Scan BLE advertisements, act as a GATT **client** (connect / read / write / subscribe to
-notifications), or run a GATT **server** (advertise as a peripheral so a phone connects to you).
+Scan BLE advertisements, act as a GATT **client** — either one transaction at a time
+(`bleTarget` …, for devices that wake, report and sleep) or over a **persistent connection**
+(`bleSpp*`, for devices that stream) — or run a GATT **server** (advertise as a peripheral so a
+phone connects to you).
 Built on Tasmota's common-BLE driver (`xdrv_79`), so it shares one radio with the
 MI32 / iBeacon scanners. **Requires a firmware built with `USE_TINYC_BLE`** (which pulls in
 `USE_BLE_ESP32` ≈ **+292 KB flash / +9 KB RAM**). On a build without it, every BLE builtin is a
 no-op returning a sentinel (`0` / `-1`). ESP32 family only (no ESP8266). The first `bleScan()` /
-`bleServer()` enables BLE at runtime — no `SetOption115` needed.
+`bleServer()` / `bleSppConnect()` enables BLE at runtime — no `SetOption115` needed. ⚠️ Enabling it
+only *requests* the stack; it is not up immediately, so the first `bleSppConnect()` after boot
+normally returns 0. Retry rather than treating that as an error.
 
 **Threading:** advertisement and GATT-completion callbacks run on the NimBLE/main task, never on the
 VM. They publish into small buffers; your script drains them in `TaskLoop()` — so the API is
-**non-blocking** (poll, don't wait).
+**non-blocking** (poll, don't wait). The one exception is `bleSppConnect()`, which blocks for up to
+a few seconds and therefore belongs in `TaskLoop()` only.
 
 **Scan / observe** — start a scan, then pull queued adverts one at a time:
 
@@ -5192,6 +5197,91 @@ void TaskLoop() {
   delay(250);
 }
 ```
+
+**BLE "SPP" — a persistent connection** for devices that *stream* (BlueRadios/BRSP modules,
+Nordic-UART-style peripherals, serial-over-BLE dongles). The GATT client above connects, performs
+**one** operation and disconnects again — right for a scale that wakes, reports and sleeps, wrong for
+a continuous feed, where the link would drop before the second sample could arrive. These calls keep
+the connection open until you close it. UUIDs are **strings** here (16-bit `"180a"` or full 128-bit),
+unlike the one-shot family's int16 `svc16`/`chr16`, which cannot address the 128-bit UUID a
+proprietary serial service almost always uses.
+
+| Function | Description |
+|---|---|
+| `int bleSppTarget(char mac[], int addrtype, "svc-uuid")` | Set the persistent target: 6 MAC bytes, address type, service UUID as a **string literal**. Returns 1 |
+| `int bleSppConnect()` | Connect and resolve the service. **Blocks** for up to a few seconds — `TaskLoop()` only. 1 = connected, 0 = not |
+| `int bleSppState()` | 1 while connected *and* usable, else 0. Also goes 0 when the peer drops the link |
+| `int bleSppSub("notify-uuid")` | Subscribe to the characteristic the device notifies on. Returns 1 |
+| `int bleSppAvailable()` | Bytes waiting in the receive ring |
+| `int bleSppRead(char buf[], int max)` | Drain up to `max` bytes into `buf`. Returns how many. Never blocks |
+| `int bleSppWrite("chr-uuid", char buf[], int len)` | Write to a characteristic **without dropping the connection**. Returns 1 |
+| `int bleSppClose()` | Disconnect |
+| `int bleGattDump(char mac[], int addrtype, char out[])` | One-shot: connect, list every service and characteristic with its properties (`R`/`W`/`w`/`N`/`I`) as text, disconnect. Returns the text length |
+
+**Run `bleGattDump()` first on any unfamiliar device.** A proprietary UUID cannot be looked up in a
+datasheet — the device has to be asked. `examples/ble_gatt_explore.tc` wraps this in three console
+commands (scan → pick MAC → dump).
+
+Sharp edges, all of which cost real debugging time:
+
+* **`bleSppConnect()` returns 0 until the BLE stack is up.** That is normal on the first call after
+  boot, not an error — simply retry. Do not build a six-attempt blocking loop into a program that
+  also drives a sensor: each failed attempt blocks for seconds.
+* **Check the return value of `bleSppWrite()` — and log the LENGTH.** A `#define` whose value is a
+  string does **not** survive being passed through a `char[]` *parameter*; a directly written literal
+  does. A 29-byte command silently became a 1-byte one that way, and the write still reported success
+  because it had written *something*. Build long commands at runtime with `sprintf`.
+* Writes longer than the negotiated MTU are split automatically (a serial bridge does not care about
+  write boundaries), so you may pass a whole command in one call.
+* **`CleanUp()` must call `bleSppClose()`.** `TinyCStop` only stops the *script* — the connection stays
+  open in the firmware and its notifications keep arriving. Uploading a new `.tcb` while a few hundred
+  packets per second hit a disabled flash cache trips the interrupt watchdog.
+* **Throughput is limited.** Measured on a BRSP module over 40-second windows: 223 sets/s arrived when
+  256/s were requested (12.8 % short, with frame-sync errors), 185/s for 200 (7.6 %, no sync errors).
+  If the peer lets you choose a sample rate, ask for one the link can carry rather than losing data.
+* Do not assume the peer's rate — **measure it** and let the display follow the measured value.
+
+```c
+// Serial-style peripheral: connect once, then read continuously
+#define SVC   "da2b84f1-6279-48de-bdc0-afbea0226079"
+#define TX    "18cda784-4bd3-4370-85bb-bfed91ec86af"   // device notifies here
+#define RX    "bf03260c-7205-4c25-af43-93b1c299d159"   // we write here
+int  mac[6];
+char rx[256];
+int  an;
+
+int main() {
+    mac[0] = 0xEC; mac[1] = 0xFE; mac[2] = 0x7E;
+    mac[3] = 0x10; mac[4] = 0xE1; mac[5] = 0xEF;
+    bleSppTarget(mac, 0, SVC);
+    return 0;
+}
+
+void TaskLoop() {
+    if (!an) {
+        if (!bleSppConnect()) { delay(3000); return; }   // stack not up yet, or peer away
+        if (!bleSppSub(TX))   { delay(3000); return; }
+        char hallo[] = "VS\r";
+        bleSppWrite(RX, hallo, strlen(hallo));
+        an = 1;
+        return;
+    }
+    if (!bleSppState()) { an = 0; return; }              // peer dropped the link
+    int n = bleSppAvailable();
+    if (n > 0) {
+        if (n > 255) { n = 255; }
+        int got = bleSppRead(rx, n);
+        // ... parse the byte stream here ...
+    }
+    delay(10);
+}
+
+void CleanUp() { bleSppClose(); }   // not optional — see above
+```
+
+A worked end-to-end example (framing, resynchronisation, scaling, live curve) is
+`examples/variograf_ekg.tc`; `examples/max30102.tc` shows the same source combined with a second
+sensor as `EKG_QUELLE 3`.
 
 **GATT server (peripheral)** — advertise a service so a phone (or any BLE central) connects to the
 device and exchanges data, the usual phone-app ↔ IoT pattern. Configure once (`bleServer` →
