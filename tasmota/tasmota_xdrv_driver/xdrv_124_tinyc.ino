@@ -1342,8 +1342,13 @@ void CmndTinyC(void) {
     if (!s) continue;
     if (!first) ResponseAppend_P(PSTR(","));
     first = false;
+    // WebSkip = web-render callbacks (WebCall/WebPage/WebUI/JsonCall) this slot was
+    // too busy to serve. Each one is a block that was silently left out of a served
+    // page, so a rising count is the direct answer to "why does my display flicker /
+    // why is the chart sometimes missing" -- the answer is the slot's own TaskLoop,
+    // not the browser. Give it more delay(), or move the drawing to a webOn endpoint.
     ResponseAppend_P(PSTR("{\"Slot\":%d,\"Loaded\":%d,\"Running\":%d,\"Size\":%d,"
-      "\"PC\":%d,\"SP\":%d,\"Instr\":%u,\"Error\":\"%s\",\"File\":\"%s\"}"),
+      "\"PC\":%d,\"SP\":%d,\"Instr\":%u,\"WebSkip\":%u,\"Error\":\"%s\",\"File\":\"%s\"}"),
       i,
       s->loaded ? 1 : 0,
       s->running ? 1 : 0,
@@ -1351,6 +1356,7 @@ void CmndTinyC(void) {
       s->vm.pc - s->vm.code_offset,
       s->vm.sp,
       s->vm.instruction_count,
+      s->web_cb_skips,
       tc_error_str(s->vm.error),
       s->filename[0] ? s->filename : "");
   }
@@ -4796,6 +4802,13 @@ static void HandleTinyCUI(void) {
 static void TinyCShow(bool json) {
   if (!Tinyc) return;
 
+  // One budget for the whole fan-out (JsonCall / WebCall over up to TC_MAX_VMS
+  // slots), so waiting for a busy slot cannot multiply by the slot count. Saved
+  // and restored rather than just cleared: sensorGet() inside a JsonCall can
+  // re-enter this function, and the inner pass must not end the outer one.
+  uint32_t saved_pass = tc_web_pass_deadline;
+  if (!saved_pass) { tc_web_pass_begin(); }   // nested call inherits the outer budget
+
   if (json) {
     // Iterate all slots for JSON output
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
@@ -4831,7 +4844,18 @@ static void TinyCShow(bool json) {
       // the cosmetic spawnTask UI-disappear case; if that case becomes a real
       // problem, address it via xSemaphoreTake-with-timeout in tc_slot_callback
       // rather than by removing the pre-check.
-      if (s->loaded && s->vm.halted && s->vm.error == TC_OK && s != tc_sensor_get_slot) {
+      // 2026-08-07: that is now what happens. The pre-check stays (it still keeps
+      // the fan-out off a slot that is genuinely errored/unloaded), but the halted
+      // half of it goes through tc_slot_web_ready(), which WAITS for the slot's next
+      // idle window instead of dropping its block for this render. See the long
+      // comment at tc_slot_web_ready() -- the zero-wait version silently emptied
+      // half of all renders on any slot with a fast TaskLoop.
+      // ⚠️ Order matters: test the re-entry guard BEFORE tc_slot_web_ready(), or the
+      // slot that is right now executing sensorGet() (its own VM running, so never
+      // halted) burns the whole wait budget before being skipped anyway. And when we
+      // ARE inside a sensorGet, nobody may wait at all — see may_wait.
+      if (s != tc_sensor_get_slot &&
+          tc_slot_web_ready(s, tc_sensor_get_slot == nullptr)) {
         tc_slot_callback(s, "JsonCall", TC_WEB_CB_WAIT);
       }
     }
@@ -4848,12 +4872,14 @@ static void TinyCShow(bool json) {
         if (s->running) { strcpy_P(status, PSTR("Running")); }
         else if (s->loaded) { strcpy_P(status, PSTR("Loaded")); }
         else { strcpy_P(status, PSTR("Empty")); }
+        // web_cb_skips: renders this slot was too busy for. Anything but 0 means
+        // parts of THIS page were silently left out at some point.
         if (i == 0) {
-          WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
-            status, s->program_size);
+          WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes, %u skips){e}"),
+            status, s->program_size, s->web_cb_skips);
         } else {
-          WSContentSend_PD(PSTR("{s}TinyC[%d]{m}%s (%d bytes){e}"),
-            i, status, s->program_size);
+          WSContentSend_PD(PSTR("{s}TinyC[%d]{m}%s (%d bytes, %u skips){e}"),
+            i, status, s->program_size, s->web_cb_skips);
         }
       }
       // Call user's WebCall() on this slot — pre-check restored 2026-05-07,
@@ -4863,7 +4889,7 @@ static void TinyCShow(bool json) {
       // full-width cell, with its own nested table so the 2-column layout is
       // preserved) so multiple scripts on the main page are visually separated
       // with a gap. webCard(0) opts a slot out (s->web_nocard) -> bare rows.
-      if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
+      if (tc_slot_web_ready(s)) {
         bool card = (!s->web_nocard) && tc_has_callback(&s->vm, "WebCall");
         if (card) {
           WSContentSend_P(PSTR(
@@ -4879,6 +4905,7 @@ static void TinyCShow(bool json) {
     }
   }
 #endif
+  tc_web_pass_deadline = saved_pass;
 }
 
 /*********************************************************************************************\
@@ -6633,11 +6660,17 @@ bool Xdrv124(uint32_t function) {
       // Wrap charts in block container to prevent inline-block cascading width expansion
       WSContentSend_P(PSTR("<div style='display:block;width:100%%;overflow:hidden'>"));
       // Call user's WebPage() on all active slots
+      // tc_slot_web_ready() instead of a raw `s->vm.halted`: WebPage() is the
+      // WHOLE drawing program of a script, so dropping it costs the entire canvas
+      // -- Rolf measured 4 of 8 renders lost on a slot whose TaskLoop ran at
+      // delay(10), which looks exactly like "the page sometimes has no chart".
+      tc_web_pass_begin();
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
-        if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+        if (!tc_slot_web_ready(s)) continue;
         tc_slot_callback(s, "WebPage", TC_WEB_CB_WAIT);
       }
+      tc_web_pass_end();
       WSContentSend_P(PSTR("</div>"));
       // Inject JavaScript for widget interactions on main page (all slots)
       {

@@ -523,6 +523,31 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     build on 2026-08-05; the fix is documented at the top of
     `xdrv_79_tinyc_ble_glue.ino`.
 
+23. **Reading a missing `WebCall`/`WebPage` block as a browser or network problem** — until
+    2026-08-07 the main-page render tested `s->vm.halted` **unlocked and with zero wait**
+    and simply `continue`d on false. A slot whose `TaskLoop()` does work plus `delay(10)`
+    is non-halted for roughly half of every iteration, so **half of all page renders
+    dropped that slot's whole block** — no sensor row, no canvas, no log line, no error.
+    Rolf measured it on `max30102.tc` (2026-08-07): `WebCall` 11/12, `WebPage` 4/8, while
+    the script's own `/pulse` **`webOn` endpoint delivered 25/25 on the same device in the
+    same minute** — because that path *waits* (`TC_WEBON_HALTED_WAIT_MS`, 1500 ms). That
+    contrast is the diagnostic: if `webOn` is reliable and `WebCall`/`WebPage` flicker, it
+    is VM contention, not the network. Raising `delay(10)` → `delay(30)` took the canvas
+    from 4/8 to 11/12, which confirms it but is no fix (33 Hz ECG).
+    **Fixed in firmware**: the render now waits for the slot's next idle window
+    (`tc_slot_web_ready()`), bounded by a 400 ms budget for the whole page so one wedged
+    slot can't stall it. Every skip that still happens is counted — `TinyC` reports
+    `"WebSkip":N` per slot, and `TinyCInfo` shows it in the web rows. **Needs a flash.**
+    Two things that remain true regardless:
+    * A heavy drawing program belongs in a **`webOn` endpoint**, not in `WebPage()`. It
+      gets the longer wait, it is fetched on its own instead of blocking the page, and
+      the main page then only needs a small loader. (This is what Rolf's script does now.)
+    * The `frame_count > 1` reentrancy gate is a **cliff, not a slowdown**: a `TaskLoop`
+      that calls `delay()` **directly** parks at depth 1 and web callbacks get in; move
+      the same `delay()` one function deep and they are skipped on every iteration,
+      leaving only the one-tick gap between iterations. Nothing in the script hints at
+      it — a rising `WebSkip` with a healthy-looking script is the tell.
+
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
 `sml_chart_pv.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`

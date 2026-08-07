@@ -1656,6 +1656,13 @@ struct TcSlot {
   int32_t  extract_handle;
   uint32_t extract_file_pos;
   uint32_t extract_last_epoch;
+  // How often a web-render callback (WebCall/WebPage/WebUI/JsonCall/WebOn) was
+  // SKIPPED because this slot's VM was busy. Every skip is a silently empty
+  // block in the served page -- a missing sensor row, a missing canvas. Without
+  // a counter the only symptom is "the display flickers", which reads as a
+  // browser or network problem and costs an evening. Shown as "WebSkip" by the bare `TinyC`
+  // console command and in the TinyCInfo web rows. Rolf, 2026-08-07.
+  uint16_t web_cb_skips;
 #ifdef ESP32
   // FreeRTOS task for VM execution (main() and TaskLoop)
   TaskHandle_t task_handle;
@@ -18726,6 +18733,59 @@ static void tc_vm_task(void *param) {
 #else
 #define TC_WEB_CB_WAIT 0xFFFFFFFFUL   // ESP8266: single-slot, no vm_mutex -- value unused
 #endif
+
+// A web render fans one callback out over ALL slots, so a per-slot bounded wait
+// can still sum to TC_MAX_VMS x 250 ms on a page where every slot is busy. Bound
+// the WHOLE pass instead: tc_web_pass_begin() opens a budget, and the per-slot
+// wait below is clamped to whatever is left of it. Outside a pass the budget is
+// 0 = inactive and the per-slot wait applies unchanged (single-slot paths like
+// WebOn/WebUI, which already have their own halted-wait).
+#ifndef TC_WEB_PASS_BUDGET_MS
+#define TC_WEB_PASS_BUDGET_MS 400
+#endif
+static uint32_t tc_web_pass_deadline = 0;
+static inline void tc_web_pass_begin(void) { tc_web_pass_deadline = millis() + TC_WEB_PASS_BUDGET_MS; }
+static inline void tc_web_pass_end(void)   { tc_web_pass_deadline = 0; }
+
+// Is this slot worth rendering into the page right now?
+//
+// ⚠️ Read the history before "simplifying" this back to a plain `s->vm.halted`.
+// The web-render call sites used to test halted UNLOCKED and with ZERO wait, and
+// `continue` on false. On a slot whose TaskLoop does work + delay(10), halted is
+// false for roughly half of every iteration, so half of all page renders dropped
+// that slot's block ENTIRELY -- no row, no canvas, no log line, no error. Measured
+// by Rolf 2026-08-07 on max30102.tc: WebCall 11/12, WebPage 4/8, while the /pulse
+// webOn endpoint (which DOES wait, see TC_WEBON_HALTED_WAIT_MS) delivered 25/25 on
+// the same device in the same minute. That contrast is what pinned it down.
+//
+// The unlocked read stays a HINT -- tc_slot_callback re-checks under the mutex,
+// which is the only race-free place. What changes is that a busy MOMENT no longer
+// means "nothing to render": we wait for the slot's next idle window, bounded by
+// the pass budget so a wedged slot cannot stall the whole page.
+//
+// may_wait=false reverts to the old zero-wait probe. Pass it when this call is
+// NESTED inside a running VM -- sensorGet() re-enters the JsonCall fan-out from
+// inside a script's own callback, and there a 400 ms wait would land squarely in
+// the caller's TaskLoop. A telemetry line that is one poll late costs nothing; a
+// sensorGet() that suddenly takes 400 ms costs the whole loop.
+static bool tc_slot_web_ready(TcSlot *s, bool may_wait = true) {
+  if (!s || !s->loaded || s->vm.error != TC_OK) { return false; }
+  if (s->vm.halted) { return true; }
+  if (!may_wait) { return false; }
+#ifdef ESP32
+  // No pass open (single-slot path): fall back to the per-slot budget.
+  uint32_t deadline = tc_web_pass_deadline ? tc_web_pass_deadline
+                                           : (millis() + TC_WEB_PASS_BUDGET_MS);
+  while ((int32_t)(deadline - millis()) > 0) {
+    delay(1);                      // yields to the VM task and feeds the WDT
+    if (s->vm.halted) { return true; }
+    if (s->vm.error != TC_OK) { return false; }
+  }
+  if (s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
+#endif
+  return false;
+}
+
 static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 0xFFFFFFFFUL) {
   if (!s || !s->loaded) return;
 #ifdef ESP32
@@ -18735,11 +18795,21 @@ static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 
   // skips this tick and fires later, in the worker's next delay() window.
   if (s->has_worker_vm && wait_ticks == 0xFFFFFFFFUL) wait_ticks = 0;
 #endif
-  if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, (TickType_t)wait_ticks) != pdTRUE) return;
+  if (wait_ticks == TC_WEB_CB_WAIT && tc_web_pass_deadline) {
+    int32_t left_ms = (int32_t)(tc_web_pass_deadline - millis());
+    if (left_ms < 0) { left_ms = 0; }
+    uint32_t left = pdMS_TO_TICKS((uint32_t)left_ms);
+    if (left < wait_ticks) { wait_ticks = left; }
+  }
+  if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, (TickType_t)wait_ticks) != pdTRUE) {
+    if (s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
+    return;
+  }
 #else
   (void)wait_ticks;
 #endif
   if (!s->vm.halted || s->vm.error != TC_OK) {
+    if (s->vm.error == TC_OK && s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
@@ -18758,7 +18828,13 @@ static void tc_slot_callback(TcSlot *s, const char *name, uint32_t wait_ticks = 
   // the VM — stacking a callback frame on the worker's live base frame corrupts it
   // (pc=0 / NULL-locals; the worker's base frame is the one with return_pc=0). This
   // mirrors the UDP-global RX guard (~line 3069) which already rejects borrowed VMs.
+  // ⚠️ This gate is a CLIFF, not a slowdown, and nothing in the script hints at it:
+  // a TaskLoop calling delay() DIRECTLY parks at frame_count 1 and passes, but move
+  // the same delay() one function deep and frame_count is 2 — from then on the only
+  // window left is the one-tick gap between iterations and web callbacks mostly stop
+  // rendering. Count it, so `TinyC` can say so instead of the user guessing.
   if (s->vm.frame_count > 1 || s->vm.worker_borrowed) {
+    if (s->web_cb_skips < 0xFFFF) { s->web_cb_skips++; }
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif

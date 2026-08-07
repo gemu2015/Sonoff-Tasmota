@@ -497,6 +497,42 @@ what the slot's own task is doing:
 | `TaskLoop()`, **long/blocking** iteration | **dropped while it runs** | A long iteration holds the VM mutex; callbacks that tick during it are skipped. Keep iterations short and non-blocking. |
 | `spawnTask()` worker alive | **run, drop-on-busy** | On ESP32 the worker runs on its **own** VM (dual-context, default), so the primary VM keeps dispatching `EverySecond` / `WebCall` / `WebUI` / `Command` — a worker **and** local UI coexist on one slot. A callback that ticks while the worker holds the VM mutex is skipped (best-effort), never blocking loopTask. Only **one** `spawnTask` per slot. |
 
+> ⚠️ **A skipped web callback renders as NOTHING — no row, no error, no log.** "Dropped
+> while it runs" in the table above is not a lost tick like a missed `EverySecond`: a
+> skipped `WebCall()` means that slot's sensor rows are simply absent from the page that
+> was served, and a skipped `WebPage()` means its **entire** drawing program — canvas,
+> chart, buttons — is missing from that page. The browser gets a valid, complete,
+> shorter page. From the outside this reads as flicker, or as a chart that "sometimes
+> isn't there", and the natural suspects are the browser, the Wi-Fi, or your own HTML.
+>
+> **How to tell in one minute.** Fetch the same page ten to fifteen times and count how
+> often your block appears. Then do the same against a `webOn` endpoint of the same
+> script. `webOn` waits up to `TC_WEBON_HALTED_WAIT_MS` (1500 ms) for the VM, so it is
+> nearly always served; if `webOn` gives you 25/25 while `WebCall`/`WebPage` give you
+> 11/12 and 4/8, the answer is VM contention with your own `TaskLoop`, full stop.
+> (Those are Rolf's measured numbers on `max30102.tc`, 2026-08-07, at `delay(10)`.
+> Raising the loop to `delay(30)` took the canvas from 4/8 to 11/12 — which proves the
+> cause but costs two thirds of the sample rate, so it is a diagnosis, not a fix.)
+>
+> **Since 2026-08-07 the render waits** for the slot's next idle window instead of
+> skipping it on the spot, bounded by a 400 ms budget for the whole page
+> (`TC_WEB_PASS_BUDGET_MS`) so one wedged slot cannot stall the rest. Skips that still
+> happen are **counted**: the bare `TinyC` console command reports `"WebSkip":N` per
+> slot, and `TinyCInfo` shows it in the web rows. A `WebSkip` that keeps climbing is the
+> firmware telling you the slot is too busy to draw itself.
+>
+> **The structural fix is to move heavy drawing out of `WebPage()` into a `webOn`
+> endpoint** and leave a small loader on the main page. It gets the longer wait, it is
+> fetched independently instead of holding up the page, and the payload is only fetched
+> when something actually looks at it.
+>
+> ⚠️ **Where the `delay()` sits decides whether callbacks get in at all.** The reentrancy
+> gate skips a callback whenever the VM is parked deeper than one call frame. A
+> `TaskLoop()` that calls `delay()` **directly in its own body** parks at depth 1 and
+> passes; move that same `delay()` into a helper function and it parks at depth 2, from
+> which point the only window left is the one-tick gap between iterations. Same script,
+> same rate, one refactor apart — and nothing in the source hints at it.
+
 > **Dual-context worker VM — default on ESP32 (`USE_TINYC_WORKER_VM`).** A `spawnTask()`
 > worker gets its **own** VM (private operand stack / call frames / heap) that shares only the
 > slot's `globals[]`, so a background worker **and** a local web UI / LCD / `EverySecond`
