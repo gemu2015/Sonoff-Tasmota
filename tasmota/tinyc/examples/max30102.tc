@@ -90,7 +90,23 @@
 // dagegen durch -- der Unterschied ist von aussen unsichtbar und kostete eine Sitzung.
 // Also zur Laufzeit bauen; dann stimmt die Kanalmaske ausserdem automatisch mit.
 #define VP_KANAL   2         // C02 = EKG
-#define VP_GSCAN   300       // aus oeko4.def (R: $012c)
+// ⚠️⚠️ NICHT die volle Rate aus der .def anfordern -- die BLE-Strecke traegt sie nicht.
+// Gemessen ueber 40 s: bei angeforderten 256 Hz kamen 223 Saetze/s an, also 12,8 %
+// VERLUST, und zwar im eigenstaendigen Prober genauso wie hier (die Integration ist
+// unschuldig). 223 Saetze/s sind 669 Byte/s -- genau die Decke, die eine ATT-MTU von 23
+// bei ~30 ms Verbindungsintervall hergibt. gemus eigene iPad-App kennt das Problem und
+// drosselt den BLE-Pfad ausdruecklich ("limit rate to 300 b/s on BT-LE").
+// Also lieber WENIGER anfordern als verlieren: 384 -> 200 Hz = 600 Byte/s, 11 % Luft.
+// Ein QRS-Komplex ist damit 16 Werte breit statt 8. Fuer eine Kabel- oder
+// Classic-Verbindung kann hier wieder 300 (256 Hz) stehen.
+// Gemessen (40-s-Fenster, je angeforderte Rate):
+//   256 Hz -> 223/s, 12,8 % Verlust, Sync-Fehler   <- Bandbreite reicht nicht
+//   200 Hz -> 185/s,  7,6 % Verlust, 0 Sync-Fehler <- gewaehlt
+//   128 Hz -> 119/s,  6,9 % Verlust, 0 Sync-Fehler
+// Oberhalb 200 Hz kommt ein bandbreitenbedingter Anteil MIT Desynchronisation dazu;
+// darunter bleibt ein rateunabhaengiger Sockel von ~7 %, bei dem ganze Saetze SAUBER
+// fehlen. 200 Hz ist damit der beste Punkt: hoechste Aufloesung ohne Stroemungsabriss.
+#define VP_GSCAN   384       // 200 Hz  (.def sagt 300 = 256 Hz)
 #define VP_BR      0xff      // Subtyp 24 >= 7
 // Anzeige: FESTE Empfindlichkeit um eine mitlaufende Grundlinie -- wie ein echter
 // EKG-Monitor, nicht selbst-einmessend.
@@ -996,7 +1012,12 @@ void WebOn() {
         webSend(blk);
     }
 #endif
-#if EKG_QUELLE == 1
+// ⚠️ Quelle 1 UND 2 -- beide teilen sich die Zeitachse mit dem PPG und liefern ihre
+// Spur aus demselben Ring. Hier stand versehentlich nur "== 1", wodurch der
+// ADS1115-Weg (Quelle 2) seine EKG-Spur verloren haette. Genau der Pfad, den Rolf
+// benutzt, und er waere still ausgefallen: der Browser haette zwei Abschnitte
+// erwartet und nur einen bekommen.
+#if EKG_QUELLE == 1 || EKG_QUELLE == 2
     webSend("|");
     p = kpos - neu;
     if (p < 0) { p = p + KURVE_N; }
@@ -1169,8 +1190,8 @@ void Command(char cmd[]) {
             responseCmnd("Sensor wird neu eingestellt");
         } else {
             #if EKG_QUELLE == 3
-            sprintf(zeile, "puls=%d spo2=%d finger=%d | EKG an=%d saetze=%d rate=%d/s sync=%d uV=%d",
-                    bpm, spo2, finger, vp_an, vp_saetze, vp_rate, vp_sync, vp_ausg);
+            sprintf(zeile, "puls=%d spo2=%d finger=%d | EKG an=%d saetze=%d rate=%d/s sync=%d uV=%d puffer_max=%d",
+                    bpm, spo2, finger, vp_an, vp_saetze, vp_rate, vp_sync, vp_ausg, vp_avail_max);
 #else
             sprintf(zeile, "bereit=%d fehler=%d puls=%d spo2=%d spikes=%d ovf=%d nmax=%d",
                     bereit, fehler, bpm, spo2, spikes, ovf, nmax);
