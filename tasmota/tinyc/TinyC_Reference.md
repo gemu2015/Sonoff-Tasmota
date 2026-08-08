@@ -3492,6 +3492,11 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 | `ymin` | Y-axis minimum. If `ymin >= ymax`, chart auto-scales |
 | `ymax` | Y-axis maximum. If `ymin >= ymax`, chart auto-scales |
 
+⚠️ `ymin` / `ymax` are ordinary **runtime** floats, not literals — a variable or an
+expression works. That matters more than it sounds: it is the difference between "I
+must know the range at compile time" and "I compute it from the data I just collected".
+See *Baseline at zero* below.
+
 **Chart configuration (optional, call before `WebChart()`):**
 
 | Function | Description |
@@ -3530,12 +3535,72 @@ void WebPage() {
 }
 ```
 
-**Chart size:** Use `webChartSize(width, height)` to set custom chart dimensions in pixels before a `WebChart()` call. Pass 0 for either parameter to use the default size.
-
 - Use **fixed range** for data with known bounds (humidity 0–100, UV index 0–12)
 - Use **auto-scale** (`0, 0`) for data with variable range (brightness, wind, rain)
+- Use a **baseline at zero** when the values are comparable magnitudes and the
+  reader is meant to compare *bar heights* — see below
 - Call from `WebPage()` callback — each call emits one data series
 - Multiple series on one chart: first call has a title, subsequent calls use `""` as title
+
+#### Baseline at zero when the maximum is unknown
+
+Auto-scale fits the axis to the data, so four values of 11.3 / 11.4 / 10.5 / 9.2 kWh
+get an axis from 9 to 12 and the last bar shrinks to a stub. The chart is not wrong,
+but at a glance it says "almost nothing on Monday" when Monday actually delivered 80 %
+of Friday. Whenever the reader compares bar *heights* rather than reads values off the
+axis, the axis has to start at zero — and you rarely know the upper bound in advance.
+
+Two ways, neither needing a firmware change:
+
+**Pin the minimum, leave the maximum automatic** (one line, no arithmetic):
+```c
+WebChart(1, "Solar-Ertrag Prognose", "kWh", 0xf39c12, 0, vdays, f_yield, 1, 1440, 0.0, 0.0);
+WebChartJS("o.vAxis.viewWindow={min:0}");     // AFTER the WebChart it belongs to
+```
+`WebChartJS()` runs after the default options are built and before the draw, so it can
+set half a view window — something the `ymin`/`ymax` pair cannot express, since the two
+are all-or-nothing (`ymin >= ymax` means auto). On a chart with **two** y-axes use
+`o.vAxes[0].viewWindow={min:0}` instead.
+
+**Or compute the bound from the data** — useful when you also want headroom, or a
+rounded top:
+```c
+float mx = 0.0;
+int i = 0;
+while (i < vdays) {
+    if (f_yield[i] > mx) { mx = f_yield[i]; }
+    i = i + 1;
+}
+if (mx <= 0.0) { mx = 1.0; }    // ⚠️ all-zero data would give ymin >= ymax = auto again
+WebChart(1, "Solar-Ertrag Prognose", "kWh", 0xf39c12, 0, vdays, f_yield, 1, 1440, 0.0, mx * 1.15);
+```
+The guard is not paperwork: a forecast array that is still empty, or a night-time
+reading, makes `mx` zero, `ymin >= ymax` holds, and the chart silently reverts to the
+auto-scaling you were trying to avoid — on exactly the day the data looks strangest.
+
+#### Chart size across several scripts
+
+`WebChartSize(width, height)` sets the chart `<div>` size; `0` for either falls back to
+the default (960 × 300 px when neither is set).
+
+⚠️ **It is one setting for the whole page render, not per script.** It is reset to "not
+set" once at the start of each main-page render and then carries from slot to slot in
+slot order. So a script that never calls it does not get the default — it inherits
+whatever the *previous* slot happened to set, and the same script renders at a different
+width depending on which slot it runs in and which neighbours are loaded. That is the
+usual cause of charts from two scripts appearing at different widths and misaligned on
+one page.
+
+Give every chart-drawing script the same explicit call as the first line of its
+`WebPage()`:
+```c
+void WebPage() {
+    WebChartSize(0, 260);      // 0 = full container width, fixed height
+    …
+}
+```
+Width `0` is the better choice over a pixel value: the charts then fill the container,
+line up exactly whatever the slot order is, and still fit a phone.
 
 **Including HTML from files:**
 

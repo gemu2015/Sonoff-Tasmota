@@ -340,7 +340,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | Image bridge | `dspLoadImageFromCam(cam) → img_slot`, `dspImgTextBurn(slot, x, y, color, w, align, text)`, `dspImageToCam(img, cam, quality)` |
 | Canvas | `imgCreate`, `imgBeginDraw`, `imgEndDraw`, `imgClear`, `imgBlit`, `imgFlush`, `dspPushImageRect` |
 | TinyUI widgets | `uiTheme`, `uiScreen`, `uiClearScreen`, `uiLabel`, `uiLabelSet`, `uiProgress`, `uiProgressSet`, `uiGauge`, `uiCheckbox`, `uiButton`, `uiIcon` |
-| WebChart (Google) | `WebChart`, `WebChartSize`, `WebChartTimeBase` |
+| WebChart (Google) | `WebChart`, `WebChartSize`, `WebChartTimeBase`, `WebChartJS`. ⚠️ `ymin`/`ymax` are runtime floats and all-or-nothing (`ymin >= ymax` = auto-scale) — for "start at zero, top automatic" use `WebChartJS("o.vAxis.viewWindow={min:0}")` after the `WebChart()`. ⚠️ `WebChartSize` is ONE setting per page render, not per script: it carries from slot to slot in slot order, so a script that omits it inherits the previous slot's width instead of the default. Call it explicitly (width `0` = full container width) in every chart script. |
 | Web raw HTTP | `webRawMode`, `webRawWrite`, `webKeepAlive` (for clients that expect specific headers / persistent sockets — EcoTracker, Jackery, etc.) |
 | Audio | `i2sBegin`, `i2sWrite`, `i2sStop`, `fileReadPCM16` |
 | Camera | `camControl(sel, p1, p2)` (multiplexed: 0=init, 10=capture, 11=save-to-file, 12=free, 13=deinit, …) |
