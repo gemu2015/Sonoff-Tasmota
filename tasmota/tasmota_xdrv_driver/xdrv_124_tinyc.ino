@@ -5762,7 +5762,11 @@ struct TcSpawnTask {
   TaskHandle_t  handle;
   TcSlot       *slot;
   uint8_t       slot_idx;         // 0..TC_MAX_VMS-1
-  volatile uint8_t stop_requested;
+  // bool, not uint8_t: the VM slice takes a `volatile bool*` abort flag (same as
+  // slot->task_stop), and it polls it directly so killTask aborts a compute-only
+  // worker within 64 instructions instead of at the next budget. Only ever 0/1,
+  // same size and layout as before.
+  volatile bool stop_requested;
   volatile uint8_t running;       // 1 while FreeRTOS task alive
 #ifdef USE_TINYC_WORKER_VM
   TcVM         *worker_vm;        // Option 2: the worker's OWN VM (NULL = borrow shared VM)
@@ -5890,53 +5894,49 @@ static void tc_spawn_task_body(void *param) {
 
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') running on slot %d"), name, entry->slot_idx);
 
-    uint32_t count = 0;
-    while (vm->frame_count > saved_frame_count
-           && !vm->halted
-           && vm->error == TC_OK
-           && !entry->stop_requested
-           && slot->loaded) {
-      int err = tc_vm_step(vm);
-      if (err == TC_ERR_PAUSED) {
-        if (vm->delayed) {
-          // Release mutex during the actual sleep so other work can proceed.
-          vm->halted = true;
-          vm->running = false;
-          tc_current_slot = nullptr;
-          if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
-          int32_t remaining = (int32_t)(vm->delay_until - millis());
-          while (remaining > 0 && !entry->stop_requested && slot->loaded) {
-            int32_t chunk = (remaining > 50) ? 50 : remaining;
-            vTaskDelay(pdMS_TO_TICKS(chunk));
-            remaining = (int32_t)(vm->delay_until - millis());
-          }
-          vm->delayed = false;
-          if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
-          tc_current_slot = slot;
-          if (entry->stop_requested || !slot->loaded) break;
-          vm->halted = false;
-          vm->running = true;
-        }
-        continue;
-      }
+    // Worker body on the direct-threaded loop. Only stop_requested fits the
+    // slice's single stop flag; slot->loaded is checked out here, which is
+    // close enough — the slice hands control back at least every budget.
+    for (;;) {
+      int err = tc_vm_run_slice_ex(vm, 0, TC_TASKLOOP_BUDGET_MS,
+                                   (int)saved_frame_count, &entry->stop_requested);
       if (err != TC_OK) {
-        vm->error = err;
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') err %d at PC=%u"), name, err, vm->pc);
         tc_crash_log(err, vm->pc, vm->instruction_count, name);
         break;
       }
-      count++;
-      vm->instruction_count++;
-      // Yield periodically to feed WDT and let other work run.
-      if ((count & 0xFFFF) == 0) {
-        vm->halted = true; vm->running = false;
+      if (vm->delayed) {
+        // Release mutex during the actual sleep so other work can proceed.
+        vm->halted = true;
+        vm->running = false;
+        tc_current_slot = nullptr;
         if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
-        vTaskDelay(1);
+        int32_t remaining = (int32_t)(vm->delay_until - millis());
+        while (remaining > 0 && !entry->stop_requested && slot->loaded) {
+          int32_t chunk = (remaining > 50) ? 50 : remaining;
+          vTaskDelay(pdMS_TO_TICKS(chunk));
+          remaining = (int32_t)(vm->delay_until - millis());
+        }
+        vm->delayed = false;
         if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
         tc_current_slot = slot;
         if (entry->stop_requested || !slot->loaded) break;
-        vm->halted = false; vm->running = true;
+        vm->halted = false;
+        vm->running = true;
+        continue;
       }
+      if (vm->halted) break;
+      if (vm->frame_count <= saved_frame_count) break;   // worker function returned
+      if (entry->stop_requested || !slot->loaded) break;
+      // Budget expired — same hand-back as before, on a time trigger instead of
+      // every 65536 instructions (see the TaskLoop note in vm.h).
+      vm->halted = true; vm->running = false;
+      if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+      vTaskDelay(1);
+      if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+      tc_current_slot = slot;
+      if (entry->stop_requested || !slot->loaded) break;
+      vm->halted = false; vm->running = true;
     }
 
     // Clean up callback frame
@@ -6032,50 +6032,45 @@ static void tc_worker_vm_body(void *param) {
 
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: workerVM('%s') running on slot %d (own VM)"), name, entry->slot_idx);
 
-    uint32_t count = 0;
-    while (vm->frame_count > 0
-           && !vm->halted
-           && vm->error == TC_OK
-           && !entry->stop_requested
-           && slot->loaded) {
-      int err = tc_vm_step(vm);
-      if (err == TC_ERR_PAUSED) {
-        if (vm->delayed) {
-          // Release the mutex during the sleep so primary callbacks run.
-          vm->halted = true; vm->running = false;
-          tc_current_slot = nullptr;
-          if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
-          int32_t remaining = (int32_t)(vm->delay_until - millis());
-          while (remaining > 0 && !entry->stop_requested && slot->loaded) {
-            int32_t chunk = (remaining > 50) ? 50 : remaining;
-            vTaskDelay(pdMS_TO_TICKS(chunk));
-            remaining = (int32_t)(vm->delay_until - millis());
-          }
-          vm->delayed = false;
-          if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
-          tc_current_slot = slot;
-          if (entry->stop_requested || !slot->loaded) break;
-          vm->halted = false; vm->running = true;
-        }
-        continue;
-      }
+    // Own-VM worker: its base frame IS frame 0, so it is done when the frame
+    // stack empties — stop_frame 0, unlike the borrowed-VM worker above which
+    // stops at the depth it found.
+    for (;;) {
+      int err = tc_vm_run_slice_ex(vm, 0, TC_TASKLOOP_BUDGET_MS,
+                                   0, &entry->stop_requested);
       if (err != TC_OK) {
-        vm->error = err;
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: workerVM('%s') err %d at PC=%u"), name, err, vm->pc);
         tc_crash_log(err, vm->pc, vm->instruction_count, name);
         break;
       }
-      count++;
-      vm->instruction_count++;
-      if ((count & 0xFFFF) == 0) {
+      if (vm->delayed) {
+        // Release the mutex during the sleep so primary callbacks run.
         vm->halted = true; vm->running = false;
+        tc_current_slot = nullptr;
         if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
-        vTaskDelay(1);
+        int32_t remaining = (int32_t)(vm->delay_until - millis());
+        while (remaining > 0 && !entry->stop_requested && slot->loaded) {
+          int32_t chunk = (remaining > 50) ? 50 : remaining;
+          vTaskDelay(pdMS_TO_TICKS(chunk));
+          remaining = (int32_t)(vm->delay_until - millis());
+        }
+        vm->delayed = false;
         if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
         tc_current_slot = slot;
         if (entry->stop_requested || !slot->loaded) break;
         vm->halted = false; vm->running = true;
+        continue;
       }
+      if (vm->halted) break;
+      if (vm->frame_count == 0) break;                   // worker function returned
+      if (entry->stop_requested || !slot->loaded) break;
+      vm->halted = true; vm->running = false;
+      if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+      vTaskDelay(1);
+      if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+      tc_current_slot = slot;
+      if (entry->stop_requested || !slot->loaded) break;
+      vm->halted = false; vm->running = true;
     }
 
     while (vm->frame_count > 0) {

@@ -388,6 +388,14 @@ extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y
 #else
   #define TC_CALLBACK_MAX_INSTR 200000 // instruction limit per callback (ESP32)
 #endif
+
+// How long a TaskLoop body may hold the VM before the driver takes the mutex
+// away from it for one tick. Must stay well under TC_WEB_CB_WAIT (250 ms) or a
+// web render would time out waiting for a compute-heavy body; 20 ms means a
+// page render waits at most one budget for its turn.
+#ifndef TC_TASKLOOP_BUDGET_MS
+#define TC_TASKLOOP_BUDGET_MS 20
+#endif
 #define TC_CALLBACK_NAME_MAX 20        // max callback name length (longest: OnMqttDisconnect=16+1)
 
 // UDP multicast support (Scripter-compatible protocol)
@@ -17378,6 +17386,10 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
 
 // Forward declaration — tc_vm_step is defined below, called by tc_vm_call_callback
 static int tc_vm_step(TcVM *vm);
+// Defined far below (it needs the computed-goto label block). Declared here so
+// the callback dispatcher above it can run on the direct-threaded loop too.
+static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
+                              int stop_frame, volatile bool *stop_flag);
 
 /*********************************************************************************************\
  * VM: Callback invocation — call a named function after main() has halted
@@ -17430,33 +17442,42 @@ static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
   vm->frame_count++;
   vm->pc = vm->code_offset + vm->callbacks[idx].address;
 
-  // Execute with instruction limit
-  uint32_t count = 0;
-  while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK) {
-    int err = tc_vm_step(vm);
-    if (err == TC_ERR_PAUSED) {
-      // delay() in callback — execute synchronously (short delays only)
-      if (vm->delayed && vm->delay_until > millis()) {
-        uint32_t wait = vm->delay_until - millis();
-        if (wait > 100) wait = 100;  // cap at 100ms to avoid WDT
-        delay(wait);
-      }
-      vm->delayed = false;
-      continue;  // resume callback execution after delay
-    }
-    if (err != TC_OK) {
-      vm->error = err;
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Callback error %d at PC=%u"), err, vm->pc);
-      tc_crash_log(err, vm->pc, vm->instruction_count, name);
-      break;
-    }
-    vm->instruction_count++;
-    if (++count > TC_CALLBACK_MAX_INSTR) {
-      vm->error = TC_ERR_INSTRUCTION_LIMIT;
+  // Execute on the direct-threaded loop, stopping when the callback's own frame
+  // pops. No wall-clock budget: this runs on loopTask with the slot mutex held,
+  // and handing control back mid-callback would only add round trips — the
+  // instruction watchdog is what bounds it.
+  uint32_t start_instr = vm->instruction_count;
+  for (;;) {
+    // Budget is what is LEFT of the callback's allowance, not a fresh helping
+    // per resumption — otherwise a callback that delay()s in a loop would renew
+    // its watchdog on every sleep and never trip it.
+    uint32_t used = vm->instruction_count - start_instr;
+    uint32_t budget = (used >= TC_CALLBACK_MAX_INSTR) ? 1 : (TC_CALLBACK_MAX_INSTR - used);
+    int err = tc_vm_run_slice_ex(vm, budget, 0, (int)saved_frame_count, nullptr);
+    if (err == TC_ERR_INSTRUCTION_LIMIT) {
+      uint32_t count = vm->instruction_count - start_instr;
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Instruction limit in '%s' at PC=%u (%u instr)"), name, vm->pc, count);
       tc_crash_log(TC_ERR_INSTRUCTION_LIMIT, vm->pc, count, name);
       break;
     }
+    if (err != TC_OK) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Callback error %d at PC=%u"), err, vm->pc);
+      tc_crash_log(err, vm->pc, vm->instruction_count, name);
+      break;
+    }
+    if (vm->delayed) {
+      // delay() in a callback — served synchronously, because this is loopTask:
+      // there is nobody to hand the wait to. Capped so one script cannot feed
+      // the WDT a delay(30000) from inside EverySecond.
+      if (vm->delay_until > millis()) {
+        uint32_t wait = vm->delay_until - millis();
+        if (wait > 100) wait = 100;
+        delay(wait);
+      }
+      vm->delayed = false;
+      continue;  // resume callback execution after the delay
+    }
+    break;  // halted, or the callback's frame popped — either way it is done
   }
 
   // Restore halted state (globals persist)
@@ -18049,7 +18070,32 @@ static int tc_vm_step(TcVM *vm) {
  * Uses computed-goto dispatch on GCC for ~20-30% speedup over switch().
 \*********************************************************************************************/
 
-static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
+// Run bytecode on the direct-threaded loop until one of the stop conditions
+// fires. Every ESP32 execution path goes through here; the caller tells the
+// exits apart by inspecting the VM afterwards:
+//
+//   return != TC_OK            -> error (already stored in vm->error)
+//   vm->halted                 -> the program ended (HALT, or RET from frame 0)
+//   vm->delayed                -> delay() is pending; the CALLER sleeps, because
+//                                 only the caller knows whether it may release
+//                                 the slot mutex first
+//   vm->frame_count <= stop_frame -> the dispatched function returned
+//   otherwise                  -> a budget expired or *stop_flag went true;
+//                                 call again to continue
+//
+// stop_frame  frame depth at which to hand control back; -1 = only stop on halt.
+//             A callback pushes one frame, so its caller passes the depth it saw
+//             before the push and gets control back the moment that frame pops.
+// max_instr   instruction budget, 0 = unlimited. Checked every 64 instructions,
+//             so it is honoured to within 64 — fine for a watchdog, and it keeps
+//             the check off the per-instruction path.
+// budget_ms   wall-clock budget, 0 = none. A task context wants a budget anyway:
+//             it is what lets the caller drop the mutex periodically so web
+//             callbacks can get in during a long compute-only loop body.
+// stop_flag   optional external abort (task_stop / stop_requested), also polled
+//             every 64 instructions.
+static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
+                              int stop_frame, volatile bool *stop_flag) {
   vm->running = true;
 
   // Check for non-blocking delay before entering hot loop
@@ -18068,9 +18114,18 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   // branch-prediction penalty of a single switch indirect branch.
   // ════════════════════════════════════════════════════════════════════
 
-  // Dispatch table (0x00 – 0xA5, 166 entries)
+  // Dispatch table — FULL uint8 range on purpose, 256 entries.
+  // ⚠️ It used to be sized 0xA6 (= 166 valid indices, 0x00..0xA5) while opcodes
+  // already went up to 0xA7. Two consequences, both silent: the initialiser
+  // `_dispatch[0xA6] = ...` wrote ONE PAST THE END into whatever static data
+  // followed, and every fetch of an opcode >= 0xA6 read past the end and jumped
+  // through that garbage — the `? :` null-guard only covers indices inside the
+  // array. Any bytecode using OP_ADDR_HEAP_OFF (2D-array row refs) or OP_REF_OFF
+  // could land anywhere. Sizing to the full 0x100 makes an out-of-range opcode
+  // structurally impossible: every uint8 now has a slot, unused ones stay null
+  // and route to _vm_bad_op. Costs 1 KB instead of 664 B, once.
   // C++ doesn't support designated initializers, so build at runtime on first call
-  static const void *_dispatch[0xA6] = {};
+  static const void *_dispatch[0x100] = {};
   static bool _dispatch_init = false;
   if (!_dispatch_init) {
     memset((void*)_dispatch, 0, sizeof(_dispatch));
@@ -18106,6 +18161,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     _dispatch[0x50] = &&_op_jmp;  _dispatch[0x51] = &&_op_jz;
     _dispatch[0x52] = &&_op_jnz;  _dispatch[0x53] = &&_op_call;
     _dispatch[0x54] = &&_op_ret;  _dispatch[0x55] = &&_op_ret_val;
+    _dispatch[0x56] = &&_op_call_indirect;
     // Variables
     _dispatch[0x60] = &&_op_load_local;   _dispatch[0x61] = &&_op_store_local;
     _dispatch[0x62] = &&_op_load_global;  _dispatch[0x63] = &&_op_store_global;
@@ -18119,14 +18175,24 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     // Address refs
     _dispatch[0x78] = &&_op_addr_local; _dispatch[0x79] = &&_op_addr_global;
     // Syscall & const
-    _dispatch[0x80] = &&_op_syscall; _dispatch[0x90] = &&_op_load_const;
+    // ⚠️ 0x81 (SYSCALL2, the 16-bit syscall id) was MISSING. Every syscall
+    // numbered >= 256 is emitted as SYSCALL2 — which today is nearly all of
+    // them — so without this entry the fast path aborted with BAD_OPCODE on
+    // the first modern builtin. That is the single reason this loop could not
+    // carry general script execution, and it looked like "the fast path is
+    // only for the 8266" rather than "the fast path is unfinished".
+    _dispatch[0x80] = &&_op_syscall; _dispatch[0x81] = &&_op_syscall2;
+    _dispatch[0x90] = &&_op_load_const;
     // Heap
     _dispatch[0xA0] = &&_op_load_heap;  _dispatch[0xA1] = &&_op_store_heap;
     _dispatch[0xA2] = &&_op_addr_heap;
+    // Reference parameters / array refs (int& params, 2D row passing)
+    _dispatch[0xA3] = &&_op_load_ref_arr; _dispatch[0xA4] = &&_op_store_ref_arr;
     // Watch
     _dispatch[0xA5] = &&_op_store_watch;
-    // Heap address with offset
+    // Heap address with offset, and ref-offset arithmetic
     _dispatch[0xA6] = &&_op_addr_heap_off;
+    _dispatch[0xA7] = &&_op_ref_off;
     _dispatch_init = true;
   }
 
@@ -18157,12 +18223,23 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   #define _RD_F32() i2f(_RD_I32())
 
   // ── Dispatch macro ──
+  // All three budget checks live behind the 64-instruction mask, so the cost per
+  // instruction stays one increment, one masked test and the PC bounds check.
+  // Granularity of 64 is irrelevant for a watchdog and for a millisecond budget.
   #define NEXT() do { \
     _count++; \
-    if ((_count & 0x3F) == 0 && millis() - _start > 10) goto _vm_yield; \
+    if ((_count & 0x3F) == 0) { \
+      if (max_instr && _count >= max_instr) goto _vm_budget; \
+      if (budget_ms && (millis() - _start) > budget_ms) goto _vm_yield; \
+      if (stop_flag && *stop_flag) goto _vm_yield; \
+    } \
     if (_pc < _coff || _pc >= _coff + _csz) { _err = TC_ERR_BOUNDS; goto _vm_exit; } \
     _op = _RD_U8(); \
     goto *(_dispatch[_op] ? _dispatch[_op] : &&_vm_bad_op); \
+  } while(0)
+  // Hand control back the moment the dispatched function's frame pops.
+  #define RET_CHECK() do { \
+    if (stop_frame >= 0 && (int)vm->frame_count <= stop_frame) goto _vm_yield; \
   } while(0)
 
   // ── First instruction fetch ──
@@ -18273,6 +18350,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
       tc_frame_free(f);
       vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
     }
+    RET_CHECK();
     NEXT();
   _op_ret_val:
     _a = TC_IPOP();
@@ -18294,6 +18372,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
       vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
       TC_IPUSH(_a);
     }
+    RET_CHECK();
     NEXT();
 
   // Variables
@@ -18483,10 +18562,99 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     if (scerr != TC_OK) { _err = scerr; goto _vm_exit; }
     NEXT();
   }
+  // 16-bit syscall id — the form used by every builtin numbered >= 256.
+  _op_syscall2: {
+    uint16_t _idx2 = _RD_U16();
+    vm->sp = _sp; vm->pc = _pc;
+    int scerr = tc_syscall(vm, _idx2);
+    _sp = vm->sp; _pc = vm->pc;
+    if (scerr == TC_ERR_PAUSED) {
+      goto _vm_yield;
+    }
+    if (scerr != TC_OK) { _err = scerr; goto _vm_exit; }
+    NEXT();
+  }
+
+  // Indirect call through a function pointer — same frame setup as _op_call,
+  // but the target address is popped off the stack instead of read from the
+  // bytecode. Args were pushed first, then the fn-ptr value.
+  _op_call_indirect: {
+    _a = TC_IPOP();
+    _addr = (uint16_t)(_a & 0xFFFF);
+    if (vm->frame_count >= TC_MAX_FRAMES) { _err = TC_ERR_FRAME_OVERFLOW; goto _vm_exit; }
+    vm->sp = _sp; vm->pc = _pc;                   // return_pc must be current
+    TcFrame *frame = &vm->frames[vm->frame_count];
+    frame->return_pc = _pc;
+    frame->saved_sp = _sp;                        // caller SP, fn-ptr already popped
+    if (!tc_frame_alloc(frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
+    vm->fp = vm->frame_count;
+    vm->frame_count++;
+    _pc = _coff + _addr;
+    NEXT();
+  }
+
+  // Read through a reference parameter (int& / char[] / 2D row).
+  // ⚠️ An out-of-range READ pushes 0 rather than faulting — deliberate, see the
+  // switch-path comment: a stray sub-ref read must not halt the whole slot.
+  // Writes below still fault, so nothing is corrupted silently.
+  _op_load_ref_arr: {
+    _idx = _RD_U8();
+    _a = TC_IPOP();                               // index
+    if ((uint32_t)_idx >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (!vm->frames[vm->fp].locals) { _err = TC_ERR_FRAME_INVALID; goto _vm_exit; }
+    int32_t _ref = vm->frames[vm->fp].locals[_idx];
+    vm->sp = _sp; vm->pc = _pc;                   // tc_resolve_ref may inspect vm state
+    int32_t *_buf = tc_resolve_ref(vm, _ref);
+    int32_t _maxlen = _buf ? tc_ref_maxlen(vm, _ref) : 0;
+    if (!_buf || _a < 0 || _a >= _maxlen) { TC_IPUSH(0); NEXT(); }
+    TC_IPUSH(_buf[_a]);
+    NEXT();
+  }
+  _op_store_ref_arr: {
+    _idx = _RD_U8();
+    _b = TC_IPOP();                               // value
+    _a = TC_IPOP();                               // index
+    if ((uint32_t)_idx >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (!vm->frames[vm->fp].locals) { _err = TC_ERR_FRAME_INVALID; goto _vm_exit; }
+    int32_t _ref = vm->frames[vm->fp].locals[_idx];
+    vm->sp = _sp; vm->pc = _pc;
+    int32_t *_buf = tc_resolve_ref(vm, _ref);
+    if (!_buf) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    int32_t _maxlen = tc_ref_maxlen(vm, _ref);
+    if (_a < 0 || _a >= _maxlen) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    _buf[_a] = _b;
+    NEXT();
+  }
+
+  // Advance a reference by N slots — TAG-AWARE. A heap ref (tag 3) keeps its
+  // 8-bit handle in the LOW byte and the offset at bits 16..29, so a plain add
+  // would walk into the handle and land on a different (or dead) array.
+  // Const-pool refs (tag 3 + bit15) cannot be offset and pass through unchanged.
+  _op_ref_off: {
+    int32_t _off = TC_IPOP();
+    int32_t _ref = TC_IPOP();
+    uint32_t _uref = (uint32_t)_ref;
+    if ((_uref >> 30) == 3 && !(_uref & 0x8000)) {
+      int32_t _noff = (int32_t)((_uref >> 16) & 0x3FFF) + _off;
+      if (_noff < 0) _noff = 0;
+      if (_noff > 0x3FFF) _noff = 0x3FFF;
+      _ref = (int32_t)(0xC0000000u | ((uint32_t)_noff << 16) | (_uref & 0xFF));
+    } else if ((_uref >> 30) != 3) {
+      _ref = (int32_t)(_uref + (uint32_t)_off);
+    }
+    TC_IPUSH(_ref);
+    NEXT();
+  }
 
   // ── Exit labels ──
   _vm_bad_op:
     _err = TC_ERR_BAD_OPCODE;
+    goto _vm_exit;
+  // Instruction watchdog. Reported as an error so a runaway callback is caught;
+  // the callback dispatcher clears it again after cleanup (see the long note
+  // there — leaving it set would poison every later dispatch on that slot).
+  _vm_budget:
+    _err = TC_ERR_INSTRUCTION_LIMIT;
     goto _vm_exit;
   _vm_yield:
     vm->sp = _sp; vm->pc = _pc;
@@ -18505,6 +18673,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   #undef _RD_I32
   #undef _RD_F32
   #undef NEXT
+  #undef RET_CHECK
 
 #else
   // ════════════════════════════════════════════════════════════════════
@@ -18513,18 +18682,30 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   uint32_t count = 0;
   uint32_t start_ms = millis();
 
-  while (vm->running && !vm->halted && vm->error == TC_OK && count < max_instr) {
+  while (vm->running && !vm->halted && vm->error == TC_OK) {
+    if (stop_frame >= 0 && (int)vm->frame_count <= stop_frame) break;
+    if (stop_flag && *stop_flag) break;
     int err = tc_vm_step(vm);
     if (err == TC_ERR_PAUSED) return TC_OK;
-    if (err != TC_OK) return err;
+    if (err != TC_OK) { vm->error = err; return err; }
     count++;
     vm->instruction_count++;
+    if (max_instr && count >= max_instr) { vm->error = TC_ERR_INSTRUCTION_LIMIT; return vm->error; }
     if ((count & 0x3F) == 0) {
-      if (millis() - start_ms > 10) return TC_OK;
+      if (budget_ms && (millis() - start_ms) > budget_ms) return TC_OK;
     }
   }
   return vm->error;
 #endif // __GNUC__
+}
+
+// Backwards-compatible wrapper — the pre-existing signature and EXACTLY the
+// previous behaviour: no frame stop, no external abort, the old hard-coded
+// 10 ms budget, and max_instr ignored (the direct-threaded path never honoured
+// it). The ESP8266 per-tick slice calls this, so its timing is untouched.
+static inline int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
+  (void)max_instr;
+  return tc_vm_run_slice_ex(vm, 0, 10, -1, nullptr);
 }
 
 /*********************************************************************************************\
@@ -18558,20 +18739,19 @@ static void tc_vm_task(void *param) {
       if (slot->task_stop) break;
     }
 
-    // Execute a batch of instructions, then yield
-    uint32_t count = 0;
-    while (!vm->halted && vm->error == TC_OK && count < 256 && !slot->task_stop) {
-      int err = tc_vm_step(vm);
-      if (err == TC_ERR_PAUSED) break;
-      if (err != TC_OK) {
-        vm->error = err;
-        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error %d at PC=%u after %u instr"),
-          err, vm->pc, vm->instruction_count);
-        tc_crash_log(err, vm->pc, vm->instruction_count, "main");
-        break;
-      }
-      count++;
-      vm->instruction_count++;
+    // Execute a batch, then yield. This used to step ONE instruction per call
+    // through tc_vm_step() — a non-inlinable call plus a halted/error/PC-bounds
+    // check per instruction, on top of this loop's own condition chain. That is
+    // where the ~161 cycles per opcode went (measured on an S3 at 240 MHz,
+    // 2026-08-08). The direct-threaded loop keeps PC, SP and the code pointer in
+    // registers and only writes them back when it hands control back.
+    // 20 ms rather than an instruction count: the point of the batch is to let
+    // the WDT and the scheduler breathe, and that is a time property.
+    int err = tc_vm_run_slice_ex(vm, 0, 20, -1, &slot->task_stop);
+    if (err != TC_OK) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error %d at PC=%u after %u instr"),
+        err, vm->pc, vm->instruction_count);
+      tc_crash_log(err, vm->pc, vm->instruction_count, "main");
     }
 
     yield();
@@ -18627,50 +18807,59 @@ static void tc_vm_task(void *param) {
             vm->frame_count++;
             vm->pc = vm->code_offset + tl_addr;
 
-            uint32_t count = 0;
-            while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK && !slot->task_stop) {
-              int err = tc_vm_step(vm);
-              if (err == TC_ERR_PAUSED) {
-                if (vm->delayed) {
-                  vm->halted = true;
-                  vm->running = false;
-                  tc_current_slot = nullptr;  // clear during delay
-                  if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
-                  int32_t remaining = (int32_t)(vm->delay_until - millis());
-                  while (remaining > 0 && !slot->task_stop) {
-                    int32_t chunk = (remaining > 50) ? 50 : remaining;
-                    vTaskDelay(chunk / portTICK_PERIOD_MS);
-                    remaining = (int32_t)(vm->delay_until - millis());
-                  }
-                  vm->delayed = false;
-                  if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
-                  tc_current_slot = slot;  // restore after reacquire
-                  vm->halted = false;
-                  vm->running = true;
-                  if (slot->task_stop) break;
-                }
-                continue;
-              }
+            // One TaskLoop() body per pass of this loop. The slice runs it on the
+            // direct-threaded path and hands control back the moment the body's
+            // frame pops (stop_frame), on delay(), on error, or after 20 ms.
+            for (;;) {
+              int err = tc_vm_run_slice_ex(vm, 0, TC_TASKLOOP_BUDGET_MS,
+                                           (int)saved_frame_count, &slot->task_stop);
               if (err != TC_OK) {
-                vm->error = err;
                 AddLog(LOG_LEVEL_ERROR, PSTR("TCC: TaskLoop error %d at PC=%u"), err, vm->pc);
                 tc_crash_log(err, vm->pc, vm->instruction_count, "TaskLoop");
                 break;
               }
-              count++;
-              vm->instruction_count++;
-              // Yield periodically to feed WDT (no instruction limit in TaskLoop)
-              if ((count & 0xFFFF) == 0) {
+              if (vm->delayed) {
+                // delay() inside the body: drop the mutex for the whole sleep so
+                // web callbacks and other slots can use the VM meanwhile. halted
+                // must be set BEFORE releasing — that flag is what tells a
+                // callback the slot is safe to enter.
                 vm->halted = true;
                 vm->running = false;
+                tc_current_slot = nullptr;  // clear during delay
                 if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
-                vTaskDelay(1);
+                int32_t remaining = (int32_t)(vm->delay_until - millis());
+                while (remaining > 0 && !slot->task_stop) {
+                  int32_t chunk = (remaining > 50) ? 50 : remaining;
+                  vTaskDelay(chunk / portTICK_PERIOD_MS);
+                  remaining = (int32_t)(vm->delay_until - millis());
+                }
+                vm->delayed = false;
                 if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
-                tc_current_slot = slot;
+                tc_current_slot = slot;  // restore after reacquire
                 vm->halted = false;
                 vm->running = true;
                 if (slot->task_stop) break;
+                continue;
               }
+              if (vm->halted) break;                              // HALT inside the body
+              if (vm->frame_count <= saved_frame_count) break;    // TaskLoop() returned
+              if (slot->task_stop) break;
+              // Budget expired mid-body. This replaces the old every-65536-
+              // instructions yield, and it is the better trigger: a body that
+              // computes without ever calling delay() would otherwise hold the
+              // mutex for as long as it runs, and every web callback in that
+              // window renders empty. Time is what the callbacks care about,
+              // not instruction count — and the count would drift anyway now
+              // that instructions are several times cheaper.
+              vm->halted = true;
+              vm->running = false;
+              if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+              vTaskDelay(1);
+              if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+              tc_current_slot = slot;
+              vm->halted = false;
+              vm->running = true;
+              if (slot->task_stop) break;
             }
 
             while (vm->frame_count > saved_frame_count) {
@@ -18743,6 +18932,7 @@ static void tc_vm_task(void *param) {
 #ifndef TC_WEB_PASS_BUDGET_MS
 #define TC_WEB_PASS_BUDGET_MS 400
 #endif
+
 static uint32_t tc_web_pass_deadline = 0;
 static inline void tc_web_pass_begin(void) { tc_web_pass_deadline = millis() + TC_WEB_PASS_BUDGET_MS; }
 static inline void tc_web_pass_end(void)   { tc_web_pass_deadline = 0; }
