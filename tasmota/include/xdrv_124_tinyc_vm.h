@@ -396,6 +396,16 @@ extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y
 #ifndef TC_TASKLOOP_BUDGET_MS
 #define TC_TASKLOOP_BUDGET_MS 20
 #endif
+
+// How many 1 KB frame-locals buffers a VM keeps for reuse instead of returning
+// them to the heap (see tc_frame_alloc). One already covers plain leaf calls;
+// the rest absorb recursion that oscillates in depth. Worst case this holds
+// TC_FRAME_CACHE KB per VM, and only after calls that deep actually happened.
+#ifdef ESP8266
+  #define TC_FRAME_CACHE 1
+#else
+  #define TC_FRAME_CACHE 4
+#endif
 #define TC_CALLBACK_NAME_MAX 20        // max callback name length (longest: OnMqttDisconnect=16+1)
 
 // UDP multicast support (Scripter-compatible protocol)
@@ -1518,6 +1528,11 @@ typedef struct {
   uint16_t globals_size;
   // Frames
   TcFrame  frames[TC_MAX_FRAMES];
+  // Reuse cache for frame locals — see tc_frame_alloc(). Buffers are only ever
+  // put here after a real call has allocated one, so a VM that never calls a
+  // function costs nothing extra.
+  int32_t  *frame_cache[TC_FRAME_CACHE];
+  uint8_t  frame_cache_n;
   uint8_t  fp;
   uint8_t  frame_count;
   // Constants (dynamically allocated in tc_vm_load)
@@ -1980,9 +1995,17 @@ static TcSlot *tc_slot_alloc(void) {
   return s;
 }
 
+// Defined further down with the rest of the frame machinery.
+static void tc_free_all_frames(TcVM *vm);
+static void tc_frame_cache_drain(TcVM *vm);
+
 // Helper: free a slot (caller must stop VM and free program first)
 static void tc_slot_free(TcSlot *s) {
   if (!s) return;
+  // Frame locals and their reuse cache — the slot is going away, so anything
+  // still parked has to go back to the heap or it is lost with the struct.
+  tc_free_all_frames(&s->vm);
+  tc_frame_cache_drain(&s->vm);
   if (s->program) { free(s->program); s->program = nullptr; }
   if (s->vm.stack) { free(s->vm.stack); s->vm.stack = nullptr; s->vm.stack_size = 0; }
   if (s->vm.globals) { free(s->vm.globals); s->vm.globals = nullptr; s->vm.globals_size = 0; }
@@ -3671,29 +3694,62 @@ static void tc_output_flush_mqtt(void) {
 }
 
 /*********************************************************************************************\
- * Frame locals: dynamic allocation
- * Each frame's locals[] is malloc'd on OP_CALL and freed on OP_RET.
- * This saves ~2KB+ RAM on ESP8266 vs static arrays in every frame.
+ * Frame locals: dynamic allocation, with a small per-VM reuse cache
+ * Each frame's locals[] is 1 KB (TC_MAX_LOCALS int32). Allocating it per call
+ * saves ~2KB+ RAM on ESP8266 vs static arrays in every frame — but paying a
+ * heap round trip per FUNCTION CALL is what made calls the slowest thing TinyC
+ * does. Measured on an S3, 2026-08-08: 11.8 us per call, identical for a
+ * zero-argument and a one-argument function, i.e. entirely fixed per-frame cost
+ * and nothing to do with the arguments — about 43 opcodes' worth at 276 ns.
+ *
+ * Frames are a STACK, so a buffer freed by a returning call is exactly what the
+ * next call needs. A cache of a few buffers therefore hits essentially always:
+ * a leaf call from depth d frees at d+1 and the next leaf allocates at d+1, so
+ * even ONE entry covers the common case; the rest cover oscillating recursion.
+ * The cache lives in the VM and dies with it — no locking (each TcVM is used by
+ * one task at a time), no memory retained across a slot reload.
+ *
+ * The zeroing stays: TinyC has always handed out zeroed locals and scripts rely
+ * on it. It is ~256 word stores, a fraction of the heap round trip it replaces.
 \*********************************************************************************************/
 
 // Allocate locals for a frame, returns false on OOM
-static bool tc_frame_alloc(TcFrame *frame) {
+static bool tc_frame_alloc(TcVM *vm, TcFrame *frame) {
+  if (vm && vm->frame_cache_n) {
+    frame->locals = vm->frame_cache[--vm->frame_cache_n];
+    memset(frame->locals, 0, TC_MAX_LOCALS * sizeof(int32_t));
+    return true;
+  }
   frame->locals = (int32_t *)calloc(TC_MAX_LOCALS, sizeof(int32_t));
   return (frame->locals != nullptr);
 }
 
 // Free locals for a frame (safe to call if already freed)
-static void tc_frame_free(TcFrame *frame) {
+static void tc_frame_free(TcVM *vm, TcFrame *frame) {
   if (frame->locals) {
-    free(frame->locals);
+    if (vm && vm->frame_cache_n < TC_FRAME_CACHE) {
+      vm->frame_cache[vm->frame_cache_n++] = frame->locals;
+    } else {
+      free(frame->locals);
+    }
     frame->locals = nullptr;
+  }
+}
+
+// Hand the cached buffers back to the heap — called when the VM is torn down,
+// so a stopped slot does not sit on up to TC_FRAME_CACHE KB it no longer needs.
+static void tc_frame_cache_drain(TcVM *vm) {
+  if (!vm) return;
+  while (vm->frame_cache_n) {
+    free(vm->frame_cache[--vm->frame_cache_n]);
+    vm->frame_cache[vm->frame_cache_n] = nullptr;
   }
 }
 
 // Free all allocated frames (call on VM stop/reset/reload)
 static void tc_free_all_frames(TcVM *vm) {
   for (int i = 0; i < TC_MAX_FRAMES; i++) {
-    tc_frame_free(&vm->frames[i]);
+    tc_frame_free(vm, &vm->frames[i]);
   }
   vm->frame_count = 0;
   vm->fp = 0;
@@ -3836,6 +3892,11 @@ static void tc_free_worker_vm(TcVM *w) {
   if (!w) return;
   tc_close_vm_files(w);    // close any files THIS worker left open (owner-keyed, no leak)
   tc_free_all_frames(w);   // frame locals (private)
+  // ⚠️ MUST follow free_all_frames, which parks the buffers in the cache rather
+  // than returning them. Without this a worker would leak up to TC_FRAME_CACHE KB
+  // on EVERY spawnTask/finish cycle, and a script that spawns per event would
+  // bleed the heap dry over hours.
+  tc_frame_cache_drain(w);
   tc_heap_free_all(w);     // worker heap (private)
   if (w->stack) free(w->stack);
   // Detach aliases so nothing can accidentally double-free the primary's arrays.
@@ -17118,6 +17179,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   TC_HEAPLOG("vmload.in");
   // Free any previously allocated dynamic memory
   tc_free_all_frames(vm);
+  tc_frame_cache_drain(vm);   // ⚠️ AFTER free_all_frames — that one FILLS the cache
   tc_heap_free_all(vm);
   if (vm->stack) { free(vm->stack); vm->stack = nullptr; vm->stack_size = 0; }
   if (vm->globals) { free(vm->globals); vm->globals = nullptr; vm->globals_size = 0; }
@@ -17372,7 +17434,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   vm->persist_file[0] = '\0';  // caller sets this before tc_persist_load()
 
   // Allocate frame 0 for main() — program starts here without OP_CALL
-  if (!tc_frame_alloc(&vm->frames[0])) {
+  if (!tc_frame_alloc(vm, &vm->frames[0])) {
     return TC_ERR_STACK_OVERFLOW;  // OOM
   }
 
@@ -17433,7 +17495,7 @@ static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
   TcFrame *frame = &vm->frames[vm->frame_count];
   frame->return_pc = 0;  // detect return by frame_count drop
   frame->saved_sp = vm->sp;  // host-pushed args live on top; must balance at RET
-  if (!tc_frame_alloc(frame)) {
+  if (!tc_frame_alloc(vm, frame)) {
     vm->halted = true;
     vm->running = false;
     return TC_ERR_STACK_OVERFLOW;
@@ -17491,7 +17553,7 @@ static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
 
   // Clean up any leftover frames from the callback
   while (vm->frame_count > saved_frame_count) {
-    tc_frame_free(&vm->frames[--vm->frame_count]);
+    tc_frame_free(vm, &vm->frames[--vm->frame_count]);
   }
   vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
 
@@ -17756,7 +17818,7 @@ static int tc_vm_step(TcVM *vm) {
         TcFrame *frame = &vm->frames[vm->frame_count];
         frame->return_pc = vm->pc;
         frame->saved_sp = vm->sp;       // caller's SP (with args on top)
-        if (!tc_frame_alloc(frame)) {
+        if (!tc_frame_alloc(vm, frame)) {
           return TC_ERR_STACK_OVERFLOW;  // OOM
         }
         vm->fp = vm->frame_count;
@@ -17777,7 +17839,7 @@ static int tc_vm_step(TcVM *vm) {
         TcFrame *frame = &vm->frames[vm->frame_count];
         frame->return_pc = vm->pc;
         frame->saved_sp = vm->sp;       // caller's SP (with args on top, fn-ptr already popped)
-        if (!tc_frame_alloc(frame)) {
+        if (!tc_frame_alloc(vm, frame)) {
           return TC_ERR_STACK_OVERFLOW;  // OOM
         }
         vm->fp = vm->frame_count;
@@ -17787,7 +17849,7 @@ static int tc_vm_step(TcVM *vm) {
       break;
 
     case OP_RET:
-      if (vm->frame_count == 0) { tc_frame_free(&vm->frames[0]); vm->halted = true; vm->running = false; break; }
+      if (vm->frame_count == 0) { tc_frame_free(vm, &vm->frames[0]); vm->halted = true; vm->running = false; break; }
       { TcFrame *f = &vm->frames[--vm->frame_count];
         // Post-RET SP should be ≤ caller-at-CALL SP (callee consumed its args,
         // may or may not have left them unused). Higher SP means the callee
@@ -17798,13 +17860,13 @@ static int tc_vm_step(TcVM *vm) {
                  (unsigned)vm->sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
         }
         vm->pc = f->return_pc;
-        tc_frame_free(f);  // free returning frame's locals
+        tc_frame_free(vm, f);  // free returning frame's locals
         vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0; }
       break;
 
     case OP_RET_VAL:
       a = TC_POP(vm);
-      if (vm->frame_count == 0) { tc_frame_free(&vm->frames[0]); TC_PUSH(vm, a); vm->halted = true; vm->running = false; break; }
+      if (vm->frame_count == 0) { tc_frame_free(vm, &vm->frames[0]); TC_PUSH(vm, a); vm->halted = true; vm->running = false; break; }
       { TcFrame *f = &vm->frames[--vm->frame_count];
         // Same leak check as void RET — return value is already popped into `a`,
         // so the remaining stack must not have grown past the CALL-time SP.
@@ -17814,7 +17876,7 @@ static int tc_vm_step(TcVM *vm) {
                  (unsigned)vm->sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
         }
         vm->pc = f->return_pc;
-        tc_frame_free(f);  // free returning frame's locals
+        tc_frame_free(vm, f);  // free returning frame's locals
         vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
         TC_PUSH(vm, a); }
       break;
@@ -18327,7 +18389,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
       TcFrame *frame = &vm->frames[vm->frame_count];
       frame->return_pc = _pc;
       frame->saved_sp = _sp;                        // caller SP w/ args on top
-      if (!tc_frame_alloc(frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
+      if (!tc_frame_alloc(vm, frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
       vm->fp = vm->frame_count;
       vm->frame_count++;
       _pc = _coff + _addr;
@@ -18335,7 +18397,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
     NEXT();
   _op_ret:
     if (vm->frame_count == 0) {
-      tc_frame_free(&vm->frames[0]);
+      tc_frame_free(vm, &vm->frames[0]);
       vm->halted = true; vm->running = false;
       goto _vm_exit;
     }
@@ -18347,7 +18409,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
                (unsigned)_sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
       }
       _pc = f->return_pc;
-      tc_frame_free(f);
+      tc_frame_free(vm, f);
       vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
     }
     RET_CHECK();
@@ -18355,7 +18417,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
   _op_ret_val:
     _a = TC_IPOP();
     if (vm->frame_count == 0) {
-      tc_frame_free(&vm->frames[0]);
+      tc_frame_free(vm, &vm->frames[0]);
       TC_IPUSH(_a);
       vm->halted = true; vm->running = false;
       goto _vm_exit;
@@ -18368,7 +18430,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
                (unsigned)_sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
       }
       _pc = f->return_pc;
-      tc_frame_free(f);
+      tc_frame_free(vm, f);
       vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
       TC_IPUSH(_a);
     }
@@ -18586,7 +18648,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
     TcFrame *frame = &vm->frames[vm->frame_count];
     frame->return_pc = _pc;
     frame->saved_sp = _sp;                        // caller SP, fn-ptr already popped
-    if (!tc_frame_alloc(frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
+    if (!tc_frame_alloc(vm, frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
     vm->fp = vm->frame_count;
     vm->frame_count++;
     _pc = _coff + _addr;
@@ -18802,7 +18864,7 @@ static void tc_vm_task(void *param) {
           TcFrame *frame = &vm->frames[vm->frame_count];
           frame->return_pc = 0;
           frame->saved_sp = vm->sp;   // see tc_vm_call_callback_idx — needed for RET leak check
-          if (tc_frame_alloc(frame)) {
+          if (tc_frame_alloc(vm, frame)) {
             vm->fp = vm->frame_count;
             vm->frame_count++;
             vm->pc = vm->code_offset + tl_addr;
@@ -18863,7 +18925,7 @@ static void tc_vm_task(void *param) {
             }
 
             while (vm->frame_count > saved_frame_count) {
-              tc_frame_free(&vm->frames[--vm->frame_count]);
+              tc_frame_free(vm, &vm->frames[--vm->frame_count]);
             }
             vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
           }

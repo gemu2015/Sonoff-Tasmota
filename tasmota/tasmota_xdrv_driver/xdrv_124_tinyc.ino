@@ -1438,6 +1438,10 @@ void CmndTinyCReset(void) {
   TcSlot *s = Tinyc->slots[slot_num];
   if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   TinyCStopVM(s);  // frees frame locals and heap
+  // ⚠️ MUST come before the memset below: TinyCStopVM parks the frame-locals
+  // buffers in the VM's reuse cache instead of returning them, and the memset
+  // would then zero the only pointers to them. See tc_frame_alloc().
+  tc_frame_cache_drain(&s->vm);
   // Free remaining dynamic VM allocations before zeroing struct
   if (s->vm.stack) { free(s->vm.stack); }
   if (s->vm.globals) { free(s->vm.globals); }
@@ -5880,7 +5884,7 @@ static void tc_spawn_task_body(void *param) {
     frame->saved_sp = vm->sp;   // consistency: every other frame ctor sets this
                                 // (tc_vm_call_callback_idx / OP_CALL / tc_vm_task);
                                 // without it the RET leak-check compares vs garbage.
-    if (!tc_frame_alloc(frame)) {
+    if (!tc_frame_alloc(vm, frame)) {
       vm->halted = true; vm->running = false;
       tc_current_slot = nullptr;
       if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
@@ -5941,7 +5945,7 @@ static void tc_spawn_task_body(void *param) {
 
     // Clean up callback frame
     while (vm->frame_count > saved_frame_count) {
-      tc_frame_free(&vm->frames[--vm->frame_count]);
+      tc_frame_free(vm, &vm->frames[--vm->frame_count]);
     }
     vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
 
@@ -6019,7 +6023,7 @@ static void tc_worker_vm_body(void *param) {
     TcFrame *frame = &vm->frames[0];
     frame->return_pc = 0;
     frame->saved_sp = 0;
-    if (!tc_frame_alloc(frame)) {
+    if (!tc_frame_alloc(vm, frame)) {
       vm->halted = true; vm->running = false;
       tc_current_slot = nullptr;
       if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
@@ -6074,7 +6078,7 @@ static void tc_worker_vm_body(void *param) {
     }
 
     while (vm->frame_count > 0) {
-      tc_frame_free(&vm->frames[--vm->frame_count]);
+      tc_frame_free(vm, &vm->frames[--vm->frame_count]);
     }
     vm->halted = true; vm->running = false;
     tc_output_flush();
