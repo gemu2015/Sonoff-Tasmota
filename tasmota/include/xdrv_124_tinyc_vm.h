@@ -351,9 +351,17 @@ extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y
 // minimal script repeatedly (`TinyCRun 0 /min.tcb`) and read the per-phase
 // deltas in the console — the phase whose `free=` keeps dropping across reloads
 // is the culprit. No-op (and zero code) in normal builds.
-#if defined(ESP8266) && defined(TINYC_HEAP_DEBUG)
+// Build with -DTINYC_HEAP_DEBUG to get it. Was ESP8266-only until 2026-08-08;
+// widened to ESP32 while hunting the ~1 KB-per-slot-restart leak, which is
+// where the phase markers below come from. Off by default, zero code.
+#if defined(TINYC_HEAP_DEBUG)
+#ifdef ESP32
+  #define TC_HEAPLOG(tag) AddLog(LOG_LEVEL_INFO, PSTR("TCHEAP %-15s free=%6u maxblk=%6u"), \
+      PSTR(tag), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap())
+#else
   #define TC_HEAPLOG(tag) AddLog(LOG_LEVEL_INFO, PSTR("TCHEAP %-15s free=%5u maxblk=%5u"), \
       PSTR(tag), (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxFreeBlockSize())
+#endif
 #else
   #define TC_HEAPLOG(tag) do{}while(0)
 #endif
@@ -19009,6 +19017,7 @@ static void tc_vm_task(void *param) {
   tc_current_slot = slot;  // set for output functions
 
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task started (%s)"), slot->filename);
+  TC_HEAPLOG("task.in");
 
   // Phase 1: Execute main()
   while (!slot->task_stop && !vm->halted && vm->error == TC_OK) {
@@ -19045,6 +19054,7 @@ static void tc_vm_task(void *param) {
     yield();
   }
 
+  TC_HEAPLOG("task.mainend");
   slot->main_done = true;   // Phase 1 (main) finished — unblocks the serial autoexec loader
 
   // Phase-1 persist restore: main() has now allocated the program's heap arrays, so
@@ -19055,6 +19065,7 @@ static void tc_vm_task(void *param) {
   // leaves the heap state suspect).
   if (vm->halted && vm->error == TC_OK) { tc_persist_load(vm, true); }
 
+  TC_HEAPLOG("task.prepersist");
   // Cleanup after main() exits
   tc_free_all_frames(vm);
   tc_close_vm_files(vm);   // only THIS vm's handles -- leave other slots' open files alone
@@ -19189,6 +19200,7 @@ static void tc_vm_task(void *param) {
   slot->task_running = false;
   slot->task_handle = nullptr;
   tc_current_slot = nullptr;
+  TC_HEAPLOG("task.exit");
   vTaskDelete(NULL);
 }
 #endif  // ESP32
@@ -19451,6 +19463,7 @@ static void TinyCSetPersistFile(TcSlot *s, const char *tcb_path) {
 
 // Helper: stop the VM in a specific slot
 static void TinyCStopVM(TcSlot *s) {
+  TC_HEAPLOG("stopvm.in");
   if (!Tinyc || !s) return;
   if (s->torn_down) return;   // already fully torn down (e.g. the double-stop on a reload:
                               // CmndTinyCRun + TinyCLoadFile both stop). A 2nd teardown-save
@@ -19564,6 +19577,7 @@ static void TinyCStopVM(TcSlot *s) {
   }
 #endif
   s->torn_down = true;   // teardown complete — a redundant 2nd stop is now a no-op (guarded above)
+  TC_HEAPLOG("stopvm.out");
 }
 
 // Helper: start the VM in a specific slot
@@ -19666,7 +19680,9 @@ static bool TinyCStartVM(TcSlot *s) {
   BaseType_t ret = xTaskCreate(tc_vm_task, taskname, TC_VM_TASK_STACK, s, 1, &s->task_handle);
 #else
   // Dual-core ESP32/S3 -- pin to core 1
+  TC_HEAPLOG("startvm.pretask");
   BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, taskname, TC_VM_TASK_STACK, s, 1, &s->task_handle, 1);
+  TC_HEAPLOG("startvm.posttask");
 #endif
   if (ret != pdPASS) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Failed to create task for %s"), s->filename);
