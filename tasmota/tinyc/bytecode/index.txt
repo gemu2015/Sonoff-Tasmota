@@ -7,8 +7,10 @@ ads1115.tcb
 analog_clock.tcb
 audio_io.tcb
 benchmark.tcb
+ble_gatt_explore.tcb
 ble_scan.tcb
 ble_server.tcb
+ble_spp_probe.tcb
 blib_crc_demo.tcb
 blink.tcb
 bme280.tcb
@@ -115,6 +117,7 @@ matter_remote_bridge.tcb
 matter_rgb.tcb
 matter_sensors.tcb
 matter_shutter.tcb
+max30102.tcb
 max31855.tcb
 meter_pin_unlock.tcb
 mic_plugin_level.tcb
@@ -166,6 +169,8 @@ snap_with_timestamp.tcb
 solar_dashboard.tcb
 sort.tcb
 spawn_tasks.tcb
+spp_connect.tcb
+spp_scan.tcb
 sprintf_crash_test.tcb
 sps30.tcb
 str_ternary_test.tcb
@@ -191,6 +196,7 @@ touch_coords_legacy.tcb
 tuya_pool_heater.tcb
 uart_tx_test.tcb
 udp.tcb
+variograf_ekg.tcb
 veml6075.tcb
 vesync_scale_sniff.tcb
 vl53l0x.tcb
