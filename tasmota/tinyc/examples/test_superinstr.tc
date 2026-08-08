@@ -1,0 +1,54 @@
+// inctest.tc — darf der Peephole das? Jede Zeile ist ein Fall, in dem
+// falsches Verschmelzen ein anderes Programm ergaebe.
+int g_zaehler;          // global -> darf NICHT verschmolzen werden
+watch int g_beob;       // watch-global -> STORE_WATCH muss laufen
+int feld[20];
+
+int main() {
+    int f = 0;
+
+    // 1) i++ und i-- als Anweisung (VERSCHMOLZEN)
+    int i = 0; int k = 0;
+    while (i < 10) { i++; }
+    while (k > -10) { k--; }
+    if (i != 10) { f = f + 1; }
+    if (k != -10) { f = f + 2; }
+
+    // 2) x = i++ als AUSDRUCK -- muss den ALTEN Wert liefern
+    int a = 5; int b = a++;
+    if (b != 5 || a != 6) { f = f + 4; }
+    int c = 5; int d = c--;
+    if (d != 5 || c != 4) { f = f + 8; }
+
+    // 3) Global als Anweisung -- nicht verschmolzen, muss trotzdem stimmen
+    g_zaehler = 0;
+    int n = 0;
+    while (n < 7) { g_zaehler++; n++; }
+    if (g_zaehler != 7) { f = f + 16; }
+
+    // 4) watch-Global: written() muss weiter anschlagen
+    snapshot(g_beob);
+    g_beob++;
+    if (written(g_beob) == 0) { f = f + 32; }
+
+    // 5) float++ -- darf NICHT als Ganzzahl addiert werden
+    float x = 1.0;
+    x++;
+    if (x < 1.99 || x > 2.01) { f = f + 64; }
+
+    // 6) Arrayelement -- ⚠️ `feld[3]++` uebersetzt TinyC GAR NICHT
+    // ("Cannot store to non-identifier"), das ist eine alte Grenze des
+    // Compilers und unabhaengig vom Peephole. Ersatzweise die lange Form.
+    feld[3] = 41;
+    feld[3] = feld[3] + 1;
+    if (feld[3] != 42) { f = f + 128; }
+
+    // 7) in einer for-Schleife
+    int s = 0; int j;
+    for (j = 0; j < 5; j++) { s = s + j; }
+    if (s != 10) { f = f + 256; }
+
+    if (f == 0) { addLog("INCTEST: alle 7 Faelle OK"); }
+    else        { addLog("INCTEST: FEHLER Maske=%d", f); }
+    return 0;
+}

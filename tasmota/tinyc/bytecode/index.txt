@@ -186,6 +186,7 @@ test_refparams_v1.tcb
 test_strings_v15.tcb
 test_strlit_arg.tcb
 test_structs_v1.tcb
+test_superinstr.tcb
 text_on_image.tcb
 tinyui_dashboard.tcb
 tinyui_demo.tcb

@@ -832,6 +832,16 @@ export class VM {
                 this.push((0xC0000000 | (off << 16) | handle) | 0);
                 break;
             }
+            // ── Superinstruction: locals[idx] += delta, no stack effect ──
+            // Must mirror the firmware EXACTLY, or the IDE's Run button and the
+            // device disagree about what a fused program does.
+            case Op.INC_LOCAL: {
+                const idx = this.readU8();
+                let d = this.readU8();
+                if (d > 127) { d -= 256; }              // i8
+                this.frameLocals[this.fp][idx] = (this.frameLocals[this.fp][idx] + d) | 0;
+                break;
+            }
             case Op.REF_OFF: {
                 // Tag-aware ref + offset — mirrors the firmware OP_REF_OFF.
                 const off = this.pop();
@@ -4180,6 +4190,16 @@ export class VM {
                     operand = SyscallName[binary[pc]] || `#${binary[pc]}`;
                     pc += 1;
                     break;
+                case Op.INC_LOCAL: {
+                    // ⚠️ Every superinstruction needs a case HERE as well, not just
+                    // an executor. A disassembler that does not know an operand
+                    // length walks straight into the operand bytes and decodes them
+                    // as opcodes — the same failure SYSCALL2 caused below.
+                    let d = binary[pc + 1]; if (d > 127) { d -= 256; }
+                    operand = `local[${binary[pc]}] += ${d}`;
+                    pc += 2;
+                    break;
+                }
                 case Op.SYSCALL2: {
                     // u16 syscall id (extended range 256+). Without this case
                     // the disassembler would walk past the operand and decode

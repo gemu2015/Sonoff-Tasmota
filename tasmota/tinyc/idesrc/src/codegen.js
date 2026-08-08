@@ -2292,12 +2292,48 @@ export class CodeGenerator {
     }
 
     compileExprStmt(node) {
+        // Peephole: `i++;` / `i--;` on a plain INT LOCAL, used as a STATEMENT.
+        //
+        // The general form emits six opcodes — LOAD_LOCAL, DUP, PUSH_I8 1, ADD,
+        // STORE_LOCAL, POP — of which the DUP and the POP exist only to produce
+        // the old value that this statement then discards. OP_INC_LOCAL does the
+        // whole thing in one. In the bench_int loop that is six of thirty-three
+        // opcodes per iteration.
+        //
+        // Deliberately narrow, because each condition is a way to be wrong:
+        //   - statement position only. `x = i++` needs the old value; fusing
+        //     there would silently change what the program computes.
+        //   - locals only. A global may be `watch`ed, and STORE_WATCH has to run
+        //     so changed()/written() keep working.
+        //   - integers only. `f++` on a float must go through FADD; an integer
+        //     ADD on an IEEE bit pattern gives a denormal, not f+1.
+        //   - plain identifiers only — no array element, struct field or ref.
+        if (this.tryEmitIncLocal(node.expr)) { return; }
+
         this.compileExpr(node.expr);
         // If the expression leaves a value on the stack, pop it
         // (assignments and calls may or may not leave values)
         if (this.exprLeavesValue(node.expr)) {
             this.emit(Op.POP);
         }
+    }
+
+    // Returns true if it emitted the fused form, false to fall through to the
+    // ordinary path. Never throws: an unfusable shape is simply not fused.
+    tryEmitIncLocal(expr) {
+        if (!expr || expr.type !== NodeType.PostfixExpr) { return false; }
+        if (expr.op !== '++' && expr.op !== '--') { return false; }
+        const operand = expr.operand;
+        if (!operand || operand.type !== NodeType.Identifier) { return false; }
+        if (!this.scope) { return false; }
+        const local = this.scope.lookup(operand.name);
+        if (!local) { return false; }                       // global, or undefined
+        if (this.isFloatType(this.inferType(operand))) { return false; }
+        if (!(local.index >= 0 && local.index < 256)) { return false; }
+        this.emit(Op.INC_LOCAL);
+        this.emitByte(local.index);
+        this.emitByte(expr.op === '++' ? 1 : 0xFF);         // i8 delta, two's complement
+        return true;
     }
 
     exprLeavesValue(node) {
