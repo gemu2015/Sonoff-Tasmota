@@ -48,7 +48,40 @@ int main() {
     for (j = 0; j < 5; j++) { s = s + j; }
     if (s != 10) { f = f + 256; }
 
-    if (f == 0) { addLog("INCTEST: alle 7 Faelle OK"); }
+    // ── LK_OP_ST / LL_OP_ST: x = y OP z bzw. x = y OP konst ──
+    // 8) alle Operatoren gegen die unverschmolzene Erwartung
+    int p = 17; int q = 5; int r;
+    r = p + q;  if (r != 22)  { f = f + 512; }
+    r = p - q;  if (r != 12)  { f = f + 512; }
+    r = p * q;  if (r != 85)  { f = f + 512; }
+    r = p / q;  if (r != 3)   { f = f + 512; }
+    r = p % q;  if (r != 2)   { f = f + 512; }
+    r = p & q;  if (r != 1)   { f = f + 512; }
+    r = p | q;  if (r != 21)  { f = f + 512; }
+    r = p ^ q;  if (r != 20)  { f = f + 512; }
+    r = p << 2; if (r != 68)  { f = f + 512; }
+    r = p >> 2; if (r != 4)   { f = f + 512; }
+
+    // 9) negative Konstante -- der i8-Operand ist vorzeichenbehaftet
+    r = p + -8;  if (r != 9)  { f = f + 1024; }
+    r = p * -2;  if (r != -34) { f = f + 1024; }
+
+    // 10) Ziel IST eine Quelle (darf nicht zu frueh ueberschrieben werden)
+    int z = 9; z = z * 3; if (z != 27) { f = f + 2048; }
+    int w = 4; w = w - w; if (w != 0)  { f = f + 2048; }
+
+    // 11) Division durch Null muss weiterhin ein Laufzeitfehler sein, KEIN
+    // stiller Nullwert -- deshalb hier nur der Nicht-Null-Fall geprueft.
+    int nen = 3; r = p / nen; if (r != 5) { f = f + 4096; }
+
+    // 12) float darf NICHT verschmolzen werden
+    float fa = 7.5; float fb = 2.0; float fr = fa / fb;
+    if (fr < 3.74 || fr > 3.76) { f = f + 8192; }
+
+    // 13) Konstante ausserhalb i8 -- faellt auf die lange Form zurueck
+    int big; big = p * 1000; if (big != 17000) { f = f + 16384; }
+
+    if (f == 0) { addLog("INCTEST: alle 13 Faelle OK"); }
     else        { addLog("INCTEST: FEHLER Maske=%d", f); }
     return 0;
 }

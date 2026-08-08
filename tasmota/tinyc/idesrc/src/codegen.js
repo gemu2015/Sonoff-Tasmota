@@ -2318,6 +2318,69 @@ export class CodeGenerator {
         }
     }
 
+    // `x = y OP z` / `x = y OP <small const>` on plain int locals -> one opcode.
+    // Returns true if it emitted the fused form. Like tryEmitIncLocal it never
+    // throws and never guesses: anything it is not certain about falls through
+    // to the ordinary path, which is always correct.
+    //
+    // Every rejection below is a way to be wrong, not caution for its own sake:
+    //   - only `=`, not `+=`. Compound assignment has its own emission path.
+    //   - only these operators. `&&`/`||` short-circuit and MUST NOT evaluate
+    //     both sides; comparisons are fine arithmetically but are usually
+    //     consumed by a branch, so fusing them here would only get in the way of
+    //     the compare-and-branch fusion later.
+    //   - locals only, and neither array, struct, heap nor scalar-ref: those are
+    //     not a simple slot read. A global would additionally skip STORE_WATCH.
+    //   - integers only. tc_binop_i in the firmware has no float cases on
+    //     purpose — an integer ADD on an IEEE bit pattern is a denormal, not a+1.
+    //   - constants only in i8 range, which is what the operand byte holds.
+    tryEmitFusedAssign(node) {
+        if (node.op !== '=') { return false; }
+        const v = node.value;
+        if (!v || v.type !== NodeType.BinaryExpr) { return false; }
+        const OPMAP = { '+': Op.ADD, '-': Op.SUB, '*': Op.MUL, '/': Op.DIV, '%': Op.MOD,
+                        '&': Op.BIT_AND, '|': Op.BIT_OR, '^': Op.BIT_XOR,
+                        '<<': Op.SHL, '>>': Op.SHR };
+        const bop = OPMAP[v.op];
+        if (bop === undefined) { return false; }
+        if (!this.scope) { return false; }
+
+        const plainIntLocal = (name) => {
+            const e = this.scope.lookup(name);
+            if (!e) { return null; }                              // global or undefined
+            if (e.isScalarRef || e.isArray || e.isStruct || e.isHeap) { return null; }
+            if (e.type === 'float') { return null; }
+            if (this.isCharArrayVar(name)) { return null; }
+            if (!(e.index >= 0 && e.index < 256)) { return null; }
+            return e;
+        };
+
+        const dst = plainIntLocal(node.name);
+        if (!dst) { return false; }
+        if (v.left.type !== NodeType.Identifier) { return false; }
+        const a = plainIntLocal(v.left.name);
+        if (!a) { return false; }
+        if (this.isFloatType(this.inferType(v.left))) { return false; }
+
+        if (v.right.type === NodeType.Identifier) {
+            const b = plainIntLocal(v.right.name);
+            if (!b) { return false; }
+            if (this.isFloatType(this.inferType(v.right))) { return false; }
+            this.emit(Op.LL_OP_ST);
+            this.emitByte(a.index); this.emitByte(b.index);
+            this.emitByte(bop); this.emitByte(dst.index);
+            return true;
+        }
+        if (v.right.type === NodeType.IntLiteral &&
+            v.right.value >= -128 && v.right.value <= 127) {
+            this.emit(Op.LK_OP_ST);
+            this.emitByte(a.index); this.emitByte(v.right.value & 0xFF);
+            this.emitByte(bop); this.emitByte(dst.index);
+            return true;
+        }
+        return false;
+    }
+
     // Returns true if it emitted the fused form, false to fall through to the
     // ordinary path. Never throws: an unfusable shape is simply not fused.
     tryEmitIncLocal(expr) {
@@ -4378,6 +4441,13 @@ export class CodeGenerator {
     }
 
     compileAssignment(node) {
+        // Peephole: `x = y OP z` where x, y (and optionally z) are plain int
+        // LOCALS — four opcodes (load, load-or-push, operate, store) become one.
+        // This is where a stack VM loses to a register VM: the register form has
+        // its operands IN the instruction. Three of the five assignments in the
+        // bench_int loop match.
+        if (this.tryEmitFusedAssign(node)) { return; }
+
         // ── Scalar reference assignment: a = expr;  (a is int& param)
         if (this.scope) {
             const sr = this.scope.lookup(node.name);

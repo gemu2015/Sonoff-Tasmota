@@ -832,6 +832,41 @@ export class VM {
                 this.push((0xC0000000 | (off << 16) | handle) | 0);
                 break;
             }
+            // ── Superinstructions: locals[dst] = locals[a] OP (const | locals[b]) ──
+            // Mirrors tc_binop_i() in the firmware. One definition of each
+            // operator, or the IDE's Run button and the device disagree.
+            case Op.LK_OP_ST:
+            case Op.LL_OP_ST: {
+                const s1 = this.readU8();
+                let rhs;
+                if (op === Op.LK_OP_ST) { rhs = this.readU8(); if (rhs > 127) { rhs -= 256; } }
+                else { rhs = this.frameLocals[this.fp][this.readU8()] | 0; }
+                const bop = this.readU8();
+                const dst = this.readU8();
+                const a = this.frameLocals[this.fp][s1] | 0;
+                let r;
+                switch (bop) {
+                    case Op.ADD: r = (a + rhs) | 0; break;
+                    case Op.SUB: r = (a - rhs) | 0; break;
+                    case Op.MUL: r = Math.imul(a, rhs); break;
+                    case Op.DIV: if (rhs === 0) { throw new VMError('Division by zero'); } r = (a / rhs) | 0; break;
+                    case Op.MOD: if (rhs === 0) { throw new VMError('Division by zero'); } r = (a % rhs) | 0; break;
+                    case Op.BIT_AND: r = a & rhs; break;
+                    case Op.BIT_OR:  r = a | rhs; break;
+                    case Op.BIT_XOR: r = a ^ rhs; break;
+                    case Op.SHL: r = (a << rhs) | 0; break;
+                    case Op.SHR: r = a >> rhs; break;
+                    case Op.EQ:  r = a === rhs ? 1 : 0; break;
+                    case Op.NEQ: r = a !== rhs ? 1 : 0; break;
+                    case Op.LT:  r = a <  rhs ? 1 : 0; break;
+                    case Op.GT:  r = a >  rhs ? 1 : 0; break;
+                    case Op.LTE: r = a <= rhs ? 1 : 0; break;
+                    case Op.GTE: r = a >= rhs ? 1 : 0; break;
+                    default: throw new VMError(`Bad operator ${bop} in superinstruction`);
+                }
+                this.frameLocals[this.fp][dst] = r;
+                break;
+            }
             // ── Superinstruction: locals[idx] += delta, no stack effect ──
             // Must mirror the firmware EXACTLY, or the IDE's Run button and the
             // device disagree about what a fused program does.
@@ -4190,6 +4225,15 @@ export class VM {
                     operand = SyscallName[binary[pc]] || `#${binary[pc]}`;
                     pc += 1;
                     break;
+                case Op.LK_OP_ST:
+                case Op.LL_OP_ST: {
+                    const rhs = (opcode === Op.LK_OP_ST)
+                        ? String((binary[pc+1] > 127) ? binary[pc+1]-256 : binary[pc+1])
+                        : `local[${binary[pc+1]}]`;
+                    operand = `local[${binary[pc+3]}] = local[${binary[pc]}] <op 0x${binary[pc+2].toString(16)}> ${rhs}`;
+                    pc += 4;
+                    break;
+                }
                 case Op.INC_LOCAL: {
                     // ⚠️ Every superinstruction needs a case HERE as well, not just
                     // an executor. A disassembler that does not know an operand

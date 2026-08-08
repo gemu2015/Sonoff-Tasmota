@@ -327,7 +327,7 @@ static FS *tc_file_path(char *path) {
 // appends don't need it). The loader warns (still loads) on a .tcb abi_rev mismatch.
 #include "xdrv_124_tinyc_spp.h"
 
-#define TC_SYSCALL_ABI     21    // V21: + superinstructions (0xB0+). First: INC_LOCAL (0xB0) for `i++` AS A STATEMENT -- replaces LOAD_LOCAL/DUP/PUSH_I8/ADD/STORE_LOCAL/POP, six opcodes for one. A pure fusion, NO new expressiveness: the unfused form stays valid and a program means the same either way. ⚠️ First ABI step where NEWER bytecode on OLDER firmware no longer merely reports a missing syscall but dies with BAD_OPCODE mid-loop -- so the loader now REFUSES a .tcb whose abi_rev is higher than its own instead of warning and loading anyway. || PREVIOUS V20: + BLE "SPP" (535-543) -- bleSppTarget/Connect/State/Sub/Available/Read/Write/Close + bleGattDump. The existing GATT client (SYS_BLE_TARGET..RESULT, V-something-earlier) connects, does ONE read/write/notify-wait, and DISCONNECTS -- confirmed by reading BLETaskRunTaskDoneOperation() in xdrv_79_esp32_ble.ino, which calls pClient->disconnect() unconditionally after every operation. That is correct for a device that wakes, reports, and sleeps (a scale), but wrong for a continuous stream: a BlueRadios/Nordic-UART-style peripheral streaming an EKG would lose the link before a second sample could ever notify. So this is a SECOND, independent NimBLEClient (own connect/subscribe/write/close, own notify ring buffer), added entirely in the TinyC-owned glue file (xdrv_79_tinyc_ble_glue.ino) -- it never touches xdrv_79_esp32_ble.ino's op queue, so MI32/EQ3/the existing one-shot client are unaffected. It also takes service/characteristic UUIDs as STRING literals (16-bit or full 128-bit), unlike the one-shot family's int16-only svc/chr -- proprietary UART-style services are essentially always 128-bit, which int16 cannot address at all. bleGattDump() is the one-shot companion: connect, enumerate every service+characteristic+property, disconnect -- needed BEFORE any of the above, because a proprietary UUID has no datasheet lookup; the device has to be asked. ⭐ VERIFIED on real hardware 2026-08-05 (.39, ESP32-S3) against a BlueRadios dual module on gemu's ECG device: connect -> subscribe BRSP_TX -> write BRSP_MODE=1 (data mode) -> write "VS\r" -> the reply arrived as 48 bytes in four notification chunks, and bleSppState() still returned 1 AFTERWARDS -- the whole point, since the one-shot client disconnects after every operation. A second simultaneous NimBLE connection alongside BLE_ESP32's own background scan caused no trouble. ⚠️ Connecting needs a much better link than passive advert reception: a peer at -88..-94 dBm refused every attempt (rc reported via getLastError) while the one at -63 dBm connected first try. Pure append, no .tcb format change. || VORHER V19: + lvglChartUpdateMode (534) -- exposes lv_chart_set_update_mode. LVGL defaults to SHIFT, which moves EVERY point on every new value and therefore invalidates the WHOLE chart area; CIRCULAR overwrites the oldest point in place (a sweeping cursor like a hospital monitor) and invalidates one narrow column. On an 800x1280 DSI panel with a 760x300 chart that is 228000 pixels per value against about 900 -- roughly a factor of 250, and the difference between a 250 Hz live ECG trace being impossible and being unremarkable. Pure append, no .tcb format change. || VORHER V18: + sppDeinit (533) -- tears the Bluetooth Classic stack down and RETURNS ITS MEMORY (~85 KB measured on an ESP32-D0WD-V3: 114 KB free after boot, 29 KB with Bluedroid up). Without it a script that reads a device every few minutes pays for the stack around the clock, and the next slot restart cannot allocate -- which surfaces as "Stack overflow", because the loader's OOM paths return TC_ERR_STACK_OVERFLOW. Nothing in that message points at Bluetooth. sppInit() brings it back up; the teardown deliberately does NOT call esp_bt_controller_mem_release(), which would be one-way. Pure append, no .tcb format change. || VORHER V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || VORHER V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     22    // V22: + LK_OP_ST/LL_OP_ST (0xB1/0xB2) -- `x = y OP z` and `x = y OP const` on plain int locals in ONE opcode instead of four (load, load-or-push, operate, store). Exactly where a stack VM loses to a register VM: the operands live IN the instruction. || PREVIOUS V21: + superinstructions (0xB0+). First: INC_LOCAL (0xB0) for `i++` AS A STATEMENT -- replaces LOAD_LOCAL/DUP/PUSH_I8/ADD/STORE_LOCAL/POP, six opcodes for one. A pure fusion, NO new expressiveness: the unfused form stays valid and a program means the same either way. ⚠️ First ABI step where NEWER bytecode on OLDER firmware no longer merely reports a missing syscall but dies with BAD_OPCODE mid-loop -- so the loader now REFUSES a .tcb whose abi_rev is higher than its own instead of warning and loading anyway. || PREVIOUS V20: + BLE "SPP" (535-543) -- bleSppTarget/Connect/State/Sub/Available/Read/Write/Close + bleGattDump. The existing GATT client (SYS_BLE_TARGET..RESULT, V-something-earlier) connects, does ONE read/write/notify-wait, and DISCONNECTS -- confirmed by reading BLETaskRunTaskDoneOperation() in xdrv_79_esp32_ble.ino, which calls pClient->disconnect() unconditionally after every operation. That is correct for a device that wakes, reports, and sleeps (a scale), but wrong for a continuous stream: a BlueRadios/Nordic-UART-style peripheral streaming an EKG would lose the link before a second sample could ever notify. So this is a SECOND, independent NimBLEClient (own connect/subscribe/write/close, own notify ring buffer), added entirely in the TinyC-owned glue file (xdrv_79_tinyc_ble_glue.ino) -- it never touches xdrv_79_esp32_ble.ino's op queue, so MI32/EQ3/the existing one-shot client are unaffected. It also takes service/characteristic UUIDs as STRING literals (16-bit or full 128-bit), unlike the one-shot family's int16-only svc/chr -- proprietary UART-style services are essentially always 128-bit, which int16 cannot address at all. bleGattDump() is the one-shot companion: connect, enumerate every service+characteristic+property, disconnect -- needed BEFORE any of the above, because a proprietary UUID has no datasheet lookup; the device has to be asked. ⭐ VERIFIED on real hardware 2026-08-05 (.39, ESP32-S3) against a BlueRadios dual module on gemu's ECG device: connect -> subscribe BRSP_TX -> write BRSP_MODE=1 (data mode) -> write "VS\r" -> the reply arrived as 48 bytes in four notification chunks, and bleSppState() still returned 1 AFTERWARDS -- the whole point, since the one-shot client disconnects after every operation. A second simultaneous NimBLE connection alongside BLE_ESP32's own background scan caused no trouble. ⚠️ Connecting needs a much better link than passive advert reception: a peer at -88..-94 dBm refused every attempt (rc reported via getLastError) while the one at -63 dBm connected first try. Pure append, no .tcb format change. || VORHER V19: + lvglChartUpdateMode (534) -- exposes lv_chart_set_update_mode. LVGL defaults to SHIFT, which moves EVERY point on every new value and therefore invalidates the WHOLE chart area; CIRCULAR overwrites the oldest point in place (a sweeping cursor like a hospital monitor) and invalidates one narrow column. On an 800x1280 DSI panel with a 760x300 chart that is 228000 pixels per value against about 900 -- roughly a factor of 250, and the difference between a 250 Hz live ECG trace being impossible and being unremarkable. Pure append, no .tcb format change. || VORHER V18: + sppDeinit (533) -- tears the Bluetooth Classic stack down and RETURNS ITS MEMORY (~85 KB measured on an ESP32-D0WD-V3: 114 KB free after boot, 29 KB with Bluedroid up). Without it a script that reads a device every few minutes pays for the stack around the clock, and the next slot restart cannot allocate -- which surfaces as "Stack overflow", because the loader's OOM paths return TC_ERR_STACK_OVERFLOW. Nothing in that message points at Bluetooth. sppInit() brings it back up; the teardown deliberately does NOT call esp_bt_controller_mem_release(), which would be one-way. Pure append, no .tcb format change. || VORHER V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || VORHER V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -498,6 +498,13 @@ enum TcOp {
   //
   // ⚠️ APPEND-ONLY, like the syscall table. Never renumber, never change the
   // meaning of an existing one — a .tcb in the field encodes these numbers.
+  OP_LK_OP_ST       = 0xB1,  // (src u8, k i8, op u8, dst u8) locals[dst] = locals[src] OP k
+                             // Replaces LOAD_LOCAL·PUSH_I8·<op>·STORE_LOCAL.
+  OP_LL_OP_ST       = 0xB2,  // (a u8, b u8, op u8, dst u8)   locals[dst] = locals[a] OP locals[b]
+                             // Replaces LOAD_LOCAL·LOAD_LOCAL·<op>·STORE_LOCAL.
+                             // `op` is the ORDINARY opcode number of the operation (OP_ADD, OP_MUL, ...),
+                             // so one superinstruction covers every operator instead of one per operator,
+                             // and the compiler simply passes along the opcode it would otherwise have emitted.
   OP_INC_LOCAL      = 0xB0,  // (idx u8, delta i8) locals[idx] += delta, no stack effect.
                              // Replaces LOAD_LOCAL·DUP·PUSH_I8·ADD·STORE_LOCAL·POP,
                              // i.e. `i++` USED AS A STATEMENT: six opcodes, of which
@@ -3714,6 +3721,35 @@ static void tc_output_flush_mqtt(void) {
   MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_TELE, PSTR("TINYC"));
   s->output_len = 0;
   s->output[0] = '\0';
+}
+
+// Integer binary operator, selected by the ORDINARY opcode number of the
+// operation. The superinstructions (0xB1/0xB2) route through this so the fused
+// and the unfused form can never drift apart: there is one definition of what
+// OP_DIV does, not one per dispatch path per fusion.
+// FLOATS DELIBERATELY ABSENT — the compiler's peephole refuses float operands,
+// because an integer ADD on an IEEE bit pattern yields a denormal, not a+1.
+// Returns TC_OK, or an error (division by zero, unknown operator) in *err.
+static inline int32_t tc_binop_i(uint8_t op, int32_t a, int32_t b, int *err) {
+  switch (op) {
+    case OP_ADD:     return a + b;
+    case OP_SUB:     return a - b;
+    case OP_MUL:     return a * b;
+    case OP_DIV:     if (!b) { *err = TC_ERR_DIV_ZERO; return 0; } return a / b;
+    case OP_MOD:     if (!b) { *err = TC_ERR_DIV_ZERO; return 0; } return a % b;
+    case OP_BIT_AND: return a & b;
+    case OP_BIT_OR:  return a | b;
+    case OP_BIT_XOR: return a ^ b;
+    case OP_SHL:     return a << b;
+    case OP_SHR:     return a >> b;
+    case OP_EQ:      return a == b ? 1 : 0;
+    case OP_NEQ:     return a != b ? 1 : 0;
+    case OP_LT:      return a <  b ? 1 : 0;
+    case OP_GT:      return a >  b ? 1 : 0;
+    case OP_LTE:     return a <= b ? 1 : 0;
+    case OP_GTE:     return a >= b ? 1 : 0;
+    default:         *err = TC_ERR_BAD_OPCODE; return 0;   // crafted bytecode
+  }
 }
 
 /*********************************************************************************************\
@@ -17097,6 +17133,8 @@ static void tc_scan_watch_indices(TcVM *vm) {
         // it reads operand bytes as opcodes.
         case OP_INC_LOCAL:
           skip = 2; break;
+        case OP_LK_OP_ST: case OP_LL_OP_ST:
+          skip = 4; break;
         // 0-byte operand — all the rest (NOP/HALT/POP/DUP/arith/cmp/logic/RET/conv)
         default:
           skip = 0; break;
@@ -18160,6 +18198,24 @@ static int tc_vm_step(TcVM *vm) {
     case OP_SYSCALL:
       idx = tc_read_u8(vm);
       return tc_syscall(vm, idx);
+    case OP_LK_OP_ST: case OP_LL_OP_ST: {
+      uint8_t s1 = tc_read_u8(vm);
+      int32_t rhs;
+      if (op == OP_LK_OP_ST) { rhs = (int32_t)(int8_t)tc_read_u8(vm); }
+      else                   { uint8_t s2 = tc_read_u8(vm);
+                               if (s2 >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+                               if (!vm->frames[vm->fp].locals) return TC_ERR_FRAME_INVALID;
+                               rhs = vm->frames[vm->fp].locals[s2]; }
+      uint8_t bop = tc_read_u8(vm);
+      uint8_t dst = tc_read_u8(vm);
+      if (s1 >= TC_MAX_LOCALS || dst >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      if (!vm->frames[vm->fp].locals) return TC_ERR_FRAME_INVALID;
+      int berr = TC_OK;
+      int32_t r = tc_binop_i(bop, vm->frames[vm->fp].locals[s1], rhs, &berr);
+      if (berr != TC_OK) return berr;
+      vm->frames[vm->fp].locals[dst] = r;
+      break;
+    }
     // ── Superinstruction: locals[idx] += delta, kein Stapeleffekt ──
     case OP_INC_LOCAL: {
       idx = tc_read_u8(vm);
@@ -18311,6 +18367,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
     _dispatch[0xA7] = &&_op_ref_off;
     // Superinstructions
     _dispatch[0xB0] = &&_op_inc_local;
+    _dispatch[0xB1] = &&_op_lk_op_st;  _dispatch[0xB2] = &&_op_ll_op_st;
     _dispatch_init = true;
   }
 
@@ -18748,6 +18805,30 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
   // 8-bit handle in the LOW byte and the offset at bits 16..29, so a plain add
   // would walk into the handle and land on a different (or dead) array.
   // Const-pool refs (tag 3 + bit15) cannot be offset and pass through unchanged.
+  // ── Superinstructions: locals[dst] = locals[src] OP (konstante | locals[b]) ──
+  _op_lk_op_st:
+  _op_ll_op_st: {
+    // _op ist noch der gerade geholte Opcode -- daran haengt, ob rechts eine
+    // Konstante oder ein zweiter Local steht.
+    uint8_t _s1 = _RD_U8();
+    int32_t _rhs;
+    if (_op == OP_LK_OP_ST) { _rhs = (int32_t)(int8_t)_RD_U8(); }
+    else {
+      uint8_t _s2 = _RD_U8();
+      if (_s2 >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+      if (!vm->frames[vm->fp].locals) { _err = TC_ERR_FRAME_INVALID; goto _vm_exit; }
+      _rhs = vm->frames[vm->fp].locals[_s2];
+    }
+    uint8_t _bop = _RD_U8();
+    uint8_t _dst = _RD_U8();
+    if (_s1 >= TC_MAX_LOCALS || _dst >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (!vm->frames[vm->fp].locals) { _err = TC_ERR_FRAME_INVALID; goto _vm_exit; }
+    int _berr = TC_OK;
+    int32_t _r = tc_binop_i(_bop, vm->frames[vm->fp].locals[_s1], _rhs, &_berr);
+    if (_berr != TC_OK) { _err = _berr; goto _vm_exit; }
+    vm->frames[vm->fp].locals[_dst] = _r;
+    NEXT();
+  }
   // ── Superinstruction: locals[idx] += delta, kein Stapeleffekt ──
   // Ersetzt LOAD_LOCAL·DUP·PUSH_I8·ADD·STORE_LOCAL·POP.
   _op_inc_local: {
