@@ -561,6 +561,37 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     **`webOn` endpoint**, not in `WebPage()` — fetched on its own instead of holding up
     the page, with only a small loader on the main page.
 
+24. **Adding a VM opcode and touching only the interpreter** — a new opcode needs **four**
+    entries, and three of the four fail *silently*:
+    * a handler in `tc_vm_step()` (the switch path),
+    * a handler **and** a dispatch-table slot in `tc_vm_run_slice_ex()` (the direct-threaded
+      path — since 2026-08-08 this is the one that actually runs on ESP32),
+    * the operand length in the firmware's **load-time bytecode scanner** (it walks the code
+      to collect `STORE_WATCH` targets; an unknown length puts it out of step and it starts
+      reading operand bytes as opcodes),
+    * the same operand length in the IDE **disassembler** (`idesrc/src/vm.js`) — the omission
+      that produced the stray `??? (0xNN)` lines for `SYSCALL2`.
+    Plus, if the opcode is emitted by the compiler, the executor in the IDE **simulator** or
+    the Run button and the device disagree about what a program does.
+    ⚠️ The dispatch table is sized `[0x100]` on purpose. It used to be `[0xA6]` while opcodes
+    already reached `0xA7`, so the initialiser wrote one past the end and any opcode ≥ 0xA6
+    read past it and jumped through whatever followed — the `? :` null-guard only covers
+    indices *inside* the array.
+    ⚠️ **Opcode numbers are append-only forever**, like the syscall table: a `.tcb` in the
+    field encodes them. And bump `TC_SYSCALL_ABI` + `SYSCALL_ABI` together — the loader now
+    **refuses** bytecode whose `abi_rev` is newer than the firmware (older still loads with a
+    warning; the ABI is append-only). Without that refusal a fused opcode dies with
+    `Unknown opcode` deep inside a running loop instead of at load time.
+
+25. **Assuming a `#define` is a literal in the AST** — it is not. A `#define` stays an
+    **Identifier** and is only resolved in codegen via `this.defines`; use `constIntOf()`.
+    This bit the superinstruction peephole: `while (i < 100000)` fused, `#define N 100000;
+    while (i < N)` did not, because the operand check saw "Identifier", failed the local
+    lookup and *returned* instead of falling through to the constant path. The optimisation
+    would have shown up in every benchmark and almost never in real scripts — scripts name
+    their bounds (`KURVE_N`, `ABTASTRATE`). A local of the same name legitimately shadows the
+    define, so that case must still fall through to a variable read.
+
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
 `sml_chart_pv.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`
