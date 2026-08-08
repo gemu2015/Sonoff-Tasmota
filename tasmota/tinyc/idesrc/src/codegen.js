@@ -2058,8 +2058,11 @@ export class CodeGenerator {
     }
 
     compileIf(node) {
-        this.compileExpr(node.condition);
-        const elseJump = this.emitJump(Op.JZ);
+        let elseJump = this.tryEmitCondJz(node.condition);
+        if (elseJump === null) {
+            this.compileExpr(node.condition);
+            elseJump = this.emitJump(Op.JZ);
+        }
 
         this.compileStmt(node.consequent);
 
@@ -2075,8 +2078,11 @@ export class CodeGenerator {
 
     compileWhile(node) {
         const loopStart = this.code.length;
-        this.compileExpr(node.condition);
-        const exitJump = this.emitJump(Op.JZ);
+        let exitJump = this.tryEmitCondJz(node.condition);
+        if (exitJump === null) {
+            this.compileExpr(node.condition);
+            exitJump = this.emitJump(Op.JZ);
+        }
 
         this.breakTargets.push([]);
         this.continueTargets.push([]);  // collect continue patches
@@ -2156,12 +2162,15 @@ export class CodeGenerator {
         const loopStart = this.code.length;
 
         // Condition
+        let exitJump = null;
         if (node.condition) {
-            this.compileExpr(node.condition);
+            const fused = this.tryEmitCondJz(node.condition);
+            if (fused !== null) { exitJump = fused; }
+            else { this.compileExpr(node.condition); }
         } else {
             this.emitPushInt(1); // infinite loop
         }
-        const exitJump = this.emitJump(Op.JZ);
+        if (exitJump === null) { exitJump = this.emitJump(Op.JZ); }
 
         this.breakTargets.push([]);
         this.continueTargets.push([]);  // collect continue patches
@@ -2362,23 +2371,119 @@ export class CodeGenerator {
         if (!a) { return false; }
         if (this.isFloatType(this.inferType(v.left))) { return false; }
 
-        if (v.right.type === NodeType.Identifier) {
+        // Same trap as in tryEmitCondJz: a #define is an Identifier too, so fall
+        // through to the constant path rather than rejecting.
+        if (v.right.type === NodeType.Identifier &&
+            plainIntLocal(v.right.name) &&
+            !this.isFloatType(this.inferType(v.right))) {
             const b = plainIntLocal(v.right.name);
-            if (!b) { return false; }
-            if (this.isFloatType(this.inferType(v.right))) { return false; }
             this.emit(Op.LL_OP_ST);
             this.emitByte(a.index); this.emitByte(b.index);
             this.emitByte(bop); this.emitByte(dst.index);
             return true;
         }
-        if (v.right.type === NodeType.IntLiteral &&
-            v.right.value >= -128 && v.right.value <= 127) {
-            this.emit(Op.LK_OP_ST);
-            this.emitByte(a.index); this.emitByte(v.right.value & 0xFF);
-            this.emitByte(bop); this.emitByte(dst.index);
+        const k = this.constIntOf(v.right);
+        if (k !== null && k >= -2147483648 && k <= 2147483647) {
+            if (k >= -128 && k <= 127) {
+                this.emit(Op.LK_OP_ST);
+                this.emitByte(a.index); this.emitByte(k & 0xFF);
+                this.emitByte(bop); this.emitByte(dst.index);
+            } else {
+                this.emit(Op.LK32_OP_ST);
+                this.emitByte(a.index); this.emitI32(k);
+                this.emitByte(bop); this.emitByte(dst.index);
+            }
             return true;
         }
         return false;
+    }
+
+    // Loop/branch head: `if (y CMP z)` where y is a plain int local and z is a
+    // plain int local or an int constant -> ONE compare-and-branch instead of
+    // load, push, compare, JZ.
+    //
+    // Returns the position of the u16 target placeholder, exactly like
+    // emitJump(), so the existing patchJump()/patchJumpTo() machinery works
+    // unchanged — that is the whole reason the target sits LAST in the operand
+    // layout. Returns null when the shape does not qualify, and the caller then
+    // emits the ordinary condition + JZ.
+    //
+    // ⚠️ Branch on FALSE. The opcode replaces a JZ, which jumps when the
+    // condition is zero; getting this inverted would turn every loop into its
+    // own opposite, which is exactly the kind of thing that still passes a
+    // smoke test.
+    // Resolve an operand to a compile-time INTEGER, or null.
+    //
+    // ⚠️ A `#define` is NOT an IntLiteral in the AST. It stays an Identifier and
+    // is only resolved here in codegen, via this.defines. Without this the
+    // fusions would quietly skip every `while (i < KURVE_N)` — that is, most
+    // real loops, since TinyC scripts name their bounds. Found the honest way:
+    // `while (i < 100000)` fused, `#define N 100000; while (i < N)` did not.
+    //
+    // A local or global of the same name SHADOWS the define (compileIdentifier
+    // checks scope first), so that case must fall through to a variable read.
+    // Floats never qualify — tc_binop_i in the firmware is integer-only.
+    constIntOf(node, depth = 0) {
+        if (!node || depth > 4) { return null; }          // depth: defines can nest
+        if (node.type === NodeType.IntLiteral) {
+            return Number.isInteger(node.value) ? node.value : null;
+        }
+        if (node.type === NodeType.UnaryExpr && node.op === '-') {
+            const inner = this.constIntOf(node.operand, depth + 1);
+            return inner === null ? null : -inner;
+        }
+        if (node.type === NodeType.Identifier) {
+            if (this.scope && this.scope.lookup(node.name)) { return null; }   // shadowed by a local
+            if (this.globals && this.globals.has(node.name)) { return null; }  // shadowed by a global
+            if (!this.defines || !this.defines.has(node.name)) { return null; }
+            return this.constIntOf(this.defines.get(node.name), depth + 1);
+        }
+        return null;
+    }
+
+    tryEmitCondJz(cond) {
+        if (!cond || cond.type !== NodeType.BinaryExpr) { return null; }
+        const CMPMAP = { '==': Op.EQ, '!=': Op.NEQ, '<': Op.LT,
+                         '>': Op.GT, '<=': Op.LTE, '>=': Op.GTE };
+        const cop = CMPMAP[cond.op];
+        if (cop === undefined) { return null; }
+        if (!this.scope) { return null; }
+        const plainIntLocal = (name) => {
+            const e = this.scope.lookup(name);
+            if (!e) { return null; }
+            if (e.isScalarRef || e.isArray || e.isStruct || e.isHeap) { return null; }
+            if (e.type === 'float') { return null; }
+            if (this.isCharArrayVar(name)) { return null; }
+            if (!(e.index >= 0 && e.index < 256)) { return null; }
+            return e;
+        };
+        if (cond.left.type !== NodeType.Identifier) { return null; }
+        const a = plainIntLocal(cond.left.name);
+        if (!a) { return null; }
+        if (this.isFloatType(this.inferType(cond.left))) { return null; }
+
+        // ⚠️ A #define name is ALSO an Identifier, so a failed local lookup must
+        // FALL THROUGH to the constant path, not bail. Getting this wrong made
+        // `while (i < N)` skip the fusion while `while (i < 100000)` took it —
+        // i.e. it silently missed most real loops, because scripts name their
+        // bounds.
+        if (cond.right.type === NodeType.Identifier &&
+            plainIntLocal(cond.right.name) &&
+            !this.isFloatType(this.inferType(cond.right))) {
+            const b = plainIntLocal(cond.right.name);
+            this.emit(Op.LL_CMP_JZ);
+            this.emitByte(a.index); this.emitByte(b.index); this.emitByte(cop);
+            const pos = this.code.length; this.emitU16(0);
+            return pos;
+        }
+        const k = this.constIntOf(cond.right);
+        if (k !== null && k >= -2147483648 && k <= 2147483647) {
+            this.emit(Op.LK32_CMP_JZ);
+            this.emitByte(a.index); this.emitI32(k); this.emitByte(cop);
+            const pos = this.code.length; this.emitU16(0);
+            return pos;
+        }
+        return null;
     }
 
     // Returns true if it emitted the fused form, false to fall through to the

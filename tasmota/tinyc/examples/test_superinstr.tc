@@ -3,6 +3,8 @@
 int g_zaehler;          // global -> darf NICHT verschmolzen werden
 watch int g_beob;       // watch-global -> STORE_WATCH muss laufen
 int feld[20];
+#define GRENZE 6
+#define WEIT 1000
 
 int main() {
     int f = 0;
@@ -81,7 +83,34 @@ int main() {
     // 13) Konstante ausserhalb i8 -- faellt auf die lange Form zurueck
     int big; big = p * 1000; if (big != 17000) { f = f + 16384; }
 
-    if (f == 0) { addLog("INCTEST: alle 13 Faelle OK"); }
+    // ── Schleifenkopf (LL_CMP_JZ / LK32_CMP_JZ) und #define-Konstanten ──
+    // 14) alle sechs Vergleiche als Schleifenkopf, gegen Konstante und Variable
+    int cnt = 0; int m = 0;
+    while (m < 5)  { cnt = cnt + 1; m++; }        if (cnt != 5) { f = f + 32768; }
+    cnt = 0; m = 0;
+    while (m != 4) { cnt = cnt + 1; m++; }        if (cnt != 4) { f = f + 32768; }
+    cnt = 0; m = 6;
+    while (m > 2)  { cnt = cnt + 1; m--; }        if (cnt != 4) { f = f + 32768; }
+    cnt = 0; m = 0;  int gr = 3;
+    while (m <= gr) { cnt = cnt + 1; m++; }       if (cnt != 4) { f = f + 32768; }
+
+    // 15) ⚠️ #define-Konstante MUSS genauso verschmelzen wie ein Literal --
+    // ein #define-Name ist im Baum ein Identifier, kein IntLiteral, und der
+    // erste Anlauf hat ihn deshalb stillschweigend uebergangen.
+    cnt = 0; m = 0;
+    while (m < GRENZE) { cnt = cnt + 1; m++; }    if (cnt != 6) { f = f + 65536; }
+    int viel; viel = m * WEIT;                    if (viel != 6000) { f = f + 65536; }
+
+    // 16) eine lokale Variable gleichen Namens ueberdeckt das #define
+    int GRENZE = 2; cnt = 0; m = 0;
+    while (m < GRENZE) { cnt = cnt + 1; m++; }    if (cnt != 2) { f = f + 131072; }
+
+    // 17) if() nutzt denselben Schleifenkopf-Opcode
+    int ja = 0; int w1 = 5; int w2 = 9;
+    if (w1 < w2) { ja = 1; }                      if (ja != 1) { f = f + 262144; }
+    if (w1 > w2) { ja = 2; }                      if (ja != 1) { f = f + 262144; }
+
+    if (f == 0) { addLog("INCTEST: alle 17 Faelle OK"); }
     else        { addLog("INCTEST: FEHLER Maske=%d", f); }
     return 0;
 }

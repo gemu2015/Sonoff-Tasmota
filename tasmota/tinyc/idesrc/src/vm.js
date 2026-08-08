@@ -832,6 +832,52 @@ export class VM {
                 this.push((0xC0000000 | (off << 16) | handle) | 0);
                 break;
             }
+            // ── Superinstruction: loop head. Branch on FALSE, like the JZ it replaces. ──
+            case Op.LL_CMP_JZ:
+            case Op.LK32_CMP_JZ: {
+                const c1 = this.readU8();
+                const rhs = (op === Op.LK32_CMP_JZ)
+                    ? this.readI32()
+                    : (this.frameLocals[this.fp][this.readU8()] | 0);
+                const cop = this.readU8();
+                const target = this.readU16();
+                const a = this.frameLocals[this.fp][c1] | 0;
+                let t;
+                switch (cop) {
+                    case Op.EQ:  t = a === rhs; break;
+                    case Op.NEQ: t = a !== rhs; break;
+                    case Op.LT:  t = a <  rhs; break;
+                    case Op.GT:  t = a >  rhs; break;
+                    case Op.LTE: t = a <= rhs; break;
+                    case Op.GTE: t = a >= rhs; break;
+                    default: throw new VMError(`Bad comparison ${cop} in superinstruction`);
+                }
+                if (!t) { this.pc = target; }
+                break;
+            }
+            case Op.LK32_OP_ST: {
+                const w1 = this.readU8();
+                const wk = this.readI32();
+                const wop = this.readU8();
+                const wdst = this.readU8();
+                const a = this.frameLocals[this.fp][w1] | 0;
+                let r;
+                switch (wop) {
+                    case Op.ADD: r = (a + wk) | 0; break;
+                    case Op.SUB: r = (a - wk) | 0; break;
+                    case Op.MUL: r = Math.imul(a, wk); break;
+                    case Op.DIV: if (wk === 0) { throw new VMError('Division by zero'); } r = (a / wk) | 0; break;
+                    case Op.MOD: if (wk === 0) { throw new VMError('Division by zero'); } r = (a % wk) | 0; break;
+                    case Op.BIT_AND: r = a & wk; break;
+                    case Op.BIT_OR:  r = a | wk; break;
+                    case Op.BIT_XOR: r = a ^ wk; break;
+                    case Op.SHL: r = (a << wk) | 0; break;
+                    case Op.SHR: r = a >> wk; break;
+                    default: throw new VMError(`Bad operator ${wop} in superinstruction`);
+                }
+                this.frameLocals[this.fp][wdst] = r;
+                break;
+            }
             // ── Superinstructions: locals[dst] = locals[a] OP (const | locals[b]) ──
             // Mirrors tc_binop_i() in the firmware. One definition of each
             // operator, or the IDE's Run button and the device disagree.
@@ -4224,6 +4270,18 @@ export class VM {
                 case Op.SYSCALL:
                     operand = SyscallName[binary[pc]] || `#${binary[pc]}`;
                     pc += 1;
+                    break;
+                case Op.LK32_OP_ST:
+                    operand = `local[${binary[pc+6]}] = local[${binary[pc]}] <op> ${(binary[pc+1]<<24)|(binary[pc+2]<<16)|(binary[pc+3]<<8)|binary[pc+4]}`;
+                    pc += 7;
+                    break;
+                case Op.LL_CMP_JZ:
+                    operand = `if !(local[${binary[pc]}] <cmp> local[${binary[pc+1]}]) @${(binary[pc+3]<<8)|binary[pc+4]}`;
+                    pc += 5;
+                    break;
+                case Op.LK32_CMP_JZ:
+                    operand = `if !(local[${binary[pc]}] <cmp> ${(binary[pc+1]<<24)|(binary[pc+2]<<16)|(binary[pc+3]<<8)|binary[pc+4]}) @${(binary[pc+6]<<8)|binary[pc+7]}`;
+                    pc += 8;
                     break;
                 case Op.LK_OP_ST:
                 case Op.LL_OP_ST: {
