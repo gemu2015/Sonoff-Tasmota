@@ -301,6 +301,7 @@ int main() {
         if (hc >= 0) { sprintf(cfgbuf, "// weather.tc config - edit, then send WX to apply\n// Location by name (geocoded). Leave blank/commented to auto-detect by IP.\n// CITY=Erftstadt\n// PV peak power [kWp]\nKWP=%.2f\n// performance ratio (system losses)\nPR=%.2f\n// days to fetch/show forecast, clamped 4..16\nNDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
     }
     read_cfg();
+    // ToDo: jsdate seems to get abused for a loop. Clarify code!!
     strcpy(jsdate, "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;");
     if (strlen(p_lat) < 2) {                  // first run — seed defaults
         strcpy(p_lat, DEF_LAT); strcpy(p_lon, DEF_LON); strcpy(p_city, DEF_CITY);
