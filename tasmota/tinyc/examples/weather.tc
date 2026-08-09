@@ -250,13 +250,15 @@ void WebPage() {
     WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, vdays, f_tmax, 1, 1440, 0, 0);
     WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis
-    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0, 0);
+    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0.0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
+    // gemu2015's comment:  two WebChartJS() calls cancel each other out in https://github.com/gemu2015/Sonoff-Tasmota/pull/113#issuecomment-5231742920 
+    //  is not confirmed by testing !
+    //strcat(jsdate, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
     WebChartJS(jsdate);                          // DD.MM. x-axis
-    strcat(jsdate, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
-    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0, 0);
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0.0, 0);
     WebChartTimeBase(0);
     webSend("</div>");
     webSend("</fieldset>");
