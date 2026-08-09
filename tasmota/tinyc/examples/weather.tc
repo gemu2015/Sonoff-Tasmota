@@ -245,16 +245,18 @@ void WebPage() {
     // index 15 = +15 days (x-axis runs today -> +15).
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wetterprognose</legend>");
     webSend("<div style='margin-left:-12px'>");
-    WebChartTimeBase((vdays - 1) * 1440);
+    WebChartTimeBase((vdays - 1) * 1440);   
+    WebChartJS(jsdate);                          // DD.MM. x-axis
     WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, vdays, f_tmax, 1, 1440, 0, 0);
     WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
-    WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
+    WebChartJS(jsdate);                          // DD.MM. x-axis
     WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0, 0);
+    WebChartJS(jsdate);                          // DD.MM. x-axis
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
+    WebChartJS(jsdate);                          // DD.MM. x-axis
+    strcat(jsdate, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
     WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0, 0);
-    WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
-	WebChartJS("o.vAxis.viewWindow={min:0}");    // avoid mis-leading auto-scaling of bar chart
     WebChartTimeBase(0);
     webSend("</div>");
     webSend("</fieldset>");
