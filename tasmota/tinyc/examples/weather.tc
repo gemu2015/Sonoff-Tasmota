@@ -225,7 +225,7 @@ void WebCall() {
     char b[180];
     char wd[8];
     sprintf(b, "{s}&#127780; Wetter %s &middot; %d Tage{m}%s, %s{e}", p_city, ndays, p_lat, p_lon); webSend(b);
-    sprintf(b, "{s}&#9728; PV-Anlage (cfg){m}%.1f kWp &middot; PR %.2f{e}", kwp, pr); webSend(b);
+    sprintf(b, "{s}&#9728; PV-Anlage (cfg){m}%.2f kWp &middot; PR %.2f{e}", kwp, pr); webSend(b);
     if (valid == 0) {
         webSend("{s}{m}<span style='color:#f88'>warte auf Wetterdaten&hellip;</span>{e}");
         return;
@@ -233,9 +233,9 @@ void WebCall() {
     sprintf(b, "{s}Heute{m}%.1f / %.1f &deg;C &middot; Regen %.1f mm{e}", f_tmax[0], f_tmin[0], f_precip[0]); webSend(b);
     compass((int)f_wdir[0], wd);
     sprintf(b, "{s}&#127788; Wind heute{m}%.0f km/h &middot; B&ouml;en %.0f &middot; aus %s{e}", f_wind[0], f_gust[0], wd); webSend(b);
-    sprintf(b, "{s}&#9728; Solar heute (Prognose){m}%.0f kWh{e}", f_yield[0]);                                webSend(b);
-    sprintf(b, "{s}&#9728; Solar %d Tage{m}%.0f kWh (&oslash; %.0f/Tag){e}", ndays, sum16(f_yield), sum16(f_yield) / ndays); webSend(b);
     sprintf(b, "{s}&#127783; Regen %d Tage{m}%.0f mm{e}", ndays, sum16(f_precip));                            webSend(b);
+    sprintf(b, "{s}&#9728; Solar heute (Prognose){m}%.1f kWh{e}", f_yield[0]);                                webSend(b);
+    sprintf(b, "{s}&#9728; Solar %d Tage{m}%.1f kWh (&oslash; %.1f/Tag){e}", ndays, sum16(f_yield), sum16(f_yield) / ndays); webSend(b);
     sprintf(b, "{s}Aktualisiert vor{m}%d min{e}", (tasm_uptime - fetched_at) / 60);                           webSend(b);
 }
 
@@ -250,10 +250,11 @@ void WebPage() {
     WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
     WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0, 0);
-    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0, 0);
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
+	WebChartJS("o.vAxis.viewWindow={min:0}");    // avoid mis-leading auto-scaling of bar chart
     WebChartTimeBase(0);
     webSend("</div>");
     webSend("</fieldset>");
