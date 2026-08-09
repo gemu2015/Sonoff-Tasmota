@@ -710,6 +710,8 @@ class Scope {
 
 export class CodeGenerator {
     constructor() {
+        this._abiMin = CodeGenerator._ABI_BASIS;   // tatsaechlicher Mindestbedarf, siehe emit()
+        this._syscallOffen = 0;                    // 1 = SYSCALL, 2 = SYSCALL2, Nummer folgt
         this.code = [];             // bytecode output
         this.constants = [];        // constant pool (strings, large numbers)
         this.globals = new Map();   // name -> { index, type, isArray, arraySize }
@@ -886,12 +888,56 @@ export class CodeGenerator {
 
     // ─── Bytecode emission ──────────────────────────────────
 
+    // ─── Mindest-ABI mitzählen ──────────────────────────────
+    // `abi_rev` im Kopf sagt der Firmware: "diese .tcb braucht mindestens ABI N".
+    // Frueher stand dort stumpf SYSCALL_ABI, also die Version des Compilers — damit
+    // verlangte auch ein Skript, das nichts Neues benutzt, die neueste Firmware, und
+    // der Lader wies es ab (er verweigert abi_rev > eigenes ABI, seit die Verschmelzungen
+    // BAD_OPCODE mitten in der Schleife ausloesen koennen). Jetzt wird der TATSAECHLICHE
+    // Bedarf gezaehlt: hoechster benutzter Syscall + verwendete Superinstruktionen.
+    //
+    // ⚠️ Im Zweifel ZU HOCH stempeln. Zu niedrig bringt genau den Tod zurueck, gegen den
+    // die Verweigerung eingefuehrt wurde. Darum: unbekannte Lage -> volles SYSCALL_ABI.
+    //
+    // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
+    static _ABI_SCHWELLEN = [
+        [535, 20], [534, 19], [533, 18], [524, 17], [521, 16], [517, 15],
+        [514, 14], [513, 13], [512, 12], [511, 11], [503, 10], [502, 9],
+        [498, 7], [494, 5], [493, 4], [492, 3], [371, 2],
+    ];
+    static _ABI_BASIS = 2;      // nichts Neues benutzt
+
+    _abiFuerSyscall(id) {
+        if (id === 271) return 8;   // i2sBegin bekam in V8 ein zusaetzliches Argument —
+                                    // gleiche Nummer, andere Signatur, nicht an der Nummer erkennbar
+        for (const [ab, abi] of CodeGenerator._ABI_SCHWELLEN) {
+            if (id >= ab) return abi;
+        }
+        return CodeGenerator._ABI_BASIS;
+    }
+
+    _abiMerken(n) {
+        if (n > this._abiMin) { this._abiMin = n; }
+    }
+
     emit(op) {
+        // Superinstruktionen: die Firmware braucht einen Handler dafuer.
+        if      (op === Op.LK32_OP_ST || op === Op.LL_CMP_JZ || op === Op.LK32_CMP_JZ) this._abiMerken(23);
+        else if (op === Op.LK_OP_ST   || op === Op.LL_OP_ST)                           this._abiMerken(22);
+        else if (op === Op.INC_LOCAL)                                                  this._abiMerken(21);
+
+        // SYSCALL/SYSCALL2: die Nummer folgt im naechsten emitByte/emitU16.
+        if (op === Op.SYSCALL)       { this._syscallOffen = 1; }
+        else if (op === Op.SYSCALL2) { this._syscallOffen = 2; }
+        else if (this._syscallOffen) { this._syscallOffen = 0; this._abiMerken(SYSCALL_ABI); }
+
         this.code.push(op);
         return this.code.length - 1;
     }
 
     emitByte(val) {
+        if (this._syscallOffen === 1) { this._syscallOffen = 0; this._abiMerken(this._abiFuerSyscall(val & 0xFF)); }
+        else if (this._syscallOffen)  { this._syscallOffen = 0; this._abiMerken(SYSCALL_ABI); }
         this.code.push(val & 0xFF);
     }
 
@@ -906,6 +952,8 @@ export class CodeGenerator {
     }
 
     emitU16(val) {
+        if (this._syscallOffen === 2) { this._syscallOffen = 0; this._abiMerken(this._abiFuerSyscall(val & 0xFFFF)); }
+        else if (this._syscallOffen)  { this._syscallOffen = 0; this._abiMerken(SYSCALL_ABI); }
         this.code.push((val >> 8) & 0xFF);
         this.code.push(val & 0xFF);
     }
@@ -5083,8 +5131,13 @@ export class CodeGenerator {
         header.push(HEADER_SIZE_V6 & 0xFF);
         const totalSizeOffset = header.length;        // 22; patched below once all sizes are known
         header.push(0, 0, 0, 0);                      // total_size placeholder (B22-25, big-endian u32)
-        header.push((SYSCALL_ABI >> 8) & 0xFF);       // abi_rev (B26-27)
-        header.push(SYSCALL_ABI & 0xFF);
+        // abi_rev (B26-27) = MINDESTBEDARF dieses Bytecodes, nicht die Compiler-Version.
+        // Der Lader weist abi_rev > eigenes ABI ab; mit der Compiler-Version im Kopf
+        // verlangte damit jede frisch uebersetzte .tcb die neueste Firmware, auch wenn
+        // das Skript nichts Neues benutzt. Gezaehlt wird in emit()/emitByte()/emitU16().
+        const abiRev = Math.min(this._abiMin, SYSCALL_ABI);
+        header.push((abiRev >> 8) & 0xFF);
+        header.push(abiRev & 0xFF);
         for (let i = 0; i < 12; i++) header.push(0);  // reserved[12] (B28-39), zero-filled for future fields
 
         // Combine: header + constant pool + heap declarations + function table + persist table + globals table + code

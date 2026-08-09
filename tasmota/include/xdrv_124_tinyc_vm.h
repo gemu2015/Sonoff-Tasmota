@@ -17238,9 +17238,13 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
              abi_rev, TC_SYSCALL_ABI);
       return TC_ERR_BAD_BINARY;
     }
-    if (abi_rev != TC_SYSCALL_ABI) {
-      AddLog(LOG_LEVEL_INFO, PSTR("TC: slot bytecode ABI rev %u != firmware %u — recompile with the current IDE (commands may not register)"), abi_rev, TC_SYSCALL_ABI);
-    }
+    // A LOWER abi_rev is normal and correct: since the IDE stamps the bytecode's
+    // actual MINIMUM requirement rather than the compiler's own version, a script
+    // that uses nothing recent legitimately asks for very little — that is the whole
+    // point, it lets such a .tcb run on older firmware. Warning about it would fire
+    // on nearly every load and would tell the user to "recompile", which fixes
+    // nothing. Only the newer-than-us direction is a real problem, and it is refused
+    // above.
   } else {
     header_size = (version >= 5) ? 20 : ((version >= 4) ? 18 : ((version >= 3) ? 16 : 14));
     static bool tc_warned_prev6 = false;                         // pre-V6 = older IDE; can't ABI-check. Nudge once/boot.
