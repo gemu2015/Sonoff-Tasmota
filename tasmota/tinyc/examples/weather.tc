@@ -14,7 +14,7 @@
 //   geocoding  geocoding-api.open-meteo.com   (city name -> lat/lon)
 //   ip locate  ip-api.com                (public-IP -> approximate lat/lon/city)
 //
-// Solar yield is ESTIMATED from shortwave_radiation_sum (global horizontal irradiance):
+// Solar yield is ESTIMATED from shortwave_radiation_sum (global horizontal irradiance(GHI):
 //     yield_kWh ≈ GHI[MJ/m²] / 3.6 * KWP * PR     — tune KWP/PR to your array.
 
 #define DEF_LAT  "50.94"       // neutral default (Köln); auto-detect or `WX loc` overrides
@@ -37,7 +37,7 @@ char want_geocode[40];         // queue a geocode of this city name (set by `WX 
 float f_tmax[NDAYS];
 float f_tmin[NDAYS];
 float f_precip[NDAYS];         // [mm]
-float f_rad[NDAYS];            // shortwave radiation sum [MJ/m²]
+float f_rad[NDAYS];            // shortwave radiation sum [MJ/m²] (aka GHI)
 float f_yield[NDAYS];          // estimated PV yield [kWh]
 float f_wind[NDAYS];           // max wind [km/h]
 float f_gust[NDAYS];           // max gusts [km/h]
@@ -72,7 +72,7 @@ char  jsdate[220];
 // must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
 // Returns the number of REAL (non-null) values parsed. Open-Meteo emits `null`
 // for forecast days beyond the model horizon (e.g. day 16 for some locations —
-// mi-hol's Geilenkirchen: "…,34.1,28.4,null"). atof("null") would be 0.0 and
+// Geilenkirchen: "…,34.1,28.4,null"). atof("null") would be 0.0 and
 // plot a bogus zero at the right edge; instead we stop at the first null so the
 // caller can shrink the chart to the days that actually have data.
 int parse16(char json[], char key[], float out[]) {
@@ -196,7 +196,7 @@ void do_fetch() {
     while (i < vdays) { f_yield[i] = f_rad[i] / 3.6 * kwp * pr; i = i + 1; }
     valid = 1;
     fetched_at = tasm_uptime;
-    addLog("weather: %dd ok %s - today %.1f/%.1f C, yield ~%.0f kWh, wind %.0f/%.0f",
+    addLog("weather: %dd ok %s - today %.1f/%.1f C, yield ~%.1f kWh, wind %.0f/%.0f",
            ndays, p_city, f_tmax[0], f_tmin[0], f_yield[0], f_wind[0], f_gust[0]);
 }
 
