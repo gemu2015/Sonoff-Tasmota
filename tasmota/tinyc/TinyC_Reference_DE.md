@@ -477,6 +477,44 @@ passiert, haengt davon ab, was der eigene Task des Slots gerade tut:
 > Worker auf einem Slot zu sparen, der keine lokalen Callbacks braucht. (Der ESP8266 hat einen
 > einzigen Slot und kein `spawnTask`, dort greift dies also nicht.)
 
+> ⚠️ **Ein ausgelassener Web-Callback erscheint als NICHTS — keine Zeile, kein Fehler, kein
+> Logeintrag.** „Werden waehrenddessen verworfen“ in der Tabelle oben ist etwas anderes als
+> ein verpasster `EverySecond`-Tick: ein ausgelassener `WebCall()` bedeutet, dass die
+> Sensorzeilen dieses Slots auf der ausgelieferten Seite **fehlen**, und ein ausgelassener
+> `WebPage()`, dass sein **gesamtes** Zeichenprogramm fehlt — Canvas, Diagramm, Knöpfe. Der
+> Browser bekommt eine gültige, vollständige, nur kürzere Seite. Von außen liest sich das als
+> Flackern oder als Diagramm, das „manchmal nicht da ist“, und die naheliegenden Verdächtigen
+> sind der Browser, das WLAN oder das eigene HTML.
+>
+> **In einer Minute festgestellt.** Dieselbe Seite zehn- bis fünfzehnmal holen und zählen, wie
+> oft der eigene Block erscheint. Dann dasselbe gegen einen `webOn`-Endpunkt desselben
+> Skripts. `webOn` wartet bis zu `TC_WEBON_HALTED_WAIT_MS` (1500 ms) auf die VM und wird
+> deshalb fast immer bedient. Liefert `webOn` 25/25, während `WebCall`/`WebPage` bei 11/12 und
+> 4/8 stehen, ist die Antwort VM-Konkurrenz mit dem eigenen `TaskLoop` — und sonst nichts.
+> (Das sind Rolfs gemessene Zahlen an `max30102.tc` vom 2026-08-07 bei `delay(10)`. Die
+> Schleife auf `delay(30)` anzuheben brachte den Canvas von 4/8 auf 11/12 — was die Ursache
+> beweist, aber zwei Drittel der Abtastrate kostet. Also eine Diagnose, keine Lösung.)
+>
+> **Seit dem 2026-08-07 wartet der Seitenaufbau** auf das nächste nutzbare Fenster des Slots,
+> statt ihn auf der Stelle auszulassen — gedeckelt auf 400 ms für die ganze Seite
+> (`TC_WEB_PASS_BUDGET_MS`), damit ein einzelner klemmender Slot nicht den Rest aufhält.
+> Auslassungen, die trotzdem passieren, werden **gezählt**: das nackte Konsolenkommando
+> `TinyC` meldet `"WebSkip":N` je Slot, `TinyCInfo` zeigt es in den Webzeilen. Ein `WebSkip`,
+> der stetig steigt, ist die Firmware, die einem sagt: dieser Slot ist zu beschäftigt, um sich
+> selbst zu zeichnen.
+>
+> **Die bauliche Lösung ist, schweres Zeichnen aus `WebPage()` in einen `webOn`-Endpunkt zu
+> verlegen** und auf der Hauptseite nur einen kleinen Lader zu lassen. Der bekommt die längere
+> Wartezeit, wird unabhängig abgerufen statt die Seite aufzuhalten, und die Nutzlast wird nur
+> geholt, wenn wirklich jemand hinsieht.
+>
+> ⚠️ **Wo das `delay()` steht, entscheidet, ob Callbacks überhaupt drankommen.** Die
+> Reentranz-Sperre lässt einen Callback aus, sobald die VM tiefer als einen Aufruframe geparkt
+> ist. Ein `TaskLoop()`, das `delay()` **direkt im eigenen Rumpf** aufruft, parkt in Tiefe 1
+> und kommt durch; dasselbe `delay()` in eine Hilfsfunktion verlegt parkt in Tiefe 2, und ab da
+> bleibt nur noch die Lücke von einem Tick zwischen den Iterationen. Gleiches Skript, gleiche
+> Rate, eine Umstrukturierung dazwischen — und nichts im Quelltext deutet darauf hin.
+
 **Das Muster nach der Arbeitslast waehlen:**
 
 1. **Gelegentliche blockierende I/O + lokales UI → Single-Task, kein Worker.** Den
@@ -2574,6 +2612,17 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 |----------|-------------|
 | `WebChartSize(int width, int height)` | Groesse des Chart-`<div>` in Pixeln setzen (z. B. `640 × 200`). `0` fuer einen der Werte = Standard verwenden. |
 | `WebChartTimeBase(int minutes)` | Zeitbasis der X-Achse relativ zu „jetzt“ verschieben. `0` = an „jetzt“ verankert (Standard); negativ = in die Vergangenheit (z. B. `-1440` = vor 24 h). Nuetzlich, um das aelteste Sample eines Ringpuffers an den linken Rand zu legen. |
+| `WebChartJS("…js…")` | JavaScript-Schnipsel an das **zuletzt erzeugte** Diagramm haengen — also **nach** dem `WebChart()`, zu dem er gehoert. Er laeuft im Zeichen-Kontext mit `dt` (Google `DataTable`), `o` (Optionen) und `el` (DOM-Element), nachdem die Standardoptionen gebaut sind und bevor gezeichnet wird. Entweder `o`/`dt` veraendern und TinyC zeichnen lassen — oder selbst zeichnen und `o.done=1` setzen, dann entfaellt das Standard-Zeichnen (damit ist jeder Diagrammtyp moeglich). |
+
+⚠️ `WebChartJS()` **weist zu, es haengt nicht an.** Zwei aufeinanderfolgende Aufrufe auf
+dasselbe Diagramm überschreiben sich gegenseitig — der zweite gewinnt, der erste ist
+wirkungslos, ohne Fehlermeldung. Wer Achsenformat *und* Nullpunkt setzen will, muss beides
+in **einen** Aufruf packen.
+
+⚠️ `ymin`/`ymax` sind gewöhnliche **Laufzeit-Floats**, keine Literale — eine Variable oder
+ein Ausdruck ist erlaubt. Das ist mehr als eine Feinheit: es ist der Unterschied zwischen
+„ich muss den Bereich beim Übersetzen kennen“ und „ich rechne ihn aus den Daten aus, die
+ich gerade gesammelt habe“.
 
 **Beispiel — 24h Wetterdaten:**
 ```c
@@ -2594,7 +2643,67 @@ void WebPage() {
 - **Auto-Skalierung** (`0, 0`) fuer Daten mit variablem Bereich (Helligkeit, Wind, Regen)
 - Aufruf aus `WebPage()`-Callback — jeder Aufruf erzeugt eine Datenserie
 - Mehrere Serien in einem Diagramm: erster Aufruf hat Titel, weitere verwenden `""` als Titel
-- **Benutzerdefinierte Diagrammgroesse:** `webChartSize(width, height)` vor dem ersten `WebChart()`-Aufruf aufrufen, um benutzerdefinierte Diagrammabmessungen in Pixeln festzulegen
+- **Nullpunkt** verwenden, wenn der Leser **Balkenhöhen vergleichen** soll — siehe unten
+
+#### Nullpunkt bei unbekanntem Maximum
+
+Die Auto-Skalierung legt die Achse um die Daten. Vier Werte von 11,3 / 11,4 / 10,5 / 9,2 kWh
+bekommen so eine Achse von 9 bis 12, und der letzte Balken schrumpft zum Stummel. Das
+Diagramm ist nicht falsch, aber es sagt auf den ersten Blick „am Montag fast nichts“, wo
+der Montag tatsächlich 80 % des Freitags geliefert hat. Immer wenn der Leser **Höhen**
+vergleicht statt Werte an der Achse abzulesen, muss die Achse bei null beginnen — und die
+Obergrenze kennt man selten im Voraus.
+
+Zwei Wege, beide ohne Firmware-Änderung:
+
+**Das Minimum festnageln, das Maximum automatisch lassen** (eine Zeile, keine Rechnerei):
+```c
+WebChart(1, "Solar-Ertrag Prognose", "kWh", 0xf39c12, 0, vdays, f_yield, 1, 1440, 0.0, 0.0);
+WebChartJS("o.vAxis.viewWindow={min:0}");     // NACH dem WebChart, zu dem es gehört
+```
+`WebChartJS()` läuft, nachdem die Standardoptionen gebaut sind und bevor gezeichnet wird —
+es kann deshalb ein **halbes** Sichtfenster setzen. Das Paar `ymin`/`ymax` kann das nicht
+ausdrücken: es gilt alles oder nichts (`ymin >= ymax` bedeutet automatisch). Bei einem
+Diagramm mit **zwei** Y-Achsen stattdessen `o.vAxes[0].viewWindow={min:0}`.
+
+**Oder die Grenze aus den Daten rechnen** — sinnvoll, wenn zusätzlich Luft nach oben oder
+ein gerundeter Höchstwert gewünscht ist:
+```c
+float mx = 0.0;
+int i = 0;
+while (i < vdays) {
+    if (f_yield[i] > mx) { mx = f_yield[i]; }
+    i = i + 1;
+}
+if (mx <= 0.0) { mx = 1.0; }    // ⚠️ lauter Nullen ergäben sonst wieder ymin >= ymax = auto
+WebChart(1, "Solar-Ertrag Prognose", "kWh", 0xf39c12, 0, vdays, f_yield, 1, 1440, 0.0, mx * 1.15);
+```
+Die Absicherung ist kein Formalismus: ein Prognose-Array, das noch leer ist, oder eine
+Messung bei Nacht macht `mx` zu null, damit gilt `ymin >= ymax`, und das Diagramm fällt
+still auf genau die Auto-Skalierung zurück, die man vermeiden wollte — ausgerechnet an dem
+Tag, an dem die Daten am seltsamsten aussehen.
+
+#### Diagrammgröße über mehrere Skripte hinweg
+
+`WebChartSize(width, height)` setzt die Größe des Diagramm-`<div>`; `0` für einen der Werte
+nimmt den Standard (960 × 300 px, wenn keiner gesetzt ist).
+
+⚠️ **Es ist eine Einstellung je Seitenaufbau, nicht je Skript.** Sie wird einmal zu Beginn
+jedes Hauptseiten-Aufbaus auf „nicht gesetzt“ zurückgestellt und wandert dann in
+Slot-Reihenfolge weiter. Ein Skript, das sie nie aufruft, bekommt also **nicht** den
+Standard — es erbt, was der *vorherige* Slot gesetzt hat, und dasselbe Skript erscheint
+verschieden breit, je nachdem in welchem Slot es läuft und welche Nachbarn geladen sind.
+Das ist die übliche Ursache, wenn Diagramme zweier Skripte auf einer Seite unterschiedlich
+breit und gegeneinander versetzt stehen.
+
+Abhilfe: jedem diagrammzeichnenden Skript denselben ausdrücklichen Aufruf als erste Zeile
+seines `WebPage()` geben:
+```c
+void WebPage() {
+    WebChartSize(0, 260);   // Breite 0 = volle Containerbreite, unabhängig vom Slot
+    ...
+}
+```
 
 **HTML aus Dateien einbinden:**
 
@@ -4111,6 +4220,101 @@ void TaskLoop() {
   delay(250);
 }
 ```
+
+**BLE-„SPP“ — eine bleibende Verbindung** für Geräte, die *strömen* (BlueRadios/BRSP-Module,
+Nordic-UART-artige Peripherie, Seriell-über-BLE-Adapter). Der GATT-Client oben verbindet,
+führt **eine** Operation aus und trennt wieder — richtig für eine Waage, die aufwacht,
+meldet und schläft; falsch für einen fortlaufenden Datenstrom, bei dem die Verbindung
+abrisse, bevor der zweite Messwert ankommt. Diese Aufrufe halten die Verbindung offen, bis
+man sie schließt. UUIDs sind hier **Zeichenketten** (16 Bit `"180a"` oder volle 128 Bit),
+anders als die int16-`svc16`/`chr16` der Einmal-Familie, die eine 128-Bit-UUID gar nicht
+adressieren kann — und genau die benutzt ein proprietärer serieller Dienst fast immer.
+
+| Funktion | Beschreibung |
+|---|---|
+| `int bleSppTarget(char mac[], int addrtype, "svc-uuid")` | Bleibendes Ziel setzen: 6 MAC-Bytes, Adresstyp, Service-UUID als **Zeichenketten-Literal**. Liefert 1 |
+| `int bleSppConnect()` | Verbinden und den Dienst auflösen. **Blockiert** bis zu einigen Sekunden — nur aus `TaskLoop()`. 1 = verbunden, 0 = nicht |
+| `int bleSppState()` | 1 solange verbunden *und* benutzbar, sonst 0. Wird auch 0, wenn die Gegenstelle die Verbindung fallen lässt |
+| `int bleSppSub("notify-uuid")` | Die Charakteristik abonnieren, auf der das Gerät benachrichtigt. Liefert 1 |
+| `int bleSppAvailable()` | Wartende Bytes im Empfangsring |
+| `int bleSppRead(char buf[], int max)` | Bis zu `max` Bytes nach `buf` abholen. Liefert die Anzahl. Blockiert nie |
+| `int bleSppWrite("chr-uuid", char buf[], int len)` | In eine Charakteristik schreiben, **ohne die Verbindung zu trennen**. Liefert 1 |
+| `int bleSppClose()` | Trennen |
+| `int bleGattDump(char mac[], int addrtype, char out[])` | Einmalig: verbinden, alle Dienste und Charakteristiken mit ihren Eigenschaften (`R`/`W`/`w`/`N`/`I`) als Text auflisten, trennen. Liefert die Textlänge |
+
+**Bei jedem unbekannten Gerät zuerst `bleGattDump()` laufen lassen.** Eine proprietäre UUID
+steht in keinem Datenblatt — man muss das Gerät fragen. `examples/ble_gatt_explore.tc`
+verpackt das in drei Konsolenkommandos (scannen → MAC wählen → auslesen).
+
+Scharfe Kanten, jede davon hat echte Fehlersuchzeit gekostet:
+
+* **`bleSppConnect()` liefert 0, solange der BLE-Stapel nicht oben ist.** Beim ersten Aufruf
+  nach dem Start ist das normal und kein Fehler — einfach erneut versuchen. Keine
+  blockierende Sechs-Versuche-Schleife in ein Programm bauen, das nebenbei einen Sensor
+  bedient: jeder Fehlversuch blockiert sekundenlang.
+* **Den Rückgabewert von `bleSppWrite()` prüfen — und die LÄNGE mitloggen.** Ein `#define`,
+  dessen Wert eine Zeichenkette ist, übersteht die Übergabe durch einen `char[]`-**Parameter**
+  nicht; ein direkt hingeschriebenes Literal schon. Ein 29 Byte langer Befehl wurde auf diesem
+  Weg still zu einem 1-Byte-Befehl, und das Schreiben meldete trotzdem Erfolg, weil es
+  *irgendetwas* geschrieben hatte. Lange Befehle zur Laufzeit mit `sprintf` bauen.
+* Schreibvorgänge, die länger als die ausgehandelte MTU sind, werden automatisch zerlegt
+  (eine serielle Brücke kümmert sich nicht um Schreibgrenzen) — ein ganzer Befehl darf also
+  in einem Aufruf übergeben werden.
+* **`CleanUp()` MUSS `bleSppClose()` aufrufen.** `TinyCStop` beendet nur das *Skript* — die
+  Verbindung bleibt in der Firmware offen und ihre Benachrichtigungen laufen weiter. Ein
+  neues `.tcb` hochzuladen, während ein paar hundert Pakete je Sekunde auf einen
+  abgeschalteten Flash-Cache treffen, löst den Interrupt-Watchdog aus.
+* **Der Durchsatz ist begrenzt.** An einem BRSP-Modul über 40-Sekunden-Fenster gemessen: 223
+  Sätze/s kamen an, wo 256/s angefordert waren (12,8 % zu wenig, mit Synchronfehlern); 185/s
+  bei 200 (7,6 %, ohne Synchronfehler). Wenn die Gegenstelle eine Abtastrate wählen lässt,
+  lieber eine verlangen, die die Verbindung trägt, statt Daten zu verlieren.
+* Die Rate der Gegenstelle nicht annehmen — **messen** und die Anzeige dem gemessenen Wert
+  folgen lassen.
+
+```c
+// Serielle Peripherie: einmal verbinden, dann fortlaufend lesen
+#define SVC   "da2b84f1-6279-48de-bdc0-afbea0226079"
+#define TX    "18cda784-4bd3-4370-85bb-bfed91ec86af"   // hier benachrichtigt das Gerät
+#define RX    "bf03260c-7205-4c25-af43-93b1c299d159"   // hier schreiben wir
+int  mac[6];
+char rx[256];
+int  an;
+
+int main() {
+    mac[0] = 0xEC; mac[1] = 0xFE; mac[2] = 0x7E;
+    mac[3] = 0x10; mac[4] = 0xE1; mac[5] = 0xEF;
+    bleSppTarget(mac, 0, SVC);
+    return 0;
+}
+
+void TaskLoop() {
+    if (!an) {
+        if (!bleSppConnect()) { delay(3000); return; }   // Stapel noch nicht oben, oder Gegenstelle weg
+        if (!bleSppSub(TX))   { delay(3000); return; }
+        char hallo[] = "VS\r";
+        bleSppWrite(RX, hallo, strlen(hallo));
+        an = 1;
+        return;
+    }
+    if (!bleSppState()) { an = 0; return; }              // Gegenstelle hat getrennt
+    int n = bleSppAvailable();
+    if (n > 0) {
+        if (n > 255) { n = 255; }
+        int got = bleSppRead(rx, n);
+        // ... hier den Bytestrom auswerten ...
+    }
+    delay(10);
+}
+
+void CleanUp() { bleSppClose(); }   // nicht optional — siehe oben
+```
+
+Ein durchgearbeitetes Beispiel (Rahmen, Neusynchronisation, Skalierung, Live-Kurve) ist
+`examples/variograf_ekg.tc`; `examples/max30102.tc` zeigt dieselbe Quelle kombiniert mit
+einem zweiten Messkanal.
+
+⚠️ Verbinden braucht eine deutlich bessere Verbindung als Scannen: bei −88 dBm wurde jeder
+Versuch abgewiesen, bei −63 dBm klappte es sofort.
 
 **GATT-Server (Peripheral)** — einen Service bewerben, sodass sich ein Handy (oder ein beliebiger
 BLE-Central) mit dem Gerät verbindet und Daten austauscht — das übliche Handy-App-↔-IoT-Muster.
