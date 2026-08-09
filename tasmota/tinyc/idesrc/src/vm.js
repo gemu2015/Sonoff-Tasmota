@@ -4285,7 +4285,7 @@ export class VM {
                     break;
                 case Op.LK_OP_ST:
                 case Op.LL_OP_ST: {
-                    const rhs = (opcode === Op.LK_OP_ST)
+                    const rhs = (op === Op.LK_OP_ST)
                         ? String((binary[pc+1] > 127) ? binary[pc+1]-256 : binary[pc+1])
                         : `local[${binary[pc+1]}]`;
                     operand = `local[${binary[pc+3]}] = local[${binary[pc]}] <op 0x${binary[pc+2].toString(16)}> ${rhs}`;
