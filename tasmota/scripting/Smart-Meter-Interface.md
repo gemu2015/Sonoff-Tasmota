@@ -252,6 +252,21 @@ Special options and e.g math calculations are not counted as a decoder entry and
     ```
 	the variable smlj also switches to obis_line_mode if bit 1 = 1, default is 0 
 
+    The remaining bits of `smlj` are:
+
+    | bit | value | meaning |
+    |---|---|---|
+    | 0 | 1 | publish SML values via MQTT on TelePeriod (default on) |
+    | 1 | 2 | obis_line_mode (see above) |
+    | 2 | 4 | suppress the SML driver's own web rendering, so a Scripter/TinyC program can draw the values in its own card |
+    | 3 | 8 | publish **every** descriptor line on TelePeriod, including registers the meter has not sent yet |
+
+    Bit 3 exists because values that were never received are normally skipped, so their JSON keys appear and
+    disappear between TelePeriods. Meters that report a register only occasionally — or never, such as unused
+    tariff registers — therefore produce a JSON payload with a changing key set, which breaks consumers that
+    expect a fixed schema (databases, Node-RED flows, Grafana). With `smlj|=8` such entries are published with
+    their initial value instead of being omitted.
+
 !!! example
     If you have large meter descriptors and want to extract multiple values from the same descriptor, you can save flash space using `SML_REPLACE_VARS` at compile time (see [Resol Deltasol BS Plus](#resol-deltasol-bs-plus-vbus)):
     ```

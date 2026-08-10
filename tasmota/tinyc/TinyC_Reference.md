@@ -869,7 +869,7 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_sunset` | int | read | Sunset, minutes since midnight (requires USE_SUNRISE) |
 | `tasm_time` | int | read | Current time, minutes since midnight |
 | `tasm_pheap` | int | read | Free PSRAM in bytes (ESP32 only, 0 on ESP8266) |
-| `tasm_smlj` | int | read/write | SML JSON output enable/disable (requires USE_SML_M) |
+| `tasm_smlj` | int | read/write | SML option bits (requires USE_SML_M): 1 = publish on TelePeriod, 2 = obis_line_mode, 4 = suppress the SML driver's own web card, 8 = publish every descriptor line, including registers the meter never sent |
 | `tasm_npwr` | int | read | Number of power (relay) devices |
 | `tasm_rule` | int | read/write | Rule1 enabled (bit 0 of `Settings->rule_enabled`). Read returns 0 or 1. Write any non-zero to enable, 0 to disable. Equivalent to the console `Rule1 1` / `Rule1 0` commands. Note: some Tasmota subsystems (SML descriptors) check this flag at init and silently skip when Rule1 is disabled — flip with `tasm_rule = 1` before starting them. |
 | `tasm_lat` | float | read/write | Device latitude in decimal degrees (e.g. 48.137). Backed by `Settings->latitude` (stored ×1 000 000 as int). Used by `tasm_sunrise` / `tasm_sunset` calculations. |

@@ -821,7 +821,7 @@ TinyC stellt virtuelle `tasm_*`-Variablen bereit, die den Tasmota-Systemzustand 
 | `tasm_sunset` | int | lesen | Sonnenuntergang, Minuten seit Mitternacht (erfordert USE_SUNRISE) |
 | `tasm_time` | int | lesen | Aktuelle Uhrzeit, Minuten seit Mitternacht |
 | `tasm_pheap` | int | lesen | Freier PSRAM-Speicher in Bytes (nur ESP32) |
-| `tasm_smlj` | int | lesen/schreiben | SML JSON-Ausgabe aktivieren/deaktivieren (erfordert USE_SML_M) |
+| `tasm_smlj` | int | lesen/schreiben | SML-Optionsbits (erfordert USE_SML_M): 1 = auf TelePeriod veröffentlichen, 2 = obis_line_mode, 4 = eigene Web-Karte des SML-Treibers unterdrücken, 8 = jede Deskriptorzeile veröffentlichen, auch nie empfangene Register |
 | `tasm_npwr` | int | lesen | Anzahl der Power-Geraete (Relais) |
 | `tasm_rule` | int | lesen/schreiben | Rule1 aktiviert (Bit 0 von `Settings->rule_enabled`). Lesen liefert 0 oder 1. Schreiben: jeder Wert ungleich 0 aktiviert, 0 deaktiviert. Entspricht den Konsolen-Befehlen `Rule1 1` / `Rule1 0`. Hinweis: einige Tasmota-Subsysteme (z. B. SML-Deskriptoren) pruefen dieses Flag bei der Initialisierung und ueberspringen still wenn Rule1 deaktiviert ist — vor dem Start ggf. `tasm_rule = 1` setzen. |
 | `tasm_lat` | float | lesen/schreiben | Geraete-Breitengrad in Dezimalgrad (z. B. 48.137). Backing: `Settings->latitude` (intern als int x 1 000 000 gespeichert). Wird von `tasm_sunrise` / `tasm_sunset` verwendet. |
