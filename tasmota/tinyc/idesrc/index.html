@@ -838,6 +838,11 @@ int main() {
             if (el) el.style.display = 'none';
         }
         let _verLastIp = '';
+        // ABI des Geraets aus dem Feld "Device IP" — also genau des Geraets, auf dem die
+        // .tcb landet (dasselbe Feld treibt Upload und Versionsabfrage). Wird als
+        // Uebersetzungsziel benutzt: Verschmelzungen oberhalb davon laesst der Compiler weg,
+        // ein Syscall oberhalb davon bricht ab. null = kein Geraet erreichbar -> volles ABI.
+        let _deviceAbi = null;
         async function checkDeviceVersion(ip) {
             ip = (ip || '').trim();
             _verLastIp = ip;
@@ -847,10 +852,12 @@ int main() {
                 const r = await fetch(`http://${ip}/tc_api?cmd=status`, { mode: 'cors' });
                 d = await r.json();
             } catch (e) {
+                _deviceAbi = null;       // nicht erreichbar -> kein Ziel, volles ABI
                 _hideVerWarn();          // unreachable / CORS / not a TinyC device — stay quiet
                 return;
             }
             if (ip !== _verLastIp) return;   // a newer check superseded this one
+            _deviceAbi = (d && typeof d.abi === 'number') ? d.abi : null;
             if (!d || d.abi === undefined) {
                 _showVerWarn('&#9888;&#65039; <b>Device firmware predates the version handshake</b> '
                     + '(no ABI report). It cannot self-check a .tcb &mdash; update the device firmware so '
@@ -858,13 +865,15 @@ int main() {
                 return;
             }
             const msgs = [];
-            if (d.abi !== SYSCALL_ABI) {
-                msgs.push('<b>Syscall-ABI mismatch</b>: device firmware ABI v' + d.abi
-                    + ', this IDE compiles ABI v' + SYSCALL_ABI
-                    + '. An uploaded .tcb can call the <b>wrong firmware function</b> (crash / corruption), not just fail to load. &rarr; '
-                    + (d.abi < SYSCALL_ABI
-                        ? '<b>Update the device firmware.</b>'
-                        : '<b>Use the matching IDE</b> (press &ldquo;Update&nbsp;IDE&rdquo; on the device, or reflash).'));
+            // Nur die Richtung "Geraet NEUER als die IDE" ist ein echtes Problem: dann kennt
+            // das Geraet Aufrufe, die diese IDE nicht kompilieren kann. Die umgekehrte
+            // Richtung faengt der Compiler jetzt selbst ab — er uebersetzt fuer die ABI
+            // dieses Geraets und laesst Verschmelzungen weg, die es nicht kennt.
+            if (d.abi > SYSCALL_ABI) {
+                msgs.push('<b>This IDE is older than the device</b>: firmware ABI v' + d.abi
+                    + ', IDE ABI v' + SYSCALL_ABI
+                    + '. Newer calls cannot be compiled here. &rarr; '
+                    + '<b>Use the matching IDE</b> (press &ldquo;Update&nbsp;IDE&rdquo; on the device, or reflash).');
             }
             if (VERSION > d.tcb) {
                 msgs.push('Bytecode format v' + VERSION + ' from this IDE will be <b>rejected</b> by this firmware '
@@ -1419,7 +1428,7 @@ int main() {
                 // No UI input for -D flags — all defines come from inside the .tc
                 // source via `#define X` directives or the `// @defines:` pragma
                 // (parsed inside preprocess()). Pass an empty initial set.
-                lastCompiled = compile(source, { defines: [] });
+                lastCompiled = compile(source, { defines: [], targetAbi: _deviceAbi || undefined });
                 const elapsed = (performance.now() - start).toFixed(1);
                 const size = lastCompiled.binary.length;
 
@@ -1427,6 +1436,14 @@ int main() {
                 document.getElementById('statusSize').textContent = `Code: ${lastCompiled.codeSize} bytes`;
 
                 appendOutput(`Compilation successful!`, 'success');
+                // Sichtbar machen, wofuer uebersetzt wurde — sonst bekommt jemand, der an
+                // einem alten Geraet sitzt, still langsameres Bytecode und weiss nicht warum.
+                if (_deviceAbi !== null && _deviceAbi < SYSCALL_ABI) {
+                    appendOutput(`Built for this device (ABI ${_deviceAbi}) - speed fusions above `
+                        + `ABI ${_deviceAbi} left out so it runs here. A newer firmware would be faster.`, 'warning');
+                } else if (_deviceAbi === null) {
+                    appendOutput(`No device reachable - built for the newest firmware (ABI ${SYSCALL_ABI}).`);
+                }
                 appendOutput(`Binary size: ${size} bytes (header: ${lastCompiled.codeOffset} bytes, code: ${lastCompiled.codeSize} bytes)`);
                 appendOutput(`Functions: ${Object.keys(lastCompiled.functions).join(', ')}`);
                 appendOutput(`Globals: ${Object.keys(lastCompiled.globals).length}`);

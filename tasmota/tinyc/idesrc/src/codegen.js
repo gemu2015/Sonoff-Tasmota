@@ -2,7 +2,7 @@
 // Walks AST and emits stack-based bytecode
 
 import { NodeType } from './parser.js';
-import { Op, Syscall, MAGIC, VERSION, SYSCALL_ABI } from './opcodes.js';
+import { Op, Syscall, SyscallName, MAGIC, VERSION, SYSCALL_ABI } from './opcodes.js';
 
 export class CodeGenError extends Error {
     constructor(message, line) {
@@ -709,7 +709,20 @@ class Scope {
 }
 
 export class CodeGenerator {
-    constructor() {
+    // targetAbi = fuer welche Firmware uebersetzt wird. Zwei Dinge treiben den ABI-Bedarf
+    // hoch, und sie verhalten sich GRUNDVERSCHIEDEN:
+    //
+    //   Verschmelzungen sind ENTBEHRLICH — die unverschmolzene Form bedeutet exakt
+    //   dasselbe. Liegt eine ueber dem Ziel, wird sie einfach nicht ausgegeben; das
+    //   Programm bleibt korrekt, nur langsamer. Deshalb ist die automatische Zielwahl
+    //   ueberhaupt moeglich.
+    //
+    //   Syscalls sind es NICHT — wer bleSppConnect() aufruft, BRAUCHT ABI 20. Hier still
+    //   etwas anderes zu tun waere eine Falle: die .tcb entstuende anstandslos und stuerbe
+    //   auf dem Geraet an einem fehlenden Syscall. Also harter Fehler mit Namen.
+    constructor(targetAbi) {
+        this.targetAbi = (typeof targetAbi === 'number' && targetAbi > 0)
+            ? Math.min(targetAbi, SYSCALL_ABI) : SYSCALL_ABI;
         this._abiMin = CodeGenerator._ABI_BASIS;   // tatsaechlicher Mindestbedarf, siehe emit()
         this._syscallOffen = 0;                    // 1 = SYSCALL, 2 = SYSCALL2, Nummer folgt
         this.code = [];             // bytecode output
@@ -920,6 +933,22 @@ export class CodeGenerator {
         if (n > this._abiMin) { this._abiMin = n; }
     }
 
+    // Syscall-Bedarf gegen das Ziel pruefen. Anders als bei den Verschmelzungen gibt es
+    // hier KEIN stilles Ausweichen: der Aufruf ist im Programm, es gibt keine
+    // gleichbedeutende aeltere Form. Ein still erzeugtes .tcb wuerde auf dem Geraet an
+    // einem fehlenden Syscall sterben — also lieber beim Uebersetzen abbrechen und sagen,
+    // welcher Aufruf es ist und was er braucht.
+    _abiSyscallPruefen(id) {
+        const noetig = this._abiFuerSyscall(id);
+        if (noetig > this.targetAbi) {
+            const name = SyscallName[id] || ('#' + id);
+            throw new CodeGenError(
+                `${name}() needs firmware ABI ${noetig}, but this build targets ABI ${this.targetAbi}. ` +
+                `Update the device firmware, or remove the call.`, 0);
+        }
+        this._abiMerken(noetig);
+    }
+
     emit(op) {
         // Superinstruktionen: die Firmware braucht einen Handler dafuer.
         if      (op === Op.LK32_OP_ST || op === Op.LL_CMP_JZ || op === Op.LK32_CMP_JZ) this._abiMerken(23);
@@ -936,7 +965,7 @@ export class CodeGenerator {
     }
 
     emitByte(val) {
-        if (this._syscallOffen === 1) { this._syscallOffen = 0; this._abiMerken(this._abiFuerSyscall(val & 0xFF)); }
+        if (this._syscallOffen === 1) { this._syscallOffen = 0; this._abiSyscallPruefen(val & 0xFF); }
         else if (this._syscallOffen)  { this._syscallOffen = 0; this._abiMerken(SYSCALL_ABI); }
         this.code.push(val & 0xFF);
     }
@@ -952,7 +981,7 @@ export class CodeGenerator {
     }
 
     emitU16(val) {
-        if (this._syscallOffen === 2) { this._syscallOffen = 0; this._abiMerken(this._abiFuerSyscall(val & 0xFFFF)); }
+        if (this._syscallOffen === 2) { this._syscallOffen = 0; this._abiSyscallPruefen(val & 0xFFFF); }
         else if (this._syscallOffen)  { this._syscallOffen = 0; this._abiMerken(SYSCALL_ABI); }
         this.code.push((val >> 8) & 0xFF);
         this.code.push(val & 0xFF);
@@ -2392,6 +2421,7 @@ export class CodeGenerator {
     //     purpose — an integer ADD on an IEEE bit pattern is a denormal, not a+1.
     //   - constants only in i8 range, which is what the operand byte holds.
     tryEmitFusedAssign(node) {
+        if (this.targetAbi < 22) { return false; }   // Ziel kennt LK_OP_ST/LL_OP_ST nicht
         if (node.op !== '=') { return false; }
         const v = node.value;
         if (!v || v.type !== NodeType.BinaryExpr) { return false; }
@@ -2436,6 +2466,8 @@ export class CodeGenerator {
                 this.emit(Op.LK_OP_ST);
                 this.emitByte(a.index); this.emitByte(k & 0xFF);
                 this.emitByte(bop); this.emitByte(dst.index);
+            } else if (this.targetAbi < 23) {
+                return false;                        // Ziel kennt LK32_OP_ST nicht -> gewoehnlicher Weg
             } else {
                 this.emit(Op.LK32_OP_ST);
                 this.emitByte(a.index); this.emitI32(k);
@@ -2490,6 +2522,7 @@ export class CodeGenerator {
     }
 
     tryEmitCondJz(cond) {
+        if (this.targetAbi < 23) { return null; }   // Ziel kennt den Schleifenkopf nicht
         if (!cond || cond.type !== NodeType.BinaryExpr) { return null; }
         const CMPMAP = { '==': Op.EQ, '!=': Op.NEQ, '<': Op.LT,
                          '>': Op.GT, '<=': Op.LTE, '>=': Op.GTE };
@@ -2537,6 +2570,7 @@ export class CodeGenerator {
     // Returns true if it emitted the fused form, false to fall through to the
     // ordinary path. Never throws: an unfusable shape is simply not fused.
     tryEmitIncLocal(expr) {
+        if (this.targetAbi < 21) { return false; }   // Ziel kennt INC_LOCAL nicht
         if (!expr || expr.type !== NodeType.PostfixExpr) { return false; }
         if (expr.op !== '++' && expr.op !== '--') { return false; }
         const operand = expr.operand;

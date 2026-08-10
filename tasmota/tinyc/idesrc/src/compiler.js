@@ -69,7 +69,10 @@ export function compile(source, options = {}) {
     // Phase 3: Generate bytecode
     let compiled;
     try {
-        const codegen = new CodeGenerator();
+        // options.targetAbi = fuer WELCHE Firmware wird uebersetzt. Die IDE reicht hier
+        // die ABI des Geraets durch, das im Feld "Device IP" steht — also genau des
+        // Geraets, auf dem die .tcb landet. Ohne Angabe: volles SYSCALL_ABI wie bisher.
+        const codegen = new CodeGenerator(options.targetAbi);
         compiled = codegen.compile(ast);
     } catch (e) {
         if (e instanceof CodeGenError) throw new CompilerError('CodeGen', e);
