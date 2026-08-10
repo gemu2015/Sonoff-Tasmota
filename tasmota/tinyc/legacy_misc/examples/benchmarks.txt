@@ -65,3 +65,26 @@ scripter benchmark
 
 
 2,3 berry faster
+
+
+// current version
+12:27:43.489 TCC: Program started (/benchmark.tcb)
+12:27:45.251 HTP: Werkzeuge
+12:27:46.223 TCC: Integer:  2733 ms  (500k ops)
+12:27:47.381 TCC: Float:    1157 ms  (250k ops)
+12:27:49.393 TCC: Array:    2012 ms  (100k access)
+12:27:49.981 HTP: Konsole
+12:27:52.632 TCC: Calls:    3239 ms  (100k calls)
+12:27:52.937 TCC: Strings:  305 ms  (10k iters)
+12:27:52.938 TCC: ── Total: 9449 ms ──
+
+15:07:39.050 TCC: Program started (/benchmark.tcb)
+15:07:39.050 RSL: RESULT = {"TinyCRun":"Done"}
+15:07:39.065 TCC: === TinyC Benchmark ===
+15:07:39.972 TCC: Integer:  906 ms  (500k ops)
+15:07:40.444 TCC: Float:    471 ms  (250k ops)
+15:07:41.248 TCC: Array:    802 ms  (100k access)
+15:07:42.221 TCC: Calls:    973 ms  (100k calls)
+15:07:42.393 TCC: Strings:  171 ms  (10k iters)
+15:07:42.394 TCC: ── Total: 3328 ms ──ok mach weiter
+
