@@ -33,11 +33,21 @@
 #define XDRV_124  124
 
 // Default TinyC bytecode repository (used when /tinyc_repo.cfg is not present)
+// and default URL for the TinyC IDE itself, which `TinyCIde` uses to
+// self-update the served /tinyc_ide.html.gz.
+//
+// Both are #ifndef so a build can point at its OWN repository from
+// user_config_override.h — whoever ships images with their own bytecode
+// collection needs the drop-down to list THEIR programs, not ours
+// (Hans, 2026-08-16). Both stay overridable at run time as before:
+// `/tinyc_repo.cfg` for the repository, `TinyCIde <url>` for the IDE.
+#ifndef TINYC_DEFAULT_REPO
 #define TINYC_DEFAULT_REPO "https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode"
+#endif
 
-// Default URL for the TinyC IDE itself (one level up from the bytecode repo).
-// Used by `TinyCIde` to self-update the served /tinyc_ide.html.gz from the repo.
+#ifndef TINYC_DEFAULT_IDE_URL
 #define TINYC_DEFAULT_IDE_URL "https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/tinyc_ide.html.gz"
+#endif
 
 // Global pause flag — set by filesystem upload handler (xdrv_50) to pause VM during uploads
 bool tc_global_pause = false;
