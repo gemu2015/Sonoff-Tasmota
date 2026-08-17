@@ -10648,6 +10648,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #endif
         http.end();
         bool transport_err = (httpCode <= 0);
+        // Name the TLS buffer when nothing reached the wire: a failed 16 kB
+        // allocation and an unreachable host look identical from here (both
+        // return <= 0 within ~20 ms), and telling them apart cost Hans a long
+        // hunt. DEBUG level -- a fleet sweep produces many of these.
+        if (transport_err && !strncmp(url, "https:", 6)) {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: httpGet %d, TLS rx %u B, largest free block %u B"),
+                 httpCode, (unsigned)tc_https_rx_bytes(), (unsigned)ESP_getMaxAllocHeap());
+        }
         // ---- re-take vm_mutex before touching the VM again (only if we released) ----
 #ifdef ESP32
         if (_on_vm_task && _hs->vm_mutex) { xSemaphoreTake(_hs->vm_mutex, portMAX_DELAY); tc_current_slot = _hs; }

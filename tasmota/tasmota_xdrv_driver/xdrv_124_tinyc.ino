@@ -133,7 +133,7 @@ static void TinyCLoadStackCfg(void) {
   long v = strtol(buf, nullptr, 10);
   if (v >= TC_VM_STACK_MIN && v <= TC_VM_STACK_MAX) {
     tc_vm_stack_bytes = (uint16_t)v;
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task stack %u B (aus /tinyc_stack.cfg)"),
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task stack %u B (from /tinyc_stack.cfg)"),
            (unsigned)tc_vm_stack_bytes);
   }
 #endif  // USE_UFILESYS
