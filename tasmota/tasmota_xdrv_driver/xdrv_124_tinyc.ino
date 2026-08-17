@@ -114,6 +114,32 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
+
+// Stack je VM-Task. Vorgabe aus TC_VM_TASK_STACK, mit `TinyCStack <bytes>`
+// aenderbar und in /tinyc_stack.cfg gemerkt (gemu 2026-08-17: 12 KB je Slot
+// muessen nicht immer sein). Wirkt beim naechsten Start eines Slots.
+uint16_t tc_vm_stack_bytes = TC_VM_TASK_STACK;
+
+#ifdef ESP32
+static void TinyCLoadStackCfg(void) {
+#ifdef USE_UFILESYS
+  if (!ufsp) return;
+  File f = ufsp->open("/tinyc_stack.cfg", "r");
+  if (!f) return;
+  char buf[16] = {0};
+  int n = f.readBytes(buf, sizeof(buf) - 1);
+  f.close();
+  if (n <= 0) return;
+  long v = strtol(buf, nullptr, 10);
+  if (v >= TC_VM_STACK_MIN && v <= TC_VM_STACK_MAX) {
+    tc_vm_stack_bytes = (uint16_t)v;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task stack %u B (aus /tinyc_stack.cfg)"),
+           (unsigned)tc_vm_stack_bytes);
+  }
+#endif  // USE_UFILESYS
+}
+#endif  // ESP32
+
 #ifdef ESP8266
 #include <coredecls.h>   // can_yield() — used to skip the VM tick in a can't-yield
                          // (ctx:sys / re-entrant) context, avoiding a __yield panic
@@ -752,6 +778,8 @@ static void TinyCInit(void) {
   // Create the file-handle reservation mutex ONCE here (loopTask, before any VM task
   // spawns) so tc_alloc_file_handle() has no lazy first-call race across slot tasks.
   if (!tc_file_handle_mutex) tc_file_handle_mutex = xSemaphoreCreateMutex();
+  // Eingestellte Stackgroesse holen, BEVOR der erste Slot startet.
+  TinyCLoadStackCfg();
 #endif
   // calloc() zeroes memory but doesn't call C++ constructors for embedded objects.
   // WiFiUDP (NetworkUDP) needs proper construction or begin() crashes (NULL deref).
@@ -5852,7 +5880,38 @@ bool tc_current_is_spawn_worker() {
 // free; Andreas caught it). xTaskCreate's stack arg is likewise in bytes on ESP-IDF,
 // so VmTaskStack/stack_bytes and this number are the same unit and directly comparable.
 void CmndTinyCStack(void) {
-  Response_P(PSTR("{\"" D_PRFX_TINYC "Stack\":{\"VmTaskStack\":%d"), (int)TC_VM_TASK_STACK);
+  // Mit Zahl: neue Groesse setzen (gilt beim naechsten Start eines Slots).
+  if (XdrvMailbox.payload > 0) {
+    long v = XdrvMailbox.payload;
+    if (v < TC_VM_STACK_MIN) v = TC_VM_STACK_MIN;
+    if (v > TC_VM_STACK_MAX) v = TC_VM_STACK_MAX;
+    tc_vm_stack_bytes = (uint16_t)v;
+#ifdef USE_UFILESYS
+    if (ufsp) {
+      File f = ufsp->open("/tinyc_stack.cfg", "w");
+      if (f) { f.printf("%u\n", (unsigned)tc_vm_stack_bytes); f.close(); }
+    }
+#endif
+    if (tc_vm_stack_bytes < TC_VM_STACK_WARN) {
+      // Kein Verbot, aber gesagt: unter ~10 KB reicht es fuer ein Skript, das
+      // in main() saveVars() ruft, nicht mehr sicher -- der Weg fwrite ->
+      // LittleFS -> SPI-Flash braucht allein rund 3 KB.
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM stack %u B — knapp; StackFreeMin im Auge behalten"),
+             (unsigned)tc_vm_stack_bytes);
+    }
+  }
+  Response_P(PSTR("{\"" D_PRFX_TINYC "Stack\":{\"VmTaskStack\":%d,\"Default\":%d"),
+             (int)tc_vm_stack_bytes, (int)TC_VM_TASK_STACK);
+  // Die VM-Tasks selbst — genau die Zahl, nach der man die Groesse waehlt.
+  if (Tinyc) {
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (!s || !s->task_handle || !s->task_running) continue;
+      uint32_t freeb = (uint32_t)uxTaskGetStackHighWaterMark(s->task_handle);
+      ResponseAppend_P(PSTR(",\"tinyc_vm%d\":{\"Slot\":%d,\"StackFreeMin\":%u}"),
+                       i, i, freeb);
+    }
+  }
   tc_spawn_pool_lock();
   for (int i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
     TcSpawnTask *e = &tc_spawn_pool[i];

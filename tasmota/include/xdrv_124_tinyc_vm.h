@@ -262,6 +262,17 @@ static FS *tc_file_path(char *path) {
 #ifndef TC_VM_TASK_STACK
   #define TC_VM_TASK_STACK   12288
 #endif
+// ...und zur Laufzeit einstellbar: `TinyCStack <bytes>` schreibt den Wert nach
+// /tinyc_stack.cfg, er gilt ab dem naechsten Start eines Slots. 12 KB je Slot
+// sind auf einem 4-MB-C3 mit drei Slots viel Speicher, den ein einfaches
+// Skript nie braucht -- wie viel es WIRKLICH braucht, sagt dieselbe
+// Bereitstellung als StackFreeMin (gemu 2026-08-17).
+// Untergrenze mit Bedacht: der Pfad saveVars() -> fwrite -> LittleFS ->
+// SPI-Flash frisst allein rund 3 KB (siehe die Absturzgeschichte oben).
+#define TC_VM_STACK_MIN      6144
+#define TC_VM_STACK_MAX      32768
+#define TC_VM_STACK_WARN     10240
+extern uint16_t tc_vm_stack_bytes;
 
 // Minimum uptime (seconds) before autoexec slots are spawned. Gives
 // Tasmota's Wi-Fi/RF coex bring-up + late-driver init time to
@@ -3835,6 +3846,45 @@ static void tc_free_all_frames(TcVM *vm) {
  * Used for large arrays (> 255 elements). heap_data is malloc'd on demand.
 \*********************************************************************************************/
 
+// A dead handle is not garbage -- it DESCRIBES A FREE BLOCK (offset, size).
+// That is what makes reuse possible without moving a single byte: programs
+// address arrays through handles, so where a block lies is our business alone.
+// Two dead blocks that touch are merged, and a dead block at the very top gives
+// its space straight back to the bump pointer.
+//
+// ⚠️ NOTHING IS MOVED here. Moving would need every live reference into the
+// heap to be relative, and it is not: `tc_heap_maybe_shrink` was disabled on
+// 2026-06-27 exactly because a realloc that moved `heap_data` dangled live
+// references (Rolf's .200, a crash every 30 s). Reuse is safe because a block
+// keeps its address; compaction is a separate, bigger question.
+static void tc_heap_coalesce(TcVM *vm) {
+  if (!vm->heap_handles) return;
+  bool wieder = true;
+  while (wieder) {
+    wieder = false;
+    for (int i = 0; i < vm->heap_handle_count; i++) {
+      if (vm->heap_handles[i].alive || vm->heap_handles[i].size == 0) continue;
+      uint16_t ende = vm->heap_handles[i].offset + vm->heap_handles[i].size;
+      for (int j = 0; j < vm->heap_handle_count; j++) {
+        if (j == i || vm->heap_handles[j].alive || vm->heap_handles[j].size == 0) continue;
+        if (vm->heap_handles[j].offset == ende) {          // j schließt direkt an i an
+          vm->heap_handles[i].size += vm->heap_handles[j].size;
+          vm->heap_handles[j].size = 0;                    // Beschreibung aufgeben
+          ende = vm->heap_handles[i].offset + vm->heap_handles[i].size;
+          wieder = true;
+        }
+      }
+      // Liegt der freie Block ganz oben, wandert die Bumpmarke zurück --
+      // dann kann die nächste Anforderung beliebig groß sein.
+      if (vm->heap_handles[i].offset + vm->heap_handles[i].size == vm->heap_used) {
+        vm->heap_used = vm->heap_handles[i].offset;
+        vm->heap_handles[i].size = 0;
+        wieder = true;
+      }
+    }
+  }
+}
+
 // Allocate a heap block, returns handle index or -1 on failure
 static int tc_heap_alloc(TcVM *vm, uint16_t size) {
   // Lazy-allocate heap buffer
@@ -3851,12 +3901,63 @@ static int tc_heap_alloc(TcVM *vm, uint16_t size) {
     if (!vm->heap_handles) return -1;
     vm->heap_handle_count = 0;
   }
-  // Find free handle slot
+  // Eine UNBENUTZTE Beschreibung suchen. ⚠️ `!alive` allein reicht seit der
+  // Wiederverwendung nicht mehr: eine tote Beschreibung mit size > 0 ist ein
+  // FREIER BLOCK und darf nicht als leerer Eintrag überschrieben werden --
+  // sonst wäre sein Platz für immer verloren. Findet sich keiner, werden erst
+  // die freien Blöcke verschmolzen (das gibt Einträge zurück).
   int handle = -1;
-  for (int i = 0; i < TC_MAX_HEAP_HANDLES; i++) {
-    if (!vm->heap_handles[i].alive) { handle = i; break; }
+  for (int runde = 0; runde < 2 && handle < 0; runde++) {
+    for (int i = 0; i < TC_MAX_HEAP_HANDLES; i++) {
+      if (!vm->heap_handles[i].alive && vm->heap_handles[i].size == 0) { handle = i; break; }
+    }
+    if (handle < 0 && runde == 0) tc_heap_coalesce(vm);
   }
   if (handle < 0) return -1;
+
+  // ── Erst aus dem Bestand bedienen ────────────────────────────────────────
+  // Bisher wuchs der Haufen bei JEDER Anforderung, auch wenn direkt daneben
+  // ein gleich großer, freigegebener Block lag: ein Skript, das Arrays anlegt
+  // und wieder freigibt (Diagramme!), trieb den Verbrauch monoton hoch, bis
+  // TC_MAX_HEAP erreicht war oder die Vergrößerung am zerstückelten
+  // System-Heap scheiterte. Jetzt wird der am besten passende freie Block
+  // genommen -- „am besten passend", damit ein großer Block nicht von einer
+  // kleinen Anforderung zerlegt wird.
+  {
+    int besser = -1;
+    uint16_t beste = 0;
+    for (int i = 0; i < vm->heap_handle_count; i++) {
+      if (vm->heap_handles[i].alive || vm->heap_handles[i].size < size) continue;
+      if (besser < 0 || vm->heap_handles[i].size < beste) {
+        besser = i; beste = vm->heap_handles[i].size;
+      }
+    }
+    if (besser >= 0) {
+      // Rest abtrennen, wenn er sich lohnt UND eine Beschreibung frei ist;
+      // sonst bekommt die Anforderung den ganzen Block (die paar Slots mehr
+      // sind unsere, und beim Freigeben kommen sie vollständig zurück).
+      uint16_t rest = beste - size;
+      if (rest >= 16) {
+        int frei = -1;
+        for (int i = 0; i < TC_MAX_HEAP_HANDLES; i++) {
+          if (i != besser && !vm->heap_handles[i].alive && vm->heap_handles[i].size == 0) {
+            frei = i; break;
+          }
+        }
+        if (frei >= 0) {
+          vm->heap_handles[frei].offset = vm->heap_handles[besser].offset + size;
+          vm->heap_handles[frei].size   = rest;
+          vm->heap_handles[frei].alive  = false;
+          if ((uint8_t)(frei + 1) > vm->heap_handle_count) vm->heap_handle_count = frei + 1;
+          vm->heap_handles[besser].size = size;
+        }
+      }
+      vm->heap_handles[besser].alive = true;
+      memset(&vm->heap_data[vm->heap_handles[besser].offset], 0,
+             vm->heap_handles[besser].size * sizeof(int32_t));
+      return besser;
+    }
+  }
   // Grow heap if needed (up to TC_MAX_HEAP)
   if (vm->heap_used + size > vm->heap_capacity) {
     uint16_t new_cap = vm->heap_capacity;
@@ -3884,10 +3985,12 @@ static int tc_heap_alloc(TcVM *vm, uint16_t size) {
   return handle;
 }
 
-// Mark a heap handle as dead (no compaction — bump allocator)
+// Einen Block freigeben: die Beschreibung bleibt stehen und beschreibt von nun
+// an einen FREIEN Block (siehe tc_heap_coalesce). Nichts wird verschoben.
 static void tc_heap_free_handle(TcVM *vm, int handle) {
   if (handle >= 0 && handle < TC_MAX_HEAP_HANDLES && vm->heap_handles) {
     vm->heap_handles[handle].alive = false;
+    tc_heap_coalesce(vm);
   }
 }
 
@@ -17669,6 +17772,12 @@ static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
   if (vm->heap_handles && vm->heap_handle_count > saved_heap_handle_count) {
     for (uint8_t i = saved_heap_handle_count; i < vm->heap_handle_count; i++) {
       vm->heap_handles[i].alive = false;
+      // ⚠️ AUCH die Größe auf 0: die Bumpmarke wird gleich zurückgesetzt, der
+      // Platz gehört danach wieder dem Bump-Allokator. Bliebe die Größe
+      // stehen, beschriebe der Eintrag einen „freien Block" OBERHALB der
+      // Marke -- die Wiederverwendung gäbe ihn aus, und der Bump-Allokator
+      // gäbe dieselben Slots gleich noch einmal aus.
+      vm->heap_handles[i].size = 0;
     }
     vm->heap_handle_count = saved_heap_handle_count;
   }
@@ -19681,11 +19790,11 @@ static bool TinyCStartVM(TcSlot *s) {
 
 #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2)
   // Single-core variants -- no core affinity
-  BaseType_t ret = xTaskCreate(tc_vm_task, taskname, TC_VM_TASK_STACK, s, 1, &s->task_handle);
+  BaseType_t ret = xTaskCreate(tc_vm_task, taskname, tc_vm_stack_bytes, s, 1, &s->task_handle);
 #else
   // Dual-core ESP32/S3 -- pin to core 1
   TC_HEAPLOG("startvm.pretask");
-  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, taskname, TC_VM_TASK_STACK, s, 1, &s->task_handle, 1);
+  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, taskname, tc_vm_stack_bytes, s, 1, &s->task_handle, 1);
   TC_HEAPLOG("startvm.posttask");
 #endif
   if (ret != pdPASS) {
