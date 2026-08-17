@@ -1740,7 +1740,23 @@ static void HandleTinyCPage(void) {
         }
         total += count;
       }
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Deleted %d .tcb files"), total);
+      // The slot list must go with them. Deleting the files left every slot
+      // still listed at the top of the page, because /tinyc.cfg was untouched:
+      // an autoexec entry pointing at a file that no longer exists, and a
+      // "loaded" line for a program nobody can reload (Hans, 2026-08-17).
+      // "Delete all" means all: stop what runs, forget what was configured.
+      int vergessen = 0;
+      for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+        TcSlot *s = Tinyc->slots[i];
+        if (s) { TinyCStopVM(s); s->cmd_prefix_saved[0] = '\0'; }
+        if (Tinyc->slot_config[i].filename[0]) vergessen++;
+        Tinyc->slot_config[i].filename[0] = '\0';
+        Tinyc->slot_config[i].cmd_prefix[0] = '\0';
+        Tinyc->slot_config[i].autoexec = false;
+      }
+      TinyCSaveSettings();
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Deleted %d .tcb files, cleared %d slot entries"),
+             total, vergessen);
 #endif
     }
   }
@@ -1868,7 +1884,7 @@ static void HandleTinyCPage(void) {
         "<br><div style='display:flex;gap:8px'>"
         "<button name='cmd' value='load' class='button'>Load into Slot</button>"
         "<button name='cmd' value='delall' class='button bred'"
-        " onclick=\"return confirm('Delete all .tcb files?')\">"
+        " onclick=\"return confirm('Delete all .tcb files, stop all slots and clear the slot list?')\">"
         "Delete All .tcb</button>"
         "</div></form></p></fieldset>"));
 
@@ -1991,7 +2007,8 @@ static void HandleTinyCPage(void) {
     "var b=this;b.disabled=1;b.textContent='Updating...';"
     "fetch('/cm?cmnd=TinyCIde').then(r=>r.json()).then(j=>{var d=j.TinyCIde||{};"
     "if(d.updated){b.textContent='Updated '+d.updated+' B';alert('IDE updated ('+d.updated+' bytes). Re-open the IDE.');}"
-    "else{b.disabled=0;b.textContent='Update IDE';alert('IDE update failed (error '+d.error+'). The old IDE was kept.');}})"
+    "else{b.disabled=0;b.textContent='Update IDE';"
+    "alert('IDE update failed: '+(d.msg||('error '+d.error))+'\\n\\nThe old IDE was kept.');}})"
     ".catch(e=>{b.disabled=0;b.textContent='Update IDE';alert('IDE update request failed.');});\" "
     "class='button'>Update IDE</button>"
     "</p>"
@@ -2348,6 +2365,12 @@ static int tc_fetch_ide(const char *url) {
   if (!ufsp || !url || !url[0]) return -1;
   const char *dst = "/tinyc_ide.html.gz";
   const char *tmp = "/tinyc_ide.html.gz.tmp";
+  // A crash during an in-place write leaves a 0-byte IDE behind, and the /ide
+  // handler would serve that as if it were a page (Hans, 2026-08-17: reset
+  // mid-write, file left at 0 bytes). Too small to be an IDE = not an IDE.
+  { File old = ufsp->open(dst, "r");
+    if (old) { const uint32_t sz = (uint32_t)old.size(); old.close();
+      if (sz < 1000) ufsp->remove(dst); } }
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
   HTTPClientLight http;
 #else
@@ -2496,6 +2519,22 @@ static int tc_fetch_ide(const char *url) {
 }
 #endif // USE_UFILESYS
 
+// What went wrong, in words. `tc_fetch_ide` returns a number, and a number in a
+// dialog ("error -3") tells nobody what to do -- Hans hits -3 regularly and the
+// answer is always the same: stop a slot, there is not enough contiguous RAM
+// (2026-08-17).
+static const char *tc_ide_fehler(int code) {
+  switch (code) {
+    case -1: return "no filesystem";
+    case -2: return "cannot start the request - check the URL";
+    case -3: return "no connection. Needs ~16.7 kB of RAM in one piece - stop a slot and retry";
+    case -5: return "download rejected - too short, or not a .gz";
+    case -6: return "cannot replace the old IDE (rename failed)";
+    case -7: return "write incomplete - filesystem full?";
+    default: return "unknown error";
+  }
+}
+
 // TinyCIde [url] — download tinyc_ide.html.gz from the repo (or a given URL) and
 // replace the served IDE on the filesystem. No Tasmota file-manager needed.
 //   TinyCIde            -> default repo (TINYC_DEFAULT_IDE_URL)
@@ -2510,7 +2549,8 @@ void CmndTinyCIde(void) {
   }
   int n = tc_fetch_ide(url);
   if (n > 0) { Response_P(PSTR("{\"TinyCIde\":{\"updated\":%d}}"), n); }
-  else       { Response_P(PSTR("{\"TinyCIde\":{\"error\":%d}}"), n); }
+  else       { Response_P(PSTR("{\"TinyCIde\":{\"error\":%d,\"msg\":\"%s\"}}"),
+                          n, tc_ide_fehler(n)); }
 #else
   ResponseCmndChar_P(PSTR("no filesystem"));
 #endif
@@ -3873,6 +3913,9 @@ static void HandleTinyCIde(void) {
   bool gzipped = false;
   File f;
   if (ufsp) f = ufsp->open("/tinyc_ide.html.gz", "r");
+  // A truncated file (a crash during an in-place update leaves 0 bytes) is not
+  // an IDE -- serving it hands the browser an empty page with no clue why.
+  if (f && f.size() < 1000) { f.close(); }
   if (f) {
     gzipped = true;
   } else {
@@ -5386,6 +5429,9 @@ static void tc_ide_serve_task(void *param) {
   bool gzipped = false;
   File f;
   if (ufsp) f = ufsp->open("/tinyc_ide.html.gz", "r");
+  // A truncated file (a crash during an in-place update leaves 0 bytes) is not
+  // an IDE -- serving it hands the browser an empty page with no clue why.
+  if (f && f.size() < 1000) { f.close(); }
   if (f) {
     gzipped = true;
   } else {

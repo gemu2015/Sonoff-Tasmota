@@ -4478,7 +4478,15 @@ static int32_t tc_strlen_ref(int32_t *p, int32_t maxSlots) {
 // (Hans, 2026-08-17, `openssl s_client -maxfraglen 4096 -trace`):
 // eu.hamedata.com, api.github.com and codeload.github.com echo it,
 // raw.githubusercontent.com, objects.githubusercontent.com and GitHub Pages do
-// NOT -- those send full-size records and need the full 16 kB.
+// NOT.
+//
+// ⚠️ A peer that ignores MFLN MAY still fit in 4 kB -- what matters is the
+// record size it actually chooses, not what it promised. Reading 4 kB from
+// raw.githubusercontent.com returned 0 bytes here at a 4 kB buffer and the full
+// read at 16 kB, while Hans read 12 kB from the same host at 4 kB without
+// trouble on the same day. GitHub sits behind a CDN that sizes records
+// dynamically, so this is a property of the CONNECTION, not of the host name.
+// Hence: choose the big buffer while it can be had, do not pin the small one.
 //
 // The library default of 16384 (+325 B overhead = one 16709 B allocation) is
 // simply not available on a C3 once a ~30 kB program plus persist arrays are
