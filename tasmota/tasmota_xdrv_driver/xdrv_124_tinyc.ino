@@ -964,6 +964,7 @@ void CmndTinyCIde(void);
 void CmndTinyCStack(void);
 void CmndTinyCHttpRx(void);
 #endif
+void CmndTinyCUnload(void);
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
 #ifdef TINYC_MTRC_CRYPTO_SELFTEST
@@ -972,7 +973,7 @@ void CmndMatterCryptoTest(void);
 #endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
-  "|Run|Stop|Reset|Exec|Info|Ide"
+  "|Run|Stop|Reset|Exec|Info|Ide|Unload"
 #ifdef ESP32
   "|Chkpt|Stack|HttpRx"
 #endif
@@ -986,7 +987,7 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
 
 void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
-  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde
+  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde, &CmndTinyCUnload
 #ifdef ESP32
   , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx
 #endif
@@ -1469,6 +1470,37 @@ void CmndTinyCStop(void) {
   ResponseCmndDone();
 }
 
+// UNLOAD a slot: stop the VM and give back everything the loader took -- the
+// bytecode buffer and the pre-sized VM heap. This is the difference between
+// "stop" and "free": a stopped slot still holds its program, which is why
+// stopping does not help when an allocation fails (Hans, 2026-08-17: slot
+// loaded and NOT running, largest free block still 16 284 B).
+// Returns the bytes the program buffer had, 0 if there was nothing to free.
+static uint32_t TinyCUnloadSlot(uint8_t slot_num) {
+  if (!Tinyc || slot_num >= TC_MAX_VMS) return 0;
+  TcSlot *s = Tinyc->slots[slot_num];
+  if (!s) return 0;
+  const uint32_t hatte = s->program_size;
+  TinyCStopVM(s);  // frees frame locals and heap
+  // ⚠️ MUST come before the memset below: TinyCStopVM parks the frame-locals
+  // buffers in the VM's reuse cache instead of returning them, and the memset
+  // would then zero the only pointers to them. See tc_frame_alloc().
+  tc_frame_cache_drain(&s->vm);
+  if (s->vm.stack) { free(s->vm.stack); }
+  if (s->vm.globals) { free(s->vm.globals); }
+  if (s->vm.constants) { free(s->vm.constants); }
+  if (s->vm.const_data) { free(s->vm.const_data); }
+  memset(&s->vm, 0, sizeof(TcVM));
+  if (s->program) { free(s->program); s->program = nullptr; }
+  s->program_size = 0;
+  s->loaded = false;
+  s->cmd_prefix_saved[0] = '\0';
+  TinyCClearDurablePrefix(slot_num);
+  s->output_len = 0;
+  s->output[0] = '\0';
+  return hatte;
+}
+
 void CmndTinyCReset(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   char *p = XdrvMailbox.data;
@@ -1495,6 +1527,25 @@ void CmndTinyCReset(void) {
   s->output[0] = '\0';
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d reset"), slot_num);
   ResponseCmndDone();
+}
+
+// TinyCUnload <slot> — give the slot's memory back: the bytecode buffer and the
+// VM heap the loader allocated. `TinyCStop` only stops the program, `TinyCReset`
+// only wipes the VM state; both leave the ~30 kB bytecode buffer allocated, so
+// neither helps when something else needs a big contiguous block (Hans,
+// 2026-08-17). The .tcb stays on the filesystem and autoexec still points at
+// it, so a reboot brings the program back.
+void CmndTinyCUnload(void) {
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+  char *p = XdrvMailbox.data;
+  uint16_t len = XdrvMailbox.data_len;
+  uint8_t slot_num = tc_parse_cmd_slot(&p, &len);
+  const uint32_t frei_vorher = ESP_getMaxAllocHeap();
+  const uint32_t hatte = TinyCUnloadSlot(slot_num);
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d unloaded (%u B program), largest block %u -> %u"),
+         slot_num, (unsigned)hatte, (unsigned)frei_vorher, (unsigned)ESP_getMaxAllocHeap());
+  Response_P(PSTR("{\"" D_PRFX_TINYC "Unload\":{\"Slot\":%d,\"Freed\":%u,\"MaxBlock\":%u}}"),
+             slot_num, (unsigned)hatte, (unsigned)ESP_getMaxAllocHeap());
 }
 
 void CmndTinyCExec(void) {
@@ -2391,6 +2442,46 @@ static int tc_fetch_ide(const char *url) {
 #endif
   if (!begun) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch begin() failed")); return -2; }
   int code = http.GET();
+
+  // NOTHING ON THE WIRE? Then it is very likely the 16.7 kB buffer that could
+  // not be allocated -- and the memory is held by LOADED programs, not by
+  // running ones: the loader takes the bytecode buffer plus the pre-sized VM
+  // heap, and neither a stop nor a reset gives them back (Hans, 2026-08-17:
+  // slot loaded, running=0, largest block still 16 284 B).
+  //
+  // So free the slots that are loaded but NOT running and try once more. They
+  // lose nothing: the .tcb is on the filesystem, autoexec still points at it,
+  // and the user asked for an IDE update. Running slots are left alone --
+  // stopping someone's energy manager to update an editor is not a trade we
+  // get to make; the message below names them instead. Same reasoning as the
+  // upload path (9d825e3ed), which frees the slot's own program on a failed
+  // allocation.
+  if (code <= 0 && Tinyc) {
+    uint32_t frei = 0; int n = 0;
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      // `running` is the flag the status page shows and the one that covers
+      // BOTH execution modes (own VM task and main loop); `task_running` alone
+      // would miss a main-loop program and unload it while it runs.
+      if (!s || !s->loaded || s->running || s->task_running) continue;
+      const uint32_t hatte = TinyCUnloadSlot(i);
+      if (hatte) { frei += hatte; n++; }
+    }
+    if (n > 0) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE fetch retrying — unloaded %d idle slot%s (%u B), "
+             "largest block now %u B"), n, n == 1 ? "" : "s", (unsigned)frei,
+             (unsigned)ESP_getMaxAllocHeap());
+      http.end();
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+      http.setTlsRxBuffer(TC_HTTPS_RX_MAX);
+      begun = http.begin(url);
+#else
+      begun = http.begin(http_client, url);
+#endif
+      if (begun) code = http.GET();
+    }
+  }
+
   if (code != HTTP_CODE_OK && code != HTTP_CODE_MOVED_PERMANENTLY) {
     // Split by code: a failed TLS buffer allocation never reaches the wire and
     // returns <= 0 within ~20 ms, which looks exactly like an unreachable host.
@@ -2398,9 +2489,29 @@ static int tc_fetch_ide(const char *url) {
     // never as a precondition: ESP_getMaxAllocHeap() understates what malloc()
     // can still serve, so refusing on it would block attempts that would work.
     if (code <= 0) {
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch failed (no connection, HTTP %d) — needs ~16.7 kB "
-             "of contiguous RAM, largest free block is %u B. Stop the slots and retry."),
-             code, (unsigned)ESP_getMaxAllocHeap());
+      // Which slots still hold memory? Only running ones can be left by now --
+      // the idle ones were freed above. Name them, and name the command that
+      // actually gives their memory back: a stop does not.
+      char laufen[40] = {0};
+      if (Tinyc) {
+        for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+          if (Tinyc->slots[i] && Tinyc->slots[i]->loaded) {
+            char eins[8]; snprintf(eins, sizeof(eins), "%s%d", laufen[0] ? "," : "", i);
+            strncat(laufen, eins, sizeof(laufen) - strlen(laufen) - 1);
+          }
+        }
+      }
+      if (laufen[0]) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch failed (no connection, HTTP %d) — needs ~16.7 kB "
+               "of contiguous RAM, largest free block is %u B. Slot(s) %s still hold their program: "
+               "TinyCUnload <slot> frees it (a stop does not), or reboot with autoexec off."),
+               code, (unsigned)ESP_getMaxAllocHeap(), laufen);
+      } else {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch failed (no connection, HTTP %d) — needs ~16.7 kB "
+               "of contiguous RAM, largest free block is %u B, and no slot holds a program. "
+               "A reboot defragments the heap."),
+               code, (unsigned)ESP_getMaxAllocHeap());
+      }
     } else {
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch HTTP %d"), code);
     }
@@ -2527,7 +2638,8 @@ static const char *tc_ide_fehler(int code) {
   switch (code) {
     case -1: return "no filesystem";
     case -2: return "cannot start the request - check the URL";
-    case -3: return "no connection. Needs ~16.7 kB of RAM in one piece - stop a slot and retry";
+    case -3: return "no connection. Needs ~16.7 kB of RAM in one piece - "
+                   "idle slots were freed automatically; TinyCUnload a running slot, or reboot";
     case -5: return "download rejected - too short, or not a .gz";
     case -6: return "cannot replace the old IDE (rename failed)";
     case -7: return "write incomplete - filesystem full?";
