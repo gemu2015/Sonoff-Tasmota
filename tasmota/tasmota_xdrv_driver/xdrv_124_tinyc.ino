@@ -2684,6 +2684,14 @@ static void HandleTinyCUpload(void) {
 
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload start: %s (slot %d)"), upload.filename.c_str(), slot_num);
 
+    // ⚠️ Web.upload_error is a GLOBAL and nobody clears it for us. One failed
+    // upload (a malloc that could not be served, an oversize file) therefore
+    // made every later upload answer 400 — with no log line of its own, because
+    // no branch here ran — until the device was rebooted. Measured on the C3:
+    // first upload after boot works, all following fail (2026-08-17). It is
+    // this request's error flag, so this request clears it.
+    Web.upload_error = 0;
+
     // Capture uploaded filename (prepend / for filesystem path)
     snprintf(Tinyc->upload_filename, sizeof(Tinyc->upload_filename), "/%s", upload.filename.c_str());
 
