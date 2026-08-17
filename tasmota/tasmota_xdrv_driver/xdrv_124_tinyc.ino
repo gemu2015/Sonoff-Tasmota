@@ -2505,6 +2505,36 @@ static void HandleTinyCUpload(void) {
 #else
     Tinyc->upload_buf = (uint8_t *)malloc(alloc_size);
 #endif
+    // Last resort on a fragmented heap: drop the program THIS slot is holding
+    // and try once more.
+    //
+    // The old program is a block of nearly the same size, in one piece, and it
+    // is about to be replaced anyway -- freeing it usually hands the allocator
+    // back exactly the hole the new program fits into. Without this a device
+    // that had been running for a while refused a 30 KB upload that went
+    // through immediately after a reboot (Hans, 2026-08-17: free heap 29 KB but
+    // largest block only 9 KB).
+    //
+    // Deliberately only AFTER the normal attempt failed: while memory is
+    // healthy the slot keeps its program until the new one has arrived, so a
+    // failed upload leaves the device as it was. Once we are down here that
+    // trade is already lost -- an upload that cannot allocate leaves the slot
+    // unusable either way, and the .tcb is still on the filesystem.
+    if (!Tinyc->upload_buf && s->program) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload malloc(%u) failed, freeing slot %d's program (%u B) and retrying"),
+        (unsigned)alloc_size, (int)slot_num, (unsigned)s->program_size);
+      free(s->program);
+      s->program = nullptr;
+      s->program_size = 0;
+      s->loaded = false;
+#ifdef ESP32
+      Tinyc->upload_buf = (uint8_t *)heap_caps_malloc(alloc_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      if (!Tinyc->upload_buf) { Tinyc->upload_buf = (uint8_t *)malloc(alloc_size); }
+#else
+      Tinyc->upload_buf = (uint8_t *)malloc(alloc_size);
+#endif
+    }
+
     if (!Tinyc->upload_buf) {
       Web.upload_error = 1;
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc(%u) failed — free heap=%u largest block=%u"),
