@@ -2412,6 +2412,11 @@ void TinyCPrefixReheal(void) {
 // IDE). The ~150-190 KB LittleFS/SD write is bracketed by TinyCFsWritePause
 // (stops VM tasks so none touch flash during the cache-disabled close) + a
 // loop-WDT hold, mirroring the /ufsu big-write path. Returns bytes (>0) or <0.
+// The HTTP status of the last attempt, 0 when nothing reached the wire. Without
+// it -3 has to guess, and it guessed wrong: a GitHub rate limit (429) was
+// reported as "not enough RAM" (measured 2026-08-17).
+static int tc_ide_http = 0;
+
 static int tc_fetch_ide(const char *url) {
   if (!ufsp || !url || !url[0]) return -1;
   const char *dst = "/tinyc_ide.html.gz";
@@ -2442,6 +2447,7 @@ static int tc_fetch_ide(const char *url) {
 #endif
   if (!begun) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch begin() failed")); return -2; }
   int code = http.GET();
+  tc_ide_http = code;
 
   // NOTHING ON THE WIRE? Then it is very likely the 16.7 kB buffer that could
   // not be allocated -- and the memory is held by LOADED programs, not by
@@ -2479,6 +2485,7 @@ static int tc_fetch_ide(const char *url) {
       begun = http.begin(http_client, url);
 #endif
       if (begun) code = http.GET();
+      tc_ide_http = code;
     }
   }
 
@@ -2513,7 +2520,9 @@ static int tc_fetch_ide(const char *url) {
                code, (unsigned)ESP_getMaxAllocHeap());
       }
     } else {
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch HTTP %d"), code);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch HTTP %d — %s"), code,
+             code == 429 ? "rate-limited, try again later"
+                         : (code == 404 ? "not found, check the URL" : "server refused"));
     }
     http.end(); return -3;
   }
@@ -2638,8 +2647,12 @@ static const char *tc_ide_fehler(int code) {
   switch (code) {
     case -1: return "no filesystem";
     case -2: return "cannot start the request - check the URL";
-    case -3: return "no connection. Needs ~16.7 kB of RAM in one piece - "
-                   "idle slots were freed automatically; TinyCUnload a running slot, or reboot";
+    case -3:
+      if (tc_ide_http == 429) return "the server is rate-limiting us (HTTP 429) - try again later";
+      if (tc_ide_http == 404) return "not found on the server (HTTP 404) - check the URL";
+      if (tc_ide_http > 0)    return "the server refused the request - see the log for the HTTP code";
+      return "no connection. Needs ~16.7 kB of RAM in one piece - "
+             "idle slots were freed automatically; TinyCUnload a running slot, or reboot";
     case -5: return "download rejected - too short, or not a .gz";
     case -6: return "cannot replace the old IDE (rename failed)";
     case -7: return "write incomplete - filesystem full?";
