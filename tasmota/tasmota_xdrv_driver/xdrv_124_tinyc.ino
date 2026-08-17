@@ -1494,6 +1494,7 @@ static uint32_t TinyCUnloadSlot(uint8_t slot_num) {
   if (s->program) { free(s->program); s->program = nullptr; }
   s->program_size = 0;
   s->loaded = false;
+  s->filename[0] = '\0';          // nothing is loaded — the name would be a claim
   s->cmd_prefix_saved[0] = '\0';
   TinyCClearDurablePrefix(slot_num);
   s->output_len = 0;
@@ -1796,10 +1797,13 @@ static void HandleTinyCPage(void) {
       // an autoexec entry pointing at a file that no longer exists, and a
       // "loaded" line for a program nobody can reload (Hans, 2026-08-17).
       // "Delete all" means all: stop what runs, forget what was configured.
+      // ⚠️ The row shows `slot->filename` and falls back to the CONFIG name --
+      // clearing only one of the two leaves the entry standing (measured: page
+      // still listed "laeufer.tcb (0B)" after the first version of this fix).
       int vergessen = 0;
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
-        if (s) { TinyCStopVM(s); s->cmd_prefix_saved[0] = '\0'; }
+        if (s) { TinyCStopVM(s); s->cmd_prefix_saved[0] = '\0'; s->filename[0] = '\0'; }
         if (Tinyc->slot_config[i].filename[0]) vergessen++;
         Tinyc->slot_config[i].filename[0] = '\0';
         Tinyc->slot_config[i].cmd_prefix[0] = '\0';
