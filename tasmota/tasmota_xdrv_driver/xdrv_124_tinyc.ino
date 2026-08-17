@@ -1800,10 +1800,14 @@ static void HandleTinyCPage(void) {
       // ⚠️ The row shows `slot->filename` and falls back to the CONFIG name --
       // clearing only one of the two leaves the entry standing (measured: page
       // still listed "laeufer.tcb (0B)" after the first version of this fix).
+      // UNLOAD, not just stop: "delete all" is how Hans read it -- "und somit
+      // alle aus dem Speicher löschen". A stopped slot still holds its bytecode
+      // buffer, so the files would be gone while the memory stayed, and the row
+      // would sit there as "Rdy" with no name to show. Measured after the first
+      // version of this fix: page clean, status still Loaded=1.
       int vergessen = 0;
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-        TcSlot *s = Tinyc->slots[i];
-        if (s) { TinyCStopVM(s); s->cmd_prefix_saved[0] = '\0'; s->filename[0] = '\0'; }
+        TinyCUnloadSlot(i);
         if (Tinyc->slot_config[i].filename[0]) vergessen++;
         Tinyc->slot_config[i].filename[0] = '\0';
         Tinyc->slot_config[i].cmd_prefix[0] = '\0';
