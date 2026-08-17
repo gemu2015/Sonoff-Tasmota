@@ -178,6 +178,15 @@ public:
     void setConnectTimeout(int32_t connectTimeout);
     void setTimeout(uint16_t timeout);
 
+    // TLS receive buffer used by the NEXT begin() on an https URL, in bytes.
+    // The buffer bounds a single TLS record, so the value only has to cover
+    // what the PEER sends in one record: 16 kB for a server that ignores
+    // Maximum Fragment Length Negotiation, 4 kB for one that answers it. It is
+    // a single contiguous allocation (+325 B overhead), which on a loaded C3 is
+    // the difference between a working request and begin()/GET() failing with
+    // no diagnosis at all. Default unchanged (HTTPS_RX_BUFFER).
+    void setTlsRxBuffer(uint16_t bytes) { if (bytes >= 512) { _tls_rx = bytes; } }
+
     // Redirections
     void setFollowRedirects(followRedirects_t follow);
     void setRedirectLimit(uint16_t limit); // max redirects to follow for a single request
@@ -249,6 +258,10 @@ protected:
     int32_t _connectTimeout = HTTPCLIENT_DEFAULT_TCP_TIMEOUT;  // Do not set to -1 as it fails WiFiClient connect()
     bool _reuse = true;
     uint16_t _tcpTimeout = HTTPCLIENT_DEFAULT_TCP_TIMEOUT;
+#ifndef HTTPS_RX_BUFFER
+#define HTTPS_RX_BUFFER 16384
+#endif
+    uint16_t _tls_rx = HTTPS_RX_BUFFER;            // see setTlsRxBuffer()
     bool _useHTTP10 = false;
     bool _secure = false;
 

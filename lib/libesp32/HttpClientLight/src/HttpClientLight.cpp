@@ -221,8 +221,12 @@ bool HTTPClientLight::begin(String url, const char* CAcert)
     }
     _secure = true;
 #ifdef USE_WEBCLIENT_HTTPS
-    _transportTraits = TransportTraitsLightPtr(new BearSSLTraits(16384, 0));
-    // set buffer to 16KB half duplex, so we won't lose responses bigger than 16KB
+    _transportTraits = TransportTraitsLightPtr(new BearSSLTraits(_tls_rx, 0));
+    // Receive buffer, half duplex: it bounds one TLS RECORD (not the response --
+    // a large body streams through a small buffer). 16 kB by default because a
+    // peer that ignores Maximum Fragment Length Negotiation sends full records;
+    // setTlsRxBuffer() lowers it per request, which is what keeps https working
+    // on a fragmented heap where the 16 kB allocation can no longer be served.
     // half duplex is well suited for HTTPS: one request followed by responses
 #else
     _transportTraits = nullptr;

@@ -1878,6 +1878,8 @@ struct TINYC {
                                                  // tcpConnect()/tcpProbe() connect (set via tcpConnectTimeout).
                                                  // Lets a script probe absent hosts fast instead of blocking
                                                  // ~75 s on the LwIP connect timeout (would trip the task WDT).
+  uint16_t   https_rx_bytes;                     // TLS receive buffer for httpGet/httpPost, 0 = automatic
+                                                 // (set via TinyCHttpRx). See tc_https_rx_bytes().
   // Per-slot last-disconnect reason (v1.5.1). Read via tcpDisconnectReason().
   // Semantics chosen so calloc-zero ("never used") is the natural default:
   //   0 = TC_TCP_REASON_NEVER (slot never opened — fresh after calloc)
@@ -4467,6 +4469,38 @@ static int32_t tc_strlen_ref(int32_t *p, int32_t maxSlots) {
 // tc_current_is_spawn_worker() is true there -> allowed. Single-task scripts (no
 // spawnTask) have worker_borrowed=false -> never affected. Caller pushes -1 and
 // breaks when this returns true.
+// TLS receive buffer for an https request made by a script.
+//
+// The buffer bounds a single TLS RECORD, not the response -- a 234 kB body
+// streams through a small buffer fine, as long as the peer's records fit.
+// BearSSL asks for Maximum Fragment Length Negotiation on its own once the
+// buffer is below 16 kB, but whether that helps is up to the server. Measured
+// (Hans, 2026-08-17, `openssl s_client -maxfraglen 4096 -trace`):
+// eu.hamedata.com, api.github.com and codeload.github.com echo it,
+// raw.githubusercontent.com, objects.githubusercontent.com and GitHub Pages do
+// NOT -- those send full-size records and need the full 16 kB.
+//
+// The library default of 16384 (+325 B overhead = one 16709 B allocation) is
+// simply not available on a C3 once a ~30 kB program plus persist arrays are
+// loaded: the largest free block sits at 9-13 kB, the allocation fails, and
+// httpGet() returns 0 -- indistinguishable from an unreachable host.
+//
+// So the size is chosen BEFORE connecting: while there is room for the full
+// buffer we keep it (peers without MFLN keep working); when there is not, 4 kB
+// is the only size that can still get anywhere. `TinyCHttpRx <bytes>` pins the
+// value for a peer that needs it otherwise.
+#define TC_HTTPS_RX_MAX 16384
+#define TC_HTTPS_RX_MIN 4096
+static uint16_t tc_https_rx_bytes(void) {
+  if (Tinyc && Tinyc->https_rx_bytes) return Tinyc->https_rx_bytes;
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+  // This reading understates the heap at times; it is NOT used to refuse the
+  // attempt, only to pick between two sizes that are both legitimate.
+  if (ESP_getMaxAllocHeap() < (TC_HTTPS_RX_MAX + 1024)) return TC_HTTPS_RX_MIN;
+#endif
+  return TC_HTTPS_RX_MAX;
+}
+
 static bool tc_net_blocked_from_callback(TcVM *vm, const char *what) {
 #ifdef ESP32
   if (vm && vm->worker_borrowed && !tc_current_is_spawn_worker()) {
@@ -7762,6 +7796,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       http.setTimeout(10000);
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload urlRef=%d len=%d url='%s'"), urlRef, strlen(url), url);
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+      http.setTlsRxBuffer(tc_https_rx_bytes());   // raw file hosts often ignore MFLN — see tc_https_rx_bytes()
       bool begun = http.begin(UrlEncode(url));
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload begin=%d (HTTPClientLight)"), begun);
 #else
@@ -10514,6 +10549,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         HTTPClientLight http;
         http.setTimeout(5000);
         http.setConnectTimeout(_http_ctmo);
+        http.setTlsRxBuffer(tc_https_rx_bytes());   // see tc_https_rx_bytes(): 16 kB is often unobtainable
         http.begin(url);
 #else
         WiFiClient http_client;
@@ -10662,6 +10698,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       HTTPClientLight http;
       http.setTimeout(5000);
       http.setConnectTimeout(_post_ctmo);
+      http.setTlsRxBuffer(tc_https_rx_bytes());
       http.begin(url);
 #else
       WiFiClient http_client;

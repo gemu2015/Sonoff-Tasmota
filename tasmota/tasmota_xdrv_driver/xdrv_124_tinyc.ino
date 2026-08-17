@@ -115,9 +115,9 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
 
-// Stack je VM-Task. Vorgabe aus TC_VM_TASK_STACK, mit `TinyCStack <bytes>`
-// aenderbar und in /tinyc_stack.cfg gemerkt (gemu 2026-08-17: 12 KB je Slot
-// muessen nicht immer sein). Wirkt beim naechsten Start eines Slots.
+// Stack per VM task. Starts from TC_VM_TASK_STACK, changeable with
+// `TinyCStack <bytes>` and remembered in /tinyc_stack.cfg (gemu 2026-08-17:
+// 12 kB per slot is not always needed). Takes effect on the next slot start.
 uint16_t tc_vm_stack_bytes = TC_VM_TASK_STACK;
 
 #ifdef ESP32
@@ -962,6 +962,7 @@ void CmndCheckPartition(void);
 void CmndTinyCIde(void);
 #ifdef ESP32
 void CmndTinyCStack(void);
+void CmndTinyCHttpRx(void);
 #endif
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
@@ -973,7 +974,7 @@ void CmndMatterCryptoTest(void);
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Run|Stop|Reset|Exec|Info|Ide"
 #ifdef ESP32
-  "|Chkpt|Stack"
+  "|Chkpt|Stack|HttpRx"
 #endif
 #ifdef USE_MATTER_C
   "|MtrReset"
@@ -987,7 +988,7 @@ void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde
 #ifdef ESP32
-  , &CmndCheckPartition, &CmndTinyCStack
+  , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx
 #endif
 #ifdef USE_MATTER_C
   , &CmndMatterReset
@@ -2355,6 +2356,12 @@ static int tc_fetch_ide(const char *url) {
 #endif
   http.setTimeout(15000);
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+  // The full 16 kB TLS record buffer, explicitly: raw.githubusercontent.com and
+  // GitHub Pages do NOT answer Maximum Fragment Length Negotiation, so they send
+  // full-size records. With a smaller buffer this connects and then reads zero
+  // bytes (error -5). Scripts get the adaptive size instead — see
+  // tc_https_rx_bytes(); here we know the peer.
+  http.setTlsRxBuffer(TC_HTTPS_RX_MAX);
   bool begun = http.begin(url);
 #else
   bool begun = http.begin(http_client, url);
@@ -2362,11 +2369,44 @@ static int tc_fetch_ide(const char *url) {
   if (!begun) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch begin() failed")); return -2; }
   int code = http.GET();
   if (code != HTTP_CODE_OK && code != HTTP_CODE_MOVED_PERMANENTLY) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch HTTP %d"), code);
+    // Split by code: a failed TLS buffer allocation never reaches the wire and
+    // returns <= 0 within ~20 ms, which looks exactly like an unreachable host.
+    // Name the real cause instead (Hans, 2026-08-17) -- but only as a log line,
+    // never as a precondition: ESP_getMaxAllocHeap() understates what malloc()
+    // can still serve, so refusing on it would block attempts that would work.
+    if (code <= 0) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch failed (no connection, HTTP %d) — needs ~16.7 kB "
+             "of contiguous RAM, largest free block is %u B. Stop the slots and retry."),
+             code, (unsigned)ESP_getMaxAllocHeap());
+    } else {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch HTTP %d"), code);
+    }
     http.end(); return -3;
   }
+  // ROOM FOR A SECOND COPY? The .tmp dance keeps the served IDE intact while the
+  // new one lands, but on a 320 kB filesystem already holding the ~234 kB IDE
+  // there are 28 kB left and the update can NEVER succeed -- exactly for the
+  // users who already have an IDE (Hans, 2026-08-17). When the free space does
+  // not cover the download, drop the old file first and stream straight to the
+  // target: the served IDE is gone for the duration, which is bad, but it is the
+  // only way the update can happen at all. Said out loud in the log.
+  const char *target = tmp;
+  bool in_place = false;
+  {
+    const int32_t clen = http.getSize();          // -1 when the peer chunks
+    const uint32_t free_kb = UfsInfo(1, 0);       // kB
+    const uint32_t need_kb = (clen > 0) ? (uint32_t)((clen + 1023) / 1024) : 0;
+    if (need_kb && free_kb < need_kb + 8) {
+      target = dst;
+      in_place = true;
+      ufsp->remove(dst);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE replaced in place — %u kB free, %u kB needed; "
+             "no room for a second copy, the served IDE is missing until this finishes"),
+             (unsigned)free_kb, (unsigned)need_kb);
+    }
+  }
   TinyCFsWritePause(0x40000);                       // big write: quiesce VM tasks
-  File f = ufsp->open(tmp, "w");
+  File f = ufsp->open(target, "w");
   int written = 0; bool magic = false; bool write_err = false;
   if (f) {
     WiFiClient *stream = http.getStreamPtr();
@@ -2413,8 +2453,10 @@ static int tc_fetch_ide(const char *url) {
   http.end();
   TinyCFsWriteResume();
   if (written < 1000 || !magic) {                   // reject garbage/short downloads — keep the old IDE
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch rejected (%d B, gzip=%d) — kept old"), written, magic);
-    ufsp->remove(tmp);
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE fetch rejected (%d B, gzip=%d) — %s"),
+           written, magic,
+           in_place ? "no IDE on the filesystem now, retry or upload it" : "kept old");
+    ufsp->remove(target);
     return -5;
   }
   // `written` counts what was DOWNLOADED, not what the FS actually persisted — an
@@ -2423,12 +2465,19 @@ static int tc_fetch_ide(const char *url) {
   // over the live IDE; a truncated-but-gzip-magic file would otherwise pass the
   // check above and brick the served IDE (Andreas, S3-ETH SD/FAT, cut at 12-37 KB).
   uint32_t on_disk = 0;
-  { File vf = ufsp->open(tmp, "r"); if (vf) { on_disk = (uint32_t)vf.size(); vf.close(); } }
+  { File vf = ufsp->open(target, "r"); if (vf) { on_disk = (uint32_t)vf.size(); vf.close(); } }
   if (write_err || on_disk != (uint32_t)written) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE write incomplete (%u/%d B on disk%s) — kept old"),
-           on_disk, written, write_err ? ", short-write" : "");
-    ufsp->remove(tmp);
+    // Name the filesystem, not just "short-write" -- that reads like a network
+    // problem while it usually is a full partition.
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE write incomplete (%u/%d B on disk%s), %u kB free — %s"),
+           on_disk, written, write_err ? ", short-write" : "", (unsigned)UfsInfo(1, 0),
+           in_place ? "no IDE on the filesystem now, retry or upload it" : "kept old");
+    ufsp->remove(target);
     return -7;
+  }
+  if (in_place) {                                  // already at its place
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE updated %d bytes from %s"), written, url);
+    return written;
   }
   // Atomically replace the live IDE. Try a direct rename first — LittleFS
   // overwrites atomically, so there is no window where the served IDE is
@@ -5880,7 +5929,7 @@ bool tc_current_is_spawn_worker() {
 // free; Andreas caught it). xTaskCreate's stack arg is likewise in bytes on ESP-IDF,
 // so VmTaskStack/stack_bytes and this number are the same unit and directly comparable.
 void CmndTinyCStack(void) {
-  // Mit Zahl: neue Groesse setzen (gilt beim naechsten Start eines Slots).
+  // With a number: set the new size (takes effect on the next slot start).
   if (XdrvMailbox.payload > 0) {
     long v = XdrvMailbox.payload;
     if (v < TC_VM_STACK_MIN) v = TC_VM_STACK_MIN;
@@ -5893,16 +5942,16 @@ void CmndTinyCStack(void) {
     }
 #endif
     if (tc_vm_stack_bytes < TC_VM_STACK_WARN) {
-      // Kein Verbot, aber gesagt: unter ~10 KB reicht es fuer ein Skript, das
-      // in main() saveVars() ruft, nicht mehr sicher -- der Weg fwrite ->
-      // LittleFS -> SPI-Flash braucht allein rund 3 KB.
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM stack %u B — knapp; StackFreeMin im Auge behalten"),
+      // Not refused, but said out loud: below ~10 kB this is no longer safe for
+      // a script that calls saveVars() from main() -- the path fwrite ->
+      // LittleFS -> SPI flash alone needs some 3 kB.
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM stack %u B — tight; watch StackFreeMin"),
              (unsigned)tc_vm_stack_bytes);
     }
   }
   Response_P(PSTR("{\"" D_PRFX_TINYC "Stack\":{\"VmTaskStack\":%d,\"Default\":%d"),
              (int)tc_vm_stack_bytes, (int)TC_VM_TASK_STACK);
-  // Die VM-Tasks selbst — genau die Zahl, nach der man die Groesse waehlt.
+  // The VM tasks themselves -- exactly the number the size is chosen from.
   if (Tinyc) {
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
       TcSlot *s = Tinyc->slots[i];
@@ -5922,6 +5971,34 @@ void CmndTinyCStack(void) {
   }
   tc_spawn_pool_unlock();
   ResponseAppend_P(PSTR("}}"));
+}
+
+// TinyCHttpRx [bytes] — TLS receive buffer for httpGet()/httpPost() from a
+// script. 0 (default) picks it per request: the full 16 kB while the heap can
+// serve one contiguous 16.7 kB block, else 4 kB. Pin it when a peer needs a
+// specific size -- a server that ignores Maximum Fragment Length Negotiation
+// (raw.githubusercontent.com, GitHub Pages) sends full records and reads as
+// "connected, 0 bytes, error -5" with a small buffer, while a 16 kB request
+// that cannot be allocated reads as "unreachable host" with no diagnosis at
+// all (Hans, C3 with a ~30 kB program, 2026-08-17).
+// Runtime only, not persisted: this is a property of the peer a script talks
+// to, and belongs in autoexec next to the script, not in a config file.
+void CmndTinyCHttpRx(void) {
+  if (!Tinyc) { ResponseCmndChar_P(PSTR("not ready")); return; }
+  if (XdrvMailbox.data_len > 0) {
+    long v = XdrvMailbox.payload;
+    if (v <= 0) { v = 0; }                       // 0 = automatic
+    else {
+      if (v < 512) v = 512;
+      if (v > TC_HTTPS_RX_MAX) v = TC_HTTPS_RX_MAX;
+    }
+    Tinyc->https_rx_bytes = (uint16_t)v;
+  }
+  Response_P(PSTR("{\"" D_PRFX_TINYC "HttpRx\":{\"Bytes\":%u,\"Mode\":\"%s\",\"Now\":%u,\"MaxBlock\":%u}}"),
+             (unsigned)Tinyc->https_rx_bytes,
+             Tinyc->https_rx_bytes ? "pinned" : "auto",
+             (unsigned)tc_https_rx_bytes(),
+             (unsigned)ESP_getMaxAllocHeap());
 }
 
 // FreeRTOS task body — executes the user function to completion or stop-request.
