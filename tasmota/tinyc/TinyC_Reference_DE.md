@@ -2442,6 +2442,11 @@ einzuschalten.
 | `mqttPublish(char topic[], char payload[])` | Dasselbe mit zur Laufzeit gebauten Zeichenketten — etwa einem Topic, das den Geraetenamen traegt |
 | `mqttPublish(topic, payload, stufe)` | …und mit Log-Stufe: **0 = still**, 2 = Info (wie die anderen Formen), 3 = nur bei `weblog 3` |
 
+Rückgabe: `0` gesendet, `-1` Argumente falsch, **`-2` MQTT ist am Gerät
+abgeschaltet** (`SetOption3`, Vorgabe aus `MQTT_USE`). Dann verwirft Tasmota die
+Nachricht und beantwortet überhaupt keinen MQTT-Befehl mehr — `MqttHost` meldet
+`Unknown`.
+
 **Hinweise:**
 - Bis zu **10 Abonnements** pro VM, Topic maximal **128 Zeichen**.
 - Wildcard `'#'` wird ausschliesslich als **Praefix-Match am Ende** unterstuetzt (`"sensors/#"` matcht `sensors/temp`, `sensors/humi/1` usw.). MQTTs `+`-Single-Level-Wildcard wird nicht unterstuetzt.

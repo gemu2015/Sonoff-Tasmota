@@ -15789,6 +15789,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, topic ? tc_mqtt_unsubscribe(topic) : -1);
       break;
     }
+    // ⚠️ MQTT lässt sich am Gerät abschalten: `SetOption3` (Vorgabe MQTT_USE aus
+    // my_user_config.h). Ist er AUS, läuft MqttPublishPayload zwar, aber
+    // `published` bleibt false — die Nachricht geht NICHT hinaus, und der
+    // ganze Xdrv02 antwortet auf keinen MQTT-Befehl mehr (deshalb meldet ein
+    // solches Gerät "MqttHost: Unknown"). Ein Skript soll das unterscheiden
+    // können, statt ins Leere zu senden: -2 = MQTT ist abgeschaltet
+    // (gemu 2026-08-18, an seinem C3 genau so eingestellt).
     case SYS_MQTT_PUBLISH_REF: {  // mqttPublish(topic_ref, payload_ref, level)
       int32_t lvl  = TC_POP(vm);
       int32_t pref = TC_POP(vm);
@@ -15801,6 +15808,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int tl = tc_ref_to_cstr(vm, tref, topic, sizeof(topic));
       int pl = tc_ref_to_cstr(vm, pref, payload, sizeof(payload));
       if (tl <= 0) { TC_PUSH(vm, -1); break; }
+      if (!Settings->flag.mqtt_enabled) { TC_PUSH(vm, -2); break; }   // SetOption3 aus
       if (lvl < LOG_LEVEL_NONE) lvl = LOG_LEVEL_NONE;
       if (lvl > LOG_LEVEL_DEBUG_MORE) lvl = LOG_LEVEL_DEBUG_MORE;
       MqttPublishPayload(topic, payload, 0, false, (uint32_t)lvl);
@@ -15813,7 +15821,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t tci = TC_POP(vm);   // topic const index
       const char *topic = tc_get_const_str(vm, tci);
       const char *payload = tc_get_const_str(vm, pci);
-      if (topic && payload) {
+      if (!Settings->flag.mqtt_enabled) {
+        TC_PUSH(vm, -2);                                 // SetOption3 aus — siehe oben
+      } else if (topic && payload) {
         MqttPublishPayload(topic, payload);
         TC_PUSH(vm, 0);
       } else {

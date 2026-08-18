@@ -3326,6 +3326,10 @@ MQTT is part of Tasmota's core — there is nothing to enable.
 | `mqttPublish(char topic[], char payload[])` | Same with runtime-built strings — a topic carrying the device name, for instance |
 | `mqttPublish(topic, payload, level)` | …and with the log level: **0 = silent**, 2 = info (what the other forms do), 3 = only at `weblog 3` |
 
+Return: `0` sent, `-1` bad arguments, **`-2` MQTT is switched off on the device**
+(`SetOption3`, default from `MQTT_USE`). With it off, Tasmota drops the message
+and answers no MQTT command at all — `MqttHost` comes back as `Unknown`.
+
 **Notes:**
 - Up to **10 subscriptions** per VM, topic max **128 chars**.
 - Wildcard `'#'` is supported as a **trailing prefix match** only (`"sensors/#"` matches `sensors/temp`, `sensors/humi/1`, etc.). MQTT's `+` single-level wildcard is not supported.
