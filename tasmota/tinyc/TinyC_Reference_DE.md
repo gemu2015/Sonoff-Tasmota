@@ -2430,7 +2430,9 @@ MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige P
 | `int mqttSubscribe("topic")` | `topic` abonnieren. Gibt Abo-Slot (0–9) bei Erfolg zurueck, -1 bei Fehler (kein freier Slot, Broker offline) |
 | `int mqttSubscribe(char topic[])` | Dasselbe mit char-Array als Topic (zur Laufzeit gebaut) |
 | `int mqttUnsubscribe("topic")` | Zuvor abonniertes Topic abbestellen. Gibt 0=ok, -1=nicht gefunden zurueck |
-| `mqttPublish("topic", "payload")` | `payload` auf `topic` publizieren (Literale oder char-Arrays akzeptiert) |
+| `mqttPublish("topic", "payload")` | `payload` auf `topic` publizieren |
+| `mqttPublish(char topic[], char payload[])` | Dasselbe mit zur Laufzeit gebauten Zeichenketten — etwa einem Topic, das den Geraetenamen traegt |
+| `mqttPublish(topic, payload, stufe)` | …und mit Log-Stufe: **0 = still**, 2 = Info (wie die anderen Formen), 3 = nur bei `weblog 3` |
 
 **Hinweise:**
 - Bis zu **10 Abonnements** pro VM, Topic maximal **128 Zeichen**.
@@ -2438,6 +2440,14 @@ MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige P
 - Passende Topics loesen den `OnMqttData(char topic[], char payload[])` Callback aus. Beide Strings werden fuer die Dauer des Callbacks in den VM-Heap kopiert.
 - Abonnements bleiben ueber `TinyCRun`-Neuladen desselben Slots erhalten. `mqttUnsubscribe()` in `OnExit()` aufrufen, wenn bei Neustart eine saubere Basis gewuenscht ist.
 - Abonnements werden bei Reconnect automatisch neu an den Broker gesendet (ueber `FUNC_MQTT_INIT`).
+- **Alle paar Sekunden publizieren?** Dann die Log-Stufe nehmen. Ein Regler, der
+  seinen Sollwert alle 5 s schickt, schreibt bei der Vorgabe `weblog 2` alle 5 s
+  zwei Konsolenzeilen — und wer den Log herunterdreht, verliert alles andere mit.
+  `mqttPublish(topic, wert, 0)` publiziert und sagt nichts. Topic maximal **128**
+  Zeichen, Nutzlast **512** — laenger wird abgeschnitten, nicht abgewiesen.
+- Die Drei-Argument-Form und jede Form mit einer Laufzeit-Zeichenkette brauchen
+  **Firmware-ABI 24**. Zwei Literale erzeugen weiter den alten Syscall und laufen
+  auf jeder Firmware.
 
 **Beispiel — Fernsteuerung via MQTT:**
 ```c

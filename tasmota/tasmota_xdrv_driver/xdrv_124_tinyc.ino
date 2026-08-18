@@ -4804,6 +4804,9 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
   Tinyc->current_web_handler = handler_num;
   Tinyc->web_content_begun   = 0;
   Tinyc->web_raw_active      = 0;
+  // A webOn handler serves a whole page of its own, so WebChart() has to start
+  // from scratch here as well -- see tc_chart_response_reset().
+  tc_chart_response_reset();
 #ifdef USE_HTTP_KEEPALIVE
   // Per-request opt-in: handler must call webKeepAlive() each iteration
   // to keep the TCP socket open. Reset here so a previously kept-alive
@@ -5098,9 +5101,7 @@ static void HandleTinyCUI(void) {
   TinyC_WebSetVar(si);
 
   // Reset WebChart state before rendering
-  tc_chart_seq = 0;
-  tc_chart_lib_sent = false;
-  tc_chart_time_base = 0;
+  tc_chart_response_reset();
 
   // AJAX mode (m=1): just re-render widgets via WebUI() callback
   if (Webserver->hasArg(F("m"))) {
@@ -7073,11 +7074,7 @@ bool Xdrv124(uint32_t function) {
       }
 #endif
       // Reset WebChart state before calling WebPage()
-      tc_chart_seq = 0;
-      tc_chart_lib_sent = false;
-      tc_chart_width = 0;
-      tc_chart_height = 0;
-      tc_chart_time_base = 0;
+      tc_chart_response_reset();
       // Wrap charts in block container to prevent inline-block cascading width expansion
       WSContentSend_P(PSTR("<div style='display:block;width:100%%;overflow:hidden'>"));
       // Call user's WebPage() on all active slots

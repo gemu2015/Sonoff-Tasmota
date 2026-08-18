@@ -3315,7 +3315,9 @@ Subscribe to MQTT topics and react to inbound messages, or publish arbitrary pay
 | `int mqttSubscribe("topic")` | Subscribe to `topic`. Returns the subscription slot (0–9) on success, -1 on failure (no free slot, broker down) |
 | `int mqttSubscribe(char topic[])` | Same, with a char-array topic (runtime-built) |
 | `int mqttUnsubscribe("topic")` | Unsubscribe from a previously subscribed topic. Returns 0=ok, -1=not found |
-| `mqttPublish("topic", "payload")` | Publish `payload` to `topic` (both literals or char arrays accepted) |
+| `mqttPublish("topic", "payload")` | Publish `payload` to `topic` |
+| `mqttPublish(char topic[], char payload[])` | Same with runtime-built strings — a topic carrying the device name, for instance |
+| `mqttPublish(topic, payload, level)` | …and with the log level: **0 = silent**, 2 = info (what the other forms do), 3 = only at `weblog 3` |
 
 **Notes:**
 - Up to **10 subscriptions** per VM, topic max **128 chars**.
@@ -3323,6 +3325,13 @@ Subscribe to MQTT topics and react to inbound messages, or publish arbitrary pay
 - Matching topics trigger the `OnMqttData(char topic[], char payload[])` callback. The two strings are copied into the VM heap for the duration of the callback.
 - Subscriptions persist across `TinyCRun` reloads of the same slot. Call `mqttUnsubscribe()` in `OnExit()` if you want a clean slate on restart.
 - Subscriptions are automatically re-sent to the broker on reconnect (hooked into `FUNC_MQTT_INIT`).
+- **Publishing every few seconds?** Use the log level. A regulator that publishes
+  its setpoint every 5 s writes two console lines every 5 s at the default
+  `weblog 2`; turning the log down hides everything else with it.
+  `mqttPublish(topic, payload, 0)` publishes and says nothing. Topic max **128**
+  chars, payload max **512** — longer is truncated, not refused.
+- The three-argument form and any form with a runtime string need **firmware ABI 24**.
+  Two literals still compile to the old syscall and run on any firmware.
 
 **Example — Remote control via MQTT:**
 ```c

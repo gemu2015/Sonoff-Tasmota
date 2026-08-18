@@ -914,6 +914,7 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
+        [544, 24],                      // mqttPublish mit Laufzeit-Strings + Log-Stufe
         [535, 20], [534, 19], [533, 18], [524, 17], [521, 16], [517, 15],
         [514, 14], [513, 13], [512, 12], [511, 11], [503, 10], [502, 9],
         [498, 7], [494, 5], [493, 4], [492, 3], [371, 2],
@@ -3506,6 +3507,12 @@ export class CodeGenerator {
             return this.compileSppConnect(node);
         }
 
+        // mqttPublish — zwei Literale bleiben beim alten Syscall (byte-identisch
+        // und auf jeder Firmware lauffaehig); alles andere braucht die neue Form.
+        if (node.name === 'mqttPublish') {
+            return this.compileMqttPublish(node);
+        }
+
         // spawnTask("Name") or spawnTask("Name", stack_kb), killTask("Name"), taskRunning("Name")
         // — register Name in the function table so the firmware can resolve it
         // from vm->callbacks[] when the worker task starts/stops.
@@ -4188,6 +4195,36 @@ export class CodeGenerator {
                 "tcpConnect: first argument must be a string literal or a char[] variable",
                 node.line);
         }
+    }
+
+    compileMqttPublish(node) {
+        // mqttPublish("thema", "wert")                -> SYS_MQTT_PUBLISH_TO  (Literale)
+        // mqttPublish(thema_buf, wert_buf [, stufe])  -> SYS_MQTT_PUBLISH_REF
+        //
+        // Die alte Form bleibt exakt wie sie war: sie erzeugt dasselbe Bytecode
+        // wie vor ABI 24 und laeuft damit auch auf aelterer Firmware. Die neue
+        // entsteht nur, wenn ein Argument keine Konstante ist oder eine dritte
+        // Zahl dasteht (Log-Stufe; 0 = still).
+        if (node.args.length < 2 || node.args.length > 3) {
+            throw new CodeGenError(
+                "mqttPublish(thema, wert) oder mqttPublish(thema, wert, logstufe)", node.line);
+        }
+        const literal = (n) => {
+            let x = n;
+            if (x.type === NodeType.Identifier && this.defines.has(x.name)) x = this.defines.get(x.name);
+            return x.type === NodeType.StringLiteral;
+        };
+        if (node.args.length === 2 && literal(node.args[0]) && literal(node.args[1])) {
+            this.compileExpr(node.args[0]);
+            this.compileExpr(node.args[1]);
+            this.emitSyscall(Syscall.MQTT_PUBLISH_TO);
+            return;
+        }
+        this.emitStringArg(node.args[0]);
+        this.emitStringArg(node.args[1]);
+        if (node.args.length === 3) this.compileExpr(node.args[2]);
+        else this.emitPushInt(2);          // 2 = LOG_LEVEL_INFO, wie bisher
+        this.emitSyscall(Syscall.MQTT_PUBLISH_REF);
     }
 
     compileSppConnect(node) {
