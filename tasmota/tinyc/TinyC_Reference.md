@@ -3332,6 +3332,11 @@ Subscribe to MQTT topics and react to inbound messages, or publish arbitrary pay
   chars, payload max **512** — longer is truncated, not refused.
 - The three-argument form and any form with a runtime string need **firmware ABI 24**.
   Two literals still compile to the old syscall and run on any firmware.
+- ⚠️ Going through the `Publish` **command** instead (`tasmCmd`) is a different
+  thing: `CmndPublish` copies the topic verbatim apart from `#`→space, so
+  `%topic%` is **not** expanded — a subscriber will dutifully subscribe to the
+  literal string `stat/%topic%/…` (Hans, 2026-08-18). `mqttPublish()` needs no
+  such detour now.
 
 **Example — Remote control via MQTT:**
 ```c

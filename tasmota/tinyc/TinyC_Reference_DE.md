@@ -2448,6 +2448,11 @@ MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige P
 - Die Drei-Argument-Form und jede Form mit einer Laufzeit-Zeichenkette brauchen
   **Firmware-ABI 24**. Zwei Literale erzeugen weiter den alten Syscall und laufen
   auf jeder Firmware.
+- ⚠️ Der Umweg ueber den **Befehl** `Publish` (`tasmCmd`) ist etwas anderes:
+  `CmndPublish` uebernimmt das Topic woertlich (nur `#`→Leerzeichen), `%topic%`
+  wird also **nicht** ersetzt — ein Abonnent abonniert brav die Zeichenkette
+  `stat/%topic%/…` (Hans, 2026-08-18). Mit `mqttPublish()` braucht es den Umweg
+  jetzt nicht mehr.
 
 **Beispiel — Fernsteuerung via MQTT:**
 ```c
