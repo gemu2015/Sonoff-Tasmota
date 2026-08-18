@@ -609,6 +609,7 @@ static void TinyCLoadSettings(void) {
     return;
   }
   uint8_t slot = 0;
+  bool cfg_stale = false;      // a line pointed at a file that is no longer there
   while (f.available() && slot <= TC_MAX_VMS) {
     String line = f.readStringUntil('\n');
     line.trim();
@@ -632,6 +633,23 @@ static void TinyCLoadSettings(void) {
 
     fname.trim();
     if (fname.length() > 0) {
+      // A slot whose file is gone keeps NOTHING. Deleting a .tcb (over /ufsd,
+      // or after TinyCUnload) left the name standing in /tinyc.cfg, so the
+      // status kept naming a file that no longer exists and the web page kept
+      // showing it — nothing broke, but every reader had to find out the hard
+      // way (gemu 2026-08-18). Cleared here rather than at delete time because
+      // a .tcb can go by any route: /ufsd, "Delete All", a script, or a
+      // filesystem that was reformatted underneath us.
+      if (!fs->exists(fname.c_str())) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d: %s is gone — entry dropped"),
+               slot, fname.c_str());
+        Tinyc->slot_config[slot].filename[0] = '\0';
+        Tinyc->slot_config[slot].autoexec = false;
+        Tinyc->slot_config[slot].cmd_prefix[0] = '\0';
+        cfg_stale = true;
+        slot++;
+        continue;
+      }
       // Store config (lightweight — no RAM allocation for the VM)
       strlcpy(Tinyc->slot_config[slot].filename, fname.c_str(), sizeof(Tinyc->slot_config[slot].filename));
       Tinyc->slot_config[slot].autoexec = (autoexec != 0);
@@ -641,6 +659,9 @@ static void TinyCLoadSettings(void) {
     slot++;
   }
   f.close();
+  // Write the cleaned-up file back, so the dead names are gone for good
+  // instead of being dropped again on every boot.
+  if (cfg_stale) TinyCSaveSettings();
   // NOTE: autoexec slots are NOT started here. They're started later
   // from the first FUNC_LOOP via TinyCStartAutoexec() — see comment
   // in the FUNC_LOOP handler. Doing it here (during FUNC_INIT) caused
