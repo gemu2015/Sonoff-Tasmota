@@ -66,8 +66,9 @@ char  cfg_city[40];            // CITY= from the cfg — geocoded, overrides IP 
 // JS hook: line charts default to bare-index x-ticks over a >7-day span; relabel
 // them with the same "DD.MM." dates the column (rain) chart shows. Runs in the
 // chart draw scope (dt=DataTable col0=datetime, o=options).
-const char  jsdate[220] = "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;";
-char jsChartOptions[248];
+const char  jsdate[198] = "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;";
+char jsChartOptions[226];
+
 // Parse NDAYS comma-separated numbers from the JSON array following `key`. `key`
 // must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
 // Returns the number of REAL (non-null) values parsed. Open-Meteo emits `null`
@@ -246,19 +247,23 @@ void WebPage() {
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wetterprognose</legend>");
     webSend("<div style='margin-left:-12px'>");
     WebChartTimeBase((vdays - 1) * 1440);   
-    WebChartJS(jsdate);                          // DD.MM. x-axis
+
     WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, vdays, f_tmax, 1, 1440, 0, 0);
     WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis
+
     WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0.0, 0);
     WebChartJS(jsdate);                          // DD.MM. x-axis
+
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
-    
+    WebChartJS(jsdate);                          // DD.MM. x-axis
+
     strcat(jsChartOptions,jsdate);                // DD.MM. x-axis
     strcat(jsChartOptions, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
-    WebChartJS(jsChartOptions);                         
     WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0.0, 0);
+    WebChartJS(jsChartOptions); 
+
     WebChartTimeBase(0);
     webSend("</div>");
     webSend("</fieldset>");
