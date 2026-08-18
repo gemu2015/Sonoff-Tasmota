@@ -2027,7 +2027,11 @@ static void HandleTinyCPage(void) {
   WSContentSend_P(PSTR(
     "<fieldset><legend><b> Upload Program </b></legend>"
     "<form class='tc-upload' method='POST' action='/tc_upload' enctype='multipart/form-data'"
-    " onsubmit=\"this.action='/tc_upload?slot='+this.querySelector('[name=uslot]').value\">"
+    // The size goes into the URL, like every other client does it: the browser
+    // knows it, and the handler must not have to allocate for the worst case.
+    " onsubmit=\"var f=this.querySelector('[name=tcb]').files[0];"
+    "this.action='/tc_upload?slot='+this.querySelector('[name=uslot]').value"
+    "+(f?'&fsz='+f.size:'')\">"
     "<div style='display:flex;gap:8px;align-items:center'>"
     "<input type='file' name='tcb' accept='.tcb' style='flex:1'>"
     "<select name='uslot' style='width:auto'>"));
@@ -2734,26 +2738,48 @@ static void HandleTinyCUpload(void) {
     TinyCClearDurablePrefix(slot_num);  // and the persisted copy — new program may differ
     // Allocate upload buffer.
     //
-    // Sizing: the HTTP client may send `?fsz=N` (matches the `/ufsu` upload
-    // convention used by push_tcb.sh) — if present we allocate exactly that
-    // (clamped to TC_MAX_PROGRAM). Without the hint we fall back to the full
-    // TC_MAX_PROGRAM. This avoids the failure mode where a 3 KB .tcb upload
-    // fails because the device's heap is too fragmented to provide a single
-    // contiguous 64 KB block.
+    // Sizing, in this order:
+    //   1. `?fsz=N` from the client (the `/ufsu` convention push_tcb.sh, the
+    //      IDE and the Repository box all follow) — the exact file size.
+    //   2. the request's Content-Length. For a multipart POST that is the file
+    //      plus a few hundred bytes of MIME boundary, so it is an upper bound,
+    //      not a guess.
+    //   3. TC_MAX_PROGRAM.
+    //
+    // Step 2 exists because step 3 is not a fallback on a device without
+    // PSRAM: TC_MAX_PROGRAM is 128 KB, and no ESP32-C3 has that in ONE piece
+    // even freshly booted (Hans, 2026-08-18: 147 kB free, largest block
+    // 114 688 — a 30 689 B upload asked for 131 072 and failed). Every client
+    // that sends `fsz` worked on the same device in the same minute; only the
+    // manual form on /tc, which did not, could never succeed.
     //
     // Allocation strategy: PSRAM first on ESP32 (avoids fragmented internal
     // heap on long-running devices with serial scripts etc.), then internal.
     if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
     size_t alloc_size = TC_MAX_PROGRAM;
+    const char *size_src = "max";
+    bool sized = false;
     if (Webserver->hasArg(F("fsz"))) {
       long fsz = Webserver->arg(F("fsz")).toInt();
       if (fsz > 0) {
         // Add a small headroom (16 B) so an off-by-one in the client's fsz
         // doesn't immediately trip the "too large" branch in UPLOAD_FILE_WRITE.
         size_t hint = (size_t)fsz + 16;
-        if (hint < alloc_size) alloc_size = hint;
+        if (hint < alloc_size) { alloc_size = hint; size_src = "fsz"; sized = true; }
       }
     }
+#ifdef ESP32
+    // No hint: take the body length the client announced. ESP8266's web server
+    // has no accessor for it, and there TC_MAX_PROGRAM is 4 KB anyway, so the
+    // fallback costs nothing.
+    if (!sized) {
+      int clen = Webserver->clientContentLength();
+      if (clen > 0 && (size_t)clen < alloc_size) {
+        alloc_size = (size_t)clen; size_src = "content-length"; sized = true;
+      }
+    }
+#endif
+    (void)sized;
     Tinyc->upload_alloc_size = alloc_size;
 #ifdef ESP32
     Tinyc->upload_buf = (uint8_t *)heap_caps_malloc(alloc_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -2795,8 +2821,8 @@ static void HandleTinyCUpload(void) {
 
     if (!Tinyc->upload_buf) {
       Web.upload_error = 1;
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc(%u) failed — free heap=%u largest block=%u"),
-        (unsigned)alloc_size,
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc(%u, from %s) failed — free heap=%u largest block=%u"),
+        (unsigned)alloc_size, size_src,
         (unsigned)ESP_getFreeHeap(),
 #ifdef ESP32
         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)
