@@ -66,8 +66,8 @@ char  cfg_city[40];            // CITY= from the cfg — geocoded, overrides IP 
 // JS hook: line charts default to bare-index x-ticks over a >7-day span; relabel
 // them with the same "DD.MM." dates the column (rain) chart shows. Runs in the
 // chart draw scope (dt=DataTable col0=datetime, o=options).
-char  jsdate[220];
-
+const char  jsdate[220] = "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;";
+char jsChartOptions[248];
 // Parse NDAYS comma-separated numbers from the JSON array following `key`. `key`
 // must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
 // Returns the number of REAL (non-null) values parsed. Open-Meteo emits `null`
@@ -254,10 +254,10 @@ void WebPage() {
     WebChartJS(jsdate);                          // DD.MM. x-axis
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
-    // gemu2015's comment:  two WebChartJS() calls cancel each other out in https://github.com/gemu2015/Sonoff-Tasmota/pull/113#issuecomment-5231742920 
-    //  is not confirmed by testing !
-    //strcat(jsdate, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
-    WebChartJS(jsdate);                          // DD.MM. x-axis
+    
+    strcat(jsChartOptions,jsdate)
+    strcat(jsChartOptions, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
+    WebChartJS(jsChartOptions);                          // DD.MM. x-axis
     WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0.0, 0);
     WebChartTimeBase(0);
     webSend("</div>");
@@ -301,8 +301,6 @@ int main() {
         if (hc >= 0) { sprintf(cfgbuf, "// weather.tc config - edit, then send WX to apply\n// Location by name (geocoded). Leave blank/commented to auto-detect by IP.\n// CITY=Erftstadt\n// PV peak power [kWp]\nKWP=%.2f\n// performance ratio (system losses)\nPR=%.2f\n// days to fetch/show forecast, clamped 4..16\nNDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
     }
     read_cfg();
-    // ToDo: jsdate seems to get abused for a loop. Clarify code!!
-    strcpy(jsdate, "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;");
     if (strlen(p_lat) < 2) {                  // first run — seed defaults
         strcpy(p_lat, DEF_LAT); strcpy(p_lon, DEF_LON); strcpy(p_city, DEF_CITY);
         loc_set = 0; saveVars();
