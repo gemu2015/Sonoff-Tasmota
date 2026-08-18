@@ -255,9 +255,9 @@ void WebPage() {
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
     
-    strcat(jsChartOptions,jsdate)
+    strcat(jsChartOptions,jsdate);                // DD.MM. x-axis
     strcat(jsChartOptions, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
-    WebChartJS(jsChartOptions);                          // DD.MM. x-axis
+    WebChartJS(jsChartOptions);                         
     WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0.0, 0);
     WebChartTimeBase(0);
     webSend("</div>");
