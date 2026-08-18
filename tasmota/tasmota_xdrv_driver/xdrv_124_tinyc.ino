@@ -2764,8 +2764,14 @@ static void HandleTinyCUpload(void) {
     // liegt aber im Dateisystem und lässt sich neu laden.
     const uint32_t frei_geworden = TinyCUnloadSlot(slot_num);
     if (frei_geworden) {
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Upload: slot %d unloaded first (%u B program freed)"),
-             (int)slot_num, (unsigned)frei_geworden);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Upload: slot %d unloaded first (%u B program freed, largest block %u)"),
+             (int)slot_num, (unsigned)frei_geworden,
+#ifdef ESP32
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)
+#else
+             (unsigned)ESP.getMaxFreeBlockSize()
+#endif
+      );
     }
     s->cmd_prefix_saved[0] = '\0';   // a new .tcb is being uploaded — drop the old
                                      // program's sticky prefix (new main() re-registers).
@@ -2872,6 +2878,16 @@ static void HandleTinyCUpload(void) {
     }
     Tinyc->upload_received = 0;
     Tinyc->upload_active = true;
+    // Was der Puffer aus dem freien Lauf gemacht hat -- die Zahl daneben ist
+    // die Antwort auf „warum findet der Lader gleich keine 34 kB am Stück?"
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Upload buffer %u B from %s, largest block now %u"),
+           (unsigned)alloc_size, size_src,
+#ifdef ESP32
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)
+#else
+           (unsigned)ESP.getMaxFreeBlockSize()
+#endif
+    );
     TC_HEAPLOG("upload.start");
   }
   else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -2940,11 +2956,49 @@ static void HandleTinyCUpload(void) {
 #endif
       } else {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load error: %s"), tc_error_str(err));
-        free(s->program);
-        s->program = nullptr;
-        s->program_size = 0;
-        s->loaded = false;
-        Web.upload_error = 1;
+        bool gerettet = false;
+#ifdef USE_UFILESYS
+        // ZWEITER ANLAUF aus der Datei, wenn der Speicher nicht reichte.
+        //
+        // Hans (2026-08-18) hat genau das von Hand gemacht: erster Upload
+        // scheitert, zweiter geht durch. Der Grund ist die Reihenfolge, nicht
+        // die Menge: der Upload-Puffer (hier ~31 kB) liegt MITTEN in dem
+        // Bereich, den das Räumen des Slots freigegeben hat, und zerteilt den
+        // großen freien Lauf. Der Lader will danach 34 kB AM STÜCK und findet
+        // sie nicht. Geben wir den Puffer zurück (er ist ja bereits als
+        // Programm auf die Platte geschrieben) und laden aus der Datei, liegt
+        // beides frisch nebeneinander -- dieselbe Wirkung wie sein zweiter
+        // Versuch, nur ohne dass jemand ihn machen muss.
+        if (err == TC_ERR_OUT_OF_MEMORY && ufsp) {
+          const char *saveName = Tinyc->upload_filename[0] ? Tinyc->upload_filename : TC_FILE_NAME;
+          File f = ufsp->open(saveName, "w");
+          bool geschrieben = false;
+          if (f) {
+            geschrieben = (f.write(s->program, s->program_size) == s->program_size);
+            f.close();
+          }
+          free(s->program);                 // Puffer weg -- das ist der Punkt
+          s->program = nullptr;
+          s->program_size = 0;
+          s->loaded = false;
+          if (geschrieben) {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: Load OOM — retrying from %s"), saveName);
+            gerettet = TinyCLoadFile(saveName, slot_num);
+            if (gerettet) {
+              strlcpy(Tinyc->slot_config[slot_num].filename, saveName,
+                      sizeof(Tinyc->slot_config[slot_num].filename));
+              TinyCSaveSettings();
+              AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded from file after OOM (slot %d)"), slot_num);
+            }
+          }
+        }
+#endif
+        if (!gerettet) {
+          if (s->program) { free(s->program); s->program = nullptr; }
+          s->program_size = 0;
+          s->loaded = false;
+          Web.upload_error = 1;
+        }
       }
     } else {
       if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
