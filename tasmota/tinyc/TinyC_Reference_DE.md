@@ -2423,7 +2423,15 @@ void TaskLoop() {                             // TLS-I/O ausserhalb der Main-Loo
 
 ### MQTT Abonnieren / Publizieren
 
-MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige Payloads publizieren. Benoetigt `USE_MQTT` in der Firmware (standardmaessig aktiviert).
+MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige
+Payloads publizieren. MQTT gehoert zum Kern von Tasmota — es gibt nichts
+einzuschalten.
+
+> ⚠️ Bis 1.6.51 standen diese Aufrufe hinter `#ifdef USE_MQTT`, und diesen
+> Schalter gibt es seit Tasmota 3.1.13 (Januar 2017) nicht mehr, seit MQTT zum
+> Kern wurde. Das Gate hat also nicht "abgeschaltetes MQTT abgefangen", sondern
+> die MQTT-Syscalls aus JEDEM Bau entfernt — `mqttPublish()` lieferte immer -1
+> (Hans, 2026-08-18).
 
 | Funktion | Beschreibung |
 |----------|-------------|

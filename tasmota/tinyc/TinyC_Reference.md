@@ -3308,7 +3308,14 @@ void TaskLoop() {                             // TLS I/O off the main loop
 
 ### MQTT Subscribe / Publish
 
-Subscribe to MQTT topics and react to inbound messages, or publish arbitrary payloads. Requires `USE_MQTT` in the firmware build (enabled by default).
+Subscribe to MQTT topics and react to inbound messages, or publish arbitrary payloads.
+MQTT is part of Tasmota's core — there is nothing to enable.
+
+> ⚠️ Until 1.6.51 these calls sat behind `#ifdef USE_MQTT`, and that define has
+> not existed since Tasmota 3.1.13 (January 2017), when MQTT stopped being
+> optional. So the guard did not "handle MQTT being off" — it removed every
+> MQTT syscall from **every** build, and `mqttPublish()` always returned -1
+> (Hans, 2026-08-18).
 
 | Function | Description |
 |----------|-------------|

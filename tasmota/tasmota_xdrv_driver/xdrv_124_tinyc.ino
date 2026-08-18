@@ -2752,8 +2752,21 @@ static void HandleTinyCUpload(void) {
     }
     TcSlot *s = Tinyc->slots[slot_num];
 
-    // Stop any running program in this slot
-    TinyCStopVM(s);
+    // Den Slot GANZ räumen, nicht nur anhalten.
+    //
+    // Ein angehaltener Slot hält sein Programm und den ganzen VM-Speicher
+    // weiter -- bei Hans 92 KB (2026-08-18). Dann wollte der Upload seinen
+    // Puffer, und danach der Lader 34 KB Heap am Stück: das ging nicht auf,
+    // der Lauf scheiterte, und erst der ZWEITE Versuch klappte, weil der
+    // gescheiterte Ladevorgang den Slot geräumt hatte. Der Inhalt wird hier
+    // ohnehin ersetzt, also geben wir ihn sofort frei statt nach dem
+    // Fehlschlag. Preis: bricht der Upload ab, ist der Slot leer -- die .tcb
+    // liegt aber im Dateisystem und lässt sich neu laden.
+    const uint32_t frei_geworden = TinyCUnloadSlot(slot_num);
+    if (frei_geworden) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Upload: slot %d unloaded first (%u B program freed)"),
+             (int)slot_num, (unsigned)frei_geworden);
+    }
     s->cmd_prefix_saved[0] = '\0';   // a new .tcb is being uploaded — drop the old
                                      // program's sticky prefix (new main() re-registers).
     TinyCClearDurablePrefix(slot_num);  // and the persisted copy — new program may differ
@@ -2812,6 +2825,10 @@ static void HandleTinyCUpload(void) {
 #endif
     // Last resort on a fragmented heap: drop the program THIS slot is holding
     // and try once more.
+    //
+    // ⚠️ Seit der Slot beim Upload-Start ohnehin geräumt wird (siehe oben),
+    // greift dieser Zweig nur noch, wenn s->program aus einer anderen Quelle
+    // stammt. Er bleibt als Netz stehen, ist aber nicht mehr der Normalfall.
     //
     // The old program is a block of nearly the same size, in one piece, and it
     // is about to be replaced anyway -- freeing it usually hands the allocator
@@ -5946,7 +5963,8 @@ static void TC_DLServerLoop(void) {
 
 #endif // ESP32
 
-#ifdef USE_MQTT
+// MQTT-Brücke — siehe den Hinweis in xdrv_124_tinyc_vm.h: hier stand ein
+// `#ifdef USE_MQTT`, das den ganzen Block in jedem Bau entfernt hat.
 /*********************************************************************************************\
  * MQTT subscribe / publish bridge for TinyC scripts
  * Scripts subscribe to external topics via mqttSubscribe("foo/#") and receive
@@ -6084,7 +6102,6 @@ static bool tc_mqtt_data_handler(void) {
 // NOTE: no tc_mqtt_clear() — subs persist across script reloads so in-flight
 // messages aren't lost during a TinyCRun. Scripts that want a clean slate
 // should call mqttUnsubscribe() for their topics in OnExit().
-#endif  // USE_MQTT
 
 /*********************************************************************************************\
  * Dynamic task spawn — spawnTask / killTask / taskRunning (ESP32 only)
@@ -6947,15 +6964,11 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_MQTT_INIT:
       tc_all_callbacks_id(TC_CB_ON_MQTT_CONNECT);
-#ifdef USE_MQTT
       tc_mqtt_resubscribe();
-#endif
       break;
-#ifdef USE_MQTT
     case FUNC_MQTT_DATA:
       result = tc_mqtt_data_handler();
       break;
-#endif
     case FUNC_TIME_SYNCED:
       tc_all_callbacks_id(TC_CB_ON_TIME_SET);
       break;

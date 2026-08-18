@@ -334,7 +334,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | TCP | `tcpConnect`, `tcpRead`, `tcpWrite`, `tcpAvailable`, `tcpSelect` (slot 0..3); tuning: `tcpKeepalive`, `tcpNoDelay`, `tcpTransact`, `tcpDisconnectReason` |
 | UDP (Scripter globalvars) | `udpSend(name, val)`, `udpRecv(name)`, `udpReady(name)`, `udpRecvArray(name, arr, max)` |
 | UDP (general) | `udp(N, args…)` dispatcher: 0=open, 1=read, 2=reply, 3=send-to-url, 9=join-mcast, 10=igmp-leave, etc. (see Reference.md §General-Purpose UDP) |
-| MQTT | `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` (literals, runtime char[], optional log level — 0 = silent; ESP32 USE_MQTT) |
+| MQTT | `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` (literals, runtime char[], optional log level — 0 = silent). ⚠️ NO `USE_MQTT` guard — that define died in Tasmota 3.1.13 (2017) and gating on it removed MQTT from every build |
 | mDNS | `mdnsAdvertise` |
 | Display | `dspText`, `dspPixel`, `dspLine`, `dspRect`, `dspCircle`, `dspColor`, `dspUpdate` (e-paper only) |
 | Image bridge | `dspLoadImageFromCam(cam) → img_slot`, `dspImgTextBurn(slot, x, y, color, w, align, text)`, `dspImageToCam(img, cam, quality)` |
