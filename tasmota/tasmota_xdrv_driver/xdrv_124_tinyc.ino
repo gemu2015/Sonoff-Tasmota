@@ -1507,11 +1507,25 @@ static uint32_t TinyCUnloadSlot(uint8_t slot_num) {
   // buffers in the VM's reuse cache instead of returning them, and the memset
   // would then zero the only pointers to them. See tc_frame_alloc().
   tc_frame_cache_drain(&s->vm);
+  // The VM heap and the UDP-global table, unconditionally.
+  //
+  // TinyCStopVM() frees them too — but it returns early when the slot is
+  // already flagged torn_down, and NOTHING clears that flag on a load that
+  // does not also start the program. Every upload runs through here first, so
+  // the flag is set before tc_vm_load() installs the new program, and the next
+  // unload skips the teardown. The memset below then zeroes the only pointer
+  // to a heap that was never freed. Measured on the C3 (2026-08-18): upload a
+  // program declaring 9000 slots, TinyCUnload, and 1 KB of 40 comes back —
+  // once per upload, until the device is rebooted. Both calls are idempotent.
+  tc_free_all_frames(&s->vm);
+  tc_heap_free_all(&s->vm);
+  if (s->vm.udp_globals) { free(s->vm.udp_globals); s->vm.udp_globals = nullptr; s->vm.udp_global_count = 0; }
   if (s->vm.stack) { free(s->vm.stack); }
   if (s->vm.globals) { free(s->vm.globals); }
   if (s->vm.constants) { free(s->vm.constants); }
   if (s->vm.const_data) { free(s->vm.const_data); }
   memset(&s->vm, 0, sizeof(TcVM));
+  s->torn_down = false;           // the VM is gone; a later load starts clean
   if (s->program) { free(s->program); s->program = nullptr; }
   s->program_size = 0;
   s->loaded = false;
@@ -1535,12 +1549,19 @@ void CmndTinyCReset(void) {
   // buffers in the VM's reuse cache instead of returning them, and the memset
   // would then zero the only pointers to them. See tc_frame_alloc().
   tc_frame_cache_drain(&s->vm);
-  // Free remaining dynamic VM allocations before zeroing struct
+  // Free remaining dynamic VM allocations before zeroing struct. Heap and UDP
+  // globals unconditionally: TinyCStopVM() above skips its teardown on an
+  // already torn_down slot, and the memset then loses the pointers (see
+  // TinyCUnloadSlot).
+  tc_free_all_frames(&s->vm);
+  tc_heap_free_all(&s->vm);
+  if (s->vm.udp_globals) { free(s->vm.udp_globals); s->vm.udp_globals = nullptr; s->vm.udp_global_count = 0; }
   if (s->vm.stack) { free(s->vm.stack); }
   if (s->vm.globals) { free(s->vm.globals); }
   if (s->vm.constants) { free(s->vm.constants); }
   if (s->vm.const_data) { free(s->vm.const_data); }
   memset(&s->vm, 0, sizeof(TcVM));  // zero all fields and pointers
+  s->torn_down = false;             // VM wiped — a later load starts clean
   s->cmd_prefix_saved[0] = '\0';   // deliberate reset — drop the sticky prefix too
                                    // (it lives in TcSlot, not TcVM, so the memset
                                    // above doesn't clear it).
@@ -2752,16 +2773,16 @@ static void HandleTinyCUpload(void) {
     }
     TcSlot *s = Tinyc->slots[slot_num];
 
-    // Den Slot GANZ räumen, nicht nur anhalten.
+    // Clear the slot COMPLETELY, do not just stop it.
     //
-    // Ein angehaltener Slot hält sein Programm und den ganzen VM-Speicher
-    // weiter -- bei Hans 92 KB (2026-08-18). Dann wollte der Upload seinen
-    // Puffer, und danach der Lader 34 KB Heap am Stück: das ging nicht auf,
-    // der Lauf scheiterte, und erst der ZWEITE Versuch klappte, weil der
-    // gescheiterte Ladevorgang den Slot geräumt hatte. Der Inhalt wird hier
-    // ohnehin ersetzt, also geben wir ihn sofort frei statt nach dem
-    // Fehlschlag. Preis: bricht der Upload ab, ist der Slot leer -- die .tcb
-    // liegt aber im Dateisystem und lässt sich neu laden.
+    // A stopped slot keeps its program and its whole VM memory -- 92 KB in
+    // Hans's case (2026-08-18). The upload then wanted its buffer, and after
+    // that the loader wanted 34 KB of heap in one piece: that did not add up,
+    // the attempt failed, and only the SECOND one worked, because the failed
+    // load had cleared the slot. The content is replaced here anyway, so give
+    // it back now instead of after the failure. Price: if the upload breaks
+    // off, the slot is empty -- but the .tcb is on the filesystem and can be
+    // loaded again.
     const uint32_t frei_geworden = TinyCUnloadSlot(slot_num);
     if (frei_geworden) {
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Upload: slot %d unloaded first (%u B program freed, largest block %u)"),
@@ -2878,8 +2899,8 @@ static void HandleTinyCUpload(void) {
     }
     Tinyc->upload_received = 0;
     Tinyc->upload_active = true;
-    // Was der Puffer aus dem freien Lauf gemacht hat -- die Zahl daneben ist
-    // die Antwort auf „warum findet der Lader gleich keine 34 kB am Stück?"
+    // What the buffer did to the free run -- the number next to it answers
+    // "why does the loader find no 34 KB in one piece a moment later?"
     AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Upload buffer %u B from %s, largest block now %u"),
            (unsigned)alloc_size, size_src,
 #ifdef ESP32
@@ -2958,17 +2979,18 @@ static void HandleTinyCUpload(void) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load error: %s"), tc_error_str(err));
         bool gerettet = false;
 #ifdef USE_UFILESYS
-        // ZWEITER ANLAUF aus der Datei, wenn der Speicher nicht reichte.
+        // SECOND ATTEMPT from the file when memory ran out.
         //
-        // Hans (2026-08-18) hat genau das von Hand gemacht: erster Upload
-        // scheitert, zweiter geht durch. Der Grund ist die Reihenfolge, nicht
-        // die Menge: der Upload-Puffer (hier ~31 kB) liegt MITTEN in dem
-        // Bereich, den das Räumen des Slots freigegeben hat, und zerteilt den
-        // großen freien Lauf. Der Lader will danach 34 kB AM STÜCK und findet
-        // sie nicht. Geben wir den Puffer zurück (er ist ja bereits als
-        // Programm auf die Platte geschrieben) und laden aus der Datei, liegt
-        // beides frisch nebeneinander -- dieselbe Wirkung wie sein zweiter
-        // Versuch, nur ohne dass jemand ihn machen muss.
+        // Hans (2026-08-18) did exactly this by hand: first upload fails,
+        // second one goes through. The reason is order, not amount -- the
+        // upload buffer (~31 KB there) sits in the MIDDLE of the space the
+        // slot unload just freed and splits the large free run. The loader
+        // then wants 34 KB IN ONE PIECE and does not find it. Writing the
+        // program out, giving the buffer back and loading from the file puts
+        // both next to each other again -- the same effect as his second
+        // attempt, without anyone having to make it. Measured on the C3
+        // (2026-08-18): a 20 KB buffer left 22 KB largest block, the loader's
+        // 35 KB failed, and the retry from file loaded the slot.
         if (err == TC_ERR_OUT_OF_MEMORY && ufsp) {
           const char *saveName = Tinyc->upload_filename[0] ? Tinyc->upload_filename : TC_FILE_NAME;
           File f = ufsp->open(saveName, "w");
