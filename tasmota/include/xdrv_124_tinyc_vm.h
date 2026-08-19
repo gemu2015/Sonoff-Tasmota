@@ -11841,6 +11841,28 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
               "var c=_tcC[i];if(!c)continue;"
               "var dt=new google.visualization.DataTable();"
               "var tp=c.tp,el=document.getElementById('tc'+i);"
+              // Freeze ONE width for every chart on the page, measured before the
+              // first draw. Tasmota centres its content in an inline-block whose
+              // width shrink-to-fits its widest child, so a chart div at width:100%
+              // is circular: Google Charts writes a pixel width back into the div,
+              // the container grows, the next chart measures the wider container and
+              // gets wider still — a staircase down the page (gemu, 2026-08-19, seen
+              // in Chrome; WebKit happens to resolve it once and stays put). Clearing
+              // every chart's width first, then measuring the container once, breaks
+              // the loop without widening the page. Redone when the window changes.
+              "if(el){"
+                "if(window._tcVW!=window.innerWidth){"
+                  "window._tcVW=window.innerWidth;"
+                  "for(var q=0;q<_tcC.length;q++){var e2=document.getElementById('tc'+q);if(e2)e2.style.width='';}"
+                  "var _p=el.parentElement;window._tcPX=_p?_p.clientWidth:0;"
+                "}"
+                // border-box matters: Tasmota's stylesheet gives every div 5 px of
+                // padding, so a content-box width equal to the container's inner
+                // width renders 10 px WIDER than the container - which is what
+                // pushes the shrink-to-fit parent out step by step in the first
+                // place.
+                "if(window._tcPX>0){el.style.boxSizing='border-box';el.style.width=window._tcPX+'px';}"
+              "}"
               "if(tp==116){"                                                               // table
                 "if(c.lb&&c.s.length==1&&c.s[0].d.length>1){"
                   // Transposed table: labels as column headers, one row per series
@@ -11962,7 +11984,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (new_chart) {
         char div_style[64];
         if (type == 116) {
-          strcpy(div_style, "width:100%;overflow-x:auto");
+          strcpy(div_style, "width:100%;box-sizing:border-box;overflow-x:auto");
         } else if (tc_chart_width > 0 && tc_chart_height > 0) {
           snprintf(div_style, sizeof(div_style), "width:%dpx;height:%dpx;margin:0 auto",
             tc_chart_width, tc_chart_height);
@@ -11970,7 +11992,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           snprintf(div_style, sizeof(div_style), "width:%dpx;height:300px;margin:0 auto",
             tc_chart_width);
         } else if (tc_chart_height > 0) {
-          snprintf(div_style, sizeof(div_style), "width:100%%;height:%dpx", tc_chart_height);
+          snprintf(div_style, sizeof(div_style), "width:100%%;box-sizing:border-box;height:%dpx", tc_chart_height);
         } else {
           // Default is the CARD width, not a fixed 960 px. A fixed default made
           // every chart on a phone wider than the viewport (measured on the C3:
@@ -11979,7 +12001,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           // one setting a size aligned to it, the one setting none did not
           // (mi-hol, gemu2015/Sonoff-Tasmota#111). Scripts wanting a fixed
           // width still get it from WebChartSize(w, h).
-          strcpy(div_style, "width:100%;height:300px");
+          strcpy(div_style, "width:100%;box-sizing:border-box;height:300px");
         }
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];
