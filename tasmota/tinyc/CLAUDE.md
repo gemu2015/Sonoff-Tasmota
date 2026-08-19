@@ -66,6 +66,7 @@ the intended response. This is the #1 mistake; always check.
 | `#include` building blocks (no `main()`, never loaded on their own) | `examples/common/*.tc` |
 | IDE (browser-based compiler + flasher) | `tinyc_ide.html.gz` (served from device) |
 | Batch build in the browser (Chrome/Edge, no Node) | `build.html` |
+| Repo example → slot, no IDE on the device (`USE_TINYC_REPO_IDE`) | `/tcrepo` ← `../include/xdrv_124_tinyc_repoide.h` |
 | VM + syscall implementations (contributors only) | `../include/xdrv_124_tinyc_vm.h` |
 | Driver glue: task, file, HTTP handlers | `../tasmota_xdrv_driver/xdrv_124_tinyc.ino` |
 

@@ -114,6 +114,7 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
+#include "include/xdrv_124_tinyc_repoide.h"   // /tcrepo page (USE_TINYC_REPO_IDE)
 
 // Stack per VM task. Starts from TC_VM_TASK_STACK, changeable with
 // `TinyCStack <bytes>` and remembered in /tinyc_stack.cfg (gemu 2026-08-17:
@@ -2137,6 +2138,16 @@ static void HandleTinyCPage(void) {
     "if(u)document.getElementById('ide_url').value=u;"
     "document.getElementById('ide_url').onchange=function(){"
     "localStorage.setItem('tinyc_ide_url',this.value)};</script>"));
+#endif
+#ifdef USE_TINYC_REPO_IDE
+  // The other way round: no IDE on the device at all. /tcrepo is a ~4 KB page
+  // that pulls the compiler out of the repo into the browser and installs a
+  // repo example straight into a slot.
+  WSContentSend_P(PSTR(
+    "<p style='text-align:center'>"
+    "<button onclick=\"window.open('/tcrepo','tinyc_repo')\" class='button'>Run example from repo</button>"
+    "</p>"
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>Nothing stored on the device: the browser fetches the compiler from the repo, compiles there and uploads the .tcb. Needs internet in the browser.</p>"));
 #endif
   WSContentSend_P(PSTR("</fieldset>"));
 
@@ -7245,6 +7256,9 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_WEB_ADD_HANDLER:
       WebServer_on(PSTR("/tc"), HandleTinyCPage);
+#ifdef USE_TINYC_REPO_IDE
+      WebServer_on(PSTR("/tcrepo"), HandleTinyCRepoIde);
+#endif
       Webserver->on("/tc_upload", HTTP_POST, HandleTinyCUploadDone, HandleTinyCUpload);
       Webserver->on("/tc_upload", HTTP_OPTIONS, HandleTinyCUploadCORS);
       // CORS preflight handler MUST be registered BEFORE the HTTP_ANY catch-all

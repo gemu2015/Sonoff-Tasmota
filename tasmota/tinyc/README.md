@@ -188,6 +188,15 @@ File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — suppo
 
 See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 
+> **Run one straight from the repo, without the IDE on the device:** a build with
+> `USE_TINYC_REPO_IDE` serves `/tcrepo` — a ~6.5 KB page that lists the repo's
+> examples, pulls the compiler out of the repo into your browser
+> (`tinyc_ide.html.gz`, gunzipped there), compiles, uploads the `.tcb` and starts
+> the slot. Nothing but that page lives on the device, and it always compiles with
+> whatever the repo currently ships. It has to be served *by the device*: a page on
+> an https site cannot talk to a plain-http LAN device at all — browsers block that
+> as mixed content before any CORS header is read.
+
 > The `#include` building blocks (`sml_chart_common.tc`, `sml_descriptor.tc`,
 > `modbus_lib.tc`, …) live in [`examples/common/`](examples/common/). They have no
 > `main()` and are never loaded on their own — the compiler pulls them in by bare
