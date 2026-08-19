@@ -11841,26 +11841,23 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
               "var c=_tcC[i];if(!c)continue;"
               "var dt=new google.visualization.DataTable();"
               "var tp=c.tp,el=document.getElementById('tc'+i);"
-              // Freeze ONE width for every chart on the page, measured before the
-              // first draw. Tasmota centres its content in an inline-block whose
-              // width shrink-to-fits its widest child, so a chart div at width:100%
-              // is circular: Google Charts writes a pixel width back into the div,
-              // the container grows, the next chart measures the wider container and
-              // gets wider still — a staircase down the page (gemu, 2026-08-19, seen
-              // in Chrome; WebKit happens to resolve it once and stays put). Clearing
-              // every chart's width first, then measuring the container once, breaks
-              // the loop without widening the page. Redone when the window changes.
+              // ONE width for every chart on the page. Tasmota centres its content
+              // in an inline-block that shrink-to-fits its widest child, and its
+              // stylesheet puts 5 px of padding on every div — so charts are drawn
+              // while the container is still growing and each one keeps the width it
+              // happened to see: a staircase down the page (gemu, 2026-08-19).
+              // Measured on the C3 with equal divs but unequal drawings: svg 330 for
+              // the first chart, 360 for the next. Measuring the container ONCE and
+              // pinning every div to it before the draw makes all of them identical.
+              // Do NOT clear the widths before measuring — with nothing else on the
+              // page the container collapses to its 340 px minimum and the charts
+              // come out far too narrow.
               "if(el){"
-                "if(window._tcVW!=window.innerWidth){"
-                  "window._tcVW=window.innerWidth;"
-                  "for(var q=0;q<_tcC.length;q++){var e2=document.getElementById('tc'+q);if(e2)e2.style.width='';}"
-                  "var _p=el.parentElement;window._tcPX=_p?_p.clientWidth:0;"
-                "}"
-                // border-box matters: Tasmota's stylesheet gives every div 5 px of
-                // padding, so a content-box width equal to the container's inner
-                // width renders 10 px WIDER than the container - which is what
-                // pushes the shrink-to-fit parent out step by step in the first
-                // place.
+                "if(window._tcVW!=window.innerWidth){window._tcVW=window.innerWidth;window._tcPX=0;}"
+                "if(!window._tcPX){var _p=el.parentElement;window._tcPX=_p?_p.clientWidth:0;}"
+                // border-box: with the stylesheet's 5 px padding a content-box width
+                // equal to the container's inner width renders 10 px wider than the
+                // container — which is what starts the growing in the first place.
                 "if(window._tcPX>0){el.style.boxSizing='border-box';el.style.width=window._tcPX+'px';}"
               "}"
               "if(tp==116){"                                                               // table
