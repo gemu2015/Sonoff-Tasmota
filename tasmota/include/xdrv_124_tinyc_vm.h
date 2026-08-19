@@ -11841,25 +11841,6 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
               "var c=_tcC[i];if(!c)continue;"
               "var dt=new google.visualization.DataTable();"
               "var tp=c.tp,el=document.getElementById('tc'+i);"
-              // ONE width for every chart on the page. Tasmota centres its content
-              // in an inline-block that shrink-to-fits its widest child, and its
-              // stylesheet puts 5 px of padding on every div — so charts are drawn
-              // while the container is still growing and each one keeps the width it
-              // happened to see: a staircase down the page (gemu, 2026-08-19).
-              // Measured on the C3 with equal divs but unequal drawings: svg 330 for
-              // the first chart, 360 for the next. Measuring the container ONCE and
-              // pinning every div to it before the draw makes all of them identical.
-              // Do NOT clear the widths before measuring — with nothing else on the
-              // page the container collapses to its 340 px minimum and the charts
-              // come out far too narrow.
-              "if(el){"
-                "if(window._tcVW!=window.innerWidth){window._tcVW=window.innerWidth;window._tcPX=0;}"
-                "if(!window._tcPX){var _p=el.parentElement;window._tcPX=_p?_p.clientWidth:0;}"
-                // border-box: with the stylesheet's 5 px padding a content-box width
-                // equal to the container's inner width renders 10 px wider than the
-                // container — which is what starts the growing in the first place.
-                "if(window._tcPX>0){el.style.boxSizing='border-box';el.style.width=window._tcPX+'px';}"
-              "}"
               "if(tp==116){"                                                               // table
                 "if(c.lb&&c.s.length==1&&c.s[0].d.length>1){"
                   // Transposed table: labels as column headers, one row per series
@@ -11979,9 +11960,19 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 
       // 3) New chart: emit div container + _tcN() registration with optional y-axis range
       if (new_chart) {
-        char div_style[64];
+        // The width must NOT be a percentage. Tasmota centres the page in an
+        // inline-block that shrink-to-fits its widest child, so `width:100%` is
+        // circular: with only percentage children the container falls back to its
+        // 340 px minimum, and whatever a chart library then draws pushes it out
+        // again — charts came out either far too narrow or in a staircase, one
+        // wider than the next (gemu, 2026-08-19, measured: svg 320/320/330/360).
+        // `min(96vw, 960px)` does not depend on the parent at all: every chart on
+        // the page is exactly as wide as every other, the container settles around
+        // them, 960 px keeps the old desktop look and 96vw keeps a phone from
+        // scrolling sideways (mi-hol, #111).
+        char div_style[80];
         if (type == 116) {
-          strcpy(div_style, "width:100%;box-sizing:border-box;overflow-x:auto");
+          strcpy(div_style, "width:min(96vw,960px);box-sizing:border-box;margin:0 auto;overflow-x:auto");
         } else if (tc_chart_width > 0 && tc_chart_height > 0) {
           snprintf(div_style, sizeof(div_style), "width:%dpx;height:%dpx;margin:0 auto",
             tc_chart_width, tc_chart_height);
@@ -11989,16 +11980,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           snprintf(div_style, sizeof(div_style), "width:%dpx;height:300px;margin:0 auto",
             tc_chart_width);
         } else if (tc_chart_height > 0) {
-          snprintf(div_style, sizeof(div_style), "width:100%%;box-sizing:border-box;height:%dpx", tc_chart_height);
+          snprintf(div_style, sizeof(div_style), "width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:%dpx", tc_chart_height);
         } else {
-          // Default is the CARD width, not a fixed 960 px. A fixed default made
-          // every chart on a phone wider than the viewport (measured on the C3:
-          // 970 px chart, 552 px viewport, whole page horizontally scrollable),
-          // and it left charts from different slots at different widths — the
-          // one setting a size aligned to it, the one setting none did not
-          // (mi-hol, gemu2015/Sonoff-Tasmota#111). Scripts wanting a fixed
-          // width still get it from WebChartSize(w, h).
-          strcpy(div_style, "width:100%;box-sizing:border-box;height:300px");
+          // Default: same self-contained width as above. It replaces a fixed
+          // 960 px, which on a phone made every chart wider than the viewport
+          // (measured on the C3: 970 px chart, 552 px viewport, the whole page
+          // scrollable sideways). Scripts wanting a fixed width still get it
+          // from WebChartSize(w, h).
+          strcpy(div_style, "width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:300px");
         }
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];

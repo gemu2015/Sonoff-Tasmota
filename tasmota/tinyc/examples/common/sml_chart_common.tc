@@ -324,7 +324,7 @@ void sml_chart_data_panel(int idx_init, int idx_init2, int idx_csv) {
 void sml_chart_render_days() {
     int today = tasm_day;
     if (today < 1) today = 1;
-    webSend("<div id='sml_dch' style='text-align:center;width:100%;box-sizing:border-box;height:280px'></div>");
+    webSend("<div id='sml_dch' style='text-align:center;width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:280px'></div>");
     if (ui_de) webSend("<script>function _smlDD(){var d=google.visualization.arrayToDataTable([['Tag','Energie [kWh]',{role:'style'}]");
     else       webSend("<script>function _smlDD(){var d=google.visualization.arrayToDataTable([['Day','Energy [kWh]',{role:'style'}]");
     int i = 1;
@@ -355,7 +355,7 @@ void sml_chart_render_months() {
     if (ui_de) strcpy(mn_names, "Jan|Feb|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez");
     else       strcpy(mn_names, "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec");
     char mn[6];
-    webSend("<div id='sml_mch' style='text-align:center;width:100%;box-sizing:border-box;height:280px'></div>");
+    webSend("<div id='sml_mch' style='text-align:center;width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:280px'></div>");
     if (ui_de) webSend("<script>function _smlDM(){var d=google.visualization.arrayToDataTable([['Monat','Verbrauch [kWh]',{role:'style'}]");
     else       webSend("<script>function _smlDM(){var d=google.visualization.arrayToDataTable([['Month','Import [kWh]',{role:'style'}]");
     int i = 1;
@@ -545,7 +545,7 @@ void sml_chart_pv_60s_tick() {
 void sml_chart_pv_render_dayprod() {
     int today = tasm_day;
     if (today < 1) today = 1;
-    webSend("<div id='sml_dpch' style='text-align:center;width:100%;box-sizing:border-box;height:280px'></div>");
+    webSend("<div id='sml_dpch' style='text-align:center;width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:280px'></div>");
     if (ui_de) webSend("<script>function _smlDP(){var d=google.visualization.arrayToDataTable([['Tag','Einspeisung [kWh]',{role:'style'}]");
     else       webSend("<script>function _smlDP(){var d=google.visualization.arrayToDataTable([['Day','Export [kWh]',{role:'style'}]");
     int i = 1;
@@ -571,7 +571,7 @@ void sml_chart_pv_render_months_dual() {
     if (ui_de) strcpy(mn_names, "Jan|Feb|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez");
     else       strcpy(mn_names, "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec");
     char mn[6];
-    webSend("<div id='sml_mch2' style='text-align:center;width:100%;box-sizing:border-box;height:280px'></div>");
+    webSend("<div id='sml_mch2' style='text-align:center;width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:280px'></div>");
     if (ui_de) webSend("<script>function _smlDM2(){var d=google.visualization.arrayToDataTable([['Monat','Verbrauch [kWh]','Einspeisung [kWh]']");
     else       webSend("<script>function _smlDM2(){var d=google.visualization.arrayToDataTable([['Month','Import [kWh]','Export [kWh]']");
     int i = 1;
