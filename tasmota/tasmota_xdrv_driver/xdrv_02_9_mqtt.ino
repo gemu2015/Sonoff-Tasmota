@@ -246,6 +246,17 @@ void MqttInit(void) {
     tlsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
 #endif
 
+    // Unchecked `new` was the other half of the same failure mode: with
+    // exceptions off it returns nullptr on a tight heap, and every setter below
+    // then writes through NULL. Fall back to the plain client instead — the
+    // connection is refused loudly rather than resetting the device.
+    if (nullptr == tlsClient) {
+      AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "TLS client allocation failed (out of memory) - MQTT stays off"));
+      Mqtt.mqtt_tls = false;
+      MqttClient.setClient(EspClient);
+      return;
+    }
+
     if (443 == Settings->mqtt_port && aws_iot_host) {
       static const char * alpn_mqtt = "mqtt";   // needs to be static
       tlsClient->setALPN(&alpn_mqtt, 1);         // need to set alpn to 'mqtt' for AWS IoT
