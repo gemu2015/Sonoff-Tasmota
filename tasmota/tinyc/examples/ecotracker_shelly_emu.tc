@@ -509,10 +509,11 @@ void WebCall() {
 #ifdef EMU_CHARTS
 // ─── Charts on the main page (emitted once per page load) ──────────────────
 void WebPage() {
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
-    // wraps only the charts; the status strip + reload button keep their
-    // own text-align:center so they stay page-centered.
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
+    WebChartSize(0, 300);   // 0 = volle Kartenbreite (#111)
     WebChart(0, "Leistung 4h",  "W", 0xe74c3c, s4h_pos,  s4h_cnt,  s4h,  0, 1, 0, 0);
     WebChart(0, "Leistung 24h", "W", 0x3498db, s24h_pos, s24h_cnt, s24h, 0, 5, 0, 0);
     // Date-align the day/month ring charts. The midnight rollover pushes the

@@ -308,7 +308,7 @@ void sml_chart_area_de() {
 }
 
 void sml_chart_render_4h() {
-    WebChartSize(600, 280);
+    WebChartSize(0, 280);
     // 240 points at interval=1 min = a 4 h x-axis (matches the 240-slot 1-min
     // ring). Filled area + DE date via the hook.
     WebChart(0, "Verbrauch 4 Stunden [Watt]", "W", 0x3498db, sml_s4h_pos, 240, sml_s4h, 0, 1, 0.0, 0.0);
@@ -316,7 +316,7 @@ void sml_chart_render_4h() {
 }
 
 void sml_chart_render_24h() {
-    WebChartSize(600, 280);
+    WebChartSize(0, 280);
     WebChart(0, "Verbrauch 24 Stunden [Watt]", "W", 0x3498db, sml_s24h_pos, 1440, sml_s24h, 0, 1, 0.0, 0.0);
     sml_chart_area_de();
 }

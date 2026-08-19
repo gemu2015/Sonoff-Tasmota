@@ -1621,8 +1621,10 @@ void EverySecond() {
 // Same trick energy_dashboard.tc uses.
 // ------------------------------------------------------------
 void WebPage() {
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
     // Auto-fit y-axis from non-zero samples (0.0 = "no data yet"
     // because cold-boot fills persist with zeros and the sampler
     // refuses to write when the reg is unknown). If no samples yet,
@@ -1659,12 +1661,12 @@ void WebPage() {
     // Both charts at 640×240 — same width as energy_dashboard's
     // charts so they line up if both slots run on the same device.
     // decimals=1, smoothing on (1|8). Time-step = 1 minute.
-    WebChartSize(640, 240);
+    WebChartSize(0, 240);
     WebChart(0, "HP Puffer letzte 4h", "°C",
              0x3498db, chart_pos, 240, pf_hist,
              1 | 8, 1, pf_lo, pf_hi);
 
-    WebChartSize(640, 240);
+    WebChartSize(0, 240);
     WebChart(0, "HP Ausgang letzte 4h", "°C",
              0xe67e22, chart_pos, 240, ow_hist,
              1 | 8, 1, ow_lo, ow_hi);

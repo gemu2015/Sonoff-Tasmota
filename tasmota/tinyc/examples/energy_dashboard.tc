@@ -666,8 +666,10 @@ void WebCall() {
 // in the energy block — it triggers location.reload() so WebPage()
 // runs again.
 void WebPage() {
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper)
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
 
     // ── Solar + battery, 24h/5min — the two charts from the P4 LCD display
     //    (solar_dashboard.tc). Placed first: headline energy view.
@@ -679,7 +681,7 @@ void WebPage() {
     // decimals 1|8 = 1 decimal + smooth curve; interval 5 = 5 min/sample.
     // Same colours/labels as the P4: Dach blue, GHaus red, Garage green,
     // Garten amber.
-    WebChartSize(640, 300);
+    WebChartSize(0, 300);
     WebChart(0, "Solar Wechselrichter 24h", "Dach|kW",   0x4285f4, sol_pos, 96, inv0, 1 | 8, 15, 0.0, 5.0);
     WebChart(0, "",                          "GHaus|kW",  0xea4335, sol_pos, 96, inv1, 1 | 8, 15, 0.0, 5.0);
     WebChart(0, "",                          "Garage|kW", 0x34a853, sol_pos, 96, inv2, 1 | 8, 15, 0.0, 5.0);
@@ -692,7 +694,7 @@ void WebPage() {
 
     // Chart 2: Powerwall + Marstek SOC (%), one 0..100 axis. Powerwall green,
     // Marstek blue (as on the P4). decimals 0|8 = whole % + smooth.
-    WebChartSize(640, 280);
+    WebChartSize(0, 280);
     WebChart(0, "Batterie SOC 24h", "Powerwall|%", 0x34a853, sol_pos, 96, soc_pw, 0 | 8, 15, 0.0, 100.0);
     WebChart(0, "",                 "Marstek|%",   0x4285f4, sol_pos, 96, soc_ma, 0 | 8, 15, 0.0, 100.0);
     WebChartJS("o.legend={position:'top'};");
@@ -724,7 +726,7 @@ void WebPage() {
         fast_h_kw[i] = fast_h[i] / 1000.0;
         if (fast_h_kw[i] > fmax) fmax = fast_h_kw[i];
     }
-    WebChartSize(640, 280);
+    WebChartSize(0, 280);
     WebChart(0, "Heizungs-WP letzte 60 min", "kW",
              0xe74c3c, fast_pos, 60, fast_h_kw,
              1 | 8, 1, 0.0, fmax * 1.2);
@@ -753,7 +755,7 @@ void WebPage() {
         dvals_kw[i] = h;
         if (dvals_kw[i] > kwmax) kwmax = dvals_kw[i];
     }
-    WebChartSize(640, 280);
+    WebChartSize(0, 280);
     WebChart(0, "Heizungs-WP 24h", "kW",
              0xe74c3c, dvals_pos / 4, 24, dvals_kw,
              1 | 8, 60, 0.0, kwmax * 1.2);
@@ -761,7 +763,7 @@ void WebPage() {
     // ── 31-day combined: WP kWh + outdoor temp on dual axis.
     // Daily totals so kWh (not kW) is the right unit — each row is
     // an integral over 24 h.
-    WebChartSize(640, 280);
+    WebChartSize(0, 280);
     WebChart(0, "Wärmepumpe + Aussen 31 Tage", "kWh",
              0xe74c3c, days_pos, 31, days_w,
              1, 1440, 0.0, 60.0);

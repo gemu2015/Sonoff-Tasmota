@@ -52,6 +52,7 @@ int do_init;
 int do_init2;
 int do_save;
 int do_reset;
+int do_csv;      // schreibt die Diagrammdaten als lesbare .csv-Dateien
 
 #ifdef SML_CHART_DEMO
 void sml_chart_pv_demo_fill() {
@@ -135,6 +136,24 @@ void sml_chart_pv_load() {
     fileReadBin(h, sml_mprod, 12);
 #endif
     fileClose(h);
+}
+
+// Lesbarer Export der virtuellen Einspeise-Reihen, neben sml_chart_export_csv()
+// aus dem Include. Die Nullpunkte stehen in Zeile 1 — eine Sicherung ohne sie
+// war ja gerade das Problem.
+void sml_chart_bz_export_csv() {
+    int h = fileOpen("/sml_chart_bz_export.csv", "w");
+    if (h < 0) {
+        addLog("sml_chart_bz_export_csv: fileOpen fehlgeschlagen");
+        return;
+    }
+    char kopf[96];
+    sprintf(kopf, "%.3f\t%.3f\t%.3f\n", sml_dval2, sml_mval2, sml_yval2);
+    fileWrite(h, kopf, strlen(kopf));
+    fileWriteArray(sml_dprod, h, 31, 0, CHART_CSV_DEC);
+    fileWriteArray(sml_mprod, h, 12, 0, CHART_CSV_DEC);
+    fileClose(h);
+    addLog("sml_chart_bezug: /sml_chart_bz_export.csv geschrieben (Nullpunkte in Zeile 1)");
 }
 
 void sml_chart_pv_init_baselines() {
@@ -243,6 +262,15 @@ void EverySecond() {
         do_reset = 0;
     }
 
+    // CSV-Export — bewusst VOR den NTP-/Zaehler-Abbruechen weiter unten:
+    // was gespeichert ist, muss sich auch aus einem Geraet holen lassen,
+    // dessen Zaehler gerade schweigt — genau dann will man die Daten haben.
+    if (do_csv) {
+        sml_chart_export_csv();
+        sml_chart_bz_export_csv();
+        do_csv = 0;
+    }
+
     if (tasm_year < 2020) return;
     if (smlGet(2) == 0.0) return;
 
@@ -291,9 +319,10 @@ void WebCall() {
 }
 
 void WebPage() {
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
-    // counters the ~30 px right-shift of the Tasmota main page.
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
     sml_chart_render_4h();
     sml_chart_render_24h();
     sml_chart_render_days();
@@ -310,6 +339,8 @@ void WebUI() {
     webButton(do_init,  "Zaehlerwerte initialisieren|initialisiert");
     webButton(do_init2, "Balkendiagramme zuruecksetzen|zurueckgesetzt");
     webButton(do_save,  "Diagrammdaten speichern|gespeichert");
+    webButton(do_csv,   "CSV exportieren|exportiert");
+    webSend("<div style='font-size:11px;color:#777;margin:4px 0'>Schreibt <b>/sml_chart.csv</b> und <b>/sml_chart_bz_export.csv</b> (Tabulator-getrennt, Nullpunkte in Zeile 1) - herunterladen im <a href='/ufsd' target='_blank'>Dateimanager</a>. Aendert nichts an den Daten.</div>");
     webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
     webButton(do_reset, "Sensor53 r|SML neu geladen");
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>sml_chart_bezug.tc</b><br>TinyC port of ottelo's 3_SML_Chart_PV_Bezugszaehler.tas</div></div>");

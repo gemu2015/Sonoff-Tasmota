@@ -657,11 +657,13 @@ void WebPage() {
         webSend("<p>Collecting data... Charts appear after first sample.</p>");
         return;
     }
-    // All charts in one fieldset "card frame". Match energy_dashboard's proven
-    // centering: WebChartSize(640,280) (width + margin:0 auto) PLUS ottelo's
-    // -30px wrapper that nudges the plot back to true-centre (the y-axis gutter).
-    WebChartSize(640, 280);
-    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:8px 2px;padding:4px 9px 8px'><legend style='font-weight:bold;padding:0 6px'>Wetterverlauf 24h</legend><div style='margin-left:-20px'>");
+    // Alle Diagramme in einem Fieldset ("Karte"). Breite 0 = volle
+    // Containerbreite, damit sie mit jedem anderen Skript auf der Seite
+    // fluchten — eine feste px-Breite wirkt ausserdem auf die NACHFOLGENDEN
+    // Skripte weiter (mi-hol, #111). Deshalb auch kein margin-left:-20px
+    // mehr: der Ausgleich war nur fuer die feste Breite noetig.
+    WebChartSize(0, 280);
+    webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:8px 2px;padding:4px 9px 8px'><legend style='font-weight:bold;padding:0 6px'>Wetterverlauf 24h</legend><div>");
     WebChart(0, "Temperature (24h)", "°C", 0xe74c3c, h_pos, NPTS, h_temp, 1, 5, -20, 50);
     WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, NPTS, h_hum,  1, 5, 0, 100);
     WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, NPTS, h_wavg, 1, 5, 0, 0);

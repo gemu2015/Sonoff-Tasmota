@@ -258,14 +258,14 @@ void sml_water_render_totals() {
 // Render: WebChart line charts (4 h + 24 h cumulative m³)
 // ============================================================================
 void sml_water_render_4h() {
-    WebChartSize(600, 280);
+    WebChartSize(0, 280);
     // type=0 (line), color=blue, 4 decimals, interval=1 min, ymin/ymax=0 (auto)
     WebChart(0, "Verbrauch 4 Stunden [m\xC2\xB3]", "m\xC2\xB3", 0x3498db,
              sml_w_s4h_pos, 480, sml_w_s4h, 4, 1, 0.0, 0.0);
 }
 
 void sml_water_render_24h() {
-    WebChartSize(600, 280);
+    WebChartSize(0, 280);
     WebChart(0, "Verbrauch 24 Stunden [m\xC2\xB3]", "m\xC2\xB3", 0x3498db,
              sml_w_s24h_pos, 1440, sml_w_s24h, 4, 1, 0.0, 0.0);
 }
@@ -418,9 +418,10 @@ void WebCall() {
 
 // ── Main page, chart block below sensors ──
 void WebPage() {
-    // ottelo's chart-centering compensation (margin-left:-30px wrapper) —
-    // counters the ~30 px right-shift of the Tasmota main page.
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
     sml_water_render_4h();
     sml_water_render_24h();
     sml_water_render_days();

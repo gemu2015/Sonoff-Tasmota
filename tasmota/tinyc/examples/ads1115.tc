@@ -148,8 +148,11 @@ void WebPage() {
     int n = hist_pos;
     if (n > CHART_LEN) n = CHART_LEN;
     if (n > 0) {
-        // ottelo's chart-centering compensation (margin-left:-30px wrapper)
-        webSend("<div style='margin-left:-30px'>");
+        // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+        // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+        // links aus der Flucht der anderen Skripte (mi-hol, #111).
+        webSend("<div>");
+        WebChartSize(0, 300);   // 0 = volle Kartenbreite (#111)
         WebChart('l', "ADS1115 Voltages", "AIN0 (V)", 0xe74c3c, hist_pos, CHART_LEN, hist_ch0, 1, 0, 0, 0);
         if (ADS_CHANNELS > 1) {
             WebChart('l', "", "AIN1 (V)", 0x3498db, hist_pos, CHART_LEN, hist_ch1, 1, 0, 0, 0);

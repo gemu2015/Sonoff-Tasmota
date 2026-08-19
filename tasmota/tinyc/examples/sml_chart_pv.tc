@@ -27,6 +27,7 @@ int do_init;
 int do_init2;
 int do_save;
 int do_reset;
+int do_csv;      // schreibt die Diagrammdaten als lesbare .csv-Dateien
 
 // ============================================================================
 // Callbacks
@@ -38,6 +39,15 @@ void EverySecond() {
     if (do_reset) {
         tasmCmd("Sensor53 r", sml_pv_resp);
         do_reset = 0;
+    }
+
+    // CSV-Export — bewusst VOR den NTP-/Zaehler-Abbruechen weiter unten:
+    // was gespeichert ist, muss sich auch aus einem Geraet holen lassen,
+    // dessen Zaehler gerade schweigt — genau dann will man die Daten haben.
+    if (do_csv) {
+        sml_chart_export_csv();
+        sml_chart_pv_export_csv();
+        do_csv = 0;
     }
 
     if (tasm_year < 2020) return;
@@ -88,10 +98,10 @@ void WebCall() {
 }
 
 void WebPage() {
-    // ottelo's chart-centering compensation (2_SML_Chart_PV.tas wraps the
-    // chart block in `<div style="margin-left:-30px">`) — pulls the
-    // ~30 px right-shift of the Tasmota main page back to centered.
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
     sml_chart_render_4h();
     sml_chart_render_24h();
     sml_chart_render_days();           // daily consumption (tri-color)
@@ -114,6 +124,8 @@ void WebUI() {
     sprintf(sml_buf, "%d)'>Balkendiagramme (Tage/Monate) zuruecksetzen</button></div>", varIdx(do_init2));
     webSend(sml_buf);
     webButton(do_save,  "Diagrammdaten jetzt speichern|gespeichert");
+    webButton(do_csv,   "CSV exportieren|exportiert");
+    webSend("<div style='font-size:11px;color:#777;margin:4px 0'>Schreibt <b>/sml_chart.csv</b> und <b>/sml_chart_pv.csv</b> (Tabulator-getrennt, Nullpunkte in Zeile 1) - herunterladen im <a href='/ufsd' target='_blank'>Dateimanager</a>. Aendert nichts an den Daten.</div>");
     webSend("<hr><b>&#x1F504; SML neu initialisieren</b>");
     webButton(do_reset, "SML-Treiber neu laden (Sensor53 r)|SML neu geladen");
     webSend("<div style='font-size:11px;color:#777;margin:4px 0'>Laedt nur den SML-Treiber neu (Pins/Descriptor) - aendert KEINE Zaehler- oder Chart-Daten.</div>");

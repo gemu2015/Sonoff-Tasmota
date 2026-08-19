@@ -549,8 +549,11 @@ void WebCall() {
 // ---- 1-h-Verlaufschart des Heizkessels (Holzkessel) auf der Hauptseite ----
 void WebPage() {
     if (hk_id<0 || hk_filled==0) return;   // ab dem ersten gültigen Wert (Ring vorbelegt)
-    webSend("<div style='margin-left:-30px'>");   // ottelos Chart-Zentrierung (neg. x-Offset)
-    WebChartSize(600, 260);
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
+    WebChartSize(0, 260);
     // FESTES 1-h-Fenster: count=HK_N (60 × 1-Min), Ring beim Start vorbelegt -> sofort sichtbar.
     // 1 Nachkommastelle, interval=1 Min, ymin/ymax=0 -> Auto-Skala.
     WebChart(0, "Heizkessel (1 h)", "°C", 0xe74c3c, hk_pos, HK_N, hk_hist, 1, 1, 0.0, 0.0);

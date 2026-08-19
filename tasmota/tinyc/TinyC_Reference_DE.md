@@ -2638,7 +2638,7 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `WebChartSize(int width, int height)` | Groesse des Chart-`<div>` in Pixeln setzen (z. B. `640 × 200`). `0` fuer einen der Werte = Standard verwenden. |
+| `WebChartSize(int width, int height)` | Groesse des Chart-`<div>` in Pixeln setzen (z. B. `640 × 200`). `0` fuer einen der Werte = Standard verwenden (seit 1.6.54: volle Containerbreite × 300 px). |
 | `WebChartTimeBase(int minutes)` | Zeitbasis der X-Achse relativ zu „jetzt“ verschieben. `0` = an „jetzt“ verankert (Standard); negativ = in die Vergangenheit (z. B. `-1440` = vor 24 h). Nuetzlich, um das aelteste Sample eines Ringpuffers an den linken Rand zu legen. |
 | `WebChartJS("…js…")` | JavaScript-Schnipsel an das **zuletzt erzeugte** Diagramm haengen — also **nach** dem `WebChart()`, zu dem er gehoert. Er laeuft im Zeichen-Kontext mit `dt` (Google `DataTable`), `o` (Optionen) und `el` (DOM-Element), nachdem die Standardoptionen gebaut sind und bevor gezeichnet wird. Entweder `o`/`dt` veraendern und TinyC zeichnen lassen — oder selbst zeichnen und `o.done=1` setzen, dann entfaellt das Standard-Zeichnen (damit ist jeder Diagrammtyp moeglich). |
 
@@ -2714,7 +2714,9 @@ Tag, an dem die Daten am seltsamsten aussehen.
 #### Diagrammgröße über mehrere Skripte hinweg
 
 `WebChartSize(width, height)` setzt die Größe des Diagramm-`<div>`; `0` für einen der Werte
-nimmt den Standard (960 × 300 px, wenn keiner gesetzt ist).
+nimmt den Standard. Seit **1.6.54** ist der Standard `width:100%` × 300 px — also die
+Kartenbreite und nicht mehr feste 960 px. Die festen 960 px machten auf dem Telefon jedes
+Diagramm breiter als das Sichtfeld und die ganze Seite waagerecht schiebbar.
 
 ⚠️ **Es ist eine Einstellung je Seitenaufbau, nicht je Skript.** Sie wird einmal zu Beginn
 jedes Hauptseiten-Aufbaus auf „nicht gesetzt“ zurückgestellt und wandert dann in

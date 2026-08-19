@@ -360,7 +360,11 @@ void WebPage() {
     // FULL length (24h / 7d axis). Un-recorded slots read 0.0 -> the WebChartJS
     // snippet turns those into null (a gap) so the line shows real data at its
     // real time instead of dropping to 0 C over the not-yet-filled slots.
-    webSend("<div style='margin-left:-30px'>");
+    // Neutraler Rahmen: mit WebChartSize(0, ...) fuellt das Diagramm die
+    // Karte — der alte Ausgleich margin-left:-30px schob es dann nur nach
+    // links aus der Flucht der anderen Skripte (mi-hol, #111).
+    webSend("<div>");
+    WebChartSize(0, 300);   // 0 = volle Kartenbreite (#111)
 
     // --- 24h chart: 3 series, wall-clock 5-min slots, interval = 5 min ---
     WebChart(0, "Temperaturen 24h", "Aussen|C", 0x2196F3, d_pos, DAY_LEN, d_at, 1, 5, 0.0, 0.0);

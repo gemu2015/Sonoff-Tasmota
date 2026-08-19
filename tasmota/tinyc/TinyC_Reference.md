@@ -3526,7 +3526,7 @@ See *Baseline at zero* below.
 
 | Function | Description |
 |----------|-------------|
-| `WebChartSize(int width, int height)` | Set the chart `<div>` size in pixels (e.g. `640 × 200`). `0` for either = use the default. |
+| `WebChartSize(int width, int height)` | Set the chart `<div>` size in pixels (e.g. `640 × 200`). `0` for either = use the default (since 1.6.54: full container width × 300 px). |
 | `WebChartTimeBase(int minutes)` | Offset the X-axis time base from "now". `0` = anchored to now (default); negative = into the past (e.g. `-1440` = 24 h ago). Useful to align a ring buffer's oldest sample with the left edge. |
 
 **Customizing a chart with JS (call *after* `WebChart()`):**
@@ -3606,7 +3606,9 @@ auto-scaling you were trying to avoid — on exactly the day the data looks stra
 #### Chart size across several scripts
 
 `WebChartSize(width, height)` sets the chart `<div>` size; `0` for either falls back to
-the default (960 × 300 px when neither is set).
+the default. Since **1.6.54** the default is `width:100%` × 300 px — the card width, not
+the old fixed 960 px, which on a phone made every chart wider than the viewport and put a
+horizontal scrollbar on the whole page.
 
 ⚠️ **It is one setting for the whole page render, not per script.** It is reset to "not
 set" once at the start of each main-page render and then carries from slot to slot in
