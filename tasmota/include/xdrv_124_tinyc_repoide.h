@@ -98,7 +98,13 @@ async function list(){
     s.innerHTML='';
     tc.forEach(function(x){var o=document.createElement('option');o.value=x.name;o.textContent=x.name.replace(/\.tc$/,'');s.appendChild(o);});
     log(tc.length+' examples in the repo.');$('go').disabled=false;
-  }catch(e){$('ex').innerHTML='<option value="">list failed</option>';fail(e.message+' (no internet on this network?)');}
+  }catch(e){
+    $('ex').innerHTML='<option value="">list failed</option>';
+    // 403 from the API is almost always the unauthenticated rate limit (60/h
+    // per IP), which says nothing about the network - do not blame the WiFi.
+    fail(e.message+(/403/.test(e.message)?' - GitHub rate limit (60 requests/h per IP), try again later'
+                                         :' - no internet in this browser?'));
+  }
 }
 
 $('go').onclick=async function(){
