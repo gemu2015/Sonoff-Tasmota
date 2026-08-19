@@ -51,7 +51,7 @@
     <div class="row" style="margin-top:8px">
       <label>Preset <select id="presetSel" style="width:200px">
         <option value="standard">sml_chart (4 arrays, 1965)</option>
-        <option value="pv">sml_chart_pv (6 arrays, 2008)</option>
+        <option value="pv">sml_chart, Einspeisung an (6 arrays, 2008)</option>
       </select></label>
       <label>File on device <input id="devFile" type="text" value="/sml_chart.bin" style="width:180px"></label>
       <label>Reload script <input id="devSlot" type="text" value="/sml_chart.tcb" style="width:180px"></label>
@@ -103,9 +103,10 @@
 // ─── Presets ──────────────────────────────────────────────────────────────────
 // Each entry: file path on device, slot path, and the float32 layout (in file
 // order). totals: standard=1965, pv=43. 'pv' covers ottelo's `2_SML_Chart_PV.tas`
-// port (sml_chart_pv.tc) — which stores production-only (dprod|mprod=43) in
-// /sml_chart_pv.bin and the consumption arrays (s4h|s24h|dcon|mcon=1965) in
-// /sml_chart.bin (= the 'standard' preset, shared with sml_chart.tc). So a PV
+// port — feed-in is a switch inside sml_chart.tc since the ottelo merge (it used
+// to be a separate sml_chart_pv.tc). The file layout is unchanged: production-only
+// (dprod|mprod=43) in /sml_chart_pv.bin, the consumption arrays
+// (s4h|s24h|dcon|mcon=1965) in /sml_chart.bin (= the 'standard' preset). So a PV
 // device has BOTH files; the data.csv importer below writes both.
 const PRESETS = {
   standard: {
@@ -120,8 +121,8 @@ const PRESETS = {
   },
   pv: {
     file: "/sml_chart_pv.bin",
-    slot: "/sml_chart_pv.tcb",
-    // sml_chart_pv.tc's /sml_chart_pv.bin holds production-only (43 floats).
+    slot: "/sml_chart.tcb",
+    // /sml_chart_pv.bin holds production-only (43 floats).
     // The consumption arrays live in /sml_chart.bin (the 'standard' preset).
     schema: [
       { name: "sml_dprod (daily production, 31)",   count: 31 },
@@ -474,7 +475,7 @@ $("resync").onclick = () => { if (lastFloats) renderSegments(); };
 })();
 
 // Preset dropdown — replaces both the device file + slot fields and the
-// in-memory schema. mi-hol asked for this 2026-05-26: he runs sml_chart_pv.tc
+// in-memory schema. mi-hol asked for this 2026-05-26: he runs sml_chart.tc with
 // (43 float file = dprod+mprod, 2008 floats total) and the editor was
 // hard-wired for plain sml_chart.tc's 1965-float layout.
 $("presetSel").addEventListener("change", e => applyPreset(e.target.value));
@@ -486,12 +487,12 @@ $("presetSel").addEventListener("change", e => applyPreset(e.target.value));
 //   line 2: dcon   (31)
 //   line 3: dprod  (31)
 //   line 4: mcon   (24, with [0..11]=consumption, [12..23]=production)
-// The TinyC port (sml_chart_pv.tc) persists into TWO bins — NOT one combined
+// The TinyC port persists into TWO bins — NOT one combined
 // file. (Writing all 2008 floats to /sml_chart_pv.bin was the migration bug
 // mi-hol hit: the firmware reads only the first 43 floats there as dprod|mprod
 // — i.e. the START of the 4h chart — so the month chart showed garbage.):
 //   /sml_chart.bin    = s4h | s24h | dcon | mcon   (1965)  ← sml_chart_common
-//   /sml_chart_pv.bin = dprod | mprod              (43)    ← sml_chart_pv_common
+//   /sml_chart_pv.bin = dprod | mprod              (43)    ← PV side of sml_chart_common
 // The dual month chart reads sml_mcon from /sml_chart.bin AND sml_mprod from
 // /sml_chart_pv.bin, so both files must be migrated. This importer validates the
 // counts, splits mcon24, and writes BOTH .bin files. Upload both + restart slot.

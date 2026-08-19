@@ -230,6 +230,18 @@ See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 - **ble_scan** — BLE advertisement scanner + device-filter template (`USE_TINYC_BLE`)
 - **sml_ebus** — Smart Meter Language / eBUS
 
+**Smart meter (SML) — ottelo's family, one program per setup:**
+- **sml_simple** — meter only, smallest program
+- **sml_chart** — + charts and tables on their own page, feed-in switchable
+- **sml_chart_bezug** — for meters with no export register: the feed-in total is
+  integrated from negative power (`SML_PV_TOTAL` points the shared code at it)
+- **sml_eco_shelly** / **sml_chart_eco_shelly** — + EcoTracker / Shelly Pro 3EM
+  emulator for PV batteries
+- **sml_ct002** / **sml_chart_ct002** — + Marstek CT002/CT003 emulator
+- Modbus-TCP is built into every one of them. The emulator variants must run in
+  **slot 0** — their HTTP endpoints are `webOn` handlers, and Tasmota hands those
+  to slot 0. Docs: <https://ottelo9.github.io/tasmota-sml-script/>
+
 **Energy & Automation:**
 - **core2_energy** — M5Stack Core2 energy monitor with Shelly 3EM
 - **ecotracker** — Energy tracking with daily counters

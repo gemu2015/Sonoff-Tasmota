@@ -158,10 +158,12 @@ small_chart.tcb
 sml_card.tcb
 sml_chart.tcb
 sml_chart_bezug.tcb
-sml_chart_modbus.tcb
-sml_chart_pv.tcb
+sml_chart_ct002.tcb
+sml_chart_eco_shelly.tcb
+sml_ct002.tcb
 sml_custom_line.tcb
 sml_ebus.tcb
+sml_eco_shelly.tcb
 sml_enable.tcb
 sml_simple.tcb
 sml_water.tcb

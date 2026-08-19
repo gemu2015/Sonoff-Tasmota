@@ -596,7 +596,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
-`sml_chart_pv.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`
+`sml_chart.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`
 first, then `compile()`.
 
 ---
