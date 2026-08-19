@@ -11946,6 +11946,23 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           "}"
           "google.charts.setOnLoadCallback(_tcD);"
           "</script>"
+          // Tasmota's stylesheet puts 5 px of padding on EVERY div, including the
+          // ones Google nests inside a chart — each level added 5 px, so the drawing
+          // sat 10 px right of centre and overflowed the card on the right (gemu,
+          // 2026-08-19: div 120..1080, svg 135..1085). ottelo's old -30px wrapper was
+          // compensating exactly this. Zeroed here for chart divs only, so the
+          // drawing fills its card symmetrically.
+          // Two rules, once per response, both about Tasmota's own layout:
+          //  * the page content sits in an inline-block that shrink-to-fits its
+          //    widest child, so a chart can never size itself against it — pinning
+          //    the container makes every chart, button and table on the page share
+          //    one width, which is how it looked before charts became flexible.
+          //    960 px is the old desktop width, 96vw keeps a phone from scrolling.
+          //  * the stylesheet puts 5 px padding on EVERY div, including the ones
+          //    Google nests inside a chart: each level shifted the drawing right and
+          //    over the card's edge (gemu, 2026-08-19: card 120..1080, drawing
+          //    135..1085). ottelo's old -30px wrapper was compensating exactly that.
+          "<style>body>div{width:min(96vw,960px);box-sizing:border-box}.tcc div{padding:0}</style>"
         ));
         tc_chart_lib_sent = true;
       }
@@ -11972,7 +11989,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         // scrolling sideways (mi-hol, #111).
         char div_style[80];
         if (type == 116) {
-          strcpy(div_style, "width:min(96vw,960px);box-sizing:border-box;margin:0 auto;overflow-x:auto");
+          strcpy(div_style, "width:100%;box-sizing:border-box;overflow-x:auto");
         } else if (tc_chart_width > 0 && tc_chart_height > 0) {
           snprintf(div_style, sizeof(div_style), "width:%dpx;height:%dpx;margin:0 auto",
             tc_chart_width, tc_chart_height);
@@ -11980,26 +11997,26 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           snprintf(div_style, sizeof(div_style), "width:%dpx;height:300px;margin:0 auto",
             tc_chart_width);
         } else if (tc_chart_height > 0) {
-          snprintf(div_style, sizeof(div_style), "width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:%dpx", tc_chart_height);
+          snprintf(div_style, sizeof(div_style), "width:100%%;box-sizing:border-box;height:%dpx", tc_chart_height);
         } else {
           // Default: same self-contained width as above. It replaces a fixed
           // 960 px, which on a phone made every chart wider than the viewport
           // (measured on the C3: 970 px chart, 552 px viewport, the whole page
           // scrollable sideways). Scripts wanting a fixed width still get it
           // from WebChartSize(w, h).
-          strcpy(div_style, "width:min(96vw,960px);box-sizing:border-box;margin:0 auto;height:300px");
+          strcpy(div_style, "width:100%;box-sizing:border-box;height:300px");
         }
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];
           dtostrf(ymin, 1, 1, ymin_s);
           dtostrf(ymax, 1, 1, ymax_s);
           WSContentSend_P(PSTR(
-            "<div id=\"tc%d\" style=\"%s\"></div>"
+            "<div id=\"tc%d\" class=\"tcc\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,%s,%s,%d);</script>"
           ), chart_id, div_style, chart_id, title, axis_unit, type, ymin_s, ymax_s, smooth ? 1 : 0);
         } else {
           WSContentSend_P(PSTR(
-            "<div id=\"tc%d\" style=\"%s\"></div>"
+            "<div id=\"tc%d\" class=\"tcc\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,0,0,%d);</script>"
           ), chart_id, div_style, chart_id, title, axis_unit, type, smooth ? 1 : 0);
         }
