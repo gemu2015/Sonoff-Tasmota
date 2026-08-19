@@ -906,6 +906,16 @@ int main() {
         // PC" button (TODO future). Cleared on full reload of the IDE
         // (in-memory only — no localStorage to keep things obvious).
         const tcLocalFiles = new Map();   // basename -> source text
+        const tcRepoCache  = new Map();   // basename -> source text fetched from the repo
+
+        // The repo behind both the "Repo Examples" list and the #include
+        // fallback below. Declared here, before the resolver that uses it —
+        // it used to sit 400 lines further down, which only worked because
+        // nothing resolves an include before the page has finished loading.
+        const REPO_OWNER  = 'gemu2015';
+        const REPO_NAME   = 'Sonoff-Tasmota';
+        const REPO_BRANCH = 'universal';
+        const REPO_EX_DIR = 'tasmota/tinyc/examples';
 
         // ─── #include resolver (v1.5.2) ────────────────────
         // Recursively walks the source for `#include "filename.tc"` lines,
@@ -948,23 +958,49 @@ int main() {
                 return name.replace(/^\/+/, '');
             }
 
+            // Last resort: the repo the "Repo Examples" list comes from. Picking
+            // sml_chart.tc there and hitting Run used to die on its first
+            // #include — the file exists in the repo, but the resolver only ever
+            // looked at local files and the device. The building blocks live in
+            // examples/common/, so both places are tried, by bare filename (the
+            // same rule the compiler and the batch build use).
+            const REPO_RAW = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/tasmota/tinyc/examples`;
+            async function fetchFromRepo(filename) {
+                const bare = tcLocalKey(filename).replace(/^.*\//, '');
+                if (tcRepoCache.has(bare)) return tcRepoCache.get(bare);
+                for (const url of [`${REPO_RAW}/${bare}`, `${REPO_RAW}/common/${bare}`]) {
+                    try {
+                        const r = await fetch(url, { mode: 'cors' });
+                        if (!r.ok) continue;
+                        const text = await r.text();
+                        tcRepoCache.set(bare, text);
+                        appendOutput(`#include "${bare}" — loaded from repo`, 'info');
+                        return text;
+                    } catch (e) { /* offline or blocked — fall through */ }
+                }
+                return null;
+            }
+
             async function fetchFile(filename) {
-                // Order: (1) local-files map (companion files opened from
-                // PC), (2) device UFS over HTTP. Local takes priority so
-                // PC-side iteration doesn't depend on first uploading the
-                // helper files to the device.
+                // Order: (1) local-files map (companion files opened from PC),
+                // (2) device UFS over HTTP, (3) the repo. Local takes priority so
+                // PC-side iteration doesn't depend on first uploading the helper
+                // files to the device; the repo comes last so it never shadows a
+                // file the user actually has.
                 const key = tcLocalKey(filename);
                 if (tcLocalFiles.has(key)) {
                     return tcLocalFiles.get(key);
                 }
                 const ip = getDeviceIp();
                 if (!ip) {
+                    const fromRepo = await fetchFromRepo(filename);
+                    if (fromRepo !== null) return fromRepo;
                     const have = tcLocalFiles.size > 0
                         ? ` Local files currently loaded: ${[...tcLocalFiles.keys()].join(', ')}.`
                         : ' No local files loaded — use "Incl" to load a folder or Open with multi-select.';
                     throw new Error(
-                        `#include "${filename}" — not in local files (key '${key}') and no ` +
-                        `device IP set.${have}`);
+                        `#include "${filename}" — not in local files (key '${key}'), not in the ` +
+                        `repo, and no device IP set.${have}`);
                 }
                 const path = filename.startsWith('/') ? filename : '/' + filename;
                 const url = `http://${ip}/tc_api?cmd=readfile&path=${encodeURIComponent(path)}`;
@@ -972,13 +1008,17 @@ int main() {
                 try {
                     resp = await fetch(url, { mode: 'cors' });
                 } catch (e) {
+                    const fromRepo = await fetchFromRepo(filename);
+                    if (fromRepo !== null) return fromRepo;
                     throw new Error(`#include "${filename}" — fetch failed: ${e.message}`);
                 }
                 if (!resp.ok) {
+                    const fromRepo = await fetchFromRepo(filename);
+                    if (fromRepo !== null) return fromRepo;
                     let detail = '';
                     try { detail = await resp.text(); } catch {}
                     const hint = resp.status === 404
-                        ? ` — file is not on the device's UFS either. Click the "Incl" button to load the folder containing "${filename}" from your PC, then recompile.`
+                        ? ` — not on the device's UFS and not in the repo either. Click the "Incl" button to load the folder containing "${filename}" from your PC, then recompile.`
                         : '';
                     const have = tcLocalFiles.size > 0
                         ? ` Local files currently loaded: ${[...tcLocalFiles.keys()].join(', ')}.`
@@ -1329,10 +1369,6 @@ int main() {
         // fetches the raw source on demand — so unbundled / newly-added examples
         // are reachable without re-flashing the IDE. Needs internet; degrades
         // gracefully (stays empty) when offline / on a LAN-only device.
-        const REPO_OWNER  = 'gemu2015';
-        const REPO_NAME   = 'Sonoff-Tasmota';
-        const REPO_BRANCH = 'universal';
-        const REPO_EX_DIR = 'tasmota/tinyc/examples';
         let repoExamplesLoaded = false;
         async function populateRepoExamples() {
             if (repoExamplesLoaded) return;
