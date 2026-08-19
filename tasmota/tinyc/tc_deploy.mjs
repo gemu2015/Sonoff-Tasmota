@@ -131,8 +131,18 @@ let resolved = source;
 const resolveIncludes = sandbox.resolveIncludes;
 if (typeof resolveIncludes === 'function') {
     const getFile = (name) => {
-        const p = path.isAbsolute(name) ? name : path.join(srcDir, name);
-        return fs.readFileSync(p, 'utf8');
+        if (path.isAbsolute(name)) return fs.readFileSync(name, 'utf8');
+        // Look next to the source first, then in common/ and ../common/ — that
+        // is ottelo's layout (programs at the top, building blocks in common/),
+        // and his build.html resolves includes by bare filename too.
+        const bare = name.replace(/^.*[\/\\]/, '');
+        const orte = [ path.join(srcDir, name),
+                       path.join(srcDir, 'common', bare),
+                       path.join(srcDir, '..', 'common', bare) ];
+        for (const p of orte) {
+            try { return fs.readFileSync(p, 'utf8'); } catch (e) { /* weiter suchen */ }
+        }
+        throw new Error(`include "${name}" not found (looked in ${orte.join(', ')})`);
     };
     try {
         resolved = resolveIncludes(source, getFile);

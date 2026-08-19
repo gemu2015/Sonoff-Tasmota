@@ -63,7 +63,9 @@ the intended response. This is the #1 mistake; always check.
 |---|---|
 | Language reference (types, operators, syntax, every built-in) | `TinyC_Reference.md` |
 | Short examples by topic | `examples/*.tc` |
+| `#include` building blocks (no `main()`, never loaded on their own) | `examples/common/*.tc` |
 | IDE (browser-based compiler + flasher) | `tinyc_ide.html.gz` (served from device) |
+| Batch build in the browser (Chrome/Edge, no Node) | `build.html` |
 | VM + syscall implementations (contributors only) | `../include/xdrv_124_tinyc_vm.h` |
 | Driver glue: task, file, HTTP handlers | `../tasmota_xdrv_driver/xdrv_124_tinyc.ino` |
 

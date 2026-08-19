@@ -2,9 +2,9 @@
 // compile_examples.mjs — compile every examples/*.tc to bytecode/<name>.tcb and
 // regenerate bytecode/index.txt (the repo download list the device fetches).
 //
-// Standalone programs compile and get a .tcb + an index entry. Files that are
-// #include libraries (no main(), or a bare #include) fail to compile standalone
-// and are skipped — they shouldn't have a .tcb or appear in the download list.
+// Standalone programs compile and get a .tcb + an index entry. The #include
+// building blocks live in examples/common/ and are not scanned at all — they
+// have no main() and must not appear in the download list.
 //
 // Run from anywhere:  node tasmota/tinyc/scripts/compile_examples.mjs
 import { readFileSync, writeFileSync, readdirSync } from 'fs';
@@ -18,8 +18,16 @@ const root  = join(here, '..');                 // tasmota/tinyc
 const exDir = join(root, 'examples');
 const bcDir = join(root, 'bytecode');
 
-// #include "foo.tc" is resolved relative to the examples dir (same as tc_deploy.mjs).
-const getFile = (name) => readFileSync(join(exDir, name), 'utf-8');
+// #include "foo.tc" is resolved next to the programs first, then in
+// examples/common/ — the include-only building blocks live there (ottelo's
+// layout: programs on top, common/ underneath). Bare filename, like the IDE.
+const getFile = (name) => {
+  const bare = name.replace(/^.*[\/\\]/, '');
+  for (const p of [join(exDir, bare), join(exDir, 'common', bare)]) {
+    try { return readFileSync(p, 'utf-8'); } catch { /* keep looking */ }
+  }
+  throw new Error(`include "${name}" not found in examples/ or examples/common/`);
+};
 
 const tcs = readdirSync(exDir).filter(f => f.endsWith('.tc')).sort();
 const ok = [], failed = [], changed = [], created = [];

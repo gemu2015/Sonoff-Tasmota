@@ -2375,7 +2375,7 @@ void EverySecond() {
 }
 ```
 
-Vorgefertigte Helfer `mbFC03/04/06/16` in `examples/modbus_lib.tc`.
+Vorgefertigte Helfer `mbFC03/04/06/16` in `examples/common/modbus_lib.tc`.
 
 ### Raw-TLS-Client (HTTPS)
 

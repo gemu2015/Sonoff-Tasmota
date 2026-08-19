@@ -3259,7 +3259,7 @@ void EverySecond() {
 }
 ```
 
-See `examples/modbus_lib.tc` for the canonical `mbFC03/04/06/16`
+See `examples/common/modbus_lib.tc` for the canonical `mbFC03/04/06/16`
 helpers built on `tcpTransact`.
 
 ### Raw TLS Client (HTTPS)

@@ -63,7 +63,7 @@ EXAMPLES = [
     ('webui_demo',     'WebUI Dashboard'),
     ('multipage_demo', 'WebUI Multi-Page'),
     ('web_handler',    'Custom Web Handler'),
-    ('bresser',        'Bresser Weather (CC1101)'),
+    ('bresser_chart',  'Bresser Weather (CC1101)'),
     ('bresser_chart',  'Bresser + 24h Charts'),
     ('benchmark',      'Benchmark'),
     ('display_demo',   'Display Drawing'),

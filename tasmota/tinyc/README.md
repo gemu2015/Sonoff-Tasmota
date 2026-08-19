@@ -188,6 +188,12 @@ File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — suppo
 
 See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 
+> The `#include` building blocks (`sml_chart_common.tc`, `sml_descriptor.tc`,
+> `modbus_lib.tc`, …) live in [`examples/common/`](examples/common/). They have no
+> `main()` and are never loaded on their own — the compiler pulls them in by bare
+> filename, so `#include "sml_chart_common.tc"` stays as it is. In the on-device IDE,
+> load that folder once with **Incl**.
+
 **I2C Sensors:**
 - **bme280** / **bmp280** / **bmx280** — Bosch environmental sensors (temperature, humidity, pressure)
 - **sht31** — Temperature/humidity (dual-bus scan, address claiming)
