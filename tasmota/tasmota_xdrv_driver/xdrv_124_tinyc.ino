@@ -1782,6 +1782,12 @@ static void HandleTinyCPage(void) {
       cs->output_len = 0;
       cs->output[0] = '\0';
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d reset (web)"), cmd_slot);
+    } else if (cmd == "unload") {
+      // "clear the slot" — a stop keeps the bytecode and the VM allocations, so the
+      // RAM only comes back here (mi-hol, discussion #118). Works on a slot that is
+      // merely loaded, not running.
+      const uint32_t frei = TinyCUnloadSlot(cmd_slot);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d unloaded (web), %u bytes free'd"), cmd_slot, frei);
     } else if (cmd == "load" && Webserver->hasArg(F("file"))) {
 #ifdef USE_UFILESYS
       String file = Webserver->arg(F("file"));
@@ -1925,7 +1931,8 @@ static void HandleTinyCPage(void) {
         "<input type='hidden' name='slot' value='%d'>"
         "<button name='cmd' value='run' class='button' style='background:%s'>&#x25B6;</button>"
         "<button name='cmd' value='stop' class='button' style='background:%s'>&#x25A0;</button>"
-        "<button name='cmd' value='reset' class='button'>&#x21BB;</button>"
+        "<button name='cmd' value='reset' class='button' title='Reset the VM (keeps the program loaded)'>&#x21BB;</button>"
+        "<button name='cmd' value='unload' class='button' title='Clear the slot: give the bytecode and the VM RAM back'>&#x23CF;</button>"
         "<button name='cmd' value='autoexec' class='button' style='background:%s' title='Auto-execute on boot'>A</button>"
         "</form></div>"), si,
         active ? "#555" : "#47c266",    // Run: grey when active, green when idle
