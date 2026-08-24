@@ -85,15 +85,41 @@ static uint8_t *tc_ref_bytes(TcVM *vm, int32_t ref, int32_t want,
 
 ## Reihenfolge der Umsetzung
 
-1. **VM (C++)**: Opcodes, Kennbit-Helfer, `elem` im Handle, `tc_ref_bytes`
-2. **VM (JS)**: dieselben Opcodes — der Browser muss dasselbe rechnen
-3. **Compiler**: `byte` als Typ, Deklaration (global/lokal/heap), Indexrechnung,
+1. ✅ **VM (C++)**: Opcodes, Kennbit-Helfer, `elem` im Handle, `tc_ref_bytes`
+2. ✅ **VM (JS)**: dieselben Opcodes — der Browser muss dasselbe rechnen
+3. ✅ **Compiler**: `byte` als Typ, Deklaration (global/lokal/heap), Indexrechnung,
    Argumentübergabe, `sizeof`, `_Q()`-Deskriptor
-4. **Syscalls**: die byte-orientierten auf `tc_ref_bytes` umstellen
-   (Datei-I/O, TCP/UDP, Krypto, hex2bin, serielle Schnittstelle)
-5. **Persist**: Elementgröße in der `.pvs` vermerken
+4. ✅ **Syscalls** (1.6.56, 2026-08-24): die byte-orientierten nehmen `byte[]` an
+   (siehe Liste unten). Am C3 .172 geprüft.
+5. **Persist**: Elementgröße in der `.pvs` vermerken — OFFEN
 6. **Prüfen**: JS-VM im Node-Lauf, alle Beispiele übersetzen, Firmware bauen,
    dann am Gerät
+
+## Syscalls, die `byte[]` annehmen (Stand 1.6.56)
+
+Ein neuer Helfer `tc_ref_put_bytes()` ist die Gegenrichtung zu `tc_ref_bytes()`
+(Ergebnis IN das Array schreiben — Prüfsumme, Klartext, empfangene Bytes). Bei
+`byte[]` schreibt/liest er direkt in die gepackte Region, bei `char[]`/int32
+Byte je Slot wie bisher. Umgestellt:
+
+* **Krypto**: `aesEcb`, `aesCbc` (Schlüssel/IV/Daten), `hmacSha256`, `sha256`,
+  `md5` (Daten + Ausgabepuffer)
+* **Hex/Base64**: `hex2bin`, `bin2hex`, `base64Enc` (Ein- und Ausgabe)
+* **Datei**: `fileReadBin`/`fileWriteBin` — bei `byte[]` ROHE Bytes (1 Byte je
+  Element), NICHT die 4-Byte-LE-int32-Elemente; `count` ist dann eine Byte-Zahl
+* **Netz**: `tcpReadArray`/`tcpWriteArray`, `udp(1,…)`-Empfang und
+  `udp(7,…)`-Rohbytes senden
+* **Seriell**: `serialWriteBytes`
+* **I²C**: `i2cReadBuf`, `i2cReadRs`, `i2cWriteBuf`
+* **CAN**: `twaiSend`/`twaiRecv` (nur der Datenpuffer; die Meta-Arrays mit
+  ID/DLC bleiben int32)
+* **Textpfade**: `tc_ref_to_cstr`/`tc_stream_ref`/`tc_cstr_to_ref` sind
+  byte-bewusst — ein `byte[]` mit Text funktioniert als Ersatz für `char[]` in
+  ALLEN String-Syscalls (`webSend`, `mqttPublish`, `httpPost`, `serialWrite`, …)
+
+NICHT umgestellt, weil Wert- statt Byte-Arrays: `udp(…)`-Float-Globalvars
+(`udpSend`/`udpRecv`), `spiTransfer` (8/16/24-Bit-Wörter), die Meta-/Statistik-
+Arrays von TWAI. Ein `byte[]` ergibt dort keinen Sinn.
 
 ## Was NICHT dazugehört
 
