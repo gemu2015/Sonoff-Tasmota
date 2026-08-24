@@ -102,8 +102,15 @@ static uint8_t *tc_ref_bytes(TcVM *vm, int32_t ref, int32_t want,
    Layout-Hash wirft die alte Datei ohnehin auf `.bak`). Gerätetest
    `persist_byte_test.tc` am **S3 .39** bestätigt: nach Slot-Neustart kommen alle
    64 Bytes aus dem `.pvs` zurück (`pbuf[10]=30 pbuf[63]=189 alle_ok=1`).
-6. ✅ **Geprüft** (2026-08-24): byte[]-Syscalls (sha256/hex2bin/bin2hex/aesEcb)
-   und der persist-Round-trip am Gerät verifiziert. Syscalls zuerst am C3 .172,
+6. ✅ **Geprüft** (2026-08-24): `examples/byte_array_suite.tc` — 35 Selbsttests
+   (lokal/heap/global byte[], Packungsgrenzen, Ref-Arg, %s-Lesen, Krypto/Hex/
+   Datei-Syscalls, `byte`-Alias), am S3 .39 **35/35**. ⭐ Die Suite fand dabei
+   einen echten Bug: globale `byte[]`-SCHREIBzugriffe liefen mit int32-Stride
+   (streuten in Nachbar-Globals), weil der Assignment-Pfad `STORE_GLOBAL_ARR`
+   hardcodete statt `emitArrStore` — nur Index 0 passte zufällig, lokal/heap
+   waren korrekt. Compilerseitig gefixt (commit 22349772c, bundle neu).
+   ⚠️ GRENZE: String-SCHREIB-Syscalls (strcpy/strcat/sprintf) sind char[]-only.
+   Frühere Einzeltests: byte[]-Syscalls (sha256/hex2bin/bin2hex/aesEcb) Syscalls zuerst am C3 .172,
    danach — nachdem dessen serielle Schnittstelle ausfiel — alles am S3 .39
    (Env `tasmota32s3-devkit`, 1.6.57). ⚠️ Upload auf .39 nur über den
    Dateimanager `/ufsu` (der `/tc_upload`-Endpoint hängt dort, auch nach
