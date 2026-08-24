@@ -39,7 +39,10 @@ RELEASE_TAG="${RELEASE_TAG:-testing}"
 # .factory.bin (ESP8266 has no separate safeboot/factory image; the .bin is the full one).
 STD_TARGETS=(
   tinyc32-4M-plain # ESP32 4MB classic WROOM — plain (no Matter / no camera / no HomeKit)
-  tinyc32-4M-cam   # ESP32 4MB WROVER + PSRAM — Matter + camera
+  # tinyc32-4M-cam # ESP32 4MB WROVER + PSRAM — Matter + camera. EXCLUDED: the
+  #                # Matter+camera build overflows internal DRAM (dram0_0_seg by
+  #                # ~2 KB as of 1.6.58); not shippable on the 4M WROVER until
+  #                # something big moves out of DRAM. Re-enable when it links.
   tinyc32s3        # ESP32-S3 16MB flash (Matter + camera + LVGL)
   tinyc32c3        # ESP32-C3           (Matter)
   tinyc32c6        # ESP32-C6           (Matter)
@@ -241,7 +244,6 @@ else
 | File | Description |
 |------|-------------|
 | \`tinyc32-4M-plain.bin\` / \`.factory.bin\` | ESP32 4MB classic WROOM — plain (no Matter / no camera) |
-| \`tinyc32-4M-cam.bin\` / \`.factory.bin\` | ESP32 4MB WROVER + PSRAM — **Matter** + camera |
 | \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** + camera + **LVGL** GUI |
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
