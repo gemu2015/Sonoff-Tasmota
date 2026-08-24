@@ -4,13 +4,10 @@
 Es laeuft sowohl im Browser (JavaScript-VM) als auch auf ESP32/ESP8266 (als Tasmota-Treiber XDRV_124).
 
 > **Hinweis:** Diese deutsche Referenz folgt der englischen
-> [`TinyC_Reference.md`](TinyC_Reference.md), kann bei den **neuesten** Funktionen
-> aber etwas hinterherhinken. Die englische Referenz ist die vollstaendige,
-> massgebliche Quelle — dort sind u. a. auch Krypto (`sha256`, `hmacSha256`,
-> `aesCbc`/`aesEcb`, `bin2hex`/`hex2bin`), der PSRAM-Bildspeicher (`imgCreate`,
-> `imgBlit`, …), erweiterte String-Funktionen (`strContains`, `strReplace`,
-> `strTrim`, `strToLower`/`strToUpper`, …) und Binaer-Datei-I/O
-> (`fileReadBin`/`fileWriteBin`) dokumentiert.
+> [`TinyC_Reference.md`](TinyC_Reference.md) und ist inhaltlich mit ihr
+> gleichgezogen (Stand 1.6.58, 2026-08-24): gleiche Kapitel, gleiche
+> eingebauten Funktionen. Bei ganz neuen Funktionen kann die englische
+> Fassung kurzzeitig vorausgehen — im Zweifel gilt sie.
 
 ---
 
@@ -29,12 +26,19 @@ Es laeuft sowohl im Browser (JavaScript-VM) als auch auf ESP32/ESP8266 (als Tasm
 11. [Praeprozessor](#praeprozessor)
 12. [Kommentare](#kommentare)
 13. [Typumwandlung](#typumwandlung)
-14. [Eingebaute Funktionen](#eingebaute-funktionen)
-15. [Multi-VM Slots (ESP32)](#multi-vm-slots-esp32)
-16. [VM-Grenzen](#vm-grenzen)
-17. [Geraetedateiverwaltung (IDE)](#geraetedateiverwaltung-ide)
-18. [Tastenkuerzel (IDE)](#tastenkuerzel-ide)
-19. [Beispiele](#beispiele)
+14. [enum](#enum)
+15. [Structs](#structs)
+16. [typedef](#typedef)
+17. [Schluesselwort const](#schluesselwort-const)
+18. [Statische lokale Variablen](#statische-lokale-variablen)
+19. [do-while-Schleife](#do-while-schleife)
+20. [Ternaerer Operator](#ternaerer-operator)
+21. [Eingebaute Funktionen](#eingebaute-funktionen)
+22. [Multi-VM Slots (ESP32)](#multi-vm-slots-esp32)
+23. [VM-Grenzen](#vm-grenzen)
+24. [Geraetedateiverwaltung (IDE)](#geraetedateiverwaltung-ide)
+25. [Tastenkuerzel (IDE)](#tastenkuerzel-ide)
+26. [Beispiele](#beispiele)
 
 ---
 
@@ -45,6 +49,7 @@ Es laeuft sowohl im Browser (JavaScript-VM) als auch auf ESP32/ESP8266 (als Tasm
 | `int`   | 32-Bit  | Vorzeichenbehaftete Ganzzahl              |
 | `float` | 32-Bit  | IEEE 754 Gleitkommazahl                   |
 | `char`  | 8-Bit   | Vorzeichenloses Zeichen (maskiert auf 0xFF) |
+| `byte`  | 8-Bit   | Vorzeichenloses Byte 0..255 — in Arrays **gepackt**, 1 Byte je Element *(seit 1.6.56)* |
 | `bool`  | 32-Bit  | Boolescher Wert (0 = false, ungleich 0 = true) |
 | `void`  | —       | Kein Wert (Rueckgabetyp fuer Funktionen)  |
 
@@ -55,7 +60,7 @@ Es laeuft sowohl im Browser (JavaScript-VM) als auch auf ESP32/ESP8266 (als Tasm
 | `int32_t`      | `int`      |
 | `uint32_t`     | `int`      |
 | `unsigned int` | `int`      |
-| `uint8_t`      | `char`     |
+| `uint8_t`      | `byte`     |
 
 ---
 
@@ -319,6 +324,21 @@ while (condition) {
 }
 ```
 
+### do-while-Schleife
+Der Rumpf wird **mindestens einmal** ausgefuehrt, bevor die Bedingung geprueft wird:
+```c
+int i = 0;
+do {
+    process(i);
+    i++;
+} while (i < 10);
+
+// Der Rumpf laeuft auch dann einmal, wenn die Bedingung von Anfang an falsch ist:
+do {
+    init();
+} while (0);
+```
+
 ### for-Schleife
 ```c
 for (int i = 0; i < 10; i++) {
@@ -553,6 +573,9 @@ Verwenden Sie diese Funktionen in Callbacks, um Daten an Tasmota zu senden:
 | `webSend(buf)` | Char-Array an Webseite senden (-> `WSContentSend`) | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webSend("literal")` | Zeichenketten-Literal an Webseite senden | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webFlush()` | Web-Inhaltspuffer zum Client leeren (-> `WSContentFlush`) | `WebPage()` / `WebCall()` / `WebOn()` |
+| `webRawMode()` | Innerhalb eines `WebOn()`-Handlers: den Antwortaufbau auf **Rohbytes** umstellen. Danach wird NICHTS mehr automatisch erzeugt — die vollstaendige HTTP-Antwort muss selbst geschrieben werden (Statuszeile + Kopfzeilen + Leerzeile + Rumpf). | `WebOn()` |
+| `webRawWrite(char buf[])` | `buf` als Rohbytes an den TCP-Client schreiben. Streamt ueber die uebliche `tc_stream_ref`-Zerteilung (256 B je Block), beliebig grosse Nutzlasten sind also moeglich. Ersetzt `webSend()` im Roh-Modus. | `WebOn()` |
+| `webKeepAlive()` | Die Antwort als keep-alive kennzeichnen. Das Rahmenwerk haelt die TCP-Verbindung nach dem Handler offen, sodass derselbe Client eine weitere Anfrage ohne Neuverbindung senden kann. Benoetigt `USE_HTTP_KEEPALIVE` in der Firmware (auf ESP32 Standard). | `WebOn()` |
 | `webSendFile("filename")` | Dateiinhalt vom Dateisystem an Webseite senden | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
 | `addCommand("prefix")` | Benutzerdefiniertes Konsolen-Befehlspraefix registrieren (z.B. `"MP3"` -> MP3Play, MP3Stop) | `main()` |
 | `responseCmnd(buf)` | Char-Array als Konsolenbefehls-Antwort senden | `Command()` |
@@ -971,6 +994,43 @@ int main() {
 
 Sowohl Inline- als auch Heap-Arrays unterstuetzen alle gleichen Operationen: Elementzugriff, Zeichenkettenoperationen auf `char[]`, Uebergabe an Funktionen usw.
 
+### Gepackte Byte-Arrays — `byte[]` *(seit 1.6.56)*
+
+Ein Array-Element belegt normalerweise einen ganzen **int32-Slot** — auch bei
+`char[]`. Ein `char buf[2048]` kostet damit 8 KB VM-Speicher. Der Typ `byte`
+(Alias `uint8_t`) liegt **gepackt**: ein Byte je Element, also `(n+3)/4` Slots.
+
+```c
+char cbuf[8192];   // 8192 Slots = 32 KB
+byte bbuf[8192];   // 2048 Slots =  8 KB — gleiche Daten, ein Viertel Speicher
+```
+
+Am ESP32-C3 gemessen: derselbe Slot braucht **14.569 Byte** fuer `byte big[8192]`
+gegenueber **39.145 Byte** fuer `char big[8192]`.
+
+`byte[]` ist ein vollwertiger Ersatz fuer `char[]`:
+
+* **Alle Zeichenketten-Funktionen** arbeiten damit — `strcpy`, `strcat`,
+  `sprintf`, `strlen`, `strcmp`, `strFind`, `strReplace`, `strTrim`,
+  `strToUpper`/`strToLower`, `strSub`, `strToken`,
+  `strStartsWith`/`strEndsWith`/`strContains` sowie `%s`.
+* **Alle byte-orientierten Syscalls** nehmen es direkt: Krypto (`sha256`, `md5`,
+  `hmacSha256`, `aesEcb`, `aesCbc`), `hex2bin`/`bin2hex`/`base64Enc`, Datei-I/O,
+  TCP/UDP, seriell, I2C und CAN.
+* **`persist byte[]`** sichert die gepackten Slots.
+* **Struct-Felder** packen ebenfalls: `struct { byte payload[512]; int len; }`.
+
+Elementwerte sind vorzeichenlos `0..255`; ein groesserer Wert wird auf sein
+unterstes Byte gekappt (`b[0] = 300;` speichert 44), genau wie bei `char`.
+
+> `byte` und `uint8_t` sind kontextabhaengige **Typnamen**, keine reservierten
+> Schluesselwoerter — eine vorhandene Variable namens `byte` funktioniert weiter.
+
+**Datei-I/O weicht ab:** `fileReadBin`/`fileWriteBin` uebertragen bei einem
+`byte[]` **rohe Bytes** (ein Dateibyte je Element), nicht die 4-Byte-Little-Endian-
+int32-Elemente wie bei `int[]`/`float[]`. Das Argument `count` ist dort eine
+Byte-Anzahl.
+
 **Heap-Grenzen:**
 
 | Plattform | Max. Heap-Slots | Max. Handles |
@@ -1049,6 +1109,494 @@ void show_row_str(char s[])         { addLog(s); }
 Opcodes ab und emittiert in Zeilenuebergabe-Kontexten eine offset-
 behaftete Referenz (`ADDR_HEAP_OFF`) fuer `buf[i]`. 2D ist also rein
 eine ergonomische Schicht ueber dem 1D-Heap; keine neuen VM-Features.
+
+---
+
+## Structs *(seit 1.4.0)*
+
+Structs sind Verbunde — zusammengesetzte Werte, die benannte Felder gruppieren.
+TinyC-Structs folgen der C-Semantik **by value**: Das Kopieren eines Structs
+kopiert alle Felder, und die Uebergabe an eine Funktion gibt der aufgerufenen
+Funktion eine eigene Kopie.
+
+### Definition
+
+```c
+struct Point {
+    int x;
+    int y;
+}
+
+struct WriteLog {
+    int  addr;
+    int  val;
+    int  ms;
+    char src;
+}
+
+struct Sample {
+    int   duration_ms;
+    float ratio;
+    char  label[16];          // char-Array-Feld
+}
+
+struct Rect {
+    Point tl;                 // verschachteltes Struct-Feld
+    Point br;
+}
+```
+
+- Das Schluesselwort `struct` leitet eine Typdefinition ein.
+- Feldtypen: `int`, `float`, `char`, `byte`, eindimensionale Arrays fester
+  Groesse davon, oder weiter oben in der Datei definierte Struct-Typen.
+- Das Semikolon nach `}` ist optional.
+
+### Variablen und Zugriff
+
+```c
+Point p;                       // lokal, mit Null initialisiert
+Point q = {3, 4};              // Positions-Initialisierer
+Point arr[5];                  // Array von Structs
+WriteLog g_w;                  // global
+
+p.x = 10;
+int v = p.y;
+arr[i].x = i * 10;
+g_w.src = 'O';
+strcpy(g_w_or_other.label, "boost");
+
+// Verschachtelt
+Rect r;
+r.tl.x = 0;
+r.br.y = 200;
+```
+
+Das Schluesselwort `struct` kann bei der Deklaration einer Variablen eines
+bereits definierten Typs entfallen (`Point p;` entspricht `struct Point p;`).
+
+### Zuweisung ganzer Structs
+
+```c
+Point a; a.x = 5; a.y = 7;
+Point b;
+b = a;                         // Feld-fuer-Feld-Kopie
+
+WriteLog ev;
+ev.addr = 0x40; /* usw. */
+wlog[i] = ev;                  // Variable → Array-Element
+
+WriteLog x;
+x = wlog[3];                   // Array-Element → Variable
+```
+
+Der Compiler rollt die Kopie zur Uebersetzungszeit aus (ein `LOAD`/`STORE`-Paar
+je Slot). Fuer ein WriteLog mit 4 Slots: 8 Operationen plus ein Zwischenwert
+fuer die Offset-/Wert-Reihenfolge. Keine neuen VM-Opcodes noetig.
+
+### Funktionen
+
+Structs werden **als Wert** uebergeben — die aufgerufene Funktion erhaelt eine
+eigene Kopie. Aenderungen an einem Struct-Parameter wirken **nicht** auf den
+Aufrufer zurueck.
+
+```c
+void log_write(WriteLog w) {
+    char m[80];
+    sprintf(m, "[%d] addr=%d val=%d", w.ms, w.addr, w.val);
+    addLog(m);
+}
+
+log_write(wlog[5]);            // uebergibt eine Kopie
+```
+
+Auch die Rueckgabe eines Structs funktioniert — die aufgerufene Funktion legt
+alle Feldwerte ab, und der Initialisierer der lokalen Deklaration beim Aufrufer
+holt sie ueber einen Zwischenslot je Funktion wieder herunter:
+
+```c
+WriteLog make_obs(int addr, int val) {
+    WriteLog w;
+    w.addr = addr;
+    w.val  = val;
+    w.ms   = millis();
+    w.src  = 'O';
+    return w;
+}
+
+WriteLog x = make_obs(0x40, 0xFF00);
+```
+
+### `sizeof(StructTag)`
+
+Liefert die Slot-Anzahl zur Uebersetzungszeit:
+
+```c
+int n = sizeof(Point);          // 2
+int m = sizeof(Sample);         // 18  (1 + 1 + 16)
+int r = sizeof(Rect);           // 4   (2× Point = 2+2)
+```
+
+`sizeof(int)` / `sizeof(float)` / `sizeof(char)` liefern 1 (die Slot-Anzahl in
+TinyCs int32-Modell). Hinweis: `sizeof(int)` verlangt das Schluesselwort `int`,
+das der Parser nur an dieser Stelle akzeptiert.
+
+### Speicher & Layout
+
+Jedes Feld belegt eine feste Anzahl int32-Slots:
+
+| Feldtyp               | Slots                                    |
+| --------------------- | ---------------------------------------- |
+| `int`, `char`, `bool` | 1                                        |
+| `float`               | 1                                        |
+| `int arr[N]`          | N                                        |
+| `char name[N]`        | N (ein Byte je Slot, untere 8 Bit)       |
+| `byte b[N]`           | (N+3)/4 — gepackt, 1 Byte je Element     |
+| `float ys[N]`         | N                                        |
+| Verschachteltes Struct| Slot-Anzahl des inneren Structs          |
+
+Gesamt-Slots eines Structs = Summe aller Feld-Slots. Verschachtelte Structs
+werden flachgezogen — ein `Rect` aus zwei `Point` (je 2 Slots) hat insgesamt
+4 Slots, wobei `br.x` auf Offset 2 liegt.
+
+Die Heap-Verlagerung folgt den ueblichen TinyC-Regeln: ein einzelner Struct-Wert
+mit ≤16 Slots liegt im Rahmen bzw. in den Globals; jedes Struct-Array mit
+insgesamt >16 Slots wandert automatisch auf den Heap (also praktisch alle
+Struct-Arrays).
+
+### Persist (dauerhafte Globals)
+
+`persist WriteLog wlog[16];` funktioniert — die Slot-Anzahl geht in den
+Persist-Hash ein, das Hinzufuegen oder Entfernen von Feldern macht die
+`.pvs`-Datei also ungueltig.
+
+**Einschraenkung:** Der v1-Hash enthaelt **nicht** die Liste der Feldnamen. Ein
+stilles **Umsortieren** der Felder einer Struct-Deklaration bei bereits
+vorhandenen Persist-Daten macht die Datei daher nicht ungueltig — das neue
+Layout liest die alten Daten mit verschobenen Offsets. Abhilfe: ein Dummy-Feld
+hinzufuegen und wieder entfernen (das aendert den Hash), oder `<name>.pvs`
+von Hand loeschen. Ein kuenftiges v2 wird die Feldnamen in den Hash aufnehmen.
+
+### In v1 nicht erlaubt
+
+Jeder Fall erzeugt eine klare Fehlermeldung beim Uebersetzen:
+
+- `struct Node { Node next; }` — selbstbezuegliche Structs brauchen Zeiger.
+- `struct B { struct B child; }` — dasselbe (Rekursion ohne Zeiger).
+- `struct S { int grid[3][3]; }` — 2D-Array-Felder. Flachziehen oder ein
+  Struct verschachteln.
+- `if (a == b)` fuer zwei Structs — Gleichheit ist nicht umgesetzt; Felder
+  einzeln vergleichen.
+- `Foo a = { .x = 1, .y = 2 };` — benannte Initialisierer (stattdessen
+  positionsbezogen `{1, 2}`).
+
+### Beispiel aus der Praxis
+
+Das klassische Muster „Ringpuffer aus Datensaetzen":
+
+```c
+struct WriteEvent {
+    int  addr;
+    int  val;
+    int  ms;
+    char src;
+}
+
+WriteEvent wlog[16];
+int        wlog_pos   = 0;
+int        wlog_count = 0;
+
+void wlog_push(int addr, int val, char src) {
+    WriteEvent ev;
+    ev.addr = addr;
+    ev.val  = val;
+    ev.ms   = millis();
+    ev.src  = src;
+    wlog[wlog_pos] = ev;          // eine einzige Struct-Kopie
+    wlog_pos = (wlog_pos + 1) % 16;
+    if (wlog_count < 16) wlog_count = wlog_count + 1;
+}
+```
+
+Verglichen mit dem Idiom vor 1.4 (4 parallele Arrays und 4 Schreibzugriffe je
+Aufrufstelle) beseitigen Structs eine ganze Fehlerklasse — „die Arrays sind aus
+dem Tritt geraten" — vollstaendig. Das vollstaendige Muster samt einem Beispiel
+mit verschachtelten Structs steht in `examples/structs_demo.tc`.
+
+---
+
+## Funktionszeiger *(seit 1.4.1)*
+
+Ein Funktionszeiger haelt die Bytecode-Adresse einer Funktion. Er wird wie ein
+`int`-grosser Wert gespeichert, uebergeben und kopiert, aber mit derselben
+Syntax wie ein normaler Funktionsaufruf aufgerufen.
+
+### Einen Funktionszeiger-Typ deklarieren
+
+Funktionszeiger-Typen **muessen** ueber `typedef` eingefuehrt werden. Die
+Inline-Schreibweise `void (*p)(int);` gibt es in v1 nicht.
+
+```c
+typedef int  (*int_op)(int, int);              // Signatur: int(int, int)
+typedef void (*greet_fn)(char who[]);          // Signatur: void(char[])
+typedef int  (*cmp_fn)(char a[], char b[]);
+```
+
+Die typedef-Syntax ist identisch zu C: `typedef <RueckgabeTyp> (*<Alias>)(<Parameter>);`.
+
+### Variablen, Zuweisung, Aufruf
+
+```c
+int my_add(int a, int b) { return a + b; }
+int my_mul(int a, int b) { return a * b; }
+
+int_op op;
+op = my_add;            // Zuweisung ueber den blossen Funktionsnamen (kein `&`)
+int s = op(3, 4);       // s = 7
+
+op = my_mul;            // Neuzuweisung; nur bei gleicher Signatur
+int p = op(3, 4);       // p = 12
+```
+
+Drei Dinge sind wichtig:
+
+1. **Der blosse Funktionsname** ist die Adresse — es gibt keine `&fn`-Syntax.
+   `op = &my_add` waere ein Parser-Fehler. Einfach `op = my_add`.
+2. **Neuzuweisung ist erlaubt**, solange die Signatur der neuen Funktion zum
+   typedef passt. Der Compiler prueft das derzeit **nicht**, falsche Signaturen
+   scheitern also zur Laufzeit auf unvorhersehbare Weise.
+3. **Vorwaertsreferenzen funktionieren** — man darf eine Funktion zuweisen oder
+   aufrufen, die erst spaeter im Quelltext definiert wird. Die Adressen werden
+   nach dem Funktions-Uebersetzungslauf nachgetragen.
+
+### Als Funktionsparameter
+
+```c
+int run_op(int_op f, int a, int b) {
+    return f(a, b);
+}
+
+int s = run_op(my_add, 10, 20);   // 30
+int p = run_op(my_mul, 10, 20);   // 200
+```
+
+Den blossen Namen uebergeben; die aufgerufene Funktion erhaelt eine lokale
+Variable mit dem Adresswert.
+
+### Als globale Variable
+
+```c
+greet_fn g_handler;
+
+void hello(char who[]) {
+    char m[64];
+    sprintf(m, "Hello, %s!", who);
+    addLog(m);
+}
+
+int main() {
+    g_handler = hello;
+    g_handler("world");
+    return 0;
+}
+```
+
+### Sprungtabellen (der eigentliche Anwendungsfall)
+
+Das Muster, das dieses Merkmal motiviert hat — saubere Kommandoverteilung:
+
+```c
+typedef void (*cmd_handler)(char args[]);
+
+void do_on(char args[])  { addLog("ON");  /* ... */ }
+void do_off(char args[]) { addLog("OFF"); /* ... */ }
+void do_set(char args[]) { addLog("SET"); /* ... */ }
+
+struct CmdEntry {
+    char         name[12];
+    cmd_handler  handler;
+}
+CmdEntry cmds[3];
+
+int main() {
+    strcpy(cmds[0].name, "ON");   cmds[0].handler = do_on;
+    strcpy(cmds[1].name, "OFF");  cmds[1].handler = do_off;
+    strcpy(cmds[2].name, "SET");  cmds[2].handler = do_set;
+    return 0;
+}
+
+void Command(char cmd[]) {
+    for (int i = 0; i < 3; i = i + 1) {
+        if (strcmp(cmd, cmds[i].name) == 0) {
+            cmds[i].handler(cmd);
+            responseCmnd("ok");
+            return;
+        }
+    }
+    responseCmnd("unknown");
+}
+```
+
+*(Funktionszeiger-Felder in Structs funktionieren ab 1.4.2 — die Aufrufstelle
+`cmds[i].handler(args)` laeuft korrekt ueber `OP_CALL_INDIRECT`.)*
+
+### Wie es funktioniert
+
+Ein Funktionszeiger-Wert ist schlicht die Bytecode-Adresse der Funktion
+(16 Bit, passt in ein `int`). Der Compiler erzeugt:
+
+- **Adresse von**: `op = my_add;` → `PUSH_I32 <addr>; STORE_LOCAL/GLOBAL`. Das
+  4-Byte-int32 haelt die Adresse in seinen unteren 16 Bit.
+- **Indirekter Aufruf**: `op(args)` → Argumente ablegen, Wert der Variablen
+  ablegen (`LOAD_LOCAL`/`LOAD_GLOBAL`), dann `OP_CALL_INDIRECT` (0x56). Dieser
+  Opcode holt die Adresse vom Stapel, richtet einen Rahmen ein und springt —
+  dieselbe Semantik wie `OP_CALL`, nur ohne den im Bytecode eingebetteten
+  Operanden.
+
+Der Rahmenaufbau ist identisch zum direkten Aufruf, daher behandeln die
+vorhandenen `RET` / `RET_VAL` die Rueckkehr unveraendert.
+
+### Nicht in v1 enthalten
+
+| Merkmal                                       | Stand |
+|-----------------------------------------------|-------|
+| Funktionszeiger als Struct-Felder             | ✅ seit 1.4.2 |
+| Inline `void (*p)(int)` ohne typedef          | nicht in v1 |
+| `&fn` (ausdrueckliche Adressbildung)          | nicht in v1 (blosses `fn` nutzen) |
+| Vergleich `fn1 == fn2`                        | nicht in v1 |
+| Rueckgabe eines Funktionszeigers              | nicht in v1 |
+| Anonyme Funktionsliterale (Lambdas)           | nie (kein Closure-Mechanismus) |
+| Signaturpruefung bei der Zuweisung            | nicht in v1 (still zur Uebersetzungszeit) |
+
+---
+
+## Referenzparameter *(seit 1.4.3)*
+
+Funktionsparameter, die mit einem `&` nach dem Typ deklariert sind, werden
+**per Referenz uebergeben** — Lese- und Schreibzugriffe der aufgerufenen
+Funktion gehen direkt auf die Variable des Aufrufers. Aenderungen sind nach
+der Rueckkehr sichtbar.
+
+### Syntax
+
+```c
+void swap(int& a, int& b) {
+    int tmp = a;
+    a = b;
+    b = tmp;
+}
+
+int x = 5;
+int y = 7;
+swap(x, y);
+// x ist jetzt 7, y ist jetzt 5
+```
+
+Das `&` steht nach dem Typ, vor dem Parameternamen — dieselbe Syntax wie C++.
+
+### Anwendungsfaelle
+
+**Parser mit mehreren Ausgaben** — mehrere Werte zurueckgeben, ohne sie in ein
+Array zu packen:
+
+```c
+void parse_pair(int input, int& low, int& high) {
+    low  = input & 0xFF;
+    high = (input >> 8) & 0xFF;
+}
+
+int lo = 0;
+int hi = 0;
+parse_pair(0xABCD, lo, hi);
+// lo == 0xCD, hi == 0xAB
+```
+
+**Aenderung an Ort und Stelle mit Verbundoperatoren**:
+
+```c
+void inc_by(int& n, int amount) {
+    n += amount;          // Verbundzuweisung auf einem Referenzparameter geht
+}
+
+int counter = 10;
+inc_by(counter, 5);
+inc_by(counter, 5);
+inc_by(counter, 5);
+// counter == 25
+```
+
+**Globals als Referenzargumente** — sicheres Muster fuer Summierer:
+
+```c
+int g_count = 0;
+int g_total = 0;
+
+void accumulate(int& count, int& total, int sample) {
+    count += 1;
+    total += sample;
+}
+
+accumulate(g_count, g_total, 100);
+accumulate(g_count, g_total, 200);
+// g_count == 2, g_total == 300
+```
+
+### Was als Referenzargument uebergeben werden darf
+
+Der Argumentausdruck muss ein **einfacher Variablenname** sein — lokal oder
+global. Alles andere erzeugt einen klaren Uebersetzungsfehler:
+
+| Ausdruck                                  | Erlaubt? |
+| ----------------------------------------- | -------- |
+| `swap(x, y)` — Lokale                     | ✅       |
+| `swap(g_count, g_total)` — Globals        | ✅       |
+| `swap(g_count, x)` — gemischt             | ✅       |
+| `swap(arr[i], y)` — Array-Element         | ❌ (in v1 noch nicht) |
+| `swap(obj.field, y)` — Struct-Feld        | ❌ (in v1 noch nicht) |
+| `swap(some_int_array, y)` — int[]-Variable| ❌ (Heap-Arrays in v1 nicht erlaubt) |
+
+Fuer Array-Elemente und Struct-Felder muss man derzeit in eine lokale
+Zwischenvariable kopieren, diese uebergeben und zurueckkopieren. Ein kuenftiges
+v2 wird diese Einschraenkung aufheben.
+
+### Typvertraeglichkeit
+
+Der deklarierte Typ des Referenzparameters muss zum Typ des Arguments passen.
+Der Compiler erzwingt das derzeit nicht streng — wer `float` an ein `int&`
+uebergibt, riskiert eine stille Fehluebersetzung. Einschraenkung von v1.
+
+### Und Arrays?
+
+Array-Parameter (`int arr[]`, `char buf[]`) werden in TinyC ohnehin schon per
+Referenz uebergeben — so war es immer. Das neue `&` ist ausdruecklich fuer
+**Skalare** gedacht (int, float, char). Fuer ein Array einfach weiterhin
+`int arr[]` schreiben.
+
+### Wie es funktioniert (ohne neue VM-Opcodes)
+
+Die Umsetzung nutzt die vorhandene Referenz-Kodierung wieder:
+
+- Der Aufrufer erzeugt `ADDR_LOCAL <slot>` (oder `ADDR_GLOBAL <gindex>`) —
+  das legt einen kodierten Referenzwert auf den Stapel.
+- Die aufgerufene Funktion speichert die kodierte Referenz in einer lokalen
+  Variablen mit einem internen `isScalarRef`-Merker.
+- Im Rumpf uebersetzt sich das Lesen des Referenzparameters zu
+  `PUSH_I8 0; LOAD_REF_ARR <slot>` (Index 0 der referenzierten Variablen lesen).
+  Das Schreiben zu `PUSH_I8 0; <Wert>; STORE_REF_ARR <slot>`.
+
+Skalare Referenzen sind gedanklich „Array-Referenzen, die immer auf Index 0
+zugreifen" — deshalb waren keine neuen Opcodes noetig; Array-Referenzen kennt
+TinyC seit dem ersten Tag.
+
+### Nicht in v1 enthalten
+
+| Merkmal                                     | Stand |
+| ------------------------------------------- | ----- |
+| `int&` / `float&` / `char&`                 | ✅ seit 1.4.3 |
+| `swap(arr[i], y)` (Array-Element als Referenz) | nicht in v1 |
+| `swap(obj.field, y)` (Struct-Feld als Referenz) | nicht in v1 |
+| Heap-Array-Variable als Referenzargument    | nicht in v1 |
+| Erkennung unpassender Signaturen            | nicht in v1 |
+| Referenz auf ein Struct (`Point& p`)        | nicht in v1 (`Point` als Wert oder `Point arr[]` nutzen) |
 
 ---
 
@@ -1459,6 +2007,326 @@ Alternative: fuer die Elementgroesse eines Arrays `sizeof(typ)` direkt nutzen, z
 
 ---
 
+## Ternaerer Operator
+
+Der Bedingungsausdruck `Bedingung ? Wert_wenn_wahr : Wert_wenn_falsch`:
+
+```c
+int abs_val = (x >= 0) ? x : -x;
+float clamped = (t > 100.0) ? 100.0 : t;
+
+// Verschachtelter Ternaer
+int grade = (score >= 90) ? 3 : (score >= 70) ? 2 : 1;
+```
+
+Der Ergebnistyp folgt den ueblichen int/float-Umwandlungsregeln.
+
+**Zeichenketten-Ternaer** — ein Ternaer, dessen beide Zweige Zeichenketten sind
+(Literale und/oder `char[]`-Variablen), darf direkt als Zeichenketten-Argument
+an jede Zeichenketten-Funktion uebergeben werden (`sprintf`/`printf` `%s`,
+`addLog`, Quelle von `strcpy`/`strcat`, `webSend`, `responseCmnd`, …):
+
+```c
+addLog("Relay %s", on ? "ON" : "OFF");
+sprintf(buf, "mode=%s", auto ? "AUTO" : manual_name);   // Literal- oder char[]-Zweig
+strcpy(dst, ok ? "yes" : "no");
+webSend(charging ? "<b>charging</b>" : "idle");
+```
+
+Die Bedingung wird ausgewertet und nur die Zeichenkette des gewaehlten Zweigs
+verwendet (eine Zeigerauswahl — es wird nicht kopiert). Frueher fuehrte das zu
+*„String functions require array variable, not expression"* und verlangte eine
+ausdrueckliche Zwischenvariable (`char w[4]; if (on) strcpy(w,"ON"); …`); dieser
+Umweg ist nicht mehr noetig.
+
+---
+
+## enum
+
+Benannte Ganzzahl-Konstanten, die zur Uebersetzungszeit eingesetzt werden:
+
+```c
+// Globales enum
+enum Color { RED = 0, GREEN = 1, BLUE = 2 };
+
+// Negative Werte werden unterstuetzt
+enum Status { OK = 0, WARN = 1, ERR = -1 };
+
+// Automatisches Hochzaehlen (beginnt bei 0 bzw. nach dem letzten festen Wert)
+enum Day { MON, TUE, WED, THU, FRI, SAT, SUN };
+// MON=0, TUE=1, WED=2 ...
+
+// Enum innerhalb einer Funktion
+void process() {
+    enum Mode { IDLE = 0, RUN = 1, STOP = 2 };
+    int mode = RUN;
+}
+```
+
+- Enum-Werte gelten als `int`-Konstanten — identisch zu `#define`
+- Der Enum-Name ist optional: `enum { A, B, C }` ist gueltig
+- Keine Enum-Typpruefung — die Werte sind gewoehnliche Ganzzahlen
+
+---
+
+## Schluesselwort const
+
+Der Qualifizierer `const` wird bei Variablendeklarationen akzeptiert:
+
+```c
+const int MAX_RETRIES = 5;
+const float PI = 3.14159;
+const int TABLE_SIZE = 64;
+```
+
+- `const` hat in TinyC **keine** Wirkung zur Laufzeit — es ist nur ein
+  Hinweis zur Dokumentation
+- Die Variable kann technisch beschrieben werden (keine Durchsetzung)
+- Erlaubt bei globalen wie lokalen Variablen
+- Erlaubt in Kombination mit `static`: `static const int N = 10;`
+
+---
+
+## Statische lokale Variablen
+
+Eine mit `static` deklarierte lokale Variable liegt im globalen Datenbereich, ist
+aber nur innerhalb ihrer Funktion ueber den Namen erreichbar. Ihr Wert
+**ueberdauert Funktionsaufrufe** — sie wird beim Programmstart mit Null
+initialisiert und behaelt ihren Wert zwischen den Aufrufen.
+
+```c
+// Aufrufzaehler — der Wert ueberlebt die Aufrufe
+int nextId() {
+    static int id = 0;
+    id++;
+    return id;
+}
+
+void main() {
+    int a = nextId();  // a = 1
+    int b = nextId();  // b = 2
+    int c = nextId();  // c = 3
+}
+```
+
+- Der Initialisierungswert (z. B. `static int n = 5`) wird **nicht** erzeugt —
+  die Variable ist beim Programmstart immer mit Null belegt. Einen von Null
+  verschiedenen Startwert bei Bedarf im ersten Aufruf ausdruecklich setzen.
+- `static` bei globalen Variablen verhaelt sich wie ein gewoehnliches Global
+  (in TinyC kein Unterschied)
+
+---
+
+## do-while-Schleife
+
+Siehe [Kontrollfluss → do-while-Schleife](#do-while-schleife) weiter oben.
+
+---
+
+## Structs
+
+Ein `struct` fasst mehrere Felder zu einer benannten Variablen zusammen. Jedes
+Feld ist ein eigener VM-Slot — keine Fuellbytes, keine Ausrichtungsvorgaben.
+
+### Deklaration
+
+```c
+struct Point {
+    float x;
+    float y;
+};
+
+struct Sensor {
+    float temperature;
+    float humidity;
+    int   status;
+};
+```
+
+### Variablendeklaration und Feldzugriff
+
+```c
+struct Point p;          // lokale Struct-Variable
+p.x = 3.14;
+p.y = 2.71;
+float dist = p.x + p.y;
+
+// Positionsbezogene Initialisierungsliste
+struct Point origin = {0.0, 0.0};
+struct Point corner = {100.0, 200.0};
+```
+
+### Globale Structs
+
+```c
+struct Sensor g_sensor;     // global — bleibt zwischen Callbacks erhalten
+
+void EverySecond() {
+    g_sensor.temperature = sensorGet("DS18B20#Temperature");
+    g_sensor.status = (g_sensor.temperature > 30.0) ? 1 : 0;
+}
+```
+
+### Verbundzuweisung auf Feldern
+
+Alle Verbundoperatoren funktionieren auf Struct-Feldern:
+
+```c
+struct Counter c;
+c.val = 10;
+c.val += 5;    // c.val = 15
+c.val *= 2;    // c.val = 30
+c.flags |= 0x01;
+```
+
+### Array-Felder in Structs
+
+Ein Struct-Feld kann selbst ein Array sein — die Elementzahl steht in Klammern:
+
+```c
+struct Msg {
+    int  id;
+    char text[32];   // char-Array-Feld mit 32 Elementen
+};
+
+struct Stats {
+    int  count;
+    int  vals[8];    // int-Array-Feld
+    float avg;
+};
+```
+
+**Elementzugriff** ueber dieselbe Syntax `obj.feld[index]`:
+
+```c
+struct Msg m;
+m.id = 1;
+m.text[0] = 'H';
+m.text[1] = 'i';
+m.text[2] = 0;
+
+// Ein Index aus einer Variablen geht ebenso
+int i;
+for (i = 0; i < 8; i++) {
+    m.text[i] = 65 + i;  // 'A'…'H'
+}
+```
+
+**Verbundzuweisungen** funktionieren auf Elementen von Array-Feldern:
+
+```c
+struct Stats s;
+s.vals[0] = 10;
+s.vals[0] += 5;   // 15
+s.vals[0] *= 2;   // 30
+```
+
+**Ein char-Array-Feld an Zeichenketten-Funktionen uebergeben** — `obj.feld`
+(ohne Index) als Array-Referenz verwenden:
+
+```c
+struct Frame {
+    int  seq;
+    char payload[64];
+};
+
+struct Frame f;
+strcpy(f.payload, "hello");
+sprintf(f.payload, "seq=%d", f.seq);
+addLog(f.payload);
+```
+
+**Layout**: Array-Felder belegen aufeinanderfolgende VM-Slots direkt hinter den
+vorangehenden Skalarfeldern. Die Gesamt-Slot-Anzahl eines Structs ist die Summe
+aller Feldgroessen (Skalarfelder je 1 Slot, Array-Felder arraySize Slots; ein
+`byte`-Array-Feld belegt gepackt (N+3)/4 Slots).
+
+### Structs als Funktionsparameter
+
+Siehe [Structs *(seit 1.4.0)*](#structs-seit-140) weiter oben — dort ist die
+Uebergabe als Wert samt Rueckgabe beschrieben.
+
+### Hinweise
+
+- Der Feldzugriff `p.x` uebersetzt sich in einen Array-Slot-Offset — keine
+  neuen VM-Opcodes
+- Skalarfelder duerfen `int`, `float`, `char`, `bool` sein
+- Array-Felder werden im Struct-Rumpf als `typ name[N]` deklariert
+- Verschachtelte Structs **werden unterstuetzt** — `struct Outer { Point tl; }`,
+  Zugriff ueber `o.tl.x`. Selbstbezuegliche Structs (`struct Node { Node next; }`)
+  hingegen nicht, da sie Zeiger voraussetzen.
+- Funktionszeiger-Felder ab 1.4.2 (per typedef definierte Typen) —
+  `cmds[i].handler(args)` laeuft ueber `OP_CALL_INDIRECT`.
+- Keine 2D-Array-Felder. Keine Unions. Keine Bitfelder. Keine Zeigertypen.
+
+---
+
+## typedef
+
+`typedef` erzeugt einen Typ-Alias. Nutzbar mit einfachen Typen und mit Structs.
+
+### Alias fuer einfache Typen
+
+```c
+typedef int   pin_t;
+typedef float celsius_t;
+typedef int   millisec_t;
+
+pin_t led = 5;
+celsius_t temp = 23.5;
+millisec_t timeout = 1000;
+```
+
+### Alias fuer ein benanntes Struct
+
+Erlaubt die Verwendung des Typnamens ohne das Schluesselwort `struct`:
+
+```c
+struct Vec2 { float x; float y; };
+typedef struct Vec2 Vec2;
+
+Vec2 v;          // kein 'struct' davor noetig
+v.x = 1.0;
+```
+
+### typedef fuer ein anonymes Struct
+
+Struct definieren und in einer Deklaration benennen:
+
+```c
+typedef struct {
+    int r;
+    int g;
+    int b;
+} Color;
+
+Color red = {255, 0, 0};
+Color sky;
+sky.b = 235;
+```
+
+### Verkettete Aliase
+
+```c
+typedef int myint;
+typedef myint counter_t;   // Alias eines Alias
+counter_t n = 0;
+```
+
+### typedef innerhalb von Funktionen
+
+`typedef` darf im Rumpf einer Funktion stehen. Der Alias gilt fuer den Rest
+der Funktion.
+
+```c
+void process() {
+    typedef float weight_t;
+    weight_t kg = 72.5;
+}
+```
+
+---
+
 ## Eingebaute Funktionen
 
 ### Ausgabe
@@ -1708,6 +2576,8 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 | `int fileClose(handle)`                    | Datei-Handle schliessen, gibt 0 oder -1 zurueck      |
 | `int fileRead(handle, char buf[], max)`    | Bis zu max Bytes in buf lesen, gibt Anzahl zurueck    |
 | `int fileWrite(handle, char buf[], len)`   | len Bytes aus buf schreiben, gibt Anzahl zurueck      |
+| `int fileReadBin(handle, int arr[], count)`  | Bis zu `count` int32-Elemente als 4-Byte-Little-Endian lesen; liefert die tatsaechlich gelesenen Elemente (oder -1 bei falschen Argumenten). Funktioniert fuer `int[]` und `float[]`, da beide im Speicher int32 sind. **Bei einem `byte[]` werden stattdessen ROHE Bytes gelesen** (ein Dateibyte je Element), `count` ist dann eine Byte-Anzahl |
+| `int fileWriteBin(handle, int arr[], count)` | `count` int32-Elemente als 4-Byte-Little-Endian schreiben; liefert die tatsaechlich geschriebenen Elemente (oder -1 bei falschen Argumenten). Gleiche Doppelbedeutung wie `fileReadBin` — praktisch fuer Diagramm-Historie und aehnliche Formate mit fester Satzlaenge. Bei einem `byte[]` ebenfalls rohe Bytes |
 | `int fileRename(von, nach)`                | Datei umbenennen/verschieben. `0` = ok, `-1` = Fehler. Schlaegt fehl (und aendert nichts), wenn die Quelle fehlt, das **Ziel schon existiert** (wird nie stillschweigend ueberschrieben — ein Tippfehler im Zielnamen darf keine Daten vernichten) oder Quelle und Ziel auf verschiedenen Dateisystemen liegen (`/ffs/` vs. `/sdfs/` — `rename` kann nicht dazwischen kopieren). Beide Pfade duerfen Zeichenketten oder `char[]`-Puffer sein. Praktisch fuer „schon erledigt"-Vermerke: eine Eingabedatei nach `<name>.done` umbenennen, dann ist ihr blosses Vorhandensein die Markierung — ohne zusaetzliche Zustandsdatei. |
 | `int fileExists("path")`                   | Pruefen ob Datei existiert: 1=ja, 0=nein             |
 | `int fileDelete("path")`                   | Datei loeschen, gibt 0=ok, -1=Fehler zurueck         |
@@ -1836,6 +2706,7 @@ Einen Zeitbereich aus Tab-getrennten CSV-Datendateien in Float-Arrays extrahiere
 |----------|--------------|
 | `int fileExtract(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Zeilen extrahieren wo `from <= Zeitstempel <= to`. Sucht immer vom Dateianfang. Gibt Zeilenanzahl zurueck |
 | `int fileExtractFast(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Wie oben, merkt sich Dateiposition fuer effiziente sequenzielle Zeitbereichsabfragen |
+| `int fileRange(handle, char min[], char max[])` | Datei durchgehen (Kopfzeile wird automatisch uebersprungen) und den **ersten** und **letzten** Zeitstempel in die char-Arrays `min` / `max` schreiben. Liefert die Gesamtzahl der Zeilen. Damit laesst sich die Spanne eines Protokolls ermitteln, bevor man ein `from`/`to`-Fenster fuer `fileExtract` waehlt. |
 
 **Parameter:**
 - `handle` — offener Datei-Handle (von `fileOpen`)
@@ -1928,6 +2799,7 @@ Einen beliebigen Tasmota-Konsolenbefehl ausfuehren und die JSON-Antwort erfassen
 |----------------------------------------------|-------------------------------------------------------|
 | `int tasmCmd("command", char response[])`    | Befehl ausfuehren, Antwort speichern, Laenge zurueckgeben |
 | `int tasmCmd(char cmd[], char response[])`   | Befehl ausfuehren (char-Array), Antwort speichern |
+| `tasmDefer(char cmd[])` | Einen Tasmota-Befehl zur **verzoegerten** Ausfuehrung einreihen (laeuft im 50-ms-Takt, waehrend die VM angehalten ist, der VM-Mutex also frei ist). Fuer Befehle, die nicht innerhalb eines Callbacks laufen duerfen — z. B. blockierende wie `SendMail` oder alles, was die VM erneut betreten koennte. Ohne Rueckmeldung (fire and forget). |
 
 **Hinweise:**
 - Befehl kann ein String-Literal oder ein char[]-Array sein
@@ -2538,6 +3410,7 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 | `webText(chararray, maxlen, "label")` | Texteingabe — Zeichenkettenvariable bearbeiten |
 | `webNumber(var, min, max, "label")` | Zahleneingabe mit Min/Max-Grenzen |
 | `webPulldown(var, "label", "opt0\|opt1\|opt2")` | Dropdown-Auswahl mit Beschriftung — Pipe-getrennte Optionen, 0-basierter Index. `"@getfreepins"` als Optionen zeigt verfuegbare GPIO-Pins |
+| `webRepoPulldown(var, "label", "json_url", "index_key", "/ziel")` | Dropdown, das aus einem entfernten **Repository-JSON** gefuellt wird (`{ "<index_key>": [ {"label":..,"filename":..}, .. ] }`). Waehlt `var` vor, schreibt bei Aenderung den gewaehlten Index zurueck und laedt (wenn `/ziel` nicht leer ist) die gewaehlte Datei herunter und speichert sie unter `/ziel` auf dem Geraet. Praktisch, um einen Zaehler-Deskriptor oder ein Beispiel aus einem Online-Index zu waehlen. |
 | `webRadio(var, "opt0\|opt1\|opt2")` | Optionsschaltflaechengruppe — Pipe-getrennte Optionen, 0-basierter Index |
 | `webTime(var, "label")` | Zeitauswahl (HH:MM) — gespeichert als HHMM-Ganzzahl (z.B. 1430 = 14:30) |
 | `webPageLabel(page, "label")` | Seite 0–5 mit einer Schaltflaechenbeschriftung auf der Hauptseite registrieren |
@@ -3239,6 +4112,13 @@ Alle Primitiven verwenden die aktuelle Position, die durch `dspPos()` gesetzt wu
 | `dspPicture("file.jpg", scale)` | Bilddatei vom Dateisystem an aktueller Position zeichnen (scale: 0=Original) |
 | `int dspLoadImage("file.jpg")` | JPG in PSRAM als RGB565-Pixelspeicher laden, gibt Slot 0-3 zurueck (-1 bei Fehler). Bleibt im Speicher bis VM stoppt. Nur ESP32+JPEG_PICTS |
 | `dspPushImageRect(slot, sx, sy, dx, dy, w, h)` | Teilrechteck aus geladenem Bild auf Bildschirm zeichnen. Liest aus Bild bei (sx,sy), schreibt auf Bildschirm bei (dx,dy), Groesse w×h. Fuer Hintergrund-Wiederherstellung (z.B. Uhrzeiger ueber Zifferblatt) |
+| `int imgCreate(w, h)` | Eine **leere** RGB565-Leinwand (w×h Pixel, 2 Byte/Pixel) im PSRAM anlegen und ihre Bild-Slot-Nummer liefern (0-3, -1 bei Speichermangel / keinem freien Slot). Der Slot verhaelt sich wie ein per JPG geladener Slot fuer `dspPushImageRect`/`dspImageWidth`/`dspImageHeight`/`dspImgText[Burn]`, unterstuetzt zusaetzlich aber `imgBeginDraw()`. Hoechstens 1024×1024. Wird bei `TinyCStop` automatisch freigegeben |
+| `imgBeginDraw(slot)` | **Alle `dsp*`-Zeichenprimitive umleiten** (dspLine, dspFillCircle, dspText, dspRect, dspPixel, dspTriangle, …) — sie schreiben dann in den Pixelspeicher der Leinwand statt auf das physische Display. Muss mit `imgEndDraw()` abgeschlossen werden. Verschachtelte Aufrufe werden ignoriert (Phase 1 = jeweils nur eine Umleitung). Der Slot muss mit `imgCreate` angelegt worden sein (per JPG geladene Slots werden abgelehnt) |
+| `imgEndDraw()` | Das physische Display wieder als Ziel der `dsp*`-Primitive einsetzen. Ohne Wirkung, wenn keine Umleitung aktiv ist |
+| `imgClear(slot, color)` | Die ganze Leinwand schnell mit einer RGB565-Farbe fuellen. Entspricht `imgBeginDraw(slot); dspColor(color,color); dspFillRect(...); imgEndDraw();`, ist aber deutlich schneller (memset-basiert). Markiert die gesamte Leinwand als veraendert |
+| `imgBlit(dst, src, sx, sy, dx, dy, w, h)` | Ein Rechteck **von einer Leinwand in eine andere** kopieren (oder innerhalb derselben — memmove-sicher). Quellrechteck (sx,sy,w,h) → Zielrechteck bei (dx,dy). Beide Seiten werden beschnitten, Argumente ausserhalb der Grenzen sind also harmlos. Der veraenderte Bereich des Ziels wird automatisch mit dem beruehrten Rechteck vereinigt. Typischer Einsatz: eine saubere Referenzleinwand neben einer Arbeitsleinwand halten und mit `imgBlit(work, clean, x, y, x, y, w, h)` einen kleinen Bereich vor dem Neuzeichnen wiederherstellen |
+| `imgInvalidate(slot, x, y, w, h)` | Ein Rechteck von Hand in den veraenderten Bereich des Slots aufnehmen — nuetzlich nach direkten Aenderungen am Puffer oder um das Uebertragen eines Bereichs zu erzwingen, den `markDirty` nicht erfasst hat |
+| `imgFlush(slot, panel_x, panel_y)` | Nur den **veraenderten Bereich** einer Leinwand auf das Panel bei (panel_x+dx, panel_y+dy) uebertragen und den Bereich anschliessend zuruecksetzen. Primitive in die Leinwand zeichnen und am Ende eines Bildes `imgFlush` aufrufen — kein manuelles Rechnen mit umschliessenden Rechtecken noetig. Darf **nicht** aufgerufen werden, solange eine `imgBeginDraw`-Umleitung aktiv ist. Ohne Wirkung, wenn nichts veraendert wurde |
 | `int dspImageWidth(slot)` | Breite des geladenen Bildes im Slot abfragen (0 bei ungueltigem Slot) |
 | `int dspImageHeight(slot)` | Hoehe des geladenen Bildes im Slot abfragen (0 bei ungueltigem Slot) |
 | `int dspTextWidth(len)` | Pixelbreite fuer `len` Zeichen im aktuellen Font und Textgroesse. Fuer transparenten Text auf Bildhintergrund: Text messen, zeichnen, spaeter Hintergrund mit `dspPushImageRect` wiederherstellen |
@@ -4119,6 +4999,7 @@ f = fileOpen("/log.txt", a);          // statt fileOpen("/log.txt", 2)
 | Funktion | Beschreibung |
 |----------|-------------|
 | `int pluginQuery(char dst[], int index, int p1, int p2)` | Binäres Plugin abfragen. Gibt Ergebnis zurueck und schreibt optionale String-Antwort in `dst` |
+| `int bcall(char name[], char buf[], int len)` | Eine benannte Funktion aufrufen, die eine geladene **Binaerbibliothek** (blib) bereitstellt — z. B. `bcall("mb_crc16", buf, 6)` fuer eine Modbus-CRC16 ueber `buf`. Die Funktion arbeitet auf dem Byte-Puffer und liefert ein int-Ergebnis. Setzt voraus, dass die passende `.blib` geladen ist. |
 
 ### Cross-VM Share-Tabelle (ESP32)
 
@@ -4171,6 +5052,119 @@ void Command(char cmd[]) {
     }
 }
 int main() { addCommand("RDR"); return 0; }
+```
+
+#### shareDump() *(seit 1.6.2)*
+
+Reine Diagnose — laeuft die gesamte `tc_share_table[]` unter dem Share-Mutex
+ab und protokolliert jeden belegten Eintrag ueber `AddLog`. Liefert der
+aufrufenden VM die Anzahl der belegten Eintraege. Nur lesend, ohne Allokation.
+
+```c
+int n = shareDump();
+// → Tasmota-Log:
+//   TCC: share[0] key="brutto"    type=FLT value=25.290000
+//   TCC: share[3] key="price"     type=FLT value=12.605000
+//   TCC: share[5] key="soc"       type=INT value=87
+//   TCC: share[12] key="disp_html" type=STR value="<table>..."
+//   TCC: shareDump: 8/32 live entries
+```
+
+Hilfreich, um Ungereimtheiten beim Austausch zwischen VMs zu klaeren: Ist der
+Schreibzugriff wirklich angekommen? Unter welchem Index? Mit welchem Typ und
+Wert? Erspart es, die Firmware zum Nachsehen mit Debug-Ausgaben zu versehen.
+
+#### dumpPersist() *(seit 1.6.9)*
+
+Das Gegenstueck zu `shareDump()` fuer die Persist-Schicht. Protokolliert jeden
+`persist`-Eintrag — globalen Index, Slot-Anzahl und die rohen int32-Woerter
+(16 je Zeile, damit lange Arrays nicht stillschweigend abgeschnitten werden) —
+dazu eine Kopfzeile mit dem `.pvs`-Dateinamen und dem FNV-1a-Layout-Hash.
+Liefert die Anzahl der Persist-Eintraege.
+
+```c
+int n = dumpPersist();
+// → Tasmota-Log:
+//   TCC: persistDump file="/bat_ctrl.pvs" hash=0x9F3A21C7 entries=12
+//   TCC: persist p[0] i=4 n=1 @0:42
+//   TCC: persist p[1] i=6 n=40 @0:1078530011,1067030938,...   (16 je Zeile)
+//   TCC: persist p[1] i=6 n=40 @16:...
+```
+
+**Hauptzweck — sichern vor einem Flash mit Layout-Aenderung.** Das Hinzufuegen,
+Entfernen oder Umsortieren IRGENDEINER `persist`-Variablen macht die gesamte
+`.pvs` ungueltig und setzt beim naechsten Start **alle** Persist-Werte auf die
+Vorgaben zurueck (nicht nur die geaenderten). `dumpPersist()` aus einem
+`Command()`-Handler aufrufen, die Log-Zeilen kopieren — fertig ist ein
+bitgenauer Abzug zum spaeteren Wiederherstellen. Es werden bewusst rohe
+int32-Woerter ausgegeben (nicht als Float formatiert), damit die
+Wiederherstellung bitgenau bleibt, unabhaengig davon, ob ein Slot einen int
+oder einen float haelt — Persist speichert keinen Typ je Slot. Einmalige
+Diagnose; belastet die serielle Ausgabe stark wie `shareDump()`.
+
+### Symmetrische Kryptografie (ESP32)
+
+AES-128 (ECB + CBC), HMAC-SHA256, SHA-256 sowie Hex⇄Binaer-Helfer — auf Basis
+von mbedtls (fuer HTTPS / MQTT-TLS ohnehin eingebunden, also ohne zusaetzlichen
+Flash-Bedarf). Alle Operationen arbeiten an Ort und Stelle auf TinyC-Puffern
+(`char[]` oder gepacktem `byte[]`). Auf dem ESP8266 liefern die Rumpffunktionen
+`0` bzw. tun nichts.
+
+Motivierender Anwendungsfall: TinyC-Skripte, die das **lokale Tuya-Protokoll**
+sprechen (v3.3 = AES-128-ECB + CRC32), damit sich per Smart Life gesteuerte
+Geraete (Pool-Waermepumpen, Steckdosen, Schalter, Luftentfeuchter) direkt aus
+Tasmota heraus bedienen lassen, ohne den Umweg ueber die Cloud — siehe
+`examples/pool_pump.tc`. Ebenso nuetzlich fuer signierte REST-Schnittstellen
+(HMAC-SHA256), verschluesselte SML-Dekoder und Fingerabdruecke je Geraet bei
+MQTT-TLS.
+
+| Funktion | Beschreibung |
+|---|---|
+| `int aesEcb(char key[], char data[], int enc_flag)` | AES-128-ECB auf **einem 16-Byte-Block** an Ort und Stelle. `key` muss genau 16 Byte lang sein. `enc_flag`: 1=verschluesseln, 0=entschluesseln. Liefert 1=ok, 0=Fehler. Fuer mehrere Bloecke in einer `for`-Schleife ueber 16-Byte-Abschnitte aufrufen |
+| `int aesCbc(char key[], char iv[], char data[], int len, int enc_flag)` | AES-128-CBC an Ort und Stelle. `key` und `iv` je 16 Byte. `len` muss ein Vielfaches von 16 sein. Liefert 1=ok, 0=Fehler |
+| `int hmacSha256(char key[], int klen, char data[], int dlen, char out[])` | HMAC-SHA256. `key` ≤ 1024 B, `data` ≤ 4 KB, `out` muss ≥ 32 B sein. Liefert 1=ok |
+| `int sha256(char data[], int dlen, char out[])` | SHA-256 von `data[0..dlen-1]` nach `out[0..31]`. Liefert 1=ok |
+| `int md5(char data[], int dlen, char out[])` | MD5 von `data[0..dlen-1]` nach `out[0..15]` (16-Byte-Pruefsumme). Liefert 1=ok, 0=Fehler (auch wenn MD5 in der mbedtls-Konfiguration abgeschaltet ist). Fuer altbestehende Schluesselableitungen (z. B. den Tuya-BLE-Handschlag) — nicht fuer neue Sicherheitsentwuerfe |
+| `int hex2bin(char hex[], int hex_len, char out[])` | Hex-Zeichenkette → Bytes dekodieren. Liefert die geschriebenen Bytes (= `hex_len / 2`). Eine ungerade `hex_len` wird durch Abschneiden des letzten Halbbytes toleriert |
+| `int bin2hex(char bin[], int bin_len, char out[])` | Bytes → Hex-Zeichenkette (klein geschrieben) kodieren. Schreibt `bin_len * 2` Zeichen plus NUL-Abschluss. Liefert die geschriebenen Zeichen (ohne NUL) |
+
+**Puffer-Konvention:** Ein TinyC-`char[]` belegt ein Byte je int32-Slot — nur die
+unteren 8 Bit werden genutzt. Ein `byte[]` liegt gepackt und wird von denselben
+Funktionen direkt angenommen. Laengen sind Byte-Angaben und muessen in die
+zugewiesene Kapazitaet der Referenz passen.
+
+**Grenzen:** AES-CBC belegt je Aufruf bis zu 4 KB. HMAC/SHA sind auf 1024 B
+Schluessel und 4 KB Daten je Aufruf begrenzt — groessere Nutzlasten muessen in
+Abschnitten gehasht werden.
+
+**Noch nicht verfuegbar:** AES-GCM, ECDH (Tuya v3.4 braucht beides — die meisten
+Smart-Life-Geraete sind noch v3.3, das ist also selten ein Hindernis).
+
+```c
+// Beispiel — einen JSON-Befehl fuer ein Tuya-v3.3-Geraet verschluesseln
+char key[16];                            // 16-Byte-AES-Schluessel
+char body[64];                           // PKCS#7-aufgefuellter Klartext (JSON-Befehl)
+strcpy(key, "u9eUO{aw1Kxc}uk^");
+int n = strlen(body);
+// auf 16 auffuellen
+int pad = 16 - (n & 15);
+for (int i = 0; i < pad; i = i + 1) body[n + i] = pad;
+n = n + pad;
+// blockweise verschluesseln (ECB)
+for (int b = 0; b < n; b = b + 16) {
+    aesEcb(key, body + b, 1);            // 1 = verschluesseln; an Ort und Stelle
+}
+
+// Beispiel — eine HMAC-SHA256-Signatur pruefen
+char key[32];
+char data[256];
+char expected_sig[32];                   // ueber die Leitung empfangene Signatur
+char actual_sig[32];
+hmacSha256(key, 32, data, strlen(data), actual_sig);
+int ok = 1;
+for (int i = 0; i < 32; i = i + 1) {
+    if (actual_sig[i] != expected_sig[i]) { ok = 0; break; }
+}
 ```
 
 ### Bluetooth LE (ESP32)
@@ -4547,6 +5541,10 @@ Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
 | `void lvglSetRange(int h, int min, int max)` | Wertebereich |
 | `void lvglSetChecked(int h, int on)` | Checked-Zustand setzen (Switch/Checkbox) |
 | `int lvglIsChecked(int h)` | 1 wenn checked |
+| `void lvglArcBgAngles(int h, int start, int end)` | Den **Hintergrund-Bogen** eines Arc in Grad festlegen (LVGL: 0°=rechts, 90°=unten, 180°=links, 270°=oben). `135,45` = eine 270°-Skala; `180,360` = ein oberer Halbkreis. |
+| `void lvglArcStyle(int h, int part, int rgb, int width)` | Farbe und Dicke eines Arc-**Teils**: `0`=MAIN (Hintergrundbahn), `1`=INDICATOR (Wertbogen), `2`=KNOB. Ermoeglicht zonierte Skalen und farbige Wertbogen (das allgemeine `lvglSetBgColor`/`lvglSetStyleInt` erreicht nur MAIN). `width<=0` behaelt die aktuelle Dicke des Teils. |
+| `void lvglLinePoly(int h, int xs[], int ys[], int n)` | Einen kompletten **Streckenzug aus N Punkten** mit einem einzigen `lvglLine`-Objekt zeichnen — parallele int-Arrays `xs`/`ys` uebergeben (absolute Bildschirmpixel). Deutlich guenstiger als N Zweipunkt-Segmente und mit sauberen Verbindungen; geeignet fuer eine Diagrammkurve, ein Gitterlinien-Bueschel oder ein Bogenband einer Skala (den Bogen in `xs`/`ys` abtasten). Die Arrays werden kopiert, ein gemeinsamer Zwischenpuffer ist also unbedenklich. |
+| `void lvglRotate(int h, int deci_deg)` | **Jedes** Objekt per LVGL-Transformation um seinen Mittelpunkt drehen, in 0,1°-Schritten (`2700` = 270°). Fuer einen senkrechten y-Achsen-Titel (ein gedrehtes `lvglLabel`). Wird auf dem partiell zeichnenden DSI dargestellt. |
 
 **Diagramm & Bild**
 

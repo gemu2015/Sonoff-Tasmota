@@ -43,6 +43,7 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 | `int`   | 32-bit | Signed integer                      |
 | `float` | 32-bit | IEEE 754 floating-point             |
 | `char`  | 8-bit  | Unsigned character (masked to 0xFF) |
+| `byte`  | 8-bit  | Unsigned byte 0..255 — in arrays stored **packed**, 1 byte per element *(since 1.6.56)* |
 | `bool`  | 32-bit | Boolean (0 = false, non-zero = true)|
 | `void`  | —      | No value (function return type)     |
 
@@ -53,7 +54,7 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 | `int32_t`      | `int`   |
 | `uint32_t`     | `int`   |
 | `unsigned int` | `int`   |
-| `uint8_t`      | `char`  |
+| `uint8_t`      | `byte`  |
 
 ---
 
@@ -1019,7 +1020,40 @@ int main() {
 
 Both inline and heap arrays support all the same operations: element access, string operations on `char[]`, passing to functions, etc.
 
-**Heap limits:**
+### Packed byte arrays — `byte[]` *(since 1.6.56)*
+
+An array element normally occupies a whole **int32 slot** — `char[]` included. A
+`char buf[2048]` therefore costs 8 KB of VM memory. The `byte` type (alias
+`uint8_t`) is stored **packed**: one byte per element, i.e. `(n+3)/4` slots.
+
+```c
+char cbuf[8192];   // 8192 slots = 32 KB
+byte bbuf[8192];   // 2048 slots =  8 KB — same data, a quarter of the memory
+```
+
+Measured on an ESP32-C3: the same slot needs **14,569 bytes** for `byte big[8192]`
+against **39,145 bytes** for `char big[8192]`.
+
+`byte[]` is a full drop-in for `char[]`:
+
+* **Every string function** works on it — `strcpy`, `strcat`, `sprintf`, `strlen`,
+  `strcmp`, `strFind`, `strReplace`, `strTrim`, `strToUpper`/`strToLower`,
+  `strSub`, `strToken`, `strStartsWith`/`strEndsWith`/`strContains`, and `%s`.
+* **Every byte-oriented syscall** takes it directly: crypto (`sha256`, `md5`,
+  `hmacSha256`, `aesEcb`, `aesCbc`), `hex2bin`/`bin2hex`/`base64Enc`, file I/O,
+  TCP/UDP, serial, I2C and CAN.
+* **`persist byte[]`** stores the packed slots.
+* **Struct fields** pack as well: `struct { byte payload[512]; int len; }`.
+
+Element values are unsigned `0..255`; a wider value is truncated to its low byte
+(`b[0] = 300;` stores 44), exactly as with `char`.
+
+> `byte` and `uint8_t` are context-sensitive **type names**, not reserved
+> keywords — an existing variable named `byte` keeps working.
+
+**File I/O differs:** `fileReadBin`/`fileWriteBin` transfer **raw bytes** for a
+`byte[]` (one file byte per element), not the 4-byte little-endian int32 elements
+used for `int[]`/`float[]`. The `count` argument is a byte count there.
 
 **Heap limits:**
 
@@ -1233,6 +1267,7 @@ Each field occupies a fixed number of int32 slots:
 | `float`               | 1                                     |
 | `int arr[N]`          | N                                     |
 | `char name[N]`        | N (one byte per slot, low 8 bits)     |
+| `byte b[N]`           | (N+3)/4 — packed, 1 byte per element   |
 | `float ys[N]`         | N                                     |
 | Nested struct         | inner struct's total slot count       |
 
