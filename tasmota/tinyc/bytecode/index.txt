@@ -18,6 +18,8 @@ bmp280.tcb
 bmx280.tcb
 bresser_chart.tcb
 bug4_http_taskloop_diag.tcb
+byte_array_suite.tcb
+byte_syscall_test.tcb
 byte_test.tcb
 c_extensions_demo.tcb
 callback_test.tcb
@@ -129,6 +131,7 @@ music_fft.tcb
 music_ui.tcb
 onewire.tcb
 persist_array_file.tcb
+persist_byte_test.tcb
 pool_pump.tcb
 power_meter.tcb
 powerwall.tcb
