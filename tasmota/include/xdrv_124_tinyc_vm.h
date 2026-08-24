@@ -17199,7 +17199,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!src) { TC_PUSH(vm, -1); break; }
       int32_t src_len = 0;
       if (tc_is_const_ref(hex_ref)) {
-        const char *cs = tc_get_const_str(vm, hex_ref);
+        // hex_ref is a const REF (0xC0008000|idx), not a bare index — mask it.
+        // (tc_get_const_str(vm, hex_ref) took the negative ref as an index and
+        // returned null, so hex2bin("..literal..") always returned -1. Pre-
+        // existing since the syscall landed; surfaced by byte_syscall_test.)
+        const char *cs = tc_const_ref_str(vm, hex_ref);
         if (!cs) { free(src); TC_PUSH(vm, -1); break; }
         while (cs[src_len] && src_len < 1023) {
           src[src_len] = cs[src_len]; src_len++;

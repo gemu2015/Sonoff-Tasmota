@@ -3293,31 +3293,22 @@ export class CodeGenerator {
             const local = this.scope.lookup(node.name);
             if (local && local.isArray) {
                 if (local.isRef) {
-                    // Array ref parameter — local holds heap ref, just load it
+                    // Array ref parameter — local holds heap ref (already carrying
+                    // any byte[] flag from the caller), just load it.
                     this.emit(Op.LOAD_LOCAL);
                     this.emitByte(local.index);
                     return;
                 }
-                if (local.isHeap) {
-                    this.emit(Op.ADDR_HEAP);
-                    this.emitByte(local.heapHandle);
-                    return;
-                }
-                this.emit(Op.ADDR_LOCAL);
-                this.emitByte(local.index);
+                // emitAddrOf marks the byte[] flag so a byte[] passed to a syscall
+                // is seen as packed (else it reads as int32 — every 4th byte).
+                this.emitAddrOf(local, true);
                 return;
             }
         }
         // Check globals
         const global = this.globals.get(node.name);
         if (global && global.isArray) {
-            if (global.isHeap) {
-                this.emit(Op.ADDR_HEAP);
-                this.emitByte(global.heapHandle);
-                return;
-            }
-            this.emit(Op.ADDR_GLOBAL);
-            this.emitU16(global.index);
+            this.emitAddrOf(global, false);
             return;
         }
         throw new CodeGenError(`'${node.name}' is not an array`, node.line);

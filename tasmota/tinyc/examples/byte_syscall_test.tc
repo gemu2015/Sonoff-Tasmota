@@ -1,47 +1,36 @@
-// byte_syscall_test.tc — byte[] als Syscall-Argument prüfen (TinyC 1.6.56+).
-// Beweist: ein byte[] liefert bei den byte-orientierten Syscalls dasselbe
-// Ergebnis wie ein char[]. Läuft OHNE Hardware (nur Krypto/Hex/Datei), also
-// direkt am C3 testbar. Erwartete Zeilen stehen jeweils im addLog.
+// byte_syscall_test.tc — byte[] als Syscall-Argument prüfen (TinyC 1.6.57+).
+// Beweist: byte[] funktioniert bei den byte-orientierten Syscalls und liefert
+// dasselbe wie die bekannten Sollwerte. Läuft OHNE Hardware (Krypto/Hex),
+// also direkt am C3 testbar. Jede Zeile trägt ihr erwartetes Ergebnis.
+//
+// Hinweis zum Vergleich: ein byte[] und ein char[] lassen sich NICHT über
+// dieselbe Hilfsfunktion vergleichen — ein `char[]`-Parameter liest ein
+// übergebenes byte[] als int32 (jedes 4. Byte). Deshalb wird jedes Ergebnis
+// über bin2hex in einen Text verwandelt und per strcmp gegen den Sollwert
+// geprüft.
 
-byte  gbin[64];            // gepackt: 16 Slots statt 64
-char  cbin[64];            // Vergleich als char[]
-byte  ghex[160];
-char  chex[160];
+byte  gbin[64];
 byte  gdig[32];
-char  cdig[32];
-
-// zwei Puffer als Hex vergleichen (elementweise, bis len)
-int gleich(char a[], char b[], int len) {
-    int i = 0;
-    while (i < len) {
-        if (a[i] != b[i]) { return 0; }
-        i = i + 1;
-    }
-    return 1;
-}
+char  hexout[80];
 
 int main() {
-    // ── hex2bin: Hex-String -> Rohbytes, einmal in byte[], einmal in char[] ──
-    int gn = hex2bin("48656c6c6f21", 12, gbin);   // "Hello!"
-    int cn = hex2bin("48656c6c6f21", 12, cbin);
-    addLog("hex2bin: byte[]=%d char[]=%d (erwartet 6 6), gbin[0]=%d gbin[5]=%d (72 33)",
-           gn, cn, gbin[0], gbin[5]);
+    // ── hex2bin: Hex-Literal -> Rohbytes in ein byte[] ──
+    int n = hex2bin("48656c6c6f21", 12, gbin);        // "Hello!"
+    addLog("hex2bin -> byte[]: n=%d (erwartet 6), gbin[0]=%d gbin[5]=%d (erwartet 72 33)",
+           n, gbin[0], gbin[5]);
 
-    // ── bin2hex zurück: byte[]-Eingang, char[]-Ausgang ──
-    bin2hex(gbin, 6, ghex);
-    bin2hex(cbin, 6, chex);
-    addLog("bin2hex byte[]-Quelle: '%s' (erwartet 48656c6c6f21), gleich char[]=%d",
-           ghex, gleich(ghex, chex, 12));
+    // ── bin2hex zurück: byte[]-Quelle -> char[]-Hextext ──
+    bin2hex(gbin, 6, hexout);
+    addLog("bin2hex(byte[]) = '%s'  (erwartet 48656c6c6f21)  match=%d",
+           hexout, (strcmp(hexout, "48656c6c6f21") == 0));
 
-    // ── sha256: byte[]-Daten müssen dieselbe Prüfsumme geben wie char[] ──
-    // "abc" in beide Puffer legen
-    gbin[0] = 97; gbin[1] = 98; gbin[2] = 99;
-    cbin[0] = 97; cbin[1] = 98; cbin[2] = 99;
+    // ── sha256 aus einem byte[] gegen den bekannten Vektor ──
+    gbin[0] = 97; gbin[1] = 98; gbin[2] = 99;         // "abc"
     sha256(gbin, 3, gdig);
-    sha256(cbin, 3, cdig);
-    bin2hex(gdig, 32, ghex);
-    addLog("sha256(\"abc\") aus byte[]: %s", ghex);
-    addLog("  erwartet ba7816bf...f20015ad, byte==char: %d", gleich(gdig, cdig, 32));
+    bin2hex(gdig, 32, hexout);
+    addLog("sha256(\"abc\") aus byte[] = %s", hexout);
+    addLog("  match=%d (erwartet 1)",
+           (strcmp(hexout, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0));
 
     // ── aesEcb: Schlüssel+Daten als byte[], Roundtrip encrypt/decrypt ──
     byte key[16];
@@ -49,9 +38,9 @@ int main() {
     int i = 0;
     while (i < 16) { key[i] = i; blk[i] = 100 + i; i = i + 1; }
     int klar0 = blk[0];
-    aesEcb(key, blk, 1);            // verschlüsseln (in-place)
+    aesEcb(key, blk, 1);           // verschlüsseln (in-place)
     int enc0 = blk[0];
-    aesEcb(key, blk, 0);           // entschlüsseln zurück
+    aesEcb(key, blk, 0);          // entschlüsseln zurück
     addLog("aesEcb byte[] roundtrip: klar=%d enc=%d zurueck=%d (klar==zurueck: %d)",
            klar0, enc0, blk[0], (blk[0] == klar0));
 
