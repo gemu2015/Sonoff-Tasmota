@@ -9,10 +9,10 @@
 // als Text lesen (%s), die byte-orientierten Syscalls (sha256/md5/hmac/hex2bin/
 // bin2hex/base64/aesEcb), Datei-I/O mit rohen Bytes, und `byte` als Typ-Alias.
 //
-// GRENZE (dokumentiert, NICHT getestet): String-SCHREIB-Syscalls (strcpy/strcat/
-// sprintf) sind char[]-only — sie schreiben roh int32 und packen NICHT in eine
-// byte[]. Zum Befüllen einer byte[] mit Text also byteweise setzen. Die LESE-
-// Seite (%s, webSend) ist byte-bewusst.
+// Seit 1.6.58 sind auch die String-SCHREIB-Syscalls byte-bewusst: strcpy/strcat/
+// sprintf/strToUpper/strToLower/strTrim/strReplace/strSub/strToken schreiben in
+// eine byte[] gepackt, und strlen/strcmp/strFind/strContains/starts/endsWith
+// lesen sie gepackt. Eine byte[] ist damit ein voller Ersatz für char[].
 
 int g_pass = 0;
 int g_fail = 0;
@@ -205,6 +205,49 @@ void test_alias() {
     ck("byte as varname", byte, 8);
 }
 
+// 10) String-SCHREIB-Syscalls auf einer byte[] (byte-bewusst seit 1.6.58)
+void test_string_ops() {
+    byte s[40];
+    strcpy(s, "Hallo");                       // STRCPY_CONST
+    ck("strcpy/strlen", strlen(s), 5);
+    ck("strcpy/strcmp", strcmp(s, "Hallo"), 0);
+    strcat(s, " Welt");                        // STRCAT_CONST
+    ck("strcat", strcmp(s, "Hallo Welt"), 0);
+    sprintf(s, "n=%d s=%s", 7, "ok");          // SPRINTF_INT/STR
+    ck("sprintf", strcmp(s, "n=7 s=ok"), 0);
+    strcpy(s, "MixCase");
+    strToUpper(s);
+    ck("strToUpper", strcmp(s, "MIXCASE"), 0);
+    strToLower(s);
+    ck("strToLower", strcmp(s, "mixcase"), 0);
+    strcpy(s, "  hi  ");
+    ck("strTrim ret", strTrim(s), 2);
+    ck("strTrim val", strcmp(s, "hi"), 0);
+    strcpy(s, "a.b.c");
+    ck("strReplace cnt", strReplace(s, ".", "-"), 2);
+    ck("strReplace val", strcmp(s, "a-b-c"), 0);
+    strcpy(s, "foobar");
+    ck("startsWith", strStartsWith(s, "foo"), 1);
+    ck("endsWith", strEndsWith(s, "bar"), 1);
+    ck("contains", strContains(s, "oob"), 1);
+    ck("strFind", strFind(s, "bar"), 3);
+    byte sub[16];
+    strSub(sub, s, 1, 3);                       // "oob"
+    ck("strSub", strcmp(sub, "oob"), 0);
+    byte tk[16];
+    strcpy(s, "x,y,z");
+    strToken(tk, s, ',', 2);                    // "y"
+    ck("strToken", strcmp(tk, "y"), 0);
+    // byte[] nach String-Schreibern als %s lesen + strcpy byte[]->char[]
+    strcpy(s, "Read");
+    char out[40];
+    sprintf(out, "<%s>", s);
+    ck("byte[] as %s", strcmp(out, "<Read>"), 0);
+    char cd[16];
+    strcpy(cd, s);                             // src byte[] -> dst char[]
+    ck("strcpy byte->char", strcmp(cd, "Read"), 0);
+}
+
 int main() {
     addLog("byte-suite: start");
     test_local_frame();
@@ -216,6 +259,7 @@ int main() {
     test_syscalls();
     test_file();
     test_alias();
+    test_string_ops();
     int total = g_pass + g_fail;
     addLog("byte-suite: %d/%d PASSED%s", g_pass, total,
            (g_fail == 0) ? "  ✅ ALL GOOD" : "  ⚠️ FAILURES ABOVE");
