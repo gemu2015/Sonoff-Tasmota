@@ -20401,7 +20401,14 @@ static bool TinyCStartVM(TcSlot *s) {
   TC_HEAPLOG("startvm.posttask");
 #endif
   if (ret != pdPASS) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Failed to create task for %s"), s->filename);
+    // xTaskCreate allocates the stack from the heap, so this fails on a
+    // FRAGMENTED heap even with plenty free — the numbers turn "failed" into a
+    // decision (Hans, ottelo: 49 kB free, frag 77 %, largest block 11.7 kB,
+    // 612 B short of the 12 kB stack). Task stacks come from internal DRAM.
+    AddLog(LOG_LEVEL_ERROR,
+           PSTR("TCC: Failed to create task for %s: need %u B contiguous, largest block %u - lower TinyCStack or restart"),
+           s->filename, (unsigned)tc_vm_stack_bytes,
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
     s->running = false;
     return false;
   }
