@@ -58,11 +58,11 @@ export class Parser {
         this.pos = 0;
         this.structTypes = new Map(); // tag  → [{ name, type }]
         this.typeAliases  = new Map(); // name → base type string ('int', 'float', 'struct:Tag', 'fnptr:Alias')
-        // `byte` ist ein eingebauter Typname, KEIN Schluesselwort: zwei unserer
-        // eigenen Beispiele heissen eine Variable `byte` (lcd_i2c.tc:87,
-        // onewire.tc:184), und in fremden Skripten steht es sicher auch. Als
-        // Alias verhaelt es sich wie ein `typedef`: an Typstellen ein Typ,
-        // sonst ein gewoehnlicher Name. Damit bleibt alles Vorhandene heil.
+        // `byte` is a built-in type NAME, not a keyword: two of our own examples
+        // name a variable `byte` (lcd_i2c.tc:87, onewire.tc:184) and other
+        // people's scripts surely do too. As an alias it behaves like a typedef:
+        // a type where a type belongs, an ordinary name everywhere else. That
+        // keeps everything existing intact.
         this.typeAliases.set('byte', 'byte');
         this.fnPtrTypes   = new Map(); // alias → { returnType, params: [{type, name?, isArray?}] }
     }
@@ -114,11 +114,11 @@ export class Parser {
         const t = tok.type;
         if (t === TokenType.KW_STRUCT) return true;
         if (t === TokenType.IDENTIFIER && this.typeAliases.has(tok.value)) {
-            // Ein Aliasname ist nur dort ein TYP, wo ein Name folgt: `byte b[4]`
-            // ja, `byte = byte >> 1` nein. Sonst waere jede Variable, die wie
-            // ein Typ heisst, unbenutzbar -- genau das ist uns mit `byte` in
-            // onewire.tc:190 passiert. Gilt fuer alle Aliase, also auch fuer
-            // typedef-Namen, die als Variablenname vorkommen.
+            // An alias name is only a TYPE where a name follows it: `byte b[4]`
+            // yes, `byte = byte >> 1` no. Otherwise every variable named like a
+            // type would be unusable — which is exactly what happened with
+            // `byte` in onewire.tc:190. Applies to all aliases, typedef names
+            // used as variable names included.
             const naechst = this.peek(offset + 1).type;
             return naechst === TokenType.IDENTIFIER || naechst === TokenType.STAR;
         }

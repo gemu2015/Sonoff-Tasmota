@@ -650,9 +650,9 @@ const BUILTINS = {
 
 const HEAP_THRESHOLD = 16;   // arrays > 16 elements go to heap, ≤16 stay inline
 
-// Wie viele int32-Slots belegt ein Array mit `n` Elementen? Bei `byte[]` liegen
-// vier Elemente in einem Slot — das ist der ganze Zweck des Typs
-// (tinyc/docs/BYTE_ARRAYS.md). Alle Ablagen rechnen damit: Globals, Locals, Heap.
+// How many int32 slots does an array of `n` elements take? For `byte[]` four
+// elements share one slot — that is the whole point of the type
+// (tinyc/docs/BYTE_ARRAYS.md). Every storage area uses this: globals, locals, heap.
 function slotsFor(type, n) {
     return (type === 'byte') ? Math.ceil(n / 4) : n;
 }
@@ -681,9 +681,9 @@ class Scope {
             this.locals.set(name, info);
             return info;
         }
-        // `byte[]` liegt gepackt: vier Elemente in einem Slot. Genau hier zahlt
-        // sich der Typ am staerksten aus — ein `byte buf[160]` belegt 40 statt
-        // 160 der 256 Slots eines Rahmens (docs/BYTE_ARRAYS.md).
+        // `byte[]` is packed: four elements per slot. This is where the type pays
+        // off most — a `byte buf[160]` takes 40 instead of 160 of a frame's 256
+        // slots (docs/BYTE_ARRAYS.md).
         const slots = isArray ? slotsFor(type, arraySize) : 1;
         if (this.nextIndex + slots > 256) {
             throw new CodeGenError(
@@ -1823,10 +1823,10 @@ export class CodeGenerator {
         }
     }
 
-    // Referenz auf ein Array schieben. Bei `byte[]` wird das Kennbit gesetzt,
-    // damit die Syscalls die gepackte Sicht nehmen: Heap Bit 8, Global Bit 16,
-    // Local Bit 24 (dieselbe Verteilung wie tc_ref_mark_bytes in der Firmware).
-    // Es kostet zwei Opcodes beim Übergeben und keinen im Zugriff.
+    // Push a ref to an array. For `byte[]` the flag bit is set so syscalls take
+    // the packed view: heap bit 8, global bit 16, local bit 24 (the same mapping
+    // as tc_ref_mark_bytes in the firmware). Costs two opcodes when passing and
+    // none on access.
     emitAddrOf(info, isLocal) {
         let flag = 0;
         if (info.isHeap)      { this.emit(Op.ADDR_HEAP);   this.emitByte(info.heapHandle); flag = 0x00000100; }
@@ -1838,10 +1838,10 @@ export class CodeGenerator {
         }
     }
 
-    // ── Array-Zugriff: ein Ort, an dem die Opcode-Wahl faellt ───────────────
-    // `byte[]` liegt gepackt (ein Byte je Element), alles andere in int32-Slots.
-    // Der Compiler kennt den Typ hier, also entscheidet er hier — im heissen
-    // Pfad der VM gibt es dadurch keine Verzweigung (docs/BYTE_ARRAYS.md).
+    // ── Array access: one place where the opcode choice is made ─────────────
+    // `byte[]` is packed (one byte per element), everything else lives in int32
+    // slots. The compiler knows the type here, so it decides here — that leaves
+    // no branch in the VM's hot path (docs/BYTE_ARRAYS.md).
     emitArrLoad(info, isLocal) {
         const b = (info.type === 'byte');
         if (info.isRef)       { this.emit(b ? Op.LOAD_REF_BYTE    : Op.LOAD_REF_ARR);    this.emitByte(info.index); }
@@ -4640,8 +4640,8 @@ export class CodeGenerator {
         if (this.scope) {
             const local = this.scope.lookup(node.name);
             if (local && local.isArray) {
-                // Ref-Parameter, Heap oder Rahmen — die Wahl des Opcodes (und
-                // damit int32 gegen gepacktes Byte) liegt in emitArrLoad.
+                // Ref param, heap or frame — the opcode choice (and with it int32
+                // versus packed byte) lives in emitArrLoad.
                 this.emitArrLoad(local, true);
                 return;
             }
@@ -5254,8 +5254,8 @@ export class CodeGenerator {
         const bytes = [];
         bytes.push(this.heapArrays.size);  // count
         for (const [handle, info] of this.heapArrays) {
-            // Im Kopf steht die SLOT-Zahl (die VM belegt Slots); bei byte[] also
-            // ein Viertel der Elementzahl, aufgerundet.
+            // The header carries the SLOT count (the VM allocates slots), so for
+            // byte[] a quarter of the element count, rounded up.
             const slots = slotsFor(info.type, info.arraySize);
             bytes.push(info.heapHandle & 0xFF);           // handle index
             bytes.push((slots >> 8) & 0xFF);              // size high byte

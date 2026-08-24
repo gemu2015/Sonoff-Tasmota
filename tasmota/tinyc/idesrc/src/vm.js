@@ -38,9 +38,9 @@ export class VM {
         // Globals
         this.globals = new Int32Array(MAX_GLOBALS);
         this.fglobals = new Float32Array(this.globals.buffer);
-        // Byte-Sicht auf dieselbe Ablage — fuer gepackte byte[]-Arrays. Derselbe
-        // Kniff wie bei fglobals: ein zweiter Blick auf denselben Puffer, keine
-        // zweite Kopie (siehe tinyc/docs/BYTE_ARRAYS.md).
+        // Byte view of the same storage — for packed byte[] arrays. Same trick
+        // as fglobals: a second look at one buffer, not a second copy
+        // (see tinyc/docs/BYTE_ARRAYS.md).
         this.bglobals = new Uint8Array(this.globals.buffer);
 
         // Call frames
@@ -801,9 +801,9 @@ export class VM {
                 break;
             }
 
-            // ─── Gepackte Byte-Arrays ────────────
-            // Element i ist Byte i der Region. Die Grenze ist die Kapazitaet in
-            // BYTES (Slots * 4) — dieselbe Rechnung wie in der Firmware.
+            // ─── Packed byte arrays ──────────────
+            // Element i is byte i of the region. The bound is the capacity in
+            // BYTES (slots * 4) — the same arithmetic the firmware uses.
             case Op.LOAD_LOCAL_BYTE: {
                 const base = this.readU8();
                 const idx = this.pop();
@@ -1088,9 +1088,9 @@ export class VM {
 
     // ─── Array ref resolution ───────────────────────────────
     // Returns { arr: Int32Array, base: number } for accessing char arrays
-    // Kennbit „gepacktes byte[]" wieder aus einer Referenz herausnehmen. Die
-    // Verteilung (Heap Bit 8, Global Bit 16, Local Bit 24) muss zur Firmware
-    // passen — tc_ref_strip_bytes in xdrv_124_tinyc_vm.h.
+    // Strip the "packed byte[]" flag from a ref. The mapping (heap bit 8,
+    // global bit 16, local bit 24) has to match the firmware —
+    // tc_ref_strip_bytes in xdrv_124_tinyc_vm.h.
     stripByteFlag(ref) {
         const u = ref >>> 0, tag = u >>> 30;
         if (tag === 3) return (u & ~0x00000100) | 0;
@@ -1098,8 +1098,8 @@ export class VM {
         return (u & ~0x01000000) | 0;
     }
 
-    // Byte-Sicht auf ein Int32Array (gecacht, damit nicht bei jedem Zugriff ein
-    // neues Uint8Array entsteht).
+    // Byte view of an Int32Array, cached so an access does not allocate a new
+    // Uint8Array every time.
     byteViewOf(arr) {
         if (!this._byteViews) this._byteViews = new WeakMap();
         let v = this._byteViews.get(arr);

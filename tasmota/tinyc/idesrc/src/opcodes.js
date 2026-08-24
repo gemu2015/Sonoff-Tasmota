@@ -93,17 +93,17 @@ export const Op = {
     LOAD_REF_ARR:   0xA3,   // u8 local_idx; pop idx → push *(resolveRef(local[local_idx])+idx)
     STORE_REF_ARR:  0xA4,   // u8 local_idx; pop val, pop idx → *(resolveRef(local[local_idx])+idx)=val
 
-    // ─── Gepackte Byte-Arrays (byte[], 1 Byte je Element) ──────────────
-    // Element i ist Byte i der Region -- derselbe Speicher wie bei einem
-    // int32-Array, nur anders gelesen. Siehe tinyc/docs/BYTE_ARRAYS.md.
-    LOAD_LOCAL_BYTE:  0xA8,  // u8 base_idx; pop idx → push Byte
-    STORE_LOCAL_BYTE: 0xA9,  // u8 base_idx; pop val, pop idx → Byte setzen
-    LOAD_GLOBAL_BYTE: 0xAA,  // u16 base_idx; pop idx → push Byte
-    STORE_GLOBAL_BYTE:0xAB,  // u16 base_idx; pop val, pop idx → Byte setzen
-    LOAD_HEAP_BYTE:   0xAC,  // u8 handle; pop idx → push Byte
-    STORE_HEAP_BYTE:  0xAD,  // u8 handle; pop val, pop idx → Byte setzen
-    LOAD_REF_BYTE:    0xAE,  // u8 local_idx; pop idx → push Byte über Referenz
-    STORE_REF_BYTE:   0xAF,  // u8 local_idx; pop val, pop idx → Byte über Referenz
+    // ─── Packed byte arrays (byte[], one byte per element) ─────────────
+    // Element i is byte i of the region — the same memory an int32 array uses,
+    // read differently. See tinyc/docs/BYTE_ARRAYS.md.
+    LOAD_LOCAL_BYTE:  0xA8,  // u8 base_idx; pop idx → push byte
+    STORE_LOCAL_BYTE: 0xA9,  // u8 base_idx; pop val, pop idx → store byte
+    LOAD_GLOBAL_BYTE: 0xAA,  // u16 base_idx; pop idx → push byte
+    STORE_GLOBAL_BYTE:0xAB,  // u16 base_idx; pop val, pop idx → store byte
+    LOAD_HEAP_BYTE:   0xAC,  // u8 handle; pop idx → push byte
+    STORE_HEAP_BYTE:  0xAD,  // u8 handle; pop val, pop idx → store byte
+    LOAD_REF_BYTE:    0xAE,  // u8 local_idx; pop idx → push byte via ref
+    STORE_REF_BYTE:   0xAF,  // u8 local_idx; pop val, pop idx → store byte via ref
 
     // ─── Watch variables ─────────────────────────
     STORE_WATCH:    0xA5,   // u16 varIdx, u16 shadowIdx, u16 writtenIdx — store with change tracking

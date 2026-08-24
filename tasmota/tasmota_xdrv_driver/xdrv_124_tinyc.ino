@@ -800,7 +800,7 @@ static void TinyCInit(void) {
   // Create the file-handle reservation mutex ONCE here (loopTask, before any VM task
   // spawns) so tc_alloc_file_handle() has no lazy first-call race across slot tasks.
   if (!tc_file_handle_mutex) tc_file_handle_mutex = xSemaphoreCreateMutex();
-  // Eingestellte Stackgroesse holen, BEVOR der erste Slot startet.
+  // Pick up the configured stack size BEFORE the first slot starts.
   TinyCLoadStackCfg();
 #endif
   // calloc() zeroes memory but doesn't call C++ constructors for embedded objects.
@@ -1849,22 +1849,22 @@ static void HandleTinyCPage(void) {
       // ⚠️ The row shows `slot->filename` and falls back to the CONFIG name --
       // clearing only one of the two leaves the entry standing (measured: page
       // still listed "laeufer.tcb (0B)" after the first version of this fix).
-      // UNLOAD, not just stop: "delete all" is how Hans read it -- "und somit
-      // alle aus dem Speicher löschen". A stopped slot still holds its bytecode
+      // UNLOAD, not just stop: "delete all" is how Hans read it -- "and thus
+      // delete them all from memory". A stopped slot still holds its bytecode
       // buffer, so the files would be gone while the memory stayed, and the row
       // would sit there as "Rdy" with no name to show. Measured after the first
       // version of this fix: page clean, status still Loaded=1.
-      int vergessen = 0;
+      int forgotten = 0;
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TinyCUnloadSlot(i);
-        if (Tinyc->slot_config[i].filename[0]) vergessen++;
+        if (Tinyc->slot_config[i].filename[0]) forgotten++;
         Tinyc->slot_config[i].filename[0] = '\0';
         Tinyc->slot_config[i].cmd_prefix[0] = '\0';
         Tinyc->slot_config[i].autoexec = false;
       }
       TinyCSaveSettings();
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: Deleted %d .tcb files, cleared %d slot entries"),
-             total, vergessen);
+             total, forgotten);
 #endif
     }
   }
@@ -2871,9 +2871,9 @@ static void HandleTinyCUpload(void) {
     // Last resort on a fragmented heap: drop the program THIS slot is holding
     // and try once more.
     //
-    // ⚠️ Seit der Slot beim Upload-Start ohnehin geräumt wird (siehe oben),
-    // greift dieser Zweig nur noch, wenn s->program aus einer anderen Quelle
-    // stammt. Er bleibt als Netz stehen, ist aber nicht mehr der Normalfall.
+    // ⚠️ Since the slot is cleared at upload start anyway (see above), this
+    // branch only fires when s->program comes from another source. It stays as
+    // a safety net, but it is no longer the normal case.
     //
     // The old program is a block of nearly the same size, in one piece, and it
     // is about to be replaced anyway -- freeing it usually hands the allocator
@@ -3012,16 +3012,16 @@ static void HandleTinyCUpload(void) {
         if (err == TC_ERR_OUT_OF_MEMORY && ufsp) {
           const char *saveName = Tinyc->upload_filename[0] ? Tinyc->upload_filename : TC_FILE_NAME;
           File f = ufsp->open(saveName, "w");
-          bool geschrieben = false;
+          bool written = false;
           if (f) {
-            geschrieben = (f.write(s->program, s->program_size) == s->program_size);
+            written = (f.write(s->program, s->program_size) == s->program_size);
             f.close();
           }
-          free(s->program);                 // Puffer weg -- das ist der Punkt
+          free(s->program);                 // buffer gone -- that is the point
           s->program = nullptr;
           s->program_size = 0;
           s->loaded = false;
-          if (geschrieben) {
+          if (written) {
             AddLog(LOG_LEVEL_INFO, PSTR("TCC: Load OOM — retrying from %s"), saveName);
             gerettet = TinyCLoadFile(saveName, slot_num);
             if (gerettet) {
@@ -6057,8 +6057,8 @@ static void TC_DLServerLoop(void) {
 
 #endif // ESP32
 
-// MQTT-Brücke — siehe den Hinweis in xdrv_124_tinyc_vm.h: hier stand ein
-// `#ifdef USE_MQTT`, das den ganzen Block in jedem Bau entfernt hat.
+// MQTT bridge — see the note in xdrv_124_tinyc_vm.h: there used to be an
+// `#ifdef USE_MQTT` here that removed this whole block from every build.
 /*********************************************************************************************\
  * MQTT subscribe / publish bridge for TinyC scripts
  * Scripts subscribe to external topics via mqttSubscribe("foo/#") and receive
