@@ -58,6 +58,12 @@ export class Parser {
         this.pos = 0;
         this.structTypes = new Map(); // tag  → [{ name, type }]
         this.typeAliases  = new Map(); // name → base type string ('int', 'float', 'struct:Tag', 'fnptr:Alias')
+        // `byte` ist ein eingebauter Typname, KEIN Schluesselwort: zwei unserer
+        // eigenen Beispiele heissen eine Variable `byte` (lcd_i2c.tc:87,
+        // onewire.tc:184), und in fremden Skripten steht es sicher auch. Als
+        // Alias verhaelt es sich wie ein `typedef`: an Typstellen ein Typ,
+        // sonst ein gewoehnlicher Name. Damit bleibt alles Vorhandene heil.
+        this.typeAliases.set('byte', 'byte');
         this.fnPtrTypes   = new Map(); // alias → { returnType, params: [{type, name?, isArray?}] }
     }
 
@@ -107,10 +113,19 @@ export class Parser {
         const tok = this.peek(offset);
         const t = tok.type;
         if (t === TokenType.KW_STRUCT) return true;
-        if (t === TokenType.IDENTIFIER && this.typeAliases.has(tok.value)) return true;
+        if (t === TokenType.IDENTIFIER && this.typeAliases.has(tok.value)) {
+            // Ein Aliasname ist nur dort ein TYP, wo ein Name folgt: `byte b[4]`
+            // ja, `byte = byte >> 1` nein. Sonst waere jede Variable, die wie
+            // ein Typ heisst, unbenutzbar -- genau das ist uns mit `byte` in
+            // onewire.tc:190 passiert. Gilt fuer alle Aliase, also auch fuer
+            // typedef-Namen, die als Variablenname vorkommen.
+            const naechst = this.peek(offset + 1).type;
+            return naechst === TokenType.IDENTIFIER || naechst === TokenType.STAR;
+        }
         if (t === TokenType.IDENTIFIER && this.structTypes.has(tok.value)) return true;
         return t === TokenType.KW_INT || t === TokenType.KW_FLOAT ||
-               t === TokenType.KW_CHAR || t === TokenType.KW_BOOL || t === TokenType.KW_VOID;
+               t === TokenType.KW_CHAR || t === TokenType.KW_BYTE ||
+               t === TokenType.KW_BOOL || t === TokenType.KW_VOID;
     }
 
     parseType() {
@@ -128,6 +143,7 @@ export class Parser {
             case TokenType.KW_INT:   baseType = 'int';   break;
             case TokenType.KW_FLOAT: baseType = 'float'; break;
             case TokenType.KW_CHAR:  baseType = 'char';  break;
+            case TokenType.KW_BYTE:  baseType = 'byte';  break;
             case TokenType.KW_BOOL:  baseType = 'bool';  break;
             case TokenType.KW_VOID:  baseType = 'void';  break;
             case TokenType.KW_STRUCT: {
@@ -1016,7 +1032,8 @@ export class Parser {
         if (this.check(TokenType.LPAREN)) {
             const next = this.peek(1);
             if (next && (next.type === TokenType.KW_INT || next.type === TokenType.KW_FLOAT ||
-                         next.type === TokenType.KW_CHAR || next.type === TokenType.KW_BOOL)) {
+                         next.type === TokenType.KW_CHAR || next.type === TokenType.KW_BYTE ||
+                         next.type === TokenType.KW_BOOL)) {
                 const afterType = this.peek(2);
                 if (afterType && afterType.type === TokenType.RPAREN) {
                     this.advance(); // (

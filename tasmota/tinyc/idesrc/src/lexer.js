@@ -14,6 +14,7 @@ export const TokenType = {
     KW_INT:         'KW_INT',
     KW_FLOAT:       'KW_FLOAT',
     KW_CHAR:        'KW_CHAR',
+    KW_BYTE:        'KW_BYTE',
     KW_BOOL:        'KW_BOOL',
     KW_VOID:        'KW_VOID',
 

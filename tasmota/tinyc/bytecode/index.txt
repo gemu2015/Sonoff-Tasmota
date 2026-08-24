@@ -18,6 +18,7 @@ bmp280.tcb
 bmx280.tcb
 bresser_chart.tcb
 bug4_http_taskloop_diag.tcb
+byte_test.tcb
 c_extensions_demo.tcb
 callback_test.tcb
 callbacks.tcb

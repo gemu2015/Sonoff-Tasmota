@@ -650,6 +650,13 @@ const BUILTINS = {
 
 const HEAP_THRESHOLD = 16;   // arrays > 16 elements go to heap, ≤16 stay inline
 
+// Wie viele int32-Slots belegt ein Array mit `n` Elementen? Bei `byte[]` liegen
+// vier Elemente in einem Slot — das ist der ganze Zweck des Typs
+// (tinyc/docs/BYTE_ARRAYS.md). Alle Ablagen rechnen damit: Globals, Locals, Heap.
+function slotsFor(type, n) {
+    return (type === 'byte') ? Math.ceil(n / 4) : n;
+}
+
 class Scope {
     constructor(parent = null) {
         this.parent = parent;
@@ -674,7 +681,10 @@ class Scope {
             this.locals.set(name, info);
             return info;
         }
-        const slots = isArray ? arraySize : 1;
+        // `byte[]` liegt gepackt: vier Elemente in einem Slot. Genau hier zahlt
+        // sich der Typ am staerksten aus — ein `byte buf[160]` belegt 40 statt
+        // 160 der 256 Slots eines Rahmens (docs/BYTE_ARRAYS.md).
+        const slots = isArray ? slotsFor(type, arraySize) : 1;
         if (this.nextIndex + slots > 256) {
             throw new CodeGenError(
                 `Too many local variables (need ${this.nextIndex + slots} slots, max 256). ` +
@@ -1116,7 +1126,7 @@ export class CodeGenerator {
             arraySize,
         };
         this.globals.set(name, info);
-        this.globalIndex += isArray ? arraySize : 1;
+        this.globalIndex += isArray ? slotsFor(type, arraySize) : 1;
         return info;
     }
 
@@ -1297,24 +1307,12 @@ export class CodeGenerator {
                     this.addSourceMap(node.line);
                     this.emitPushInt(i);
                     this.emitPushInt(str.charCodeAt(i));
-                    if (isHeap) {
-                        this.emit(Op.STORE_HEAP_ARR);
-                        this.emitByte(g.heapHandle);
-                    } else {
-                        this.emit(Op.STORE_GLOBAL_ARR);
-                        this.emitU16(g.index);
-                    }
+                    this.emitArrStore(g, false);
                 }
                 // Null terminator
                 this.emitPushInt(Math.min(str.length, size - 1));
                 this.emitPushInt(0);
-                if (isHeap) {
-                    this.emit(Op.STORE_HEAP_ARR);
-                    this.emitByte(g.heapHandle);
-                } else {
-                    this.emit(Op.STORE_GLOBAL_ARR);
-                    this.emitU16(g.index);
-                }
+                this.emitArrStore(g, false);
             } else if (node.type === NodeType.ArrayDecl && node.init) {
                 const g = this.globals.get(node.name);
                 const isHeap = g && g.isHeap;
@@ -1323,13 +1321,7 @@ export class CodeGenerator {
                     this.emitPushInt(i);        // index
                     this.compileExpr(node.init[i]); // value
                     this._coerceTo(node.varType, this.inferType(node.init[i]));
-                    if (isHeap) {
-                        this.emit(Op.STORE_HEAP_ARR);
-                        this.emitByte(g.heapHandle);
-                    } else {
-                        this.emit(Op.STORE_GLOBAL_ARR);
-                        this.emitU16(g.index);
-                    }
+                    this.emitArrStore(g, false);
                 }
             }
         }
@@ -1831,6 +1823,41 @@ export class CodeGenerator {
         }
     }
 
+    // Referenz auf ein Array schieben. Bei `byte[]` wird das Kennbit gesetzt,
+    // damit die Syscalls die gepackte Sicht nehmen: Heap Bit 8, Global Bit 16,
+    // Local Bit 24 (dieselbe Verteilung wie tc_ref_mark_bytes in der Firmware).
+    // Es kostet zwei Opcodes beim Übergeben und keinen im Zugriff.
+    emitAddrOf(info, isLocal) {
+        let flag = 0;
+        if (info.isHeap)      { this.emit(Op.ADDR_HEAP);   this.emitByte(info.heapHandle); flag = 0x00000100; }
+        else if (isLocal)     { this.emit(Op.ADDR_LOCAL);  this.emitByte(info.index);      flag = 0x01000000; }
+        else                  { this.emit(Op.ADDR_GLOBAL); this.emitU16(info.index);       flag = 0x00010000; }
+        if (info.type === 'byte') {
+            this.emitPushInt(flag);
+            this.emit(Op.BIT_OR);
+        }
+    }
+
+    // ── Array-Zugriff: ein Ort, an dem die Opcode-Wahl faellt ───────────────
+    // `byte[]` liegt gepackt (ein Byte je Element), alles andere in int32-Slots.
+    // Der Compiler kennt den Typ hier, also entscheidet er hier — im heissen
+    // Pfad der VM gibt es dadurch keine Verzweigung (docs/BYTE_ARRAYS.md).
+    emitArrLoad(info, isLocal) {
+        const b = (info.type === 'byte');
+        if (info.isRef)       { this.emit(b ? Op.LOAD_REF_BYTE    : Op.LOAD_REF_ARR);    this.emitByte(info.index); }
+        else if (info.isHeap) { this.emit(b ? Op.LOAD_HEAP_BYTE   : Op.LOAD_HEAP_ARR);   this.emitByte(info.heapHandle); }
+        else if (isLocal)     { this.emit(b ? Op.LOAD_LOCAL_BYTE  : Op.LOAD_LOCAL_ARR);  this.emitByte(info.index); }
+        else                  { this.emit(b ? Op.LOAD_GLOBAL_BYTE : Op.LOAD_GLOBAL_ARR); this.emitU16(info.index); }
+    }
+
+    emitArrStore(info, isLocal) {
+        const b = (info.type === 'byte');
+        if (info.isRef)       { this.emit(b ? Op.STORE_REF_BYTE    : Op.STORE_REF_ARR);    this.emitByte(info.index); }
+        else if (info.isHeap) { this.emit(b ? Op.STORE_HEAP_BYTE   : Op.STORE_HEAP_ARR);   this.emitByte(info.heapHandle); }
+        else if (isLocal)     { this.emit(b ? Op.STORE_LOCAL_BYTE  : Op.STORE_LOCAL_ARR);  this.emitByte(info.index); }
+        else                  { this.emit(b ? Op.STORE_GLOBAL_BYTE : Op.STORE_GLOBAL_ARR); this.emitU16(info.index); }
+    }
+
     // Emit a load of the member slot at the offset currently on top of the stack.
     emitLoadStructSlot(info, isLocal) {
         if (info.isHeap) {
@@ -2089,20 +2116,17 @@ export class CodeGenerator {
                 for (let i = 0; i < str.length && i < size - 1; i++) {
                     this.emitPushInt(i);
                     this.emitPushInt(str.charCodeAt(i));
-                    this.emit(Op.STORE_HEAP_ARR);
-                    this.emitByte(heapInfo.heapHandle);
+                    this.emitArrStore(heapInfo, false);
                 }
                 this.emitPushInt(Math.min(str.length, size - 1));
                 this.emitPushInt(0);
-                this.emit(Op.STORE_HEAP_ARR);
-                this.emitByte(heapInfo.heapHandle);
+                this.emitArrStore(heapInfo, false);
             } else if (node.init) {
                 for (let i = 0; i < node.init.length; i++) {
                     this.emitPushInt(i);
                     this.compileExpr(node.init[i]);
                     this._coerceTo(node.varType, this.inferType(node.init[i]));
-                    this.emit(Op.STORE_HEAP_ARR);
-                    this.emitByte(heapInfo.heapHandle);
+                    this.emitArrStore(heapInfo, false);
                 }
             }
             return;
@@ -2116,21 +2140,18 @@ export class CodeGenerator {
             for (let i = 0; i < str.length && i < size - 1; i++) {
                 this.emitPushInt(i);
                 this.emitPushInt(str.charCodeAt(i));
-                this.emit(Op.STORE_LOCAL_ARR);
-                this.emitByte(info.index);
+                this.emitArrStore(info, true);
             }
             // Null terminator
             this.emitPushInt(Math.min(str.length, size - 1));
             this.emitPushInt(0);
-            this.emit(Op.STORE_LOCAL_ARR);
-            this.emitByte(info.index);
+            this.emitArrStore(info, true);
         } else if (node.init) {
             for (let i = 0; i < node.init.length; i++) {
                 this.emitPushInt(i);
                 this.compileExpr(node.init[i]);
                 this._coerceTo(node.varType, this.inferType(node.init[i]));
-                this.emit(Op.STORE_LOCAL_ARR);
-                this.emitByte(info.index);
+                this.emitArrStore(info, true);
             }
         }
     }
@@ -3095,25 +3116,13 @@ export class CodeGenerator {
                     this.emitByte(local.index);
                     return;
                 }
-                if (local.isHeap) {
-                    this.emit(Op.ADDR_HEAP);
-                    this.emitByte(local.heapHandle);
-                    return;
-                }
-                this.emit(Op.ADDR_LOCAL);
-                this.emitByte(local.index);
+                this.emitAddrOf(local, true);
                 return;
             }
         }
         const global = this.globals.get(name);
         if (global && global.isArray) {
-            if (global.isHeap) {
-                this.emit(Op.ADDR_HEAP);
-                this.emitByte(global.heapHandle);
-                return;
-            }
-            this.emit(Op.ADDR_GLOBAL);
-            this.emitU16(global.index);
+            this.emitAddrOf(global, false);
             return;
         }
         throw new CodeGenError(`Not an array: ${name}`, line);
@@ -4631,33 +4640,16 @@ export class CodeGenerator {
         if (this.scope) {
             const local = this.scope.lookup(node.name);
             if (local && local.isArray) {
-                if (local.isRef) {
-                    // Ref parameter — local slot holds a packed runtime ref.
-                    // Resolve at runtime and index into the underlying array.
-                    this.emit(Op.LOAD_REF_ARR);
-                    this.emitByte(local.index);
-                    return;
-                }
-                if (local.isHeap) {
-                    this.emit(Op.LOAD_HEAP_ARR);
-                    this.emitByte(local.heapHandle);
-                    return;
-                }
-                this.emit(Op.LOAD_LOCAL_ARR);
-                this.emitByte(local.index);
+                // Ref-Parameter, Heap oder Rahmen — die Wahl des Opcodes (und
+                // damit int32 gegen gepacktes Byte) liegt in emitArrLoad.
+                this.emitArrLoad(local, true);
                 return;
             }
         }
 
         const global = this.globals.get(node.name);
         if (global && global.isArray) {
-            if (global.isHeap) {
-                this.emit(Op.LOAD_HEAP_ARR);
-                this.emitByte(global.heapHandle);
-                return;
-            }
-            this.emit(Op.LOAD_GLOBAL_ARR);
-            this.emitU16(global.index);
+            this.emitArrLoad(global, false);
             return;
         }
 
@@ -4923,18 +4915,9 @@ export class CodeGenerator {
             this.emit(Op.DUP); // keep index
             // Load current value
             const arrInfo = this.lookupArray(node.name);
-            if (arrInfo && arrInfo.isRef) {
-                this.emit(Op.LOAD_REF_ARR);
-                this.emitByte(arrInfo.index);
-            } else if (arrInfo && arrInfo.isHeap) {
-                this.emit(Op.LOAD_HEAP_ARR);
-                this.emitByte(arrInfo.heapHandle);
-            } else if (arrInfo && this.scope && this.scope.lookup(node.name)) {
-                this.emit(Op.LOAD_LOCAL_ARR);
-                this.emitByte(arrInfo.index);
-            } else if (arrInfo) {
-                this.emit(Op.LOAD_GLOBAL_ARR);
-                this.emitU16(arrInfo.index);
+            if (arrInfo) {
+                const istLokal = !!(this.scope && this.scope.lookup(node.name));
+                this.emitArrLoad(arrInfo, istLokal);
             }
             this.compileExpr(node.value);
             const valType = this.inferType(node.value);
@@ -4961,22 +4944,14 @@ export class CodeGenerator {
         }
 
         const arrInfo = this.lookupArray(node.name);
-        if (arrInfo && arrInfo.isRef) {
-            // Ref parameter — store through the runtime-resolved ref
-            this.emit(Op.STORE_REF_ARR);
-            this.emitByte(arrInfo.index);
-            return;
-        }
-        if (arrInfo && arrInfo.isHeap) {
-            this.emit(Op.STORE_HEAP_ARR);
-            this.emitByte(arrInfo.heapHandle);
+        if (arrInfo && (arrInfo.isRef || arrInfo.isHeap)) {
+            this.emitArrStore(arrInfo, false);
             return;
         }
         if (this.scope) {
             const local = this.scope.lookup(node.name);
             if (local && local.isArray) {
-                this.emit(Op.STORE_LOCAL_ARR);
-                this.emitByte(local.index);
+                this.emitArrStore(local, true);
                 return;
             }
         }
@@ -5253,7 +5228,7 @@ export class CodeGenerator {
         const TC_MAX_HEAP_SLOTS = 16384;
         const TC_WARN_HEAP_SLOTS = 14000;
         let totalSlots = 0;
-        for (const [, info] of this.heapArrays) totalSlots += info.arraySize;
+        for (const [, info] of this.heapArrays) totalSlots += slotsFor(info.type, info.arraySize);
         // The DEVICE is the real enforcer: the VM heap is grown
         // dynamically and rejected at load against the *actual*
         // TC_MAX_HEAP (which user_config_override.h may raise). The
@@ -5279,9 +5254,12 @@ export class CodeGenerator {
         const bytes = [];
         bytes.push(this.heapArrays.size);  // count
         for (const [handle, info] of this.heapArrays) {
+            // Im Kopf steht die SLOT-Zahl (die VM belegt Slots); bei byte[] also
+            // ein Viertel der Elementzahl, aufgerundet.
+            const slots = slotsFor(info.type, info.arraySize);
             bytes.push(info.heapHandle & 0xFF);           // handle index
-            bytes.push((info.arraySize >> 8) & 0xFF);     // size high byte
-            bytes.push(info.arraySize & 0xFF);             // size low byte
+            bytes.push((slots >> 8) & 0xFF);              // size high byte
+            bytes.push(slots & 0xFF);                     // size low byte
         }
         return new Uint8Array(bytes);
     }

@@ -38,6 +38,10 @@ export class VM {
         // Globals
         this.globals = new Int32Array(MAX_GLOBALS);
         this.fglobals = new Float32Array(this.globals.buffer);
+        // Byte-Sicht auf dieselbe Ablage — fuer gepackte byte[]-Arrays. Derselbe
+        // Kniff wie bei fglobals: ein zweiter Blick auf denselben Puffer, keine
+        // zweite Kopie (siehe tinyc/docs/BYTE_ARRAYS.md).
+        this.bglobals = new Uint8Array(this.globals.buffer);
 
         // Call frames
         this.frames = [];
@@ -797,6 +801,90 @@ export class VM {
                 break;
             }
 
+            // ─── Gepackte Byte-Arrays ────────────
+            // Element i ist Byte i der Region. Die Grenze ist die Kapazitaet in
+            // BYTES (Slots * 4) — dieselbe Rechnung wie in der Firmware.
+            case Op.LOAD_LOCAL_BYTE: {
+                const base = this.readU8();
+                const idx = this.pop();
+                const arr = this.frameLocals[this.fp];
+                const grenze = (arr.length - base) * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`local byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.byteViewOf(arr)[base * 4 + idx]);
+                break;
+            }
+            case Op.STORE_LOCAL_BYTE: {
+                const base = this.readU8();
+                const val = this.pop();
+                const idx = this.pop();
+                const arr = this.frameLocals[this.fp];
+                const grenze = (arr.length - base) * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`local byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.byteViewOf(arr)[base * 4 + idx] = val & 0xFF;
+                break;
+            }
+            case Op.LOAD_GLOBAL_BYTE: {
+                const base = this.readU16();
+                const idx = this.pop();
+                const grenze = (this.globals.length - base) * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`global byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.bglobals[base * 4 + idx]);
+                break;
+            }
+            case Op.STORE_GLOBAL_BYTE: {
+                const base = this.readU16();
+                const val = this.pop();
+                const idx = this.pop();
+                const grenze = (this.globals.length - base) * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`global byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.bglobals[base * 4 + idx] = val & 0xFF;
+                break;
+            }
+            case Op.LOAD_HEAP_BYTE: {
+                const handle = this.readU8();
+                const idx = this.pop();
+                const h = this.heapHandles[handle];
+                if (!h || !h.alive) throw new VMError(`Heap byte: handle ${handle}`, this.pc);
+                const grenze = h.size * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`heap byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.byteViewOf(this.heapData)[h.offset * 4 + idx]);
+                break;
+            }
+            case Op.STORE_HEAP_BYTE: {
+                const handle = this.readU8();
+                const val = this.pop();
+                const idx = this.pop();
+                const h = this.heapHandles[handle];
+                if (!h || !h.alive) throw new VMError(`Heap byte: handle ${handle}`, this.pc);
+                const grenze = h.size * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`heap byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.byteViewOf(this.heapData)[h.offset * 4 + idx] = val & 0xFF;
+                break;
+            }
+            case Op.LOAD_REF_BYTE: {
+                const li = this.readU8();
+                const idx = this.pop();
+                const ref = this.frameLocals[this.fp][li];
+                const { arr, base, maxLen } = this.resolveRef(this.stripByteFlag(ref));
+                const slots = (maxLen !== undefined) ? maxLen : (arr.length - base);
+                const grenze = slots * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`ref byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.byteViewOf(arr)[base * 4 + idx]);
+                break;
+            }
+            case Op.STORE_REF_BYTE: {
+                const li = this.readU8();
+                const val = this.pop();
+                const idx = this.pop();
+                const ref = this.frameLocals[this.fp][li];
+                const { arr, base, maxLen } = this.resolveRef(this.stripByteFlag(ref));
+                const slots = (maxLen !== undefined) ? maxLen : (arr.length - base);
+                const grenze = slots * 4;
+                if (idx < 0 || idx >= grenze) throw new VMError(`ref byte bounds: ${idx} >= ${grenze}`, this.pc);
+                this.byteViewOf(arr)[base * 4 + idx] = val & 0xFF;
+                break;
+            }
+
             // ─── Heap arrays ─────────────────────
             case Op.LOAD_HEAP_ARR: {
                 const handle = this.readU8();
@@ -1000,6 +1088,25 @@ export class VM {
 
     // ─── Array ref resolution ───────────────────────────────
     // Returns { arr: Int32Array, base: number } for accessing char arrays
+    // Kennbit „gepacktes byte[]" wieder aus einer Referenz herausnehmen. Die
+    // Verteilung (Heap Bit 8, Global Bit 16, Local Bit 24) muss zur Firmware
+    // passen — tc_ref_strip_bytes in xdrv_124_tinyc_vm.h.
+    stripByteFlag(ref) {
+        const u = ref >>> 0, tag = u >>> 30;
+        if (tag === 3) return (u & ~0x00000100) | 0;
+        if (tag === 2) return (u & ~0x00010000) | 0;
+        return (u & ~0x01000000) | 0;
+    }
+
+    // Byte-Sicht auf ein Int32Array (gecacht, damit nicht bei jedem Zugriff ein
+    // neues Uint8Array entsteht).
+    byteViewOf(arr) {
+        if (!this._byteViews) this._byteViews = new WeakMap();
+        let v = this._byteViews.get(arr);
+        if (!v) { v = new Uint8Array(arr.buffer); this._byteViews.set(arr, v); }
+        return v;
+    }
+
     resolveRef(ref) {
         const uref = ref >>> 0; // unsigned
         const tag = uref >>> 30;

@@ -1,0 +1,29 @@
+// byte_dev.tc — gepackte byte[]-Arrays am Gerät prüfen (TinyC 1.6.56).
+// Zeigt: Werte schreiben/lesen, Byte-Kappung, Speicherbedarf ein Viertel.
+
+byte gbuf[4096];            // 4 kB Daten -> 1024 Slots statt 4096
+char cbuf[4096];            // zum Vergleich: 4096 Slots = 16 kB
+
+int main() {
+    byte lokal[160];
+    int i = 0;
+    while (i < 160) { lokal[i] = i; i = i + 1; }
+
+    int summe = 0;
+    i = 0;
+    while (i < 160) { summe = summe + lokal[i]; i = i + 1; }
+    addLog("byte-Array lokal: summe=%d (erwartet 12720)", summe);
+
+    gbuf[0] = 255;
+    gbuf[1] = 300;                       // wird auf 44 gekappt (nur ein Byte)
+    gbuf[4095] = 42;
+    addLog("byte-Array global: [0]=%d [1]=%d [4095]=%d (erwartet 255 44 42)",
+           gbuf[0], gbuf[1], gbuf[4095]);
+
+    // Zum Vergleich derselbe Puffer als char[]
+    cbuf[0] = 255;
+    cbuf[4095] = 42;
+    addLog("char-Array: [0]=%d [4095]=%d", cbuf[0], cbuf[4095]);
+    addLog("Heap laut Gerät: siehe TinyC-Status — gbuf 1024 Slots, cbuf 4096 Slots");
+    return 0;
+}
