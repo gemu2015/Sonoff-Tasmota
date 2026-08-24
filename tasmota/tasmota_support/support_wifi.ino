@@ -35,6 +35,9 @@
 #ifndef WIFI_RETRY_SECONDS
 #define WIFI_RETRY_SECONDS      20         // Number of seconds connection to wifi network will retry
 #endif
+#ifndef WIFI_RETRY_RESTART_COUNT
+#define WIFI_RETRY_RESTART_COUNT 100       // Reboot after this many failed WiFi connect cycles; set 0 (in user_config_override.h) to NEVER auto-reboot on WiFi loss. Fork-local: on a power-starved node the reboot only burns energy on cold-boot association while the AP is genuinely gone, and can drop the chip into UART download mode via a marginal power ramp (Hermann/Gantrisch).
+#endif
 
 const uint8_t WIFI_CONFIG_SEC = 180;       // seconds before restart
 const uint8_t WIFI_CHECK_SEC = 20;         // seconds
@@ -1248,7 +1251,9 @@ void WifiCheckIp(void) {
           AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_WIFI D_CONNECT_FAILED_AP_TIMEOUT));
           Settings->wifi_channel = 0;  // Disable stored AP
           Wifi.max_retry++;
-          if (100 == Wifi.max_retry) {  // Restart after 100 * (WIFI_RETRY_OFFSET_SEC + MAC) / 2 seconds
+          // Fork-local: WIFI_RETRY_RESTART_COUNT (default 100 = upstream) gates the
+          // auto-reboot on prolonged WiFi loss; 0 disables it entirely.
+          if (WIFI_RETRY_RESTART_COUNT && (WIFI_RETRY_RESTART_COUNT == Wifi.max_retry)) {  // Restart after N * (WIFI_RETRY_OFFSET_SEC + MAC) / 2 seconds
             TasmotaGlobal.restart_flag = 2;
           }
         } else {
