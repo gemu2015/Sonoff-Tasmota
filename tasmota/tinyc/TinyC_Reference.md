@@ -3196,6 +3196,7 @@ Open outgoing TCP connections to remote hosts. Up to **4 parallel client slots**
 |----------|-------------|
 | `int tcpConnect("host", port)` | Open a TCP connection from the active slot to `host:port`. Returns 0=connected, -1=fail, -2=no network |
 | `int tcpConnect(char host[], port)` | Same, with a char-array host (IP or DNS name) instead of a literal |
+| `tcpConnectTimeout(int ms)` | Bound how long **subsequent** outgoing connects may take (`tcpConnect`, and the `httpGet`/`httpPost` family). `ms=0` restores the WiFiClient default. Without it an absent host blocks on the LwIP connect timeout for ~75 s, which trips the task watchdog and crashes the device — set e.g. `tcpConnectTimeout(2000)` before probing hosts that may be off. |
 | `int tcpConnected()` | Returns 1 if the active slot has an open connection, 0 otherwise |
 | `tcpDisconnect()` | Close the active slot's client connection |
 | `tcpSelect(int slot)` | Select the active client slot (0–3). All subsequent client calls target this slot |
@@ -3451,6 +3452,9 @@ Both callbacks use the same widget functions.
 | `webButton(var, "label")` | Momentary action button — pulses `var` to 1 on click (script reads it, acts, resets to 0). No ON/OFF suffix. Optional `"Idle\|Active"` label shows the `Active` text on the button for ~2.5 s as a click confirmation, then reverts (generic ✓ if no `\|`) |
 | `webToggle(var, "label")` | Latching on/off button (0/1) — **green when `var`≠0, grey when 0**, click flips it. Optional `"On\|Off"` label shows different text/emoji per state (e.g. `"💡 An\|🌙 Aus"`); no `\|` → same text both states, colour only |
 | `webSlider(var, min, max, "label")` | Range slider — drag to set value |
+| `webButtonV(var, char label[])` | Like `webButton`, but the label comes from a **runtime** `char[]` instead of a literal — for buttons whose text is built at run time. The same optional `"Idle\|Active"` split applies. |
+| `webSliderV(var, min, max, char label[])` | Like `webSlider` with a **runtime** `char[]` label. |
+| `int varIdx(var)` | Return the slot-encoded **widget id** of `var` — the number the generated `tcbtn(...)` / `seva(...)` JavaScript uses. Only needed when hand-writing widget HTML with `webSend` instead of using the `web*` helpers, so the hand-built control talks to the right variable. |
 | `webCheckbox(var, "label")` | Checkbox (0/1) — check/uncheck toggles |
 | `webText(chararray, maxlen, "label")` | Text input — edit string variable |
 | `webNumber(var, min, max, "label")` | Number input with min/max bounds |
@@ -4332,6 +4336,7 @@ Parameters: `num` = button index (0-15), `x,y` = position, `w,h` = size, `oc` = 
 |----------|-------------|
 | `dspButtonState(num, val)` | Set button state (0/1) or slider value (0-100) |
 | `int touchButton(num)` | Read button state: 0/1 for buttons, -1 if undefined |
+| `int touchGet(sel)` | Raw touch-panel state, selected by `sel`: `0` = pressed (0/1), `1` = x coordinate, `2` = y coordinate, `-1`/`-2` = uncalibrated raw x/y. Use it for gestures or free-form touch areas, where the `touchButton` / touch-slider abstraction does not fit. |
 | `dspButtonDel(num)` | Delete button/slider `num`, or all if `num` is -1 |
 
 #### Touch Callback
@@ -5013,6 +5018,7 @@ rebuild to change the device.
 | `matterCluster(ep, clusterId)` | Add a cluster to an endpoint |
 | `matterAttr(ep, cl, attr, type)` | Declare an attribute (`type` = `MTR_U32` etc.) |
 | `matterSet(ep, cl, attr, value)` | Publish an attribute value; subscribers are notified on the next loop |
+| `matterEvent(ep, cl, eventId, a, b)` | Queue a Matter **event** (as opposed to an attribute change) on endpoint `ep`, cluster `cl`. `eventId` is the cluster's event id, `a`/`b` are two integer payload fields. Events are one-shot notifications — use them for things like a button press or an alarm, where a state attribute would be the wrong shape. |
 | `int matterGet(ep, cl, attr)` | Read back the cached attribute value (0 if absent) |
 | `matterName(ep, "label")` | Name an endpoint so a controller shows it with that title (see *Naming endpoints* below) |
 | `int matterStart()` | Advertise + accept commissioning. Returns 0=ok |
@@ -5139,6 +5145,7 @@ Query loaded binary plugins (PIC modules) for data.
 |---|---|
 | `int pluginQuery(char dst[], int index, int p1, int p2)` | Call plugin at `index` with parameters `p1`, `p2`. Result string copied to `dst`. Returns string length |
 | `int bcall(char name[], char buf[], int len)` | Call a named function exported by a loaded **binary library** (blib) — e.g. `bcall("mb_crc16", buf, 6)` to compute a Modbus CRC16 over `buf`. The function operates on the byte buffer and returns an int result. Requires the matching `.blib` to be loaded. |
+| `float fcall("name", float a, float b)` | The float counterpart of `bcall`: call a named blib function that takes two floats and returns a float — e.g. a calibration curve or a filter step kept in native code. Returns `0.0` when the build has no BinPlugin support. |
 
 ### Cross-VM Share Table (ESP32)
 
@@ -5150,6 +5157,7 @@ Capacity (override via `user_config_override.h`): **`TC_SHARE_MAX = 32`** entrie
 |---|---|
 | `void shareSetInt(char key[], int v)`     | Set integer value for `key` (creates entry if missing, overwrites type) |
 | `void shareSetFloat(char key[], float v)` | Set float value for `key` |
+| `void shareSetFloatKey(char key[], float v)` | Same as `shareSetFloat`, but the key may come from a **runtime** `char[]` (built with `sprintf`, read from a file, …) rather than a string literal. Use it for keys that are computed, e.g. one entry per channel. |
 | `void shareSetStr(char key[], char v[])`  | Set string value for `key` (truncated to `TC_SHARE_STR_LEN`) |
 | `int shareGetInt(char key[])`             | Read integer; **0** if key missing or wrong type |
 | `float shareGetFloat(char key[])`         | Read float; **0.0** if missing |
@@ -5255,6 +5263,7 @@ Motivating use case: TinyC scripts speaking the **Tuya local protocol** (v3.3 = 
 | `int md5(char data[], int dlen, char out[])` | MD5 of `data[0..dlen-1]` into `out[0..15]` (16-byte digest). Returns 1=ok, 0=err (incl. if MD5 is disabled in the mbedtls config). For legacy key-derivation (e.g. the Tuya BLE handshake) — not for new security designs |
 | `int hex2bin(char hex[], int hex_len, char out[])` | Decode hex string → bytes. Returns bytes written (= `hex_len / 2`). Tolerates odd hex_len by truncating the trailing nibble |
 | `int bin2hex(char bin[], int bin_len, char out[])` | Encode bytes → lowercase hex string. Writes `bin_len * 2` chars + NUL terminator. Returns chars written (excluding NUL) |
+| `int rsaEncrypt(char n_b64url[], char e_b64url[], char plaintext[], char out_hex[])` | RSA PKCS#1 v1.5 (type 2) encryption of `plaintext` with the public key (`n`,`e`), both given **base64url**-encoded as in a JWK. Writes lowercase hex into `out_hex` and returns its length, or -1 on error. Uses BearSSL's `br_rsa_public`; the type-2 padding is built in the firmware. For signing in to cloud APIs that expect an RSA-wrapped secret. |
 
 **Buffer convention:** TinyC `char[]` is one byte per int32 slot — only the low 8 bits are used. Lengths are in bytes and must fit the ref's allocated capacity.
 
@@ -5650,6 +5659,9 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 | `int lvglSlider(int parent)` / `lvglBar` / `lvglArc` | Create a slider / bar / arc |
 | `int lvglSwitch(int parent)` / `lvglCheckbox(int parent)` | Create a switch / checkbox |
 | `void lvglSetValue(int h, int v, int anim)` | Set value (slider/bar/arc). `anim`=1 animates (arc ignores it) |
+| `int lvglScreenCreate()` | Create a new, empty **screen** (a root object with no parent) and return its handle. Build a second page of your UI on it, then switch with `lvglScreenLoad`. |
+| `void lvglScreenLoad(int h)` | Make screen `h` the active screen immediately. |
+| `void lvglScreenLoadAnim(int h, int anim, int ms)` | Switch to screen `h` with a transition lasting `ms` milliseconds. `anim`: `0`=none, `1`-`4`=over left/right/top/bottom, `5`-`8`=move left/right/top/bottom, `9`=fade in, `10`=fade out, `11`-`14`=out left/right/top/bottom. |
 | `int lvglGetValue(int h)` | Current value (slider/bar/arc) |
 | `void lvglSetRange(int h, int min, int max)` | Value range |
 | `void lvglArcBgAngles(int h, int start, int end)` | Set an arc's **background sweep** in degrees (LVGL: 0°=right, 90°=bottom, 180°=left, 270°=top). `135,45` = a 270° dial; `180,360` = a top semicircle. |

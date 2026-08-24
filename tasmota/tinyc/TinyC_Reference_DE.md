@@ -3148,6 +3148,7 @@ Ausgehende TCP-Verbindungen zu entfernten Hosts oeffnen. Bis zu **4 parallele Cl
 |----------|-------------|
 | `int tcpConnect("host", port)` | TCP-Verbindung vom aktiven Slot zu `host:port` oeffnen. Gibt 0=verbunden, -1=Fehler, -2=kein Netzwerk zurueck |
 | `int tcpConnect(char host[], port)` | Dasselbe mit char-Array als Host (IP oder DNS-Name) statt Literal |
+| `tcpConnectTimeout(int ms)` | Begrenzen, wie lange **nachfolgende** ausgehende Verbindungen dauern duerfen (`tcpConnect` sowie die `httpGet`/`httpPost`-Familie). `ms=0` stellt die Vorgabe des WiFiClient wieder her. Ohne das blockiert ein nicht erreichbarer Host rund 75 s im LwIP-Verbindungszeitlimit — das loest den Task-Watchdog aus und stuerzt das Geraet ab. Vor dem Abklopfen moeglicherweise ausgeschalteter Hosts also z. B. `tcpConnectTimeout(2000)` setzen. |
 | `int tcpConnected()` | Gibt 1 zurueck, wenn der aktive Slot eine offene Verbindung hat, sonst 0 |
 | `tcpDisconnect()` | Client-Verbindung des aktiven Slots schliessen |
 | `tcpSelect(int slot)` | Aktiven Client-Slot waehlen (0–3). Alle nachfolgenden Client-Aufrufe zielen auf diesen Slot |
@@ -3406,6 +3407,9 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 | `webButton(var, "label")` | Momentane Aktions-Schaltflaeche — setzt `var` bei Klick auf 1 (Skript liest, handelt, setzt auf 0 zurueck). Kein EIN/AUS-Zusatz. Optionales `"Idle\|Active"`-Label zeigt den `Active`-Text ~2,5 s als Klick-Bestaetigung, dann zurueck (generisches ✓ ohne `\|`) |
 | `webToggle(var, "label")` | Rastende Ein/Aus-Schaltflaeche (0/1) — **gruen wenn `var`≠0, grau wenn 0**, Klick schaltet um. Optionales `"Ein\|Aus"`-Label zeigt verschiedenen Text/Emoji je Zustand (z.B. `"💡 An\|🌙 Aus"`); ohne `\|` → gleicher Text, nur Farbe |
 | `webSlider(var, min, max, "label")` | Bereichsregler — ziehen zum Einstellen des Werts |
+| `webButtonV(var, char label[])` | Wie `webButton`, aber die Beschriftung stammt aus einem **zur Laufzeit** erzeugten `char[]` statt aus einem Literal — fuer Knoepfe, deren Text erst im Betrieb entsteht. Die optionale Aufteilung `"Ruhe\|Aktiv"` gilt genauso. |
+| `webSliderV(var, min, max, char label[])` | Wie `webSlider`, mit Beschriftung aus einem `char[]` zur Laufzeit. |
+| `int varIdx(var)` | Liefert die slot-kodierte **Widget-Nummer** von `var` — die Zahl, die das erzeugte JavaScript `tcbtn(...)` / `seva(...)` verwendet. Nur noetig, wenn man Widget-HTML von Hand mit `webSend` schreibt statt die `web*`-Helfer zu nutzen, damit das selbstgebaute Bedienelement die richtige Variable anspricht. |
 | `webCheckbox(var, "label")` | Kontrollkaestchen (0/1) — Aktivieren/Deaktivieren schaltet um |
 | `webText(chararray, maxlen, "label")` | Texteingabe — Zeichenkettenvariable bearbeiten |
 | `webNumber(var, min, max, "label")` | Zahleneingabe mit Min/Max-Grenzen |
@@ -4214,6 +4218,7 @@ Parameter: `num` = Button-Index (0-15), `x,y` = Position, `w,h` = Groesse, `oc` 
 |----------|-------------|
 | `dspButtonState(num, val)` | Button-Zustand setzen (0/1) oder Slider-Wert (0-100) |
 | `int touchButton(num)` | Button-Zustand lesen: 0/1 fuer Buttons, -1 wenn undefiniert |
+| `int touchGet(sel)` | Rohzustand des Touch-Panels, ausgewaehlt ueber `sel`: `0` = gedrueckt (0/1), `1` = x-Koordinate, `2` = y-Koordinate, `-1`/`-2` = unkalibriertes rohes x/y. Fuer Gesten oder frei geformte Beruehrflaechen, wo die Abstraktion aus `touchButton` / Touch-Slider nicht passt. |
 | `dspButtonDel(num)` | Button/Slider `num` loeschen, oder alle wenn `num` = -1 |
 
 #### Touch-Callback
@@ -4873,6 +4878,7 @@ Firmware-Neubau, um das Geraet zu aendern.
 | `matterCluster(ep, clusterId)` | Cluster zu einem Endpunkt hinzufuegen |
 | `matterAttr(ep, cl, attr, typ)` | Attribut deklarieren (`typ` = `MTR_U32` usw.) |
 | `matterSet(ep, cl, attr, wert)` | Attributwert veroeffentlichen; Abonnenten werden im naechsten Loop benachrichtigt |
+| `matterEvent(ep, cl, eventId, a, b)` | Ein Matter-**Ereignis** einreihen (im Unterschied zu einer Attributaenderung) auf Endpunkt `ep`, Cluster `cl`. `eventId` ist die Ereignisnummer des Clusters, `a`/`b` sind zwei ganzzahlige Nutzdatenfelder. Ereignisse sind einmalige Meldungen — passend fuer einen Tastendruck oder einen Alarm, wo ein Zustandsattribut die falsche Form waere. |
 | `int matterGet(ep, cl, attr)` | Zwischengespeicherten Attributwert lesen (0 falls nicht vorhanden) |
 | `matterName(ep, "label")` | Endpunkt benennen, damit ein Controller ihn mit diesem Titel anzeigt (siehe *Endpunkte benennen* unten) |
 | `int matterStart()` | Bewerben + Kopplung annehmen. Liefert 0=ok |
@@ -5000,6 +5006,7 @@ f = fileOpen("/log.txt", a);          // statt fileOpen("/log.txt", 2)
 |----------|-------------|
 | `int pluginQuery(char dst[], int index, int p1, int p2)` | Binäres Plugin abfragen. Gibt Ergebnis zurueck und schreibt optionale String-Antwort in `dst` |
 | `int bcall(char name[], char buf[], int len)` | Eine benannte Funktion aufrufen, die eine geladene **Binaerbibliothek** (blib) bereitstellt — z. B. `bcall("mb_crc16", buf, 6)` fuer eine Modbus-CRC16 ueber `buf`. Die Funktion arbeitet auf dem Byte-Puffer und liefert ein int-Ergebnis. Setzt voraus, dass die passende `.blib` geladen ist. |
+| `float fcall("name", float a, float b)` | Das Float-Gegenstueck zu `bcall`: eine benannte blib-Funktion aufrufen, die zwei Floats nimmt und einen Float liefert — z. B. eine Kennlinie oder einen Filterschritt in nativem Code. Liefert `0.0`, wenn der Build keine BinPlugin-Unterstuetzung hat. |
 
 ### Cross-VM Share-Tabelle (ESP32)
 
@@ -5011,6 +5018,7 @@ Kapazitaet (per `user_config_override.h` aenderbar): **`TC_SHARE_MAX = 32`** Ein
 |---|---|
 | `void shareSetInt(char key[], int v)`     | Integer-Wert fuer `key` setzen (Eintrag wird angelegt, Typ ueberschrieben) |
 | `void shareSetFloat(char key[], float v)` | Float-Wert fuer `key` setzen |
+| `void shareSetFloatKey(char key[], float v)` | Wie `shareSetFloat`, aber der Schluessel darf aus einem **zur Laufzeit** erzeugten `char[]` stammen (mit `sprintf` gebaut, aus einer Datei gelesen, …) statt aus einem Literal. Fuer berechnete Schluessel, z. B. einen Eintrag je Kanal. |
 | `void shareSetStr(char key[], char v[])`  | String-Wert fuer `key` setzen (auf `TC_SHARE_STR_LEN` gekuerzt) |
 | `int shareGetInt(char key[])`             | Integer lesen; **0** wenn Schluessel fehlt oder falscher Typ |
 | `float shareGetFloat(char key[])`         | Float lesen; **0.0** wenn fehlend |
@@ -5127,6 +5135,7 @@ MQTT-TLS.
 | `int md5(char data[], int dlen, char out[])` | MD5 von `data[0..dlen-1]` nach `out[0..15]` (16-Byte-Pruefsumme). Liefert 1=ok, 0=Fehler (auch wenn MD5 in der mbedtls-Konfiguration abgeschaltet ist). Fuer altbestehende Schluesselableitungen (z. B. den Tuya-BLE-Handschlag) — nicht fuer neue Sicherheitsentwuerfe |
 | `int hex2bin(char hex[], int hex_len, char out[])` | Hex-Zeichenkette → Bytes dekodieren. Liefert die geschriebenen Bytes (= `hex_len / 2`). Eine ungerade `hex_len` wird durch Abschneiden des letzten Halbbytes toleriert |
 | `int bin2hex(char bin[], int bin_len, char out[])` | Bytes → Hex-Zeichenkette (klein geschrieben) kodieren. Schreibt `bin_len * 2` Zeichen plus NUL-Abschluss. Liefert die geschriebenen Zeichen (ohne NUL) |
+| `int rsaEncrypt(char n_b64url[], char e_b64url[], char plaintext[], char out_hex[])` | RSA-Verschluesselung nach PKCS#1 v1.5 (Typ 2) von `plaintext` mit dem oeffentlichen Schluessel (`n`,`e`), beide **base64url**-kodiert wie in einem JWK. Schreibt Hex in Kleinbuchstaben nach `out_hex` und liefert dessen Laenge, -1 bei Fehler. Nutzt `br_rsa_public` von BearSSL; die Typ-2-Auffuellung baut die Firmware. Fuer die Anmeldung an Cloud-Schnittstellen, die ein RSA-verpacktes Geheimnis erwarten. |
 
 **Puffer-Konvention:** Ein TinyC-`char[]` belegt ein Byte je int32-Slot — nur die
 unteren 8 Bit werden genutzt. Ein `byte[]` liegt gepackt und wird von denselben
@@ -5537,6 +5546,9 @@ Farben sind `0xRRGGBB`. Häufige LVGL-9-Konstanten als einfache Integer:
 | `int lvglSlider(int parent)` / `lvglBar` / `lvglArc` | Slider / Bar / Arc erzeugen |
 | `int lvglSwitch(int parent)` / `lvglCheckbox(int parent)` | Switch / Checkbox erzeugen |
 | `void lvglSetValue(int h, int v, int anim)` | Wert setzen (Slider/Bar/Arc). `anim`=1 animiert (Arc ignoriert es) |
+| `int lvglScreenCreate()` | Einen neuen, leeren **Bildschirm** anlegen (ein Wurzelobjekt ohne Elternteil) und dessen Handle liefern. Darauf eine zweite Seite der Oberflaeche aufbauen und mit `lvglScreenLoad` umschalten. |
+| `void lvglScreenLoad(int h)` | Bildschirm `h` sofort zum aktiven Bildschirm machen. |
+| `void lvglScreenLoadAnim(int h, int anim, int ms)` | Zu Bildschirm `h` mit einem Uebergang von `ms` Millisekunden wechseln. `anim`: `0`=keiner, `1`-`4`=ueber links/rechts/oben/unten, `5`-`8`=schieben links/rechts/oben/unten, `9`=einblenden, `10`=ausblenden, `11`-`14`=hinaus links/rechts/oben/unten. |
 | `int lvglGetValue(int h)` | Aktueller Wert (Slider/Bar/Arc) |
 | `void lvglSetRange(int h, int min, int max)` | Wertebereich |
 | `void lvglSetChecked(int h, int on)` | Checked-Zustand setzen (Switch/Checkbox) |
