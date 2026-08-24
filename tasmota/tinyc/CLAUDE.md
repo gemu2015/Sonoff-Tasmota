@@ -821,7 +821,11 @@ shows compile errors and runtime `addLog` output.
 
 CLI / direct (less common):
 - Upload `.tcb` with multipart form: `curl -F "file=@my.tcb" http://<ip>/upload`.
-  **Not** `--data-binary` — that path crashes on the raw handler (camera regression).
+  **Not** `--data-binary` — that raw (non-multipart) path used to reboot the
+  device (Exception 28 at HandleTinyCUpload; the "camera regression"). Since
+  2026-08-24 it's guarded (`TasmotaWebServer::hasUploadCtx()`) and returns a
+  clean 400 instead of crashing, but multipart is still required to actually
+  upload — the browser IDE, `tc_deploy`, and `curl -F` all use it.
 - Console: `TinyCStop 0` to stop slot 0, `TinyCRun /my.tcb` to start, `TinyCStatus`.
 - Autoexec on boot: write filename to `/tinyc.cfg` (IDE does this via checkbox).
 
