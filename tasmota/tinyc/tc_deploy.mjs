@@ -192,6 +192,28 @@ console.log(`  wrote ${localTcb}`);
 // --------------------------------------------------------------------
 // Upload to device
 // --------------------------------------------------------------------
+// Retry a fetch on transient network errors. A device on a lossy WiFi link
+// (power-save Sleep + BLE-scan load) drops packets, and Node's connect() then
+// fails outright ("fetch failed" / EHOSTUNREACH) where curl's retries ride over
+// it — measured on the S3 .39 at ~50 % ping loss. Each attempt is time-bounded
+// so a stalled socket doesn't hang the whole deploy.
+async function fetchRetry(url, opts = {}, { tries = 5, base = 400, label = 'request' } = {}) {
+    let lastErr;
+    for (let i = 0; i < tries; i++) {
+        try {
+            return await fetch(url, { ...opts, signal: AbortSignal.timeout(8000) });
+        } catch (e) {
+            lastErr = e;
+            const info = `${e?.cause?.code || e?.code || ''} ${e?.message || ''}`;
+            const transient = /fetch failed|EHOSTUNREACH|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR|aborted|timeout/i.test(info);
+            if (!transient || i === tries - 1) throw e;
+            console.error(`  ${label}: ${info.trim()} — retry ${i + 1}/${tries - 1} …`);
+            await new Promise(r => setTimeout(r, base * (i + 1)));
+        }
+    }
+    throw lastErr;
+}
+
 async function uploadAndRun() {
     // ⚠️ slot=N muss MIT: der Upload-Endpunkt legt die Datei sonst in Slot 0 ab
     // (xdrv_124_tinyc.ino, "Determine target slot from ?slot=N parameter (default 0)").
@@ -209,11 +231,11 @@ async function uploadAndRun() {
     const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
     const body = Buffer.concat([head, binary, tail]);
 
-    const resp = await fetch(url, {
+    const resp = await fetchRetry(url, {
         method : 'POST',
         body,
         headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-    });
+    }, { label: 'upload' });
     if (!resp.ok) {
         console.error(`Upload failed: HTTP ${resp.status} ${resp.statusText}`);
         process.exit(1);
@@ -227,7 +249,7 @@ async function uploadAndRun() {
     // --------------------------------------------------------------------
     async function cmnd(c) {
         const u = `http://${deviceIp}/cm?cmnd=${encodeURIComponent(c)}`;
-        const r = await fetch(u);
+        const r = await fetchRetry(u, {}, { label: 'cmnd' });
         const t = await r.text();
         return t;
     }
