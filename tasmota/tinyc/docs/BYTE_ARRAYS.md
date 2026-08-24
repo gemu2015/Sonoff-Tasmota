@@ -142,6 +142,21 @@ NICHT umgestellt, weil Wert- statt Byte-Arrays: `udp(…)`-Float-Globalvars
 (`udpSend`/`udpRecv`), `spiTransfer` (8/16/24-Bit-Wörter), die Meta-/Statistik-
 Arrays von TWAI. Ein `byte[]` ergibt dort keinen Sinn.
 
+## Fertig — vollständig (Stand 1.6.58, 2026-08-24)
+
+Alle ursprünglich offenen Punkte sind erledigt und am S3 .39 verifiziert
+(`byte_array_suite.tc`, **62/62**):
+
+* **Syscalls** nehmen `byte[]` (crypto/hex/base64/file/net/serial/i2c/twai) — 1.6.57
+* **persist byte[]** — 1.6.57
+* **String-Syscalls byte-bewusst** (strcpy/strcat/sprintf/strToken/strSub/
+  strReplace/strToUpper/strToLower/strTrim schreiben gepackt; strlen/strcmp/
+  strFind/strStartsWith/strEndsWith/strContains lesen gepackt) — 1.6.58. Eine
+  `byte[]` ist damit ein voller Ersatz für `char[]` als Textpuffer.
+* **`uint8_t`** ist ein Alias für `byte` (gepackt) — 1.6.58
+* **`byte`/`uint8_t` in structs** packen (Feld-Slots, Byte-Offset, byte-Opcodes;
+  Whole-Copy/sizeof/persist folgen automatisch) — 1.6.58
+
 ## Was NICHT dazugehört
 
 * `char[]` bleibt int32 (siehe Entscheidung 1)
