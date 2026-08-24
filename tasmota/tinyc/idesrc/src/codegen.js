@@ -1265,11 +1265,15 @@ export class CodeGenerator {
                 const g = this.defineGlobal(node.name, node.varType, true, size, node.isPersist);
                 if (dims.cols > 1) { g.cols = dims.cols; g.rows = dims.rows; }
                 if (node.isPersist) {
+                    // slotCount is in int32 SLOTS, not elements: a byte[] packs 4
+                    // elements per slot, so persist must save/load (n+3)/4 slots —
+                    // else the firmware reads 4x too many, past the region.
+                    const pslots = slotsFor(node.varType, size);
                     if (g.isHeap) {
                         // Heap persist: index field = 0x8000 | heapHandle (bit 15 = heap flag)
-                        this.persistGlobals.push({ index: 0x8000 | g.heapHandle, slotCount: size, name: node.name });
+                        this.persistGlobals.push({ index: 0x8000 | g.heapHandle, slotCount: pslots, name: node.name });
                     } else {
-                        this.persistGlobals.push({ index: g.index, slotCount: size, name: node.name });
+                        this.persistGlobals.push({ index: g.index, slotCount: pslots, name: node.name });
                     }
                 }
                 if (node.isGlobal) {

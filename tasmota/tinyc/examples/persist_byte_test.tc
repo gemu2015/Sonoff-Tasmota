@@ -1,0 +1,34 @@
+// persist_byte_test.tc — persist byte[] am Gerät prüfen (TinyC 1.6.57+).
+// Ein `byte[]` belegt (n+3)/4 Slots; persist muss GENAU so viele Slots
+// sichern, nicht die Elementzahl. Sonst liest die Firmware 4× zu viel.
+//
+// Ablauf: beim ERSTEN Lauf (kein .pvs) füllt main() den Puffer und speichert.
+// Nach TinyCStop + TinyCRun lädt die Firmware das .pvs VOR main() zurück —
+// der zweite Lauf muss die Werte unverändert wiederfinden.
+
+persist byte pbuf[64];        // 64 Byte -> 16 Slots (gepackt)
+persist int  pmark;           // Wächter: gesetzt = schon initialisiert
+
+int main() {
+    if (pmark != 12345) {
+        // Erster Lauf: füllen und speichern
+        int i = 0;
+        while (i < 64) { pbuf[i] = i * 3; i = i + 1; }   // 0..189, passt in ein Byte
+        pmark = 12345;
+        saveVars();
+        addLog("persist byte[]: INITIALISIERT+gespeichert, pbuf[10]=%d pbuf[63]=%d",
+               pbuf[10], pbuf[63]);
+        addLog("  -> jetzt 'TinyCStop 0' + 'TinyCRun 0 /persist_byte_test.tcb' zum Nachladen");
+    } else {
+        // Zweiter Lauf: aus dem .pvs wiedergeladen — prüfen
+        int ok = 1;
+        int i = 0;
+        while (i < 64) {
+            if (pbuf[i] != ((i * 3) & 255)) { ok = 0; }
+            i = i + 1;
+        }
+        addLog("persist byte[]: WIEDERGELADEN pbuf[10]=%d (erw 30) pbuf[63]=%d (erw 189) alle_ok=%d",
+               pbuf[10], pbuf[63], ok);
+    }
+    return 0;
+}

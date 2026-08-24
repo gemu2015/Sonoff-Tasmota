@@ -91,7 +91,15 @@ static uint8_t *tc_ref_bytes(TcVM *vm, int32_t ref, int32_t want,
    Argumentübergabe, `sizeof`, `_Q()`-Deskriptor
 4. ✅ **Syscalls** (1.6.56, 2026-08-24): die byte-orientierten nehmen `byte[]` an
    (siehe Liste unten). Am C3 .172 geprüft.
-5. **Persist**: Elementgröße in der `.pvs` vermerken — OFFEN
+5. ✅ **Persist** (2026-08-24): `persist byte[]` sichert die richtige Slot-Zahl.
+   Der Fehler saß im Compiler, nicht im `.pvs`-Format: `persistGlobals` trug die
+   ELEMENT-Zahl als `slotCount`, nicht `(n+3)/4` Slots — die Firmware hätte 4×
+   zu viel gelesen (über die Region hinaus). Fix in `codegen.js` (`slotsFor`).
+   Das `.pvs` speichert die rohen Slots LE; die gepackten Bytes bleiben so
+   erhalten, KEIN Firmware- und KEIN Formatwechsel nötig. Elementgröße muss NICHT
+   vermerkt werden — nur ein Typwechsel `char[]`↔`byte[]` unter demselben Namen
+   ist nicht sauber migrierbar (rohe Slots bedeuten dann etwas anderes; der
+   Layout-Hash wirft die alte Datei ohnehin auf `.bak`). Gerätetest: `persist_byte_test.tc`.
 6. **Prüfen**: JS-VM im Node-Lauf, alle Beispiele übersetzen, Firmware bauen,
    dann am Gerät
 
