@@ -1689,7 +1689,9 @@ export class CodeGenerator {
     //   • nested struct field (recurses into inner struct's total)
     //   • everything else = 1 slot
     memberSlotsFor(m) {
-        if (m.isArray) return m.arraySize;
+        // slotsFor packs a byte[] field to (n+3)/4 slots; for int/char/float it
+        // is n, so non-byte struct layouts are byte-identical to before.
+        if (m.isArray) return slotsFor(m.type, m.arraySize);
         if (typeof m.type === 'string' && m.type.startsWith('struct:')) {
             const innerTag = m.type.slice(7);
             const innerMembers = this.structTypes.get(innerTag);
@@ -1808,8 +1810,9 @@ export class CodeGenerator {
     // the stack. For a simple struct var, this is just `fieldOffset`. For an
     // element of a struct array (`arr[i].field`), it's `i * structSlots + fieldOffset`.
     // Optionally adds an extra per-call offset (used for array-field subscript).
-    emitStructOffset(resolvedMember, extraOffsetExpr = null) {
+    emitStructOffset(resolvedMember, extraOffsetExpr = null, isBytes = false) {
         const { isArrayElement, indexExpr, structSlots, fieldOffset } = resolvedMember;
+        // Push the field's SLOT base within the struct region.
         if (isArrayElement) {
             this.compileExpr(indexExpr);
             this.emitPushInt(structSlots);
@@ -1820,6 +1823,13 @@ export class CodeGenerator {
             }
         } else {
             this.emitPushInt(fieldOffset);
+        }
+        // A byte[] field is packed: the element access opcode (LOAD/STORE_*_BYTE)
+        // indexes BYTES into the region, so convert the slot base to a byte base
+        // (×4) before adding the element index (which is a byte position).
+        if (isBytes) {
+            this.emitPushInt(4);
+            this.emit(Op.MUL);
         }
         if (extraOffsetExpr) {
             this.compileExpr(extraOffsetExpr);
@@ -1863,30 +1873,32 @@ export class CodeGenerator {
     }
 
     // Emit a load of the member slot at the offset currently on top of the stack.
-    emitLoadStructSlot(info, isLocal) {
+    emitLoadStructSlot(info, isLocal, isBytes = false) {
+        // isBytes: the field is a packed byte[]; the offset on the stack is a
+        // BYTE index into the struct region (see emitStructOffset).
         if (info.isHeap) {
-            this.emit(Op.LOAD_HEAP_ARR);
+            this.emit(isBytes ? Op.LOAD_HEAP_BYTE : Op.LOAD_HEAP_ARR);
             this.emitByte(info.heapHandle);
         } else if (isLocal) {
-            this.emit(Op.LOAD_LOCAL_ARR);
+            this.emit(isBytes ? Op.LOAD_LOCAL_BYTE : Op.LOAD_LOCAL_ARR);
             this.emitByte(info.index);
         } else {
-            this.emit(Op.LOAD_GLOBAL_ARR);
+            this.emit(isBytes ? Op.LOAD_GLOBAL_BYTE : Op.LOAD_GLOBAL_ARR);
             this.emitU16(info.index);
         }
     }
 
     // Emit a store of the value on top of the stack to the member slot.
     // Stack before store op: [..., offset, value]
-    emitStoreStructSlot(info, isLocal) {
+    emitStoreStructSlot(info, isLocal, isBytes = false) {
         if (info.isHeap) {
-            this.emit(Op.STORE_HEAP_ARR);
+            this.emit(isBytes ? Op.STORE_HEAP_BYTE : Op.STORE_HEAP_ARR);
             this.emitByte(info.heapHandle);
         } else if (isLocal) {
-            this.emit(Op.STORE_LOCAL_ARR);
+            this.emit(isBytes ? Op.STORE_LOCAL_BYTE : Op.STORE_LOCAL_ARR);
             this.emitByte(info.index);
         } else {
-            this.emit(Op.STORE_GLOBAL_ARR);
+            this.emit(isBytes ? Op.STORE_GLOBAL_BYTE : Op.STORE_GLOBAL_ARR);
             this.emitU16(info.index);
         }
     }
@@ -2037,15 +2049,17 @@ export class CodeGenerator {
 
     compileMemberArrayAccess(node) {
         const rm = this.resolveMember(node.object, node.field, node.line);
-        const { info, isLocal, fieldIsArray } = rm;
+        const { info, isLocal, fieldIsArray, fieldType } = rm;
         if (!fieldIsArray) {
             throw new CodeGenError(
                 `Field '${node.field}' is not an array — use 'obj.${node.field}' without subscript`,
                 node.line);
         }
-        // offset = (structBase) + fieldOffset + index
-        this.emitStructOffset(rm, node.index);
-        this.emitLoadStructSlot(info, isLocal);
+        // offset = (structBase) + fieldOffset + index; a byte[] field packs, so
+        // the offset is a byte index and the opcode is LOAD_*_BYTE.
+        const ib = fieldType === 'byte';
+        this.emitStructOffset(rm, node.index, ib);
+        this.emitLoadStructSlot(info, isLocal, ib);
     }
 
     compileMemberArrayAssign(node) {
@@ -2057,18 +2071,19 @@ export class CodeGenerator {
                 node.line);
         }
         const isFloat = fieldType === 'float';
+        const ib = fieldType === 'byte';   // packed byte[] field → byte offset + *_BYTE opcodes
 
         if (node.op === '=') {
-            this.emitStructOffset(rm, node.index);
+            this.emitStructOffset(rm, node.index, ib);
             this.compileExpr(node.value);
             const valType = this.inferType(node.value);
             if (isFloat && valType !== 'float') this.emit(Op.I2F);
             else if (!isFloat && valType === 'float') this.emit(Op.F2I);
         } else {
             // Compound: compute (structBase + fieldOffset + index) once, DUP it
-            this.emitStructOffset(rm, node.index);
+            this.emitStructOffset(rm, node.index, ib);
             this.emit(Op.DUP);
-            this.emitLoadStructSlot(info, isLocal);
+            this.emitLoadStructSlot(info, isLocal, ib);
             this.compileExpr(node.value);
             const valType = this.inferType(node.value);
             if (isFloat && valType !== 'float') this.emit(Op.I2F);
@@ -2087,7 +2102,7 @@ export class CodeGenerator {
                 default: throw new CodeGenError(`Unknown compound member array assignment: ${node.op}`, node.line);
             }
         }
-        this.emitStoreStructSlot(info, isLocal);
+        this.emitStoreStructSlot(info, isLocal, ib);
     }
 
     // Phase 1 2D helper — returns rows count, cols count (1 for 1D),

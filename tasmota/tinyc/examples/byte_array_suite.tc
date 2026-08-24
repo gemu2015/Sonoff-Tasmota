@@ -248,6 +248,44 @@ void test_string_ops() {
     ck("strcpy byte->char", strcmp(cd, "Read"), 0);
 }
 
+// 11) `byte`/`uint8_t` in structs — gepackte Felder, Nachbarfeld intakt
+struct Small { byte b[8]; int x; };            // 2+1 Slots -> Nicht-Heap
+struct Pkt   { byte payload[64]; int len; };   // 16+1 Slots -> Heap
+Pkt   gpkt;
+Small sarr[3];
+void test_struct_byte() {
+    Small s;
+    int i = 0;
+    while (i < 8) { s.b[i] = (i * 11) & 255; i = i + 1; }
+    s.x = 12345;
+    int ok = 1; i = 0;
+    while (i < 8) { if (s.b[i] != ((i * 11) & 255)) { ok = 0; } i = i + 1; }
+    ck("struct local byte field", ok, 1);
+    ck("struct local neighbor", s.x, 12345);        // Packung ok -> nicht verschmutzt
+    // Heap-Struct (>16 Slots) mit byte[]-Feld
+    i = 0;
+    while (i < 64) { gpkt.payload[i] = (i * 7) & 255; i = i + 1; }
+    gpkt.len = 64;
+    ck("struct heap payload[63]", gpkt.payload[63], (63 * 7) & 255);
+    ck("struct heap len", gpkt.len, 64);
+    // Struct-Array mit byte[]-Feld
+    sarr[0].b[0] = 10; sarr[0].x = 100;
+    sarr[1].b[0] = 20; sarr[1].x = 200;
+    sarr[2].b[7] = 37; sarr[2].x = 300;
+    ck("sarr[1].b[0]", sarr[1].b[0], 20);
+    ck("sarr[2].b[7]", sarr[2].b[7], 37);
+    ck("sarr[1].x intact", sarr[1].x, 200);
+}
+
+// 12) `uint8_t` ist ein Alias für `byte` (gepackt, an byte-Funktionen übergebbar)
+void test_uint8() {
+    uint8_t u[16];
+    int i = 0;
+    while (i < 16) { u[i] = (i * 15) & 255; i = i + 1; }
+    ck("uint8_t[15]", u[15], (15 * 15) & 255);
+    ck("uint8_t as byte-arg", sum_bytes(u, 16), 1800);   // uint8_t == byte
+}
+
 int main() {
     addLog("byte-suite: start");
     test_local_frame();
@@ -260,6 +298,8 @@ int main() {
     test_file();
     test_alias();
     test_string_ops();
+    test_struct_byte();
+    test_uint8();
     int total = g_pass + g_fail;
     addLog("byte-suite: %d/%d PASSED%s", g_pass, total,
            (g_fail == 0) ? "  ✅ ALL GOOD" : "  ⚠️ FAILURES ABOVE");

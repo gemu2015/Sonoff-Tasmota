@@ -108,7 +108,9 @@ const KEYWORDS = {
     'unsigned':   TokenType.KW_INT,
     'float':      TokenType.KW_FLOAT,
     'char':       TokenType.KW_CHAR,
-    'uint8_t':    TokenType.KW_CHAR,
+    // uint8_t is NOT a keyword here: it's registered as a context-sensitive
+    // alias for `byte` in the parser (typeAliases), so `uint8_t buf[N]` packs
+    // 1 byte/element like byte[], and the name stays usable as an identifier.
     'bool':       TokenType.KW_BOOL,
     'void':       TokenType.KW_VOID,
     'if':       TokenType.KW_IF,

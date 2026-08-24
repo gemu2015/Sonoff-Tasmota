@@ -64,6 +64,7 @@ export class Parser {
         // a type where a type belongs, an ordinary name everywhere else. That
         // keeps everything existing intact.
         this.typeAliases.set('byte', 'byte');
+        this.typeAliases.set('uint8_t', 'byte');   // uint8_t == byte (packed, unsigned 0..255)
         this.fnPtrTypes   = new Map(); // alias → { returnType, params: [{type, name?, isArray?}] }
     }
 
