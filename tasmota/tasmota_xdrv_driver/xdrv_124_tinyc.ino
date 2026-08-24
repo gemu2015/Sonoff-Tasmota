@@ -2756,6 +2756,23 @@ void CmndTinyCIde(void) {
 static void HandleTinyCUpload(void) {
   if (!Tinyc) return;
 
+#ifdef ESP32
+  // The Arduino-ESP32 WebServer calls this SAME upload function for a RAW
+  // (non-multipart) POST body — but with no upload context (_currentUpload
+  // is null). Calling Webserver->upload() then dereferences a null unique_ptr
+  // and reboots the device (Exception 28 LoadProhibited at :2759; the known
+  // "camera regression" a `curl --data-binary` POST triggers). Bail cleanly on
+  // a raw invocation: mark the request failed so HandleTinyCUploadDone answers
+  // a 400 instead of the device dropping the connection with a reset. Legit
+  // clients (browser IDE, tc_deploy, curl -F) all POST multipart and are
+  // unaffected. See TasmotaWebServer::hasUploadCtx().
+  if (!Webserver->hasUploadCtx()) {
+    Web.upload_error = 1;
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: /tc_upload got a non-multipart (raw) body — rejected (use multipart / curl -F)"));
+    return;
+  }
+#endif
+
   HTTPUpload& upload = Webserver->upload();
 
   if (upload.status == UPLOAD_FILE_START) {
