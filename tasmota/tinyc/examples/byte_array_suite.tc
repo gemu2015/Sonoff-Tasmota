@@ -1,0 +1,223 @@
+// byte_array_suite.tc — umfassende Testsuite für den byte[]-Modus (TinyC 1.6.57).
+//
+// Selbstprüfend: jeder Test vergleicht gegen den Sollwert und zählt PASS/FAIL.
+// Läuft OHNE Extra-Hardware (nur Speicher/Krypto/Hex/Datei), also direkt am
+// Gerät. Am Ende steht die Zeile:  byte-suite: N/M PASSED
+//
+// Deckt ab: lokale Frame-byte[], lokale Heap-byte[], globale (Heap + Nicht-
+// Heap), Packungsgrenzen/Nachbarschaft, byte[] als Referenz-Argument, byte[]
+// als Text lesen (%s), die byte-orientierten Syscalls (sha256/md5/hmac/hex2bin/
+// bin2hex/base64/aesEcb), Datei-I/O mit rohen Bytes, und `byte` als Typ-Alias.
+//
+// GRENZE (dokumentiert, NICHT getestet): String-SCHREIB-Syscalls (strcpy/strcat/
+// sprintf) sind char[]-only — sie schreiben roh int32 und packen NICHT in eine
+// byte[]. Zum Befüllen einer byte[] mit Text also byteweise setzen. Die LESE-
+// Seite (%s, webSend) ist byte-bewusst.
+
+int g_pass = 0;
+int g_fail = 0;
+
+void ck(char name[], int got, int exp) {
+    if (got == exp) {
+        g_pass = g_pass + 1;
+    } else {
+        g_fail = g_fail + 1;
+        addLog("  FAIL %s: got=%d exp=%d", name, got, exp);
+    }
+}
+
+// ── globale Speicherklassen ──────────────────────────────────────────────
+byte  gsmall[16];       // global, NICHT-Heap (16 Elemente = 4 Slots, in globals[])
+byte  gbig[4096];       // global, Heap (1024 Slots)
+byte  gdig[32];         // Krypto-Ausgabe (binär)
+char  ghex[80];         // Hex-TEXT: char[] — strcmp ist NICHT byte-bewusst
+char  chex[80];         // Vergleich char[]
+
+// 1) lokales Frame-byte[] (<=16 Elemente): schreiben/lesen/Summe/Kappung
+void test_local_frame() {
+    byte b[16];
+    int i = 0;
+    while (i < 16) { b[i] = i * 2; i = i + 1; }        // 0,2,...,30
+    int s = 0; i = 0;
+    while (i < 16) { s = s + b[i]; i = i + 1; }
+    ck("frame[16] sum", s, 240);
+    ck("frame[16] last", b[15], 30);
+    b[0] = 300;                                        // nur ein Byte -> 44
+    ck("frame trunc 300", b[0], 44);
+    b[1] = -1;                                         // -1 & 0xFF -> 255
+    ck("frame trunc -1", b[1], 255);
+}
+
+// 2) lokales Heap-byte[] (>16 Elemente -> Heap): Packung + hohe Indizes
+void test_local_heap() {
+    byte h[100];
+    int i = 0;
+    while (i < 100) { h[i] = (i * 7) & 255; i = i + 1; }
+    ck("heap[100][0]", h[0], 0);
+    ck("heap[100][50]", h[50], (50 * 7) & 255);
+    ck("heap[100][99]", h[99], (99 * 7) & 255);
+}
+
+// 3) Nachbarschaft/Packungsgrenzen: zwei byte[5] nebeneinander (je 2 Slots),
+//    Vollschreiben des einen darf das andere nicht verschmutzen
+void test_adjacency() {
+    byte a5[5];
+    byte b5[5];
+    int i = 0;
+    while (i < 5) { a5[i] = 100 + i; i = i + 1; }
+    i = 0;
+    while (i < 5) { b5[i] = 200 + i; i = i + 1; }
+    ck("adj a5[0]", a5[0], 100);
+    ck("adj a5[4]", a5[4], 104);
+    ck("adj b5[0]", b5[0], 200);
+    ck("adj b5[4]", b5[4], 204);
+}
+
+// 4) globale byte[] (Nicht-Heap + Heap)
+void test_global() {
+    gsmall[0] = 255;
+    gsmall[14] = 40;
+    gsmall[15] = 42;                       // letztes Byte eines globalen Nicht-Heap byte[]
+    ck("gsmall[0]", gsmall[0], 255);
+    ck("gsmall[14]", gsmall[14], 40);
+    ck("gsmall[15]", gsmall[15], 42);
+    gbig[0] = 111;
+    gbig[1023] = 222;
+    gbig[4095] = 99;
+    ck("gbig[0]", gbig[0], 111);
+    ck("gbig[1023]", gbig[1023], 222);
+    ck("gbig[4095]", gbig[4095], 99);
+}
+
+// 5) byte[] als Referenz-Argument (füllen + summieren über Funktionen)
+void fill_bytes(byte buf[], int n, int base) {
+    int i = 0;
+    while (i < n) { buf[i] = (base + i) & 255; i = i + 1; }
+}
+int sum_bytes(byte buf[], int n) {
+    int s = 0;
+    int i = 0;
+    while (i < n) { s = s + buf[i]; i = i + 1; }
+    return s;
+}
+void test_refarg() {
+    byte b[16];
+    fill_bytes(b, 16, 10);                 // 10..25
+    ck("refarg read", b[5], 15);
+    ck("refarg sum", sum_bytes(b, 16), 280);
+    fill_bytes(gbig, 50, 1);               // Heap-Array als Ref-Arg
+    ck("refarg heap sum", sum_bytes(gbig, 50), 1275);
+}
+
+// 6) byte[] als Text LESEN (%s) — der byte-bewusste Lesepfad
+void test_text_read() {
+    byte tb[16];
+    tb[0] = 72; tb[1] = 105; tb[2] = 33; tb[3] = 0;   // "Hi!"
+    char out[32];
+    sprintf(out, "[%s]", tb);
+    ck("byte[] via %s", strcmp(out, "[Hi!]"), 0);
+}
+
+// 7) byte-orientierte Syscalls
+void test_syscalls() {
+    // hex2bin -> byte[]
+    int n = hex2bin("48656c6c6f21", 12, gbig);        // "Hello!"
+    ck("hex2bin n", n, 6);
+    ck("hex2bin[0]", gbig[0], 72);
+    ck("hex2bin[5]", gbig[5], 33);
+    // bin2hex(byte[]) zurück
+    bin2hex(gbig, 6, ghex);
+    ck("bin2hex", strcmp(ghex, "48656c6c6f21"), 0);
+
+    // sha256("abc") aus byte[] gegen bekannten Vektor
+    gbig[0] = 97; gbig[1] = 98; gbig[2] = 99;
+    sha256(gbig, 3, gdig);
+    bin2hex(gdig, 32, ghex);
+    ck("sha256(abc)", strcmp(ghex,
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"), 0);
+
+    // md5("abc") aus byte[] gegen bekannten Vektor
+    gbig[0] = 97; gbig[1] = 98; gbig[2] = 99;
+    md5(gbig, 3, gdig);
+    bin2hex(gdig, 16, ghex);
+    ck("md5(abc)", strcmp(ghex, "900150983cd24fb0d6963f7d28e17f72"), 0);
+
+    // base64Enc("Hi!") aus byte[]  -> "SGkh"  (Ausgabe char[], strcmp braucht char[])
+    byte b64in[8];
+    b64in[0] = 72; b64in[1] = 105; b64in[2] = 33;
+    char b64out[16];
+    base64Enc(b64in, 3, b64out);
+    ck("base64(Hi!)", strcmp(b64out, "SGkh"), 0);
+
+    // hmacSha256: byte[]-Pfad muss dasselbe liefern wie der char[]-Pfad
+    byte  bkey[8];  byte  bdat[8];  byte  bout[32];
+    char  ckey[8];  char  cdat[8];  char  cout[32];
+    int i = 0;
+    while (i < 4) { bkey[i] = 65 + i; ckey[i] = 65 + i; i = i + 1; }  // "ABCD"
+    i = 0;
+    while (i < 3) { bdat[i] = 120 + i; cdat[i] = 120 + i; i = i + 1; } // "xyz"
+    hmacSha256(bkey, 4, bdat, 3, bout);
+    hmacSha256(ckey, 4, cdat, 3, cout);
+    bin2hex(bout, 32, ghex);
+    bin2hex(cout, 32, chex);
+    ck("hmac byte==char", strcmp(ghex, chex), 0);
+
+    // aesEcb: Schlüssel+Daten als byte[], Roundtrip
+    byte key[16];
+    byte blk[16];
+    i = 0;
+    while (i < 16) { key[i] = i; blk[i] = 100 + i; i = i + 1; }
+    int klar = blk[0];
+    aesEcb(key, blk, 1);
+    int enc = blk[0];
+    aesEcb(key, blk, 0);
+    ck("aes enc changed", (enc != klar), 1);
+    ck("aes roundtrip", blk[0], klar);
+}
+
+// 8) Datei-I/O mit ROHEN Bytes (byte[] -> 1 Byte je Element, keine 4-Byte-LE)
+void test_file() {
+    byte wb[64];
+    int i = 0;
+    while (i < 64) { wb[i] = (i * 3) & 255; i = i + 1; }
+    int fh = fileOpen("/bsuite.bin", "w");
+    int wn = fileWriteBin(fh, wb, 64);
+    fileClose(fh);
+    ck("fileWriteBin bytes", wn, 64);
+
+    byte rb[64];
+    int fh2 = fileOpen("/bsuite.bin", "r");
+    int rn = fileReadBin(fh2, rb, 64);
+    fileClose(fh2);
+    ck("fileReadBin bytes", rn, 64);
+
+    int ok = 1;
+    i = 0;
+    while (i < 64) { if (rb[i] != ((i * 3) & 255)) { ok = 0; } i = i + 1; }
+    ck("file roundtrip", ok, 1);
+    fileDelete("/bsuite.bin");
+}
+
+// 9) `byte` als Typ-Alias, nicht als Schlüsselwort: als Variablenname nutzbar
+void test_alias() {
+    int byte = 5;
+    byte = byte + 3;
+    ck("byte as varname", byte, 8);
+}
+
+int main() {
+    addLog("byte-suite: start");
+    test_local_frame();
+    test_local_heap();
+    test_adjacency();
+    test_global();
+    test_refarg();
+    test_text_read();
+    test_syscalls();
+    test_file();
+    test_alias();
+    int total = g_pass + g_fail;
+    addLog("byte-suite: %d/%d PASSED%s", g_pass, total,
+           (g_fail == 0) ? "  ✅ ALL GOOD" : "  ⚠️ FAILURES ABOVE");
+    return 0;
+}

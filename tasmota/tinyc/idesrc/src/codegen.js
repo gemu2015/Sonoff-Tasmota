@@ -4952,8 +4952,13 @@ export class CodeGenerator {
         }
         const global = this.globals.get(node.name);
         if (global && global.isArray) {
-            this.emit(Op.STORE_GLOBAL_ARR);
-            this.emitU16(global.index);
+            // emitArrStore, NOT a hardcoded STORE_GLOBAL_ARR: a global byte[]
+            // needs STORE_GLOBAL_BYTE (packed) to match its LOAD_GLOBAL_BYTE.
+            // The hardcoded int32 store scattered writes at slot stride while
+            // reads were byte-packed — only index 0 matched by luck (measured
+            // on .39: g16[8]=18 landed in the next global). Byte-identical for
+            // int/char/float globals (emitArrStore falls to STORE_GLOBAL_ARR).
+            this.emitArrStore(global, false);
             return;
         }
         throw new CodeGenError(`Undefined array: ${node.name}`, node.line);
