@@ -2541,7 +2541,10 @@ static int tc_fetch_ide(const char *url) {
       // `running` is the flag the status page shows and the one that covers
       // BOTH execution modes (own VM task and main loop); `task_running` alone
       // would miss a main-loop program and unload it while it runs.
-      if (!s || !s->loaded || s->running || s->task_running) continue;
+      if (!s || !s->loaded || s->running) continue;
+#ifdef ESP32
+      if (s->task_running) continue;   // task_running is ESP32-only (dual-context worker VM)
+#endif
       const uint32_t hatte = TinyCUnloadSlot(i);
       if (hatte) { frei += hatte; n++; }
     }
