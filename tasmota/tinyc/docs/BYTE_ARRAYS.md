@@ -99,9 +99,15 @@ static uint8_t *tc_ref_bytes(TcVM *vm, int32_t ref, int32_t want,
    erhalten, KEIN Firmware- und KEIN Formatwechsel nötig. Elementgröße muss NICHT
    vermerkt werden — nur ein Typwechsel `char[]`↔`byte[]` unter demselben Namen
    ist nicht sauber migrierbar (rohe Slots bedeuten dann etwas anderes; der
-   Layout-Hash wirft die alte Datei ohnehin auf `.bak`). Gerätetest: `persist_byte_test.tc`.
-6. **Prüfen**: JS-VM im Node-Lauf, alle Beispiele übersetzen, Firmware bauen,
-   dann am Gerät
+   Layout-Hash wirft die alte Datei ohnehin auf `.bak`). Gerätetest
+   `persist_byte_test.tc` am **S3 .39** bestätigt: nach Slot-Neustart kommen alle
+   64 Bytes aus dem `.pvs` zurück (`pbuf[10]=30 pbuf[63]=189 alle_ok=1`).
+6. ✅ **Geprüft** (2026-08-24): byte[]-Syscalls (sha256/hex2bin/bin2hex/aesEcb)
+   und der persist-Round-trip am Gerät verifiziert. Syscalls zuerst am C3 .172,
+   danach — nachdem dessen serielle Schnittstelle ausfiel — alles am S3 .39
+   (Env `tasmota32s3-devkit`, 1.6.57). ⚠️ Upload auf .39 nur über den
+   Dateimanager `/ufsu` (der `/tc_upload`-Endpoint hängt dort, auch nach
+   Frisch-Flash — eigener offener Punkt, nichts mit byte[] zu tun).
 
 ## Syscalls, die `byte[]` annehmen (Stand 1.6.56)
 
