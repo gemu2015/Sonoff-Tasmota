@@ -45,8 +45,20 @@
 // DS18x20, onewire.tc not running on it), the keys are "DS18B20-1"/"DS18B20-2"
 // — and "DS18B20" WITHOUT a suffix when only ONE sensor is found, because the
 // driver only appends the index for sensors > 1.
-#define KEY_KELLER  "Keller#Temperature"
-#define KEY_WW      "Warmwasser#Temperature"
+// Two spellings each, because onewire.tc labels a sensor by its ALIAS if one is
+// set and by its ROM otherwise (ow_temp_label: "DS18x20-" + ROM byte 6). The
+// alias is the readable one and wins; the ROM name needs no configuration and
+// therefore survives anything that empties the persist store.
+//
+// ⚠️ That is not hypothetical. Flashing 1.6.61 onto .150 on 2026-08-25 left
+// /onewire.pvs in place but with ow_alias EMPTY: the sensors went back to
+// DS18x20-1A / DS18x20-C1 and this script silently read 0 for both until the
+// aliases were set again by hand. Which key is right is therefore decided at
+// RUNTIME, once, and remembered — see key_src below.
+#define KEY_KELLER      "Keller#Temperature"
+#define KEY_WW          "Warmwasser#Temperature"
+#define KEY_KELLER_ROM  "DS18x20-1A#Temperature"   // id 1ABEE9086461 -> ROM byte 6 = 0x1A
+#define KEY_WW_ROM      "DS18x20-C1#Temperature"   // id C178441F64FF -> ROM byte 6 = 0xC1
 
 #define T_SCALE     0.6         // K per step
 #define T_OFFS    -30.0         // raw 1 = -29.4 C ... raw 255 = +123.0 C
@@ -64,6 +76,7 @@ float max_ct;
 int startup;        // countdown to skip initial zero readings
 int last_day;       // to detect midnight rollover
 int atmp_valid;     // 1 once atmp received a real value
+int key_src;        // 0 = noch ungeklaert, 1 = Alias-Schluessel, 2 = ROM-Schluessel
 
 // date/time strings
 char wdays[] = "So Mo Di Mi Do Fr Sa";
@@ -200,6 +213,7 @@ int main() {
         sml_activ = tasm_rule;
     }
     atmp_valid = 0;
+    key_src = 0;            // beim Start neu entscheiden, welcher Schluessel traegt
     startup = 10;           // skip first 10 seconds for SML to deliver data
     last_day = tasm_day;
     resetMinMax();
@@ -237,8 +251,28 @@ void EverySecond() {
     // to be mid-callback, its JsonCall is skipped for that call and sensorGet
     // returns 0 — not an error, just this one second. Writing that 0 through
     // would punch a hole in the chart, because 0.0 is the "no sample" value.
-    float t_k = sensorGet(KEY_KELLER);    // Kellertemperatur     (id 1ABEE9086461)
-    float t_w = sensorGet(KEY_WW);        // Warmwassertemperatur (id C178441F64FF)
+    // Alias first, ROM name as the fallback, and the answer is LATCHED: once one
+    // spelling has delivered a value, only that one is asked from then on.
+    // sensorGet() is not cheap — it rebuilds the whole sensor JSON through
+    // MqttShowSensor() on every call — so the two extra calls must not become
+    // permanent. Unresolved costs four calls a second, resolved costs two.
+    // key_src stays 0 until a real reading arrives, which is also what happens
+    // while the onewire slot is still starting up.
+    float t_k = 0.0;
+    float t_w = 0.0;
+    if (key_src != 2) {
+        t_k = sensorGet(KEY_KELLER);      // Kellertemperatur     (id 1ABEE9086461)
+        t_w = sensorGet(KEY_WW);          // Warmwassertemperatur (id C178441F64FF)
+        if (t_k != 0.0 || t_w != 0.0) { key_src = 1; }
+    }
+    // Bedingung an den WERTEN, nicht am Zustand: mit "key_src != 1" waere der
+    // ROM-Zweig nach dem ersten Alias-Treffer dauerhaft gesperrt gewesen, und
+    // ein spaeter verschwindender Alias haette den Rueckfall nie ausgeloest.
+    if (t_k == 0.0 && t_w == 0.0) {
+        t_k = sensorGet(KEY_KELLER_ROM);
+        t_w = sensorGet(KEY_WW_ROM);
+        if (t_k != 0.0 || t_w != 0.0) { key_src = 2; }
+    }
     if (t_k != 0.0) { ktmp  = t_k; }
     if (t_w != 0.0) { bw_ww = t_w; }
 
