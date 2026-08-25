@@ -2127,12 +2127,25 @@ static void HandleTinyCPage(void) {
   // The previous version hardcoded `:82/ide` in the button JS, which
   // produced an unreachable URL on networks where port 82 isn't
   // exposed (Andreas's VBox setup at 192.168.56.107).
+  // The size in the confirm dialog is read from the IDE ON DISK, not baked in.
+  // It used to say "~190 KB" and had quietly gone stale — the file is past
+  // 240 KB now (gemu, 2026-08-25). The IDE grows with every release, so any
+  // literal here is wrong again by the next one; the file itself is the only
+  // number that stays true. It is also the more useful one: it says how much
+  // space the replacement will want, which on a small partition is the whole
+  // question. 0 = no IDE installed yet, and then the dialog just omits it.
+  uint32_t ide_kb = 0;
+  { File f = ufsp ? ufsp->open("/tinyc_ide.html.gz", "r") : File();
+    if (f) { ide_kb = ((uint32_t)f.size() + 512) / 1024; f.close(); } }
+  char ide_sz[32];
+  if (ide_kb) { snprintf_P(ide_sz, sizeof(ide_sz), PSTR(", about %u kB"), (unsigned)ide_kb); }
+  else        { ide_sz[0] = '\0'; }
   WSContentSend_P(PSTR(
     "<p style='text-align:center'>"
     "<button onclick=\"window.open('/ide','tinyc_ide')\" "
     "class='button bgrn'>Open IDE</button> "
     "<button id='tcide_upd' onclick=\""
-    "if(!confirm('Update the IDE from the repository? (downloads tinyc_ide.html.gz, ~190 KB, and replaces the served IDE)'))return;"
+    "if(!confirm('Update the IDE from the repository? (downloads tinyc_ide.html.gz%s, and replaces the served IDE)'))return;"
     "var b=this;b.disabled=1;b.textContent='Updating...';"
     "fetch('/cm?cmnd=TinyCIde').then(r=>r.json()).then(j=>{var d=j.TinyCIde||{};"
     "if(d.updated){b.textContent='Updated '+d.updated+' B';alert('IDE updated ('+d.updated+' bytes). Re-open the IDE.');}"
@@ -2141,7 +2154,7 @@ static void HandleTinyCPage(void) {
     ".catch(e=>{b.disabled=0;b.textContent='Update IDE';alert('IDE update request failed.');});\" "
     "class='button'>Update IDE</button>"
     "</p>"
-    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82 background task on real hw, port 80 fallback otherwise). \"Update IDE\" fetches the latest from the repo &mdash; no file manager needed.</p>"));
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82 background task on real hw, port 80 fallback otherwise). \"Update IDE\" fetches the latest from the repo &mdash; no file manager needed.</p>"), ide_sz);
 #else
   WSContentSend_P(PSTR(
     "<div class='tc-ide-url'>"
@@ -2497,7 +2510,7 @@ void TinyCPrefixReheal(void) {
 // Safety: stream to a .tmp first, validate the gzip magic + the persisted on-disk
 // size (not just the byte counter — an SD/FAT backend can short-write), and only
 // then rename over the live IDE (a failed/short fetch must NOT brick the served
-// IDE). The ~150-190 KB LittleFS/SD write is bracketed by TinyCFsWritePause
+// IDE). The quarter-megabyte LittleFS/SD write is bracketed by TinyCFsWritePause
 // (stops VM tasks so none touch flash during the cache-disabled close) + a
 // loop-WDT hold, mirroring the /ufsu big-write path. Returns bytes (>0) or <0.
 // The HTTP status of the last attempt, 0 when nothing reached the wire. Without

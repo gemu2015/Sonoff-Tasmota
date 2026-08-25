@@ -21,7 +21,7 @@ int sml_e_sndpwr;             // edit buffer, applied by Save
 float sml_power2;
 int   sml_pwr_last;
 char  sml_mtopic[64];
-char  sml_pub[128];
+byte  sml_pub[128];
 int   do_reset;
 
 // ─── Callbacks ─────────────────────────────────────────────────────────────
@@ -33,7 +33,8 @@ void Every100ms() {
 
 void EverySecond() {
     uiApplyBegin();
-    if (ui_applying) sml_sndpwr = sml_e_sndpwr;
+    if (ui_reloading) sml_e_sndpwr = sml_sndpwr;
+    if (ui_applying)  sml_sndpwr = sml_e_sndpwr;
     sml_descriptor_apply();
     ctTick();
     mbTick();
@@ -93,6 +94,7 @@ void WebCall() {
         sprintf(sml_buf, "{s}Import{m}%.3f kWh{e}", smlGet(2));      webSend(sml_buf);
         sprintf(sml_buf, "{s}Export{m}%.3f kWh{e}", smlGet(3));      webSend(sml_buf);
     }
+    sml_phase_rows();
     uiSep();
     ctRows();
     mbRows();
@@ -156,7 +158,7 @@ int main() {
     ctInit(4);                       // /ctreg on handler 4, /pwr keeps 1
     mbInit();
     addCommand("CT");
-    webPageLabel(0, "&#x2699;&#xFE0F; SML & Battery");
+    webPageLabel(0, "&#x2699;&#xFE0F; SML /&#x1F50B;");
     webPageLabel(1, "&#x2601;&#xFE0F; Marstek");
     webPageLabel(3, "&#x1F4BB; TinyC");   // hands over to /tc
     webOn(1, "/pwr");

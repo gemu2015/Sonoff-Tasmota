@@ -44,7 +44,10 @@ void Every100ms() {
 
 void EverySecond() {
     uiApplyBegin();
-    if (ui_applying) { sml_pv = sml_e_pv; sml_sndpwr = sml_e_sndpwr; }
+    // Reload the edit buffer from what is actually in effect on a fresh page
+    // render, so unsaved typing does not linger in the widgets (ottelo, 23.8.).
+    if (ui_reloading) { sml_e_pv = sml_pv; sml_e_sndpwr = sml_sndpwr; }
+    if (ui_applying)  { sml_pv = sml_e_pv; sml_sndpwr = sml_e_sndpwr; }
     sml_descriptor_apply();
     mbTick();
 
@@ -118,6 +121,9 @@ void WebCall() {
         uiText("{s}SML{m}off (Rule1){e}", "{s}SML{m}aus (Rule1){e}");
         return;
     }
+    // Same place ottelo gives it in his variants (render_meter -> phase_rows ->
+    // render_totals); this one has no render_meter. Inert unless sml_ph3 is on.
+    sml_phase_rows();
     sml_chart_render_totals();
 
     if (sml_pv > 0) {

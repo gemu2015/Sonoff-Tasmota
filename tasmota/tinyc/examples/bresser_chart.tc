@@ -131,17 +131,41 @@ persist float rain_base = 0.0; // cumulative br_rain at the start of rain_day
 persist float rain_prev = -1.0; // cumulative br_rain at the previous chart sample (for the per-interval delta; -1 = none yet)
 
 #ifdef WITH_CHARTS
-// Ring buffers for 24h charts (stored as native float values)
+// Ring buffers for the 24h charts — ONE BYTE per sample, not one float.
+// Six float[288] cost 6912 bytes of VM heap, claimed as one contiguous block
+// when the program loads; as byte[] they cost 1728. On a C3 that block is what
+// decides whether the slot starts at all next to WiFi, TLS and the CC1101.
+// Each series carries its own scale, because their ranges have nothing in
+// common — and the rain step of 0.1 mm is exactly the sensor's own resolution
+// (br_rain is a raw count x 0.1), so that series loses nothing at all.
+//
 // Charted variables: temp, hum, windavg, rain, brightness, uvi
 // Stored in a dedicated binary file (CHARTFILE) via save_chart()/load_chart(),
-// NOT the .pvs persist store: 6x288 floats are too big to round-trip through
-// saveVars() every sample. The file owns header[2]={h_pos,h_count} + 6 arrays.
-float h_temp[NPTS];
-float h_hum[NPTS];
-float h_wavg[NPTS];
-float h_rain[NPTS];
-float h_lux[NPTS];
-float h_uvi[NPTS];
+// NOT the .pvs persist store: they are too big to round-trip through
+// saveVars() every sample. The file owns header[3] + the 6 arrays.
+//
+// ⚠️ TEMPERATURE ONLY: raw 0 means "no sample", not 0 °C. The charts are drawn
+// over the FULL ring (count = NPTS), so before 24 h of data the slots ahead of
+// h_pos are still empty — and with an offset encoding they would decode to
+// -30 °C and drag the axis down. Raw 0 is therefore reserved and nulled out in
+// the browser, which also fixes the old behaviour where an empty slot drew a
+// flat 0 °C line that looked like a real reading. The other five series keep
+// 0 = zero: no rain, no wind, dark, no UV are all real values.
+#define H_T_SCALE   0.6    // temperature: 0.6 K per step ...
+#define H_T_OFFS  -30.0    // ... raw 1 = -29.4 C, raw 255 = +123.0 C
+#define H_T_NONE  -30.0    // what raw 0 decodes to = the gap sentinel
+#define H_H_SCALE   0.4    // humidity      0..102 %      in 0.4 %
+#define H_W_SCALE   0.2    // wind average  0..51 m/s     in 0.2 m/s
+#define H_R_SCALE   0.1    // rain/interval 0..25.5 mm    in 0.1 mm (= sensor resolution)
+#define H_L_SCALE   0.5    // brightness    0..127.5 kLux in 0.5 kLux
+#define H_U_SCALE   0.05   // UV index      0..12.75      in 0.05
+
+byte h_temp[NPTS];
+byte h_hum[NPTS];
+byte h_wavg[NPTS];
+byte h_rain[NPTS];
+byte h_lux[NPTS];
+byte h_uvi[NPTS];
 int h_pos = 0;       // ring buffer write position
 int h_count = 0;     // total samples stored (saturates at NPTS)
 int sec_cnt = 0;     // seconds counter for store interval
@@ -527,10 +551,13 @@ void Every50ms() {
 
 #ifdef WITH_CHARTS
 // --- Chart persistence: own a dedicated binary file (not .pvs) ---
-// Layout: int header[2] = {h_pos, h_count}, then the 6 float[NPTS] arrays
-// back to back. Size = 2*4 + 6*NPTS*4 bytes.
+// Layout: int header[3] = {magic, h_pos, h_count}, then the 6 byte[NPTS]
+// arrays back to back. ⚠️ fileReadBin/fileWriteBin move 4-byte int32 elements
+// for an int[] but RAW BYTES for a byte[], one file byte per element — which
+// is why the header still counts 4 bytes each and the arrays only one.
+// Size = 3*4 + 6*NPTS = 1740 bytes (was 6924 with float arrays).
 #define CHARTFILE "/bresser_chart.bin"
-#define CHART_MAGIC 0x42430102   // bump when stored layout/units change -> old file ignored (0102: rain = per-interval delta, not accumulated)
+#define CHART_MAGIC 0x42430103   // bump when stored layout/units change -> old file ignored (0103: byte-packed samples)
 
 void save_chart() {
     int h = fileOpen(CHARTFILE, 1);          // 1 = write (truncate)
@@ -547,7 +574,7 @@ void save_chart() {
 }
 
 void load_chart() {
-    int want = 12 + 6 * NPTS * 4;            // magic + 2 ints + 6 float arrays
+    int want = 12 + 6 * NPTS;                // 3 ints + 6 byte arrays
     if (fileSize(CHARTFILE) != want) return; // missing/old-format -> fresh start
     int h = fileOpen(CHARTFILE, 0);          // 0 = read
     if (h < 0) return;
@@ -563,19 +590,37 @@ void load_chart() {
     fileClose(h);
 }
 
+// Encode a value into a raw 0..255 byte. The clamp is not decoration: a byte
+// store keeps only the lowest byte, so an out-of-range reading would wrap to a
+// plausible-looking wrong value instead of an obvious spike.
+int h_enc(float v, float scale, float offs) {
+    int raw = (int)((v - offs) / scale + 0.5);
+    if (raw < 0)   { raw = 0; }
+    if (raw > 255) { raw = 255; }
+    return raw;
+}
+
+// Temperature: same, but raw 0 is reserved for "no sample" (see the note at
+// the array declarations), so a real reading never encodes to 0.
+int h_enc_t(float v) {
+    int raw = h_enc(v, H_T_SCALE, H_T_OFFS);
+    if (raw < 1) { raw = 1; }
+    return raw;
+}
+
 void store_sample() {
-    h_temp[h_pos] = br_temp;
-    h_hum[h_pos] = (float)br_hum;
-    h_wavg[h_pos] = br_wind_avg;
+    h_temp[h_pos] = h_enc_t(br_temp);
+    h_hum[h_pos] = h_enc((float)br_hum, H_H_SCALE, 0.0);
+    h_wavg[h_pos] = h_enc(br_wind_avg, H_W_SCALE, 0.0);
     // rain chart = delta since the last sample (rainfall per interval), not the
     // running total. rain_prev < 0 = first-ever sample -> 0 (no startup spike);
     // br_rain < rain_prev = sensor counter reset -> clamp to 0.
     float rd = 0.0;
     if (rain_prev >= 0.0 && br_rain >= rain_prev) { rd = br_rain - rain_prev; }
-    h_rain[h_pos] = rd;
+    h_rain[h_pos] = h_enc(rd, H_R_SCALE, 0.0);
     rain_prev = br_rain;
-    h_lux[h_pos] = br_lux;
-    h_uvi[h_pos] = br_uvi;
+    h_lux[h_pos] = h_enc(br_lux, H_L_SCALE, 0.0);
+    h_uvi[h_pos] = h_enc(br_uvi, H_U_SCALE, 0.0);
     h_pos++;
     if (h_pos >= NPTS) h_pos = 0;
     if (h_count < NPTS) h_count++;
@@ -626,9 +671,13 @@ void EverySecond() {
     }
 #ifdef WITH_CHARTS
     // average temperature over the day 0-24h = mean of stored chart samples
-    float st = 0.0; int jj;
-    for (jj = 0; jj < h_count; jj++) { st = st + h_temp[jj]; }
-    if (h_count > 0) { avgt = st / (float)h_count; }
+    // ⚠️ h_temp holds RAW BYTES now — decode before averaging, and skip the
+    // reserved 0 (no sample) so a half-filled ring does not drag the mean down.
+    float st = 0.0; int jj; int nt = 0;
+    for (jj = 0; jj < h_count; jj++) {
+        if (h_temp[jj] > 0) { st = st + ((float)h_temp[jj] * H_T_SCALE + H_T_OFFS); nt = nt + 1; }
+    }
+    if (nt > 0) { avgt = st / (float)nt; }
 
     // Store first sample immediately so charts appear on first page load
     if (h_count == 0) {
@@ -664,19 +713,34 @@ void WebPage() {
     // mehr: der Ausgleich war nur fuer die feste Breite noetig.
     WebChartSize(0, 280);
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:8px 2px;padding:4px 9px 8px'><legend style='font-weight:bold;padding:0 6px'>Wetterverlauf 24h</legend><div>");
+    // Every series carries its own WebChartQ — it applies to the NEXT WebChart
+    // only and is cleared by it, so each one has to be repeated. The scale is
+    // what turns the stored byte back into a physical value.
+    WebChartQ(H_T_SCALE, H_T_OFFS);
     WebChart(0, "Temperature (24h)", "°C", 0xe74c3c, h_pos, NPTS, h_temp, 1, 5, -20, 50);
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)if(dt.getValue(r,1)==-30)dt.setValue(r,1,null);");   // -30 = H_T_NONE: slot not filled yet -> gap, not a flat 0 C line
+
+    WebChartQ(H_H_SCALE, 0.0);
     WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, NPTS, h_hum,  1, 5, 0, 100);
+
+    WebChartQ(H_W_SCALE, 0.0);
     WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, NPTS, h_wavg, 1, 5, 0, 0);
     WebChartJS("o.vAxis=o.vAxis||{};var mx=0;for(var r=0;r<dt.getNumberOfRows();r++){var v=dt.getValue(r,1);if(v>mx)mx=v;}o.vAxis.viewWindow={min:0,max:(mx<2?2:mx*1.15)};");   // wind>=0: floor 0, top=1.15x peak (>=2) so the axis never collapses to a negative default
+
+    WebChartQ(H_R_SCALE, 0.0);
     WebChart(1, "Rain (24h)",        "mm",       0x2980b9, h_pos, NPTS, h_rain, 1, 5, 0, 0);   // type 1 = column (per-interval rainfall)
+
+    WebChartQ(H_L_SCALE, 0.0);
     WebChart(0, "Brightness (24h)",  "kLux",     0xf39c12, h_pos, NPTS, h_lux,  1, 5, 0, 0);
+
+    WebChartQ(H_U_SCALE, 0.0);
     WebChart(0, "UV Index (24h)",    "UVI",      0x9b59b6, h_pos, NPTS, h_uvi,  1, 5, 0, 12);
     webSend("</div></fieldset>");
 }
 #endif
 
 void WebCall() {
-    char out[80];
+    byte out[80];        // Textpuffer: byte[] ist ein vollwertiger Ersatz
     if (br_ok) {
         webSend("{s}{m}{e}<tr><td colspan=2 style='background:#2980b9;color:#fff;padding:6px 10px;font-weight:bold;text-align:center;border-radius:4px'>Wetterstation</td></tr>");
         sprintf(out, "{s}Bresser ID{m}0x%04X{e}", br_id);
@@ -745,7 +809,7 @@ void WebCall() {
 }
 
 void JsonCall() {
-    char out[80];
+    byte out[80];        // Textpuffer: byte[] ist ein vollwertiger Ersatz
     if (br_ok) {
         sprintf(out, ",\"Bresser\":{\"ID\":\"%04X\"", br_id);
         responseAppend(out);
@@ -791,7 +855,7 @@ int main() {
     spiSetCS(1, CS_PIN);
 
     int ver = cc_read_status(0x31);
-    char buf[64];
+    byte buf[64];        // und kostet ein Viertel der Slots
     sprintf(buf, "CC1101 version: 0x%02X\n", ver);
     printString(buf);
 
@@ -818,7 +882,7 @@ int main() {
     // Chart data + counters live in a dedicated binary file (not .pvs)
     load_chart();
     if (h_count > 0) {
-        char ibuf[64];
+        byte ibuf[64];
         sprintf(ibuf, "Restored %d chart points from file\n", h_count);
         printString(ibuf);
     }

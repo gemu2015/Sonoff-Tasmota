@@ -42,6 +42,7 @@ void esEditLoad() {
 
 // ─── Runtime ───────────────────────────────────────────────────────────────
 float es_cpwr;              // power handed to the battery [W]
+float es_pa; float es_pb; float es_pc;   // per-phase, sml_ph3 only
 float es_avg;               // heavily smoothed (EcoTracker powerAvg)
 int   es_once_mdns;
 int   es_once_udp;
@@ -50,28 +51,39 @@ int   es_last_api;          // 0 none, 1 EM.GetStatus, 2 Shelly.GetStatus
 int   es_last_upd;          // tasm_uptime of the last regulation step
 int   es_w1; int es_w2; int es_w3;   // webOn handler numbers
 
-char  es_mac[32];
+byte  es_mac[32];
 char  es_rxb[256];
-char  es_body[640];
+byte  es_body[640];
 char  es_wrap[768];
-char  es_hdr[160];
+byte  es_hdr[160];
 
+
+// Offset and regulator shaping, applied per phase exactly as CT002 does it.
+float esCtrl(float raw) {
+    float off  = (float)es_offset;
+    float base = raw - off;
+    if (es_tweak > 0) {
+        if (raw > off) return base / 4.0;
+        return base / 0.8;
+    }
+    return base;
+}
 // ─── Payload builders ──────────────────────────────────────────────────────
 
 void esBuildEco() {
     float ein  = smlGet(2) * 1000.0;      // kWh -> Wh
     float eout = smlGet(3) * 1000.0;
-    sprintf(es_body, "{\"power\":%.0f,\"powerAvg\":%.0f,\"agePower\":1000,\"powerPhase1\":%.0f,\"powerPhase2\":0,\"powerPhase3\":0,\"energyCounterIn\":%.0f,\"energyCounterOut\":%.0f}", es_cpwr, es_avg, es_cpwr, ein, eout);
+    sprintf(es_body, "{\"power\":%.0f,\"powerAvg\":%.0f,\"agePower\":1000,\"powerPhase1\":%.0f,\"powerPhase2\":%.0f,\"powerPhase3\":%.0f,\"energyCounterIn\":%.0f,\"energyCounterOut\":%.0f}", es_cpwr, es_avg, es_pa, es_pb, es_pc, ein, eout);
 }
 
 void esBuildEm() {
-    sprintf(es_body, "{\"id\":0,\"a_act_power\":%.0f,\"b_act_power\":0,\"c_act_power\":0,\"total_act_power\":%.0f}", es_cpwr, es_cpwr);
+    sprintf(es_body, "{\"id\":0,\"a_act_power\":%.0f,\"b_act_power\":%.0f,\"c_act_power\":%.0f,\"total_act_power\":%.0f}", es_pa, es_pb, es_pc, es_cpwr);
 }
 
 void esBuildFull() {
     float ein  = smlGet(2) * 1000.0;
     float eout = smlGet(3) * 1000.0;
-    sprintf(es_body, "{\"em:0\":{\"id\":0,\"a_act_power\":%.0f,\"b_act_power\":0,\"c_act_power\":0,\"total_act_power\":%.0f},\"emdata:0\":{\"id\":0,\"a_total_act_energy\":%.0f,\"a_total_act_ret_energy\":%.0f,\"b_total_act_energy\":0,\"b_total_act_ret_energy\":0,\"c_total_act_energy\":0,\"c_total_act_ret_energy\":0,\"total_act\":%.0f,\"total_act_ret\":%.0f}}", es_cpwr, es_cpwr, ein, eout, ein, eout);
+    sprintf(es_body, "{\"em:0\":{\"id\":0,\"a_act_power\":%.0f,\"b_act_power\":%.0f,\"c_act_power\":%.0f,\"total_act_power\":%.0f},\"emdata:0\":{\"id\":0,\"a_total_act_energy\":%.0f,\"a_total_act_ret_energy\":%.0f,\"b_total_act_energy\":0,\"b_total_act_ret_energy\":0,\"c_total_act_energy\":0,\"c_total_act_ret_energy\":0,\"total_act\":%.0f,\"total_act_ret\":%.0f}}", es_pa, es_pb, es_pc, es_cpwr, ein, eout, ein, eout);
 }
 
 void esWrapUdp() {
@@ -136,6 +148,7 @@ void esPoll() {
 
 // From EverySecond().
 void esTick() {
+    if (ui_reloading) esEditLoad();
     if (ui_applying) esCommit();
     if (tasm_wifi == 1) {
         // Register once and ignore the result: mdnsRegister returns -1 while
@@ -163,17 +176,15 @@ void esTick() {
     if (tasm_uptime - es_last_upd < es_throttle) return;
     es_last_upd = tasm_uptime;
 
-    float raw  = smlGet(1);
-    float off  = (float)es_offset;
-    float base = raw - off;
-    if (es_tweak > 0) {
-        if (raw > off) {
-            es_cpwr = base / 4.0;
-        } else {
-            es_cpwr = base / 0.8;
-        }
+    es_cpwr = esCtrl(smlGet(1));      // saldierend total, as before
+    if (sml_ph3 == 1) {
+        es_pa = esCtrl(smlGet(4));
+        es_pb = esCtrl(smlGet(5));
+        es_pc = esCtrl(smlGet(6));
     } else {
-        es_cpwr = base;
+        es_pa = es_cpwr;              // single-value meter: all on L1
+        es_pb = 0.0;
+        es_pc = 0.0;
     }
     es_avg = (0.9 * es_avg) + (0.1 * es_cpwr);
 }

@@ -130,7 +130,7 @@ const BUILTINS = {
     'printString':      { syscall: Syscall.STR_PRINT,       args: 1, returns: false, strArgs: [0] },
 
     // Tasmota command
-    'tasmCmd':          { syscall: Syscall.TASM_CMD,        args: 2, returns: true,  constArgs: [0], strArgs: [1] },
+    'tasmCmd':          { syscall: Syscall.TASM_CMD,        args: 2, returns: true,  constArgs: [0], strArgs: [1], byteAbi: { args: [1], abi: 26 } },
     'tasmDefer':        { syscall: Syscall.TASM_DEFER,      args: 1, returns: false, strArgs: [0] },
 
     // Tasmota output (for callbacks — route directly to Tasmota APIs)
@@ -178,7 +178,7 @@ const BUILTINS = {
 
     // Smart Meter (SML)
     'smlGet':           { syscall: Syscall.SML_GET,         args: 1, returns: true },
-    'smlGetStr':        { syscall: Syscall.SML_GETSTR,      args: 2, returns: true,  strArgs: [1] },
+    'smlGetStr':        { syscall: Syscall.SML_GETSTR,      args: 2, returns: true,  strArgs: [1], byteAbi: { args: [1], abi: 26 } },
     'smlWrite':         { syscall: Syscall.SML_WRITE,       args: 2, returns: true,  strArgs: [1] },
     'smlRead':          { syscall: Syscall.SML_READ,        args: 2, returns: true,  strArgs: [1] },
     'smlSetBaud':       { syscall: Syscall.SML_SETBAUD,     args: 2, returns: true },
@@ -378,8 +378,8 @@ const BUILTINS = {
     'bin2hex':          { syscall: Syscall.BIN2HEX,         args: 3, returns: true,  strArgs: [0, 2], intArgs: [1] },
 
     // HTTP
-    'httpGet':          { syscall: Syscall.HTTP_GET,         args: 2, returns: true,  strArgs: [0, 1] },
-    'httpPost':         { syscall: Syscall.HTTP_POST,        args: 3, returns: true,  strArgs: [0, 1, 2] },
+    'httpGet':          { syscall: Syscall.HTTP_GET,         args: 2, returns: true,  strArgs: [0, 1], byteAbi: { args: [1], abi: 26 } },
+    'httpPost':         { syscall: Syscall.HTTP_POST,        args: 3, returns: true,  strArgs: [0, 1, 2], byteAbi: { args: [2], abi: 26 } },
     'httpHeader':       { syscall: Syscall.HTTP_HEADER,      args: 2, returns: false, strArgs: [0, 1] },
     'webParse':         { syscall: Syscall.WEB_PARSE,        args: 4, returns: true,  strArgs: [0, 3], constArgs: [1] },
 
@@ -928,6 +928,7 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
+        [546, 26],                      // (Platzhalter: ABI 26 haengt nicht an einer Syscall-Nummer, siehe byteAbi)
         [545, 25],                      // WebChartQ — affine Umrechnung, macht byte[]-Charts erst lesbar
         [544, 24],                      // mqttPublish mit Laufzeit-Strings + Log-Stufe
         [535, 20], [534, 19], [533, 18], [524, 17], [521, 16], [517, 15],
@@ -3936,6 +3937,20 @@ export class CodeGenerator {
                             const idx = this.addConstant(resolved.value);
                             this.emitPushInt((0xC0008000 | idx) | 0);
                         } else {
+                            // A byte[] handed to a syscall that WRITES into it needs
+                            // firmware new enough to write it packed. Before 1.6.61
+                            // httpGet/httpPost/smlGetStr/tasmCmd filled the buffer
+                            // with int32 slots while tc_ref_maxlen already counted
+                            // BYTES — four times the array, straight over the
+                            // neighbouring heap. Nothing about the call looks
+                            // different, so the .tcb has to carry the requirement.
+                            if (builtin.byteAbi && builtin.byteAbi.args.includes(i) &&
+                                resolved.type === NodeType.Identifier &&
+                                this._istBytesVar(resolved.name)) {
+                                this._abiVerlangen(builtin.byteAbi.abi,
+                                    `${node.name}() writing into a packed byte[]`,
+                                    arg.line || node.line);
+                            }
                             this.emitArrayRef(arg);
                         }
                     } else {

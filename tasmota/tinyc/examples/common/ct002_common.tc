@@ -33,15 +33,14 @@ persist int  ct_rssi;          // Wi-Fi RSSI reported to the batteries [dBm]
 persist int  ct_ttl;           // consumer timeout [s], 0 = adaptive (~2 polls)
 persist int  ct_offset;        // zero-feed offset [W]
 persist int  ct_tweak;          // regulator shaping 0/1
-persist int  ct_ph3;              // 1 = per-phase values from smlGet(4/5/6)
-persist char ct_mac[16];       // CT MAC, 12 hex lowercase. Empty = answer all
-persist char ct_mail[64];      // Marstek account mail (registration only)
+persist byte ct_mac[16];       // CT MAC, 12 hex lowercase. Empty = answer all
+persist byte ct_mail[64];      // Marstek account mail (registration only)
 
 // ─── Edit buffer ───────────────────────────────────────────────────────────
 // The panel writes here; Save copies it onto the settings above. ct_mac and
 // ct_mail are not in here - those are handled on /ctreg.
 int ct_e_kind; int ct_e_port; int ct_e_rssi; int ct_e_ttl;
-int ct_e_offset; int ct_e_tweak; int ct_e_ph3;
+int ct_e_offset; int ct_e_tweak;
 
 void ctCommit() {
     ct_kind = ct_e_kind;
@@ -50,7 +49,6 @@ void ctCommit() {
     ct_ttl = ct_e_ttl;
     ct_offset = ct_e_offset;
     ct_tweak = ct_e_tweak;
-    ct_ph3 = ct_e_ph3;
 }
 void ctEditLoad() {
     ct_e_kind = ct_kind;
@@ -59,7 +57,6 @@ void ctEditLoad() {
     ct_e_ttl = ct_ttl;
     ct_e_offset = ct_offset;
     ct_e_tweak = ct_tweak;
-    ct_e_ph3 = ct_ph3;
 }
 
 // ─── Consumer table (one row per battery, keyed by its MAC) ────────────────
@@ -83,29 +80,29 @@ int  ct_once;                       // UDP socket bound once
 int  ct_rxc; int ct_txc; int ct_badc;
 
 char ct_hexd[] = "0123456789abcdef";
-char ct_type[8];                      // "HME-4" or "HME-3"
+byte ct_type[8];                      // "HME-4" or "HME-3"
 
 char ct_rxb[CT_RXMAX];                     // UDP receive buffer
 char ct_txb[CT_TXMAX];                     // outgoing frame
 char ct_innb[CT_TXMAX];                    // frame body ("|f1|f2|...")
 
 // Parsed request fields (globals, not locals — keeps the VM stack small)
-char ct_qbtype[16];                    // battery type, e.g. "HMG-50"
-char ct_qbmac[16];                     // battery MAC
-char ct_qtype[16];                   // CT type the battery asks for
-char ct_qmac[16];                    // CT MAC the battery asks for
-char ct_qph[8];                        // phase char
-char ct_qpwr[16];                      // signed power
-char ct_qpart[8];                      // participate (optional field 7)
+byte ct_qbtype[16];                    // battery type, e.g. "HMG-50"
+byte ct_qbmac[16];                     // battery MAC
+byte ct_qtype[16];                   // CT type the battery asks for
+byte ct_qmac[16];                    // CT MAC the battery asks for
+byte ct_qph[8];                        // phase char
+byte ct_qpwr[16];                      // signed power
+byte ct_qpart[8];                      // participate (optional field 7)
 
 // ─── Marstek cloud registration ────────────────────────────────────────────
-char ct_pass[64];                    // NOT persisted — cleared after use
-char ct_msg[128];                   // status line shown in the web UI
-char ct_tok[96];                     // session token
-char ct_umail[96];                      // url-encoded mailbox
-char ct_req[384];                       // URL; code rejects >250, worst unguarded build ~373
-char ct_buf[320];                     // scratch for parsing
-char ct_resp[1024];                // API response body; measured 555 chars for one CT
+byte ct_pass[64];                    // NOT persisted — cleared after use
+byte ct_msg[128];                   // status line shown in the web UI
+byte ct_tok[96];                     // session token
+byte ct_umail[96];                      // url-encoded mailbox
+byte ct_req[384];                       // URL; code rejects >250, worst unguarded build ~373
+byte ct_buf[320];                     // scratch for parsing
+byte ct_resp[1024];                // API response body; measured 555 chars for one CT
 char ct_fnd[6][16];                     // distinct fake-CT MACs seen while scanning
 int  ct_rreq;                        // 0 idle, 1 = login+scan, 2 = create
 int  ct_busy;
@@ -360,7 +357,7 @@ int ctCtrl(float raw) {
 }
 
 void ctPower() {
-    if (ct_ph3 == 1) {
+    if (sml_ph3 == 1) {
         ct_pa = ctCtrl(smlGet(4));
         ct_pb = ctCtrl(smlGet(5));
         ct_pc = ctCtrl(smlGet(6));
@@ -399,8 +396,8 @@ int ctLogin() {
     if (strlen(ct_mail) < 5) { strcpy(ct_msg, "Mail missing"); return 0; }
     if (strlen(ct_pass) < 1) { strcpy(ct_msg, "Password missing"); return 0; }
 
-    char dig[20];
-    char dighex[40];
+    byte dig[20];
+    byte dighex[40];
     if (md5(ct_pass, strlen(ct_pass), dig) != 1) {
         strcpy(ct_msg, "MD5 not available in this firmware");
         return 0;
@@ -527,8 +524,8 @@ void ctDoCreate() {
     }
 
     // devid = mac = 02b250 + 6 random hex, like AstraMeter's _generate_new_id
-    char nm[16];
-    char one[4];
+    byte nm[16];
+    byte one[4];
     strcpy(nm, "02b250");
     int i = 0;
     for (i = 0; i < 6; i = i + 1) {
@@ -543,7 +540,7 @@ void ctDoCreate() {
         strcpy(ct_msg, "MAC generation failed");
         return;
     }
-    char sfx[8];
+    byte sfx[8];
     strSub(sfx, nm, -4, 4);
 
     // httpGet, not the raw TLS socket: tlsConnect() (BearSSL) fails against
@@ -671,6 +668,7 @@ void ctPoll() {
 
 // From EverySecond().
 void ctTick() {
+    if (ui_reloading) ctEditLoad();
     if (ui_applying) ctCommit();
     if (tasm_wifi == 1 && ct_once == 0) {
         if (ct_port < 1) ct_port = 12345;
@@ -731,7 +729,7 @@ void ctRows() {
 
     int i = 0;
     int live = 0;
-    char pn[4];
+    byte pn[4];
     for (i = 0; i < CT_NSLOT; i = i + 1) {
         if (ct_sused[i] == 1) {
             live = live + 1;
@@ -787,11 +785,9 @@ void ctPanel() {
     if (ui_de) {
         webNumber(ct_e_offset, -200, 200, "Offset [W]");
         webCheckbox(ct_e_tweak, "Regleroptimierung");
-        webCheckbox(ct_e_ph3, "3 Phasen");
     } else {
         webNumber(ct_e_offset, -200, 200, "Offset [W]");
         webCheckbox(ct_e_tweak, "Regulator tweak");
-        webCheckbox(ct_e_ph3, "3 phases");
     }
 
     // No Marstek block here - the account lives on /ctreg, reachable from the
@@ -817,7 +813,7 @@ int ctWebOn(int h) {
     if (h != ct_webnum) return 0;
 
 
-    char a[96];
+    byte a[96];
 
     // Poller status query: text only, no side effects.
     // Format "<status>|<ct-mac>|<busy>"
