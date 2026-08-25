@@ -3527,11 +3527,39 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 | `color` | Linien-/Balkenfarbe als Hex-RGB (z.B. `0xe74c3c` fuer Rot) |
 | `pos` | Aktuelle Schreibposition im Ringpuffer |
 | `count` | Anzahl gueltiger Datenpunkte (≤ Array-Groesse) |
-| `array` | Float-Array mit den Daten (Ringpuffer) |
+| `array` | Ringpuffer mit den Daten: `float[]`, oder ein gepacktes `byte[]` mit `WebChartQ()` davor (siehe *Gepackte Messwerte*) |
 | `decimals` | Anzahl Dezimalstellen fuer Datenwerte (0–6) |
 | `interval` | Minuten zwischen Datenpunkten (fuer X-Achsen-Zeitbeschriftung) |
 | `ymin` | Y-Achsen-Minimum. Wenn `ymin >= ymax`, automatische Skalierung |
 | `ymax` | Y-Achsen-Maximum. Wenn `ymin >= ymax`, automatische Skalierung |
+
+
+**Wie die X-Achse beschriftet wird** *(Regel seit 1.6.61)*
+
+Ein **Liniendiagramm** (`type` 0 / `'l'`) bekommt eine echte `datetime`-Achse im
+Format `HH:MM` — daran aendert sich nichts.
+
+Ein **Saeulendiagramm** (`type` 1 / `'c'` / `'b'` / `'h'` / `'s'`) kann das nicht:
+Google Charts verlangt dort Text-Kategorien. TinyC waehlt das Format deshalb
+selbst, und zwar nach der **Zeitspanne, die die Reihe abdeckt** — also
+`(Anzahl - 1) x interval`:
+
+| Spanne der Reihe | Beschriftung | typischer Fall |
+|---|---|---|
+| ≤ 36 h | `HH:MM` | 288 Saeulen im 5-Minuten-Raster (Regen eines Tages) |
+| ≤ 8 Tage | Wochentag (`Mo`, `Di`, …) | 7 Tagesbalken |
+| darueber | `TT.MM.` | 31 Tagesbalken, 12 Monatsbalken |
+| nur ein Punkt | leer | — |
+
+⚠️ **Bis 1.6.60 entschied die Punktzahl, nicht die Spanne** — und „mehr als 7
+Punkte" wurde dort als „mehr als eine Woche" gelesen. Ein 24-h-Regendiagramm mit
+288 Saeulen bekam damit **288-mal dasselbe Datum** an die Achse, und die Uhrzeit,
+das einzige was man bei Regen wissen will, stand nirgends. Wer die alte
+Beschriftung erwartet: alle bisherigen Formen behalten sie, nur der
+Intraday-Fall wechselt von Datum auf Uhrzeit.
+
+Ein gestapeltes Diagramm (`'s'`) mit mehr als 7 Punkten nummeriert stattdessen
+durch (`0`, `1`, `2`, …) — das war und bleibt so.
 
 **Chart-Konfiguration (optional, vor `WebChart()` aufrufen):**
 

@@ -3570,7 +3570,7 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 | `color` | Line/bar color as hex RGB (e.g. `0xe74c3c` for red) |
 | `pos` | Current write position in the ring buffer |
 | `count` | Number of valid data points (≤ array size) |
-| `array` | Float array containing the data (ring buffer) |
+| `array` | Ring buffer holding the data: a `float[]`, or a packed `byte[]` with a `WebChartQ()` in front of it (see *Packed samples*) |
 | `decimals` | Number of decimal places for data values (0–6) |
 | `interval` | Minutes between data points (for X-axis time labels) |
 | `ymin` | Y-axis minimum. If `ymin >= ymax`, chart auto-scales |
@@ -3580,6 +3580,33 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 expression works. That matters more than it sounds: it is the difference between "I
 must know the range at compile time" and "I compute it from the data I just collected".
 See *Baseline at zero* below.
+
+
+**How the X axis is labelled** *(rule since 1.6.61)*
+
+A **line chart** (`type` 0 / `'l'`) gets a real `datetime` axis formatted
+`HH:MM` — unchanged.
+
+A **column chart** (`type` 1 / `'c'` / `'b'` / `'h'` / `'s'`) cannot: Google
+Charts wants text categories there. TinyC therefore picks the format itself,
+from the **span the series covers** — that is `(count - 1) x interval`:
+
+| Span of the series | Label | typical case |
+|---|---|---|
+| ≤ 36 h | `HH:MM` | 288 columns at 5 min (one day of rain) |
+| ≤ 8 days | weekday (`Mo`, `Tu`, …) | 7 daily bars |
+| longer | `DD.MM.` | 31 daily bars, 12 monthly bars |
+| a single point | empty | — |
+
+⚠️ **Up to 1.6.60 the POINT COUNT decided, not the span** — and "more than 7
+points" was read there as "more than a week". A 24 h rain chart of 288 columns
+therefore got **the same date stamped 288 times**, and the hour it rained, the
+one thing the reader wants, appeared nowhere. If you expect the old labels:
+every previously existing shape keeps them; only the intraday case moves from
+date to time.
+
+A stacked chart (`'s'`) with more than 7 points numbers them instead (`0`, `1`,
+`2`, …) — that was and stays the case.
 
 **Chart configuration (optional, call before `WebChart()`):**
 
