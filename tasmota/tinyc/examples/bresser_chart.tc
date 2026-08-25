@@ -647,7 +647,11 @@ void EverySecond() {
     br_hum = 55 + (sim_tick % 30);
     br_wind_avg = 1.0 + (float)(sim_tick % 20) * 0.2;
     br_rain = 0.0 + (float)(sim_tick % 100) * 0.1;
-    br_lux = 5000.0 + (float)(sim_tick % 200) * 50.0;
+    // kLux, not lux: the real decoder is raw * 0.001 (line ~476) and a bright
+    // day is around 100. The old 5000..15000 was a raw-lux figure in a kLux
+    // variable — harmless while the chart stored floats, but it now clamps
+    // against the byte encoding and hid the real range from the simulation.
+    br_lux = 5.0 + (float)(sim_tick % 200) * 0.5;
     br_uvi = (float)(sim_tick % 10) * 0.5;
     br_rssi = -60.0;
     br_cnt = sim_tick;
