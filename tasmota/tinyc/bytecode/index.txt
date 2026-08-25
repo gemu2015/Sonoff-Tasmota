@@ -19,6 +19,7 @@ bmx280.tcb
 bresser_chart.tcb
 bug4_http_taskloop_diag.tcb
 byte_array_suite.tcb
+byte_chart.tcb
 byte_syscall_test.tcb
 byte_test.tcb
 c_extensions_demo.tcb

@@ -8,8 +8,51 @@
 #define WEEK_LEN    336       // 7 days at 1 sample/30 min
 #define WEEK_INT    1800      // sample interval in seconds (30 min)
 #define CHARTFILE   "/sml_ebus.bin"
-#define CHART_MAGIC 0x53424531  // "SBE1" — bump to discard an old-layout .bin on load
+#define CHART_MAGIC 0x53424532  // "SBE2" — bump to discard an old-layout .bin on load
 #define ENERGY_VER  2           // energy arrays now hold AVG POWER (W); bump = one-time clear of old kWh data
+
+// ── Sample encoding: one BYTE per sample, not one float ──────────────────────
+// The fourteen ring buffers used to be float[], i.e. 4 bytes for a number the
+// chart draws with one decimal: 7*288 + 7*336 = 4368 floats = 17.5 KB of VM
+// heap, claimed as ONE contiguous block when the program loads. On the C3 that
+// is the whole reason this script would not start next to WiFi and TLS. Packed
+// byte[] arrays cost a quarter — 4.4 KB — and WebChartQ() tells the chart what
+// a raw 0..255 means.
+//
+// ⚠️ RAW 0 IS "NO SAMPLE", not zero degrees. The charts rely on it: the
+// WebChartJS snippet at the bottom turns un-recorded slots into a gap instead
+// of drawing a line through them. The temperature encoding therefore starts at
+// raw 1, and enc_t() maps a real 0.0 back to raw 0 so a missing DS18B20 still
+// reads as "no data" exactly as it did with floats.
+// ── Where the two DS18B20 come from ─────────────────────────────────────────
+// NOT from Tasmota's native DS18x20 driver: on this board the 1-Wire GPIO is
+// owned by the onewire.tc slot (owSetPin releases the pin from Tasmota, and
+// pinFree() refuses the other way round — only one of the two can have the
+// bus). onewire.tc publishes its sensors into the sensor JSON from its own
+// JsonCall(), and sensorGet() in THIS slot sees that, because the re-entry
+// guard skips only the calling slot.
+//
+// The key is whatever onewire.tc labels the sensor: its alias if one is set,
+// else "DS18x20-<XX>" with XX = ROM byte 6. Aliases are worth setting because
+// the fallback name depends on the ROM and silently changes if a sensor is
+// swapped. In the console of the onewire.tc slot:
+//     OW                       -> shows the sensors with their current labels
+//     OW NAME T 0 Keller
+//     OW NAME T 1 Warmwasser
+// They persist across reboots and follow the ROM, not the index.
+//
+// ⚠️ If you instead give the pin back to Tasmota's own driver (template =
+// DS18x20, onewire.tc not running on it), the keys are "DS18B20-1"/"DS18B20-2"
+// — and "DS18B20" WITHOUT a suffix when only ONE sensor is found, because the
+// driver only appends the index for sensors > 1.
+#define KEY_KELLER  "Keller#Temperature"
+#define KEY_WW      "Warmwasser#Temperature"
+
+#define T_SCALE     0.6         // K per step
+#define T_OFFS    -30.0         // raw 1 = -29.4 C ... raw 255 = +123.0 C
+#define T_NONE    -30.0         // what raw 0 decodes to = the gap sentinel
+#define P_WP_SCALE 16.0         // Brauchwasser-WP: 0..4080 W in 16 W steps
+#define P_SP_SCALE  0.5         // Solarpumpe:     0..127.5 W in 0.5 W steps
 
 persist watch int sml_activ;
 float min_at;
@@ -34,8 +77,8 @@ global float bwwpc;
 // solarpumpe total energy
 global float sppc;
 // OneWire DS18B20 temps — read locally on .150, broadcast to the fleet
-global float ktmp;      // Kellertemperatur      — DS18B20-1, id 1ABEE9086461
-global float bw_ww;     // Warmwassertemperatur  — DS18B20-2, id C178441F64FF
+global float ktmp;      // Kellertemperatur      — KEY_KELLER, id 1ABEE9086461
+global float bw_ww;     // Warmwassertemperatur  — KEY_WW, id C178441F64FF
 
 global float scol;
 global float ssp;
@@ -46,23 +89,23 @@ global float spmp;
 // persist store, and the history survives reloads/OTA. (Same pattern as
 // power_meter.tc / bresser_chart.tc.) ─────────────────────────────────────────
 // 24h history (1 sample/5 min): 5 temps + 2 energy deltas
-float d_at[DAY_LEN];
-float d_ss[DAY_LEN];
-float d_ct[DAY_LEN];
-float d_kt[DAY_LEN];           // Kellertemperatur
-float d_bw[DAY_LEN];           // Warmwassertemperatur
-float d_bww[DAY_LEN];          // kWh consumed per 5-min slot (Brauchwasser-WP)
-float d_spp[DAY_LEN];          // kWh consumed per 5-min slot (Solarpumpe)
+byte d_at[DAY_LEN];
+byte d_ss[DAY_LEN];
+byte d_ct[DAY_LEN];
+byte d_kt[DAY_LEN];            // Kellertemperatur
+byte d_bw[DAY_LEN];            // Warmwassertemperatur
+byte d_bww[DAY_LEN];           // avg power per 5-min slot, /P_WP_SCALE (Brauchwasser-WP)
+byte d_spp[DAY_LEN];           // avg power per 5-min slot, /P_SP_SCALE (Solarpumpe)
 int   d_pos;                   // current wall-clock 5-min slot (ring anchor)
 
 // weekly history (1 sample/30 min): 5 temps + 2 energy deltas
-float w_at[WEEK_LEN];
-float w_ss[WEEK_LEN];
-float w_ct[WEEK_LEN];
-float w_kt[WEEK_LEN];          // Kellertemperatur
-float w_bw[WEEK_LEN];          // Warmwassertemperatur
-float w_bww[WEEK_LEN];
-float w_spp[WEEK_LEN];
+byte w_at[WEEK_LEN];
+byte w_ss[WEEK_LEN];
+byte w_ct[WEEK_LEN];
+byte w_kt[WEEK_LEN];           // Kellertemperatur
+byte w_bw[WEEK_LEN];           // Warmwassertemperatur
+byte w_bww[WEEK_LEN];
+byte w_spp[WEEK_LEN];
 int   w_pos;                   // current wall-clock 30-min slot (ring anchor)
 
 // Energy delta state: the accumulated meter value at the START of the current
@@ -77,6 +120,28 @@ int   chart_dirty;             // 1 = arrays changed since last save (OnExit gua
 // /sml_ebus.bin layout: int header + float arrays (5×DAY_LEN + 5×WEEK_LEN) + bases[4]
 int   chdr[8];                 // [magic, d_pos, w_pos, d_lastdi, w_lastwi, 0,0,0]
 float cbas[4];                 // [d_bww_base, d_spp_base, w_bww_base, w_spp_base]
+
+// Encode a temperature into a raw 0..255 byte.
+// ⚠️ The clamp is not decoration: a byte store keeps only the lowest byte, so
+// an out-of-range reading would wrap to a plausible-looking wrong value near
+// the bottom of the chart instead of an obvious spike off the top.
+int enc_t(float v) {
+    if (v == 0.0) { return 0; }          // "no value" — same convention as the float version
+    int raw = (int)((v - T_OFFS) / T_SCALE + 0.5);
+    if (raw < 1)   { raw = 1; }          // raw 0 is reserved for the gap
+    if (raw > 255) { raw = 255; }
+    return raw;
+}
+
+// Encode an average power in W. Here raw 0 legitimately means BOTH "pump off"
+// and "no sample" — exactly the ambiguity the float version had, so the chart's
+// gap handling is unchanged for these two series.
+int enc_p(float w, float scale) {
+    int raw = (int)(w / scale + 0.5);
+    if (raw < 0)   { raw = 0; }
+    if (raw > 255) { raw = 255; }
+    return raw;
+}
 
 void resetMinMax() {
     min_at = 999.0; max_at = -999.0;
@@ -97,7 +162,7 @@ void sml_save() {
     fileWriteBin(h, w_bww, WEEK_LEN); fileWriteBin(h, w_spp, WEEK_LEN);
     cbas[0] = d_bww_base; cbas[1] = d_spp_base; cbas[2] = w_bww_base; cbas[3] = w_spp_base;
     fileWriteBin(h, cbas, 4);
-    // Keller/Warmwasser appended AFTER cbas so a pre-existing .bin (without them) still loads.
+    // Keller/Warmwasser stay last — the order only has to match sml_load().
     fileWriteBin(h, d_kt, DAY_LEN);  fileWriteBin(h, d_bw, DAY_LEN);
     fileWriteBin(h, w_kt, WEEK_LEN); fileWriteBin(h, w_bw, WEEK_LEN);
     fileClose(h);
@@ -105,10 +170,13 @@ void sml_save() {
 }
 
 void sml_load() {
-    int want_old = (8 + 5 * DAY_LEN + 5 * WEEK_LEN + 4) * 4;     // pre-Keller/Warmwasser layout
-    int want_new = want_old + (2 * DAY_LEN + 2 * WEEK_LEN) * 4;  // + d_kt/d_bw/w_kt/w_bw appended
+    // ⚠️ fileReadBin/fileWriteBin move RAW BYTES for a byte[] (one file byte per
+    // element) but 4-byte int32s for int[]/float[] — so the header and the bases
+    // still count 4 bytes each while the fourteen ring buffers now count one.
+    // The whole file went from 17520 to 4416 bytes with the arrays.
+    int want = (8 + 4) * 4 + (7 * DAY_LEN + 7 * WEEK_LEN);
     int sz = fileSize(CHARTFILE);
-    if (sz != want_old && sz != want_new) { return; }           // missing / unknown -> fresh start
+    if (sz != want) { return; }                                 // missing / old layout -> fresh start
     int h = fileOpen(CHARTFILE, "r");
     if (h < 0) { return; }
     fileReadBin(h, chdr, 8);
@@ -120,20 +188,10 @@ void sml_load() {
     fileReadBin(h, w_bww, WEEK_LEN); fileReadBin(h, w_spp, WEEK_LEN);
     fileReadBin(h, cbas, 4);
     d_bww_base = cbas[0]; d_spp_base = cbas[1]; w_bww_base = cbas[2]; w_spp_base = cbas[3];
-    // Keller/Warmwasser only present in the new layout; an older .bin leaves them fresh at 0.
-    if (sz == want_new) {
-        fileReadBin(h, d_kt, DAY_LEN);  fileReadBin(h, d_bw, DAY_LEN);
-        fileReadBin(h, w_kt, WEEK_LEN); fileReadBin(h, w_bw, WEEK_LEN);
-    }
-    // One-time migration: the 4 energy arrays switched from kWh to W scaling — clear the
-    // old kWh values so the charts don't show mixed units until they refill (in W).
-    if (chdr[5] != ENERGY_VER) {
-        int i = 0;
-        while (i < DAY_LEN)  { d_bww[i] = 0.0; d_spp[i] = 0.0; i = i + 1; }
-        i = 0;
-        while (i < WEEK_LEN) { w_bww[i] = 0.0; w_spp[i] = 0.0; i = i + 1; }
-        d_lastdi = -1; w_lastwi = -1;   // fresh energy base on the first sample
-    }
+    fileReadBin(h, d_kt, DAY_LEN);  fileReadBin(h, d_bw, DAY_LEN);
+    fileReadBin(h, w_kt, WEEK_LEN); fileReadBin(h, w_bw, WEEK_LEN);
+    // The kWh->W migration that used to live here is gone with the layout: the
+    // new magic already discards every file written before the byte encoding.
     fileClose(h);
 }
 
@@ -173,8 +231,16 @@ void EverySecond() {
     }
 
     // OneWire DS18B20 temps (native sensor JSON) -> assign broadcasts them to the fleet
-    ktmp  = sensorGet("DS18B20-1#Temperature");   // Kellertemperatur     (id 1ABEE9086461)
-    bw_ww = sensorGet("DS18B20-2#Temperature");   // Warmwassertemperatur (id C178441F64FF)
+    // Sample-and-hold, and the guard is not cosmetic: inside a sensorGet no
+    // slot is allowed to WAIT for the VM (may_wait is false there, see the
+    // JsonCall dispatch in xdrv_124_tinyc.ino). If the onewire.tc slot happens
+    // to be mid-callback, its JsonCall is skipped for that call and sensorGet
+    // returns 0 — not an error, just this one second. Writing that 0 through
+    // would punch a hole in the chart, because 0.0 is the "no sample" value.
+    float t_k = sensorGet(KEY_KELLER);    // Kellertemperatur     (id 1ABEE9086461)
+    float t_w = sensorGet(KEY_WW);        // Warmwassertemperatur (id C178441F64FF)
+    if (t_k != 0.0) { ktmp  = t_k; }
+    if (t_w != 0.0) { bw_ww = t_w; }
 
     // reset daily min/max at midnight
     if (tasm_day != last_day) {
@@ -204,11 +270,11 @@ void EverySecond() {
     // (sample-and-hold); d_pos = the current slot for WebChart's ring anchor.
     int di = (tasm_hour * 60 + tasm_minute) / 5;
     if (di >= 0 && di < DAY_LEN) {
-        d_at[di] = atmp;
-        d_ss[di] = scol;
-        d_ct[di] = ssp;
-        d_kt[di] = ktmp;
-        d_bw[di] = bw_ww;
+        d_at[di] = enc_t(atmp);
+        d_ss[di] = enc_t(scol);
+        d_ct[di] = enc_t(ssp);
+        d_kt[di] = enc_t(ktmp);
+        d_bw[di] = enc_t(bw_ww);
         // WebChart's pos is the ring ANCHOR (oldest slot = one past the newest),
         // so the newest sample (slot di) renders at "now" not 24 h ago.
         d_pos = (di + 1) % DAY_LEN;
@@ -218,11 +284,11 @@ void EverySecond() {
     // 1=Sun..7=Sat, so (wday-1)*24+hour = hour-of-week (0..167).
     int wi = (((tasm_wday - 1) * 24 + tasm_hour) * 60 + tasm_minute) / 30;
     if (wi >= 0 && wi < WEEK_LEN) {
-        w_at[wi] = atmp;
-        w_ss[wi] = scol;
-        w_ct[wi] = ssp;
-        w_kt[wi] = ktmp;
-        w_bw[wi] = bw_ww;
+        w_at[wi] = enc_t(atmp);
+        w_ss[wi] = enc_t(scol);
+        w_ct[wi] = enc_t(ssp);
+        w_kt[wi] = enc_t(ktmp);
+        w_bw[wi] = enc_t(bw_ww);
         w_pos = (wi + 1) % WEEK_LEN;
     }
 
@@ -233,13 +299,13 @@ void EverySecond() {
     if (bwwpc != 0.0 && sppc != 0.0) {
         if (di >= 0 && di < DAY_LEN) {
             if (di != d_lastdi) { d_lastdi = di; d_bww_base = bwwpc; d_spp_base = sppc; }
-            d_bww[di] = (bwwpc - d_bww_base) * 12000.0;   // kWh/5min -> W (avg power = kWh*1000*60/5)
-            d_spp[di] = (sppc - d_spp_base) * 12000.0;
+            d_bww[di] = enc_p((bwwpc - d_bww_base) * 12000.0, P_WP_SCALE);  // kWh/5min -> W
+            d_spp[di] = enc_p((sppc - d_spp_base) * 12000.0, P_SP_SCALE);
         }
         if (wi >= 0 && wi < WEEK_LEN) {
             if (wi != w_lastwi) { w_lastwi = wi; w_bww_base = bwwpc; w_spp_base = sppc; }
-            w_bww[wi] = (bwwpc - w_bww_base) * 2000.0;    // kWh/30min -> W (avg power = kWh*1000*60/30)
-            w_spp[wi] = (sppc - w_spp_base) * 2000.0;
+            w_bww[wi] = enc_p((bwwpc - w_bww_base) * 2000.0, P_WP_SCALE);   // kWh/30min -> W
+            w_spp[wi] = enc_p((sppc - w_spp_base) * 2000.0, P_SP_SCALE);
         }
     }
 
@@ -251,7 +317,14 @@ void EverySecond() {
 
 
 void WebCall() {
-    char buf[128];
+    // ⚠️ Belongs HERE, not in WebUI(). A WebUI() callback renders on the /tc_ui
+    // sub-page, and the main page only offers a button to that page when the
+    // script registered one with webPageLabel() — a bare WebUI() gets none, so
+    // the checkbox existed but nothing could reach it. WebCall() renders inline
+    // on the main page, which is where a mode switch belongs anyway.
+    webCheckbox(sml_activ, "Enable SML");
+    byte buf[128];        // byte[] is a full drop-in for char[] as a text buffer
+                         // (1.6.58) and costs 32 slots instead of 128.
 
     webSend("{s}<b style='color:#2196F3'>Aussentemperatur</b>{m}{e}");
     sprintf(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", atmp);
@@ -299,7 +372,8 @@ void WebCall() {
 
 
 void WebPage() {
-    char buf[128];
+    byte buf[128];        // byte[] is a full drop-in for char[] as a text buffer
+                         // (1.6.58) and costs 32 slots instead of 128.
     int sr;
     int ss;
     int dl;
@@ -367,29 +441,47 @@ void WebPage() {
     WebChartSize(0, 300);   // 0 = volle Kartenbreite (#111)
 
     // --- 24h chart: 3 series, wall-clock 5-min slots, interval = 5 min ---
+    // Every series carries its own WebChartQ: it applies to the NEXT WebChart
+    // only and is cleared by it, so each one has to be repeated. All five
+    // temperatures share the same encoding, which is what lets a single gap
+    // sentinel work for the whole chart.
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "Temperaturen 24h", "Aussen|C", 0x2196F3, d_pos, DAY_LEN, d_at, 1, 5, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Speicher|C", 0xFF5722, d_pos, DAY_LEN, d_ss, 1, 5, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Kollektor|C", 0x4CAF50, d_pos, DAY_LEN, d_ct, 1, 5, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Keller|C", 0x9C27B0, d_pos, DAY_LEN, d_kt, 1, 5, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Warmwasser|C", 0xFF9800, d_pos, DAY_LEN, d_bw, 1, 5, 0.0, 0.0);
-    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==-30)dt.setValue(r,c,null);");   // -30 = T_NONE, the raw-0 gap
 
     // --- weekly chart: 3 series, wall-clock 30-min slots, interval = 30 min ---
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "Temperaturen Woche", "Aussen|C", 0x2196F3, w_pos, WEEK_LEN, w_at, 1, 30, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Speicher|C", 0xFF5722, w_pos, WEEK_LEN, w_ss, 1, 30, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Kollektor|C", 0x4CAF50, w_pos, WEEK_LEN, w_ct, 1, 30, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Keller|C", 0x9C27B0, w_pos, WEEK_LEN, w_kt, 1, 30, 0.0, 0.0);
+    WebChartQ(T_SCALE, T_OFFS);
     WebChart(0, "", "Warmwasser|C", 0xFF9800, w_pos, WEEK_LEN, w_bw, 1, 30, 0.0, 0.0);
-    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);");
+    WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==-30)dt.setValue(r,c,null);");   // -30 = T_NONE, the raw-0 gap
 
     // --- 24h consumption: avg power per 5-min slot in W (diff of accumulated kWh meters ×12000) ---
+    WebChartQ(P_WP_SCALE, 0.0);
     WebChart(0, "Verbrauch 24h [W]", "Brauchw.-WP|W", 0xE91E63, d_pos, DAY_LEN, d_bww, 1, 5, 0.0, 0.0);
+    WebChartQ(P_SP_SCALE, 0.0);
     WebChart(0, "", "Solarpumpe|W", 0x00BCD4, d_pos, DAY_LEN, d_spp, 1, 5, 0.0, 0.0);
     // dual y-axis: WP (~700 W) left, Solarpumpe (~10 W) right — each auto-scaled independently
     WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);o.series={0:{targetAxisIndex:0},1:{targetAxisIndex:1}};o.vAxes={0:{title:'WP'},1:{title:'Solar'}};delete o.vAxis;");
 
     // --- weekly consumption: avg power per 30-min slot in W (×2000) ---
+    WebChartQ(P_WP_SCALE, 0.0);
     WebChart(0, "Verbrauch Woche [W]", "Brauchw.-WP|W", 0xE91E63, w_pos, WEEK_LEN, w_bww, 1, 30, 0.0, 0.0);
+    WebChartQ(P_SP_SCALE, 0.0);
     WebChart(0, "", "Solarpumpe|W", 0x00BCD4, w_pos, WEEK_LEN, w_spp, 1, 30, 0.0, 0.0);
     // dual y-axis: WP left, Solarpumpe right — independent auto-scale
     WebChartJS("for(var r=0;r<dt.getNumberOfRows();r++)for(var c=1;c<dt.getNumberOfColumns();c++)if(dt.getValue(r,c)==0)dt.setValue(r,c,null);o.series={0:{targetAxisIndex:0},1:{targetAxisIndex:1}};o.vAxes={0:{title:'WP'},1:{title:'Solar'}};delete o.vAxis;");
@@ -400,8 +492,3 @@ void WebPage() {
 // Dirty-guarded so a freshly-imported .bin is never clobbered before any new sample.
 void OnExit()  { if (chart_dirty) { sml_save(); } }
 void CleanUp() { if (chart_dirty) { sml_save(); } }
-
-
-void WebUI() {
-    webCheckbox(sml_activ, "Enable SML");
-}

@@ -940,7 +940,14 @@ export class VM {
                     case Op.GTE: t = a >= rhs; break;
                     default: throw new VMError(`Bad comparison ${cop} in superinstruction`);
                 }
-                if (!t) { this.pc = target; }
+                // ⚠️ codeOffset, like every other branch in this VM. Without it the
+                // loop EXIT jumped to an absolute address inside the header/const
+                // pool and executed string bytes as opcodes — surfacing as
+                // "Call stack overflow" or "Unknown opcode 0x6d", never as
+                // anything pointing at the loop. Since LL_CMP_JZ/LK32_CMP_JZ is
+                // the head of EVERY loop (V23), no script with a loop could run
+                // in the simulator at all.
+                if (!t) { this.pc = this.codeOffset + target; }
                 break;
             }
             case Op.LK32_OP_ST: {
@@ -1148,14 +1155,54 @@ export class VM {
         return { arr: this.frameLocals[fp], base };
     }
 
+    // Does this ref point at a packed byte[]? Mirrors tc_ref_is_bytes() —
+    // heap bit 8, global bit 16, local bit 24. A const-pool ref (tag 3 with
+    // bit 15) is a string literal and never a byte array.
+    refIsBytes(ref) {
+        const u = ref >>> 0, tag = u >>> 30;
+        if (tag === 3) return (u & 0x8000) ? false : (u & 0x00000100) !== 0;
+        if (tag === 2) return (u & 0x00010000) !== 0;
+        return (u & 0x01000000) !== 0;
+    }
+
+    // resolveRef() for the STRING side, with the packing folded in.
+    //
+    // The element opcodes (LOAD/STORE_*_BYTE) have packed correctly since
+    // 1.6.56, but the string helpers below never learned about it: they wrote
+    // one character per int32 SLOT and capped at the slot count, so a
+    // `byte buf[64]` took a 15-character string instead of 63 and stored it
+    // unpacked. On the device the same program packs and fits 63 (the firmware
+    // goes through tc_str_write_b with a byte capacity), so the simulator
+    // disagreed with the hardware about both the layout and the limit.
+    //
+    // `view`/`off` collapse the two cases: a byte[] gets the Uint8Array view at
+    // byte offset, everything else the Int32Array at slot offset, and the
+    // callers index with a plain character position either way — the same
+    // trick tc_chr_get/tc_chr_put use in the firmware. `cap` is the CHARACTER
+    // capacity, i.e. what tc_ref_maxlen() answers: bytes for a byte[], slots
+    // otherwise.
+    resolveStr(ref) {
+        const isBytes = this.refIsBytes(ref);
+        const r = this.resolveRef(this.stripByteFlag(ref));
+        const slots = (r.maxLen !== undefined) ? r.maxLen : (r.arr.length - r.base);
+        return {
+            view: isBytes ? this.byteViewOf(r.arr) : r.arr,
+            off:  isBytes ? r.base * 4 : r.base,
+            cap:  isBytes ? slots * 4 : slots,
+            isBytes,
+        };
+    }
+
     // Read a null-terminated string from an array ref
     readStringFromRef(ref) {
-        const resolved = this.resolveRef(ref);
-        const { arr, base } = resolved;
-        const maxSlots = resolved.maxLen || Math.min(256, arr.length - base);
+        const { view, off, cap, isBytes } = this.resolveStr(ref);
+        // The old 256 fallback stays for int32 buffers whose true extent is
+        // unknown (an inline local/global ref carries no size); a byte[] gets
+        // its real byte capacity, so it must not be clamped to it.
+        const limit = isBytes ? cap : Math.min(256, cap);
         let s = '';
-        for (let i = 0; i < maxSlots; i++) {
-            const ch = arr[base + i];
+        for (let i = 0; i < limit; i++) {
+            const ch = view[off + i];
             if (ch === 0) break;
             s += String.fromCharCode(ch & 0xFF);
         }
@@ -1164,14 +1211,13 @@ export class VM {
 
     // Write a string into an array ref (with null terminator)
     writeStringToRef(ref, str, maxLen = 256) {
-        const resolved = this.resolveRef(ref);
-        const { arr, base } = resolved;
-        const limit = Math.min(resolved.maxLen || maxLen, arr.length - base);
+        const { view, off, cap, isBytes } = this.resolveStr(ref);
+        const limit = isBytes ? cap : Math.min(maxLen, cap);
         let i;
         for (i = 0; i < str.length && i < limit - 1; i++) {
-            arr[base + i] = str.charCodeAt(i);
+            view[off + i] = str.charCodeAt(i) & 0xFF;
         }
-        if (base + i < arr.length) arr[base + i] = 0;
+        if (i < limit) view[off + i] = 0;
     }
 
     // ─── Syscall dispatch ────────────────────────────────────
@@ -1762,6 +1808,77 @@ export class VM {
                 } else {
                     this.push(-1);
                 }
+                break;
+            }
+            // ── Binary file I/O (286/287) ────────────────────────────────
+            // ⚠️ The element size depends on the ARRAY TYPE, and that is the
+            // whole subtlety: int[]/float[] move 4-byte little-endian int32s
+            // (both are int32 in memory, so one syscall serves them and the
+            // script knows which it meant), while a packed byte[] moves RAW
+            // BYTES, one file byte per element. `count` is an element count in
+            // both readings — so for a byte[] it is a byte count.
+            case 286: { // FILE_READ_BIN (handle, arr, count) -> elements read, -1 on bad args
+                let count = this.pop();
+                const bufRef = this.pop();
+                const handle = this.pop();
+                if (handle < 0 || handle >= this.fileHandles.length || !this.fileHandles[handle]) {
+                    this.push(-1); break;
+                }
+                const fh = this.fileHandles[handle];
+                const t = this.resolveStr(bufRef);          // carries isBytes + capacity
+                if (count < 0) count = 0;
+                if (count > t.cap) count = t.cap;
+                let n = 0;
+                if (t.isBytes) {
+                    n = Math.min(count, fh.data.length - fh.pos);
+                    for (let i = 0; i < n; i++) t.view[t.off + i] = fh.data[fh.pos + i];
+                    fh.pos += n;
+                } else {
+                    const avail = Math.floor((fh.data.length - fh.pos) / 4);
+                    n = Math.min(count, avail);
+                    for (let i = 0; i < n; i++) {
+                        const b = fh.pos + i * 4;
+                        t.view[t.off + i] = (fh.data[b] | (fh.data[b+1] << 8) |
+                                             (fh.data[b+2] << 16) | (fh.data[b+3] << 24)) | 0;
+                    }
+                    fh.pos += n * 4;
+                }
+                this.onOutput(`[FILE] readBin(${handle}, ${n} ${t.isBytes ? 'bytes' : 'elems'})\n`);
+                this.push(n);
+                break;
+            }
+            case 287: { // FILE_WRITE_BIN (handle, arr, count) -> elements written, -1 on bad args
+                let count = this.pop();
+                const bufRef = this.pop();
+                const handle = this.pop();
+                if (handle < 0 || handle >= this.fileHandles.length || !this.fileHandles[handle]) {
+                    this.push(-1); break;
+                }
+                const fh = this.fileHandles[handle];
+                const t = this.resolveStr(bufRef);
+                if (count < 0) count = 0;
+                if (count > t.cap) count = t.cap;
+                const bytes = t.isBytes ? count : count * 4;
+                const needed = fh.pos + bytes;
+                if (needed > fh.data.length) {
+                    const grown = new Uint8Array(needed);
+                    grown.set(fh.data);
+                    fh.data = grown;
+                }
+                if (t.isBytes) {
+                    for (let i = 0; i < count; i++) fh.data[fh.pos + i] = t.view[t.off + i] & 0xFF;
+                } else {
+                    for (let i = 0; i < count; i++) {
+                        const v = t.view[t.off + i] | 0, b = fh.pos + i * 4;
+                        fh.data[b]   =  v         & 0xFF;
+                        fh.data[b+1] = (v >>> 8)  & 0xFF;
+                        fh.data[b+2] = (v >>> 16) & 0xFF;
+                        fh.data[b+3] = (v >>> 24) & 0xFF;
+                    }
+                }
+                fh.pos += bytes;
+                this.onOutput(`[FILE] writeBin(${handle}, ${count} ${t.isBytes ? 'bytes' : 'elems'})\n`);
+                this.push(count);
                 break;
             }
             case 64: { // FILE_EXISTS
@@ -2555,14 +2672,9 @@ export class VM {
                 const nameIdx = this.pop();
                 if (nameIdx >= 0 && nameIdx < this.constants.length) {
                     const name = this.constants[nameIdx];
-                    const resolved = this.resolveRef(strRef);
-                    const { arr, base } = resolved;
-                    const maxLen = resolved.maxLen || (arr.length - base);
-                    let str = '';
-                    for (let i = 0; i < maxLen; i++) {
-                        if (arr[base + i] === 0) break;
-                        str += String.fromCharCode(arr[base + i] & 0xFF);
-                    }
+                    // readStringFromRef, not a hand-rolled loop: it is the one
+                    // place that knows about packed byte[] buffers.
+                    const str = this.readStringFromRef(strRef);
                     this.onOutput(`[UDP] Send =>` + name + `=` + str + `\n`);
                 }
                 break;
@@ -2783,15 +2895,10 @@ export class VM {
             }
             case 46: { // RESPONSE_CMND(buf_ref) -> void — send console response
                 const bufRef = this.pop();
-                const resolved = this.resolveRef(bufRef);
-                let text = '';
-                if (resolved) {
-                    const { arr, base } = resolved;
-                    const maxLen = resolved.maxLen || (arr.length - base);
-                    for (let i = 0; i < maxLen && arr[base + i]; i++) {
-                        text += String.fromCharCode(arr[base + i] & 0xFF);
-                    }
-                }
+                // readStringFromRef handles packed byte[] buffers; the loop
+                // this replaces read them as int32 slots and returned the
+                // first character only.
+                const text = this.readStringFromRef(bufRef);
                 this.onOutput(`[CMD] Response: ${text}\n`);
                 break;
             }
@@ -3132,6 +3239,68 @@ export class VM {
                 this.push(haystack.indexOf(needle));
                 break;
             }
+            // ── Higher-level string ops (1.5.0). All literal-needle: the
+            // needle/replacement comes from the constant pool, the haystack is
+            // a char[] or a packed byte[] — readStringFromRef/writeStringToRef
+            // hide that difference. All of them work IN PLACE, so they read the
+            // buffer, transform the JS string, and write it back.
+            case 302: { // STR_REPLACE_CONST (arr, old_ci, new_ci) -> # replacements
+                const newCi = this.pop();
+                const oldCi = this.pop();
+                const ref = this.pop();
+                const oldS = this.constants[oldCi] || '';
+                const newS = this.constants[newCi] || '';
+                const src = this.readStringFromRef(ref);
+                if (oldS.length === 0) { this.push(0); break; }
+                // split/join, not replaceAll: it counts and replaces in one pass
+                // and needs no escaping of regex metacharacters in the needle.
+                const parts = src.split(oldS);
+                const n = parts.length - 1;
+                if (n > 0) this.writeStringToRef(ref, parts.join(newS));
+                this.push(n);
+                break;
+            }
+            case 303: { // STR_STARTS_CONST (arr, prefix_ci) -> 1/0
+                const ci = this.pop();
+                const ref = this.pop();
+                this.push(this.readStringFromRef(ref).startsWith(this.constants[ci] || '') ? 1 : 0);
+                break;
+            }
+            case 304: { // STR_ENDS_CONST (arr, suffix_ci) -> 1/0
+                const ci = this.pop();
+                const ref = this.pop();
+                this.push(this.readStringFromRef(ref).endsWith(this.constants[ci] || '') ? 1 : 0);
+                break;
+            }
+            case 305: { // STR_CONTAINS_CONST (arr, substr_ci) -> 1/0
+                const ci = this.pop();
+                const ref = this.pop();
+                this.push(this.readStringFromRef(ref).includes(this.constants[ci] || '') ? 1 : 0);
+                break;
+            }
+            case 306: { // STR_TO_UPPER (arr) -> void
+                const ref = this.pop();
+                // ASCII a-z only, like the firmware — toUpperCase() would also
+                // fold accented characters and could change the byte length.
+                this.writeStringToRef(ref, this.readStringFromRef(ref)
+                    .replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32)));
+                break;
+            }
+            case 307: { // STR_TO_LOWER (arr) -> void
+                const ref = this.pop();
+                this.writeStringToRef(ref, this.readStringFromRef(ref)
+                    .replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32)));
+                break;
+            }
+            case 308: { // STR_TRIM (arr) -> new length
+                const ref = this.pop();
+                // \s in JS also matches U+00A0 and other Unicode spaces; the
+                // firmware trims ASCII whitespace, so spell that out.
+                const t = this.readStringFromRef(ref).replace(/^[ \t\r\n\f\v]+|[ \t\r\n\f\v]+$/g, '');
+                this.writeStringToRef(ref, t);
+                this.push(t.length);
+                break;
+            }
             case 47: { // STR_FIND_CONST (haystack_ref, needle_const_idx)
                 const ci = this.pop();
                 const haystackRef = this.pop();
@@ -3149,7 +3318,14 @@ export class VM {
             case 78: { // STR_TO_FLOAT (atof)
                 const ref = this.pop();
                 const str = this.readStringFromRef(ref);
-                this.pushFloat(parseFloat(str) || 0.0);
+                // There is no pushFloat() on this class — a float is pushed as
+                // its int32 bit pattern, the way SENSOR_GET and every other
+                // float-returning syscall does it. atof() therefore threw
+                // "this.pushFloat is not a function" on every call; nobody
+                // noticed because no script with a loop got this far.
+                const fb = new ArrayBuffer(4);
+                new Float32Array(fb)[0] = parseFloat(str) || 0.0;
+                this.push(new Int32Array(fb)[0]);
                 break;
             }
 
@@ -3331,12 +3507,38 @@ export class VM {
             case 233: { // WEB_CHART_SIZE
                 const h = this.pop();
                 const w = this.pop();
-                this.output(`[WebChartSize ${w}x${h}]\n`);
+                this.onOutput(`[WebChartSize ${w}x${h}]\n`);
                 break;
             }
             case 261: { // WEB_CHART_TBASE
                 const mins = this.pop();
-                this.output(`[WebChartTimeBase ${mins}min]\n`);
+                this.onOutput(`[WebChartTimeBase ${mins}min]\n`);
+                break;
+            }
+            case 393: { // PIN_FREE(pin) -> 1 if the pin is usable
+                const pin = this.pop();
+                // No Tasmota template here, so every pin in range reads free.
+                // On the device this is the check that refuses a pin already
+                // claimed by a Tasmota peripheral (tc_pin_forbidden).
+                this.push((pin >= 0 && pin < 48) ? 1 : 0);
+                break;
+            }
+            case 354: { // WEB_CHART_JS — attach a JS snippet to the last chart
+                const ref = this.pop();
+                const js = this.readStringFromRef(ref);
+                // The snippet runs in the browser's draw scope, which the mock
+                // has no equivalent of — show it so a typo is at least visible.
+                this.onOutput(`[WebChartJS] ${js.length > 70 ? js.slice(0, 70) + '...' : js}\n`);
+                break;
+            }
+            case 545: { // WEB_CHART_Q — one-shot affine decode for the next WebChart
+                const dv = new DataView(new ArrayBuffer(4));
+                dv.setInt32(0, this.pop()); const offset = dv.getFloat32(0);
+                dv.setInt32(0, this.pop()); const scale = dv.getFloat32(0);
+                this._chartQ = (scale === 0) ? null : { scale, offset };
+                const kurz = (v) => Number(v.toPrecision(7)).toString();   // float32 noise off
+                if (scale === 0) this.onOutput(`[WebChartQ scale 0 ignored]\n`);
+                else this.onOutput(`[WebChartQ value = raw * ${kurz(scale)} + ${kurz(offset)}]\n`);
                 break;
             }
             case 166: { // WEB_CHART
@@ -3359,7 +3561,18 @@ export class VM {
                 dv.setInt32(0, ymin_bits); const ymin = dv.getFloat32(0);
                 dv.setInt32(0, ymax_bits); const ymax = dv.getFloat32(0);
                 const rangeStr = (ymin === ymax) ? 'auto' : `${ymin}..${ymax}`;
-                this.onOutput(`[WebChart] ${typeStr} "${title}" [${unit}] color=#${(color>>>0).toString(16)} pos=${pos} count=${count} decimals=${decimals} interval=${interval}min range=${rangeStr} (browser mock)\n`);
+                // Packed byte[] and the WebChartQ decode are worth naming in the
+                // mock line: on the device they are the difference between a
+                // plausible curve and a flat 0..255 band, and the simulator is
+                // where a wrong scale is cheapest to notice.
+                const packed = ((arr_ref >>> 30) === 3) ? !!(arr_ref & 0x100)
+                             : ((arr_ref >>> 30) === 2) ? !!(arr_ref & 0x10000)
+                             : !!(arr_ref & 0x1000000);
+                const q = this._chartQ;
+                this._chartQ = null;   // one-shot, exactly as in the firmware
+                const kz = (v) => Number(v.toPrecision(7)).toString();
+                const qStr = q ? ` q=raw*${kz(q.scale)}${q.offset >= 0 ? '+' : ''}${kz(q.offset)}` : '';
+                this.onOutput(`[WebChart] ${typeStr} "${title}" [${unit}] color=#${(color>>>0).toString(16)} pos=${pos} count=${count} decimals=${decimals} interval=${interval}min range=${rangeStr}${packed ? ' byte[]' : ''}${qStr} (browser mock)\n`);
                 break;
             }
 

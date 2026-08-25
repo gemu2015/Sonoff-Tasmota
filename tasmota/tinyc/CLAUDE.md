@@ -278,10 +278,16 @@ Things that changed recently and invalidate older examples or forum advice:
   `getLastError()` (rc=13 `BLE_HS_ETIMEOUT` = peer never answered). Probe an unknown device
   with `ble_gatt_explore.tc` first — a proprietary UUID has no datasheet lookup. ABI 20.
 
-Features documented in `TinyC_Reference.md` VM-limits table may understate:
-on ESP32, constant pool is **1024**, heap is **64 KB** (`TC_MAX_HEAP`
-16384 slots × 4 B — default; overridable in `user_config_override.h`),
-code size is **128 KB** (the table section in the reference is behind).
+The VM-limits table in `TinyC_Reference.md` / `_DE.md` was audited cell by cell
+against the source in 1.6.60 and now matches it — treat it as current, not as
+the historically understated version. What moved: ESP32 heap 32 KB → **64 KB**
+(`TC_MAX_HEAP`, 16384 slots × 4 B, overridable in `user_config_override.h`),
+heap handles 32 → **128**, globals 256 → **512**, ESP8266 constant pool 32 →
+**64**. Two rows were wrong in kind, not just in value: the single "instruction
+limit 1M" is really `TC_CALLBACK_MAX_INSTR` per callback (20k/200k) plus
+`TC_INSTR_PER_TICK` slicing for `main()` (500/1000, `TinyCExec <n>`), and "GPIO
+pins 40" is `MAX_GPIO_PIN` from Tasmota's template and therefore per chip
+(C3 22, C6 31, S3 49, P4 55, classic ESP32 40, ESP8266 18).
 
 - **Firmware flash footprint of the TinyC subsystem ≈ 196 KB** (hand-measured
   on `tinyc32-4M`, 1.6.8). This is the *whole* `xdrv_124` driver (VM + ~70

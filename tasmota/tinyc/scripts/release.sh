@@ -7,6 +7,7 @@
 #   ./release.sh                          # build all + bundle IDE + update release notes + upload
 #   ./release.sh --skip-build             # reuse existing bins in $TASMOTA_ROOT/build_output/firmware
 #   ./release.sh --skip-upload            # build + bundle only, leave GitHub alone
+#   ./release.sh --skip-doccheck          # release even though check_docs.mjs found something
 #   ./release.sh --dry-run                # show what would happen, do nothing
 #   ./release.sh --notes /path/to/x.md    # use this file as the new "Changes in vX.Y.Z" section
 #                                         # (default: opens $EDITOR with a stub)
@@ -53,6 +54,7 @@ STD_TARGETS=(
 # ─────────── Argument parsing ────────────────────────────────────────────────
 SKIP_BUILD=false
 SKIP_UPLOAD=false
+SKIP_DOCCHECK=false
 DRY_RUN=false
 NOTES_FILE=""
 VERSION_OVERRIDE=""
@@ -61,6 +63,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build)   SKIP_BUILD=true; shift ;;
     --skip-upload)  SKIP_UPLOAD=true; shift ;;
+    --skip-doccheck) SKIP_DOCCHECK=true; shift ;;
     --dry-run)      DRY_RUN=true; shift ;;
     --notes)        NOTES_FILE="$2"; shift 2 ;;
     --version)      VERSION_OVERRIDE="$2"; shift 2 ;;
@@ -126,6 +129,26 @@ fi
 
 FW_DIR="$TASMOTA_ROOT/build_output/firmware"
 STAGE_DIR="/tmp/tinyc_release_v${VERSION}"
+
+# ─────────── Check the reference tables ──────────────────────────────────────
+# The VM-limits table drifted from the #defines for several releases, and the
+# "Differences from Standard C" table called two shipped features unsupported —
+# nobody reads a 6000-line reference front to back, so nothing caught it. This
+# does, in well under a second. Deliberately BEFORE the firmware build: a doc
+# problem should cost seconds, not a full pio run.
+# Fatal by design — shipping a reference that contradicts the firmware is worse
+# than a late release. Override with --skip-doccheck when a finding is known and
+# the release cannot wait.
+if $DRY_RUN; then
+  printf '\033[2m[dry-run]\033[0m node %s\n' "$TINYC_DIR/scripts/check_docs.mjs"
+elif $SKIP_DOCCHECK; then
+  warn "Skipping reference-table check (--skip-doccheck)"
+else
+  command -v node >/dev/null || die "node not in PATH (needed to check the reference tables)"
+  log "Checking reference tables against the chapters, the #defines and each other…"
+  node "$TINYC_DIR/scripts/check_docs.mjs" \
+    || die "check_docs.mjs found inconsistencies (above) — fix them, or pass --skip-doccheck"
+fi
 
 # ─────────── Recompile TinyC examples + regenerate the download index ────────
 # Keep bytecode/*.tcb fresh (current compiler/ABI) and bytecode/index.txt — the

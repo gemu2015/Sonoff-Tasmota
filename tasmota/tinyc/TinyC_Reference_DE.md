@@ -1036,8 +1036,30 @@ Byte-Anzahl.
 | Plattform | Max. Heap-Slots | Max. Handles |
 |-----------|-----------------|--------------|
 | ESP8266   | 2.048 (8 KB)    | 8            |
-| ESP32     | 8.192 (32 KB)   | 16           |
-| Browser   | 16.384 (64 KB)  | 32           |
+| ESP32 (inkl. S3/C3/C6/P4) | 16.384 (64 KB) | 128 |
+| Browser (IDE-Simulator) | 16.384 (64 KB) | 32 |
+
+Das sind Obergrenzen, keine Reservierungen: der Heap faengt klein an und waechst
+in 1,5-fach-Schritten mit den Allokationen, und bei einem untaetigen Programm
+wird er wieder in Richtung seines juengsten Hoechststands geschrumpft. Den
+aktuellen Stand liefert die JSON-Sensorausgabe als
+`"TinyC":{…,"Heap":"belegt/Kapazitaet"}` — nur fuer Slot 0; die uebrigen Slots
+melden kein Heap-Feld, und `TinyCInfo` (das Statuszeilen auf der Hauptseite
+einblendet) zeigt es ebenfalls nicht.
+
+Auf dem ESP32 stammen beide Werte aus `TC_MAX_HEAP` und `TC_MAX_HEAP_HANDLES`,
+die `user_config_override.h` anheben darf — genau deshalb warnt der Compiler
+oberhalb von 16.384 Slots, statt abzubrechen.
+
+⚠️ **Die Obergrenze ist selten das, woran es scheitert.** Jedes global
+deklarierte Array wird beim Laden des Programms als EIN zusammenhaengender
+Block vorab geholt: drei `float[1441]`-Chart-Ringe brauchen also einen einzelnen
+freien 17-KB-Block, nicht 17 KB freien Heap. Auf einem C3 mit laufendem WLAN und
+TLS ist der groesste freie Block ein Bruchteil der freien Summe, und ein
+Ladefehler `heap alloc failed … not enough free heap` ist meist daran
+gescheitert und nicht an den 64 KB. Die Ringpuffer zu packen ist die direkte
+Antwort: ein `byte[]`-Ring verlangt ein Viertel des Blocks (siehe *Gepackte
+Messwerte — ein Diagramm aus einem `byte[]`* bei `WebChart`).
 
 ### 2D-Arrays *(seit 1.3.38)*
 
@@ -3517,6 +3539,7 @@ void WebChart(int type, "title", "unit", int color, int pos, int count,
 |----------|-------------|
 | `WebChartSize(int width, int height)` | Groesse des Chart-`<div>` in Pixeln setzen (z. B. `640 × 200`). `0` fuer einen der Werte = Standard verwenden (seit 1.6.54: volle Containerbreite × 300 px). |
 | `WebChartTimeBase(int minutes)` | Zeitbasis der X-Achse relativ zu „jetzt“ verschieben. `0` = an „jetzt“ verankert (Standard); negativ = in die Vergangenheit (z. B. `-1440` = vor 24 h). Nuetzlich, um das aelteste Sample eines Ringpuffers an den linken Rand zu legen. |
+| `WebChartQ(float scale, float offset)` | Die Messwerte des naechsten Diagramms als `wert = roh * scale + offset` deuten. **Einmalig** — gilt fuer genau das naechste `WebChart()` und wird danach wieder zurueckgesetzt. Existiert, damit eine Reihe aus einem gepackten `byte[]` gespeist werden kann, bei einem Viertel des Speichers; siehe *Gepackte Messwerte* weiter unten. Ein `scale` von `0` wird abgelehnt (es wuerde das Diagramm auf eine Linie zusammenfallen lassen) und protokolliert. *(seit 1.6.60)* |
 | `WebChartJS("…js…")` | JavaScript-Schnipsel an das **zuletzt erzeugte** Diagramm haengen — also **nach** dem `WebChart()`, zu dem er gehoert. Er laeuft im Zeichen-Kontext mit `dt` (Google `DataTable`), `o` (Optionen) und `el` (DOM-Element), nachdem die Standardoptionen gebaut sind und bevor gezeichnet wird. Entweder `o`/`dt` veraendern und TinyC zeichnen lassen — oder selbst zeichnen und `o.done=1` setzen, dann entfaellt das Standard-Zeichnen (damit ist jeder Diagrammtyp moeglich). |
 
 ⚠️ `WebChartJS()` **weist zu, es haengt nicht an.** Zwei aufeinanderfolgende Aufrufe auf
@@ -3549,6 +3572,76 @@ void WebPage() {
 - Aufruf aus `WebPage()`-Callback — jeder Aufruf erzeugt eine Datenserie
 - Mehrere Serien in einem Diagramm: erster Aufruf hat Titel, weitere verwenden `""` als Titel
 - **Nullpunkt** verwenden, wenn der Leser **Balkenhöhen vergleichen** soll — siehe unten
+
+#### Gepackte Messwerte — ein Diagramm aus einem `byte[]` *(seit 1.6.60)*
+
+Der Ringpuffer eines Diagramms ist meist der groesste einzelne Posten, den ein
+Skript im Speicher haelt, und ein `float` gibt vier Byte fuer eine Zahl aus, die
+das Diagramm ohnehin auf eine Nachkommastelle rundet. Den Ring stattdessen als
+gepacktes `byte[]` anlegen und `WebChartQ()` sagen, was ein rohes `0..255`
+bedeutet:
+
+```c
+#define NPTS 288                  // 24 h im 5-Minuten-Raster
+
+persist byte h_temp[NPTS];        // 288 Byte — als float[288] waeren es 1152
+persist int  h_pos   = 0;
+persist int  h_count = 0;
+
+void TaskLoop() {
+    int raw = (int)((temperature() + 40.0) * 2.0);   // 0,5 K je Schritt
+    if (raw < 0)   { raw = 0; }
+    if (raw > 255) { raw = 255; }
+    h_temp[h_pos] = raw;
+    h_pos = (h_pos + 1) % NPTS;
+    if (h_count < NPTS) { h_count = h_count + 1; }
+}
+
+void WebPage() {
+    if (h_count < 1) { return; }
+    WebChartQ(0.5, -40.0);        // Wert = roh * 0,5 - 40  ->  -40,0 .. 87,5 °C
+    WebChart(0, "Temperatur", "°C", 0xe74c3c, h_pos, h_count, h_temp, 1, 5, -20, 50);
+}
+```
+
+Alles Uebrige bleibt gleich — `pos`, `count` und die Ringrechnung wissen von der
+Packung nichts. Ein Byte je Messwert reicht fuer 0,5 K ueber einen Bereich, den
+kein Zimmerthermometer verlaesst, und gezeichnet wird ohnehin mit einer
+Nachkommastelle.
+
+Skala und Versatz sind eine Zeile Rechnung: `scale = (max - min) / 255` und
+`offset = min` fuer den Bereich, den man abdecken will.
+
+| Groesse | `WebChartQ` | Bereich | Schritt |
+|---|---|---|---|
+| Raum-/Aussentemperatur | `WebChartQ(0.5, -40.0)` | -40 … 87,5 °C | 0,5 K |
+| Nur Innentemperatur | `WebChartQ(0.2, 0.0)` | 0 … 51 °C | 0,2 K |
+| Feuchte, SOC, jeder Prozentwert | `WebChartQ(0.4, 0.0)` | 0 … 102 % | 0,4 % |
+| Hausleistung | `WebChartQ(40.0, 0.0)` | 0 … 10,2 kW | 40 W |
+
+⚠️ **Vor dem Speichern begrenzen.** Ein Rohwert wird auf sein unterstes Byte
+gekappt, nicht gesaettigt — `h_temp[i] = 300` speichert 44. Ein Ausreisser
+zeichnet also keine Spitze oben aus dem Bild heraus, sondern einen *plausibel
+falschen* Wert weit unten. Das `if (raw > 255)`-Paar oben ist die ganze
+Absicherung.
+
+⚠️ `WebChartQ()` gilt nur fuer das **naechste** `WebChart()`. Das ist Absicht:
+ein `WebChart()`-Aufruf ist eine Datenreihe, und zwei Byte-Reihen im selben
+Diagramm brauchen meist verschiedene Skalen — jede bekommt ihr eigenes
+`WebChartQ()` direkt darueber. Es verhaelt sich also *nicht* wie
+`WebChartSize()`, das gesetzt bleibt.
+
+Das Paar wirkt auch auf ein `float[]`, wo es eine schlichte Einheitenumrechnung
+ist: `WebChartQ(0.001, 0.0)` zeichnet ein Watt-Array in Kilowatt, ohne ein
+zweites Array fuer die umgerechnete Kopie.
+
+⚠️ Ein `WebChart()` auf einem `byte[]` braucht **Firmware-ABI 25**, und der
+Compiler stempelt das `.tcb` entsprechend — ein aelteres Geraet weist es beim
+Laden ab. Genau das ist der Zweck: die Packung reist als Kennbit an der
+Array-Referenz mit, und eine Firmware, die das Bit nicht kennt, streift es ab
+und liest die Bytes als Floats — sie zeichnet lautlos Unsinn, ohne dass ein
+fehlender Syscall darauf zeigen wuerde. Ein `WebChart()` auf einem `float[]`
+ist davon nicht betroffen und laedt weiterhin ueberall.
 
 #### Nullpunkt bei unbekanntem Maximum
 
@@ -5761,10 +5854,17 @@ Jeder VM-Slot verbraucht ca. **3,2 KB RAM** (nur Struct, ohne Programm-Bytecode)
 
 | Ressource             | Kosten                       |
 |-----------------------|------------------------------|
-| Pointer-Array         | 16 Bytes (4 Zeiger)          |
+| Pointer-Array         | 24 Bytes (6 Zeiger)          |
 | Pro-Slot Struct       | ~3,2 KB                      |
 | Programm-Bytecode     | variabel (malloc)            |
-| Heap (alle Arrays)    | max 32 KB, bei Bedarf allokiert |
+| Heap (alle Arrays)    | max 64 KB **je Slot**, bei Bedarf allokiert |
+| Autoexec-Staffelung   | 100 ms Verzoegerung zwischen Starts |
+
+⚠️ Die Heap-Obergrenze gilt **je Slot**: sechs geladene Slots koennten also
+im Prinzip 6 × 64 KB verlangen — ein Mehrfaches des internen RAMs jedes ESP32
+ohne PSRAM. Die Obergrenze ist nicht das Budget; was ein Slot tatsaechlich
+belegt, ist die Summe seiner Arrays, und das Geraet ist lange vor der
+Obergrenze am Ende.
 
 ### Callbacks mit mehreren Slots
 
@@ -5810,21 +5910,22 @@ Beide zeigen ihre Sensorzeilen gleichzeitig auf der Tasmota-Hauptseite an.
 
 ## VM-Grenzen
 
-| Ressource         | ESP8266  | ESP32    | Browser  | Anmerkungen                        |
-|--------------------|----------|----------|----------|------------------------------------|
-| Stack-Tiefe        | 64       | 256      | 256      | Operandenstack-Eintraege           |
-| Aufrufrahmen       | 8        | 32       | 32       | Maximale Rekursions-/Aufruftiefe   |
-| Lokale pro Rahmen  | 256      | 256      | 256      | Skalare + kleine Arrays ≤16 inline  |
-| Globale Variablen  | 64       | 256      | 256      | Skalare + kleine Arrays ≤16 inline  |
-| Codegroesse        | 4 KB     | 128 KB   | 64 KB    | Bytecode; ESP32 faellt bei DRAM-Mangel auf PSRAM zurueck |
-| Heap-Speicher      | 8 KB     | 32 KB    | 64 KB    | Fuer Arrays >16 Elemente (autom. Allokation) |
-| Heap-Handles       | 8        | 32       | 32       | Max. gleichzeitige Heap-Allokationen |
-| Konstantenpool     | 32       | 1024     | 65536    | Zeichenketten- & Float-Konstanten (DRAM, ESP32 faellt auf PSRAM zurueck) |
-| Instruktionslimit  | 1M       | 1M       | 1M       | Sicherheitslimit pro Ausfuehrung   |
-| GPIO-Pins          | 40       | 40       | 40       | Pins 0–39 (im Browser simuliert)   |
-| Datei-Handles      | 4        | 4        | 8        | Gleichzeitig geoeffnete Dateien    |
-| VM-Slots           | 1        | 6        | 1        | Gleichzeitige Programme            |
-| Cross-VM-Share     | n/a      | 32 Keys  | n/a      | Treiber-globale Share-Tabelle (nur ESP32) |
+| Ressource | ESP8266 | ESP32 | Browser | Anmerkungen |
+|---|---|---|---|---|
+| Stack-Tiefe | 64 | 256 | 256 | Operandenstack-Eintraege (`TC_STACK_SIZE`) |
+| Aufrufrahmen | 8 | 32 | 32 | Maximale Rekursions-/Aufruftiefe (`TC_MAX_FRAMES`) |
+| Lokale pro Rahmen | 256 | 256 | 256 | Skalare + kleine Arrays ≤16 inline (`TC_MAX_LOCALS`) |
+| Globale Variablen | 64 | 512 | 8192 | Skalare + kleine Arrays ≤16 inline (`TC_MAX_GLOBALS`; harte Obergrenze, nicht anhebbar) |
+| Codegroesse | 4 KB | 128 KB | unbegrenzt | `TC_MAX_PROGRAM`; ESP32 faellt bei DRAM-Mangel auf PSRAM zurueck. Der Simulator prueft nichts — ein Programm, das dort laeuft, kann das Geraet trotzdem ablehnen |
+| Heap-Speicher | 8 KB | 64 KB | 64 KB | Fuer Arrays >16 Elemente (autom. Allokation); Obergrenze, keine Reservierung — waechst nach Bedarf. Der ESP32-Wert ist `TC_MAX_HEAP` und in `user_config_override.h` anhebbar |
+| Heap-Handles | 8 | 128 | 32 | Max. gleichzeitige Heap-Allokationen (`TC_MAX_HEAP_HANDLES`) |
+| Konstantenpool | 64 | 1024 | unbegrenzt | Zeichenketten- & Float-Konstanten (DRAM, ESP32 faellt auf PSRAM zurueck). `TC_MAX_CONSTANTS`, in `user_config_override.h` anhebbar; der Lader meldet `constant pool truncated`, wenn ein Programm mehr mitbringt. Der Index im `.tcb` ist 16 Bit, das Format endet also bei 65536 |
+| Instruktionen je Callback | 20.000 | 200.000 | 200.000 | `TC_CALLBACK_MAX_INSTR` — Wachhund fuer EINEN Callback-Aufruf; wird er ueberschritten, meldet das Log `Instruction limit in '<name>'` und der Aufruf bricht ab. `main()` ist so **nicht** begrenzt (siehe naechste Zeile); der Simulator stoppt `main()` zusaetzlich bei 50 Mio. |
+| Instruktionen je Tick | 500 | 1.000 | n/a | `TC_INSTR_PER_TICK` — wie weit ein dauerhaft laufendes `main()` je 50-ms-Tick kommt, danach wird fortgesetzt. Zur Laufzeit mit `TinyCExec <n>` einstellbar |
+| GPIO-Pins | 18 | 21–55 | keine Pruefung | `MAX_GPIO_PIN` aus Tasmotas eigenem Template — **je Chip**: klassischer ESP32 40, C2 21, C3 22, C5 29, C6 31, S2 47, S3 49, P4 55. Ein Pin ausserhalb des Bereichs wird stillschweigend ignoriert, nicht gemeldet |
+| Datei-Handles | 4 | 4 | 8 | Gleichzeitig geoeffnete Dateien (`TC_MAX_FILE_HANDLES`) |
+| VM-Slots | 1 | 6 | 1 | Gleichzeitige Programme (`TC_MAX_VMS`) |
+| Cross-VM-Share | n/a | 32 Keys | n/a | Treiber-globale Share-Tabelle (`TC_SHARE_MAX`). Nur ESP32 — Tabelle und Syscalls werden bei `TC_MAX_VMS` = 1 komplett wegkompiliert |
 
 **ESP32 PSRAM-Fallback (seit v1.3.19):** `TC_MAX_PROGRAM` von 64 KB auf 128 KB angehoben. Bytecode-Puffer (`s->program`) und Konstantendaten-Pool (`vm->const_data`) werden zuerst aus dem internen DRAM allokiert; bei OOM faellt die Allokation automatisch auf `heap_caps_malloc(MALLOC_CAP_SPIRAM)` zurueck. Kleine/normale Skripte bleiben im schnellen statischen RAM; nur sehr grosse Programme (100+ KB) landen im PSRAM. Ein `AddLog`-INFO-Eintrag wird ausgegeben, wenn der PSRAM-Pfad genutzt wird.
 
@@ -6067,28 +6168,29 @@ int main() {
 
 ## Unterschiede zu Standard-C
 
-| Merkmal                       | Standard-C         | TinyC                        |
-|-------------------------------|--------------------|------------------------------|
-| Zeiger                        | Volle Unterstuetzung | **Nicht unterstuetzt**     |
-| Structs                       | Volle Unterstuetzung | Unterstuetzt: skalare Felder, Array-Felder (`char text[32]`), Member-Zugriff, Initialisierungslisten, zusammengesetzte Zuweisung. Keine verschachtelten Structs, keine Unions, keine Bit-Felder |
-| Enums                         | Volle Unterstuetzung | Unterstuetzt: benannte/anonyme Enums, negative Werte, Auto-Inkrement, innerhalb von Funktionen |
-| Dynamischer Speicher          | malloc/free        | Auto-Heap fuer Arrays >16 Elemente (kein explizites malloc) |
-| Mehrdimensionale Arrays       | `int a[3][4]`      | **Nicht unterstuetzt**       |
-| Zeichenkettentyp              | `char*`            | Nur `char arr[N]` — keine Zeigerarithmetik |
-| Praeprozessor                 | Volles CPP         | `#define` (Konstanten + funktionsaehnliche Makros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef`, `#include "file.tc"` (Text-Paste zur Compile-Zeit, rekursiv, zyklus-sicher) |
-| Header-Dateien                | `#include`         | `#include "file.tc"` unterstuetzt — Text-Paste vor der Praeprozessor-Verarbeitung; Aufloesung ist projekt-relativ (IDE) bzw. geraete-FS-relativ (`/cedit`) |
-| typedef                       | Volle Unterstuetzung | Unterstuetzt: primitive Aliase, benannte Struct-Aliase, anonyme Struct-typedefs, verkettete Aliase, lokale typedefs |
-| `const`                       | Typgeprueft        | Akzeptiert (Dokumentationshinweis, zur Laufzeit nicht erzwungen) |
-| `static` lokale Variablen     | Volle Unterstuetzung | Unterstuetzt: nullinitialisiert, bleibt zwischen Aufrufen erhalten. Nicht-null-Initialisierer werden nicht ausgefuehrt |
-| sizeof                        | Volle Unterstuetzung | Nur zur Uebersetzungszeit: `sizeof(typ)` und `sizeof(name)` unterstuetzt; `sizeof(ausdruck)` nicht unterstuetzt. Siehe [sizeof-Operator](#sizeof-operator) |
-| Ternaerer Operator `?:`       | Volle Unterstuetzung | Unterstuetzt, auch verschachtelt; **String-Zweige** (`cond ? "a" : "b"`, Literale und/oder `char[]`) direkt als String-Argument nutzbar (sprintf `%s`, addLog, strcpy, webSend, …) |
-| do-while                      | Volle Unterstuetzung | Unterstuetzt                 |
-| Zusammengesetzte Zuweisungen  | Volle Unterstuetzung | Unterstuetzt: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
-| Hex-Escape `\xNN`             | Volle Unterstuetzung | Unterstuetzt in String- und Char-Literalen |
-| goto                          | Volle Unterstuetzung | **Nicht unterstuetzt**       |
-| Funktionszeiger               | Volle Unterstuetzung | **Nicht unterstuetzt**       |
-| Variadische Benutzerfunktionen | `va_list` etc.    | **Nicht unterstuetzt** (nur `sprintf`/`sprintfAppend` akzeptieren mehrere Argumente per Compiler-Expansion) |
-| Standardbibliothek            | stdio, stdlib      | Nur eingebaute Funktionen (siehe [Eingebaute Funktionen](#eingebaute-funktionen)) |
+| Merkmal | Standard-C | TinyC |
+|---|---|---|
+| Zeiger (Daten) | Volle Unterstuetzung | **Nicht unterstuetzt** (kein `int *p`, kein `&x` auf Skalare, keine Zeigerarithmetik). Zeichenketten sind `char arr[N]` statt `char*`; Arrays werden ohnehin per Referenz an Funktionsparameter uebergeben; Referenzparameter `int& a` (seit 1.4.3) decken den ueblichen Fall „mehrere Rueckgaben / Aufrufer aendern" ab |
+| Funktionszeiger | Volle Unterstuetzung | **Unterstuetzt seit 1.4.1** — ueber `typedef`: `typedef int (*cmp_fn)(int,int); cmp_fn fn = my_function; fn(a, b);`. Als Lokale, Globale, Parameter und **Struct-Felder** (seit 1.4.2). Nicht enthalten: Inline-Deklaration `void (*p)(int)` ohne `typedef`, `&fn` (blosses `fn` nutzen), Vergleich `fn1 == fn2`, Rueckgabe eines Funktionszeigers, Lambdas, Signaturpruefung bei der Zuweisung |
+| Structs | Volle Unterstuetzung | Unterstuetzt: skalare Felder (`int`, `float`, `char`, `bool`), Array-Felder (`char text[32]`), Member-Zugriff **einschliesslich verschachtelter Structs** (`o.tl.x`, korrekte Offset-Arithmetik), Initialisierungslisten, Zuweisung ganzer Structs, Struct als Parameter und Rueckgabewert, `sizeof(Tag)`, Funktionszeiger-Felder (seit 1.4.2). Nicht enthalten: selbstbezuegliche Structs (`struct Node { Node next; }` braucht Zeiger), 2D-Array-Felder, Unions, Bitfelder, benannte Initialisierer, Struct-Gleichheit `a == b` |
+| Referenzparameter | C++-Merkmal | **Unterstuetzt seit 1.4.3** — `void swap(int& a, int& b)` fuer Skalare per Referenz (`int`, `float`, `char`). Mehrere Rueckgaben, zusammengesetzte Zuweisung direkt am Referenzparameter (`n += 5`), Globals als Referenzargument. Das Argument muss ein **einfacher Variablenname** sein (lokal oder global); Array-Elemente, Struct-Felder und Heap-Arrays erzeugen einen klaren Uebersetzungsfehler. Der Typ wird noch nicht streng geprueft — `float` an ein `int&` uebersetzt still falsch |
+| Enums | Volle Unterstuetzung | Unterstuetzt: benannte/anonyme Enums, negative Werte, Auto-Inkrement, innerhalb von Funktionen |
+| Dynamischer Speicher | malloc/free | Auto-Heap fuer Arrays >16 Elemente (kein explizites malloc) |
+| Mehrdimensionale Arrays | `int a[3][4]` | **2D unterstuetzt seit 1.3.38** — `char buf[N][M]`, `int grid[R][C]`, `float coef[R][C]`. Elementzugriff `arr[i][j]`, Zeilenuebergabe `func(arr[i])` an 1D-Array-Parameter, `strcpy`/`strcat`/`strcmp` auf Zeilen, `sprintf("%s", arr[i])` bei 2D-`char`. Zeilenreferenzen erfordern Heap-Speicherung. 3D und hoeher **nicht unterstuetzt**; 2D-Literal-Initialisierer (`int m[2][3] = {{1,2,3},{4,5,6}}`) noch nicht — stattdessen in `main()` fuellen |
+| Zeichenkettentyp | `char*` | Nur `char arr[N]` — keine Zeigerarithmetik. `char name[] = "Literal"` leitet die Groesse ab. Zusaetzlich der gepackte `byte[]` (seit 1.6.56), der als Textpuffer ein vollwertiger Ersatz fuer `char[]` ist und ein Viertel des Speichers braucht. Zeichenkettenoperationen (`strReplace`, `strStartsWith`/`strEndsWith`/`strContains`, `strToUpper`/`strToLower`, `strTrim`, `strSub`, `strToken`) — siehe [Zeichenkettenmanipulation](#zeichenkettenmanipulation) |
+| Praeprozessor | Volles CPP | `#define` (Konstanten + funktionsaehnliche Makros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef`, `#include "file.tc"` (Text-Paste zur Compile-Zeit, rekursiv, zyklus-sicher) |
+| Header-Dateien | `#include` | `#include "file.tc"` unterstuetzt — Text-Paste vor der Praeprozessor-Verarbeitung; Aufloesung ist projekt-relativ (IDE) bzw. geraete-FS-relativ (`/cedit`) |
+| typedef | Volle Unterstuetzung | Unterstuetzt: primitive Aliase, benannte Struct-Aliase, anonyme Struct-typedefs, verkettete Aliase, lokale typedefs, Funktionszeiger-typedefs (ab 1.4.1) |
+| `const` | Typgeprueft | Akzeptiert (Dokumentationshinweis, zur Laufzeit nicht erzwungen) |
+| `static` lokale Variablen | Volle Unterstuetzung | Unterstuetzt: nullinitialisiert, bleibt zwischen Aufrufen erhalten. Nicht-null-Initialisierer werden nicht ausgefuehrt |
+| sizeof | Volle Unterstuetzung | Nur zur Uebersetzungszeit: `sizeof(typ)` und `sizeof(name)` unterstuetzt; `sizeof(ausdruck)` nicht unterstuetzt. Siehe [sizeof-Operator](#sizeof-operator) |
+| Ternaerer Operator `?:` | Volle Unterstuetzung | Unterstuetzt, auch verschachtelt; **String-Zweige** (`cond ? "a" : "b"`, Literale und/oder `char[]`) direkt als String-Argument nutzbar (`sprintf` `%s`, `addLog`, `strcpy`, `webSend`, `responseCmnd`, …) — eine Zeigerauswahl, ohne Kopie. Siehe [Ternaerer Operator](#ternaerer-operator) |
+| do-while | Volle Unterstuetzung | Unterstuetzt |
+| Zusammengesetzte Zuweisungen | Volle Unterstuetzung | Unterstuetzt: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
+| Hex-Escape `\xNN` | Volle Unterstuetzung | Unterstuetzt in String- und Char-Literalen |
+| goto | Volle Unterstuetzung | **Nicht unterstuetzt** |
+| Variadische Benutzerfunktionen | `va_list` usw. | **Nicht unterstuetzt** (nur `sprintf`/`sprintfAppend` akzeptieren mehrere Argumente per Compiler-Expansion) |
+| Standardbibliothek | stdio, stdlib | Nur eingebaute Funktionen (siehe [Eingebaute Funktionen](#eingebaute-funktionen)) |
 
 ---
 

@@ -497,7 +497,11 @@ const BUILTINS = {
     'webArg':           { syscall: Syscall.WEB_ARG,         args: 2, returns: true, constArgs: [0], strArgs: [1] },
     'mdnsRegister':     { syscall: Syscall.MDNS,            args: 3, returns: true, constArgs: [0, 1, 2] },
     'webConsoleButton': { syscall: Syscall.WEB_CONSOLE_BUTTON, args: 2, returns: false, constArgs: [0, 1] },
-    'WebChart':         { syscall: Syscall.WEB_CHART,           args: 11, returns: false, constArgs: [1, 2], refArgs: [6], floatArgs: [9, 10] },
+    // byteRefArgs: this ref argument may be a packed byte[], and the syscall
+    // handler knows how to unpack it — so the ref has to carry the packing bit
+    // (emitVarRef does not set it; see the refArgs branch in compileCall).
+    'WebChart':         { syscall: Syscall.WEB_CHART,           args: 11, returns: false, constArgs: [1, 2], refArgs: [6], byteRefArgs: [6], floatArgs: [9, 10] },
+    'WebChartQ':        { syscall: Syscall.WEB_CHART_Q,         args: 2, returns: false, floatArgs: [0, 1] },
     'WebChartSize':     { syscall: Syscall.WEB_CHART_SIZE,      args: 2, returns: false },
     'WebChartTimeBase': { syscall: Syscall.WEB_CHART_TBASE,     args: 1, returns: false },
     'WebChartJS':       { syscall: Syscall.WEB_CHART_JS,        args: 1, returns: false, strArgs: [0] },
@@ -924,6 +928,7 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
+        [545, 25],                      // WebChartQ — affine Umrechnung, macht byte[]-Charts erst lesbar
         [544, 24],                      // mqttPublish mit Laufzeit-Strings + Log-Stufe
         [535, 20], [534, 19], [533, 18], [524, 17], [521, 16], [517, 15],
         [514, 14], [513, 13], [512, 12], [511, 11], [503, 10], [502, 9],
@@ -942,6 +947,21 @@ export class CodeGenerator {
 
     _abiMerken(n) {
         if (n > this._abiMin) { this._abiMin = n; }
+    }
+
+    // Wie _abiSyscallPruefen, aber fuer einen Bedarf, der NICHT an der
+    // Syscall-Nummer haengt: gleiche Nummer, gleiche Argumentzahl, andere
+    // Bedeutung eines Arguments. Bisher gab es das nur bei i2sBegin (V8, ein
+    // Argument mehr); WebChart mit einem byte[] ist der zweite Fall und der
+    // gefaehrlichere, weil alte Firmware nicht abstuerzt, sondern zeichnet —
+    // sie streift das Packungs-Bit ab und liest die Bytes als float-Slots.
+    _abiVerlangen(noetig, wofuer, line) {
+        if (noetig > this.targetAbi) {
+            throw new CodeGenError(
+                `${wofuer} needs firmware ABI ${noetig}, but this build targets ABI ${this.targetAbi}. ` +
+                `Update the device firmware, or use a float[] instead.`, line || 0);
+        }
+        this._abiMerken(noetig);
     }
 
     // Syscall-Bedarf gegen das Ziel pruefen. Anders als bei den Verschmelzungen gibt es
@@ -3113,6 +3133,19 @@ export class CodeGenerator {
         return false;
     }
 
+    // Check if a variable name refers to a packed byte[] — one byte per
+    // element instead of one int32 slot. Callers need this where the PACKING,
+    // not just the address, has to travel with the ref.
+    _istBytesVar(name) {
+        if (this.scope) {
+            const local = this.scope.lookup(name);
+            if (local && local.isArray) return local.type === 'byte';
+        }
+        const global = this.globals.get(name);
+        if (global && global.isArray) return global.type === 'byte';
+        return false;
+    }
+
     // Check if a variable name refers to a char[] (string buffer)
     isCharArrayVar(name) {
         if (this.scope) {
@@ -3869,8 +3902,28 @@ export class CodeGenerator {
                         this.emit(Op.LOAD_CONST);
                         this.emitU16(idx);
                     } else if (builtin.refArgs && builtin.refArgs.includes(i)) {
-                        // Variable ref (scalar or array) → push as address ref
-                        this.emitVarRef(arg);
+                        // Variable ref (scalar or array) → push as address ref.
+                        //
+                        // emitVarRef() predates byte[] and emits a BARE address
+                        // — no packing bit. For a syscall that can unpack (see
+                        // byteRefArgs) that would be silently wrong: the handler
+                        // would see an unflagged ref over a byte array and read
+                        // int32 slots off it. Route those through emitAddrOf
+                        // (via emitArrayRefByName), which sets the bit, and
+                        // stamp the ABI so older firmware refuses the .tcb
+                        // rather than drawing garbage. Everything else keeps
+                        // emitVarRef and compiles byte-identically to before.
+                        const alsBytes = builtin.byteRefArgs &&
+                                         builtin.byteRefArgs.includes(i) &&
+                                         resolved.type === NodeType.Identifier &&
+                                         this._istBytesVar(resolved.name);
+                        if (alsBytes) {
+                            this._abiVerlangen(25, `${node.name}() on a packed byte[]`,
+                                               arg.line || node.line);
+                            this.emitArrayRefByName(resolved.name, arg.line || node.line);
+                        } else {
+                            this.emitVarRef(arg);
+                        }
                     } else if (builtin.strArgs && builtin.strArgs.includes(i)) {
                         // String-literal acceptance: encode as const-pool
                         // ref so the firmware syscall handler (which reads

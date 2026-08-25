@@ -1788,7 +1788,23 @@ static void HandleTinyCPage(void) {
       // RAM only comes back here (mi-hol, discussion #118). Works on a slot that is
       // merely loaded, not running.
       const uint32_t frei = TinyCUnloadSlot(cmd_slot);
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d unloaded (web), %u bytes free'd"), cmd_slot, frei);
+      // ...and forget the FILENAME too, which is what "empty" means to the person
+      // looking at the console. TinyCUnloadSlot clears the slot's own copy but not
+      // the config one, and the row falls back to that — so the slot still showed
+      // its program, greyed out, and an autoexec flag would have loaded it again on
+      // the next boot. Eject now leaves the row gone.
+      //
+      // ⚠️ Deliberately HERE and not inside TinyCUnloadSlot(): that function is also
+      // the "make room" path for an upload (which loads a new program a moment
+      // later) and for the IDE fetch freeing idle slots (whose .tcb the user still
+      // wants). Clearing the config in there would silently drop the autoexec
+      // entry of a slot nobody asked to eject.
+      const bool hatte_cfg = Tinyc->slot_config[cmd_slot].filename[0] != '\0';
+      Tinyc->slot_config[cmd_slot].filename[0] = '\0';
+      Tinyc->slot_config[cmd_slot].autoexec = false;
+      if (hatte_cfg) { TinyCSaveSettings(); }
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d ejected (web), %u bytes free'd%s"),
+             cmd_slot, frei, hatte_cfg ? ", slot config cleared" : "");
     } else if (cmd == "load" && Webserver->hasArg(F("file"))) {
 #ifdef USE_UFILESYS
       String file = Webserver->arg(F("file"));
@@ -1933,7 +1949,7 @@ static void HandleTinyCPage(void) {
         "<button name='cmd' value='run' class='button' style='background:%s'>&#x25B6;</button>"
         "<button name='cmd' value='stop' class='button' style='background:%s'>&#x25A0;</button>"
         "<button name='cmd' value='reset' class='button' title='Reset the VM (keeps the program loaded)'>&#x21BB;</button>"
-        "<button name='cmd' value='unload' class='button' title='Clear the slot: give the bytecode and the VM RAM back'>&#x23CF;</button>"
+        "<button name='cmd' value='unload' class='button' title='Eject: give the bytecode and the VM RAM back and forget the filename - the slot is empty afterwards'>&#x23CF;</button>"
         "<button name='cmd' value='autoexec' class='button' style='background:%s' title='Auto-execute on boot'>A</button>"
         "</form></div>"), si,
         active ? "#555" : "#47c266",    // Run: grey when active, green when idle
@@ -2613,14 +2629,31 @@ static int tc_fetch_ide(const char *url) {
   {
     const int32_t clen = http.getSize();          // -1 when the peer chunks
     const uint32_t free_kb = UfsInfo(1, 0);       // kB
-    const uint32_t need_kb = (clen > 0) ? (uint32_t)((clen + 1023) / 1024) : 0;
+    uint32_t need_kb = (clen > 0) ? (uint32_t)((clen + 1023) / 1024) : 0;
+    const char *woher = "Content-Length";
+    // NO Content-Length? Then estimate from the IDE ALREADY ON THE DISK: a new
+    // build is within a few percent of the old one, so it is a good proxy — and
+    // far better than the old behaviour, which left need_kb at 0, skipped this
+    // whole check, and ran head-first into a full filesystem. That is what
+    // gemu hit on .150 (2026-08-25): "Update IDE" failed every time until he
+    // deleted /tinyc_ide.html.gz by hand, after which the very same fetch
+    // worked. raw.githubusercontent.com serves the .gz chunked, so clen was -1
+    // and the one guard meant to prevent exactly this never ran.
+    if (!need_kb) {
+      File alt = ufsp->open(dst, "r");
+      if (alt) {
+        const uint32_t sz = (uint32_t)alt.size();
+        alt.close();
+        if (sz > 1000) { need_kb = (sz + 1023) / 1024; woher = "the current IDE's size"; }
+      }
+    }
     if (need_kb && free_kb < need_kb + 8) {
       target = dst;
       in_place = true;
       ufsp->remove(dst);
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE replaced in place — %u kB free, %u kB needed; "
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE replaced in place — %u kB free, %u kB needed (from %s); "
              "no room for a second copy, the served IDE is missing until this finishes"),
-             (unsigned)free_kb, (unsigned)need_kb);
+             (unsigned)free_kb, (unsigned)need_kb, woher);
     }
   }
   TinyCFsWritePause(0x40000);                       // big write: quiesce VM tasks
@@ -2689,7 +2722,9 @@ static int tc_fetch_ide(const char *url) {
     // problem while it usually is a full partition.
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: IDE write incomplete (%u/%d B on disk%s), %u kB free — %s"),
            on_disk, written, write_err ? ", short-write" : "", (unsigned)UfsInfo(1, 0),
-           in_place ? "no IDE on the filesystem now, retry or upload it" : "kept old");
+           in_place ? "no IDE on the filesystem now, retry or upload it"
+                    : "kept old. If the partition is full: delete /tinyc_ide.html.gz "
+                      "(UfsDelete or the file manager) and run TinyCIde again");
     ufsp->remove(target);
     return -7;
   }
@@ -2730,7 +2765,8 @@ static const char *tc_ide_fehler(int code) {
              "idle slots were freed automatically; TinyCUnload a running slot, or reboot";
     case -5: return "download rejected - too short, or not a .gz";
     case -6: return "cannot replace the old IDE (rename failed)";
-    case -7: return "write incomplete - filesystem full?";
+    case -7: return "write incomplete - the partition is probably full. "
+                    "Delete /tinyc_ide.html.gz and run TinyCIde again";
     default: return "unknown error";
   }
 }

@@ -10,15 +10,29 @@
 //                DS2408  (8-channel GPIO)              family 0x29
 //   Caps         16 temp sensors + 16 switch devices per bus
 //
-// Bus backends (auto-detected priority cascade at startup)
-// --------------------------------------------------------
-//   1. DS2484 I2C-to-1-Wire bridge   (I2C addr 0x18, both buses probed)
-//   2. DS2480B serial-to-1-Wire      (rx/tx pins; presence response required)
-//   3. GPIO bit-bang                 (timing in C, needs external 4.7k pullup)
+// Bus backends
+// ------------
+//   GPIO bit-bang  — DEFAULT, always built (needs an external 4.7k pullup)
+//   DS2484         — I2C-to-1-Wire bridge, opt-in via #define OW_USE_DS2484
+//   DS2480B        — serial-to-1-Wire bridge, opt-in via #define OW_USE_DS2480
 //
-// The first backend that answers wins; the others stay silent. Whichever
-// won is shown in the WebUI status line. Re-running the cascade (e.g.
-// after rewiring) only takes changing any pin/bus dropdown in the WebUI.
+// ⚠️ The bridges are OFF by default, and that is a deliberate change. They
+// used to be probed FIRST, ahead of GPIO, on every start — but almost nobody
+// wires a bridge, so almost everybody paid for two probes that can only go
+// wrong. The DS2480B probe is the dangerous one: it opens a serial port on
+// the configured rx/tx pins and waits for a presence byte. On a board where
+// those pins carry something else, that is a stray UART on a live bus — on
+// gemu's .150 the eBUS sits on GPIO 7/10, exactly where the probe would go.
+// A wrong backend also wins SILENTLY: the cascade stops at the first one that
+// answers, so GPIO never runs and the sensors simply are not found.
+//
+// Turn a bridge on by defining its macro ABOVE this file's includes, or in
+// the IDE's define box:
+//     #define OW_USE_DS2484     // I2C bridge at 0x18, both buses probed
+//     #define OW_USE_DS2480     // serial bridge on the configured rx/tx pins
+// With both off the driver goes straight to GPIO and never touches I2C or a
+// serial port. With one or more on, the old priority applies among those
+// built in (DS2484 → DS2480B → GPIO).
 //
 // WebUI
 // -----
@@ -116,12 +130,11 @@
 #define DS84_ST_SBR   0x20    // Status bit: Single-Bit Result
 
 // --- config ---
-// Single-backend operation chosen via auto-detect cascade in ow_reinit():
-//   1. probe DS2484 on the configured I2C bus (auto)
-//   2. else try DS2480B (serial init using the configured rx/tx pins)
-//   3. else fall back to native GPIO bit-bang on the configured pin
-// ow_mode is the result, NOT a user choice — the WebUI just shows it
-// and lets the user pick the pin/bus that each backend would use.
+// Single-backend operation chosen in ow_reinit(). With no bridge compiled in
+// (the default) that is simply GPIO bit-bang on the configured pin; the
+// probes below only exist when their macro is defined. ow_mode is the
+// result, NOT a user choice — the WebUI just shows it and lets the user pick
+// the pin/bus that each compiled-in backend would use.
 persist watch int ow_pin;   // GPIO mode pin           (WebUI-writable → watch)
 persist watch int ow_rxpin; // DS2480B serial RX       (WebUI-writable → watch)
 persist watch int ow_txpin; // DS2480B serial TX       (WebUI-writable → watch)
@@ -195,6 +208,7 @@ int ow_crc8(int len) {
     return crc;
 }
 
+#ifdef OW_USE_DS2480
 // ========================================
 // DS2480B serial 1-Wire bridge
 // ========================================
@@ -302,7 +316,9 @@ int ow_ds_read() {
     }
     return 0xFF;
 }
+#endif // OW_USE_DS2480
 
+#ifdef OW_USE_DS2484
 // ========================================
 // DS2484 I2C-to-1-Wire bridge
 // Same chip family as DS2480B, but I2C instead of UART. No pins to
@@ -388,6 +404,7 @@ int ow_84_rbit() {
     int st = ow_84_wait();
     return (st & DS84_ST_SBR) ? 1 : 0;
 }
+#endif // OW_USE_DS2484
 
 // ========================================
 // Abstraction layer
@@ -397,35 +414,60 @@ int ow_84_rbit() {
 // ========================================
 
 // Dispatch helpers — operate on the active backend (ow_mode).
+// With no bridge compiled in, ow_mode can only ever be 0, so the branches
+// below collapse to the bare owXxx() syscall and no bridge code is emitted.
 
 int ow_reset() {
     if (ow_mode == 0) return owReset();
+#ifdef OW_USE_DS2484
     if (ow_mode == 2) return ow_84_reset();
+#endif
+#ifdef OW_USE_DS2480
     return ow_ds_reset();
+#endif
+    return 0;
 }
 
 void ow_write(int byte) {
-    if (ow_mode == 0) owWrite(byte);
-    else if (ow_mode == 2) ow_84_write(byte);
-    else ow_ds_write(byte);
+    if (ow_mode == 0) { owWrite(byte); return; }
+#ifdef OW_USE_DS2484
+    if (ow_mode == 2) { ow_84_write(byte); return; }
+#endif
+#ifdef OW_USE_DS2480
+    ow_ds_write(byte);
+#endif
 }
 
 int ow_read() {
     if (ow_mode == 0) return owRead();
+#ifdef OW_USE_DS2484
     if (ow_mode == 2) return ow_84_read();
+#endif
+#ifdef OW_USE_DS2480
     return ow_ds_read();
+#endif
+    return 0;
 }
 
 void ow_wbit(int b) {
-    if (ow_mode == 0) owWriteBit(b);
-    else if (ow_mode == 2) ow_84_wbit(b);
-    else ow_ds_wbit(b);
+    if (ow_mode == 0) { owWriteBit(b); return; }
+#ifdef OW_USE_DS2484
+    if (ow_mode == 2) { ow_84_wbit(b); return; }
+#endif
+#ifdef OW_USE_DS2480
+    ow_ds_wbit(b);
+#endif
 }
 
 int ow_rbit() {
     if (ow_mode == 0) return owReadBit();
+#ifdef OW_USE_DS2484
     if (ow_mode == 2) return ow_84_rbit();
+#endif
+#ifdef OW_USE_DS2480
     return ow_ds_rbit();
+#endif
+    return 0;
 }
 
 // ========================================
@@ -929,15 +971,23 @@ void ow_reinit() {
     ow_sw_cnt = 0;
     ow_mode = -1;   // sentinel until cascade picks a backend
 
-    // Cascade priority: DS2484 (I2C) → DS2480B (serial) → GPIO bit-bang.
-    // The first backend that initialises wins; the others stay silent.
+    // GPIO is the default and the only backend built in unless a bridge macro
+    // is defined. A compiled-in bridge is probed first, as before — but it has
+    // to be asked for now, so a board with nothing on I2C and a busy UART goes
+    // straight to the pin the user configured.
+#ifdef OW_USE_DS2484
     if (ow_84_init()) {
         ow_mode = 2;
         addLog("1-Wire: backend = DS2484 (I2C)");
-    } else if (ow_ds_init()) {
+    }
+#endif
+#ifdef OW_USE_DS2480
+    if (ow_mode < 0 && ow_ds_init()) {
         ow_mode = 1;
         addLog("1-Wire: backend = DS2480B (serial)");
-    } else {
+    }
+#endif
+    if (ow_mode < 0) {
         if (!pinFree(ow_pin)) {
             char m[64];
             sprintf(m, "1-Wire: GPIO pin %d claimed — pick another in WebUI", ow_pin);
@@ -947,7 +997,7 @@ void ow_reinit() {
         ow_mode = 0;
         owSetPin(ow_pin);
         char m[64];
-        sprintf(m, "1-Wire: backend = GPIO bit-bang on pin %d (fallback)", ow_pin);
+        sprintf(m, "1-Wire: backend = GPIO bit-bang on pin %d", ow_pin);
         addLog(m);
     }
 

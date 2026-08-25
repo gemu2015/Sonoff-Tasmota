@@ -41,7 +41,9 @@ numbers shift with build flags, LTO, and how many script slots are loaded.
    - Globals array: 64 × 4 B = 0.25 KB minimum, grows with script declarations
    - Constants table: ~16 B × N (typical script: ~30 → ~0.5 KB)
    - Constant data (string pool): typical 200–500 B
-   - Optional `heap_data`: script-declared arrays (the "568/568" in `TinyCInfo` output)
+   - Optional `heap_data`: script-declared arrays (the "568/568" reported as
+     `"TinyC":{…,"Heap":"used/capacity"}` in the JSON sensor output — slot 0 only,
+     and NOT part of what the `TinyCInfo` command adds to the main page)
    - Persisted vars: small
 
    Up to `TC_MAX_VMS = 6` slots can coexist on ESP32. Each unused slot is NULL

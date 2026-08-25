@@ -1057,11 +1057,31 @@ used for `int[]`/`float[]`. The `count` argument is a byte count there.
 
 **Heap limits:**
 
-| Platform | Max Heap Slots | Max Handles |
+| Platform | Max heap slots | Max handles |
 |----------|---------------|-------------|
 | ESP8266  | 2,048 (8 KB)  | 8           |
-| ESP32    | 8,192 (32 KB) | 16          |
-| Browser  | 16,384 (64 KB)| 32          |
+| ESP32 (incl. S3/C3/C6/P4) | 16,384 (64 KB) | 128 |
+| Browser (IDE simulator) | 16,384 (64 KB) | 32 |
+
+These are ceilings, not reservations: the heap starts small and grows in 1.5×
+steps as arrays are allocated, and an idle program's heap is shrunk back
+towards its recent peak. The current figure is in the JSON sensor output as
+`"TinyC":{…,"Heap":"used/capacity"}` — slot 0 only; the other slots report no
+heap field, and `TinyCInfo` (which adds status rows to the main page) does not
+show it either.
+
+On ESP32 both values come from `TC_MAX_HEAP` and `TC_MAX_HEAP_HANDLES`, which
+`user_config_override.h` may raise — the compiler warns rather than errors
+above 16,384 slots for exactly that reason.
+
+⚠️ **The ceiling is rarely what stops you.** Every array a program declares
+globally is pre-allocated as ONE contiguous block when the program loads, so
+three `float[1441]` chart rings need a single free 17 KB block, not 17 KB of
+free heap. On a C3 with WiFi and TLS up, the largest free block is a fraction
+of the free total, and a load that fails with `heap alloc failed … not enough
+free heap` has usually run into that and not into the 64 KB. Packing the ring
+buffers is the direct answer: a `byte[]` ring asks for a quarter of the block
+(see *Packed samples — a chart from a `byte[]`* under `WebChart`).
 
 ### 2D Arrays *(since 1.3.38)*
 
@@ -3567,6 +3587,7 @@ See *Baseline at zero* below.
 |----------|-------------|
 | `WebChartSize(int width, int height)` | Set the chart `<div>` size in pixels (e.g. `640 × 200`). `0` for either = use the default (since 1.6.54: full container width × 300 px). |
 | `WebChartTimeBase(int minutes)` | Offset the X-axis time base from "now". `0` = anchored to now (default); negative = into the past (e.g. `-1440` = 24 h ago). Useful to align a ring buffer's oldest sample with the left edge. |
+| `WebChartQ(float scale, float offset)` | Decode the next chart's samples as `value = raw * scale + offset`. **One-shot** — it applies to the very next `WebChart()` and is cleared again. Exists so a series can be fed from a packed `byte[]` at a quarter of the RAM; see *Packed samples* below. A `scale` of `0` is refused (it would flatten the chart onto a line) and logged. *(since 1.6.60)* |
 
 **Customizing a chart with JS (call *after* `WebChart()`):**
 
@@ -3605,6 +3626,71 @@ void WebPage() {
   reader is meant to compare *bar heights* — see below
 - Call from `WebPage()` callback — each call emits one data series
 - Multiple series on one chart: first call has a title, subsequent calls use `""` as title
+
+#### Packed samples — a chart from a `byte[]` *(since 1.6.60)*
+
+A chart's ring buffer is usually the largest single thing a script keeps in
+memory, and a `float` spends four bytes on a number the chart will round to one
+decimal anyway. Declare the ring as a packed `byte[]` instead and tell
+`WebChartQ()` what a raw `0..255` means:
+
+```c
+#define NPTS 288                  // 24 h at 5-minute resolution
+
+persist byte h_temp[NPTS];        // 288 bytes — as float[288] it would be 1152
+persist int  h_pos   = 0;
+persist int  h_count = 0;
+
+void TaskLoop() {
+    int raw = (int)((temperature() + 40.0) * 2.0);   // 0.5 K per step
+    if (raw < 0)   { raw = 0; }
+    if (raw > 255) { raw = 255; }
+    h_temp[h_pos] = raw;
+    h_pos = (h_pos + 1) % NPTS;
+    if (h_count < NPTS) { h_count = h_count + 1; }
+}
+
+void WebPage() {
+    if (h_count < 1) { return; }
+    WebChartQ(0.5, -40.0);        // value = raw * 0.5 - 40  ->  -40.0 .. 87.5 degC
+    WebChart(0, "Temperature", "°C", 0xe74c3c, h_pos, h_count, h_temp, 1, 5, -20, 50);
+}
+```
+
+Everything else stays the same — `pos`, `count` and the ring arithmetic do not
+know about the packing. One byte per sample buys 0.5 K over a range no room
+thermometer leaves, and the chart is drawn to one decimal either way.
+
+Picking scale and offset is one line of arithmetic: `scale = (max - min) / 255`
+and `offset = min` for the range you want to cover.
+
+| Quantity | `WebChartQ` | Range | Step |
+|---|---|---|---|
+| Room / outdoor temperature | `WebChartQ(0.5, -40.0)` | -40 … 87.5 °C | 0.5 K |
+| Indoor temperature only | `WebChartQ(0.2, 0.0)` | 0 … 51 °C | 0.2 K |
+| Humidity, SOC, any percentage | `WebChartQ(0.4, 0.0)` | 0 … 102 % | 0.4 % |
+| Household power | `WebChartQ(40.0, 0.0)` | 0 … 10.2 kW | 40 W |
+
+⚠️ **Clamp before you store.** A raw value is masked to its lowest byte, not
+saturated — `h_temp[i] = 300` stores 44, so an out-of-range reading does not
+draw a spike off the top of the chart, it draws a *plausible wrong value* near
+the bottom. The `if (raw > 255)` pair above is the whole defence.
+
+⚠️ `WebChartQ()` applies to the **next** `WebChart()` only. That is deliberate:
+one `WebChart()` call is one series, and two byte series in the same chart
+usually need different scales, so each gets its own `WebChartQ()` directly
+above it. It is *not* like `WebChartSize()`, which stays set.
+
+The scale/offset pair works on a `float[]` too, where it is a plain unit
+conversion — `WebChartQ(0.001, 0.0)` charts a watt array in kilowatts without a
+second array to hold the converted copy.
+
+⚠️ A `WebChart()` on a `byte[]` needs **firmware ABI 25** and the compiler
+stamps the `.tcb` accordingly, so an older device refuses to load it. That
+refusal is the point: the packing travels as a flag on the array reference, and
+firmware that does not know the flag would strip it and read the bytes as
+floats — drawing nonsense silently, with no missing-syscall error to point at
+it. A `WebChart()` on a `float[]` is unaffected and still loads anywhere.
 
 #### Baseline at zero when the maximum is unknown
 
@@ -5953,8 +6039,13 @@ Each VM slot uses approximately **3.2 KB RAM** (struct only, without program byt
 | Pointer array         | 24 bytes (6 pointers)        |
 | Per-slot struct       | ~3.2 KB                      |
 | Program bytecode      | variable (malloc'd)          |
-| Heap (large arrays)   | 32 KB max, allocated on demand |
+| Heap (large arrays)   | 64 KB max **per slot**, allocated on demand |
 | Autoexec stagger      | 100 ms delay between starts  |
+
+⚠️ The heap ceiling is **per slot**, so six loaded slots could in principle ask
+for 6 × 64 KB — several times the internal RAM of any ESP32 without PSRAM. The
+ceiling is not the budget: what a slot actually holds is what its arrays add up
+to, and the device runs out long before the ceiling does.
 
 ### Callbacks with Multiple Slots
 
@@ -6000,21 +6091,22 @@ Both display their sensor rows on the Tasmota main page simultaneously.
 
 ## VM Limits
 
-| Resource          | ESP8266  | ESP32    | Browser  | Notes                              |
-|-------------------|----------|----------|----------|------------------------------------|
-| Stack depth       | 64       | 256      | 256      | Operand stack entries              |
-| Call frames       | 8        | 32       | 32       | Maximum recursion / call depth     |
-| Locals per frame  | 256      | 256      | 256      | Scalars + small arrays ≤16 inline  |
-| Global variables  | 64       | 256      | 256      | Scalars + small arrays ≤16 inline  |
-| Code size         | 4 KB     | 128 KB   | 64 KB    | Bytecode; ESP32 spills to PSRAM on DRAM OOM |
-| Heap memory       | 8 KB     | 32 KB    | 64 KB    | For arrays >16 elements (auto alloc)   |
-| Heap handles      | 8        | 32       | 32       | Max simultaneous heap allocations  |
-| Constant pool     | 32       | 1024     | 65536    | String & float constants (DRAM, spills to PSRAM on ESP32) |
-| Instruction limit | 1M       | 1M       | 1M       | Safety limit per execution         |
-| GPIO pins         | 40       | 40       | 40       | Pins 0–39 (simulated in browser)   |
-| File handles      | 4        | 4        | 8        | Simultaneously open files          |
-| VM slots          | 1        | 6        | 1        | Simultaneous programs              |
-| Cross-VM share    | n/a      | 32 keys  | n/a      | Driver-global shared scalar/string table (ESP32 only) |
+| Resource | ESP8266 | ESP32 | Browser | Notes |
+|---|---|---|---|---|
+| Stack depth | 64 | 256 | 256 | Operand stack entries (`TC_STACK_SIZE`) |
+| Call frames | 8 | 32 | 32 | Maximum recursion / call depth (`TC_MAX_FRAMES`) |
+| Locals per frame | 256 | 256 | 256 | Scalars + small arrays ≤16 inline (`TC_MAX_LOCALS`) |
+| Global variables | 64 | 512 | 8192 | Scalars + small arrays ≤16 inline (`TC_MAX_GLOBALS`; hard ceiling, no override) |
+| Code size | 4 KB | 128 KB | unlimited | `TC_MAX_PROGRAM`; ESP32 spills to PSRAM on DRAM OOM. The simulator enforces nothing — a program that fits there may still be refused by the device |
+| Heap memory | 8 KB | 64 KB | 64 KB | For arrays >16 elements (auto alloc); ceiling, not a reservation — grown on demand. ESP32 value is `TC_MAX_HEAP`, raisable in `user_config_override.h` |
+| Heap handles | 8 | 128 | 32 | Max simultaneous heap allocations (`TC_MAX_HEAP_HANDLES`) |
+| Constant pool | 64 | 1024 | unlimited | String & float constants (DRAM, spills to PSRAM on ESP32). `TC_MAX_CONSTANTS`, raisable in `user_config_override.h`; the loader reports `constant pool truncated` when a program brings more. The `.tcb` index is 16-bit, so the format itself stops at 65536 |
+| Instructions per callback | 20,000 | 200,000 | 200,000 | `TC_CALLBACK_MAX_INSTR` — watchdog for ONE callback invocation; exceeding it logs `Instruction limit in '<name>'` and aborts that call. `main()` is **not** capped this way (see next row); the simulator additionally stops `main()` at 50M |
+| Instructions per tick | 500 | 1,000 | n/a | `TC_INSTR_PER_TICK` — how far a long-running `main()` advances per 50 ms tick, then resumes. Adjustable at runtime with `TinyCExec <n>` |
+| GPIO pins | 18 | 21–55 | not checked | `MAX_GPIO_PIN` from Tasmota's own template — **per chip**: classic ESP32 40, C2 21, C3 22, C5 29, C6 31, S2 47, S3 49, P4 55. A pin outside the range is silently ignored, not reported |
+| File handles | 4 | 4 | 8 | Simultaneously open files (`TC_MAX_FILE_HANDLES`) |
+| VM slots | 1 | 6 | 1 | Simultaneous programs (`TC_MAX_VMS`) |
+| Cross-VM share | n/a | 32 keys | n/a | Driver-global shared scalar/string table (`TC_SHARE_MAX`). ESP32 only — the whole table and its syscalls are compiled out when `TC_MAX_VMS` is 1 |
 
 **ESP32 PSRAM fallback (since v1.3.19):** `TC_MAX_PROGRAM` raised 64 KB → 128 KB. The bytecode buffer (`s->program`) and the constant data pool (`vm->const_data`) are allocated from internal DRAM first; on OOM they automatically spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM)`. Small/normal scripts stay in fast static RAM; only edge-case 100+ KB programs spill to PSRAM. An `AddLog` INFO line is emitted when the PSRAM path is taken.
 
@@ -6273,7 +6365,7 @@ int main() {
 | `const`                  | Type enforced  | Accepted (documentation hint, not enforced at runtime) |
 | `static` locals          | Full support   | Supported: zero-initialised, persists across calls. Non-zero initialisers not emitted |
 | sizeof                   | Full support   | Compile-time only: `sizeof(type)` and `sizeof(name)` supported; `sizeof(expr)` not supported. See [sizeof Operator](#sizeof-operator) |
-| Ternary operator `?:`    | Full support   | Supported, including nested ternary |
+| Ternary operator `?:`    | Full support   | Supported, including nested ternary; **string branches** (`cond ? "a" : "b"`, literals and/or `char[]`) may be used directly as a string argument (`sprintf` `%s`, `addLog`, `strcpy`, `webSend`, `responseCmnd`, …) — a pointer select, no copy. See [Ternary Operator](#ternary-operator) |
 | do-while                 | Full support   | Supported                    |
 | Compound assignments     | Full support   | Supported: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
 | Hex escape `\xNN`        | Full support   | Supported in string and char literals |

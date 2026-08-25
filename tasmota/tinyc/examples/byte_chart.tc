@@ -1,0 +1,74 @@
+// byte_chart.tc — a 24 h temperature/humidity chart whose ring buffers are
+// packed byte[] instead of float[].
+//
+// Two float[288] rings cost 2304 bytes of VM heap and hold them for as long as
+// the slot runs; the same two as byte[] cost 576. On an ESP32-C3 that matters
+// twice over: the heap tops out at 64 KB, and it is claimed as ONE contiguous
+// block when the program loads, so a script competing with WiFi and TLS for a
+// large block is the usual reason a chart script will not start.
+//
+// What a raw 0..255 means is stated once per series with WebChartQ(), which
+// applies to the NEXT WebChart() only. Resolution: 0.5 K over -40..87.5 degC
+// for the temperature, 0.4 % over 0..102 % for the humidity — finer than
+// either sensor's own accuracy, and finer than the one decimal the chart draws.
+//
+// Needs firmware ABI 25 (TinyC 1.6.60). The compiler stamps that on the .tcb
+// because a byte[] chart on older firmware would draw garbage silently.
+
+#define NPTS     288                // 24 h at 5-minute resolution
+#define INTERVAL 5                  // minutes between samples
+
+#define T_SCALE  0.5                // temperature: 0.5 K per step ...
+#define T_OFFS  -40.0               // ... starting at -40 degC
+#define H_SCALE  0.4                // humidity: 0.4 % per step ...
+#define H_OFFS   0.0                // ... starting at 0 %
+
+persist byte h_temp[NPTS];
+persist byte h_hum[NPTS];
+persist int  h_pos   = 0;
+persist int  h_count = 0;
+
+int  last_min = -1;
+
+// Encode a physical value into a raw 0..255 byte. The clamp is not optional:
+// a byte store keeps only the lowest byte, so an out-of-range reading would
+// wrap to a plausible-looking wrong value rather than an obvious spike.
+int enc(float v, float scale, float offs) {
+    int raw = (int)((v - offs) / scale + 0.5);
+    if (raw < 0)   { raw = 0; }
+    if (raw > 255) { raw = 255; }
+    return raw;
+}
+
+void EverySecond() {
+    int m = tasm_minute;
+    if (m == last_min) { return; }          // once per minute ...
+    last_min = m;
+    if ((m % INTERVAL) != 0) { return; }    // ... and only on the raster
+
+    h_temp[h_pos] = enc(sensorGet("BME280#Temperature"), T_SCALE, T_OFFS);
+    h_hum[h_pos]  = enc(sensorGet("BME280#Humidity"),    H_SCALE, H_OFFS);
+
+    h_pos = (h_pos + 1) % NPTS;
+    if (h_count < NPTS) { h_count = h_count + 1; }
+}
+
+void WebPage() {
+    if (h_count < 1) { return; }
+    WebChartSize(0, 260);
+
+    WebChartQ(T_SCALE, T_OFFS);
+    WebChart(0, "Temperatur", "°C", 0xe74c3c,
+             h_pos, h_count, h_temp, 1, INTERVAL, -20, 50);
+
+    // Second series, own scale — hence its own WebChartQ directly above it.
+    // An empty title adds it to the chart just created instead of starting
+    // a new one.
+    WebChartQ(H_SCALE, H_OFFS);
+    WebChart(0, "", "%", 0x3498db,
+             h_pos, h_count, h_hum, 0, INTERVAL, 0, 100);
+}
+
+int main() {
+    return 0;
+}
