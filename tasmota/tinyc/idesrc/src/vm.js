@@ -885,6 +885,96 @@ export class VM {
                 break;
             }
 
+            // ─── Packed 16-bit arrays ────────────
+            // Element i is the i-th 16-bit word of the region; the bound is the
+            // capacity in WORDS (slots * 2). The signed and unsigned loads share
+            // a case and differ only in which typed view reads the word — the
+            // stores write the same sixteen bits either way.
+            case Op.LOAD_LOCAL_I16:
+            case Op.LOAD_LOCAL_U16: {
+                const base = this.readU8();
+                const idx = this.pop();
+                const arr = this.frameLocals[this.fp];
+                const grenze = (arr.length - base) * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`local i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.wordViewOf(arr, op === Op.LOAD_LOCAL_I16)[base * 2 + idx]);
+                break;
+            }
+            case Op.STORE_LOCAL_I16: {
+                const base = this.readU8();
+                const val = this.pop();
+                const idx = this.pop();
+                const arr = this.frameLocals[this.fp];
+                const grenze = (arr.length - base) * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`local i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.u16ViewOf(arr)[base * 2 + idx] = val & 0xFFFF;
+                break;
+            }
+            case Op.LOAD_GLOBAL_I16:
+            case Op.LOAD_GLOBAL_U16: {
+                const base = this.readU16();
+                const idx = this.pop();
+                const grenze = (this.globals.length - base) * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`global i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.wordViewOf(this.globals, op === Op.LOAD_GLOBAL_I16)[base * 2 + idx]);
+                break;
+            }
+            case Op.STORE_GLOBAL_I16: {
+                const base = this.readU16();
+                const val = this.pop();
+                const idx = this.pop();
+                const grenze = (this.globals.length - base) * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`global i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.u16ViewOf(this.globals)[base * 2 + idx] = val & 0xFFFF;
+                break;
+            }
+            case Op.LOAD_HEAP_I16:
+            case Op.LOAD_HEAP_U16: {
+                const handle = this.readU8();
+                const idx = this.pop();
+                const h = this.heapHandles[handle];
+                if (!h || !h.alive) throw new VMError(`Heap i16: handle ${handle}`, this.pc);
+                const grenze = h.size * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`heap i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.wordViewOf(this.heapData, op === Op.LOAD_HEAP_I16)[h.offset * 2 + idx]);
+                break;
+            }
+            case Op.STORE_HEAP_I16: {
+                const handle = this.readU8();
+                const val = this.pop();
+                const idx = this.pop();
+                const h = this.heapHandles[handle];
+                if (!h || !h.alive) throw new VMError(`Heap i16: handle ${handle}`, this.pc);
+                const grenze = h.size * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`heap i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.u16ViewOf(this.heapData)[h.offset * 2 + idx] = val & 0xFFFF;
+                break;
+            }
+            case Op.LOAD_REF_I16:
+            case Op.LOAD_REF_U16: {
+                const li = this.readU8();
+                const idx = this.pop();
+                const ref = this.frameLocals[this.fp][li];
+                const { arr, base, maxLen } = this.resolveRef(this.stripByteFlag(ref));
+                const slots = (maxLen !== undefined) ? maxLen : (arr.length - base);
+                const grenze = slots * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`ref i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.push(this.wordViewOf(arr, op === Op.LOAD_REF_I16)[base * 2 + idx]);
+                break;
+            }
+            case Op.STORE_REF_I16: {
+                const li = this.readU8();
+                const val = this.pop();
+                const idx = this.pop();
+                const ref = this.frameLocals[this.fp][li];
+                const { arr, base, maxLen } = this.resolveRef(this.stripByteFlag(ref));
+                const slots = (maxLen !== undefined) ? maxLen : (arr.length - base);
+                const grenze = slots * 2;
+                if (idx < 0 || idx >= grenze) throw new VMError(`ref i16 bounds: ${idx} >= ${grenze}`, this.pc);
+                this.u16ViewOf(arr)[base * 2 + idx] = val & 0xFFFF;
+                break;
+            }
+
             // ─── Heap arrays ─────────────────────
             case Op.LOAD_HEAP_ARR: {
                 const handle = this.readU8();
@@ -1098,11 +1188,24 @@ export class VM {
     // Strip the "packed byte[]" flag from a ref. The mapping (heap bit 8,
     // global bit 16, local bit 24) has to match the firmware —
     // tc_ref_strip_bytes in xdrv_124_tinyc_vm.h.
+    // Element kind carried in a ref: 0 = int32, 1 = byte[], 2 = int16[],
+    // 3 = uint16[]. The counterpart of tc_ref_elem_kind in the firmware.
+    refElemKind(ref) {
+        const u = ref >>> 0, tag = u >>> 30;
+        if (tag === 3 && (u & 0x8000)) return 0;          // Konstante: Textliteral
+        const schieb = (tag === 3) ? 8 : (tag === 2) ? 16 : 24;
+        return (u >>> schieb) & 3;
+    }
+
+    // Strip the element-kind field (two bits: 01 = byte[], 10 = int16[], 11 = uint16[])
+    // so the slot arithmetic below is untouched. Heap sits at bits 8-9, global
+    // at 16-17, local at 24-25 — the same mapping as tc_ref_kind_mask in the
+    // firmware.
     stripByteFlag(ref) {
         const u = ref >>> 0, tag = u >>> 30;
-        if (tag === 3) return (u & ~0x00000100) | 0;
-        if (tag === 2) return (u & ~0x00010000) | 0;
-        return (u & ~0x01000000) | 0;
+        if (tag === 3) return (u & ~0x00000300) | 0;
+        if (tag === 2) return (u & ~0x00030000) | 0;
+        return (u & ~0x03000000) | 0;
     }
 
     // Byte view of an Int32Array, cached so an access does not allocate a new
@@ -1112,6 +1215,26 @@ export class VM {
         let v = this._byteViews.get(arr);
         if (!v) { v = new Uint8Array(arr.buffer); this._byteViews.set(arr, v); }
         return v;
+    }
+
+    // The same for packed 16-bit arrays. Two views, because signedness is a
+    // property of the LOAD and the typed array is what does the extension:
+    // Int16Array sign-extends, Uint16Array does not.
+    i16ViewOf(arr) {
+        if (!this._i16Views) this._i16Views = new WeakMap();
+        let v = this._i16Views.get(arr);
+        if (!v) { v = new Int16Array(arr.buffer); this._i16Views.set(arr, v); }
+        return v;
+    }
+    u16ViewOf(arr) {
+        if (!this._u16Views) this._u16Views = new WeakMap();
+        let v = this._u16Views.get(arr);
+        if (!v) { v = new Uint16Array(arr.buffer); this._u16Views.set(arr, v); }
+        return v;
+    }
+    // Signed or unsigned view, chosen by the opcode.
+    wordViewOf(arr, signed) {
+        return signed ? this.i16ViewOf(arr) : this.u16ViewOf(arr);
     }
 
     resolveRef(ref) {
@@ -1817,6 +1940,17 @@ export class VM {
             // script knows which it meant), while a packed byte[] moves RAW
             // BYTES, one file byte per element. `count` is an element count in
             // both readings — so for a byte[] it is a byte count.
+            case 275: { // STRCMP_CONST (arr_ref, const_idx) -> int
+                // Missing here until 2026-08-26, which is why the shipped
+                // byte_array_suite.tc could never run in the IDE — it died on
+                // "Unknown syscall: 275" at the first strcmp against a literal.
+                const constIdx = this.pop();
+                const aRef = this.pop();
+                const a = this.readStringFromRef(aRef);
+                const b = this.constants[constIdx] || '';
+                this.push(a < b ? -1 : a > b ? 1 : 0);
+                break;
+            }
             case 286: { // FILE_READ_BIN (handle, arr, count) -> elements read, -1 on bad args
                 let count = this.pop();
                 const bufRef = this.pop();
@@ -3565,14 +3699,14 @@ export class VM {
                 // mock line: on the device they are the difference between a
                 // plausible curve and a flat 0..255 band, and the simulator is
                 // where a wrong scale is cheapest to notice.
-                const packed = ((arr_ref >>> 30) === 3) ? !!(arr_ref & 0x100)
-                             : ((arr_ref >>> 30) === 2) ? !!(arr_ref & 0x10000)
-                             : !!(arr_ref & 0x1000000);
+                // The kind is a two-bit field now, so read it as one — testing
+                // the old single bit would have called an int16[] a byte[].
+                const packedName = ['', ' byte[]', ' int16[]', ' uint16[]'][this.refElemKind(arr_ref)];
                 const q = this._chartQ;
                 this._chartQ = null;   // one-shot, exactly as in the firmware
                 const kz = (v) => Number(v.toPrecision(7)).toString();
                 const qStr = q ? ` q=raw*${kz(q.scale)}${q.offset >= 0 ? '+' : ''}${kz(q.offset)}` : '';
-                this.onOutput(`[WebChart] ${typeStr} "${title}" [${unit}] color=#${(color>>>0).toString(16)} pos=${pos} count=${count} decimals=${decimals} interval=${interval}min range=${rangeStr}${packed ? ' byte[]' : ''}${qStr} (browser mock)\n`);
+                this.onOutput(`[WebChart] ${typeStr} "${title}" [${unit}] color=#${(color>>>0).toString(16)} pos=${pos} count=${count} decimals=${decimals} interval=${interval}min range=${rangeStr}${packedName}${qStr} (browser mock)\n`);
                 break;
             }
 
@@ -3593,12 +3727,34 @@ export class VM {
                 const flags = this.pop();
                 const count = this.pop();
                 const arr_ref = this.pop();
-                const ref = this.resolveRef(arr_ref);
+                // ⚠️ This read `ref.offset`, which resolveRef never returns — it
+                // only ever hands back `base`. `undefined` made the slice empty
+                // and every write land on arr[NaN], so sortArray() in the IDE
+                // simulator sorted NOTHING and did so silently. Found by the
+                // int16 suite, which is the first test to check the result.
+                const ref = this.resolveRef(this.stripByteFlag(arr_ref));
                 if (ref && count > 1) {
                     const arr = ref.arr;
-                    const off = ref.offset;
-                    const n = Math.min(count, arr.length - off);
-                    const slice = arr.slice(off, off + n);
+                    const base = ref.base;
+                    const slots = (ref.maxLen !== undefined) ? ref.maxLen : (arr.length - base);
+                    // A packed array sorts in its OWN element width: going
+                    // through the int32 view would move four byte samples, or
+                    // two 16-bit ones, as a block. Floats cannot occur there.
+                    const kind = this.refElemKind(arr_ref);
+                    if (kind !== 0) {
+                        const proElem = (kind === 1) ? 4 : 2;
+                        const view = (kind === 1) ? this.byteViewOf(arr)
+                                   : (kind === 2) ? this.i16ViewOf(arr)
+                                                  : this.u16ViewOf(arr);
+                        const start = base * proElem;
+                        const n = Math.min(count, slots * proElem);
+                        const teil = Array.from(view.subarray(start, start + n));
+                        teil.sort((a, b) => (flags & 2) ? b - a : a - b);
+                        for (let i = 0; i < n; i++) view[start + i] = teil[i];
+                        break;
+                    }
+                    const n = Math.min(count, slots);
+                    const slice = arr.slice(base, base + n);
                     const isFloat = flags & 1;
                     const isDesc = flags & 2;
                     const dv = new DataView(new ArrayBuffer(4));
@@ -3610,7 +3766,7 @@ export class VM {
                         } else { va = a; vb = b; }
                         return isDesc ? vb - va : va - vb;
                     });
-                    for (let i = 0; i < n; i++) arr[off + i] = slice[i];
+                    for (let i = 0; i < n; i++) arr[base + i] = slice[i];
                 }
                 break;
             }
@@ -4561,6 +4717,18 @@ export class VM {
                 case Op.ADDR_HEAP_OFF:
                 case Op.LOAD_REF_ARR:
                 case Op.STORE_REF_ARR:
+                // ⚠️ The packed-array opcodes were missing here, so the
+                // disassembler fell through to `default` and then decoded their
+                // operand byte as the next opcode — every listing after a
+                // byte[] access was out of step. One-byte operand, all of them.
+                case Op.LOAD_LOCAL_BYTE:  case Op.STORE_LOCAL_BYTE:
+                case Op.LOAD_HEAP_BYTE:   case Op.STORE_HEAP_BYTE:
+                case Op.LOAD_REF_BYTE:    case Op.STORE_REF_BYTE:
+                case Op.LOAD_LOCAL_I16:   case Op.STORE_LOCAL_I16:
+                case Op.LOAD_HEAP_I16:    case Op.STORE_HEAP_I16:
+                case Op.LOAD_REF_I16:     case Op.STORE_REF_I16:
+                case Op.LOAD_LOCAL_U16:   case Op.LOAD_HEAP_U16:
+                case Op.LOAD_REF_U16:
                     operand = `[${binary[pc]}]`;
                     pc += 1;
                     break;
@@ -4569,6 +4737,9 @@ export class VM {
                 case Op.LOAD_GLOBAL_ARR:
                 case Op.STORE_GLOBAL_ARR:
                 case Op.ADDR_GLOBAL:
+                case Op.LOAD_GLOBAL_BYTE: case Op.STORE_GLOBAL_BYTE:
+                case Op.LOAD_GLOBAL_I16:  case Op.STORE_GLOBAL_I16:
+                case Op.LOAD_GLOBAL_U16:
                     operand = `[${(binary[pc] << 8) | binary[pc + 1]}]`;
                     pc += 2;
                     break;

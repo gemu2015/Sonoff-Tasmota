@@ -1061,6 +1061,62 @@ gescheitert und nicht an den 64 KB. Die Ringpuffer zu packen ist die direkte
 Antwort: ein `byte[]`-Ring verlangt ein Viertel des Blocks (siehe *Gepackte
 Messwerte — ein Diagramm aus einem `byte[]`* bei `WebChart`).
 
+### Gepackte 16-Bit-Arrays — `int16[]` / `uint16[]` *(seit ABI 27)*
+
+`byte[]` spart das Vierfache, traegt aber nur acht Bit — genau deshalb gibt es
+ueberhaupt `WebChartQ()`: ein Byte haelt eine Temperatur in 0,5-K-Schritten,
+nicht in Hundertsteln. `int16` liegt dazwischen und braucht **keine Umrechnung**:
+die Haelfte des Speichers eines `int[]`, bei der vollen Aufloesung fast jedes
+Messwerts.
+
+```c
+int16  temp[1441];    // -32768 .. 32767   — 2,8 KB statt 5,6 KB
+uint16 roh[512];      // 0 .. 65535        — ein Modbus-Register, ein roher ADC-Wert
+short  s[10];         // Aliasname fuer int16   (ebenso int16_t)
+ushort u[10];         // Aliasname fuer uint16  (ebenso uint16_t)
+```
+
+| Ring mit 1441 Werten | Speicher | Anteil an 64 KB Heap (drei Ringe) |
+|---|---|---|
+| `float[]` / `int[]` | 5,6 KB | 26,4 % |
+| `int16[]` / `uint16[]` | 2,8 KB | 13,2 % |
+| `byte[]` | 1,4 KB | 6,6 % |
+
+Alles, was ein `int[]` kann, kann auch ein `int16[]`: lokal, global, im Heap
+(ueber 16 Elemente), als Strukturfeld, als Funktionsparameter, `persist`.
+
+```c
+struct Kanal {
+    int    stempel;
+    int16  wert[6];       // 3 Slots statt 6
+    byte   flagge[4];     // 1 Slot
+};
+
+int summe(int16 a[], int n) { … }    // die Referenz traegt die Elementbreite mit
+persist int16 ring[1441];
+```
+
+* **`WebChart`** liest beide direkt. `WebChartQ()` bleibt kombinierbar (etwa
+  `WebChartQ(0.01, 0)` fuer Hundertstel), ist aber nicht mehr noetig, damit das
+  Diagramm ueberhaupt lesbar wird.
+* **`sortArray`** sortiert in der Elementbreite des Arrays.
+* Die **Zeichenkettenfamilie** ist bewusst NICHT 16-bit-bewusst — 16 Bit ist ein
+  Zahlentyp. Fuer Text nimmt man `byte[]`.
+
+⚠️ **Ein Skalar ist kein 16-Bit-Wert.** `int16 x;` belegt einen vollen Slot und
+rechnet in 32 Bit, genau wie ein skalares `char` in TinyC seit jeher — die
+Packung ist eine Eigenschaft des ARRAYS. Wer abschneiden will, schreibt es hin
+(`x = w & 0xFFFF;`). `sizeof(int16)` ist deshalb 1, in Slots.
+
+⚠️ Braucht **Firmware-ABI 27**. Der Compiler stempelt die Anforderung auf jedes
+`.tcb`, das ein gepacktes 16-Bit-Array anfasst; aeltere Firmware weist es beim
+Laden ab, statt mitten in der Schleife an einem unbekannten Opcode zu sterben.
+
+> Wie `byte` sind das kontextabhaengige **Typnamen**, keine Schluesselwoerter —
+> eine vorhandene Variable namens `short` funktioniert weiter.
+
+Siehe `docs/INT16_ARRAYS.md` und `examples/int16_array_suite.tc`.
+
 ### 2D-Arrays *(seit 1.3.38)*
 
 Zweidimensionale Arrays fuer `char`, `int` und `float` arbeiten wie in

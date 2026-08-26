@@ -65,6 +65,16 @@ export class Parser {
         // keeps everything existing intact.
         this.typeAliases.set('byte', 'byte');
         this.typeAliases.set('uint8_t', 'byte');   // uint8_t == byte (packed, unsigned 0..255)
+        // 16-bit elements, same trick: names, not keywords, so a script that
+        // already calls a variable `short` keeps compiling. An ARRAY of these
+        // packs two per slot; a scalar is an ordinary int slot, exactly as a
+        // scalar `char` is (docs/INT16_ARRAYS.md).
+        this.typeAliases.set('int16',    'int16');
+        this.typeAliases.set('int16_t',  'int16');
+        this.typeAliases.set('short',    'int16');
+        this.typeAliases.set('uint16',   'uint16');
+        this.typeAliases.set('uint16_t', 'uint16');
+        this.typeAliases.set('ushort',   'uint16');
         this.fnPtrTypes   = new Map(); // alias → { returnType, params: [{type, name?, isArray?}] }
     }
 

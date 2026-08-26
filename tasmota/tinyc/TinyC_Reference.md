@@ -1081,7 +1081,63 @@ free heap. On a C3 with WiFi and TLS up, the largest free block is a fraction
 of the free total, and a load that fails with `heap alloc failed … not enough
 free heap` has usually run into that and not into the 64 KB. Packing the ring
 buffers is the direct answer: a `byte[]` ring asks for a quarter of the block
-(see *Packed samples — a chart from a `byte[]`* under `WebChart`).
+(see *Packed samples — a chart from a `byte[]`* under `WebChart`), an `int16[]`
+ring for half of it at full resolution.
+
+### Packed 16-bit arrays — `int16[]` / `uint16[]` *(since ABI 27)*
+
+`byte[]` saves four times the RAM but only carries eight bits, which is why
+`WebChartQ()` exists at all — a byte holds a temperature in 0.5 K steps, not in
+hundredths. `int16` sits in between and needs **no decoding**: half the memory of
+an `int[]`, at the full resolution of almost any sensor reading.
+
+```c
+int16  temp[1441];    // -32768 .. 32767   — 2.8 KB instead of 5.6 KB
+uint16 raw[512];      // 0 .. 65535        — a Modbus register, a raw ADC word
+short  s[10];         // alias for int16   (also int16_t)
+ushort u[10];         // alias for uint16  (also uint16_t)
+```
+
+| Ring of 1441 samples | RAM | share of a 64 KB heap (three rings) |
+|---|---|---|
+| `float[]` / `int[]` | 5.6 KB | 26.4 % |
+| `int16[]` / `uint16[]` | 2.8 KB | 13.2 % |
+| `byte[]` | 1.4 KB | 6.6 % |
+
+Everything an `int[]` can do, an `int16[]` can do: local, global, heap (over 16
+elements), struct field, function parameter, `persist`.
+
+```c
+struct Kanal {
+    int    stamp;
+    int16  value[6];      // 3 slots instead of 6
+    byte   flag[4];       // 1 slot
+};
+
+int sum(int16 a[], int n) { … }    // the ref carries the element width along
+persist int16 ring[1441];
+```
+
+* **`WebChart`** reads both directly. `WebChartQ()` still composes (say
+  `WebChartQ(0.01, 0)` for hundredths) but is no longer needed to make the
+  chart legible in the first place.
+* **`sortArray`** sorts in the array's own element width.
+* The **string family** is deliberately NOT 16-bit aware — 16 bit is a numeric
+  type. For bytes of text, use `byte[]`.
+
+⚠️ **A scalar is not a 16-bit value.** `int16 x;` occupies a full slot and does
+its arithmetic in 32 bits, exactly as a scalar `char` always has in TinyC — the
+packing is a property of the ARRAY. Truncate explicitly when you need it
+(`x = v & 0xFFFF;`). `sizeof(int16)` is therefore 1 (slots), not 2.
+
+⚠️ Needs **firmware ABI 27**. The compiler stamps that requirement on any `.tcb`
+that touches a packed 16-bit array, and older firmware refuses to load it rather
+than failing on an unknown opcode mid-loop.
+
+> Like `byte`, these are context-sensitive **type names**, not reserved keywords
+> — an existing variable named `short` keeps working.
+
+See `docs/INT16_ARRAYS.md` and `examples/int16_array_suite.tc`.
 
 ### 2D Arrays *(since 1.3.38)*
 

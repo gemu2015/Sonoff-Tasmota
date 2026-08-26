@@ -506,7 +506,11 @@ const BUILTINS = {
     'WebChartTimeBase': { syscall: Syscall.WEB_CHART_TBASE,     args: 1, returns: false },
     'WebChartJS':       { syscall: Syscall.WEB_CHART_JS,        args: 1, returns: false, strArgs: [0] },
     'pluginQuery':      { syscall: Syscall.PLUGIN_QUERY,        args: 4, returns: true,  strArgs: [0] },
-    'sortArray':        { syscall: Syscall.SORT_ARRAY,          args: 3, returns: false, refArgs: [0] },
+    // sortArray sorts IN PLACE, so it has to know the element width or it
+    // reorders int32 slots across a packed array. packedAbi says which firmware
+    // is needed once the ref carries a kind: WebChart has taken a byte[] since
+    // 25, sortArray only learned all three widths in 27.
+    'sortArray':        { syscall: Syscall.SORT_ARRAY,          args: 3, returns: false, refArgs: [0], byteRefArgs: [0], packedAbi: 27 },
     'smlCopy':          { syscall: Syscall.SML_COPY,            args: 2, returns: true,  strArgs: [0] },
     'arrayFill':        { syscall: Syscall.ARRAY_FILL,          args: 3, returns: false, strArgs: [0] },
     'arrayCopy':        { syscall: Syscall.ARRAY_COPY,          args: 3, returns: false, strArgs: [0, 1] },
@@ -655,10 +659,27 @@ const BUILTINS = {
 const HEAP_THRESHOLD = 16;   // arrays > 16 elements go to heap, ≤16 stay inline
 
 // How many int32 slots does an array of `n` elements take? For `byte[]` four
-// elements share one slot — that is the whole point of the type
-// (tinyc/docs/BYTE_ARRAYS.md). Every storage area uses this: globals, locals, heap.
+// elements share one slot, for `int16[]`/`uint16[]` two — that is the whole
+// point of those types (tinyc/docs/BYTE_ARRAYS.md, docs/INT16_ARRAYS.md).
+// Every storage area uses this: globals, locals, heap.
 function slotsFor(type, n) {
-    return (type === 'byte') ? Math.ceil(n / 4) : n;
+    if (type === 'byte') return Math.ceil(n / 4);
+    if (istI16(type))    return Math.ceil(n / 2);
+    return n;
+}
+
+// The two packed 16-bit types. `int16` sign-extends on load, `uint16` does not;
+// they are otherwise identical, including their storage.
+function istI16(type) {
+    return type === 'int16' || type === 'uint16';
+}
+
+// Bytes per element — 4, 2 or 1. Used wherever an index has to be scaled from
+// elements to the storage's own units.
+function elemBytes(type) {
+    if (type === 'byte') return 1;
+    if (istI16(type))    return 2;
+    return 4;
 }
 
 class Scope {
@@ -986,6 +1007,11 @@ export class CodeGenerator {
         if      (op === Op.LK32_OP_ST || op === Op.LL_CMP_JZ || op === Op.LK32_CMP_JZ) this._abiMerken(23);
         else if (op === Op.LK_OP_ST   || op === Op.LL_OP_ST)                           this._abiMerken(22);
         else if (op === Op.INC_LOCAL)                                                  this._abiMerken(21);
+        // Packed 16-bit access (0xB6..0xC1). Hooking it HERE rather than at the
+        // dozen emit sites is what makes it impossible to forget: any path that
+        // ever reaches one of these opcodes stamps the requirement, and older
+        // firmware refuses the .tcb instead of dying on BAD_OPCODE mid-loop.
+        else if (op >= Op.LOAD_LOCAL_I16 && op <= Op.LOAD_REF_U16)                     this._abiMerken(27);
 
         // SYSCALL/SYSCALL2: die Nummer folgt im naechsten emitByte/emitU16.
         if (op === Op.SYSCALL)       { this._syscallOffen = 1; }
@@ -1831,7 +1857,11 @@ export class CodeGenerator {
     // the stack. For a simple struct var, this is just `fieldOffset`. For an
     // element of a struct array (`arr[i].field`), it's `i * structSlots + fieldOffset`.
     // Optionally adds an extra per-call offset (used for array-field subscript).
-    emitStructOffset(resolvedMember, extraOffsetExpr = null, isBytes = false) {
+    // `elemType` is the ELEMENT type of the field being indexed ('byte',
+    // 'int16', 'uint16' or anything slot-sized). It replaced a plain isBytes
+    // boolean when 16-bit fields arrived — the scaling below is the only thing
+    // that differs between them.
+    emitStructOffset(resolvedMember, extraOffsetExpr = null, elemType = null) {
         const { isArrayElement, indexExpr, structSlots, fieldOffset } = resolvedMember;
         // Push the field's SLOT base within the struct region.
         if (isArrayElement) {
@@ -1845,11 +1875,12 @@ export class CodeGenerator {
         } else {
             this.emitPushInt(fieldOffset);
         }
-        // A byte[] field is packed: the element access opcode (LOAD/STORE_*_BYTE)
-        // indexes BYTES into the region, so convert the slot base to a byte base
-        // (×4) before adding the element index (which is a byte position).
-        if (isBytes) {
-            this.emitPushInt(4);
+        // A packed field is indexed in ELEMENTS by its access opcode, not in
+        // slots, so the slot base has to be converted first: ×4 for byte[],
+        // ×2 for int16[]/uint16[]. Then the element index is added on top.
+        const je = elemType ? (4 / elemBytes(elemType)) : 1;
+        if (je !== 1) {
+            this.emitPushInt(je);
             this.emit(Op.MUL);
         }
         if (extraOffsetExpr) {
@@ -1863,11 +1894,26 @@ export class CodeGenerator {
     // as tc_ref_mark_bytes in the firmware). Costs two opcodes when passing and
     // none on access.
     emitAddrOf(info, isLocal) {
-        let flag = 0;
-        if (info.isHeap)      { this.emit(Op.ADDR_HEAP);   this.emitByte(info.heapHandle); flag = 0x00000100; }
-        else if (isLocal)     { this.emit(Op.ADDR_LOCAL);  this.emitByte(info.index);      flag = 0x01000000; }
-        else                  { this.emit(Op.ADDR_GLOBAL); this.emitU16(info.index);       flag = 0x00010000; }
-        if (info.type === 'byte') {
+        // The element-kind field of a ref: 00 = int32, 01 = byte[], 10 = int16[],
+        // 11 = uint16[]. Heap sits at bits 8-9, global at 16-17, local at 24-25
+        // — the same mapping as tc_ref_bytes_bit/tc_ref_i16_bit in the firmware.
+        // uint16 needs its own code because a SYSCALL that reads the array has
+        // only the ref: sharing a code with int16 would draw 60000 as -5536.
+        let bytesFlag = 0, i16Flag = 0;
+        if (info.isHeap)      { this.emit(Op.ADDR_HEAP);   this.emitByte(info.heapHandle); bytesFlag = 0x00000100; i16Flag = 0x00000200; }
+        else if (isLocal)     { this.emit(Op.ADDR_LOCAL);  this.emitByte(info.index);      bytesFlag = 0x01000000; i16Flag = 0x02000000; }
+        else                  { this.emit(Op.ADDR_GLOBAL); this.emitU16(info.index);       bytesFlag = 0x00010000; i16Flag = 0x00020000; }
+        const flag = (info.type === 'byte')   ? bytesFlag
+                   : (info.type === 'int16')  ? i16Flag
+                   : (info.type === 'uint16') ? (i16Flag | bytesFlag)
+                   : 0;
+        if (flag) {
+            // A ref that only gets PASSED never touches a 0xB6..0xC1 opcode, so
+            // the emit() hook would not fire and the .tcb would not demand ABI
+            // 27. Older firmware does not know bit 9 of the kind field, would
+            // read the array as int32 slots and draw garbage silently — the
+            // same trap byte[] hit with WebChart at ABI 25. Stamp it here.
+            if (istI16(info.type)) this._abiMerken(27);
             this.emitPushInt(flag);
             this.emit(Op.BIT_OR);
         }
@@ -1877,49 +1923,57 @@ export class CodeGenerator {
     // `byte[]` is packed (one byte per element), everything else lives in int32
     // slots. The compiler knows the type here, so it decides here — that leaves
     // no branch in the VM's hot path (docs/BYTE_ARRAYS.md).
+    // One row per storage area, one column per element width. `signed` picks the
+    // sign- or zero-extending 16-bit load; the stores have no such split
+    // because a store writes the same sixteen bits either way.
     emitArrLoad(info, isLocal) {
         const b = (info.type === 'byte');
-        if (info.isRef)       { this.emit(b ? Op.LOAD_REF_BYTE    : Op.LOAD_REF_ARR);    this.emitByte(info.index); }
-        else if (info.isHeap) { this.emit(b ? Op.LOAD_HEAP_BYTE   : Op.LOAD_HEAP_ARR);   this.emitByte(info.heapHandle); }
-        else if (isLocal)     { this.emit(b ? Op.LOAD_LOCAL_BYTE  : Op.LOAD_LOCAL_ARR);  this.emitByte(info.index); }
-        else                  { this.emit(b ? Op.LOAD_GLOBAL_BYTE : Op.LOAD_GLOBAL_ARR); this.emitU16(info.index); }
+        const w = istI16(info.type);
+        const s16 = (info.type === 'int16');
+        if (info.isRef)       { this.emit(w ? (s16 ? Op.LOAD_REF_I16    : Op.LOAD_REF_U16)    : b ? Op.LOAD_REF_BYTE    : Op.LOAD_REF_ARR);    this.emitByte(info.index); }
+        else if (info.isHeap) { this.emit(w ? (s16 ? Op.LOAD_HEAP_I16   : Op.LOAD_HEAP_U16)   : b ? Op.LOAD_HEAP_BYTE   : Op.LOAD_HEAP_ARR);   this.emitByte(info.heapHandle); }
+        else if (isLocal)     { this.emit(w ? (s16 ? Op.LOAD_LOCAL_I16  : Op.LOAD_LOCAL_U16)  : b ? Op.LOAD_LOCAL_BYTE  : Op.LOAD_LOCAL_ARR);  this.emitByte(info.index); }
+        else                  { this.emit(w ? (s16 ? Op.LOAD_GLOBAL_I16 : Op.LOAD_GLOBAL_U16) : b ? Op.LOAD_GLOBAL_BYTE : Op.LOAD_GLOBAL_ARR); this.emitU16(info.index); }
     }
 
     emitArrStore(info, isLocal) {
         const b = (info.type === 'byte');
-        if (info.isRef)       { this.emit(b ? Op.STORE_REF_BYTE    : Op.STORE_REF_ARR);    this.emitByte(info.index); }
-        else if (info.isHeap) { this.emit(b ? Op.STORE_HEAP_BYTE   : Op.STORE_HEAP_ARR);   this.emitByte(info.heapHandle); }
-        else if (isLocal)     { this.emit(b ? Op.STORE_LOCAL_BYTE  : Op.STORE_LOCAL_ARR);  this.emitByte(info.index); }
-        else                  { this.emit(b ? Op.STORE_GLOBAL_BYTE : Op.STORE_GLOBAL_ARR); this.emitU16(info.index); }
+        const w = istI16(info.type);
+        if (info.isRef)       { this.emit(w ? Op.STORE_REF_I16    : b ? Op.STORE_REF_BYTE    : Op.STORE_REF_ARR);    this.emitByte(info.index); }
+        else if (info.isHeap) { this.emit(w ? Op.STORE_HEAP_I16   : b ? Op.STORE_HEAP_BYTE   : Op.STORE_HEAP_ARR);   this.emitByte(info.heapHandle); }
+        else if (isLocal)     { this.emit(w ? Op.STORE_LOCAL_I16  : b ? Op.STORE_LOCAL_BYTE  : Op.STORE_LOCAL_ARR);  this.emitByte(info.index); }
+        else                  { this.emit(w ? Op.STORE_GLOBAL_I16 : b ? Op.STORE_GLOBAL_BYTE : Op.STORE_GLOBAL_ARR); this.emitU16(info.index); }
     }
 
     // Emit a load of the member slot at the offset currently on top of the stack.
-    emitLoadStructSlot(info, isLocal, isBytes = false) {
-        // isBytes: the field is a packed byte[]; the offset on the stack is a
-        // BYTE index into the struct region (see emitStructOffset).
+    emitLoadStructSlot(info, isLocal, elemType = null) {
+        // elemType: the field is packed; the offset on the stack is an ELEMENT
+        // index into the struct region (see emitStructOffset).
+        const b = elemType === 'byte', w = istI16(elemType), s16 = elemType === 'int16';
         if (info.isHeap) {
-            this.emit(isBytes ? Op.LOAD_HEAP_BYTE : Op.LOAD_HEAP_ARR);
+            this.emit(w ? (s16 ? Op.LOAD_HEAP_I16 : Op.LOAD_HEAP_U16) : b ? Op.LOAD_HEAP_BYTE : Op.LOAD_HEAP_ARR);
             this.emitByte(info.heapHandle);
         } else if (isLocal) {
-            this.emit(isBytes ? Op.LOAD_LOCAL_BYTE : Op.LOAD_LOCAL_ARR);
+            this.emit(w ? (s16 ? Op.LOAD_LOCAL_I16 : Op.LOAD_LOCAL_U16) : b ? Op.LOAD_LOCAL_BYTE : Op.LOAD_LOCAL_ARR);
             this.emitByte(info.index);
         } else {
-            this.emit(isBytes ? Op.LOAD_GLOBAL_BYTE : Op.LOAD_GLOBAL_ARR);
+            this.emit(w ? (s16 ? Op.LOAD_GLOBAL_I16 : Op.LOAD_GLOBAL_U16) : b ? Op.LOAD_GLOBAL_BYTE : Op.LOAD_GLOBAL_ARR);
             this.emitU16(info.index);
         }
     }
 
     // Emit a store of the value on top of the stack to the member slot.
     // Stack before store op: [..., offset, value]
-    emitStoreStructSlot(info, isLocal, isBytes = false) {
+    emitStoreStructSlot(info, isLocal, elemType = null) {
+        const b = elemType === 'byte', w = istI16(elemType);
         if (info.isHeap) {
-            this.emit(isBytes ? Op.STORE_HEAP_BYTE : Op.STORE_HEAP_ARR);
+            this.emit(w ? Op.STORE_HEAP_I16 : b ? Op.STORE_HEAP_BYTE : Op.STORE_HEAP_ARR);
             this.emitByte(info.heapHandle);
         } else if (isLocal) {
-            this.emit(isBytes ? Op.STORE_LOCAL_BYTE : Op.STORE_LOCAL_ARR);
+            this.emit(w ? Op.STORE_LOCAL_I16 : b ? Op.STORE_LOCAL_BYTE : Op.STORE_LOCAL_ARR);
             this.emitByte(info.index);
         } else {
-            this.emit(isBytes ? Op.STORE_GLOBAL_BYTE : Op.STORE_GLOBAL_ARR);
+            this.emit(w ? Op.STORE_GLOBAL_I16 : b ? Op.STORE_GLOBAL_BYTE : Op.STORE_GLOBAL_ARR);
             this.emitU16(info.index);
         }
     }
@@ -2078,7 +2132,7 @@ export class CodeGenerator {
         }
         // offset = (structBase) + fieldOffset + index; a byte[] field packs, so
         // the offset is a byte index and the opcode is LOAD_*_BYTE.
-        const ib = fieldType === 'byte';
+        const ib = fieldType;   // 'byte' / 'int16' / 'uint16' pack, everything else is slot-sized
         this.emitStructOffset(rm, node.index, ib);
         this.emitLoadStructSlot(info, isLocal, ib);
     }
@@ -2092,7 +2146,7 @@ export class CodeGenerator {
                 node.line);
         }
         const isFloat = fieldType === 'float';
-        const ib = fieldType === 'byte';   // packed byte[] field → byte offset + *_BYTE opcodes
+        const ib = fieldType;   // packed field → element offset + the packed opcodes
 
         if (node.op === '=') {
             this.emitStructOffset(rm, node.index, ib);
@@ -3137,6 +3191,54 @@ export class CodeGenerator {
     // Check if a variable name refers to a packed byte[] — one byte per
     // element instead of one int32 slot. Callers need this where the PACKING,
     // not just the address, has to travel with the ref.
+    // Element type of an array variable: 'byte', 'int16', 'uint16' — or null
+    // when it is not a packed array. The one place that answers "how wide is an
+    // element of this name".
+    _elemTypVar(name) {
+        if (this.scope) {
+            const local = this.scope.lookup(name);
+            if (local && local.isArray) {
+                if (local.type === 'byte' || istI16(local.type)) return local.type;
+                return null;
+            }
+        }
+        const global = this.globals.get(name);
+        if (global && global.isArray) {
+            if (global.type === 'byte' || istI16(global.type)) return global.type;
+        }
+        return null;
+    }
+
+    _istI16Var(name) {
+        return istI16(this._elemTypVar(name));
+    }
+
+    // ⚠️ Passing a PACKED array to a parameter of a different element width is
+    // the quietest mistake this language allows. The ref carries the packing, so
+    // every string SYSCALL inside the callee still reads it correctly — but a
+    // direct `dst[i]` compiles from the PARAMETER's declared type and walks the
+    // storage with the wrong stride. Reads land on every 4th byte; writes
+    // clobber the three neighbours.
+    //
+    // Found twice in shipped code on 2026-08-26 (ct002_common.tc): ctTok() and
+    // ctUrlMail() both index a `char[]` parameter that every caller feeds a
+    // `byte[]` — leftovers from converting the buffers but not the helpers.
+    // Neither showed up as anything but occasional wrong characters.
+    _packungPruefen(param, argName, fnName, argIndex, line) {
+        if (!param || !(param.isArray || param.arraySize !== undefined)) return;
+        const argElem = this._elemTypVar(argName);          // 'byte'/'int16'/'uint16' or null
+        const parElem = (param.type === 'byte' || istI16(param.type)) ? param.type : null;
+        if (argElem === parElem) return;
+        const nenn = (t) => t || 'int32-slot';
+        this.warnings.push(
+            `line ${line}: ${fnName}() parameter ${argIndex + 1} is declared ` +
+            `${param.type}[] (${nenn(parElem)} elements) but '${argName}' is ` +
+            `${nenn(argElem)}-packed. String syscalls on it still work — the packing ` +
+            `rides on the reference — but any direct index inside ${fnName}() uses the ` +
+            `wrong stride and silently reads or writes the wrong bytes. ` +
+            `Declare the parameter ${argElem || 'int'}[] to match.`);
+    }
+
     _istBytesVar(name) {
         if (this.scope) {
             const local = this.scope.lookup(name);
@@ -3286,12 +3388,39 @@ export class CodeGenerator {
                         `elements). '${node.name}' is too small (${sym.rows}x${sym.cols}).`,
                         node.line);
                 }
-                // Emit row offset = index * cols, then ADDR_HEAP_OFF.
+                // Emit row offset, then ADDR_HEAP_OFF. ⚠️ That opcode's offset
+                // is counted in int32 SLOTS, while a row of a PACKED array is
+                // `cols` ELEMENTS — four of them per slot for byte[], two for
+                // int16[]. Multiplying by cols outright walked four times too
+                // far and ran off the end of the handle (`byte m[6][16]`, row 5
+                // → offset 80 into a 24-slot array).
+                const proSlot = 4 / elemBytes(sym.type);
+                if (proSlot !== 1 && (sym.cols % proSlot) !== 0) {
+                    // A row that does not start on a slot boundary cannot be
+                    // expressed at all: the ref has no sub-slot offset. Say so
+                    // instead of emitting an address that is quietly off.
+                    throw new CodeGenError(
+                        `Row references into a packed ${sym.type}[][] need the row length to be ` +
+                        `a multiple of ${proSlot} (rows must start on an int32 slot). ` +
+                        `'${node.name}' has ${sym.cols} columns — pad it to ` +
+                        `${Math.ceil(sym.cols / proSlot) * proSlot}.`,
+                        node.line);
+                }
                 this.compileExpr(node.index);
-                this.emitPushInt(sym.cols);
+                this.emitPushInt(sym.cols / proSlot);
                 this.emit(Op.MUL);
                 this.emit(Op.ADDR_HEAP_OFF);
                 this.emitByte(sym.heapHandle);
+                // The row ref must carry the element kind too, or every string
+                // syscall reads the row as int32 — every 4th byte.
+                const rowFlag = (sym.type === 'byte')   ? 0x00000100
+                              : (sym.type === 'int16')  ? 0x00000200
+                              : (sym.type === 'uint16') ? 0x00000300 : 0;
+                if (rowFlag) {
+                    if (istI16(sym.type)) this._abiMerken(27);
+                    this.emitPushInt(rowFlag);
+                    this.emit(Op.BIT_OR);
+                }
                 return;
             }
         }
@@ -3492,6 +3621,7 @@ export class CodeGenerator {
                 if (isArrayParam &&
                     node.args[i].type === NodeType.Identifier &&
                     this.isArrayVar(node.args[i].name)) {
+                    this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                     this.emitArrayRefByName(node.args[i].name, node.line);
                 } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
                     this.emitStringArg(node.args[i]);
@@ -3526,8 +3656,11 @@ export class CodeGenerator {
                 this.emitPushInt(slots);
                 return;
             }
-            // Primitive type names → 1 (slot)
-            if (tag === 'int' || tag === 'float' || tag === 'char' || tag === 'bool') {
+            // Primitive type names → 1 (slot). `byte`, `int16` and `uint16`
+            // belong here too: a SCALAR of those still occupies a whole slot —
+            // the packing is a property of an ARRAY, and sizeof answers in slots.
+            if (tag === 'int' || tag === 'float' || tag === 'char' || tag === 'bool' ||
+                tag === 'byte' || tag === 'int16' || tag === 'uint16') {
                 this.emitPushInt(1);
                 return;
             }
@@ -3914,12 +4047,17 @@ export class CodeGenerator {
                         // stamp the ABI so older firmware refuses the .tcb
                         // rather than drawing garbage. Everything else keeps
                         // emitVarRef and compiles byte-identically to before.
-                        const alsBytes = builtin.byteRefArgs &&
-                                         builtin.byteRefArgs.includes(i) &&
-                                         resolved.type === NodeType.Identifier &&
-                                         this._istBytesVar(resolved.name);
-                        if (alsBytes) {
-                            this._abiVerlangen(25, `${node.name}() on a packed byte[]`,
+                        const gepackt = builtin.byteRefArgs &&
+                                        builtin.byteRefArgs.includes(i) &&
+                                        resolved.type === NodeType.Identifier
+                                        ? this._elemTypVar(resolved.name) : null;
+                        if (gepackt) {
+                            // byte[] has been accepted here since ABI 25; a
+                            // packed int16[] carries a different kind field and
+                            // needs a firmware that knows the third width.
+                            const noetig = builtin.packedAbi ? builtin.packedAbi
+                                         : (gepackt === 'byte') ? 25 : 27;
+                            this._abiVerlangen(noetig, `${node.name}() on a packed ${gepackt}[]`,
                                                arg.line || node.line);
                             this.emitArrayRefByName(resolved.name, arg.line || node.line);
                         } else {
@@ -3997,6 +4135,7 @@ export class CodeGenerator {
                     if (isArrayParam &&
                         node.args[i].type === NodeType.Identifier &&
                         this.isArrayVar(node.args[i].name)) {
+                        this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                         this.emitArrayRefByName(node.args[i].name, node.line);
                     } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
                         this.emitStringArg(node.args[i]);
@@ -4089,6 +4228,7 @@ export class CodeGenerator {
                 node.args[i].type === NodeType.Identifier &&
                 this.isArrayVar(node.args[i].name)) {
                 // Array parameter (char[] or int[]): push array reference, not element value
+                this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                 this.emitArrayRefByName(node.args[i].name, node.line);
             } else if (isArrayParam &&
                        node.args[i].type === NodeType.ArrayAccess &&

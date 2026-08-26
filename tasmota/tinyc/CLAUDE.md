@@ -80,6 +80,30 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **⚠️ A packed array passed to a differently-typed array PARAMETER is the
+  quietest bug in this language.** The packing rides on the reference, so every
+  string syscall inside the callee still reads it right — but a direct `dst[i]`
+  compiles from the PARAMETER's declared type and walks the storage with the
+  wrong stride: reads land on every 4th byte, writes clobber three neighbours.
+  Two shipped helpers in `ct002_common.tc` had exactly this (`ctTok`,
+  `ctUrlMail` — `char[]` params fed `byte[]` by every caller) and showed nothing
+  but occasional wrong characters. The compiler now WARNS on the mismatch; when
+  you convert an array to `byte[]`/`int16[]`, convert the parameters it flows
+  into in the same commit.
+- **Packed 16-bit arrays** (ABI 27) — `int16[]` / `uint16[]` store two elements
+  per int32 slot, i.e. `(n+1)/2` slots. Aliases: `int16_t`/`short`,
+  `uint16_t`/`ushort`. The middle option between `int[]` and `byte[]`: half the
+  RAM of an `int[]` at the FULL resolution of a reading, so unlike `byte[]` it
+  needs no `WebChartQ()` scale/offset to be meaningful. A 1441-sample ring is
+  2.8 KB against 5.6 KB (float) or 1.4 KB (byte). Works everywhere an `int[]`
+  does: local, global, heap, struct field, function parameter, `persist`.
+  `WebChart` and `sortArray` read them directly; the STRING family deliberately
+  does not — 16 bit is a numeric type, use `byte[]` for text.
+  ⚠️ A **scalar** `int16 x;` is a full slot doing 32-bit arithmetic (like a
+  scalar `char` always has); the packing belongs to the ARRAY. `sizeof(int16)`
+  is 1, in slots. Needs firmware ABI 27, stamped automatically.
+  See `docs/INT16_ARRAYS.md`, `examples/int16_array_suite.tc`.
+
 - **`bcall("name", buf, len)` syscall** — invoke native functions exported
   by a `MODULE_TYPE_BLIB` binary library plugin. Phase-1 ABI is locked to
   `(BUF, INT) → INT` — matches the CRC primitives in the first reference
@@ -579,7 +603,10 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
       to collect `STORE_WATCH` targets; an unknown length puts it out of step and it starts
       reading operand bytes as opcodes),
     * the same operand length in the IDE **disassembler** (`idesrc/src/vm.js`) — the omission
-      that produced the stray `??? (0xNN)` lines for `SYSCALL2`.
+      that produced the stray `??? (0xNN)` lines for `SYSCALL2`. ⚠️ It happened AGAIN and went
+      unnoticed for two days: the eight `byte[]` opcodes (0xA8–0xAF) never got a disassembler
+      entry, so every listing after a byte access ran out of step. Found 2026-08-26 while
+      adding the 16-bit block; both are entered now.
     Plus, if the opcode is emitted by the compiler, the executor in the IDE **simulator** or
     the Run button and the device disagree about what a program does.
     ⚠️ The dispatch table is sized `[0x100]` on purpose. It used to be `[0xA6]` while opcodes

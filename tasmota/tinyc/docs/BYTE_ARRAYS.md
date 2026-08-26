@@ -163,3 +163,31 @@ Alle ursprünglich offenen Punkte sind erledigt und am S3 .39 verifiziert
 * keine Zeiger, keine `byte`-Skalare außerhalb von Arrays (ein einzelnes Byte
   bringt nichts — die Rechnung läuft ohnehin in int32)
 * Vorzeichen: `byte` ist **ohne** (0..255), wie `uint8_t`
+
+
+## Nachtrag 2026-08-26 — drei Fallen, die erst die int16-Runde zeigte
+
+**1. Ein `char[]`-PARAMETER liest ein `byte[]`-Argument falsch.** Gemessen:
+Syscalls auf dem Parameter (`strlen`, `strcpy`, `sprintf`) arbeiten korrekt —
+die Packung reist in der Referenz mit. Ein direkter `dst[i]` NICHT: der Opcode
+kommt aus dem deklarierten Typ des PARAMETERS, läuft also mit int32-Schrittweite.
+Lesen trifft jedes vierte Byte, Schreiben überschreibt drei Nachbarn.
+
+In `examples/common/ct002_common.tc` steckten dadurch **zwei echte Fehler**:
+`ctTok(char dst[], int n)` und `ctUrlMail(char dst[], char src[])` indizieren
+beide ihre Parameter, und jeder Aufrufer übergibt einen `byte[]`-Puffer —
+Überbleibsel der ersten byte[]-Runde, bei der die Puffer umgestellt wurden, die
+Helfer aber nicht. Der Compiler **warnt jetzt** bei dieser Paarung
+(`_packungPruefen`), und beide Funktionen sind auf `byte[]` gezogen.
+
+**2. Zweidimensionale gepackte Arrays waren kaputt.** `byte m[6][16]`: die
+Zeilenreferenz `m[i]` rechnete `i * cols` und gab das an `ADDR_HEAP_OFF` — dessen
+Versatz aber in int32-SLOTS zählt. Zeile 5 landete auf Versatz 80 in einem
+24-Slot-Array. Jetzt `i * cols / (4/Elementbreite)`, plus das Kennfeld auf der
+Zeilenreferenz; passt die Zeilenlänge nicht auf eine Slotgrenze, gibt es einen
+klaren Übersetzungsfehler statt einer stillen Fehladresse.
+
+**3. Der IDE-Simulator kannte `STRCMP_CONST` (275) nicht** — deshalb ließ sich
+`examples/byte_array_suite.tc` dort nie ausführen, es starb am ersten `strcmp`
+gegen ein Literal. Nachgetragen. (Die Krypto-Syscalls fehlen weiterhin, die
+Suite bleibt also ein Gerätetest.)

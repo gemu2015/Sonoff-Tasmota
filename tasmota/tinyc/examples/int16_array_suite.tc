@@ -1,0 +1,237 @@
+// int16_array_suite.tc — Testsuite für gepackte 16-Bit-Arrays (TinyC, ABI 27).
+//
+// Selbstprüfend: jeder Test vergleicht gegen den Sollwert und zählt PASS/FAIL.
+// Braucht KEINE Extra-Hardware, läuft direkt am Gerät. Am Ende steht:
+//     int16-suite: N/M PASSED
+//
+// Deckt ab: lokale Frame-Arrays, globale (Heap und Nicht-Heap), beide
+// Vorzeichen, die Grenzen des Wertebereichs samt Umlauf, Nachbarschaft
+// innerhalb eines Slots und zum Nachbar-Global, Referenz-Argumente (lesend
+// und schreibend), Strukturfelder gemischt mit byte[], ein Feld von
+// Strukturen, sortArray in Elementbreite, und persist.
+//
+// Siehe docs/INT16_ARRAYS.md.
+
+int g_pass = 0;
+int g_fail = 0;
+
+void ck(char name[], int got, int exp) {
+    if (got == exp) {
+        g_pass = g_pass + 1;
+    } else {
+        g_fail = g_fail + 1;
+        addLog("  FAIL %s: got=%d exp=%d", name, got, exp);
+    }
+}
+
+// ── globale Speicherklassen ──────────────────────────────────────────────
+int16  gklein[16];      // global, NICHT-Heap (16 Elemente = 8 Slots)
+uint16 guns[16];        // direkt dahinter — darf nicht überschrieben werden
+int16  ggross[2000];    // global, Heap (1000 Slots statt 2000)
+
+struct Kanal {
+    int    stempel;
+    int16  wert[6];     // 3 Slots
+    byte   flagge[4];   // 1 Slot
+    uint16 roh[4];      // 2 Slots
+};
+struct Kanal k_glob;
+struct Kanal k_feld[3];
+
+persist int16 p_ring[16];
+
+// 1) lokales Frame-Array, vorzeichenbehaftet
+void test_lokal_sig() {
+    int16 a[16];
+    int i = 0;
+    while (i < 16) { a[i] = i * 4000 - 32000; i = i + 1; }
+    i = 0;
+    while (i < 16) { ck("lok sig", a[i], i * 4000 - 32000); i = i + 1; }
+
+    a[0] = 32767;   ck("lok max", a[0], 32767);
+    a[1] = -32768;  ck("lok min", a[1], -32768);
+    a[2] = -1;      ck("lok -1",  a[2], -1);
+    // Umlauf wie in C
+    a[3] = 32768;   ck("lok wrap+", a[3], -32768);
+    a[4] = 65535;   ck("lok wrap-", a[4], -1);
+    a[5] = 70000;   ck("lok wrap2", a[5], 4464);
+    // die Nachbarn im selben Slot bleiben stehen
+    ck("lok nachbar", a[2], -1);
+}
+
+// 2) lokales Frame-Array, vorzeichenlos
+void test_lokal_uns() {
+    uint16 u[8];
+    int i = 0;
+    while (i < 8) { u[i] = 60000 + i; i = i + 1; }
+    i = 0;
+    while (i < 8) { ck("lok uns", u[i], 60000 + i); i = i + 1; }
+    u[0] = 65535;   ck("uns max", u[0], 65535);
+    u[1] = 0;       ck("uns 0",   u[1], 0);
+    u[2] = -1;      ck("uns -1",  u[2], 65535);
+    u[3] = 32768;   ck("uns 32768", u[3], 32768);
+}
+
+// 3) globale Arrays, Nicht-Heap, und die Nachbarschaft zum Folge-Global
+void test_global() {
+    int i = 0;
+    while (i < 16) { gklein[i] = -30000 + i * 4000; i = i + 1; }
+    while (i < 32) { i = i + 1; }
+    i = 0;
+    while (i < 16) { guns[i] = 50000 + i; i = i + 1; }
+    // guns beschreiben darf gklein nicht angerührt haben
+    i = 0;
+    while (i < 16) { ck("glob sig", gklein[i], -30000 + i * 4000); i = i + 1; }
+    i = 0;
+    while (i < 16) { ck("glob uns", guns[i], 50000 + i); i = i + 1; }
+}
+
+// 4) globales Heap-Array
+void test_heap() {
+    int i = 0;
+    while (i < 2000) { ggross[i] = i - 1000; i = i + 1; }
+    ck("heap 0",    ggross[0], -1000);
+    ck("heap 999",  ggross[999], -1);
+    ck("heap 1000", ggross[1000], 0);
+    ck("heap 1999", ggross[1999], 999);
+    // Summe über alles: -1000..999
+    int s = 0;
+    i = 0;
+    while (i < 2000) { s = s + ggross[i]; i = i + 1; }
+    ck("heap summe", s, -1000);
+}
+
+// 5) Referenz-Argumente: die Referenz trägt die Elementbreite mit
+int ref_summe(int16 a[], int n) {
+    int s = 0;
+    int i = 0;
+    while (i < n) { s = s + a[i]; i = i + 1; }
+    return s;
+}
+int ref_summe_u(uint16 a[], int n) {
+    int s = 0;
+    int i = 0;
+    while (i < n) { s = s + a[i]; i = i + 1; }
+    return s;
+}
+void ref_fuellen(int16 a[], int n, int start) {
+    int i = 0;
+    while (i < n) { a[i] = start + i; i = i + 1; }
+}
+
+void test_ref() {
+    int16 l[8];
+    int i = 0;
+    while (i < 8) { l[i] = i + 1; i = i + 1; }
+    ck("ref lokal lesen", ref_summe(l, 8), 36);
+
+    i = 0;
+    while (i < 16) { gklein[i] = 2; i = i + 1; }
+    ck("ref global lesen", ref_summe(gklein, 16), 32);
+
+    i = 0;
+    while (i < 2000) { ggross[i] = 1; i = i + 1; }
+    ck("ref heap lesen", ref_summe(ggross, 2000), 2000);
+
+    ref_fuellen(l, 8, -100);
+    ck("ref lokal schreiben 0", l[0], -100);
+    ck("ref lokal schreiben 7", l[7], -93);
+
+    ref_fuellen(gklein, 16, 1000);
+    ck("ref global schreiben", gklein[15], 1015);
+
+    ref_fuellen(ggross, 2000, -500);
+    ck("ref heap schreiben 0", ggross[0], -500);
+    ck("ref heap schreiben n", ggross[1999], 1499);
+
+    // vorzeichenlos über die Referenz: 60000 darf NICHT als -5536 ankommen
+    i = 0;
+    while (i < 16) { guns[i] = 60000; i = i + 1; }
+    ck("ref uns", ref_summe_u(guns, 4), 240000);
+}
+
+// 6) Strukturen — gemischte Feldbreiten dürfen sich nicht überlappen
+void test_struct() {
+    int i = 0;
+    k_glob.stempel = 987654;
+    while (i < 6) { k_glob.wert[i] = -3000 + i * 1200; i = i + 1; }
+    i = 0;
+    while (i < 4) { k_glob.flagge[i] = 200 + i; i = i + 1; }
+    i = 0;
+    while (i < 4) { k_glob.roh[i] = 60000 + i; i = i + 1; }
+
+    ck("st stempel", k_glob.stempel, 987654);
+    i = 0;
+    while (i < 6) { ck("st wert", k_glob.wert[i], -3000 + i * 1200); i = i + 1; }
+    i = 0;
+    while (i < 4) { ck("st flagge", k_glob.flagge[i], 200 + i); i = i + 1; }
+    i = 0;
+    while (i < 4) { ck("st roh", k_glob.roh[i], 60000 + i); i = i + 1; }
+    ck("st stempel bleibt", k_glob.stempel, 987654);
+
+    // Feld von Strukturen: der Sprung je Element muss die gepackten Felder mitzählen
+    i = 0;
+    while (i < 3) {
+        k_feld[i].stempel = 100 + i;
+        k_feld[i].wert[0] = -500 - i;
+        k_feld[i].wert[5] = 500 + i;
+        k_feld[i].roh[3]  = 40000 + i;
+        k_feld[i].flagge[3] = 7 + i;
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 3) {
+        ck("feld stempel", k_feld[i].stempel, 100 + i);
+        ck("feld w0", k_feld[i].wert[0], -500 - i);
+        ck("feld w5", k_feld[i].wert[5], 500 + i);
+        ck("feld roh3", k_feld[i].roh[3], 40000 + i);
+        ck("feld flagge3", k_feld[i].flagge[3], 7 + i);
+        i = i + 1;
+    }
+}
+
+// 7) sortArray muss in ELEMENTbreite sortieren, nicht in int32-Slots
+void test_sort() {
+    int16 s[8];
+    s[0] = 300; s[1] = -100; s[2] = 32767; s[3] = 0;
+    s[4] = -32768; s[5] = 7; s[6] = -5; s[7] = 12000;
+    sortArray(s, 8, 0);                 // int aufsteigend
+    ck("sort 0", s[0], -32768);
+    ck("sort 1", s[1], -100);
+    ck("sort 2", s[2], -5);
+    ck("sort 3", s[3], 0);
+    ck("sort 4", s[4], 7);
+    ck("sort 5", s[5], 300);
+    ck("sort 6", s[6], 12000);
+    ck("sort 7", s[7], 32767);
+}
+
+// 8) persist — hier nur schreiben/lesen; das Zurückholen prüft ein Slot-Neustart
+void test_persist() {
+    int i = 0;
+    while (i < 16) { p_ring[i] = -8000 + i * 1000; i = i + 1; }
+    i = 0;
+    while (i < 16) { ck("persist", p_ring[i], -8000 + i * 1000); i = i + 1; }
+}
+
+// 9) sizeof antwortet in SLOTS: ein Skalar bleibt ein Slot
+void test_sizeof() {
+    ck("sizeof int16",  sizeof(int16), 1);
+    ck("sizeof uint16", sizeof(uint16), 1);
+    ck("sizeof byte",   sizeof(byte), 1);
+}
+
+int main() {
+    test_lokal_sig();
+    test_lokal_uns();
+    test_global();
+    test_heap();
+    test_ref();
+    test_struct();
+    test_sort();
+    test_persist();
+    test_sizeof();
+
+    addLog("int16-suite: %d/%d PASSED", g_pass, g_pass + g_fail);
+    return 0;
+}
