@@ -58,9 +58,11 @@ export class Parser {
         this.pos = 0;
         this.structTypes = new Map(); // tag  → [{ name, type }]
         this.typeAliases  = new Map(); // name → base type string ('int', 'float', 'struct:Tag', 'fnptr:Alias')
-        // `byte` is a built-in type NAME, not a keyword: two of our own examples
-        // name a variable `byte` (lcd_i2c.tc:87, onewire.tc:184) and other
-        // people's scripts surely do too. As an alias it behaves like a typedef:
+        // `byte` is a built-in type NAME, not a keyword: our own examples name a
+        // variable `byte` (byte_array_suite.tc has a regression test for exactly
+        // that; lcd_i2c.tc did too until it was itself converted to byte[]) and
+        // other people's scripts surely do too. As an alias it behaves like a
+        // typedef:
         // a type where a type belongs, an ordinary name everywhere else. That
         // keeps everything existing intact.
         this.typeAliases.set('byte', 'byte');

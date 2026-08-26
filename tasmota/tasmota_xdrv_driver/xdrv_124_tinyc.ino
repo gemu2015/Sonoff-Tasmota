@@ -4404,13 +4404,39 @@ static void TinyC_WebSetVar(uint8_t slot_idx) {
   if (sep > 0) {
     int32_t gidx = sv.substring(0, sep).toInt() & 0x0FFF;   // strip slot bits 12-14 (tc_widget_id)
     String val = sv.substring(sep + 1);
+    // webText, ref-addressed: "S_<ref>_<text>". Deliberately handled BEFORE the
+    // gidx bounds check below, because this form does not use gidx at all: the
+    // widget id cannot address an ARRAY (see the comment on SYS_WEB_TEXT), so
+    // webText sends its whole reference and the text is written through
+    // tc_cstr_to_ref() -- the VM's own writer, which resolves heap AND global
+    // refs and honours byte[] packing. Gating it on gidx would have meant
+    // gating a ref-addressed write on an unrelated number. (gemu 2026-08-26)
+    if (val.startsWith("S_")) {
+      int rsep = val.indexOf('_', 2);
+      if (rsep > 2) {
+        int32_t ref = (int32_t)strtol(val.substring(2, rsep).c_str(), nullptr, 10);
+        // The ref arrives from a URL, so it is bounded the way the index below
+        // is: accept ONLY the two forms webText can actually emit -- tag 2
+        // (global) and tag 3 without the const-pool bit (heap). Then
+        // tc_resolve_ref()/tc_ref_maxlen() cap the write inside that array. A
+        // LOCAL ref (tag 0/1) is refused outright: no script frame is live
+        // during an AJAX request, so it could only point at a stale frame.
+        uint8_t tag = ((uint32_t)ref) >> 30;
+        if ((tag == 2) || (tag == 3 && !tc_is_const_ref(ref))) {
+          tc_cstr_to_ref(&s->vm, ref, val.c_str() + rsep + 1);
+        }
+      }
+      return;
+    }
     // Bound to the slot's ACTUAL globals array (max(64, script's global_size)),
     // NOT TC_MAX_GLOBALS (512). globals is calloc'd to globals_size, so an out-of-
     // range widget id (crafted/stale ?sv=) would otherwise write past the array
     // -> heap corruption. (gemu 2026-06-24)
     if (gidx >= 0 && gidx < (int32_t)s->vm.globals_size) {
       if (val.startsWith("s_")) {
-        // String value: write chars as int32 into globals[gidx..]
+        // Legacy webText form, reachable only from a page still open in a
+        // browser from before the update: one character per int32 GLOBAL slot,
+        // which only ever worked for an inline (<= HEAP_THRESHOLD) char[].
         const char *str = val.c_str() + 2;
         int32_t maxLen = (int32_t)s->vm.globals_size - gidx - 1;
         int i;
@@ -5325,7 +5351,7 @@ static void HandleTinyCUI(void) {
       "var o=e.innerHTML,a=e.getAttribute('data-a')||'\\u2713',c=e.style.background,k=e.style.color;"
       "e.textContent=a;e.style.background='#0a0';e.style.color='#fff';"
       "setTimeout(function(){e.innerHTML=o;e.style.background=c;e.style.color=k;delete e.dataset.b;},2500);}"
-    "function siva(v,i){rfsh=1;la('&sv='+i+'_s_'+v);rfsh=0;}"
+    "function siva(v,i,r){rfsh=1;la('&sv='+i+'_S_'+r+'_'+v);rfsh=0;}"
     "function sivat(v,i){rfsh=1;la('&sv='+i+'_t_'+v);rfsh=0;}"
     "function pr(f){if(f){lt=setTimeout(la,2000);rfsh=1;}else{clearTimeout(lt);rfsh=0;}}"
     "window.onload=la;"
@@ -7281,7 +7307,7 @@ bool Xdrv124(uint32_t function) {
                 "var o=e.innerHTML,a=e.getAttribute('data-a')||'\\u2713',c=e.style.background,k=e.style.color;"
                 "e.textContent=a;e.style.background='#0a0';e.style.color='#fff';"
                 "setTimeout(function(){e.innerHTML=o;e.style.background=c;e.style.color=k;delete e.dataset.b;},2500);}"
-              "function siva(v,i){la('&sv='+i+'_s_'+v);}"
+              "function siva(v,i,r){la('&sv='+i+'_S_'+r+'_'+v);}"
               "function sivat(v,i){la('&sv='+i+'_t_'+v);}"
               "function pr(f){if(f){lt=setTimeout(la,%d);}else{clearTimeout(lt);clearTimeout(ft);}}"
               "</script>"

@@ -2189,11 +2189,28 @@ int main() {
         setLang(curLang);
 
         // ─── Syntax highlighting ─────────────────────────
+        // ⚠️ Keep these two in step with the LEXER's keyword table and the
+        // PARSER's typeAliases (idesrc/src/lexer.js, parser.js) -- they had
+        // drifted badly: `do`, `struct`, `enum`, `typedef`, `const`, `static`,
+        // `persist`, `watch` and `global` are all real keywords the editor drew
+        // as plain text, and every packed element type was missing, so a script
+        // converted from char[] to byte[] lost its colour exactly where the new
+        // type was. Same list again in vscode-tinyc/syntaxes/tinyc.tmLanguage.json.
         const HL_KEYWORDS = new Set([
-            'if', 'else', 'while', 'for', 'return',
-            'break', 'continue', 'switch', 'case', 'default'
+            'if', 'else', 'while', 'do', 'for', 'return',
+            'break', 'continue', 'switch', 'case', 'default',
+            'struct', 'enum', 'typedef', 'const', 'static',
+            'persist', 'watch', 'global', 'define'
         ]);
-        const HL_TYPES = new Set(['int', 'int32_t', 'uint32_t', 'unsigned', 'float', 'char', 'uint8_t', 'void', 'bool']);
+        // byte/short/ushort are context-sensitive type NAMES, not keywords (the
+        // parser treats them as typedefs so a variable may still be called
+        // `byte` -- see parser.js). Colouring them as types everywhere is the
+        // usual editor compromise and what people expect to see.
+        const HL_TYPES = new Set([
+            'int', 'int32_t', 'uint32_t', 'unsigned', 'float', 'void', 'bool',
+            'char', 'byte', 'uint8_t',
+            'int16', 'int16_t', 'short', 'uint16', 'uint16_t', 'ushort'
+        ]);
         const HL_BOOLS = new Set(['true', 'false']);
 
         function highlightSyntax(code) {

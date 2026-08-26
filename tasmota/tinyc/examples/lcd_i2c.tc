@@ -49,12 +49,21 @@ persist watch int dmode;
 persist watch int backlight;
 int line2_timer;        // countdown for line 2 refresh
 
-char line1[24];         // line buffer (max LCD_COLS chars displayed)
-char line2[24];         // line buffer
-char line1_custom[24];  // user-set custom text line 1
-char line2_custom[24];  // user-set custom text line 2
-char buf[64];
-char tmp[32];
+// ⚠️ byte[], not char[]: four characters per int32 slot. Text buffers are this
+// script's entire RAM appetite, so converting them (together with the three
+// local buffers in lcd_print() and Command()) takes it from 1884 B to 984 B --
+// worth having on an ESP8266, where it costs 216 B more bytecode.
+// The string syscalls (strcpy/strcat/sprintf/strSub/webSend/webText) all read
+// the packing off the reference, so none of the code below changes meaning.
+// The one place that would is a DIRECT index, and there is exactly one:
+// lcd_print() walks its own local -- which is packed too. That is the rule
+// when converting: a buffer and every parameter it flows into move together.
+byte line1[24];         // line buffer (max LCD_COLS chars displayed)
+byte line2[24];         // line buffer
+byte line1_custom[24];  // user-set custom text line 1
+byte line2_custom[24];  // user-set custom text line 2
+byte buf[64];
+byte tmp[32];
 
 // ═══════════════════════════════════════════════════════════════════
 // Low-level: write a single byte to PCF8574
@@ -84,9 +93,10 @@ void lcd_send4(int nibble, int mode) {
 // ═══════════════════════════════════════════════════════════════════
 // Send full byte as two nibbles (high first, then low)
 // ═══════════════════════════════════════════════════════════════════
-void lcd_send(int byte, int mode) {
-    lcd_send4(byte & 0xF0, mode);
-    lcd_send4((byte * 16) & 0xF0, mode);
+void lcd_send(int val, int mode) {
+    // (was `byte` -- that is a TYPE NAME since 1.6.58 and reads like one here)
+    lcd_send4(val & 0xF0, mode);
+    lcd_send4((val * 16) & 0xF0, mode);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -106,8 +116,8 @@ void lcd_data(int ch) {
 // ═══════════════════════════════════════════════════════════════════
 // Print string at current cursor position
 // ═══════════════════════════════════════════════════════════════════
-void lcd_print(char str[]) {
-    char lbuf[20];
+void lcd_print(byte str[]) {
+    byte lbuf[20];
     strcpy(lbuf, str);
     int i = 0;
     while (lbuf[i] != 0 && i < LCD_COLS) {
@@ -135,7 +145,7 @@ void lcd_setCursor(int row, int col) {
 // ═══════════════════════════════════════════════════════════════════
 // Print string on specific line (0 or 1)
 // ═══════════════════════════════════════════════════════════════════
-void lcd_printLine(int row, char str[]) {
+void lcd_printLine(int row, byte str[]) {
     lcd_setCursor(row, 0);
     lcd_print(str);
 }
@@ -317,9 +327,9 @@ void WebUI() {
 //   LCDOn             — backlight on
 //   LCDOff            — backlight off
 // ═══════════════════════════════════════════════════════════════════
-void Command(char cmd[]) {
-    char arg[24];
-    char resp[64];
+void Command(byte cmd[]) {
+    byte arg[24];
+    byte resp[64];
 
     if (strFind(cmd, "Print1") == 0) {
         if (strlen(cmd) > 7) {

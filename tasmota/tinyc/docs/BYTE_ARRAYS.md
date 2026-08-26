@@ -191,3 +191,35 @@ klaren Übersetzungsfehler statt einer stillen Fehladresse.
 `examples/byte_array_suite.tc` dort nie ausführen, es starb am ersten `strcmp`
 gegen ein Literal. Nachgetragen. (Die Krypto-Syscalls fehlen weiterhin, die
 Suite bleibt also ein Gerätetest.)
+
+**4. `webText()` schrieb noch nie dorthin zurück, wo der Puffer liegt.** Beim
+Umstellen von `lcd_i2c.tc` gesucht, ob die Packung den Web-Rückweg übersteht —
+und dabei einen älteren, schwereren Fehler gefunden, der mit `byte[]` gar nichts
+zu tun hat.
+
+Der Ablauf: `webText(puffer, 20, "Line 1")` rendert ein Eingabefeld mit
+`onchange='siva(value,<id>)'`; die `id` kommt aus `tc_widget_id(gref)` und ist
+`gref & 0x0FFF`. Der Rückweg in `TinyC_WebSetVar()` schrieb den getippten Text
+dann Zeichen für Zeichen nach `globals[id]`.
+
+Das kann für ein Array nicht stimmen. Arrays über `HEAP_THRESHOLD` (16 Elemente)
+liegen im **Heap**, nicht in den Globals — die unteren 12 Bit sind dann ein
+Heap-HANDLE. Handle 0 hieß `globals[0]`. Jeder `webText` auf einem Puffer > 16
+hat also den eingegebenen Text verworfen und stattdessen die ersten Skalare des
+Skripts überschrieben: `devname[32]` in `webui_demo.tc`, `webcall_demo.tc` und
+`multipage_demo.tc`, die beiden Textzeilen in `lcd_i2c.tc`. Nur `ip_in[16]` in
+`matter_bridge_ui.tc` — genau auf der Schwelle, also inline — hat je funktioniert.
+
+Unsichtbar war es, weil **nur der Rückweg** betroffen ist: das Anzeigen läuft
+über `tc_ref_to_cstr()`, das Heap-Referenzen sauber auflöst. Das Feld zeigte
+immer den richtigen Text und behielt nur den neuen nicht.
+
+Die Reparatur macht die Packung gleich mit: `webText` schickt seine **ganze
+Referenz** an das JavaScript (`siva(value,<id>,<ref>)` → `sv=<id>_S_<ref>_<text>`),
+und der Rückweg ruft `tc_cstr_to_ref()` — den Schreiber des VM selbst, der Heap
+und Globals kennt **und** die Elementbreite. Damit ist die Frage, mit der die
+Suche anfing, nebenbei beantwortet. Die Referenz kommt aus einer URL, wird also
+wie der Index vorher geprüft: nur Tag 2 (global) und Tag 3 ohne Const-Pool-Bit
+(Heap) werden angenommen, `tc_ref_maxlen()` begrenzt den Rest. Der alte
+`s_`-Zweig bleibt stehen, damit eine noch offene Browserseite keinen Unsinn
+schreibt.

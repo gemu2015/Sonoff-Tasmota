@@ -105,7 +105,7 @@
       "patterns": [
         {
           "name": "keyword.control.tinyc",
-          "match": "\\b(if|else|while|for|switch|case|default|return|break|continue)\\b"
+          "match": "\\b(if|else|while|do|for|switch|case|default|return|break|continue|struct|enum|typedef|const|static|global|define)\\b"
         },
         {
           "name": "keyword.operator.sizeof.tinyc",
@@ -117,7 +117,7 @@
       "patterns": [
         {
           "name": "storage.type.tinyc",
-          "match": "\\b(int|float|char|void|bool|uint8_t|uint32_t|int32_t|unsigned|persist|watch)\\b"
+          "match": "\\b(int|float|char|byte|void|bool|uint8_t|uint32_t|int32_t|int16|int16_t|short|uint16|uint16_t|ushort|unsigned|persist|watch)\\b"
         }
       ]
     },
