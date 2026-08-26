@@ -85,6 +85,7 @@ house_monitor.tcb
 hyundai_login.tcb
 hyundai_soc.tcb
 igmp_leave_smoke.tcb
+int16_array_suite.tcb
 jpg_on_canvas.tcb
 jpg_view_lvgl.tcb
 lcd_chart.tcb
