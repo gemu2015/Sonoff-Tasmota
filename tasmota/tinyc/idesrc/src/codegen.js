@@ -674,6 +674,16 @@ function istI16(type) {
     return type === 'int16' || type === 'uint16';
 }
 
+// Which parameter types may receive a STRING LITERAL? `char[]` always could;
+// `byte[]` must too, because since 1.6.58 it is a full replacement for char[]
+// in the string family and the const-pool ref is read through tc_ref_to_cstr,
+// which is kind-aware. Without this a script that converts a buffer to byte[]
+// cannot convert the helper that prints it -- every `f("literal")` call would
+// stop compiling (gemu 2026-08-26, on lcd_i2c.tc's lcd_printLine).
+function istTextParam(type) {
+    return type === 'char' || type === 'byte';
+}
+
 // Bytes per element — 4, 2 or 1. Used wherever an index has to be scaled from
 // elements to the storage's own units.
 function elemBytes(type) {
@@ -3623,7 +3633,7 @@ export class CodeGenerator {
                     this.isArrayVar(node.args[i].name)) {
                     this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                     this.emitArrayRefByName(node.args[i].name, node.line);
-                } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
+                } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && istTextParam(param.type)) {
                     this.emitStringArg(node.args[i]);
                 } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
                     // `arr + off` array arg emitted as a proper offset ref
@@ -4137,7 +4147,7 @@ export class CodeGenerator {
                         this.isArrayVar(node.args[i].name)) {
                         this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                         this.emitArrayRefByName(node.args[i].name, node.line);
-                    } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
+                    } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && istTextParam(param.type)) {
                         this.emitStringArg(node.args[i]);
                     } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
                         // `arr + off` array arg emitted as a proper offset ref
@@ -4236,7 +4246,7 @@ export class CodeGenerator {
                        (() => { const s = (this.scope && this.scope.lookup(node.args[i].name)) || this.globals.get(node.args[i].name); return s && s.cols && s.cols > 1; })()) {
                 // 2D char array row reference: arr[i] passed to char[] param
                 this.emitArrayRef(node.args[i]);
-            } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && param.type === 'char') {
+            } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && istTextParam(param.type)) {
                 // char[] param receiving a string literal: emit const-pool ref encoding
                 // (tag=3, handle = 0x8000|constIdx). Without this, LOAD_CONST pushes a
                 // plain int that the callee resolves as a garbage local ref.
