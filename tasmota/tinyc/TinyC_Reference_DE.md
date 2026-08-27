@@ -5866,6 +5866,48 @@ Wenn `/tinyc_repo.cfg` vorhanden ist, zeigt die TinyC-Konsolenseite ein zusaetzl
 
 Das Standard-Repository unter `https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode` enthaelt Beispielprogramme fuer Sensoren, Displays, Charts und mehr. Lade die mitgelieferte `tinyc_repo.cfg` auf dein Geraet hoch um es zu aktivieren.
 
+### Klarnamen und Info-Links (`// @name:` / `// @info:`)
+
+Beide Programmlisten auf der `/tc`-Seite zeigen nackte Dateinamen, solange ein
+Programm nichts anderes sagt. Zwei Kommentarzeilen am Anfang der `.tc` aendern
+das:
+
+```c
+// @name: SML Chart + Marstek CT002
+// @info: https://ottelo9.github.io/tasmota-sml-script/ct002/
+```
+
+Der Compiler legt beides in den `.tcb`-Kopf, und die Seite zeigt dann
+`SML Chart + Marstek CT002 (sml_chart_ct002.tcb)` samt einem **i**-Knopf neben
+der Liste, der den Link oeffnet. Der Knopf folgt der Auswahl und blendet ab,
+wenn das gewaehlte Programm keinen Link traegt.
+
+Alles daran ist optional. Ein Programm ohne diese Zeilen steht genau so in der
+Liste wie bisher, und `build.html` schreibt `index.json` **neben** `index.txt`
+-- die Repository-Box liest die JSON und faellt auf die Textdatei zurueck.
+Alte Firmware gegen ein neues Repository und neue Firmware gegen ein altes
+Repository laufen damit beide weiter.
+
+`index.json`:
+
+```json
+{"programs":[{"file":"blink.tcb","name":"Blink"},
+             {"file":"sml_chart_ct002.tcb","name":"SML Chart + Marstek CT002",
+              "info":"https://ottelo9.github.io/tasmota-sml-script/ct002/"}]}
+```
+
+Anmerkungen:
+- Der Name ist auf 48 Byte begrenzt, die URL auf 160, beide auf Zeichengrenze
+  gekuerzt -- ein halb abgeschnittener Umlaut wuerde sonst die Anzeige
+  zerlegen.
+- Angeboten werden nur `http://`- und `https://`-Links. Ein `javascript:` in
+  einer `.tcb`, die jemand anderes uebersetzt hat, liefe sonst in der Herkunft
+  des Geraets.
+- Diese Felder aendern den Bytecode **nicht**. Der V6-Kopf ist
+  selbstbeschreibend (`header_size` in B20-21), eine Firmware, die davon nichts
+  weiss, ueberliest sie -- kein ABI-Schritt, jedes Geraet im Feld laedt so eine
+  `.tcb`. Alles hinter dem Kopf ist bytegleich mit einem Bau ohne Annotation.
+
 ### API-Endpunkte
 
 Die JSON-API unter `/tc_api` unterstuetzt einen `slot`-Parameter:

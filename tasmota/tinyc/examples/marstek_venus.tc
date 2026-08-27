@@ -1,3 +1,4 @@
+// @name: Marstek Venus
 // marstek_venus.tc — Marstek Venus E (5.12 kWh) surplus/reserve controller.
 // Real control via -DMK_REAL (UDP-JSON to the Venus, live on .170); the default
 // build simulates the battery so the control logic can be tested without hardware.

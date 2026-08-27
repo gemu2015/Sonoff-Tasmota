@@ -6047,6 +6047,46 @@ When `/tinyc_repo.cfg` is present, the TinyC console page shows an additional **
 
 The default repository at `https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode` contains example programs for sensors, displays, charts, and more. Upload the provided `tinyc_repo.cfg` to your device to enable it.
 
+### Plain names and info links (`// @name:` / `// @info:`)
+
+Both program lists on the `/tc` page show bare filenames unless a program says
+otherwise. Two comment lines at the top of the `.tc` fix that:
+
+```c
+// @name: SML Chart + Marstek CT002
+// @info: https://ottelo9.github.io/tasmota-sml-script/ct002/
+```
+
+The compiler puts both into the `.tcb` header, and the page then shows
+`SML Chart + Marstek CT002 (sml_chart_ct002.tcb)` with an **i** button next to
+the list that opens the link. The button follows the selection and dims when
+the chosen program carries no link.
+
+Everything here is optional. A program without these lines is listed exactly as
+it always was, and `build.html` writes `index.json` **next to** `index.txt` —
+the Repository box reads the JSON and falls back to the text file, so old
+firmware against a new repository and new firmware against an old repository
+both keep working.
+
+`index.json`:
+
+```json
+{"programs":[{"file":"blink.tcb","name":"Blink"},
+             {"file":"sml_chart_ct002.tcb","name":"SML Chart + Marstek CT002",
+              "info":"https://ottelo9.github.io/tasmota-sml-script/ct002/"}]}
+```
+
+Notes:
+- The name is capped at 48 bytes, the URL at 160, both cut on a character
+  boundary so a truncated umlaut cannot break the display.
+- Only `http://` and `https://` links are offered. A `javascript:` URL in a
+  `.tcb` someone else compiled would otherwise run in the device's own origin.
+- Adding these fields does **not** change the bytecode. The V6 header is
+  self-describing (`header_size` in B20-21), so firmware that knows nothing
+  about them skips them — no ABI step, and every device in the field loads such
+  a `.tcb`. Everything after the header is byte-identical to a build without
+  the annotation.
+
 ### API Endpoints
 
 The JSON API at `/tc_api` supports a `slot` parameter:

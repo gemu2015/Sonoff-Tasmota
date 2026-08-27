@@ -1,3 +1,4 @@
+// @name: Blink
 // Blink LED on pin 8 (classic Arduino blink)
 #define LED_PIN 8
 #define INPUT         0x01

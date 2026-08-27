@@ -1,3 +1,4 @@
+// @name: EcoTracker / Shelly Emulation
 // Unified PV-battery meter emulator — EcoTracker + Shelly Pro 3EM
 // TinyC port of ottelo's *_EcoTrackerEmu / *_ShellyEmu Scripter scripts.
 //

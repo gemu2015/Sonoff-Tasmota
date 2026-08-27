@@ -35,8 +35,31 @@ export class CompilerError extends Error {
     }
 }
 
+// Klarname und Info-URL aus dem Quelltext ziehen. Gleiche Machart wie das
+// schon vorhandene `// @defines:` im Praeprozessor -- ein Kommentar am Anfang
+// der Datei, keine neue Sprachkonstruktion:
+//
+//   // @name: SML Chart CT002
+//   // @info: https://github.com/.../wiki/sml_chart_ct002
+//
+// ⚠️ Der ERSTE Treffer gewinnt. `compile()` sieht den Quelltext MIT bereits
+// eingesetzten `#include`s, und ein Baustein aus examples/common/ koennte
+// selbst eine solche Zeile tragen. In der ueblichen Anordnung steht der
+// Programmkopf vor den Includes und gewinnt damit von selbst; wo es darauf
+// ankommt (build.html baut index.json), wird der Wert ueber `options.meta`
+// aus der UNAUFGELOESTEN Datei mitgegeben und gar nicht erst geraten.
+export function pragmaMeta(source) {
+    const hol = (schluessel) => {
+        const m = String(source || '').match(
+            new RegExp('^[ \t]*//[ \t]*@' + schluessel + ':[ \t]*(.+)$', 'm'));
+        return m ? m[1].trim() : '';
+    };
+    return { name: hol('name'), info: hol('info') };
+}
+
 export function compile(source, options = {}) {
     const predefined = options.defines || [];
+    const meta = options.meta || pragmaMeta(source);
     // Phase 0: Preprocess (#ifdef, #ifndef, #if, #else, #endif)
     let preprocessed;
     try {
@@ -73,6 +96,8 @@ export function compile(source, options = {}) {
         // die ABI des Geraets durch, das im Feld "Device IP" steht — also genau des
         // Geraets, auf dem die .tcb landet. Ohne Angabe: volles SYSCALL_ABI wie bisher.
         const codegen = new CodeGenerator(options.targetAbi);
+        codegen._metaName = meta.name || '';
+        codegen._metaInfo = meta.info || '';
         compiled = codegen.compile(ast);
     } catch (e) {
         if (e instanceof CodeGenError) throw new CompilerError('CodeGen', e);
@@ -81,6 +106,7 @@ export function compile(source, options = {}) {
 
     return {
         ...compiled,
+        meta,
         tokens,
         ast,
     };

@@ -770,6 +770,8 @@ export class CodeGenerator {
             ? Math.min(targetAbi, SYSCALL_ABI) : SYSCALL_ABI;
         this._abiMin = CodeGenerator._ABI_BASIS;   // tatsaechlicher Mindestbedarf, siehe emit()
         this._syscallOffen = 0;                    // 1 = SYSCALL, 2 = SYSCALL2, Nummer folgt
+        this._metaName = '';        // // @name:  -> Kopf-TLV 1, siehe compile()
+        this._metaInfo = '';        // // @info:  -> Kopf-TLV 2
         this.code = [];             // bytecode output
         this.constants = [];        // constant pool (strings, large numbers)
         this.globals = new Map();   // name -> { index, type, isArray, arraySize }
@@ -5418,6 +5420,46 @@ export class CodeGenerator {
         header.push((abiRev >> 8) & 0xFF);
         header.push(abiRev & 0xFF);
         for (let i = 0; i < 12; i++) header.push(0);  // reserved[12] (B28-39), zero-filled for future fields
+
+        // ─── Metadaten hinter dem festen Kopf (ab B40) ───────────────────────
+        // Klarname und Info-URL, damit die Auswahllisten auf der /tc-Seite nicht
+        // nur `sml_chart_ct002.tcb` anzeigen muessen.
+        //
+        // ⚠️ DAS BRICHT NICHTS. Der V6-Kopf ist selbstbeschreibend: `header_size`
+        // steht in B20-21, und der Lader findet ALLES relativ dazu
+        // (`const_end = header_size + const_pool_size`, `offset = header_size` in
+        // xdrv_124_tinyc_vm.h). Eine Firmware, die von diesen Feldern nichts
+        // weiss, ueberliest sie deshalb korrekt -- kein ABI-Schritt, kein
+        // Formatbruch, jedes Geraet im Feld laedt eine so gebaute .tcb.
+        //
+        // TLV statt fester Felder, damit spaeter etwas dazukommen kann, ohne
+        // dass eine aeltere Firmware ins Stolpern geraet: sie liest die Kennungen,
+        // die sie kennt, und ueberspringt den Rest ueber `len`.
+        //   u8 tag, u8 len, len Bytes UTF-8    tag 1 = Name, 2 = Info-URL
+        const metaBytes = [];
+        const pushMeta = (tag, text, max) => {
+            if (!text) return;
+            let b = Array.from(new TextEncoder().encode(String(text).trim()));
+            if (!b.length) return;
+            // ⚠️ Auf ZEICHENGRENZE kuerzen, nicht auf Bytes: ein mitten durch ein
+            // UTF-8-Zeichen abgeschnittener Name endet in einem halben Zeichen und
+            // faerbt in der Anzeige die restliche Zeile ein.
+            if (b.length > max) {
+                b = b.slice(0, max);
+                while (b.length && (b[b.length - 1] & 0xC0) === 0x80) b.pop();
+                if (b.length && (b[b.length - 1] & 0x80)) b.pop();
+            }
+            if (!b.length) return;
+            metaBytes.push(tag, b.length, ...b);
+        };
+        pushMeta(1, this._metaName, 48);
+        pushMeta(2, this._metaInfo, 160);
+        if (metaBytes.length) {
+            const hs = HEADER_SIZE_V6 + metaBytes.length;
+            header[20] = (hs >> 8) & 0xFF;      // header_size neu setzen
+            header[21] = hs & 0xFF;
+            header.push(...metaBytes);
+        }
 
         // Combine: header + constant pool + heap declarations + function table + persist table + globals table + code
         const totalSize = header.length + constPool.length + heapDecl.length + funcTable.length + persistTable.length + globalsTable.length + this.code.length;
