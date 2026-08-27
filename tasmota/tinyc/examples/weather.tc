@@ -14,7 +14,7 @@
 //   geocoding  geocoding-api.open-meteo.com   (city name -> lat/lon)
 //   ip locate  ip-api.com                (public-IP -> approximate lat/lon/city)
 //
-// Solar yield is ESTIMATED from shortwave_radiation_sum (global horizontal irradiance):
+// Solar yield is ESTIMATED from shortwave_radiation_sum (global horizontal irradiance(GHI):
 //     yield_kWh ≈ GHI[MJ/m²] / 3.6 * KWP * PR     — tune KWP/PR to your array.
 
 #define DEF_LAT  "50.94"       // neutral default (Köln); auto-detect or `WX loc` overrides
@@ -37,7 +37,7 @@ char want_geocode[40];         // queue a geocode of this city name (set by `WX 
 float f_tmax[NDAYS];
 float f_tmin[NDAYS];
 float f_precip[NDAYS];         // [mm]
-float f_rad[NDAYS];            // shortwave radiation sum [MJ/m²]
+float f_rad[NDAYS];            // shortwave radiation sum [MJ/m²] (aka GHI)
 float f_yield[NDAYS];          // estimated PV yield [kWh]
 float f_wind[NDAYS];           // max wind [km/h]
 float f_gust[NDAYS];           // max gusts [km/h]
@@ -66,13 +66,14 @@ char  cfg_city[40];            // CITY= from the cfg — geocoded, overrides IP 
 // JS hook: line charts default to bare-index x-ticks over a >7-day span; relabel
 // them with the same "DD.MM." dates the column (rain) chart shows. Runs in the
 // chart draw scope (dt=DataTable col0=datetime, o=options).
-char  jsdate[220];
+const char  jsdate[198] = "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;";
+char jsChartOptions[226];
 
 // Parse NDAYS comma-separated numbers from the JSON array following `key`. `key`
 // must include `":["` so it matches the data array, not "daily_units" (`":"unit"`).
 // Returns the number of REAL (non-null) values parsed. Open-Meteo emits `null`
 // for forecast days beyond the model horizon (e.g. day 16 for some locations —
-// mi-hol's Geilenkirchen: "…,34.1,28.4,null"). atof("null") would be 0.0 and
+// Geilenkirchen: "…,34.1,28.4,null"). atof("null") would be 0.0 and
 // plot a bogus zero at the right edge; instead we stop at the first null so the
 // caller can shrink the chart to the days that actually have data.
 int parse16(char json[], char key[], float out[]) {
@@ -196,7 +197,7 @@ void do_fetch() {
     while (i < vdays) { f_yield[i] = f_rad[i] / 3.6 * kwp * pr; i = i + 1; }
     valid = 1;
     fetched_at = tasm_uptime;
-    addLog("weather: %dd ok %s - today %.1f/%.1f C, yield ~%.0f kWh, wind %.0f/%.0f",
+    addLog("weather: %dd ok %s - today %.1f/%.1f C, yield ~%.1f kWh, wind %.0f/%.0f",
            ndays, p_city, f_tmax[0], f_tmin[0], f_yield[0], f_wind[0], f_gust[0]);
 }
 
@@ -225,7 +226,7 @@ void WebCall() {
     char b[180];
     char wd[8];
     sprintf(b, "{s}&#127780; Wetter %s &middot; %d Tage{m}%s, %s{e}", p_city, ndays, p_lat, p_lon); webSend(b);
-    sprintf(b, "{s}&#9728; PV-Anlage (cfg){m}%.1f kWp &middot; PR %.2f{e}", kwp, pr); webSend(b);
+    sprintf(b, "{s}&#9728; PV-Anlage (cfg){m}%.2f kWp &middot; PR %.2f{e}", kwp, pr); webSend(b);
     if (valid == 0) {
         webSend("{s}{m}<span style='color:#f88'>warte auf Wetterdaten&hellip;</span>{e}");
         return;
@@ -233,9 +234,9 @@ void WebCall() {
     sprintf(b, "{s}Heute{m}%.1f / %.1f &deg;C &middot; Regen %.1f mm{e}", f_tmax[0], f_tmin[0], f_precip[0]); webSend(b);
     compass((int)f_wdir[0], wd);
     sprintf(b, "{s}&#127788; Wind heute{m}%.0f km/h &middot; B&ouml;en %.0f &middot; aus %s{e}", f_wind[0], f_gust[0], wd); webSend(b);
-    sprintf(b, "{s}&#9728; Solar heute (Prognose){m}%.0f kWh{e}", f_yield[0]);                                webSend(b);
-    sprintf(b, "{s}&#9728; Solar %d Tage{m}%.0f kWh (&oslash; %.0f/Tag){e}", ndays, sum16(f_yield), sum16(f_yield) / ndays); webSend(b);
     sprintf(b, "{s}&#127783; Regen %d Tage{m}%.0f mm{e}", ndays, sum16(f_precip));                            webSend(b);
+    sprintf(b, "{s}&#9728; Solar heute (Prognose){m}%.1f kWh{e}", f_yield[0]);                                webSend(b);
+    sprintf(b, "{s}&#9728; Solar %d Tage{m}%.1f kWh (&oslash; %.1f/Tag){e}", ndays, sum16(f_yield), sum16(f_yield) / ndays); webSend(b);
     sprintf(b, "{s}Aktualisiert vor{m}%d min{e}", (tasm_uptime - fetched_at) / 60);                           webSend(b);
 }
 
@@ -245,15 +246,24 @@ void WebPage() {
     // index 15 = +15 days (x-axis runs today -> +15).
     webSend("<fieldset style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wetterprognose</legend>");
     webSend("<div style='margin-left:-12px'>");
-    WebChartTimeBase((vdays - 1) * 1440);
+    WebChartTimeBase((vdays - 1) * 1440);   
+
     WebChart(0, "Temperatur (°C)",              "Max", 0xe74c3c, 0, vdays, f_tmax, 1, 1440, 0, 0);
     WebChart(0, "",                             "Min", 0x3498db, 0, vdays, f_tmin, 1, 1440, 0, 0);
-    WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
-    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0, 0);
-    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  0, 1440, 0, 0);
+    WebChartJS(jsdate);                          // DD.MM. x-axis
+
+    WebChart(1, "Regen (mm)",                   "mm",  0x3498db, 0, vdays, f_precip, 1, 1440, 0.0, 0);
+    WebChartJS(jsdate);                          // DD.MM. x-axis
+
     WebChart(0, "Wind (km/h)",                  "Max",       0x27ae60, 0, vdays, f_wind, 0, 1440, 0, 0);
     WebChart(0, "",                             "Böen",      0xe67e22, 0, vdays, f_gust, 0, 1440, 0, 0);
-    WebChartJS(jsdate);                          // DD.MM. x-axis like the rain chart
+    WebChartJS(jsdate);                          // DD.MM. x-axis
+
+    strcat(jsChartOptions,jsdate);                // DD.MM. x-axis
+    strcat(jsChartOptions, "o.vAxis.viewWindow={min:0};");    // avoid mis-leading auto-scaling of bar chart
+    WebChart(1, "Solar-Ertrag Prognose (kWh)",  "kWh", 0xf39c12, 0, vdays, f_yield,  1, 1440, 0.0, 0);
+    WebChartJS(jsChartOptions); 
+
     WebChartTimeBase(0);
     webSend("</div>");
     webSend("</fieldset>");
@@ -296,7 +306,6 @@ int main() {
         if (hc >= 0) { sprintf(cfgbuf, "// weather.tc config - edit, then send WX to apply\n// Location by name (geocoded). Leave blank/commented to auto-detect by IP.\n// CITY=Erftstadt\n// PV peak power [kWp]\nKWP=%.2f\n// performance ratio (system losses)\nPR=%.2f\n// days to fetch/show forecast, clamped 4..16\nNDAYS=%d\n", kwp, pr, ndays); fileWrite(hc, cfgbuf, strlen(cfgbuf)); fileClose(hc); }
     }
     read_cfg();
-    strcpy(jsdate, "var t=[];for(var i=0;i<dt.getNumberOfRows();i++){var d=dt.getValue(i,0);t.push({v:d,f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}if(!o.hAxis)o.hAxis={};o.hAxis.ticks=t;");
     if (strlen(p_lat) < 2) {                  // first run — seed defaults
         strcpy(p_lat, DEF_LAT); strcpy(p_lon, DEF_LON); strcpy(p_city, DEF_CITY);
         loc_set = 0; saveVars();
