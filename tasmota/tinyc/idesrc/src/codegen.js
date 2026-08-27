@@ -180,7 +180,7 @@ const BUILTINS = {
     'smlGet':           { syscall: Syscall.SML_GET,         args: 1, returns: true },
     'smlGetStr':        { syscall: Syscall.SML_GETSTR,      args: 2, returns: true,  strArgs: [1], byteAbi: { args: [1], abi: 26 } },
     'smlWrite':         { syscall: Syscall.SML_WRITE,       args: 2, returns: true,  strArgs: [1] },
-    'smlRead':          { syscall: Syscall.SML_READ,        args: 2, returns: true,  strArgs: [1] },
+    'smlRead':          { syscall: Syscall.SML_READ,        args: 2, returns: true,  strArgs: [1], byteAbi: { args: [1], abi: 28 } },
     'smlSetBaud':       { syscall: Syscall.SML_SETBAUD,     args: 2, returns: true },
     'smlSetWStr':       { syscall: Syscall.SML_SETWSTR,     args: 2, returns: true,  strArgs: [1] },
     'smlSetOptions':    { syscall: Syscall.SML_SETOPT,      args: 1, returns: true },
@@ -273,7 +273,7 @@ const BUILTINS = {
     'sppRead':          { syscall: Syscall.SPP_READ,       args: 2, returns: true,  strArgs: [0], intArgs: [1] },
     'sppWrite':         { syscall: Syscall.SPP_WRITE,      args: 2, returns: true,  strArgs: [0], intArgs: [1] },
     'sppClose':         { syscall: Syscall.SPP_CLOSE,      args: 0, returns: true },
-    'sppScan':          { syscall: Syscall.SPP_SCAN,       args: 3, returns: true,  strArgs: [0], intArgs: [1, 2] },
+    'sppScan':          { syscall: Syscall.SPP_SCAN,       args: 3, returns: true,  strArgs: [0], intArgs: [1, 2], byteAbi: { args: [0], abi: 28 } },
     'sppDeinit':        { syscall: Syscall.SPP_DEINIT,     args: 0, returns: true },
     'fileSize':         { syscall: Syscall.FILE_SIZE,       args: 1, returns: true,  constArgs: [0] },
     'fileFormat':       { syscall: Syscall.FILE_FORMAT,    args: 0, returns: true },
@@ -284,9 +284,9 @@ const BUILTINS = {
     // fileReadArray / fileWriteArray handled as special cases in compileCallExpr (optional count/append/decimals)
     'fileLog':          { syscall: Syscall.FILE_LOG,       args: 3, returns: true,  constArgs: [0], strArgs: [1] },
     'fileDownload':     { syscall: Syscall.FILE_DOWNLOAD, args: 2, returns: true,  constArgs: [0], strArgs: [1] },
-    'fileGetStr':       { syscall: Syscall.FILE_GET_STR, args: 5, returns: true,  strArgs: [0], constArgs: [2] },
+    'fileGetStr':       { syscall: Syscall.FILE_GET_STR, args: 5, returns: true,  strArgs: [0], constArgs: [2], byteAbi: { args: [0], abi: 28 } },
     'fileOpenDir':      { syscall: Syscall.FILE_OPENDIR,   args: 1, returns: true,  constArgs: [0] },
-    'fileReadDir':      { syscall: Syscall.FILE_READDIR,   args: 2, returns: true,  strArgs: [1] },
+    'fileReadDir':      { syscall: Syscall.FILE_READDIR,   args: 2, returns: true,  strArgs: [1], byteAbi: { args: [1], abi: 28 } },
     'fileRange':        { syscall: Syscall.FILE_RANGE,     args: 3, returns: true,  strArgs: [1, 2] },
     'fsInfo':           { syscall: Syscall.FS_INFO,        args: 1, returns: true },
 
@@ -331,7 +331,7 @@ const BUILTINS = {
     // Generic JSON parsing on ANY char[] buffer (e.g. an httpGet response from a
     // remote device). Path is '#'-separated like sensorGet ("StatusSNS#SHT3X#Temperature").
     'jsonNum':          { syscall: Syscall.JSON_NUM,        args: 2, returns: true,  strArgs: [0, 1], returnFloat: true },
-    'jsonStr':          { syscall: Syscall.JSON_STR,        args: 3, returns: true,  strArgs: [0, 1, 2] },
+    'jsonStr':          { syscall: Syscall.JSON_STR,        args: 3, returns: true,  strArgs: [0, 1, 2], byteAbi: { args: [0, 2], abi: 28 } },
 
     // Cross-VM shared key/value store — let two slots share named scalars/strings
     'shareSetInt':      { syscall: Syscall.SHARE_SET_INT,   args: 2, returns: false, constArgs: [0], intArgs: [1] },
@@ -381,15 +381,15 @@ const BUILTINS = {
     'httpGet':          { syscall: Syscall.HTTP_GET,         args: 2, returns: true,  strArgs: [0, 1], byteAbi: { args: [1], abi: 26 } },
     'httpPost':         { syscall: Syscall.HTTP_POST,        args: 3, returns: true,  strArgs: [0, 1, 2], byteAbi: { args: [2], abi: 26 } },
     'httpHeader':       { syscall: Syscall.HTTP_HEADER,      args: 2, returns: false, strArgs: [0, 1] },
-    'webParse':         { syscall: Syscall.WEB_PARSE,        args: 4, returns: true,  strArgs: [0, 3], constArgs: [1] },
+    'webParse':         { syscall: Syscall.WEB_PARSE,        args: 4, returns: true,  strArgs: [0, 3], constArgs: [1], byteAbi: { args: [0, 3], abi: 28 } },
 
     // Raw TLS client (one connection at a time; ESP32; call from a TaskLoop — these BLOCK).
     // Speak raw HTTPS yourself: write a request, read status/headers/body → OAuth flows,
     // redirects, cookies, request signing all stay in the .tcb (hot-reloadable).
     'tlsConnect':       { syscall: Syscall.TLS_CONNECT,     args: 2, returns: true,  strArgs: [0] },     // (host, port) 0=ok -1=fail
     'tlsWrite':         { syscall: Syscall.TLS_WRITE,       args: 1, returns: true,  strArgs: [0] },     // (request) -> bytes written
-    'tlsReadLine':      { syscall: Syscall.TLS_READ_LINE,   args: 1, returns: true,  strArgs: [0] },     // (buf) -> len, -1 none (headers)
-    'tlsRead':          { syscall: Syscall.TLS_READ,        args: 2, returns: true,  strArgs: [0] },     // (buf, maxbytes) -> count (body)
+    'tlsReadLine':      { syscall: Syscall.TLS_READ_LINE,   args: 1, returns: true,  strArgs: [0], byteAbi: { args: [0], abi: 28 } },     // (buf) -> len, -1 none (headers)
+    'tlsRead':          { syscall: Syscall.TLS_READ,        args: 2, returns: true,  strArgs: [0], byteAbi: { args: [0], abi: 28 } },     // (buf, maxbytes) -> count (body)
     'tlsAvailable':     { syscall: Syscall.TLS_AVAILABLE,   args: 0, returns: true },
     'tlsConnected':     { syscall: Syscall.TLS_CONNECTED,   args: 0, returns: true },
     'tlsStop':          { syscall: Syscall.TLS_STOP,        args: 0, returns: false },
@@ -494,7 +494,7 @@ const BUILTINS = {
     'webSendJsonArray': { syscall: Syscall.WEB_SEND_JSON_ARRAY, args: 2, returns: false, strArgs: [0] },
     'webOn':            { syscall: Syscall.WEB_ON,          args: 2, returns: false, constArgs: [1] },
     'webHandler':       { syscall: Syscall.WEB_HANDLER,     args: 0, returns: true },
-    'webArg':           { syscall: Syscall.WEB_ARG,         args: 2, returns: true, constArgs: [0], strArgs: [1] },
+    'webArg':           { syscall: Syscall.WEB_ARG,         args: 2, returns: true, constArgs: [0], strArgs: [1], byteAbi: { args: [1], abi: 28 } },
     'mdnsRegister':     { syscall: Syscall.MDNS,            args: 3, returns: true, constArgs: [0, 1, 2] },
     'webConsoleButton': { syscall: Syscall.WEB_CONSOLE_BUTTON, args: 2, returns: false, constArgs: [0, 1] },
     // byteRefArgs: this ref argument may be a packed byte[], and the syscall
@@ -505,7 +505,7 @@ const BUILTINS = {
     'WebChartSize':     { syscall: Syscall.WEB_CHART_SIZE,      args: 2, returns: false },
     'WebChartTimeBase': { syscall: Syscall.WEB_CHART_TBASE,     args: 1, returns: false },
     'WebChartJS':       { syscall: Syscall.WEB_CHART_JS,        args: 1, returns: false, strArgs: [0] },
-    'pluginQuery':      { syscall: Syscall.PLUGIN_QUERY,        args: 4, returns: true,  strArgs: [0] },
+    'pluginQuery':      { syscall: Syscall.PLUGIN_QUERY,        args: 4, returns: true,  strArgs: [0], byteAbi: { args: [0], abi: 28 } },
     // sortArray sorts IN PLACE, so it has to know the element width or it
     // reorders int32 slots across a packed array. packedAbi says which firmware
     // is needed once the ref carries a kind: WebChart has taken a byte[] since
@@ -621,7 +621,7 @@ const BUILTINS = {
     'pwlRequest':       { syscall: Syscall.PWL_REQUEST,      args: 1, returns: true,  strArgs:   [0] },
     'pwlBind':          { syscall: Syscall.PWL_BIND,         args: 2, returns: false, refArgs: [0], constArgs: [1] },
     'pwlGet':           { syscall: Syscall.PWL_GET_FLOAT,    args: 1, returns: true,  constArgs: [0] },
-    'pwlStr':           { syscall: Syscall.PWL_GET_STR,      args: 2, returns: true,  constArgs: [0], strArgs: [1] },
+    'pwlStr':           { syscall: Syscall.PWL_GET_STR,      args: 2, returns: true,  constArgs: [0], strArgs: [1], byteAbi: { args: [1], abi: 28 } },
 
     // HomeKit (ESP32 — requires USE_HOMEKIT)
     'hkSetCode':        { syscall: Syscall.HK_SET_CODE,      args: 1, returns: false, constArgs: [0] },
