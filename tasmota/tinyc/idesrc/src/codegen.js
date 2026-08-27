@@ -770,8 +770,8 @@ export class CodeGenerator {
             ? Math.min(targetAbi, SYSCALL_ABI) : SYSCALL_ABI;
         this._abiMin = CodeGenerator._ABI_BASIS;   // tatsaechlicher Mindestbedarf, siehe emit()
         this._syscallOffen = 0;                    // 1 = SYSCALL, 2 = SYSCALL2, Nummer folgt
-        this._metaName = '';        // // @name:  -> Kopf-TLV 1, siehe compile()
-        this._metaInfo = '';        // // @info:  -> Kopf-TLV 2
+        this._metaName = '';        // // @name:  -> header TLV 1, see compile()
+        this._metaInfo = '';        // // @info:  -> header TLV 2
         this.code = [];             // bytecode output
         this.constants = [];        // constant pool (strings, large numbers)
         this.globals = new Map();   // name -> { index, type, isArray, arraySize }
@@ -5421,29 +5421,29 @@ export class CodeGenerator {
         header.push(abiRev & 0xFF);
         for (let i = 0; i < 12; i++) header.push(0);  // reserved[12] (B28-39), zero-filled for future fields
 
-        // ─── Metadaten hinter dem festen Kopf (ab B40) ───────────────────────
-        // Klarname und Info-URL, damit die Auswahllisten auf der /tc-Seite nicht
-        // nur `sml_chart_ct002.tcb` anzeigen muessen.
+        // ─── Metadata behind the fixed header (from B40) ─────────────────────
+        // Plain name and info URL, so the pickers on the /tc page do not have to
+        // show `sml_chart_ct002.tcb` and nothing else.
         //
-        // ⚠️ DAS BRICHT NICHTS. Der V6-Kopf ist selbstbeschreibend: `header_size`
-        // steht in B20-21, und der Lader findet ALLES relativ dazu
+        // ⚠️ THIS BREAKS NOTHING. The V6 header is self-describing: header_size
+        // sits in B20-21 and the loader finds EVERYTHING relative to it
         // (`const_end = header_size + const_pool_size`, `offset = header_size` in
-        // xdrv_124_tinyc_vm.h). Eine Firmware, die von diesen Feldern nichts
-        // weiss, ueberliest sie deshalb korrekt -- kein ABI-Schritt, kein
-        // Formatbruch, jedes Geraet im Feld laedt eine so gebaute .tcb.
+        // xdrv_124_tinyc_vm.h). Firmware that knows nothing about these fields
+        // therefore skips them correctly -- no ABI step, no format break, every
+        // device in the field loads a .tcb built this way.
         //
-        // TLV statt fester Felder, damit spaeter etwas dazukommen kann, ohne
-        // dass eine aeltere Firmware ins Stolpern geraet: sie liest die Kennungen,
-        // die sie kennt, und ueberspringt den Rest ueber `len`.
-        //   u8 tag, u8 len, len Bytes UTF-8    tag 1 = Name, 2 = Info-URL
+        // TLV rather than fixed fields so more can be added later without
+        // tripping older firmware: it reads the tags it knows and skips the rest
+        // by `len`.
+        //   u8 tag, u8 len, len bytes UTF-8    tag 1 = name, 2 = info URL
         const metaBytes = [];
         const pushMeta = (tag, text, max) => {
             if (!text) return;
             let b = Array.from(new TextEncoder().encode(String(text).trim()));
             if (!b.length) return;
-            // ⚠️ Auf ZEICHENGRENZE kuerzen, nicht auf Bytes: ein mitten durch ein
-            // UTF-8-Zeichen abgeschnittener Name endet in einem halben Zeichen und
-            // faerbt in der Anzeige die restliche Zeile ein.
+            // ⚠️ Truncate on a CHARACTER boundary, not on bytes: a name cut
+            // through the middle of a UTF-8 sequence ends in half a character
+            // and smears the rest of the line in the display.
             if (b.length > max) {
                 b = b.slice(0, max);
                 while (b.length && (b[b.length - 1] & 0xC0) === 0x80) b.pop();
@@ -5456,7 +5456,7 @@ export class CodeGenerator {
         pushMeta(2, this._metaInfo, 160);
         if (metaBytes.length) {
             const hs = HEADER_SIZE_V6 + metaBytes.length;
-            header[20] = (hs >> 8) & 0xFF;      // header_size neu setzen
+            header[20] = (hs >> 8) & 0xFF;      // rewrite header_size
             header[21] = hs & 0xFF;
             header.push(...metaBytes);
         }

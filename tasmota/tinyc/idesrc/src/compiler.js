@@ -35,19 +35,19 @@ export class CompilerError extends Error {
     }
 }
 
-// Klarname und Info-URL aus dem Quelltext ziehen. Gleiche Machart wie das
-// schon vorhandene `// @defines:` im Praeprozessor -- ein Kommentar am Anfang
-// der Datei, keine neue Sprachkonstruktion:
+// Pull the plain name and info URL out of the source. Same shape as the
+// existing `// @defines:` in the preprocessor -- a comment at the top of the
+// file, not a new language construct:
 //
 //   // @name: SML Chart CT002
 //   // @info: https://github.com/.../wiki/sml_chart_ct002
 //
-// ⚠️ Der ERSTE Treffer gewinnt. `compile()` sieht den Quelltext MIT bereits
-// eingesetzten `#include`s, und ein Baustein aus examples/common/ koennte
-// selbst eine solche Zeile tragen. In der ueblichen Anordnung steht der
-// Programmkopf vor den Includes und gewinnt damit von selbst; wo es darauf
-// ankommt (build.html baut index.json), wird der Wert ueber `options.meta`
-// aus der UNAUFGELOESTEN Datei mitgegeben und gar nicht erst geraten.
+// ⚠️ The FIRST match wins. compile() sees the source with #includes already
+// substituted, and a block from examples/common/ could carry such a line
+// itself. In the usual layout the program header precedes the includes and
+// therefore wins on its own; where it actually matters (build.html writing
+// index.json) the value is handed in via options.meta from the UNRESOLVED
+// file, so nothing has to be guessed.
 export function pragmaMeta(source) {
     const hol = (schluessel) => {
         const m = String(source || '').match(

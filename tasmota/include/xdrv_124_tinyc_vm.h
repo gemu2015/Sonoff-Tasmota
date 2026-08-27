@@ -7751,7 +7751,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (n > 512) { n = 512; }
       TC_BUF(txt, 512);
       int32_t anz = TcSppScan(txt, (uint16_t)n, sek);
-      for (int32_t i = 0; i < n; i++) { buf[i] = (int32_t)(uint8_t)txt[i]; if (!txt[i]) break; }
+      // see SYS_WEB_ARG -- `kap` counts bytes for a byte[]
+      { const bool ist_bytes = tc_ref_is_bytes(ref);
+        for (int32_t i = 0; i < n; i++) {
+          tc_chr_put(buf, ist_bytes, i, (int32_t)(uint8_t)txt[i]);
+          if (!txt[i]) break;
+        } }
       TC_PUSH(vm, anz);
 #else
       TC_POP(vm); TC_POP(vm); TC_POP(vm);
@@ -7974,12 +7979,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Write filename to name buffer
       int32_t *dst = tc_resolve_ref(vm, name_ref);
       int32_t maxLen = tc_ref_maxlen(vm, name_ref);
-      int32_t slen = strlen(ep);
-      if (slen >= maxLen) slen = maxLen - 1;
-      for (int32_t i = 0; i < slen; i++) {
-        dst[i] = (int32_t)(uint8_t)ep[i];
+      if (dst && maxLen > 0) {
+        tc_str_write_b(dst, tc_ref_is_bytes(name_ref), maxLen, 0, ep);
       }
-      dst[slen] = 0;
       entry.close();
       TC_PUSH(vm, 1);  // entry found
 #else
@@ -8302,10 +8304,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         }
       }
       fstr[clen] = 0;
-      // Copy to dst (int32 per char)
-      for (int32_t i = 0; i <= clen && i < maxLen; i++) {
-        dst[i] = (int32_t)(uint8_t)fstr[i];
-      }
+      { const bool ist_bytes = tc_ref_is_bytes(dstRef);
+        for (int32_t i = 0; i <= clen && i < maxLen; i++)
+          tc_chr_put(dst, ist_bytes, i, (int32_t)(uint8_t)fstr[i]); }
       TC_PUSH(vm, clen);
 #else
       TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
@@ -9960,10 +9961,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Copy result into TinyC char array
       int32_t *buf = tc_resolve_ref(vm, ref);
       if (buf && got > 0) {
+        const bool ist_bytes = tc_ref_is_bytes(ref);
         for (uint32_t i = 0; i < got && (int32_t)i < maxLen; i++) {
-          buf[i] = (int32_t)(uint8_t)tmp[i];
+          tc_chr_put(buf, ist_bytes, i, (int32_t)(uint8_t)tmp[i]);
         }
-        if ((int32_t)got < maxLen) buf[got] = 0;
+        if ((int32_t)got < maxLen) tc_chr_put(buf, ist_bytes, got, 0);
       }
       TC_PUSH(vm, (int32_t)got);
 #else
@@ -10953,7 +10955,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t result = -1;
       if (dst) {
         int32_t dmax = tc_ref_maxlen(vm, dst_ref);
-        dst[0] = 0;
+        // ⚠️ dmax counts BYTES for a packed byte[]. See SYS_WEB_ARG.
+        const bool ist_bytes = tc_ref_is_bytes(dst_ref);
+        tc_chr_put(dst, ist_bytes, 0, 0);
         JsonParser parser(jbuf);
         JsonParserObject obj = parser.getRootObject();
         char *seg = jpath; char *next; bool valid = true; const char *sval = nullptr;
@@ -10967,8 +10971,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         }
         if (sval) {
           int32_t len = 0;
-          while (sval[len] != 0 && len < dmax - 1) { dst[len] = (int32_t)(uint8_t)sval[len]; len++; }
-          dst[len] = 0;
+          while (sval[len] != 0 && len < dmax - 1) {
+            tc_chr_put(dst, ist_bytes, len, (int32_t)(uint8_t)sval[len]); len++;
+          }
+          tc_chr_put(dst, ist_bytes, len, 0);
           result = len;
         }
       }
@@ -11289,21 +11295,21 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t dstMax = tc_ref_maxlen(vm, dstRef) - 1;
       int32_t dlen = strlen(delim);
 
+      // ⚠️ BOTH directions were wrong here, read as well as write: srcMax and
+      // dstMax count BYTES for a packed byte[], while the code read and wrote
+      // int32 slots. See SYS_WEB_ARG.
+      const bool dst_bytes = tc_ref_is_bytes(dstRef);
+
       if (dlen == 0 || index == 0) {
-        dst[0] = 0;
+        tc_chr_put(dst, dst_bytes, 0, 0);
         TC_PUSH(vm, 0);
         break;
       }
 
-      // Convert source int32 array to C string
+      // Source as a C string -- tc_ref_to_cstr knows both packings.
       TC_BUF(sbuf, 512);
-      int32_t slen = 0;
-      for (int32_t i = 0; i < srcMax && i < (int32_t)sizeof(sbuf) - 1; i++) {
-        if (src[i] == 0) break;
-        sbuf[i] = (char)(src[i] & 0xFF);
-        slen++;
-      }
-      sbuf[slen] = 0;
+      (void)srcMax; (void)src;
+      int32_t slen = tc_ref_to_cstr(vm, srcRef, sbuf, sizeof(sbuf));
 
       TC_BUF(rbuf, 256);
       rbuf[0] = 0;
@@ -11354,9 +11360,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // Copy result to VM destination buffer
       if (rlen > dstMax) rlen = dstMax;
       for (int32_t i = 0; i < rlen; i++) {
-        dst[i] = (int32_t)(uint8_t)rbuf[i];
+        tc_chr_put(dst, dst_bytes, i, (int32_t)(uint8_t)rbuf[i]);
       }
-      dst[rlen] = 0;
+      tc_chr_put(dst, dst_bytes, rlen, 0);
 
       TC_PUSH(vm, rlen);
       break;
@@ -12045,10 +12051,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t *buf = tc_resolve_ref(vm, buf_ref);
         int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
         if (buf && maxLen > 0) {
+          // ⚠️ tc_ref_maxlen() answers in BYTES for a packed byte[]. Writing
+          // int32 slots here runs four times past the end -- and the reader
+          // sees "o\0\0\0": first character right, string over.
+          // Reported against a byte a[96] in ctWebOn(), Hans 2026-08-27.
+          const bool ist_bytes = tc_ref_is_bytes(buf_ref);
           int slen = val.length();
           if (slen >= maxLen) slen = maxLen - 1;
-          for (int i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)val[i];
-          buf[slen] = 0;
+          for (int i = 0; i < slen; i++)
+            tc_chr_put(buf, ist_bytes, i, (int32_t)(uint8_t)val[i]);
+          tc_chr_put(buf, ist_bytes, slen, 0);
           result = slen;
         }
       }
@@ -12623,12 +12635,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (rbuff) {
         int32_t rlen = strlen(rbuff);
         if (rlen > maxSlots) rlen = maxSlots;
-        for (int32_t i = 0; i < rlen; i++) dst[i] = (int32_t)(uint8_t)rbuff[i];
-        dst[rlen] = 0;
+        const bool ist_bytes = tc_ref_is_bytes(dst_ref);   // see SYS_WEB_ARG
+        for (int32_t i = 0; i < rlen; i++)
+          tc_chr_put(dst, ist_bytes, i, (int32_t)(uint8_t)rbuff[i]);
+        tc_chr_put(dst, ist_bytes, rlen, 0);
         free(rbuff);
         TC_PUSH(vm, rlen);
       } else {
-        dst[0] = 0;
+        tc_chr_put(dst, tc_ref_is_bytes(dst_ref), 0, 0);
         TC_PUSH(vm, 0);
       }
 #else
@@ -15010,6 +15024,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t *buf = tc_resolve_ref(vm, ref);
       int32_t maxLen = tc_ref_maxlen(vm, ref);
       if (tc_tls && buf && maxLen > 0) {
+        const bool ist_bytes = tc_ref_is_bytes(ref);       // see SYS_WEB_ARG
         int i = 0; uint32_t last = millis(); bool got = false;
         while (i < maxLen - 1) {
           if (tc_tls->available()) {
@@ -15017,14 +15032,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             if (c < 0) break;
             last = millis();
             if (c == '\n') { got = true; break; }
-            if (c != '\r') buf[i++] = (int32_t)(uint8_t)c;
+            if (c != '\r') tc_chr_put(buf, ist_bytes, i++, (int32_t)(uint8_t)c);
           } else if (!tc_tls->connected()) {
             break;
           } else if (millis() - last > TC_TLS_IDLE_MS) {
             break;
           } else { delay(1); }
         }
-        buf[i] = 0;
+        tc_chr_put(buf, ist_bytes, i, 0);
         if (got || i > 0) n = i;
       }
       TC_PUSH(vm, n);
@@ -15041,6 +15056,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t *buf = tc_resolve_ref(vm, ref);
       int32_t maxLen = tc_ref_maxlen(vm, ref);
       if (tc_tls && buf && maxLen > 0) {
+        const bool ist_bytes = tc_ref_is_bytes(ref);       // see SYS_WEB_ARG
         int cap = maxLen - 1;
         if (maxb > 0 && maxb < cap) cap = maxb;
         int i = 0; uint32_t last = millis();
@@ -15048,14 +15064,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           if (tc_tls->available()) {
             int c = tc_tls->read();
             if (c < 0) break;
-            buf[i++] = (int32_t)(uint8_t)c; last = millis();
+            tc_chr_put(buf, ist_bytes, i++, (int32_t)(uint8_t)c); last = millis();
           } else if (!tc_tls->connected()) {
             break;
           } else if (millis() - last > TC_TLS_IDLE_MS) {
             break;
           } else { delay(1); }
         }
-        buf[i] = 0; cnt = i;
+        tc_chr_put(buf, ist_bytes, i, 0); cnt = i;
       }
       TC_PUSH(vm, cnt);
 #else
@@ -16791,8 +16807,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         TC_BUF(tmp, 256);
         int32_t slen = tc_pwl_scan_str(Tinyc->pwl_json, strlen(Tinyc->pwl_json), path, tmp, sizeof(tmp));
         if (slen > maxLen) slen = maxLen;
-        for (int32_t i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)tmp[i];
-        buf[slen] = 0;
+        const bool ist_bytes = tc_ref_is_bytes(buf_ref);   // see SYS_WEB_ARG
+        for (int32_t i = 0; i < slen; i++)
+          tc_chr_put(buf, ist_bytes, i, (int32_t)(uint8_t)tmp[i]);
+        tc_chr_put(buf, ist_bytes, slen, 0);
         TC_PUSH(vm, slen);
       } else {
         TC_PUSH(vm, 0);
