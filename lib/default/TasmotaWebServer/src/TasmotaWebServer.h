@@ -71,6 +71,48 @@ public:
 #define USE_HTTP_KEEPALIVE
 #endif
 
+// ⚠️ TWO BOUNDS, without which ONE kept-alive connection takes down the WHOLE
+// web server on port 80. The Arduino WebServer serves exactly ONE client at a
+// time: handleClient() only accepts a new one while `_currentStatus ==
+// HC_NONE`. Whoever holds that connection holds the server.
+//
+// The first version of this override (2026-05-12) refreshed `_statusChange` on
+// every poll while `_ka_flag` was set, so HTTP_MAX_DATA_WAIT never expired and
+// there was no upper bound at all. When the peer disappears WITHOUT a FIN
+// (battery reboots, wifi drops, NAT entry expires), the socket is held until
+// lwIP's TCP keepalive reaps it -- and TCP_KEEPIDLE_DEFAULT is 7200000 ms,
+// EXACTLY TWO HOURS. That is the outage length accolon measured twice in
+// ottelo9/tasmota-sml-images#52: port 80 dead while MQTT, ports 82/83, the SML
+// reader and the TinyC VM keep running, and after roughly two hours the web UI
+// comes back on its own without a reboot.
+//
+// TC_KEEPALIVE_MAX_IDLE  How long a kept-alive connection may sit without a
+//                        new request. Reaps peers that went away. 30 s is
+//                        generous: the storage systems poll every 1-9 s, and
+//                        the Jackery-Emu tester defaults to 13 s.
+// TC_KEEPALIVE_YIELD_AFTER  The second bound: if ANOTHER client shows up
+//                        (`_server.hasClient()`) while the held connection has
+//                        been idle at least this long, the held one is given
+//                        up. Without it a peer that politely polls every two
+//                        seconds would lock the browser out forever -- the
+//                        idle bound alone would never trip on such a peer.
+//
+// ⚠️ Why the grace period rather than yielding immediately: the whole reason
+// keep-alive exists here is firmware that insists on ONE socket across its
+// polls (Jackery Homepower 2000 Ultra and friends). Yielding at the first
+// knock would tear that socket down between every pair of polls as soon as a
+// browser sits on the Tasmota UI, which is legal HTTP but hands a reconnect to
+// exactly the firmware that dislikes them. One second protects a tight
+// request/response conversation while capping how long the browser waits.
+// Closing a persistent connection between two requests is explicitly allowed
+// by HTTP/1.1; a well-behaved client reconnects.
+#ifndef TC_KEEPALIVE_MAX_IDLE
+#define TC_KEEPALIVE_MAX_IDLE 30000
+#endif
+#ifndef TC_KEEPALIVE_YIELD_AFTER
+#define TC_KEEPALIVE_YIELD_AFTER 1000
+#endif
+
 class TasmotaWebServer : public WebServer
 {
 public:
@@ -102,6 +144,13 @@ public:
   // and when a new client connects.
   void setKeepAlive(bool en) { _ka_flag = en; }
   bool keepAlive(void) const { return _ka_flag; }
+
+  // Diagnostics. Both counters only ever go up; poll them to see whether the
+  // bounds above are firing. Deliberately counters and not AddLog: this
+  // header must not depend on anything from the Tasmota core. The log line
+  // is emitted by xdrv_124_tinyc.ino, next to the lwIP PCB census.
+  uint16_t kaDropIdle(void)  const { return _ka_drop_idle; }
+  uint16_t kaDropOther(void) const { return _ka_drop_other; }
 
   // Override of WebServer::handleClient(). Mirrors the framework
   // implementation at WebServer.cpp:408-491 (Arduino-ESP32 3.x) with
@@ -159,7 +208,9 @@ public:
               } else if (_ka_flag && _currentClient.connected()) {
                 // Keep-alive: socket stays open, ready for next request
                 // on the same TCP connection. _statusChange is reset so
-                // HTTP_MAX_DATA_WAIT measures idle time between requests.
+                // TC_KEEPALIVE_MAX_IDLE measures the idle time BETWEEN
+                // requests, not the lifetime of the connection -- a peer that
+                // keeps polling is never torn down for age alone.
                 _currentStatus = HC_WAIT_READ;
                 _statusChange  = millis();
                 keepCurrentClient = true;
@@ -167,14 +218,26 @@ public:
             }
           } else {
             if (_ka_flag) {
-              // Already keep-alive on this connection from a previous
-              // request — keep waiting for the next request on the same
-              // socket. Refresh _statusChange so HTTP_MAX_DATA_WAIT
-              // (5 s default) doesn't trip between polls. The outer
-              // _currentClient.connected() check still tears us down
-              // when the peer closes its end.
-              _statusChange = millis();
-              keepCurrentClient = true;
+              // Kept alive and nothing to do right now. THIS is the trap:
+              // setting `keepCurrentClient = true` unconditionally here holds
+              // the server's only client slot for an unbounded time. Two
+              // bounds, see the note above the class.
+              //
+              // ⚠️ hasClient() already ACCEPTS the waiting peer and parks it
+              // in `_accepted_sockfd`; the next accept() hands back exactly
+              // that one (NetworkServer.cpp). So the call loses nobody -- but
+              // it may only be made where a `true` result actually gives up
+              // the held connection, otherwise the accepted peer would sit
+              // there unserved. The listening socket is O_NONBLOCK
+              // (NetworkServer::begin), so this never blocks.
+              const uint32_t idle = millis() - _statusChange;
+              if (idle > TC_KEEPALIVE_MAX_IDLE) {
+                if (_ka_drop_idle < 0xffff) _ka_drop_idle++;
+              } else if (idle >= TC_KEEPALIVE_YIELD_AFTER && _server.hasClient()) {
+                if (_ka_drop_other < 0xffff) _ka_drop_other++;
+              } else {
+                keepCurrentClient = true;
+              }
             } else if (millis() - _statusChange <= HTTP_MAX_DATA_WAIT) {
               keepCurrentClient = true;
             }
@@ -207,6 +270,8 @@ public:
 
 private:
   bool _ka_flag;
+  uint16_t _ka_drop_idle  = 0;   // given up: idle too long
+  uint16_t _ka_drop_other = 0;   // given up: another client was waiting
 #endif // USE_HTTP_KEEPALIVE
 };
 #endif // ESP32
