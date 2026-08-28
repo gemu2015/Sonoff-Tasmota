@@ -267,7 +267,15 @@ $('build').onclick = async () => {
   for (const name of names) {
     const src = progs[name];
     // Bausteine haben kein main() - die werden eingebunden, nicht gebaut.
-    if (!/^\s*int\s+main\s*\(/m.test(src)) { skipped++; log('übersprungen (kein main): ' + name); continue; }
+    // ⚠️ AUCH `void main()`. Die Pruefung stand hier auf `int` allein und hat
+    // damit 14 Programme stillschweigend uebersprungen -- analog_clock,
+    // voltmeter, voltmeter2, voltmeter_multi, tinyui_demo, tinyui_dashboard,
+    // text_on_image, snap_with_timestamp, jpg_on_canvas, dmx_dimmer_panel,
+    // c_extensions_demo, persist_array_file, sml_card, energy_logger. Alle
+    // compilieren, alle standen im ausgelieferten index.txt, und die
+    // Sprachreferenz schreibt `void main()` selbst. Aufgefallen beim Neubauen
+    // des Index nach den Klarnamen: 195 statt 209 Eintraege.
+    if (!/^\s*(?:int|void)\s+main\s*\(/m.test(src)) { skipped++; log('übersprungen (kein main): ' + name); continue; }
     const base = name.replace(/\.tc$/, '');
     try {
       const r = w.compile(w.resolveIncludes(src, get));
