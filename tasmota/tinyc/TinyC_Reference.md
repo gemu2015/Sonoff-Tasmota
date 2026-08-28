@@ -6077,6 +6077,13 @@ both keep working.
 ```
 
 Notes:
+- ⚠️ Put the two lines at the **top of the program file, above the
+  `#include`s**, and read them from the UNRESOLVED source. Blocks in
+  `examples/common/` carry their own header comments; once the includes are
+  substituted, a foreign `// @name:` can sit in the middle of the file and win.
+  The compiler takes the FIRST match, and `build.html` sidesteps the question
+  entirely by passing the value in via `options.meta` from the file it read
+  before resolving. (Reported by Hans, 2026-08-28, after it bit them.)
 - The name is capped at 48 bytes, the URL at 160, both cut on a character
   boundary so a truncated umlaut cannot break the display.
 - Only `http://` and `https://` links are offered. A `javascript:` URL in a

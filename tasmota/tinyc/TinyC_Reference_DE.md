@@ -5897,6 +5897,14 @@ Repository laufen damit beide weiter.
 ```
 
 Anmerkungen:
+- ⚠️ Die zwei Zeilen gehoeren an den **Anfang der Programmdatei, VOR die
+  `#include`s**, und gelesen werden muessen sie aus der UNAUFGELOESTEN Quelle.
+  Bausteine in `examples/common/` tragen eigene Kopfkommentare; sind die
+  Includes erst eingesetzt, kann ein fremdes `// @name:` mitten in der Datei
+  stehen und gewinnen. Der Compiler nimmt den ERSTEN Treffer, und `build.html`
+  umgeht die Frage, indem es den Wert ueber `options.meta` aus der Datei
+  mitgibt, die es vor dem Aufloesen gelesen hat. (Von Hans gemeldet,
+  2026-08-28, nachdem es sie gebissen hat.)
 - Der Name ist auf 48 Byte begrenzt, die URL auf 160, beide auf Zeichengrenze
   gekuerzt -- ein halb abgeschnittener Umlaut wuerde sonst die Anzeige
   zerlegen.
