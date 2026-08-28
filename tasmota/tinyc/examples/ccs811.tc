@@ -1,3 +1,4 @@
+// @name: CCS811 Air Quality
 // CCS811 Digital Air Quality Sensor (eCO2 + TVOC)
 // I2C address: 0x5A (default) or 0x5B (ADDR pin high)
 // HW_ID: 0x81

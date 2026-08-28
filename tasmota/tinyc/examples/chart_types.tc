@@ -1,3 +1,4 @@
+// @name: Chart Types
 // Chart Types Demo — shows all supported WebChart types
 // Generates synthetic data and displays one of each chart type
 // WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)

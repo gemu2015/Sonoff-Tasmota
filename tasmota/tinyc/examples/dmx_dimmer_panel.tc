@@ -1,3 +1,4 @@
+// @name: DMX512 Dimmer Panel
 // dmx_dimmer_panel.tc — minimal DMX512 test panel.
 //
 // /tc_ui page: a TX-pin pulldown (TinyC's built-in free-GPIO

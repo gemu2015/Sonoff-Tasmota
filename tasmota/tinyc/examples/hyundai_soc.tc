@@ -1,3 +1,4 @@
+// @name: Hyundai EV State of Charge
 // hyundai_soc.tc — EV state-of-charge from myHyundai/Bluelink, ENTIRELY on the ESP.
 // refresh token (/hytoken.cfg) → access token → vehicle list → cached status → SoC.
 // SELF-HEALING: when the refresh token expires, it re-mints a fresh one on-device

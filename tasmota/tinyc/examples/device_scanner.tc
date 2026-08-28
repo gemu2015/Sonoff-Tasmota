@@ -1,3 +1,4 @@
+// @name: Tasmota Fleet Monitor
 // device_scanner.tc — home Tasmota fleet health monitor (v2: auto-discovery).
 //
 // Runs on one always-on device (the P4) and SWEEPS the whole /24 each scan to

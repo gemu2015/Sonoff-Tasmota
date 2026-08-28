@@ -1,3 +1,4 @@
+// @name: BLE SPP Probe
 // ble_spp_probe.tc — Verbindungsprobe fuer eine DAUERHAFTE BLE-Verbindung ("BLE SPP").
 //
 // Anders als der Einzelvorgangs-Client (bleTarget/bleReadStart/bleWriteStart: verbinden,

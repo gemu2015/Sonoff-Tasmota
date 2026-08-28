@@ -1,3 +1,4 @@
+// @name: RSA Test
 // rsa_test.tc — verify the rsaEncrypt syscall (RSA PKCS#1 v1.5) end-to-end.
 // Encrypts a known string with a throwaway pubkey; writes the hex to /rsa_out.txt.
 // Decrypt that hex on the Mac with /tmp/rsa_test_priv.pem → must equal the plaintext.

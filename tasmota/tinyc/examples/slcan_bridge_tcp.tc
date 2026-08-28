@@ -1,3 +1,4 @@
+// @name: SLCAN Bridge (TCP)
 // =================================================================
 // slcan_bridge_tcp.tc — SLCAN bridge over TCP (WiFi).
 //

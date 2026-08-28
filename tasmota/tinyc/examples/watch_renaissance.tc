@@ -1,3 +1,4 @@
+// @name: Renaissance Watchface
 // watch_renaissance.tc — analog "Waldhoff Renaissance" watchface for a 240x240 screen.
 // A 1:1 TinyC port of the Berry autoexec.be (LVGL). Requires firmware with USE_TINYC_LVGL
 // including image rotation (lvglImageAngle / lvglImagePivot, SYS 489/490).

@@ -1,3 +1,4 @@
+// @name: Matter Plug
 // Matter Smart Plug + live Power sensor — defined entirely in TinyC.
 //
 // The matter_c engine (pure C, in the firmware) does all the heavy lifting:

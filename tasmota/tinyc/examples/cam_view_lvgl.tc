@@ -1,3 +1,4 @@
+// @name: Camera View (LVGL)
 // cam_view_lvgl.tc — live ESP32-P4 camera on the LVGL screen, with ROTATION + sizing.
 //
 // LVGL has no JPEG decoder, but it CAN render a raw RGB565 buffer. The P4 MIPI-CSI

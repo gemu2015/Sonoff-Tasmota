@@ -1,3 +1,4 @@
+// @name: Matter RGB Light
 // Matter Smart Plug + RGB Color Light — pure TinyC on an ESP32-C6.
 //
 //   Endpoint 1: On/Off plug   -> relay 1   (set GPIO7 = Relay1 on the device)

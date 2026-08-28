@@ -1,3 +1,4 @@
+// @name: BLE GATT Server
 // ble_server.tc — TinyC BLE GATT server (peripheral / "device-as-peripheral").
 //
 // A phone (BLE central) connects to THIS device and exchanges data with it — the

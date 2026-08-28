@@ -1,3 +1,4 @@
+// @name: Slot 3 Test
 // Slot 3 test — Counter D (toggles 0/1 every second)
 int counterD = 0;
 int toggles = 0;

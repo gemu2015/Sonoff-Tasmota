@@ -1,3 +1,4 @@
+// @name: Air Quality Logger
 // wd_logger.tc — indoor air-quality logger, TinyC port of the Tasmota Scripter "wd".
 // Sensors: SHT3X (temperature, humidity) + CCS811 (TVOC, eCO2), read from the firmware
 // drivers via sensorGet(). Built for the ESP32-C3 at .143, slot 0.

@@ -1,3 +1,4 @@
+// @name: A7105 FSYNC Scan
 // a7105_fsync.tc — channel scan using A7105's FSYNC hardware signal.
 // FSYNC fires on GIO1 when the chip's demodulator confirms a valid
 // preamble + ID-match. Loose ID + ETH=3 still accepts many patterns,

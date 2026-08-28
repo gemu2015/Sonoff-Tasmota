@@ -1,3 +1,4 @@
+// @name: Matter Power Meter
 // Matter 1.4 Power + Energy Meter — expose an SML meter over Matter.
 //
 // Matter 1.4 added the Electrical Sensor device type (0x0510) with the

@@ -1,3 +1,4 @@
+// @name: MLX90614 IR Thermometer
 // MLX90614 Infrared Non-Contact Thermometer Driver
 // I2C address: 0x5A, no initialization needed
 // Reads object temperature (0x07) and ambient temperature (0x06)

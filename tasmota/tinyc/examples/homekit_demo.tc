@@ -1,3 +1,4 @@
+// @name: HomeKit Demo
 // HomeKit Demo — Temperature sensor + Humidity sensor + Switch
 // Exposes 2 read-only sensor values and 1 controllable switch to Apple Home
 //

@@ -1,3 +1,4 @@
+// @name: Daikin Air Conditioner
 // daikin_control.tc — dedicated controller for Daikin WiFi A/C units
 // (BRP069/airbase local HTTP API — the same units the home bridge reads).
 //

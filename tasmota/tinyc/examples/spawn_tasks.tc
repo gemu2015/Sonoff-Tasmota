@@ -1,3 +1,4 @@
+// @name: Spawn Tasks
 // spawn_tasks.tc — Dynamic FreeRTOS task spawn demo (ESP32 only)
 //
 // Three worker patterns:

@@ -1,3 +1,4 @@
+// @name: Custom Web Handler
 // Custom Web Handler Demo
 // Registers HTTP endpoints on the Tasmota web server
 // Access: http://<device>/api/hello and /api/status

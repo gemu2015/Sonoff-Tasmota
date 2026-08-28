@@ -1,3 +1,4 @@
+// @name: GPIO Toggle
 // GPIO toggle diagnostic — togglt einen Pin im 1-Hz-Takt (500ms HIGH / 500ms LOW)
 // Damit kann man am Oszi prüfen ob der physische Pin den die Software meint
 // auch wirklich der ist den man auf dem Board als "GPIOn" beschriftet sieht.

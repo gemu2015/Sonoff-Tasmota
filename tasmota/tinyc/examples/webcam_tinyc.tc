@@ -1,3 +1,4 @@
+// @name: Webcam Security (TinyC Driver)
 // ═══════════════════════════════════════════════════════════════════
 // webcam_tinyc.tc — Security Camera using TinyC integrated cam driver
 // No Tasmota USE_WEBCAM dependency — uses cameraInit + camControl 8-20

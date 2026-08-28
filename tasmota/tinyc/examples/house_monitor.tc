@@ -1,3 +1,4 @@
+// @name: House Monitor
 // house_monitor.tc — compact, table-driven house monitor with an LVGL dashboard
 // + spoken (German TTS) alarms. Runs on the ILI9488 480x320 audio+display node
 // (192.168.188.135), taking over the screen from the clock slot.

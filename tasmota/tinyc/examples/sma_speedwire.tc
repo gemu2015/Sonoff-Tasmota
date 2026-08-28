@@ -1,3 +1,4 @@
+// @name: SMA Home Manager (Speedwire)
 // SMA Home Manager 2.0 Speedwire receiver
 // Joins multicast 239.12.255.254:9522 and decodes selected OBIS values.
 //

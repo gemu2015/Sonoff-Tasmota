@@ -1,3 +1,4 @@
+// @name: LVGL Demo
 // lvgl_demo.tc — LVGL Phase 1 demo (requires firmware built with USE_TINYC_LVGL)
 //
 // Builds a tiny touch UI on the device panel: a label + a button. Tapping the button

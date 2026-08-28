@@ -1,3 +1,4 @@
+// @name: I2C LCD (HD44780)
 // ═══════════════════════════════════════════════════════════════════
 // lcd_i2c.tc — I2C LCD Character Display Driver (HD44780 + PCF8574)
 // For ESP8266/ESP32 with standard I2C LCD backpack (address 0x27 or 0x3F)

@@ -1,3 +1,4 @@
+// @name: Matter Home Bridge
 // Matter Home Bridge — TinyC port of the HomeKit "script-3" scripter.
 //
 // One Matter node that bridges the same accessories the old HomeKit script

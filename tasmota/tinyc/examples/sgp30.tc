@@ -1,3 +1,4 @@
+// @name: SGP30 VOC
 // SGP30 VOC/eCO2 Sensor Driver
 // I2C address: 0x58
 // Measures: eCO2 (ppm), TVOC (ppb)

@@ -1,3 +1,4 @@
+// @name: JPEG on Canvas
 // jpg_on_canvas.tc — compose a JPG + procedural overlay into one canvas,
 // then flip the composite to the panel with imgFlush.
 //

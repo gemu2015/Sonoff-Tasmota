@@ -1,3 +1,4 @@
+// @name: Matter Bridge UI
 // matter_bridge_ui.tc — interactive remote-device bridge for matter_c (Berry-style).
 // A web table on THIS device: type a remote ESP's IP, Discover probes its HTTP
 // Status for sensors + actuators, "Add" appends them as Matter endpoints (live

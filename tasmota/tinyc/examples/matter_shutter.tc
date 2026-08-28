@@ -1,3 +1,4 @@
+// @name: Matter Shutter
 // Matter Window Covering (roller shutter / blind).
 //
 //   Endpoint 1: Window Covering (0x0202) -> WindowCovering (0x0102)

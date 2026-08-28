@@ -1,3 +1,4 @@
+// @name: TinyUI Demo
 // tinyui_demo.tc — demo of the TinyUI retained-mode widget layer
 //
 // Uses the new ui* syscalls (uiScreen / uiTheme / uiLabel / uiProgress / uiGauge /

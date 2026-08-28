@@ -1,3 +1,4 @@
+// @name: VM Benchmark
 // TinyC VM Benchmark
 // Measures execution speed of various operations
 // Reports results via WebCall/JsonCall and serial output

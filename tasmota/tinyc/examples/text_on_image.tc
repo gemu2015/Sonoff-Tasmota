@@ -1,3 +1,4 @@
+// @name: Text on Image
 // text_on_image.tc — Flicker-free text overlay on JPEG background
 //
 // Demonstrates dspImgText() which composites text onto an image

@@ -1,3 +1,4 @@
+// @name: SHT31 UDP Publisher
 // =====================================================================
 // sht31_publisher.tc — SHT31 sensor that publishes to UDP globals
 //

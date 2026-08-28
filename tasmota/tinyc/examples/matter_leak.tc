@@ -1,3 +1,4 @@
+// @name: Matter Leak Sensor
 // Matter Water-Leak + Rain sensors (BooleanState).
 //
 //   Endpoint 1: Water Leak Detector (0x0043) -> BooleanState (0x0045) StateValue

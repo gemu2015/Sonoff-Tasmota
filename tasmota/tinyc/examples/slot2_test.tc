@@ -1,3 +1,4 @@
+// @name: Slot 2 Test
 // Slot 2 test — Counter C (counts down from 1000)
 int counterC = 1000;
 

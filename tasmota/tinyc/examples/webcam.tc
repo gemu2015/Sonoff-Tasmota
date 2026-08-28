@@ -1,3 +1,4 @@
+// @name: Webcam Security (USE_WEBCAM)
 // Webcam Security Camera Script
 // ESP32-CAM with motion detection, PIR alarm, picture saving, email alerts
 // Features: Hardware PIR, software motion detector, timelapse, auto-cleanup

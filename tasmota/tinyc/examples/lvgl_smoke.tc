@@ -1,3 +1,4 @@
+// @name: LVGL Smoke Test
 // lvgl_smoke.tc — LVGL Phase 0 smoke test (requires firmware built with USE_TINYC_LVGL)
 //
 // Brings LVGL up on the device's panel via lvglInit() and parks, so the firmware's

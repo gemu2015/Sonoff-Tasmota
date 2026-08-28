@@ -1,3 +1,4 @@
+// @name: TCS34725 Color Sensor
 // TCS34725 RGB Color Sensor Driver
 // I2C address: 0x29, requires initialization
 // Reads RGBC (Red, Green, Blue, Clear) + calculates Lux and Color Temperature

@@ -1,3 +1,4 @@
+// @name: Camera Snapshot + Timestamp
 // snap_with_timestamp.tc
 // Capture a camera frame, burn a timestamp onto it, save the result to the
 // filesystem as a fresh JPEG. Demonstrates the cam-slot <-> img-slot bridge:

@@ -1,3 +1,4 @@
+// @name: Touch Coordinates (Legacy)
 // touch_coords_legacy.tc — live touch coordinates using the LEGACY (non-LVGL) display API.
 //
 // Mirror of touch_coords.tc, but draws straight to the framebuffer (dspText/dspFillCircle) so it

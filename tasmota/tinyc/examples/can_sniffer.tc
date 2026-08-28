@@ -1,3 +1,4 @@
+// @name: CAN Sniffer
 // CAN bus sniffer — empfängt alle Frames auf dem Bus und loggt sie
 //
 // Wiring (this example assumes ESP32-S3 with external CAN transceiver

@@ -1,3 +1,4 @@
+// @name: BMP280
 // BMP280 Temperature & Pressure Sensor Driver
 // I2C addresses: 0x76 (SDO=GND) or 0x77 (SDO=VCC)
 // Chip ID: 0x58 (BMP280), vs 0x60 (BME280 with humidity)

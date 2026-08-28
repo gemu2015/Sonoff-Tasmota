@@ -1,3 +1,4 @@
+// @name: Analog Voltmeter (Three Gauges)
 // voltmeter_multi.tc — three gauges on one screen, driven by struct + array
 //
 // Companion to voltmeter.tc. Where that file uses a flat block of #defines

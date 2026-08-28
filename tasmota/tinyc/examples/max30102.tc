@@ -1,3 +1,4 @@
+// @name: MAX30102 Pulse Oximeter
 // max30102.tc — Pulsoximeter MAX30102: Puls, SpO2 und eine MITLAUFENDE Kurve im WebUI.
 //
 // Ziel dieses Skripts ist zweierlei: der Treiber selbst, und die Probe, ob sich eine

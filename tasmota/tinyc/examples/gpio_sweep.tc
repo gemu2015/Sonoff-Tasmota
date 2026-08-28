@@ -1,3 +1,4 @@
+// @name: GPIO Sweep
 // GPIO sweep — togglt jeden freien ESP32-C3 GPIO der Reihe nach,
 // 4 Sekunden pro Pin (zwei Toggles), und loggt vorher welcher
 // Pin gerade aktiv ist. Tastkopf ans Mess-Objekt halten, in der

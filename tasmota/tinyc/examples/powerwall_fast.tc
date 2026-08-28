@@ -1,3 +1,4 @@
+// @name: Tesla Powerwall (Fast)
 // Powerwall (FAST variant) — experimental higher-throughput poll
 //
 // Forked from examples/powerwall.tc (the stable Scripter-equivalent

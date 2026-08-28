@@ -1,3 +1,4 @@
+// @name: Fibonacci
 // Fibonacci sequence calculator
 
 int fibonacci(int n) {

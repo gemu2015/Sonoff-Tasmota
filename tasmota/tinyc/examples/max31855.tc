@@ -1,3 +1,4 @@
+// @name: MAX31855 Thermocouple
 // MAX31855 Thermocouple Sensor Driver (SPI)
 // Reads 14-bit thermocouple temperature via SPI
 // Demonstrates: spiInit, spiSetCS, spiTransfer, WebCall, JsonCall

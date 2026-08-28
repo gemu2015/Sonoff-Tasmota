@@ -1,3 +1,4 @@
+// @name: Mic Level (BinPlugin)
 // mic_plugin_level.tc — read the microphone loudness from the audio BinPlugin
 // (module 42) via pluginQuery, so it COEXISTS with the plugin's audio output.
 //

@@ -1,3 +1,4 @@
+// @name: Analog Voltmeter (Smooth Sweep)
 // voltmeter2.tc — smooth-sweep analog gauge using the TinyC canvas API.
 //
 // Architecture:

@@ -1,3 +1,4 @@
+// @name: MAX! Dashboard + Alarm
 // moritz_dash.tc — LVGL dashboard + integrated house alarm for the MORITZ (CC1101 MAX!) system
 // on the RA8876 panel (.102, 1024x600). Consolidates the old moritz_dash + eqmax_alarm slots.
 //

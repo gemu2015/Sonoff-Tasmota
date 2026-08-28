@@ -1,3 +1,4 @@
+// @name: ADS1115 ADC
 // ADS1115 16-bit 4-Channel ADC Driver
 // I2C addresses: 0x48 (ADDR=GND), 0x49 (ADDR=VDD), 0x4A (ADDR=SDA), 0x4B (ADDR=SCL)
 // Single-ended mode: reads AIN0..AIN3 vs GND

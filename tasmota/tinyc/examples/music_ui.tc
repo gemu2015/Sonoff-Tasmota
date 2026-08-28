@@ -1,3 +1,4 @@
+// @name: Music Player UI
 // music_ui.tc — a TinyC-LVGL "music player" screen, inspired by LVGL's lv_demo_music.
 // Runs as a normal TinyC app on a USE_TINYC_LVGL firmware (e.g. the P4 .164). No reflash.
 //

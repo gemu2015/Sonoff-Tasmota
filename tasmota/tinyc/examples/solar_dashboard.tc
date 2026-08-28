@@ -1,3 +1,4 @@
+// @name: Solar Dashboard (LVGL)
 // solar_dashboard.tc — REAL energy dashboard on LVGL (P4), built on the gchart primitives.
 //
 //   CHART 1: solar power of 4 inverters (4 time series, ONE shared y-axis), 24 h / 5 min

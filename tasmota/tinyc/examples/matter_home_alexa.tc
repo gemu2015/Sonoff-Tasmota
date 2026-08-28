@@ -1,3 +1,4 @@
+// @name: Matter Home (Alexa)
 // Matter Home — Alexa edition (slimmed bridge).
 //
 // Amazon Alexa rejects a large Matter bridge with RN002 during "getting device

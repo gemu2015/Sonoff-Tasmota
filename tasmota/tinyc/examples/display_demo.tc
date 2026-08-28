@@ -1,3 +1,4 @@
+// @name: ILI9488 Sensor Dashboard
 // Sensor Dashboard for ILI9488 (480x320)
 // Static layout drawn once, only values update each second
 // dspPad(n) pads text to n chars — overwrites old text cleanly

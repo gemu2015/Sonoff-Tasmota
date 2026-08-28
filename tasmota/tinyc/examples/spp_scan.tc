@@ -1,3 +1,4 @@
+// @name: Bluetooth SPP Scan
 // spp_scan.tc — Bluetooth-Classic-Geraete in der Umgebung suchen.
 //
 // Die einfachste Probe fuer den SPP-Unterbau: findet der ESP32 ueberhaupt ein

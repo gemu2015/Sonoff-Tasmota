@@ -1,3 +1,4 @@
+// @name: Heat Pump Modbus Map
 // =================================================================
 // heatpump_map.tc — Modbus-RTU sniffer + control for chinese heat pumps
 //

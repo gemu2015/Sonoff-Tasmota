@@ -1,3 +1,4 @@
+// @name: Share Writer (Slot 0)
 // Slot 0: writes counter / kwh / name to the cross-VM share table every second.
 // Slot 1 (share_reader.tc) reads them back via shareGet*.
 

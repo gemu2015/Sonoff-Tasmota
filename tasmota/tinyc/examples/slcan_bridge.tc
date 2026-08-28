@@ -1,3 +1,4 @@
+// @name: SLCAN Bridge (Serial)
 // =================================================================
 // slcan_bridge.tc — USB-serial ↔ CAN-bus bridge using the SLCAN
 // (Lawicel-CAN232) ASCII protocol.

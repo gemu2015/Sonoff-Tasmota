@@ -1,3 +1,4 @@
+// @name: CRC BinPlugin Demo
 // blib_crc_demo.tc — exercise xblib_01_crc via bcall().
 //
 // Prerequisite: upload CRC_BLIB_32.bin to the device's plugin partition

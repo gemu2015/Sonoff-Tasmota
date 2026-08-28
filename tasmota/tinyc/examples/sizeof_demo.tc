@@ -1,3 +1,4 @@
+// @name: sizeof()
 // sizeof_demo.tc — compile-time sizeof for struct types
 //
 // `sizeof(StructTag)` returns the SLOT COUNT of a struct at compile time

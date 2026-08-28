@@ -1,3 +1,4 @@
+// @name: WebUI Watchdog
 // ─────────────────────────────────────────────────────────────────────
 // webui_watchdog.tc — auto-recover from the "Tasmota WebUI dies but
 // the rest of the firmware keeps running" failure mode.

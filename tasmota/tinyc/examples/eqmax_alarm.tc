@@ -1,3 +1,4 @@
+// @name: EqMAX Window Alarm
 // eqmax_alarm.tc — house alarm derived from the EqMAX / Moritz (CC1101 MAX!)
 // window contacts. Converted from the RA8867 Scripter on .117 (the >S alarm
 // logic + #getwc subroutine). The thermostat + window/energy DISPLAY is already

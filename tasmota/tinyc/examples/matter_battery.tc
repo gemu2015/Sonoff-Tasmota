@@ -1,3 +1,4 @@
+// @name: Matter Battery
 // Matter battery (Power Source cluster 0x002F, BAT feature) — real battery level.
 //
 // Adds the Power Source cluster to a FUNCTIONAL accessory (here a Temperature

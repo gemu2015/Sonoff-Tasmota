@@ -1,3 +1,4 @@
+// @name: SML Custom Web Line
 // sml_custom_line.tc — two SML web-table techniques.
 //
 // (1) SUPPRESS a raw meter line in the descriptor (give its name the single

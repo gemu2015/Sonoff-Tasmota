@@ -1,3 +1,4 @@
+// @name: SML Enable
 // sml_enable.tc — minimal: turn on the SML descriptor gate (Rule1 / tasm_rule).
 // On TinyC builds without the Rules console command, the SML descriptor init
 // silently skips unless rule_enabled (bit0) is set. `tasm_rule = 1` writes that

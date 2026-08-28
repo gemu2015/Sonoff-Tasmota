@@ -1,3 +1,4 @@
+// @name: LVGL Dual-Axis Chart
 // gchart_demo.tc — Google-Charts-style dual-axis dashboard on LVGL (P4 playground)
 //
 // v3 (firmware ABI >= 15): two time series per chart, each on its own y-axis —

@@ -1,3 +1,4 @@
+// @name: byte[] Chart
 // byte_chart.tc — a 24 h temperature/humidity chart whose ring buffers are
 // packed byte[] instead of float[].
 //

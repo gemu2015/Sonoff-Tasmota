@@ -1,3 +1,4 @@
+// @name: Touch Coordinates (LVGL)
 // touch_coords.tc — live touch coordinates on the LVGL screen.
 //
 // Needs firmware with USE_TINYC_LVGL + the touchGet() syscall (TinyC syscall ABI v3,

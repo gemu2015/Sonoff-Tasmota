@@ -1,3 +1,4 @@
+// @name: SSD1680 EPaper Driver
 // ============================================================
 // SSD1680 3-wire SPI test driver (Waveshare 2.9" v2, 128x296)
 //

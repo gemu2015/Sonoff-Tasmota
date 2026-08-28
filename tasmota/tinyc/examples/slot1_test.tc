@@ -1,3 +1,4 @@
+// @name: Slot 1 Test
 // Slot 1 test — Counter B (increments by 10 every second)
 int counterB = 0;
 

@@ -1,3 +1,4 @@
+// @name: UART TX Burst Test
 // UART TX continuous burst test for oscilloscope verification.
 //
 // Opens UART on RX=11 TX=12 @ 9600 8N1 (same config as onewire DS2480B).

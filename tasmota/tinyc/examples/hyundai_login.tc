@@ -1,3 +1,4 @@
+// @name: Hyundai Bluelink Login
 // hyundai_login.tc — re-mint the Bluelink refresh token ON-DEVICE via the IDPConnect
 // RSA login, when the stored one expires. Reads /hyundai.cfg (mail/pw/pin), runs
 // authorize → certs → RSA-encrypt password → signin → token, writes the new

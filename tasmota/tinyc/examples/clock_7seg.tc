@@ -1,3 +1,4 @@
+// @name: 7-Segment Clock
 // clock_7seg.tc — big 7-segment HH:MM wall clock, multiplexed with fastMux().
 // Ported from a Tasmota Scripter script (the original drove the same display with mux()).
 //

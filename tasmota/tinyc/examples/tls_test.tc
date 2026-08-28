@@ -1,3 +1,4 @@
+// @name: TLS Test
 // tls_test.tc — verify the raw TLS syscalls end-to-end: GET https://example.com/
 // over the new tlsConnect/tlsWrite/tlsReadLine/tlsRead. Console: `TLS` -> fetch.
 // Proves: rc=0 (TLS handshake ok), ok200 (status line had 200), bodyok ("Example"

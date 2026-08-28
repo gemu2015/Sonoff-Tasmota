@@ -1,3 +1,4 @@
+// @name: EcoTracker Emulator
 // EcoTracker Emulator — Marstek, Hoymiles, Jackery, NOAH
 // Drop-in replacement for ottelo's Scripter EcoTrackerEmuSimple, ported to
 // TinyC. Emulates an Everhome EcoTracker over mDNS + REST API /v1/json so

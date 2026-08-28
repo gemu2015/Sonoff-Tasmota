@@ -1,3 +1,4 @@
+// @name: BLE GATT Explorer
 // ble_gatt_explore.tc — herausfinden, WELCHE Dienste und Merkmale ein BLE-Geraet hat.
 //
 // Der erste Schritt vor jedem eigenen GATT-Zugriff, egal ob ueber den Einzelvorgangs-

@@ -1,3 +1,4 @@
+// @name: byte[] Test Suite
 // byte_array_suite.tc — umfassende Testsuite für den byte[]-Modus (TinyC 1.6.57).
 //
 // Selbstprüfend: jeder Test vergleicht gegen den Sollwert und zählt PASS/FAIL.

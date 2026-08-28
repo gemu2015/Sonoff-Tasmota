@@ -1,3 +1,4 @@
+// @name: SHT31
 // SHT31 Temperature & Humidity Sensor Driver
 // Scans both I2C buses (0 and 1) and both addresses (0x44, 0x45)
 // Uses i2cSetDevice/i2cSetActiveFound to properly claim the address

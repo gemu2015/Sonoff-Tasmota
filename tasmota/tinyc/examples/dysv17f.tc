@@ -1,3 +1,4 @@
+// @name: DY-SV17F MP3 Player
 // DY-SV17F MP3 Player Driver (Serial TX)
 // UART 9600 baud, TX only
 // Packet: [0xAA] [CMD] [data_len] [data...] [checksum]

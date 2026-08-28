@@ -1,3 +1,4 @@
+// @name: Growatt Shine Cloud
 // ============================================================================
 // growatt_shine.tc — per-tracker (PV1/PV2) monitor for Growatt inverters via
 //                    the Growatt Shine cloud (server.growatt.com)

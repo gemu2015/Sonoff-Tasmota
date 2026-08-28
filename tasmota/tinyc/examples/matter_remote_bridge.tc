@@ -1,3 +1,4 @@
+// @name: Matter Remote Bridge
 // matter_remote_bridge.tc — bridge ANOTHER Tasmota ESP's sensors + actuators
 // into THIS device's matter_c node, the way Berry Matter's HTTP bridge does it,
 // but in TinyC. Requires a USE_MATTER_C build on THIS device; pair it on /mt.

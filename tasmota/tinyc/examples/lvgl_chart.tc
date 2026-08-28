@@ -1,3 +1,4 @@
+// @name: LVGL Chart
 // lvgl_chart.tc — LVGL Phase 3 demo (requires firmware with USE_TINYC_LVGL)
 //
 // A live line chart that scrolls a triangle wave. Shows the Phase 3 chart API:

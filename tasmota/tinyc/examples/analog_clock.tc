@@ -1,3 +1,4 @@
+// @name: Analog Clock
 // Analog clock with watchface background and dirty-rect hand erase
 // Requires: /watch_ren_back_240.jpg on filesystem
 // Set DRAW_X/DRAW_Y to position clock on larger displays

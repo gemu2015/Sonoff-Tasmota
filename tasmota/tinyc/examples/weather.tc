@@ -1,3 +1,4 @@
+// @name: Weather Forecast (Open-Meteo)
 // weather.tc — 16-day weather + solar-yield + wind forecast from Open-Meteo (FREE, no key)
 //
 // Location is auto-detected on first boot (IP geolocation, approximate) and can be set

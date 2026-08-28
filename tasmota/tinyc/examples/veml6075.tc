@@ -1,3 +1,4 @@
+// @name: VEML6075 UV Sensor
 // VEML6075 UV Light Sensor Driver
 // I2C address: 0x10, 16-bit registers (LSB first)
 // Reads UVA, UVB with compensation and calculates UV Index

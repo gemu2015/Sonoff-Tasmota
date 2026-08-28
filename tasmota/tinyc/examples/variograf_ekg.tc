@@ -1,3 +1,4 @@
+// @name: Variograf EKG (BLE)
 // variograf_ekg.tc — EKG eines Variograf-Rekorders ueber BLE, 256 Hz.
 //
 // ⭐ LAEUFT (2026-08-06) -- auf C09 (Beschleunigung) UND auf C02 (EKG) nachgewiesen:

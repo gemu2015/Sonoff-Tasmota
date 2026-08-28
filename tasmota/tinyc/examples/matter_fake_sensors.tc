@@ -1,3 +1,4 @@
+// @name: Matter Fake Sensors
 // Matter "fake" sensors — surface UNSUPPORTED quantities through SUPPORTED tiles.
 //
 // Apple Home (and partly Google/Alexa) only render a fixed set of numeric Matter

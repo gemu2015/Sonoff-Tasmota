@@ -1,3 +1,4 @@
+// @name: LTR-308 Light Sensor
 // LTR-308ALS-01 Ambient Light Sensor Driver
 // I2C address: 0x53, Part ID: 0xB1
 // Range: 0.01 to 157,000 lux (20-bit ADC)

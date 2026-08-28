@@ -1,3 +1,4 @@
+// @name: Etekcity ESF37 Scale (Spoken)
 // esf37_speak.tc — Etekcity ESF37 BLE scale → SPEAK the weight in German (picotts).
 //
 // Scan for the scale (mfr 0x06D0), subscribe its notify char 0x2C12, decode the

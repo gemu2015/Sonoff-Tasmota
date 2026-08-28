@@ -1,3 +1,4 @@
+// @name: Matter Sensors
 // Matter environmental sensors — Temperature + Humidity + Pressure (pure TinyC).
 //
 // Declares three Matter sensor endpoints on the matter_c engine:

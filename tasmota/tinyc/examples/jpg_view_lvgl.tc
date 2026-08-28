@@ -1,3 +1,4 @@
+// @name: JPEG Viewer (LVGL)
 // jpg_view_lvgl.tc — show a JPEG FILE from the filesystem on the LVGL screen, rotatable + scalable.
 //
 // LVGL has no JPEG decoder, BUT dspLoadImage HW-decodes a JPEG file into a PSRAM RGB565

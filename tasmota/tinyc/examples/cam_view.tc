@@ -1,3 +1,4 @@
+// @name: Camera View (P4 DSI)
 // cam_view.tc — draw a small LIVE camera picture on the ESP32-P4 DSI screen.
 //
 // The P4 MIPI-CSI camera produces JPEG. LVGL in this build has no JPEG decoder

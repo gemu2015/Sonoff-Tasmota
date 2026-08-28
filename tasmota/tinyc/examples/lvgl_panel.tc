@@ -1,3 +1,4 @@
+// @name: LVGL Multi-Screen Panel
 // lvgl_panel.tc — a multi-screen LVGL app for TinyC (requires firmware with USE_TINYC_LVGL)
 //
 // A small "smart panel" with a HOME menu and three sub-screens, animated transitions,

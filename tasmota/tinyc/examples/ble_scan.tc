@@ -1,3 +1,4 @@
+// @name: BLE Scanner
 // ble_scan.tc — BLE advertisement scanner for TinyC.
 //
 // Needs a firmware built with USE_TINYC_BLE (which pulls in USE_BLE_ESP32, the common-BLE

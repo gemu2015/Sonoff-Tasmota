@@ -1,3 +1,4 @@
+// @name: LD2410 Presence Sensor
 // HLK-LD2410 24GHz mmWave Human Presence Sensor
 // Serial: 256000 baud 8N1, continuous reporting every ~50ms
 // Default wiring: ESP RX=GPIO8 ← LD2410 TX

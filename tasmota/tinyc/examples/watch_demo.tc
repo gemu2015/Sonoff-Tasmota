@@ -1,3 +1,4 @@
+// @name: Watch Variables
 // Watch Variables Demo
 // Demonstrates change detection for IOT monitoring
 // watch keyword tracks variable changes automatically

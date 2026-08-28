@@ -1,3 +1,4 @@
+// @name: WAV from RAM
 // wav_ram.tc — load doorbell16.wav into RAM, then play from RAM (no SD reads during
 // playback). Splits "corrupt during repeated reads" from "corrupt during streaming".
 //   WR L = load 1s to RAM, report loaded count + max|amp| + samples at 0/4000/8000/15000

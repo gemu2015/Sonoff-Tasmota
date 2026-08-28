@@ -1,3 +1,4 @@
+// @name: A7105 Listen (FIFO RX)
 // a7105_listen.tc — background FIFO RX. EveryLoop drains FIFO when packets
 // arrive, frames are addLog'd as they come. Commands are zero-work — they
 // just toggle state, so no instruction-limit / vm_mutex issues.

@@ -1,3 +1,4 @@
+// @name: Bresser Weather Station
 // Bresser Weather Station + 24h Google Charts (CC1101 868 MHz)
 // Full Bresser 5/6/7-in-1 receiver with 6 ring-buffer charts
 // 288 points per chart (every 5 min, 24 hours)

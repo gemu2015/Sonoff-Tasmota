@@ -1,3 +1,4 @@
+// @name: SMTP Mail Test
 // ─────────────────────────────────────────────────────────────────────
 // mail_test.tc — minimal SMTP test for debugging the mailSend crash.
 //

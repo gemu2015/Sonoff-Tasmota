@@ -1,3 +1,4 @@
+// @name: Google Line Chart
 // Google Line Chart — 1000 data points stored in array
 // Demonstrates: heap arrays, WebPage, WebCall, webSend, webFlush, random()
 // WebPage draws the chart once, EverySecond shifts new data in

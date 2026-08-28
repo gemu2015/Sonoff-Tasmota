@@ -1,3 +1,4 @@
+// @name: int16[] Test Suite
 // int16_array_suite.tc — Testsuite für gepackte 16-Bit-Arrays (TinyC, ABI 27).
 //
 // Selbstprüfend: jeder Test vergleicht gegen den Sollwert und zählt PASS/FAIL.

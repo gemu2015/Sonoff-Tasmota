@@ -1,3 +1,4 @@
+// @name: Web Radio
 // webradio.tc — Internet-radio player for an I2S audio board.
 //
 // Port of Tasmota Scripter web-radio to TinyC. Streams MP3/AAC internet

@@ -1,3 +1,4 @@
+// @name: SML eBus Solar Monitor
 // SML eBus Solar Monitor with 24h and weekly charts
 // Displays Außentemperatur, Solarspeicher, Kollektortemperatur
 // with min/max tracking and Google Charts history

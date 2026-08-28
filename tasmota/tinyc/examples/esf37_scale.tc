@@ -1,3 +1,4 @@
+// @name: Etekcity ESF37 Scale
 // esf37_scale.tc — read the Etekcity ESF37 body-composition scale over BLE (plaintext)
 //                  + estimate body composition + log every weigh-in to a file.
 //

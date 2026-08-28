@@ -1,3 +1,4 @@
+// @name: RGB Self-Test
 // RGB self-test — drives the SAME pipeline a Matter ColorControl command would:
 //   matterSet(Level/Hue/Sat) -> matterGet -> hsv2rgb -> rgbLed(GPIO8).
 // Used to verify the colour path on macOS where chip-tool cannot issue

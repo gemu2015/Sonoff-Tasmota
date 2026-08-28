@@ -1,3 +1,4 @@
+// @name: Array Persistence (File)
 // persist_array_file.tc — script-managed persistence for arrays that
 // must NOT be lost.
 //

@@ -1,3 +1,4 @@
+// @name: LVGL Widgets
 // lvgl_widgets.tc — LVGL Phase 2 demo (requires firmware with USE_TINYC_LVGL)
 //
 // A slider drives a bar + a value label; a switch tints the background. Shows the

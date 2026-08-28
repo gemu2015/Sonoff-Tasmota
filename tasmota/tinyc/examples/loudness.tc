@@ -1,3 +1,4 @@
+// @name: Microphone Loudness
 // loudness.tc — microphone loudness / VU meter using the TinyC I2S mic (RX) syscalls.
 //
 // Uses an OWN I2S RX channel (a separate I2S port), fully independent of the audio

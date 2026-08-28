@@ -1,3 +1,4 @@
+// @name: SCD30 CO2
 // SCD30 CO2/Temperature/Humidity Sensor Driver
 // I2C address: 0x61
 // Measures: CO2 (ppm), Temperature (C), Humidity (%RH)

@@ -1,3 +1,4 @@
+// @name: Dynamic WebUI
 // webui_dynamic.tc — demo of the TinyC dynamic-HTML enablers (1.6.31).
 //
 //   varIdx(var)                          -> a global's index, so you can hand-build

@@ -1,3 +1,4 @@
+// @name: Callbacks
 // Callback functions — Tasmota integration
 // EverySecond, JsonCall, WebCall are called automatically by Tasmota
 

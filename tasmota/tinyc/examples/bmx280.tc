@@ -1,3 +1,4 @@
+// @name: BMx280 / BME68x
 // BMx280 / BME68x Temperature, Pressure, Humidity & Gas Sensor Driver
 // Auto-detects:
 //   BMP280  (chip id 0x58) — temp + pressure

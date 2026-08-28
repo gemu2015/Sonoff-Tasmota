@@ -1,3 +1,4 @@
+// @name: Analog Voltmeter
 // voltmeter.tc — procedurally-drawn analog voltmeter with dirty-rect needle
 //
 // Demonstrates the TinyC canvas API (1.4.2+):

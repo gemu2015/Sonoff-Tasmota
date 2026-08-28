@@ -1,3 +1,4 @@
+// @name: ESP32 Camera
 // ═══════════════════════════════════════════════════════════════════
 // ESP32 Camera — TinyC direct esp_camera driver
 // Supports multiple boards via compile-time #define

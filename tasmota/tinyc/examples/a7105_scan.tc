@@ -1,3 +1,4 @@
+// @name: A7105 RSSI Scan
 // a7105_scan.tc — AMICCOM A7105 RSSI-scan + init for ceiling-lamp sniffer.
 // Strategy: configure chip with datasheet-recommended defaults, then walk
 // channels 0..127 (2.4 GHz band, 1 MHz step), enter RX briefly on each,

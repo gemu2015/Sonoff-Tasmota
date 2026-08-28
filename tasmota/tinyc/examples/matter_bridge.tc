@@ -1,3 +1,4 @@
+// @name: Matter Bridge
 // Matter Bridge — ONE Matter node exposing MANY devices (pure TinyC).
 //
 // A single commissioned Matter node can present several endpoints; Apple Home

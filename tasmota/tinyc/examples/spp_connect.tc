@@ -1,3 +1,4 @@
+// @name: Bluetooth SPP Connect
 // spp_connect.tc — Verbindungsprobe fuer Bluetooth Classic (SPP).
 //
 // Verbindet sich mit EINER bekannten Adresse und schreibt mit, wie weit die

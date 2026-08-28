@@ -1,3 +1,4 @@
+// @name: Share Reader (Slot 1)
 // Slot 1: reads cross-VM share keys written by slot 0 (share_writer.tc).
 //
 //   RDRALL  — dump all three keys + shareHas("counter")

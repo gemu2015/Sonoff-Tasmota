@@ -1,3 +1,4 @@
+// @name: Touch Buttons & Slider
 // Touch Button & Slider Demo
 // Creates GFX touch buttons and a slider on the display
 // Requires a touchscreen display (e.g. ILI9341 + FT5206)

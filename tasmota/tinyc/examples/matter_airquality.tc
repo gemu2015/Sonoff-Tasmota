@@ -1,3 +1,4 @@
+// @name: Matter Air Quality
 // Matter Air Quality sensor — CO2 / PM2.5 / TVOC (Matter 1.4).
 //
 //   Endpoint 1: Air Quality Sensor (0x002C)

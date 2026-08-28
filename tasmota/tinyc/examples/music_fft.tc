@@ -1,3 +1,4 @@
+// @name: Music FFT Visualizer
 // music_fft.tc — "wrapped FFT" music player: a ring of spectrum bars radiating AROUND
 // the album art, cover zooms with the beat. Inspired by lv_demo_music.
 // Requires USE_TINYC_LVGL firmware incl. lvglLine/Points/Style (495-497), lvglImageScale

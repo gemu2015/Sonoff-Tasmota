@@ -1,3 +1,4 @@
+// @name: Matter Button
 // Matter Generic Switch (stateless programmable button) — uses Matter EVENTS.
 //
 //   Endpoint 1: Generic Switch (0x000F) -> Switch (0x003B)

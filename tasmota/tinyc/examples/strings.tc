@@ -1,3 +1,4 @@
+// @name: Strings
 // String operations with char arrays
 int main() {
     char greeting[32] = "Hello";

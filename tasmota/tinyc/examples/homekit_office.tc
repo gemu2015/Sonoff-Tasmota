@@ -1,3 +1,4 @@
+// @name: HomeKit Office
 // HomeKit Office — Color light + outlet + sensors via UDP
 // TinyC equivalent of the Scripter config:
 //   >h 111-11-111

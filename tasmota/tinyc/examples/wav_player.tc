@@ -1,3 +1,4 @@
+// @name: WAV Player
 // WAV Player — plugin-independent I2S audio output, selectable codec.
 //
 // Pick ONE codec below. The script drives the codec over I2C itself (no audio plugin).

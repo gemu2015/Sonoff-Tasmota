@@ -1,3 +1,4 @@
+// @name: SMA Sunny Boy (Bluetooth)
 // sma_sunnyboy.tc — SMA Sunny Boy ueber Bluetooth Classic auslesen (SMAdata2+ / SPP).
 //
 // Erprobt am SB 5000TL-20 (Seriennummer 2100072694). Liest die DC-Leistung und

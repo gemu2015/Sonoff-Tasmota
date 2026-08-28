@@ -1,3 +1,4 @@
+// @name: Live Chart
 // Live Moving Line Chart — demonstrates _Q() macro for Google Charts
 // The chart polls the device every second via fetch() and shows a
 // sliding 60-second window of simulated temperature and humidity.

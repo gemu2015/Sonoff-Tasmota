@@ -1,3 +1,4 @@
+// @name: LCD Line Chart
 // lcd_chart.tc — 3-Channel Line Chart Demo for TinyC
 // Draws real-time scrolling line charts on any LCD/TFT display
 // Simulates Temperature, Humidity, and Pressure waveforms

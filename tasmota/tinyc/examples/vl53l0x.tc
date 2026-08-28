@@ -1,3 +1,4 @@
+// @name: VL53L0X Distance
 // vl53l0x.tc — VL53L0X Time-of-Flight distance sensor driver
 // Pure TinyC — no native syscalls, uses i2cRead8/i2cWrite8/i2cRead/i2cWrite
 // Based on working Pololu/ST plugin (VL53L0X_c.h)

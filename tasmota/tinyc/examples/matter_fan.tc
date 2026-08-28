@@ -1,3 +1,4 @@
+// @name: Matter Fan
 // Matter Fan — Home controls the speed by WRITING the PercentSetting attribute.
 //
 //   Endpoint 1: Fan (0x002B) -> FanControl (0x0202)

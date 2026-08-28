@@ -1,3 +1,4 @@
+// @name: Fast GPIO Mux
 // fast_mux.tc — HW-timer GPIO multiplexer (ported from Scripter's ESP32_FAST_MUX).
 //
 //   *** classic ESP32 or ESP32-S3 ONLY, and only if the firmware was built with

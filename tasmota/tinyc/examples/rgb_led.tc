@@ -1,3 +1,4 @@
+// @name: RGB LED (RMT)
 // Onboard RGB LED demo — WS2812/SK6812 driven directly off the RMT peripheral.
 // No USE_LIGHT, no GPIO template, no NeoPixelBus: just rgbLed(gpio, 0xRRGGBB).
 //

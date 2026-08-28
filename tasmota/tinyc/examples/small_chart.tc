@@ -1,3 +1,4 @@
+// @name: Small LVGL Chart
 // small_chart.tc — a compact LVGL line chart for SMALL displays.
 //
 // Shows the Google-Charts-style chart scaled down to a 232x144 card: one white
