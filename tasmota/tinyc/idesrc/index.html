@@ -2709,31 +2709,49 @@ int main() {
 
         // ─── Formatting helpers ─────────────────────────
 
+        // ⚠️ ALLES, WAS AUS DEM UEBERSETZTEN PROGRAMM KOMMT, MUSS HIER DURCH.
+        // Die drei Formatierer unten bauen HTML-Text zusammen, der per
+        // innerHTML ins Dokument geht. JSON.stringify() schuetzt
+        // Anfuehrungszeichen und Backslashes, aber NICHT < und > -- damit wird
+        // eine Zeichenkette aus dem Programm zu echtem Markup.
+        //
+        // Gemeldet als github_bug_ide_layout (#120): nach dem Kompilieren von
+        // sml_chart.tc quetschte sich die ganze IDE in eine 480 px breite
+        // Spalte. Das Programm fuehrt seine WebUI-CSS als Zeichenkette mit,
+        // darin "body>div{width:480px}". Die AST-Ansicht schrieb sie ins
+        // Dokument, der Browser machte daraus ein LEBENDES Stylesheet, und
+        // body>div trifft Kopfzeile, Hauptbereich und Statuszeile der IDE
+        // selbst. Mit #include hatte es nur zu tun, weil die CSS ueber ein
+        // include hereinkam -- dort vermutete der Melder die Ursache.
+        function escHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
         function formatDisasm(text) {
             return text.split('\n').map(line => {
                 const match = line.match(/^(\s*\d+)\s+(\S+)\s*(.*)?$/);
-                if (!match) return line;
-                return `<span class="disasm-addr">${match[1]}</span>  <span class="disasm-op">${match[2]}</span> <span class="disasm-operand">${match[3] || ''}</span>`;
+                if (!match) return escHtml(line);
+                return `<span class="disasm-addr">${escHtml(match[1])}</span>  <span class="disasm-op">${escHtml(match[2])}</span> <span class="disasm-operand">${escHtml(match[3] || '')}</span>`;
             }).join('\n');
         }
 
         function formatAST(node, indent = 0) {
             const pad = '  '.repeat(indent);
             if (node === null || node === undefined) return `${pad}<span class="ast-value">null</span>`;
-            if (typeof node !== 'object') return `${pad}<span class="ast-value">${JSON.stringify(node)}</span>`;
+            if (typeof node !== 'object') return `${pad}<span class="ast-value">${escHtml(JSON.stringify(node))}</span>`;
             if (Array.isArray(node)) {
                 if (node.length === 0) return `${pad}[]`;
                 return `${pad}[\n${node.map(n => formatAST(n, indent + 1)).join(',\n')}\n${pad}]`;
             }
 
-            const lines = [`${pad}<span class="ast-node">${node.type || 'Object'}</span> {`];
+            const lines = [`${pad}<span class="ast-node">${escHtml(node.type || 'Object')}</span> {`];
             for (const [key, val] of Object.entries(node)) {
                 if (key === 'type' || key === 'line') continue;
                 if (typeof val === 'object' && val !== null) {
-                    lines.push(`${pad}  <span class="ast-key">${key}</span>:`);
+                    lines.push(`${pad}  <span class="ast-key">${escHtml(key)}</span>:`);
                     lines.push(formatAST(val, indent + 2));
                 } else {
-                    lines.push(`${pad}  <span class="ast-key">${key}</span>: <span class="ast-value">${JSON.stringify(val)}</span>`);
+                    lines.push(`${pad}  <span class="ast-key">${escHtml(key)}</span>: <span class="ast-value">${escHtml(JSON.stringify(val))}</span>`);
                 }
             }
             lines.push(`${pad}}`);
@@ -2757,7 +2775,7 @@ int main() {
                     }
                 }
                 const hexStr = hexParts.slice(0, 8).join(' ') + '  ' + hexParts.slice(8).join(' ');
-                lines.push(`<span class="hex-offset">${offset}</span>  <span class="hex-byte">${hexStr}</span>  <span class="hex-ascii">|${ascii}|</span>`);
+                lines.push(`<span class="hex-offset">${offset}</span>  <span class="hex-byte">${hexStr}</span>  <span class="hex-ascii">|${escHtml(ascii)}|</span>`);
             }
             return lines.join('\n');
         }
