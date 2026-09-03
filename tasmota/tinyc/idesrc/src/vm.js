@@ -1051,8 +1051,8 @@ export class VM {
                     case Op.ADD: r = (a + wk) | 0; break;
                     case Op.SUB: r = (a - wk) | 0; break;
                     case Op.MUL: r = Math.imul(a, wk); break;
-                    case Op.DIV: if (wk === 0) { throw new VMError('Division by zero'); } r = (a / wk) | 0; break;
-                    case Op.MOD: if (wk === 0) { throw new VMError('Division by zero'); } r = (a % wk) | 0; break;
+                    case Op.DIV: if (wk === 0) { throw new VMError('Division by zero', this.pc); } r = (a / wk) | 0; break;
+                    case Op.MOD: if (wk === 0) { throw new VMError('Division by zero', this.pc); } r = (a % wk) | 0; break;
                     case Op.BIT_AND: r = a & wk; break;
                     case Op.BIT_OR:  r = a | wk; break;
                     case Op.BIT_XOR: r = a ^ wk; break;
@@ -1075,29 +1075,32 @@ export class VM {
                 const bop = this.readU8();
                 const dst = this.readU8();
                 const a = this.frameLocals[this.fp][s1] | 0;
-                let r;
-                switch (bop) {
-                    case Op.ADD: r = (a + rhs) | 0; break;
-                    case Op.SUB: r = (a - rhs) | 0; break;
-                    case Op.MUL: r = Math.imul(a, rhs); break;
-                    case Op.DIV: if (rhs === 0) { throw new VMError('Division by zero'); } r = (a / rhs) | 0; break;
-                    case Op.MOD: if (rhs === 0) { throw new VMError('Division by zero'); } r = (a % rhs) | 0; break;
-                    case Op.BIT_AND: r = a & rhs; break;
-                    case Op.BIT_OR:  r = a | rhs; break;
-                    case Op.BIT_XOR: r = a ^ rhs; break;
-                    case Op.SHL: r = (a << rhs) | 0; break;
-                    case Op.SHR: r = a >> rhs; break;
-                    case Op.EQ:  r = a === rhs ? 1 : 0; break;
-                    case Op.NEQ: r = a !== rhs ? 1 : 0; break;
-                    case Op.LT:  r = a <  rhs ? 1 : 0; break;
-                    case Op.GT:  r = a >  rhs ? 1 : 0; break;
-                    case Op.LTE: r = a <= rhs ? 1 : 0; break;
-                    case Op.GTE: r = a >= rhs ? 1 : 0; break;
-                    default: throw new VMError(`Bad operator ${bop} in superinstruction`);
-                }
+                const r = this._superBinop(bop, a, rhs);
                 this.frameLocals[this.fp][dst] = r;
                 break;
             }
+            // ── Superinstruction: locals[dst] = locals[y] OP_OUT (locals[z] OP_IN k) ──
+            //
+            // ⚠️ MUST MIRROR THE FIRMWARE EXACTLY. The IDE runs on THIS VM, the
+            // device on its own; if they diverge, the same expression does one
+            // thing in the trial run and another on the device.
+            //
+            // ⚠️ INNER FIRST, then outer -- exactly the order of the unfused
+            // form. On a division by zero the INNER error has to surface, not
+            // the outer one.
+            case Op.LLK_OP2_ST: {
+                const y = this.readU8();
+                const z = this.readU8();
+                let k = this.readU8(); if (k > 127) { k -= 256; }
+                const opIn = this.readU8();
+                const opOut = this.readU8();
+                const dst2 = this.readU8();
+                const L = this.frameLocals[this.fp];
+                const inner = this._superBinop(opIn, L[z] | 0, k);
+                L[dst2] = this._superBinop(opOut, L[y] | 0, inner);
+                break;
+            }
+
             // ── Superinstruction: locals[idx] += delta, no stack effect ──
             // Must mirror the firmware EXACTLY, or the IDE's Run button and the
             // device disagree about what a fused program does.
@@ -4678,6 +4681,44 @@ export class VM {
 
     // ─── Disassembler ────────────────────────────────────────
 
+    // The arithmetic core of ALL superinstructions -- in ONE place.
+    //
+    // ⚠️ It used to sit inline in LK_OP_ST/LL_OP_ST. A second copy next to it
+    // for LLK_OP2_ST would be the classic opportunity for one of the two to be
+    // left behind at the next change -- and because the IDE runs on this VM and
+    // the device on its own, such a divergence only shows up on the device.
+    //
+    // `bop` is the ORDINARY opcode of the operation (ADD, MUL, ...), so that one
+    // superinstruction covers every operator instead of one per operator.
+    _superBinop(bop, a, rhs) {
+        let r;
+        switch (bop) {
+                    case Op.ADD: r = (a + rhs) | 0; break;
+                    case Op.SUB: r = (a - rhs) | 0; break;
+                    case Op.MUL: r = Math.imul(a, rhs); break;
+                    case Op.DIV: if (rhs === 0) { throw new VMError('Division by zero', this.pc); } r = (a / rhs) | 0; break;
+                    // ⚠️ "Modulo", not "Division" -- the unfused path words it that way,
+                    // and the fused form MUST be indistinguishable. The device knows
+                    // only one code anyway (TC_ERR_DIV_ZERO for both); the difference is
+                    // pure diagnostics in the IDE, but that is exactly where somebody
+                    // goes looking for the fault.
+                    case Op.MOD: if (rhs === 0) { throw new VMError('Modulo by zero', this.pc); } r = (a % rhs) | 0; break;
+                    case Op.BIT_AND: r = a & rhs; break;
+                    case Op.BIT_OR:  r = a | rhs; break;
+                    case Op.BIT_XOR: r = a ^ rhs; break;
+                    case Op.SHL: r = (a << rhs) | 0; break;
+                    case Op.SHR: r = a >> rhs; break;
+                    case Op.EQ:  r = a === rhs ? 1 : 0; break;
+                    case Op.NEQ: r = a !== rhs ? 1 : 0; break;
+                    case Op.LT:  r = a <  rhs ? 1 : 0; break;
+                    case Op.GT:  r = a >  rhs ? 1 : 0; break;
+                    case Op.LTE: r = a <= rhs ? 1 : 0; break;
+                    case Op.GTE: r = a >= rhs ? 1 : 0; break;
+                    default: throw new VMError(`Bad operator ${bop} in superinstruction`, this.pc);
+                }
+        return r;
+    }
+
     disassemble(compiled) {
         const { binary, codeOffset, codeSize } = compiled;
         const lines = [];
@@ -4781,6 +4822,14 @@ export class VM {
                         : `local[${binary[pc+1]}]`;
                     operand = `local[${binary[pc+3]}] = local[${binary[pc]}] <op 0x${binary[pc+2].toString(16)}> ${rhs}`;
                     pc += 4;
+                    break;
+                }
+                case Op.LLK_OP2_ST: {
+                    const k = (binary[pc+2] > 127) ? binary[pc+2]-256 : binary[pc+2];
+                    operand = `local[${binary[pc+5]}] = local[${binary[pc]}] `
+                            + `<op 0x${binary[pc+4].toString(16)}> `
+                            + `(local[${binary[pc+1]}] <op 0x${binary[pc+3].toString(16)}> ${k})`;
+                    pc += 6;
                     break;
                 }
                 case Op.INC_LOCAL: {

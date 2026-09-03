@@ -1019,6 +1019,7 @@ export class CodeGenerator {
         if      (op === Op.LK32_OP_ST || op === Op.LL_CMP_JZ || op === Op.LK32_CMP_JZ) this._abiMerken(23);
         else if (op === Op.LK_OP_ST   || op === Op.LL_OP_ST)                           this._abiMerken(22);
         else if (op === Op.INC_LOCAL)                                                  this._abiMerken(21);
+        else if (op === Op.LLK_OP2_ST)                                                 this._abiMerken(29);
         // Packed 16-bit access (0xB6..0xC1). Hooking it HERE rather than at the
         // dozen emit sites is what makes it impossible to forget: any path that
         // ever reaches one of these opcodes stamps the requirement, and older
@@ -2601,6 +2602,37 @@ export class CodeGenerator {
                 this.emitByte(a.index); this.emitI32(k);
                 this.emitByte(bop); this.emitByte(dst.index);
             }
+            return true;
+        }
+
+        // `x = y OP_OUT (z OP_IN k)` — the nested shape, ONE opcode.
+        //
+        // ⚠️ LAST, after the constant path. That way nothing about existing
+        // bytecode can change: everything that fused before still takes the
+        // same route, and only what would previously have fallen through as
+        // unfusable reaches this point.
+        //
+        // ⚠️ The inner conditions are the SAME as above and for the same
+        // reasons: plain int locals, no floats, no array, no ref, no global
+        // (that one needs STORE_WATCH), and the constant must fit an i8.
+        // `constIntOf` folds `(2*3)` beforehand, so such an expression never
+        // arrives here in the first place.
+        if (this.targetAbi >= 29 && v.right.type === NodeType.BinaryExpr) {
+            const iop = OPMAP[v.right.op];
+            if (iop === undefined) { return false; }
+            if (v.right.left.type !== NodeType.Identifier) { return false; }
+            const z = plainIntLocal(v.right.left.name);
+            if (!z) { return false; }
+            if (this.isFloatType(this.inferType(v.right.left))) { return false; }
+            const ik = this.constIntOf(v.right.right);
+            if (ik === null || ik < -128 || ik > 127) { return false; }
+            // ⚠️ Do not fuse a division by the CONSTANT zero. It is a runtime
+            // error either way, but the unfused path reports it at the place
+            // where it stands.
+            if ((iop === Op.DIV || iop === Op.MOD) && ik === 0) { return false; }
+            this.emit(Op.LLK_OP2_ST);
+            this.emitByte(a.index); this.emitByte(z.index); this.emitByte(ik & 0xFF);
+            this.emitByte(iop); this.emitByte(bop); this.emitByte(dst.index);
             return true;
         }
         return false;
