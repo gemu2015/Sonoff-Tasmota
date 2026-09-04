@@ -1,39 +1,44 @@
 #!/bin/bash
-# Compile a .tc file and push the .tcb to a Tasmota device
-# Usage: push_tcb.sh <file.tc> [device_ip]
-set -e
+# push_tcb.sh — ein .tc-Programm uebersetzen und auf ein Tasmota-Geraet laden
+#
+#     scripts/push_tcb.sh <datei.tc> [geraet-ip] [slot]
+#
+# ⚠️ DAS SKRIPT WAR KAPUTT. Es rief `scripts/compile_cli.js` auf; die Datei
+# liegt seit einer Umraeumung in legacy_misc/. Node brach mit MODULE_NOT_FOUND
+# ab, und weil `set -e` gilt, endete es dort -- ohne verstaendliche Meldung
+# (04.09.2026). Uebersetzt wird jetzt mit compile_one.mjs, also mit demselben
+# Compiler wie die Sammelstrecke.
+#
+# ⚠️ NACH DEM HOCHLADEN ERST ENTLADEN, DANN STARTEN. `/tc_api?cmd=run` laedt
+# die Datei nur nach, wenn der Slot NICHT geladen ist -- ein blosses stop+run
+# startete das ALTE Programm aus dem Speicher neu, und die frisch geschobene
+# Datei laege unbenutzt im Dateisystem.
+set -o errexit -o pipefail
 
-DEVICE_IP="${2:-192.168.188.128}"
-INPUT="${1:?Usage: push_tcb.sh <file.tc> [device_ip]}"
-BASENAME=$(basename "$INPUT" .tc)
-TCB="/tmp/${BASENAME}.tcb"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+EINGABE="${1:?Aufruf: push_tcb.sh <datei.tc> [geraet-ip] [slot]}"
+GERAET="${2:-192.168.188.128}"
+SLOT="${3:-0}"
+NAME="$(basename "$EINGABE" .tc)"
+TCB="/tmp/${NAME}.tcb"
+HIER="$(cd "$(dirname "$0")" && pwd)"
 
-# Compile
-echo "Compiling $INPUT ..."
-node "$SCRIPT_DIR/compile_cli.js" "$INPUT" "$TCB"
+echo "1/4  uebersetzen …"
+node "$HIER/compile_one.mjs" "$EINGABE" "$TCB"
 
-# Upload
-SIZE=$(stat -f%z "$TCB" 2>/dev/null || stat -c%s "$TCB" 2>/dev/null)
-echo "Uploading ${BASENAME}.tcb ($SIZE bytes) to $DEVICE_IP ..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST "http://${DEVICE_IP}/ufsu?fsz=${SIZE}" \
-    -F "ufsu=@${TCB};filename=${BASENAME}.tcb")
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "Upload failed (HTTP $HTTP_CODE)"
-    exit 1
-fi
+GROESSE=$(stat -f%z "$TCB" 2>/dev/null || stat -c%s "$TCB" 2>/dev/null)
+echo "2/4  hochladen: ${NAME}.tcb (${GROESSE} Byte) -> ${GERAET}"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -X POST "http://${GERAET}/ufsu?fsz=${GROESSE}" \
+    -F "ufsu=@${TCB};filename=${NAME}.tcb")
+[ "$CODE" = "200" ] || { echo "   Hochladen fehlgeschlagen (HTTP $CODE)"; exit 1; }
 
-# Stop any running program
-echo "Stopping current program ..."
-curl -s "http://${DEVICE_IP}/tc_api?cmd=stop" -o /dev/null
+echo "3/4  Slot ${SLOT} entladen …"
+curl -s "http://${GERAET}/cm?cmnd=TinyCUnload%20${SLOT}" ; echo
 
-# Load from filesystem (web page handler)
-echo "Loading /${BASENAME}.tcb ..."
-curl -s "http://${DEVICE_IP}/tc?cmd=load&file=/${BASENAME}.tcb" -o /dev/null
+echo "4/4  starten …"
+curl -s "http://${GERAET}/tc_api?cmd=run&slot=${SLOT}" ; echo
 
-# Run
-echo "Running /${BASENAME}.tcb ..."
-RESULT=$(curl -s "http://${DEVICE_IP}/tc_api?cmd=run")
-echo "$RESULT"
-echo "Done."
+echo
+echo "Zustand:"
+curl -s "http://${GERAET}/cm?cmnd=TinyC"
+echo

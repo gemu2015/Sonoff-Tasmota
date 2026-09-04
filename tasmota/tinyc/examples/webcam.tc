@@ -324,6 +324,13 @@ void OnExit() {
 
 // ─── Main: initialization ───
 int main() {
+    // ⚠️ Ohne webPageLabel() erscheint kein Knopf zu diesen Einstellungen:
+    // ein blosses WebUI() bekam frueher automatisch einen generischen
+    // "TinyC UI"-Knopf, den gibt es nicht mehr (er loeste auf den falschen
+    // Slot auf und antwortete 503). Geprueft von
+    // scripts/webui_knopf_pruefen.py.
+    webPageLabel(0, "Camera Setup");
+
     mot = 0;
     bri = 0;
     mailout = 0;

@@ -1609,6 +1609,13 @@ void OnExit() {
 }
 
 int main() {
+    // ⚠️ Ohne webPageLabel() erscheint kein Knopf zu diesen Einstellungen:
+    // ein blosses WebUI() bekam frueher automatisch einen generischen
+    // "TinyC UI"-Knopf, den gibt es nicht mehr (er loeste auf den falschen
+    // Slot auf und antwortete 503). Geprueft von
+    // scripts/webui_knopf_pruefen.py.
+    webPageLabel(0, "1-Wire Setup");
+
     // first-run defaults (persist vars start at 0)
     if (ow_pin == 0 && ow_rxpin == 0 && ow_txpin == 0) {
         ow_pin = 4;

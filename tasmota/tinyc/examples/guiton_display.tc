@@ -302,6 +302,13 @@ void OnExit() {
 // MAIN
 // ═══════════════════════════════════════════════════════════════════
 int main() {
+    // ⚠️ Ohne webPageLabel() erscheint kein Knopf zu diesen Einstellungen:
+    // ein blosses WebUI() bekam frueher automatisch einen generischen
+    // "TinyC UI"-Knopf, den gibt es nicht mehr (er loeste auf den falschen
+    // Slot auf und antwortete 503). Geprueft von
+    // scripts/webui_knopf_pruefen.py.
+    webPageLabel(0, "Display Setup");
+
     lgrey = 21130;
     cnt = 0;
     udp_timer = 30;

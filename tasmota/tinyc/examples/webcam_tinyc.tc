@@ -529,6 +529,13 @@ int main() {
     int size = captureToSlot(1);
     addLog("TCC: camera ready, first frame: %d bytes, heap: %d", size, tasm_heap);
 
+    // ⚠️ Register a page label — WITHOUT it the settings never appear.
+    // A bare WebUI() used to get a generic "TinyC UI" button on the main page;
+    // that button is gone (it resolved to the wrong slot and answered 503).
+    // Now only a slot that registers a page via webPageLabel() gets a button,
+    // so this script's checkboxes had become unreachable.
+    webPageLabel(0, "Camera Setup");
+
     // Start MJPEG stream server on port 81
     // (deferred automatically if WiFi not ready yet — safe for autoexec)
     camControl(15, 1, 0);
