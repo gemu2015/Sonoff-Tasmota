@@ -42,6 +42,14 @@ int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 #define FRAMESIZE_SXGA      12
 #define FRAMESIZE_UXGA      13
 
+// ─── Resolution picker ───
+// webPulldown hands back a 0-based INDEX, the sensor wants a FRAMESIZE_*.
+// The list is deliberately short: below QVGA the picture is useless for
+// motion detection, and the OV2640 tops out at UXGA.
+#define RES_COUNT           9
+#define RES_FIRST           5       // index 0 = FRAMESIZE_QVGA
+#define RES_DEFAULT         3       // index 3 = FRAMESIZE_VGA 640x480
+
 // Sensor parameter IDs for camControl(9, param, value)
 #define CAM_VFLIP           0
 #define CAM_BRIGHTNESS      1
@@ -68,6 +76,12 @@ persist watch int rpt;        // take picture every N minutes (0=off)
 persist watch int ufl;        // use flash LED
 persist watch int mtl;        // merge pictures into timelapse mjpeg
 persist watch int npic;       // number of pictures per alarm email (1-4)
+persist watch int res;        // resolution, INDEX into the pulldown (not FRAMESIZE_*)
+persist int res_seen;         // ⚠️ 1 once `res` was ever stored. Needed because
+                              // index 0 is a LEGAL choice (QVGA): without this
+                              // marker, "0 means unset" would make QVGA
+                              // impossible to select — it would snap back to
+                              // VGA on every restart.
 
 // ─── Global state ───
 int mot;                // current motion value (JPEG size diff)
@@ -95,7 +109,10 @@ char tmp[64];
 int initCamera() {
     int ok;
 
-    ok = cameraInit(campins, PIXFORMAT_JPEG, FRAMESIZE_VGA, 12, 0, 0, -1, -1);
+    // ⚠️ Mit der GESPEICHERTEN Auflösung starten, nicht mit VGA: sonst steht
+    // nach jedem Neustart wieder VGA im Sensor, während das Klappmenü etwas
+    // anderes anzeigt.
+    ok = cameraInit(campins, PIXFORMAT_JPEG, res_framesize(), 12, 0, 0, -1, -1);
     if (ok != 0) {
         print(ok);
         addLog("TCC: camera init FAILED");
@@ -134,6 +151,38 @@ int captureToSlot(int slot) {
 // ═══════════════════════════════════════════════════════════════════
 // Log message with timestamp
 // ═══════════════════════════════════════════════════════════════════
+// Index of the pulldown -> FRAMESIZE_* the sensor understands.
+// ⚠️ Clamped: `res` comes from persistent storage, and a value from an older
+// version (or a corrupted one) would otherwise configure the sensor with
+// nonsense — the camera then delivers nothing and the reason is invisible.
+// Breite und Hoehe der gewaehlten Auflösung.
+//
+// ⚠️ NICHT camControl(3/4, ...) FRAGEN. Die Selektoren 0..7 gehören zum
+// Tasmota-Webcam-Treiber; dieser Bau hat nur den TinyC-eigenen (8..18), und
+// dann liefern sie -1. Auf der Einstellseite stand deshalb "-1x-1".
+// Die Maße stehen ohnehin fest -- es ist dieselbe Liste wie im Klappmenü.
+void res_masse() {
+    int i = res;
+    if (i < 0) { i = RES_DEFAULT; }
+    if (i >= RES_COUNT) { i = RES_DEFAULT; }
+    if (i == 0) { cam_w = 320;  cam_h = 240; }
+    if (i == 1) { cam_w = 400;  cam_h = 296; }
+    if (i == 2) { cam_w = 480;  cam_h = 320; }
+    if (i == 3) { cam_w = 640;  cam_h = 480; }
+    if (i == 4) { cam_w = 800;  cam_h = 600; }
+    if (i == 5) { cam_w = 1024; cam_h = 768; }
+    if (i == 6) { cam_w = 1280; cam_h = 720; }
+    if (i == 7) { cam_w = 1280; cam_h = 1024; }
+    if (i == 8) { cam_w = 1600; cam_h = 1200; }
+}
+
+int res_framesize() {
+    int i = res;
+    if (i < 0) { i = RES_DEFAULT; }
+    if (i >= RES_COUNT) { i = RES_DEFAULT; }
+    return RES_FIRST + i;
+}
+
 void log_msg(char msg[]) {
     char line[128];
     timeStamp(line);
@@ -259,6 +308,9 @@ void del_old() {
 // ═══════════════════════════════════════════════════════════════════
 int alarm_pics_pending;    // number of alarm pics still to capture
 int alarm_pics_captured;   // number captured so far
+int do_res;                // resolution change requested, carried out in TaskLoop
+int cam_w;                 // current width  — see res_masse()
+int cam_h;                 // current height
 
 void send_alarm_email() {
     if (ma == 0) { return; }
@@ -332,6 +384,25 @@ void TaskLoop() {
         flash_off();
     }
 
+    // ⚠️ RESOLUTION CHANGE BELONGS HERE, NOT IN EverySecond(). Anything that
+    // touches the camera has to run in the VM task thread — from the main
+    // thread it freezes the device (see the TinyC reference on camControl).
+    // EverySecond only sets the flag.
+    //
+    // The stream is stopped around it: it hands out frames from the buffer
+    // that is being resized underneath it.
+    if (do_res == 1) {
+        do_res = 0;
+        camControl(15, 0, 0);                       // stop MJPEG server
+        delay(200);
+        camControl(9, CAM_FRAMESIZE, res_framesize());
+        delay(300);                                 // sensor needs a moment
+        res_masse();
+        camControl(15, 1, 0);                       // and back on
+        last_size = 0;                              // motion reference is void now
+        addLog("TCC: resolution now %d (%dx%d)", res_framesize(), cam_w, cam_h);
+    }
+
     // Hi-res capture via web button
     if (doHiRes == 1) {
         doHiRes = 0;
@@ -340,7 +411,9 @@ void TaskLoop() {
         delay(500);
         captureToSlot(2);
         save_pic_from_slot(2);
-        camControl(9, CAM_FRAMESIZE, FRAMESIZE_VGA);
+        // ⚠️ BACK TO THE CHOSEN RESOLUTION, not to a hard-wired VGA — that
+        // silently overrode the setting on the first hi-res shot.
+        camControl(9, CAM_FRAMESIZE, res_framesize());
         flash_off();
     }
 
@@ -404,9 +477,13 @@ void EverySecond() {
     }
 
     // Auto-save persist variables when any setting changes
+    if (changed(res)) {
+        snapshot(res);
+        do_res = 1;                 // carried out in TaskLoop, see there
+    }
     if (changed(limit) || changed(pir) || changed(ma) ||
         changed(spir) || changed(rpt) || changed(ufl) ||
-        changed(mtl) || changed(npic)) {
+        changed(mtl) || changed(npic) || do_res == 1) {
         snapshot(limit); snapshot(pir); snapshot(ma);
         snapshot(spir); snapshot(rpt); snapshot(ufl);
         snapshot(mtl); snapshot(npic);
@@ -436,19 +513,45 @@ void WebCall() {
 //       stream server — no WebPage() needed
 // ═══════════════════════════════════════════════════════════════════
 void WebUI() {
+    // Optik wie bei den SML-Treibern (common/sml_descriptor.tc): eine Karte mit
+    // Überschriften, kleiner Erklärzeile und fester Breite.
+    // ⚠️ Die Breite gehört an `body>div`. Tasmotas Rahmen ist ein
+    // inline-block mit min-width:340px und wächst mit seinem breitesten Kind --
+    // ohne die feste Breite zieht ein langer Klappmenü-Eintrag die ganze Seite
+    // auseinander. 96vw hält sie auf dem Telefon im Rahmen.
+    webSend("<style>body>div{width:480px;max-width:96vw;box-sizing:border-box}.cam-p{max-width:100%;box-sizing:border-box;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.cam-p h3{margin:0 0 8px}.cam-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.cam-p b{display:inline-block;margin-bottom:4px;font-size:13px}.cam-p div{margin:6px 0}.cam-p .hint{font-size:9px;color:#555;line-height:1.4}</style>");
+    webSend("<div class='cam-p'><h3>&#x1F4F7; Camera</h3>");
+
+    webSend("<b>&#x1F5BC;&#xFE0F; Picture</b>");
+    webPulldown(res, "Resolution",
+                "QVGA 320x240|CIF 400x296|HVGA 480x320|VGA 640x480|SVGA 800x600|XGA 1024x768|HD 1280x720|SXGA 1280x1024|UXGA 1600x1200");
+    sprintf(buf, "<div class='hint'>Camera is set to <b>%dx%d</b>. Changing this restarts the stream on port 81 for a moment. Larger pictures cost PSRAM and frame rate; for motion detection VGA is plenty.</div>", cam_w, cam_h);
+    webSend(buf);
+
+    webSend("<hr><b>&#x1F6B6; Motion</b>");
+    webCheckbox(spir, "Software motion detector");
+    webNumber(limit, 50, 10000, "Motion alarm threshold");
     if (PIR_PIN >= 0) {
         webCheckbox(pir, "Hardware PIR");
     }
-    webCheckbox(spir, "Software motion detector");
-    webNumber(limit, 50, 10000, "Motion alarm threshold");
+    webSend("<div class='hint'>The software detector compares the size of successive JPEGs -- a bigger picture means a bigger difference, so the threshold has to be raised after a resolution change.</div>");
+
+    webSend("<hr><b>&#x2709;&#xFE0F; Alarm</b>");
     webCheckbox(ma, "Send email on alarm");
     webNumber(npic, 1, 4, "Pictures per alarm (1-4)");
     webCheckbox(ufl, "Use flash LED");
+
+    webSend("<hr><b>&#x23F1;&#xFE0F; Timelapse</b>");
     webNumber(rpt, 0, 60, "Take picture every N minutes");
     webCheckbox(mtl, "Merge into tlapse.mjpeg");
-    webButton(doCapture, "Take Picture");
-    webButton(doHiRes, "Hi-Res Capture");
-    webButton(del_all, "Delete all pictures");
+    webSend("<div class='hint'>0 minutes = off.</div>");
+
+    webSend("<hr><b>&#x1F4F8; Now</b>");
+    webButton(doCapture, "Take Picture|saved");
+    webButton(doHiRes, "Hi-Res Capture|saved");
+    webButton(del_all, "Delete all pictures|deleted");
+
+    webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>webcam_tinyc.tc</b></div></div>");
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -494,11 +597,12 @@ int main() {
     if (limit == 0) { limit = 400; }
     if (npic == 0) { npic = 1; }
     if (npic > 4) { npic = 4; }
+    if (res_seen == 0) { res = RES_DEFAULT; res_seen = 1; }
 
     // Snapshot all watch vars so changed() starts clean
     snapshot(limit); snapshot(pir); snapshot(ma);
     snapshot(spir); snapshot(rpt); snapshot(ufl);
-    snapshot(mtl); snapshot(npic);
+    snapshot(mtl); snapshot(npic); snapshot(res);
 
     // Sanitize corrupted persist values
     if (pir > 1 || ma > 1 || spir > 1 || ufl > 1 || mtl > 1) {
@@ -524,6 +628,7 @@ int main() {
         return -1;
     }
     cam_ok = 1;
+    res_masse();
 
     // First test capture
     int size = captureToSlot(1);
