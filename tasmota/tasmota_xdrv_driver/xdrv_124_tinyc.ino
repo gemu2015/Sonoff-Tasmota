@@ -5232,6 +5232,40 @@ static void TC_CamStreamHandler(void) {
   AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: stream client connected"));
 }
 
+// GET /tc_cam.jpg — EIN Bild, dann Schluss.
+//
+// ⚠️ WOZU, wo es doch einen Stream gibt: Safari zeigte meistens kein Bild
+// (gemu 04.09.2026), Chrome immer. Zwei Gründe, und beide treffen nur Safari:
+//
+//   * `multipart/x-mixed-replace` in einem `<img>` ist in Safari seit Jahren
+//     unzuverlässig. `webcam.tc` trägt für dasselbe Symptom längst eine
+//     Umgehung mit genau diesem Kommentar -- nur zeichnet beim TinyC-Treiber
+//     das Bild hier in C++, und hier fehlte sie.
+//   * Der Streamserver auf Port 81 hält GENAU EINEN Client
+//     (`tc_cam_stream.client = server->client()`), und alle drei URIs
+//     (/stream, /cam.mjpeg, /cam.jpg) landen im selben Multipart-Handler --
+//     ein Einzelbild gab es dort gar nicht. Safari öffnet Verbindungen gern
+//     spekulativ doppelt; die zweite verdrängt die erste, und das `<img>` auf
+//     dem Schirm hängt an der verworfenen. Das erklärt das „meistens".
+//
+// Deshalb liegt dieser Handler am HAUPTserver (Port 80): der verträgt mehrere
+// Verbindungen, und die Seite kommt von dort -- gleiche Herkunft, keine
+// Sonderfälle.
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+static void HandleTinyCCamJpg(void) {
+  if (!HttpCheckPriviledgedAccess()) { return; }
+  if (!tc_cam_slot[0].buf || tc_cam_slot[0].len == 0 || tc_cam_slot[0].writing) {
+    // Noch kein Bild im Slot -- der Aufrufer soll es gleich nochmal versuchen,
+    // nicht ein kaputtes Bild anzeigen.
+    Webserver->send(503, "text/plain", "no frame");
+    return;
+  }
+  Webserver->sendHeader(F("Cache-Control"), F("no-store"));
+  Webserver->send_P(200, "image/jpeg", (const char *)tc_cam_slot[0].buf,
+                    tc_cam_slot[0].len);
+}
+#endif
+
 static void TC_CamStreamRoot(void) {
   tc_cam_stream.server->sendHeader("Location", "/cam.mjpeg");
   tc_cam_stream.server->send(302, "", "");
@@ -7453,12 +7487,23 @@ bool Xdrv124(uint32_t function) {
       if ((tc_cam_stream.server || tc_cam_stream.pending) && tc_cam_slot[0].len > 0) {
         // Use onload script to set src AFTER page is fully rendered
         // This prevents the stream request from blocking page load
+        // ⚠️ SAFARI BEKOMMT EINZELBILDER, alle anderen den Multipart-Strom.
+        // Warum, steht bei HandleTinyCCamJpg(). Die Bilder werden VERKETTET
+        // geholt -- das nächste erst, wenn das vorige da ist -- statt mit
+        // einem festen setInterval: bei einer langsamen Verbindung stapeln
+        // sich sonst die Anfragen, und der ESP beantwortet sie alle.
         WSContentSend_P(PSTR("<p></p><center>"
-          "<img id='tccam' onerror='setTimeout(()=>{this.src=\"http://%_I:%d/stream\";},2000)' "
-          "alt='TinyC Camera' style='width:99%%;'>"
+          "<img id='tccam' alt='TinyC Camera' style='width:99%%;'>"
           "</center><p></p>"
-          "<script>window.addEventListener('load',()=>{document.getElementById('tccam').src="
-          "'http://%_I:%d/stream';});</script>"),
+          "<script>window.addEventListener('load',function(){"
+          "var c=document.getElementById('tccam');"
+          "if(/^((?!chrome|android).)*safari/i.test(navigator.userAgent)){"
+          "var n=function(){c.src='/tc_cam.jpg?'+Date.now();};"
+          "c.onload=function(){setTimeout(n,80);};"
+          "c.onerror=function(){setTimeout(n,1000);};n();"
+          "}else{"
+          "c.onerror=function(){setTimeout(function(){c.src='http://%_I:%d/stream';},2000);};"
+          "c.src='http://%_I:%d/stream';}});</script>"),
           (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT,
           (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT);
       }
@@ -7547,6 +7592,9 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_WEB_ADD_HANDLER:
       WebServer_on(PSTR("/tc"), HandleTinyCPage);
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+      WebServer_on(PSTR("/tc_cam.jpg"), HandleTinyCCamJpg);
+#endif
 #ifdef USE_TINYC_REPO_IDE
       WebServer_on(PSTR("/tcrepo"), HandleTinyCRepoIde);
 #endif
