@@ -5206,6 +5206,44 @@ static void HandleTinyCWebOn7(void) { HandleTinyCWebOn(7); }
 
 // ---- Camera JPEG endpoint: /tc_cam?slot=N — serve PSRAM slot directly ----
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+// Einen Kamera-Slot als EIN JPEG ausliefern.
+//
+// ⚠️ ERST KOPIEREN, DANN SENDEN. Der Slot wird von der VM-Task fortlaufend
+// neu beschrieben; `writing` ist nur ein Merker fuer den Augenblick, keine
+// Sperre ueber die Dauer des Sendens. Wer direkt aus dem Slot sendet, liefert
+// ein halbes altes und ein halbes neues Bild -- in Safari sah man genau das:
+// „es wird manchmal nur halb gezeichnet" (gemu 04.09.2026). Der Streampfad
+// macht es seit jeher richtig und sagt es sogar im Kommentar
+// („Copy frame to send buffer first"); die beiden Einzelbild-Handler taten es
+// nicht.
+//
+// Nach dem Kopieren wird NOCHMAL geprueft: faengt der Schreiber waehrend des
+// memcpy an, ist die Kopie schon zerrissen. Dann lieber 503 und der Aufrufer
+// holt sich das naechste Bild -- ein Bild zu ueberspringen faellt bei 10 Bildern
+// je Sekunde niemandem auf, ein zerrissenes schon.
+static void TC_SendCamSlotAsJpeg(int idx) {
+  if (!tc_cam_slot[idx].buf || tc_cam_slot[idx].len == 0 || tc_cam_slot[idx].writing) {
+    Webserver->send(503, "text/plain", "no image");
+    return;
+  }
+  uint32_t len = tc_cam_slot[idx].len;
+  uint8_t *kopie = (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!kopie) { kopie = (uint8_t *)malloc(len); }
+  if (!kopie) {
+    Webserver->send(503, "text/plain", "no memory");
+    return;
+  }
+  memcpy(kopie, tc_cam_slot[idx].buf, len);
+  if (tc_cam_slot[idx].writing || tc_cam_slot[idx].len != len) {
+    free(kopie);
+    Webserver->send(503, "text/plain", "frame changed");
+    return;
+  }
+  Webserver->sendHeader(F("Cache-Control"), F("no-cache, no-store"));
+  Webserver->send_P(200, "image/jpeg", (const char *)kopie, len);
+  free(kopie);
+}
+
 static void HandleTinyCCam(void) {
   int slot = 1;  // default slot 1
   if (Webserver->hasArg("slot")) {
@@ -5215,13 +5253,7 @@ static void HandleTinyCCam(void) {
     Webserver->send(400, "text/plain", "invalid slot");
     return;
   }
-  int idx = slot - 1;
-  if (!tc_cam_slot[idx].buf || tc_cam_slot[idx].len == 0 || tc_cam_slot[idx].writing) {
-    Webserver->send(503, "text/plain", "no image");
-    return;
-  }
-  Webserver->sendHeader("Cache-Control", "no-cache, no-store");
-  Webserver->send_P(200, "image/jpeg", (const char*)tc_cam_slot[idx].buf, tc_cam_slot[idx].len);
+  TC_SendCamSlotAsJpeg(slot - 1);
 }
 
 // ---- MJPEG streaming server on port 81 ----
@@ -5254,15 +5286,7 @@ static void TC_CamStreamHandler(void) {
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
 static void HandleTinyCCamJpg(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
-  if (!tc_cam_slot[0].buf || tc_cam_slot[0].len == 0 || tc_cam_slot[0].writing) {
-    // Noch kein Bild im Slot -- der Aufrufer soll es gleich nochmal versuchen,
-    // nicht ein kaputtes Bild anzeigen.
-    Webserver->send(503, "text/plain", "no frame");
-    return;
-  }
-  Webserver->sendHeader(F("Cache-Control"), F("no-store"));
-  Webserver->send_P(200, "image/jpeg", (const char *)tc_cam_slot[0].buf,
-                    tc_cam_slot[0].len);
+  TC_SendCamSlotAsJpeg(0);
 }
 #endif
 
