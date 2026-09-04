@@ -18,20 +18,29 @@
 #define PIXFORMAT_RGB888    5
 
 // ─── Frame sizes ───
+// ⚠️ DIESE LISTE WAR UM ZWEI VERSCHOBEN. Sie stammte aus der klassischen
+// framesize_t; der esp32-camera-Zweig in diesem Baum hat zwei Einträge mehr
+// (128X128 an 2, 320X320 an 7) -- siehe
+// lib/lib_div/esp32-camera/driver/include/sensor.h. `FRAMESIZE_VGA 8` lieferte
+// deshalb CIF 400x296, und der Hi-Res-Schuss mit `FRAMESIZE_UXGA 13` bekam in
+// Wahrheit HD 1280x720. Am echten Bild nachgemessen (SOF-Marker von
+// http://<ip>:81/cam.jpg), nicht aus einer Tabelle abgeschrieben.
 #define FRAMESIZE_96X96     0
 #define FRAMESIZE_QQVGA     1
-#define FRAMESIZE_QCIF      2
-#define FRAMESIZE_HQVGA     3
-#define FRAMESIZE_240X240   4
-#define FRAMESIZE_QVGA      5
-#define FRAMESIZE_CIF       6
-#define FRAMESIZE_HVGA      7
-#define FRAMESIZE_VGA       8
-#define FRAMESIZE_SVGA      9
-#define FRAMESIZE_XGA       10
-#define FRAMESIZE_HD        11
-#define FRAMESIZE_SXGA      12
-#define FRAMESIZE_UXGA      13
+#define FRAMESIZE_128X128   2
+#define FRAMESIZE_QCIF      3
+#define FRAMESIZE_HQVGA     4
+#define FRAMESIZE_240X240   5
+#define FRAMESIZE_QVGA      6
+#define FRAMESIZE_320X320   7
+#define FRAMESIZE_CIF       8
+#define FRAMESIZE_HVGA      9
+#define FRAMESIZE_VGA       10
+#define FRAMESIZE_SVGA      11
+#define FRAMESIZE_XGA       12
+#define FRAMESIZE_HD        13
+#define FRAMESIZE_SXGA      14
+#define FRAMESIZE_UXGA      15
 
 // ─── Sensor parameter IDs (for camControl sel=9) ───
 #define CAM_VFLIP           0

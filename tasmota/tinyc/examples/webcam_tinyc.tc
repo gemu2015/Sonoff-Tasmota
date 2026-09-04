@@ -35,20 +35,28 @@ int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 
 // ─── Camera constants ───
 #define PIXFORMAT_JPEG      4
-#define FRAMESIZE_QVGA      5
-#define FRAMESIZE_VGA       8
-#define FRAMESIZE_SVGA      9
-#define FRAMESIZE_XGA       10
-#define FRAMESIZE_SXGA      12
-#define FRAMESIZE_UXGA      13
+// ⚠️ DIESE ZAHLEN WAREN UM ZWEI VERSCHOBEN. Sie stammten aus der klassischen
+// framesize_t; der esp32-camera-Zweig in diesem Baum hat zwei Einträge mehr
+// (128X128 an 2, 320X320 an 7), siehe lib/lib_div/esp32-camera/driver/include/
+// sensor.h. FRAMESIZE_VGA 8 lieferte deshalb CIF 400x296 — am echten Bild
+// gemessen (http://<ip>:81/cam.jpg, SOF-Marker), nicht aus der Tabelle
+// abgeschrieben.
+#define FRAMESIZE_QVGA      6
+#define FRAMESIZE_CIF       8
+#define FRAMESIZE_VGA       10
+#define FRAMESIZE_SVGA      11
+#define FRAMESIZE_XGA       12
+#define FRAMESIZE_HD        13
+#define FRAMESIZE_SXGA      14
+#define FRAMESIZE_UXGA      15
 
 // ─── Resolution picker ───
 // webPulldown hands back a 0-based INDEX, the sensor wants a FRAMESIZE_*.
 // The list is deliberately short: below QVGA the picture is useless for
 // motion detection, and the OV2640 tops out at UXGA.
-#define RES_COUNT           9
-#define RES_FIRST           5       // index 0 = FRAMESIZE_QVGA
-#define RES_DEFAULT         3       // index 3 = FRAMESIZE_VGA 640x480
+#define RES_COUNT           10
+#define RES_FIRST           6       // index 0 = FRAMESIZE_QVGA 320x240
+#define RES_DEFAULT         4       // index 4 = FRAMESIZE_VGA 640x480
 
 // Sensor parameter IDs for camControl(9, param, value)
 #define CAM_VFLIP           0
@@ -166,14 +174,15 @@ void res_masse() {
     if (i < 0) { i = RES_DEFAULT; }
     if (i >= RES_COUNT) { i = RES_DEFAULT; }
     if (i == 0) { cam_w = 320;  cam_h = 240; }
-    if (i == 1) { cam_w = 400;  cam_h = 296; }
-    if (i == 2) { cam_w = 480;  cam_h = 320; }
-    if (i == 3) { cam_w = 640;  cam_h = 480; }
-    if (i == 4) { cam_w = 800;  cam_h = 600; }
-    if (i == 5) { cam_w = 1024; cam_h = 768; }
-    if (i == 6) { cam_w = 1280; cam_h = 720; }
-    if (i == 7) { cam_w = 1280; cam_h = 1024; }
-    if (i == 8) { cam_w = 1600; cam_h = 1200; }
+    if (i == 1) { cam_w = 320;  cam_h = 320; }
+    if (i == 2) { cam_w = 400;  cam_h = 296; }
+    if (i == 3) { cam_w = 480;  cam_h = 320; }
+    if (i == 4) { cam_w = 640;  cam_h = 480; }
+    if (i == 5) { cam_w = 800;  cam_h = 600; }
+    if (i == 6) { cam_w = 1024; cam_h = 768; }
+    if (i == 7) { cam_w = 1280; cam_h = 720; }
+    if (i == 8) { cam_w = 1280; cam_h = 1024; }
+    if (i == 9) { cam_w = 1600; cam_h = 1200; }
 }
 
 int res_framesize() {
@@ -524,7 +533,7 @@ void WebUI() {
 
     webSend("<b>&#x1F5BC;&#xFE0F; Picture</b>");
     webPulldown(res, "Resolution",
-                "QVGA 320x240|CIF 400x296|HVGA 480x320|VGA 640x480|SVGA 800x600|XGA 1024x768|HD 1280x720|SXGA 1280x1024|UXGA 1600x1200");
+                "QVGA 320x240|320x320|CIF 400x296|HVGA 480x320|VGA 640x480|SVGA 800x600|XGA 1024x768|HD 1280x720|SXGA 1280x1024|UXGA 1600x1200");
     sprintf(buf, "<div class='hint'>Camera is set to <b>%dx%d</b>. Changing this restarts the stream on port 81 for a moment. Larger pictures cost PSRAM and frame rate; for motion detection VGA is plenty.</div>", cam_w, cam_h);
     webSend(buf);
 

@@ -11,6 +11,17 @@
 #define PIR_PIN    3
 #define CAM_QVGA   6
 
+// ─── Resolution picker ───
+// webPulldown hands back a 0-based INDEX, the driver wants a framesize.
+// ⚠️ NOT the classic framesize_t numbering. The esp32-camera branch in this
+// tree carries two extra entries (128X128 at 2, 320X320 at 7), so QVGA is 6
+// and VGA is 10 — see lib/lib_div/esp32-camera/driver/include/sensor.h. The
+// numbers below were checked against the real picture (SOF marker of
+// http://<ip>:81/cam.jpg), not copied from a table.
+#define RES_COUNT  10
+#define RES_FIRST  6            // index 0 = QVGA 320x240
+#define RES_DEFAULT 4           // index 4 = VGA 640x480
+
 
 // ─── Persistent settings (survive reboot) ───
 persist int limit;      // software motion alarm threshold
@@ -20,6 +31,10 @@ persist int spir;       // software motion detector enabled
 persist int rpt;        // take picture every N minutes (0=off)
 persist int ufl;        // use flash LED
 persist int mtl;        // merge pictures into timelapse mjpeg
+persist int res;        // resolution, INDEX into the pulldown (not a framesize)
+persist int res_seen;   // ⚠️ 1 once `res` was ever stored. Index 0 (QVGA) is a
+                        // legal choice, so "0 means unset" would make QVGA
+                        // impossible to pick — it would snap back on restart.
 
 // ─── Global state ───
 int mot;                // current motion value
@@ -40,11 +55,22 @@ int sv_spir;
 int sv_rpt;
 int sv_ufl;
 int sv_mtl;
+int sv_res;
 
 char buf[256];
 char fnam[80];
 
 // ─── Log message with timestamp ───
+// Index of the pulldown -> framesize the driver understands.
+// ⚠️ Clamped: `res` comes from persistent storage, and a stale or corrupted
+// value would otherwise configure the sensor with nonsense.
+int res_framesize() {
+    int i = res;
+    if (i < 0) { i = RES_DEFAULT; }
+    if (i >= RES_COUNT) { i = RES_DEFAULT; }
+    return RES_FIRST + i;
+}
+
 void log_msg(char msg[]) {
     char line[128];
     timeStamp(line);
@@ -262,6 +288,24 @@ void EverySecond() {
         del_folder();
     }
 
+    // Resolution changed: the Tasmota driver is re-initialised at the new
+    // framesize. ⚠️ The stream has to go down first — it hands out frames from
+    // the buffer that is being reallocated underneath it — and the motion
+    // detector has to be re-armed afterwards, because the re-init drops its
+    // reference picture.
+    if (res != sv_res) {
+        sv_res = res;
+        camControl(5, 0, 0);                 // stop stream
+        camControl(0, res_framesize(), 0);   // re-init at the new size
+        cam_w = camControl(3, 0, 0);
+        cam_h = camControl(4, 0, 0);
+        camControl(6, 1000, 0);              // motion detector back on
+        camControl(5, 1, 0);                 // stream back on
+        stream_on = 1;
+        saveVars();
+        addLog("webcam: resolution now %d (%dx%d)", res_framesize(), cam_w, cam_h);
+    }
+
     // Auto-save persist variables when settings change
     if (limit != sv_limit || pir != sv_pir || ma != sv_ma ||
         spir != sv_spir || rpt != sv_rpt || ufl != sv_ufl || mtl != sv_mtl) {
@@ -297,15 +341,39 @@ void WebPage() {
 
 // ─── Web UI: controls ───
 void WebUI() {
-    webCheckbox(pir, "Hardware PIR");
+    // Optik wie bei den SML-Treibern (common/sml_descriptor.tc): eine Karte mit
+    // Überschriften, kleiner Erklärzeile und fester Breite.
+    // ⚠️ Die Breite gehört an `body>div`. Tasmotas Rahmen ist ein inline-block
+    // mit min-width:340px und wächst mit seinem breitesten Kind -- ohne die
+    // feste Breite zieht ein langer Klappmenü-Eintrag die Seite auseinander.
+    webSend("<style>body>div{width:480px;max-width:96vw;box-sizing:border-box}.cam-p{max-width:100%;box-sizing:border-box;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.cam-p h3{margin:0 0 8px}.cam-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.cam-p b{display:inline-block;margin-bottom:4px;font-size:13px}.cam-p div{margin:6px 0}.cam-p .hint{font-size:9px;color:#555;line-height:1.4}</style>");
+    webSend("<div class='cam-p'><h3>&#x1F4F7; Camera</h3>");
+
+    webSend("<b>&#x1F5BC;&#xFE0F; Picture</b>");
+    webPulldown(res, "Resolution", "QVGA 320x240|320x320|CIF 400x296|HVGA 480x320|VGA 640x480|SVGA 800x600|XGA 1024x768|HD 1280x720|SXGA 1280x1024|UXGA 1600x1200");
+    sprintf(buf, "<div class='hint'>Sensor reports <b>%dx%d</b>. Changing this re-initialises the driver: the stream drops for a moment and the motion detector starts over. Larger pictures cost PSRAM and frame rate; for motion detection VGA is plenty.</div>", cam_w, cam_h);
+    webSend(buf);
+
+    webSend("<hr><b>&#x1F6B6; Motion</b>");
     webCheckbox(spir, "Software motion detector");
     webNumber(limit, 50, 10000, "Software alarm limit");
+    webCheckbox(pir, "Hardware PIR");
+    webSend("<div class='hint'>The software detector works on the picture itself -- after a resolution change the limit usually has to be adjusted.</div>");
+
+    webSend("<hr><b>&#x2709;&#xFE0F; Alarm</b>");
     webCheckbox(ma, "Send email on alarm");
     webCheckbox(ufl, "Use flash LED");
+
+    webSend("<hr><b>&#x23F1;&#xFE0F; Timelapse</b>");
     webNumber(rpt, 0, 60, "Take picture every N minutes");
     webCheckbox(mtl, "Merge into tlapse.mjpeg file");
-    webButton(take_pic, "Take a picture");
-    webButton(del_all, "Delete all pictures");
+    webSend("<div class='hint'>0 minutes = off.</div>");
+
+    webSend("<hr><b>&#x1F4F8; Now</b>");
+    webButton(take_pic, "Take a picture|saved");
+    webButton(del_all, "Delete all pictures|deleted");
+
+    webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>webcam.tc</b></div></div>");
 }
 
 // ─── JSON output ───
@@ -356,8 +424,12 @@ int main() {
         saveVars();
     }
 
-    // Initialize camera at QVGA resolution
-    camControl(0, CAM_QVGA, 0);
+    if (res_seen == 0) { res = RES_DEFAULT; res_seen = 1; }
+    sv_res = res;
+    // ⚠️ Start with the STORED resolution, not a hard-wired one: otherwise the
+    // sensor is back at QVGA after every restart while the pulldown shows
+    // something else.
+    camControl(0, res_framesize(), 0);
     cam_w = camControl(3, 0, 0);
     cam_h = camControl(4, 0, 0);
 
