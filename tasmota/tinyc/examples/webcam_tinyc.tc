@@ -19,8 +19,14 @@
 // ─── Board-specific camera pins ───
 // Order: pwdn, reset, xclk, sda, scl, d7, d6, d5, d4, d3, d2, d1, d0, vsync, href, pclk
 #ifdef BOARD_DFROBOT
-// DFRobot Firebeetle 2 ESP32-S3 (OV3660)
+// DFRobot Firebeetle 2 ESP32-S3 AI CAM DFR1154 (OV3660)
 int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
+// ⚠️ NIGHT VISION ONLY HERE. It needs three things the other boards lack:
+// four 940 nm IR LEDs on GPIO47 (Relay1), an LTR-308 light sensor on I2C 0x53,
+// and an OV3660 — the exposure-limit registers 0x3A02/0x3A14 written below
+// do not exist on the OV2640; on an AI-Thinker, Relay1 is the WHITE flash LED
+// and "automatic" would leave it burning all night (gemu 05.09.2026).
+#define HAS_NIGHT
 #endif
 
 #ifdef BOARD_GOOUUU
@@ -85,6 +91,7 @@ persist watch int ufl;        // use flash LED
 persist watch int mtl;        // merge pictures into timelapse mjpeg
 persist watch int npic;       // number of pictures per alarm email (1-4)
 persist watch int res;        // resolution, INDEX into the pulldown (not FRAMESIZE_*)
+#ifdef HAS_NIGHT
 // ─── Night vision ───
 // ⚠️ WHY THE DARK PICTURE WAS BAD (measured 05.09.2026 on the DFR1154):
 //   * the four 940 nm IR LEDs sit on GPIO47 = Relay1, and the script only
@@ -99,6 +106,7 @@ persist watch int ir_lux;     // automatic: below this it is "dark" (lux)
 persist watch int nacht;      // night sensor mode: 0 off, 1 on, 2 automatic
 persist watch int nacht_st;   // strength index: 0 x2/32x, 1 x4/48x, 2 x8/64x
 persist int nacht_seen;       // defaults written once (index 0 is a legal value)
+#endif
 persist int res_seen;         // ⚠️ 1 once `res` was ever stored. Needed because
                               // index 0 is a LEGAL choice (QVGA): without this
                               // marker, "0 means unset" would make QVGA
@@ -214,6 +222,7 @@ void log_msg(char msg[]) {
     fileLog("/log.txt", line, 8192);
 }
 
+#ifdef HAS_NIGHT
 // ─── LTR-308 ambient light sensor (on the board, I2C 0x53) ───
 // Same sequence as ltr308.tc: 18 bit / 100 ms, gain 3x. With those settings
 // lux = 0.6 * raw / (3 * 1.0) = raw / 5 — an integer is plenty for a threshold.
@@ -257,6 +266,13 @@ int ltr_lesen() {
 // AEC only honours the limit while increasing. Toggling night mode (aec2)
 // off/on makes it re-converge — measured, exposure went 0x2490 -> 0x0930.
 void nacht_anwenden(int an) {
+    // Belt and braces: the registers below are OV3660's. Should this build
+    // ever run with another sensor, leave it alone.
+    if (camControl(8, 0, 0) != 0x3660) {
+        addLog("TCC: night sensor mode skipped, sensor is not an OV3660");
+        nacht_ist = an;
+        return;
+    }
     if (an) {
         int gc = 0x1FF;  int hi = 0x12; int lo = 0x60;    // x2, 32x
         if (nacht_st == 1) { gc = 0x2FF; hi = 0x24; lo = 0x90; }   // x4, 48x
@@ -273,6 +289,7 @@ void nacht_anwenden(int an) {
     nacht_ist = an;
     addLog("TCC: night sensor mode %d (strength %d)", an, nacht_st);
 }
+#endif
 
 // ─── Flash LED helpers ───
 void flash_on() {
@@ -286,7 +303,11 @@ void flash_off() {
     // ⚠️ Back to what the night logic wants, not blindly off: with IR light
     // "on" or "automatic", a picture used to switch the illumination OFF.
     if (ufl > 0) {
+#ifdef HAS_NIGHT
         tasm_power = ir_soll;
+#else
+        tasm_power = 0;
+#endif
     }
 }
 
@@ -396,6 +417,7 @@ int alarm_pics_captured;   // number captured so far
 int do_res;                // resolution change requested, carried out in TaskLoop
 int cam_w;                 // current width  — see res_masse()
 int cam_h;                 // current height
+#ifdef HAS_NIGHT
 int ir_soll;               // IR light wanted now (0/1), from ir_mode + darkness
 int nacht_soll;            // night sensor settings wanted now (0/1)
 int nacht_ist;             // ... and what is actually applied in the sensor
@@ -404,6 +426,7 @@ int dunkel;                // LTR-308 says dark (with hysteresis)
 int lux;                   // last LTR-308 reading, lux
 int ltr_bus;               // I2C bus the LTR-308 answered on, -1 = not found
 char ltr_buf[4];
+#endif
 
 void send_alarm_email() {
     if (ma == 0) { return; }
@@ -477,10 +500,12 @@ void TaskLoop() {
         flash_off();
     }
 
+#ifdef HAS_NIGHT
     if (do_nacht == 1) {
         do_nacht = 0;
         nacht_anwenden(nacht_soll);
     }
+#endif
 
     // ⚠️ RESOLUTION CHANGE BELONGS HERE, NOT IN EverySecond(). Anything that
     // touches the camera has to run in the VM task thread — from the main
@@ -574,6 +599,7 @@ void EverySecond() {
         del_folder();
     }
 
+#ifdef HAS_NIGHT
     // ─── Darkness, IR light, night sensor mode ───
     if (ltr_lesen()) {
         // Hysteresis: dark below the threshold, light again only above twice
@@ -594,18 +620,24 @@ void EverySecond() {
 
     // Auto-save persist variables when any setting changes
     if (changed(nacht_st) && nacht_ist == 1) do_nacht = 1;   // new strength now
+#endif
     if (changed(res)) {
         snapshot(res);
         do_res = 1;                 // carried out in TaskLoop, see there
     }
     if (changed(limit) || changed(pir) || changed(ma) ||
         changed(spir) || changed(rpt) || changed(ufl) ||
-        changed(mtl) || changed(npic) || do_res == 1 ||
-        changed(ir_mode) || changed(ir_lux) || changed(nacht) || changed(nacht_st)) {
+        changed(mtl) || changed(npic) || do_res == 1
+#ifdef HAS_NIGHT
+        || changed(ir_mode) || changed(ir_lux) || changed(nacht) || changed(nacht_st)
+#endif
+        ) {
         snapshot(limit); snapshot(pir); snapshot(ma);
         snapshot(spir); snapshot(rpt); snapshot(ufl);
         snapshot(mtl); snapshot(npic);
+#ifdef HAS_NIGHT
         snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
+#endif
         saveVars();
     }
 }
@@ -622,6 +654,7 @@ void WebCall() {
     webSend(buf);
     sprintf(buf, "{s}Detected{m}%d{e}", motion_detect);
     webSend(buf);
+#ifdef HAS_NIGHT
     if (ltr_bus >= 0) {
         sprintf(buf, "{s}Light{m}%d lx{e}", lux);
         webSend(buf);
@@ -629,6 +662,7 @@ void WebCall() {
     webSend("{s}Night{m}");
     if (ir_soll) webSend("IR on"); else webSend("IR off");
     if (nacht_ist) webSend(" &middot; sensor night{e}"); else webSend(" &middot; sensor day{e}");
+#endif
     sprintf(buf, "{s}Heap{m}%d kB{e}", tasm_heap / 1000);
     webSend(buf);
 }
@@ -665,6 +699,7 @@ void WebUI() {
     webSend("<hr><b>&#x2709;&#xFE0F; Alarm</b>");
     webCheckbox(ma, "Send email on alarm");
     webNumber(npic, 1, 4, "Pictures per alarm (1-4)");
+#ifdef HAS_NIGHT
     webCheckbox(ufl, "IR light while taking a picture");
 
     webSend("<hr><b>&#x1F319; Night</b>");
@@ -680,6 +715,9 @@ void WebUI() {
     } else {
         webSend("<div class='hint'>No LTR-308 light sensor found &mdash; Automatic behaves like On.</div>");
     }
+#else
+    webCheckbox(ufl, "Use flash LED");
+#endif
 
     webSend("<hr><b>&#x23F1;&#xFE0F; Timelapse</b>");
     webNumber(rpt, 0, 60, "Take picture every N minutes");
@@ -738,18 +776,22 @@ int main() {
     if (npic == 0) { npic = 1; }
     if (npic > 4) { npic = 4; }
     if (res_seen == 0) { res = RES_DEFAULT; res_seen = 1; }
+#ifdef HAS_NIGHT
     if (nacht_seen == 0) {
         ir_mode = 2; ir_lux = 10; nacht = 2; nacht_st = 1;    // automatic, x4/48x
         nacht_seen = 1;
     }
     if (ir_lux < 1) ir_lux = 10;
+#endif
 
     // Snapshot all watch vars so changed() starts clean
     snapshot(limit); snapshot(pir); snapshot(ma);
     snapshot(spir); snapshot(rpt); snapshot(ufl);
     snapshot(mtl); snapshot(npic); snapshot(res);
+#ifdef HAS_NIGHT
     snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
     nacht_ist = 0; dunkel = 0; lux = 0; ltr_bus = -1;
+#endif
 
     // Sanitize corrupted persist values
     if (pir > 1 || ma > 1 || spir > 1 || ufl > 1 || mtl > 1) {
@@ -787,7 +829,9 @@ int main() {
     // ⚠️ The light sensor AFTER the camera, not before. It sits on I2C bus 1 —
     // GPIO 8/9, the very pins the camera uses for SCCB. Probing it first
     // left the camera's first capture failing (-1 bytes, 05.09.2026).
+#ifdef HAS_NIGHT
     ltr_bus = ltr_finden();
+#endif
 
     // ⚠️ Register a page label — WITHOUT it the settings never appear.
     // A bare WebUI() used to get a generic "TinyC UI" button on the main page;
