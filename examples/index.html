@@ -1,0 +1,1896 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="C scripting for Tasmota — browser-compiled bytecode running on ESP32 and ESP8266">
+      
+      
+      
+        <link rel="canonical" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/">
+      
+      
+        <link rel="prev" href="../custom-builds/">
+      
+      
+        <link rel="next" href="../gallery/">
+      
+      
+        
+          <link rel="alternate" href="./" hreflang="en">
+        
+          <link rel="alternate" href="../de/examples/" hreflang="de">
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Overview - TinyC for Tasmota</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#examples" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TinyC for Tasmota" class="md-header__button md-logo" aria-label="TinyC for Tasmota" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"></path></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TinyC for Tasmota
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Overview
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="orange" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="orange" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"></path></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="../de/examples/" hreflang="de" class="md-select__link">
+              Deutsch
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/gemu2015/Sonoff-Tasmota" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    gemu2015/Sonoff-Tasmota
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../custom-builds/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Custom Builds
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../gallery/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Gallery
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../releases/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Releases
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TinyC for Tasmota" class="md-nav__button md-logo" aria-label="TinyC for Tasmota" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"></path></svg>
+
+    </a>
+    TinyC for Tasmota
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/gemu2015/Sonoff-Tasmota" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    gemu2015/Sonoff-Tasmota
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-builds/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Builds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked="">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="./" class="md-nav__link md-nav__link--active">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../gallery/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gallery
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/solar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solar Manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/displays/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Displays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/charts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Charts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/cameras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cameras
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/sensors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/gemu2015/Sonoff-Tasmota/edit/universal/tinyc_docs/examples/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"></path></svg>
+    </a>
+  
+  
+
+
+<h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h1>
+<p>209 example programs covering sensors, displays, networking, and device drivers.</p>
+<p>Source lives in <a href="https://github.com/gemu2015/Sonoff-Tasmota/tree/universal/tasmota/tinyc/examples"><code>tasmota/tinyc/examples/</code></a>. Pre-compiled bytecode is available from the in-device program repository (<em>TinyCChkpt</em> → Download).</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Summary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="a7105_fsync/"><code>a7105_fsync.tc</code></a></td>
+<td>a7105_fsync.tc — channel scan using A7105's FSYNC hardware signal.</td>
+</tr>
+<tr>
+<td><a href="a7105_gm24g/"><code>a7105_gm24g.tc</code></a></td>
+<td>a7105_gm24g.tc — A7105 receiver template with datasheet-correct</td>
+</tr>
+<tr>
+<td><a href="a7105_listen/"><code>a7105_listen.tc</code></a></td>
+<td>a7105_listen.tc — background FIFO RX. EveryLoop drains FIFO when packets</td>
+</tr>
+<tr>
+<td><a href="a7105_probe/"><code>a7105_probe.tc</code></a></td>
+<td>a7105_probe.tc — AMICCOM A7105 alive-check (SPI register R/W round-trip)</td>
+</tr>
+<tr>
+<td><a href="a7105_scan/"><code>a7105_scan.tc</code></a></td>
+<td>a7105_scan.tc — AMICCOM A7105 RSSI-scan + init for ceiling-lamp sniffer.</td>
+</tr>
+<tr>
+<td><a href="ads1115/"><code>ads1115.tc</code></a></td>
+<td>ADS1115 16-bit 4-Channel ADC Driver</td>
+</tr>
+<tr>
+<td><a href="analog_clock/"><code>analog_clock.tc</code></a></td>
+<td>Analog clock with watchface background and dirty-rect hand erase</td>
+</tr>
+<tr>
+<td><a href="audio_io/"><code>audio_io.tc</code></a></td>
+<td>audio_io.tc — simultaneous WAV PLAYBACK + MIC READ from one TinyC app, full-duplex.</td>
+</tr>
+<tr>
+<td><a href="benchmark/"><code>benchmark.tc</code></a></td>
+<td>TinyC VM Benchmark</td>
+</tr>
+<tr>
+<td><a href="ble_gatt_explore/"><code>ble_gatt_explore.tc</code></a></td>
+<td>ble_gatt_explore.tc — herausfinden, WELCHE Dienste und Merkmale ein BLE-Geraet hat.</td>
+</tr>
+<tr>
+<td><a href="ble_scan/"><code>ble_scan.tc</code></a></td>
+<td>ble_scan.tc — BLE advertisement scanner for TinyC.</td>
+</tr>
+<tr>
+<td><a href="ble_server/"><code>ble_server.tc</code></a></td>
+<td>ble_server.tc — TinyC BLE GATT server (peripheral / "device-as-peripheral").</td>
+</tr>
+<tr>
+<td><a href="ble_spp_probe/"><code>ble_spp_probe.tc</code></a></td>
+<td>ble_spp_probe.tc — Verbindungsprobe fuer eine DAUERHAFTE BLE-Verbindung ("BLE SPP").</td>
+</tr>
+<tr>
+<td><a href="blib_crc_demo/"><code>blib_crc_demo.tc</code></a></td>
+<td>blib_crc_demo.tc — exercise xblib_01_crc via bcall().</td>
+</tr>
+<tr>
+<td><a href="blink/"><code>blink.tc</code></a></td>
+<td>Blink LED on pin 8 (classic Arduino blink)</td>
+</tr>
+<tr>
+<td><a href="bme280/"><code>bme280.tc</code></a></td>
+<td>BME280 Temperature, Humidity &amp; Pressure Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="bmp280/"><code>bmp280.tc</code></a></td>
+<td>BMP280 Temperature &amp; Pressure Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="bmx280/"><code>bmx280.tc</code></a></td>
+<td>BMx280 / BME68x Temperature, Pressure, Humidity &amp; Gas Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="bresser_chart/"><code>bresser_chart.tc</code></a></td>
+<td>Bresser Weather Station + 24h Google Charts (CC1101 868 MHz)</td>
+</tr>
+<tr>
+<td><a href="byte_array_suite/"><code>byte_array_suite.tc</code></a></td>
+<td>byte_array_suite.tc — umfassende Testsuite für den byte[]-Modus (TinyC 1.6.57).</td>
+</tr>
+<tr>
+<td><a href="byte_chart/"><code>byte_chart.tc</code></a></td>
+<td>byte_chart.tc — a 24 h temperature/humidity chart whose ring buffers are</td>
+</tr>
+<tr>
+<td><a href="byte_syscall_test/"><code>byte_syscall_test.tc</code></a></td>
+<td>byte_syscall_test.tc — byte[] als Syscall-Argument prüfen (TinyC 1.6.57+).</td>
+</tr>
+<tr>
+<td><a href="byte_test/"><code>byte_test.tc</code></a></td>
+<td>byte_dev.tc — gepackte byte[]-Arrays am Gerät prüfen (TinyC 1.6.56).</td>
+</tr>
+<tr>
+<td><a href="c_extensions_demo/"><code>c_extensions_demo.tc</code></a></td>
+<td>c_extensions_demo.tc</td>
+</tr>
+<tr>
+<td><a href="callbacks/"><code>callbacks.tc</code></a></td>
+<td>Callback functions — Tasmota integration</td>
+</tr>
+<tr>
+<td><a href="cam_view/"><code>cam_view.tc</code></a></td>
+<td>cam_view.tc — draw a small LIVE camera picture on the ESP32-P4 DSI screen.</td>
+</tr>
+<tr>
+<td><a href="cam_view_lvgl/"><code>cam_view_lvgl.tc</code></a></td>
+<td>cam_view_lvgl.tc — live ESP32-P4 camera on the LVGL screen, with ROTATION + sizing.</td>
+</tr>
+<tr>
+<td><a href="camera/"><code>camera.tc</code></a></td>
+<td>ESP32 Camera — TinyC direct esp_camera driver</td>
+</tr>
+<tr>
+<td><a href="can_sniffer/"><code>can_sniffer.tc</code></a></td>
+<td>CAN bus sniffer — empfängt alle Frames auf dem Bus und loggt sie</td>
+</tr>
+<tr>
+<td><a href="ccs811/"><code>ccs811.tc</code></a></td>
+<td>CCS811 Digital Air Quality Sensor (eCO2 + TVOC)</td>
+</tr>
+<tr>
+<td><a href="chart/"><code>chart.tc</code></a></td>
+<td>Google Line Chart — 1000 data points stored in array</td>
+</tr>
+<tr>
+<td><a href="chart_types/"><code>chart_types.tc</code></a></td>
+<td>Chart Types Demo — shows all supported WebChart types</td>
+</tr>
+<tr>
+<td><a href="clock_7seg/"><code>clock_7seg.tc</code></a></td>
+<td>clock_7seg.tc — big 7-segment HH:MM wall clock, multiplexed with fastMux().</td>
+</tr>
+<tr>
+<td><a href="clock_header/"><code>clock_header.tc</code></a></td>
+<td>clock_header.tc — reusable WebUI clock header</td>
+</tr>
+<tr>
+<td><a href="core2_energy/"><code>core2_energy.tc</code></a></td>
+<td>Core2 Energy Monitoring System — PHASE 5: global keyword</td>
+</tr>
+<tr>
+<td><a href="crypto_test/"><code>crypto_test.tc</code></a></td>
+<td>crypto_test.tc — sanity-check the AES + SHA syscalls (TinyC ≥ 1.3.20)</td>
+</tr>
+<tr>
+<td><a href="daikin_control/"><code>daikin_control.tc</code></a></td>
+<td>daikin_control.tc — dedicated controller for Daikin WiFi A/C units</td>
+</tr>
+<tr>
+<td><a href="device_scanner/"><code>device_scanner.tc</code></a></td>
+<td>device_scanner.tc — home Tasmota fleet health monitor (v2: auto-discovery).</td>
+</tr>
+<tr>
+<td><a href="deye/"><code>deye.tc</code></a></td>
+<td>deye.tc — Rolf's Deye hybrid-inverter Modbus reader (.198) + go-e wallbox</td>
+</tr>
+<tr>
+<td><a href="display_demo/"><code>display_demo.tc</code></a></td>
+<td>Sensor Dashboard for ILI9488 (480x320)</td>
+</tr>
+<tr>
+<td><a href="dmx_dimmer_panel/"><code>dmx_dimmer_panel.tc</code></a></td>
+<td>dmx_dimmer_panel.tc — minimal DMX512 test panel.</td>
+</tr>
+<tr>
+<td><a href="dyson_tp02/"><code>dyson_tp02.tc</code></a></td>
+<td>dyson_tp02.tc — local control of a Dyson Pure Cool Link (Tower TP02 / Desk DP01 …)</td>
+</tr>
+<tr>
+<td><a href="dysv17f/"><code>dysv17f.tc</code></a></td>
+<td>DY-SV17F MP3 Player Driver (Serial TX)</td>
+</tr>
+<tr>
+<td><a href="ebus_clock_write/"><code>ebus_clock_write.tc</code></a></td>
+<td>ebus_clock_write.tc — .39 eBUS active-master WRITE test (Mac&lt;-&gt;.39 UART harness).</td>
+</tr>
+<tr>
+<td><a href="ecotracker/"><code>ecotracker.tc</code></a></td>
+<td>EcoTracker Emulator — Marstek, Hoymiles, Jackery, NOAH</td>
+</tr>
+<tr>
+<td><a href="ecotracker_shelly_emu/"><code>ecotracker_shelly_emu.tc</code></a></td>
+<td>Unified PV-battery meter emulator — EcoTracker + Shelly Pro 3EM</td>
+</tr>
+<tr>
+<td><a href="editor/"><code>editor.tc</code></a></td>
+<td>TinyC - Hello World</td>
+</tr>
+<tr>
+<td><a href="energy_dashboard/"><code>energy_dashboard.tc</code></a></td>
+<td>energy_dashboard.tc — house-wide energy / climate dashboard</td>
+</tr>
+<tr>
+<td><a href="energy_logger/"><code>energy_logger.tc</code></a></td>
+<td>energy_logger.tc — stand-in SD logger for the Energy_Manager (.61)</td>
+</tr>
+<tr>
+<td><a href="epaper29/"><code>epaper29.tc</code></a></td>
+<td>EPaper 2.9" Display Controller &amp; Data Logger</td>
+</tr>
+<tr>
+<td><a href="epaper42/"><code>epaper42.tc</code></a></td>
+<td>epaper42.tc — 4.2" e-paper full-house dashboard.</td>
+</tr>
+<tr>
+<td><a href="epaper_clock_test/"><code>epaper_clock_test.tc</code></a></td>
+<td>epaper_clock_test.tc — minimal partial-update repro for EPD 2.9"</td>
+</tr>
+<tr>
+<td><a href="epd_compare_test/"><code>epd_compare_test.tc</code></a></td>
+<td>E-Paper A/B Visual Comparison Test  (PORTRAIT 128 x 296)</td>
+</tr>
+<tr>
+<td><a href="epd_ssd1680_test/"><code>epd_ssd1680_test.tc</code></a></td>
+<td>SSD1680 3-wire SPI test driver (Waveshare 2.9" v2, 128x296)</td>
+</tr>
+<tr>
+<td><a href="eqmax_alarm/"><code>eqmax_alarm.tc</code></a></td>
+<td>eqmax_alarm.tc — house alarm derived from the EqMAX / Moritz (CC1101 MAX!)</td>
+</tr>
+<tr>
+<td><a href="esf37_probe/"><code>esf37_probe.tc</code></a></td>
+<td>esf37_probe.tc — GATT subscribe-notify probe for the Etekcity ESF37 scale</td>
+</tr>
+<tr>
+<td><a href="esf37_scale/"><code>esf37_scale.tc</code></a></td>
+<td>esf37_scale.tc — read the Etekcity ESF37 body-composition scale over BLE (plaintext)</td>
+</tr>
+<tr>
+<td><a href="esf37_speak/"><code>esf37_speak.tc</code></a></td>
+<td>esf37_speak.tc — Etekcity ESF37 BLE scale → SPEAK the weight in German (picotts).</td>
+</tr>
+<tr>
+<td><a href="fast_mux/"><code>fast_mux.tc</code></a></td>
+<td>fast_mux.tc — HW-timer GPIO multiplexer (ported from Scripter's ESP32_FAST_MUX).</td>
+</tr>
+<tr>
+<td><a href="fibonacci/"><code>fibonacci.tc</code></a></td>
+<td>Fibonacci sequence calculator</td>
+</tr>
+<tr>
+<td><a href="file_io/"><code>file_io.tc</code></a></td>
+<td>File I/O demo — write and read back</td>
+</tr>
+<tr>
+<td><a href="gchart_demo/"><code>gchart_demo.tc</code></a></td>
+<td>gchart_demo.tc — Google-Charts-style dual-axis dashboard on LVGL (P4 playground)</td>
+</tr>
+<tr>
+<td><a href="gm24g_lamp/"><code>gm24g_lamp.tc</code></a></td>
+<td>gm24g_lamp.tc — GM2.4G-Deckenlampe steuern (nRF24L01 als LT8900-Ersatz)</td>
+</tr>
+<tr>
+<td><a href="gpio_sweep/"><code>gpio_sweep.tc</code></a></td>
+<td>GPIO sweep — togglt jeden freien ESP32-C3 GPIO der Reihe nach,</td>
+</tr>
+<tr>
+<td><a href="gpio_toggle_test/"><code>gpio_toggle_test.tc</code></a></td>
+<td>GPIO toggle diagnostic — togglt einen Pin im 1-Hz-Takt (500ms HIGH / 500ms LOW)</td>
+</tr>
+<tr>
+<td><a href="growatt/"><code>growatt.tc</code></a></td>
+<td>growatt.tc — gemu's Growatt-inverter Modbus reader + feed-in control</td>
+</tr>
+<tr>
+<td><a href="growatt_shine/"><code>growatt_shine.tc</code></a></td>
+<td>growatt_shine.tc — per-tracker (PV1/PV2) monitor for Growatt inverters via</td>
+</tr>
+<tr>
+<td><a href="guiton_display/"><code>guiton_display.tc</code></a></td>
+<td>guiton_display.tc — LCD Energy Monitor</td>
+</tr>
+<tr>
+<td><a href="heating_ds2484/"><code>heating_ds2484.tc</code></a></td>
+<td>heating_ds2484.tc — Heizungssteuerung über DS2484-1-Wire (Beispiel)</td>
+</tr>
+<tr>
+<td><a href="heatpump_map_full/"><code>heatpump_map_full.tc</code></a></td>
+<td>heatpump_map.tc — Modbus-RTU sniffer + control for chinese heat pumps</td>
+</tr>
+<tr>
+<td><a href="heatpump_test/"><code>heatpump_test.tc</code></a></td>
+<td>heatpump_test.tc — bare-bones heatpump Modbus sniffer (2026-05-11, threaded)</td>
+</tr>
+<tr>
+<td><a href="homekit_demo/"><code>homekit_demo.tc</code></a></td>
+<td>HomeKit Demo — Temperature sensor + Humidity sensor + Switch</td>
+</tr>
+<tr>
+<td><a href="homekit_office/"><code>homekit_office.tc</code></a></td>
+<td>HomeKit Office — Color light + outlet + sensors via UDP</td>
+</tr>
+<tr>
+<td><a href="hourly_chime/"><code>hourly_chime.tc</code></a></td>
+<td>hourly_chime.tc — play a sound file at the top of every full hour</td>
+</tr>
+<tr>
+<td><a href="house_monitor/"><code>house_monitor.tc</code></a></td>
+<td>house_monitor.tc — compact, table-driven house monitor with an LVGL dashboard</td>
+</tr>
+<tr>
+<td><a href="hyundai_login/"><code>hyundai_login.tc</code></a></td>
+<td>hyundai_login.tc — re-mint the Bluelink refresh token ON-DEVICE via the IDPConnect</td>
+</tr>
+<tr>
+<td><a href="hyundai_soc/"><code>hyundai_soc.tc</code></a></td>
+<td>hyundai_soc.tc — EV state-of-charge from myHyundai/Bluelink, ENTIRELY on the ESP.</td>
+</tr>
+<tr>
+<td><a href="int16_array_suite/"><code>int16_array_suite.tc</code></a></td>
+<td>int16_array_suite.tc — Testsuite für gepackte 16-Bit-Arrays (TinyC, ABI 27).</td>
+</tr>
+<tr>
+<td><a href="jpg_on_canvas/"><code>jpg_on_canvas.tc</code></a></td>
+<td>jpg_on_canvas.tc — compose a JPG + procedural overlay into one canvas,</td>
+</tr>
+<tr>
+<td><a href="jpg_view_lvgl/"><code>jpg_view_lvgl.tc</code></a></td>
+<td>jpg_view_lvgl.tc — show a JPEG FILE from the filesystem on the LVGL screen, rotatable + scalable.</td>
+</tr>
+<tr>
+<td><a href="lcd_chart/"><code>lcd_chart.tc</code></a></td>
+<td>lcd_chart.tc — 3-Channel Line Chart Demo for TinyC</td>
+</tr>
+<tr>
+<td><a href="lcd_i2c/"><code>lcd_i2c.tc</code></a></td>
+<td>lcd_i2c.tc — I2C LCD Character Display Driver (HD44780 + PCF8574)</td>
+</tr>
+<tr>
+<td><a href="ld2410/"><code>ld2410.tc</code></a></td>
+<td>HLK-LD2410 24GHz mmWave Human Presence Sensor</td>
+</tr>
+<tr>
+<td><a href="ledbar/"><code>ledbar.tc</code></a></td>
+<td>LEDBAR — WS2812 position indicator with IR lamp control</td>
+</tr>
+<tr>
+<td><a href="live_chart/"><code>live_chart.tc</code></a></td>
+<td>Live Moving Line Chart — demonstrates _Q() macro for Google Charts</td>
+</tr>
+<tr>
+<td><a href="loudness/"><code>loudness.tc</code></a></td>
+<td>loudness.tc — microphone loudness / VU meter using the TinyC I2S mic (RX) syscalls.</td>
+</tr>
+<tr>
+<td><a href="loudness_gauge/"><code>loudness_gauge.tc</code></a></td>
+<td>loudness_gauge.tc — plugin-INDEPENDENT sound I/O demo for the Waveshare ESP32-P4 10.1".</td>
+</tr>
+<tr>
+<td><a href="loudness_p4/"><code>loudness_p4.tc</code></a></td>
+<td>loudness_p4.tc — mic loudness/VU meter for the Waveshare ESP32-P4 10.1" board.</td>
+</tr>
+<tr>
+<td><a href="lt8900_lamp/"><code>lt8900_lamp.tc</code></a></td>
+<td>lt8900_lamp.tc — GaoMei GM2.4G Deckenlampe fernsteuern (LT8900/LT8910)</td>
+</tr>
+<tr>
+<td><a href="ltr308/"><code>ltr308.tc</code></a></td>
+<td>LTR-308ALS-01 Ambient Light Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="lvgl_chart/"><code>lvgl_chart.tc</code></a></td>
+<td>lvgl_chart.tc — LVGL Phase 3 demo (requires firmware with USE_TINYC_LVGL)</td>
+</tr>
+<tr>
+<td><a href="lvgl_demo/"><code>lvgl_demo.tc</code></a></td>
+<td>lvgl_demo.tc — LVGL Phase 1 demo (requires firmware built with USE_TINYC_LVGL)</td>
+</tr>
+<tr>
+<td><a href="lvgl_panel/"><code>lvgl_panel.tc</code></a></td>
+<td>lvgl_panel.tc — a multi-screen LVGL app for TinyC (requires firmware with USE_TINYC_LVGL)</td>
+</tr>
+<tr>
+<td><a href="lvgl_smoke/"><code>lvgl_smoke.tc</code></a></td>
+<td>lvgl_smoke.tc — LVGL Phase 0 smoke test (requires firmware built with USE_TINYC_LVGL)</td>
+</tr>
+<tr>
+<td><a href="lvgl_widgets/"><code>lvgl_widgets.tc</code></a></td>
+<td>lvgl_widgets.tc — LVGL Phase 2 demo (requires firmware with USE_TINYC_LVGL)</td>
+</tr>
+<tr>
+<td><a href="m5_epd47/"><code>m5_epd47.tc</code></a></td>
+<td>m5_epd47.tc — M5Paper EPD-47 house dashboard (port of Scripter source)</td>
+</tr>
+<tr>
+<td><a href="mail_test/"><code>mail_test.tc</code></a></td>
+<td>mail_test.tc — minimal SMTP test for debugging the mailSend crash.</td>
+</tr>
+<tr>
+<td><a href="marstek_venus/"><code>marstek_venus.tc</code></a></td>
+<td>marstek_venus.tc — Marstek Venus E (5.12 kWh) surplus/reserve controller.</td>
+</tr>
+<tr>
+<td><a href="matter_airquality/"><code>matter_airquality.tc</code></a></td>
+<td>Matter Air Quality sensor — CO2 / PM2.5 / TVOC (Matter 1.4).</td>
+</tr>
+<tr>
+<td><a href="matter_battery/"><code>matter_battery.tc</code></a></td>
+<td>Matter battery (Power Source cluster 0x002F, BAT feature) — real battery level.</td>
+</tr>
+<tr>
+<td><a href="matter_bridge/"><code>matter_bridge.tc</code></a></td>
+<td>Matter Bridge — ONE Matter node exposing MANY devices (pure TinyC).</td>
+</tr>
+<tr>
+<td><a href="matter_bridge_ui/"><code>matter_bridge_ui.tc</code></a></td>
+<td>matter_bridge_ui.tc — interactive remote-device bridge for matter_c (Berry-style).</td>
+</tr>
+<tr>
+<td><a href="matter_button/"><code>matter_button.tc</code></a></td>
+<td>Matter Generic Switch (stateless programmable button) — uses Matter EVENTS.</td>
+</tr>
+<tr>
+<td><a href="matter_fake_sensors/"><code>matter_fake_sensors.tc</code></a></td>
+<td>Matter "fake" sensors — surface UNSUPPORTED quantities through SUPPORTED tiles.</td>
+</tr>
+<tr>
+<td><a href="matter_fan/"><code>matter_fan.tc</code></a></td>
+<td>Matter Fan — Home controls the speed by WRITING the PercentSetting attribute.</td>
+</tr>
+<tr>
+<td><a href="matter_home_alexa/"><code>matter_home_alexa.tc</code></a></td>
+<td>Matter Home — Alexa edition (slimmed bridge).</td>
+</tr>
+<tr>
+<td><a href="matter_home_bridge/"><code>matter_home_bridge.tc</code></a></td>
+<td>Matter Home Bridge — TinyC port of the HomeKit "script-3" scripter.</td>
+</tr>
+<tr>
+<td><a href="matter_leak/"><code>matter_leak.tc</code></a></td>
+<td>Matter Water-Leak + Rain sensors (BooleanState).</td>
+</tr>
+<tr>
+<td><a href="matter_plug/"><code>matter_plug.tc</code></a></td>
+<td>Matter Smart Plug + live Power sensor — defined entirely in TinyC.</td>
+</tr>
+<tr>
+<td><a href="matter_powermeter/"><code>matter_powermeter.tc</code></a></td>
+<td>Matter 1.4 Power + Energy Meter — expose an SML meter over Matter.</td>
+</tr>
+<tr>
+<td><a href="matter_remote_bridge/"><code>matter_remote_bridge.tc</code></a></td>
+<td>matter_remote_bridge.tc — bridge ANOTHER Tasmota ESP's sensors + actuators</td>
+</tr>
+<tr>
+<td><a href="matter_rgb/"><code>matter_rgb.tc</code></a></td>
+<td>Matter Smart Plug + RGB Color Light — pure TinyC on an ESP32-C6.</td>
+</tr>
+<tr>
+<td><a href="matter_sensors/"><code>matter_sensors.tc</code></a></td>
+<td>Matter environmental sensors — Temperature + Humidity + Pressure (pure TinyC).</td>
+</tr>
+<tr>
+<td><a href="matter_shutter/"><code>matter_shutter.tc</code></a></td>
+<td>Matter Window Covering (roller shutter / blind).</td>
+</tr>
+<tr>
+<td><a href="max30102/"><code>max30102.tc</code></a></td>
+<td>max30102.tc — Pulsoximeter MAX30102: Puls, SpO2 und eine MITLAUFENDE Kurve im WebUI.</td>
+</tr>
+<tr>
+<td><a href="max31855/"><code>max31855.tc</code></a></td>
+<td>MAX31855 Thermocouple Sensor Driver (SPI)</td>
+</tr>
+<tr>
+<td><a href="meter_pin_unlock/"><code>meter_pin_unlock.tc</code></a></td>
+<td>Smart-Meter Optical PIN Unlocker (eHZ / IEC 62056-21 InF)</td>
+</tr>
+<tr>
+<td><a href="mic_plugin_level/"><code>mic_plugin_level.tc</code></a></td>
+<td>mic_plugin_level.tc — read the microphone loudness from the audio BinPlugin</td>
+</tr>
+<tr>
+<td><a href="mlx90614/"><code>mlx90614.tc</code></a></td>
+<td>MLX90614 Infrared Non-Contact Thermometer Driver</td>
+</tr>
+<tr>
+<td><a href="moritz_dash/"><code>moritz_dash.tc</code></a></td>
+<td>moritz_dash.tc — LVGL dashboard + integrated house alarm for the MORITZ (CC1101 MAX!) system</td>
+</tr>
+<tr>
+<td><a href="multipage_demo/"><code>multipage_demo.tc</code></a></td>
+<td>Multi-Page WebUI Demo</td>
+</tr>
+<tr>
+<td><a href="music_fft/"><code>music_fft.tc</code></a></td>
+<td>music_fft.tc — "wrapped FFT" music player: a ring of spectrum bars radiating AROUND</td>
+</tr>
+<tr>
+<td><a href="music_ui/"><code>music_ui.tc</code></a></td>
+<td>music_ui.tc — a TinyC-LVGL "music player" screen, inspired by LVGL's lv_demo_music.</td>
+</tr>
+<tr>
+<td><a href="onewire/"><code>onewire.tc</code></a></td>
+<td>1-Wire Driver — Temperature Sensors + Output Switches</td>
+</tr>
+<tr>
+<td><a href="persist_array_file/"><code>persist_array_file.tc</code></a></td>
+<td>persist_array_file.tc — script-managed persistence for arrays that</td>
+</tr>
+<tr>
+<td><a href="persist_byte_test/"><code>persist_byte_test.tc</code></a></td>
+<td>persist_byte_test.tc — persist byte[] am Gerät prüfen (TinyC 1.6.57+).</td>
+</tr>
+<tr>
+<td><a href="pool_pump/"><code>pool_pump.tc</code></a></td>
+<td>pool_pump.tc — Tuya local-protocol client for a "Swimming Pool Heat Pump"</td>
+</tr>
+<tr>
+<td><a href="power_meter/"><code>power_meter.tc</code></a></td>
+<td>power_meter.tc — energy-metering smart plug power + consumption charts</td>
+</tr>
+<tr>
+<td><a href="powerwall/"><code>powerwall.tc</code></a></td>
+<td>Powerwall — Tesla Powerwall API access</td>
+</tr>
+<tr>
+<td><a href="powerwall_fast/"><code>powerwall_fast.tc</code></a></td>
+<td>Powerwall (FAST variant) — experimental higher-throughput poll</td>
+</tr>
+<tr>
+<td><a href="rgb_led/"><code>rgb_led.tc</code></a></td>
+<td>Onboard RGB LED demo — WS2812/SK6812 driven directly off the RMT peripheral.</td>
+</tr>
+<tr>
+<td><a href="rgb_selftest/"><code>rgb_selftest.tc</code></a></td>
+<td>RGB self-test — drives the SAME pipeline a Matter ColorControl command would:</td>
+</tr>
+<tr>
+<td><a href="rsa_test/"><code>rsa_test.tc</code></a></td>
+<td>rsa_test.tc — verify the rsaEncrypt syscall (RSA PKCS#1 v1.5) end-to-end.</td>
+</tr>
+<tr>
+<td><a href="scd30/"><code>scd30.tc</code></a></td>
+<td>SCD30 CO2/Temperature/Humidity Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="sensor_read/"><code>sensor_read.tc</code></a></td>
+<td>Read analog sensor and display via serial</td>
+</tr>
+<tr>
+<td><a href="sgp30/"><code>sgp30.tc</code></a></td>
+<td>SGP30 VOC/eCO2 Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="share_reader/"><code>share_reader.tc</code></a></td>
+<td>Slot 1: reads cross-VM share keys written by slot 0 (share_writer.tc).</td>
+</tr>
+<tr>
+<td><a href="share_writer/"><code>share_writer.tc</code></a></td>
+<td>Slot 0: writes counter / kwh / name to the cross-VM share table every second.</td>
+</tr>
+<tr>
+<td><a href="sht31/"><code>sht31.tc</code></a></td>
+<td>SHT31 Temperature &amp; Humidity Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="sht31_publisher/"><code>sht31_publisher.tc</code></a></td>
+<td>sht31_publisher.tc — SHT31 sensor that publishes to UDP globals</td>
+</tr>
+<tr>
+<td><a href="sht31_th/"><code>sht31_th.tc</code></a></td>
+<td>SHT31 Temp &amp; Humidity — tc2plugin PoC test variant (T+H only)</td>
+</tr>
+<tr>
+<td><a href="sizeof_demo/"><code>sizeof_demo.tc</code></a></td>
+<td>sizeof_demo.tc — compile-time sizeof for struct types</td>
+</tr>
+<tr>
+<td><a href="slcan_bridge/"><code>slcan_bridge.tc</code></a></td>
+<td>slcan_bridge.tc — USB-serial ↔ CAN-bus bridge using the SLCAN</td>
+</tr>
+<tr>
+<td><a href="slcan_bridge_tcp/"><code>slcan_bridge_tcp.tc</code></a></td>
+<td>slcan_bridge_tcp.tc — SLCAN bridge over TCP (WiFi).</td>
+</tr>
+<tr>
+<td><a href="slot0_test/"><code>slot0_test.tc</code></a></td>
+<td>Slot 0 test — Counter A (increments every second)</td>
+</tr>
+<tr>
+<td><a href="slot1_test/"><code>slot1_test.tc</code></a></td>
+<td>Slot 1 test — Counter B (increments by 10 every second)</td>
+</tr>
+<tr>
+<td><a href="slot2_test/"><code>slot2_test.tc</code></a></td>
+<td>Slot 2 test — Counter C (counts down from 1000)</td>
+</tr>
+<tr>
+<td><a href="slot3_test/"><code>slot3_test.tc</code></a></td>
+<td>Slot 3 test — Counter D (toggles 0/1 every second)</td>
+</tr>
+<tr>
+<td><a href="sma_speedwire/"><code>sma_speedwire.tc</code></a></td>
+<td>SMA Home Manager 2.0 Speedwire receiver</td>
+</tr>
+<tr>
+<td><a href="sma_sunnyboy/"><code>sma_sunnyboy.tc</code></a></td>
+<td>sma_sunnyboy.tc — SMA Sunny Boy ueber Bluetooth Classic auslesen (SMAdata2+ / SPP).</td>
+</tr>
+<tr>
+<td><a href="small_chart/"><code>small_chart.tc</code></a></td>
+<td>small_chart.tc — a compact LVGL line chart for SMALL displays.</td>
+</tr>
+<tr>
+<td><a href="sml_card/"><code>sml_card.tc</code></a></td>
+<td>sml_card.tc — render ANY SML meter's values inside a TinyC slot card</td>
+</tr>
+<tr>
+<td><a href="sml_chart/"><code>sml_chart.tc</code></a></td>
+<td>sml_chart.tc — SML meter with charts and tables, no emulator.</td>
+</tr>
+<tr>
+<td><a href="sml_chart_bezug/"><code>sml_chart_bezug.tc</code></a></td>
+<td>sml_chart_bezug.tc — SML meter WITHOUT a feed-in counter.</td>
+</tr>
+<tr>
+<td><a href="sml_chart_ct002/"><code>sml_chart_ct002.tc</code></a></td>
+<td>sml_chart_ct002.tc — sml_chart_pv + Marstek CT002/CT003 emulator.</td>
+</tr>
+<tr>
+<td><a href="sml_chart_eco_shelly/"><code>sml_chart_eco_shelly.tc</code></a></td>
+<td>sml_chart_eco_shelly.tc — charts + EcoTracker / Shelly Pro 3EM emulator.</td>
+</tr>
+<tr>
+<td><a href="sml_ct002/"><code>sml_ct002.tc</code></a></td>
+<td>sml_ct002.tc — SML meter + Marstek CT002/CT003 emulator, no charts.</td>
+</tr>
+<tr>
+<td><a href="sml_custom_line/"><code>sml_custom_line.tc</code></a></td>
+<td>sml_custom_line.tc — two SML web-table techniques.</td>
+</tr>
+<tr>
+<td><a href="sml_ebus/"><code>sml_ebus.tc</code></a></td>
+<td>SML eBus Solar Monitor with 24h and weekly charts</td>
+</tr>
+<tr>
+<td><a href="sml_eco_shelly/"><code>sml_eco_shelly.tc</code></a></td>
+<td>sml_eco_shelly.tc — SML meter + EcoTracker / Shelly Pro 3EM emulator,</td>
+</tr>
+<tr>
+<td><a href="sml_enable/"><code>sml_enable.tc</code></a></td>
+<td>sml_enable.tc — minimal: turn on the SML descriptor gate (Rule1 / tasm_rule).</td>
+</tr>
+<tr>
+<td><a href="sml_simple/"><code>sml_simple.tc</code></a></td>
+<td>sml_simple.tc — SML meter readout, no charts, no emulator.</td>
+</tr>
+<tr>
+<td><a href="sml_water/"><code>sml_water.tc</code></a></td>
+<td>sml_water.tc — water-meter (pulse counter, Reed contact / S0) with charts</td>
+</tr>
+<tr>
+<td><a href="snap_with_timestamp/"><code>snap_with_timestamp.tc</code></a></td>
+<td>snap_with_timestamp.tc</td>
+</tr>
+<tr>
+<td><a href="solar_dashboard/"><code>solar_dashboard.tc</code></a></td>
+<td>solar_dashboard.tc — REAL energy dashboard on LVGL (P4), built on the gchart primitives.</td>
+</tr>
+<tr>
+<td><a href="sort/"><code>sort.tc</code></a></td>
+<td>Bubble sort an array of integers</td>
+</tr>
+<tr>
+<td><a href="spawn_tasks/"><code>spawn_tasks.tc</code></a></td>
+<td>spawn_tasks.tc — Dynamic FreeRTOS task spawn demo (ESP32 only)</td>
+</tr>
+<tr>
+<td><a href="spp_connect/"><code>spp_connect.tc</code></a></td>
+<td>spp_connect.tc — Verbindungsprobe fuer Bluetooth Classic (SPP).</td>
+</tr>
+<tr>
+<td><a href="spp_scan/"><code>spp_scan.tc</code></a></td>
+<td>spp_scan.tc — Bluetooth-Classic-Geraete in der Umgebung suchen.</td>
+</tr>
+<tr>
+<td><a href="sps30/"><code>sps30.tc</code></a></td>
+<td>SPS30 Particulate Matter Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="strings/"><code>strings.tc</code></a></td>
+<td>String operations with char arrays</td>
+</tr>
+<tr>
+<td><a href="structs_demo/"><code>structs_demo.tc</code></a></td>
+<td>structs_demo.tc — practical struct patterns (TinyC 1.4.0+)</td>
+</tr>
+<tr>
+<td><a href="sunton_display/"><code>sunton_display.tc</code></a></td>
+<td>Sunton 800x480 RGB Display — Home Energy Dashboard</td>
+</tr>
+<tr>
+<td><a href="tcs34725/"><code>tcs34725.tc</code></a></td>
+<td>TCS34725 RGB Color Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="text_on_image/"><code>text_on_image.tc</code></a></td>
+<td>text_on_image.tc — Flicker-free text overlay on JPEG background</td>
+</tr>
+<tr>
+<td><a href="tinyui_dashboard/"><code>tinyui_dashboard.tc</code></a></td>
+<td>tinyui_dashboard.tc — polished 3-screen dashboard, TinyUI aesthetics showcase</td>
+</tr>
+<tr>
+<td><a href="tinyui_demo/"><code>tinyui_demo.tc</code></a></td>
+<td>tinyui_demo.tc — demo of the TinyUI retained-mode widget layer</td>
+</tr>
+<tr>
+<td><a href="tls_test/"><code>tls_test.tc</code></a></td>
+<td>tls_test.tc — verify the raw TLS syscalls end-to-end: GET https://example.com/</td>
+</tr>
+<tr>
+<td><a href="touch_buttons/"><code>touch_buttons.tc</code></a></td>
+<td>Touch Button &amp; Slider Demo</td>
+</tr>
+<tr>
+<td><a href="touch_coords/"><code>touch_coords.tc</code></a></td>
+<td>touch_coords.tc — live touch coordinates on the LVGL screen.</td>
+</tr>
+<tr>
+<td><a href="touch_coords_legacy/"><code>touch_coords_legacy.tc</code></a></td>
+<td>touch_coords_legacy.tc — live touch coordinates using the LEGACY (non-LVGL) display API.</td>
+</tr>
+<tr>
+<td><a href="tuya_pool_heater/"><code>tuya_pool_heater.tc</code></a></td>
+<td>tuya_pool_heater.tc — Tuya v3.3 local-protocol client in TinyC</td>
+</tr>
+<tr>
+<td><a href="uart_tx_test/"><code>uart_tx_test.tc</code></a></td>
+<td>UART TX continuous burst test for oscilloscope verification.</td>
+</tr>
+<tr>
+<td><a href="udp/"><code>udp.tc</code></a></td>
+<td>UDP multicast — share float variables between devices</td>
+</tr>
+<tr>
+<td><a href="variograf_ekg/"><code>variograf_ekg.tc</code></a></td>
+<td>variograf_ekg.tc — EKG eines Variograf-Rekorders ueber BLE, 256 Hz.</td>
+</tr>
+<tr>
+<td><a href="veml6075/"><code>veml6075.tc</code></a></td>
+<td>VEML6075 UV Light Sensor Driver</td>
+</tr>
+<tr>
+<td><a href="vesync_scale_sniff/"><code>vesync_scale_sniff.tc</code></a></td>
+<td>vesync_scale_sniff.tc — does the Etekcity ESF37 broadcast weight in its advertisement?</td>
+</tr>
+<tr>
+<td><a href="vl53l0x/"><code>vl53l0x.tc</code></a></td>
+<td>vl53l0x.tc — VL53L0X Time-of-Flight distance sensor driver</td>
+</tr>
+<tr>
+<td><a href="voltmeter/"><code>voltmeter.tc</code></a></td>
+<td>voltmeter.tc — procedurally-drawn analog voltmeter with dirty-rect needle</td>
+</tr>
+<tr>
+<td><a href="voltmeter2/"><code>voltmeter2.tc</code></a></td>
+<td>voltmeter2.tc — smooth-sweep analog gauge using the TinyC canvas API.</td>
+</tr>
+<tr>
+<td><a href="voltmeter_multi/"><code>voltmeter_multi.tc</code></a></td>
+<td>voltmeter_multi.tc — three gauges on one screen, driven by struct + array</td>
+</tr>
+<tr>
+<td><a href="wallbox_charge/"><code>wallbox_charge.tc</code></a></td>
+<td>wallbox_charge.tc — PV-surplus charging control for an ON/OFF wallbox at .146.</td>
+</tr>
+<tr>
+<td><a href="watch_demo/"><code>watch_demo.tc</code></a></td>
+<td>Watch Variables Demo</td>
+</tr>
+<tr>
+<td><a href="watch_renaissance/"><code>watch_renaissance.tc</code></a></td>
+<td>watch_renaissance.tc — analog "Waldhoff Renaissance" watchface for a 240x240 screen.</td>
+</tr>
+<tr>
+<td><a href="wav_diag/"><code>wav_diag.tc</code></a></td>
+<td>wav_diag.tc — diagnose the ES8311 DAC playback path on the P4. Console: WDGO to play,</td>
+</tr>
+<tr>
+<td><a href="wav_player/"><code>wav_player.tc</code></a></td>
+<td>WAV Player — plugin-independent I2S audio output, selectable codec.</td>
+</tr>
+<tr>
+<td><a href="wav_ram/"><code>wav_ram.tc</code></a></td>
+<td>wav_ram.tc — load doorbell16.wav into RAM, then play from RAM (no SD reads during</td>
+</tr>
+<tr>
+<td><a href="wav_rd/"><code>wav_rd.tc</code></a></td>
+<td>wav_rd.tc — READ-ONLY WAV diagnostic (no audio). Console: RD</td>
+</tr>
+<tr>
+<td><a href="wd_logger/"><code>wd_logger.tc</code></a></td>
+<td>wd_logger.tc — indoor air-quality logger, TinyC port of the Tasmota Scripter "wd".</td>
+</tr>
+<tr>
+<td><a href="weather/"><code>weather.tc</code></a></td>
+<td>weather.tc — 16-day weather + solar-yield + wind forecast from Open-Meteo (FREE, no key)</td>
+</tr>
+<tr>
+<td><a href="web_buttons/"><code>web_buttons.tc</code></a></td>
+<td>web_buttons.tc — Custom Web Buttons Demo</td>
+</tr>
+<tr>
+<td><a href="web_handler/"><code>web_handler.tc</code></a></td>
+<td>Custom Web Handler Demo</td>
+</tr>
+<tr>
+<td><a href="webcall_demo/"><code>webcall_demo.tc</code></a></td>
+<td>WebCall Demo — Widgets on the Tasmota main page</td>
+</tr>
+<tr>
+<td><a href="webcam/"><code>webcam.tc</code></a></td>
+<td>Webcam Security Camera Script</td>
+</tr>
+<tr>
+<td><a href="webcam_tinyc/"><code>webcam_tinyc.tc</code></a></td>
+<td>webcam_tinyc.tc — Security Camera using TinyC integrated cam driver</td>
+</tr>
+<tr>
+<td><a href="webradio/"><code>webradio.tc</code></a></td>
+<td>webradio.tc — Internet-radio player for an I2S audio board.</td>
+</tr>
+<tr>
+<td><a href="webui_demo/"><code>webui_demo.tc</code></a></td>
+<td>WebUI Demo — Smart Relay Controller</td>
+</tr>
+<tr>
+<td><a href="webui_dynamic/"><code>webui_dynamic.tc</code></a></td>
+<td>webui_dynamic.tc — demo of the TinyC dynamic-HTML enablers (1.6.31).</td>
+</tr>
+<tr>
+<td><a href="webui_watchdog/"><code>webui_watchdog.tc</code></a></td>
+<td>webui_watchdog.tc — auto-recover from the "Tasmota WebUI dies but</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer">
+        
+          
+          <a href="../custom-builds/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Custom Builds">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Custom Builds
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../gallery/" class="md-footer__link md-footer__link--next" aria-label="Next: Overview">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Overview
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright © 2026 Gerhard Mutz
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/gemu2015/Sonoff-Tasmota" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "navigation.indexes", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>

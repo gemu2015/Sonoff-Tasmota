@@ -1,0 +1,3097 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/custom-builds/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/custom-builds/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/custom-builds/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/getting-started/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/getting-started/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/getting-started/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/reference/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/reference/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/reference/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/releases/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/releases/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/releases/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_fsync/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_fsync/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_fsync/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_gm24g/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_gm24g/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_gm24g/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_listen/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_listen/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_listen/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_probe/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_probe/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_probe/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_scan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_scan/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_scan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ads1115/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ads1115/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ads1115/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/analog_clock/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/analog_clock/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/analog_clock/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/audio_io/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/audio_io/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/audio_io/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/benchmark/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/benchmark/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/benchmark/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_gatt_explore/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_gatt_explore/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_gatt_explore/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_scan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_scan/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_scan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_server/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_server/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_server/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_spp_probe/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_spp_probe/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_spp_probe/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/blib_crc_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/blib_crc_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/blib_crc_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/blink/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/blink/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/blink/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/bme280/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bme280/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bme280/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/bmp280/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bmp280/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bmp280/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/bmx280/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bmx280/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bmx280/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/bresser_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bresser_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bresser_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_array_suite/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_array_suite/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_array_suite/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_syscall_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_syscall_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_syscall_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/c_extensions_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/c_extensions_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/c_extensions_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/callbacks/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/callbacks/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/callbacks/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/cam_view/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/cam_view/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/cam_view/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/cam_view_lvgl/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/cam_view_lvgl/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/cam_view_lvgl/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/camera/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/camera/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/camera/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/can_sniffer/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/can_sniffer/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/can_sniffer/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ccs811/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ccs811/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ccs811/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/chart_types/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/chart_types/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/chart_types/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/clock_7seg/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/clock_7seg/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/clock_7seg/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/clock_header/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/clock_header/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/clock_header/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/core2_energy/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/core2_energy/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/core2_energy/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/crypto_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/crypto_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/crypto_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/daikin_control/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/daikin_control/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/daikin_control/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/device_scanner/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/device_scanner/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/device_scanner/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/deye/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/deye/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/deye/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/display_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/display_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/display_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/dmx_dimmer_panel/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/dmx_dimmer_panel/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dmx_dimmer_panel/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/dyson_tp02/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/dyson_tp02/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dyson_tp02/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/dysv17f/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/dysv17f/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dysv17f/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ebus_clock_write/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ebus_clock_write/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ebus_clock_write/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ecotracker/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ecotracker/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ecotracker/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ecotracker_shelly_emu/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ecotracker_shelly_emu/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ecotracker_shelly_emu/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/editor/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/editor/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/editor/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/energy_dashboard/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/energy_dashboard/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/energy_dashboard/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/energy_logger/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/energy_logger/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/energy_logger/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper29/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper29/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper29/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper42/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper42/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper42/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper_clock_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper_clock_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper_clock_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/epd_compare_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epd_compare_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epd_compare_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/epd_ssd1680_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epd_ssd1680_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epd_ssd1680_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/eqmax_alarm/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/eqmax_alarm/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/eqmax_alarm/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_probe/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_probe/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_probe/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_scale/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_scale/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_scale/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_speak/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_speak/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_speak/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/fast_mux/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/fast_mux/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/fast_mux/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/fibonacci/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/fibonacci/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/fibonacci/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/file_io/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/file_io/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/file_io/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/gchart_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gchart_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gchart_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/gm24g_lamp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gm24g_lamp/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gm24g_lamp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/gpio_sweep/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gpio_sweep/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gpio_sweep/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/gpio_toggle_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gpio_toggle_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gpio_toggle_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/growatt/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/growatt/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/growatt/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/growatt_shine/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/growatt_shine/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/growatt_shine/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/guiton_display/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/guiton_display/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/guiton_display/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/heating_ds2484/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/heating_ds2484/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heating_ds2484/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/heatpump_map_full/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/heatpump_map_full/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heatpump_map_full/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/heatpump_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/heatpump_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heatpump_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/homekit_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/homekit_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/homekit_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/homekit_office/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/homekit_office/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/homekit_office/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/hourly_chime/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/hourly_chime/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hourly_chime/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/house_monitor/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/house_monitor/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/house_monitor/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/hyundai_login/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/hyundai_login/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hyundai_login/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/hyundai_soc/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/hyundai_soc/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hyundai_soc/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/int16_array_suite/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/int16_array_suite/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/int16_array_suite/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/jpg_on_canvas/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/jpg_on_canvas/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/jpg_on_canvas/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/jpg_view_lvgl/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/jpg_view_lvgl/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/jpg_view_lvgl/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lcd_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lcd_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lcd_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lcd_i2c/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lcd_i2c/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lcd_i2c/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ld2410/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ld2410/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ld2410/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ledbar/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ledbar/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ledbar/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/live_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/live_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/live_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness_gauge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness_gauge/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness_gauge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness_p4/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness_p4/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness_p4/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lt8900_lamp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lt8900_lamp/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lt8900_lamp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/ltr308/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ltr308/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ltr308/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_panel/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_panel/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_panel/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_smoke/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_smoke/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_smoke/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_widgets/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_widgets/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_widgets/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/m5_epd47/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/m5_epd47/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/m5_epd47/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/mail_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/mail_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mail_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/marstek_venus/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/marstek_venus/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/marstek_venus/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_airquality/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_airquality/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_airquality/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_battery/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_battery/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_battery/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_bridge_ui/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_bridge_ui/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_bridge_ui/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_button/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_button/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_button/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_fake_sensors/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_fake_sensors/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_fake_sensors/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_fan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_fan/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_fan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_home_alexa/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_home_alexa/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_home_alexa/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_home_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_home_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_home_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_leak/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_leak/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_leak/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_plug/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_plug/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_plug/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_powermeter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_powermeter/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_powermeter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_remote_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_remote_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_remote_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_rgb/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_rgb/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_rgb/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_sensors/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_sensors/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_sensors/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_shutter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_shutter/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_shutter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/max30102/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/max30102/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/max30102/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/max31855/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/max31855/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/max31855/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/meter_pin_unlock/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/meter_pin_unlock/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/meter_pin_unlock/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/mic_plugin_level/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/mic_plugin_level/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mic_plugin_level/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/mlx90614/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/mlx90614/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mlx90614/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/moritz_dash/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/moritz_dash/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/moritz_dash/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/multipage_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/multipage_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/multipage_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/music_fft/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/music_fft/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/music_fft/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/music_ui/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/music_ui/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/music_ui/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/onewire/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/onewire/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/onewire/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/persist_array_file/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/persist_array_file/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/persist_array_file/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/persist_byte_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/persist_byte_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/persist_byte_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/pool_pump/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/pool_pump/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/pool_pump/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/power_meter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/power_meter/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/power_meter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/powerwall/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/powerwall/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/powerwall/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/powerwall_fast/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/powerwall_fast/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/powerwall_fast/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/rgb_led/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/rgb_led/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rgb_led/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/rgb_selftest/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/rgb_selftest/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rgb_selftest/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/rsa_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/rsa_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rsa_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/scd30/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/scd30/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/scd30/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sensor_read/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sensor_read/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sensor_read/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sgp30/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sgp30/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sgp30/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/share_reader/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/share_reader/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/share_reader/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/share_writer/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/share_writer/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/share_writer/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31_publisher/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31_publisher/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31_publisher/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31_th/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31_th/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31_th/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sizeof_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sizeof_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sizeof_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/slcan_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slcan_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slcan_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/slcan_bridge_tcp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slcan_bridge_tcp/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slcan_bridge_tcp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/slot0_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot0_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot0_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/slot1_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot1_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot1_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/slot2_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot2_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot2_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/slot3_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot3_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot3_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sma_speedwire/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sma_speedwire/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sma_speedwire/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sma_sunnyboy/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sma_sunnyboy/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sma_sunnyboy/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/small_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/small_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/small_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_card/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_card/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_card/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_bezug/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_bezug/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_bezug/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_ct002/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_ct002/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_ct002/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_eco_shelly/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_eco_shelly/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_eco_shelly/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_ct002/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_ct002/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_ct002/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_custom_line/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_custom_line/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_custom_line/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_ebus/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_ebus/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_ebus/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_eco_shelly/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_eco_shelly/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_eco_shelly/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_enable/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_enable/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_enable/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_simple/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_simple/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_simple/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_water/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_water/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_water/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/snap_with_timestamp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/snap_with_timestamp/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/snap_with_timestamp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/solar_dashboard/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/solar_dashboard/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/solar_dashboard/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sort/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sort/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sort/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/spawn_tasks/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/spawn_tasks/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spawn_tasks/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/spp_connect/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/spp_connect/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spp_connect/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/spp_scan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/spp_scan/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spp_scan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sps30/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sps30/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sps30/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/strings/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/strings/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/strings/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/structs_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/structs_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/structs_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/sunton_display/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sunton_display/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sunton_display/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/tcs34725/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tcs34725/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tcs34725/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/text_on_image/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/text_on_image/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/text_on_image/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/tinyui_dashboard/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tinyui_dashboard/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tinyui_dashboard/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/tinyui_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tinyui_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tinyui_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/tls_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tls_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tls_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_buttons/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_buttons/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_buttons/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_coords/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_coords/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_coords/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_coords_legacy/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_coords_legacy/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_coords_legacy/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/tuya_pool_heater/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tuya_pool_heater/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tuya_pool_heater/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/uart_tx_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/uart_tx_test/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/uart_tx_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/udp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/udp/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/udp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/variograf_ekg/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/variograf_ekg/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/variograf_ekg/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/veml6075/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/veml6075/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/veml6075/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/vesync_scale_sniff/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/vesync_scale_sniff/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/vesync_scale_sniff/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/vl53l0x/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/vl53l0x/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/vl53l0x/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter2/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter2/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter2/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter_multi/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter_multi/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter_multi/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/wallbox_charge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wallbox_charge/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wallbox_charge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/watch_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/watch_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/watch_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/watch_renaissance/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/watch_renaissance/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/watch_renaissance/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_diag/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_diag/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_diag/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_player/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_player/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_player/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_ram/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_ram/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_ram/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_rd/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_rd/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_rd/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/wd_logger/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wd_logger/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wd_logger/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/weather/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/weather/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/weather/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/web_buttons/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/web_buttons/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/web_buttons/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/web_handler/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/web_handler/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/web_handler/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webcall_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webcall_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcall_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webcam/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webcam/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcam/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webcam_tinyc/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webcam_tinyc/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcam_tinyc/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webradio/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webradio/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webradio/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_demo/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_dynamic/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_dynamic/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_dynamic/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_watchdog/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_watchdog/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_watchdog/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/gallery/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/gallery/cameras/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/cameras/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/cameras/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/gallery/charts/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/charts/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/charts/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/gallery/displays/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/displays/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/displays/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/gallery/sensors/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/sensors/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/sensors/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/gallery/solar/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/solar/"/>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/solar/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/custom-builds/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/custom-builds/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/custom-builds/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/getting-started/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/getting-started/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/getting-started/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/reference/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/reference/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/reference/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/releases/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/releases/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/releases/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_fsync/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_fsync/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_fsync/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_gm24g/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_gm24g/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_gm24g/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_listen/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_listen/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_listen/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_probe/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_probe/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_probe/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_scan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/a7105_scan/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/a7105_scan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ads1115/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ads1115/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ads1115/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/analog_clock/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/analog_clock/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/analog_clock/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/audio_io/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/audio_io/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/audio_io/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/benchmark/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/benchmark/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/benchmark/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_gatt_explore/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_gatt_explore/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_gatt_explore/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_scan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_scan/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_scan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_server/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_server/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_server/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_spp_probe/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ble_spp_probe/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ble_spp_probe/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/blib_crc_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/blib_crc_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/blib_crc_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/blink/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/blink/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/blink/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bme280/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bme280/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bme280/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bmp280/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bmp280/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bmp280/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bmx280/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bmx280/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bmx280/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bresser_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/bresser_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/bresser_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_array_suite/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_array_suite/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_array_suite/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_syscall_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_syscall_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_syscall_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/byte_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/byte_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/c_extensions_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/c_extensions_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/c_extensions_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/callbacks/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/callbacks/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/callbacks/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/cam_view/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/cam_view/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/cam_view/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/cam_view_lvgl/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/cam_view_lvgl/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/cam_view_lvgl/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/camera/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/camera/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/camera/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/can_sniffer/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/can_sniffer/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/can_sniffer/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ccs811/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ccs811/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ccs811/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/chart_types/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/chart_types/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/chart_types/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/clock_7seg/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/clock_7seg/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/clock_7seg/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/clock_header/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/clock_header/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/clock_header/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/core2_energy/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/core2_energy/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/core2_energy/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/crypto_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/crypto_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/crypto_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/daikin_control/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/daikin_control/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/daikin_control/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/device_scanner/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/device_scanner/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/device_scanner/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/deye/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/deye/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/deye/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/display_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/display_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/display_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dmx_dimmer_panel/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dmx_dimmer_panel/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/dmx_dimmer_panel/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dyson_tp02/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dyson_tp02/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/dyson_tp02/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dysv17f/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/dysv17f/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/dysv17f/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ebus_clock_write/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ebus_clock_write/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ebus_clock_write/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ecotracker/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ecotracker/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ecotracker/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ecotracker_shelly_emu/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ecotracker_shelly_emu/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ecotracker_shelly_emu/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/editor/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/editor/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/editor/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/energy_dashboard/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/energy_dashboard/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/energy_dashboard/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/energy_logger/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/energy_logger/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/energy_logger/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper29/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper29/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper29/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper42/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper42/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper42/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper_clock_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epaper_clock_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epaper_clock_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epd_compare_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epd_compare_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epd_compare_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epd_ssd1680_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/epd_ssd1680_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/epd_ssd1680_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/eqmax_alarm/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/eqmax_alarm/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/eqmax_alarm/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_probe/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_probe/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_probe/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_scale/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_scale/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_scale/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_speak/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/esf37_speak/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/esf37_speak/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/fast_mux/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/fast_mux/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/fast_mux/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/fibonacci/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/fibonacci/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/fibonacci/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/file_io/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/file_io/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/file_io/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gchart_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gchart_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gchart_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gm24g_lamp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gm24g_lamp/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gm24g_lamp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gpio_sweep/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gpio_sweep/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gpio_sweep/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gpio_toggle_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/gpio_toggle_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/gpio_toggle_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/growatt/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/growatt/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/growatt/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/growatt_shine/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/growatt_shine/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/growatt_shine/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/guiton_display/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/guiton_display/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/guiton_display/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heating_ds2484/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heating_ds2484/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/heating_ds2484/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heatpump_map_full/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heatpump_map_full/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/heatpump_map_full/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heatpump_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/heatpump_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/heatpump_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/homekit_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/homekit_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/homekit_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/homekit_office/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/homekit_office/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/homekit_office/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hourly_chime/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hourly_chime/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/hourly_chime/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/house_monitor/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/house_monitor/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/house_monitor/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hyundai_login/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hyundai_login/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/hyundai_login/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hyundai_soc/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/hyundai_soc/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/hyundai_soc/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/int16_array_suite/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/int16_array_suite/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/int16_array_suite/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/jpg_on_canvas/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/jpg_on_canvas/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/jpg_on_canvas/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/jpg_view_lvgl/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/jpg_view_lvgl/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/jpg_view_lvgl/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lcd_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lcd_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lcd_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lcd_i2c/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lcd_i2c/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lcd_i2c/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ld2410/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ld2410/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ld2410/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ledbar/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ledbar/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ledbar/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/live_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/live_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/live_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness_gauge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness_gauge/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness_gauge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness_p4/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/loudness_p4/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/loudness_p4/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lt8900_lamp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lt8900_lamp/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lt8900_lamp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ltr308/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/ltr308/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/ltr308/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_panel/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_panel/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_panel/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_smoke/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_smoke/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_smoke/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_widgets/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/lvgl_widgets/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/lvgl_widgets/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/m5_epd47/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/m5_epd47/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/m5_epd47/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mail_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mail_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/mail_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/marstek_venus/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/marstek_venus/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/marstek_venus/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_airquality/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_airquality/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_airquality/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_battery/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_battery/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_battery/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_bridge_ui/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_bridge_ui/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_bridge_ui/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_button/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_button/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_button/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_fake_sensors/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_fake_sensors/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_fake_sensors/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_fan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_fan/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_fan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_home_alexa/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_home_alexa/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_home_alexa/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_home_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_home_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_home_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_leak/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_leak/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_leak/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_plug/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_plug/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_plug/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_powermeter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_powermeter/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_powermeter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_remote_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_remote_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_remote_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_rgb/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_rgb/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_rgb/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_sensors/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_sensors/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_sensors/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_shutter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/matter_shutter/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/matter_shutter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/max30102/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/max30102/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/max30102/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/max31855/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/max31855/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/max31855/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/meter_pin_unlock/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/meter_pin_unlock/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/meter_pin_unlock/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mic_plugin_level/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mic_plugin_level/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/mic_plugin_level/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mlx90614/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/mlx90614/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/mlx90614/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/moritz_dash/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/moritz_dash/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/moritz_dash/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/multipage_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/multipage_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/multipage_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/music_fft/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/music_fft/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/music_fft/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/music_ui/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/music_ui/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/music_ui/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/onewire/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/onewire/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/onewire/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/persist_array_file/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/persist_array_file/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/persist_array_file/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/persist_byte_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/persist_byte_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/persist_byte_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/pool_pump/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/pool_pump/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/pool_pump/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/power_meter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/power_meter/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/power_meter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/powerwall/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/powerwall/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/powerwall/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/powerwall_fast/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/powerwall_fast/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/powerwall_fast/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rgb_led/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rgb_led/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/rgb_led/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rgb_selftest/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rgb_selftest/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/rgb_selftest/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rsa_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/rsa_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/rsa_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/scd30/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/scd30/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/scd30/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sensor_read/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sensor_read/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sensor_read/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sgp30/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sgp30/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sgp30/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/share_reader/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/share_reader/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/share_reader/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/share_writer/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/share_writer/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/share_writer/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31_publisher/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31_publisher/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31_publisher/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31_th/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sht31_th/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sht31_th/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sizeof_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sizeof_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sizeof_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slcan_bridge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slcan_bridge/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slcan_bridge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slcan_bridge_tcp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slcan_bridge_tcp/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slcan_bridge_tcp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot0_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot0_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot0_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot1_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot1_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot1_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot2_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot2_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot2_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot3_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/slot3_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/slot3_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sma_speedwire/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sma_speedwire/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sma_speedwire/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sma_sunnyboy/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sma_sunnyboy/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sma_sunnyboy/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/small_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/small_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/small_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_card/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_card/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_card/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_bezug/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_bezug/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_bezug/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_ct002/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_ct002/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_ct002/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_eco_shelly/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_chart_eco_shelly/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_chart_eco_shelly/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_ct002/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_ct002/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_ct002/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_custom_line/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_custom_line/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_custom_line/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_ebus/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_ebus/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_ebus/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_eco_shelly/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_eco_shelly/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_eco_shelly/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_enable/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_enable/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_enable/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_simple/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_simple/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_simple/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_water/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sml_water/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sml_water/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/snap_with_timestamp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/snap_with_timestamp/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/snap_with_timestamp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/solar_dashboard/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/solar_dashboard/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/solar_dashboard/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sort/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sort/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sort/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spawn_tasks/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spawn_tasks/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/spawn_tasks/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spp_connect/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spp_connect/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/spp_connect/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spp_scan/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/spp_scan/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/spp_scan/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sps30/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sps30/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sps30/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/strings/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/strings/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/strings/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/structs_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/structs_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/structs_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sunton_display/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/sunton_display/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/sunton_display/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tcs34725/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tcs34725/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tcs34725/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/text_on_image/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/text_on_image/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/text_on_image/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tinyui_dashboard/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tinyui_dashboard/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tinyui_dashboard/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tinyui_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tinyui_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tinyui_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tls_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tls_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tls_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_buttons/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_buttons/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_buttons/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_coords/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_coords/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_coords/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_coords_legacy/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/touch_coords_legacy/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/touch_coords_legacy/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tuya_pool_heater/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/tuya_pool_heater/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/tuya_pool_heater/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/uart_tx_test/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/uart_tx_test/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/uart_tx_test/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/udp/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/udp/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/udp/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/variograf_ekg/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/variograf_ekg/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/variograf_ekg/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/veml6075/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/veml6075/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/veml6075/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/vesync_scale_sniff/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/vesync_scale_sniff/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/vesync_scale_sniff/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/vl53l0x/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/vl53l0x/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/vl53l0x/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter2/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter2/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter2/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter_multi/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/voltmeter_multi/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/voltmeter_multi/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wallbox_charge/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wallbox_charge/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wallbox_charge/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/watch_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/watch_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/watch_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/watch_renaissance/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/watch_renaissance/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/watch_renaissance/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_diag/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_diag/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_diag/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_player/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_player/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_player/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_ram/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_ram/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_ram/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_rd/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wav_rd/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wav_rd/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wd_logger/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/wd_logger/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/wd_logger/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/weather/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/weather/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/weather/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/web_buttons/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/web_buttons/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/web_buttons/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/web_handler/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/web_handler/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/web_handler/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcall_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcall_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webcall_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcam/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcam/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webcam/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcam_tinyc/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webcam_tinyc/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webcam_tinyc/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webradio/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webradio/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webradio/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_demo/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_demo/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_demo/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_dynamic/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_dynamic/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_dynamic/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_watchdog/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/examples/webui_watchdog/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/examples/webui_watchdog/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/cameras/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/cameras/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/cameras/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/charts/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/charts/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/charts/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/displays/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/displays/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/displays/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/sensors/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/sensors/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/sensors/"/>
+    </url>
+    <url>
+        <loc>https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/solar/</loc>
+        <lastmod>2026-09-05</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="de" href="https://gemu2015.github.io/Sonoff-Tasmota/de/gallery/solar/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="https://gemu2015.github.io/Sonoff-Tasmota/gallery/solar/"/>
+    </url>
+</urlset>
