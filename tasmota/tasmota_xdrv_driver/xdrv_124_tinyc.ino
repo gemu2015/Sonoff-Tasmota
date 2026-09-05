@@ -350,6 +350,10 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
 // counter is gone before the crash, so it never accumulates across
 // reboots and Tasmota's no_autoexec never fires.
 #define TC_BOOT_MARKER "/tinyc.boot.lock"
+// Why autoexec is off. Written when a boot loop clears the flags, read on every later boot, and
+// removed as soon as autoexec is switched back on. Separate from TC_BOOT_MARKER, which is the
+// short-lived "a VM is starting right now" lock.
+#define TC_BOOTLOOP_FLAG "/tinyc.bootloop"
 #ifndef TC_BOOT_STABLE_S
 #define TC_BOOT_STABLE_S 30   // uptime at which boot is considered "succeeded"
 #endif
@@ -382,6 +386,16 @@ static void TinyCSaveSettings(void) {
   // Extra line for show_info
   f.printf("_info,%d\n", Tinyc->show_info ? 1 : 0);
   f.close();
+  // Autoexec on again anywhere? Then the boot-loop explanation has served its purpose. Note this
+  // runs on the load path too (stale entries), but there every autoexec is already 0 after a wipe.
+  bool any_autoexec = false;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slot_config[i].autoexec) { any_autoexec = true; break; }
+  }
+  if (any_autoexec && fs->exists(TC_BOOTLOOP_FLAG)) {
+    fs->remove(TC_BOOTLOOP_FLAG);
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: autoexec re-enabled — boot-loop notice cleared"));
+  }
   AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Settings saved"));
 }
 
@@ -600,8 +614,31 @@ static void TinyCLoadSettings(void) {
         AddLog(LOG_LEVEL_ERROR,
                PSTR("TCC: Boot loop (count=%d) — %s rewritten with autoexec=0 for all slots"),
                RtcReboot.fast_reboot_count, TC_CFG_FILE);
+        // Leave a trace that outlives THIS boot. The line above is printed exactly once, on the
+        // boot that does the rewrite. Every later boot then shows the ordinary
+        // "Slot 0: /x.tcb (autoexec=0 prefix=)" and is indistinguishable from a slot the user
+        // switched off himself -- which took a `Status 12` dump to untangle in the field
+        // (Hans, report 05.09.2026).
+        File mf = fs->open(TC_BOOTLOOP_FLAG, "w");
+        if (mf) {
+          mf.printf("%d", RtcReboot.fast_reboot_count);
+          mf.close();
+        }
       }
     }
+  }
+
+  // Still off because of a boot loop? Then say so on every boot, not just on the one that did the
+  // clearing. Cleared by TinyCSaveSettings as soon as any slot has autoexec again.
+  if (fs->exists(TC_BOOTLOOP_FLAG)) {
+    File bf = fs->open(TC_BOOTLOOP_FLAG, "r");
+    String cnt = bf ? bf.readString() : String();
+    if (bf) bf.close();
+    cnt.trim();
+    AddLog(LOG_LEVEL_ERROR,
+           PSTR("TCC: autoexec is OFF for every slot because a boot loop was detected "
+                "(fast_reboot_count=%s) — not because it was switched off. Enable a slot to clear this."),
+           cnt.length() ? cnt.c_str() : "?");
   }
 
   File f = fs->open(TC_CFG_FILE, "r");
