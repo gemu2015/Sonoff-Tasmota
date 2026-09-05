@@ -104,7 +104,7 @@ persist watch int res;        // resolution, INDEX into the pulldown (not FRAMES
 persist watch int ir_mode;    // IR light: 0 off, 1 on, 2 automatic (LTR-308)
 persist watch int ir_lux;     // automatic: below this it is "dark" (lux)
 persist watch int nacht;      // night sensor mode: 0 off, 1 on, 2 automatic
-persist watch int nacht_st;   // strength index: 0 x2/32x, 1 x4/48x, 2 x8/64x
+persist watch int nacht_st;   // strength index: 0 x2/8x, 1 x4/8x, 2 x8/16x
 persist int nacht_seen;       // defaults written once (index 0 is a legal value)
 #endif
 persist int res_seen;         // ⚠️ 1 once `res` was ever stored. Needed because
@@ -270,6 +270,19 @@ int ltr_lesen() {
 }
 
 // Night sensor settings — MUST run in TaskLoop (camera access).
+//
+// ⚠️ THE HORIZONTAL STRIPES IN DIM LIGHT (the "unsolved" DFR1154 issue) have a
+// measured cause: the IR LEDs inject a ripple (period ~8 rows) that HIGH GAIN
+// makes visible. Stripe measure (std of the high-passed row profile), same
+// scene, same brightness, 05.09.2026:
+//     IR on,  gain 21x, 1-frame exposure   4.4   moving pattern
+//     IR off, gain 21x                      2.45  static remainder
+//     IR on,  gain  2x, 3-frame exposure    2.4   static remainder
+// The AEC fills one frame, then climbs gain up to the ceiling, and only
+// then inserts frames (night mode). With a ceiling <= 16x it went to 3-frame
+// exposure at 2x gain; at 24x it chose 1 frame at 21x — and the stripes.
+// So the GAIN CEILING is the lever, not the exposure limit: keep it low and
+// let exposure do the work. Price: frame rate in the dark.
 // ⚠️ Writing a LOWER max exposure does not pull a running exposure down: the
 // AEC only honours the limit while increasing. Toggling night mode (aec2)
 // off/on makes it re-converge — measured, exposure went 0x2490 -> 0x0930.
@@ -282,9 +295,9 @@ void nacht_anwenden(int an) {
         return;
     }
     if (an) {
-        int gc = 0x1FF;  int hi = 0x12; int lo = 0x60;    // x2, 32x
-        if (nacht_st == 1) { gc = 0x2FF; hi = 0x24; lo = 0x90; }   // x4, 48x
-        if (nacht_st == 2) { gc = 0x3FF; hi = 0x49; lo = 0x20; }   // x8, 64x
+        int gc = 0x80;   int hi = 0x12; int lo = 0x60;    // x2 exposure, 8x gain
+        if (nacht_st == 1) { gc = 0x80;  hi = 0x24; lo = 0x90; }   // x4, 8x
+        if (nacht_st == 2) { gc = 0x100; hi = 0x49; lo = 0x20; }   // x8, 16x
         camControl(9, 18, gc);
         camControl(20, 0x3a02, hi); camControl(20, 0x3a03, lo);
         camControl(20, 0x3a14, hi); camControl(20, 0x3a15, lo);
@@ -726,12 +739,12 @@ void WebUI() {
     webPulldown(ir_mode, "IR light (4 x 940 nm)", "Off|On|Automatic");
     webNumber(ir_lux, 1, 1000, "Automatic: dark below (lux)");
     webPulldown(nacht, "Night sensor mode", "Off|On|Automatic");
-    webPulldown(nacht_st, "Night strength", "x2 exposure, 32x gain|x4 exposure, 48x gain|x8 exposure, 64x gain");
+    webPulldown(nacht_st, "Night strength", "x2 exposure, 8x gain|x4 exposure, 8x gain|x8 exposure, 16x gain");
     if (ltr_bus >= 0) {
         sprintf(buf, "<div class='hint'>Light sensor reads <b>%.2f lx</b>", lux);
         webSend(buf);
         if (dunkel) webSend(" (dark). "); else webSend(" (light). ");
-        webSend("Automatic = IR light and long exposure only when it is dark, off again above twice the threshold. Longer exposure means brighter, less noisy pictures at a lower frame rate; in real darkness x8 can drop to about 1 frame/s.</div>");
+        webSend("Automatic = IR light and long exposure only when it is dark, off again above twice the threshold. Longer exposure means brighter, less noisy pictures at a lower frame rate; in real darkness x8 can drop to about 1 frame/s. The gain ceiling is kept low on purpose: above 16x the IR LEDs' ripple shows as horizontal stripes.</div>");
     } else {
         webSend("<div class='hint'>No LTR-308 light sensor found &mdash; Automatic behaves like On.</div>");
     }

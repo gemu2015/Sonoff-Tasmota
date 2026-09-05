@@ -886,8 +886,14 @@ side effect — back up `Settings.json` and any user files first.
   uses `"a" + "b"` (string-`+` concat), but firmware has no case-handler for
   ID 259 → `TC_ERR_BAD_SYSCALL`. Avoid string-`+`; use `strcpy` + `strcat`
   (or `sprintf` for variadic builds) instead.
-- **DFRobot OV3660 camera horizontal stripes** — unsolved, 10+ hrs debug. If a
-  user has this exact board, acknowledge the known issue rather than guessing.
+- **DFRobot OV3660 camera horizontal stripes** — cause measured 05.09.2026
+  (was "unsolved, 10+ hrs"): the board's IR LEDs inject a ripple (~8-row
+  period) that HIGH AGC GAIN makes visible. Stripe std 4.4 at 21x gain vs 2.4
+  at 2x gain with 3-frame exposure, same brightness. Keep the gain ceiling
+  <= 16x (`camControl(9,18,0x100)`, RAW value on OV3660) and let night-mode
+  frame insertion do the work; see `webcam_tinyc.tc`, `nacht_anwenden()`.
+  The old "banding filter" fix set 0x3A00 bit 2 = NIGHT MODE, not the band
+  filter (bit 5, already on) — it slowed the frame rate and fixed nothing.
 - **Callback-dispatch integer cache** — attempted and reverted (broke PAUSED
   handler); if tempted to optimise, read `MEMORY.md §TinyC Performance
   Optimization` in the maintainer's notes first.
