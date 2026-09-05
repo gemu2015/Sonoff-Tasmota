@@ -22,20 +22,28 @@ NAME="$(basename "$EINGABE" .tc)"
 TCB="/tmp/${NAME}.tcb"
 HIER="$(cd "$(dirname "$0")" && pwd)"
 
-echo "1/4  uebersetzen …"
+echo "1/5  uebersetzen …"
 node "$HIER/compile_one.mjs" "$EINGABE" "$TCB"
 
 GROESSE=$(stat -f%z "$TCB" 2>/dev/null || stat -c%s "$TCB" 2>/dev/null)
-echo "2/4  hochladen: ${NAME}.tcb (${GROESSE} Byte) -> ${GERAET}"
+echo "2/5  hochladen: ${NAME}.tcb (${GROESSE} Byte) -> ${GERAET}"
 CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "http://${GERAET}/ufsu?fsz=${GROESSE}" \
     -F "ufsu=@${TCB};filename=${NAME}.tcb")
 [ "$CODE" = "200" ] || { echo "   Hochladen fehlgeschlagen (HTTP $CODE)"; exit 1; }
 
-echo "3/4  Slot ${SLOT} entladen …"
+echo "3/5  Slot ${SLOT} entladen …"
 curl -s "http://${GERAET}/cm?cmnd=TinyCUnload%20${SLOT}" ; echo
 
-echo "4/4  starten …"
+# ⚠️ OHNE `load` STARTET EIN FRISCHER SLOT NICHT. `/tc_api?cmd=run` laedt nur
+# nach, wenn der Slot schon einen gemerkten Dateinamen hat (slot_config) --
+# den bekommt er erst durch `load`. Slot 0/1 hatten ihn aus der IDE, ein
+# leerer Slot 2 antwortete "no program loaded" (05.09.2026). Genau diesen
+# Schritt hatte ich am 04.09. als ueberfluessig gestrichen.
+echo "4/5  laden …"
+curl -s "http://${GERAET}/tc?cmd=load&file=/${NAME}.tcb&slot=${SLOT}" -o /dev/null
+
+echo "5/5  starten …"
 curl -s "http://${GERAET}/tc_api?cmd=run&slot=${SLOT}" ; echo
 
 echo

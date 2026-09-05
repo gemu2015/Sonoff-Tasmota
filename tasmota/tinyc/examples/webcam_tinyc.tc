@@ -85,6 +85,20 @@ persist watch int ufl;        // use flash LED
 persist watch int mtl;        // merge pictures into timelapse mjpeg
 persist watch int npic;       // number of pictures per alarm email (1-4)
 persist watch int res;        // resolution, INDEX into the pulldown (not FRAMESIZE_*)
+// ─── Night vision ───
+// ⚠️ WHY THE DARK PICTURE WAS BAD (measured 05.09.2026 on the DFR1154):
+//   * the four 940 nm IR LEDs sit on GPIO47 = Relay1, and the script only
+//     flashed them for 150 ms when taking a picture — never for the stream;
+//   * the sensor's AEC sat at BOTH factory ceilings: exposure 0x0930 of max
+//     0x0930, gain 0xF8 of max 0xF8. Night mode (0x3A00 bit 2) was already on,
+//     but it may not go anywhere. Raising the limits made the AEC take all the
+//     exposure it was given and drop gain from 15.5x to 5.4x.
+// The LTR-308 light sensor on the board decides "dark" in the automatic modes.
+persist watch int ir_mode;    // IR light: 0 off, 1 on, 2 automatic (LTR-308)
+persist watch int ir_lux;     // automatic: below this it is "dark" (lux)
+persist watch int nacht;      // night sensor mode: 0 off, 1 on, 2 automatic
+persist watch int nacht_st;   // strength index: 0 x2/32x, 1 x4/48x, 2 x8/64x
+persist int nacht_seen;       // defaults written once (index 0 is a legal value)
 persist int res_seen;         // ⚠️ 1 once `res` was ever stored. Needed because
                               // index 0 is a LEGAL choice (QVGA): without this
                               // marker, "0 means unset" would make QVGA
@@ -200,6 +214,66 @@ void log_msg(char msg[]) {
     fileLog("/log.txt", line, 8192);
 }
 
+// ─── LTR-308 ambient light sensor (on the board, I2C 0x53) ───
+// Same sequence as ltr308.tc: 18 bit / 100 ms, gain 3x. With those settings
+// lux = 0.6 * raw / (3 * 1.0) = raw / 5 — an integer is plenty for a threshold.
+// ⚠️ i2cSetDevice() answers 0 when another slot has already claimed 0x53
+// (ltr308.tc in slot 1). Then the part ID is read anyway: two readers on a
+// read-only sensor do no harm, and a night mode that stops working because a
+// chart script was loaded once would be a nasty surprise.
+int ltr_finden() {
+    int bus = 0;
+    while (bus < 2) {
+        i2cSetDevice(0x53, bus);
+        int id = i2cRead8(0x53, 0x06, bus);
+        if (id == 0xB1) {
+            i2cWrite8(0x53, 0x00, 0x10, bus);       // soft reset
+            delay(100);
+            i2cWrite8(0x53, 0x04, 0x22, bus);       // 18 bit, 100 ms
+            i2cWrite8(0x53, 0x05, 0x01, bus);       // gain 3x
+            i2cWrite8(0x53, 0x00, 0x02, bus);       // ALS enable
+            addLog("TCC: LTR-308 found on I2C bus %d", bus);
+            return bus;
+        }
+        bus++;
+    }
+    addLog("TCC: no LTR-308 — automatic modes fall back to 'on'");
+    return -1;
+}
+
+// Returns 1 when a fresh reading was taken.
+int ltr_lesen() {
+    if (ltr_bus < 0) return 0;
+    int st = i2cRead8(0x53, 0x07, ltr_bus);
+    if (!(st & 0x08)) return 0;                    // no new data yet
+    if (!i2cRead(0x53, 0x0D, ltr_buf, 3, ltr_bus)) return 0;
+    int raw = (ltr_buf[0] & 0xFF) | ((ltr_buf[1] & 0xFF) << 8) | ((ltr_buf[2] & 0x0F) << 16);
+    lux = raw / 5;
+    return 1;
+}
+
+// Night sensor settings — MUST run in TaskLoop (camera access).
+// ⚠️ Writing a LOWER max exposure does not pull a running exposure down: the
+// AEC only honours the limit while increasing. Toggling night mode (aec2)
+// off/on makes it re-converge — measured, exposure went 0x2490 -> 0x0930.
+void nacht_anwenden(int an) {
+    if (an) {
+        int gc = 0x1FF;  int hi = 0x12; int lo = 0x60;    // x2, 32x
+        if (nacht_st == 1) { gc = 0x2FF; hi = 0x24; lo = 0x90; }   // x4, 48x
+        if (nacht_st == 2) { gc = 0x3FF; hi = 0x49; lo = 0x20; }   // x8, 64x
+        camControl(9, 18, gc);
+        camControl(20, 0x3a02, hi); camControl(20, 0x3a03, lo);
+        camControl(20, 0x3a14, hi); camControl(20, 0x3a15, lo);
+    } else {
+        camControl(9, 18, 0xF8);                             // factory 15.5x
+        camControl(20, 0x3a02, 0x09); camControl(20, 0x3a03, 0x30);
+        camControl(20, 0x3a14, 0x09); camControl(20, 0x3a15, 0x30);
+    }
+    camControl(9, 13, 0); delay(300); camControl(9, 13, 1);   // AEC re-converge
+    nacht_ist = an;
+    addLog("TCC: night sensor mode %d (strength %d)", an, nacht_st);
+}
+
 // ─── Flash LED helpers ───
 void flash_on() {
     if (ufl > 0) {
@@ -209,8 +283,10 @@ void flash_on() {
 }
 
 void flash_off() {
+    // ⚠️ Back to what the night logic wants, not blindly off: with IR light
+    // "on" or "automatic", a picture used to switch the illumination OFF.
     if (ufl > 0) {
-        tasm_power = 0;
+        tasm_power = ir_soll;
     }
 }
 
@@ -320,6 +396,14 @@ int alarm_pics_captured;   // number captured so far
 int do_res;                // resolution change requested, carried out in TaskLoop
 int cam_w;                 // current width  — see res_masse()
 int cam_h;                 // current height
+int ir_soll;               // IR light wanted now (0/1), from ir_mode + darkness
+int nacht_soll;            // night sensor settings wanted now (0/1)
+int nacht_ist;             // ... and what is actually applied in the sensor
+int do_nacht;              // apply nacht_soll in TaskLoop (camera access there only)
+int dunkel;                // LTR-308 says dark (with hysteresis)
+int lux;                   // last LTR-308 reading, lux
+int ltr_bus;               // I2C bus the LTR-308 answered on, -1 = not found
+char ltr_buf[4];
 
 void send_alarm_email() {
     if (ma == 0) { return; }
@@ -391,6 +475,11 @@ void TaskLoop() {
         captureToSlot(2);
         save_pic_from_slot(2);
         flash_off();
+    }
+
+    if (do_nacht == 1) {
+        do_nacht = 0;
+        nacht_anwenden(nacht_soll);
     }
 
     // ⚠️ RESOLUTION CHANGE BELONGS HERE, NOT IN EverySecond(). Anything that
@@ -485,17 +574,38 @@ void EverySecond() {
         del_folder();
     }
 
+    // ─── Darkness, IR light, night sensor mode ───
+    if (ltr_lesen()) {
+        // Hysteresis: dark below the threshold, light again only above twice
+        // the threshold — the IR light itself brightens the scene a little.
+        if (dunkel == 0 && lux < ir_lux) dunkel = 1;
+        if (dunkel == 1 && lux > ir_lux * 2) dunkel = 0;
+    }
+    int auto_dunkel = dunkel;
+    if (ltr_bus < 0) auto_dunkel = 1;        // no sensor: automatic = on
+    ir_soll = 0;
+    if (ir_mode == 1) ir_soll = 1;
+    if (ir_mode == 2) ir_soll = auto_dunkel;
+    if (tasm_power != ir_soll) tasm_power = ir_soll;
+    nacht_soll = 0;
+    if (nacht == 1) nacht_soll = 1;
+    if (nacht == 2) nacht_soll = auto_dunkel;
+    if (nacht_soll != nacht_ist && do_nacht == 0) do_nacht = 1;
+
     // Auto-save persist variables when any setting changes
+    if (changed(nacht_st) && nacht_ist == 1) do_nacht = 1;   // new strength now
     if (changed(res)) {
         snapshot(res);
         do_res = 1;                 // carried out in TaskLoop, see there
     }
     if (changed(limit) || changed(pir) || changed(ma) ||
         changed(spir) || changed(rpt) || changed(ufl) ||
-        changed(mtl) || changed(npic) || do_res == 1) {
+        changed(mtl) || changed(npic) || do_res == 1 ||
+        changed(ir_mode) || changed(ir_lux) || changed(nacht) || changed(nacht_st)) {
         snapshot(limit); snapshot(pir); snapshot(ma);
         snapshot(spir); snapshot(rpt); snapshot(ufl);
         snapshot(mtl); snapshot(npic);
+        snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
         saveVars();
     }
 }
@@ -512,6 +622,13 @@ void WebCall() {
     webSend(buf);
     sprintf(buf, "{s}Detected{m}%d{e}", motion_detect);
     webSend(buf);
+    if (ltr_bus >= 0) {
+        sprintf(buf, "{s}Light{m}%d lx{e}", lux);
+        webSend(buf);
+    }
+    webSend("{s}Night{m}");
+    if (ir_soll) webSend("IR on"); else webSend("IR off");
+    if (nacht_ist) webSend(" &middot; sensor night{e}"); else webSend(" &middot; sensor day{e}");
     sprintf(buf, "{s}Heap{m}%d kB{e}", tasm_heap / 1000);
     webSend(buf);
 }
@@ -548,7 +665,21 @@ void WebUI() {
     webSend("<hr><b>&#x2709;&#xFE0F; Alarm</b>");
     webCheckbox(ma, "Send email on alarm");
     webNumber(npic, 1, 4, "Pictures per alarm (1-4)");
-    webCheckbox(ufl, "Use flash LED");
+    webCheckbox(ufl, "IR light while taking a picture");
+
+    webSend("<hr><b>&#x1F319; Night</b>");
+    webPulldown(ir_mode, "IR light (4 x 940 nm)", "Off|On|Automatic");
+    webNumber(ir_lux, 1, 1000, "Automatic: dark below (lux)");
+    webPulldown(nacht, "Night sensor mode", "Off|On|Automatic");
+    webPulldown(nacht_st, "Night strength", "x2 exposure, 32x gain|x4 exposure, 48x gain|x8 exposure, 64x gain");
+    if (ltr_bus >= 0) {
+        sprintf(buf, "<div class='hint'>Light sensor reads <b>%d lx</b>", lux);
+        webSend(buf);
+        if (dunkel) webSend(" (dark). "); else webSend(" (light). ");
+        webSend("Automatic = IR light and long exposure only when it is dark, off again above twice the threshold. Longer exposure means brighter, less noisy pictures at a lower frame rate; in real darkness x8 can drop to about 1 frame/s.</div>");
+    } else {
+        webSend("<div class='hint'>No LTR-308 light sensor found &mdash; Automatic behaves like On.</div>");
+    }
 
     webSend("<hr><b>&#x23F1;&#xFE0F; Timelapse</b>");
     webNumber(rpt, 0, 60, "Take picture every N minutes");
@@ -607,11 +738,18 @@ int main() {
     if (npic == 0) { npic = 1; }
     if (npic > 4) { npic = 4; }
     if (res_seen == 0) { res = RES_DEFAULT; res_seen = 1; }
+    if (nacht_seen == 0) {
+        ir_mode = 2; ir_lux = 10; nacht = 2; nacht_st = 1;    // automatic, x4/48x
+        nacht_seen = 1;
+    }
+    if (ir_lux < 1) ir_lux = 10;
 
     // Snapshot all watch vars so changed() starts clean
     snapshot(limit); snapshot(pir); snapshot(ma);
     snapshot(spir); snapshot(rpt); snapshot(ufl);
     snapshot(mtl); snapshot(npic); snapshot(res);
+    snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
+    nacht_ist = 0; dunkel = 0; lux = 0; ltr_bus = -1;
 
     // Sanitize corrupted persist values
     if (pir > 1 || ma > 1 || spir > 1 || ufl > 1 || mtl > 1) {
@@ -639,9 +777,17 @@ int main() {
     cam_ok = 1;
     res_masse();
 
-    // First test capture
+    // First test capture. ⚠️ The very first frame after init fails (-1) — the
+    // sensor is still settling. Not the light sensor's fault (checked: same
+    // with the LTR-308 probed afterwards). One retry after a short wait.
     int size = captureToSlot(1);
+    if (size < 0) { delay(400); size = captureToSlot(1); }
     addLog("TCC: camera ready, first frame: %d bytes, heap: %d", size, tasm_heap);
+
+    // ⚠️ The light sensor AFTER the camera, not before. It sits on I2C bus 1 —
+    // GPIO 8/9, the very pins the camera uses for SCCB. Probing it first
+    // left the camera's first capture failing (-1 bytes, 05.09.2026).
+    ltr_bus = ltr_finden();
 
     // ⚠️ Register a page label — WITHOUT it the settings never appear.
     // A bare WebUI() used to get a generic "TinyC UI" button on the main page;

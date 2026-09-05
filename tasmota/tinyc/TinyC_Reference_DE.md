@@ -4808,6 +4808,27 @@ Aufnahme (sel 10) kopiert das JPEG vom Kamera-Framebuffer in einen PSRAM-Slot un
 | 5 | Bildgroesse | FRAMESIZE_* |
 | 6 | Qualitaet | 10..63 |
 | 7 | Schaerfe | -2..2 |
+| 8 | Spezialeffekt | 0..6 |
+| 9 | Weissabgleich automatisch | 0/1 |
+| 12 | Belichtungsautomatik (AEC) | 0/1 |
+| 13 | Nachtmodus (aec2, Register 0x3A00 Bit 2) | 0/1 — aus/an laesst die AEC neu einschwingen |
+| 14 | Belichtungsziel (ae_level) | -5..5 |
+| 15 | Belichtung von Hand (aec_value) | 0..max |
+| 16 | Verstaerkungsautomatik (AGC) | 0/1 |
+| 17 | Verstaerkung von Hand (agc_gain) | 0..64 |
+| 18 | Verstaerkungsgrenze (gainceiling) | ⚠️ OV3660: ROHWERT 0..0x3FF (0xF8 = 15,5x, 0x3FF = 64x), NICHT die Stufen 0..6 der gainceiling_t |
+| 19 | Linsenkorrektur (lenc) | 0/1 |
+| 20 | Gamma roh (raw_gma) | 0/1 |
+
+Die Zeilen 8–20 fehlten bis 05.09.2026 in dieser Tabelle, obwohl die VM sie
+laengst ausfuehrte (`xdrv_124_tinyc_vm.h`, `case 8` bis `case 20`).
+
+Fuer laengere Belichtung im Dunkeln reichen die Parameter nicht: die
+Obergrenzen liegen in den Registern 0x3A02/03 (60 Hz) und 0x3A14/15 (50 Hz),
+ab Werk 0x0930. Sie werden mit `camControl(20, adr, wert)` gesetzt; danach den
+Nachtmodus (13) aus- und wieder einschalten, sonst bleibt eine laufende
+Belichtung ueber einer neuen, niedrigeren Grenze stehen. Beispiel:
+`webcam_tinyc.tc`, `nacht_anwenden()`.
 
 #### E-Mail Bildanhaenge
 
