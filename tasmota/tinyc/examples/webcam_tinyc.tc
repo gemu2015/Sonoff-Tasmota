@@ -224,12 +224,16 @@ void log_msg(char msg[]) {
 
 #ifdef HAS_NIGHT
 // ─── LTR-308 ambient light sensor (on the board, I2C 0x53) ───
-// Same sequence as ltr308.tc: 18 bit / 100 ms, gain 3x. With those settings
-// lux = 0.6 * raw / (3 * 0.1) = 2 * raw.
-// ⚠️ THE FIRST VERSION DIVIDED BY 5 — the integration time is 0.1 s, not 1.0,
-// so it read ten times too low and showed "0 lx" next to the 4.0 lux of
-// ltr308.tc (gemu 05.09.2026). Float, one decimal: a threshold of 10 lux
-// needs the resolution below 10.
+// Gain 18x, 20 bit / 400 ms (measurement rate 500 ms):
+//     lux = 0.6 * raw / (18 * 0.4) = raw / 12      -> 0.083 lx per count
+// ⚠️ WHY NOT ltr308.tc's 3x / 100 ms: there one count is 2 lx, so the reading
+// is always an even integer and the decimal place never moves — "in der
+// Praxis sehe ich nie eine Kommastelle" (gemu 05.09.2026). That was the
+// setting, not the sensor: it resolves 0.01 lx with enough gain and time.
+// This camera decides "dark" around 10 lx; fine steps THERE are what count.
+// Ceiling: 2^20 counts / 12 = 87,000 lx — daylight indoors is far below.
+// ⚠️ The first version also divided by 5 with integer maths (0.1 s taken for
+// 1.0 s) and showed "0 lx" next to ltr308.tc's 4.0.
 // ⚠️ ONE DRIVER PER SENSOR. This script owns the LTR-308 now; ltr308.tc must
 // not run alongside it. Two readers race for the data-ready bit (whoever
 // reads first clears it for the other) and both rewrite the configuration.
@@ -242,8 +246,8 @@ int ltr_finden() {
         if (id == 0xB1) {
             i2cWrite8(0x53, 0x00, 0x10, bus);       // soft reset
             delay(100);
-            i2cWrite8(0x53, 0x04, 0x22, bus);       // 18 bit, 100 ms
-            i2cWrite8(0x53, 0x05, 0x01, bus);       // gain 3x
+            i2cWrite8(0x53, 0x04, 0x03, bus);       // 20 bit / 400 ms, rate 500 ms
+            i2cWrite8(0x53, 0x05, 0x04, bus);       // gain 18x
             i2cWrite8(0x53, 0x00, 0x02, bus);       // ALS enable
             addLog("TCC: LTR-308 found on I2C bus %d", bus);
             return bus;
@@ -261,7 +265,7 @@ int ltr_lesen() {
     if (!(st & 0x08)) return 0;                    // no new data yet
     if (!i2cRead(0x53, 0x0D, ltr_buf, 3, ltr_bus)) return 0;
     int raw = (ltr_buf[0] & 0xFF) | ((ltr_buf[1] & 0xFF) << 8) | ((ltr_buf[2] & 0x0F) << 16);
-    lux = 2.0 * (float)raw;
+    lux = (float)raw / 12.0;
     return 1;
 }
 
@@ -430,6 +434,12 @@ int dunkel;                // LTR-308 says dark (with hysteresis)
 float lux;                 // last LTR-308 reading, lux
 int ltr_bus;               // I2C bus the LTR-308 answered on, -1 = not found
 char ltr_buf[4];
+// Lux history for the chart on the main page: 6 h at one sample a minute,
+// same as ltr308.tc had — that script is gone, the camera owns the sensor.
+#define LUX_LEN 360
+float hist_lux[LUX_LEN];
+int hist_pos;
+int hist_tick;
 #endif
 
 void send_alarm_email() {
@@ -606,6 +616,12 @@ void EverySecond() {
 #ifdef HAS_NIGHT
     // ─── Darkness, IR light, night sensor mode ───
     if (ltr_lesen()) {
+        hist_tick++;
+        if (hist_tick >= 60) {
+            hist_tick = 0;
+            hist_lux[hist_pos % LUX_LEN] = lux;
+            hist_pos++;
+        }
         // Hysteresis: dark below the threshold, light again only above twice
         // the threshold — the IR light itself brightens the scene a little.
         if (dunkel == 0 && lux < (float)ir_lux) dunkel = 1;
@@ -660,7 +676,7 @@ void WebCall() {
     webSend(buf);
 #ifdef HAS_NIGHT
     if (ltr_bus >= 0) {
-        sprintf(buf, "{s}Light{m}%.1f lx{e}", lux);
+        sprintf(buf, "{s}Light{m}%.2f lx{e}", lux);
         webSend(buf);
     }
     webSend("{s}Night{m}");
@@ -712,7 +728,7 @@ void WebUI() {
     webPulldown(nacht, "Night sensor mode", "Off|On|Automatic");
     webPulldown(nacht_st, "Night strength", "x2 exposure, 32x gain|x4 exposure, 48x gain|x8 exposure, 64x gain");
     if (ltr_bus >= 0) {
-        sprintf(buf, "<div class='hint'>Light sensor reads <b>%.1f lx</b>", lux);
+        sprintf(buf, "<div class='hint'>Light sensor reads <b>%.2f lx</b>", lux);
         webSend(buf);
         if (dunkel) webSend(" (dark). "); else webSend(" (light). ");
         webSend("Automatic = IR light and long exposure only when it is dark, off again above twice the threshold. Longer exposure means brighter, less noisy pictures at a lower frame rate; in real darkness x8 can drop to about 1 frame/s.</div>");
@@ -735,6 +751,21 @@ void WebUI() {
 
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>webcam_tinyc.tc</b></div></div>");
 }
+
+#ifdef HAS_NIGHT
+// ═══════════════════════════════════════════════════════════════════
+// WebPage — lux chart on the main page (below the stream, which the driver
+// draws itself). Taken over from ltr308.tc.
+// ═══════════════════════════════════════════════════════════════════
+void WebPage() {
+    if (hist_pos > 0) {
+        webSend("<div>");
+        WebChartSize(0, 300);       // 0 = full card width
+        WebChart('l', "Illuminance", "lux", 0xf1c40f, hist_pos, LUX_LEN, hist_lux, 1, 0, 0, 0);
+        webSend("</div>");
+    }
+}
+#endif
 
 // ═══════════════════════════════════════════════════════════════════
 // JSON output for integration
@@ -795,6 +826,7 @@ int main() {
 #ifdef HAS_NIGHT
     snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
     nacht_ist = 0; dunkel = 0; lux = 0.0; ltr_bus = -1;
+    hist_pos = 0; hist_tick = 55;          // first chart point after 5 s, not 60
 #endif
 
     // Sanitize corrupted persist values
