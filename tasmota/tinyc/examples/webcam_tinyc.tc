@@ -313,21 +313,38 @@ void nacht_anwenden(int an) {
 #endif
 
 // ─── Flash LED helpers ───
+//
+// ⚠️⚠️ DAS SKRIPT DARF DEN SCHALTER NICHT UEBERSTIMMEN. `flash_off` setzte im
+// Nicht-Nacht-Zweig hart `tasm_power = 0` — und weil um JEDE Aufnahme herum
+// geblitzt wird (Bewegung, Zeitraffer, Knopf), schaltete jede Aufnahme das
+// Relais aus. Wer es von Hand einschaltete, sah es Sekunden spaeter wieder
+// ausgehen: „der on/off switch scheint nicht mehr zu gehen" (gemu 06.09.2026,
+// auf .88 mit BOARD_GOOUUU).
+//
+// ⚠️ Aufgefallen ist es erst, als der Praeprozessor richtig rechnete. Vorher
+// war HAS_NIGHT wegen des @defines-Pragmas IMMER an, also lief hier
+// `tasm_power = ir_soll`, und ohne LTR-308 ist „Automatik" = ein — das Relais
+// blieb an, und niemand merkte etwas. Der Fehler stand seit jeher im
+// #else-Zweig, den nie jemand uebersetzt hat.
+//
+// Jetzt wird zurueckgestellt, was VOR dem Blitzen da war. Im Nacht-Zweig
+// bleibt es beim Wunsch der Nachtlogik: dort gehoert das Relais ihr.
+int flash_vorher;
+
 void flash_on() {
     if (ufl > 0) {
+        flash_vorher = tasm_power;
         tasm_power = 1;
         delay(150);
     }
 }
 
 void flash_off() {
-    // ⚠️ Back to what the night logic wants, not blindly off: with IR light
-    // "on" or "automatic", a picture used to switch the illumination OFF.
     if (ufl > 0) {
 #ifdef HAS_NIGHT
         tasm_power = ir_soll;
 #else
-        tasm_power = 0;
+        tasm_power = flash_vorher;
 #endif
     }
 }
