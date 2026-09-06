@@ -118,22 +118,41 @@ async function _resolveIncludesAsync(source, getFile, included, depth) {
 export function preprocess(source, predefined = []) {
     const lines = source.split('\n');
     const output = [];
-    // Auto-extract defines from @defines pragma: // @defines: -DBOARD_DFROBOT -DFOO
+    // ── @defines-Pragma: // @defines: -DBOARD_DFROBOT -DFOO ───────────────
+    //
+    // ⚠️⚠️ ES IST EINE VORGABE, KEIN ZUSATZ. Vorher wurde es IMMER zu den
+    // uebergebenen Defines dazugelegt. `webcam_tinyc.tc` traegt
+    // `@defines: -DBOARD_DFROBOT`; wer mit `-DBOARD_GOOUUU` uebersetzte,
+    // bekam BEIDE Boards definiert — der DFRobot-Block lief mit, `HAS_NIGHT`
+    // entstand, und `campins` wurde zweimal angelegt (gemu 06.09.2026:
+    // „mit BOARD_GOOUUU sollte HAS_NIGHT nicht definiert sein, ist es aber").
+    //
+    // Der Fehler war besonders unangenehm, weil das Skript selbst richtig ist:
+    // `#define HAS_NIGHT` steht sauber in `#ifdef BOARD_DFROBOT`. Wer den
+    // Fehler dort sucht, sucht lange.
+    //
+    // Neue Regel: wer auf der Befehlszeile ETWAS angibt, bestimmt allein. Das
+    // Pragma greift nur, wenn nichts angegeben wurde — dann ist es die
+    // bequeme Vorgabe fuer den Ein-Klick-Bau in der IDE.
+    const ausPragma = [];
     for (const ln of lines) {
         const m = ln.match(/^\/\/\s*@defines:\s*(.+)/);
         if (m) {
             for (const tok of m[1].trim().split(/\s+/)) {
-                if (tok.startsWith('-D')) predefined.push(tok.slice(2));
+                if (tok.startsWith('-D')) ausPragma.push(tok.slice(2));
             }
         }
     }
+    // ⚠️ Und NICHT in `predefined` hineinschreiben: das ist der Vektor des
+    // Aufrufers. Wer zweimal uebersetzt, haette beim zweiten Mal alles doppelt.
+    const wirksam = (predefined && predefined.length) ? predefined.slice() : ausPragma;
     // Track defined names AND their replacement text. The values matter for #if:
     // `#define S 0` followed by `#if S` must be FALSE, exactly as in C. Before the
     // values were kept, an identifier in a #if only counted as "is it defined", so a
     // feature switch turned OFF still compiled its block in.
     const defines = new Set();       // defined names (seed with predefined below)
     const defineValues = new Map();  // name -> replacement text ('' = valueless flag)
-    for (const p of predefined) {
+    for (const p of wirksam) {
         const eq = p.indexOf('=');   // accept -DNAME and -DNAME=VALUE
         const name = eq < 0 ? p : p.slice(0, eq);
         defines.add(name);
