@@ -1,0 +1,2563 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="C scripting for Tasmota — browser-compiled bytecode running on ESP32 and ESP8266">
+      
+      
+      
+        <link rel="canonical" href="https://gemu2015.github.io/Sonoff-Tasmota/custom-builds/">
+      
+      
+        <link rel="prev" href="../reference/">
+      
+      
+        <link rel="next" href="../examples/">
+      
+      
+        
+          <link rel="alternate" href="./" hreflang="en">
+        
+          <link rel="alternate" href="../de/custom-builds/" hreflang="de">
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Custom Builds - TinyC for Tasmota</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tinyc-custom-build-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TinyC for Tasmota" class="md-header__button md-logo" aria-label="TinyC for Tasmota" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"></path></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TinyC for Tasmota
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Custom Builds
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="orange" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="orange" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"></path></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="../de/custom-builds/" hreflang="de" class="md-select__link">
+              Deutsch
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/gemu2015/Sonoff-Tasmota" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    gemu2015/Sonoff-Tasmota
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Custom Builds
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../gallery/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Gallery
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../releases/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Releases
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TinyC for Tasmota" class="md-nav__button md-logo" aria-label="TinyC for Tasmota" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 4h12v1h3v2h-3v2h3v2h-3v2h3v2h-3v2h3v2h-3v1H6v-1H3v-2h3v-2H3v-2h3v-2H3V9h3V7H3V5h3zm5 11v3h1v-3zm2 0v3h1v-3zm2 0v3h1v-3z"></path></svg>
+
+    </a>
+    TinyC for Tasmota
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/gemu2015/Sonoff-Tasmota" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    gemu2015/Sonoff-Tasmota
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Builds
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Builds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#required-defines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Defines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flash-budget-measured-tinyc32-4m-classic-esp32-4-mb-the-tightest-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flash Budget (measured, tinyc32-4M — classic ESP32 4 MB, the tightest target)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-included-in-pre-built-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's Included in Pre-Built Firmware
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What's Included in Pre-Built Firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build-flag-gated-tinyc-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build-flag-gated TinyC commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#platformio_overrideini-sections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        platformio_override.ini Sections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="platformio_override.ini Sections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-base-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Base (required)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-4mb-with-camera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32 (4MB) — with Camera
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-16mb-with-camera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 (16MB) — with Camera
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-mini-4mb-flash-2mb-quad-psram-matter-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 Mini (4MB flash, 2MB quad PSRAM) — Matter host
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-c3-4mb-no-camera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-C3 (4MB) — no Camera
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#additional-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Variants
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Additional Variants">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-with-usb-cdc-dfrobot-native-usb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 with USB CDC (DFRobot, native USB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-sunton-qioopi-rgb-display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 Sunton (QIO/OPI, RGB Display)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s2-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S2 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-c6-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-C6 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-solo1-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32 Solo1 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-8mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 (8MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-16mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32 (16MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e-paper-variants-legacy-udisplay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E-Paper Variants (Legacy UDisplay)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#camera-support-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Camera Support Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#partition-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Partition Tables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ota-partition-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OTA Partition Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OTA Partition Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#named-data-partitions-for-memory-mapped-blobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named Data Partitions (for memory-mapped blobs)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Named Data Partitions (for memory-mapped blobs)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#notes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-german-tts-on-a-4-mb-2-mb-psram-esp32-s3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: German TTS on a 4 MB / 2 MB-PSRAM ESP32-S3
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#after-flashing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After Flashing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../examples/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../gallery/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gallery
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Gallery
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/solar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solar Manager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/displays/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Displays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/charts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Charts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/cameras/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cameras
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gallery/sensors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../releases/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#required-defines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Defines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flash-budget-measured-tinyc32-4m-classic-esp32-4-mb-the-tightest-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flash Budget (measured, tinyc32-4M — classic ESP32 4 MB, the tightest target)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-included-in-pre-built-firmware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's Included in Pre-Built Firmware
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What's Included in Pre-Built Firmware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build-flag-gated-tinyc-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build-flag-gated TinyC commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#platformio_overrideini-sections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        platformio_override.ini Sections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="platformio_override.ini Sections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#common-base-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Base (required)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-4mb-with-camera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32 (4MB) — with Camera
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-16mb-with-camera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 (16MB) — with Camera
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-mini-4mb-flash-2mb-quad-psram-matter-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 Mini (4MB flash, 2MB quad PSRAM) — Matter host
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-c3-4mb-no-camera" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-C3 (4MB) — no Camera
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#additional-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Variants
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Additional Variants">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-with-usb-cdc-dfrobot-native-usb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 with USB CDC (DFRobot, native USB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-sunton-qioopi-rgb-display" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 Sunton (QIO/OPI, RGB Display)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s2-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S2 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-c6-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-C6 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-solo1-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32 Solo1 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-8mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 (8MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-s3-4mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32-S3 (4MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esp32-16mb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ESP32 (16MB)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e-paper-variants-legacy-udisplay" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        E-Paper Variants (Legacy UDisplay)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#camera-support-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Camera Support Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#partition-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Partition Tables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#build-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build Command
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ota-partition-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OTA Partition Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OTA Partition Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#named-data-partitions-for-memory-mapped-blobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Named Data Partitions (for memory-mapped blobs)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Named Data Partitions (for memory-mapped blobs)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#notes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-german-tts-on-a-4-mb-2-mb-psram-esp32-s3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: German TTS on a 4 MB / 2 MB-PSRAM ESP32-S3
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#after-flashing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After Flashing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/gemu2015/Sonoff-Tasmota/edit/universal/tinyc_docs/custom-builds.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"></path></svg>
+    </a>
+  
+  
+
+
+<h1 id="tinyc-custom-build-guide">TinyC — Custom Build Guide<a class="headerlink" href="#tinyc-custom-build-guide" title="Permanent link">¶</a></h1>
+<p>Pre-built firmware is provided for ESP32 (4MB), ESP32-S3 (16MB), ESP32-C3 (4MB), and ESP8266 (4MB).
+For other ESP32 variants, build your own firmware using the configurations below.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">¶</a></h2>
+<ol>
+<li>PlatformIO installed (CLI or VS Code extension)</li>
+<li>Tasmota source tree cloned: <code>git clone https://github.com/gemu2015/Sonoff-Tasmota</code></li>
+<li>No other <code>#define device_*</code> active in <code>user_config_override.h</code></li>
+</ol>
+<h2 id="required-defines">Required Defines<a class="headerlink" href="#required-defines" title="Permanent link">¶</a></h2>
+<p>The <code>TINYC_TESTING</code> build flag (set via <code>-DTINYC_TESTING</code> in platformio) activates all
+necessary defines in <code>user_config_override.h</code>. This includes:</p>
+<div class="language-c highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// Core TinyC</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="cp">#define USE_TINYC              </span><span class="c1">// TinyC VM (XDRV_124)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="cp">#define USE_TINYC_IDE          </span><span class="c1">// Browser IDE endpoint</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">// Hardware buses</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="cp">#define USE_I2C                </span><span class="c1">// I2C bus</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="cp">#define USE_SPI                </span><span class="c1">// SPI bus</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="cp">#define USE_UFILESYS           </span><span class="c1">// Filesystem (required for IDE)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1">// Display (ESP32 only)</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="cp">#define USE_DISPLAY            </span><span class="c1">// Display driver</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="cp">#define USE_UNIVERSAL_DISPLAY  </span><span class="c1">// Universal display</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="cp">#define USE_UNIVERSAL_TOUCH    </span><span class="c1">// Touch input</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="c1">// Networking</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="cp">#define USE_WEBCLIENT_HTTPS    </span><span class="c1">// HTTPS client (required for repo loading)</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="cp">#define USE_WEBSEND_RESPONSE   </span><span class="c1">// Web response forwarding</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="cp">#define USE_SENDMAIL           </span><span class="c1">// Email support</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1">// Optional features</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="cp">#define USE_SML_M              </span><span class="c1">// Smart meter interface</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="cp">#define USE_DEEPSLEEP          </span><span class="c1">// Deep sleep support</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="cp">#define USE_COUNTER            </span><span class="c1">// Pulse counter</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="cp">#define USE_SUNRISE            </span><span class="c1">// Sunrise/sunset calculation</span>
+</span></code></pre></div>
+<p><strong>Note:</strong> TinyC has its own I2C, SPI, and serial implementations and does <strong>not</strong> require the
+Tasmota Scripter engine. The <code>-DTINYC_NO_SCRIPTER</code> flag (included by default in all recommended
+configurations below) excludes Scripter entirely, saving ~120 KB of flash.</p>
+<h2 id="build-flags">Build Flags<a class="headerlink" href="#build-flags" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Effect</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-DTINYC_TESTING</code></td>
+<td>Enable TinyC with all standard features</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>-DTINYC_NO_SCRIPTER</code></td>
+<td>Exclude Tasmota Scripter engine (~120 KB flash saved)</td>
+<td>Recommended</td>
+</tr>
+<tr>
+<td><code>-DTINYC_HOMEKIT</code></td>
+<td>Enable Apple HomeKit support (<strong>≈+152 KB flash</strong>)</td>
+<td><strong>S3/16 MB only</strong> by policy — links on 4 MB but leaves too little headroom (see Flash Budget)</td>
+</tr>
+<tr>
+<td><code>-DTINYC_MATTER</code></td>
+<td>Enable Matter (<code>USE_MATTER_C</code>, pure-C engine). <strong>Mutually exclusive with <code>-DTINYC_HOMEKIT</code></strong> — same build slot; the gate enables one or the other. Crypto rides on the resident BearSSL, so the incremental flash is modest.</td>
+<td>Opt-in (e.g. the <code>tinyc32c6-matter</code> env)</td>
+</tr>
+<tr>
+<td><code>-DTINYC_CAMERA</code></td>
+<td>Enable integrated camera driver (ESP32/S3 only, not RISC-V) — <strong>≈+42 KB flash</strong></td>
+<td>ESP32/S3 builds</td>
+</tr>
+<tr>
+<td><code>-DUSE_TINYC_BLE</code></td>
+<td>Enable BLE scripting (scan + GATT client). Pulls in <code>USE_BLE_ESP32</code> (the common-BLE driver) — <strong>≈+292 KB flash / +9 KB RAM</strong>. Requires NimBLE-capable framework (BT enabled in sdkconfig) and <code>-DCONFIG_NIMBLE_CPP_IDF</code> globally. ESP32 family only. Off → BLE builtins are runtime no-ops</td>
+<td>Opt-in (e.g. the <code>tinyc32s3-ble</code> env)</td>
+</tr>
+<tr>
+<td><code>-DTINYC_NO_DISPLAY</code></td>
+<td>Exclude display support (~80 KB flash saved)</td>
+<td>Optional</td>
+</tr>
+<tr>
+<td><code>-DUSE_TINYC_REPO_IDE</code></td>
+<td>Serve <code>/tcrepo</code>: pick a repo example, a slot, hit Run — compiled in the <strong>browser</strong> with the compiler pulled from the repo, then uploaded and started. The device stores only the page (<strong>+6.5 KB flash</strong>, no RAM), never the IDE. Must be served by the device: an https page cannot reach a plain-http LAN device (mixed content), so hosting it on the docs site is not an option. Needs internet in the browser, not on the device</td>
+<td>Opt-in</td>
+</tr>
+<tr>
+<td><code>-DUSE_TINYC_NO_WORKER_VM</code></td>
+<td><strong>Opt out of the dual-context worker VM</strong> (ESP32). By default a <code>spawnTask()</code> worker runs on its <strong>own</strong> VM (aliasing the slot's <code>globals[]</code>), so a background worker <strong>and</strong> a local web UI / LCD / <code>EverySecond</code> coexist on one slot. This flag reverts to the legacy path — the worker borrows the slot's single VM and the slot goes <strong>headless</strong> while it lives — saving a small per-worker VM overhead. See TinyC_Reference.md "Concurrency model".</td>
+<td>Default: <strong>worker VM ON</strong> (ESP32)</td>
+</tr>
+<tr>
+<td><code>-DARDUINO_SERIAL_EVENT_TASK_STACK_SIZE=8192</code></td>
+<td>Raise the Arduino <code>uart_event_task</code> stack (default <strong>2 KB</strong>). <strong>eBUS active-master builds</strong> (<code>USE_SML_EBUS_MASTER</code>, the <code>*-ebus*</code> envs) need this: the eBUS RX decode (<code>SML_Decode</code>/<code>sml_getvalue</code>, with ~2 KB stack buffers) runs <strong>in that task</strong> — not the VM or a spawnTask — and overflows the 2 KB default under heavy b555/active-read sweeps → silent reboot. 8 KB covers it (Andreas 2026-06, verified at 16 KB). Nearly impossible to diagnose without a COM port, since the <code>stack overflow in task uart_event_task</code> message only appears on serial</td>
+<td>eBUS-master envs</td>
+</tr>
+</tbody>
+</table>
+<h2 id="flash-budget-measured-tinyc32-4m-classic-esp32-4-mb-the-tightest-target">Flash Budget (measured, <code>tinyc32-4M</code> — classic ESP32 4 MB, the tightest target)<a class="headerlink" href="#flash-budget-measured-tinyc32-4m-classic-esp32-4-mb-the-tightest-target" title="Permanent link">¶</a></h2>
+<p>The 4 MB ESP32 app partition (<code>app1856k</code>) is a hard wall at <strong>1,900,544 B (1856 KB)</strong>.
+Numbers below are measured firmware deltas on this env (commit-era 1.6.8):</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th style="text-align: right;">Flash</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>App partition ceiling</td>
+<td style="text-align: right;">1,900,544 B</td>
+<td>over → build fails</td>
+</tr>
+<tr>
+<td>Baseline shipped (TinyC ✓, camera ✓, HomeKit ✗)</td>
+<td style="text-align: right;">1,634,895 B</td>
+<td><strong>≈259 KB free</strong></td>
+</tr>
+<tr>
+<td><strong>TinyC subsystem itself</strong></td>
+<td style="text-align: right;"><strong>≈196 KB</strong></td>
+<td>hand-measured; full driver — VM + ~70 syscalls + web widgets + IDE serving + bridges (not the bare interpreter, which is tiny)</td>
+</tr>
+<tr>
+<td>HomeKit (<code>-DTINYC_HOMEKIT</code>)</td>
+<td style="text-align: right;"><strong>+152 KB</strong></td>
+<td>technically fits 4 MB (→ ≈108 KB free) but leaves too little headroom — see rule of thumb</td>
+</tr>
+<tr>
+<td>Camera (<code>-DTINYC_CAMERA</code>)</td>
+<td style="text-align: right;">+42 KB</td>
+<td>cheap; keep it</td>
+</tr>
+<tr>
+<td>BLE (<code>-DUSE_TINYC_BLE</code> → <code>USE_BLE_ESP32</code>)</td>
+<td style="text-align: right;"><strong>+292 KB</strong> (+≈9 KB RAM)</td>
+<td>the heaviest optional subsystem — pulls in NimBLE. Too big for the 4 MB ESP32 alongside the full TinyC stack; use S3/16 MB (env <code>tinyc32s3-ble</code> drops Matter/camera for headroom). Off by default</td>
+</tr>
+<tr>
+<td>TinyC IDE blob (<code>tinyc_ide.html.gz</code>)</td>
+<td style="text-align: right;">~165 KB</td>
+<td>lives on the <strong>filesystem partition, not app0</strong> — does <em>not</em> count against the 1856 KB ceiling</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule of thumb:</strong> on 4 MB ESP32 (Tensilica), TinyC (~196 KB) is the single
+largest optional subsystem — bigger than HomeKit. Enabling HomeKit <em>would</em>
+still link (≈108 KB free), but that margin is too thin given TinyC's growth
+rate plus per-build extras (extra sensors, display variants, etc.). So as a
+policy <strong>HomeKit ships only in the ESP32-S3 / 16 MB builds</strong>, which have a far
+larger app partition and ample headroom; the 4 MB env force-drops it
+(<code>build_unflags = -DTINYC_HOMEKIT</code> in <code>[env:tinyc32-4M]</code>). RISC-V (C3) is
+tighter still and also omits camera.</p>
+<h2 id="whats-included-in-pre-built-firmware">What's Included in Pre-Built Firmware<a class="headerlink" href="#whats-included-in-pre-built-firmware" title="Permanent link">¶</a></h2>
+<p>All pre-built firmware includes:
+- <strong>Display</strong> — Universal display + touch support
+- <strong>SML</strong> — Smart meter interface
+- <strong>Email</strong> — SMTP with file/picture attachments
+- <strong>I2C / SPI / Serial</strong> — Hardware bus access (native TinyC, no Scripter dependency)</p>
+<ul>
+<li><strong>HomeKit</strong> — Apple Home integration via <code>-DTINYC_HOMEKIT</code>. <strong>Only in the
+  ESP32-S3 / 16 MB builds</strong> by policy — it adds ≈152 KB; on 4 MB that would
+  link but leaves too little headroom (see Flash Budget above), so the
+  4 MB / C3 builds force-drop it.</li>
+</ul>
+<p>ESP32 and ESP32-S3 builds additionally include:
+- <strong>Camera</strong> — Integrated camera driver via <code>-DTINYC_CAMERA</code> (≈+42 KB, measured). Supports OV2640, OV3660, OV5640 with MJPEG streaming, PSRAM slot management, and motion detection</p>
+<h3 id="build-flag-gated-tinyc-commands">Build-flag-gated TinyC commands<a class="headerlink" href="#build-flag-gated-tinyc-commands" title="Permanent link">¶</a></h3>
+<p>The camera and HomeKit syscalls are conditionally compiled — they exist in
+the firmware <strong>only if the matching build flag was set</strong>. A script using
+them on firmware built without the flag will fail to compile in the IDE
+(unknown builtin) or be a no-op:</p>
+<table>
+<thead>
+<tr>
+<th>Build flag</th>
+<th>Gated TinyC builtins</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-DTINYC_CAMERA</code> (<code>USE_TINYC_CAMERA</code>)</td>
+<td><code>cameraInit</code>, <code>camControl</code>, <code>dspLoadImageFromCam</code>, <code>dspImageToCam</code></td>
+</tr>
+<tr>
+<td><code>-DTINYC_HOMEKIT</code> (<code>USE_HOMEKIT</code>)</td>
+<td><code>hkInit</code>, <code>hkAdd</code>, <code>hkStart</code>, <code>hkStop</code>, <code>hkReset</code>, <code>hkReady</code>, <code>hkVar</code>, <code>hkSetCode</code>, <code>HomeKitWrite</code> callback</td>
+</tr>
+<tr>
+<td><code>-DTINYC_MATTER</code> (<code>USE_MATTER_C</code>)</td>
+<td><code>matterReset</code>, <code>matterAdd</code>, <code>matterCluster</code>, <code>matterAttr</code>, <code>matterSet</code>, <code>matterGet</code>, <code>matterStart</code>, <code>MatterInvoke</code> callback (replaces HomeKit — same slot)</td>
+</tr>
+<tr>
+<td><code>-DUSE_TINYC_BLE</code> (<code>USE_BLE_ESP32</code>)</td>
+<td>scan + GATT client: <code>bleScan</code>, <code>bleScanStop</code>, <code>bleNext</code>, <code>bleMac</code>, <code>bleAddrType</code>, <code>bleRssi</code>, <code>bleName</code>, <code>bleMfg</code>, <code>bleTarget</code>, <code>bleReadStart</code>, <code>bleWriteStart</code>, <code>bleDone</code>, <code>bleResult</code>. GATT <strong>server</strong> (peripheral): <code>bleServer</code>, <code>bleService</code>, <code>bleChar</code>, <code>bleServerStart</code>, <code>bleConnected</code>, <code>bleCharWritten</code>, <code>bleCharRead</code>, <code>bleCharSet</code>, <code>bleNotify</code>, <code>bleServerStop</code> (+ consts <code>BLE_READ</code>/<code>BLE_WRITE</code>/<code>BLE_NOTIFY</code>). Unlike the camera/HomeKit builtins these are always present in the IDE compiler (scripts compile anywhere) and simply no-op at runtime on a non-BLE build</td>
+</tr>
+</tbody>
+</table>
+<p>Since the 4 MB / C3 pre-built firmware ships <strong>without</strong> HomeKit, the <code>hk*</code>
+builtins are unavailable there — use an S3/16 MB build for HomeKit scripts.</p>
+<p>ESP32-C3 (RISC-V) does <strong>not</strong> include camera support — the esp32-camera library requires Xtensa.</p>
+<h2 id="platformio_overrideini-sections">platformio_override.ini Sections<a class="headerlink" href="#platformio_overrideini-sections" title="Permanent link">¶</a></h2>
+<p>Add these sections to your <code>platformio_override.ini</code>. Each extends the TinyC base
+configuration. Build with: <code>pio run -e &lt;environment-name&gt;</code></p>
+<h3 id="common-base-required">Common Base (required)<a class="headerlink" href="#common-base-required" title="Permanent link">¶</a></h3>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">[env:tinyc_base]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1">; Common TinyC build settings — inherits from tasmota32_base</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1">; All builds get HomeKit + display, no Scripter</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.build_flags}</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">                          </span><span class="na">-DTINYC_TESTING</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">                          </span><span class="na">-DTINYC_NO_SCRIPTER</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">                          </span><span class="na">-DTINYC_HOMEKIT</span>
+</span></code></pre></div>
+<hr>
+<h3 id="esp32-4mb-with-camera">ESP32 (4MB) — with Camera<a class="headerlink" href="#esp32-4mb-with-camera" title="Permanent link">¶</a></h3>
+<p>Classic ESP32 WROOM module. The standard build for most ESP32 devices.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">[env:tinyc32-4M]</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h3 id="esp32-s3-16mb-with-camera">ESP32-S3 (16MB) — with Camera<a class="headerlink" href="#esp32-s3-16mb-with-camera" title="Permanent link">¶</a></h3>
+<p>Dual-core Xtensa S3 with 16MB flash. Default for S3 devkits.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">[env:tinyc32s3]</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3_16M</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="na">board_build.mcu</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h3 id="esp32-s3-mini-4mb-flash-2mb-quad-psram-matter-host">ESP32-S3 Mini (4MB flash, 2MB quad PSRAM) — Matter host<a class="headerlink" href="#esp32-s3-mini-4mb-flash-2mb-quad-psram-matter-host" title="Permanent link">¶</a></h3>
+<p>The small dual-core S3 module (e.g. Lolin/Wemos S3 Mini, chip <strong>ESP32-S3FH4R2</strong>:
+4 MB flash + 2 MB <strong>quad/QSPI</strong> PSRAM). A compact Matter host — dual-core + PSRAM
+(so <code>matter_ctx</code> offloads to PSRAM, freeing internal DRAM) in the footprint of a
+classic ESP32. Native USB-CDC console (single USB-C port).</p>
+<p>Key differences from the 16 MB S3 build: the <code>qio_qspi</code> board selects <strong>quad</strong>
+PSRAM — <strong>not</strong> the <code>qio_opi</code> (octal) used by larger S3s; octal mode would fail
+PSRAM init and boot-loop. The partition is overridden to the 4 MB <code>app1856k</code>
+layout (Matter fits at ~81 %) so the 1.3 MB filesystem holds the IDE + scripts +
+Matter fabric store. <strong>No camera, no BLE</strong> — 4 MB can't fit Matter + either.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">[env:tinyc32s3-mini]</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3-qio_qspi</span><span class="w">          </span><span class="c1">; quad PSRAM (NOT qio_opi/octal)</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="na">board_build.mcu</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">                          </span><span class="na">-DTINYC_MATTER -DMTRC_ATTEST_TEST_CREDS</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="na">build_unflags</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s">-DTINYC_HOMEKIT</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">                          </span><span class="na">esp32-camera</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<p>First flash over the single USB-C port (native USB): <code>esptool ... write_flash
+0x0 .pio/build/tinyc32s3-mini/firmware.factory.bin</code>. Updates: OTA via the
+safeboot flow (<code>GET /u4?u4=fct&amp;api=1</code> → poll <code>true</code> → POST <code>firmware.bin</code> to <code>/u2</code>).</p>
+<h3 id="esp32-c3-4mb-no-camera">ESP32-C3 (4MB) — no Camera<a class="headerlink" href="#esp32-c3-4mb-no-camera" title="Permanent link">¶</a></h3>
+<p>RISC-V single-core. Camera library not available (requires Xtensa).</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">[env:tinyc32c3]</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32c3</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">160000000L</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">                          </span><span class="na">lib/libesp32/CORE2_Library</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">                          </span><span class="na">libesp32_lvgl</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">                          </span><span class="na">esp32-camera</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<hr>
+<h3 id="additional-variants">Additional Variants<a class="headerlink" href="#additional-variants" title="Permanent link">¶</a></h3>
+<h4 id="esp32-s3-with-usb-cdc-dfrobot-native-usb">ESP32-S3 with USB CDC (DFRobot, native USB)<a class="headerlink" href="#esp32-s3-with-usb-cdc-dfrobot-native-usb" title="Permanent link">¶</a></h4>
+<p>For boards with native USB (no UART chip), like DFRobot Firebeetle 2 ESP32-S3:</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[env:tinyc32s3-usb]</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tinyc32s3</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="na">build_unflags</span><span class="w">           </span><span class="o">=</span><span class="w"> </span><span class="s">-DARDUINO_USB_MODE=0</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">                          </span><span class="na">-DARDUINO_USB_CDC_ON_BOOT</span><span class="o">=</span><span class="s">0</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">                          </span><span class="na">-DARDUINO_USB_MODE</span><span class="o">=</span><span class="s">1</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">                          </span><span class="na">-DARDUINO_USB_CDC_ON_BOOT</span><span class="o">=</span><span class="s">1</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">                          </span><span class="na">-DUSE_USB_CDC_CONSOLE</span>
+</span></code></pre></div>
+<h4 id="esp32-s3-sunton-qioopi-rgb-display">ESP32-S3 Sunton (QIO/OPI, RGB Display)<a class="headerlink" href="#esp32-s3-sunton-qioopi-rgb-display" title="Permanent link">¶</a></h4>
+<p>For Sunton boards with PSRAM in OPI mode and RGB displays:</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">[env:tinyc32s3-sunton]</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3ser-qio_opi_120</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="na">board_build.mcu</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="esp32-s2-4mb">ESP32-S2 (4MB)<a class="headerlink" href="#esp32-s2-4mb" title="Permanent link">¶</a></h4>
+<p>Single-core Xtensa, 4MB flash. Good for simple USB-connected devices.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[env:tinyc32s2]</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s2</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">                          </span><span class="na">lib/libesp32/CORE2_Library</span>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">                          </span><span class="na">libesp32_lvgl</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">                          </span><span class="na">esp32-camera</span>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="esp32-c6-4mb">ESP32-C6 (4MB)<a class="headerlink" href="#esp32-c6-4mb" title="Permanent link">¶</a></h4>
+<p>RISC-V single-core with WiFi 6 and Zigbee/Thread. Same architecture as C3.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">[env:tinyc32c6]</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32c6</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">160000000L</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">                          </span><span class="na">lib/libesp32/CORE2_Library</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">                          </span><span class="na">libesp32_lvgl</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">                          </span><span class="na">esp32-camera</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="esp32-solo1-4mb">ESP32 Solo1 (4MB)<a class="headerlink" href="#esp32-solo1-4mb" title="Permanent link">¶</a></h4>
+<p>Single-core ESP32 (some Sonoff devices, ESP32-SOLO1 module).</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">[env:tinyc32solo1]</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32_solo1_4M</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">160000000L</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="esp32-s3-8mb">ESP32-S3 (8MB)<a class="headerlink" href="#esp32-s3-8mb" title="Permanent link">¶</a></h4>
+<p>Dual-core Xtensa with 8MB flash. Many devkits and modules use 8MB.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">[env:tinyc32s3-8M]</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3_8M</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="na">board_build.mcu</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="esp32-s3-4mb">ESP32-S3 (4MB)<a class="headerlink" href="#esp32-s3-4mb" title="Permanent link">¶</a></h4>
+<p>Dual-core Xtensa S3 with only 4MB flash. Use optimized partition.</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">[env:tinyc32s3-4M]</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3_4M</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="na">board_build.mcu</span><span class="w">         </span><span class="o">=</span><span class="w"> </span><span class="s">esp32s3</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="na">board_build.partitions</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="s">partitions/esp32_partition_app1856k_fs1344k.csv</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-12-15"><a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="esp32-16mb">ESP32 (16MB)<a class="headerlink" href="#esp32-16mb" title="Permanent link">¶</a></h4>
+<p>Classic ESP32 with 16MB flash (e.g., ESP32-WROVER-E 16MB).</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">[env:tinyc32-16M]</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tasmota32_base</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="na">board</span><span class="w">                   </span><span class="o">=</span><span class="w"> </span><span class="s">esp32_16M</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="na">board_build.f_cpu</span><span class="w">       </span><span class="o">=</span><span class="w"> </span><span class="s">240000000L</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="na">build_flags</span><span class="w">             </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tinyc_base.build_flags}</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">                          </span><span class="na">-DTINYC_CAMERA</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">${env:tasmota32_base.lib_ignore}</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="na">lib_extra_dirs</span><span class="w">          </span><span class="o">=</span><span class="w"> </span><span class="s">${common.lib_extra_dirs}</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">                          </span><span class="na">lib/libesp32</span>
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="w">                          </span><span class="na">lib/libesp32_div</span>
+</span></code></pre></div>
+<h4 id="e-paper-variants-legacy-udisplay">E-Paper Variants (Legacy UDisplay)<a class="headerlink" href="#e-paper-variants-legacy-udisplay" title="Permanent link">¶</a></h4>
+<p>For e-paper displays that require the legacy UDisplay library instead of UDisplay_legacy:</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">[env:tinyc32c3-epd]</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tinyc32c3</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">Servo(esp8266)</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">                          </span><span class="na">ESP8266AVRISP</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">                          </span><span class="na">ESP8266LLMNR</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">                          </span><span class="na">ESP8266NetBIOS</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">                          </span><span class="na">ESP8266SSDP</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">                          </span><span class="na">SP8266WiFiMesh</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="w">                          </span><span class="na">Ethernet(esp8266)</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="w">                          </span><span class="na">GDBStub</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="w">                          </span><span class="na">TFT_Touch_Shield_V2</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="w">                          </span><span class="na">ESP8266HTTPUpdateServer</span>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="w">                          </span><span class="na">ESP8266WiFiMesh</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="w">                          </span><span class="na">EspSoftwareSerial</span>
+</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="w">                          </span><span class="na">SPISlave</span>
+</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="w">                          </span><span class="na">universal display Library</span>
+</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="w">                          </span><span class="na">ArduinoOTA</span>
+</span><span id="__span-14-18"><a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-14-19"><a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-14-20"><a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a><span class="w">                          </span><span class="na">lib/libesp32/CORE2_Library</span>
+</span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a><span class="w">                          </span><span class="na">libesp32_lvgl</span>
+</span><span id="__span-14-23"><a id="__codelineno-14-23" name="__codelineno-14-23" href="#__codelineno-14-23"></a><span class="w">                          </span><span class="na">esp32-camera</span>
+</span><span id="__span-14-24"><a id="__codelineno-14-24" name="__codelineno-14-24" href="#__codelineno-14-24"></a>
+</span><span id="__span-14-25"><a id="__codelineno-14-25" name="__codelineno-14-25" href="#__codelineno-14-25"></a><span class="k">[env:tinyc32s3-epd]</span>
+</span><span id="__span-14-26"><a id="__codelineno-14-26" name="__codelineno-14-26" href="#__codelineno-14-26"></a><span class="na">extends</span><span class="w">                 </span><span class="o">=</span><span class="w"> </span><span class="s">env:tinyc32s3</span>
+</span><span id="__span-14-27"><a id="__codelineno-14-27" name="__codelineno-14-27" href="#__codelineno-14-27"></a><span class="na">lib_ignore</span><span class="w">              </span><span class="o">=</span><span class="w"> </span><span class="s">Servo(esp8266)</span>
+</span><span id="__span-14-28"><a id="__codelineno-14-28" name="__codelineno-14-28" href="#__codelineno-14-28"></a><span class="w">                          </span><span class="na">ESP8266AVRISP</span>
+</span><span id="__span-14-29"><a id="__codelineno-14-29" name="__codelineno-14-29" href="#__codelineno-14-29"></a><span class="w">                          </span><span class="na">ESP8266LLMNR</span>
+</span><span id="__span-14-30"><a id="__codelineno-14-30" name="__codelineno-14-30" href="#__codelineno-14-30"></a><span class="w">                          </span><span class="na">ESP8266NetBIOS</span>
+</span><span id="__span-14-31"><a id="__codelineno-14-31" name="__codelineno-14-31" href="#__codelineno-14-31"></a><span class="w">                          </span><span class="na">ESP8266SSDP</span>
+</span><span id="__span-14-32"><a id="__codelineno-14-32" name="__codelineno-14-32" href="#__codelineno-14-32"></a><span class="w">                          </span><span class="na">SP8266WiFiMesh</span>
+</span><span id="__span-14-33"><a id="__codelineno-14-33" name="__codelineno-14-33" href="#__codelineno-14-33"></a><span class="w">                          </span><span class="na">Ethernet(esp8266)</span>
+</span><span id="__span-14-34"><a id="__codelineno-14-34" name="__codelineno-14-34" href="#__codelineno-14-34"></a><span class="w">                          </span><span class="na">GDBStub</span>
+</span><span id="__span-14-35"><a id="__codelineno-14-35" name="__codelineno-14-35" href="#__codelineno-14-35"></a><span class="w">                          </span><span class="na">TFT_Touch_Shield_V2</span>
+</span><span id="__span-14-36"><a id="__codelineno-14-36" name="__codelineno-14-36" href="#__codelineno-14-36"></a><span class="w">                          </span><span class="na">ESP8266HTTPUpdateServer</span>
+</span><span id="__span-14-37"><a id="__codelineno-14-37" name="__codelineno-14-37" href="#__codelineno-14-37"></a><span class="w">                          </span><span class="na">ESP8266WiFiMesh</span>
+</span><span id="__span-14-38"><a id="__codelineno-14-38" name="__codelineno-14-38" href="#__codelineno-14-38"></a><span class="w">                          </span><span class="na">EspSoftwareSerial</span>
+</span><span id="__span-14-39"><a id="__codelineno-14-39" name="__codelineno-14-39" href="#__codelineno-14-39"></a><span class="w">                          </span><span class="na">SPISlave</span>
+</span><span id="__span-14-40"><a id="__codelineno-14-40" name="__codelineno-14-40" href="#__codelineno-14-40"></a><span class="w">                          </span><span class="na">universal display Library</span>
+</span><span id="__span-14-41"><a id="__codelineno-14-41" name="__codelineno-14-41" href="#__codelineno-14-41"></a><span class="w">                          </span><span class="na">ArduinoOTA</span>
+</span><span id="__span-14-42"><a id="__codelineno-14-42" name="__codelineno-14-42" href="#__codelineno-14-42"></a><span class="w">                          </span><span class="na">TTGO TWatch Library</span>
+</span><span id="__span-14-43"><a id="__codelineno-14-43" name="__codelineno-14-43" href="#__codelineno-14-43"></a><span class="w">                          </span><span class="na">Micro-RTSP</span>
+</span><span id="__span-14-44"><a id="__codelineno-14-44" name="__codelineno-14-44" href="#__codelineno-14-44"></a><span class="w">                          </span><span class="na">epdiy</span>
+</span></code></pre></div>
+<hr>
+<h2 id="camera-support-notes">Camera Support Notes<a class="headerlink" href="#camera-support-notes" title="Permanent link">¶</a></h2>
+<p>The <code>-DTINYC_CAMERA</code> flag enables the integrated TinyC camera driver, which provides:
+- Board-specific pin configuration via <code>cameraInit(pins[], ...)</code>
+- MJPEG stream server on port 81
+- PSRAM slot management (up to 4 concurrent captures)
+- Motion detection
+- Direct sensor register access</p>
+<p><strong>Supported targets:</strong> ESP32 and ESP32-S3 (Xtensa). The esp32-camera library does <strong>not</strong> compile on RISC-V targets (C3, C6) — add <code>esp32-camera</code> to <code>lib_ignore</code> for those.</p>
+<p><strong>Size impact:</strong> Adding camera support adds ~34 KB to firmware size.</p>
+<p><strong>Camera boards tested:</strong>
+- AI-Thinker ESP32-CAM (OV2640)
+- Goouuu ESP32-S3-CAM (OV2640)
+- DFRobot Firebeetle 2 ESP32-S3 AI CAM DFR1154 (OV3660)</p>
+<p>Camera pin definitions are in the TinyC source file (<code>camera.tc</code>, <code>webcam_tinyc.tc</code>), not in the firmware — any camera board can be used by defining the correct pin array.</p>
+<hr>
+<h2 id="partition-tables">Partition Tables<a class="headerlink" href="#partition-tables" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Flash Size</th>
+<th>Partition File</th>
+<th>App Size</th>
+<th>Filesystem</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4MB</td>
+<td><code>esp32_partition_app1856k_fs1344k.csv</code></td>
+<td>1,856 KB</td>
+<td>1,344 KB</td>
+<td>Recommended for 4MB with safeboot</td>
+</tr>
+<tr>
+<td>8MB</td>
+<td><code>esp32_partition_app3904k_fs3392k.csv</code></td>
+<td>3,904 KB</td>
+<td>3,392 KB</td>
+<td>8MB with safeboot</td>
+</tr>
+<tr>
+<td>16MB</td>
+<td><code>esp32_partition_app3904k_fs11584k.csv</code></td>
+<td>3,904 KB</td>
+<td>11,584 KB</td>
+<td>16MB with safeboot (default for S3-16M)</td>
+</tr>
+</tbody>
+</table>
+<p>For 4MB boards: the TinyC firmware is ~1,650 KB, leaving ~200 KB headroom in the 1,856 KB app partition. Without Scripter (<code>-DTINYC_NO_SCRIPTER</code>), firmware is ~120 KB smaller, giving more headroom.</p>
+<h2 id="build-command">Build Command<a class="headerlink" href="#build-command" title="Permanent link">¶</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Build a specific environment</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>tinyc32-4M
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Build and upload via serial</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>tinyc32-4M<span class="w"> </span>--target<span class="w"> </span>upload
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="c1"># Build and upload via OTA</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>pio<span class="w"> </span>run<span class="w"> </span>-e<span class="w"> </span>tinyc32-4M<span class="w"> </span>--target<span class="w"> </span>upload<span class="w"> </span>--upload-port<span class="w"> </span>&lt;device-ip&gt;
+</span></code></pre></div>
+<h2 id="ota-partition-management">OTA Partition Management<a class="headerlink" href="#ota-partition-management" title="Permanent link">¶</a></h2>
+<p>Devices in sealed housings without serial access can resize their partition layout
+at runtime using the <code>chkpt</code> console command. This is useful when switching between
+firmware versions of different sizes.</p>
+<h3 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chkpt</code></td>
+<td>List current partition table</td>
+</tr>
+<tr>
+<td><code>chkpt p</code></td>
+<td>Auto-pack: shrink app0 to firmware size + ~200 KB overhead, expand filesystem. <strong>Warning: all files on the filesystem are lost!</strong></td>
+</tr>
+<tr>
+<td><code>chkpt p &lt;KB&gt;</code></td>
+<td>Set app0 to a specific size in KB (1024–3904), adjust filesystem accordingly. <strong>Warning: all files on the filesystem are lost!</strong></td>
+</tr>
+<tr>
+<td><code>chkpt a1</code></td>
+<td>Add 64 KB custom partition (for plugin drivers), taken from filesystem</td>
+</tr>
+<tr>
+<td><code>chkpt a2</code>..<code>a4</code></td>
+<td>Add 128/192/256 KB custom partition</td>
+</tr>
+<tr>
+<td><code>chkpt r</code></td>
+<td>Remove custom partition, return space to filesystem</td>
+</tr>
+<tr>
+<td><code>chkpt n &lt;name&gt; &lt;kb&gt;</code></td>
+<td>Add a <strong>named DATA partition</strong> of <code>&lt;kb&gt;</code> KB (64 KB-aligned), carved from the filesystem tail — for large read-only blobs you want to memory-map. Any partition already after the filesystem (e.g. <code>custom</code>) keeps its flash offset.</td>
+</tr>
+<tr>
+<td><code>chkpt d &lt;name&gt;</code></td>
+<td>Delete a named partition (must be the one directly after the filesystem); space returns to the filesystem</td>
+</tr>
+</tbody>
+</table>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a># Device has app0=2880 KB, spiffs=256 KB — shrink app to gain filesystem:
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>chkpt p
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>  → app0=1856 KB, spiffs=1280 KB (firmware 1603 KB + 252 KB overhead)
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a># Need to flash a larger firmware later — expand app first:
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>chkpt p 2880
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>  → app0=2880 KB, spiffs=256 KB
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a># With custom plugin partition present — custom is always preserved:
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>chkpt p
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a>  → app0=1856 KB, spiffs=1280 KB, custom=64 KB (unchanged at end of flash)
+</span></code></pre></div>
+<h3 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">¶</a></h3>
+<ul>
+<li>The device reboots automatically after any partition change</li>
+<li>Filesystem (LittleFS) is formatted during resize — <strong>back up files first</strong></li>
+<li>The custom partition (plugin drivers) is never moved or removed by <code>chkpt p</code></li>
+<li>The <code>chkpt</code> infrastructure is always compiled into TinyC firmware, no extra build flags needed</li>
+<li>App size is aligned to 64 KB boundaries</li>
+<li><code>chkpt p</code> requires a safeboot partition — devices without safeboot are refused (no recovery if partition table gets corrupted)</li>
+</ul>
+<h2 id="named-data-partitions-for-memory-mapped-blobs">Named Data Partitions (for memory-mapped blobs)<a class="headerlink" href="#named-data-partitions-for-memory-mapped-blobs" title="Permanent link">¶</a></h2>
+<p><code>chkpt n</code> / <code>chkpt d</code> + the <code>/partu</code> upload let you carve a <strong>named, memory-mappable
+DATA partition</strong> at runtime and fill it over the network — for large <em>read-only</em>
+blobs that you want to access directly from flash (<code>esp_partition_mmap</code>) instead of
+copying into RAM: TTS voices, fonts, ML models, lookup tables, images.</p>
+<p>Why a partition and not a file: a LittleFS file isn't contiguous, so to get a single
+addressable pointer you'd have to read it into RAM. A raw partition <strong>is</strong> contiguous
+and mmap-able — the CPU cache fetches bytes on demand, costing <strong>0 RAM</strong>. On a
+RAM-tight board that's the difference between fitting and not.</p>
+<p><strong>Workflow</strong> (all OTA, no serial, no custom partition table baked into the build):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a># 1. Carve the partition(s) — each carves from the filesystem tail and reboots.
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>#    Carve the LATER one first so offsets line up (it lands further from the FS).
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>chkpt n picotts_sg 640      # 640 KB DATA partition named "picotts_sg"
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>chkpt n picotts_ta 448      # 448 KB DATA partition named "picotts_ta"
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a># 2. Upload a blob straight into each partition (the multipart FILENAME picks the
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a>#    target partition). Streams to flash with per-sector erase+write — bypasses
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>#    the (now possibly tiny) filesystem entirely.
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>curl -F "f=@de-DE_sg.bin;filename=picotts_sg" http://&lt;device-ip&gt;/partu
+</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a>curl -F "f=@de-DE_ta.bin;filename=picotts_ta" http://&lt;device-ip&gt;/partu
+</span></code></pre></div>
+<p>A consumer then mmaps it by name, e.g. <code>esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+ESP_PARTITION_SUBTYPE_ANY, "picotts_ta")</code> + <code>esp_partition_mmap(...)</code>.</p>
+<h3 id="notes_1">Notes<a class="headerlink" href="#notes_1" title="Permanent link">¶</a></h3>
+<ul>
+<li>Created partitions are type <strong>DATA</strong>, subtype <strong>0x40</strong> (user-data, not auto-mounted).</li>
+<li><strong>Ordering is LIFO.</strong> Each <code>chkpt n</code> carves from the filesystem tail, so the
+  newest partition sits directly after the filesystem and older carves stack
+  outward (toward <code>custom</code>). <code>chkpt d</code> can therefore only remove the partition
+  <strong>directly after the filesystem</strong> — the most-recently-carved one; to drop an
+  older partition, delete the newer ones first. This is deliberate: it keeps the
+  layout <strong>gap-free</strong> (freed space always merges straight back into the
+  filesystem) and lets every partition past the carve zone — e.g. <code>custom</code> —
+  keep its flash offset. There is no way to leave a hole between the filesystem
+  and a named partition.</li>
+<li><code>/partu</code> only writes DATA/0x40 partitions — it cannot clobber <code>app0</code>, <code>nvs</code>,
+  <code>safeboot</code>, or the filesystem.</li>
+<li>Resizing the filesystem reformats it — <strong>back up files first</strong> (same as <code>chkpt p</code>).</li>
+<li>Safeboot-gated and self-logged (the new table is printed before it's written);
+  a bad table is recoverable via safeboot.</li>
+</ul>
+<h3 id="example-german-tts-on-a-4-mb-2-mb-psram-esp32-s3">Example: German TTS on a 4 MB / 2 MB-PSRAM ESP32-S3<a class="headerlink" href="#example-german-tts-on-a-4-mb-2-mb-psram-esp32-s3" title="Permanent link">¶</a></h3>
+<p>picotts (SVOX) needs a ~1.1 MB engine arena <strong>plus</strong> the ~1.05 MB de-DE voice. Both
+in PSRAM = ~2.15 MB, which won't fit a 2 MB part. Putting the <strong>voice in mmap'd flash
+partitions</strong> (0 PSRAM) leaves the whole arena for PSRAM, so it fits:</p>
+<ol>
+<li>Build with <code>USE_PICOTTS</code> (the I2SAUDIO BinPlugin carries the codec + <code>I2Stts</code>
+   command; the engine is in the firmware).</li>
+<li><code>chkpt n picotts_sg 640</code> then <code>chkpt n picotts_ta 448</code> (reboots between).</li>
+<li><code>/partu</code> the two <code>de-DE_{sg,ta}.bin</code> voice files into them.</li>
+<li>Leave the FS voice files <strong>absent</strong> → <code>PicoLazyInit</code> skips <code>picotts_set_resources()</code>
+   and the engine memory-maps the partitions directly.</li>
+<li><code>I2Stts "Hallo"</code> → German speech, voice at <strong>0 PSRAM</strong>.</li>
+</ol>
+<p>See <code>examples/esf37_scale.tc</code> (a BLE body-composition scale that announces your
+weight in German via this path) and <code>examples/esf37_speak.tc</code> (the minimal version).</p>
+<h2 id="after-flashing">After Flashing<a class="headerlink" href="#after-flashing" title="Permanent link">¶</a></h2>
+<ol>
+<li>Upload <code>tinyc_ide.html.gz</code> to the device filesystem via <strong>Consoles &gt; Manage File System</strong></li>
+<li>Open <code>http://&lt;device-ip&gt;/tinyc_ide.html</code> in a browser</li>
+<li>Write code, press <strong>Ctrl+Enter</strong> to compile, <strong>Ctrl+Shift+Enter</strong> to run on device</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer">
+        
+          
+          <a href="../reference/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Reference">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Reference
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../examples/" class="md-footer__link md-footer__link--next" aria-label="Next: Overview">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Overview
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright © 2026 Gerhard Mutz
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/gemu2015/Sonoff-Tasmota" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "navigation.indexes", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit", "search.suggest", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
