@@ -284,7 +284,18 @@ static bool TcUsbBaud(uint32_t baud) {
 
 /*───────────────────────── Anmelden und Abbauen ───────────────────────────*/
 static bool TcUsbInit(void) {
-  if (TcUsb.state != TC_USB_AUS) { return true; }
+  if (TcUsb.state != TC_USB_AUS) {
+    // ⚠️ AUCH HIER NACHSEHEN. Der Stapel laeuft schon -- aber vielleicht ohne
+    // Geraet, weil das Anstecken passierte, bevor jemand zuhoerte. Ohne diese
+    // Zeile waere ein Neustart des Skripts wirkungslos, und der einzige Weg
+    // zurueck waere das Abziehen des Steckers. Genau danach greift man aber
+    // als erstes, wenn die Anzeige "kein Geraet" sagt, und dann ist nicht mehr
+    // zu unterscheiden, ob es am Stecker lag oder am verpassten Ereignis
+    // (gemu 12.09.2026 -- bei ihm war es der Stecker, der wegen des Gehaeuses
+    // nicht tief genug in die Buchse kam).
+    if (TC_USB_BEREIT == TcUsb.state) { TcUsbSuchen(); }
+    return true;
+  }
   const usb_host_config_t hk = { .skip_phy_setup = false, .intr_flags = ESP_INTR_FLAG_LEVEL1 };
   esp_err_t e = usb_host_install(&hk);
   if (e != ESP_OK) {
