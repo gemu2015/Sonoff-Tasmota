@@ -57,22 +57,22 @@
 #include "usb/usb_host.h"
 #include "freertos/semphr.h"
 
-// Zustände, wie sie usbState() meldet — bewusst dieselbe Staffelung wie bei SPP.
-#define TC_USB_AUS      0   // Stapel nicht angemeldet
-#define TC_USB_BEREIT   1   // Host läuft, kein Gerät
-#define TC_USB_GERAET   2   // FTDI erkannt, noch nicht geöffnet
-#define TC_USB_OFFEN    3   // offen, Daten fliessen
-#define TC_USB_FEHLER   4   // Öffnen ist fehlgeschlagen
+// States as usbState() reports them — deliberately the same ladder as SPP.
+#define TC_USB_AUS      0   // stack not installed
+#define TC_USB_BEREIT   1   // host running, no device
+#define TC_USB_GERAET   2   // FTDI detected, not opened yet
+#define TC_USB_OFFEN    3   // open, data flowing
+#define TC_USB_FEHLER   4   // opening failed
 
-// ⚠️ GROSS GENUG FÜR EINEN WLAN-AUSSETZER. Bei 230400 Bd laufen 23 kB/s
-// herein; 2048 Byte waren damit 89 ms Vorrat, und genau so lange darf das
-// Skript dann nicht ins Stocken geraten. Am 12.09.2026 gemessen: bei 17,7 kB/s
-// aus einem echten VarioLab gingen 3 Byte verloren — für dieses Protokoll
-// heisst das ein verschobener Satz, nicht ein fehlender Wert. 16 kB sind
-// 0,7 s Vorrat und kosten im Verhältnis nichts: der S3 hat 8 MB PSRAM frei.
-#define TC_USB_RING     16384   // Empfangsring
-#define TC_USB_MPS      64      // volle Geschwindigkeit, Bulk
-#define TC_USB_IN_N     4       // gleichzeitig laufende IN-Übertragungen
+// ⚠️ BIG ENOUGH TO OUTLAST A WI-FI HICCUP. At 230400 baud 23 kB/s come in;
+// 2048 bytes were 89 ms of headroom, and that is exactly how long the script
+// may then stall. Measured 2026-09-12: at 17,7 kB/s from a real VarioLab
+// 3 bytes were lost — in this protocol that means a SHIFTED frame, not one
+// missing value. 16 kB are 0,7 s of headroom and cost nothing by comparison:
+// the S3 has 8 MB of PSRAM free.
+#define TC_USB_RING     16384   // receive ring
+#define TC_USB_MPS      64      // full speed, bulk
+#define TC_USB_IN_N     4       // IN transfers in flight at once
 
 // FTDI-Steuerbefehle (herstellereigen, bmRequestType 0x40)
 #define FTDI_RESET          0x00
@@ -93,7 +93,7 @@ struct TcUsbLage {
   uint8_t   ep_in = 0, ep_out = 0, schnittstelle = 0;
   volatile uint8_t  state = TC_USB_AUS;
   volatile bool     weiter = false;
-  volatile bool     angesteckt = false;   // Gerät liegt an, muss geöffnet werden
+  volatile bool     angesteckt = false;   // device present, still has to be opened
   uint8_t   adresse = 0;
   uint16_t  vid = 0, pid = 0;
   uint32_t  baud = 0;
@@ -104,7 +104,7 @@ struct TcUsbLage {
   portMUX_TYPE sperre = portMUX_INITIALIZER_UNLOCKED;
 } TcUsb;
 
-/*───────────────────────── Ringpuffer ─────────────────────────────────────*/
+/*───────────────────────── Ring buffer ────────────────────────────────────*/
 static inline uint16_t TcUsbAvailable(void) {
   uint16_t k = TcUsb.kopf, f = TcUsb.fuss;
   return (k >= f) ? (k - f) : (uint16_t)(TC_USB_RING - f + k);
@@ -113,7 +113,7 @@ static void TcUsbPush(const uint8_t *d, uint16_t len) {
   taskENTER_CRITICAL(&TcUsb.sperre);
   for (uint16_t i = 0; i < len; i++) {
     uint16_t neu = (TcUsb.kopf + 1) % TC_USB_RING;
-    if (neu == TcUsb.fuss) { TcUsb.verloren++; break; }   // voll — ältere behalten
+    if (neu == TcUsb.fuss) { TcUsb.verloren++; break; }   // full — keep the older
     TcUsb.ring[TcUsb.kopf] = d[i];
     TcUsb.kopf = neu;
   }
@@ -130,14 +130,14 @@ static uint16_t TcUsbPull(uint8_t *ziel, uint16_t max) {
   return n;
 }
 
-/*───────────────────────── Übertragungen ──────────────────────────────────*/
-// ⚠️ Alle Rückrufe laufen in der USB-Aufgabe. Hier wird NICHT gerechnet und
-// nicht geloggt, nur abgelegt und weitergereicht.
+/*───────────────────────── Transfers ──────────────────────────────────────*/
+// ⚠️ Every callback runs in the USB task. Do NOT compute and do NOT log in
+// here — only store and hand on.
 struct TcUsbTeile {
 
   static void in_fertig(usb_transfer_t *t) {
     if (USB_TRANSFER_STATUS_COMPLETED == t->status && t->actual_num_bytes > 2) {
-      // ⚠️ DIE ERSTEN ZWEI BYTES SIND MODEM- UND LEITUNGSSTATUS, KEINE DATEN.
+      // ⚠️ THE FIRST TWO BYTES ARE MODEM AND LINE STATUS, NOT DATA.
       TcUsbPush(t->data_buffer + 2, (uint16_t)(t->actual_num_bytes - 2));
       TcUsb.rx += (t->actual_num_bytes - 2);
     }
@@ -152,9 +152,9 @@ struct TcUsbTeile {
     if (TcUsb.ctrl_fertig) { xSemaphoreGive(TcUsb.ctrl_fertig); }
   }
 
-  // Ein Geraet an dieser Adresse ansehen und behalten, wenn es ein FTDI ist.
-  // Herausgeloest aus `ereignis`, damit auch ohne Ereignis danach gesucht
-  // werden kann -- siehe TcUsbSuchen().
+  // Look at the device on this address and keep it if it is an FTDI.
+  // Split out of `ereignis` so that it can also be searched for without an
+  // event — see TcUsbSuchen().
   static bool annehmen(uint8_t adresse) {
     usb_device_handle_t g;
     if (usb_host_device_open(TcUsb.klient, adresse, &g) != ESP_OK) { return false; }
@@ -165,12 +165,12 @@ struct TcUsbTeile {
         TcUsb.adresse = adresse;
         TcUsb.vid = d->idVendor;
         TcUsb.pid = d->idProduct;
-        TcUsb.angesteckt = true;                  // das Öffnen macht usbOpen()
+        TcUsb.angesteckt = true;                  // usbOpen() does the opening
         if (TC_USB_OFFEN != TcUsb.state) { TcUsb.state = TC_USB_GERAET; }
         return true;                              // offen lassen!
       }
     }
-    usb_host_device_close(TcUsb.klient, g);       // fremdes Gerät
+    usb_host_device_close(TcUsb.klient, g);       // not ours
     return false;
   }
 
@@ -181,49 +181,49 @@ struct TcUsbTeile {
     else if (USB_HOST_CLIENT_EVENT_DEV_GONE == msg->event) {
       TcUsb.angesteckt = false;
       TcUsb.state = TC_USB_BEREIT;
-      TcUsb.geraet = nullptr;                     // aufgeräumt wird in usbClose()
+      TcUsb.geraet = nullptr;                     // usbClose() does the cleanup
     }
   }
 
   static void aufgabe(void *arg) {
     while (TcUsb.weiter) {
       uint32_t flags;
-      // ⚠️⚠️ HIER NICHT WARTEN — das war die Bremse der ganzen Bruecke.
+      // ⚠️⚠️ DO NOT WAIT HERE — this was the brake on the whole bridge.
       //
-      // Bibliotheksereignisse sind An- und Abstecken, also Sekunden
-      // auseinander. Wer hier 50 ms blockiert, haelt damit die
-      // UEBERTRAGUNGEN auf, denn die werden in DERSELBEN Aufgabe abgefertigt:
-      // je Runde kommt nur ab, was gerade fertig ist.
+      // Library events are plugging and unplugging, so they are seconds
+      // apart. Blocking 50 ms here holds up the TRANSFERS, because those are
+      // dispatched in the SAME task: per round only what happens to be
+      // finished gets through.
       //
-      // Gemessen am 12.09.2026 gegen ein VarioLab an 230400 Bd:
-      //   Empfangen  4 IN-Uebertragungen a 62 B je Runde = 4,96 kB/s
-      //   Senden     1 OUT-Uebertragung a 64 B je Runde  = 1,2 kB/s
-      // Beides sind Rechenergebnisse der 50-ms-Runde, nicht der Leitung —
-      // die traegt 23 kB/s. Die Zahlen stimmten auf das Byte, und genau
-      // daran war der Fehler zu erkennen.
+      // Measured 2026-09-12 against a VarioLab at 230400 baud:
+      //   receiving  4 IN transfers of 62 B per round = 4,96 kB/s
+      //   sending    1 OUT transfer of 64 B per round = 1,2 kB/s
+      // Both are arithmetic of the 50 ms round, not of the wire — that one
+      // carries 23 kB/s. The numbers matched the measurement to the byte,
+      // and that is exactly how the fault was spotted.
       //
-      // Gewartet wird jetzt dort, wo die Ereignisse anfallen: im
-      // Klienten-Handler, der zurueckkehrt, SOBALD eines da ist.
+      // The waiting now happens where the events arrive: in the client
+      // handler, which returns AS SOON AS there is one.
       usb_host_lib_handle_events(0, &flags);
       if (TcUsb.klient) { usb_host_client_handle_events(TcUsb.klient, pdMS_TO_TICKS(50)); }
-      else              { vTaskDelay(pdMS_TO_TICKS(5)); }   // ohne Klient nicht drehen
+      else              { vTaskDelay(pdMS_TO_TICKS(5)); }   // no client: do not spin
     }
     TcUsb.aufgabe = nullptr;
     vTaskDelete(nullptr);
   }
 };
 
-/*───────────────────── Schon angestecktes Geraet finden ───────────────────*/
-// ⚠️⚠️ NEW_DEV KOMMT NUR BEIM ANSTECKEN. Wer den Host startet, waehrend das
-// Geraet laengst dranhaengt -- oder das Ereignis verpasst, weil es kam, bevor
-// der Klient angemeldet war --, wartet auf etwas, das nicht mehr passiert.
-// Das Kabel sitzt, die Anzeige sagt "kein Geraet", und man sucht den Fehler
-// beim Geraet statt beim Treiber (gemu 12.09.2026, genau so passiert: nach
-// einem Neustart des Skripts blieb der angesteckte VarioLab unsichtbar).
+/*───────────────── Find a device that is already attached ─────────────────*/
+// ⚠️⚠️ NEW_DEV ONLY ARRIVES ON PLUG-IN. Starting the host while the device
+// has long been attached — or missing the event because it came before the
+// client was registered — means waiting for something that will not happen
+// again. The cable is seated, the display says "no device", and the fault is
+// looked for in the device instead of the driver (2026-09-12, exactly that:
+// after a restart of the script the attached VarioLab stayed invisible).
 //
-// Deshalb wird nach dem Start EINMAL nachgesehen, was schon da ist. Das ist
-// keine Abfrage im Betrieb: es laeuft im Anschluss an usbInit() und danach
-// nie wieder -- fuers Abstecken und Wiederanstecken sorgen die Ereignisse.
+// So after the start we look ONCE at what is already there. This is not a
+// poll: it runs right after usbInit() and never again — unplugging and
+// re-plugging is what the events are for.
 static void TcUsbSuchen(void) {
   if (!TcUsb.klient || TC_USB_AUS == TcUsb.state) { return; }
   uint8_t adressen[8];
@@ -244,7 +244,7 @@ static void TcUsbSuchen(void) {
 static bool TcUsbCtrl(uint8_t befehl, uint16_t wert, uint16_t index) {
   if (!TcUsb.geraet || !TcUsb.ctrl) { return false; }
   usb_setup_packet_t *s = (usb_setup_packet_t *)TcUsb.ctrl->data_buffer;
-  s->bmRequestType = 0x40;                  // heraus, herstellereigen, Gerät
+  s->bmRequestType = 0x40;                  // out, vendor specific, device
   s->bRequest = befehl;
   s->wValue = wert;
   s->wIndex = index;
@@ -259,7 +259,7 @@ static bool TcUsbCtrl(uint8_t befehl, uint16_t wert, uint16_t index) {
   return (USB_TRANSFER_STATUS_COMPLETED == TcUsb.ctrl->status);
 }
 
-/*  Der Teiler des FT232 auf 3 MHz Grundtakt, mit den drei Bruchbits.
+/*  The FT232 divisor against its 3 MHz base clock, with the three
     ⚠️ Die Zuordnung der Achtel ist NICHT fortlaufend — sie steht so im
     Datenblatt und im Linux-Treiber. 230400 ergibt Teiler 13 und damit
     230769 Baud, also 0,16 % daneben; das tun alle Treiber so.              */
@@ -285,14 +285,14 @@ static bool TcUsbBaud(uint32_t baud) {
 /*───────────────────────── Anmelden und Abbauen ───────────────────────────*/
 static bool TcUsbInit(void) {
   if (TcUsb.state != TC_USB_AUS) {
-    // ⚠️ AUCH HIER NACHSEHEN. Der Stapel laeuft schon -- aber vielleicht ohne
-    // Geraet, weil das Anstecken passierte, bevor jemand zuhoerte. Ohne diese
-    // Zeile waere ein Neustart des Skripts wirkungslos, und der einzige Weg
-    // zurueck waere das Abziehen des Steckers. Genau danach greift man aber
-    // als erstes, wenn die Anzeige "kein Geraet" sagt, und dann ist nicht mehr
-    // zu unterscheiden, ob es am Stecker lag oder am verpassten Ereignis
-    // (gemu 12.09.2026 -- bei ihm war es der Stecker, der wegen des Gehaeuses
-    // nicht tief genug in die Buchse kam).
+    // ⚠️ LOOK HERE TOO. The stack is already running — but perhaps without a
+    // device, because the plug-in happened before anyone was listening.
+    // Without this line a restart of the script would have no effect, and the
+    // only way back would be pulling the plug. That, however, is the first
+    // thing one reaches for when the display says "no device" — and then it
+    // can no longer be told apart whether it was the plug or the missed
+    // event (2026-09-12: for gemu it WAS the plug, which did not go deep
+    // enough into the socket because of the case).
     if (TC_USB_BEREIT == TcUsb.state) { TcUsbSuchen(); }
     return true;
   }
@@ -324,14 +324,14 @@ static bool TcUsbInit(void) {
   }
   TcUsb.state = TC_USB_BEREIT;
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: usbInit — Host laeuft, warte auf FTDI"));
-  // Der Ereignisaufgabe kurz Zeit geben, dann nachsehen, was schon dranhaengt.
+  // Give the event task a moment, then look at what is already attached.
   vTaskDelay(pdMS_TO_TICKS(150));
   TcUsbSuchen();
   return true;
 }
 
 static void TcUsbClose(void) {
-  TcUsb.weiter = false;                  // stoppt das Nachladen der IN-Übertragungen
+  TcUsb.weiter = false;                  // stops the IN transfers being resubmitted
   delay(60);
   for (int i = 0; i < TC_USB_IN_N; i++) {
     if (TcUsb.in[i]) { usb_host_transfer_free(TcUsb.in[i]); TcUsb.in[i] = nullptr; }
@@ -343,7 +343,7 @@ static void TcUsbClose(void) {
     usb_host_device_close(TcUsb.klient, TcUsb.geraet);
     TcUsb.geraet = nullptr;
   }
-  TcUsb.weiter = true;                   // die Aufgabe läuft weiter
+  TcUsb.weiter = true;                   // the task keeps running
   TcUsb.kopf = TcUsb.fuss = 0;
   if (TcUsb.state != TC_USB_AUS) { TcUsb.state = TC_USB_BEREIT; }
 }
@@ -352,7 +352,7 @@ static void TcUsbDeinit(void) {
   if (TC_USB_AUS == TcUsb.state) { return; }
   TcUsbClose();
   TcUsb.weiter = false;
-  delay(150);                            // der Aufgabe Zeit zum Aussteigen
+  delay(150);                            // give the task time to leave
   if (TcUsb.klient) { usb_host_client_deregister(TcUsb.klient); TcUsb.klient = nullptr; }
   usb_host_uninstall();
   if (TcUsb.ctrl_fertig) { vSemaphoreDelete(TcUsb.ctrl_fertig); TcUsb.ctrl_fertig = nullptr; }
@@ -361,13 +361,13 @@ static void TcUsbDeinit(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: usbDeinit — Stapel abgebaut"));
 }
 
-/*───────────────────────── Öffnen ─────────────────────────────────────────*/
-/*  Sucht in der aktiven Einstellung die erste Schnittstelle mit einem
-    Bulk-Paar, belegt sie und stellt 8N1 ohne Flusssteuerung ein.          */
+/*───────────────────────── Opening ────────────────────────────────────────*/
+/*  Finds the first interface in the active configuration that has a bulk
+    pair, claims it and sets 8N1 without flow control.                     */
 static bool TcUsbOpen(uint32_t baud) {
   if (!TcUsbInit()) { return false; }
   if (TC_USB_OFFEN == TcUsb.state) { return TcUsbBaud(baud); }
-  if (!TcUsb.geraet) { return false; }                  // noch nichts angesteckt
+  if (!TcUsb.geraet) { return false; }                  // nothing attached yet
 
   const usb_config_desc_t *cfg = nullptr;
   if (usb_host_get_active_config_descriptor(TcUsb.geraet, &cfg) != ESP_OK || !cfg) { return false; }
@@ -400,7 +400,7 @@ static bool TcUsbOpen(uint32_t baud) {
   usb_host_transfer_alloc(TC_USB_MPS, 0, &TcUsb.out);
   if (!TcUsb.ctrl || !TcUsb.out) { TcUsbClose(); return false; }
 
-  // Reset, 8 Datenbits ohne Parität mit einem Stoppbit, keine Flusssteuerung.
+  // Reset, 8 data bits, no parity, one stop bit, no flow control.
   TcUsbCtrl(FTDI_RESET, 0, 0);
   if (!TcUsbBaud(baud)) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: usbOpen — Baudrate wurde nicht angenommen"));
@@ -408,7 +408,7 @@ static bool TcUsbOpen(uint32_t baud) {
   }
   TcUsbCtrl(FTDI_SET_DATA, 0x0008, 0);
   TcUsbCtrl(FTDI_SET_FLOW, 0, 0);
-  TcUsbCtrl(FTDI_MODEM_CTRL, 0x0303, 0);      // DTR und RTS an
+  TcUsbCtrl(FTDI_MODEM_CTRL, 0x0303, 0);      // DTR and RTS on
 
   for (int i = 0; i < TC_USB_IN_N; i++) {
     if (usb_host_transfer_alloc(TC_USB_MPS, 0, &TcUsb.in[i]) != ESP_OK) { break; }

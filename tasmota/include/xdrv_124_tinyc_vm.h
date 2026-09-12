@@ -1377,17 +1377,17 @@ enum TcSyscall {
   SYS_WEB_CHART_Q     = 545, // (scale, offset) -> void — affine decode for the NEXT WebChart
 
   // ── FTDI am USB-Host (ESP32-S3/S2, USE_TINYC_USBSERIAL) ────────────────
-  // Gleiche Gestalt wie die SPP-Familie: ein serieller Draht, das Protokoll
-  // lebt im Skript. Lesen blockiert NIE.
-  SYS_USB_INIT        = 546, // ()              -> int  1=Host laeuft, 0=nicht moeglich
-  SYS_USB_STATE       = 547, // ()              -> int  0=aus 1=bereit 2=FTDI da 3=offen 4=Fehler
-  SYS_USB_OPEN        = 548, // (baud)          -> int  1=offen, 0=nein
-  SYS_USB_AVAILABLE   = 549, // ()              -> int  wartende Bytes
-  SYS_USB_READ        = 550, // (buf_ref, n)    -> int  gelesene Bytes (0 = nichts da)
-  SYS_USB_WRITE       = 551, // (buf_ref, n)    -> int  gesendete Bytes, -1=Fehler
+  // Same shape as the SPP family: a serial wire, the protocol lives in the
+  // script. Reading NEVER blocks.
+  SYS_USB_INIT        = 546, // ()              -> int  1=host running, 0=not possible
+  SYS_USB_STATE       = 547, // ()              -> int  0=off 1=ready 2=FTDI there 3=open 4=error
+  SYS_USB_OPEN        = 548, // (baud)          -> int  1=open, 0=no
+  SYS_USB_AVAILABLE   = 549, // ()              -> int  bytes waiting
+  SYS_USB_READ        = 550, // (buf_ref, n)    -> int  bytes read (0 = nothing there)
+  SYS_USB_WRITE       = 551, // (buf_ref, n)    -> int  bytes sent, -1=error
   SYS_USB_CLOSE       = 552, // ()              -> int  0
-  SYS_USB_DEINIT      = 553, // ()              -> int  0; Stapel ab, RAM zurueck
-  SYS_USB_INFO        = 554, // (sel)           -> int  0=vid 1=pid 2=rx 3=tx 4=verloren (Ueberlauf)
+  SYS_USB_DEINIT      = 553, // ()              -> int  0; stack down, RAM back
+  SYS_USB_INFO        = 554, // (sel)           -> int  0=vid 1=pid 2=rx 3=tx 4=lost (ring overflow)
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
@@ -7773,8 +7773,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
-    // Wortgleich zu SYS_SPP_READ/WRITE: die VM legt EIN int32 je Element ab,
-    // auch bei Bytedaten, deshalb geht alles durch einen Zwischenpuffer.
+    // Word for word like SYS_SPP_READ/WRITE: the VM stores ONE int32 per
+    // element, byte data included, so everything goes through a scratch
+    // buffer.
     case SYS_USB_READ:
     case SYS_USB_WRITE: {
 #ifdef USE_TINYC_USBSERIAL
@@ -15763,7 +15764,19 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!conn && r == 1) {
         Tinyc->tcp_cli_reason[Tinyc->tcp_cli_slot] = 2;  // PEER_CLOSED
       }
-      TC_PUSH(vm, conn ? 1 : 0);
+      // ⚠️ WHAT COMES BACK IS THE ACTIVE CLIENT, not just the outgoing one.
+      // Reading, writing and tcpAvailable() have long fallen back on slot 0
+      // to the client accepted by the server (TC_TCP_ACTIVE_CLIENT);
+      // tcpConnected() was the only one that did not. A pure server script
+      // could therefore not find out whether anybody was attached — it read
+      // and wrote over the connection and still got 0 when it asked.
+      // Seen 2026-09-12 on the FTDI bridge: the status row reported
+      // "waiting on port 2000" while data was flowing.
+      //
+      // ⚠️ The reason bookkeeping above stays with the OUTGOING client: it
+      // belongs to `tcp_cli_reason[slot]`, and an accepted server client must
+      // not mask an outgoing slot's transition to PEER_CLOSED.
+      TC_PUSH(vm, TC_TCP_ACTIVE_CLIENT() != nullptr ? 1 : 0);
       break;
     }
     case SYS_TCP_SELECT: {  // tcpSelect(slot) — select outgoing TCP client slot

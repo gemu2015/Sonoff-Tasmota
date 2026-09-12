@@ -47,6 +47,12 @@ void TaskLoop() {
 
     // 1) Open as soon as something is there, and again after unplugging.
     int z = usbState();
+    // ⚠️ AFTER A SCRIPT RESTART THE PORT IS USUALLY ALREADY OPEN (state 3) --
+    // usbClose() never ran, so the driver kept it. A pump that only waits for
+    // state 2 waits forever and forwards nothing, while every status row
+    // cheerfully says "offen". Seen on 2026-09-12: device open, client
+    // connected, traffic on the TCP side, and not one byte on the wire.
+    if (z == 3) { offen = 1; }
     if (z == 2 && offen == 0) {
         if (usbOpen(BAUD) == 1) {
             offen = 1;
@@ -142,8 +148,8 @@ void WebCall() {
                    " &middot; %04x:%04x &middot; noch nicht ge&ouml;ffnet{e}",
                 usbInfo(0), usbInfo(1));
     } else if (z == 1) {
-        // ⚠️ Feste Texte gehen direkt an webSend: sprintf will mindestens
-        // einen Wert sehen, sonst uebersetzt es gar nicht.
+        // ⚠️ Fixed texts go straight out: sprintf wants at least one value,
+        // otherwise it does not compile at all.
         strcpy(m, "{s}VarioLab{m}<b style='color:#888'>kein Ger&auml;t</b> an der OTG-Buchse{e}");
     } else if (z == 4) {
         strcpy(m, "{s}VarioLab{m}<b style='color:#c00'>Fehler</b> beim &Ouml;ffnen{e}");
@@ -152,9 +158,42 @@ void WebCall() {
     }
     webSend(m);
 
-    // ── 2. Is anything happening? ───────────────────────────────────────
-    // ⚠️ Silence is shown in SECONDS, not as "nothing". Ein Strom, der vor
-    // zwei Sekunden abriss, sieht sonst aus wie einer, der nie lief.
+    // ── 2. Who is on the other end? ─────────────────────────────────────
+    // The two rows above and below answer "is the device there" and "is
+    // anything moving"; this one sits between them because it is the third
+    // thing that can be missing — the bridge can be perfect and still have
+    // nobody talking to it.
+    //
+    // ⚠️ tcpConnected() only READS. Do not reach for tcpAvailable() here:
+    // that one accepts a pending client as a side effect, and a status row
+    // has no business changing what it reports on.
+    if (tcpConnected() == 1) {
+        sprintf(m, "{s}Gegenstelle{m}<b style='color:#0a0'>verbunden</b>"
+                   " &middot; Port %d{e}", PORT);
+    } else {
+        // Why the last connection ended says more than its absence:
+        // "hung up" is the normal case after a session, "timeout" and
+        // "network gone" are not.
+        int grund = tcpDisconnectReason();
+        if (grund == 2) {
+            sprintf(m, "{s}Gegenstelle{m}<span style='color:#888'>wartet auf"
+                       " Port %d</span> &middot; zuletzt: hat aufgelegt{e}", PORT);
+        } else if (grund == 3) {
+            sprintf(m, "{s}Gegenstelle{m}<span style='color:#d80'>wartet auf"
+                       " Port %d</span> &middot; zuletzt: Zeit&uuml;berschreitung{e}", PORT);
+        } else if (grund == 4) {
+            sprintf(m, "{s}Gegenstelle{m}<span style='color:#c00'>wartet auf"
+                       " Port %d</span> &middot; zuletzt: Netz weg{e}", PORT);
+        } else {
+            sprintf(m, "{s}Gegenstelle{m}<span style='color:#888'>wartet auf"
+                       " Port %d</span>{e}", PORT);
+        }
+    }
+    webSend(m);
+
+    // ── 3. Is anything happening? ───────────────────────────────────────
+    // ⚠️ Silence is shown in SECONDS, not as "nothing". A stream that broke
+    // off two seconds ago otherwise looks like one that never ran.
     int still = millis() - letzter_verkehr;
     if (letzter_verkehr == 0) {
         strcpy(m, "{s}Datenstrom{m}<span style='color:#888'>noch nichts geflossen</span>{e}");
@@ -166,12 +205,12 @@ void WebCall() {
     }
     webSend(m);
 
-    // ── 3. What has gone through in total ───────────────────────────────
+    // ── 4. What has gone through in total ───────────────────────────────
     sprintf(m, "{s}&Uuml;bertragen{m}%d B empfangen &middot; %d B gesendet{e}",
             rx, tx);
     webSend(m);
 
-    // ── 4. Losses, and only then ────────────────────────────────────────
+    // ── 5. Losses, and only then ────────────────────────────────────────
     // ⚠️ A row that is always there gets read as decoration. This one shows
     // up only when something IS lost -- and then it means a shifted frame,
     // not a missing value, so it is worth the red.
