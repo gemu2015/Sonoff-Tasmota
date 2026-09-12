@@ -313,6 +313,30 @@ export class Lexer {
             throw new LexerError('Unterminated string literal', startLine, startCol);
         }
         this.advance(); // skip closing "
+
+        // ⚠️ ANEINANDERGRENZENDE ZEICHENKETTEN WERDEN VERSCHMOLZEN, wie in C:
+        //
+        //     sprintf(m, "{s}Zustand{m}%d von %d"
+        //                " &middot; seit %d s{e}", a, b, c);
+        //
+        // Ohne das bricht der Parser mit "Expected RPAREN but got
+        // STRING_LITERAL" ab -- und zwar an der ZWEITEN Zeichenkette, also
+        // eine Zeile neben der Ursache. Wer aus C kommt, schreibt lange
+        // Formate selbstverstaendlich so um, damit sie in die Zeile passen;
+        // gemu hat es zu Recht als wiederkehrende Fehlerquelle benannt
+        // (12.09.2026). Das Zusammenfuegen kostet nichts und kann nichts
+        // kaputtmachen: zwei Zeichenketten nebeneinander waren vorher an
+        // JEDER Stelle ein Fehler, es gibt also keine Bedeutung, die sich
+        // dadurch aendern koennte.
+        //
+        // Im Lexer und nicht im Parser, damit es ueberall gilt -- im
+        // Ausdruck, in `char buf[] = "a" "b"`, und in allem, was spaeter
+        // dazukommt.
+        const vorheriges = this.tokens[this.tokens.length - 1];
+        if (vorheriges && vorheriges.type === TokenType.STRING_LITERAL) {
+            vorheriges.value += str;     // Zeile/Spalte bleiben die der ERSTEN
+            return;                      // -- dort steht der Anfang des Textes
+        }
         this.tokens.push(new Token(TokenType.STRING_LITERAL, str, startLine, startCol));
     }
 

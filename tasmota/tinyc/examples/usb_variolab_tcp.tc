@@ -25,6 +25,14 @@ int b[1024];               // one int32 per byte, like the SPP family.
                            // is drained in one go after any hiccup.
 int offen = 0;
 
+// ── For the status rows on Tasmota's main page ──────────────────────────
+int letzter_verkehr = 0;   // millis() when bytes last moved either way
+int w_rx = 0;              // counter readings at the last WebCall,
+int w_tx = 0;              // so the rate is the CHANGE since then
+int w_ms = 0;
+int w_ein = 0;             // bytes per second, device -> PC
+int w_aus = 0;             // bytes per second, PC -> device
+
 int main() {
     usbInit();             // host up; the FTDI may be plugged in at any time
     tcpServer(PORT);
@@ -71,6 +79,8 @@ void TaskLoop() {
         }
     }
 
+    if (etwas == 1) { letzter_verkehr = millis(); }
+
     // Idle: give the rest of the system room. With traffic, keep spinning.
     if (etwas == 0) { delay(2); }
 }
@@ -80,4 +90,93 @@ void Command(char cmd[]) {
     sprintf(m, "usb state %d, open %d, rx %d, tx %d, lost %d",
             usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
     responseCmnd(m);
+}
+
+// ─── Status on Tasmota's main page ──────────────────────────────────────
+//
+// WebCall() is Tasmota's FUNC_WEB_SENSOR: it runs about once a second, but
+// ONLY while somebody has the main page open. That makes it the right place
+// to work out the throughput as well — the bridge keeps running totals in
+// usbInfo(2) and usbInfo(3), and all we need is how much they moved since
+// the last call.
+//
+// ⚠️ Whoever reads this page is usually asking one of two questions: "is the
+// device even there?" and "is anything happening?". The rows are ordered to
+// answer them in that order, and the second is the reason the throughput is
+// here at all — a totals counter alone cannot tell a live link from a dead
+// one that carried a lot of traffic this morning.
+void WebCall() {
+    char m[200];
+    int z = usbState();
+    int rx = usbInfo(2);
+    int tx = usbInfo(3);
+
+    // ── Throughput from the change since the last call ──────────────────
+    // ⚠️ Guard both ends: a page opened after a long pause gives a huge dt
+    // (and `delta * 1000` could overflow int32), and a counter that wrapped
+    // gives a negative delta. Both cases just re-arm instead of printing a
+    // nonsense rate.
+    int dt = millis() - w_ms;
+    if (dt >= 500) {
+        int d_ein = rx - w_rx;
+        int d_aus = tx - w_tx;
+        if (dt > 5000 || d_ein < 0 || d_aus < 0) {
+            w_ein = 0;
+            w_aus = 0;
+        } else {
+            w_ein = d_ein * 1000 / dt;
+            w_aus = d_aus * 1000 / dt;
+        }
+        w_rx = rx;
+        w_tx = tx;
+        w_ms = millis();
+    }
+
+    // ── 1. Is the device there? ─────────────────────────────────────────
+    if (z == 3) {
+        sprintf(m, "{s}VarioLab{m}<b style='color:#0a0'>offen</b>"
+                   " &middot; %04x:%04x &middot; %d Bd{e}",
+                usbInfo(0), usbInfo(1), BAUD);
+    } else if (z == 2) {
+        sprintf(m, "{s}VarioLab{m}<b style='color:#d80'>erkannt</b>"
+                   " &middot; %04x:%04x &middot; noch nicht ge&ouml;ffnet{e}",
+                usbInfo(0), usbInfo(1));
+    } else if (z == 1) {
+        // ⚠️ Feste Texte gehen direkt an webSend: sprintf will mindestens
+        // einen Wert sehen, sonst uebersetzt es gar nicht.
+        strcpy(m, "{s}VarioLab{m}<b style='color:#888'>kein Ger&auml;t</b> an der OTG-Buchse{e}");
+    } else if (z == 4) {
+        strcpy(m, "{s}VarioLab{m}<b style='color:#c00'>Fehler</b> beim &Ouml;ffnen{e}");
+    } else {
+        strcpy(m, "{s}VarioLab{m}<b style='color:#c00'>USB-Host nicht angemeldet</b>{e}");
+    }
+    webSend(m);
+
+    // ── 2. Is anything happening? ───────────────────────────────────────
+    // ⚠️ Silence is shown in SECONDS, not as "nothing". Ein Strom, der vor
+    // zwei Sekunden abriss, sieht sonst aus wie einer, der nie lief.
+    int still = millis() - letzter_verkehr;
+    if (letzter_verkehr == 0) {
+        strcpy(m, "{s}Datenstrom{m}<span style='color:#888'>noch nichts geflossen</span>{e}");
+    } else if (still > 3000) {
+        sprintf(m, "{s}Datenstrom{m}<span style='color:#888'>still seit %d s</span>{e}", still / 1000);
+    } else {
+        sprintf(m, "{s}Datenstrom{m}%d B/s &larr; Ger&auml;t"
+                   " &middot; %d B/s &rarr; Ger&auml;t{e}", w_ein, w_aus);
+    }
+    webSend(m);
+
+    // ── 3. What has gone through in total ───────────────────────────────
+    sprintf(m, "{s}&Uuml;bertragen{m}%d B empfangen &middot; %d B gesendet{e}",
+            rx, tx);
+    webSend(m);
+
+    // ── 4. Losses, and only then ────────────────────────────────────────
+    // ⚠️ A row that is always there gets read as decoration. This one shows
+    // up only when something IS lost -- and then it means a shifted frame,
+    // not a missing value, so it is worth the red.
+    if (usbInfo(4) > 0) {
+        sprintf(m, "{s}Verloren{m}<b style='color:#c00'>%d B</b> &mdash; der Ring lief &uuml;ber{e}", usbInfo(4));
+        webSend(m);
+    }
 }

@@ -152,23 +152,31 @@ struct TcUsbTeile {
     if (TcUsb.ctrl_fertig) { xSemaphoreGive(TcUsb.ctrl_fertig); }
   }
 
+  // Ein Geraet an dieser Adresse ansehen und behalten, wenn es ein FTDI ist.
+  // Herausgeloest aus `ereignis`, damit auch ohne Ereignis danach gesucht
+  // werden kann -- siehe TcUsbSuchen().
+  static bool annehmen(uint8_t adresse) {
+    usb_device_handle_t g;
+    if (usb_host_device_open(TcUsb.klient, adresse, &g) != ESP_OK) { return false; }
+    const usb_device_desc_t *d = nullptr;
+    if (usb_host_get_device_descriptor(g, &d) == ESP_OK && d) {
+      if (0x0403 == d->idVendor) {                // FTDI
+        TcUsb.geraet = g;
+        TcUsb.adresse = adresse;
+        TcUsb.vid = d->idVendor;
+        TcUsb.pid = d->idProduct;
+        TcUsb.angesteckt = true;                  // das Öffnen macht usbOpen()
+        if (TC_USB_OFFEN != TcUsb.state) { TcUsb.state = TC_USB_GERAET; }
+        return true;                              // offen lassen!
+      }
+    }
+    usb_host_device_close(TcUsb.klient, g);       // fremdes Gerät
+    return false;
+  }
+
   static void ereignis(const usb_host_client_event_msg_t *msg, void *arg) {
     if (USB_HOST_CLIENT_EVENT_NEW_DEV == msg->event) {
-      usb_device_handle_t g;
-      if (usb_host_device_open(TcUsb.klient, msg->new_dev.address, &g) != ESP_OK) { return; }
-      const usb_device_desc_t *d = nullptr;
-      if (usb_host_get_device_descriptor(g, &d) == ESP_OK && d) {
-        if (0x0403 == d->idVendor) {              // FTDI
-          TcUsb.geraet = g;
-          TcUsb.adresse = msg->new_dev.address;
-          TcUsb.vid = d->idVendor;
-          TcUsb.pid = d->idProduct;
-          TcUsb.angesteckt = true;                // das Öffnen macht usbOpen()
-          if (TC_USB_OFFEN != TcUsb.state) { TcUsb.state = TC_USB_GERAET; }
-          return;                                 // offen lassen!
-        }
-      }
-      usb_host_device_close(TcUsb.klient, g);     // fremdes Gerät
+      annehmen(msg->new_dev.address);
     }
     else if (USB_HOST_CLIENT_EVENT_DEV_GONE == msg->event) {
       TcUsb.angesteckt = false;
@@ -204,6 +212,33 @@ struct TcUsbTeile {
     vTaskDelete(nullptr);
   }
 };
+
+/*───────────────────── Schon angestecktes Geraet finden ───────────────────*/
+// ⚠️⚠️ NEW_DEV KOMMT NUR BEIM ANSTECKEN. Wer den Host startet, waehrend das
+// Geraet laengst dranhaengt -- oder das Ereignis verpasst, weil es kam, bevor
+// der Klient angemeldet war --, wartet auf etwas, das nicht mehr passiert.
+// Das Kabel sitzt, die Anzeige sagt "kein Geraet", und man sucht den Fehler
+// beim Geraet statt beim Treiber (gemu 12.09.2026, genau so passiert: nach
+// einem Neustart des Skripts blieb der angesteckte VarioLab unsichtbar).
+//
+// Deshalb wird nach dem Start EINMAL nachgesehen, was schon da ist. Das ist
+// keine Abfrage im Betrieb: es laeuft im Anschluss an usbInit() und danach
+// nie wieder -- fuers Abstecken und Wiederanstecken sorgen die Ereignisse.
+static void TcUsbSuchen(void) {
+  if (!TcUsb.klient || TC_USB_AUS == TcUsb.state) { return; }
+  uint8_t adressen[8];
+  int anzahl = 0;
+  if (usb_host_device_addr_list_fill(sizeof(adressen), adressen, &anzahl) != ESP_OK) {
+    return;
+  }
+  for (int i = 0; i < anzahl; i++) {
+    if (TcUsbTeile::annehmen(adressen[i])) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: usbInit — %04X:%04X hing schon an der Buchse"),
+             TcUsb.vid, TcUsb.pid);
+      return;
+    }
+  }
+}
 
 /*───────────────────────── Steuerbefehle an den FTDI ──────────────────────*/
 static bool TcUsbCtrl(uint8_t befehl, uint16_t wert, uint16_t index) {
@@ -278,6 +313,9 @@ static bool TcUsbInit(void) {
   }
   TcUsb.state = TC_USB_BEREIT;
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: usbInit — Host laeuft, warte auf FTDI"));
+  // Der Ereignisaufgabe kurz Zeit geben, dann nachsehen, was schon dranhaengt.
+  vTaskDelay(pdMS_TO_TICKS(150));
+  TcUsbSuchen();
   return true;
 }
 

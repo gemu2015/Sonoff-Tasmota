@@ -83,6 +83,28 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 
 **Supported escape sequences:** `\n` `\t` `\r` `\\` `\'` `\"` `\0`
 
+### Adjacent string literals
+
+Two string literals side by side are joined into one, exactly as in C:
+
+```c
+sprintf(m, "{s}VarioLab{m}<b style='color:#0a0'>offen</b>"
+           " &middot; %04x:%04x &middot; %d Bd{e}",
+        usbInfo(0), usbInfo(1), BAUD);
+```
+
+That matters most for the `{s}…{m}…{e}` rows of `WebCall()` and for long
+`sprintf` formats, which otherwise run far past a readable line. The joining
+happens in the lexer, so it works everywhere a string literal may appear —
+in an expression, as an array initializer (`char g[40] = "hallo " "welt";`),
+and in anything added later.
+
+⚠️ Before this existed the parser stopped with `Expected RPAREN but got
+STRING_LITERAL` — and it pointed at the SECOND literal, a line away from
+what looked wrong. Nothing changes for existing code: two literals in a row
+used to be an error in every position, so there is no meaning that could
+shift.
+
 ### String Literals
 ```c
 "Hello"             // simple string

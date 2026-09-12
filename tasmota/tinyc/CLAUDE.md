@@ -354,7 +354,9 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 
 | Domain | Key calls |
 |---|---|
+| Zeichenketten nebeneinander | ⭐ `"a" "b"` wird verschmolzen, wie in C — im LEXER, gilt also auch in `char g[] = "a" "b"`. Damit passen lange `sprintf`-Formate und die `{s}…{m}…{e}`-Zeilen von `WebCall()` in lesbare Zeilen. ⚠️ Vorher brach der Parser mit `Expected RPAREN but got STRING_LITERAL` ab, und zwar an der ZWEITEN Zeichenkette — eine Zeile neben der Ursache. Wer aus C kommt, tappt da zuverlässig hinein (gemu 12.09.2026). |
 | Output | `addLog("fmt %d %s", a, b)` (variadic), `sprintf`, `responseCmnd`, `responseAppend`, `webSend` |
+| WebUI kopflos nachsehen | ⭐ **`curl 'http://<ip>/?m=1'`** liefert genau den Block, den die Hauptseite selbst pollt — also das, was `WebCall()` per `webSend` erzeugt hat, samt `{s}…{m}…{e}`-Zeilen unter einem `slot N`-Rahmen. ⚠️ NICHT `/sn`, nicht `/ay`, nicht `/status` — die gibt es nicht bzw. sie zeigen etwas anderes, und der Irrtum kostet jedes Mal mehrere Versuche. Die Adresse steht im Seitenquelltext selbst (`x.open('GET','.?m=1'`), wenn sie sich je ändert. |
 | GPIO | `pinMode`, `digitalRead`, `digitalWrite`, `analogRead`, `dacWrite` |
 | Time | `millis`, `delay`, `timeStamp(buf)` (local `"YYYY-MM-DDTHH:MM:SS"` — read HH at buf[11..12], MM at buf[14..15]), `timeToSecs`, `secsToTime`, `utcSecs`. NB: there is no `tasm_hour()` builtin; `atoi(buf+N)` is rejected (string fns need a plain array var) — index chars instead |
 | Timers | `timerSet`, `timerCancel` (software) |
