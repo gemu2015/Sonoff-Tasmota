@@ -1,0 +1,83 @@
+// @name: VarioLab over TCP
+// usb_variolab_tcp.tc — bridges a TCP port to an FTDI on the USB host.
+//
+// WHY: the VarioLab has its FTDI soldered in, with no way to reach the UART
+// before it. The only way in is for the ESP32 to BE a USB host. uVariotest then
+// opens the device as if it were a local serial port: it connects to <ip>:2000
+// and speaks raw bytes — no framing, no handshake.
+//
+//     uVariotest26  --TCP 2000-->  ESP32-S3  --USB host-->  FT232R --> VarioLab
+//
+// NEEDS an S3 (or S2) built with USE_TINYC_USBSERIAL, device on the OTG socket.
+// ⚠️ The host must supply VBUS. If nothing enumerates, measure that first.
+//
+// The pump runs in TaskLoop() — its OWN FreeRTOS task, so 23 kB/s never fights
+// Tasmota's main loop for time.
+//
+// Console: TCUS — state and throughput.
+
+#define PORT   2000        // what uVariotest expects by default
+#define BAUD   230400      // VarioLab, 8N1
+
+int b[1024];               // one int32 per byte, like the SPP family.
+                           // 1024 and not 256: at 23 kB/s that is 90 round
+                           // trips per second instead of 360, and the ring
+                           // is drained in one go after any hiccup.
+int offen = 0;
+
+int main() {
+    usbInit();             // host up; the FTDI may be plugged in at any time
+    tcpServer(PORT);
+    addCommand("TCUS");
+    addLog("VarioLab bridge ready — TCP 2000, waiting for the FTDI");
+    return 0;
+}
+
+void TaskLoop() {
+    int n;
+    int etwas = 0;
+
+    // 1) Open as soon as something is there, and again after unplugging.
+    int z = usbState();
+    if (z == 2 && offen == 0) {
+        if (usbOpen(BAUD) == 1) {
+            offen = 1;
+            char m[72];
+            sprintf(m, "VarioLab: %x:%x open, %d baud", usbInfo(0), usbInfo(1), BAUD);
+            addLog(m);
+        }
+    }
+    if (z < 2) { offen = 0; }
+
+    // 2) TCP -> USB
+    n = tcpAvailable();
+    if (n > 0) {
+        n = tcpReadArray(b);
+        if (n > 0) {
+            etwas = 1;
+            if (offen == 1) { usbWrite(b, n); }
+        }
+    }
+
+    // 3) USB -> TCP
+    if (offen == 1) {
+        n = usbAvailable();
+        while (n > 0) {
+            n = usbRead(b, 1024);
+            if (n <= 0) { break; }
+            tcpWriteArray(b, n, 0);   // 0 = raw bytes; 1 would be uint16!
+            etwas = 1;
+            n = usbAvailable();
+        }
+    }
+
+    // Idle: give the rest of the system room. With traffic, keep spinning.
+    if (etwas == 0) { delay(2); }
+}
+
+void Command(char cmd[]) {
+    char m[110];
+    sprintf(m, "usb state %d, open %d, rx %d, tx %d, lost %d",
+            usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
+    responseCmnd(m);
+}

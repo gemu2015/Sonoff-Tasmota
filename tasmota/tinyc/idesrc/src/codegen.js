@@ -271,6 +271,16 @@ const BUILTINS = {
     // sonst uebliche BOUNDS-Zeile — sieht wie ein Firmwarefehler aus, ist aber der
     // Compiler. (Gefunden 2026-08-03 an sppScan auf .185.)
     'sppRead':          { syscall: Syscall.SPP_READ,       args: 2, returns: true,  strArgs: [0], intArgs: [1] },
+    // ── FTDI am USB-Host ──────────────────────────────────────────────
+    'usbInit':          { syscall: Syscall.USB_INIT,       args: 0, returns: true },
+    'usbState':         { syscall: Syscall.USB_STATE,      args: 0, returns: true },
+    'usbOpen':          { syscall: Syscall.USB_OPEN,       args: 1, returns: true,  intArgs: [0] },
+    'usbAvailable':     { syscall: Syscall.USB_AVAILABLE,  args: 0, returns: true },
+    'usbRead':          { syscall: Syscall.USB_READ,       args: 2, returns: true,  strArgs: [0], intArgs: [1] },
+    'usbWrite':         { syscall: Syscall.USB_WRITE,      args: 2, returns: true,  strArgs: [0], intArgs: [1] },
+    'usbClose':         { syscall: Syscall.USB_CLOSE,      args: 0, returns: true },
+    'usbDeinit':        { syscall: Syscall.USB_DEINIT,     args: 0, returns: true },
+    'usbInfo':          { syscall: Syscall.USB_INFO,       args: 1, returns: true,  intArgs: [0] },
     'sppWrite':         { syscall: Syscall.SPP_WRITE,      args: 2, returns: true,  strArgs: [0], intArgs: [1] },
     'sppClose':         { syscall: Syscall.SPP_CLOSE,      args: 0, returns: true },
     'sppScan':          { syscall: Syscall.SPP_SCAN,       args: 3, returns: true,  strArgs: [0], intArgs: [1, 2], byteAbi: { args: [0], abi: 28 } },

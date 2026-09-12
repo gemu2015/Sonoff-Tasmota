@@ -5758,6 +5758,98 @@ by hand. Details in the header of `tasmota/include/xdrv_124_tinyc_spp.h`.
 See `examples/spp_scan.tc` (does inquiry work at all?), `examples/spp_connect.tc` (which
 layer does a connection die at?) and `examples/sma_sunnyboy.tc` (a full protocol on top).
 
+### USB host serial — FTDI (ESP32-S3 / S2 only, requires USE_TINYC_USBSERIAL)
+
+Here the ESP32 is the **host**, not the device: a USB-serial adapter plugged into the
+OTG socket becomes a serial port for the script. That is the only way into a device
+whose FTDI is soldered in and whose UART is not brought out anywhere — a VarioLab, for
+instance. Only FT232R/FT232RL (`0403:6001`) is driven; FTDI is vendor-specific, not CDC,
+so a generic class driver does not reach it.
+
+| Function | Description |
+|----------|-------------|
+| `int usbInit()` | Bring the USB host stack up (idempotent). `1` = running, `0` = not possible. Costs ~20 KB heap. The device may be plugged in before or after. |
+| `int usbState()` | `0` off, `1` host ready, `2` **FTDI detected**, `3` **open**, `4` error. Drops back to `1` when the device is unplugged. |
+| `int usbOpen(baud)` | Reset the chip, set 8N1 at `baud`, start reading. `1` = open. Only meaningful at state `2`. |
+| `int usbAvailable()` | Bytes waiting in the 2048-byte ring |
+| `int usbRead(buf[], max)` | Read into an int array, **one byte per element** (like the SPP family). Returns the count, `0` = nothing there. |
+| `int usbWrite(buf[], n)` | Send `n` array elements as bytes. Returns bytes sent, `-1` = error. |
+| `int usbClose()` | Stop reading, keep the host stack up |
+| `int usbDeinit()` | Tear the stack down and give the RAM back |
+| `int usbInfo(sel)` | `0` = VID, `1` = PID, `2` = bytes received, `3` = bytes sent, `4` = bytes **lost** (ring overflow — the script is not reading fast enough) |
+
+**Pump in `TaskLoop()`, not in a callback.** At 230400 baud the link carries 23 kB/s;
+in `Every50ms()` that fights Tasmota's main loop for time, and the ring overflows —
+`usbInfo(4)` is where you see it.
+
+**Throughput — measured against a real VarioLab (2026-09-12):**
+
+| | |
+|---|---|
+| sending | **22 349 B/s = 97 % of the line**, 262 144 of 262 144 bytes, 0 lost |
+| receiving | 18,5 kB/s sustained, twice 15 s, 0 lost — as much as that recorder sends |
+
+So the chain carries line rate. Two things had to be right for that, and both cost
+an order of magnitude when they are not:
+
+⚠️ **The USB event round is the ceiling, not the wire.** Transfer callbacks are
+dispatched in the SAME task as the library events, so a blocking wait for library
+events — plugging and unplugging, seconds apart — holds up the transfers, which are
+milliseconds apart. With `usb_host_lib_handle_events(50 ms)` the numbers came out as
+exactly 4 IN × 62 B per round = **4,96 kB/s** and 1 OUT × 64 B = **1,28 kB/s** —
+arithmetic of the round, matching the measurement to the byte. Pass `0` there and let
+`usb_host_client_handle_events` do the waiting; it returns as soon as an event arrives.
+
+⚠️ **The ring must outlast a Wi-Fi hiccup.** 2048 bytes are 89 ms of headroom at
+23 kB/s; at 17,7 kB/s that lost 3 bytes out of 275 060 — and in this protocol a lost
+byte is a SHIFTED frame, not a missing value. The ring is 16 kB (0,7 s), and the
+script reads 1024 bytes per pass instead of 256.
+
+⚠️ **The IN buffers must stay 64 bytes.** The FTDI puts its two status bytes before
+EVERY 64-byte packet; a larger buffer collects several of them and the driver strips
+only the first two. More throughput comes from more transfers in flight
+(`TC_USB_IN_N`, currently 4), never from bigger ones.
+
+⚠️ **The host must supply VBUS.** If nothing ever reaches state `2`, measure that first —
+no amount of script is going to enumerate an unpowered device.
+
+⚠️ Every FTDI IN packet **begins with two status bytes** (modem status, line status),
+every 62 bytes of payload. The driver strips them; this only matters if you go and
+change the driver.
+
+**Example — a TCP bridge (`examples/usb_variolab_tcp.tc`):** a PC program opens
+`<esp-ip>:2000` and talks to the device as if the serial port were local.
+
+```c
+int b[1024];          // 1024, not 256: 90 round trips per second, not 360
+int offen = 0;
+
+int main() {
+    usbInit();
+    tcpServer(2000);
+    return 0;
+}
+
+void TaskLoop() {
+    if (usbState() == 2 && offen == 0) {
+        if (usbOpen(230400) == 1) { offen = 1; }
+    }
+    if (usbState() < 2) { offen = 0; }
+
+    int n = tcpAvailable();
+    if (n > 0) {
+        n = tcpReadArray(b);
+        if (n > 0 && offen == 1) { usbWrite(b, n); }
+    }
+    if (offen == 1 && usbAvailable() > 0) {
+        n = usbRead(b, 1024);
+        if (n > 0) { tcpWriteArray(b, n, 0); }   // 0 = raw bytes; 1 would be uint16!
+    }
+    delay(2);
+}
+```
+
+
 ### LVGL GUI (ESP32 — requires USE_TINYC_LVGL)
 
 Build a **retained-mode, touch-interactive GUI** on the device's panel using the LVGL 9 engine
