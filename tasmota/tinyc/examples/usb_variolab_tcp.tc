@@ -30,6 +30,13 @@
 // The pump runs in TaskLoop() — its OWN FreeRTOS task, so 23 kB/s never fights
 // Tasmota's main loop for time.
 
+// ⚠️ The look — panel, language switch, Save button, grey footer — is the
+// SML family's, and it comes from their file rather than being copied: a
+// second copy of that CSS would drift away from the original within a month.
+// It also brings the "power saving off" switch, which matters here more than
+// there: a bridge that dozes between loop passes adds latency to every byte.
+#include "ui_common.tc"
+
 #define PORT   2000        // what uVariotest expects by default
 #define BAUD   230400      // VarioLab, 8N1
 
@@ -81,11 +88,17 @@ int baudwahl = 5;          // index into baudliste, 5 = 230400
 // each round is the whole mechanism: without it the page would show pins 16/17
 // while the bridge still ran on the old ones, and the status row would agree
 // with the page and be wrong.
-int alt_quelle = -1;
-int alt_rx = -2;
-int alt_tx = -2;
-int alt_baud = -1;
-int alt_wahl = -1;
+// ── Edit buffers ───────────────────────────────────────────────────────
+// ⚠️ THE WIDGETS DO NOT WRITE INTO THE LIVE SETTINGS. They write here, and
+// only Save copies them across. Same reason as in the SML panel: a pin
+// changed mid-edit would reopen the port on every keystroke of a setting the
+// user has not finished choosing -- I watched it do exactly that three times
+// in a row while testing the immediate version.
+int e_quelle;
+int e_rx;
+int e_tx;
+int e_wahl;
+byte w_buf[220];           // one HTML block at a time, like sml_buf
 int sh = -1;               // serial handle from serialBegin(), -1 = closed
 int s_rx = 0;              // own byte counters — usbInfo() only knows USB
 int s_tx = 0;
@@ -140,7 +153,7 @@ int main() {
     // and is unreachable, which is the kind of bug one looks for in the HTML.
     webPageLabel(0, "Br&uuml;cke");
 
-    schatten_stellen();
+    puffer_laden();
     return 0;
 }
 
@@ -155,32 +168,127 @@ int baud_index(int wert) {
     return 5;              // 230400 — the VarioLab
 }
 
-void schatten_stellen() {
-    alt_quelle = quelle;
-    alt_rx = p_rx;
-    alt_tx = p_tx;
-    alt_baud = p_baud;
-    alt_wahl = baudwahl;
+// Load the edit buffers from what is actually in effect.
+void puffer_laden() {
+    e_quelle = quelle;
+    e_rx = p_rx;
+    e_tx = p_tx;
+    e_wahl = baud_index(p_baud);
 }
 
-// ─── The submenu: source, pins, baud rate ───────────────────────────────
+// ─── Once a second: the shared bookkeeping, then Save ───────────────────
 //
-// Rendered at /tc_ui, reachable from the "Brücke" button on the main page.
+// ⚠️ uiApplyBegin() FIRST, before anything reads ui_applying/ui_reloading --
+// it is what sets them. The SML modules do the same, and in the same order.
+void EverySecond() {
+    uiApplyBegin();
+
+    // A fresh page render throws away unsaved edits.
+    if (ui_reloading) { puffer_laden(); }
+
+    if (ui_applying) {
+        // ⚠️ Refuse a source this firmware cannot serve, and put the menu
+        // back -- a pulldown that keeps showing a setting which never took
+        // effect is worse than one that springs back.
+        if (e_quelle == Q_USB && hat_usb == 0) {
+            e_quelle = Q_SER;
+            addLog("no USB host in this firmware — staying on pins");
+        }
+        quelle = e_quelle;
+        p_rx = e_rx;
+        p_tx = e_tx;
+        p_baud = baudliste[e_wahl];
+        baudwahl = e_wahl;
+        // Close what was open; TaskLoop opens the new source on its next pass.
+        if (sh >= 0) { serialClose(sh); sh = -1; }
+        offen = 0;
+        char ms[100];
+        if (quelle == Q_USB) {
+            strcpy(ms, "bridge source: usb host");
+        } else {
+            sprintf(ms, "bridge source: pins rx %d tx %d, %d baud",
+                    p_rx, p_tx, p_baud);
+        }
+        addLog(ms);
+        puffer_laden();
+    }
+}
+
+// ─── The submenu ────────────────────────────────────────────────────────
+//
+// Reachable from the "Brücke" button on the main page. The look is the SML
+// family's: framed panel, language switch on top, sections with an icon, Save
+// at the bottom, grey footer. Copied by USING their file, not their markup.
 //
 // ⚠️ THE PIN LISTS COME FROM TASMOTA (`@getfreepins`), not from a hand-written
-// list of numbers. It offers exactly the GPIOs that are still free, marks the
-// one in use, and stores the GPIO NUMBER (not an index) -- so it lines up with
-// the -1 = "not set" this script already used. A hand-written list would go
-// stale the moment a pin is given to something else.
+// list of numbers. It offers exactly the GPIOs that are still free, marks one
+// that is in use, and stores the GPIO NUMBER (not an index) -- so it lines up
+// with the -1 = "not set" this script already used. A hand-written list would
+// go stale the moment a pin is given to something else.
+void panel_auf(char icon[], char en[], char de[]) {
+    webSend("<style>body>div{width:480px;max-width:96vw;box-sizing:border-box}.sml-p{max-width:100%;box-sizing:border-box;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.sml-p h3{margin:0 0 8px}.sml-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.sml-p b{display:inline-block;margin-bottom:4px;font-size:13px}.sml-p div{margin:6px 0}.sml-p .hint{font-size:9px;color:#555;line-height:1.4}</style>");
+    if (ui_de) sprintf(w_buf, "<div class='sml-p'><h3>%s %s</h3>", icon, de);
+    else       sprintf(w_buf, "<div class='sml-p'><h3>%s %s</h3>", icon, en);
+    webSend(w_buf);
+}
+
 void WebUI() {
-    webPulldown(quelle, "Quelle", "USB-Host|Serielle Pins");
-    // The pins and the rate only mean anything on the serial path. They are
-    // shown anyway: a menu whose entries appear and disappear is harder to
-    // use than one where the irrelevant rows simply have no effect.
-    webPulldown(p_rx, "RX (vom Ger&auml;t)", "@getfreepins");
-    webPulldown(p_tx, "TX (zum Ger&auml;t)", "@getfreepins");
-    webPulldown(baudwahl, "Baudrate",
-                "9600|19200|38400|57600|115200|230400|460800|921600");
+    if (webPage() != 0) { return; }
+    panel_auf("&#x1F50C;", "VarioLab bridge", "VarioLab-Br&uuml;cke");
+    uiLang();                       // topmost — it relabels everything below
+
+    uiHead("&#x1F517;", "Source", "Quelle", "");
+    if (ui_de) webPulldown(e_quelle, "Anschluss", "USB-Host|Serielle Pins");
+    else       webPulldown(e_quelle, "Connection", "USB host|Serial pins");
+    if (hat_usb == 0) {
+        if (ui_de) webSend("<div class='hint'>&#9888; Diese Firmware hat keinen USB-Host — nur Pins.</div>");
+        else       webSend("<div class='hint'>&#9888; No USB host in this firmware — pins only.</div>");
+    }
+
+    uiHead("&#x1F50C;", "Serial pins", "Serielle Pins", "");
+    if (ui_de) {
+        webPulldown(e_rx, "RX (vom Ger&auml;t)", "@getfreepins");
+        webPulldown(e_tx, "TX (zum Ger&auml;t)", "@getfreepins");
+        webPulldown(e_wahl, "Baudrate",
+                    "9600|19200|38400|57600|115200|230400|460800|921600");
+        webSend("<div class='hint'>Nur f&uuml;r „Serielle Pins&ldquo;. Andere Baudraten &uuml;ber die Konsole: TCUS ser &lt;rx&gt; &lt;tx&gt; &lt;baud&gt;</div>");
+    } else {
+        webPulldown(e_rx, "RX (from device)", "@getfreepins");
+        webPulldown(e_tx, "TX (to device)", "@getfreepins");
+        webPulldown(e_wahl, "Baud rate",
+                    "9600|19200|38400|57600|115200|230400|460800|921600");
+        webSend("<div class='hint'>Only for &ldquo;Serial pins&rdquo;. Other rates from the console: TCUS ser &lt;rx&gt; &lt;tx&gt; &lt;baud&gt;</div>");
+    }
+
+    // ⚠️ THIS BLOCK HAS TO SWITCH LANGUAGE TOO. It was German-only at first,
+    // which on an English page reads like a bug in the translation rather than
+    // a line somebody forgot -- and it is the line one actually reads.
+    uiHead("&#x1F4E1;", "Status", "Zustand", "");
+    if (quelle == Q_USB) {
+        if (ui_de) {
+            sprintf(w_buf, "<div class='hint'>TCP %d &middot; USB-Host, Zustand %d &middot; %d B empfangen, %d B gesendet</div>",
+                    horcht, usbState(), usbInfo(2), usbInfo(3));
+        } else {
+            sprintf(w_buf, "<div class='hint'>TCP %d &middot; USB host, state %d &middot; %d B in, %d B out</div>",
+                    horcht, usbState(), usbInfo(2), usbInfo(3));
+        }
+    } else {
+        if (ui_de) {
+            sprintf(w_buf, "<div class='hint'>TCP %d &middot; Pins rx %d tx %d, %d Bd &middot; %d B empfangen, %d B gesendet</div>",
+                    horcht, p_rx, p_tx, p_baud, s_rx, s_tx);
+        } else {
+            sprintf(w_buf, "<div class='hint'>TCP %d &middot; pins rx %d tx %d, %d Bd &middot; %d B in, %d B out</div>",
+                    horcht, p_rx, p_tx, p_baud, s_rx, s_tx);
+        }
+    }
+    webSend(w_buf);
+
+    webSend("<hr>");
+    uiSaveButton();
+
+    uiUptime();
+    webSend("usb_variolab_tcp.tc &middot; TinyC <span id='tcv'>...</span></div></div>");
+    webSend("<script>if(window.__tcv){document.getElementById('tcv').textContent=window.__tcv;}else{fetch('/tc_api?cmd=status').then(function(r){return r.json();}).then(function(j){window.__tcv=j.release;var e=document.getElementById('tcv');if(e)e.textContent=j.release;}).catch(function(){});}</script>");
 }
 
 void TaskLoop() {
@@ -199,34 +307,6 @@ void TaskLoop() {
             }
         }
         return;            // nothing to pump while there is no server
-    }
-
-    // 0b) Did somebody change something in the menu?
-    // ⚠️ THE ORDER MATTERS. First take the baud rate out of the pulldown, then
-    // compare -- otherwise a changed rate is noticed one round late, i.e. the
-    // port reopens at the OLD speed and looks like a wiring fault.
-    if (baudwahl != alt_wahl) { p_baud = baudliste[baudwahl]; }
-    if (quelle != alt_quelle || p_rx != alt_rx || p_tx != alt_tx
-                             || p_baud != alt_baud) {
-        // ⚠️ Refuse a source the firmware cannot serve, and put the menu back
-        // -- a pulldown that keeps showing a setting which never took effect is
-        // worse than one that springs back.
-        if (quelle == Q_USB && hat_usb == 0) {
-            quelle = Q_SER;
-            addLog("no USB host in this firmware — staying on pins");
-        }
-        if (sh >= 0) { serialClose(sh); sh = -1; }
-        offen = 0;
-        char mm[100];
-        if (quelle == Q_USB) {
-            strcpy(mm, "bridge source: usb host");
-        } else {
-            sprintf(mm, "bridge source: pins rx %d tx %d, %d baud",
-                    p_rx, p_tx, p_baud);
-        }
-        addLog(mm);
-        baudwahl = baud_index(p_baud);
-        schatten_stellen();
     }
 
     // 1) Open the chosen source, and reopen it after a disconnect.
@@ -349,7 +429,7 @@ void Command(char cmd[]) {
         if (sh >= 0) { serialClose(sh); sh = -1; }
         quelle = Q_USB;
         offen = 0;
-        schatten_stellen();
+        puffer_laden();
         responseCmnd("source: usb host");
         return;
     }
@@ -382,7 +462,7 @@ void Command(char cmd[]) {
         // next to a bridge running at 31250 -- and the page is what one
         // believes.
         baudwahl = baud_index(p_baud);
-        schatten_stellen();
+        puffer_laden();
         sprintf(m, "source: serial, rx %d tx %d, %d baud", p_rx, p_tx, p_baud);
         responseCmnd(m);
         return;
