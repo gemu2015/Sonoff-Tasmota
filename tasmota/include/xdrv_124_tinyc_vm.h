@@ -2133,6 +2133,14 @@ static inline void tc_chart_response_reset(void) {
 }
 #define TC_MAX_SERIAL_PORTS 3
 static TasmotaSerial *tc_serial_ports[TC_MAX_SERIAL_PORTS] = {}; // TinyC serial ports (up to 3, one per handle)
+// ⚠️ Which pins each open port drives. TasmotaSerial does not expose them, and
+// patching a vendored library for a lookup would be the wrong place -- see the
+// pin check in SYS_SERIAL_BEGIN for why it has to be answerable at all.
+// {rx, tx}; -1 means "none" and never collides.
+// ⚠️ -1, NICHT 0. Ein mit {} vorbelegtes Feld steht auf 0, und GPIO 0 ist ein
+// gueltiger Pin -- die Sperre haette dann jedes serialBegin auf Pin 0
+// abgelehnt, solange irgendein Port offen ist.
+static int16_t tc_serial_pins[TC_MAX_SERIAL_PORTS][2] = {{-1,-1},{-1,-1},{-1,-1}};
 
 // Image store for dspLoadImage / dspPushImageRect (watchface backgrounds etc.)
 // Slots from imgCreate() additionally carry a RendererCanvas so that all
@@ -4537,12 +4545,36 @@ static void tc_close_vm_files(TcVM *owner) {
   tc_file_handle_unlock();
 }
 
+// ⚠️⚠️ CLOSING MUST NOT BE ABLE TO HANG. It used to call
+// TasmotaSerial::flush(), which on ESP32 drains the RX side with
+//     while (TSerial->available()) { TSerial->read(); }
+// -- an UNBOUNDED loop. Watched it stop dead on 2026-09-13: a script opened
+// two ports and closed them, the "serial port N closed" line never appeared,
+// and the slot reported Instr: 0 across two queries eight seconds apart. The
+// VM task was gone, and it took the whole device with it a minute later --
+// only a power cycle brought it back.
+//
+// A drain is a convenience, not a contract: whatever is still in the RX buffer
+// of a port that is being closed is by definition unwanted. So it gets a
+// CEILING. Anything beyond that is not a full buffer, it is a UART that keeps
+// answering "one more byte" -- and then stopping is exactly right.
 static void tc_serial_close(int h) {
   if (h >= 0 && h < TC_MAX_SERIAL_PORTS && tc_serial_ports[h]) {
+    // TX out first -- that side is bounded by the hardware FIFO.
     tc_serial_ports[h]->flush();
-    delay(50);
+    // ⚠️ Two ceilings, not one: a byte count AND a wall clock. A port that
+    // delivers endlessly would satisfy the byte count in microseconds; one
+    // that delivers slowly would sit here for its whole buffer.
+    uint32_t bis = millis() + 50;
+    int32_t rest = 4096;
+    while (rest-- > 0 && !TimeReached(bis)) {
+      if (!tc_serial_ports[h]->available()) { break; }
+      tc_serial_ports[h]->read();
+    }
     delete tc_serial_ports[h];
     tc_serial_ports[h] = nullptr;
+    tc_serial_pins[h][0] = -1;
+    tc_serial_pins[h][1] = -1;
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial port %d closed"), h);
   }
 }
@@ -6983,6 +7015,30 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (bufsize < 64) bufsize = 64;
       if (bufsize > 2048) bufsize = 2048;
       if (config < 0 || config > 23) config = 3;  // default 8N1
+      // ⚠️⚠️ THE SAME PIN MUST NOT GO TO TWO PORTS. On ESP32 every TinyC
+      // serial port is a hardware UART, and freeUart() hands them out from
+      // the top; pointing a second UART at a pin the first one drives leaves
+      // both in a state neither can leave. Measured on 2026-09-13 (S3): a
+      // script opened rx=-1/tx=17 and rx=17/tx=-1, got both handles back --
+      // but only ONE "opened" line appeared in the log, and closing them never
+      // returned. The next script then received UART0, i.e. the console, and
+      // the device stopped answering altogether. Only a power cycle helped.
+      //
+      // The check costs nothing and turns a wedged device into a -1 and a line
+      // in the log.
+      for (int i = 0; i < TC_MAX_SERIAL_PORTS; i++) {
+        if (!tc_serial_ports[i]) { continue; }
+        if ((rxpin >= 0 && (tc_serial_pins[i][0] == rxpin
+                         || tc_serial_pins[i][1] == rxpin)) ||
+            (txpin >= 0 && (tc_serial_pins[i][0] == txpin
+                         || tc_serial_pins[i][1] == txpin))) {
+          AddLog(LOG_LEVEL_ERROR,
+                 PSTR("TCC: serialBegin — pin %d/%d already used by port %d"),
+                 rxpin, txpin, i);
+          TC_PUSH(vm, -1);
+          goto serial_begin_fertig;
+        }
+      }
 #ifdef ESP32
       if (Is_gpio_used(rxpin) || Is_gpio_used(txpin)) {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial warning — pins %d/%d may be in use"), rxpin, txpin);
@@ -7006,6 +7062,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           // misframed. See TasmotaSerial::setRxFifoFull doc comment.
           tc_serial_ports[slot]->setRxFifoFull(10);
 #endif
+          tc_serial_pins[slot][0] = (int16_t)rxpin;
+          tc_serial_pins[slot][1] = (int16_t)txpin;
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial[%d] opened rx=%d tx=%d baud=%d cfg=%d buf=%d hw=%d rxfifo=10"),
                  slot, rxpin, txpin, baud, config, bufsize, tc_serial_ports[slot]->hardwareSerial());
           TC_PUSH(vm, slot);
@@ -7019,6 +7077,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: serial alloc failed"));
         TC_PUSH(vm, -1);
       }
+      serial_begin_fertig:
       break;
     }
     case SYS_SERIAL_CLOSE: {
