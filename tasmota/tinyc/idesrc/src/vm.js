@@ -1557,6 +1557,15 @@ export class VM {
                 this.push(0);
                 break;
             }
+            case 555: { // SERIAL_READ_ARR — (h, arr, n) -> bytes read
+                // Nothing arrives in the simulator; 0 is the correct answer,
+                // not an error. Without this case the syscall would be
+                // unknown, and a program that uses the bridge could not even
+                // be stepped through in the browser.
+                this.pop(); this.pop(); this.pop();
+                this.push(0);
+                break;
+            }
 
             // Math
             case 30: { // ABS

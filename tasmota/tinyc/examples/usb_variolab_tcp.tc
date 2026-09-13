@@ -1,5 +1,5 @@
 // @name: VarioLab over TCP
-// usb_variolab_tcp.tc — bridges a TCP port to an FTDI on the USB host.
+// usb_variolab_tcp.tc — bridges a TCP port to a device, over USB host OR pins.
 //
 // WHY: the VarioLab has its FTDI soldered in, with no way to reach the UART
 // before it. The only way in is for the ESP32 to BE a USB host. uVariotest then
@@ -7,14 +7,28 @@
 // and speaks raw bytes — no framing, no handshake.
 //
 //     uVariotest26  --TCP 2000-->  ESP32-S3  --USB host-->  FT232R --> VarioLab
+//     uVariotest26  --TCP 2000-->  ESP32     --RX/TX pins->  VarioLab (TTL)
 //
-// NEEDS an S3 (or S2) built with USE_TINYC_USBSERIAL, device on the OTG socket.
-// ⚠️ The host must supply VBUS. If nothing enumerates, measure that first.
+// TWO SOURCES, one bridge. The USB-host path needs an S3 (or S2) built with
+// USE_TINYC_USBSERIAL and the device on the OTG socket; the pin path works on
+// any ESP32 and reaches a device whose UART is on the header. Which one is
+// live is a RUNTIME choice and survives a reboot:
+//
+//     TCUS                 what is set, and what is going through
+//     TCUS usb             USB host (the OTG socket)
+//     TCUS ser 16 17       serial on RX=16 TX=17, at BAUD
+//     TCUS ser 16 17 115200    ... with another baud rate
+//
+// ⚠️ The pins are given as RX first, TX second — the order in which
+// serialBegin() takes them, and the order the Tasmota web page prints. Naming
+// them the other way round in a dialog and this way in the code is exactly how
+// a wired-up device stays silent for an afternoon.
+//
+// ⚠️ For the USB path the host must supply VBUS. If nothing enumerates,
+// measure that first.
 //
 // The pump runs in TaskLoop() — its OWN FreeRTOS task, so 23 kB/s never fights
 // Tasmota's main loop for time.
-//
-// Console: TCUS — state and throughput.
 
 #define PORT   2000        // what uVariotest expects by default
 #define BAUD   230400      // VarioLab, 8N1
@@ -26,6 +40,23 @@ int b[1024];               // one int32 per byte, like the SPP family.
 int offen = 0;
 int horcht = 0;            // 1 once tcpServer() really came up
 int naechster_versuch = 0; // millis() of the next attempt
+
+// ── Which source, and how it is wired ───────────────────────────────────
+// ⚠️ `persist`: whoever wires a device to pins 16/17 does not want to say so
+// again after every power cut. The values survive a reboot in the .pvs file.
+// ⚠️ Adding or removing a persist variable RESETS ALL of them to the values
+// declared here — that is how the format works, not a bug. So: if the bridge
+// suddenly talks USB again after an update, set the pins once more.
+#define Q_USB  0
+#define Q_SER  1
+persist int quelle  = Q_USB;
+persist int p_rx    = -1;      // GPIO for receive, -1 = not set
+persist int p_tx    = -1;      // GPIO for transmit
+persist int p_baud  = BAUD;
+
+int sh = -1;               // serial handle from serialBegin(), -1 = closed
+int s_rx = 0;              // own byte counters — usbInfo() only knows USB
+int s_tx = 0;
 
 // ── For the status rows on Tasmota's main page ──────────────────────────
 int letzter_verkehr = 0;   // millis() when bytes last moved either way
@@ -72,43 +103,81 @@ void TaskLoop() {
         return;            // nothing to pump while there is no server
     }
 
-    // 1) Open as soon as something is there, and again after unplugging.
-    int z = usbState();
-    // ⚠️ AFTER A SCRIPT RESTART THE PORT IS USUALLY ALREADY OPEN (state 3) --
-    // usbClose() never ran, so the driver kept it. A pump that only waits for
-    // state 2 waits forever and forwards nothing, while every status row
-    // cheerfully says "offen". Seen on 2026-09-12: device open, client
-    // connected, traffic on the TCP side, and not one byte on the wire.
-    if (z == 3) { offen = 1; }
-    if (z == 2 && offen == 0) {
-        if (usbOpen(BAUD) == 1) {
-            offen = 1;
-            char m[72];
-            sprintf(m, "VarioLab: %x:%x open, %d baud", usbInfo(0), usbInfo(1), BAUD);
-            addLog(m);
+    // 1) Open the chosen source, and reopen it after a disconnect.
+    if (quelle == Q_USB) {
+        int z = usbState();
+        // ⚠️ AFTER A SCRIPT RESTART THE PORT IS USUALLY ALREADY OPEN (state 3)
+        // -- usbClose() never ran, so the driver kept it. A pump that only
+        // waits for state 2 waits forever and forwards nothing, while every
+        // status row cheerfully says "offen". Seen on 2026-09-12: device open,
+        // client connected, traffic on the TCP side, not one byte on the wire.
+        if (z == 3) { offen = 1; }
+        if (z == 2 && offen == 0) {
+            if (usbOpen(BAUD) == 1) {
+                offen = 1;
+                char m[72];
+                sprintf(m, "VarioLab: %x:%x open, %d baud", usbInfo(0), usbInfo(1), BAUD);
+                addLog(m);
+            }
         }
+        if (z < 2) { offen = 0; }
+    } else {
+        // Pins: one serialBegin() and it stays open. -1 means "not wired up
+        // yet" -- then the bridge waits instead of guessing a pin.
+        if (sh < 0 && p_rx >= 0 && p_tx >= 0) {
+            sh = serialBegin(p_rx, p_tx, p_baud, 3, 1024);
+            if (sh >= 0) {
+                offen = 1;
+                char m2[80];
+                sprintf(m2, "VarioLab on pins: rx %d tx %d, %d baud", p_rx, p_tx, p_baud);
+                addLog(m2);
+            }
+        }
+        if (sh < 0) { offen = 0; }
     }
-    if (z < 2) { offen = 0; }
 
-    // 2) TCP -> USB
+    // 2) TCP -> device
     n = tcpAvailable();
     if (n > 0) {
         n = tcpReadArray(b);
         if (n > 0) {
             etwas = 1;
-            if (offen == 1) { usbWrite(b, n); }
+            if (offen == 1) {
+                if (quelle == Q_USB) {
+                    usbWrite(b, n);
+                } else {
+                    // ⚠️ serialWriteBytes and not a loop over serialWriteByte:
+                    // one syscall per byte costs about 10 us, measured on the S3.
+                    serialWriteBytes(sh, b, n);
+                    s_tx = s_tx + n;
+                }
+            }
         }
     }
 
-    // 3) USB -> TCP
+    // 3) device -> TCP
     if (offen == 1) {
-        n = usbAvailable();
-        while (n > 0) {
-            n = usbRead(b, 1024);
-            if (n <= 0) { break; }
-            tcpWriteArray(b, n, 0);   // 0 = raw bytes; 1 would be uint16!
-            etwas = 1;
+        if (quelle == Q_USB) {
             n = usbAvailable();
+            while (n > 0) {
+                n = usbRead(b, 1024);
+                if (n <= 0) { break; }
+                tcpWriteArray(b, n, 0);   // 0 = raw bytes; 1 would be uint16!
+                etwas = 1;
+                n = usbAvailable();
+            }
+        } else {
+            // ⚠️ serialReadArray fetches the WHOLE block in one syscall.
+            // serialRead() would be one per byte: the VM manages 95 969 of
+            // those per second (measured on an ESP32-S3), so 23 kB/s would
+            // spend a quarter of it just fetching.
+            n = serialReadArray(sh, b, 1024);
+            while (n > 0) {
+                tcpWriteArray(b, n, 0);
+                s_rx = s_rx + n;
+                etwas = 1;
+                n = serialReadArray(sh, b, 1024);
+            }
         }
     }
 
@@ -118,13 +187,78 @@ void TaskLoop() {
     if (etwas == 0) { delay(2); }
 }
 
+// ─── TCUS — show the state, and switch the source ───────────────────────
+//
+//     TCUS                  what is set, and what is going through
+//     TCUS usb              USB host (OTG socket)
+//     TCUS ser 16 17        serial on RX=16 TX=17, at the stored baud rate
+//     TCUS ser 16 17 115200 ... and set the baud rate too
+//
+// ⚠️ SWITCHING CLOSES THE OLD SOURCE. Leaving a serialBegin() open while the
+// USB path runs would hold one of the three serial slots for nothing, and the
+// pins would keep driving -- on a board where they are shared that is not a
+// leak, it is a short.
 void Command(char cmd[]) {
-    char m[110];
+    char m[140];
+    char w[24];
+
+    // ⚠️⚠️ THE ARGUMENT ARRIVES WITH A LEADING SPACE. `TCUS ser 16 17` reaches
+    // this function as " ser 16 17", so strToken(...,1) is the EMPTY string
+    // and every call fell through to the status line -- which looks exactly
+    // like an argument being ignored, and sent me hunting for the wrong thing
+    // (I first assumed Tasmota upper-cases it; it does not). Logged the raw
+    // string once and it was obvious. strTrim() first, then the tokens count
+    // from 1 as one would expect.
+    strTrim(cmd);
+    strToken(w, cmd, ' ', 1);
+    strToLower(w);
+    if (strcmp(w, "usb") == 0) {
+        if (sh >= 0) { serialClose(sh); sh = -1; }
+        quelle = Q_USB;
+        offen = 0;
+        responseCmnd("source: usb host");
+        return;
+    }
+    if (strcmp(w, "ser") == 0) {
+        char a1[12];
+        char a2[12];
+        char a3[12];
+        strToken(a1, cmd, ' ', 2);
+        strToken(a2, cmd, ' ', 3);
+        int rx = strToInt(a1);
+        int tx = strToInt(a2);
+        // ⚠️ strToInt gives 0 for anything unreadable, and 0 IS a valid GPIO.
+        // So an empty argument has to be caught before, not after -- otherwise
+        // "TCUS ser" silently wires the bridge to pin 0, which on most boards
+        // is the boot strap.
+        if (strlen(a1) == 0 || strlen(a2) == 0) {
+            responseCmnd("usage: TCUS ser <rx> <tx> [baud]");
+            return;
+        }
+        if (strToken(a3, cmd, ' ', 4) > 0) {
+            int bd = strToInt(a3);
+            if (bd > 0) { p_baud = bd; }
+        }
+        if (sh >= 0) { serialClose(sh); sh = -1; }
+        p_rx = rx;
+        p_tx = tx;
+        quelle = Q_SER;
+        offen = 0;
+        sprintf(m, "source: serial, rx %d tx %d, %d baud", p_rx, p_tx, p_baud);
+        responseCmnd(m);
+        return;
+    }
+
     // ⚠️ `horcht` belongs in this line. Without it the status looked healthy
     // while port 2000 was refused -- the one thing it could not tell you was
     // the one thing that was wrong.
-    sprintf(m, "tcp %d, usb state %d, open %d, rx %d, tx %d, lost %d",
-            horcht, usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
+    if (quelle == Q_USB) {
+        sprintf(m, "tcp %d, source usb, state %d, open %d, rx %d, tx %d, lost %d",
+                horcht, usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
+    } else {
+        sprintf(m, "tcp %d, source serial rx %d tx %d %d bd, handle %d, rx %d, tx %d",
+                horcht, p_rx, p_tx, p_baud, sh, s_rx, s_tx);
+    }
     responseCmnd(m);
 }
 

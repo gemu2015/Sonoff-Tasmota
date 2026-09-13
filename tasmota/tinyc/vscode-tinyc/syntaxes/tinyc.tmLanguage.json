@@ -162,7 +162,7 @@
         {
           "comment": "Serial",
           "name": "support.function.serial.tinyc",
-          "match": "\\b(serialBegin|serialPrint|serialPrintInt|serialPrintFloat|serialPrintln|serialRead|serialAvailable|serialClose|serialWriteByte|serialWriteStr|serialWriteBytes)\\b"
+          "match": "\\b(serialBegin|serialPrint|serialPrintInt|serialPrintFloat|serialPrintln|serialRead|serialAvailable|serialClose|serialWriteByte|serialWriteStr|serialWriteBytes|serialReadArray)\\b"
         },
         {
           "comment": "1-Wire",

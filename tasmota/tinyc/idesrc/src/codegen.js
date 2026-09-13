@@ -103,6 +103,7 @@ const BUILTINS = {
     'serialWriteByte':  { syscall: Syscall.SERIAL_WRITE_BYTE,  args: 2, returns: false },
     'serialWrite':      { syscall: Syscall.SERIAL_WRITE_STR,   args: 2, returns: false, strArgs: [1] },
     'serialWriteBytes': { syscall: Syscall.SERIAL_WRITE_BUF,   args: 3, returns: false, strArgs: [1] },
+    'serialReadArray':  { syscall: Syscall.SERIAL_READ_ARR,   args: 3, returns: true,  strArgs: [1], intArgs: [2] },
 
     // Math
     'abs':              { syscall: Syscall.MATH_ABS,        args: 1, returns: true },

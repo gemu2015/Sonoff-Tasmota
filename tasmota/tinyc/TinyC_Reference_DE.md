@@ -2519,6 +2519,17 @@ Es koennen bis zu 3 serielle Ports gleichzeitig geoeffnet sein. `serialBegin()` 
 | `serialWriteByte(int h, int b)`                   | Einzelnes Byte an Port `h` senden                         |
 | `serialWrite(int h, char str[])`                  | Char-Array an Port `h` senden (binaer-sicher)             |
 | `serialWriteBytes(int h, char buf[], int len)`    | `len` Bytes aus Buffer an Port `h` senden                 |
+| `int serialReadArray(int h, arr[], int len)`      | Bis zu `len` Bytes am Stück nach `arr` — **ein Systemaufruf für den ganzen Block**. `arr` darf `int[]` (ein Byte je Slot) oder `byte[]` (gepackt) sein. Liefert die Anzahl, 0 wenn nichts da ist; wartet nie |
+
+> ⚠️ **`serialRead()` kostet einen Systemaufruf je Byte.** Am ESP32-S3 gemessen
+> (13.09.2026, echtes Gerät): 95 969 serielle Systemaufrufe je Sekunde, eine
+> leere Schleife schafft 333 333 — rund 10 µs je Byte. Bei 230400 Baud
+> (23 kB/s) ist die VM allein mit dem Abholen zu einem Viertel ausgelastet.
+> Für alles, was strömt, `serialReadArray()`.
+>
+> ⚠️ `serialWriteBytes()` schrieb bei `len > 256` **gar nichts** — kein Fehler,
+> kein Rückgabewert, nur Stille. Es schreibt jetzt häppchenweise.
+
 
 **`serialBegin` Parameter:**
 - `rx` — GPIO-Pin fuer Empfang (-1 zum Deaktivieren, z.B. nur-TX Geraete)

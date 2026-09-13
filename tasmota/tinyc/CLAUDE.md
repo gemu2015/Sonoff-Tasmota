@@ -360,7 +360,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | GPIO | `pinMode`, `digitalRead`, `digitalWrite`, `analogRead`, `dacWrite` |
 | Time | `millis`, `delay`, `timeStamp(buf)` (local `"YYYY-MM-DDTHH:MM:SS"` — read HH at buf[11..12], MM at buf[14..15]), `timeToSecs`, `secsToTime`, `utcSecs`. NB: there is no `tasm_hour()` builtin; `atoi(buf+N)` is rejected (string fns need a plain array var) — index chars instead |
 | Timers | `timerSet`, `timerCancel` (software) |
-| Serial | `serialBegin(rx, tx, baud, cfg, buf)` returns slot 0..2; `serialRead(slot)`, `serialWrite(slot, str)`, `serialAvailable(slot)` (multi-port API; slot is first arg) |
+| Serial | `serialBegin(rx, tx, baud, cfg, buf)` returns slot 0..2; `serialRead(slot)`, `serialWrite(slot, str)`, `serialAvailable(slot)` (multi-port API; slot is first arg). ⭐ **`serialReadArray(slot, arr, n)` reads a whole BLOCK in one syscall** — `serialRead()` costs one syscall per byte, measured at 95 969/s on an ESP32-S3, i.e. a quarter of the VM just to fetch 230400 baud. `arr` may be `int[]` or `byte[]`. ⚠️ `serialWriteBytes()` wrote NOTHING for `len > 256` until 2026-09-13 — silently; it now chunks. |
 | I²C | `i2cRead8`, `i2cWrite8`, `i2cReadBuf`, `i2cWriteBuf`, `i2cScan` |
 | SPI | `spiInit`, `spiTransfer`, `spiSetCs` |
 | 1-Wire | `owReset`, `owRead`, `owWrite`, `owSearch` |

@@ -2585,6 +2585,19 @@ Up to 3 serial ports can be open simultaneously. `serialBegin()` returns a **han
 | `serialWriteByte(int h, int b)`               | Write single byte to serial port `h`                 |
 | `serialWrite(int h, char str[])`              | Write char array to serial port `h` (binary-safe)    |
 | `serialWriteBytes(int h, char buf[], int len)`| Write `len` bytes from buffer to serial port `h`     |
+| `int serialReadArray(int h, arr[], int len)` | Read up to `len` bytes into `arr` — **one syscall for the whole block**. `arr` may be `int[]` (one byte per slot) or `byte[]` (packed). Returns the count, 0 if nothing is waiting; never blocks |
+
+> ⚠️ **`serialRead()` costs one syscall per byte.** Measured on an ESP32-S3
+> (2026-09-13, real device): 95 969 serial syscalls per second, while an empty
+> loop does 333 333 — about 10 µs per byte. At 230400 baud (23 kB/s) that is a
+> quarter of the VM spent just fetching, before any work. Use
+> `serialReadArray()` for anything that streams; `serialRead()` stays right for
+> a handful of bytes and for line-by-line protocols.
+>
+> ⚠️ `serialWriteBytes()` used to write **nothing at all** for `len > 256` — no
+> error, no return value, just silence. It now writes in chunks, so a 1024-byte
+> block from a bridge goes out whole.
+
 
 **`serialBegin` parameters:**
 - `rx` — GPIO pin for receive (-1 to disable RX, e.g. TX-only devices)

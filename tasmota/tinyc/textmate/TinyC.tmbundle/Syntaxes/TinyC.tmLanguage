@@ -297,7 +297,7 @@
 					<key>name</key>
 					<string>support.function.serial.tinyc</string>
 					<key>match</key>
-					<string>\b(serialBegin|serialClose|serialPrint|serialPrintInt|serialPrintFloat|serialPrintln|serialRead|serialAvailable|serialWrite|serialWriteByte|serialWriteBytes)\b</string>
+					<string>\b(serialBegin|serialClose|serialPrint|serialPrintInt|serialPrintFloat|serialPrintln|serialRead|serialAvailable|serialWrite|serialWriteByte|serialWriteBytes|serialReadArray)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>
