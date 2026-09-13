@@ -63,6 +63,29 @@ persist int p_tx    = -1;      // GPIO for transmit
 persist int p_baud  = BAUD;
 
 int hat_usb = 0;           // 1 when this firmware really has the USB host
+
+// ── Baud rate as a pulldown ─────────────────────────────────────────────
+// ⚠️ A LIST, NOT A FREE NUMBER FIELD. A bridge that runs at 230399 baud looks
+// exactly like one with a loose wire: garbage in, garbage out, and nothing
+// says which of the two it is. The pulldown cannot be typed wrong.
+// ⚠️ `TCUS ser <rx> <tx> <baud>` still takes ANY number -- the console is for
+// the odd case (a device at 31250 for MIDI, say), the menu for the usual ones.
+// Then the menu shows the nearest entry and the real value stays in p_baud.
+#define N_BAUD 8
+int baudliste[N_BAUD];
+int baudwahl = 5;          // index into baudliste, 5 = 230400
+
+// ── Shadow copies, so a change in the menu is noticed ───────────────────
+// ⚠️ The widgets write STRAIGHT into the persist variables -- there is no
+// callback that says "the user changed something". Comparing against a shadow
+// each round is the whole mechanism: without it the page would show pins 16/17
+// while the bridge still ran on the old ones, and the status row would agree
+// with the page and be wrong.
+int alt_quelle = -1;
+int alt_rx = -2;
+int alt_tx = -2;
+int alt_baud = -1;
+int alt_wahl = -1;
 int sh = -1;               // serial handle from serialBegin(), -1 = closed
 int s_rx = 0;              // own byte counters — usbInfo() only knows USB
 int s_tx = 0;
@@ -104,7 +127,60 @@ int main() {
     // TaskLoop, so the bridge also comes back after the router reboots.
     horcht = 0;
     naechster_versuch = 0;
+
+    baudliste[0] = 9600;   baudliste[1] = 19200;  baudliste[2] = 38400;
+    baudliste[3] = 57600;  baudliste[4] = 115200; baudliste[5] = 230400;
+    baudliste[6] = 460800; baudliste[7] = 921600;
+    // The stored rate decides which entry the menu shows -- not the other way
+    // round, so a value set over the console is not silently overwritten.
+    baudwahl = baud_index(p_baud);
+
+    // ⚠️ WITHOUT webPageLabel THERE IS NO BUTTON. WebUI() alone renders a page
+    // at /tc_ui, but nothing on the main page links to it -- the menu exists
+    // and is unreachable, which is the kind of bug one looks for in the HTML.
+    webPageLabel(0, "Br&uuml;cke");
+
+    schatten_stellen();
     return 0;
+}
+
+// Which entry of baudliste comes closest to `wert`? Used when the rate was set
+// over the console, so the menu shows something true instead of jumping the
+// bridge to a different speed the moment the page is opened.
+int baud_index(int wert) {
+    int i;
+    for (i = 0; i < N_BAUD; i++) {
+        if (baudliste[i] == wert) { return i; }
+    }
+    return 5;              // 230400 — the VarioLab
+}
+
+void schatten_stellen() {
+    alt_quelle = quelle;
+    alt_rx = p_rx;
+    alt_tx = p_tx;
+    alt_baud = p_baud;
+    alt_wahl = baudwahl;
+}
+
+// ─── The submenu: source, pins, baud rate ───────────────────────────────
+//
+// Rendered at /tc_ui, reachable from the "Brücke" button on the main page.
+//
+// ⚠️ THE PIN LISTS COME FROM TASMOTA (`@getfreepins`), not from a hand-written
+// list of numbers. It offers exactly the GPIOs that are still free, marks the
+// one in use, and stores the GPIO NUMBER (not an index) -- so it lines up with
+// the -1 = "not set" this script already used. A hand-written list would go
+// stale the moment a pin is given to something else.
+void WebUI() {
+    webPulldown(quelle, "Quelle", "USB-Host|Serielle Pins");
+    // The pins and the rate only mean anything on the serial path. They are
+    // shown anyway: a menu whose entries appear and disappear is harder to
+    // use than one where the irrelevant rows simply have no effect.
+    webPulldown(p_rx, "RX (vom Ger&auml;t)", "@getfreepins");
+    webPulldown(p_tx, "TX (zum Ger&auml;t)", "@getfreepins");
+    webPulldown(baudwahl, "Baudrate",
+                "9600|19200|38400|57600|115200|230400|460800|921600");
 }
 
 void TaskLoop() {
@@ -123,6 +199,34 @@ void TaskLoop() {
             }
         }
         return;            // nothing to pump while there is no server
+    }
+
+    // 0b) Did somebody change something in the menu?
+    // ⚠️ THE ORDER MATTERS. First take the baud rate out of the pulldown, then
+    // compare -- otherwise a changed rate is noticed one round late, i.e. the
+    // port reopens at the OLD speed and looks like a wiring fault.
+    if (baudwahl != alt_wahl) { p_baud = baudliste[baudwahl]; }
+    if (quelle != alt_quelle || p_rx != alt_rx || p_tx != alt_tx
+                             || p_baud != alt_baud) {
+        // ⚠️ Refuse a source the firmware cannot serve, and put the menu back
+        // -- a pulldown that keeps showing a setting which never took effect is
+        // worse than one that springs back.
+        if (quelle == Q_USB && hat_usb == 0) {
+            quelle = Q_SER;
+            addLog("no USB host in this firmware — staying on pins");
+        }
+        if (sh >= 0) { serialClose(sh); sh = -1; }
+        offen = 0;
+        char mm[100];
+        if (quelle == Q_USB) {
+            strcpy(mm, "bridge source: usb host");
+        } else {
+            sprintf(mm, "bridge source: pins rx %d tx %d, %d baud",
+                    p_rx, p_tx, p_baud);
+        }
+        addLog(mm);
+        baudwahl = baud_index(p_baud);
+        schatten_stellen();
     }
 
     // 1) Open the chosen source, and reopen it after a disconnect.
@@ -245,6 +349,7 @@ void Command(char cmd[]) {
         if (sh >= 0) { serialClose(sh); sh = -1; }
         quelle = Q_USB;
         offen = 0;
+        schatten_stellen();
         responseCmnd("source: usb host");
         return;
     }
@@ -273,6 +378,11 @@ void Command(char cmd[]) {
         p_tx = tx;
         quelle = Q_SER;
         offen = 0;
+        // ⚠️ Keep the menu in step. Without this the page would show 230400
+        // next to a bridge running at 31250 -- and the page is what one
+        // believes.
+        baudwahl = baud_index(p_baud);
+        schatten_stellen();
         sprintf(m, "source: serial, rx %d tx %d, %d baud", p_rx, p_tx, p_baud);
         responseCmnd(m);
         return;
