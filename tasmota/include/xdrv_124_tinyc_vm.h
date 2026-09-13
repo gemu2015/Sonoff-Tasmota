@@ -3927,7 +3927,30 @@ static void tc_udp_stop(void) {
     }
   }
   Tinyc->tcp_cli_slot = 0;
-  // Stop TCP server
+  // ⚠️⚠️ THE TCP SERVER USED TO BE TORN DOWN HERE, AND IT COST A WORKING
+  // BRIDGE. Two things were wrong with that: a TCP listener has nothing to do
+  // with stopping UDP, and -- unlike the UDP part three lines up -- it was
+  // NOT guarded by "does another slot still need this". tc_udp_stop() runs on
+  // EVERY slot unload, so unloading an unrelated slot 2 silently closed the
+  // port that slot 1 was serving on. Seen on 2026-09-13: TCUS still said
+  // "tcp 1" while port 2000 answered "connection refused", because the script
+  // has no way to notice. Now in tc_tcp_server_stop_if_unused(), called from
+  // the unload path with the same guard the UDP side has.
+}
+
+// Close the shared TCP listener -- but only when no OTHER slot is still
+// loaded. There is no per-VM "uses the server" flag to go by, so the
+// conservative test is the right one: a listener that outlives its script
+// costs one socket, a listener torn out from under a running script costs the
+// service.
+static void tc_tcp_server_stop_if_unused(void *ausser) {
+  if (!Tinyc) return;
+  for (int i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slots[i] && (void *)Tinyc->slots[i] != ausser
+                        && Tinyc->slots[i]->loaded) {
+      return;                       // somebody else may be serving on it
+    }
+  }
   if (Tinyc->tcp_server) {
     Tinyc->tcp_client.stop();
     Tinyc->tcp_server->stop();
@@ -21253,6 +21276,7 @@ static void TinyCStopVM(TcSlot *s) {
       tc_udp_stop();
     }
   }
+  tc_tcp_server_stop_if_unused((void *)s);
   tc_spi_cleanup();
   tc_serial_close_all();
   tc_img_store_free();

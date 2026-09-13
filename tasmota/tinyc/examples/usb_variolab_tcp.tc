@@ -295,7 +295,7 @@ void TaskLoop() {
     int n;
     int etwas = 0;
 
-    // 0) Keep trying until the TCP server is really listening.
+    // 0) Keep the TCP server alive.
     // ⚠️ Once a second, not every pass: a failing attempt allocates and frees
     // a WiFiServer, and this loop runs thousands of times per second.
     if (horcht == 0) {
@@ -307,6 +307,23 @@ void TaskLoop() {
             }
         }
         return;            // nothing to pump while there is no server
+    }
+
+    // ⚠️⚠️ AND RE-ARM IT NOW AND THEN, because `horcht` is a MEMORY and not a
+    // measurement. There is no call that asks "is the listener still there",
+    // so once the flag was set the script believed it forever -- and on
+    // 2026-09-13 it was wrong: unloading an unrelated slot tore the shared
+    // server down (fixed in tc_udp_stop, but that is the firmware's half),
+    // TCUS still reported "tcp 1", and port 2000 answered "connection
+    // refused". A status line that cannot be wrong about the one thing it
+    // reports is worth more than one that is cheap.
+    //
+    // ⚠️ ONLY WHILE NOBODY IS CONNECTED. tcpServer() stops the current client
+    // before it rebinds -- doing this under a running measurement would cut
+    // the recording in half.
+    if (millis() >= naechster_versuch) {
+        naechster_versuch = millis() + 30000;
+        if (tcpConnected() == 0) { tcpServer(PORT); }
     }
 
     // 1) Open the chosen source, and reopen it after a disconnect.
