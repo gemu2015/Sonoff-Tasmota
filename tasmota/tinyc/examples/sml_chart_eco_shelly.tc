@@ -1,3 +1,5 @@
+// @name: SML Chart + EcoTracker / Shelly
+// @info: https://ottelo9.github.io/tasmota-sml-script/eco_shelly/
 // sml_chart_eco_shelly.tc — charts + EcoTracker / Shelly Pro 3EM emulator.
 // Same charts and PV switch as sml_chart.tc, plus the meter emulation a PV
 // battery polls. Without charts use sml_eco_shelly.tc.
@@ -9,7 +11,7 @@
 #include "sml_modbus_common.tc"
 #include "eco_shelly_common.tc"
 
-char sml_vers[] = "16.08.2026";
+char sml_vers[] = "12.09.2026 12:05";
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 
@@ -31,8 +33,44 @@ void Every100ms() {
 
 void EverySecond() {
     uiApplyBegin();
-    if (ui_reloading) { sml_e_pv = sml_pv; sml_e_sndpwr = sml_sndpwr; }
-    if (ui_applying)  { sml_pv = sml_e_pv; sml_sndpwr = sml_e_sndpwr; }
+    if (tc_opt_first == 1) {
+        sml_pv     = tcOptGet(9,  sml_pv);
+        sml_sndpwr = tcOptGet(10, sml_sndpwr);
+        tcOptSet(9,  sml_pv);
+        tcOptSet(10, sml_sndpwr);
+        // Baselines from the shared file, so the day/month/year totals survive
+        // a program change. sml_da comes along: it is the last-seen day, and
+        // without it the month-wrap would zero the wrong span of days.
+        sml_dval  = tcOptGetF(0, sml_dval);
+        sml_mval  = tcOptGetF(1, sml_mval);
+        sml_yval  = tcOptGetF(2, sml_yval);
+        sml_dval2 = tcOptGetF(3, sml_dval2);
+        sml_mval2 = tcOptGetF(4, sml_mval2);
+        sml_yval2 = tcOptGetF(5, sml_yval2);
+        sml_da    = tcOptGet(25, sml_da);
+        sml_stmin  = tcOptGet(30, sml_stmin);
+        sml_chmain = tcOptGet(31, sml_chmain);
+        if (sml_stmin == 0) sml_stmin = 240;
+        tcOptSet(30, sml_stmin);
+        tcOptSet(31, sml_chmain);
+        sml_chart_opt_load();
+    }
+    // Pushed every second rather than at the rollover: the baselines are
+    // written in several places (midnight, month wrap, new year, the manual
+    // reset button, the .bin import) and a missed one would silently keep an
+    // old figure in the file. tcOptSetF only marks the file dirty on a real
+    // change, so this costs six comparisons.
+    tcOptSetF(0, sml_dval);
+    tcOptSetF(1, sml_mval);
+    tcOptSetF(2, sml_yval);
+    tcOptSetF(3, sml_dval2);
+    tcOptSetF(4, sml_mval2);
+    tcOptSetF(5, sml_yval2);
+    tcOptSet(25, sml_da);
+    if (ui_reloading) { sml_e_pv = sml_pv; sml_e_sndpwr = sml_sndpwr; sml_chart_opt_load(); }
+    if (ui_applying)  { sml_pv = sml_e_pv; sml_sndpwr = sml_e_sndpwr;
+                        tcOptSet(9, sml_pv); tcOptSet(10, sml_sndpwr);
+                        sml_chart_opt_apply(); }
     sml_descriptor_apply();
     esTick();
     mbTick();
@@ -91,7 +129,7 @@ void EverySecond() {
 void WebOn() {
     int h = webHandler();
     if (esWebOn(h)) return;           // /v1/json, /rpc/*
-    if (h != 4) return;               // /pwr
+    if (h != 7) return;               // /pwr
     if (sml_sndpwr > 0) {
         sprintf(sml_buf, "{\"power2\":%.0f", sml_power2);
         sprintfAppend(sml_buf, ",\"cpwr\":%.0f", es_cpwr);
@@ -102,6 +140,13 @@ void WebOn() {
         strcpy(sml_buf, "{\"enabled\":0}");
     }
     webSend(sml_buf);
+}
+
+// Tasmota's own root page, rendered once per load (FUNC_WEB_ADD_MAIN_BUTTON).
+// The charts go here rather than into WebCall(), which is re-rendered on every
+// refresh - five Google charts on that path would be re-sent every two seconds.
+void WebPage() {
+    if (sml_chmain > 0) sml_chart_render_all();
 }
 
 void WebCall() {
@@ -129,13 +174,13 @@ void WebCall() {
     esRows();
     mbRows();
     uiSep();
-    sml_chart_link();
+    if (sml_chmain == 0) sml_chart_link();   // no link when they are on the page itself
     sml_chart_datetime_rows();
 }
 
 void WebUI() {
     if (webPage() == 2) { sml_chart_page_render(); return; }
-    if (webPage() == 3) { webSend("<script>location.replace('/tc')</script>"); return; }
+    if (webPage() == 5) { webSend("<script>location.replace('/tc')</script>"); return; }
     if (webPage() != 0) return;
     sml_render_settings_panel();
     esPanel();
@@ -155,6 +200,7 @@ void WebUI() {
     }
     mbPanel();
 
+    sml_chart_options_panel();
     sml_chart_data_panel(varIdx(do_base), varIdx(do_power), varIdx(do_bars));
     webSend("<hr>");
     uiSaveButton();
@@ -162,7 +208,8 @@ void WebUI() {
     else       webButton(do_reset, "Restart SML|restarted");
     sml_chart_csv_button(varIdx(do_csv));
 
-    sprintf(sml_buf, "<hr><div style='text-align:center;font-size:10px;color:#555;line-height:1.5'>sml_chart_eco_shelly.tc &middot; Version %s<br>", sml_vers);
+    uiUptime();
+    sprintf(sml_buf, "sml_chart_eco_shelly.tc &middot; Version %s<br>", sml_vers);
     webSend(sml_buf);
     webSend("by <a href='https://ottelo.jimdofree.com' target='_blank'>ottelo.jimdofree.com</a> &amp; gemu2015 (TinyC <span id='tcv'>...</span>)</div></div>");
     webSend("<script>if(window.__tcv){document.getElementById('tcv').textContent=window.__tcv;}else{fetch('/tc_api?cmd=status').then(function(r){return r.json();}).then(function(j){window.__tcv=j.release;var e=document.getElementById('tcv');if(e)e.textContent=j.release;}).catch(function(){});}</script>");
@@ -183,15 +230,18 @@ int main() {
     sml_e_pv = sml_pv;
     sml_e_sndpwr = sml_sndpwr;
     sml_chart_load();
+    if (sml_stmin == 0) sml_stmin = 240;   // never set -> 4 h, as before
+    sml_chart_opt_load();
     sml_chart_pv_load();
 
-    esInit(1, 2, 3);             // /v1/json, /rpc/EM, /rpc/Shelly
+    esInit(1, 2, 3, 5, 6);       // /v1/json, EM, Shelly, EM1, EMData
     mbInit();
     webPageLabel(0, "&#x2699;&#xFE0F; SML /&#x1F50B;");
     webPageLabel(1, "");
     webPageLabel(2, "");                // charts page, reached by link
-    webPageLabel(3, "&#x1F4BB; TinyC");   // hands over to /tc
-    webOn(4, "/pwr");
+    webPageLabel(5, "&#x1F4BB; TinyC");   // hands over to /tc - kept last so it stays
+                                          // last when a program adds a page
+    webOn(7, "/pwr");
     smlScripterLoad("/sml_meter.def");
 
     addLog("sml_chart_eco_shelly: %s started mode=%d pv=%d modbus=%d",

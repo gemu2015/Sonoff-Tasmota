@@ -1,3 +1,5 @@
+// @name: SML + EcoTracker / Shelly
+// @info: https://ottelo9.github.io/tasmota-sml-script/eco_shelly/
 // sml_eco_shelly.tc — SML meter + EcoTracker / Shelly Pro 3EM emulator,
 // no charts. Feeds a PV battery (Marstek, Jackery, NOAH, Hoymiles, ...) for
 // zero feed-in. For the charts variant use sml_chart_eco_shelly.tc.
@@ -9,7 +11,7 @@
 #include "sml_modbus_common.tc"
 #include "eco_shelly_common.tc"
 
-char sml_vers[] = "16.08.2026";
+char sml_vers[] = "12.09.2026 12:05";
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 persist int sml_sndpwr;      // 1 = publish power via MQTT and serve /pwr
@@ -32,8 +34,12 @@ void Every100ms() {
 
 void EverySecond() {
     uiApplyBegin();
+    if (tc_opt_first == 1) {
+        sml_sndpwr = tcOptGet(10, sml_sndpwr);
+        tcOptSet(10, sml_sndpwr);
+    }
     if (ui_reloading) sml_e_sndpwr = sml_sndpwr;
-    if (ui_applying)  sml_sndpwr = sml_e_sndpwr;
+    if (ui_applying)  { sml_sndpwr = sml_e_sndpwr; tcOptSet(10, sml_sndpwr); }
     sml_descriptor_apply();
     esTick();
     mbTick();
@@ -60,7 +66,7 @@ void EverySecond() {
 void WebOn() {
     int h = webHandler();
     if (esWebOn(h)) return;          // /v1/json, /rpc/*
-    if (h != 4) return;              // /pwr
+    if (h != 7) return;              // /pwr
     if (sml_sndpwr > 0) {
         sprintf(sml_buf, "{\"power2\":%.0f", sml_power2);
         sprintfAppend(sml_buf, ",\"cpwr\":%.0f", es_cpwr);
@@ -95,7 +101,7 @@ void WebCall() {
 }
 
 void WebUI() {
-    if (webPage() == 3) { webSend("<script>location.replace('/tc')</script>"); return; }
+    if (webPage() == 5) { webSend("<script>location.replace('/tc')</script>"); return; }
     if (webPage() != 0) return;
     sml_render_settings_panel();
     esPanel();
@@ -117,7 +123,8 @@ void WebUI() {
     if (ui_de) webButton(do_reset, "SML neu laden|neu geladen");
     else       webButton(do_reset, "Restart SML|restarted");
 
-    sprintf(sml_buf, "<hr><div style='text-align:center;font-size:10px;color:#555;line-height:1.5'>sml_eco_shelly.tc &middot; Version %s<br>", sml_vers);
+    uiUptime();
+    sprintf(sml_buf, "sml_eco_shelly.tc &middot; Version %s<br>", sml_vers);
     webSend(sml_buf);
     webSend("by <a href='https://ottelo.jimdofree.com' target='_blank'>ottelo.jimdofree.com</a> &amp; gemu2015 (TinyC <span id='tcv'>...</span>)</div></div>");
     webSend("<script>if(window.__tcv){document.getElementById('tcv').textContent=window.__tcv;}else{fetch('/tc_api?cmd=status').then(function(r){return r.json();}).then(function(j){window.__tcv=j.release;var e=document.getElementById('tcv');if(e)e.textContent=j.release;}).catch(function(){});}</script>");
@@ -139,11 +146,12 @@ int main() {
     sml_power2 = smlGet(1);
     sml_pwr_last = 0;
 
-    esInit(1, 2, 3);             // /v1/json, /rpc/EM, /rpc/Shelly
+    esInit(1, 2, 3, 5, 6);       // /v1/json, EM, Shelly, EM1, EMData
     mbInit();
     webPageLabel(0, "&#x2699;&#xFE0F; SML /&#x1F50B;");
-    webPageLabel(3, "&#x1F4BB; TinyC");   // hands over to /tc
-    webOn(4, "/pwr");
+    webPageLabel(5, "&#x1F4BB; TinyC");   // hands over to /tc - kept last so it stays
+                                          // last when a program adds a page
+    webOn(7, "/pwr");
     smlScripterLoad("/sml_meter.def");
 
     addLog("sml_eco_shelly: %s started mode=%d rx=%d modbus=%d",

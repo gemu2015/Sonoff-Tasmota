@@ -245,12 +245,24 @@ See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 - **sml_chart** — + charts and tables on their own page, feed-in switchable
 - **sml_chart_bezug** — for meters with no export register: the feed-in total is
   integrated from negative power (`SML_PV_TOTAL` points the shared code at it)
-- **sml_eco_shelly** / **sml_chart_eco_shelly** — + EcoTracker / Shelly Pro 3EM
-  emulator for PV batteries
+- **sml_eco_shelly** / **sml_chart_eco_shelly** — + emulator for PV batteries:
+  EcoTracker, Shelly Pro 3EM, Pro EM50 or EM Gen3
 - **sml_ct002** / **sml_chart_ct002** — + Marstek CT002/CT003 emulator
 - Modbus-TCP is built into every one of them. The emulator variants must run in
   **slot 0** — their HTTP endpoints are `webOn` handlers, and Tasmota hands those
   to slot 0. Docs: <https://ottelo9.github.io/tasmota-sml-script/>
+- **The settings are SHARED across the family**, in `/tc_options.cfg` beside the
+  programs. A `.pvs` is named after its `.tcb`, so swapping one program for
+  another used to start from defaults — no meter, no pins, no language, and
+  day/month/year totals measured from zero. The file is read once at start and
+  written a second after a Save; keys a program has never heard of are carried
+  through untouched, so running `sml_simple` for a while does not throw the
+  emulator's settings away. Chart DATA stays in the `.pvs`, where it belongs to
+  one program.
+- **`webOn` handler numbers are family-wide, not per program.** Tasmota
+  registers a `webOn` URL and never unregisters it, so after loading a different
+  `.tcb` without a reboot the old binding still wins. One URL therefore keeps one
+  number everywhere: 1, 2, 3, 5, 6 eco_shelly · 4 ct002 (`/ctreg`) · 7 `/pwr`.
 
 **Energy & Automation:**
 - **core2_energy** — M5Stack Core2 energy monitor with Shelly 3EM

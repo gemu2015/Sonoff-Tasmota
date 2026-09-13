@@ -12,6 +12,14 @@ develop / debug TinyC, Matter, and Scripter setups.
 | **[`shelly_tester/`](shelly_tester/)** | GUI for poking at Shelly and EcoTracker devices over UDP-RPC (port 1010), HTTP GET, or ICMP ping. Colour-coded log + auto-formatted JSON + a persistent UDP listener for unsolicited push packets. Cross-platform port of ottelo's Windows-only PowerShell GUI. |
 | **[`device_configurator/`](device_configurator/)** | Pick a Tasmota target out of `tasmota/user_config_override.h`, edit its `#define`s and PlatformIO env in two side-by-side panels, and compile that one env with a button click. |
 
+## Single-page browser tools (no server, nothing is uploaded)
+
+| Tool | What it does |
+| ---- | ------------ |
+| **[`tinyc_chart_editor.html`](tinyc_chart_editor.html)** | Edits a TinyC slot's `.pvs` — the file the running program keeps its `persist` variables in (`/sml_chart.tcb` → `/sml_chart.pvs`). This is the successor to `sml_chart_editor.html`: the chart rings moved into the `.pvs` as packed `int16`, so the standalone `/sml_chart.bin` is now only an import path. From ottelo; docs at [pvs_editor](https://ottelo9.github.io/tasmota-sml-script/pvs_editor/). |
+| **[`script_charts_to_tinyc_pvs.html`](script_charts_to_tinyc_pvs.html)** | Walks through moving the bar charts of a Tasmota **Scripter** script over to the TinyC programs, in four steps. From ottelo; docs at [converter](https://ottelo9.github.io/tasmota-sml-script/converter/). |
+| **[`sml_chart_editor.html`](sml_chart_editor.html)** | The older editor for the raw `/sml_chart.bin` (float32). Still works — `sml_chart_load()` imports such a file once and then deletes it — and it is the one that [runs on the device itself](sml_chart_editor_on_device.md). For everything else reach for the `.pvs` editor above. |
+
 ## Code-generation tools (native ⇄ TinyC ⇄ BinPlugin)
 
 | Tool | What it does |

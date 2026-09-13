@@ -1,4 +1,5 @@
 // @name: SML Simple
+// @info: https://ottelo9.github.io/tasmota-sml-script/sml/
 // sml_simple.tc — SML meter readout, no charts, no emulator.
 // Smallest program of the family: pick the meter, read it, hand the values
 // on via MQTT and HTTP. Charts: sml_chart.tc. Emulator: sml_ct002.tc.
@@ -9,7 +10,7 @@
 #include "sml_descriptor.tc"
 #include "sml_modbus_common.tc"
 
-char sml_vers[] = "16.08.2026";
+char sml_vers[] = "12.09.2026 12:05";
 
 // ─── Settings ──────────────────────────────────────────────────────────────
 persist int  sml_sndpwr;         // 1 = publish power via MQTT and serve /pwr
@@ -31,8 +32,12 @@ void Every100ms() {
 
 void EverySecond() {
     uiApplyBegin();
+    if (tc_opt_first == 1) {
+        sml_sndpwr = tcOptGet(10, sml_sndpwr);
+        tcOptSet(10, sml_sndpwr);
+    }
     if (ui_reloading) sml_e_sndpwr = sml_sndpwr;
-    if (ui_applying)  sml_sndpwr = sml_e_sndpwr;
+    if (ui_applying)  { sml_sndpwr = sml_e_sndpwr; tcOptSet(10, sml_sndpwr); }
     sml_descriptor_apply();
     mbTick();
 
@@ -55,7 +60,7 @@ void EverySecond() {
 
 // /pwr — JSON for a second battery polling over HTTP (opendtu-onbattery DPL)
 void WebOn() {
-    if (webHandler() != 1) return;
+    if (webHandler() != 7) return;  // /pwr
     if (sml_sndpwr > 0) {
         sprintf(sml_buf, "{\"power2\":%.0f", sml_power2);
         sprintfAppend(sml_buf, ",\"power\":%.0f", smlGet(1));
@@ -88,7 +93,7 @@ void WebCall() {
 }
 
 void WebUI() {
-    if (webPage() == 3) { webSend("<script>location.replace('/tc')</script>"); return; }
+    if (webPage() == 5) { webSend("<script>location.replace('/tc')</script>"); return; }
     if (webPage() != 0) return;
     sml_render_settings_panel();     // opens the panel div
 
@@ -109,7 +114,8 @@ void WebUI() {
     if (ui_de) webButton(do_reset, "SML neu laden|neu geladen");
     else       webButton(do_reset, "Restart SML|restarted");
 
-    sprintf(sml_buf, "<hr><div style='text-align:center;font-size:10px;color:#555;line-height:1.5'>sml_simple.tc &middot; Version %s<br>", sml_vers);
+    uiUptime();
+    sprintf(sml_buf, "sml_simple.tc &middot; Version %s<br>", sml_vers);
     webSend(sml_buf);
     webSend("by <a href='https://ottelo.jimdofree.com' target='_blank'>ottelo.jimdofree.com</a> &amp; gemu2015 (TinyC <span id='tcv'>...</span>)</div></div>");
     webSend("<script>if(window.__tcv){document.getElementById('tcv').textContent=window.__tcv;}else{fetch('/tc_api?cmd=status').then(function(r){return r.json();}).then(function(j){window.__tcv=j.release;var e=document.getElementById('tcv');if(e)e.textContent=j.release;}).catch(function(){});}</script>");
@@ -133,8 +139,9 @@ int main() {
 
     mbInit();
     webPageLabel(0, "&#x2699;&#xFE0F; SML");
-    webPageLabel(3, "&#x1F4BB; TinyC");   // hands over to /tc
-    webOn(1, "/pwr");
+    webPageLabel(5, "&#x1F4BB; TinyC");   // hands over to /tc - kept last so it stays
+                                          // last when a program adds a page
+    webOn(7, "/pwr");
     smlScripterLoad("/sml_meter.def");
 
     addLog("sml_simple: %s started rx=%d tx=%d meter=%d modbus=%d",

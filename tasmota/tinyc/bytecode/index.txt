@@ -182,6 +182,7 @@ touch_coords_legacy.tcb
 tuya_pool_heater.tcb
 uart_tx_test.tcb
 udp.tcb
+usb_variolab_tcp.tcb
 variograf_ekg.tcb
 veml6075.tcb
 vesync_scale_sniff.tcb

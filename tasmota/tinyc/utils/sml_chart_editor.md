@@ -1,5 +1,19 @@
 # SML Chart Data Editor
 
+> **Newer tool available.** Since the September 2026 merge the chart rings live
+> in the slot's `.pvs` as packed `int16`; `/sml_chart.bin` is an IMPORT path
+> only — `sml_chart_load()` reads it once at start, writes the values into the
+> `.pvs` and then deletes it. To look at or change what is actually stored,
+> use [`tinyc_chart_editor.html`](tinyc_chart_editor.md), which edits the
+> `.pvs` directly. This page stays for producing an import file (and it is the
+> one that [runs on the device](sml_chart_editor_on_device.md)).
+>
+> The import format grew an optional tail: four more floats after the 1965
+> (`dval`, `mval`, `yval`, `da`) for the consumption file and three after the
+> 43 (`dval2`, `mval2`, `yval2`) for the feed-in one. They are the baselines
+> the day/month/year figures are measured from; a file that ends after the old
+> count still imports exactly as before.
+
 A single self-contained HTML page to **view and edit the raw chart data** that the
 TinyC [`sml_chart`](../examples/sml_chart.tc) example stores on the device — no install, works
 offline, no server. Open [`sml_chart_editor.html`](sml_chart_editor.html) in any

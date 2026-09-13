@@ -1,5 +1,13 @@
 # Editing SML chart data on the device (quick guide)
 
+> ⚠️ **"In place" no longer holds for the SML family.** Since the September 2026
+> merge `sml_chart_load()` reads `/sml_chart.bin` ONCE at start, writes the
+> values into the slot's `.pvs` and DELETES the file — so an edit made here is
+> only picked up by restarting the slot, and only once. To change what the
+> running program actually holds, use
+> [`tinyc_chart_editor.html`](tinyc_chart_editor.md) on the `.pvs`. The route
+> below stays valid for any other script that keeps a live `/sml_chart.bin`.
+
 Run [`sml_chart_editor.html`](sml_chart_editor.html) **directly on the Tasmota
 device** and edit `/sml_chart.bin` in place — no manual download/upload cycle.
 
