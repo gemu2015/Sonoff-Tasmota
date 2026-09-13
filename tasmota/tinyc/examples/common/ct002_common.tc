@@ -213,11 +213,12 @@ int ctCheck(int n) {
 
 // Copy token `n` (1-based, '|' separated) of the request into dst and cut it
 // at the first control character — the last field carries the ETX + checksum.
-// ⚠️ `byte dst[]`, NOT `char dst[]`: every caller passes a packed buffer, and
-// the loop below INDEXES it. With a char[] parameter it ran at int32 stride —
-// it checked every fourth byte and wrote its zero four bytes wide over the
-// neighbours. The syscalls (strToken) were never affected, the packing rides
-// on the reference; only a direct index takes the type of the PARAMETER.
+// ⚠️ `byte dst[]`, nicht `char dst[]`: jeder Aufrufer übergibt einen
+// gepackten Puffer, und die Schleife unten INDIZIERT ihn. Mit einem
+// char[]-Parameter lief sie mit int32-Schrittweite — sie prüfte jedes
+// vierte Byte und schrieb ihre Null vier Byte breit über die Nachbarn.
+// Die Syscalls (strToken) waren nie betroffen, die Packung reist in der
+// Referenz mit; nur der direkte Index nimmt den Typ des PARAMETERS.
 int ctTok(byte dst[], int n) {
     int l = strToken(dst, ct_rxb, '|', n);
     int i = 0;
@@ -836,7 +837,7 @@ void ctPower() {
 
 // ─── Marstek cloud registration (HTTPS via httpGet + md5) ──────────────────
 
-// Both packed and both indexed here as well — see ctTok().
+// Ebenfalls beide gepackt und beide indiziert — siehe ctTok().
 void ctUrlMail(byte dst[], byte src[]) {
     int n = strlen(src);
     int i = 0;
