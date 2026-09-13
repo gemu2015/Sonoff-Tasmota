@@ -30,8 +30,26 @@
 // The pump runs in TaskLoop() — its OWN FreeRTOS task, so 23 kB/s never fights
 // Tasmota's main loop for time.
 
+// ═══ SETUP — change these three lines, nothing else ══════════════════════
+//
+//   QUELLE   Q_USB  device on the OTG socket, behind an FTDI (needs an S3/S2
+//                   built with USE_TINYC_USBSERIAL)
+//            Q_SER  device on plain RX/TX pins — works on ANY ESP32
+//
+// ⚠️ THE SETTING IS COMPILED IN, ON PURPOSE. A bridge is wired up once and
+// then stays that way for years; a runtime switch would be one more thing
+// that can be in the wrong position after a reboot, and nobody would think to
+// check it. Whoever rewires the hardware recompiles the script — that is one
+// step, in the same hour, with the soldering iron still warm.
+#define Q_USB  0
+#define Q_SER  1
+
+#define QUELLE   Q_USB     // ← which source
+#define PIN_RX   16        // ← only for Q_SER: GPIO that RECEIVES
+#define PIN_TX   17        // ← only for Q_SER: GPIO that TRANSMITS
+
 #define PORT   2000        // what uVariotest expects by default
-#define BAUD   230400      // VarioLab, 8N1
+#define BAUD   230400      // VarioLab, 8N1 — both paths
 
 int b[1024];               // one int32 per byte, like the SPP family.
                            // 1024 and not 256: at 23 kB/s that is 90 round
@@ -41,18 +59,9 @@ int offen = 0;
 int horcht = 0;            // 1 once tcpServer() really came up
 int naechster_versuch = 0; // millis() of the next attempt
 
-// ── Which source, and how it is wired ───────────────────────────────────
-// ⚠️ `persist`: whoever wires a device to pins 16/17 does not want to say so
-// again after every power cut. The values survive a reboot in the .pvs file.
-// ⚠️ Adding or removing a persist variable RESETS ALL of them to the values
-// declared here — that is how the format works, not a bug. So: if the bridge
-// suddenly talks USB again after an update, set the pins once more.
-#define Q_USB  0
-#define Q_SER  1
-persist int quelle  = Q_USB;
-persist int p_rx    = -1;      // GPIO for receive, -1 = not set
-persist int p_tx    = -1;      // GPIO for transmit
-persist int p_baud  = BAUD;
+// The source actually in use. Starts at QUELLE and can only move ONE way:
+// to Q_SER, when the firmware turns out to have no USB host at all.
+int quelle = QUELLE;
 
 int sh = -1;               // serial handle from serialBegin(), -1 = closed
 int s_rx = 0;              // own byte counters — usbInfo() only knows USB
@@ -67,8 +76,26 @@ int w_ein = 0;             // bytes per second, device -> PC
 int w_aus = 0;             // bytes per second, PC -> device
 
 int main() {
-    usbInit();             // host up; the FTDI may be plugged in at any time
     addCommand("TCUS");
+    // ⚠️⚠️ NO USB HOST IN THIS FIRMWARE? THEN SERIAL, AND SAY SO. usbInit()
+    // answers 1 when the host stack came up. On a build WITHOUT
+    // USE_TINYC_USBSERIAL — and on every chip that is not an S3/S2 — the whole
+    // family is compiled out and every one of its syscalls returns 0. Without
+    // this check the bridge would sit there forever waiting for a device to
+    // enumerate on a host that does not exist, with a status page that says
+    // "kein Gerät an der OTG-Buchse" — which is true, and hides the real
+    // reason.
+    if (quelle == Q_USB) {
+        if (usbInit() != 1) {
+            quelle = Q_SER;
+            addLog("no USB host in this firmware — falling back to pins");
+        }
+    }
+    if (quelle == Q_SER) {
+        char m0[90];
+        sprintf(m0, "VarioLab bridge: pins rx %d tx %d, %d baud", PIN_RX, PIN_TX, BAUD);
+        addLog(m0);
+    }
     // ⚠️⚠️ DO NOT call tcpServer() here and be done with it. At boot the
     // script starts BEFORE the Wi-Fi link is up, and then tcpServer() returns
     // -2 ("no net") and starts nothing at all. Nothing looks broken
@@ -124,12 +151,12 @@ void TaskLoop() {
     } else {
         // Pins: one serialBegin() and it stays open. -1 means "not wired up
         // yet" -- then the bridge waits instead of guessing a pin.
-        if (sh < 0 && p_rx >= 0 && p_tx >= 0) {
-            sh = serialBegin(p_rx, p_tx, p_baud, 3, 1024);
+        if (sh < 0) {
+            sh = serialBegin(PIN_RX, PIN_TX, BAUD, 3, 1024);
             if (sh >= 0) {
                 offen = 1;
                 char m2[80];
-                sprintf(m2, "VarioLab on pins: rx %d tx %d, %d baud", p_rx, p_tx, p_baud);
+                sprintf(m2, "VarioLab on pins: rx %d tx %d, %d baud", PIN_RX, PIN_TX, BAUD);
                 addLog(m2);
             }
         }
@@ -187,68 +214,13 @@ void TaskLoop() {
     if (etwas == 0) { delay(2); }
 }
 
-// ─── TCUS — show the state, and switch the source ───────────────────────
+// ─── TCUS — what is set, and what is going through ──────────────────────
 //
-//     TCUS                  what is set, and what is going through
-//     TCUS usb              USB host (OTG socket)
-//     TCUS ser 16 17        serial on RX=16 TX=17, at the stored baud rate
-//     TCUS ser 16 17 115200 ... and set the baud rate too
-//
-// ⚠️ SWITCHING CLOSES THE OLD SOURCE. Leaving a serialBegin() open while the
-// USB path runs would hold one of the three serial slots for nothing, and the
-// pins would keep driving -- on a board where they are shared that is not a
-// leak, it is a short.
+// ⚠️ READ ONLY. The source is a #define at the top of this file, not a
+// command: see the note there. A status line that can also change the state
+// invites exactly the confusion the compiled-in setting avoids.
 void Command(char cmd[]) {
     char m[140];
-    char w[24];
-
-    // ⚠️⚠️ THE ARGUMENT ARRIVES WITH A LEADING SPACE. `TCUS ser 16 17` reaches
-    // this function as " ser 16 17", so strToken(...,1) is the EMPTY string
-    // and every call fell through to the status line -- which looks exactly
-    // like an argument being ignored, and sent me hunting for the wrong thing
-    // (I first assumed Tasmota upper-cases it; it does not). Logged the raw
-    // string once and it was obvious. strTrim() first, then the tokens count
-    // from 1 as one would expect.
-    strTrim(cmd);
-    strToken(w, cmd, ' ', 1);
-    strToLower(w);
-    if (strcmp(w, "usb") == 0) {
-        if (sh >= 0) { serialClose(sh); sh = -1; }
-        quelle = Q_USB;
-        offen = 0;
-        responseCmnd("source: usb host");
-        return;
-    }
-    if (strcmp(w, "ser") == 0) {
-        char a1[12];
-        char a2[12];
-        char a3[12];
-        strToken(a1, cmd, ' ', 2);
-        strToken(a2, cmd, ' ', 3);
-        int rx = strToInt(a1);
-        int tx = strToInt(a2);
-        // ⚠️ strToInt gives 0 for anything unreadable, and 0 IS a valid GPIO.
-        // So an empty argument has to be caught before, not after -- otherwise
-        // "TCUS ser" silently wires the bridge to pin 0, which on most boards
-        // is the boot strap.
-        if (strlen(a1) == 0 || strlen(a2) == 0) {
-            responseCmnd("usage: TCUS ser <rx> <tx> [baud]");
-            return;
-        }
-        if (strToken(a3, cmd, ' ', 4) > 0) {
-            int bd = strToInt(a3);
-            if (bd > 0) { p_baud = bd; }
-        }
-        if (sh >= 0) { serialClose(sh); sh = -1; }
-        p_rx = rx;
-        p_tx = tx;
-        quelle = Q_SER;
-        offen = 0;
-        sprintf(m, "source: serial, rx %d tx %d, %d baud", p_rx, p_tx, p_baud);
-        responseCmnd(m);
-        return;
-    }
-
     // ⚠️ `horcht` belongs in this line. Without it the status looked healthy
     // while port 2000 was refused -- the one thing it could not tell you was
     // the one thing that was wrong.
@@ -256,8 +228,8 @@ void Command(char cmd[]) {
         sprintf(m, "tcp %d, source usb, state %d, open %d, rx %d, tx %d, lost %d",
                 horcht, usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
     } else {
-        sprintf(m, "tcp %d, source serial rx %d tx %d %d bd, handle %d, rx %d, tx %d",
-                horcht, p_rx, p_tx, p_baud, sh, s_rx, s_tx);
+        sprintf(m, "tcp %d, source pins rx %d tx %d %d bd, handle %d, rx %d, tx %d",
+                horcht, PIN_RX, PIN_TX, BAUD, sh, s_rx, s_tx);
     }
     responseCmnd(m);
 }
@@ -277,9 +249,21 @@ void Command(char cmd[]) {
 // one that carried a lot of traffic this morning.
 void WebCall() {
     char m[200];
-    int z = usbState();
-    int rx = usbInfo(2);
-    int tx = usbInfo(3);
+    // ⚠️ The counters come from a different place per source: usbInfo() knows
+    // only the USB host, the pin path counts for itself. Reading usbInfo() on
+    // a serial bridge would print 0 B/s next to a stream that is flowing --
+    // the worst kind of status row, because it looks like a measurement.
+    int z = 0;
+    int rx = 0;
+    int tx = 0;
+    if (quelle == Q_USB) {
+        z = usbState();
+        rx = usbInfo(2);
+        tx = usbInfo(3);
+    } else {
+        rx = s_rx;
+        tx = s_tx;
+    }
 
     // ── Throughput from the change since the last call ──────────────────
     // ⚠️ Guard both ends: a page opened after a long pause gives a huge dt
@@ -303,7 +287,15 @@ void WebCall() {
     }
 
     // ── 1. Is the device there? ─────────────────────────────────────────
-    if (z == 3) {
+    if (quelle == Q_SER) {
+        if (sh >= 0) {
+            sprintf(m, "{s}VarioLab{m}<b style='color:#0a0'>Pins offen</b>"
+                       " &middot; rx %d tx %d &middot; %d Bd{e}", PIN_RX, PIN_TX, BAUD);
+        } else {
+            sprintf(m, "{s}VarioLab{m}<b style='color:#c00'>Pins lassen sich nicht "
+                       "&ouml;ffnen</b> &middot; rx %d tx %d{e}", PIN_RX, PIN_TX);
+        }
+    } else if (z == 3) {
         sprintf(m, "{s}VarioLab{m}<b style='color:#0a0'>offen</b>"
                    " &middot; %04x:%04x &middot; %d Bd{e}",
                 usbInfo(0), usbInfo(1), BAUD);
