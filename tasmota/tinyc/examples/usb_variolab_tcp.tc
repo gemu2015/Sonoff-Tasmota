@@ -24,6 +24,8 @@ int b[1024];               // one int32 per byte, like the SPP family.
                            // trips per second instead of 360, and the ring
                            // is drained in one go after any hiccup.
 int offen = 0;
+int horcht = 0;            // 1 once tcpServer() really came up
+int naechster_versuch = 0; // millis() of the next attempt
 
 // ── For the status rows on Tasmota's main page ──────────────────────────
 int letzter_verkehr = 0;   // millis() when bytes last moved either way
@@ -35,15 +37,40 @@ int w_aus = 0;             // bytes per second, PC -> device
 
 int main() {
     usbInit();             // host up; the FTDI may be plugged in at any time
-    tcpServer(PORT);
     addCommand("TCUS");
-    addLog("VarioLab bridge ready — TCP 2000, waiting for the FTDI");
+    // ⚠️⚠️ DO NOT call tcpServer() here and be done with it. At boot the
+    // script starts BEFORE the Wi-Fi link is up, and then tcpServer() returns
+    // -2 ("no net") and starts nothing at all. Nothing looks broken
+    // afterwards: the VM keeps running, `TinyC` reports Error "OK", the USB
+    // side opens, TCUS says "usb state 3, open 1" -- and port 2000 is simply
+    // refused, forever, because nobody ever tries again.
+    //
+    // Found on 2026-09-13 on a device with 7.5 h uptime: Wi-Fi Downtime 4 s,
+    // which is exactly the window main() ran in. Restarting the script by
+    // hand fixed it instantly, which is the giveaway. The retry below is in
+    // TaskLoop, so the bridge also comes back after the router reboots.
+    horcht = 0;
+    naechster_versuch = 0;
     return 0;
 }
 
 void TaskLoop() {
     int n;
     int etwas = 0;
+
+    // 0) Keep trying until the TCP server is really listening.
+    // ⚠️ Once a second, not every pass: a failing attempt allocates and frees
+    // a WiFiServer, and this loop runs thousands of times per second.
+    if (horcht == 0) {
+        if (millis() >= naechster_versuch) {
+            naechster_versuch = millis() + 1000;
+            if (tcpServer(PORT) == 0) {
+                horcht = 1;
+                addLog("VarioLab bridge listening — TCP 2000");
+            }
+        }
+        return;            // nothing to pump while there is no server
+    }
 
     // 1) Open as soon as something is there, and again after unplugging.
     int z = usbState();
@@ -93,8 +120,11 @@ void TaskLoop() {
 
 void Command(char cmd[]) {
     char m[110];
-    sprintf(m, "usb state %d, open %d, rx %d, tx %d, lost %d",
-            usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
+    // ⚠️ `horcht` belongs in this line. Without it the status looked healthy
+    // while port 2000 was refused -- the one thing it could not tell you was
+    // the one thing that was wrong.
+    sprintf(m, "tcp %d, usb state %d, open %d, rx %d, tx %d, lost %d",
+            horcht, usbState(), offen, usbInfo(2), usbInfo(3), usbInfo(4));
     responseCmnd(m);
 }
 
