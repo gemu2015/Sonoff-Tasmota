@@ -6174,6 +6174,44 @@ When `/tinyc_repo.cfg` is present, the TinyC console page shows an additional **
 
 The default repository at `https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode` contains example programs for sensors, displays, charts, and more. Upload the provided `tinyc_repo.cfg` to your device to enable it.
 
+#### Choosing between several repositories
+
+A build can offer more than one source. The list is **compiled in**, so a
+freshly flashed image already has it and nothing has to be uploaded first:
+
+```c
+// user_config_override.h — one entry per line, "Display name|base URL"
+#define TINYC_REPO_LIST \
+  "TinyC (gemu2015)|https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc\n" \
+  "SML (ottelo)|https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/tinyc"
+```
+
+If `/tinyc_repos.cfg` exists on the filesystem it **replaces** that list, so a
+device can be pointed somewhere else after flashing. The `/tc` page shows a
+second drop-down above the program list; the choice is remembered per browser.
+
+**⚠️ One BASE url per entry, not a bytecode url.** Everything a repository
+serves hangs below the same base and is derived from it:
+
+| derived path | used for |
+|---|---|
+| `<base>/bytecode` | `.tcb` + `index.json` (program list) |
+| `<base>/examples` | `.tc` (IDE example browser) |
+| `<base>/tinyc_ide.html.gz` | IDE self-update ("Update IDE") |
+| `<base>` | the `/tcrepo` page |
+
+That is deliberate: switching a repository switches **all** of it at once, so
+nobody ends up running one fork's examples against another fork's bytecode.
+
+**⚠️ `/tinyc_repo.cfg` (singular) is a different file** and keeps its old
+meaning — a single bytecode url, no chooser. It holds `<base>/bytecode`, the
+list holds `<base>`; that is why they are not the same file. A device that has
+the old file behaves exactly as it always did.
+
+**⚠️ The firmware on the device does not follow the switch.** A `.tcb` built
+for a different opcode set does not crash — it computes the wrong thing. The
+version marker that guards this belongs in the repository's `index.json`.
+
 ### Plain names and info links (`// @name:` / `// @info:`)
 
 Both program lists on the `/tc` page show bare filenames unless a program says

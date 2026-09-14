@@ -5898,6 +5898,46 @@ Wenn `/tinyc_repo.cfg` vorhanden ist, zeigt die TinyC-Konsolenseite ein zusaetzl
 
 Das Standard-Repository unter `https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode` enthaelt Beispielprogramme fuer Sensoren, Displays, Charts und mehr. Lade die mitgelieferte `tinyc_repo.cfg` auf dein Geraet hoch um es zu aktivieren.
 
+#### Zwischen mehreren Repositories waehlen
+
+Ein Image kann mehrere Quellen anbieten. Die Liste ist **einkompiliert**, ein
+frisch geflashtes Geraet hat sie also schon und es muss nichts hochgeladen
+werden:
+
+```c
+// user_config_override.h — ein Eintrag je Zeile, "Klarname|Basis-URL"
+#define TINYC_REPO_LIST \
+  "TinyC (gemu2015)|https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc\n" \
+  "SML (ottelo)|https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/tinyc"
+```
+
+Liegt `/tinyc_repos.cfg` auf dem Dateisystem, **ersetzt** sie diese Liste --
+so laesst sich ein Geraet auch nach dem Flashen umstellen. Die `/tc`-Seite
+zeigt dann ein zweites Klappmenue ueber der Programmliste; die Wahl merkt sich
+der Browser.
+
+**⚠️ Je Eintrag eine BASIS-URL, keine Bytecode-URL.** Alles, was ein
+Repository liefert, haengt unter derselben Basis und wird daraus abgeleitet:
+
+| abgeleiteter Pfad | wofuer |
+|---|---|
+| `<basis>/bytecode` | `.tcb` + `index.json` (Programmliste) |
+| `<basis>/examples` | `.tc` (Beispiele in der IDE) |
+| `<basis>/tinyc_ide.html.gz` | IDE-Selbstupdate („Update IDE") |
+| `<basis>` | die Seite `/tcrepo` |
+
+Das ist Absicht: Umschalten schaltet **alles zusammen** um, damit niemand die
+Beispiele des einen Forks gegen den Bytecode eines anderen laufen laesst.
+
+**⚠️ `/tinyc_repo.cfg` (Einzahl) ist eine ANDERE Datei** und behaelt ihre alte
+Bedeutung -- eine einzelne Bytecode-URL, kein Auswahlmenue. Sie enthaelt
+`<basis>/bytecode`, die Liste enthaelt `<basis>`; genau deshalb sind es nicht
+dieselben Dateien. Ein Geraet mit der alten Datei verhaelt sich unveraendert.
+
+**⚠️ Die Firmware auf dem Geraet wird NICHT mitgeschaltet.** Eine `.tcb` fuer
+einen anderen Opcode-Satz stuerzt nicht ab -- sie rechnet falsch. Die
+Versionsmarke, die das abfaengt, gehoert in die `index.json` des Repositories.
+
 ### Klarnamen und Info-Links (`// @name:` / `// @info:`)
 
 Beide Programmlisten auf der `/tc`-Seite zeigen nackte Dateinamen, solange ein

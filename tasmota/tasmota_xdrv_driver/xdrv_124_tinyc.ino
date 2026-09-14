@@ -49,6 +49,43 @@
 #define TINYC_DEFAULT_IDE_URL "https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/tinyc_ide.html.gz"
 #endif
 
+// Selectable repositories for the drop-down on the TinyC page.
+//
+// ONE BASE URL PER ENTRY. Everything a repository serves hangs below the same
+// base and is derived from it:
+//
+//     <base>/bytecode           .tcb + index.json   (program list)
+//     <base>/examples           .tc                 (IDE example browser)
+//     <base>/tinyc_ide.html.gz  IDE self-update
+//     <base>                    the /tcrepo page
+//
+// That is deliberate, not a shortcut. Switching a repository switches ALL of
+// it at once, so nobody can end up running one fork's examples against
+// another fork's bytecode. Mixed states are structurally impossible instead of
+// merely unlikely (Hans/gemu, 2026-09-14).
+//
+// ⚠️ THE FIRMWARE ON THE DEVICE DOES NOT FOLLOW THE SWITCH. A .tcb built for a
+// different opcode set does not crash -- it computes the wrong thing. The
+// version marker that guards this belongs in the repository's index.json.
+//
+// Format: one entry per line, "Display name|base URL". The list is compiled in
+// so a freshly flashed image already has it; if /tinyc_repos.cfg exists on the
+// filesystem it REPLACES this list (Hans, 2026-09-14: having to upload a file
+// after flashing defeats the purpose).
+#ifndef TINYC_REPO_LIST
+#define TINYC_REPO_LIST "TinyC (gemu2015)|https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc"
+#endif
+
+// Cap for the list, whether compiled in or read from the file. Four entries of
+// name + GitHub raw URL fit comfortably; a longer list is truncated rather than
+// overflowing, and the page still works with what fits.
+#ifndef TINYC_REPO_LIST_SIZE
+#define TINYC_REPO_LIST_SIZE 512
+#endif
+#ifndef TINYC_REPO_MAX
+#define TINYC_REPO_MAX 8
+#endif
+
 // Global pause flag — set by filesystem upload handler (xdrv_50) to pause VM during uploads
 bool tc_global_pause = false;
 
@@ -2165,6 +2202,38 @@ static void HandleTinyCPage(void) {
         if (!repo_url[0] && !cfg_present) {
           strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
         }
+        // --- Which repositories can be chosen? ----------------------------
+        // Compiled-in list, REPLACED by /tinyc_repos.cfg when that exists.
+        //
+        // ⚠️ NOT /tinyc_repo.cfg -- that one holds a BYTECODE url
+        // (<base>/bytecode) and is read above. Reusing it here would make an
+        // existing device look for examples under <base>/bytecode/examples and
+        // find nothing, without an error message. Different meaning, different
+        // file.
+        char repo_list[TINYC_REPO_LIST_SIZE] = {};
+        char *repo_ent[TINYC_REPO_MAX] = {};
+        uint8_t repo_cnt = 0;
+        {
+          File lcfg = ufsp->open("/tinyc_repos.cfg", "r");
+          if (lcfg) {
+            int n = lcfg.read((uint8_t*)repo_list, sizeof(repo_list) - 1);
+            if (n > 0) { repo_list[n] = 0; }
+            lcfg.close();
+          }
+          if (!repo_list[0]) { strlcpy(repo_list, TINYC_REPO_LIST, sizeof(repo_list)); }
+          // Tokenise in place: one entry per line, "Name|base". Lines without a
+          // '|' and lines starting with '#' are skipped, so the file can carry
+          // a comment header.
+          for (char *l = repo_list; *l && repo_cnt < TINYC_REPO_MAX; ) {
+            char *e = strpbrk(l, "\r\n");
+            if (e) { *e = 0; }
+            while (' ' == *l || '\t' == *l) { l++; }
+            if (*l && '#' != *l && strchr(l, '|')) { repo_ent[repo_cnt++] = l; }
+            if (!e) { break; }
+            l = e + 1;
+          }
+        }
+
         if (repo_url[0]) {
           // Repo index + .tcb download run CLIENT-SIDE (in the browser): the device
           // does ZERO remote I/O for the repository. A synchronous HTTPS GET on the
@@ -2176,7 +2245,40 @@ static void HandleTinyCPage(void) {
           // fetches index.txt + each .tcb directly; the .tcb is POSTed to /tc_upload
           // (local FS only). (gemu 2026-06-24)
           WSContentSend_P(PSTR(
-            "<fieldset><legend><b> Repository </b></legend>"
+            "<fieldset><legend><b> Repository </b></legend>"));
+
+          // --- Source chooser (only when there is something to choose) ------
+          // ⚠️ WITH ONE ENTRY THE PAGE STAYS EXACTLY AS IT WAS. An image that
+          // only overrides TINYC_DEFAULT_REPO -- which is what Hans's does
+          // today -- must not suddenly grow a drop-down that contradicts its
+          // own default.
+          if (repo_cnt > 1) {
+            WSContentSend_P(PSTR(
+              "<div style='display:flex;gap:8px;align-items:center;margin-bottom:6px'>"
+              "<select id='tcrp' style='flex:1'>"));
+            for (uint8_t i = 0; i < repo_cnt; i++) {
+              char *bar = strchr(repo_ent[i], '|');
+              *bar = 0;
+              const char *name = repo_ent[i];
+              char *base = bar + 1;
+              while (' ' == *base || '\t' == *base) { base++; }
+              // Trailing slash off, so <base>/bytecode never becomes a double
+              // slash -- GitHub raw answers 404 on those.
+              size_t bl = strlen(base);
+              while (bl && '/' == base[bl-1]) { base[--bl] = 0; }
+              // Preselect the entry the device is actually serving right now.
+              char derived[220];
+              snprintf_P(derived, sizeof(derived), PSTR("%s/bytecode"), base);
+              WSContentSend_P(PSTR("<option value='%s'%s>%s</option>"),
+                              base, (0 == strcmp(derived, repo_url)) ? " selected" : "",
+                              name);
+              *bar = '|';   // put the line back, the pointers stay valid
+            }
+            WSContentSend_P(PSTR(
+              "</select></div>"));
+          }
+
+          WSContentSend_P(PSTR(
             "<div style='display:flex;gap:8px;align-items:center'>"
             "<select id='tcrf' style='flex:1'><option>loading...</option></select>"
             // Dieselben zwei Zahlen wie bei tclib -- siehe dort.
@@ -2262,6 +2364,40 @@ static void HandleTinyCPage(void) {
             "b.disabled=0;b.textContent='Download & Load';m.textContent='Failed: '+e})}"
             "document.getElementById('tcrf').addEventListener('change',"
             "function(){tcrW();tcrS()});"
+            // --- The source chooser -------------------------------------
+            // TCBASE is the ONE url everything else hangs below; the IDE
+            // buttons further down read it from window. Empty when there is
+            // nothing to choose -- then every consumer keeps its own default
+            // and the page behaves exactly as before.
+            //
+            // ⚠️ THE REMEMBERED PROGRAM BELONGS TO THE OLD REPOSITORY. tcrL()
+            // restores the previous selection from sessionStorage after every
+            // refill; without clearing it, switching sources re-selects a file
+            // name that may not exist in the new one -- and the list then
+            // silently shows entry 1 while the label still says the old name.
+            // ⚠️ THE STORED BASE IS WRITTEN ON LOAD, NOT ONLY ON CHANGE.
+            // /tcrepo reads it and has no other way to learn which source this
+            // image serves. Writing it only in the change handler would leave
+            // it empty for everyone who never touches the drop-down -- and on
+            // an image whose first entry is NOT the built-in default (Hans's,
+            // for instance) /tcrepo would then quietly pull the IDE from the
+            // wrong repository.
+            //
+            // ⚠️ And without a chooser the key is REMOVED, not left alone: it
+            // may still hold a base from an earlier configuration, and a stale
+            // one is worse than none -- /tcrepo would follow it while the page
+            // right here serves something else.
+            "var TCBASE='';"
+            "(function(){var s=document.getElementById('tcrp');"
+            "if(!s){try{localStorage.removeItem('tinyc_base')}catch(e){}return}"
+            "try{var v=localStorage.getItem('tinyc_base');if(v)"
+            "for(var i=0;i<s.options.length;i++)if(s.options[i].value==v){s.selectedIndex=i;break}}"
+            "catch(e){}"
+            "function ap(){TCBASE=s.value;TCREPO=TCBASE+'/bytecode';"
+            "try{localStorage.setItem('tinyc_base',TCBASE)}catch(e){}}ap();"
+            "s.addEventListener('change',function(){ap();"
+            "try{sessionStorage.removeItem('tcrf')}catch(e){}"
+            "tcFill(1)});})();"
             "tcFill(0);</script>"), repo_url);
         }
       }
@@ -2332,7 +2468,17 @@ static void HandleTinyCPage(void) {
     "<button id='tcide_upd' onclick=\""
     "if(!confirm('Update the IDE from the repository? (downloads tinyc_ide.html.gz%s, and replaces the served IDE)'))return;"
     "var b=this;b.disabled=1;b.textContent='Updating...';"
-    "fetch('/cm?cmnd=TinyCIde').then(r=>r.json()).then(j=>{var d=j.TinyCIde||{};"
+    // ⚠️ THE IDE FOLLOWS THE CHOSEN SOURCE TOO. Switching repositories and
+    // then updating the IDE from the OTHER one is how you get an IDE whose
+    // examples and opcode set disagree with the bytecode next to them.
+    // Without a chooser window.TCBASE is undefined and the command runs bare,
+    // exactly as before, on TINYC_DEFAULT_IDE_URL.
+    //
+    // ⚠️ The space before the url stays a literal space: fetch() percent-encodes
+    // it on its own, and writing %20 here would go through vsnprintf first --
+    // this string already carries a %s.
+    "fetch('/cm?cmnd=TinyCIde'+(window.TCBASE?' '+encodeURIComponent(window.TCBASE+'/tinyc_ide.html.gz'):''))"
+    ".then(r=>r.json()).then(j=>{var d=j.TinyCIde||{};"
     "if(d.updated){b.textContent='Updated '+d.updated+' B';alert('IDE updated ('+d.updated+' bytes). Re-open the IDE.');}"
     "else{b.disabled=0;b.textContent='Update IDE';"
     "alert('IDE update failed: '+(d.msg||('error '+d.error))+'\\n\\nThe old IDE was kept.');}})"
@@ -2360,6 +2506,10 @@ static void HandleTinyCPage(void) {
   // it only installed a repo example and threw the rest of the bundle away.
   WSContentSend_P(PSTR(
     "<p style='text-align:center'>"
+    // The page pulls the WHOLE IDE out of a repository, so it has to be the
+    // repository that was chosen. It reads that from localStorage by itself --
+    // see the comment on RAW in xdrv_124_tinyc_repoide.h for why it must not
+    // come in through the url.
     "<button onclick=\"window.open('/tcrepo','tinyc_repo')\" class='button'>Run IDE from repo</button>"
     "</p>"
     "<p style='text-align:center;font-size:.85em;opacity:.6'>The full IDE, fetched from the repo into the browser -- edit and run without any IDE on the device. It asks this device for its ABI and compiles to match. Needs internet in the browser; the on-device IDE works offline.</p>"));
