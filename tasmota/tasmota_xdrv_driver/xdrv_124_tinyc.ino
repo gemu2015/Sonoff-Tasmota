@@ -2341,7 +2341,15 @@ static void HandleTinyCPage(void) {
             ".filter(function(x){return x.slice(-4)=='.tcb'});s.innerHTML='';"
             "if(!ls.length){s.innerHTML='<option>(empty)</option>';return}"
             "ls.forEach(function(n){tcOpt(s,n,'','')})})}"
+            // ⚠️ DIE ALTE MELDUNG ZUERST WEG. Sie wird nur im Fehlerfall
+            // gesetzt und nirgends geloescht -- bisher fiel das nicht auf,
+            // weil ein fehlgeschlagener Abruf hiess, dass das Repo dauerhaft
+            // nicht zu erreichen war. Mit dem Auswahlmenue schaltet man hin
+            // und zurueck, und dann steht "Repo list fetch failed: 404" neben
+            // einer Liste, die einwandfrei geladen hat. Am Geraet nachgemessen
+            // (.186, 2026-09-14).
             "function tcFill(f){var s=document.getElementById('tcrf');"
+            "var m0=document.getElementById('tcrmsg');if(m0)m0.textContent='';"
             "fetch(tcB()+'/index.json',{cache:f?'reload':'default'}).then(function(r){"
             "if(!r.ok)throw r.status;return r.json()}).then(function(j){"
             "var ls=(j&&j.programs)||j;if(!ls||!ls.length)throw 'empty';s.innerHTML='';"
