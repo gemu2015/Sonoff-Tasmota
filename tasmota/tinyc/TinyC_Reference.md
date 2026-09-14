@@ -895,7 +895,7 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_smlj` | int | read/write | SML option bits (requires USE_SML_M): 1 = publish on TelePeriod, 2 = obis_line_mode, 4 = suppress the SML driver's own web card, 8 = publish every descriptor line, including registers the meter never sent |
 | `tasm_npwr` | int | read | Number of power (relay) devices |
 | `tasm_rule` | int | read/write | Rule1 enabled (bit 0 of `Settings->rule_enabled`). Read returns 0 or 1. Write any non-zero to enable, 0 to disable. Equivalent to the console `Rule1 1` / `Rule1 0` commands. Note: some Tasmota subsystems (SML descriptors) check this flag at init and silently skip when Rule1 is disabled — flip with `tasm_rule = 1` before starting them. |
-| `tasm_lat` | float | read/write | Device latitude in decimal degrees (e.g. 48.137). Backed by `Settings->latitude` (stored ×1 000 000 as int). Used by `tasm_sunrise` / `tasm_sunset` calculations. |
+| `tasm_lat` | float | read/write | Device latitude in decimal degrees (e.g. 48.137). Backed by `Settings->latitude` (stored ×1,000,000 as int). Used by `tasm_sunrise` / `tasm_sunset` calculations. |
 | `tasm_lon` | float | read/write | Device longitude in decimal degrees (e.g. 11.575). Backed by `Settings->longitude`. |
 | `tasm_maxblock` | int | read | Largest contiguous free heap block in bytes (ESP32 only) — diagnoses heap fragmentation: free heap can be high while `maxblock` is low |
 | `tasm_frag` | int | read | Heap fragmentation 0..100 % (ESP32 only) — derived from `1 - maxblock/free_heap` |
@@ -2588,8 +2588,8 @@ Up to 3 serial ports can be open simultaneously. `serialBegin()` returns a **han
 | `int serialReadArray(int h, arr[], int len)` | Read up to `len` bytes into `arr` — **one syscall for the whole block**. `arr` may be `int[]` (one byte per slot) or `byte[]` (packed). Returns the count, 0 if nothing is waiting; never blocks |
 
 > ⚠️ **`serialRead()` costs one syscall per byte.** Measured on an ESP32-S3
-> (2026-09-13, real device): 95 969 serial syscalls per second, while an empty
-> loop does 333 333 — about 10 µs per byte. At 230400 baud (23 kB/s) that is a
+> (2026-09-13, real device): 95,969 serial syscalls per second, while an empty
+> loop does 333,333 — about 10 µs per byte. At 230,400 baud (23 kB/s) that is a
 > quarter of the VM spent just fetching, before any work. Use
 > `serialReadArray()` for anything that streams; `serialRead()` stays right for
 > a handful of bytes and for line-by-line protocols.
@@ -5813,7 +5813,7 @@ so a generic class driver does not reach it.
 | `int usbDeinit()` | Tear the stack down and give the RAM back |
 | `int usbInfo(sel)` | `0` = VID, `1` = PID, `2` = bytes received, `3` = bytes sent, `4` = bytes **lost** (ring overflow — the script is not reading fast enough) |
 
-**Pump in `TaskLoop()`, not in a callback.** At 230400 baud the link carries 23 kB/s;
+**Pump in `TaskLoop()`, not in a callback.** At 230,400 baud the link carries 23 kB/s;
 in `Every50ms()` that fights Tasmota's main loop for time, and the ring overflows —
 `usbInfo(4)` is where you see it.
 
@@ -5821,8 +5821,8 @@ in `Every50ms()` that fights Tasmota's main loop for time, and the ring overflow
 
 | | |
 |---|---|
-| sending | **22 349 B/s = 97 % of the line**, 262 144 of 262 144 bytes, 0 lost |
-| receiving | 18,5 kB/s sustained, twice 15 s, 0 lost — as much as that recorder sends |
+| sending | **22,349 B/s = 97 % of the line**, 262,144 of 262,144 bytes, 0 lost |
+| receiving | 18.5 kB/s sustained, twice 15 s, 0 lost — as much as that recorder sends |
 
 So the chain carries line rate. Two things had to be right for that, and both cost
 an order of magnitude when they are not:
@@ -5831,13 +5831,13 @@ an order of magnitude when they are not:
 dispatched in the SAME task as the library events, so a blocking wait for library
 events — plugging and unplugging, seconds apart — holds up the transfers, which are
 milliseconds apart. With `usb_host_lib_handle_events(50 ms)` the numbers came out as
-exactly 4 IN × 62 B per round = **4,96 kB/s** and 1 OUT × 64 B = **1,28 kB/s** —
+exactly 4 IN × 62 B per round = **4.96 kB/s** and 1 OUT × 64 B = **1.28 kB/s** —
 arithmetic of the round, matching the measurement to the byte. Pass `0` there and let
 `usb_host_client_handle_events` do the waiting; it returns as soon as an event arrives.
 
 ⚠️ **The ring must outlast a Wi-Fi hiccup.** 2048 bytes are 89 ms of headroom at
-23 kB/s; at 17,7 kB/s that lost 3 bytes out of 275 060 — and in this protocol a lost
-byte is a SHIFTED frame, not a missing value. The ring is 16 kB (0,7 s), and the
+23 kB/s; at 17.7 kB/s that lost 3 bytes out of 275,060 — and in this protocol a lost
+byte is a SHIFTED frame, not a missing value. The ring is 16 kB (0.7 s), and the
 script reads 1024 bytes per pass instead of 256.
 
 ⚠️ **The IN buffers must stay 64 bytes.** The FTDI puts its two status bytes before
@@ -5986,7 +5986,7 @@ Colours are `0xRRGGBB`. Common LVGL 9 constants you pass as plain integers:
 > In **SHIFT** mode every new value moves *all* points, so the **whole chart area** is
 > invalidated and redrawn. In **CIRCULAR** mode the new value overwrites the oldest one in
 > place — a sweeping cursor, like a hospital monitor — and only a narrow column is
-> invalidated. For a 760×300 chart holding 250 points that is ~228 000 pixels per value
+> invalidated. For a 760×300 chart holding 250 points that is ~228,000 pixels per value
 > against ~900: a factor of about 250. At 250 Hz (an ECG) SHIFT is hopeless and CIRCULAR is
 > unremarkable. LVGL defaults to SHIFT, so a fast chart needs the call.
 >

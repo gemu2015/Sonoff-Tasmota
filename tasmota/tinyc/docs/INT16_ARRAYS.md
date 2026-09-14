@@ -115,7 +115,7 @@ Schleife an `BAD_OPCODE` zu sterben.
 2026-08-26:
 
 - `examples/int16_array_suite.tc` — **139/139 PASSED**, im Simulator und am
-  Gerät gleichermaßen, 80 947 Instruktionen, sauber gehalten. Deckt ab:
+  Gerät gleichermaßen, 80.947 Instruktionen, sauber gehalten. Deckt ab:
   lokal/global/heap, beide Vorzeichen, die Grenzen samt Umlauf, Nachbarschaft
   im Slot und zum Folge-Global, Referenzparameter lesend und schreibend,
   Strukturfelder gemischt mit `byte[]`, ein Feld von Strukturen, `sortArray`,

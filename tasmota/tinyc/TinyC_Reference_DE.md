@@ -847,7 +847,7 @@ TinyC stellt virtuelle `tasm_*`-Variablen bereit, die den Tasmota-Systemzustand 
 | `tasm_smlj` | int | lesen/schreiben | SML-Optionsbits (erfordert USE_SML_M): 1 = auf TelePeriod veröffentlichen, 2 = obis_line_mode, 4 = eigene Web-Karte des SML-Treibers unterdrücken, 8 = jede Deskriptorzeile veröffentlichen, auch nie empfangene Register |
 | `tasm_npwr` | int | lesen | Anzahl der Power-Geraete (Relais) |
 | `tasm_rule` | int | lesen/schreiben | Rule1 aktiviert (Bit 0 von `Settings->rule_enabled`). Lesen liefert 0 oder 1. Schreiben: jeder Wert ungleich 0 aktiviert, 0 deaktiviert. Entspricht den Konsolen-Befehlen `Rule1 1` / `Rule1 0`. Hinweis: einige Tasmota-Subsysteme (z. B. SML-Deskriptoren) pruefen dieses Flag bei der Initialisierung und ueberspringen still wenn Rule1 deaktiviert ist — vor dem Start ggf. `tasm_rule = 1` setzen. |
-| `tasm_lat` | float | lesen/schreiben | Geraete-Breitengrad in Dezimalgrad (z. B. 48.137). Backing: `Settings->latitude` (intern als int x 1 000 000 gespeichert). Wird von `tasm_sunrise` / `tasm_sunset` verwendet. |
+| `tasm_lat` | float | lesen/schreiben | Geraete-Breitengrad in Dezimalgrad (z. B. 48.137). Backing: `Settings->latitude` (intern als int x 1.000.000 gespeichert). Wird von `tasm_sunrise` / `tasm_sunset` verwendet. |
 | `tasm_lon` | float | lesen/schreiben | Geraete-Laengengrad in Dezimalgrad (z. B. 11.575). Backing: `Settings->longitude`. |
 | `tasm_maxblock` | int | lesen | Groesster zusammenhaengender freier Heap-Block in Bytes (nur ESP32) — zeigt Heap-Fragmentierung: freier Heap kann hoch sein, waehrend `maxblock` niedrig ist |
 | `tasm_frag` | int | lesen | Heap-Fragmentierung 0..100 % (nur ESP32) — abgeleitet aus `1 - maxblock/free_heap` |
@@ -2522,8 +2522,8 @@ Es koennen bis zu 3 serielle Ports gleichzeitig geoeffnet sein. `serialBegin()` 
 | `int serialReadArray(int h, arr[], int len)`      | Bis zu `len` Bytes am Stück nach `arr` — **ein Systemaufruf für den ganzen Block**. `arr` darf `int[]` (ein Byte je Slot) oder `byte[]` (gepackt) sein. Liefert die Anzahl, 0 wenn nichts da ist; wartet nie |
 
 > ⚠️ **`serialRead()` kostet einen Systemaufruf je Byte.** Am ESP32-S3 gemessen
-> (13.09.2026, echtes Gerät): 95 969 serielle Systemaufrufe je Sekunde, eine
-> leere Schleife schafft 333 333 — rund 10 µs je Byte. Bei 230400 Baud
+> (13.09.2026, echtes Gerät): 95.969 serielle Systemaufrufe je Sekunde, eine
+> leere Schleife schafft 333.333 — rund 10 µs je Byte. Bei 230.400 Baud
 > (23 kB/s) ist die VM allein mit dem Abholen zu einem Viertel ausgelastet.
 > Für alles, was strömt, `serialReadArray()`.
 >

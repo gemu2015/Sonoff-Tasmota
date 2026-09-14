@@ -17,13 +17,13 @@ typedef struct {
 
 `char buf[160]` kostet 640 Byte; als LOKALE Variable frisst es 160 der 256
 Slots eines Rahmens (`TC_MAX_LOCALS`). Über unsere 190 Beispielskripte
-zusammen: 132 864 char-Elemente = **531 kB statt 133 kB**.
+zusammen: 132.864 char-Elemente = **531 kB statt 133 kB**.
 
 | Skript | char-Elemente | heute | gepackt |
 |---|---|---|---|
-| `hyundai_soc.tc` | 9 742 | 38,9 kB | 9,7 kB |
-| `growatt_shine.tc` | 8 273 | 33,1 kB | 8,3 kB |
-| `webradio.tc` | 5 876 | 23,5 kB | 5,9 kB |
+| `hyundai_soc.tc` | 9.742 | 38,9 kB | 9,7 kB |
+| `growatt_shine.tc` | 8.273 | 33,1 kB | 8,3 kB |
+| `webradio.tc` | 5.876 | 23,5 kB | 5,9 kB |
 
 ## Entscheidungen
 
