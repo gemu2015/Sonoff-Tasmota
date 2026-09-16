@@ -13401,6 +13401,23 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #endif
           break;
         }
+#ifdef USE_TINYC_ESPDL
+        case 21: {
+          // camControl(21, score_thr_x100, 0) — person detection on the
+          // current camera frame. Returns the number of hits, <0 on error.
+          // ⚠️ This takes roughly 470 ms (JPEG decode + network) and runs in
+          // the CALLING context — from a script call it in TaskLoop, never in
+          // EverySecond, or the main loop stalls for that long.
+          res = tc_dl_person_run(p1);
+          break;
+        }
+        case 22: {
+          // camControl(22, sel, 0) — read the result:
+          // 0=count 1=best score x100 2..5=box x,y,w,h 6=net ms 7=jpeg ms
+          res = tc_dl_person_get(p1);
+          break;
+        }
+#endif
 #endif // USE_WEBCAM || USE_TINYC_CAMERA
         default:
           AddLog(LOG_LEVEL_ERROR, PSTR("TCC: camControl unknown sel=%d"), sel);

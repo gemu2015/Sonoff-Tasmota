@@ -150,6 +150,17 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 #include "include/xdrv_124_tinyc_camera.h"
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
+#ifdef USE_TINYC_ESPDL
+// ⚠️ The VM header is included HERE, while the detector class below is
+// defined much further down — so the camControl dispatch inside it cannot see
+// that class. These two plain functions are the seam.
+//   tc_dl_person_run(score_thr_x100) takes the current camera frame and
+//   returns the number of persons found, -1 on error.
+//   tc_dl_person_get(sel) reads the result: 0=count 1=best score x100
+//   2..5=box x,y,w,h  6=net ms  7=jpeg ms
+int32_t tc_dl_person_run(int32_t schwelle_x100);
+int32_t tc_dl_person_get(int32_t sel);
+#endif
 #include "include/xdrv_124_tinyc_vm.h"
 #include "include/xdrv_124_tinyc_repoide.h"   // /tcrepo page (USE_TINYC_REPO_IDE)
 
@@ -1241,11 +1252,11 @@ void CmndMatterCryptoTest(void) {
 #include "dl_image_preprocessor.hpp"
 
 // ── Personenerkenner ───────────────────────────────────────────────────────
-// Nachgebaut aus models/pedestrian_detect/pedestrian_detect.cpp, aber OHNE
-// dessen Kconfig-Geruest: der Original-Wrapper haengt an CONFIG_*-Symbolen und
-// einem Pack-Schritt beim Bauen. Wir laden dieselbe .espdl aus einer Datei, die
-// drei Zeilen darunter sind identisch (minimize + Vorverarbeitung + Pico-
-// Nachbearbeitung mit denselben Strides).
+// Rebuilt from models/pedestrian_detect/pedestrian_detect.cpp, but WITHOUT its
+// Kconfig scaffolding: the original wrapper hangs off CONFIG_* symbols and a
+// model-packing step at build time. We load the very same .espdl from a file;
+// the three lines below it are identical (minimize + preprocessing + the Pico
+// postprocessor with the same strides).
 namespace {
 class TcPersonen : public dl::detect::DetectImpl {
  public:
@@ -1263,8 +1274,16 @@ class TcPersonen : public dl::detect::DetectImpl {
 };
 }  // namespace
 
-// Bleibt geladen: 1,1 s von der SD-Karte sind pro Bild nicht bezahlbar.
+// Stays loaded: 1.1 s off the SD card is not affordable per frame.
 static TcPersonen *tc_dl_personen = nullptr;
+
+// Result of the last run — the command and the syscall share this one.
+static struct {
+  int32_t n;
+  int32_t best;            // bester Score x100
+  int32_t x, y, w, h;      // Kasten des besten Treffers
+  uint32_t ms_netz, ms_jpeg, ms_laden;
+} tc_dl_erg = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 #ifndef TC_DL_PERSON_MODEL
 #define TC_DL_PERSON_MODEL "/sd/ped.espdl"
 #endif
@@ -1421,61 +1440,51 @@ void CmndTinyCDl(void) {
   delete model;
 }
 
-// TinyCDlCam [schwelle]
+// ── Person detection on the current camera frame ──────────────────────────
+// One place, two callers: the console command TinyCDlCam and the syscall
+// camControl(21,…) that a script uses. The result lands in tc_dl_erg.
 //
-// Nimmt das Bild, das die Kamera ohnehin gerade aufgenommen hat, und laesst
-// das Netz sagen WO eine Person steht — nicht nur, dass sich etwas geaendert
-// hat. Zum Vergleich mit der alten Bewegungserkennung sind beide Zeiten
-// getrennt ausgewiesen.
+// ⚠️ The JPEG is decoded by jpg2rgb565() from esp32-camera, not by ESP-DL's
+// own path: dl_image_jpeg.cpp needs the esp_new_jpeg component, while
+// jpg2rgb565 is already in this firmware — and it is the only one of the two
+// that can decode SCALED DOWN.
 //
-// ⚠️ Das JPEG entpackt fmt2rgb888() aus esp32-camera, nicht ESP-DLs eigener
-// Weg: dl_image_jpeg.cpp braucht die Komponente esp_new_jpeg, waehrend
-// fmt2rgb888 in dieser Firmware ohnehin schon liegt (TC_CamMotionDetect
-// benutzt es). Ein Entpacker im Bau reicht.
-void CmndTinyCDlCam(void) {
-  // TinyCDlCam [schwelle] [skala] [byteordnung]
-  //   skala 0 = volle Aufloesung ueber fmt2rgb888 (der alte Weg, zum Vergleich)
-  //   skala 2/4/8 = jpg2rgb565 mit JPG_SCALE_*, also verkleinert entpackt
-  //   byteordnung 0 = RGB565 little endian, 1 = big endian
-  float schwelle = 0.7f;
-  int skala = 2;
-  int bo = 0;
-  if (XdrvMailbox.data_len) {
-    char *cp = XdrvMailbox.data;
-    float v = CharToFloat(cp);
-    if (v > 0.0f && v < 1.0f) { schwelle = v; }
-    char *sp = strchr(cp, ' ');
-    if (sp) {
-      skala = strtol(sp + 1, &sp, 10);
-      if (sp && *sp) { bo = strtol(sp, nullptr, 10); }
-    }
-  }
-  if (skala != 0 && skala != 2 && skala != 4 && skala != 8) { skala = 2; }
+// Scale 1/2: 640x480 becomes 320x240, still larger than the model's 224x224
+// input, so nothing is lost — but it is a quarter of the pixels and RGB565
+// instead of RGB888. Measured 252 ms instead of 305 ms.
+// Going smaller buys little (1/4: 225 ms) and 1/8 would be too coarse at
+// 80x60: the Huffman pass scales with the COMPRESSED data and cannot be
+// skipped, only the IDCT and the output do.
+static int tc_dl_skala = 2;   // 0 = voll ueber fmt2rgb888, sonst 2/4/8
+static int tc_dl_bo = 0;      // RGB565: 0 = little endian, 1 = big endian
 
-  uint32_t ms_laden = 0;
+int32_t tc_dl_person_run(int32_t schwelle_x100) {
+  float schwelle = (schwelle_x100 > 0 && schwelle_x100 < 100)
+                       ? (float)schwelle_x100 / 100.0f
+                       : 0.7f;
+  tc_dl_erg.n = 0;
+  tc_dl_erg.best = 0;
+  tc_dl_erg.ms_laden = 0;
+
   if (!tc_dl_personen) {
     uint32_t t = millis();
     tc_dl_personen = new TcPersonen(TC_DL_PERSON_MODEL, schwelle, 0.5f);
-    ms_laden = millis() - t;
+    tc_dl_erg.ms_laden = millis() - t;
     if (!tc_dl_personen->geladen()) {
       delete tc_dl_personen;
       tc_dl_personen = nullptr;
-      Response_P(PSTR("{\"TinyCDlCam\":{\"Error\":\"model load failed\",\"File\":\"%s\"}}"),
-                 TC_DL_PERSON_MODEL);
-      return;
+      return -1;
     }
   } else {
     tc_dl_personen->set_score_thr(schwelle);
   }
 
-  // Kameraplatz 1 ist intern tc_cam_slot[0] — dasselbe Bild, das der Stream
-  // ausliefert. `writing` wird geprueft wie in TC_CamMotionDetect.
-  // ⚠️ DAS JPEG MUSS ERST HERAUSKOPIERT WERDEN.
-  // Entpacken dauert ~285 ms (gemessen, VGA), und die Kamera nimmt in der Zeit
-  // laufend weiter auf — sie schreibt denselben Platz neu. Direkt aus dem Slot
-  // zu entpacken ging beim ersten Aufruf gut und scheiterte danach jedes Mal
-  // mit "jpeg decode failed". Also kopieren und HINTERHER pruefen, ob waehrend
-  // des Kopierens geschrieben wurde; dasselbe Muster wie TC_SendCamSlotAsJpeg.
+  // ⚠️ THE JPEG MUST BE COPIED OUT FIRST.
+  // Decoding takes ~250 ms and the camera keeps rewriting that same slot in
+  // the meantime. Decoding straight out of the slot worked on the first call
+  // and failed on every one after it with "jpeg decode failed". So copy, then
+  // check AFTERWARDS whether it was written during the copy — the same
+  // pattern as TC_SendCamSlotAsJpeg.
   uint32_t breite = 0, hoehe = 0, len = 0;
   uint8_t *jpg = nullptr;
   for (int versuch = 0; versuch < 5 && !jpg; versuch++) {
@@ -1485,75 +1494,104 @@ void CmndTinyCDlCam(void) {
     breite = tc_cam_slot[0].width;
     hoehe = tc_cam_slot[0].height;
     uint8_t *k = (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!k) { ResponseCmndChar_P(PSTR("no psram")); return; }
+    if (!k) { return -2; }
     memcpy(k, tc_cam_slot[0].buf, len);
     if (tc_cam_slot[0].writing || tc_cam_slot[0].len != len) { free(k); delay(30); continue; }
     jpg = k;
   }
-  if (!jpg) { ResponseCmndChar_P(PSTR("no stable frame")); return; }
+  if (!jpg) { return -3; }
 
-  // ⚠️ VERKLEINERT ENTPACKEN IST DER GROSSE HEBEL.
-  // Gemessen: volle Aufloesung 640x480 nach RGB888 kostet 289 ms und 0,88 MB
-  // PSRAM — mehr als die Erkennung selbst (216 ms). Ein JPEG-Entpacker kann
-  // beim IDCT kostenlos halbieren, vierteln oder achteln. Bei einem Modell mit
-  // 224x224 Eingang ist 1/2 = 320x240 der richtige Schnitt: immer noch groesser
-  // als 224 in beiden Richtungen, also verliert das Modell nichts, aber es sind
-  // ein Viertel der Bildpunkte und RGB565 statt RGB888 (2 statt 3 Byte) — der
-  // Puffer faellt von 0,88 MB auf rund 150 kB.
-  // fmt2rgb888() kann NICHT skalieren, jpg2rgb565() schon. Deshalb der Wechsel
-  // des Pixelformats; ESP-DL nimmt RGB565 direkt an.
   uint32_t aus_b = breite, aus_h = hoehe;
   uint8_t *rgb = nullptr;
-  uint32_t ms_jpeg = 0;
   bool ok = false;
   uint32_t t0 = millis();
-  if (0 == skala) {
+  if (0 == tc_dl_skala) {
     rgb = (uint8_t *)heap_caps_malloc(breite * hoehe * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (rgb) { ok = fmt2rgb888(jpg, len, PIXFORMAT_JPEG, rgb); }
   } else {
-    aus_b = breite / skala;
-    aus_h = hoehe / skala;
-    esp_jpeg_image_scale_t sc = (2 == skala) ? JPG_SCALE_2X
-                              : (4 == skala) ? JPG_SCALE_4X : JPG_SCALE_8X;
+    aus_b = breite / tc_dl_skala;
+    aus_h = hoehe / tc_dl_skala;
+    esp_jpeg_image_scale_t sc = (2 == tc_dl_skala) ? JPG_SCALE_2X
+                              : (4 == tc_dl_skala) ? JPG_SCALE_4X : JPG_SCALE_8X;
     rgb = (uint8_t *)heap_caps_malloc(aus_b * aus_h * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (rgb) { ok = jpg2rgb565(jpg, len, rgb, sc); }
   }
-  ms_jpeg = millis() - t0;
+  tc_dl_erg.ms_jpeg = millis() - t0;
   free(jpg);
-  if (!rgb) { ResponseCmndChar_P(PSTR("no psram")); return; }
-  if (!ok) { free(rgb); ResponseCmndChar_P(PSTR("jpeg decode failed")); return; }
+  if (!rgb) { return -2; }
+  if (!ok) { free(rgb); return -4; }
 
   dl::image::img_t bild;
   bild.data = rgb;
   bild.width = (uint16_t)aus_b;
   bild.height = (uint16_t)aus_h;
-  bild.pix_type = (0 == skala) ? dl::image::DL_IMAGE_PIX_TYPE_RGB888
-                : (0 == bo)    ? dl::image::DL_IMAGE_PIX_TYPE_RGB565LE
-                               : dl::image::DL_IMAGE_PIX_TYPE_RGB565BE;
+  bild.pix_type = (0 == tc_dl_skala) ? dl::image::DL_IMAGE_PIX_TYPE_RGB888
+                : (0 == tc_dl_bo)    ? dl::image::DL_IMAGE_PIX_TYPE_RGB565LE
+                                     : dl::image::DL_IMAGE_PIX_TYPE_RGB565BE;
 
   t0 = millis();
   std::list<dl::detect::result_t> &treffer = tc_dl_personen->run(bild);
-  uint32_t ms_netz = millis() - t0;
+  tc_dl_erg.ms_netz = millis() - t0;
   free(rgb);
 
-  char kaesten[320];
-  kaesten[0] = '\0';
-  int n = 0;
+  tc_dl_erg.n = (int32_t)treffer.size();
+  // ⚠️ The boxes are in the SCALED-DOWN image. They are scaled back to the
+  // original size for the script and the display, or a box drawn at scale 1/2
+  // would point at the wrong half of the picture.
+  int32_t f = (0 == tc_dl_skala) ? 1 : tc_dl_skala;
   for (auto &r : treffer) {
-    if (n >= 4) { break; }
-    char einer[80];
-    snprintf(einer, sizeof(einer), "%s{\"s\":%.2f,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
-             n ? "," : "", r.score, r.box[0], r.box[1], r.box[2] - r.box[0], r.box[3] - r.box[1]);
-    if (strlen(kaesten) + strlen(einer) + 2 >= sizeof(kaesten)) { break; }
-    strcat(kaesten, einer);
-    n++;
+    int32_t sc100 = (int32_t)(r.score * 100.0f);
+    if (sc100 > tc_dl_erg.best) {
+      tc_dl_erg.best = sc100;
+      tc_dl_erg.x = r.box[0] * f;
+      tc_dl_erg.y = r.box[1] * f;
+      tc_dl_erg.w = (r.box[2] - r.box[0]) * f;
+      tc_dl_erg.h = (r.box[3] - r.box[1]) * f;
+    }
+  }
+  return tc_dl_erg.n;
+}
+
+int32_t tc_dl_person_get(int32_t sel) {
+  switch (sel) {
+    case 0: return tc_dl_erg.n;
+    case 1: return tc_dl_erg.best;
+    case 2: return tc_dl_erg.x;
+    case 3: return tc_dl_erg.y;
+    case 4: return tc_dl_erg.w;
+    case 5: return tc_dl_erg.h;
+    case 6: return (int32_t)tc_dl_erg.ms_netz;
+    case 7: return (int32_t)tc_dl_erg.ms_jpeg;
+    default: return -1;
+  }
+}
+
+// TinyCDlCam [schwelle] [skala] [byteordnung]
+void CmndTinyCDlCam(void) {
+  float schwelle = 0.7f;
+  if (XdrvMailbox.data_len) {
+    char *cp = XdrvMailbox.data;
+    float v = CharToFloat(cp);
+    if (v > 0.0f && v < 1.0f) { schwelle = v; }
+    char *sp = strchr(cp, ' ');
+    if (sp) {
+      int sk = strtol(sp + 1, &sp, 10);
+      if (0 == sk || 2 == sk || 4 == sk || 8 == sk) { tc_dl_skala = sk; }
+      if (sp && *sp) { tc_dl_bo = strtol(sp, nullptr, 10) ? 1 : 0; }
+    }
   }
 
-  Response_P(PSTR("{\"TinyCDlCam\":{\"Size\":\"%ux%u\",\"Decoded\":\"%ux%u\","
-                  "\"Scale\":%d,\"Endian\":\"%s\",\"Thr\":%.2f,\"LoadMs\":%u,"
-                  "\"JpegMs\":%u,\"DetectMs\":%u,\"Found\":%d,\"Boxes\":[%s]}}"),
-             breite, hoehe, aus_b, aus_h, skala, (0 == skala) ? "rgb888" : (0 == bo ? "le" : "be"),
-             schwelle, ms_laden, ms_jpeg, ms_netz, (int)treffer.size(), kaesten);
+  int32_t n = tc_dl_person_run((int32_t)(schwelle * 100.0f));
+  if (n < 0) {
+    Response_P(PSTR("{\"TinyCDlCam\":{\"Error\":%d,\"File\":\"%s\"}}"), (int)n, TC_DL_PERSON_MODEL);
+    return;
+  }
+  Response_P(PSTR("{\"TinyCDlCam\":{\"Scale\":%d,\"Thr\":%.2f,\"LoadMs\":%u,\"JpegMs\":%u,"
+                  "\"DetectMs\":%u,\"Found\":%d,\"Best\":%d,"
+                  "\"Box\":[%d,%d,%d,%d]}}"),
+             tc_dl_skala, schwelle, tc_dl_erg.ms_laden, tc_dl_erg.ms_jpeg,
+             tc_dl_erg.ms_netz, (int)n, (int)tc_dl_erg.best,
+             (int)tc_dl_erg.x, (int)tc_dl_erg.y, (int)tc_dl_erg.w, (int)tc_dl_erg.h);
 }
 
 #endif // USE_TINYC_ESPDL
