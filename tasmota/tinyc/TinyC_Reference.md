@@ -4949,6 +4949,58 @@ All camera operations use `camControl(sel, p1, p2)`:
 | 18 | `camControl(18, 0, 0)` | Free motion reference buffer |
 | 19 | `camControl(19, addr, mask)` | Read raw sensor register at `addr`, masked by `mask` |
 | 20 | `camControl(20, addr, val)` | Write raw value `val` to sensor register at `addr` |
+| 21 | `camControl(21, score_x100, 0)` | **Person detection** on the frame currently in cam slot 1 — returns the number of hits, `<0` on error. Needs a firmware built with `-DUSE_TINYC_ESPDL` and the model as a file; without it the call simply returns −1 |
+| 22 | `camControl(22, sel, 0)` | Read the result of the last `camControl(21)`: `0`=count, `1`=best score ×100, `2..5`=box `x,y,w,h` (already scaled back to the original frame size), `6`=inference ms, `7`=JPEG-decode ms |
+
+#### Person detection (ESP-DL)
+
+Built with `-DUSE_TINYC_ESPDL` (ESP32-S3 only, **+759 KB flash**). The model is
+an ordinary **file** on the filesystem, not part of the firmware, so an OTA stays
+small and swapping a model is a file upload. Measured on a DFRobot AI CAM
+DFR1154 (ESP32-S3, 240 MHz) on 2026-09-16:
+
+| | |
+|---|---|
+| `pedestrian_detect_pico_s8_v1.espdl` (224×224) | 425 KB, inference **216 ms** |
+| loading it from SD | 1.1 s, once — the model stays loaded |
+| JPEG decode of a 640×480 frame at scale 1/2 | **252 ms** |
+| memory plan: PSRAM / internal | 2.29 MB / 76 KB |
+
+⚠️ **Call it from `TaskLoop()`, never from `EverySecond()`.** One run takes
+~470 ms and executes in the calling context, so from `EverySecond()` the main
+loop stalls for that long. The idiom is: cheap motion detection
+(`camControl(16/17)`) is the TRIGGER, the network is the CONFIRMATION.
+
+```c
+void EverySecond() {
+    if (bewegung && !pending) { pending = 1; }   // only set a flag here
+}
+void TaskLoop() {
+    if (pending) {
+        pending = 0;
+        int n = camControl(21, 50, 0);           // threshold 0.50
+        if (n > 0) {
+            int score = camControl(22, 1, 0);
+            int x = camControl(22, 2, 0);
+            int y = camControl(22, 3, 0);
+        }
+    }
+}
+```
+
+⚠️ **Scaled JPEG decoding does not pay off the way one expects.** `fmt2rgb888()`
+cannot scale, `jpg2rgb565()` can. Measured at 640×480: full **305 ms**, 1/2
+**252 ms**, 1/4 **225 ms**, 1/8 **43 ms**. Halving and quartering barely help
+because the Huffman pass scales with the COMPRESSED data and cannot be skipped —
+only the IDCT and the output do. Only 1/8 hits the DC-only fast path. So for a
+detector with a 224×224 input, 1/2 is the right cut (still above 224, nothing
+lost); for a whole-frame motion measure 1/8 is the right one, and there it is
+worth a great deal — it took Tasmota's main-loop `LoadAvg` from 758 down to 66.
+
+⚠️ `max_internal_size` on `dl::Model` is **not safe** and is clamped to 0 in the
+driver: ESP-DL does not check an allocation it failed to get and dereferences
+null (`LoadProhibited`, `EXCVADDR 00000000`). 64 KB ran twice at 152 ms and then
+rebooted the device on the third identical call.
 
 Capture (sel 10) copies the JPEG from the camera framebuffer to a PSRAM slot and immediately returns the camera framebuffer, allowing fast consecutive captures. Up to 4 slots can hold pictures simultaneously.
 
@@ -6068,6 +6120,8 @@ All commands default to slot 0 if no slot number is given (backward-compatible).
 > ⚠️ **Flashing firmware does NOT update the IDE.** The browser IDE is a *file on the device filesystem* (`/tinyc_ide.html.gz`), not part of the firmware image. After flashing a build that adds new syscalls, the old IDE still doesn't know them and the compiler reports `Undefined function: <name>` — even though the firmware supports it. Run **`TinyCIde`** once after every firmware update that adds built-ins, then hard-reload the browser page.
 | `TinyC ?<query>`              | Query global variables by index (see below)      |
 | `TinyCChkpt`                  | Show partition table (ESP32 only)                |
+| `TinyCDl <path.espdl>`        | Load an ESP-DL model from a FILE, verify it against the test vectors embedded in it, and report memory + latency (`-DUSE_TINYC_ESPDL`) |
+| `TinyCDlCam [thr] [scale] [bo]`| Run person detection on the current camera frame. `thr` 0…1 (default 0.7), `scale` 0/2/4/8 (default 2), `bo` RGB565 byte order |
 | `TinyCChkpt p`                | Pack: shrink `app0` to fit, expand `spiffs`      |
 | `TinyCChkpt p <KB>`           | Pack with explicit `app0` size in KB (1024..3904)|
 

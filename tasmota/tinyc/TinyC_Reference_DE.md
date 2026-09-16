@@ -4800,6 +4800,59 @@ Alle Kamera-Operationen nutzen `camControl(sel, p1, p2)`:
 | 18 | `camControl(18, 0, 0)` | Bewegungs-Referenzbuffer freigeben |
 | 19 | `camControl(19, addr, mask)` | Rohes Sensorregister lesen |
 | 20 | `camControl(20, addr, val)` | Rohes Sensorregister schreiben |
+| 21 | `camControl(21, score_x100, 0)` | **Personenerkennung** auf dem Bild in Kameraplatz 1 — gibt die Zahl der Treffer zurück, `<0` bei Fehler. Braucht eine Firmware mit `-DUSE_TINYC_ESPDL` und das Modell als Datei; ohne beides liefert der Aufruf einfach −1 |
+| 22 | `camControl(22, sel, 0)` | Ergebnis des letzten `camControl(21)` lesen: `0`=Anzahl, `1`=bester Score ×100, `2..5`=Kasten `x,y,w,h` (bereits auf die Originalgrösse zurückgerechnet), `6`=Rechenzeit ms, `7`=JPEG-Entpacken ms |
+
+#### Personenerkennung (ESP-DL)
+
+Gebaut mit `-DUSE_TINYC_ESPDL` (nur ESP32-S3, **+759 kB Flash**). Das Modell ist
+eine gewöhnliche **Datei** im Dateisystem, nicht Teil der Firmware — die OTA
+bleibt klein, und ein Modellwechsel ist ein Datei-Upload. Gemessen an einer
+DFRobot AI CAM DFR1154 (ESP32-S3, 240 MHz) am 16.09.2026:
+
+| | |
+|---|---|
+| `pedestrian_detect_pico_s8_v1.espdl` (224×224) | 425 kB, Erkennung **216 ms** |
+| Laden von der SD-Karte | 1,1 s, einmalig — das Modell bleibt geladen |
+| JPEG eines 640×480-Bildes bei Skala 1/2 entpacken | **252 ms** |
+| Speicherplan: PSRAM / intern | 2,29 MB / 76 kB |
+
+⚠️ **Aus `TaskLoop()` aufrufen, niemals aus `EverySecond()`.** Ein Lauf dauert
+~470 ms und läuft im aufrufenden Kontext; aus `EverySecond()` steht die
+Hauptschleife so lange still. Das Muster ist: die billige Bewegungserkennung
+(`camControl(16/17)`) ist der AUSLÖSER, das Netz die BESTÄTIGUNG.
+
+```c
+void EverySecond() {
+    if (bewegung && !vorgemerkt) { vorgemerkt = 1; }   // hier nur vormerken
+}
+void TaskLoop() {
+    if (vorgemerkt) {
+        vorgemerkt = 0;
+        int n = camControl(21, 50, 0);                 // Schwelle 0,50
+        if (n > 0) {
+            int score = camControl(22, 1, 0);
+            int x = camControl(22, 2, 0);
+            int y = camControl(22, 3, 0);
+        }
+    }
+}
+```
+
+⚠️ **Verkleinert zu entpacken lohnt nicht so, wie man denkt.** `fmt2rgb888()`
+kann nicht skalieren, `jpg2rgb565()` schon. Gemessen bei 640×480: voll
+**305 ms**, 1/2 **252 ms**, 1/4 **225 ms**, 1/8 **43 ms**. Halbieren und
+vierteln bringen kaum etwas, weil die Huffman-Dekodierung an der KOMPRIMIERTEN
+Datenmenge hängt und sich nicht überspringen lässt — nur IDCT und Ausgabe
+skalieren. Erst 1/8 trifft den DC-only-Schnellweg. Für einen Erkenner mit
+224×224-Eingang ist 1/2 der richtige Schnitt (noch über 224, kein Verlust), für
+einen Ganzbild-Bewegungswert dagegen 1/8 — und dort lohnt es sehr: Tasmotas
+`LoadAvg` in der Hauptschleife fiel damit von 758 auf 66.
+
+⚠️ `max_internal_size` an `dl::Model` ist **nicht sicher** und im Treiber auf 0
+gedeckelt: ESP-DL prüft eine fehlgeschlagene Belegung nicht und greift auf null
+zu (`LoadProhibited`, `EXCVADDR 00000000`). 64 kB lief zweimal mit 152 ms und
+warf das Gerät beim dritten identischen Aufruf um.
 
 Aufnahme (sel 10) kopiert das JPEG vom Kamera-Framebuffer in einen PSRAM-Slot und gibt den Framebuffer sofort zurueck, was schnelle aufeinanderfolgende Aufnahmen ermoeglicht. Bis zu 4 Slots koennen gleichzeitig Bilder halten.
 

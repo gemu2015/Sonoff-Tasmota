@@ -5,8 +5,17 @@
 //
 // Features: MJPEG stream on port 81, motion detection (pixel frame-diff,
 //           firmware-side, with a brightness gate and a sustain count),
-//           PIR alarm, picture saving, email alerts with up to 4 pictures,
-//           timelapse, auto-cleanup (14-day rotation)
+//           optional person detection through ESP-DL as a CONFIRMATION of that
+//           motion, PIR alarm, picture saving, email alerts with up to 4
+//           pictures, timelapse, auto-cleanup (14-day rotation)
+//
+// Build switches beyond the board:
+//   -DHAS_LUX_CHART   6 h lux chart on the main page. OFF by default — it costs
+//                     1440 bytes of ring plus a redraw on every page build, and
+//                     the light value is already there as a number.
+//   HAS_PERSON        person detection, on for the DFRobot board. Needs a
+//                     firmware with -DUSE_TINYC_ESPDL and the model as a file;
+//                     without either, camControl(21,…) just returns -1.
 //
 // Compile: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_DFROBOT
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_GOOUUU

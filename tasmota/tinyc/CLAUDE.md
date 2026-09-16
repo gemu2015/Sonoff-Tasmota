@@ -80,6 +80,15 @@ clear with `UfsDelete /tinyc.cfg`.
 
 Things that changed recently and invalidate older examples or forum advice:
 
+- **Neural networks on the S3** (`-DUSE_TINYC_ESPDL`, +759 KB flash). ESP-DL's
+  inference core is vendored as a PlatformIO library, NOT as an IDF component —
+  Tasmota links a precompiled arduino-esp32, so `idf_component.yml` does nothing
+  in a PIO build. Models are runtime FILES, never linked in. `camControl(21)`
+  detects, `camControl(22)` reads the result. ⚠️ ~470 ms per run, so call it
+  from `TaskLoop()`, never `EverySecond()`; the idiom is cheap motion detection
+  as the trigger and the net as the confirmation. See TinyC_Reference.md
+  "Person detection" and `lib/libesp32_dl/README.md`.
+
 - **⚠️ A packed array passed to a differently-typed array PARAMETER is the
   quietest bug in this language.** The packing rides on the reference, so every
   string syscall inside the callee still reads it right — but a direct `dst[i]`
