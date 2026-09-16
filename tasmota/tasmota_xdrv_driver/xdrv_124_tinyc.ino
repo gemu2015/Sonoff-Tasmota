@@ -1058,6 +1058,10 @@ void CmndCheckPartition(void);
 void CmndTinyCIde(void);
 #ifdef ESP32
 void CmndTinyCStack(void);
+#ifdef USE_TINYC_ESPDL
+void CmndTinyCDl(void);
+void CmndTinyCDlCam(void);
+#endif
 void CmndTinyCHttpRx(void);
 #endif
 void CmndTinyCUnload(void);
@@ -1079,6 +1083,9 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|MtrCrypto"
 #endif
 #endif
+#ifdef USE_TINYC_ESPDL
+  "|Dl|DlCam"
+#endif
   ;
 
 void (* const TinyCCommand[])(void) PROGMEM = {
@@ -1092,6 +1099,9 @@ void (* const TinyCCommand[])(void) PROGMEM = {
 #ifdef TINYC_MTRC_CRYPTO_SELFTEST
   , &CmndMatterCryptoTest
 #endif
+#endif
+#ifdef USE_TINYC_ESPDL
+  , &CmndTinyCDl, &CmndTinyCDlCam
 #endif
 };
 
@@ -1222,6 +1232,331 @@ void CmndMatterCryptoTest(void) {
 }
 #endif // TINYC_MTRC_CRYPTO_SELFTEST (Fork-B crypto-seam scaffold — off by default)
 #endif // USE_MATTER_C
+
+// --- TinyCDl: run an ESP-DL model straight off the filesystem -------------
+#ifdef USE_TINYC_ESPDL
+#include "dl_model_base.hpp"
+#include "dl_detect_base.hpp"
+#include "dl_detect_pico_postprocessor.hpp"
+#include "dl_image_preprocessor.hpp"
+
+// ── Personenerkenner ───────────────────────────────────────────────────────
+// Nachgebaut aus models/pedestrian_detect/pedestrian_detect.cpp, aber OHNE
+// dessen Kconfig-Geruest: der Original-Wrapper haengt an CONFIG_*-Symbolen und
+// einem Pack-Schritt beim Bauen. Wir laden dieselbe .espdl aus einer Datei, die
+// drei Zeilen darunter sind identisch (minimize + Vorverarbeitung + Pico-
+// Nachbearbeitung mit denselben Strides).
+namespace {
+class TcPersonen : public dl::detect::DetectImpl {
+ public:
+  TcPersonen(const char *pfad, float score_thr, float nms_thr) {
+    m_model = new dl::Model(pfad, fbs::MODEL_LOCATION_IN_SDCARD);
+    if (m_model->get_fbs_model()) {
+      m_model->minimize();
+      m_image_preprocessor = new dl::image::ImagePreprocessor(m_model, {0, 0, 0}, {1, 1, 1});
+      m_postprocessor = new dl::detect::PicoPostprocessor(
+          m_model, m_image_preprocessor, score_thr, nms_thr, 10,
+          {{8, 8, 4, 4}, {16, 16, 8, 8}, {32, 32, 16, 16}});
+    }
+  }
+  bool geladen(void) { return m_model && m_model->get_fbs_model() && m_postprocessor; }
+};
+}  // namespace
+
+// Bleibt geladen: 1,1 s von der SD-Karte sind pro Bild nicht bezahlbar.
+static TcPersonen *tc_dl_personen = nullptr;
+#ifndef TC_DL_PERSON_MODEL
+#define TC_DL_PERSON_MODEL "/sd/ped.espdl"
+#endif
+
+// TinyCDl <path.espdl> [max_internal_bytes]
+//
+// ⚠️ THE MODEL IS A FILE, NOT PART OF THE FIRMWARE.
+// `fbs::MODEL_LOCATION_IN_SDCARD` is a misleading name: the loader simply does
+// fopen()/fread() on the path (esp-dl/fbs_loader/src/fbs_loader.cpp), so ANY
+// path on Tasmota's LittleFS works. That is the whole point of doing it this
+// way — the models stay out of the firmware image, an OTA stays small, and a
+// model is replaced with a file upload instead of a reflash. The price is
+// PSRAM: the entire file is read into it and stays there while the model
+// lives. On a board with 2 MB PSRAM this would be the wrong trade.
+//
+// Why each reported number is here:
+//   Test          the .espdl carries its own test input AND the expected
+//                 output, so correctness is provable with no camera and not a
+//                 single picture — this is what makes the measurement honest.
+//   Plan          from the library's own get_memory_info(), split the way the
+//                 memory manager really allocated: psram / internal / flash.
+//   Actual        heap deltas measured here, because Plan covers the tensors
+//                 and not everything the load costs.
+//   LoadMs/RunMs  measured here: Espressif's published latency does not say
+//                 which memory layout it was taken with, and that is exactly
+//                 the open question.
+void CmndTinyCDl(void) {
+  if (!XdrvMailbox.data_len) {
+    ResponseCmndChar_P(PSTR("usage: TinyCDl <path.espdl> [max_internal_bytes]"));
+    return;
+  }
+  char *cp = XdrvMailbox.data;
+  while (*cp == ' ') { cp++; }
+  int max_internal = 0;
+  char *sp = strchr(cp, ' ');
+  if (sp) { *sp = '\0'; max_internal = strtol(sp + 1, nullptr, 10); }
+  if (!*cp) { ResponseCmndChar_P(PSTR("no path")); return; }
+
+  // ⚠️ ESP-DL reports its own failures through ESP_LOGE, which on this board
+  // goes to the USB-CDC console and is invisible over HTTP — "load failed"
+  // alone says nothing. So check the two things that actually go wrong here
+  // first: can the C library open this path at all (Tasmota mounts LittleFS
+  // with an EMPTY base path, so the VFS name is the plain Tasmota name), and
+  // does the file start with a magic the loader knows.
+  char magie[5] = {0};
+  long groesse = -1;
+  FILE *f = fopen(cp, "rb");
+  if (f) {
+    if (fread(magie, 1, 4, f) != 4) { magie[0] = '\0'; }
+    fseek(f, 0, SEEK_END);
+    groesse = ftell(f);
+    fclose(f);
+  } else {
+    // ⚠️ WHY THIS MUCH DETAIL FOR A FAILED fopen:
+    // ESP-DL opens the model with plain fopen(), while Tasmota reaches its
+    // filesystem through the Arduino FS object (ffsp). Both are supposed to
+    // end up in the same LittleFS — it is mounted with an EMPTY base path, so
+    // it is the VFS fallback and a bare "/name" should reach it. If the two
+    // disagree, that is the whole bug, and errno says which way.
+    int fehler = errno;
+    bool arduino_kennt = (ffsp && ffsp->exists(cp));
+    size_t arduino_groesse = 0;
+    if (arduino_kennt) {
+      File pruefdatei = ffsp->open(cp, "r");
+      if (pruefdatei) { arduino_groesse = pruefdatei.size(); pruefdatei.close(); }
+    }
+    Response_P(PSTR("{\"TinyCDl\":{\"File\":\"%s\",\"Error\":\"fopen failed\","
+                    "\"Errno\":%d,\"ErrText\":\"%s\","
+                    "\"ArduinoSees\":%d,\"ArduinoBytes\":%u}}"),
+               cp, fehler, strerror(fehler),
+               arduino_kennt ? 1 : 0, (uint32_t)arduino_groesse);
+    return;
+  }
+
+  // ⚠️ THE max_internal_size KNOB HAS A HARD CLIFF, AND IT IS NOT A SOFT ONE.
+  // Measured on the DFR1154 on 16.09.2026 with pedestrian_detect: 0 and 64 kB
+  // are fine (195 ms / 152 ms), 128 kB REBOOTS THE DEVICE — the boot banner
+  // says LoadProhibited, EXCVADDR 00000000, i.e. esp-dl does not check the
+  // allocation it just failed to get and dereferences null. So the limit is
+  // clamped here; a number typed on the console must not cost a reboot.
+  // ⚠️⚠️ THE ARENA-IN-INTERNAL-RAM KNOB IS NOT SAFE ON THIS BOARD, AT ANY SIZE.
+  // Measured on the DFR1154 on 16.09.2026 with pedestrian_detect, camera
+  // running: 0 gives a steady 195 ms. 64 kB gave 152 ms — TWICE — and then
+  // rebooted the device on the very next identical call, and again after that.
+  // 128 kB and half the free heap (~90 kB) reboot it every time. The boot
+  // banner always says LoadProhibited with EXCVADDR 00000000: esp-dl does not
+  // check the allocation it failed to get and dereferences null. So the
+  // failure depends on how the internal heap happens to be fragmented at that
+  // instant — it is NOT a threshold we can compute, and a 22 % gain is not
+  // worth an unpredictable reboot on a camera that is meant to be watching.
+  // The knob is therefore clamped to 0 until esp-dl checks its own mallocs.
+  // Raise TC_DL_MAX_INTERNAL only for deliberate experiments on a spare board.
+  #define TC_DL_MAX_INTERNAL 0
+  uint32_t in_frei = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  int      in_deckel = TC_DL_MAX_INTERNAL;
+  int      gewuenscht = max_internal;
+  if (max_internal > in_deckel) { max_internal = in_deckel; }
+
+  uint32_t ps_vorher = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  uint32_t in_vorher = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+  uint32_t t0 = millis();
+  dl::Model *model = new dl::Model(cp, fbs::MODEL_LOCATION_IN_SDCARD, max_internal);
+  uint32_t ms_laden = millis() - t0;
+
+  // ⚠️ On a bad path load() fails, the constructor SKIPS build() and
+  // m_fbs_model stays null — test()/run() would then dereference it and take
+  // the device down. get_fbs_model() is the only way to see that from here,
+  // so a typo must not cost a reboot.
+  if (!model->get_fbs_model()) {
+    delete model;
+    Response_P(PSTR("{\"TinyCDl\":{\"File\":\"%s\",\"Error\":\"load failed\","
+                    "\"Magic\":\"%s\",\"Bytes\":%ld}}"), cp, magie, groesse);
+    return;
+  }
+
+  uint32_t ps_nach_laden = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  uint32_t in_nach_laden = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+  esp_err_t pruef = model->test();
+
+  // ⚠️ RUN REGARDLESS OF WHAT test() SAID.
+  // test() only works when the model was exported with export_test_values —
+  // the tutorial model has them, the model-zoo ones do not. Gating the timing
+  // on test() therefore reported RunMs 0 for exactly the models we care about.
+  // Without test vectors the input tensor holds whatever is in the arena: the
+  // result is numerically meaningless, but the same multiplications happen, so
+  // the LATENCY is valid. Three runs, because the first one warms the caches.
+  t0 = millis();
+  model->run();
+  uint32_t ms_erst = millis() - t0;
+  t0 = millis();
+  model->run();
+  model->run();
+  model->run();
+  uint32_t ms_lauf = (millis() - t0) / 3;
+
+  size_t ps = 0, in = 0, fl = 0;
+  for (auto &e : model->get_memory_info()) {
+    ps += e.second.psram;
+    in += e.second.internal;
+    fl += e.second.flash;
+  }
+
+  Response_P(PSTR("{\"TinyCDl\":{\"File\":\"%s\",\"Magic\":\"%s\",\"Bytes\":%ld,\"Test\":\"%s\","
+                  "\"LoadMs\":%u,\"RunFirstMs\":%u,\"RunMs\":%u,"
+                  "\"MaxInternal\":%d,\"MaxInternalAsked\":%d,\"InternalFree\":%u,"
+                  "\"Plan\":{\"PSRAM\":%u,\"Internal\":%u,\"Flash\":%u},"
+                  "\"Used\":{\"PSRAM\":%d,\"Internal\":%d}}}"),
+             cp, magie, groesse, (ESP_OK == pruef) ? "OK" : "FAIL",
+             ms_laden, ms_erst, ms_lauf, max_internal, gewuenscht, in_frei,
+             (uint32_t)ps, (uint32_t)in, (uint32_t)fl,
+             (int32_t)(ps_vorher - ps_nach_laden), (int32_t)(in_vorher - in_nach_laden));
+  delete model;
+}
+
+// TinyCDlCam [schwelle]
+//
+// Nimmt das Bild, das die Kamera ohnehin gerade aufgenommen hat, und laesst
+// das Netz sagen WO eine Person steht — nicht nur, dass sich etwas geaendert
+// hat. Zum Vergleich mit der alten Bewegungserkennung sind beide Zeiten
+// getrennt ausgewiesen.
+//
+// ⚠️ Das JPEG entpackt fmt2rgb888() aus esp32-camera, nicht ESP-DLs eigener
+// Weg: dl_image_jpeg.cpp braucht die Komponente esp_new_jpeg, waehrend
+// fmt2rgb888 in dieser Firmware ohnehin schon liegt (TC_CamMotionDetect
+// benutzt es). Ein Entpacker im Bau reicht.
+void CmndTinyCDlCam(void) {
+  // TinyCDlCam [schwelle] [skala] [byteordnung]
+  //   skala 0 = volle Aufloesung ueber fmt2rgb888 (der alte Weg, zum Vergleich)
+  //   skala 2/4/8 = jpg2rgb565 mit JPG_SCALE_*, also verkleinert entpackt
+  //   byteordnung 0 = RGB565 little endian, 1 = big endian
+  float schwelle = 0.7f;
+  int skala = 2;
+  int bo = 0;
+  if (XdrvMailbox.data_len) {
+    char *cp = XdrvMailbox.data;
+    float v = CharToFloat(cp);
+    if (v > 0.0f && v < 1.0f) { schwelle = v; }
+    char *sp = strchr(cp, ' ');
+    if (sp) {
+      skala = strtol(sp + 1, &sp, 10);
+      if (sp && *sp) { bo = strtol(sp, nullptr, 10); }
+    }
+  }
+  if (skala != 0 && skala != 2 && skala != 4 && skala != 8) { skala = 2; }
+
+  uint32_t ms_laden = 0;
+  if (!tc_dl_personen) {
+    uint32_t t = millis();
+    tc_dl_personen = new TcPersonen(TC_DL_PERSON_MODEL, schwelle, 0.5f);
+    ms_laden = millis() - t;
+    if (!tc_dl_personen->geladen()) {
+      delete tc_dl_personen;
+      tc_dl_personen = nullptr;
+      Response_P(PSTR("{\"TinyCDlCam\":{\"Error\":\"model load failed\",\"File\":\"%s\"}}"),
+                 TC_DL_PERSON_MODEL);
+      return;
+    }
+  } else {
+    tc_dl_personen->set_score_thr(schwelle);
+  }
+
+  // Kameraplatz 1 ist intern tc_cam_slot[0] — dasselbe Bild, das der Stream
+  // ausliefert. `writing` wird geprueft wie in TC_CamMotionDetect.
+  // ⚠️ DAS JPEG MUSS ERST HERAUSKOPIERT WERDEN.
+  // Entpacken dauert ~285 ms (gemessen, VGA), und die Kamera nimmt in der Zeit
+  // laufend weiter auf — sie schreibt denselben Platz neu. Direkt aus dem Slot
+  // zu entpacken ging beim ersten Aufruf gut und scheiterte danach jedes Mal
+  // mit "jpeg decode failed". Also kopieren und HINTERHER pruefen, ob waehrend
+  // des Kopierens geschrieben wurde; dasselbe Muster wie TC_SendCamSlotAsJpeg.
+  uint32_t breite = 0, hoehe = 0, len = 0;
+  uint8_t *jpg = nullptr;
+  for (int versuch = 0; versuch < 5 && !jpg; versuch++) {
+    if (!tc_cam_slot[0].buf || tc_cam_slot[0].len == 0 || tc_cam_slot[0].writing ||
+        tc_cam_slot[0].width == 0) { delay(30); continue; }
+    len = tc_cam_slot[0].len;
+    breite = tc_cam_slot[0].width;
+    hoehe = tc_cam_slot[0].height;
+    uint8_t *k = (uint8_t *)heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!k) { ResponseCmndChar_P(PSTR("no psram")); return; }
+    memcpy(k, tc_cam_slot[0].buf, len);
+    if (tc_cam_slot[0].writing || tc_cam_slot[0].len != len) { free(k); delay(30); continue; }
+    jpg = k;
+  }
+  if (!jpg) { ResponseCmndChar_P(PSTR("no stable frame")); return; }
+
+  // ⚠️ VERKLEINERT ENTPACKEN IST DER GROSSE HEBEL.
+  // Gemessen: volle Aufloesung 640x480 nach RGB888 kostet 289 ms und 0,88 MB
+  // PSRAM — mehr als die Erkennung selbst (216 ms). Ein JPEG-Entpacker kann
+  // beim IDCT kostenlos halbieren, vierteln oder achteln. Bei einem Modell mit
+  // 224x224 Eingang ist 1/2 = 320x240 der richtige Schnitt: immer noch groesser
+  // als 224 in beiden Richtungen, also verliert das Modell nichts, aber es sind
+  // ein Viertel der Bildpunkte und RGB565 statt RGB888 (2 statt 3 Byte) — der
+  // Puffer faellt von 0,88 MB auf rund 150 kB.
+  // fmt2rgb888() kann NICHT skalieren, jpg2rgb565() schon. Deshalb der Wechsel
+  // des Pixelformats; ESP-DL nimmt RGB565 direkt an.
+  uint32_t aus_b = breite, aus_h = hoehe;
+  uint8_t *rgb = nullptr;
+  uint32_t ms_jpeg = 0;
+  bool ok = false;
+  uint32_t t0 = millis();
+  if (0 == skala) {
+    rgb = (uint8_t *)heap_caps_malloc(breite * hoehe * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (rgb) { ok = fmt2rgb888(jpg, len, PIXFORMAT_JPEG, rgb); }
+  } else {
+    aus_b = breite / skala;
+    aus_h = hoehe / skala;
+    esp_jpeg_image_scale_t sc = (2 == skala) ? JPG_SCALE_2X
+                              : (4 == skala) ? JPG_SCALE_4X : JPG_SCALE_8X;
+    rgb = (uint8_t *)heap_caps_malloc(aus_b * aus_h * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (rgb) { ok = jpg2rgb565(jpg, len, rgb, sc); }
+  }
+  ms_jpeg = millis() - t0;
+  free(jpg);
+  if (!rgb) { ResponseCmndChar_P(PSTR("no psram")); return; }
+  if (!ok) { free(rgb); ResponseCmndChar_P(PSTR("jpeg decode failed")); return; }
+
+  dl::image::img_t bild;
+  bild.data = rgb;
+  bild.width = (uint16_t)aus_b;
+  bild.height = (uint16_t)aus_h;
+  bild.pix_type = (0 == skala) ? dl::image::DL_IMAGE_PIX_TYPE_RGB888
+                : (0 == bo)    ? dl::image::DL_IMAGE_PIX_TYPE_RGB565LE
+                               : dl::image::DL_IMAGE_PIX_TYPE_RGB565BE;
+
+  t0 = millis();
+  std::list<dl::detect::result_t> &treffer = tc_dl_personen->run(bild);
+  uint32_t ms_netz = millis() - t0;
+  free(rgb);
+
+  char kaesten[320];
+  kaesten[0] = '\0';
+  int n = 0;
+  for (auto &r : treffer) {
+    if (n >= 4) { break; }
+    char einer[80];
+    snprintf(einer, sizeof(einer), "%s{\"s\":%.2f,\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d}",
+             n ? "," : "", r.score, r.box[0], r.box[1], r.box[2] - r.box[0], r.box[3] - r.box[1]);
+    if (strlen(kaesten) + strlen(einer) + 2 >= sizeof(kaesten)) { break; }
+    strcat(kaesten, einer);
+    n++;
+  }
+
+  Response_P(PSTR("{\"TinyCDlCam\":{\"Size\":\"%ux%u\",\"Decoded\":\"%ux%u\","
+                  "\"Scale\":%d,\"Endian\":\"%s\",\"Thr\":%.2f,\"LoadMs\":%u,"
+                  "\"JpegMs\":%u,\"DetectMs\":%u,\"Found\":%d,\"Boxes\":[%s]}}"),
+             breite, hoehe, aus_b, aus_h, skala, (0 == skala) ? "rgb888" : (0 == bo ? "le" : "be"),
+             schwelle, ms_laden, ms_jpeg, ms_netz, (int)treffer.size(), kaesten);
+}
+
+#endif // USE_TINYC_ESPDL
 
 // --- TinyCChkpt: partition table manager (no USE_BINPLUGINS needed) ---
 #ifdef ESP32
@@ -5588,12 +5923,25 @@ static void TC_CamMotionDetect(void) {
       tc_cam_slot[0].width == 0 || tc_cam_slot[0].height == 0 ||
       tc_cam_slot[0].writing) return;
 
-  uint32_t w = tc_cam_slot[0].width;
-  uint32_t h = tc_cam_slot[0].height;
+  // ⚠️ DECODE AT 1/8, NOT FULL SIZE.
+  // Measured on the DFR1154 on 16.09.2026: a 640x480 frame to RGB888 costs
+  // 289 ms and 0.88 MB of PSRAM — and this runs in the MAIN LOOP, which is
+  // why enabling motion detection multiplied Tasmota's LoadAvg by 19 (40 ->
+  // 760) and blocked the loop for ~0.75 s at a time.
+  // jpg2rgb565 with JPG_SCALE_8X does the same job in 43 ms into 9.4 kB.
+  // Halving or quartering barely helps (252 / 225 ms): the Huffman pass scales
+  // with the COMPRESSED data and cannot be skipped, only the IDCT and the
+  // output do. At 1/8 the decoder needs just the DC coefficient per block,
+  // and that is the whole win.
+  // 80x60 is plenty here: this measure is a mean over the entire frame, it has
+  // no notion of where anything is.
+  uint32_t w = tc_cam_slot[0].width / 8;
+  uint32_t h = tc_cam_slot[0].height / 8;
   uint32_t pixels = w * h;
+  if (!pixels) return;
 
-  // Decode JPEG to RGB888 in temp buffer
-  uint8_t *rgb = (uint8_t*)heap_caps_malloc(pixels * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  // RGB565, two bytes per pixel
+  uint8_t *rgb = (uint8_t*)heap_caps_malloc(pixels * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!rgb) return;
 
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
@@ -5602,7 +5950,7 @@ static void TC_CamMotionDetect(void) {
   free(rgb);
   return;
 #else
-  if (!fmt2rgb888(tc_cam_slot[0].buf, tc_cam_slot[0].len, PIXFORMAT_JPEG, rgb)) {
+  if (!jpg2rgb565(tc_cam_slot[0].buf, tc_cam_slot[0].len, rgb, JPG_SCALE_8X)) {
     free(rgb);
     return;
   }
@@ -5615,10 +5963,13 @@ static void TC_CamMotionDetect(void) {
     tc_cam_motion.ref_size = pixels;
     if (tc_cam_motion.ref_buf) {
       // First frame — fill reference, no comparison
-      uint8_t *pxi = rgb;
+      // RGB565 -> grey. The exact weighting does not matter: this value is
+      // only ever compared against the SAME transform of the next frame.
+      uint16_t *pxi = (uint16_t *)rgb;
       for (uint32_t i = 0; i < pixels; i++) {
-        tc_cam_motion.ref_buf[i] = (pxi[0] + pxi[1] + pxi[2]) / 3;
-        pxi += 3;
+        uint16_t p = pxi[i];
+        tc_cam_motion.ref_buf[i] =
+            ((((p >> 11) & 0x1F) << 3) + (((p >> 5) & 0x3F) << 2) + ((p & 0x1F) << 3)) / 3;
       }
     }
     free(rgb);
@@ -5628,14 +5979,13 @@ static void TC_CamMotionDetect(void) {
   // Compare with reference
   uint64_t accu = 0;
   uint64_t bright = 0;
-  uint8_t *pxi = rgb;
+  uint16_t *pxi = (uint16_t *)rgb;
   uint8_t *pxr = tc_cam_motion.ref_buf;
   for (uint32_t i = 0; i < pixels; i++) {
-    int32_t gray = (pxi[0] + pxi[1] + pxi[2]) / 3;
-    int32_t lgray = pxr[0];
-    pxr[0] = gray;
-    pxi += 3;
-    pxr++;
+    uint16_t p = pxi[i];
+    int32_t gray = ((((p >> 11) & 0x1F) << 3) + (((p >> 5) & 0x3F) << 2) + ((p & 0x1F) << 3)) / 3;
+    int32_t lgray = pxr[i];
+    pxr[i] = gray;
     accu += abs(gray - lgray);
     bright += gray;
   }
