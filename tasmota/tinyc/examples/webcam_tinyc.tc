@@ -28,6 +28,9 @@ int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
 // do not exist on the OV2640; on an AI-Thinker, Relay1 is the WHITE flash LED
 // and "automatic" would leave it burning all night (gemu 05.09.2026).
 #define HAS_NIGHT
+// Person detection through ESP-DL. Needs a firmware built with USE_TINYC_ESPDL
+// and the model as a file; without either, camControl(21,…) simply returns -1.
+#define HAS_PERSON
 #endif
 
 #ifdef BOARD_GOOUUU
@@ -93,6 +96,10 @@ persist watch int limit;      // motion threshold, mean |frame difference| x 100
 persist watch int blim;       // brightness gate: discard a reading whose mean
                               // brightness jumped by more than this x 100
 persist watch int mrun;       // seconds of sustained motion before it counts
+#ifdef HAS_PERSON
+persist watch int pdet;       // 1 = have the neural net confirm the motion first
+persist watch int pthr;       // the net's score threshold x100
+#endif
 persist watch int pir;        // hardware PIR enabled
 persist watch int ma;         // send email on alarm
 persist watch int spir;       // software motion detector enabled
@@ -144,6 +151,18 @@ int last_mot;           // previous raw reading, to spot a NEW measurement
 int mstreak;            // consecutive NEW readings above the threshold
 int veto_count;         // readings thrown away because the light changed
 int mot_on;             // 1 = firmware frame-diff enabled
+#ifdef HAS_PERSON
+int person_pruefen;     // set by EverySecond, worked off in TaskLoop
+int person_n;           // hits in the last run
+int person_score;       // best score x100
+int person_x;
+int person_y;
+int person_w;
+int person_h;
+int person_zuletzt;     // millis() of the last positive run, 0 = never yet
+int person_gesamt;      // counter since start
+int person_ms;          // compute time of the last run
+#endif
 int frame_count;        // total frames captured
 int motion_detect;      // total motion detections
 int doCapture;          // button: capture from web UI
@@ -484,12 +503,17 @@ int dunkel;                // LTR-308 says dark (with hysteresis)
 float lux;                 // last LTR-308 reading, lux
 int ltr_bus;               // I2C bus the LTR-308 answered on, -1 = not found
 char ltr_buf[4];
-// Lux history for the chart on the main page: 6 h at one sample a minute,
-// same as ltr308.tc had — that script is gone, the camera owns the sensor.
+// ─── Lux chart on the main page — OFF unless built with -DHAS_LUX_CHART ───
+// 6 h at one sample a minute, taken over from ltr308.tc (that script is gone,
+// the camera owns the sensor). Most of the time you do not want this: it costs
+// 1440 bytes for the ring plus a redraw on every page build, and the light
+// value is already there as a number in the sensor block.
+#ifdef HAS_LUX_CHART
 #define LUX_LEN 360
 float hist_lux[LUX_LEN];
 int hist_pos;
 int hist_tick;
+#endif
 #endif
 
 void send_alarm_email() {
@@ -536,6 +560,33 @@ void TaskLoop() {
         mot_on = 1;
         addLog("TCC: frame-diff motion detect on, every %d ms", MOTION_MS);
     }
+
+#ifdef HAS_PERSON
+    // Work off a pending check — here in the VM task, not in EverySecond.
+    if (person_pruefen == 1) {
+        person_pruefen = 0;
+        int t = millis();
+        int n = camControl(21, pthr, 0);
+        person_ms = millis() - t;
+        if (n < 0) {
+            person_n = 0;
+            addLog("TCC: person detect error %d", n);
+        } else {
+            person_n = n;
+            if (n > 0) {
+                person_score = camControl(22, 1, 0);
+                person_x = camControl(22, 2, 0);
+                person_y = camControl(22, 3, 0);
+                person_w = camControl(22, 4, 0);
+                person_h = camControl(22, 5, 0);
+                person_zuletzt = millis();
+                person_gesamt = person_gesamt + 1;
+                addLog("TCC: person detected, %d%% at %d,%d (%d ms)",
+                       person_score, person_x, person_y, person_ms);
+            }
+        }
+    }
+#endif
 
     // Continuous capture to slot 1 for streaming.
     // ⚠️ Script slot 1 IS the buffer the firmware detector reads
@@ -702,8 +753,34 @@ void EverySecond() {
     if (mstreak >= mrun) { bewegung = 1; }
 
     // Check PIR / software motion alarm (one-shot: fires once, re-arms when clear)
-    if ((pir > 0 && PIR_PIN >= 0 && digitalRead(PIR_PIN) == 0) ||
-        (spir > 0 && bewegung == 1)) {
+#ifdef HAS_PERSON
+    // ⚠️ THIS IS THE WHOLE POINT: the cheap detector is the TRIGGER, the
+    // network is the CONFIRMATION. The pixel difference costs ~40 ms and only
+    // says "something changed"; the network costs ~470 ms and says "that is a
+    // person". Running the network continuously would be waste, and trusting
+    // the difference alone means one mail per passing cloud.
+    // TaskLoop does the actual work — this only sets a flag, otherwise the
+    // main loop would stand still for half a second.
+    if (pdet > 0 && bewegung == 1 && alarm_active == 0) {
+        person_pruefen = 1;
+    }
+#endif
+
+    int ausloeser = 0;
+    if (pir > 0 && PIR_PIN >= 0 && digitalRead(PIR_PIN) == 0) { ausloeser = 1; }
+    if (spir > 0 && bewegung == 1) {
+#ifdef HAS_PERSON
+        // With confirmation on, only a confirmed hit counts — and only while
+        // it is fresh (the run itself takes a second or two).
+        if (pdet > 0) {
+            if (person_n > 0) { ausloeser = 1; }
+        } else { ausloeser = 1; }
+#else
+        ausloeser = 1;
+#endif
+    }
+
+    if (ausloeser == 1) {
         if (alarm_active == 0) {
             alarm_active = 1;
             motion_detect = motion_detect + 1;
@@ -738,12 +815,14 @@ void EverySecond() {
 #ifdef HAS_NIGHT
     // ─── Darkness, IR light, night sensor mode ───
     if (ltr_lesen()) {
+#ifdef HAS_LUX_CHART
         hist_tick++;
         if (hist_tick >= 60) {
             hist_tick = 0;
             hist_lux[hist_pos % LUX_LEN] = lux;
             hist_pos++;
         }
+#endif
         // Hysteresis: dark below the threshold, light again only above twice
         // the threshold — the IR light itself brightens the scene a little.
         if (dunkel == 0 && lux < (float)ir_lux) dunkel = 1;
@@ -768,6 +847,9 @@ void EverySecond() {
         do_res = 1;                 // carried out in TaskLoop, see there
     }
     if (changed(limit) || changed(blim) || changed(mrun) ||
+#ifdef HAS_PERSON
+        changed(pdet) || changed(pthr) ||
+#endif
         changed(pir) || changed(ma) ||
         changed(spir) || changed(rpt) || changed(ufl) ||
         changed(mtl) || changed(npic) || do_res == 1
@@ -777,6 +859,9 @@ void EverySecond() {
         ) {
         mpeak = 0;                  // tuning restarts with the new settings
         snapshot(limit); snapshot(blim); snapshot(mrun);
+#ifdef HAS_PERSON
+        snapshot(pdet); snapshot(pthr);
+#endif
         snapshot(pir); snapshot(ma);
         snapshot(spir); snapshot(rpt); snapshot(ufl);
         snapshot(mtl); snapshot(npic);
@@ -802,6 +887,30 @@ void WebCall() {
     webSend(buf);
     sprintf(buf, "{s}Detected{m}%d (%d ignored, light){e}", motion_detect, veto_count);
     webSend(buf);
+#ifdef HAS_PERSON
+    if (pdet > 0) {
+        if (person_zuletzt > 0) {
+            int alter = (millis() - person_zuletzt) / 1000;
+            if (alter < 120) {
+                // Fresh: loud on purpose, this is the notice that matters.
+                sprintf(buf, "{s}<b style='color:#ff5661'>&#x1F6B6; PERSON</b>{m}"
+                             "<b style='color:#ff5661'>%d s ago &nbsp;%d&#37; &nbsp;%dx%d@%d,%d</b>{e}",
+                        alter, person_score, person_w, person_h, person_x, person_y);
+            } else {
+                if (alter < 3600) {
+                    sprintf(buf, "{s}Person{m}last seen %d min ago{e}", alter / 60);
+                } else {
+                    sprintf(buf, "{s}Person{m}last seen %d h ago{e}", alter / 3600);
+                }
+            }
+            webSend(buf);
+        } else {
+            webSend("{s}Person{m}none yet{e}");
+        }
+        sprintf(buf, "{s}Person runs{m}%d hits, last %d ms{e}", person_gesamt, person_ms);
+        webSend(buf);
+    }
+#endif
 #ifdef HAS_NIGHT
     if (ltr_bus >= 0) {
         sprintf(buf, "{s}Light{m}%.2f lx{e}", lux);
@@ -841,10 +950,14 @@ void WebUI() {
     webNumber(limit, 20, 2000, "Motion threshold");
     webNumber(blim, 0, 2000, "Ignore above light change (0=off)");
     webNumber(mrun, 1, 30, "Readings of sustained motion");
+#ifdef HAS_PERSON
+    webCheckbox(pdet, "Confirm with the neural net (person detection)");
+    webNumber(pthr, 10, 95, "Person score threshold (%)");
+#endif
     if (PIR_PIN >= 0) {
         webCheckbox(pir, "Hardware PIR");
     }
-    webSend("<div class='hint'>The detector compares the actual PIXELS of successive frames: the value is the mean brightness difference &times;100, so it no longer depends on the resolution. A change that hits the whole picture at once -- a cloud, a lamp, the IR LEDs -- also moves the mean <b>light</b> value, and that jump is <b>subtracted</b> from the motion value, because shifting every pixel by the same amount moves the mean by exactly that amount. Only a jump bigger than the second number (where the shift is no longer uniform) throws the reading away entirely. The alarm needs the corrected value to stay above the threshold for that many consecutive <b>new</b> readings -- measured here the detector manages one about every 3 s, not every 500 ms. <b>To tune:</b> leave the scene alone for a few minutes and read <i>peak</i> on the main page; set the threshold above it. The peak restarts whenever you save here.</div>");
+    webSend("<div class='hint'>The detector compares the actual PIXELS of successive frames: the value is the mean brightness difference &times;100, so it no longer depends on the resolution. A change that hits the whole picture at once -- a cloud, a lamp, the IR LEDs -- also moves the mean <b>light</b> value, and that jump is <b>subtracted</b> from the motion value, because shifting every pixel by the same amount moves the mean by exactly that amount. Only a jump bigger than the second number (where the shift is no longer uniform) throws the reading away entirely. The alarm needs the corrected value to stay above the threshold for that many consecutive <b>new</b> readings -- measured here the detector manages one about every 1 s. With <b>person detection</b> on, motion is only the TRIGGER: the neural net then looks at the same frame (~470 ms) and the alarm fires only if it really finds a person -- that is what stops a cloud from sending mail. <b>To tune:</b> leave the scene alone for a few minutes and read <i>peak</i> on the main page; set the threshold above it. The peak restarts whenever you save here.</div>");
 
     webSend("<hr><b>&#x2709;&#xFE0F; Alarm</b>");
     webCheckbox(ma, "Send email on alarm");
@@ -882,16 +995,36 @@ void WebUI() {
     webSend("<div style='text-align:center;font-size:10px;color:#777;margin-top:10px'><b>webcam_tinyc.tc</b></div></div>");
 }
 
-#ifdef HAS_NIGHT
+#ifdef HAS_LUX_CHART
 // ═══════════════════════════════════════════════════════════════════
 // WebPage — lux chart on the main page (below the stream, which the driver
 // draws itself). Taken over from ltr308.tc.
+//
+// ⚠️ THIS CHART NEVER SHOWED ANYTHING. Three bugs in the one call:
+//
+//   interval was 0. That is the spacing of the points IN MINUTES, which the
+//   time axis is built from — at 0 all 360 points land on the same instant.
+//   We sample once a minute, so it is 1.
+//
+//   pos was hist_pos. That counts up without bound since start (361, 362, …)
+//   while the ring's write cursor is hist_pos % LUX_LEN. WebChart reads from
+//   pos, so it read outside the buffer.
+//
+//   count was always LUX_LEN. Until the ring has filled, that draws 300-odd
+//   zeros along with the data and presses the real values onto the baseline.
+//   It has to be the number of VALID points.
+//
+// ymin >= ymax means auto-scale per the reference, so 0/0 was right all along
+// and stays.
 // ═══════════════════════════════════════════════════════════════════
 void WebPage() {
     if (hist_pos > 0) {
+        int gueltig = hist_pos;
+        if (gueltig > LUX_LEN) { gueltig = LUX_LEN; }
         webSend("<div>");
         WebChartSize(0, 300);       // 0 = full card width
-        WebChart('l', "Illuminance", "lux", 0xf1c40f, hist_pos, LUX_LEN, hist_lux, 1, 0, 0, 0);
+        WebChart('l', "Illuminance", "lux", 0xf1c40f,
+                 hist_pos % LUX_LEN, gueltig, hist_lux, 1, 1, 0, 0);
         webSend("</div>");
     }
 }
@@ -901,8 +1034,16 @@ void WebPage() {
 // JSON output for integration
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
+    // Two whole calls instead of one with an #ifdef in the middle — both
+    // work, but split up it reads better.
+#ifdef HAS_PERSON
+    sprintf(buf, ",\"TinyCam\":{\"Motion\":%d,\"Raw\":%d,\"Light\":%d,\"Jump\":%d,\"Streak\":%d,\"Detected\":%d,\"Vetoed\":%d,\"Frames\":%d,\"Person\":%d,\"PersonScore\":%d,\"PersonTotal\":%d}",
+            mnet, mot, mbright, mjump, mstreak, motion_detect, veto_count, frame_count,
+            person_n, person_score, person_gesamt);
+#else
     sprintf(buf, ",\"TinyCam\":{\"Motion\":%d,\"Raw\":%d,\"Light\":%d,\"Jump\":%d,\"Streak\":%d,\"Detected\":%d,\"Vetoed\":%d,\"Frames\":%d}",
             mnet, mot, mbright, mjump, mstreak, motion_detect, veto_count, frame_count);
+#endif
     responseAppend(buf);
 }
 
@@ -932,6 +1073,11 @@ int main() {
     last_hour = -1;
     cam_ok = 0;
     mot_on = 0;
+#ifdef HAS_PERSON
+    person_pruefen = 0; person_n = 0; person_score = 0;
+    person_x = 0; person_y = 0; person_w = 0; person_h = 0;
+    person_zuletzt = 0; person_gesamt = 0; person_ms = 0;
+#endif
     mbright = 0;
     mjump = 0;
     last_bri = -1;
@@ -961,6 +1107,12 @@ int main() {
     if (blim == 0) { blim = 3000; }
     if (mrun == 0) { mrun = 2; }        // two NEW readings (~6 s here, see above)
     if (mrun > 30) { mrun = 30; }
+#ifdef HAS_PERSON
+    if (pthr == 0) { pthr = 50; }       // 0.50 — the model's own default of
+                                        // 0.70 is too strict for a house cam
+    if (pthr < 10) { pthr = 10; }
+    if (pthr > 95) { pthr = 95; }
+#endif
     if (npic == 0) { npic = 1; }
     if (npic > 4) { npic = 4; }
     if (res_seen == 0) { res = RES_DEFAULT; res_seen = 1; }
@@ -977,10 +1129,15 @@ int main() {
     snapshot(spir); snapshot(rpt); snapshot(ufl);
     snapshot(mtl); snapshot(npic); snapshot(res);
     snapshot(blim); snapshot(mrun);
+#ifdef HAS_PERSON
+    snapshot(pdet); snapshot(pthr);
+#endif
 #ifdef HAS_NIGHT
     snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
     nacht_ist = 0; dunkel = 0; lux = 0.0; ltr_bus = -1;
+#ifdef HAS_LUX_CHART
     hist_pos = 0; hist_tick = 55;          // first chart point after 5 s, not 60
+#endif
 #endif
 
     // Sanitize corrupted persist values
