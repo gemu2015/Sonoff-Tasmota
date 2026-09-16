@@ -3,7 +3,8 @@
 // webcam_tinyc.tc — Security Camera using TinyC integrated cam driver
 // No Tasmota USE_WEBCAM dependency — uses cameraInit + camControl 8-20
 //
-// Features: MJPEG stream on port 81, motion detection (JPEG size diff),
+// Features: MJPEG stream on port 81, motion detection (pixel frame-diff,
+//           firmware-side, with a brightness gate and a sustain count),
 //           PIR alarm, picture saving, email alerts with up to 4 pictures,
 //           timelapse, auto-cleanup (14-day rotation)
 //
@@ -80,9 +81,18 @@ int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 // ─── Hardware config ───
 #define PIR_PIN             -1
 
+// How often the firmware runs its frame-diff (ms). Each run decodes the
+// JPEG in cam slot 1 to RGB888 in PSRAM, so this is not free. 500 ms keeps
+// a fresh reading available for the 1 Hz evaluation in EverySecond without
+// the two cadences beating against each other.
+#define MOTION_MS           500
+
 // ─── Persistent settings (survive reboot) ───
 // 'watch' enables changed()/snapshot() intrinsics — no manual shadow copies needed
-persist watch int limit;      // software motion alarm threshold (JPEG size diff)
+persist watch int limit;      // motion threshold, mean |frame difference| x 100
+persist watch int blim;       // brightness gate: discard a reading whose mean
+                              // brightness jumped by more than this x 100
+persist watch int mrun;       // seconds of sustained motion before it counts
 persist watch int pir;        // hardware PIR enabled
 persist watch int ma;         // send email on alarm
 persist watch int spir;       // software motion detector enabled
@@ -123,7 +133,17 @@ int stream_on;          // stream started flag
 int last_hour;          // for midnight detection
 int rpt_timer;          // countdown for periodic capture (seconds)
 int cam_ok;             // camera initialized
-int last_size;          // previous frame JPEG size for motion detection
+int mbright;            // current mean brightness x 100 (camControl 17,1)
+int mjump;              // brightness change against the previous second
+int last_bri;           // previous brightness reading, -1 = none yet
+int mnet;               // motion with the global light change taken out
+int mpeak;              // highest corrected value seen since the last change
+                        // of settings — this is the number to set the
+                        // threshold above while nothing is happening
+int last_mot;           // previous raw reading, to spot a NEW measurement
+int mstreak;            // consecutive NEW readings above the threshold
+int veto_count;         // readings thrown away because the light changed
+int mot_on;             // 1 = firmware frame-diff enabled
 int frame_count;        // total frames captured
 int motion_detect;      // total motion detections
 int doCapture;          // button: capture from web UI
@@ -506,19 +526,25 @@ void TaskLoop() {
         return;
     }
 
-    // Continuous capture to slot 1 for streaming
-    int size = captureToSlot(1);
-
-    // Motion detection via JPEG file size comparison
-    if (last_size > 0 && size > 0) {
-        int diff = size - last_size;
-        if (diff < 0) { diff = 0 - diff; }
-        mot = diff;
-        if (diff > limit) {
-            motion_detect = motion_detect + 1;
-        }
+    // Arm the firmware frame-diff once the camera is up. Threshold 0 on
+    // purpose: the firmware then only MEASURES and never sets its own
+    // `triggered` flag, so the whole alarm policy stays here in the script.
+    // Done from TaskLoop because everything that touches the camera has to
+    // run in the VM task thread.
+    if (mot_on == 0) {
+        camControl(16, MOTION_MS, 0);
+        mot_on = 1;
+        addLog("TCC: frame-diff motion detect on, every %d ms", MOTION_MS);
     }
-    if (size > 0) { last_size = size; }
+
+    // Continuous capture to slot 1 for streaming.
+    // ⚠️ Script slot 1 IS the buffer the firmware detector reads
+    // (TC_SendCamSlotAsJpeg(slot - 1) -> tc_cam_slot[0]), so this one capture
+    // feeds the stream AND the motion detection. No second grab needed.
+    // The old detector compared JPEG BYTE SIZES here — it fired on anything
+    // that changed scene complexity (a cloud, rain, the IR LEDs) and its
+    // threshold had to be retuned after every resolution change.
+    captureToSlot(1);
 
     // Alarm picture capture (triggered from EverySecond)
     if (alarm_pics_pending > 0) {
@@ -566,7 +592,11 @@ void TaskLoop() {
         delay(300);                                 // sensor needs a moment
         res_masse();
         camControl(15, 1, 0);                       // and back on
-        last_size = 0;                              // motion reference is void now
+        camControl(18, 0, 0);                       // reference frame is void now
+        mot_on = 0;                                 // re-arm with the new size
+        mstreak = 0;
+        last_bri = -1;
+        last_mot = -1;
         addLog("TCC: resolution now %d (%dx%d)", res_framesize(), cam_w, cam_h);
     }
 
@@ -610,11 +640,73 @@ void EverySecond() {
     }
     last_hour = tasm_hour;
 
+    // ── Motion evaluation, once a second ────────────────────────────
+    // camControl 17 only reads two numbers the firmware already computed, so
+    // it is safe outside the VM task. sel 0 = mean |difference| x 100 against
+    // the previous frame, sel 1 = mean brightness x 100. Both are whole-frame
+    // averages: there is no region and no position.
+    int raw = camControl(17, 0, 0);
+    int bri = camControl(17, 1, 0);
+
+    // ⚠️ THE DETECTOR IS MUCH SLOWER THAN THIS CALLBACK — AND THIS MUST NOT
+    // BE AN EARLY `return`: the periodic timelapse capture and the
+    // delete-all button live further down in EverySecond.
+    // Measured on the DFR1154 on 16.09.2026: asked for a reading every
+    // 500 ms, it actually delivers one every ~3 s on average and sometimes
+    // only after 9 s — decoding the JPEG to RGB888 costs that much. So the
+    // same numbers come back several times in a row. Counting those repeats
+    // as "sustained motion" defeats the sustain test completely (seen live:
+    // streak 7 with the picture standing still), and the light correction
+    // would compare a frame against itself. Only a CHANGED reading counts.
+    if (raw != last_mot || bri != mbright) {
+        last_mot = raw;
+        mot = raw;
+        mjump = bri - last_bri;
+        if (mjump < 0) { mjump = 0 - mjump; }
+        // No previous reading, or the firmware has not measured yet (it
+        // reports brightness 0 until its first comparison) — nothing to
+        // compare against.
+        if (last_bri <= 0 || bri == 0) { mjump = 0; }
+        last_bri = bri;
+        mbright = bri;
+
+        // ⚠️ SUBTRACT THE LIGHT CHANGE, DON'T JUST VETO ON IT.
+        // Shift every pixel by the same Δ and the mean |difference| is |Δ|,
+        // so a global light change enters the motion value almost one to one.
+        // Measured here on 16.09.2026, seconds apart with nothing moving:
+        //   motion 4222 / jump 4019, 5157 / 5098, 7321 / 7245.
+        // That is the auto-exposure hunting, not an intruder. Throwing those
+        // readings away (the first version of this did) blinded the camera
+        // for most of its readings; taking the jump out leaves 203, 59, 76 —
+        // a usable signal, and it keeps working while the light settles.
+        mnet = mot - mjump;
+        if (mnet < 0) { mnet = 0; }
+        if (mnet > mpeak) { mpeak = mnet; }
+
+        // The subtraction is only first-order: once a jump is big enough to
+        // clip parts of the picture it is no longer a uniform shift, so a
+        // really violent light change still throws the reading away.
+        if (blim > 0 && mjump > blim) {
+            veto_count = veto_count + 1;
+            mstreak = 0;
+        } else {
+            if (mnet > limit) {
+                mstreak = mstreak + 1;
+            } else {
+                mstreak = 0;
+            }
+        }
+    }
+
+    int bewegung = 0;
+    if (mstreak >= mrun) { bewegung = 1; }
+
     // Check PIR / software motion alarm (one-shot: fires once, re-arms when clear)
     if ((pir > 0 && PIR_PIN >= 0 && digitalRead(PIR_PIN) == 0) ||
-        (spir > 0 && mot > limit)) {
+        (spir > 0 && bewegung == 1)) {
         if (alarm_active == 0) {
             alarm_active = 1;
+            motion_detect = motion_detect + 1;
             log_msg("motion alarm");
             // Trigger alarm picture capture in TaskLoop
             alarm_pics_pending = npic;
@@ -675,14 +767,17 @@ void EverySecond() {
         snapshot(res);
         do_res = 1;                 // carried out in TaskLoop, see there
     }
-    if (changed(limit) || changed(pir) || changed(ma) ||
+    if (changed(limit) || changed(blim) || changed(mrun) ||
+        changed(pir) || changed(ma) ||
         changed(spir) || changed(rpt) || changed(ufl) ||
         changed(mtl) || changed(npic) || do_res == 1
 #ifdef HAS_NIGHT
         || changed(ir_mode) || changed(ir_lux) || changed(nacht) || changed(nacht_st)
 #endif
         ) {
-        snapshot(limit); snapshot(pir); snapshot(ma);
+        mpeak = 0;                  // tuning restarts with the new settings
+        snapshot(limit); snapshot(blim); snapshot(mrun);
+        snapshot(pir); snapshot(ma);
         snapshot(spir); snapshot(rpt); snapshot(ufl);
         snapshot(mtl); snapshot(npic);
 #ifdef HAS_NIGHT
@@ -700,9 +795,12 @@ void WebCall() {
     webSend("{s}<b style='color:cyan'>Camera</b>{m}{e}");
     sprintf(buf, "{s}Frames{m}%d{e}", frame_count);
     webSend(buf);
-    sprintf(buf, "{s}Motion{m}%d{e}", mot);
+    sprintf(buf, "{s}Motion{m}%d net (raw %d, peak %d, limit %d, %d/%d){e}",
+            mnet, mot, mpeak, limit, mstreak, mrun);
     webSend(buf);
-    sprintf(buf, "{s}Detected{m}%d{e}", motion_detect);
+    sprintf(buf, "{s}Light{m}%d (jump %d){e}", mbright, mjump);
+    webSend(buf);
+    sprintf(buf, "{s}Detected{m}%d (%d ignored, light){e}", motion_detect, veto_count);
     webSend(buf);
 #ifdef HAS_NIGHT
     if (ltr_bus >= 0) {
@@ -740,11 +838,13 @@ void WebUI() {
 
     webSend("<hr><b>&#x1F6B6; Motion</b>");
     webCheckbox(spir, "Software motion detector");
-    webNumber(limit, 50, 10000, "Motion alarm threshold");
+    webNumber(limit, 20, 2000, "Motion threshold");
+    webNumber(blim, 0, 2000, "Ignore above light change (0=off)");
+    webNumber(mrun, 1, 30, "Readings of sustained motion");
     if (PIR_PIN >= 0) {
         webCheckbox(pir, "Hardware PIR");
     }
-    webSend("<div class='hint'>The software detector compares the size of successive JPEGs -- a bigger picture means a bigger difference, so the threshold has to be raised after a resolution change.</div>");
+    webSend("<div class='hint'>The detector compares the actual PIXELS of successive frames: the value is the mean brightness difference &times;100, so it no longer depends on the resolution. A change that hits the whole picture at once -- a cloud, a lamp, the IR LEDs -- also moves the mean <b>light</b> value, and that jump is <b>subtracted</b> from the motion value, because shifting every pixel by the same amount moves the mean by exactly that amount. Only a jump bigger than the second number (where the shift is no longer uniform) throws the reading away entirely. The alarm needs the corrected value to stay above the threshold for that many consecutive <b>new</b> readings -- measured here the detector manages one about every 3 s, not every 500 ms. <b>To tune:</b> leave the scene alone for a few minutes and read <i>peak</i> on the main page; set the threshold above it. The peak restarts whenever you save here.</div>");
 
     webSend("<hr><b>&#x2709;&#xFE0F; Alarm</b>");
     webCheckbox(ma, "Send email on alarm");
@@ -801,7 +901,8 @@ void WebPage() {
 // JSON output for integration
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
-    sprintf(buf, ",\"TinyCam\":{\"Motion\":%d,\"Detected\":%d,\"Frames\":%d}", mot, motion_detect, frame_count);
+    sprintf(buf, ",\"TinyCam\":{\"Motion\":%d,\"Raw\":%d,\"Light\":%d,\"Jump\":%d,\"Streak\":%d,\"Detected\":%d,\"Vetoed\":%d,\"Frames\":%d}",
+            mnet, mot, mbright, mjump, mstreak, motion_detect, veto_count, frame_count);
     responseAppend(buf);
 }
 
@@ -830,7 +931,15 @@ int main() {
     stream_on = 0;
     last_hour = -1;
     cam_ok = 0;
-    last_size = 0;
+    mot_on = 0;
+    mbright = 0;
+    mjump = 0;
+    last_bri = -1;
+    mnet = 0;
+    mpeak = 0;
+    last_mot = -1;
+    mstreak = 0;
+    veto_count = 0;
     frame_count = 0;
     motion_detect = 0;
     alarm_pics_pending = 0;
@@ -838,6 +947,20 @@ int main() {
 
     // Default settings if not persisted
     if (limit == 0) { limit = 400; }
+    // ⚠️ MIGRATION off the old JPEG-size detector. Its threshold was measured
+    // in BYTES and was typically a few thousand; the new one is mean pixel
+    // difference x 100, where the web field caps at 2000. So anything above
+    // 2000 can only be a leftover from the old scale — kept as is it would
+    // silently never trigger again, i.e. an alarm camera that stays quiet.
+    if (limit > 2000) {
+        addLog("TCC: motion threshold %d was on the old JPEG-size scale, reset to 400", limit);
+        limit = 400;
+    }
+    // 30 grey levels: below that the subtraction above handles the light
+    // change; above it the shift is no longer uniform and the reading is junk.
+    if (blim == 0) { blim = 3000; }
+    if (mrun == 0) { mrun = 2; }        // two NEW readings (~6 s here, see above)
+    if (mrun > 30) { mrun = 30; }
     if (npic == 0) { npic = 1; }
     if (npic > 4) { npic = 4; }
     if (res_seen == 0) { res = RES_DEFAULT; res_seen = 1; }
@@ -853,6 +976,7 @@ int main() {
     snapshot(limit); snapshot(pir); snapshot(ma);
     snapshot(spir); snapshot(rpt); snapshot(ufl);
     snapshot(mtl); snapshot(npic); snapshot(res);
+    snapshot(blim); snapshot(mrun);
 #ifdef HAS_NIGHT
     snapshot(ir_mode); snapshot(ir_lux); snapshot(nacht); snapshot(nacht_st);
     nacht_ist = 0; dunkel = 0; lux = 0.0; ltr_bus = -1;
