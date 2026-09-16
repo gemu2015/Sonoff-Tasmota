@@ -13208,15 +13208,28 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: CSI capture timeout (slot %d)"), slot + 1);
             res = 0; break;
           }
+          // ⚠️⚠️ THE REALLOC MUST SIT INSIDE THE `writing` WINDOW.
+          // A larger frame frees the slot buffer and allocates a new one. That
+          // used to happen BEFORE writing=1, so a reader (the MJPEG stream, the
+          // motion detector, the person detector) could memcpy out of memory
+          // that had just been freed — and `len` still held the OLD length, so
+          // it copied the old number of bytes out of a buffer that no longer
+          // existed. Seen live on 16.09.2026 as "jpeg decode failed" on roughly
+          // every fourth person-detect run; the same hazard was there for the
+          // stream, only nobody decoded its output and noticed.
+          // Raising the flag first makes the existing copy-then-recheck pattern
+          // in the readers actually sound: if a realloc starts while they copy,
+          // they see writing=1 on the recheck and discard the frame.
+          tc_cam_slot[slot].writing = 1;
           if (tc_cam_slot[slot].buf && tc_cam_slot[slot].len < clen) {
             free(tc_cam_slot[slot].buf);
             tc_cam_slot[slot].buf = nullptr;
+            tc_cam_slot[slot].len = 0;   // never advertise a length we cannot serve
           }
           if (!tc_cam_slot[slot].buf) {
             tc_cam_slot[slot].buf = (uint8_t*)heap_caps_malloc(clen, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
           }
           if (tc_cam_slot[slot].buf) {
-            tc_cam_slot[slot].writing = 1;
             memcpy(tc_cam_slot[slot].buf, cbuf, clen);
             tc_cam_slot[slot].len = clen;
             tc_cam_slot[slot].width = cw;
@@ -13225,6 +13238,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             res = (int32_t)clen;
           } else {
             tc_cam_slot[slot].len = 0;
+            tc_cam_slot[slot].writing = 0;
             res = -1;
             AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cam slot %d PSRAM alloc failed (%d bytes)"), slot + 1, clen);
           }
@@ -13235,15 +13249,28 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             res = 0; break;
           }
           // (Re)allocate PSRAM slot if needed
+          // ⚠️⚠️ THE REALLOC MUST SIT INSIDE THE `writing` WINDOW.
+          // A larger frame frees the slot buffer and allocates a new one. That
+          // used to happen BEFORE writing=1, so a reader (the MJPEG stream, the
+          // motion detector, the person detector) could memcpy out of memory
+          // that had just been freed — and `len` still held the OLD length, so
+          // it copied the old number of bytes out of a buffer that no longer
+          // existed. Seen live on 16.09.2026 as "jpeg decode failed" on roughly
+          // every fourth person-detect run; the same hazard was there for the
+          // stream, only nobody decoded its output and noticed.
+          // Raising the flag first makes the existing copy-then-recheck pattern
+          // in the readers actually sound: if a realloc starts while they copy,
+          // they see writing=1 on the recheck and discard the frame.
+          tc_cam_slot[slot].writing = 1;
           if (tc_cam_slot[slot].buf && tc_cam_slot[slot].len < fb->len) {
             free(tc_cam_slot[slot].buf);
             tc_cam_slot[slot].buf = nullptr;
+            tc_cam_slot[slot].len = 0;   // never advertise a length we cannot serve
           }
           if (!tc_cam_slot[slot].buf) {
             tc_cam_slot[slot].buf = (uint8_t*)heap_caps_malloc(fb->len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
           }
           if (tc_cam_slot[slot].buf) {
-            tc_cam_slot[slot].writing = 1;
             memcpy(tc_cam_slot[slot].buf, fb->buf, fb->len);
             tc_cam_slot[slot].len = fb->len;
             tc_cam_slot[slot].width = fb->width;
@@ -13252,6 +13279,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             res = (int32_t)fb->len;
           } else {
             tc_cam_slot[slot].len = 0;
+            tc_cam_slot[slot].writing = 0;
             res = -1;
             AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cam slot %d PSRAM alloc failed (%d bytes)"), slot + 1, fb->len);
           }
