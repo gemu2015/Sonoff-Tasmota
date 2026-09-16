@@ -147,9 +147,12 @@ persist int   fast_pos  = 0;
 // Two web charts that mirror what the P4 display shows:
 //   1) the 4 solar inverters (Dach/Gartenhaus/Garage/Garten), power in kW
 //   2) Powerwall + Marstek battery SOC (%)
-// Rolling 24 h ring: 96 bins × 15 min. sol_pos is the write cursor (0..95) =
-// the NEXT slot to write, which is exactly what WebChart(pos,count) expects
-// (it reads (pos+i)%count, newest at pos-1). Sampled every 5 min in
+// Rolling 24 h ring: 96 bins × 15 min. The bin IS the 15-min slot of the
+// day (bin = (hour*60+minute)/15), like the heat-pump ring dvals[] above —
+// never a free-running counter, or a reboot puts the ring permanently out
+// of phase with the clock. sol_pos trails as "the NEXT slot to write",
+// which is exactly what WebChart(pos,count) expects (it reads
+// (pos+i)%count, newest at pos-1). Sampled on every 15-min boundary in
 // EverySecond, persisted to the slot .pvs alongside the HP chart arrays
 // (both share the one saveVars() write).
 persist float inv0[96];   // Dach       (Hausdach, sedc)  kW
@@ -170,7 +173,7 @@ int   gpe = 12;       // gas cent/kWh
 float spe = 0.30;     // strom EUR/kWh (Vattenfall reference)
 
 // ── Plain scalars (not persisted, not UDP) ─────────────────────────
-int   udp_timer    = 60;        // counts down in EverySecond; reset by UdpReady
+int   udp_timer    = 60;        // counts down in EverySecond; reset by UdpCall
 int   boot_logged  = 0;         // first-tick log marker
 int   last_hour    = -1;        // for hour-change detection
 int   last_m15     = -1;        // for 15-minute slot transition
@@ -402,17 +405,47 @@ void EverySecond() {
 
     // 15-minute solar/SOC history sample (24h ring, 96 bins) — the two charts
     // ported from the P4 LCD (solar_dashboard.tc). Store inverter magnitude in
-    // kW, batteries in %. sol_pos advances by one each sample; the file is
-    // flushed on every sample (same cadence as the HP 15-min save).
+    // kW, batteries in %. The bin is the time of day; the file is flushed on
+    // every sample (same cadence as the HP 15-min save).
     int m5 = (tasm_hour * 60 + tasm_minute) / 15;   // 0..95, wraps at midnight
     if (m5 != last_m5) {
-        inv0[sol_pos]   = pabs(sedc) / 1000.0;
-        inv1[sol_pos]   = pabs(wrgh) / 1000.0;
-        inv2[sol_pos]   = pabs(wrga) / 1000.0;
-        inv3[sol_pos]   = pabs(wrgg) / 1000.0;
-        soc_pw[sol_pos] = pwl;
-        soc_ma[sol_pos] = msoc;
-        sol_pos = sol_pos + 1;
+        // ⚠️ THE SLOT IS THE TIME OF DAY, NOT A FREE-RUNNING CURSOR.
+        // This ring is 96 bins × 15 min = exactly 24 h, and m5 is the
+        // 15-min bin of the day, so bin == m5 is self-correcting: a
+        // reboot, a missed tick or a clock jump can never put the ring
+        // out of phase with the wall clock. The old code did
+        // `inv0[sol_pos]` with sol_pos++ per sample, and because
+        // last_m5 is not persisted EVERY reboot wrote one extra sample
+        // and advanced the cursor — so the two charts that share
+        // sol_pos drifted a slot per boot and never recovered. The
+        // heat-pump ring above (dvals[m15]) always did it this way,
+        // which is why it stayed correct while these two did not.
+        // Gap fill: the bins between the last one written and now
+        // belong to a time we were not measuring (power cut, reboot).
+        // Without this they would still hold yesterday's values.
+        int luecke = m5 - sol_pos;
+        if (luecke < 0)  luecke = luecke + 96;
+        // A wrap of 95 means sol_pos sits one bin AHEAD of m5, i.e. this bin
+        // was already written and we are re-writing it after a reboot inside
+        // the same 15 min — not a 23¾-hour gap. Leave the ring alone.
+        if (luecke > 94) luecke = 0;
+        for (int k = 0; k < luecke; k = k + 1) {
+            int f = sol_pos + k;            // < 192, so one wrap is enough
+            if (f >= 96) f = f - 96;
+            inv0[f]   = 0.0;
+            inv1[f]   = 0.0;
+            inv2[f]   = 0.0;
+            inv3[f]   = 0.0;
+            soc_pw[f] = 0.0;
+            soc_ma[f] = 0.0;
+        }
+        inv0[m5]   = pabs(sedc) / 1000.0;
+        inv1[m5]   = pabs(wrgh) / 1000.0;
+        inv2[m5]   = pabs(wrga) / 1000.0;
+        inv3[m5]   = pabs(wrgg) / 1000.0;
+        soc_pw[m5] = pwl;
+        soc_ma[m5] = msoc;
+        sol_pos = m5 + 1;                   // next slot to write = what WebChart wants
         if (sol_pos >= 96) sol_pos = 0;
         sol_dirty = 1;
         solar_save();
@@ -422,7 +455,13 @@ void EverySecond() {
 
 // UDP-receive callback — fires when a known UDP global lands.
 // We only need it as a watchdog tickle.
-void UdpReady() {
+// ⚠️ THE NAME IS `UdpCall`. The driver looks up this exact string
+// (xdrv_124_tinyc_vm.h: tc_vm_call_callback(&s->vm, "UdpCall")); a
+// callback under any other name is simply never registered — it does not
+// warn, it just never runs. This was `UdpReady` and so the watchdog was
+// never tickled: "udp timeout" was logged every 60 s (and written to
+// /log.txt every 60 s) while UDP was working perfectly the whole time.
+void UdpCall() {
     udp_timer = 60;
 }
 
