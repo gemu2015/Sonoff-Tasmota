@@ -1913,6 +1913,7 @@ struct TINYC {
   uint32_t instr_per_tick;
   bool     autorun;
   bool     show_info;             // show TinyC status rows on main web page
+  uint16_t psram_limit;           // malloc() PSRAM limit (TinyCPsram); 0 = framework default
   // Upload state (one upload at a time, shared)
   bool     upload_active;           // true during upload — pauses VM callbacks
   uint8_t *upload_buf;
