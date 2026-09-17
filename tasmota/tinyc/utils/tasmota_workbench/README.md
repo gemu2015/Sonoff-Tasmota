@@ -77,7 +77,10 @@ one your devices should send to.
 - For Serial: pick the port, baud, offset (auto-detected from the bin);
   optional **erase** before flashing.
 - The scan table is colour-coded by CPU family. Each device row shows
-  IP · Name · Hostname · CPU · Tasmota build · Flash · Free heap ·
+  IP · Name · Hostname · CPU · Tasmota build · Scripter/TinyC/Berry ·
+  **TC-Ver** (the TinyC firmware release, from `/tc_api` — to see whether
+  heap fragmentation follows the TinyC version; it does not, it follows the
+  workload) · Flash · Free heap · Frag · MaxBlk · Slots · PSRAM · Uptime ·
   **Sensors / Outputs** · Partitions. The IP is a clickable link to the
   device's web UI.
 - **Sensors / Outputs** — the scan also reads each device's `Status 10`
