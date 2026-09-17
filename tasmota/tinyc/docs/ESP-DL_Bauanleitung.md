@@ -239,7 +239,18 @@ Von aussen über `Status 10`: `Person`, `PersonScore`, `PersonTotal`.
 
 ---
 
-## Zwei Dinge, die du wissen solltest
+## Drei Dinge, die du wissen solltest
+
+**Der Block passt auch in deine eigene S3-Umgebung.** Seit dem 17.09.2026
+steht er ausser in `dfrobot-cam` auch in `tinyc32s3` (Matter + Kamera + LVGL)
+und baut dort — mit `${env:tinyc_base.build_flags}` statt `env:tasmota32`,
+sonst wortgleich. Der erste Bau dort scheiterte an einem Typnamen: der
+Testbuild decodiert JPEG mit ESP32_JPDEC (`jpg_scale_t`), die DFRobot-Umgebung
+mit esp32-camera (`esp_jpeg_image_scale_t`). Seit `efed6d38d` nennt der
+Treiber den Typ nicht mehr — wenn dein Bau vorher mit „cannot convert
+'jpg_scale_t'" abbrach, ist das der Grund, und ein `git pull` genügt.
+Kostet +820 kB Flash.
+
 
 **Es kostet.** LoadAvg der Hauptschleife steigt von 66 auf 140, der Heap fällt
 von 184 auf 156 kB. Wenn dir das zu viel ist: Häkchen weg, der Rest läuft
