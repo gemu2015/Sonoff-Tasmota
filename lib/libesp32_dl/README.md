@@ -55,6 +55,17 @@ build_flags = ${env:tasmota32.build_flags} -DARDUINO_USB_MODE=1 -DUSE_USB_CDC_CO
 lib_deps    = symlink://lib/libesp32_dl/esp-dl
 ```
 
+Seit dem 17.09.2026 steht der Block auch in **`[env:tinyc32s3]`**, dem
+S3-Testbuild des GitHub-Releases (Matter + Kamera + LVGL): dort hängt er an
+`${env:tinyc_base.build_flags}` statt an `env:tasmota32`, sonst wortgleich.
+Preis: +820 kB Flash (1,99 → 2,81 MB), die 16-MB-Partition trägt das.
+
+⚠️ Zwei JPEG-Decoder, zwei Enums: der DFRobot-Build decodiert mit esp32-camera
+(`esp_jpeg_image_scale_t`), der S3-Testbuild mit ESP32_JPDEC (`jpg_scale_t`).
+Die Konstanten `JPG_SCALE_2X/4X/8X` gibt es in beiden — `tc_dl_person_run()`
+übergibt sie darum direkt an `jpg2rgb565()` und nennt den Typ nicht; der erste
+S3-Bau scheiterte genau daran.
+
 ⚠️ `lib_deps = symlink://…` ist Pflicht: die Bibliothek liegt zwei Ebenen tief,
 und `lib_compat_mode = strict` verwirft alles, was in `library.json` nicht
 `platforms` und `frameworks` deklariert. Ohne das wird sie **wortlos** nicht

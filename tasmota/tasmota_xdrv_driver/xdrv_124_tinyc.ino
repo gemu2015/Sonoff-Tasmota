@@ -1511,10 +1511,16 @@ int32_t tc_dl_person_run(int32_t schwelle_x100) {
   } else {
     aus_b = breite / tc_dl_skala;
     aus_h = hoehe / tc_dl_skala;
-    esp_jpeg_image_scale_t sc = (2 == tc_dl_skala) ? JPG_SCALE_2X
-                              : (4 == tc_dl_skala) ? JPG_SCALE_4X : JPG_SCALE_8X;
     rgb = (uint8_t *)heap_caps_malloc(aus_b * aus_h * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (rgb) { ok = jpg2rgb565(jpg, len, rgb, sc); }
+    // The scale enum is named differently by the two JPEG decoders Tasmota
+    // builds with (esp32-camera: esp_jpeg_image_scale_t, ESP32_JPDEC:
+    // jpg_scale_t); the JPG_SCALE_* constants exist in both, so pass them
+    // directly instead of naming the type.
+    if (rgb) {
+      if (2 == tc_dl_skala)      { ok = jpg2rgb565(jpg, len, rgb, JPG_SCALE_2X); }
+      else if (4 == tc_dl_skala) { ok = jpg2rgb565(jpg, len, rgb, JPG_SCALE_4X); }
+      else                       { ok = jpg2rgb565(jpg, len, rgb, JPG_SCALE_8X); }
+    }
   }
   tc_dl_erg.ms_jpeg = millis() - t0;
   free(jpg);
