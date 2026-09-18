@@ -6121,7 +6121,7 @@ All commands default to slot 0 if no slot number is given (backward-compatible).
 | `TinyC ?<query>`              | Query global variables by index (see below)      |
 | `TinyCChkpt`                  | Show partition table (ESP32 only)                |
 | `TinyCHeap`                   | Fragmentation of the INTERNAL heap (ESP32): free, largest block, block/hole counts and a size histogram of used blocks and holes (`heap_caps_walk`), plus PSRAM. Free heap alone hides fragmentation; a low `largest` with many small `holes` is the disease |
-| `TinyCPsram [limit]`          | ESP32 with PSRAM: byte size from which `malloc()` goes to PSRAM (framework default 4096 — everything smaller lands in internal DRAM and fragments it). Persisted in `/tinyc.cfg`, applied at boot before any slot loads; `0` = default. DMA buffers and task stacks stay internal regardless |
+| `TinyCPsram [limit]`          | ESP32 with PSRAM: byte size from which `malloc()` goes to PSRAM. Every PSRAM build starts with **512** (`TC_PSRAM_DEFAULT`; the framework's own 4096 lets everything smaller land in internal DRAM and fragment it). Persisted in `/tinyc.cfg` only when it differs from the build default, applied at boot before any slot loads; `0` = framework 4096. DMA buffers and task stacks stay internal regardless |
 | `TinyCDl <path.espdl>`        | Load an ESP-DL model from a FILE, verify it against the test vectors embedded in it, and report memory + latency (`-DUSE_TINYC_ESPDL`) |
 | `TinyCDlCam [thr] [scale] [bo]`| Run person detection on the current camera frame. `thr` 0…1 (default 0.7), `scale` 0/2/4/8 (default 2), `bo` RGB565 byte order |
 | `TinyCChkpt p`                | Pack: shrink `app0` to fit, expand `spiffs`      |

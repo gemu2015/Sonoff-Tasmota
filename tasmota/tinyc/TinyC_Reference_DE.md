@@ -5904,7 +5904,7 @@ Alle Befehle verwenden standardmaessig Slot 0, wenn keine Slot-Nummer angegeben 
 > ⚠️ **Ein Firmware-Flash tauscht die IDE NICHT mit aus.** Die Browser-IDE ist eine *Datei im Geraete-Dateisystem* (`/tinyc_ide.html.gz`) und nicht Teil des Firmware-Abbilds. Nach dem Flashen einer Version mit neuen Syscalls kennt die alte IDE diese nicht, und der Compiler meldet `Undefined function: <name>` — obwohl die Firmware es koennte. Nach jedem Firmware-Update, das neue Built-ins bringt, einmal **`TinyCIde`** in der Konsole aufrufen und die Browser-Seite hart neu laden.
 | `TinyC ?<abfrage>`            | Globale Variablen per Index abfragen (siehe unten)|
 | `TinyCHeap`                   | Fragmentierung des INTERNEN Heaps (ESP32): frei, groesster Block, Zahl der Bloecke und Loecher und ein Groessenhistogramm beider (`heap_caps_walk`), dazu PSRAM. Der freie Heap allein verbirgt Fragmentierung; ein kleiner `largest` mit vielen kleinen `holes` ist die Krankheit |
-| `TinyCPsram [grenze]`         | ESP32 mit PSRAM: ab welcher Bytezahl `malloc()` ins PSRAM geht (Framework-Vorgabe 4096 — alles Kleinere landet im internen DRAM und zerstueckelt ihn). Persistent in `/tinyc.cfg`, beim Booten angewandt, bevor ein Slot laedt; `0` = Vorgabe. DMA-Puffer und Task-Stapel bleiben ohnehin intern |
+| `TinyCPsram [grenze]`         | ESP32 mit PSRAM: ab welcher Bytezahl `malloc()` ins PSRAM geht. Jeder PSRAM-Bau startet mit **512** (`TC_PSRAM_DEFAULT`; die Framework-Vorgabe 4096 laesst alles Kleinere im internen DRAM landen und zerstueckelt ihn). In `/tinyc.cfg` nur abgelegt, wenn es von der Bauvorgabe abweicht, beim Booten angewandt, bevor ein Slot laedt; `0` = Framework-Vorgabe 4096. DMA-Puffer und Task-Stapel bleiben ohnehin intern |
 
 **Beispiele:**
 ```

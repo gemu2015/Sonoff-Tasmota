@@ -434,8 +434,10 @@ static void TinyCSaveSettings(void) {
   // Extra line for show_info
   f.printf("_info,%d\n", Tinyc->show_info ? 1 : 0);
 #ifdef ESP32
-  // And the malloc() PSRAM limit (TinyCPsram); 0 = framework default, not written.
-  if (Tinyc->psram_limit) f.printf("_psram,%d\n", Tinyc->psram_limit);
+  // And the malloc() PSRAM limit (TinyCPsram) -- only when it differs from the
+  // build default; an explicit 0 (framework 4096) IS written, or the default
+  // would come back at the next boot.
+  if (Tinyc->psram_limit != TC_PSRAM_DEFAULT) f.printf("_psram,%d\n", Tinyc->psram_limit);
 #endif
   f.close();
   // Autoexec on again anywhere? Then the boot-loop explanation has served its purpose. Note this
@@ -728,10 +730,13 @@ static void TinyCLoadSettings(void) {
       // (C3, C6) has neither CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL nor the
       // heap_caps_malloc_extmem_enable() body -- the first C3 build after
       // this command went in broke on the missing name (Hans, 17.09.2026).
-      if (Tinyc->psram_limit && UsePSRAM()) {
-        heap_caps_malloc_extmem_enable(Tinyc->psram_limit);
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: malloc() goes to PSRAM from %u bytes (TinyCPsram)"),
-               (unsigned)Tinyc->psram_limit);
+      // An explicit `_psram,0` means "framework default" and must UNDO the
+      // TC_PSRAM_DEFAULT applied at init -- hence the fallback to the Kconfig
+      // value instead of skipping the call.
+      if (UsePSRAM()) {
+        heap_caps_malloc_extmem_enable(Tinyc->psram_limit ? Tinyc->psram_limit : CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: malloc() goes to PSRAM from %u bytes (TinyCPsram, /tinyc.cfg)"),
+               (unsigned)(Tinyc->psram_limit ? Tinyc->psram_limit : CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL));
       }
 #endif
       continue;
@@ -910,6 +915,18 @@ static void TinyCInit(void) {
   if (!tc_file_handle_mutex) tc_file_handle_mutex = xSemaphoreCreateMutex();
   // Pick up the configured stack size BEFORE the first slot starts.
   TinyCLoadStackCfg();
+  // The malloc() PSRAM limit: TC_PSRAM_DEFAULT on every PSRAM build, applied
+  // before /tinyc.cfg is read so a `_psram,<n>` line there can still override
+  // it (see TinyCLoadSettings). Guarded like the command: a build without
+  // PSRAM has neither the setter nor the Kconfig name (C3/C6, Hans 17.09.).
+  Tinyc->psram_limit = TC_PSRAM_DEFAULT;
+#ifdef CONFIG_SPIRAM_USE_MALLOC
+  if (Tinyc->psram_limit && UsePSRAM()) {
+    heap_caps_malloc_extmem_enable(Tinyc->psram_limit);
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: malloc() goes to PSRAM from %u bytes (default, TinyCPsram)"),
+           (unsigned)Tinyc->psram_limit);
+  }
+#endif
 #endif
   // calloc() zeroes memory but doesn't call C++ constructors for embedded objects.
   // WiFiUDP (NetworkUDP) needs proper construction or begin() crashes (NULL deref).
@@ -2156,8 +2173,9 @@ void CmndTinyCHeap(void) {
 // What it does NOT touch: DMA buffers (asked for with MALLOC_CAP_DMA / _INTERNAL
 // explicitly), FreeRTOS task stacks (the kernel allocates them internal), and
 // anything below the limit. Flash writes from a PSRAM buffer are bounced by
-// esp_flash. Persisted in /tinyc.cfg as `_psram,<limit>`; 0 = framework default.
-// Applied at boot in TinyCLoadSettings() and immediately by the command.
+// esp_flash. Since 18.09.2026 every PSRAM build starts with TC_PSRAM_DEFAULT
+// (512); /tinyc.cfg's `_psram,<limit>` overrides it, 0 = framework default.
+// Applied at init, at boot in TinyCLoadSettings() and immediately by the command.
 void CmndTinyCPsram(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
 #ifdef CONFIG_SPIRAM_USE_MALLOC
