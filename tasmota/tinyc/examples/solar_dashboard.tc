@@ -84,7 +84,7 @@ int xlS[5]; int xlP[5];                    // x-axis HH:MM label handles (solar 
 int xlW[8];                                // 7-day chart: weekday labels at the midnights
 int g_needle = 0; int g_value = 0;         // live gauge parts
 int g_cx; int g_cy; int g_r; int g_pmax;
-int g_vals[5];                             // raw-value readout labels (control)
+int g_vals[6];                             // raw-value readout labels (control)
 int tick = 0;                              // sample counter (EverySecond ticks)
 int seeded = 0;                            // 1 while the ring holds synthetic seed data
 
@@ -480,16 +480,18 @@ void updateReadout() {
     sprintf(b, "GHaus %d",  (int)wrgh); lvglSetText(g_vals[1], b);
     sprintf(b, "Garage %d", (int)wrga); lvglSetText(g_vals[2], b);
     sprintf(b, "Garten %d", (int)wrgg); lvglSetText(g_vals[3], b);
-    sprintf(b, "SOC %d",    (int)pwl);  lvglSetText(g_vals[4], b);
+    sprintf(b, "Powerwall %d", (int)pwl);  lvglSetText(g_vals[4], b);
+    sprintf(b, "Marstek %d", (int)msoc);   lvglSetText(g_vals[5], b);
 }
 
-// the readout labels, colour-keyed to the series; `dx`/`dy` = step between them
-void makeReadout(int x, int y, int dx, int dy) {
-    g_vals[0] = lvglLabel(0); lvglSetTextColor(g_vals[0], C_BLUE);  lvglSetFont(g_vals[0], 14); lvglSetPos(g_vals[0], x,          y);
-    g_vals[1] = lvglLabel(0); lvglSetTextColor(g_vals[1], C_RED);   lvglSetFont(g_vals[1], 14); lvglSetPos(g_vals[1], x + dx,     y + dy);
-    g_vals[2] = lvglLabel(0); lvglSetTextColor(g_vals[2], C_GREEN); lvglSetFont(g_vals[2], 14); lvglSetPos(g_vals[2], x + 2 * dx, y + 2 * dy);
-    g_vals[3] = lvglLabel(0); lvglSetTextColor(g_vals[3], C_AMBER); lvglSetFont(g_vals[3], 14); lvglSetPos(g_vals[3], x + 3 * dx, y + 3 * dy);
-    g_vals[4] = lvglLabel(0); lvglSetTextColor(g_vals[4], C_AXIS);  lvglSetFont(g_vals[4], 14); lvglSetPos(g_vals[4], x + 4 * dx, y + 4 * dy);
+// the readout labels, colour-keyed to the series; `dx`/`dy` = step between them, `fs` = font size
+void makeReadout(int x, int y, int dx, int dy, int fs) {
+    g_vals[0] = lvglLabel(0); lvglSetTextColor(g_vals[0], C_BLUE);  lvglSetFont(g_vals[0], fs); lvglSetPos(g_vals[0], x,          y);
+    g_vals[1] = lvglLabel(0); lvglSetTextColor(g_vals[1], C_RED);   lvglSetFont(g_vals[1], fs); lvglSetPos(g_vals[1], x + dx,     y + dy);
+    g_vals[2] = lvglLabel(0); lvglSetTextColor(g_vals[2], C_GREEN); lvglSetFont(g_vals[2], fs); lvglSetPos(g_vals[2], x + 2 * dx, y + 2 * dy);
+    g_vals[3] = lvglLabel(0); lvglSetTextColor(g_vals[3], C_AMBER); lvglSetFont(g_vals[3], fs); lvglSetPos(g_vals[3], x + 3 * dx, y + 3 * dy);
+    g_vals[4] = lvglLabel(0); lvglSetTextColor(g_vals[4], C_GREEN); lvglSetFont(g_vals[4], fs); lvglSetPos(g_vals[4], x + 4 * dx, y + 4 * dy);
+    g_vals[5] = lvglLabel(0); lvglSetTextColor(g_vals[5], C_BLUE);  lvglSetFont(g_vals[5], fs); lvglSetPos(g_vals[5], x + 5 * dx, y + 5 * dy);
 }
 
 // the solar chart card; plot rect from SX/SY/SW/SH, legend row at (lx, ly)
@@ -565,7 +567,7 @@ int main() {
         int gu = lvglLabel(0);
         lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglAlign(gu, AL_CENTER, 0, 442);
         gaugeScale(400, 1110, 130, 10, 5);
-        makeReadout(56, 1182, 138, 0);                             // one row beneath the gauge
+        makeReadout(56, 1182, 118, 0, 14);                         // one row beneath the gauge
     } else {
         // ===== LANDSCAPE 1280 x 800: three panels across the top, the week below =====
         SX = 100; SY = 108; SW = 380; SH = 260;         // two equal chart cards, 470 wide each
@@ -575,13 +577,13 @@ int main() {
         buildSoc(530, 28, 470, 400, 590, 70);
         card(1020, 28, 220, 400);
         title(1044, 46, "Solar total");
-        buildGauge(1130, 270, 80);
+        buildGauge(1130, 190, 80);                                 // gauge high up, readout column below
         g_value = lvglLabel(0);
-        lvglSetText(g_value, "0.0"); lvglSetTextColor(g_value, C_TITLE); lvglSetFont(g_value, 28); lvglSetPos(g_value, 1108, 286);
+        lvglSetText(g_value, "0.0"); lvglSetTextColor(g_value, C_TITLE); lvglSetFont(g_value, 28); lvglSetPos(g_value, 1108, 206);
         int gu = lvglLabel(0);
-        lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglSetPos(gu, 1122, 320);
-        gaugeScale(1130, 270, 80, 10, 5);
-        makeReadout(1040, 340, 0, 17);                             // a column beneath the gauge
+        lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglSetPos(gu, 1122, 240);
+        gaugeScale(1130, 190, 80, 10, 5);
+        makeReadout(1040, 268, 0, 26, 20);                         // six lines, font 20 (built-in sizes: 10/14/20/28), both SOCs
         buildWeek(40, 450, 1200, 330);
     }
     updateReadout();
