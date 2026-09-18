@@ -53,6 +53,9 @@ extern "C" {
 // for `struct linger` / SOL_SOCKET / SO_LINGER used by jt[171] op 103
 // (client_setLinger). ESP8266 path doesn't expose setSocketOption().
 #include <lwip/sockets.h>
+#ifdef ESP32
+#include "esp_mmu_map.h"      // esp_mmu_map(): the P4 fallback in Setplugins()
+#endif
 #endif
 
 // minimal plugin rev
@@ -3197,6 +3200,54 @@ void Setplugins(void) {
       err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, ESP_PARTITION_MMAP_DATA, &out_ptr, &plugins.map_handle);
     }
 #endif
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+    // ⚠️ THE 16 MB GUARD. Since IDF 5.5, spi_flash_mmap() refuses any flash
+    // address at or beyond 16 MB with ESP_ERR_INVALID_ARG ("out of range for
+    // 24bit flash mapping") unless CONFIG_BOOTLOADER_CACHE_32BIT_ADDR_* is
+    // set -- and the plugin partition of the 32 MB P4 boards sits at
+    // 0x1FC0000. The P4's cache does map 32-bit addresses
+    // (SOC_SPI_MEM_SUPPORT_CACHE_32BIT_ADDR_MAP), and IDF 5.3 ran plugins
+    // from this very partition for months. esp_mmu_map() is what
+    // spi_flash_mmap() calls after the guard, so map one level lower.
+    // Nothing unmaps this later (map_handle was never used for that), so a
+    // zero handle is fine.
+    if (err == ESP_ERR_INVALID_ARG && plugins.flash_pptr->address >= 0x1000000) {
+      void *p = nullptr;
+      err = esp_mmu_map(plugins.flash_pptr->address, plugins.flash_pptr->size, MMU_TARGET_FLASH0,
+                        (mmu_mem_caps_t)(MMU_MEM_CAP_EXEC | MMU_MEM_CAP_32BIT), ESP_MMU_MMAP_FLAG_PADDR_SHARED, &p);
+      out_ptr = p;
+      plugins.map_handle = 0;
+      AddLog(LOG_LEVEL_INFO, PSTR("Plugins: partition beyond 16 MB -- esp_mmu_map (err %d, %p)"), (int)err, p);
+      // ⚠️ IS THE CACHE HONEST UP THERE? If the cache fetches with 24-bit
+      // addresses, the mapping silently ALIASES to 16 MB lower -- into the
+      // file system -- and the scan may find a plugin .bin lying there as a
+      // file, relink it, and execute file bytes ("Illegal instruction").
+      // So compare the first bytes as the cache shows them with what the SPI
+      // driver (32-bit addressing) reads from the real partition. Any
+      // difference: plugins OFF, and say so.
+      if (err == ESP_OK && p) {
+        uint32_t spi[16];
+        if (esp_partition_read(plugins.flash_pptr, 0, spi, sizeof(spi)) == ESP_OK) {
+          if (memcmp(spi, p, sizeof(spi)) != 0) {
+            // Which word differs, and does the cache image equal what lies
+            // 16 MB LOWER in flash (the 24-bit alias)? That settles it.
+            int first = -1;
+            for (int i = 0; i < 16; i++) { if (spi[i] != ((uint32_t*)p)[i]) { first = i; break; } }
+            uint32_t lower[16]; bool alias = false;
+            if (esp_flash_read(NULL, lower, plugins.flash_pptr->address - 0x1000000, sizeof(lower)) == ESP_OK) {
+              alias = (memcmp(lower, p, sizeof(lower)) == 0);
+            }
+            AddLog(LOG_LEVEL_ERROR, PSTR("Plugins: cache image differs from flash at word %d (cache %08x, flash %08x, 16MB-lower %08x) -- alias:%d, plugins disabled"),
+                   first, (unsigned)((uint32_t*)p)[first < 0 ? 0 : first], (unsigned)spi[first < 0 ? 0 : first],
+                   (unsigned)lower[first < 0 ? 0 : first], alias ? 1 : 0);
+            err = ESP_ERR_INVALID_STATE;
+          } else {
+            AddLog(LOG_LEVEL_INFO, PSTR("Plugins: cache image matches flash beyond 16 MB"));
+          }
+        }
+      }
+    }
+#endif
     if (err != ESP_OK || !out_ptr) {
       plugins.ready = false;
       plugins.free_flash_start = 0;
@@ -3501,6 +3552,7 @@ void AddModules(void) {
       // add module
       modules[module].mod_addr = (FLASH_MODULE*)lp;
       modules[module].jt = MODULE_JUMPTABLE;
+      AddLog(LOG_LEVEL_INFO, PSTR("Plugins: module %d '%s' at %08x"), module + 1, (const char*)fm->name, (unsigned)addr);
       //modules[module].execution_offset = fm->execution_offset;
       //modules[module].mod_size = fm->size;
       //modules[module].settings = Settings;
