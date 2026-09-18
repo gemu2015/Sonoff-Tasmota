@@ -3174,13 +3174,36 @@ void Setplugins(void) {
   plugins.pagesize = SPI_FLASH_SEC_SIZE;
   plugins.flash_pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
   if (plugins.flash_pptr) {
-    const void *out_ptr;
+    const void *out_ptr = nullptr;
     //esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &plugins.map_handle);
 #if ESP_IDF_VERSION_MAJOR < 5 
     esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_INST, &out_ptr, &plugins.map_handle);
 #else
     esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, ESP_PARTITION_MMAP_INST, &out_ptr, &plugins.map_handle);
 #endif
+    // ⚠️ CHECK THE RESULT. Until 2026-09-18 `err` was ignored: when the mmap
+    // failed, `out_ptr` was whatever the stack held, AddModules() then read
+    // FLASH_MODULE headers from a random address, and the device crashed --
+    // or not, depending on where the garbage pointed. .164 (ESP32-P4, first
+    // build on IDF 5.5.4 / Core 3.3.8) logged "Plugins-> start: 40067d86", an
+    // address in the middle of the firmware's own code, and died with "Load
+    // access fault" on most boots. On IDF 5.3 the same mapping had worked.
+    // An instruction mapping that fails gets one more try as a data mapping
+    // (the P4 has one unified cache region for both); if that fails too,
+    // the plugin system stays OFF and says so, instead of scanning garbage.
+#if ESP_IDF_VERSION_MAJOR >= 5
+    if (err != ESP_OK) {
+      AddLog(LOG_LEVEL_INFO, PSTR("Plugins: INST mmap failed (err %d) -- trying DATA mapping"), (int)err);
+      err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, ESP_PARTITION_MMAP_DATA, &out_ptr, &plugins.map_handle);
+    }
+#endif
+    if (err != ESP_OK || !out_ptr) {
+      plugins.ready = false;
+      plugins.free_flash_start = 0;
+      plugins.free_flash_end = 0;
+      AddLog(LOG_LEVEL_ERROR, PSTR("Plugins: partition mmap FAILED (err %d) -- plugins disabled"), (int)err);
+      return;
+    }
     plugins.free_flash_start = (uint32_t)out_ptr;
     plugins.free_flash_end = plugins.free_flash_start + plugins.flash_pptr->size;
     plugins.flashbase = 0;
