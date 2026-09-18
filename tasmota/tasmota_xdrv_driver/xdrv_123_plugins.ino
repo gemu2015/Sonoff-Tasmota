@@ -3552,7 +3552,20 @@ void AddModules(void) {
       // add module
       modules[module].mod_addr = (FLASH_MODULE*)lp;
       modules[module].jt = MODULE_JUMPTABLE;
-      AddLog(LOG_LEVEL_INFO, PSTR("Plugins: module %d '%s' at %08x"), module + 1, (const char*)fm->name, (unsigned)addr);
+      // ⚠️ NEVER hand fm->name to a printf directly. The partition is mapped
+      // through the INSTRUCTION bus (ESP_PARTITION_MMAP_INST); on Xtensa
+      // (ESP32/S3) a byte load from that region is a LoadStoreError, and
+      // strlen() inside vfprintf reads bytes. Exactly that killed every S3
+      // with a plugin in its partition on 2026-09-18 (.124: ten crashes at
+      // boot, then safeboot) -- the line above had been added the day before
+      // for the P4, whose RISC-V core tolerates byte loads there. Copy the
+      // header word-wise first, as the module directory below does.
+      uint32_t hdr[sizeof(FLASH_MODULE) / 4];
+      for (uint16_t w = 0; w < sizeof(FLASH_MODULE) / 4; w++) { hdr[w] = lp[w]; }
+      char name[17];
+      memcpy(name, ((FLASH_MODULE*)hdr)->name, 16);
+      name[16] = 0;
+      AddLog(LOG_LEVEL_INFO, PSTR("Plugins: module %d '%s' at %08x"), module + 1, name, (unsigned)addr);
       //modules[module].execution_offset = fm->execution_offset;
       //modules[module].mod_size = fm->size;
       //modules[module].settings = Settings;
