@@ -568,11 +568,11 @@ int main() {
         makeReadout(56, 1182, 138, 0);                             // one row beneath the gauge
     } else {
         // ===== LANDSCAPE 1280 x 800: three panels across the top, the week below =====
-        SX = 100; SY = 108; SW = 470; SH = 260;
-        PX = 672; PY = 108; PW = 300; PH = 260;
+        SX = 100; SY = 108; SW = 380; SH = 260;         // two equal chart cards, 470 wide each
+        PX = 590; PY = 108; PW = 380; PH = 260;
         WX = 100; WY = 500; WW = 1100; WH = 220;
-        buildSolar(40, 28, 560, 400, 100, 70);
-        buildSoc(620, 28, 380, 400, 672, 70);
+        buildSolar(40, 28, 470, 400, 100, 70);
+        buildSoc(530, 28, 470, 400, 590, 70);
         card(1020, 28, 220, 400);
         title(1044, 46, "Solar total");
         buildGauge(1130, 270, 80);
