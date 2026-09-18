@@ -477,9 +477,10 @@ void updateGauge(int valuet) {
 void updateReadout() {
     char b[24];
     sprintf(b, "Dach %d",   (int)sedc); lvglSetText(g_vals[0], b);
-    sprintf(b, "GHaus %d",  (int)wrgh); lvglSetText(g_vals[1], b);
-    sprintf(b, "Garage %d", (int)wrga); lvglSetText(g_vals[2], b);
-    sprintf(b, "Garten %d", (int)wrgg); lvglSetText(g_vals[3], b);
+    // the three feed-in inverters report negative while producing -- shown with the sign flipped
+    sprintf(b, "GHaus %d",  (int)(0.0 - wrgh)); lvglSetText(g_vals[1], b);
+    sprintf(b, "Garage %d", (int)(0.0 - wrga)); lvglSetText(g_vals[2], b);
+    sprintf(b, "Garten %d", (int)(0.0 - wrgg)); lvglSetText(g_vals[3], b);
     sprintf(b, "Powerwall %d", (int)pwl);  lvglSetText(g_vals[4], b);
     sprintf(b, "Marstek %d", (int)msoc);   lvglSetText(g_vals[5], b);
 }
