@@ -2,14 +2,22 @@
 // solar_dashboard.tc — REAL energy dashboard on LVGL (P4), built on the gchart primitives.
 //
 //   CHART 1: solar power of 4 inverters (4 time series, ONE shared y-axis), 24 h / 5 min
-//   CHART 2: Powerwall SOC (%), 24 h / 5 min
+//   CHART 2: Powerwall + Marstek SOC (%), 24 h / 5 min
 //   GAUGE  : live SUM of the 4 inverters (kW), real-time
+//   CHART 3: (landscape only) Powerwall + Marstek SOC over 7 days / 30 min, full width
 //
 // Data comes from UDP-published Scripter global vars (read-only consume):
-//   sedc=Dach, wrgh=Gartenhaus, wrga=Garage, wrgg=Garten, pwl=Powerwall SOC.
-// History is a rolling 24 h ring buffer (288 x 5 min) sampled live every 5 min.
+//   sedc=Dach, wrgh=Gartenhaus, wrga=Garage, wrgg=Garten, pwl=Powerwall SOC, msoc=Marstek SOC.
+// History is a rolling 24 h ring buffer (288 x 5 min) sampled live every 5 min, plus a
+// 7-day ring (336 x 30 min) for the two SOCs, sampled every 6th 5-min tick.
 // SEED fills a synthetic day so the charts show immediately — set SEED 0 for pure-real.
 // Tune SOLAR_MAX_W to your biggest inverter; values assumed in WATTS.
+//
+// LAYOUT follows the panel orientation (DisplayRotate + reboot, see the reference):
+//   portrait  (800 x 1280): the three panels stacked, as before
+//   landscape (1280 x 800): the three panels across the top, the 7-day SOC chart
+//                           over the full width below
+// dspWidth()/dspHeight() report the ROTATED size, so nothing else has to be configured.
 
 // ---- live globals (read-only consume of existing UDP vars) ----
 global float sedc;   // Dach
@@ -21,10 +29,15 @@ global float msoc;   // Marstek Venus E SOC % (broadcast by marstek_venus.tc on 
 
 #define SEED         1            // 1 = pre-fill a synthetic day (demo); 0 = real-accumulate only
 #define NBINS        288          // 24 h / 5 min
+#define NWEEK        336          // 7 d / 30 min
 #define SOLAR_MAX_W  5000         // y-axis full scale (W) -> labelled 0..5 kW
 #define GAUGE_MAXT   100          // gauge full scale in tenths of kW (100 = 10.0 kW)
 #define SAMPLE_SEC   300          // history sample interval (s) = 5 min (24 h / 288 bins)
-#define SOLBIN_SIZE  5776         // exact valid size: 4-int hdr + 5 arrays x 288 x 4B (power-safe check)
+#define WEEK_EVERY   6            // every 6th 5-min sample = 30 min -> the 7-day ring
+// file sizes (power-safe check): SOL1 = 4-int hdr + 5 x 288 x 4 B (pre-Marstek, pre-week)
+//                               SOL2 = 8-int hdr + 6 x 288 x 4 B + 2 x 336 x 4 B
+#define SOLBIN_SIZE1 5776
+#define SOLBIN_SIZE2 9632
 
 #define ST_RADIUS    120
 #define ST_BORDER     56
@@ -46,27 +59,29 @@ global float msoc;   // Marstek Venus E SOC % (broadcast by marstek_venus.tc on 
 #define C_AMBER  0xFBBC04
 #define C_RED    0xEA4335
 
-// solar plot rect / powerwall plot rect
-#define SX 100
-#define SY 110
-#define SW 600
-#define SH 330
-#define PX 100
-#define PY 582
-#define PW 600
-#define PH 196
+// ---- plot rectangles, set by the layout in main() (portrait keeps the old numbers) ----
+int LAND = 0;                              // 1 = landscape layout
+int SX; int SY; int SW; int SH;            // solar plot
+int PX; int PY; int PW; int PH;            // 24 h SOC plot
+int WX; int WY; int WW; int WH;            // 7-day SOC plot (landscape only)
 
-int px[300]; int py[300];                  // polyline scratch
+int px[340]; int py[340];                  // polyline scratch (>= NWEEK)
 int wSolar[4][288];                        // 4 inverter series x 288 bins (heap, 2D)
 int wPwl[288];                             // Powerwall SOC per bin
 int wMsoc[288];                            // Marstek Venus SOC per bin (-1 = no data yet, skipped)
 int wp = 0; int cnt = 0;                   // ring write pointer + filled count
+int wkPwl[336];                            // 7-day ring: Powerwall SOC per 30 min
+int wkMsoc[336];                           // 7-day ring: Marstek SOC per 30 min (-1 = none)
+int wkp = 0; int wkcnt = 0;                // 7-day ring write pointer + filled count
+int wkTick = 0;                            // counts 5-min samples towards the next 30-min bin
 int save_tog = 0;                          // ping-pong: which file to write next (0=/solar.bin 1=/solar2.bin)
 int save_seq = 0;                          // monotonic save sequence (header) — loadHist picks the newest valid file
 int gln[4];                                // 4 solar polyline handles
 int plLine = 0;                            // Powerwall polyline handle
 int mkLine = 0;                            // Marstek Venus SOC polyline handle
+int wkLineP = 0; int wkLineM = 0;          // 7-day polyline handles
 int xlS[5]; int xlP[5];                    // x-axis HH:MM label handles (solar / powerwall)
+int xlW[8];                                // 7-day chart: weekday labels at the midnights
 int g_needle = 0; int g_value = 0;         // live gauge parts
 int g_cx; int g_cy; int g_r; int g_pmax;
 int g_vals[5];                             // raw-value readout labels (control)
@@ -130,6 +145,23 @@ void yAxis(int x, int y0, int h, int vmin, int vmax, int ndiv, int color) {
     }
 }
 
+// a titled legend entry: colour square + text
+void legend(int x, int y, int color, char text[]) {
+    int s = lvglObj(0);
+    lvglSetStyleInt(s, ST_BORDER, 0);
+    lvglSetSize(s, 12, 12);
+    lvglSetStyleInt(s, ST_RADIUS, 2);
+    lvglSetBgColor(s, color);
+    lvglSetPos(s, x, y + 3);
+    int t = lvglLabel(0);
+    lvglSetText(t, text); lvglSetTextColor(t, C_AXIS); lvglSetFont(t, 14); lvglSetPos(t, x + 16, y);
+}
+
+void title(int x, int y, char text[]) {
+    int t = lvglLabel(0);
+    lvglSetText(t, text); lvglSetTextColor(t, C_TITLE); lvglSetFont(t, 20); lvglSetPos(t, x, y);
+}
+
 // create the 5 x-axis tick labels (HH:MM, set later) and store their handles in dst[]
 void makeXLabels(int dst[], int x0, int w, int y) {
     int i = 0;
@@ -160,22 +192,61 @@ void updateXLabels() {
     }
 }
 
-void legSquare(int x, int y, int color) {
-    int s = lvglObj(0);
-    lvglSetStyleInt(s, ST_BORDER, 0);
-    lvglSetSize(s, 12, 12);
-    lvglSetStyleInt(s, ST_RADIUS, 2);
-    lvglSetBgColor(s, color);
-    lvglSetPos(s, x, y);
+// 7-day chart: eight weekday labels, created once, placed at the midnights on every redraw.
+void makeWeekLabels(int y) {
+    int i = 0;
+    while (i < 8) {
+        int t = lvglLabel(0);
+        lvglSetTextColor(t, C_AXIS); lvglSetFont(t, 14);
+        lvglSetText(t, "");
+        lvglSetPos(t, WX, y);
+        xlW[i] = t;
+        i = i + 1;
+    }
 }
 
-// plot a ring row (24 h) as a polyline into an existing line handle
-void plotSeries(int row[], int handle, int x0, int y0, int w, int h, int vmax) {
+void weekdayName(int d, char out[]) {          // 0 = Sunday .. 6 = Saturday
+    if (d == 0) { strcpy(out, "So"); }
+    if (d == 1) { strcpy(out, "Mo"); }
+    if (d == 2) { strcpy(out, "Di"); }
+    if (d == 3) { strcpy(out, "Mi"); }
+    if (d == 4) { strcpy(out, "Do"); }
+    if (d == 5) { strcpy(out, "Fr"); }
+    if (d == 6) { strcpy(out, "Sa"); }
+}
+
+// The right edge of the 7-day chart is now; a midnight k days back sits
+// (minutes since midnight + k*24h) / 30 min bins to the left of it.
+void updateWeekLabels() {
+    char ts[24];
+    timeStamp(ts);
+    int nowMin = ((ts[11] - 48) * 10 + (ts[12] - 48)) * 60 + (ts[14] - 48) * 10 + (ts[15] - 48);
+    int secs = timeToSecs(ts);                      // local-as-UTC, fine for the weekday
+    int today = ((secs / 86400) + 4) % 7;           // 1970-01-01 was a Thursday (4), 0 = Sunday
+    int k = 0;
+    while (k < 8) {
+        int bins = nowMin / 30 + k * 48;            // bins back from the newest one
+        if (bins <= NWEEK - 1) {
+            char nm[4];
+            weekdayName(((today - k) % 7 + 7) % 7, nm);
+            lvglSetText(xlW[k], nm);
+            lvglSetPos(xlW[k], WX + WW - (WW * bins) / (NWEEK - 1) - 8, WY + WH + 10);
+        } else {
+            lvglSetText(xlW[k], "");
+        }
+        k = k + 1;
+    }
+}
+
+// plot a ring row as a polyline into an existing line handle. `n_ring` bins, write
+// pointer `w_ptr`, `n_cnt` filled -- the 24 h ring (288) and the 7-day ring (336)
+// share this. -1 bins (no data yet) are skipped.
+void plotRing(int row[], int handle, int n_ring, int w_ptr, int n_cnt, int x0, int y0, int w, int h, int vmax) {
     int j = 0; int n = 0;
-    while (j < cnt) {
-        int idx = (wp - cnt + j + 576) % 288;        // chronological: oldest -> newest
-        if (row[idx] >= 0) {                          // skip -1 sentinel bins (Venus SOC before its first sample)
-            px[n] = x0 + w - (w * (cnt - 1 - j)) / 287;  // newest at the right edge (now); 5 min = w/287
+    while (j < n_cnt) {
+        int idx = (w_ptr - n_cnt + j + 2 * n_ring) % n_ring;   // chronological: oldest -> newest
+        if (row[idx] >= 0) {
+            px[n] = x0 + w - (w * (n_cnt - 1 - j)) / (n_ring - 1);   // newest at the right edge (now)
             py[n] = ymap(row[idx], 0, vmax, y0, h);
             n = n + 1;
         }
@@ -185,13 +256,18 @@ void plotSeries(int row[], int handle, int x0, int y0, int w, int h, int vmax) {
 }
 
 void updateCharts() {
-    plotSeries(wSolar[0], gln[0], SX, SY, SW, SH, SOLAR_MAX_W);
-    plotSeries(wSolar[1], gln[1], SX, SY, SW, SH, SOLAR_MAX_W);
-    plotSeries(wSolar[2], gln[2], SX, SY, SW, SH, SOLAR_MAX_W);
-    plotSeries(wSolar[3], gln[3], SX, SY, SW, SH, SOLAR_MAX_W);
-    plotSeries(wPwl, plLine, PX, PY, PW, PH, 100);
-    plotSeries(wMsoc, mkLine, PX, PY, PW, PH, 100);
+    plotRing(wSolar[0], gln[0], NBINS, wp, cnt, SX, SY, SW, SH, SOLAR_MAX_W);
+    plotRing(wSolar[1], gln[1], NBINS, wp, cnt, SX, SY, SW, SH, SOLAR_MAX_W);
+    plotRing(wSolar[2], gln[2], NBINS, wp, cnt, SX, SY, SW, SH, SOLAR_MAX_W);
+    plotRing(wSolar[3], gln[3], NBINS, wp, cnt, SX, SY, SW, SH, SOLAR_MAX_W);
+    plotRing(wPwl, plLine, NBINS, wp, cnt, PX, PY, PW, PH, 100);
+    plotRing(wMsoc, mkLine, NBINS, wp, cnt, PX, PY, PW, PH, 100);
     updateXLabels();
+    if (LAND) {
+        plotRing(wkPwl, wkLineP, NWEEK, wkp, wkcnt, WX, WY, WW, WH, 100);
+        plotRing(wkMsoc, wkLineM, NWEEK, wkp, wkcnt, WX, WY, WW, WH, 100);
+        updateWeekLabels();
+    }
 }
 
 // inverters report production with mixed sign (3 are negative) — chart/gauge use the magnitude
@@ -204,65 +280,110 @@ float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
 // /solar2.bin with a rising seq in the header, so a crash can only corrupt the
 // file being written; the previous one stays intact. (TinyC has no fileRename,
 // so this is the atomic-replace substitute.)
+// SOL2 (18.09.2026): the Marstek ring and the 7-day rings are in the file too --
+// the Marstek chart used to come back EMPTY after every reboot because saveHist()
+// never wrote wMsoc (gemu: "der marstek soc chart wird nicht gespeichert").
 void saveHist() {
     save_seq = save_seq + 1;
-    int hdr[4]; hdr[0] = 0x534F4C31; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL1' + seq
+    int hdr[8];
+    hdr[0] = 0x534F4C32; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL2' + seq
+    hdr[4] = wkp; hdr[5] = wkcnt; hdr[6] = wkTick; hdr[7] = 0;
     int h;
     if (save_tog == 0) { h = fileOpen("/solar.bin", 1); }
     else { h = fileOpen("/solar2.bin", 1); }
     if (h < 0) { return; }
-    fileWriteBin(h, hdr, 4);
+    fileWriteBin(h, hdr, 8);
     fileWriteBin(h, wSolar[0], 288);
     fileWriteBin(h, wSolar[1], 288);
     fileWriteBin(h, wSolar[2], 288);
     fileWriteBin(h, wSolar[3], 288);
     fileWriteBin(h, wPwl, 288);
+    fileWriteBin(h, wMsoc, 288);
+    fileWriteBin(h, wkPwl, 336);
+    fileWriteBin(h, wkMsoc, 336);
     fileClose(h);
     save_tog = 1 - save_tog;                        // next save -> the other file
 }
 
-// Reload persisted history on boot. Probe BOTH ping-pong files; use the newest one
-// that is FULLY valid (magic + exact size). A partial/corrupt file (short size) is
-// skipped, so a power cut can never wipe the history. Returns 1 if a valid file was
-// read. (The old single pre-outage solar.bin has seq 0 and still loads.)
-int loadHist() {
-    int seq0; int seq1; int hdr[4];
-    seq0 = -1; seq1 = -1;
-    if (fileSize("/solar.bin") == SOLBIN_SIZE) {
-        int h = fileOpen("/solar.bin", 0);
-        if (h >= 0) { fileReadBin(h, hdr, 4); if (hdr[0] == 0x534F4C31) { seq0 = hdr[3]; } fileClose(h); }
-    }
-    if (fileSize("/solar2.bin") == SOLBIN_SIZE) {
-        int h = fileOpen("/solar2.bin", 0);
-        if (h >= 0) { fileReadBin(h, hdr, 4); if (hdr[0] == 0x534F4C31) { seq1 = hdr[3]; } fileClose(h); }
-    }
-    if (seq0 < 0 && seq1 < 0) { return 0; }         // neither valid -> caller seeds
-    int h;
-    // load the newer; point the next save at the OTHER file so the newest survives it
-    if (seq1 > seq0) { h = fileOpen("/solar2.bin", 0); save_tog = 0; }
-    else             { h = fileOpen("/solar.bin", 0);  save_tog = 1; }
-    if (h < 0) { return 0; }
+// A file is valid when magic and size agree: SOL1 (old, 5 arrays) or SOL2 (6 + 2 arrays).
+// `which` 0 = /solar.bin, 1 = /solar2.bin (file syscalls want literal names).
+// Returns the seq of a valid file, -1 otherwise.
+int histSeq(int which) {
+    int sz; int h;
+    if (which == 0) { sz = fileSize("/solar.bin"); } else { sz = fileSize("/solar2.bin"); }
+    if (sz != SOLBIN_SIZE1 && sz != SOLBIN_SIZE2) { return -1; }
+    int hdr[4];
+    if (which == 0) { h = fileOpen("/solar.bin", 0); } else { h = fileOpen("/solar2.bin", 0); }
+    if (h < 0) { return -1; }
     fileReadBin(h, hdr, 4);
-    wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
+    fileClose(h);
+    if (sz == SOLBIN_SIZE1 && hdr[0] == 0x534F4C31) { return hdr[3]; }
+    if (sz == SOLBIN_SIZE2 && hdr[0] == 0x534F4C32) { return hdr[3]; }
+    return -1;
+}
+
+int readHist(int which) {
+    int sz; int h;
+    if (which == 0) { sz = fileSize("/solar.bin"); h = fileOpen("/solar.bin", 0); }
+    else { sz = fileSize("/solar2.bin"); h = fileOpen("/solar2.bin", 0); }
+    if (h < 0) { return 0; }
+    int hdr[8];
+    if (sz == SOLBIN_SIZE1) {
+        fileReadBin(h, hdr, 4);
+        wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
+    } else {
+        fileReadBin(h, hdr, 8);
+        wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
+        wkp = hdr[4]; wkcnt = hdr[5]; wkTick = hdr[6];
+    }
     fileReadBin(h, wSolar[0], 288);
     fileReadBin(h, wSolar[1], 288);
     fileReadBin(h, wSolar[2], 288);
     fileReadBin(h, wSolar[3], 288);
     fileReadBin(h, wPwl, 288);
+    if (sz == SOLBIN_SIZE2) {
+        fileReadBin(h, wMsoc, 288);
+        fileReadBin(h, wkPwl, 336);
+        fileReadBin(h, wkMsoc, 336);
+    }
     fileClose(h);
     return 1;
 }
 
+// Reload persisted history on boot. Probe BOTH ping-pong files; use the newest one
+// that is FULLY valid (magic + exact size). A partial/corrupt file (short size) is
+// skipped, so a power cut can never wipe the history. Returns 1 if a valid file was
+// read. An old SOL1 file (pre-Marstek) still loads; its Marstek/week rings stay empty.
+int loadHist() {
+    int seq0 = histSeq(0);
+    int seq1 = histSeq(1);
+    if (seq0 < 0 && seq1 < 0) { return 0; }         // neither valid -> caller seeds
+    // load the newer; point the next save at the OTHER file so the newest survives it
+    if (seq1 > seq0) { save_tog = 0; return readHist(1); }
+    save_tog = 1;
+    return readHist(0);
+}
+
 void sampleNow() {
     if (seeded) { seeded = 0; wp = 0; cnt = 0; }    // drop the synthetic seed on the first real sample
+    int ms = -1;
+    if (msoc > 0.0) { ms = (int)msoc; }             // 0 = the Venus has not published yet
     wSolar[0][wp] = (int)pabs(sedc);
     wSolar[1][wp] = (int)pabs(wrgh);
     wSolar[2][wp] = (int)pabs(wrga);
     wSolar[3][wp] = (int)pabs(wrgg);
     wPwl[wp] = (int)pwl;
-    wMsoc[wp] = (int)msoc;
+    wMsoc[wp] = ms;
     wp = (wp + 1) % 288;
     if (cnt < 288) { cnt = cnt + 1; }
+    wkTick = wkTick + 1;
+    if (wkTick >= WEEK_EVERY) {                     // every 30 min: one bin of the 7-day rings
+        wkTick = 0;
+        wkPwl[wkp] = (int)pwl;
+        wkMsoc[wkp] = ms;
+        wkp = (wkp + 1) % 336;
+        if (wkcnt < 336) { wkcnt = wkcnt + 1; }
+    }
     saveHist();                                     // persist after each sample
 }
 
@@ -362,59 +483,107 @@ void updateReadout() {
     sprintf(b, "SOC %d",    (int)pwl);  lvglSetText(g_vals[4], b);
 }
 
-int main() {
-    int mi = 0; while (mi < 288) { wMsoc[mi] = -1; mi = mi + 1; }   // Venus SOC starts empty (skipped until first sample)
-    lvglInit();
-    lvglClean(0);
-    lvglSetBgColor(0, C_BG);
+// the readout labels, colour-keyed to the series; `dx`/`dy` = step between them
+void makeReadout(int x, int y, int dx, int dy) {
+    g_vals[0] = lvglLabel(0); lvglSetTextColor(g_vals[0], C_BLUE);  lvglSetFont(g_vals[0], 14); lvglSetPos(g_vals[0], x,          y);
+    g_vals[1] = lvglLabel(0); lvglSetTextColor(g_vals[1], C_RED);   lvglSetFont(g_vals[1], 14); lvglSetPos(g_vals[1], x + dx,     y + dy);
+    g_vals[2] = lvglLabel(0); lvglSetTextColor(g_vals[2], C_GREEN); lvglSetFont(g_vals[2], 14); lvglSetPos(g_vals[2], x + 2 * dx, y + 2 * dy);
+    g_vals[3] = lvglLabel(0); lvglSetTextColor(g_vals[3], C_AMBER); lvglSetFont(g_vals[3], 14); lvglSetPos(g_vals[3], x + 3 * dx, y + 3 * dy);
+    g_vals[4] = lvglLabel(0); lvglSetTextColor(g_vals[4], C_AXIS);  lvglSetFont(g_vals[4], 14); lvglSetPos(g_vals[4], x + 4 * dx, y + 4 * dy);
+}
 
-    // ===== CHART 1: solar — 4 inverters, one y-axis (kW) =====
-    card(40, 28, 720, 462);
-    int t1 = lvglLabel(0);
-    lvglSetText(t1, "Solar power"); lvglSetTextColor(t1, C_TITLE); lvglSetFont(t1, 20); lvglSetPos(t1, 64, 46);
-    legSquare(410, 50, C_BLUE);  int la = lvglLabel(0); lvglSetText(la, "Dach");   lvglSetTextColor(la, C_AXIS); lvglSetFont(la, 14); lvglSetPos(la, 426, 47);
-    legSquare(496, 50, C_RED);   int lb = lvglLabel(0); lvglSetText(lb, "GHaus");  lvglSetTextColor(lb, C_AXIS); lvglSetFont(lb, 14); lvglSetPos(lb, 512, 47);
-    legSquare(592, 50, C_GREEN); int lc = lvglLabel(0); lvglSetText(lc, "Garage"); lvglSetTextColor(lc, C_AXIS); lvglSetFont(lc, 14); lvglSetPos(lc, 608, 47);
-    legSquare(690, 50, C_AMBER); int ld = lvglLabel(0); lvglSetText(ld, "Garten"); lvglSetTextColor(ld, C_AXIS); lvglSetFont(ld, 14); lvglSetPos(ld, 706, 47);
+// the solar chart card; plot rect from SX/SY/SW/SH, legend row at (lx, ly)
+void buildSolar(int cx, int cy, int cw, int ch, int lx, int ly) {
+    card(cx, cy, cw, ch);
+    title(cx + 24, cy + 18, "Solar power");
+    legend(lx,       ly, C_BLUE,  "Dach");
+    legend(lx + 86,  ly, C_RED,   "GHaus");
+    legend(lx + 182, ly, C_GREEN, "Garage");
+    legend(lx + 280, ly, C_AMBER, "Garten");
     plotBg(SX - 4, SY - 4, SW + 8, SH + 8);
     drawGrid(SX, SY, SW, SH, 5, 4);
-    yAxis(56, SY, SH, 0, 5, 5, C_AXIS);             // kW labels 0..5
+    yAxis(SX - 44, SY, SH, 0, 5, 5, C_AXIS);        // kW labels 0..5
     makeXLabels(xlS, SX, SW, SY + SH + 10);
     gln[0] = lvglLine(0); lvglLineStyle(gln[0], C_BLUE, 3);
     gln[1] = lvglLine(0); lvglLineStyle(gln[1], C_RED, 3);
     gln[2] = lvglLine(0); lvglLineStyle(gln[2], C_GREEN, 3);
     gln[3] = lvglLine(0); lvglLineStyle(gln[3], C_AMBER, 3);
+}
 
-    // ===== CHART 2: Powerwall SOC (%) =====
-    card(40, 510, 720, 300);
-    int t2 = lvglLabel(0);
-    lvglSetText(t2, "Battery SOC"); lvglSetTextColor(t2, C_TITLE); lvglSetFont(t2, 20); lvglSetPos(t2, 64, 528);
-    legSquare(410, 532, C_GREEN); int lp = lvglLabel(0); lvglSetText(lp, "Powerwall"); lvglSetTextColor(lp, C_AXIS); lvglSetFont(lp, 14); lvglSetPos(lp, 426, 529);
-    legSquare(580, 532, C_BLUE);  int lm = lvglLabel(0); lvglSetText(lm, "Marstek");   lvglSetTextColor(lm, C_AXIS); lvglSetFont(lm, 14); lvglSetPos(lm, 596, 529);
+// the 24 h SOC card
+void buildSoc(int cx, int cy, int cw, int ch, int lx, int ly) {
+    card(cx, cy, cw, ch);
+    title(cx + 24, cy + 18, "Battery SOC");
+    legend(lx,       ly, C_GREEN, "Powerwall");
+    legend(lx + 120, ly, C_BLUE,  "Marstek");
     plotBg(PX - 4, PY - 4, PW + 8, PH + 8);
     drawGrid(PX, PY, PW, PH, 4, 4);
-    yAxis(52, PY, PH, 0, 100, 4, C_AXIS);
+    yAxis(PX - 48, PY, PH, 0, 100, 4, C_AXIS);
     makeXLabels(xlP, PX, PW, PY + PH + 10);
     plLine = lvglLine(0); lvglLineStyle(plLine, C_GREEN, 3);
     mkLine = lvglLine(0); lvglLineStyle(mkLine, C_BLUE, 3);   // Venus SOC (blue) on the same chart
+}
 
-    // ===== GAUGE: live sum of the 4 inverters (kW) =====
-    card(40, 830, 720, 400);
-    int t3 = lvglLabel(0);
-    lvglSetText(t3, "Solar total"); lvglSetTextColor(t3, C_TITLE); lvglSetFont(t3, 20); lvglSetPos(t3, 64, 848);
-    buildGauge(400, 1110, 130);
-    g_value = lvglLabel(0);
-    lvglSetText(g_value, "0.0"); lvglSetTextColor(g_value, C_TITLE); lvglSetFont(g_value, 28); lvglAlign(g_value, AL_CENTER, 0, 405);
-    int gu = lvglLabel(0);
-    lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglAlign(gu, AL_CENTER, 0, 442);
-    gaugeScale(400, 1110, 130, 10, 5);
+// the 7-day SOC card (landscape): both SOCs over the full width
+void buildWeek(int cx, int cy, int cw, int ch) {
+    card(cx, cy, cw, ch);
+    title(cx + 24, cy + 18, "Battery SOC, 7 days");
+    legend(cx + 260, cy + 22, C_GREEN, "Powerwall");
+    legend(cx + 380, cy + 22, C_BLUE,  "Marstek");
+    plotBg(WX - 4, WY - 4, WW + 8, WH + 8);
+    drawGrid(WX, WY, WW, WH, 4, 7);
+    yAxis(WX - 48, WY, WH, 0, 100, 4, C_AXIS);
+    makeWeekLabels(WY + WH + 10);
+    wkLineP = lvglLine(0); lvglLineStyle(wkLineP, C_GREEN, 3);
+    wkLineM = lvglLine(0); lvglLineStyle(wkLineM, C_BLUE, 3);
+}
 
-    // raw-value readout beneath the gauge (control), colour-keyed to the series
-    g_vals[0] = lvglLabel(0); lvglSetTextColor(g_vals[0], C_BLUE);  lvglSetFont(g_vals[0], 14); lvglSetPos(g_vals[0], 56,  1182);
-    g_vals[1] = lvglLabel(0); lvglSetTextColor(g_vals[1], C_RED);   lvglSetFont(g_vals[1], 14); lvglSetPos(g_vals[1], 194, 1182);
-    g_vals[2] = lvglLabel(0); lvglSetTextColor(g_vals[2], C_GREEN); lvglSetFont(g_vals[2], 14); lvglSetPos(g_vals[2], 332, 1182);
-    g_vals[3] = lvglLabel(0); lvglSetTextColor(g_vals[3], C_AMBER); lvglSetFont(g_vals[3], 14); lvglSetPos(g_vals[3], 470, 1182);
-    g_vals[4] = lvglLabel(0); lvglSetTextColor(g_vals[4], C_AXIS);  lvglSetFont(g_vals[4], 14); lvglSetPos(g_vals[4], 608, 1182);
+int main() {
+    int mi = 0;
+    while (mi < 288) { wMsoc[mi] = -1; mi = mi + 1; }             // Venus SOC starts empty (skipped until first sample)
+    mi = 0;
+    while (mi < 336) { wkPwl[mi] = -1; wkMsoc[mi] = -1; mi = mi + 1; }
+    lvglInit();
+    lvglClean(0);
+    lvglSetBgColor(0, C_BG);
+
+    // ---- which way round is the panel? ----
+    LAND = 0;
+    if (dspWidth() > dspHeight()) { LAND = 1; }
+
+    if (LAND == 0) {
+        // ===== PORTRAIT 800 x 1280: the three panels stacked (the original layout) =====
+        SX = 100; SY = 110; SW = 600; SH = 330;
+        PX = 100; PY = 582; PW = 600; PH = 196;
+        buildSolar(40, 28, 720, 462, 410, 47);
+        buildSoc(40, 510, 720, 300, 410, 529);
+        card(40, 830, 720, 400);
+        title(64, 848, "Solar total");
+        buildGauge(400, 1110, 130);
+        g_value = lvglLabel(0);
+        lvglSetText(g_value, "0.0"); lvglSetTextColor(g_value, C_TITLE); lvglSetFont(g_value, 28); lvglAlign(g_value, AL_CENTER, 0, 405);
+        int gu = lvglLabel(0);
+        lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglAlign(gu, AL_CENTER, 0, 442);
+        gaugeScale(400, 1110, 130, 10, 5);
+        makeReadout(56, 1182, 138, 0);                             // one row beneath the gauge
+    } else {
+        // ===== LANDSCAPE 1280 x 800: three panels across the top, the week below =====
+        SX = 100; SY = 108; SW = 470; SH = 260;
+        PX = 672; PY = 108; PW = 300; PH = 260;
+        WX = 100; WY = 500; WW = 1100; WH = 220;
+        buildSolar(40, 28, 560, 400, 100, 70);
+        buildSoc(620, 28, 380, 400, 672, 70);
+        card(1020, 28, 220, 400);
+        title(1044, 46, "Solar total");
+        buildGauge(1130, 270, 80);
+        g_value = lvglLabel(0);
+        lvglSetText(g_value, "0.0"); lvglSetTextColor(g_value, C_TITLE); lvglSetFont(g_value, 28); lvglSetPos(g_value, 1108, 286);
+        int gu = lvglLabel(0);
+        lvglSetText(gu, "kW"); lvglSetTextColor(gu, C_AXIS); lvglSetFont(gu, 14); lvglSetPos(gu, 1122, 320);
+        gaugeScale(1130, 270, 80, 10, 5);
+        makeReadout(1040, 340, 0, 17);                             // a column beneath the gauge
+        buildWeek(40, 450, 1200, 330);
+    }
     updateReadout();
 
     if (loadHist() == 0) {         // real history from /solar.bin (SD) if present, else seed a demo day
