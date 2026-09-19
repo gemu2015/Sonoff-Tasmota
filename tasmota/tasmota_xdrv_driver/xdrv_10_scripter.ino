@@ -3414,12 +3414,14 @@ nexit:
             }
           }
           skip:
+          JsonParserToken jtok = (*jpo)[vn];
           if (ja) {
             // json array
-            str_value = (*jpo)[vn].getArray()[aindex].getStr();
+            jtok = jtok.getArray()[aindex];
+            str_value = jtok.getStr();
           }
           if (str_value && *str_value) {
-            if ((*jpo)[vn].isStr()) {
+            if (jtok.isStr()) {
               if (!strncmp_XP(str_value, XPSTR("ON"), 2)) {
                 if (fp) *fp = 1;
                 goto nexit;
@@ -3434,6 +3436,12 @@ nexit:
                 return lp + len;
               }
 
+            } else if (jtok.isBool() || jtok.isNull()) {
+              // JSON literals true/false/null are unquoted and fell through to
+              // CharToFloat("false") == 0 before, so a boolean was always 0.
+              // Map true -> 1, false -> 0, null -> 0 (github discussion #25038).
+              if (fp) *fp = jtok.getBool();
+              goto nexit;
             } else {
               if (fp) {
                 if (!strncmp_XP(vn.c_str(), XPSTR("Epoch"), 5)) {
