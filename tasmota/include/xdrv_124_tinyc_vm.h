@@ -11950,6 +11950,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       size_t st = 0;
       TC_FTP_UNLOCK();
       int32_t r = tc_ftp_fetch(*tc_ftp_s, list ? "NLST" : "RETR", remote, nullptr, mem, (size_t)cap, &st);
+      // An EMPTY directory is not an error: ProFTPD (the Fritzbox) answers
+      // NLST on it with "550 No files found" instead of an empty list.
+      if (list && r == -6 && tc_ftp_s->ctrl.connected()) { st = 0; r = 0; }
       TC_FTP_RELOCK();
       out = tc_resolve_ref(vm, bufRef);             // the heap may have moved meanwhile
       int32_t result = r;

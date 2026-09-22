@@ -59,6 +59,7 @@ esf37_speak.tcb
 fast_mux.tcb
 fibonacci.tcb
 file_io.tcb
+ftp_browse.tcb
 ftp_log.tcb
 gchart_demo.tcb
 gm24g_lamp.tcb

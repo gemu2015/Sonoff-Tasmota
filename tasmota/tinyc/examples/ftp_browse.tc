@@ -1,0 +1,227 @@
+// @name: FTP-Browser (FRITZ!NAS)
+// @info: https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/TinyC_Reference_DE.md#ftp-client-dateien-auf-dem-nas
+// ─────────────────────────────────────────────────────────────────────
+// ftp_browse.tc — Dateien auf einem FTP-Server (FRITZ!NAS, Synology, …)
+// von der Tasmota-Konsole aus ansehen, holen, ablegen und aufraeumen.
+// Das Gegenstueck zu ftp_log.tc: dort schreibt das Geraet, hier liest es.
+//
+// Zugangsdaten aus /ftp.cfg auf dem Geraet (vier Zeilen):
+//     192.168.178.1              Host (IP, nicht fritz.box — siehe Handbuch)
+//     esp                        Benutzer mit NAS-Zugang
+//     geheim                     Passwort
+//     /FRITZ/mediabox            Startverzeichnis (bei ftp_log: die Zieldatei)
+//
+// Konsole (Praefix FTP), Pfade ohne fuehrenden Schraegstrich sind relativ
+// zum Startverzeichnis:
+//   FTPLS [verz]              Namen im Verzeichnis (Fritzbox: volle Pfade)
+//   FTPCAT datei              Textdatei anzeigen (die ersten 1000 Zeichen)
+//   FTPSIZE datei             Groesse in Bytes
+//   FTPGET datei [lokal]      vom Server auf die SD-Karte/Flash holen
+//   FTPPUT lokal datei        lokale Datei auf den Server legen (ersetzen)
+//   FTPDEL datei              loeschen
+//   FTPMKDIR verz             Verzeichnis anlegen
+//   FTPREN von nach           umbenennen / verschieben
+//   FTPCD verz                Startverzeichnis wechseln (bis Neustart)
+//   FTPOPEN                   neu anmelden
+//
+// ⚠️ Die Arbeit tut TaskLoop(), nicht Command(): Command() laeuft auf der
+// Hauptschleife, und dort hielte eine Uebertragung den VM-Mutex — Web und
+// alle Slots stuenden still. Command() merkt sich nur den Auftrag; das
+// Ergebnis kommt als Logzeilen in die Konsole.
+// ⚠️ EINE FTP-Sitzung je Geraet: nicht gleichzeitig mit ftp_log.tc in
+// einem anderen Slot laufen lassen, beide teilen sich die Verbindung.
+// ─────────────────────────────────────────────────────────────────────
+
+char host[64]  = "192.168.178.1";
+char user[32]  = "esp";
+char pw[32]    = "geheim";
+char basis[96] = "/FRITZ/mediabox";
+
+char auftrag[16];          // was TaskLoop tun soll ("" = nichts)
+char a1[128];              // erstes Argument, schon mit Basis zum vollen Pfad
+char a2[128];              // zweites Argument
+char puffer[1024];         // Listen und Dateiinhalte
+char zeile[200];
+int  offen = -10;
+
+void trim(char s[]) {
+    int n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n--; s[n] = 0; }
+}
+
+int cfgLesen() {
+    char cfg[256];
+    int f = fileOpen("/ftp.cfg", 0);
+    if (f < 0) return 0;
+    int n = fileRead(f, cfg, 255);
+    fileClose(f);
+    if (n <= 0) return 0;
+    cfg[n] = 0;
+    if (webParse(cfg, "\n", 1, host)  > 0) trim(host);
+    if (webParse(cfg, "\n", 2, user)  > 0) trim(user);
+    if (webParse(cfg, "\n", 3, pw)    > 0) trim(pw);
+    if (webParse(cfg, "\n", 4, basis) > 0) trim(basis);
+    // ftp_log.tc traegt in Zeile 4 eine DATEI ein; hier zaehlt ihr Verzeichnis
+    int k = strlen(basis);
+    if (k > 1 && basis[k - 1] != '/') {
+        int i = k - 1;
+        while (i > 0 && basis[i] != '/') { i--; }
+        if (i > 0 && basis[i + 1] != 0) {
+            // nur abschneiden, wenn hinter dem letzten '/' ein Punkt steht (Dateiname)
+            int j = i + 1; int punkt = 0;
+            while (basis[j] != 0) { if (basis[j] == '.') punkt = 1; j++; }
+            if (punkt) basis[i] = 0;
+        }
+    }
+    return 1;
+}
+
+// Argument n (1 = erstes Wort nach dem Befehl) aus "CMD arg1 arg2" holen.
+// Von Hand, nicht mit webParse: das liefert fuer einen Index hinter dem
+// letzten Segment das LETZTE Segment statt nichts -- "FTPLS" ohne Argument
+// bekam so "LS" als Verzeichnis.
+int wort(char cmd[], int n, char dst[]) {
+    dst[0] = 0;
+    int i = 0;
+    while (cmd[i] != 0 && cmd[i] != ' ') { i++; }          // das Befehlswort
+    int t = 1;
+    while (t <= n) {
+        while (cmd[i] == ' ') { i++; }
+        if (cmd[i] == 0) return 0;
+        if (t == n) break;
+        while (cmd[i] != 0 && cmd[i] != ' ') { i++; }
+        t++;
+    }
+    int k = 0;
+    while (cmd[i] != 0 && cmd[i] != ' ' && k < 126) { dst[k] = cmd[i]; k++; i++; }
+    dst[k] = 0;
+    return k;
+}
+
+// relativen Pfad an die Basis haengen
+void voll(char p[]) {
+    if (p[0] == '/' || p[0] == 0) return;
+    char t[128];
+    sprintf(t, "%s/%s", basis, p);
+    strcpy(p, t);
+}
+
+// Mehrzeiligen Puffer als einzelne Logzeilen ausgeben (hoechstens max Zeilen)
+void zeigen(char text[], int max) {
+    int i = 0; int k = 0; int zeilen = 0;
+    while (text[i] != 0 && zeilen < max) {
+        char c = text[i];
+        if (c == '\n' || k >= 190) {
+            zeile[k] = 0;
+            if (k > 0) addLog(zeile);
+            k = 0; zeilen++;
+        } else if (c != '\r') {
+            zeile[k] = c; k++;
+        }
+        i++;
+    }
+    if (k > 0 && zeilen < max) { zeile[k] = 0; addLog(zeile); }
+}
+
+void TaskLoop() {
+    delay(200);
+    if (auftrag[0] == 0) return;
+    char was[16];
+    strcpy(was, auftrag);
+    auftrag[0] = 0;
+    int r = 0;
+    if (strcmp(was, "OPEN") == 0) {
+        offen = ftpOpen(host, user, pw);
+        sprintf(zeile, "ftp: ftpOpen %s als %s = %d", host, user, offen); addLog(zeile);
+    } else if (strcmp(was, "LS") == 0) {
+        r = ftpList(a1, puffer);
+        sprintf(zeile, "ftp: %s — %d Eintraege", a1, r); addLog(zeile);
+        if (r > 0) zeigen(puffer, 40);
+    } else if (strcmp(was, "CAT") == 0) {
+        r = ftpGetStr(a1, puffer);
+        sprintf(zeile, "ftp: %s — %d Bytes", a1, r); addLog(zeile);
+        if (r > 0) zeigen(puffer, 30);
+    } else if (strcmp(was, "SIZE") == 0) {
+        r = ftpSize(a1);
+        sprintf(zeile, "ftp: %s — %d Bytes", a1, r); addLog(zeile);
+    } else if (strcmp(was, "GET") == 0) {
+        r = ftpGet(a1, a2);
+        sprintf(zeile, "ftp: %s -> %s: %d", a1, a2, r); addLog(zeile);
+    } else if (strcmp(was, "PUT") == 0) {
+        r = ftpPut(a2, a1, 0);
+        sprintf(zeile, "ftp: %s -> %s: %d", a1, a2, r); addLog(zeile);
+    } else if (strcmp(was, "DEL") == 0) {
+        r = ftpDelete(a1);
+        sprintf(zeile, "ftp: loeschen %s = %d", a1, r); addLog(zeile);
+    } else if (strcmp(was, "MKDIR") == 0) {
+        r = ftpMkdir(a1);
+        sprintf(zeile, "ftp: anlegen %s = %d", a1, r); addLog(zeile);
+    } else if (strcmp(was, "REN") == 0) {
+        r = ftpRename(a1, a2);
+        sprintf(zeile, "ftp: %s -> %s = %d", a1, a2, r); addLog(zeile);
+    }
+}
+
+void Command(char cmd[]) {
+    char resp[160];
+    char c[16];
+    webParse(cmd, " ", 1, c);
+    if (auftrag[0] != 0) { responseCmnd("noch beschaeftigt"); return; }
+    a1[0] = 0; a2[0] = 0;
+    if (strcmp(c, "LS") == 0) {
+        wort(cmd, 1, a1); if (a1[0] == 0) strcpy(a1, basis); voll(a1);
+        strcpy(auftrag, "LS");
+    } else if (strcmp(c, "CAT") == 0 || strcmp(c, "SIZE") == 0 || strcmp(c, "DEL") == 0 || strcmp(c, "MKDIR") == 0) {
+        wort(cmd, 1, a1);
+        if (a1[0] == 0) { responseCmnd("Pfad fehlt"); return; }
+        voll(a1);
+        strcpy(auftrag, c);
+    } else if (strcmp(c, "GET") == 0) {
+        wort(cmd, 1, a1); wort(cmd, 2, a2);
+        if (a1[0] == 0) { responseCmnd("FTPGET datei [lokal]"); return; }
+        voll(a1);
+        if (a2[0] != 0 && a2[0] != '/') {       // lokaler Name ohne "/": davor setzen
+            char t[128]; sprintf(t, "/%s", a2); strcpy(a2, t);
+        }
+        if (a2[0] == 0) {                       // lokal: "/" + der blosse Dateiname
+            int i = strlen(a1);
+            while (i > 0 && a1[i - 1] != '/') { i--; }
+            a2[0] = '/';
+            int k = 1;
+            while (a1[i] != 0 && k < 126) { a2[k] = a1[i]; k++; i++; }
+            a2[k] = 0;
+        }
+        strcpy(auftrag, "GET");
+    } else if (strcmp(c, "PUT") == 0) {
+        wort(cmd, 1, a1); wort(cmd, 2, a2);
+        if (a1[0] == 0 || a2[0] == 0) { responseCmnd("FTPPUT lokal datei"); return; }
+        voll(a2);
+        strcpy(auftrag, "PUT");
+    } else if (strcmp(c, "REN") == 0) {
+        wort(cmd, 1, a1); wort(cmd, 2, a2);
+        if (a1[0] == 0 || a2[0] == 0) { responseCmnd("FTPREN von nach"); return; }
+        voll(a1); voll(a2);
+        strcpy(auftrag, "REN");
+    } else if (strcmp(c, "CD") == 0) {
+        wort(cmd, 1, a1);
+        if (a1[0] != 0) { voll(a1); strcpy(basis, a1); }
+        sprintf(resp, "Basis: %s", basis); responseCmnd(resp); return;
+    } else if (strcmp(c, "OPEN") == 0) {
+        strcpy(auftrag, "OPEN");
+    } else {
+        responseCmnd("FTPLS [verz] | FTPCAT datei | FTPSIZE datei | FTPGET datei [lokal] | FTPPUT lokal datei | FTPDEL | FTPMKDIR | FTPREN von nach | FTPCD verz | FTPOPEN");
+        return;
+    }
+    sprintf(resp, "%s %s %s -> siehe Konsole", c, a1, a2);
+    responseCmnd(resp);
+}
+
+int main() {
+    auftrag[0] = 0;
+    if (cfgLesen()) addLog("ftp_browse: /ftp.cfg gelesen"); else addLog("ftp_browse: keine /ftp.cfg, Vorgaben gelten");
+    tcpConnectTimeout(3000);
+    addCommand("FTP");
+    offen = ftpOpen(host, user, pw);
+    sprintf(zeile, "ftp_browse: ftpOpen %s als %s = %d, Basis %s", host, user, offen, basis); addLog(zeile);
+    return 0;
+}

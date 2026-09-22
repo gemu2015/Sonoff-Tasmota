@@ -3261,7 +3261,7 @@ Write, read, list and manage files on an FTP server: the FRITZ!NAS, a Synology, 
 | `int ftpPutStr(remote, char data[], int mode)` | Same with the contents of a `char[]`/`byte[]` buffer — for "append the new lines" without writing them locally first |
 | `int ftpGet(remote, local)` | Fetch a file from the server into `local`. Returns bytes received; on failure no half file is left behind |
 | `int ftpGetStr(remote, char buf[])` | Fetch a file into a buffer, NUL-terminated. Returns the bytes stored; a larger file is cut and the log says so |
-| `int ftpList(dir, char buf[])` | Names in the directory, one per line (`\n`), into `buf`. Returns the number of entries. ⚠️ What a line holds is up to the server: the Fritzbox returns **full paths** (`/FRITZ/mediabox/tctest/ftp.cfg`), others just the name |
+| `int ftpList(dir, char buf[])` | Names in the directory, one per line (`\n`), into `buf`. Returns the number of entries. ⚠️ What a line holds is up to the server: the Fritzbox returns **full paths** (`/FRITZ/mediabox/tctest/ftp.cfg`), others just the name. An empty directory yields 0 (the box answers "550 No files found", which the client catches); a missing directory `-6` |
 | `int ftpSize(remote)` | Size of a file on the server in bytes |
 | `int ftpDelete(remote)` | Delete a file. 0 = ok |
 | `int ftpMkdir(dir)` | Create a directory. 0 = ok |

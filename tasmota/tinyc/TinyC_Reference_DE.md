@@ -3191,7 +3191,7 @@ Dateien auf einem FTP-Server schreiben, lesen, auflisten und verwalten: das FRIT
 | `int ftpPutStr(remote, char data[], int mode)` | Dasselbe mit dem Inhalt eines `char[]`/`byte[]`-Puffers — fuer „die neuen Zeilen anhaengen", ohne sie erst lokal zu schreiben |
 | `int ftpGet(remote, local)` | Datei vom Server nach `local` holen. Gibt empfangene Bytes; bei Fehler bleibt keine halbe Datei zurueck |
 | `int ftpGetStr(remote, char buf[])` | Datei in einen Puffer holen, mit NUL abgeschlossen. Gibt die im Puffer abgelegten Bytes; ist die Datei groesser, wird sie abgeschnitten und das Log sagt es |
-| `int ftpList(dir, char buf[])` | Namen im Verzeichnis, einer je Zeile (`\n`), nach `buf`. Gibt die Zahl der Eintraege. ⚠️ Was in der Zeile steht, bestimmt der Server: die Fritzbox liefert **volle Pfade** (`/FRITZ/mediabox/tctest/ftp.cfg`), andere nur den Namen |
+| `int ftpList(dir, char buf[])` | Namen im Verzeichnis, einer je Zeile (`\n`), nach `buf`. Gibt die Zahl der Eintraege. ⚠️ Was in der Zeile steht, bestimmt der Server: die Fritzbox liefert **volle Pfade** (`/FRITZ/mediabox/tctest/ftp.cfg`), andere nur den Namen. Ein leeres Verzeichnis ergibt 0 (die Box meldet dafuer „550 No files found", was der Client abfaengt); ein fehlendes Verzeichnis `-6` |
 | `int ftpSize(remote)` | Groesse einer Datei auf dem Server in Bytes |
 | `int ftpDelete(remote)` | Datei loeschen. 0 = ok |
 | `int ftpMkdir(dir)` | Verzeichnis anlegen. 0 = ok |
