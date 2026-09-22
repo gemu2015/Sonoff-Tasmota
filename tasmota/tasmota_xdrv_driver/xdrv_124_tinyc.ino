@@ -2125,13 +2125,20 @@ static int tc_heap_bin(size_t sz) {
   for (int i = 0; i < 6; i++) if (sz < tc_heap_bin_edges[i]) return i;
   return 6;
 }
-static bool tc_heap_walker(walker_heap_into_t heap, walker_block_info_t blk, void *user) {
+// ⚠️ A LAMBDA, NOT A FUNCTION -- on purpose. PlatformIO's .ino converter
+// generates a prototype for every function it finds, ignoring #ifdef: on the
+// ESP8266 that prototype named walker_heap_into_t / walker_block_info_t,
+// which only exist in ESP-IDF, and the whole build died in tasmota.ino.cpp
+// (the release of 22.09.2026, first ESP8266 build since this walker arrived
+// on 18.09.). A variable holding a captureless lambda converts to the same
+// heap_caps_walker_cb_t and gets no prototype.
+static auto tc_heap_walker = [](walker_heap_into_t heap, walker_block_info_t blk, void *user) -> bool {
   TcHeapBins *b = (TcHeapBins *)user;
   int i = tc_heap_bin(blk.size);
   if (blk.used) { b->used_n[i]++; b->used_b[i] += blk.size; b->used_total++; }
   else          { b->free_n[i]++; b->free_b[i] += blk.size; b->free_total++; }
   return true;
-}
+};
 // Bin labels: <32, <128, <512, <2k, <8k, <32k, >=32k
 static void tc_heap_bins_json(const char *name, const uint32_t *n, const uint32_t *b) {
   ResponseAppend_P(PSTR(",\"%s\":{\"n\":[%u,%u,%u,%u,%u,%u,%u],\"b\":[%u,%u,%u,%u,%u,%u,%u]}"), name,
