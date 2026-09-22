@@ -5133,9 +5133,21 @@ static int tc_ftp_login(TcFtp &f) {
 // A command on the session. If the link is gone, log in again ONCE and resend.
 // Returns the reply code, or -1 when even the new login failed.
 static int tc_ftp_scmd(TcFtp &f, const char *cmd, const char *arg, char *line, size_t maxlen, uint32_t tmo_ms = 5000) {
-  if (!f.ctrl.connected() && tc_ftp_login(f) != 0) return -1;
-  int code = tc_ftp_cmd(f.ctrl, cmd, arg, line, maxlen, tmo_ms);
-  if (code >= 0) return code;
+  // ⚠️ A server that dropped the idle link sent "421 Timeout ... closing
+  // control connection" and FIN -- and connected() stays TRUE while that
+  // farewell is unread (seen against the Fritzbox after its 120 s idle limit:
+  // the next PASV was answered by the stale 421, then EPSV by a closed socket,
+  // and the call failed with -4). So drain first and treat a 421 like a
+  // closed link.
+  bool gone = !f.ctrl.connected();
+  while (!gone && f.ctrl.available()) {
+    int c = tc_ftp_reply(f.ctrl, line, maxlen, 200);
+    if (c == 421 || c < 0) gone = true;
+  }
+  if (!gone) {
+    int code = tc_ftp_cmd(f.ctrl, cmd, arg, line, maxlen, tmo_ms);
+    if (code >= 0 && code != 421) return code;
+  }
   AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: ftp %s: link gone, logging in again"), f.host);
   if (tc_ftp_login(f) != 0) return -1;
   return tc_ftp_cmd(f.ctrl, cmd, arg, line, maxlen, tmo_ms);
