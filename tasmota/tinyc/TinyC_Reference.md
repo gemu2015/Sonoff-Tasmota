@@ -3256,9 +3256,9 @@ Put a file from the device filesystem — or a text buffer directly — onto an 
 | `int ftpPut(host, user, pw, remote, local, int mode)` | Send the file `local` (e.g. `"/log.csv"` on the SD card; `/ffs/…` for flash) to `remote` on the server. `mode` 0 = replace (STOR), 1 = **append** (APPE). Returns bytes sent or a negative error |
 | `int ftpPutStr(host, user, pw, remote, char data[], int mode)` | Same with the contents of a `char[]`/`byte[]` buffer instead of a file — for "append the new lines" without writing them locally first |
 
-`host` is a name or IP, optionally with a port (`"fritz.box:2121"`); all strings may be literals or `char[]`. `remote` is the path on the server; on a FRITZ!NAS it starts with the storage volume: `"/USB-Speicher/esp/log.csv"` — the exact name is shown on `fritz.box` under FRITZ!NAS.
+`host` is a name or IP, optionally with a port (`"192.168.178.1:2121"`); all strings may be literals or `char[]`. ⚠️ **Prefer the IP over `fritz.box`:** the box answers the name with IPv6 as well, and an ESP32 with IPv6 up happily takes it — over IPv6 the box's FTP server refuses PASV ("425 Can't open passive connection", seen 2026-09-22). The client then falls back to EPSV and gets through, but the IP is the shorter way; at weblog 4 the log shows what the name resolved to. `remote` is the path on the server; on a FRITZ!NAS it starts with the volume. The box's **internal storage** is `/FRITZ/mediabox/…` (the root `/FRITZ/` itself is not writable, 553), a USB stick is named after its volume label; the names are shown on `fritz.box` under FRITZ!NAS or by `curl --user … ftp://192.168.178.1/ --list-only`. The user needs "access to NAS contents" with write permission under *System → FRITZ!Box Users*.
 
-**Return:** `>= 0` bytes sent. `-1` no connection or no greeting, `-2` network down, `-3` login refused, `-4` PASV refused, `-5` data connection failed, `-6` STOR/APPE refused (wrong path, no write permission), `-7` transfer not confirmed, `-8` local file missing, `-9` called from a main-loop callback. Every failure is logged with the server's reply (`TCC: ftp …`).
+**Return:** `>= 0` bytes sent. `-1` no connection or no greeting, `-2` network down, `-3` login refused, `-4` PASV and EPSV refused, `-5` data connection failed, `-6` STOR/APPE refused (wrong path, no write permission), `-7` transfer not confirmed, `-8` local file missing, `-9` called from a main-loop callback. Every failure is logged with the server's reply (`TCC: ftp …`).
 
 **Blocking, like `httpPost`:** the whole transfer takes its time, and a dead server costs the connect timeout (`tcpConnectTimeout`, default 2 s) plus up to 5 s per reply. So call it from `main()` or `TaskLoop()` — both run on the VM task, where the mutex is released for the duration while `EverySecond` and the web UI keep running. From `EverySecond` (main loop) the transfer runs with the mutex HELD and freezes every slot and the web UI meanwhile — so don't; if a worker is active on the slot the call is refused there (`-9`). ⚠️ **No `spawnTask` worker for the line buffer:** on the ESP32 a worker has its own VM and does not see the main context's heap objects — and a `char[]` over 16 characters is one. The worker would see an empty buffer and nothing would ever be sent (2026-09-22, on exactly this example).
 
@@ -3286,7 +3286,7 @@ void TaskLoop() {              // VM task: waiting is allowed here
     delay(1000);
     if (!send || strlen(lines) == 0) return;
     send = 0;
-    int r = ftpPutStr("fritz.box", "esp", "secret", "/USB-Speicher/esp/climate.csv", lines, 1);
+    int r = ftpPutStr("192.168.178.1", "esp", "secret", "/FRITZ/mediabox/climate.csv", lines, 1);
     if (r >= 0) { lines[0] = 0; err = 0; }
     else        { err = r; }           // buffer stays, next try in 5 min
 }

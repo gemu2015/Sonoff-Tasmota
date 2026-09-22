@@ -10,10 +10,10 @@
 //
 // Die Zugangsdaten stehen NICHT im Quelltext, sondern in /ftp.cfg auf dem
 // Geraet (vier Zeilen: Host, Benutzer, Passwort, Zielpfad), z. B.
-//     fritz.box
+//     192.168.178.1        (die IP, nicht fritz.box: ueber IPv6 verweigert die Box PASV)
 //     esp
 //     geheim
-//     /USB-Speicher/esp/klima.csv
+//     /FRITZ/mediabox/klima.csv   (interner Speicher; ein Stick heisst wie sein Datentraeger)
 // Beim Start wird die Datei gelesen; fehlt sie, gelten die Vorgaben unten.
 //
 // Konsole (Praefix FTP):
@@ -31,10 +31,10 @@
 // frei; EverySecond sammelt derweil weiter.
 // ─────────────────────────────────────────────────────────────────────
 
-char host[64]   = "fritz.box";
+char host[64]   = "192.168.178.1";
 char user[32]   = "esp";
 char pw[32]     = "geheim";
-char remote[96] = "/USB-Speicher/esp/klima.csv";
+char remote[96] = "/FRITZ/mediabox/klima.csv";
 
 char zeilen[768];          // gesammelte Zeilen, noch nicht gesendet
 char stamp[24];

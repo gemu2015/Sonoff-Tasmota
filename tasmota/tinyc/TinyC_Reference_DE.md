@@ -3186,9 +3186,9 @@ Eine Datei aus dem Dateisystem des Geraets — oder direkt einen Textpuffer — 
 | `int ftpPut(host, user, pw, remote, local, int mode)` | Die Datei `local` (z. B. `"/log.csv"`, SD-Karte; `/ffs/…` fuer Flash) nach `remote` auf dem Server. `mode` 0 = ersetzen (STOR), 1 = **anhaengen** (APPE). Gibt gesendete Bytes oder einen negativen Fehler |
 | `int ftpPutStr(host, user, pw, remote, char data[], int mode)` | Dasselbe mit dem Inhalt eines `char[]`/`byte[]`-Puffers statt einer Datei — fuer „die neuen Zeilen anhaengen", ohne sie erst lokal zu schreiben |
 
-`host` ist Name oder IP, auf Wunsch mit Port (`"fritz.box:2121"`); alle Zeichenketten duerfen Literale oder `char[]` sein. `remote` ist der Pfad auf dem Server, beim FRITZ!NAS also mit dem Datentraeger vorn: `"/USB-Speicher/esp/log.csv"` — den genauen Namen zeigt `fritz.box` unter FRITZ!NAS.
+`host` ist Name oder IP, auf Wunsch mit Port (`"192.168.178.1:2121"`); alle Zeichenketten duerfen Literale oder `char[]` sein. ⚠️ **Lieber die IP als `fritz.box`:** die Box antwortet auf den Namen auch mit IPv6, und ein ESP32 mit IPv6 nimmt die gern — ueber IPv6 verweigert der FTP-Server der Box PASV („425 Can't open passive connection", 22.09.2026 gesehen). Der Client faellt dann auf EPSV zurueck und kommt durch, aber die IP ist der kuerzere Weg; im Log steht bei Weblog 4, wohin der Name aufgeloest wurde. `remote` ist der Pfad auf dem Server, beim FRITZ!NAS mit dem Datentraeger vorn. Der **interne Speicher** der Box ist `/FRITZ/mediabox/…` (die Wurzel `/FRITZ/` selbst ist nicht beschreibbar, 553), ein USB-Stick heisst wie sein Datentraegername; die Namen zeigt `fritz.box` unter FRITZ!NAS oder `curl --user … ftp://192.168.178.1/ --list-only`. Der Benutzer braucht unter *System → FRITZ!Box-Benutzer* den „Zugang zu NAS-Inhalten" mit Schreibrecht.
 
-**Rueckgabe:** `>= 0` gesendete Bytes. `-1` keine Verbindung oder kein Willkommen, `-2` kein Netz, `-3` Anmeldung abgewiesen, `-4` PASV abgewiesen, `-5` Datenverbindung scheitert, `-6` STOR/APPE abgewiesen (Pfad falsch, keine Schreibrechte), `-7` Uebertragung nicht bestaetigt, `-8` lokale Datei fehlt, `-9` aus einem Main-Loop-Callback gerufen. Jeder Fehler steht mit der Serverantwort im Tasmota-Log (`TCC: ftp …`).
+**Rueckgabe:** `>= 0` gesendete Bytes. `-1` keine Verbindung oder kein Willkommen, `-2` kein Netz, `-3` Anmeldung abgewiesen, `-4` PASV und EPSV abgewiesen, `-5` Datenverbindung scheitert, `-6` STOR/APPE abgewiesen (Pfad falsch, keine Schreibrechte), `-7` Uebertragung nicht bestaetigt, `-8` lokale Datei fehlt, `-9` aus einem Main-Loop-Callback gerufen. Jeder Fehler steht mit der Serverantwort im Tasmota-Log (`TCC: ftp …`).
 
 **Blockierend, wie `httpPost`:** die ganze Uebertragung dauert, und ein toter Server kostet die Verbindungszeit (`tcpConnectTimeout`, Vorgabe 2 s) plus bis zu 5 s je Antwort. Darum aus `main()` oder `TaskLoop()` rufen — beide laufen auf dem VM-Task, dort wird der Mutex waehrend der Uebertragung freigegeben, `EverySecond` und die Weboberflaeche laufen weiter. Aus `EverySecond` (Main-Loop) laeuft die Uebertragung mit GEHALTENEM Mutex und friert derweil alle Slots und die Weboberflaeche ein — also nicht; ist auf dem Slot ein Worker aktiv, wird der Aufruf dort abgewiesen (`-9`). ⚠️ **Kein `spawnTask`-Worker fuer den Zeilenpuffer:** auf dem ESP32 hat ein Worker seine eigene VM und sieht Heap-Objekte des Hauptkontexts nicht — ein `char[]` ueber 16 Zeichen ist so eines. Der Worker saehe einen leeren Puffer, und nichts wuerde je gesendet (22.09.2026, an genau diesem Beispiel).
 
@@ -3216,7 +3216,7 @@ void TaskLoop() {              // VM-Task: hier darf gewartet werden
     delay(1000);
     if (!senden || strlen(zeilen) == 0) return;
     senden = 0;
-    int r = ftpPutStr("fritz.box", "esp", "geheim", "/USB-Speicher/esp/klima.csv", zeilen, 1);
+    int r = ftpPutStr("192.168.178.1", "esp", "geheim", "/FRITZ/mediabox/klima.csv", zeilen, 1);
     if (r >= 0) { zeilen[0] = 0; fehler = 0; }
     else        { fehler = r; }        // Puffer bleibt, naechster Versuch in 5 min
 }
