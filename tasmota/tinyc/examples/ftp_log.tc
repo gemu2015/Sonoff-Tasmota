@@ -130,6 +130,7 @@ int main() {
     tcpConnectTimeout(3000);
     addCommand("FTP");
     int r = ftpOpen(host, user, pw);          // einmal anmelden; die Sitzung bleibt
-    sprintf(stamp, "ftp_log: ftpOpen %s = %d", host, r); addLog(stamp);
+    char meldung[96];                          // (nicht stamp[24]: die Zeile ist laenger)
+    sprintf(meldung, "ftp_log: ftpOpen %s = %d", host, r); addLog(meldung);
     return 0;
 }
