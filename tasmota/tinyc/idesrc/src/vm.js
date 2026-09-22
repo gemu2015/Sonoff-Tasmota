@@ -3288,6 +3288,20 @@ export class VM {
                 this.push(mockResponse.length);
                 break;
             }
+            case 556:   // FTP_PUT     (host,user,pw,remote,local,mode) -> bytes
+            case 557: { // FTP_PUT_STR (host,user,pw,remote,data,mode)  -> bytes
+                const mode = this.pop();
+                const srcRef = this.pop();
+                const remRef = this.pop();
+                this.pop(); this.pop();                       // pw, user
+                const host = this.readStringFromRef(this.pop());
+                const remote = this.readStringFromRef(remRef);
+                const src = this.readStringFromRef(srcRef);
+                const bytes = (id === 557) ? src.length : 0;   // a file is not readable here
+                this.onOutput(`[FTP] ${mode ? 'APPE' : 'STOR'} ${host} ${remote} <- ${id === 557 ? bytes + ' bytes' : src} (simulated)\n`);
+                this.push(bytes);
+                break;
+            }
             case 142: { // HTTP_HEADER
                 const valueRef = this.pop();
                 const nameRef = this.pop();

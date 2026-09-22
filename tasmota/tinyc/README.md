@@ -117,6 +117,7 @@ Callbacks run automatically from Tasmota's main loop:
 **Time:** `timeStamp`, `timeConvert`, `timeOffset`, `timeToSecs`, `secsToTime`
 **Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
+**FTP:** `ftpPut`, `ftpPutStr` — a file or a buffer to an FTP server (FRITZ!NAS …), replace or append
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`, `tcpConnect`, `tcpDisconnect`, `tcpConnected`, `tcpSelect` (4 parallel client slots)
 **MQTT:** `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` + `OnMqttData(topic, payload)` callback (10 subs, `#` prefix wildcard)
 **Dynamic tasks (ESP32):** `spawnTask`, `killTask`, `taskRunning` — up to 4 concurrent named FreeRTOS tasks sharing the caller's VM state (one-shot delayed jobs, parallel downloaders, killable workers)

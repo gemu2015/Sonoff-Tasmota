@@ -104,6 +104,10 @@ const BUILTINS = {
     'serialWrite':      { syscall: Syscall.SERIAL_WRITE_STR,   args: 2, returns: false, strArgs: [1] },
     'serialWriteBytes': { syscall: Syscall.SERIAL_WRITE_BUF,   args: 3, returns: false, strArgs: [1] },
     'serialReadArray':  { syscall: Syscall.SERIAL_READ_ARR,   args: 3, returns: true,  strArgs: [1], intArgs: [2] },
+    // FTP client (V32): host/user/pw/remote may be literals or char[]; the
+    // source is a filesystem path (ftpPut) or a text buffer (ftpPutStr).
+    'ftpPut':           { syscall: Syscall.FTP_PUT,           args: 6, returns: true,  strArgs: [0, 1, 2, 3, 4], intArgs: [5] },
+    'ftpPutStr':        { syscall: Syscall.FTP_PUT_STR,       args: 6, returns: true,  strArgs: [0, 1, 2, 3, 4], intArgs: [5] },
 
     // Math
     'abs':              { syscall: Syscall.MATH_ABS,        args: 1, returns: true },
@@ -972,7 +976,11 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
-        [546, 26],                      // (Platzhalter: ABI 26 haengt nicht an einer Syscall-Nummer, siehe byteAbi)
+        [556, 32],                      // ftpPut / ftpPutStr
+        [555, 31],                      // serialReadArray
+        [546, 30],                      // usb* (FTDI am USB-Host) -- bis 22.09.2026 fehlten V30/V31 hier,
+                                        // ein usbInit-Skript wurde mit 26 gestempelt und lief auf
+                                        // ABI-29-Firmware in den fehlenden Syscall statt in die Abweisung
         [545, 25],                      // WebChartQ — affine Umrechnung, macht byte[]-Charts erst lesbar
         [544, 24],                      // mqttPublish mit Laufzeit-Strings + Log-Stufe
         [535, 20], [534, 19], [533, 18], [524, 17], [521, 16], [517, 15],

@@ -375,6 +375,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | 1-Wire | `owReset`, `owRead`, `owWrite`, `owSearch` |
 | Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileRename`, `fileSize`, `fileReadBin`/`fileWriteBin` |
 | HTTP | `httpGet`, `httpPost`, `httpHeader` |
+| FTP | `ftpPut(host, user, pw, remote, local, mode)` sends a file, `ftpPutStr(…, data, mode)` a char[]; `mode` 0 = replace, 1 = APPEND (a logger sends only its new lines). Returns bytes or -1…-9. Blocking: call from `main()` or `TaskLoop()`, never from `EverySecond` (mutex held for the whole transfer; -9 if a worker is active) and not from a `spawnTask` worker when the data lives in a `char[]` (own VM, own heap — the worker sees an empty buffer). The Fritzbox NAS needs FTP enabled under Heimnetz → Speicher; the DLNA media server is read-only |
 | TCP | `tcpConnect`, `tcpRead`, `tcpWrite`, `tcpAvailable`, `tcpSelect` (slot 0..3); tuning: `tcpKeepalive`, `tcpNoDelay`, `tcpTransact`, `tcpDisconnectReason` |
 | UDP (Scripter globalvars) | `udpSend(name, val)`, `udpRecv(name)`, `udpReady(name)`, `udpRecvArray(name, arr, max)` |
 | UDP (general) | `udp(N, args…)` dispatcher: 0=open, 1=read, 2=reply, 3=send-to-url, 9=join-mcast, 10=igmp-leave, etc. (see Reference.md §General-Purpose UDP) |

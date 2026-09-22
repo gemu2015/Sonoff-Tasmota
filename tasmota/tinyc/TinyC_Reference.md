@@ -3247,6 +3247,57 @@ void main() {
 }
 ```
 
+### FTP Client: a file or a buffer to the NAS
+
+Put a file from the device filesystem — or a text buffer directly — onto an FTP server: the FRITZ!NAS, a Synology, any LAN machine running an FTP service. Since 1.6.68 (V32). It came out of the question whether an ESP32 can keep its "database" on the Fritzbox storage: the box's media server is DLNA and read-only, what it offers for WRITING is SMB and FTP, and there is no usable SMB client for the ESP32 — so FTP. (Tasmota's `USE_FTP` is a server only and does not help here; this is a small client of its own.)
+
+| Function | Description |
+|----------|-------------|
+| `int ftpPut(host, user, pw, remote, local, int mode)` | Send the file `local` (e.g. `"/log.csv"` on the SD card; `/ffs/…` for flash) to `remote` on the server. `mode` 0 = replace (STOR), 1 = **append** (APPE). Returns bytes sent or a negative error |
+| `int ftpPutStr(host, user, pw, remote, char data[], int mode)` | Same with the contents of a `char[]`/`byte[]` buffer instead of a file — for "append the new lines" without writing them locally first |
+
+`host` is a name or IP, optionally with a port (`"fritz.box:2121"`); all strings may be literals or `char[]`. `remote` is the path on the server; on a FRITZ!NAS it starts with the storage volume: `"/USB-Speicher/esp/log.csv"` — the exact name is shown on `fritz.box` under FRITZ!NAS.
+
+**Return:** `>= 0` bytes sent. `-1` no connection or no greeting, `-2` network down, `-3` login refused, `-4` PASV refused, `-5` data connection failed, `-6` STOR/APPE refused (wrong path, no write permission), `-7` transfer not confirmed, `-8` local file missing, `-9` called from a main-loop callback. Every failure is logged with the server's reply (`TCC: ftp …`).
+
+**Blocking, like `httpPost`:** the whole transfer takes its time, and a dead server costs the connect timeout (`tcpConnectTimeout`, default 2 s) plus up to 5 s per reply. So call it from `main()` or `TaskLoop()` — both run on the VM task, where the mutex is released for the duration while `EverySecond` and the web UI keep running. From `EverySecond` (main loop) the transfer runs with the mutex HELD and freezes every slot and the web UI meanwhile — so don't; if a worker is active on the slot the call is refused there (`-9`). ⚠️ **No `spawnTask` worker for the line buffer:** on the ESP32 a worker has its own VM and does not see the main context's heap objects — and a `char[]` over 16 characters is one. The worker would see an empty buffer and nothing would ever be sent (2026-09-22, on exactly this example).
+
+**Append in blocks**, not one reading at a time: one line per reading into a buffer, every few minutes `ftpPutStr(..., 1)`. On a FRITZ!NAS the FTP access must be enabled under *Home Network → Storage (NAS)* and the user needs write permission on the volume.
+
+**Credentials do not belong in the source.** `examples/ftp_log.tc` reads host, user, password and remote path from `/ftp.cfg` on the device (four lines) and writes them back with `FTPSAVE`; the example below is cut down to the essentials.
+
+```c
+char lines[512];               // collected readings
+char stamp[24];
+int  err = 0;
+int  send = 0;
+
+void EverySecond() {           // collecting is cheap; sending is not
+    if (tasm_uptime % 60 == 0) {
+        char l[48];
+        timeStamp(stamp);
+        sprintf(l, "%s;%.1f;%.1f\n", stamp, tasm_temp, tasm_hum);
+        strcat(lines, l);
+    }
+    if (tasm_uptime % 300 == 0) send = 1;        // every 5 minutes
+}
+
+void TaskLoop() {              // VM task: waiting is allowed here
+    delay(1000);
+    if (!send || strlen(lines) == 0) return;
+    send = 0;
+    int r = ftpPutStr("fritz.box", "esp", "secret", "/USB-Speicher/esp/climate.csv", lines, 1);
+    if (r >= 0) { lines[0] = 0; err = 0; }
+    else        { err = r; }           // buffer stays, next try in 5 min
+}
+
+int main() {
+    lines[0] = 0;
+    tcpConnectTimeout(3000);
+    return 0;
+}
+```
+
 ### TCP Server
 
 Start a TCP stream server to accept incoming connections. Only one client is served at a time.

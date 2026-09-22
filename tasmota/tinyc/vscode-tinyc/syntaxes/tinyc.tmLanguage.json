@@ -212,7 +212,7 @@
         {
           "comment": "HTTP requests",
           "name": "support.function.http.tinyc",
-          "match": "\\b(httpGet|httpPost|httpHeader|webParse)\\b"
+          "match": "\\b(httpGet|httpPost|httpHeader|webParse|ftpPut|ftpPutStr)\\b"
         },
         {
           "comment": "TCP server",

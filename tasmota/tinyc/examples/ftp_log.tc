@@ -1,0 +1,132 @@
+// @name: FTP-Logger (FRITZ!NAS)
+// @info: https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/TinyC_Reference_DE.md#ftp-client-eine-datei-oder-einen-puffer-zum-nas
+// ─────────────────────────────────────────────────────────────────────
+// ftp_log.tc — Messzeilen sammeln und alle paar Minuten an eine Datei auf
+// einem FTP-Server ANHAENGEN (FRITZ!NAS, Synology, jeder Rechner mit FTP).
+//
+// Rolfs Frage (22.09.2026): kann der ESP32 seine „Datenbank" auf dem
+// Fritzbox-Speicher fuehren? Ja -- ueber FTP (der Medienserver ist DLNA
+// und nur lesend; FTP unter Heimnetz -> Speicher (NAS) einschalten).
+//
+// Die Zugangsdaten stehen NICHT im Quelltext, sondern in /ftp.cfg auf dem
+// Geraet (vier Zeilen: Host, Benutzer, Passwort, Zielpfad), z. B.
+//     fritz.box
+//     esp
+//     geheim
+//     /USB-Speicher/esp/klima.csv
+// Beim Start wird die Datei gelesen; fehlt sie, gelten die Vorgaben unten.
+//
+// Konsole (Praefix FTP):
+//   FTPSET host;user;pw;/pfad/datei.csv   Ziel setzen (bis Neustart)
+//   FTPSAVE                                das Gesetzte nach /ftp.cfg schreiben
+//   FTPGO                                  gesammelte Zeilen jetzt senden
+//   FTPSTAT                                Puffer, letzter Rueckgabewert, Ziel
+//
+// Gesendet wird aus TaskLoop(), nicht aus EverySecond (dort hielte die
+// Uebertragung den VM-Mutex und froere alle Slots ein) und NICHT aus
+// einem spawnTask-Worker: der hat auf dem ESP32 seine eigene VM und sieht
+// den Zeilenpuffer nicht -- ein char[] ueber 16 Zeichen liegt im Heap, und
+// Heap-Objekte teilt ein Worker nicht (nur skalare Globals). TaskLoop laeuft
+// auf dem VM-Task, teilt alles und gibt den Mutex waehrend der Uebertragung
+// frei; EverySecond sammelt derweil weiter.
+// ─────────────────────────────────────────────────────────────────────
+
+char host[64]   = "fritz.box";
+char user[32]   = "esp";
+char pw[32]     = "geheim";
+char remote[96] = "/USB-Speicher/esp/klima.csv";
+
+char zeilen[768];          // gesammelte Zeilen, noch nicht gesendet
+char stamp[24];
+int  go       = 0;         // 1 -> Sender soll jetzt senden
+int  letzter  = -999;      // letzter Rueckgabewert von ftpPutStr
+int  gesendet = 0;         // Bytes insgesamt
+
+void EverySecond() {
+    if (tasm_uptime % 60 == 0 && strlen(zeilen) < 700) {
+        char z[64];
+        timeStamp(stamp);
+        sprintf(z, "%s;%d;%.1f;%.1f\n", stamp, tasm_uptime, tasm_temp, tasm_hum);
+        strcat(zeilen, z);
+    }
+    if (tasm_uptime % 300 == 0) go = 1;      // alle 5 Minuten von selbst
+}
+
+void TaskLoop() {
+    delay(1000);
+    if (!go) return;
+    go = 0;
+    if (strlen(zeilen) == 0) return;
+    int r = ftpPutStr(host, user, pw, remote, zeilen, 1);   // 1 = anhaengen
+    letzter = r;
+    if (r >= 0) { gesendet = gesendet + r; zeilen[0] = 0; }
+    // bei Fehler bleibt der Puffer stehen: naechster Versuch in 5 Minuten
+}
+
+// Zeilenende und Leerzeichen abschneiden (ein Editor unter Windows haengt \r an)
+void trim(char s[]) {
+    int n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n--; s[n] = 0; }
+}
+
+// /ftp.cfg lesen: 1 = gelesen, 0 = keine Datei
+int cfgLesen() {
+    char cfg[256];
+    int f = fileOpen("/ftp.cfg", 0);
+    if (f < 0) return 0;
+    int n = fileRead(f, cfg, 255);
+    fileClose(f);
+    if (n <= 0) return 0;
+    cfg[n] = 0;
+    if (webParse(cfg, "\n", 1, host)   > 0) trim(host);
+    if (webParse(cfg, "\n", 2, user)   > 0) trim(user);
+    if (webParse(cfg, "\n", 3, pw)     > 0) trim(pw);
+    if (webParse(cfg, "\n", 4, remote) > 0) trim(remote);
+    return 1;
+}
+
+int cfgSchreiben() {
+    char cfg[256];
+    sprintf(cfg, "%s\n%s\n%s\n%s\n", host, user, pw, remote);
+    int f = fileOpen("/ftp.cfg", 1);
+    if (f < 0) return -1;
+    int n = fileWrite(f, cfg, strlen(cfg));
+    fileClose(f);
+    return n;
+}
+
+void Command(char cmd[]) {
+    char resp[160];
+    if (cmd[0] == 'S' && cmd[1] == 'E' && cmd[2] == 'T') {
+        // FTPSET host;user;pw;remote
+        char rest[200];
+        int i = 3; int k = 0;
+        while (cmd[i] != 0 && k < 199) { rest[k] = cmd[i]; i++; k++; }
+        rest[k] = 0;
+        int n = webParse(rest, ";", 0, host)
+              + webParse(rest, ";", 1, user)
+              + webParse(rest, ";", 2, pw)
+              + webParse(rest, ";", 3, remote);
+        sprintf(resp, "host=%s user=%s remote=%s", host, user, remote);
+        responseCmnd(resp);
+    } else if (strcmp(cmd, "SAVE") == 0) {
+        sprintf(resp, "ftp.cfg: %d Byte", cfgSchreiben());
+        responseCmnd(resp);
+    } else if (strcmp(cmd, "GO") == 0) {
+        go = 1;
+        responseCmnd("sende");
+    } else if (strcmp(cmd, "STAT") == 0) {
+        sprintf(resp, "puffer=%d letzter=%d gesendet=%d ziel=%s%s", strlen(zeilen), letzter, gesendet, host, remote);
+        responseCmnd(resp);
+    } else {
+        responseCmnd("FTPSET host;user;pw;/pfad | FTPSAVE | FTPGO | FTPSTAT");
+    }
+}
+
+int main() {
+    zeilen[0] = 0;
+    if (cfgLesen()) addLog("ftp_log: /ftp.cfg gelesen"); else addLog("ftp_log: keine /ftp.cfg, Vorgaben gelten");
+    tcpConnectTimeout(3000);
+    addCommand("FTP");
+    return 0;
+}

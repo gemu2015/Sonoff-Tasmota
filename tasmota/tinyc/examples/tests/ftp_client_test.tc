@@ -1,0 +1,37 @@
+// @name: FTP-Client Pruefung
+// ftp_client_test.tc -- die Rueckgabewerte von ftpPut/ftpPutStr an einem
+// echten Server durchspielen. Liest Host/Benutzer/Passwort aus /ftp.cfg
+// (wie ftp_log.tc), schreibt nach /test/ auf dem Server. Ergebnis im Log.
+// Erwartung: put>0, app1>0, app2>0 (Datei waechst), pw=-3, tot=-1 (und
+// schnell: unter 4 s), fehlt=-8.
+
+char host[64]; char user[32]; char pw[32]; char remote[96];
+char cfg[256]; char msg[160];
+
+void trim(char s[]) {
+    int n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n--; s[n] = 0; }
+}
+
+int main() {
+    int f = fileOpen("/ftp.cfg", 0);
+    if (f < 0) { addLog("ftp_test: keine /ftp.cfg"); return 1; }
+    int n = fileRead(f, cfg, 255); fileClose(f); cfg[n] = 0;
+    webParse(cfg, "\n", 1, host); trim(host);
+    webParse(cfg, "\n", 2, user); trim(user);
+    webParse(cfg, "\n", 3, pw);   trim(pw);
+    tcpConnectTimeout(3000);
+
+    int put  = ftpPut(host, user, pw, "/test/ftp.cfg", "/ftp.cfg", 0);
+    char zeile[] = "eine Zeile\n";
+    int app1 = ftpPutStr(host, user, pw, "/test/append.txt", zeile, 1);
+    int app2 = ftpPutStr(host, user, pw, "/test/append.txt", zeile, 1);
+    int pwf  = ftpPutStr(host, "niemand", "falsch", "/test/x.txt", zeile, 0);
+    int t0 = millis();
+    int tot  = ftpPutStr("192.168.188.250:2121", user, pw, "/test/x.txt", zeile, 0);
+    int dt = millis() - t0;
+    int fehlt = ftpPut(host, user, pw, "/test/y.txt", "/gibtsnicht.txt", 0);
+    sprintf(msg, "ftp_test: put=%d app1=%d app2=%d pw=%d tot=%d (%d ms) fehlt=%d", put, app1, app2, pwf, tot, dt, fehlt);
+    addLog(msg);
+    return 0;
+}

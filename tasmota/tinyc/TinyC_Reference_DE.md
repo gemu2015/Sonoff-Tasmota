@@ -3177,6 +3177,57 @@ void main() {
 }
 ```
 
+### FTP-Client: eine Datei oder einen Puffer zum NAS
+
+Eine Datei aus dem Dateisystem des Geraets — oder direkt einen Textpuffer — auf einen FTP-Server legen: das FRITZ!NAS, eine Synology, jeder Rechner im LAN mit FTP-Dienst. Seit 1.6.68 (V32). Entstanden aus der Frage, ob ein ESP32 seine „Datenbank" auf dem Fritzbox-Speicher fuehren kann: der Medienserver der Box ist DLNA und nur lesend, zum SCHREIBEN bietet sie SMB und FTP, und einen brauchbaren SMB-Client gibt es fuer den ESP32 nicht — also FTP. (Tasmotas `USE_FTP` ist nur ein Server und hilft hier nicht; dies ist ein eigener kleiner Client.)
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int ftpPut(host, user, pw, remote, local, int mode)` | Die Datei `local` (z. B. `"/log.csv"`, SD-Karte; `/ffs/…` fuer Flash) nach `remote` auf dem Server. `mode` 0 = ersetzen (STOR), 1 = **anhaengen** (APPE). Gibt gesendete Bytes oder einen negativen Fehler |
+| `int ftpPutStr(host, user, pw, remote, char data[], int mode)` | Dasselbe mit dem Inhalt eines `char[]`/`byte[]`-Puffers statt einer Datei — fuer „die neuen Zeilen anhaengen", ohne sie erst lokal zu schreiben |
+
+`host` ist Name oder IP, auf Wunsch mit Port (`"fritz.box:2121"`); alle Zeichenketten duerfen Literale oder `char[]` sein. `remote` ist der Pfad auf dem Server, beim FRITZ!NAS also mit dem Datentraeger vorn: `"/USB-Speicher/esp/log.csv"` — den genauen Namen zeigt `fritz.box` unter FRITZ!NAS.
+
+**Rueckgabe:** `>= 0` gesendete Bytes. `-1` keine Verbindung oder kein Willkommen, `-2` kein Netz, `-3` Anmeldung abgewiesen, `-4` PASV abgewiesen, `-5` Datenverbindung scheitert, `-6` STOR/APPE abgewiesen (Pfad falsch, keine Schreibrechte), `-7` Uebertragung nicht bestaetigt, `-8` lokale Datei fehlt, `-9` aus einem Main-Loop-Callback gerufen. Jeder Fehler steht mit der Serverantwort im Tasmota-Log (`TCC: ftp …`).
+
+**Blockierend, wie `httpPost`:** die ganze Uebertragung dauert, und ein toter Server kostet die Verbindungszeit (`tcpConnectTimeout`, Vorgabe 2 s) plus bis zu 5 s je Antwort. Darum aus `main()` oder `TaskLoop()` rufen — beide laufen auf dem VM-Task, dort wird der Mutex waehrend der Uebertragung freigegeben, `EverySecond` und die Weboberflaeche laufen weiter. Aus `EverySecond` (Main-Loop) laeuft die Uebertragung mit GEHALTENEM Mutex und friert derweil alle Slots und die Weboberflaeche ein — also nicht; ist auf dem Slot ein Worker aktiv, wird der Aufruf dort abgewiesen (`-9`). ⚠️ **Kein `spawnTask`-Worker fuer den Zeilenpuffer:** auf dem ESP32 hat ein Worker seine eigene VM und sieht Heap-Objekte des Hauptkontexts nicht — ein `char[]` ueber 16 Zeichen ist so eines. Der Worker saehe einen leeren Puffer, und nichts wuerde je gesendet (22.09.2026, an genau diesem Beispiel).
+
+**Sinnvoll ist Anhaengen in Bloecken**, nicht jeder Messwert einzeln: eine Zeile je Messung in einen Puffer, alle paar Minuten `ftpPutStr(..., 1)`. Beim FRITZ!NAS muss der FTP-Zugang unter *Heimnetz → Speicher (NAS)* eingeschaltet sein und der Benutzer Schreibrechte auf dem Datentraeger haben.
+
+**Zugangsdaten gehoeren nicht in den Quelltext.** `examples/ftp_log.tc` liest Host, Benutzer, Passwort und Zielpfad aus `/ftp.cfg` auf dem Geraet (vier Zeilen) und schreibt sie mit `FTPSAVE` dorthin zurueck; das Beispiel unten ist auf das Wesentliche gekuerzt.
+
+```c
+char zeilen[512];              // gesammelte Messzeilen
+char stamp[24];
+int  fehler = 0;
+int  senden = 0;
+
+void EverySecond() {           // sammeln ist billig; senden nicht
+    if (tasm_uptime % 60 == 0) {
+        char z[48];
+        timeStamp(stamp);
+        sprintf(z, "%s;%.1f;%.1f\n", stamp, tasm_temp, tasm_hum);
+        strcat(zeilen, z);
+    }
+    if (tasm_uptime % 300 == 0) senden = 1;      // alle 5 Minuten
+}
+
+void TaskLoop() {              // VM-Task: hier darf gewartet werden
+    delay(1000);
+    if (!senden || strlen(zeilen) == 0) return;
+    senden = 0;
+    int r = ftpPutStr("fritz.box", "esp", "geheim", "/USB-Speicher/esp/klima.csv", zeilen, 1);
+    if (r >= 0) { zeilen[0] = 0; fehler = 0; }
+    else        { fehler = r; }        // Puffer bleibt, naechster Versuch in 5 min
+}
+
+int main() {
+    zeilen[0] = 0;
+    tcpConnectTimeout(3000);
+    return 0;
+}
+```
+
 ### TCP-Server
 
 Einen TCP-Stream-Server starten, um eingehende Verbindungen anzunehmen. Es wird nur ein Client gleichzeitig bedient.
