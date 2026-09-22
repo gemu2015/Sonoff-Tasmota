@@ -345,7 +345,7 @@ extern uint16_t tc_vm_stack_bytes;
 #include "xdrv_124_tinyc_spp.h"
 #include "xdrv_124_tinyc_usb.h"
 
-#define TC_SYSCALL_ABI     32    // V32: + FTP client (556-557) -- ftpPut(host,user,pw,remote,local,mode) sends a FILE from the device filesystem, ftpPutStr() a char[]/byte[] BUFFER, to an FTP server: FRITZ!NAS, a Synology, any box in the LAN. mode 0 = STOR (replace), 1 = APPE (append) -- appending is the point: a logger adds its new lines every few minutes instead of re-sending the whole file. Asked by Rolf (22.09.2026): "kann ein ESP32 in TinyC eine Datenbank auf dem Fritzbox-Mediaserver speichern?" The media server is DLNA and read-only; what the box offers for WRITING is SMB and FTP, and the only SMB client for the ESP32 is large and fragile, so FTP it is. Tasmota's own USE_FTP is a SERVER (ESPFtpServer) and helps not at all -- this is a hand-written client on WiFiClient: USER/PASS, TYPE I, PASV, STOR|APPE, 226, QUIT, multi-line replies understood, every step bounded (tcpConnectTimeout for the connects, 5 s per reply, 10 s for the final 226). Blocking for the whole transfer, so the vm_mutex is released on the slot's own task exactly as httpPost does (and NOT on the main-loop dispatch -- the 4f947fb8d wedge). ⚠️ The buffer of ftpPutStr is COPIED to the C heap before the mutex goes, the VM heap is never touched while unlocked. Return: bytes sent, or -1 no connection/greeting, -2 network down, -3 login refused, -4 PASV and EPSV refused, -5 data connection failed, -6 STOR/APPE refused (path? rights?), -7 transfer not confirmed, -8 local file missing, -9 called from a main-loop callback. ⚠️ FOUND ON THE FIRST REAL RUN: with the NAME fritz.box the ESP32 connected over IPv6 (the box answers AAAA too), and there the server refuses PASV with 425 while EPSV works -- hence the EPSV fallback and the debug line with the resolved address. Pure append, no .tcb format change. || PREVIOUS V31: + serialReadArray (555) -- read a whole BLOCK off a serial port in ONE syscall, into an int32 array or a packed byte[]. serialRead() has always cost one syscall PER BYTE; measured on a real ESP32-S3 (2026-09-13) the VM manages 95 969 serial syscalls per second against 333 333 for an empty loop -- about 10 us a byte, so 230400 baud (23 kB/s) would spend a quarter of the VM on fetching alone, before any work at all. Came out of the VarioLab bridge, which needed a second source next to the USB host: same device, but wired to plain RX/TX pins on any ESP32 instead of an FTDI on the OTG socket. Read-only on purpose: serialWriteBytes(h, buf, len) has been there all along and takes char[], byte[] AND int32 arrays. ⚠️ In the same change, serialWriteBytes stopped SILENTLY DROPPING everything when len > 256 -- no error, no return value, just nothing on the wire; it writes in chunks now. Pure append, no .tcb format change. || PREVIOUS V30: + FTDI am USB-Host (546-554) -- usbInit, usbState, usbOpen, usbAvailable, usbRead, usbWrite, usbClose, usbDeinit, usbInfo. Ein serieller Draht zu allem, was hinter einem FTDI am USB-Host haengt; das Protokoll lebt im SKRIPT, genau wie bei SPP. Entstanden, weil gemus VarioLab seinen FTDI eingeloetet hat und es KEINEN Weg an die UART davor gibt -- der einzige Zugang ist, selbst Host zu sein (12.09.2026). ⭐ DER STAPEL WAR SCHON DA: Tasmotas eigener arduino-esp32-Zweig (3.3.8 / IDF 5.5) liefert libusb.a fuer den S3 mit usb_host_install, usb_host_client_register, usb_host_lib_handle_events und usb_host_transfer_alloc als ausgefuehrte Symbole, dazu usb/usb_host.h und die CONFIG_USB_HOST_*-Einstellungen. Belegt durch Bauen UND Laufen: der VarioLab meldete sich als 0403:6001 (FT232R). Es musste NICHTS am Framework geaendert werden, und die esp-usb-Komponenten (cdc_acm_host.c allein 52 KB) werden NICHT gebraucht -- ein FTDI ist herstellereigen, kein CDC, also adoptiert ihn ohnehin kein Klassentreiber. Was er braucht, sind vier Steuerbefehle und ein Bulk-Paar. ⚠️ DIE FTDI-EIGENHEIT: jedes IN-Paket beginnt mit ZWEI STATUSBYTES (Modem und Leitung), die abgeschnitten werden muessen -- sonst steht alle 62 Byte Muell in den Daten, was wie ein Baudratenfehler aussieht und einen an der falschen Stelle suchen laesst. ⚠️ Braucht USE_TINYC_USBSERIAL und einen S3/S2; auf allen anderen Zielen faellt alles weg und die Syscalls geben 0. ⚠️ Nur mit ZWEI USB-Buchsen bequem: der Host belegt auf dem S3 dieselben Leitungen wie die native USB-Konsole. Reiner Anhang, kein Formatwechsel. || PREVIOUS V29: NO new syscall -- ONE new OPCODE, LLK_OP2_ST (0xC2), the fusion for `x = y OP (z OP k)`. It closes the last gap of the fusion run: after the six fusions of 2026-08-08 the bench_int loop still spent 13 opcodes per iteration, and SIX of them were this one unfused line, `sum = sum - (i / 2)` -- load, load, push, operate, operate, store. It is EIGHT now: one instruction per source statement plus the loop head and the jump back, which is the floor for a stack VM. ⚠️ THE SHAPE WAS COUNTED, NOT GUESSED: across the 224 shipped examples it occurs ten times, and every time with an i8 constant on the inside -- never with three locals, never with a wide constant. Hence exactly one opcode and no family, and no LLK32 twin: it would not have fired in a single example. A pure fusion, NO new expressiveness -- the unfused form stays valid and a program means the same either way. ⭐ EQUIVALENCE CHECKED: 5600 cases (all 100 operator pairs x 8 constants x 7 start values, including INT_MIN, division by zero and shifts) fused against unfused in the JS VM -- ZERO differences, error messages included (scripts/check_fusion.mjs). ⚠️ As with V21, newer bytecode on older firmware dies with BAD_OPCODE mid-loop, so the loader refuses a .tcb whose abi_rev is higher than its own. The compiler stamps 29 exactly when it emits the opcode (hook in emit()). || PREVIOUS V28: NO new syscall -- a BUG FIX that changes what eleven existing ones accept, the same shape as V26 and found the same way. tc_ref_maxlen() has long answered in BYTES for a packed byte[], but webArg, webParse, jsonStr, fileReadDir, fileGetStr, smlRead, pluginQuery, tlsReadLine, tlsRead, pwlStr and sppScan still wrote one int32 SLOT per character: handing any of them a byte[] wrote four times the array's size straight over the neighbouring heap. Reported by Hans against webArg() into a `byte a[96]` -- the mail address came back as "o", first character right and string over, which is the harmless half of the same write. All eleven now go through tc_chr_put(). ⚠️ webParse was wrong in BOTH directions: it also READ its source as int32 slots, so a byte[] source yielded one character; it goes through tc_ref_to_cstr() now, which knows both packings. jsonStr had the same reading problem on its source argument. ⚠️ Nothing about such a call LOOKS different, so the compiler stamps abi_rev 28 whenever a byte[] reaches one of those arguments (BUILTINS[].byteAbi in codegen.js) -- an older device refuses the .tcb instead of corrupting its heap. A char[] argument is unaffected and keeps its old abi_rev. Measured on an ESP32-C3 with a byte[] and a char[] in one handler on one request: before byte[16]="o" / char[16]="otto@example.org", after both "otto@example.org", and UTF-8 survives. || PREVIOUS V27: NO new syscall -- twelve new OPCODES (0xB6..0xC1) for packed 16-bit arrays, `int16[]` and `uint16[]`. Two bytes per element instead of four: (n+1)/2 slots, element i at ((int16*)base)[i]. Same purpose as byte[], one step finer -- byte[] saves four times the RAM but costs resolution, which is the whole reason WebChartQ's scale and offset exist; an int16 carries a temperature in hundredths of a kelvin, a raw ADC word or a Modbus register with NO decoding, at half the RAM of an int[]. Measured on a 1441-sample ring: float 5.6 KB, int16 2.8 KB, byte 1.4 KB. ⚠️ Signedness lives in the LOAD, not in the storage: STORE_*_I16 writes the same sixteen bits for int16 and uint16 alike, while the compiler picks the sign-extending (0xB6/0xB8/0xBA/0xBC) or zero-extending load (0xBE..0xC1) from the declared type. That is why uint16 costs four opcodes rather than eight. ⚠️ The byte flag in a ref grew into a TWO-BIT field (heap 8-9, global 16-17, local 24-25): 00 = int32, 01 = byte, 10 = int16, 11 = uint16. The 01 is the old byte bit unchanged, so every .tcb in the field still means exactly what it meant -- the ABI step hangs on the new opcodes alone, and the compiler stamps it precisely when it emits one (hook in emit()). An older device refuses the .tcb instead of dying on BAD_OPCODE mid-loop. || PREVIOUS V26: NO new syscall — a BUG FIX that changes what existing ones accept. httpGet, httpPost, smlGetStr and tasmCmd filled their destination buffer with int32 SLOTS while tc_ref_maxlen() already answered in BYTES for a packed byte[]. Handing any of them a byte[] therefore wrote four times the array's size and trampled the neighbouring heap -- silently, and only once a response was long enough to reach past the buffer. All four now go through tc_chr_put(), like the sprintf/strcat family has since 1.6.58. ⚠️ Nothing about such a call LOOKS different, so the compiler stamps abi_rev 26 whenever a byte[] is passed to one of those arguments (BUILTINS[].byteAbi in codegen.js) -- an older device refuses the .tcb instead of corrupting its heap. A char[] argument is unaffected and keeps its old abi_rev. This is what made the SML family's text buffers convertible: on sml_chart_ct002 they were 18.7 KB of the 26.9 KB contiguous block. || PREVIOUS V25: + SYS_WEB_CHART_Q (545) -- WebChartQ(scale, offset), an affine decode applied to the NEXT WebChart's samples. It exists so a chart can be fed from a PACKED byte[] instead of a float[]: one byte per sample plus a scale/offset carries a temperature at 0.5 K over -40..87.5 degC, a humidity or an SOC at 0.4 %, for a QUARTER of the RAM. That matters because chart ring buffers are the largest single heap consumer on a C3 -- the shipped examples hold three float[1441] rings (5.7 KB each) out of a 64 KB TC_MAX_HEAP, and the heap is claimed as ONE contiguous block at load time. ⚠️ The byte[] side is NOT a pure append even though the syscall is: WebChart (166) is unchanged in number and signature, but the compiler now marks a byte[] array argument with the packed-ref flag bit, and OLDER firmware would strip that bit and read the array as float slots -- garbage, silently, with no missing-syscall complaint to point at it. The compiler therefore stamps abi_rev 25 on any WebChart whose array argument is a byte[] (CodeGenerator._istBytesVar), so an old device refuses the .tcb instead of drawing nonsense. A WebChart on a float[] still compiles byte-identically and keeps its old abi_rev. Also in this release, and needing no ABI at all because it is pure server-side HTML: the per-sample wire form changed from _tcA's [x,y] pairs to _tcAy's bare y-list plus x0/step, since the x axis was always the arithmetic sequence -(count-1-i)*interval + timebase. About 14 bytes per point became about 6 -- a 1441-point series went from ~20 KB of response body to ~8 KB. _tcA stays defined alongside it. || PREVIOUS V24: + SYS_MQTT_PUBLISH_REF (544) -- mqttPublish with RUNTIME strings and a log level. The const-only form could not build a topic at runtime (Hans' carries the device name, so he went through the `Publish` COMMAND to reach a function two frames down) and always logged: two console lines every 5 s from a regulator, at the default weblog 2. MqttPublishPayload() has taken a level and skipped the log at LOG_LEVEL_NONE all along; only TinyC called it with the default. Purely additive -- two literals stay on syscall 297 and compile byte-identically (checked against dyson_tp02 and power_meter). || PREVIOUS V23: + LK32_OP_ST (0xB3, wide-constant twin of 0xB1) and the loop head LL_CMP_JZ / LK32_CMP_JZ (0xB4/0xB5), which branch on FALSE exactly like the JZ they replace. The compare-and-branch runs once per iteration of EVERY loop, so it is the broadest of the fusions. || PREVIOUS V22: + LK_OP_ST/LL_OP_ST (0xB1/0xB2) -- `x = y OP z` and `x = y OP const` on plain int locals in ONE opcode instead of four (load, load-or-push, operate, store). Exactly where a stack VM loses to a register VM: the operands live IN the instruction. || PREVIOUS V21: + superinstructions (0xB0+). First: INC_LOCAL (0xB0) for `i++` AS A STATEMENT -- replaces LOAD_LOCAL/DUP/PUSH_I8/ADD/STORE_LOCAL/POP, six opcodes for one. A pure fusion, NO new expressiveness: the unfused form stays valid and a program means the same either way. ⚠️ First ABI step where NEWER bytecode on OLDER firmware no longer merely reports a missing syscall but dies with BAD_OPCODE mid-loop -- so the loader now REFUSES a .tcb whose abi_rev is higher than its own instead of warning and loading anyway. || PREVIOUS V20: + BLE "SPP" (535-543) -- bleSppTarget/Connect/State/Sub/Available/Read/Write/Close + bleGattDump. The existing GATT client (SYS_BLE_TARGET..RESULT, V-something-earlier) connects, does ONE read/write/notify-wait, and DISCONNECTS -- confirmed by reading BLETaskRunTaskDoneOperation() in xdrv_79_esp32_ble.ino, which calls pClient->disconnect() unconditionally after every operation. That is correct for a device that wakes, reports, and sleeps (a scale), but wrong for a continuous stream: a BlueRadios/Nordic-UART-style peripheral streaming an EKG would lose the link before a second sample could ever notify. So this is a SECOND, independent NimBLEClient (own connect/subscribe/write/close, own notify ring buffer), added entirely in the TinyC-owned glue file (xdrv_79_tinyc_ble_glue.ino) -- it never touches xdrv_79_esp32_ble.ino's op queue, so MI32/EQ3/the existing one-shot client are unaffected. It also takes service/characteristic UUIDs as STRING literals (16-bit or full 128-bit), unlike the one-shot family's int16-only svc/chr -- proprietary UART-style services are essentially always 128-bit, which int16 cannot address at all. bleGattDump() is the one-shot companion: connect, enumerate every service+characteristic+property, disconnect -- needed BEFORE any of the above, because a proprietary UUID has no datasheet lookup; the device has to be asked. ⭐ VERIFIED on real hardware 2026-08-05 (.39, ESP32-S3) against a BlueRadios dual module on gemu's ECG device: connect -> subscribe BRSP_TX -> write BRSP_MODE=1 (data mode) -> write "VS\r" -> the reply arrived as 48 bytes in four notification chunks, and bleSppState() still returned 1 AFTERWARDS -- the whole point, since the one-shot client disconnects after every operation. A second simultaneous NimBLE connection alongside BLE_ESP32's own background scan caused no trouble. ⚠️ Connecting needs a much better link than passive advert reception: a peer at -88..-94 dBm refused every attempt (rc reported via getLastError) while the one at -63 dBm connected first try. Pure append, no .tcb format change. || PREVIOUS V19: + lvglChartUpdateMode (534) -- exposes lv_chart_set_update_mode. LVGL defaults to SHIFT, which moves EVERY point on every new value and therefore invalidates the WHOLE chart area; CIRCULAR overwrites the oldest point in place (a sweeping cursor like a hospital monitor) and invalidates one narrow column. On an 800x1280 DSI panel with a 760x300 chart that is 228000 pixels per value against about 900 -- roughly a factor of 250, and the difference between a 250 Hz live ECG trace being impossible and being unremarkable. Pure append, no .tcb format change. || PREVIOUS V18: + sppDeinit (533) -- tears the Bluetooth Classic stack down and RETURNS ITS MEMORY (~85 KB measured on an ESP32-D0WD-V3: 114 KB free after boot, 29 KB with Bluedroid up). Without it a script that reads a device every few minutes pays for the stack around the clock, and the next slot restart cannot allocate -- which surfaces as "Stack overflow", because the loader's OOM paths return TC_ERR_STACK_OVERFLOW. Nothing in that message points at Bluetooth. sppInit() brings it back up; the teardown deliberately does NOT call esp_bt_controller_mem_release(), which would be one-way. Pure append, no .tcb format change. || PREVIOUS V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || PREVIOUS V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
+#define TC_SYSCALL_ABI     32    // V32: + FTP client (556-566) -- ONE session per device: ftpOpen(host,user,pw)/ftpClose(); on it ftpPut(remote,local,mode) sends a FILE from the device filesystem and ftpPutStr(remote,data,mode) a char[]/byte[] BUFFER, ftpGet(remote,local)/ftpGetStr(remote,buf) fetch, ftpList(dir,buf) lists names, ftpSize/ftpDelete/ftpMkdir/ftpRename manage -- against an FTP server: FRITZ!NAS, a Synology, any box in the LAN. Asked as a logger for Rolf, widened at gemu's request to a general file interface (both 22.09.2026). mode 0 = STOR (replace), 1 = APPE (append) -- appending is the point: a logger adds its new lines every few minutes instead of re-sending the whole file. Asked by Rolf (22.09.2026): "kann ein ESP32 in TinyC eine Datenbank auf dem Fritzbox-Mediaserver speichern?" The media server is DLNA and read-only; what the box offers for WRITING is SMB and FTP, and the only SMB client for the ESP32 is large and fragile, so FTP it is. Tasmota's own USE_FTP is a SERVER (ESPFtpServer) and helps not at all -- this is a hand-written client on WiFiClient: USER/PASS, TYPE I, PASV, STOR|APPE, 226, QUIT, multi-line replies understood, every step bounded (tcpConnectTimeout for the connects, 5 s per reply, 10 s for the final 226). Blocking for the whole transfer, so the vm_mutex is released on the slot's own task exactly as httpPost does (and NOT on the main-loop dispatch -- the 4f947fb8d wedge). ⚠️ The buffer of ftpPutStr is COPIED to the C heap before the mutex goes, the VM heap is never touched while unlocked. Return: bytes sent, or -1 no connection/greeting, -2 network down, -3 login refused, -4 PASV and EPSV refused, -5 data connection failed, -6 STOR/APPE refused (path? rights?), -7 transfer not confirmed, -8 local file missing, -9 called from a main-loop callback while a worker is active, -10 no session. A dropped idle link is re-opened silently on the next call. ⚠️ FOUND ON THE FIRST REAL RUN: with the NAME fritz.box the ESP32 connected over IPv6 (the box answers AAAA too), and there the server refuses PASV with 425 while EPSV works -- hence the EPSV fallback and the debug line with the resolved address. Pure append, no .tcb format change. || PREVIOUS V31: + serialReadArray (555) -- read a whole BLOCK off a serial port in ONE syscall, into an int32 array or a packed byte[]. serialRead() has always cost one syscall PER BYTE; measured on a real ESP32-S3 (2026-09-13) the VM manages 95 969 serial syscalls per second against 333 333 for an empty loop -- about 10 us a byte, so 230400 baud (23 kB/s) would spend a quarter of the VM on fetching alone, before any work at all. Came out of the VarioLab bridge, which needed a second source next to the USB host: same device, but wired to plain RX/TX pins on any ESP32 instead of an FTDI on the OTG socket. Read-only on purpose: serialWriteBytes(h, buf, len) has been there all along and takes char[], byte[] AND int32 arrays. ⚠️ In the same change, serialWriteBytes stopped SILENTLY DROPPING everything when len > 256 -- no error, no return value, just nothing on the wire; it writes in chunks now. Pure append, no .tcb format change. || PREVIOUS V30: + FTDI am USB-Host (546-554) -- usbInit, usbState, usbOpen, usbAvailable, usbRead, usbWrite, usbClose, usbDeinit, usbInfo. Ein serieller Draht zu allem, was hinter einem FTDI am USB-Host haengt; das Protokoll lebt im SKRIPT, genau wie bei SPP. Entstanden, weil gemus VarioLab seinen FTDI eingeloetet hat und es KEINEN Weg an die UART davor gibt -- der einzige Zugang ist, selbst Host zu sein (12.09.2026). ⭐ DER STAPEL WAR SCHON DA: Tasmotas eigener arduino-esp32-Zweig (3.3.8 / IDF 5.5) liefert libusb.a fuer den S3 mit usb_host_install, usb_host_client_register, usb_host_lib_handle_events und usb_host_transfer_alloc als ausgefuehrte Symbole, dazu usb/usb_host.h und die CONFIG_USB_HOST_*-Einstellungen. Belegt durch Bauen UND Laufen: der VarioLab meldete sich als 0403:6001 (FT232R). Es musste NICHTS am Framework geaendert werden, und die esp-usb-Komponenten (cdc_acm_host.c allein 52 KB) werden NICHT gebraucht -- ein FTDI ist herstellereigen, kein CDC, also adoptiert ihn ohnehin kein Klassentreiber. Was er braucht, sind vier Steuerbefehle und ein Bulk-Paar. ⚠️ DIE FTDI-EIGENHEIT: jedes IN-Paket beginnt mit ZWEI STATUSBYTES (Modem und Leitung), die abgeschnitten werden muessen -- sonst steht alle 62 Byte Muell in den Daten, was wie ein Baudratenfehler aussieht und einen an der falschen Stelle suchen laesst. ⚠️ Braucht USE_TINYC_USBSERIAL und einen S3/S2; auf allen anderen Zielen faellt alles weg und die Syscalls geben 0. ⚠️ Nur mit ZWEI USB-Buchsen bequem: der Host belegt auf dem S3 dieselben Leitungen wie die native USB-Konsole. Reiner Anhang, kein Formatwechsel. || PREVIOUS V29: NO new syscall -- ONE new OPCODE, LLK_OP2_ST (0xC2), the fusion for `x = y OP (z OP k)`. It closes the last gap of the fusion run: after the six fusions of 2026-08-08 the bench_int loop still spent 13 opcodes per iteration, and SIX of them were this one unfused line, `sum = sum - (i / 2)` -- load, load, push, operate, operate, store. It is EIGHT now: one instruction per source statement plus the loop head and the jump back, which is the floor for a stack VM. ⚠️ THE SHAPE WAS COUNTED, NOT GUESSED: across the 224 shipped examples it occurs ten times, and every time with an i8 constant on the inside -- never with three locals, never with a wide constant. Hence exactly one opcode and no family, and no LLK32 twin: it would not have fired in a single example. A pure fusion, NO new expressiveness -- the unfused form stays valid and a program means the same either way. ⭐ EQUIVALENCE CHECKED: 5600 cases (all 100 operator pairs x 8 constants x 7 start values, including INT_MIN, division by zero and shifts) fused against unfused in the JS VM -- ZERO differences, error messages included (scripts/check_fusion.mjs). ⚠️ As with V21, newer bytecode on older firmware dies with BAD_OPCODE mid-loop, so the loader refuses a .tcb whose abi_rev is higher than its own. The compiler stamps 29 exactly when it emits the opcode (hook in emit()). || PREVIOUS V28: NO new syscall -- a BUG FIX that changes what eleven existing ones accept, the same shape as V26 and found the same way. tc_ref_maxlen() has long answered in BYTES for a packed byte[], but webArg, webParse, jsonStr, fileReadDir, fileGetStr, smlRead, pluginQuery, tlsReadLine, tlsRead, pwlStr and sppScan still wrote one int32 SLOT per character: handing any of them a byte[] wrote four times the array's size straight over the neighbouring heap. Reported by Hans against webArg() into a `byte a[96]` -- the mail address came back as "o", first character right and string over, which is the harmless half of the same write. All eleven now go through tc_chr_put(). ⚠️ webParse was wrong in BOTH directions: it also READ its source as int32 slots, so a byte[] source yielded one character; it goes through tc_ref_to_cstr() now, which knows both packings. jsonStr had the same reading problem on its source argument. ⚠️ Nothing about such a call LOOKS different, so the compiler stamps abi_rev 28 whenever a byte[] reaches one of those arguments (BUILTINS[].byteAbi in codegen.js) -- an older device refuses the .tcb instead of corrupting its heap. A char[] argument is unaffected and keeps its old abi_rev. Measured on an ESP32-C3 with a byte[] and a char[] in one handler on one request: before byte[16]="o" / char[16]="otto@example.org", after both "otto@example.org", and UTF-8 survives. || PREVIOUS V27: NO new syscall -- twelve new OPCODES (0xB6..0xC1) for packed 16-bit arrays, `int16[]` and `uint16[]`. Two bytes per element instead of four: (n+1)/2 slots, element i at ((int16*)base)[i]. Same purpose as byte[], one step finer -- byte[] saves four times the RAM but costs resolution, which is the whole reason WebChartQ's scale and offset exist; an int16 carries a temperature in hundredths of a kelvin, a raw ADC word or a Modbus register with NO decoding, at half the RAM of an int[]. Measured on a 1441-sample ring: float 5.6 KB, int16 2.8 KB, byte 1.4 KB. ⚠️ Signedness lives in the LOAD, not in the storage: STORE_*_I16 writes the same sixteen bits for int16 and uint16 alike, while the compiler picks the sign-extending (0xB6/0xB8/0xBA/0xBC) or zero-extending load (0xBE..0xC1) from the declared type. That is why uint16 costs four opcodes rather than eight. ⚠️ The byte flag in a ref grew into a TWO-BIT field (heap 8-9, global 16-17, local 24-25): 00 = int32, 01 = byte, 10 = int16, 11 = uint16. The 01 is the old byte bit unchanged, so every .tcb in the field still means exactly what it meant -- the ABI step hangs on the new opcodes alone, and the compiler stamps it precisely when it emits one (hook in emit()). An older device refuses the .tcb instead of dying on BAD_OPCODE mid-loop. || PREVIOUS V26: NO new syscall — a BUG FIX that changes what existing ones accept. httpGet, httpPost, smlGetStr and tasmCmd filled their destination buffer with int32 SLOTS while tc_ref_maxlen() already answered in BYTES for a packed byte[]. Handing any of them a byte[] therefore wrote four times the array's size and trampled the neighbouring heap -- silently, and only once a response was long enough to reach past the buffer. All four now go through tc_chr_put(), like the sprintf/strcat family has since 1.6.58. ⚠️ Nothing about such a call LOOKS different, so the compiler stamps abi_rev 26 whenever a byte[] is passed to one of those arguments (BUILTINS[].byteAbi in codegen.js) -- an older device refuses the .tcb instead of corrupting its heap. A char[] argument is unaffected and keeps its old abi_rev. This is what made the SML family's text buffers convertible: on sml_chart_ct002 they were 18.7 KB of the 26.9 KB contiguous block. || PREVIOUS V25: + SYS_WEB_CHART_Q (545) -- WebChartQ(scale, offset), an affine decode applied to the NEXT WebChart's samples. It exists so a chart can be fed from a PACKED byte[] instead of a float[]: one byte per sample plus a scale/offset carries a temperature at 0.5 K over -40..87.5 degC, a humidity or an SOC at 0.4 %, for a QUARTER of the RAM. That matters because chart ring buffers are the largest single heap consumer on a C3 -- the shipped examples hold three float[1441] rings (5.7 KB each) out of a 64 KB TC_MAX_HEAP, and the heap is claimed as ONE contiguous block at load time. ⚠️ The byte[] side is NOT a pure append even though the syscall is: WebChart (166) is unchanged in number and signature, but the compiler now marks a byte[] array argument with the packed-ref flag bit, and OLDER firmware would strip that bit and read the array as float slots -- garbage, silently, with no missing-syscall complaint to point at it. The compiler therefore stamps abi_rev 25 on any WebChart whose array argument is a byte[] (CodeGenerator._istBytesVar), so an old device refuses the .tcb instead of drawing nonsense. A WebChart on a float[] still compiles byte-identically and keeps its old abi_rev. Also in this release, and needing no ABI at all because it is pure server-side HTML: the per-sample wire form changed from _tcA's [x,y] pairs to _tcAy's bare y-list plus x0/step, since the x axis was always the arithmetic sequence -(count-1-i)*interval + timebase. About 14 bytes per point became about 6 -- a 1441-point series went from ~20 KB of response body to ~8 KB. _tcA stays defined alongside it. || PREVIOUS V24: + SYS_MQTT_PUBLISH_REF (544) -- mqttPublish with RUNTIME strings and a log level. The const-only form could not build a topic at runtime (Hans' carries the device name, so he went through the `Publish` COMMAND to reach a function two frames down) and always logged: two console lines every 5 s from a regulator, at the default weblog 2. MqttPublishPayload() has taken a level and skipped the log at LOG_LEVEL_NONE all along; only TinyC called it with the default. Purely additive -- two literals stay on syscall 297 and compile byte-identically (checked against dyson_tp02 and power_meter). || PREVIOUS V23: + LK32_OP_ST (0xB3, wide-constant twin of 0xB1) and the loop head LL_CMP_JZ / LK32_CMP_JZ (0xB4/0xB5), which branch on FALSE exactly like the JZ they replace. The compare-and-branch runs once per iteration of EVERY loop, so it is the broadest of the fusions. || PREVIOUS V22: + LK_OP_ST/LL_OP_ST (0xB1/0xB2) -- `x = y OP z` and `x = y OP const` on plain int locals in ONE opcode instead of four (load, load-or-push, operate, store). Exactly where a stack VM loses to a register VM: the operands live IN the instruction. || PREVIOUS V21: + superinstructions (0xB0+). First: INC_LOCAL (0xB0) for `i++` AS A STATEMENT -- replaces LOAD_LOCAL/DUP/PUSH_I8/ADD/STORE_LOCAL/POP, six opcodes for one. A pure fusion, NO new expressiveness: the unfused form stays valid and a program means the same either way. ⚠️ First ABI step where NEWER bytecode on OLDER firmware no longer merely reports a missing syscall but dies with BAD_OPCODE mid-loop -- so the loader now REFUSES a .tcb whose abi_rev is higher than its own instead of warning and loading anyway. || PREVIOUS V20: + BLE "SPP" (535-543) -- bleSppTarget/Connect/State/Sub/Available/Read/Write/Close + bleGattDump. The existing GATT client (SYS_BLE_TARGET..RESULT, V-something-earlier) connects, does ONE read/write/notify-wait, and DISCONNECTS -- confirmed by reading BLETaskRunTaskDoneOperation() in xdrv_79_esp32_ble.ino, which calls pClient->disconnect() unconditionally after every operation. That is correct for a device that wakes, reports, and sleeps (a scale), but wrong for a continuous stream: a BlueRadios/Nordic-UART-style peripheral streaming an EKG would lose the link before a second sample could ever notify. So this is a SECOND, independent NimBLEClient (own connect/subscribe/write/close, own notify ring buffer), added entirely in the TinyC-owned glue file (xdrv_79_tinyc_ble_glue.ino) -- it never touches xdrv_79_esp32_ble.ino's op queue, so MI32/EQ3/the existing one-shot client are unaffected. It also takes service/characteristic UUIDs as STRING literals (16-bit or full 128-bit), unlike the one-shot family's int16-only svc/chr -- proprietary UART-style services are essentially always 128-bit, which int16 cannot address at all. bleGattDump() is the one-shot companion: connect, enumerate every service+characteristic+property, disconnect -- needed BEFORE any of the above, because a proprietary UUID has no datasheet lookup; the device has to be asked. ⭐ VERIFIED on real hardware 2026-08-05 (.39, ESP32-S3) against a BlueRadios dual module on gemu's ECG device: connect -> subscribe BRSP_TX -> write BRSP_MODE=1 (data mode) -> write "VS\r" -> the reply arrived as 48 bytes in four notification chunks, and bleSppState() still returned 1 AFTERWARDS -- the whole point, since the one-shot client disconnects after every operation. A second simultaneous NimBLE connection alongside BLE_ESP32's own background scan caused no trouble. ⚠️ Connecting needs a much better link than passive advert reception: a peer at -88..-94 dBm refused every attempt (rc reported via getLastError) while the one at -63 dBm connected first try. Pure append, no .tcb format change. || PREVIOUS V19: + lvglChartUpdateMode (534) -- exposes lv_chart_set_update_mode. LVGL defaults to SHIFT, which moves EVERY point on every new value and therefore invalidates the WHOLE chart area; CIRCULAR overwrites the oldest point in place (a sweeping cursor like a hospital monitor) and invalidates one narrow column. On an 800x1280 DSI panel with a 760x300 chart that is 228000 pixels per value against about 900 -- roughly a factor of 250, and the difference between a 250 Hz live ECG trace being impossible and being unremarkable. Pure append, no .tcb format change. || PREVIOUS V18: + sppDeinit (533) -- tears the Bluetooth Classic stack down and RETURNS ITS MEMORY (~85 KB measured on an ESP32-D0WD-V3: 114 KB free after boot, 29 KB with Bluedroid up). Without it a script that reads a device every few minutes pays for the stack around the clock, and the next slot restart cannot allocate -- which surfaces as "Stack overflow", because the loader's OOM paths return TC_ERR_STACK_OVERFLOW. Nothing in that message points at Bluetooth. sppInit() brings it back up; the teardown deliberately does NOT call esp_bt_controller_mem_release(), which would be one-way. Pure append, no .tcb format change. || PREVIOUS V17: + Bluetooth Classic / SPP (524-532) — sppInit, sppConnect (525 Literal / 526 char[]), sppState, sppAvailable, sppRead, sppWrite, sppClose, sppScan. Serial link to ANY Classic device; the protocol lives in the SCRIPT, not in the firmware, so the same primitive serves SMA inverters, OBD adapters, scales and anything else that speaks SPP -- and it can be changed without reflashing. ORIGINAL ESP32 ONLY (BR/EDR); S3/C3/C6/P4 are BLE-only. Needs USE_TINYC_SPP AND an environment that rebuilds the framework with Bluedroid (Tasmota ships NimBLE and has NO Classic headers) -- details in the header of xdrv_124_tinyc_spp.h. sppRead does NOT block: the script waits itself, otherwise the VM hangs on the peer's timeouts. Arrays are int32 per element, uint8 on the wire -- same as tcpWriteArray. Pure append, no .tcb format change. || PREVIOUS V16: + webCard (521, per-slot main-page card-frame toggle; webCard(0) renders bare like pre-card). Pure append. V15: + lvglLinePoly (517, one lv_line draws a whole N-point polyline) / lvglArcBgAngles (518, arc background sweep, e.g. 135,45 = 270° dial) / lvglArcStyle (519, arc part colour+width — unlocks zoned gauges + coloured value arcs) / lvglRotate (520, rotate any object, for vertical y-axis titles). Pure append. V14: + lvglCanvas (514) / lvglCanvasSetImgSlot (515) / dspFreeImage (516) — a PSRAM RGB565 image slot (e.g. a HW-decoded camera frame from dspLoadImageFromCam) becomes an lv_canvas (an lv_image, so lvglImageAngle/Scale rotate+size it); dspFreeImage frees a slot so a live cam loop doesn't exhaust the 4. Pure append. V13: + audioMicGain (513) — set mic gain 1-100 via the audio plugin (Plugin_Query 42 / sel 11), mirror of audioVol for the ES7210 mic ADC. Pure append. V12: + rsaEncrypt (512) — RSA PKCS#1 v1.5 type-2 encrypt via BearSSL br_rsa_public, for IDPConnect-style logins (RSA-encrypted password → new refresh token). Pure append. V11: + utcSecs (511) — current UTC unix epoch (UtcTime()), for request signing/stamps that need true UTC (timeToSecs(timeStamp()) is local-as-UTC). Pure append. V10: + raw TLS client (503-509: tlsConnect/tlsWrite/tlsReadLine/tlsRead/tlsAvailable/tlsConnected/tlsStop) + base64Enc (510) — a TinyC app can now speak raw HTTPS (OAuth redirect/cookie flows, request signing) without firmware, hot-reloadable. Pure append. V9: + SYS_I2S_DUPLEX_BEGIN (502, i2sDuplexBegin — full-duplex I2S TX+RX in one channel pair; combined codecs like the WM8960 clock their ADC from the I2S TX, so the mic only works while TX runs) — pure append. V8: SYS_I2S_BEGIN (271) gained a leading mclk arg (i2sBegin(mclk,bclk,lrclk,dout,rate)) for codec DACs — NOT a pure append (existing syscall's arg count changed), so the bump is mandatory to flag a 5-arg .tcb on 4-arg firmware. V7: + SYS_I2S_MIC_BEGIN/READ/LEVEL/STOP (498-501, mic RX / loudness) — pure append. V6: + SYS_LVGL_LINE/LINE_POINTS/LINE_STYLE (495-497, radial/vector bars) — pure append. V5: + SYS_LVGL_IMAGE_SCALE (494, lvglImageScale(h,sx,sy)) — pure append. V4: + SYS_LVGL_SET_FONT (493, lvglSetFont(h,size)) — pure append; bumped so the IDE flags a lvglSetFont .tcb on pre-font firmware. V3: + SYS_TOUCH_GET (492, touchGet(sel) -> Touch_Status) — pure append; bumped to flag a touchGet .tcb built against pre-touch firmware. V2: + SYS_BLIB_CALL_F (371, fcall float blib call)
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // REMINDER: when bumping TC_RELEASE, also update the visible <h1> label
 // in tinyc_ide.html (gunzip → edit → gzip back). The header is hand-
@@ -1415,13 +1415,26 @@ enum TcSyscall {
   // low bytes). A second syscall for that would be a duplicate.
   SYS_SERIAL_READ_ARR  = 555, // (h, arr_ref, n) -> int  bytes read (0 = nothing there)
   // ── FTP client (V32, 22.09.2026) ──────────────────────────────────────
-  // A file or a buffer to an FTP server (FRITZ!NAS etc.). mode 0 = STOR
-  // (replace), 1 = APPE (append). Returns bytes sent or a negative code
-  // (see tc_ftp_store). The protocol lives HERE and not in the script,
+  // ONE session per device: ftpOpen() logs in and keeps the control link,
+  // the other calls work on it (and reconnect silently when the server has
+  // dropped an idle link). The protocol lives HERE and not in the script,
   // unlike SPP/USB: FTP has no per-device variation worth exposing, and a
   // 60-line PASV/STOR dance in every logger would be the same 60 lines.
-  SYS_FTP_PUT          = 556, // (host_ref, user_ref, pw_ref, remote_ref, local_ref, mode) -> int
-  SYS_FTP_PUT_STR      = 557, // (host_ref, user_ref, pw_ref, remote_ref, data_ref,  mode) -> int
+  // Negative results: -1 no connection, -2 network down, -3 login refused,
+  // -4 PASV/EPSV refused, -5 data link failed, -6 command refused (path?
+  // rights?), -7 transfer not confirmed, -8 local file missing, -9 blocked
+  // (worker active), -10 no session (ftpOpen first).
+  SYS_FTP_OPEN         = 556, // (host_ref, user_ref, pw_ref) -> int 0 ok
+  SYS_FTP_CLOSE        = 557, // ()                          -> void
+  SYS_FTP_PUT          = 558, // (remote_ref, local_ref, mode) -> int bytes   mode 0=STOR 1=APPE
+  SYS_FTP_PUT_STR      = 559, // (remote_ref, data_ref,  mode) -> int bytes
+  SYS_FTP_GET          = 560, // (remote_ref, local_ref)       -> int bytes written locally
+  SYS_FTP_GET_STR      = 561, // (remote_ref, buf_ref)         -> int bytes stored in buf
+  SYS_FTP_LIST         = 562, // (dir_ref, buf_ref)            -> int entries (names, one per line)
+  SYS_FTP_SIZE         = 563, // (remote_ref)                  -> int bytes on the server
+  SYS_FTP_DELETE       = 564, // (remote_ref)                  -> int 0 ok
+  SYS_FTP_MKDIR        = 565, // (dir_ref)                     -> int 0 ok
+  SYS_FTP_RENAME       = 566, // (from_ref, to_ref)            -> int 0 ok
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
@@ -5037,11 +5050,20 @@ static uint16_t tc_https_rx_bytes(void) {
 }
 
 // ── FTP client (V32) ────────────────────────────────────────────────────────
-// One upload per call: connect, log in, TYPE I, PASV, STOR or APPE, stream the
-// source, wait for 226, QUIT. Every wait is bounded; a dead or slow server can
-// cost at most a few seconds, never the task watchdog. Data source is either a
-// File from the device filesystem or a memory block (already copied out of the
-// VM heap by the caller -- this runs with the VM mutex RELEASED).
+// ONE session per device. ftpOpen() connects, logs in and keeps the control
+// link in tc_ftp_s; every other call works on it. When the server has dropped
+// an idle link (a Fritzbox does after a few minutes) the next command logs in
+// again and is resent once -- a logger that appends every five minutes never
+// sees it. Every wait is bounded; a dead or slow server can cost at most a
+// few seconds, never the task watchdog. All of this runs with the VM mutex
+// RELEASED (on the slot's own task), so every argument is copied out of the
+// VM heap before, and every result written back after.
+struct TcFtp {
+  WiFiClient ctrl;
+  char host[96]; char user[64]; char pw[64];
+  uint16_t port;
+};
+static TcFtp *tc_ftp_s = nullptr;
 struct TcFtpSrc { File *file; const uint8_t *mem; size_t memlen; };
 
 // Read one FTP reply into line[] (the LAST line of a multi-line reply) and
@@ -5078,46 +5100,54 @@ static int tc_ftp_cmd(WiFiClient &c, const char *cmd, const char *arg, char *lin
   return tc_ftp_reply(c, line, maxlen, tmo_ms);
 }
 
-// Returns bytes sent, or: -1 no connection/greeting, -3 login refused,
-// -4 PASV and EPSV refused, -5 data connection failed, -6 STOR/APPE refused,
-// -7 transfer not confirmed (226 missing or short write).
-static int32_t tc_ftp_store(const char *hostport, const char *user, const char *pw,
-                            const char *remote, int mode, TcFtpSrc &src) {
-  char host[96]; strlcpy(host, hostport, sizeof(host));
-  int port = 21;
-  char *col = strrchr(host, ':');
-  if (col && isdigit((unsigned char)col[1])) { port = atoi(col + 1); *col = 0; }
+// Connect, greeting, USER/PASS, TYPE I. 0 ok, -1 no connection or greeting,
+// -3 login refused.
+static int tc_ftp_login(TcFtp &f) {
+  f.ctrl.stop();
   const uint32_t ctmo = Tinyc->tcp_connect_timeout_ms ? Tinyc->tcp_connect_timeout_ms : 2000;
-  char line[160];
-  WiFiClient ctrl;
   IPAddress ipa; bool ok;
 #ifdef ESP32
-  if (ipa.fromString(host)) ok = ctrl.connect(ipa, port, (int32_t)ctmo);
-  else                      ok = ctrl.connect(host, port, (int32_t)ctmo);
+  if (ipa.fromString(f.host)) ok = f.ctrl.connect(ipa, f.port, (int32_t)ctmo);
+  else                        ok = f.ctrl.connect(f.host, f.port, (int32_t)ctmo);
 #else
-  if (ipa.fromString(host)) ok = ctrl.connect(ipa, port);
-  else                      ok = ctrl.connect(host, port);
+  if (ipa.fromString(f.host)) ok = f.ctrl.connect(ipa, f.port);
+  else                        ok = f.ctrl.connect(f.host, f.port);
 #endif
-  if (!ok) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s:%d no connection"), host, port); return -1; }
-  ctrl.setNoDelay(true);
-  // Which address the name resolved to matters below: a Fritzbox (and DNS in
-  // general) answers with AAAA as well, and an ESP32 with IPv6 up may well
-  // take the IPv6 address. Over IPv6 the server refuses PASV ("425 Can't open
-  // passive connection" -- seen 22.09.2026 against fritz.box) and only EPSV
-  // works, so the log says where we actually landed.
-  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: ftp %s -> %s:%d"), host, ctrl.remoteIP().toString().c_str(), port);
-  int code = tc_ftp_reply(ctrl, line, sizeof(line), 5000);
-  if (code != 220) { ctrl.stop(); AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s greeting %d %s"), host, code, line); return -1; }
-  code = tc_ftp_cmd(ctrl, "USER", user, line, sizeof(line));
-  if (code == 331) code = tc_ftp_cmd(ctrl, "PASS", pw, line, sizeof(line));
-  if (code != 230) { ctrl.stop(); AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s login refused %d %s"), host, code, line); return -3; }
-  tc_ftp_cmd(ctrl, "TYPE", "I", line, sizeof(line));           // binary; a server that refuses still stores
-  // Data port: PASV first (every server has it), EPSV when PASV is refused --
-  // which is what happens on an IPv6 control connection (see above). EPSV
-  // announces only a port; the address is the one of the control connection.
-  IPAddress dip = ctrl.remoteIP();
+  if (!ok) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s:%d no connection"), f.host, f.port); return -1; }
+  f.ctrl.setNoDelay(true);
+  // Which address the name resolved to matters: a Fritzbox (and DNS in
+  // general) answers with AAAA as well, and an ESP32 with IPv6 up takes it.
+  // Over IPv6 the box refuses PASV ("425 Can't open passive connection",
+  // seen 22.09.2026 against fritz.box) and only EPSV works -- see tc_ftp_data.
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: ftp %s -> %s:%d"), f.host, f.ctrl.remoteIP().toString().c_str(), f.port);
+  char line[160];
+  int code = tc_ftp_reply(f.ctrl, line, sizeof(line), 5000);
+  if (code != 220) { f.ctrl.stop(); AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s greeting %d %s"), f.host, code, line); return -1; }
+  code = tc_ftp_cmd(f.ctrl, "USER", f.user, line, sizeof(line));
+  if (code == 331) code = tc_ftp_cmd(f.ctrl, "PASS", f.pw, line, sizeof(line));
+  if (code != 230) { f.ctrl.stop(); AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s login refused %d %s"), f.host, code, line); return -3; }
+  tc_ftp_cmd(f.ctrl, "TYPE", "I", line, sizeof(line));     // binary; a server that refuses still transfers
+  return 0;
+}
+
+// A command on the session. If the link is gone, log in again ONCE and resend.
+// Returns the reply code, or -1 when even the new login failed.
+static int tc_ftp_scmd(TcFtp &f, const char *cmd, const char *arg, char *line, size_t maxlen, uint32_t tmo_ms = 5000) {
+  if (!f.ctrl.connected() && tc_ftp_login(f) != 0) return -1;
+  int code = tc_ftp_cmd(f.ctrl, cmd, arg, line, maxlen, tmo_ms);
+  if (code >= 0) return code;
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: ftp %s: link gone, logging in again"), f.host);
+  if (tc_ftp_login(f) != 0) return -1;
+  return tc_ftp_cmd(f.ctrl, cmd, arg, line, maxlen, tmo_ms);
+}
+
+// Open the data channel (PASV, else EPSV) and issue the transfer command.
+// 0 = data connected and 150/125 seen; -1/-4/-5/-6 otherwise (see the enum).
+static int tc_ftp_data(TcFtp &f, WiFiClient &data, const char *cmd, const char *arg, char *line, size_t maxlen) {
+  int code = tc_ftp_scmd(f, "PASV", nullptr, line, maxlen);
+  if (code < 0) return -1;
+  IPAddress dip = f.ctrl.remoteIP();
   int dport = 0;
-  code = tc_ftp_cmd(ctrl, "PASV", nullptr, line, sizeof(line));
   if (code == 227) {
     int v[6] = {0};
     const char *p = strchr(line, '(');
@@ -5128,31 +5158,40 @@ static int32_t tc_ftp_store(const char *hostport, const char *user, const char *
       dport = v[4] * 256 + v[5];
     }
   }
-  if (!dport) {
-    code = tc_ftp_cmd(ctrl, "EPSV", nullptr, line, sizeof(line));
+  if (!dport) {                                    // IPv6 control link: EPSV, port only
+    code = tc_ftp_cmd(f.ctrl, "EPSV", nullptr, line, maxlen);
     const char *p = (code == 229) ? strstr(line, "|||") : nullptr;
     if (p) dport = atoi(p + 3);
   }
-  if (!dport) {
-    tc_ftp_cmd(ctrl, "QUIT", nullptr, line, sizeof(line), 1000); ctrl.stop();
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s PASV/EPSV refused %d %s"), host, code, line); return -4;
-  }
-  WiFiClient data;
+  if (!dport) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s PASV/EPSV refused %d %s"), f.host, code, line); return -4; }
+  const uint32_t ctmo = Tinyc->tcp_connect_timeout_ms ? Tinyc->tcp_connect_timeout_ms : 2000;
 #ifdef ESP32
-  ok = data.connect(dip, dport, (int32_t)ctmo);
+  bool ok = data.connect(dip, dport, (int32_t)ctmo);
 #else
-  ok = data.connect(dip, dport);
+  bool ok = data.connect(dip, dport);
 #endif
-  if (!ok) {
-    tc_ftp_cmd(ctrl, "QUIT", nullptr, line, sizeof(line), 1000); ctrl.stop();
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s data port %d no connection"), host, dport); return -5;
-  }
+  if (!ok) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s data port %d no connection"), f.host, dport); return -5; }
   data.setNoDelay(true);
-  code = tc_ftp_cmd(ctrl, mode ? "APPE" : "STOR", remote, line, sizeof(line));
+  code = tc_ftp_cmd(f.ctrl, cmd, arg, line, maxlen);
   if (code != 150 && code != 125) {
-    data.stop(); tc_ftp_cmd(ctrl, "QUIT", nullptr, line, sizeof(line), 1000); ctrl.stop();
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s %s refused %d %s"), host, mode ? "APPE" : "STOR", remote, code, line); return -6;
+    data.stop();
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s %s refused %d %s"), f.host, cmd, arg ? arg : "", code, line);
+    return -6;
   }
+  return 0;
+}
+
+// After the data channel is closed: the 226. 0 ok, -7 otherwise.
+static int tc_ftp_done(TcFtp &f, char *line, size_t maxlen) {
+  int code = tc_ftp_reply(f.ctrl, line, maxlen, 10000);
+  return (code == 226 || code == 250) ? 0 : -7;
+}
+
+// STOR/APPE from a file or a memory block. Bytes sent, or a negative code.
+static int32_t tc_ftp_store(TcFtp &f, const char *remote, int mode, TcFtpSrc &src) {
+  char line[160]; WiFiClient data;
+  int r = tc_ftp_data(f, data, mode ? "APPE" : "STOR", remote, line, sizeof(line));
+  if (r) return r;
   int32_t total = 0; bool werr = false;
   const size_t CH = 1024;
   uint8_t *buf = (uint8_t*)malloc(CH);
@@ -5175,14 +5214,44 @@ static int32_t tc_ftp_store(const char *hostport, const char *user, const char *
   if (buf) free(buf);
   data.flush();
   data.stop();                                     // EOF tells the server the file is complete
-  code = tc_ftp_reply(ctrl, line, sizeof(line), 10000);
-  tc_ftp_cmd(ctrl, "QUIT", nullptr, line, sizeof(line), 1000);
-  ctrl.stop();
-  if (werr || (code != 226 && code != 250)) {
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s: %d bytes, not confirmed (%d%s)"), host, remote, total, code, werr ? ", write error" : "");
+  r = tc_ftp_done(f, line, sizeof(line));
+  if (werr || r) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s: %d bytes, not confirmed (%s%s)"), f.host, remote, total, line, werr ? ", write error" : "");
     return -7;
   }
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s %s: %d bytes"), host, mode ? "APPE" : "STOR", remote, total);
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s %s: %d bytes"), f.host, mode ? "APPE" : "STOR", remote, total);
+  return total;
+}
+
+// RETR or NLST into a file and/or a memory block of `cap` bytes. Returns the
+// bytes the server sent (all of them, even beyond cap); *stored says how many
+// landed in mem. Negative on failure.
+static int32_t tc_ftp_fetch(TcFtp &f, const char *cmd, const char *remote, File *file, uint8_t *mem, size_t cap, size_t *stored) {
+  char line[160]; WiFiClient data;
+  int r = tc_ftp_data(f, data, cmd, remote, line, sizeof(line));
+  if (r) return r;
+  int32_t total = 0; size_t st = 0;
+  const size_t CH = 1024;
+  uint8_t *buf = (uint8_t*)malloc(CH);
+  uint32_t last = millis();
+  while (buf) {
+    int n = data.available() ? data.read(buf, CH) : 0;
+    if (n > 0) {
+      last = millis(); total += n;
+      if (file) file->write(buf, n);
+      if (mem && st < cap) { size_t k = ((st + n) <= cap) ? (size_t)n : (cap - st); memcpy(mem + st, buf, k); st += k; }
+      continue;
+    }
+    if (!data.connected() && !data.available()) break;
+    if (millis() - last > 10000) break;            // stalled
+    delay(5);
+  }
+  if (buf) free(buf);
+  data.stop();
+  if (stored) *stored = st;
+  r = tc_ftp_done(f, line, sizeof(line));
+  if (r) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s %s: %d bytes, not confirmed (%s)"), f.host, cmd, remote, total, line); return -7; }
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s %s %s: %d bytes"), f.host, cmd, remote, total);
   return total;
 }
 
@@ -11750,31 +11819,62 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, result);
       break;
     }
-    case SYS_FTP_PUT:
-    case SYS_FTP_PUT_STR: {
-      // ftpPut(host, user, pw, remote, local, mode) / ftpPutStr(host, user, pw, remote, data, mode)
-      const bool from_buf = (id == SYS_FTP_PUT_STR);
-      int32_t mode    = TC_POP(vm);
-      int32_t srcRef  = TC_POP(vm);
-      int32_t remRef  = TC_POP(vm);
-      int32_t pwRef   = TC_POP(vm);
-      int32_t userRef = TC_POP(vm);
-      int32_t hostRef = TC_POP(vm);
-      if (tc_net_blocked_from_callback(vm, from_buf ? "ftpPutStr" : "ftpPut")) { TC_PUSH(vm, -9); break; }
+    // ── FTP session (V32). Every blocking step runs with the VM mutex released
+    // on the slot's own task (the httpPost pattern) -- arguments are copied
+    // out of the VM heap before, results written back after.
+#ifdef ESP32
+#define TC_FTP_UNLOCK()  TcSlot *_fs = tc_current_slot; \
+                         bool _on = (_fs && _fs->task_handle && xTaskGetCurrentTaskHandle() == _fs->task_handle); \
+                         if (_on && _fs->vm_mutex) xSemaphoreGive(_fs->vm_mutex)
+#define TC_FTP_RELOCK()  if (_on && _fs->vm_mutex) { xSemaphoreTake(_fs->vm_mutex, portMAX_DELAY); tc_current_slot = _fs; }
+#else
+#define TC_FTP_UNLOCK()
+#define TC_FTP_RELOCK()
+#endif
+    case SYS_FTP_OPEN: {                             // ftpOpen(host, user, pw) -> 0 ok
+      int32_t pwRef = TC_POP(vm); int32_t userRef = TC_POP(vm); int32_t hostRef = TC_POP(vm);
+      if (tc_net_blocked_from_callback(vm, "ftpOpen")) { TC_PUSH(vm, -9); break; }
       if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, -2); break; }
-      char host[96], user[64], pw[64], remote[128];
-      tc_ref_to_cstr(vm, hostRef, host, sizeof(host));
-      tc_ref_to_cstr(vm, userRef, user, sizeof(user));
-      tc_ref_to_cstr(vm, pwRef, pw, sizeof(pw));
+      if (!tc_ftp_s) tc_ftp_s = new TcFtp();
+      if (!tc_ftp_s) { TC_PUSH(vm, -1); break; }
+      TcFtp &f = *tc_ftp_s;
+      f.ctrl.stop();
+      tc_ref_to_cstr(vm, hostRef, f.host, sizeof(f.host));
+      tc_ref_to_cstr(vm, userRef, f.user, sizeof(f.user));
+      tc_ref_to_cstr(vm, pwRef,   f.pw,   sizeof(f.pw));
+      f.port = 21;
+      char *col = strrchr(f.host, ':');
+      if (col && isdigit((unsigned char)col[1])) { f.port = atoi(col + 1); *col = 0; }
+      TC_FTP_UNLOCK();
+      int32_t r = tc_ftp_login(f);
+      TC_FTP_RELOCK();
+      TC_PUSH(vm, r);
+      break;
+    }
+    case SYS_FTP_CLOSE: {                            // ftpClose()
+      if (tc_ftp_s) {
+        char line[80];
+        TC_FTP_UNLOCK();
+        if (tc_ftp_s->ctrl.connected()) tc_ftp_cmd(tc_ftp_s->ctrl, "QUIT", nullptr, line, sizeof(line), 1000);
+        tc_ftp_s->ctrl.stop();
+        TC_FTP_RELOCK();
+        delete tc_ftp_s; tc_ftp_s = nullptr;
+      }
+      break;
+    }
+    case SYS_FTP_PUT:                                // ftpPut(remote, local, mode)
+    case SYS_FTP_PUT_STR: {                          // ftpPutStr(remote, data, mode)
+      const bool from_buf = (id == SYS_FTP_PUT_STR);
+      int32_t mode = TC_POP(vm); int32_t srcRef = TC_POP(vm); int32_t remRef = TC_POP(vm);
+      if (tc_net_blocked_from_callback(vm, from_buf ? "ftpPutStr" : "ftpPut")) { TC_PUSH(vm, -9); break; }
+      if (!tc_ftp_s) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftpPut: no session, ftpOpen() first")); TC_PUSH(vm, -10); break; }
+      if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, -2); break; }
+      char remote[128];
       tc_ref_to_cstr(vm, remRef, remote, sizeof(remote));
-      // Everything the transfer needs leaves the VM heap NOW -- the mutex is
-      // released for the duration, and another task may move the heap.
       TcFtpSrc src = { nullptr, nullptr, 0 };
-      File f;
-      char *copy = nullptr;
+      File fl; char *copy = nullptr;
       if (from_buf) {
-        int len = tc_ref_str_len(vm, srcRef);
-        if (len < 0) len = 0;
+        int len = tc_ref_str_len(vm, srcRef); if (len < 0) len = 0;
         copy = (char*)malloc(len + 1);
         if (!copy) { TC_PUSH(vm, -7); break; }
         tc_ref_to_cstr(vm, srcRef, copy, len + 1);
@@ -11782,24 +11882,110 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       } else {
         char local[96];
         tc_ref_to_cstr(vm, srcRef, local, sizeof(local));
-        if (ufsp) f = ufsp->open(local, "r");
-        if (!f) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftpPut: %s missing"), local); TC_PUSH(vm, -8); break; }
-        src.file = &f;
+        if (ufsp) fl = ufsp->open(local, "r");
+        if (!fl) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftpPut: %s missing"), local); TC_PUSH(vm, -8); break; }
+        src.file = &fl;
       }
-      TcSlot *_fs = tc_current_slot;
-#ifdef ESP32
-      bool _on_vm_task = (_fs && _fs->task_handle && xTaskGetCurrentTaskHandle() == _fs->task_handle);
-      if (_on_vm_task && _fs->vm_mutex) xSemaphoreGive(_fs->vm_mutex);
-#endif
-      int32_t result = tc_ftp_store(host, user, pw, remote, mode, src);
-#ifdef ESP32
-      if (_on_vm_task && _fs->vm_mutex) { xSemaphoreTake(_fs->vm_mutex, portMAX_DELAY); tc_current_slot = _fs; }
-#endif
-      if (f) f.close();
+      TC_FTP_UNLOCK();
+      int32_t r = tc_ftp_store(*tc_ftp_s, remote, mode, src);
+      TC_FTP_RELOCK();
+      if (fl) fl.close();
       if (copy) free(copy);
+      TC_PUSH(vm, r);
+      break;
+    }
+    case SYS_FTP_GET: {                              // ftpGet(remote, local) -> bytes
+      int32_t locRef = TC_POP(vm); int32_t remRef = TC_POP(vm);
+      if (tc_net_blocked_from_callback(vm, "ftpGet")) { TC_PUSH(vm, -9); break; }
+      if (!tc_ftp_s) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftpGet: no session, ftpOpen() first")); TC_PUSH(vm, -10); break; }
+      if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, -2); break; }
+      char remote[128], local[96];
+      tc_ref_to_cstr(vm, remRef, remote, sizeof(remote));
+      tc_ref_to_cstr(vm, locRef, local, sizeof(local));
+      File fl;
+      if (ufsp) fl = ufsp->open(local, "w");
+      if (!fl) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftpGet: cannot write %s"), local); TC_PUSH(vm, -8); break; }
+      TC_FTP_UNLOCK();
+      int32_t r = tc_ftp_fetch(*tc_ftp_s, "RETR", remote, &fl, nullptr, 0, nullptr);
+      TC_FTP_RELOCK();
+      fl.close();
+      if (r < 0 && ufsp) ufsp->remove(local);       // no half files
+      TC_PUSH(vm, r);
+      break;
+    }
+    case SYS_FTP_GET_STR:                            // ftpGetStr(remote, buf) -> bytes in buf
+    case SYS_FTP_LIST: {                             // ftpList(dir, buf)      -> entries
+      const bool list = (id == SYS_FTP_LIST);
+      int32_t bufRef = TC_POP(vm); int32_t remRef = TC_POP(vm);
+      if (tc_net_blocked_from_callback(vm, list ? "ftpList" : "ftpGetStr")) { TC_PUSH(vm, -9); break; }
+      if (!tc_ftp_s) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp: no session, ftpOpen() first")); TC_PUSH(vm, -10); break; }
+      if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, -2); break; }
+      char remote[128];
+      tc_ref_to_cstr(vm, remRef, remote, sizeof(remote));
+      int32_t *out = tc_resolve_ref(vm, bufRef);
+      int32_t cap = out ? tc_ref_maxlen(vm, bufRef) - 1 : 0;
+      if (cap <= 0) { TC_PUSH(vm, -7); break; }
+      uint8_t *mem = (uint8_t*)malloc(cap);
+      if (!mem) { TC_PUSH(vm, -7); break; }
+      size_t st = 0;
+      TC_FTP_UNLOCK();
+      int32_t r = tc_ftp_fetch(*tc_ftp_s, list ? "NLST" : "RETR", remote, nullptr, mem, (size_t)cap, &st);
+      TC_FTP_RELOCK();
+      out = tc_resolve_ref(vm, bufRef);             // the heap may have moved meanwhile
+      int32_t result = r;
+      if (r >= 0 && out) {
+        const bool ist_bytes = tc_ref_is_bytes(bufRef);
+        int32_t n = 0, entries = 0;
+        for (size_t i = 0; i < st; i++) {
+          uint8_t c = mem[i];
+          if (list && c == '\r') continue;           // NLST lines end in CRLF
+          if (list && c == '\n') entries++;
+          tc_chr_put(out, ist_bytes, n++, c);
+        }
+        if (list && n > 0 && mem[st - 1] != '\n') entries++;
+        tc_chr_put(out, ist_bytes, n, 0);
+        if ((size_t)r > st) AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s: %d of %d bytes kept, buffer too small"), remote, (int)st, (int)r);
+        result = list ? entries : n;
+      }
+      free(mem);
       TC_PUSH(vm, result);
       break;
     }
+    case SYS_FTP_SIZE:                               // ftpSize(remote)   -> bytes
+    case SYS_FTP_DELETE:                             // ftpDelete(remote) -> 0
+    case SYS_FTP_MKDIR:                              // ftpMkdir(dir)     -> 0
+    case SYS_FTP_RENAME: {                           // ftpRename(from, to) -> 0
+      int32_t toRef = (id == SYS_FTP_RENAME) ? TC_POP(vm) : 0;
+      int32_t remRef = TC_POP(vm);
+      if (tc_net_blocked_from_callback(vm, "ftp")) { TC_PUSH(vm, -9); break; }
+      if (!tc_ftp_s) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp: no session, ftpOpen() first")); TC_PUSH(vm, -10); break; }
+      if (TasmotaGlobal.global_state.network_down) { TC_PUSH(vm, -2); break; }
+      char remote[128], to[128]; char line[160];
+      tc_ref_to_cstr(vm, remRef, remote, sizeof(remote));
+      if (id == SYS_FTP_RENAME) tc_ref_to_cstr(vm, toRef, to, sizeof(to));
+      TC_FTP_UNLOCK();
+      int32_t r; int code;
+      if (id == SYS_FTP_SIZE) {
+        code = tc_ftp_scmd(*tc_ftp_s, "SIZE", remote, line, sizeof(line));
+        r = (code == 213) ? atoi(line + 4) : (code < 0 ? -1 : -6);
+      } else if (id == SYS_FTP_DELETE) {
+        code = tc_ftp_scmd(*tc_ftp_s, "DELE", remote, line, sizeof(line));
+        r = (code == 250) ? 0 : (code < 0 ? -1 : -6);
+      } else if (id == SYS_FTP_MKDIR) {
+        code = tc_ftp_scmd(*tc_ftp_s, "MKD", remote, line, sizeof(line));
+        r = (code == 257) ? 0 : (code < 0 ? -1 : -6);
+      } else {
+        code = tc_ftp_scmd(*tc_ftp_s, "RNFR", remote, line, sizeof(line));
+        if (code == 350) code = tc_ftp_cmd(tc_ftp_s->ctrl, "RNTO", to, line, sizeof(line));
+        r = (code == 250) ? 0 : (code < 0 ? -1 : -6);
+      }
+      TC_FTP_RELOCK();
+      if (r == -6) AddLog(LOG_LEVEL_INFO, PSTR("TCC: ftp %s: %d %s"), remote, code, line);
+      TC_PUSH(vm, r);
+      break;
+    }
+#undef TC_FTP_UNLOCK
+#undef TC_FTP_RELOCK
     case SYS_HTTP_HEADER: {
       b = TC_POP(vm);  // value ref
       a = TC_POP(vm);  // name ref

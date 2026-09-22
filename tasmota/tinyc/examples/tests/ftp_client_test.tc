@@ -1,16 +1,25 @@
 // @name: FTP-Client Pruefung
-// ftp_client_test.tc -- die Rueckgabewerte von ftpPut/ftpPutStr an einem
-// echten Server durchspielen. Liest Host/Benutzer/Passwort aus /ftp.cfg
-// (wie ftp_log.tc), schreibt nach /test/ auf dem Server. Ergebnis im Log.
-// Erwartung: put>0, app1>0, app2>0 (Datei waechst), pw=-3, tot=-1 (und
-// schnell: unter 4 s), fehlt=-8.
+// ftp_client_test.tc -- alle FTP-Aufrufe an einem echten Server durchspielen.
+// Liest Host/Benutzer/Passwort aus /ftp.cfg (wie ftp_log.tc) und arbeitet
+// unter <Verzeichnis der 4. Zeile>/tctest/ auf dem Server. Ergebnis im Log:
+//   open=0 mkdir=0 put>0 app1>0 app2>0 size=22 get>0 getstr=22 list>=2
+//   ren=0 del=0 size2=-6 pw=-3 tot=-1 (schnell, unter 4 s) fehlt=-8 nosess=-10
 
-char host[64]; char user[32]; char pw[32]; char remote[96];
-char cfg[256]; char msg[160];
+char host[64]; char user[32]; char pw[32]; char ziel[96]; char dir[96];
+char cfg[256]; char msg[240]; char buf[256]; char namen[256];
+char p1[128]; char p2[128]; char p3[128];
 
 void trim(char s[]) {
     int n = strlen(s);
-    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n--; s[n] = 0; }
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n' || s[n - 1] == '/')) { n--; s[n] = 0; }
+}
+// Verzeichnis der Zieldatei: alles bis zum letzten '/'
+void dirname(char src[], char dst[]) {
+    strcpy(dst, src);
+    int n = strlen(dst);
+    while (n > 0 && dst[n - 1] != '/') { n--; }
+    if (n > 1) n--;
+    dst[n] = 0;
 }
 
 int main() {
@@ -20,18 +29,45 @@ int main() {
     webParse(cfg, "\n", 1, host); trim(host);
     webParse(cfg, "\n", 2, user); trim(user);
     webParse(cfg, "\n", 3, pw);   trim(pw);
+    webParse(cfg, "\n", 4, ziel); trim(ziel);
+    dirname(ziel, dir);
     tcpConnectTimeout(3000);
 
-    int put  = ftpPut(host, user, pw, "/test/ftp.cfg", "/ftp.cfg", 0);
+    int nosess = ftpSize("/x");                          // vor ftpOpen: -10
+    int open = ftpOpen(host, user, pw);
+    sprintf(p1, "%s/tctest", dir);
+    int mk = ftpMkdir(p1);
+    sprintf(p1, "%s/tctest/ftp.cfg", dir);
+    int put  = ftpPut(p1, "/ftp.cfg", 0);
+    sprintf(p2, "%s/tctest/append.txt", dir);
     char zeile[] = "eine Zeile\n";
-    int app1 = ftpPutStr(host, user, pw, "/test/append.txt", zeile, 1);
-    int app2 = ftpPutStr(host, user, pw, "/test/append.txt", zeile, 1);
-    int pwf  = ftpPutStr(host, "niemand", "falsch", "/test/x.txt", zeile, 0);
+    int app1 = ftpPutStr(p2, zeile, 1);
+    int app2 = ftpPutStr(p2, zeile, 1);
+    int size = ftpSize(p2);
+    int get  = ftpGet(p1, "/tctest_cfg.txt");
+    int gets = ftpGetStr(p2, buf);
+    sprintf(p3, "%s/tctest", dir);
+    int list = ftpList(p3, namen);
+    sprintf(p3, "%s/tctest/append2.txt", dir);
+    int ren  = ftpRename(p2, p3);
+    int del1 = ftpDelete(p3);
+    int del2 = ftpDelete(p1);
+    int size2 = ftpSize(p3);                             // weg: -6
+    sprintf(p3, "%s/tctest", dir);
+    int rmd  = ftpDelete(p3);                            // eine DELE auf ein Verzeichnis: -6 erwartet
+    ftpClose();
+    int pwf  = ftpOpen(host, "niemand", "falsch");
     int t0 = millis();
-    int tot  = ftpPutStr("192.168.188.250:2121", user, pw, "/test/x.txt", zeile, 0);
+    int tot  = ftpOpen("192.168.188.250:2121", user, pw);
     int dt = millis() - t0;
-    int fehlt = ftpPut(host, user, pw, "/test/y.txt", "/gibtsnicht.txt", 0);
-    sprintf(msg, "ftp_test: put=%d app1=%d app2=%d pw=%d tot=%d (%d ms) fehlt=%d", put, app1, app2, pwf, tot, dt, fehlt);
+    int fehlt = -99;
+    if (ftpOpen(host, user, pw) == 0) { fehlt = ftpPut(p1, "/gibtsnicht.txt", 0); ftpClose(); }
+    fileDelete("/tctest_cfg.txt");
+    sprintf(msg, "ftp_test: nosess=%d open=%d mkdir=%d put=%d app1=%d app2=%d size=%d get=%d getstr=%d list=%d",
+            nosess, open, mk, put, app1, app2, size, get, gets, list);
+    addLog(msg);
+    sprintf(msg, "ftp_test: ren=%d del=%d/%d size2=%d rmdir=%d pw=%d tot=%d (%d ms) fehlt=%d | list: %s",
+            ren, del1, del2, size2, rmd, pwf, tot, dt, fehlt, namen);
     addLog(msg);
     return 0;
 }

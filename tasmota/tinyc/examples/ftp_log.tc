@@ -17,7 +17,7 @@
 // Beim Start wird die Datei gelesen; fehlt sie, gelten die Vorgaben unten.
 //
 // Konsole (Praefix FTP):
-//   FTPSET host;user;pw;/pfad/datei.csv   Ziel setzen (bis Neustart)
+//   FTPSET host;user;pw;/pfad/datei.csv   Ziel setzen und neu anmelden (bis Neustart)
 //   FTPSAVE                                das Gesetzte nach /ftp.cfg schreiben
 //   FTPGO                                  gesammelte Zeilen jetzt senden
 //   FTPSTAT                                Puffer, letzter Rueckgabewert, Ziel
@@ -57,7 +57,7 @@ void TaskLoop() {
     if (!go) return;
     go = 0;
     if (strlen(zeilen) == 0) return;
-    int r = ftpPutStr(host, user, pw, remote, zeilen, 1);   // 1 = anhaengen
+    int r = ftpPutStr(remote, zeilen, 1);   // 1 = anhaengen; Sitzung aus main()
     letzter = r;
     if (r >= 0) { gesendet = gesendet + r; zeilen[0] = 0; }
     // bei Fehler bleibt der Puffer stehen: naechster Versuch in 5 Minuten
@@ -107,7 +107,8 @@ void Command(char cmd[]) {
               + webParse(rest, ";", 1, user)
               + webParse(rest, ";", 2, pw)
               + webParse(rest, ";", 3, remote);
-        sprintf(resp, "host=%s user=%s remote=%s", host, user, remote);
+        int r = ftpOpen(host, user, pw);      // neue Sitzung mit den neuen Daten
+        sprintf(resp, "host=%s user=%s remote=%s open=%d", host, user, remote, r);
         responseCmnd(resp);
     } else if (strcmp(cmd, "SAVE") == 0) {
         sprintf(resp, "ftp.cfg: %d Byte", cfgSchreiben());
@@ -128,5 +129,7 @@ int main() {
     if (cfgLesen()) addLog("ftp_log: /ftp.cfg gelesen"); else addLog("ftp_log: keine /ftp.cfg, Vorgaben gelten");
     tcpConnectTimeout(3000);
     addCommand("FTP");
+    int r = ftpOpen(host, user, pw);          // einmal anmelden; die Sitzung bleibt
+    sprintf(stamp, "ftp_log: ftpOpen %s = %d", host, r); addLog(stamp);
     return 0;
 }

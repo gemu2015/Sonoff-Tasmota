@@ -102,7 +102,7 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **Dateien:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`
 **Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
-**FTP:** `ftpPut`, `ftpPutStr` — eine Datei oder einen Puffer auf einen FTP-Server (FRITZ!NAS …), ersetzen oder anhängen
+**FTP:** `ftpOpen`, `ftpClose`, `ftpPut`, `ftpPutStr`, `ftpGet`, `ftpGetStr`, `ftpList`, `ftpSize`, `ftpDelete`, `ftpMkdir`, `ftpRename` — Dateien auf einem FTP-Server (FRITZ!NAS …): schreiben oder anhängen, lesen, auflisten, verwalten
 **UDP:** `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (allgemein, Modi 0-7) — skalare `global` Floats senden automatisch bei Zuweisung
 **Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`, `dspTextWidth`, `dspTextHeight`
 **Bildspeicher:** `dspLoadImage`, `dspPushImageRect`, `dspImageWidth`, `dspImageHeight`, `dspImgText`, `dspLoadImageFromCam`, `dspImgTextBurn`, `dspImageToCam` — PSRAM-Bildslots fuer flimmerfreies Compositing + Cam ↔ Bild Bruecke zum Einbrennen von Zeitstempeln/Labels in JPEG-Aufnahmen

@@ -104,10 +104,20 @@ const BUILTINS = {
     'serialWrite':      { syscall: Syscall.SERIAL_WRITE_STR,   args: 2, returns: false, strArgs: [1] },
     'serialWriteBytes': { syscall: Syscall.SERIAL_WRITE_BUF,   args: 3, returns: false, strArgs: [1] },
     'serialReadArray':  { syscall: Syscall.SERIAL_READ_ARR,   args: 3, returns: true,  strArgs: [1], intArgs: [2] },
-    // FTP client (V32): host/user/pw/remote may be literals or char[]; the
-    // source is a filesystem path (ftpPut) or a text buffer (ftpPutStr).
-    'ftpPut':           { syscall: Syscall.FTP_PUT,           args: 6, returns: true,  strArgs: [0, 1, 2, 3, 4], intArgs: [5] },
-    'ftpPutStr':        { syscall: Syscall.FTP_PUT_STR,       args: 6, returns: true,  strArgs: [0, 1, 2, 3, 4], intArgs: [5] },
+    // FTP client (V32): one session per device (ftpOpen/ftpClose), paths and
+    // credentials may be literals or char[]; ftpGetStr/ftpList WRITE into
+    // their buffer byte-aware (hence byteAbi, as httpGet does).
+    'ftpOpen':          { syscall: Syscall.FTP_OPEN,          args: 3, returns: true,  strArgs: [0, 1, 2] },
+    'ftpClose':         { syscall: Syscall.FTP_CLOSE,         args: 0, returns: false },
+    'ftpPut':           { syscall: Syscall.FTP_PUT,           args: 3, returns: true,  strArgs: [0, 1], intArgs: [2] },
+    'ftpPutStr':        { syscall: Syscall.FTP_PUT_STR,       args: 3, returns: true,  strArgs: [0, 1], intArgs: [2] },
+    'ftpGet':           { syscall: Syscall.FTP_GET,           args: 2, returns: true,  strArgs: [0, 1] },
+    'ftpGetStr':        { syscall: Syscall.FTP_GET_STR,       args: 2, returns: true,  strArgs: [0, 1], byteAbi: { args: [1], abi: 32 } },
+    'ftpList':          { syscall: Syscall.FTP_LIST,          args: 2, returns: true,  strArgs: [0, 1], byteAbi: { args: [1], abi: 32 } },
+    'ftpSize':          { syscall: Syscall.FTP_SIZE,          args: 1, returns: true,  strArgs: [0] },
+    'ftpDelete':        { syscall: Syscall.FTP_DELETE,        args: 1, returns: true,  strArgs: [0] },
+    'ftpMkdir':         { syscall: Syscall.FTP_MKDIR,         args: 1, returns: true,  strArgs: [0] },
+    'ftpRename':        { syscall: Syscall.FTP_RENAME,        args: 2, returns: true,  strArgs: [0, 1] },
 
     // Math
     'abs':              { syscall: Syscall.MATH_ABS,        args: 1, returns: true },
@@ -976,7 +986,7 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
-        [556, 32],                      // ftpPut / ftpPutStr
+        [556, 32],                      // ftpOpen … ftpRename (FTP-Sitzung)
         [555, 31],                      // serialReadArray
         [546, 30],                      // usb* (FTDI am USB-Host) -- bis 22.09.2026 fehlten V30/V31 hier,
                                         // ein usbInit-Skript wurde mit 26 gestempelt und lief auf

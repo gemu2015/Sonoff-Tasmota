@@ -3177,22 +3177,35 @@ void main() {
 }
 ```
 
-### FTP-Client: eine Datei oder einen Puffer zum NAS
+### FTP-Client: Dateien auf dem NAS
 
-Eine Datei aus dem Dateisystem des Geraets — oder direkt einen Textpuffer — auf einen FTP-Server legen: das FRITZ!NAS, eine Synology, jeder Rechner im LAN mit FTP-Dienst. Seit 1.6.68 (V32). Entstanden aus der Frage, ob ein ESP32 seine „Datenbank" auf dem Fritzbox-Speicher fuehren kann: der Medienserver der Box ist DLNA und nur lesend, zum SCHREIBEN bietet sie SMB und FTP, und einen brauchbaren SMB-Client gibt es fuer den ESP32 nicht — also FTP. (Tasmotas `USE_FTP` ist nur ein Server und hilft hier nicht; dies ist ein eigener kleiner Client.)
+Dateien auf einem FTP-Server schreiben, lesen, auflisten und verwalten: das FRITZ!NAS, eine Synology, jeder Rechner im LAN mit FTP-Dienst. Seit 1.6.68 (V32). Entstanden aus der Frage, ob ein ESP32 seine „Datenbank" auf dem Fritzbox-Speicher fuehren kann: der Medienserver der Box ist DLNA und nur lesend, zum SCHREIBEN bietet sie SMB und FTP, und einen brauchbaren SMB-Client gibt es fuer den ESP32 nicht — also FTP. (Tasmotas `USE_FTP` ist nur ein Server und hilft hier nicht; dies ist ein eigener kleiner Client.)
+
+**Eine Sitzung je Geraet.** `ftpOpen()` meldet an und haelt die Steuerverbindung; alle weiteren Aufrufe arbeiten darauf. Hat der Server die Verbindung inzwischen abgebaut (die Fritzbox tut das nach einigen Minuten Ruhe), meldet sich der naechste Aufruf still neu an — ein Logger, der alle fuenf Minuten anhaengt, merkt davon nichts.
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `int ftpPut(host, user, pw, remote, local, int mode)` | Die Datei `local` (z. B. `"/log.csv"`, SD-Karte; `/ffs/…` fuer Flash) nach `remote` auf dem Server. `mode` 0 = ersetzen (STOR), 1 = **anhaengen** (APPE). Gibt gesendete Bytes oder einen negativen Fehler |
-| `int ftpPutStr(host, user, pw, remote, char data[], int mode)` | Dasselbe mit dem Inhalt eines `char[]`/`byte[]`-Puffers statt einer Datei — fuer „die neuen Zeilen anhaengen", ohne sie erst lokal zu schreiben |
+| `int ftpOpen(host, user, pw)` | Anmelden. `host` ist IP oder Name, auf Wunsch mit Port (`"192.168.178.1:2121"`). Gibt 0 oder einen negativen Fehler |
+| `void ftpClose()` | Abmelden (QUIT) und die Sitzung freigeben |
+| `int ftpPut(remote, local, int mode)` | Die Datei `local` (z. B. `"/log.csv"`, SD-Karte; `/ffs/…` fuer Flash) nach `remote`. `mode` 0 = ersetzen (STOR), 1 = **anhaengen** (APPE). Gibt gesendete Bytes |
+| `int ftpPutStr(remote, char data[], int mode)` | Dasselbe mit dem Inhalt eines `char[]`/`byte[]`-Puffers — fuer „die neuen Zeilen anhaengen", ohne sie erst lokal zu schreiben |
+| `int ftpGet(remote, local)` | Datei vom Server nach `local` holen. Gibt empfangene Bytes; bei Fehler bleibt keine halbe Datei zurueck |
+| `int ftpGetStr(remote, char buf[])` | Datei in einen Puffer holen, mit NUL abgeschlossen. Gibt die im Puffer abgelegten Bytes; ist die Datei groesser, wird sie abgeschnitten und das Log sagt es |
+| `int ftpList(dir, char buf[])` | Namen im Verzeichnis, einer je Zeile (`\n`), nach `buf`. Gibt die Zahl der Eintraege. ⚠️ Was in der Zeile steht, bestimmt der Server: die Fritzbox liefert **volle Pfade** (`/FRITZ/mediabox/tctest/ftp.cfg`), andere nur den Namen |
+| `int ftpSize(remote)` | Groesse einer Datei auf dem Server in Bytes |
+| `int ftpDelete(remote)` | Datei loeschen. 0 = ok |
+| `int ftpMkdir(dir)` | Verzeichnis anlegen. 0 = ok |
+| `int ftpRename(von, nach)` | Umbenennen oder verschieben. 0 = ok |
 
-`host` ist Name oder IP, auf Wunsch mit Port (`"192.168.178.1:2121"`); alle Zeichenketten duerfen Literale oder `char[]` sein. ⚠️ **Lieber die IP als `fritz.box`:** die Box antwortet auf den Namen auch mit IPv6, und ein ESP32 mit IPv6 nimmt die gern — ueber IPv6 verweigert der FTP-Server der Box PASV („425 Can't open passive connection", 22.09.2026 gesehen). Der Client faellt dann auf EPSV zurueck und kommt durch, aber die IP ist der kuerzere Weg; im Log steht bei Weblog 4, wohin der Name aufgeloest wurde. `remote` ist der Pfad auf dem Server, beim FRITZ!NAS mit dem Datentraeger vorn. Der **interne Speicher** der Box ist `/FRITZ/mediabox/…` (die Wurzel `/FRITZ/` selbst ist nicht beschreibbar, 553), ein USB-Stick heisst wie sein Datentraegername; die Namen zeigt `fritz.box` unter FRITZ!NAS oder `curl --user … ftp://192.168.178.1/ --list-only`. Der Benutzer braucht unter *System → FRITZ!Box-Benutzer* den „Zugang zu NAS-Inhalten" mit Schreibrecht.
+Alle Zeichenketten duerfen Literale oder `char[]` sein. `remote` ist der Pfad auf dem Server, beim FRITZ!NAS mit dem Datentraeger vorn: der **interne Speicher** der Box ist `/FRITZ/mediabox/…` (die Wurzel `/FRITZ/` selbst ist nicht beschreibbar, 553), ein USB-Stick heisst wie sein Datentraeger; `ftpList("/", buf)` zeigt die Namen, ebenso `fritz.box` unter FRITZ!NAS oder `curl --user … ftp://192.168.178.1/ --list-only`. Der Benutzer braucht unter *System → FRITZ!Box-Benutzer* den „Zugang zu NAS-Inhalten" mit Schreibrecht, und der FTP-Zugang muss unter *Heimnetz → Speicher (NAS)* eingeschaltet sein.
 
-**Rueckgabe:** `>= 0` gesendete Bytes. `-1` keine Verbindung oder kein Willkommen, `-2` kein Netz, `-3` Anmeldung abgewiesen, `-4` PASV und EPSV abgewiesen, `-5` Datenverbindung scheitert, `-6` STOR/APPE abgewiesen (Pfad falsch, keine Schreibrechte), `-7` Uebertragung nicht bestaetigt, `-8` lokale Datei fehlt, `-9` aus einem Main-Loop-Callback gerufen. Jeder Fehler steht mit der Serverantwort im Tasmota-Log (`TCC: ftp …`).
+⚠️ **Lieber die IP als `fritz.box`:** die Box antwortet auf den Namen auch mit IPv6, und ein ESP32 mit IPv6 nimmt die gern — ueber IPv6 verweigert der FTP-Server der Box PASV („425 Can't open passive connection", 22.09.2026 gesehen). Der Client faellt dann auf EPSV zurueck und kommt durch, aber die IP ist der kuerzere Weg; bei Weblog 4 steht im Log, wohin der Name aufgeloest wurde.
 
-**Blockierend, wie `httpPost`:** die ganze Uebertragung dauert, und ein toter Server kostet die Verbindungszeit (`tcpConnectTimeout`, Vorgabe 2 s) plus bis zu 5 s je Antwort. Darum aus `main()` oder `TaskLoop()` rufen — beide laufen auf dem VM-Task, dort wird der Mutex waehrend der Uebertragung freigegeben, `EverySecond` und die Weboberflaeche laufen weiter. Aus `EverySecond` (Main-Loop) laeuft die Uebertragung mit GEHALTENEM Mutex und friert derweil alle Slots und die Weboberflaeche ein — also nicht; ist auf dem Slot ein Worker aktiv, wird der Aufruf dort abgewiesen (`-9`). ⚠️ **Kein `spawnTask`-Worker fuer den Zeilenpuffer:** auf dem ESP32 hat ein Worker seine eigene VM und sieht Heap-Objekte des Hauptkontexts nicht — ein `char[]` ueber 16 Zeichen ist so eines. Der Worker saehe einen leeren Puffer, und nichts wuerde je gesendet (22.09.2026, an genau diesem Beispiel).
+**Rueckgabe:** `>= 0` Bytes bzw. Eintraege bzw. 0 = ok. `-1` keine Verbindung oder kein Willkommen, `-2` kein Netz, `-3` Anmeldung abgewiesen, `-4` PASV und EPSV abgewiesen, `-5` Datenverbindung scheitert, `-6` Befehl abgewiesen (Pfad falsch, keine Rechte, Datei fehlt), `-7` Uebertragung nicht bestaetigt, `-8` lokale Datei fehlt oder nicht schreibbar, `-9` gerufen, waehrend ein Worker aktiv ist, `-10` keine Sitzung (`ftpOpen` fehlt). Jeder Fehler steht mit der Serverantwort im Tasmota-Log (`TCC: ftp …`).
 
-**Sinnvoll ist Anhaengen in Bloecken**, nicht jeder Messwert einzeln: eine Zeile je Messung in einen Puffer, alle paar Minuten `ftpPutStr(..., 1)`. Beim FRITZ!NAS muss der FTP-Zugang unter *Heimnetz → Speicher (NAS)* eingeschaltet sein und der Benutzer Schreibrechte auf dem Datentraeger haben.
+**Blockierend, wie `httpPost`:** jede Uebertragung dauert, und ein toter Server kostet die Verbindungszeit (`tcpConnectTimeout`, Vorgabe 2 s) plus bis zu 5 s je Antwort. Darum aus `main()` oder `TaskLoop()` rufen — beide laufen auf dem VM-Task, dort wird der Mutex waehrend der Uebertragung freigegeben, `EverySecond` und die Weboberflaeche laufen weiter. Aus `EverySecond` (Main-Loop) liefe die Uebertragung mit GEHALTENEM Mutex und froere derweil alle Slots und die Weboberflaeche ein — also nicht; ist auf dem Slot ein Worker aktiv, wird der Aufruf dort abgewiesen (`-9`). ⚠️ **Kein `spawnTask`-Worker fuer den Zeilenpuffer:** auf dem ESP32 hat ein Worker seine eigene VM und sieht Heap-Objekte des Hauptkontexts nicht — ein `char[]` ueber 16 Zeichen ist so eines. Der Worker saehe einen leeren Puffer, und nichts wuerde je gesendet (22.09.2026, an genau diesem Beispiel).
+
+**Sinnvoll ist Anhaengen in Bloecken**, nicht jeder Messwert einzeln: eine Zeile je Messung in einen Puffer, alle paar Minuten `ftpPutStr(..., 1)`.
 
 **Zugangsdaten gehoeren nicht in den Quelltext.** `examples/ftp_log.tc` liest Host, Benutzer, Passwort und Zielpfad aus `/ftp.cfg` auf dem Geraet (vier Zeilen) und schreibt sie mit `FTPSAVE` dorthin zurueck; das Beispiel unten ist auf das Wesentliche gekuerzt.
 
@@ -3216,7 +3229,7 @@ void TaskLoop() {              // VM-Task: hier darf gewartet werden
     delay(1000);
     if (!senden || strlen(zeilen) == 0) return;
     senden = 0;
-    int r = ftpPutStr("192.168.178.1", "esp", "geheim", "/FRITZ/mediabox/klima.csv", zeilen, 1);
+    int r = ftpPutStr("/FRITZ/mediabox/klima.csv", zeilen, 1);   // die Sitzung aus main()
     if (r >= 0) { zeilen[0] = 0; fehler = 0; }
     else        { fehler = r; }        // Puffer bleibt, naechster Versuch in 5 min
 }
@@ -3224,6 +3237,24 @@ void TaskLoop() {              // VM-Task: hier darf gewartet werden
 int main() {
     zeilen[0] = 0;
     tcpConnectTimeout(3000);
+    ftpOpen("192.168.178.1", "esp", "geheim");
+    return 0;
+}
+```
+
+**Lesen und aufraeumen** — eine Konfiguration von der Box holen, den Ordner ansehen, Altes wegraeumen:
+
+```c
+char cfg[512]; char namen[512];
+int main() {
+    if (ftpOpen("192.168.178.1", "esp", "geheim") != 0) return 1;
+    int n = ftpGetStr("/FRITZ/mediabox/esp.cfg", cfg);       // Text in den Puffer
+    int k = ftpList("/FRITZ/mediabox", namen);               // Namen, einer je Zeile
+    if (ftpSize("/FRITZ/mediabox/klima.csv") > 200000) {
+        ftpRename("/FRITZ/mediabox/klima.csv", "/FRITZ/mediabox/klima_alt.csv");
+    }
+    ftpGet("/FRITZ/mediabox/tabelle.bin", "/tabelle.bin");   // auf die SD-Karte
+    ftpClose();
     return 0;
 }
 ```

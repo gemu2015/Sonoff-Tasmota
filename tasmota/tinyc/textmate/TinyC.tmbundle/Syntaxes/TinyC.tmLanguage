@@ -363,7 +363,7 @@
 					<key>name</key>
 					<string>support.function.http.tinyc</string>
 					<key>match</key>
-					<string>\b(httpGet|httpPost|httpHeader|webParse|ftpPut|ftpPutStr)\b</string>
+					<string>\b(httpGet|httpPost|httpHeader|webParse|ftpOpen|ftpClose|ftpPut|ftpPutStr|ftpGet|ftpGetStr|ftpList|ftpSize|ftpDelete|ftpMkdir|ftpRename)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>

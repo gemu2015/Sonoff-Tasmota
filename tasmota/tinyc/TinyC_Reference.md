@@ -3247,22 +3247,35 @@ void main() {
 }
 ```
 
-### FTP Client: a file or a buffer to the NAS
+### FTP Client: files on the NAS
 
-Put a file from the device filesystem — or a text buffer directly — onto an FTP server: the FRITZ!NAS, a Synology, any LAN machine running an FTP service. Since 1.6.68 (V32). It came out of the question whether an ESP32 can keep its "database" on the Fritzbox storage: the box's media server is DLNA and read-only, what it offers for WRITING is SMB and FTP, and there is no usable SMB client for the ESP32 — so FTP. (Tasmota's `USE_FTP` is a server only and does not help here; this is a small client of its own.)
+Write, read, list and manage files on an FTP server: the FRITZ!NAS, a Synology, any LAN machine running an FTP service. Since 1.6.68 (V32). It came out of the question whether an ESP32 can keep its "database" on the Fritzbox storage: the box's media server is DLNA and read-only, what it offers for WRITING is SMB and FTP, and there is no usable SMB client for the ESP32 — so FTP. (Tasmota's `USE_FTP` is a server only and does not help here; this is a small client of its own.)
+
+**One session per device.** `ftpOpen()` logs in and keeps the control connection; every other call works on it. If the server has meanwhile dropped the link (a Fritzbox does after a few idle minutes) the next call logs in again silently — a logger appending every five minutes never notices.
 
 | Function | Description |
 |----------|-------------|
-| `int ftpPut(host, user, pw, remote, local, int mode)` | Send the file `local` (e.g. `"/log.csv"` on the SD card; `/ffs/…` for flash) to `remote` on the server. `mode` 0 = replace (STOR), 1 = **append** (APPE). Returns bytes sent or a negative error |
-| `int ftpPutStr(host, user, pw, remote, char data[], int mode)` | Same with the contents of a `char[]`/`byte[]` buffer instead of a file — for "append the new lines" without writing them locally first |
+| `int ftpOpen(host, user, pw)` | Log in. `host` is an IP or name, optionally with a port (`"192.168.178.1:2121"`). Returns 0 or a negative error |
+| `void ftpClose()` | Log out (QUIT) and release the session |
+| `int ftpPut(remote, local, int mode)` | Send the file `local` (e.g. `"/log.csv"` on the SD card; `/ffs/…` for flash) to `remote`. `mode` 0 = replace (STOR), 1 = **append** (APPE). Returns bytes sent |
+| `int ftpPutStr(remote, char data[], int mode)` | Same with the contents of a `char[]`/`byte[]` buffer — for "append the new lines" without writing them locally first |
+| `int ftpGet(remote, local)` | Fetch a file from the server into `local`. Returns bytes received; on failure no half file is left behind |
+| `int ftpGetStr(remote, char buf[])` | Fetch a file into a buffer, NUL-terminated. Returns the bytes stored; a larger file is cut and the log says so |
+| `int ftpList(dir, char buf[])` | Names in the directory, one per line (`\n`), into `buf`. Returns the number of entries. ⚠️ What a line holds is up to the server: the Fritzbox returns **full paths** (`/FRITZ/mediabox/tctest/ftp.cfg`), others just the name |
+| `int ftpSize(remote)` | Size of a file on the server in bytes |
+| `int ftpDelete(remote)` | Delete a file. 0 = ok |
+| `int ftpMkdir(dir)` | Create a directory. 0 = ok |
+| `int ftpRename(from, to)` | Rename or move. 0 = ok |
 
-`host` is a name or IP, optionally with a port (`"192.168.178.1:2121"`); all strings may be literals or `char[]`. ⚠️ **Prefer the IP over `fritz.box`:** the box answers the name with IPv6 as well, and an ESP32 with IPv6 up happily takes it — over IPv6 the box's FTP server refuses PASV ("425 Can't open passive connection", seen 2026-09-22). The client then falls back to EPSV and gets through, but the IP is the shorter way; at weblog 4 the log shows what the name resolved to. `remote` is the path on the server; on a FRITZ!NAS it starts with the volume. The box's **internal storage** is `/FRITZ/mediabox/…` (the root `/FRITZ/` itself is not writable, 553), a USB stick is named after its volume label; the names are shown on `fritz.box` under FRITZ!NAS or by `curl --user … ftp://192.168.178.1/ --list-only`. The user needs "access to NAS contents" with write permission under *System → FRITZ!Box Users*.
+All strings may be literals or `char[]`. `remote` is the path on the server; on a FRITZ!NAS it starts with the volume: the box's **internal storage** is `/FRITZ/mediabox/…` (the root `/FRITZ/` itself is not writable, 553), a USB stick is named after its volume label; `ftpList("/", buf)` shows the names, as does `fritz.box` under FRITZ!NAS or `curl --user … ftp://192.168.178.1/ --list-only`. The user needs "access to NAS contents" with write permission under *System → FRITZ!Box Users*, and FTP access must be enabled under *Home Network → Storage (NAS)*.
 
-**Return:** `>= 0` bytes sent. `-1` no connection or no greeting, `-2` network down, `-3` login refused, `-4` PASV and EPSV refused, `-5` data connection failed, `-6` STOR/APPE refused (wrong path, no write permission), `-7` transfer not confirmed, `-8` local file missing, `-9` called from a main-loop callback. Every failure is logged with the server's reply (`TCC: ftp …`).
+⚠️ **Prefer the IP over `fritz.box`:** the box answers the name with IPv6 as well, and an ESP32 with IPv6 up happily takes it — over IPv6 the box's FTP server refuses PASV ("425 Can't open passive connection", seen 2026-09-22). The client then falls back to EPSV and gets through, but the IP is the shorter way; at weblog 4 the log shows what the name resolved to.
 
-**Blocking, like `httpPost`:** the whole transfer takes its time, and a dead server costs the connect timeout (`tcpConnectTimeout`, default 2 s) plus up to 5 s per reply. So call it from `main()` or `TaskLoop()` — both run on the VM task, where the mutex is released for the duration while `EverySecond` and the web UI keep running. From `EverySecond` (main loop) the transfer runs with the mutex HELD and freezes every slot and the web UI meanwhile — so don't; if a worker is active on the slot the call is refused there (`-9`). ⚠️ **No `spawnTask` worker for the line buffer:** on the ESP32 a worker has its own VM and does not see the main context's heap objects — and a `char[]` over 16 characters is one. The worker would see an empty buffer and nothing would ever be sent (2026-09-22, on exactly this example).
+**Return:** `>= 0` bytes, entries, or 0 = ok. `-1` no connection or no greeting, `-2` network down, `-3` login refused, `-4` PASV and EPSV refused, `-5` data connection failed, `-6` command refused (wrong path, no permission, file missing), `-7` transfer not confirmed, `-8` local file missing or not writable, `-9` called while a worker is active, `-10` no session (`ftpOpen` missing). Every failure is logged with the server's reply (`TCC: ftp …`).
 
-**Append in blocks**, not one reading at a time: one line per reading into a buffer, every few minutes `ftpPutStr(..., 1)`. On a FRITZ!NAS the FTP access must be enabled under *Home Network → Storage (NAS)* and the user needs write permission on the volume.
+**Blocking, like `httpPost`:** every transfer takes its time, and a dead server costs the connect timeout (`tcpConnectTimeout`, default 2 s) plus up to 5 s per reply. So call it from `main()` or `TaskLoop()` — both run on the VM task, where the mutex is released for the duration while `EverySecond` and the web UI keep running. From `EverySecond` (main loop) the transfer would run with the mutex HELD and freeze every slot and the web UI meanwhile — so don't; if a worker is active on the slot the call is refused there (`-9`). ⚠️ **No `spawnTask` worker for the line buffer:** on the ESP32 a worker has its own VM and does not see the main context's heap objects — and a `char[]` over 16 characters is one. The worker would see an empty buffer and nothing would ever be sent (2026-09-22, on exactly this example).
+
+**Append in blocks**, not one reading at a time: one line per reading into a buffer, every few minutes `ftpPutStr(..., 1)`.
 
 **Credentials do not belong in the source.** `examples/ftp_log.tc` reads host, user, password and remote path from `/ftp.cfg` on the device (four lines) and writes them back with `FTPSAVE`; the example below is cut down to the essentials.
 
@@ -3286,7 +3299,7 @@ void TaskLoop() {              // VM task: waiting is allowed here
     delay(1000);
     if (!send || strlen(lines) == 0) return;
     send = 0;
-    int r = ftpPutStr("192.168.178.1", "esp", "secret", "/FRITZ/mediabox/climate.csv", lines, 1);
+    int r = ftpPutStr("/FRITZ/mediabox/climate.csv", lines, 1);   // the session from main()
     if (r >= 0) { lines[0] = 0; err = 0; }
     else        { err = r; }           // buffer stays, next try in 5 min
 }
@@ -3294,6 +3307,24 @@ void TaskLoop() {              // VM task: waiting is allowed here
 int main() {
     lines[0] = 0;
     tcpConnectTimeout(3000);
+    ftpOpen("192.168.178.1", "esp", "secret");
+    return 0;
+}
+```
+
+**Reading and housekeeping** — fetch a configuration from the box, look at the folder, rotate the old file:
+
+```c
+char cfg[512]; char names[512];
+int main() {
+    if (ftpOpen("192.168.178.1", "esp", "secret") != 0) return 1;
+    int n = ftpGetStr("/FRITZ/mediabox/esp.cfg", cfg);         // text into the buffer
+    int k = ftpList("/FRITZ/mediabox", names);                 // names, one per line
+    if (ftpSize("/FRITZ/mediabox/climate.csv") > 200000) {
+        ftpRename("/FRITZ/mediabox/climate.csv", "/FRITZ/mediabox/climate_old.csv");
+    }
+    ftpGet("/FRITZ/mediabox/table.bin", "/table.bin");         // onto the SD card
+    ftpClose();
     return 0;
 }
 ```

@@ -3288,18 +3288,45 @@ export class VM {
                 this.push(mockResponse.length);
                 break;
             }
-            case 556:   // FTP_PUT     (host,user,pw,remote,local,mode) -> bytes
-            case 557: { // FTP_PUT_STR (host,user,pw,remote,data,mode)  -> bytes
-                const mode = this.pop();
-                const srcRef = this.pop();
-                const remRef = this.pop();
-                this.pop(); this.pop();                       // pw, user
+            case 556: { // FTP_OPEN (host,user,pw) -> 0
+                this.pop(); this.pop();
                 const host = this.readStringFromRef(this.pop());
-                const remote = this.readStringFromRef(remRef);
-                const src = this.readStringFromRef(srcRef);
-                const bytes = (id === 557) ? src.length : 0;   // a file is not readable here
-                this.onOutput(`[FTP] ${mode ? 'APPE' : 'STOR'} ${host} ${remote} <- ${id === 557 ? bytes + ' bytes' : src} (simulated)\n`);
+                this.onOutput(`[FTP] open ${host} (simulated)\n`);
+                this.push(0);
+                break;
+            }
+            case 557: { // FTP_CLOSE ()
+                this.onOutput(`[FTP] close (simulated)\n`);
+                break;
+            }
+            case 558:   // FTP_PUT     (remote,local,mode) -> bytes
+            case 559: { // FTP_PUT_STR (remote,data,mode)  -> bytes
+                const mode = this.pop();
+                const src = this.readStringFromRef(this.pop());
+                const remote = this.readStringFromRef(this.pop());
+                const bytes = (id === 559) ? src.length : 0;   // a file is not readable here
+                this.onOutput(`[FTP] ${mode ? 'APPE' : 'STOR'} ${remote} <- ${id === 559 ? bytes + ' bytes' : src} (simulated)\n`);
                 this.push(bytes);
+                break;
+            }
+            case 560:   // FTP_GET     (remote,local) -> bytes
+            case 561:   // FTP_GET_STR (remote,buf)   -> bytes
+            case 562: { // FTP_LIST    (dir,buf)      -> entries
+                const dstRef = this.pop();
+                const remote = this.readStringFromRef(this.pop());
+                if (id !== 560) this.writeStringToRef(dstRef, '');
+                this.onOutput(`[FTP] ${id === 562 ? 'NLST' : 'RETR'} ${remote} (simulated, empty)\n`);
+                this.push(0);
+                break;
+            }
+            case 563:   // FTP_SIZE   (remote) -> bytes
+            case 564:   // FTP_DELETE (remote) -> 0
+            case 565:   // FTP_MKDIR  (dir)    -> 0
+            case 566: { // FTP_RENAME (from,to) -> 0
+                if (id === 566) this.pop();
+                const remote = this.readStringFromRef(this.pop());
+                this.onOutput(`[FTP] ${['SIZE','DELE','MKD','RNFR'][id - 563]} ${remote} (simulated)\n`);
+                this.push(0);
                 break;
             }
             case 142: { // HTTP_HEADER
