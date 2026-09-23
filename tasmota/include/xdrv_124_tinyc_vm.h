@@ -1798,6 +1798,8 @@ typedef struct {
   // Array support (Scripter-compatible binary array protocol)
   float   *arr_data;  // malloc'd on first array receive, NULL if scalar
   uint16_t arr_count;  // number of elements in arr_data
+  uint16_t rx;         // packets received for this name (TinyCUdp)
+  uint16_t inj;        // ... of which at least one VM got the value (TinyCUdp)
 } TcUdpVar;
 
 /*********************************************************************************************\
@@ -1968,6 +1970,12 @@ struct TINYC {
   // UDP socket inactivity watchdog — reset socket if no rx within timeout
   uint32_t udp_last_rx;           // millis() of last received multicast packet
   uint16_t udp_timeout;           // inactivity timeout in seconds (0 = disabled)
+  uint32_t udp_rx_total;          // TinyCUdp: every "=>name" packet handed to tc_udp_on_receive
+  uint32_t udp_rx_unknown;        // TinyCUdp: ... whose name no slot registered
+  uint32_t udp_rx_skip;           // TinyCUdp: slot deliveries dropped (VM busy / not halted)
+  uint32_t udp_polls;             // TinyCUdp: tc_udp_poll() calls that reached the socket
+  uint32_t udp_pkts;              // TinyCUdp: datagrams parsePacket() handed out (any content)
+  uint32_t udp_raw;               // TinyCUdp: datagrams a plain lwIP socket on the same port saw
   // General-purpose UDP port (Scripter-compatible udp() function)
   WiFiUDP  udp_port;              // general-purpose UDP socket
   uint16_t udp_port_num;          // bound port number
@@ -3102,11 +3110,70 @@ static volatile TaskHandle_t tc_udp_main_task = nullptr;
 // only other toucher (tc_udp_poll) runs on this same task. A worker caller falls
 // through and relies on the flag path (touching the socket cross-task races -> UAF).
 // tc_udp_poll re-inits the socket on its next run once tc_udp_pause_req clears.
+// ── Multicast RECEIVE socket (ESP32) ──
+// ⚠️ Reception runs over a plain lwIP socket, NOT NetworkUDP::parsePacket().
+// Measured on .118 (2026-09-23, ESP32-P4, Arduino core 3.3.8 / IDF 5.5.4, the
+// network, both netifs and the IGMP joins all verified fine): over 30 s a plain
+// socket on the same port received 1386 datagrams, the NetworkUDP socket 4. The
+// device showed some UDP globals and not others, which looked like a per-name
+// problem and was not. NetworkUDP stays in use for SENDING only -- beginPacket()
+// opens an unbound socket lazily, so nothing else competes for port 1999.
+// With Ethernet AND WiFi on one subnet every datagram arrives twice (once per
+// netif); an identical payload within 200 ms is dropped as the twin.
+#ifdef ESP32
+static int tc_udp_rxfd = -1;
+static uint32_t tc_udp_dup_ms = 0;
+static uint16_t tc_udp_dup_len = 0;
+static uint32_t tc_udp_dup_hash = 0;
+static void tc_udp_rx_close(void) {
+  if (tc_udp_rxfd >= 0) { close(tc_udp_rxfd); tc_udp_rxfd = -1; }
+}
+static bool tc_udp_rx_open(void) {
+  tc_udp_rx_close();
+  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) return false;
+  int one = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+  struct sockaddr_in a = {};
+  a.sin_family = AF_INET;
+  a.sin_port = htons(TC_UDP_PORT);
+  a.sin_addr.s_addr = htonl(INADDR_ANY);
+  if (bind(fd, (struct sockaddr *)&a, sizeof(a)) != 0) { close(fd); return false; }
+  struct ip_mreq m;
+  m.imr_multiaddr.s_addr = htonl(0xEFFFFFFA);     // 239.255.255.250
+  m.imr_interface.s_addr = htonl(INADDR_ANY);     // every IGMP-capable netif
+  if (setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &m, sizeof(m)) != 0) { close(fd); return false; }
+  fcntl(fd, F_SETFL, O_NONBLOCK);
+  tc_udp_rxfd = fd;
+  return true;
+}
+// Next datagram into buf (NUL-terminated), 0 when none. Twins are skipped.
+static int32_t tc_udp_rx_next(char *buf, int32_t max) {
+  while (1) {
+    int n = recvfrom(tc_udp_rxfd, buf, max - 1, MSG_DONTWAIT, nullptr, nullptr);
+    if (n <= 0) return 0;
+    buf[n] = 0;
+    Tinyc->udp_raw++;
+    uint32_t h = 2166136261u;                      // FNV-1a over the payload
+    for (int i = 0; i < n; i++) { h ^= (uint8_t)buf[i]; h *= 16777619u; }
+    uint32_t now = millis();
+    if (h == tc_udp_dup_hash && (uint16_t)n == tc_udp_dup_len && (now - tc_udp_dup_ms) < 200) {
+      continue;                                    // the same datagram via the other netif
+    }
+    tc_udp_dup_hash = h; tc_udp_dup_len = (uint16_t)n; tc_udp_dup_ms = now;
+    return n;
+  }
+}
+#else
+static inline void tc_udp_rx_close(void) {}
+#endif
+
 static inline void tc_udp_pause_sync(void) {
   if (!Tinyc || !Tinyc->udp_connected) return;
   if (!tc_udp_main_task || xTaskGetCurrentTaskHandle() != tc_udp_main_task) return;  // worker -> defer
   Tinyc->udp.flush();
   Tinyc->udp.stop();
+  tc_udp_rx_close();
   Tinyc->udp_connected = false;
 }
 #define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
@@ -3695,6 +3762,9 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
   // Only update variables that TinyC already registered (via udpRecv/udpSend calls)
   // Don't create new slots — avoids filling the table with unneeded network variables
   TcUdpVar *var = tc_udp_find_var(name, false);
+  Tinyc->udp_rx_total++;
+  if (var) { var->rx++; } else { Tinyc->udp_rx_unknown++; }
+  bool delivered = false;
   if (var) {
     if (umode == '=') {
       // ASCII mode: data points to string like "23.45"
@@ -3758,7 +3828,7 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
     // Blocking here stalls the web server + LwIP servicing for the whole TLS
     // and was implicated in the PWL_DIRECT_GLOBALS heap corruption. Multicast
     // globals are best-effort, so a drop is fine (cf. matter_udp_rx drop-on-busy).
-    if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, 0) != pdTRUE) continue;
+    if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, 0) != pdTRUE) { Tinyc->udp_rx_skip++; continue; }
 #endif
     // Re-check halted/error AFTER the mutex (Bug #1 TOCTOU). The core-1 VM task
     // can flip halted=false between the pre-lock test and here; injecting globals
@@ -3773,6 +3843,7 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
 #ifdef ESP32
       if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
+      Tinyc->udp_rx_skip++;
       continue;
     }
 
@@ -3801,7 +3872,7 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
           // written()/changed() fire on UDP-global updates (out-of-band write
           // mirror, same as URL ?sv=). For non-watch globals the helper just does
           // the plain write (no shadow/flag), so this is a no-cost change there.
-          if (var) tc_global_write_with_watch(vmp, idx, f2i(var->value), vmp->globals[idx]);
+          if (var) { tc_global_write_with_watch(vmp, idx, f2i(var->value), vmp->globals[idx]); delivered = true; }
         } else if (cnt > 1 && var && var->arr_data) {
           // Float array: copy from UDP array data
           uint16_t n = (var->arr_count < cnt) ? var->arr_count : cnt;
@@ -3820,6 +3891,7 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
   }
+  if (var && delivered) var->inj++;
 }
 
 // Clean up SPI resources
@@ -3875,6 +3947,7 @@ static void tc_udp_send_fail_recover(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP send failed — re-init multicast socket"));
   Tinyc->udp.flush();
   Tinyc->udp.stop();
+  tc_udp_rx_close();
   Tinyc->udp_connected = false;
   tc_udp_init();
 }
@@ -3934,15 +4007,39 @@ static void tc_udp_send_str(const char *name, const char *str) {
 
 // ── UDP socket management (TinyC always owns its own multicast socket) ──
 
+#if defined(ESP32) && defined(USE_ETHERNET)
+#include <ETH.h>          // ETH.handle(); xdrv_82 includes it too, but later in the build
+// The EMAC drops multicast frames in hardware unless told otherwise, and neither
+// lwIP's IGMP join nor Tasmota programs its filter. On .118 (ESP32-P4, Ethernet
+// plus hosted WiFi on the same subnet) only 13 of ~3000 multicast packets in
+// 150 s reached the socket -- the few that did came in over WiFi. Accepting
+// all multicast is the robust fix (the group traffic is small); logged once.
+static int tc_udp_eth_mc = 0;             // TinyCUdp: 0 not tried, 1 on, -1 no handle, else -err
+static void tc_udp_eth_all_multicast(void) {
+  static bool done = false;
+  if (done) return;
+  esp_eth_handle_t h = ETH.handle();
+  if (!h) { tc_udp_eth_mc = -1; return; } // no Ethernet (yet) -- retried on the next init
+  bool on = true;
+  esp_err_t err = esp_eth_ioctl(h, ETH_CMD_S_ALL_MULTICAST, &on);
+  tc_udp_eth_mc = (err == ESP_OK) ? 1 : -(int)err;
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Ethernet receive-all-multicast %s (%d)"), (err == ESP_OK) ? "on" : "FAILED", (int)err);
+  if (err == ESP_OK) done = true;
+}
+#endif
+
 static void tc_udp_init(void) {
   if (!Tinyc) return;
   if (TasmotaGlobal.global_state.network_down) return;
   if (Tinyc->udp_connected) return;
+#if defined(ESP32) && defined(USE_ETHERNET)
+  tc_udp_eth_all_multicast();
+#endif
 
 #ifdef ESP8266
   if (Tinyc->udp.beginMulticast(WiFi.localIP(), IPAddress(239,255,255,250), TC_UDP_PORT)) {
 #else
-  if (Tinyc->udp.beginMulticast(IPAddress(239,255,255,250), TC_UDP_PORT)) {
+  if (tc_udp_rx_open()) {                  // receive: plain lwIP socket (see tc_udp_rx_open)
 #endif
     Tinyc->udp_connected = true;
     Tinyc->udp_last_rx = millis();  // reset watchdog on (re)connect
@@ -3961,6 +4058,7 @@ static void tc_udp_stop(void) {
   if (Tinyc->udp_connected) {
     Tinyc->udp.flush();
     Tinyc->udp.stop();
+    tc_udp_rx_close();
     Tinyc->udp_connected = false;
   }
   tc_udp_free_arrays();
@@ -4022,7 +4120,7 @@ static void tc_udp_poll(void) {
   // the MAIN task so its queued pbufs free for BearSSL, and don't re-init or drain
   // until the transaction clears the flag — frees the LwIP resources TLS needs.
   if (tc_udp_pause_req) {
-    if (Tinyc->udp_connected) { Tinyc->udp.stop(); Tinyc->udp_connected = false; }
+    if (Tinyc->udp_connected) { Tinyc->udp.stop(); tc_udp_rx_close(); Tinyc->udp_connected = false; }
     return;
   }
   if (!Tinyc->udp_connected) {
@@ -4037,6 +4135,7 @@ static void tc_udp_poll(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast rx timeout (%ds) — resetting socket"), Tinyc->udp_timeout);
       Tinyc->udp.flush();
       Tinyc->udp.stop();
+      tc_udp_rx_close();
       Tinyc->udp_connected = false;
       tc_udp_init();  // immediately reconnect
       return;
@@ -4045,8 +4144,16 @@ static void tc_udp_poll(void) {
 
   bool got_packet = false;
   uint32_t timeout = millis();
+  Tinyc->udp_polls++;
   while (1) {
+    if (millis() - timeout > 100) break;  // cap main-loop time per poll
+#ifdef ESP32
+    int32_t len = tc_udp_rx_next(Tinyc->udp_buf, TC_UDP_BUF_SIZE);
+    if (len <= 0) break;
+    Tinyc->udp_pkts++;
+#else
     uint16_t plen = Tinyc->udp.parsePacket();
+    if (plen) Tinyc->udp_pkts++;
     if (!plen || plen >= TC_UDP_BUF_SIZE) {
       if (plen > 0) {
         Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
@@ -4054,11 +4161,10 @@ static void tc_udp_poll(void) {
       }
       break;
     }
-    if (millis() - timeout > 100) break;  // cap main-loop time per poll
-
-    got_packet = true;
     int32_t len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
     Tinyc->udp_buf[len] = 0;
+#endif
+    got_packet = true;
 
     char *lp = Tinyc->udp_buf;
     if (len < 4 || lp[0] != '=' || lp[1] != '>') continue;
