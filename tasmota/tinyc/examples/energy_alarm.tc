@@ -1,0 +1,216 @@
+// @name: Energie-Alarme (Ton, vom Core2)
+// ─────────────────────────────────────────────────────────────────────
+// energy_alarm.tc — die Ton-Alarme von core2_energy.tc (.76) auf dem P4 (.118).
+// Ausgabe ueber die Befehle I2SSay / I2SPlay wie hourly_chime.tc.
+//
+//   Heizungs-WP      eine Stunde unter 500 W  -> "heizung alarm" + /alarm.mp3,
+//                    dann alle 30 s, bis sie wieder laeuft
+//   Akku voll        Powerwall erreicht 100 %  -> "battery full" + /doorbell.mp3
+//   Akku leer        unter 3 %                 -> /Done.mp3 alle 5 Minuten
+//   Energy Manager   Fehlerwert gerr > 0       -> /Classic.mp3 alle 5 Minuten
+//   Verbindung weg   5 min kein UDP-Wert       -> "powerwall lost" + /alarm.mp3,
+//                    wieder da                 -> /Done.mp3
+//
+// Anders als auf dem Core2:
+//  - Die HWP ist im SOMMER AUS. Der Heizungsalarm ist darum nur scharf, wenn sie
+//    in den letzten 24 Stunden gelaufen ist (Modus AUTO); EALARMHWP AN/AUS
+//    schaltet ihn fest. Auf dem Core2 haette er den ganzen Sommer getoent.
+//  - "powerwall lost" konnte dort nie ausloesen: der Zaehler wurde im selben
+//    Takt auf 60 zurueckgesetzt, in dem er auf 0 geprueft wurde.
+//  - Der Scripter auf .61 sendet eine Variable nur, wenn sie sich AENDERT. Akku
+//    auf 100 % oder HWP im Sommer auf 0 kommen darum stundenlang nicht. hwp und
+//    pwl starten auf -1 = unbekannt; ihre Alarme warten auf den ersten Wert.
+//  - Auf .118 kommen die UDP-Pakete lueckenhaft (die Firmware setzt den Empfang
+//    nach 60 s Stille selbst zurueck, gemessen 23.09.2026 mehrmals je Stunde).
+//    "Verbindung weg" darum erst nach 5 Minuten ohne jedes Paket.
+//  - Die Toene spielt der TaskLoop nacheinander: I2SSay blockiert gut eine
+//    Sekunde (nicht im Sekundentakt), und ein zweiter Ton waehrend des ersten
+//    wird mit "I2S Audio busy" abgelehnt.
+//
+// Konsole (Praefix EALARM):
+//   EALARMSTAT            Stand
+//   EALARMTEST            alle Toene nacheinander
+//   EALARMHWP AUTO|AN|AUS Heizungsalarm (bleibt ueber Neustart)
+//   EALARMRUHE n          n Minuten alle Alarme stumm (0 = wieder an)
+// ─────────────────────────────────────────────────────────────────────
+
+global float hwp = -1.0;   // Heizungs-WP, aktuelle Leistung (W); -1 = noch kein Wert
+global float pwl = -1.0;   // Powerwall-Fuellstand (%); -1 = noch kein Wert
+global float gerr;     // Fehlerwert des Energy Managers
+
+persist int hwpModus = 0;     // 0 AUTO, 1 AN, 2 AUS
+
+int  cnt = 0;
+#define UDP_WEG 300           // Sekunden ohne Paket bis "Verbindung weg"
+int  udpTimer = UDP_WEG;
+int  udpDa = 0;               // mindestens ein UDP-Wert seit dem Start
+int  udpSeit = 0;             // Sekunden seit dem ersten UDP-Wert
+int  verloren = 0;
+int  hwpNiedrig = 0;          // Minuten in Folge unter 500 W
+int  hwpLief = 0;             // Sekunden seit die HWP zuletzt >= 500 W hatte (0 = nie)
+int  hwpLiefJe = 0;
+float battVor = 0.0;
+int  ruheBis = 0;             // Uptime, bis zu der alles stumm ist
+char resp[64];
+char letzter[80] = "-";
+
+// Tonwarteschlange: EverySecond reiht ein, der TaskLoop spielt ab
+#define T_HWP   1
+#define T_VOLL  2
+#define T_LEER  3
+#define T_GERR  4
+#define T_WEG   5
+#define T_DA    6
+int tq[8]; int tqKopf = 0; int tqEnde = 0;
+void ton(int t) {
+    int n = (tqEnde + 1) % 8;
+    if (n == tqKopf) { return; }          // voll: lieber einen verlieren als blockieren
+    tq[tqEnde] = t; tqEnde = n;
+}
+
+void sag(char text[]) {
+    char c[64];
+    sprintf(c, "I2SSay %s", text);
+    tasmCmd(c, resp);
+}
+
+void spiel(char datei[]) {
+    char c[64];
+    sprintf(c, "I2SPlay %s", datei);
+    tasmCmd(c, resp);
+}
+
+int stumm() {
+    return tasm_uptime < ruheBis;
+}
+
+void merke(char was[]) {
+    char ts[24];
+    timeStamp(ts);
+    sprintf(letzter, "%s %s", ts, was);
+    addLog("EALARM %s", was);
+}
+
+int hwpScharf() {
+    if (hwpModus == 1) { return 1; }
+    if (hwpModus == 2) { return 0; }
+    // AUTO: nur in der Heizzeit, also wenn die HWP im letzten Tag gelaufen ist
+    return hwpLiefJe == 1 && hwpLief < 86400;
+}
+
+void UdpCall() {
+    udpTimer = UDP_WEG;
+    if (udpDa == 0) { udpDa = 1; }
+}
+
+void EverySecond() {
+    cnt = cnt + 1;
+    if (hwpLiefJe == 1) { hwpLief = hwpLief + 1; }
+
+    // ── Verbindung: 60 s ohne UDP-Wert ──
+    if (udpTimer > 0) { udpTimer = udpTimer - 1; }
+    if (udpDa == 1 && udpTimer == 0 && verloren == 0) {
+        verloren = 1;
+        merke("Verbindung weg (5 min kein UDP)");
+        if (!stumm()) { ton(T_WEG); }
+    }
+    if (udpTimer > 0 && verloren == 1) {
+        verloren = 0;
+        merke("Verbindung wieder da");
+        if (!stumm()) { ton(T_DA); }
+    }
+    if (udpDa == 0) { return; }
+    // Eine Minute Anlauf: die Werte kommen einzeln per UDP, ein erstes Paket
+    // bringt nicht unbedingt schon pwl mit (sonst "Akku voll" beim Start)
+    if (udpSeit < 60) { udpSeit = udpSeit + 1; battVor = pwl; return; }
+
+    // ── Heizungs-WP: jede Minute pruefen ──
+    if (hwp >= 500.0) { hwpLief = 0; hwpLiefJe = 1; }
+    if (cnt % 60 == 0) {
+        if (hwp >= 0.0 && hwp < 500.0) { hwpNiedrig = hwpNiedrig + 1; } else { hwpNiedrig = 0; }
+    }
+    if (hwpNiedrig >= 60 && cnt % 30 == 0 && hwpScharf()) {
+        if (hwpNiedrig == 60 && cnt % 60 == 0) { merke("Heizungs-WP seit 1 h unter 500 W"); }
+        if (!stumm()) { ton(T_HWP); }
+    }
+
+    // ── Akku voll: einmal beim Erreichen von 100 % ──
+    if (pwl >= 100.0 && battVor >= 0.0 && battVor < 100.0) {
+        merke("Akku voll");
+        if (!stumm()) { ton(T_VOLL); }
+    }
+    // ── Akku leer: alle 5 Minuten unter 3 % (Versatz 5 s) ──
+    if (pwl >= 0.0 && pwl < 3.0 && cnt % 300 == 5) {
+        merke("Akku unter 3 %");
+        if (!stumm()) { ton(T_LEER); }
+    }
+    battVor = pwl;
+
+    // ── Energy Manager meldet Fehler: alle 5 Minuten (Versatz 10 s) ──
+    if (gerr > 0.0 && cnt % 300 == 10) {
+        merke("Energy Manager meldet Fehler");
+        if (!stumm()) { ton(T_GERR); }
+    }
+}
+
+// Die Toene nacheinander. Die Wartezeiten stehen DIREKT im TaskLoop: ein
+// delay() eine Funktion tiefer sperrt den Slot fuer die anderen Rueckrufe
+// (EverySecond, UdpCall), so lange er wartet.
+void TaskLoop() {
+    while (1) {
+        if (tqKopf != tqEnde) {
+            int t = tq[tqKopf];
+            tqKopf = (tqKopf + 1) % 8;
+            int ms = 1500;
+            if (t == T_HWP)  { sag("heizung alarm");  spiel("/alarm.mp3");    ms = 6000; }
+            if (t == T_VOLL) { sag("battery full");   spiel("/doorbell.mp3"); ms = 4000; }
+            if (t == T_LEER) { spiel("/Done.mp3"); }
+            if (t == T_GERR) { spiel("/Classic.mp3"); }
+            if (t == T_WEG)  { sag("powerwall lost"); spiel("/alarm.mp3");    ms = 6000; }
+            if (t == T_DA)   { spiel("/Done.mp3"); }
+            delay(ms);
+        }
+        delay(200);
+    }
+}
+
+void Command(char cmd[]) {
+    char r[200];
+    if (strcmp(cmd, "STAT") == 0) {
+        char m[8];
+        strcpy(m, "AUTO");
+        if (hwpModus == 1) { strcpy(m, "AN"); }
+        if (hwpModus == 2) { strcpy(m, "AUS"); }
+        int ruhe = 0;
+        if (stumm()) { ruhe = (ruheBis - tasm_uptime + 59) / 60; }
+        char u[4]; strcpy(u, "ok");
+        if (verloren) { strcpy(u, "WEG"); }
+        sprintf(r, "HWP %.0f W (%s, scharf %d, %d min niedrig) | Akku %.1f %% | gerr %.0f | UDP %s | Ruhe %d min | zuletzt: %s",
+                hwp, m, hwpScharf(), hwpNiedrig, pwl, gerr, u, ruhe, letzter);
+        responseCmnd(r);
+    } else if (strcmp(cmd, "TEST") == 0) {
+        ton(T_HWP); ton(T_VOLL); ton(T_LEER); ton(T_GERR); ton(T_WEG); ton(T_DA);
+        responseCmnd("alle sechs Toene nacheinander (etwa 25 s)");
+    } else if (strcmp(cmd, "HWP AUTO") == 0) {
+        hwpModus = 0; saveVars(); responseCmnd("Heizungsalarm AUTO (nur wenn die HWP im letzten Tag lief)");
+    } else if (strcmp(cmd, "HWP AN") == 0) {
+        hwpModus = 1; saveVars(); responseCmnd("Heizungsalarm immer AN");
+    } else if (strcmp(cmd, "HWP AUS") == 0) {
+        hwpModus = 2; saveVars(); responseCmnd("Heizungsalarm AUS");
+    } else if (strStartsWith(cmd, "RUHE")) {
+        char a[16]; strSub(a, cmd, 4, 0);
+        int n = strToInt(a);
+        if (n < 0) { n = 0; }
+        ruheBis = tasm_uptime + n * 60;
+        sprintf(r, "Alarme %d Minuten stumm", n);
+        responseCmnd(r);
+    } else {
+        responseCmnd("EALARMSTAT | EALARMTEST | EALARMHWP AUTO|AN|AUS | EALARMRUHE n");
+    }
+}
+
+int main() {
+    addLog("EALARM: Ton-Alarme gestartet");
+    addCommand("EALARM");
+    return 0;
+}
