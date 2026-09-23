@@ -1,0 +1,498 @@
+// @name: Energie-Backup (Scripter-Datenbank → FRITZ!NAS)
+// ─────────────────────────────────────────────────────────────────────
+// energy_backup.tc — sichert die beiden Datenbanken des Energy Managers
+// (.61, laeuft als Scripter und bleibt so) auf die Fritzbox, per FTP.
+//
+//   energy_15_log.txt  15-Minuten-Werte, 30 MB seit 12/2021
+//                      → MONATSDATEIEN  <dir>/e15_JJJJ-MM.txt  in DURCHGEHENDER
+//                        WINTERZEIT (MEZ), dazu unveraendert <dir>/roh/e15_JJJJ-MM.txt
+//   energy_m_log.txt   Tageswerte, 317 KB → <dir>/energy_m_log.txt, ganz
+//   <dir>/pruefung.txt je Monat eine Zeile: Zeilen, Luecken, Doppel, erste/letzte
+//
+// ⚠️⚠️ SCHONUNG VON .61 (gemessen 23.09.2026, siehe Notiz): abgerufen wird NUR
+// ueber den Scripter-Downloadport 82 (`/ufs/<datei>@von_bis`, der Datumsbereich
+// springt ueber die .ind-Datei an die Stelle). Port 80 blockiert dort die ganze
+// Weboberflaeche. Port 82 bedient EINEN Download und antwortet bei Belegung GAR
+// NICHT -- darum vor jedem Abruf eine Frei-Probe mit einer 54-Byte-Datei, und
+// zwischen zwei Abrufen eine Minute Pause. Ein abgebrochener Download liest auf
+// .61 trotzdem die ganze Datei zu Ende; fileDownload() bricht mitten in der
+// Uebertragung nicht ab (liest, solange die Verbindung steht). Langsam ist
+// erlaubt: ein Monat kommt mit ~2,6 KB/s, also 3-4 Minuten.
+//
+// WINTERZEIT: Die Zeitstempel des Scripters sind Ortszeit. Waehrend der
+// Sommerzeit (letzter So im Maerz 03:00 bis letzter So im Oktober 03:00) wird
+// eine Stunde abgezogen. Die Stunde 02:00-02:59 am Oktober-Umstellungstag kommt
+// zweimal vor; welche gemeint ist, sagt die REIHENFOLGE: laege die Sommerzeit-
+// Deutung nach der vorigen Zeile, ist es die erste, sonst die zweite. So hat
+// jeder Tag genau 96 Viertelstunden -- was fehlt oder doppelt ist, steht danach
+// wirklich in den Daten und in pruefung.txt. Weil sich dabei Zeilen ueber
+// Mitternacht verschieben, wird ein Monat mit einer Stunde Ueberhang geholt und
+// nach der Umrechnung auf genau diesen Monat beschnitten.
+//
+// ⚠️⚠️ UEBERTRAGUNGSFEHLER VON .61 (gefunden 23.09.2026): der Scripter schreibt
+// jeden 512-Byte-Block mit client->write() und prueft nicht, ob alles angenommen
+// wurde (xdrv_10_scripter.ino, script_copy_file / SendFile_sub). Ist der
+// WLAN-Sendepuffer voll, gehen die restlichen Bytes STILL verloren -- in einem
+// Probeabruf fehlten sechs Zeilen, und aus den Resten war eine Zeile
+// „1.9.26 960 …" zusammengeklebt. Darum wird JEDE Zeile geprueft (lesbarer
+// Zeitstempel UND genau so viele Spalten wie die Kopfzeile), und bei einem
+// Fehler wird neu geholt, bis zu dreimal; genommen wird der beste Versuch.
+// Echte Luecken sind in jedem Versuch gleich, Uebertragungsverluste nicht.
+//
+// Zugangsdaten: /ftp.cfg (vier Zeilen: Host, Benutzer, Passwort, eine Zieldatei
+// wie bei ftp_log.tc) -- das Zielverzeichnis ist deren Ordner + "/energie".
+//
+// Konsole (Praefix EBAK):
+//   EBAKNOW            jetzt: laufender Monat + Tagesdatenbank
+//   EBAKMON 2026-09    genau diesen Monat
+//   EBAKALL            die ganze Geschichte seit 12/2021 nachholen (Monat fuer
+//                      Monat, uebersteht einen Neustart); EBAKALL STOP haelt an
+//   EBAKSTAT           Stand
+//   EBAKPRUEF JJJJ-MM  nur die lokale /ebak_roh.txt pruefen (kein Abruf, kein Upload)
+//
+// Alles laeuft in TaskLoop(): Abruf und FTP blockieren, dort darf das sein.
+// ─────────────────────────────────────────────────────────────────────
+
+#define SRC      "http://192.168.188.61:82/ufs/"
+#define START_J  2021
+#define START_M  12
+#define RUN_H    4             // naechtlicher Lauf um 04:10 Ortszeit (nach 02:xx/03:xx)
+#define RUN_MI   10
+#define PAUSE_S  60            // zwischen zwei Abrufen bei .61
+
+char host[64]; char user[32]; char pw[32]; char dir[96];
+int  cfgOk = 0;
+
+// Auftraege
+int  qJ[4]; int qM[4]; int qN = 0;       // Monate in der Warteschlange
+int  mlogFaellig = 0;                    // Tagesdatenbank ebenfalls holen
+persist int allJ = 0;                    // Nachholen: naechster Monat (0 = aus)
+persist int allM = 0;
+persist int letzterTag = 0;              // JJJJMMTT des letzten Nachtlaufs
+int  pauseBis = 0;                       // Uptime, vor der nichts abgerufen wird
+int  pruefJ = 0; int pruefM = 0;         // EBAKPRUEF: lokale Rohdatei pruefen
+
+// Stand
+char stand[160] = "bereit";
+char letzte[160] = "-";
+
+// Ergebnis von umrechnen()
+int zZeilen = 0; int zFehlend = 0; int zLuecken = 0; int zDoppel = 0; int zUnlesbar = 0;
+int zErste = -1; int zLetzte = -1; int kopfTabs = -1;
+
+int tabs(char s[]) {
+    int n = 0; int i = 0;
+    while (s[i] != 0) { if (s[i] == '\t') { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+// Zeilenleser
+char rb[1024]; int rbLen = 0; int rbPos = 0;
+char line[800]; char rest[800];
+
+// ── Kalender (ohne Bibliothek: Tage seit 1970-01-01) ─────────────────
+int tageAb1970(int y, int m, int d) {
+    int yy = y; if (m <= 2) { yy = yy - 1; }
+    int era = yy / 400;
+    int yoe = yy - era * 400;
+    int mp = m + 9; if (m > 2) { mp = m - 3; }
+    int doy = (153 * mp + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+int cJ = 0; int cM = 0; int cD = 0;      // Ergebnis von ausTagen()
+void ausTagen(int z) {
+    z = z + 719468;
+    int era = z / 146097;
+    int doe = z - era * 146097;
+    int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int y = yoe + era * 400;
+    int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int mp = (5 * doy + 2) / 153;
+    cD = doy - (153 * mp + 2) / 5 + 1;
+    cM = mp + 3; if (mp >= 10) { cM = mp - 9; }
+    if (cM <= 2) { y = y + 1; }
+    cJ = y;
+}
+int tageImMonat(int y, int m) {
+    int n = m + 1; int ny = y;
+    if (n > 12) { n = 1; ny = y + 1; }
+    return tageAb1970(ny, n, 1) - tageAb1970(y, m, 1);
+}
+int letzterSonntag(int y, int m) {                  // Tag im Monat
+    int d = tageImMonat(y, m);
+    int wt = (tageAb1970(y, m, d) + 4) % 7;          // 0 = Sonntag
+    return d - wt;
+}
+
+// ── Zeilen lesen (fileRead liefert Bytes, keine Zeilen) ─────────────
+int zeileLesen(int h) {
+    int n = 0;
+    while (1) {
+        if (rbPos >= rbLen) {
+            rbLen = fileRead(h, rb, 1024); rbPos = 0;
+            if (rbLen <= 0) { line[n] = 0; if (n > 0) { return n; } return -1; }
+        }
+        char c = rb[rbPos]; rbPos = rbPos + 1;
+        if (c == '\n') { line[n] = 0; return n; }
+        if (c != '\r' && n < 798) { line[n] = c; n = n + 1; }
+    }
+    return -1;
+}
+
+// "d.m.yy H:MM" am Zeilenanfang → Minuten seit 1970 (Ortszeit), -1 wenn keiner
+int zahl(int& p) {
+    int v = 0; int k = 0;
+    while (line[p] >= '0' && line[p] <= '9') { v = v * 10 + (line[p] - '0'); p = p + 1; k = k + 1; }
+    if (k == 0) { return -1; }
+    return v;
+}
+int stempelMinuten() {
+    int p = 0;
+    int d = zahl(p); if (d < 0 || line[p] != '.') { return -1; } p = p + 1;
+    int m = zahl(p); if (m < 0 || line[p] != '.') { return -1; } p = p + 1;
+    int y = zahl(p); if (y < 0 || line[p] != ' ') { return -1; } p = p + 1;
+    int h = zahl(p); if (h < 0 || line[p] != ':') { return -1; } p = p + 1;
+    int mi = zahl(p); if (mi < 0) { return -1; }
+    if (y < 100) { y = y + 2000; }
+    return tageAb1970(y, m, d) * 1440 + h * 60 + mi;
+}
+
+// Ortszeit → Winterzeit. `vorher` = die zuletzt geschriebene Winterzeit.
+int winterzeit(int t, int vorher) {
+    ausTagen(t / 1440);
+    int y = cJ;
+    int anf = tageAb1970(y, 3, letzterSonntag(y, 3)) * 1440 + 180;    // 03:00 Sommerzeit
+    int end = tageAb1970(y, 10, letzterSonntag(y, 10)) * 1440 + 120;  // 02:00, doppelte Stunde
+    if (t >= anf && t < end) { return t - 60; }
+    if (t >= end && t < end + 60) {
+        if (t - 60 > vorher) { return t - 60; }       // erste Deutung: noch Sommerzeit
+    }
+    return t;
+}
+
+// ── Konfiguration ────────────────────────────────────────────────────
+void trim(char s[]) {
+    int n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n = n - 1; s[n] = 0; }
+}
+int cfgLesen() {
+    int f = fileOpen("/ftp.cfg", 0);
+    if (f < 0) { return 0; }
+    char cfg[256];
+    int n = fileRead(f, cfg, 255);
+    fileClose(f);
+    if (n <= 0) { return 0; }
+    cfg[n] = 0;
+    char ziel[96];
+    strToken(host, cfg, '\n', 1); trim(host);
+    strToken(user, cfg, '\n', 2); trim(user);
+    strToken(pw,   cfg, '\n', 3); trim(pw);
+    strToken(ziel, cfg, '\n', 4); trim(ziel);
+    // Ordner der Zieldatei + /energie
+    int i = strlen(ziel) - 1;
+    while (i > 0 && ziel[i] != '/') { i = i - 1; }
+    strSub(dir, ziel, 0, i);
+    strcat(dir, "/energie");
+    return 1;
+}
+
+// ── .61 schonen: ist Port 82 frei? ───────────────────────────────────
+int port82Frei() {
+    char url[96];
+    strcpy(url, SRC); strcat(url, "tinyc.cfg");
+    int r = fileDownload("/ebak_probe.txt", url);
+    return (r == 200);
+}
+
+// ── ein Monat ────────────────────────────────────────────────────────
+// Rohdatei /ebak_roh.txt → /ebak_neu.txt in Winterzeit, beschnitten auf den
+// Monat. Ergebnis in den z*-Globals. 0 = ok, -1 = Datei.
+int umrechnen(int y, int m) {
+    int ny = y; int nm = m + 1;
+    if (nm > 12) { nm = 1; ny = y + 1; }
+    int hi = fileOpen("/ebak_roh.txt", 0);
+    int ho = fileOpen("/ebak_neu.txt", 1);
+    if (hi < 0 || ho < 0) { if (hi >= 0) { fileClose(hi); } if (ho >= 0) { fileClose(ho); } return -1; }
+    rbLen = 0; rbPos = 0; kopfTabs = -1;
+    int mAnf = tageAb1970(y, m, 1) * 1440;
+    int mEnd = tageAb1970(ny, nm, 1) * 1440;
+    int vorher = -1;
+    zZeilen = 0; zDoppel = 0; zLuecken = 0; zFehlend = 0; zUnlesbar = 0; zErste = -1; zLetzte = -1;
+    char ts[24]; char nl[2] = "\n";
+    while (zeileLesen(hi) >= 0) {
+        if (strStartsWith(line, "TSTAMP")) {
+            if (kopfTabs < 0) { kopfTabs = tabs(line); fileWrite(ho, line, strlen(line)); fileWrite(ho, nl, 1); }
+            continue;
+        }
+        if (strlen(line) == 0) { continue; }
+        int t = stempelMinuten();
+        // ⚠️ Zusammengeklebte Zeilen (Uebertragungsverlust auf .61): Stempel
+        // unlesbar oder falsche Spaltenzahl. Sie werden NICHT geschrieben.
+        if (t < 0 || (kopfTabs >= 0 && tabs(line) != kopfTabs)) { zUnlesbar = zUnlesbar + 1; continue; }
+        int w = winterzeit(t, vorher);
+        if (w < mAnf || w >= mEnd) { continue; }             // Ueberhang des Nachbarmonats
+        if (vorher >= 0 && w <= vorher) { zDoppel = zDoppel + 1; continue; }
+        // Eine Luecke erst ab 30 Minuten Abstand: eine einzelne Zeile ausser Takt
+        // (15:31 statt 15:30, nach einem Neustart von .61) ist keine.
+        if (vorher >= 0 && w - vorher >= 30) {
+            zLuecken = zLuecken + 1; zFehlend = zFehlend + (w - vorher + 7) / 15 - 1;
+        }
+        if (zErste < 0) { zErste = w; }
+        ausTagen(w / 1440);
+        sprintf(ts, "%d.%d.%02d %d:%02d", cD, cM, cJ % 100, (w % 1440) / 60, w % 60);
+        fileWrite(ho, ts, strlen(ts));
+        int tab = strFind(line, "\t");
+        if (tab > 0) { strSub(rest, line, tab, 0); fileWrite(ho, rest, strlen(rest)); }
+        fileWrite(ho, nl, 1);
+        vorher = w; zLetzte = w; zZeilen = zZeilen + 1;
+    }
+    fileClose(hi); fileClose(ho);
+    // was am Anfang fehlt, und bei einem abgeschlossenen Monat am Ende
+    if (zErste > mAnf) { zFehlend = zFehlend + (zErste - mAnf) / 15; }
+    if (!laufenderMonat(y, m) && zLetzte >= 0 && zLetzte < mEnd - 15) { zFehlend = zFehlend + (mEnd - 15 - zLetzte) / 15; }
+    return 0;
+}
+
+int laufenderMonat(int y, int m) {
+    char jetzt[24]; timeStamp(jetzt);
+    int jj = (jetzt[0]-'0')*1000 + (jetzt[1]-'0')*100 + (jetzt[2]-'0')*10 + (jetzt[3]-'0');
+    int jm = (jetzt[5]-'0')*10 + (jetzt[6]-'0');
+    return (jj == y && jm == m);
+}
+
+void stempelText(int w, char out[]) {
+    if (w < 0) { strcpy(out, "-"); return; }
+    ausTagen(w / 1440);
+    sprintf(out, "%d.%d.%02d %d:%02d", cD, cM, cJ % 100, (w % 1440) / 60, w % 60);
+}
+
+int monatSichern(int y, int m) {
+    int ny = y; int nm = m + 1;
+    if (nm > 12) { nm = 1; ny = y + 1; }
+    char url[160];
+    sprintf(url, "%senergy_15_log.txt@1.%d.%02d-00:00_1.%d.%02d-01:00", SRC, m, y % 100, nm, ny % 100);
+    // Bis zu drei Versuche; der beste wird behalten (/ebak_best*.txt).
+    int bestWert = -1; int versuch = 0; int versuche = 0;
+    int bZ = 0; int bF = 0; int bL = 0; int bD = 0; int bU = 0; int bE = -1; int bLe = -1; int broh = 0;
+    int vorigF = -1; int vorigZ = -1;
+    while (versuch < 3) {
+        versuch = versuch + 1;
+        if (versuch > 1) {
+            sprintf(stand, "%04d-%02d: Versuch %d, warte …", y, m, versuch);
+            delay(PAUSE_S * 1000);
+            if (!port82Frei()) { delay(300000); if (!port82Frei()) { break; } }
+        }
+        sprintf(stand, "%04d-%02d: hole von .61 (Versuch %d) …", y, m, versuch);
+        int r = fileDownload("/ebak_roh.txt", url);
+        if (r != 200) { sprintf(letzte, "%04d-%02d: Abruf HTTP %d", y, m, r); continue; }
+        versuche = versuche + 1;
+        sprintf(stand, "%04d-%02d: Winterzeit, Pruefung …", y, m);
+        if (umrechnen(y, m) < 0) { sprintf(letzte, "%04d-%02d: Datei", y, m); continue; }
+        int wert = zUnlesbar * 100000 + zFehlend;
+        if (bestWert < 0 || wert < bestWert) {
+            bestWert = wert;
+            bZ = zZeilen; bF = zFehlend; bL = zLuecken; bD = zDoppel; bU = zUnlesbar; bE = zErste; bLe = zLetzte;
+            broh = fileSize("/ebak_roh.txt");
+            fileDelete("/ebak_best.txt"); fileRename("/ebak_neu.txt", "/ebak_best.txt");
+            fileDelete("/ebak_bestroh.txt"); fileRename("/ebak_roh.txt", "/ebak_bestroh.txt");
+        }
+        // Fertig, wenn nichts unlesbar ist UND entweder nichts fehlt oder zwei
+        // Versuche dieselben Luecken zeigen (dann sind sie echt).
+        if (zUnlesbar == 0 && (zFehlend == 0 || (zFehlend == vorigF && zZeilen == vorigZ))) { break; }
+        if (zUnlesbar == 0) { vorigF = zFehlend; vorigZ = zZeilen; }
+    }
+    if (bestWert < 0) { return -1; }
+
+    sprintf(stand, "%04d-%02d: zur Fritzbox …", y, m);
+    char rz[160];
+    sprintf(rz, "%s/e15_%04d-%02d.txt", dir, y, m);
+    int a = ftpPut(rz, "/ebak_best.txt", 0);
+    sprintf(rz, "%s/roh/e15_%04d-%02d.txt", dir, y, m);
+    int b = ftpPut(rz, "/ebak_bestroh.txt", 0);
+    if (a < 0 || b < 0) { sprintf(letzte, "%04d-%02d: FTP %d/%d", y, m, a, b); return -1; }
+
+    char pz[220]; char e1[24]; char e2[24]; char jetzt[24];
+    stempelText(bE, e1); stempelText(bLe, e2); timeStamp(jetzt);
+    int erwartet = (tageAb1970(ny, nm, 1) - tageAb1970(y, m, 1)) * 96;
+    sprintf(pz, "%s\t%04d-%02d\t%d von %d\tLuecken %d (%d Viertelstunden)\tDoppel %d\tunlesbar %d\tVersuche %d\t%s .. %s%s\n",
+            jetzt, y, m, bZ, erwartet, bL, bF, bD, bU, versuche, e1, e2, laufenderMonat(y, m) ? "\tlaufend" : "");
+    char pr[128]; sprintf(pr, "%s/pruefung.txt", dir);
+    ftpPutStr(pr, pz, 1);
+    sprintf(letzte, "%04d-%02d: %d Zeilen, %d fehlen, %d doppelt, %d unlesbar, %d Versuche, %d B roh", y, m, bZ, bF, bD, bU, versuche, broh);
+    addLog("EBAK %s", letzte);
+    return 0;
+}
+
+// Tagesdatenbank: ganz, mit derselben Zeilenpruefung; bis zu drei Versuche.
+int mlogPruefen() {
+    int h = fileOpen("/ebak_mlog.txt", 0);
+    if (h < 0) { return -1; }
+    rbLen = 0; rbPos = 0;
+    int kt = -1; int bad = 0; int n = 0;
+    while (zeileLesen(h) >= 0) {
+        if (strStartsWith(line, "TSTAMP")) { if (kt < 0) { kt = tabs(line); } continue; }
+        if (strlen(line) == 0) { continue; }
+        n = n + 1;
+        if (stempelMinuten() < 0 || (kt >= 0 && tabs(line) != kt)) { bad = bad + 1; }
+    }
+    fileClose(h);
+    zZeilen = n;
+    return bad;
+}
+
+int mlogSichern() {
+    char url[96]; strcpy(url, SRC); strcat(url, "energy_m_log.txt");
+    int versuch = 0; int bad = -1;
+    while (versuch < 3) {
+        versuch = versuch + 1;
+        if (versuch > 1) { delay(PAUSE_S * 1000); if (!port82Frei()) { break; } }
+        sprintf(stand, "Tagesdatenbank: hole (Versuch %d) …", versuch);
+        int r = fileDownload("/ebak_mlog.txt", url);
+        if (r != 200) { sprintf(letzte, "Tagesdatenbank: HTTP %d", r); continue; }
+        bad = mlogPruefen();
+        if (bad == 0) { break; }
+    }
+    if (bad != 0) { sprintf(letzte, "Tagesdatenbank: %d unlesbare Zeilen -- nicht hochgeladen", bad); return -1; }
+    char rz[160]; sprintf(rz, "%s/energy_m_log.txt", dir);
+    int a = ftpPut(rz, "/ebak_mlog.txt", 0);
+    if (a < 0) { sprintf(letzte, "Tagesdatenbank: FTP %d", a); return -1; }
+    sprintf(letzte, "Tagesdatenbank: %d Zeilen, %d B, %d Versuche", zZeilen, a, versuch);
+    addLog("EBAK %s", letzte);
+    return 0;
+}
+
+void monatDazu(int y, int m) {
+    int i = 0;
+    while (i < qN) { if (qJ[i] == y && qM[i] == m) { return; } i = i + 1; }
+    if (qN < 4) { qJ[qN] = y; qM[qN] = m; qN = qN + 1; }
+}
+
+// laufender Monat (+ am 1./2. der Vormonat) + Tagesdatenbank
+void nachtlauf() {
+    char ts[24]; timeStamp(ts);
+    int y = (ts[0]-'0')*1000 + (ts[1]-'0')*100 + (ts[2]-'0')*10 + (ts[3]-'0');
+    int m = (ts[5]-'0')*10 + (ts[6]-'0');
+    int d = (ts[8]-'0')*10 + (ts[9]-'0');
+    if (d <= 2) { int pm = m - 1; int py = y; if (pm < 1) { pm = 12; py = y - 1; } monatDazu(py, pm); }
+    monatDazu(y, m);
+    mlogFaellig = 1;
+}
+
+// Eine Einheit Arbeit: ein Monat oder die Tagesdatenbank. 1 = etwas getan.
+int eineEinheit() {
+    int ist = 0;
+    if (qN == 0 && !mlogFaellig && allJ == 0) { return 0; }
+    if (tasm_uptime < pauseBis) { return 0; }
+    if (!cfgOk) { cfgOk = cfgLesen(); if (!cfgOk) { strcpy(stand, "/ftp.cfg fehlt"); return 0; } }
+    if (!port82Frei()) {
+        strcpy(stand, ".61 Port 82 belegt -- neuer Versuch in 5 min");
+        pauseBis = tasm_uptime + 300;
+        return 0;
+    }
+    pauseBis = tasm_uptime + PAUSE_S;
+    int r = ftpOpen(host, user, pw);
+    if (r < 0) { sprintf(stand, "FTP-Anmeldung %d -- neuer Versuch in 5 min", r); pauseBis = tasm_uptime + 300; return 0; }
+    ftpMkdir(dir);
+    char rd[128]; sprintf(rd, "%s/roh", dir); ftpMkdir(rd);
+    if (qN > 0) {
+        int y = qJ[0]; int m = qM[0];
+        if (monatSichern(y, m) == 0) {
+            int i = 1;
+            while (i < qN) { qJ[i - 1] = qJ[i]; qM[i - 1] = qM[i]; i = i + 1; }
+            qN = qN - 1;
+        } else { pauseBis = tasm_uptime + 300; }
+        ist = 1;
+    } else if (mlogFaellig) {
+        if (mlogSichern() == 0) { mlogFaellig = 0; } else { pauseBis = tasm_uptime + 300; }
+        ist = 1;
+    } else if (allJ > 0) {
+        if (monatSichern(allJ, allM) == 0) {
+            allM = allM + 1; if (allM > 12) { allM = 1; allJ = allJ + 1; }
+            char ts[24]; timeStamp(ts);
+            int y = (ts[0]-'0')*1000 + (ts[1]-'0')*100 + (ts[2]-'0')*10 + (ts[3]-'0');
+            int m = (ts[5]-'0')*10 + (ts[6]-'0');
+            if (allJ > y || (allJ == y && allM > m)) { allJ = 0; allM = 0; addLog("EBAK Nachholen fertig"); }
+            saveVars();
+        } else { pauseBis = tasm_uptime + 300; }
+        ist = 1;
+    }
+    ftpClose();
+    strcpy(stand, "bereit");
+    return ist;
+}
+
+void TaskLoop() {
+    delay(1000);
+    // Nachtlauf einmal am Tag um 04:10
+    char ts[24]; timeStamp(ts);
+    int hh = (ts[11]-'0')*10 + (ts[12]-'0');
+    int mi = (ts[14]-'0')*10 + (ts[15]-'0');
+    int heute = ((ts[0]-'0')*1000 + (ts[1]-'0')*100 + (ts[2]-'0')*10 + (ts[3]-'0')) * 10000
+              + ((ts[5]-'0')*10 + (ts[6]-'0')) * 100 + (ts[8]-'0')*10 + (ts[9]-'0');
+    if (ts[0] == '2' && hh == RUN_H && mi >= RUN_MI && letzterTag != heute) {
+        letzterTag = heute; saveVars();
+        nachtlauf();
+    }
+    if (pruefJ > 0) {
+        int y = pruefJ; int m = pruefM; pruefJ = 0;
+        sprintf(stand, "%04d-%02d: pruefe lokale Rohdatei …", y, m);
+        if (umrechnen(y, m) < 0) { strcpy(letzte, "PRUEF: /ebak_roh.txt fehlt"); }
+        else { sprintf(letzte, "PRUEF %04d-%02d: %d Zeilen, Luecken %d (%d Viertelstunden), %d doppelt, %d unlesbar",
+                       y, m, zZeilen, zLuecken, zFehlend, zDoppel, zUnlesbar); }
+        strcpy(stand, "bereit");
+        return;
+    }
+    eineEinheit();
+}
+
+void Command(char cmd[]) {
+    char r[200];
+    if (strcmp(cmd, "NOW") == 0) {
+        nachtlauf(); responseCmnd("laufender Monat + Tagesdatenbank eingereiht");
+    } else if (strStartsWith(cmd, "MON ")) {
+        char a[16]; strSub(a, cmd, 4, 0);
+        char j[8]; char mo[8];
+        strToken(j, a, '-', 1); strToken(mo, a, '-', 2);
+        int y = strToInt(j); int m = strToInt(mo);
+        if (y >= START_J && m >= 1 && m <= 12) { monatDazu(y, m); sprintf(r, "%04d-%02d eingereiht", y, m); responseCmnd(r); }
+        else { responseCmnd("Format: EBAKMON JJJJ-MM"); }
+    } else if (strcmp(cmd, "ALL") == 0) {
+        allJ = START_J; allM = START_M; saveVars();
+        responseCmnd("Nachholen ab 2021-12 gestartet");
+    } else if (strcmp(cmd, "ALL STOP") == 0) {
+        allJ = 0; allM = 0; saveVars();
+        responseCmnd("Nachholen angehalten");
+    } else if (strStartsWith(cmd, "PRUEF ")) {
+        // Nur die lokale /ebak_roh.txt umrechnen und pruefen -- kein Abruf bei
+        // .61, kein Upload. Zum Nachsehen, und um die Zeilenpruefung mit einer
+        // absichtlich kaputten Rohdatei zu erproben.
+        // ⚠️ Nur einreihen: tausende Zeilen umzurechnen sprengt das Befehlsbudget
+        // eines Konsolen-Rueckrufs (Antwort „Error"). Der TaskLoop rechnet, das
+        // Ergebnis steht danach in EBAKSTAT.
+        char a[16]; strSub(a, cmd, 6, 0);
+        char j[8]; char mo[8];
+        strToken(j, a, '-', 1); strToken(mo, a, '-', 2);
+        pruefJ = strToInt(j); pruefM = strToInt(mo);
+        sprintf(r, "Pruefung %04d-%02d eingereiht -- Ergebnis mit EBAKSTAT", pruefJ, pruefM);
+        responseCmnd(r);
+    } else if (strcmp(cmd, "STAT") == 0) {
+        sprintf(r, "%s | letzte: %s | Warteschlange %d, Nachholen %04d-%02d", stand, letzte, qN, allJ, allM);
+        responseCmnd(r);
+    } else {
+        responseCmnd("EBAKNOW | EBAKMON JJJJ-MM | EBAKALL [STOP] | EBAKSTAT | EBAKPRUEF JJJJ-MM");
+    }
+}
+
+void WebCall() {
+    char b[200];
+    sprintf(b, "{s}Energie-Backup{m}%s{e}", stand); webSend(b);
+    sprintf(b, "{s}zuletzt{m}%s{e}", letzte); webSend(b);
+}
+
+int main() {
+    addCommand("EBAK");
+    cfgOk = cfgLesen();
+    if (!cfgOk) { strcpy(stand, "/ftp.cfg fehlt"); }
+    return 0;
+}
