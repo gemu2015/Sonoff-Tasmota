@@ -167,6 +167,10 @@ float hdel[400];
 float wt_phwp[8];
 float wt_warm[8];     // HWP + BWWP je Tag (kWh)
 
+// Statuszeile auf der Hauptseite, alle 10 Minuten im TaskLoop neu bestimmt
+char stZeile[160] = "Stand wird ermittelt";
+int  stNaechste = 0;          // Uptime der naechsten Ermittlung
+
 // Zeilenleser (zum Zusammenfuegen zweier Monate)
 char rb[1024]; int rbLen = 0; int rbPos = 0;
 char line[800];
@@ -695,8 +699,35 @@ void load31DayData() {
 // ═══════════════════════════════════════════════════════════════════
 // TaskLoop -- Dateiarbeit nicht im Webaufruf
 // ═══════════════════════════════════════════════════════════════════
+// Wie weit reicht die Tagesdatenbank, wie viele Monate liegen lokal?
+// (auch der Fortschritt von EBAKALL). Liest nur Verzeichniseintraege und
+// einmal die Spanne der Tagesdatenbank.
+void statusErmitteln() {
+    char ts[24]; timeStamp(ts);
+    int yj = (ts[0]-'0')*1000 + (ts[1]-'0')*100 + (ts[2]-'0')*10 + (ts[3]-'0');
+    int ym = (ts[5]-'0')*10 + (ts[6]-'0');
+    int j = 2021; int m = 12; int da = 0; int alle = 0;
+    char f[40];
+    while (j < yj || (j == yj && m <= ym)) {
+        sprintf(f, "/e15_%04d-%02d.txt", j, m);
+        if (fileExists(f)) { da = da + 1; }
+        alle = alle + 1;
+        m = m + 1; if (m > 12) { m = 1; j = j + 1; }
+    }
+    dbSpanne();
+    if (db_loaded == 1) {
+        sprintf(stZeile, "Tagesdatenbank %s bis %s &middot; 15-Minuten-Monate lokal %d von %d", db_min, db_max, da, alle);
+    } else {
+        sprintf(stZeile, "Tagesdatenbank fehlt &middot; 15-Minuten-Monate lokal %d von %d", da, alle);
+    }
+}
+
 void TaskLoop() {
     while (1) {
+        if (dotask == 0 && tasm_uptime >= stNaechste) {
+            statusErmitteln();
+            stNaechste = tasm_uptime + 600;
+        }
         if (dotask == 1) {
             loadWeekData();
             w_heute = heuteNr();
@@ -1064,6 +1095,13 @@ void WebUI() {
         }
     }
 }
+// Statuszeile auf der Hauptseite
+void WebCall() {
+    webSend("{s}Energie-Grafiken{m}");
+    webSend(stZeile);
+    webSend("{e}");
+}
+
 int main() {
     dotask = 0;
     dy_loaded = 0;

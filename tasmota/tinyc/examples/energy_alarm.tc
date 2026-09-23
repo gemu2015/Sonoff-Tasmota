@@ -1,4 +1,4 @@
-// @name: Energie-Alarme (Ton, vom Core2)
+// @name: Energie-Alarme + Daikin (vom Core2)
 // ─────────────────────────────────────────────────────────────────────
 // energy_alarm.tc — die Ton-Alarme von core2_energy.tc (.76) auf dem P4 (.118).
 // Ausgabe ueber die Befehle I2SSay / I2SPlay wie hourly_chime.tc.
@@ -27,16 +27,25 @@
 //    Sekunde (nicht im Sekundentakt), und ein zweiter Ton waehrend des ersten
 //    wird mit "I2S Audio busy" abgelehnt.
 //
+// DAIKIN: fragt alle 5 Minuten die Klimaanlage im Schlafzimmer
+// (http://192.168.188.43/aircon/get_sensor_info, Feld htemp=) und schreibt
+// den Wert in die globale Variable shtemp -- die Zuweisung verschickt ihn per
+// UDP an andere Geraete, wie bisher der Core2 (.76). Das Dashboard auf DIESEM
+// Geraet bekommt ihn ueber shareSetFloat("shtemp"), der eigene UDP-Versand
+// kommt dort nicht an.
+//
 // Konsole (Praefix EALARM):
 //   EALARMSTAT            Stand
 //   EALARMTEST            alle Toene nacheinander
 //   EALARMHWP AUTO|AN|AUS Heizungsalarm (bleibt ueber Neustart)
 //   EALARMRUHE n          n Minuten alle Alarme stumm (0 = wieder an)
+//   EALARMDAIKIN          Daikin sofort abfragen
 // ─────────────────────────────────────────────────────────────────────
 
 global float hwp = -1.0;   // Heizungs-WP, aktuelle Leistung (W); -1 = noch kein Wert
 global float pwl = -1.0;   // Powerwall-Fuellstand (%); -1 = noch kein Wert
 global float gerr;     // Fehlerwert des Energy Managers
+global float shtemp;   // Schlafzimmer (Daikin), wird hier GESENDET
 
 persist int hwpModus = 0;     // 0 AUTO, 1 AN, 2 AUS
 
@@ -53,6 +62,12 @@ float battVor = 0.0;
 int  ruheBis = 0;             // Uptime, bis zu der alles stumm ist
 char resp[64];
 char letzter[80] = "-";
+
+// Daikin
+#define DAIKIN "http://192.168.188.43/aircon/get_sensor_info"
+int  dkFaellig = 0;
+int  dkZeit = -1;             // Uptime der letzten gueltigen Antwort
+int  dkFehler = 0;            // Fehlversuche in Folge
 
 // Tonwarteschlange: EverySecond reiht ein, der TaskLoop spielt ab
 #define T_HWP   1
@@ -105,6 +120,8 @@ void UdpCall() {
 
 void EverySecond() {
     cnt = cnt + 1;
+    // Daikin alle 5 Minuten (Versatz 15 s), abgefragt im TaskLoop
+    if (cnt % 300 == 15 && tasm_wifi == 1) { dkFaellig = 1; }
     if (hwpLiefJe == 1) { hwpLief = hwpLief + 1; }
 
     // ── Verbindung: 60 s ohne UDP-Wert ──
@@ -170,7 +187,60 @@ void TaskLoop() {
             if (t == T_DA)   { spiel("/Done.mp3"); }
             delay(ms);
         }
+        if (dkFaellig == 1) {
+            dkFaellig = 0;
+            char dk[160];
+            int n = httpGet(DAIKIN, dk);
+            int hp = -1;
+            if (n > 0) { hp = strFind(dk, "htemp="); }
+            if (hp >= 0) {
+                char hv[12];
+                strSub(hv, dk, hp + 6, 10);
+                shtemp = atof(hv);           // Zuweisung = UDP-Versand an ANDERE Geraete
+                // Slots auf DIESEM Geraet erreicht der eigene Versand nicht
+                // (gemessen: das Dashboard blieb auf 0) -- darum der Share-Speicher
+                shareSetFloat("shtemp", shtemp);
+                dkZeit = tasm_uptime;
+                dkFehler = 0;
+            } else {
+                dkFehler = dkFehler + 1;
+            }
+        }
         delay(200);
+    }
+}
+
+// Statuszeilen auf der Hauptseite
+void WebCall() {
+    char b[200];
+    char m[8];
+    strcpy(m, "AUTO");
+    if (hwpModus == 1) { strcpy(m, "AN"); }
+    if (hwpModus == 2) { strcpy(m, "AUS"); }
+    char sch[16]; strcpy(sch, "nicht scharf");
+    if (hwpScharf()) { strcpy(sch, "scharf"); }
+    char ak[16]; strcpy(ak, "unbekannt");
+    if (pwl >= 0.0) { sprintf(ak, "%.0f %%", pwl); }
+    char vb[24]; strcpy(vb, "ok");
+    if (verloren) { strcpy(vb, "WEG"); }
+    if (udpDa == 0) { strcpy(vb, "noch nichts"); }
+    char ru[24]; strcpy(ru, "");
+    if (stumm()) { sprintf(ru, ", stumm %d min", (ruheBis - tasm_uptime + 59) / 60); }
+    sprintf(b, "{s}Energie-Alarme{m}Heizung %s (%s) &middot; Akku %s &middot; Daten %s%s{e}", m, sch, ak, vb, ru);
+    webSend(b);
+    sprintf(b, "{s}letzter Alarm{m}%s{e}", letzter);
+    webSend(b);
+    if (dkZeit >= 0) {
+        int alt = (tasm_uptime - dkZeit) / 60;
+        sprintf(b, "{s}Schlafzimmer (Daikin){m}%.1f &deg;C, vor %d min", shtemp, alt);
+        webSend(b);
+        if (dkFehler > 0) { sprintf(b, " &middot; %d Fehlversuche", dkFehler); webSend(b); }
+        webSend("{e}");
+    } else if (dkFehler > 0) {
+        sprintf(b, "{s}Schlafzimmer (Daikin){m}keine Antwort (%d Versuche){e}", dkFehler);
+        webSend(b);
+    } else {
+        webSend("{s}Schlafzimmer (Daikin){m}erste Abfrage folgt{e}");
     }
 }
 
@@ -185,8 +255,8 @@ void Command(char cmd[]) {
         if (stumm()) { ruhe = (ruheBis - tasm_uptime + 59) / 60; }
         char u[4]; strcpy(u, "ok");
         if (verloren) { strcpy(u, "WEG"); }
-        sprintf(r, "HWP %.0f W (%s, scharf %d, %d min niedrig) | Akku %.1f %% | gerr %.0f | UDP %s | Ruhe %d min | zuletzt: %s",
-                hwp, m, hwpScharf(), hwpNiedrig, pwl, gerr, u, ruhe, letzter);
+        sprintf(r, "HWP %.0f W (%s, scharf %d, %d min niedrig) | Akku %.1f %% | gerr %.0f | UDP %s | Ruhe %d min | Daikin %.1f C (Fehler %d) | zuletzt: %s",
+                hwp, m, hwpScharf(), hwpNiedrig, pwl, gerr, u, ruhe, shtemp, dkFehler, letzter);
         responseCmnd(r);
     } else if (strcmp(cmd, "TEST") == 0) {
         ton(T_HWP); ton(T_VOLL); ton(T_LEER); ton(T_GERR); ton(T_WEG); ton(T_DA);
@@ -197,6 +267,9 @@ void Command(char cmd[]) {
         hwpModus = 1; saveVars(); responseCmnd("Heizungsalarm immer AN");
     } else if (strcmp(cmd, "HWP AUS") == 0) {
         hwpModus = 2; saveVars(); responseCmnd("Heizungsalarm AUS");
+    } else if (strcmp(cmd, "DAIKIN") == 0) {
+        dkFaellig = 1;
+        responseCmnd("Daikin wird abgefragt, Ergebnis mit EALARMSTAT");
     } else if (strStartsWith(cmd, "RUHE")) {
         char a[16]; strSub(a, cmd, 4, 0);
         int n = strToInt(a);
@@ -205,7 +278,7 @@ void Command(char cmd[]) {
         sprintf(r, "Alarme %d Minuten stumm", n);
         responseCmnd(r);
     } else {
-        responseCmnd("EALARMSTAT | EALARMTEST | EALARMHWP AUTO|AN|AUS | EALARMRUHE n");
+        responseCmnd("EALARMSTAT | EALARMTEST | EALARMHWP AUTO|AN|AUS | EALARMRUHE n | EALARMDAIKIN");
     }
 }
 

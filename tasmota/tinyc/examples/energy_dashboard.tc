@@ -649,7 +649,11 @@ void WebCall() {
 
     // ── Schlafzimmer ────────────────────────────────────────────
     web_section("Schlafzimmer");
-    row_f1("Temperatur", shtemp, "°C");
+    // Daikin: energy_alarm.tc (Slot 5) fragt sie ab und legt den Wert im
+    // Share-Speicher ab; der UDP-Wert kam bisher vom Core2 (.76)
+    float sz = shtemp;
+    if (shareHas("shtemp")) { sz = shareGetFloat("shtemp"); }
+    row_f1("Temperatur", sz, "°C");
 
     // ── Schlafzimmer G ──────────────────────────────────────────
     web_section("Schlafzimmer G");

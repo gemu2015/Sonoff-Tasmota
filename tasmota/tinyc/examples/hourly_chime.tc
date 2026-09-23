@@ -19,6 +19,7 @@
 
 int  last_hour = -1;       // hour-change edge detector
 char chime_resp[48];       // tasmCmd response scratch
+int  last_chime = -1;      // hour of the last chime played (for the status row)
 
 // One place to change the played command/file.
 void play_chime() {
@@ -36,10 +37,22 @@ void EverySecond() {
         // read after boot (last_hour == -1).
         if (last_hour >= 0) {
             play_chime();
+            last_chime = hr;
             addLog("CHIME: full hour %02d:00 -> /Glass.mp3", hr);
         }
         last_hour = hr;
     }
+}
+
+// Status row on the main page (one line per slot)
+void WebCall() {
+    char b[96];
+    if (last_chime >= 0) {
+        sprintf(b, "{s}Stundenschlag{m}an, zuletzt %02d:00 (/Glass.mp3){e}", last_chime);
+    } else {
+        strcpy(b, "{s}Stundenschlag{m}an, noch kein Schlag seit dem Start{e}");
+    }
+    webSend(b);
 }
 
 // Console command prefix CHIME — `CHIMETEST` plays the sound now.
