@@ -2067,6 +2067,23 @@ struct TINYC {
 // Currently executing slot — set before VM execution, used by output functions
 static TcSlot *tc_current_slot = nullptr;
 
+// The slot that OWNS a VM. tc_current_slot is one global for all slots: while
+// slot A's main() runs in its own task, the main loop may dispatch a callback
+// of slot B and re-point it. A syscall that records something per slot must
+// therefore not trust it. Seen on .118 (2026-09-23): slots 4 and 5 started a
+// few seconds apart, slot 5's addCommand("EALARM") landed in slot 4 and every
+// EALARM command answered "Error". Worker VMs (spawnTask) are not a slot's
+// primary VM and fall back to tc_current_slot.
+static TcSlot *tc_slot_of_vm(TcVM *vm) {
+  if (Tinyc && vm) {
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (s && &s->vm == vm) return s;
+    }
+  }
+  return tc_current_slot;
+}
+
 // File handles stored as statics (not in calloc'd struct) so C++ File constructor runs properly
 static File tc_file_handles[TC_MAX_FILE_HANDLES];
 // Owning VM per open handle -> SELECTIVE cleanup: stopping/reloading ONE slot must not
@@ -10376,15 +10393,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // never starts). So command-driven TinyC programs don't run on ESP8266 yet;
       // plain (non-addCommand) programs do. ESP32 unaffected. Left as a follow-up.
       a = TC_POP(vm);  // const index
-      if (tc_current_slot && a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
-        strlcpy(tc_current_slot->cmd_prefix, vm->constants[a].str.ptr, sizeof(tc_current_slot->cmd_prefix));
+      TcSlot *own = tc_slot_of_vm(vm);   // not tc_current_slot -- see tc_slot_of_vm()
+      if (own && a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        strlcpy(own->cmd_prefix, vm->constants[a].str.ptr, sizeof(own->cmd_prefix));
         // Keep a sticky copy so a transient worker stop+restart (or a main()
         // that doesn't re-reach this syscall under heap pressure) can restore
         // it — see TinyCStartVM and TinyCPrefixReheal(). An addCommand("") to
         // unregister mirrors the empty string here too, so the self-heal won't
         // resurrect a prefix the script deliberately dropped.
-        strlcpy(tc_current_slot->cmd_prefix_saved, tc_current_slot->cmd_prefix, sizeof(tc_current_slot->cmd_prefix_saved));
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Registered command prefix \"%s\""), tc_current_slot->cmd_prefix);
+        strlcpy(own->cmd_prefix_saved, own->cmd_prefix, sizeof(own->cmd_prefix_saved));
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Registered command prefix \"%s\""), own->cmd_prefix);
       }
       break;
     }
@@ -12684,9 +12702,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *label = tc_get_const_str(vm, ci);
       if (label && Tinyc && pn >= 0 && pn < TC_MAX_WEB_PAGES) {
         strlcpy(Tinyc->page_label[pn], label, sizeof(Tinyc->page_label[0]));
-        // track which slot registered this page
+        // track which slot registered this page (owner of THIS vm, see
+        // tc_slot_of_vm -- tc_current_slot can belong to another slot here)
+        TcSlot *own = tc_slot_of_vm(vm);
         for (uint8_t si = 0; si < TC_MAX_VMS; si++) {
-          if (Tinyc->slots[si] && tc_current_slot == Tinyc->slots[si]) {
+          if (Tinyc->slots[si] && own == Tinyc->slots[si]) {
             Tinyc->page_slot[pn] = si;
             break;
           }
