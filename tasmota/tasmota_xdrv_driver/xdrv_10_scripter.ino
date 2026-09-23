@@ -8642,6 +8642,13 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 
     TS_FLOAT fvar = 0, fvar1, sysvar, swvar;
     uint8_t section = 0, sysv_type = 0, swflg = 0;
+#ifdef SCRIPT_LOCAL_NVARS
+    // Index of an lnvX/lsvX assignment target. glob_script_mem.lvindex is
+    // shared: evaluating a right-hand side that also reads lnv/lsv overwrites
+    // it, so "lnv0=lnv1+1" wrote to lnv1. Latched right after the target
+    // is parsed and used for the write-back.
+    uint8_t lv_dest = 0;
+#endif
 
     char *lp;
     if (tlen == 0) {
@@ -9255,6 +9262,9 @@ chk_switch:
             } else {
               char *vnp = lp;
               lp = isvar(lp, &vtype, &ind, &sysvar, 0, gv);
+#ifdef SCRIPT_LOCAL_NVARS
+              lv_dest = glob_script_mem.lvindex;
+#endif
               if (vtype != VAR_NV) {
 #ifdef USE_SCRIPT_GLOBVARS
                   char varname[16];
@@ -9467,7 +9477,7 @@ chk_switch:
 
 #ifdef SCRIPT_LOCAL_NVARS
                           case SCRIPT_LOCVARS:
-                            glob_script_mem.locvars[glob_script_mem.lvindex] = *dfvar;
+                            glob_script_mem.locvars[lv_dest] = *dfvar;
                             break;
 #endif
 
@@ -9536,8 +9546,8 @@ chk_switch:
                       } else {
                         char *cp = glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize);
 #ifdef SCRIPT_LOCAL_NVARS
-                        if ((sysv_type == SCRIPT_LOCSVARS) && glob_script_mem.locsvars[glob_script_mem.lvindex]) {
-                          cp = glob_script_mem.locsvars[glob_script_mem.lvindex];
+                        if ((sysv_type == SCRIPT_LOCSVARS) && glob_script_mem.locsvars[lv_dest]) {
+                          cp = glob_script_mem.locsvars[lv_dest];
                           sysv_type = 0;
                         }
 #endif
