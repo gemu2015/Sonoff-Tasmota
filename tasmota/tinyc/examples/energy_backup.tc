@@ -15,9 +15,10 @@
 // Weboberflaeche. Port 82 bedient EINEN Download und antwortet bei Belegung GAR
 // NICHT -- darum vor jedem Abruf eine Frei-Probe mit einer 54-Byte-Datei, und
 // zwischen zwei Abrufen eine Minute Pause. Ein abgebrochener Download liest auf
-// .61 trotzdem die ganze Datei zu Ende; fileDownload() bricht mitten in der
-// Uebertragung nicht ab (liest, solange die Verbindung steht). Langsam ist
-// erlaubt: ein Monat kommt mit ~2,6 KB/s, also 3-4 Minuten.
+// .61 trotzdem die ganze Datei zu Ende. fileDownload() gibt erst nach 5 Minuten
+// ohne ein Byte auf (-4): so lange schweigt .61 nie absichtlich (die Suche nach
+// der Startzeile dauert ~67 s), aber manchmal bleibt es bei offener Verbindung
+// ganz stumm. Langsam ist erlaubt: ein Monat kommt mit ~2,6 KB/s.
 //
 // WINTERZEIT: Die Zeitstempel des Scripters sind Ortszeit. Waehrend der
 // Sommerzeit (letzter So im Maerz 03:00 bis letzter So im Oktober 03:00) wird
@@ -34,10 +35,13 @@
 // wurde (xdrv_10_scripter.ino, script_copy_file / SendFile_sub). Ist der
 // WLAN-Sendepuffer voll, gehen die restlichen Bytes STILL verloren -- in einem
 // Probeabruf fehlten sechs Zeilen, und aus den Resten war eine Zeile
-// „1.9.26 960 …" zusammengeklebt. Darum wird JEDE Zeile geprueft (lesbarer
-// Zeitstempel UND genau so viele Spalten wie die Kopfzeile), und bei einem
+// „1.9.26 960 …" zusammengeklebt. Darum wird JEDE Zeile geprueft (zeileGut:
+// lesbarer Zeitstempel, nur Zahlen, Spaltenzahl passend), und bei einem
 // Fehler wird neu geholt, bis zu dreimal; genommen wird der beste Versuch.
 // Echte Luecken sind in jedem Versuch gleich, Uebertragungsverluste nicht.
+//
+// LOKAL (SD-Karte, fuer energy_charts.tc): /e15_JJJJ-MM.txt je Monat (roh) und
+// /energy_m_log.txt. Die Grafikseiten lesen nur diese, nie .61.
 //
 // Zugangsdaten: /ftp.cfg (vier Zeilen: Host, Benutzer, Passwort, eine Zieldatei
 // wie bei ftp_log.tc) -- das Zielverzeichnis ist deren Ordner + "/energie".
@@ -45,6 +49,7 @@
 // Konsole (Praefix EBAK):
 //   EBAKNOW            jetzt: laufender Monat + Tagesdatenbank
 //   EBAKMON 2026-09    genau diesen Monat
+//   EBAKMLOG           nur die Tagesdatenbank (ein Abruf, ~3 s)
 //   EBAKALL            die ganze Geschichte seit 12/2021 nachholen (Monat fuer
 //                      Monat, uebersteht einen Neustart); EBAKALL STOP haelt an
 //   EBAKSTAT           Stand
@@ -56,8 +61,8 @@
 #define SRC      "http://192.168.188.61:82/ufs/"
 #define START_J  2021
 #define START_M  12
-#define RUN_H    4             // naechtlicher Lauf um 04:10 Ortszeit (nach 02:xx/03:xx)
-#define RUN_MI   10
+#define RUN_H    0             // naechtlicher Lauf um 00:20 Ortszeit: der Vortag ist dann
+#define RUN_MI   20            // vollstaendig, energy_charts.tc zeigt ihn gleich morgens
 #define PAUSE_S  60            // zwischen zwei Abrufen bei .61
 
 char host[64]; char user[32]; char pw[32]; char dir[96];
@@ -365,6 +370,22 @@ int monatSichern(int y, int m) {
             jetzt, y, m, bZ, erwartet, bL, bF, bD, bU, versuche, e1, e2, zus);
     char pr[128]; sprintf(pr, "%s/pruefung.txt", dir);
     ftpPutStr(pr, pz, 1);
+
+    // Lokale Kopie fuer energy_charts.tc: die ROHdatei (Ortszeit, wie .61
+    // sie liefert). Eine beschaedigte ersetzt keine vorhandene.
+    char lz[40]; sprintf(lz, "/e15_%04d-%02d.txt", y, m);
+    if (bU == 0 || !fileExists(lz)) {
+        // fileRename nimmt nur feste Pfade, darum blockweise kopieren
+        fileDelete(lz);
+        int hi = fileOpen("/ebak_bestroh.txt", 0);
+        int ho = fileOpen(lz, 1);
+        if (hi >= 0 && ho >= 0) {
+            int n = fileRead(hi, rb, 1024);
+            while (n > 0) { fileWrite(ho, rb, n); n = fileRead(hi, rb, 1024); }
+        }
+        if (hi >= 0) { fileClose(hi); }
+        if (ho >= 0) { fileClose(ho); }
+    }
     sprintf(letzte, "%04d-%02d: %d Zeilen, %d fehlen, %d doppelt, %d unlesbar, %d Versuche, %d B roh", y, m, bZ, bF, bD, bU, versuche, broh);
     addLog("EBAK %s", letzte);
     return 0;
@@ -404,6 +425,9 @@ int mlogSichern() {
     int a = ftpPut(rz, "/ebak_mlog.txt", 0);
     if (a < 0) { sprintf(letzte, "Tagesdatenbank: FTP %d", a); return -1; }
     sprintf(letzte, "Tagesdatenbank: %d Zeilen, %d B, %d Versuche", zZeilen, a, versuch);
+    // lokale Kopie fuer energy_charts.tc
+    fileDelete("/energy_m_log.txt");
+    fileRename("/ebak_mlog.txt", "/energy_m_log.txt");
     addLog("EBAK %s", letzte);
     return 0;
 }
@@ -498,6 +522,8 @@ void Command(char cmd[]) {
     char r[200];
     if (strcmp(cmd, "NOW") == 0) {
         nachtlauf(); responseCmnd("laufender Monat + Tagesdatenbank eingereiht");
+    } else if (strcmp(cmd, "MLOG") == 0) {
+        mlogFaellig = 1; responseCmnd("Tagesdatenbank eingereiht");
     } else if (strStartsWith(cmd, "MON ")) {
         char a[16]; strSub(a, cmd, 4, 0);
         char j[8]; char mo[8];
@@ -528,7 +554,7 @@ void Command(char cmd[]) {
         sprintf(r, "%s | letzte: %s | Warteschlange %d, Nachholen %04d-%02d", stand, letzte, qN, allJ, allM);
         responseCmnd(r);
     } else {
-        responseCmnd("EBAKNOW | EBAKMON JJJJ-MM | EBAKALL [STOP] | EBAKSTAT | EBAKPRUEF JJJJ-MM");
+        responseCmnd("EBAKNOW | EBAKMON JJJJ-MM | EBAKMLOG | EBAKALL [STOP] | EBAKSTAT | EBAKPRUEF JJJJ-MM");
     }
 }
 
