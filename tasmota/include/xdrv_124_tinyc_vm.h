@@ -3121,6 +3121,7 @@ static volatile TaskHandle_t tc_udp_main_task = nullptr;
 // With Ethernet AND WiFi on one subnet every datagram arrives twice (once per
 // netif); an identical payload within 200 ms is dropped as the twin.
 #ifdef ESP32
+static bool tc_udp_legacy = false;       // TinyCUdp 1: receive through NetworkUDP again (A/B test)
 static int tc_udp_rxfd = -1;
 static uint32_t tc_udp_dup_ms = 0;
 static uint16_t tc_udp_dup_len = 0;
@@ -4039,7 +4040,8 @@ static void tc_udp_init(void) {
 #ifdef ESP8266
   if (Tinyc->udp.beginMulticast(WiFi.localIP(), IPAddress(239,255,255,250), TC_UDP_PORT)) {
 #else
-  if (tc_udp_rx_open()) {                  // receive: plain lwIP socket (see tc_udp_rx_open)
+  if (tc_udp_legacy ? Tinyc->udp.beginMulticast(IPAddress(239,255,255,250), TC_UDP_PORT)
+                    : tc_udp_rx_open()) {  // receive: plain lwIP socket (see tc_udp_rx_open)
 #endif
     Tinyc->udp_connected = true;
     Tinyc->udp_last_rx = millis();  // reset watchdog on (re)connect
@@ -4148,9 +4150,21 @@ static void tc_udp_poll(void) {
   while (1) {
     if (millis() - timeout > 100) break;  // cap main-loop time per poll
 #ifdef ESP32
-    int32_t len = tc_udp_rx_next(Tinyc->udp_buf, TC_UDP_BUF_SIZE);
-    if (len <= 0) break;
-    Tinyc->udp_pkts++;
+    int32_t len;
+    if (!tc_udp_legacy) {
+      len = tc_udp_rx_next(Tinyc->udp_buf, TC_UDP_BUF_SIZE);
+      if (len <= 0) break;
+      Tinyc->udp_pkts++;
+    } else {
+      uint16_t plen = Tinyc->udp.parsePacket();
+      if (plen) Tinyc->udp_pkts++;
+      if (!plen || plen >= TC_UDP_BUF_SIZE) {
+        if (plen > 0) { Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1); Tinyc->udp.flush(); }
+        break;
+      }
+      len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
+      Tinyc->udp_buf[len] = 0;
+    }
 #else
     uint16_t plen = Tinyc->udp.parsePacket();
     if (plen) Tinyc->udp_pkts++;

@@ -6197,7 +6197,7 @@ All commands default to slot 0 if no slot number is given (backward-compatible).
 | `TinyCReset [slot]`           | Stop and reset slot                              |
 | `TinyCExec <n>`               | Set instructions per tick (default 1000)         |
 | `TinyCInfo 0\|1`              | Show/hide VM debug rows on main web page         |
-| `TinyCUdp`                    | Inspect UDP globals: per registered name the last value, packets received (`rx`) and handed to a VM (`inj`) in the log; the response carries totals (`Rx`, `Unknown`, `SlotSkip`, `Raw`/`Pkts` before/after twin removal, group membership per netif). When a value never shows, `rx 0` tells you the packet was never received. |
+| `TinyCUdp [0\|1]`              | Inspect UDP globals (`1`/`0` switches reception to the old NetworkUDP path or the plain lwIP socket, for A/B comparison): per registered name the last value, packets received (`rx`) and handed to a VM (`inj`) in the log; the response carries totals (`Rx`, `Unknown`, `SlotSkip`, `Raw`/`Pkts` before/after twin removal, group membership per netif). When a value never shows, `rx 0` tells you the packet was never received. |
 | `TinyCIde [url]`              | Update the browser IDE from the repo (or a URL); replaces `/tinyc_ide.html.gz`, no file manager (needs `USE_UFILESYS`) |
 
 > ⚠️ **Flashing firmware does NOT update the IDE.** The browser IDE is a *file on the device filesystem* (`/tinyc_ide.html.gz`), not part of the firmware image. After flashing a build that adds new syscalls, the old IDE still doesn't know them and the compiler reports `Undefined function: <name>` — even though the firmware supports it. Run **`TinyCIde`** once after every firmware update that adds built-ins, then hard-reload the browser page.

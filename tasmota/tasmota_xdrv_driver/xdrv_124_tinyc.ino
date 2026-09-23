@@ -2095,6 +2095,17 @@ void CmndTinyCUnload(void) {
 // One log line per name (the list does not fit a command response).
 void CmndTinyCUdp(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+#ifdef ESP32
+  // TinyCUdp 1 / 0: receive through NetworkUDP (the path before 2026-09-23) or
+  // the plain lwIP socket -- an A/B switch for the next time reception looks
+  // wrong. Counters restart, the socket is rebuilt on the next poll.
+  if (XdrvMailbox.data_len > 0 && (XdrvMailbox.payload == 0 || XdrvMailbox.payload == 1)) {
+    tc_udp_legacy = (XdrvMailbox.payload == 1);
+    if (Tinyc->udp_connected) { Tinyc->udp.flush(); Tinyc->udp.stop(); tc_udp_rx_close(); Tinyc->udp_connected = false; }
+    Tinyc->udp_rx_total = Tinyc->udp_rx_unknown = Tinyc->udp_rx_skip = 0;
+    Tinyc->udp_polls = Tinyc->udp_pkts = Tinyc->udp_raw = 0;
+  }
+#endif
   uint32_t n = 0;
   if (Tinyc->udp_vars) {
     for (int i = 0; i < TC_UDP_MAX_VARS; i++) {
@@ -2125,9 +2136,14 @@ void CmndTinyCUdp(void) {
 #if defined(ESP32) && defined(USE_ETHERNET)
   ethmc = tc_udp_eth_mc;
 #endif
-  Response_P(PSTR("{\"" D_PRFX_TINYC "Udp\":{\"Vars\":%u,\"Max\":%d,\"Rx\":%u,\"Unknown\":%u,\"SlotSkip\":%u,\"Connected\":%d,\"EthAllMc\":%d,\"Polls\":%u,\"Pkts\":%u,\"Raw\":%u,\"Uptime\":%u,\"Netif\":\"%s\"}}"),
+  Response_P(PSTR("{\"" D_PRFX_TINYC "Udp\":{\"Vars\":%u,\"Max\":%d,\"Rx\":%u,\"Unknown\":%u,\"SlotSkip\":%u,\"Connected\":%d,\"EthAllMc\":%d,\"Legacy\":%d,\"Polls\":%u,\"Pkts\":%u,\"Raw\":%u,\"Uptime\":%u,\"Netif\":\"%s\"}}"),
              (unsigned)n, TC_UDP_MAX_VARS, (unsigned)Tinyc->udp_rx_total, (unsigned)Tinyc->udp_rx_unknown,
              (unsigned)Tinyc->udp_rx_skip, Tinyc->udp_connected ? 1 : 0, ethmc,
+#ifdef ESP32
+             tc_udp_legacy ? 1 : 0,
+#else
+             1,
+#endif
              (unsigned)Tinyc->udp_polls, (unsigned)Tinyc->udp_pkts, (unsigned)Tinyc->udp_raw, (unsigned)TasmotaGlobal.uptime, nif);
 }
 
