@@ -30,6 +30,15 @@
 // nach jedem Auszug der letzte Wert zusaetzlich in [0] (Wochentabelle, Tages-
 // bilanz, 52 Wochen, 31 Tage), und die 168-Stunden-Linien lesen ab pos 1.
 //
+// HEIZUNG: Seit Oktober 2023 heizt die Waermepumpe (HWP), Gas steht auf 0. Die
+// Warmwasser macht eine eigene Brauchwasser-WP (BWWP); Gas deckte frueher
+// beides. Die Wochenseite zeigt darum neben Gas die SUMME beider als "Waerme"
+// (Leistungslinie, Tagesbalken, Tabelle mit "Waerme E" zum Strompreis, das
+// Gegenstueck zu "Gas E"). Der HWP-Zaehler meldet im Sommer 0, weil die HWP aus
+// ist; sein Stand bleibt erhalten. fileExtract rechnete bei der Rueckkehr den
+// ganzen Zaehlerstand als Tagesverbrauch (3498 kWh am 1.10.24). hwpDeltas()
+// behandelt 0 als fehlend und rechnet vom letzten gueltigen Stand weiter.
+//
 // Zwei Fehler des Originals sind behoben: Woche, 52 Wochen und 31 Tage teilen
 // sich die w_*-Felder, Tagesbilanz und Woche die wt_*-Felder; wer zuletzt lud,
 // stand ungeprueft auf der anderen Seite. Jetzt merkt sich wFor/wtFor, wessen
@@ -38,6 +47,7 @@
 // ─────────────────────────────────────────────────────────────────────
 
 #define PRICE_GAS_KWH  12     // cents per kWh (gas: cbm * 9.9 = kwh)
+#define PRICE_STROM    40     // cents per kWh electricity (wie core2_energy.tc)
 #define MLOG  "/energy_m_log.txt"
 #define TMP15 "/ch15.txt"
 
@@ -151,6 +161,12 @@ char tmax[32];
 char tval[32];
 char dx1[32];
 
+// HWP-Zaehler roh und als Tagesdifferenz (hwpDeltas)
+float hraw[400];
+float hdel[400];
+float wt_phwp[8];
+float wt_warm[8];     // HWP + BWWP je Tag (kWh)
+
 // Zeilenleser (zum Zusammenfuegen zweier Monate)
 char rb[1024]; int rbLen = 0; int rbPos = 0;
 char line[800];
@@ -240,6 +256,30 @@ int quelle15(char von[], char bis[]) {
     fileClose(ho);
     strcpy(fnam, TMP15);
     return 1;
+}
+
+// HWP-Zaehler (Spalte 28 der Tagesdatenbank) roh holen und daraus die
+// Differenzen bilden wie fileExtract (hdel[k] = Zeile k - Zeile k-1), aber
+// eine 0 ist "HWP aus, kein Wert": sie liefert 0, und der naechste gueltige
+// Stand zaehlt ab dem letzten gueltigen. Liefert die Zeilenzahl.
+int hwpDeltas(char von[], char bis[]) {
+    int fr = fileOpen(MLOG, "r");
+    if (fr < 0) { return 0; }
+    int rows = fileExtract(fr, von, bis, 28, 1, hraw);
+    fileClose(fr);
+    float last = 0.0;
+    int i = 0;
+    while (i < rows) {
+        float v = hraw[i];
+        float d = 0.0;
+        if (v > 0.0) {
+            if (last > 0.0 && v >= last) { d = v - last; }
+            last = v;
+        }
+        hdel[i] = d;
+        i = i + 1;
+    }
+    return rows;
 }
 
 // Spanne der Tagesdatenbank fuer "Datenbank vom ... bis ..."
@@ -334,6 +374,7 @@ void loadDayData() {
         fileClose(fr);
         sprintf(buf, "ECH: bilanz rows=%d", rows);
         addLog(buf);
+        if (hwpDeltas(sx1, sx2) > 1) { wt_hwp[1] = hdel[1]; } else { wt_hwp[1] = 0.0; }
         // Ringformel: WebChart(pos 2, count 1) liest [0], der Tag steht in [1]
         wt_hv[0] = wt_hv[1]; wt_wb[0] = wt_wb[1]; wt_sin1[0] = wt_sin1[1];
         wt_sin2[0] = wt_sin2[1]; wt_sin3[0] = wt_sin3[1]; wt_sin4[0] = wt_sin4[1];
@@ -369,7 +410,11 @@ void loadWeekData() {
                 a_du,
                 w_sin,
                 a_du,
-                w_hv);
+                w_hv,
+                a_du, a_du, a_du, a_du,               // RCAP_a KLI_a PWP_a WP
+                w_bwwp,                               // BWWP-Zaehler (x4000 -> W)
+                a_du,                                 // RAIN
+                w_hwp);                               // HWP_a: Leistung der HWP (W)
             fileClose(fr);
             sprintf(buf, "ECH: 15min rows=%d", rows);
             addLog(buf);
@@ -385,6 +430,8 @@ void loadWeekData() {
                 w_wr2[i] = w_wr2[i] * 4000.0;
                 w_wr3[i] = w_wr3[i] * 4000.0;
                 w_wr4[i] = w_wr4[i] * 4000.0;
+                // Waerme: HWP-Leistung + BWWP (Zaehlerdifferenz -> W) in w_hwp
+                w_hwp[i] = w_hwp[i] + w_bwwp[i] * 4000.0;
                 i = i + 1;
             }
 
@@ -397,6 +444,7 @@ void loadWeekData() {
             w_pwl[0] = w_pwl[le]; w_hv[0] = w_hv[le]; w_sin[0] = w_sin[le];
             w_wr1[0] = w_wr1[le]; w_wr2[0] = w_wr2[le]; w_wr3[0] = w_wr3[le];
             w_wr4[0] = w_wr4[le]; w_wa[0] = w_wa[le]; w_gas[0] = w_gas[le];
+            w_hwp[0] = w_hwp[le];
         }
     } else {
         wk_fehlt = 1;
@@ -418,7 +466,7 @@ void loadWeekData() {
             a_du, a_du, a_du, a_du, a_du,
             wt_sin4, wt_hv, a_du, wt_wa, wt_gas,
             a_du, a_du, a_du, a_du, a_du,
-            a_du, a_du, a_du, wt_wp);
+            a_du, a_du, a_du, wt_wp, wt_bwwp);
         fileClose(fr);
         wk_drows = rows;
         sprintf(buf, "ECH: daily rows=%d", rows);
@@ -430,6 +478,17 @@ void loadWeekData() {
             wt_pgas[i] = wt_gas[i] * 10.0 * PRICE_GAS_KWH / 100.0;
             i = i + 1;
         }
+        // HWP je Tag (Sommer-0 als fehlend) und in Euro zum Strompreis
+        int hn;
+        hn = hwpDeltas(s1, s2);
+        i = 1;
+        while (i < 8) {
+            wt_hwp[i] = 0.0;
+            if (i < hn) { wt_hwp[i] = hdel[i]; }
+            wt_warm[i] = wt_hwp[i] + wt_bwwp[i];
+            wt_phwp[i] = wt_warm[i] * PRICE_STROM / 100.0;
+            i = i + 1;
+        }
         // Ringformel: pos 8, count 7 liest 1..6, dann 0 -- der 7. Tag steht in
         // [7] und kommt nach [0] (der Core2 schrieb dort den Wochentag hin)
         if (rows > 1) {
@@ -439,6 +498,8 @@ void loadWeekData() {
             wt_sin2[0] = wt_sin2[le]; wt_sin3[0] = wt_sin3[le]; wt_sin4[0] = wt_sin4[le];
             wt_wa[0] = wt_wa[le]; wt_gas[0] = wt_gas[le]; wt_wp[0] = wt_wp[le];
             wt_pgas[0] = wt_pgas[le];
+            wt_hwp[0] = wt_hwp[le]; wt_phwp[0] = wt_phwp[le];
+            wt_bwwp[0] = wt_bwwp[le]; wt_warm[0] = wt_warm[le];
         }
     }
     wFor = 1;
@@ -490,6 +551,20 @@ void load52WeekData() {
             a_du, w_hwp, a_du, w_avgt);
         fileClose(fr);
         d52 = rows;
+
+        // HWP neu, Sommer-0 als fehlend: Wochenmittel wie fileExtract (-7)
+        {
+            int hn;
+            hn = hwpDeltas(s1, s2);
+            int j; int k; int c; float sum;
+            j = 1; k = 1; c = 0; sum = 0.0;
+            while (k < hn) {
+                sum = sum + hdel[k]; c = c + 1;
+                if (c == 7) { w_hwp[j] = sum / 7.0; j = j + 1; sum = 0.0; c = 0; }
+                k = k + 1;
+            }
+            if (c > 0) { w_hwp[j] = sum / c; }
+        }
 
         int i;
         i = 1;
@@ -555,6 +630,19 @@ void load31DayData() {
         fileClose(fr);
         d52 = rows;
         if (d52 > days + 1) { d52 = days + 1; }
+
+        // HWP neu, Sommer-0 als fehlend (vor w_gwp = BWWP + HWP)
+        {
+            int hn;
+            hn = hwpDeltas(s1, s2);
+            int k;
+            k = 1;
+            while (k < rows) {
+                w_hwp[k] = 0.0;
+                if (k < hn) { w_hwp[k] = hdel[k]; }
+                k = k + 1;
+            }
+        }
 
         w_wr1[0] = 0.0; w_wr2[0] = 0.0; w_wr3[0] = 0.0; w_wr4[0] = 0.0;
         w_pwl[0] = 0.0; w_at[0] = 0.0; w_sin[0] = 0.0; w_swa[0] = 0.0;
@@ -811,6 +899,7 @@ void WebUI() {
             WebChart('c', "", "Garten", 0x888800, wk_drows, 7, wt_sin3, 1, 1440, 0.0, 0.0);
             WebChart('c', "", "Dach", 0xFF8800, wk_drows, 7, wt_sin4, 1, 1440, 0.0, 0.0);
             WebChart('c', "", "WP", 0x8800FF, wk_drows, 7, wt_wp, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "Wärme", 0xCC0000, wk_drows, 7, wt_warm, 1, 1440, 0.0, 0.0);
             WebChartTimeBase(0);
             // Chart 2: Powerwall & Temperatures (dual y-axis: 0-100% left, 0-60°C right)
             // decimals: 0+8=8 (smooth), 1+8=9 (1 decimal + smooth)
@@ -825,9 +914,11 @@ void WebUI() {
             WebChart('l', "", "GHaus|W", 0x0000FF, 1, 168, w_wr2, 8, 60, 0.0, 8000.0);
             WebChart('l', "", "Garten|W", 0x888800, 1, 168, w_wr3, 8, 60, 0.0, 8000.0);
             WebChart('l', "", "Dach|W", 0x8800FF, 1, 168, w_wr4, 8, 60, 0.0, 8000.0);
-            // Chart 4: Gas & Water (2 decimals + smooth = 10)
-            WebChart('l', "Gas / Wasser", "Gas|m3", 0xFF0000, 1, 168, w_gas, 10, 60, 0.0, 0.3);
+            // Chart 4: Gas & Water (2 decimals + smooth = 10), dazu die HWP-Leistung
+            // auf eigener Achse (anderer Bereich = zweite y-Achse)
+            WebChart('l', "Gas / Wasser / Wärmepumpen", "Gas|m3", 0xFF0000, 1, 168, w_gas, 10, 60, 0.0, 0.3);
             WebChart('l', "", "Wasser|m3", 0x0088FF, 1, 168, w_wa, 10, 60, 0.0, 0.3);
+            WebChart('l', "", "Wärmepumpen|W", 0xFF8800, 1, 168, w_hwp, 8, 60, 0.0, 3000.0);
             // Chart 5: Energy balance table (dynamic weekday labels via JS rotation)
             WebChart('t', "Tag|So|Mo|Di|Mi|Do|Fr|Sa", "Haus", 0x000000, wk_drows, 7, wt_hv, 2, 0, 0.0, 0.0);
             WebChart('t', "", "Wallbox", 0x000000, wk_drows, 7, wt_wb, 2, 0, 0.0, 0.0);
@@ -839,6 +930,8 @@ void WebUI() {
             WebChart('t', "", "Gas E", 0x000000, wk_drows, 7, wt_pgas, 2, 0, 0.0, 0.0);
             WebChart('t', "", "Wasser", 0x000000, wk_drows, 7, wt_wa, 2, 0, 0.0, 0.0);
             WebChart('t', "", "WP", 0x000000, wk_drows, 7, wt_wp, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wärme", 0x000000, wk_drows, 7, wt_warm, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wärme E", 0x000000, wk_drows, 7, wt_phwp, 2, 0, 0.0, 0.0);
             // Rotate table weekday labels to start from today's weekday
             // c.lb = [So,Mo,Di,Mi,Do,Fr,Sa] → rotate by getDay() positions
             webSend("<script>(function(){var c=_tcC[_tcC.length-1];if(c&&c.lb){var w=new Date().getDay();var o=c.lb.slice();for(var i=0;i<7;i++)c.lb[i]=o[(w+i)%7];}})()</script>");
