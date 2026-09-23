@@ -86,6 +86,39 @@ int tabs(char s[]) {
     return n;
 }
 
+// Zeilenpruefung. .61 hat ueber die Jahre Spalten dazubekommen (Tagesdatenbank
+// 25 Spalten 12/2021, 31 ab 10/2023), die Kopfzeile nennt nur den heutigen
+// Stand. Eine Zeile ist heil, wenn jedes Feld nach dem Stempel eine Zahl ist,
+// sie hoechstens so viele Spalten hat wie die Kopfzeile und nie weniger als
+// die letzte heile Zeile. Ohne die letzte Bedingung blieben beim Nachstellen
+// von Bytverlusten sechsmal so viele Klebezeilen unentdeckt.
+int vorTabs = -1;
+int zeileGut(int kopf) {
+    int i = 0; int n = 0; int feld = 0; int fpos = 0; int ziff = 0; int punkt = 0; int nach = 0;
+    while (line[i] != 0 && line[i] != '\t') { i = i + 1; }
+    while (line[i] != 0) {
+        char c = line[i];
+        if (c == '\t') {
+            if (feld && (ziff == 0 || (punkt && nach == 0))) { return 0; }
+            n = n + 1; feld = 1; fpos = 0; ziff = 0; punkt = 0; nach = 0;
+        } else if (c >= '0' && c <= '9') {
+            ziff = ziff + 1; if (punkt) { nach = nach + 1; } fpos = fpos + 1;
+        } else if (c == '.') {
+            if (punkt || ziff == 0) { return 0; }
+            punkt = 1; fpos = fpos + 1;
+        } else if (c == '-') {
+            if (fpos > 0) { return 0; }
+            fpos = fpos + 1;
+        } else if (c != '\r') { return 0; }
+        i = i + 1;
+    }
+    if (feld && (ziff == 0 || (punkt && nach == 0))) { return 0; }
+    if (kopf >= 0 && n > kopf) { return 0; }
+    if (n < vorTabs) { return 0; }
+    vorTabs = n;
+    return 1;
+}
+
 // Zeilenleser
 char rb[1024]; int rbLen = 0; int rbPos = 0;
 char line[800]; char rest[800];
@@ -214,7 +247,7 @@ int umrechnen(int y, int m) {
     int hi = fileOpen("/ebak_roh.txt", 0);
     int ho = fileOpen("/ebak_neu.txt", 1);
     if (hi < 0 || ho < 0) { if (hi >= 0) { fileClose(hi); } if (ho >= 0) { fileClose(ho); } return -1; }
-    rbLen = 0; rbPos = 0; kopfTabs = -1;
+    rbLen = 0; rbPos = 0; kopfTabs = -1; vorTabs = -1;
     int mAnf = tageAb1970(y, m, 1) * 1440;
     int mEnd = tageAb1970(ny, nm, 1) * 1440;
     int vorher = -1;
@@ -228,8 +261,8 @@ int umrechnen(int y, int m) {
         if (strlen(line) == 0) { continue; }
         int t = stempelMinuten();
         // ⚠️ Zusammengeklebte Zeilen (Uebertragungsverlust auf .61): Stempel
-        // unlesbar oder falsche Spaltenzahl. Sie werden NICHT geschrieben.
-        if (t < 0 || (kopfTabs >= 0 && tabs(line) != kopfTabs)) { zUnlesbar = zUnlesbar + 1; continue; }
+        // unlesbar oder zeileGut() lehnt ab. Sie werden NICHT geschrieben.
+        if (t < 0 || !zeileGut(kopfTabs)) { zUnlesbar = zUnlesbar + 1; continue; }
         int w = winterzeit(t, vorher);
         if (w < mAnf || w >= mEnd) { continue; }             // Ueberhang des Nachbarmonats
         if (vorher >= 0 && w <= vorher) { zDoppel = zDoppel + 1; continue; }
@@ -305,18 +338,31 @@ int monatSichern(int y, int m) {
     if (bestWert < 0) { return -1; }
 
     sprintf(stand, "%04d-%02d: zur Fritzbox …", y, m);
+    // Ist auch der beste Versuch beschaedigt, ersetzt er KEINE vorhandene
+    // Monatsdatei (23.09.2026: ein schlechter Lauf ueberschrieb eine saubere),
+    // sondern landet als ..._fehlerhaft.txt daneben. Der naechste saubere Lauf
+    // raeumt diese wieder weg.
+    char suf[16]; strcpy(suf, "");
+    if (bU > 0) { strcpy(suf, "_fehlerhaft"); }
     char rz[160];
-    sprintf(rz, "%s/e15_%04d-%02d.txt", dir, y, m);
+    sprintf(rz, "%s/e15_%04d-%02d%s.txt", dir, y, m, suf);
     int a = ftpPut(rz, "/ebak_best.txt", 0);
-    sprintf(rz, "%s/roh/e15_%04d-%02d.txt", dir, y, m);
+    sprintf(rz, "%s/roh/e15_%04d-%02d%s.txt", dir, y, m, suf);
     int b = ftpPut(rz, "/ebak_bestroh.txt", 0);
     if (a < 0 || b < 0) { sprintf(letzte, "%04d-%02d: FTP %d/%d", y, m, a, b); return -1; }
+    if (bU == 0) {
+        sprintf(rz, "%s/e15_%04d-%02d_fehlerhaft.txt", dir, y, m); ftpDelete(rz);
+        sprintf(rz, "%s/roh/e15_%04d-%02d_fehlerhaft.txt", dir, y, m); ftpDelete(rz);
+    }
 
     char pz[220]; char e1[24]; char e2[24]; char jetzt[24];
     stempelText(bE, e1); stempelText(bLe, e2); timeStamp(jetzt);
     int erwartet = (tageAb1970(ny, nm, 1) - tageAb1970(y, m, 1)) * 96;
+    char zus[48]; strcpy(zus, "");
+    if (laufenderMonat(y, m)) { strcat(zus, "\tlaufend"); }
+    if (bU > 0) { strcat(zus, "\tFEHLERHAFT, nicht ersetzt"); }
     sprintf(pz, "%s\t%04d-%02d\t%d von %d\tLuecken %d (%d Viertelstunden)\tDoppel %d\tunlesbar %d\tVersuche %d\t%s .. %s%s\n",
-            jetzt, y, m, bZ, erwartet, bL, bF, bD, bU, versuche, e1, e2, laufenderMonat(y, m) ? "\tlaufend" : "");
+            jetzt, y, m, bZ, erwartet, bL, bF, bD, bU, versuche, e1, e2, zus);
     char pr[128]; sprintf(pr, "%s/pruefung.txt", dir);
     ftpPutStr(pr, pz, 1);
     sprintf(letzte, "%04d-%02d: %d Zeilen, %d fehlen, %d doppelt, %d unlesbar, %d Versuche, %d B roh", y, m, bZ, bF, bD, bU, versuche, broh);
@@ -328,13 +374,13 @@ int monatSichern(int y, int m) {
 int mlogPruefen() {
     int h = fileOpen("/ebak_mlog.txt", 0);
     if (h < 0) { return -1; }
-    rbLen = 0; rbPos = 0;
+    rbLen = 0; rbPos = 0; vorTabs = -1;
     int kt = -1; int bad = 0; int n = 0;
     while (zeileLesen(h) >= 0) {
         if (strStartsWith(line, "TSTAMP")) { if (kt < 0) { kt = tabs(line); } continue; }
         if (strlen(line) == 0) { continue; }
         n = n + 1;
-        if (stempelMinuten() < 0 || (kt >= 0 && tabs(line) != kt)) { bad = bad + 1; }
+        if (stempelMinuten() < 0 || !zeileGut(kt)) { bad = bad + 1; }
     }
     fileClose(h);
     zZeilen = n;
@@ -404,7 +450,9 @@ int eineEinheit() {
         } else { pauseBis = tasm_uptime + 300; }
         ist = 1;
     } else if (mlogFaellig) {
-        if (mlogSichern() == 0) { mlogFaellig = 0; } else { pauseBis = tasm_uptime + 300; }
+        // Auch bei Misserfolg erst in der naechsten Nacht wieder: sonst holte er
+        // die ganze Datei alle 5 Minuten von .61. Der Grund steht in "letzte".
+        mlogSichern(); mlogFaellig = 0;
         ist = 1;
     } else if (allJ > 0) {
         if (monatSichern(allJ, allM) == 0) {
