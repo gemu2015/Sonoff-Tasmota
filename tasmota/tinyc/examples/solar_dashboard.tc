@@ -4,12 +4,15 @@
 //   CHART 1: solar power of 4 inverters (4 time series, ONE shared y-axis), 24 h / 5 min
 //   CHART 2: Powerwall + Marstek SOC (%), 24 h / 5 min
 //   GAUGE  : live SUM of the 4 inverters (kW), real-time
-//   CHART 3: (landscape only) Powerwall + Marstek SOC over 7 days / 30 min, full width
+//   CHART 3: (landscape only) Powerwall + Marstek SOC over 7 days / 30 min, full width,
+//            plus the TOTAL solar production (30-min mean, kW on a right-hand axis)
 //
 // Data comes from UDP-published Scripter global vars (read-only consume):
 //   sedc=Dach, wrgh=Gartenhaus, wrga=Garage, wrgg=Garten, pwl=Powerwall SOC, msoc=Marstek SOC.
 // History is a rolling 24 h ring buffer (288 x 5 min) sampled live every 5 min, plus a
-// 7-day ring (336 x 30 min) for the two SOCs, sampled every 6th 5-min tick.
+// 7-day ring (336 x 30 min) for the two SOCs, sampled every 6th 5-min tick, and one for
+// the solar total, which is the MEAN of those six 5-min samples (a snapshot every 30 min
+// would miss most of a cloudy day).
 // SEED fills a synthetic day so the charts show immediately — set SEED 0 for pure-real.
 // Tune SOLAR_MAX_W to your biggest inverter; values assumed in WATTS.
 //
@@ -36,8 +39,11 @@ global float msoc;   // Marstek Venus E SOC % (broadcast by marstek_venus.tc on 
 #define WEEK_EVERY   6            // every 6th 5-min sample = 30 min -> the 7-day ring
 // file sizes (power-safe check): SOL1 = 4-int hdr + 5 x 288 x 4 B (pre-Marstek, pre-week)
 //                               SOL2 = 8-int hdr + 6 x 288 x 4 B + 2 x 336 x 4 B
+//                               SOL3 = SOL2 + 1 x 336 x 4 B (the 7-day solar total)
 #define SOLBIN_SIZE1 5776
 #define SOLBIN_SIZE2 9632
+#define SOLBIN_SIZE3 10976
+#define WEEK_SOL_MAX_W 10000      // right-hand axis of the 7-day chart: 0..10 kW (like the gauge)
 
 #define ST_RADIUS    120
 #define ST_BORDER     56
@@ -72,6 +78,8 @@ int wMsoc[288];                            // Marstek Venus SOC per bin (-1 = no
 int wp = 0; int cnt = 0;                   // ring write pointer + filled count
 int wkPwl[336];                            // 7-day ring: Powerwall SOC per 30 min
 int wkMsoc[336];                           // 7-day ring: Marstek SOC per 30 min (-1 = none)
+int wkSol[336];                            // 7-day ring: solar total, W, mean over 30 min (-1 = none)
+int wkSolAcc = 0; int wkSolN = 0;          // running sum + count of the 5-min totals of the open 30-min bin
 int wkp = 0; int wkcnt = 0;                // 7-day ring write pointer + filled count
 int wkTick = 0;                            // counts 5-min samples towards the next 30-min bin
 int save_tog = 0;                          // ping-pong: which file to write next (0=/solar.bin 1=/solar2.bin)
@@ -80,6 +88,7 @@ int gln[4];                                // 4 solar polyline handles
 int plLine = 0;                            // Powerwall polyline handle
 int mkLine = 0;                            // Marstek Venus SOC polyline handle
 int wkLineP = 0; int wkLineM = 0;          // 7-day polyline handles
+int wkLineS = 0;                           // 7-day solar total polyline
 int xlS[5]; int xlP[5];                    // x-axis HH:MM label handles (solar / powerwall)
 int xlW[8];                                // 7-day chart: weekday labels at the midnights
 int g_needle = 0; int g_value = 0;         // live gauge parts
@@ -266,6 +275,7 @@ void updateCharts() {
     if (LAND) {
         plotRing(wkPwl, wkLineP, NWEEK, wkp, wkcnt, WX, WY, WW, WH, 100);
         plotRing(wkMsoc, wkLineM, NWEEK, wkp, wkcnt, WX, WY, WW, WH, 100);
+        plotRing(wkSol, wkLineS, NWEEK, wkp, wkcnt, WX, WY, WW, WH, WEEK_SOL_MAX_W);
         updateWeekLabels();
     }
 }
@@ -286,8 +296,8 @@ float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
 void saveHist() {
     save_seq = save_seq + 1;
     int hdr[8];
-    hdr[0] = 0x534F4C32; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL2' + seq
-    hdr[4] = wkp; hdr[5] = wkcnt; hdr[6] = wkTick; hdr[7] = 0;
+    hdr[0] = 0x534F4C33; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL3' + seq
+    hdr[4] = wkp; hdr[5] = wkcnt; hdr[6] = wkTick; hdr[7] = wkSolAcc;     // open 30-min bin survives a reboot
     int h;
     if (save_tog == 0) { h = fileOpen("/solar.bin", 1); }
     else { h = fileOpen("/solar2.bin", 1); }
@@ -301,17 +311,42 @@ void saveHist() {
     fileWriteBin(h, wMsoc, 288);
     fileWriteBin(h, wkPwl, 336);
     fileWriteBin(h, wkMsoc, 336);
+    fileWriteBin(h, wkSol, 336);
     fileClose(h);
     save_tog = 1 - save_tog;                        // next save -> the other file
 }
 
-// A file is valid when magic and size agree: SOL1 (old, 5 arrays) or SOL2 (6 + 2 arrays).
+// First load of an older file (SOL1/SOL2): the 7-day solar ring does not exist yet,
+// but the 24 h ring does -- so the last day of the week chart can be filled right
+// away instead of growing for a day. The newest closed 30-min bin is made of the six
+// 5-min samples that ended `wkTick` samples ago; each older bin is six further back.
+void backfillWeekSolar() {
+    int b = 0;
+    while (b < wkcnt) {
+        int off = wkTick + 6 * b;                  // samples back from the newest one
+        if (off + 5 >= cnt) { break; }             // the 24 h ring does not reach back that far
+        int sum = 0; int k = 0;
+        while (k < 6) {
+            int idx = (wp - 1 - off - k + 2 * NBINS) % NBINS;
+            sum = sum + wSolar[0][idx] + wSolar[1][idx] + wSolar[2][idx] + wSolar[3][idx];
+            k = k + 1;
+        }
+        int v = sum / 6;
+        if (v > WEEK_SOL_MAX_W) { v = WEEK_SOL_MAX_W; }
+        wkSol[(wkp - 1 - b + 2 * NWEEK) % NWEEK] = v;
+        b = b + 1;
+    }
+    wkSolAcc = 0; wkSolN = 0;                      // the open bin starts clean
+}
+
+// A file is valid when magic and size agree: SOL1 (old, 5 arrays), SOL2 (6 + 2 arrays)
+// or SOL3 (6 + 3 arrays, with the 7-day solar total).
 // `which` 0 = /solar.bin, 1 = /solar2.bin (file syscalls want literal names).
 // Returns the seq of a valid file, -1 otherwise.
 int histSeq(int which) {
     int sz; int h;
     if (which == 0) { sz = fileSize("/solar.bin"); } else { sz = fileSize("/solar2.bin"); }
-    if (sz != SOLBIN_SIZE1 && sz != SOLBIN_SIZE2) { return -1; }
+    if (sz != SOLBIN_SIZE1 && sz != SOLBIN_SIZE2 && sz != SOLBIN_SIZE3) { return -1; }
     int hdr[4];
     if (which == 0) { h = fileOpen("/solar.bin", 0); } else { h = fileOpen("/solar2.bin", 0); }
     if (h < 0) { return -1; }
@@ -319,6 +354,7 @@ int histSeq(int which) {
     fileClose(h);
     if (sz == SOLBIN_SIZE1 && hdr[0] == 0x534F4C31) { return hdr[3]; }
     if (sz == SOLBIN_SIZE2 && hdr[0] == 0x534F4C32) { return hdr[3]; }
+    if (sz == SOLBIN_SIZE3 && hdr[0] == 0x534F4C33) { return hdr[3]; }
     return -1;
 }
 
@@ -335,18 +371,21 @@ int readHist(int which) {
         fileReadBin(h, hdr, 8);
         wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
         wkp = hdr[4]; wkcnt = hdr[5]; wkTick = hdr[6];
+        if (sz == SOLBIN_SIZE3) { wkSolAcc = hdr[7]; wkSolN = wkTick; }
     }
     fileReadBin(h, wSolar[0], 288);
     fileReadBin(h, wSolar[1], 288);
     fileReadBin(h, wSolar[2], 288);
     fileReadBin(h, wSolar[3], 288);
     fileReadBin(h, wPwl, 288);
-    if (sz == SOLBIN_SIZE2) {
+    if (sz == SOLBIN_SIZE2 || sz == SOLBIN_SIZE3) {
         fileReadBin(h, wMsoc, 288);
         fileReadBin(h, wkPwl, 336);
         fileReadBin(h, wkMsoc, 336);
     }
+    if (sz == SOLBIN_SIZE3) { fileReadBin(h, wkSol, 336); }
     fileClose(h);
+    if (sz != SOLBIN_SIZE3) { backfillWeekSolar(); }   // older file: no solar ring yet
     return 1;
 }
 
@@ -376,11 +415,17 @@ void sampleNow() {
     wMsoc[wp] = ms;
     wp = (wp + 1) % 288;
     if (cnt < 288) { cnt = cnt + 1; }
+    wkSolAcc = wkSolAcc + (int)(pabs(sedc) + pabs(wrgh) + pabs(wrga) + pabs(wrgg));
+    wkSolN = wkSolN + 1;
     wkTick = wkTick + 1;
     if (wkTick >= WEEK_EVERY) {                     // every 30 min: one bin of the 7-day rings
         wkTick = 0;
         wkPwl[wkp] = (int)pwl;
         wkMsoc[wkp] = ms;
+        int sv = -1;
+        if (wkSolN > 0) { sv = wkSolAcc / wkSolN; if (sv > WEEK_SOL_MAX_W) { sv = WEEK_SOL_MAX_W; } }
+        wkSol[wkp] = sv;                            // mean of the 30 min, not a snapshot
+        wkSolAcc = 0; wkSolN = 0;
         wkp = (wkp + 1) % 336;
         if (wkcnt < 336) { wkcnt = wkcnt + 1; }
     }
@@ -533,10 +578,26 @@ void buildWeek(int cx, int cy, int cw, int ch) {
     title(cx + 24, cy + 18, "Battery SOC, 7 days");
     legend(cx + 260, cy + 22, C_GREEN, "Powerwall");
     legend(cx + 380, cy + 22, C_BLUE,  "Marstek");
+    legend(cx + 490, cy + 22, C_AMBER, "Solar gesamt (kW, rechts)");
     plotBg(WX - 4, WY - 4, WW + 8, WH + 8);
     drawGrid(WX, WY, WW, WH, 4, 7);
     yAxis(WX - 48, WY, WH, 0, 100, 4, C_AXIS);
+    // right-hand axis for the solar total, amber like its line: 10 / 7.5 / 5 / 2.5 / 0 kW
+    // on the four grid divisions (yAxis() prints integers and would say 7 and 2)
+    int ri = 0;
+    while (ri <= 4) {
+        int rt = lvglLabel(0);
+        if (ri == 0) { lvglSetText(rt, "10"); }
+        if (ri == 1) { lvglSetText(rt, "7.5"); }
+        if (ri == 2) { lvglSetText(rt, "5"); }
+        if (ri == 3) { lvglSetText(rt, "2.5"); }
+        if (ri == 4) { lvglSetText(rt, "0"); }
+        lvglSetTextColor(rt, C_AMBER); lvglSetFont(rt, 14);
+        lvglSetPos(rt, WX + WW + 8, WY + (WH * ri) / 4 - 11);
+        ri = ri + 1;
+    }
     makeWeekLabels(WY + WH + 10);
+    wkLineS = lvglLine(0); lvglLineStyle(wkLineS, C_AMBER, 2);   // first = underneath the SOC lines
     wkLineP = lvglLine(0); lvglLineStyle(wkLineP, C_GREEN, 3);
     wkLineM = lvglLine(0); lvglLineStyle(wkLineM, C_BLUE, 3);
 }
@@ -545,7 +606,7 @@ int main() {
     int mi = 0;
     while (mi < 288) { wMsoc[mi] = -1; mi = mi + 1; }             // Venus SOC starts empty (skipped until first sample)
     mi = 0;
-    while (mi < 336) { wkPwl[mi] = -1; wkMsoc[mi] = -1; mi = mi + 1; }
+    while (mi < 336) { wkPwl[mi] = -1; wkMsoc[mi] = -1; wkSol[mi] = -1; mi = mi + 1; }
     lvglInit();
     lvglClean(0);
     lvglSetBgColor(0, C_BG);
