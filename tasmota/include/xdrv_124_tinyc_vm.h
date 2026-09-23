@@ -8803,6 +8803,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           if (len < 0) len = 99999999;  // unknown size
           uint8_t *buf = (uint8_t *)malloc(512);
           if (buf) {
+            // Idle guard: setTimeout() only bounds a single read. A server that
+            // keeps the socket open but stops sending (seen with the Scripter
+            // port-82 file server) would otherwise pin this loop -- and the
+            // calling TaskLoop -- forever. No byte for 5 min = give up with -4.
+            // Not shorter: the Scripter range server (file@from_to) stays silent
+            // while it seeks the start line -- 67 s measured on a 30 MB log.
+            uint32_t last_rx = millis();
             while (http.connected() && (len > 0)) {
               size_t avail = stream->available();
               if (avail) {
@@ -8810,6 +8817,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                 int rd = stream->readBytes(buf, avail);
                 f.write(buf, rd);
                 len -= rd;
+                last_rx = millis();
+              } else if (millis() - last_rx > 300000) {
+                AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload idle 5 min - abort"));
+                httpCode = -4;
+                break;
               }
               delay(1);
             }
