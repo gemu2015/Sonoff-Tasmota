@@ -2,7 +2,8 @@
 # Builds the standalone "Tasmota Workbench.app" for macOS 11+ -- universal
 # (Intel + Apple silicon), no Python or anything else needed on the target Mac.
 #
-#   ./build_macapp.sh            -> build/dist/Tasmota Workbench.app + .zip
+#   ./build_macapp.sh   -> <repo>/build_output/tasmota_workbench_app/dist/
+#                          Tasmota Workbench.app + .zip
 #
 # What goes in:
 #   Contents/MacOS/Tasmota Workbench   native launcher (launcher.swift), universal
@@ -16,7 +17,7 @@
 #
 # Needs on the BUILD machine: an Intel Mac with Xcode (swiftc, lipo, codesign,
 # iconutil) and network access the first time (downloads are cached in
-# build/cache). Run it with the system Python out of the way -- it uses only the
+# build_output/tasmota_workbench_app/cache). Run it with the system Python out of the way -- it uses only the
 # downloaded interpreter.
 #
 # The result is signed ad hoc. On another Mac, the first start needs
@@ -35,7 +36,14 @@ PYSERIAL_VER=3.5
 APP_VERSION="$(date +%Y.%m.%d)"
 MIN_MACOS=11.0
 
-B="$HERE/build"
+# ⚠️ The build folder must live OUTSIDE tasmota/: PlatformIO compiles every .c
+# below tasmota/, and the Python packages carry C sources (websockets/speedups.c)
+# -- a build folder here broke every firmware build ("Python.h: No such file").
+# build_output/ at the repository root is outside the firmware sources and
+# already ignored by git.
+REPO="$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$REPO" ]; then B="$REPO/build_output/tasmota_workbench_app"
+else B="$HOME/Library/Caches/tasmota_workbench_app"; fi
 CACHE="$B/cache"
 WORK="$B/work"
 DIST="$B/dist"

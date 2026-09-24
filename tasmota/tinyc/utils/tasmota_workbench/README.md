@@ -46,10 +46,11 @@ later. It needs no Python, Homebrew or pip on the target Mac.
 
 - **Build** (on an Intel Mac with Xcode): `macapp/build_macapp.sh`. It downloads
   CPython from [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-  for both architectures (cached in `macapp/build/cache`), merges every binary
+  for both architectures (cached in `build_output/tasmota_workbench_app/cache` at the
+  repository root — outside `tasmota/`, which PlatformIO compiles), merges every binary
   with `lipo`, adds pyserial + esptool, compiles the native launcher
   (`launcher.swift`) and the icon, and signs the bundle ad hoc. Output:
-  `macapp/build/dist/Tasmota Workbench.app` and a ~42 MB zip.
+  `build_output/tasmota_workbench_app/dist/Tasmota Workbench.app` and a ~42 MB zip.
 - **First start on another Mac:** the app is not notarized, so macOS refuses a
   plain double-click once. Right-click → *Open*, or *System Settings → Privacy &
   Security → Open Anyway*.
