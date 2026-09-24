@@ -190,8 +190,10 @@ float was_c        = 0.0;       // water today (m³)
 // Zaehlerstaende von heute Mitternacht -- die Referenz fuer "heute". Das haelt
 // auch dann, wenn um Mitternacht kein UDP-Wert da war (am 23.09.2026 stand so
 // "Verbrauch heute" auf dem ganzen Zaehlerstand) oder .118 neu startet.
-// Bewusst NICHT persist: eine neue persist-Variable setzt die ganze .pvs
-// zurueck, samt aller Diagrammverlaeufe. Die Werte kommen ja aus der Datei.
+// Bewusst NICHT persist: die Datei ist die einzige Quelle. Ein gespeicherter
+// Stand koennte nach einem Neustart zum falschen Tag gehoeren und muesste
+// ohnehin gegen sie geprueft werden. (Eine neue persist-Variable waere seit
+// PVS3 harmlos -- die .pvs wird nach Namen geladen, nichts geht verloren.)
 float rf_wb = 0.0;  float rf_ga = 0.0;  float rf_gh = 0.0;  float rf_gg = 0.0;
 float rf_sd = 0.0;  float rf_zi = 0.0;  float rf_zo = 0.0;  float rf_ws = 0.0;
 float rf_kp = 0.0;  float rf_bw = 0.0;  float rf_rain = 0.0; float rf_hwp = 0.0;
