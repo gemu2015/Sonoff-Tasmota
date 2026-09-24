@@ -186,12 +186,14 @@ int letzterSonntag(int y, int m) {                  // Tag im Monat
 }
 
 // ── Zeilen lesen (fileRead liefert Bytes, keine Zeilen) ─────────────
+// zOffen = 1: die zuletzt gelesene Zeile endete ohne Zeilenumbruch (Dateiende)
+int zOffen = 0;
 int zeileLesen(int h) {
-    int n = 0;
+    int n = 0; zOffen = 0;
     while (1) {
         if (rbPos >= rbLen) {
             rbLen = fileRead(h, rb, 1024); rbPos = 0;
-            if (rbLen <= 0) { line[n] = 0; if (n > 0) { return n; } return -1; }
+            if (rbLen <= 0) { line[n] = 0; if (n > 0) { zOffen = 1; return n; } return -1; }
         }
         char c = rb[rbPos]; rbPos = rbPos + 1;
         if (c == '\n') { line[n] = 0; return n; }
@@ -317,6 +319,11 @@ int umrechnen(int y, int m) {
         }
         if (strlen(line) == 0) { continue; }
         int t = stempelMinuten();
+        // .61 beginnt am Ende eines Bereichs oft schon den naechsten Datensatz:
+        // August 2026 endete dreimal gleich mit einem einzelnen "1" ohne
+        // Zeilenumbruch. Ein Rest ohne Umbruch und ohne Stempel am Dateiende ist
+        // kein Datensatz; bricht die Uebertragung wirklich ab, fehlen Zeilen.
+        if (zOffen && t < 0) { continue; }
         int sp = -1;
         if (t >= 0) { sp = zeileSpalten(kopfTabs); }
         // erst jetzt, mit dem Nachfolger, wird die wartende Zeile entschieden
@@ -457,9 +464,11 @@ int mlogPruefen() {
     while (zeileLesen(h) >= 0) {
         if (strStartsWith(line, "TSTAMP")) { if (kt < 0) { kt = tabs(line); } continue; }
         if (strlen(line) == 0) { continue; }
+        int t = stempelMinuten();
+        if (zOffen && t < 0) { continue; }          // Rest am Dateiende, siehe umrechnen()
         n = n + 1;
         int sp = -1;
-        if (stempelMinuten() >= 0) { sp = zeileSpalten(kt); }
+        if (t >= 0) { sp = zeileSpalten(kt); }
         if (nbSp != -2 && !nbUrteil(sp)) { bad = bad + 1; }
         nbSp = sp;
     }
