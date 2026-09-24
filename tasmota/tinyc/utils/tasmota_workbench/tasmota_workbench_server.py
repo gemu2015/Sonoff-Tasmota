@@ -32,6 +32,9 @@ from http.server import (HTTPServer, ThreadingHTTPServer,
 from urllib.parse import urlparse, parse_qs
 
 HTTP_PORT  = 8124
+# Set by the native launcher of the standalone macOS app (macapp/), which
+# carries its own Python runtime with pyserial + esptool inside the bundle.
+BUNDLED    = os.environ.get('TASMOTA_WORKBENCH_BUNDLED') == '1'
 # Big ring so events do NOT scroll away. ~200k lines ≈ tens of MB RAM;
 # override with TASMOTA_WORKBENCH_HISTORY=<lines>.
 HISTORY    = int(os.environ.get('TASMOTA_WORKBENCH_HISTORY',
@@ -795,6 +798,14 @@ def _have_esptool(refresh=False):
     global _esptool_cache
     if refresh:
         _esptool_cache = None
+    if _esptool_cache is None and BUNDLED:
+        # Standalone macOS app: esptool ships inside the bundle, next to the
+        # interpreter running this file -- never reach for a venv or PATH.
+        try:
+            import esptool           # noqa: F401
+            _esptool_cache = sys.executable
+        except Exception:
+            _esptool_cache = False
     if _esptool_cache is None:
         vp = _venv_py()
         if vp:

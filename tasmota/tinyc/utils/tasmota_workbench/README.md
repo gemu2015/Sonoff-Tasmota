@@ -34,9 +34,36 @@ install it for you in an isolated venv).
 
 | OS | Launch | Get deps |
 |----|--------|----------|
-| **macOS** | double-click `Tasmota Workbench.app` (no Terminal) or `Tasmota Workbench.command` | Python from python.org; `pip3 install pyserial` |
+| **macOS (standalone)** | unzip `Tasmota_Workbench_macOS_universal.zip`, move the app to /Applications, double-click | **nothing** — Python, pyserial and esptool are inside (see below) |
+| **macOS (script)** | double-click `Tasmota Workbench.app` (no Terminal) or `Tasmota Workbench.command` | Python from python.org; `pip3 install pyserial` |
 | **Linux** | `./tasmota_workbench.sh`, or wire up the `.desktop` file | `python3-pip` + `pip3 install --user pyserial`; serial usually needs `usermod -aG dialout $USER` |
 | **Windows** | double-click `Tasmota Workbench.bat` | install Python 3 from python.org (tick "Add to PATH"), then `py -m pip install pyserial` |
+
+### macOS standalone app (`macapp/`)
+
+A self-contained, **universal** (Intel + Apple silicon) app for macOS 11 and
+later. It needs no Python, Homebrew or pip on the target Mac.
+
+- **Build** (on an Intel Mac with Xcode): `macapp/build_macapp.sh`. It downloads
+  CPython from [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+  for both architectures (cached in `macapp/build/cache`), merges every binary
+  with `lipo`, adds pyserial + esptool, compiles the native launcher
+  (`launcher.swift`) and the icon, and signs the bundle ad hoc. Output:
+  `macapp/build/dist/Tasmota Workbench.app` and a ~42 MB zip.
+- **First start on another Mac:** the app is not notarized, so macOS refuses a
+  plain double-click once. Right-click → *Open*, or *System Settings → Privacy &
+  Security → Open Anyway*.
+- **Local Network permission:** macOS asks once ("find devices on your local
+  network") — answer *Allow*. Without it the LAN scan and the Shares monitor
+  see nothing, silently. That was exactly the bug of the script app: it ran the
+  `python3` found on PATH (usually Homebrew's), which macOS never lets into the
+  LAN. In the standalone app the native launcher is the responsible process and
+  carries `NSLocalNetworkUsageDescription`, so the question is asked and the
+  answer sticks. Changed later under *System Settings → Privacy & Security →
+  Local Network*.
+- Quit the app (Cmd-Q, Dock) and the server stops; the server's own **Quit**
+  button closes the app too. Clicking the Dock icon reopens the page. Server
+  output goes to `~/Library/Logs/TasmotaWorkbench.log`.
 
 The browser opens automatically at `http://127.0.0.1:8124/`. The
 **Quit** button in the top bar stops the server cleanly.
