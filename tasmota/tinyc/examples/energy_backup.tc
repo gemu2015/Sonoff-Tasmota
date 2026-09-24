@@ -51,7 +51,8 @@
 //   EBAKMON 2026-09    genau diesen Monat
 //   EBAKMLOG           nur die Tagesdatenbank (ein Abruf, ~3 s)
 //   EBAKALL            die ganze Geschichte seit 12/2021 nachholen (Monat fuer
-//                      Monat, uebersteht einen Neustart); EBAKALL STOP haelt an
+//                      Monat, uebersteht einen Neustart); EBAKALL STOP haelt an,
+//   EBAKALL JJJJ-MM    Nachholen ab diesem Monat (nach einem Halt weitermachen)
 //   EBAKSTAT           Stand
 //   EBAKPRUEF JJJJ-MM  nur die lokale /ebak_roh.txt pruefen (kein Abruf, kein Upload)
 //
@@ -61,6 +62,11 @@
 #define SRC      "http://192.168.188.61:82/ufs/"
 #define START_J  2021
 #define START_M  12
+// ⚠️⚠️ Erster Eintrag der 15-Minuten-Datenbank. Beginnt ein Bereich VOR ihm
+// (1.12.21), findet der Scripter den Anfang nicht und liefert die GANZE Datei:
+// am 24.09.2026 zweimal 30 MB fuer "Dezember 2021" -- danach stand .61.
+#define ERSTER   "13.12.21-11:30"
+#define MAX_MONAT 1500000      // ein Monat hat ~400 KB; mehr = Bereich nicht erkannt
 #define RUN_H    0             // naechtlicher Lauf um 00:20 Ortszeit: der Vortag ist dann
 #define RUN_MI   20            // vollstaendig, energy_charts.tc zeigt ihn gleich morgens
 #define PAUSE_S  60            // zwischen zwei Abrufen bei .61
@@ -309,7 +315,11 @@ int monatSichern(int y, int m) {
     int ny = y; int nm = m + 1;
     if (nm > 12) { nm = 1; ny = y + 1; }
     char url[160];
-    sprintf(url, "%senergy_15_log.txt@1.%d.%02d-00:00_1.%d.%02d-01:00", SRC, m, y % 100, nm, ny % 100);
+    if (y == START_J && m == START_M) {
+        sprintf(url, "%senergy_15_log.txt@%s_1.%d.%02d-01:00", SRC, ERSTER, nm, ny % 100);
+    } else {
+        sprintf(url, "%senergy_15_log.txt@1.%d.%02d-00:00_1.%d.%02d-01:00", SRC, m, y % 100, nm, ny % 100);
+    }
     // Bis zu drei Versuche; der beste wird behalten (/ebak_best*.txt).
     int bestWert = -1; int versuch = 0; int versuche = 0;
     int bZ = 0; int bF = 0; int bL = 0; int bD = 0; int bU = 0; int bE = -1; int bLe = -1; int broh = 0;
@@ -324,6 +334,16 @@ int monatSichern(int y, int m) {
         sprintf(stand, "%04d-%02d: hole von .61 (Versuch %d) …", y, m, versuch);
         int r = fileDownload("/ebak_roh.txt", url);
         if (r != 200) { sprintf(letzte, "%04d-%02d: Abruf HTTP %d", y, m, r); continue; }
+        // Viel zu gross: .61 hat den Bereich nicht erkannt und alles geschickt.
+        // NICHT wiederholen (jeder Versuch waeren wieder 30 MB), Monat auslassen.
+        int sz = fileSize("/ebak_roh.txt");
+        if (sz > MAX_MONAT) {
+            fileDelete("/ebak_roh.txt");
+            sprintf(letzte, "%04d-%02d: .61 lieferte %d kB statt eines Monats -- Bereich nicht erkannt, ausgelassen",
+                    y, m, sz / 1024);
+            addLog("EBAK %s", letzte);
+            return 0;
+        }
         versuche = versuche + 1;
         sprintf(stand, "%04d-%02d: Winterzeit, Pruefung …", y, m);
         if (umrechnen(y, m) < 0) { sprintf(letzte, "%04d-%02d: Datei", y, m); continue; }
@@ -534,6 +554,16 @@ void Command(char cmd[]) {
     } else if (strcmp(cmd, "ALL") == 0) {
         allJ = START_J; allM = START_M; saveVars();
         responseCmnd("Nachholen ab 2021-12 gestartet");
+    } else if (strStartsWith(cmd, "ALL 2")) {
+        // EBAKALL JJJJ-MM: Nachholen ab diesem Monat (weitermachen nach einem Halt)
+        char a[16]; strSub(a, cmd, 4, 0);
+        char j[8]; char mo[8];
+        strToken(j, a, '-', 1); strToken(mo, a, '-', 2);
+        int y = strToInt(j); int m = strToInt(mo);
+        if (y >= START_J && m >= 1 && m <= 12) {
+            allJ = y; allM = m; saveVars();
+            sprintf(r, "Nachholen ab %04d-%02d gestartet", y, m); responseCmnd(r);
+        } else { responseCmnd("Format: EBAKALL JJJJ-MM"); }
     } else if (strcmp(cmd, "ALL STOP") == 0) {
         allJ = 0; allM = 0; saveVars();
         responseCmnd("Nachholen angehalten");
@@ -554,7 +584,7 @@ void Command(char cmd[]) {
         sprintf(r, "%s | letzte: %s | Warteschlange %d, Nachholen %04d-%02d", stand, letzte, qN, allJ, allM);
         responseCmnd(r);
     } else {
-        responseCmnd("EBAKNOW | EBAKMON JJJJ-MM | EBAKMLOG | EBAKALL [STOP] | EBAKSTAT | EBAKPRUEF JJJJ-MM");
+        responseCmnd("EBAKNOW | EBAKMON JJJJ-MM | EBAKMLOG | EBAKALL [JJJJ-MM|STOP] | EBAKSTAT | EBAKPRUEF JJJJ-MM");
     }
 }
 
