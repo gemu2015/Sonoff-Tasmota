@@ -184,6 +184,23 @@ float dsel         = 0.0;       // last t_hwp seen at slot rollover (for delta c
 float c_hwp        = 0.0;       // 15-minute heat-pump kWh delta
 float gas_c        = 0.0;       // gas today (m³)
 float was_c        = 0.0;       // water today (m³)
+// ── Tageswerte ab Mitternacht: Referenzen aus der Tagesdatenbank ────
+// energy_backup.tc (Slot 1) legt jede Nacht um 00:20 die Tagesdatenbank von
+// .61 auf die SD-Karte (/energy_m_log.txt). Ihre Zeile "D 0:00" traegt die
+// Zaehlerstaende von heute Mitternacht -- die Referenz fuer "heute". Das haelt
+// auch dann, wenn um Mitternacht kein UDP-Wert da war (am 23.09.2026 stand so
+// "Verbrauch heute" auf dem ganzen Zaehlerstand) oder .118 neu startet.
+// Bewusst NICHT persist: eine neue persist-Variable setzt die ganze .pvs
+// zurueck, samt aller Diagrammverlaeufe. Die Werte kommen ja aus der Datei.
+float rf_wb = 0.0;  float rf_ga = 0.0;  float rf_gh = 0.0;  float rf_gg = 0.0;
+float rf_sd = 0.0;  float rf_zi = 0.0;  float rf_zo = 0.0;  float rf_ws = 0.0;
+float rf_kp = 0.0;  float rf_bw = 0.0;  float rf_rain = 0.0; float rf_hwp = 0.0;
+int   rf_tag  = -1;                 // Tagesnummer, fuer die rf_* gelten (-1 = keine)
+int   rf_next = 0;                  // Uptime des naechsten Leseversuchs
+float e_wb[2]; float e_ga[2]; float e_gh[2]; float e_gg[2]; float e_sd[2];
+float e_zi[2]; float e_zo[2]; float e_ws[2]; float e_kp[2]; float e_bw[2];
+float e_rain[2]; float e_hwp[2]; float e_du[2];
+
 char  scratch[256];             // sprintf workspace — sized for the
                                 // longest row in WebPage's 31-day table
                                 // (~169 chars/row with inline styles)
@@ -299,14 +316,67 @@ void row_f4(char label[], float v, char unit[]) {
     webSend(scratch);
 }
 
+// Tageszeile, solange der Zaehlerstand nach einem Neustart noch nicht per UDP
+// da ist (0): ein Strich statt "0 minus Referenz" = grosse negative Zahl.
+void row_leer(char label[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>&ndash;</span>{e}", label);
+    webSend(scratch);
+}
+
 // ── EverySecond — cron-ish bookkeeping ────────────────────────────
 //
 // The original Scripter `>S` block ran every second. This callback
 // is the same. Logic preserved 1:1 modulo the dropped audio paths.
+// Tagesnummer (Tage seit 1970, Ortszeit)
+int tagNr() {
+    char t[24];
+    timeStamp(t);
+    return timeToSecs(t) / 86400;
+}
+
+// Zeile "heute 0:00" der Tagesdatenbank lesen -> rf_*. 1 = gefunden.
+// Spalten (ab WB = 1): WB WR1 WR2 WR3, 7 x _a, SD ZWZI ZWZO H20 GAS,
+// 8 x _a, WP BWWP RAIN HWP_a HWP.
+int tagesRefs() {
+    char von[24];
+    timeStamp(von);
+    timeOffset(von, 0, 1);                          // heute 00:00
+    int fr = fileOpen("/energy_m_log.txt", "r");
+    if (fr < 0) { return 0; }
+    int rows = fileExtract(fr, von, von, 1, 1,
+        e_wb, e_ga, e_gh, e_gg,
+        e_du, e_du, e_du, e_du, e_du, e_du,
+        e_sd, e_zi, e_zo, e_ws, e_du,
+        e_du, e_du, e_du, e_du, e_du, e_du, e_du, e_du,
+        e_kp, e_bw, e_rain, e_du, e_hwp);
+    fileClose(fr);
+    if (rows < 1) { return 0; }
+    rf_wb = e_wb[0]; rf_ga = e_ga[0]; rf_gh = e_gh[0]; rf_gg = e_gg[0];
+    rf_sd = e_sd[0]; rf_zi = e_zi[0]; rf_zo = e_zo[0]; rf_ws = e_ws[0];
+    rf_kp = e_kp[0]; rf_bw = e_bw[0]; rf_rain = e_rain[0]; rf_hwp = e_hwp[0];
+    // die bestehenden Tageszeilen rechnen mit diesen Referenzen
+    was_m = rf_ws; zrz_m = rf_zi; auto_m = rf_wb; hwp_m = rf_hwp;
+    rf_tag = tagNr();
+    log_evt("Tagesreferenzen aus der Tagesdatenbank");
+    return 1;
+}
+
 void EverySecond() {
     // Skip everything until NTP has set the clock — otherwise the
     // midnight rollover would fire spuriously at boot.
     if (tasm_year < 2025) return;
+
+    // Tagesreferenzen: nach dem Start und jeden Tag ab 00:40 (der Nachtlauf
+    // des Backups endet gegen 00:25); bis es klappt, alle 10 Minuten.
+    if (rf_tag != tagNr() && tasm_uptime >= 60 && tasm_uptime >= rf_next &&
+        (tasm_hour > 0 || tasm_minute >= 40)) {
+        rf_next = tasm_uptime + 600;
+        tagesRefs();
+    }
+    // Die HWP ist im Sommer aus, ihr Zaehler meldet dann 0 und kommt im Herbst
+    // mit dem alten Stand zurueck. Steht die Referenz auf 0, gilt der erste
+    // Wert des Tages -- sonst stuende der ganze Zaehler als "heute" da.
+    if (hwp_m <= 0.0 && t_hwp > 0.0) { hwp_m = t_hwp; rf_hwp = t_hwp; }
 
     // First-tick boot log.
     if (boot_logged == 0) {
@@ -518,7 +588,7 @@ void WebCall() {
 
     // ── Wasser ───────────────────────────────────────────────────
     web_section("Wasser");
-    row_i("Heute",      (int)(was_c * 1000.0), "l");
+    if (t_ws > 0.0) { row_i("Heute", (int)(was_c * 1000.0), "l"); } else { row_leer("Heute"); }
     row_f4("Zählerstand", t_ws, "m³");
 
     // ── Solarthermie ─────────────────────────────────────────────
@@ -531,26 +601,34 @@ void WebCall() {
 
     // ── Regen ────────────────────────────────────────────────────
     web_section("Regen");
-    row_f2("Heute", hrain, "mm");
+    if (rf_tag == tagNr()) {
+        if (train > 0.0) { row_f2("Heute", train - rf_rain, "mm"); } else { row_leer("Heute"); }
+    } else { row_f2("Heute", hrain, "mm"); }
     row_i ("Total", (int)train, "mm");
 
     // ── Haupt Hauszähler ────────────────────────────────────────
     web_section("Haupt Hauszähler");
     row_f4("Verbrauch",            zwzi,           "kWh");
     row_f4("Vattenfall Verbrauch", zwzi - (float)zrz_o, "kWh");
-    row_f4("Verbrauch heute",      zwzi - zrz_m,   "kWh");
+    if (zwzi > 0.0) { row_f4("Verbrauch heute", zwzi - zrz_m, "kWh"); } else { row_leer("Verbrauch heute"); }
     row_f4("Einspeisung",          zwzo,           "kWh");
+    if (rf_tag == tagNr()) {
+        if (zwzo > 0.0) { row_f3("Einspeisung heute", zwzo - rf_zo, "kWh"); } else { row_leer("Einspeisung heute"); }
+    }
     row_i ("aktueller Verbrauch",  (int)zwzc,      "W");
 
     // ── Wallbox ──────────────────────────────────────────────────
     web_section("Wallbox");
     row_i ("aktuell", (int)auto,           "W");
-    row_f3("heute",   t_wb - auto_m,        "kWh");
+    if (t_wb > 0.0) { row_f3("heute", t_wb - auto_m, "kWh"); } else { row_leer("heute"); }
     row_f3("Total",   t_wb,                 "kWh");
 
     // ── Klima-Anlage ────────────────────────────────────────────
     web_section("Klima-Anlage");
     row_i ("aktuell",        (int)(0.0 - klima), "W");
+    if (rf_tag == tagNr()) {
+        if (t_kpwp > 0.0) { row_f3("heute (+Pool)", t_kpwp - rf_kp, "kWh"); } else { row_leer("heute (+Pool)"); }
+    }
     row_f3("Total (+Pool)",  t_kpwp,              "kWh");
 
     // ── Pool-WP ──────────────────────────────────────────────────
@@ -583,26 +661,43 @@ void WebCall() {
     // ── Solar Hausdach (5.25 KW) ────────────────────────────────
     web_section("Solar Hausdach, 5.25 KW");
     row_i ("aktuell", (int)sedc, "W");
+    if (rf_tag == tagNr()) {
+        if (sedt > 0.0) { row_f3("heute", sedt - rf_sd, "kWh"); } else { row_leer("heute"); }
+    }
     row_f3("Total",   sedt,      "kWh");
 
     // ── Solar Garage (2.42/3.45 KW) ─────────────────────────────
     web_section("Solar Garage, 2.42/3.45 KW");
     row_i ("aktuell", (int)-wrga, "W");
+    if (rf_tag == tagNr()) {
+        if (t_ga > 0.0) { row_f3("heute", t_ga - rf_ga, "kWh"); } else { row_leer("heute"); }
+    }
     row_f3("Total",   t_ga,      "kWh");
 
     // ── Solar Gartenhaus (1.96/2.8 KW) ──────────────────────────
     web_section("Solar Gartenhaus, 1.96/2.8 KW");
     row_i ("aktuell", (int)-wrgh, "W");
+    if (rf_tag == tagNr()) {
+        if (t_gh > 0.0) { row_f3("heute", t_gh - rf_gh, "kWh"); } else { row_leer("heute"); }
+    }
     row_f3("Total",   t_gh,      "kWh");
 
     // ── Solar Garten (2.87/4.1 KW) ──────────────────────────────
     web_section("Solar Garten, 2.87/4.1 KW");
     row_i ("aktuell", (int)-wrgg, "W");
+    if (rf_tag == tagNr()) {
+        if (t_gg > 0.0) { row_f3("heute", t_gg - rf_gg, "kWh"); } else { row_leer("heute"); }
+    }
     row_f3("Total",   t_gg,      "kWh");
 
     // ── Solar Gesamt ────────────────────────────────────────────
     web_section("Solar Gesamt, 7.25/10.35 KW");
     row_i ("aktuell", (int)(0.0 - (wrga + wrgh + wrgg)), "W");
+    if (rf_tag == tagNr()) {
+        if (sedt > 0.0 && t_ga > 0.0 && t_gh > 0.0 && t_gg > 0.0) {
+            row_f3("heute", (sedt - rf_sd) + (t_ga - rf_ga) + (t_gh - rf_gh) + (t_gg - rf_gg), "kWh");
+        } else { row_leer("heute"); }
+    }
 
     // ── Powerwall — colored per metric ──────────────────────────
     web_section("Powerwall");
