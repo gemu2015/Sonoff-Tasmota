@@ -3122,6 +3122,7 @@ static volatile TaskHandle_t tc_udp_main_task = nullptr;
 // netif); an identical payload within 200 ms is dropped as the twin.
 #ifdef ESP32
 static bool tc_udp_legacy = false;       // TinyCUdp 1: receive through NetworkUDP again (A/B test)
+static bool tc_udp_nopause = false;      // TinyCUdp 2: keep receiving during blocking TLS (the pre-2026-07-06 behaviour, A/B test)
 static int tc_udp_rxfd = -1;
 static uint32_t tc_udp_dup_ms = 0;
 static uint16_t tc_udp_dup_len = 0;
@@ -3150,6 +3151,7 @@ static bool tc_udp_rx_open(void) {
 }
 // Next datagram into buf (NUL-terminated), 0 when none. Twins are skipped.
 static int32_t tc_udp_rx_next(char *buf, int32_t max) {
+  if (tc_udp_rxfd < 0) return 0;                   // paused for a TLS transaction
   while (1) {
     int n = recvfrom(tc_udp_rxfd, buf, max - 1, MSG_DONTWAIT, nullptr, nullptr);
     if (n <= 0) return 0;
@@ -3169,12 +3171,21 @@ static int32_t tc_udp_rx_next(char *buf, int32_t max) {
 static inline void tc_udp_rx_close(void) {}
 #endif
 
+// Only the RECEIVE socket queues the broadcast flood, so with the plain lwIP receive
+// socket only that one is closed: the send side (NetworkUDP, unbound, never joined)
+// holds no inbound pbufs and stays usable. It used to be closed as well, and every
+// assignment to a UDP global in the same tick as a Powerwall request -- the powerwall
+// script publishes right after its request in EverySecond -- was dropped silently
+// (tc_udp_send returns early while !udp_connected). tc_udp_poll reopens the receive
+// socket once the pause clears. The legacy NetworkUDP path receives on the send
+// socket, so it still has to close both.
 static inline void tc_udp_pause_sync(void) {
-  if (!Tinyc || !Tinyc->udp_connected) return;
+  if (!Tinyc || !Tinyc->udp_connected || tc_udp_nopause) return;
   if (!tc_udp_main_task || xTaskGetCurrentTaskHandle() != tc_udp_main_task) return;  // worker -> defer
+  tc_udp_rx_close();
+  if (!tc_udp_legacy) return;
   Tinyc->udp.flush();
   Tinyc->udp.stop();
-  tc_udp_rx_close();
   Tinyc->udp_connected = false;
 }
 #define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
@@ -3523,11 +3534,32 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
   }
 
   // GET request — reads body, fills bindings via string scanning, stores for ad-hoc access
+  // Stack headroom of the calling task (loopTask for the single-task powerwall.tc):
+  // the BearSSL handshake runs ~20 frames deep inside a TinyC callback. Logs the
+  // free stack at entry and every new low of the task's high-water mark.
+  struct TcPwlStackLog {
+    TcPwlStackLog() {
+      static bool once = false;
+      if (!once) {
+        once = true;
+        volatile uint8_t here = 0;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC-PWL: stack free at request entry %d B"),
+               (int)((uint8_t *)&here - pxTaskGetStackStart(nullptr)));
+      }
+    }
+    ~TcPwlStackLog() {
+      static UBaseType_t low = (UBaseType_t)-1;
+      UBaseType_t hw = uxTaskGetStackHighWaterMark(nullptr);
+      if (hw < low) {
+        low = hw;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC-PWL: stack low-water %d B"), (int)hw);
+      }
+    }
+  };
+
   static int32_t tc_pwl_get_request(TcVM *vm, const String &url) {
-    TcUdpPauseGuard _pwl_pause;  // pause the UDP multicast for this TLS txn (global-var crash fix)
-    tc_udp_pause_sync();         // ...and actually stop it NOW: single-task Powerwall blocks the loop
-                                 // task through the whole handshake, so the deferred pause above never
-                                 // fires (tc_udp_poll can't run to honor it). See tc_udp_pause_sync().
+    TcPwlStackLog _pwl_stk;
+    // (The UDP pause is taken by the caller, tc_pwl_request_on_worker(), on the loop task.)
     AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: GET %s"), url.c_str());
 
     tc_ssl_client.setInsecure();
@@ -3626,6 +3658,68 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
     return 0;
   }
 
+  // ── The request runs on its own stack ──────────────────────────────
+  // powerwall.tc calls pwlRequest from EverySecond, i.e. on loopTask, and the
+  // BearSSL handshake then sits ~20 frames deep inside the TinyC callback chain.
+  // Measured on .39 (2026-09-24): 7.0 kB free on entry, 3.2 kB left after one
+  // handshake; .140 reports a 3 kB low-water mark. A loopTask crash in the middle
+  // of the handshake (lwip_ioctl -> sys_arch_unprotect) reproduced there.
+  // So the request runs on a dedicated worker with a fixed 16 kB stack, created on
+  // first use and kept (no 16 kB alloc/free every four seconds). The loop task
+  // hands the job over and waits, so for the script nothing changes: still one
+  // blocking call. Only C runs on the worker, never the VM -- the old spawnTask
+  // crash (PC=0) came from two tasks sharing one VM; that cannot happen here.
+  // The worker writes the VM's bound globals while the VM is parked in this very
+  // syscall on the loop task.
+  #define TC_PWL_TASK_STACK  (16 * 1024)
+  #define TC_PWL_WAIT_MAX_MS 60000     // after this the loop WDT is no longer fed
+  struct TcPwlJob { TcVM *vm; const String *url; int32_t res; };
+  static TaskHandle_t tc_pwl_task = nullptr;
+  static SemaphoreHandle_t tc_pwl_go = nullptr;
+  static SemaphoreHandle_t tc_pwl_done = nullptr;
+  static TcPwlJob *volatile tc_pwl_job = nullptr;
+
+  static void tc_pwl_task_fn(void *) {
+    for (;;) {
+      xSemaphoreTake(tc_pwl_go, portMAX_DELAY);
+      TcPwlJob *j = tc_pwl_job;
+      if (j) { j->res = tc_pwl_get_request(j->vm, *j->url); }
+      xSemaphoreGive(tc_pwl_done);
+    }
+  }
+
+  static int32_t tc_pwl_request_on_worker(TcVM *vm, const String &url) {
+    // UDP pause on the calling (loop) task: only it may close the socket at once,
+    // and while it waits below tc_udp_poll cannot run to honor the deferred flag.
+    TcUdpPauseGuard _pwl_pause;
+    tc_udp_pause_sync();
+    if (!tc_pwl_task) {
+      if (!tc_pwl_go) tc_pwl_go = xSemaphoreCreateBinary();
+      if (!tc_pwl_done) tc_pwl_done = xSemaphoreCreateBinary();
+      if (tc_pwl_go && tc_pwl_done) {
+        xTaskCreatePinnedToCore(tc_pwl_task_fn, "tc_pwl", TC_PWL_TASK_STACK, nullptr,
+                                uxTaskPriorityGet(nullptr), &tc_pwl_task, xPortGetCoreID());
+      }
+      if (!tc_pwl_task) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC-PWL: no memory for the %d B request task -- running on the caller's stack"),
+               TC_PWL_TASK_STACK);
+        return tc_pwl_get_request(vm, url);
+      }
+    }
+    TcPwlJob job = { vm, &url, -1 };
+    tc_pwl_job = &job;
+    xSemaphoreGive(tc_pwl_go);
+    uint32_t start = millis();
+    while (xSemaphoreTake(tc_pwl_done, pdMS_TO_TICKS(100)) != pdTRUE) {
+      // A hung TLS used to block the loop task itself, and the loop WDT reset the
+      // device. Keep that: feed only for TC_PWL_WAIT_MAX_MS. (Returning early is not
+      // an option -- the worker still owns the shared SSL client and `job`.)
+      if (millis() - start < TC_PWL_WAIT_MAX_MS) { feedLoopWDT(); }
+    }
+    tc_pwl_job = nullptr;
+    return job.res;
+  }
+
   // Main entry: config (@D, @C, @N) or API request
   static int32_t tc_call2pwl(TcVM *vm, const char *url) {
     if (*url == '@') {
@@ -3686,7 +3780,7 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
       }
       return -1;
     }
-    return tc_pwl_get_request(vm, String(url));
+    return tc_pwl_request_on_worker(vm, String(url));
   }
 
 #endif // ESP32 && TESLA_POWERWALL
@@ -3940,6 +4034,8 @@ static void tc_udp_free_arrays(void) {
 // otherwise re-init).
 static void tc_udp_init(void);  // forward decl (defined below)
 static uint32_t tc_udp_send_reinit_last = 0;
+static uint32_t tc_udp_tx_ok = 0;         // TinyCUdp: datagrams sent
+static uint32_t tc_udp_tx_drop = 0;       // TinyCUdp: sends dropped (socket down) or failed
 static void tc_udp_send_fail_recover(void) {
   if (!Tinyc) return;
   uint32_t now = millis();
@@ -3955,7 +4051,8 @@ static void tc_udp_send_fail_recover(void) {
 
 // Send a float variable via binary multicast
 static void tc_udp_send(const char *name, float value) {
-  if (!Tinyc || !Tinyc->udp_connected) return;
+  if (!Tinyc) return;
+  if (!Tinyc->udp_connected) { tc_udp_tx_drop++; return; }
 
   char hdr[TC_UDP_VAR_NAME_MAX + 4];   // "=>" + name + ":"
   strcpy(hdr, "=>");
@@ -3965,12 +4062,13 @@ static void tc_udp_send(const char *name, float value) {
   Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
   Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
   Tinyc->udp.write((const uint8_t*)&value, sizeof(float));
-  if (!Tinyc->udp.endPacket()) tc_udp_send_fail_recover();
+  if (Tinyc->udp.endPacket()) { tc_udp_tx_ok++; } else { tc_udp_tx_drop++; tc_udp_send_fail_recover(); }
 }
 
 // Send a float array via binary multicast: =>name:[2-byte LE count][N × 4-byte float]
 static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
-  if (!Tinyc || !Tinyc->udp_connected) return;
+  if (!Tinyc) return;
+  if (!Tinyc->udp_connected) { tc_udp_tx_drop++; return; }
 
   char hdr[TC_UDP_VAR_NAME_MAX + 4];
   strcpy(hdr, "=>");
@@ -3988,12 +4086,13 @@ static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
   for (uint16_t i = 0; i < count; i++) {
     Tinyc->udp.write((const uint8_t*)&values[i], sizeof(float));
   }
-  if (!Tinyc->udp.endPacket()) tc_udp_send_fail_recover();
+  if (Tinyc->udp.endPacket()) { tc_udp_tx_ok++; } else { tc_udp_tx_drop++; tc_udp_send_fail_recover(); }
 }
 
 // Send a string variable via ASCII multicast: =>name=string
 static void tc_udp_send_str(const char *name, const char *str) {
-  if (!Tinyc || !Tinyc->udp_connected) return;
+  if (!Tinyc) return;
+  if (!Tinyc->udp_connected) { tc_udp_tx_drop++; return; }
 
   char hdr[TC_UDP_VAR_NAME_MAX + 4];   // "=>" + name + "="
   strcpy(hdr, "=>");
@@ -4003,7 +4102,7 @@ static void tc_udp_send_str(const char *name, const char *str) {
   Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
   Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
   Tinyc->udp.write((const uint8_t*)str, strlen(str));
-  if (!Tinyc->udp.endPacket()) tc_udp_send_fail_recover();
+  if (Tinyc->udp.endPacket()) { tc_udp_tx_ok++; } else { tc_udp_tx_drop++; tc_udp_send_fail_recover(); }
 }
 
 // ── UDP socket management (TinyC always owns its own multicast socket) ──
@@ -4121,10 +4220,23 @@ static void tc_udp_poll(void) {
   // TLS-pause handoff (set by tlsConnect on the VM task): stop the multicast here on
   // the MAIN task so its queued pbufs free for BearSSL, and don't re-init or drain
   // until the transaction clears the flag — frees the LwIP resources TLS needs.
+#ifdef ESP32
+  if (tc_udp_pause_req && !tc_udp_nopause) {
+    tc_udp_rx_close();                       // receive side only, see tc_udp_pause_sync()
+    if (tc_udp_legacy && Tinyc->udp_connected) { Tinyc->udp.stop(); Tinyc->udp_connected = false; }
+    return;
+  }
+  if (Tinyc->udp_connected && !tc_udp_legacy && tc_udp_rxfd < 0) {
+    if (!tc_udp_rx_open()) { Tinyc->udp_connected = false; }   // reopen after a pause
+    Tinyc->udp_last_rx = millis();
+    return;
+  }
+#else
   if (tc_udp_pause_req) {
     if (Tinyc->udp_connected) { Tinyc->udp.stop(); tc_udp_rx_close(); Tinyc->udp_connected = false; }
     return;
   }
+#endif
   if (!Tinyc->udp_connected) {
     tc_udp_init();   // (re)connect after a pause, or on first use
     return;

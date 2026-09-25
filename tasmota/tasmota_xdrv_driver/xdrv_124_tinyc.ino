@@ -2099,6 +2099,12 @@ void CmndTinyCUdp(void) {
   // TinyCUdp 1 / 0: receive through NetworkUDP (the path before 2026-09-23) or
   // the plain lwIP socket -- an A/B switch for the next time reception looks
   // wrong. Counters restart, the socket is rebuilt on the next poll.
+  // TinyCUdp 2 / 3: keep receiving during a blocking TLS transaction (the
+  // behaviour before 2026-07-06, suspected to crash the Powerwall slot) / pause
+  // the receive socket again (default).
+  if (XdrvMailbox.data_len > 0 && (XdrvMailbox.payload == 2 || XdrvMailbox.payload == 3)) {
+    tc_udp_nopause = (XdrvMailbox.payload == 2);
+  }
   if (XdrvMailbox.data_len > 0 && (XdrvMailbox.payload == 0 || XdrvMailbox.payload == 1)) {
     tc_udp_legacy = (XdrvMailbox.payload == 1);
     if (Tinyc->udp_connected) { Tinyc->udp.flush(); Tinyc->udp.stop(); tc_udp_rx_close(); Tinyc->udp_connected = false; }
@@ -2136,13 +2142,13 @@ void CmndTinyCUdp(void) {
 #if defined(ESP32) && defined(USE_ETHERNET)
   ethmc = tc_udp_eth_mc;
 #endif
-  Response_P(PSTR("{\"" D_PRFX_TINYC "Udp\":{\"Vars\":%u,\"Max\":%d,\"Rx\":%u,\"Unknown\":%u,\"SlotSkip\":%u,\"Connected\":%d,\"EthAllMc\":%d,\"Legacy\":%d,\"Polls\":%u,\"Pkts\":%u,\"Raw\":%u,\"Uptime\":%u,\"Netif\":\"%s\"}}"),
+  Response_P(PSTR("{\"" D_PRFX_TINYC "Udp\":{\"Vars\":%u,\"Max\":%d,\"Rx\":%u,\"Unknown\":%u,\"SlotSkip\":%u,\"Connected\":%d,\"EthAllMc\":%d,\"Legacy\":%d,\"NoPause\":%d,\"Tx\":%u,\"TxDrop\":%u,\"Polls\":%u,\"Pkts\":%u,\"Raw\":%u,\"Uptime\":%u,\"Netif\":\"%s\"}}"),
              (unsigned)n, TC_UDP_MAX_VARS, (unsigned)Tinyc->udp_rx_total, (unsigned)Tinyc->udp_rx_unknown,
              (unsigned)Tinyc->udp_rx_skip, Tinyc->udp_connected ? 1 : 0, ethmc,
 #ifdef ESP32
-             tc_udp_legacy ? 1 : 0,
+             tc_udp_legacy ? 1 : 0, tc_udp_nopause ? 1 : 0, (unsigned)tc_udp_tx_ok, (unsigned)tc_udp_tx_drop,
 #else
-             1,
+             1, 0, 0u, 0u,
 #endif
              (unsigned)Tinyc->udp_polls, (unsigned)Tinyc->udp_pkts, (unsigned)Tinyc->udp_raw, (unsigned)TasmotaGlobal.uptime, nif);
 }
