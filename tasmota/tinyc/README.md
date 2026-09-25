@@ -244,8 +244,10 @@ See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 **Smart meter (SML) — ottelo's family, one program per setup:**
 - **sml_simple** — meter only, smallest program
 - **sml_chart** — + charts and tables on their own page, feed-in switchable
-- **sml_chart_bezug** — for meters with no export register: the feed-in total is
-  integrated from negative power (`SML_PV_TOTAL` points the shared code at it)
+- Meters with no export register (Bezugszähler): switch on the **Bezugszähler**
+  option in any of these programs — the feed-in total is then integrated from
+  negative power (`sml_export()`). The separate `sml_chart_bezug` is gone
+  (25.09.2026).
 - **sml_eco_shelly** / **sml_chart_eco_shelly** — + emulator for PV batteries:
   EcoTracker, Shelly Pro 3EM, Pro EM50 or EM Gen3
 - **sml_ct002** / **sml_chart_ct002** — + Marstek CT002/CT003 emulator
