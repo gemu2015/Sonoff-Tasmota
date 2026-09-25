@@ -17,12 +17,16 @@
 //
 // Requires: TESLA_POWERWALL enabled in firmware build.
 //
-// ─── Publish mode — WebSend relay (default) vs direct UDP globals ───────────
-//   (undefined, default)  WebSend relay — POST `Script>pwl=...` to a Scripter (.20)
+// ─── Publish mode — direct UDP globals (default) vs WebSend relay ───────────
+//   #define PWL_DIRECT_GLOBALS  (default) — mirror readings into `global float` vars
+//                         (auto-broadcast on assign), no relay.
+//   (commented out)       WebSend relay — POST `Script>pwl=...` to a Scripter (.20)
 //                         that re-broadcasts via UDP globals.
-//   #define PWL_DIRECT_GLOBALS  — mirror readings into `global float` vars (auto-
-//                         broadcast on assign), no relay. Compile -DPWL_DIRECT_GLOBALS.
-// #define PWL_DIRECT_GLOBALS
+// Direct globals used to crash the device (BearSSL handshake + UDP socket on the
+// same stack). Firmware since b06523972 (25.09.2026) runs the TLS request on its
+// own 16 KB task and keeps sending during the TLS pause — proven on .39 and .140
+// (9 h+, 11660 sends, 0 dropped). On OLDER firmware comment the define out.
+#define PWL_DIRECT_GLOBALS
 
 #define PWL_STALE_SEC 300      // watchdog: Restart if no successful soe read this long
 
