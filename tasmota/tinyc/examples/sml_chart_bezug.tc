@@ -22,7 +22,7 @@
 #include "sml_chart_common.tc"
 #include "sml_modbus_common.tc"
 
-char sml_vers[] = "13.09.2026";
+char sml_vers[] = "25.09.2026";
 
 // ─── The virtual feed-in counter ───────────────────────────────────────────
 persist float sml_bezug_total;   // integrated kWh fed back to the grid
@@ -33,8 +33,9 @@ float sml_ptogrid_sum;           // running Watt-sum between two 60 s ticks
 int sml_e_pv; int sml_e_sndpwr;   // edit buffer, applied by Save
 
 // ─── Transient WebButton flags ─────────────────────────────────────────────
-int do_init;
-int do_init2;
+int do_base;      // reset consumption baselines
+int do_power;     // clear the 4h/24h charts
+int do_bars;      // clear the day/month bars
 int do_reset;
 int do_csv;
 
@@ -103,15 +104,19 @@ void EverySecond() {
     if (tasm_year < 2020) return;
     if (smlGet(2) == 0.0) return;
 
-    if (do_init) {
+    if (do_base) {
         sml_chart_init_baselines();
         sml_chart_pv_init_baselines();
-        do_init = 0;
+        do_base = 0;
     }
-    if (do_init2) {
+    if (do_power) {
+        sml_chart_clear_power();
+        do_power = 0;
+    }
+    if (do_bars) {
         sml_chart_init_columns();
         sml_chart_pv_init_columns();
-        do_init2 = 0;
+        do_bars = 0;
     }
     sml_t1 = sml_t1 - 1;
     if (sml_t1 <= 0) {
@@ -212,11 +217,15 @@ void WebUI() {
     mbPanel();
 
     sml_chart_options_panel();
-    sml_chart_data_panel(varIdx(do_init), varIdx(do_init2), varIdx(do_csv));
+    // ⚠️ seit ottelos Stand 12.09. erwartet das Panel (Grundwerte, Leistung,
+    // Balken) — hier hing noch die alte Belegung, „Balken löschen" löste den
+    // CSV-Export aus (25.09.2026)
+    sml_chart_data_panel(varIdx(do_base), varIdx(do_power), varIdx(do_bars));
     webSend("<hr>");
     uiSaveButton();
     if (ui_de) webButton(do_reset, "SML neu laden|neu geladen");
     else       webButton(do_reset, "Restart SML|restarted");
+    sml_chart_csv_button(varIdx(do_csv));
 
     uiUptime();
     sprintf(sml_buf, "sml_chart_bezug.tc &middot; Version %s<br>", sml_vers);

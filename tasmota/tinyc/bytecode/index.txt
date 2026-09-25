@@ -45,6 +45,9 @@ ebus_clock_write.tcb
 ecotracker.tcb
 ecotracker_shelly_emu.tcb
 editor.tcb
+energy_alarm.tcb
+energy_backup.tcb
+energy_charts.tcb
 energy_dashboard.tcb
 energy_logger.tcb
 epaper29.tcb

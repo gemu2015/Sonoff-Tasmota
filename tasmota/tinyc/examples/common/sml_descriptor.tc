@@ -17,13 +17,32 @@ persist watch int sml_activ;    // mirrors tasm_rule bit 0
 persist watch int sml_drvrows;  // 1 = also show the SML driver's own rows
 persist watch int sml_ph3;      // 1 = meter delivers per-phase power in 4/5/6
 
+// ── Bezugszaehler: a meter without an export register ───────────────────────
+// No OBIS 2.8.0, so nothing at value 3 - but the power goes negative while
+// exporting. With the option on, the export total is integrated from that
+// negative power and every program reads it through sml_export() instead of
+// smlGet(3): the rows, the charts, /pwr, Modbus, the emulators.
+// TinyC version of ottelo's 3_SML_Chart_PV_Bezugszaehler.tas.
+// Not `watch`: TC_MAX_WATCH is 16 and the family is close to it. The edge is
+// caught through sml_bezug_was, the same way as sml_ph3's.
+persist int   sml_bezug;        // 1 = integrate the export total
+persist float sml_virt_out;     // that total [kWh]; only ever grows
+float sml_virt_ws;              // watt-seconds not yet folded into it
+int   sml_virt_ms;              // millis() of the previous sample
+int   sml_virt_hr;              // previous hour, to spot midnight
+int   sml_virt_ride;            // 1 = a chart program: the cfg is written at
+                                //     midnight anyway, the total rides along
+int   sml_bezug_was;            // previous sml_bezug, to spot a change on Save
+int   sml_bezug_chg;            // 1 = source switched; the charts re-seed their
+                                //     export baselines and clear it
+
 // ── Edit buffer ────────────────────────────────────────────────────────────
 // The widgets write here, Save copies it onto the settings above. Before this
 // the widgets wrote the persist variables directly: leaving without saving
 // then left a changed pin or meter in the device - inactive, but stored.
 int sml_e_meter_sel; int sml_e_rx_pin; int sml_e_tx_pin;
 int sml_e_filter;    int sml_e_activ;  int sml_e_drvrows;
-int sml_e_ph3;
+int sml_e_ph3;       int sml_e_bezug;
 
 void smlDescCommit() {
     sml_meter_sel = sml_e_meter_sel;
@@ -33,6 +52,7 @@ void smlDescCommit() {
     sml_activ     = sml_e_activ;
     sml_drvrows   = sml_e_drvrows;
     sml_ph3       = sml_e_ph3;
+    sml_bezug     = sml_e_bezug;
     tcOptSet(2, sml_meter_sel);
     tcOptSet(3, sml_rx_pin);
     tcOptSet(4, sml_tx_pin);
@@ -40,6 +60,7 @@ void smlDescCommit() {
     tcOptSet(6, sml_activ);
     tcOptSet(7, sml_drvrows);
     tcOptSet(8, sml_ph3);
+    tcOptSet(32, sml_bezug);
 }
 void smlDescEditLoad() {
     sml_e_meter_sel = sml_meter_sel;
@@ -49,14 +70,215 @@ void smlDescEditLoad() {
     sml_e_activ     = sml_activ;
     sml_e_drvrows   = sml_drvrows;
     sml_e_ph3       = sml_ph3;
+    sml_e_bezug     = sml_bezug;
+}
+
+// The export total [kWh], whichever way the meter provides it.
+float sml_export() {
+    if (sml_bezug > 0) return sml_virt_out;
+    return smlGet(3);
+}
+
+// Every second, from sml_descriptor_apply(). The watt-seconds come from the
+// real time between two calls, not from an assumed second - a late tick would
+// otherwise count short. Folded into the kWh total in 10 Wh steps: a float
+// holds about seven digits, and one second of 5 W export added on its own to
+// a total in the thousands would fall below its resolution and vanish.
+void sml_virt_tick() {
+    int now = millis();
+    int dt  = now - sml_virt_ms;
+    sml_virt_ms = now;
+    if (sml_bezug == 0) return;
+    if (dt <= 0 || dt > 5000) return;      // first call or a stall: no guessing
+    if (smlGet(2) == 0.0) return;          // meter not read yet
+    float p = smlGet(1);
+    if (p < 0.0) sml_virt_ws = sml_virt_ws - p * (float)dt / 1000.0;
+    if (sml_virt_ws >= 36000.0) {
+        sml_virt_out = sml_virt_out + sml_virt_ws / 3600000.0;
+        sml_virt_ws  = 0.0;
+    }
+    // Into the shared file only when it is written anyway, never on its own
+    // account: every write is a flash write of the whole file. A chart program
+    // writes it at midnight regardless (the baselines roll over), and the
+    // total rides along with that - no extra write. A program without charts
+    // has no such write, so it gets exactly one, at midnight. The .pvs is the
+    // other copy, and at start the higher of the two wins.
+    if (tc_opt_dirty == 1) tcOptSetF(8, sml_virt_out);
+    if (sml_virt_ride == 0 && tasm_hour == 0 && sml_virt_hr != 0) tcOptSetF(8, sml_virt_out);
+    sml_virt_hr = tasm_hour;
 }
 
 // ── Shared sprintf scratch (also used by chart/totals renderers) ────────────
 byte sml_buf[160];
+float sml_power2;          // smoothed power [W], kept by the program's 5 s tick
 byte sml_ftopic[96];       // full MQTT topic - mqttPublish takes it at runtime
 int  sml_pub_rc;           // last mqttPublish result, logged when it changes
 int  sml_pub_seen;
 int  sml_drv_init;              // 0 until the display option was applied once
+
+// /pwr: one short JSON answer, written as a raw HTTP response so it says
+// application/json - webSend() goes through Tasmota's page path, which
+// declares text/html. The body is known in full here, so Content-Length
+// rather than chunked. Connection: close as before: /pwr is polled every few
+// seconds, and a held socket can block Tasmota's web server.
+byte sml_jhdr[112];
+
+void smlSendJson(byte s[]) {
+    webRawMode();
+    sprintf(sml_jhdr, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", strlen(s));
+    webRawWrite(sml_jhdr);
+    webRawWrite(s);
+}
+
+// Meter value 4/5/6 as phase power. Without "3 phases" they carry no phases,
+// so the total counts as L1 and L2/L3 as 0.
+float sml_phase(int n) {
+    if (sml_ph3 == 1) return smlGet(n);
+    if (n == 4) return smlGet(1);
+    return 0.0;
+}
+
+// The /pwr answer into sml_buf: meter values 1..6, then the smoothed power.
+// Left open - the emulator programs append ,"cpwr" before the closing }.
+void smlPwrJson(float p2) {
+    sprintf(sml_buf, "{\"sml1\":%.0f,\"sml2\":%.3f,\"sml3\":%.3f", smlGet(1), smlGet(2), sml_export());
+    sprintfAppend(sml_buf, ",\"sml4\":%.0f,\"sml5\":%.0f,\"sml6\":%.0f", sml_phase(4), sml_phase(5), sml_phase(6));
+    sprintfAppend(sml_buf, ",\"power2\":%.0f", p2);
+}
+
+// ── /pwr?v=: chosen values as JSON ──────────────────────────────────────────
+// What the Scripter answered to cm?cmnd=script?dval;dcon, with the same names:
+//   /pwr?v=yval;dcon;sml[1]    ->  {"yval":123.456,"dcon":[...],"sml[1]":-3}
+//   /pwr?v=all                 ->  every name in the default list in smlVars()
+//   /pwr?v=sml                 ->  sml1..sml6 (see sml_phase())
+// On /pwr rather than a URL of its own: the firmware has seven webOn slots
+// (TC_MAX_WEB_HANDLERS) and the family already uses all of them - a webOn(8)
+// is dropped without a word.
+// Only these names: the VM has no symbol table at runtime. sml[n] (or smln)
+// is meter value n, and sml[3] the export total - computed on a
+// Bezugszaehler, like the Scripter's sml3. power2 everywhere, cpwr in the
+// emulators, the day/week/month names only in the chart programs
+// (sml_chart_var()). An unknown name answers null, so a typo shows instead
+// of vanishing.
+byte sml_vsel[128];      // the ?v= list
+byte sml_vtok[20];       // one name out of it
+int  sml_vcnt;           // names written so far - a comma before all but the first
+
+// ── The answer goes out as a raw HTTP response ──────────────────────────────
+// webSend() would hand the text to Tasmota's page path, which declares
+// text/html - and a JSON reader that checks the type (Home Assistant, ioBroker,
+// Node-RED) then refuses it. So the handler writes the header itself and says
+// application/json. The length is not known in advance (?v=all is ~1.5 KB), so
+// the body goes out chunked: each chunk is its length in hex, the bytes, CRLF.
+//
+// Collected, not one chunk per value: that would be ~200 tiny TCP writes for
+// ?v=all. Fragments are gathered here and leave as one chunk per ~240 chars.
+byte sml_vout[256];
+int  sml_vlen;
+byte sml_vchunk[16];     // the chunk-size line
+
+void sml_vars_flush() {
+    if (sml_vlen == 0) return;
+    sprintf(sml_vchunk, "%x\r\n", sml_vlen);
+    webRawWrite(sml_vchunk);
+    webRawWrite(sml_vout);
+    webRawWrite("\r\n");
+    sml_vout[0] = 0;
+    sml_vlen = 0;
+}
+
+void sml_vars_send(byte s[]) {
+    int n = strlen(s);
+    if (sml_vlen + n > 240) sml_vars_flush();
+    strcat(sml_vout, s);
+    sml_vlen = sml_vlen + n;
+}
+
+void sml_vars_f(float v) {
+    sprintf(sml_buf, "%.3f", v);
+    sml_vars_send(sml_buf);
+}
+
+// The emulators set these before smlVars(): the value handed to the battery.
+float sml_cpwr;
+int   sml_hascp;
+
+void sml_vars_one(byte t[]) {
+    // The name is echoed as the key, so it must not carry anything a browser
+    // would run - a link to /pwr?v=<script>... would otherwise execute on the
+    // device's origin, whatever the content type says.
+    // Letters, digits, _ and [ ] are all a real name ever needs.
+    int k = 0;
+    while (t[k] != 0) {
+        int c = t[k];
+        int ok = 0;
+        if (c >= 'a' && c <= 'z') ok = 1;
+        if (c >= 'A' && c <= 'Z') ok = 1;
+        if (c >= '0' && c <= '9') ok = 1;
+        if (c == '_' || c == '[' || c == ']') ok = 1;
+        if (ok == 0) return;
+        k = k + 1;
+    }
+    if (sml_vcnt > 0) sml_vars_send(",");
+    sml_vcnt = sml_vcnt + 1;
+    sprintf(sml_buf, "\"%s\":", t);
+    sml_vars_send(sml_buf);
+
+    if (strcmp(t, "power2") == 0) sml_vars_f(sml_power2);
+    else if (strcmp(t, "cpwr") == 0 && sml_hascp == 1) sml_vars_f(sml_cpwr);
+    else if (t[0] == 's' && t[1] == 'm' && t[2] == 'l') {
+        // sml1 or sml[1]
+        int p = 3;
+        int n = 0;
+        if (t[p] == '[') p = p + 1;
+        while (t[p] >= '0' && t[p] <= '9' && n < 1000) { n = n * 10 + (t[p] - '0'); p = p + 1; }
+        if (n == 3)                sml_vars_f(sml_export());
+        else if (n >= 4 && n <= 6) sml_vars_f(sml_phase(n));
+        else if (n > 0 && n < 100) sml_vars_f(smlGet(n));
+        else                       sml_vars_send("null");
+    }
+#ifdef SML_CHART
+    else if (sml_chart_var(t) == 0) sml_vars_send("null");
+#else
+    else sml_vars_send("null");
+#endif
+}
+
+// From the program's WebOn() for /pwr, before anything else. Returns 1 when
+// the request carried ?v= and has been answered; 0 leaves /pwr to its own
+// reply. Not gated by the telemetry switch - reading values changes nothing.
+int smlVars() {
+    if (webArg("v", sml_vsel) <= 0) return 0;
+    if (strcmp(sml_vsel, "all") == 0) {
+#ifdef SML_CHART
+        strcpy(sml_vsel, "sml1;sml2;sml3;power2;dval;wval;mval;yval;dval2;wval2;mval2;yval2;dcon;wcon;mcon;dprod;wprod;mprod");
+#else
+        strcpy(sml_vsel, "sml1;sml2;sml3;sml4;sml5;sml6;power2");
+#endif
+        if (sml_hascp == 1) strcat(sml_vsel, ";cpwr");
+    } else if (strcmp(sml_vsel, "sml") == 0) {
+        strcpy(sml_vsel, "sml1;sml2;sml3;sml4;sml5;sml6");
+    }
+    // Our own HTTP response from here on: webRawMode() switches Tasmota's
+    // page machinery off for this request, header and body are ours.
+    webRawMode();
+    webRawWrite("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n");
+    sml_vcnt = 0;
+    sml_vlen = 0;
+    sml_vout[0] = 0;
+    sml_vars_send("{");
+    int k = 1;
+    while (k <= 40) {
+        if (strToken(sml_vtok, sml_vsel, ';', k) <= 0) break;
+        sml_vars_one(sml_vtok);
+        k = k + 1;
+    }
+    sml_vars_send("}");
+    sml_vars_flush();
+    webRawWrite("0\r\n\r\n");        // the terminating empty chunk
+    webKeepAlive();
+    return 1;
+}
 
 // Sanity check for "3 phases". The option only makes sense if the descriptor
 // really carries the per-phase power in values 4/5/6 - the family's convention.
@@ -114,11 +336,20 @@ void sml_descriptor_apply() {
         tcOptSet(8, sml_ph3);
         sml_ph3_was = sml_ph3;      // only a real 0 -> 1 edge arms the check,
                                     // an option that was already on stays on
+        sml_bezug = tcOptGet(32, sml_bezug);
+        tcOptSet(32, sml_bezug);
+        sml_bezug_was = sml_bezug;
+        // The counter only grows, so the higher copy is the newer one: this
+        // program's .pvs, or the file another program wrote after it.
+        float vf = tcOptGetF(8, 0.0);
+        if (vf > sml_virt_out) sml_virt_out = vf;
+        sml_virt_hr = tasm_hour;    // no write at start, only at the next midnight
         smlDescEditLoad();          // widgets start from what is in effect
         sml_apply_drvrows();
         snapshot(sml_drvrows);
     }
     if (ui_reloading) smlDescEditLoad();   // drop unsaved edits on a fresh page
+    sml_virt_tick();
 
     // Runs outside the Save gate: the meter may not have delivered anything
     // yet when the option is switched on, so this waits for the first reading.
@@ -148,13 +379,13 @@ void sml_descriptor_apply() {
             sml_ph3_was = 0;
             tcOptSet(8, sml_ph3);
             if (empty == 1) {
-                addLog("sml: 3 phases off - values 4/5/6 are all zero, descriptor has no phases");
+                addLog("sml: 3ph off, 4/5/6 = 0");
             } else {
-                addLog("sml: 3 phases off - L1+L2+L3 = %.0f W does not match total %.0f W", sum, tot);
+                addLog("sml: 3ph off, %.0f != %.0f W", sum, tot);
             }
             saveVars();
         } else {
-            addLog("sml: 3 phases confirmed - L1+L2+L3 = %.0f W, total %.0f W", sum, tot);
+            addLog("sml: 3ph ok");
         }
     }
 
@@ -168,6 +399,16 @@ void sml_descriptor_apply() {
     }
     if (sml_ph3 == 0) sml_ph3_bad = 0;
     sml_ph3_was = sml_ph3;
+
+    // A different export source has a different zero point: the day/month/
+    // year/week export baselines were taken from the old one and would now be
+    // subtracted from the wrong counter. The chart side re-seeds them.
+    if (sml_bezug != sml_bezug_was) {
+        sml_bezug_was = sml_bezug;
+        sml_bezug_chg = 1;
+        sml_virt_ws   = 0.0;
+        addLog("sml: import meter %d", sml_bezug);
+    }
 
     if (changed(sml_drvrows)) {
         sml_apply_drvrows();
@@ -223,7 +464,7 @@ void sml_descriptor_apply() {
 // onto one, they had outgrown the main page.
 // The caller closes the div, normally through the version footer.
 void sml_panel_open(char icon[], char en[], char de[]) {
-    webSend("<style>body>div{width:480px;max-width:96vw;box-sizing:border-box}.sml-p{max-width:100%;box-sizing:border-box;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.sml-p h3{margin:0 0 8px}.sml-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.sml-p b{display:inline-block;margin-bottom:4px;font-size:13px}.sml-p div{margin:6px 0}.sml-p .hint{font-size:9px;color:#555;line-height:1.4}</style>");
+    webSend("<style>body>div{width:480px;max-width:96vw;box-sizing:border-box}.sml-p{max-width:100%;box-sizing:border-box;margin:12px auto;background:#f0f0f0;color:#000;padding:16px;border:2px solid #ccc;border-radius:6px;text-align:left}.sml-p h3{margin:0 0 8px}.sml-p hr{border:0;border-top:1px solid #bbb;margin:12px 0}.sml-p b{display:inline-block;margin-bottom:4px;font-size:13px}.sml-p div{margin:6px 0}.sml-p .hint{font-size:9px;color:#555;line-height:1.4}.sml-p .w{font-size:11px;color:#a00}.sml-p .n{font-size:12px;color:#444}</style>");
     if (ui_de) sprintf(sml_buf, "<div class='sml-p'><h3>%s %s</h3>", icon, de);
     else       sprintf(sml_buf, "<div class='sml-p'><h3>%s %s</h3>", icon, en);
     webSend(sml_buf);
@@ -244,34 +485,37 @@ void sml_render_settings_panel() {
 
     // Meter active, descriptor and pins belong together - one section, one
     // heading, so it is clear which settings describe the meter itself.
-    uiHead("&#x1F50C;", "Meter settings", "Zähler-Einstellungen", "sml/#meter");
+    uiHead("&#x1F50C;", "Meter", "Zähler", "sml/#meter");
     if (ui_de) {
         webCheckbox(sml_e_activ, "Zähler aktiv");
         webCheckbox(sml_e_ph3, "3 Phasen");
-        if (sml_ph3_bad == 1) webSend("<div style='font-size:11px;color:#a00;margin:2px 0'>&#9888; Abgeschaltet: Werte 4/5/6 des Descriptors sind keine Phasenleistungen. Siehe Konsole.</div>");
-        uiCheckI(sml_e_drvrows, varIdx(sml_e_drvrows), "Zusätzliche Anzeige (via SML-Treiber)", "sml/#display");
-        uiCheckI(sml_e_filter, varIdx(sml_e_filter), "SML Median Filter", "sml/#filter");
-        webSend("&#x1F4DD; <a href='/ufse?file=/sml_meter.def'>Descriptor bearbeiten</a>");
-        webRepoPulldown(sml_e_meter_sel, "Aus Repo",
-                        "https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/script-list-menu/meters/smartmeter.json",
-                        "smartmeter",
-                        "/sml_meter.new");
-        webPulldown(sml_e_rx_pin, "RX-Pin", "@getfreepins");
-        webPulldown(sml_e_tx_pin, "TX-Pin", "@getfreepins");
+        if (sml_ph3_bad == 1) webSend("<div class='w'>&#9888; 4/5/6 sind keine Phasen &ndash; aus.</div>");
+        uiCheckI(sml_e_bezug, varIdx(sml_e_bezug), "Bezugszähler", "sml/#bezug");
+        if (sml_bezug > 0) {
+            sprintf(sml_buf, "<div class='hint'>Einspeisung gerechnet: %.3f kWh</div>", sml_virt_out);
+            webSend(sml_buf);
+        }
+        uiCheckI(sml_e_drvrows, varIdx(sml_e_drvrows), "SML Anzeige", "sml/#display");
     } else {
         webCheckbox(sml_e_activ, "Meter active");
         webCheckbox(sml_e_ph3, "3 phases");
-        if (sml_ph3_bad == 1) webSend("<div style='font-size:11px;color:#a00;margin:2px 0'>&#9888; Switched off: descriptor values 4/5/6 are not per-phase power. See console.</div>");
-        uiCheckI(sml_e_drvrows, varIdx(sml_e_drvrows), "Additional display (via SML driver)", "sml/#display");
-        uiCheckI(sml_e_filter, varIdx(sml_e_filter), "SML Median Filter", "sml/#filter");
-        webSend("&#x1F4DD; <a href='/ufse?file=/sml_meter.def'>Edit descriptor</a>");
-        webRepoPulldown(sml_e_meter_sel, "From repo",
-                        "https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/script-list-menu/meters/smartmeter.json",
-                        "smartmeter",
-                        "/sml_meter.new");
-        webPulldown(sml_e_rx_pin, "RX pin", "@getfreepins");
-        webPulldown(sml_e_tx_pin, "TX pin", "@getfreepins");
+        if (sml_ph3_bad == 1) webSend("<div class='w'>&#9888; 4/5/6 are not phases &ndash; off.</div>");
+        uiCheckI(sml_e_bezug, varIdx(sml_e_bezug), "Import meter", "sml/#bezug");
+        if (sml_bezug > 0) {
+            sprintf(sml_buf, "<div class='hint'>Export computed: %.3f kWh</div>", sml_virt_out);
+            webSend(sml_buf);
+        }
+        uiCheckI(sml_e_drvrows, varIdx(sml_e_drvrows), "SML display", "sml/#display");
     }
+    // From here on every label reads the same in both languages - one call each.
+    uiCheckI(sml_e_filter, varIdx(sml_e_filter), "SML Filter", "sml/#filter");
+    webSend("&#x1F4DD; <a href='/ufse?file=/sml_meter.def'>Descriptor</a>");
+    webRepoPulldown(sml_e_meter_sel, "Repo",
+                    "https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/script-list-menu/meters/smartmeter.json",
+                    "smartmeter",
+                    "/sml_meter.new");
+    webPulldown(sml_e_rx_pin, "RX", "@getfreepins");
+    webPulldown(sml_e_tx_pin, "TX", "@getfreepins");
     webSend("<div class='hint'>RX=3 TX=1: Hichi, Stromleser, LesekopfV32, Wattwächter<br>RX=5 TX=4: bitShake</div>");
 }
 
