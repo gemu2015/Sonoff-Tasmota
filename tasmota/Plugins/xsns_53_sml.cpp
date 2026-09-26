@@ -3829,7 +3829,8 @@ dddef_exit:
             goto next_line;
           }
           // 1,=h—————————————
-          if (!strncmp_P(lp1 + 1, PSTR(",=h"), 3) || !strncmp_P(lp1 + 1, PSTR(",=so"), 4)) {
+          bool is_so = !strncmp_P(lp1 + 1, PSTR(",=so"), 4);   // one PSTR per line (plugin)
+          if (!strncmp_P(lp1 + 1, PSTR(",=h"), 3) || is_so) {
             if (!strncmp_P(lp1 + 1, PSTR(",=so"), 4)) {
 							SpecOptions(lp1 + 5, mnum - 1);
             }

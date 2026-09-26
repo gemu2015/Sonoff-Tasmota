@@ -289,10 +289,14 @@ bool PN532_Init(void) {
 
   uint32_t ver = PN532_getFirmwareVersion();
   if (ver) {
+    // Mode name as a word on the stack ("I2C"/"HSU"): a PSTR from the module
+    // cannot be read byte-wise by %s (instruction-bus mapping), and only one
+    // PSTR per line works in a plugin.
+    uint32_t mode_name = mode ? 0x00433249 : 0x00555348;
     AddLog(LOG_LEVEL_INFO,
            PSTR("NFC: PN532 NFC Reader detected v%u.%u (%s)"),
            (ver >> 16) & 0xFF, (ver >> 8) & 0xFF,
-           mode ? PSTR("I2C") : PSTR("HSU"));
+           (const char *)&mode_name);
     initialized = true;
     ready       = true;
     PN532_setPassiveActivationRetries(0xFF);
@@ -828,11 +832,35 @@ void PN532_ScanForTag(void) {
         sprintf_P(card_datas, PSTR("AUTHFAIL"), 0);
       }
     }
-    switch (Pn532.function) {
-      case 1: AddLog(LOG_LEVEL_INFO, success ? PSTR("NFC: PN532 - Erase success")            : PSTR("NFC: PN532 - Erase fail - exiting erase mode"));     break;
-      case 2: AddLog(LOG_LEVEL_INFO, success ? PSTR("NFC: PN532 - Data write successful")    : PSTR("NFC: PN532 - Write failed - exiting set mode"));     break;
-      case 3: AddLog(LOG_LEVEL_INFO, success ? PSTR("NFC: PN532 - Set password successful")  : PSTR("NFC: PN532 - Set password failed - exiting set mode"));  break;
-      case 4: AddLog(LOG_LEVEL_INFO, success ? PSTR("NFC: PN532 - Unset password successful"): PSTR("NFC: PN532 - Unset password failed - exiting set mode")); break;
+    switch (Pn532.function) {   // one PSTR per line (plugin)
+      case 1:
+        if (success) {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Erase success"));
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Erase fail - exiting erase mode"));
+        }
+        break;
+      case 2:
+        if (success) {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Data write successful"));
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Write failed - exiting set mode"));
+        }
+        break;
+      case 3:
+        if (success) {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Set password successful"));
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Set password failed - exiting set mode"));
+        }
+        break;
+      case 4:
+        if (success) {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Unset password successful"));
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Unset password failed - exiting set mode"));
+        }
+        break;
       default: break;
     }
     Pn532.function = 0;

@@ -513,7 +513,10 @@ int32_t Ds18x20Init(void) {
   for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
     for (uint32_t j = i + 1; j < DS18X20Data.sensors; j++) {
       if (ids[ds18x20_sensor[i].index] > ids[ds18x20_sensor[j].index]) {
-        std::swap(ds18x20_sensor[i].index, ds18x20_sensor[j].index);
+        // plain swap: std::swap was emitted out of line in the host
+        uint8_t swap_tmp = ds18x20_sensor[i].index;
+        ds18x20_sensor[i].index = ds18x20_sensor[j].index;
+        ds18x20_sensor[j].index = swap_tmp;
       }
     }
   }

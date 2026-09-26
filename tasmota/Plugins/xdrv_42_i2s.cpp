@@ -1163,9 +1163,9 @@ void i2s_bridge_loop(void) {
         if (!bridge.ring_pressed) {
           bridge.ring_pressed = 1;
           if (bridge.i2s_bridge_udp && bridge.i2s_bridge_ip.dword) {
-            const char *ring_msg = "RING";
+            uint32_t ring_msg = 0x474E4952;   // "RING" as a word on the stack; the literal sat in host .rodata
             udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
-            udp_write(bridge.i2s_bridge_udp, (const uint8_t*)ring_msg, 4);
+            udp_write(bridge.i2s_bridge_udp, (const uint8_t*)&ring_msg, 4);
             udp_endPacket(bridge.i2s_bridge_udp);
             AddLog(LOG_LEVEL_INFO, PSTR("I2S: RING sent to app"));
           }
