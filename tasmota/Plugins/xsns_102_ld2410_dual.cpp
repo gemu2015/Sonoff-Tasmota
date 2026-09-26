@@ -542,16 +542,18 @@ void (* const Ld2410Command[])(void) PROGMEM = {
   &CmndLd2410Duration, &CmndLd2410MovingSensitivity, &CmndLd2410StaticSensitivity,
   &CmndLd2410last,     &CmndLd2410EngineeringEnd,    &CmndLd2410EngineeringStart };
 
+// The separator is chosen by format, not passed as a ""/"," %s argument:
+// those literals sat in host .rodata.
 void Ld2410Response(void) {
   SETREGS
   Response_P(PSTR("{\"LD2410\":{\"Duration\":%d,\"Moving\":{\"Gates\":%d,\"Sensitivity\":["),
     LD2410.no_one_duration, LD2410.max_moving_distance_gate);
   for (uint32_t i = 0; i <= LD2410_MAX_GATES; i++) {
-    ResponseAppend_P(PSTR("%s%d"), (i == 0) ? "" : ",", LD2410.moving_sensitivity[i]);
+    ResponseAppend_P((i == 0) ? PSTR("%d") : PSTR(",%d"), LD2410.moving_sensitivity[i]);
   }
   ResponseAppend_P(PSTR("]},\"Static\":{\"Gates\":%d,\"Sensitivity\":["), LD2410.max_static_distance_gate);
   for (uint32_t i = 0; i <= LD2410_MAX_GATES; i++) {
-    ResponseAppend_P(PSTR("%s%d"), (i == 0) ? "" : ",", LD2410.static_sensitivity[i]);
+    ResponseAppend_P((i == 0) ? PSTR("%d") : PSTR(",%d"), LD2410.static_sensitivity[i]);
   }
   ResponseAppend_P(PSTR("]}}}"));
 }
