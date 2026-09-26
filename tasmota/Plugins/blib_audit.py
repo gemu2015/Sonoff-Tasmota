@@ -24,6 +24,11 @@ and only fails on the device, usually as a silent "Software reset CPU":
   PTR-SELF   literal holding an absolute address inside the module — only
              correct if the code adds EXEC_OFFSET before using it (PROGMEM
              tables read via GUI32p), so these are listed for review
+  NUM?       literal whose value lies in host code or ROM but is not the start
+             of a symbol — almost always a number that only looks like an
+             address (a float between 2.0 and ~4.5 is 0x400xxxxx, e.g. 2.22 =
+             0x400e147b), listed for review and not counted. A real code
+             pointer is a function address, i.e. a symbol start.
 
 Plain numeric literals stored inside the module are fine and not reported.
 Literals inside the 64-byte module header (FLASH_MODULE: mtv, jtab, execution
@@ -226,6 +231,7 @@ def main():
     bss = sections(od, a.elf, nobits=True)
     syms = symbols(od, a.elf)
     sym_addr = [x for x, _ in syms]
+    sym_set = set(sym_addr)
 
     def sym(v):
         i = bisect.bisect_right(sym_addr, v) - 1
@@ -268,8 +274,12 @@ def main():
             v = word(lit)
             if v is None:
                 continue
+            code = (0x40000000 <= v < 0x40070000) or \
+                   (v >= 0x40070000 and in_any(v, secs) and re.search(r"text|iram|vector", section_of(v, secs)))
             if s <= v < e:
                 found["PTR-SELF"].append((func, f"0x{v:08x}"))
+            elif code and v not in sym_set:
+                found["NUM?"].append((func, f"0x{v:08x} (~{sym(v)})"))
             elif 0x40000000 <= v < 0x40070000:
                 found["ROM"].append((func, sym(v)))
             elif v >= 0x3F000000 and in_any(v, bss):
@@ -278,7 +288,7 @@ def main():
                 found["PTR-FW"].append((func, f"{section_of(v, secs)}: {sym(v)}"))
 
     print()
-    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "PTR-SELF", "HEADER"):
+    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "PTR-SELF", "NUM?", "HEADER"):
         hits = found[kind]
         per = Counter(f for f, _ in hits)
         print(f"{kind:9s} {len(hits):5d}  in {len(per)} functions")
