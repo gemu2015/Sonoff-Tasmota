@@ -63,13 +63,15 @@ typedef struct {
   uint32_t number;       // tag number (CONTEXT: 0..255, else up to 32-bit)
 } mtrc_tlv_tag;
 
-static inline mtrc_tlv_tag mtrc_tlv_anon(void) {
+// always_inline: an out-of-line copy of a header inline lands OUTSIDE the plugin
+// module (no MODULE_PART) -- 225 calls to mtrc_tlv_ctx did (blib_audit, 26.09.2026)
+static inline __attribute__((always_inline)) mtrc_tlv_tag mtrc_tlv_anon(void) {
   mtrc_tlv_tag t = { MTRC_TLV_TAG_ANON, 0, 0, 0 }; return t;
 }
-static inline mtrc_tlv_tag mtrc_tlv_ctx(uint8_t n) {
+static inline __attribute__((always_inline)) mtrc_tlv_tag mtrc_tlv_ctx(uint8_t n) {
   mtrc_tlv_tag t = { MTRC_TLV_TAG_CONTEXT, 0, 0, n }; return t;
 }
-static inline mtrc_tlv_tag mtrc_tlv_full(uint16_t vid, uint16_t prof, uint32_t num) {
+static inline __attribute__((always_inline)) mtrc_tlv_tag mtrc_tlv_full(uint16_t vid, uint16_t prof, uint32_t num) {
   mtrc_tlv_tag t = { MTRC_TLV_TAG_FULL8, vid, prof, num }; return t;
 }
 

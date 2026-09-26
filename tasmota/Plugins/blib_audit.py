@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+blib_audit.py — find the runtime-fatal spots in a BinPlugin BEFORE it runs.
+
+    python3 tasmota/Plugins/blib_audit.py [--elf .pio/build/tasmota32-plugin/firmware.elf]
+                                          [--name MATTERF] [--all]
+
+Why: a plugin module is copied out of the plugin-host firmware (between the
+4A FC AA 55 / 55 AA FC 4A sync words, grepmodule-firmware.py) and run at another
+address. Everything that is not position independent compiles and links fine
+and only fails on the device, usually as a silent "Software reset CPU":
+
+  CALL-OUT   call/j to an address outside the module — a compiler helper
+             (__divdi3, __addsf3 …) or a firmware function called directly
+             instead of through the jumptable
+  LIT-OUT    l32r literal slot outside the module (the literal pool was not
+             placed inside the bracket)
+  PTR-FW     literal holding an absolute address into the host firmware —
+             typically a string literal or const table in the host .rodata
+  PTR-BSS    literal holding the address of a zero-initialised global (.bss)
+             in the host — mutable state that must move into MODULE_MEMORY
+  PTR-SELF   literal holding an absolute address inside the module — only
+             correct if the code adds EXEC_OFFSET before using it (PROGMEM
+             tables read via GUI32p), so these are listed for review
+
+Plain numeric literals stored inside the module are fine and not reported.
+Xtensa (ESP32/S2/S3) only.
+"""
+import argparse
+import bisect
+import os
+import re
+import subprocess
+import sys
+from collections import Counter, defaultdict
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
+OBJDUMP_CANDIDATES = [
+    os.path.expanduser("~/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32-elf-objdump"),
+    os.path.expanduser("~/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-objdump"),
+]
+START = bytes([0x4A, 0xFC, 0xAA, 0x55])
+END = bytes([0x55, 0xAA, 0xFC, 0x4A])
+
+
+def objdump():
+    for p in OBJDUMP_CANDIDATES:
+        if os.path.isfile(p):
+            return p
+    sys.exit("xtensa objdump not found (PlatformIO toolchain-xtensa-esp-elf)")
+
+
+def sections(od, elf, nobits=False):
+    """[(name, vma, size, file_offset)] of loaded sections with contents
+    (nobits=True: the allocated sections WITHOUT contents instead, e.g. .bss)"""
+    out = []
+    lines = subprocess.run([od, "-h", elf], capture_output=True, text=True).stdout.splitlines()
+    for i, l in enumerate(lines):
+        m = re.match(r"\s*\d+\s+(\S+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+[0-9a-f]+\s+([0-9a-f]+)", l)
+        if m and i + 1 < len(lines) and "ALLOC" in lines[i + 1] and ("CONTENTS" in lines[i + 1]) != nobits:
+            out.append((m.group(1), int(m.group(3), 16), int(m.group(2), 16), int(m.group(4), 16)))
+    return out
+
+
+def find_module(data, secs, want):
+    """(name, start_vma, end_vma) of the module bracket"""
+    for name, vma, size, off in secs:
+        blob = data[off:off + size]
+        i = 0
+        while (i := blob.find(START, i)) >= 0:
+            if i % 4 == 0 and i + 32 <= len(blob):
+                arch = int.from_bytes(blob[i + 4:i + 8], "little") & 0xF
+                typ = int.from_bytes(blob[i + 8:i + 12], "little")
+                mname = blob[i + 16:i + 32].split(b"\0")[0].decode("ascii", "replace")
+                if arch == 1 and typ <= 4 and (not want or mname == want):
+                    j = blob.find(END, i + 32)
+                    while j >= 0 and j % 4:
+                        j = blob.find(END, j + 1)
+                    if j >= 0:
+                        return mname, vma + i, vma + j + 4
+            i += 1
+    return None
+
+
+def reader(data, secs):
+    def word(addr):
+        for _, vma, size, off in secs:
+            if vma <= addr < vma + size - 3:
+                return int.from_bytes(data[off + addr - vma:off + addr - vma + 4], "little")
+        return None
+    return word
+
+
+def in_any(addr, secs):
+    return any(vma <= addr < vma + size for _, vma, size, _ in secs)
+
+
+def section_of(addr, secs):
+    for name, vma, size, _ in secs:
+        if vma <= addr < vma + size:
+            return name
+    return "?"
+
+
+def symbols(od, elf):
+    """sorted [(addr, name)] from the ELF symbol table"""
+    nm = od.replace("objdump", "nm")
+    out = []
+    for l in subprocess.run([nm, "-n", "-C", elf], capture_output=True, text=True).stdout.splitlines():
+        p = l.split(None, 2)
+        if len(p) == 3 and re.fullmatch(r"[0-9a-f]{8}", p[0]):
+            out.append((int(p[0], 16), p[2]))
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--elf", default=os.path.join(REPO, ".pio/build/tasmota32-plugin/firmware.elf"))
+    ap.add_argument("--name", default="", help="module name (default: first module found)")
+    ap.add_argument("--all", action="store_true", help="list every finding, not only a summary")
+    a = ap.parse_args()
+
+    od = objdump()
+    data = open(a.elf, "rb").read()
+    secs = sections(od, a.elf)
+    mod = find_module(data, secs, a.name)
+    if not mod:
+        sys.exit("no module bracket found in " + a.elf)
+    mname, s, e = mod
+    word = reader(data, secs)
+    bss = sections(od, a.elf, nobits=True)
+    syms = symbols(od, a.elf)
+    sym_addr = [x for x, _ in syms]
+
+    def sym(v):
+        i = bisect.bisect_right(sym_addr, v) - 1
+        if i < 0:
+            return hex(v)
+        base, name = syms[i]
+        return name if v == base else f"{name}+0x{v - base:x}"
+    print(f"module {mname}: 0x{s:08x}..0x{e:08x} ({e - s} bytes)")
+
+    dis = subprocess.run([od, "-d", "--no-show-raw-insn", f"--start-address=0x{s:x}", f"--stop-address=0x{e:x}", a.elf],
+                         capture_output=True, text=True).stdout.splitlines()
+    func = "?"
+    found = defaultdict(list)          # kind -> [(func, text)]
+    callout = Counter()
+    for l in dis:
+        m = re.match(r"^([0-9a-f]+) <(.+)>:$", l)
+        if m:
+            func = m.group(2)
+            continue
+        m = re.match(r"\s*([0-9a-f]+):\s+(\S+)\s+(.*)$", l)
+        if not m:
+            continue
+        op, args = m.group(2), m.group(3)
+        tgt = re.search(r"\b([0-9a-f]{8})\b(?: <([^>]+)>)?", args)
+        if op in ("call0", "call4", "call8", "call12", "j") and tgt:
+            t = int(tgt.group(1), 16)
+            if not (s <= t < e):
+                name = tgt.group(2) or hex(t)
+                found["CALL-OUT"].append((func, f"{op} {name}"))
+                callout[re.sub(r"\+0x[0-9a-f]+$", "", name)] += 1
+        elif op == "l32r" and tgt:
+            lit = int(tgt.group(1), 16)
+            if not (s <= lit < e):
+                found["LIT-OUT"].append((func, f"literal at 0x{lit:08x}"))
+                continue
+            v = word(lit)
+            if v is None:
+                continue
+            if s <= v < e:
+                found["PTR-SELF"].append((func, f"0x{v:08x}"))
+            elif v >= 0x3F000000 and in_any(v, bss):
+                found["PTR-BSS"].append((func, f"{section_of(v, bss)}: {sym(v)}"))
+            elif v >= 0x3F000000 and in_any(v, secs):
+                found["PTR-FW"].append((func, f"{section_of(v, secs)}: {sym(v)}"))
+
+    print()
+    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "PTR-SELF"):
+        hits = found[kind]
+        per = Counter(f for f, _ in hits)
+        print(f"{kind:9s} {len(hits):5d}  in {len(per)} functions")
+        if a.all:
+            for f, t in hits:
+                print(f"            {f}: {t}")
+        elif hits:
+            for f, n in per.most_common(6):
+                print(f"            {n:4d}  {f}")
+    fw = Counter(t for _, t in found["PTR-FW"])
+    if fw:
+        per_sec = Counter(t.split(":")[0] for _, t in found["PTR-FW"])
+        print("\nPTR-FW by section:", dict(per_sec))
+        print("PTR-FW most frequent targets:")
+        for t, c in fw.most_common(30):
+            print(f"  {c:4d}  {t}")
+    lo = Counter(section_of(int(t.split()[-1], 16), secs) for _, t in found["LIT-OUT"])
+    if lo:
+        print("\nLIT-OUT literal slots by section:", dict(lo))
+    if callout:
+        print("\ncalls leaving the module, by target:")
+        for n, c in callout.most_common(25):
+            print(f"  {c:4d}  {n}")
+    bss_t = Counter(t for _, t in found["PTR-BSS"])
+    if bss_t:
+        print("\nPTR-BSS targets:")
+        for t, c in bss_t.most_common(15):
+            print(f"  {c:4d}  {t}")
+    bad = len(found["CALL-OUT"]) + len(found["LIT-OUT"]) + len(found["PTR-FW"]) + len(found["PTR-BSS"])
+    print(f"\n=> {bad} certain problems, {len(found['PTR-SELF'])} self-pointers to review")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

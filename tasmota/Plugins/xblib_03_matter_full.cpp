@@ -22,6 +22,13 @@
   Copyright (C) 2026  Gerhard Mutz / claude  —  GPL v3 (Tasmota's license)
 */
 
+// assert() calls __assert_func in the host IRAM and drags file/function/condition
+// strings into the host .rodata -- 49 calls + their texts (qrcodegen), all fatal in
+// a relocated module (blib_audit, 26.09.2026). Must precede every <assert.h>.
+#ifndef NDEBUG
+#define NDEBUG 1
+#endif
+
 #include "tasmota_options.h"
 
 #ifdef USE_MATTER_FULL_MOD
@@ -39,6 +46,28 @@ PUSH_OPTIONS
 // SETMEMREGS to each function. Must come after module_defines.h (whose local-jt
 // remaps it #undefs) and before the matter sources.
 #include "mtrc_plugin_libc.h"
+
+// memset/memcpy that the COMPILER emits by itself (struct/array zero-init, struct
+// copies) do not go through the macros above -- they call the host's memset
+// directly: 92 memset + 1 memcpy in the audit. Redeclaring the builtins with an
+// asm label redirects those implicit calls to the module-local copies below.
+// The parentheses keep the function-like macros above from expanding here.
+extern "C" void *(memset)(void *, int, size_t) __asm__("mtrc_memset");
+extern "C" void *(memcpy)(void *, const void *, size_t) __asm__("mtrc_memcpy");
+// no-tree-loop-distribute-patterns: otherwise GCC turns these very loops back
+// into memset/memcpy calls (endless recursion)
+extern "C" MODULE_PART __attribute__((optimize("no-tree-loop-distribute-patterns")))
+void *mtrc_memset(void *d, int c, size_t n) {
+  uint8_t *p = (uint8_t *)d;
+  while (n--) { *p++ = (uint8_t)c; }
+  return d;
+}
+extern "C" MODULE_PART __attribute__((optimize("no-tree-loop-distribute-patterns")))
+void *mtrc_memcpy(void *d, const void *s, size_t n) {
+  uint8_t *p = (uint8_t *)d; const uint8_t *q = (const uint8_t *)s;
+  while (n--) { *p++ = *q++; }
+  return d;
+}
 
 // The descriptor references mod_func_execute (our dispatch). Forward-declare it.
 MODULE_PART int32_t mod_func_execute(uint32_t sel);

@@ -260,3 +260,44 @@ g_qr_ok(304)+g_tx(1168) → move into `matter_ctx_t` (unconditional, both builds
 inline literals ≥2048 → `const uint32_t[] PROGMEM` + GUI32p/EXEC_OFFSET (pico_uconst); ~15 static const
 tables → non-static PROGMEM; ~195 string literals → PROGMEM; 16 float ops → fdiv/fmul. Then build →
 flash .156 → iniz → commission.
+
+### Stage 3b — audit instead of crash-hunting (2026-09-26)
+New tool **`tasmota/Plugins/blib_audit.py`**: finds the module bracket in the linked
+`firmware.elf`, disassembles it and lists everything that compiles but dies once the
+module is relocated — calls/literals leaving the module (CALL-OUT, LIT-OUT), absolute
+pointers into the host `.rodata`/`.data` (PTR-FW) and `.bss` (PTR-BSS), and
+self-pointers that need EXEC_OFFSET (PTR-SELF). Exit code 1 while anything certain is left.
+
+    python3 tasmota/Plugins/build_plugin.py --plugin USE_MATTER_FULL_MOD --cpu esp32
+    python3 tasmota/Plugins/blib_audit.py [--all]
+
+First run on MATTERF_32 (59 KB): **855** findings. The one-place fixes below took it to **337**:
+
+| fix | where | findings removed |
+|---|---|---|
+| `always_inline` on the 3 header inlines (`mtrc_tlv_ctx` …) — the out-of-line copy had no MODULE_PART and sat OUTSIDE the module | plugin copy of `mtrc_tlv.h` | 225 |
+| `NDEBUG` before everything — `assert` → `__assert_func` in host IRAM + file/condition strings | `xblib_03_matter_full.cpp` | ~100 |
+| compiler-emitted `memset`/`memcpy` (zero-init, struct copy) → module-local `mtrc_memset`/`mtrc_memcpy` via asm label | `xblib_03_matter_full.cpp` | 318 |
+| … which only works after un-flagging the framework's `-fno-builtin-memset/-memcpy/-bzero` | `platformio_override.ini` ⚠️ gitignored, see below | (needed for the row above) |
+
+⚠️ **`platformio_override.ini` (gitignored) — `[env:tasmota32-plugin]` `build_unflags` must carry**
+`-fno-builtin-memset -fno-builtin-memcpy -fno-builtin-bzero`. The framework's flags
+decouple the user redeclaration from the builtin, and the redirect silently fails
+(verified with a 10-line test file). ⚠️ `-Wl,--no-relax` (to stop the linker merging
+identical literals firmware-wide) is NOT an option: the IDF exception vectors need
+relaxation ("dangerous relocation: literal placed after use").
+
+**Left (337), all listed by `blib_audit.py --all`:**
+- LIT-OUT 22 in 14 functions: 20 plain constants (0xFFFF, 0x7FFF, 0xA00, 100000, 0x10624DD3 …)
+  the linker merged with identical host literals → `pico_uconst` table (+EXEC_OFFSET), and
+  2 **double** ROM calls (`__adddf3` in `matter_set_attr_scaled`, `__extendsfdf2` in
+  `mtrc_tlv_read`). ⚠️ ROM addresses are those of the classic ESP32 — WRONG on the S3
+  (.156) — so these must become float/`fdiv`, not stay ROM calls.
+- PTR-FW 159: ~100 strings (logs, mDNS/TXT, `%02X`, "Tasmota" …) + 45 const tables
+  (`P256_N`, `SPAKE_M/N`, QR tables, `cluster_func_attrs::a` …) → PROGMEM + pgm_read/EXEC_OFFSET.
+- PTR-BSS 156 → 31 objects: `g_cr`, `g_fab`, `g_tx`, `g_qr_ok`, `g_qrbuf` AND ~25 function-local
+  `static uint8_t buf[~1 KB]` scratch buffers (`im_handle_invoke::resp`, `send_report_chunk::frag`,
+  `secured_send::out`, `case_handle_sigma1::s2buf` …) — the Stage-3 audit list missed these → one
+  heap struct in MODULE_MEMORY.
+- Then the firmware side (lean base: fill HAL + crypto ops, resolve exports, route TinyC matter
+  syscalls) and the test on .156. Estimate for ESP32/S3: ~2–3 days; C3/C6 (RISC-V) extra.
