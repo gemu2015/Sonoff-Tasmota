@@ -78,51 +78,107 @@ if filok == False :
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
 
 #print("link file path: "+libpath)
-with open(libpath) as f:
-    data = f.read()
-    f.close()
 
-    index = data.find("/* start plugins */")
-    if index < 0 :
-        index = data.find(match)
-        if index < 0:
-             # match not found, exit
-             print("could not patch linker file")
-             quit()
+# Classic ESP32 (the plugin-host board): plugins get their OWN output
+# section right after .flash.text instead of input sections inside it.
+# Xtensa linker relaxation coalesces identical literals, but only within
+# one output section (binutils elf32-xtensa.c, relocations_reach). Inside
+# .flash.text a plugin's l32r could be pointed at an equal literal in host
+# code — e.g. 0xFFFF in ppCalSubFrameLength — which is outside the module
+# and wrong once the module runs elsewhere. A separate output section keeps
+# every plugin literal inside the module.
+# Not for S2/S3: their .flash_rodata_dummy is sized from SIZEOF(.flash.text)
+# and must cover all code. RISC-V targets have no literal pools.
+PLUGIN_OSEC = "/* plugin output section */"
+
+def patch_own_section(data):
+        if data.find(PLUGIN_OSEC) >= 0:
+                return None                     # already patched
+        # migrate an old in-.flash.text block
+        a = data.find("/* start plugins */")
+        if a >= 0:
+                e = data.find("/* end plugins */", a)
+                if e < 0:
+                        return None
+                e = data.find("\n", e) + 1
+                data = data[:a] + data[e:]
+        t = data.find(".flash.text :")
+        if t < 0:
+                return None
+        end = data.find("} > default_code_seg", t)
+        if end < 0:
+                return None
+        end = data.find("\n", end) + 1
+        insert = ("  " + PLUGIN_OSEC + "\n"
+                  "  .flash.plugins :\n"
+                  "  {\n"
+                  "    /* start plugins */\n"
+                  "    *(.plugin.mod_desc)\n"
+                  "    *(.plugin.mod_string)\n"
+                  "    *(.plugin.mod_part.literal)\n"
+                  "    *(.plugin.mod_part)\n"
+                  "    *(.plugin.mod_end)\n"
+                  "    /* end plugins */\n"
+                  "  } > default_code_seg\n")
+        return data[:end] + insert + data[end:]
+
+if mcu == "esp32" and os.path.isfile(libpath):
+        with open(libpath) as f:
+                data = f.read()
+        out = patch_own_section(data)
+        if out is None:
+                print("already patched" if data.find(PLUGIN_OSEC) >= 0 else "could not patch linker file")
+        else:
+                with open(libpath, "w") as wf:
+                        wf.write(out)
+                print("patch complete (own output section .flash.plugins)")
+
+else:
+    with open(libpath) as f:
+        data = f.read()
+        f.close()
+
+        index = data.find("/* start plugins */")
+        if index < 0 :
+            index = data.find(match)
+            if index < 0:
+                 # match not found, exit
+                 print("could not patch linker file")
+                 quit()
              
-        # search back until ;
-        index = data.find(';', index - 10, index)
-        index += 2
+            # search back until ;
+            index = data.find(';', index - 10, index)
+            index += 2
 
-        part1 = data[0:index]
-        part2 = data[index:]
+            part1 = data[0:index]
+            part2 = data[index:]
 
-        insert = ""
-        if mcu == "esp8266":
-            insert = '/* start plugins */\n \
-	        *(.text.mod_desc)\n\
-	        *(.text.mod_string)\n\
-	        *(.text.mod_*)\n\
-	        *(.text.mod_part)\n\
-	        *(.text.mod_end)\n\
-	        /* end plugins */\n'
-        else :
-            insert = '/* start plugins */\n \
-	        *(.plugin.mod_desc)\n\
-	        *(.plugin.mod_string)\n\
-	        *(.plugin.mod_part.literal)\n\
-	        *(.plugin.mod_part)\n\
-	        *(.plugin.mod_end)\n\
-	        /* end plugins */\n'
+            insert = ""
+            if mcu == "esp8266":
+                insert = '/* start plugins */\n \
+    	        *(.text.mod_desc)\n\
+    	        *(.text.mod_string)\n\
+    	        *(.text.mod_*)\n\
+    	        *(.text.mod_part)\n\
+    	        *(.text.mod_end)\n\
+    	        /* end plugins */\n'
+            else :
+                insert = '/* start plugins */\n \
+    	        *(.plugin.mod_desc)\n\
+    	        *(.plugin.mod_string)\n\
+    	        *(.plugin.mod_part.literal)\n\
+    	        *(.plugin.mod_part)\n\
+    	        *(.plugin.mod_end)\n\
+    	        /* end plugins */\n'
                         
 
-        out = part1 + insert + part2
+            out = part1 + insert + part2
 
-        with open(libpath, "w") as wf:
-            wf.write(out)
-            wf.close()
+            with open(libpath, "w") as wf:
+                wf.write(out)
+                wf.close()
 
-        print("patch complete")
+            print("patch complete")
     
-    else :
-        print("already patched")
+        else :
+            print("already patched")
