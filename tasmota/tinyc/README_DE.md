@@ -2,14 +2,30 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
-> **Aktuelle Firmware: v1.6.46** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
+> **Aktuelle Firmware: v1.6.68** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
 >
 > * [**Alle Releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — je Bau ein eigenes `v<version>`-Release. Wer das Repository beobachtet (*Custom → Releases*), wird ueber neue benachrichtigt.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — ein rollender Zeiger, der immer die neuesten Dateien traegt, fuer gleichbleibende Download-Adressen. Er wird absichtlich wiederverwendet und loest deshalb **keine** Release-Benachrichtigung aus.
 >
-> Das vollstaendige Changelog pro Version steht im `TC_RELEASE`-Kommentar in `tasmota/include/xdrv_124_tinyc_vm.h`.
+> Jede Version steht in [**CHANGELOG.md**](CHANGELOG.md) (englisch), samt Tabelle der Syscall-ABI (welche Firmware eine `.tcb` braucht).
 
-## Was ist neu (Highlights v1.6.28)
+## Was ist neu (v1.6.29 – v1.6.68)
+
+Die Highlights; Einzelheiten je Version in [CHANGELOG.md](CHANGELOG.md).
+
+- **FTP-Client (1.6.68)** — `ftpOpen` / `ftpPut` / `ftpPutStr` (ersetzen oder anhaengen) / `ftpGet` / `ftpList` / … — z. B. fuehrt ein Logger seine Tabelle auf dem FRITZ!NAS. Siehe `examples/ftp_log.tc`, `examples/ftp_browse.tc`.
+- **ESP32 als USB-Host (1.6.67)** — eine serielle Verbindung zu einem Geraet mit eingebautem FTDI (S3/S2, Custom Build); `serialReadArray` liest einen ganzen Block in einem Aufruf.
+- **Gepackte Arrays (1.6.56 – 1.6.62)** — `byte[]` braucht ein Viertel des Speichers von `char[]` und ersetzt es vollstaendig (alle String-Funktionen, `%s`, `persist`, Struct-Felder); `int16[]` / `uint16[]` brauchen die Haelfte von `int[]`. `WebChartQ` speist Diagramme aus `byte[]`.
+- **Schnellere VM (1.6.47, 1.6.66)** — direkt gefaedelte Ausfuehrung und Superinstruktionen; die Benchmark-Suite laeuft jetzt schneller als Berry auf demselben Chip.
+- **Versionen sicher mischen (1.6.47, 1.6.49)** — die Firmware weist Bytecode ab, der neuer ist als sie selbst, und die IDE uebersetzt fuer die ABI des verbundenen Geraets.
+- **Persist-Ueberarbeitung (1.6.43)** — Eintraege sind nach Namen geschluesselt: neue oder umsortierte `persist`-Variablen loeschen die gespeicherten Werte nicht mehr, und gespeicherte Arrays kommen zuverlaessig zurueck.
+- **Bluetooth (1.6.46)** — eine bleibende BLE-GATT-Verbindung (`bleSpp*`) und Bluetooth Classic SPP (`spp*`, klassischer ESP32).
+- **Beispiele direkt aus dem Repo (1.6.54 – 1.6.67)** — `/tcrepo` installiert ein Beispiel ohne IDE auf dem Geraet; das Repository ist auf `/tc` waehlbar.
+- **Webseiten und Diagramme (1.6.40 – 1.6.55)** — jedes Skript bekommt auf der Hauptseite einen eigenen Rahmen (`webCard`); Diagramme passen sich der Kartenbreite und dem Telefon an.
+- **MQTT (1.6.50, 1.6.51)** — `mqttPublish` mit Laufzeit-Zeichenketten und stillem Senden; vor 1.6.51 waren die MQTT-Syscalls in jedem Build ausgeschnitten.
+- **Stabilitaet** — unter anderem: eine Verklemmung, wenn `httpGet`/`httpPost`/`mailSend` aus `main()` neben einem `TaskLoop()` liefen (1.6.68), Heap-Beschaedigung durch das Schrumpfen des Leerlauf-Heaps (1.6.42), Skriptbloecke, die in jedem zweiten Seitenaufbau fehlten (1.6.46), Heap, der beim Entladen eines Slots nicht zurueckkam (1.6.53).
+
+## Frueher — Was war neu in v1.6.28
 
 - **IDE aus der Konsole aktualisieren** — neuer Befehl `TinyCIde` + ein **Update-IDE**-Button in der TinyC-Konsole (`/tc`) laden das aktuelle `tinyc_ide.html.gz` aus dem Repository und ersetzen die auf dem Geraet ausgelieferte IDE — ohne Dateimanager. Siehe [IDE aus der Konsole aktualisieren](#ide-aus-der-konsole-aktualisieren-ohne-dateimanager).
 - **Matter in reinem C (`matter_c`)** — ein von Grund auf neuer Matter-1.4-Stack (kein Berry, kein HomeKit): das Geraet wird in einem `.tc`-Script definiert (`matterAdd` / `matterSetFloat` / `matterName`), gekoppelt wird ueber die `/mt`-Webseite. Sensoren, Steckdosen, Lampen (inkl. RGB/CCT), Energiezaehler, Luftqualitaet. **Funktioniert mit Apple Home, Google Home UND Amazon Alexa** — inkl. der vollen gemischten Bridge (Aktoren + Sensoren) auf einem Knoten. Siehe `examples/matter_*.tc`.

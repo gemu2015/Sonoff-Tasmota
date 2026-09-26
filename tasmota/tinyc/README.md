@@ -2,14 +2,30 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-> **Current firmware: v1.6.46** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
+> **Current firmware: v1.6.68** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
 >
 > * [**All releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — one `v<version>` release per build. Watch the repository (*Custom → Releases*) to be notified when a new one appears.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — a rolling tag that always carries the newest assets, for stable download URLs. It is deliberately reused, so it never fires a release notification.
 >
-> The full per-version changelog lives in the `TC_RELEASE` comment in `tasmota/include/xdrv_124_tinyc_vm.h`.
+> Every version is listed in [**CHANGELOG.md**](CHANGELOG.md), including the syscall-ABI table (which firmware a `.tcb` needs).
 
-## What's new (v1.6.28 highlights)
+## What's new (v1.6.29 – v1.6.68)
+
+The highlights; details per version in [CHANGELOG.md](CHANGELOG.md).
+
+- **FTP client (1.6.68)** — `ftpOpen` / `ftpPut` / `ftpPutStr` (replace or append) / `ftpGet` / `ftpList` / … — e.g. a logger keeps its table on a FRITZ!NAS. See `examples/ftp_log.tc`, `examples/ftp_browse.tc`.
+- **ESP32 as USB host (1.6.67)** — a serial link to a device with a built-in FTDI (S3/S2, custom build); `serialReadArray` reads a whole block in one call.
+- **Packed arrays (1.6.56 – 1.6.62)** — `byte[]` takes a quarter of the RAM of `char[]` and is a full drop-in for it (all string functions, `%s`, `persist`, struct fields); `int16[]` / `uint16[]` take half the RAM of `int[]`. `WebChartQ` feeds charts from `byte[]`.
+- **Faster VM (1.6.47, 1.6.66)** — direct-threaded dispatch and superinstructions; the benchmark suite now runs faster than Berry on the same chip.
+- **Safe version mixing (1.6.47, 1.6.49)** — firmware refuses bytecode that is newer than itself, and the IDE compiles for the ABI of the connected device.
+- **Persist overhaul (1.6.43)** — entries are keyed by name: adding or reordering `persist` variables no longer wipes saved state, and persisted arrays restore reliably.
+- **Bluetooth (1.6.46)** — a persistent BLE GATT connection (`bleSpp*`) and Bluetooth Classic SPP (`spp*`, classic ESP32).
+- **Examples straight from the repo (1.6.54 – 1.6.67)** — `/tcrepo` installs an example without an IDE on the device; the repository is selectable on `/tc`.
+- **Web pages and charts (1.6.40 – 1.6.55)** — each script gets its own frame on the main page (`webCard`); charts fit the card width and phones.
+- **MQTT (1.6.50, 1.6.51)** — `mqttPublish` with runtime strings and silent publishing; the MQTT syscalls had been compiled out of every build before 1.6.51.
+- **Stability** — among others: a deadlock when `httpGet`/`httpPost`/`mailSend` ran from `main()` next to a `TaskLoop()` (1.6.68), heap corruption from the idle heap shrink (1.6.42), script blocks missing from half of all page loads (1.6.46), heap not freed on slot unload (1.6.53).
+
+## Earlier — What's new in v1.6.28
 
 - **Update the IDE from the console** — new `TinyCIde` command + an **Update IDE** button on the TinyC Console (`/tc`) fetch the latest `tinyc_ide.html.gz` from the repository and replace the served IDE on the device — no file manager needed. See [Updating the IDE from the console](#updating-the-ide-from-the-console-no-file-manager).
 - **Matter, pure-C (`matter_c`)** — a from-scratch Matter 1.4 stack (no Berry, no HomeKit): define the device in a `.tc` script (`matterAdd` / `matterSetFloat` / `matterName`) and pair from the `/mt` web page. Sensors, plugs, lights (incl. RGB/CCT), power meter, air quality. **Works on Apple Home, Google Home AND Amazon Alexa** — including the full mixed actuators+sensors bridge on one node. See `examples/matter_*.tc`.

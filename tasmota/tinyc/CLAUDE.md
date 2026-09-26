@@ -628,8 +628,8 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     indices *inside* the array.
     ⚠️ **Opcode numbers are append-only forever**, like the syscall table: a `.tcb` in the
     field encodes them. And bump `TC_SYSCALL_ABI` + `SYSCALL_ABI` together — the loader now
-    **refuses** bytecode whose `abi_rev` is newer than the firmware (older still loads with a
-    warning; the ABI is append-only). Without that refusal a fused opcode dies with
+    **refuses** bytecode whose `abi_rev` is newer than the firmware (an older one loads
+    normally, without a warning; the ABI is append-only). Without that refusal a fused opcode dies with
     `Unknown opcode` deep inside a running loop instead of at load time.
 
 25. **Assuming a `#define` is a literal in the AST** — it is not. A `#define` stays an
@@ -915,6 +915,13 @@ side effect — back up `Settings.json` and any user files first.
 
 ## 12. Meta
 
+- **Release rule:** every `TC_RELEASE` bump gets an entry in [`CHANGELOG.md`](CHANGELOG.md)
+  (newest first: a few bullets, ⚠️ for anything that changes behaviour or compatibility),
+  and every `TC_SYSCALL_ABI` bump a row in its ABI table. The release text on GitHub is
+  taken from that entry. The comments on both `#define`s in `xdrv_124_tinyc_vm.h` stay
+  one line — they used to carry the whole history (11 000 and 19 000 characters on one
+  line, gemu2015/Sonoff-Tasmota#122). Update the version line in `README.md` /
+  `README_DE.md` with each testing release.
 - Update rule: when a feature ships that invalidates older examples or forum
   advice, add a one-liner in §4 and, if it's an anti-pattern-shaped change,
   in §7. Move detail to topic docs, keep this file ≤ ~300 lines.
