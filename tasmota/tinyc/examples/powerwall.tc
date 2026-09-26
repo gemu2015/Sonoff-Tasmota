@@ -30,7 +30,7 @@
 
 #define PWL_STALE_SEC 300      // watchdog: Restart if no successful soe read this long
 
-float l_pwl  = 8.0;
+float l_pwl  = 0.0;
 float l_sip  = 0.0;
 float l_sop  = 0.0;
 float l_bip  = 0.0;
@@ -47,6 +47,21 @@ float l_phs3 = 0.0;
 float l_p1w = 0.0;
 float l_p3w = 0.0;
 
+// Which Powerwall reads have succeeded since boot. Nothing is published (UDP
+// globals, relay, telemetry) before its read has: a reboot during a network
+// outage used to broadcast the initial values -- Bat 8 %, Grid/Solar/Home 0 W --
+// every 30 s for 20 minutes (.140, 26.09.2026).
+int ok_agg = 0;     // /api/meters/aggregates  -> sip, bip, hip, sop
+int ok_soe = 0;     // /api/system_status/soe  -> pwl
+int ok_sys = 0;     // /api/system_status      -> tcap, rcap
+int ok_op  = 0;     // /api/operation          -> rper
+int ok_rd  = 0;     // /api/meters/readings    -> phs1..3
+
+// Watchdog restarts in a row without a successful read. Survives the reboot and
+// stretches the next wait (5, 10, 20, 40, 80 min): a reboot cannot fix a network
+// or Powerwall outage, it only resets the values (26.09.2026: 4 reboots in 20 min).
+persist int pwl_wd_boots;
+
 // Per-CTS error strings — captured from the readings JSON each cycle. Empty = OK.
 char l_cts1_err[48];
 char l_cts2_err[48];
@@ -59,9 +74,12 @@ global float hip;  global float tcap; global float rcap; global float rper;
 global float phs1; global float phs2; global float phs3;
 
 void pwl_publish() {
-    pwl  = l_pwl;  sip  = l_sip;  sop  = l_sop;  bip  = l_bip;
-    hip  = l_hip;  tcap = l_tcap; rcap = l_rcap; rper = l_rper;
-    phs1 = l_phs1; phs2 = l_phs2; phs3 = l_phs3;
+    // only what has been read -- an unread value is not "0 W"
+    if (ok_agg) { sip = l_sip; sop = l_sop; bip = l_bip; hip = l_hip; }
+    if (ok_soe) { pwl = l_pwl; }
+    if (ok_sys) { tcap = l_tcap; rcap = l_rcap; }
+    if (ok_op)  { rper = l_rper; }
+    if (ok_rd)  { phs1 = l_phs1; phs2 = l_phs2; phs3 = l_phs3; }
 }
 
 #else
@@ -74,6 +92,8 @@ char ws_resp[256];
 
 void pwl_publish() {
     if (!tasm_wifi) { return; }
+    // the relay sends all values in one command -- wait for one complete cycle
+    if (!ok_agg || !ok_soe || !ok_sys || !ok_op || !ok_rd) { return; }
     sprintf(ws_url,
         "http://%s/cm?cmnd=Script%%3Epwl%%3D%.2f%%3Bsip%%3D%.2f%%3Bsop%%3D%.2f%%3Bbip%%3D%.2f%%3Bhip%%3D%.2f%%3Btcap%%3D%.0f%%3Brcap%%3D%.2f%%3Brper%%3D%.1f%%3Bphs1%%3D%.2f%%3Bphs2%%3D%.2f%%3Bphs3%%3D%.2f",
         WS_TARGET,
@@ -90,6 +110,7 @@ int  lcd_initialized = 0;           // labels drawn once at boot
 int  lcd_last_update = -10;         // throttle LCD value refresh (uptime sec)
 int  pwl_cnt   = 0;                 // Scripter's `cnt` — walks 0..18 then resets to -1
 int  pwl_ok_up = 0;                 // uptime of last SUCCESSFUL soe read (watchdog liveness)
+int  pub_last  = 0;                 // uptime of the last publish (every 30 s)
 int  p1_zc     = 0;                 // consecutive-zero count for solar leg 1 (glitch guard)
 int  p3_zc     = 0;                 // consecutive-zero count for solar leg 2 (glitch guard)
 
@@ -184,6 +205,7 @@ void EverySecond() {
                 l_bip = pwlGet("battery#instant_power");
                 l_hip = pwlGet("load#instant_power");
                 l_sop = pwlGet("solar#instant_power");
+                ok_agg = 1;
             }
         }
         else if (pwl_cnt == 4) {
@@ -191,6 +213,8 @@ void EverySecond() {
             if (res == 0) {
                 l_pwl = pwlGet("percentage");
                 pwl_ok_up = tasm_uptime;              // liveness: a successful soe read
+                ok_soe = 1;
+                if (pwl_wd_boots != 0) { pwl_wd_boots = 0; saveVars(); }
             }
         }
         else if (pwl_cnt == 8) {
@@ -198,11 +222,12 @@ void EverySecond() {
             if (res == 0) {
                 l_tcap = pwlGet("nominal_full_pack_energy");
                 l_rcap = pwlGet("nominal_energy_remaining");
+                ok_sys = 1;
             }
         }
         else if (pwl_cnt == 12) {
             int res = pwlRequest("/api/operation");
-            if (res == 0) { l_rper = pwlGet("backup_reserve_percent"); }
+            if (res == 0) { l_rper = pwlGet("backup_reserve_percent"); ok_op = 1; }
         }
         else if (pwl_cnt == 14) {
             int res = pwlRequest("/api/meters/readings");
@@ -232,6 +257,7 @@ void EverySecond() {
                     float new_phs3 = pwlGet("p_W[7]");
                     if (new_phs1 != 0.0 || new_phs2 != 0.0 || new_phs3 != 0.0) {
                         l_phs1 = new_phs1; l_phs2 = new_phs2; l_phs3 = new_phs3;
+                        ok_rd = 1;
                     }
                 }
             }
@@ -242,16 +268,17 @@ void EverySecond() {
         pwl_cnt = pwl_cnt + 1;
     }
 
-    // Publish (relay or direct globals) every 30 s.
-    if (tasm_uptime % 30 == 0) {
+    // Publish (relay or direct globals) and console heartbeat every 30 s.
+    // ⚠️ Not `tasm_uptime % 30 == 0`: a Powerwall request blocks for seconds, the
+    // EverySecond calls in between are skipped, and when the skipped one was the
+    // 30th the publish was lost -- 25 % of all publishes on .140, gaps up to 3 min
+    // (and twice in one second when EverySecond ran twice on the same uptime).
+    if (tasm_uptime - pub_last >= 30) {
+        pub_last = tasm_uptime;
         pwl_publish();
-    }
-
-    // Console heartbeat every 30 s.
-    if (tasm_uptime % 30 == 0) {
         sprintf(buf, "PWL: Bat=%.1f%% Grid=%.0fW Sol=%.0fW Home=%.0fW\n",
                 l_pwl, l_sip, l_sop, l_hip);
-        printString(buf);
+        printString(buf);                             // console heartbeat
     }
 
     // Liveness watchdog — reboot if NO successful soe read for PWL_STALE_SEC (mirrors
@@ -259,10 +286,19 @@ void EverySecond() {
     // NOT value-change, so a battery SOC that legitimately sits constant for minutes
     // does not trigger a false reboot.
     if (pwl_ok_up == 0) { pwl_ok_up = tasm_uptime; }     // prime at boot (grace)
-    if ((tasm_uptime - pwl_ok_up) >= PWL_STALE_SEC) {
-        addLog("PWL: no successful Powerwall read for 5 min — Restart 1");
-        char r[16];
-        tasmCmd("Restart 1", r);
+    int wd_limit = PWL_STALE_SEC;                         // 5 min, doubled per futile reboot
+    int wd_k = 0;
+    while (wd_k < pwl_wd_boots && wd_k < 4) { wd_limit = wd_limit * 2; wd_k = wd_k + 1; }
+    if ((tasm_uptime - pwl_ok_up) >= wd_limit) {
+        if (tasm_wifi) {                                  // no WiFi: Tasmota reconnects itself
+            pwl_wd_boots = pwl_wd_boots + 1;
+            saveVars();                                   // survives the reboot
+            sprintf(buf, "PWL: no successful Powerwall read for %d min — Restart 1 (#%d)",
+                    wd_limit / 60, pwl_wd_boots);
+            addLog(buf);
+            char r[16];
+            tasmCmd("Restart 1", r);
+        }
         pwl_ok_up = tasm_uptime;                          // avoid re-issuing every tick
     }
 }
@@ -303,6 +339,7 @@ void WebCall() {
 }
 
 void JsonCall() {
+    if (!ok_agg || !ok_soe) { return; }          // no telemetry before the first reads
     sprintf(buf, ",\"PWL\":{\"Battery\":%.1f", l_pwl);         responseAppend(buf);
     sprintf(buf, ",\"Grid\":%.0f", l_sip);                     responseAppend(buf);
     sprintf(buf, ",\"Solar\":%.0f", l_sop);                    responseAppend(buf);
