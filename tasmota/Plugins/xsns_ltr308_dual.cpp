@@ -174,7 +174,7 @@ const char HTTP_LTR308_LUX_DUAL[] PROGMEM = "{s}LTR308 Illuminance{m}%s lux{e}";
 // --------------------------------------------------------------------
 // I2C helpers — use mem->address / mem->bus pinned at SETMEMREGS time.
 // --------------------------------------------------------------------
-bool ltr308_write_reg(uint8_t reg, uint8_t val) {
+MODULE_PART bool ltr308_write_reg(uint8_t reg, uint8_t val) {
   SETMEMREGS
   I2C_SETWIRE(mem->bus);
   I2C_beginTransmission(mem->address);
@@ -183,7 +183,7 @@ bool ltr308_write_reg(uint8_t reg, uint8_t val) {
   return (I2C_endTransmission(true) == 0);
 }
 
-uint8_t ltr308_read_reg(uint8_t reg) {
+MODULE_PART uint8_t ltr308_read_reg(uint8_t reg) {
   SETMEMREGS
   I2C_SETWIRE(mem->bus);
   I2C_beginTransmission(mem->address);
@@ -193,7 +193,7 @@ uint8_t ltr308_read_reg(uint8_t reg) {
   return I2C_read();
 }
 
-uint32_t ltr308_read_als_data(void) {
+MODULE_PART uint32_t ltr308_read_als_data(void) {
   SETMEMREGS
   I2C_SETWIRE(mem->bus);
   I2C_beginTransmission(mem->address);
@@ -206,14 +206,14 @@ uint32_t ltr308_read_als_data(void) {
   return (uint32_t)d0 | ((uint32_t)d1 << 8) | ((uint32_t)(d2 & 0x0F) << 16);
 }
 
-float ltr308_get_gain_factor(void) {
+MODULE_PART float ltr308_get_gain_factor(void) {
   SETMEMREGS
   uint8_t idx = mem->gain;
   if (idx > 4) { idx = 0; }
   return FLTC(idx + 1);
 }
 
-float ltr308_get_int_time(void) {
+MODULE_PART float ltr308_get_int_time(void) {
   SETMEMREGS
   uint8_t idx = mem->resolution;
   if (idx > 4) { idx = 2; }  // default 18-bit
@@ -221,7 +221,7 @@ float ltr308_get_int_time(void) {
 }
 
 // Lux = 0.6 × ALS_DATA / (gain × integration_time)
-float ltr308_calc_lux(uint32_t raw) {
+MODULE_PART float ltr308_calc_lux(uint32_t raw) {
   SETMEMREGS
   (void)mem;  // FLTC accesses constants only; mem unused here
   float numerator   = fmul(FLTC(0), tofloat(raw));
@@ -229,7 +229,7 @@ float ltr308_calc_lux(uint32_t raw) {
   return fdiv(numerator, denominator);
 }
 
-void ltr308_read_sensor(void) {
+MODULE_PART void ltr308_read_sensor(void) {
   SETMEMREGS
   if (!mem->LTR308_detected) { return; }
 
@@ -271,7 +271,7 @@ int32_t LTR308_Detect(void) {
     ltr308_write_reg(LTR308_ALS_GAIN,  LTR308_GAIN_3X);
     ltr308_write_reg(LTR308_MAIN_CTRL, LTR308_ALS_ENABLE);
 
-    I2C_SetActiveFound(LTR308_ADDR, "LTR308", bus);
+    I2C_SetActiveFound(LTR308_ADDR, PSTR("LTR308"), bus);
     initialized = true;
     mem->LTR308_detected = true;
     AddLog(LOG_LEVEL_INFO,
