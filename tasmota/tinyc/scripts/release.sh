@@ -10,7 +10,13 @@
 #   ./release.sh --skip-doccheck          # release even though check_docs.mjs found something
 #   ./release.sh --dry-run                # show what would happen, do nothing
 #   ./release.sh --notes /path/to/x.md    # use this file as the new "Changes in vX.Y.Z" section
-#                                         # (default: opens $EDITOR with a stub)
+#                                         # instead of the CHANGELOG.md entry
+#
+# Release notes come from tasmota/tinyc/CHANGELOG.md (gemu2015/Sonoff-Tasmota#122):
+# the entry "## X.Y.Z — date" for the version in TC_RELEASE becomes "Changes in
+# vX.Y.Z", followed by the four previous entries and a link to the full file. No
+# entry → the release stops. The body is rebuilt from the CHANGELOG every time,
+# so the GitHub text can no longer drift from it.
 #
 # Requirements: pio, gh (logged in), node, python3, gzip.
 
@@ -29,6 +35,9 @@ TASMOTA_ROOT="${TASMOTA_ROOT:-$(cd "$TINYC_DIR/../.." && pwd)}"
 TC_RELEASE_HEADER="$TASMOTA_ROOT/tasmota/include/xdrv_124_tinyc_vm.h"
 RELEASE_REPO="${RELEASE_REPO:-gemu2015/Sonoff-Tasmota}"
 RELEASE_TAG="${RELEASE_TAG:-testing}"
+CHANGELOG="$TINYC_DIR/CHANGELOG.md"
+CHANGELOG_URL="https://github.com/$RELEASE_REPO/blob/universal/tasmota/tinyc/CHANGELOG.md"
+PREV_ENTRIES=4          # older CHANGELOG entries shown below the current one
 
 # Standard firmware targets (env name in platformio_override.ini). The ESP32
 # targets now ship with Matter (USE_MATTER_C) — at ~57 kB it fits where HomeKit
@@ -105,6 +114,23 @@ extract_version() {
     | sed -E 's|^[^"]*"([^"]+)".*|\1|'
 }
 
+# CHANGELOG.md: version numbers of all single-version entries, newest first
+changelog_versions() {
+  awk '/^## [0-9]+\.[0-9]+\.[0-9]+ — / { print $2 }' "$CHANGELOG"
+}
+
+# CHANGELOG.md entry of version $1 as a release-notes section:
+# "### Changes in vX.Y.Z (date):" + its bullets. Prints nothing if absent.
+changelog_section() {
+  awk -v v="$1" '
+    /^## / || /^---/ { if (inside) exit }
+    /^## / && $2 == v && $3 == "—" { inside = 1; printf "### Changes in v%s (%s):\n", v, $4; next }
+    # drop the blank lines around the entry, keep the ones inside it
+    inside && /^[[:space:]]*$/ { if (text) blank++; next }
+    inside { while (blank > 0) { print ""; blank-- } print; text = 1 }
+  ' "$CHANGELOG"
+}
+
 VERSION="$(extract_version)"
 [[ -n "$VERSION" ]] || die "Could not extract TINYC_RELEASE from src/opcodes.js"
 TODAY="$(date +%F)"
@@ -148,6 +174,12 @@ else
   log "Checking reference tables against the chapters, the #defines and each other…"
   node "$TINYC_DIR/scripts/check_docs.mjs" \
     || die "check_docs.mjs found inconsistencies (above) — fix them, or pass --skip-doccheck"
+  # The README version line went stale for 22 releases (1.6.46 while shipping
+  # 1.6.68, #122). Both READMEs must name the version being released.
+  for readme in README.md README_DE.md; do
+    grep -q "v$VERSION\*\*" "$TINYC_DIR/$readme" \
+      || die "$readme does not name v$VERSION in its 'Current firmware' line — update it, or pass --skip-doccheck"
+  done
 fi
 
 # ─────────── Recompile TinyC examples + regenerate the download index ────────
@@ -222,43 +254,25 @@ run "cp '$TINYC_DIR/TinyC_Reference.md'    '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference_DE.md' '$STAGE_DIR/'"
 
 # ─────────── Build release notes ─────────────────────────────────────────────
+# Local only (files under $STAGE_DIR), so this also runs with --dry-run.
+mkdir -p "$STAGE_DIR"
 NEW_SECTION="$STAGE_DIR/_new_section.md"
+COMBINED_NOTES="$STAGE_DIR/_release_body.md"
 
 if [[ -n "$NOTES_FILE" ]]; then
   [[ -f "$NOTES_FILE" ]] || die "Notes file not found: $NOTES_FILE"
-  run "cp '$NOTES_FILE' '$NEW_SECTION'"
+  cp "$NOTES_FILE" "$NEW_SECTION"
+  log "Release notes: $NOTES_FILE (--notes)"
 else
-  # Open $EDITOR with a stub so the user can write the changelog inline.
-  STUB="$STAGE_DIR/_stub.md"
-  if ! $DRY_RUN; then
-    # Refuse to launch an interactive editor when there's no terminal (e.g. run
-    # from CI or a background shell) — otherwise vi blocks forever waiting for
-    # input and the whole release "hangs". Tell the caller to pass --notes.
-    if ! [ -t 0 ] || ! [ -t 1 ]; then
-      die "No --notes file and no interactive terminal — won't open \$EDITOR here. Re-run with: --notes /path/to/notes.md"
-    fi
-    cat > "$STUB" <<EOF
-### Changes in v$VERSION ($TODAY):
-- **<headline>** — <one paragraph: what changed, why, what the user sees>
-EOF
-    "${EDITOR:-vi}" "$STUB"
-    cp "$STUB" "$NEW_SECTION"
-  else
-    printf '\033[2m[dry-run]\033[0m would open $EDITOR with stub for v%s notes\n' "$VERSION"
-    echo "### Changes in v$VERSION ($TODAY): (stub)" > "$NEW_SECTION" 2>/dev/null || true
-  fi
+  [[ -f "$CHANGELOG" ]] || die "CHANGELOG not found: $CHANGELOG"
+  changelog_section "$VERSION" > "$NEW_SECTION"
+  [[ -s "$NEW_SECTION" ]] \
+    || die "CHANGELOG.md has no entry '## $VERSION — <date>' — add it (tinyc/CLAUDE.md §12), or pass --notes"
+  log "Release notes: CHANGELOG.md entry for $VERSION"
 fi
 
-# Prepend the new section to the existing release body to preserve history.
-COMBINED_NOTES="$STAGE_DIR/_release_body.md"
-
-if $DRY_RUN; then
-  log "Would build release notes from existing body + $NEW_SECTION"
-else
-  EXISTING_BODY="$(gh release view "$RELEASE_TAG" -R "$RELEASE_REPO" --json body -q .body 2>/dev/null || true)"
-
-  # Header (always replaced — version + date drive it).
-  cat > "$COMBINED_NOTES" <<EOF
+# Header (fixed text), the current entry, the previous ones, then the link.
+cat > "$COMBINED_NOTES" <<HEADER
 ## TinyC Test Firmware v$VERSION — $TODAY
 
 **For testers only** — may contain experimental features.
@@ -282,33 +296,23 @@ web page (Bind) and add the QR in your controller app.
 ### How to flash:
 - OTA: Firmware Upgrade → Upload \`.bin\` file
 - Factory install: Use \`.factory.bin\` with esptool or web installer
-- Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
+- Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System),
+  or run \`TinyCIde\` in the console — a firmware flash does **not** replace the IDE
 
-EOF
-  cat "$NEW_SECTION" >> "$COMBINED_NOTES"
+HEADER
+cat "$NEW_SECTION" >> "$COMBINED_NOTES"
+echo "" >> "$COMBINED_NOTES"
+
+n=0
+for v in $(changelog_versions | awk -v cur="$VERSION" 'seen { print } $0 == cur { seen = 1 }'); do
+  [[ $n -lt $PREV_ENTRIES ]] || break
+  changelog_section "$v" >> "$COMBINED_NOTES"
   echo "" >> "$COMBINED_NOTES"
+  n=$((n + 1))
+done
+echo "**All versions and the syscall-ABI table:** [CHANGELOG.md]($CHANGELOG_URL)" >> "$COMBINED_NOTES"
 
-  # Strip the old header (everything up to and including the first "### Changes"
-  # line) from the previous body, then append the older changelog tail.
-  # ALSO strip any pre-existing section for the current version so re-running
-  # the script for the same v$VERSION doesn't produce duplicate entries.
-  if [[ -n "$EXISTING_BODY" ]]; then
-    OLD_TAIL="$(printf '%s' "$EXISTING_BODY" | awk -v ver="v$VERSION" '
-      /^### Changes in v/ { found=1 }
-      !found { next }
-      {
-        # End an active skip when we hit a different ### heading.
-        if (skip && /^### / && $0 !~ ("^### Changes in " ver "[ (]")) skip=0
-        # Start skipping when we see the duplicate version header.
-        if ($0 ~ ("^### Changes in " ver "[ (]")) { skip=1; next }
-        if (!skip) print
-      }
-    ')"
-    if [[ -n "$OLD_TAIL" ]]; then
-      echo "$OLD_TAIL" >> "$COMBINED_NOTES"
-    fi
-  fi
-fi
+log "Release body: $COMBINED_NOTES ($(wc -c < "$COMBINED_NOTES" | tr -d ' ') bytes, $n older entries)"
 
 # ─────────── Upload to GitHub ────────────────────────────────────────────────
 if $SKIP_UPLOAD; then
@@ -336,6 +340,13 @@ for f in "$STAGE_DIR"/*.bin "$STAGE_DIR"/*.bin.gz "$STAGE_DIR"/*.gz "$STAGE_DIR"
   SEEN_LIST="$SEEN_LIST$base "
   UPLOAD_ASSETS+=("$f")
 done
+
+# An empty array trips `set -u` in macOS bash 3.2 on the loop below — which is
+# exactly what a --dry-run looks like (nothing is staged). Stop cleanly instead.
+if [[ ${#UPLOAD_ASSETS[@]} -eq 0 ]]; then
+  $DRY_RUN && { log "Dry run: nothing staged — stopping before the upload."; exit 0; }
+  die "No assets staged in $STAGE_DIR"
+fi
 
 log "Uploading ${#UPLOAD_ASSETS[@]} asset(s):"
 for f in "${UPLOAD_ASSETS[@]}"; do printf '         %s\n' "$(basename "$f")"; done
