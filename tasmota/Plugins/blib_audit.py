@@ -19,12 +19,22 @@ and only fails on the device, usually as a silent "Software reset CPU":
              typically a string literal or const table in the host .rodata
   PTR-BSS    literal holding the address of a zero-initialised global (.bss)
              in the host — mutable state that must move into MODULE_MEMORY
+  ROM        literal holding a ROM address (double math, libgcc helpers): the
+             plugin build links against the classic ESP32 ROM — wrong on S2/S3
   PTR-SELF   literal holding an absolute address inside the module — only
              correct if the code adds EXEC_OFFSET before using it (PROGMEM
              tables read via GUI32p), so these are listed for review
 
 Plain numeric literals stored inside the module are fine and not reported.
+Literals inside the 64-byte module header (FLASH_MODULE: mtv, jtab, execution
+offset …) are written by the loader at load time — e.g. gettbl() in plugins.S
+reads `module_header+48` — and are counted as HEADER, not as problems.
 Xtensa (ESP32/S2/S3) only.
+
+--bin FILE audits an already extracted module (e.g. a shipped *_32.bin) without
+its ELF: the header's mod_start_org gives the link address, and every l32r is
+checked against it. Without section information host pointers are reported
+together as PTR-ABS, calls into ROM as ROM (ESP32 ROM addresses — wrong on S2/S3).
 """
 import argparse
 import bisect
@@ -41,6 +51,7 @@ OBJDUMP_CANDIDATES = [
     os.path.expanduser("~/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-objdump"),
 ]
 START = bytes([0x4A, 0xFC, 0xAA, 0x55])
+HEADER_SIZE = 0x40          # sizeof(FLASH_MODULE) without the ms[] tail, module_defines.h
 END = bytes([0x55, 0xAA, 0xFC, 0x4A])
 
 
@@ -114,14 +125,97 @@ def symbols(od, elf):
     return out
 
 
+def audit_bin(od, path):
+    """Audit a raw extracted module: l32r targets and literal values vs. mod_start_org."""
+    b = open(path, "rb").read()
+    size = int.from_bytes(b[40:44], "little")
+    base = int.from_bytes(b[56:60], "little")
+    name = b[16:32].split(b"\0")[0].decode("ascii", "replace")
+    s, e = base, base + len(b)
+    print(f"module {name}: {path} ({len(b)} bytes, header size {size}), linked at 0x{base:08x}")
+    dis = subprocess.run([od, "-D", "-b", "binary", "-m", "xtensa", f"--adjust-vma=0x{base:x}",
+                          "--no-show-raw-insn", path], capture_output=True, text=True).stdout.splitlines()
+    # A linear sweep falls out of step at padding and data and invents l32r loads.
+    # Decode per function instead: windowed-ABI functions start with `entry a1, N`
+    # (bytes 36 x1) on a 4-byte boundary — decode from each such start to the next.
+    cands = [o for o in range(HEADER_SIZE, len(b) - 2, 4) if b[o] == 0x36 and (b[o + 1] & 0x0F) == 1]
+    def decode(c, stop):
+        out = subprocess.run([od, "-D", "-b", "binary", "-m", "xtensa", f"--adjust-vma=0x{base:x}",
+                              f"--start-address=0x{base + c:x}", f"--stop-address=0x{base + stop:x}",
+                              "--no-show-raw-insn", path], capture_output=True, text=True).stdout
+        rows = [l for l in out.splitlines() if re.match(r"\s*[0-9a-f]+:\t", l) and len(l.split("\t")) > 1
+                and l.split("\t")[1].strip()]
+        ins = [l.split("\t")[1].split()[0] for l in rows]
+        ends = [k for k, x in enumerate(ins) if x in ("retw", "retw.n", "ret", "ret.n", "j", "jx", "return")]
+        clean = bool(ends) and not any(x in ("ill", "ill.n", "(bad)") or x.startswith(".")
+                                       for x in ins[:ends[-1] + 1])
+        return clean, rows
+
+    loads = []
+    i = 0
+    while i < len(cands):
+        c = cands[i]
+        # A constant table (PROGMEM data in the module) can hold the entry pattern too;
+        # decoded it gives invalid opcodes and no return -> dropped. A false pattern
+        # INSIDE a function cuts it short (no return yet) -> extend to the next start.
+        # Junk is allowed only as padding after the last return.
+        j = i + 1
+        ok, rows = decode(c, cands[j] if j < len(cands) else len(b))
+        while not ok and j < len(cands) and j - i < 8:
+            j += 1
+            ok, rows = decode(c, cands[j] if j < len(cands) else len(b))
+        if ok:
+            for l in rows:
+                m = re.match(r"\s*([0-9a-f]+):\s+l32r\s+\S+,\s*0x([0-9a-f]+)", l) or \
+                    re.match(r"\s*([0-9a-f]+):\s+l32r\s+\S+\s+([0-9a-f]{8})", l)
+                if m and int(m.group(2), 16) % 4 == 0:
+                    loads.append((int(m.group(1), 16), int(m.group(2), 16)))
+            i = j
+        else:
+            i += 1
+    # Layout (patch_linker_file.py): header, strings, literal pool, code. l32r only
+    # reaches backwards, so no load targets anything past the pool: code starts after
+    # the highest in-module target, and "functions" found before it are data.
+    inside = [t for _, t in loads if s + HEADER_SIZE <= t < e]
+    code = (max(inside) + 4) if inside else s + HEADER_SIZE
+    print(f"code starts at +0x{code - s:x}, {sum(1 for c in cands if base + c >= code)} functions")
+    found = defaultdict(list)
+    for at, lit in loads:
+        if at < code:
+            continue
+        if s <= lit < s + HEADER_SIZE:
+            found["HEADER"].append((hex(at), f"header+{lit - s}"))
+        elif not (s <= lit < e):
+            found["LIT-OUT"].append((hex(at), f"literal at 0x{lit:08x}"))
+        else:
+            v = int.from_bytes(b[lit - s:lit - s + 4], "little")
+            if s <= v < e:
+                found["PTR-SELF"].append((hex(at), f"0x{v:08x}"))
+            elif 0x40000000 <= v < 0x40070000:
+                found["ROM"].append((hex(at), f"0x{v:08x}"))
+            elif 0x3F000000 <= v < 0x40400000:
+                found["PTR-ABS"].append((hex(at), f"0x{v:08x}"))
+    for kind in ("LIT-OUT", "PTR-ABS", "ROM", "PTR-SELF", "HEADER"):
+        hits = found[kind]
+        print(f"{kind:9s} {len(hits):5d}")
+        for at, t in hits[:40] if kind in ("LIT-OUT", "PTR-ABS", "ROM") else []:
+            print(f"            at {at}: {t}")
+    bad = len(found["LIT-OUT"]) + len(found["PTR-ABS"]) + len(found["ROM"])
+    print(f"\n=> {bad} certain problems, {len(found['PTR-SELF'])} self-pointers to review")
+    return 1 if bad else 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--elf", default=os.path.join(REPO, ".pio/build/tasmota32-plugin/firmware.elf"))
     ap.add_argument("--name", default="", help="module name (default: first module found)")
     ap.add_argument("--all", action="store_true", help="list every finding, not only a summary")
+    ap.add_argument("--bin", help="audit an extracted module file instead of the ELF")
     a = ap.parse_args()
 
     od = objdump()
+    if a.bin:
+        return audit_bin(od, a.bin)
     data = open(a.elf, "rb").read()
     secs = sections(od, a.elf)
     mod = find_module(data, secs, a.name)
@@ -164,21 +258,27 @@ def main():
                 callout[re.sub(r"\+0x[0-9a-f]+$", "", name)] += 1
         elif op == "l32r" and tgt:
             lit = int(tgt.group(1), 16)
+            if s <= lit < s + HEADER_SIZE:
+                found["HEADER"].append((func, f"header+{lit - s}"))
+                continue
             if not (s <= lit < e):
-                found["LIT-OUT"].append((func, f"literal at 0x{lit:08x}"))
+                v = word(lit)
+                found["LIT-OUT"].append((func, f"literal at 0x{lit:08x} = " + (f"0x{v:08x}" if v is not None else "?")))
                 continue
             v = word(lit)
             if v is None:
                 continue
             if s <= v < e:
                 found["PTR-SELF"].append((func, f"0x{v:08x}"))
+            elif 0x40000000 <= v < 0x40070000:
+                found["ROM"].append((func, sym(v)))
             elif v >= 0x3F000000 and in_any(v, bss):
                 found["PTR-BSS"].append((func, f"{section_of(v, bss)}: {sym(v)}"))
             elif v >= 0x3F000000 and in_any(v, secs):
                 found["PTR-FW"].append((func, f"{section_of(v, secs)}: {sym(v)}"))
 
     print()
-    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "PTR-SELF"):
+    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "PTR-SELF", "HEADER"):
         hits = found[kind]
         per = Counter(f for f, _ in hits)
         print(f"{kind:9s} {len(hits):5d}  in {len(per)} functions")
@@ -195,7 +295,7 @@ def main():
         print("PTR-FW most frequent targets:")
         for t, c in fw.most_common(30):
             print(f"  {c:4d}  {t}")
-    lo = Counter(section_of(int(t.split()[-1], 16), secs) for _, t in found["LIT-OUT"])
+    lo = Counter(section_of(int(t.split()[2], 16), secs) for _, t in found["LIT-OUT"])
     if lo:
         print("\nLIT-OUT literal slots by section:", dict(lo))
     if callout:
@@ -207,7 +307,7 @@ def main():
         print("\nPTR-BSS targets:")
         for t, c in bss_t.most_common(15):
             print(f"  {c:4d}  {t}")
-    bad = len(found["CALL-OUT"]) + len(found["LIT-OUT"]) + len(found["PTR-FW"]) + len(found["PTR-BSS"])
+    bad = len(found["CALL-OUT"]) + len(found["LIT-OUT"]) + len(found["PTR-FW"]) + len(found["PTR-BSS"]) + len(found["ROM"])
     print(f"\n=> {bad} certain problems, {len(found['PTR-SELF'])} self-pointers to review")
     return 1 if bad else 0
 
