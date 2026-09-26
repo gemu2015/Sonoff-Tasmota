@@ -276,8 +276,10 @@ MODULE_PART void CCS811_setThresholds(uint16_t low_med, uint16_t med_high, uint8
 MODULE_PART void CCS811_SWReset() {
 	SETREGS
 	//reset sequence from the datasheet
-	uint8_t seq[] = {0x11, 0xE5, 0x72, 0x8A};
-	CCS811_write(CCS811_SW_RESET, seq, 4);
+	// 11 E5 72 8A as one little-endian word: an initialized local array
+	// was loaded from host .rodata
+	uint32_t seq = 0x8A72E511;
+	CCS811_write(CCS811_SW_RESET, (uint8_t *)&seq, 4);
 }
 
 /**************************************************************************/
@@ -326,7 +328,7 @@ MODULE_PART void CCS811_read(uint8_t reg, uint8_t *buf, uint8_t num) {
 	//on arduino we need to read in 32 byte chunks
 	while( pos < num) {
 
-		uint8_t read_now = min((uint8_t)32, (uint8_t)(num - pos));
+		uint8_t read_now = (num - pos) < 32 ? (uint8_t)(num - pos) : 32;   // min() was std::min in the host
 		I2C_beginTransmission(ccs.i2c_addr);
 		I2C_write(reg + pos);
 		I2C_endTransmission(false);
