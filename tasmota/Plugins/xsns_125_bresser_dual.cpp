@@ -666,9 +666,15 @@ MODULE_PART DecodeStatus decodeBresser5In1Payload(const uint8_t *msg, uint8_t ms
  * Bresser 6-in-1 Decoder
 \*********************************************************************************************/
 #ifdef BRESSER_6_IN_1
+// Soil moisture from the 1..16 sensor step: min((i*20+1)/3, 99) equals the
+// map {0, 7, 13, ... 93, 99} for i = 0..15. A local array with an
+// initializer would be copied from host .rodata with memcpy.
+#define BRESSER_MOISTURE(i)  ((((i) * 20 + 1) / 3) < 99 ? (((i) * 20 + 1) / 3) : 99)
+// "OK " / "Low" as one little-endian word (see Bresser_Show)
+#define BRESSER_BATT(ok)     ((ok) ? 0x00204B4Fu : 0x00776F4Cu)
+
 MODULE_PART DecodeStatus decodeBresser6In1Payload(const uint8_t *msg, uint8_t msgSize) {
   SETMEMREGS
-  int const moisture_map[] = {0, 7, 13, 20, 27, 33, 40, 47, 53, 60, 67, 73, 80, 87, 93, 99};
 
   bool temp_ok = false;
   bool humidity_ok = false;
@@ -773,7 +779,7 @@ MODULE_PART DecodeStatus decodeBresser6In1Payload(const uint8_t *msg, uint8_t ms
 
   if (mem->sensor[slot].s_type == SENSOR_TYPE_SOIL && temp_ok && mem->sensor[slot].w.humidity >= 1 && mem->sensor[slot].w.humidity <= 16) {
     humidity_ok = false;
-    mem->sensor[slot].soil.moisture = moisture_map[mem->sensor[slot].w.humidity - 1];
+    mem->sensor[slot].soil.moisture = BRESSER_MOISTURE(mem->sensor[slot].w.humidity - 1);
     mem->sensor[slot].soil.temp_c = temp;
     mem->sensor[slot].rec_count++;
   }
@@ -898,9 +904,8 @@ MODULE_PART DecodeStatus decodeBresser7In1Payload(const uint8_t *msg, uint8_t ms
     mem->sensor[slot].w.temp_c = fmul(tofloat(temp_raw), FLTC(0));
     mem->sensor[slot].w.humidity = (msg[22] & 0x0f) + ((msg[22] & 0xf0) >> 4) * 10;
 
-    int const moisture_map[] = {0, 7, 13, 20, 27, 33, 40, 47, 53, 60, 67, 73, 80, 87, 93, 99};
-    mem->sensor[slot].w.humidity_ok = false;
-    mem->sensor[slot].soil.moisture = moisture_map[mem->sensor[slot].w.humidity - 1];
+      mem->sensor[slot].w.humidity_ok = false;
+    mem->sensor[slot].soil.moisture = BRESSER_MOISTURE(mem->sensor[slot].w.humidity - 1);
     mem->sensor[slot].soil.temp_c = mem->sensor[slot].w.temp_c;
   }
 
@@ -1165,6 +1170,10 @@ const char HTTP_Bresser7[] PROGMEM =
 MODULE_PART void Bresser_Show(bool json) {
   SETREGS
   STGLOB
+  // Battery text as one word on the stack: a string literal would sit in
+  // host .rodata, and a PSTR in the module cannot be read byte-wise by %s
+  // (instruction-bus mapping, LoadStoreError on ESP32/S3).
+  uint32_t bat;
 
   if (mem->decode_status != DECODE_OK) {
     return;
@@ -1179,8 +1188,9 @@ MODULE_PART void Bresser_Show(bool json) {
 
       char label[16];
       sprintf_P(label, PSTR("Bresser %1d"), i + 1);
+      bat = BRESSER_BATT(mem->sensor_copy[i].battery_ok);
 
-      WSContentSend_PD(GSTR(HTTP_Bresser1), label, (int)mem->sensor_copy[i].sensor_id, label, mem->sensor_copy[i].s_type, label, mem->sensor_copy[i].chan, label, mem->sensor_copy[i].startup, label, mem->sensor_copy[i].battery_ok ? "OK " : "Low", label, &mem->sensor_copy[i].rssi, label, mem->sensor_copy[i].rec_count);
+      WSContentSend_PD(GSTR(HTTP_Bresser1), label, (int)mem->sensor_copy[i].sensor_id, label, mem->sensor_copy[i].s_type, label, mem->sensor_copy[i].chan, label, mem->sensor_copy[i].startup, label, (const char *)&bat, label, &mem->sensor_copy[i].rssi, label, mem->sensor_copy[i].rec_count);
 
       if (mem->sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {
         WSContentSend_PD(GSTR(HTTP_Bresser6), label, &mem->sensor_copy[i].soil.temp_c, label, mem->sensor_copy[i].soil.moisture);
@@ -1213,9 +1223,10 @@ MODULE_PART void Bresser_Show(bool json) {
     for (int i = 0; i < NUM_SENSORS; i++) {
       if (iseq(mem->sensor_copy[i].rssi)) continue;
       if (Bresser_reject(mem->sensor_copy[i].sensor_id)) continue;
+      bat = BRESSER_BATT(mem->sensor_copy[i].battery_ok);
 
       ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f,\"RCNT\":%d"),
-        i + 1, (int)mem->sensor_copy[i].sensor_id, mem->sensor_copy[i].s_type, mem->sensor_copy[i].chan, mem->sensor_copy[i].startup, mem->sensor_copy[i].battery_ok ? "OK " : "Low", &mem->sensor_copy[i].rssi, mem->sensor_copy[i].rec_count);
+        i + 1, (int)mem->sensor_copy[i].sensor_id, mem->sensor_copy[i].s_type, mem->sensor_copy[i].chan, mem->sensor_copy[i].startup, (const char *)&bat, &mem->sensor_copy[i].rssi, mem->sensor_copy[i].rec_count);
 
       if (mem->sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {
         ResponseAppend_P(PSTR(",\"STEMP\":%1_f,\"SMOIST\":%d"), &mem->sensor_copy[i].soil.temp_c, mem->sensor_copy[i].soil.moisture);
