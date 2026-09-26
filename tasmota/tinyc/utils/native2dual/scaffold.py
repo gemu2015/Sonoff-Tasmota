@@ -191,6 +191,29 @@ def _soft_float(b):
             flags.append('NEEDS-SOFTFLOAT: ' + s[:90])
     return b, sorted(set(flags))
 
+def _int64_div(b):
+    """Flag 64-bit integer division / modulo. The plugin jumptable has
+    no 64-bit division, so `/` or `%` on an int64 compiles to a direct
+    call to libgcc's __divdi3/__moddi3 (__udivdi3/__umoddi3) — in the
+    plugin-host build that is the classic-ESP32 ROM routine, which is
+    at a different address on S2/S3 (BMP_32.bin crashed on an S3 this
+    way, 2026-09-26). Not mechanically lowerable (the fix is usually a
+    32-bit formula, e.g. Bosch's BMP280_compensate_P_int32): flag only.
+    A line counts when it divides and an int64 variable or cast appears
+    in it — deliberately over-inclusive; blib_audit.py has the last word."""
+    i64 = set(re.findall(
+        r'\b(?:u?int64_t|(?:unsigned\s+)?long\s+long)\s+([A-Za-z_]\w*)', b))
+    flags = []
+    for ln in b.splitlines():
+        code = re.sub(r'//.*', '', ln)
+        code = re.sub(r'/\*.*?\*/', '', code)
+        if not re.search(r'[^/*]/[^/*]|%', ' ' + code + ' '):
+            continue
+        if re.search(r'\(\s*u?int64_t\s*\)', code) or \
+           any(re.search(r'\b' + re.escape(v) + r'\b', code) for v in i64):
+            flags.append('NEEDS-INT64DIV: ' + ln.strip()[:90])
+    return sorted(set(flags))
+
 def main():
     src_path, NAME = sys.argv[1], sys.argv[2]
     s = open(src_path, encoding='utf-8', errors='replace').read()
@@ -414,6 +437,7 @@ def main():
     # plugin: lower the safe FLTC-based float idiom to soft-float;
     # flag the rest (tc2plugin's type-inference territory).
     body, _sf_flags = _soft_float(body)
+    _i64_flags = _int64_div(body)
 
     # `PressureUnit().c_str()` — native String vs plugin const-char*
     # jt[219]. Route through the dual-safe N2D_PRESSURE_UNIT_CSTR macro
@@ -855,6 +879,19 @@ def main():
                   '// fadd/fdiff/tofloat/FLTC (see xsns_14_sht3x_dual.cpp '
                   'for the pattern):']
         for f_ in _sf_flags:
+            FLAGS.append('//   ' + f_)
+        FLAGS.append('// ' + '='*64)
+    if _i64_flags:
+        FLAGS += ['// ' + '='*64,
+                  f'// NEEDS-INT64DIV ({len(_i64_flags)}) — 64-bit / or % '
+                  'compiles to a direct',
+                  '// __divdi3/__moddi3 call (ESP32 ROM address in the '
+                  'plugin-host build,',
+                  '// wrong on S2/S3). The jumptable has no 64-bit division; '
+                  'rewrite with',
+                  '// 32-bit arithmetic (BMP280/BME280: Bosch\'s '
+                  'compensate_P_int32):']
+        for f_ in _i64_flags:
             FLAGS.append('//   ' + f_)
         FLAGS.append('// ' + '='*64)
 

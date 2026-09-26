@@ -530,6 +530,42 @@ def find_output_bin(newer_than=None):
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+# --------------------------------------------------------------------
+# Post-build audit (Tensilica only). A plugin that links fine can still
+# call a libgcc helper directly (__divsf3, __divdi3 …), read a literal
+# the linker merged into host code, or point into the plugin-host
+# firmware — all of which only show up on the device, usually as a
+# silent reset. blib_audit.py finds these in the plugin-host ELF, so
+# every build reports them next to its result instead of on the device.
+# --------------------------------------------------------------------
+_AUDIT_CPUS = {'esp32'}
+
+def _audit(cpu, on_line=print):
+    """Run blib_audit.py on the env's firmware.elf. Returns the number
+    of certain problems, or None when the audit could not run."""
+    if cpu not in _AUDIT_CPUS:
+        return None
+    elf = REPO / '.pio' / 'build' / CPU_ENVS[cpu][0] / 'firmware.elf'
+    try:
+        r = subprocess.run([sys.executable, str(HERE / 'blib_audit.py'), '--elf', str(elf)],
+                           cwd=str(REPO), capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as exc:
+        on_line(f'!! [{cpu}] blib_audit.py did not run: {exc}')
+        return None
+    m = re.search(r'=> (\d+) certain problems', r.stdout)
+    if not m:
+        on_line(f'!! [{cpu}] blib_audit.py gave no verdict: {(r.stderr or r.stdout).strip()[-200:]}')
+        return None
+    bad = int(m.group(1))
+    if bad:
+        on_line(f'!! [{cpu}] blib_audit: {bad} certain problem(s) — this .bin will misbehave on the device:')
+        for line in r.stdout.splitlines():
+            on_line('   ' + line)
+    else:
+        on_line(f'   [{cpu}] blib_audit: clean ({m.group(0)[3:]})')
+    return bad
+
+
 def _move_to_curated(cpu, bin_path):
     """Move a freshly-built plugin .bin into the curated subdir,
     removing the flat-dir copy so `build_output/firmware/` doesn't
@@ -648,6 +684,7 @@ def cli(plugin, cpus, keep, on_line=print, force=False):
 
     original = rewrite_override(plugin)
     results = []   # list of (cpu, rc, output_path_or_None)
+    audits = {}    # cpu -> number of certain blib_audit problems
     overall_rc = 0
 
     try:
@@ -675,6 +712,7 @@ def cli(plugin, cpus, keep, on_line=print, force=False):
                 except ValueError:
                     rel = out
                 on_line(f'   [{cpu}] Output: {rel} ({out.stat().st_size:,} bytes)')
+                audits[cpu] = _audit(cpu, on_line=on_line)
                 # Move into the curated Plugins/<arch>/ subdir so the
                 # device-side plugin manager + distribution tree pick
                 # up the new build automatically. The flat-dir copy is
@@ -727,6 +765,8 @@ def cli(plugin, cpus, keep, on_line=print, force=False):
             else:
                 tag = f'FAIL rc={rc}'
             extra = f'  {out.name}' if out else ''
+            if audits.get(cpu):
+                extra += f'  !! AUDIT: {audits[cpu]} certain problem(s)'
             on_line(f'   {cpu:<14s} {tag}{extra}')
         return overall_rc
     finally:

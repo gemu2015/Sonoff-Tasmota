@@ -326,8 +326,9 @@ char *tm_trim(char *s);
 // Native equivalents for ALLOCMEM/RETMEM are PER-DRIVER (each
 // driver has its own state struct + pointer name). They're defined
 // inside the driver source after declaring the state struct.
-// SETREGS/STGLOB are no-ops in native (no register-stash needed).
+// SETREGS/SETMINREGS/STGLOB are no-ops in native (no register-stash needed).
 #  define SETREGS                             /* empty */
+#  define SETMINREGS                          /* empty */
 #  define STGLOB                              /* empty */
 
 // PROGMEM / GSTR — plugin's GSTR resolves a PROGMEM string via
@@ -530,9 +531,14 @@ void directModeOutput(uint32_t pin) { pinMode((uint8_t)pin, OUTPUT); }
 // to a specific I2C bus. `_DUAL_WIRE_FOR(bus)` resolves to &Wire or
 // &Wire1 by index — works in plugin AND native mode. ESP8266 only
 // has &Wire so it always returns that.
+// Plugin mode: `&Wire` would be the address of the plugin-host
+// firmware's object, not the running firmware's — take the bus
+// objects from the jumptable (jt[0] = &Wire, jt[1] = &Wire1).
 // --------------------------------------------------------------------
 #ifndef _DUAL_WIRE_FOR
-#  ifdef ESP32
+#  if BUILD_AS_PLUGIN
+#    define _DUAL_WIRE_FOR(bus)               ((bus) == 1 ? jWire1 : jWire)
+#  elif defined(ESP32)
 #    define _DUAL_WIRE_FOR(bus)               ((bus) == 1 ? &Wire1 : &Wire)
 #  else
 #    define _DUAL_WIRE_FOR(bus)               (&Wire)

@@ -39,9 +39,19 @@
  *          Exponent
  *  @return x raised to the power of y
  */
+#if !BUILD_AS_PLUGIN
 MODULE_PART float powf(const float x, const float y) {
   return (float)(pow((double)x, (double)y));
 }
+#else
+// Not part of the module (no MODULE_PART): the plugin does not use
+// powf, but lib_div/Adafruit_TCS34725 defines it too, and without this
+// definition other drivers' powf calls in the plugin-host firmware
+// would drag that whole library object in (duplicate symbols).
+float powf(const float x, const float y) {
+  return (float)(pow((double)x, (double)y));
+}
+#endif
 
 /*!
  *  @brief  Writes a register and an 8 bit value over I2C
@@ -179,8 +189,9 @@ MODULE_PART Adafruit_TCS34725::Adafruit_TCS34725(tcs34725IntegrationTime_t it,
  *  @return True if initialization was successful, otherwise false.
  */
 MODULE_PART boolean Adafruit_TCS34725::begin(uint8_t addr) {
+SETMINREGS
   _i2caddr = addr;
-  _wire = &Wire;
+  _wire = _DUAL_WIRE_FOR(0);
   return init();
 }
 
@@ -203,8 +214,9 @@ MODULE_PART boolean Adafruit_TCS34725::begin(uint8_t addr, TwoWire *theWire) {
  *  @return True if initialization was successful, otherwise false.
  */
 MODULE_PART boolean Adafruit_TCS34725::begin() {
+SETMINREGS
   _i2caddr = TCS34725_ADDRESS;
-  _wire = &Wire;
+  _wire = _DUAL_WIRE_FOR(0);
   return init();
 }
 
@@ -213,7 +225,9 @@ MODULE_PART boolean Adafruit_TCS34725::begin() {
  *  @return True if initialization was successful, otherwise false.
  */
 MODULE_PART boolean Adafruit_TCS34725::init() {
-  _wire->begin();
+#if !BUILD_AS_PLUGIN
+  _wire->begin();   // plugin: the host has set up the bus already
+#endif
 
   /* Make sure we're actually connected */
   uint8_t x = read8(TCS34725_ID);
@@ -331,6 +345,11 @@ MODULE_PART void Adafruit_TCS34725::getRawDataOneShot(uint16_t *r, uint16_t *g, 
   getRawData(r, g, b, c);
   disable();
 }
+
+// getRGB / calculateColorTemperature(_dn40) / calculateLux are not
+// used by xsns_124 and need double math, pow and float division that
+// bypass the jumptable — native only.
+#if !BUILD_AS_PLUGIN
 
 /*!
  *  @brief  Read the RGB color detected by the sensor.
@@ -556,6 +575,8 @@ MODULE_PART uint16_t Adafruit_TCS34725::calculateLux(uint16_t r, uint16_t g, uin
 
   return (uint16_t)illuminance;
 }
+
+#endif  // !BUILD_AS_PLUGIN
 
 /*!
  *  @brief  Sets inerrupt for TCS34725

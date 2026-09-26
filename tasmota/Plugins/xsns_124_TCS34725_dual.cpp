@@ -51,13 +51,23 @@
 // --------------------------------------------------------------------
 // Constants — DN40 application-note magic numbers from AMS.
 // --------------------------------------------------------------------
-#define TCS34725_R_Coef     0.136
-#define TCS34725_G_Coef     1.000
-#define TCS34725_B_Coef    -0.444
-#define TCS34725_GA         1.0
-#define TCS34725_DF         310.0
-#define TCS34725_CT_Coef    3810.0
-#define TCS34725_CT_Offset  1391.0
+// Float constants live in a PROGMEM table read through FLTC(): a
+// double literal pulls in soft-double helpers at classic-ESP32 ROM
+// addresses (wrong on S2/S3), and float division has to go through
+// the jumptable (fdiv) instead of libgcc's __divsf3.
+// Device attenuation GA = 1.0 is folded into the formulas.
+const float FP_CONST_TCS[] PROGMEM = {0.136, 1.000, -0.444, 310.0, 3810.0, 1391.0, 65535.0, 3.0};
+#define TCS34725_R_Coef     FLTC(0)
+#define TCS34725_G_Coef     FLTC(1)
+#define TCS34725_B_Coef     FLTC(2)
+#define TCS34725_DF         FLTC(3)
+#define TCS34725_CT_Coef    FLTC(4)
+#define TCS34725_CT_Offset  FLTC(5)
+#define TCS34725_FULLSCALE  FLTC(6)
+#define TCS34725_THREE      FLTC(7)
+#undef  DUAL_FLTC_TABLE
+#define DUAL_FLTC_TABLE FP_CONST_TCS
+#include "dual_format_fltc.h"
 
 // --------------------------------------------------------------------
 // Plugin descriptor block — written ONCE without an `#if` gate.
@@ -155,6 +165,7 @@ MODULE_PART tcs34725::tcs34725() : agc_cur(0), isAvailable(0), isSaturated(0) {
 }
 
 MODULE_PART boolean tcs34725::begin(uint8_t bus) {
+  SETMINREGS
   // Populate AGC table per-element (plugin Rule 1: no static / no
   // initialiser-list arrays).
   agc_lst[0].ag = TCS34725_GAIN_60X; agc_lst[0].at = TCS34725_INTEGRATIONTIME_700MS;
@@ -182,7 +193,10 @@ MODULE_PART void tcs34725::setGainTime(void) {
   tcs.setGain(agc_lst[agc_cur].ag);
   tcs.setIntegrationTime(agc_lst[agc_cur].at);
   atime    = int(agc_lst[agc_cur].at);
-  atime_ms = ((256 - atime) * 2.4);
+  // 2.4 ms per cycle; x*1229>>9 == floor(x*2.4) for x = 0..256. A
+  // division by 10 would need the literal 0x66666667, which the
+  // linker may merge with a host literal outside the module.
+  atime_ms = ((256 - atime) * 1229) >> 9;
   switch (agc_lst[agc_cur].ag) {
     case TCS34725_GAIN_1X:  againx = 1;  break;
     case TCS34725_GAIN_4X:  againx = 4;  break;
@@ -210,7 +224,7 @@ MODULE_PART void tcs34725::getData(void) {
     else if (agc_lst[agc_cur].mincnt && c < agc_lst[agc_cur].mincnt) { agc_cur--; }
     else break;
     setGainTime();
-    delay((256 - atime) * 2.4 * 2);  // shock absorber
+    delay(2 * atime_ms);  // shock absorber: 2 integration cycles
     tcs.getRawData(&r, &g, &b, &c);
     break;
   }
@@ -221,18 +235,18 @@ MODULE_PART void tcs34725::getData(void) {
   g_comp = g - ir;
   b_comp = b - ir;
   c_comp = c - ir;
-  cratio = float(ir) / float(c);
+  cratio = fdiv(float(ir), float(c));
 
   saturation   = ((256 - atime) > 63) ? 65535 : 1024 * (256 - atime);
   saturation75 = (atime_ms < 150) ? (saturation - saturation / 4) : saturation;
   isSaturated  = (atime_ms < 150 && c > saturation75) ? 1 : 0;
-  cpl          = (atime_ms * againx) / (TCS34725_GA * TCS34725_DF);
-  maxlux       = 65535 / (cpl * 3);
+  cpl          = fdiv(float(atime_ms * againx), TCS34725_DF);
+  maxlux       = fdiv(TCS34725_FULLSCALE, cpl * TCS34725_THREE);
 
-  lux = (TCS34725_R_Coef * float(r_comp)
-       + TCS34725_G_Coef * float(g_comp)
-       + TCS34725_B_Coef * float(b_comp)) / cpl;
-  ct  = TCS34725_CT_Coef * float(b_comp) / float(r_comp) + TCS34725_CT_Offset;
+  lux = fdiv(TCS34725_R_Coef * float(r_comp)
+           + TCS34725_G_Coef * float(g_comp)
+           + TCS34725_B_Coef * float(b_comp), cpl);
+  ct  = fdiv(TCS34725_CT_Coef * float(b_comp), float(r_comp)) + TCS34725_CT_Offset;
 }
 
 // --------------------------------------------------------------------
