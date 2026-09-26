@@ -1,0 +1,39 @@
+/* TinyC docs — small visual polish on top of mkdocs-material */
+
+/* Card grid: make the card icons a bit more prominent */
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-typeset .grid > .card {
+  border-radius: 0.4rem;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.md-typeset .grid.cards > :is(ul, ol) > li:hover,
+.md-typeset .grid > .card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+/* Gallery images — uniform look, tight spacing */
+.md-typeset img[loading="lazy"] {
+  border-radius: 0.3rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  margin: 0.4rem 0 1rem;
+  max-width: 100%;
+}
+
+/* Hero image on the landing page */
+.md-typeset h1 + p img {
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+}
+
+/* Tighter code block padding for the long example pages */
+.md-typeset pre > code {
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+/* Tables in the reference get a touch more breathing room */
+.md-typeset table:not([class]) th {
+  background: var(--md-code-bg-color);
+}
