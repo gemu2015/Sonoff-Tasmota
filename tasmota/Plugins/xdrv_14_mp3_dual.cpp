@@ -97,6 +97,12 @@ MODULE_PART void     MP3_CMD(uint8_t mp3cmd, uint16_t val);
 MODULE_PART bool     MP3PlayerCmd(void);
 MODULE_PART void     MP3Player_Deinit(void);
 #if BUILD_AS_PLUGIN
+// Case-insensitive equality through strncasecmp_P (jt[60], the host copies
+// the module string first). strcasecmp_P has no jumptable entry: it was a
+// direct call into the host, reading the PSTR byte-wise from the module.
+// sizeof(lit) includes the NUL, so the comparison stays exact.
+#define MP3_NAME_IS(s, lit)  (strncasecmp_P((s), PSTR(lit), sizeof(lit)) == 0)
+
 MODULE_PART int32_t  mod_func_execute(uint32_t sel);
 #endif
 MODULE_END
@@ -354,12 +360,12 @@ bool MP3PlayerCmd(void) {
     case CMND_MP3_MODE:
       if (_MP3_MB_DATA_LEN > 0) {
         uint8_t new_type;
-        if (strcasecmp_P(_MP3_MB_DATA, PSTR("DFPlayer")) == 0
-            || strcasecmp_P(_MP3_MB_DATA, PSTR("DVP_MINI")) == 0
-            || strcasecmp_P(_MP3_MB_DATA, PSTR("MINI")) == 0) {
+        if (MP3_NAME_IS(_MP3_MB_DATA, "DFPlayer")
+            || MP3_NAME_IS(_MP3_MB_DATA, "DVP_MINI")
+            || MP3_NAME_IS(_MP3_MB_DATA, "MINI")) {
           new_type = DVP_MINI;
-        } else if (strcasecmp_P(_MP3_MB_DATA, PSTR("DY_SV17F")) == 0
-                   || strcasecmp_P(_MP3_MB_DATA, PSTR("SV17F")) == 0) {
+        } else if (MP3_NAME_IS(_MP3_MB_DATA, "DY_SV17F")
+                   || MP3_NAME_IS(_MP3_MB_DATA, "SV17F")) {
           new_type = DY_SV17F;
         } else {
           new_type = (uint8_t)(_MP3_MB_PAYLOAD & 1);
