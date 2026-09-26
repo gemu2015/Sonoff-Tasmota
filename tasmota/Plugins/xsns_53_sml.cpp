@@ -137,9 +137,12 @@ esp32
 #undef USE_SML_CANBUS
 #endif
 
-#ifdef USE_SML_TCP_SECURE
+// Plugin: always keep the TCP host as a string. The host's
+// client_connect (tmod_wifi case 1) calls client->connect(const char *host,
+// port); an IPAddress would be passed as its numeric value and read as a
+// pointer. Converting IPAddress also called IPAddress::operator uint32_t
+// in the host directly (not through the jumptable).
 #define USE_SML_TCP_IP_STR
-#endif
 
 
 // median filter eliminates outliers, but uses much RAM and CPU cycles
@@ -455,7 +458,7 @@ struct METER_DESC {
 #ifdef USE_SML_TCP
 
 #ifdef USE_SML_TCP_IP_STR
-  char ip_addr[16];
+  char ip_addr[32];   // host name or IP; the parser copies up to 31 chars
 #else
   IPAddress ip_addr;
 #endif // USE_SML_TCP_IP_STR
@@ -629,6 +632,7 @@ struct SML_GLOBS {
   bool ready;
 #ifdef USE_SML_CANBUS
   uint8_t twai_installed;
+  uint8_t warned_no_at;    // "missing '@' scale" logged once (was a function static in host .bss)
 #endif // USE_SML_CANBUS
   uint8_t sml_options;
   SML_TABLE smltab;
@@ -2489,9 +2493,8 @@ SETREGS
         // post-loop / scale parser runs off the end of the string -> OOB -> boot
         // loop). Warn once per boot (this runs per frame).
         if (found) {
-          static bool sml_warned_no_at = false;
-          if (!sml_warned_no_at) {
-            sml_warned_no_at = true;
+          if (!sml_globs.warned_no_at) {
+            sml_globs.warned_no_at = true;
             AddLog(LOG_LEVEL_INFO, PSTR("SML: a decoder line is missing its '@' scale — line ignored (meter %d)"), mindex + 1);
           }
         }
@@ -3469,6 +3472,22 @@ ALLOCMEM
   return result;
 }
 
+#ifdef USE_SML_CANBUS
+// Field-by-field copies of the IDF TWAI initializer macros (see SML_Init).
+// The const local is folded away; only immediate stores remain.
+#define SML_TWAI_TIMING(dst, MACRO) do { const twai_timing_config_t _s = MACRO(); \
+    (dst).clk_src = _s.clk_src; (dst).quanta_resolution_hz = _s.quanta_resolution_hz; \
+    (dst).brp = _s.brp; (dst).prop_seg = _s.prop_seg; (dst).tseg_1 = _s.tseg_1; \
+    (dst).tseg_2 = _s.tseg_2; (dst).sjw = _s.sjw; (dst).ssp_offset = _s.ssp_offset; \
+    (dst).triple_sampling = _s.triple_sampling; } while (0)
+#define SML_TWAI_GENERAL(dst, TX, RX, MODE) do { \
+    (dst).controller_id = 0; (dst).mode = (MODE); (dst).tx_io = (TX); (dst).rx_io = (RX); \
+    (dst).clkout_io = TWAI_IO_UNUSED; (dst).bus_off_io = TWAI_IO_UNUSED; \
+    (dst).tx_queue_len = 5; (dst).rx_queue_len = 5; (dst).alerts_enabled = TWAI_ALERT_NONE; \
+    (dst).clkout_divider = 0; (dst).intr_flags = ESP_INTR_FLAG_LEVEL1; \
+    (dst).general_flags.sleep_allow_pd = 0; } while (0)
+#endif
+
 int32_t SML_Init(void) {
 SETREGS
 
@@ -3897,7 +3916,12 @@ next_line:
 #ifdef USE_SML_CANBUS
       // ESP32-only: native TWAI driver. Legacy ESP8266 SPI MPC2515 init removed.
       // Initialize configuration structures using macro initializers
-      twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)mptr->trxpin, (gpio_num_t)mptr->srcpin, TWAI_MODE_NORMAL);
+      // The TWAI_*_CONFIG_*() initializers are filled in field by field
+      // (SML_TWAI_*): assigning the compound literals makes GCC keep a
+      // template in host .rodata and memcpy/memset it — both outside the
+      // plugin module.
+      twai_general_config_t g_config;
+      SML_TWAI_GENERAL(g_config, (gpio_num_t)mptr->trxpin, (gpio_num_t)mptr->srcpin, TWAI_MODE_NORMAL);
       uint8_t qlen = mptr->params/100;
       if (qlen < 8) {
         qlen = 8;
@@ -3906,35 +3930,38 @@ next_line:
       twai_timing_config_t t_config;
       switch (mptr->params%100) {
         case 0:
-          t_config = TWAI_TIMING_CONFIG_25KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_25KBITS);
           break;
         case 1:
-          t_config = TWAI_TIMING_CONFIG_50KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_50KBITS);
           break;
         case 2:
-          t_config = TWAI_TIMING_CONFIG_100KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_100KBITS);
           break;
         case 3:
-          t_config = TWAI_TIMING_CONFIG_125KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_125KBITS);
           break;
         case 4:
-          t_config = TWAI_TIMING_CONFIG_250KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_250KBITS);
           break;
         case 5:
-          t_config = TWAI_TIMING_CONFIG_500KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_500KBITS);
           break;
         case 6:
-          t_config = TWAI_TIMING_CONFIG_800KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_800KBITS);
           break;
         case 7:
-          t_config = TWAI_TIMING_CONFIG_1MBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_1MBITS);
           break;
         default:
-          t_config = TWAI_TIMING_CONFIG_125KBITS();
+          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_125KBITS);
           break;
       }
     
-      twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+      twai_filter_config_t f_config;
+      f_config.acceptance_code = 0;             // TWAI_FILTER_CONFIG_ACCEPT_ALL()
+      f_config.acceptance_mask = 0xFFFFFFFF;
+      f_config.single_filter = true;
 
       if (mptr->can_filters[0]) {
         f_config.acceptance_code = mptr->can_filters[0] << 3; 
