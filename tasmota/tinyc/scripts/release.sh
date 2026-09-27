@@ -35,6 +35,10 @@ TASMOTA_ROOT="${TASMOTA_ROOT:-$(cd "$TINYC_DIR/../.." && pwd)}"
 TC_RELEASE_HEADER="$TASMOTA_ROOT/tasmota/include/xdrv_124_tinyc_vm.h"
 RELEASE_REPO="${RELEASE_REPO:-gemu2015/Sonoff-Tasmota}"
 RELEASE_TAG="${RELEASE_TAG:-testing}"
+# Branch (or commit) the rolling tag is moved to on every release. GitHub sorts
+# releases by the date of the tagged commit, so a tag left on an old commit put
+# the newest test build below older ones ("May 8", mi-hol 27.09.2026).
+RELEASE_TARGET="${RELEASE_TARGET:-$(git -C "$(dirname "$0")" rev-parse --abbrev-ref HEAD 2>/dev/null || echo universal)}"
 CHANGELOG="$TINYC_DIR/CHANGELOG.md"
 CHANGELOG_URL="https://github.com/$RELEASE_REPO/blob/universal/tasmota/tinyc/CHANGELOG.md"
 PREV_ENTRIES=4          # older CHANGELOG entries shown below the current one
@@ -320,9 +324,8 @@ if $SKIP_UPLOAD; then
   exit 0
 fi
 
-log "Updating GitHub release '$RELEASE_TAG' on $RELEASE_REPO …"
+log "Recreating GitHub release '$RELEASE_TAG' on $RELEASE_REPO (tag -> $RELEASE_TARGET) …"
 
-# `gh release upload --clobber` overwrites existing assets in place.
 # Dedupe by basename — `*.bin.gz` and `*.gz` would otherwise both match the
 # ESP8266 .gz and GitHub 404s on the second upload.
 # (Plain string list — macOS ships bash 3.2, no associative arrays.)
@@ -351,11 +354,21 @@ fi
 log "Uploading ${#UPLOAD_ASSETS[@]} asset(s):"
 for f in "${UPLOAD_ASSETS[@]}"; do printf '         %s\n' "$(basename "$f")"; done
 
-run "gh release upload '$RELEASE_TAG' -R '$RELEASE_REPO' --clobber ${UPLOAD_ASSETS[@]@Q}"
+# The tag must point at a commit GitHub has: the target branch has to be pushed.
+if ! $DRY_RUN; then
+  gh api "repos/$RELEASE_REPO/commits/$RELEASE_TARGET" --jq .sha >/dev/null 2>&1 \
+    || die "Target '$RELEASE_TARGET' not found on $RELEASE_REPO — push it first (or set RELEASE_TARGET)"
+fi
 
-log "Updating release title + body …"
-run "gh release edit '$RELEASE_TAG' -R '$RELEASE_REPO' \
+# Delete and create instead of upload --clobber + edit: only a new release moves
+# the tag, and with it the date GitHub shows and sorts by. The download URLs
+# (/releases/download/$RELEASE_TAG/<file>) stay the same; while the upload runs
+# the files are briefly unavailable.
+run "gh release delete '$RELEASE_TAG' -R '$RELEASE_REPO' --yes --cleanup-tag 2>/dev/null || true"
+run "gh release create '$RELEASE_TAG' -R '$RELEASE_REPO' \
+       --target '$RELEASE_TARGET' --prerelease \
        --title 'TinyC Test Build v$VERSION' \
-       --notes-file '$COMBINED_NOTES'"
+       --notes-file '$COMBINED_NOTES' \
+       ${UPLOAD_ASSETS[@]@Q}"
 
 log "Done. https://github.com/$RELEASE_REPO/releases/tag/$RELEASE_TAG"
