@@ -3168,8 +3168,6 @@ static int32_t tc_udp_rx_next(char *buf, int32_t max) {
     return n;
   }
 }
-#else
-static inline void tc_udp_rx_close(void) {}
 #endif
 
 // Only the RECEIVE socket queues the broadcast flood, so with the plain lwIP receive
@@ -3208,6 +3206,12 @@ static int tc_b64url_decode(const char *in, unsigned char *out, size_t outcap, s
   tmp[n] = 0;
   return mbedtls_base64_decode(out, outcap, outlen, (const unsigned char *)tmp, n);
 }
+#endif  // ESP32
+#ifndef ESP32
+// ESP8266 keeps NetworkUDP for receiving; tc_udp_stop/poll call this on both
+// platforms. It stood inside the outer ESP32 block above, so the ESP8266 build
+// never saw it.
+static inline void tc_udp_rx_close(void) {}
 #endif
 
 /*********************************************************************************************\
