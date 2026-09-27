@@ -2,7 +2,7 @@
 """Scan release binaries for WLAN credentials from user_config_override.h.
 Prints only file names and which kind of secret matched, never the values.
 
-    creds_scan.py <user_config_override.h> <dir with .bin/.gz>   -> exit 1 on a hit
+    creds_scan.py <user_config_override.h> <dir or file> ...   -> exit 1 on a hit
 
 Why: the factory images embed the safeboot partition, and post_esp32.py takes it
 from variants/tasmota/<chip>-safeboot.bin -- a LOCALLY built safeboot carries the
@@ -15,9 +15,14 @@ for m in re.finditer(r'#define\s+(STA_SSID\d|STA_PASS\d)\s+"([^"]+)"', hdr):
     if len(m.group(2)) >= 4:
         secrets.append((m.group(1), m.group(2).encode()))
 print(f"{len(secrets)} non-empty credential strings to look for")
+# arguments after the header: directories (their .bin/.gz) or single files
+files = []
+for arg in sys.argv[2:]:
+    p = pathlib.Path(arg)
+    files += sorted(q for q in p.iterdir() if q.is_file() and q.suffix in (".bin", ".gz")) if p.is_dir() else [p]
 bad = 0
-for f in sorted(pathlib.Path(sys.argv[2]).iterdir()):
-    if not f.is_file() or f.suffix not in (".bin", ".gz"):
+for f in files:
+    if not f.is_file():
         continue
     data = f.read_bytes()
     if f.suffix == ".gz":

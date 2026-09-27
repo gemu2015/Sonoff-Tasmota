@@ -403,6 +403,15 @@ printf '%s' "$NOTES" > "$NOTES_FILE"
 trap "rm -f $NOTES_FILE" EXIT
 info "Notes written to $NOTES_FILE ($(wc -c < "$NOTES_FILE") bytes)"
 
+# --- no home WLAN credentials in anything public (a locally built safeboot in
+#     variants/tasmota/ put them into the factory images of 1.6.46–1.6.68) ---
+CREDS_HEADER="$SCRIPT_DIR/tasmota/user_config_override.h"
+if [[ -f "$CREDS_HEADER" ]]; then
+  info "Scanning ${#FILES[@]} files for WLAN credentials..."
+  /usr/bin/python3 "$SCRIPT_DIR/tasmota/tinyc/scripts/creds_scan.py" "$CREDS_HEADER" "${FILES[@]}" \
+    || { echo "ERROR: WLAN credentials in a file above — NOT uploading." >&2; exit 1; }
+fi
+
 # --- delete old release if exists ---
 info "Removing old '$TAG' release (if any)..."
 gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
