@@ -4738,9 +4738,18 @@ typedef struct {
   uint8_t result[16];
   md5.getBytes(result);
   uint8_t *end_offset = mp + (num_partitions * sizeof(esp_partition_info_t));
+  // ⚠️ Everything behind the last entry back to the erased state first. A
+  // removed partition (chkpt r, chkpt d) shortens the table by one entry, so
+  // the new MD5 entry lands where the last partition was -- and the OLD MD5
+  // entry stayed right behind it. The bootloader rejects a table with two
+  // ("Only one MD5 checksum is allowed"), finds no app and resets forever:
+  // that bricked two ESP32-C3 on 2026-09-27 (.172, .154; rescued by writing a
+  // valid partitions.bin to 0x8000). MD5 entry as gen_esp32part writes it:
+  // EB EB, 14 x FF, the digest.
+  memset(end_offset, 0xff, SPI_FLASH_SEC_SIZE - (end_offset - mp));
   end_offset[0] = 0xeb;
   end_offset[1] = 0xeb;
-  memmove(end_offset + 16, result, 16);
+  memcpy(end_offset + 16, result, 16);
 
 #if 0
   File wf = ufsp->open("/partition.bin", FS_FILE_WRITE);

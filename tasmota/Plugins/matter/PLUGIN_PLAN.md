@@ -353,3 +353,17 @@ DAC signature over the NOCSR elements valid, nonce echoed.
 RAM/flash, ESP32 without PSRAM (`tinyc32-4M` vs `tinyc32-4M-mtrplugin`, 2026-09-27):
 static RAM 114 776 → 81 256 B (−33.5 KB), flash 1 713 355 → 1 665 759 B (−47.6 KB). With the
 plugin running, the heap carries about what the built-in lib had as .bss (+ ~3.5 KB texts/tables).
+
+### Stage 5 — ESP32-C3 without PSRAM (2026-09-27, .154, `tinyc32c3-mtrplugin`)
+MATTERF_32r (RISC-V, 73 KB) with `USE_MATTER_C_PLUGIN_ONLY` firmware: the dispatch initializes
+the plugin at boot and uses it; heap 173 KB → ~88 KB with Matter running (largest block 72 KB).
+Allocating at pFUNC_INIT matters: after running a while without a restart the largest block was
+down to 43 KB. `pase_probe.py`: all checks pass (Pake2 3.7 s — no FPU), `matterSetFloat`
+2137 / -555 / 13 identical to S3 and to the built-in lib. RISC-V specifics fixed on the way:
+blib_audit reads RISC-V ELFs (found `__floatsisf`/`__mulsf3` as ROM calls — correct on C3, wrong
+on C6), four -fpermissive type errors.
+
+⚠️ `chkpt r` bricked two C3 (.172, .154): removing a partition left the old MD5 entry behind the
+new one, the bootloader rejects "Only one MD5 checksum is allowed" and resets forever. Fixed in
+Check_partition (rest of the table sector to 0xFF before the MD5 entry), verified on .154
+(chkpt r + chkpt a2 with the fix). Rescue: write a valid partitions.bin to 0x8000.
