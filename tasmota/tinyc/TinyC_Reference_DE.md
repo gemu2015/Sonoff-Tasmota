@@ -5329,6 +5329,47 @@ int main() {
 > Firmware; ein frisch verifizierter Flash koppelt die volle Bridge). Die
 > Bind/Unbind-Buttons und der On-Device-QR liegen unter `http://<Geraet>/mt`.
 
+#### Eingebaut oder als Plugin (`MATTERF`)
+
+Die Matter-Engine gibt es in zwei Formen, und eine Firmware kann beide
+enthalten:
+
+- **Eingebaut** — `USE_MATTER_C` uebersetzt `matter_c` in die Firmware.
+- **Binaer-Plugin `MATTERF`** — dieselbe Engine als BinPlugin
+  (`MATTERF_32.bin` fuer ESP32/S3, `MATTERF_32r.bin` fuer C3), hochgeladen in
+  eine Plugin-Partition (`chkpt aN`, dann Upload ueber die Weboberflaeche).
+
+Beim Booten waehlt die Firmware: Ist ein Modul `MATTERF`
+geladen, wird es benutzt, sonst die eingebaute Engine. Das Protokoll sagt,
+welche (`MTR: using the Matter plugin (MATTERF)` / `…built-in…`). Die
+Skripte sind fuer beide gleich. `-DUSE_MATTER_C_PLUGIN_ONLY` baut eine
+Firmware, die nur den Verteiler und keine eingebaute Engine hat.
+
+| | Eingebaut | Plugin `MATTERF` |
+|---|---|---|
+| Flash, ESP32 / S3 (Xtensa) | +47.596 B in der Firmware | 61.348 B in der Plugin-Partition |
+| Flash, C3 (RISC-V) | +51.486 B in der Firmware | 56.988 B in der Plugin-Partition |
+| Statisches RAM | 33,5 KB, immer — auch auf Geraeten ohne Matter | keins |
+| Heap im Betrieb | der Kontext, belegt bei `matterStart` | 71.332 B, belegt beim Laden des Plugins (angezeigt in `mdir` / auf der Plugin-Seite) |
+| Aktualisieren | Firmware-OTA | neues `MATTERF` hochladen (vorher entladen: `deiniz N`, `unlink N`) |
+
+Gemessen am 27.09.2026; Plugin mit `-Os` gebaut, beide Varianten passen in
+eine 64-KB-Plugin-Partition. Auf einem C3 ohne PSRAM sinkt der freie Heap mit
+laufendem Plugin von 173 KB auf etwa 88 KB (groesster freier Block ~70 KB).
+
+**Eingebaut — Vorteile:** keine Plugin-Partition, nichts hochzuladen, in
+Summe 6–14 KB weniger Flash (C3 / Xtensa). **Nachteile:** jedes Geraet mit dieser
+Firmware zahlt den Flash und die 33,5 KB statisches RAM, ob es Matter nutzt
+oder nicht; eine Korrektur braucht ein Firmware-Update.
+
+**Plugin — Vorteile:** die Firmware bleibt etwa 50 KB kleiner, und Matter
+kommt nur auf die Geraete, die es brauchen; Aktualisieren ohne Firmware-OTA;
+Entladen gibt das ganze RAM zurueck; laeuft auf ESPs ohne PSRAM (auf einem C3
+getestet). **Nachteile:** braucht eine Plugin-Partition von mindestens 64 KB
+und die Plugin-Datei fuer die passende CPU; in Summe etwas mehr Flash; braucht
+einen zusammenhaengenden Heap-Block von ~70 KB — deshalb wird er beim Booten
+belegt, spaeter auf einem zerstueckelten Heap geladen kann das scheitern.
+
 #### Vordefinierte Datei-Konstanten
 
 Fuer `fileOpen()` stehen folgende Kurzformen zur Verfuegung:

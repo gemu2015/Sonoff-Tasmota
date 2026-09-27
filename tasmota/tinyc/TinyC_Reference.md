@@ -5460,6 +5460,46 @@ int main() {
 > (that limit was a stale-firmware false negative; a verified-fresh flash pairs the
 > full bridge). Bind/Unbind + the on-device QR live at `http://<device>/mt`.
 
+#### Built-in or as a plugin (`MATTERF`)
+
+The Matter engine exists in two forms, and a firmware can carry both:
+
+- **Built-in** — `USE_MATTER_C` compiles `matter_c` into the firmware.
+- **Binary plugin `MATTERF`** — the same engine as a BinPlugin
+  (`MATTERF_32.bin` for ESP32/S3, `MATTERF_32r.bin` for C3), uploaded into a
+  plugin partition (`chkpt aN`, then upload via the web UI).
+
+At boot the firmware picks one: if a `MATTERF` module is
+loaded it is used, otherwise the built-in engine. The log says which
+(`MTR: using the Matter plugin (MATTERF)` / `…built-in…`). Scripts are the
+same for both. `-DUSE_MATTER_C_PLUGIN_ONLY` builds a firmware that only has
+the dispatcher and no built-in engine.
+
+| | Built-in | Plugin `MATTERF` |
+|---|---|---|
+| Flash, ESP32 / S3 (Xtensa) | +47,596 B in the firmware | 61,348 B in the plugin partition |
+| Flash, C3 (RISC-V) | +51,486 B in the firmware | 56,988 B in the plugin partition |
+| Static RAM | 33.5 KB, always — also on devices without Matter | none |
+| Heap while running | the context, allocated at `matterStart` | 71,332 B, allocated when the plugin loads (shown in `mdir` / the plugin page) |
+| Update | firmware OTA | upload a new `MATTERF` (unload first: `deiniz N`, `unlink N`) |
+
+Measured 2026-09-27; plugin built with `-Os`, both variants fit a 64 KB
+plugin partition. On a C3 without PSRAM the free heap drops from 173 KB to
+about 88 KB with the plugin running (largest free block ~70 KB).
+
+**Built-in — pros:** no plugin partition, nothing to upload, 6–14 KB
+less flash in total (C3 / Xtensa). **Cons:** every device with this firmware pays the
+flash and the 33.5 KB of static RAM, whether it uses Matter or not; a fix
+needs a firmware update.
+
+**Plugin — pros:** the firmware stays about 50 KB smaller and Matter goes
+only onto the devices that need it; updated without a firmware OTA;
+unloading gives all its RAM back; runs on ESPs without PSRAM (tested on a
+C3). **Cons:** needs a plugin partition of at least 64 KB and the plugin
+file for the right CPU; slightly more flash in total; needs one ~70 KB
+contiguous heap block — it is allocated at boot for that reason, loaded
+later on a fragmented heap it can fail.
+
 #### Predefined File Constants
 
 Shorthand constants for `fileOpen()`:
