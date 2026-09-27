@@ -666,12 +666,16 @@ MODULE_PART DecodeStatus decodeBresser5In1Payload(const uint8_t *msg, uint8_t ms
  * Bresser 6-in-1 Decoder
 \*********************************************************************************************/
 #ifdef BRESSER_6_IN_1
-// Soil moisture from the 1..16 sensor step: min((i*20+1)/3, 99) equals the
-// map {0, 7, 13, ... 93, 99} for i = 0..15. A local array with an
-// initializer would be copied from host .rodata with memcpy.
-#define BRESSER_MOISTURE(i)  ((((i) * 20 + 1) / 3) < 99 ? (((i) * 20 + 1) / 3) : 99)
-// "OK " / "Low" as one little-endian word (see Bresser_Show)
-#define BRESSER_BATT(ok)     ((ok) ? 0x00204B4Fu : 0x00776F4Cu)
+// Soil moisture map (sensor step 1..16) and the battery texts "OK "/"Low"
+// as little-endian words, in PROGMEM: a local array with an initializer was
+// copied from host .rodata with memcpy, string literals sat in host .rodata,
+// and constants beyond 12 bit (incl. the /3 reciprocal) belong in PROGMEM.
+const uint32_t BRESSER_TAB[18] PROGMEM = {
+  0, 7, 13, 20, 27, 33, 40, 47, 53, 60, 67, 73, 80, 87, 93, 99,
+  0x00204B4F, 0x00776F4C };
+#define BRESSER_TABP         ((const volatile uint32_t *)((const uint8_t *)BRESSER_TAB + EXEC_OFFSET))
+#define BRESSER_MOISTURE(i)  (BRESSER_TABP[((uint32_t)(i) < 16) ? (i) : 15])
+#define BRESSER_BATT(ok)     (BRESSER_TABP[(ok) ? 16 : 17])
 
 MODULE_PART DecodeStatus decodeBresser6In1Payload(const uint8_t *msg, uint8_t msgSize) {
   SETMEMREGS
@@ -1170,9 +1174,8 @@ const char HTTP_Bresser7[] PROGMEM =
 MODULE_PART void Bresser_Show(bool json) {
   SETREGS
   STGLOB
-  // Battery text as one word on the stack: a string literal would sit in
-  // host .rodata, and a PSTR in the module cannot be read byte-wise by %s
-  // (instruction-bus mapping, LoadStoreError on ESP32/S3).
+  // Battery text copied to a word on the stack: a PSTR in the module cannot
+  // be read byte-wise by %s (instruction-bus mapping, LoadStoreError on S3).
   uint32_t bat;
 
   if (mem->decode_status != DECODE_OK) {

@@ -1117,6 +1117,8 @@ void I2SBridgeDeinit(void) {
 
 #define CAM_PAKET
 
+const uint32_t I2S_RING_MSG[1] PROGMEM = {0x474E4952};   // "RING", little endian
+
 void i2s_bridge_loop(void) {
   SETREGS
   STGLOB
@@ -1163,7 +1165,9 @@ void i2s_bridge_loop(void) {
         if (!bridge.ring_pressed) {
           bridge.ring_pressed = 1;
           if (bridge.i2s_bridge_udp && bridge.i2s_bridge_ip.dword) {
-            uint32_t ring_msg = 0x474E4952;   // "RING" as a word on the stack; the literal sat in host .rodata
+            // "RING" copied to the stack from PROGMEM: the string literal sat in
+            // host .rodata, and constants beyond 12 bit belong in PROGMEM
+            uint32_t ring_msg = ((const volatile uint32_t *)((const uint8_t *)I2S_RING_MSG + EXEC_OFFSET))[0];
             udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
             udp_write(bridge.i2s_bridge_udp, (const uint8_t*)&ring_msg, 4);
             udp_endPacket(bridge.i2s_bridge_udp);

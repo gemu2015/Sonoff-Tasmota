@@ -65,6 +65,8 @@ const float FP_CONST_TCS[] PROGMEM = {0.136, 1.000, -0.444, 310.0, 3810.0, 1391.
 #define TCS34725_CT_Offset  FLTC(5)
 #define TCS34725_FULLSCALE  FLTC(6)
 #define TCS34725_THREE      FLTC(7)
+// integer constants beyond the 12-bit movi range: {full scale 65535}
+const uint32_t TCS_ICONST[1] PROGMEM = {65535};
 #undef  DUAL_FLTC_TABLE
 #define DUAL_FLTC_TABLE FP_CONST_TCS
 #include "dual_format_fltc.h"
@@ -237,7 +239,7 @@ MODULE_PART void tcs34725::getData(void) {
   c_comp = c - ir;
   cratio = fdiv(float(ir), float(c));
 
-  saturation   = ((256 - atime) > 63) ? 65535 : 1024 * (256 - atime);
+  saturation   = ((256 - atime) > 63) ? ((const volatile uint32_t *)((const uint8_t *)TCS_ICONST + EXEC_OFFSET))[0] : 1024 * (256 - atime);
   saturation75 = (atime_ms < 150) ? (saturation - saturation / 4) : saturation;
   isSaturated  = (atime_ms < 150 && c > saturation75) ? 1 : 0;
   cpl          = fdiv(float(atime_ms * againx), TCS34725_DF);

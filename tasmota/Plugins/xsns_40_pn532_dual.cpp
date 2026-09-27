@@ -163,6 +163,8 @@ MODULE_PART void     PN532_Unset_PWD(void);
 MODULE_PART void     PN532_Cancel(void);
 #endif
 #if BUILD_AS_PLUGIN
+const uint32_t PN532_MODE_NAMES[2] PROGMEM = {0x00433249, 0x00555348};   // "I2C", "HSU"
+
 MODULE_PART int32_t  mod_func_execute(uint32_t sel);
 #endif
 MODULE_END
@@ -289,10 +291,10 @@ bool PN532_Init(void) {
 
   uint32_t ver = PN532_getFirmwareVersion();
   if (ver) {
-    // Mode name as a word on the stack ("I2C"/"HSU"): a PSTR from the module
+    // Mode name copied to the stack from PROGMEM ("I2C"/"HSU"): a PSTR from the module
     // cannot be read byte-wise by %s (instruction-bus mapping), and only one
     // PSTR per line works in a plugin.
-    uint32_t mode_name = mode ? 0x00433249 : 0x00555348;
+    uint32_t mode_name = ((const volatile uint32_t *)((const uint8_t *)PN532_MODE_NAMES + EXEC_OFFSET))[mode ? 0 : 1];
     AddLog(LOG_LEVEL_INFO,
            PSTR("NFC: PN532 NFC Reader detected v%u.%u (%s)"),
            (ver >> 16) & 0xFF, (ver >> 8) & 0xFF,

@@ -24,6 +24,9 @@ and only fails on the device, usually as a silent "Software reset CPU":
   PTR-SELF   literal holding an absolute address inside the module — only
              correct if the code adds EXEC_OFFSET before using it (PROGMEM
              tables read via GUI32p), so these are listed for review
+  CONST      a plain number in the module's literal pool (l32r) — the house rule
+             (readme.md) wants every constant beyond the 12-bit movi range and
+             every float constant in a PROGMEM table read via EXEC_OFFSET
   NUM?       literal whose value lies in host code or ROM but is not the start
              of a symbol — almost always a number that only looks like an
              address (a float between 2.0 and ~4.5 is 0x400xxxxx, e.g. 2.22 =
@@ -200,10 +203,12 @@ def audit_bin(od, path):
                 found["ROM"].append((hex(at), f"0x{v:08x}"))
             elif 0x3F000000 <= v < 0x40400000:
                 found["PTR-ABS"].append((hex(at), f"0x{v:08x}"))
-    for kind in ("LIT-OUT", "PTR-ABS", "ROM", "PTR-SELF", "HEADER"):
+            else:
+                found["CONST"].append((hex(at), f"0x{v:08x}"))
+    for kind in ("LIT-OUT", "PTR-ABS", "ROM", "PTR-SELF", "CONST", "HEADER"):
         hits = found[kind]
         print(f"{kind:9s} {len(hits):5d}")
-        for at, t in hits[:40] if kind in ("LIT-OUT", "PTR-ABS", "ROM") else []:
+        for at, t in hits[:40] if kind in ("LIT-OUT", "PTR-ABS", "ROM", "CONST") else []:
             print(f"            at {at}: {t}")
     bad = len(found["LIT-OUT"]) + len(found["PTR-ABS"]) + len(found["ROM"])
     print(f"\n=> {bad} certain problems, {len(found['PTR-SELF'])} self-pointers to review")
@@ -286,9 +291,11 @@ def main():
                 found["PTR-BSS"].append((func, f"{section_of(v, bss)}: {sym(v)}"))
             elif v >= 0x3F000000 and in_any(v, secs):
                 found["PTR-FW"].append((func, f"{section_of(v, secs)}: {sym(v)}"))
+            else:
+                found["CONST"].append((func, f"0x{v:08x}"))
 
     print()
-    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "PTR-SELF", "NUM?", "HEADER"):
+    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "CONST", "PTR-SELF", "NUM?", "HEADER"):
         hits = found[kind]
         per = Counter(f for f, _ in hits)
         print(f"{kind:9s} {len(hits):5d}  in {len(per)} functions")

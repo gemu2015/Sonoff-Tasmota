@@ -3475,11 +3475,18 @@ ALLOCMEM
 #ifdef USE_SML_CANBUS
 // Field-by-field copies of the IDF TWAI initializer macros (see SML_Init).
 // The const local is folded away; only immediate stores remain.
-#define SML_TWAI_TIMING(dst, MACRO) do { const twai_timing_config_t _s = MACRO(); \
-    (dst).clk_src = _s.clk_src; (dst).quanta_resolution_hz = _s.quanta_resolution_hz; \
-    (dst).brp = _s.brp; (dst).prop_seg = _s.prop_seg; (dst).tseg_1 = _s.tseg_1; \
-    (dst).tseg_2 = _s.tseg_2; (dst).sjw = _s.sjw; (dst).ssp_offset = _s.ssp_offset; \
-    (dst).triple_sampling = _s.triple_sampling; } while (0)
+// TWAI bit timings for params%100 = 0..7 (25k, 50k, 100k, 125k, 250k, 500k,
+// 800k, 1M) in PROGMEM: the resolutions (500 kHz ... 20 MHz) are beyond the
+// 12-bit movi range, and the IDF macros as compound literals left a template
+// in host .rodata. Copied word by word (volatile: no memcpy).
+const twai_timing_config_t SML_TWAI_TIMINGS[8] PROGMEM = {
+  TWAI_TIMING_CONFIG_25KBITS(),  TWAI_TIMING_CONFIG_50KBITS(),  TWAI_TIMING_CONFIG_100KBITS(),
+  TWAI_TIMING_CONFIG_125KBITS(), TWAI_TIMING_CONFIG_250KBITS(), TWAI_TIMING_CONFIG_500KBITS(),
+  TWAI_TIMING_CONFIG_800KBITS(), TWAI_TIMING_CONFIG_1MBITS() };
+#define SML_TWAI_TIMING(dst, idx) do { \
+    const volatile uint32_t *_s = (const volatile uint32_t *)((const uint8_t *)&SML_TWAI_TIMINGS[(idx)] + EXEC_OFFSET); \
+    uint32_t *_d = (uint32_t *)&(dst); \
+    for (uint32_t _k = 0; _k < sizeof(twai_timing_config_t) / 4; _k++) _d[_k] = _s[_k]; } while (0)
 #define SML_TWAI_GENERAL(dst, TX, RX, MODE) do { \
     (dst).controller_id = 0; (dst).mode = (MODE); (dst).tx_io = (TX); (dst).rx_io = (RX); \
     (dst).clkout_io = TWAI_IO_UNUSED; (dst).bus_off_io = TWAI_IO_UNUSED; \
@@ -3917,10 +3924,9 @@ next_line:
 #ifdef USE_SML_CANBUS
       // ESP32-only: native TWAI driver. Legacy ESP8266 SPI MPC2515 init removed.
       // Initialize configuration structures using macro initializers
-      // The TWAI_*_CONFIG_*() initializers are filled in field by field
-      // (SML_TWAI_*): assigning the compound literals makes GCC keep a
-      // template in host .rodata and memcpy/memset it — both outside the
-      // plugin module.
+      // The TWAI_*_CONFIG_*() initializers are not assigned as compound
+      // literals (template in host .rodata + memcpy/memset): general config
+      // field by field, timings from SML_TWAI_TIMINGS.
       twai_general_config_t g_config;
       SML_TWAI_GENERAL(g_config, (gpio_num_t)mptr->trxpin, (gpio_num_t)mptr->srcpin, TWAI_MODE_NORMAL);
       uint8_t qlen = mptr->params/100;
@@ -3929,35 +3935,11 @@ next_line:
       }
       g_config.rx_queue_len = qlen;
       twai_timing_config_t t_config;
-      switch (mptr->params%100) {
-        case 0:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_25KBITS);
-          break;
-        case 1:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_50KBITS);
-          break;
-        case 2:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_100KBITS);
-          break;
-        case 3:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_125KBITS);
-          break;
-        case 4:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_250KBITS);
-          break;
-        case 5:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_500KBITS);
-          break;
-        case 6:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_800KBITS);
-          break;
-        case 7:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_1MBITS);
-          break;
-        default:
-          SML_TWAI_TIMING(t_config, TWAI_TIMING_CONFIG_125KBITS);
-          break;
+      uint32_t tidx = mptr->params % 100;
+      if (tidx > 7) {
+        tidx = 3;   // default 125 kbit/s
       }
+      SML_TWAI_TIMING(t_config, tidx);
     
       twai_filter_config_t f_config;
       f_config.acceptance_code = 0;             // TWAI_FILTER_CONFIG_ACCEPT_ALL()

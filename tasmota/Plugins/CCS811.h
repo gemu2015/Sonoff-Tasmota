@@ -273,12 +273,14 @@ MODULE_PART void CCS811_setThresholds(uint16_t low_med, uint16_t med_high, uint8
     @brief  trigger a software reset of the device
 */
 /**************************************************************************/
+const uint32_t CCS811_RESET_SEQ[1] PROGMEM = {0x8A72E511};   // 11 E5 72 8A, little endian
+
 MODULE_PART void CCS811_SWReset() {
 	SETREGS
 	//reset sequence from the datasheet
-	// 11 E5 72 8A as one little-endian word: an initialized local array
-	// was loaded from host .rodata
-	uint32_t seq = 0x8A72E511;
+	// reset sequence 11 E5 72 8A from PROGMEM (an initialized local array was
+	// loaded from host .rodata; constants beyond 12 bit belong in PROGMEM)
+	uint32_t seq = ((const volatile uint32_t *)((const uint8_t *)CCS811_RESET_SEQ + EXEC_OFFSET))[0];
 	CCS811_write(CCS811_SW_RESET, (uint8_t *)&seq, 4);
 }
 
