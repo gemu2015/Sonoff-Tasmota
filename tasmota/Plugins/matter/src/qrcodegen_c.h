@@ -1,6 +1,11 @@
 #ifndef MODULE_PART
 #define MODULE_PART
 #endif
+#ifndef MTRC_S
+// string literal; the plugin build maps it into a RAM copy of all texts
+// (tools/gen_plugin_strings.py, mtrc_plugin_statics.h)
+#define MTRC_S(id, s)  (s)
+#endif
 /*
  * QR Code generator library (C)
  *
@@ -93,7 +98,8 @@ static int numCharCountBits(enum qrcodegen_Mode mode, int version);
 
 // The set of all legal characters in alphanumeric mode, where each character
 // value maps to the index in the string. For checking text and encoding segments.
-static const char *ALPHANUMERIC_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+// a macro, not a static pointer: MTRC_S is a run-time address in the plugin build
+#define ALPHANUMERIC_CHARSET MTRC_S(86, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:")
 
 // For generating error correction codes.
 testable const int8_t ECC_CODEWORDS_PER_BLOCK[4][41] = {

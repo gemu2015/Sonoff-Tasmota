@@ -141,6 +141,12 @@ int32_t mod_func_execute(uint32_t sel) {
       RETMEM
       return -1;
     }
+    // texts (MTRC_S): word copy from the module — it is mapped on the
+    // instruction bus, where byte reads fault on ESP32/S3
+    const volatile uint32_t *sb = (const volatile uint32_t *)((const uint8_t *)mtrc_str_blob + EXEC_OFFSET);
+    for (uint32_t i = 0; i < MTRC_STR_WORDS; i++) {
+      mem->st->strs[i] = sb[i];
+    }
     initialized = 1;
     return 1;
   }

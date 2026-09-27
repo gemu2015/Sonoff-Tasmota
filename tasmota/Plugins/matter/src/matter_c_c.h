@@ -1,6 +1,11 @@
 #ifndef MODULE_PART
 #define MODULE_PART
 #endif
+#ifndef MTRC_S
+// string literal; the plugin build maps it into a RAM copy of all texts
+// (tools/gen_plugin_strings.py, mtrc_plugin_statics.h)
+#define MTRC_S(id, s)  (s)
+#endif
 #ifndef MTRC_STATIC
 // function-local scratch buffer; the plugin build maps it into its heap block
 // (see mtrc_plugin_statics.h), everywhere else it stays a plain static
@@ -339,8 +344,8 @@ static void MODULE_PART mtrc_build_onboarding(void) {
   unsigned c2 = ((unsigned)(disc & 0x300) << 6) | (unsigned)(pass & 0x3FFF);
   unsigned c3 = (unsigned)(pass >> 14);
   char body[12];
-  snprintf(body, sizeof(body), "%01u%05u%04u", d1, c2, c3);
-  snprintf(g.manual, sizeof(g.manual), "%s%u", body, (unsigned)mtrc_verhoeff(body));
+  snprintf(body, sizeof(body), MTRC_S(0, "%01u%05u%04u"), d1, c2, c3);
+  snprintf(g.manual, sizeof(g.manual), MTRC_S(1, "%s%u"), body, (unsigned)mtrc_verhoeff(body));
 
   // QR: bit-pack version(3)=0, VID(16), PID(16), flow(2)=0, discovery(8),
   // discriminator(12), passcode(27), pad(4) = 88 bits, then Base38 + "MT:".
@@ -521,7 +526,7 @@ static void MODULE_PART case_seed_test_fabric(void) {
   mtrc_ec_pub_from_priv(f->op_pub, f->op_priv);
   for (int i = 0; i < 48; i++) f->noc[i] = (uint8_t)(0x40 + i);
   f->noc_len = 48;
-  mlog(MATTER_LOG_INFO, "CASE: seeded TEST fabric (do not ship)");
+  mlog(MATTER_LOG_INFO, MTRC_S(2, "CASE: seeded TEST fabric (do not ship)"));
 }
 #endif
 
@@ -547,7 +552,7 @@ static void MODULE_PART dm_seed_root(void) {
 // The whole fabric table is serialized to one kv blob ("fab" -> UFS file on
 // Tasmota). Saved on AddNOC, restored on boot, so a commissioned node survives
 // reboots and stays reachable to its controllers (Apple/chip-tool).
-#define MTRC_KV_FABRICS "fab"
+#define MTRC_KV_FABRICS MTRC_S(3, "fab")
 #define MTRC_KV_BLOB_MAX  5632      // max serialized fabric table (5 fabrics * ~1 KB worst case w/ ICAC); transient malloc
 static void publish_operational_mdns(const mtrc_fabric *f);   // fwd (defined below)
 static void unpublish_operational_mdns(const mtrc_fabric *f); // fwd (defined below)
@@ -557,11 +562,11 @@ static void MODULE_PART mtrc_persist_fabrics(void) {
   uint8_t *blob = (uint8_t *)malloc(MTRC_KV_BLOB_MAX);   // transient — not static BSS
   if (!blob) return;
   int n = mtrc_store_serialize(blob, MTRC_KV_BLOB_MAX);
-  if (n <= 0) { mlog(MATTER_LOG_ERROR, "persist: serialize failed"); free(blob); return; }
+  if (n <= 0) { mlog(MATTER_LOG_ERROR, MTRC_S(4, "persist: serialize failed")); free(blob); return; }
   matter_err_t e = g.port.kv_set(g.port.ctx, MTRC_KV_FABRICS, blob, (size_t)n);
   free(blob);
   char m[56];
-  snprintf(m, sizeof(m), "persist: %d B / %d fabric(s) rc=%d", n, mtrc_store_count(), (int)e);
+  snprintf(m, sizeof(m), MTRC_S(5, "persist: %d B / %d fabric(s) rc=%d"), n, mtrc_store_count(), (int)e);
   mlog(MATTER_LOG_INFO, m);
 }
 
@@ -573,7 +578,7 @@ static void MODULE_PART mtrc_load_fabrics(void) {
   if (g.port.kv_get(g.port.ctx, MTRC_KV_FABRICS, blob, &len) == MATTER_OK && len > 0 &&
       mtrc_store_deserialize(blob, len)) {
     char m[48];
-    snprintf(m, sizeof(m), "loaded %d fabric(s) from kv", mtrc_store_count());
+    snprintf(m, sizeof(m), MTRC_S(6, "loaded %d fabric(s) from kv"), mtrc_store_count());
     mlog(MATTER_LOG_INFO, m);
   }
   free(blob);
@@ -626,7 +631,7 @@ matter_err_t MODULE_PART matter_init(const matter_port_t *port, const matter_con
   // Onboarding payload: QR ("MT:...") + 11-digit manual pairing code.
   mtrc_build_onboarding();
 
-  mlog(MATTER_LOG_INFO, "matter_c init (data model seeded)");
+  mlog(MATTER_LOG_INFO, MTRC_S(7, "matter_c init (data model seeded)"));
   return MATTER_OK;
 }
 
@@ -657,7 +662,7 @@ matter_err_t MODULE_PART matter_start(void) {
       if (c && c->endpoint == e->endpoint) nc++;
     }
     char m[64];
-    snprintf(m, sizeof(m), "DIAG endpoint %u devtype 0x%04X clusters=%d",
+    snprintf(m, sizeof(m), MTRC_S(8, "DIAG endpoint %u devtype 0x%04X clusters=%d"),
              (unsigned)e->endpoint, (unsigned)e->device_type, nc);
     mlog(MATTER_LOG_INFO, m);
   }
@@ -681,20 +686,20 @@ static matter_err_t MODULE_PART mtrc_publish_commissionable(uint16_t disc, int c
   MTRC_STATIC(char, txt_d, [16], mtrc_publish_commissionable_txt_d);
   MTRC_STATIC(char, txt_cm, [8], mtrc_publish_commissionable_txt_cm);
   MTRC_STATIC(char, txt_vp, [24], mtrc_publish_commissionable_txt_vp);
-  snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)disc);
-  snprintf(txt_cm, sizeof(txt_cm), "CM=%d", cm);   // 1 = standard, 2 = enhanced
-  snprintf(txt_vp, sizeof(txt_vp), "VP=%u+%u", (unsigned)g.cfg.vendor_id,
+  snprintf(txt_d,  sizeof(txt_d),  MTRC_S(9, "D=%u"), (unsigned)disc);
+  snprintf(txt_cm, sizeof(txt_cm), MTRC_S(10, "CM=%d"), cm);   // 1 = standard, 2 = enhanced
+  snprintf(txt_vp, sizeof(txt_vp), MTRC_S(11, "VP=%u+%u"), (unsigned)g.cfg.vendor_id,
            (unsigned)g.cfg.product_id);
   const char *txt[] = { txt_d, txt_cm, txt_vp };
   uint8_t inst[8] = {0};
   if (g.port.random_bytes) g.port.random_bytes(g.port.ctx, inst, 8);
   char instance[17];
-  for (int i = 0; i < 8; i++) snprintf(instance + 2*i, 3, "%02X", inst[i]);
-  matter_err_t e = g.port.mdns_publish(g.port.ctx, "matterc", instance,
+  for (int i = 0; i < 8; i++) snprintf(instance + 2*i, 3, MTRC_S(12, "%02X"), inst[i]);
+  matter_err_t e = g.port.mdns_publish(g.port.ctx, MTRC_S(13, "matterc"), instance,
                                        MTRC_COMMISSION_PORT, txt, 3);
   mlog(e == MATTER_OK ? MATTER_LOG_INFO : MATTER_LOG_ERROR,
-       e == MATTER_OK ? "matter_c: commissioning window open (_matterc._udp)"
-                      : "matter_c: commissionable mDNS publish failed");
+       e == MATTER_OK ? MTRC_S(14, "matter_c: commissioning window open (_matterc._udp)")
+                      : MTRC_S(15, "matter_c: commissionable mDNS publish failed"));
   return e;
 }
 
@@ -717,7 +722,7 @@ int MODULE_PART matter_is_commissionable(void) { return (g_ptr && g.commissionab
 matter_err_t MODULE_PART matter_stop(void) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
   g.started = false;
-  mlog(MATTER_LOG_INFO, "matter_c stop (stub)");
+  mlog(MATTER_LOG_INFO, MTRC_S(16, "matter_c stop (stub)"));
   return MATTER_OK;
 }
 
@@ -731,7 +736,7 @@ matter_err_t MODULE_PART matter_factory_reset(void) {
   memset(g.case_sess, 0, sizeof(g.case_sess));   // drop all operational sessions
   g.fs_armed = false; g.fs_added_fabric = 0;     // no tentative fabric survives a reset
   g.ocw_active = false; g.ocw_expiry_ms = 0;     // drop any enhanced commissioning window
-  mlog(MATTER_LOG_INFO, "matter_c factory reset (fabrics wiped)");
+  mlog(MATTER_LOG_INFO, MTRC_S(17, "matter_c factory reset (fabrics wiped)"));
   return MATTER_OK;
 }
 
@@ -769,7 +774,7 @@ static void MODULE_PART pase_send(uint8_t opcode, const uint8_t *payload, size_t
 static void MODULE_PART pase_handle_param_req(const uint8_t *payload, size_t plen,
                                   const mtrc_msg_header *mh) {
   if (!g.commissionable) {            // commissioning window closed -> not pairable
-    mlog(MATTER_LOG_INFO, "PASE: ignored (commissioning window closed)");
+    mlog(MATTER_LOG_INFO, MTRC_S(18, "PASE: ignored (commissioning window closed)"));
     return;
   }
   mtrc_pase_param_req req;
@@ -824,7 +829,7 @@ static void MODULE_PART pase_handle_param_req(const uint8_t *payload, size_t ple
 
   pase_send(MTRC_SC_PBKDF_PARAM_RSP, rp, (size_t)rn, true, mh->msg_counter, true);
   g.pase_phase = 1;
-  mlog(MATTER_LOG_INFO, "PASE: PBKDFParamResponse sent");
+  mlog(MATTER_LOG_INFO, MTRC_S(19, "PASE: PBKDFParamResponse sent"));
 }
 
 // Pake1 (pA) -> Pake2 (pB, cB). Verifier-side SPAKE2+ (heavy: PBKDF2 + EC).
@@ -858,7 +863,7 @@ static void MODULE_PART pase_handle_pake1(const uint8_t *payload, size_t plen,
   if (n < 0) return;
   pase_send(MTRC_SC_PASE_PAKE2, out, (size_t)n, true, mh->msg_counter, true);
   g.pase_phase = 2;
-  mlog(MATTER_LOG_INFO, "PASE: Pake2 sent (SPAKE2+ verifier)");
+  mlog(MATTER_LOG_INFO, MTRC_S(20, "PASE: Pake2 sent (SPAKE2+ verifier)"));
 }
 
 // Pake3 (cA) -> verify, then StatusReport. On success the PASE session keys
@@ -877,12 +882,12 @@ static void MODULE_PART pase_handle_pake3(const uint8_t *payload, size_t plen,
     // Code=0 (SessionEstablishmentSuccess)
     g.pase_secure = true; g.pase_phase = 3;
     pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
-    mlog(MATTER_LOG_INFO, "PASE: cA verified -> SESSION ESTABLISHED (StatusReport success)");
+    mlog(MATTER_LOG_INFO, MTRC_S(21, "PASE: cA verified -> SESSION ESTABLISHED (StatusReport success)"));
   } else {
     sr[0] = 0x01;   // GeneralCode = 1 (Failure)
     pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
     g.pase_phase = 0;
-    mlog(MATTER_LOG_ERROR, "PASE: cA MISMATCH -> StatusReport failure");
+    mlog(MATTER_LOG_ERROR, MTRC_S(22, "PASE: cA MISMATCH -> StatusReport failure"));
   }
 }
 
@@ -914,9 +919,9 @@ static void MODULE_PART fabric_op_ipk(const mtrc_fabric *f, uint8_t op_ipk[16]) 
   for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
   uint8_t cfid[8];
   if (mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
-                       (const uint8_t *)"CompressedFabric", 16, cfid, sizeof(cfid)) &&
+                       (const uint8_t *)MTRC_S(23, "CompressedFabric"), 16, cfid, sizeof(cfid)) &&
       mtrc_hkdf_sha256(cfid, sizeof(cfid), f->ipk, 16,
-                       (const uint8_t *)"GroupKey v1.0", 13, op_ipk, 16))
+                       (const uint8_t *)MTRC_S(24, "GroupKey v1.0"), 13, op_ipk, 16))
     return;
   memcpy(op_ipk, f->ipk, 16);   // fallback (KDF cannot realistically fail)
 }
@@ -983,7 +988,7 @@ static void MODULE_PART case_handle_sigma1(const uint8_t *pl, size_t pll,
       f = cf; memcpy(op_ipk, cf_ipk, 16); break;
     }
   }
-  if (!f) { mlog(MATTER_LOG_ERROR, "CASE: no fabric matches destinationId"); return; }
+  if (!f) { mlog(MATTER_LOG_ERROR, MTRC_S(25, "CASE: no fabric matches destinationId")); return; }
 
   g.case_hs_fabric_index = f->fabric_index;
   g.case_hs_peer_sid = s1.initiator_session_id;
@@ -1043,7 +1048,7 @@ static void MODULE_PART case_handle_sigma1(const uint8_t *pl, size_t pll,
   }
   pase_send(MTRC_SC_CASE_SIGMA2, s2buf, (size_t)n2, true, mh->msg_counter, true);
   g.case_phase = 1;
-  mlog(MATTER_LOG_INFO, "CASE: Sigma2 sent (responder authenticated)");
+  mlog(MATTER_LOG_INFO, MTRC_S(26, "CASE: Sigma2 sent (responder authenticated)"));
 }
 
 // Sigma3 -> operational session. Decrypt TBEData3, verify the initiator's
@@ -1068,10 +1073,10 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
   // (encrypted3_len - 16) into tbe3 BEFORE tag verification. Bound it or an
   // oversized Sigma3 overflows tbe3 (BSS corruption) regardless of key validity.
   if (s3.encrypted3_len < 16 || s3.encrypted3_len - 16 > sizeof(tbe3)) {
-    mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE oversize"); return;
+    mlog(MATTER_LOG_ERROR, MTRC_S(27, "CASE: Sigma3 TBE oversize")); return;
   }
   if (!case_open(s3k, MTRC_CASE_NONCE_SIGMA3, s3.encrypted3, s3.encrypted3_len, tbe3)) {
-    mlog(MATTER_LOG_ERROR, "CASE: Sigma3 TBE decrypt failed"); return;
+    mlog(MATTER_LOG_ERROR, MTRC_S(28, "CASE: Sigma3 TBE decrypt failed")); return;
   }
   mtrc_case_tbe t3;
   if (!mtrc_case_tbe_decode(tbe3, s3.encrypted3_len - 16, &t3)) return;
@@ -1100,7 +1105,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
     }
   }
   if (!verified) {
-    mlog(MATTER_LOG_ERROR, "CASE: initiator NOC signature INVALID");
+    mlog(MATTER_LOG_ERROR, MTRC_S(29, "CASE: initiator NOC signature INVALID"));
     uint8_t sr[8]; memset(sr, 0, 8); sr[0] = 0x01;   // GeneralCode = Failure
     pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
     g.case_phase = 0;
@@ -1117,7 +1122,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
                      mtrc_cert_parse(t3.icac, t3.icac_len, &icac_c));
     if (!mtrc_cert_chain_check(&nc, have_icac ? &icac_c : NULL,
                                f ? f->fabric_id : 0, 0)) {
-      mlog(MATTER_LOG_ERROR, "CASE: initiator NOC chain check FAILED");
+      mlog(MATTER_LOG_ERROR, MTRC_S(30, "CASE: initiator NOC chain check FAILED"));
       uint8_t sr[8]; memset(sr, 0, 8); sr[0] = 0x01;   // GeneralCode = Failure
       pase_send(MTRC_SC_STATUS_REPORT, sr, 8, true, mh->msg_counter, true);
       g.case_phase = 0;
@@ -1185,7 +1190,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
   { int nact = 0;
     for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) if (g.case_sess[i].in_use) nact++;
     char m[72]; snprintf(m, sizeof(m),
-      "CASE: Sigma3 verified -> OPERATIONAL SESSION sid=%u (%d active)",
+      MTRC_S(31, "CASE: Sigma3 verified -> OPERATIONAL SESSION sid=%u (%d active)"),
       (unsigned)ss->my_sid, nact);
     mlog(MATTER_LOG_INFO, m); }
 }
@@ -1230,7 +1235,7 @@ static void MODULE_PART secured_send(uint8_t opcode, uint16_t protocol_id,
   if (g_tx.dst) {                     // operational: address the response TO the controller
     mh.dsiz = MTRC_DSIZ_NODE; mh.dest_node_id = g_tx.dst;
   }
-  { char dm[88]; snprintf(dm, sizeof(dm), "TX op=0x%02X sid=%u src=0x%08lX dst=0x%08lX ctr=%u",
+  { char dm[88]; snprintf(dm, sizeof(dm), MTRC_S(32, "TX op=0x%02X sid=%u src=0x%08lX dst=0x%08lX ctr=%u"),
       (unsigned)opcode, (unsigned)g_tx.sid, (unsigned long)g_tx.src,
       (unsigned long)g_tx.dst, (unsigned)mh.msg_counter); mlog(MATTER_LOG_DEBUG, dm); }
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
@@ -1241,9 +1246,9 @@ static void MODULE_PART secured_send(uint8_t opcode, uint16_t protocol_id,
   // TX twin of the "DIAG secured rx" line — shows what the device sends (e.g. the
   // StatusResponse op=0x01 answering a TimedRequest, and InvokeResponses). -DMTRC_DIAG_HANS.
   { char dt[96]; snprintf(dt, sizeof(dt),
-      "DIAG secured tx proto=0x%04X op=0x%02X exch=0x%04X plen=%u%s%s",
+      MTRC_S(33, "DIAG secured tx proto=0x%04X op=0x%02X exch=0x%04X plen=%u%s%s"),
       (unsigned)protocol_id, (unsigned)opcode, (unsigned)exch, (unsigned)plen,
-      reliable ? " R" : "", has_ack ? " ack" : "");
+      reliable ? MTRC_S(34, " R") : MTRC_S(35, ""), has_ack ? MTRC_S(36, " ack") : MTRC_S(35, ""));
     mlog(MATTER_LOG_INFO, dt); }
 #endif
   MTRC_STATIC(uint8_t, out, [1280], secured_send_out);
@@ -1461,7 +1466,7 @@ static int MODULE_PART build_noc_response(uint8_t *out, size_t cap, uint16_t ep,
   mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //    CommandFields
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), status);      //     statusCode
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(1), fabric_index);//     fabricIndex
-  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(2), "", 0);       //     debugText ""
+  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(2), MTRC_S(35, ""), 0);       //     debugText ""
   mtrc_tlv_end_container(&w);                          //    end CommandFields
   mtrc_tlv_end_container(&w);                          //   end CommandDataIB
   mtrc_tlv_end_container(&w);                          //  end InvokeResponseIB
@@ -1486,10 +1491,10 @@ static int MODULE_PART fabric_op_instance(const mtrc_fabric *f, char *instance, 
   for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
   uint8_t cfid[8];
   if (!mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
-                        (const uint8_t *)"CompressedFabric", 16, cfid, sizeof(cfid)))
+                        (const uint8_t *)MTRC_S(23, "CompressedFabric"), 16, cfid, sizeof(cfid)))
     return 0;
   int p = 0;
-  for (int i = 0; i < 8; i++) { snprintf(instance + p, cap - p, "%02X", cfid[i]); p += 2; }  // %02X = 2 chars (plugin snprintf shim is void)
+  for (int i = 0; i < 8; i++) { snprintf(instance + p, cap - p, MTRC_S(12, "%02X"), cfid[i]); p += 2; }  // %02X = 2 chars (plugin snprintf shim is void)
   // Node id as 16 hex, big-endian, formatted byte-by-byte. Do NOT use "%016llX":
   // ESP-IDF's newlib-nano printf (default on several Tasmota envs) ignores the
   // 'll' length modifier and emits garbage ("...lX") for a 64-bit value, which
@@ -1497,7 +1502,7 @@ static int MODULE_PART fabric_op_instance(const mtrc_fabric *f, char *instance, 
   // resolve the node for CASE (commissioning ends at "connecting"/"no response").
   if (p < (int)cap - 1) instance[p++] = '-';
   for (int i = 7; i >= 0; i--) {
-    snprintf(instance + p, cap - p, "%02X",
+    snprintf(instance + p, cap - p, MTRC_S(12, "%02X"),
                   (unsigned)((f->node_id >> (i * 8)) & 0xFF));
     p += 2;
   }
@@ -1510,8 +1515,8 @@ static void MODULE_PART unpublish_operational_mdns(const mtrc_fabric *f) {
   if (!g.port.mdns_remove || !f) return;
   char instance[40];
   if (!fabric_op_instance(f, instance, sizeof(instance))) return;
-  g.port.mdns_remove(g.port.ctx, "matter", instance);
-  char m[64]; snprintf(m, sizeof(m), "operational mDNS removed %s", instance);
+  g.port.mdns_remove(g.port.ctx, MTRC_S(37, "matter"), instance);
+  char m[64]; snprintf(m, sizeof(m), MTRC_S(38, "operational mDNS removed %s"), instance);
   mlog(MATTER_LOG_INFO, m);
 }
 
@@ -1527,12 +1532,17 @@ static void MODULE_PART publish_operational_mdns(const mtrc_fabric *f) {
   // Apple Home tolerates SAT missing; Google Nest rejects ("kann nicht
   // verbinden" right after CASE completes — Hans report 2026-05-27).
   // Default SAT per spec is 4000 ms.
-  static const char *txt[] = { "SII=5000", "SAI=300", "SAT=4000", "T=0" };
-  g.port.mdns_publish(g.port.ctx, "matter", instance, MTRC_COMMISSION_PORT, txt, 4);
+  // filled at run time: a static pointer table would sit in the host's .data
+  const char *txt[4];
+  txt[0] = "SII=5000";
+  txt[1] = "SAI=300";
+  txt[2] = "SAT=4000";
+  txt[3] = "T=0";
+  g.port.mdns_publish(g.port.ctx, MTRC_S(37, "matter"), instance, MTRC_COMMISSION_PORT, txt, 4);
   // Operational discovery is published by the host under _matter._TCP per Core
   // Spec §4.3.1 (transport is still UDP). The host port chooses the proto; this
   // log just reflects the spec'd service type.
-  char m[96]; snprintf(m, sizeof(m), "operational mDNS: _matter._tcp %s TXT=SII/SAI/SAT/T", instance);
+  char m[96]; snprintf(m, sizeof(m), MTRC_S(39, "operational mDNS: _matter._tcp %s TXT=SII/SAI/SAT/T"), instance);
   mlog(MATTER_LOG_INFO, m);
 }
 
@@ -1542,7 +1552,7 @@ static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint3
   const uint8_t *icac = NULL; size_t icaclen = 0;
   uint64_t admin_subj = 0, admin_vid = 0;
   if (!inv_field(payload, plen, 0, 1, &noc, &noclen, NULL)) {
-    mlog(MATTER_LOG_INFO, "NOC: AddNOC FAIL InvalidNOC (no NOCValue field)");
+    mlog(MATTER_LOG_INFO, MTRC_S(40, "NOC: AddNOC FAIL InvalidNOC (no NOCValue field)"));
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
   }
   // ICACValue (field 1) is OPTIONAL: present when the fabric issues NOCs via an
@@ -1557,14 +1567,14 @@ static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint3
   mtrc_cert nc;
   if (!mtrc_cert_parse(noc, noclen, &nc) || !nc.have_pubkey ||
       !g.have_pending_op || !g.have_pending_root) {
-    mlog(MATTER_LOG_INFO, "NOC: AddNOC FAIL InvalidNOC (cert parse / no pending op|root)");
+    mlog(MATTER_LOG_INFO, MTRC_S(41, "NOC: AddNOC FAIL InvalidNOC (cert parse / no pending op|root)"));
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
   }
 
   mtrc_fabric *f = mtrc_store_alloc();
   if (!f) {
     char mf[72];
-    snprintf(mf, sizeof(mf), "NOC: AddNOC FAIL TableFull (%d/%d fabrics) — matterReset to clear",
+    snprintf(mf, sizeof(mf), MTRC_S(42, "NOC: AddNOC FAIL TableFull (%d/%d fabrics) — matterReset to clear"),
              mtrc_store_count(), MTRC_MAX_FABRICS);
     mlog(MATTER_LOG_INFO, mf);
     return build_noc_response(out, cap, ep, cl, 0x05, 0);   // TableFull
@@ -1585,7 +1595,7 @@ static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint3
   (void)admin_subj;
 
   char m[110];
-  snprintf(m, sizeof(m), "NOC: fabric idx=%u node=0x%08lX noc=%uB icac=%uB ipk=%uB",
+  snprintf(m, sizeof(m), MTRC_S(43, "NOC: fabric idx=%u node=0x%08lX noc=%uB icac=%uB ipk=%uB"),
            (unsigned)f->fabric_index, (unsigned long)f->node_id,
            (unsigned)f->noc_len, (unsigned)f->icac_len, (unsigned)ipklen);
   mlog(MATTER_LOG_INFO, m);
@@ -1614,7 +1624,7 @@ static void MODULE_PART matter_failsafe_disarm(bool committed) {
       mtrc_store_remove(idx);
       mtrc_persist_fabrics();
       char m[80];
-      snprintf(m, sizeof(m), "fail-safe rollback: removed tentative fabric idx=%u (%d left)",
+      snprintf(m, sizeof(m), MTRC_S(44, "fail-safe rollback: removed tentative fabric idx=%u (%d left)"),
                (unsigned)idx, mtrc_store_count());
       mlog(MATTER_LOG_INFO, m);
     }
@@ -1631,7 +1641,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
   uint16_t ep; uint32_t cl, cmd;
   if (!mtrc_im_parse_first_command(payload, plen, &ep, &cl, &cmd)) return;
   char m[80];
-  snprintf(m, sizeof(m), "IM Invoke ep=%u cluster=0x%04X cmd=0x%02X",
+  snprintf(m, sizeof(m), MTRC_S(45, "IM Invoke ep=%u cluster=0x%04X cmd=0x%02X"),
            (unsigned)ep, (unsigned)cl, (unsigned)cmd);
   mlog(MATTER_LOG_DEBUG, m);
 
@@ -1646,18 +1656,18 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
       else if (ct == 2)
         n = build_cmd_resp_bytes(resp, sizeof(resp), ep, cl, 0x03, MTRC_PAI_DER, MTRC_PAI_DER_LEN, NULL, 0);
     }
-    if (n > 0) mlog(MATTER_LOG_INFO, "NOC: CertificateChainResponse sent");
+    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(46, "NOC: CertificateChainResponse sent"));
 #endif
   } else if (cl == 0x003E && cmd == 0x00) {   // AttestationRequest -> Response(0x01)
     const uint8_t *nonce = NULL; size_t nlen = 0;
     if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
       n = build_attestation_response(resp, sizeof(resp), ep, cl, nonce, nlen);
-    if (n > 0) mlog(MATTER_LOG_INFO, "NOC: AttestationResponse sent (DAC-signed)");
+    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(47, "NOC: AttestationResponse sent (DAC-signed)"));
   } else if (cl == 0x003E && cmd == 0x04) {  // NOC: CSRRequest -> CSRResponse
     const uint8_t *nonce = NULL; size_t nlen = 0;
     if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
       n = build_csr_response(resp, sizeof(resp), ep, cl, nonce, nlen);
-    if (n > 0) mlog(MATTER_LOG_INFO, "NOC: CSRResponse sent (operational keypair + CSR)");
+    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(48, "NOC: CSRResponse sent (operational keypair + CSR)"));
   } else if (cl == 0x003E && cmd == 0x0B) {   // AddTrustedRootCertificate
     const uint8_t *rc = NULL; size_t rcl = 0; mtrc_cert root;
     if (inv_field(payload, plen, 0, 1, &rc, &rcl, NULL) &&
@@ -1665,7 +1675,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
       memcpy(g.pending_root_pub, root.pubkey, 65);
       g.have_pending_root = true;
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
-      mlog(MATTER_LOG_INFO, "NOC: trusted root stored");
+      mlog(MATTER_LOG_INFO, MTRC_S(49, "NOC: trusted root stored"));
     }
   } else if (cl == 0x003E && cmd == 0x06) {   // AddNOC -> NOCResponse
     n = build_addnoc(resp, sizeof(resp), ep, cl, payload, plen);
@@ -1684,7 +1694,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
           memset(&g.case_sess[i], 0, sizeof(g.case_sess[i]));   // drop sessions on this fabric
       mtrc_store_remove((uint8_t)idx);
       mtrc_persist_fabrics();
-      char m[48]; snprintf(m, sizeof(m), "NOC: RemoveFabric idx=%u (%d left)",
+      char m[48]; snprintf(m, sizeof(m), MTRC_S(50, "NOC: RemoveFabric idx=%u (%d left)"),
                            (unsigned)idx, mtrc_store_count());
       mlog(MATTER_LOG_INFO, m);
       n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, (uint8_t)idx);   // OK
@@ -1718,7 +1728,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
         if (lbllen) memcpy(cf->label, lbl, lbllen);
         cf->label[lbllen] = '\0';
         mtrc_persist_fabrics();
-        char fm[64]; snprintf(fm, sizeof(fm), "NOC: UpdateFabricLabel idx=%u \"%s\"",
+        char fm[64]; snprintf(fm, sizeof(fm), MTRC_S(51, "NOC: UpdateFabricLabel idx=%u \"%s\""),
                               (unsigned)cf->fabric_index, cf->label);
         mlog(MATTER_LOG_INFO, fm);
         n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, cf->fabric_index); // OK
@@ -1739,7 +1749,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
         g.fs_armed = true;
         g.fs_expiry_ms = g.port.millis(g.port.ctx) + (uint32_t)expiry * 1000u;
         char fm[48];
-        snprintf(fm, sizeof(fm), "fail-safe armed %us", (unsigned)expiry);
+        snprintf(fm, sizeof(fm), MTRC_S(52, "fail-safe armed %us"), (unsigned)expiry);
         mlog(MATTER_LOG_DEBUG, fm);
       }
     }
@@ -1818,11 +1828,11 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
                           (uint32_t)(timeout ? timeout : 180) * 1000u;
         mtrc_publish_commissionable(g.ocw_disc, 2);            // CM=2 (enhanced window)
         n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
-        mlog(MATTER_LOG_INFO, "AdminComm: OpenCommissioningWindow (enhanced, external verifier)");
+        mlog(MATTER_LOG_INFO, MTRC_S(53, "AdminComm: OpenCommissioningWindow (enhanced, external verifier)"));
       } else {
         g.ocw_active = false;
         n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x87);  // CONSTRAINT_ERROR
-        mlog(MATTER_LOG_ERROR, "AdminComm: OpenCommissioningWindow rejected (bad params)");
+        mlog(MATTER_LOG_ERROR, MTRC_S(54, "AdminComm: OpenCommissioningWindow rejected (bad params)"));
       }
     } else if (cmd == 0x01) {         // OpenBasicCommissioningWindow (device passcode)
       uint64_t timeout = 0;
@@ -1831,11 +1841,11 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
       g.ocw_expiry_ms = g.port.millis(g.port.ctx) +
                         (uint32_t)(timeout ? timeout : 180) * 1000u;
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
-      mlog(MATTER_LOG_INFO, "AdminComm: OpenBasicCommissioningWindow");
+      mlog(MATTER_LOG_INFO, MTRC_S(55, "AdminComm: OpenBasicCommissioningWindow"));
     } else if (cmd == 0x02) {         // RevokeCommissioning (close the window)
       matter_set_commissionable(0);                            // stop PASE; clears ocw_active/expiry
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
-      mlog(MATTER_LOG_INFO, "AdminComm: RevokeCommissioning (window closed)");
+      mlog(MATTER_LOG_INFO, MTRC_S(56, "AdminComm: RevokeCommissioning (window closed)"));
     }
   } else if (g.port.on_command) {     // any other app cluster -> let a script try
     if (g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)cmd))
@@ -1849,7 +1859,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
 
   if (n > 0) {
     secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack, true);
-    mlog(MATTER_LOG_DEBUG, "IM InvokeResponse sent");
+    mlog(MATTER_LOG_DEBUG, MTRC_S(57, "IM InvokeResponse sent"));
   }
 }
 
@@ -2099,20 +2109,20 @@ static void MODULE_PART emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, u
 // Group Key Management and Access Control. Modeled on Berry Matter_Plugin_1_Root.
 static void MODULE_PART emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
   const uint16_t ep = 0;
-  static const char *UNIQUE_ID = "TASMOTA-MATTER-C6-0001";
+  const char *UNIQUE_ID = MTRC_S(58, "TASMOTA-MATTER-C6-0001");   // not static: run-time address in the plugin
   if (cl == 0x0028) {                                   // Basic Information
     switch (attr) {
       case 0x0000: emit_attr_report_uint(w,ep,cl,attr,18); return;            // DataModelRevision
-      case 0x0001: emit_attr_report_str (w,ep,cl,attr,"Tasmota"); return;     // VendorName
+      case 0x0001: emit_attr_report_str (w,ep,cl,attr,MTRC_S(59, "Tasmota")); return;     // VendorName
       case 0x0002: emit_attr_report_uint(w,ep,cl,attr,g.cfg.vendor_id); return;
-      case 0x0003: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:"ESP32-C6"); return; // ProductName
+      case 0x0003: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:MTRC_S(60, "ESP32-C6")); return; // ProductName
       case 0x0004: emit_attr_report_uint(w,ep,cl,attr,g.cfg.product_id); return;
-      case 0x0005: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:"ESP32-C6"); return; // NodeLabel
-      case 0x0006: emit_attr_report_str (w,ep,cl,attr,"XX"); return;          // Location
+      case 0x0005: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:MTRC_S(60, "ESP32-C6")); return; // NodeLabel
+      case 0x0006: emit_attr_report_str (w,ep,cl,attr,MTRC_S(61, "XX")); return;          // Location
       case 0x0007: emit_attr_report_uint(w,ep,cl,attr,0); return;             // HardwareVersion
-      case 0x0008: emit_attr_report_str (w,ep,cl,attr,"ESP32-C6"); return;    // HardwareVersionString
+      case 0x0008: emit_attr_report_str (w,ep,cl,attr,MTRC_S(60, "ESP32-C6")); return;    // HardwareVersionString
       case 0x0009: emit_attr_report_uint(w,ep,cl,attr,1); return;             // SoftwareVersion
-      case 0x000A: emit_attr_report_str (w,ep,cl,attr,"1.0"); return;         // SoftwareVersionString
+      case 0x000A: emit_attr_report_str (w,ep,cl,attr,MTRC_S(62, "1.0")); return;         // SoftwareVersionString
       case 0x000F: emit_attr_report_str (w,ep,cl,attr,UNIQUE_ID); return;     // SerialNumber
       case 0x0011: emit_attr_report_bool(w,ep,cl,attr,true); return;          // Reachable
       case 0x0012: emit_attr_report_str (w,ep,cl,attr,UNIQUE_ID); return;     // UniqueID
@@ -2234,11 +2244,11 @@ static int MODULE_PART is_root_cluster(uint32_t cl) {
 // comes from NodeLabel (0x0005); the rest are mandatory metadata.
 static void MODULE_PART emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
   const char *label = dm_label_for(ep);
-  char uid[24]; snprintf(uid, sizeof uid, "TASMOTA-MTRC-EP%u", (unsigned)ep);
+  char uid[24]; snprintf(uid, sizeof uid, MTRC_S(63, "TASMOTA-MTRC-EP%u"), (unsigned)ep);
   switch (attr) {
-    case 0x0003: emit_attr_report_str (w,ep,0x0039,attr, g.cfg.device_name?g.cfg.device_name:"Tasmota"); return; // ProductName
-    case 0x0005: emit_attr_report_str (w,ep,0x0039,attr, label?label:""); return;  // NodeLabel (the name)
-    case 0x000A: emit_attr_report_str (w,ep,0x0039,attr, "1.0"); return;           // SoftwareVersionString
+    case 0x0003: emit_attr_report_str (w,ep,0x0039,attr, g.cfg.device_name?g.cfg.device_name:MTRC_S(59, "Tasmota")); return; // ProductName
+    case 0x0005: emit_attr_report_str (w,ep,0x0039,attr, label?label:MTRC_S(35, "")); return;  // NodeLabel (the name)
+    case 0x000A: emit_attr_report_str (w,ep,0x0039,attr, MTRC_S(62, "1.0")); return;           // SoftwareVersionString
     case 0x000F: emit_attr_report_str (w,ep,0x0039,attr, uid);  return;            // SerialNumber
     case 0x0011: emit_attr_report_bool(w,ep,0x0039,attr, true); return;            // Reachable
     case 0x0012: emit_attr_report_str (w,ep,0x0039,attr, uid);  return;            // UniqueID
@@ -2452,8 +2462,8 @@ static void MODULE_PART send_report_chunk(uint32_t ack) {
   if (mtrc_tlv_writer_ok(&w))
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, chunk, mtrc_tlv_writer_len(&w),
                  g.rpt_exch, true, ack, true);
-  else mlog(MATTER_LOG_ERROR, "IM report chunk overflow");
-  { char m[56]; snprintf(m, sizeof(m), "IM ReportData %d/%d more=%d",
+  else mlog(MATTER_LOG_ERROR, MTRC_S(64, "IM report chunk overflow"));
+  { char m[56]; snprintf(m, sizeof(m), MTRC_S(65, "IM ReportData %d/%d more=%d"),
       g.rpt_cursor, g.rpt_npaths, more); mlog(MATTER_LOG_DEBUG, m); }
   if (more)              { /* stay active; next chunk on StatusResponse */ }
   else if (g.rpt_is_sub) { g.rpt_phase = 1; }            // priming done -> SubscribeResponse next
@@ -2537,7 +2547,7 @@ static void MODULE_PART im_handle_subscribe(const uint8_t *payload, size_t plen,
   }
 
   char m[80];
-  snprintf(m, sizeof(m), "IM Subscribe id=%u max=%us hosted=%d paths=%d",
+  snprintf(m, sizeof(m), MTRC_S(66, "IM Subscribe id=%u max=%us hosted=%d paths=%d"),
            (unsigned)sid,(unsigned)max_s,hosted,g.rpt_npaths);
   mlog(MATTER_LOG_INFO, m);
   send_report_chunk(ack);                                 // first priming chunk
@@ -2615,10 +2625,10 @@ static void MODULE_PART im_handle_write(const uint8_t *payload, size_t plen,
   if (mtrc_tlv_writer_ok(&w)) {
     secured_send(MTRC_IM_WRITE_RESPONSE, MTRC_PROTO_IM, resp,
                  mtrc_tlv_writer_len(&w), exch, true, ack, true);
-    char m[48]; snprintf(m, sizeof(m), "IM WriteResponse sent (%d attrs)", npaths);
+    char m[48]; snprintf(m, sizeof(m), MTRC_S(67, "IM WriteResponse sent (%d attrs)"), npaths);
     mlog(MATTER_LOG_INFO, m);
   } else {
-    mlog(MATTER_LOG_ERROR, "IM write: response build overflow");
+    mlog(MATTER_LOG_ERROR, MTRC_S(68, "IM write: response build overflow"));
   }
 }
 
@@ -2634,7 +2644,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     // OR Google rotated keys silently. Include session id + peer node so we know
     // which session was tried (helps diagnose "kann nicht verbinden" cases).
     char em[80];
-    snprintf(em, sizeof(em), "secured rx MIC/decrypt FAIL sid=%u peer=0x%016llX len=%u",
+    snprintf(em, sizeof(em), MTRC_S(69, "secured rx MIC/decrypt FAIL sid=%u peer=0x%016llX len=%u"),
              (unsigned)mh.session_id, (unsigned long long)peer_node_id, (unsigned)len);
     mlog(MATTER_LOG_ERROR, em);
     return;
@@ -2647,11 +2657,11 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     char hx[64]; int hp = 0;
     size_t nh = ipll < 24 ? ipll : 24;
     for (size_t i = 0; i < nh && hp < 58; i++) {
-      snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]); hp += 2;   // void snprintf shim
+      snprintf(hx + hp, sizeof(hx) - hp, MTRC_S(12, "%02X"), ipl[i]); hp += 2;   // void snprintf shim
     }
     char dm[120];
     snprintf(dm, sizeof(dm),
-             "DIAG secured rx proto=0x%04X op=0x%02X exch=0x%04X plen=%u %s",
+             MTRC_S(70, "DIAG secured rx proto=0x%04X op=0x%02X exch=0x%04X plen=%u %s"),
              (unsigned)ph.protocol_id, (unsigned)ph.opcode,
              (unsigned)ph.exchange_id, (unsigned)ipll, hx);
     mlog(MATTER_LOG_INFO, dm);
@@ -2676,7 +2686,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     static const uint8_t sr[] = { 0x15, 0x24, 0x00, 0x00, 0x24, 0xFF, 0x0C, 0x18 }; // {0:SUCCESS, 0xFF:IMrev=12}
     secured_send(MTRC_IM_STATUS_RESPONSE, MTRC_PROTO_IM, sr, sizeof(sr),
                  ph.exchange_id, true, mh.msg_counter, true);
-    mlog(MATTER_LOG_INFO, "IM TimedRequest -> StatusResponse SUCCESS");
+    mlog(MATTER_LOG_INFO, MTRC_S(71, "IM TimedRequest -> StatusResponse SUCCESS"));
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE
              && g.rpt_active) {
     // Flow control for a chunked ReportData: the controller StatusResponses each
@@ -2688,7 +2698,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
       if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, sr, (size_t)m2,
                                g.rpt_exch, true, mh.msg_counter, true);
       g.rpt_active = false;
-      mlog(MATTER_LOG_INFO, "IM SubscribeResponse sent");
+      mlog(MATTER_LOG_INFO, MTRC_S(72, "IM SubscribeResponse sent"));
     } else {
       send_report_chunk(mh.msg_counter);    // next data chunk
     }
@@ -2698,13 +2708,13 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     // status after our ReportData means the controller rejected it. -DMTRC_DIAG.
     if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == 0x01 && ipll <= 24) {
       char hx[56]; int hp = 0;
-      for (size_t i = 0; i < ipll && hp < 52; i++) { snprintf(hx + hp, sizeof(hx) - hp, "%02X", ipl[i]); hp += 2; }
-      char sm[80]; snprintf(sm, sizeof(sm), "DIAG IM StatusResponse raw=%s", hx);
+      for (size_t i = 0; i < ipll && hp < 52; i++) { snprintf(hx + hp, sizeof(hx) - hp, MTRC_S(12, "%02X"), ipl[i]); hp += 2; }
+      char sm[80]; snprintf(sm, sizeof(sm), MTRC_S(73, "DIAG IM StatusResponse raw=%s"), hx);
       mlog(MATTER_LOG_INFO, sm);
     }
 #endif
     char m[80];
-    snprintf(m, sizeof(m), "secured rx proto=0x%04X op=0x%02X (unhandled)",
+    snprintf(m, sizeof(m), MTRC_S(74, "secured rx proto=0x%04X op=0x%02X (unhandled)"),
              (unsigned)ph.protocol_id, (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m);
     // MRP: a reliable message we generate no application response for (e.g. a
@@ -2721,12 +2731,12 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
 
 static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
-  { char m[40]; snprintf(m, sizeof(m), "rx %u B (dispatch)", (unsigned)len);
+  { char m[40]; snprintf(m, sizeof(m), MTRC_S(75, "rx %u B (dispatch)"), (unsigned)len);
     mlog(MATTER_LOG_DEBUG, m); }
   // Peek the message header to route by session id.
   mtrc_msg_header mh0;
   if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) {
-    mlog(MATTER_LOG_DEBUG, "rx: msg-header decode FAIL"); return; }
+    mlog(MATTER_LOG_DEBUG, MTRC_S(76, "rx: msg-header decode FAIL")); return; }
 
   // The initiator carries an ephemeral Source Node ID on the unsecured
   // session; our replies must echo it back as the Destination Node ID
@@ -2747,7 +2757,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
         if (g.sec_last_tx_len && g.port.udp_send)
           g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
                           g.sec_last_tx_buf, g.sec_last_tx_len);
-        mlog(MATTER_LOG_DEBUG, "rx: dup PASE counter -> re-sent last secured reply");
+        mlog(MATTER_LOG_DEBUG, MTRC_S(77, "rx: dup PASE counter -> re-sent last secured reply"));
         return;
       }
       g.pase_rx_last_ctr = mh0.msg_counter; g.pase_have_rx_ctr = true;
@@ -2763,7 +2773,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
           if (g.sec_last_tx_len && g.port.udp_send)
             g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
                             g.sec_last_tx_buf, g.sec_last_tx_len);
-          mlog(MATTER_LOG_DEBUG, "rx: dup CASE counter -> re-sent last secured reply");
+          mlog(MATTER_LOG_DEBUG, MTRC_S(78, "rx: dup CASE counter -> re-sent last secured reply"));
           return;
         }
         ss->rx_last_ctr = mh0.msg_counter; ss->have_rx_ctr = true;
@@ -2784,7 +2794,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
   if (g.have_peer_ctr && mh0.msg_counter == g.peer_last_ctr) {
     if (g.last_tx_len && g.port.udp_send)
       g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, g.last_tx_buf, g.last_tx_len);
-    mlog(MATTER_LOG_DEBUG, "rx: duplicate counter -> re-sent last reply");
+    mlog(MATTER_LOG_DEBUG, MTRC_S(79, "rx: duplicate counter -> re-sent last reply"));
     return;
   }
   g.peer_last_ctr = mh0.msg_counter; g.have_peer_ctr = true;
@@ -2793,12 +2803,12 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *pl; size_t pll;
   if (mtrc_frame_decode(buf, len, &mh, &ph, &pl, &pll) <= 0) {
-    mlog(MATTER_LOG_DEBUG, "rx: frame decode FAIL"); return; }
+    mlog(MATTER_LOG_DEBUG, MTRC_S(80, "rx: frame decode FAIL")); return; }
   if (ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) {
-    char m[48]; snprintf(m, sizeof(m), "rx: proto 0x%04X != SecureChannel",
+    char m[48]; snprintf(m, sizeof(m), MTRC_S(81, "rx: proto 0x%04X != SecureChannel"),
                          (unsigned)ph.protocol_id);
     mlog(MATTER_LOG_DEBUG, m); return; }
-  { char m[48]; snprintf(m, sizeof(m), "rx: SC opcode 0x%02X", (unsigned)ph.opcode);
+  { char m[48]; snprintf(m, sizeof(m), MTRC_S(82, "rx: SC opcode 0x%02X"), (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m); }
   g.exchange_id = ph.exchange_id;
   switch (ph.opcode) {
@@ -2818,7 +2828,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
                             ((unsigned long)pl[4] << 16) | ((unsigned long)pl[5] << 24);
         unsigned pc = pl[6] | (pl[7] << 8);
         char m[80];
-        snprintf(m, sizeof(m), "rx StatusReport gen=%u proto=0x%08lX code=0x%04X",
+        snprintf(m, sizeof(m), MTRC_S(83, "rx StatusReport gen=%u proto=0x%08lX code=0x%04X"),
                  gc, pid, pc);
         mlog(MATTER_LOG_ERROR, m);
       }
@@ -2923,7 +2933,7 @@ void MODULE_PART matter_loop(void) {
   // withdraws the _matterc mDNS advert separately).
   if (g.ocw_expiry_ms && (int32_t)(g.port.millis(g.port.ctx) - g.ocw_expiry_ms) >= 0) {
     g.ocw_active = false; g.ocw_expiry_ms = 0; g.commissionable = false;
-    mlog(MATTER_LOG_INFO, "AdminComm: commissioning window expired");
+    mlog(MATTER_LOG_INFO, MTRC_S(84, "AdminComm: commissioning window expired"));
   }
   // Drain ALL queued datagrams (a burst from several controllers must not be
   // dropped). Set the reply target from each packet's own source first.
@@ -3043,10 +3053,10 @@ matter_err_t MODULE_PART matter_set_label(uint16_t ep, const char *name) {
     g.labels[idx].ep = ep;
     mtrc_dm_add_cluster(ep, 0x0039);                // Bridged Device Basic Information
   }
-  strncpy(g.labels[idx].name, name ? name : "", sizeof(g.labels[idx].name) - 1);
+  strncpy(g.labels[idx].name, name ? name : MTRC_S(35, ""), sizeof(g.labels[idx].name) - 1);
   g.labels[idx].name[sizeof(g.labels[idx].name) - 1] = 0;
 #ifdef MTRC_DIAG
-  { char m[80]; snprintf(m, sizeof m, "DIAG label ep=%u agg=%u '%s'",
+  { char m[80]; snprintf(m, sizeof m, MTRC_S(85, "DIAG label ep=%u agg=%u '%s'"),
       (unsigned)ep, (unsigned)g.aggregator_ep, g.labels[idx].name);
     mlog(MATTER_LOG_INFO, m); }
 #endif
@@ -3180,7 +3190,7 @@ int MODULE_PART matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
 }
 
 // ---- onboarding + introspection ---------------------------------------
-const char *MODULE_PART matter_qr_uri(void)      { return g_ptr ? g.qr : ""; }
-const char *MODULE_PART matter_manual_code(void) { return g_ptr ? g.manual : ""; }
+const char *MODULE_PART matter_qr_uri(void)      { return g_ptr ? g.qr : MTRC_S(35, ""); }
+const char *MODULE_PART matter_manual_code(void) { return g_ptr ? g.manual : MTRC_S(35, ""); }
 const char *MODULE_PART matter_version(void)     { return MATTER_C_VERSION_STR; }
 bool        MODULE_PART matter_is_commissioned(void) { return false; } // TODO Phase 3

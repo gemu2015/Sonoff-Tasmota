@@ -17,12 +17,15 @@
 #ifndef MTRC_PLUGIN_STATICS_H
 #define MTRC_PLUGIN_STATICS_H
 
+#include "mtrc_plugin_strings.h"   // generated: all string literals as one PROGMEM blob
+
 typedef struct mtrc_statics {
   mtrc_dm_table_t  dm;                            // mtrc_dm.c
   mtrc_fabric      fab[MTRC_MAX_FABRICS];         // mtrc_store.c
   mtrc_tx_route_t  tx;                            // matter_c.c g_tx
   int              qr_ok;                         // matter_c.c g_qr_ok
   uint8_t          qrbuf[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
+  uint32_t         strs[MTRC_STR_WORDS];          // RAM copy of mtrc_str_blob (MTRC_S)
   // function-local scratch buffers (<function>_<name>)
   uint8_t  mtrc_build_onboarding_tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
   char     mtrc_publish_commissionable_txt_d[16];
@@ -53,6 +56,12 @@ typedef struct mtrc_statics {
 } mtrc_statics_t;
 
 #define MTRC_ST  (MTRC_MEM->st)
+
+// A literal becomes a pointer into the RAM copy of the text blob. The size
+// check turns a stale id (literal edited, tool not re-run) into a compile error.
+#undef  MTRC_S
+#define MTRC_S(id, s) \
+  ((const char *)MTRC_ST->strs + MTRC_SOFF_##id + 0 * sizeof(char[(sizeof(s) == MTRC_SLEN_##id) ? 1 : -1]))
 #undef  MTRC_STATIC   // replaces the plain-static fallback defined at the top of matter_c.c
 #define MTRC_STATIC(T, name, dims, field)  T (&name) dims = MTRC_ST->field
 

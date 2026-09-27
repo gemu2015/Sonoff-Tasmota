@@ -1,6 +1,11 @@
 #ifndef MODULE_PART
 #define MODULE_PART
 #endif
+#ifndef MTRC_S
+// string literal; the plugin build maps it into a RAM copy of all texts
+// (tools/gen_plugin_strings.py, mtrc_plugin_statics.h)
+#define MTRC_S(id, s)  (s)
+#endif
 // mtrc_im.c — Matter Interaction Model subset. See mtrc_im.h. GPLv3.
 
 #include "mtrc_im.h"
@@ -182,7 +187,7 @@ int MODULE_PART mtrc_im_build_cmd_response_u8(uint8_t *out, size_t cap,
   mtrc_tlv_end_container(&w);                          //    end CommandPath
   mtrc_tlv_start_struct(&w, mtrc_tlv_ctx(1));          //    CommandFields
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), field0);      //     0: errorCode
-  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(1), "", 0);       //     1: debugText ""
+  mtrc_tlv_put_utf8(&w, mtrc_tlv_ctx(1), MTRC_S(35, ""), 0);       //     1: debugText ""
   mtrc_tlv_end_container(&w);                          //    end CommandFields
   mtrc_tlv_end_container(&w);                          //   end CommandDataIB
   mtrc_tlv_end_container(&w);                          //  end InvokeResponseIB
