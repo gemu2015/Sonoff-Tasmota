@@ -27,7 +27,7 @@
 
 typedef struct { uint8_t *p; size_t cap, len; int err; } wbuf;
 static void MODULE_PART wb_u8 (wbuf *w, uint8_t v){ if(w->err||w->len+1>w->cap){w->err=1;return;} w->p[w->len++]=v; }
-static void MODULE_PART wb_le (wbuf *w, uint64_t v, int n){ for(int i=0;i<n;i++) wb_u8(w,(uint8_t)(v>>(8*i))); }
+static void MODULE_PART wb_le (wbuf *w, uint64_t v, int n){ for(int i=0;i<n;i++){ wb_u8(w,(uint8_t)v); v>>=8; } }   // constant shift (-Os)
 static void MODULE_PART wb_raw(wbuf *w, const uint8_t *d, size_t n){
   if(w->err||w->len+n>w->cap){w->err=1;return;} if(n){memcpy(w->p+w->len,d,n); w->len+=n;}
 }
@@ -88,7 +88,7 @@ static int MODULE_PART rb_avail(rbuf *r, size_t n){ return r->off + n <= r->len;
 static uint8_t  MODULE_PART rb_u8(rbuf *r){ if(!rb_avail(r,1)){r->err=1;return 0;} return r->p[r->off++]; }
 static uint64_t MODULE_PART rb_le(rbuf *r, int n){
   if(!rb_avail(r,(size_t)n)){r->err=1;return 0;}
-  uint64_t v=0; for(int i=0;i<n;i++) v|=(uint64_t)r->p[r->off+i]<<(8*i); r->off+=n; return v;
+  uint64_t v=0; for(int i=n-1;i>=0;i--) v=(v<<8)|r->p[r->off+i]; r->off+=n; return v;   // constant shift (-Os)
 }
 
 int MODULE_PART mtrc_frame_decode_msg_header(const uint8_t *buf, size_t len, mtrc_msg_header *mh) {

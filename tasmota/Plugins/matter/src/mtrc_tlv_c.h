@@ -19,7 +19,7 @@ static int MODULE_PART w_byte(mtrc_tlv_writer *w, uint8_t b) { return w_raw(w, &
 // little-endian write of n bytes from a 64-bit value
 static int MODULE_PART w_le(mtrc_tlv_writer *w, uint64_t v, int n) {
   uint8_t b[8];
-  for (int i = 0; i < n; i++) b[i] = (uint8_t)(v >> (8 * i));
+  for (int i = 0; i < n; i++) { b[i] = (uint8_t)v; v >>= 8; }   // constant shift: no libgcc call under -Os
   return w_raw(w, b, (size_t)n);
 }
 
@@ -32,12 +32,7 @@ static int MODULE_PART w_tag(mtrc_tlv_writer *w, mtrc_tlv_tag tag) {
     case MTRC_TLV_TAG_IMPL2:   return w_le(w, tag.number, 2);
     case MTRC_TLV_TAG_COMMON4:
     case MTRC_TLV_TAG_IMPL4:   return w_le(w, tag.number, 4);
-    case MTRC_TLV_TAG_FULL6:
-      return w_le(w, tag.vendor_id, 2) && w_le(w, tag.profile_num, 2)
-          && w_le(w, tag.number, 2);
-    case MTRC_TLV_TAG_FULL8:
-      return w_le(w, tag.vendor_id, 2) && w_le(w, tag.profile_num, 2)
-          && w_le(w, tag.number, 4);
+    // FULL6/FULL8: no vendor/profile in mtrc_tlv_tag -> falls through to the error
   }
   w->err = 1; return 0;
 }
@@ -134,7 +129,7 @@ static int MODULE_PART r_avail(mtrc_tlv_reader *r, size_t n) { return r->off <= 
 
 static uint64_t MODULE_PART r_le(const uint8_t *p, int n) {
   uint64_t v = 0;
-  for (int i = 0; i < n; i++) v |= (uint64_t)p[i] << (8 * i);
+  for (int i = n - 1; i >= 0; i--) v = (v << 8) | p[i];   // constant shift: no libgcc call under -Os
   return v;
 }
 
@@ -149,7 +144,7 @@ int MODULE_PART mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
   uint8_t et = (uint8_t)(ctrl & 0x1F);
 
   memset(e, 0, sizeof(*e));
-  e->tag.ctrl = (mtrc_tlv_tag_ctrl)tag_ctrl;
+  e->tag.ctrl = tag_ctrl;
 
   // tag bytes
   switch (tag_ctrl) {
@@ -162,15 +157,11 @@ int MODULE_PART mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
       if (!r_avail(r, 4)) goto bad; e->tag.number = (uint32_t)r_le(r->buf + r->off, 4); r->off += 4; break;
     case MTRC_TLV_TAG_FULL6:
       if (!r_avail(r, 6)) goto bad;
-      e->tag.vendor_id   = (uint16_t)r_le(r->buf + r->off, 2);
-      e->tag.profile_num = (uint16_t)r_le(r->buf + r->off + 2, 2);
-      e->tag.number      = (uint32_t)r_le(r->buf + r->off + 4, 2);
+      e->tag.number      = (uint32_t)r_le(r->buf + r->off + 4, 2);   // vendor + profile skipped
       r->off += 6; break;
     case MTRC_TLV_TAG_FULL8:
       if (!r_avail(r, 8)) goto bad;
-      e->tag.vendor_id   = (uint16_t)r_le(r->buf + r->off, 2);
-      e->tag.profile_num = (uint16_t)r_le(r->buf + r->off + 2, 2);
-      e->tag.number      = (uint32_t)r_le(r->buf + r->off + 4, 4);
+      e->tag.number      = (uint32_t)r_le(r->buf + r->off + 4, 4);   // vendor + profile skipped
       r->off += 8; break;
     default: goto bad;
   }
@@ -180,9 +171,11 @@ int MODULE_PART mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
     int n = 1 << et;
     if (!r_avail(r, (size_t)n)) goto bad;
     uint64_t raw = r_le(r->buf + r->off, n); r->off += n;
-    int bits = n * 8;
-    // sign-extend
-    if (bits < 64 && (raw & (1ull << (bits - 1)))) raw |= ~((1ull << bits) - 1);
+    // sign-extend by width (casts instead of a variable 64-bit shift, which is
+    // a libgcc call under -Os)
+    if (n == 1)      raw = (uint64_t)(int64_t)(int8_t)raw;
+    else if (n == 2) raw = (uint64_t)(int64_t)(int16_t)raw;
+    else if (n == 4) raw = (uint64_t)(int64_t)(int32_t)raw;
     e->type = MTRC_TLV_SINT; e->i = (int64_t)raw;
   } else if (et <= 0x07) {              // unsigned int
     int n = 1 << (et - 0x04);

@@ -27,6 +27,9 @@ and only fails on the device, usually as a silent "Software reset CPU":
   CONST      a plain number in the module's literal pool (l32r) — the house rule
              (readme.md) wants every constant beyond the 12-bit movi range and
              every float constant in a PROGMEM table read via EXEC_OFFSET
+  DESYNC?    a call into the middle of a host function: the linear disassembly
+             lost sync (e.g. padding before an aligned loop under -Os); check it
+             by disassembling from the real branch target — not counted
   NUM?       literal whose value lies in host code or ROM but is not the start
              of a symbol — almost always a number that only looks like an
              address (a float between 2.0 and ~4.5 is 0x400xxxxx, e.g. 2.22 =
@@ -310,6 +313,12 @@ def main():
             t = int(tgt.group(1), 16)
             if not (s <= t < e):
                 name = tgt.group(2) or hex(t)
+                if t not in sym_set:
+                    # a call into the MIDDLE of a host function: the linear
+                    # disassembly lost sync (padding before an aligned loop
+                    # under -Os, data between code) — listed, not counted
+                    found["DESYNC?"].append((func, f"{op} {name}"))
+                    continue
                 found["CALL-OUT"].append((func, f"{op} {name}"))
                 callout[re.sub(r"\+0x[0-9a-f]+$", "", name)] += 1
         elif op == "l32r" and tgt:
@@ -340,7 +349,7 @@ def main():
                 found["CONST"].append((func, f"0x{v:08x}"))
 
     print()
-    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "CONST", "PTR-SELF", "NUM?", "HEADER"):
+    for kind in ("CALL-OUT", "LIT-OUT", "PTR-FW", "PTR-BSS", "ROM", "CONST", "PTR-SELF", "NUM?", "DESYNC?", "HEADER"):
         hits = found[kind]
         per = Counter(f for f, _ in hits)
         print(f"{kind:9s} {len(hits):5d}  in {len(per)} functions")

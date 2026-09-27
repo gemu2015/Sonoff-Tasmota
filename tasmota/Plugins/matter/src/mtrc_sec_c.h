@@ -15,8 +15,9 @@
 void MODULE_PART mtrc_sec_nonce(uint8_t nonce[13], uint8_t security_flags,
                     uint32_t msg_counter, uint64_t src_node_id) {
   nonce[0] = security_flags;
-  for (int i = 0; i < 4; i++) nonce[1 + i] = (uint8_t)(msg_counter >> (8 * i));
-  for (int i = 0; i < 8; i++) nonce[5 + i] = (uint8_t)(src_node_id >> (8 * i));
+  // constant shifts: a variable 64-bit shift is a libgcc call under -Os
+  for (int i = 0; i < 4; i++) { nonce[1 + i] = (uint8_t)msg_counter; msg_counter >>= 8; }
+  for (int i = 0; i < 8; i++) { nonce[5 + i] = (uint8_t)src_node_id; src_node_id >>= 8; }
 }
 
 int MODULE_PART mtrc_sec_encode(uint8_t *out, size_t cap,

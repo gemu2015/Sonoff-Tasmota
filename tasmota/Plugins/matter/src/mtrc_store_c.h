@@ -75,10 +75,10 @@ int MODULE_PART mtrc_store_remove(uint8_t fabric_index) {
 #define MTRC_STORE_VER 2
 
 static void MODULE_PART put_u16(uint8_t *p, uint16_t v) { p[0]=v&0xFF; p[1]=(v>>8)&0xFF; }
-static void MODULE_PART put_u64(uint8_t *p, uint64_t v) { for (int i=0;i<8;i++) p[i]=(v>>(8*i))&0xFF; }
+static void MODULE_PART put_u64(uint8_t *p, uint64_t v) { for (int i=0;i<8;i++) { p[i]=(uint8_t)v; v>>=8; } }   // constant shift (-Os)
 static uint16_t MODULE_PART get_u16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1]<<8)); }
 static uint64_t MODULE_PART get_u64(const uint8_t *p) {
-  uint64_t v=0; for (int i=0;i<8;i++) v |= (uint64_t)p[i]<<(8*i); return v;
+  uint64_t v=0; for (int i=7;i>=0;i--) v = (v<<8) | p[i]; return v;   // constant shift (-Os)
 }
 
 int MODULE_PART mtrc_store_serialize(uint8_t *buf, size_t cap) {

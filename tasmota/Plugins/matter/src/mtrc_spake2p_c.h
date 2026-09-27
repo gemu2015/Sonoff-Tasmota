@@ -80,7 +80,7 @@ int MODULE_PART mtrc_spake2p_verifier_ZV(const uint8_t w0[32], const uint8_t y[3
 // Append an 8-byte little-endian length then the value, into buf at *off.
 static void MODULE_PART tt_put(uint8_t *buf, size_t *off, const uint8_t *val, size_t len) {
   uint64_t l = (uint64_t)len;
-  for (int i = 0; i < 8; i++) buf[(*off)++] = (uint8_t)(l >> (8 * i));
+  for (int i = 0; i < 8; i++) { buf[(*off)++] = (uint8_t)l; l >>= 8; }   // constant shift (-Os)
   if (len) { memcpy(buf + *off, val, len); *off += len; }
 }
 

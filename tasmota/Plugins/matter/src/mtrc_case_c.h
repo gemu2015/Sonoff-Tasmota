@@ -19,7 +19,7 @@ MTRC_FTABLE(uint8_t, INFO_SIGMA3, [6])  = { 'S','i','g','m','a','3' };
 MTRC_FTABLE(uint8_t, INFO_SESSION, [11]) = { 'S','e','s','s','i','o','n','K','e','y','s' };
 
 static void MODULE_PART put_le64(uint8_t *p, uint64_t v) {
-  for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i));
+  for (int i = 0; i < 8; i++) { p[i] = (uint8_t)v; v >>= 8; }   // constant shift: no libgcc call under -Os
 }
 
 void MODULE_PART mtrc_case_destination_id(const uint8_t ipk[16],

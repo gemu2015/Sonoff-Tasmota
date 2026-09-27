@@ -619,8 +619,10 @@ matter_err_t MODULE_PART matter_init(const matter_port_t *port, const matter_con
     if (!g_ptr) return MATTER_ERR_NO_MEM;
   }
   memset(&g, 0, sizeof(g));   // zero whether we came from PSRAM or DRAM
-  g.port = *port;
-  g.cfg  = *cfg;
+  // memcpy, not struct assignment: under -Os the compiler turns an assignment
+  // this large into a direct firmware memcpy call (the macro goes via jt)
+  memcpy(&g.port, port, sizeof(g.port));
+  memcpy(&g.cfg, cfg, sizeof(g.cfg));
   g.inited = true;
   g.next_ep = 1;            // endpoint 0 is the root node
 
@@ -927,7 +929,8 @@ static int MODULE_PART case_open(const uint8_t key[16], const uint8_t nonce[13],
 // controller (Apple) -> "no fabric matches destinationId" and CASE never starts.
 static void MODULE_PART fabric_op_ipk(const mtrc_fabric *f, uint8_t op_ipk[16]) {
   uint8_t salt[8];
-  for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
+  uint64_t fid = f->fabric_id;   // big-endian, constant shifts (-Os)
+  for (int i = 7; i >= 0; i--) { salt[i] = (uint8_t)fid; fid >>= 8; }
   uint8_t cfid[8];
   if (mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
                        (const uint8_t *)MTRC_S(23, "CompressedFabric"), 16, cfid, sizeof(cfid)) &&
@@ -1499,7 +1502,8 @@ static int MODULE_PART build_noc_response(uint8_t *out, size_t cap, uint16_t ep,
 static int MODULE_PART fabric_op_instance(const mtrc_fabric *f, char *instance, size_t cap) {
   if (!f) return 0;
   uint8_t salt[8];
-  for (int i = 0; i < 8; i++) salt[i] = (uint8_t)(f->fabric_id >> (8 * (7 - i)));
+  uint64_t fid = f->fabric_id;   // big-endian, constant shifts (-Os)
+  for (int i = 7; i >= 0; i--) { salt[i] = (uint8_t)fid; fid >>= 8; }
   uint8_t cfid[8];
   if (!mtrc_hkdf_sha256(salt, sizeof(salt), f->root_pub + 1, 64,
                         (const uint8_t *)MTRC_S(23, "CompressedFabric"), 16, cfid, sizeof(cfid)))
@@ -1512,9 +1516,10 @@ static int MODULE_PART fabric_op_instance(const mtrc_fabric *f, char *instance, 
   // corrupts the operational DNS-SD instance name so a controller can never
   // resolve the node for CASE (commissioning ends at "connecting"/"no response").
   if (p < (int)cap - 1) instance[p++] = '-';
+  uint8_t nb[8]; uint64_t nid = f->node_id;   // bytes first: constant shifts (-Os)
+  for (int i = 0; i < 8; i++) { nb[i] = (uint8_t)nid; nid >>= 8; }
   for (int i = 7; i >= 0; i--) {
-    snprintf(instance + p, cap - p, MTRC_S(12, "%02X"),
-                  (unsigned)((f->node_id >> (i * 8)) & 0xFF));
+    snprintf(instance + p, cap - p, MTRC_S(12, "%02X"), (unsigned)nb[i]);
     p += 2;
   }
   return 1;
@@ -3173,14 +3178,20 @@ static int64_t MODULE_PART mtrc_round_d2i64(double x) {
   if (e == 0) return 0;                                    // zero / denormal
   uint64_t m = ((bits << 12) >> 12) | ((uint64_t)1 << 52); // 53-bit mantissa
   int32_t  sh = e - 1075;                                  // value = m * 2^sh
-  uint64_t mag;
+  // shifts by one in a loop: a variable 64-bit shift is a libgcc call
+  // (ROM routine) when the plugin is built with -Os
+  uint64_t mag = m;
   if (sh >= 0) {
     if (sh > 10) sh = 10;                                  // saturate near 2^63 (inf/nan too)
-    mag = m << sh;
+    while (sh--) mag <<= 1;
   } else if (sh < -53) {
     mag = 0;                                               // |x| < 0.5
   } else {
-    mag = (m + ((uint64_t)1 << (-sh - 1))) >> (-sh);       // +0.5, truncate
+    int k = -sh;                                           // +0.5, truncate
+    uint64_t half = 1;
+    for (int i = 1; i < k; i++) half <<= 1;
+    mag += half;
+    while (k--) mag >>= 1;
   }
   return (bits >> 63) ? -(int64_t)mag : (int64_t)mag;
 }

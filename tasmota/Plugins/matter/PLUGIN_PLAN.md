@@ -367,3 +367,18 @@ on C6), four -fpermissive type errors.
 new one, the bootloader rejects "Only one MD5 checksum is allowed" and resets forever. Fixed in
 Check_partition (rest of the table sector to 0xFF before the MD5 entry), verified on .154
 (chkpt r + chkpt a2 with the fix). Rescue: write a valid partitions.bin to 0x8000.
+
+### Stage 6 — -Os (2026-09-27)
+MATTERF built with -Os instead of -Og: Xtensa 76,176 → 61,348 B, RISC-V 72,968 → 56,988 B —
+both fit a 64 KB plugin partition. RAM unchanged (71,332 B). What -Os broke, all found by
+blib_audit before anything ran on a device:
+- variable-count 64-bit shifts → `__ashldi3`/`__lshrdi3` in ROM (not overridable: the ROM
+  linker script assigns them) — rewritten as constant shifts / loops (checked against the old
+  code on 3 M random values);
+- RISC-V only: 273 direct `memcpy` calls — `mtrc_tlv_tag` was 12 bytes and ilp32 passes structs
+  > 8 bytes through memory. Now 8 bytes (`number`, `ctrl`); vendor/profile of fully qualified tags
+  are skipped when reading (nothing used them), writing one is an error (nothing writes one);
+- struct assignments in `matter_init`, the returned segment in `qrcodegen_encodeText`,
+  `acc[32] = {0}` in `mtrc_ec_scalar_reduce` → explicit memcpy/memset macros, or built in place.
+Device test .39 (S3) and .154 (C3): pase_probe all checks, setFloat 2137/-555/13, QR matrix
+module-identical to the built-in qrcodegen.

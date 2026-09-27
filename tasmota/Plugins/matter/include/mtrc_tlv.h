@@ -56,23 +56,22 @@ typedef enum {
   MTRC_TLV_TAG_FULL8    = 7,  // 8 tag bytes: vid(2) prof(2) tag(4)
 } mtrc_tlv_tag_ctrl;
 
+// 8 bytes, so RISC-V (ilp32) passes it in two registers. At 12 bytes it went
+// through memory, and under -Os each copy became a call to the firmware's
+// memcpy (273 CALL-OUTs in the plugin). Fully qualified tags keep no vendor or
+// profile: the reader skips them (nothing looked at them), the writer refuses.
 typedef struct {
-  mtrc_tlv_tag_ctrl ctrl;
-  uint16_t vendor_id;    // FULL6/FULL8 only
-  uint16_t profile_num;  // FULL6/FULL8 only
   uint32_t number;       // tag number (CONTEXT: 0..255, else up to 32-bit)
+  uint8_t  ctrl;         // mtrc_tlv_tag_ctrl
 } mtrc_tlv_tag;
 
 // always_inline: an out-of-line copy of a header inline lands OUTSIDE the plugin
 // module (no MODULE_PART) -- 225 calls to mtrc_tlv_ctx did (blib_audit, 26.09.2026)
 static inline __attribute__((always_inline)) mtrc_tlv_tag mtrc_tlv_anon(void) {
-  mtrc_tlv_tag t = { MTRC_TLV_TAG_ANON, 0, 0, 0 }; return t;
+  mtrc_tlv_tag t = { 0, MTRC_TLV_TAG_ANON }; return t;
 }
 static inline __attribute__((always_inline)) mtrc_tlv_tag mtrc_tlv_ctx(uint8_t n) {
-  mtrc_tlv_tag t = { MTRC_TLV_TAG_CONTEXT, 0, 0, n }; return t;
-}
-static inline __attribute__((always_inline)) mtrc_tlv_tag mtrc_tlv_full(uint16_t vid, uint16_t prof, uint32_t num) {
-  mtrc_tlv_tag t = { MTRC_TLV_TAG_FULL8, vid, prof, num }; return t;
+  mtrc_tlv_tag t = { n, MTRC_TLV_TAG_CONTEXT }; return t;
 }
 
 // ---- writer ------------------------------------------------------------

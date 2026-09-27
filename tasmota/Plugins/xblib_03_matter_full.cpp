@@ -40,7 +40,18 @@
 #include "module.h"
 #include "module_defines.h"
 
-PUSH_OPTIONS
+// -Os instead of the plugins' usual -Og (PUSH_OPTIONS): Xtensa 76 -> 61 KB,
+// RISC-V 73 -> 57 KB, small enough for a 64 KB plugin partition. -Os emits
+// library calls the jumptable macros do not catch:
+//  - a 64-bit shift by a VARIABLE count becomes __ashldi3/__lshrdi3, a ROM
+//    address the ROM linker script assigns (a local definition cannot override
+//    it) -> the matter sources only shift 64-bit values by constants;
+//  - on RISC-V a struct copy, a struct passed by value (> 8 bytes goes through
+//    memory) and '= {0}' on an array become direct memcpy/memset calls ->
+//    mtrc_tlv_tag is 8 bytes, larger copies use the memcpy macro.
+// blib_audit (run by build_plugin.py) reports any new one as CALL-OUT or ROM.
+_Pragma("GCC push_options")
+_Pragma("GCC optimize (\"-Os\")")
 
 // THE amalgamation enabler: remap libc (memcpy/memset/snprintf/…) to the module
 // jumptable via gettbl(), so all 16 matter_c sources amalgamate without adding

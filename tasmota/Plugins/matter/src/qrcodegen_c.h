@@ -147,11 +147,15 @@ bool MODULE_PART qrcodegen_encodeText(const char *text, uint8_t tempBuffer[], ui
 	if (qrcodegen_isNumeric(text)) {
 		if (qrcodegen_calcSegmentBufferSize(qrcodegen_Mode_NUMERIC, textLen) > bufLen)
 			goto fail;
-		seg = qrcodegen_makeNumeric(text, tempBuffer);
+		// built in place and passed on: assigning the returned struct to seg was a
+		// 16-byte copy, a firmware memcpy call on RISC-V under -Os
+		struct qrcodegen_Segment s = qrcodegen_makeNumeric(text, tempBuffer);
+		return qrcodegen_encodeSegmentsAdvanced(&s, 1, ecl, minVersion, maxVersion, mask, boostEcl, tempBuffer, qrcode);
 	} else if (qrcodegen_isAlphanumeric(text)) {
 		if (qrcodegen_calcSegmentBufferSize(qrcodegen_Mode_ALPHANUMERIC, textLen) > bufLen)
 			goto fail;
-		seg = qrcodegen_makeAlphanumeric(text, tempBuffer);
+		struct qrcodegen_Segment s = qrcodegen_makeAlphanumeric(text, tempBuffer);   // see above
+		return qrcodegen_encodeSegmentsAdvanced(&s, 1, ecl, minVersion, maxVersion, mask, boostEcl, tempBuffer, qrcode);
 	} else {
 		if (textLen > bufLen)
 			goto fail;

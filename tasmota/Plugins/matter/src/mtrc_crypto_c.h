@@ -148,7 +148,8 @@ static void MODULE_PART be32_sub_n(uint8_t a[32]) {  // a = (a - n) mod 2^256
 void MODULE_PART mtrc_ec_scalar_reduce(const uint8_t *in, size_t in_len, uint8_t out[32]) {
   // Bit-by-bit: acc = (acc << 1 | bit); if it reached >= n, subtract n once.
   // acc stays < n throughout (value before each subtract is < 2n).
-  uint8_t acc[32] = {0};
+  uint8_t acc[32];
+  memset(acc, 0, sizeof(acc));   // not '= {0}': under -Os that is a direct ROM memset call
   for (size_t i = 0; i < in_len * 8; i++) {
     int bit = (in[i >> 3] >> (7 - (i & 7))) & 1;
     int carry = bit;
