@@ -322,3 +322,34 @@ Still open: 418 CONST (numbers in the module's literal pool, incl. field offsets
 block) — against the readme rule, technically fine after the linker fix; gemu to decide.
 Next: the export table (matter_init/add_endpoint/start/loop/set_attr …), the firmware side (fill
 the HAL + crypto ops, route the TinyC matter syscalls to the BLIB), then a device test.
+
+### Stage 4 — runs on the device (2026-09-27, .39 = ESP32-S3 devkit, 8 MB PSRAM, `tinyc32s3`)
+Firmware side: `tasmota/include/xdrv_124_matter_dispatch.h` (USE_MATTER_C + USE_BINPLUGINS).
+Every matter_* call of the TinyC glue and the mtr* syscalls goes through one function table;
+the choice is made once, at the first matter_init(): a MATTERF module in the plugin partition
+is initialized if nobody did (plugins are not initialized at boot, TinyC autostart comes
+first), and if it exports the whole API it gets the firmware's BearSSL (`mtrc_crypto_bind`)
+and is used — otherwise the built-in lib (gemu: both versions may be present). Unloading the
+chosen plugin later switches to stubs (MATTER_ERR_NOT_INIT) instead of jumping into freed
+flash. `USE_MATTER_C_PLUGIN_ONLY` (env `tinyc32-4M-mtrplugin`): no built-in lib code/.bss,
+for boards without PSRAM. The plugin exports the 20 matter_* functions + mtrc_crypto_bind
+with argc 0 (bcall/fcall reject them) and carries the test attestation set (MTRC_ATTEST_TEST_CREDS,
+plugin copy of mtrc_attest_creds.h via the table macros).
+
+Verified on .39 with `examples/matter_plug.tc` (autostart):
+- boot: MATTERF initialized by the dispatch, chosen, data model seeded, UDP 5540
+- Bind: QR `MT:Y.K90Q12120NUM1YA00`, manual code 23928408285, QR SVG and the whole /mt page
+  identical to the built-in Matter (MATTERF unlinked, reboot, same script)
+- `tools/pase_probe.py` (no controller needed, pure Python): PASE established (device cB
+  matches, 0.8 s), secure session, BasicInformation read (VendorName "Tasmota" from the text
+  blob), DAC/PAI identical to mtrc_attest_creds.h, AttestationResponse signature valid,
+  ActivePower on endpoint 1 follows the script (80 -> 132 in 4 s)
+
+Not yet tested: a real commissioning (CSR/AddNOC/CASE — needs a phone), a board without PSRAM.
+
+`tools/pase_probe.py` also runs CSRRequest now: new operational key, CSR self-signature and the
+DAC signature over the NOCSR elements valid, nonce echoed.
+
+RAM/flash, ESP32 without PSRAM (`tinyc32-4M` vs `tinyc32-4M-mtrplugin`, 2026-09-27):
+static RAM 114 776 → 81 256 B (−33.5 KB), flash 1 713 355 → 1 665 759 B (−47.6 KB). With the
+plugin running, the heap carries about what the built-in lib had as .bss (+ ~3.5 KB texts/tables).

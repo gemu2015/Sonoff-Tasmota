@@ -377,6 +377,30 @@ def ecdsa_verify(pub, msg, sig):
     return pt is not None and pt[0] % N == r
 
 
+
+def der_tlv(b, i):
+    """-> (tag, content_start, content_end) of the DER element at i"""
+    tag, ln = b[i], b[i + 1]; j = i + 2
+    if ln & 0x80:
+        n = ln & 0x7F; ln = int.from_bytes(b[j:j + n], "big"); j += n
+    return tag, j, j + ln
+
+
+def check_csr(csr):
+    """CSR self-signature: ECDSA-SHA256 over CertificationRequestInfo with its own key"""
+    _, s0, _ = der_tlv(csr, 0)
+    _, c0, c1 = der_tlv(csr, s0)                  # CertificationRequestInfo
+    cri = csr[s0:c1]
+    _, a0, a1 = der_tlv(csr, c1)                  # signatureAlgorithm
+    _, b0, b1 = der_tlv(csr, a1)                  # BIT STRING
+    sig = csr[b0 + 1:b1]                          # skip unused-bits byte
+    _, q0, _ = der_tlv(sig, 0)
+    _, r0, r1 = der_tlv(sig, q0)
+    _, t0, t1 = der_tlv(sig, r1)
+    raw = int.from_bytes(sig[r0:r1], "big").to_bytes(32, "big") + int.from_bytes(sig[t0:t1], "big").to_bytes(32, "big")
+    k = cri.find(bytes.fromhex("034200")) + 3
+    return ecdsa_verify(dec(cri[k:k + 65]), cri, raw)
+
 def im_checks(sec, att):
     ok = True
     bi = sec.read(0, 0x0028, [1, 2, 3, 0x0F])
@@ -399,6 +423,27 @@ def im_checks(sec, att):
     good = ecdsa_verify(dec(dac[k:k + 65]), elems + att, sig)
     ok &= good
     print("AttestationResponse: signature " + ("valid (DAC key, elements || challenge)" if good else "INVALID"))
+    # CSRRequest -> CSRResponse {0: NOCSRElements, 1: signature}
+    nonce = os.urandom(32)
+    ib = sec.invoke(0, 0x003E, 0x04, [tlv_bytes(0, nonce)])
+    nocsr, sig = tget(ib, 1, 0), tget(ib, 1, 1)
+    (_, el), _ = tlv_tree(nocsr)
+    csr, echo = tget(el, 1), tget(el, 2)
+    good_dac = ecdsa_verify(dec(dac[k:k + 65]), nocsr + att, sig)
+    good_csr = check_csr(csr)
+    ok &= good_dac and good_csr and echo == nonce
+    print(f"CSRResponse: CSR {len(csr)} B, self-signature " + ("valid" if good_csr else "INVALID")
+          + ", NOCSR signature " + ("valid" if good_dac else "INVALID")
+          + ", nonce " + ("echoed" if echo == nonce else "WRONG"))
+    # data model of the running script (examples/matter_plug.tc: endpoint 1,
+    # OnOff + ActivePower updated every second) — two reads a few seconds apart
+    try:
+        v1 = sec.read(1, 0x0090, [0]).get(0)
+        time.sleep(3)
+        v2 = sec.read(1, 0x0090, [0]).get(0)
+        print(f"endpoint 1 ActivePower: {v1} -> {v2}" + ("  (script updates arrive)" if v1 != v2 else ""))
+    except StopIteration:
+        print("endpoint 1 ActivePower: not present (no matter_plug.tc running)")
     return ok
 
 def main():

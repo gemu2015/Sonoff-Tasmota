@@ -55,18 +55,27 @@ extern "C" TC_BLIB_REG_ENTRY *tc_blib_lookup(const char *name);
 #define MTRC_F_V(name, params, args)           void (*name) params;
 typedef struct { MTRC_API_LIST(MTRC_F_R, MTRC_F_V) } mtrc_api_t;
 
-// built-in lib (the real matter_* — the redirecting macros come further down)
-#define MTRC_B_R(ret, name, params, args, dv)  matter_##name,
-#define MTRC_B_V(name, params, args)           matter_##name,
-static const mtrc_api_t mtrc_api_builtin = { MTRC_API_LIST(MTRC_B_R, MTRC_B_V) };
-
-// stubs after the chosen plugin was unloaded
+// stubs: after the chosen plugin was unloaded, and as the "built-in" side of a
+// plugin-only build
 #define MTRC_D_R(ret, name, params, args, dv)  static ret mtrc_dead_##name params { return dv; }
 #define MTRC_D_V(name, params, args)           static void mtrc_dead_##name params { }
 MTRC_API_LIST(MTRC_D_R, MTRC_D_V)
 #define MTRC_DT_R(ret, name, params, args, dv) mtrc_dead_##name,
 #define MTRC_DT_V(name, params, args)          mtrc_dead_##name,
 static const mtrc_api_t mtrc_api_dead = { MTRC_API_LIST(MTRC_DT_R, MTRC_DT_V) };
+
+#ifdef USE_MATTER_C_PLUGIN_ONLY
+// Matter only as the plugin (for boards without PSRAM, where the built-in lib's
+// ~33 KB of .bss would sit next to the plugin's heap block): nothing references
+// the lib, so the linker leaves its code and .bss out. Without the plugin every
+// matter_* call answers like an unloaded plugin.
+static const mtrc_api_t mtrc_api_builtin = { MTRC_API_LIST(MTRC_DT_R, MTRC_DT_V) };
+#else
+// built-in lib (the real matter_* — the redirecting macros come further down)
+#define MTRC_B_R(ret, name, params, args, dv)  matter_##name,
+#define MTRC_B_V(name, params, args)           matter_##name,
+static const mtrc_api_t mtrc_api_builtin = { MTRC_API_LIST(MTRC_B_R, MTRC_B_V) };
+#endif
 
 static mtrc_api_t        mtrc_api_plugin;          // filled from the BLIB exports
 static const mtrc_api_t *mtrc_api_sel = nullptr;   // latched at the first matter_init()
@@ -147,7 +156,11 @@ static matter_err_t mtrc_select_and_init(const matter_port_t *p, const matter_co
       AddLog(LOG_LEVEL_INFO, PSTR("MTR: using the Matter plugin (MATTERF)"));
     } else {
       mtrc_api_sel = &mtrc_api_builtin;
+#ifdef USE_MATTER_C_PLUGIN_ONLY
+      AddLog(LOG_LEVEL_ERROR, PSTR("MTR: no Matter plugin (MATTERF) - this firmware has no built-in Matter"));
+#else
       AddLog(LOG_LEVEL_INFO, PSTR("MTR: using the built-in Matter"));
+#endif
     }
   }
   return mtrc_api()->init(p, c);
