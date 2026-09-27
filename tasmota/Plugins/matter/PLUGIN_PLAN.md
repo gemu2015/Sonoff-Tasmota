@@ -301,3 +301,24 @@ relaxation ("dangerous relocation: literal placed after use").
   heap struct in MODULE_MEMORY.
 - Then the firmware side (lean base: fill HAL + crypto ops, resolve exports, route TinyC matter
   syscalls) and the test on .156. Estimate for ESP32/S3: ~2–3 days; C3/C6 (RISC-V) extra.
+
+### Stage 3c — audit clean (2026-09-27)
+After the linker fix (own output section `.flash.plugins`, see `AUDIT_2026-09-26.md`) the
+LIT-OUT class was gone (337 → 321). The rest, all in the plugin copy, gated by `MTRC_PLUGIN_BUILD`
+so the built-in lib stays unchanged:
+
+| step | findings |
+|---|---|
+| all mutable statics (dm, g_fab, g_tx, qr, 26 function-local buffers) → one heap block `mtrc_statics_t` (~33 KB), `calloc` at pFUNC_INIT — early, so it also fits without PSRAM; `MTRC_STATIC()` = C++ array reference (sizeof kept, size mismatch = compile error); `g_cr` → MODULE_MEMORY; pFUNC_DEINIT frees | PTR-BSS 155 → 0 |
+| double: `matter_set_attr_scaled` rounds from the float bits (checked against the double formula on 2.7 M values), `mtrc_tlv_read` via jt[187] | ROM 7 → 0 |
+| texts: `tools/gen_plugin_strings.py` → one PROGMEM blob (92 texts, 2.9 KB), word-copied to RAM at init; source keeps `MTRC_S(id, "text")` / `MTRC_SM(id, MACRO)`; stale id = compile error (tested) | PTR-FW 158 → 66 |
+| tables (`mtrc_tables.h`): file-scope byte tables → RAM copy at init (~600 B), function-local byte tables → stack copy, 32-bit tables stay in the module (word reads are fine on the instruction bus), tiny int tables → arithmetic | PTR-FW 66 → 0 |
+
+**blib_audit: 0 certain problems.** 50 PTR-SELF, all `*_PGM` tables / the text blob read with
+EXEC_OFFSET, plus BLIB_EXPORTS (host-relocated as in CRC_BLIB). RAM: ~36 KB heap for the block
+(same as the built-in lib's .bss plus ~3.5 KB for texts/tables) + the ~22 KB ctx.
+
+Still open: 418 CONST (numbers in the module's literal pool, incl. field offsets into the heap
+block) — against the readme rule, technically fine after the linker fix; gemu to decide.
+Next: the export table (matter_init/add_endpoint/start/loop/set_attr …), the firmware side (fill
+the HAL + crypto ops, route the TinyC matter syscalls to the BLIB), then a device test.

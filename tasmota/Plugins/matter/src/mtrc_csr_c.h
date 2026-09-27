@@ -3,6 +3,7 @@
 #endif
 // mtrc_csr.c — PKCS#10 CSR (DER) builder. See mtrc_csr.h. GPLv3.
 
+#include "mtrc_tables.h"
 #include "mtrc_csr.h"
 #include "mtrc_crypto.h"
 #include <string.h>
@@ -32,11 +33,11 @@ static size_t MODULE_PART der_int(uint8_t *out, const uint8_t v[32]) {
 
 // AlgorithmIdentifier for an EC public key on prime256v1:
 //   SEQ { OID id-ecPublicKey (1.2.840.10045.2.1), OID prime256v1 (..3.1.7) }
-static const uint8_t ALG_ECPK[] = {
+MTRC_FTABLE(uint8_t, ALG_ECPK, [21]) = {
   0x30,0x13, 0x06,0x07,0x2A,0x86,0x48,0xCE,0x3D,0x02,0x01,
              0x06,0x08,0x2A,0x86,0x48,0xCE,0x3D,0x03,0x01,0x07 };
 // AlgorithmIdentifier ecdsa-with-SHA256 (1.2.840.10045.4.3.2)
-static const uint8_t ALG_ECDSA_SHA256[] = {
+MTRC_FTABLE(uint8_t, ALG_ECDSA_SHA256, [12]) = {
   0x30,0x0A, 0x06,0x08,0x2A,0x86,0x48,0xCE,0x3D,0x04,0x03,0x02 };
 
 int MODULE_PART mtrc_csr_build(uint8_t *out, size_t cap,
@@ -51,9 +52,12 @@ int MODULE_PART mtrc_csr_build(uint8_t *out, size_t cap,
   uint8_t spki[160]; size_t sp = der_wrap(spki, 0x30, spki_c, sc);
 
   // CertificationRequestInfo = SEQ { INTEGER 0, Name{}, SPKI, [0]{} }
-  static const uint8_t VER[]  = { 0x02,0x01,0x00 };   // version 0
-  static const uint8_t SUBJ[] = { 0x30,0x00 };        // empty Name
-  static const uint8_t ATTR[] = { 0xA0,0x00 };        // empty attributes [0]
+  MTRC_BTABLE(uint8_t, VER, [3])  = { 0x02,0x01,0x00 };   // version 0
+  MTRC_BTABLE(uint8_t, SUBJ, [2]) = { 0x30,0x00 };        // empty Name
+  MTRC_BTABLE(uint8_t, ATTR, [2]) = { 0xA0,0x00 };        // empty attributes [0]
+  MTRC_BTABLE_LOAD(uint8_t, VER, [3]);
+  MTRC_BTABLE_LOAD(uint8_t, SUBJ, [2]);
+  MTRC_BTABLE_LOAD(uint8_t, ATTR, [2]);
   uint8_t cri_c[256]; size_t cc = 0;
   memcpy(cri_c + cc, VER, sizeof(VER));   cc += sizeof(VER);
   memcpy(cri_c + cc, SUBJ, sizeof(SUBJ)); cc += sizeof(SUBJ);

@@ -23,6 +23,9 @@ texts share one id. Re-run after editing a literal: ids are renumbered from
 scratch, the result is deterministic. --check only reports whether the sources
 and the header are up to date (exit 1 if not).
 
+A literal that lives in a header macro (`#define NAME "..."` in include/*.h)
+is written MTRC_SM(<id>, NAME) in the source; the tool reads its text there.
+
 Left alone: #include lines, char-array initializers (`x[] = "..."`, handled as
 tables), literals in brace initializer lists (pointer tables must be filled at
 run time instead).
@@ -38,10 +41,11 @@ ROOT = os.path.dirname(HERE)                        # tasmota/Plugins/matter
 SRC = sorted(glob.glob(os.path.join(ROOT, "src", "*_c.h")))
 HDR = os.path.join(ROOT, "include", "mtrc_plugin_strings.h")
 
-# comments, MTRC_S(id, <literals>), plain literal runs, char literals
+# comments, MTRC_S(id, <literals>), plain literal runs, MTRC_SM(id, MACRO), char literals
 TOK = re.compile(r'//[^\n]*|/\*.*?\*/'
                  r'|MTRC_S\(\s*\d+\s*,\s*((?:"(?:\\.|[^"\\\n])*"\s*)+)\)'
                  r'|((?:"(?:\\.|[^"\\\n])*"\s*)+)'
+                 r'|MTRC_SM\(\s*\d+\s*,\s*([A-Za-z_]\w*)\s*\)'
                  r"|'(?:\\.|[^'\\\n])*'", re.S)
 LIT = re.compile(r'"((?:\\.|[^"\\\n])*)"')
 
@@ -70,13 +74,31 @@ def decode(lits):
     return bytes(out)
 
 
+def header_macros():
+    """#define NAME "text" from include/*.h, for MTRC_SM(id, NAME)"""
+    out = {}
+    for path in glob.glob(os.path.join(ROOT, "include", "*.h")):
+        for m in re.finditer(r'^\s*#define\s+([A-Za-z_]\w*)\s+((?:"(?:\\.|[^"\\\n])*"\s*)+)$',
+                             open(path, encoding="utf-8").read(), re.M):
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
 def skip(s, start):
     line = s[s.rfind("\n", 0, start) + 1:start]
     if line.lstrip().startswith("#include"):
         return True
     before = s[max(0, start - 60):start]
-    if re.search(r'\]\s*=\s*$', before):              # char x[] = "..."
-        return True
+    # the statement before the literal, without comments and preprocessor lines
+    w = s[max(0, start - 600):start]
+    w = re.sub(r'/\*.*?\*/', '', w, flags=re.S)
+    w = w[w.find("*/") + 2:] if "*/" in w else w          # comment cut at the window start
+    w = "\n".join(l.split("//")[0] for l in w.split("\n") if not l.lstrip().startswith("#"))
+    stmt = re.split(r'[;{}]', w)[-1]
+    if re.search(r'(?:^|\n)\s*(static\s+)?(const\s+)?(unsigned\s+|signed\s+)?(char|uint8_t|int8_t)\s+\w+\s*\[[^\]]*\]\s*=\s*$', stmt):
+        return True                                    # char x[] = "..." (a table, not a pointer)
+    if re.search(r'(?:^|\n)\s*MTRC_[FBW]TABLE(_X)?\s*\([^;\n]*\)\s*=\s*$', stmt):
+        return True                                    # table macro with a string initializer
     if re.search(r'[{,]\s*$', before) and re.search(r'=\s*\{[^;]*$', before):
         return True                                    # { "a", "b" } initializer list
     return False
@@ -88,30 +110,39 @@ def main():
     a = ap.parse_args()
 
     texts = {}          # bytes -> id (first occurrence order)
-    plan = []           # (path, source, [(start, end, lits)])
+    plan = []           # (path, source, [(start, end, lits, macro)])
+    macros = header_macros()
     for path in SRC:
         s = open(path, encoding="utf-8").read()
         edits = []
         for m in TOK.finditer(s):
-            lits = m.group(1) or m.group(2)
+            macro = m.group(3)
+            lits = macros[macro] if macro else (m.group(1) or m.group(2))
             if not lits:
                 continue
-            if m.group(2) and skip(s, m.start()):
+            if (m.group(1) or m.group(2)) and skip(s, m.start()):
+                if m.group(1):                             # wrapped by an older run: unwrap
+                    edits.append((m.start(), m.end(), lits.rstrip(), "RAW"))
                 continue
             lits = lits.rstrip()
             t = decode(lits)
             if t not in texts:
                 texts[t] = len(texts)
             end = m.start() + len(m.group(0).rstrip()) if m.group(2) else m.end()
-            edits.append((m.start(), end, lits))
+            edits.append((m.start(), end, lits, macro))
         plan.append((path, s, edits))
 
     changed = []
     for path, s, edits in plan:
         out, pos = [], 0
-        for start, end, lits in edits:
+        for start, end, lits, macro in edits:
             out.append(s[pos:start])
-            out.append(f"MTRC_S({texts[decode(lits)]}, {lits})")
+            if macro == "RAW":
+                out.append(lits)
+            elif macro:
+                out.append(f"MTRC_SM({texts[decode(lits)]}, {macro})")
+            else:
+                out.append(f"MTRC_S({texts[decode(lits)]}, {lits})")
             pos = end
         out.append(s[pos:])
         new = "".join(out)

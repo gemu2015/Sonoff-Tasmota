@@ -4,18 +4,19 @@
 // mtrc_case.c — Matter CASE key schedule. See mtrc_case.h. GPLv3.
 // Constants verbatim from connectedhomeip.
 
+#include "mtrc_tables.h"
 #include "mtrc_case.h"
 #include "mtrc_crypto.h"
 #include <string.h>
 
-const uint8_t MTRC_CASE_NONCE_SIGMA2[13] =
+MTRC_FTABLE_X(uint8_t, MTRC_CASE_NONCE_SIGMA2, [13]) =
   { 'N','C','A','S','E','_','S','i','g','m','a','2','N' };
-const uint8_t MTRC_CASE_NONCE_SIGMA3[13] =
+MTRC_FTABLE_X(uint8_t, MTRC_CASE_NONCE_SIGMA3, [13]) =
   { 'N','C','A','S','E','_','S','i','g','m','a','3','N' };
 
-static const uint8_t INFO_SIGMA2[]  = { 'S','i','g','m','a','2' };
-static const uint8_t INFO_SIGMA3[]  = { 'S','i','g','m','a','3' };
-static const uint8_t INFO_SESSION[] = { 'S','e','s','s','i','o','n','K','e','y','s' };
+MTRC_FTABLE(uint8_t, INFO_SIGMA2, [6])  = { 'S','i','g','m','a','2' };
+MTRC_FTABLE(uint8_t, INFO_SIGMA3, [6])  = { 'S','i','g','m','a','3' };
+MTRC_FTABLE(uint8_t, INFO_SESSION, [11]) = { 'S','e','s','s','i','o','n','K','e','y','s' };
 
 static void MODULE_PART put_le64(uint8_t *p, uint64_t v) {
   for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (8 * i));

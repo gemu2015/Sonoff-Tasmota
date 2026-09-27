@@ -6,6 +6,9 @@
 // (tools/gen_plugin_strings.py, mtrc_plugin_statics.h)
 #define MTRC_S(id, s)  (s)
 #endif
+#ifndef MTRC_SM
+#define MTRC_SM(id, m) (m)   // the same for a literal from a header macro
+#endif
 #ifndef MTRC_STATIC
 // function-local scratch buffer; the plugin build maps it into its heap block
 // (see mtrc_plugin_statics.h), everywhere else it stays a plain static
@@ -22,6 +25,7 @@
 //
 // GPLv3. Inspired by Tasmota Berry Matter; implemented from the CSA spec.
 
+#include "mtrc_tables.h"
 #include "matter_c.h"
 #include "mtrc_frame.h"
 #include "mtrc_pase.h"
@@ -306,16 +310,19 @@ static void matter_failsafe_disarm(bool committed);
 // ---- onboarding payload (Core Spec §5.1) -------------------------------
 // Verhoeff check digit over the decimal string s (manual pairing code).
 static uint8_t MODULE_PART mtrc_verhoeff(const char *s) {
-  static const uint8_t d[10][10] = {
+  MTRC_BTABLE(uint8_t, d, [10][10]) = {
     {0,1,2,3,4,5,6,7,8,9},{1,2,3,4,0,6,7,8,9,5},{2,3,4,0,1,7,8,9,5,6},
     {3,4,0,1,2,8,9,5,6,7},{4,0,1,2,3,9,5,6,7,8},{5,9,8,7,6,0,4,3,2,1},
     {6,5,9,8,7,1,0,4,3,2},{7,6,5,9,8,2,1,0,4,3},{8,7,6,5,9,3,2,1,0,4},
     {9,8,7,6,5,4,3,2,1,0}};
-  static const uint8_t p[8][10] = {
+  MTRC_BTABLE(uint8_t, p, [8][10]) = {
     {0,1,2,3,4,5,6,7,8,9},{1,5,7,6,2,8,3,0,9,4},{5,8,0,3,7,9,6,1,4,2},
     {8,9,1,6,0,4,3,5,2,7},{9,4,5,3,1,2,6,8,7,0},{4,2,8,6,5,7,3,9,0,1},
     {2,7,9,3,8,0,6,4,1,5},{7,0,4,6,9,1,3,2,5,8}};
-  static const uint8_t inv[10] = {0,4,3,2,1,5,6,7,8,9};
+  MTRC_BTABLE(uint8_t, inv, [10]) = {0,4,3,2,1,5,6,7,8,9};
+  MTRC_BTABLE_LOAD(uint8_t, d, [10][10]);
+  MTRC_BTABLE_LOAD(uint8_t, p, [8][10]);
+  MTRC_BTABLE_LOAD(uint8_t, inv, [10]);
   int c = 0, len = (int)strlen(s);
   for (int i = 0; i < len; i++) {
     int dig = s[len - 1 - i] - '0';
@@ -364,7 +371,8 @@ static void MODULE_PART mtrc_build_onboarding(void) {
   MTRC_PUTBITS(pass, 27);
   MTRC_PUTBITS(0, 4);               // padding
   #undef MTRC_PUTBITS
-  static const char B38[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+  MTRC_BTABLE(char, B38, [39]) = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.";
+  MTRC_BTABLE_LOAD(char, B38, [39]);
   char *o = g.qr; *o++ = 'M'; *o++ = 'T'; *o++ = ':';
   for (int i = 0; i < 11; i += 3) {
     int cl = (11 - i >= 3) ? 3 : (11 - i);
@@ -1534,15 +1542,15 @@ static void MODULE_PART publish_operational_mdns(const mtrc_fabric *f) {
   // Default SAT per spec is 4000 ms.
   // filled at run time: a static pointer table would sit in the host's .data
   const char *txt[4];
-  txt[0] = "SII=5000";
-  txt[1] = "SAI=300";
-  txt[2] = "SAT=4000";
-  txt[3] = "T=0";
+  txt[0] = MTRC_S(39, "SII=5000");
+  txt[1] = MTRC_S(40, "SAI=300");
+  txt[2] = MTRC_S(41, "SAT=4000");
+  txt[3] = MTRC_S(42, "T=0");
   g.port.mdns_publish(g.port.ctx, MTRC_S(37, "matter"), instance, MTRC_COMMISSION_PORT, txt, 4);
   // Operational discovery is published by the host under _matter._TCP per Core
   // Spec §4.3.1 (transport is still UDP). The host port chooses the proto; this
   // log just reflects the spec'd service type.
-  char m[96]; snprintf(m, sizeof(m), MTRC_S(39, "operational mDNS: _matter._tcp %s TXT=SII/SAI/SAT/T"), instance);
+  char m[96]; snprintf(m, sizeof(m), MTRC_S(43, "operational mDNS: _matter._tcp %s TXT=SII/SAI/SAT/T"), instance);
   mlog(MATTER_LOG_INFO, m);
 }
 
@@ -1552,7 +1560,7 @@ static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint3
   const uint8_t *icac = NULL; size_t icaclen = 0;
   uint64_t admin_subj = 0, admin_vid = 0;
   if (!inv_field(payload, plen, 0, 1, &noc, &noclen, NULL)) {
-    mlog(MATTER_LOG_INFO, MTRC_S(40, "NOC: AddNOC FAIL InvalidNOC (no NOCValue field)"));
+    mlog(MATTER_LOG_INFO, MTRC_S(44, "NOC: AddNOC FAIL InvalidNOC (no NOCValue field)"));
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
   }
   // ICACValue (field 1) is OPTIONAL: present when the fabric issues NOCs via an
@@ -1567,14 +1575,14 @@ static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint3
   mtrc_cert nc;
   if (!mtrc_cert_parse(noc, noclen, &nc) || !nc.have_pubkey ||
       !g.have_pending_op || !g.have_pending_root) {
-    mlog(MATTER_LOG_INFO, MTRC_S(41, "NOC: AddNOC FAIL InvalidNOC (cert parse / no pending op|root)"));
+    mlog(MATTER_LOG_INFO, MTRC_S(45, "NOC: AddNOC FAIL InvalidNOC (cert parse / no pending op|root)"));
     return build_noc_response(out, cap, ep, cl, 0x02, 0);   // InvalidNOC
   }
 
   mtrc_fabric *f = mtrc_store_alloc();
   if (!f) {
     char mf[72];
-    snprintf(mf, sizeof(mf), MTRC_S(42, "NOC: AddNOC FAIL TableFull (%d/%d fabrics) — matterReset to clear"),
+    snprintf(mf, sizeof(mf), MTRC_S(46, "NOC: AddNOC FAIL TableFull (%d/%d fabrics) — matterReset to clear"),
              mtrc_store_count(), MTRC_MAX_FABRICS);
     mlog(MATTER_LOG_INFO, mf);
     return build_noc_response(out, cap, ep, cl, 0x05, 0);   // TableFull
@@ -1595,7 +1603,7 @@ static int MODULE_PART build_addnoc(uint8_t *out, size_t cap, uint16_t ep, uint3
   (void)admin_subj;
 
   char m[110];
-  snprintf(m, sizeof(m), MTRC_S(43, "NOC: fabric idx=%u node=0x%08lX noc=%uB icac=%uB ipk=%uB"),
+  snprintf(m, sizeof(m), MTRC_S(47, "NOC: fabric idx=%u node=0x%08lX noc=%uB icac=%uB ipk=%uB"),
            (unsigned)f->fabric_index, (unsigned long)f->node_id,
            (unsigned)f->noc_len, (unsigned)f->icac_len, (unsigned)ipklen);
   mlog(MATTER_LOG_INFO, m);
@@ -1624,7 +1632,7 @@ static void MODULE_PART matter_failsafe_disarm(bool committed) {
       mtrc_store_remove(idx);
       mtrc_persist_fabrics();
       char m[80];
-      snprintf(m, sizeof(m), MTRC_S(44, "fail-safe rollback: removed tentative fabric idx=%u (%d left)"),
+      snprintf(m, sizeof(m), MTRC_S(48, "fail-safe rollback: removed tentative fabric idx=%u (%d left)"),
                (unsigned)idx, mtrc_store_count());
       mlog(MATTER_LOG_INFO, m);
     }
@@ -1641,7 +1649,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
   uint16_t ep; uint32_t cl, cmd;
   if (!mtrc_im_parse_first_command(payload, plen, &ep, &cl, &cmd)) return;
   char m[80];
-  snprintf(m, sizeof(m), MTRC_S(45, "IM Invoke ep=%u cluster=0x%04X cmd=0x%02X"),
+  snprintf(m, sizeof(m), MTRC_S(49, "IM Invoke ep=%u cluster=0x%04X cmd=0x%02X"),
            (unsigned)ep, (unsigned)cl, (unsigned)cmd);
   mlog(MATTER_LOG_DEBUG, m);
 
@@ -1656,18 +1664,18 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
       else if (ct == 2)
         n = build_cmd_resp_bytes(resp, sizeof(resp), ep, cl, 0x03, MTRC_PAI_DER, MTRC_PAI_DER_LEN, NULL, 0);
     }
-    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(46, "NOC: CertificateChainResponse sent"));
+    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(50, "NOC: CertificateChainResponse sent"));
 #endif
   } else if (cl == 0x003E && cmd == 0x00) {   // AttestationRequest -> Response(0x01)
     const uint8_t *nonce = NULL; size_t nlen = 0;
     if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
       n = build_attestation_response(resp, sizeof(resp), ep, cl, nonce, nlen);
-    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(47, "NOC: AttestationResponse sent (DAC-signed)"));
+    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(51, "NOC: AttestationResponse sent (DAC-signed)"));
   } else if (cl == 0x003E && cmd == 0x04) {  // NOC: CSRRequest -> CSRResponse
     const uint8_t *nonce = NULL; size_t nlen = 0;
     if (inv_field(payload, plen, 0, 1, &nonce, &nlen, NULL))
       n = build_csr_response(resp, sizeof(resp), ep, cl, nonce, nlen);
-    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(48, "NOC: CSRResponse sent (operational keypair + CSR)"));
+    if (n > 0) mlog(MATTER_LOG_INFO, MTRC_S(52, "NOC: CSRResponse sent (operational keypair + CSR)"));
   } else if (cl == 0x003E && cmd == 0x0B) {   // AddTrustedRootCertificate
     const uint8_t *rc = NULL; size_t rcl = 0; mtrc_cert root;
     if (inv_field(payload, plen, 0, 1, &rc, &rcl, NULL) &&
@@ -1675,7 +1683,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
       memcpy(g.pending_root_pub, root.pubkey, 65);
       g.have_pending_root = true;
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);   // SUCCESS
-      mlog(MATTER_LOG_INFO, MTRC_S(49, "NOC: trusted root stored"));
+      mlog(MATTER_LOG_INFO, MTRC_S(53, "NOC: trusted root stored"));
     }
   } else if (cl == 0x003E && cmd == 0x06) {   // AddNOC -> NOCResponse
     n = build_addnoc(resp, sizeof(resp), ep, cl, payload, plen);
@@ -1694,7 +1702,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
           memset(&g.case_sess[i], 0, sizeof(g.case_sess[i]));   // drop sessions on this fabric
       mtrc_store_remove((uint8_t)idx);
       mtrc_persist_fabrics();
-      char m[48]; snprintf(m, sizeof(m), MTRC_S(50, "NOC: RemoveFabric idx=%u (%d left)"),
+      char m[48]; snprintf(m, sizeof(m), MTRC_S(54, "NOC: RemoveFabric idx=%u (%d left)"),
                            (unsigned)idx, mtrc_store_count());
       mlog(MATTER_LOG_INFO, m);
       n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, (uint8_t)idx);   // OK
@@ -1728,7 +1736,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
         if (lbllen) memcpy(cf->label, lbl, lbllen);
         cf->label[lbllen] = '\0';
         mtrc_persist_fabrics();
-        char fm[64]; snprintf(fm, sizeof(fm), MTRC_S(51, "NOC: UpdateFabricLabel idx=%u \"%s\""),
+        char fm[64]; snprintf(fm, sizeof(fm), MTRC_S(55, "NOC: UpdateFabricLabel idx=%u \"%s\""),
                               (unsigned)cf->fabric_index, cf->label);
         mlog(MATTER_LOG_INFO, fm);
         n = build_noc_response(resp, sizeof(resp), ep, cl, 0x00, cf->fabric_index); // OK
@@ -1749,7 +1757,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
         g.fs_armed = true;
         g.fs_expiry_ms = g.port.millis(g.port.ctx) + (uint32_t)expiry * 1000u;
         char fm[48];
-        snprintf(fm, sizeof(fm), MTRC_S(52, "fail-safe armed %us"), (unsigned)expiry);
+        snprintf(fm, sizeof(fm), MTRC_S(56, "fail-safe armed %us"), (unsigned)expiry);
         mlog(MATTER_LOG_DEBUG, fm);
       }
     }
@@ -1828,11 +1836,11 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
                           (uint32_t)(timeout ? timeout : 180) * 1000u;
         mtrc_publish_commissionable(g.ocw_disc, 2);            // CM=2 (enhanced window)
         n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);  // SUCCESS
-        mlog(MATTER_LOG_INFO, MTRC_S(53, "AdminComm: OpenCommissioningWindow (enhanced, external verifier)"));
+        mlog(MATTER_LOG_INFO, MTRC_S(57, "AdminComm: OpenCommissioningWindow (enhanced, external verifier)"));
       } else {
         g.ocw_active = false;
         n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x87);  // CONSTRAINT_ERROR
-        mlog(MATTER_LOG_ERROR, MTRC_S(54, "AdminComm: OpenCommissioningWindow rejected (bad params)"));
+        mlog(MATTER_LOG_ERROR, MTRC_S(58, "AdminComm: OpenCommissioningWindow rejected (bad params)"));
       }
     } else if (cmd == 0x01) {         // OpenBasicCommissioningWindow (device passcode)
       uint64_t timeout = 0;
@@ -1841,11 +1849,11 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
       g.ocw_expiry_ms = g.port.millis(g.port.ctx) +
                         (uint32_t)(timeout ? timeout : 180) * 1000u;
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
-      mlog(MATTER_LOG_INFO, MTRC_S(55, "AdminComm: OpenBasicCommissioningWindow"));
+      mlog(MATTER_LOG_INFO, MTRC_S(59, "AdminComm: OpenBasicCommissioningWindow"));
     } else if (cmd == 0x02) {         // RevokeCommissioning (close the window)
       matter_set_commissionable(0);                            // stop PASE; clears ocw_active/expiry
       n = mtrc_im_build_status(resp, sizeof(resp), ep, cl, cmd, 0x00);
-      mlog(MATTER_LOG_INFO, MTRC_S(56, "AdminComm: RevokeCommissioning (window closed)"));
+      mlog(MATTER_LOG_INFO, MTRC_S(60, "AdminComm: RevokeCommissioning (window closed)"));
     }
   } else if (g.port.on_command) {     // any other app cluster -> let a script try
     if (g.port.on_command(g.port.ctx, ep, cl, cmd, (int32_t)cmd))
@@ -1859,7 +1867,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
 
   if (n > 0) {
     secured_send(MTRC_IM_INVOKE_RESPONSE, MTRC_PROTO_IM, resp, (size_t)n, exch, true, ack, true);
-    mlog(MATTER_LOG_DEBUG, MTRC_S(57, "IM InvokeResponse sent"));
+    mlog(MATTER_LOG_DEBUG, MTRC_S(61, "IM InvokeResponse sent"));
   }
 }
 
@@ -2051,8 +2059,8 @@ static void MODULE_PART emit_descriptor_one(mtrc_tlv_writer *w, uint16_t ep, uin
 // everything else comes from the data-model registry.
 static int MODULE_PART cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) {
   int n = 0;
-  #define CFA_LIST(...) do { static const uint32_t a[]={__VA_ARGS__}; \
-    for (unsigned i=0;i<sizeof(a)/sizeof(a[0]) && n<cap;i++) out[n++]=a[i]; return n; } while(0)
+  #define CFA_LIST(...) do { MTRC_WTABLE(uint32_t, a) = {__VA_ARGS__}; MTRC_WTABLE_PTR(uint32_t, a); \
+    for (unsigned i=0;i<MTRC_WTABLE_N(a) && n<cap;i++) out[n++]=a[i]; return n; } while(0)
   if (cl == 0x001D) CFA_LIST(0,1,2,3);                                  // Descriptor
   if (cl == 0x0039) CFA_LIST(0x0003,0x0005,0x000A,0x000F,0x0011,0x0012);// Bridged Device Basic Information
   if (ep == 0) switch (cl) {                                            // root-node clusters
@@ -2109,20 +2117,20 @@ static void MODULE_PART emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, u
 // Group Key Management and Access Control. Modeled on Berry Matter_Plugin_1_Root.
 static void MODULE_PART emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t attr) {
   const uint16_t ep = 0;
-  const char *UNIQUE_ID = MTRC_S(58, "TASMOTA-MATTER-C6-0001");   // not static: run-time address in the plugin
+  const char *UNIQUE_ID = MTRC_S(62, "TASMOTA-MATTER-C6-0001");   // not static: run-time address in the plugin
   if (cl == 0x0028) {                                   // Basic Information
     switch (attr) {
       case 0x0000: emit_attr_report_uint(w,ep,cl,attr,18); return;            // DataModelRevision
-      case 0x0001: emit_attr_report_str (w,ep,cl,attr,MTRC_S(59, "Tasmota")); return;     // VendorName
+      case 0x0001: emit_attr_report_str (w,ep,cl,attr,MTRC_S(63, "Tasmota")); return;     // VendorName
       case 0x0002: emit_attr_report_uint(w,ep,cl,attr,g.cfg.vendor_id); return;
-      case 0x0003: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:MTRC_S(60, "ESP32-C6")); return; // ProductName
+      case 0x0003: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:MTRC_S(64, "ESP32-C6")); return; // ProductName
       case 0x0004: emit_attr_report_uint(w,ep,cl,attr,g.cfg.product_id); return;
-      case 0x0005: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:MTRC_S(60, "ESP32-C6")); return; // NodeLabel
-      case 0x0006: emit_attr_report_str (w,ep,cl,attr,MTRC_S(61, "XX")); return;          // Location
+      case 0x0005: emit_attr_report_str (w,ep,cl,attr,g.cfg.device_name?g.cfg.device_name:MTRC_S(64, "ESP32-C6")); return; // NodeLabel
+      case 0x0006: emit_attr_report_str (w,ep,cl,attr,MTRC_S(65, "XX")); return;          // Location
       case 0x0007: emit_attr_report_uint(w,ep,cl,attr,0); return;             // HardwareVersion
-      case 0x0008: emit_attr_report_str (w,ep,cl,attr,MTRC_S(60, "ESP32-C6")); return;    // HardwareVersionString
+      case 0x0008: emit_attr_report_str (w,ep,cl,attr,MTRC_S(64, "ESP32-C6")); return;    // HardwareVersionString
       case 0x0009: emit_attr_report_uint(w,ep,cl,attr,1); return;             // SoftwareVersion
-      case 0x000A: emit_attr_report_str (w,ep,cl,attr,MTRC_S(62, "1.0")); return;         // SoftwareVersionString
+      case 0x000A: emit_attr_report_str (w,ep,cl,attr,MTRC_S(66, "1.0")); return;         // SoftwareVersionString
       case 0x000F: emit_attr_report_str (w,ep,cl,attr,UNIQUE_ID); return;     // SerialNumber
       case 0x0011: emit_attr_report_bool(w,ep,cl,attr,true); return;          // Reachable
       case 0x0012: emit_attr_report_str (w,ep,cl,attr,UNIQUE_ID); return;     // UniqueID
@@ -2244,11 +2252,11 @@ static int MODULE_PART is_root_cluster(uint32_t cl) {
 // comes from NodeLabel (0x0005); the rest are mandatory metadata.
 static void MODULE_PART emit_bridged_basic(mtrc_tlv_writer *w, uint16_t ep, uint32_t attr) {
   const char *label = dm_label_for(ep);
-  char uid[24]; snprintf(uid, sizeof uid, MTRC_S(63, "TASMOTA-MTRC-EP%u"), (unsigned)ep);
+  char uid[24]; snprintf(uid, sizeof uid, MTRC_S(67, "TASMOTA-MTRC-EP%u"), (unsigned)ep);
   switch (attr) {
-    case 0x0003: emit_attr_report_str (w,ep,0x0039,attr, g.cfg.device_name?g.cfg.device_name:MTRC_S(59, "Tasmota")); return; // ProductName
+    case 0x0003: emit_attr_report_str (w,ep,0x0039,attr, g.cfg.device_name?g.cfg.device_name:MTRC_S(63, "Tasmota")); return; // ProductName
     case 0x0005: emit_attr_report_str (w,ep,0x0039,attr, label?label:MTRC_S(35, "")); return;  // NodeLabel (the name)
-    case 0x000A: emit_attr_report_str (w,ep,0x0039,attr, MTRC_S(62, "1.0")); return;           // SoftwareVersionString
+    case 0x000A: emit_attr_report_str (w,ep,0x0039,attr, MTRC_S(66, "1.0")); return;           // SoftwareVersionString
     case 0x000F: emit_attr_report_str (w,ep,0x0039,attr, uid);  return;            // SerialNumber
     case 0x0011: emit_attr_report_bool(w,ep,0x0039,attr, true); return;            // Reachable
     case 0x0012: emit_attr_report_str (w,ep,0x0039,attr, uid);  return;            // UniqueID
@@ -2291,21 +2299,25 @@ static void MODULE_PART emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t 
 
     case 0xFFFB: {                                                              // AttributeList
       uint32_t fa[80]; int fn = cluster_func_attrs(ep, cl, fa, 74);
-      static const uint32_t glob[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+      MTRC_WTABLE(uint32_t, glob) = {0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+      MTRC_WTABLE_PTR(uint32_t, glob);
       for (unsigned i=0;i<6 && fn<80;i++) fa[fn++]=glob[i];
       emit_report_list(w, ep, cl, attr, fa, fn); return;
     }
     case 0xFFFA:                                                                // EventList
-      if (cl == 0x003B) { static const uint32_t sev[]={1,2,3,4,5,6};            // Switch events
+      if (cl == 0x003B) { MTRC_WTABLE(uint32_t, sev) = {1,2,3,4,5,6};            // Switch events
+        MTRC_WTABLE_PTR(uint32_t, sev);
         emit_report_list(w, ep, cl, attr, sev, 6); return; }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;
     case 0xFFF8:                                                               // GeneratedCommandList
       if (cl == 0x003E) {                                  // OperationalCredentials responses
-        static const uint32_t g_noc[] = {0x01,0x03,0x05,0x08};                 // Attestation/CertChain/CSR/NOCResponse
+        MTRC_WTABLE(uint32_t, g_noc) = {0x01,0x03,0x05,0x08};                 // Attestation/CertChain/CSR/NOCResponse
+        MTRC_WTABLE_PTR(uint32_t, g_noc);
         emit_report_list(w, ep, cl, attr, g_noc, 4); return;
       }
       if (cl == 0x0004) {                                  // Groups responses
-        static const uint32_t g_grp[] = {0x00,0x01,0x02,0x03};                 // Add/View/GetMembership/Remove Response
+        MTRC_WTABLE(uint32_t, g_grp) = {0x00,0x01,0x02,0x03};                 // Add/View/GetMembership/Remove Response
+        MTRC_WTABLE_PTR(uint32_t, g_grp);
         emit_report_list(w, ep, cl, attr, g_grp, 4); return;
       }
       emit_report_list(w, ep, cl, attr, NULL, 0); return;   // our app clusters generate none
@@ -2314,15 +2326,22 @@ static void MODULE_PART emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t 
       // cluster accepts NO commands is treated as non-functional: an On/Off
       // Plug-in Unit with an empty OnOff list never appears in Apple Home, and a
       // light whose OnOff list is empty shows as dimmer-only (no on/off button).
-      static const uint32_t c_ident[] = {0x00,0x40};                            // Identify, TriggerEffect
-      static const uint32_t c_groups[]= {0x00,0x01,0x02,0x03,0x04,0x05};        // Add/View/GetMembership/Remove/RemoveAll/AddIfIdentifying
-      static const uint32_t c_onoff[] = {0x00,0x01,0x02};                       // Off, On, Toggle
-      static const uint32_t c_level[] = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
-      static const uint32_t c_color[] = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
-      static const uint32_t c_wcov[]  = {0x00,0x01,0x02,0x05};                  // Up/Down/Stop/GoToLift%
+      MTRC_WTABLE(uint32_t, c_ident) = {0x00,0x40};                            // Identify, TriggerEffect
+      MTRC_WTABLE(uint32_t, c_groups) = {0x00,0x01,0x02,0x03,0x04,0x05};        // Add/View/GetMembership/Remove/RemoveAll/AddIfIdentifying
+      MTRC_WTABLE(uint32_t, c_onoff) = {0x00,0x01,0x02};                       // Off, On, Toggle
+      MTRC_WTABLE(uint32_t, c_level) = {0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07};
+      MTRC_WTABLE(uint32_t, c_color) = {0x00,0x03,0x06,0x07,0x0A};             // Hue/Sat/HueSat/Color/CT
+      MTRC_WTABLE(uint32_t, c_wcov) = {0x00,0x01,0x02,0x05};                  // Up/Down/Stop/GoToLift%
       // OperationalCredentials commands we accept (responses are GeneratedCommandList,
       // not here). Advertising UpdateFabricLabel(0x09) signals Alexa we honour it.
-      static const uint32_t c_noc[]   = {0x00,0x02,0x04,0x06,0x09,0x0A,0x0B};
+      MTRC_WTABLE(uint32_t, c_noc) = {0x00,0x02,0x04,0x06,0x09,0x0A,0x0B};
+      MTRC_WTABLE_PTR(uint32_t, c_ident);
+      MTRC_WTABLE_PTR(uint32_t, c_groups);
+      MTRC_WTABLE_PTR(uint32_t, c_onoff);
+      MTRC_WTABLE_PTR(uint32_t, c_level);
+      MTRC_WTABLE_PTR(uint32_t, c_color);
+      MTRC_WTABLE_PTR(uint32_t, c_wcov);
+      MTRC_WTABLE_PTR(uint32_t, c_noc);
       const uint32_t *l = NULL; int ln = 0;
       switch (cl) {
         case 0x0003: l=c_ident; ln=2; break;
@@ -2348,7 +2367,8 @@ static void MODULE_PART emit_one_path(mtrc_tlv_writer *w, uint16_t ep, uint32_t 
 // query paths accumulate (a ReadRequest may carry several AttributePathIBs).
 static void MODULE_PART rpt_add_query(int has_ep, uint16_t want_ep, int has_cl, uint32_t want_cl,
                           int has_attr, uint32_t want_attr) {
-  static const uint32_t globals[]={0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+  MTRC_WTABLE(uint32_t, globals) = {0xFFF8,0xFFF9,0xFFFA,0xFFFB,0xFFFC,0xFFFD};
+  MTRC_WTABLE_PTR(uint32_t, globals);
   int cap = (int)(sizeof(g.rpt_paths)/sizeof(g.rpt_paths[0]));
   #define RPT_PUT(EP,CL,AT) do { uint32_t _a=(AT); \
     if ((!has_attr || _a==want_attr) && g.rpt_npaths<cap) { \
@@ -2462,8 +2482,8 @@ static void MODULE_PART send_report_chunk(uint32_t ack) {
   if (mtrc_tlv_writer_ok(&w))
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, chunk, mtrc_tlv_writer_len(&w),
                  g.rpt_exch, true, ack, true);
-  else mlog(MATTER_LOG_ERROR, MTRC_S(64, "IM report chunk overflow"));
-  { char m[56]; snprintf(m, sizeof(m), MTRC_S(65, "IM ReportData %d/%d more=%d"),
+  else mlog(MATTER_LOG_ERROR, MTRC_S(68, "IM report chunk overflow"));
+  { char m[56]; snprintf(m, sizeof(m), MTRC_S(69, "IM ReportData %d/%d more=%d"),
       g.rpt_cursor, g.rpt_npaths, more); mlog(MATTER_LOG_DEBUG, m); }
   if (more)              { /* stay active; next chunk on StatusResponse */ }
   else if (g.rpt_is_sub) { g.rpt_phase = 1; }            // priming done -> SubscribeResponse next
@@ -2547,7 +2567,7 @@ static void MODULE_PART im_handle_subscribe(const uint8_t *payload, size_t plen,
   }
 
   char m[80];
-  snprintf(m, sizeof(m), MTRC_S(66, "IM Subscribe id=%u max=%us hosted=%d paths=%d"),
+  snprintf(m, sizeof(m), MTRC_S(70, "IM Subscribe id=%u max=%us hosted=%d paths=%d"),
            (unsigned)sid,(unsigned)max_s,hosted,g.rpt_npaths);
   mlog(MATTER_LOG_INFO, m);
   send_report_chunk(ack);                                 // first priming chunk
@@ -2625,10 +2645,10 @@ static void MODULE_PART im_handle_write(const uint8_t *payload, size_t plen,
   if (mtrc_tlv_writer_ok(&w)) {
     secured_send(MTRC_IM_WRITE_RESPONSE, MTRC_PROTO_IM, resp,
                  mtrc_tlv_writer_len(&w), exch, true, ack, true);
-    char m[48]; snprintf(m, sizeof(m), MTRC_S(67, "IM WriteResponse sent (%d attrs)"), npaths);
+    char m[48]; snprintf(m, sizeof(m), MTRC_S(71, "IM WriteResponse sent (%d attrs)"), npaths);
     mlog(MATTER_LOG_INFO, m);
   } else {
-    mlog(MATTER_LOG_ERROR, MTRC_S(68, "IM write: response build overflow"));
+    mlog(MATTER_LOG_ERROR, MTRC_S(72, "IM write: response build overflow"));
   }
 }
 
@@ -2644,7 +2664,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     // OR Google rotated keys silently. Include session id + peer node so we know
     // which session was tried (helps diagnose "kann nicht verbinden" cases).
     char em[80];
-    snprintf(em, sizeof(em), MTRC_S(69, "secured rx MIC/decrypt FAIL sid=%u peer=0x%016llX len=%u"),
+    snprintf(em, sizeof(em), MTRC_S(73, "secured rx MIC/decrypt FAIL sid=%u peer=0x%016llX len=%u"),
              (unsigned)mh.session_id, (unsigned long long)peer_node_id, (unsigned)len);
     mlog(MATTER_LOG_ERROR, em);
     return;
@@ -2661,7 +2681,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     }
     char dm[120];
     snprintf(dm, sizeof(dm),
-             MTRC_S(70, "DIAG secured rx proto=0x%04X op=0x%02X exch=0x%04X plen=%u %s"),
+             MTRC_S(74, "DIAG secured rx proto=0x%04X op=0x%02X exch=0x%04X plen=%u %s"),
              (unsigned)ph.protocol_id, (unsigned)ph.opcode,
              (unsigned)ph.exchange_id, (unsigned)ipll, hx);
     mlog(MATTER_LOG_INFO, dm);
@@ -2683,10 +2703,11 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     // without this the Nest stalls (no follow-up, retries the TimedRequest, then reports
     // "device can't be added"). This device has no command requiring strict timed gating, so
     // the follow-up is accepted unconditionally (timeout value not enforced).
-    static const uint8_t sr[] = { 0x15, 0x24, 0x00, 0x00, 0x24, 0xFF, 0x0C, 0x18 }; // {0:SUCCESS, 0xFF:IMrev=12}
+    MTRC_BTABLE(uint8_t, sr, [8]) = { 0x15, 0x24, 0x00, 0x00, 0x24, 0xFF, 0x0C, 0x18 };
+    MTRC_BTABLE_LOAD(uint8_t, sr, [8]); // {0:SUCCESS, 0xFF:IMrev=12}
     secured_send(MTRC_IM_STATUS_RESPONSE, MTRC_PROTO_IM, sr, sizeof(sr),
                  ph.exchange_id, true, mh.msg_counter, true);
-    mlog(MATTER_LOG_INFO, MTRC_S(71, "IM TimedRequest -> StatusResponse SUCCESS"));
+    mlog(MATTER_LOG_INFO, MTRC_S(75, "IM TimedRequest -> StatusResponse SUCCESS"));
   } else if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE
              && g.rpt_active) {
     // Flow control for a chunked ReportData: the controller StatusResponses each
@@ -2698,7 +2719,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
       if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, sr, (size_t)m2,
                                g.rpt_exch, true, mh.msg_counter, true);
       g.rpt_active = false;
-      mlog(MATTER_LOG_INFO, MTRC_S(72, "IM SubscribeResponse sent"));
+      mlog(MATTER_LOG_INFO, MTRC_S(76, "IM SubscribeResponse sent"));
     } else {
       send_report_chunk(mh.msg_counter);    // next data chunk
     }
@@ -2709,12 +2730,12 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == 0x01 && ipll <= 24) {
       char hx[56]; int hp = 0;
       for (size_t i = 0; i < ipll && hp < 52; i++) { snprintf(hx + hp, sizeof(hx) - hp, MTRC_S(12, "%02X"), ipl[i]); hp += 2; }
-      char sm[80]; snprintf(sm, sizeof(sm), MTRC_S(73, "DIAG IM StatusResponse raw=%s"), hx);
+      char sm[80]; snprintf(sm, sizeof(sm), MTRC_S(77, "DIAG IM StatusResponse raw=%s"), hx);
       mlog(MATTER_LOG_INFO, sm);
     }
 #endif
     char m[80];
-    snprintf(m, sizeof(m), MTRC_S(74, "secured rx proto=0x%04X op=0x%02X (unhandled)"),
+    snprintf(m, sizeof(m), MTRC_S(78, "secured rx proto=0x%04X op=0x%02X (unhandled)"),
              (unsigned)ph.protocol_id, (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m);
     // MRP: a reliable message we generate no application response for (e.g. a
@@ -2731,12 +2752,12 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
 
 static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
-  { char m[40]; snprintf(m, sizeof(m), MTRC_S(75, "rx %u B (dispatch)"), (unsigned)len);
+  { char m[40]; snprintf(m, sizeof(m), MTRC_S(79, "rx %u B (dispatch)"), (unsigned)len);
     mlog(MATTER_LOG_DEBUG, m); }
   // Peek the message header to route by session id.
   mtrc_msg_header mh0;
   if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) {
-    mlog(MATTER_LOG_DEBUG, MTRC_S(76, "rx: msg-header decode FAIL")); return; }
+    mlog(MATTER_LOG_DEBUG, MTRC_S(80, "rx: msg-header decode FAIL")); return; }
 
   // The initiator carries an ephemeral Source Node ID on the unsecured
   // session; our replies must echo it back as the Destination Node ID
@@ -2757,7 +2778,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
         if (g.sec_last_tx_len && g.port.udp_send)
           g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
                           g.sec_last_tx_buf, g.sec_last_tx_len);
-        mlog(MATTER_LOG_DEBUG, MTRC_S(77, "rx: dup PASE counter -> re-sent last secured reply"));
+        mlog(MATTER_LOG_DEBUG, MTRC_S(81, "rx: dup PASE counter -> re-sent last secured reply"));
         return;
       }
       g.pase_rx_last_ctr = mh0.msg_counter; g.pase_have_rx_ctr = true;
@@ -2773,7 +2794,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
           if (g.sec_last_tx_len && g.port.udp_send)
             g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
                             g.sec_last_tx_buf, g.sec_last_tx_len);
-          mlog(MATTER_LOG_DEBUG, MTRC_S(78, "rx: dup CASE counter -> re-sent last secured reply"));
+          mlog(MATTER_LOG_DEBUG, MTRC_S(82, "rx: dup CASE counter -> re-sent last secured reply"));
           return;
         }
         ss->rx_last_ctr = mh0.msg_counter; ss->have_rx_ctr = true;
@@ -2794,7 +2815,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
   if (g.have_peer_ctr && mh0.msg_counter == g.peer_last_ctr) {
     if (g.last_tx_len && g.port.udp_send)
       g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, g.last_tx_buf, g.last_tx_len);
-    mlog(MATTER_LOG_DEBUG, MTRC_S(79, "rx: duplicate counter -> re-sent last reply"));
+    mlog(MATTER_LOG_DEBUG, MTRC_S(83, "rx: duplicate counter -> re-sent last reply"));
     return;
   }
   g.peer_last_ctr = mh0.msg_counter; g.have_peer_ctr = true;
@@ -2803,12 +2824,12 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *pl; size_t pll;
   if (mtrc_frame_decode(buf, len, &mh, &ph, &pl, &pll) <= 0) {
-    mlog(MATTER_LOG_DEBUG, MTRC_S(80, "rx: frame decode FAIL")); return; }
+    mlog(MATTER_LOG_DEBUG, MTRC_S(84, "rx: frame decode FAIL")); return; }
   if (ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) {
-    char m[48]; snprintf(m, sizeof(m), MTRC_S(81, "rx: proto 0x%04X != SecureChannel"),
+    char m[48]; snprintf(m, sizeof(m), MTRC_S(85, "rx: proto 0x%04X != SecureChannel"),
                          (unsigned)ph.protocol_id);
     mlog(MATTER_LOG_DEBUG, m); return; }
-  { char m[48]; snprintf(m, sizeof(m), MTRC_S(82, "rx: SC opcode 0x%02X"), (unsigned)ph.opcode);
+  { char m[48]; snprintf(m, sizeof(m), MTRC_S(86, "rx: SC opcode 0x%02X"), (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m); }
   g.exchange_id = ph.exchange_id;
   switch (ph.opcode) {
@@ -2828,7 +2849,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
                             ((unsigned long)pl[4] << 16) | ((unsigned long)pl[5] << 24);
         unsigned pc = pl[6] | (pl[7] << 8);
         char m[80];
-        snprintf(m, sizeof(m), MTRC_S(83, "rx StatusReport gen=%u proto=0x%08lX code=0x%04X"),
+        snprintf(m, sizeof(m), MTRC_S(87, "rx StatusReport gen=%u proto=0x%08lX code=0x%04X"),
                  gc, pid, pc);
         mlog(MATTER_LOG_ERROR, m);
       }
@@ -2933,7 +2954,7 @@ void MODULE_PART matter_loop(void) {
   // withdraws the _matterc mDNS advert separately).
   if (g.ocw_expiry_ms && (int32_t)(g.port.millis(g.port.ctx) - g.ocw_expiry_ms) >= 0) {
     g.ocw_active = false; g.ocw_expiry_ms = 0; g.commissionable = false;
-    mlog(MATTER_LOG_INFO, MTRC_S(84, "AdminComm: commissioning window expired"));
+    mlog(MATTER_LOG_INFO, MTRC_S(88, "AdminComm: commissioning window expired"));
   }
   // Drain ALL queued datagrams (a burst from several controllers must not be
   // dropped). Set the reply target from each packet's own source first.
@@ -3056,7 +3077,7 @@ matter_err_t MODULE_PART matter_set_label(uint16_t ep, const char *name) {
   strncpy(g.labels[idx].name, name ? name : MTRC_S(35, ""), sizeof(g.labels[idx].name) - 1);
   g.labels[idx].name[sizeof(g.labels[idx].name) - 1] = 0;
 #ifdef MTRC_DIAG
-  { char m[80]; snprintf(m, sizeof m, MTRC_S(85, "DIAG label ep=%u agg=%u '%s'"),
+  { char m[80]; snprintf(m, sizeof m, MTRC_S(89, "DIAG label ep=%u agg=%u '%s'"),
       (unsigned)ep, (unsigned)g.aggregator_ep, g.labels[idx].name);
     mlog(MATTER_LOG_INFO, m); }
 #endif
@@ -3192,5 +3213,5 @@ int MODULE_PART matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
 // ---- onboarding + introspection ---------------------------------------
 const char *MODULE_PART matter_qr_uri(void)      { return g_ptr ? g.qr : MTRC_S(35, ""); }
 const char *MODULE_PART matter_manual_code(void) { return g_ptr ? g.manual : MTRC_S(35, ""); }
-const char *MODULE_PART matter_version(void)     { return MATTER_C_VERSION_STR; }
+const char *MODULE_PART matter_version(void)     { return MTRC_SM(90, MATTER_C_VERSION_STR); }
 bool        MODULE_PART matter_is_commissioned(void) { return false; } // TODO Phase 3

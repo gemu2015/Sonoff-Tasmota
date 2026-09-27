@@ -14,6 +14,7 @@
 // left untouched; only this PLUGIN copy diverges to the by-pointer seam, and the
 // firmware's plugin-resolution path is what calls mtrc_crypto_bind().
 
+#include "mtrc_tables.h"
 #include "mtrc_crypto.h"
 #include "mtrc_crypto_ops.h"   // br_* types + the by-pointer crypto seam (pulls t_bearssl.h + _ec.h)
 #include <string.h>
@@ -21,7 +22,7 @@
 #define MTRC_CURVE  BR_EC_secp256r1   // 23
 
 // P-256 subgroup order n (big-endian).
-static const uint8_t P256_N[32] = {
+MTRC_FTABLE(uint8_t, P256_N, [32]) = {
   0xff,0xff,0xff,0xff,0x00,0x00,0x00,0x00,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff,
   0xbc,0xe6,0xfa,0xad,0xa7,0x17,0x9e,0x84,0xf3,0xb9,0xca,0xc2,0xfc,0x63,0x25,0x51
 };

@@ -147,6 +147,10 @@ int32_t mod_func_execute(uint32_t sel) {
     for (uint32_t i = 0; i < MTRC_STR_WORDS; i++) {
       mem->st->strs[i] = sb[i];
     }
+    // file-scope byte tables (mtrc_plugin_statics.h)
+#define MTRC_TAB_COPY(T, name, dims)  mtrc_bcopy(mem->st->tab_##name, name##_PGM, sizeof(mem->st->tab_##name));
+    MTRC_FILE_TABLES(MTRC_TAB_COPY)
+#undef MTRC_TAB_COPY
     initialized = 1;
     return 1;
   }

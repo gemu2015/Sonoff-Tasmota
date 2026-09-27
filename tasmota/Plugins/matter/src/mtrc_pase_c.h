@@ -9,15 +9,16 @@
 // mtrc_pase.c — Matter PASE key schedule + message TLV. See mtrc_pase.h.
 // GPLv3. Matter constants verbatim from connectedhomeip.
 
+#include "mtrc_tables.h"
 #include "mtrc_pase.h"
 #include "mtrc_crypto.h"
 #include "mtrc_spake2p.h"
 #include "mtrc_tlv.h"
 #include <string.h>
 
-static const char SPAKE_CTX_PREFIX[] = "CHIP PAKE V1 Commissioning";
-static const uint8_t INFO_CONFIRM[]  = { 'C','o','n','f','i','r','m','a','t','i','o','n','K','e','y','s' };
-static const uint8_t INFO_SESSION_P[] = { 'S','e','s','s','i','o','n','K','e','y','s' };  // _P: avoid unity-build clash with mtrc_case.c's INFO_SESSION
+MTRC_FTABLE(char, SPAKE_CTX_PREFIX, [27]) = "CHIP PAKE V1 Commissioning";
+MTRC_FTABLE(uint8_t, INFO_CONFIRM, [16])  = { 'C','o','n','f','i','r','m','a','t','i','o','n','K','e','y','s' };
+MTRC_FTABLE(uint8_t, INFO_SESSION_P, [11]) = { 'S','e','s','s','i','o','n','K','e','y','s' };  // _P: avoid unity-build clash with mtrc_case.c's INFO_SESSION
 #define SPAKE_WS 40   // kSpake2p_WS_Length = kP256_FE_Length(32) + 8
 
 int MODULE_PART mtrc_pase_derive_w0w1(uint32_t passcode, const uint8_t *salt, size_t salt_len,
