@@ -56,6 +56,12 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## 1.6.69 — 2026-09-27
+
+- ⚠️ **`chkpt r` / `chkpt d` could brick the device:** removing the plugin partition left the old MD5 entry of the partition table standing behind the new one. The bootloader rejects a table with two MD5 entries ("Only one MD5 checksum is allowed") and the device boot-loops. Fixed; hit two ESP32-C3. A device already caught in the loop needs its partition table rewritten over serial (`esptool write-flash 0x8000 partitions.bin`).
+- **Matter as a binary plugin** (`MATTERF_32.bin` / `MATTERF_32r.bin`, 57–61 KB): at boot TinyC Matter uses the plugin when it is loaded, otherwise the built-in engine — both can be present. `-DUSE_MATTER_C_PLUGIN_ONLY` builds a firmware without the built-in engine. Runs on ESPs without PSRAM (tested on a C3). Sizes and trade-offs: "Built-in or as a plugin" in the Matter chapter of the reference.
+- Plugins: the RAM shown by `mdir` and on the plugin page now includes what a module allocated itself (MATTERF: 12 B → 71 332 B).
+
 ## 1.6.68 — 2026-09-22
 
 - **FTP client** (ABI 32, syscalls 556–566) — one session per device: `ftpOpen(host, user, pw)` / `ftpClose()`; `ftpPut(remote, local, mode)` sends a file, `ftpPutStr(remote, data, mode)` a `char[]`/`byte[]` buffer (`mode` 0 = replace, 1 = append); `ftpGet` / `ftpGetStr` fetch into a file or buffer; `ftpList`, `ftpSize`, `ftpDelete`, `ftpMkdir`, `ftpRename`. A dropped idle link is reopened on the next call; every step is bounded. Tested against a FRITZ!Box 7590 and `utils/ftp_testserver.py`. Examples: `examples/ftp_log.tc`, `examples/ftp_browse.tc`. Use the box's IP rather than `fritz.box` (over IPv6 the box refuses PASV).
