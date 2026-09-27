@@ -285,8 +285,8 @@ bool MODULE_PART qrcodegen_encodeSegmentsAdvanced(const struct qrcodegen_Segment
 		}
 	}
 	assert(0 <= (int)mask && (int)mask <= 7);
-	applyMask(tempBuffer, qrcode, mask);
-	drawFormatBits(ecl, mask, qrcode);
+	applyMask(tempBuffer, qrcode, (enum qrcodegen_Mask)mask);
+	drawFormatBits(ecl, (enum qrcodegen_Mask)mask, qrcode);
 	return true;
 }
 

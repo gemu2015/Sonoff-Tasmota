@@ -2103,7 +2103,7 @@ static void MODULE_PART frag_close(mtrc_tlv_writer *w) {
 static void MODULE_PART emit_attr_report_str(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                                  uint32_t attr, const char *s) {
   frag_open(w, ep, cl, attr);
-  mtrc_tlv_put_utf8(w, mtrc_tlv_ctx(2), (const uint8_t *)s, s ? strlen(s) : 0);
+  mtrc_tlv_put_utf8(w, mtrc_tlv_ctx(2), s, s ? strlen(s) : 0);
   frag_close(w);
 }
 static void MODULE_PART emit_attr_report_bool(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
@@ -2227,7 +2227,7 @@ static void MODULE_PART emit_root_attr(mtrc_tlv_writer *w, uint32_t cl, uint32_t
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(2), f->admin_vendor_id);     // VendorID
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(3), f->fabric_id);           // FabricID
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(4), f->node_id);             // NodeID
-        mtrc_tlv_put_utf8 (w, mtrc_tlv_ctx(5), (const uint8_t *)f->label, strlen(f->label)); // Label (UpdateFabricLabel)
+        mtrc_tlv_put_utf8 (w, mtrc_tlv_ctx(5), f->label, strlen(f->label)); // Label (UpdateFabricLabel)
         mtrc_tlv_put_uint (w, mtrc_tlv_ctx(0xFE), f->fabric_index);     // FabricIndex
         mtrc_tlv_end_container(w);
       }
@@ -3160,28 +3160,29 @@ matter_err_t MODULE_PART matter_set_attr_uint(uint16_t endpoint, uint32_t cluste
 // integer round(f*scale) — so one builtin serves both float wire attrs (air
 // quality) and scaled-int wire attrs (temperature 0.01C, power mW, ...).
 #ifdef MTRC_PLUGIN_BUILD
-// Round a float to the nearest int64 (halves away from zero) from its bits.
-// The built-in lib does this in double; in the plugin every soft-double helper
-// and the float->int64 conversion are direct calls (ROM addresses of the
-// classic ESP32, wrong on S2/S3). Only shifts and small immediates here — no
-// literal-pool constants. f carries 24 mantissa bits anyway, so the float
-// product loses nothing the double path kept.
-static int64_t MODULE_PART mtrc_round_f2i64(float x) {
-  uint32_t bits; memcpy(&bits, &x, 4);
-  int32_t  e = (int32_t)((bits >> 23) & 0xFF);            // biased exponent
+// Round a double to the nearest int64 (halves away from zero) from its bits —
+// the built-in lib's `(int64_t)(s + (s < 0 ? -0.5 : 0.5))`. In the plugin every
+// soft-double helper and the double->int64 conversion are direct calls (ROM
+// addresses of the chip the plugin host was built for), so the product comes
+// from the jumptable (jt[187] extendsfdf2, jt[183] floatsidf, jt[163] dmul) and
+// the rounding from shifts. The product must be double: a float product rounds
+// e.g. -5.555 * 100 to exactly -555.5 and then to -556 instead of -555.
+static int64_t MODULE_PART mtrc_round_d2i64(double x) {
+  uint64_t bits; memcpy(&bits, &x, 8);
+  int32_t  e = (int32_t)((bits >> 52) & 0x7FF);           // biased exponent
   if (e == 0) return 0;                                    // zero / denormal
-  uint64_t m = ((uint64_t)(bits << 9) >> 9) | ((uint64_t)1 << 23);   // 24-bit mantissa
-  int32_t  sh = e - 150;                                   // value = m * 2^sh
+  uint64_t m = ((bits << 12) >> 12) | ((uint64_t)1 << 52); // 53-bit mantissa
+  int32_t  sh = e - 1075;                                  // value = m * 2^sh
   uint64_t mag;
   if (sh >= 0) {
-    if (sh > 39) sh = 39;                                  // saturate near 2^63 (inf/nan too)
+    if (sh > 10) sh = 10;                                  // saturate near 2^63 (inf/nan too)
     mag = m << sh;
-  } else if (sh < -24) {
+  } else if (sh < -53) {
     mag = 0;                                               // |x| < 0.5
   } else {
     mag = (m + ((uint64_t)1 << (-sh - 1))) >> (-sh);       // +0.5, truncate
   }
-  return (bits >> 31) ? -(int64_t)mag : (int64_t)mag;
+  return (bits >> 63) ? -(int64_t)mag : (int64_t)mag;
 }
 #endif
 
@@ -3194,7 +3195,11 @@ matter_err_t MODULE_PART matter_set_attr_scaled(uint16_t endpoint, uint32_t clus
     uint32_t bits; memcpy(&bits, &f, 4); v = bits;           // store float bits as-is
   } else {
 #ifdef MTRC_PLUGIN_BUILD
-    v = (uint64_t)mtrc_round_f2i64((float)scale * f);        // scale + round-to-nearest
+    // double product through the jumptable, see mtrc_round_d2i64
+    double df = (( double (*)(float) ) MTRC_JT[187])(f);
+    double ds = (( double (*)(int32_t) ) MTRC_JT[183])(scale);
+    double s  = (( double (*)(uint32_t, double, double) ) MTRC_JT[163])(2, df, ds);   // dmul
+    v = (uint64_t)mtrc_round_d2i64(s);                       // scale + round-to-nearest
 #else
     double s = (double)f * (double)scale;                    // scale + round-to-nearest
     v = (uint64_t)(int64_t)(s + (s < 0 ? -0.5 : 0.5));

@@ -37,7 +37,8 @@ Plain numeric literals stored inside the module are fine and not reported.
 Literals inside the 64-byte module header (FLASH_MODULE: mtv, jtab, execution
 offset …) are written by the loader at load time — e.g. gettbl() in plugins.S
 reads `module_header+48` — and are counted as HEADER, not as problems.
-Xtensa (ESP32/S2/S3) only.
+Xtensa (ESP32/S2/S3) and, for the ELF, RISC-V (C3/C6: calls and resolved lui/auipc
+addresses instead of literal pools).
 
 --bin FILE audits an already extracted module (e.g. a shipped *_32.bin) without
 its ELF: the header's mod_start_org gives the link address, and every l32r is
@@ -58,6 +59,13 @@ OBJDUMP_CANDIDATES = [
     os.path.expanduser("~/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32-elf-objdump"),
     os.path.expanduser("~/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-objdump"),
 ]
+RISCV_OBJDUMP = os.path.expanduser("~/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-objdump")
+
+
+def is_riscv(elf):
+    """ELF e_machine 243 = RISC-V (tasmota32c3-plugin: C3/C6), 94 = Xtensa"""
+    with open(elf, "rb") as f:
+        return int.from_bytes(f.read(20)[18:20], "little") == 243
 START = bytes([0x4A, 0xFC, 0xAA, 0x55])
 HEADER_SIZE = 0x40          # sizeof(FLASH_MODULE) without the ms[] tail, module_defines.h
 END = bytes([0x55, 0xAA, 0xFC, 0x4A])
@@ -92,7 +100,7 @@ def find_module(data, secs, want):
                 arch = int.from_bytes(blob[i + 4:i + 8], "little") & 0xF
                 typ = int.from_bytes(blob[i + 8:i + 12], "little")
                 mname = blob[i + 16:i + 32].split(b"\0")[0].decode("ascii", "replace")
-                if arch == 1 and typ <= 4 and (not want or mname == want):
+                if arch in (1, 2, 3) and typ <= 4 and (not want or mname == want):   # ESP32, RISC-V, P4
                     j = blob.find(END, i + 32)
                     while j >= 0 and j % 4:
                         j = blob.find(END, j + 1)
@@ -226,6 +234,9 @@ def main():
     od = objdump()
     if a.bin:
         return audit_bin(od, a.bin)
+    rv = is_riscv(a.elf)
+    if rv:
+        od = RISCV_OBJDUMP
     data = open(a.elf, "rb").read()
     secs = sections(od, a.elf)
     mod = find_module(data, secs, a.name)
@@ -260,7 +271,41 @@ def main():
         if not m:
             continue
         op, args = m.group(2), m.group(3)
+        if int(m.group(1), 16) >= e - 4:
+            continue                               # the end marker 55 AA FC 4A, not code
         tgt = re.search(r"\b([0-9a-f]{8})\b(?: <([^>]+)>)?", args)
+        if rv:
+            # RISC-V: no literal pools. Calls are pc-relative jal (target shown)
+            # or auipc+jalr (target in the "# addr <sym>" comment); data addresses
+            # come from lui+addi/load/store, also resolved in that comment.
+            cm = re.search(r"#\s*([0-9a-f]+)(?:\s*<([^>]+)>)?", args)
+            if (op in ("jal", "j") or (op.startswith("b") and op not in ("bseti", "bclri"))) and tgt and not cm:
+                t, name = int(tgt.group(1), 16), tgt.group(2) or tgt.group(1)
+            elif op == "jalr" and cm:
+                t, name = int(cm.group(1), 16), cm.group(2) or cm.group(1)
+            else:
+                t = None
+            if t is not None:
+                if not (s <= t < e):
+                    kind = "ROM" if 0x40000000 <= t < 0x40070000 else "CALL-OUT"
+                    found[kind].append((func, f"{op} {name}"))
+                    if kind == "CALL-OUT":
+                        callout[re.sub(r"\+0x[0-9a-f]+$", "", name)] += 1
+                continue
+            if not cm:
+                continue
+            v = int(cm.group(1), 16)
+            if s <= v < s + HEADER_SIZE:
+                found["HEADER"].append((func, f"header+{v - s}"))
+            elif s <= v < e:
+                found["PTR-SELF"].append((func, f"0x{v:08x}"))
+            elif 0x40000000 <= v < 0x40070000:
+                found["ROM"].append((func, sym(v)))
+            elif v >= 0x3C000000 and in_any(v, bss):
+                found["PTR-BSS"].append((func, f"{section_of(v, bss)}: {sym(v)}"))
+            elif v >= 0x3C000000 and in_any(v, secs):
+                found["PTR-FW"].append((func, f"{section_of(v, secs)}: {sym(v)}"))
+            continue
         if op in ("call0", "call4", "call8", "call12", "j") and tgt:
             t = int(tgt.group(1), 16)
             if not (s <= t < e):

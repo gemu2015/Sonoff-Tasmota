@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pase_probe.py — run a Matter PASE handshake against a device, no controller needed.
 
-    /usr/bin/python3 tasmota/Plugins/matter/tools/pase_probe.py <ip> [passcode]
+    /usr/bin/python3 tasmota/Plugins/matter/tools/pase_probe.py <ip> [passcode] [--read ep:cluster:attr ...]
 
 Plays the commissioner side of PASE (Core Spec §4.14.1) over UDP 5540:
 PBKDFParamRequest -> PBKDFParamResponse, Pake1 -> Pake2, Pake3 -> StatusReport.
@@ -447,8 +447,14 @@ def im_checks(sec, att):
     return ok
 
 def main():
-    ip = sys.argv[1]
-    passcode = int(sys.argv[2]) if len(sys.argv) > 2 else 13572468
+    args = sys.argv[1:]
+    reads = []
+    while "--read" in args:                     # --read ep:cluster:attr (numbers, 0x.. ok)
+        i = args.index("--read")
+        reads.append(tuple(int(x, 0) for x in args[i + 1].split(":")))
+        del args[i:i + 2]
+    ip = args[0]
+    passcode = int(args[1]) if len(args) > 1 else 13572468
     M, Npt = spake_points()
     lk = Link(ip)
 
@@ -498,6 +504,8 @@ def main():
     sk = hkdf(k[16:], b"SessionKeys", 48)
     sec = Secure(lk, r[3], sk[:16], sk[16:32])
     ok = im_checks(sec, sk[32:])
+    for ep, cl, at in reads:
+        print(f"read ep {ep} cluster 0x{cl:04X} attr 0x{at:04X}: {sec.read(ep, cl, [at]).get(at)!r}")
     print("ALL CHECKS PASSED" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1
 

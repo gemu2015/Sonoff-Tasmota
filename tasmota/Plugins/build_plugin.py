@@ -538,7 +538,7 @@ def find_output_bin(newer_than=None):
 # silent reset. blib_audit.py finds these in the plugin-host ELF, so
 # every build reports them next to its result instead of on the device.
 # --------------------------------------------------------------------
-_AUDIT_CPUS = {'esp32'}
+_AUDIT_CPUS = {'esp32', 'esp32_riscv'}   # blib_audit reads Xtensa and RISC-V ELFs
 
 def _audit(cpu, on_line=print):
     """Run blib_audit.py on the env's firmware.elf. Returns the number
