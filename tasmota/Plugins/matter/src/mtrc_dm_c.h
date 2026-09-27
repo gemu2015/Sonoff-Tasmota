@@ -5,11 +5,11 @@
 
 #include "mtrc_dm.h"
 
-static struct {
-  mtrc_dm_endpoint_t ep[MTRC_DM_MAX_ENDPOINTS];   int ep_n;
-  mtrc_dm_cluster_t  cl[MTRC_DM_MAX_CLUSTERS];     int cl_n;
-  mtrc_dm_attr_t     at[MTRC_DM_MAX_ATTRS];        int at_n;
-} dm;
+#ifdef MTRC_PLUGIN_BUILD
+#define dm (MTRC_ST->dm)        // plugin: heap block (mtrc_plugin_statics.h)
+#else
+static mtrc_dm_table_t dm;
+#endif
 
 void MODULE_PART mtrc_dm_reset(void) {
   dm.ep_n = 0; dm.cl_n = 0; dm.at_n = 0;
@@ -86,3 +86,7 @@ int MODULE_PART mtrc_dm_endpoint_device_type(uint16_t endpoint, uint32_t *out) {
     if (dm.ep[i].endpoint == endpoint) { if (out) *out = dm.ep[i].device_type; return 1; }
   return 0;
 }
+
+#ifdef MTRC_PLUGIN_BUILD
+#undef dm
+#endif

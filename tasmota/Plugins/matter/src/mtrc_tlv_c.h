@@ -193,7 +193,14 @@ int MODULE_PART mtrc_tlv_read(mtrc_tlv_reader *r, mtrc_tlv_elem *e) {
   } else if (et == 0x0A) {              // float
     if (!r_avail(r, 4)) goto bad;
     uint32_t u = (uint32_t)r_le(r->buf + r->off, 4); r->off += 4;
-    float f; memcpy(&f, &u, 4); e->type = MTRC_TLV_FLOAT; e->d = (double)f;
+    float f; memcpy(&f, &u, 4); e->type = MTRC_TLV_FLOAT;
+#ifdef MTRC_PLUGIN_BUILD
+    // float -> double through the jumptable (jt[187] __extendsfdf2): a direct
+    // soft-double helper is a ROM call at the classic-ESP32 address
+    e->d = (( double (*)(float) ) MTRC_JT[187])(f);
+#else
+    e->d = (double)f;
+#endif
   } else if (et == 0x0B) {              // double
     if (!r_avail(r, 8)) goto bad;
     uint64_t u = r_le(r->buf + r->off, 8); r->off += 8;

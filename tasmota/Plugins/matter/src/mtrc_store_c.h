@@ -6,7 +6,11 @@
 #include "mtrc_store.h"
 #include <string.h>
 
+#ifdef MTRC_PLUGIN_BUILD
+#define g_fab (MTRC_ST->fab)    // plugin: heap block (mtrc_plugin_statics.h)
+#else
 static mtrc_fabric g_fab[MTRC_MAX_FABRICS];
+#endif
 
 void MODULE_PART mtrc_store_reset(void) { memset(g_fab, 0, sizeof(g_fab)); }
 
@@ -140,3 +144,7 @@ int MODULE_PART mtrc_store_deserialize(const uint8_t *buf, size_t len) {
   }
   return 1;
 }
+
+#ifdef MTRC_PLUGIN_BUILD
+#undef g_fab
+#endif

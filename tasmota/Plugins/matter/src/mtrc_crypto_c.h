@@ -29,7 +29,11 @@ static const uint8_t P256_N[32] = {
 // Crypto primitives supplied by the firmware (Fork B), bound once at plugin
 // load. Until bound, g_cr is NULL and every entry point fails safe (returns
 // 0 / no-op) rather than wild-jumping through an unset pointer.
+#ifdef MTRC_PLUGIN_BUILD
+#define g_cr (MTRC_MEM->cr)     // plugin: MODULE_MEMORY (mtrc_plugin_mem.h)
+#else
 static const mtrc_crypto_ops *g_cr = 0;
+#endif
 void MODULE_PART mtrc_crypto_bind(const mtrc_crypto_ops *ops) { g_cr = ops; }
 
 static const br_ec_impl *MODULE_PART EC(void) { return g_cr->ec_p256_m15; }
@@ -213,3 +217,7 @@ int MODULE_PART mtrc_pbkdf2_sha256(const uint8_t *pw, size_t pw_len,
   }
   return 1;
 }
+
+#ifdef MTRC_PLUGIN_BUILD
+#undef g_cr
+#endif

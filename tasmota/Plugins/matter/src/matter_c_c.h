@@ -1,6 +1,11 @@
 #ifndef MODULE_PART
 #define MODULE_PART
 #endif
+#ifndef MTRC_STATIC
+// function-local scratch buffer; the plugin build maps it into its heap block
+// (see mtrc_plugin_statics.h), everywhere else it stays a plain static
+#define MTRC_STATIC(T, name, dims, field)  static T name dims
+#endif
 // matter_c.c — lifecycle skeleton + stubs for the pure-C Matter library.
 //
 // This file compiles and links today so the host integration (gate,
@@ -269,12 +274,17 @@ typedef struct {
   volatile uint8_t ev_head, ev_tail;
 } matter_ctx_t;
 
+// Active secure-session TX route (g_tx, see tx_use_pase); a named type so the
+// plugin build can keep it in its heap block.
+typedef struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } mtrc_tx_route_t;
+
 #ifdef MTRC_PLUGIN_BUILD
 // Fork-B BinPlugin build: g_ptr cannot be a PIC-relocatable file-scope static —
 // it becomes an lvalue into the per-module MODULE_MEMORY (the ctx itself still
 // lives in PSRAM). Included HERE (after matter_ctx_t is defined) so MODULE_MEMORY
 // can hold a matter_ctx_t*. See mtrc_plugin_mem.h.
 #include "mtrc_plugin_mem.h"
+#include "mtrc_plugin_statics.h"
 #else
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
 #endif
@@ -311,8 +321,13 @@ static uint8_t MODULE_PART mtrc_verhoeff(const char *s) {
 
 // QR module matrix for the onboarding payload, so the host can draw the code
 // itself (no external/CDN QR library). Encoded once from g.qr.
+#ifdef MTRC_PLUGIN_BUILD
+#define g_qrbuf (MTRC_ST->qrbuf)   // plugin: heap block (mtrc_plugin_statics.h)
+#define g_qr_ok (MTRC_ST->qr_ok)
+#else
 static uint8_t g_qrbuf[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
 static int     g_qr_ok = 0;
+#endif
 
 // Build the manual pairing code (11 digits) and the "MT:" QR string into g.
 static void MODULE_PART mtrc_build_onboarding(void) {
@@ -356,7 +371,7 @@ static void MODULE_PART mtrc_build_onboarding(void) {
   *o = '\0';
 
   // Pre-render the QR module matrix so the host can draw it without a CDN.
-  static uint8_t tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(6)];
+  MTRC_STATIC(uint8_t, tmp, [qrcodegen_BUFFER_LEN_FOR_VERSION(6)], mtrc_build_onboarding_tmp);
   g_qr_ok = qrcodegen_encodeText(g.qr, tmp, g_qrbuf, qrcodegen_Ecc_MEDIUM,
                                  qrcodegen_VERSION_MIN, 6, qrcodegen_Mask_AUTO, true);
 }
@@ -663,7 +678,9 @@ matter_err_t MODULE_PART matter_start(void) {
 static matter_err_t MODULE_PART mtrc_publish_commissionable(uint16_t disc, int cm) {
   g.commissionable = true;
   if (!g.port.mdns_publish) return MATTER_OK;
-  static char txt_d[16], txt_cm[8], txt_vp[24];
+  MTRC_STATIC(char, txt_d, [16], mtrc_publish_commissionable_txt_d);
+  MTRC_STATIC(char, txt_cm, [8], mtrc_publish_commissionable_txt_cm);
+  MTRC_STATIC(char, txt_vp, [24], mtrc_publish_commissionable_txt_vp);
   snprintf(txt_d,  sizeof(txt_d),  "D=%u", (unsigned)disc);
   snprintf(txt_cm, sizeof(txt_cm), "CM=%d", cm);   // 1 = standard, 2 = enhanced
   snprintf(txt_vp, sizeof(txt_vp), "VP=%u+%u", (unsigned)g.cfg.vendor_id,
@@ -986,7 +1003,7 @@ static void MODULE_PART case_handle_sigma1(const uint8_t *pl, size_t pll,
   if (!mtrc_case_s2k(g.case_shared, op_ipk, g.case_resp_random, g.case_re_pub, h1, s2k))
     return;
 
-  static uint8_t tmp[1100];
+  MTRC_STATIC(uint8_t, tmp, [1100], case_handle_sigma1_tmp);
   mtrc_case_tbs tbs; memset(&tbs, 0, sizeof(tbs));
   tbs.noc = f->noc; tbs.noc_len = f->noc_len;
   tbs.icac = f->icac; tbs.icac_len = f->icac_len;     // include ICAC if fabric uses one
@@ -1010,7 +1027,7 @@ static void MODULE_PART case_handle_sigma1(const uint8_t *pl, size_t pll,
   int ne = mtrc_case_tbe_encode(tmp, sizeof(tmp), &tbe);
   if (ne < 0) return;
 
-  static uint8_t enc2[1100];
+  MTRC_STATIC(uint8_t, enc2, [1100], case_handle_sigma1_enc2);
   if (!case_seal(s2k, MTRC_CASE_NONCE_SIGMA2, tmp, (size_t)ne, enc2)) return;
 
   mtrc_sigma2 s2; memset(&s2, 0, sizeof(s2));
@@ -1018,7 +1035,7 @@ static void MODULE_PART case_handle_sigma1(const uint8_t *pl, size_t pll,
   s2.responder_session_id = g.case_hs_my_sid;
   memcpy(s2.responder_eph_pub, g.case_re_pub, 65);
   s2.encrypted2 = enc2; s2.encrypted2_len = (size_t)ne + 16;
-  static uint8_t s2buf[1280];
+  MTRC_STATIC(uint8_t, s2buf, [1280], case_handle_sigma1_s2buf);
   int n2 = mtrc_sigma2_encode(s2buf, sizeof(s2buf), &s2);
   if (n2 < 0) return;
   if (g.case_tt_len + (size_t)n2 <= sizeof(g.case_tt)) {
@@ -1046,7 +1063,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
   uint8_t s3k[16];
   if (!mtrc_case_s3k(g.case_shared, op_ipk, h12, s3k)) return;
 
-  static uint8_t tbe3[1024];
+  MTRC_STATIC(uint8_t, tbe3, [1024], case_handle_sigma3_tbe3);
   // SECURITY: encrypted3_len is straight off the wire; case_open memcpy's
   // (encrypted3_len - 16) into tbe3 BEFORE tag verification. Bound it or an
   // oversized Sigma3 overflows tbe3 (BSS corruption) regardless of key validity.
@@ -1075,7 +1092,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
     tbs.icac = t3.icac; tbs.icac_len = t3.icac_len;
     memcpy(tbs.sender_pub, g.case_init_eph, 65);   // initiator was sender
     memcpy(tbs.receiver_pub, g.case_re_pub, 65);
-    static uint8_t tmp[1100];
+    MTRC_STATIC(uint8_t, tmp, [1100], case_handle_sigma3_tmp);
     int nt = mtrc_case_tbs_encode(tmp, sizeof(tmp), &tbs);
     if (nt > 0) {
       uint8_t ht[32]; mtrc_sha256(tmp, (size_t)nt, ht);
@@ -1176,8 +1193,11 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
 // Active secure-session TX context (PASE or CASE), selected before each
 // dispatch / report so secured_send addresses the right session id, response
 // key (R2I) and message counter.
-static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } g_tx =
-  { NULL, 0, NULL, 0, 0 };
+#ifdef MTRC_PLUGIN_BUILD
+#define g_tx (MTRC_ST->tx)         // plugin: heap block (mtrc_plugin_statics.h)
+#else
+static mtrc_tx_route_t g_tx = { NULL, 0, NULL, 0, 0 };
+#endif
 static void MODULE_PART tx_use_pase(void) {
   g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
   g_tx.src = 0;   // commissioning peer has no operational node id -> nonce src 0
@@ -1226,7 +1246,7 @@ static void MODULE_PART secured_send(uint8_t opcode, uint16_t protocol_id,
       reliable ? " R" : "", has_ack ? " ack" : "");
     mlog(MATTER_LOG_INFO, dt); }
 #endif
-  static uint8_t out[1280];
+  MTRC_STATIC(uint8_t, out, [1280], secured_send_out);
   int n = mtrc_sec_encode(out, sizeof(out), &mh, &ph, payload, plen, g_tx.key);
   if (n > 0 && g.port.udp_send) {
     // Cache as the "last secured reply" so an MRP retransmit (same inbound
@@ -1315,11 +1335,11 @@ static int MODULE_PART build_csr_response(uint8_t *out, size_t cap, uint16_t ep,
     g.have_pending_op = true;
   }
 
-  static uint8_t csr[400];
+  MTRC_STATIC(uint8_t, csr, [400], build_csr_response_csr);
   int csrlen = mtrc_csr_build(csr, sizeof(csr), g.pending_op_priv, g.pending_op_pub);
   if (csrlen < 0) return -1;
 
-  static uint8_t nocsr[480];
+  MTRC_STATIC(uint8_t, nocsr, [480], build_csr_response_nocsr);
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, nocsr, sizeof(nocsr));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), csr, (size_t)csrlen);
@@ -1337,7 +1357,7 @@ static int MODULE_PART build_csr_response(uint8_t *out, size_t cap, uint16_t ep,
   uint8_t dacbuf[32]; memset(dacbuf, 0x55, 32);
   const uint8_t *dac = dacbuf;
 #endif
-  static uint8_t hin[480 + 16];
+  MTRC_STATIC(uint8_t, hin, [480 + 16], build_csr_response_hin);
   memcpy(hin, nocsr, nocsr_len); memcpy(hin + nocsr_len, g.att, 16);
   uint8_t h[32]; mtrc_sha256(hin, nocsr_len + 16, h);
   uint8_t attsig[64]; if (!mtrc_ecdsa_sign(attsig, h, dac)) return -1;
@@ -1404,7 +1424,7 @@ static int MODULE_PART build_cmd_resp_bytes(uint8_t *out, size_t cap, uint16_t e
 static int MODULE_PART build_attestation_response(uint8_t *out, size_t cap, uint16_t ep,
                                       uint32_t cl, const uint8_t *nonce, size_t nlen) {
 #ifdef MTRC_ATTEST_TEST_CREDS
-  static uint8_t ae[768];
+  MTRC_STATIC(uint8_t, ae, [768], build_attestation_response_ae);
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, ae, sizeof(ae));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());
   mtrc_tlv_put_bytes(&w, mtrc_tlv_ctx(1), MTRC_CD, (size_t)MTRC_CD_LEN);  // certificationDeclaration
@@ -1413,7 +1433,7 @@ static int MODULE_PART build_attestation_response(uint8_t *out, size_t cap, uint
   mtrc_tlv_end_container(&w);
   if (!mtrc_tlv_writer_ok(&w)) return -1;
   size_t ael = mtrc_tlv_writer_len(&w);
-  static uint8_t hin[768 + 16];
+  MTRC_STATIC(uint8_t, hin, [768 + 16], build_attestation_response_hin);
   memcpy(hin, ae, ael); memcpy(hin + ael, g.att, 16);
   uint8_t h[32]; mtrc_sha256(hin, ael + 16, h);
   uint8_t sig[64]; if (!mtrc_ecdsa_sign(sig, h, MTRC_DAC_PRIV)) return -1;
@@ -1615,7 +1635,7 @@ static void MODULE_PART im_handle_invoke(const uint8_t *payload, size_t plen,
            (unsigned)ep, (unsigned)cl, (unsigned)cmd);
   mlog(MATTER_LOG_DEBUG, m);
 
-  static uint8_t resp[1024];          // CSA DAC/PAI (~500B) + CD (~540B) responses
+  MTRC_STATIC(uint8_t, resp, [1024], im_handle_invoke_resp);          // CSA DAC/PAI (~500B) + CD (~540B) responses
   int n = -1;
   if (cl == 0x003E && cmd == 0x02) {  // CertificateChainRequest -> Response(0x03)
 #ifdef MTRC_ATTEST_TEST_CREDS
@@ -2391,8 +2411,8 @@ static void MODULE_PART emit_status_path(mtrc_tlv_writer *w, uint16_t ep, uint32
 // MoreChunkedMessages while paths remain; the controller's StatusResponse pulls
 // the next chunk. `ack` is the counter of the message that triggered this chunk.
 static void MODULE_PART send_report_chunk(uint32_t ack) {
-  static uint8_t chunk[1280];
-  static uint8_t frag[1024];   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
+  MTRC_STATIC(uint8_t, chunk, [1280], send_report_chunk_chunk);
+  MTRC_STATIC(uint8_t, frag, [1024], send_report_chunk_frag);   // a single fragment can be large (OpCreds NOCs = NOC+ICAC certs)
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, chunk, sizeof(chunk));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());             // ReportDataMessage
   if (g.rpt_is_sub) mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), g.rpt_sub_id);   // SubscriptionId
@@ -2542,7 +2562,7 @@ static void MODULE_PART tlv_skip_container(mtrc_tlv_reader *r) {
 // with matterGet). Complex values (e.g. the ACL list) are accepted but skipped.
 static void MODULE_PART im_handle_write(const uint8_t *payload, size_t plen,
                             uint16_t exch, uint32_t ack) {
-  static uint8_t resp[512];
+  MTRC_STATIC(uint8_t, resp, [512], im_handle_write_resp);
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, resp, sizeof(resp));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());          // WriteResponseMessage
   mtrc_tlv_start_array(&w, mtrc_tlv_ctx(0));           // WriteResponses [AttributeStatusIB]
@@ -2608,7 +2628,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
                              uint64_t peer_node_id) {
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *ipl; size_t ipll;
-  static uint8_t pt[1280];
+  MTRC_STATIC(uint8_t, pt, [1280], secured_dispatch_pt);
   if (!mtrc_sec_decode(buf, len, rx_key, peer_node_id, &mh, &ph, pt, sizeof(pt), &ipl, &ipll)) {
     // MIC/decrypt failures usually mean wrong key (no session yet for that peer)
     // OR Google rotated keys silently. Include session id + peer node so we know
@@ -2663,7 +2683,7 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     // chunk. Pull the next chunk; for a subscribe, after the final chunk send the
     // SubscribeResponse. The reply piggybacks the MRP ack for this StatusResponse.
     if (g.rpt_phase == 1) {                 // subscribe priming done -> SubscribeResponse
-      static uint8_t sr[80];
+      MTRC_STATIC(uint8_t, sr, [80], secured_dispatch_sr);
       int m2 = mtrc_im_build_subscribe_response(sr, sizeof(sr), g.rpt_sub_id, g.rpt_sub_max_s);
       if (m2 > 0) secured_send(MTRC_IM_SUBSCRIBE_RESPONSE, MTRC_PROTO_IM, sr, (size_t)m2,
                                g.rpt_exch, true, mh.msg_counter, true);
@@ -2813,7 +2833,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
 // one datagram. The caller loads the session and points g.reply_ip6 at its
 // controller first. Reports reuse the subscription's exchange id.
 static void MODULE_PART send_subscription_report(uint32_t sub_id, uint16_t exch) {
-  static uint8_t buf[1100];
+  MTRC_STATIC(uint8_t, buf, [1100], send_subscription_report_buf);
   mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
   mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), sub_id);            // SubscriptionId
@@ -2841,7 +2861,7 @@ static void MODULE_PART matter_emit_event(uint16_t ep, uint32_t cl, uint32_t eve
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
     mtrc_case_sess *s = &g.case_sess[i];
     if (!s->in_use || !s->sub_active) continue;
-    static uint8_t buf[256];
+    MTRC_STATIC(uint8_t, buf, [256], matter_emit_event_buf);
     mtrc_tlv_writer w; mtrc_tlv_writer_init(&w, buf, sizeof(buf));
     mtrc_tlv_start_struct(&w, mtrc_tlv_anon());                 // ReportDataMessage
     mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0), s->sub_id);         // SubscriptionId
@@ -2950,7 +2970,7 @@ void MODULE_PART matter_loop(void) {
     uint64_t v = attr_value(g.sub_ep, g.sub_cl, g.sub_attr);
     if (v != g.sub_last_val || (now - g.sub_last_ms) >= (uint32_t)g.sub_max_s * 1000u) {
       g.sub_last_val = v; g.sub_last_ms = now;
-      static uint8_t rep[160];
+      MTRC_STATIC(uint8_t, rep, [160], matter_loop_rep);
       int n = mtrc_im_build_report_uint(rep, sizeof(rep), g.sub_id,
                                         g.sub_ep, g.sub_cl, g.sub_attr, v);
       if (n > 0) {
@@ -3105,6 +3125,32 @@ matter_err_t MODULE_PART matter_set_attr_uint(uint16_t endpoint, uint32_t cluste
 // is stored (as its 32-bit bits); for any other type the value is scaled to an
 // integer round(f*scale) — so one builtin serves both float wire attrs (air
 // quality) and scaled-int wire attrs (temperature 0.01C, power mW, ...).
+#ifdef MTRC_PLUGIN_BUILD
+// Round a float to the nearest int64 (halves away from zero) from its bits.
+// The built-in lib does this in double; in the plugin every soft-double helper
+// and the float->int64 conversion are direct calls (ROM addresses of the
+// classic ESP32, wrong on S2/S3). Only shifts and small immediates here — no
+// literal-pool constants. f carries 24 mantissa bits anyway, so the float
+// product loses nothing the double path kept.
+static int64_t MODULE_PART mtrc_round_f2i64(float x) {
+  uint32_t bits; memcpy(&bits, &x, 4);
+  int32_t  e = (int32_t)((bits >> 23) & 0xFF);            // biased exponent
+  if (e == 0) return 0;                                    // zero / denormal
+  uint64_t m = ((uint64_t)(bits << 9) >> 9) | ((uint64_t)1 << 23);   // 24-bit mantissa
+  int32_t  sh = e - 150;                                   // value = m * 2^sh
+  uint64_t mag;
+  if (sh >= 0) {
+    if (sh > 39) sh = 39;                                  // saturate near 2^63 (inf/nan too)
+    mag = m << sh;
+  } else if (sh < -24) {
+    mag = 0;                                               // |x| < 0.5
+  } else {
+    mag = (m + ((uint64_t)1 << (-sh - 1))) >> (-sh);       // +0.5, truncate
+  }
+  return (bits >> 31) ? -(int64_t)mag : (int64_t)mag;
+}
+#endif
+
 matter_err_t MODULE_PART matter_set_attr_scaled(uint16_t endpoint, uint32_t cluster,
                                     uint32_t attr, float f, int32_t scale) {
   if (!g.inited) return MATTER_ERR_NOT_INIT;
@@ -3113,8 +3159,12 @@ matter_err_t MODULE_PART matter_set_attr_scaled(uint16_t endpoint, uint32_t clus
   if (a && a->type == MTRC_DM_T_FLOAT) {
     uint32_t bits; memcpy(&bits, &f, 4); v = bits;           // store float bits as-is
   } else {
+#ifdef MTRC_PLUGIN_BUILD
+    v = (uint64_t)mtrc_round_f2i64((float)scale * f);        // scale + round-to-nearest
+#else
     double s = (double)f * (double)scale;                    // scale + round-to-nearest
     v = (uint64_t)(int64_t)(s + (s < 0 ? -0.5 : 0.5));
+#endif
   }
   int changed;
   if (!a) { mtrc_dm_add_attr(endpoint, cluster, attr, MTRC_DM_T_U32, 0, v); changed = 1; }

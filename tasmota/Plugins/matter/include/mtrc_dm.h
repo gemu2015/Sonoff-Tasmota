@@ -72,6 +72,14 @@ typedef struct {
   uint32_t device_type;
 } mtrc_dm_endpoint_t;
 
+// The registry table (an anonymous static struct in mtrc_dm.c before); named
+// so the plugin build can place it in its heap block (mtrc_plugin_statics.h).
+typedef struct {
+  mtrc_dm_endpoint_t ep[MTRC_DM_MAX_ENDPOINTS];   int ep_n;
+  mtrc_dm_cluster_t  cl[MTRC_DM_MAX_CLUSTERS];     int cl_n;
+  mtrc_dm_attr_t     at[MTRC_DM_MAX_ATTRS];        int at_n;
+} mtrc_dm_table_t;
+
 // ---- lifecycle ---------------------------------------------------------
 // Clear the whole registry (used by matter_init / matter_factory_reset).
 void mtrc_dm_reset(void);

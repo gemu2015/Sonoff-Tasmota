@@ -28,10 +28,12 @@
 // its typedef). The crypto-ops struct is forward-declared for the bound-ops
 // pointer that mtrc_crypto.c's `g_cr` becomes in the plugin build.
 struct mtrc_crypto_ops;
+struct mtrc_statics;
 
 typedef struct {
   matter_ctx_t                 *mtrc_ctx;  // was `static matter_ctx_t *g_ptr`  (matter_c.c)
   const struct mtrc_crypto_ops *cr;        // was `static const mtrc_crypto_ops *g_cr` (mtrc_crypto.c)
+  struct mtrc_statics          *st;        // all former static data, allocated at pFUNC_INIT (mtrc_plugin_statics.h)
 } MODULE_MEMORY;
 
 // gettbl() → this module's MODULES_TABLE (declared in module_defines.h, which

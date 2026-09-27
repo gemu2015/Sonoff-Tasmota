@@ -1,6 +1,11 @@
 #ifndef MODULE_PART
 #define MODULE_PART
 #endif
+#ifndef MTRC_STATIC
+// function-local scratch buffer; the plugin build maps it into its heap block
+// (see mtrc_plugin_statics.h), everywhere else it stays a plain static
+#define MTRC_STATIC(T, name, dims, field)  static T name dims
+#endif
 // mtrc_pase.c — Matter PASE key schedule + message TLV. See mtrc_pase.h.
 // GPLv3. Matter constants verbatim from connectedhomeip.
 
@@ -30,7 +35,7 @@ void MODULE_PART mtrc_pase_context(const uint8_t *req, size_t req_len,
                        const uint8_t *resp, size_t resp_len, uint8_t ctx[32]) {
   // ctx = SHA256(prefix || req || resp). Streamed via HMAC-less SHA: build
   // one buffer (small messages) — keeps mtrc_crypto's one-shot hash API.
-  static uint8_t tmp[1024];
+  MTRC_STATIC(uint8_t, tmp, [1024], mtrc_pase_context_tmp);
   size_t off = 0, pfx = sizeof(SPAKE_CTX_PREFIX) - 1;
   if (pfx + req_len + resp_len > sizeof(tmp)) { memset(ctx, 0, 32); return; }
   memcpy(tmp + off, SPAKE_CTX_PREFIX, pfx); off += pfx;

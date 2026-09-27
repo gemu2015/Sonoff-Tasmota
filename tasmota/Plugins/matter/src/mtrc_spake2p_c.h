@@ -1,6 +1,11 @@
 #ifndef MODULE_PART
 #define MODULE_PART
 #endif
+#ifndef MTRC_STATIC
+// function-local scratch buffer; the plugin build maps it into its heap block
+// (see mtrc_plugin_statics.h), everywhere else it stays a plain static
+#define MTRC_STATIC(T, name, dims, field)  static T name dims
+#endif
 // mtrc_spake2p.c — SPAKE2+ (RFC 9383, P256) implementation. See header.
 // Implemented from RFC 9383 + Matter Core spec; crypto via BearSSL. GPLv3.
 
@@ -87,7 +92,7 @@ int MODULE_PART mtrc_spake2p_transcript(const uint8_t *context, size_t context_l
                             uint8_t K_main[32]) {
   // TT = (len||val) for: Context, idProver, idVerifier, M, N, X, Y, Z, V, w0
   // Sized for the RFC 9383 layout: 10 length prefixes + payloads.
-  static uint8_t tt[8 + 256 + 8 + 64 + 8 + 64 + 8*7 + 65*6 + 32 + 64];
+  MTRC_STATIC(uint8_t, tt, [8 + 256 + 8 + 64 + 8 + 64 + 8*7 + 65*6 + 32 + 64], mtrc_spake2p_transcript_tt);
   size_t off = 0;
   if (context_len > 256 || idProver_len > 64 || idVerifier_len > 64) return 0;
   tt_put(tt, &off, context, context_len);

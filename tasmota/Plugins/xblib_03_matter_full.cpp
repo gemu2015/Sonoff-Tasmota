@@ -133,8 +133,26 @@ const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
 int32_t mod_func_execute(uint32_t sel) {
   if (sel == pFUNC_INIT) {
     ALLOCMEM;                 // jcalloc the MODULE_MEMORY (holds the matter ctx ptr + crypto ops)
+    // All former static data (~33 KB, see mtrc_plugin_statics.h) in one block,
+    // allocated now — right after boot the heap is still in one piece, which
+    // matters on ESP32s without PSRAM. calloc = zero-init like .bss.
+    mem->st = (mtrc_statics_t *)calloc(1, sizeof(mtrc_statics_t));
+    if (!mem->st) {
+      RETMEM
+      return -1;
+    }
     initialized = 1;
     return 1;
+  }
+  if (sel == pFUNC_DEINIT) {
+    GET_MTBL; GET_JT;
+    MODULE_MEMORY *mem = (MODULE_MEMORY *)mt->mod_memory;
+    if (mem) {
+      if (mem->mtrc_ctx) { free(mem->mtrc_ctx); }
+      if (mem->st)       { free(mem->st); }
+    }
+    RETMEM                    // the host does not free MODULE_MEMORY itself
+    return 0;
   }
   if (sel == pFUNC_GET_TINYC_EXPORTS) {
     return (int32_t)(uintptr_t)&BLIB_EXPORTS[0];
