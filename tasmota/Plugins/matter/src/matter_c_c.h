@@ -41,7 +41,7 @@
 #include "mtrc_cert.h"
 #include "mtrc_csr.h"
 #include "qrcodegen.h"
-#ifdef MTRC_ATTEST_TEST_CREDS
+#if defined(MTRC_ATTEST_TEST_CREDS) && !defined(MTRC_PLUGIN_BUILD)
 #include "mtrc_attest_creds.h"   // generated dev DAC/PAI/CD (gated; never ship)
 #endif
 #include <string.h>
@@ -294,6 +294,9 @@ typedef struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; 
 // can hold a matter_ctx_t*. See mtrc_plugin_mem.h.
 #include "mtrc_plugin_mem.h"
 #include "mtrc_plugin_statics.h"
+#ifdef MTRC_ATTEST_TEST_CREDS
+#include "mtrc_attest_creds.h"   // plugin: after the table macros (mtrc_plugin_statics.h)
+#endif
 #else
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
 #endif

@@ -34,7 +34,8 @@
 #ifdef USE_MATTER_FULL_MOD
 
 #define XBLIB_03            1
-#define MTRC_PLUGIN_BUILD   1   // gates matter_c.c's MODULE_MEMORY keystone include
+#define MTRC_PLUGIN_BUILD   1
+#define MTRC_ATTEST_TEST_CREDS 1   // dev DAC/PAI/CD as in the tinyc firmware envs (-DMTRC_ATTEST_TEST_CREDS)   // gates matter_c.c's MODULE_MEMORY keystone include
 
 #include "module.h"
 #include "module_defines.h"
@@ -123,9 +124,55 @@ MODULE_PART int32_t matterf_probe(uint8_t *buf, int len) {
 
 const char NAME_MATTERF_PROBE[] PROGMEM = "matterf_probe";
 
+// The matter_c API for the firmware (xdrv_124_matter_dispatch.h looks these up
+// by name). argc = 0 on purpose: TinyC's bcall()/fcall() accept only their own
+// fixed signatures, so a script cannot call these with wrong arguments.
+const char NAME_MTRC_CRYPTO_BIND[] PROGMEM = "mtrc_crypto_bind";
+const char NAME_MTR_INIT[] PROGMEM = "matter_init";
+const char NAME_MTR_UDP_RX[] PROGMEM = "matter_udp_rx";
+const char NAME_MTR_START[] PROGMEM = "matter_start";
+const char NAME_MTR_LOOP[] PROGMEM = "matter_loop";
+const char NAME_MTR_QR_URI[] PROGMEM = "matter_qr_uri";
+const char NAME_MTR_QR_DARK[] PROGMEM = "matter_qr_dark";
+const char NAME_MTR_QR_SIZE[] PROGMEM = "matter_qr_size";
+const char NAME_MTR_FACTORY_RESET[] PROGMEM = "matter_factory_reset";
+const char NAME_MTR_SET_COMMISSIONABLE[] PROGMEM = "matter_set_commissionable";
+const char NAME_MTR_OPEN_COMMISSIONING_WINDOW[] PROGMEM = "matter_open_commissioning_window";
+const char NAME_MTR_MANUAL_CODE[] PROGMEM = "matter_manual_code";
+const char NAME_MTR_SET_LABEL[] PROGMEM = "matter_set_label";
+const char NAME_MTR_SET_ATTR_UINT[] PROGMEM = "matter_set_attr_uint";
+const char NAME_MTR_SET_ATTR_SCALED[] PROGMEM = "matter_set_attr_scaled";
+const char NAME_MTR_RESET_MODEL[] PROGMEM = "matter_reset_model";
+const char NAME_MTR_QUEUE_EVENT[] PROGMEM = "matter_queue_event";
+const char NAME_MTR_GET_ATTR_UINT[] PROGMEM = "matter_get_attr_uint";
+const char NAME_MTR_ADD_ENDPOINT[] PROGMEM = "matter_add_endpoint";
+const char NAME_MTR_ADD_CLUSTER[] PROGMEM = "matter_add_cluster";
+const char NAME_MTR_ADD_ATTR[] PROGMEM = "matter_add_attr";
+
 const TC_EXPORT BLIB_EXPORTS[] PROGMEM = {
   { NAME_MATTERF_PROBE, (void *)matterf_probe, 2, TC_RET_INT,
                         { TC_ARG_BUF, TC_ARG_INT, TC_ARG_END } },
+  { NAME_MTRC_CRYPTO_BIND, (void *)mtrc_crypto_bind, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_INIT, (void *)matter_init, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_UDP_RX, (void *)matter_udp_rx, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_START, (void *)matter_start, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_LOOP, (void *)matter_loop, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_QR_URI, (void *)matter_qr_uri, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_QR_DARK, (void *)matter_qr_dark, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_QR_SIZE, (void *)matter_qr_size, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_FACTORY_RESET, (void *)matter_factory_reset, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_SET_COMMISSIONABLE, (void *)matter_set_commissionable, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_OPEN_COMMISSIONING_WINDOW, (void *)matter_open_commissioning_window, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_MANUAL_CODE, (void *)matter_manual_code, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_SET_LABEL, (void *)matter_set_label, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_SET_ATTR_UINT, (void *)matter_set_attr_uint, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_SET_ATTR_SCALED, (void *)matter_set_attr_scaled, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_RESET_MODEL, (void *)matter_reset_model, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_QUEUE_EVENT, (void *)matter_queue_event, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_GET_ATTR_UINT, (void *)matter_get_attr_uint, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_ADD_ENDPOINT, (void *)matter_add_endpoint, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_ADD_CLUSTER, (void *)matter_add_cluster, 0, TC_RET_INT, { TC_ARG_END } },
+  { NAME_MTR_ADD_ATTR, (void *)matter_add_attr, 0, TC_RET_INT, { TC_ARG_END } },
   { NULL, NULL, 0, 0, { 0 } }
 };
 

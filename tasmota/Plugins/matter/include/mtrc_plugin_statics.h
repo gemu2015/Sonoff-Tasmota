@@ -39,7 +39,17 @@
   X(uint8_t, INFO_CONFIRM,                [16])                         \
   X(uint8_t, INFO_SESSION_P,              [11])                         \
   X(int8_t,  ECC_CODEWORDS_PER_BLOCK,     [4][41])  /* qrcodegen     */ \
-  X(int8_t,  NUM_ERROR_CORRECTION_BLOCKS, [4][41])
+  X(int8_t,  NUM_ERROR_CORRECTION_BLOCKS, [4][41])  \
+  MTRC_ATTEST_TABLES(X)
+#ifdef MTRC_ATTEST_TEST_CREDS
+#define MTRC_ATTEST_TABLES(X) \
+  X(uint8_t, MTRC_DAC_PRIV,               [32])  /* attestation (test creds) */ \
+  X(uint8_t, MTRC_DAC_DER,                [493])  /* attestation (test creds) */ \
+  X(uint8_t, MTRC_PAI_DER,                [463])  /* attestation (test creds) */ \
+  X(uint8_t, MTRC_CD,                     [539])  /* attestation (test creds) */
+#else
+#define MTRC_ATTEST_TABLES(X)
+#endif
 #define MTRC_TAB_FIELD(T, name, dims)  T tab_##name dims;
 
 typedef struct mtrc_statics {
@@ -123,6 +133,10 @@ static inline __attribute__((always_inline)) void mtrc_bcopy(void *dst, const vo
 #define INFO_SESSION_P               (MTRC_ST->tab_INFO_SESSION_P)
 #define ECC_CODEWORDS_PER_BLOCK      (MTRC_ST->tab_ECC_CODEWORDS_PER_BLOCK)
 #define NUM_ERROR_CORRECTION_BLOCKS  (MTRC_ST->tab_NUM_ERROR_CORRECTION_BLOCKS)
+#define MTRC_DAC_PRIV                (MTRC_ST->tab_MTRC_DAC_PRIV)
+#define MTRC_DAC_DER                 (MTRC_ST->tab_MTRC_DAC_DER)
+#define MTRC_PAI_DER                 (MTRC_ST->tab_MTRC_PAI_DER)
+#define MTRC_CD                      (MTRC_ST->tab_MTRC_CD)
 
 // A literal becomes a pointer into the RAM copy of the text blob. The size
 // check turns a stale id (literal edited, tool not re-run) into a compile error.

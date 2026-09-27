@@ -125,6 +125,10 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 // the USE_MATTER_C block (with the port wiring) a harmless no-op.
 #ifdef USE_MATTER_C
   #include "matter_c.h"
+  #ifdef USE_BINPLUGINS
+    // built-in lib or the MATTERF plugin, chosen at the first matter_init()
+    #include "include/xdrv_124_matter_dispatch.h"
+  #endif
   // Lazy start: Matter is compiled in but stays completely off (no mDNS, no UDP
   // socket, no fabric load, no advertising) until a TinyC script first uses an
   // mtr* syscall — same "off until enabled" model as HomeKit's hkStart(). These
