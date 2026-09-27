@@ -351,6 +351,18 @@ if [[ ${#UPLOAD_ASSETS[@]} -eq 0 ]]; then
   die "No assets staged in $STAGE_DIR"
 fi
 
+# No home WLAN credentials in anything public: a locally built safeboot in
+# variants/tasmota/ carries them into every factory image (1.6.46–1.6.68 did).
+CREDS_HEADER="$TASMOTA_ROOT/tasmota/user_config_override.h"
+if [[ -f "$CREDS_HEADER" ]]; then
+  log "Scanning staged binaries for WLAN credentials…"
+  /usr/bin/python3 "$TINYC_DIR/scripts/creds_scan.py" "$CREDS_HEADER" "$STAGE_DIR" \
+    || die "WLAN credentials in a staged binary (above) — NOT uploading. Usually a local
+         variants/tasmota/*-safeboot.bin: move it away, rebuild, and the official one is fetched."
+else
+  warn "No $CREDS_HEADER — credential scan skipped"
+fi
+
 log "Uploading ${#UPLOAD_ASSETS[@]} asset(s):"
 for f in "${UPLOAD_ASSETS[@]}"; do printf '         %s\n' "$(basename "$f")"; done
 
