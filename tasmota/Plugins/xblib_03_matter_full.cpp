@@ -211,6 +211,12 @@ int32_t mod_func_execute(uint32_t sel) {
     RETMEM                    // the host does not free MODULE_MEMORY itself
     return 0;
   }
+  if (sel == pFUNC_GET_RAM) {         // for the module directory: heap beyond MODULE_MEMORY
+    GET_MTBL;
+    MODULE_MEMORY *mem = (MODULE_MEMORY *)mt->mod_memory;
+    if (!mem) return 0;
+    return (int32_t)((mem->st ? sizeof(mtrc_statics_t) : 0) + (mem->mtrc_ctx ? sizeof(matter_ctx_t) : 0));
+  }
   if (sel == pFUNC_GET_TINYC_EXPORTS) {
     return (int32_t)(uintptr_t)&BLIB_EXPORTS[0];
   }

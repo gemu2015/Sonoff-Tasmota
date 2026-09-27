@@ -3157,6 +3157,18 @@ MODULES_TABLE modules[MAX_PLUGINS];
 
 #define MOD_EXEC(A)  fm->mod_func_execute(A)
 
+// RAM of a module for the directory: MODULE_MEMORY (mem_size) plus what an
+// initialized module reports for pFUNC_GET_RAM (heap it allocated itself).
+static uint32_t Get_mod_ram(uint32_t idx) {
+  uint32_t ram = modules[idx].mem_size;
+  if (modules[idx].mod_addr && modules[idx].flags.initialized) {
+    const FLASH_MODULE *fm = (FLASH_MODULE*)modules[idx].mod_addr;
+    int32_t extra = MOD_EXEC(pFUNC_GET_RAM);
+    if (extra > 0) { ram += (uint32_t)extra; }
+  }
+  return ram;
+}
+
 
 #define ESP32_PLUGIN_HSIZE SPI_FLASH_SEC_SIZE
 
@@ -3615,7 +3627,7 @@ void Module_mdir(void) {
         ResponseAppend_P(PSTR(","));
       }
       ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"ex-offs\":\"%08x\", \"size\":%d,\"type\":\"%s\",\"rev\":%d.%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr, fm->execution_offset,
-       Get_mod_size, type, (rev>>16),(rev&0xff), modules[cnt].mem_size, modules[cnt].flags.initialized);
+       Get_mod_size, type, (rev>>16),(rev&0xff), Get_mod_ram(cnt), modules[cnt].flags.initialized);
        index++;
     }
   }
@@ -3635,7 +3647,7 @@ void Module_mdir(void) {
       char type[6];
       GetTextIndexed(type, sizeof(type), mtype, mod_types );
       AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-15s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, name, modules[cnt].mod_addr,
-       modules[cnt].mod_size,  type, rev, modules[cnt].mem_size, modules[cnt].flags.initialized);
+       modules[cnt].mod_size,  type, rev, Get_mod_ram(cnt), modules[cnt].flags.initialized);
       // AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d | %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
       //  modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized, fm->execution_offset);
 
@@ -4966,7 +4978,7 @@ void Module_upload() {
       char srev[8];
       float frev = (float)(rev >> 16) + (float)(rev & 0xffff)/100;
       dtostrf(frev, 1, 2, srev);
-      WSContentSend_P(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, Get_mod_size, modules[cnt].mem_size);
+      WSContentSend_P(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, Get_mod_size, Get_mod_ram(cnt));
 
       WSContentSend_P(PSTR("<td>"));
       uint32_t num = fm->arch & 0xff000000;
