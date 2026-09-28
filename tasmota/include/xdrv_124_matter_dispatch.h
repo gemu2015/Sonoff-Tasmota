@@ -188,7 +188,13 @@ static inline bool mtrc_foreign(void) {
 static portMUX_TYPE mtrc_mux = portMUX_INITIALIZER_UNLOCKED;
 
 // datagrams: one producer (AsyncUDP task), one consumer (loop task)
-#define MTRC_HQ_N 8                                // = the plugin's own rx queue
+// 32 slots in PSRAM (~42 KB): the controller acks every chunk of a report at
+// once, and those bursts arrive while the loop task is busy sending - with 8
+// slots .39 dropped ~1 datagram/s at only ~3 datagrams/s (28.09.2026)
+#define MTRC_HQ_N 32
+// the plugin's own rx ring (MTRC_RX_QUEUE 8 in matter_c_c.h) takes 7; handing
+// over more per loop pass made the plugin drop them silently
+#define MTRC_HQ_PER_PASS 7
 typedef struct { uint8_t ip6[16]; uint16_t port; uint16_t len; uint8_t buf[1280]; } mtrc_hq_pkt;
 static mtrc_hq_pkt      *mtrc_hq = nullptr;
 static volatile uint8_t  mtrc_hq_head = 0, mtrc_hq_tail = 0;
@@ -331,7 +337,7 @@ static void mtrc_run_job(void) {
 
 // FUNC_LOOP, before matter_loop(): hand over what the other tasks delivered
 static void mtrc_main_pump(void) {
-  while (mtrc_api_sel == &mtrc_api_marshal && mtrc_hq_tail != mtrc_hq_head) {
+  for (int n = 0; n < MTRC_HQ_PER_PASS && mtrc_api_sel == &mtrc_api_marshal && mtrc_hq_tail != mtrc_hq_head; n++) {
     mtrc_hq_pkt *p = &mtrc_hq[mtrc_hq_tail];
     mtrc_api_plugin.udp_rx(p->ip6, p->port, p->buf, p->len);
     __sync_synchronize();
