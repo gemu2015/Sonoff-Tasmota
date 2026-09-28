@@ -8012,6 +8012,9 @@ bool Xdrv124(uint32_t function) {
   switch (function) {
     case FUNC_LOOP:
 #ifdef USE_MATTER_C
+#ifdef USE_BINPLUGINS
+      mtrc_main_pump();   // plugin: hand over datagrams/calls from other tasks first
+#endif
       matter_loop();   // process any queued Matter datagram (PASE responder)
       // Throttled aggregate log of UDP RX (every 5 s, only if traffic).
       // Runs on main task → safe stack for the format/log path.
