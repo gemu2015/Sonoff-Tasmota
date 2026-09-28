@@ -253,8 +253,9 @@ static const std::function<void()> *mtrc_job = nullptr;
 static volatile uint8_t  mtrc_job_state = 0;       // 0 idle, 1 queued, 2 running
 static SemaphoreHandle_t mtrc_job_lock = nullptr, mtrc_job_done = nullptr;
 static volatile uint32_t mtrc_job_timeouts = 0;
+static const char *volatile mtrc_job_timeout_name = nullptr;   // last one, for the log
 
-static bool mtrc_on_loop(const std::function<void()> &f) {
+static bool mtrc_on_loop(const char *name, const std::function<void()> &f) {
   if (!mtrc_job_lock) return false;
   xSemaphoreTake(mtrc_job_lock, portMAX_DELAY);    // one caller at a time
   xSemaphoreTake(mtrc_job_done, 0);                // drop a stale signal
@@ -270,7 +271,7 @@ static bool mtrc_on_loop(const std::function<void()> &f) {
     if (!running) { mtrc_job = nullptr; mtrc_job_state = 0; }
     portEXIT_CRITICAL(&mtrc_mux);
     if (running) { xSemaphoreTake(mtrc_job_done, portMAX_DELAY); }
-    else { ok = false; mtrc_job_timeouts++; }
+    else { ok = false; mtrc_job_timeouts++; mtrc_job_timeout_name = name; }
   }
   xSemaphoreGive(mtrc_job_lock);
   return ok;
@@ -280,13 +281,13 @@ static bool mtrc_on_loop(const std::function<void()> &f) {
   static ret mtrc_mw_##name params { \
     if (!mtrc_foreign()) return mtrc_api_plugin.name args; \
     ret r = dv; \
-    if (!mtrc_on_loop([&] { r = mtrc_api_plugin.name args; })) return dv; \
+    if (!mtrc_on_loop(#name, [&] { r = mtrc_api_plugin.name args; })) return dv; \
     return r; \
   }
 #define MTRC_W_V(name, params, args) \
   static void mtrc_mw_##name params { \
     if (!mtrc_foreign()) { mtrc_api_plugin.name args; return; } \
-    mtrc_on_loop([&] { mtrc_api_plugin.name args; }); \
+    mtrc_on_loop(#name, [&] { mtrc_api_plugin.name args; }); \
   }
 MTRC_API_LIST(MTRC_W_R, MTRC_W_V)
 
@@ -308,6 +309,24 @@ static bool mtrc_marshal_setup(void) {
   mtrc_api_marshal.set_attr_scaled = mtrc_mx_set_attr_scaled;
   mtrc_api_marshal.queue_event     = mtrc_mx_queue_event;
   return true;
+}
+
+// Run a call another task is waiting for (loop task only). Also used while
+// the loop task waits for a TinyC VM mutex (tc_vm_lock): the VM task holding it
+// may be the one waiting here, e.g. a script's main() doing matterAdd() while
+// a MatterInvoke is being delivered - without this both waited 2 s (seen at
+// startup on .39: "2 calls timed out").
+static void mtrc_run_job(void) {
+  const std::function<void()> *j = nullptr;
+  portENTER_CRITICAL(&mtrc_mux);
+  if (mtrc_job_state == 1) { j = mtrc_job; mtrc_job_state = 2; }
+  portEXIT_CRITICAL(&mtrc_mux);
+  if (!j) return;
+  (*j)();
+  portENTER_CRITICAL(&mtrc_mux);
+  mtrc_job = nullptr; mtrc_job_state = 0;
+  portEXIT_CRITICAL(&mtrc_mux);
+  xSemaphoreGive(mtrc_job_done);
 }
 
 // FUNC_LOOP, before matter_loop(): hand over what the other tasks delivered
@@ -333,24 +352,14 @@ static void mtrc_main_pump(void) {
       case MTRC_DQ_EVENT:  mtrc_api_plugin.queue_event(c.ep, c.cl, c.at, c.a, c.b); break;
     }
   }
-  // also before the choice: matter_init() from another task comes this way
-  const std::function<void()> *j = nullptr;
-  portENTER_CRITICAL(&mtrc_mux);
-  if (mtrc_job_state == 1) { j = mtrc_job; mtrc_job_state = 2; }
-  portEXIT_CRITICAL(&mtrc_mux);
-  if (j) {
-    (*j)();
-    portENTER_CRITICAL(&mtrc_mux);
-    mtrc_job = nullptr; mtrc_job_state = 0;
-    portEXIT_CRITICAL(&mtrc_mux);
-    xSemaphoreGive(mtrc_job_done);
-  }
+  mtrc_run_job();                                  // also before the choice: matter_init()
   // report losses, at most every 60 s
   static uint32_t last_ms = 0, last_sum = 0;
   uint32_t sum = mtrc_hq_drops + mtrc_dq_drops + mtrc_job_timeouts;
   if (sum != last_sum && (uint32_t)(millis() - last_ms) >= 60000) {
-    AddLog(LOG_LEVEL_INFO, PSTR("MTR: plugin hand-over: %u datagrams dropped, %u updates dropped, %u calls timed out"),
-           (unsigned)mtrc_hq_drops, (unsigned)mtrc_dq_drops, (unsigned)mtrc_job_timeouts);
+    const char *tn = mtrc_job_timeout_name;
+    AddLog(LOG_LEVEL_INFO, PSTR("MTR: plugin hand-over: %u datagrams dropped, %u updates dropped, %u calls timed out (last: %s)"),
+           (unsigned)mtrc_hq_drops, (unsigned)mtrc_dq_drops, (unsigned)mtrc_job_timeouts, tn ? tn : "-");
     last_sum = sum; last_ms = millis();
   }
 }
@@ -390,7 +399,7 @@ static matter_err_t mtrc_select_and_init(const matter_port_t *p, const matter_co
   // initializes the plugin, so it runs on the loop task too
   if (mtrc_foreign() && mtrc_marshal_sync()) {
     matter_err_t r = MATTER_ERR_NOT_INIT;
-    mtrc_on_loop([&] { r = mtrc_select_and_init_here(p, c); });
+    mtrc_on_loop("init", [&] { r = mtrc_select_and_init_here(p, c); });
     return r;
   }
 #endif

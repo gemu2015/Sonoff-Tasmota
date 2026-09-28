@@ -11979,7 +11979,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         }
         // ---- re-take vm_mutex before touching the VM again (only if we released) ----
 #ifdef ESP32
-        if (_on_vm_task && _hs->vm_mutex) { xSemaphoreTake(_hs->vm_mutex, portMAX_DELAY); tc_current_slot = _hs; }
+        if (_on_vm_task && _hs->vm_mutex) { tc_vm_lock(_hs->vm_mutex); tc_current_slot = _hs; }
 #endif
         // C: do NOT retry a transport error (connect refused/timeout) — the retry
         // was only ever for HTTP-200 empty bodies; on a dead host it just triples
@@ -12076,7 +12076,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #endif
       http.end();
 #ifdef ESP32
-      if (_on_vm_task && _ps->vm_mutex) { xSemaphoreTake(_ps->vm_mutex, portMAX_DELAY); tc_current_slot = _ps; }
+      if (_on_vm_task && _ps->vm_mutex) { tc_vm_lock(_ps->vm_mutex); tc_current_slot = _ps; }
 #endif
       int32_t result = -1;
       if (httpCode > 0) {
@@ -12113,7 +12113,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #define TC_FTP_UNLOCK()  TcSlot *_fs = tc_current_slot; \
                          bool _on = (_fs && _fs->vm_mutex && xSemaphoreGetMutexHolder(_fs->vm_mutex) == xTaskGetCurrentTaskHandle()); \
                          if (_on) xSemaphoreGive(_fs->vm_mutex)
-#define TC_FTP_RELOCK()  if (_on && _fs->vm_mutex) { xSemaphoreTake(_fs->vm_mutex, portMAX_DELAY); tc_current_slot = _fs; }
+#define TC_FTP_RELOCK()  if (_on && _fs->vm_mutex) { tc_vm_lock(_fs->vm_mutex); tc_current_slot = _fs; }
 #else
 #define TC_FTP_UNLOCK()
 #define TC_FTP_RELOCK()
@@ -17845,7 +17845,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       uint16_t result = SendMail(cmd);
 #ifdef ESP32
       if (_on_vm_task && _email_slot->vm_mutex) {
-        xSemaphoreTake(_email_slot->vm_mutex, portMAX_DELAY);
+        tc_vm_lock(_email_slot->vm_mutex);
         tc_current_slot = _email_slot;  // restore — other tasks may have changed it
       }
 #endif
@@ -21579,7 +21579,7 @@ static void tc_vm_task(void *param) {
       uint16_t tl_addr = vm->callbacks[tl_idx].address;
 
       while (!slot->task_stop && vm->error == TC_OK) {
-        if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+        if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
         tc_current_slot = slot;  // restore after mutex acquire
 
         uint8_t saved_frame_count = vm->frame_count;
@@ -21622,7 +21622,7 @@ static void tc_vm_task(void *param) {
                   remaining = (int32_t)(vm->delay_until - millis());
                 }
                 vm->delayed = false;
-                if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+                if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
                 tc_current_slot = slot;  // restore after reacquire
                 vm->halted = false;
                 vm->running = true;
@@ -21643,7 +21643,7 @@ static void tc_vm_task(void *param) {
               vm->running = false;
               if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
               vTaskDelay(1);
-              if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+              if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
               tc_current_slot = slot;
               vm->halted = false;
               vm->running = true;
@@ -21882,7 +21882,7 @@ static void tc_slot_callback_id(TcSlot *s, TcCallbackId cid) {
     if (s->vm_mutex && xSemaphoreTake(s->vm_mutex, 0) != pdTRUE) return;  // worker busy -> skip tick
   } else
 #endif
-  { if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY); }
+  { if (s->vm_mutex) tc_vm_lock(s->vm_mutex); }
 #endif
   if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32

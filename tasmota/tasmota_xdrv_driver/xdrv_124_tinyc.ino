@@ -146,6 +146,23 @@ static void (*const TinyCWebOnHandlers[])(void) = {
   extern "C" void *matter_special_malloc(size_t n) { return special_malloc(n); }
 #endif
 
+#ifdef ESP32
+// Take a TinyC VM mutex. On the loop task with the Matter plugin hand-over
+// (MTRC_MARSHAL, boards with XIP from PSRAM) it waits in 5 ms steps and runs
+// the Matter call another task is waiting for: that task may be the one
+// holding this mutex (a script's main() in its VM task calling matterAdd()),
+// and it waits for the loop task. Everywhere else: a plain blocking take.
+static inline void tc_vm_lock(SemaphoreHandle_t m) {
+#ifdef MTRC_MARSHAL
+  if (xTaskGetCurrentTaskHandle() == loopTaskHandle) {
+    while (xSemaphoreTake(m, pdMS_TO_TICKS(5)) != pdTRUE) { mtrc_run_job(); }
+    return;
+  }
+#endif
+  xSemaphoreTake(m, portMAX_DELAY);
+}
+#endif
+
 // Fork-owned TinyC-controlled MIPI-CSI camera (ESP32-P4). Included BEFORE the VM
 // header so its WcCsiCaptureJpeg / tcam_init / tcam_deinit / tcam_sensor_pid are
 // visible to the camControl dispatch. Compiles to nothing unless
@@ -268,7 +285,7 @@ extern "C" {
     TcSlot *s = Tinyc->slots[0];
     if (!s || !s->loaded) return;
 #ifdef ESP32
-    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+    if (s->vm_mutex) tc_vm_lock(s->vm_mutex);
 #endif
     if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32
@@ -323,7 +340,7 @@ static void tc_all_callbacks_str(const char *name, const char *str) {
     TcSlot *s = Tinyc->slots[i];
     if (!s || !s->loaded) continue;
 #ifdef ESP32
-    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+    if (s->vm_mutex) tc_vm_lock(s->vm_mutex);
 #endif
     if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32
@@ -348,7 +365,7 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
     TcSlot *s = Tinyc->slots[i];
     if (!s || !s->loaded) continue;
 #ifdef ESP32
-    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+    if (s->vm_mutex) tc_vm_lock(s->vm_mutex);
 #endif
     if (!s->vm.halted || s->vm.error != TC_OK) {
 #ifdef ESP32
@@ -860,7 +877,15 @@ static void TinyCStartAutoexec(void) {
         uint32_t t0 = millis();
         TcSlot *as = Tinyc->slots[i];
         while (as && !as->main_done && (millis() - t0) < TC_BOOT_MAIN_WAIT_MS) {
+#ifdef MTRC_MARSHAL
+          // main() may itself wait for the loop task (matterAdd() through the
+          // Matter plugin hand-over): run that call here, otherwise both wait
+          // TC_BOOT_MAIN_WAIT_MS and the call is lost (.39: 2x add_endpoint)
+          mtrc_run_job();
+          delay(2);
+#else
           delay(20);
+#endif
         }
 #endif
       }
@@ -1920,7 +1945,17 @@ void CmndTinyC(void) {
       tc_error_str(s->vm.error),
       s->filename[0] ? s->filename : "");
   }
-  ResponseAppend_P(PSTR("]}}"));
+  ResponseAppend_P(PSTR("]"));
+#ifdef MTRC_MARSHAL
+  // Matter plugin hand-over (XIP from PSRAM): losses since boot. The log line
+  // scrolls out of the buffer under Matter traffic; this one stays queryable.
+  {
+    const char *tn = mtrc_job_timeout_name;
+    ResponseAppend_P(PSTR(",\"MtrHandover\":{\"DgramDrops\":%u,\"UpdateDrops\":%u,\"CallTimeouts\":%u,\"LastTimeout\":\"%s\"}"),
+      (unsigned)mtrc_hq_drops, (unsigned)mtrc_dq_drops, (unsigned)mtrc_job_timeouts, tn ? tn : "");
+  }
+#endif
+  ResponseAppend_P(PSTR("}}"));
 }
 
 // Parse optional slot number from command payload: "TinyCRun [slot] [/file]"
@@ -4652,7 +4687,7 @@ static bool MatterC_DispatchInvoke(uint16_t ep, uint32_t cluster, uint32_t cmd) 
       if (strcmp(s->vm.callbacks[c].name, "MatterInvoke") == 0) { has = true; break; }
     if (!has) continue;
 #ifdef ESP32
-    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+    if (s->vm_mutex) tc_vm_lock(s->vm_mutex);
 #endif
     if (s->vm.halted && s->vm.error == TC_OK) {
       tc_current_slot = s;
@@ -7304,7 +7339,7 @@ static bool tc_mqtt_data_handler(void) {
       if (slot->vm.cb_index[TC_CB_ON_MQTT_DATA] < 0) continue;
       tc_current_slot = slot;
 #ifdef ESP32
-      if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+      if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
       // Re-check halted AFTER the lock (TOCTOU): the core-1 VM task can flip
       // halted=false between the pre-lock check above and here; running
       // OnMqttData on a non-halted VM corrupts its frame -> crash under MQTT
@@ -7517,7 +7552,7 @@ static void tc_spawn_task_body(void *param) {
 
     // Execute the user function under vm_mutex. The pattern follows TaskLoop:
     // release mutex during delay() so Tasmota callbacks can interleave.
-    if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+    if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
     tc_current_slot = slot;
 
     uint8_t  saved_frame_count      = vm->frame_count;
@@ -7578,7 +7613,7 @@ static void tc_spawn_task_body(void *param) {
           remaining = (int32_t)(vm->delay_until - millis());
         }
         vm->delayed = false;
-        if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+        if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
         tc_current_slot = slot;
         if (entry->stop_requested || !slot->loaded) break;
         vm->halted = false;
@@ -7593,7 +7628,7 @@ static void tc_spawn_task_body(void *param) {
       vm->halted = true; vm->running = false;
       if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
       vTaskDelay(1);
-      if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+      if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
       tc_current_slot = slot;
       if (entry->stop_requested || !slot->loaded) break;
       vm->halted = false; vm->running = true;
@@ -7670,7 +7705,7 @@ static void tc_worker_vm_body(void *param) {
       break;
     }
 
-    if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+    if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
     tc_current_slot = slot;
 
     // Fresh frame on the worker VM (frame_count starts at 0 — its own stack).
@@ -7715,7 +7750,7 @@ static void tc_worker_vm_body(void *param) {
           remaining = (int32_t)(vm->delay_until - millis());
         }
         vm->delayed = false;
-        if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+        if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
         tc_current_slot = slot;
         if (entry->stop_requested || !slot->loaded) break;
         vm->halted = false; vm->running = true;
@@ -7727,7 +7762,7 @@ static void tc_worker_vm_body(void *param) {
       vm->halted = true; vm->running = false;
       if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
       vTaskDelay(1);
-      if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+      if (slot->vm_mutex) tc_vm_lock(slot->vm_mutex);
       tc_current_slot = slot;
       if (entry->stop_requested || !slot->loaded) break;
       vm->halted = false; vm->running = true;
@@ -8078,7 +8113,7 @@ bool Xdrv124(uint32_t function) {
           continue;
         }
 #ifdef ESP32
-        if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+        if (s->vm_mutex) tc_vm_lock(s->vm_mutex);
 #endif
         if (s->vm.halted && s->vm.error == TC_OK) {
           tc_current_slot = s;
