@@ -2,17 +2,18 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-> **Current firmware: v1.6.69** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
+> **Current firmware: v1.6.70** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
 >
 > * [**All releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — one `v<version>` release per build. Watch the repository (*Custom → Releases*) to be notified when a new one appears.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — a rolling tag that always carries the newest assets, for stable download URLs. It is deliberately reused, so it never fires a release notification.
 >
 > Every version is listed in [**CHANGELOG.md**](CHANGELOG.md), including the syscall-ABI table (which firmware a `.tcb` needs).
 
-## What's new (v1.6.29 – v1.6.69)
+## What's new (v1.6.29 – v1.6.70)
 
 The highlights; details per version in [CHANGELOG.md](CHANGELOG.md).
 
+- **Strings are no longer cut silently (1.6.70)** — every cut is logged, small arrays can no longer overwrite their neighbours, `WebChartJS` has no length limit, and `TinyCStrict 1` halts a script on a cut. **Matter** is built in only on the S3 now; C3, C6 and P4 load it as a plugin (`docs/MATTER_PLUGIN.md`).
 - **FTP client (1.6.68)** — `ftpOpen` / `ftpPut` / `ftpPutStr` (replace or append) / `ftpGet` / `ftpList` / … — e.g. a logger keeps its table on a FRITZ!NAS. See `examples/ftp_log.tc`, `examples/ftp_browse.tc`.
 - **ESP32 as USB host (1.6.67)** — a serial link to a device with a built-in FTDI (S3/S2, custom build); `serialReadArray` reads a whole block in one call.
 - **Packed arrays (1.6.56 – 1.6.62)** — `byte[]` takes a quarter of the RAM of `char[]` and is a full drop-in for it (all string functions, `%s`, `persist`, struct fields); `int16[]` / `uint16[]` take half the RAM of `int[]`. `WebChartQ` feeds charts from `byte[]`.

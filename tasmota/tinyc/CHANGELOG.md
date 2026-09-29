@@ -56,7 +56,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## 1.6.70 — unreleased
+## 1.6.70 — 2026-09-29
 
 - ⚠️ **Matter is built in only on the S3 now.** The built-in engine takes about 33 KB of static RAM on every device, whether it ever uses Matter or not. The C3, C6 and P4 test builds are plugin-only (`-DUSE_MATTER_C_PLUGIN_ONLY`) and load Matter as `MATTERF_32r.bin`; the S3 keeps the engine and can use `MATTERF_32.bin` instead. Both plugin files and a step-by-step guide (`docs/MATTER_PLUGIN.md`, `_DE.md`) are attached to the release. ⚠️ Creating the plugin partition formats the file system — scripts and an existing pairing have to be saved first. Tick "Autostart plugins at boot" so the plugin gets its 71 KB at boot.
 - ⚠️ **"Autostart plugins at boot" is saved now** (`/plugins.auto` in the file system). The checkbox used to flip the Option A7 flag only in RAM — it was rebuilt from the GPIO configuration at boot, so the tick was lost at the next restart unless a GPIO was set to Option A 7. Without the file Option A7 still works as before; the flag itself is no longer touched (Tasmota also reads it as "Shelly Pro"). The P4 test build had no Matter at all before (its env never set `TINYC_MATTER`).
