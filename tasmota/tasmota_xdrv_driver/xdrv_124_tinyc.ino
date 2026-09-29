@@ -2527,11 +2527,19 @@ static bool tc_tcb_meta(FS *fs, const char *path,
 static void HandleTinyCPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
-  WSContentStart_P(PSTR("TinyC Console"));
-  WSContentSendStyle();
-
   // Handle button commands first (before displaying status)
   // Commands default to slot 0 unless otherwise specified
+  //
+  // ⚠️ The buttons are a GET form, so a click lands on /tc?slot=1&cmd=run and that
+  // address STAYS in the address bar and the history. Every reload of it ran the
+  // command again: a browser that reloads a background tab when it is switched to
+  // (Chrome's memory saver) restarted the slot on every window change, back/forward
+  // did it too (mi-hol, #123: weather.tcb on slot 1 restarted each time he came
+  // back to the console). So a command is answered with a redirect to a plain /tc
+  // (POST/redirect/GET); the page itself is only rendered after that. The command
+  // block therefore has to run BEFORE WSContentStart_P() -- the headers are gone
+  // once that is called -- and must not write any page content (it does not).
+  const bool tc_had_cmd = (Tinyc && Webserver->hasArg(F("cmd")));
   if (Tinyc && Webserver->hasArg(F("cmd"))) {
     String cmd = Webserver->arg(F("cmd"));
     uint8_t cmd_slot = 0;
@@ -2665,6 +2673,17 @@ static void HandleTinyCPage(void) {
 #endif
     }
   }
+
+  if (tc_had_cmd) {
+    // Location "/tc" is relative to the device root, so it also works behind a
+    // reverse proxy that keeps the path. `true` = replace, do not add a second one.
+    Webserver->sendHeader(F("Location"), F("/tc"), true);
+    Webserver->send(303);
+    return;
+  }
+
+  WSContentStart_P(PSTR("TinyC Console"));
+  WSContentSendStyle();
 
   // Custom styles for this page
   WSContentSend_P(PSTR(
@@ -5151,8 +5170,17 @@ static void HandleMatterQR(void) {
     WSContentStop();
     return;
   }
-  if (Webserver->hasArg(F("bind")))   mtrc_bind();      // open the pairing window
-  if (Webserver->hasArg(F("unbind"))) mtrc_unbind();    // leave all fabrics
+  // ⚠️ Bind / Unbind are GET forms, so /mt?unbind=1 stayed in the address bar and
+  // every reload of it ran matter_factory_reset() again (same trap as /tc?cmd=,
+  // #123); /mt?bind=1 reopened the pairing window. Do the action, then redirect
+  // to a plain /mt (POST/redirect/GET) -- before any page content is started.
+  if (Webserver->hasArg(F("bind")) || Webserver->hasArg(F("unbind"))) {
+    if (Webserver->hasArg(F("bind")))   mtrc_bind();      // open the pairing window
+    if (Webserver->hasArg(F("unbind"))) mtrc_unbind();    // leave all fabrics
+    Webserver->sendHeader(F("Location"), F("/mt"), true);
+    Webserver->send(303);
+    return;
+  }
 
   bool open = mtrc_window_open();
   uint32_t left = mtrc_window_left_s();
