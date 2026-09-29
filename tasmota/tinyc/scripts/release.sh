@@ -57,10 +57,10 @@ STD_TARGETS=(
   #                # Matter+camera build overflows internal DRAM (dram0_0_seg by
   #                # ~2 KB as of 1.6.58); not shippable on the 4M WROVER until
   #                # something big moves out of DRAM. Re-enable when it links.
-  tinyc32s3        # ESP32-S3 16MB flash (Matter + camera + LVGL)
-  tinyc32c3        # ESP32-C3           (Matter)
-  tinyc32c6        # ESP32-C6           (Matter)
-  tinyc32-p4-full  # ESP32-P4 16MB+PSRAM — FULL: DSI display + LVGL, Matter, MIPI camera, audio
+  tinyc32s3        # ESP32-S3 16MB flash (Matter built in + camera + LVGL)
+  tinyc32c3        # ESP32-C3           (Matter as plugin only)
+  tinyc32c6        # ESP32-C6           (Matter as plugin only)
+  tinyc32-p4-full  # ESP32-P4 16MB+PSRAM — FULL: DSI display + LVGL, MIPI camera, audio; Matter as plugin only
   tinyc8266-4M     # ESP8266 4MB — lean (no Matter / LVGL / camera); HWDT fix, runs basic programs
 )
 
@@ -252,8 +252,21 @@ for env in "${STD_TARGETS[@]}"; do
   fi
 done
 
+# Matter as a plugin (1.6.70): only the S3 build has the engine built in (it
+# costs ~33 KB of static RAM on every device, used or not); C3/C6/P4 load
+# MATTERF. _32 = Xtensa (S3), _32r = RISC-V (C3, C6 and P4 — the P4 accepts the
+# soft-float module). Built by tasmota/Plugins/build_plugin.py, audited there.
+PLUGIN_DIR="$FW_DIR/Plugins/ESP32"
+for plg in TENSILICA/MATTERF_32.bin RISC/MATTERF_32r.bin; do
+  [[ -f "$PLUGIN_DIR/$plg" ]] || $DRY_RUN \
+    || die "Missing $PLUGIN_DIR/$plg — build it: python3 tasmota/Plugins/build_plugin.py --plugin USE_MATTER_FULL_MOD --cpu esp32 / esp32_riscv"
+  run "cp '$PLUGIN_DIR/$plg' '$STAGE_DIR/'"
+done
+
 # IDE + docs
 run "cp '$IDE_GZ' '$STAGE_DIR/'"
+run "cp '$TINYC_DIR/docs/MATTER_PLUGIN.md'    '$STAGE_DIR/'"
+run "cp '$TINYC_DIR/docs/MATTER_PLUGIN_DE.md' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference.md'    '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference_DE.md' '$STAGE_DIR/'"
 
@@ -285,17 +298,22 @@ cat > "$COMBINED_NOTES" <<HEADER
 | File | Description |
 |------|-------------|
 | \`tinyc32-4M-plain.bin\` / \`.factory.bin\` | ESP32 4MB classic WROOM — plain (no Matter / no camera) |
-| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** + camera + **LVGL** GUI |
-| \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — **Matter** |
-| \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — **Matter** |
-| \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, **Matter**, MIPI camera, audio |
+| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** built in + camera + **LVGL** GUI |
+| \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — Matter as plugin |
+| \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — Matter as plugin |
+| \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, MIPI camera, audio; Matter as plugin |
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | **ESP8266** 4MB — lean (no Matter / LVGL / camera); runs basic TinyC programs (HWDT fix). Flash the \`.bin\` (OTA/esptool); no \`.factory.bin\` |
+| \`MATTERF_32.bin\` / \`MATTERF_32r.bin\` | Matter plugin — \`_32\` for the S3, \`_32r\` for C3 / C6 / P4 |
+| \`MATTER_PLUGIN.md\` / \`_DE.md\` | How to install the Matter plugin, EN/DE |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
-The ESP32 builds include **Matter** (Apple Home / Google / Alexa): a script
-defines the device (see \`matter_*.tc\` examples); open pairing from the \`/mt\`
-web page (Bind) and add the QR in your controller app.
+**Matter** (Apple Home / Google / Alexa): built into the S3 build. The C3, C6
+and P4 builds load it as a plugin (\`MATTERF_32r.bin\`) — the built-in engine
+would cost every device about 33 KB of RAM, used or not. Installing the plugin
+formats the file system; follow \`MATTER_PLUGIN.md\` step by step. After that a
+script defines the device (see \`matter_*.tc\` examples); open pairing from the
+\`/mt\` web page (Bind) and add the QR in your controller app.
 
 ### How to flash:
 - OTA: Firmware Upgrade → Upload \`.bin\` file

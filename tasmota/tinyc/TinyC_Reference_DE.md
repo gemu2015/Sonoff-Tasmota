@@ -5336,8 +5336,12 @@ enthalten:
 
 - **Eingebaut** — `USE_MATTER_C` uebersetzt `matter_c` in die Firmware.
 - **Binaer-Plugin `MATTERF`** — dieselbe Engine als BinPlugin
-  (`MATTERF_32.bin` fuer ESP32/S3, `MATTERF_32r.bin` fuer C3), hochgeladen in
+  (`MATTERF_32.bin` fuer ESP32/S3, `MATTERF_32r.bin` fuer C3/C6/P4), hochgeladen in
   eine Plugin-Partition (`chkpt aN`, dann Upload ueber die Weboberflaeche).
+  Schritt fuer Schritt: [docs/MATTER_PLUGIN_DE.md](docs/MATTER_PLUGIN_DE.md).
+
+Seit 1.6.70 hat nur noch der S3-Testbau die Engine eingebaut; die Testbauten
+fuer C3, C6 und P4 sind Nur-Plugin (`-DUSE_MATTER_C_PLUGIN_ONLY`).
 
 Beim Booten waehlt die Firmware: Ist ein Modul `MATTERF`
 geladen, wird es benutzt, sonst die eingebaute Engine. Das Protokoll sagt,

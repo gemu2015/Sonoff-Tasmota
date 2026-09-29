@@ -5466,8 +5466,12 @@ The Matter engine exists in two forms, and a firmware can carry both:
 
 - **Built-in** — `USE_MATTER_C` compiles `matter_c` into the firmware.
 - **Binary plugin `MATTERF`** — the same engine as a BinPlugin
-  (`MATTERF_32.bin` for ESP32/S3, `MATTERF_32r.bin` for C3), uploaded into a
+  (`MATTERF_32.bin` for ESP32/S3, `MATTERF_32r.bin` for C3/C6/P4), uploaded into a
   plugin partition (`chkpt aN`, then upload via the web UI).
+  Step by step: [docs/MATTER_PLUGIN.md](docs/MATTER_PLUGIN.md).
+
+Since 1.6.70 only the S3 test build has the engine built in; the C3, C6 and
+P4 test builds are plugin-only (`-DUSE_MATTER_C_PLUGIN_ONLY`).
 
 At boot the firmware picks one: if a `MATTERF` module is
 loaded it is used, otherwise the built-in engine. The log says which

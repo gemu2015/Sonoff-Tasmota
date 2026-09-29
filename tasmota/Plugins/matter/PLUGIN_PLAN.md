@@ -362,6 +362,8 @@ down to 43 KB. `pase_probe.py`: all checks pass (Pake2 3.7 s — no FPU), `matte
 2137 / -555 / 13 identical to S3 and to the built-in lib. RISC-V specifics fixed on the way:
 blib_audit reads RISC-V ELFs (found `__floatsisf`/`__mulsf3` as ROM calls — correct on C3, wrong
 on C6), four -fpermissive type errors.
+(29.09.2026: the current `MATTERF_32r` has no ROM calls left — `blib_audit --elf` shows 0 —
+so the same file runs on C3, C6 and P4; the P4 accepts the soft-float module.)
 
 ⚠️ `chkpt r` bricked two C3 (.172, .154): removing a partition left the old MD5 entry behind the
 new one, the bootloader rejects "Only one MD5 checksum is allowed" and resets forever. Fixed in
