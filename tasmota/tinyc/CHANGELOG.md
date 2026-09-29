@@ -56,12 +56,10 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## 1.6.71 — unreleased
+## 1.6.70 — 2026-09-29
 
 - ⚠️ **A click on ▶ / ■ / ↻ / ⏏ / A on the console page no longer repeats itself** (gemu2015/Sonoff-Tasmota#123). The buttons are a GET form, so a click left `/tc?slot=1&cmd=run` in the address bar and the history, and every reload of that address ran the command again: a browser that reloads a background tab when you switch back to it (Chrome's memory saver) restarted the slot on every window change, and so did back/forward. Commands are now answered with a redirect to a plain `/tc` (POST/redirect/GET). Scripts that call `/tc?cmd=…` still work — the command runs, the answer is a 303.
 - ⚠️ **The same for the Matter page `/mt`:** a reload of `/mt?unbind=1` removed the device from all Matter controllers again, `/mt?bind=1` reopened the pairing window. Both redirect to a plain `/mt` now.
-
-## 1.6.70 — 2026-09-29
 
 - ⚠️ **Matter is built in only on the S3 now.** The built-in engine takes about 33 KB of static RAM on every device, whether it ever uses Matter or not. The C3, C6 and P4 test builds are plugin-only (`-DUSE_MATTER_C_PLUGIN_ONLY`) and load Matter as `MATTERF_32r.bin`; the S3 keeps the engine and can use `MATTERF_32.bin` instead. Both plugin files and a step-by-step guide (`docs/MATTER_PLUGIN.md`, `_DE.md`) are attached to the release. ⚠️ Creating the plugin partition formats the file system — scripts and an existing pairing have to be saved first. Tick "Autostart plugins at boot" so the plugin gets its 71 KB at boot.
 - ⚠️ **"Autostart plugins at boot" is saved now** (`/plugins.auto` in the file system). The checkbox used to flip the Option A7 flag only in RAM — it was rebuilt from the GPIO configuration at boot, so the tick was lost at the next restart unless a GPIO was set to Option A 7. Without the file Option A7 still works as before; the flag itself is no longer touched (Tasmota also reads it as "Shelly Pro"). The P4 test build had no Matter at all before (its env never set `TINYC_MATTER`).
