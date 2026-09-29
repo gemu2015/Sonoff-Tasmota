@@ -1146,6 +1146,7 @@ void CmndTinyCHttpRx(void);
 #endif
 void CmndTinyCUnload(void);
 void CmndTinyCUdp(void);
+void CmndTinyCStrict(void);
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
 #ifdef TINYC_MTRC_CRYPTO_SELFTEST
@@ -1154,7 +1155,7 @@ void CmndMatterCryptoTest(void);
 #endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
-  "|Run|Stop|Reset|Exec|Info|Ide|Unload|Udp"
+  "|Run|Stop|Reset|Exec|Info|Ide|Unload|Udp|Strict"
 #ifdef ESP32
   "|Chkpt|Stack|HttpRx|Heap|Psram"
 #endif
@@ -1171,7 +1172,8 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
 
 void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
-  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde, &CmndTinyCUnload, &CmndTinyCUdp
+  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde, &CmndTinyCUnload, &CmndTinyCUdp,
+  &CmndTinyCStrict
 #ifdef ESP32
   , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx, &CmndTinyCHeap, &CmndTinyCPsram
 #endif
@@ -2132,6 +2134,18 @@ void CmndTinyCUnload(void) {
 // (inj); plus totals. Written for .118 (2026-09-23), where some values never
 // showed although the multicast group carried them several times a minute.
 // One log line per name (the list does not fit a command response).
+// TinyCStrict 0 / 1: a string that has to be cut (strcpy/strcat into a
+// too-small array, a syscall's fixed buffer) only logs a line (0, default)
+// or halts the script with "String truncated" (1). Not saved: a restart
+// switches it off again, so a forgotten development setting cannot stop a
+// running installation. Build default: -DTINYC_STRICT=1.
+void CmndTinyCStrict(void) {
+  if (XdrvMailbox.data_len > 0 && (XdrvMailbox.payload == 0 || XdrvMailbox.payload == 1)) {
+    tc_strict = (XdrvMailbox.payload == 1);
+  }
+  ResponseCmndNumber(tc_strict ? 1 : 0);
+}
+
 void CmndTinyCUdp(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
 #ifdef ESP32

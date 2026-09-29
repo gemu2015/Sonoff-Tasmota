@@ -1500,6 +1500,8 @@ enum {
   // Appended AT THE END so the numbers of the existing codes stay put -- they
   // appear that way in the status JSON and in the IDE.
   TC_ERR_OUT_OF_MEMORY,
+  // TinyCStrict 1: a string that had to be cut stops the script (#116).
+  TC_ERR_STRING_CUT,
 };
 
 // Error strings in PROGMEM — saves ~120 bytes RAM on ESP8266
@@ -1517,18 +1519,19 @@ static const char TC_ERR_10[] PROGMEM = "Paused (delay)";
 static const char TC_ERR_11[] PROGMEM = "Forbidden pin";
 static const char TC_ERR_12[] PROGMEM = "Frame locals NULL";
 static const char TC_ERR_13[] PROGMEM = "Out of memory";
+static const char TC_ERR_14[] PROGMEM = "String truncated";
 static const char TC_ERR_XX[] PROGMEM = "Unknown";
 
 static const char * const tc_error_table[] PROGMEM = {
   TC_ERR_00, TC_ERR_01, TC_ERR_02, TC_ERR_03, TC_ERR_04,
   TC_ERR_05, TC_ERR_06, TC_ERR_07, TC_ERR_08, TC_ERR_09, TC_ERR_10,
-  TC_ERR_11, TC_ERR_12, TC_ERR_13
+  TC_ERR_11, TC_ERR_12, TC_ERR_13, TC_ERR_14
 };
 
 static const char* tc_error_str(int err) {
   static char buf[24];
   const char *p;
-  if (err >= 0 && err <= TC_ERR_OUT_OF_MEMORY) {
+  if (err >= 0 && err <= TC_ERR_STRING_CUT) {
     p = (const char *)pgm_read_ptr(&tc_error_table[err]);
   } else {
     p = TC_ERR_XX;
@@ -1785,6 +1788,9 @@ typedef struct {
   // so URL-side writes can also bump shadow (var+1) and written-flag (var+2).
   uint16_t      watch_indices[TC_MAX_WATCH];
   uint8_t       watch_count;
+  // A string was cut during the running syscall; tc_syscall() turns it into
+  // TC_ERR_STRING_CUT when TinyCStrict is on.
+  bool          str_cut;
 } TcVM;
 
 /*********************************************************************************************\
@@ -2688,6 +2694,14 @@ static inline int32_t tc_file_mode(int32_t mode) {
 // is reported once per (VM, syscall) until the script is reloaded; the first
 // chars of the string name the culprit better than a syscall number does.
 static uint16_t tc_sys_cur;          // syscall being executed (set in tc_syscall)
+// TinyCStrict 1: the cut is an error and halts the script instead of a log
+// line - for development, where a too-small buffer should fail on the first
+// run. Off by default and after every restart: on a running installation a
+// script that carries on with a shortened string beats one that stops.
+#ifndef TINYC_STRICT
+#define TINYC_STRICT 0
+#endif
+static bool tc_strict = TINYC_STRICT;
 #define TC_TRUNC_SEEN 8
 static struct { TcVM *vm; uint16_t sys; } tc_trunc_seen[TC_TRUNC_SEEN];
 static uint8_t tc_trunc_next;
@@ -2700,6 +2714,15 @@ static void tc_trunc_forget(TcVM *vm) {
 
 static TcSlot *tc_slot_of_vm(TcVM *vm);
 static void tc_trunc_warn(TcVM *vm, const char *op, const char *head, int kept, int want) {
+  if (tc_strict && vm) {
+    vm->str_cut = true;
+    TcSlot *sl = tc_slot_of_vm(vm);
+    char nm[12];
+    if (!op) { snprintf_P(nm, sizeof(nm), PSTR("syscall %u"), tc_sys_cur); op = nm; }
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT (TinyCStrict) %s: %s cut a string at %d of %d chars: \"%.24s...\""),
+           (sl && sl->filename[0]) ? sl->filename : "?", op, kept, want, head ? head : "");
+    return;
+  }
   for (uint8_t i = 0; i < TC_TRUNC_SEEN; i++) {
     if (tc_trunc_seen[i].vm == vm && tc_trunc_seen[i].sys == tc_sys_cur) return;
   }
@@ -7253,11 +7276,23 @@ static inline void tc_arr_free(void *pp) { void **p = (void **)pp; tc_scratch_de
 #define TC_UBUF(name, sz) uint8_t name[sz]
 #endif
 
+static int tc_syscall_impl(TcVM *vm, uint16_t id);
 static int tc_syscall(TcVM *vm, uint16_t id) {
+  tc_sys_cur = id;
+  vm->str_cut = false;
+  int r = tc_syscall_impl(vm, id);
+  if (vm->str_cut && (r == TC_OK || r == TC_ERR_PAUSED)) {
+    vm->error  = TC_ERR_STRING_CUT;
+    vm->halted = true;
+    return TC_ERR_STRING_CUT;
+  }
+  return r;
+}
+
+static int tc_syscall_impl(TcVM *vm, uint16_t id) {
   int32_t a, b;
   float fa;
 
-  tc_sys_cur = id;
   switch (id) {
     // ── GPIO (with bounds check) ────────────────────────
     case SYS_PIN_MODE:
