@@ -62,6 +62,18 @@ es die Partition schon — dann gleich weiter mit Schritt 2.
 2. `MATTERF_32.bin` (S3) oder `MATTERF_32r.bin` (C3/C6/P4) auswählen und
    **Start** drücken.
 3. Die Tabelle zeigt jetzt `MATTERF` mit seiner Größe (57–61 KB).
+4. ⚠️ **Plugin-Autostart einschalten — dauerhaft.** Der Autostart startet das
+   Plugin beim Booten, solange der Heap noch am Stück ist; so bekommt es seinen
+   71-KB-Block sicher. Einmal einstellen unter **Einstellungen → Gerät
+   konfigurieren**: einen unbenutzten GPIO auf **Option A** mit der Nummer
+   **7** setzen und speichern (das Gerät startet neu). Der GPIO selbst tut
+   nichts; Option A7 ist nur der Schalter. (Tasmota liest Option A7 außerdem
+   als „das ist ein Shelly Pro“, wenn zugleich SPI mit CS-Pin und ein Taster
+   oder Schalter belegt sind — auf so einer Platine prüfen, dass nichts
+   Unerwartetes anläuft.)
+   Das Kästchen „Autostart plugins at boot“ oben auf der Plugin-Seite zeigt
+   diesen Schalter und kann ihn umlegen, aber **nur bis zum nächsten
+   Neustart** — beim Booten wird er wieder aus der GPIO-Belegung gelesen.
 
 ## Schritt 3 — Neustart und Kontrolle
 
@@ -100,7 +112,8 @@ holen und die Skripte wieder hochladen.
 | Anzeichen | Ursache |
 |---|---|
 | Kein Knopf **Plugins directory** | Keine Plugin-Partition — Schritt 1 fehlt; oder die Firmware kann keine Plugins (`tinyc32-4M-plain`, ESP8266). Log: `Plugins: Partition not found`. |
-| Log: `MTR: no Matter plugin (MATTERF) - this firmware has no built-in Matter` | Plugin nicht hochgeladen, oder hochgeladen und danach nicht neu gestartet. |
-| Log: `MTR: using the built-in Matter` auf dem S3 | Kein Plugin geladen — das ist in Ordnung, der S3 hat die Engine eingebaut. |
+| Log: `MTR: no Matter plugin (MATTERF) - this firmware has no built-in Matter` | Plugin nicht hochgeladen, oder nach dem Hochladen nicht neu gestartet. |
+| Matter geht nach einem Neustart und nach dem nächsten nicht, oder das Plugin zeigt kein RAM | Autostart nicht dauerhaft gesetzt (Schritt 2.4): ohne ihn wird das Plugin erst gestartet, wenn ein Skript Matter startet, und auf einem Gerät ohne PSRAM ist der 71-KB-Block dann womöglich schon zerstückelt. Option A7 auf einem freien GPIO setzen. |
+| Log: `MTR: using the built-in Matter` auf dem S3 | Kein Plugin geladen — in Ordnung, wenn so gewollt, der S3 hat die Engine eingebaut. |
 | Hochladen abgewiesen | Falsche Datei für die CPU (`_32` statt `_32r` oder umgekehrt), oder die Partition ist voll (weitere Plugins — `chkpt a2` nehmen). |
 | Matter war gekoppelt und ist weg | Schritt 1 formatiert das Dateisystem und damit `/mtr_fab`. Das Gerät in der Steuer-App entfernen und neu koppeln. |

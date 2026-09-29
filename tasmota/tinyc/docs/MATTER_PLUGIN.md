@@ -62,6 +62,17 @@ partition exists already — go straight to step 2.
 2. Choose `MATTERF_32.bin` (S3) or `MATTERF_32r.bin` (C3/C6/P4) and press
    **Start**.
 3. The table now lists `MATTERF` with its size (57–61 KB).
+4. ⚠️ **Switch on plugin autostart — permanently.** Autostart starts the
+   plugin at boot, while the heap is still in one piece, so it is sure to get
+   its 71 KB block. Set it once in **Configuration → Configure Module**: pick a
+   GPIO that is not used, set it to **Option A** with the number **7**, and
+   save (the device restarts). The GPIO itself does nothing; Option A7 is just
+   the switch. (Tasmota also reads Option A7 as "this is a Shelly Pro" when
+   SPI with a CS pin and a button or switch are configured as well — on such
+   a board check that nothing unexpected starts.)
+   The checkbox "Autostart plugins at boot" at the top of the plugin page
+   shows this switch and can flip it, but **only until the next restart** — at
+   boot it is read back from the GPIO configuration.
 
 ## Step 3 — restart and check
 
@@ -99,7 +110,8 @@ upload your scripts again.
 | Symptom | Cause |
 |---|---|
 | No **Plugins directory** button | No plugin partition — step 1 is missing; or the firmware has no plugin support (`tinyc32-4M-plain`, ESP8266). Log: `Plugins: Partition not found`. |
-| Log: `MTR: no Matter plugin (MATTERF) - this firmware has no built-in Matter` | Plugin not uploaded, or uploaded without a restart afterwards. |
-| Log: `MTR: using the built-in Matter` on the S3 | No plugin loaded — that is fine, the S3 has the engine built in. |
+| Log: `MTR: no Matter plugin (MATTERF) - this firmware has no built-in Matter` | Plugin not uploaded, or no restart after the upload. |
+| Matter works after one restart and not after another, or the plugin shows no RAM | Autostart is not set permanently (step 2.4): without it the plugin is only started when a script starts Matter, and on a device without PSRAM the 71 KB block may be gone by then. Set Option A7 on a free GPIO. |
+| Log: `MTR: using the built-in Matter` on the S3 | No plugin loaded — fine if intended, the S3 has the engine built in. |
 | Upload refused | Wrong file for the CPU (`_32` vs `_32r`), or the partition is full (other plugins — use `chkpt a2`). |
 | Matter was paired and is gone | Step 1 formats the file system and with it `/mtr_fab`. Remove the device in the controller app and pair again. |
