@@ -1351,7 +1351,7 @@ void render_block(char title[], int start, int end) {
 
     int sval;
     int delta;
-    char rowcls[16];   // exactly 16 — no heap handle, stays on stack
+    char rowcls[20];   // " class='hpm-chg'" is 16 chars + NUL; small, stays on stack
     for (int a = start; a <= end; a++) {
         if (a >= 500) break;
         if (!known[a]) continue;

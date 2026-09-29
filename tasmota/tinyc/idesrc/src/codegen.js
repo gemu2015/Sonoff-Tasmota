@@ -912,6 +912,7 @@ export class CodeGenerator {
         // De-duplicate identical narrowing warnings (same name + line) so a loop
         // assigning the same var doesn't flood the output window.
         this._narrowingSeen = new Set();
+        this._strChain = null;
 
         // Forward references (patched later)
         this.patches = [];
@@ -1639,9 +1640,48 @@ export class CodeGenerator {
         this.scope = prevScope;
     }
 
+    // #116: strcpy + following strcats of literals into a fixed char[] are
+    // added up, and a total that does not fit is flagged here instead of being
+    // cut silently at runtime (weather.tc: 225 chars into char[220]). Only a
+    // straight run of such statements is tracked; any other statement, before
+    // or after, ends the run, so a branch can never be counted as taken.
+    trackStrChain(node) {
+        const e = node.type === NodeType.ExprStmt ? node.expr : null;
+        const isCall = e && e.type === NodeType.CallExpr &&
+            (e.name === 'strcpy' || e.name === 'strcat') && e.args.length === 2 &&
+            e.args[0].type === NodeType.Identifier;
+        let lit = null;
+        if (isCall) {
+            let a1 = e.args[1];
+            if (a1.type === NodeType.Identifier && this.defines.has(a1.name)) a1 = this.defines.get(a1.name);
+            if (a1.type === NodeType.StringLiteral) lit = a1.value;
+        }
+        if (lit === null) { this._strChain = null; return; }
+        const name = e.args[0].name;
+        const n = new TextEncoder().encode(lit).length;
+        const c = this._strChain;
+        if (e.name === 'strcpy') this._strChain = { name, len: n, line: node.line, warned: false };
+        else if (c && c.name === name) c.len += n;
+        else { this._strChain = null; return; }
+        const ch = this._strChain;
+        const sym = (this.scope && this.scope.lookup(name)) || this.globals.get(name);
+        if (!sym || !sym.isArray || sym.isRef || !(sym.arraySize > 0)) return;
+        if (ch.len > sym.arraySize - 1 && !ch.warned) {
+            ch.warned = true;
+            this.warnings.push(
+                `line ${node.line}: '${name}' needs ${ch.len} chars but holds ${sym.arraySize - 1} ` +
+                `(strcpy/strcat from line ${ch.line}) - the string is cut at runtime. Enlarge '${name}'.`);
+        }
+    }
+
     compileStmt(node) {
         this.addSourceMap(node.line);
+        this.trackStrChain(node);
+        try { return this.compileStmtInner(node); }
+        finally { if (node.type !== NodeType.ExprStmt) this._strChain = null; }
+    }
 
+    compileStmtInner(node) {
         switch (node.type) {
             case NodeType.VarDecl:      return this.compileVarDecl(node);
             case NodeType.ArrayDecl:    return this.compileArrayDecl(node);

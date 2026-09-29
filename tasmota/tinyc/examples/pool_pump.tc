@@ -439,7 +439,7 @@ int tuya_v34_handshake() {
     v34_session_ok = 0;
 
     // Use tinytuya's not-so-random fixed nonce — deterministic, simpler debug
-    char nonce_lit[16];
+    char nonce_lit[17];   // 16 chars + NUL (a [16] dropped the final 'f')
     strcpy(nonce_lit, "0123456789abcdef");
     for (int i = 0; i < 16; i = i + 1) local_nonce[i] = nonce_lit[i];
 

@@ -56,6 +56,14 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## 1.6.70 — unreleased
+
+- ⚠️ **Strings are no longer cut silently** (gemu2015/Sonoff-Tasmota#116): every place that clamps a string now logs it once per script load — `TCC: /sml_chart.tcb: syscall 354 cut a string at 383 of 430 chars: "var g=google.visualizati..."`. Covers `strcpy`/`strcat` into a too-small array and the fixed buffers inside syscalls (URLs, payloads, paths, labels, …). The start of the string names the culprit.
+- ⚠️ **`WebChartJS()` has no length limit any more.** It copied the snippet into 384 bytes and dropped the rest: ottelo's 4 h chart lost its tail, the browser got a syntax error and the default chart was drawn instead — with nothing in any log. The snippet is now streamed.
+- Compiler: `strcpy` followed by `strcat`s of string literals into a fixed `char[]`/`byte[]` is added up and warns when it does not fit (`'g' needs 10 chars but holds 9`). Found two real cuts in the examples: `heatpump_map_full.tc` (the changed-row class lost its closing quote) and `pool_pump.tc` (the fixed nonce lost its last byte).
+- Matter plugin on S3 boards with OPI PSRAM (`CONFIG_SPIRAM_XIP_FROM_PSRAM`): the plugin is entered only from the loop task. Flash writes (saving a pairing) stall only the writing task there, and plugin code running in another task at that moment crashed with IllegalInstruction. Calls from other tasks are handed over (`MtrHandover` in the `TinyC` status).
+- Examples: ottelo's SML family, state 2026-09-28 (chart snippet, day/week/month/year values of the Bezug/Einspeisung JSON).
+
 ## 1.6.69 — 2026-09-27
 
 - ⚠️ **`chkpt r` / `chkpt d` could brick the device:** removing the plugin partition left the old MD5 entry of the partition table standing behind the new one. The bootloader rejects a table with two MD5 entries ("Only one MD5 checksum is allowed") and the device boot-loops. Fixed; hit two ESP32-C3. A device already caught in the loop needs its partition table rewritten over serial (`esptool write-flash 0x8000 partitions.bin`).

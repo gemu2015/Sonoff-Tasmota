@@ -2679,6 +2679,40 @@ static inline int32_t tc_file_mode(int32_t mode) {
 // (Definition moved up — see above tc_resolve_ref. The pre-existing prose
 //  comment block is kept here for context.)
 
+// ⚠️ SILENT STRING TRUNCATION, AND WHY EVERY CUT NOW LOGS A LINE.
+// Strings are clamped everywhere (script arrays, syscall scratch buffers), which
+// keeps memory safe but made every overflow invisible. Reported twice (#116,
+// then ottelo's sml_chart 2026-09-28): WebChartJS copied the snippet into a
+// 384-byte buffer, the 4 h chart lost its tail, the browser got a syntax error
+// and the firmware drew its default chart - nothing in any log. Each cut site
+// is reported once per (VM, syscall) until the script is reloaded; the first
+// chars of the string name the culprit better than a syscall number does.
+static uint16_t tc_sys_cur;          // syscall being executed (set in tc_syscall)
+#define TC_TRUNC_SEEN 8
+static struct { TcVM *vm; uint16_t sys; } tc_trunc_seen[TC_TRUNC_SEEN];
+static uint8_t tc_trunc_next;
+
+static void tc_trunc_forget(TcVM *vm) {
+  for (uint8_t i = 0; i < TC_TRUNC_SEEN; i++) {
+    if (tc_trunc_seen[i].vm == vm) tc_trunc_seen[i].vm = nullptr;
+  }
+}
+
+static TcSlot *tc_slot_of_vm(TcVM *vm);
+static void tc_trunc_warn(TcVM *vm, const char *op, const char *head, int kept, int want) {
+  for (uint8_t i = 0; i < TC_TRUNC_SEEN; i++) {
+    if (tc_trunc_seen[i].vm == vm && tc_trunc_seen[i].sys == tc_sys_cur) return;
+  }
+  tc_trunc_seen[tc_trunc_next].vm  = vm;
+  tc_trunc_seen[tc_trunc_next].sys = tc_sys_cur;
+  tc_trunc_next = (tc_trunc_next + 1) % TC_TRUNC_SEEN;
+  TcSlot *sl = tc_slot_of_vm(vm);
+  char nm[12];
+  if (!op) { snprintf_P(nm, sizeof(nm), PSTR("syscall %u"), tc_sys_cur); op = nm; }
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s: %s cut a string at %d of %d chars: \"%.24s...\""),
+         (sl && sl->filename[0]) ? sl->filename : "?", op, kept, want, head ? head : "");
+}
+
 // Extract null-terminated C string from VM array ref into char buffer
 // Returns number of chars written (excluding null terminator)
 static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
@@ -2692,6 +2726,7 @@ static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
     int i;
     for (i = 0; i < maxOut - 1 && s[i]; i++) out[i] = s[i];
     out[i] = '\0';
+    if (s[i]) tc_trunc_warn(vm, nullptr, out, i, (int)strlen(s));
     return i;
   }
   int32_t *buf = tc_resolve_ref(vm, ref);
@@ -2712,6 +2747,12 @@ static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
     }
   }
   out[i] = '\0';
+  if (i == maxOut - 1 && i < maxLen) {
+    const bool ib = tc_ref_is_bytes(ref);
+    int want = i;
+    while (want < maxLen && (ib ? ((const uint8_t *)buf)[want] : buf[want]) != 0) want++;
+    if (want > i) tc_trunc_warn(vm, nullptr, out, i, want);
+  }
   return i;
 }
 
@@ -5211,6 +5252,18 @@ static inline int32_t tc_str_write_b(int32_t *base, bool ib, int32_t cap,
   return len;
 }
 
+// strcpy/strcat counterpart of tc_trunc_warn: the head comes from the
+// DESTINATION, i.e. the string being built - that is what the script author
+// recognises (#116: the weather.tc chart snippet).
+static void tc_trunc_warn_dst(TcVM *vm, const char *op, const int32_t *dst, bool dib,
+                              int kept, int want) {
+  char head[25];
+  int i = 0;
+  for (; i < (int)sizeof(head) - 1 && i < kept; i++) head[i] = (char)tc_chr_get(dst, dib, i);
+  head[i] = 0;
+  tc_trunc_warn(vm, op, head, kept, want);
+}
+
 // True length of the string behind a ref, WITHOUT copying it anywhere.
 // Only used to tell a full buffer apart from a truncated one below.
 static int tc_ref_str_len(TcVM *vm, int32_t ref) {
@@ -7204,6 +7257,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
   int32_t a, b;
   float fa;
 
+  tc_sys_cur = id;
   switch (id) {
     // ── GPIO (with bounds check) ────────────────────────
     case SYS_PIN_MODE:
@@ -7955,6 +8009,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t i = 0;
         while (s && s[i] != 0 && i < max) { tc_chr_put(dst, dib, i, (int32_t)(uint8_t)s[i]); i++; }
         tc_chr_put(dst, dib, i, 0);
+        if (s && s[i]) tc_trunc_warn_dst(vm, "strcpy", dst, dib, i, (int)strlen(s));
       } else {
         int32_t *src = tc_resolve_ref(vm, src_ref);
         if (src) {
@@ -7962,6 +8017,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           int32_t i = 0;
           while (i < max) { int32_t c = tc_chr_get(src, sib, i); if (c == 0) break; tc_chr_put(dst, dib, i, c); i++; }
           tc_chr_put(dst, dib, i, 0);
+          if (i == max) {
+            int32_t smax = tc_ref_maxlen(vm, src_ref), w = i;
+            while (w < smax && tc_chr_get(src, sib, w) != 0) w++;
+            if (w > i) tc_trunc_warn_dst(vm, "strcpy", dst, dib, i, w);
+          }
         }
       }
       break;
@@ -7980,6 +8040,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t si = 0;
         while (cs[si] != 0 && di < max) { tc_chr_put(dst, dib, di++, (int32_t)(uint8_t)cs[si++]); }
         tc_chr_put(dst, dib, di, 0);
+        if (cs[si]) tc_trunc_warn_dst(vm, "strcat", dst, dib, di, di + (int)strlen(cs + si));
       } else {
         int32_t *src = tc_resolve_ref(vm, src_ref);
         if (src) {
@@ -7987,6 +8048,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           int32_t si = 0;
           while (di < max) { int32_t c = tc_chr_get(src, sib, si); if (c == 0) break; tc_chr_put(dst, dib, di++, c); si++; }
           tc_chr_put(dst, dib, di, 0);
+          if (di == max) {
+            int32_t smax = tc_ref_maxlen(vm, src_ref), w = si;
+            while (w < smax && tc_chr_get(src, sib, w) != 0) w++;
+            if (w > si) tc_trunc_warn_dst(vm, "strcat", dst, dib, di, di + (w - si));
+          }
         }
       }
       break;
@@ -8070,6 +8136,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t i = 0;
         while (s[i] != 0 && i < max) { tc_chr_put(dst, dib, i, (int32_t)(uint8_t)s[i]); i++; }
         tc_chr_put(dst, dib, i, 0);
+        if (s[i]) tc_trunc_warn_dst(vm, "strcpy", dst, dib, i, (int)strlen(s));
       }
       break;
     }
@@ -8086,6 +8153,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t si = 0;
         while (s[si] != 0 && di < max) { tc_chr_put(dst, dib, di++, (int32_t)(uint8_t)s[si++]); }
         tc_chr_put(dst, dib, di, 0);
+        if (s[si]) tc_trunc_warn_dst(vm, "strcat", dst, dib, di, di + (int)strlen(s + si));
       }
       break;
     }
@@ -13289,13 +13357,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // called from a web callback (WebPage/WebCall), right after a WebChart().
       int32_t js_ref = TC_POP(vm);
 #ifdef USE_WEBSERVER
-      if (tc_chart_seq > 0) {
-        TC_BUF(js, 384);
-        int n = tc_ref_to_cstr(vm, js_ref, js, sizeof(js));   // literal OR runtime char[]
-        if (n > 0) {
-          WSContentSend_P(PSTR("<script>if(_tcC[%d])_tcC[%d].j=function(dt,o,el){%s};</script>"),
-                          tc_chart_seq - 1, tc_chart_seq - 1, js);
-        }
+      // Streamed, not copied: a 384-byte copy cut ottelo's 430-char snippet
+      // silently (2026-09-28). The length is now bounded only by the array.
+      if (tc_chart_seq > 0 && tc_ref_str_len(vm, js_ref) > 0) {
+        WSContentSend_P(PSTR("<script>if(_tcC[%d])_tcC[%d].j=function(dt,o,el){"),
+                        tc_chart_seq - 1, tc_chart_seq - 1);
+        tc_stream_ref(vm, js_ref, tc_send_web);   // literal OR runtime char[]
+        WSContentSend_P(PSTR("};</script>"));
       }
 #endif
       break;
@@ -19234,6 +19302,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // Reset hot-path dispatch cache first thing — ensures no stale indices
   // from a previous load survive if we early-return on a bad header.
   for (int k = 0; k < TC_CB_COUNT; k++) vm->cb_index[k] = -1;
+  tc_trunc_forget(vm);   // a reloaded script reports its cuts again
 
   if (size < 14) return TC_ERR_BAD_BINARY;  // minimum header size
 
