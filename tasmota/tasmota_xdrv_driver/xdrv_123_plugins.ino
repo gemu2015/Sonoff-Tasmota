@@ -3554,6 +3554,45 @@ uint32_t Store_Module_Block(uint8_t *fdesc, uint8_t index) {
   return new_pc;;
 }
 
+// ⚠️ PLUGIN AUTOSTART IS SAVED IN /plugins.auto. The checkbox on the plugin
+// page used to flip TasmotaGlobal.gpio_optiona.shelly_pro (Option A7) - a
+// runtime copy that is rebuilt from the GPIO configuration at every boot, so
+// the tick was gone after the next restart and only a GPIO set to "Option A 7"
+// kept it (found 2026-09-29 writing the Matter plugin guide). The file decides
+// when it exists; without it Option A7 still works as before. Option A7 itself
+// is left alone: Tasmota also reads it as "this is a Shelly Pro".
+// Autostart matters most for MATTERF: started at boot it gets its ~71 KB while
+// the heap is still in one piece.
+#define PLUGIN_AUTO_FILE "/plugins.auto"
+static int8_t plugin_autostart = -1;          // -1 = not read yet
+
+static bool Plugin_Autostart(void) {
+  if (plugin_autostart < 0) {
+    plugin_autostart = TasmotaGlobal.gpio_optiona.shelly_pro ? 1 : 0;
+    if (ffsp && ffsp->exists(PLUGIN_AUTO_FILE)) {
+      File f = ffsp->open(PLUGIN_AUTO_FILE, "r");
+      if (f) {
+        int c = f.read();
+        f.close();
+        if (c == '0' || c == '1') { plugin_autostart = c - '0'; }
+      }
+    }
+  }
+  return plugin_autostart > 0;
+}
+
+static void Plugin_SetAutostart(bool on) {
+  plugin_autostart = on ? 1 : 0;
+  if (ffsp) {
+    File f = ffsp->open(PLUGIN_AUTO_FILE, "w");
+    if (f) {
+      f.print(on ? "1\n" : "0\n");
+      f.close();
+    }
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("Plugins: autostart %s (saved in " PLUGIN_AUTO_FILE ")"), on ? "on" : "off");
+}
+
 void AddModules(void) {
   uint16_t module = 0;
   uint32_t *lp = (uint32_t*) ( plugins.flashbase + plugins.free_flash_start );
@@ -3582,7 +3621,7 @@ void AddModules(void) {
       //modules[module].mod_size = fm->size;
       //modules[module].settings = Settings;
       modules[module].flags.data = 0;
-      if (TasmotaGlobal.gpio_optiona.shelly_pro) {
+      if (Plugin_Autostart()) {
         Init_module(module);
       }
       // add addr according to module size, currently assume module < SPI_FLASH_SEC_SIZE
@@ -4903,11 +4942,10 @@ void Modul_Check_HTML_Setvars(void) {
       }
     }
     else if (!strncmp(cp, "auto", 4)) {
-      // autostart checkbox in the plugin-menu header: flip the Option_A7 flag
-      // (gpio_optiona.shelly_pro) only — nothing else.
+      // autostart checkbox in the plugin-menu header, saved (see Plugin_Autostart)
       cp += 4;
       if (*cp == '_') { cp++; }
-      TasmotaGlobal.gpio_optiona.shelly_pro = strtol(cp, &cp, 10) ? 1 : 0;
+      Plugin_SetAutostart(strtol(cp, &cp, 10) != 0);
     }
   }
 
@@ -4940,9 +4978,9 @@ void Module_upload() {
 
   WSContentSend_P(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots(),color,GetTextIndexed(type, sizeof(type), plugins.upload_error, MOD_UPL_ERRMSG));
 
-  // Autostart-at-boot toggle (Option_A7 / gpio_optiona.shelly_pro) — moved into the plugin menu.
+  // Autostart-at-boot toggle, saved in /plugins.auto (see Plugin_Autostart).
   WSContentSend_P(PSTR("<p style='text-align:left'><label><input type='checkbox' onclick='seva(this.checked?1:0,\"auto\")'%s>&nbsp;Autostart plugins at boot</label></p>"),
-    TasmotaGlobal.gpio_optiona.shelly_pro ? " checked" : "");
+    Plugin_Autostart() ? " checked" : "");
 
 #ifdef EXECUTE_FROM_BINARY
   WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload disabled"));
