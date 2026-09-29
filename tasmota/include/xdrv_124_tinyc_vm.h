@@ -2384,6 +2384,17 @@ static inline bool tc_is_const_ref(int32_t ref) {
 #define TC_REF_I16_GLOBAL   0x00020000u
 #define TC_REF_I16_LOCAL    0x02000000u
 
+// ⚠️ The END of a global/local array (first slot past it), set by the compiler
+// since 2026-09-29. Before, a global or frame ref carried only its base, so
+// tc_ref_maxlen answered "up to the end of ALL globals / of the frame": a
+// strcpy of 49 chars into a char[10] wrote over the next globals without a
+// word (#116, found testing TinyCStrict). Heap arrays always knew their size.
+// Global: bits 18-29, local: bits 8-15; 0 = unknown (older .tcb) = the old
+// arithmetic. The resolution paths mask these bits off, so older firmware
+// runs a new .tcb unchanged, and `arr + off` (an integer add) keeps them.
+#define TC_REF_END_GLOBAL(u)  ((uint16_t)(((uint32_t)(u) >> 18) & 0xFFF))
+#define TC_REF_END_LOCAL(u)   ((uint8_t)(((uint32_t)(u) >> 8) & 0xFF))
+
 // Element kinds, as stored in the two-bit field above.
 #define TC_ELEM_I32   0
 #define TC_ELEM_BYTE  1
@@ -2579,9 +2590,13 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   }
   if (tag == 2) {
     uint16_t base = uref & 0xFFFF;
+    uint16_t end  = TC_REF_END_GLOBAL(uref);
+    if (end && end <= vm->globals_size) return (base < end) ? end - base : 0;
     return (base < vm->globals_size) ? vm->globals_size - base : 0;
   } else {
     uint8_t base = uref & 0xFF;
+    uint8_t end  = TC_REF_END_LOCAL(uref);
+    if (end) return (base < end) ? end - base : 0;
     return (base < TC_MAX_LOCALS) ? TC_MAX_LOCALS - base : 0;
   }
 }
@@ -2603,9 +2618,13 @@ static int32_t tc_ref_maxlen_slots(TcVM *vm, int32_t ref) {
   }
   if (tag == 2) {
     uint16_t base = uref & 0xFFFF;
+    uint16_t end  = TC_REF_END_GLOBAL(uref);
+    if (end && end <= vm->globals_size) return (base < end) ? end - base : 0;
     return (base < vm->globals_size) ? vm->globals_size - base : 0;
   }
   uint8_t base = uref & 0xFF;
+  uint8_t end  = TC_REF_END_LOCAL(uref);
+  if (end) return (base < end) ? end - base : 0;
   return (base < TC_MAX_LOCALS) ? TC_MAX_LOCALS - base : 0;
 }
 

@@ -1985,10 +1985,22 @@ export class CodeGenerator {
         if (info.isHeap)      { this.emit(Op.ADDR_HEAP);   this.emitByte(info.heapHandle); bytesFlag = 0x00000100; i16Flag = 0x00000200; }
         else if (isLocal)     { this.emit(Op.ADDR_LOCAL);  this.emitByte(info.index);      bytesFlag = 0x01000000; i16Flag = 0x02000000; }
         else                  { this.emit(Op.ADDR_GLOBAL); this.emitU16(info.index);       bytesFlag = 0x00010000; i16Flag = 0x00020000; }
-        const flag = (info.type === 'byte')   ? bytesFlag
-                   : (info.type === 'int16')  ? i16Flag
-                   : (info.type === 'uint16') ? (i16Flag | bytesFlag)
-                   : 0;
+        let flag = (info.type === 'byte')   ? bytesFlag
+                 : (info.type === 'int16')  ? i16Flag
+                 : (info.type === 'uint16') ? (i16Flag | bytesFlag)
+                 : 0;
+        // The array's END (first slot past it) rides in the ref, so a syscall
+        // writing through it stops at the array instead of the end of the whole
+        // global area / frame. Without it strcpy(small, long) into a char[10]
+        // ran on into the next globals (found 2026-09-29, #116). Globals carry
+        // it in bits 18-29, locals in bits 8-15; 0 = unknown = old behaviour,
+        // which is also what older firmware reads (it masks these bits off).
+        // `arr + off` stays an integer add on the ref, so the end survives it.
+        if (!info.isHeap && info.arraySize > 0) {
+            const end = info.index + slotsFor(info.type, info.arraySize);
+            if (isLocal) { if (end > 0 && end <= 0xFF)  flag |= end << 8; }
+            else         { if (end > 0 && end <= 0xFFF) flag |= end << 18; }
+        }
         if (flag) {
             // A ref that only gets PASSED never touches a 0xB6..0xC1 opcode, so
             // the emit() hook would not fire and the .tcb would not demand ABI
