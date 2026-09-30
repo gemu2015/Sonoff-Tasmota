@@ -13628,6 +13628,16 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
                 // with 3-digit ticks then truncates its y-title to ".."). Single-series
                 // charts keep the default; a script WebChartJS hook can still override.
                 "if(c.s.length>1){o.legend={position:'top',maxLines:3};}"
+                // ⚠️ WEEKDAY TICKS OF A LINE CHART. Ticks sit at MIDNIGHT, the start of a
+                // day, which is right for a continuous series (hourly values) and wrong for
+                // a DAILY one: one value per day (a forecast, index 0 = today) sits at "now
+                // + k days", its first tick is the NEXT midnight, so the first day never got
+                // a name -- and in the evening, with the tick an hour behind the first
+                // point, the point looked like it belonged to the next day (mi-hol, #125,
+                // weather.tcb: line charts began at "Mi" on a Tuesday while the columns
+                // right below said "Di"). A series stepping about one day (23-25 h) now
+                // puts one tick ON each point, labelled with that point's own weekday --
+                // the same rule the column charts use.
                 "if(!isCol){"
                   "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
                   "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
@@ -13642,7 +13652,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
                   "var pad=Math.max(30000,step*30000);"
                   "o.curveType=c.sm?'function':'none';"
                   "o.hAxis={format:'HH:mm',viewWindow:{min:new Date(N.getTime()+dw-pad),max:new Date(N.getTime()+dwe+pad)}};"
-                  "if((dwe-dw)>172800000){var tks=[];var nd=c.s[0].d.length;if(nd>10&&(dwe-dw)>6048e5){for(var ti=0;ti<nd;ti++){tks.push({v:new Date(N.getTime()+c.s[0].d[ti][0]*60000),f:''+ti});}o.hAxis.ticks=tks;}else{var wd=['So','Mo','Di','Mi','Do','Fr','Sa'];var ds=new Date(N.getTime()+dw);ds.setHours(0,0,0,0);ds.setDate(ds.getDate()+1);var de=new Date(N.getTime()+dwe);while(ds<=de){tks.push({v:new Date(ds),f:wd[ds.getDay()]});ds=new Date(ds.getTime()+86400000);}o.hAxis.ticks=tks;}}"
+                  "if((dwe-dw)>172800000){var tks=[];var nd=c.s[0].d.length;if(nd>10&&(dwe-dw)>6048e5){for(var ti=0;ti<nd;ti++){tks.push({v:new Date(N.getTime()+c.s[0].d[ti][0]*60000),f:''+ti});}o.hAxis.ticks=tks;}else if(step>=1380&&step<=1500){var wd=['So','Mo','Di','Mi','Do','Fr','Sa'];for(var ti=0;ti<nd;ti++){var pd=new Date(N.getTime()+c.s[0].d[ti][0]*60000);tks.push({v:pd,f:wd[pd.getDay()]});}o.hAxis.ticks=tks;}else{var wd=['So','Mo','Di','Mi','Do','Fr','Sa'];var ds=new Date(N.getTime()+dw);ds.setHours(0,0,0,0);ds.setDate(ds.getDate()+1);var de=new Date(N.getTime()+dwe);while(ds<=de){tks.push({v:new Date(ds),f:wd[ds.getDay()]});ds=new Date(ds.getTime()+86400000);}o.hAxis.ticks=tks;}}"
                   "o.lineWidth=1;o.pointSize=0;"
                 "}"
                 "if(dual){o.series=sr;o.vAxes=vx;}else{o.vAxis=va;}"

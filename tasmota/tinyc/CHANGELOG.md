@@ -58,6 +58,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## 1.6.70 — 2026-09-29
 
+- **Line charts with one value per day get a weekday tick on every point** (gemu2015/Sonoff-Tasmota#125). The ticks sat at midnight, the START of a day, so the first day (today, index 0) never got a name and, in the evening, the first point looked like it belonged to the next day: weather.tcb's line charts began at "Mi" on a Tuesday while the columns below said "Di". A series stepping about one day (23–25 h) now has its ticks on the points, labelled with each point's own weekday — the rule the column charts always used. Hourly and shorter series keep the midnight ticks.
 - ⚠️ **A click on ▶ / ■ / ↻ / ⏏ / A on the console page no longer repeats itself** (gemu2015/Sonoff-Tasmota#123). The buttons are a GET form, so a click left `/tc?slot=1&cmd=run` in the address bar and the history, and every reload of that address ran the command again: a browser that reloads a background tab when you switch back to it (Chrome's memory saver) restarted the slot on every window change, and so did back/forward. Commands are now answered with a redirect to a plain `/tc` (POST/redirect/GET). Scripts that call `/tc?cmd=…` still work — the command runs, the answer is a 303.
 - ⚠️ **The same for the Matter page `/mt`:** a reload of `/mt?unbind=1` removed the device from all Matter controllers again, `/mt?bind=1` reopened the pairing window. Both redirect to a plain `/mt` now.
 
