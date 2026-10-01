@@ -12705,7 +12705,10 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "var selSM=eb('idSelSM');"
   "var text;"
   "selSM.onchange=function(){"
-  "var index=selSM.selectedIndex;"
+  // The stored value is the entry's KEY: its "id" if the JSON has one, else its position
+  // (ottelo, 2026-09-30: with positions a meter inserted in the middle of the list made
+  // every device after it show the wrong name). o.value stays the filename.
+  "var index=selSM.options[selSM.selectedIndex].dataset.k;"
   "pr(1);"
   "var path='%s/'+selSM.value;"
   "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;smlp(text,index)});"
@@ -12714,8 +12717,9 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "if(data && data.smartmeter && data.smartmeter.length){"
   "while(selSM.options.length>1){selSM.options.remove(1);}"
   "for(let n=0;n<data.smartmeter.length;n++){"
-  "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;if(data.smartmeter[n].filename==''){o.disabled=true;};selSM.options.add(o);"
-  "if (n==%d) {o.setAttribute('selected', true);}"
+  "let e=data.smartmeter[n];let k=(e.id!==undefined)?e.id:n;"
+  "let o=document.createElement('option');o.value=e.filename;o.text=e.label;o.dataset.k=k;if(e.filename==''){o.disabled=true;};selSM.options.add(o);"
+  "if (k==%d) {o.setAttribute('selected', true);}"
   "}}});"
   "function smlp(txt,index){"
   "x=new XMLHttpRequest();"

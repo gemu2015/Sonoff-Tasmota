@@ -12927,9 +12927,13 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       //   Fetches {json_url} (a Scripter-smlpd-compatible directory JSON of the form
       //     {"<index_key>":[{"label":"...","filename":"..."}, ...]} ),
       //   renders a <select> whose options are the entries, pre-selects the current
-      //   global's value, on-change writes the new index back to the global via
+      //   global's value, on-change writes the new KEY back to the global via
       //   the standard seva(value,idx) path, then (if dest_path non-empty) downloads
       //   the selected {base}/{filename} and POSTs it to /tc_api?cmd=writefile&path={dest_path}.
+      //   The KEY of an entry is its "id" when the JSON has one, else its position -- so a
+      //   list kept in any order (headings, insertions) does not shift what devices have
+      //   stored (ottelo, 2026-09-30). An entry without a filename is a heading: shown,
+      //   not selectable (it can still be the preselected value, e.g. "no meter chosen").
       //   base = json_url with the trailing '/basename' stripped.
       int32_t dpi  = TC_POP(vm);   // dest_path const idx ("" = no download)
       int32_t ki   = TC_POP(vm);   // index_key const idx
@@ -12968,12 +12972,15 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
           "var U='%s',K='%s',D='%s',V=%d,ID='rp%d',IDX=%d;"
           "var base=U.replace(/\\/[^\\/]+$/,'');"
           "window._rp=window._rp||{};"
+          "function key(L,i){var k=(L[i].id!==undefined)?parseInt(L[i].id,10):NaN;return isNaN(k)?i:k;}"
           "window['rpCh'+IDX]=function(v){"
             "var i=parseInt(v,10);"
             "if(isNaN(i)||i<0){seva(i,IDX);return;}"
             "seva(i,IDX);"
             "if(!D||!window._rp[IDX])return;"
-            "var e=window._rp[IDX][i];if(!e||!e.filename)return;"
+            "var L=window._rp[IDX],e=null;"
+            "for(var j=0;j<L.length;j++){if(key(L,j)===i){e=L[j];break;}}"
+            "if(!e||!e.filename)return;"
             "fetch(base+'/'+e.filename.split('/').map(encodeURIComponent).join('/'))"
               ".then(function(r){return r.text();})"
               ".then(function(t){"
@@ -12987,7 +12994,8 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
           "function paint(L){"
             "var sel=document.getElementById(ID);if(!sel)return;"
             "var h='';for(var i=0;i<L.length;i++){"
-              "h+='<option value=\"'+i+'\"'+(i===V?' selected':'')+'>'+"
+              "var k=key(L,i);"
+              "h+='<option value=\"'+k+'\"'+(k===V?' selected':'')+(L[i].filename?'':' disabled')+'>'+"
                  "(L[i].label||L[i].filename||('#'+i))+'</option>';"
             "}"
             "sel.innerHTML=h;"
