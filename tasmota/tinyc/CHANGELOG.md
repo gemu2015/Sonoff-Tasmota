@@ -56,6 +56,10 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## 1.6.72 — 2026-10-02
+
+- ⚠️ **MP3 recordings to SD had a constant tone near 5.5 kHz (`I2SAUDIO_32.bin`).** The plugin's float port of the Shine encoder scaled the polyphase filter coefficients by 2.147483647e9 instead of 2.147483647 (`0x7fffffff * 1e-9`), 1e9 too big, so nearly every coefficient saturated. The raw I2S stream (audio bridge to the Mac) was always clean; only the MP3 path was broken. 4–8 kHz level in a quiet-room recording: about 100 dB before, about 50 dB after (the raw stream's level). Only the plugin changes: replace `I2SAUDIO_32.bin` on the device (`deiniz`, `unlink`, upload, restart), the firmware is unchanged.
+
 ## 1.6.71 — 2026-10-02
 
 - **Text to speech as a plugin: `PICOTTS_32.bin`.** `I2STTS` no longer needs a firmware built with `-DTINYC_TTS` (125 KB of flash): the SVOX Pico engine runs from the plugin, the task, text queue and voice buffers stay in the firmware, and the unchanged `I2SAUDIO` plugin uses it through the same jump table entries. Tested on an S3: German and English (all eight test sentences render exactly the sample count of the reference), switching languages back and forth without a leak. Guide: `docs/PICOTTS_PLUGIN.md`. ⚠️ The engine reads memory it never wrote — the firmware now zeroes its arena (this also applies to the built-in engine). One function of the engine had to be compiled at `-O0` because the Xtensa toolchain miscompiles it at `-Os` (see `tasmota/Plugins/picotts/test/README.md`).
