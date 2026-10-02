@@ -2,6 +2,11 @@
 
 *Notiz an Hans, 16.09.2026*
 
+> ⚠️ **Die Bauumgebung (Schritt 1–3) ist überholt.** Seit dem 02.10.2026 gibt es die fertige
+> Fassung mit allen Optionen in [`../dfrobot/ANLEITUNG.md`](../dfrobot/ANLEITUNG.md) (inklusive
+> der Kopfdatei `user_config_override.h`, die damals fehlte). Modell, Skript und Benutzung
+> (Schritt 4–5, „Benutzen“) gelten weiter.
+
 Hallo Hans,
 
 du hast ja jetzt dieselbe Kamera wie unsere .124 — die **DFRobot FireBeetle 2

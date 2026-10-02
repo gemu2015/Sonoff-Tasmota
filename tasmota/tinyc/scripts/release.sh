@@ -257,7 +257,9 @@ done
 # MATTERF. _32 = Xtensa (S3), _32r = RISC-V (C3, C6 and P4 — the P4 accepts the
 # soft-float module). Built by tasmota/Plugins/build_plugin.py, audited there.
 PLUGIN_DIR="$FW_DIR/Plugins/ESP32"
-for plg in TENSILICA/MATTERF_32.bin RISC/MATTERF_32r.bin; do
+# I2SAUDIO_32 is the audio plugin (module 42: audioPlay/audioSay/i2s*, mic level). In this
+# firmware the built-in I2S audio is OFF (USE_BINPLUGINS), so audio I/O needs this plugin.
+for plg in TENSILICA/MATTERF_32.bin RISC/MATTERF_32r.bin TENSILICA/I2SAUDIO_32.bin; do
   [[ -f "$PLUGIN_DIR/$plg" ]] || $DRY_RUN \
     || die "Missing $PLUGIN_DIR/$plg — build it: python3 tasmota/Plugins/build_plugin.py --plugin USE_MATTER_FULL_MOD --cpu esp32 / esp32_riscv"
   run "cp '$PLUGIN_DIR/$plg' '$STAGE_DIR/'"
@@ -304,6 +306,7 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, MIPI camera, audio; Matter as plugin |
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | **ESP8266** 4MB — lean (no Matter / LVGL / camera); runs basic TinyC programs (HWDT fix). Flash the \`.bin\` (OTA/esptool); no \`.factory.bin\` |
 | \`MATTERF_32.bin\` / \`MATTERF_32r.bin\` | Matter plugin — \`_32\` for the S3, \`_32r\` for C3 / C6 / P4 |
+| \`I2SAUDIO_32.bin\` | Audio plugin (S3/ESP32): audio I/O needs it, the built-in I2S audio is off in these builds. Load like the Matter plugin, tick "Autostart plugins at boot" — see tasmota/tinyc/dfrobot/ANLEITUNG.md |
 | \`MATTER_PLUGIN.md\` / \`_DE.md\` | How to install the Matter plugin, EN/DE |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |

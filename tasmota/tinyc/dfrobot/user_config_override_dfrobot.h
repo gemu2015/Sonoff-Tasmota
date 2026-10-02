@@ -26,6 +26,15 @@
 #define ROLF 0
 #endif
 
+// ⚠️ Beim Bau des Audio-Plugins (build_plugin.py, -Dplugin_host_build) fehlt TinyC sonst:
+// xdrv_42_i2s.cpp legt sein Befehlsfeld `cmd_param` nur unter USE_TINYC an (hier schlägt
+// audioPlay()/audioSay() aus TinyC auf), benutzt es aber überall — ohne die Zeile bricht
+// der Plugin-Bau mit "MODULE_MEMORY has no member named cmd_param" ab. Die Firmware
+// selbst setzt USE_TINYC im TINYC_TESTING-Block weiter unten.
+#if defined(plugin_host_build) && !defined(USE_TINYC)
+#define USE_TINYC
+#endif
+
 // TinyC test builds — activated by -DTINYC_TESTING build flag
 // ==============================================================
 #ifdef TINYC_TESTING
@@ -280,9 +289,14 @@
 #define TESLA_POWERWALL
 #define SCRIPT_GET_HTTPS_JP
 
-// Disable Berry to save flash (TinyC replaces it)
+// Disable Berry to save flash (TinyC replaces it).
+// ⚠️ USE_AUTOCONF und USE_EXTENSION_MANAGER sind in Tasmotas my_user_config.h an, und
+// AUTOCONF zieht Berry wieder herein ("berry.h: No such file"): beides mit abschalten.
+// (In gemus voller Datei steht das an anderer Stelle; im herausgeschnittenen Block fehlte es.)
 
 #undef USE_BERRY
+#undef USE_AUTOCONF
+#undef USE_EXTENSION_MANAGER
 
 // Enable the on-device LVGL GUI on the display-class TinyC release targets — S3 and P4 —
 // unless the env opted out with -DTINYC_NO_LVGL. The S3 release target (tinyc32s3) has no
