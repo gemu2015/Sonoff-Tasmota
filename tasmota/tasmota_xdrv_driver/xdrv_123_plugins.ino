@@ -4444,7 +4444,7 @@ bool scan_ptable(uint8_t *mp, uint32_t num) {
   return ret;
 }
 
-// show or add(aX) or remove(r) custom partition (X 1..4, optional size extender time 64k)
+// show or add(aX) or remove(r) custom partition (X 1..8, optional size extender time 64k)
 // pack(p) shrinks app0 to 1856k and expands spiffs, preserving custom partition
 // we steel the size from the spiffs partition
 void Check_partition(void) {
@@ -4466,8 +4466,8 @@ void Check_partition(void) {
       add = 1;
       cp++;
       uint32_t fac = strtol(cp, &cp, 10);
-      if (fac > 4) {
-        fac = 4;
+      if (fac > 8) {          // was 4 (256 KB); 8 = 512 KB leaves room for I2SAUDIO + a TTS BLIB + Matter
+        fac = 8;
       }
       if (!fac) {
         fac = 1;
