@@ -6187,7 +6187,9 @@ static void TC_CamStreamTask(void) {
     tc_cam_stream.client.flush();
     tc_cam_stream.client.setNoDelay(true);
     tc_cam_stream.client.setTimeout(1);
+    // CORS: the page (port 80) reads this stream with fetch() in Safari
     tc_cam_stream.client.print("HTTP/1.1 200 OK\r\n"
+      "Access-Control-Allow-Origin: *\r\n"
       "Content-Type: multipart/x-mixed-replace;boundary=" TC_CAM_BOUNDARY "\r\n"
       "\r\n");
     tc_cam_stream.stream_active = 2;
@@ -8417,18 +8419,38 @@ bool Xdrv124(uint32_t function) {
         // geholt -- das nächste erst, wenn das vorige da ist -- statt mit
         // einem festen setInterval: bei einer langsamen Verbindung stapeln
         // sich sonst die Anfragen, und der ESP beantwortet sie alle.
+        // Safari liest den Strom selbst (fetch + Bild je Frame): EINE Verbindung, die volle
+        // Bildrate, kein Einzelbild-Anfragen je Bild (3,4-4,4 B/s, Aussetzer -- gemu 02.10.2026).
+        // Scheitert das dreimal hintereinander, faellt es auf die verketteten Einzelbilder zurueck.
         WSContentSend_P(PSTR("<p></p><center>"
           "<img id='tccam' alt='TinyC Camera' style='width:99%%;'>"
           "</center><p></p>"
           "<script>window.addEventListener('load',function(){"
           "var c=document.getElementById('tccam');"
-          "if(/^((?!chrome|android).)*safari/i.test(navigator.userAgent)){"
-          "var e=0,n=function(){c.src='/tc_cam.jpg?'+Date.now();};"
+          "var P=function(){var e=0,n=function(){c.src='/tc_cam.jpg?'+Date.now();};"
           "c.onload=function(){e=0;setTimeout(n,20);};"
-          "c.onerror=function(){e++;setTimeout(n,e<4?150:1000);};n();"
+          "c.onerror=function(){e++;setTimeout(n,e<4?150:1000);};n();};"
+          "if(/^((?!chrome|android).)*safari/i.test(navigator.userAgent)){"
+          "if(!window.fetch||!window.ReadableStream){P();return;}"
+          "var u=null,f=0,go=function(){"
+          "fetch('http://%_I:%d/stream').then(function(r){"
+          "var rd=r.body.getReader(),b=new Uint8Array(0);"
+          "var pump=function(){return rd.read().then(function(x){"
+          "if(x.done)throw 0;"
+          "var nb=new Uint8Array(b.length+x.value.length);nb.set(b);nb.set(x.value,b.length);b=nb;"
+          "var last=null;"
+          "for(;;){var s='',i=0,k=Math.min(b.length,160);for(;i<k;i++)s+=String.fromCharCode(b[i]);"
+          "var m=/Content-Length: (\\d+)\\r\\n\\r\\n/.exec(s);if(!m){if(b.length>300000)b=new Uint8Array(0);break;}"
+          "var st=m.index+m[0].length,l=+m[1];if(b.length<st+l)break;"
+          "last=b.slice(st,st+l);b=b.slice(st+l);}"
+          "if(last){var o=URL.createObjectURL(new Blob([last],{type:'image/jpeg'})),old=u;"
+          "u=o;c.src=o;f=0;if(old)setTimeout(function(){URL.revokeObjectURL(old);},500);}"
+          "return pump();});};return pump();"
+          "}).catch(function(){if(++f>2){P();}else{setTimeout(go,1000);}});};go();"
           "}else{"
           "c.onerror=function(){setTimeout(function(){c.src='http://%_I:%d/stream';},2000);};"
           "c.src='http://%_I:%d/stream';}});</script>"),
+          (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT,
           (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT,
           (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT);
       }
