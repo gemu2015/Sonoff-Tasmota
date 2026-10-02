@@ -223,7 +223,7 @@ Plugin musst du **nicht selbst bauen**, es liegt fertig am Test-Release:
 ### Die Pins: `I2SAUDIO.cfg` einfach übernehmen
 
 Hans hat dieselbe Platine, also dieselben Pins. Sie stehen fertig in
-[`I2SAUDIO.cfg`](I2SAUDIO.cfg) (liegt neben dieser Anleitung) und ist die Datei, die das
+[`I2SAUDIO.cfg`](I2SAUDIO.cfg) (liegt neben dieser Anleitung) — es ist die Datei, die das
 Audio-Plugin auf unserer Kamera selbst geschrieben hat (am 02.10.2026 von dort geholt):
 
 | Feld | Pin | Bedeutung |
