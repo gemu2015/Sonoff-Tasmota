@@ -352,7 +352,7 @@ extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y
 // (and to its ABI table) -- the release text is taken from there. Keep these comments short.
 // The IDE banner takes TC_RELEASE automatically (idesrc/bundle.py fills
 // __TC_RELEASE__ in index.html) -- rebundle the IDE after a bump.
-#define TC_RELEASE         "1.6.70"     // release notes: tasmota/tinyc/CHANGELOG.md
+#define TC_RELEASE         "1.6.71"     // release notes: tasmota/tinyc/CHANGELOG.md
 
 // Default malloc() PSRAM limit on every PSRAM build (TinyCPsram). The framework
 // bakes CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL = 4096 into its heap: every malloc()
