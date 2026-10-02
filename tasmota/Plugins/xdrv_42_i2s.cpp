@@ -390,7 +390,7 @@ const float FP_CONST[] PROGMEM = {
   4.656612875e-10f,      // 8: 1/0x7fffffff
   2.0f,                  // 9: 2.0
   1e9f,                  // 10: 1e9
-  2.147483647e-9f,       // 11: 0x7fffffff * 1e-9
+  2.147483647f,          // 11: 0x7fffffff * 1e-9 (subband filter scale)
   0.043633231299858f,    // 12: PI/72
   2.147483647e9f,        // 13: 0x7fffffff as float
   3.1f,                  // 14: reservoir PE factor
