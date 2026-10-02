@@ -288,6 +288,12 @@ sondern in der Firmware** — das Plugin steuert sie nur. Darum gilt:
 - Beim ersten `I2STTS` lädt das Plugin beide Dateien in den PSRAM (zusammen rund 1 MB, dazu der
   Arbeitsspeicher der Engine). Der DFR1154 hat 8 MB PSRAM, das reicht.
 
+**Ohne die Engine in der Firmware (Plugin):** Die Sprachausgabe gibt es auch als Plugin `PICOTTS_32.bin`
+(Testing-Release): dann entfallen `-DTINYC_TTS -DUSE_PICOTTS` und rund 125 kB Flash; das Plugin wird wie das
+Audio-Plugin geladen (Autostart, Neustart) und braucht dieselben Stimmdateien. Anleitung:
+`tasmota/tinyc/docs/PICOTTS_PLUGIN_DE.md`. ⚠️ Auf der DFR1154 selbst haben wir es noch nicht ausprobiert, nur auf
+einem ESP32-S3-Entwicklungsboard; die Kamera läuft mit der eingebauten Engine.
+
 Probe in der Konsole:
 
 ```
