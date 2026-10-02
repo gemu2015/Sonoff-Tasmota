@@ -223,8 +223,8 @@ Plugin musst du **nicht selbst bauen**, es liegt fertig am Test-Release:
 ### Die Pins: `I2SAUDIO.cfg` einfach übernehmen
 
 Hans hat dieselbe Platine, also dieselben Pins. Sie stehen fertig in
-[`I2SAUDIO.cfg`](I2SAUDIO.cfg) (liegt neben dieser Anleitung) und sind die Werte, mit denen
-das Audio-Plugin auf unserer Kamera läuft:
+[`I2SAUDIO.cfg`](I2SAUDIO.cfg) (liegt neben dieser Anleitung) und ist die Datei, die das
+Audio-Plugin auf unserer Kamera selbst geschrieben hat (am 02.10.2026 von dort geholt):
 
 | Feld | Pin | Bedeutung |
 |---|---|---|
@@ -235,6 +235,7 @@ das Audio-Plugin auf unserer Kamera läuft:
 | `WS` | 46 | Wort-Takt |
 | `MC` | 49 = „-1“ | kein Master-Takt |
 | `APWR` | 49 = „-1“ | kein Schaltpin für den Verstärker |
+| `MODE`, `CODEC` | 16777728 | Auswahlfelder (Wert 0 in einer Auswahl 0–2); die große Zahl enthält die Auswahlgrenzen — **nicht ändern** |
 
 („49“ ist, wie das Plugin „kein Pin“ speichert; in der Auswahlliste steht dafür „-1“.)
 
