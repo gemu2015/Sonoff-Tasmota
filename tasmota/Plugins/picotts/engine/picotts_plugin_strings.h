@@ -170,6 +170,7 @@
 #define pico_soff_159 2528
 #define pico_soff_160 2560
 
+#define PICO_STR_CHECKSUM 0xccfc1471u   // FNV over the words, checked by picotts_probe()
 #define PICO_STR_BLOB_INIT \
   0x626f7270,\
   0x206d656c,\

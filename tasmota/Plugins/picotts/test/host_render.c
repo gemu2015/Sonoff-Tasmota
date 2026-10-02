@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
   uint32_t samples = 0, hash = 2166136261u;
   while (left) {
     int16_t used = 0;
-    ret = pico_putTextUtf8(eng, tp, (int16_t)left, &used);     CHECK("put");
+    ret = pico_putTextUtf8(eng, tp, (int16_t)(getenv("PICO_BYTEWISE") ? 1 : left), &used);     CHECK("put");
     tp += used; left -= used;
     int status;
     do {

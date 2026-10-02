@@ -99,6 +99,11 @@ FLOAT_EDITS = [
      r"PICO_SQRTF(PICO_FDIV((float) Fs, (hop * sig_inObj->\1)))", 2),
 ]
 
+# Debug hook (no-op unless PICO_TRACE is defined by the including file): the per-phone duration and pitch
+# class, to compare a device with a host render.
+
+
+
 # Local arrays with constant initialisers: GCC materialises them as a copy from .rodata, i.e. from an
 # address of the plugin HOST. Spell them out as element assignments instead.
 FLOAT_EDITS += [
@@ -110,6 +115,72 @@ FLOAT_EDITS += [
                for c, v in enumerate(row))
      + "        }", 1),
 ]
+
+# acphAccentuation (picoacph.c) is miscompiled by the Xtensa toolchain at -Os in this single translation unit:
+# the accent decision trees are then never asked, so every word keeps accent class 'NA', the phoneme strings
+# get shorter and the speech about 12 % shorter than the reference (found 02.10.2026 by comparing the item
+# stream of the device with a host render; see picotts/test/README.md). Any compiler barrier in the function
+# cures it, and so does -O1 for the whole file; the least invasive fix is -O0 for this one function (called
+# once per phrase). The same source behaves on x86 (gcc 15, clang) at every -O level.
+FLOAT_EDITS += [
+    ("picoacph.c", r"(/\* right-to-left, for each WORDPHON do acc \*/)", r'#pragma GCC push_options\n#pragma GCC optimize ("O0")\n\1', 1),
+    ("picoacph.c", r"(/\* acphStep support functions \*/)", r"#pragma GCC pop_options\n\1", 1),
+]
+
+# Debug trace hooks (PICO_TRACE is a no-op unless the including file defines it). Selected with
+#   gen_picotts.py --trace items,lex,pam,kdt
+# so the shipped plugin carries none of them. Used to find where the plugin diverges from a host render
+# (see picotts/test/README.md): each hook records (event, payload) pairs into MODULE_MEMORY.
+TRACE_EDITS = {
+    "items": [
+        ("picodata.c", r"(/\* all ok, now put complete item \*/)",
+         r"\1\n    {\n        picoos_uint32 ck_ = 0;\n        picoos_uint16 j_;\n        for (j_ = PICODATA_ITEM_HEADSIZE; j_ < *blen; j_++) { ck_ = (ck_ << 5) - ck_ + buf[j_]; }\n        PICO_TRACE((picoos_uint32) buf[0] | ((picoos_uint32) buf[1] << 8) | ((picoos_uint32) buf[2] << 16) | ((picoos_uint32) buf[3] << 24), ck_);\n    }", 1),
+    ],
+    "lex": [
+        ("picoklex.c", r"(lbc = klex_getLexblockRange\(klex, lbnr\);)",
+         r"\1\n        PICO_TRACE(0xA1000000u | ((picoos_uint32) lbnr << 8) | (picoos_uint32) lbc, ((picoos_uint32) tgraph[0] << 16) | ((picoos_uint32) tgraph[1] << 8) | (picoos_uint32) tgraph[2]);", 1),
+        ("picoklex.c", r"(klex_lexblockLookup\(klex, lexposStart, lexposEnd, graph, graphlen, lexres\);)",
+         r"\1\n    PICO_TRACE(0xA2000000u | ((picoos_uint32) lexres->nrres << 8) | (picoos_uint32) lexres->phonfound, (picoos_uint32) lexposStart);", 1),
+    ],
+    "pam": [
+        ("picopam.c", r"(pam->sPhFeats\[F0\] = \(picoos_uint8\) PICO_FDIV\(f0avg, \(picoos_single\) 10\.0f\);)",
+         r"\1\n    PICO_TRACE(((uint32_t) pam->phonDur << 16) | (uint32_t) (int32_t) fDur, (uint32_t) (int32_t) f0avg);", 1),
+    ],
+    "vec": [
+        # the whole input vector (packed two values per word) before each tree is asked
+        ("picokdt.c", r"(\n[ \t]*)(iByteNo = 0;\s*iBitNo = 7;\s*while \(\(rv = kdtAskTree\(dt, (dt\w+)->invec, (PICOKDT_NRATT_\w+),)",
+         r"\1{ picoos_uint32 vi_; PICO_TRACE(0xD1000000u | (picoos_uint32) \4, 0); for (vi_ = 0; vi_ < (picoos_uint32) \4; vi_ += 2) { PICO_TRACE((picoos_uint32) \3->invec[vi_] | ((vi_ + 1 < (picoos_uint32) \4 ? (picoos_uint32) \3->invec[vi_ + 1] : 0) << 16), vi_); } }\1\2", 6),
+    ],
+    "acph1": [
+        ("picoacph.c", r"(if \(upbound < 0\) \{)",
+         r"PICO_TRACE(0xE1000000u | ((picoos_uint32) acph->headxLen & 0xFFFFu), (picoos_uint32) upbound);\n    \1", 1),
+        ("picoacph.c", r"(/\* no continue so far => accentuation needed \*/)",
+         r"PICO_TRACE(0xE2000000u | (picoos_uint32) i, (picoos_uint32) okay);\n        \1", 1),
+    ],
+    "acphE1": [
+        ("picoacph.c", r"(if \(upbound < 0\) \{)",
+         r"PICO_TRACE(0xE1000000u | ((picoos_uint32) acph->headxLen & 0xFFFFu), (picoos_uint32) upbound);\n    \1", 1),
+    ],
+    "acphE2": [
+        ("picoacph.c", r"(/\* no continue so far => accentuation needed \*/)",
+         r"PICO_TRACE(0xE2000000u | (picoos_uint32) i, (picoos_uint32) okay);\n        \1", 1),
+    ],
+    "acph2": [
+        ("picoacph.c", r"(/\* classify \*/)", r"PICO_TRACE(0xE3000000u | (picoos_uint32) i, (picoos_uint32) okay);\n        \1", 2),
+        ("picoacph.c", r"(/\* decompose \*/)", r"PICO_TRACE(0xE4000000u | (picoos_uint32) i, (picoos_uint32) okay);\n        \1", 2),
+    ],
+    "kdtmap": [
+        ("picokdt.c", r"(PICODBG_ERROR\(\(\"problem doing reverse output mapping\"\)\);)", r"PICO_TRACE(0xE5000000u | (picoos_uint32) i, 0);\n                    \1", 1),
+        ("picokdt.c", r"(PICODBG_ERROR\(\(\"problem doing input mapping\"\)\);)", r"PICO_TRACE(0xE6000000u | (picoos_uint32) i, 0);\n                \1", 3),
+    ],
+    "kdt": [
+        # question, node type and the attribute value it looked at, then the forks / the decision
+        ("picokdt.c", r"(iForks = 0;\s*iID = -1;)",
+         r"PICO_TRACE(0xB1000000u | ((picoos_uint32) iNodeType << 16) | ((picoos_uint32) iQuestion << 8), (picoos_uint32) iVal);\n    \1", 1),
+        ("picokdt.c", r"(this->dclass = iDecision;)",
+         r"\1\n                PICO_TRACE(0xB2000000u | ((picoos_uint32) *iByteNo & 0xFFFFFFu), (picoos_uint32) iDecision);", 1),
+    ],
+}
 
 
 def read(path):
@@ -489,8 +560,11 @@ def main():
     global KB_ARRAYS
     KB_ARRAYS = kb_arrays(PICO)
     ap = argparse.ArgumentParser()
+    ap.add_argument("--trace", default="", help="comma separated debug hook sets: "+",".join(TRACE_EDITS))
     ap.add_argument("--check", action="store_true", help="only report whether the outputs are up to date")
     a = ap.parse_args()
+    for k in [x for x in a.trace.split(",") if x]:
+        FLOAT_EDITS.extend(TRACE_EDITS[k])
 
     os.makedirs(OUT_INC, exist_ok=True)
     os.makedirs(OUT_SRC, exist_ok=True)
@@ -550,6 +624,10 @@ def main():
     for i, o in enumerate(offs):
         sh.append("#define pico_soff_%d %d" % (i, o))
     sh.append("")
+    ck = 2166136261
+    for w in words:
+        ck = ((ck ^ w) * 16777619) & 0xFFFFFFFF
+    sh.append("#define PICO_STR_CHECKSUM 0x%08xu   // FNV over the words, checked by picotts_probe()" % ck)
     sh.append("#define PICO_STR_BLOB_INIT \\")
     sh.append(",\\\n".join("  0x%08x" % w for w in words))
     sh.append("")

@@ -970,12 +970,230 @@ static_assert(sizeof(MODULE_JUMPTABLE) / sizeof(MODULE_JUMPTABLE[0]) == 220,
 // special_malloc is a C++-mangled .ino symbol not directly callable from a .c TU;
 // without routing through it the arena went to the ~200 KB internal heap and
 // picotts_init() failed with "insufficient memory" on a 4 MB ESP32-S3.
-extern "C" void *pico_arena_malloc(size_t size) { return special_malloc(size); }
+// The engine reads memory it never wrote (host test 02.10.2026: with the arena filled with 0xA5 the
+// rendered length changes), so the arena must start zeroed - PSRAM is not.
+extern "C" void *pico_arena_malloc(size_t size) {
+  void *p = special_malloc(size);
+  if (p) { memset(p, 0, size); }
+  return p;
+}
+#endif
+
+
+#if defined(ESP32) && !defined(USE_PICOTTS) && defined(USE_BINPLUGINS)
+// ---------------------------------------------------------------------------------------------
+// PicoTTS from the PICOTTS BinPlugin (BLIB), for firmware built WITHOUT the engine (no -DTINYC_TTS).
+// The plugin holds only the synthesis steps (picotts_open/put/get/close, see
+// tasmota/Plugins/xblib_04_picotts.cpp). The task, the text queue, the arena and the callbacks live
+// here and mirror lib/libesp32_div/pico/esp_picotts.c, so the I2SAUDIO plugin keeps using the very
+// same jump table entries (209..214) whichever way the engine is provided.
+// ---------------------------------------------------------------------------------------------
+extern "C" TC_BLIB_REG_ENTRY *tc_blib_lookup(const char *name);
+
+static int32_t (*ptb_open)(void *, uint32_t, const void *, const void *) = nullptr;
+static int32_t (*ptb_put)(const uint8_t *, int32_t, int32_t *) = nullptr;
+static int32_t (*ptb_get)(int16_t *, int32_t, int32_t *) = nullptr;
+static int32_t (*ptb_close)(void) = nullptr;
+static void (*ptb_out)(int16_t *, unsigned) = nullptr;
+static void (*ptb_idle)(void) = nullptr;
+static void (*ptb_err)(void) = nullptr;
+static const void *ptb_ta = nullptr;
+static const void *ptb_sg = nullptr;
+static void *ptb_arena = nullptr;
+static QueueHandle_t ptb_q = nullptr;
+static TaskHandle_t ptb_task = nullptr;
+static SemaphoreHandle_t ptb_exit = nullptr;
+static volatile bool ptb_stop = false;
+
+#define PTB_ARENA_SIZE   1100000     // same as PICO_MEM_SIZE in esp_picotts.c
+#define PTB_QUEUE_SIZE   1024
+#define PTB_IDLE_WAIT    5           // x100 ms of silence before the idle callback
+#define PTB_STEP_IDLE    200
+#define PTB_STEP_BUSY    201
+
+static bool ptb_resolve(void) {
+  if (ptb_open) { return true; }
+  TC_BLIB_REG_ENTRY *o = tc_blib_lookup("picotts_open");
+  TC_BLIB_REG_ENTRY *p = tc_blib_lookup("picotts_put");
+  TC_BLIB_REG_ENTRY *g = tc_blib_lookup("picotts_get");
+  TC_BLIB_REG_ENTRY *c = tc_blib_lookup("picotts_close");
+  if (!o || !p || !g || !c) { return false; }
+  ptb_put = (int32_t (*)(const uint8_t *, int32_t, int32_t *))p->fn;
+  ptb_get = (int32_t (*)(int16_t *, int32_t, int32_t *))g->fn;
+  ptb_close = (int32_t (*)(void))c->fn;
+  ptb_open = (int32_t (*)(void *, uint32_t, const void *, const void *))o->fn;
+  TC_BLIB_REG_ENTRY *pr = tc_blib_lookup("picotts_probe");
+  if (pr) {
+    int32_t bad = ((int32_t (*)(void))pr->fn)();
+    AddLog(bad ? LOG_LEVEL_ERROR : LOG_LEVEL_INFO, PSTR("PTT: plugin self check %s (mask %d)"), bad ? "FAILED" : "ok", bad);
+  }
+  return true;
+}
+
+static void ptb_task_fn(void *) {
+  AddLog(LOG_LEVEL_DEBUG, PSTR("PTT: engine task started (plugin)"));
+  bool error = false;
+  bool waiting_output = false;
+  unsigned idles = 0;
+  uint32_t n_samples = 0;                  // per utterance: length and level, logged when it ends
+  uint64_t sumsq = 0;
+  int32_t peak = 0;
+  uint32_t us_engine = 0, us_output = 0;   // time inside the engine / inside the output callback
+  uint32_t n_put = 0, n_get = 0, n_in = 0; // calls into the engine, bytes accepted
+  uint16_t env[96];                        // level per 512 samples, for comparing with a host render
+  uint32_t env_acc = 0, env_n = 0, env_i = 0;
+  while (!error && !ptb_stop) {
+    uint8_t c;
+    while (xQueuePeek(ptb_q, &c, 0) == pdPASS) {
+      int32_t used = 0;
+      int32_t ret = ptb_put(&c, 1, &used);
+      n_put++; n_in += used;
+      if (ret) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("PTT: put text failed (%d), stopping TTS"), ret);
+        error = true;
+        break;
+      }
+      if (used) {
+        xQueueReceive(ptb_q, &c, 0);
+        waiting_output = true;
+      }
+    }
+    if (!waiting_output) {
+      if (idles < PTB_IDLE_WAIT) {
+        if (++idles == PTB_IDLE_WAIT && ptb_idle) { ptb_idle(); }
+      }
+      vTaskDelay(pdMS_TO_TICKS(100));
+    } else {
+      int32_t status;
+      do {
+        int16_t outbuf[128];
+        int32_t bytes = 0;
+        uint32_t t0 = micros();
+        status = ptb_get(outbuf, sizeof(outbuf), &bytes);
+        us_engine += micros() - t0;
+        n_get++;
+        if (bytes > 0) {
+          for (int32_t i = 0; i < bytes / 2; i++) {
+            int32_t v = outbuf[i];
+            sumsq += (uint64_t)(v * v);
+            if (v < 0) { v = -v; }
+            if (v > peak) { peak = v; }
+          }
+          for (int32_t i = 0; i < bytes / 2; i++) {
+            int32_t v = outbuf[i];
+            env_acc += (uint32_t)((v * v) >> 8);
+            if (++env_n == 512) {
+              if (env_i < 96) { env[env_i++] = (uint16_t)sqrtf((float)env_acc / 512.0f * 256.0f); }
+              env_acc = 0; env_n = 0;
+            }
+          }
+          n_samples += (uint32_t)(bytes / 2);
+          t0 = micros();
+          if (ptb_out) { ptb_out(outbuf, (unsigned)(bytes / 2)); }
+          us_output += micros() - t0;
+        }
+      } while (status == PTB_STEP_BUSY && !ptb_stop);
+      if (status != PTB_STEP_IDLE && status != PTB_STEP_BUSY && !ptb_stop) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("PTT: get data failed (%d), stopping TTS"), status);
+        error = true;
+      } else if (status == PTB_STEP_IDLE) {
+        waiting_output = false;
+        idles = 0;
+        if (n_samples) {
+          AddLog(LOG_LEVEL_INFO, PSTR("PTT: utterance %u samples, peak %d, rms %u; engine %u ms, output callback %u ms; put %u (%u B) get %u (plugin engine)"),
+                 n_samples, peak, (unsigned)sqrtf((float)sumsq / (float)n_samples), us_engine / 1000, us_output / 1000, n_put, n_in, n_get);
+        }
+        {
+          char line[480]; int p = 0;
+          for (uint32_t i = 0; i < env_i && p < (int)sizeof(line) - 8; i++) { p += snprintf(line + p, sizeof(line) - p, "%u ", env[i]); }
+          AddLog(LOG_LEVEL_INFO, PSTR("PTT: level/512: %s"), line);
+        }
+        env_i = 0; env_acc = 0; env_n = 0;
+        n_samples = 0; sumsq = 0; peak = 0; us_engine = 0; us_output = 0; n_put = 0; n_get = 0; n_in = 0;
+      }
+    }
+  }
+  AddLog(LOG_LEVEL_DEBUG, PSTR("PTT: engine task exiting (plugin)"));
+  xSemaphoreGive(ptb_exit);
+  if (error && ptb_err) { ptb_err(); }
+  vTaskDelete(NULL);
+}
+
+static void ptb_cleanup(void) {
+  if (ptb_task) {
+    ptb_stop = true;
+    if (ptb_exit) { xSemaphoreTake(ptb_exit, pdMS_TO_TICKS(3000)); }
+    ptb_task = nullptr;
+  }
+  if (ptb_close) { ptb_close(); }
+  if (ptb_arena) { free(ptb_arena); ptb_arena = nullptr; }
+  if (ptb_q) { vQueueDelete(ptb_q); ptb_q = nullptr; }
+  ptb_out = nullptr; ptb_idle = nullptr; ptb_err = nullptr;
+  ptb_open = nullptr;                      // re-resolve next time: the plugin may have been reloaded
+}
+
+static bool ptb_init(unsigned prio, void (*cb)(int16_t *samples, unsigned count), int core) {
+  if (!ptb_resolve()) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: no PICOTTS plugin and no built-in engine"));
+    return false;
+  }
+  if (!ptb_exit) { ptb_exit = xSemaphoreCreateBinary(); }
+  if (ptb_arena) { AddLog(LOG_LEVEL_ERROR, PSTR("PTT: already initialized")); return false; }
+  if (!ptb_ta || !ptb_sg) { AddLog(LOG_LEVEL_ERROR, PSTR("PTT: voice resources not set")); return false; }
+  ptb_out = cb;
+  ptb_stop = false;
+  ptb_arena = special_malloc(PTB_ARENA_SIZE);
+  if (!ptb_arena) { AddLog(LOG_LEVEL_ERROR, PSTR("PTT: insufficient memory for the engine arena")); return false; }
+  memset(ptb_arena, 0, PTB_ARENA_SIZE);    // see pico_arena_malloc: the engine reads uninitialised memory
+  int32_t ret = ptb_open(ptb_arena, PTB_ARENA_SIZE, ptb_ta, ptb_sg);
+  if (ret) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: engine open failed (%d)"), ret);
+    ptb_cleanup();
+    return false;
+  }
+  ptb_q = xQueueCreate(PTB_QUEUE_SIZE, sizeof(char));
+  if (!ptb_q || xTaskCreatePinnedToCore(ptb_task_fn, "picotts", 8192, NULL, prio, &ptb_task,
+                                        core == -1 ? tskNO_AFFINITY : core) != pdPASS) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("PTT: cannot create the engine task"));
+    ptb_task = nullptr;
+    ptb_cleanup();
+    return false;
+  }
+  return true;
+}
+
+static void ptb_add(const char *text, unsigned len) {
+  if (!ptb_q) { return; }
+  while (len--) { xQueueSendToBack(ptb_q, text++, portMAX_DELAY); }
+}
+#endif  // ESP32 && !USE_PICOTTS && USE_BINPLUGINS
+
+#if defined(PICOTTS_AB_TEST) && defined(USE_PICOTTS) && defined(ESP32)
+// A/B test against the plugin engine: count what the built-in engine delivers
+static void (*abt_cb)(int16_t *, unsigned) = nullptr;
+static void (*abt_idle)(void) = nullptr;
+static uint32_t abt_n = 0; static uint64_t abt_sq = 0; static int32_t abt_peak = 0;
+static void abt_out(int16_t *s, unsigned n) {
+  for (unsigned i = 0; i < n; i++) { int32_t v = s[i]; abt_sq += (uint64_t)(v * v); if (v < 0) { v = -v; } if (v > abt_peak) { abt_peak = v; } }
+  abt_n += n;
+  if (abt_cb) { abt_cb(s, n); }
+}
+static void abt_idle_cb(void) {
+  if (abt_n) { AddLog(LOG_LEVEL_INFO, PSTR("PTT: utterance %u samples, peak %d, rms %u (BUILT-IN engine)"), abt_n, abt_peak, (unsigned)sqrtf((float)abt_sq / (float)abt_n)); }
+  abt_n = 0; abt_sq = 0; abt_peak = 0;
+  if (abt_idle) { abt_idle(); }
+}
 #endif
 
 bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned count), int core) {
-#if defined(USE_PICOTTS) && defined(ESP32)
+#if defined(PICOTTS_AB_TEST) && defined(USE_PICOTTS) && defined(ESP32)
+  abt_cb = cb;
+  picotts_set_idle_notify(abt_idle_cb);
+  return picotts_init(prio, abt_out, core);
+#elif defined(USE_PICOTTS) && defined(ESP32)
   return picotts_init(prio, cb, core);
+#elif defined(ESP32) && defined(USE_BINPLUGINS)
+  return ptb_init(prio, cb, core);
 #else
   (void)prio; (void)cb; (void)core;
   return false;
@@ -985,6 +1203,8 @@ bool tmod_picotts_init(unsigned prio, void (*cb)(int16_t *samples, unsigned coun
 void tmod_picotts_add(const char *text, unsigned len) {
 #if defined(USE_PICOTTS) && defined(ESP32)
   picotts_add(text, len);
+#elif defined(ESP32) && defined(USE_BINPLUGINS)
+  ptb_add(text, len);
 #else
   (void)text; (void)len;
 #endif
@@ -993,12 +1213,20 @@ void tmod_picotts_add(const char *text, unsigned len) {
 void tmod_picotts_shutdown(void) {
 #if defined(USE_PICOTTS) && defined(ESP32)
   picotts_shutdown();
+#elif defined(ESP32) && defined(USE_BINPLUGINS)
+  ptb_cleanup();
 #endif
 }
 
 void tmod_picotts_set_idle_notify(void (*cb)(void)) {
 #if defined(USE_PICOTTS) && defined(ESP32)
+#if defined(PICOTTS_AB_TEST)
+  abt_idle = cb;
+#else
   picotts_set_idle_notify(cb);
+#endif
+#elif defined(ESP32) && defined(USE_BINPLUGINS)
+  ptb_idle = cb;
 #else
   (void)cb;
 #endif
@@ -1007,6 +1235,8 @@ void tmod_picotts_set_idle_notify(void (*cb)(void)) {
 void tmod_picotts_set_error_notify(void (*cb)(void)) {
 #if defined(USE_PICOTTS) && defined(ESP32)
   picotts_set_error_notify(cb);
+#elif defined(ESP32) && defined(USE_BINPLUGINS)
+  ptb_err = cb;
 #else
   (void)cb;
 #endif
@@ -1015,6 +1245,8 @@ void tmod_picotts_set_error_notify(void (*cb)(void)) {
 void tmod_picotts_set_resources(const void *ta_ptr, const void *sg_ptr) {
 #if defined(USE_PICOTTS) && defined(ESP32)
   picotts_set_resources(ta_ptr, sg_ptr);
+#elif defined(ESP32) && defined(USE_BINPLUGINS)
+  ptb_ta = ta_ptr; ptb_sg = sg_ptr;
 #else
   (void)ta_ptr; (void)sg_ptr;
 #endif
@@ -3441,7 +3673,9 @@ uint32_t eeprom_block;
         blocksize *= SPI_FLASH_SEC_SIZE;
       } else {
         // free module block, check required size
-        uint32_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;   // was uint8_t: truncates for >=255-sector modules
+        // `size` arrives already rounded up to whole sectors (Module_upload_write): round up, do not add a sector
+        // again, or a plugin never fits a hole of exactly its own size (02.10.2026: replacing PICOTTS failed)
+        uint32_t blocks = (size + SPI_FLASH_SEC_SIZE - 1) / SPI_FLASH_SEC_SIZE;   // was uint8_t: truncates for >=255-sector modules
         //AddLog(LOG_LEVEL_INFO, PSTR("needed blocks: %d"), blocks);
         uint32_t *bp = lp;
         uint8_t free = 1;

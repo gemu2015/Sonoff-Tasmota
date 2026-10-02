@@ -1802,6 +1802,8 @@ MODULE_PART static picoos_uint8 acphIsWordWithoutStress(register picodata_Proces
 }
 
 
+#pragma GCC push_options
+#pragma GCC optimize ("O0")
  
 MODULE_PART static pico_status_t acphAccentuation(register picodata_ProcessingUnit thiz,
                                     register acph_subobj_t *acph) {
@@ -1977,6 +1979,7 @@ MODULE_PART static pico_status_t acphAccentuation(register picodata_ProcessingUn
 
 
  
+#pragma GCC pop_options
  
  
 

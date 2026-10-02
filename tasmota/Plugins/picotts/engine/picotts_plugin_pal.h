@@ -17,6 +17,11 @@
 
 #define PICO_JT (gettbl()->jt)
 
+// debug hook, see gen_picotts.py: two words per call (duration/pitch class); the including file defines it
+#ifndef PICO_TRACE
+#define PICO_TRACE(a, b)
+#endif
+
 // float helpers through the jump table (picopal_double is float in the plugin build)
 #define PICO_FDIV(A, B)  ((( float (*)(float, float) ) PICO_JT[39])((A), (B)))
 #define PICO_SINF(A)     ((( float (*)(float) )        PICO_JT[205])((A)))
@@ -178,21 +183,11 @@ MODULE_PART picopal_int16 picopal_sprintf(picopal_char *dst, const picopal_char 
 
 // ---- memory ---------------------------------------------------------------------------------
 MODULE_PART void *picopal_mem_copy(const void *src, void *dst, picopal_objsize_t length) {
-  const uint8_t *s = (const uint8_t *)src;
-  uint8_t *d = (uint8_t *)dst;
-  if (d < s || d >= s + length) {
-    while (length--) { *d++ = *s++; }
-  } else {                                   // overlapping, copy backwards
-    d += length; s += length;
-    while (length--) { *--d = *--s; }
-  }
-  return dst;
+  return (( void *(*)(void *, const void *, size_t) ) PICO_JT[92])(dst, src, length);   // memmove
 }
 
 MODULE_PART void *picopal_mem_set(void *dest, picopal_uint8 byte_val, picopal_objsize_t length) {
-  uint8_t *d = (uint8_t *)dest;
-  while (length--) { *d++ = byte_val; }
-  return dest;
+  return (( void *(*)(void *, int, size_t) ) PICO_JT[91])(dest, (int)byte_val, length);
 }
 
 // ---- math (picopal_double is float here) ----------------------------------------------------
@@ -223,9 +218,8 @@ MODULE_PART void *picopal_mpr_alloc(picopal_objsize_t size) { return NULL; }
 MODULE_PART void picopal_mpr_free(void **p) { *p = NULL; }
 MODULE_PART pico_status_t picopal_mpr_protect(void *addr, picopal_objsize_t len, picopal_int16 prot) { return PICO_OK; }
 MODULE_PART void picopal_get_timer(picopal_uint32 *sec, picopal_uint32 *usec) {
-  uint32_t ms = (( uint32_t (*)(void) ) PICO_JT[73])();
-  *sec = ms / 1000;
-  *usec = (ms % 1000) * 1000;
+  *sec = 0;                                  // like picopal.c without IMPLEMENT_TIMER
+  *usec = 0;
 }
 
 #endif  // PICOTTS_PLUGIN_PAL_H
