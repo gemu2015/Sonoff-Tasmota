@@ -1040,8 +1040,6 @@ static void ptb_task_fn(void *) {
   int32_t peak = 0;
   uint32_t us_engine = 0, us_output = 0;   // time inside the engine / inside the output callback
   uint32_t n_put = 0, n_get = 0, n_in = 0; // calls into the engine, bytes accepted
-  uint16_t env[96];                        // level per 512 samples, for comparing with a host render
-  uint32_t env_acc = 0, env_n = 0, env_i = 0;
   while (!error && !ptb_stop) {
     uint8_t c;
     while (xQueuePeek(ptb_q, &c, 0) == pdPASS) {
@@ -1079,14 +1077,6 @@ static void ptb_task_fn(void *) {
             if (v < 0) { v = -v; }
             if (v > peak) { peak = v; }
           }
-          for (int32_t i = 0; i < bytes / 2; i++) {
-            int32_t v = outbuf[i];
-            env_acc += (uint32_t)((v * v) >> 8);
-            if (++env_n == 512) {
-              if (env_i < 96) { env[env_i++] = (uint16_t)sqrtf((float)env_acc / 512.0f * 256.0f); }
-              env_acc = 0; env_n = 0;
-            }
-          }
           n_samples += (uint32_t)(bytes / 2);
           t0 = micros();
           if (ptb_out) { ptb_out(outbuf, (unsigned)(bytes / 2)); }
@@ -1103,12 +1093,6 @@ static void ptb_task_fn(void *) {
           AddLog(LOG_LEVEL_INFO, PSTR("PTT: utterance %u samples, peak %d, rms %u; engine %u ms, output callback %u ms; put %u (%u B) get %u (plugin engine)"),
                  n_samples, peak, (unsigned)sqrtf((float)sumsq / (float)n_samples), us_engine / 1000, us_output / 1000, n_put, n_in, n_get);
         }
-        {
-          char line[480]; int p = 0;
-          for (uint32_t i = 0; i < env_i && p < (int)sizeof(line) - 8; i++) { p += snprintf(line + p, sizeof(line) - p, "%u ", env[i]); }
-          AddLog(LOG_LEVEL_INFO, PSTR("PTT: level/512: %s"), line);
-        }
-        env_i = 0; env_acc = 0; env_n = 0;
         n_samples = 0; sumsq = 0; peak = 0; us_engine = 0; us_output = 0; n_put = 0; n_get = 0; n_in = 0;
       }
     }
