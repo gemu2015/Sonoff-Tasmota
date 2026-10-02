@@ -13,6 +13,10 @@
  * single precision functions that the plugin jump table offers (sinf, cosf, expf,
  * sqrtf), which is what a plugin build would have to use.
  */
+/* PlatformIO builds every .c under tasmota/plugins/ into the firmware: keep this host-only
+ * program out of those builds (build.sh defines PICOTTS_HOST_TEST). */
+#ifdef PICOTTS_HOST_TEST
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,3 +97,5 @@ int main(int argc, char **argv) {
   printf("samples=%u hash=%08x\n", samples, hash);
   return 0;
 }
+
+#endif /* PICOTTS_HOST_TEST */
