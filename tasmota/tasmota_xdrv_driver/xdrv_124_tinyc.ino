@@ -6097,7 +6097,14 @@ static void HandleTinyCWebOn7(void) { HandleTinyCWebOn(7); }
 // memcpy an, ist die Kopie schon zerrissen. Dann lieber 503 und der Aufrufer
 // holt sich das naechste Bild -- ein Bild zu ueberspringen faellt bei 10 Bildern
 // je Sekunde niemandem auf, ein zerrissenes schon.
+//
+// ⚠️ NICHT SOFORT 503, WENN GERADE GESCHRIEBEN WIRD. Auf der klassischen ESP32-CAM (AI-Thinker,
+// VGA, ~8 Bilder/s) ist der Slot einen guten Teil der Zeit „writing"; Safari holt Einzelbilder und
+// wartete nach einem 503 eine volle Sekunde -- das waren die Aussetzer (gemu 02.10.2026,
+// Chrome mit dem Strom lief sauber). Der Schreiber braucht nur einige 10 ms: bis zu 100 ms
+// abwarten und dann liefern.
 static void TC_SendCamSlotAsJpeg(int idx) {
+  for (int w = 0; w < 20 && tc_cam_slot[idx].buf && tc_cam_slot[idx].writing; w++) { delay(5); }
   if (!tc_cam_slot[idx].buf || tc_cam_slot[idx].len == 0 || tc_cam_slot[idx].writing) {
     Webserver->send(503, "text/plain", "no image");
     return;
@@ -8416,9 +8423,9 @@ bool Xdrv124(uint32_t function) {
           "<script>window.addEventListener('load',function(){"
           "var c=document.getElementById('tccam');"
           "if(/^((?!chrome|android).)*safari/i.test(navigator.userAgent)){"
-          "var n=function(){c.src='/tc_cam.jpg?'+Date.now();};"
-          "c.onload=function(){setTimeout(n,80);};"
-          "c.onerror=function(){setTimeout(n,1000);};n();"
+          "var e=0,n=function(){c.src='/tc_cam.jpg?'+Date.now();};"
+          "c.onload=function(){e=0;setTimeout(n,20);};"
+          "c.onerror=function(){e++;setTimeout(n,e<4?150:1000);};n();"
           "}else{"
           "c.onerror=function(){setTimeout(function(){c.src='http://%_I:%d/stream';},2000);};"
           "c.src='http://%_I:%d/stream';}});</script>"),
