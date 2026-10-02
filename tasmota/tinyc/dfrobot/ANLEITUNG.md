@@ -220,11 +220,39 @@ Plugin musst du **nicht selbst bauen**, es liegt fertig am Test-Release:
 4. **Neu starten.** Kontrolle in der Konsole mit `mdir`: der Eintrag `I2SAUDIO` steht da,
    mit einer Zahl in der RAM-Spalte (das Plugin läuft, sonst steht dort 0).
 
-Die Pins für Mikrofon, Verstärker und Takt setzt du in der **Vorlage** (die I2S-Komponenten
-im GPIO-Raster) oder, wenn ein TinyC-Skript den Kanal selbst öffnet, im Skript (`i2sBegin`,
-`i2sMicBegin`). ⚠️ **Die Vorlage in Abschnitt 6 enthält keine I2S-Pins** — welche Pins die
-DFR1154 für Mikrofon und Verstärker herausführt, steht im Schaltplan von DFRobot, und ich habe
-sie hier nicht eingetragen oder an dieser Platine geprüft. Das Plugin selbst ist an anderen
+### Die Pins: `I2SAUDIO.cfg` einfach übernehmen
+
+Hans hat dieselbe Platine, also dieselben Pins. Sie stehen fertig in
+[`I2SAUDIO.cfg`](I2SAUDIO.cfg) (liegt neben dieser Anleitung) und sind die Werte, mit denen
+das Audio-Plugin auf unserer Kamera läuft:
+
+| Feld | Pin | Bedeutung |
+|---|---|---|
+| `DOUT` | 42 | Ausgabe zum Verstärker |
+| `DIN/PDD` | 39 | Eingabe vom (PDM-)Mikrofon |
+| `PDC` | 38 | Takt des PDM-Mikrofons |
+| `BCK` | 45 | Bit-Takt |
+| `WS` | 46 | Wort-Takt |
+| `MC` | 49 = „-1“ | kein Master-Takt |
+| `APWR` | 49 = „-1“ | kein Schaltpin für den Verstärker |
+
+(„49“ ist, wie das Plugin „kein Pin“ speichert; in der Auswahlliste steht dafür „-1“.)
+
+So kommt die Datei auf die Kamera:
+
+1. **Werkzeuge → Dateisystem verwalten**, dort auf das **Flash-Dateisystem** umschalten
+   (nicht die SD-Karte; hat das Gerät keine SD-Karte, gibt es nur dieses eine).
+2. `I2SAUDIO.cfg` hochladen. Sie muss direkt im Hauptverzeichnis liegen: **`/I2SAUDIO.cfg`**.
+3. Neu starten. Das Plugin liest die Datei beim Start und übernimmt die Pins; weichen die Pins vom Standard
+   des Plugins ab, steht im Log `Plugin: pin config applied /I2SAUDIO.cfg`.
+
+⚠️ `chkpt a` (Schritt 1 oben) formatiert das Flash-Dateisystem — die Datei also **erst danach**
+hochladen, sonst ist sie wieder weg. Wer die Pins lieber von Hand setzt: auf der Plugin-Seite
+stehen sie als Auswahlfelder an der Zeile `I2SAUDIO`; jede Änderung dort schreibt die Datei von
+selbst neu.
+
+Ein TinyC-Skript, das den Kanal selbst öffnet, setzt seine Pins im Skript (`i2sBegin`,
+`i2sMicBegin`); die Datei betrifft nur das Plugin. Das Plugin selbst ist auch an anderen
 S3-Geräten (WM8960) erprobt, siehe `examples/audio_io.tc`.
 
 ## 10. Wenn etwas nicht geht
@@ -237,7 +265,7 @@ S3-Geräten (WM8960) erprobt, siehe `examples/audio_io.tc`.
 | `camControl(21,…)` liefert -1 | Firmware ohne ESP-DL, oder das Modell liegt nicht unter `/sd/ped.espdl` |
 | `"Error":"Unknown opcode"` im Slot | die Firmware ist älter als der Übersetzer (Abschnitt 7) |
 | Gerät nach OTA im Safeboot | Abschnitt 5, der Weg von Hand |
-| Kein Audio | Plugin fehlt, nicht gestartet (Autostart!) oder falsche Pins (Abschnitt 9) |
+| Kein Audio | Plugin fehlt, nicht gestartet (Autostart!) oder falsche Pins (`I2SAUDIO.cfg`, Abschnitt 9) |
 | Bild nur halb / Streifen bei wenig Licht | IR-LED-Welligkeit bei hoher Verstärkung — `webcam_tinyc.tc` begrenzt sie, nicht verändern |
 
 Wenn du den Baum aktualisierst: `git pull`, die beiden Dateien aus `tasmota/tinyc/dfrobot/`
