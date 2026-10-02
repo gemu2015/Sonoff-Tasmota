@@ -259,7 +259,9 @@ done
 PLUGIN_DIR="$FW_DIR/Plugins/ESP32"
 # I2SAUDIO_32 is the audio plugin (module 42: audioPlay/audioSay/i2s*, mic level). In this
 # firmware the built-in I2S audio is OFF (USE_BINPLUGINS), so audio I/O needs this plugin.
-for plg in TENSILICA/MATTERF_32.bin RISC/MATTERF_32r.bin TENSILICA/I2SAUDIO_32.bin; do
+# PICOTTS_32 is the text-to-speech engine (SVOX Pico) as a plugin: spoken text (I2STTS) needs it unless the
+# firmware was built with -DTINYC_TTS. Docs: docs/PICOTTS_PLUGIN.md.
+for plg in TENSILICA/MATTERF_32.bin RISC/MATTERF_32r.bin TENSILICA/I2SAUDIO_32.bin TENSILICA/PICOTTS_32.bin; do
   [[ -f "$PLUGIN_DIR/$plg" ]] || $DRY_RUN \
     || die "Missing $PLUGIN_DIR/$plg — build it: python3 tasmota/Plugins/build_plugin.py --plugin USE_MATTER_FULL_MOD --cpu esp32 / esp32_riscv"
   run "cp '$PLUGIN_DIR/$plg' '$STAGE_DIR/'"
@@ -268,6 +270,8 @@ done
 # IDE + docs
 run "cp '$IDE_GZ' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/docs/MATTER_PLUGIN.md'    '$STAGE_DIR/'"
+run "cp '$TINYC_DIR/docs/PICOTTS_PLUGIN.md'   '$STAGE_DIR/'"
+run "cp '$TINYC_DIR/docs/PICOTTS_PLUGIN_DE.md' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/docs/MATTER_PLUGIN_DE.md' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference.md'    '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference_DE.md' '$STAGE_DIR/'"
@@ -307,7 +311,9 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | **ESP8266** 4MB — lean (no Matter / LVGL / camera); runs basic TinyC programs (HWDT fix). Flash the \`.bin\` (OTA/esptool); no \`.factory.bin\` |
 | \`MATTERF_32.bin\` / \`MATTERF_32r.bin\` | Matter plugin — \`_32\` for the S3, \`_32r\` for C3 / C6 / P4 |
 | \`I2SAUDIO_32.bin\` | Audio plugin (S3/ESP32): audio I/O needs it, the built-in I2S audio is off in these builds. Load like the Matter plugin, tick "Autostart plugins at boot" — see tasmota/tinyc/dfrobot/ANLEITUNG.md |
+| \`PICOTTS_32.bin\` | Text-to-speech plugin (S3/ESP32): \`I2STTS\` speaks with it, no special firmware needed. Needs \`I2SAUDIO_32.bin\` and the voice files, see PICOTTS_PLUGIN.md |
 | \`MATTER_PLUGIN.md\` / \`_DE.md\` | How to install the Matter plugin, EN/DE |
+| \`PICOTTS_PLUGIN.md\` / \`_DE.md\` | How to install the speech plugin, EN/DE |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
