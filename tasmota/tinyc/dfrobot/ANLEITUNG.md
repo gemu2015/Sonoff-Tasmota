@@ -14,6 +14,7 @@ diese Anleitung bringt dich von einem frischen `git clone` zu einer Firmware fü
 | **TinyC** + Kamera-Treiber | Webcam-Skript `webcam_tinyc.tc`, Bewegungserkennung, Nachtsicht (IR-LEDs), Mail | – |
 | **Personenerkennung** (ESP-DL) | das Netz bestätigt „Mensch“, bevor der Alarm losgeht | +~800 kB Flash, 76 kB RAM zur Laufzeit |
 | **Audio-Plugin** (`I2SAUDIO`) | Audio-Ein-/Ausgabe: Mikrofon, Lautsprecher, Anbindung an die CamViewer-App | ~100 kB Plugin-Partition |
+| **Sprachausgabe** (PicoTTS, `I2STTS`) | Text sprechen, Deutsch und fünf weitere Sprachen; braucht das Audio-Plugin | +~125 kB Flash, ~1 MB PSRAM beim Sprechen; Stimmdateien (je ~1 MB) auf der SD-Karte |
 | **Matter** (nur wenn du magst) | Kamera als Matter-Gerät | eingebaut +33 kB RAM, als Plugin 0 |
 
 **Das Wichtigste vorweg — zwei Dateien kommen nicht mit dem `git pull`:**
@@ -132,6 +133,13 @@ python3 -m http.server 8765 &
 curl "http://<ip>/cm?cmnd=OtaUrl%20http://<deine-rechner-ip>:8765/firmware.bin"
 curl "http://<ip>/cm?cmnd=Upgrade%201"
 ```
+
+⚠️ **Nach dem ersten Flash eines selbst gebauten Images können die Einstellungen weg sein.** Bei uns kam
+die Kamera nach dem OTA-Flash mit Standardwerten zurück: das WLAN war vergessen (sie meldete sich als
+Access Point), und die Vorlage mit den Kamera-Pins, der Gerätename und der Hostname waren zurückgesetzt.
+Die Ursache haben wir nicht geklärt. Rechne also damit, das WLAN neu einzutragen und die Vorlage aus
+Abschnitt 6 neu zu setzen. Dateien auf der SD-Karte und das Plugin samt Autostart blieben erhalten.
+Das Image enthält absichtlich keine WLAN-Zugangsdaten.
 
 ## 6. Vorlage (Pins der Kamera)
 
@@ -256,6 +264,41 @@ Ein TinyC-Skript, das den Kanal selbst öffnet, setzt seine Pins im Skript (`i2s
 `i2sMicBegin`); die Datei betrifft nur das Plugin. Das Plugin selbst ist auch an anderen
 S3-Geräten (WM8960) erprobt, siehe `examples/audio_io.tc`.
 
+### Sprachausgabe (TTS)
+
+Das Plugin spricht Text mit **SVOX PicoTTS**. Die Engine (rund 125 KB) steckt **nicht im Plugin,
+sondern in der Firmware** — das Plugin steuert sie nur. Darum gilt:
+
+- **Die Firmware muss mit TTS gebaut sein.** Die Umgebung `dfrobot-ai-cam` aus
+  `platformio_override_dfrobot.ini` tut das (`-DTINYC_TTS -DUSE_PICOTTS`). In einer Standard-Firmware
+  ohne diese Schalter ist PicoTTS abgeschaltet: `I2STTS` scheitert dann mit `PTT: picotts_init
+  failed`, obwohl das Plugin läuft.
+- **Die Stimmen sind Dateien**, keine Firmware. Sie liegen im Baum unter
+  `lib/libesp32_div/pico/lang/`. Für Deutsch brauchst du zwei Stück und musst sie **umbenennen**:
+
+  | Datei im Baum | Name auf der Kamera | Größe |
+  |---|---|---|
+  | `de-DE_ta.bin` | `/picotts_de-DE_ta.bin` | 441 KB |
+  | `de-DE_gl0_sg.bin` | `/picotts_de-DE_sg.bin` | 635 KB |
+
+  Sie gehören in das Hauptverzeichnis des **Dateisystems, in dem das Plugin sucht**: ist eine SD-Karte
+  eingesteckt, ist das die SD-Karte (dieselbe, auf der `/sd/ped.espdl` liegt), sonst der Flash.
+  Hochladen unter **Werkzeuge → Dateisystem verwalten** (Dateien über 256 KB laufen dabei automatisch
+  über Port 83). Andere Sprachen genauso: `en-US`, `en-GB`, `fr-FR`, `it-IT`, `es-ES`.
+- Beim ersten `I2STTS` lädt das Plugin beide Dateien in den PSRAM (zusammen rund 1 MB, dazu der
+  Arbeitsspeicher der Engine). Der DFR1154 hat 8 MB PSRAM, das reicht.
+
+Probe in der Konsole:
+
+```
+I2STTS Guten Tag, hier spricht die Kamera
+I2STTSLang          zeigt die geladene Sprache
+I2STTSLang en-US    wechselt die Sprache (die beiden Dateien dazu müssen da sein)
+```
+
+Im Log steht beim ersten Mal `PTT: loaded /picotts_de-DE_ta.bin …` und `PTT: ready (lang=de-DE …)`.
+Standardsprache ist `de-DE`.
+
 ## 10. Wenn etwas nicht geht
 
 | Anzeichen | Ursache |
@@ -267,6 +310,7 @@ S3-Geräten (WM8960) erprobt, siehe `examples/audio_io.tc`.
 | `"Error":"Unknown opcode"` im Slot | die Firmware ist älter als der Übersetzer (Abschnitt 7) |
 | Gerät nach OTA im Safeboot | Abschnitt 5, der Weg von Hand |
 | Kein Audio | Plugin fehlt, nicht gestartet (Autostart!) oder falsche Pins (`I2SAUDIO.cfg`, Abschnitt 9) |
+| `PTT: picotts_init failed` / `PTT: voice load failed` | Firmware ohne TTS (`-DTINYC_TTS` fehlt), oder die Stimmdateien `/picotts_de-DE_ta.bin` und `_sg.bin` fehlen bzw. liegen im falschen Dateisystem (Abschnitt 9, Sprachausgabe) |
 | Bild nur halb / Streifen bei wenig Licht | IR-LED-Welligkeit bei hoher Verstärkung — `webcam_tinyc.tc` begrenzt sie, nicht verändern |
 
 Wenn du den Baum aktualisierst: `git pull`, die beiden Dateien aus `tasmota/tinyc/dfrobot/`
