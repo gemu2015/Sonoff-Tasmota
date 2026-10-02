@@ -414,6 +414,7 @@
 //#define USE_CRC_BLIB_MOD            // xblib_01_crc.cpp
 //#define USE_MATTER_MOD              // xblib_02_matter.cpp (matter_c as BLIB — Fork B, stage 1 probe stub)
 //#define USE_MATTER_FULL_MOD         // xblib_03_matter_full.cpp (FULL matter_c amalgamation — Fork B, stage 3)
+//#define USE_PICOTTS_MOD             // xblib_04_picotts.cpp (SVOX Pico TTS engine as BLIB)
 //#define USE_CC1101_MOD              // xdrv_130_cc1101.cpp
 //#define USE_MP3_PLAYER_DUAL_MOD     // xdrv_14_mp3_dual.cpp
 //#define USE_PCF8574_DUAL_MOD        // xdrv_28_pcf8574_dual.cpp
