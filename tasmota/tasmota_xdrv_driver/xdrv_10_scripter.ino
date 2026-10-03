@@ -14844,6 +14844,9 @@ void script_add_subpage(uint8_t num) {
 }
 #endif // SCRIPT_FULL_WEBPAGE
 
+// Marstek CT002 one-time cloud registration page /ctreg (next145, ESP8266 only)
+#include "include/xdrv_10_ct002_registration.h"
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -15054,6 +15057,9 @@ bool Xdrv10(uint32_t function) {
       break;
 
     case FUNC_EVERY_SECOND:
+#ifdef USE_SCRIPT_CT002_REGISTRATION
+      CtRegEverySecond();
+#endif
       ScriptEverySecond();
       break;
     case FUNC_COMMAND:
@@ -15096,6 +15102,15 @@ bool Xdrv10(uint32_t function) {
       }
       break;
 #ifdef USE_WEBSERVER
+#ifdef USE_SCRIPT_CT002_REGISTRATION
+    case FUNC_WEB_ADD_MANAGEMENT_BUTTON:
+      if (XdrvMailbox.index) {
+        XdrvMailbox.index++;
+      } else {
+        WSContentSend_P(HTTP_BTN_CT002_REG);
+      }
+      break;
+#endif
     case FUNC_WEB_ADD_CONSOLE_BUTTON:
       if (XdrvMailbox.index) {
         XdrvMailbox.index++;
@@ -15125,6 +15140,10 @@ bool Xdrv10(uint32_t function) {
       break;
 #endif // USE_SCRIPT_WEB_DISPLAY
     case FUNC_WEB_ADD_HANDLER:
+#ifdef USE_SCRIPT_CT002_REGISTRATION
+      Webserver->on("/ctreg", HTTP_GET, HandleCt002Registration);
+      Webserver->on("/ctreg", HTTP_POST, HandleCt002Registration);
+#endif
       Webserver->on("/" WEB_HANDLE_SCRIPT, HandleScriptConfiguration);
       Webserver->on("/ta",HTTP_POST, HandleScriptTextareaConfiguration, HandleScriptUpload);
 #ifdef USE_SML_SCRIPT_CMD
