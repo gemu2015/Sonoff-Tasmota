@@ -170,6 +170,18 @@ static inline void tc_vm_lock(SemaphoreHandle_t m) {
 // stays untouched and Tasmota initializes the camera at no point.
 #include "include/xdrv_124_tinyc_camera.h"
 
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA)) && !defined(CONFIG_IDF_TARGET_ESP32P4)
+// ⚠️ ONE JPEG DECODE AT A TIME (gemu 03.10.2026, DFR1154). The motion detector decodes the slot in
+// the MAIN LOOP every 500 ms (TC_CamMotionDetect), the person detector decodes it in the VM task
+// (tc_dl_person_run, ~250 ms). Run together, jpg2rgb565() failed in the person check about every
+// second time: error -4, "person detect error -4" in the log. Measured with a script that did
+// nothing but camControl(21) in a loop: motion on 27 of 50 failed, motion off 0 of 50, and the
+// same check from the main loop (where it cannot overlap) 0 of 60. The two now take turns: the
+// person check waits (it runs in the VM task), the motion sample is skipped when the decoder is
+// busy (it runs in the main loop and must not block it for 250 ms).
+static SemaphoreHandle_t tc_jpg_mutex = xSemaphoreCreateMutex();
+#endif
+
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #ifdef USE_TINYC_ESPDL
 // ⚠️ The VM header is included HERE, while the detector class below is
@@ -1576,6 +1588,8 @@ int32_t tc_dl_person_run(int32_t schwelle_x100) {
   uint32_t aus_b = breite, aus_h = hoehe;
   uint8_t *rgb = nullptr;
   bool ok = false;
+  // take turns with the motion detector's decode (see tc_jpg_mutex)
+  bool jm = tc_jpg_mutex && (xSemaphoreTake(tc_jpg_mutex, pdMS_TO_TICKS(1500)) == pdTRUE);
   uint32_t t0 = millis();
   if (0 == tc_dl_skala) {
     rgb = (uint8_t *)heap_caps_malloc(breite * hoehe * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1595,6 +1609,7 @@ int32_t tc_dl_person_run(int32_t schwelle_x100) {
     }
   }
   tc_dl_erg.ms_jpeg = millis() - t0;
+  if (jm) { xSemaphoreGive(tc_jpg_mutex); }
   free(jpg);
   if (!rgb) { return -2; }
   if (!ok) { free(rgb); return -4; }
@@ -6305,7 +6320,14 @@ static void TC_CamMotionDetect(void) {
   free(rgb);
   return;
 #else
-  if (!jpg2rgb565(tc_cam_slot[0].buf, tc_cam_slot[0].len, rgb, JPG_SCALE_8X)) {
+  // the person detector decodes too (VM task): skip this sample instead of waiting in the main loop
+  if (tc_jpg_mutex && xSemaphoreTake(tc_jpg_mutex, 0) != pdTRUE) {
+    free(rgb);
+    return;
+  }
+  bool dec_ok = jpg2rgb565(tc_cam_slot[0].buf, tc_cam_slot[0].len, rgb, JPG_SCALE_8X);
+  if (tc_jpg_mutex) { xSemaphoreGive(tc_jpg_mutex); }
+  if (!dec_ok) {
     free(rgb);
     return;
   }
