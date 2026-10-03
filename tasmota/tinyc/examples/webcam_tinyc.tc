@@ -1175,6 +1175,15 @@ int main() {
     cam_ok = 1;
     res_masse();
 
+    // ⚠️ `Sleep 0` FOR A STREAMING CAMERA (gemu 03.10.2026). Tasmota's default `Sleep 50` also
+    // switches the WiFi radio to modem sleep: a request to the web server then takes ~140 ms
+    // instead of ~45 ms (measured on an AI-Thinker ESP32-CAM and on the DFR1154), and the
+    // main loop, which serves the MJPEG stream, stalled for 1.0-1.7 s now and then -- those
+    // were the gaps in the picture. With `Sleep 0`: 10 frames/s and no gap above 0.4 s in
+    // 60 s (before: 7.6 frames/s and nine gaps, up to 1.5 s). A mains-powered camera does not
+    // need the radio to sleep. The command stores the setting, so it holds after a restart.
+    tasmCmd("Sleep 0", tmp);
+
     // First test capture. ⚠️ The very first frame after init fails (-1) — the
     // sensor is still settling. Not the light sensor's fault (checked: same
     // with the LTR-308 probed afterwards). One retry after a short wait.
