@@ -11,6 +11,7 @@ User-authored pages (index.md, getting-started.md, gallery/*.md) are never overw
 """
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -42,6 +43,11 @@ def copy_reference() -> None:
         # rewritten — code spans like `TinyC_Reference.md` are left intact.
         for a, b in mapping.items():
             text = text.replace(f"]({a})", f"]({b})")
+        # Guides in tasmota/tinyc/docs/ (Matter plugin, PicoTTS plugin, ...) are not pages of
+        # this site: `mkdocs --strict` fails on the repo-relative link, so point to GitHub.
+        text = re.sub(r"\]\(docs/([A-Za-z0-9_.\-]+\.md)\)",
+                      r"](https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/docs/\1)",
+                      text)
         dst = DOCS / dst_name
         dst.write_text(text, encoding="utf-8")
         print(f"  {src.relative_to(ROOT)} -> {dst.relative_to(ROOT)}")
