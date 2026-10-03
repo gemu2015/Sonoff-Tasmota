@@ -378,6 +378,25 @@
 #undef USE_MP3_PLAYER        // xdrv_14 DFPlayer
 #endif
 
+// The camera board drives no lights, is no Alexa device and has no use for the GPIO viewer.
+// The Tasmota defaults for ESP32 switch all three on; they cost flash and static RAM for nothing.
+// (The "ottelos includes" above ask for USE_LIGHT; the undef below wins for THIS board.)
+#undef USE_GPIO_VIEWER       // xdrv_64 realtime GPIO page
+#undef USE_EMULATION_HUE     // xdrv_20 Hue bridge for Alexa
+#undef USE_EMULATION_WEMO    // xdrv_21 Belkin WeMo for Alexa
+#undef USE_EMULATION
+#undef USE_LIGHT             // xdrv_04 light / PWM dimmer
+#undef USE_LIGHT_PALETTE
+#undef USE_LIGHT_VIRTUAL_CT
+#undef USE_LIGHT_ARTNET
+#undef USE_WS2812
+// tasmota_configurations.h switches USE_LIGHT back on for each of these, so they go too
+#undef USE_PWM_DIMMER_REMOTE
+#undef USE_PWM_DIMMER
+#undef USE_AC_ZERO_CROSS_DIMMER
+#undef USE_TUYA_MCU
+#undef USE_ARILUX_RF
+
 #undef FRIENDLY_NAME
 #define FRIENDLY_NAME        "tinyc"
 #undef MQTT_CLIENT_ID
