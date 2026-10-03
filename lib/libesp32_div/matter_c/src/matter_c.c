@@ -70,6 +70,12 @@ typedef struct {
   uint16_t cli_port;
   uint32_t rx_last_ctr;   // last processed inbound counter (secured MRP dedup)
   bool     have_rx_ctr;
+  // Time of the last valid message RECEIVED on this session (any: request, ack, status).
+  // This is the controller's liveness. `sub_last_ms` is OUR last report and says nothing about
+  // the peer: it is refreshed by every report we send, so a session whose controller had long
+  // gone away looked "active" forever and was never evicted (.122, 03.10.2026: 16 sessions of one
+  // Apple hub, half of them dead, each fed a 1 KB report every 5 s).
+  uint32_t rx_last_ms;
 } mtrc_case_sess;
 
 // One inbound datagram queued for processing. The old single-buffer design
@@ -922,20 +928,35 @@ static mtrc_case_sess *case_session_find(uint16_t my_sid) {
     if (g.case_sess[i].in_use && g.case_sess[i].my_sid == my_sid) return &g.case_sess[i];
   return NULL;
 }
-// Reuse an existing slot for this sid, else a free slot, else evict the
-// least-recently-active session (smallest sub_last_ms; never-subscribed slots
-// have sub_last_ms==0 and are reclaimed first). Evicting slot 0 unconditionally
-// would tend to kill a live controller; LRU keeps the busy ones alive.
+// Reuse an existing slot for this sid, else a free slot, else evict the session whose
+// controller has been silent the longest (rx_last_ms). Evicting slot 0 unconditionally would
+// tend to kill a live controller; LRU by the PEER's activity keeps the busy ones alive.
 static mtrc_case_sess *case_session_alloc(uint16_t my_sid) {
   mtrc_case_sess *s = case_session_find(my_sid);
   if (s) return s;
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)
     if (!g.case_sess[i].in_use) return &g.case_sess[i];
-  int victim = 0; uint32_t oldest = g.case_sess[0].sub_last_ms;
+  // Table full: evict the session that has been silent the longest (by what the PEER last sent,
+  // not by our own reports). Wrap-safe: compare ages, not timestamps.
+  uint32_t now = g.port.millis(g.port.ctx);
+  int victim = 0; uint32_t oldest_age = now - g.case_sess[0].rx_last_ms;
   for (int i = 1; i < MTRC_MAX_CASE_SESS; i++) {
-    if (g.case_sess[i].sub_last_ms < oldest) { oldest = g.case_sess[i].sub_last_ms; victim = i; }
+    uint32_t age = now - g.case_sess[i].rx_last_ms;
+    if (age > oldest_age) { oldest_age = age; victim = i; }
   }
   return &g.case_sess[victim];
+}
+
+// How long a session may stay silent before it counts as dead. A live controller acknowledges
+// every report we push (at the latest at the subscription's max interval), so a subscribed
+// session that sends NOTHING for a few intervals is gone. A session that never subscribed
+// (read-only client) gets a longer leash.
+static uint32_t case_session_idle_limit_ms(const mtrc_case_sess *s) {
+  if (s->sub_active) {
+    uint32_t lim = (uint32_t)s->sub_max_s * 2000u + 15000u;
+    return lim < 90000u ? 90000u : lim;
+  }
+  return 300000u;
 }
 
 // Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
@@ -1128,20 +1149,19 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   // After enough churn the Sigma2 builder eventually wedged on a deterministic
   // state-corruption bug and the device froze.
   //
-  // New policy: only evict a matching session if it has been quiet for >= 60 s.
-  // - sub_last_ms == 0 (never subscribed): keep — could be a fresh just-opened
-  //   session or a read-only client; LRU at table-full handles real pressure.
-  // - sub_last_ms within 60 s of now: still being used, keep.
-  // - sub_last_ms > 60 s old: actually stale, safe to drop.
+  // Policy: only evict a matching session if the controller has sent NOTHING on it for >= 60 s
+  // (rx_last_ms). It used to look at sub_last_ms, OUR last report, which every report refreshed,
+  // so nothing was ever stale and the table filled with dead sessions (03.10.2026). A session the
+  // controller still uses acknowledges every report and keeps rx_last_ms fresh.
   uint32_t now_ms = g.port.millis(g.port.ctx);
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
     mtrc_case_sess *o = &g.case_sess[i];
     if (o == ss || !o->in_use) continue;
     if (o->fabric_index != ss->fabric_index) continue;
     if (o->peer_node_id != ss->peer_node_id) continue;
-    if (o->sub_last_ms == 0) continue;                 // fresh / no-sub: keep
-    if ((uint32_t)(now_ms - o->sub_last_ms) < 60000u)  // active within 60s: keep
-      continue;
+    // Silent for 60 s (nothing RECEIVED from the controller on it, not "nothing sent by us") =
+    // stale, safe to drop. A session the controller still uses keeps acknowledging reports.
+    if ((uint32_t)(now_ms - o->rx_last_ms) < 60000u) continue;
     memset(o, 0, sizeof(*o));
   }
   ss->tx_counter   = (c0 & 0x0FFFFFFF) | 1;   // random, MSB clear, non-zero
@@ -1150,6 +1170,7 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
   memcpy(ss->att, k_att, 16);
   ss->sub_active = false;                      // no subscription on a fresh session
   ss->have_rx_ctr = false;                     // fresh inbound counter space (slot may be reused)
+  ss->rx_last_ms = now_ms;                     // alive as of now
   case_session_load(ss);
 
   uint8_t sr[8]; memset(sr, 0, 8);   // GeneralCode = Success
@@ -1186,6 +1207,23 @@ static void tx_use_case(void) {
 // Send an encrypted message on the active secured session (PASE or CASE):
 // the R2I key, our session-id assigned to the peer, our secured counter,
 // acking the inbound message.
+// Responses (the default) travel on the REQUEST's exchange with the Initiator flag clear. A
+// message WE start — a subscription's live report or an event report — must carry the Initiator
+// flag and a NEW exchange id of ours. We used to send those as if they were responses on the
+// closed Subscribe exchange: Apple acknowledged them at the MRP layer but never handed them to
+// the Interaction Model, no StatusResponse came back, the subscription looked silent, and
+// every ~44 s (MaxInterval 30 s + margin) it subscribed AGAIN on a new session — the stale
+// sessions piled up and .122 froze (iPadOS/HomePod update, 03.10.2026). Set around each
+// device-initiated send, cleared right after.
+static bool g_tx_initiator = false;
+static uint16_t g_tx_xid = 0;
+static uint16_t next_initiated_exchange(void) {
+  if (g_tx_xid == 0) g_tx_xid = (uint16_t)(0x4000u | (g.port.millis(g.port.ctx) & 0x3FFFu));
+  g_tx_xid = (uint16_t)(g_tx_xid + 1u);
+  if (g_tx_xid == 0) g_tx_xid = 0x4001u;
+  return g_tx_xid;
+}
+
 static void secured_send(uint8_t opcode, uint16_t protocol_id,
                          const uint8_t *payload, size_t plen,
                          uint16_t exch, bool has_ack, uint32_t ack_counter,
@@ -1203,7 +1241,7 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
       (unsigned)opcode, (unsigned)g_tx.sid, (unsigned long)g_tx.src,
       (unsigned long)g_tx.dst, (unsigned)mh.msg_counter); mlog(MATTER_LOG_DEBUG, dm); }
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
-  ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
+  ph.initiator = g_tx_initiator; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = reliable; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
 #ifdef MTRC_DIAG_HANS
@@ -2659,6 +2697,24 @@ static void secured_dispatch(const uint8_t *buf, size_t len, const uint8_t *rx_k
       send_report_chunk(mh.msg_counter);    // next data chunk
     }
   } else {
+    if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE) {
+      // The controller's answer to one of our live reports: StatusResponse{0:status}. Anything
+      // but SUCCESS (e.g. InvalidSubscription 0x7D: it no longer knows this subscription id)
+      // means it will never use these reports, so stop sending them on this session.
+      mtrc_tlv_reader rr; mtrc_tlv_elem ee; uint32_t st = 0;
+      mtrc_tlv_reader_init(&rr, ipl, ipll);
+      if (mtrc_tlv_read(&rr, &ee) && ee.type == MTRC_TLV_STRUCT && mtrc_tlv_read(&rr, &ee) && ee.type != MTRC_TLV_END)
+        st = (uint32_t)ee.u;
+      if (st != 0) {
+        mtrc_case_sess *cs = case_session_find(g.case_my_sid);
+        if (cs && cs->sub_active) {
+          cs->sub_active = false;
+          char sm[72]; snprintf(sm, sizeof(sm), "IM report rejected (status 0x%02X) -> subscription %u dropped",
+                                (unsigned)st, (unsigned)cs->sub_id);
+          mlog(MATTER_LOG_INFO, sm);
+        }
+      }
+    }
 #ifdef MTRC_DIAG
     // Debug: dump a controller's IM StatusResponse (op 0x01) raw TLV — a non-zero
     // status after our ReportData means the controller rejected it. -DMTRC_DIAG.
@@ -2725,6 +2781,7 @@ static void pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
       // persists. This is what lets Apple's phone AND home hub talk at once.
       mtrc_case_sess *ss = case_session_find(mh0.session_id);
       if (ss) {
+        ss->rx_last_ms = g.port.millis(g.port.ctx);   // the controller is alive on this session
         if (ss->have_rx_ctr && mh0.msg_counter == ss->rx_last_ctr) {
           if (g.sec_last_tx_len && g.port.udp_send)
             g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
@@ -2813,9 +2870,13 @@ static void send_subscription_report(uint32_t sub_id, uint16_t exch) {
   mtrc_tlv_end_container(&w);                                // end AttributeReports
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);             // InteractionModelRevision
   mtrc_tlv_end_container(&w);                                // end ReportDataMessage
-  if (mtrc_tlv_writer_ok(&w))
+  (void)exch;      // the Subscribe exchange is closed; a live report opens a NEW one (see g_tx_initiator)
+  if (mtrc_tlv_writer_ok(&w)) {
+    g_tx_initiator = true;
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
-                 exch, false, 0, true);                      // device-initiated, reliable
+                 next_initiated_exchange(), false, 0, true);  // device-initiated, reliable
+    g_tx_initiator = false;
+  }
 }
 
 // Send one Matter Event as an EventReport (ReportData) to every subscribed
@@ -2856,8 +2917,10 @@ static void matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
       memcpy(g.reply_ip6, s->cli_ip6, 16); g.reply_port = s->cli_port;
       case_session_load(s);
       tx_use_case();
+      g_tx_initiator = true;                                     // device-initiated: new exchange
       secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
-                   s->sub_exch, false, 0, true);
+                   next_initiated_exchange(), false, 0, true);
+      g_tx_initiator = false;
       case_session_save(s);
     }
   }
@@ -2907,6 +2970,26 @@ void matter_loop(void) {
   // priming report is still in flight.
   if (!g.rpt_active) {
     uint32_t now2 = g.port.millis(g.port.ctx);
+    // Reap dead sessions: no valid message from the controller for longer than its idle limit.
+    // Every few seconds is plenty; skipped while a chunked priming report is in flight.
+    static uint32_t reap_ms;
+    if ((uint32_t)(now2 - reap_ms) >= 5000u) {
+      reap_ms = now2;
+      int reaped = 0;
+      for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
+        mtrc_case_sess *s = &g.case_sess[i];
+        if (!s->in_use) continue;
+        if ((uint32_t)(now2 - s->rx_last_ms) <= case_session_idle_limit_ms(s)) continue;
+        memset(s, 0, sizeof(*s));
+        reaped++;
+      }
+      if (reaped) {
+        int nact = 0;
+        for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) if (g.case_sess[i].in_use) nact++;
+        char m[64]; snprintf(m, sizeof(m), "CASE: dropped %d silent session(s), %d active", reaped, nact);
+        mlog(MATTER_LOG_INFO, m);
+      }
+    }
     for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
       mtrc_case_sess *s = &g.case_sess[i];
       if (!s->in_use || !s->sub_active) continue;
