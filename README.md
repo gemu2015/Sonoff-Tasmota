@@ -12,11 +12,17 @@ _Written for PlatformIO._
 
 ## 📘 TinyC for Tasmota
 
-This fork adds **TinyC** — a C-subset compiler and VM running as `XDRV_124`. Write C in the browser IDE, compile to portable bytecode, upload and run on ESP32 / ESP8266 — no firmware rebuild required.
+This fork adds **TinyC** — a C-subset compiler and VM running as `XDRV_124`. Write C in the browser IDE, compile to portable bytecode, upload and run on **ESP32, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-P4 and ESP8266** — no firmware rebuild required. The same `.tcb` runs on every chip.
 
-➡️ **[TinyC Documentation](https://gemu2015.github.io/Sonoff-Tasmota/)** — getting started, full function reference (EN/DE), examples, gallery, and pre-built firmware downloads.
+➡️ **[TinyC Documentation](https://gemu2015.github.io/Sonoff-Tasmota/)** — getting started, full function reference (EN/DE), 200+ examples, gallery.
 
-📦 **Latest test firmware: [v1.6.14](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing)** — DMX512 TX via RMT (no UART consumed), boot-loop false-positive fix, persist `.pvs.bak` safety net, IDE auto-injects firmware version + heap budget. See [`tasmota/tinyc/README.md`](tasmota/tinyc/README.md) for the full changelog.
+📦 **Pre-built firmware: [releases](https://github.com/gemu2015/Sonoff-Tasmota/releases)** — one `v<version>` release per build; the rolling [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) tag always carries the newest `.bin` / `.factory.bin` per chip, the matching browser IDE (`tinyc_ide.html.gz`) and the plugins below. Every change is in the [**CHANGELOG**](tasmota/tinyc/CHANGELOG.md) (including which firmware a `.tcb` needs); overview and build instructions in [`tasmota/tinyc/README.md`](tasmota/tinyc/README.md) ([Deutsch](tasmota/tinyc/README_DE.md)).
+
+**What it does, among others**
+- **Scripts with a real background task** — `TaskLoop()` runs in its own FreeRTOS task; web pages, charts and widgets (`webCard`, `WebChartJS`, …), MQTT, HTTP/FTP/mail clients, SML smart meters, Modbus, BLE, USB host, displays and LVGL.
+- **Camera** — built-in MJPEG server with motion detection, optional person detection on the ESP32-S3 ([ESP-DL](tasmota/tinyc/docs/ESP-DL_Bauanleitung.md)); ready-made security-camera program `examples/webcam_tinyc.tc` (AI-Thinker ESP32-CAM, DFRobot ESP32-S3 AI CAM, others). DFRobot build guide: [`tasmota/tinyc/dfrobot/ANLEITUNG.md`](tasmota/tinyc/dfrobot/ANLEITUNG.md).
+- **Plugins you load at runtime** (BinPlugins, no firmware rebuild): **Matter** ([guide](tasmota/tinyc/docs/MATTER_PLUGIN.md)), **audio** (`I2SAUDIO`: I2S in/out, MP3 recording, audio bridge) and **text to speech** (`PICOTTS`, German/English and more: [guide](tasmota/tinyc/docs/PICOTTS_PLUGIN.md)). Matter is built in on the ESP32-S3 only.
+- **Companion tools** — [Tasmota Workbench](tasmota/tinyc/utils/tasmota_workbench) (serial/syslog monitor, LAN scanner, OTA flasher) and the TasmotaCamViewer apps for iOS/iPadOS and macOS ([iOS](https://github.com/gemu2015/TasmotaCamViewer), [macOS](https://github.com/gemu2015/TasmotaCamViewerMac)): live view, audio intercom, recording with sound.
 
 > *TinyC for Tasmota* is an independent project and is **not affiliated with**
 > Fabrice Bellard's [Tiny C Compiler (TCC / TinyCC)](https://bellard.org/tcc/) —
