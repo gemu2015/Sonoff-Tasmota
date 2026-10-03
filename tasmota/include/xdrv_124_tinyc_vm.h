@@ -12995,7 +12995,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
             "var sel=document.getElementById(ID);if(!sel)return;"
             "var h='';for(var i=0;i<L.length;i++){"
               "var k=key(L,i);"
-              "h+='<option value=\"'+k+'\"'+(k===V?' selected':'')+(L[i].filename?'':' disabled')+'>'+"
+              "h+='<option value=\"'+k+'\"'+(k===V?' selected':'')+(L[i].filename||L[i].keep?'':' disabled')+'>'+"
                  "(L[i].label||L[i].filename||('#'+i))+'</option>';"
             "}"
             "sel.innerHTML=h;"

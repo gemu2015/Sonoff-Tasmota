@@ -56,6 +56,12 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## 1.6.72 — unreleased
+
+- **Repo pulldowns: an entry can be selectable without a file (`"keep": 1`)** (ottelo). Since 1.6.71 an entry with an empty `filename` is a disabled heading, so "no meter from the list — I write `/sml_meter.def` myself" could no longer be chosen. An entry with an empty `filename` and `"keep": 1` is selectable and downloads nothing, only its key is stored (TinyC `webRepoPulldown()` and the Scripter SML pulldown). Without `keep` nothing changes; old firmware ignores the field.
+- ⚠️ **Scripter `udp(1)`: one byte was written past the receive buffer** (ottelo, reported by next145). The datagram was read with the full buffer size and then terminated with `packet[len] = 0`: a datagram of `max_ssize` bytes or more wrote one byte onto the stack, and a read error (-1) one byte before the buffer. Now one byte less is read and an error counts as an empty packet.
+- **TinyC camera page in Safari** reads the MJPEG stream itself (`fetch`, one connection, full frame rate) instead of one request per picture, with the single images as fallback; `/tc_cam.jpg` waits up to 100 ms for a frame being written instead of answering 503 (a whole second of freeze in Safari on a classic ESP32-CAM). The stream server sends `Access-Control-Allow-Origin: *`.
+
 ## 1.6.71 — 2026-10-02
 
 - **Text to speech as a plugin: `PICOTTS_32.bin`.** `I2STTS` no longer needs a firmware built with `-DTINYC_TTS` (125 KB of flash): the SVOX Pico engine runs from the plugin, the task, text queue and voice buffers stay in the firmware, and the unchanged `I2SAUDIO` plugin uses it through the same jump table entries. Tested on an S3: German and English (all eight test sentences render exactly the sample count of the reference), switching languages back and forth without a leak. Guide: `docs/PICOTTS_PLUGIN.md`. ⚠️ The engine reads memory it never wrote — the firmware now zeroes its arena (this also applies to the built-in engine). One function of the engine had to be compiled at `-O0` because the Xtensa toolchain miscompiles it at `-Os` (see `tasmota/Plugins/picotts/test/README.md`).
