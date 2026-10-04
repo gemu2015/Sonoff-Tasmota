@@ -2798,9 +2798,12 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
     // the peer (Apple) retransmits it forever and the add/subscribe stalls. Send
     // a non-reliable StandaloneAck for its message counter. Bare acks (op 0x10,
     // R=0) need no ack, so this never loops.
+    // I flag of our ack = opposite of the peer's (ack to a StatusResponse on OUR exchange needs I=1).
     if (ph.reliability) {
+      g_tx.initiator = !ph.initiator;
       secured_send(MTRC_SC_STANDALONE_ACK, MTRC_PROTO_SECURE_CHANNEL, NULL, 0,
                    ph.exchange_id, true, mh.msg_counter, false);
+      g_tx.initiator = false;
     }
   }
 }
