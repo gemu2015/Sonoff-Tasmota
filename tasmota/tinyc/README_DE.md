@@ -2,17 +2,21 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
-> **Aktuelle Firmware: v1.6.71** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
+> **Aktuelle Firmware: v1.6.72** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
 >
 > * [**Alle Releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — je Bau ein eigenes `v<version>`-Release. Wer das Repository beobachtet (*Custom → Releases*), wird ueber neue benachrichtigt.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — ein rollender Zeiger, der immer die neuesten Dateien traegt, fuer gleichbleibende Download-Adressen. Er wird absichtlich wiederverwendet und loest deshalb **keine** Release-Benachrichtigung aus.
 >
 > Jede Version steht in [**CHANGELOG.md**](CHANGELOG.md) (englisch), samt Tabelle der Syscall-ABI (welche Firmware eine `.tcb` braucht).
 
-## Was ist neu (v1.6.29 – v1.6.71)
+## Was ist neu (v1.6.29 – v1.6.72)
 
 Die Highlights; Einzelheiten je Version in [CHANGELOG.md](CHANGELOG.md).
 
+- **Matter und Apple Home laufen wieder stabil (1.6.72)** — nach einem iPadOS-/HomePod-Update hat Apple alle 44 s neu abonniert, die Sitzungen häuften sich, bis das Gerät einfror; Live-Berichte gehen jetzt als eigener Austausch hinaus, tote Sitzungen werden verworfen. Die Matter-Plugins müssen neu geladen werden (S3: neue Firmware).
+- **`tasmCmd` liefert die Antwort wieder (1.6.72)** — seit dem letzten Tasmota-Kern-Update kamen 0 Byte zurück, und ein zur Laufzeit gebauter Befehl wurde bei 127 Zeichen gekürzt und aus einem `byte[]` falsch gelesen.
+- **Kamera (1.6.72)** — die Personenerkennung scheitert nicht mehr bei jeder zweiten Prüfung (Bewegungs- und Personenerkennung zerlegten das JPEG gleichzeitig); `Sleep 0` im Kameraskript beseitigt die Lücken von 1–1,7 s im Strom; Safari liest den Strom selbst. DFRobot-Bau 72 KB kleiner.
+- **SML-Familie und CT002 (1.6.72, von ottelo)** — `CTOFFSET` / `CTLIMIT`, ein im Betrieb änderbarer PV-Emulator-Offset mit Home-Assistant-Anbindung und die Marstek-CT002-Anmeldeseite für den ESP8266-Scripter.
 - **Sprachausgabe als Plugin (1.6.71)** — `PICOTTS_32.bin` gibt `I2STTS` eine Stimme, ohne dass die Firmware eigens gebaut werden muss (Deutsch, Englisch und vier weitere Sprachen); `chkpt a8` schafft Platz für Audio-, Sprach- und Matter-Plugin zusammen (`docs/PICOTTS_PLUGIN_DE.md`).
 - **Strings werden nicht mehr still gekuerzt (1.6.70)** — jede Kuerzung steht im Log, kleine Arrays koennen ihre Nachbarn nicht mehr ueberschreiben, `WebChartJS` hat keine Laengengrenze, und `TinyCStrict 1` haelt ein Skript bei einer Kuerzung an. **Matter** ist nur noch im S3 eingebaut; C3, C6 und P4 laden es als Plugin (`docs/MATTER_PLUGIN_DE.md`).
 - **FTP-Client (1.6.68)** — `ftpOpen` / `ftpPut` / `ftpPutStr` (ersetzen oder anhaengen) / `ftpGet` / `ftpList` / … — z. B. fuehrt ein Logger seine Tabelle auf dem FRITZ!NAS. Siehe `examples/ftp_log.tc`, `examples/ftp_browse.tc`.

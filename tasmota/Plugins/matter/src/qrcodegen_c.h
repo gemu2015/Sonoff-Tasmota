@@ -100,7 +100,7 @@ static int numCharCountBits(enum qrcodegen_Mode mode, int version);
 // The set of all legal characters in alphanumeric mode, where each character
 // value maps to the index in the string. For checking text and encoding segments.
 // a macro, not a static pointer: MTRC_S is a run-time address in the plugin build
-#define ALPHANUMERIC_CHARSET MTRC_S(91, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:")
+#define ALPHANUMERIC_CHARSET MTRC_S(93, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:")
 
 // For generating error correction codes.
 MTRC_FTABLE(int8_t, ECC_CODEWORDS_PER_BLOCK, [4][41]) = {

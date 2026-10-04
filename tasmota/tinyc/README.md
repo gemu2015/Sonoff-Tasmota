@@ -2,17 +2,21 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-> **Current firmware: v1.6.71** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
+> **Current firmware: v1.6.72** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
 >
 > * [**All releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — one `v<version>` release per build. Watch the repository (*Custom → Releases*) to be notified when a new one appears.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — a rolling tag that always carries the newest assets, for stable download URLs. It is deliberately reused, so it never fires a release notification.
 >
 > Every version is listed in [**CHANGELOG.md**](CHANGELOG.md), including the syscall-ABI table (which firmware a `.tcb` needs).
 
-## What's new (v1.6.29 – v1.6.71)
+## What's new (v1.6.29 – v1.6.72)
 
 The highlights; details per version in [CHANGELOG.md](CHANGELOG.md).
 
+- **Matter and Apple Home are stable again (1.6.72)** — after an iPadOS/HomePod update Apple re-subscribed every 44 s and the sessions piled up until the device froze; live reports now go out as the device's own exchange and dead sessions are dropped. The Matter plugins need to be reloaded to get it (S3: new firmware).
+- **`tasmCmd` returns the answer again (1.6.72)** — it had returned 0 bytes since the last Tasmota core update, and a command built at run time was cut at 127 characters and read wrongly from a `byte[]`.
+- **Camera (1.6.72)** — person detection no longer fails every second time (the motion detector and the person detector decoded the JPEG at the same time); `Sleep 0` in the camera script removes the 1–1.7 s gaps in the stream; Safari reads the stream itself. DFRobot build 72 KB smaller.
+- **SML family and CT002 (1.6.72, from ottelo)** — `CTOFFSET` / `CTLIMIT`, a PV emulator offset that can be changed at run time and shows up in Home Assistant, and the Marstek CT002 registration page for the ESP8266 Scripter.
 - **Text to speech as a plugin (1.6.71)** — `PICOTTS_32.bin` gives `I2STTS` a voice without a special firmware build (German, English and four more languages); `chkpt a8` makes room for the audio, speech and Matter plugins together (`docs/PICOTTS_PLUGIN.md`).
 - **Strings are no longer cut silently (1.6.70)** — every cut is logged, small arrays can no longer overwrite their neighbours, `WebChartJS` has no length limit, and `TinyCStrict 1` halts a script on a cut. **Matter** is built in only on the S3 now; C3, C6 and P4 load it as a plugin (`docs/MATTER_PLUGIN.md`).
 - **FTP client (1.6.68)** — `ftpOpen` / `ftpPut` / `ftpPutStr` (replace or append) / `ftpGet` / `ftpList` / … — e.g. a logger keeps its table on a FRITZ!NAS. See `examples/ftp_log.tc`, `examples/ftp_browse.tc`.

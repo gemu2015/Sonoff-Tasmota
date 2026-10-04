@@ -270,6 +270,7 @@ typedef struct {
 #define MTRC_EV_QUEUE 8
   struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
   volatile uint8_t ev_head, ev_tail;
+  uint32_t         reap_ms;         // last sweep of silent CASE sessions (matter_loop)
 } matter_ctx_t;
 
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
@@ -1186,7 +1187,8 @@ static void case_handle_sigma3(const uint8_t *pl, size_t pll,
 // Active secure-session TX context (PASE or CASE), selected before each
 // dispatch / report so secured_send addresses the right session id, response
 // key (R2I) and message counter.
-static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } g_tx =
+static struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst;
+               uint8_t initiator; uint16_t xid; } g_tx =
   { NULL, 0, NULL, 0, 0 };
 static void tx_use_pase(void) {
   g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
@@ -1215,13 +1217,11 @@ static void tx_use_case(void) {
 // every ~44 s (MaxInterval 30 s + margin) it subscribed AGAIN on a new session — the stale
 // sessions piled up and .122 froze (iPadOS/HomePod update, 03.10.2026). Set around each
 // device-initiated send, cleared right after.
-static bool g_tx_initiator = false;
-static uint16_t g_tx_xid = 0;
 static uint16_t next_initiated_exchange(void) {
-  if (g_tx_xid == 0) g_tx_xid = (uint16_t)(0x4000u | (g.port.millis(g.port.ctx) & 0x3FFFu));
-  g_tx_xid = (uint16_t)(g_tx_xid + 1u);
-  if (g_tx_xid == 0) g_tx_xid = 0x4001u;
-  return g_tx_xid;
+  if (g_tx.xid == 0) g_tx.xid = (uint16_t)(0x4000u | (g.port.millis(g.port.ctx) & 0x3FFFu));
+  g_tx.xid = (uint16_t)(g_tx.xid + 1u);
+  if (g_tx.xid == 0) g_tx.xid = 0x4001u;
+  return g_tx.xid;
 }
 
 static void secured_send(uint8_t opcode, uint16_t protocol_id,
@@ -1241,7 +1241,7 @@ static void secured_send(uint8_t opcode, uint16_t protocol_id,
       (unsigned)opcode, (unsigned)g_tx.sid, (unsigned long)g_tx.src,
       (unsigned long)g_tx.dst, (unsigned)mh.msg_counter); mlog(MATTER_LOG_DEBUG, dm); }
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
-  ph.initiator = g_tx_initiator; ph.ack = has_ack; ph.ack_counter = ack_counter;
+  ph.initiator = g_tx.initiator; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = reliable; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
 #ifdef MTRC_DIAG_HANS
@@ -2870,12 +2870,12 @@ static void send_subscription_report(uint32_t sub_id, uint16_t exch) {
   mtrc_tlv_end_container(&w);                                // end AttributeReports
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);             // InteractionModelRevision
   mtrc_tlv_end_container(&w);                                // end ReportDataMessage
-  (void)exch;      // the Subscribe exchange is closed; a live report opens a NEW one (see g_tx_initiator)
+  (void)exch;      // the Subscribe exchange is closed; a live report opens a NEW one (see g_tx.initiator)
   if (mtrc_tlv_writer_ok(&w)) {
-    g_tx_initiator = true;
+    g_tx.initiator = true;
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
                  next_initiated_exchange(), false, 0, true);  // device-initiated, reliable
-    g_tx_initiator = false;
+    g_tx.initiator = false;
   }
 }
 
@@ -2917,10 +2917,10 @@ static void matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
       memcpy(g.reply_ip6, s->cli_ip6, 16); g.reply_port = s->cli_port;
       case_session_load(s);
       tx_use_case();
-      g_tx_initiator = true;                                     // device-initiated: new exchange
+      g_tx.initiator = true;                                     // device-initiated: new exchange
       secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
                    next_initiated_exchange(), false, 0, true);
-      g_tx_initiator = false;
+      g_tx.initiator = false;
       case_session_save(s);
     }
   }
@@ -2972,9 +2972,8 @@ void matter_loop(void) {
     uint32_t now2 = g.port.millis(g.port.ctx);
     // Reap dead sessions: no valid message from the controller for longer than its idle limit.
     // Every few seconds is plenty; skipped while a chunked priming report is in flight.
-    static uint32_t reap_ms;
-    if ((uint32_t)(now2 - reap_ms) >= 5000u) {
-      reap_ms = now2;
+    if ((uint32_t)(now2 - g.reap_ms) >= 5000u) {
+      g.reap_ms = now2;
       int reaped = 0;
       for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
         mtrc_case_sess *s = &g.case_sess[i];

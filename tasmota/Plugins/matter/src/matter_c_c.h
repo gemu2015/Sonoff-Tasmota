@@ -87,6 +87,9 @@ typedef struct {
   uint16_t cli_port;
   uint32_t rx_last_ctr;   // last processed inbound counter (secured MRP dedup)
   bool     have_rx_ctr;
+  // Time of the last valid message RECEIVED on this session: the controller's liveness.
+  // sub_last_ms is OUR last report and says nothing about the peer (see lib matter_c.c).
+  uint32_t rx_last_ms;
 } mtrc_case_sess;
 
 // One inbound datagram queued for processing. The old single-buffer design
@@ -281,11 +284,13 @@ typedef struct {
 #define MTRC_EV_QUEUE 8
   struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
   volatile uint8_t ev_head, ev_tail;
+  uint32_t         reap_ms;         // last sweep of silent CASE sessions (matter_loop)
 } matter_ctx_t;
 
 // Active secure-session TX route (g_tx, see tx_use_pase); a named type so the
 // plugin build can keep it in its heap block.
-typedef struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst; } mtrc_tx_route_t;
+typedef struct { const uint8_t *key; uint16_t sid; uint32_t *ctr; uint64_t src; uint64_t dst;
+                 uint8_t initiator; uint16_t xid; } mtrc_tx_route_t;
 
 #ifdef MTRC_PLUGIN_BUILD
 // Fork-B BinPlugin build: g_ptr cannot be a PIC-relocatable file-scope static —
@@ -978,11 +983,26 @@ static mtrc_case_sess *MODULE_PART case_session_alloc(uint16_t my_sid) {
   if (s) return s;
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++)
     if (!g.case_sess[i].in_use) return &g.case_sess[i];
-  int victim = 0; uint32_t oldest = g.case_sess[0].sub_last_ms;
+  // Table full: evict the session that has been silent the longest (by what the PEER last sent,
+  // not by our own reports). Wrap-safe: compare ages, not timestamps.
+  uint32_t now = g.port.millis(g.port.ctx);
+  int victim = 0; uint32_t oldest_age = now - g.case_sess[0].rx_last_ms;
   for (int i = 1; i < MTRC_MAX_CASE_SESS; i++) {
-    if (g.case_sess[i].sub_last_ms < oldest) { oldest = g.case_sess[i].sub_last_ms; victim = i; }
+    uint32_t age = now - g.case_sess[i].rx_last_ms;
+    if (age > oldest_age) { oldest_age = age; victim = i; }
   }
   return &g.case_sess[victim];
+}
+
+// How long a session may stay silent before it counts as dead. A live controller acknowledges
+// every report we push, so a subscribed session that sends NOTHING for a few intervals is gone.
+// A session that never subscribed (read-only client) gets a longer leash.
+static uint32_t MODULE_PART case_session_idle_limit_ms(const mtrc_case_sess *s) {
+  if (s->sub_active) {
+    uint32_t lim = (uint32_t)s->sub_max_s * 2000u + 15000u;
+    return lim < 90000u ? 90000u : lim;
+  }
+  return 300000u;
 }
 
 // Sigma1 -> Sigma2. Match destinationId to a stored fabric, do ECDH, seal our
@@ -1186,9 +1206,9 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
     if (o == ss || !o->in_use) continue;
     if (o->fabric_index != ss->fabric_index) continue;
     if (o->peer_node_id != ss->peer_node_id) continue;
-    if (o->sub_last_ms == 0) continue;                 // fresh / no-sub: keep
-    if ((uint32_t)(now_ms - o->sub_last_ms) < 60000u)  // active within 60s: keep
-      continue;
+    // Silent for 60 s (nothing RECEIVED from the controller on it, not "nothing sent by us") =
+    // stale, safe to drop. A session the controller still uses keeps acknowledging reports.
+    if ((uint32_t)(now_ms - o->rx_last_ms) < 60000u) continue;
     memset(o, 0, sizeof(*o));
   }
   ss->tx_counter   = (c0 & 0x0FFFFFFF) | 1;   // random, MSB clear, non-zero
@@ -1197,6 +1217,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
   memcpy(ss->att, k_att, 16);
   ss->sub_active = false;                      // no subscription on a fresh session
   ss->have_rx_ctr = false;                     // fresh inbound counter space (slot may be reused)
+  ss->rx_last_ms = now_ms;                     // alive as of now
   case_session_load(ss);
 
   uint8_t sr[8]; memset(sr, 0, 8);   // GeneralCode = Success
@@ -1215,7 +1236,7 @@ static void MODULE_PART case_handle_sigma3(const uint8_t *pl, size_t pll,
 #ifdef MTRC_PLUGIN_BUILD
 #define g_tx (MTRC_ST->tx)         // plugin: heap block (mtrc_plugin_statics.h)
 #else
-static mtrc_tx_route_t g_tx = { NULL, 0, NULL, 0, 0 };
+static mtrc_tx_route_t g_tx = { NULL, 0, NULL, 0, 0, 0, 0 };
 #endif
 static void MODULE_PART tx_use_pase(void) {
   g_tx.key = g.r2i; g_tx.sid = g.peer_session_id; g_tx.ctr = &g.sec_tx_counter;
@@ -1236,6 +1257,15 @@ static void MODULE_PART tx_use_case(void) {
 // Send an encrypted message on the active secured session (PASE or CASE):
 // the R2I key, our session-id assigned to the peer, our secured counter,
 // acking the inbound message.
+// A message WE start (live report / event report) carries the Initiator flag and a NEW exchange
+// id of ours; responses travel on the request's exchange (see lib matter_c.c, 03.10.2026).
+static uint16_t MODULE_PART next_initiated_exchange(void) {
+  if (g_tx.xid == 0) g_tx.xid = (uint16_t)(0x4000u | (g.port.millis(g.port.ctx) & 0x3FFFu));
+  g_tx.xid = (uint16_t)(g_tx.xid + 1u);
+  if (g_tx.xid == 0) g_tx.xid = 0x4001u;
+  return g_tx.xid;
+}
+
 static void MODULE_PART secured_send(uint8_t opcode, uint16_t protocol_id,
                          const uint8_t *payload, size_t plen,
                          uint16_t exch, bool has_ack, uint32_t ack_counter,
@@ -1253,7 +1283,7 @@ static void MODULE_PART secured_send(uint8_t opcode, uint16_t protocol_id,
       (unsigned)opcode, (unsigned)g_tx.sid, (unsigned long)g_tx.src,
       (unsigned long)g_tx.dst, (unsigned)mh.msg_counter); mlog(MATTER_LOG_DEBUG, dm); }
   mtrc_proto_header ph; memset(&ph, 0, sizeof(ph));
-  ph.initiator = false; ph.ack = has_ack; ph.ack_counter = ack_counter;
+  ph.initiator = g_tx.initiator; ph.ack = has_ack; ph.ack_counter = ack_counter;
   ph.reliability = reliable; ph.opcode = opcode; ph.exchange_id = exch;
   ph.protocol_id = protocol_id;
 #ifdef MTRC_DIAG_HANS
@@ -2732,18 +2762,35 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
       send_report_chunk(mh.msg_counter);    // next data chunk
     }
   } else {
+    if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == MTRC_IM_STATUS_RESPONSE) {
+      // Answer to one of our live reports; anything but SUCCESS (e.g. InvalidSubscription 0x7D)
+      // means the controller will never use these reports -> stop sending on this session.
+      mtrc_tlv_reader rr; mtrc_tlv_elem ee; uint32_t st = 0;
+      mtrc_tlv_reader_init(&rr, ipl, ipll);
+      if (mtrc_tlv_read(&rr, &ee) && ee.type == MTRC_TLV_STRUCT && mtrc_tlv_read(&rr, &ee) && ee.type != MTRC_TLV_END)
+        st = (uint32_t)ee.u;
+      if (st != 0) {
+        mtrc_case_sess *cs = case_session_find(g.case_my_sid);
+        if (cs && cs->sub_active) {
+          cs->sub_active = false;
+          char sm[72]; snprintf(sm, sizeof(sm), MTRC_S(77, "IM report rejected (status 0x%02X) -> subscription %u dropped"),
+                                (unsigned)st, (unsigned)cs->sub_id);
+          mlog(MATTER_LOG_INFO, sm);
+        }
+      }
+    }
 #ifdef MTRC_DIAG
     // Debug: dump a controller's IM StatusResponse (op 0x01) raw TLV — a non-zero
     // status after our ReportData means the controller rejected it. -DMTRC_DIAG.
     if (ph.protocol_id == MTRC_PROTO_IM && ph.opcode == 0x01 && ipll <= 24) {
       char hx[56]; int hp = 0;
       for (size_t i = 0; i < ipll && hp < 52; i++) { snprintf(hx + hp, sizeof(hx) - hp, MTRC_S(12, "%02X"), ipl[i]); hp += 2; }
-      char sm[80]; snprintf(sm, sizeof(sm), MTRC_S(77, "DIAG IM StatusResponse raw=%s"), hx);
+      char sm[80]; snprintf(sm, sizeof(sm), MTRC_S(78, "DIAG IM StatusResponse raw=%s"), hx);
       mlog(MATTER_LOG_INFO, sm);
     }
 #endif
     char m[80];
-    snprintf(m, sizeof(m), MTRC_S(78, "secured rx proto=0x%04X op=0x%02X (unhandled)"),
+    snprintf(m, sizeof(m), MTRC_S(79, "secured rx proto=0x%04X op=0x%02X (unhandled)"),
              (unsigned)ph.protocol_id, (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m);
     // MRP: a reliable message we generate no application response for (e.g. a
@@ -2760,12 +2807,12 @@ static void MODULE_PART secured_dispatch(const uint8_t *buf, size_t len, const u
 
 static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t src_port) {
   (void)src_port;
-  { char m[40]; snprintf(m, sizeof(m), MTRC_S(79, "rx %u B (dispatch)"), (unsigned)len);
+  { char m[40]; snprintf(m, sizeof(m), MTRC_S(80, "rx %u B (dispatch)"), (unsigned)len);
     mlog(MATTER_LOG_DEBUG, m); }
   // Peek the message header to route by session id.
   mtrc_msg_header mh0;
   if (mtrc_frame_decode_msg_header(buf, len, &mh0) < 0) {
-    mlog(MATTER_LOG_DEBUG, MTRC_S(80, "rx: msg-header decode FAIL")); return; }
+    mlog(MATTER_LOG_DEBUG, MTRC_S(81, "rx: msg-header decode FAIL")); return; }
 
   // The initiator carries an ephemeral Source Node ID on the unsecured
   // session; our replies must echo it back as the Destination Node ID
@@ -2786,7 +2833,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
         if (g.sec_last_tx_len && g.port.udp_send)
           g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
                           g.sec_last_tx_buf, g.sec_last_tx_len);
-        mlog(MATTER_LOG_DEBUG, MTRC_S(81, "rx: dup PASE counter -> re-sent last secured reply"));
+        mlog(MATTER_LOG_DEBUG, MTRC_S(82, "rx: dup PASE counter -> re-sent last secured reply"));
         return;
       }
       g.pase_rx_last_ctr = mh0.msg_counter; g.pase_have_rx_ctr = true;
@@ -2798,11 +2845,12 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
       // persists. This is what lets Apple's phone AND home hub talk at once.
       mtrc_case_sess *ss = case_session_find(mh0.session_id);
       if (ss) {
+        ss->rx_last_ms = g.port.millis(g.port.ctx);   // the controller is alive on this session
         if (ss->have_rx_ctr && mh0.msg_counter == ss->rx_last_ctr) {
           if (g.sec_last_tx_len && g.port.udp_send)
             g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port,
                             g.sec_last_tx_buf, g.sec_last_tx_len);
-          mlog(MATTER_LOG_DEBUG, MTRC_S(82, "rx: dup CASE counter -> re-sent last secured reply"));
+          mlog(MATTER_LOG_DEBUG, MTRC_S(83, "rx: dup CASE counter -> re-sent last secured reply"));
           return;
         }
         ss->rx_last_ctr = mh0.msg_counter; ss->have_rx_ctr = true;
@@ -2823,7 +2871,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
   if (g.have_peer_ctr && mh0.msg_counter == g.peer_last_ctr) {
     if (g.last_tx_len && g.port.udp_send)
       g.port.udp_send(g.port.ctx, g.reply_ip6, g.reply_port, g.last_tx_buf, g.last_tx_len);
-    mlog(MATTER_LOG_DEBUG, MTRC_S(83, "rx: duplicate counter -> re-sent last reply"));
+    mlog(MATTER_LOG_DEBUG, MTRC_S(84, "rx: duplicate counter -> re-sent last reply"));
     return;
   }
   g.peer_last_ctr = mh0.msg_counter; g.have_peer_ctr = true;
@@ -2832,12 +2880,12 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
   mtrc_msg_header mh; mtrc_proto_header ph;
   const uint8_t *pl; size_t pll;
   if (mtrc_frame_decode(buf, len, &mh, &ph, &pl, &pll) <= 0) {
-    mlog(MATTER_LOG_DEBUG, MTRC_S(84, "rx: frame decode FAIL")); return; }
+    mlog(MATTER_LOG_DEBUG, MTRC_S(85, "rx: frame decode FAIL")); return; }
   if (ph.protocol_id != MTRC_PROTO_SECURE_CHANNEL) {
-    char m[48]; snprintf(m, sizeof(m), MTRC_S(85, "rx: proto 0x%04X != SecureChannel"),
+    char m[48]; snprintf(m, sizeof(m), MTRC_S(86, "rx: proto 0x%04X != SecureChannel"),
                          (unsigned)ph.protocol_id);
     mlog(MATTER_LOG_DEBUG, m); return; }
-  { char m[48]; snprintf(m, sizeof(m), MTRC_S(86, "rx: SC opcode 0x%02X"), (unsigned)ph.opcode);
+  { char m[48]; snprintf(m, sizeof(m), MTRC_S(87, "rx: SC opcode 0x%02X"), (unsigned)ph.opcode);
     mlog(MATTER_LOG_DEBUG, m); }
   g.exchange_id = ph.exchange_id;
   switch (ph.opcode) {
@@ -2857,7 +2905,7 @@ static void MODULE_PART pase_dispatch(const uint8_t *buf, size_t len, uint16_t s
                             ((unsigned long)pl[4] << 16) | ((unsigned long)pl[5] << 24);
         unsigned pc = pl[6] | (pl[7] << 8);
         char m[80];
-        snprintf(m, sizeof(m), MTRC_S(87, "rx StatusReport gen=%u proto=0x%08lX code=0x%04X"),
+        snprintf(m, sizeof(m), MTRC_S(88, "rx StatusReport gen=%u proto=0x%08lX code=0x%04X"),
                  gc, pid, pc);
         mlog(MATTER_LOG_ERROR, m);
       }
@@ -2886,9 +2934,13 @@ static void MODULE_PART send_subscription_report(uint32_t sub_id, uint16_t exch)
   mtrc_tlv_end_container(&w);                                // end AttributeReports
   mtrc_tlv_put_uint(&w, mtrc_tlv_ctx(0xFF), 1);             // InteractionModelRevision
   mtrc_tlv_end_container(&w);                                // end ReportDataMessage
-  if (mtrc_tlv_writer_ok(&w))
+  (void)exch;      // the Subscribe exchange is closed; a live report opens a NEW one (g_tx.initiator)
+  if (mtrc_tlv_writer_ok(&w)) {
+    g_tx.initiator = true;
     secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
-                 exch, false, 0, true);                      // device-initiated, reliable
+                 next_initiated_exchange(), false, 0, true);  // device-initiated, reliable
+    g_tx.initiator = false;
+  }
 }
 
 // Send one Matter Event as an EventReport (ReportData) to every subscribed
@@ -2929,8 +2981,10 @@ static void MODULE_PART matter_emit_event(uint16_t ep, uint32_t cl, uint32_t eve
       memcpy(g.reply_ip6, s->cli_ip6, 16); g.reply_port = s->cli_port;
       case_session_load(s);
       tx_use_case();
+      g_tx.initiator = true;                                     // device-initiated: new exchange
       secured_send(MTRC_IM_REPORT_DATA, MTRC_PROTO_IM, buf, mtrc_tlv_writer_len(&w),
-                   s->sub_exch, false, 0, true);
+                   next_initiated_exchange(), false, 0, true);
+      g_tx.initiator = false;
       case_session_save(s);
     }
   }
@@ -2962,7 +3016,7 @@ void MODULE_PART matter_loop(void) {
   // withdraws the _matterc mDNS advert separately).
   if (g.ocw_expiry_ms && (int32_t)(g.port.millis(g.port.ctx) - g.ocw_expiry_ms) >= 0) {
     g.ocw_active = false; g.ocw_expiry_ms = 0; g.commissionable = false;
-    mlog(MATTER_LOG_INFO, MTRC_S(88, "AdminComm: commissioning window expired"));
+    mlog(MATTER_LOG_INFO, MTRC_S(89, "AdminComm: commissioning window expired"));
   }
   // Drain ALL queued datagrams (a burst from several controllers must not be
   // dropped). Set the reply target from each packet's own source first.
@@ -2980,6 +3034,24 @@ void MODULE_PART matter_loop(void) {
   // priming report is still in flight.
   if (!g.rpt_active) {
     uint32_t now2 = g.port.millis(g.port.ctx);
+    // Reap dead sessions: no valid message from the controller for longer than its idle limit.
+    if ((uint32_t)(now2 - g.reap_ms) >= 5000u) {
+      g.reap_ms = now2;
+      int reaped = 0;
+      for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
+        mtrc_case_sess *s = &g.case_sess[i];
+        if (!s->in_use) continue;
+        if ((uint32_t)(now2 - s->rx_last_ms) <= case_session_idle_limit_ms(s)) continue;
+        memset(s, 0, sizeof(*s));
+        reaped++;
+      }
+      if (reaped) {
+        int nact = 0;
+        for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) if (g.case_sess[i].in_use) nact++;
+        char m[64]; snprintf(m, sizeof(m), MTRC_S(90, "CASE: dropped %d silent session(s), %d active"), reaped, nact);
+        mlog(MATTER_LOG_INFO, m);
+      }
+    }
     for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
       mtrc_case_sess *s = &g.case_sess[i];
       if (!s->in_use || !s->sub_active) continue;
@@ -3085,7 +3157,7 @@ matter_err_t MODULE_PART matter_set_label(uint16_t ep, const char *name) {
   strncpy(g.labels[idx].name, name ? name : MTRC_S(35, ""), sizeof(g.labels[idx].name) - 1);
   g.labels[idx].name[sizeof(g.labels[idx].name) - 1] = 0;
 #ifdef MTRC_DIAG
-  { char m[80]; snprintf(m, sizeof m, MTRC_S(89, "DIAG label ep=%u agg=%u '%s'"),
+  { char m[80]; snprintf(m, sizeof m, MTRC_S(91, "DIAG label ep=%u agg=%u '%s'"),
       (unsigned)ep, (unsigned)g.aggregator_ep, g.labels[idx].name);
     mlog(MATTER_LOG_INFO, m); }
 #endif
@@ -3232,5 +3304,5 @@ int MODULE_PART matter_get_attr_uint(uint16_t endpoint, uint32_t cluster,
 // ---- onboarding + introspection ---------------------------------------
 const char *MODULE_PART matter_qr_uri(void)      { return g_ptr ? g.qr : MTRC_S(35, ""); }
 const char *MODULE_PART matter_manual_code(void) { return g_ptr ? g.manual : MTRC_S(35, ""); }
-const char *MODULE_PART matter_version(void)     { return MTRC_SM(90, MATTER_C_VERSION_STR); }
+const char *MODULE_PART matter_version(void)     { return MTRC_SM(92, MATTER_C_VERSION_STR); }
 bool        MODULE_PART matter_is_commissioned(void) { return false; } // TODO Phase 3
