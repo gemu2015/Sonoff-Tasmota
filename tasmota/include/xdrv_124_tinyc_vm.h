@@ -4461,6 +4461,38 @@ static void tc_udp_poll(void) {
 #define TC_DEFER_MAX_WAIT_MS 400
 #endif
 
+// Run a Tasmota command and return its JSON answer.
+//
+// ⚠️ ResponseData() IS EMPTY AFTER ExecuteCommand() (found 03.10.2026): the core's
+// XdrvRulesProcess(bool) ends with ResponseClear() ("Free heap space"), and every command
+// goes through it, so tasmCmd() returned 0 bytes for every command. Tasmota's own /cm
+// handler reads the answer back from the LOG BUFFER instead: raise the temporary log level
+// so the "RSL: RESULT = {...}" line is kept, run the command, take the JSON from the lines
+// logged since. Same here, same merge rule as /cm (several answers become one object).
+static String tc_command_response(const char *cmd) {
+  String out;
+  uint32_t curridx = TasmotaGlobal.log_buffer_pointer;
+  TasmotaGlobal.templog_level = LOG_LEVEL_INFO;
+  ExecuteCommand((char*)cmd, SRC_TCL);
+  uint32_t index = curridx;
+  char *line;
+  size_t len;
+  int parts = 0;
+  while (GetLog(TasmotaGlobal.templog_level, &index, &line, &len)) {
+    // [14:49:36.123 MQT: stat/x/RESULT = {"POWER":"OFF"}] -> {"POWER":"OFF"} (as in HandleHttpCommand)
+    char *json = (char*)memchr(line, '{', len);
+    if (!json) continue;
+    int32_t jlen = (int32_t)(len - (json - line)) - 3;
+    for (++json; jlen > 0 && json[jlen] != '}'; jlen--) { }
+    if (jlen < 0) jlen = 0;
+    out += (parts++) ? "," : "{";
+    out.concat(json, (unsigned int)jlen);
+  }
+  TasmotaGlobal.templog_level = 0;
+  if (parts) out += "}";
+  return out;
+}
+
 static void tc_defer_command(const char *cmd) {
   if (!Tinyc || Tinyc->deferred_pending) return;  // drop if one is already pending
   strlcpy(Tinyc->deferred_cmd, cmd, sizeof(Tinyc->deferred_cmd));
@@ -7957,10 +7989,10 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       int32_t maxLen = tc_ref_maxlen(vm, buf_ref) - 1;
       if (maxLen <= 0) { TC_PUSH(vm, 0); break; }
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd(\"%s\")"), cmd);
-      // Execute Tasmota command — response goes to global buffer
-      ExecuteCommand((char*)cmd, SRC_TCL);
-      // Capture response immediately before it's overwritten
-      const char *resp = ResponseData();
+      // Execute the command and take its answer from the log buffer (ResponseData() is
+      // cleared by the core after every command, see tc_command_response)
+      String respStr = tc_command_response(cmd);
+      const char *resp = respStr.c_str();
       int32_t rlen = strlen(resp);
       // Byte-aware, same reason as httpGet/smlGetStr: maxLen is a BYTE count
       // for a packed byte[] while a bare buf[i] writes int32 slots.
@@ -7996,8 +8028,8 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       int32_t maxLen = tc_ref_maxlen(vm, buf_ref) - 1;
       if (maxLen <= 0) { TC_PUSH(vm, 0); break; }
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd(\"%s\")"), cmdbuf);
-      ExecuteCommand(cmdbuf, SRC_TCL);
-      const char *resp = ResponseData();
+      String respStr = tc_command_response(cmdbuf);
+      const char *resp = respStr.c_str();
       int32_t rlen = strlen(resp);
       if (rlen > maxLen) rlen = maxLen;
       // the answer goes into a char[] or a byte[] (same rule as tasmCmd with a literal)
