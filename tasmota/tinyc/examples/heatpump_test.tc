@@ -80,6 +80,16 @@ int  SILENCE_MS = 50;
 
 int  last_byte_ms = 0;
 
+// Self-heal (04.10.2026, .31): after a REBOOT the UART that main() opened from autostart received
+// nothing, while the same script restarted by hand a minute later worked at once (heat pump
+// bus polled ~1 frame/s the whole time). The cause was never found, so the worker now closes
+// and reopens the port itself: first open only after OPEN_AFTER_S seconds of uptime, and again
+// whenever nothing at all arrived for REOPEN_MS (a silent bus costs one harmless reopen/2 min).
+int  OPEN_AFTER_S = 45;
+int  REOPEN_MS    = 120000;
+int  rx_last_ms   = 0;
+int  reopen_count = 0;
+
 
 // ── Register store ──────────────────────────────────────────────
 // 500 slots covers 0..338 + 432..493 (the cloud poll range) with
@@ -285,7 +295,14 @@ void TaskLoop() {
     int avail;
     while (1) {
         if (ser < 0) {
-            delay(100);
+            // Not open yet (or the last reopen failed): open from here, never before OPEN_AFTER_S.
+            if (tasm_uptime >= OPEN_AFTER_S) {
+                ser = serialBegin(rx_pin, tx_pin, baud, cfg, 2048);
+                rx_last_ms = millis();
+                last_byte_ms = rx_last_ms;
+                if (ser >= 0) { addLog("heatpump_test: serial opened by worker"); }
+            }
+            delay(500);
             continue;
         }
 
@@ -327,6 +344,17 @@ void TaskLoop() {
         int now = millis();
         if (got > 0) {
             last_byte_ms = now;
+            rx_last_ms = now;
+        }
+        if (buf_len == 0 && (now - rx_last_ms) >= REOPEN_MS) {
+            char rm[60];
+            reopen_count = reopen_count + 1;
+            sprintf(rm, "heatpump_test: no rx for %d s, reopening serial (n=%d)", (now - rx_last_ms) / 1000, reopen_count);
+            addLog(rm);
+            serialClose(ser);
+            ser = -1;
+            rx_last_ms = now;
+            continue;
         }
 
         // End-of-frame: buffer has data AND we've been silent long
@@ -425,26 +453,12 @@ void WebCall() {
 // soak across reboot to see when/if sluggishness returns.
 int main() {
     char m[120];
-    sprintf(m, "heatpump_test: opening serial at uptime %d s", tasm_uptime);
+    // The port is opened by TaskLoop once the device has been up for OPEN_AFTER_S seconds (see
+    // the self-heal note above); main() only announces the configuration.
+    sprintf(m, "heatpump_test: serial opens from the worker after %d s (rx=%d tx=%d %d 8N2), now uptime %d s",
+            OPEN_AFTER_S, rx_pin, tx_pin, baud, tasm_uptime);
     addLog(m);
-
-    // Use the largest RX ring buffer TinyC's syscall accepts (2048).
-    // At 19200 8N2 the longest single RSP we've seen is ~247 B and the
-    // longest merged Case C is ~255 B, so 1024 should be plenty — but
-    // the IDF UART driver's HW-FIFO→ring-buffer copy interacts with
-    // its rx_full_thresh / rx_timeout in a way that benefits from
-    // having extra headroom (bytes queued earlier can stay queued
-    // longer without backpressure).
-    ser = serialBegin(rx_pin, tx_pin, baud, cfg, 2048);
-    if (ser < 0) {
-        addLog("heatpump_test: serialBegin FAILED");
-        return 0;
-    }
-
     last_byte_ms = millis();
-
-    sprintf(m, "heatpump_test ready (threaded sniffer): ser=%d rx=%d tx=%d 19200 8N2",
-            ser, rx_pin, tx_pin);
-    addLog(m);
+    rx_last_ms = last_byte_ms;
     return 0;
 }
