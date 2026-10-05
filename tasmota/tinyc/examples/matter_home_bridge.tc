@@ -5,7 +5,8 @@
 // exposed, over Tasmota UDP global variables (the Scripter `g:` mechanism).
 //
 //   OUT (controller -> assign a `global` -> auto-broadcast to the real devices)
-//     Licht     color light  -> mh_pwr / mh_hue / mh_sat / mh_bri
+//     Licht     color light  -> HTTP to the lamp (.38): Power / Dimmer / HSBColor, answered + repeated (LAMP_UDP 1 adds
+//                                the old mh_pwr / mh_hue / mh_sat / mh_bri multicast)
 //     Ecklicht  switch        -> elamp
 //   IN  (`global` auto-updated by other devices -> Matter sensor attribute)
 //     Buero    temp/hum/press -> btemp / bhumi / bpress
@@ -44,6 +45,9 @@ int lamp_grace = 0;                  // EverySecond tick until which a command f
 int cmd_pwr = -1;                    // power the last Home command asked for (-1 = none to check)
 int lamp_pw = -1; int lamp_dim = -1; // last REAL state of the lamp, for the status page
 int lamp_fail = 0;                   // polls in a row that got no answer
+int q_pwr = -1; int q_dim = -1; int q_hue = -1; int q_sat = -1;   // commands from Home waiting for TaskLoop (-1 = none)
+int cmd_retry = 0;                   // the command from Home was sent a second time already
+#define LAMP_UDP 0                   // 1 = ALSO send the old multicast globals (mh_pwr/hue/sat/bri) for the lamp
 #define LAMP_POLL_S  4               // how often the real lamp state is read
 #define LAMP_GRACE_S 10              // after a command from Home: do not overwrite Matter with the lamp's old state
 char resp[256];
@@ -98,19 +102,33 @@ int aq_from_co2(float co2) {
 // hue/sat/level as 0..254; convert to HomeKit hue 0..360 / sat,bri 0..100.
 void MatterInvoke(int e, int cluster, int cmd) {
     if (e == licht) {
+        // The lamp is driven over HTTP from TaskLoop (answered + repeated). httpGet must never run here: this callback
+        // runs on the Matter/main task, so it only QUEUES the wish (q_*), TaskLoop sends it.
         if (cluster == CLUSTER_ONOFF) {
+            q_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+#if LAMP_UDP
             mh_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+#endif
         }
         if (cluster == CLUSTER_LEVEL) {              // MoveToLevelWithOnOff
+            q_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+            q_dim = (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254;
+#if LAMP_UDP
             mh_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
             mh_bri = (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254;
+#endif
         }
-        if (cluster == 0x0300) {                     // MoveToHueAndSaturation
+        if (cluster == 0x0300) {                     // MoveToHueAndSaturation (Matter 0..254 -> lamp 0..360 / 0..100)
+            q_hue = (matterGet(licht, 0x0300, 0) * 360) / 254;
+            q_sat = (matterGet(licht, 0x0300, 1) * 100) / 254;
+#if LAMP_UDP
             mh_hue = (matterGet(licht, 0x0300, 0) * 360) / 254;
             mh_sat = (matterGet(licht, 0x0300, 1) * 100) / 254;
+#endif
         }
         lamp_grace = tick + LAMP_GRACE_S;            // poll_lamp() must not undo this before the lamp had time
         cmd_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
+        cmd_retry = 0;
         return;
     }
     if (e == ecklicht) {
@@ -174,6 +192,45 @@ int lamp_get(char cmd[], char out[]) {
 
 int iabs(int v) { if (v < 0) { return 0 - v; } return v; }
 
+// One Tasmota command to the lamp over HTTP, up to three tries. 1 = the lamp answered.
+int lamp_send(char cmd[]) {
+    char b[160]; int tries = 0;
+    while (tries < 3) {
+        if (lamp_get(cmd, b) > 0) { return 1; }
+        tries = tries + 1;
+        delay(400);
+    }
+    addLog("matter_home_bridge: lamp .38 did not answer a command");
+    return 0;
+}
+
+// Send what Home asked for (queued by MatterInvoke). Colour first (HSBColor needs all three values; the missing ones
+// come from the Matter attributes), then brightness, power LAST: "Dimmer" switches this lamp on.
+void lamp_flush() {
+    int p = q_pwr; int d = q_dim; int h = q_hue; int sa = q_sat;
+    char c[40]; char t[24];
+    if (p < 0 && d < 0 && h < 0 && sa < 0) { return; }
+    q_pwr = -1; q_dim = -1; q_hue = -1; q_sat = -1;
+    if (h >= 0 || sa >= 0) {
+        if (h < 0)  { h  = (matterGet(licht, 0x0300, 0) * 360) / 254; }
+        if (sa < 0) { sa = (matterGet(licht, 0x0300, 1) * 100) / 254; }
+        if (d < 0)  { d  = (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254; }
+        strcpy(c, "HSBColor%20");
+        sprintf(t, "%d,%d,%d", h, sa, d);
+        strcat(c, t);
+        lamp_send(c);
+        d = -1;                                      // brightness went with the colour
+    }
+    if (d >= 0) {
+        strcpy(c, "Dimmer%20");
+        sprintf(t, "%d", d);
+        strcat(c, t);
+        lamp_send(c);
+    }
+    if (p == 1) { lamp_send("Power%20On"); }
+    if (p == 0) { lamp_send("Power%20Off"); }
+}
+
 void poll_lamp() {
     char buf[192]; char hv[16]; char tk[16];
     int pw = -1; int dim = -1; int hue = -1; int sat = -1; int p; int lv; int mv;
@@ -201,8 +258,17 @@ void poll_lamp() {
     lamp_pw = pw; lamp_dim = dim;
     if (tick < lamp_grace) { return; }               // a command from Home is still on its way
     if (cmd_pwr >= 0) {
-        if (pw >= 0 && pw != cmd_pwr) { addLog("matter_home_bridge: lamp .38 did not follow the command from Home"); }
-        cmd_pwr = -1;
+        if (pw >= 0 && pw != cmd_pwr) {
+            if (cmd_retry == 0) {                    // answered but not switched: once more, then report
+                cmd_retry = 1;
+                q_pwr = cmd_pwr;
+                lamp_grace = tick + LAMP_GRACE_S;
+                addLog("matter_home_bridge: lamp .38 did not follow the command from Home - sending it again");
+                return;
+            }
+            addLog("matter_home_bridge: lamp .38 did not follow the command from Home (after a second try)");
+        }
+        cmd_pwr = -1; cmd_retry = 0;
     }
     if (pw >= 0) {
         if (matterGet(licht, CLUSTER_ONOFF, 0) != pw) { matterSet(licht, CLUSTER_ONOFF, 0, pw); }
@@ -227,18 +293,21 @@ void poll_lamp() {
 void TaskLoop() {
     delay(15000);                                 // let WiFi + Matter come up first
     while (!tasm_wifi) { delay(500); }            // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
-    int ac = 60;                                  // seconds since the last aircon round (starts due)
+    int ac = 240;                                 // 250 ms ticks since the last aircon round (starts due)
+    int tk = 16;                                  // 250 ms ticks since the last lamp poll (starts due)
     while (1) {
-        poll_lamp();                              // real lamp state -> Matter, every LAMP_POLL_S
-        ac = ac + LAMP_POLL_S;
-        if (ac >= 60) {                           // ~once per minute
+        lamp_flush();                             // a command from Home goes out within 250 ms
+        tk = tk + 1;
+        if (tk >= 16) { tk = 0; poll_lamp(); }    // real lamp state -> Matter, every 4 s
+        ac = ac + 1;
+        if (ac >= 240) {                          // ~once per minute
             ac = 0;
             poll_aircon("192.168.188.24", e_acwz);    // Wohnzimmer
             delay(3000);
             poll_aircon("192.168.188.43", e_acsz);    // Schlafzimmer
             lcd_values();
         }
-        delay(LAMP_POLL_S * 1000);
+        delay(250);
     }
 }
 
