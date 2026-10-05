@@ -40,6 +40,12 @@ int e_wtemp; int e_whumi; int e_waq;
 int e_aztemp; int e_azhumi; int e_azaq;
 int e_acwz; int e_acsz;
 int tick;
+int lamp_grace = 0;                  // EverySecond tick until which a command from Home is still "in flight"
+int cmd_pwr = -1;                    // power the last Home command asked for (-1 = none to check)
+int lamp_pw = -1; int lamp_dim = -1; // last REAL state of the lamp, for the status page
+int lamp_fail = 0;                   // polls in a row that got no answer
+#define LAMP_POLL_S  4               // how often the real lamp state is read
+#define LAMP_GRACE_S 10              // after a command from Home: do not overwrite Matter with the lamp's old state
 char resp[256];
 char scratch[256];   // sprintf workspace for the clock header BLOCK below
 
@@ -103,6 +109,8 @@ void MatterInvoke(int e, int cluster, int cmd) {
             mh_hue = (matterGet(licht, 0x0300, 0) * 360) / 254;
             mh_sat = (matterGet(licht, 0x0300, 1) * 100) / 254;
         }
+        lamp_grace = tick + LAMP_GRACE_S;            // poll_lamp() must not undo this before the lamp had time
+        cmd_pwr = matterGet(licht, CLUSTER_ONOFF, 0);
         return;
     }
     if (e == ecklicht) {
@@ -151,17 +159,86 @@ void poll_aircon(char ip[], int ep) {
     }
 }
 
+// ── The REAL state of the lamp (.38) goes back into the Matter light ──
+// Home used to know only what it had commanded itself: a command that never reached the lamp (it travels as ONE
+// UDP multicast packet) left Home showing "on" for a lamp that stayed dark. Now the lamp is asked over HTTP
+// (TCP: answered or not) from TaskLoop and its Power / Dimmer / HSBColor are written into the Matter attributes, so a
+// lamp that did not follow shows up in Home as what it really is. For LAMP_GRACE_S after a command from Home the
+// answer is ignored (the lamp may simply not have caught up) and afterwards a lamp that still disagrees is logged.
+int lamp_get(char cmd[], char out[]) {
+    char url[80];
+    sprintf(url, "http://192.168.188.38/cm?cmnd=%s", cmd);
+    out[0] = 0;
+    return httpGet(url, out);
+}
+
+int iabs(int v) { if (v < 0) { return 0 - v; } return v; }
+
+void poll_lamp() {
+    char buf[192]; char hv[16]; char tk[16];
+    int pw = -1; int dim = -1; int hue = -1; int sat = -1; int p; int lv; int mv;
+    // ONE request: "HSBColor" answers with the whole light state
+    // {"POWER":"OFF","Dimmer":100,"Color":"000000FF","HSBColor":"0,0,0","White":100,"Channel":[0,0,0,100]}
+    if (lamp_get("HSBColor", buf) > 0) {
+        if (strFind(buf, "OFF") >= 0) { pw = 0; }
+        else { if (strFind(buf, "ON") >= 0) { pw = 1; } }
+        p = strFind(buf, "Dimmer");
+        if (p >= 0) { strSub(hv, buf, p + 8, 8); dim = (int)atof(hv); }          // Dimmer":100
+        p = strFind(buf, "HSBColor");
+        if (p >= 0) {
+            strSub(hv, buf, p + 11, 14);                                         // HSBColor":"0,0,0"
+            strToken(tk, hv, ',', 1); hue = (int)atof(tk);
+            strToken(tk, hv, ',', 2); sat = (int)atof(tk);
+        }
+    }
+    if (pw < 0 && dim < 0 && hue < 0) {              // no answer at all
+        lamp_fail = lamp_fail + 1;
+        if (lamp_fail == 5) { addLog("matter_home_bridge: lamp .38 does not answer"); }
+        return;
+    }
+    if (lamp_fail >= 5) { addLog("matter_home_bridge: lamp .38 answers again"); }
+    lamp_fail = 0;
+    lamp_pw = pw; lamp_dim = dim;
+    if (tick < lamp_grace) { return; }               // a command from Home is still on its way
+    if (cmd_pwr >= 0) {
+        if (pw >= 0 && pw != cmd_pwr) { addLog("matter_home_bridge: lamp .38 did not follow the command from Home"); }
+        cmd_pwr = -1;
+    }
+    if (pw >= 0) {
+        if (matterGet(licht, CLUSTER_ONOFF, 0) != pw) { matterSet(licht, CLUSTER_ONOFF, 0, pw); }
+    }
+    if (dim >= 0) {
+        lv = (dim * 254) / 100;
+        if (lv < 1) { lv = 1; }
+        if (iabs(matterGet(licht, CLUSTER_LEVEL, 0) - lv) > 2) { matterSet(licht, CLUSTER_LEVEL, 0, lv); }
+    }
+    if (hue >= 0) {
+        mv = (hue * 254) / 360;
+        if (iabs(matterGet(licht, 0x0300, 0) - mv) > 3) { matterSet(licht, 0x0300, 0, mv); }
+    }
+    if (sat >= 0) {
+        mv = (sat * 254) / 100;
+        if (iabs(matterGet(licht, 0x0300, 1) - mv) > 3) { matterSet(licht, 0x0300, 1, mv); }
+    }
+}
+
 // Daikin polling loop — its own FreeRTOS task so the blocking httpGet never
 // stalls EverySecond / the Matter network handling.
 void TaskLoop() {
     delay(15000);                                 // let WiFi + Matter come up first
     while (!tasm_wifi) { delay(500); }            // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
+    int ac = 60;                                  // seconds since the last aircon round (starts due)
     while (1) {
-        poll_aircon("192.168.188.24", e_acwz);    // Wohnzimmer
-        delay(3000);
-        poll_aircon("192.168.188.43", e_acsz);    // Schlafzimmer
-        delay(57000);                             // ~once per minute
-		lcd_values();
+        poll_lamp();                              // real lamp state -> Matter, every LAMP_POLL_S
+        ac = ac + LAMP_POLL_S;
+        if (ac >= 60) {                           // ~once per minute
+            ac = 0;
+            poll_aircon("192.168.188.24", e_acwz);    // Wohnzimmer
+            delay(3000);
+            poll_aircon("192.168.188.43", e_acsz);    // Schlafzimmer
+            lcd_values();
+        }
+        delay(LAMP_POLL_S * 1000);
     }
 }
 
@@ -210,6 +287,11 @@ void WebCall() {
 	web_clock_header();
     char b[80];
     sprintf(b, "{s}<b>Licht</b>{m}%d%%{e}", (matterGet(licht, CLUSTER_LEVEL, 0) * 100) / 254); webSend(b);
+    char lst[8];
+    if (lamp_pw > 0) { strcpy(lst, "an"); } else { if (lamp_pw == 0) { strcpy(lst, "aus"); } else { strcpy(lst, "?"); } }
+    char mst[8];
+    if (matterGet(licht, CLUSTER_ONOFF, 0) > 0) { strcpy(mst, "an"); } else { strcpy(mst, "aus"); }
+    sprintf(b, "{s}Lampe .38 (real){m}%s, %d%% / Matter: %s{e}", lst, lamp_dim, mst); webSend(b);
     sprintf(b, "{s}Aussentemperatur{m}%.1f C{e}", atmp);   webSend(b);
     sprintf(b, "{s}Buero Temp{m}%.1f C{e}",  btemp);        webSend(b);
     sprintf(b, "{s}Buero Feuchte{m}%.0f %%{e}", bhumi);     webSend(b);
