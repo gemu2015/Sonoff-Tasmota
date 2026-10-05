@@ -853,7 +853,13 @@ void SettingsLoad(void) {
   if ((0 == settings_location) || (Settings->cfg_holder != (uint16_t)CFG_HOLDER)) {  // Init defaults if cfg_holder differs from user settings in my_user_config.h
 //  if ((0 == settings_location) || (Settings->cfg_size != sizeof(TSettings)) || (Settings->cfg_holder != (uint16_t)CFG_HOLDER)) {  // Init defaults if cfg_holder differs from user settings in my_user_config.h
 #ifdef USE_UFILESYS
-    if (TfsLoadFile(TASM_FILE_SETTINGS_LKG, (uint8_t*)Settings, sizeof(TSettings)) && (Settings->cfg_crc32 == GetSettingsCrc32())) {
+    // The LKG copy must carry OUR holder too. Without that check a device that was flashed (OTA) from a firmware with a
+    // different CFG_HOLDER (official Tasmota 4617 -> 5002 here) loaded its old LKG copy on EVERY boot: the holder inside
+    // stayed 4617, every later save kept it, the next boot saw the mismatch again and went back to the LKG file -- the
+    // device never kept a changed setting (Rolf, ESP32-S3, 05.10.2026: "CFG: Loaded from LKG File" at each start).
+    // A holder that differs means "load the defaults", as it always did before the LKG file existed.
+    if (TfsLoadFile(TASM_FILE_SETTINGS_LKG, (uint8_t*)Settings, sizeof(TSettings)) && (Settings->cfg_crc32 == GetSettingsCrc32()) &&
+        (Settings->cfg_holder == (uint16_t)CFG_HOLDER)) {
       settings_location = 1;
       AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_CONFIG "Loaded from LKG File, " D_COUNT " %lu"), Settings->save_flag);
     } else
