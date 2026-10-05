@@ -2158,6 +2158,13 @@ static uint8_t hk_var_count = 0;
 // come from matter_c.h, which xdrv_124_tinyc.ino includes ahead of this header
 // when USE_MATTER_C is set — so the handlers call them directly, no local
 // forward declarations needed (avoids a matter_err_t-vs-int return mismatch).
+#ifdef USE_MATTER_C
+// Device type a SCRIPT gave to each endpoint (matterAdd), 0 = not declared by a script (the default plug the engine
+// seeds at init). The firmware mirrors relay 1 into OnOff of endpoint 1 only while that endpoint is a plug (see
+// mtrc_p_on_attr_read): a script that makes endpoint 1 a LIGHT owns its OnOff, otherwise Home showed the state of the
+// relay of the bridge instead of the state of the lamp (.122, 05.10.2026).
+static uint16_t mtrc_ep_dt[34];
+#endif
 
 // WebChart state (reset at start of each WebPage callback)
 // mqttPublish(topic_ref, payload_ref, lvl): the VM copies both out of their
@@ -7380,7 +7387,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
     case SYS_MTR_ADD: {                          // matterAdd(deviceType) -> ep
       int32_t dt = TC_POP(vm);
       if (!mtrc_ensure_inited()) { TC_PUSH(vm, -1); break; }   // lazy core init
-      TC_PUSH(vm, matter_add_endpoint((uint32_t)dt));
+      int mep = matter_add_endpoint((uint32_t)dt);
+      if (mep > 0 && mep < 34) { mtrc_ep_dt[mep] = (uint16_t)dt; }
+      TC_PUSH(vm, mep);
       break;
     }
     case SYS_MTR_CLUSTER: {                      // matterCluster(ep, clusterId)
@@ -7438,6 +7447,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, (int32_t)mtrc_request_start());
       break;
     case SYS_MTR_RESET:                          // matterReset()
+      memset(mtrc_ep_dt, 0, sizeof(mtrc_ep_dt));
       if (mtrc_ensure_inited()) matter_reset_model();
       break;
 #else

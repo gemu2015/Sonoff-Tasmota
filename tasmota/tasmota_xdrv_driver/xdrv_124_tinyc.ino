@@ -4999,8 +4999,10 @@ extern "C" {
                                           uint64_t *out) {
     (void)ctx;
     // Only endpoint 1 (the plug) mirrors relay 1; other endpoints (e.g. an RGB
-    // light) keep their own OnOff in the data-model registry.
-    if (endpoint == 1 && cluster == 0x0006 && attr == 0x0000) {
+    // light) keep their own OnOff in the data-model registry. A script can make endpoint 1 something else (the bridge
+    // script's colour light): then the script owns OnOff too, not the relay of this device.
+    if (endpoint == 1 && cluster == 0x0006 && attr == 0x0000 &&
+        (mtrc_ep_dt[1] == 0 || mtrc_ep_dt[1] == 0x010A)) {
       *out = bitRead(TasmotaGlobal.power, 0) ? 1 : 0;
       return MATTER_OK;
     }
