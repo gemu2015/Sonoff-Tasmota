@@ -43,6 +43,15 @@ global float msoc;   // Marstek Venus E SOC % (broadcast by marstek_venus.tc on 
 #define SOLBIN_SIZE1 5776
 #define SOLBIN_SIZE2 9632
 #define SOLBIN_SIZE3 10976
+//                               SOL4 = SOL3 + 4 more header ints (12 in all): hdr[8] = lastBin, the WALL-CLOCK
+//                                      5-min bin (UTC seconds / 300) of the newest sample, so a gap (crash, power cut,
+//                                      script stopped) can be seen at the next start and filled with zeros
+#define SOLBIN_SIZE4 10992
+#define MIN_VALID_UTC 1700000000  // clock below this = not set yet; never sample
+#define BOOT_QUIET_S  60          // after a boot give NTP this long before the first sample (stale boot clock)
+#define MAX_GAP_BINS  288         // a gap is filled with at most one full day of zeros
+#define START_QUIET_S 60          // seconds after the script start before the first sample: the UDP globals (several
+                                  // are sent only on change) must have arrived, or the first bin is a bogus zero
 #define WEEK_SOL_MAX_W 10000      // right-hand axis of the 7-day chart: 0..10 kW (like the gauge)
 
 #define ST_RADIUS    120
@@ -94,7 +103,8 @@ int xlW[8];                                // 7-day chart: weekday labels at the
 int g_needle = 0; int g_value = 0;         // live gauge parts
 int g_cx; int g_cy; int g_r; int g_pmax;
 int g_vals[6];                             // raw-value readout labels (control)
-int tick = 0;                              // sample counter (EverySecond ticks)
+int runsec = 0;                            // seconds since the script started (EverySecond ticks)
+int lastBin = -1;                          // wall-clock 5-min bin (UTC s / 300) of the newest sample; -1 = unknown (old file / first run)
 int seeded = 0;                            // 1 while the ring holds synthetic seed data
 
 int ymap(int v, int vmin, int vmax, int y0, int h) {
@@ -295,14 +305,15 @@ float pabs(float v) { if (v < 0.0) { return 0.0 - v; } return v; }
 // never wrote wMsoc (gemu: "der marstek soc chart wird nicht gespeichert").
 void saveHist() {
     save_seq = save_seq + 1;
-    int hdr[8];
-    hdr[0] = 0x534F4C33; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL3' + seq
+    int hdr[12];
+    hdr[0] = 0x534F4C34; hdr[1] = wp; hdr[2] = cnt; hdr[3] = save_seq;   // magic 'SOL4' + seq
     hdr[4] = wkp; hdr[5] = wkcnt; hdr[6] = wkTick; hdr[7] = wkSolAcc;     // open 30-min bin survives a reboot
+    hdr[8] = lastBin; hdr[9] = 0; hdr[10] = 0; hdr[11] = 0;               // lastBin: where the ring's time axis ends
     int h;
     if (save_tog == 0) { h = fileOpen("/solar.bin", 1); }
     else { h = fileOpen("/solar2.bin", 1); }
     if (h < 0) { return; }
-    fileWriteBin(h, hdr, 8);
+    fileWriteBin(h, hdr, 12);
     fileWriteBin(h, wSolar[0], 288);
     fileWriteBin(h, wSolar[1], 288);
     fileWriteBin(h, wSolar[2], 288);
@@ -346,7 +357,7 @@ void backfillWeekSolar() {
 int histSeq(int which) {
     int sz; int h;
     if (which == 0) { sz = fileSize("/solar.bin"); } else { sz = fileSize("/solar2.bin"); }
-    if (sz != SOLBIN_SIZE1 && sz != SOLBIN_SIZE2 && sz != SOLBIN_SIZE3) { return -1; }
+    if (sz != SOLBIN_SIZE1 && sz != SOLBIN_SIZE2 && sz != SOLBIN_SIZE3 && sz != SOLBIN_SIZE4) { return -1; }
     int hdr[4];
     if (which == 0) { h = fileOpen("/solar.bin", 0); } else { h = fileOpen("/solar2.bin", 0); }
     if (h < 0) { return -1; }
@@ -355,6 +366,7 @@ int histSeq(int which) {
     if (sz == SOLBIN_SIZE1 && hdr[0] == 0x534F4C31) { return hdr[3]; }
     if (sz == SOLBIN_SIZE2 && hdr[0] == 0x534F4C32) { return hdr[3]; }
     if (sz == SOLBIN_SIZE3 && hdr[0] == 0x534F4C33) { return hdr[3]; }
+    if (sz == SOLBIN_SIZE4 && hdr[0] == 0x534F4C34) { return hdr[3]; }
     return -1;
 }
 
@@ -363,29 +375,30 @@ int readHist(int which) {
     if (which == 0) { sz = fileSize("/solar.bin"); h = fileOpen("/solar.bin", 0); }
     else { sz = fileSize("/solar2.bin"); h = fileOpen("/solar2.bin", 0); }
     if (h < 0) { return 0; }
-    int hdr[8];
+    int hdr[12];
     if (sz == SOLBIN_SIZE1) {
         fileReadBin(h, hdr, 4);
         wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
     } else {
-        fileReadBin(h, hdr, 8);
+        if (sz == SOLBIN_SIZE4) { fileReadBin(h, hdr, 12); lastBin = hdr[8]; }
+        else { fileReadBin(h, hdr, 8); lastBin = -1; }          // SOL2/SOL3 carry no time stamp
         wp = hdr[1]; cnt = hdr[2]; save_seq = hdr[3];
         wkp = hdr[4]; wkcnt = hdr[5]; wkTick = hdr[6];
-        if (sz == SOLBIN_SIZE3) { wkSolAcc = hdr[7]; wkSolN = wkTick; }
+        if (sz == SOLBIN_SIZE3 || sz == SOLBIN_SIZE4) { wkSolAcc = hdr[7]; wkSolN = wkTick; }
     }
     fileReadBin(h, wSolar[0], 288);
     fileReadBin(h, wSolar[1], 288);
     fileReadBin(h, wSolar[2], 288);
     fileReadBin(h, wSolar[3], 288);
     fileReadBin(h, wPwl, 288);
-    if (sz == SOLBIN_SIZE2 || sz == SOLBIN_SIZE3) {
+    if (sz == SOLBIN_SIZE2 || sz == SOLBIN_SIZE3 || sz == SOLBIN_SIZE4) {
         fileReadBin(h, wMsoc, 288);
         fileReadBin(h, wkPwl, 336);
         fileReadBin(h, wkMsoc, 336);
     }
-    if (sz == SOLBIN_SIZE3) { fileReadBin(h, wkSol, 336); }
+    if (sz == SOLBIN_SIZE3 || sz == SOLBIN_SIZE4) { fileReadBin(h, wkSol, 336); }
     fileClose(h);
-    if (sz != SOLBIN_SIZE3) { backfillWeekSolar(); }   // older file: no solar ring yet
+    if (sz != SOLBIN_SIZE3 && sz != SOLBIN_SIZE4) { backfillWeekSolar(); }   // older file: no solar ring yet
     return 1;
 }
 
@@ -403,24 +416,22 @@ int loadHist() {
     return readHist(0);
 }
 
-void sampleNow() {
-    if (seeded) { seeded = 0; wp = 0; cnt = 0; }    // drop the synthetic seed on the first real sample
-    int ms = -1;
-    if (msoc > 0.0) { ms = (int)msoc; }             // 0 = the Venus has not published yet
-    wSolar[0][wp] = (int)pabs(sedc);
-    wSolar[1][wp] = (int)pabs(wrgh);
-    wSolar[2][wp] = (int)pabs(wrga);
-    wSolar[3][wp] = (int)pabs(wrgg);
-    wPwl[wp] = (int)pwl;
+// Append ONE 5-min sample to the rings (no file write). The caller persists.
+void pushSample(int s0, int s1, int s2, int s3, int pw, int ms) {
+    wSolar[0][wp] = s0;
+    wSolar[1][wp] = s1;
+    wSolar[2][wp] = s2;
+    wSolar[3][wp] = s3;
+    wPwl[wp] = pw;
     wMsoc[wp] = ms;
     wp = (wp + 1) % 288;
     if (cnt < 288) { cnt = cnt + 1; }
-    wkSolAcc = wkSolAcc + (int)(pabs(sedc) + pabs(wrgh) + pabs(wrga) + pabs(wrgg));
+    wkSolAcc = wkSolAcc + s0 + s1 + s2 + s3;
     wkSolN = wkSolN + 1;
     wkTick = wkTick + 1;
     if (wkTick >= WEEK_EVERY) {                     // every 30 min: one bin of the 7-day rings
         wkTick = 0;
-        wkPwl[wkp] = (int)pwl;
+        wkPwl[wkp] = pw;
         wkMsoc[wkp] = ms;
         int sv = -1;
         if (wkSolN > 0) { sv = wkSolAcc / wkSolN; if (sv > WEEK_SOL_MAX_W) { sv = WEEK_SOL_MAX_W; } }
@@ -429,6 +440,28 @@ void sampleNow() {
         wkp = (wkp + 1) % 336;
         if (wkcnt < 336) { wkcnt = wkcnt + 1; }
     }
+}
+
+// The device was not sampling between lastBin and bin b (crash, power cut, script stopped): put the
+// missing 5-min bins into the rings as ZEROS so the time axis stays true (04.10.2026: after a crash the
+// newest samples were simply appended to the old ones, hours of the day were shifted).
+void fillGap(int b) {
+    if (lastBin < 0) { return; }                    // no time stamp in the file (older format): nothing to compare
+    int miss = b - lastBin - 1;
+    if (miss <= 0) { return; }
+    if (miss > MAX_GAP_BINS) { miss = MAX_GAP_BINS; }
+    int i = 0;
+    while (i < miss) { pushSample(0, 0, 0, 0, 0, 0); i = i + 1; }
+    char gm[80];
+    sprintf(gm, "solar_dashboard: filled %d missing 5-min bin(s) with zeros", miss);
+    addLog(gm);
+}
+
+void sampleNow() {
+    if (seeded) { seeded = 0; wp = 0; cnt = 0; }    // drop the synthetic seed on the first real sample
+    int ms = -1;
+    if (msoc > 0.0) { ms = (int)msoc; }             // 0 = the Venus has not published yet
+    pushSample((int)pabs(sedc), (int)pabs(wrgh), (int)pabs(wrga), (int)pabs(wrgg), (int)pwl, ms);
     saveHist();                                     // persist after each sample
 }
 
@@ -665,10 +698,20 @@ void EverySecond() {
     float sum = pabs(sedc) + pabs(wrgh) + pabs(wrga) + pabs(wrgg);
     updateGauge((int)(sum / 100.0));            // W -> tenths of kW (production magnitude)
     updateReadout();                            // live raw values for control
-    tick = tick + 1;
-    if (tick >= SAMPLE_SEC) {                   // sample + persist + redraw
-        tick = 0;
-        sampleNow();
-        updateCharts();
+    // Sample on the WALL CLOCK (5-min bins of UTC), not by counting seconds since the script started:
+    // that is what makes a gap visible after a crash. The boot clock can be stale until NTP has answered,
+    // hence BOOT_QUIET_S; a bin that is not newer than lastBin is simply skipped.
+    runsec = runsec + 1;
+    if (tasm_uptime >= BOOT_QUIET_S && runsec >= START_QUIET_S) {
+        int u = utcSecs();
+        if (u > MIN_VALID_UTC) {
+            int b = u / SAMPLE_SEC;
+            if (lastBin < 0 || b > lastBin) {
+                fillGap(b);
+                lastBin = b;                        // before sampleNow(): the file it writes carries the new bin
+                sampleNow();
+                updateCharts();
+            }
+        }
     }
 }
