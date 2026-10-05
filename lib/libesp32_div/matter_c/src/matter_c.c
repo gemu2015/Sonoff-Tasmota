@@ -1922,6 +1922,11 @@ static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, 
   // positive number for sub-zero readings.
   uint64_t v = attr_value(ep, cl, attr);
   mtrc_dm_attr_t *a = mtrc_dm_find(ep, cl, attr);
+  // A boolean attribute (OnOff, ...) MUST be a TLV boolean. It went out as an unsigned integer, which a controller
+  // decoding the attribute as bool rejects (Home kept a lamp 'off' that had been switched on, 05.10.2026).
+  if (a && a->type == MTRC_DM_T_BOOL) {
+    mtrc_tlv_put_bool(w, mtrc_tlv_ctx(2), v != 0); return;
+  }
   if (a && a->type == MTRC_DM_T_S16) {
     mtrc_tlv_put_int(w, mtrc_tlv_ctx(2), (int64_t)(int16_t)(uint16_t)v); return;
   }
