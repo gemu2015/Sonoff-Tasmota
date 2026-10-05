@@ -271,6 +271,7 @@ typedef struct {
   struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
   volatile uint8_t ev_head, ev_tail;
   uint32_t         reap_ms;         // last sweep of silent CASE sessions (matter_loop)
+  uint32_t         dv_base;         // random start of the DataVersion counter (set in matter_init)
 } matter_ctx_t;
 
 static matter_ctx_t *g_ptr = NULL;   // NULL until matter_init() — zero RAM when unused
@@ -588,6 +589,11 @@ matter_err_t matter_init(const matter_port_t *port, const matter_config_t *cfg) 
   g.cfg  = *cfg;
   g.inited = true;
   g.next_ep = 1;            // endpoint 0 is the root node
+  // DataVersion: every report used to carry a constant 1. A controller may take a report whose version it already
+  // holds for 'nothing new' (Home kept showing a lamp as off that had been switched on, 05.10.2026), and after a
+  // restart the counter must not repeat old values: random start + the app-data generation, which grows on every change.
+  g.port.random_bytes(g.port.ctx, &g.dv_base, 4);
+  g.dv_base &= 0x3FFFFFFFu;
 
   // Seed the data-model registry: root node + a default OnOff endpoint so the
   // current relay device works out of the box. A TinyC script (Phase C) can
@@ -1932,11 +1938,15 @@ static void emit_attr_value_field(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, 
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), v);                                         // registry/uint
 }
 
+// DataVersion of every attribute report: changes whenever an app-endpoint attribute changes (app_gen) and starts at a
+// random value per boot (dv_base). One counter for all clusters: a version that moves although the cluster did not
+// change costs the controller one comparison, a version that never moves hides real changes.
+static uint32_t mtrc_data_version(void) { return g.dv_base + g.app_gen; }
 // One AttributeReportIB carrying AttributeData (DataVersion + path + value).
 static void emit_attr_report(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());           // AttributeReportIB
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));           //  AttributeDataIB
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //   DataVersion
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), mtrc_data_version());            //   DataVersion
   mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));             //   AttributePathIB
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
@@ -1954,7 +1964,7 @@ static void emit_report_list(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                              uint32_t attr, const uint32_t *vals, int count) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), mtrc_data_version());
   mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
@@ -1971,7 +1981,7 @@ static void emit_report_list(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
 static void emit_report_devtypelist(mtrc_tlv_writer *w, uint16_t ep, uint32_t dt) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), mtrc_data_version());
   mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), 0x001D);
@@ -1999,7 +2009,7 @@ static void emit_attr_report_uint(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl,
                                   uint32_t attr, uint64_t val) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), mtrc_data_version());
   mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
@@ -2073,7 +2083,7 @@ static int cluster_func_attrs(uint16_t ep, uint32_t cl, uint32_t *out, int cap) 
 static void frag_open(mtrc_tlv_writer *w, uint16_t ep, uint32_t cl, uint32_t attr) {
   mtrc_tlv_start_struct(w, mtrc_tlv_anon());            // AttributeReportIB
   mtrc_tlv_start_struct(w, mtrc_tlv_ctx(1));            //  AttributeDataIB
-  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), 1);            //   DataVersion
+  mtrc_tlv_put_uint(w, mtrc_tlv_ctx(0), mtrc_data_version());            //   DataVersion
   mtrc_tlv_start_list(w, mtrc_tlv_ctx(1));             //   AttributePathIB
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(2), ep);
   mtrc_tlv_put_uint(w, mtrc_tlv_ctx(3), cl);
