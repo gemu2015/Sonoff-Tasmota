@@ -93,6 +93,29 @@ or Alexa.
 Because step 1 formatted the file system: reload the IDE with `TinyCIde` and
 upload your scripts again.
 
+## Step 4 — switch off Wi-Fi power saving (every Matter device)
+
+A Matter controller (the Apple Home hub, Google, Alexa) talks to the device by
+**unicast** at any moment. A device that saves Wi-Fi power does not hear that
+in time: the router holds the packets back or drops them, and the controller
+shows "No response" — commands from the Home app arrive late or never, although
+the device is online and its web page opens. Measured on a C6 at −71 dBm
+(05.10.2026): 50–90 % packet loss and a 5 s round trip with power saving, 0–5 %
+and 17 ms without.
+
+In the console:
+
+```
+SetOption127 1
+Sleep 0
+Restart 1
+```
+
+⚠️ The restart matters: the option only takes effect when the device connects to
+Wi-Fi again. Both settings are stored; do this once per device. A quick check
+from a PC: `ping <ip>` should show hardly any loss and answers within a few
+tens of milliseconds.
+
 ## Updating and removing
 
 - **Update:** in the console `deiniz N` and `unlink N` (N = the slot number
@@ -113,3 +136,4 @@ upload your scripts again.
 | Log: `MTR: using the built-in Matter` on the S3 | No plugin loaded — fine if intended, the S3 has the engine built in. |
 | Upload refused | Wrong file for the CPU (`_32` vs `_32r`), or the partition is full (other plugins — use `chkpt a2`). |
 | Matter was paired and is gone | Step 1 formats the file system and with it `/mtr_fab`. Remove the device in the controller app and pair again. |
+| Home app says "No response", or commands arrive late or never, although the web page opens | Wi-Fi power saving: step 4 (`SetOption127 1`, `Sleep 0`, restart). The option only works after the restart. |

@@ -94,6 +94,29 @@ Home oder Alexa scannen.
 Weil Schritt 1 das Dateisystem formatiert hat: die IDE mit `TinyCIde` neu
 holen und die Skripte wieder hochladen.
 
+## Schritt 4 — WLAN-Energiesparen abschalten (für jedes Matter-Gerät)
+
+Eine Matter-Zentrale (der Apple-Home-Hub, Google, Alexa) spricht das Gerät jederzeit
+per **Unicast** an. Ein Gerät mit WLAN-Energiesparen hört das nicht rechtzeitig:
+der Router hält die Pakete zurück oder wirft sie weg, und die Zentrale zeigt
+„Keine Antwort" — Befehle aus der Home-App kommen spät oder gar nicht an, obwohl
+das Gerät online ist und seine Weboberfläche aufgeht. Gemessen an einem C6 mit
+−71 dBm (05.10.2026): mit Energiesparen 50–90 % Paketverlust und 5 s Laufzeit,
+ohne 0–5 % und 17 ms.
+
+In der Konsole:
+
+```
+SetOption127 1
+Sleep 0
+Restart 1
+```
+
+⚠️ Der Neustart ist wichtig: die Option wirkt erst, wenn sich das Gerät neu im
+WLAN anmeldet. Beide Einstellungen werden gespeichert; das macht man einmal je
+Gerät. Schnelle Kontrolle vom PC: `ping <ip>` sollte kaum Verlust und Antworten
+in wenigen zehn Millisekunden zeigen.
+
 ## Aktualisieren und entfernen
 
 - **Aktualisieren:** in der Konsole `deiniz N` und `unlink N` (N = Platznummer
@@ -115,3 +138,4 @@ holen und die Skripte wieder hochladen.
 | Log: `MTR: using the built-in Matter` auf dem S3 | Kein Plugin geladen — in Ordnung, wenn so gewollt, der S3 hat die Engine eingebaut. |
 | Hochladen abgewiesen | Falsche Datei für die CPU (`_32` statt `_32r` oder umgekehrt), oder die Partition ist voll (weitere Plugins — `chkpt a2` nehmen). |
 | Matter war gekoppelt und ist weg | Schritt 1 formatiert das Dateisystem und damit `/mtr_fab`. Das Gerät in der Steuer-App entfernen und neu koppeln. |
+| Home-App meldet „Keine Antwort“, oder Befehle kommen spät oder gar nicht an, obwohl die Weboberfläche aufgeht | WLAN-Energiesparen: Schritt 4 (`SetOption127 1`, `Sleep 0`, Neustart). Die Option wirkt erst nach dem Neustart. |
