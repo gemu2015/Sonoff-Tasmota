@@ -25,6 +25,9 @@
 // Differences vs the scripter: Powerwall removed; WZ/AZ TVOC+CO2 folded into one
 // Matter Air-Quality endpoint per room. Requires a USE_MATTER_C build; Bind /mt.
 
+// Black box (/bb1.txt, /bb2.txt, one line a minute) + restart when no LAN device answers for 10 minutes
+#include "net_watchdog.tc"
+
 // ── Shared (UDP) globals — names MUST match the Scripter g:<name> ──
 global float mh_pwr; global float mh_hue; global float mh_sat; global float mh_bri;   // OUT: Licht
 global float elamp;                                                                   // OUT: Ecklicht
@@ -295,8 +298,11 @@ void TaskLoop() {
     while (!tasm_wifi) { delay(500); }            // no httpGet before WiFi is up — corrupts the heap + boot-loops an autoexec slot
     int ac = 240;                                 // 250 ms ticks since the last aircon round (starts due)
     int tk = 16;                                  // 250 ms ticks since the last lamp poll (starts due)
+    int wp = 200;                                 // 250 ms ticks since the last probe (first one ~12 s after the start)
     while (1) {
         lamp_flush();                             // a command from Home goes out within 250 ms
+        wp = wp + 1;
+        if (wp >= 240) { wp = 0; wd_probe(); }    // once a minute: does anybody answer?
         tk = tk + 1;
         if (tk >= 16) { tk = 0; poll_lamp(); }    // real lamp state -> Matter, every 4 s
         ac = ac + 1;
@@ -337,6 +343,9 @@ void lcd_values() {
 
 void EverySecond() {
     tick = tick + 1;
+    char ex[80];
+    sprintf(ex, "lamp=%d/%d%% lfail=%d mtr=%d", lamp_pw, lamp_dim, lamp_fail, matterGet(licht, CLUSTER_ONOFF, 0));
+    wd_second(ex);
 
 	// longtime stable now, no longer needed 
     //if (tasm_hour == 1 && tasm_uptime > 4000) { char r[16]; tasmCmd("Restart 1", r); }
