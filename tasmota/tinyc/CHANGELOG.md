@@ -58,6 +58,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## 1.6.72 — 2026-10-04
 
+- **SML family from ottelo (05.10.2026): the CT002 limit is now applied to all phases, not only phase D (PR #88, Gronkdalonka); `sml_ct002` and `sml_chart_ct002` added with `.tc` and `.tcb`.** Taken over unchanged (`ct002_common.tc` and the two programs); all 214 examples compile and the `.tcb` are bit-identical to his.
 - **SML family from ottelo (04.10.2026): the meter selection says "meter" instead of "repo" and the list is sorted by manufacturer.** Taken over unchanged (`sml_descriptor.tc` and the six programs); all 214 examples compile and the six `.tcb` are bit-identical to his.
 - **Repo pulldowns: an entry can be selectable without a file (`"keep": 1`)** (ottelo). Since 1.6.71 an entry with an empty `filename` is a disabled heading, so "no meter from the list — I write `/sml_meter.def` myself" could no longer be chosen. An entry with an empty `filename` and `"keep": 1` is selectable and downloads nothing, only its key is stored (TinyC `webRepoPulldown()` and the Scripter SML pulldown). Without `keep` nothing changes; old firmware ignores the field.
 - ⚠️ **Scripter `udp(1)`: one byte was written past the receive buffer** (ottelo, reported by next145). The datagram was read with the full buffer size and then terminated with `packet[len] = 0`: a datagram of `max_ssize` bytes or more wrote one byte onto the stack, and a read error (-1) one byte before the buffer. Now one byte less is read and an error counts as an empty packet.
