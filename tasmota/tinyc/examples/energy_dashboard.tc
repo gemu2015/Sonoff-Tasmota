@@ -915,6 +915,10 @@ void WebPage() {
     WebChart(0, "", "°C",
              0x3498db, days_pos, 31, days_t,
              1, 1440, -10.0, 40.0);
+    // X axis with the real date instead of the firmware's 0..30 counter (gemu 07.10.2026): the firmware numbers
+    // the ticks of a line chart that spans more than a week. The newest point is YESTERDAY (the value is stored at
+    // midnight for the day that just ended), so point i of n is (n - i) days back. Every third point gets a tick.
+    WebChartJS("var n=dt.getNumberOfRows(),t=[],N=new Date();for(var i=0;i<n;i++){if((n-1-i)%3==0){var d=new Date(N.getTime()-(n-i)*864e5);t.push({v:dt.getValue(i,0),f:('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.'});}}o.hAxis.ticks=t;");
 
     // ── 31-day table — Google Charts Table renderer (`'t'` = type
     //    116). Pattern lifted from core2_energy.tc:
@@ -922,7 +926,7 @@ void WebPage() {
     //    First call sets the column-1 header ("Tag"); subsequent
     //    calls with title="" append columns to the same table. Row
     //    labels in the title are optional — when omitted, rows are
-    //    auto-numbered 1..N by the renderer. Note: data is rendered
+    //    auto-numbered 1..N by the renderer (replaced by dates below). Note: data is rendered
     //    in physical array-index order, NOT chronological order.
     //    With a ring buffer like ours that means rows 1..days_pos-1
     //    show the most recent days and rows days_pos..30 show the
@@ -932,6 +936,16 @@ void WebPage() {
              days_pos, 31, days_w, 1, 0, 0.0, 0.0);
     WebChart('t', "",    "D-Temp (°C)", 0x3498db,
              days_pos, 31, days_t, 1, 0, 0.0, 0.0);
+    // The table has no WebChartJS hook, so its two row numbers (the firmware's own "1..31" label and Google's row
+    // counter) are replaced in the browser, right after Google has drawn it: label k (1..31) becomes the date of that
+    // day (yesterday = last row), the counter column is hidden. The label text is the key, not the row position, so
+    // it still works after a click on a column header re-sorts the table. The table is the last .tcc before this script.
+    webSend("<script>(function(){var cs=document.querySelectorAll('.tcc'),el=cs[cs.length-1],W=['So','Mo','Di','Mi','Do','Fr','Sa'];");
+    webSend("function fix(){var N=new Date(),rs=el.querySelectorAll('tr');for(var r=0;r<rs.length;r++){var th=rs[r].querySelectorAll('th');");
+    webSend("if(th.length>1&&th[0].textContent.trim()==''){th[0].style.display='none';}");
+    webSend("var td=rs[r].querySelectorAll('td');if(td.length<2)continue;var t=td[1].textContent.trim();if(t==''||isNaN(+t))continue;");
+    webSend("var d=new Date(N.getTime()-(32-(+t))*864e5);td[1].textContent=W[d.getDay()]+' '+('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'.';td[0].style.display='none';}}");
+    webSend("new MutationObserver(fix).observe(el,{childList:true,subtree:true});fix();})();</script>");
 
     // ── Live: die vier Wechselrichter, Chart.js-Streaming (vom Core2 .76,
     //    core2_energy.tc). Holt /tc_array jede Sekunde; der Endpunkt muss hier
