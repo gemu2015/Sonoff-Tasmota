@@ -13,14 +13,14 @@
 //   a restart loop. After that: no answer for wd_limit seconds AND uptime above wd_min_up -> "Restart 1" (deferred).
 //   The uptime floor keeps it from restarting more often than once per wd_min_up seconds.
 // - Black box: one line a minute into /bb1.txt or /bb2.txt (the two take turns, wd_bb_limit bytes each, so the last
-//   9-18 hours stay readable after a power cut):
+//   the last ~10-20 hours stay readable after a power cut):
 //       2026-10-05T17:30:30 up=8708 heap=121 rssi=58 bss=8C:EF lk=2 probe=1/12s ...your text
 //   rssi is Tasmota's percentage (Status 11), bss the end of the access point's MAC, lk the Wi-Fi connect counter.
 //   Read the files with http://<ip>/ufsd?download=/bb1.txt . A "WATCHDOG" line says the device restarted itself.
 
 int  wd_limit    = 600;                 // seconds without a successful probe before a restart
 int  wd_min_up   = 900;                 // never restart before this uptime
-int  wd_bb_limit = 12000;               // bytes per black-box file
+int  wd_bb_limit = 60000;               // bytes per black-box file (~600 lines = 10 h each, 20 h in all at one line a minute)
 char wd_url[64]  = "http://192.168.188.118/cm?cmnd=Status";     // two always-on Tasmota devices: one answer is enough
 char wd_url2[64] = "http://192.168.188.39/cm?cmnd=Status";
 
@@ -29,6 +29,7 @@ int  wd_ok_sec   = 0;                   // wd_sec of the last successful probe
 int  wd_armed    = 0;                   // 1 after the first success
 int  wd_res      = -1;                  // last probe: 1 ok, 0 failed
 int  wd_bbsel    = -1;                  // which black-box file is current (0 = bb1, 1 = bb2)
+int  wd_boot_done = 0;                  // 1 after the BOOT line of this start has been written
 
 // Once a minute from TaskLoop: ask a device on the LAN, the reply must come back (the FRITZ!Box itself answers
 // httpGet with 0, a Tasmota device with a body).
@@ -70,12 +71,25 @@ void wd_bb_write(char line[]) {
 
 // Once a second from EverySecond. Every 60 s: one black-box line, then the watchdog check.
 void wd_second(char extra[]) {
-    char ts[24]; char r[512]; char line[260]; char bss[20]; char t[8]; char t2[8]; char c[16];
+    char ts[24]; char r[512]; char line[260]; char bss[20]; char t[8]; char t2[8]; char c[16]; char why[48];
     int rssi = -1; int lk = -1; int p; int age;
     wd_sec = wd_sec + 1;
     if (wd_sec % 60 != 30) { return; }
     bss[0] = 0;
     timeStamp(ts);
+    if (!wd_boot_done) {                                // once per start: WHY did the device start? (watchdog, crash, power)
+        wd_boot_done = 1;
+        r[0] = 0; why[0] = 0;
+        tasmCmd("Status 1", r);
+        p = strFind(r, "RestartReason");
+        if (p >= 0) {
+            strSub(why, r, p + 16, 40);                 // after RestartReason":"
+            p = strFind(why, "\"");
+            if (p > 0) { why[p] = 0; }
+        }
+        sprintf(line, "%s BOOT reason=[%s] uptime now %d s\n", ts, why, tasm_uptime);
+        wd_bb_write(line);
+    }
     r[0] = 0;
     tasmCmd("Status 11", r);
     p = strFind(r, "RSSI");
