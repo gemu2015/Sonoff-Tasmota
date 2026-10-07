@@ -5,7 +5,7 @@ Populates `tinyc_docs/` with:
 - reference.md / reference.de.md  (copied from tasmota/tinyc/TinyC_Reference*.md)
 - custom-builds.md                (copied from tasmota/tinyc/TinyC_Custom_Builds.md)
 - examples/index.md + examples/<name>.md  (one page per .tc file)
-- releases.md                     (pointer to GitHub releases)
+- releases.md                     (which release file is for which device)
 
 User-authored pages (index.md, getting-started.md, gallery/*.md) are never overwritten.
 """
@@ -138,20 +138,34 @@ def _screenshot_block(name: str) -> str:
     return ""
 
 
+RELEASES_PAGE = r"""# Releases
+
+Pre-built firmware, the browser IDE bundle, plugins and documentation for each build live on the [GitHub Releases page](https://github.com/gemu2015/Sonoff-Tasmota/releases). Every build has its own `v<version>` release; the `testing` tag is a rolling tag that always carries the newest files, for stable download URLs.
+
+## Which file is for me
+
+| File | What it is |
+|------|------------|
+| `tinyc32-4M-plain` | ESP32 4 MB classic WROOM — plain (no Matter, no camera) |
+| `tinyc32s3` | ESP32-S3 — Matter built in, camera, LVGL |
+| `tinyc32c3`, `tinyc32c6` | ESP32-C3 / C6 — Matter as a plugin |
+| `tinyc32-p4-full` | ESP32-P4 16 MB + PSRAM — display + LVGL, MIPI camera, audio; Matter as a plugin |
+| `tinyc8266-4M` | ESP8266 4 MB — lean (no Matter, LVGL or camera), one VM slot; only a `.bin` / `.bin.gz` |
+| `MATTERF_32.bin` / `MATTERF_32r.bin` | Matter plugin — `_32` for the S3, `_32r` for C3 / C6 / P4 ([how to install](https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/docs/MATTER_PLUGIN.md)) |
+| `I2SAUDIO_32.bin`, `PICOTTS_32.bin` | Audio and text-to-speech plugins for the S3 / ESP32 ([PICOTTS](https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/docs/PICOTTS_PLUGIN.md)) |
+| `tinyc_ide.html.gz` | The browser IDE — a file for the device's file system |
+
+`.bin` is for updating a running device (Firmware Upgrade page, or `OtaUrl` + `Upgrade 1`); `.factory.bin` is for a fresh install over a cable and replaces the file system. Plugins need a plugin partition (`chkpt a`), which also formats the file system — read the plugin guide first.
+
+Upload the matching file for your chip, then update the IDE on the device (`TinyCIde`); see [Getting Started](getting-started.md). What changed in each version is in the [changelog](https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/CHANGELOG.md).
+"""
+
+
 def write_releases_page() -> None:
+    """The page is generated (and git-ignored), so the text lives here. It is rewritten on every
+    build: a copy left over from an older build must not survive."""
     path = DOCS / "releases.md"
-    if path.exists():
-        return  # user may have customised
-    path.write_text(
-        "# Releases\n\n"
-        "Pre-built firmware, the browser IDE bundle, and documentation for each "
-        "release live on the [GitHub Releases page](https://github.com/gemu2015/"
-        "Sonoff-Tasmota/releases).\n\n"
-        "The `testing` tag always points at the latest **TinyC Test Build** — "
-        "upload the matching `.bin` (OTA) or `.factory.bin` (fresh flash) for your target, "
-        "then drop `tinyc_ide.html.gz` onto the device filesystem.\n",
-        encoding="utf-8",
-    )
+    path.write_text(RELEASES_PAGE, encoding="utf-8")
     print(f"  wrote {path.relative_to(ROOT)}")
 
 

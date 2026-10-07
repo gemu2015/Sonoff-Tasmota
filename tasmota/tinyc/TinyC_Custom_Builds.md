@@ -53,6 +53,7 @@ configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 | `-DTINYC_NO_SCRIPTER` | Exclude Tasmota Scripter engine (~120 KB flash saved) | Recommended |
 | `-DTINYC_HOMEKIT` | Enable Apple HomeKit support (**≈+152 KB flash**) | **S3/16 MB only** by policy — links on 4 MB but leaves too little headroom (see Flash Budget) |
 | `-DTINYC_MATTER` | Enable Matter (`USE_MATTER_C`, pure-C engine). **Mutually exclusive with `-DTINYC_HOMEKIT`** — same build slot; the gate enables one or the other. Crypto rides on the resident BearSSL, so the incremental flash is modest. | Opt-in (e.g. the `tinyc32c6-matter` env) |
+| `-DUSE_MATTER_C_PLUGIN_ONLY` | Use together with `-DTINYC_MATTER`: leaves the built-in Matter engine OUT (saves about 33 KB of static RAM, used or not) and loads Matter as the `MATTERF` plugin instead. This is how the pre-built C3, C6 and P4 builds are made; the S3 keeps the engine built in. Install steps: [`docs/MATTER_PLUGIN.md`](docs/MATTER_PLUGIN.md) | Opt-in |
 | `-DTINYC_CAMERA` | Enable integrated camera driver (ESP32/S3 only, not RISC-V) — **≈+42 KB flash** | ESP32/S3 builds |
 | `-DUSE_TINYC_BLE` | Enable BLE scripting (scan + GATT client). Pulls in `USE_BLE_ESP32` (the common-BLE driver) — **≈+292 KB flash / +9 KB RAM**. Requires NimBLE-capable framework (BT enabled in sdkconfig) and `-DCONFIG_NIMBLE_CPP_IDF` globally. ESP32 family only. Off → BLE builtins are runtime no-ops | Opt-in (e.g. the `tinyc32s3-ble` env) |
 | `-DTINYC_NO_DISPLAY` | Exclude display support (~80 KB flash saved) | Optional |
@@ -64,7 +65,7 @@ configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 ## Flash Budget (measured, `tinyc32-4M` — classic ESP32 4 MB, the tightest target)
 
 The 4 MB ESP32 app partition (`app1856k`) is a hard wall at **1,900,544 B (1856 KB)**.
-Numbers below are measured firmware deltas on this env (commit-era 1.6.8):
+Numbers below are measured firmware deltas on this env (commit-era 1.6.8; the shipped `tinyc32-4M-plain` of v1.6.72 is 1,657,136 B, i.e. about 238 KB free, with the same ceiling):
 
 | Component | Flash | Notes |
 |---|---:|---|
@@ -74,7 +75,7 @@ Numbers below are measured firmware deltas on this env (commit-era 1.6.8):
 | HomeKit (`-DTINYC_HOMEKIT`) | **+152 KB** | technically fits 4 MB (→ ≈108 KB free) but leaves too little headroom — see rule of thumb |
 | Camera (`-DTINYC_CAMERA`) | +42 KB | cheap; keep it |
 | BLE (`-DUSE_TINYC_BLE` → `USE_BLE_ESP32`) | **+292 KB** (+≈9 KB RAM) | the heaviest optional subsystem — pulls in NimBLE. Too big for the 4 MB ESP32 alongside the full TinyC stack; use S3/16 MB (env `tinyc32s3-ble` drops Matter/camera for headroom). Off by default |
-| TinyC IDE blob (`tinyc_ide.html.gz`) | ~165 KB | lives on the **filesystem partition, not app0** — does *not* count against the 1856 KB ceiling |
+| TinyC IDE blob (`tinyc_ide.html.gz`) | ~265 KB (v1.6.72) | lives on the **filesystem partition, not app0** — does *not* count against the 1856 KB ceiling |
 
 **Rule of thumb:** on 4 MB ESP32 (Tensilica), TinyC (~196 KB) is the single
 largest optional subsystem — bigger than HomeKit. Enabling HomeKit *would*

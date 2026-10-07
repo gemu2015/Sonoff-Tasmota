@@ -1,17 +1,18 @@
 # TinyC fuer Tasmota
 
-**TinyC** ist ein C-Subset-Compiler mit virtueller Maschine, der auf ESP32 und ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code wird im Browser-IDE geschrieben, zu portablem Bytecode kompiliert, auf das Geraet hochgeladen und ausgefuehrt — ohne Firmware-Neubau, ohne Compiler auf dem Geraet.
+**TinyC** ist ein C-Subset-Compiler mit virtueller Maschine, der auf der ESP32-Familie (ESP32, S3, C3, C6, P4) und, mit kleinerem Funktionsumfang, auf dem ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code wird im Browser-IDE geschrieben, zu portablem Bytecode kompiliert, auf das Geraet hochgeladen und ausgefuehrt — ohne Firmware-Neubau, ohne Compiler auf dem Geraet.
 
 ![TinyC Browser-IDE](images/Tinyc_ide.png){ loading=lazy }
 
 ## Warum TinyC
 
-- **Portabler Bytecode** — einmal kompilieren, dasselbe Binaerformat laeuft auf ESP32, ESP32-S3, ESP32-C3 oder ESP8266.
-- **Kein Compiler auf dem Geraet** — die VM benoetigt ~12 KB Flash. Kompiliert wird im Browser.
-- **Bekannte C-Syntax** — `int`, `float`, Arrays, Funktionen, `for` / `while` / `if` — keine neue Sprache.
-- **10-mal schneller als Skript-Interpreter** — direkt gekoppelter Bytecode-Dispatch ohne Neu-Parsen des Quelltexts.
-- **Echte Hintergrundtasks** — `TaskLoop()` laeuft in einem eigenen FreeRTOS-Task (ESP32) mit voller `delay()`-Unterstuetzung.
-- **Tiefe Tasmota-Integration** — direkter Zugriff auf SML, I2C, Display-Treiber, HomeKit, UDP-Multicast und Webcalls.
+- **Portabler Bytecode** — einmal kompilieren, dasselbe Binaerformat laeuft auf ESP32, ESP32-S3, ESP32-C3, ESP32-C6, ESP32-P4 oder ESP8266. Ein Programm braucht eine Firmware mit gleicher oder neuerer Syscall-ABI: die Firmware weist neueren Bytecode beim Laden ab, und die IDE uebersetzt passend zur ABI des verbundenen Geraets.
+- **Kein Compiler auf dem Geraet** — kompiliert wird im Browser, in der Firmware steckt weder Parser noch Codegenerator. Der Interpreter selbst ist winzig; der gesamte TinyC-Treiber (VM, Systemaufrufe, Web-Widgets, IDE-Auslieferung, Hardware-Anbindungen) belegt aber etwa 200 KB Flash — das Flash-Budget steht unter [Eigene Builds](custom-builds.md).
+- **Bekannte C-Syntax** — `int`, `float`, `char[]`, Strukturen, 2D-Arrays, Funktionszeiger, Referenzparameter, gepackte `byte[]`- / `int16[]`-Arrays, `#include` und `#if` — keine neue Sprache.
+- **Viel schneller als Skript-Interpreter** — direkt gekoppelter Bytecode-Dispatch mit Superinstruktionen ohne Neu-Parsen des Quelltexts; die Benchmark-Suite laeuft schneller als Berry auf demselben Chip.
+- **Echte Hintergrundtasks** — bis zu sechs VM-Slots auf dem ESP32 (einer auf dem ESP8266), und `TaskLoop()` laeuft in einem eigenen FreeRTOS-Task mit voller `delay()`-Unterstuetzung.
+- **Tiefe Tasmota-Integration** — direkter Zugriff auf SML-Zaehler, I2C, SPI, 1-Wire, seriell, Display-Treiber, UDP-Multicast, MQTT, HTTP/TLS, Mail und Webseiten.
+- **Mehr als Sensoren** — **Matter**-Geraete definieren (Apple Home, Google Home, Alexa), **Bluetooth LE** und Bluetooth Classic, **Kamera** mit Bewegungs- und Personenerkennung, ein **FTP-Client** (z. B. ein Logger auf dem FRITZ!NAS), FTDI-Geraete ueber den **USB-Host** des ESP32-S3, **LVGL**-Touch-Oberflaechen und Sprachausgabe ueber das **TTS-Plugin**.
 
 ## Hier beginnen
 
@@ -51,7 +52,7 @@
 
 ## Neueste Version
 
-Die aktuellste Test-Firmware, das IDE-Paket und die Dokumentation liegen immer am [testing](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing)-Release-Tag.
+Die aktuellste Test-Firmware, das IDE-Paket, die Plugins und die Dokumentation liegen immer am [testing](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing)-Release-Tag; jeder Bau hat ausserdem ein eigenes `v<Version>`-Release. Was sich in welcher Version geaendert hat und welche Firmware ein uebersetztes Programm braucht (die Syscall-ABI-Tabelle), steht im [Changelog](https://github.com/gemu2015/Sonoff-Tasmota/blob/universal/tasmota/tinyc/CHANGELOG.md).
 
 ---
 
