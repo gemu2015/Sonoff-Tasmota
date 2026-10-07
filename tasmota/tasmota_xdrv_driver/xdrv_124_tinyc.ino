@@ -194,6 +194,14 @@ static SemaphoreHandle_t tc_jpg_mutex = xSemaphoreCreateMutex();
 int32_t tc_dl_person_run(int32_t schwelle_x100);
 int32_t tc_dl_person_get(int32_t sel);
 #endif
+// /tcrepo ("Run IDE from repo": the full IDE pulled from the repository into the browser, nothing but a ~6 KB
+// page on the device) is ON by default in every TinyC build -- the "Run IDE from repo" button of the console page
+// and the way to use TinyC without the 265 KB IDE file on the device. Before 1.6.73 it needed -DUSE_TINYC_REPO_IDE,
+// which only some of our own environments set (in a git-ignored platformio_override.ini), so a build from the
+// repository did not have it. -DTINYC_NO_REPO_IDE leaves it out (about 6 KB of flash).
+#if !defined(USE_TINYC_REPO_IDE) && !defined(TINYC_NO_REPO_IDE)
+#define USE_TINYC_REPO_IDE
+#endif
 #include "include/xdrv_124_tinyc_vm.h"
 #include "include/xdrv_124_tinyc_repoide.h"   // /tcrepo page (USE_TINYC_REPO_IDE)
 
