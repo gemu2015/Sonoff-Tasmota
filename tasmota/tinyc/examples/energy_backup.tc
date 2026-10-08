@@ -45,6 +45,9 @@
 //
 // Zugangsdaten: /ftp.cfg (vier Zeilen: Host, Benutzer, Passwort, eine Zieldatei
 // wie bei ftp_log.tc) -- das Zielverzeichnis ist deren Ordner + "/energie".
+// Optionale FUENFTE Zeile: die Quelle, von der die Datenbanken geholt werden (Scripter-
+// Downloadport des Energy Managers), z. B.  http://192.168.178.61:82/ufs/  -- fehlt sie,
+// gilt die Vorgabe unten (der Energy Manager des Autors).
 //
 // Konsole (Praefix EBAK):
 //   EBAKNOW            jetzt: laufender Monat + Tagesdatenbank
@@ -59,7 +62,7 @@
 // Alles laeuft in TaskLoop(): Abruf und FTP blockieren, dort darf das sein.
 // ─────────────────────────────────────────────────────────────────────
 
-#define SRC      "http://192.168.188.61:82/ufs/"
+char src[96] = "http://192.168.188.61:82/ufs/";    // Vorgabe; ueberschrieben von Zeile 5 der /ftp.cfg
 #define START_J  2021
 #define START_M  12
 // ⚠️⚠️ Erster Eintrag der 15-Minuten-Datenbank. Beginnt ein Bereich VOR ihm
@@ -241,8 +244,8 @@ void trim(char s[]) {
 int cfgLesen() {
     int f = fileOpen("/ftp.cfg", 0);
     if (f < 0) { return 0; }
-    char cfg[256];
-    int n = fileRead(f, cfg, 255);
+    char cfg[384];
+    int n = fileRead(f, cfg, 383);
     fileClose(f);
     if (n <= 0) { return 0; }
     cfg[n] = 0;
@@ -251,6 +254,14 @@ int cfgLesen() {
     strToken(user, cfg, '\n', 2); trim(user);
     strToken(pw,   cfg, '\n', 3); trim(pw);
     strToken(ziel, cfg, '\n', 4); trim(ziel);
+    // optionale fuenfte Zeile: Quelle (Scripter-Downloadport); ohne sie bleibt die Vorgabe
+    char quelle[96];
+    quelle[0] = 0;
+    strToken(quelle, cfg, '\n', 5); trim(quelle);
+    if (strlen(quelle) > 8) {
+        strcpy(src, quelle);
+        if (src[strlen(src) - 1] != '/') { strcat(src, "/"); }
+    }
     // Ordner der Zieldatei + /energie
     int i = strlen(ziel) - 1;
     while (i > 0 && ziel[i] != '/') { i = i - 1; }
@@ -262,7 +273,7 @@ int cfgLesen() {
 // ── .61 schonen: ist Port 82 frei? ───────────────────────────────────
 int port82Frei() {
     char url[96];
-    strcpy(url, SRC); strcat(url, "tinyc.cfg");
+    strcpy(url, src); strcat(url, "tinyc.cfg");
     int r = fileDownload("/ebak_probe.txt", url);
     return (r == 200);
 }
@@ -359,9 +370,9 @@ int monatSichern(int y, int m) {
     if (nm > 12) { nm = 1; ny = y + 1; }
     char url[160];
     if (y == START_J && m == START_M) {
-        sprintf(url, "%senergy_15_log.txt@%s_1.%d.%02d-01:00", SRC, ERSTER, nm, ny % 100);
+        sprintf(url, "%senergy_15_log.txt@%s_1.%d.%02d-01:00", src, ERSTER, nm, ny % 100);
     } else {
-        sprintf(url, "%senergy_15_log.txt@1.%d.%02d-00:00_1.%d.%02d-01:00", SRC, m, y % 100, nm, ny % 100);
+        sprintf(url, "%senergy_15_log.txt@1.%d.%02d-00:00_1.%d.%02d-01:00", src, m, y % 100, nm, ny % 100);
     }
     // Bis zu drei Versuche; der beste wird behalten (/ebak_best*.txt).
     int bestWert = -1; int versuch = 0; int versuche = 0;
@@ -479,7 +490,7 @@ int mlogPruefen() {
 }
 
 int mlogSichern() {
-    char url[96]; strcpy(url, SRC); strcat(url, "energy_m_log.txt");
+    char url[96]; strcpy(url, src); strcat(url, "energy_m_log.txt");
     int versuch = 0; int bad = -1;
     while (versuch < 3) {
         versuch = versuch + 1;
