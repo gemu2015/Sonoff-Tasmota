@@ -326,6 +326,7 @@ script defines the device (see \`matter_*.tc\` examples); open pairing from the
 
 ### How to flash:
 - OTA: Firmware Upgrade → Upload \`.bin\` file
+- ⚠️ **Coming from official Tasmota or another firmware?** The saved settings carry a different ID, so the device starts with **default settings, Wi-Fi included**, and without Wi-Fi it opens the access point \`tasmota-XXXXXX-NNNN\` (open, \`http://192.168.4.1\`): enter the Wi-Fi again. Make a backup first (\`Backup Configuration\`). On an ESP32 the first upload goes into Safeboot, where the same file has to be uploaded a second time — wait until it is done, that page shows no progress.
 - Factory install: Use \`.factory.bin\` with esptool or web installer
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System),
   or run \`TinyCIde\` in the console — a firmware flash does **not** replace the IDE
