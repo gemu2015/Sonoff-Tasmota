@@ -126,6 +126,7 @@ moritz_dash.tcb
 multipage_demo.tcb
 music_fft.tcb
 music_ui.tcb
+nas_log_upload.tcb
 onewire.tcb
 persist_array_file.tcb
 persist_byte_test.tcb

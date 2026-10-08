@@ -1,0 +1,145 @@
+// nas_backup.tc - copy local files to a NAS over FTP (FRITZ!NAS, Synology, any FTP server) and free the space.
+//
+// Why (mi-hol, discussion #126, 08.10.2026): a device that logs to its own small file system (Tasmota FileLog, a CSV,
+// a black box) runs out of space; the data belongs on the NAS. This is the "move files to the NAS" part, written once
+// so that any script can use it.
+//
+// Setup: /ftp.cfg on the device, four lines, the same file as ftp_log.tc and energy_backup.tc use:
+//     192.168.178.1                    (the IP - a Fritzbox refuses PASV over IPv6, so not fritz.box)
+//     esp
+//     secret
+//     /FRITZ/mediabox/anything.csv     (only its FOLDER counts here)
+// Everything lands in that folder plus a sub folder (nb_sub, default "esp-backup"), created on first use.
+//
+// Use (from TaskLoop - FTP blocks, which is fine there; never from EverySecond):
+//   #include "nas_backup.tc"
+//   int main() { ...  nb_start("kitchen"); ... }      // reads /ftp.cfg, logs in; "kitchen" starts the NAS file names
+//   void TaskLoop() { ...  nb_logs(); ... }            // e.g. every 10 minutes: finished Tasmota log files -> NAS
+// Other files:
+//   nb_put("/data.csv", "data.csv", 1)   send /data.csv to <folder>/data.csv (1 = append, 0 = replace). >= 0 bytes, < 0 error
+//   nb_move("/old.csv", "old.csv")       send it, then delete the local file - only if it did not change meanwhile
+//
+// - nb_start() may fail at boot (no Wi-Fi yet, -2). Every nb_put()/nb_move() then tries again by itself, so calling
+//   it once from main() is enough.
+// - nb_logs() moves Tasmota's FileLog files (/log01 .. /log16) under unique names
+//   <name>_<yyyymmdd>-<hhmm>_log<NN>.txt. A file is only moved when its size is the SAME as at the previous call:
+//   the file Tasmota is still writing keeps growing and stays put, a finished one (rotated away) is moved. No line is
+//   sent twice and none is lost. The first call after a start only takes the sizes. nb_logmin = smallest file to move.
+// - If a file changes while it is being sent, it is kept and sent again by the next round (a copy of it may then
+//   already be on the NAS under its older name - harmless, never half a file).
+// - A failed transfer stops the round (nb_last holds the code, see "FTP Client" in the reference); nothing is deleted.
+
+char nb_host[64];
+char nb_user[32];
+char nb_pw[32];
+char nb_dir[96];
+char nb_sub[24]  = "esp-backup";    // sub folder next to the file named in /ftp.cfg
+char nb_name[24] = "esp";           // start of the file names on the NAS
+int  nb_ready  = 0;                 // 1 after /ftp.cfg was read and the login worked
+int  nb_last   = 0;                 // last FTP return value (bytes, 0 = ok, < 0 = error)
+int  nb_sent   = 0;                 // bytes sent since start
+int  nb_files  = 0;                 // files moved since start
+int  nb_logmin = 1;                 // nb_logs(): only files of at least this many bytes
+int  nb_prev[16];                   // nb_logs(): size of /log01../log16 at the previous call
+
+void nb_trim(char s[]) {
+    int n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n = n - 1; s[n] = 0; }
+}
+
+// Size of a file in bytes, -1 if it is not there. (fileSize() only accepts a string literal, so a path in a char[]
+// goes through fileSeek/fileTell.)
+int nb_size(char p[]) {
+    int f = fileOpen(p, 0);
+    if (f < 0) { return -1; }
+    fileSeek(f, 0, 2);
+    int n = fileTell(f);
+    fileClose(f);
+    return n;
+}
+
+// Read /ftp.cfg and log in. name = start of the file names ("" keeps the current one). Returns 0, or a negative code:
+// -11 no /ftp.cfg, otherwise the ftpOpen() error.
+int nb_start(char name[]) {
+    if (strlen(name) > 0 && strlen(name) < 24) { strcpy(nb_name, name); }
+    nb_ready = 0;
+    int f = fileOpen("/ftp.cfg", 0);
+    if (f < 0) { return -11; }
+    char cfg[320];
+    int n = fileRead(f, cfg, 319);
+    fileClose(f);
+    if (n <= 0) { return -11; }
+    cfg[n] = 0;
+    char ziel[96];
+    strToken(nb_host, cfg, '\n', 1); nb_trim(nb_host);
+    strToken(nb_user, cfg, '\n', 2); nb_trim(nb_user);
+    strToken(nb_pw,   cfg, '\n', 3); nb_trim(nb_pw);
+    strToken(ziel,    cfg, '\n', 4); nb_trim(ziel);
+    int i = strlen(ziel) - 1;                       // the folder of the target file ...
+    while (i > 0 && ziel[i] != '/') { i = i - 1; }
+    strSub(nb_dir, ziel, 0, i);
+    strcat(nb_dir, "/");
+    strcat(nb_dir, nb_sub);                         // ... plus the sub folder
+    int r = ftpOpen(nb_host, nb_user, nb_pw);
+    nb_last = r;
+    if (r != 0) { return r; }
+    ftpMkdir(nb_dir);                               // fine if it exists (the server's refusal is only logged)
+    nb_ready = 1;
+    return 0;
+}
+
+int nb_ensure() {
+    if (nb_ready) { return 1; }
+    return nb_start("") == 0;
+}
+
+// Send the local file to <folder>/<name>. mode 1 = append, 0 = replace. Returns the bytes sent or a negative code.
+int nb_put(char local[], char name[], int mode) {
+    if (!nb_ensure()) { return -10; }
+    char remote[128];
+    sprintf(remote, "%s/%s", nb_dir, name);
+    int r = ftpPut(remote, local, mode);
+    nb_last = r;
+    if (r >= 0) { nb_sent = nb_sent + r; }
+    return r;
+}
+
+// Send the file, then delete it - but only if it has the same size afterwards. Returns the bytes sent, 0 when there
+// was nothing to send or the file changed meanwhile (it stays), or a negative code (nothing deleted).
+int nb_move(char local[], char name[]) {
+    int s1 = nb_size(local);
+    if (s1 <= 0) { return 0; }
+    int r = nb_put(local, name, 0);
+    if (r < 0) { return r; }
+    if (nb_size(local) != s1) { return 0; }
+    fileDelete(local);
+    nb_files = nb_files + 1;
+    return r;
+}
+
+// Move the finished Tasmota log files (FileLog: /log01 .. /log16) to the NAS. Call it regularly from TaskLoop.
+// Returns how many files were moved.
+int nb_logs() {
+    int moved = 0;
+    int i = 1;
+    char path[16];
+    char name[64];
+    while (i <= 16) {
+        sprintf(path, "/log%02d", i);
+        int sz = nb_size(path);
+        if (sz >= nb_logmin && sz == nb_prev[i - 1]) {
+            sprintf(name, "%s_%04d%02d%02d-%02d%02d_log%02d.txt", nb_name, tasm_year, tasm_month, tasm_day, tasm_hour, tasm_minute, i);
+            int r = nb_move(path, name);
+            if (r < 0) { return moved; }            // network or NAS trouble: stop, try again next time
+            if (r > 0) { moved = moved + 1; }
+        }
+        nb_prev[i - 1] = nb_size(path);            // -1 once it is gone
+        i = i + 1;
+    }
+    return moved;
+}
+
+// One line of text for a web page or a command answer
+void nb_status(char b[]) {
+    sprintf(b, "%s: %d files, %d bytes sent, last %d", nb_ready ? "NAS ok" : "NAS not connected", nb_files, nb_sent, nb_last);
+}

@@ -3209,6 +3209,8 @@ Alle Zeichenketten duerfen Literale oder `char[]` sein. `remote` ist der Pfad au
 
 **Zugangsdaten gehoeren nicht in den Quelltext.** `examples/ftp_log.tc` liest Host, Benutzer, Passwort und Zielpfad aus `/ftp.cfg` auf dem Geraet (vier Zeilen) und schreibt sie mit `FTPSAVE` dorthin zurueck; das Beispiel unten ist auf das Wesentliche gekuerzt.
 
+**Dateien auf das NAS verschieben.** `#include "nas_backup.tc"` (`examples/common/`) liest dieselbe `/ftp.cfg` und kopiert lokale Dateien in einen Unterordner neben der dort genannten Datei: `nb_put(lokal, name, anhaengen)` sendet eine Datei, `nb_move(lokal, name)` sendet sie und loescht sie danach lokal — nur wenn sie sich inzwischen nicht geaendert hat —, und `nb_logs()` verschiebt die fertigen Tasmota-`FileLog`-Dateien (`/log01` … `/log16`) unter eindeutigen Namen, damit ein langes Protokoll weder ein kleines Dateisystem fuellt noch bei einem Reset verloren geht. Aufruf aus `TaskLoop()`. Vollstaendiges Beispiel: `examples/nas_log_upload.tc`.
+
 ```c
 char zeilen[512];              // gesammelte Messzeilen
 char stamp[24];

@@ -3279,6 +3279,8 @@ All strings may be literals or `char[]`. `remote` is the path on the server; on 
 
 **Credentials do not belong in the source.** `examples/ftp_log.tc` reads host, user, password and remote path from `/ftp.cfg` on the device (four lines) and writes them back with `FTPSAVE`; the example below is cut down to the essentials.
 
+**Moving files to the NAS.** `#include "nas_backup.tc"` (`examples/common/`) reads the same `/ftp.cfg` and copies local files into a sub folder next to the file named there: `nb_put(local, name, append)` sends a file, `nb_move(local, name)` sends it and then deletes it locally — only if it did not change meanwhile — and `nb_logs()` moves the finished Tasmota `FileLog` files (`/log01` … `/log16`) under unique names, so a long log neither fills a small file system nor is lost in a reset. Call them from `TaskLoop()`. Complete example: `examples/nas_log_upload.tc`.
+
 ```c
 char lines[512];               // collected readings
 char stamp[24];

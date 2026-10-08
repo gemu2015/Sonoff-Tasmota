@@ -838,7 +838,7 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 **LEDs** — `ledbar.tc`
 **Touch / UI** — `touch_buttons.tc`, `tinyui_demo.tc`, `tinyui_dashboard.tc`, `multipage_demo.tc`
 **Web** — `web_buttons.tc`, `web_handler.tc`, `webcall_demo.tc`, `webui_demo.tc`
-**Network** — `udp.tc`, `live_chart.tc`
+**Network** — `udp.tc`, `live_chart.tc`, `ftp_log.tc` (readings → NAS), `nas_log_upload.tc` (FileLog files → NAS, library `common/nas_backup.tc`)
 **Audio** — `wav_player.tc` (I²S + WM8960)
 **Camera (ESP32)** — `camera.tc`, `webcam.tc`, `webcam_tinyc.tc`, `snap_with_timestamp.tc`
 **Power / energy** — `powerwall.tc` (Tesla), `sma_speedwire.tc`, `core2_energy.tc`

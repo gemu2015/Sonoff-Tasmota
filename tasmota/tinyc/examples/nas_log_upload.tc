@@ -1,0 +1,65 @@
+// @name: Logdateien auf das NAS (FileLog -> FRITZ!NAS)
+// @info: https://github.com/gemu2015/Sonoff-Tasmota/discussions/126
+// ─────────────────────────────────────────────────────────────────────
+// nas_log_upload.tc - move the finished Tasmota log files to the NAS, so a long FileLog neither fills the device's
+// small file system nor is lost when the device resets.
+//
+// mi-hol (discussion #126, 08.10.2026): "logfile will exhaust free disc space within a few days". With
+//     FileLog 2          (rotating: /log01 .. /log16, 100 kB each, the oldest is removed when less than 10 kB are free)
+// the log uses ALL free space. This script moves every log file that Tasmota has finished (the file is no longer
+// growing) to the NAS and deletes it locally, so the file system stays almost empty. It needs the same /ftp.cfg as
+// ftp_log.tc (host, user, password, a file on the NAS - only its folder is used) and works with the library
+// common/nas_backup.tc; the files land in <folder>/esp-backup/ as <name>_<date>-<time>_logNN.txt.
+//
+// Console (prefix NASLOG):
+//   NASLOG          move now (instead of waiting for the next round)
+//   NASLOG STAT     status line
+//
+// ⚠️ Set a small size in your own build if the file system is tiny: -DFILE_LOG_SIZE=20 (kB per file) gives much finer
+//    pieces; with the default 100 kB a file is only moved once it has been rotated away.
+// ─────────────────────────────────────────────────────────────────────
+
+#include "nas_backup.tc"
+
+#define ROUND_S  600        // look for finished files every 10 minutes
+
+int go = 0;
+char st[96] = "-";
+
+void EverySecond() {
+    if (tasm_uptime % ROUND_S == 120) { go = 1; }   // two minutes after the start, then every ten
+}
+
+void TaskLoop() {
+    delay(1000);
+    if (!go) { return; }
+    go = 0;
+    int n = nb_logs();
+    nb_status(st);
+    if (n > 0) { addLog("NASLOG: %d file(s) moved", n); }
+}
+
+void Command(char cmd[]) {
+    char r[128];
+    if (strcmp(cmd, "STAT") == 0) {
+        nb_status(st);
+        sprintf(r, "{\"NASLOG\":\"%s\"}", st);
+        responseCmnd(r);
+        return;
+    }
+    go = 1;
+    responseCmnd("NASLOG: will run in a moment");
+}
+
+void WebCall() {
+    char b[160];
+    sprintf(b, "{s}NAS-Log{m}%s{e}", st);
+    webSend(b);
+}
+
+int main() {
+    addCommand("NASLOG");
+    nb_start("esp");
+    nb_status(st);
+    return 0;
+}
