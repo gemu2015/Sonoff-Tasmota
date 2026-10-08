@@ -137,6 +137,7 @@ rgb_led.tcb
 rgb_selftest.tcb
 rsa_test.tcb
 scd30.tcb
+sensor_log87.tcb
 sensor_read.tcb
 sgp30.tcb
 share_reader.tcb
@@ -212,3 +213,4 @@ webradio.tcb
 webui_demo.tcb
 webui_dynamic.tcb
 webui_watchdog.tcb
+zeitschaltuhr.tcb
