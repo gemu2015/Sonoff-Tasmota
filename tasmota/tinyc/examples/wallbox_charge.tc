@@ -1,3 +1,4 @@
+// @name: Wallbox PV-Surplus Charging
 // wallbox_charge.tc — PV-surplus charging control for an ON/OFF wallbox at .146.
 //
 // Binary ~3.5 kW load. Charge the EV from solar surplus WITHOUT draining the

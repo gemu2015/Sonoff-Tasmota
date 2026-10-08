@@ -1,3 +1,4 @@
+// @name: Pool Heat Pump (Tuya local)
 // ─────────────────────────────────────────────────────────────────────
 // pool_pump.tc — Tuya local-protocol client for a "Swimming Pool Heat Pump"
 // (Tuya category 'qn'). Reads & controls without any cloud dependency

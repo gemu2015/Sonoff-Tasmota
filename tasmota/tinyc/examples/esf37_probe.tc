@@ -1,3 +1,4 @@
+// @name: Etekcity ESF37 GATT Probe
 // esf37_probe.tc — GATT subscribe-notify probe for the Etekcity ESF37 scale
 //
 // GOAL (tests the 2026-05-29 research hypothesis):

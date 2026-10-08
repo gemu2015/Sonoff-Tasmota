@@ -1,3 +1,4 @@
+// @name: byte[] Syscall Test (no hardware)
 // byte_syscall_test.tc — byte[] als Syscall-Argument prüfen (TinyC 1.6.57+).
 // Beweist: byte[] funktioniert bei den byte-orientierten Syscalls und liefert
 // dasselbe wie die bekannten Sollwerte. Läuft OHNE Hardware (Krypto/Hex),

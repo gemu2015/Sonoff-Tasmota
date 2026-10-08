@@ -1,3 +1,4 @@
+// @name: Sensor Log (CSV on flash, every 2 minutes)
 // sensor_log87.tc - one CSV line every two minutes with every sensor of the "Umgebungssensoren" box (.87), kept on the
 // device's own flash so a week without anybody reading it is covered.
 //

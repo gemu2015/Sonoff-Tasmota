@@ -2989,8 +2989,15 @@ static void HandleTinyCPage(void) {
             // build.html keeps writing), new firmware against an old repo falls
             // back here. Entries are {file,name,info}; anything missing degrades
             // to exactly the old behaviour, the bare filename.
-            "function tcOpt(s,f,n,u){var o=document.createElement('option');"
-            "o.value=f;o.textContent=n?n+' ('+f+')':f;if(u)o.dataset.u=u;s.appendChild(o)}"
+            // ⚠️ GLEICHES ETIKETT WIE DIE IDE (gemu2015/Sonoff-Tasmota#128, mi-hol): „Name (datei)" OHNE
+            // „.tcb", und die Liste nach DIESEM Etikett sortiert — nicht nach Dateiname, sonst steht
+            // „Etekcity ESF37 Scale" scheinbar zufaellig zwischen den e-Dateien. Die IDE-Liste
+            // „Repo Examples" bildet dasselbe Etikett aus index.json.
+            "function tcLb(e){var n=e.name||e.n||'',f=e.file||e.f||'';"
+            "if(f.slice(-4)=='.tcb')f=f.slice(0,-4);return n?n+' ('+f+')':f}"
+            "function tcOpt(s,f,n,u){var o=document.createElement('option'),"
+            "b=f.slice(-4)=='.tcb'?f.slice(0,-4):f;"
+            "o.value=f;o.textContent=n?n+' ('+b+')':b;if(u)o.dataset.u=u;s.appendChild(o)}"
             "function tcrU(){var s=document.getElementById('tcrf');"
             "return s&&s.selectedIndex>=0?(s.options[s.selectedIndex].dataset.u||''):''}"
             "function tcrI(){var u=tcrU();if(u)window.open(u,'_blank','noopener')}"
@@ -3023,7 +3030,8 @@ static void HandleTinyCPage(void) {
             "function tcTxt(s,f){return fetch(tcB()+'/index.txt',{cache:f?'reload':'default'})"
             ".then(function(r){if(!r.ok)throw r.status;return r.text()}).then(function(t){"
             "var ls=t.split(String.fromCharCode(10)).map(function(x){return x.trim()})"
-            ".filter(function(x){return x.slice(-4)=='.tcb'});s.innerHTML='';"
+            ".filter(function(x){return x.slice(-4)=='.tcb'})"
+            ".sort(function(a,b){a=a.toLowerCase();b=b.toLowerCase();return a<b?-1:a>b?1:0});s.innerHTML='';"
             "if(!ls.length){s.innerHTML='<option>(empty)</option>';return}"
             "ls.forEach(function(n){tcOpt(s,n,'','')})})}"
             // ⚠️ DIE ALTE MELDUNG ZUERST WEG. Sie wird nur im Fehlerfall
@@ -3037,7 +3045,9 @@ static void HandleTinyCPage(void) {
             "var m0=document.getElementById('tcrmsg');if(m0)m0.textContent='';"
             "fetch(tcB()+'/index.json',{cache:f?'reload':'default'}).then(function(r){"
             "if(!r.ok)throw r.status;return r.json()}).then(function(j){"
-            "var ls=(j&&j.programs)||j;if(!ls||!ls.length)throw 'empty';s.innerHTML='';"
+            "var ls=(j&&j.programs)||j;if(!ls||!ls.length)throw 'empty';"
+            "ls=ls.slice().sort(function(a,b){return tcLb(a).localeCompare(tcLb(b),undefined,{sensitivity:'base'})});"
+            "s.innerHTML='';"
             "ls.forEach(function(e){var u=e.info||'';"
             "if(u&&u.slice(0,7)!='http://'&&u.slice(0,8)!='https://')u='';"
             "tcOpt(s,e.file||e.f||'',e.name||e.n||'',u)});tcrL()})"

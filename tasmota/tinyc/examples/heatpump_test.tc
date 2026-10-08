@@ -1,3 +1,4 @@
+// @name: Heat Pump Modbus Sniffer
 // ============================================================================
 // heatpump_test.tc — bare-bones heatpump Modbus sniffer (2026-05-11, threaded)
 //

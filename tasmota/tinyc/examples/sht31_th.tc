@@ -1,3 +1,4 @@
+// @name: SHT31 Temp & Humidity (plugin test)
 // SHT31 Temp & Humidity — tc2plugin PoC test variant (T+H only)
 // Trimmed copy of sht31.tc: dewpoint/abshumi REMOVED because they use
 // log()/exp() (jt-routed transcendentals). On real HW the plugin's

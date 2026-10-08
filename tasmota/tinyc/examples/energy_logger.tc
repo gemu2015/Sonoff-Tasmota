@@ -1,3 +1,4 @@
+// @name: Energy Logger (stand-in SD logger for the Energy Manager)
 // energy_logger.tc — stand-in SD logger for the Energy_Manager (.61)
 // ---------------------------------------------------------------------------
 // The Energy_Manager (.61, Scripter) still reads every meter/sensor and

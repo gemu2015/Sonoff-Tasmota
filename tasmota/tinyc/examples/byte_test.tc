@@ -1,3 +1,4 @@
+// @name: byte[] Arrays Test
 // byte_dev.tc — gepackte byte[]-Arrays am Gerät prüfen (TinyC 1.6.56).
 // Zeigt: Werte schreiben/lesen, Byte-Kappung, Speicherbedarf ein Viertel.
 

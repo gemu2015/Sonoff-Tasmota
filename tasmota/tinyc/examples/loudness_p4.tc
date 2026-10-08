@@ -1,3 +1,4 @@
+// @name: Mic Loudness Meter (ESP32-P4)
 // loudness_p4.tc — mic loudness/VU meter for the Waveshare ESP32-P4 10.1" board.
 //
 // Drives the on-board ES7210 4-mic ADC DIRECTLY over I2C (no audio plugin needed),

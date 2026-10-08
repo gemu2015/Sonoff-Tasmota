@@ -1,3 +1,4 @@
+// @name: Growatt Inverter (Modbus) + Feed-in Control
 // ============================================================================
 // growatt.tc — gemu's Growatt-inverter Modbus reader + feed-in control
 //              (growatt_garten, .63)

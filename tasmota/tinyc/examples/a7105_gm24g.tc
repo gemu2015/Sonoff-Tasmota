@@ -1,3 +1,4 @@
+// @name: A7105 GM2.4G Lamp Remote (reverse engineering)
 // a7105_gm24g.tc — A7105 receiver template with datasheet-correct
 // calibration sequence, plus a documented failed reverse-engineering
 // attempt of the GaoMei (高美) GM2.4G ceiling lamp remote protocol.

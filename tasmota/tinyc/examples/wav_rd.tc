@@ -1,3 +1,4 @@
+// @name: WAV Read Diagnostic
 // wav_rd.tc — READ-ONLY WAV diagnostic (no audio). Console: RD
 // Opens /doorbell16.wav, parses header, then reports BOTH the raw data bytes
 // (via fileRead) AND fileReadPCM16's samples, so we can see which one corrupts.

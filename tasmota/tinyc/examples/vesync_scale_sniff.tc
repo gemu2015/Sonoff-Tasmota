@@ -1,3 +1,4 @@
+// @name: Etekcity ESF37 Advertisement Sniffer
 // vesync_scale_sniff.tc — does the Etekcity ESF37 broadcast weight in its advertisement?
 //
 // PURPOSE (pre-check before the localKey/Tuya-handshake route):

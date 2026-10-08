@@ -1,3 +1,4 @@
+// @name: Loudness Gauge (ESP32-P4 10.1-inch)
 // loudness_gauge.tc — plugin-INDEPENDENT sound I/O demo for the Waveshare ESP32-P4 10.1".
 //
 //   OUTPUT: on boot, init the ES8311 DAC over I2C and play an intro .wav (i2sBegin TX).

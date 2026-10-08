@@ -1,3 +1,4 @@
+// @name: persist byte[] Test
 // persist_byte_test.tc — persist byte[] am Gerät prüfen (TinyC 1.6.57+).
 // Ein `byte[]` belegt (n+3)/4 Slots; persist muss GENAU so viele Slots
 // sichern, nicht die Elementzahl. Sonst liest die Firmware 4× zu viel.

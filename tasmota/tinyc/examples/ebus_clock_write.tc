@@ -1,3 +1,4 @@
+// @name: eBUS Active-Master Write Test
 // ebus_clock_write.tc — .39 eBUS active-master WRITE test (Mac<->.39 UART harness).
 //
 // Pairs with the SML emulator's "EBus responder (active-master write test)" mode and the

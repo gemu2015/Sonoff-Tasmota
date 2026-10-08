@@ -1,3 +1,4 @@
+// @name: WAV DAC Diagnostic (P4)
 // wav_diag.tc — diagnose the ES8311 DAC playback path on the P4. Console: WDGO to play,
 // WD to read the report. Reports each stage so we can see where the DAC path breaks.
 #define DAC_DOUT 9
