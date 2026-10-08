@@ -1,0 +1,541 @@
+// @name: Zeitschaltuhr (Zustandsregler)
+// zeitschaltuhr.tc - 8 timers that switch relays by STATE, not by event (gemu 08.10.2026, port of the old Scripter
+// "timer_web_gui_setup" script).
+//
+// Why not Tasmota's own Timer1..16: those fire at one instant, so after a power cut or a reboot the relay sits in the wrong
+// state until the next event. This script computes every minute whether each relay SHOULD be on right now and corrects it,
+// so the state is right at most one minute after the clock is valid (NTP) - including a reboot in the middle of an interval.
+//
+// Each timer: on/off, start and end as clock time / sunrise +- offset / sunset +- offset, random +- window (new every day),
+// relay, weekdays (an interval may run over midnight, then the START day counts). A global switch turns the whole thing off.
+// Hand switching: if a relay is switched by hand (button, web, app), the timers leave it alone until its wanted state next
+// CHANGES - exactly like the old script.
+//
+// Setup page: button "Zeitschaltuhr" on the main page. Main page: the standard digital clock (clock_header.tc), the timer list in the old script's colours
+// ("=> heute" marks timers that apply today) and the week plan as a Google Timeline chart. Console: ZSSTAT, ZSALL 0|1, ZSSET <n> <en|m1|m2|t1|t2|o1|o2|rn|rel|dy> <value>, ZSDAY <n> <0..6> <0|1>.
+// Needs latitude/longitude set (Latitude / Longitude) and USE_SUNRISE for the sun modes; without them 07:00 / 19:00 is used.
+// ⚠️ Timers are kept in persist fields AND in /zeitschaltuhr.cfg (see speichern/laden): an update of the script keeps them.
+//    Adding or removing a persist variable resets the persist fields; the file then restores them.
+
+#define NT 8                    // number of timers
+
+persist int zs_init = 0;
+persist int zs_an   = 0;                        // 1 = timers active
+persist int zs_en[8];                           // timer enabled
+persist int zs_m1[8];                           // start mode: 1 clock time, 2 sunrise, 3 sunset
+persist int zs_m2[8];                           // end mode
+persist int zs_t1[8];                           // start time as HHMM (mode 1)
+persist int zs_t2[8];
+persist int zs_o1[8];                           // start offset in minutes (modes 2, 3)
+persist int zs_o2[8];
+persist int zs_rn[8];                           // random window in minutes: start and end move together by -rn/2 .. +rn/2
+persist int zs_rel[8];                          // relay 1..n
+persist int zs_dy[8];                           // weekdays, bit 0 = Monday ... bit 6 = Sunday
+
+int von[8];                                     // today's start / end in minutes since midnight (random included)
+int bis[8];
+int soll_alt = -1;                              // wanted relay mask of the last evaluation (-1 = none yet)
+int bekannt = -1;                               // relay mask as we last knew it (to spot hand switching)
+int sperre = 0;                                 // relays switched by hand: hands off until the wanted state changes
+int tagnr = -1;                                 // calendar day von[]/bis[] were computed for
+int neu = 1;                                    // 1 = recompute von[]/bis[]
+int letzte_min = -1;
+int bereit = 0;                                 // 1 once main() is done: web callbacks and commands wait for it (a page request during the start
+                                                // - main() reads /zeitschaltuhr.cfg - once ended in a Bounds error)
+char pal[64] = "#e74c3c|#3498db|#2ecc71|#f39c12|#9b59b6|#1abc9c|#e67e22|#7f8c8d";
+char tage[16] = "MoDiMiDoFrSaSo";
+
+// ---------------------------------------------------------------- small helpers
+
+int sonnenauf() { int r = tasm_sunrise; if (r <= 0) { r = 420; } return r; }
+int sonnenunter() { int r = tasm_sunset; if (r <= 0) { r = 1140; } return r; }
+int nrelais() { int n = tasm_npwr; if (n < 1) { n = 1; } return n; }
+int tagidx() { return (tasm_wday + 5) % 7; }                          // Mon = 0 ... Sun = 6 (Tasmota: Sun = 1)
+int tagbit(int i, int d) { return (zs_dy[i] >> d) & 1; }
+
+int minuten(int modus, int hhmm, int off) {
+    int m;
+    if (modus == 2) { m = sonnenauf() + off; }
+    else { if (modus == 3) { m = sonnenunter() + off; } else { m = (hhmm / 100) * 60 + hhmm % 100; } }
+    while (m < 0) { m = m + 1440; }
+    while (m >= 1440) { m = m - 1440; }
+    return m;
+}
+
+// n-th word (0-based) of s into out; returns its length (0 = none)
+int wort(char s[], int n, char out[]) {
+    int i = 0; int w = 0; int k = 0; int len = strlen(s);
+    while (i < len) {
+        while (i < len && s[i] == ' ') { i++; }
+        if (i >= len) { break; }
+        if (w == n) {
+            while (i < len && s[i] != ' ' && k < 15) { out[k] = s[i]; k++; i++; }
+            out[k] = 0;
+            return k;
+        }
+        while (i < len && s[i] != ' ') { i++; }
+        w++;
+    }
+    out[0] = 0;
+    return 0;
+}
+
+void standard() {
+    int i;
+    for (i = 0; i < NT; i++) {
+        zs_en[i] = 0; zs_m1[i] = 1; zs_m2[i] = 1; zs_t1[i] = 800; zs_t2[i] = 900;
+        zs_o1[i] = 0; zs_o2[i] = 0; zs_rn[i] = 0; zs_rel[i] = 1; zs_dy[i] = 127;
+    }
+    zs_an = 0;
+    zs_init = 1;
+}
+
+// today's start/end of every timer (new random numbers); runs at midnight, at the start and after every change
+void berechnen() {
+    int i; int r;
+    for (i = 0; i < NT; i++) {
+        r = 0;
+        if (zs_rn[i] > 0) { r = random(0, zs_rn[i] + 1) - zs_rn[i] / 2; }
+        von[i] = minuten(zs_m1[i], zs_t1[i], zs_o1[i]) + r;
+        bis[i] = minuten(zs_m2[i], zs_t2[i], zs_o2[i]) + r;
+        while (von[i] < 0) { von[i] = von[i] + 1440; }
+        while (von[i] >= 1440) { von[i] = von[i] - 1440; }
+        while (bis[i] < 0) { bis[i] = bis[i] + 1440; }
+        while (bis[i] >= 1440) { bis[i] = bis[i] - 1440; }
+    }
+}
+
+// is timer i on at minute jetzt of weekday idx? an interval over midnight belongs to the day it STARTS on
+int aktiv(int i, int jetzt, int idx) {
+    int a = von[i]; int b = bis[i];
+    int gestern = (idx + 6) % 7;
+    if (a == b) { return 0; }
+    if (a < b) {
+        if (tagbit(i, idx) == 1 && jetzt >= a && jetzt < b) { return 1; }
+        return 0;
+    }
+    if (tagbit(i, idx) == 1 && jetzt >= a) { return 1; }
+    if (tagbit(i, gestern) == 1 && jetzt < b) { return 1; }
+    return 0;
+}
+
+// ---------------------------------------------------------------- control
+
+void setze(int r, int an) {                     // r = 0-based relay
+    char c[24]; char ant[64];
+    sprintf(c, "Power%d %d", r + 1, an);
+    tasmCmd(c, ant);
+    if (an == 1) { bekannt = bekannt | (1 << r); } else { bekannt = bekannt - (bekannt & (1 << r)); }
+}
+
+// once a minute: wanted mask, hand-switch release, correct every relay that has a timer
+void auswerten() {
+    int jetzt = tasm_time; int idx = tagidx(); int nr = nrelais();
+    int soll = 0; int genutzt = 0; int i; int r; int bit; int rel; int ist;
+    for (i = 0; i < NT; i++) {
+        if (zs_en[i] != 0) {
+            rel = zs_rel[i];
+            if (rel < 1 || rel > nr) { rel = 1; }
+            genutzt = genutzt | (1 << (rel - 1));
+            if (aktiv(i, jetzt, idx) == 1) { soll = soll | (1 << (rel - 1)); }
+        }
+    }
+    for (r = 0; r < nr; r++) {
+        bit = 1 << r;
+        if ((genutzt & bit) != 0) {
+            // the wanted state of this relay changed (or first evaluation after the start): hand switching is forgotten
+            if (soll_alt < 0 || (soll & bit) != (soll_alt & bit)) { sperre = sperre - (sperre & bit); }
+            if (zs_an == 1 && (sperre & bit) == 0) {
+                ist = 0; if ((tasm_power & bit) != 0) { ist = 1; }
+                if ((soll & bit) != 0) { if (ist == 0) { setze(r, 1); } }
+                else { if (ist == 1) { setze(r, 0); } }
+            }
+        }
+    }
+    soll_alt = soll;
+}
+
+// every second: a relay that changed without us was switched by hand
+void handschaltung() {
+    int p = tasm_power; int d;
+    if (bekannt < 0) { bekannt = p; return; }
+    if (p != bekannt) { d = p ^ bekannt; sperre = sperre | d; bekannt = p; }
+}
+
+void EverySecond() {
+    if (bereit == 0) { return; }
+    if (tasm_year < 2022) { return; }           // clock not set yet: keep what the relays have
+    if (tagnr != tasm_day) { tagnr = tasm_day; neu = 1; }
+    if (neu == 1) { neu = 0; berechnen(); letzte_min = -1; }
+    handschaltung();
+    if (tasm_minute != letzte_min) { letzte_min = tasm_minute; auswerten(); }
+}
+
+// ---------------------------------------------------------------- console: ZSSET / ZSDAY / ZSALL / ZSSTAT
+
+// ---------------------------------------------------------------- backup file /zeitschaltuhr.cfg
+// ⚠️ Uploading a new .tcb and then TinyCRun-ing it stops the freshly loaded (never started) slot, and that teardown writes its
+// still empty persist fields over the .pvs (seen 08.10.2026 on .39 and 07.10. on .118): the timers were gone after every
+// update. So every change is ALSO written to a small text file (readable, easy to back up) and read back at the start whenever
+// the persist fields are empty.
+int speichern() {
+    char z[120]; int f; int i;
+    f = fileOpen("/zeitschaltuhr.cfg", 1);
+    if (f < 0) { return -1; }
+    sprintf(z, "ZS1 %d\n", zs_an);
+    fileWrite(f, z, strlen(z));
+    for (i = 0; i < NT; i++) {
+        sprintf(z, "%d %d %d %d %d %d %d %d %d %d\n", zs_en[i], zs_m1[i], zs_m2[i], zs_t1[i], zs_t2[i], zs_o1[i], zs_o2[i], zs_rn[i], zs_rel[i], zs_dy[i]);
+        fileWrite(f, z, strlen(z));
+    }
+    fileClose(f);
+    return 0;
+}
+
+// next line of dat starting at pos into zeile; returns the position after it, -1 at the end
+int zeilenweise(char dat[], int pos, char zeile[]) {
+    int len = strlen(dat); int k = 0;
+    if (pos >= len) { return -1; }
+    while (pos < len && dat[pos] != '\n' && k < 98) { zeile[k] = dat[pos]; k++; pos++; }
+    zeile[k] = 0;
+    if (pos < len && dat[pos] == '\n') { pos++; }
+    return pos;
+}
+
+int ganzzahl(char zeile[], int n) { char w[16]; wort(zeile, n, w); return atoi(w); }
+
+// 1 = timers restored from the file
+int laden() {
+    char dat[700]; char zeile[100]; char w[16]; int f; int n; int pos; int i;
+    f = fileOpen("/zeitschaltuhr.cfg", 0);
+    if (f < 0) { return 0; }
+    n = fileRead(f, dat, 699);
+    fileClose(f);
+    if (n < 20) { return 0; }
+    dat[n] = 0;
+    pos = zeilenweise(dat, 0, zeile);
+    wort(zeile, 0, w);
+    if (pos < 0 || strcmp(w, "ZS1") != 0) { return 0; }
+    zs_an = ganzzahl(zeile, 1);
+    for (i = 0; i < NT; i++) {
+        pos = zeilenweise(dat, pos, zeile);
+        if (pos < 0) { return 0; }
+        zs_en[i] = ganzzahl(zeile, 0); zs_m1[i] = ganzzahl(zeile, 1); zs_m2[i] = ganzzahl(zeile, 2);
+        zs_t1[i] = ganzzahl(zeile, 3); zs_t2[i] = ganzzahl(zeile, 4); zs_o1[i] = ganzzahl(zeile, 5);
+        zs_o2[i] = ganzzahl(zeile, 6); zs_rn[i] = ganzzahl(zeile, 7); zs_rel[i] = ganzzahl(zeile, 8); zs_dy[i] = ganzzahl(zeile, 9);
+    }
+    zs_init = 1;
+    return 1;
+}
+
+// set one stored field of timer n; 1 = known field
+int feldsetzen(int n, char f[], int v) {
+    if (strcmp(f, "en") == 0)  { zs_en[n] = v;  return 1; }
+    if (strcmp(f, "m1") == 0)  { zs_m1[n] = v;  return 1; }
+    if (strcmp(f, "m2") == 0)  { zs_m2[n] = v;  return 1; }
+    if (strcmp(f, "t1") == 0)  { zs_t1[n] = v;  return 1; }
+    if (strcmp(f, "t2") == 0)  { zs_t2[n] = v;  return 1; }
+    if (strcmp(f, "o1") == 0)  { zs_o1[n] = v;  return 1; }
+    if (strcmp(f, "o2") == 0)  { zs_o2[n] = v;  return 1; }
+    if (strcmp(f, "rn") == 0)  { zs_rn[n] = v;  return 1; }
+    if (strcmp(f, "rel") == 0) { zs_rel[n] = v; return 1; }
+    if (strcmp(f, "dy") == 0)  { zs_dy[n] = v;  return 1; }
+    return 0;
+}
+
+void Command(char cmd[]) {
+    if (bereit == 0) { responseCmnd("starting"); return; }
+    char w1[16]; char w2[16]; char w3[16]; char w4[16]; char antw[100];
+    int n; int v; int d; int ok = 0;
+    wort(cmd, 0, w1);
+    if (strcmp(w1, "STAT") == 0) {
+        sprintf(antw, "an=%d relais=%d sperre=%d soll=%d bekannt=%d", zs_an, nrelais(), sperre, soll_alt, bekannt);
+        responseCmnd(antw);
+        return;
+    }
+    wort(cmd, 1, w2); wort(cmd, 2, w3); wort(cmd, 3, w4);
+    if (strcmp(w1, "ALL") == 0) { zs_an = atoi(w2); if (zs_an != 0) { zs_an = 1; } soll_alt = -1; ok = 1; }
+    if (strcmp(w1, "SET") == 0) {
+        n = atoi(w2) - 1; v = atoi(w4);
+        if (n >= 0 && n < NT) { ok = feldsetzen(n, w3, v); }
+    }
+    if (strcmp(w1, "DAY") == 0) {
+        n = atoi(w2) - 1; d = atoi(w3); v = atoi(w4);
+        if (n >= 0 && n < NT && d >= 0 && d < 7) {
+            ok = 1;
+            zs_dy[n] = zs_dy[n] - (zs_dy[n] & (1 << d));
+            if (v != 0) { zs_dy[n] = zs_dy[n] | (1 << d); }
+        }
+    }
+    if (ok == 1) { saveVars(); speichern(); neu = 1; soll_alt = -1; responseCmnd("ok"); }
+    else { responseCmnd("ZSSTAT | ZSALL 0|1 | ZSSET n en|m1|m2|t1|t2|o1|o2|rn|rel|dy wert | ZSDAY n 0..6 0|1"); }
+}
+
+// ---------------------------------------------------------------- main page
+
+char scratch[256];                              // scratch buffer of the standard clock block below
+
+// ═══════════════ BEGIN CLOCK HEADER BLOCK (copy from here) ═══════════
+// Required: a `char scratch[256]` buffer in scope.
+
+int web_clock_tick = 0;            // increments per WebCall poll
+
+void web_clock_header() {
+    web_clock_tick = web_clock_tick + 1;
+
+    // Indexed lookup via the built-in `strToken(dst, src, delim, n)`
+    // syscall — 1-based index, which lines up directly with
+    // tasm_wday (1=Sun..7=Sat) and tasm_month (1..12). Replaces the
+    // previous if/else cascade and the Scripter-style `is()`/`is1()`
+    // builtins. Generally useful for any small indexed lookup
+    // (weekdays, months, status codes, error tables).
+    char wd_names[] = "So|Mo|Di|Mi|Do|Fr|Sa";
+    char mo_names[] = "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez";
+    char wd_label[4];
+    char mo_label[4];
+    strToken(wd_label, wd_names, '|', tasm_wday);
+    strToken(mo_label, mo_names, '|', tasm_month);
+
+    // Single dark-grey rounded card spanning both columns. Contains
+    // the big green clock, date row with live-tick badge, and the
+    // sunrise → daylight → sunset row. Emitted as raw `<tr><td>` so
+    // the whole thing is one full-width centered card (the {s}...{e}
+    // tags would split it into label/value columns instead).
+    // Two sprintfs because the full card exceeds the 256-byte
+    // scratch buffer; first call opens the card + emits clock+date,
+    // second call appends the sun row + closes the card.
+    sprintf(scratch, "<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'><span style='color:green;font-size:40px;font-weight:bold'>%02d:%02d:%02d</span><br>%s %d. %s %d <span style='font-size:0.7em;color:#888;'>&#9679; %d</span><br>",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year, web_clock_tick);
+    webSend(scratch);
+
+    // Sunrise / sunset row with day-length between the arrows, then
+    // close the card.
+    int sr = tasm_sunrise;
+    int ss = tasm_sunset;
+    int dl = ss - sr;
+    sprintf(scratch, "&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;</td></tr>",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+}
+
+// ═══════════════ END CLOCK HEADER BLOCK (copy to here) ═══════════════
+
+// list in the style of the old Scripter page: index yellow, times green (clock time) or gold (sunrise/sunset), relay magenta,
+// weekdays cyan, and "=> heute" at the end when the timer applies to today's weekday
+void WebCall() {
+    if (bereit == 0) { return; }
+    char b[200]; char tg[8]; char farbe[10];
+    int i; int d; int a; int e; int nr = nrelais(); int idx = tagidx();
+    web_clock_header();                         // our standard digital clock: time, date, sunrise <- day length -> sunset
+    webSend("{s}<hr>{m}<hr>{e}");
+    if (zs_an == 1) { webSend("{s}<span style='color:Silver'>Zeitschaltuhr:</span>{m}<span style='color:#2ecc71'>aktiv</span>{e}"); }
+    else { webSend("{s}<span style='color:Silver'>Zeitschaltuhr:</span>{m}<span style='color:#e74c3c'>AUS</span>{e}"); }
+    webSend("{s}<span style='color:Silver'>timerliste:</span><hr>{e}");
+    for (i = 0; i < NT; i++) {
+        if (zs_en[i] != 0) {
+            sprintf(b, "{s}<span style='color:yellow'>%02d :&nbsp;</span>", i + 1);
+            webSend(b);
+            a = von[i]; e = bis[i];
+            if (zs_m1[i] == 1) { strcpy(farbe, "#2ecc71"); } else { strcpy(farbe, "#FFD700"); }
+            sprintf(b, "<span style='color:%s'>%02d:%02d</span><span style='color:yellow'> -&nbsp;</span>", farbe, a / 60, a % 60);
+            webSend(b);
+            if (zs_m2[i] == 1) { strcpy(farbe, "#2ecc71"); } else { strcpy(farbe, "#FFD700"); }
+            sprintf(b, "<span style='color:%s'>%02d:%02d</span>", farbe, e / 60, e % 60);
+            webSend(b);
+            if (nr > 1) { sprintf(b, "<span style='color:magenta'> R %d</span>", zs_rel[i]); webSend(b); }
+            webSend("<span style='color:cyan'>");
+            for (d = 0; d < 7; d++) {
+                if (tagbit(i, d) == 1) { strSub(tg, tage, d * 2, 2); webSend("&nbsp;"); webSend(tg); webSend("&nbsp;"); }
+            }
+            webSend("</span>");
+            if (aktiv(i, tasm_time, idx) == 1) { webSend(" <span style='color:#2ecc71'>&#9654; jetzt</span>{e}"); }
+            else { if (tagbit(i, idx) == 1) { webSend(" => heute{e}"); } else { webSend("{e}"); } }
+        }
+    }
+    webSend("{s}<hr>{e}");
+    if (sperre != 0) { sprintf(b, "{s}<span style='color:orange'>Handschaltung:</span>{m}Relais-Maske %d, Timer pausiert bis zum nächsten Wechsel{e}", sperre); webSend(b); }
+}
+
+// ---------------------------------------------------------------- setup page
+
+void auswahl(int i, char f[], int wert) {       // start/end mode: clock time / sunrise / sunset
+    char b[260]; char s1[10]; char s2[10]; char s3[10];
+    s1[0] = 0; s2[0] = 0; s3[0] = 0;
+    if (wert == 1) { strcpy(s1, "selected"); }
+    if (wert == 2) { strcpy(s2, "selected"); }
+    if (wert == 3) { strcpy(s3, "selected"); }
+    sprintf(b, "<select onchange=\"z('SET %d %s '+this.value)\"><option value=1 %s>Uhrzeit</option><option value=2 %s>Sonnenaufgang</option><option value=3 %s>Sonnenuntergang</option></select> ",
+            i + 1, f, s1, s2, s3);
+    webSend(b);
+}
+
+void zeitfeld(int i, char f[], int hhmm) {
+    char b[200];
+    sprintf(b, "<input type=time value=\"%02d:%02d\" onchange=\"z('SET %d %s '+this.value.replace(':',''))\"> ", hhmm / 100, hhmm % 100, i + 1, f);
+    webSend(b);
+}
+
+void zahlfeld(int i, char f[], int wert, char vor[], char nach[]) {
+    char b[220];
+    sprintf(b, "%s<input type=number min=-300 max=300 value=%d style='width:64px' onchange=\"z('SET %d %s '+this.value)\">%s ", vor, wert, i + 1, f, nach);
+    webSend(b);
+}
+
+void WebUI() {
+    if (bereit == 0) { return; }
+    char b[260]; char tg[8]; char col[10];
+    int i; int d; int nr = nrelais(); int k;
+    webSend("<script>function z(c){fetch('/cm?cmnd='+encodeURIComponent('ZS'+c)).then(function(){location.reload()})}</script>");
+    webSend("<style>.zt{background:#2c3e50;border-radius:8px;padding:8px;margin:6px 0}.zt select,.zt input{margin:2px}.zt select,.zt input[type=time]{width:auto;display:inline-block}.zt input[type=number]{width:64px}</style>");
+    if (zs_an == 1) { webSend("<label><input type=checkbox checked onchange=\"z('ALL '+(this.checked?1:0))\"> <b>Zeitschaltuhr aktiv</b></label><br>"); }
+    else { webSend("<label><input type=checkbox onchange=\"z('ALL '+(this.checked?1:0))\"> <b>Zeitschaltuhr aktiv</b></label><br>"); }
+    sprintf(b, "<small>Sonne %02d:%02d - %02d:%02d, %d Relais</small>", sonnenauf() / 60, sonnenauf() % 60, sonnenunter() / 60, sonnenunter() % 60, nr);
+    webSend(b);
+    for (i = 0; i < NT; i++) {
+        webSend("<div class=zt>");
+        strToken(col, pal, '|', i + 1);
+        sprintf(b, "<span style='border-left:6px solid %s;padding-left:6px'></span>", col);
+        webSend(b);
+        if (zs_en[i] != 0) { sprintf(b, "<label><input type=checkbox checked onchange=\"z('SET %d en '+(this.checked?1:0))\"> <b>Timer %d</b></label> ", i + 1, i + 1); }
+        else { sprintf(b, "<label><input type=checkbox onchange=\"z('SET %d en '+(this.checked?1:0))\"> <b>Timer %d</b></label> ", i + 1, i + 1); }
+        webSend(b);
+        webSend("<br>von ");
+        auswahl(i, "m1", zs_m1[i]);
+        if (zs_m1[i] == 1) { zeitfeld(i, "t1", zs_t1[i]); } else { zahlfeld(i, "o1", zs_o1[i], "+", " min"); }
+        webSend("<br>bis ");
+        auswahl(i, "m2", zs_m2[i]);
+        if (zs_m2[i] == 1) { zeitfeld(i, "t2", zs_t2[i]); } else { zahlfeld(i, "o2", zs_o2[i], "+", " min"); }
+        webSend("<br>");
+        zahlfeld(i, "rn", zs_rn[i], "zufällig &plusmn;", " min (Fenster)");
+        if (nr > 1) {
+            sprintf(b, "Relais <select onchange=\"z('SET %d rel '+this.value)\">", i + 1);
+            webSend(b);
+            for (k = 1; k <= nr; k++) {
+                if (zs_rel[i] == k) { sprintf(b, "<option value=%d selected>%d</option>", k, k); } else { sprintf(b, "<option value=%d>%d</option>", k, k); }
+                webSend(b);
+            }
+            webSend("</select> ");
+        }
+        webSend("<br>");
+        for (d = 0; d < 7; d++) {
+            strSub(tg, tage, d * 2, 2);
+            if (tagbit(i, d) == 1) { sprintf(b, "<label><input type=checkbox checked onchange=\"z('DAY %d %d '+(this.checked?1:0))\">%s</label> ", i + 1, d, tg); }
+            else { sprintf(b, "<label><input type=checkbox onchange=\"z('DAY %d %d '+(this.checked?1:0))\">%s</label> ", i + 1, d, tg); }
+            webSend(b);
+        }
+        webSend("</div>");
+    }
+}
+
+// ---------------------------------------------------------------- main page graphic: week plan (Google Timeline, like the old script)
+
+int ba[16];                                     // bars of ONE weekday: start / end in minutes (1440 = 24:00) and timer index (-1 = hidden)
+int be[16];
+int bt[16];
+
+// collect the bars of weekday d (0 = Monday) into ba/be/bt; returns their number. A hidden one-minute bar comes first: it keeps
+// every weekday in the chart, in order, even when nothing runs that day.
+int sammeln(int d) {
+    int k = 1; int i; int a; int e;
+    ba[0] = 0; be[0] = 1; bt[0] = -1;
+    for (i = 0; i < NT; i++) {
+        if (zs_en[i] != 0) {
+            a = von[i]; e = bis[i];
+            if (tagbit(i, d) == 1) {
+                if (a < e) { ba[k] = a; be[k] = e; bt[k] = i; k++; }
+                else { if (a > e) { ba[k] = a; be[k] = 1440; bt[k] = i; k++; } }
+            }
+            if (a > e && tagbit(i, (d + 6) % 7) == 1) { ba[k] = 0; be[k] = e; bt[k] = i; k++; }
+        }
+    }
+    return k;
+}
+
+// lanes the timeline needs for these bars = the most bars that overlap at one start
+int bahnen(int k) {
+    int j; int m; int c; int best = 1;
+    for (j = 0; j < k; j++) {
+        c = 0;
+        for (m = 0; m < k; m++) { if (ba[m] <= ba[j] && ba[j] < be[m]) { c++; } }
+        if (c > best) { best = c; }
+    }
+    return best;
+}
+
+void WebPage() {
+    if (bereit == 0) { return; }
+    char b[200]; char tg[8]; char col[24]; char kn[10];
+    int i; int d; int k; int j; int n = 0; int hoehe = 0; int lmax = 1; int nr = nrelais();
+    for (i = 0; i < NT; i++) { if (zs_en[i] != 0) { n++; } }
+    if (n == 0) { return; }
+    // the timeline gives every weekday row the same height: the most lanes any day needs (about 35 px a lane) times seven, plus the axis
+    for (d = 0; d < 7; d++) { k = sammeln(d); j = bahnen(k); if (j > lmax) { lmax = j; } }
+    j = 35; if (nr > 1) { j = 32; }                 // a lane is a bit lower when the bars carry labels
+    hoehe = 46 + 7 * (lmax * j + 1);
+    // Without a WebChart on the page nothing pins the width of the page container (it shrinks to its widest child, so the chart
+    // would set the width itself): same rule as the firmware's own charts, so every card on the page is exactly as wide as the rest.
+    webSend("<style>body>div{width:min(96vw,960px);box-sizing:border-box}#zsc,#zsc div{padding:0;box-sizing:border-box}</style>");   // Tasmota gives every div 5 px padding: neutralised for the chart, as the firmware does for its own
+    // card like the WebCall slots (WebPage is not framed automatically)
+    webSend("<fieldset id='zsw' style='border:1px solid rgba(150,150,150,.4);border-radius:8px;margin:5px 2px;padding:2px 9px 8px'><legend style='font-size:11px;opacity:.55;padding:0 5px'>Wochenplan</legend>");
+    sprintf(b, "<div id='zsc' style='width:100%%;height:%dpx'></div>", hoehe);
+    webSend(b);
+    // legend: colour = timer, and (with several relays) which relay it switches
+    webSend("<div style='padding:4px 0 0;font-size:12px'>");
+    for (i = 0; i < NT; i++) {
+        if (zs_en[i] != 0) {
+            strToken(col, pal, '|', i + 1);
+            if (nr > 1) { sprintf(b, "<span style='white-space:nowrap;margin-right:12px'><span style='color:%s'>&#9632;</span> Timer %d &rarr; Relais %d</span> ", col, i + 1, zs_rel[i]); }
+            else { sprintf(b, "<span style='white-space:nowrap;margin-right:12px'><span style='color:%s'>&#9632;</span> Timer %d</span> ", col, i + 1); }
+            webSend(b);
+        }
+    }
+    webSend("</div></fieldset>");
+    webSend("<script src='https://www.gstatic.com/charts/loader.js'></script>");
+    webSend("<script>var zsRows=[");
+    for (d = 0; d < 7; d++) {
+        strSub(tg, tage, d * 2, 2);
+        k = sammeln(d);
+        for (j = 0; j < k; j++) {
+            if (bt[j] < 0) { strcpy(col, "color:#ccc;opacity:0.01"); strcpy(kn, " "); }
+            else {
+                strToken(col, pal, '|', bt[j] + 1);
+                if (nr > 1) { sprintf(kn, "R%d", zs_rel[bt[j]]); } else { sprintf(kn, "Timer %d", bt[j] + 1); }   // bar label: the relay it switches
+            }
+            sprintf(b, "['%s','%s','%s',new Date(0,0,0,%d,%d),new Date(0,0,0,%d,%d)],", tg, kn, col, ba[j] / 60, ba[j] % 60, be[j] / 60, be[j] % 60);
+            webSend(b);
+        }
+    }
+    webSend("];var zsReady=0;google.charts.load('current',{packages:['timeline']});google.charts.setOnLoadCallback(function(){zsReady=1;zsDraw();});");
+    webSend("function zsDraw(){var el=document.getElementById('zsc');if(!zsReady||!el||!el.offsetWidth)return;var dt=new google.visualization.DataTable();");
+    webSend("dt.addColumn({type:'string',id:'Tag'});dt.addColumn({type:'string',id:'Timer'});dt.addColumn({type:'string',role:'style'});");
+    webSend("dt.addColumn({type:'date',id:'von'});dt.addColumn({type:'date',id:'bis'});dt.addRows(zsRows);");
+    if (nr > 1) { webSend("new google.visualization.Timeline(el).draw(dt,{timeline:{showBarLabels:true,barLabelStyle:{fontSize:11}},"); }
+    else { webSend("new google.visualization.Timeline(el).draw(dt,{timeline:{showBarLabels:false},"); }
+    webSend("hAxis:{format:'HH:mm',minValue:new Date(0,0,0,0,0),maxValue:new Date(0,0,0,24,0)},backgroundColor:'#e8e8e8'});}");
+    webSend("window.addEventListener('resize',zsDraw);</script>");
+    // The card goes into the SAME table as the clock/timer-list card, as the row right below it: same width, and the relay state
+    // texts stay right above their buttons. Tasmota replaces the content of #l1 every second, so a MutationObserver puts the very
+    // same card node back after each refresh (the drawn chart survives; only the first placement redraws for the new width).
+    webSend("<script>(function(){var f=document.getElementById('zsw');if(!f)return;var tr=document.createElement('tr'),td=document.createElement('td');");
+    webSend("td.colSpan=2;td.style.padding='0';td.appendChild(f);tr.appendChild(td);var gesetzt=0;");
+    webSend("function place(){var l=document.getElementById('l1');if(!l)return;var fs=l.getElementsByTagName('fieldset');");
+    webSend("for(var i=0;i<fs.length;i++){if(fs[i].textContent.indexOf('timerliste')>=0){var r=fs[i].parentNode;while(r&&r.tagName!='TR')r=r.parentNode;");
+    webSend("if(r&&r.nextSibling!==tr){r.parentNode.insertBefore(tr,r.nextSibling);if(!gesetzt){gesetzt=1;zsDraw();}}return;}}}");
+    webSend("place();var l=document.getElementById('l1');if(l)new MutationObserver(place).observe(l,{childList:true});})();</script>");
+}
+
+int main() {
+    if (zs_init != 1) {                          // first start, or the persist fields were wiped by an update
+        standard();
+        if (laden() == 1) { addLog("zeitschaltuhr: timers restored from /zeitschaltuhr.cfg"); }
+        saveVars();
+    }
+    addCommand("ZS");
+    webPageLabel(0, "Zeitschaltuhr");                    // setup page: button on the main page
+    bereit = 1;
+    addLog("zeitschaltuhr: started");
+    return 0;
+}
