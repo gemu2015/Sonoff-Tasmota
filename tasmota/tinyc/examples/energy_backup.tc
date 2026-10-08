@@ -76,6 +76,7 @@ char src[96] = "http://192.168.188.61:82/ufs/";    // Vorgabe; ueberschrieben vo
 
 char host[64]; char user[32]; char pw[32]; char dir[96];
 int  cfgOk = 0;
+int  srcFehler = 0;                      // 1: die Quelle (src) ist keine brauchbare Adresse
 
 // Auftraege
 int  qJ[4]; int qM[4]; int qN = 0;       // Monate in der Warteschlange
@@ -241,7 +242,30 @@ void trim(char s[]) {
     int n = strlen(s);
     while (n > 0 && (s[n - 1] == '\r' || s[n - 1] == ' ' || s[n - 1] == '\n')) { n = n - 1; s[n] = 0; }
 }
+// Quelle pruefen: "http://host[:port]/pfad/". Ein Tippfehler wie "http://host/:82/ufs/" (Schraegstrich VOR dem
+// Port, mi-hol #128) ginge sonst als Anfrage an Port 80 des Hosts hinaus -- darum lieber gar nicht erst anfangen.
+int srcOk() {
+    int n = strlen(src);
+    if (n < 12) { return 0; }
+    if (!strStartsWith(src, "http://")) { return 0; }
+    if (strContains(src, "/:")) { return 0; }
+    int e = 7;
+    while (e < n && src[e] != '/') { e = e + 1; }        // Ende von host[:port]
+    if (e == 7 || e >= n) { return 0; }                  // kein Host oder kein Pfad
+    int j = 7;
+    int dp = -1;
+    while (j < e) { if (src[j] == ':') { dp = j; } j = j + 1; }
+    if (dp == 7) { return 0; }                           // ":82" ohne Host
+    if (dp >= 0) {
+        if (dp + 1 >= e) { return 0; }                   // Doppelpunkt ohne Port
+        j = dp + 1;
+        while (j < e) { if (src[j] < '0' || src[j] > '9') { return 0; } j = j + 1; }
+    }
+    return 1;
+}
+
 int cfgLesen() {
+    srcFehler = 0;
     int f = fileOpen("/ftp.cfg", 0);
     if (f < 0) { return 0; }
     char cfg[384];
@@ -267,7 +291,14 @@ int cfgLesen() {
     while (i > 0 && ziel[i] != '/') { i = i - 1; }
     strSub(dir, ziel, 0, i);
     strcat(dir, "/energie");
+    if (!srcOk()) { srcFehler = 1; return 0; }
     return 1;
+}
+
+// Was dem Nutzer gesagt wird, wenn cfgLesen() 0 liefert
+void cfgMeldung() {
+    if (srcFehler) { strcpy(stand, "Quelle ungueltig - erwartet http://host:82/ufs/ (Zeile 5 der /ftp.cfg)"); }
+    else { strcpy(stand, "/ftp.cfg fehlt"); }
 }
 
 // ── .61 schonen: ist Port 82 frei? ───────────────────────────────────
@@ -535,7 +566,7 @@ int eineEinheit() {
     int ist = 0;
     if (qN == 0 && !mlogFaellig && allJ == 0) { return 0; }
     if (tasm_uptime < pauseBis) { return 0; }
-    if (!cfgOk) { cfgOk = cfgLesen(); if (!cfgOk) { strcpy(stand, "/ftp.cfg fehlt"); return 0; } }
+    if (!cfgOk) { cfgOk = cfgLesen(); if (!cfgOk) { cfgMeldung(); return 0; } }
     if (!port82Frei()) {
         strcpy(stand, ".61 Port 82 belegt -- neuer Versuch in 5 min");
         pauseBis = tasm_uptime + 300;
@@ -658,6 +689,6 @@ void WebCall() {
 int main() {
     addCommand("EBAK");
     cfgOk = cfgLesen();
-    if (!cfgOk) { strcpy(stand, "/ftp.cfg fehlt"); }
+    if (!cfgOk) { cfgMeldung(); }
     return 0;
 }
