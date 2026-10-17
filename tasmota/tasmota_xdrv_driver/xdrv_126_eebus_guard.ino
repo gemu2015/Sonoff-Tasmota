@@ -405,13 +405,13 @@ uint8_t eebus_auto_reg = 1;
 
 // v175 (07.10.): Herzschlag im HEMS-Betrieb wieder wie die echte Steuerbox — heartbeatTimeout PT10S
 // (siehe EebusSpineSendHeartbeat), Sendetakt 4 s statt 8 s, damit die Reserve nicht wie im Juli nur
-// eine Sekunde betraegt. Anlass: seit dem HM-Neustart am 05.10. lehnt der HM nach jedem neuen
+// eine Sekunde betraegt. Anlass: seit dem HEMS-Neustart am 05.10. lehnt das HEMS nach jedem neuen
 // Verbindungsaufbau jeden Schreibbefehl mit err7 ab. Vergleich der Mitschnitte: am 27.07. (PT10S)
 // nahm er nach einem Wiederverbinden ohne Kopplung sofort an, heute (PT60S) nicht.
 #define EEBUS_HEMS_HB_MS    4000
 
 // v176 (07.10.): eine abgelehnte Anmeldung (Freigabe §14a/§9) wird wiederholt, statt nach den vier
-// Versuchen in ~15 s liegen zu bleiben. Anlass: nach einem Neustart des HM ist sein Steuerbox-Teil erst
+// Versuchen in ~15 s liegen zu bleiben. Anlass: nach einem Neustart des HEMS ist sein Steuerbox-Teil erst
 // ~3 min nach dem Verbindungsaufbau bereit (07.10.: Gateway 13:37:03, Steuerbox-Teil 13:40:19). Die Box
 // meldete sich um 13:37:41 an, bekam err7 und versuchte es nie wieder; eine Freigabe von Hand um 13:43
 // ging sofort durch. Jetzt: alle 60 s erneut, hoechstens 10-mal (10 min), nur solange keine eigene
@@ -434,7 +434,7 @@ uint8_t eebus_auto_reg = 1;
 // bei deren Wiederholung (v176); sonst hob die Anmeldung (= Freigabe) eine frisch befohlene Grenze auf.
 
 // v179 (08.10.): nach endgueltigem err7 ("Write abgelehnt") im HEMS-Betrieb die Grenzen spaeter noch
-// dreimal nachlesen. Der HM hat am 06.–08.10. abgelehnte Writes 70 s bis 6:43 min spaeter doch umgesetzt,
+// dreimal nachlesen. Das HEMS hat am 06.–08.10. abgelehnte Writes 70 s bis 6:43 min spaeter doch umgesetzt,
 // ohne es der Steuerbox zu melden; die Anzeige stand dann falsch auf "Write abgelehnt". Stimmt der
 // nachgelesene Zustand mit dem Auftrag ueberein (aktiv/inaktiv und bei aktiv auch der Wert), wird das
 // Ergebnis zu "BESTAETIGT ... (verspaetet nach err7)". Ein neuer Auftrag bricht das Nachlesen ab.
@@ -456,7 +456,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // 8 s neu zu verbinden. Jeder Versuch baut TLS im Hauptablauf auf und blockiert ihn kurz; bei einer
 // dauerhaft fehlenden Gegenstelle lief die Box so zaeh (06.10.: LoadAvg 2791, eine Minute ohne Logzeile).
 // Index = Versuche seit der letzten stehenden Verbindung (ka_try + 3 je Scan), letzter Wert bleibt.
-// Obergrenze 2 min (Vorschlag gemu 07.10.): kommt die Gegenstelle zurueck, ist die Box spaetestens
+// Obergrenze 2 min: kommt die Gegenstelle zurueck, ist die Box spaetestens
 // 2 min danach wieder verbunden.
 static const uint16_t kEebusKaWaitS[6] = { 8, 15, 30, 60, 120, 120 };
 
