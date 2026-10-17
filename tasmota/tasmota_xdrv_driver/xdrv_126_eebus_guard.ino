@@ -1,5 +1,5 @@
 /*
-  xdrv_126_eebus_guard.ino - EEBUS Energy Guard / Steuerbox-Simulator
+  xdrv_126_eebus_guard.ino - EEBUS Energy Guard / Steuerbox
 
   Rolle: Energy Guard — tritt als vorgelagerte
   Steuerbox auf und gibt einer Anlage Leistungsgrenzen vor.
@@ -403,6 +403,67 @@ uint8_t eebus_auto_reg = 1;
 // Netzwerkkomponenten irgendwann abgeraeumt — genau das passierte.
 #define EEBUS_WS_PING_MS   50000
 
+// v175 (07.10.): Herzschlag im HEMS-Betrieb wieder wie die echte Steuerbox — heartbeatTimeout PT10S
+// (siehe EebusSpineSendHeartbeat), Sendetakt 4 s statt 8 s, damit die Reserve nicht wie im Juli nur
+// eine Sekunde betraegt. Anlass: seit dem HM-Neustart am 05.10. lehnt der HM nach jedem neuen
+// Verbindungsaufbau jeden Schreibbefehl mit err7 ab. Vergleich der Mitschnitte: am 27.07. (PT10S)
+// nahm er nach einem Wiederverbinden ohne Kopplung sofort an, heute (PT60S) nicht.
+#define EEBUS_HEMS_HB_MS    4000
+
+// v176 (07.10.): eine abgelehnte Anmeldung (Freigabe §14a/§9) wird wiederholt, statt nach den vier
+// Versuchen in ~15 s liegen zu bleiben. Anlass: nach einem Neustart des HM ist sein Steuerbox-Teil erst
+// ~3 min nach dem Verbindungsaufbau bereit (07.10.: Gateway 13:37:03, Steuerbox-Teil 13:40:19). Die Box
+// meldete sich um 13:37:41 an, bekam err7 und versuchte es nie wieder; eine Freigabe von Hand um 13:43
+// ging sofort durch. Jetzt: alle 60 s erneut, hoechstens 10-mal (10 min), nur solange keine eigene
+// Grenze aktiv ist (die Anmeldung ist eine Freigabe und wuerde sie aufheben).
+#define EEBUS_REG_RETRY_MS     60000
+#define EEBUS_REG_RETRY_MAX    10
+
+// v177 (08.10.): Telegramm-Zeilen ("EBG: SHIP TX ...") nicht mehr in die Antwort auf /cm mischen.
+// Tasmota setzt die Antwort eines Web-Befehls aus ALLEN Log-Zeilen zusammen, die waehrend des Befehls
+// entstehen und eine '{' enthalten (HandleHttpCommand). EEBusLpc/EEBusLpp/EEBusRelease senden sofort
+// das erste Telegramm; dessen Stuecke landeten vor der eigentlichen Antwort und machten sie zu
+// ungueltigem JSON (gemessen 08.10. 18:14: 457 Zeichen, Telegramm-Anfang + "EEBusLpc":{"Started":true,...
+// abgeschnitten). Jetzt werden diese Zeilen waehrend eines Web-Befehls zurueckgehalten und im naechsten
+// 100-ms-Takt unveraendert ins Log geschrieben. Konsole und Mitschnitte zeigen weiter alles.
+#define EEBUS_DEFLOG_SZ        4096
+
+// v178 (08.10.): Nutzerbefehl (EEBusLpc/EEBusLpp/EEBusRelease) bricht ein laufendes oder haengen-
+// gebliebenes Onboarding ab, statt von ihm als "Onboarding-Ende" verschluckt zu werden (EebusLpcStart).
+// Ausserdem entfaellt die ERSTE automatische Anmeldung, wenn schon eine Grenze steht — wie bisher nur
+// bei deren Wiederholung (v176); sonst hob die Anmeldung (= Freigabe) eine frisch befohlene Grenze auf.
+
+// v179 (08.10.): nach endgueltigem err7 ("Write abgelehnt") im HEMS-Betrieb die Grenzen spaeter noch
+// dreimal nachlesen. Der HM hat am 06.–08.10. abgelehnte Writes 70 s bis 6:43 min spaeter doch umgesetzt,
+// ohne es der Steuerbox zu melden; die Anzeige stand dann falsch auf "Write abgelehnt". Stimmt der
+// nachgelesene Zustand mit dem Auftrag ueberein (aktiv/inaktiv und bei aktiv auch der Wert), wird das
+// Ergebnis zu "BESTAETIGT ... (verspaetet nach err7)". Ein neuer Auftrag bricht das Nachlesen ab.
+static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
+
+// v180 (08.10.): Wiederaufbau mit neuem Scan, wenn die Gegenstelle nicht mehr unter der gemerkten IP
+// erreichbar ist (DHCP-Wechsel). Nach so vielen gescheiterten Versuchen wird neu gesucht.
+#define EEBUS_KA_SCAN_AFTER    3
+
+// v181 (08.10.): Wiederaufbau-Partner wird nur noch gemerkt, wenn der bisher gemerkte nicht mehr
+// verbunden ist (siehe SHIP-Handshake KOMPLETT). Zusaetzliche Test-Verbindungen aendern ihn nicht.
+
+// v182 (08.10.): Kommt so lange GAR NICHTS von der Gegenstelle, gilt die Verbindung als tot und wird
+// neu aufgebaut. Ein Energiemanager meldet etwa jede Sekunde Messwerte und spaetestens alle 2 min einen
+// Herzschlag (PT2M) — 3 min Stille sind kein Zufall mehr.
+#define EEBUS_SILENT_S         180
+
+// v183 (08.10.): Wartezeit des Wiederaufbaus waechst mit jedem gescheiterten Versuch, statt starr alle
+// 8 s neu zu verbinden. Jeder Versuch baut TLS im Hauptablauf auf und blockiert ihn kurz; bei einer
+// dauerhaft fehlenden Gegenstelle lief die Box so zaeh (06.10.: LoadAvg 2791, eine Minute ohne Logzeile).
+// Index = Versuche seit der letzten stehenden Verbindung (ka_try + 3 je Scan), letzter Wert bleibt.
+// Obergrenze 2 min (Vorschlag gemu 07.10.): kommt die Gegenstelle zurueck, ist die Box spaetestens
+// 2 min danach wieder verbunden.
+static const uint16_t kEebusKaWaitS[6] = { 8, 15, 30, 60, 120, 120 };
+
+// v184 (08.10.): limitId beider Richtungen aus EINER Beschreibung merken (lpc_lid_dir). Bisher loeschte
+// ein Richtungswechsel die limitId, und die Anmeldung der Einspeisung las Beschreibung, Ist-Werte und
+// Geraetekonfiguration noch einmal, die das Onboarding Sekunden vorher gelesen hatte.
+
 // LPC-Schreib-Sequenz je Verbindung (Steuerbox → Controllable System):
 // Binding → Limit-Beschreibung lesen (limitId) → Ist-LimitData lesen (isLimitChangeable) →
 // Write → Read-Back verifizieren → Done.  LPC_READDATA MUSS zwischen READDESC und WRITE bleiben
@@ -434,7 +495,9 @@ enum EebusLpcState : uint8_t {
   "{\"featureType\":\"DeviceDiagnosis\"},{\"role\":\"client\"},{\"supportedFunction\":["\
   "[{\"function\":\"deviceDiagnosisHeartbeatData\"},{\"possibleOperations\":[{\"read\":[]}]}]]},"\
   "{\"description\":\"Device Diagnosis Client\"}]}]"
-#define EEBUS_LPC_PHASE_TIMEOUT_MS 8000UL
+// Wartezeit je LPC-Phase. Frueher 8 s — zu kurz: der Energiemanager antwortet zeitweise erst nach
+// 12-13 s (05.10. gemessen: Limit-Beschreibung 11,8 s). Nach 8 s gab die Box den Grenzwert-Teil auf.
+#define EEBUS_LPC_PHASE_TIMEOUT_MS 20000UL
 // Read-Back-Timing. Das Geraet uebernimmt den geschriebenen Limit-Zustand mit Latenz —
 // sofortiges Zuruecklesen liefert faelschlich noch den ALTEN Zustand ("Limit NICHT aktiv").
 // Deshalb den 1. Read-Back verzoegern und bei Nichtuebereinstimmung mehrfach nachpollen.
@@ -1211,6 +1274,8 @@ typedef struct {
   uint32_t last_rx = 0;   // millis() der letzten empfangenen Nachricht (Keep-Alive)
   bool     keepalive = false;   // Verbindung dauerhaft halten (nach Done wieder aufbauen)?
   uint32_t reconnect_at = 0;   // millis()-Zeitpunkt fuer den naechsten Auto-Reconnect (0=aus)
+  uint8_t  ka_try = 0;         // v180: Wiederaufbau-Versuche seit der letzten stehenden Verbindung
+  uint8_t  ka_scans = 0;       // v180: Scans seit der letzten stehenden Verbindung (erster sofort, weitere 60 s)
   uint32_t ws_ping_next = 0;   // millis() fuer den naechsten WebSocket-Ping (0 = noch nicht gesetzt)
    // mitgelesene Nutzdaten fuer die Anzeige. Alle Werte als Zahl+Zehnerexponent wie auf dem Draht
    // ("scaledNumber"), damit nichts gerundet wird; die Oberflaeche rechnet zusammen.
@@ -1337,11 +1402,17 @@ typedef struct {
    // andere nicht an -> §14a und §9 koennen gleichzeitig stehen.
   uint8_t  lpc_dir = 0;   // 0 = consume (LPC/§14a), 1 = produce (LPP/§9 EEG)
   uint8_t  lpc_reg_step = 0;   // Anmeldung: 0=aus, 1=Freigabe consume faellig, 2=produce faellig, 3=fertig
+   // v176: Wiederholung einer abgelehnten Anmeldung (siehe EEBUS_REG_RETRY_MS).
+  int8_t   reg_dir_running = -1;   // Richtung der gerade laufenden Anmelde-Kette (0/1), -1 = keine
+  uint8_t  reg_failed = 0;         // Bit 0 = §14a, Bit 1 = §9: Anmeldung wurde abgelehnt, Wiederholung faellig
+  uint8_t  reg_retry_cnt = 0;      // bisherige Wiederholungen dieser Verbindung
+  uint32_t reg_retry_at = 0;       // millis() der naechsten Wiederholung, 0 = nicht geplant
    // Geltungsdauer DIESES Schreibauftrags in Sekunden (0 = ohne timePeriod).
    // Bewusst je Auftrag statt global: so bleibt der bewiesene §14a-Frame zeichengleich, solange
    // niemand eine Dauer angibt — und wer eine angibt, bekommt sie auch im HEMS-Betrieb.
   long     lpc_dur_s = 0;
   int      lpc_limit_id = -1;   // limitId aus der LoadControl-Beschreibung des Peers (richtungsabhaengig)
+  int      lpc_lid_dir[2] = { -1, -1 };   // v184: limitId je Richtung (0 Bezug, 1 Einspeisung) aus derselben Beschreibung
   int      lpc_peer_ent = 1;   // LoadControl-Feature des Peers (aus Discovery; Ladestation: ent1/feat6)
   int      lpc_peer_feat = 6;
   int      lpc_peer_dcfg_feat = 24; // DeviceConfiguration-SERVER-Feature des Peers AUS DISCOVERY
@@ -1366,6 +1437,10 @@ typedef struct {
   bool     lpc_fs_done = false;   // HEMS: Failsafe auf dieser Verbindung schon geschrieben -> nicht erneut
   uint8_t  lpc_write_tries = 0;   // HEMS: Zaehler der err7-Retries (Norm LPC-906/914)
   uint32_t lpc_write_retry_at = 0;   // HEMS: millis() fuer den naechsten HB+Write-Retry (0=aus)
+  bool     lpc_rej_late = false;     // v179: Auftrag endete mit err7 -> spaeter nachlesen
+  uint8_t  late_rd_n = 0;            // v179: Zahl der schon gesendeten Nachlesungen
+  uint32_t late_rd_at = 0;           // v179: millis() der naechsten Nachlesung (0 = keine)
+  uint32_t late_rd_base = 0;         // v179: millis() des endgueltigen err7
   bool     lpc_our_limit = false;   // haben WIR ein Limit an diesem Peer aktiv gesetzt? (Freigabe-Pflicht)
   char     lpc_result[56] = { 0 };   // letztes Ergebnis (Web/Status)
   char    *lpc_disco = nullptr;   // Kopie der Peer-Discovery (PSRAM) fuer discovery-getriebenes Onboarding
@@ -1453,6 +1528,15 @@ void EebusShipFree(void) {
 // (lwip/W5500 haelt den Socket dann evtl. noch in Bearbeitung -> free auf benutzten Speicher).
 // Stattdessen nur markieren; das eigentliche EebusShipFree() laeuft am naechsten Poll-Tick
 // bzw. Sekunden-Tick in sauberem Kontext (EebusTeardownNow).
+// v183: Wartezeit bis zum naechsten Wiederaufbau-Versuch dieses Slots (wachsend, siehe kEebusKaWaitS).
+// "pending" (Gegenstelle wartet auf Freigabe) behaelt seine festen 5 min.
+uint32_t EebusKaWaitMs(void) {
+  if (ESp->sme_pending_logged) { return EEBUS_PENDING_RETRY_MS; }
+  uint32_t n = (uint32_t)ESp->ka_try + 3UL * ESp->ka_scans;
+  if (n > 5) { n = 5; }
+  return (uint32_t)kEebusKaWaitS[n] * 1000UL;
+}
+
 void EebusTeardownLater(void) {
   ESp->active = false;   // sofort keine weitere Verarbeitung dieser Verbindung
   ESp->teardown = true;   // eigentliche Freigabe folgt verzoegert
@@ -1719,7 +1803,7 @@ bool EebusShipConnect(int idx) {
   ESp->lpc_bound = false;
   ESp->lpc_onboard_only = false;   // 
   ESp->lpc_onboarded = false;   // 
-  ESp->lpc_limit_id = -1;
+  ESp->lpc_limit_id = -1; ESp->lpc_lid_dir[0] = ESp->lpc_lid_dir[1] = -1;   // v184
   ESp->lpc_peer_ent = 1; ESp->lpc_peer_feat = 6; ESp->lpc_peer_dcfg_feat = 24;   // Ladestation-Default; /wird aus der Peer-Discovery
    // gelernt (EebusLpcLearnTarget), sobald sie eintrifft
   ESp->lpc_deadline = 0;
@@ -1904,8 +1988,37 @@ char *eebus_log_buf = nullptr;   // PSRAM-Ringpuffer (lazy)
 size_t eebus_log_len = 0;
 bool  eebus_log_full = false;
 
+// v177: Log-Zeile mit Telegramm-Inhalt. Laeuft gerade ein Web-Befehl (templog_level gesetzt), wird
+// sie zurueckgehalten und von EebusLogFlush() im naechsten 100-ms-Takt geschrieben (siehe EEBUS_DEFLOG_SZ).
+char *eebus_deflog = nullptr;
+size_t eebus_deflog_len = 0;
+void EebusLogLine(const char *line) {
+  if (0 == TasmotaGlobal.templog_level) { AddLog(LOG_LEVEL_INFO, PSTR("%s"), line); return; }
+  if (nullptr == eebus_deflog) {
+    eebus_deflog = (char*)special_malloc(EEBUS_DEFLOG_SZ);
+    eebus_deflog_len = 0;
+  }
+  size_t l = strlen(line);
+  if ((nullptr == eebus_deflog) || (eebus_deflog_len + l + 1 > EEBUS_DEFLOG_SZ)) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("%s"), line);   // kein Platz: auf DEBUG, das sammelt /cm nicht ein
+    return;
+  }
+  memcpy(eebus_deflog + eebus_deflog_len, line, l + 1);
+  eebus_deflog_len += l + 1;
+}
+void EebusLogFlush(void) {
+  if ((0 == eebus_deflog_len) || (0 != TasmotaGlobal.templog_level)) { return; }
+  size_t off = 0;
+  while (off < eebus_deflog_len) {
+    AddLog(LOG_LEVEL_INFO, PSTR("%s"), eebus_deflog + off);
+    off += strlen(eebus_deflog + off) + 1;
+  }
+  eebus_deflog_len = 0;
+}
+
 void EebusShipLog(char dir, int classifier, const char *json) {
   size_t jl = strlen(json);
+  char line[280];
    // lange Frames NICHT mehr bei 220 kappen, sondern in 200-Zeichen-Stuecken VOLL
    // ausgeben (bis ~1000 Zeichen; darueber, z.B. 5-9KB-Discovery, nur gekuerzt). So zeigt die
    // Konsole/der Live-Monitor das KOMPLETTE Write-/Ergebnis-Frame fuer den Roh-Diff gegen die Vergleichs-Steuerbox.
@@ -1919,15 +2032,17 @@ void EebusShipLog(char dir, int classifier, const char *json) {
       size_t n = show - off; if (n > 200) { n = 200; }
       memcpy(piece, json + off, n); piece[n] = '\0';
       if (0 == p) {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP %cX c=%d [%uB] 1/%d %s"), dir, classifier, (uint32_t)jl, parts, piece);
+        snprintf_P(line, sizeof(line), PSTR("EBG: SHIP %cX c=%d [%uB] 1/%d %s"), dir, classifier, (uint32_t)jl, parts, piece);
       } else if ((p == parts - 1) && (jl > 1000)) {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP %d/%d %s..."), p + 1, parts, piece);
+        snprintf_P(line, sizeof(line), PSTR("EBG: SHIP %d/%d %s..."), p + 1, parts, piece);
       } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP %d/%d %s"), p + 1, parts, piece);
+        snprintf_P(line, sizeof(line), PSTR("EBG: SHIP %d/%d %s"), p + 1, parts, piece);
       }
+      EebusLogLine(line);
     }
   } else {
-    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP %cX c=%d [%uB] %s"), dir, classifier, (uint32_t)jl, json);
+    snprintf_P(line, sizeof(line), PSTR("EBG: SHIP %cX c=%d [%uB] %s"), dir, classifier, (uint32_t)jl, json);
+    EebusLogLine(line);
   }
   if (!eebus_ram_log) { return; }
   if (nullptr == eebus_log_buf) {
@@ -2263,7 +2378,7 @@ void EebusSpineAnswerDiscovery(uint32_t ref, int as_notify) {
         "{\"deviceType\":\"%s\"},"
         "{\"networkFeatureSet\":\"simple\"},"
         "{\"label\":\"Tasmota EEBus Guard\"},"
-        "{\"description\":\"Steuerbox Simulator\"}"
+        "{\"description\":\"Steuerbox\"}"
       "]}]},"
       "{\"entityInformation\":["
         "[{\"description\":[{\"entityAddress\":[{\"entity\":[0]}]},{\"entityType\":\"DeviceInformation\"},{\"lastStateChange\":\"added\"},{\"label\":\"Node Management\"},{\"description\":\"Device Information\"}]}],"
@@ -2482,7 +2597,7 @@ bool EebusLpcLearnTarget(const char *disco) {
     EebusAddrParse(fa, &ent, &feat);
     if ((ent >= 0) && (feat >= 0)) {
       if ((ESp->lpc_peer_ent != ent) || (ESp->lpc_peer_feat != feat)) {
-        ESp->lpc_bound = false; ESp->lpc_limit_id = -1;   // Ziel geaendert -> Binding/limitId neu holen
+        ESp->lpc_bound = false; ESp->lpc_limit_id = -1; ESp->lpc_lid_dir[0] = ESp->lpc_lid_dir[1] = -1;   // Ziel geaendert -> Binding/limitId neu holen
         ESp->lpc_onboarded = false;   // neues Ziel -> erneut onboarden
         ESp->lpc_fs_val_key = -1; ESp->lpc_fs_dur_key = -1; ESp->lpc_fs_done = false; ESp->lpc_fs_step = 0;   // neues DeviceConfig-Feat -> Failsafe-Keys neu lernen+schreiben
       }
@@ -2553,7 +2668,9 @@ void EebusSpineSendHeartbeat(const char *cls, bool has_ref, uint32_t ref, int ds
    // Wir versprechen damit weniger, als wir halten — das ist die richtige Richtung fuer eine Steuerbox.
    // SteuVE (Ladestation) behaelt PT30S: dort ist der Sendetakt 20 s, und der bewiesene Drossel-Pfad bleibt
    // unangetastet.
-  const char *hb_to = eebus_hems_mode ? "PT60S" : "PT30S";
+   // v175: HEMS wieder PT10S wie die echte Steuerbox (Begruendung bei EEBUS_HEMS_HB_MS). Die Reserve
+   // kommt jetzt aus dem kuerzeren Sendetakt (4 s), nicht aus einer groesseren Zusage.
+  const char *hb_to = eebus_hems_mode ? "PT10S" : "PT30S";
    // ZEITZONEN-KENNUNG "Z" am Zeitstempel (UTC). Der Wert ist ein XSD-dateTime; OHNE Zonen-
    // angabe ist er "unqualifizierte Ortszeit" — ein strenger Empfaenger rechnet ihn als SEINE
    // Ortszeit, unser Wert ist aber UTC. In der Sommerzeit liegt unser Herzschlag damit zwei Stunden
@@ -2686,9 +2803,9 @@ bool EebusSpineAnswerFeatureRead(const char *json, uint32_t ref, int our_ent, in
    // Heartbeat-Takt im HEMS-Modus auf 8 s (wie die Vergleichs-Steuerbox) statt 20 s. Verdacht:
    // der Energiemanager wertet den EG erst bei engem HB (<=10 s) als durchgaengig "aktiv" (verlaesst init/failsafe).
    // Ladestation/Waermepumpen-Gateway-Pfad UNVERAENDERT bei 20 s (< dessen PT30S-Timeout) -> bewiesener Drossel-Pfad unberuehrt.
-    ESp->hb_next     = millis() + (eebus_hems_mode ? 8000 : 20000);
+    ESp->hb_next     = millis() + (eebus_hems_mode ? EEBUS_HEMS_HB_MS : 20000);
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer liest unseren Heartbeat (feat %d) -> proaktiv alle %d s senden"),
-           peer_feat, eebus_hems_mode ? 8 : 20);
+           peer_feat, eebus_hems_mode ? (EEBUS_HEMS_HB_MS / 1000) : 20);
     return true;
   }
    // ===== "DATEN-FUTTER" — Provider-Antworten fuer MGCP/MPC (Werte SIMULIERT: konstante
@@ -3214,6 +3331,7 @@ void EebusLpcWrite(void) {
     ESp->lpc_deadline = 0;
    // Anmeldung vormerken — der Sekunden-Loop schreibt sie, sobald drei Heartbeats durch sind.
     if (eebus_auto_reg && eebus_hems_mode) { ESp->lpc_reg_step = 1; }
+    ESp->reg_dir_running = -1; ESp->reg_failed = 0; ESp->reg_retry_cnt = 0; ESp->reg_retry_at = 0;   // v176
     EebusLpcSetResult(LPC_IDLE, "onboarded - Beziehung reift, Write via EEBusLpc/EEBusLpp");
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: LPC-Onboarding fertig @ %s - Heartbeat laeuft%s"), ESp->peer_ip,
            ESp->lpc_reg_step ? ", Anmeldung folgt sobald der Heartbeat abonniert ist"
@@ -3342,6 +3460,12 @@ void EebusLpcWriteRejected(void) {
     return;
   }
   EebusLpcSetResult(LPC_FAIL, "Write abgelehnt");
+  if (eebus_hems_mode) {   // v179: spaeter nachlesen
+    ESp->lpc_rej_late = true;
+    ESp->late_rd_n = 0;
+    ESp->late_rd_base = millis();
+    ESp->late_rd_at = ESp->late_rd_base + (uint32_t)kEebusLateReadS[0] * 1000;
+  }
 }
 
 // Read-Back: hat das Limit den gewuenschten Zustand?
@@ -3390,12 +3514,23 @@ void EebusLpcStartOnboard(void) {
 bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
   if (eebus_role < 1) { EebusLpcSetResult(LPC_FAIL, "Rolle AUS (EEBusRole 1/2)"); return false; }
   if (SME_DONE != ESp->sme) { EebusLpcSetResult(LPC_FAIL, "keine SHIP-Verbindung (done)"); return false; }
+   // v178 (08.10.): ein Nutzerbefehl hat Vorrang vor einem noch laufenden oder haengengebliebenen
+   // Onboarding. Sonst faengt EebusLpcWrite das Kettenende als Onboarding ab, verwirft den Wert und
+   // merkt statt der Grenze eine Anmeldung (Freigabe) vor (gesehen 06.10. 13:39:51: EEBusLpc 8160
+   // endete als Freigabe). Die automatische Anmeldung wird dabei NICHT vorgemerkt — sie wuerde als
+   // Freigabe die gerade befohlene Grenze aufheben; der Befehl selbst ist schon der erste Write.
+  if (ESp->lpc_onboard_only) {
+    ESp->lpc_onboard_only = false;
+    ESp->lpc_onboarded = true;
+    ESp->lpc_reg_step = 0;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Onboarding @ %s abgebrochen - Nutzerbefehl hat Vorrang"), ESp->peer_ip);
+  }
    // Richtungswechsel auf derselben Verbindung. Binding und Abo bleiben gueltig (beide
    // Grenzen haengen am selben LoadControl-Feature), aber die limitId gilt nur fuer EINE Richtung ->
    // bei Wechsel neu aus der Beschreibung holen, sonst schriebe §9 auf die §14a-Grenze.
   if (dir != ESp->lpc_dir) {
     ESp->lpc_dir = dir;
-    ESp->lpc_limit_id = -1;
+    ESp->lpc_limit_id = ESp->lpc_lid_dir[(dir > 1) ? 1 : dir];   // v184: aus derselben Beschreibung gemerkt (sonst -1 = neu lesen)
   }
    // Betriebsmodus geraeteweise aus der peer-SKI (EEBusPeerMode). Gefunden -> setzt eebus_hems_mode
    // fuer diesen Write; nicht zugeordnet (z.B. manuelle IP-Verbindung, peer_ski="manual") -> globaler
@@ -3415,7 +3550,7 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
       ESp->lpc_peer_ent = eebus_tgt_ent;
       ESp->lpc_peer_feat = eebus_tgt_feat;
       ESp->lpc_bound = false;
-      ESp->lpc_limit_id = -1;
+      ESp->lpc_limit_id = -1; ESp->lpc_lid_dir[0] = ESp->lpc_lid_dir[1] = -1;   // v184
       ESp->lpc_onboarded = false;   // 
       ESp->lpc_fs_val_key = -1; ESp->lpc_fs_dur_key = -1; ESp->lpc_fs_done = false; ESp->lpc_fs_step = 0;   // 
     }
@@ -3429,6 +3564,7 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
   ESp->lpc_dur_s = (dur_s < 0) ? 0 : dur_s;   // Geltungsdauer dieses Auftrags
   ESp->lpc_write_tries = 0;   // err7-Retry-Zaehler fuer diesen neuen Write-Auftrag zuruecksetzen
   ESp->lpc_write_retry_at = 0;
+  ESp->lpc_rej_late = false; ESp->late_rd_at = 0; ESp->late_rd_n = 0;   // v179: neuer Auftrag -> kein Nachlesen
    // Binding nur einmal noetig; danach direkt Beschreibung/Write
   if (ESp->lpc_bound) {
     if (ESp->lpc_limit_id >= 0) { EebusLpcWrite(); }   // limitId schon bekannt -> direkt schreiben
@@ -3693,6 +3829,30 @@ void EebusHarvest(const char *json, int src_ent) {
           }
         }
         const char *vp = strstr(q, "\"value\":[{\"number\":");
+   // v179: nach err7 nachgelesen — umgesetzt, wenn Zustand UND (bei aktiv) Wert dem Auftrag entsprechen.
+   // Der Wert wird geprueft, damit eine noch stehende alte Grenze nicht als Bestaetigung durchgeht.
+        if (ESp->lpc_rej_late && (LPC_FAIL == ESp->lpc_state) && ((int)lid == ESp->lpc_limit_id) &&
+            ap && (!nx || (ap < nx)) && ((1 == ESp->lim_act[lid]) == ESp->lpc_active_wish)) {
+          bool wert_ok = !ESp->lpc_active_wish;
+          if (!wert_ok && vp && (!nx || (vp < nx))) {
+            long num = 0, sca = 0;
+            EebusJsonLong(vp, "number", &num);
+            EebusJsonLong(vp, "scale",  &sca);
+            while (sca > 0) { num *= 10; sca--; }
+            while (sca < 0) { num /= 10; sca++; }
+            wert_ok = (labs(num) == (long)ESp->lpc_value);
+          }
+          if (wert_ok) {
+            ESp->lpc_rej_late = false; ESp->late_rd_at = 0;
+            ESp->lpc_our_limit = ESp->lpc_active_wish;
+            char t[56];
+            snprintf(t, sizeof(t), ESp->lpc_active_wish ? "BESTAETIGT aktiv %u W (verspaetet nach err7)"
+                                                        : "BESTAETIGT frei (verspaetet nach err7)",
+                     ESp->lpc_value);
+            EebusLpcSetResult(LPC_DONE, t);
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: LPC @ %s: %s"), ESp->peer_ip, t);
+          }
+        }
         if (vp && (!nx || (vp < nx))) {
           long num = 0, sca = 0;
           EebusJsonLong(vp, "number", &num);
@@ -3874,6 +4034,11 @@ void EebusSpineHandle(const char *json) {
       int lid = -1;
       if (EebusLpcPickLimitId(json, ESp->lpc_dir, &lid)) {   // /Grenze der aktuellen Richtung waehlen
         ESp->lpc_limit_id = lid;
+   // v184: die Beschreibung enthaelt beide Grenzen — die der anderen Richtung gleich mit merken, damit
+   // ein spaeterer Richtungswechsel (z.B. Anmeldung Bezug -> Einspeisung) nicht alles erneut liest.
+        { uint8_t d = (ESp->lpc_dir > 1) ? 1 : ESp->lpc_dir; int o = -1;
+          ESp->lpc_lid_dir[d] = lid;
+          if (EebusLpcPickLimitId(json, (uint8_t)(1 - d), &o)) { ESp->lpc_lid_dir[1 - d] = o; } }
         char t[56]; snprintf(t, sizeof(t), "limitId=%d erkannt", lid);
         EebusLpcSetResult(LPC_READDESC, t);
         EebusLpcReadData();   // erst Ist-LimitData lesen, DANN schreiben
@@ -4040,10 +4205,30 @@ void EebusSmeReachDone(const char *grund) {
   EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
   AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP-Handshake KOMPLETT (Done, %s) @ %s - Datenphase erreicht"),
          grund, ESp->peer_ip);
+  ESp->ka_try = 0; ESp->ka_scans = 0;   // v180: Verbindung steht wieder
    // Erst JETZT merken, nicht schon beim Verbinden: eine Verbindung, die es nicht bis in die
    // Datenphase schafft, ist kein Partner, den man beim naechsten Start wieder suchen sollte.
    // Server-Slots ausgenommen — dort steht die Peer-IP als Pseudo-SKI, die identifiziert niemanden.
-  if (!ESp->via_srv) { EebusPeerRemember(ESp->peer_ski); }
+   // v181 (08.10.): NUR merken, wenn der bisher gemerkte Partner gerade NICHT verbunden ist. Sonst
+   // wurde jede zusaetzliche Verbindung (z.B. kurz zum Waermepumpen-Gateway testen) zum Wiederaufbau-
+   // Partner, obwohl der eigentliche Partner verbunden blieb — nach dem naechsten Stromausfall verband
+   // sich die Box dann mit dem falschen Geraet (03.08. so beinahe passiert). Ein bewusster Wechsel
+   // (alten Partner trennen, neuen verbinden) wird weiter gemerkt.
+  if (!ESp->via_srv) {
+    bool alter_partner_da = false;
+    if (eebus_ac_ski[0] && (0 != strcmp(eebus_ac_ski, ESp->peer_ski))) {
+      for (uint32_t k = 0; k < EEBUS_MAX_CONN; k++) {
+        if ((&EConn[k] != ESp) && EConn[k].active && (SME_DONE == EConn[k].sme) &&
+            (0 == strcmp(EConn[k].peer_ski, eebus_ac_ski))) { alter_partner_da = true; break; }
+      }
+    }
+    if (alter_partner_da) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s wird nicht als Wiederaufbau-Partner gemerkt - der gemerkte Partner ist weiter verbunden"),
+             ESp->peer_ip);
+    } else {
+      EebusPeerRemember(ESp->peer_ski);
+    }
+  }
   eebus_ac_state = AC_DONE;   // Wiederaufbau erledigt (oder gar nicht noetig gewesen)
   if (eebus_open_mode >= 1) {
    // Eroeffnungszug: SOFORT einen ADRESSLOSEN DetailedDiscovery-Read senden. Reaktiven
@@ -4069,7 +4254,7 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
       ESp->sme = SME_OFF;
       ESp->state = SHIP_IDLE;
       if (ESp->keepalive && (ESp->peer_idx >= 0)) {   // Keep-Alive: nach kurzem Warten neu verbinden
-        ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);
+        ESp->reconnect_at = millis() + EebusKaWaitMs();
       }
       EebusTeardownLater();   // Client verzoegert freigeben
     } else {   // Close VOR Done = abgewiesen
@@ -4195,7 +4380,7 @@ void EebusSmePoll(void) {
       ESp->sme = SME_OFF;
       ESp->state = SHIP_IDLE;
       if (ESp->keepalive && (ESp->peer_idx >= 0)) {   // Keep-Alive: bald neu verbinden
-        ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);
+        ESp->reconnect_at = millis() + EebusKaWaitMs();
       }
       EebusTeardownLater();   // Client verzoegert freigeben
     } else {
@@ -4366,6 +4551,14 @@ void EebusAutoConnectRun(void) {
 
     case AC_SCAN: {
       if (!TimeReached(eebus_ac_next)) { return; }
+   // Waehrend des Scans eingehend verbunden (Energiemanager ruft nach seinem Neustart selbst an)?
+   // Dann nicht zusaetzlich selbst anrufen (05.10. 20:51: zwei parallele Verbindungen).
+      for (uint32_t i = 0; i < EEBUS_MAX_CONN; i++) {
+        if (EConn[i].active && (0 == strcmp(EConn[i].peer_ski, eebus_ac_ski))) {
+          eebus_ac_state = AC_DONE;
+          return;
+        }
+      }
       int idx = -1;
       for (uint32_t k = 0; k < Eebus.peer_count; k++) {
         if (0 == strcmp(Eebus.peers[k].ski, eebus_ac_ski)) { idx = (int)k; break; }
@@ -5793,7 +5986,7 @@ void EebusSrvLinkConn(void) {
   if (cc->lpc_uc)    { free(cc->lpc_uc);    cc->lpc_uc = nullptr; }   // Use-Case-Kopie freigeben
   if (cc->rd_buf)    { free(cc->rd_buf);    cc->rd_buf = nullptr; }   // Leseantwort freigeben
   cc->rd_ent = -1; cc->rd_feat = -1;
-  cc->lpc_limit_id = -1;
+  cc->lpc_limit_id = -1; cc->lpc_lid_dir[0] = cc->lpc_lid_dir[1] = -1;   // v184
   cc->lpc_peer_ent = 1;
   cc->lpc_peer_feat = 6;   // Default; wird aus der Peer-Discovery aktualisiert
   cc->lpc_deadline = 0;
@@ -5806,6 +5999,19 @@ void EebusSrvLinkConn(void) {
   cc->last_rx = millis();
   strlcpy(cc->peer_ip, ESrv.peer_ip, sizeof(cc->peer_ip));
   strlcpy(cc->peer_ski, ESrv.peer_ip, sizeof(cc->peer_ski));   // Pseudo-SKI (s.o.)
+   // Echte SKI des Anrufers ueber seine IP aus der Scan-Liste nachtragen, damit er wie im Client-Weg
+   // erkannt wird (Betriebsart HEMS/SteuVE, Anzeige, Wiederaufbau sieht die bestehende Verbindung).
+   // Nicht in der Liste -> Pseudo-SKI bleibt, globaler Default gilt.
+  for (uint32_t k = 0; k < Eebus.peer_count; k++) {
+    if (0 == strcmp(Eebus.peers[k].ip, ESrv.peer_ip)) {
+      strlcpy(cc->peer_ski, Eebus.peers[k].ski, sizeof(cc->peer_ski));
+      cc->peer_idx  = (int)k;
+      cc->peer_port = Eebus.peers[k].port;
+      EebusModeApply(cc->peer_ski);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s ist SKI %s (aus Scan-Liste)"), ESrv.peer_ip, cc->peer_ski);
+      break;
+    }
+  }
   ESrv.conn_idx = ci;
   EebusStatSet(cc->peer_ski, SHIP_CMI_OK, "");
   AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s mit SPINE-Slot %d verknuepft — Datenphase aktiv"), ESrv.peer_ip, ci);
@@ -5900,9 +6106,11 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
   }
 
   if (strstr(json, "\"accessMethodsRequest\"")) {   // Geraet fragt UNSERE Kennung ab
+   // accessMethods.id MUSS die mDNS-id sein (eebus_adv_id), wie im Client-Weg. Frueher stand hier
+   // "Tasmota-EEBusGuard-<hostname>" -> passte nicht zur Ankuendigung, der Energiemanager legte nach
+   // seinem eigenen Anruf sofort auf (05.10. 17:27 und 20:51 belegt, Portal "konnte nicht verbunden werden").
     char reply[128];
-    snprintf_P(reply, sizeof(reply), PSTR("{\"accessMethods\":[{\"id\":\"Tasmota-EEBusGuard-%s\"}]}"),
-               TasmotaGlobal.hostname);
+    snprintf_P(reply, sizeof(reply), PSTR("{\"accessMethods\":[{\"id\":\"%s\"}]}"), eebus_adv_id);
     EebusSrvShipSendJson(reply);
     return;
   }
@@ -6130,6 +6338,7 @@ bool Xdrv126(uint32_t function) {
 
   switch (function) {
     case FUNC_EVERY_100_MSECOND:
+      EebusLogFlush();        // v177: waehrend eines Web-Befehls zurueckgehaltene Telegramm-Zeilen
       EebusInboundAccept();   // SHIP-Server Etappe 1 (TLS-Server-Handshake)
       if (Eebus.scan) { EebusPollScan(); }
       for (int ci = 0; ci < EEBUS_MAX_CONN; ci++) {   // M2b: SME-Handshake + RX je Slot
@@ -6275,6 +6484,20 @@ bool Xdrv126(uint32_t function) {
           ESp->lpc_write_retry_at = 0;
           EebusLpcWrite();
         }
+   // v179: faellige Nachlesung nach err7. Nur solange die Kette mit "Write abgelehnt" ruht; die
+   // Antwort wertet der loadControlLimitData-Zweig aus (verspaetete Bestaetigung).
+        if (ESp->lpc_rej_late && ESp->late_rd_at && TimeReached(ESp->late_rd_at)) {
+          if (ESp->active && (SME_DONE == ESp->sme) && (LPC_FAIL == ESp->lpc_state) && (ESp->late_rd_n < 3)) {
+            EebusSpineSendAddr("read", false, 0, "{\"loadControlLimitListData\":[]}",
+                               EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: Nachlesen %u/3 nach err7 @ %s (%u s nach der Ablehnung)"),
+                   ESp->late_rd_n + 1, ESp->peer_ip, kEebusLateReadS[ESp->late_rd_n]);
+            ESp->late_rd_n++;
+            ESp->late_rd_at = (ESp->late_rd_n < 3) ? ESp->late_rd_base + (uint32_t)kEebusLateReadS[ESp->late_rd_n] * 1000 : 0;
+          } else {
+            ESp->lpc_rej_late = false; ESp->late_rd_at = 0;
+          }
+        }
    // ANMELDUNG: nach dem Onboarding je EINE Freigabe fuer Bezug und Einspeisung schreiben.
    // Ein deaktiviertes Limit nimmt die Gegenstelle nach [LPC-905]/[LPP-905] aus "init" heraus —
    // sie fuehrt uns dann als Steuerbox, OHNE dass etwas begrenzt wird.
@@ -6287,14 +6510,54 @@ bool Xdrv126(uint32_t function) {
    // nach einem Stromausfall schneller wieder betriebsbereit.
    // Zwei Schritte NACHEINANDER, weil es je Verbindung nur EINE Schreib-Zustandsmaschine gibt;
    // deshalb erst weiterschalten, wenn die Kette wieder ruht.
+        bool kette_ruht = (LPC_IDLE == ESp->lpc_state) || (LPC_DONE == ESp->lpc_state) || (LPC_FAIL == ESp->lpc_state);
+   // v176: Ende einer Anmelde-Kette auswerten. Endete sie mit "Write abgelehnt" (LPC_FAIL), diese
+   // Richtung zur Wiederholung vormerken. Muss VOR dem Start des naechsten Schritts stehen, sonst
+   // ueberschreibt der neue Auftrag den Zustand der abgeschlossenen Kette.
+        if ((ESp->reg_dir_running >= 0) && kette_ruht) {
+          if (LPC_FAIL == ESp->lpc_state) { ESp->reg_failed |= (uint8_t)(1 << ESp->reg_dir_running); }
+          ESp->reg_dir_running = -1;
+        }
+   // v178: steht schon eine eigene Grenze (Nutzerbefehl kurz nach dem Verbinden), entfaellt die erste
+   // Anmeldung — sie ist eine Freigabe und wuerde die Grenze aufheben (wie bei der Wiederholung unten).
+        if (ESp->lpc_reg_step && (ESp->lpc_reg_step < 3) &&
+            (ESp->lpc_our_limit || (1 == ESp->lim_act[0]) || (1 == ESp->lim_act[1]))) {
+          ESp->lpc_reg_step = 3;
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung @ %s entfaellt - eine Grenze ist aktiv und darf nicht aufgehoben werden"),
+                 ESp->peer_ip);
+        }
         if (ESp->lpc_reg_step && (ESp->lpc_reg_step < 3) && eebus_auto_reg && eebus_hems_mode &&
-            ESp->lpc_onboarded && ESp->hb_sub &&
-            ((LPC_IDLE == ESp->lpc_state) || (LPC_DONE == ESp->lpc_state) || (LPC_FAIL == ESp->lpc_state))) {
+            ESp->lpc_onboarded && ESp->hb_sub && kette_ruht) {
           uint8_t rdir = (1 == ESp->lpc_reg_step) ? 0 : 1;
           ESp->lpc_reg_step++;
           AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung %s @ %s - Freigabe wird geschrieben (kein Limit)"),
                  rdir ? "Einspeisung (Paragraf 9 EEG)" : "Bezug (Paragraf 14a EnWG)", ESp->peer_ip);
+          ESp->reg_dir_running = (int8_t)rdir;   // v176
           EebusLpcStart(0, false, rdir, 0);   // Anmeldung: Freigabe, ohne Geltungsdauer
+        }
+   // v176: ABGELEHNTE ANMELDUNG WIEDERHOLEN. Erst wenn beide Schritte durch sind und keine Kette
+   // laeuft; alle EEBUS_REG_RETRY_MS, hoechstens EEBUS_REG_RETRY_MAX-mal je Verbindung. Wie bei der
+   // Erneuerung nach Herzschlagverlust gilt: steht eine eigene Grenze, wird NICHT freigegeben.
+        else if (ESp->reg_failed && (ESp->lpc_reg_step >= 3) && (ESp->reg_dir_running < 0) &&
+                 eebus_auto_reg && eebus_hems_mode && ESp->lpc_onboarded && ESp->hb_sub && kette_ruht) {
+          bool grenze_aktiv = ESp->lpc_our_limit || (1 == ESp->lim_act[0]) || (1 == ESp->lim_act[1]);
+          if (grenze_aktiv || (ESp->reg_retry_cnt >= EEBUS_REG_RETRY_MAX)) {
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung @ %s wird nicht mehr wiederholt (%s)"), ESp->peer_ip,
+                   grenze_aktiv ? "eigene Grenze aktiv" : "Hoechstzahl erreicht");
+            ESp->reg_failed = 0; ESp->reg_retry_at = 0;
+          } else if (!ESp->reg_retry_at) {
+            ESp->reg_retry_at = millis() + EEBUS_REG_RETRY_MS;
+          } else if (TimeReached(ESp->reg_retry_at)) {
+            uint8_t rdir = (ESp->reg_failed & 1) ? 0 : 1;
+            ESp->reg_failed &= (uint8_t)~(1 << rdir);
+            ESp->reg_retry_at = 0;
+            ESp->reg_retry_cnt++;
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung %s @ %s war abgelehnt - Wiederholung %u/%u"),
+                   rdir ? "Einspeisung (Paragraf 9 EEG)" : "Bezug (Paragraf 14a EnWG)", ESp->peer_ip,
+                   ESp->reg_retry_cnt, EEBUS_REG_RETRY_MAX);
+            ESp->reg_dir_running = (int8_t)rdir;
+            EebusLpcStart(0, false, rdir, 0);
+          }
         }
    // WEBSOCKET-PING: alle 50 s ein Ping-Frame, damit die Gegenstelle die Verbindung nicht
    // als tot abraeumt. Wir haben bisher NIE einen Ping gesendet, sondern nur auf fremde geantwortet
@@ -6315,15 +6578,30 @@ bool Xdrv126(uint32_t function) {
    // Abbruchstellen den Wiederaufbau ein — blieb die Verbindung deshalb einfach weg,
    // obwohl keepalive gesetzt war. Lieber einmal zu viel geplant als eine Steuerbox, die still steht.
         if ((SME_OFF == ESp->sme) && ESp->keepalive && !ESp->reconnect_at && (ESp->peer_idx >= 0)) {
-          ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);
+          ESp->reconnect_at = millis() + EebusKaWaitMs();
         }
    // Heartbeat-NOTIFY alle 20 s an den DeviceDiagnosis-Leser/Abonnenten (Verbindungsueberwachung).
    // 20 s (war 30) — muss UNTER Ladestations Ablauf (unser gemeldeter PT30S -> ~31 s) bleiben, sonst
    // faellt heartbeat_received ab und die Ladestation springt trotz gesetztem Limit auf Failsafe 22000.
         if ((SME_DONE == ESp->sme) && ESp->hb_sub && ESp->hb_next && TimeReached(ESp->hb_next)) {
-          ESp->hb_next = millis() + (eebus_hems_mode ? 8000 : 20000);   // HEMS 8 s (Vergleichs-Steuerbox-Takt), Ladestation 20 s
+          ESp->hb_next = millis() + (eebus_hems_mode ? EEBUS_HEMS_HB_MS : 20000);   // HEMS 4 s (v175, zu PT10S), Ladestation 20 s
           EebusSpineSendHeartbeat("notify", false, 0, ESp->hb_cli_ent, ESp->hb_cli_feat);
           AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: Heartbeat %u an %s gesendet"), ESp->hb_counter - 1, ESp->peer_ip);
+        }
+   // v182: STUMME VERBINDUNG. Die Leitung steht, aber von der Gegenstelle kommt gar nichts mehr —
+   // kein Messwert, kein Herzschlag, keine Antwort. Bisher blieb die Box dann "verbunden" und taub.
+   // Nach EEBUS_SILENT_S ohne jede Nachricht: abbauen, der Keep-Alive baut neu auf. Nur ausgehende
+   // Verbindungen (eingehende baut die Gegenstelle selbst wieder auf).
+        if ((SME_DONE == ESp->sme) && !ESp->via_srv && ESp->keepalive && ESp->last_rx &&
+            TimeReached(ESp->last_rx + (EEBUS_SILENT_S * 1000UL))) {
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** %s seit %u s stumm - Verbindung wird abgebaut und neu aufgebaut ***"),
+                 ESp->peer_ip, (uint32_t)EEBUS_SILENT_S);
+          EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
+          ESp->sme = SME_OFF;
+          ESp->state = SHIP_IDLE;
+          ESp->last_rx = 0;
+          if (ESp->peer_idx >= 0) { ESp->reconnect_at = millis() + EebusKaWaitMs(); }
+          EebusTeardownLater();
         }
    // HERZSCHLAG DER GEGENSTELLE UEBERWACHEN — die Gegenprobe zum Senden oben.
    // Bewertet wird IHRE EIGENE Zusage (heartbeatTimeout), verdoppelt als Reserve: ein einzelner
@@ -6347,6 +6625,7 @@ bool Xdrv126(uint32_t function) {
               AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung wird NICHT erneuert - eine Grenze ist aktiv und darf nicht aufgehoben werden"));
             } else if (eebus_auto_reg && eebus_hems_mode && ESp->lpc_onboarded && ESp->hb_sub) {
               ESp->lpc_reg_step = 1;   // beide Richtungen nacheinander erneut anmelden
+              ESp->reg_dir_running = -1; ESp->reg_failed = 0; ESp->reg_retry_cnt = 0; ESp->reg_retry_at = 0;   // v176
               AddLog(LOG_LEVEL_INFO, PSTR("EBG: Anmeldung wird erneuert - keine eigene Grenze aktiv"));
             }
           }
@@ -6364,10 +6643,40 @@ bool Xdrv126(uint32_t function) {
               if (0 == strcmp(Eebus.peers[k].ski, ESp->peer_ski)) { idx = (int)k; break; }
             }
           }
+   // Hat die Gegenstelle uns inzwischen selbst angerufen (anderer Slot, gleiche SKI, aktiv)? Dann NICHT
+   // zusaetzlich anrufen: der Verbindungsaufbau blockiert den Hauptablauf, die eingehende Verbindung
+   // verhungert und die Gegenstelle legt auf (05.10. 21:18-21:20 belegt). Spaeter erneut nachsehen.
+          bool schon_da = false;
+          for (uint32_t k = 0; k < EEBUS_MAX_CONN; k++) {
+            if (((int)k != ci) && EConn[k].active && (0 == strcmp(EConn[k].peer_ski, ESp->peer_ski))) { schon_da = true; break; }
+          }
+          if (schon_da) {
+            ESp->reconnect_at = millis() + EEBUS_SPINE_KEEPALIVE_MS;
+            idx = -1;
+          }
+   // v180: NEUE IP DER GEGENSTELLE. Verbunden wird zur IP aus der Fundliste des letzten Scans; einen
+   // neuen Scan stiess bisher niemand an. Wechselt die Gegenstelle die Adresse (DHCP), versuchte die Box
+   // es endlos an der alten (29.09.: ueber 2 min, erst Verbinden von Hand half). Jetzt: steht die SKI
+   // nicht mehr in der Liste oder sind EEBUS_KA_SCAN_AFTER Versuche gescheitert, erst neu scannen und
+   // das Ergebnis abwarten — danach findet der SKI-Abgleich oben die neue Adresse von selbst.
+          else if ((idx < 0) || (ESp->ka_try >= EEBUS_KA_SCAN_AFTER)) {
+   // Erster Scan sofort; bleibt die Gegenstelle verschwunden, weitere nur alle 60 s.
+            uint32_t warte = (0 == ESp->ka_scans) ? (EEBUS_SCAN_TIMEOUT_MS + 2000) : 60000;
+            if (EebusStartScan()) {
+              AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau @ %s: %s - suche neu (Scan %u), danach erneuter Versuch"),
+                     ESp->peer_ip, (idx < 0) ? "Gegenstelle nicht mehr in der Fundliste" : "mehrere Versuche gescheitert",
+                     ESp->ka_scans + 1);
+              ESp->ka_try = 0;
+              if (ESp->ka_scans < 255) { ESp->ka_scans++; }
+            }
+            ESp->reconnect_at = millis() + warte;   // Scan abwarten (oder laufenden Scan)
+            idx = -1;
+          }
           if (idx >= 0) {
+            ESp->ka_try++;   // v180
             AddLog(LOG_LEVEL_INFO, PSTR("EBG: Auto-Reconnect zu Peer %d (Slot %d)"), idx, ci);
             if (!EebusShipConnect(idx) && ESp->keepalive) {
-              ESp->reconnect_at = millis() + (ESp->sme_pending_logged ? EEBUS_PENDING_RETRY_MS : EEBUS_SPINE_KEEPALIVE_MS);   // fehlgeschlagen -> spaeter erneut
+              ESp->reconnect_at = millis() + EebusKaWaitMs();   // fehlgeschlagen -> spaeter erneut
             }
           }
         }

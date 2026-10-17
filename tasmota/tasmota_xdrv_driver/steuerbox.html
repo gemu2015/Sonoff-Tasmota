@@ -58,7 +58,9 @@
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
   .tab{flex:1 1 auto;padding:11px 8px;text-align:center;background:var(--panel2);border:1px solid var(--line);
        border-radius:8px;cursor:pointer;color:var(--muted);user-select:none;font-weight:600}
-  .tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  /* Aktiver Reiter gelb wie der Steuerbox-Knopf auf der Tasmota-Seite — NICHT im Blau der Befehlsknoepfe,
+     sonst wird der Reiter fuer "Begrenzung setzen" gehalten (08.10. so passiert). */
+  .tab.active{background:#ffc107;color:#000;border-color:#ffc107}
   .row{display:grid;grid-template-columns:150px 1fr auto;gap:8px 10px;align-items:center;margin:7px 0}
   .row label{color:var(--muted)}
   /* Das Eingabefeld darf nicht vom Hinweistext daneben zusammengequetscht werden — bei der Dauer
@@ -76,6 +78,9 @@
   button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:8px 14px;cursor:pointer;font-weight:600}
   button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--txt)}
   button.bad{background:var(--bad)}
+  /* Ampel bei den Grenzknoepfen: "Begrenzung setzen" = rot (schraenkt ein),
+     "Begrenzung aufheben" = gruen (gibt frei). Gruen wie der Uebernahme-Knopf, dunkle Schrift. */
+  button.gruen{background:var(--ok);color:#0e1013}
   /* Uebernahme-Knopf: der eine Klick, der das Rechenergebnis in das Feld bringt, das spaeter
      geschrieben wird. Deshalb deutlich abgesetzt — gruen wie ein Haken, nicht wie eine Warnung. */
   button.take{background:var(--ok);color:#0e1013;font-weight:700;padding:9px 18px;
@@ -93,6 +98,7 @@
   .rdrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
   .rdrow button{font-size:12px;padding:6px 10px;font-weight:500}
   .rdrow button[disabled]{opacity:.45;cursor:not-allowed}
+  button.gk[disabled]{opacity:.55;cursor:not-allowed}
   /* Werte-Tabelle der Rohantwort. Schmal und monospace, damit Zahlenspalten untereinander stehen;
      waagerecht rollbar, weil manche Antworten viele Spalten haben. */
   .rdtab{width:100%;border-collapse:collapse;margin-top:8px;font-family:ui-monospace,Consolas,monospace;
@@ -369,8 +375,8 @@
     <div class="act">
       <label>Aktion</label>
       <span>
-        <button onclick="sendLpc()">Begrenzung setzen</button>
-        <button class="bad" onclick="freeLpc()">Begrenzung aufheben</button>
+        <button class="bad gk" onclick="sendLpc(this)">Begrenzung setzen</button>
+        <button class="gruen gk" onclick="freeLpc(this)">Begrenzung aufheben</button>
       </span>
     </div>
     <div class="row">
@@ -436,8 +442,8 @@
     <div class="act">
       <label>Aktion</label>
       <span>
-        <button onclick="sendLpp()">Begrenzung setzen</button>
-        <button class="bad" onclick="freeLpp()">Begrenzung aufheben</button>
+        <button class="bad gk" onclick="sendLpp(this)">Begrenzung setzen</button>
+        <button class="gruen gk" onclick="freeLpp(this)">Begrenzung aufheben</button>
       </span>
     </div>
     <div class="row">
@@ -1321,14 +1327,36 @@
     return (v === '') ? '' : (' ' + v);
   }
 
-  function sendLpc(){ if(needDevice()) return;
-    cmd('EEBusLpc ' + target() + ' ' + el('lpc_val').value + durArg('lpc_dur')).then(function(j){ say(JSON.stringify(j)); }); }
-  function freeLpc(){ if(needDevice()) return;
-    cmd('EEBusRelease ' + target()).then(function(j){ say(JSON.stringify(j)); }); }
-  function sendLpp(){ if(needDevice()) return;
-    cmd('EEBusLpp ' + target() + ' ' + el('lpp_val').value + durArg('lpp_dur')).then(function(j){ say(JSON.stringify(j)); }); }
-  function freeLpp(){ if(needDevice()) return;
-    cmd('EEBusLppFrei ' + target()).then(function(j){ say(JSON.stringify(j)); }); }
+  // Grenzknoepfe (§14a und §9, setzen und aufheben): nach einem Klick sofort ALLE vier sperren
+  // und im gedrueckten Knopf zeigen, dass gedrueckt wurde; nach GK_SPERRE_S wieder frei.
+  // Verhindert Doppelklicks: jeder Klick startet in der Box eine eigene Schreibkette.
+  var GK_SPERRE_S = 3;
+  function grenzKlick(btn, c){
+    var alle = document.querySelectorAll('button.gk');
+    var text = btn ? btn.textContent : '';
+    var zeit = new Date().toLocaleTimeString('de-DE');
+    var rest = GK_SPERRE_S;
+    alle.forEach(function(b){ b.disabled = true; });
+    (function tick(){
+      if(rest <= 0){
+        alle.forEach(function(b){ b.disabled = false; });
+        if(btn) btn.textContent = text;
+        return;
+      }
+      if(btn) btn.textContent = '✓ gedrückt ' + zeit + ' · erneut in ' + rest + ' s';
+      rest--;
+      setTimeout(tick, 1000);
+    })();
+    cmd(c).then(function(j){ say(JSON.stringify(j)); });
+  }
+  function sendLpc(btn){ if(needDevice()) return;
+    grenzKlick(btn, 'EEBusLpc ' + target() + ' ' + el('lpc_val').value + durArg('lpc_dur')); }
+  function freeLpc(btn){ if(needDevice()) return;
+    grenzKlick(btn, 'EEBusRelease ' + target()); }
+  function sendLpp(btn){ if(needDevice()) return;
+    grenzKlick(btn, 'EEBusLpp ' + target() + ' ' + el('lpp_val').value + durArg('lpp_dur')); }
+  function freeLpp(btn){ if(needDevice()) return;
+    grenzKlick(btn, 'EEBusLppFrei ' + target()); }
 
   // Statusabfrage bewusst SPARSAM: jede Abfrage schreibt vier Zeilen in die Geräte-Konsole, und
   // deren Ringpuffer ist klein. Mit fünf Sekunden Takt war nach einer Minute nichts anderes mehr
