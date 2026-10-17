@@ -1,0 +1,610 @@
+// @name: SteuVE Verbraucher v004
+// ─────────────────────────────────────────────────────────────────────
+// steuve_verbraucher.tc — schaltet Verbraucher (Shelly im WLAN/LAN) nach der §14a-Grenze, die der
+// Treiber xdrv_128 (steuerbare Verbrauchseinrichtung, Rolle 3) vom Energy Guard empfaengt.
+//
+// Plaetze: 1..4 = Verbraucher (Platz = Prio; Prio 4 wird zuerst abgeschaltet, Prio 1 zuletzt),
+//          5    = Melder (Shelly Plus Plug S, LED-Ring zeigt den Zustand; schaltet nichts ab).
+// Die Liste pflegt die Bedienseite /steuve (Reiter Shellys) per STVSET; gespeichert im Flash (persist).
+// IP leer oder 1. Oktett 0  -> Platz frei: wird nicht abgefragt, nicht geschaltet, zaehlt nicht.
+// Fake = 1                  -> Platz wird SIMULIERT (Testprofil), es geht nichts ins Netz.
+// abschaltbar = 0           -> wird nur gemessen und mitgemeldet, nie geschaltet.
+//
+// Ablauf (TaskLoop, alle ABFRAGE_S Sekunden):
+//   1. Leistung aller belegten Verbraucher lesen (echt oder simuliert)
+//   2. Summe an den Treiber:  EEBusCsPower <W>   -> geht als Messwert an den Energy Guard
+//   3. Zustand vom Treiber:   sensorGet("EEBusCs#...") -> Begrenzt / Grenze / Zustand (Treiber ab SteuVE v008)
+//   4. Begrenzt und Summe > Grenze: abschaltbare Verbraucher abschalten, die GERADE ziehen,
+//      hoechste Prio-Zahl zuerst, bis Summe <= Grenze (BNetzA BK6-22-300 Anl. 1 Ziff. 4.6:
+//      kann ein Geraet nicht genau reduzieren -> naechstniedriger technisch moeglicher Wert = aus)
+//   5. Wieder einschalten, gestaffelt einer je EIN_ABSTAND_S (Ziff. 4.3: schrittweise Rueckkehr),
+//      nur was DIESES Skript abgeschaltet hat. Waehrend einer Begrenzung nur, wenn
+//        - der Verbraucher mindestens MIN_AUS_S aus war (gegen Pendeln) und
+//        - Summe + seine NENNLEISTUNG <= Grenze - RESERVE_W (mit Volllast gerechnet, nicht mit dem
+//          Momentanwert — eine Waschmaschine zieht nach dem Waschen wieder 2 kW zum Heizen)
+//   6. Protokoll /steuve_log.csv (Dateisystem des Skripts, bei SD-Karte dort): minuetlich waehrend einer Begrenzung und 10 min danach
+//   7. Melder: LED-Ring gruen = frei, gelb = begrenzt, rot = Failsafe, blau = ohne Energy Guard
+//      (Ring-Befehle: Plus Plug S PLUGS_UI, Plug PM Gen3 plugpm_ui)
+//
+// Testprofile (Fake), ausgedacht, NICHT gemessen — sollen nur wechselnde Leistung erzeugen:
+//   1 Waschmaschine  15 min 2100 W Heizen -> 40 min 150/300 W Waschen -> 10 min 500 W Schleudern
+//   2 Trockner       60 min Heizung taktet 5 min 2400 W / 1 min 300 W -> 10 min 300 W Abkuehlen
+//   3 Geschirrspueler 20 min 2000 W -> 30 min 100 W -> 10 min 2000 W -> 30 min 50 W Trocknen
+//   4 Heizstab       Thermostat 30 min 3000 W / 10 min aus
+// Simulierte Abschaltung (STVMODE): 0 = Programm haelt an und laeuft danach weiter,
+//   1 = Programm startet von vorn, 2 = Geraet bleibt aus (schlimmster Fall, bis neu gespeichert).
+//
+// Konsole (Praefix STV):
+//   STVSTAT                      Kurzstand
+//   STVLIST                      Messwerte je Platz  [Platz,W,an,vonSteuVE,Fehler] + Melder (Farbe) + Mode
+//   STVCFG                       Liste je Platz      [Platz,"Name","IP",Nenn,Fake,abschaltbar,Profil,Typ,"Modell"]
+//   STVSET p,fake,abs,ip,nenn,profil,name    Platz p (1..5) setzen und speichern
+//   STVPROBE p                   Shelly auf Platz p nach Modell/Generation fragen (naechste Runde)
+//   STVMODE 0|1|2                simulierte Abschaltung (s.o.)
+//   STVSIM <W> [s] | STVSIM 0    Grenze simulieren (ruft EEBusCsSim) — Test ohne Energy Guard
+//
+// v004 (09.10.2026): Zustand per sensorGet statt tasmCmd("EEBusCs") — tasmCmd liefert die ANTWORT eines Befehls leer
+//   (Tasmota loescht sie in XdrvRulesProcess, bevor TinyC sie abholt; gemessen: "tasmCmd -> 0 bytes"). Senden per
+//   tasmCmd (EEBusCsPower/EEBusCsMax) funktioniert weiter. Braucht Treiber SteuVE v008 (EEBusCs in den Sensordaten).
+// v003 (09.10.2026): Liste im Flash + STVSET/STVCFG/STVPROBE, Fake-Simulation, Wiedereinschalten mit
+//   Nennleistung + Mindest-Auszeit + Reserve, Schalter abschaltbar, Melder mit LED-Ring.
+// v002: Namen, STVLIST.  v001: Grundfunktion.
+// ─────────────────────────────────────────────────────────────────────
+
+// ===== GESPEICHERT (persist) — MUSS vor allen anderen Globals stehen, sonst wird die .pvs geloescht =====
+persist int cVer;            // 0 = noch nie gespeichert -> Vorgaben in main()
+persist int cIp[20];         // je Platz 4 Oktette (Platz k: cIp[k*4] .. cIp[k*4+3]); 1. Oktett 0 = frei
+persist int cNenn[5];        // max. Nennleistung des tatsaechlichen Verbrauchers in W (0 = 3680)
+persist int cFake[5];        // 1 = simuliert
+persist int cAbs[5];         // 1 = darf abgeschaltet werden
+persist int cProf[5];        // Testprofil 1..4
+persist int cTyp[5];         // 1 = Shelly Gen2 und neuer (RPC), 2 = Gen1; 0 = unbekannt -> wird erfragt
+persist int cSimMode;        // simulierte Abschaltung 0/1/2
+persist char cName[90];      // Namen der Plaetze, mit | getrennt
+
+// ===== EINSTELLUNGEN ====================================================================
+#define ANZ 5                // Plaetze gesamt
+#define NV 4                 // davon Verbraucher (Platz 5 = Melder)
+#define MELDER 4             // Index des Melders
+#define ABFRAGE_S 10         // Sekunden zwischen zwei Abfragen
+#define EIN_ABSTAND_S 60     // Sekunden zwischen zwei Wiedereinschaltungen
+#define MIN_AUS_S 300        // waehrend einer Begrenzung mindestens so lange aus (gegen Pendeln)
+#define RESERVE_W 200        // Wiedereinschalten nur mit so viel Luft unter der Grenze
+#define NACHLAUF_S 600       // Protokoll so lange nach dem Ende einer Begrenzung weiterfuehren
+#define NENN_VORGABE 3680    // 16 A x 230 V, wenn keine Nennleistung eingetragen ist
+// =======================================================================================
+
+int p[ANZ];          // zuletzt gemessene Leistung W
+int an[ANZ];         // Schaltzustand: 1 an, 0 aus, -1 unbekannt
+int vonUns[ANZ];     // 1 = von diesem Skript abgeschaltet
+int ausSeit[ANZ];    // Uptime der Abschaltung
+int fehler[ANZ];     // Fehlversuche in Folge (begrenzt auf 99)
+int versucht[ANZ];   // in dieser Runde schon vergeblich zu schalten versucht
+int simT[ANZ];       // Simulation: Sekunden im Programm
+int simOn[ANZ];      // Simulation: 1 = eingeschaltet
+int simTot[ANZ];     // Simulation: 1 = bleibt aus (STVMODE 2)
+char name[ANZ][16];  // Anzeigename (hoechstens 15 Byte — ein Umlaut zaehlt 2)
+char model[ANZ][24]; // erkanntes Modell (nur im Speicher; wird nach dem Start neu erfragt)
+
+int summe = 0;
+int begrenzt = 0;
+int grenze = 0;
+int letztesEin = 0;
+int letztesLog = 0;
+int endeBegr = 0;
+int letzteRunde = 0;
+int probeReq = -1;   // Platz, der in der naechsten Runde erfragt wird (-1 = keiner)
+int probeAll = 1;    // nach dem Start alle echten Plaetze einmal erfragen
+int melderFarbe = -1;   // zuletzt gesetzte Farbe (-1 = noch keine)
+char zustand[16] = "-";
+char resp[600];
+char url[320];
+
+// ⚠️ Bewusst KEINE char[]-Parameter (TinyC: strlen/Index auf char[]-Parametern fehlerhaft) —
+// die Adresse steht nach ipStr(k) in der globalen gip, Log-Zeilen gehen direkt an addLog.
+char gip[16];
+
+int belegt(int k) {
+    return cIp[k * 4] > 0;
+}
+
+int nennEff(int k) {
+    if (cNenn[k] > 0) { return cNenn[k]; }
+    return NENN_VORGABE;
+}
+
+void ipStr(int k) {
+    sprintf(gip, "%d.%d.%d.%d", cIp[k * 4], cIp[k * 4 + 1], cIp[k * 4 + 2], cIp[k * 4 + 3]);
+}
+
+// Simulierte Leistung nach Testprofil
+int simLeistung(int k) {
+    if (simOn[k] == 0 || simTot[k] == 1) { return 0; }
+    int t = simT[k];
+    int pr = cProf[k];
+    if (pr == 1) {
+        t = t % 3900;
+        if (t < 900) { return 2100; }
+        if (t < 3300) { if ((t / 60) % 2 == 0) { return 150; } return 300; }
+        return 500;
+    }
+    if (pr == 2) {
+        t = t % 4200;
+        if (t < 3600) { if (t % 360 < 300) { return 2400; } return 300; }
+        return 300;
+    }
+    if (pr == 3) {
+        t = t % 5400;
+        if (t < 1200) { return 2000; }
+        if (t < 3000) { return 100; }
+        if (t < 3600) { return 2000; }
+        return 50;
+    }
+    if (pr == 4) {
+        t = t % 2400;
+        if (t < 1800) { return 3000; }
+        return 0;
+    }
+    return 0;
+}
+
+// Shelly nach Modell und Generation fragen (/shelly). Setzt cTyp und model.
+void probe(int k) {
+    char g[8];
+    char m[24];
+    char m2[16];
+    int n;
+    int alt = cTyp[k];
+    ipStr(k);
+    sprintf(url, "http://%s/shelly", gip);
+    n = httpGet(url, resp);
+    if (n <= 0) { strcpy(model[k], "antwortet nicht"); return; }
+    if (jsonStr(resp, "gen", g) > 0) {
+        cTyp[k] = 1;
+        if (jsonStr(resp, "app", m) <= 0) { jsonStr(resp, "model", m); }
+        strSub(m2, m, 0, 14);
+        sprintf(model[k], "%s Gen%s", m2, g);
+    } else if (jsonStr(resp, "type", m) > 0) {
+        cTyp[k] = 2;
+        strSub(m2, m, 0, 14);
+        sprintf(model[k], "%s Gen1", m2);
+    } else {
+        cTyp[k] = 0;
+        strcpy(model[k], "kein Shelly?");
+    }
+    if (cTyp[k] != alt) { saveVars(); }   // Flash nur bei Aenderung beschreiben
+}
+
+// Leistung eines Platzes lesen. Liefert W oder -1.
+int lies(int i) {
+    float f;
+    int n;
+    if (cFake[i] == 1) {
+        an[i] = simOn[i];
+        return simLeistung(i);
+    }
+    ipStr(i);
+    if (cTyp[i] == 1) {
+        sprintf(url, "http://%s/rpc/Switch.GetStatus?id=0", gip);
+        n = httpGet(url, resp);
+        if (n <= 0) { return -1; }
+        f = jsonNum(resp, "apower");
+        if (strFind(resp, "\"output\":true") >= 0) { an[i] = 1; } else { an[i] = 0; }
+        return (int)(f + 0.5);
+    }
+    if (cTyp[i] == 2) {
+        char u2[48];
+        sprintf(u2, "http://%s/meter/0", gip);   // vor dem ersten httpGet bauen
+        sprintf(url, "http://%s/relay/0", gip);
+        n = httpGet(url, resp);
+        if (n > 0) {
+            if (strFind(resp, "\"ison\":true") >= 0) { an[i] = 1; } else { an[i] = 0; }
+        }
+        n = httpGet(u2, resp);
+        if (n <= 0) { return -1; }
+        f = jsonNum(resp, "power");
+        return (int)(f + 0.5);
+    }
+    probeReq = i;   // Typ unbekannt -> in der naechsten Runde erfragen
+    return -1;
+}
+
+// Platz ein-/ausschalten. Liefert 1 bei Erfolg.
+int schalte(int i, int ein) {
+    int n = -1;
+    if (cFake[i] == 1) {
+        simOn[i] = ein;
+        if (ein == 0 && cSimMode == 1) { simT[i] = 0; }
+        if (ein == 0 && cSimMode == 2) { simTot[i] = 1; }
+        an[i] = ein;
+        return 1;
+    }
+    ipStr(i);
+    if (cTyp[i] == 1) {
+        if (ein == 1) { sprintf(url, "http://%s/rpc/Switch.Set?id=0&on=true", gip); }
+        else          { sprintf(url, "http://%s/rpc/Switch.Set?id=0&on=false", gip); }
+        n = httpGet(url, resp);
+    }
+    if (cTyp[i] == 2) {
+        if (ein == 1) { sprintf(url, "http://%s/relay/0?turn=on", gip); }
+        else          { sprintf(url, "http://%s/relay/0?turn=off", gip); }
+        n = httpGet(url, resp);
+    }
+    if (n > 0) { an[i] = ein; return 1; }
+    return 0;
+}
+
+// Melder: LED-Ring setzen (erprobt):
+//   Plus Plug S (PLUGS_UI):  Farbe fuer "on" UND "off" von switch:0 setzen
+//   Plug PM Gen3 (plugpm_ui): erst leds.mode = switch, dann Farbe fuer pm1:0 "on"
+// RGB in Prozent 0..100. Farbe: 0 gruen frei, 1 gelb begrenzt, 2 rot Failsafe, 3 blau ohne Energy Guard.
+void ringFarbe(int pm, int aus, int r, int g, int b) {
+    char lg[96];
+    if (pm == 1) {
+        sprintf(url, "http://%s/rpc/plugpm_ui.SetConfig", gip);
+        strcpy(lg, "?config=%7B%22leds%22%3A%7B%22colors%22%3A%7B%22pm1%3A0%22%3A%7B%22");
+    } else {
+        sprintf(url, "http://%s/rpc/PLUGS_UI.SetConfig", gip);
+        strcpy(lg, "?config=%7B%22leds%22%3A%7B%22colors%22%3A%7B%22switch%3A0%22%3A%7B%22");
+    }
+    strcat(url, lg);
+    if (aus == 1) { strcat(url, "off"); } else { strcat(url, "on"); }
+    sprintf(lg, "%%22%%3A%%7B%%22rgb%%22%%3A%%5B%d%%2C%d%%2C%d", r, g, b);
+    strcat(url, lg);
+    strcpy(lg, "%5D%2C%22brightness%22%3A80%7D%7D%7D%7D%7D");
+    strcat(url, lg);
+}
+
+void melder() {
+    if (!belegt(MELDER)) { return; }
+    int farbe = 0;
+    if (strFind(zustand, "Failsafe") == 0) { farbe = 2; }
+    else if (begrenzt == 1) { farbe = 1; }
+    else if (strFind(zustand, "gesteuert") != 0) { farbe = 3; }
+    if (farbe == melderFarbe) { return; }
+    if (cFake[MELDER] == 1) { melderFarbe = farbe; return; }
+    if (cTyp[MELDER] == 0 && strlen(model[MELDER]) == 0) { probeReq = MELDER; return; }   // Typ noch unbekannt
+    if (cTyp[MELDER] != 1) { return; }   // LED-Ring nur bei Gen2 und neuer
+    int pm = 0;
+    int r = 0;
+    int g = 100;
+    int b = 0;
+    if (strFind(model[MELDER], "PM") >= 0) { pm = 1; }      // Plug PM (Gen3)
+    if (farbe == 1) { r = 100; g = 70; b = 0; }
+    if (farbe == 2) { r = 100; g = 0; b = 0; }
+    if (farbe == 3) { r = 0; g = 30; b = 100; }
+    ipStr(MELDER);
+    int ok = 0;
+    if (pm == 1) {
+        sprintf(url, "http://%s/rpc/plugpm_ui.SetConfig?config=%%7B%%22leds%%22%%3A%%7B%%22mode%%22%%3A%%22switch%%22%%7D%%7D", gip);
+        httpGet(url, resp);
+        ringFarbe(1, 0, r, g, b);
+        if (httpGet(url, resp) > 0) { ok = 1; }
+    } else {
+        ringFarbe(0, 0, r, g, b);
+        if (httpGet(url, resp) > 0) { ok = 1; }
+        ringFarbe(0, 1, r, g, b);
+        httpGet(url, resp);
+    }
+    if (ok == 1) {
+        melderFarbe = farbe;
+        fehler[MELDER] = 0;
+    } else if (fehler[MELDER] < 99) {
+        fehler[MELDER] = fehler[MELDER] + 1;
+    }
+}
+
+void protokoll() {
+    char z[120];
+    char ts[24];
+    char maske[NV + 1];
+    int i;
+    for (i = 0; i < NV; i++) {
+        if (vonUns[i] == 1) { maske[i] = 'X'; } else { maske[i] = '.'; }
+    }
+    maske[NV] = 0;
+    timeStamp(ts);
+    sprintf(z, "%s;%s;%d;%d;%d;%s\n", ts, zustand, begrenzt, grenze, summe, maske);
+    // nur ANHAENGEN (Modus 2), nie neu anlegen — ein Neuanlegen schneidet die Datei ab
+    int h = fileOpen("/steuve_log.csv", 2);
+    if (h >= 0) {
+        fileWrite(h, z, strlen(z));
+        fileClose(h);
+    }
+}
+
+void nennMelden() {
+    int i;
+    int nsum = 0;
+    char c[40];
+    for (i = 0; i < NV; i++) {
+        if (belegt(i)) { nsum = nsum + nennEff(i); }
+    }
+    sprintf(c, "EEBusCsMax %d", nsum);   // Nennleistung = Summe der belegten Verbraucher
+    tasmCmd(c, resp);
+}
+
+void runde() {
+    int i;
+    int s = 0;
+    char c[64];
+    int dt = tasm_uptime - letzteRunde;
+    if (letzteRunde == 0 || dt < 0 || dt > 120) { dt = ABFRAGE_S; }
+    letzteRunde = tasm_uptime;
+
+    // Pruefauftraege (Modell/Generation)
+    if (probeAll == 1) {
+        probeAll = 0;
+        for (i = 0; i < ANZ; i++) {
+            if (belegt(i) && cFake[i] == 0) { probe(i); }
+        }
+    }
+    if (probeReq >= 0) {
+        int k = probeReq;
+        probeReq = -1;
+        if (belegt(k) && cFake[k] == 0) { probe(k); }
+    }
+
+    // Simulation weiterlaufen lassen (nur eingeschaltete Fake-Plaetze)
+    for (i = 0; i < ANZ; i++) {
+        if (cFake[i] == 1 && simOn[i] == 1 && simTot[i] == 0) { simT[i] = simT[i] + dt; }
+    }
+
+    // 1. lesen
+    for (i = 0; i < NV; i++) {
+        if (!belegt(i)) { p[i] = 0; an[i] = -1; fehler[i] = 0; continue; }
+        int w = lies(i);
+        if (w < 0) {
+            if (fehler[i] < 99) { fehler[i] = fehler[i] + 1; }
+            if (fehler[i] == 3) { sprintf(c, "Prio %d antwortet nicht", i + 1); addLog("STV %s", c); }
+            w = 0;
+        } else {
+            fehler[i] = 0;
+        }
+        p[i] = w;
+        s = s + w;
+    }
+    summe = s;
+    // 2. Summe an den Treiber
+    sprintf(c, "EEBusCsPower %d", summe);
+    tasmCmd(c, resp);
+    // 3. Zustand vom Treiber (Sensordaten, SteuVE v008). Zustand: 0 Anlauf, 1 gesteuert, 2 Failsafe, 3 autonom
+    int warBegrenzt = begrenzt;
+    float fb = sensorGet("EEBusCs#Begrenzt");
+    float fg = sensorGet("EEBusCs#Grenze");
+    float fz = sensorGet("EEBusCs#Zustand");
+    begrenzt = 0;
+    if ((int)fb == 1) { begrenzt = 1; }
+    grenze = (int)fg;
+    int zn = (int)fz;
+    if (zn == 1) { strcpy(zustand, "gesteuert"); }
+    else if (zn == 2) { strcpy(zustand, "Failsafe"); }
+    else if (zn == 3) { strcpy(zustand, "autonom"); }
+    else { strcpy(zustand, "Anlauf"); }
+    if (warBegrenzt == 1 && begrenzt == 0) { endeBegr = tasm_uptime; addLog("STV Begrenzung beendet"); }
+    if (warBegrenzt == 0 && begrenzt == 1) { sprintf(c, "Begrenzung auf %d W", grenze); addLog("STV %s", c); }
+
+    // 4. begrenzt: abschalten, hoechste Prio-Zahl zuerst, bis Summe <= Grenze
+    if (begrenzt == 1) {
+        int sicher = 0;
+        for (i = 0; i < NV; i++) { versucht[i] = 0; }
+        while (summe > grenze && sicher < NV) {
+            sicher = sicher + 1;
+            int best = -1;
+            for (i = NV - 1; i >= 0; i--) {
+                if (!belegt(i) || cAbs[i] != 1 || an[i] != 1 || p[i] <= 0 || versucht[i] == 1) { continue; }
+                best = i;
+                break;
+            }
+            if (best < 0) {
+                sprintf(c, "Grenze %d W nicht erreichbar (Summe %d W, nichts mehr abschaltbar)", grenze, summe);
+                addLog("STV %s", c);
+                break;
+            }
+            if (schalte(best, 0) == 1) {
+                vonUns[best] = 1;
+                ausSeit[best] = tasm_uptime;
+                summe = summe - p[best];
+                sprintf(c, "aus: Prio %d %d W", best + 1, p[best]);
+                addLog("STV %s", c);
+            } else {
+                versucht[best] = 1;   // laesst sich nicht schalten -> naechsten nehmen statt aufzugeben
+                sprintf(c, "Prio %d laesst sich nicht abschalten", best + 1);
+                addLog("STV %s", c);
+            }
+        }
+    }
+
+    // 5. wieder einschalten — gestaffelt, Prio 1 zuerst, nur was wir abgeschaltet haben
+    if (tasm_uptime - letztesEin >= EIN_ABSTAND_S) {
+        for (i = 0; i < NV; i++) {
+            if (vonUns[i] != 1) { continue; }
+            if (begrenzt == 1) {
+                if (tasm_uptime - ausSeit[i] < MIN_AUS_S) { continue; }            // gegen Pendeln
+                if (summe + nennEff(i) > grenze - RESERVE_W) { continue; }        // mit Volllast rechnen
+            }
+            if (schalte(i, 1) == 1) {
+                vonUns[i] = 0;
+                letztesEin = tasm_uptime;
+                sprintf(c, "ein: Prio %d", i + 1);
+                addLog("STV %s", c);
+            }
+            break;   // hoechstens einer je Abstand
+        }
+    }
+
+    // 6. Protokoll: minuetlich waehrend der Begrenzung und NACHLAUF_S danach
+    int nachlauf = endeBegr > 0 && (tasm_uptime - endeBegr) < NACHLAUF_S;
+    if ((begrenzt == 1 || nachlauf) && (tasm_uptime - letztesLog >= 60)) {
+        letztesLog = tasm_uptime;
+        protokoll();
+    }
+
+    // 7. Melder
+    melder();
+}
+
+void TaskLoop() {
+    runde();
+    delay(ABFRAGE_S * 1000);
+}
+
+void WebCall() {
+    char b[160];
+    if (begrenzt == 1) { sprintf(b, "{s}SteuVE{m}%s · Grenze %d W / Summe %d W{e}", zustand, grenze, summe); }
+    else { sprintf(b, "{s}SteuVE{m}%s · frei / Summe %d W{e}", zustand, summe); }
+    webSend(b);
+    int i;
+    for (i = 0; i < NV; i++) {
+        if (!belegt(i)) { continue; }
+        sprintf(b, "{s}Prio %d %s%s{m}%d W%s%s{e}", i + 1, name[i], cFake[i] == 1 ? " (Fake)" : "", p[i],
+                an[i] == 0 ? " · aus" : "", vonUns[i] == 1 ? " (von SteuVE)" : "");
+        webSend(b);
+    }
+}
+
+// Namen aus den Plaetzen in cName zusammensetzen (leer -> "-", damit strToken die Stelle findet)
+void namenSpeichern() {
+    int k;
+    strcpy(cName, "");
+    for (k = 0; k < ANZ; k++) {
+        if (strlen(name[k]) > 0) { strcat(cName, name[k]); } else { strcat(cName, "-"); }
+        strcat(cName, "|");
+    }
+}
+
+void namenLaden() {
+    int k;
+    char t[24];
+    for (k = 0; k < ANZ; k++) {
+        strToken(t, cName, '|', k + 1);
+        if (strcmp(t, "-") == 0) { strcpy(t, ""); }
+        strSub(name[k], t, 0, 15);
+    }
+}
+
+void Command(char cmd[]) {
+    char c[64];
+    char a[128];
+    char t[24];
+    char z[100];
+    int i;
+    if (strFind(cmd, "STAT") == 0) {
+        sprintf(resp, "{\"STV\":{\"Zustand\":\"%s\",\"Begrenzt\":%d,\"Grenze\":%d,\"Summe\":%d}}", zustand, begrenzt, grenze, summe);
+        responseCmnd(resp);
+    } else if (strFind(cmd, "LIST") == 0) {
+        strcpy(resp, "{\"STVLIST\":[");
+        for (i = 0; i < ANZ; i++) {
+            if (i > 0) { strcat(resp, ","); }
+            sprintf(z, "[%d,%d,%d,%d,%d]", i, p[i], an[i], vonUns[i], fehler[i]);
+            strcat(resp, z);
+        }
+        sprintf(z, "],\"Melder\":%d,\"Mode\":%d}", melderFarbe, cSimMode);
+        strcat(resp, z);
+        responseCmnd(resp);
+    } else if (strFind(cmd, "CFG") == 0) {
+        sprintf(resp, "{\"STVCFG\":{\"Mode\":%d,\"P\":[", cSimMode);
+        for (i = 0; i < ANZ; i++) {
+            // Adresse direkt aus den Oktetten — NICHT ipStr/gip: Command laeuft auch waehrend eines httpGet der Runde
+            sprintf(z, "[%d,\"%s\",\"%d.%d.%d.%d\",%d,%d,%d,%d,%d,\"%s\"]", i, name[i], cIp[i * 4], cIp[i * 4 + 1], cIp[i * 4 + 2], cIp[i * 4 + 3],
+                    cNenn[i], cFake[i], cAbs[i], cProf[i], cTyp[i], model[i]);
+            if (strlen(resp) + strlen(z) > 500) { break; }   // Antwort hoechstens 512 Zeichen
+            if (i > 0) { strcat(resp, ","); }
+            strcat(resp, z);
+        }
+        strcat(resp, "]}}");
+        responseCmnd(resp);
+    } else if (strFind(cmd, "SET") == 0) {
+        // STVSET p,fake,abs,ip,nenn,profil,name
+        strSub(a, cmd, 4, 0);
+        strToken(t, a, ',', 1);
+        int k = strToInt(t) - 1;
+        if (k < 0 || k >= ANZ) { responseCmnd("Platz 1..5 angeben"); return; }
+        if (vonUns[k] == 1) { responseCmnd("Platz ist gerade von SteuVE abgeschaltet - erst nach der Rueckkehr aendern"); return; }
+        int alt0 = cIp[k * 4];
+        int alt1 = cIp[k * 4 + 1];
+        int alt2 = cIp[k * 4 + 2];
+        int alt3 = cIp[k * 4 + 3];
+        int altFake = cFake[k];
+        int altProf = cProf[k];
+        strToken(t, a, ',', 2);
+        cFake[k] = 0;
+        if (strToInt(t) > 0) { cFake[k] = 1; }
+        strToken(t, a, ',', 3);
+        cAbs[k] = 0;
+        if (strToInt(t) > 0) { cAbs[k] = 1; }
+        strToken(t, a, ',', 4);
+        char o[6];
+        int j;
+        for (j = 0; j < 4; j++) {
+            strToken(o, t, '.', j + 1);
+            cIp[k * 4 + j] = strToInt(o);
+        }
+        strToken(t, a, ',', 5);
+        cNenn[k] = strToInt(t);
+        strToken(t, a, ',', 6);
+        cProf[k] = strToInt(t);
+        strToken(t, a, ',', 7);
+        strSub(name[k], t, 0, 15);
+        namenSpeichern();
+        cVer = 1;
+        int ipNeu = 0;
+        if (cIp[k * 4] != alt0 || cIp[k * 4 + 1] != alt1 || cIp[k * 4 + 2] != alt2 || cIp[k * 4 + 3] != alt3) { ipNeu = 1; }
+        if (ipNeu == 1 || cFake[k] != altFake) {   // anderes Geraet -> Typ neu erfragen, Messwerte verwerfen
+            cTyp[k] = 0;
+            strcpy(model[k], "");
+            p[k] = 0; an[k] = -1; fehler[k] = 0;
+            if (k == MELDER) { melderFarbe = -1; }
+            if (belegt(k) && cFake[k] == 0) { probeAll = 1; }
+        }
+        if (cFake[k] != altFake || cProf[k] != altProf) { simT[k] = 0; simOn[k] = 1; simTot[k] = 0; }
+        saveVars();
+        nennMelden();
+        sprintf(c, "Platz %d gespeichert", k + 1);
+        addLog("STV %s", c);
+        responseCmnd("{\"STVSET\":\"ok\"}");
+    } else if (strFind(cmd, "PROBE") == 0) {
+        strSub(a, cmd, 6, 0);
+        int k = strToInt(a) - 1;
+        if (k < 0 || k >= ANZ) { responseCmnd("Platz 1..5 angeben"); return; }
+        probeReq = k;
+        responseCmnd("{\"STVPROBE\":\"naechste Runde\"}");
+    } else if (strFind(cmd, "MODE") == 0) {
+        strSub(a, cmd, 5, 0);
+        int m = strToInt(a);
+        if (m >= 0 && m <= 2) { cSimMode = m; saveVars(); }
+        for (i = 0; i < ANZ; i++) { simTot[i] = 0; }
+        sprintf(c, "{\"STVMODE\":%d}", cSimMode);
+        responseCmnd(c);
+    } else if (strFind(cmd, "SIM") == 0) {
+        strSub(a, cmd, 4, 0);
+        sprintf(c, "EEBusCsSim %s", a);
+        tasmCmd(c, resp);   // Antwort kommt leer zurueck (s. v004) — Ergebnis steht in EEBusCs bzw. auf der Seite
+        responseCmnd("{\"STVSIM\":\"gesendet\"}");
+    } else {
+        responseCmnd("STVSTAT | STVLIST | STVCFG | STVSET p,fake,abs,ip,nenn,profil,name | STVPROBE p | STVMODE 0|1|2 | STVSIM <W> [s]");
+    }
+}
+
+int main() {
+    int i;
+    if (cVer == 0) {
+        // Vorgaben: alle Plaetze frei (IP 0), alle abschaltbar, Profile passend zu den Beispielnamen
+        for (i = 0; i < 20; i++) { cIp[i] = 0; }
+        for (i = 0; i < ANZ; i++) { cNenn[i] = 0; cFake[i] = 0; cAbs[i] = 1; cTyp[i] = 0; }
+        cProf[0] = 3; cProf[1] = 1; cProf[2] = 2; cProf[3] = 4; cProf[4] = 0;
+        cAbs[MELDER] = 0;
+        cSimMode = 0;
+        strcpy(cName, "Geschirrspüler|Waschmaschine|Trockner|Heizstab|Melder|");
+    }
+    namenLaden();
+    for (i = 0; i < ANZ; i++) {
+        p[i] = 0; an[i] = -1; vonUns[i] = 0; ausSeit[i] = 0; fehler[i] = 0;
+        simT[i] = 0; simOn[i] = 1; simTot[i] = 0;
+        strcpy(model[i], "");
+    }
+    nennMelden();
+    addCommand("STV");
+    addLog("STV: SteuVE-Verbraucher v004 gestartet");
+    return 0;
+}
