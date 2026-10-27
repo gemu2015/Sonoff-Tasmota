@@ -206,9 +206,10 @@ class WiFiClientSecure_light : public WiFiClient {
 
 #if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
 // EEBUS/SHIP: oeffentlicher EC-Schluessel (unkomprimierter Punkt, 65 Byte) aus dem Zertifikat der Gegenstelle beim
-// letzten TLS-Aufbau als Client; *len = 0, wenn keiner da war. Direkt nach connect() lesen. Bewusst KEIN Klassenfeld:
-// der Header wird auch ohne tasmota_options.h eingebunden (HttpClientLight), das Klassen-Layout muss ueberall gleich sein.
-const uint8_t *ShipPeerPubKey(size_t *len);
+// TLS-Aufbau DIESES Clients (client = der WiFiClientSecure_light, mit dem connect() lief); *len = 0, wenn keiner da
+// war. Direkt nach connect() lesen. Je Client getrennt (24.10.2026). Bewusst KEIN Klassenfeld: der Header wird auch
+// ohne tasmota_options.h eingebunden (HttpClientLight), das Klassen-Layout muss ueberall gleich sein.
+const uint8_t *ShipPeerPubKey(const void *client, size_t *len);
 #endif
 
 #define ERR_OOM             -1000

@@ -410,7 +410,13 @@ int WiFiClientSecure_light::connect(const char* name, uint16_t port) {
 }
 #endif
 
+#if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
+static void ShipPkFrei(const void *client);   // 25.10.2026: Platz in der SHIP-Schluesseltabelle freigeben (s. unten)
+#endif
 void WiFiClientSecure_light::_freeSSL() {
+#if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
+  ShipPkFrei(this);   // Verbindung beendet/neu: Platz dieses Clients wird frei (sonst nach 8 Aufbauten voll)
+#endif
   _ctx_present = false;
   _recvapp_buf = nullptr;
   _recvapp_len = 0;
@@ -752,13 +758,44 @@ static uint8_t htoi (unsigned char c)
 }
 
 #if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
-// EEBUS/SHIP: oeffentlicher Schluessel der Gegenstelle beim letzten TLS-Aufbau als Client (s. ShipPeerPubKey im Header)
-static uint8_t ship_peer_pubkey[65];
-static size_t  ship_peer_pubkey_len = 0;
+// EEBUS/SHIP: oeffentlicher Schluessel der Gegenstelle beim TLS-Aufbau als Client (s. ShipPeerPubKey im Header).
+// 24.10.2026 (gemu 23.10.: "Merker je Client haerten"): kleine Tabelle statt EINES Puffers — je Platz ein Client
+// (Zeiger) und sein X.509-Kontext. Der Rueckruf beim Handshake legt den Schluessel beim Platz des passenden
+// Kontexts ab, der Treiber fragt mit SEINEM Client. Kein Klassenfeld -> Klassen-Layout unveraendert.
+// 25.10.2026 (Steuerbox v199: bis zu 6 eigene Verbindungen): 8 Plaetze statt 4, und ein Platz wird wieder frei -
+// beim Freigeben des Clients (_freeSSL: stop, Destruktor, neuer Aufbau) und der X.509-Zeiger, sobald der Kontext
+// freigegeben ist. Vorher blieben Plaetze nach new/delete im Treiber belegt (nach 4 Aufbauten landete jeder neue
+// auf Platz 0), und ein veralteter X.509-Zeiger konnte bei gleicher Adresse den Schluessel in einen fremden Platz lenken.
+#define SHIP_PK_PLAETZE 8
+struct ShipPkPlatz { const void *client; const void *x509; uint8_t key[65]; size_t len; };
+static ShipPkPlatz ship_pk[SHIP_PK_PLAETZE];
 
-const uint8_t *ShipPeerPubKey(size_t *len) {
-  if (len) { *len = ship_peer_pubkey_len; }
-  return ship_peer_pubkey;
+// Platz fuer diesen Client: vorhandener, sonst freier, sonst der erste (wird neu belegt)
+static ShipPkPlatz *ShipPkPlatzFuer(const void *client) {
+  for (int i = 0; i < SHIP_PK_PLAETZE; i++) { if (ship_pk[i].client == client) { return &ship_pk[i]; } }
+  for (int i = 0; i < SHIP_PK_PLAETZE; i++) { if (nullptr == ship_pk[i].client) { return &ship_pk[i]; } }
+  return &ship_pk[0];
+}
+
+static void ShipPkFrei(const void *client) {
+  for (int i = 0; i < SHIP_PK_PLAETZE; i++) {
+    if (client && (ship_pk[i].client == client)) { ship_pk[i].client = nullptr; ship_pk[i].x509 = nullptr; ship_pk[i].len = 0; }
+  }
+}
+// X.509-Kontext wird freigegeben: Zeiger aus der Tabelle nehmen (der Schluessel bleibt fuer ShipPeerPubKey stehen)
+static void ShipPkX509Weg(const void *x509) {
+  for (int i = 0; i < SHIP_PK_PLAETZE; i++) { if (x509 && (ship_pk[i].x509 == x509)) { ship_pk[i].x509 = nullptr; } }
+}
+
+const uint8_t *ShipPeerPubKey(const void *client, size_t *len) {
+  for (int i = 0; i < SHIP_PK_PLAETZE; i++) {
+    if (client && (ship_pk[i].client == client)) {
+      if (len) { *len = ship_pk[i].len; }
+      return ship_pk[i].key;
+    }
+  }
+  if (len) { *len = 0; }
+  return ship_pk[0].key;
 }
 #endif
 
@@ -886,10 +923,13 @@ extern "C" {
 
       br_sha1_out(&shactx, xc->pubkey_recv_fingerprint); // copy to fingerprint
 #if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
-      // EEBUS/SHIP: den Punkt fuer den Treiber aufheben, die SKI bildet der Treiber selbst
-      if (eckey.qlen <= sizeof(ship_peer_pubkey)) {
-        memcpy(ship_peer_pubkey, eckey.q, eckey.qlen);
-        ship_peer_pubkey_len = eckey.qlen;
+      // EEBUS/SHIP: den Punkt fuer den Treiber aufheben (beim Platz DIESES X.509-Kontexts), die SKI bildet der Treiber
+      for (int i = 0; i < SHIP_PK_PLAETZE; i++) {
+        if ((ship_pk[i].x509 == (const void *)xc) && (eckey.qlen <= sizeof(ship_pk[i].key))) {
+          memcpy(ship_pk[i].key, eckey.q, eckey.qlen);
+          ship_pk[i].len = eckey.qlen;
+          break;
+        }
       }
 #endif
     }
@@ -1095,7 +1135,12 @@ bool WiFiClientSecure_light::_connectSSL(const char* hostName) {
     if (!x509_insecure) break;
     br_x509_pubkeyfingerprint_init(x509_insecure, _fingerprint1, _fingerprint2, _recv_fingerprint, _fingerprint_any);
 #if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
-    ship_peer_pubkey_len = 0;   // EEBUS: Schluessel der Gegenstelle neu aufnehmen (ShipPeerPubKey)
+    {   // EEBUS: Platz dieses Clients belegen, Schluessel der Gegenstelle neu aufnehmen (ShipPeerPubKey)
+      ShipPkPlatz *pk = ShipPkPlatzFuer(this);
+      pk->client = this;
+      pk->x509 = (const void *)x509_insecure;
+      pk->len = 0;
+    }
 #endif
     br_ssl_engine_set_x509(_eng, &x509_insecure->vtable);
 
@@ -1155,6 +1200,9 @@ bool WiFiClientSecure_light::_connectSSL(const char* hostName) {
 #endif // ESP8266
 
     free(x509_minimal);   // safe to call if nullptr
+#if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
+    ShipPkX509Weg(x509_insecure);
+#endif
     free(x509_insecure);
     LOG_HEAP_SIZE("_connectSSL after release of Priv Key");
     return ret;
@@ -1168,6 +1216,9 @@ bool WiFiClientSecure_light::_connectSSL(const char* hostName) {
   stack_thunk_light_del_ref();
 #endif
   free(x509_minimal);   // safe to call if nullptr
+#if defined(USE_EEBUS_GUARD) || defined(USE_EEBUS_STEUVE) || defined(USE_EEBUS_HEMS)
+  ShipPkX509Weg(x509_insecure);
+#endif
   free(x509_insecure);
   LOG_HEAP_SIZE("_connectSSL clean_on_error");
   return false;

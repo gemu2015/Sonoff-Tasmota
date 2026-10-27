@@ -43,13 +43,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EEBUS-Steuerbox</title>
 <style>
+  /* 23.10.: QR-Codes der Kennung (immer schwarz auf weiss, auch im dunklen Modus) */
+  .qrgrid{display:flex;flex-wrap:wrap;gap:24px 40px;align-items:flex-start;margin-top:12px}
+  .qrgrid figure{margin:0;text-align:center;width:200px}
+  .qrgrid figcaption{font-size:11px;color:var(--muted);margin-top:6px}
+  .qrgrid svg{display:block;margin:0 auto;border-radius:4px}
+  /* 23.10.: Farben wie HEMS und SteuVE (gleiche Werte), dazu "Hell / Dunkel" im Kopf (Andreas: einheitlich) */
   :root{
-    --bg:#0e1013; --panel:#1a1d22; --panel2:#22262d; --line:#333a44;
-    --txt:#e6e8ea; --muted:#9aa4b0; --accent:#2f9be0; --ok:#37c871; --warn:#e0912f; --bad:#e05a4a;
+    color-scheme: dark;
+    --bg:#0d0d0d; --panel:#1a1a19; --panel2:#232321; --line:#383835;
+    --txt:#ffffff; --muted:#898781; --accent:#2f9be0; --ok:#37c871; --warn:#e0912f; --bad:#e05a4a;
   }
+  :root[data-theme="light"]{
+    color-scheme: light;
+    --bg:#f9f9f7; --panel:#fcfcfb; --panel2:#f0efec; --line:#c3c2b7;
+    --txt:#0b0b0b; --muted:#898781;
+  }
+  :root[data-theme="light"] .rdtab td{border-bottom-color:rgba(11,11,11,.08)}
+  button.thm{background:#FFEB9C;color:#9C5700;padding:6px 12px;font-size:13px}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
-  h1{font-size:20px;margin:0;padding:14px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+  h1{font-size:20px;margin:0;padding:14px max(16px, calc((100% - 860px) / 2 + 14px));background:var(--panel);border-bottom:1px solid var(--line);
      display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
   h2{font-size:15px;margin:0 0 12px;color:var(--accent);letter-spacing:.02em}
   h3{font-size:12px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
@@ -164,8 +178,23 @@
   @media(max-width:420px){.ztab{grid-template-columns:1fr}}
   .pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
   .pill.ok{color:var(--ok);border-color:var(--ok)} .pill.bad{color:var(--bad);border-color:var(--bad)}
+  /* v199: Kasten Verbindungen - eine Zeile je Platz (Direktsteuerung mehrerer Anlagen) */
+  .vtab{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  .vtab th{text-align:left;color:var(--muted);font-weight:normal;border-bottom:1px solid var(--line);padding:4px 6px;white-space:nowrap}
+  .vtab td{border-bottom:1px solid var(--line);padding:5px 6px;vertical-align:top}
+  .vtab tr.frei td{color:var(--muted)} .vtab tr.sel td{background:#FFEB9C;color:#9C5700;font-weight:bold}   /* 26.10.: ausgewaehlte Anlage = Ziel, Bernstein wie Hell/Dunkel */
+  .vtab tr.sel td *{color:#9C5700}
+  .vtab tr.sel td:first-child{box-shadow:inset 4px 0 0 #9C5700}
+  .vtab td:nth-child(1),.vtab td:nth-child(2),.vtab td:nth-child(4),.vtab td:nth-child(5),.vtab td:nth-child(7){white-space:nowrap}   /* Pl., Art, Adresse, SKI, Leistung nicht umbrechen */
+  .vtab .ok{color:var(--ok)} .vtab .bad{color:var(--bad)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  /* 25.10. Struktur: vier Auswahlfelder nebeneinander (Ueberschrift darueber), Auskunft und Inhalt darunter in voller
+     Breite; breite Tabellen rollen waagrecht in ihrem Feld statt ueber den Kastenrand zu laufen */
+  .sleiste{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  .sfeld label{display:block;color:var(--muted);font-size:12px;margin-bottom:4px} .sfeld select{width:100%;min-width:0}
+  #s_read,#s_detail{min-width:0;overflow-x:auto}
   .sep{border:0;border-top:1px solid var(--line);margin:16px 0}
+  @media(max-width:700px){.sleiste{grid-template-columns:repeat(2,minmax(0,1fr))}}
   @media(max-width:640px){.grid2{grid-template-columns:1fr}.row,.act{grid-template-columns:1fr}.ident{grid-template-columns:1fr}}
   .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all}
   .hide{display:none}
@@ -174,7 +203,7 @@
 </style>
 </head>
 <body>
-<h1><span>EEBUS-Steuerbox</span><a class="tasmota" href="/">Tasmota</a><span class="pill" id="ownrole">—</span></h1>
+<h1><span>EEBUS-Steuerbox</span><a class="tasmota" href="/">Tasmota</a><button class="thm" id="theme" type="button">Hell / Dunkel</button><span class="pill" id="ownrole">—</span></h1>
 <div class="wrap">
 
   <!-- ===== EIGENE IDENTITAET =====
@@ -192,6 +221,16 @@
       <b>Kennung</b><span class="mono" id="own_id">—</span>
       <b>Seriennummer</b><span class="mono" id="own_serial">—</span>
     </div>
+    <div class="row"><button class="sec" id="qr_auf">QR-Codes anzeigen</button></div>
+    <div id="qr_box" style="display:none">
+      <div class="qrgrid">
+        <figure><div id="qr_ship"></div><figcaption>Kopplung (SHIP-Format, wie auf dem Typschild)</figcaption></figure>
+        <figure><div id="qr_id"></div><figcaption>SHIP-ID</figcaption></figure>
+        <figure><div id="qr_ski"></div><figcaption>SKI</figcaption></figure>
+      </div>
+      <p class="hint" id="qr_txt" style="word-break:break-all;text-align:left;max-width:none"></p>
+      <p class="hint" style="text-align:left;max-width:none">Die Codes entstehen jedes Mal neu aus der aktuellen Kennung — nach „Neue Identität“ zeigen sie die neue. Inhalt nach „SHIP Requirements for Installation Process“ V1.1.0 [SRIP-310/4–19], Fehlerkorrektur M.</p>
+    </div>
     <!-- Aktionszeile abgesetzt wie bei den Grenzwerten: hier wird gehandelt, nicht berichtet. -->
     <div class="act" style="grid-template-columns:150px 1fr auto">
       <label>Zertifikat</label>
@@ -200,6 +239,7 @@
       <span>
         <button class="sec" onclick="identSichern()">Sichern</button>
         <button class="bad" onclick="identNeu()">Neue Identität …</button>
+        <button class="gruen" onclick="identAnkuendigen()" title="Eigene Kennung (SKI) im Netz neu bekanntgeben - z. B. wenn ein anderes Gerät noch eine alte SKI zeigt">Neu ankündigen</button>
       </span>
     </div>
     <!-- Zweistufig mit Absicht: eine neue Identitaet macht JEDE bestehende Kopplung ungueltig.
@@ -216,9 +256,9 @@
       bestehende Verbindungen laufen noch mit dem alten Zertifikat weiter.</p>
   </div>
 
-  <!-- ===== GERAET ===== -->
+  <!-- ===== GERAET (25.10.: Name "Anlagen suchen und verbinden", Andreas) ===== -->
   <div class="card">
-    <h2>Gerät</h2>
+    <h2>Anlagen suchen und verbinden</h2>
     <div class="row">
       <label>Gefundene Geräte</label>
       <select id="device" onchange="showDevice()"><option value="">— Scan starten —</option></select>
@@ -234,67 +274,83 @@
       <label>Verbinden mit <span id="peermode" class="mode">—</span></label>
       <span id="connstate" class="pill bad">nicht verbunden</span>
       <span>
-        <button onclick="doConnect()">Verbinden</button>
-        <button class="sec" onclick="doDisconnect()">Trennen</button>
+        <button onclick="doConnect()" id="b_conn">Verbinden</button>
+        <button class="sec" onclick="doDisconnect()" id="b_disc">Trennen</button>
       </span>
     </div>
     <p class="warn hide" id="peermodesrc"></p>
-    <div class="ident">
+    <!-- 25.10. (Andreas): rechts der Kopplungs-QR-Code der ausgewaehlten Anlage (Typschild-Format) -->
+    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+    <div class="ident" style="flex:1 1 380px;min-width:0">
       <b>SKI</b><span class="mono"><span id="d_ski">—</span><button class="eye" id="skibtn"
-          onclick="toggleSki()" title="SKI und Kennung ein- oder ausblenden">zeigen</button></span>
+          onclick="toggleSki()" title="SKI und Kennung ein- oder ausblenden">zeigen</button>
+          <span id="d_skiq" class="pill hide" title="Woher die Steuerbox die SKI dieser Verbindung kennt"></span></span>
       <b>Kennung</b><span id="d_id">—</span>
       <b>Hersteller</b><span id="d_brand">—</span>
       <b>Typ</b><span id="d_type">—</span>
       <b>Modell</b><span id="d_model">—</span>
       <b>Adresse</b><span id="d_addr">—</span>
     </div>
+    <figure style="margin:0;text-align:center;width:160px">
+      <div id="d_qr"></div>
+      <figcaption style="font-size:11px;color:var(--muted);margin-top:4px">Kopplung der ausgewählten Anlage (SHIP-Format)</figcaption>
+    </figure>
+    </div>
   </div>
 
   <!-- ===== STRUKTUR + MESSWERTE DES GEWAEHLTEN GERAETS ===== -->
-  <div class="card">
-    <h2>Struktur &amp; Messwerte</h2>
-    <div class="grid2">
-      <div>
-        <h3>Struktur</h3>
-        <!-- Die vier Listen sind AUSWAHLFELDER, also muss die Auswahl auch etwas bewirken —
-             sonst verspricht das Bedienelement etwas, das nicht passiert. Was darunter erscheint,
-             haengt von der Art ab: bei Features fragen wir die Gegenstelle-Selbstauskunft ab
-             ("wo wird das angeboten?"), bei Entities steht die Nummer schon in der Reihenfolge. -->
-        <div class="row"><label>Actors</label><select id="s_actors" onchange="strukturDetail('actor',this)"><option>—</option></select></div>
-        <div class="row"><label>Use Cases</label><select id="s_uc" onchange="strukturDetail('uc',this)"><option>—</option></select></div>
-        <div class="row"><label>Entities</label><select id="s_ent" onchange="strukturDetail('ent',this)"><option>—</option></select></div>
-        <div class="row"><label>Features</label><select id="s_feat" onchange="strukturDetail('feat',this)"><option>—</option></select></div>
-        <p class="hint" id="s_detail" style="margin-top:10px">Einen Eintrag auswählen, um zu sehen,
-          wo die Gegenstelle ihn führt.</p>
-        <!-- Hierher kommt der WERT: was an einer ausgewaehlten Adresse wirklich steht. Die Listen
-             oben beantworten "wo wird das gefuehrt", dieser Kasten "was steht dort". -->
-        <div id="s_read"></div>
-      </div>
-      <div>
-        <h3>Netzanschlusspunkt · MGCP</h3>
-        <div class="info">
-          <b>Leistung</b><span id="m_power">— W</span>
-          <b>Bezug (Zähler)</b><span id="m_cons">— kWh</span>
-          <b>Einspeisung (Zähler)</b><span id="m_feed">— kWh</span>
-          <b>Ströme L1/L2/L3</b><span id="m_cur">— A</span>
-          <b>Spannungen L1/L2/L3</b><span id="m_vol">— V</span>
-          <b>Frequenz</b><span id="m_freq">— Hz</span>
-          <b>Begrenzungsfaktor</b><span id="m_plf">— %</span>
-        </div>
-      </div>
+  <!-- ===== VERBINDUNGEN (v199) ===== -->
+  <!-- Eine Zeile je Verbindungsplatz. Zugeordnet wird jede Anlage ueber ihre SKI aus dem Zertifikat, nie ueber
+       die Adresse. "Details" waehlt die Anlage unten im Kasten Geraet aus (Messwerte, Failsafe, Struktur). -->
+  <div class="card" id="c_verb">
+    <h2>Verbindungen <span class="pill" id="v_anz">—</span></h2>
+    <div style="overflow-x:auto"><table class="vtab">
+      <thead><tr><th>Pl.</th><th>Art</th><th>Anlage</th><th>Adresse</th><th>SKI · Quelle</th><th>Leistung</th><th>§ 14a Bezug</th><th>§ 9 Einsp.</th><th>letztes Ergebnis</th><th></th></tr></thead>
+      <tbody id="v_tab"><tr class="frei"><td colspan="10">—</td></tr></tbody>
+    </table></div>
+    <div class="row" style="grid-template-columns:150px 1fr">
+      <label>Senden an</label>
+      <span><label><input type="radio" name="v_ziel" id="v_alle" value="alle"> alle direkt gesteuerten Anlagen</label>
+        &nbsp; <label><input type="radio" name="v_ziel" id="v_eine" value="eine" checked> nur die ausgewählte</label></span>
     </div>
-    <!-- Gemessen statt vermutet: die Messwert-BESCHREIBUNG dieser Gegenstelle (Entity 8,
-         Feature 11) fuehrt 13 Groessen, die Werteliste liefert davon 3. Der frueher hier stehende
-         Satz "eine Frequenz bietet sie gar nicht erst an" war FALSCH — sie beschreibt acFrequency
-         unter Id 2, liefert nur keinen Wert. Beschrieben und geliefert sind zwei verschiedene Dinge,
-         und die Anzeige darf sie nicht verwechseln. -->
-    <p class="hint">Leistung, Zähler und Begrenzungsfaktor kommen live von der Gegenstelle, die vier
-       Klapplisten aus ihrer Selbstauskunft. <b>Ströme, Spannungen und Frequenz</b> werden von dieser
-       Gegenstelle <i>beschrieben</i>, aber nicht mit Werten befüllt: ihre Beschreibung führt
-       <b>13 Größen</b>, ihre Werteliste liefert <b>3</b> (Leistung und die zwei Zählerstände) — auch
-       auf ausdrückliche Nachfrage. Beschrieben sind drei Ströme (L1/L2/L3), sechs Spannungen
-       (drei gegen Neutral, drei zwischen den Phasen) und eine Frequenz.
-       Das ist ihre Eigenschaft, kein Fehler dieses Werkzeugs — an anderen Geräten kann es anders sein.</p>
+  </div>
+
+  <!-- 25.10. (Andreas): Messwerte und Struktur getrennt; Messwerte zuerst, die Auswahl der Struktur zeigt ihr
+       Ergebnis rechts daneben statt darunter. -->
+  <div class="card">
+    <h2>Messwerte · Netzanschlusspunkt (MGCP)</h2>
+    <div class="info" style="max-width:560px">
+      <b>Leistung</b><span id="m_power">— W</span>
+      <b>Bezug (Zähler)</b><span id="m_cons">— kWh</span>
+      <b>Einspeisung (Zähler)</b><span id="m_feed">— kWh</span>
+      <b>Ströme L1/L2/L3</b><span id="m_cur">— A</span>
+      <b>Spannungen L1/L2/L3</b><span id="m_vol">— V</span>
+      <b>Frequenz</b><span id="m_freq">— Hz</span>
+      <b>Begrenzungsfaktor</b><span id="m_plf">— %</span>
+    </div>
+    <!-- 25.10. (Andreas): allgemein gueltig statt der fruehere Text zu EINER Gegenstelle (13 beschriebene Groessen,
+         3 gelieferte, gemessen im Sommer) - der stimmte fuer HEMS (liefert I/U/f) und SteuVE (MPC) nicht. -->
+    <p class="hint">Die Werte kommen live von der ausgewählten Anlage, aus dem, was sie selbst meldet. Liefert sie
+       eine Größe nicht, steht in der Zeile „wird nicht geliefert“. Das ist dann eine Eigenschaft der Anlage, kein
+       Fehler dieses Werkzeugs.</p>
+  </div>
+
+  <div class="card">
+    <h2>Struktur</h2>
+    <!-- 25.10. (Andreas): die vier Auswahlfelder nebeneinander, Ueberschrift ueber dem Feld; darunter Auskunft und
+         gelesener Inhalt in voller Breite (breite Tabellen rollen dort waagrecht). Die Auswahl bewirkt etwas:
+         bei Features fragen wir die Selbstauskunft ab ("wo wird das angeboten?"), bei Entities steht die Nummer
+         schon in der Reihenfolge. -->
+    <div class="sleiste">
+      <div class="sfeld"><label>Actors</label><select id="s_actors" onchange="strukturDetail('actor',this)"><option>—</option></select></div>
+      <div class="sfeld"><label>Use Cases</label><select id="s_uc" onchange="strukturDetail('uc',this)"><option>—</option></select></div>
+      <div class="sfeld"><label>Entities</label><select id="s_ent" onchange="strukturDetail('ent',this)"><option>—</option></select></div>
+      <div class="sfeld"><label>Features</label><select id="s_feat" onchange="strukturDetail('feat',this)"><option>—</option></select></div>
+    </div>
+    <p class="hint" id="s_detail" style="margin-top:12px">Einen Eintrag auswählen, um zu sehen,
+      wo die Gegenstelle ihn führt.</p>
+    <!-- Hierher kommt der WERT: was an einer ausgewaehlten Adresse wirklich steht. -->
+    <div id="s_read"></div>
   </div>
 
   <!-- ===== REITER ===== -->
@@ -353,6 +409,8 @@
       <div class="zerg" id="c_out">—</div>
       <div class="row" style="margin-top:6px"><label></label><span></span>
         <button class="take" onclick="calcUebernehmen()">▼ als Grenzwert übernehmen</button></div>
+      <div class="row" style="margin-top:6px"><label></label><span id="fs_geq" class="hint" style="margin:0"></span>
+        <button class="take" onclick="fsSpeichern(this)">In der Steuerbox speichern (Failsafe Bezug)</button></div>
       <p class="hint">Zählung, Gleichzeitigkeitsfaktor und Formel nach der für §&nbsp;14a EnWG
         üblichen Berechnung (Stand 2024). <b>Wärmepumpen und Raumkühlung zählen je
         als EINE</b> steuerbare Einrichtung, auch wenn mehrere Geräte eingetragen sind —
@@ -386,10 +444,20 @@
     <p class="warn hide" id="lpc_warn"></p>
     <hr class="sep">
     <div class="info">
-      <b>Failsafe-Wert</b><span id="lpc_fsv">— W</span>
-      <b>Failsafe-Mindestdauer</b><span id="lpc_fsd">—</span>
+      <b>SLS-Nennstrom am Netzanschluss [A]</b><span><input type="number" id="fs_sls" min="0" max="1000" style="width:5em">
+        <span id="fs_ans" class="hint" style="margin:0"></span>
+        <button class="eye" onclick="fsSpeichern(this)">speichern</button></span>
+      <b>Anlage meldet Höchstleistung</b><span id="fs_ansg">—</span>
+      <b>Failsafe Bezug (P<sub>min</sub> aus der Geräteliste)</b><span id="fs_bez">— W</span>
+      <b>Failsafe-Mindestdauer</b><span><select id="fs_dur"></select>
+        <button class="eye" onclick="fsSpeichern(this)">speichern</button></span>
+      <b>Anlage meldet zurück</b><span id="lpc_fsv">— W</span>
+      <b>Mindestdauer an der Anlage</b><span id="lpc_fsd">—</span>
     </div>
-    <p class="hint">Failsafe-Werte gibt der Netzbetreiber vor — sie werden angezeigt, nicht geschrieben.</p>
+    <p class="hint">Die Steuerbox schreibt die Failsafe-Werte bei jeder Verbindung an die Anlage (VDE FNN Empfehlung
+      zu Tenorziffer 2a BK6-22-300). Der Bezug ist P<sub>min</sub> nach BK6-22-300 Anl. 1 Ziff. 4.5.2 aus den
+      gespeicherten Geräten im Rechner oben, höchstens die Anschlussleistung aus dem SLS-Nennstrom
+      (A × 3 × 230 V).</p>
   </section>
 
   <section id="t_lpp" class="card hide">
@@ -413,11 +481,9 @@
         <span class="hint" style="margin:0">100 % = keine Abregelung</span></div>
       <div class="row"><label>Ergebnis</label><span id="p_out" class="mono">—</span>
         <button class="take" onclick="pctUebernehmen()">▼ als Grenzwert übernehmen</button></div>
-      <p class="hint">Die angezeigte Nennleistung stammt aus dem <i>Failsafe-Wert Erzeugung</i> der
-        Gegenstelle. <b>Diese Bezugsgröße ist bestätigt:</b> die Gegenstelle rechnet einen
-        gesendeten Grenzwert mit derselben Größe in Prozent zurück — ein Grenzwert in Höhe von
-        80 % der gemeldeten Nennleistung wird dort auch als 80 % ausgewiesen. Bei einer Anlage mit
-        abweichender Nennleistung lässt sich der Wert von Hand überschreiben.</p>
+      <p class="hint">Die angezeigte Nennleistung ist die Nennleistung Erzeugung, die die Anlage meldet
+        (contractualProductionNominalMax, sonst powerProductionNominalMax). Bei einer Anlage ohne diese
+        Meldung lässt sich der Wert von Hand eintragen.</p>
     </details>
 
     <div class="row">
@@ -453,10 +519,15 @@
     <p class="warn hide" id="lpp_warn"></p>
     <hr class="sep">
     <div class="info">
-      <b>Failsafe-Wert</b><span id="lpp_fsv">— W</span>
-      <b>Nennleistung Erzeugung</b><span id="lpp_nom">— W</span>
+      <b>Failsafe Einspeisung [%]</b><span><input type="number" id="fs_pct" min="0" max="100" style="width:5em">
+        <button class="eye" onclick="fsSpeichern(this)">speichern</button></span>
+      <b>Nennleistung Erzeugung (Anlage meldet)</b><span id="lpp_nom">— W</span>
+      <b>Failsafe Einspeisung</b><span id="fs_ein">— W</span>
+      <b>Anlage meldet zurück</b><span id="lpp_fsv">— W</span>
     </div>
-    <p class="hint">Aus der Nennleistung lässt sich eine Prozent-Vorgabe des Netzbetreibers in Watt umrechnen.</p>
+    <p class="hint">Der Netzbetreiber gibt den Prozentwert vor, die Nennleistung meldet die Anlage
+      (contractualProductionNominalMax, sonst powerProductionNominalMax; LPP). Meldet sie keine, schreibt
+      die Steuerbox keinen Failsafe für die Einspeisung.</p>
   </section>
 
   <!-- ===== WEITERE EINHEITEN (Speicher, Erzeugung, ...) =====
@@ -494,8 +565,15 @@
 <script>
   var peers = [];      // aktuelle Scan-Liste
   var selIdx = -1;     // gewaehltes Geraet in peers[]
+  var mwLaden = false; // Messwerte alle 5 s nachladen? (nur wenn das gewaehlte Geraet verbunden ist)
 
   function el(id){ return document.getElementById(id); }
+  // Hell / Dunkel wie HEMS und SteuVE (Wahl im Browser gemerkt, wenn erlaubt)
+  try { var thm = localStorage.getItem('steuve_theme'); if (thm) { document.documentElement.dataset.theme = thm; } } catch(e){}
+  el('theme').onclick = function(){
+    var r = document.documentElement; r.dataset.theme = (r.dataset.theme === 'light') ? 'dark' : 'light';
+    try { localStorage.setItem('steuve_theme', r.dataset.theme); } catch(e){}
+  };
 
   // --- SKI verdecken -------------------------------------------------------------------------
   // Die SKI ist der Fingerabdruck des Geraetezertifikats. Sie ist kein Geheimnis im engeren Sinn,
@@ -534,16 +612,158 @@
     el('d_ski').textContent = p ? maskSki(p.Ski) : '—';
     el('d_id').textContent  = p ? maskSki(p.Id)  : '—';
     el('own_ski').textContent = ownSki ? maskSki(ownSki) : '—';   // eigene Identitaet mit umschalten
+    geraetQr();   // QR-Code der ausgewaehlten Anlage folgt dem Schalter
   }
 
   // ---- Eigene Identitaet ------------------------------------------------------------------
   // Die SKI wird beim Laden EINMAL geholt; sie aendert sich nur, wenn hier ausdruecklich eine
   // neue erzeugt wird. Kein Poll noetig.
+  // ---- QR-Code (ISO/IEC 18004: Byte-Modus, Fehlerkorrektur M, Version 1-15) - eigener Erzeuger, ohne Bibliothek/Internet
+  // je Version: [ECC-Bytes je Block, Bloecke Gruppe 1, Datenbytes, Bloecke Gruppe 2, Datenbytes]
+  const QR_M = [null, [10,1,16,0,0], [16,1,28,0,0], [26,1,44,0,0], [18,2,32,0,0], [24,2,43,0,0], [16,4,27,0,0], [18,4,31,0,0],
+    [22,2,38,2,39], [22,3,36,2,37], [26,4,43,1,44], [30,1,50,4,51], [22,6,36,2,37], [22,8,37,1,38], [24,4,40,5,41], [24,5,41,5,42]];
+  const QR_AL = [null, [], [6,18], [6,22], [6,26], [6,30], [6,34], [6,22,38], [6,24,42], [6,26,46], [6,28,50], [6,30,54], [6,32,58],
+    [6,34,62], [6,26,46,66], [6,26,48,70]];
+  const QR_MASK = [(x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, x => x % 3 === 0, (x, y) => (x + y) % 3 === 0,
+    (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x, y) => x * y % 2 + x * y % 3 === 0,
+    (x, y) => (x * y % 2 + x * y % 3) % 2 === 0, (x, y) => ((x + y) % 2 + x * y % 3) % 2 === 0];
+  function qrMul(x, y){ let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z; }
+  function qrEcc(data, n){   // Reed-Solomon-Rest ueber GF(256)
+    const g = new Array(n).fill(0); g[n - 1] = 1; let r = 1;
+    for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { g[j] = qrMul(g[j], r); if (j + 1 < n) { g[j] ^= g[j + 1]; } } r = qrMul(r, 2); }
+    const e = new Array(n).fill(0);
+    data.forEach(b => { const f = b ^ e.shift(); e.push(0); g.forEach((c, i) => { e[i] ^= qrMul(c, f); }); });
+    return e;
+  }
+  function qrStrafe(m){   // Bewertung der Maske (Regeln 1-4 der Norm), kleiner = besser lesbar
+    const n = m.length; let p = 0, dunkel = 0;
+    for (let a = 0; a < 2; a++) {
+      for (let r = 0; r < n; r++) {
+        let s = '';
+        for (let c = 0; c < n; c++) { s += (a ? m[c][r] : m[r][c]) ? '1' : '0'; }
+        (s.match(/0{5,}|1{5,}/g) || []).forEach(l => { p += l.length - 2; });
+        p += 40 * (('0000' + s + '0000').match(/(?=00001011101|10111010000)/g) || []).length;
+      }
+    }
+    for (let y = 0; y < n; y++) { for (let x = 0; x < n; x++) {
+      if (m[y][x]) { dunkel++; }
+      if (x < n - 1 && y < n - 1 && m[y][x] === m[y][x + 1] && m[y][x] === m[y + 1][x] && m[y][x] === m[y + 1][x + 1]) { p += 3; }
+    } }
+    return p + 10 * (Math.ceil(Math.abs(dunkel * 20 - n * n * 10) / (n * n)) - 1);
+  }
+  function qrMatrix(text){
+    const by = Array.from(new TextEncoder().encode(text));
+    let v = 1;
+    for (; v <= 15; v++) { const t = QR_M[v]; if (4 + (v < 10 ? 8 : 16) + by.length * 8 <= (t[1] * t[2] + t[3] * t[4]) * 8) { break; } }
+    if (v > 15) { return null; }
+    const [ecn, b1, d1, b2, d2] = QR_M[v], cap = b1 * d1 + b2 * d2, bits = [];
+    const put = (val, len) => { for (let i = len - 1; i >= 0; i--) { bits.push((val >>> i) & 1); } };
+    put(4, 4); put(by.length, v < 10 ? 8 : 16); by.forEach(b => put(b, 8));
+    put(0, Math.min(4, cap * 8 - bits.length)); while (bits.length % 8) { bits.push(0); }
+    const dat = [];
+    for (let i = 0; i < bits.length; i += 8) { dat.push(parseInt(bits.slice(i, i + 8).join(''), 2)); }
+    for (let i = 0; dat.length < cap; i++) { dat.push(i % 2 ? 0x11 : 0xEC); }
+    const bl = []; let k = 0;
+    for (let i = 0; i < b1 + b2; i++) { const d = dat.slice(k, k + (i < b1 ? d1 : d2)); k += d.length; bl.push({ d, e: qrEcc(d, ecn) }); }
+    const cw = [];
+    for (let i = 0; i < Math.max(d1, d2); i++) { bl.forEach(b => { if (i < b.d.length) { cw.push(b.d[i]); } }); }
+    for (let i = 0; i < ecn; i++) { bl.forEach(b => cw.push(b.e[i])); }
+    const n = 17 + 4 * v, m = [], fn = [];
+    for (let y = 0; y < n; y++) { m.push(new Array(n).fill(false)); fn.push(new Array(n).fill(false)); }
+    const set = (x, y, d) => { m[y][x] = d; fn[y][x] = true; };
+    for (let i = 0; i < n; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+    [[3, 3], [n - 4, 3], [3, n - 4]].forEach(([cx, cy]) => {
+      for (let dy = -4; dy <= 4; dy++) { for (let dx = -4; dx <= 4; dx++) {
+        const x = cx + dx, y = cy + dy, d = Math.max(Math.abs(dx), Math.abs(dy));
+        if (x >= 0 && x < n && y >= 0 && y < n) { set(x, y, d !== 2 && d !== 4); }
+      } }
+    });
+    const al = QR_AL[v], la = al.length - 1;
+    al.forEach((ax, i) => al.forEach((ay, j) => {
+      if ((i === 0 && j === 0) || (i === 0 && j === la) || (i === la && j === 0)) { return; }
+      for (let dy = -2; dy <= 2; dy++) { for (let dx = -2; dx <= 2; dx++) { set(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1); } }
+    }));
+    const format = mask => {   // Formatinfo, Fehlerkorrektur M = 00
+      let r = mask; for (let i = 0; i < 10; i++) { r = (r << 1) ^ ((r >>> 9) * 0x537); }
+      const b = ((mask << 10) | r) ^ 0x5412, g = i => ((b >>> i) & 1) === 1;
+      for (let i = 0; i <= 5; i++) { set(8, i, g(i)); }
+      set(8, 7, g(6)); set(8, 8, g(7)); set(7, 8, g(8));
+      for (let i = 9; i < 15; i++) { set(14 - i, 8, g(i)); }
+      for (let i = 0; i < 8; i++) { set(n - 1 - i, 8, g(i)); }
+      for (let i = 8; i < 15; i++) { set(8, n - 15 + i, g(i)); }
+      set(8, n - 8, true);
+    };
+    format(0);
+    if (v >= 7) {   // Versionsinfo
+      let r = v; for (let i = 0; i < 12; i++) { r = (r << 1) ^ ((r >>> 11) * 0x1F25); }
+      const b = (v << 12) | r;
+      for (let i = 0; i < 18; i++) { const d = ((b >>> i) & 1) === 1, a = n - 11 + i % 3, c = Math.floor(i / 3); set(a, c, d); set(c, a, d); }
+    }
+    let i = 0;   // Daten im Zickzack von rechts unten
+    for (let right = n - 1; right >= 1; right -= 2) {
+      if (right === 6) { right = 5; }
+      for (let vert = 0; vert < n; vert++) { for (let j = 0; j < 2; j++) {
+        const x = right - j, y = ((right + 1) & 2) === 0 ? n - 1 - vert : vert;
+        if (!fn[y][x] && i < cw.length * 8) { m[y][x] = ((cw[i >>> 3] >>> (7 - (i & 7))) & 1) === 1; i++; }
+      } }
+    }
+    const mask = k => { for (let y = 0; y < n; y++) { for (let x = 0; x < n; x++) { if (!fn[y][x] && QR_MASK[k](x, y)) { m[y][x] = !m[y][x]; } } } };
+    let best = 0, bp = Infinity;
+    for (let k = 0; k < 8; k++) { mask(k); format(k); const p = qrStrafe(m); if (p < bp) { bp = p; best = k; } mask(k); }
+    mask(best); format(best);
+    return m;
+  }
+  function qrSvg(text, px){
+    const m = qrMatrix(text);
+    if (!m) { return '<span class="note">zu lang für einen QR-Code</span>'; }
+    const q = 4, s = m.length + 2 * q; let d = '';
+    m.forEach((r, y) => r.forEach((on, x) => { if (on) { d += 'M' + (x + q) + ',' + (y + q) + 'h1v1h-1z'; } }));
+    return '<svg viewBox="0 0 ' + s + ' ' + s + '" width="' + px + '" height="' + px + '" shape-rendering="crispEdges">' +
+           '<rect width="' + s + '" height="' + s + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+  }
+  // Inhalt wie auf dem Typschild einer Steuerbox: SHIP;SKI:…;ID:…;BRAND:…;TYPE:…;MODEL:…;SERIAL:…;CAT:…;ENDSHIP;
+  // ("SHIP Requirements for Installation Process" V1.1.0 [SRIP-310/7]); fehlende Angaben entfallen
+  function shipQrText(o){
+    const ski = (o.ski || '').replace(/\s/g, '').replace(/(.{4})(?!$)/g, '$1 ');
+    const kv = (k, v) => (v !== undefined && v !== null && v !== '') ? k + ':' + v + ';' : '';
+    return 'SHIP;SKI:' + ski + ';ID:' + o.id + ';' + kv('BRAND', o.brand) + kv('TYPE', o.type) + kv('MODEL', o.model) +
+           kv('SERIAL', o.serial) + kv('CAT', o.cat) + 'ENDSHIP;';
+  }
+  // QR-Kasten fuellen; pre = Praefix der Element-IDs. Nur bei geaenderter Kennung neu zeichnen.
+  function qrFuellen(pre, o){
+    const box = document.getElementById(pre + 'box');
+    if (!box || box.style.display === 'none' || !o || !o.id || !o.ski) { return; }
+    const txt = shipQrText(o);
+    if (box.dataset.last === txt) { return; }
+    box.dataset.last = txt;
+    document.getElementById(pre + 'ship').innerHTML = qrSvg(txt, 200);
+    document.getElementById(pre + 'id').innerHTML = qrSvg(o.id, 200);
+    document.getElementById(pre + 'ski').innerHTML = qrSvg(o.ski.replace(/\s/g, ''), 200);
+    document.getElementById(pre + 'txt').textContent = txt;
+  }
+  function qrKnopf(pre, neu){
+    const b = document.getElementById(pre + 'auf'), box = document.getElementById(pre + 'box');
+    b.onclick = () => {
+      const auf = box.style.display === 'none';
+      box.style.display = auf ? '' : 'none';
+      b.textContent = auf ? 'QR-Codes verstecken' : 'QR-Codes anzeigen';
+      box.dataset.last = ''; neu();
+    };
+  }
+  var ownCert = null;
+  function qrNeu(){
+    if(!ownCert){ return; }
+    var t = (ownCert.Id || '').split('-');
+    qrFuellen('qr_', { ski: ownCert.Ski, id: ownCert.Id, brand: t[0], type: 'ElectricitySupplySystem', model: t[1], serial: ownCert.Serial, cat: 1 });
+  }
+  qrKnopf('qr_', qrNeu);
+
   var ownSki = '';
   function ownIdentLaden(){
     cmd('EEBusCert').then(function(j){
       if(!j || !j.EEBusCert || !j.EEBusCert.Ski){ return; }
       ownSki = j.EEBusCert.Ski;
+      ownCert = j.EEBusCert; qrNeu();   // QR-Codes folgen der aktuellen Kennung
       el('own_ski').textContent = maskSki(ownSki);
       // Kennung und Seriennummer liefert der Treiber mit; sie leiten sich aus der SKI ab.
       el('own_id').textContent     = j.EEBusCert.Id     || '—';
@@ -556,13 +776,21 @@
   // WICHTIG "&dir=2": Zertifikat und Schluessel liegen im FLASH-Dateisystem. Ohne diese Angabe
   // liest der Download vom AKTIVEN Dateisystem — steckt eine SD-Karte, kommt dort nichts an und
   // man haelt eine leere Datei in der Hand, ohne es zu merken.
+  // 24.10. (Andreas): Dateizugriff NUR ueber Port 82 (lesen) / 83 (schreiben), nie /ufsd auf Port 80.
+  // Port 82 sendet CORS "*"; die Datei wird geholt und als Download angeboten (Flash = /ufs/ffs).
   function identSichern(){
     ['/eebus_cert.der', '/eebus_key.der'].forEach(function(f, i){
       setTimeout(function(){
-        var a = document.createElement('a');
-        a.href = '/ufsd?download=' + f + '&dir=2';
-        a.download = f.replace('/', '');
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        fetch('http://' + location.hostname + ':82/ufs/ffs' + f, {cache: 'no-store'})
+          .then(function(r){ return r.ok ? r.blob() : Promise.reject(r.status); })
+          .then(function(b){
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(b);
+            a.download = f.replace('/', '');
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+          })
+          .catch(function(e){ say(f + ' nicht lesbar (' + e + ')'); });
       }, i * 400);   // zwei Downloads kurz versetzt, sonst unterschlaegt der Browser den zweiten
     });
     say('Zertifikat und Schlüssel werden heruntergeladen — bitte sicher ablegen.');
@@ -578,11 +806,22 @@
     cmd('EEBusCert 2').then(function(j){
       if(!j || !j.EEBusCert || !j.EEBusCert.Ski){ say('Fehler: Identität konnte nicht erzeugt werden.'); return; }
       ownSki = j.EEBusCert.Ski;
+      ownCert = j.EEBusCert; qrNeu();   // QR-Codes folgen der aktuellen Kennung
       el('own_ski').textContent    = maskSki(ownSki);
       el('own_id').textContent     = j.EEBusCert.Id     || '—';
       el('own_serial').textContent = j.EEBusCert.Serial || '—';
       el('identnach').classList.remove('hide');
       say('Neue SKI erzeugt.');
+      // 23.10.: sofort neu ankuendigen - sonst zeigen andere Geraete (mDNS) weiter die ALTE SKI, und wer ihr vertraut,
+      // weist die echte Verbindung (SKI aus dem Zertifikat) ab (so beim HEMS geschehen).
+      identAnkuendigen();
+    });
+  }
+
+  // Eigene Kennung im Netz neu bekanntgeben (mDNS). Auch als Knopf, falls eine Gegenstelle noch eine alte SKI zeigt.
+  function identAnkuendigen(){
+    cmd('EEBusAdvertise').then(function(a){
+      say(a ? ('Im Netz neu angekündigt (SKI …' + String(ownSki || '').slice(-4) + ').') : 'Fehler: neu ankündigen hat nicht geklappt.');
     });
   }
 
@@ -622,6 +861,68 @@
     });
   }
 
+  // ---- v199: Kasten Verbindungen -------------------------------------------------------------------------------
+  // Quelle: EEBusStatus (Plaetze: Zustand, SKI, Quelle, letztes Ergebnis) und EEBusData (je SKI: Leistung, Grenzen).
+  // Alle 10 s, nur bei sichtbarer Seite (jede Abfrage steht in der Geraete-Konsole).
+  var VERB_N = 0, VERB_ALLE_GESETZT = false, VERB_VG = {};   // VERB_VG: letzte Vorgabe je SKI (ohne Failsafe-Meldungen)
+  function vLim(l){
+    if(!l) return '—';
+    return l.Aktiv ? '<span class="bad">begrenzt ' + fmt(l.Wert, 'W') + '</span>' : '<span class="ok">frei</span>';
+  }
+  function ladeVerb(){
+    Promise.all([cmd('EEBusStatus'), cmd('EEBusData')]).then(function(r){
+      var st = r[0] && r[0].EEBusStatus; if(!st) return;      // leere Antwort: Anzeige stehen lassen
+      var dl = (r[1] && r[1].EEBusData && r[1].EEBusData.Peers) || [];
+      var slots = st.Slots || [], n = 0, nd = 0, h = '';
+      var selSki = (selIdx >= 0 && peers[selIdx]) ? peers[selIdx].Ski.toLowerCase() : '';
+      slots.forEach(function(s, i){
+        var an = (s.Sme === 'done') && s.PeerSki;
+        if(!an){
+          h += '<tr class="frei"><td>' + (i + 1) + '</td><td colspan="9">' + (s.Sme && s.Sme !== 'off' ? 'im Aufbau (' + s.Sme + ')' : 'frei') + '</td></tr>';
+          return;
+        }
+        n++;
+        if(s.Art !== 'hems') nd++;                          // "alle" gilt nur fuer direkt gesteuerte
+        var art = s.Art === 'hems' ? '<b>HEMS</b>' : (s.Art === 'direkt' ? 'direkt' : '?');
+        var ski = s.PeerSki.toLowerCase(), d = null, p = null;
+        dl.forEach(function(x){ if(x.Ski && x.Ski.toLowerCase() === ski) d = x; });
+        peers.forEach(function(x){ if(x.Ski && x.Ski.toLowerCase() === ski) p = x; });
+        var name = p ? ((p.Type || '') + ' ' + (p.Model || p.Id || '')) : (s.PeerId || '—');
+        var erg = s.LpcResult ? s.LpcResult : (s.Lpc && s.Lpc !== 'idle' ? s.Lpc : '—');
+        // Failsafe-Einstellungen (LPC/LPP Szenario 2) sind keine Vorgabe: klein und grau unter die letzte Vorgabe
+        var fs = '';
+        // 26.10. (Andreas): nur BESTAETIGTE Ergebnisse merken - Zwischenschritte ("geschrieben - Read-Back verzoegert",
+        // "Ist-LimitData angefragt") nie oben zeigen, sonst den Stand aus den Spalten (frei / begrenzt)
+        var ausSpalten = (d && d.Lim0) ? (d.Lim0.Aktiv ? 'begrenzt ' + fmt(d.Lim0.Wert, 'W') : 'freigegeben') : '—';
+        if(/^Failsafe/i.test(erg)){
+          fs = erg;
+          erg = VERB_VG[ski] || ausSpalten;
+        } else if(/^BESTAETIGT/i.test(erg)){ VERB_VG[ski] = erg; }
+        else if(!/fehl|abgelehnt|nicht/i.test(erg) && erg !== '—'){ erg = VERB_VG[ski] || ausSpalten; }
+        var ergK = /fail|fehl|abgelehnt|nicht/i.test(erg) ? 'bad' : (/BESTAETIGT|ok|freigegeben/i.test(erg) ? 'ok' : '');
+        var fsH = fs ? '<br><span style="color:' + (/fehl|abgelehnt|nicht/i.test(fs) ? 'var(--bad)' : 'var(--muted)') + ';font-size:11px">' + maskSki(fs) + '</span>' : '';
+        h += '<tr' + (ski === selSki ? ' class="sel" title="ausgewählt - Ziel bei ‚nur die ausgewählte‘"' : '') + '><td>' + (ski === selSki ? '▶ ' : '') + (i + 1) + '</td><td>' + art + '</td><td>' + maskSki(name) + '</td><td>' + (s.Ip || '—') +
+             '</td><td>…' + s.PeerSki.slice(-4) + '<br><span style="font-size:11px" class="' + (s.SkiQuelle === 'Zertifikat' ? 'ok' : '') + '">' + (s.SkiQuelle || '—') + '</span>' +
+             '</td><td>' + (d && d.Power ? fmt(d.Power, 'W') : '—') + '</td><td>' + vLim(d && d.Lim0) + '</td><td>' + vLim(d && d.Lim1) +
+             '</td><td class="' + ergK + '">' + maskSki(erg) + fsH + '</td><td><button class="sec" style="padding:3px 8px;font-size:12px" data-vski="' + s.PeerSki + '">Details</button></td></tr>';
+      });
+      VERB_N = nd;                                        // Anzahl DIREKT gesteuerter Verbindungen
+      el('v_tab').innerHTML = h || '<tr class="frei"><td colspan="10">—</td></tr>';
+      el('v_anz').textContent = n + ' von ' + slots.length + ' belegt';
+      if(!VERB_ALLE_GESETZT && nd > 1){ el('v_alle').checked = true; VERB_ALLE_GESETZT = true; }   // mehrere direkte: "alle" vorschlagen
+      Array.prototype.forEach.call(document.querySelectorAll('[data-vski]'), function(b){
+        b.onclick = function(){
+          var k = b.dataset.vski.toLowerCase(), i = -1;
+          peers.forEach(function(x, j){ if(x.Ski && x.Ski.toLowerCase() === k) i = j; });
+          if(i < 0){ say('Anlage nicht in der Fundliste - erst Scan.'); return; }
+          el('device').value = i; showDevice(); el('v_eine').checked = true;
+        };
+      });
+    });
+  }
+  setInterval(function(){ if(!document.hidden) ladeVerb(); }, 10000);
+
+  var autoScanDone = false;   // v191: hoechstens einmal je Seitenaufruf selbst suchen
   function fillDevices(list, keepSki, still){
     peers = list;
     var s = el('device');
@@ -629,7 +930,8 @@
     peers.forEach(function(p, i){
       var o = document.createElement('option');
       o.value = i;
-      o.textContent = (p.Model || p.Id || p.Ip) + '  ·  ' + (p.Brand || '');
+      // 25.10.: gleiche Modelle (z.B. zwei SteuVE) unterscheidbar machen - Typ, Adresse und SKI-Ende dazu
+      o.textContent = (p.Model || p.Id || p.Ip) + '  ·  ' + (p.Brand || '') + '  ·  ' + (p.Type || '') + '  ·  ' + (p.Ip || '') + '  ·  …' + String(p.Ski || '').slice(-4);
       s.appendChild(o);
     });
     if(keepSki){                          // Auswahl ueber die SKI wiederherstellen
@@ -655,9 +957,9 @@
         var r = j && j.EEBusPeers;
         if(r && r.Peers && r.Peers.length){
           fillDevices(r.Peers, ski || undefined, true);
-          if(ski && (selIdx >= 0)){ showDevice(); return; }   // showDevice() zieht refresh() nach
+          if(ski && (selIdx >= 0)){ showDevice(); ladeVerb(); return; }   // showDevice() zieht refresh() nach
         }
-        refresh();
+        refresh(); ladeVerb();
       });
     });
   }
@@ -671,16 +973,30 @@
     el('d_type').textContent  = p ? (p.Type + (p.Cat ? ' · Kategorie ' + p.Cat : '')) : '—';
     el('d_model').textContent = p ? p.Model : '—';
     el('d_addr').textContent  = p ? (p.Ip + ':' + p.Port) : '—';
+    geraetQr();
     refresh();
+  }
+  // 25.10.: Kopplungs-QR-Code der ausgewaehlten Anlage. Er enthaelt die volle SKI - darum nur, wenn die SKI
+  // eingeblendet ist (Schalter "zeigen/verbergen" neben der SKI).
+  function geraetQr(){
+    var p = (selIdx >= 0) ? peers[selIdx] : null, z = el('d_qr');
+    if(!z) return;
+    if(!p || !p.Ski || !p.Id){ z.innerHTML = '<span class="note">keine Anlage gewählt</span>'; return; }
+    if(skiHidden){ z.innerHTML = '<span class="note">SKI einblenden („zeigen“), dann erscheint der QR-Code</span>'; return; }
+    z.innerHTML = qrSvg(shipQrText({ ski: p.Ski, id: p.Id, brand: p.Brand, type: p.Type, model: p.Model, cat: p.Cat }), 150);
   }
 
   // Ziel der Limit-Befehle: SKI-Anfang statt Listenindex. Der Index wechselt bei jedem Scan,
   // die SKI nie — der Treiber loest einen SKI-Praefix selbst auf.
   function target(){
+    if(zielAlle()) return 'alle';                    // v199: an jede stehende Verbindung
     if(selIdx < 0 || !peers[selIdx]) return null;
     return peers[selIdx].Ski.substring(0, 8);
   }
+  // v199: "alle" nur, wenn ausgewaehlt UND mindestens eine direkt gesteuerte Verbindung steht (HEMS bekommt seinen Wert einzeln)
+  function zielAlle(){ return !!(el('v_alle') && el('v_alle').checked && VERB_N > 0); }
   function needDevice(){
+    if(el('v_alle') && el('v_alle').checked && !VERB_N){ say('Keine direkt gesteuerte Anlage verbunden.'); return true; }
     if(target()) return false;
     say('Erst ein Gerät wählen.');
     return true;
@@ -694,11 +1010,47 @@
   // wird es erst, wenn EEBusConnect die SKI selbst versteht (wie EEBusLpc/EEBusLpp/EEBusRelease).
   // Ab Treiber-v133 nimmt EEBusConnect die SKI direkt entgegen — es gibt hier keine Listennummer
   // mehr, weder gespeichert noch gesendet. Damit kann kein Scan mehr dazwischenfunken.
+  // 26.10. (Andreas): Rueckmeldung direkt im Knopf - sofort "verbindet …", dann was wirklich passiert ist
+  function knopfZeig(id, txt, farbe, ms){
+    var b = el(id); if(!b) return;
+    if(!b.dataset.txt) b.dataset.txt = b.textContent;
+    b.textContent = txt; b.style.background = farbe || ''; b.style.color = farbe ? '#111' : '';
+    clearTimeout(b._t);
+    if(ms) b._t = setTimeout(function(){ b.textContent = b.dataset.txt; b.style.background = ''; b.style.color = ''; }, ms);
+  }
+  // Zustand des Platzes zur SKI pruefen: done = verbunden, hello = Gegenstelle wartet (pending), error = Fehler
+  function knopfVerbPruef(ski, versuch){
+    cmd('EEBusStatus').then(function(r){
+      var sl = ((r && r.EEBusStatus && r.EEBusStatus.Slots) || []).filter(function(s){ return s.PeerSki && s.PeerSki.toLowerCase() === ski.toLowerCase(); })[0];
+      if(sl && sl.Sme === 'done'){ knopfZeig('b_conn', '✓ verbunden', '#37c871', 10000); return; }
+      if(sl && sl.State === 'error'){ knopfZeig('b_conn', '✗ ' + (sl.Error || 'Fehler'), '#e05a4a', 15000); return; }
+      if(versuch < 6){ knopfZeig('b_conn', sl && sl.Sme === 'hello' ? '⏳ Gegenstelle wartet auf Freigabe' : '⏳ verbindet …', '#FFEB9C');
+                       setTimeout(function(){ knopfVerbPruef(ski, versuch + 1); }, 5000); return; }
+      knopfZeig('b_conn', sl ? '⏳ wartet (' + (sl.Sme || sl.State) + ') - siehe Verbindungen' : '✗ keine Verbindung', sl ? '#FFEB9C' : '#e05a4a', 15000);
+    });
+  }
   function doConnect(){
     if(needDevice()) return;
     var p = peers[selIdx];
+    knopfZeig('b_conn', '⏳ verbindet …', '#FFEB9C');
+    setTimeout(function(){ knopfVerbPruef(p.Ski, 0); }, 3000);
     say('Verbinde mit ' + (p.Model || maskSki(p.Ski)) + ' (' + p.Ip + ') …');
     cmd('EEBusConnect ' + p.Ski).then(function(r){
+      // v191: Nach einem Neustart hat die Steuerbox oft noch nicht gesucht ("erst EEBusScan") -
+      // dann selbst suchen und einmal neu verbinden, statt den Klick ins Leere laufen zu lassen.
+      if(r && typeof r.EEBusConnect === 'string' && r.EEBusConnect.indexOf('EEBusScan') >= 0){
+        say('Fundliste der Steuerbox ist leer - suche erst …');
+        cmd('EEBusScan').then(function(){
+          setTimeout(function(){
+            cmd('EEBusConnect ' + p.Ski).then(function(r2){
+              say('Verbinde mit ' + (p.Model || '') + ' · ' + p.Ip + '\n' + JSON.stringify(r2));
+              setTimeout(refresh, 1500);
+              setTimeout(refresh, 5000);
+            });
+          }, 3000);
+        });
+        return;
+      }
       say('Verbinde mit ' + (p.Model || '') + ' · ' + p.Ip + '\n' + JSON.stringify(r));
       setTimeout(refresh, 1500);
       setTimeout(refresh, 5000);
@@ -708,7 +1060,12 @@
   function doDisconnect(){
     if(needDevice()) return;
     var p = peers[selIdx];
-    cmd('EEBusDisconnect ' + p.Ski).then(function(j){ say(JSON.stringify(j)); setTimeout(refresh, 800); });
+    knopfZeig('b_disc', '⏳ trennt …', '#FFEB9C');
+    cmd('EEBusDisconnect ' + p.Ski).then(function(j){
+      say(JSON.stringify(j)); setTimeout(refresh, 800);
+      var ok = j && j.EEBusDisconnect && /disconnect|getrennt/i.test(JSON.stringify(j.EEBusDisconnect));
+      knopfZeig('b_disc', ok ? '✓ getrennt' : '✗ ' + (j ? JSON.stringify(j.EEBusDisconnect || j).slice(0, 40) : 'keine Antwort'), ok ? '#37c871' : '#e05a4a', 10000);
+    });
   }
 
   function refresh(){
@@ -772,6 +1129,13 @@
         else if(!slot && s.Ip === p.Ip) slot = s;
       });
       var c = el('connstate');
+      var q2 = el('d_skiq');
+      if(slot && slot.Sme === 'done' && slot.SkiQuelle){   // v191: woher die SKI dieser Verbindung stammt
+        var zq = slot.SkiQuelle;
+        q2.textContent = (zq === 'Zertifikat') ? 'aus Zertifikat' : (zq === 'Adresse') ? 'nur Adresse' : 'aus Fundliste';
+        q2.className = 'pill ' + ((zq === 'Zertifikat') ? 'ok' : (zq === 'Adresse') ? 'bad' : '');
+      } else { q2.className = 'pill hide'; }
+      mwLaden = !!(slot && slot.Sme === 'done');
       if(slot && slot.Sme === 'done'){
         c.textContent = 'verbunden'; c.className = 'pill ok';
         if(slot.LpcResult) say(slot.LpcResult);
@@ -793,12 +1157,20 @@
         (st.Slots || []).forEach(function(s){ if(!live && (s.Sme === 'done') && s.PeerSki) live = s; });
         if(live){
           c.textContent = 'verbunden · ' + (live.PeerId || live.Ip); c.className = 'pill ok';
-          if(!peers.length){
-            cmd('EEBusPeers').then(function(jp){
-              var r = jp && jp.EEBusPeers;
-              if(r && r.Peers && r.Peers.length){ fillDevices(r.Peers, live.PeerSki, true); showDevice(); }
-            });
-          }
+          // v191: das verbundene Geraet IMMER auswaehlen, auch wenn schon eine Liste da ist (bisher nur
+          // bei leerer Liste - dann blieben SKI/Hersteller/Typ leer, obwohl die Steuerbox alles kennt).
+          // Steht es nicht in der Fundliste der Steuerbox (nach einem Neustart noch nicht gesucht),
+          // einmal selbst suchen.
+          cmd('EEBusPeers').then(function(jp){
+            var r = jp && jp.EEBusPeers;
+            var drin = r && r.Peers && r.Peers.some(function(x){ return x.Ski && live.PeerSki &&
+                                                                  x.Ski.toLowerCase() === live.PeerSki.toLowerCase(); });
+            if(drin){ fillDevices(r.Peers, live.PeerSki, true); showDevice(); }
+            else if(!autoScanDone){
+              autoScanDone = true;
+              cmd('EEBusScan').then(function(){ setTimeout(refresh, 3000); });
+            }
+          });
         } else {
           c.textContent = 'nicht verbunden'; c.className = 'pill bad';
         }
@@ -1256,8 +1628,10 @@
       // neun Kennungen einen einzigen Wert — weder auf Abfrage noch von selbst. Ein Strich sähe
       // aus wie ein Defekt unseres Werkzeugs; es ist eine Eigenschaft der Gegenstelle.
       // An einer Wallbox oder einem Wärmepumpen-Gateway kann das anders sein.
-      el('m_cur').textContent   = d.Current ? fmt(d.Current, 'A', 2) : 'wird nicht geliefert';
-      el('m_vol').textContent   = d.Voltage ? fmt(d.Voltage, 'V', 1) : 'wird nicht geliefert';
+      // v197: je Phase L1 / L2 / L3, sofern die Gegenstelle sie getrennt liefert (sonst der eine Wert)
+      function drei(a, e, dg){ return a.map(function(x){ return x ? fmt(x, '', dg).trim() : '—'; }).join(' / ') + ' ' + e; }
+      el('m_cur').textContent   = d.Current3 ? drei(d.Current3, 'A', 2) : (d.Current ? fmt(d.Current, 'A', 2) : 'wird nicht geliefert');
+      el('m_vol').textContent   = d.Voltage3 ? drei(d.Voltage3, 'V', 1) : (d.Voltage ? fmt(d.Voltage, 'V', 1) : 'wird nicht geliefert');
       // NICHT "nicht angeboten": die Gegenstelle BESCHREIBT acFrequency (Id 2), sie liefert nur
       // keinen Wert. An der Messwert-Beschreibung nachgelesen — die alte Beschriftung
       // behauptete etwas, das die Gegenstelle nie gesagt hat.
@@ -1266,18 +1640,15 @@
       el('lpc_fsv').textContent = fmt(d.FsCons,  'W');
       el('lpc_fsd').textContent = d.FsDur || '—';
       el('lpp_fsv').textContent = fmt(d.FsProd,  'W');
-      // Nennleistung fuer die Prozent-Rechnung vorbelegen — aber NUR, solange nichts eingetragen
-      // ist. Eine eigene Eingabe wird nie ueberschrieben. Quelle ist der Failsafe-Wert Erzeugung;
-      // norm-richtig waere powerProductionNominalMax, das wir noch nicht lesen -> ehrlich benennen.
-      // Nennleistung: NUR anzeigen, nicht eintragen. Ins Eingabefeld kommt sie erst auf Knopfdruck
-      // ("uebernehmen") — ein Wert, der von selbst in einem Eingabefeld erscheint, sieht aus wie
-      // eine eigene Eingabe und wuerde beim naechsten Schreibvorgang mitgehen, ohne dass ihn
-      // jemand gewaehlt hat.
-      var nn = num(d.FsProd);
+      // v196: Nennleistung Erzeugung aus der MELDUNG der Anlage (LPP-042, sonst LPP-041) — nicht mehr aus
+      // dem Failsafe-Wert Erzeugung: den schreibt die Steuerbox jetzt selbst, er waere danach unser Wert.
+      // Nur anzeigen; ins Eingabefeld kommt sie erst auf Knopfdruck ("uebernehmen").
+      var nn = num(d.PnomProdVertrag || d.PnomProd);
       nennGeraet = (nn === null) ? null : Math.abs(nn);
-      el('lpp_nom').textContent = (nennGeraet === null) ? '— W'
+      el('lpp_nom').textContent = (nennGeraet === null) ? 'wird nicht gemeldet'
                                 : nennGeraet.toLocaleString('de-DE') + ' W';
       nennAnzeigen();
+      fsLaden(false);   // v196: Failsafe Einspeisung dieser Anlage
       el('lpc_state').textContent = zust(d.Lim0);
       el('lpp_state').textContent = zust(d.Lim1);
       warnung('lpc_warn', d.Lim0);
@@ -1416,6 +1787,59 @@
          + r.w.toLocaleString('de-DE') + ' W</b>')
       : 'keine steuerbare Einrichtung eingetragen';
   }
+  // v196: Failsafe-Vorgaben liegen in der Steuerbox (EEBusFailsafe), nicht im Browser — sie rechnet
+  // den Failsafe Bezug selbst aus der Geraeteliste und schreibt ihn bei jeder Verbindung an die Anlage.
+  var FSGER = ['c_lp1','c_lp2','c_lp3','c_lp4','c_wp1','c_wp2','c_wp3','c_wp4',
+               'c_kl1','c_kl2','c_kl3','c_kl4','c_sp1','c_sp2','c_sp3','c_sp4'];
+  for(var h = 2; h <= 24; h++){ var o = document.createElement('option'); o.value = h * 3600; o.textContent = h + ' h'; el('fs_dur').appendChild(o); }
+  function fsZeigen(f, mitFeldern){
+    if(!f) return;
+    if(mitFeldern){
+      FSGER.forEach(function(id, i){ var v = parseFloat(f.Geraete[i]); el(id).value = v > 0 ? String(v).replace('.', ',') : ''; });
+      el('fs_pct').value = f.Prozent;
+      el('fs_dur').value = String(f.DauerS);
+      el('fs_sls').value = f.Sls || '';
+      calcZeigen();
+    }
+    el('fs_ans').textContent = f.Anschluss ? '= ' + f.Anschluss.toLocaleString('de-DE') + ' W' : 'nicht eingetragen';
+    var p = (selIdx >= 0) ? peers[selIdx] : null, a = null;
+    (f.Anlagen || []).forEach(function(x){ if(p && x.Ip === p.Ip) a = x; });
+    // v197: Failsafe Bezug je Anlage — gedeckelt auf die Hoechstleistung, die die Anlage MELDET (sonst SLS-Eintrag)
+    var bz = (a && a.Bezug) ? a.Bezug : f.Bezug;
+    el('fs_bez').textContent = !bz ? 'keine Geräte gespeichert'
+      : bz.toLocaleString('de-DE') + ' W (n = ' + f.N + ', GZF = ' + (f.Gzf / 100).toLocaleString('de-DE') + ')'
+        + (bz < f.Pmin ? ' – gedeckelt auf die Höchstleistung (Pmin ' + f.Pmin.toLocaleString('de-DE') + ' W)' : '');
+    var ag = a ? a.AnschlussGemeldet : 0;
+    // v197 (Andreas): meldet die Anlage ihre Hoechstleistung (LPC [LPC-042], die Anlage ist die Quelle),
+    // steht DIESER Wert im SLS-Feld und das Feld ist gesperrt. Eintragen nur, wenn die Anlage nichts meldet.
+    if(ag){
+      el('fs_sls').value = Math.round(ag / 690); el('fs_sls').readOnly = true;
+      el('fs_ans').textContent = '= ' + ag.toLocaleString('de-DE') + ' W · von der Anlage gemeldet';
+    } else {
+      el('fs_sls').readOnly = false;
+    }
+    el('fs_ansg').textContent = !a ? '—' : (!ag ? 'wird nicht gemeldet – SLS oben eintragen' : ag.toLocaleString('de-DE') + ' W');
+    el('fs_ansg').style.color = '';
+    el('fs_ein').textContent = !a ? '—' : (a.Nenn ? a.Einspeisung.toLocaleString('de-DE') + ' W (' + f.Prozent + ' % von '
+                                              + a.Nenn.toLocaleString('de-DE') + ' W)' : 'keine – Anlage meldet keine Nennleistung');
+    el('fs_geq').textContent = 'in der Steuerbox: Pmin ' + (f.Bezug ? f.Bezug.toLocaleString('de-DE') + ' W' : '—');
+  }
+  function fsLaden(mitFeldern){ cmd('EEBusFailsafe').then(function(j){ fsZeigen(j && j.EEBusFailsafe, mitFeldern); }); }
+  function fsSpeichern(b){
+    var w = FSGER.map(function(id){ var v = parseFloat(String(el(id).value || '').replace(',', '.')); return (isNaN(v) || v < 0) ? 0 : v; });
+    var pct = parseInt(el('fs_pct').value, 10), dur = parseInt(el('fs_dur').value, 10);
+    var sls = parseInt(el('fs_sls').value, 10); if(isNaN(sls)) sls = 0;
+    if(isNaN(pct) || pct < 0 || pct > 100){ say('Failsafe Einspeisung: 0 bis 100 %'); return; }
+    if(sls < 0 || sls > 1000){ say('SLS-Nennstrom: 0 bis 1000 A'); return; }
+    cmd('EEBusFailsafe ' + w.join(' ') + ' ' + pct + ' ' + dur + ' ' + sls).then(function(j){
+      var f = j && j.EEBusFailsafe;
+      if(!f || typeof f !== 'object'){ say('Failsafe-Vorgaben NICHT gespeichert: ' + JSON.stringify(j)); return; }
+      fsZeigen(f, false);
+      say('Failsafe-Vorgaben gespeichert: Bezug ' + f.Bezug + ' W, Einspeisung ' + f.Prozent + ' %, Mindestdauer '
+          + (f.DauerS / 3600) + ' h — wird an die verbundenen Anlagen geschrieben');
+    });
+  }
+
   function calcUebernehmen(){
     var r = pmin();
     if(!r){ say('Erst die steuerbaren Einrichtungen eintragen.'); return; }
@@ -1487,7 +1911,6 @@
   // Die Felder der Anlagen-Tabelle kommen dazu — sie werden nicht einzeln aufgezaehlt, sondern
   // aus der Seite eingesammelt. So muss beim Erweitern der Tabelle hier nichts nachgezogen werden.
   var FELDER = ['lpc_val','lpc_dur','lpp_val','lpp_dur','p_nenn','p_pct'];
-  document.querySelectorAll('.zin').forEach(function(e){ if(e.id) FELDER.push(e.id); });
   FELDER.forEach(function(id){
     var e = el(id); if(!e) return;
     try {
@@ -1499,12 +1922,13 @@
     });
     // Die Rechner zeigen ihr Ergebnis waehrend des Tippens — sonst muss man erst das Feld
     // verlassen, um zu sehen, was herauskommt.
-    if(e.classList.contains('zin')) e.addEventListener('input', calcZeigen);
     if(id.indexOf('p_') === 0)      e.addEventListener('input', pctZeigen);
     // Auch das Grenzwert-Feld selbst: wer dort tippt, soll sofort sehen, ob es zum Rechner passt.
     if('lpp_val' === id)            e.addEventListener('input', lppDiffZeigen);
   });
+  document.querySelectorAll('.zin').forEach(function(e){ e.addEventListener('input', calcZeigen); });
   calcZeigen(); pctZeigen();
+  fsLaden(true);   // v196: Geraeteliste, Prozent und Dauer aus der Steuerbox
   // Auf Wunsch zurueck auf die Werkseinstellung: eebusVorgaben() in der Browser-Konsole aufrufen.
   function eebusVorgaben(){
     FELDER.forEach(function(id){ try{ localStorage.removeItem('eebus_' + id); }catch(err){} });
@@ -1516,6 +1940,8 @@
   ownIdentLaden();
   startAuswahl();
   setInterval(function(){ if(!document.hidden) refresh(); }, 20000);
+  // Messwerte (Netzanschlusspunkt) alle 5 s: EEBusData liest nur den Speicher der Steuerbox, kein Netzverkehr.
+  setInterval(function(){ if(!document.hidden && mwLaden) loadData(); }, 5000);
 </script>
 </body>
 </html>

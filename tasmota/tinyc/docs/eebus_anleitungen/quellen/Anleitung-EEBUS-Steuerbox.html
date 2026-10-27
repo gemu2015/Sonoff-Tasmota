@@ -28,9 +28,9 @@
 <body>
 
 <h1>EEBUS-Steuerbox auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 21.10.2026 · Treiber <code>xdrv_126</code> v189 · Persönliche Daten in den Bildern unkenntlich gemacht<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 26.10.2026 · Treiber <code>xdrv_126</code> v216 · Persönliche Daten in den Bildern unkenntlich gemacht<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
-<div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die Steuerbox dient dazu, die EEBUS-Kommunikation mit einem HEMS (Energiemanagementsystem im Haus) oder mit einer steuerbaren Verbrauchseinrichtung zu prüfen. Sie ersetzt weder die Steuerbox des Messstellenbetreibers noch ein geprüftes Gerät nach § 14a EnWG und ist nicht für den regulären Betrieb gedacht.</div>
+<div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die Steuerbox dient dazu, die EEBUS-Kommunikation mit einem HEMS (Energiemanagementsystem im Haus) oder mit steuerbaren Verbrauchseinrichtungen zu prüfen. Sie ersetzt weder die Steuerbox des Messstellenbetreibers noch ein geprüftes Gerät nach § 14a EnWG und ist nicht für den regulären Betrieb gedacht.</div>
 
 <h2>1. Was die Steuerbox macht</h2>
 <p>Die Steuerbox spielt die Rolle, die sonst die Steuerbox des Netzbetreibers am Smart-Meter-Gateway übernimmt. Sie schickt per EEBUS zwei Arten von Vorgaben:</p>
@@ -38,94 +38,139 @@
   <li><b>§ 14a EnWG – Bezugsbegrenzung (LPC):</b> wie viel Leistung steuerbare Verbrauchseinrichtungen (Wärmepumpe, Wallbox, Speicher, Klimagerät) höchstens aus dem Netz beziehen dürfen. Grundlage: § 14a Abs. 1 EnWG mit BNetzA-Festlegung BK6-22-300.</li>
   <li><b>§ 9 EEG – Einspeisebegrenzung (LPP):</b> wie viel die Erzeugungsanlage höchstens einspeisen darf.</li>
 </ul>
-<p>Gegenstelle ist entweder ein <b>HEMS</b>, das die Vorgabe auf seine Geräte verteilt, oder direkt ein <b>einzelnes Gerät</b> (Direktsteuerung, zum Beispiel ein Wärmepumpen-Gateway oder die <b>SteuVE</b>, eine steuerbare Verbrauchseinrichtung auf Tasmota mit eigener Anleitung).</p>
-<p>Die Box kann gleichzeitig mit einem HEMS und mit einem einzelnen Gerät verbunden sein. Verbindungen laufen über IPv4 oder IPv6; ruft eine Gegenstelle selbst an, ordnet die Box die Verbindung über die Adresse oder – wenn das Gerät mehrere Adressen hat – über die Kennung, die es beim Verbinden mitschickt, dem gefundenen Gerät zu. Im Log steht dann „… ist SKI … (ueber die Kennung …)“.</p>
+<p>Für <b>jede</b> steuerbare Verbrauchseinrichtung entscheidet der Betreiber, wie sie angesteuert wird (BK6-22-300 Anlage 1 Ziff. 4.4):</p>
+<ul>
+  <li><b>über ein HEMS</b> (Ziff. 4.4 b) – die Steuerbox schickt dem HEMS einen <b>Gesamtwert</b>, das HEMS verteilt ihn auf seine Geräte, oder</li>
+  <li><b>direkt</b> (Ziff. 4.4 a) – die Steuerbox spricht das Gerät selbst an, zum Beispiel ein Wärmepumpen-Gateway oder die <b>SteuVE</b> (steuerbare Verbrauchseinrichtung auf Tasmota, eigene Anleitung).</li>
+</ul>
+<p>Ein Gerät ist entweder direkt oder über ein HEMS angebunden, nie beides. Die Box kann aber gleichzeitig mit einem HEMS und mit mehreren direkt gesteuerten Geräten verbunden sein: <b>bis zu 6 Verbindungen</b>. Welche Art eine Verbindung ist, erkennt die Box am Gerätetyp der Gegenstelle (Energiemanager = HEMS, alles andere = direkt).</p>
+<p>Die Gegenstelle wird immer über die <b>SKI aus ihrem Zertifikat</b> erkannt, nicht über ihre Adresse. Verbindungen laufen über IPv4 oder IPv6 und in beide Richtungen: Die Box ruft an, oder die Gegenstelle ruft die Box an.</p>
 
 <h2>2. Seite aufrufen</h2>
-<p>Auf der Tasmota-Hauptseite der Box auf <b>„Steuerbox“</b> klicken. Die Seite liegt als Datei <code>steuerbox.html</code> im Dateisystem der Box (Flash oder SD).</p>
-<figure><img src="bilder-Steuerbox/01-tasmota-hauptseite.png"><figcaption>Bild 1 – Tasmota-Hauptseite mit dem Knopf „Steuerbox“.</figcaption></figure>
-<div class="hinweis">Zeigt die Seite „steuerbox.html liegt nicht im Dateisystem – bitte hochladen“, fehlt die Datei. Sie gehört ins Dateisystem der Box. Liegt sie nur auf der SD und wird trotzdem nicht gefunden, zusätzlich in den Flash legen.</div>
+<p>Auf der Tasmota-Hauptseite der Box auf <b>„Steuerbox“</b> klicken. Die Seite liegt als Datei <code>steuerbox.html</code> im Dateisystem der Box (am besten auf der SD-Karte).</p>
+<figure><img src="bilder-Steuerbox/01-tasmota-hauptseite.png" style="width:60%"><figcaption>Bild 1 – Tasmota-Hauptseite mit dem Knopf „Steuerbox“.</figcaption></figure>
+<div class="hinweis">Zeigt die Seite „steuerbox.html liegt nicht im Dateisystem – bitte hochladen“, fehlt die Datei. Sie gehört ins Dateisystem der Box.</div>
 
-<h2 class="seite">3. Eigene Identität und Gerät verbinden</h2>
-<figure><img src="bilder-Steuerbox/02-identitaet-und-geraet.png"><figcaption>Bild 2 – Eigene Identität, Geräteauswahl mit Verbindung zum HEMS, Struktur und Messwerte des Netzanschlusspunkts.</figcaption></figure>
+<h2 class="seite">3. Eigene Identität und Anlagen verbinden</h2>
+<figure><img src="bilder-Steuerbox/02-identitaet-und-geraet.png"><figcaption>Bild 2 – Eigene Identität, Anlagen suchen und verbinden (hier mit einem Energiemanager), Tabelle „Verbindungen“ mit der ausgewählten Anlage. Kennungen, SKIs, Adressen und QR-Codes unkenntlich gemacht.</figcaption></figure>
 
 <h3>Eigene Identität</h3>
 <ul>
   <li><b>SKI</b> – der Fingerabdruck des eigenen Zertifikats. Verdeckt; „zeigen“ blendet ihn nur in diesem Browser ein. Diese SKI muss man beim HEMS bzw. Gerät als vertrauenswürdig eintragen.</li>
-  <li><b>Kennung / Seriennummer</b> – werden aus der SKI abgeleitet.</li>
+  <li><b>Kennung / Seriennummer</b> – werden aus der SKI abgeleitet. <b>QR-Codes anzeigen</b> – Kopplungsdaten der Box im SHIP-Format zum Abscannen.</li>
   <li><b>Sichern</b> – lädt Zertifikat und Schlüssel als Datei herunter. <b>Vor jeder Neuerzeugung sichern.</b></li>
-  <li><b>Neue Identität …</b> – erzeugt ein neues Zertifikat.</li>
+  <li><b>Neue Identität …</b> – erzeugt ein neues Zertifikat. <b>Neu ankündigen</b> – meldet die Box im Netz neu an (mDNS).</li>
 </ul>
 <div class="warn"><b>Neue Identität = neue SKI.</b> Alle bestehenden Kopplungen verfallen; beim HEMS bzw. Gerät muss die neue SKI wieder als vertrauenswürdig eingetragen werden.</div>
 
-<h3>Gerät suchen und verbinden</h3>
+<h3>Anlagen suchen und verbinden</h3>
 <ol>
   <li><b>Scan</b> klicken – die Box sucht per mDNS alle EEBUS-Geräte im Netz.</li>
-  <li>Unter „Gefundene Geräte“ das Gerät wählen, zum Beispiel das HEMS. <b>Immer nach Name bzw. SKI wählen</b> – die Reihenfolge der Liste ändert sich bei jedem Scan.</li>
-  <li><b>Verbinden</b> klicken. Beim ersten Mal die SKI der Box beim HEMS bzw. Gerät als vertrauenswürdig bestätigen.</li>
-  <li>Steht „verbunden“ und unten „BESTAETIGT freigegeben“, ist die Kopplung fertig.</li>
+  <li>Unter „Gefundene Geräte“ das Gerät wählen. <b>Immer nach Name bzw. SKI wählen</b> – die Reihenfolge der Liste ändert sich bei jedem Scan. Darunter stehen SKI (mit „aus Zertifikat“, sobald verbunden), Hersteller, Typ, Modell und Adresse; rechts der QR-Code der ausgewählten Anlage.</li>
+  <li><b>Verbinden</b> klicken. Der Knopf meldet, was passiert: „⏳ verbindet …“, dann <b>„✓ verbunden“</b>, <b>„⏳ Gegenstelle wartet auf Freigabe“</b> (die Gegenstelle muss die Box erst als vertrauenswürdig annehmen, z. B. in ihrem Portal) oder <b>„✗ …“</b> mit dem Fehler. <b>Trennen</b> meldet ebenso „✓ getrennt“.</li>
+  <li>Steht in der Tabelle „Verbindungen“ als letztes Ergebnis „BESTAETIGT freigegeben“, ist die Kopplung fertig.</li>
 </ol>
-<div class="info"><b>Wiederaufbau:</b> Hat eine Verbindung einmal die Datenphase erreicht, merkt sich die Box die SKI der Gegenstelle. Nach einem Neustart sucht und verbindet sie dann <b>von selbst</b> wieder; ändert die Gegenstelle ihre IP, sucht sie neu. <b>Trennen</b> stoppt den Wiederaufbau bis zum nächsten Neustart, vergisst die Gegenstelle aber nicht (dafür: <code>EEBusAutoConn -1</code>).</div>
+
+<h3>Verbindungen</h3>
+<p>Die Tabelle zeigt alle 6 Plätze: Art (<b>HEMS</b> oder <b>direkt</b>), Anlage, Adresse, SKI mit Quelle (Zertifikat), Leistung, Zustand § 14a und § 9 und das <b>letzte bestätigte Ergebnis</b>; darunter klein, ob die Failsafe-Werte geschrieben sind. Die <b>ausgewählte</b> Anlage ist bernsteinfarben hervorgehoben (▶) – an sie gehen die Befehle, wenn unten „nur die ausgewählte“ eingestellt ist.</p>
+<p><b>Senden an:</b> „nur die ausgewählte“ oder „alle direkt gesteuerten Anlagen“. „Alle“ geht nie an ein HEMS – das bekommt seinen Gesamtwert immer einzeln.</p>
+
+<div class="info"><b>Wiederaufbau nach einem Neustart:</b> Jede Anlage, die einmal die Datenphase erreicht hat, merkt sich die Box (bis zu 6). Nach einem Neustart wartet sie, bis Netz und Uhrzeit stehen, dann <b>30 s</b>, und verbindet sich mit allen gemerkten Anlagen wieder. Ruft eine Anlage vorher selbst an, wird sie übersprungen. Die Wartezeit lässt sich mit <code>EEBusAutoConn &lt;s&gt;</code> ändern und bleibt gespeichert. <b>Trennen</b> stoppt den Wiederaufbau bis zum nächsten Neustart, vergisst die Anlage aber nicht (dafür: <code>EEBusAutoConn -1</code>). Fehlt eine gemerkte Anlage im Netz (z. B. weil sie eine neue Identität hat), hält sie die anderen nicht auf: Gefundene Anlagen werden sofort verbunden. Eine einzelne Anlage nimmt <code>EEBusAutoConn -&lt;SKI&gt;</code> aus der Liste. Die Box kündigt sich im Netz mit IPv4 <b>und</b> IPv6 an, damit sie auch Geräte ohne IPv6 erreichen können.</div>
+<div class="info"><b>Vorgabe nach jeder Wiederverbindung:</b> Nach einer Wiederverbindung schickt die Box von selbst ihre letzte Grenze erneut oder eine Freigabe – bei direkt gesteuerten Geräten nach 5 s, bei einem HEMS nach 30 s. So hat die Anlage immer binnen 60 s wieder eine gültige Vorgabe (EEBUS-Use-Case LPC, Regel LPC-913).</div>
 
 <h3>Struktur &amp; Messwerte</h3>
-<p>Links die Selbstauskunft der Gegenstelle (Actors, Use Cases, Entities, Features), rechts die Live-Werte des Netzanschlusspunkts (Leistung, Zählerstände, Begrenzungsfaktor). Was die Gegenstelle nicht liefert, steht als „wird nicht geliefert“ da.</p>
+<p>Für die ausgewählte Anlage: die Selbstauskunft der Gegenstelle (Actors, Use Cases, Entities, Features) und die Live-Werte des Netzanschlusspunkts (Leistung, Zählerstände, Ströme, Spannungen, Frequenz, Begrenzungsfaktor). Was die Gegenstelle nicht liefert, steht als „wird nicht geliefert“ da – das ist eine Eigenschaft der Anlage, kein Fehler der Box.</p>
 
 <h2 class="seite">4. § 14a EnWG – Bezugsbegrenzung (LPC)</h2>
-<figure><img src="bilder-Steuerbox/03-lpc-bezugsbegrenzung.png"><figcaption>Bild 3 – Reiter „§ 14a EnWG · Bezug (LPC)“.</figcaption></figure>
+<figure><img src="bilder-Steuerbox/03-lpc-bezugsbegrenzung.png"><figcaption>Bild 3 – Reiter „§ 14a EnWG · Bezug (LPC)“ mit Grenzwert, Dauer, Ist-Zustand und darunter den Failsafe-Einstellungen.</figcaption></figure>
 <ol>
   <li><b>Grenzwert [W]</b> eintragen – so viel dürfen die steuerbaren Verbrauchseinrichtungen zusammen noch beziehen. Hilfe dazu: „Grenzwert berechnen“ (Bild 4).</li>
   <li><b>Dauer [s]</b> – 900 s = ¼ Stunde, 0 = unbefristet, höchstens 86 400 s. Nach Ablauf hebt sich die Grenze von selbst auf.</li>
   <li><b>Begrenzung setzen</b> – schickt die Grenze. <b>Begrenzung aufheben</b> – gibt sofort frei.</li>
   <li><b>Ist-Zustand</b> zeigt, was die Gegenstelle meldet (aktiv/nicht aktiv, Wert, Restzeit).</li>
 </ol>
-<p><b>Failsafe-Wert / Failsafe-Mindestdauer</b> gibt die Gegenstelle bzw. der Netzbetreiber vor; die Box zeigt sie nur an. Sie gelten, wenn die Verbindung zur Steuerbox abreißt.</p>
-<div class="hinweis">Ein HEMS übernimmt die Grenze meist erst nach einigen Sekunden und verteilt sie auf seine Geräte. Vor dem Ablesen etwa eine Minute warten.</div>
+<div class="warn"><b>Direkt gesteuerte Geräte werden immer genau auf ihre Mindestleistung gedimmt</b> – 4.200 W, bei Wärmepumpe oder Klimaanlage mit mehr als 11 kW 0,4 × Leistung (BK6-22-300 Anlage 1 Ziff. 4.5.1). Ein anderer eingegebener Wert wird dabei ersetzt; im Log steht dann „direkt gesteuert: Dimmen fest auf 4200 W statt … W (BK6 Ziff. 4.5.1)“. Ein HEMS bekommt den Wert so, wie er eingegeben wird – es verteilt ihn selbst (Ziff. 4.5.2).</div>
+<div class="hinweis">Ein HEMS übernimmt die Grenze meist nach einigen Sekunden und verteilt sie auf seine Geräte.</div>
 
-<figure><img src="bilder-Steuerbox/04-grenzwert-rechner.png"><figcaption>Bild 4 – Grenzwert-Rechner: Leistung je Gerät in kW eintragen, „als Grenzwert übernehmen“.</figcaption></figure>
-<p>Der Rechner ermittelt den Mindest-Grenzwert nach der Formel der Festlegung BK6-22-300 (Anlage 1): Werte bis 4,2 kW zählen nicht mit, Wärmepumpen und Raumkühlung zählen je als <b>eine</b> Einrichtung, Ladepunkte und Speicher einzeln; dazu der Gleichzeitigkeitsfaktor. Der Rechner sendet nichts – erst „Begrenzung setzen“ schickt den Wert.</p>
+<figure><img src="bilder-Steuerbox/04-grenzwert-rechner.png"><figcaption>Bild 4 – Grenzwert-Rechner: Leistung je Gerät in kW eintragen; „als Grenzwert übernehmen“ setzt Pmin in das Feld Grenzwert, „In der Steuerbox speichern (Failsafe Bezug)“ speichert die Geräteliste für den Failsafe.</figcaption></figure>
+<p>Der Rechner ermittelt den Mindest-Grenzwert Pmin für ein HEMS nach der Formel der Festlegung BK6-22-300 (Anlage 1 Ziff. 4.5.2): Werte bis 4,2 kW zählen nicht mit, Wärmepumpen und Raumkühlung zählen je als <b>eine</b> Einrichtung, Ladepunkte und Speicher einzeln; dazu der Gleichzeitigkeitsfaktor. Der Rechner sendet nichts – erst „Begrenzung setzen“ schickt den Wert.</p>
+
+<h3>Failsafe-Werte</h3>
+<p>Die Box <b>überträgt</b> bei jeder Verbindung die Failsafe-Werte an die Anlage (VDE-FNN-Empfehlung zu Tenorziffer 2a BK6-22-300, Kap. 4.1.2.5). Sie gelten, wenn die Verbindung zur Steuerbox abreißt:</p>
+<ul>
+  <li><b>Failsafe Bezug:</b> bei einem HEMS Pmin der Anlage (aus der im Rechner gespeicherten Geräteliste, Ziff. 4.5.2), höchstens die Anschlussleistung aus dem <b>SLS-Nennstrom</b> (A × 3 × 230 V, unter dem Ist-Zustand eintragen und speichern) bzw. die Höchstleistung, die die Anlage selbst meldet; bei einem direkt gesteuerten Gerät seine Mindestleistung (4.200 W, Ziff. 4.5.1).</li>
+  <li><b>Failsafe Einspeisung:</b> Prozent der Nennleistung Erzeugung, die die Anlage meldet (Reiter § 9). Nur für Anlagen mit Einspeisegrenze; meldet die Anlage keine Nennleistung, wird kein Wert geschrieben.</li>
+  <li><b>Failsafe-Mindestdauer:</b> Auswahl 2 bis 24 h (Vorgabe 2 h), mit „speichern“ übernehmen.</li>
+</ul>
+<p>„Anlage meldet zurück“ zeigt, was die Anlage nach dem Schreiben als Failsafe-Wert bestätigt.</p>
 
 <h2 class="seite">5. § 9 EEG – Einspeisebegrenzung (LPP)</h2>
-<figure><img src="bilder-Steuerbox/05-lpp-einspeisebegrenzung.png"><figcaption>Bild 5 – Reiter „§ 9 EEG · Einspeisung (LPP)“.</figcaption></figure>
+<figure><img src="bilder-Steuerbox/05-lpp-einspeisebegrenzung.png"><figcaption>Bild 5 – Reiter „§ 9 EEG · Einspeisung (LPP)“ mit der Failsafe-Einspeisung in Prozent. Hier meldet die Anlage keine Nennleistung Erzeugung, deshalb wird kein Failsafe-Wert für die Einspeisung geschrieben.</figcaption></figure>
 <ul>
   <li>Grenzwert als <b>positiven Betrag</b> in Watt eingeben – das Minuszeichen auf der Leitung setzt die Box selbst.</li>
   <li>„Grenzwert aus Prozent-Vorgabe berechnen“ rechnet eine Prozent-Vorgabe des Netzbetreibers mit der Nennleistung der Erzeugung (von der Gegenstelle gemeldet) in Watt um.</li>
   <li>Setzen, Aufheben, Dauer und Ist-Zustand wie bei LPC.</li>
+  <li><b>Failsafe Einspeisung [%]</b> eintragen und speichern – daraus rechnet die Box den Failsafe-Wert der Einspeisung.</li>
 </ul>
-<div class="info">Manche HEMS rechnen die Einspeisegrenze intern in Prozent der Anlagenleistung um und zeigen in ihrem Ereignisprotokoll Prozent statt Watt.</div>
+<div class="info">§ 9 geht nur an Anlagen, die eine Einspeisegrenze anbieten (z. B. ein HEMS mit Wechselrichter). Eine SteuVE oder ein reiner Verbraucher bekommt keinen § 9 – im Log steht dann „Einspeisung entfaellt – Gerät hat keine Einspeisegrenze“.</div>
 
 <h3>Antwort des Geräts</h3>
-<p>Unten auf der Seite steht die letzte Antwort der Gegenstelle, zum Beispiel „BESTAETIGT freigegeben“ oder „BESTAETIGT aktiv 6888 W“. Eine Ablehnung steht ebenfalls dort.</p>
+<p>Unten auf der Seite und in der Tabelle „Verbindungen“ steht die letzte Antwort der Gegenstelle, zum Beispiel „BESTAETIGT freigegeben“ oder „BESTAETIGT aktiv 6888 W“. Eine Ablehnung steht ebenfalls dort.</p>
 
 <h2 class="seite">6. Befehle in der Tasmota-Konsole</h2>
-<p>Alles auf der Seite geht auch per Konsole (Tasmota-Hauptseite → Werkzeuge → Konsole). <code>&lt;ziel&gt;</code> ist eine SKI (oder ihr eindeutiger Anfang), <code>hm</code>/<code>auto</code> für die einzige stehende Verbindung, oder eine Nummer aus der Fundliste (nicht empfohlen, die Reihenfolge wechselt).</p>
+<p>Alles auf der Seite geht auch per Konsole (Tasmota-Hauptseite → Werkzeuge → Konsole). <code>&lt;ziel&gt;</code> ist eine SKI (oder ihr eindeutiger Anfang), <code>alle</code> für alle direkt gesteuerten Anlagen, <code>hm</code>/<code>auto</code> für die einzige stehende Verbindung, oder eine Nummer aus der Fundliste (nicht empfohlen, die Reihenfolge wechselt).</p>
 <table>
   <tr><th>Befehl</th><th>Bedeutung</th></tr>
   <tr><td><code>EEBusScan</code></td><td>mDNS-Suche nach EEBUS-Geräten (dauert etwa 1,5 s)</td></tr>
   <tr><td><code>EEBusPeers</code></td><td>gefundene Geräte mit SKI, Typ, Adresse (<code>Ip</code>, bei IPv6 zusätzlich <code>Ip6</code>) und Betriebsart</td></tr>
   <tr><td><code>EEBusConnect &lt;ski&gt;</code></td><td>Verbindung aufbauen; beim ersten Kontakt die SKI der Box bei der Gegenstelle bestätigen</td></tr>
   <tr><td><code>EEBusDisconnect [ski]</code></td><td>Verbindung trennen; ohne Angabe alle</td></tr>
-  <tr><td><code>EEBusStatus</code></td><td>Verbindungen mit Handshake-Phase und letztem Ergebnis</td></tr>
-  <tr><td><code>EEBusLpc &lt;ziel&gt; &lt;watt&gt; [s]</code></td><td>§ 14a-Bezugsgrenze setzen, z. B. <code>EEBusLpc auto 4200 900</code></td></tr>
+  <tr><td><code>EEBusStatus</code></td><td>alle 6 Plätze mit Art (hems/direkt), Handshake-Phase, SKI-Quelle und letztem Ergebnis</td></tr>
+  <tr><td><code>EEBusLpc &lt;ziel&gt; &lt;watt&gt; [s]</code></td><td>§ 14a-Bezugsgrenze setzen, z. B. <code>EEBusLpc alle 4200 900</code></td></tr>
   <tr><td><code>EEBusRelease &lt;ziel&gt;</code></td><td>Bezugsgrenze freigeben</td></tr>
   <tr><td><code>EEBusReleaseAll</code></td><td>alle Bezugsgrenzen freigeben (nicht die Einspeisung)</td></tr>
   <tr><td><code>EEBusLpp &lt;ziel&gt; &lt;watt&gt; [s]</code></td><td>§ 9-Einspeisegrenze setzen (Betrag angeben)</td></tr>
   <tr><td><code>EEBusLppFrei &lt;ziel&gt;</code></td><td>Einspeisegrenze freigeben</td></tr>
+  <tr><td><code>EEBusFailsafe</code><br><code>EEBusFailsafe &lt;16 × kW&gt; &lt;%&gt; &lt;s&gt; &lt;A&gt;</code></td><td>Failsafe-Vorgaben und berechnete Werte je Anlage anzeigen<br>Geräteliste (4 Ladepunkte, 4 Wärmepumpen, 4 Klima, 4 Speicher in kW), Einspeise-Prozent, Mindestdauer, SLS-Nennstrom setzen; die Werte gehen sofort an alle verbundenen Anlagen</td></tr>
   <tr><td><code>EEBusCert</code><br><code>EEBusCert 2</code></td><td>eigene SKI anzeigen<br>Zertifikat neu erzeugen (Kopplungen verfallen!)</td></tr>
-  <tr><td><code>EEBusAutoConn</code><br><code>EEBusAutoConn -1</code></td><td>Zustand des Wiederaufbaus anzeigen<br>gemerkte Gegenstelle vergessen (kein Wiederaufbau mehr)</td></tr>
+  <tr><td><code>EEBusAutoConn</code><br><code>EEBusAutoConn &lt;s&gt;</code><br><code>EEBusAutoConn -1</code><br><code>EEBusAutoConn -&lt;SKI&gt;</code></td><td>Zustand des Wiederaufbaus und gemerkte Partner anzeigen<br>Wartezeit nach dem Start (Vorgabe 30 s, 0 = aus), wird gespeichert<br>gemerkte Partner vergessen (kein Wiederaufbau mehr)<br>genau diesen Partner vergessen (SKI oder eindeutiger Anfang, mind. 4 Zeichen)</td></tr>
   <tr><td><code>EEBusData</code></td><td>Ist-Zustände und Messwerte aller Verbindungen als JSON</td></tr>
 </table>
 
-<h2>7. Häufige Fragen</h2>
+<h2 class="seite">7. Betriebslogbuch und Verhalten bei Störungen</h2>
+<p>Die Box regelt alles Folgende <b>selbst</b> – es gibt dafür keinen Knopf und nichts einzustellen.</p>
+<ul>
+  <li><b>Abgelehnte Vorgabe:</b> Lehnt eine Anlage eine Grenze oder Freigabe ab (z. B. weil sie der Box noch nicht vertraut), schickt die Box sie <b>jede Minute erneut</b>, bis die Anlage sie annimmt. Grundlage: LPC V1.0.0 Hinweis Z. 347–349 („erneuter Versuch zu einem späteren Zeitpunkt“).</li>
+  <li><b>Befehle während einer Störung:</b> Ein § 14a- oder § 9-Befehl an eine Anlage, zu der gerade keine Verbindung steht, wird <b>sofort abgewiesen</b> („nicht ausführbar – Kommunikationsstörung“) und protokolliert – bei „alle“ für jede nicht verbundene, direkt gesteuerte Anlage. Grundlage: VDE FNN Empfehlung zu Tenorziffer 2a BK6-22-300, Verbindungsüberwachung.</li>
+</ul>
+<h3>Betriebslogbuch</h3>
+<p>Die VDE FNN Empfehlung verlangt, dass die Steuerungseinrichtung Bestätigungen, nicht erfolgte Bestätigungen, Kommunikationsstörungen und abgewiesene Steuerbefehle im <b>Betriebslogbuch</b> protokolliert (Kap. 4.1.2.2 und Abschnitt Verbindungsüberwachung). Die Box schreibt es auf die <b>SD-Karte</b> (nie in den Flash):</p>
+<ul>
+  <li>Ordner <code>/betriebslogbuch/</code>, je Monat eine Datei, z. B. <code>2026-10.csv</code> (UTF-8, Trennzeichen Semikolon).</li>
+  <li>Spalten: <code>Zeit_UTC;Ereignis;Anlage;Adresse;Richtung;Wert;Dauer_s;Ergebnis</code> – Zeit in UTC mit „Z“, Anlage = SKI.</li>
+  <li>Ereignisse: <b>Vorgabe</b> (mit Ergebnis, z. B. „BESTAETIGT aktiv 4200 W“ oder „Write abgelehnt“), <b>Failsafe-Werte</b> (Wert und Dauer), <b>Verbindung hergestellt</b>, <b>Kommunikationsstoerung – Verbindung getrennt</b>, <b>Befehl abgewiesen</b>. Gleiche Wiederholungen werden nicht doppelt eingetragen.</li>
+  <li>Aufbewahrung: <b>30 Monate</b>; ältere Monatsdateien löscht die Box selbst.</li>
+  <li>Abholen: über den FTP-Server der Box oder die Dateiverwaltung von Tasmota.</li>
+</ul>
+<div class="hinweis">Ordnername, Dateiformat und Aufbewahrungsdauer schreibt die FNN-Empfehlung nicht vor – das ist unsere Festlegung.</div>
+<p>Ein Eintrag sieht so aus:</p>
+<pre style="white-space:pre-wrap;word-break:break-all;font-size:9pt;background:#f4f4f4;padding:6px">2026-10-26T19:14:13Z;Befehl abgewiesen;…cb19;;;EEBusLpc alle 4200 120;0;nicht ausfuehrbar - Kommunikationsstoerung</pre>
+
+<h2>8. Häufige Fragen</h2>
+<h3>„⏳ Gegenstelle wartet auf Freigabe“ – die Verbindung kommt nicht in die Datenphase</h3>
+<p>Die Gegenstelle meldet im SHIP-Handshake „pending“: Sie vertraut der Box noch nicht. Die SKI der Box muss dort bestätigt werden – bei manchen Energiemanagern über deren Portal. Erst danach antwortet die Gegenstelle mit „ready“.</p>
 <h3>Die Box findet ein Gerät, kann es aber nicht verbinden (<code>tls connect err=-1002</code>)</h3>
-<p>-1002 heißt: die TCP-Verbindung kommt nicht zustande, das Gerät nimmt auf diesem Port nicht an. Manche Geräte bauen die Verbindung nur selbst auf (eingehend). Dann die SKI der Box im Gerät als vertrauenswürdig eintragen und warten, bis das Gerät anruft.</p>
+<p>-1002 heißt: die TCP-Verbindung kommt nicht zustande, das Gerät nimmt auf diesem Port nicht an. Manche Geräte bauen die Verbindung nur selbst auf. Dann die SKI der Box im Gerät als vertrauenswürdig eintragen und warten, bis das Gerät anruft.</p>
 <h3><code>tls connect err=296</code></h3>
-<p>Die Gegenstelle bricht den TLS-Aufbau ab, weil die Box ihr Zertifikat nicht mitschickt. Die Firmware braucht <code>USE_MQTT_CLIENT_CERT</code> und 24 KB Stapel (ab dem aktuellen Stand automatisch gesetzt).</p>
+<p>Die Gegenstelle bricht den TLS-Aufbau ab, weil die Box ihr Zertifikat nicht mitschickt. Die Firmware braucht <code>USE_MQTT_CLIENT_CERT</code> und 24 KB Stapel (im aktuellen Stand automatisch gesetzt).</p>
 <h3>Die Grenze ist gesetzt, aber das Gerät drosselt nicht</h3>
 <p>Ein Gerät drosselt nur, wenn es gerade mehr zieht als erlaubt. Liegt sein Verbrauch unter der Grenze, nimmt es sie an, ändert aber nichts. Bei einem HEMS zusätzlich prüfen, ob die Verbraucher dort gekoppelt sind.</p>
-<h3>Direktverbindung zur SteuVE: die SteuVE steht auf „autonom“</h3>
-<p>Die SteuVE bindet die Box erst als Energy Guard, wenn die erste Grenze kommt. Bis dahin zeigt sie „autonom“ – das ist so gewollt. Nach „Begrenzung setzen“ wechselt sie auf „gesteuert“.</p>
-<h3>Im Log steht „WS-SENDEN UNVOLLSTAENDIG“</h3>
-<p>Eine Nachricht ging nur teilweise an die Gegenstelle. Die Box baut diese Verbindung dann ab und verbindet neu, statt mit einem beschädigten Datenstrom weiterzuarbeiten. Kommt das häufig vor, WLAN-Empfang bzw. Netzwerk der Gegenstelle prüfen.</p>
+<h3>Ich habe 2.000 W eingegeben, die SteuVE meldet 4.200 W</h3>
+<p>Richtig so: Direkt gesteuerte Geräte werden immer genau auf ihre Mindestleistung gedimmt (Abschnitt 4).</p>
+<h3>Eine SteuVE steht kurz nach dem Start auf „Anlauf“</h3>
+<p>Nach einem eigenen Neustart startet die SteuVE begrenzt auf ihren Failsafe-Wert und wartet auf eine Vorgabe. Die Box schickt sie nach der Verbindung von selbst (Abschnitt 3); danach steht „gesteuert“. Kommt binnen 120 s keine Vorgabe, wechselt die SteuVE auf „autonom“ (frei).</p>
+<h3>Im Log steht „Sendepuffer voll – warte“ oder „Senden nach 3 s abgebrochen“</h3>
+<p>Eine Gegenstelle nimmt gerade keine Daten ab. Die Box wartet kurz und liest dabei weiter; klappt es nicht, beendet sie die Verbindung sauber, und die Gegenstelle baut neu auf. Kommt das häufig vor, Netzwerk der Gegenstelle prüfen.</p>
 <h3>Zwei Geräte mit derselben Identität</h3>
 <p>Nie zwei Boxen mit demselben Zertifikat gleichzeitig betreiben – die Gegenstelle kann sie nicht unterscheiden.</p>
 

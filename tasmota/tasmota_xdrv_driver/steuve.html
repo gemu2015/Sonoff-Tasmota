@@ -91,6 +91,11 @@ th{color:var(--ink-2);font-weight:600}
 section{margin-top:18px} section>h3{font-size:15px;margin:0 0 8px;font-weight:600}
 .idv{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:nowrap;overflow:hidden;word-spacing:-3px;background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;padding:6px 8px;flex:1;min-width:0}
 .idv+.btn,.idv+.btn+.btn{padding:4px 8px}
+/* 23.10.: QR-Codes der Kennung (immer schwarz auf weiss, auch im dunklen Modus) */
+.qrgrid{display:flex;flex-wrap:wrap;gap:24px 40px;align-items:flex-start;margin-top:12px}
+.qrgrid figure{margin:0;text-align:center;width:200px}
+.qrgrid figcaption{font-size:11px;color:var(--muted);margin-top:6px}
+.qrgrid svg{display:block;margin:0 auto;border-radius:4px}
 @media(max-width:560px){.idv{white-space:normal;word-break:break-all}}
 .tr{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;font-weight:600}
 .tr.ja{background:#37c871;color:#0e1013} .tr.nein{background:#e05a4a;color:#fff} .tr.neu{background:#fab219;color:#0e1013}
@@ -136,7 +141,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
 
 <nav class="tabs" role="tablist">
   <button role="tab" data-t="ueb">Übersicht</button>
-  <button role="tab" data-t="dev">SteuVE</button>
+  <button role="tab" data-t="dev">EEBus</button>
   <button role="tab" data-t="shelly">Verbraucher</button>
   <button role="tab" data-t="hm">Meldungen</button>
   <button role="tab" data-t="prot">Protokoll</button>
@@ -159,9 +164,20 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
       <span>Seriennummer</span><span id="k_ser">—</span><span>Adresse</span><span id="k_adr">—</span></div>
     <p class="note">Verdeckt ist Standard; „anzeigen“ zeigt die volle Kennung nur in diesem Browser, bis zum nächsten
       Laden der Seite. Diese SKI zeigt das HEMS beim Koppeln an.</p>
+    <div class="row"><button class="btn" id="qr_auf">QR-Codes anzeigen</button></div>
+    <div id="qr_box" style="display:none">
+      <div class="qrgrid">
+        <figure><div id="qr_ship"></div><figcaption>Kopplung (SHIP-Format wie auf dem Typschild einer Steuerbox)</figcaption></figure>
+        <figure><div id="qr_id"></div><figcaption>SHIP-ID</figcaption></figure>
+        <figure><div id="qr_ski"></div><figcaption>SKI</figcaption></figure>
+      </div>
+      <p class="note" id="qr_txt" style="word-break:break-all;text-align:left;max-width:none"></p>
+      <p class="note" style="text-align:left;max-width:none">Die Codes entstehen jedes Mal neu aus der aktuellen Kennung — nach „Neue Identität“ zeigen sie die neue. Inhalt nach „SHIP Requirements for Installation Process“ V1.1.0 [SRIP-310/4–19], Fehlerkorrektur M.</p>
+    </div>
     <div class="row" style="margin-top:10px">
       <button class="btn" id="id_sich" title="Zertifikat und Schlüssel aus dem Flash herunterladen">Sichern</button>
       <button class="big rot klein" id="id_neu">Neue Identität …</button>
+      <button class="big gruen klein" id="id_ank" title="Eigene Kennung (SKI) im Netz neu bekanntgeben - z. B. wenn ein anderes Gerät noch eine alte SKI zeigt">Neu ankündigen</button>
     </div>
     <!-- Zweistufig mit Absicht: eine neue Identitaet macht jede bestehende Kopplung ungueltig. -->
     <div class="card" id="id_warn" style="display:none;margin-top:8px;border-color:#e05a4a">
@@ -175,15 +191,15 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     <p class="note" id="id_nach" style="display:none">Neue Identität erzeugt und neu angekündigt. Bestehende Verbindungen
       laufen noch mit der alten — das HEMS sieht die neue SKI beim nächsten Verbinden.</p></div>
 
-  <div class="card"><h2>Energy Guard (wem die SteuVE gehorcht)</h2>
+  <div class="card"><h2>HEMS / Energy Guard (wem die SteuVE gehorcht)</h2>
     <div class="kv"><span>Steuerweg</span><span id="eg_weg">—</span>
       <span>Gerät</span><span id="eg_dev">—</span><span>Adresse</span><span id="eg_ip">—</span>
       <span>SKI</span><span id="eg_ski">—</span><span>Verbindung</span><span id="eg_con">—</span>
       <span>Vertrauen</span><span id="eg_tr">—</span><span>Abgewiesen</span><span id="eg_rej">—</span></div>
     <div class="row" style="margin-top:12px"><button class="big gruen" id="eg_ja">Vertrauen</button>
       <button class="big rot" id="eg_nein">Vertrauen entziehen</button></div>
-    <p class="note">Nur einem vertrauten Energy Guard folgt die SteuVE: im Normalfall das HEMS (es verteilt den
-      §14a-Sollwert der Steuerbox), zum Test ohne HEMS die Steuerbox selbst (Direktsteuerung). Entziehen trennt die
+    <p class="note">Nur einem vertrauten Gerät folgt die SteuVE: im Normalfall dem HEMS (es verteilt den
+      §14a-Sollwert der Steuerbox), ohne HEMS dem Energy Guard (Steuerbox) selbst (Direktsteuerung). Entziehen trennt die
       Verbindung sofort; die SteuVE läuft dann autonom (ohne Begrenzung). „Vertrauen“ hier = der Energiemanager aus der
       Fundliste; ein anderes Gerät unten in der Liste wählen.</p></div>
 </div>
@@ -196,7 +212,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     <tbody id="ptab"><tr><td colspan="6">—</td></tr></tbody>
   </table>
   <p class="note">„Vertrauen“ speichert die SKI im Flash. Erst dann darf das Gerät Grenzen und Failsafe-Werte schreiben;
-    fremde Schreibversuche werden abgewiesen. Nur ein Energy Guard kann gleichzeitig vertraut sein.</p></div>
+    fremde Schreibversuche werden abgewiesen. Nur ein Gerät (HEMS oder Energy Guard) kann gleichzeitig vertraut sein.</p></div>
 </section>
 </div>
 
@@ -209,7 +225,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     <div class="r2"><span>Nennleistung</span><b id="c_n">—</b></div></div></div>
   <svg id="flow" viewBox="0 -10 720 470" width="100%" style="max-height:min(520px,60vh)" role="img" aria-label="Steuerkette"></svg>
   <div class="legend">
-    <b>Kette:</b> Netzbetreiber → FNN-Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher<br>
+    <b>Kette:</b> <span id="kette">Netzbetreiber → FNN-Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher</span><br>
     <b>Farbe:</b> Linie farbig = läuft · <span style="color:#888">grau gestrichelt = aus</span> ·
     <span style="color:#d05a5a">rot gestrichelt umrandet = von SteuVE abgeschaltet</span>
   </div>
@@ -256,7 +272,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     <span><span class="ring" style="border-color:#37c871"></span>grün = frei</span>
     <span><span class="ring" style="border-color:#fab219"></span>gelb = §14a begrenzt</span>
     <span><span class="ring" style="border-color:#e05a4a"></span>rot = Failsafe</span>
-    <span><span class="ring" style="border-color:#42a5f5"></span>blau = ohne Energy Guard</span>
+    <span><span class="ring" style="border-color:#42a5f5"></span>blau = ohne HEMS / Energy Guard</span>
   </div></div>
 </section>
 
@@ -275,7 +291,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
 <div class="pane" data-p="hm">
 <div class="grid three">
   <div class="card"><h2>Verbindung</h2>
-    <div class="kv"><span>Energy Guard</span><span id="hm_eg">—</span><span>verbunden seit</span><span id="hm_seit">—</span>
+    <div class="kv"><span id="hm_egl">HEMS / Energy Guard</span><span id="hm_eg">—</span><span>verbunden seit</span><span id="hm_seit">—</span>
       <span>Verbindungen seit Start</span><span id="hm_anz">—</span></div></div>
   <div class="card"><h2>Herzschlag</h2>
     <div class="kv"><span>vom HEMS empfangen</span><span id="hm_hbrx">—</span><span>an das HEMS gesendet</span><span id="hm_hbtx">—</span>
@@ -313,7 +329,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     <thead><tr><th>Zeit</th><th>Zustand</th><th>Grenze</th><th>Summe</th><th>abgeschaltet</th></tr></thead>
     <tbody id="ltab"><tr><td colspan="5">—</td></tr></tbody>
   </table>
-  <p class="note">Datei <a href="/ufsd?download=/steuve_log.csv" style="color:inherit">/steuve_log.csv</a> · neueste Zeile oben ·
+  <p class="note">Datei <a href="#" onclick="fsSpeichernAls('/steuve_log.csv', false, 'steuve_log.csv');return false" style="color:inherit">/steuve_log.csv</a> · neueste Zeile oben ·
     Aufbewahrung 2 Jahre (VDE FNN Empfehlung).</p></div>
 </section>
 </div>
@@ -321,21 +337,21 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
 <!-- ================= Test & Einstellungen ================= -->
 <div class="pane" data-p="test">
 <div class="grid three">
-  <div class="card"><h2>Test ohne Energy Guard <span class="tag">nur Inbetriebnahme</span></h2>
+  <div class="card"><h2>Test ohne HEMS / Energy Guard <span class="tag">nur Inbetriebnahme</span></h2>
     <div class="row">Grenze <input id="s_w" type="number" min="0" value="3000"> W</div>
     <div class="row">Dauer <input id="s_d" type="number" min="0" value="300"> s</div>
     <div class="row"><button class="big rot sk" id="sim_an">Grenze simulieren</button>
       <button class="big gruen sk" id="sim_aus">Simulation aufheben</button></div>
-    <p class="note">Nur zum Prüfen der Abschaltung. Ein verbundener Energy Guard sieht den simulierten Wert beim Lesen.</p></div>
+    <p class="note">Nur zum Prüfen der Abschaltung. Ein verbundenes HEMS bzw. ein verbundener Energy Guard sieht den simulierten Wert beim Lesen.</p></div>
   <div class="card"><h2>Kenndaten</h2>
     <div class="kv"><span>Nennleistung</span><span id="t_max">—</span><span>Failsafe-Grenze</span><span id="t_fs">—</span>
       <span>Failsafe-Mindestdauer</span><span id="t_fsd">—</span><span>Zählerstand</span><span id="t_e">—</span>
       <span>Grenze zuletzt von</span><span id="t_von">—</span></div>
-    <p class="note">Nennleistung meldet das Skript (Summe der eingetragenen Verbraucher). Die Failsafe-Werte schreibt der
-      Energy Guard; bis dahin gilt die eigene Vorgabe (EEBusCsFs).</p></div>
+    <p class="note">Nennleistung meldet das Skript (Summe der eingetragenen Verbraucher). Die Failsafe-Werte schreibt das
+      HEMS bzw. der Energy Guard; bis dahin gilt die eigene Vorgabe (EEBusCsFs).</p></div>
   <div class="card"><h2>Zustände</h2>
-    <div class="kv"><span>Anlauf</span><span>noch kein Energy Guard</span><span>gesteuert</span><span>folgt den Vorgaben</span>
-      <span>Failsafe</span><span>Herzschlag aus → Failsafe-Grenze</span><span>autonom</span><span>ohne Energy Guard, frei</span></div></div>
+    <div class="kv"><span>Anlauf</span><span>begrenzt auf Failsafe</span><span>gesteuert</span><span>folgt den Vorgaben</span>
+      <span>Failsafe</span><span>Herzschlag aus → Failsafe-Grenze</span><span>autonom</span><span>ohne HEMS / Energy Guard, frei</span></div></div>
 </div>
 <section>
   <h3>Antwort des Geräts</h3>
@@ -394,6 +410,12 @@ function peerBySki(s){ return PEERS.find(p => s && p.Ski && p.Ski.toLowerCase() 
 function slotBySki(s){ return ST.find(x => s && x.PeerSki && x.PeerSki.toLowerCase() === s.toLowerCase() && x.Ip); }
 function istHm(p){ return !!p && /energymanag|energy manag/i.test(p.Type || ''); }
 function kannGuard(p){ return istHm(p) || /electricitysupply|gridconnection|controlbox/i.test((p.Type || '') + ' ' + (p.Cat || '')); }
+// Wer steuert: HEMS (Tasmota-HEMS) oder Energy Guard (Steuerbox) — aus Fundliste, sonst aus der Kennung im Slot
+function egName(ski){
+  const p = peerBySki(ski), sl = slotBySki(ski);
+  if (istHm(p) || /hems/i.test(sl ? sl.PeerId || '' : '')) { return 'HEMS'; }
+  return 'Energy Guard';
+}
 
 // ---- Kennungen verdeckt anzeigen
 function maske(full, gruppe){
@@ -452,10 +474,23 @@ const istBusy = b => b && b.dataset.busy === '1';
 
 // ---- Eigene Identitaet: sichern / neu erzeugen (wie auf der Steuerbox-Seite)
 // "&dir=2": Zertifikat und Schluessel liegen im FLASH — ohne Angabe liest der Download vom aktiven Dateisystem (SD).
+// 23.10.: eigene Kennung im Netz neu bekanntgeben (mDNS), z. B. wenn eine Gegenstelle noch eine alte SKI zeigt
+$('id_ank').onclick = () => {
+  knopfStart($('id_ank'), 'kündigt an …');
+  cmd('EEBusAdvertise').then(j => { say(j); knopfMeldung($('id_ank'), j ? '✓ angekündigt' : '✗ Fehler', j ? OK : ROT); });
+};
+// Dateizugriff NUR ueber die Extra-Ports (24.10., Andreas): lesen :82, schreiben :83 — nie /ufsd oder /ufsu auf :80
+// (Datei-/Verzeichniszugriffe ueber :80 haben schon Neustarts ausgeloest). Port 82 sendet CORS "*".
+const FS82 = (pfad, flash) => 'http://' + location.hostname + ':82/ufs/' + (flash ? 'ffs' : 'sdfs') + pfad;
+function fsSpeichernAls(pfad, flash, name){   // Datei ueber :82 holen und als Download anbieten
+  return fetch(FS82(pfad, flash), {cache: 'no-store'}).then(r => r.ok ? r.blob() : Promise.reject(r.status)).then(b => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+}
 $('id_sich').onclick = () => {
   ['eebus_cert.der', 'eebus_key.der'].forEach((f, i) => setTimeout(() => {
-    const a = document.createElement('a'); a.href = '/ufsd?download=/' + f + '&dir=2'; a.download = f;
-    document.body.appendChild(a); a.click(); a.remove();
+    fsSpeichernAls('/' + f, true, f).catch(e => say({Sichern: f + ' nicht lesbar (' + e + ')'}));   // liegen im FLASH
   }, i * 400));   // versetzt, sonst unterschlaegt der Browser den zweiten Download
   say({Sichern: 'Zertifikat und Schlüssel werden heruntergeladen — sicher ablegen (privater Schlüssel!)'});
   knopfMeldung($('id_sich'), '✓ 2 Dateien geladen', OK);
@@ -475,10 +510,151 @@ $('id_ja').onclick = async () => {
 };
 
 // ---- Reiter SteuVE
+// ---- QR-Code (ISO/IEC 18004: Byte-Modus, Fehlerkorrektur M, Version 1-15) - eigener Erzeuger, ohne Bibliothek/Internet
+// je Version: [ECC-Bytes je Block, Bloecke Gruppe 1, Datenbytes, Bloecke Gruppe 2, Datenbytes]
+const QR_M = [null, [10,1,16,0,0], [16,1,28,0,0], [26,1,44,0,0], [18,2,32,0,0], [24,2,43,0,0], [16,4,27,0,0], [18,4,31,0,0],
+  [22,2,38,2,39], [22,3,36,2,37], [26,4,43,1,44], [30,1,50,4,51], [22,6,36,2,37], [22,8,37,1,38], [24,4,40,5,41], [24,5,41,5,42]];
+const QR_AL = [null, [], [6,18], [6,22], [6,26], [6,30], [6,34], [6,22,38], [6,24,42], [6,26,46], [6,28,50], [6,30,54], [6,32,58],
+  [6,34,62], [6,26,46,66], [6,26,48,70]];
+const QR_MASK = [(x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, x => x % 3 === 0, (x, y) => (x + y) % 3 === 0,
+  (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x, y) => x * y % 2 + x * y % 3 === 0,
+  (x, y) => (x * y % 2 + x * y % 3) % 2 === 0, (x, y) => ((x + y) % 2 + x * y % 3) % 2 === 0];
+function qrMul(x, y){ let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z; }
+function qrEcc(data, n){   // Reed-Solomon-Rest ueber GF(256)
+  const g = new Array(n).fill(0); g[n - 1] = 1; let r = 1;
+  for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { g[j] = qrMul(g[j], r); if (j + 1 < n) { g[j] ^= g[j + 1]; } } r = qrMul(r, 2); }
+  const e = new Array(n).fill(0);
+  data.forEach(b => { const f = b ^ e.shift(); e.push(0); g.forEach((c, i) => { e[i] ^= qrMul(c, f); }); });
+  return e;
+}
+function qrStrafe(m){   // Bewertung der Maske (Regeln 1-4 der Norm), kleiner = besser lesbar
+  const n = m.length; let p = 0, dunkel = 0;
+  for (let a = 0; a < 2; a++) {
+    for (let r = 0; r < n; r++) {
+      let s = '';
+      for (let c = 0; c < n; c++) { s += (a ? m[c][r] : m[r][c]) ? '1' : '0'; }
+      (s.match(/0{5,}|1{5,}/g) || []).forEach(l => { p += l.length - 2; });
+      p += 40 * (('0000' + s + '0000').match(/(?=00001011101|10111010000)/g) || []).length;
+    }
+  }
+  for (let y = 0; y < n; y++) { for (let x = 0; x < n; x++) {
+    if (m[y][x]) { dunkel++; }
+    if (x < n - 1 && y < n - 1 && m[y][x] === m[y][x + 1] && m[y][x] === m[y + 1][x] && m[y][x] === m[y + 1][x + 1]) { p += 3; }
+  } }
+  return p + 10 * (Math.ceil(Math.abs(dunkel * 20 - n * n * 10) / (n * n)) - 1);
+}
+function qrMatrix(text){
+  const by = Array.from(new TextEncoder().encode(text));
+  let v = 1;
+  for (; v <= 15; v++) { const t = QR_M[v]; if (4 + (v < 10 ? 8 : 16) + by.length * 8 <= (t[1] * t[2] + t[3] * t[4]) * 8) { break; } }
+  if (v > 15) { return null; }
+  const [ecn, b1, d1, b2, d2] = QR_M[v], cap = b1 * d1 + b2 * d2, bits = [];
+  const put = (val, len) => { for (let i = len - 1; i >= 0; i--) { bits.push((val >>> i) & 1); } };
+  put(4, 4); put(by.length, v < 10 ? 8 : 16); by.forEach(b => put(b, 8));
+  put(0, Math.min(4, cap * 8 - bits.length)); while (bits.length % 8) { bits.push(0); }
+  const dat = [];
+  for (let i = 0; i < bits.length; i += 8) { dat.push(parseInt(bits.slice(i, i + 8).join(''), 2)); }
+  for (let i = 0; dat.length < cap; i++) { dat.push(i % 2 ? 0x11 : 0xEC); }
+  const bl = []; let k = 0;
+  for (let i = 0; i < b1 + b2; i++) { const d = dat.slice(k, k + (i < b1 ? d1 : d2)); k += d.length; bl.push({ d, e: qrEcc(d, ecn) }); }
+  const cw = [];
+  for (let i = 0; i < Math.max(d1, d2); i++) { bl.forEach(b => { if (i < b.d.length) { cw.push(b.d[i]); } }); }
+  for (let i = 0; i < ecn; i++) { bl.forEach(b => cw.push(b.e[i])); }
+  const n = 17 + 4 * v, m = [], fn = [];
+  for (let y = 0; y < n; y++) { m.push(new Array(n).fill(false)); fn.push(new Array(n).fill(false)); }
+  const set = (x, y, d) => { m[y][x] = d; fn[y][x] = true; };
+  for (let i = 0; i < n; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+  [[3, 3], [n - 4, 3], [3, n - 4]].forEach(([cx, cy]) => {
+    for (let dy = -4; dy <= 4; dy++) { for (let dx = -4; dx <= 4; dx++) {
+      const x = cx + dx, y = cy + dy, d = Math.max(Math.abs(dx), Math.abs(dy));
+      if (x >= 0 && x < n && y >= 0 && y < n) { set(x, y, d !== 2 && d !== 4); }
+    } }
+  });
+  const al = QR_AL[v], la = al.length - 1;
+  al.forEach((ax, i) => al.forEach((ay, j) => {
+    if ((i === 0 && j === 0) || (i === 0 && j === la) || (i === la && j === 0)) { return; }
+    for (let dy = -2; dy <= 2; dy++) { for (let dx = -2; dx <= 2; dx++) { set(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1); } }
+  }));
+  const format = mask => {   // Formatinfo, Fehlerkorrektur M = 00
+    let r = mask; for (let i = 0; i < 10; i++) { r = (r << 1) ^ ((r >>> 9) * 0x537); }
+    const b = ((mask << 10) | r) ^ 0x5412, g = i => ((b >>> i) & 1) === 1;
+    for (let i = 0; i <= 5; i++) { set(8, i, g(i)); }
+    set(8, 7, g(6)); set(8, 8, g(7)); set(7, 8, g(8));
+    for (let i = 9; i < 15; i++) { set(14 - i, 8, g(i)); }
+    for (let i = 0; i < 8; i++) { set(n - 1 - i, 8, g(i)); }
+    for (let i = 8; i < 15; i++) { set(8, n - 15 + i, g(i)); }
+    set(8, n - 8, true);
+  };
+  format(0);
+  if (v >= 7) {   // Versionsinfo
+    let r = v; for (let i = 0; i < 12; i++) { r = (r << 1) ^ ((r >>> 11) * 0x1F25); }
+    const b = (v << 12) | r;
+    for (let i = 0; i < 18; i++) { const d = ((b >>> i) & 1) === 1, a = n - 11 + i % 3, c = Math.floor(i / 3); set(a, c, d); set(c, a, d); }
+  }
+  let i = 0;   // Daten im Zickzack von rechts unten
+  for (let right = n - 1; right >= 1; right -= 2) {
+    if (right === 6) { right = 5; }
+    for (let vert = 0; vert < n; vert++) { for (let j = 0; j < 2; j++) {
+      const x = right - j, y = ((right + 1) & 2) === 0 ? n - 1 - vert : vert;
+      if (!fn[y][x] && i < cw.length * 8) { m[y][x] = ((cw[i >>> 3] >>> (7 - (i & 7))) & 1) === 1; i++; }
+    } }
+  }
+  const mask = k => { for (let y = 0; y < n; y++) { for (let x = 0; x < n; x++) { if (!fn[y][x] && QR_MASK[k](x, y)) { m[y][x] = !m[y][x]; } } } };
+  let best = 0, bp = Infinity;
+  for (let k = 0; k < 8; k++) { mask(k); format(k); const p = qrStrafe(m); if (p < bp) { bp = p; best = k; } mask(k); }
+  mask(best); format(best);
+  return m;
+}
+function qrSvg(text, px){
+  const m = qrMatrix(text);
+  if (!m) { return '<span class="note">zu lang für einen QR-Code</span>'; }
+  const q = 4, s = m.length + 2 * q; let d = '';
+  m.forEach((r, y) => r.forEach((on, x) => { if (on) { d += 'M' + (x + q) + ',' + (y + q) + 'h1v1h-1z'; } }));
+  return '<svg viewBox="0 0 ' + s + ' ' + s + '" width="' + px + '" height="' + px + '" shape-rendering="crispEdges">' +
+         '<rect width="' + s + '" height="' + s + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+}
+// Inhalt wie auf dem Typschild einer Steuerbox: SHIP;SKI:…;ID:…;BRAND:…;TYPE:…;MODEL:…;SERIAL:…;CAT:…;ENDSHIP;
+// ("SHIP Requirements for Installation Process" V1.1.0 [SRIP-310/7]); fehlende Angaben entfallen
+function shipQrText(o){
+  const ski = (o.ski || '').replace(/\s/g, '').replace(/(.{4})(?!$)/g, '$1 ');
+  const kv = (k, v) => (v !== undefined && v !== null && v !== '') ? k + ':' + v + ';' : '';
+  return 'SHIP;SKI:' + ski + ';ID:' + o.id + ';' + kv('BRAND', o.brand) + kv('TYPE', o.type) + kv('MODEL', o.model) +
+         kv('SERIAL', o.serial) + kv('CAT', o.cat) + 'ENDSHIP;';
+}
+// QR-Kasten fuellen; pre = Praefix der Element-IDs. Nur bei geaenderter Kennung neu zeichnen.
+function qrFuellen(pre, o){
+  const box = document.getElementById(pre + 'box');
+  if (!box || box.style.display === 'none' || !o || !o.id || !o.ski) { return; }
+  const txt = shipQrText(o);
+  if (box.dataset.last === txt) { return; }
+  box.dataset.last = txt;
+  document.getElementById(pre + 'ship').innerHTML = qrSvg(txt, 200);
+  document.getElementById(pre + 'id').innerHTML = qrSvg(o.id, 200);
+  document.getElementById(pre + 'ski').innerHTML = qrSvg(o.ski.replace(/\s/g, ''), 200);
+  document.getElementById(pre + 'txt').textContent = txt;
+}
+function qrKnopf(pre, neu){
+  const b = document.getElementById(pre + 'auf'), box = document.getElementById(pre + 'box');
+  b.onclick = () => {
+    const auf = box.style.display === 'none';
+    box.style.display = auf ? '' : 'none';
+    b.textContent = auf ? 'QR-Codes verstecken' : 'QR-Codes anzeigen';
+    box.dataset.last = ''; neu();
+  };
+}
+// eigene Kennung: Marke-Modell-Seriennummer stecken in der SHIP-ID, Typ/Kategorie wie im Netz angekuendigt
+function eigeneKennung(c){
+  const t = (c.Id || '').split('-'), typ = ({hems: ['EnergyManagementSystem', 2], wp: ['Gateway', 4], wallbox: ['ChargingStation', 3]})[c.Typ] || [];
+  return { ski: c.Ski, id: c.Id, brand: t[0], type: typ[0], model: t[1], serial: t.length > 2 ? t[t.length - 1] : '', cat: typ[1] };
+}
+function qrNeu(){ qrFuellen('qr_', CS ? eigeneKennung(CS) : null); }
+qrKnopf('qr_', qrNeu);
+
 function renderDev(){
   const c = CS || {};
   setId($('id_ship'), c.Id || '', false);
   setId($('id_ski'), c.Ski || '', true);
+  qrNeu();
   const teile = (c.Id || '').split('-');
   $('k_brand').textContent = teile[0] || '—';
   $('k_mod').textContent = teile[1] || '—';
@@ -488,11 +664,11 @@ function renderDev(){
                             steuerbox:'wie Steuerbox (cat 1) — alt'})[c.Typ] || '—';
   const tr = c.Vertraut || '', p = peerBySki(tr), sl = slotBySki(tr);
   if (!tr) {
-    $('eg_weg').textContent = 'keiner (kein Energy Guard vertraut)';
+    $('eg_weg').textContent = 'keiner (weder HEMS noch Energy Guard vertraut)';
     ['eg_dev','eg_ip','eg_ski','eg_con'].forEach(i => $(i).textContent = '—');
     $('eg_tr').innerHTML = '<span class="tr nein">niemand vertraut</span>';
   } else {
-    $('eg_weg').textContent = p ? (istHm(p) ? 'über HEMS' : 'Direktsteuerung (Steuerbox)') : 'unbekannt — Gerät nicht in der Fundliste';
+    $('eg_weg').textContent = p ? (istHm(p) ? 'über HEMS' : 'Direktsteuerung (Energy Guard = Steuerbox)') : 'unbekannt — Gerät nicht in der Fundliste';
     $('eg_dev').textContent = p ? ((p.Brand ? p.Brand + ' ' : '') + (p.Model || p.Type || '')) : '—';
     $('eg_ip').textContent = p ? p.Ip : (sl ? sl.Ip : '—');
     $('eg_ski').textContent = '…' + tr.slice(-4);
@@ -512,7 +688,7 @@ function renderDev(){
     const st = ja ? '<span class="tr ja">vertraut</span>' : '<span class="tr nein">nicht vertraut</span>';
     const knopf = ja ? `<button class="big rot klein" data-trust="0">Vertrauen entziehen</button>`
                 : (kannGuard(p) ? `<button class="big gruen klein" data-trust="${esc(p.Ski)}">Vertrauen</button>`
-                                : '<span class="note">kein Energy Guard</span>');
+                                : '<span class="note">weder HEMS noch Energy Guard</span>');
     return `<tr><td>${esc((p.Brand ? p.Brand + ' ' : '') + (p.Model || p.Id || '?'))}</td><td>${esc(p.Ip)}</td>` +
            `<td>…${esc((p.Ski || '').slice(-4))}</td><td>${esc(p.Type)}</td><td>${st}</td><td>${knopf}</td></tr>`;
   }).join('');
@@ -548,20 +724,30 @@ function arrow(d, col, act, w){ return `<path d="${d}" stroke="${act ? col : '#8
 function drawFlow(){
   const c = CS || {}, v = verbraucher(), o = [];
   const fs = c.Zustand === 'Failsafe', lim = !!c.Begrenzt, sim = lim && c.EnergyGuard === 'lokal';
-  const tr = c.Vertraut || '', p = peerBySki(tr), hm = istHm(p);
+  const tr = c.Vertraut || '', p = peerBySki(tr);
+   // 26.10. (Andreas): ohne Fundliste (z. B. nach Neustart, kein Scan) war p leer -> der Kasten zeigte "HEMS verbunden",
+   // obwohl die SteuVE direkt an der Steuerbox haengt. Dann die Kennung aus der Verbindung nehmen (EEBusGuard = Steuerbox).
+  const pid = (slotBySki(tr) || {}).PeerId || '';
+  const hm = p ? istHm(p) : /hems/i.test(pid);
+  const direkt = !!tr && (p ? !istHm(p) : /eebusguard|steuerbox/i.test(pid));
   const hbOk = c.HerzschlagS >= 0 && c.HerzschlagS < 120;
   const cols = ['#f5d942','#888'].concat(FARBE.slice(0, Math.max(v.length, 1)).map(f => f[0]));
   o.push('<defs>' + cols.map(col => `<marker id="${MK(col)}" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="11" refX="9" refY="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="${col}"/></marker>`).join('') + '</defs>');
   const stbcol = fs ? '#888' : '#f5d942';
   const stbTxt = fs ? 'Herzschlag aus' : (sim ? 'Simulation (Test)' : (lim ? '§14a aktiv' : 'für SteuVE: keine Vorgabe'));
-  o.push(arrow('M360,96 L360,150', stbcol, hbOk && !!tr, 3.5));
+   // 26.10. (Andreas): die Kachel HEMS nur, wenn ein EMS/HEMS erkannt ist - bei Direktsteuerung Pfeil direkt zur SteuVE
+  o.push(arrow(hm ? 'M360,96 L360,150' : 'M360,96 L360,232', stbcol, hbOk && !!tr, 3.5));
+  $('kette').textContent = hm ? 'Netzbetreiber → FNN-Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher'
+                              : 'Netzbetreiber → FNN-Steuerbox → SteuVE (Direktsteuerung) → Verbraucher';
   const n = Math.max(v.length, 1), gap = 18, b = Math.min(150, (700 - (n - 1) * gap) / n), x0 = 360 - (n * b + (n - 1) * gap) / 2;
   let tiles = '';
   v.forEach((x, i) => {
     const [col, fill] = FARBE[i % FARBE.length];
     const aus = x.an === 0, err = x.err >= 3;
     const bx = x0 + i * (b + gap), cx = bx + b / 2, px = 360 + Math.max(-70, Math.min(70, (cx - 360) * 0.30));
-    o.push(arrow(`M${px.toFixed(1)},208 C${px.toFixed(1)},300 ${cx.toFixed(1)},290 ${cx.toFixed(1)},347`, col, !aus && !err, 2.5));
+     // ohne HEMS beginnen die Linien unter den Pillen "Anteil"/"genutzt" (sonst haengen sie in der Luft)
+    o.push(arrow(hm ? `M${px.toFixed(1)},208 C${px.toFixed(1)},300 ${cx.toFixed(1)},290 ${cx.toFixed(1)},347`
+                    : `M${px.toFixed(1)},296 C${px.toFixed(1)},325 ${cx.toFixed(1)},315 ${cx.toFixed(1)},347`, col, !aus && !err, 2.5));
     const fz = b < 120 ? 11 : 13;
     tiles += `<rect x="${bx}" y="350" width="${b}" height="78" rx="10" fill="${fill}" stroke="${x.stv ? '#d05a5a' : col}" stroke-width="2"${aus || err ? ' stroke-dasharray="6,4" opacity="0.75"' : ''}/>` +
              `<text x="${cx}" y="374" text-anchor="middle" fill="${col}" font-size="${fz}" font-weight="bold">${icon(x.nm)} ${esc(x.nm)}</text>` +
@@ -574,14 +760,27 @@ function drawFlow(){
   const ant = fs ? 'Failsafe: ' + W(c.Grenze) : (lim ? (sim ? 'Simulation: ' : 'Anteil SteuVE: ') + W(c.Grenze) : 'Anteil SteuVE: unbegrenzt');
   o.push(`<rect x="260" y="236" width="200" height="24" rx="12" fill="var(--surface-2)" stroke="var(--axis)"/>` +
          `<text x="360" y="252" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="bold">${ant}</text>`);
+   // 23.10. (Andreas): wie viel vom zugesagten Anteil gerade gebraucht wird - echter Verbrauch der SteuVE / Grenze
+  const nutz = Math.max(0, c.Leistung || 0);
+  let nTxt = 'genutzt: ' + W(nutz) + ' (kein Limit)', nCol = 'var(--ink)';
+  if ((fs || lim) && c.Grenze > 0) {
+    const pz = Math.round(nutz * 100 / c.Grenze);
+    nTxt = 'genutzt: ' + W(nutz) + ' = ' + pz + ' % von ' + W(c.Grenze);
+    nCol = pz >= 100 ? '#e05a4a' : (pz >= 80 ? '#fab219' : '#37c871');
+  }
+  o.push(`<rect x="235" y="272" width="250" height="22" rx="11" fill="var(--surface-2)" stroke="${nCol === 'var(--ink)' ? 'var(--axis)' : nCol}"/>` +
+         `<text x="360" y="287" text-anchor="middle" fill="${nCol}" font-size="11" font-weight="bold">${nTxt}</text>`);
   o.push(`<rect x="270" y="10" width="180" height="86" rx="10" fill="#2a2600" stroke="${stbcol}" stroke-width="2"/>` +
          `<text x="360" y="36" text-anchor="middle" fill="${stbcol}" font-size="14" font-weight="bold">&#9889; FNN-Steuerbox</text>` +
          `<text x="360" y="54" text-anchor="middle" fill="#cfc78a" font-size="11">Netzbetreiber · §14a EnWG</text>` +
          `<text x="360" y="80" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">${stbTxt}</text>`);
-  const hmTxt = !tr ? 'kein Energy Guard vertraut' : (!hm && p ? 'nicht beteiligt (Direktsteuerung)' :
-                (fs ? 'keine Verbindung' : (lim && !sim ? 'teilt zu: ' + W(c.Grenze) : (hbOk ? 'verbunden' : 'wartet auf Herzschlag'))));
-  const hmAktiv = !!tr && (hm || !p);
-  o.push(`<rect x="270" y="150" width="180" height="58" rx="10" fill="${hmAktiv ? '#4a3015' : '#262626'}" stroke="${hmAktiv ? '#cc6600' : '#666'}" stroke-width="2"/>` +
+   // 23.10.: "verbunden" nur bei stehender Verbindung (Slot), nicht schon wegen eines juengeren Herzschlags - sonst
+   // stand hier "verbunden", waehrend die Pille oben richtig "nicht verbunden" zeigte (HEMS gerade neu gestartet).
+  const sl = slotBySki(tr), steht = !!(sl && sl.Sme === 'done');
+  const hmTxt = !tr ? 'weder HEMS noch Energy Guard vertraut' : (direkt ? 'nicht beteiligt (Direktsteuerung)' :
+                ((fs || !steht) ? 'keine Verbindung' : (lim && !sim ? 'teilt zu: ' + W(c.Grenze) : (hbOk ? 'verbunden' : 'wartet auf Herzschlag'))));
+  const hmAktiv = !!tr && !direkt;
+  if (hm) o.push(`<rect x="270" y="150" width="180" height="58" rx="10" fill="${hmAktiv ? '#4a3015' : '#262626'}" stroke="${hmAktiv ? '#cc6600' : '#666'}" stroke-width="2"/>` +
          `<text x="360" y="174" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">&#127968; HEMS</text>` +
          `<text x="360" y="194" text-anchor="middle" fill="#ffcc80" font-size="11">${hmTxt}</text>`);
   $('flow').innerHTML = o.join('') + tiles;
@@ -611,7 +810,7 @@ function renderUeb(){
 }
 
 // ---- Reiter Verbraucher: Formular aus STVCFG, Speichern per STVSET (je Platz, mit Wiederholung)
-const RINGF = [['#37c871','grün · frei'],['#fab219','gelb · §14a begrenzt'],['#e05a4a','rot · Failsafe'],['#42a5f5','blau · ohne Energy Guard']];
+const RINGF = [['#37c871','grün · frei'],['#fab219','gelb · §14a begrenzt'],['#e05a4a','rot · Failsafe'],['#42a5f5','blau · ohne HEMS / Energy Guard']];
 function profSel(v){ return '<select class="pf">' + [1,2,3,4].map(i => `<option value="${i}"${+v === i ? ' selected' : ''}>${PROF[i]}</option>`).join('') + '</select>'; }
 function zeileStatus(tr){
   const ip = tr.querySelector('.ip').value, an = belegt(ip), fk = tr.querySelector('.fk').checked, st = tr.querySelector('.st');
@@ -800,6 +999,7 @@ async function ladeHm(){
 function renderHm(){
   if (!HM) { $('hm_tab').innerHTML = '<tr><td colspan="5">keine Daten (Treiber ab SteuVE v009)</td></tr>'; return; }
   const pe = PEERS.find(p => p.Ip === HM.Eg);
+  $('hm_egl').textContent = pe ? (istHm(pe) ? 'HEMS' : 'Energy Guard') : 'HEMS / Energy Guard';
   $('hm_eg').textContent = HM.Eg ? HM.Eg + (pe ? ' · ' + (pe.Model || pe.Type || '') : '') : 'nicht verbunden';
   $('hm_seit').textContent = HM.SeitS >= 0 ? dauer(HM.SeitS) : '—';
   $('hm_anz').textContent = HM.Anz;
@@ -831,9 +1031,9 @@ function renderKopf(){
   const ztxt = c.Zustand + (c.Begrenzt ? ' · begrenzt auf ' + W(c.Grenze) : ' · frei');
   const ok = v.filter(x => x.err < 3).length;
   let h = chip(zcls, '<b>Zustand</b> ' + esc(ztxt)) +
-    chip(!c.Vertraut ? 'cr' : (sl && sl.Sme === 'done' ? 'ok' : 'wa'), '<b>Energy Guard</b> ' +
+    chip(!c.Vertraut ? 'cr' : (sl && sl.Sme === 'done' ? 'ok' : 'wa'), '<b>' + (c.Vertraut ? egName(c.Vertraut) : 'Energy Guard / HEMS') + '</b> ' +
          (!c.Vertraut ? 'keiner vertraut' : esc((sl ? sl.Ip : '…' + c.Vertraut.slice(-4)) + (sl && sl.Sme === 'done' ? ' verbunden' : ' nicht verbunden')))) +
-    chip(c.HerzschlagS < 0 ? 'wa' : (c.HerzschlagS < 120 ? 'ok' : 'cr'), '<b>Herzschlag</b> ' + (c.HerzschlagS < 0 ? 'noch keiner' : 'vor ' + dauer(c.HerzschlagS))) +
+    chip(c.HerzschlagS < 0 ? 'wa' : (c.HerzschlagS <= 30 ? 'ok' : (c.HerzschlagS < 90 ? 'wa' : 'cr')),   /* 23.10. Andreas: bis 30 s gruen, bis 89 s gelb, ab 90 s rot */ '<b>Herzschlag</b> ' + (c.HerzschlagS < 0 ? 'noch keiner' : 'vor ' + dauer(c.HerzschlagS))) +
     chip(VL === null ? 'wa' : (ok === v.length ? 'ok' : 'cr'), '<b>Verbraucher</b> ' + (VL === null ? 'Skript fehlt' : ok + '/' + v.length +
          (v.some(x => x.fake) ? ' · ' + v.filter(x => x.fake).length + ' Fake' : '')));
   if (c.Abgewiesen) { h += chip('wa', '<b>Abgewiesen</b> ' + c.Abgewiesen + ' (' + esc(c.AbgewiesenVon) + ')'); }
@@ -849,7 +1049,7 @@ function render(){ renderKopf(); renderDev(); renderUeb(); }
 
 // ---- Protokoll: ts;zustand;begrenzt;grenze;summe;maske (X = Platz von SteuVE abgeschaltet)
 function ladeLog(){   // liefert die Zahl der Zeilen, -1 = nicht lesbar
-  return fetch('/ufsd?download=/steuve_log.csv').then(r => r.ok ? r.text() : Promise.reject(r.status)).then(t => {
+  return fetch(FS82('/steuve_log.csv', false), {cache: 'no-store'}).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(t => {
     const z = t.trim().split('\n').filter(l => l.indexOf(';') > 0);
     if (!z.length) { $('ltab').innerHTML = '<tr><td colspan="5">noch keine Einträge (nur während einer Begrenzung)</td></tr>'; return 0; }
     const namen = {}; verbraucher().forEach(x => namen[x.pl] = x.nm);
@@ -907,6 +1107,7 @@ function poll(){
   if (document.hidden) { return; }
   pollSchnell();
   if (zaehler % 3 === 0) { pollLangsam(); }
+  else { cmd('EEBusStatus').then(a => { if (a && a.EEBusStatus && a.EEBusStatus.Slots) { ST = a.EEBusStatus.Slots; render(); } }); }   // 23.10.: Verbindung alle 10 s (sonst bis 30 s alter Stand)
   if (zaehler % 6 === 0 || (!CFG && VL !== null)) { ladeCfg(false); }
   if (document.querySelector('.pane.on') && document.querySelector('.pane.on').dataset.p === 'hm') { ladeHm(); }
   zaehler++;

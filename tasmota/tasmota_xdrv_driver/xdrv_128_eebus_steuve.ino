@@ -17,6 +17,13 @@
     passt sie nicht: keine Verbindung. EEBusStatus zeigt je Slot "SkiQuelle". Damit weist die SteuVE ein HEMS, das
     sie vor ihrer Fundliste anruft, nicht mehr als Pseudo-SKI (Adresse) ab (22.10. 10:16).
     Ausserdem: ein Write auf eine andere limitId als 1 (unsere einzige Grenze) wird ignoriert und ins Log geschrieben.
+  SteuVE v025 (26.10.2026): mDNS kuendigt auch die IPv4 an (mdns_netif_action ENABLE/ANNOUNCE_IP4 nach mdns_init).
+    Bisher nur AAAA, weil mdns_init erst nach dem Ereignis "IPv4 bekommen" lief; Geraete ohne IPv6 konnten uns nicht anrufen.
+  SteuVE v024 (25.10.2026, Normpruefung LPC V1.0.0): im Zustand "init" (Anlauf) gilt die Failsafe-Grenze [LPC-901/1]
+    (Wert aus dem Flash, sonst vorkonfiguriert [LPC-903]); "gesteuert" erst nach Herzschlag UND Grenze (Write), ein
+    Herzschlag allein genuegt nicht mehr [LPC-902]/[LPC-916]; nach der Failsafe-Mindestdauer -> autonom [LPC-922].
+  SteuVE v023 (24.10.2026, Hinweis gemu 23.10.): tls_mini haelt den Schluessel der Gegenstelle je Verbindung, Getter
+    BearSSL::ShipPeerPubKey(client, &len) - ein anderer TLS-Aufbau dazwischen ueberschreibt ihn nicht mehr.
   SteuVE v022 (22.10.2026, Bedingungen gemu): Vertrauen (Grenzen, Failsafe, Herzschlag, Abo) NUR, wenn sich der
     vertraute Energy Guard mit Zertifikat ausgewiesen hat (SkiQuelle Zertifikat). Ohne Zertifikat: angezeigt, aber
     Writes abgewiesen, Log "vertraut nicht, kein Zertifikat". Schalter EEBusCsStreng 0 nur fuer Tests (nicht gespeichert).
@@ -1206,6 +1213,18 @@ bool EebusMdnsBegin(void) {
     return false;
   }
   mdns_hostname_set(TasmotaGlobal.hostname);
+   // SteuVE v025: IPv4 ausdruecklich anmelden. mdns_init laeuft hier erst spaet (Netz + Uhr); das Ereignis "IPv4 bekommen"
+   // ist dann laengst vorbei, mDNS kannte nur die spaeter kommenden IPv6-Adressen -> Antworten nur mit AAAA, kein A
+   // (26.10.: eine Wallbox ohne eigenes IPv6 listete uns nur mit IPv6 und konnte uns nicht anrufen; HEMS v028 bewiesen).
+  static const char * const kIfKeys[] = { "ETH_DEF", "WIFI_STA_DEF" };
+  for (uint32_t k = 0; k < sizeof(kIfKeys) / sizeof(kIfKeys[0]); k++) {
+    esp_netif_t *nif = esp_netif_get_handle_from_ifkey(kIfKeys[k]);
+    esp_netif_ip_info_t ipi;
+    if (!nif || !esp_netif_is_netif_up(nif) || (ESP_OK != esp_netif_get_ip_info(nif, &ipi)) || (0 == ipi.ip.addr)) { continue; }
+    esp_err_t e = mdns_netif_action(nif, (mdns_event_actions_t)(MDNS_EVENT_ENABLE_IP4 | MDNS_EVENT_ANNOUNCE_IP4));
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: mDNS IPv4 %s an %s angemeldet (%d)"),
+           IPAddress(ipi.ip.addr).toString().c_str(), kIfKeys[k], e);
+  }
   Eebus.mdns_ready = true;
   return true;
 }
@@ -2180,7 +2199,7 @@ bool EebusShipConnect(int idx) {
    // angekuendigt - das Zertifikat beweist sie (BearSSL hat die Signatur im Handshake geprueft).
   {
     size_t klen = 0;
-    const uint8_t *kp = BearSSL::ShipPeerPubKey(&klen);   // SteuVE v022 (gemu 22.10.): tls_mini liefert den Punkt, die SKI bilden wir
+    const uint8_t *kp = BearSSL::ShipPeerPubKey(ESp->client, &klen);   /* 24.10.: je Client (tls_mini) */   // SteuVE v022 (gemu 22.10.): tls_mini liefert den Punkt, die SKI bilden wir
     char zski[41] = { 0 };
     if (65 == klen) {
       uint8_t h[20];
@@ -3420,6 +3439,8 @@ void EebusCsHbSubscribe(void) {
 bool EebusCsEffective(uint32_t *w) {
   if ((CS_CTRL == eebus_cs_state) && eebus_cs_lim_active) { *w = eebus_cs_lim_w; return true; }
   if (CS_FAILSAFE == eebus_cs_state) { *w = eebus_cs_fs_w; return true; }
+   // SteuVE v024: [LPC-901/1] im Zustand "init" gilt die Failsafe-Grenze (aus dem Flash, sonst vorkonfiguriert [LPC-903])
+  if ((CS_INIT == eebus_cs_state) && !eebus_cs_sim) { *w = eebus_cs_fs_w; return true; }
   *w = 0;
   return false;
 }
@@ -3458,21 +3479,16 @@ void EebusCsTick(void) {
   uint32_t ref = eebus_cs_last_hb;
   if (!ref || ((int32_t)(eebus_cs_state_at - ref) > 0)) { ref = eebus_cs_state_at; }
   bool hb_ok = (millis() - ref) < EEBUS_CS_HB_TMO_MS;
-   // SteuVE v005: ein FRISCHER Herzschlag (nach Eintritt in den Zustand) holt aus Anlauf/autonom nach
-   // "gesteuert" — wie im Use Case vorgesehen, auch wenn der Energy Guard (noch) nichts schreibt.
-  bool hb_neu = eebus_cs_last_hb && ((millis() - eebus_cs_last_hb) < EEBUS_CS_HB_TMO_MS) &&
-                ((int32_t)(eebus_cs_last_hb - eebus_cs_state_at) > 0);
+   // SteuVE v024: ein Herzschlag allein holt NICHT mehr aus Anlauf/autonom nach "gesteuert". Erst Herzschlag
+   // UND eine folgende Grenze (Write, EebusCsWriteLim) - [LPC-902]/[LPC-904]/[LPC-905], [LPC-916].
   switch (eebus_cs_state) {
     case CS_INIT:
-      if (hb_neu) {
-        EebusCsSetState(CS_CTRL);
-      } else if (seit >= EEBUS_CS_HB_TMO_MS) {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: kein Energy Guard innerhalb 120 s - autonom (unbegrenzt)"));
+      if (seit >= EEBUS_CS_HB_TMO_MS) {   // [LPC-906] (MAY): 120 s ohne Herzschlag+Grenze -> autonom
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: keine Vorgabe des Energy Guard innerhalb 120 s - autonom (unbegrenzt)"));
         EebusCsSetState(CS_AUTO);
       }
       break;
     case CS_AUTO:
-      if (hb_neu) { EebusCsSetState(CS_CTRL); }
       break;
     case CS_CTRL:
       if (!hb_ok && !eebus_cs_sim) {   // SteuVE v005: waehrend einer Simulation kein Failsafe
@@ -3482,9 +3498,8 @@ void EebusCsTick(void) {
       }
       break;
     case CS_FAILSAFE:
-      if (seit >= (uint32_t)eebus_cs_fs_dur_s * 1000UL) {
-        bool frisch = eebus_cs_last_hb && ((millis() - eebus_cs_last_hb) < EEBUS_CS_HB_TMO_MS);
-        EebusCsSetState(frisch ? CS_CTRL : CS_AUTO);
+      if (seit >= (uint32_t)eebus_cs_fs_dur_s * 1000UL) {   // SteuVE v024: [LPC-922] nach der Mindestdauer -> autonom
+        EebusCsSetState(CS_AUTO);
       }
       break;
     default:

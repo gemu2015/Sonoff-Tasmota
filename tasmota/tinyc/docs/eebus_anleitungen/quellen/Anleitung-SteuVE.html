@@ -29,7 +29,7 @@
 <body>
 
 <h1>SteuVE auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 21.10.2026 · Treiber <code>xdrv_128</code> v020 + TinyC-Skript <code>steuve</code> v010 · Persönliche Daten in den Bildern unkenntlich gemacht<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 26.10.2026 · Treiber <code>xdrv_128</code> v025 + TinyC-Skript <code>steuve</code> v010 · Persönliche Daten in den Bildern unkenntlich gemacht<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
 <div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die SteuVE dient dazu, die EEBUS-Steuerung nach § 14a EnWG an einem HEMS (Energiemanagementsystem im Haus) zu prüfen und auszuprobieren. Sie ist keine geprüfte steuerbare Verbrauchseinrichtung im Sinne von § 14a Abs. 1 EnWG mit BNetzA-Festlegung BK6-22-300 und nicht für den regulären Betrieb gedacht.</div>
 
@@ -39,7 +39,7 @@
   <li><b>Treiber <code>xdrv_128</code></b> – spricht EEBUS mit dem Energy Guard (HEMS oder Steuerbox), empfängt Grenze und Failsafe-Werte, meldet Leistung und Nennleistung.</li>
   <li><b>TinyC-Skript <code>steuve</code></b> – fragt die Verbraucher (Shelly oder Tasmota) ab, meldet die Summe an den Treiber und schaltet nach Priorität.</li>
 </ul>
-<p><b>Kette:</b> Netzbetreiber → Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher. Zum Test ohne HEMS kann die Steuerbox die SteuVE auch direkt steuern.</p>
+<p><b>Kette:</b> Netzbetreiber → Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher. Ohne HEMS kann die Steuerbox die SteuVE auch direkt steuern (Direktsteuerung). Nach BK6-22-300 Anlage 1 Ziff. 4.4 gilt für jede SteuVE <b>entweder</b> das eine <b>oder</b> das andere: Sie vertraut entweder dem HEMS oder der Steuerbox, nie beiden.</p>
 
 <h2>2. Seite aufrufen</h2>
 <p>Auf der Tasmota-Hauptseite auf <b>„SteuVE“</b> klicken. Darüber zeigt das Skript einen Kurzstand: Zustand, Summe und die Leistung je Verbraucher.</p>
@@ -54,24 +54,29 @@
 <p>Die Statuszeile darunter zeigt immer: <b>Zustand</b>, <b>Energy Guard</b> (verbunden/getrennt), <b>Herzschlag</b> (wann zuletzt) und <b>Verbraucher</b> (erreichbar/belegt), bei laufender Mitschrift zusätzlich <b>Protokoll</b>.</p>
 
 <h2>3. Reiter „Übersicht“</h2>
-<figure><img src="bilder-SteuVE/02-uebersicht.png"><figcaption>Bild 2 – Übersicht: Kette von der Steuerbox über das HEMS zur SteuVE und ihren Verbrauchern.</figcaption></figure>
+<p>Eine SteuVE wird auf <b>einem</b> von zwei Wegen gesteuert (BK6-22-300 Anlage 1 Ziff. 4.4): <b>über ein HEMS</b> (Ziff. 4.4 b – die Steuerbox gibt dem HEMS einen Gesamtwert, das HEMS teilt ihn auf) oder <b>direkt von der Steuerbox</b> (Ziff. 4.4 a). Die Übersicht zeigt, welcher Weg gerade gilt.</p>
+<figure><img src="bilder-SteuVE/02a-uebersicht-hems.png"><figcaption>Bild 2a – Steuerung über ein HEMS: Steuerbox → HEMS → SteuVE. Die Steuerbox hat dem HEMS § 14a 6.000 W vorgegeben, das HEMS teilt dieser SteuVE 6.000 W zu.</figcaption></figure>
+<figure><img src="bilder-SteuVE/02b-uebersicht-direkt.png"><figcaption>Bild 2b – Direktsteuerung ohne HEMS: Der Pfeil führt von der Steuerbox direkt zur SteuVE, die Kachel HEMS fehlt. Die Steuerbox hat 2.000 W bekommen und daraus die Mindestleistung 4.200 W gemacht (Ziff. 4.5.1).</figcaption></figure>
 <ul>
   <li><b>Grenze für SteuVE</b> (oben links) – die wirksame Grenze mit Restzeit, oder „keine“.</li>
-  <li><b>Verbraucher gesamt</b> (oben rechts) – aktuelle Summe und Nennleistung, die an das HEMS gemeldet wird.</li>
-  <li><b>Kette</b> – Steuerbox, HEMS und der Anteil, den das HEMS der SteuVE zuteilt.</li>
+  <li><b>Verbraucher gesamt</b> (oben rechts) – aktuelle Summe und Nennleistung, die an das HEMS bzw. die Steuerbox gemeldet wird.</li>
+  <li><b>Kette</b> – Steuerbox, HEMS und der Anteil, den das HEMS der SteuVE zuteilt („teilt zu: …“). Die Kachel <b>HEMS</b> erscheint nur, wenn wirklich ein HEMS der Energy Guard ist (Bild 2a); bei Direktsteuerung führt der Pfeil von der Steuerbox direkt zur SteuVE, unten steht „Kette: … → SteuVE (Direktsteuerung) → …“ (Bild 2b).</li>
+  <li><b>genutzt</b> – wie viel der zugeteilten Leistung die Verbraucher gerade ziehen (in % der Grenze).</li>
   <li><b>Linien:</b> farbig = Verbraucher läuft, grau gestrichelt = aus, <b>rot gestrichelt umrandet = von der SteuVE abgeschaltet</b>.</li>
 </ul>
 <div class="hinweis">Der Heizstab ist in seiner eigenen Farbe ohnehin rot. Ob die SteuVE ihn abgeschaltet hat, erkennt man nur an der <b>gestrichelten</b> Umrandung und am Zustand in der Liste darunter.</div>
 <figure><img src="bilder-SteuVE/03-verbraucherliste.png"><figcaption>Bild 3 – Karten je Verbraucher und die Verbraucherliste mit Gerät, Adresse, Nennleistung, Priorität und Erreichbarkeit.</figcaption></figure>
 <p>„nur messen“ an einer Karte heißt: dieser Verbraucher wird gemessen und mitgemeldet, aber nie geschaltet (Haken „abschaltbar“ aus oder reines Messgerät).</p>
 
-<h2 class="seite">4. Reiter „SteuVE“ – Kennung und Energy Guard</h2>
-<figure><img src="bilder-SteuVE/04-reiter-steuve.png"><figcaption>Bild 4 – Eigene Kennung, vertrauter Energy Guard und die gefundenen EEBUS-Geräte.</figcaption></figure>
+<h2 class="seite">4. Reiter „EEBus“ – Kennung, HEMS / Energy Guard</h2>
+<figure><img src="bilder-SteuVE/04-reiter-eebus.png"><figcaption>Bild 4 – Eigene Kennung, das vertraute HEMS (Steuerweg „über HEMS“) und die gefundenen EEBUS-Geräte.</figcaption></figure>
 <h3>Eigene Kennung (links)</h3>
 <ul>
   <li><b>SHIP-ID</b> und <b>SKI</b> – verdeckt; „anzeigen“ blendet sie nur in diesem Browser ein, „kopieren“ legt sie in die Zwischenablage. Die SKI zeigt das HEMS beim Koppeln an.</li>
   <li><b>Kennung im Netz</b> – als was sich die SteuVE vorstellt (Wärmepumpen-Gateway, Wallbox oder Steuerbox), einstellbar mit <code>EEBusCsTyp</code>.</li>
+  <li><b>QR-Codes anzeigen</b> – Kopplungs-Code (SHIP-Format wie auf dem Typschild einer Steuerbox), SHIP-ID und SKI als QR-Code, z. B. zum Abscannen mit der App des HEMS.</li>
   <li><b>Sichern</b> – Zertifikat und Schlüssel herunterladen. <b>Neue Identität …</b> – neues Zertifikat.</li>
+  <li><b>Neu ankündigen</b> – gibt die eigene Kennung im Netz neu bekannt (mDNS), z. B. wenn ein anderes Gerät noch eine alte SKI zeigt.</li>
 </ul>
 <div class="warn"><b>Neue Identität = neue SKI.</b> Das HEMS sieht danach ein neues Gerät. Manche HEMS begrenzen die Zahl der angelegten Geräte – vorher sichern und nur erneuern, wenn es nötig ist. Nie zwei Geräte mit derselben Identität gleichzeitig betreiben.</div>
 <h3>Energy Guard (rechts) und gefundene Geräte (unten)</h3>
@@ -81,7 +86,8 @@
   <li>Im HEMS die SteuVE koppeln bzw. ihre SKI bestätigen. Steht rechts „verbunden“ und „vertraut“, ist es fertig.</li>
 </ol>
 <p>Nur <b>ein</b> Energy Guard kann vertraut sein. Nur er darf Grenzen und Failsafe-Werte schreiben; fremde Schreibversuche werden abgewiesen (Zähler „Abgewiesen“). <b>Vertrauen entziehen</b> trennt sofort; die SteuVE läuft dann autonom ohne Begrenzung. Ein <b>neues Vertrauen</b> wirkt ebenfalls sofort: Die SteuVE sucht den Energy Guard und verbindet sich mit ihm, ein Neustart ist nicht nötig.</p>
-<div class="info"><b>Direkt an der Steuerbox (Test ohne HEMS):</b> Vertraut die SteuVE einer Steuerbox, verbindet sie sich direkt mit ihr – über IPv4 oder IPv6. Bis die Steuerbox die erste Grenze schreibt, steht der Zustand auf <b>„autonom“</b>; erst mit dieser Grenze bindet sich die Steuerbox als Energy Guard. Das ist so gewollt und kein Fehler.</div>
+<div class="info"><b>Direkt an der Steuerbox (ohne HEMS):</b> Vertraut die SteuVE einer Steuerbox, verbindet sie sich direkt mit ihr – über IPv4 oder IPv6. Die Steuerbox schickt nach dem Verbinden von selbst eine Vorgabe (Freigabe oder ihre letzte Grenze); danach steht „gesteuert“. Bei Direktsteuerung dimmt die Steuerbox immer genau auf die Mindestleistung von 4.200 W (BK6-22-300 Anlage 1 Ziff. 4.5.1) und schreibt denselben Wert als Failsafe.</div>
+<div class="info"><b>Erkennung über das Zertifikat:</b> Der Energy Guard wird an der SKI aus <b>seinem Zertifikat</b> erkannt, nicht an seiner Adresse. Er kann also über IPv4 oder IPv6 und von jeder Adresse aus anrufen. Die SteuVE kündigt sich im Netz mit IPv4 <b>und</b> IPv6 an, damit sie auch Geräte ohne IPv6 finden und anrufen können.</div>
 
 <h2 class="seite">5. Reiter „Verbraucher“ – Geräte eintragen</h2>
 <figure><img src="bilder-SteuVE/05-reiter-verbraucher.png"><figcaption>Bild 5 – Vier Verbraucherplätze, Melder und Fake-Test.</figcaption></figure>
@@ -137,10 +143,10 @@
   <li>Wieder eingeschaltet wird <b>gestaffelt</b>, einer je 60 s (schrittweise Rückkehr, BK6-22-300, Anlage 1, Ziff. 4.3), und nur, was die SteuVE selbst abgeschaltet hat.</li>
   <li>Während einer laufenden Begrenzung schaltet sie einen Verbraucher frühestens nach 5 min wieder ein und nur, wenn er mit seiner <b>Nennleistung plus 200 W Reserve</b> unter die Grenze passt (nicht mit dem Momentanwert – eine Waschmaschine heizt später wieder).</li>
 </ol>
-<div class="info"><b>Zustände:</b> <b>Anlauf</b> = noch kein Energy Guard · <b>gesteuert</b> = folgt den Vorgaben · <b>Failsafe</b> = Herzschlag ausgeblieben, es gilt die Failsafe-Grenze · <b>autonom</b> = ohne Energy Guard, frei.</div>
+<div class="info"><b>Zustände:</b> <b>Anlauf</b> = nach einem Neustart, noch keine Vorgabe – <b>begrenzt auf den Failsafe-Wert</b> (EEBUS-Use-Case LPC, Regel LPC-901) · <b>gesteuert</b> = Energy Guard hat nach seinem Herzschlag eine Vorgabe geschickt, die SteuVE folgt ihr · <b>Failsafe</b> = 120 s kein Herzschlag, es gilt die Failsafe-Grenze für die Failsafe-Mindestdauer · <b>autonom</b> = ohne Energy Guard, frei (nach 120 s Anlauf ohne Vorgabe oder nach Ablauf der Failsafe-Mindestdauer). Aus „autonom“ und „Failsafe“ kommt die SteuVE erst mit der nächsten Vorgabe wieder auf „gesteuert“.</div>
 
 <h2>7. Reiter „Meldungen“</h2>
-<figure><img src="bilder-SteuVE/06-reiter-meldungen.png"><figcaption>Bild 6 – Verbindung, Herzschlag-Zähler, Vorgaben vom HEMS und die Meldungsliste.</figcaption></figure>
+<figure><img src="bilder-SteuVE/06-reiter-meldungen.png"><figcaption>Bild 6 – Verbindung, Herzschlag-Zähler, Vorgaben vom HEMS und die Meldungsliste (Filter „nur Grenzen / Failsafe“ an).</figcaption></figure>
 <ul>
   <li><b>Verbindung</b> – welcher Energy Guard, wie lange verbunden, Zahl der Verbindungen seit dem Start.</li>
   <li><b>Herzschlag</b> – nur als Zähler; Herzschläge kommen alle paar Sekunden und stehen nicht in der Liste.</li>
@@ -177,7 +183,7 @@
   <tr><th>Befehl</th><th>Bedeutung</th></tr>
   <tr><td><code>EEBusCs</code></td><td>Zustand als JSON:<br>Zustand, Begrenzt, Grenze, Restzeit, Energy Guard,<br>Failsafe, Nennleistung, Leistung, Herzschlag</td></tr>
   <tr><td><code>EEBusCsTrust</code><br><code>EEBusCsTrust &lt;ski&gt;</code><br><code>EEBusCsTrust hm</code><br><code>EEBusCsTrust 0</code></td><td>aktuellen Stand anzeigen<br>diesem Energy Guard vertrauen (SKI oder eindeutiger Anfang)<br>dem Energiemanager aus der Fundliste vertrauen<br>Vertrauen entziehen (trennt sofort)</td></tr>
-  <tr><td><code>EEBusCsTyp wp</code><br><code>EEBusCsTyp wallbox</code><br><code>EEBusCsTyp steuerbox</code></td><td>stellt sich als Wärmepumpen-Gateway vor (Vorgabe)<br>stellt sich als Ladestation vor<br>alte Kennung (bis Treiber v006)<br><i>Umstellen kündigt neu an und trennt eine eingehende Verbindung.</i></td></tr>
+  <tr><td><code>EEBusCsTyp wp</code><br><code>EEBusCsTyp wallbox</code><br><code>EEBusCsTyp steuerbox</code></td><td>stellt sich als Wärmepumpen-Gateway vor (Vorgabe; im Netz „Gateway“, Kategorie 4)<br>stellt sich als Ladestation vor (im Netz „ChargingStation“, Kategorie 3)<br>alte Kennung (bis Treiber v006)<br><i>Umstellen kündigt neu an und trennt eine eingehende Verbindung.</i></td></tr>
   <tr><td><code>EEBusCsFs &lt;W&gt; [s]</code></td><td>eigene Failsafe-Vorgabe,<br>gilt bis der Energy Guard eigene Werte schreibt</td></tr>
   <tr><td><code>EEBusCsSim &lt;W&gt; [s]</code><br><code>EEBusCsSim 0</code></td><td>Grenze lokal simulieren (nur zum Testen)<br>Simulation aufheben</td></tr>
   <tr><td><code>EEBusCsMsg</code></td><td>Meldungen vom/an den Energy Guard<br>(letzte 60, ohne Herzschläge)</td></tr>
@@ -208,7 +214,9 @@
 <h3>Ein Verbraucher wird trotz Grenze nicht abgeschaltet</h3>
 <p>Abgeschaltet wird nur, was „abschaltbar“ ist und gerade zieht, und nur, solange die Summe über der Grenze liegt. Reine Messgeräte (PM Mini, EM, 3EM, Tasmota ohne Relais) werden nie geschaltet.</p>
 <h3>Ein Energy Guard wird trotz „Vertrauen“ abgewiesen</h3>
-<p>Vertraut wird nur einer Verbindung, die die SteuVE über die Adresse des Energy Guards aus der Gerätesuche zuordnen kann. Ruft ein Energy Guard über eine andere Adresse an, als die Suche gefunden hat (z. B. ein Gerät mit mehreren IPv6-Adressen), werden seine Grenzen vorerst abgewiesen (Zähler „Abgewiesen“). Abhilfe: im Energy Guard bzw. Netz dafür sorgen, dass er über dieselbe Adresse anruft, oder per IPv4 verbinden.</p>
+<p>Vertraut wird nur der SKI, die beim „Vertrauen“ gewählt wurde – geprüft am Zertifikat der Gegenstelle. Schreibt ein anderes Gerät (z. B. die Steuerbox, während die SteuVE dem HEMS vertraut), wird es abgewiesen (Zähler „Abgewiesen“). Das ist gewollt: Eine SteuVE gehorcht nur einem Energy Guard. Hat der Energy Guard eine neue Identität erzeugt, muss ihm neu vertraut werden.</p>
+<h3>Nach einem Neustart steht kurz „Anlauf – begrenzt auf … W“</h3>
+<p>So verlangt es der Use Case LPC: Nach einem Neustart beginnt die SteuVE mit dem Failsafe-Wert, bis der Energy Guard eine Vorgabe schickt. Das geschieht meist nach wenigen Sekunden; kommt 120 s lang nichts, wechselt sie auf „autonom“ und ist frei.</p>
 <h3>Das HEMS legt die SteuVE als neues Gerät an</h3>
 <p>Das passiert nur mit einer neuen Identität (neue SKI). Zieht die SteuVE auf ein anderes Board um, Zertifikat und Schlüssel aus dem Flash mitnehmen – dann erkennt das HEMS das vorhandene Gerät wieder, auch mit anderer Adresse.</p>
 
