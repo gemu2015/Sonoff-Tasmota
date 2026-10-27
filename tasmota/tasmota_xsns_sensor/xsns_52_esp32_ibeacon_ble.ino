@@ -52,7 +52,7 @@
 
 // for testing of BLE_ESP32, we remove xsns_52_ibeacon.ino completely, and instead add this modified xsns_52_ibeacon_BLE_ESP32.ino
 // in the future this may be more fine-grained, e.g. to allow hm17 for this, and BLE-ESP32 for other
-#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 ||CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S31 || CONFIG_IDF_TARGET_ESP32P4
 #ifdef USE_BLE_ESP32
 
 #define XSNS_52                       52
@@ -261,8 +261,7 @@ int advertismentCallback(BLE_ESP32::ble_advertisment_t *pStruct)
 
       // if we added it
       if (ibeacon_add(&ib) == 1){
-        AddLog(LOG_LEVEL_DEBUG, PSTR("%s: MAC: %s Major: %d Minor: %d UUID: %s Power: %d RSSI: %d"),
-          "iBeacon",
+        AddLog(LOG_LEVEL_DEBUG, PSTR("IBC: iBeacon MAC: %s Major: %d Minor: %d UUID: %s Power: %d RSSI: %d"),
           advertisedDevice->getAddress().toString().c_str(),
           Major, Minor,
           oBeacon.getProximityUUID().toString().c_str(),
@@ -297,7 +296,7 @@ int advertismentCallback(BLE_ESP32::ble_advertisment_t *pStruct)
 
 
 void IBEACON_Init() {
-  AddLog(LOG_LEVEL_INFO, PSTR("iBeacon register for advert callbacks"));
+  AddLog(LOG_LEVEL_INFO, PSTR("IBC: iBeacon register for advert callbacks"));
   BLE_ESP32::registerForAdvertismentCallbacks((const char *)"iBeacon", advertismentCallback);
   IB_UPDATE_TIME=IB_UPDATE_TIME_INTERVAL;
   IB_TIMEOUT_TIME=IB_TIMEOUT_INTERVAL;
@@ -317,7 +316,7 @@ void esp32_every_second(void) {
 
       // if device not present at all or past local timeout.
       if (!ageS || (ageS > IB_TIMEOUT_TIME)){
-        //AddLog(LOG_LEVEL_INFO, PSTR("iBeacon no device %s %02x%02x%02x%02x%02x%02x"),tmp, mac[0],mac[1], mac[2],mac[3], mac[4],mac[5]);
+        //AddLog(LOG_LEVEL_INFO, PSTR("IBC: iBeacon no device %s %02x%02x%02x%02x%02x%02x"),tmp, mac[0],mac[1], mac[2],mac[3], mac[4],mac[5]);
         ibeacons[cnt].FLAGS=0;
         uint64_t now = esp_timer_get_time();
         uint32_t nowms = now/1000;
@@ -326,7 +325,7 @@ void esp32_every_second(void) {
         ibeacons[cnt].count = 0;
         ibeacons[cnt].lastmqtt = nowms;
       } else {
-        //AddLog(LOG_LEVEL_INFO, PSTR("iBeacon device %s %02x%02x%02x%02x%02x%02x"),tmp, mac[0],mac[1], mac[2],mac[3], mac[4],mac[5]);
+        //AddLog(LOG_LEVEL_INFO, PSTR("IBC: iBeacon device %s %02x%02x%02x%02x%02x%02x"),tmp, mac[0],mac[1], mac[2],mac[3], mac[4],mac[5]);
       }
       //ibeacons[cnt].TIME++;
       ibeacons[cnt].REPTIME++; // counter used to send mqtt for a dev regularly

@@ -320,7 +320,11 @@ void BerryObservability(bvm *vm, int event, ...) {
         );
 #endif
         // make new threshold tighter when we reach high memory usage
-        if (!UsePSRAM() && vm->gc.threshold > 20*1024) {
+        if (UsePSRAM()) {
+          if (vm->gc.threshold > 200*1024) {
+            vm->gc.threshold = vm->gc.usage + 100*1024;    // increase by 100 KB
+          }
+        } else if (vm->gc.threshold > 20*1024) {
           vm->gc.threshold = vm->gc.usage + 10*1024;    // increase by only 10 KB
         }
       }
@@ -833,6 +837,7 @@ bool Xdrv52(uint32_t function)
         BrLoad("autoexec.be");   // run autoexec.be at first tick, so we know all modules are initialized
         callBerryString(berry.vm, be_post_autoxec_code);
         berry.autoexec_done = true;
+        HEAP_MAP(PSTR("autoexec"))
 
 #ifdef USE_WEBSERVER
         // check if `web_add_handler` was missed, for example because of Berry VM restart

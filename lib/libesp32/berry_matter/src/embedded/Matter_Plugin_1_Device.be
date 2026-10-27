@@ -132,6 +132,8 @@ class Matter_Plugin_Device : Matter_Plugin
   static var SYNC_TIMEOUT = 500                     # timeout of 700 ms for probing
 
   var http_remote                                   # instance of Matter_HTTP_remote
+  var mqtt_remote                                   # instance of Matter_MQTT_remote
+  var clusters                                      # per-instance cluster map for the selected composition mode
 
   # clusters for general devices
   static var CLUSTERS  = matter.consolidate_clusters(_class, {
@@ -142,17 +144,28 @@ class Matter_Plugin_Device : Matter_Plugin
     0x0005: [0,1,2,3,4,5],                          # Scenes 1.4 p.30 - no writable
   })
   static var TYPES = { 0x0013: 1 }                  # fake type
-  static var NON_BRIDGE_VENDOR = [ 0x1217, 0x1381 ] # Fabric VendorID not supporting Bridge mode
   # Inherited
   # var device                                        # reference to the `device` global object
   # var endpoint                                      # current endpoint
-  # var clusters                                      # map from cluster to list of attributes, typically constructed from CLUSTERS hierachy
   # var tick                                          # tick value when it was last updated
   # var node_label                                    # name of the endpoint, used only in bridge mode, "" if none
 
   #############################################################
   # Constructor
   def init(device, endpoint, arguments)
+    # CLUSTERS is a shared solidified map. Build a private filtered map for
+    # native composition rather than mutating class metadata.
+    self.clusters = self.CLUSTERS
+    if device.disable_bridge_mode
+      var non_bridge_clusters = {}
+      for cluster: self.CLUSTERS.keys()
+        if cluster != 0x0039
+          non_bridge_clusters[cluster] = self.CLUSTERS[cluster]
+        end
+      end
+      self.clusters = non_bridge_clusters
+    end
+
     # Zigbee code, activated only when `ZIGBEE` is true
     # attribute `zigbee_mapper` needs to be defined for classes with `ZIGBEE` true
     if self.ZIGBEE
@@ -162,10 +175,23 @@ class Matter_Plugin_Device : Matter_Plugin
     super(self).init(device, endpoint, arguments)
 
     if self.BRIDGE
-      var addr = arguments.find(self.ARG_HTTP)
-      self.http_remote = self.device.register_http_remote(addr, self.PROBE_TIMEOUT)
+      var topic = arguments.find("topic")
+      if topic
+        # MQTT bridge mode
+        self.mqtt_remote = self.device.register_mqtt_remote(topic)
+      else
+        # HTTP bridge mode (default)
+        var addr = arguments.find(self.ARG_HTTP)
+        self.http_remote = self.device.register_http_remote(addr, self.PROBE_TIMEOUT)
+      end
       self.register_cmd_cb()
     end
+  end
+
+  #############################################################
+  # Return the mode-specific cluster map used by Descriptor and IM routing.
+  def get_clusters()
+    return self.clusters
   end
 
   #############################################################
@@ -208,15 +234,17 @@ class Matter_Plugin_Device : Matter_Plugin
     # ====================================================================================================
     if   cluster == 0x0003              # ========== Identify 1.2 p.16 ==========
       if   attribute == 0x0000          #  ---------- IdentifyTime / u2 ----------
-        return tlv_solo.set(0x05 #-TLV.U2-#, 0)      # no identification in progress
+        return tlv_solo.set(0x06 #-TLV.U4-#, 0)      # no identification in progress
       elif attribute == 0x0001          #  ---------- IdentifyType / enum8 ----------
-        return tlv_solo.set(0x04 #-TLV.U1-#, 0)      # IdentifyType = 0x00 None
+        return tlv_solo.set(0x06 #-TLV.U4-#, 0)      # IdentifyType = 0x00 None
       end
 
     # ====================================================================================================
     elif cluster == 0x0004              # ========== Groups 1.3 p.21 ==========
-      if   attribute == 0x0000          #  ----------  ----------
-        return nil                      # TODO
+      if   attribute == 0x0000          #  ---------- NameSupport ----------
+        return tlv_solo.set(0x06 #-TLV.U4-#, self.device.GROUP_TRANSPORT_READY ? 0x80 : 0)
+      elif attribute == 0xFFFC          # ---------- FeatureMap ----------
+        return tlv_solo.set(0x06 #-TLV.U4-#, self.device.GROUP_TRANSPORT_READY ? 1 : 0)
       end
 
     # ====================================================================================================
@@ -226,20 +254,21 @@ class Matter_Plugin_Device : Matter_Plugin
     elif cluster == 0x001D              # ========== Descriptor Cluster 9.5 p.453 ==========
 
       if   attribute == 0x0000          # ---------- DeviceTypeList / list[DeviceTypeStruct] ----------
-        # for device sub-classes, automatically add the Bridge Node type `0x0013: 1`
-        # unless the fabric doesn't support bridge mode (currently Alexa)
+        # Device subclasses report their primary type first. Bridge mode then
+        # adds the Bridged Node utility type to every application endpoint.
         var dtl = TLV.Matter_TLV_array()
         var types = self.TYPES
         for dt: types.keys()
           var d1 = dtl.add_struct()
-          d1.add_TLV(0, 0x05 #-TLV.U2-#, dt)     # DeviceType
-          d1.add_TLV(1, 0x05 #-TLV.U2-#, types[dt])      # Revision
+          d1.add_TLV(0, 0x06 #-TLV.U4-#, dt)     # DeviceType
+          d1.add_TLV(1, 0x06 #-TLV.U4-#, types[dt])      # Revision
         end
-        # if fabric is not Alexa
-        if (self.NON_BRIDGE_VENDOR.find(session.get_admin_vendor()) == nil) && (!self.device.disable_bridge_mode)
+        # Bridged Node is part of the global bridge composition. Descriptor
+        # identity must not vary with the fabric reading this fixed attribute.
+        if !self.device.disable_bridge_mode
           var d1 = dtl.add_struct()
-          d1.add_TLV(0, 0x05 #-TLV.U2-#, 0x0013)     # DeviceType
-          d1.add_TLV(1, 0x05 #-TLV.U2-#, 1)      # Revision
+          d1.add_TLV(0, 0x06 #-TLV.U4-#, 0x0013)     # DeviceType
+          d1.add_TLV(1, 0x06 #-TLV.U4-#, 1)          # Revision
         end
         return dtl
       end
@@ -250,7 +279,8 @@ class Matter_Plugin_Device : Matter_Plugin
 
       if   attribute == 0x0003          #  ---------- ProductName / string (not nullable) ----------
         if self.BRIDGE
-          var name = self.http_remote.get_info().find("name", "")
+          var remote = self.mqtt_remote ? self.mqtt_remote : self.http_remote
+          var name = remote ? remote.get_info().find("name", "") : ""
           return tlv_solo.set(0x0C #-TLV.UTF1-#, name)
         else
           return tlv_solo.set(0x0C #-TLV.UTF1-#, tasmota.cmd("DeviceName", true)['DeviceName'])
@@ -259,7 +289,8 @@ class Matter_Plugin_Device : Matter_Plugin
         return tlv_solo.set(0x0C #-TLV.UTF1-#, self.get_name())
       elif attribute == 0x000A          #  ---------- SoftwareVersionString / string (not nullable) ----------
         if self.BRIDGE
-          var version_full = self.http_remote.get_info().find("version")
+          var remote = self.mqtt_remote ? self.mqtt_remote : self.http_remote
+          var version_full = remote ? remote.get_info().find("version") : nil
           if version_full
             var version_end = string.find(version_full, '(')
             if version_end > 0    version_full = version_full[0..version_end - 1]   end
@@ -275,17 +306,24 @@ class Matter_Plugin_Device : Matter_Plugin
         end
       elif attribute == 0x000F || attribute == 0x0012          #  ---------- SerialNumber / UniqueID / string (not nullable) ----------
         if self.BRIDGE
-          var mac = self.http_remote.get_info().find("mac", "")
+          var remote = self.mqtt_remote ? self.mqtt_remote : self.http_remote
+          var mac = remote ? remote.get_info().find("mac", "") : ""
           return tlv_solo.set(0x0C #-TLV.UTF1-#, mac)
         else
           return tlv_solo.set(0x0C #-TLV.UTF1-#, tasmota.wifi().find("mac", ""))
         end
       elif attribute == 0x0011          #  ---------- Reachable / bool ----------
         if self.BRIDGE
-          return tlv_solo.set(0x08 #-TLV.BOOL-#, self.http_remote.reachable)     # TODO find a way to do a ping
+          var remote = self.mqtt_remote ? self.mqtt_remote : self.http_remote
+          var reachable = remote ? remote.reachable : false
+          return tlv_solo.set(0x08 #-TLV.BOOL-#, reachable)
         else
           return tlv_solo.set(0x08 #-TLV.BOOL-#, 1)     # by default we are reachable
         end
+      elif attribute == 0xFFFA && self.BRIDGE && self.http_remote != nil  # EventList
+        var events = matter.TLV.Matter_TLV_array()
+        events.add_TLV(nil, 0x06 #-TLV.U4-#, 0x03)     # ReachableChanged
+        return events
       end
 
     end
@@ -313,7 +351,7 @@ class Matter_Plugin_Device : Matter_Plugin
         # ID=1
         #  0=Certificate (octstr)
         var iqr = TLV.Matter_TLV_struct()
-        iqr.add_TLV(0, 0x05 #-TLV.U2-#, 0)       # Timeout
+        iqr.add_TLV(0, 0x06 #-TLV.U4-#, 0)       # Timeout
         ctx.command = 0x00              # IdentifyQueryResponse
         return iqr
       elif command == 0x0040            # ---------- TriggerEffect ----------
@@ -322,8 +360,123 @@ class Matter_Plugin_Device : Matter_Plugin
       end
     # ====================================================================================================
     elif cluster == 0x0004              # ========== Groups 1.3 p.21 ==========
-      # TODO
-      return true
+      # Persist membership management only when encrypted multicast reception
+      # is available. Until then commands fail closed instead of advertising a
+      # group configuration whose messages would be silently discarded.
+      var fabric = session.get_fabric()
+      if fabric == nil
+        ctx.status = 0x7E #-matter.UNSUPPORTED_ACCESS-#
+        return nil
+      end
+
+      if command == 0x0000              # ---------- AddGroup ----------
+        var group_id = val.findsubval(0)
+        var group_name = val.findsubval(1, "")
+        var status = 0
+        if group_id == nil
+          ctx.status = 0x85 #-matter.INVALID_COMMAND-#
+          return nil
+        elif !self.device.GROUP_TRANSPORT_READY
+          status = 0x01 #-matter.FAILURE-#
+        elif type(group_name) != 'string' || size(group_name) > 16
+          status = 0x87 #-matter.CONSTRAINT_ERROR-#
+        elif group_id == nil || group_id < 1 || group_id > 0xFEFF
+          status = 0x87 #-matter.CONSTRAINT_ERROR-#
+        elif fabric.find_group(group_id) == nil && size(fabric.get_group_table()) >= 4
+          status = 0x89 #-matter.RESOURCE_EXHAUSTED-#
+        else
+          fabric.add_group_endpoint(group_id, self.endpoint, group_name)
+        end
+        var response = TLV.Matter_TLV_struct()
+        response.add_TLV(0, 0x06 #-TLV.U4-#, status)
+        response.add_TLV(1, 0x06 #-TLV.U4-#, group_id)
+        ctx.command = 0x0000             # AddGroupResponse
+        return response
+
+      elif command == 0x0001            # ---------- ViewGroup ----------
+        var group_id = val.findsubval(0)
+        if group_id == nil
+          ctx.status = 0x85 #-matter.INVALID_COMMAND-#
+          return nil
+        end
+        var group = fabric.find_group(group_id)
+        var member = self.device.GROUP_TRANSPORT_READY &&
+                     group != nil && group.find("endpoints", []).find(self.endpoint) != nil
+        var response = TLV.Matter_TLV_struct()
+        response.add_TLV(0, 0x06 #-TLV.U4-#,
+                         group_id == 0 ? 0x87 #-matter.CONSTRAINT_ERROR-# :
+                         member ? 0 : 0x8B #-matter.NOT_FOUND-#)
+        response.add_TLV(1, 0x06 #-TLV.U4-#, group_id)
+        response.add_TLV(2, 0x0C #-TLV.UTF1-#, member ? group.find("name", "") : "")
+        ctx.command = 0x0001             # ViewGroupResponse
+        return response
+
+      elif command == 0x0002            # ---------- GetGroupMembership ----------
+        var requested = val.findsub(0)
+        var response = TLV.Matter_TLV_struct()
+        response.add_TLV(0, 0x06 #-TLV.U4-#,
+                         self.device.GROUP_TRANSPORT_READY ? 4 - size(fabric.get_group_table()) : 0)
+        var groups = response.add_array(1)
+        if self.device.GROUP_TRANSPORT_READY
+          for group : fabric.get_group_table()
+            if group.find("endpoints", []).find(self.endpoint) == nil
+              continue
+            end
+            var include = requested == nil || size(requested.val) == 0
+            if !include
+              for requested_id : requested.val
+                if requested_id.val == group.find("group_id")
+                  include = true
+                  break
+                end
+              end
+            end
+            if include
+              groups.add_TLV(nil, 0x06 #-TLV.U4-#, group.find("group_id"))
+            end
+          end
+        end
+        ctx.command = 0x0002             # GetGroupMembershipResponse
+        return response
+
+      elif command == 0x0003            # ---------- RemoveGroup ----------
+        var group_id = val.findsubval(0)
+        if group_id == nil
+          ctx.status = 0x85 #-matter.INVALID_COMMAND-#
+          return nil
+        end
+        var removed = group_id != 0 && fabric.remove_group_endpoint(group_id, self.endpoint)
+        var response = TLV.Matter_TLV_struct()
+        response.add_TLV(0, 0x06 #-TLV.U4-#,
+                         group_id == 0 ? 0x87 #-matter.CONSTRAINT_ERROR-# :
+                         removed ? 0 : 0x8B #-matter.NOT_FOUND-#)
+        response.add_TLV(1, 0x06 #-TLV.U4-#, group_id)
+        ctx.command = 0x0003             # RemoveGroupResponse
+        return response
+
+      elif command == 0x0004            # ---------- RemoveAllGroups ----------
+        fabric.remove_all_groups_for_endpoint(self.endpoint)
+        return true
+
+      elif command == 0x0005            # ---------- AddGroupIfIdentifying ----------
+        var group_id = val.findsubval(0)
+        if group_id == nil
+          ctx.status = 0x85 #-matter.INVALID_COMMAND-#
+          return nil
+        elif group_id == 0
+          ctx.status = 0x87 #-matter.CONSTRAINT_ERROR-#
+          return nil
+        end
+        var group_name = val.findsubval(1, "")
+        if type(group_name) != 'string' || size(group_name) > 16
+          ctx.status = 0x87 #-matter.CONSTRAINT_ERROR-#
+          return nil
+        end
+        # IdentifyTime is always zero in the base device implementation, so
+        # the mandatory command succeeds without changing group membership.
+        # This remains valid while multicast group transport is disabled.
+        return true
+      end
 
     # ====================================================================================================
     elif cluster == 0x0005              # ========== Scenes 1.4 p.30 ==========
@@ -377,6 +530,7 @@ class Matter_Plugin_Device : Matter_Plugin
     # shutters
     _stats_json_inner("shadow_shutter_pos",    "ShutterPos")
     _stats_json_inner("shadow_shutter_target", "ShutterTarget")
+    _stats_json_inner("shadow_shutter_direction", "ShutterDirection")
     _stats_json_inner("shadow_shutter_tilt",   "ShutterTilt")
 
     # sensors
@@ -398,12 +552,30 @@ class Matter_Plugin_Device : Matter_Plugin
   #############################################################
   # For Bridge devices
   #############################################################
+  # Return false and set a Matter failure when an MQTT command cannot be sent.
+  def mqtt_command_ready(ctx)
+    if self.mqtt_remote && !self.mqtt_remote.can_send()
+      ctx.status = 0x01 #-matter.FAILURE-#
+      return false
+    end
+    return true
+  end
+
   #############################################################
   # register_cmd_cb
   #
   # Register recurrent command and callback
   # Defined as a separate method to allow override
   def register_cmd_cb()
+    # MQTT bridge mode - register callbacks for state updates via subscriptions
+    if self.mqtt_remote
+      # Register parse_status as callback for all status codes
+      # Status 0=Status, 2=StatusFWR, 5=StatusNET, 10=StatusSNS, 11=StatusSTS
+      self.mqtt_remote.add_async_cb(/ status,payload,cmd -> self.parse_status(payload, status), nil)
+      return
+    end
+
+    # HTTP bridge mode
     self.http_remote.add_schedule(self.UPDATE_CMD, self.UPDATE_TIME,
                                   / status,payload,cmd -> self.parse_http_response(status,payload,cmd))
   end
@@ -415,6 +587,13 @@ class Matter_Plugin_Device : Matter_Plugin
   # and call `parse_status(<data>, <index>)` when data is available.
   def update_shadow()
     if self.BRIDGE && self.tick != self.device.tick     # don't force an update if we just received it
+      # MQTT bridge mode - no polling, state updates come via subscriptions
+      if self.mqtt_remote
+        self.tick = self.device.tick
+        return
+      end
+
+      # HTTP bridge mode
       var ret = self.call_remote_sync(self.UPDATE_CMD)
       if ret
         self.parse_http_response(1, ret, self.UPDATE_CMD)
@@ -442,6 +621,14 @@ class Matter_Plugin_Device : Matter_Plugin
 
       var retry = 2         # try 2 times if first failed
       if arg != nil     cmd = cmd + ' ' + str(arg)      end
+
+      # MQTT bridge mode - return cached state
+      if self.mqtt_remote
+        var ret = self.mqtt_remote.call_sync(cmd, self.SYNC_TIMEOUT)
+        return ret
+      end
+
+      # HTTP bridge mode
       while retry > 0
         var ret = self.http_remote.call_sync(cmd, self.SYNC_TIMEOUT)
         if ret != nil
@@ -466,7 +653,7 @@ class Matter_Plugin_Device : Matter_Plugin
   #     `Status 11`: {"StatusSTS":{ [...] }}
   #     `Status 13`: {"StatusSHT":{ [...] }}
   def parse_http_response(status, payload, cmd)
-    if self.BRIDGE
+    if self.BRIDGE && self.http_remote
       self.tick = self.device.tick        # avoid new force update in same tick
       self.http_remote.parse_status_response_and_call_method(status, payload, cmd, self, self.parse_status)
     end
@@ -478,9 +665,15 @@ class Matter_Plugin_Device : Matter_Plugin
   # check if the timer expired and update_shadow() needs to be called
   def every_250ms()
     if self.BRIDGE
+      # MQTT bridge mode - no polling needed
+      if self.mqtt_remote
+        return
+      end
+
+      # HTTP bridge mode
       self.http_remote.scheduler()          # defer to HTTP scheduler
       # avoid calling update_shadow() since it's not applicable for HTTP remote
-  else
+    else
       super(self).every_250ms()
     end
   end

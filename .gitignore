@@ -64,3 +64,6 @@ tinyc_docs/reference.de.md
 tinyc_docs/custom-builds.md
 tinyc_docs/releases.md
 tinyc_docs/examples/
+## Qemu test folder
+tasmota-qemu
+

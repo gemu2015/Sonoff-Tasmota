@@ -109,16 +109,38 @@ void uDisplay::dim10(uint8_t dim, uint16_t dim_gamma) {
         dim_cbp(dim);
     }
 #endif
-    
-    if (interface == _UDSP_SPI) {
-        if (dim_op != 0xff) {
+
+    if (dim_op != 0xff) {  // :D,81
+        if (interface == _UDSP_I2C) {
+            i2c_panel* i2c_pnl = static_cast<i2c_panel*>(universal_panel);
+            i2c_pnl->i2c_command(dim_op);
+            i2c_pnl->i2c_command(dimmer8);
+        }
+        else if (interface == _UDSP_SPI) {
             spiController->beginTransaction();
             spiController->csLow();
+/*
+            M5Stack SSD1306 additional commands
+            spiController->writeCommand(0xD9);
+            spiController->writeCommand(((dimmer8+15)/17)*0x11);
+            spiController->writeCommand(0xDB);
+            spiController->writeCommand(dimmer8>>1);
+*/
             spiController->writeCommand(dim_op);
-            spiController->writeData8(dimmer8);
+            if (!allcmd_mode) {
+                spiController->writeData8(dimmer8);
+            } else {
+                spiController->writeCommand(dimmer8);
+            }
             spiController->csHigh();
             spiController->endTransaction();
         }
+#ifdef UDISPLAY_QSPI
+        else if (interface == _UDSP_QSPI && universal_panel) {
+            QSPIPanel* qspi_pnl = static_cast<QSPIPanel*>(universal_panel);
+            qspi_pnl->writeCommand(dim_op, &dimmer8, 1);
+        }
+#endif // UDISPLAY_QSPI
     }
 }
 

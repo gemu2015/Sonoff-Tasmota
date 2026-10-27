@@ -88,20 +88,26 @@ void CmndCan(void) {
 }
 
 void CmndCanSend(void) {
+  // CanSend {"ID":12345,"LEN":8,"DATA":[11,22,33,44,55,66,77,88]}
+  if (XdrvMailbox.data_len > 64) { return; }     // Any data too long
+
   JsonParser parser(XdrvMailbox.data);
   JsonParserObject root = parser.getRootObject();
 
-  uint16_t id = root.getUInt(PSTR("ID"), 0);   // case insensitive
-  uint16_t len = root.getUInt(PSTR("LEN"), 0);   // case insensitive
+  uint16_t len = root.getUInt(PSTR("LEN"), 0);  // case insensitive
+  if (len > CAN_MAX_DLEN) { return; }           // Too long
+
+  uint16_t id = root.getUInt(PSTR("ID"), 0);    // case insensitive
+
   JsonParserArray data = root[PSTR("DATA")];
 
   struct can_frame canMsg;
 
-  AddLog(LOG_LEVEL_INFO, PSTR("CAN: CanSend (%d)->%d"), id,len);
-  canMsg.can_id =id;
-  canMsg.can_dlc=len;
-  for (uint8_t i=0;i<len;i++) {
-    canMsg.data[i]=data[i].getUInt();
+  AddLog(LOG_LEVEL_INFO, PSTR("CAN: CanSend (%d)->%d"), id, len);
+  canMsg.can_id = id;
+  canMsg.can_dlc= len;
+  for (uint32_t i = 0; i < len; i++) {
+    canMsg.data[i] = data[i].getUInt();
     AddLog(LOG_LEVEL_INFO, PSTR("CAN: CanSend data[%d]=%d"),i,data[i].getUInt());
   }
   mcp2515->sendMessage(&canMsg);
@@ -119,7 +125,7 @@ void MCP2515_FrameSizeError(uint8_t len, uint32_t id) {
 
 void MCP2515_Init(void) {
   if (PinUsed(GPIO_MCP2515_CS, GPIO_ANY) && TasmotaGlobal.spi_enabled) {
-    mcp2515 = new MCP2515(5);
+    mcp2515 = new MCP2515(Pin(GPIO_MCP2515_CS, GPIO_ANY));
     if (MCP2515::ERROR_OK != mcp2515->reset()) {
       AddLog(LOG_LEVEL_INFO, PSTR("CAN: Failed to reset module"));
       return;
@@ -132,7 +138,8 @@ void MCP2515_Init(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("CAN: Failed to set normal mode"));
       return;
     }
-    AddLog(LOG_LEVEL_INFO, PSTR("CAN: Sniffer Initialized"));
+    AddLog(LOG_LEVEL_INFO, PSTR("CAN: Sniffer Initialized on GPIO%d"), Pin(GPIO_MCP2515_CS, GPIO_ANY));
+    Mcp2515.init_status = 1;
   }
 }
 
@@ -205,15 +212,7 @@ bool Xsns87(uint32_t function) {
       case FUNC_COMMAND:
         result = DecodeCommand(kCanCommands, CanCommand);
         break;
-      case FUNC_JSON_APPEND:
-//        MCP2515_Show(1);
-        break;
-        #ifdef USE_WEBSERVER
-      case FUNC_WEB_SENSOR:
-//        MCP2515_Show(0);
-        break;
-      #endif  // USE_WEBSERVER
-          }
+    }
   }
   return result;
 }

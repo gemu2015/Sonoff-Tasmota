@@ -536,6 +536,7 @@ enum NeoPoolConstAndBitMask {
   MBV_PAR_CTIMER_ENABLED_LINKED           = 2,      // Timer enabled and linked to relay from timer 0
   MBV_PAR_CTIMER_ALWAYS_ON                = 3,      // Relay assigned to this timer always on
   MBV_PAR_CTIMER_ALWAYS_OFF               = 4,      // Relay assigned to this timer always off
+  MBV_PAR_CTIMER_COUNTDOWN_KEY            = 5,      // Relay assigned to this timer countdown mode
   MBV_PAR_CTIMER_COUNTDOWN_KEY_PLUS       = 0x0105, // Timer in countdown mode using + key
   MBV_PAR_CTIMER_COUNTDOWN_KEY_MINUS      = 0x0205, // Timer in countdown mode using - key
   MBV_PAR_CTIMER_COUNTDOWN_KEY_ARROWDOWN  = 0x0405, // Timer in countdown mode using arrow-down key
@@ -781,6 +782,20 @@ enum NeoPoolModbusCode {
   } NeoPoolStats;
 #endif
 
+// Aux modes
+enum NeoPoolAuxMode {
+  NEOPOOL_AUX_MODE_UNKNOWN = -1,
+  NEOPOOL_AUX_MODE_MANUAL,
+  NEOPOOL_AUX_MODE_TIMER,
+  NEOPOOL_AUX_MODE_COUNTDOWN
+};
+const uint16_t sNeoPoolAuxMode[] PROGMEM = {
+  MBF_PAR_TIMER_BLOCK_AUX1_INT1,
+  MBF_PAR_TIMER_BLOCK_AUX2_INT1,
+  MBF_PAR_TIMER_BLOCK_AUX3_INT1,
+  MBF_PAR_TIMER_BLOCK_AUX4_INT1
+};
+
 // NPResult possible values
 enum NeoPoolResult {
   NEOPOOL_RESULT_DEC = false,
@@ -846,9 +861,9 @@ TNeoPoolSettings NeoPoolSettings;
 #define D_NEOPOOL_JSON_CELL_RUNTIME           "Runtime"
 #define D_NEOPOOL_JSON_CELL_RUNTIME_TOTAL     "Total"
 #define D_NEOPOOL_JSON_CELL_RUNTIME_PART      "Part"
-#define D_NEOPOOL_JSON_CELL_RUNTIME_POL1      "Pol1"
-#define D_NEOPOOL_JSON_CELL_RUNTIME_POL2      "Pol2"
 #define D_NEOPOOL_JSON_CELL_RUNTIME_CHANGES   "Changes"
+#define D_NEOPOOL_JSON_CELL_POL1              "Pol1"
+#define D_NEOPOOL_JSON_CELL_POL2              "Pol2"
 #define D_NEOPOOL_JSON_IONIZATION             "Ionization"
 #define D_NEOPOOL_JSON_LIGHT                  "Light"
 #define D_NEOPOOL_JSON_LIGHT_MODE             "Mode"
@@ -863,6 +878,7 @@ TNeoPoolSettings NeoPoolSettings;
 #define D_NEOPOOL_JSON_RELAY_UV               "UV"
 #define D_NEOPOOL_JSON_RELAY_FILTVALVE        "Valve"
 #define D_NEOPOOL_JSON_AUX                    "Aux"
+#define D_NEOPOOL_JSON_AUXMODE                "AuxMode"
 #define D_NEOPOOL_JSON_STATE                  "State"
 #define D_NEOPOOL_JSON_TYPE                   "Type"
 #define D_NEOPOOL_JSON_UNIT                   "Unit"
@@ -875,7 +891,9 @@ TNeoPoolSettings NeoPoolSettings;
 #define D_NEOPOOL_JSON_MIN                    "Min"
 #define D_NEOPOOL_JSON_MAX                    "Max"
 #define D_NEOPOOL_JSON_PHPUMP                 "Pump"
+#define D_NEOPOOL_JSON_STATUS_FLOW            "Flow"
 #define D_NEOPOOL_JSON_FLOW1                  "FL1"
+#define D_NEOPOOL_JSON_FLOW2                  "FL2"
 #define D_NEOPOOL_JSON_TANK                   "Tank"
 #define D_NEOPOOL_JSON_BIT                    "Bit"
 #define D_NEOPOOL_JSON_NODE_ID                "NodeID"
@@ -2055,7 +2073,7 @@ void NeoPoolShow(bool json)
     // Temperature
     if (NeoPoolGetData(MBF_PAR_TEMPERATURE_ACTIVE)) {
       fvalue = ConvertTemp((float)NeoPoolGetData(MBF_MEASURE_TEMPERATURE)/10);
-      ResponseAppend_P(PSTR(",\""  D_TEMPERATURE  "\":%*_f"), Settings->flag2.temperature_resolution, &fvalue);
+      ResponseAppend_P(PSTR(",\""  D_JSON_TEMPERATURE  "\":%*_f"), Settings->flag2.temperature_resolution, &fvalue);
     }
 
     // Voltage
@@ -2110,7 +2128,7 @@ void NeoPoolShow(bool json)
     // pH
     if (NeoPoolIspHModule()) {
       fvalue = (float)NeoPoolGetData(MBF_MEASURE_PH)/100;
-      ResponseAppend_P(PSTR(",\""  D_PH  "\":{\""  D_JSON_DATA  "\":"  NEOPOOL_FMT_PH), NeoPoolSettings.flags.ph, &fvalue);
+      ResponseAppend_P(PSTR(",\""  D_JSON_PH  "\":{\""  D_JSON_DATA  "\":"  NEOPOOL_FMT_PH), NeoPoolSettings.flags.ph, &fvalue);
 
       // S1
       float fphmin = (float)NeoPoolGetData(MBF_PAR_PH2)/100;
@@ -2161,7 +2179,7 @@ void NeoPoolShow(bool json)
 
     // Conductivity
     if (NeoPoolIsConductivity()) {
-      ResponseAppend_P(PSTR(",\""  D_NEOPOOL_CONDUCTIVITY  "\":" NEOPOOL_FMT_CD), NeoPoolGetData(MBF_MEASURE_CONDUCTIVITY));
+      ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CONDUCTIVITY  "\":" NEOPOOL_FMT_CD), NeoPoolGetData(MBF_MEASURE_CONDUCTIVITY));
     }
 
     // Ionization
@@ -2199,21 +2217,21 @@ void NeoPoolShow(bool json)
       ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_RUNTIME  "\":{"));
       ResponseAppend_P(PSTR( "\""  D_NEOPOOL_JSON_CELL_RUNTIME_TOTAL  "\":\"%s\""), GetDuration(NeoPoolGetDataLong(MBF_CELL_RUNTIME_LOW)).c_str());
       ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_RUNTIME_PART  "\":\"%s\""), GetDuration(NeoPoolGetDataLong(MBF_CELL_RUNTIME_PART_LOW)).c_str());
-      ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_RUNTIME_POL1  "\":\"%s\""), GetDuration(NeoPoolGetDataLong(MBF_CELL_RUNTIME_POLA_LOW)).c_str());
-      ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_RUNTIME_POL2  "\":\"%s\""), GetDuration(NeoPoolGetDataLong(MBF_CELL_RUNTIME_POLB_LOW)).c_str());
+      ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_POL1  "\":\"%s\""), GetDuration(NeoPoolGetDataLong(MBF_CELL_RUNTIME_POLA_LOW)).c_str());
+      ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_POL2  "\":\"%s\""), GetDuration(NeoPoolGetDataLong(MBF_CELL_RUNTIME_POLB_LOW)).c_str());
       ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_CELL_RUNTIME_CHANGES  "\":%ld"), NeoPoolGetDataLong(MBF_CELL_RUNTIME_POL_CHANGES_LOW));
       ResponseJsonEnd();
 
       // S1
       const char *state = PSTR("");
       if (0 == (NeoPoolGetData(MBF_HIDRO_STATUS) & MBMSK_HIDRO_STATUS_MODULE_ACTIVE)) {
-        state = PSTR(D_NEOPOOL_STATUS_OFF);
+        state = PSTR(D_NEOPOOL_JSON_OFF);
       } else if (0 == (NeoPoolGetData(MBF_HIDRO_STATUS) & MBMSK_HIDRO_STATUS_FL1)) {
-        state = PSTR(D_NEOPOOL_STATUS_FLOW);
+        state = PSTR(D_NEOPOOL_JSON_STATUS_FLOW);
       } else if (NeoPoolGetData(MBF_HIDRO_STATUS) & MBMSK_HIDRO_STATUS_POL1) {
-        state = PSTR(D_NEOPOOL_POLARIZATION "1");
+        state = PSTR(D_NEOPOOL_JSON_CELL_POL1);
       } else if (NeoPoolGetData(MBF_HIDRO_STATUS) & MBMSK_HIDRO_STATUS_POL2) {
-        state = PSTR(D_NEOPOOL_POLARIZATION "2");
+        state = PSTR(D_NEOPOOL_JSON_CELL_POL2);
       } else {
         state = PSTR(D_NEOPOOL_STATUS_OFF);
       }
@@ -2257,6 +2275,29 @@ void NeoPoolShow(bool json)
     ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_AUX  "\":["));
     for(uint16_t i = 3; i < NEOPOOL_RELAY_MAX; i++) {
       ResponseAppend_P(PSTR("%s%d"), i > 3 ? PSTR(",") : PSTR(""), (NeoPoolGetData(MBF_RELAY_STATE) >> i) & 1);
+    }
+    ResponseAppend_P(PSTR("]"));
+    ResponseAppend_P(PSTR(",\""  D_NEOPOOL_JSON_AUXMODE  "\":["));
+    for(uint16_t i = 3; i < NEOPOOL_RELAY_MAX; i++) {
+      uint16_t aux_mode;
+      switch (NeoPoolGetData(sNeoPoolAuxMode[i-3] + MBV_TIMER_OFFMB_TIMER_ENABLE) & 0x00FF) {
+        case MBV_PAR_CTIMER_ALWAYS_OFF:
+        case MBV_PAR_CTIMER_ALWAYS_ON:
+          aux_mode = NEOPOOL_AUX_MODE_MANUAL;
+          break;
+        case MBV_PAR_CTIMER_DISABLE:
+        case MBV_PAR_CTIMER_ENABLED:
+        case MBV_PAR_CTIMER_ENABLED_LINKED:
+          aux_mode = NEOPOOL_AUX_MODE_TIMER;
+          break;
+        case MBV_PAR_CTIMER_COUNTDOWN_KEY:
+          aux_mode = NEOPOOL_AUX_MODE_COUNTDOWN;
+          break;
+        default:
+          aux_mode = NEOPOOL_AUX_MODE_UNKNOWN;
+          break;
+      }
+      ResponseAppend_P(PSTR("%s%d"), i > 3 ? PSTR(",") : PSTR(""), aux_mode);
     }
     ResponseAppend_P(PSTR("]"));
     if (0 != NeoPoolGetData(MBF_PAR_PH_ACID_RELAY_GPIO)) {

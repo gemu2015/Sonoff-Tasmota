@@ -51,6 +51,8 @@ class Matter_TLV
   # :----|:---
   # I1 I2 I4|Signed integer of at most (1/2/4) bytes (as 32 bits signed Berry type)
   # U1 U2 U4|Unsiged integer of at motst (1/2/4) bytes (as 32 bits signed Berry type, be careful when comparing. Use `matter.Counter.is_greater(a,b)`)
+  #  |Convention: encode all signed ints with I4 (0x02) and all unsigned ints with U4 (0x06);
+  #  |the encoder shrinks them to the smallest width. I1/I2/U1/U2 are never widened and truncate out-of-range values.
   # I8 U8|Signed/insigned 8 bytes. You can pass `bytes(8)`, `int64()` or `int`. Type is collapsed to a lower type if possible when encoding.
   # BOOL|boolean, takes `true` and `false`. Abstracts the internal `BTRUE` and `BFALSE` that you don't need to use
   # FLOAT|32 bites float
@@ -373,7 +375,7 @@ class Matter_TLV
       elif self.typ == 0x0D #-TLV.UTF2-#
         if size(self.val) > 65535 raise "value_error", "string too big" end
         b.add(size(self.val), 2)
-        b..bytes().frostring(str(self.val))
+        b..bytes().fromstring(str(self.val))
       elif self.typ == 0x10 #-TLV.B1-#
         if size(self.val) > 255 raise "value_error", "bytes too big" end
         b.add(size(self.val), 1)

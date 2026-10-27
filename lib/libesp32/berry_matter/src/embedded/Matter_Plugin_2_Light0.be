@@ -220,9 +220,9 @@ class Matter_Plugin_Light0 : Matter_Plugin_Device
       elif attribute == 0x4000          #  ---------- GlobalSceneControl / bool ----------
         return tlv_solo.set(0x08 #-TLV.BOOL-#, true)
       elif attribute == 0x4001          #  ---------- OnTime / u2 ----------
-        return tlv_solo.set(0x05 #-TLV.U2-#, 0)
+        return tlv_solo.set(0x06 #-TLV.U4-#, 0)
       elif attribute == 0x4002          #  ---------- OffWaitTime / u2 ----------
-        return tlv_solo.set(0x05 #-TLV.U2-#, 0)
+        return tlv_solo.set(0x06 #-TLV.U4-#, 0)
       elif attribute == 0x4003          #  ---------- StartUpOnOff / enum8 nullable ----------
         return tlv_solo.set(0x14 #-TLV.NULL-#, nil)
       end
@@ -243,6 +243,7 @@ class Matter_Plugin_Light0 : Matter_Plugin_Device
 
     # ====================================================================================================
     if   cluster == 0x0006              # ========== On/Off 1.5 p.48 ==========
+      if !self.mqtt_command_ready(ctx)   return nil   end
       self.update_shadow_lazy()
       if   command == 0x0000            # ---------- Off ----------
         self.set_onoff(false)
@@ -328,13 +329,13 @@ class Matter_Plugin_Light0 : Matter_Plugin_Device
   # This call is synnchronous and blocking.
   def parse_status(data, index)
     if index == 11                              # Status 11
-      var state = false
+      var power_key = "POWER" + str(self.tasmota_relay_index)
 
       if self.tasmota_relay_index == 1 && data.contains("POWER")        # special case, can be `POWER` or `POWER1`
-        state = (data.find("POWER") == "ON")
-      else
-        state = (data.find("POWER" + str(self.tasmota_relay_index)) == "ON")
+        power_key = "POWER"
       end
+      if !data.contains(power_key)   return   end
+      var state = (data.find(power_key) == "ON")
 
       if self.shadow_onoff != bool(state)
         self.attribute_updated(0x0006, 0x0000)

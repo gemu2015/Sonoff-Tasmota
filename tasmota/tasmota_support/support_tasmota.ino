@@ -1153,6 +1153,17 @@ void PerformEverySecond(void)
 #endif
   }
 
+#if defined(ESP32) && defined(USE_HEAP_MAP)
+  if (BOOT_LOOP_TIME == TasmotaGlobal.uptime) {
+    HEAP_MAP(PSTR("boot"))                       // end of boot
+    HeapMapGlobal.boot_done = true;              // with HEAP_MAP_EVENTS_BOOT_ONLY stop logging stages and driver calls
+  } else if (HEAP_MAP_PERIOD && (TasmotaGlobal.uptime > BOOT_LOOP_TIME) && (0 == (TasmotaGlobal.uptime % HEAP_MAP_PERIOD))) {
+    char stage[16];
+    snprintf_P(stage, sizeof(stage), PSTR("up %us"), (unsigned int)TasmotaGlobal.uptime);
+    HeapMap(stage, false);                       // periodic row
+  }
+#endif  // ESP32 and USE_HEAP_MAP
+
   if (TasmotaGlobal.power_on_delay) {
     if (1 == Settings->param[P_POWER_ON_DELAY2]) {       // SetOption47 1
       // Allow relay power on once network is available
@@ -1653,6 +1664,11 @@ void Every250mSeconds(void)
   case 3:
     {
       if (!TasmotaGlobal.global_state.network_down) {
+#if defined(ESP32) && defined(USE_HEAP_MAP)
+        if (!HeapMapGlobal.network_up) {               // network just connected, before network services start
+          HEAP_MAP(PSTR("network_connect"))
+        }
+#endif  // USE_HEAP_MAP
 #ifdef FIRMWARE_MINIMAL
 //#ifdef CONFIG_IDF_TARGET_ESP32C3
 #ifdef ESP32
@@ -1700,6 +1716,12 @@ void Every250mSeconds(void)
         // send FUNC_NETWORK_UP to all modules
 //        AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("WIF: Sending FUNC_NETWORK_UP"));
         XdrvXsnsCall(FUNC_NETWORK_UP);
+#if defined(ESP32) && defined(USE_HEAP_MAP)
+        if (!HeapMapGlobal.network_up) {               // FUNC_NETWORK_UP is sent every second, log only on transition to up
+          HeapMapGlobal.network_up = true;
+          HEAP_MAP(PSTR("network_started"))      // network services (webserver, mDNS, ...) started
+        }
+#endif  // USE_HEAP_MAP
 
         MqttCheck();
       } else {
@@ -1711,6 +1733,9 @@ void Every250mSeconds(void)
         // send FUNC_NETWORK_DOWN to all modules
 //        AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("WIF: Sending FUNC_NETWORK_DOWN"));
         XdrvXsnsCall(FUNC_NETWORK_DOWN);
+#if defined(ESP32) && defined(USE_HEAP_MAP)
+        HeapMapGlobal.network_up = false;
+#endif  // USE_HEAP_MAP
       }                                           // Every x.75 second
     }
     break;
@@ -2036,6 +2061,10 @@ void TasConsoleInput(void) {
 
 void GpioInit(void)
 {
+#ifdef SOC_GP_LDO_SUPPORTED
+  LdoInit();                                               // Power IO banks before any GPIO use
+#endif  // SOC_GP_LDO_SUPPORTED
+
   if (!ValidModule(Settings->module)) {
     uint32_t module = MODULE;
     if (!ValidModule(MODULE)) {
@@ -2198,13 +2227,29 @@ void GpioInit(void)
     }
   }
 
-  analogWriteRange(Settings->pwm_range);      // Default is 1023 (Arduino.h)
-  analogWriteFreq(Settings->pwm_frequency);   // Default is 1000 (core_esp8266_wiring_pwm.c)
-
 #ifdef ESP8266
   if ((2 == Pin(GPIO_TXD)) || (H801 == TasmotaGlobal.module_type)) { Serial.set_tx(2); }
   SetSerialSwap();
 #endif
+
+#if defined(ESP32) && defined(USE_USB_CDC_CONSOLE)
+  // The command console falls back to UART0 when no USB host is detected at boot
+  // (see tasmota.ino, "Fall back to serial port"). On SoCs whose default UART0 pins
+  // are ordinary GPIOs (ESP32-S3 43/44, C3/C6 20/21) a template may assign them to
+  // another function. UART0 keeps driving those pads, which silently corrupts that
+  // function, so release the console rather than the pins.
+  if (tasconsole_serial &&
+      (TasmotaGlobal.gpio_pin[(uint32_t)SOC_TX0] || TasmotaGlobal.gpio_pin[(uint32_t)SOC_RX0])) {
+    AddLog(LOG_LEVEL_INFO, PSTR("CMD: Serial console released, GPIO%d/GPIO%d used by template"),
+           (int)SOC_TX0, (int)SOC_RX0);
+    TasmotaGlobal.seriallog_level = 0;    // Stop logging to a console that is about to go away
+    Settings->seriallog_level = 0;
+    Serial.flush();
+    Serial.end();                         // Detaches the pads so the template function owns them
+    TasConsole = Serial;                  // Refresh the copy, it must not point at a released UART
+    tasconsole_serial = false;
+  }
+#endif  // ESP32 && USE_USB_CDC_CONSOLE
 
   uint32_t sspi_mosi = (PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_MOSI)) ? SPI_MOSI : SPI_NONE;
   uint32_t sspi_miso = (PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_MISO)) ? SPI_MISO : SPI_NONE;
@@ -2273,25 +2318,6 @@ void GpioInit(void)
       digitalWrite(i, 0);
     }
 
-/*
-  // Until 20210726
-
-    // Set any non-used GPIO to INPUT - Related to resetPins() in support_legacy_cores.ino
-    // Doing it here solves relay toggles at restart.
-#if CONFIG_IDF_TARGET_ESP32C3
-    else if (((i < 11) || (i > 17)) && (GPIO_NONE == mpin)) {  // Skip SPI flash interface
-      if (!((20 == i) || (21 == i))) {             // Skip serial
-        pinMode(i, INPUT);
-      }
-    }
-#else // CONFIG_IDF_TARGET_ESP32C3
-    else if (((i < 6) || (i > 11)) && (GPIO_NONE == mpin)) {  // Skip SPI flash interface
-      if (!((1 == i) || (3 == i))) {             // Skip serial
-        pinMode(i, INPUT);
-      }
-    }
-#endif // CONFIG_IDF_TARGET_ESP32C3
-*/
 #ifdef ESP8266
     // Set any non-used GPIO to INPUT - Related to resetPins() in support_legacy_cores.ino
     // Doing it here solves relay toggles at restart.
@@ -2313,8 +2339,12 @@ void GpioInit(void)
   }
 
   if (Settings->param[P_POWER_ON_DELAY]) {                 // SetOption46 - Allow Wemos D1 power to stabilize before starting I2C polling for devices powered locally
-    uint32_t init_delay = Settings->param[P_POWER_ON_DELAY] * 10;
-    AddLog(LOG_LEVEL_DEBUG, PSTR("INI: SO46 Wait %d msec"), init_delay);
+    uint32_t init_delay = Settings->param[P_POWER_ON_DELAY] * 10;     // 1 .. 200 = 10 .. 2000 msec delay
+    if (Settings->param[P_POWER_ON_DELAY] > 200) {                 
+      init_delay = (Settings->param[P_POWER_ON_DELAY] - 200) * 1000;  // 201 .. 255 = 1 .. 55 seconds delay for devices like DALI gear to become ready
+    }
+    float fdelay = (float)init_delay * 0.001f;
+    AddLog(LOG_LEVEL_DEBUG, PSTR("INI: SO46 Wait %3_f sec"), &fdelay);
     delay(init_delay);
   }
 
@@ -2378,7 +2408,9 @@ void GpioInit(void)
   }
 #endif  // ESP8266
 
+  analogWriteRange(Settings->pwm_range);      // Default is 1023 (Arduino.h)
   GpioInitPwm();
+  analogWriteFreq(Settings->pwm_frequency);   // Default is 1000 (core_esp8266_wiring_pwm.c) (Moved after init PWM #25155)
 
   for (uint32_t i = 0; i < MAX_LEDS; i++) {
     if (PinUsed(GPIO_LED1, i)) {

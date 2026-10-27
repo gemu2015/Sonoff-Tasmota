@@ -114,8 +114,27 @@
 // -- MQTT ----------------------------------------
 #define MQTT_USE               true              // [SetOption3] Select default MQTT use (false = Off, true = On)
 
+// -- PubSubClient defaults -----------------------
 #define MQTT_KEEPALIVE         30                // [MqttKeepAlive] Number of seconds between KeepAlive messages
 #define MQTT_SOCKET_TIMEOUT    4                 // [MqttTimeout] Number of seconds before Mqtt connection timeout
+#define MQTT_MAX_PING_OUTSTANDING 2              // Number of unanswered PINGREQ (one per KeepAlive) before closing the connection (1..4, 1 = legacy)
+#define MQTT_MAX_PACKET_SIZE   1200              // Working buffer and advertised maximum incoming packet size
+#define MQTT_PACKET_TIMEOUT    MQTT_SOCKET_TIMEOUT // Seconds allowed to receive a complete MQTT packet
+
+// -- MQTT 5 - PubSubClient defaults --------------
+// MQTT 3.1.1 is the PubSubClient default. Uncomment to opt into MQTT 5 support.
+// #define MQTT_VERSION           MQTT_VERSION_5_0 // Compile MQTT5-capable PubSubClient (with MQTT 3.1.1 fallback, +7k4 code)
+//#define USE_MQTT_DETAILED_LOGGING                // Enable detailed MQTT5 Tx/Rx packet logging at DEBUG_MORE (+0k5 code)
+//#define USE_MQTT_DETAILED_LOGGING_BINARY         // Also dump every raw MQTT5 packet read/written to the transport as hex at DEBUG_MORE (independent of USE_MQTT_DETAILED_LOGGING)
+//#define USE_MQTT_QOS                             // Compile outbound QoS 1/2 acknowledged delivery (+1k9 code) (replay buffers, retransmission, Receive Maximum). Off = smaller code; Tasmota publishes at QoS 0. The MQTT_MAX_INFLIGHT / MQTT_INFLIGHT_COPY_BUDGET knobs below only apply when this is defined.
+#define MQTT_MAX_INFLIGHT      4                 // Outbound QoS 1/2 PUBLISHes awaiting acknowledgement (USE_MQTT_QOS only)
+#define MQTT_MAX_PENDING_SUBSCRIPTIONS 12        // Tracked SUBSCRIBE/UNSUBSCRIBE exchanges
+#define MQTT_MAX_INBOUND_INFLIGHT 8              // Inbound QoS 2 identifiers and MQTT 5 Receive Maximum
+#define MQTT_MAX_TOPIC_ALIASES 0                 // Outbound MQTT 5 Topic Alias entries (0 = disabled)
+#define MQTT_INFLIGHT_COPY_BUDGET 2048           // Bytes retained for QoS 1/2 reconnect replay
+#define MQTT_ACK_TIMEOUT       MQTT_SOCKET_TIMEOUT // Seconds before an unacknowledged operation is reported
+#define MQTT_PERSISTENT_SESSION_EXPIRY_INTERVAL 0xFFFFFFFFUL // MQTT 5 session expiry for mqtt_persistent
+
 #define MQTT_WIFI_CLIENT_TIMEOUT 200             // [MqttWifiTimeout] Number of milliseconds before Mqtt Wi-Fi timeout
 
 #define MQTT_HOST              ""                // [MqttHost]
@@ -188,7 +207,7 @@
 #define WEB_SERVER             2                 // [WebServer] Web server (0 = Off, 1 = Start as User, 2 = Start as Admin)
 #define WEB_PASSWORD           ""                // [WebPassword] Web server Admin mode Password for WEB_USERNAME (empty string = Disable)
 #define FRIENDLY_NAME          "Tasmota"         // [FriendlyName] Friendlyname up to 32 characters used by webpages and Alexa
-#define EMULATION              EMUL_NONE         // [Emulation] Select Belkin WeMo (single relay/light) or Hue Bridge emulation (multi relay/light) (EMUL_NONE, EMUL_WEMO or EMUL_HUE)
+#define EMULATION              EMUL_NONE         // [Emulation] Select Belkin WeMo (single relay/light), Hue Bridge (multi relay/light) or Shelly emulation (EMUL_NONE, EMUL_WEMO, EMUL_HUE or EMUL_SHELLY)
 #define EMULATION_HUE_1ST_GEN  false             // [Emulation] Force SetOption109 1 - if you only have Echo Dot 2nd gen devices
 //#define USE_CORS                                 // [Cors] Enable CORS - Be aware that this feature is unsecure ATM (https://github.com/arendst/Tasmota/issues/6767)
   #define CORS_DOMAIN            ""                // [Cors] CORS Domain for preflight requests
@@ -530,6 +549,7 @@
 //    #define GV_SAMPLING_INTERVAL  100            // [GvSampling] milliseconds - Use Tasmota Scheduler (100) or Ticker (20..99,101..1000)
   #define USE_EMULATION_HUE                      // Enable Hue Bridge emulation for Alexa (+14k code, +2k mem common)
   #define USE_EMULATION_WEMO                     // Enable Belkin WeMo emulation for Alexa (+6k code, +2k mem common)
+//  #define USE_EMULATION_SHELLY                   // (ESP32 only) Enable Shelly emulation (+8k code)
   // #define USE_CCLOADER                           // Enable CCLoader FW upgrade tool (for CC25xx devices)
 
 // -- mDNS ----------------------------------------
@@ -875,6 +895,13 @@
 // -- Universal Display Driver ---------------------------------
 // #define USE_UNIVERSAL_DISPLAY                   // New universal display driver for both I2C and SPI
     #define MAX_TOUCH_BUTTONS 16                 // Virtual touch buttons
+//  #define UDISPLAY_RGB_NO_GUARD                // RGB panel: disable the DMA sync guard that fixes the image shift after flash writes
+//  #define UDISPLAY_RGB_GUARD_IDF_RESTART       // RGB panel ESP32-S3: guard always uses the IDF DMA restart (with LCD FIFO reset)
+//  #define UDISPLAY_RGB_GUARD_EOF_READ          // RGB panel ESP32-S3: keep the IDF GDMA EOF mode (last data read from memory)
+//  #define UDISPLAY_RGB_GUARD_THR_US 6          // RGB panel guard: large shift threshold in us, detected over 4 frames
+//  #define UDISPLAY_RGB_GUARD_FINE_THR_PX 36    // RGB panel guard: smallest shift threshold in pixels, detected over 32 frames
+//  #define UDISPLAY_RGB_GUARD_FINE_THR_NS 1000  // RGB panel guard: floor of the smallest shift threshold in ns
+//  #define UDISPLAY_RGB_GUARD_DEFER_MAX_S 10    // RGB panel guard: max wait in seconds for a quiet frame buffer before a confirm restart
 
 // -- SPI sensors ---------------------------------
 //#define USE_SPI                                  // Hardware SPI using GPIO12(MISO), GPIO13(MOSI) and GPIO14(CLK) in addition to two user selectable GPIOs(CS and DC)
@@ -899,6 +926,9 @@
 //    #define USE_LORA_SX126X                      // Add driver support for LoRa on SX126x based devices like LiliGo T3S3 Lora32 (+16k code)
 //    #define USE_LORA_SX127X                      // Add driver support for LoRa on SX127x based devices like M5Stack LoRa868, RFM95W (+5k code)
 //    #define USE_LORAWAN_BRIDGE                   // Add support for LoRaWan bridge (+8k code)
+//  #define USE_TFA_MARBELLA                       // Add support for TFA Dostmann Marbella 868MHz pool thermometer using a CC1101 (+12k6 code on ESP8266, +5k7 on ESP32)
+//    #define TFA_MARBELLA_TIMEOUT   900           // Seconds without a packet after which the reading is dropped
+//    #define TFA_MARBELLA_SERIAL    0             // Sensor id to bind to, 0 learns the first sensor received
 
 #endif  // USE_SPI
 
@@ -946,6 +976,7 @@
   #define USE_TASMOTA_CLIENT_SERIAL_SPEED 57600  // Depends on the sketch that is running on the Uno/Pro Mini
 //#define USE_OPENTHERM                            // Add support for OpenTherm (+15k code)
 //#define USE_MIEL_HVAC                            // Add support for Mitsubishi Electric HVAC serial interface (+5k code)
+//  #define USE_MIEL_HVAC_MODBUS_SLAVE             // Expose all MiEL HVAC states/functions on a second RS485 port as a Modbus RTU slave for PLC use (ESP32 only, +4k code)
 //#define USE_TUYAMCUBR                            // Add support for TuyaMCU Bridge
 //#define USE_PROJECTOR_CTRL                       // Add support for LCD/DLP Projector serial control interface (+2k code)
 //  #define USE_PROJECTOR_CTRL_NEC                 // Use codes for NEC
@@ -1226,6 +1257,8 @@
 
 #define USE_ESP32_SENSORS                        // Add support for ESP32 temperature and optional hall effect sensor
 #define USE_GPIO_VIEWER                          // Enable GPIO Viewer to see realtime GPIO states (+5k6 code)
+//#define USE_HWDUMP                               // Add command HwDump to dump MCU internal GPIO/IO_MUX and peripheral configuration to log (ESP32, ESP32-S2, ESP32-S3, ESP32-C3 and ESP32-C5 for now)
+//  #define USE_HWDUMP_SLEEP_PINS                  // Add per-pin sleep configuration table (IO_MUX SLP_* bits, hold, light sleep wakeup) to HwDump
 
 //#define USE_SONOFF_SPM                           // Add support for ESP32 based Sonoff Smart Stackable Power Meter (+11k code)
 //#define USE_DISPLAY_TM1621_SONOFF                // Add support for TM1621 dsiplay driver used by Sonoff POWR3xxD and THR3xxD
@@ -1324,6 +1357,9 @@
     // adding ad-hoc colorwheel from LVGL8 to LVGL9
     #define BE_LV_WIDGET_COLORWHEEL
 
+    // custom Tasmota widget: rectangle filled with an angled stripe pattern
+    #define BE_LV_WIDGET_STRIPES
+
     #define BE_LV_WIDGET_ANIMIMG
     #define BE_LV_WIDGET_CHART
     #define BE_LV_WIDGET_IMGBTN       // LVGL 8
@@ -1366,6 +1402,10 @@
 //#define DEBUG_TASMOTA_SENSOR                     // Enable sensor debug messages
 //#define USE_DEBUG_DRIVER                         // Use xdrv_99_debug.ino providing commands CpuChk, CfgXor, CfgDump, CfgPeek and CfgPoke
 //#define USE_ESP8266_DEBUG_HEAP                   // Add heap fragmentation display support. Needs build_flags -DUMM_STATS_FULL and -DUMM_INLINE_METRICS too (+2k5 code)
+//#define USE_HEAP_MAP                             // (ESP32) Log heap summary (used/free/largest free/min free) at boot stages and periodically, heap change of each driver call and Berry tasmota.heapmap("label")
+//#define HEAP_MAP_PERIOD        30                // (ESP32) With USE_HEAP_MAP, seconds between heap map rows after boot (default 30, 0 = off)
+//#define HEAP_MAP_CALL_MIN     100                // (ESP32) With USE_HEAP_MAP, minimum internal heap change in bytes to log a driver call (default 100, 0 = off)
+//#define HEAP_MAP_EVENTS_BOOT_ONLY 1              // (ESP32) With USE_HEAP_MAP, stop logging stages and driver calls once "boot" is logged, only periodic rows remain (default 1, 0 = keep logging)
 
 /*********************************************************************************************\
  * Profiling features
@@ -1411,6 +1451,14 @@
   #define USE_MQTT_CLIENT_CERT                   // EEBUS (SHIP) needs mutual TLS: without it the TLS library never sends our certificate and the
                                                  // peer (HEMS, charging station) aborts with handshake_failure ("tls connect err=296"). Andreas, 19.10.2026
 #endif
+#ifdef USE_MIEL_HVAC
+  #undef  MQTT_MAX_PACKET_SIZE                   // ESP32 builds set this to 1200 via a -D build flag (platformio_tasmota32.ini)
+  #define MQTT_MAX_PACKET_SIZE   4096            // Raised from the 1200 byte default: MiELHVAC's single-entity Home
+                                                  // Assistant climate discovery config (with all its state/command
+                                                  // value-mapping templates) does not fit in 1200, or even 3200, bytes.
+                                                  // Only applies when this driver is enabled, to keep the default
+                                                  // 1200 for everyone else.
+#endif  // USE_MIEL_HVAC
 
 /*********************************************************************************************\
  * Post-process obsoletes

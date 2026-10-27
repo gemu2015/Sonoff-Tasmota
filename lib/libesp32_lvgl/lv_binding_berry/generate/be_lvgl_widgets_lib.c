@@ -32,108 +32,11 @@ extern int lvbe_theme_create(bvm *vm);
 // adding ad-hoc colorwheel from LVGL8 to LVGL9
 extern const lv_obj_class_t lv_colorwheel_class;
 
+// custom Tasmota widget: rectangle filled with an angled stripe pattern
+extern const lv_obj_class_t lv_stripes_class;
 
-extern int be_ntv_lv_style_init(bvm *vm);
-extern int be_ntv_lv_font_init(bvm *vm);
-extern int be_ntv_lv_color_init(bvm *vm);
-extern int be_ntv_lv_theme_init(bvm *vm);
-extern int be_ntv_lv_group_init(bvm *vm);
-extern int be_ntv_lv_obj_init(bvm *vm);
-extern int be_ntv_lv_event_init(bvm *vm);
-extern int be_ntv_lv_display_init(bvm *vm);
-extern int be_ntv_lv_indev_init(bvm *vm);
-extern int be_ntv_lv_qrcode_init(bvm *vm);
-extern int be_ntv_lv_anim_init(bvm *vm);
-extern int be_ntv_lv_timer_init(bvm *vm);
-extern int be_ntv_lv_animimg_init(bvm *vm);
-extern int be_ntv_lv_arc_init(bvm *vm);
-extern int be_ntv_lv_arclabel_init(bvm *vm);
-extern int be_ntv_lv_bar_init(bvm *vm);
-extern int be_ntv_lv_button_init(bvm *vm);
-extern int be_ntv_lv_buttonmatrix_init(bvm *vm);
-extern int be_ntv_lv_calendar_init(bvm *vm);
-extern int be_ntv_lv_canvas_init(bvm *vm);
-extern int be_ntv_lv_chart_init(bvm *vm);
-extern int be_ntv_lv_checkbox_init(bvm *vm);
-extern int be_ntv_lv_dropdown_init(bvm *vm);
-extern int be_ntv_lv_image_init(bvm *vm);
-extern int be_ntv_lv_imagebutton_init(bvm *vm);
-extern int be_ntv_lv_keyboard_init(bvm *vm);
-extern int be_ntv_lv_label_init(bvm *vm);
-extern int be_ntv_lv_led_init(bvm *vm);
-extern int be_ntv_lv_line_init(bvm *vm);
-extern int be_ntv_lv_list_init(bvm *vm);
-extern int be_ntv_lv_menu_init(bvm *vm);
-extern int be_ntv_lv_menu_page_init(bvm *vm);
-extern int be_ntv_lv_menu_cont_init(bvm *vm);
-extern int be_ntv_lv_menu_section_init(bvm *vm);
-extern int be_ntv_lv_menu_separator_init(bvm *vm);
-extern int be_ntv_lv_msgbox_init(bvm *vm);
-extern int be_ntv_lv_roller_init(bvm *vm);
-extern int be_ntv_lv_scale_init(bvm *vm);
-extern int be_ntv_lv_scale_section_init(bvm *vm);
-extern int be_ntv_lv_slider_init(bvm *vm);
-extern int be_ntv_lv_span_init(bvm *vm);
-extern int be_ntv_lv_spangroup_init(bvm *vm);
-extern int be_ntv_lv_spinbox_init(bvm *vm);
-extern int be_ntv_lv_spinner_init(bvm *vm);
-extern int be_ntv_lv_switch_init(bvm *vm);
-extern int be_ntv_lv_table_init(bvm *vm);
-extern int be_ntv_lv_tabview_init(bvm *vm);
-extern int be_ntv_lv_textarea_init(bvm *vm);
-extern int be_ntv_lv_tileview_init(bvm *vm);
-extern int be_ntv_lv_colorwheel_init(bvm *vm);
+#include "be_lv_classes.h"
 
-extern const bclass be_class_lv_anim;
-extern const bclass be_class_lv_animimg;
-extern const bclass be_class_lv_arc;
-extern const bclass be_class_lv_arclabel;
-extern const bclass be_class_lv_bar;
-extern const bclass be_class_lv_button;
-extern const bclass be_class_lv_buttonmatrix;
-extern const bclass be_class_lv_calendar;
-extern const bclass be_class_lv_canvas;
-extern const bclass be_class_lv_chart;
-extern const bclass be_class_lv_checkbox;
-extern const bclass be_class_lv_color;
-extern const bclass be_class_lv_colorwheel;
-extern const bclass be_class_lv_display;
-extern const bclass be_class_lv_dropdown;
-extern const bclass be_class_lv_event;
-extern const bclass be_class_lv_font;
-extern const bclass be_class_lv_group;
-extern const bclass be_class_lv_image;
-extern const bclass be_class_lv_imagebutton;
-extern const bclass be_class_lv_indev;
-extern const bclass be_class_lv_keyboard;
-extern const bclass be_class_lv_label;
-extern const bclass be_class_lv_led;
-extern const bclass be_class_lv_line;
-extern const bclass be_class_lv_list;
-extern const bclass be_class_lv_menu;
-extern const bclass be_class_lv_menu_cont;
-extern const bclass be_class_lv_menu_page;
-extern const bclass be_class_lv_menu_section;
-extern const bclass be_class_lv_menu_separator;
-extern const bclass be_class_lv_msgbox;
-extern const bclass be_class_lv_obj;
-extern const bclass be_class_lv_qrcode;
-extern const bclass be_class_lv_roller;
-extern const bclass be_class_lv_scale;
-extern const bclass be_class_lv_scale_section;
-extern const bclass be_class_lv_slider;
-extern const bclass be_class_lv_span;
-extern const bclass be_class_lv_spangroup;
-extern const bclass be_class_lv_spinbox;
-extern const bclass be_class_lv_spinner;
-extern const bclass be_class_lv_style;
-extern const bclass be_class_lv_switch;
-extern const bclass be_class_lv_table;
-extern const bclass be_class_lv_tabview;
-extern const bclass be_class_lv_textarea;
-extern const bclass be_class_lv_theme;
-extern const bclass be_class_lv_tileview;
-extern const bclass be_class_lv_timer;
 
 
 /********************************************************************
@@ -285,17 +188,6 @@ extern void arc_anim_end_angle(void * obj, int32_t v);
 
 
 /********************************************************************
-** Solidified class: lv_qrcode
-********************************************************************/
-#include "be_fixed_be_class_lv_qrcode.h"
-/* @const_object_info_begin
-class be_class_lv_qrcode (scope: global, name: lv_qrcode, super: be_class_lv_obj, strings: weak) {
-    init, func(be_ntv_lv_qrcode_init)
-    _class, comptr(&lv_qrcode_class)
-}
-@const_object_info_end */
-
-/********************************************************************
 ** Solidified class: lv_animimg
 ********************************************************************/
 #include "be_fixed_be_class_lv_animimg.h"
@@ -406,6 +298,17 @@ class be_class_lv_checkbox (scope: global, name: lv_checkbox, super: be_class_lv
 @const_object_info_end */
 
 /********************************************************************
+** Solidified class: lv_colorwheel
+********************************************************************/
+#include "be_fixed_be_class_lv_colorwheel.h"
+/* @const_object_info_begin
+class be_class_lv_colorwheel (scope: global, name: lv_colorwheel, super: be_class_lv_obj, strings: weak) {
+    init, func(be_ntv_lv_colorwheel_init)
+    _class, comptr(&lv_colorwheel_class)
+}
+@const_object_info_end */
+
+/********************************************************************
 ** Solidified class: lv_dropdown
 ********************************************************************/
 #include "be_fixed_be_class_lv_dropdown.h"
@@ -505,17 +408,6 @@ class be_class_lv_menu (scope: global, name: lv_menu, super: be_class_lv_obj, st
 @const_object_info_end */
 
 /********************************************************************
-** Solidified class: lv_menu_page
-********************************************************************/
-#include "be_fixed_be_class_lv_menu_page.h"
-/* @const_object_info_begin
-class be_class_lv_menu_page (scope: global, name: lv_menu_page, super: be_class_lv_obj, strings: weak) {
-    init, func(be_ntv_lv_menu_page_init)
-    _class, comptr(&lv_menu_page_class)
-}
-@const_object_info_end */
-
-/********************************************************************
 ** Solidified class: lv_menu_cont
 ********************************************************************/
 #include "be_fixed_be_class_lv_menu_cont.h"
@@ -523,6 +415,17 @@ class be_class_lv_menu_page (scope: global, name: lv_menu_page, super: be_class_
 class be_class_lv_menu_cont (scope: global, name: lv_menu_cont, super: be_class_lv_obj, strings: weak) {
     init, func(be_ntv_lv_menu_cont_init)
     _class, comptr(&lv_menu_cont_class)
+}
+@const_object_info_end */
+
+/********************************************************************
+** Solidified class: lv_menu_page
+********************************************************************/
+#include "be_fixed_be_class_lv_menu_page.h"
+/* @const_object_info_begin
+class be_class_lv_menu_page (scope: global, name: lv_menu_page, super: be_class_lv_obj, strings: weak) {
+    init, func(be_ntv_lv_menu_page_init)
+    _class, comptr(&lv_menu_page_class)
 }
 @const_object_info_end */
 
@@ -556,6 +459,17 @@ class be_class_lv_menu_separator (scope: global, name: lv_menu_separator, super:
 class be_class_lv_msgbox (scope: global, name: lv_msgbox, super: be_class_lv_obj, strings: weak) {
     init, func(be_ntv_lv_msgbox_init)
     _class, comptr(&lv_msgbox_class)
+}
+@const_object_info_end */
+
+/********************************************************************
+** Solidified class: lv_qrcode
+********************************************************************/
+#include "be_fixed_be_class_lv_qrcode.h"
+/* @const_object_info_begin
+class be_class_lv_qrcode (scope: global, name: lv_qrcode, super: be_class_lv_obj, strings: weak) {
+    init, func(be_ntv_lv_qrcode_init)
+    _class, comptr(&lv_qrcode_class)
 }
 @const_object_info_end */
 
@@ -649,6 +563,17 @@ class be_class_lv_spinner (scope: global, name: lv_spinner, super: be_class_lv_a
 @const_object_info_end */
 
 /********************************************************************
+** Solidified class: lv_stripes
+********************************************************************/
+#include "be_fixed_be_class_lv_stripes.h"
+/* @const_object_info_begin
+class be_class_lv_stripes (scope: global, name: lv_stripes, super: be_class_lv_obj, strings: weak) {
+    init, func(be_ntv_lv_stripes_init)
+    _class, comptr(&lv_stripes_class)
+}
+@const_object_info_end */
+
+/********************************************************************
 ** Solidified class: lv_switch
 ********************************************************************/
 #include "be_fixed_be_class_lv_switch.h"
@@ -700,17 +625,6 @@ class be_class_lv_textarea (scope: global, name: lv_textarea, super: be_class_lv
 class be_class_lv_tileview (scope: global, name: lv_tileview, super: be_class_lv_obj, strings: weak) {
     init, func(be_ntv_lv_tileview_init)
     _class, comptr(&lv_tileview_class)
-}
-@const_object_info_end */
-
-/********************************************************************
-** Solidified class: lv_colorwheel
-********************************************************************/
-#include "be_fixed_be_class_lv_colorwheel.h"
-/* @const_object_info_begin
-class be_class_lv_colorwheel (scope: global, name: lv_colorwheel, super: be_class_lv_obj, strings: weak) {
-    init, func(be_ntv_lv_colorwheel_init)
-    _class, comptr(&lv_colorwheel_class)
 }
 @const_object_info_end */
 

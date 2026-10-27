@@ -176,7 +176,7 @@ public:
     void setAuthorization(const char * user, const char * password);
     void setAuthorization(const char * auth);
     void setConnectTimeout(int32_t connectTimeout);
-    void setTimeout(uint16_t timeout);
+    void setTimeout(uint32_t timeout);
 
     // TLS receive buffer used by the NEXT begin() on an https URL, in bytes.
     // The buffer bounds a single TLS record, so the value only has to cover
@@ -257,7 +257,7 @@ protected:
     uint16_t _port = 0;
     int32_t _connectTimeout = HTTPCLIENT_DEFAULT_TCP_TIMEOUT;  // Do not set to -1 as it fails WiFiClient connect()
     bool _reuse = true;
-    uint16_t _tcpTimeout = HTTPCLIENT_DEFAULT_TCP_TIMEOUT;
+    uint32_t _tcpTimeout = HTTPCLIENT_DEFAULT_TCP_TIMEOUT;
 #ifndef HTTPS_RX_BUFFER
 #define HTTPS_RX_BUFFER 16384
 #endif
