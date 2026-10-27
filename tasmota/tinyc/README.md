@@ -2,17 +2,18 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-> **Current firmware: v1.6.74** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
+> **Current firmware: v1.6.75** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
 >
 > * [**All releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — one `v<version>` release per build. Watch the repository (*Custom → Releases*) to be notified when a new one appears.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — a rolling tag that always carries the newest assets, for stable download URLs. It is deliberately reused, so it never fires a release notification.
 >
 > Every version is listed in [**CHANGELOG.md**](CHANGELOG.md), including the syscall-ABI table (which firmware a `.tcb` needs).
 
-## What's new (v1.6.29 – v1.6.74)
+## What's new (v1.6.29 – v1.6.75)
 
 The highlights; details per version in [CHANGELOG.md](CHANGELOG.md).
 
+- **Upstream merge: Tasmota 16.0.0.1 (1.6.75)** — the fork is merged with arendst/development of 25.10.2026 (Arduino core 3.3.12, IDF 5.5.5, platform 2026.09.50) and now shares real Git history with upstream. Building needs PlatformIO Core ≥ 6.2.0. Also in this release: EEBUS Steuerbox v216 / SteuVE v025 (operating log on the SD card, certificate-based SKI, mDNS with IPv4), details in [CHANGELOG.md](CHANGELOG.md).
 - **Program versions with an update button, EEBUS, safer files (1.6.74)** — a program can carry `// @version: YYYYMMDD_HHMM`; a slot row shows it and offers a 🔄 update when the repository has a newer one, and the repository list shows `Name · date` (idea and format from ottelo). A new version of a script that comes under a new file name keeps its saved values (same `@name`). ⚠️ An OTA update no longer wipes the heap arrays of persist variables (the charts), file names up to 58 characters are safe on the ESP32 (longer ones were cut and could destroy the program), the IDE update falls back to the flash when the SD card cuts the write short, and `tasmDefer` logs a dropped command. The EEBUS Steuerbox (`xdrv_126`) and the controllable consumer SteuVE (`xdrv_128`) by Andreas are in, with ready-made ESP32-S3 + Ethernet (W5500) images; SML got the Modbus-TCP transaction number (Andreas) and Domoticz values picked by unit (ottelo).
 - **Files to the NAS, the same example names everywhere (1.6.73)** — `common/nas_backup.tc` moves log files and CSVs to a FRITZ!NAS and frees the space (`nas_log_upload.tc` does it for Tasmota's `FileLog`); the `/tc` page and the IDE list every example under the same name and in the same order; `/tcrepo` (IDE from the repo) is on by default.
 - **Matter and Apple Home are stable again (1.6.72)** — after an iPadOS/HomePod update Apple re-subscribed every 44 s and the sessions piled up until the device froze; live reports now go out as the device's own exchange and dead sessions are dropped. The Matter plugins need to be reloaded to get it (S3: new firmware).
