@@ -2119,6 +2119,39 @@ static TcSlot *tc_slot_of_vm(TcVM *vm) {
   return tc_current_slot;
 }
 
+// TinyCLogName 1: addLog()/addLogLvl() lines carry the program's `// @name:` as a prefix, "TCC: [Name] text".
+// A script then no longer needs its own identification string to be found in the console (#137). Saved in
+// /tinyc.cfg (`_logname,1`); build default: -DTINYC_LOG_NAME=1.
+#ifndef TINYC_LOG_NAME
+#define TINYC_LOG_NAME 0
+#endif
+static bool tc_log_name = TINYC_LOG_NAME;
+
+// The `// @name:` of the program running in this VM (header TLV tag 1, behind the fixed 40-byte header) as
+// "[Name] " in `out` (see TinyCLogName); empty when the switch is off, the program has no name or its binary
+// is not in memory.
+static const char *tc_log_prefix(TcVM *vm, char *out, size_t osz) {
+  out[0] = 0;
+  if (!tc_log_name) return out;
+  TcSlot *s = tc_slot_of_vm(vm);
+  if (!s || !s->program || s->program_size < 44) return out;
+  const uint8_t *p = s->program;
+  if ((((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3]) != TC_MAGIC) return out;
+  uint16_t hsize = (p[20] << 8) | p[21];
+  if (hsize <= 40 || hsize > s->program_size) return out;
+  for (uint16_t i = 40; i + 2 <= hsize; ) {
+    uint8_t tag = p[i], len = p[i + 1];
+    if (i + 2 + len > hsize) break;
+    if (tag == 1 && len > 0) {
+      size_t n = (len < osz - 4) ? len : osz - 4;            // room for "[", "] " and the NUL
+      out[0] = '['; memcpy(out + 1, p + i + 2, n); out[1 + n] = ']'; out[2 + n] = ' '; out[3 + n] = 0;
+      break;
+    }
+    i += 2 + len;
+  }
+  return out;
+}
+
 // File handles stored as statics (not in calloc'd struct) so C++ File constructor runs properly
 static File tc_file_handles[TC_MAX_FILE_HANDLES];
 // Owning VM per open handle -> SELECTIVE cleanup: stopping/reloading ONE slot must not
@@ -2748,6 +2781,7 @@ static uint16_t tc_sys_cur;          // syscall being executed (set in tc_syscal
 #define TINYC_STRICT 0
 #endif
 static bool tc_strict = TINYC_STRICT;
+
 #define TC_TRUNC_SEEN 8
 static struct { TcVM *vm; uint16_t sys; } tc_trunc_seen[TC_TRUNC_SEEN];
 static uint8_t tc_trunc_next;
@@ -10126,16 +10160,17 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
 
     case SYS_LOG: {
       a = TC_POP(vm);  // char array ref
-      char tmp[TC_OUTPUT_SIZE];
+      char tmp[TC_OUTPUT_SIZE], pfx[40];
       if (tc_ref_to_cstr(vm, a, tmp, sizeof(tmp)) > 0) {
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), tmp);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s%s"), tc_log_prefix(vm, pfx, sizeof(pfx)), tmp);
       }
       break;
     }
     case SYS_LOG_STR: {
       a = TC_POP(vm);  // constant pool index
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), vm->constants[a].str.ptr);
+        char pfx[40];
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s%s"), tc_log_prefix(vm, pfx, sizeof(pfx)), vm->constants[a].str.ptr);
       }
       break;
     }
@@ -10144,9 +10179,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       int32_t level = TC_POP(vm);  // log level (1=ERROR, 2=INFO, 3=DEBUG, 4=DEBUG_MORE)
       if (level < 1) level = 1;
       if (level > 4) level = 4;
-      char tmp[TC_OUTPUT_SIZE];
+      char tmp[TC_OUTPUT_SIZE], pfx[40];
       if (tc_ref_to_cstr(vm, a, tmp, sizeof(tmp)) > 0) {
-        AddLog(level, PSTR("TCC: %s"), tmp);
+        AddLog(level, PSTR("TCC: %s%s"), tc_log_prefix(vm, pfx, sizeof(pfx)), tmp);
       }
       break;
     }

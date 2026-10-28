@@ -431,6 +431,7 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
  *   ,0
  *   ,0
  *   Last line (optional): _info,<0|1>   (show_info flag)
+ *   Optional: _logname,<0|1> (TinyCLogName), _psram,<limit> (TinyCPsram)
 \*********************************************************************************************/
 
 #define TC_CFG_FILE "/tinyc.cfg"
@@ -482,6 +483,7 @@ static void TinyCSaveSettings(void) {
   }
   // Extra line for show_info
   f.printf("_info,%d\n", Tinyc->show_info ? 1 : 0);
+  if (tc_log_name != (TINYC_LOG_NAME != 0)) f.printf("_logname,%d\n", tc_log_name ? 1 : 0);   // only when it differs from the build default
 #ifdef ESP32
   // And the malloc() PSRAM limit (TinyCPsram) -- only when it differs from the
   // build default; an explicit 0 (framework 4096) IS written, or the default
@@ -767,6 +769,10 @@ static void TinyCLoadSettings(void) {
     // Special _info line
     if (fname == "_info") {
       Tinyc->show_info = (autoexec != 0);
+      continue;
+    }
+    if (fname == "_logname") {         // TinyCLogName
+      tc_log_name = (autoexec != 0);
       continue;
     }
 #ifdef ESP32
@@ -1189,6 +1195,7 @@ void CmndTinyCHttpRx(void);
 void CmndTinyCUnload(void);
 void CmndTinyCUdp(void);
 void CmndTinyCStrict(void);
+void CmndTinyCLogName(void);
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
 #ifdef TINYC_MTRC_CRYPTO_SELFTEST
@@ -1197,7 +1204,7 @@ void CmndMatterCryptoTest(void);
 #endif
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
-  "|Run|Stop|Reset|Exec|Info|Ide|Unload|Udp|Strict"
+  "|Run|Stop|Reset|Exec|Info|Ide|Unload|Udp|Strict|LogName"
 #ifdef ESP32
   "|Chkpt|Stack|HttpRx|Heap|Psram"
 #endif
@@ -1215,7 +1222,7 @@ const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
 void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde, &CmndTinyCUnload, &CmndTinyCUdp,
-  &CmndTinyCStrict
+  &CmndTinyCStrict, &CmndTinyCLogName
 #ifdef ESP32
   , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx, &CmndTinyCHeap, &CmndTinyCPsram
 #endif
@@ -2190,6 +2197,16 @@ void CmndTinyCStrict(void) {
     tc_strict = (XdrvMailbox.payload == 1);
   }
   ResponseCmndNumber(tc_strict ? 1 : 0);
+}
+
+// TinyCLogName 0 / 1: the lines a script writes with addLog() / addLogLvl() start with its `// @name:` in
+// brackets, "TCC: [Name] text" (0, default: unchanged). Saved in /tinyc.cfg; takes effect at once.
+void CmndTinyCLogName(void) {
+  if (XdrvMailbox.data_len > 0 && (XdrvMailbox.payload == 0 || XdrvMailbox.payload == 1)) {
+    tc_log_name = (XdrvMailbox.payload == 1);
+    TinyCSaveSettings();
+  }
+  ResponseCmndNumber(tc_log_name ? 1 : 0);
 }
 
 void CmndTinyCUdp(void) {
