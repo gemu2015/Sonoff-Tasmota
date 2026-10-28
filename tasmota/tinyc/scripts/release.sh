@@ -336,7 +336,7 @@ script defines the device (see \`matter_*.tc\` examples); open pairing from the
 
 ### How to flash:
 - OTA: Firmware Upgrade → Upload \`.bin\` file
-- ⚠️ **Coming from official Tasmota or another firmware?** The saved settings carry a different ID, so the device starts with **default settings, Wi-Fi included**, and without Wi-Fi it opens an open access point named like \`sonoff-1234\` (\`sonoff\` is our builds' default topic, plus four digits; \`http://192.168.4.1\`): enter the Wi-Fi again. Make a backup first (\`Backup Configuration\`). On an ESP32 the first upload goes into Safeboot, where the same file has to be uploaded a second time — wait until it is done, that page shows no progress.
+- ⚠️ **Settings ID:** builds after 1.6.75 use the same ID (4617) as official Tasmota and ottelo's images, so the settings are KEPT when you switch between them. TinyC builds up to 1.6.75 carry the ID 5002. **Coming from a build with another ID** (ours up to 1.6.75, or another fork) the saved settings do not fit, so the device starts with **default settings, Wi-Fi included**, and without Wi-Fi it opens an open access point named like \`sonoff-1234\` (\`sonoff\` is our builds' default topic, plus four digits; \`http://192.168.4.1\`): enter the Wi-Fi again. Make a backup first (\`Backup Configuration\`). On an ESP32 the first upload goes into Safeboot, where the same file has to be uploaded a second time — wait until it is done, that page shows no progress.
 - Factory install: Use \`.factory.bin\` with esptool or web installer
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System),
   or run \`TinyCIde\` in the console — a firmware flash does **not** replace the IDE
