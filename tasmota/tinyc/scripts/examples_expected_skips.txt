@@ -1,0 +1,3 @@
+# Examples that are known NOT to compile on their own (see compile_examples.mjs --check).
+# One name per line; remove a line when the example compiles again.
+growatt   # CodeGen: "Row references for 2D arrays require heap" (compiler limit, found 27.10.2026)

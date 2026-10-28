@@ -1,0 +1,77 @@
+name: TinyC checks
+
+# Fast checks for the TinyC part of the fork (no firmware build, about a minute).
+# Added for gemu2015/Sonoff-Tasmota#121: the old workflows inherited from Tasmota
+# built only ESP8266 variants without a single tinyc* target and compiled no .tc.
+#
+# What it catches:
+#   * an example that no longer compiles (the IDE compiler is the same one the
+#     browser uses), unless it is listed in tasmota/tinyc/scripts/examples_expected_skips.txt
+#   * bytecode/*.tcb or index.json that do not match the examples (someone changed
+#     a .tc or the compiler and did not run compile_examples.mjs)
+#   * the reference tables contradicting the #defines (check_docs.mjs)
+#   * a superinstruction that computes differently from the opcodes it replaces
+#   * a WebUI with controls but without a button (webui_knopf_pruefen.py)
+#   * the preprocessor test (#ifdef / @defines)
+# Fix a failure locally with:  node tasmota/tinyc/scripts/compile_examples.mjs
+
+on:
+  push:
+    branches: [universal]
+    paths:
+      - 'tasmota/tinyc/**'
+      - 'tasmota/include/xdrv_124*'
+      - 'tasmota/tasmota_xdrv_driver/xdrv_124*'
+      - '.github/workflows/tinyc_ci.yml'
+  pull_request:
+    paths:
+      - 'tasmota/tinyc/**'
+      - 'tasmota/include/xdrv_124*'
+      - 'tasmota/tasmota_xdrv_driver/xdrv_124*'
+      - '.github/workflows/tinyc_ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tinyc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tasmota
+          sparse-checkout-cone-mode: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compile every example with the IDE compiler
+        run: node tasmota/tinyc/scripts/compile_examples.mjs --check
+
+      - name: Bytecode and index files are up to date
+        run: |
+          if ! git diff --exit-code --stat -- tasmota/tinyc/bytecode; then
+            echo "::error::tasmota/tinyc/bytecode does not match the examples. Run 'node tasmota/tinyc/scripts/compile_examples.mjs' and commit the result."
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain -- tasmota/tinyc/bytecode)" ]; then
+            git status --porcelain -- tasmota/tinyc/bytecode
+            echo "::error::compile_examples.mjs produced files that are not committed (new example without its .tcb?)."
+            exit 1
+          fi
+
+      - name: Reference tables against the #defines
+        run: node tasmota/tinyc/scripts/check_docs.mjs
+
+      - name: Superinstructions compute like the opcodes they replace
+        run: node tasmota/tinyc/scripts/check_fusion.mjs
+
+      - name: Every WebUI with controls has a button
+        run: python3 tasmota/tinyc/scripts/webui_knopf_pruefen.py
+
+      - name: Preprocessor test
+        run: node tasmota/tinyc/scripts/preprocessor_test.mjs

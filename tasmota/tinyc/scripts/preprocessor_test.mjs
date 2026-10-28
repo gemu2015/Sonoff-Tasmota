@@ -65,9 +65,9 @@ console.log('── am echten Webcam-Skript ──');
     const zaehle = (b, muster) => (preprocess(src, [b]).match(muster) || []).length;
     ist('DFROBOT: eine campins-Zeile',  zaehle('BOARD_DFROBOT', /int campins\[\]/g), 1);
     ist('GOOUUU: eine campins-Zeile',   zaehle('BOARD_GOOUUU',  /int campins\[\]/g), 1);
-    ist('DFROBOT hat Nachtsicht',       /LUX_LEN/.test(preprocess(src, ['BOARD_DFROBOT'])), true);
-    ist('GOOUUU hat sie NICHT',         /LUX_LEN/.test(preprocess(src, ['BOARD_GOOUUU'])), false);
-    ist('AITHINKER hat sie NICHT',      /LUX_LEN/.test(preprocess(src, ['BOARD_AITHINKER'])), false);
+    ist('DFROBOT hat Nachtsicht',       /camControl\(20/.test(preprocess(src, ['BOARD_DFROBOT'])), true);
+    ist('GOOUUU hat sie NICHT',         /camControl\(20/.test(preprocess(src, ['BOARD_GOOUUU'])), false);
+    ist('AITHINKER hat sie NICHT',      /camControl\(20/.test(preprocess(src, ['BOARD_AITHINKER'])), false);
 }
 
 console.log(`\n${gut} gut, ${schlecht} schlecht`);

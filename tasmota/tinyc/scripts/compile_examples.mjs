@@ -89,3 +89,22 @@ if (failed.length) {
   console.log('SKIPPED (not standalone — #include lib / no main):');
   for (const [n, e] of failed) console.log(`  ${n}: ${e}`);
 }
+
+// --check (CI): a program that does not compile is an error unless it is listed in
+// examples_expected_skips.txt (one name per line, '#' starts a comment). Without
+// this the "SKIPPED" list above hides a real compiler or example error — it looks
+// the same as a building block without main().
+if (process.argv.includes('--check')) {
+  let expected = [];
+  try {
+    expected = readFileSync(join(here, 'examples_expected_skips.txt'), 'utf-8')
+      .split('\n').map(l => l.replace(/#.*/, '').trim()).filter(Boolean);
+  } catch { /* no list: nothing is expected to fail */ }
+  const names = failed.map(([n]) => n);
+  const unexpected = failed.filter(([n]) => !expected.includes(n));
+  const gone = expected.filter(n => !names.includes(n));
+  for (const [n, e] of unexpected) console.error(`::error::example ${n} does not compile: ${e}`);
+  for (const n of gone) console.error(`::warning::${n} is listed in examples_expected_skips.txt but compiles now - remove it from the list`);
+  if (unexpected.length) process.exit(1);
+  console.log(`--check: ${failed.length} skipped, all expected`);
+}
