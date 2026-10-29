@@ -463,6 +463,9 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // 2 min danach wieder verbunden.
 static const uint16_t kEebusKaWaitS[6] = { 8, 15, 30, 60, 120, 120 };
 
+// v217 (28.10., gemu 27.10. §3.1): ohne SD-Karte wird das Betriebslogbuch nicht mehr STILL ausgelassen - einmal je Start
+// Logzeile "EBG: Betriebslogbuch aus - keine SD-Karte", in EEBusStatus das Feld "Betriebslogbuch" (aktiv / aus - keine SD-Karte).
+// Grund: die VDE-FNN-Empfehlung verlangt das Protokoll als Nachweis; fehlt es, muss man das sehen.
 // v216 (26.10.): Betriebslogbuch - Zeitstempel ohne doppeltes "Z" (Tasmota haengt bei UTC selbst Z an);
 // Failsafe-Uebertragung als eigenes Ereignis "Failsafe-Werte" mit Wert und Dauer (vorher als "Vorgabe Freigabe").
 
@@ -3339,10 +3342,18 @@ void EebusLbAufraeumen(int jahr, int monat) {
   }
 #endif
 }
+// v217: Betriebslogbuch nur mit SD-Karte (Flash schonen)
+bool EebusLbAktiv(void) {
+#ifdef USE_UFILESYS
+  return ufsp && (UFS_TSDC == ufs_type);
+#else
+  return false;
+#endif
+}
 // Ein Eintrag: Zeit_UTC;Ereignis;Anlage;Adresse;Richtung;Wert;Dauer_s;Ergebnis (dir < 0 = ohne Richtung)
 void EebusLbLog(const char *ereignis, const char *ski, const char *ip, int dir, const char *wert, long dauer, const char *ergebnis) {
 #ifdef USE_UFILESYS
-  if (!ufsp || (UFS_TSDC != ufs_type)) { return; }   // nur auf der SD-Karte
+  if (!EebusLbAktiv()) { return; }   // nur auf der SD-Karte (ohne SD: Meldung einmal je Start, EebusLbVerbindungen)
   char zeit[28], pfad[40];
   int jahr = 0, monat = 0;
   if (RtcTime.valid) {
@@ -3406,6 +3417,11 @@ void EebusLbAbgewiesen(const char *ski, const char *ip, const char *grund) {
 }
 // Sekundentakt: Verbindungszustand je Platz; jede Aenderung wird protokolliert (Stoerung Beginn/Ende)
 void EebusLbVerbindungen(void) {
+  static bool gemeldet = false;   // v217: einmal je Start melden, wenn das Logbuch mangels SD-Karte aus ist
+  if (!gemeldet && (TasmotaGlobal.uptime > 15)) {   // erst nach dem Einbinden der SD (Dateisystem-Treiber startet nach diesem)
+    gemeldet = true;
+    if (!EebusLbAktiv()) { AddLog(LOG_LEVEL_INFO, PSTR("EBG: Betriebslogbuch aus - keine SD-Karte")); }
+  }
   for (int i = 0; i < EEBUS_MAX_CONN; i++) {
     EebusConn *c = &EConn[i];
     const bool jetzt = c->active && (SME_DONE == c->sme);
@@ -5555,8 +5571,8 @@ const char* EebusLpcName(int s) {
 
 void CmndEebusStatus(void) {
    // Alle Verbindungs-Slots auflisten (Multi-Connection) + Rolle + LPC-Zustand
-  Response_P(PSTR("{\"%s\":{\"Role\":%d,\"Hems\":%d,\"Active\":%d,\"Slots\":["),
-             XdrvMailbox.command, eebus_role, eebus_hems_mode, EebusConnActive());
+  Response_P(PSTR("{\"%s\":{\"Role\":%d,\"Hems\":%d,\"Active\":%d,\"Betriebslogbuch\":\"%s\",\"Slots\":["),   // v217: Logbuch-Zustand
+             XdrvMailbox.command, eebus_role, eebus_hems_mode, EebusConnActive(), EebusLbAktiv() ? "aktiv" : "aus - keine SD-Karte");
   for (int i = 0; i < EEBUS_MAX_CONN; i++) {
     EebusConn *cc = &EConn[i];
     const char *st = "idle";
