@@ -3326,7 +3326,7 @@ Ausgehende TCP-Verbindungen zu entfernten Hosts oeffnen. Bis zu **4 parallele Cl
 | `tcpConnectTimeout(int ms)` | Begrenzen, wie lange **nachfolgende** ausgehende Verbindungen dauern duerfen (`tcpConnect` sowie die `httpGet`/`httpPost`-Familie). `ms=0` stellt die Vorgabe des WiFiClient wieder her. Ohne das blockiert ein nicht erreichbarer Host rund 75 s im LwIP-Verbindungszeitlimit — das loest den Task-Watchdog aus und stuerzt das Geraet ab. Vor dem Abklopfen moeglicherweise ausgeschalteter Hosts also z. B. `tcpConnectTimeout(2000)` setzen. |
 | `int tcpConnected()` | Gibt 1 zurueck, wenn der aktive Slot eine offene Verbindung hat, sonst 0 |
 | `tcpDisconnect()` | Client-Verbindung des aktiven Slots schliessen |
-| `tcpSelect(int slot)` | Aktiven Client-Slot waehlen (0–3). Alle nachfolgenden Client-Aufrufe zielen auf diesen Slot |
+| `tcpSelect(int slot)` | Aktiven Client-Slot waehlen (0–3) **dieses Programms** (jeder Slot und jeder `spawnTask`-Worker hat seine eigene Auswahl, Vorgabe 0). Alle nachfolgenden Client-Aufrufe dieses Programms zielen darauf |
 
 **Hinweise:**
 - `tcpRead(buf)`, `tcpWrite(buf)`, `tcpAvailable()`, `tcpReadArray()`, `tcpWriteArray()` arbeiten alle auf dem **aktiven** Slot. Mit `tcpSelect(n)` umschalten.

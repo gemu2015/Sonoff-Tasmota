@@ -3396,7 +3396,7 @@ Open outgoing TCP connections to remote hosts. Up to **4 parallel client slots**
 | `tcpConnectTimeout(int ms)` | Bound how long **subsequent** outgoing connects may take (`tcpConnect`, and the `httpGet`/`httpPost` family). `ms=0` restores the WiFiClient default. Without it an absent host blocks on the LwIP connect timeout for ~75 s, which trips the task watchdog and crashes the device — set e.g. `tcpConnectTimeout(2000)` before probing hosts that may be off. |
 | `int tcpConnected()` | Returns 1 if the active slot has an open connection, 0 otherwise |
 | `tcpDisconnect()` | Close the active slot's client connection |
-| `tcpSelect(int slot)` | Select the active client slot (0–3). All subsequent client calls target this slot |
+| `tcpSelect(int slot)` | Select the active client slot (0–3) **of this program** (each slot and each `spawnTask` worker keeps its own selection, default 0). All subsequent client calls of this program target it |
 
 **Notes:**
 - `tcpRead(buf)`, `tcpWrite(buf)`, `tcpAvailable()`, `tcpReadArray()`, `tcpWriteArray()` all operate on the **active** slot. Call `tcpSelect(n)` to switch.

@@ -1016,7 +1016,6 @@ static void TinyCInit(void) {
   // ESP32-C3 to find — see MEMORY.md "tcpAvailable() crashes when polled
   // from a periodic callback" entry for the diagnostic walk.
   new (&Tinyc->tcp_client) WiFiClient();
-  Tinyc->tcp_cli_slot = 0;
   Tinyc->instr_per_tick = TC_INSTR_PER_TICK;
   // Init SPI CS pins to -1 (unused)
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }
