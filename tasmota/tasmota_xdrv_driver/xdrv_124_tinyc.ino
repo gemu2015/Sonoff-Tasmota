@@ -3534,11 +3534,16 @@ static void HandleTinyCUploadCORS(void) {
                                      // the stop there; keep it for heap-tight C3/.104 +
                                      // a tight S3 bridge. Override -DTC_FS_STOP_MINBLK=N.
 #endif
-void TinyCFsWritePause(uint32_t fsize) {
+void TinyCFsWritePause(uint32_t fsize, bool to_flash) {
   // Size-gate: skip the VM stop for small writes (the common case — config /
   // small .tc / data files). fsize==0 means the client didn't declare a size
   // (?fsz=) so assume it could be large and protect.
   if (fsize > 0 && fsize < TC_FS_BIG_WRITE) return;
+  // Target gate: the deadlock above comes from the SPI-flash cache being disabled
+  // for each erase/program, which only the internal LittleFS does. A write to the
+  // SD card never touches it, so it must not stop the slots (Andreas, HEMS P4:
+  // a 505 kB upload to SD stopped all five slots once the largest block was < 24 kB).
+  if (!to_flash) return;
   tc_global_pause = true;             // also gates main-loop callbacks (see Xdrv124)
   if (!Tinyc) return;
 #ifdef ESP32
@@ -3577,13 +3582,17 @@ void TinyCFsWritePause(uint32_t fsize) {
            PSTR("TC: ufsu big-write — heap healthy (PSRAM, maxblk %u) — keeping slots live"),
            (unsigned)maxblk);
   } else {
+    uint8_t stopped = 0;
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
       TcSlot *s = Tinyc->slots[i];
       if (s && s->loaded) {
         s->fs_was_running = true;
         TinyCStopVM(s);               // reaps spawn workers + stops the VM task
+        stopped++;
       }
     }
+    AddLog(LOG_LEVEL_INFO, PSTR("TC: flash big-write (%u B) — stopped %u slot(s), largest block %u B"),
+           (unsigned)fsize, (unsigned)stopped, (unsigned)maxblk);
   }
 #endif
 }
@@ -3896,7 +3905,7 @@ static int tc_fetch_ide_fs(FS *fs, uint32_t fstype, const char *url) {
              (unsigned)free_kb, (unsigned)need_kb, woher);
     }
   }
-  TinyCFsWritePause(0x40000);                       // big write: quiesce VM tasks
+  TinyCFsWritePause(0x40000, fs == ffsp);           // big write: quiesce VM tasks (flash only)
   File f = fs->open(target, "w");
   int written = 0; bool magic = false; bool write_err = false;
   if (f) {
@@ -7453,9 +7462,9 @@ static void tc_ul_handle(WiFiClient &client) {
   // --- quiesce the VM tasks around the big flash write (same proven coordination
   // as /ufsu: on a heap-tight device it stops+restarts the slots; on healthy PSRAM
   // it keeps them live). Balanced with the single Resume below on every exit. ---
-  extern void TinyCFsWritePause(uint32_t);
+  extern void TinyCFsWritePause(uint32_t, bool);
   extern void TinyCFsWriteResume(void);
-  TinyCFsWritePause(fsize);
+  TinyCFsWritePause(fsize, fsp == ffsp);
 
   File f = fsp->open(path, "w");
   bool ok = false;
