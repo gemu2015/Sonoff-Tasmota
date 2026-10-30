@@ -187,7 +187,7 @@
         {
           "comment": "Tasmota command & output",
           "name": "support.function.tasmota.tinyc",
-          "match": "\\b(tasmCmd|sensorGet|responseAppend|webSend|webFlush|addLog|addCommand|responseCmnd)\\b"
+          "match": "\\b(tasmCmd|sensorGet|sensorGetNaN|isNan|responseAppend|webSend|webFlush|addLog|addCommand|responseCmnd)\\b"
         },
         {
           "comment": "I2C bus",

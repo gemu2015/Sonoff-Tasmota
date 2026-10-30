@@ -2914,6 +2914,8 @@ Einen beliebigen Tasmota-Sensorwert ueber seinen JSON-Pfad auslesen. Pfadsegment
 | Funktion | Beschreibung |
 |----------|-------------|
 | `float sensorGet("Sensor#Key")` | Sensorwert lesen, gibt float zurueck |
+| `float sensorGetNaN("Sensor#Key")` | Gleiche Abfrage, liefert aber NaN statt 0, wenn der Wert fehlt (ABI 33) |
+| `int isNan(float x)` | 1, wenn `x` NaN ist, sonst 0 (ABI 33) |
 
 Die Funktion loest intern eine Sensor-Statusabfrage aus und navigiert durch den JSON-Baum. Unterstuetzt bis zu 3 Verschachtelungsebenen.
 
@@ -2933,11 +2935,15 @@ float today = sensorGet("ENERGY#Today");
 
 // Verschachtelt: Zigbee-Geraet
 float zt = sensorGet("ZbReceived#0x2342#Temperature");
+
+// Wert, der nicht fuer 0 gehalten werden darf (z. B. Batteriezaehler): den letzten guten behalten
+float kwh = sensorGetNaN("ENERGY#Total");
+if (isNan(kwh)) { return; }       // fehlt -> naechsten Takt wieder versuchen
 ```
 
 **Hinweise:**
 - Der Pfad muss ein Zeichenketten-Literal sein (wird zur Kompilierzeit aufgeloest)
-- Gibt 0.0 zurueck, wenn der Sensor oder Schluessel nicht gefunden wird
+- Gibt 0.0 zurueck, wenn der Sensor oder Schluessel nicht gefunden wird. ⚠️ Ebenso, wenn der Slot, dem der Wert gehoert, in dem Moment beschaeftigt ist (sein `JsonCall` wird uebersprungen, `sensorGet` wartet nie): eine echte 0 und ein fehlender Wert sind nicht zu unterscheiden. Wo das zaehlt (Zaehler, Tagesbilanzen), `sensorGetNaN` nehmen
 - Gibt einen Float zurueck — weisen Sie ihn einer `float`-Variable zu
 - In der Browser-IDE werden Temperature=22.5, Humidity=55.0, Pressure=1013.25 simuliert
 

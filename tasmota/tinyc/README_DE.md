@@ -125,7 +125,7 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **I2C:** `i2cRead8`, `i2cWrite8`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cRead0`, `i2cWrite0`
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
 **Dateien:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`
-**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
+**Tasmota:** `tasmCmd`, `sensorGet`, `sensorGetNaN`, `isNan`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
 **FTP:** `ftpOpen`, `ftpClose`, `ftpPut`, `ftpPutStr`, `ftpGet`, `ftpGetStr`, `ftpList`, `ftpSize`, `ftpDelete`, `ftpMkdir`, `ftpRename` — Dateien auf einem FTP-Server (FRITZ!NAS …): schreiben oder anhängen, lesen, auflisten, verwalten
 **UDP:** `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (allgemein, Modi 0-7) — skalare `global` Floats senden automatisch bei Zuweisung

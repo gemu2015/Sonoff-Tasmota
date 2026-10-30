@@ -22,6 +22,7 @@ running.
 
 | ABI | Firmware | Change |
 |---|---|---|
+| 33 | next | `sensorGetNaN`, `isNan` (567–568) |
 | 32 | 1.6.68 | FTP client (syscalls 556–566) |
 | 31 | 1.6.67 | `serialReadArray` (555) |
 | 30 | 1.6.67 | USB host for FTDI adapters, `usb*` (546–554) |
@@ -55,6 +56,17 @@ The bytecode **format** is separate from the ABI: format v6 (self-describing hea
 with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
+
+## Unreleased
+
+- **`sensorGetNaN(path)` and `isNan(x)`** (ABI 33). `sensorGet` answers 0 for a missing value, and a
+  slot that is busy at that moment leaves its `JsonCall` block out of the sensor JSON, so a script
+  reading another slot's counter saw 0 (Andreas, HEMS, night 29./30.10.: battery counters read as 0,
+  daily balance wrong). `sensorGetNaN` is the same lookup but answers NaN when the path is absent;
+  `isNan(x)` tests it. `sensorGet` is unchanged. Needs a new IDE (`TinyCIde`) and ABI-33 firmware.
+- ⚠️ A big upload (`/ufsu`, port 82, IDE download) stops the VM slots only when it writes to the
+  internal flash; a write to the SD card leaves them running. The stop now logs the number of
+  slots and the largest block (`TC: flash big-write …`).
 
 ## 1.6.76 — 2026-10-28
 

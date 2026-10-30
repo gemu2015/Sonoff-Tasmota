@@ -140,7 +140,7 @@ Callbacks run automatically from Tasmota's main loop:
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
 **Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`, `fileFormat`, `fileMkdir`, `fileRmdir`, `fileReadArray`, `fileWriteArray`, `fileLog`, `fileDownload`, `fileGetStr`, `fileExtract`, `fileExtractFast`, `fsInfo`
 **Time:** `timeStamp`, `timeConvert`, `timeOffset`, `timeToSecs`, `secsToTime`
-**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
+**Tasmota:** `tasmCmd`, `sensorGet`, `sensorGetNaN`, `isNan`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
 **FTP:** `ftpOpen`, `ftpClose`, `ftpPut`, `ftpPutStr`, `ftpGet`, `ftpGetStr`, `ftpList`, `ftpSize`, `ftpDelete`, `ftpMkdir`, `ftpRename` — files on an FTP server (FRITZ!NAS …): write or append, read, list, manage
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`, `tcpConnect`, `tcpDisconnect`, `tcpConnected`, `tcpSelect` (4 parallel client slots)

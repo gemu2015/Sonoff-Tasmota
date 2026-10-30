@@ -2982,6 +2982,8 @@ Read any Tasmota sensor value by its JSON path. Path segments are separated by `
 | Function | Description |
 |----------|-------------|
 | `float sensorGet("Sensor#Key")` | Read sensor value, returns float |
+| `float sensorGetNaN("Sensor#Key")` | Same lookup, but returns NaN instead of 0 when the value is missing (ABI 33) |
+| `int isNan(float x)` | 1 if `x` is NaN, else 0 (ABI 33) |
 
 The function internally triggers a sensor status read and navigates the JSON tree. Supports up to 3 levels of nesting.
 
@@ -3001,11 +3003,15 @@ float today = sensorGet("ENERGY#Today");
 
 // Nested: Zigbee device
 float zt = sensorGet("ZbReceived#0x2342#Temperature");
+
+// A value that must not be mistaken for 0 (e.g. a battery counter): keep the last good one
+float kwh = sensorGetNaN("ENERGY#Total");
+if (isNan(kwh)) { return; }       // missing -> try again next tick
 ```
 
 **Notes:**
 - Path must be a string literal (resolved at compile time)
-- Returns 0.0 if the sensor or key is not found
+- Returns 0.0 if the sensor or key is not found. ⚠️ A slot that is busy at that moment (its `JsonCall` is skipped, `sensorGet` never waits) looks the same, so a real 0 and a missing value cannot be told apart. Use `sensorGetNaN` where that matters (counters, daily balances)
 - Returns a float — assign to a `float` variable
 - In the browser IDE, simulates Temperature=22.5, Humidity=55.0, Pressure=1013.25
 

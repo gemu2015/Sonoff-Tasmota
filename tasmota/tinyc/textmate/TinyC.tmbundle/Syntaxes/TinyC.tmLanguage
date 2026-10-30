@@ -327,7 +327,7 @@
 					<key>name</key>
 					<string>support.function.tasmota.tinyc</string>
 					<key>match</key>
-					<string>\b(tasmCmd|tasmDefer|tasmInfo|tasmPower|tasmSwitch|tasmCounter|sensorGet|responseAppend|webSend|webFlush|addLog|addLogLevel|addCommand|responseCmnd|pluginQuery|bcall)\b</string>
+					<string>\b(tasmCmd|tasmDefer|tasmInfo|tasmPower|tasmSwitch|tasmCounter|sensorGet|sensorGetNaN|isNan|responseAppend|webSend|webFlush|addLog|addLogLevel|addCommand|responseCmnd|pluginQuery|bcall)\b</string>
 				</dict>
 				<dict>
 					<key>name</key>

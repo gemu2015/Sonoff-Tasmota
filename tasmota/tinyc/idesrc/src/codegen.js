@@ -353,6 +353,9 @@ const BUILTINS = {
 
     // Sensor JSON parsing
     'sensorGet':        { syscall: Syscall.SENSOR_GET,      args: 1, returns: true,  constArgs: [0] },
+    // Same lookup, but NaN (not 0) when the value is missing -- e.g. the slot that owns it was busy. Test with isNan().
+    'sensorGetNaN':     { syscall: Syscall.SENSOR_GET_NAN,  args: 1, returns: true,  constArgs: [0], returnFloat: true },
+    'isNan':            { syscall: Syscall.IS_NAN,          args: 1, returns: true },
     // Generic JSON parsing on ANY char[] buffer (e.g. an httpGet response from a
     // remote device). Path is '#'-separated like sensorGet ("StatusSNS#SHT3X#Temperature").
     'jsonNum':          { syscall: Syscall.JSON_NUM,        args: 2, returns: true,  strArgs: [0, 1], returnFloat: true },
@@ -988,6 +991,7 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
+        [567, 33],                      // sensorGetNaN, isNan
         [556, 32],                      // ftpOpen … ftpRename (FTP-Sitzung)
         [555, 31],                      // serialReadArray
         [546, 30],                      // usb* (FTDI am USB-Host) -- bis 22.09.2026 fehlten V30/V31 hier,

@@ -355,7 +355,7 @@ extern uint16_t tc_vm_stack_bytes;
 #include "xdrv_124_tinyc_spp.h"
 #include "xdrv_124_tinyc_usb.h"
 
-#define TC_SYSCALL_ABI     32    // V32: FTP client (556-566). Every ABI step is listed in tasmota/tinyc/CHANGELOG.md
+#define TC_SYSCALL_ABI     33    // V33: sensorGetNaN/isNan (567-568). V32: FTP client (556-566). Every ABI step is listed in tasmota/tinyc/CHANGELOG.md
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // When bumping TC_RELEASE or TC_SYSCALL_ABI, add the entry to tasmota/tinyc/CHANGELOG.md
 // (and to its ABI table) -- the release text is taken from there. Keep these comments short.
@@ -1445,6 +1445,8 @@ enum TcSyscall {
   SYS_FTP_DELETE       = 564, // (remote_ref)                  -> int 0 ok
   SYS_FTP_MKDIR        = 565, // (dir_ref)                     -> int 0 ok
   SYS_FTP_RENAME       = 566, // (from_ref, to_ref)            -> int 0 ok
+  SYS_SENSOR_GET_NAN   = 567, // (const_idx_path)              -> float, NaN when the path is absent (sensorGet gives 0)
+  SYS_IS_NAN           = 568, // (float)                       -> int 1 if NaN
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
@@ -11988,8 +11990,13 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
     }
 
     // ── Sensor JSON parsing ─────────────────────────────
-    case SYS_SENSOR_GET: {
-      // sensorGet("SensorName#Key#SubKey") -> float value
+    case SYS_SENSOR_GET:
+    case SYS_SENSOR_GET_NAN: {
+      // sensorGet("SensorName#Key#SubKey") -> float value. sensorGetNaN() is the same
+      // lookup but answers NaN when the path is not in the JSON -- which is also what
+      // happens when the owning slot was busy and its JsonCall block was left out of the
+      // fan-out (sensorGet cannot wait). sensorGet itself keeps answering 0.
+      bool found = false;
       int32_t ci = TC_POP(vm);  // constant pool index with JSON path
       float fval = 0.0f;
       if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
@@ -12020,14 +12027,22 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
           } else {
             // leaf value — extract float
             fval = tok.getFloat();
+            found = true;
           }
           seg = next;
         }
       }
+      if (id == SYS_SENSOR_GET_NAN && !found) { fval = NAN; }
       // Push float as int32 bit pattern
       uint32_t fi;
       memcpy(&fi, &fval, 4);
       TC_PUSH(vm, (int32_t)fi);
+      break;
+    }
+    case SYS_IS_NAN: {                   // isNan(x) -> 1 if x is NaN
+      int32_t bits = TC_POP(vm);
+      float f; memcpy(&f, &bits, 4);
+      TC_PUSH(vm, (f != f) ? 1 : 0);
       break;
     }
 

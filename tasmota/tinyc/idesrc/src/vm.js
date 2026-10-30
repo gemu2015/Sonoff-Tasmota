@@ -3329,6 +3329,26 @@ export class VM {
                 this.push(0);
                 break;
             }
+            case 567: { // SENSOR_GET_NAN (browser simulation: NaN for a key the simulator does not know)
+                const ci = this.pop();
+                const path = (ci >= 0 && ci < this.constants.length && typeof this.constants[ci] === 'string')
+                    ? this.constants[ci] : '';
+                const key = path.split('#').pop().toLowerCase();
+                const known = { temperature: 22.5, humidity: 55.0, pressure: 1013.25 };
+                const fval = (key in known) ? known[key] : NaN;
+                this.onOutput(`[SENSOR] getNaN "${path}" = ${fval}\n`);
+                const buf = new ArrayBuffer(4);
+                new Float32Array(buf)[0] = fval;
+                this.push(new Int32Array(buf)[0]);
+                break;
+            }
+            case 568: { // IS_NAN
+                const buf = new ArrayBuffer(4);
+                new Int32Array(buf)[0] = this.pop();
+                const f = new Float32Array(buf)[0];
+                this.push(f !== f ? 1 : 0);
+                break;
+            }
             case 142: { // HTTP_HEADER
                 const valueRef = this.pop();
                 const nameRef = this.pop();
