@@ -22,7 +22,7 @@ running.
 
 | ABI | Firmware | Change |
 |---|---|---|
-| 33 | next | `sensorGetNaN`, `isNan` (567–568) |
+| 33 | 1.6.76 | `sensorGetNaN`, `isNan` (567–568) |
 | 32 | 1.6.68 | FTP client (syscalls 556–566) |
 | 31 | 1.6.67 | `serialReadArray` (555) |
 | 30 | 1.6.67 | USB host for FTDI adapters, `usb*` (546–554) |
@@ -57,8 +57,17 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## Unreleased
+## 1.6.76 — 2026-10-30
 
+- **eBUS (SML): the slave's reply is checked before a telegram is decoded** (Andreas, 30.10.2026). Only
+  the master part had a CRC check, but the measured value sits in the slave's reply, so a disturbed or
+  missing reply was decoded as if it were valid (single-telegram outliers: 0, 96 °C air intake,
+  9732 l/h). Now a reply with a wrong CRC, a NAK, a cut-off reply or no reply is dropped; broadcasts and
+  master-master telegrams are exempt. A telegram without any reply (device scans) is logged at debug
+  level only (`ebus slave crc error …`), the other drops at info level. Compiled and tested on the host
+  with artificial telegrams; not run on an eBUS device yet.
+- ℹ️ The `eebus-eth` release images (Ethernet/EEBUS) keep the older settings ID **5002**; this release uses
+  4617. Flashing one over the other resets the settings.
 - **`sensorGetNaN(path)` and `isNan(x)`** (ABI 33). `sensorGet` answers 0 for a missing value, and a
   slot that is busy at that moment leaves its `JsonCall` block out of the sensor JSON, so a script
   reading another slot's counter saw 0 (Andreas, HEMS, night 29./30.10.: battery counters read as 0,
@@ -67,9 +76,6 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 - ⚠️ A big upload (`/ufsu`, port 82, IDE download) stops the VM slots only when it writes to the
   internal flash; a write to the SD card leaves them running. The stop now logs the number of
   slots and the largest block (`TC: flash big-write …`).
-
-## 1.6.76 — 2026-10-28
-
 - ⚠️ **`tcpSelect()` is now per VM, not one pointer for all slots** (Andreas, 29.10.2026). The selected outgoing TCP client used to live once in the driver state, so two slots that both talk TCP in their own tasks overwrote each other's selection: slot A's `tcpSelect(0)`, a wait for the reply, slot B's `tcpSelect(1)` in between, and A read from (or wrote to) B's connection. Now each VM (and each `spawnTask` worker) keeps its own selection. Behaviour change: a slot that never calls `tcpSelect` always uses client 0 (before it inherited whatever another slot had selected last). Test on an ESP32-S3: two slots, each writing 600 lines to its own client of a Mac server over 50 s: before 2 and 580 lines arrived (slot 0 nearly silent), after 598 and 597, no line on the wrong connection.
 - **`TinyCLogName 1`: lines written with `addLog()` / `addLogLvl()` start with the program's `// @name:`** (mi-hol, #137). `TCC: [SML Chart Shelly] start …` instead of every script inventing its own identification string, so a log line can be linked to the running script (the same name the slot row and the repository list show). Off by default (a script that adds its own prefix would show both); saved in `/tinyc.cfg` as `_logname,1`, takes effect at once; build default `-DTINYC_LOG_NAME=1`. A program without `@name` stays unchanged. The prefix is read from the `.tcb` header in memory, so it costs nothing at load time.
 - ⚠️ **Settings ID (`CFG_HOLDER`) is now 4617, the same as official Tasmota and ottelo's images** (mi-hol, #129). Our release builds carried 5002, ottelo's images 4617, so every switch between the two (and from official Tasmota) threw the saved settings away: default settings, Wi-Fi included, and a device that could not be reached any more. From this build on the settings are kept when you switch between them. **One last reset:** a device that runs a TinyC build up to 1.6.75 has the ID 5002 and starts with default settings when it gets this build for the first time (Wi-Fi included, open access point `sonoff-NNNN`, `http://192.168.4.1`), so make a backup first (`Backup Configuration`). The release text says so. The ID lives in the (untracked) `user_config_override.h` of the build tree, public builds from `my_user_config.h` always had 4617.
