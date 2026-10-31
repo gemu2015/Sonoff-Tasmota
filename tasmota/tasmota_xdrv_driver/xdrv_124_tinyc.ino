@@ -4410,6 +4410,28 @@ static void HandleTinyCUpload(void) {
 
 // ---- API endpoint for browser IDE (JSON + CORS) ----
 // GET /tc_api?cmd=run|stop|status&slot=N
+// Files that must not leave (or be changed through) the unauthenticated file ways:
+// port 82 download, port 83 upload and /tc_api readfile/writefile/deletefile.
+// Matches the base name only (so "/ufs/ffs/../eebus_key.der" and the SD copy are covered),
+// ignores an "@from_to" range suffix. read=true: secrets that must never be readable.
+// read=false: additionally files whose content decides who the device trusts or talks to.
+// VM scripts are not affected (they are the owner's code and use tc_file_path directly).
+[[maybe_unused]] static bool tc_ext_path_blocked(const char *path, bool read) {
+  const char *b = strrchr(path, '/');
+  b = b ? b + 1 : path;
+  char n[32];
+  size_t i = 0;
+  for (; b[i] && ('@' != b[i]) && (i < sizeof(n) - 1); i++) { n[i] = (char)tolower((unsigned char)b[i]); }
+  n[i] = '\0';
+  if (strstr_P(path, PSTR("/.."))) { return true; }
+  if (!strcmp_P(n, PSTR("eebus_key.der")) || !strcmp_P(n, PSTR("tlskey")) ||
+      !strncmp_P(n, PSTR(".settings"), 9) || !strncmp_P(n, PSTR(".drvset"), 7) ||
+      !strncmp_P(n, PSTR(".snsset"), 7)) { return true; }
+  if (read) { return false; }
+  return !strcmp_P(n, PSTR("eebus_cert.der")) || !strcmp_P(n, PSTR("eebus_peer.txt")) ||
+         !strcmp_P(n, PSTR("eebus_cs_trust.txt")) || !strcmp_P(n, PSTR("eebus_cs_typ.txt"));
+}
+
 static void HandleTinyCApi(void) {
   TCSendCORS("GET, POST, OPTIONS");
 
@@ -4618,6 +4640,10 @@ static void HandleTinyCApi(void) {
       WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
       return;
     }
+    if (tc_ext_path_blocked(fpath.c_str(), false)) {
+      WSSendJSON_P(403, PSTR("{\"ok\":false,\"error\":\"protected file\"}"));
+      return;
+    }
     bool deleted = false;
     if (ufsp) deleted = ufsp->remove(fpath.c_str());
     if (!deleted && ffsp && ffsp != ufsp) deleted = ffsp->remove(fpath.c_str());
@@ -4634,6 +4660,10 @@ static void HandleTinyCApi(void) {
     String fpath = Webserver->arg(F("path"));
     if (fpath.length() == 0 || fpath[0] != '/') {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"missing path\"}"));
+      return;
+    }
+    if (tc_ext_path_blocked(fpath.c_str(), true)) {
+      WSSendJSON_P(403, PSTR("{\"ok\":false,\"error\":\"protected file\"}"));
       return;
     }
     if (!ufsp) {
@@ -4827,6 +4857,10 @@ static void HandleTinyCApi(void) {
     }
     if (!ufsp) {
       WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
+      return;
+    }
+    if (tc_ext_path_blocked(fpath.c_str(), false)) {
+      WSSendJSON_P(403, PSTR("{\"ok\":false,\"error\":\"protected file\"}"));
       return;
     }
     String body = Webserver->arg(F("plain"));
@@ -6941,6 +6975,18 @@ static void tc_download_task(void *param) {
   // "/ufs/ffs/backup.csv" -> flash, "/ufs/sdfs/x" -> SD, else ufsp. Lets a Flash
   // backup be downloaded back for md5-verify without a global dir switch. (Done
   // AFTER the @-range split so the prefix sees the clean path.)
+  if (tc_ext_path_blocked(path, true)) {
+    req->client.print(F("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n"
+                        "Access-Control-Allow-Origin: *\r\n"
+                        "Connection: close\r\n\r\nProtected file\r\n"));
+    delay(20);
+    req->client.stop();
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: DL refused (protected file): %s"), path);
+    delete req;
+    Tinyc->dl_busy = false;
+    vTaskDelete(NULL);
+    return;
+  }
   FS *fsp = tc_file_path(path);
   if (!fsp) fsp = ufsp;
   File file = fsp->open(path, "r");
@@ -7420,6 +7466,10 @@ static void tc_ul_handle(WiFiClient &client) {
     tc_ul_reply(client, "404 Not Found", "path must be /ufs/<file>"); return;
   }
   char *path = target + 4;          // "/ufs/SND/x.mp3" -> "/SND/x.mp3"
+  if (tc_ext_path_blocked(path, false)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: upload refused (protected file): %s"), path);
+    tc_ul_reply(client, "403 Forbidden", "protected file"); return;
+  }
   // Resolve the TARGET filesystem from the path prefix, same convention the VM
   // file syscalls use (tc_file_path): "/ufs/ffs/backup.csv" -> flash (ffsp),
   // "/ufs/sdfs/x" -> SD (ufsp), anything else -> ufsp (active/SD). This gives a
