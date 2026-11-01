@@ -3426,6 +3426,7 @@ static void HandleTinyCPage(void) {
   WSContentEnd();
 }
 
+static bool tc_ext_path_blocked(const char *path, bool read);   // defined below, before HandleTinyCApi
 // Set by HandleTinyCUpload when the file name is longer than a slot can carry; HandleTinyCUploadDone then says why.
 static bool tc_upload_name_error = false;
 
@@ -4121,6 +4122,16 @@ static void HandleTinyCUpload(void) {
              upload.filename.c_str(), (unsigned)strlen(upload.filename.c_str()), (unsigned)(sizeof(Tinyc->upload_filename) - 2));
       return;
     }
+
+    // Same list as the file ways on port 82/83 and /tc_api: a key or settings file must not be replaced by a program
+    // uploaded under its name (the name is the one the sender chose).
+    { char chk[sizeof(Tinyc->upload_filename) + 1];
+      snprintf_P(chk, sizeof(chk), PSTR("/%s"), upload.filename.c_str());
+      if (tc_ext_path_blocked(chk, false)) {
+        Web.upload_error = 1;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload refused (protected file): %s"), upload.filename.c_str());
+        return;
+      } }
 
     // ⚠️ Web.upload_error is a GLOBAL and nobody clears it for us. One failed
     // upload (a malloc that could not be served, an oversize file) therefore
@@ -7570,7 +7581,11 @@ static void tc_ul_handle(WiFiClient &client) {
     else if (use_tmp) {
       // FAT cannot rename over an existing file, so remove the old one first
       fsp->remove(path);
-      if (!fsp->rename(wpath, path)) { ok = false; err = "rename failed"; fsp->remove(wpath); }
+      if (!fsp->rename(wpath, path)) {
+        // keep the complete new file under its temp name: the old one is gone already, deleting this too would lose both
+        ok = false; err = "rename failed";
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: upload complete but rename failed, new file kept as %s"), wpath);
+      }
     }
   }
 
