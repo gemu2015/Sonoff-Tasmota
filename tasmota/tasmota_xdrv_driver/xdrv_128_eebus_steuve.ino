@@ -17,6 +17,10 @@
     passt sie nicht: keine Verbindung. EEBusStatus zeigt je Slot "SkiQuelle". Damit weist die SteuVE ein HEMS, das
     sie vor ihrer Fundliste anruft, nicht mehr als Pseudo-SKI (Adresse) ab (22.10. 10:16).
     Ausserdem: ein Write auf eine andere limitId als 1 (unsere einzige Grenze) wird ignoriert und ins Log geschrieben.
+  SteuVE v026 (01.11.2026, Vorschlag Andreas 31.10.): als Wiederaufbau-Partner wird nur noch ein VERTRAUTER Energy Guard
+    gemerkt (EebusCsTrusted). Sonst rief die SteuVE nach "Vertrauen entziehen" + Trennen die alte Gegenstelle selbst wieder an.
+    Neu: EEBusCsPower unbekannt (Verbrauch nicht bekannt: valueState error, einmal gemeldet, bis wieder ein Wert kommt);
+    EEBusCs zeigt "Bekannt":0/1.
   SteuVE v025 (26.10.2026): mDNS kuendigt auch die IPv4 an (mdns_netif_action ENABLE/ANNOUNCE_IP4 nach mdns_init).
     Bisher nur AAAA, weil mdns_init erst nach dem Ereignis "IPv4 bekommen" lief; Geraete ohne IPv6 konnten uns nicht anrufen.
   SteuVE v024 (25.10.2026, Normpruefung LPC V1.0.0): im Zustand "init" (Anlauf) gilt die Failsafe-Grenze [LPC-901/1]
@@ -420,6 +424,7 @@ uint32_t eebus_cs_max_w      = 0;       // Nennleistung (hoechste Bezugsleistung
 int32_t  eebus_cs_pwr_w      = 0;       // aktuelle Leistung in W
 uint32_t eebus_cs_energy_wh  = 0;       // Zaehlerstand Bezug in Wh (0 = nicht gemeldet)
 bool     eebus_cs_pwr_have   = false;   // wurde ueberhaupt schon ein Messwert gemeldet?
+bool     eebus_cs_pwr_unk_push = false; // v026: "unbekannt" wurde gesetzt, ein Notify mit valueState error steht aus
 int32_t  eebus_cs_pwr_sent   = 0;       // zuletzt per Notify gesendeter Wert
 uint32_t eebus_cs_pwr_sent_at = 0;      // millis() des letzten Messwert-Notify
 #define EEBUS_CS_MEAS_MIN_MS   10000UL
@@ -3517,13 +3522,14 @@ void EebusCsTick(void) {
 // SteuVE v003: Messwerte gebremst an alle Abonnenten. Senden, wenn (a) noch nie gesendet, (b) Aenderung
 // ab 10 W bzw. 2 % und mindestens 10 s seit dem letzten Notify, oder (c) 60 s ohne Notify.
 void EebusCsMeasNotify(void) {
-  if (!eebus_cs_pwr_have) { return; }
+  bool unk = !eebus_cs_pwr_have;
+  if (unk && !eebus_cs_pwr_unk_push) { return; }
   uint32_t weg = millis() - eebus_cs_pwr_sent_at;
   int32_t d = eebus_cs_pwr_w - eebus_cs_pwr_sent;
   if (d < 0) { d = -d; }
   int32_t schwelle = abs(eebus_cs_pwr_sent) / 50;   // 2 %
   if (schwelle < 10) { schwelle = 10; }
-  bool faellig = (0 == eebus_cs_pwr_sent_at) ||
+  bool faellig = unk || (0 == eebus_cs_pwr_sent_at) ||
                  ((d >= schwelle) && (weg >= EEBUS_CS_MEAS_MIN_MS)) ||
                  (weg >= EEBUS_CS_MEAS_KEEP_MS);
   if (!faellig) { return; }
@@ -3542,6 +3548,7 @@ void EebusCsMeasNotify(void) {
     eebus_cs_pwr_sent = eebus_cs_pwr_w;
     eebus_cs_pwr_sent_at = millis();
     if (0 == eebus_cs_pwr_sent_at) { eebus_cs_pwr_sent_at = 1; }
+    if (unk) { eebus_cs_pwr_unk_push = false; }
   }
 }
 
@@ -3596,8 +3603,8 @@ void EebusCsJsonAppend(void) {
     long fr = eebus_cs_fs_dur_s - (long)((millis() - eebus_cs_state_at) / 1000UL);
     rest = (fr > 0) ? fr : 0;
   }
-  ResponseAppend_P(PSTR(",\"" D_PRFX_EEBUS "Cs\":{\"Begrenzt\":%d,\"Grenze\":%u,\"Zustand\":%d,\"RestS\":%ld,\"Leistung\":%d,\"Max\":%u}"),
-                   lim ? 1 : 0, w, (int)eebus_cs_state, rest, (int)eebus_cs_pwr_w, eebus_cs_max_w);
+  ResponseAppend_P(PSTR(",\"" D_PRFX_EEBUS "Cs\":{\"Begrenzt\":%d,\"Grenze\":%u,\"Zustand\":%d,\"RestS\":%ld,\"Leistung\":%d,\"Bekannt\":%d,\"Max\":%u}"),
+                   lim ? 1 : 0, w, (int)eebus_cs_state, rest, (int)eebus_cs_pwr_w, eebus_cs_pwr_have ? 1 : 0, eebus_cs_max_w);
 }
 
 // EEBusCs — Zustand der steuerbaren Verbrauchseinrichtung.
@@ -3609,11 +3616,18 @@ void CmndEebusCs(void) {
 
 // EEBusCsPower <W> [Wh] — aktuelle Leistung (und Zaehlerstand) der geschalteten Verbraucher; vom Skript.
 void CmndEebusCsPower(void) {
-  if (XdrvMailbox.data_len > 0) {
+  if ((XdrvMailbox.data_len > 0) &&
+      (!strncasecmp_P(XdrvMailbox.data, PSTR("unbekannt"), 9) || !strncasecmp_P(XdrvMailbox.data, PSTR("unknown"), 7))) {
+    // v026: Verbrauch nicht bekannt (Verbraucher antworten nicht): valueState error statt erfundener 0 W
+    if (eebus_cs_pwr_have) { eebus_cs_pwr_unk_push = true; }
+    eebus_cs_pwr_have = false;
+  } else if (XdrvMailbox.data_len > 0) {
     char *e = nullptr;
     long w = strtol(XdrvMailbox.data, &e, 10);
     eebus_cs_pwr_w = (int32_t)w;
+    if (!eebus_cs_pwr_have) { eebus_cs_pwr_sent_at = 0; }   // v026: zurueck von unbekannt -> sofort "normal" melden
     eebus_cs_pwr_have = true;
+    eebus_cs_pwr_unk_push = false;
     if (e && *e) {
       unsigned long wh = strtoul(e, nullptr, 10);
       if (wh) { eebus_cs_energy_wh = (uint32_t)wh; }
@@ -5378,7 +5392,7 @@ void EebusSmeReachDone(const char *grund) {
    // Partner, obwohl der eigentliche Partner verbunden blieb — nach dem naechsten Stromausfall verband
    // sich die Box dann mit dem falschen Geraet (03.08. so beinahe passiert). Ein bewusster Wechsel
    // (alten Partner trennen, neuen verbinden) wird weiter gemerkt.
-  if (!ESp->via_srv) {
+  if (!ESp->via_srv && ((3 != eebus_role) || EebusCsTrusted())) {
     bool alter_partner_da = false;
     if (eebus_ac_ski[0] && (0 != strcmp(eebus_ac_ski, ESp->peer_ski))) {
       for (uint32_t k = 0; k < EEBUS_MAX_CONN; k++) {

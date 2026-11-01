@@ -200,6 +200,12 @@
   .hide{display:none}
   #log{white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted);
        max-height:140px;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px}
+  /* 31.10. (Andreas): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
+  dialog.frage{background:var(--panel);color:var(--txt);border:2px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px))}
+  dialog.frage::backdrop{background:rgba(0,0,0,.65)}
+  .frage_kopf{background:var(--warn);color:#000;font-weight:700;padding:10px 14px}
+  .frage_text{padding:14px;white-space:pre-line}
+  .frage_knoepfe{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:0 14px 14px}
 </style>
 </head>
 <body>
@@ -1056,15 +1062,40 @@
       setTimeout(refresh, 5000);
     });
   }
+  // 31.10. (Andreas): Rueckfrage als Fenster der Seite. Abbrechen ist vorgewaehlt, Eingabetaste und Esc trennen also nichts.
+  function frage(kopf, text, ja){
+    return new Promise(function(fertig){
+      var d = document.createElement('dialog');
+      d.className = 'frage';
+      var k = document.createElement('div'); k.className = 'frage_kopf'; k.textContent = '⚠ ' + kopf;
+      var t = document.createElement('div'); t.className = 'frage_text'; t.textContent = text;
+      var z = document.createElement('div'); z.className = 'frage_knoepfe';
+      var nein = document.createElement('button'); nein.className = 'sec'; nein.textContent = 'Abbrechen'; nein.autofocus = true;
+      nein.onclick = function(){ d.close('nein'); };
+      var jb = document.createElement('button'); jb.className = 'bad'; jb.textContent = ja;
+      jb.onclick = function(){ d.close('ja'); };
+      z.appendChild(nein); z.appendChild(jb);
+      d.appendChild(k); d.appendChild(t); d.appendChild(z);
+      d.addEventListener('close', function(){ var r = (d.returnValue === 'ja'); d.remove(); fertig(r); });
+      document.body.appendChild(d);
+      d.showModal();
+    });
+  }
   // Nur das GEWAEHLTE Gerät trennen — ohne Ziel wuerde der Treiber alle Verbindungen beenden.
   function doDisconnect(){
     if(needDevice()) return;
     var p = peers[selIdx];
-    knopfZeig('b_disc', '⏳ trennt …', '#FFEB9C');
-    cmd('EEBusDisconnect ' + p.Ski).then(function(j){
-      say(JSON.stringify(j)); setTimeout(refresh, 800);
-      var ok = j && j.EEBusDisconnect && /disconnect|getrennt/i.test(JSON.stringify(j.EEBusDisconnect));
-      knopfZeig('b_disc', ok ? '✓ getrennt' : '✗ ' + (j ? JSON.stringify(j.EEBusDisconnect || j).slice(0, 40) : 'keine Antwort'), ok ? '#37c871' : '#e05a4a', 10000);
+    // 30.10. (Andreas): Trennen heisst „bleib weg“ - nur dieses Gerät aus der Wiederaufbau-Liste nehmen (nie -1, das löscht alle).
+    frage('Steuerbox ' + location.hostname + ': Gerät trennen',
+      'Gerät …' + String(p.Ski).slice(-4) + ' trennen?\n\nDie Steuerbox ruft es nicht mehr von selbst an, auch nicht nach einem Neustart. Ruft das Gerät selbst an, ist es wieder verbunden. § 14a-Befehle erreichen es sonst nicht mehr.',
+      'Trennen').then(function(ja){
+      if(!ja) return;
+      knopfZeig('b_disc', '⏳ trennt …', '#FFEB9C');
+      cmd('EEBusAutoConn -' + p.Ski).then(function(){ return cmd('EEBusDisconnect ' + p.Ski); }).then(function(j){
+        say(JSON.stringify(j)); setTimeout(refresh, 800);
+        var ok = j && j.EEBusDisconnect && /disconnect|getrennt/i.test(JSON.stringify(j.EEBusDisconnect));
+        knopfZeig('b_disc', ok ? '✓ getrennt' : '✗ ' + (j ? JSON.stringify(j.EEBusDisconnect || j).slice(0, 40) : 'keine Antwort'), ok ? '#37c871' : '#e05a4a', 10000);
+      });
     });
   }
 

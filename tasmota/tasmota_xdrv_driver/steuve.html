@@ -50,6 +50,10 @@ h1{font-size:22px;margin:0;font-weight:650}
 .btn.tas{background:#1fa3ec;color:#fff;border:0;text-decoration:none}
 .btn#theme{background:#FFEB9C;color:#9C5700;border:0}
 .pane{display:none} .pane.on{display:block}
+/* 31.10.: Unterreiter wie auf der HEMS-Seite */
+.upane{display:none} .upane.on{display:block}
+.tabs.subt{margin-top:-6px}
+.tabs.subt button{font-size:12px;padding:4px 10px}
 .flowbox{position:relative;margin:0 0 14px;background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:8px}
 .corner-l,.corner-r{position:absolute;top:12px;z-index:2}
 .corner-l{left:12px} .corner-r{right:12px}
@@ -68,6 +72,9 @@ h1{font-size:22px;margin:0;font-weight:650}
 .card{background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:14px 16px;min-width:0}
 .card h2{font-size:13px;font-weight:600;color:var(--ink-2);margin:0 0 6px;display:flex;align-items:center;gap:8px}
 .sw{width:10px;height:10px;border-radius:3px;flex:none}
+/* 31.10. (Andreas): Verbraucher-Karten gleich hoch - Name einzeilig, Kennzeichen in eigener, immer freigehaltener Zeile */
+.vname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.vtags{min-height:20px;margin:0 0 6px;white-space:nowrap;overflow:hidden}
 .hero{font-size:28px;font-weight:650}
 .hero small{font-size:14px;font-weight:500;color:var(--ink-2);margin-left:4px}
 .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:8px;font-size:13px}
@@ -125,6 +132,14 @@ tr.leer td{opacity:.45} tr.leer td.ipz{opacity:1}
 tr.wichtig td{background:rgba(250,178,25,.12)} tr.wichtig td:nth-child(4){font-weight:600}
 tr.abgew td{background:rgba(224,90,74,.15)}
 pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;padding:8px 10px;white-space:pre-wrap;font-size:12px;margin:0;max-height:160px;overflow:auto}
+/* 31.10. (Andreas): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
+dialog.frage { background:var(--surface); color:var(--ink); border:2px solid var(--warn); border-radius:10px; padding:0; max-width:min(460px,calc(100vw - 32px)); }
+dialog.frage::backdrop { background:rgba(0,0,0,.65); }
+.frage_kopf { background:var(--warn); color:#000; font-weight:700; padding:10px 14px; }
+.frage_text { padding:14px; white-space:pre-line; }
+.frage_knoepfe { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; padding:0 14px 14px; }
+.frage_knoepfe button { border:1px solid var(--axis); border-radius:6px; padding:8px 14px; cursor:pointer; font-weight:600; background:var(--surface-2); color:var(--ink); }
+.frage_knoepfe button.ja { background:var(--crit); border-color:var(--crit); color:#fff; }
 </style>
 </head>
 <body>
@@ -150,7 +165,12 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
 
 <!-- ================= SteuVE (Geraet) ================= -->
 <div class="pane" data-p="dev">
-<div class="grid two">
+<!-- 31.10. (Andreas): zwei Kacheln, HEMS / Energy Guard vorne; die Kennung braucht man nur beim Koppeln -->
+<nav class="tabs subt" role="tablist">
+  <button role="tab" data-u="hems" aria-selected="true">HEMS / Energy Guard (Steuerbox)</button>
+  <button role="tab" data-u="kenn" aria-selected="false">Eigene Kennung</button>
+</nav>
+<div class="upane" data-u="kenn">
   <div class="card"><h2>Eigene Kennung (diese SteuVE)</h2>
     <div class="note" style="margin-top:6px">SHIP-ID</div>
     <div class="row"><span class="idv" id="id_ship">—</span>
@@ -171,7 +191,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
         <figure><div id="qr_id"></div><figcaption>SHIP-ID</figcaption></figure>
         <figure><div id="qr_ski"></div><figcaption>SKI</figcaption></figure>
       </div>
-      <p class="note" id="qr_txt" style="word-break:break-all;text-align:left;max-width:none"></p>
+      <p class="note" id="qr_txt" style="word-break:break-all;white-space:pre-line;text-align:left;max-width:none"></p>
       <p class="note" style="text-align:left;max-width:none">Die Codes entstehen jedes Mal neu aus der aktuellen Kennung — nach „Neue Identität“ zeigen sie die neue. Inhalt nach „SHIP Requirements for Installation Process“ V1.1.0 [SRIP-310/4–19], Fehlerkorrektur M.</p>
     </div>
     <div class="row" style="margin-top:10px">
@@ -190,7 +210,9 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     </div>
     <p class="note" id="id_nach" style="display:none">Neue Identität erzeugt und neu angekündigt. Bestehende Verbindungen
       laufen noch mit der alten — das HEMS sieht die neue SKI beim nächsten Verbinden.</p></div>
+</div>
 
+<div class="upane on" data-u="hems">
   <div class="card"><h2>HEMS / Energy Guard (wem die SteuVE gehorcht)</h2>
     <div class="kv"><span>Steuerweg</span><span id="eg_weg">—</span>
       <span>Gerät</span><span id="eg_dev">—</span><span>Adresse</span><span id="eg_ip">—</span>
@@ -201,8 +223,20 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
     <p class="note">Nur einem vertrauten Gerät folgt die SteuVE: im Normalfall dem HEMS (es verteilt den
       §14a-Sollwert der Steuerbox), ohne HEMS dem Energy Guard (Steuerbox) selbst (Direktsteuerung). Entziehen trennt die
       Verbindung sofort; die SteuVE läuft dann autonom (ohne Begrenzung). „Vertrauen“ hier = der Energiemanager aus der
-      Fundliste; ein anderes Gerät unten in der Liste wählen.</p></div>
-</div>
+      Fundliste; ein anderes Gerät unten in der Liste wählen.</p>
+    <!-- 31.10. (Andreas): QR-Codes des vertrauten Geraets (HEMS oder Steuerbox), Aufbau wie bei der eigenen Kennung -->
+    <div class="row"><button class="btn" id="eg_qr_auf">QR-Codes anzeigen</button></div>
+    <div id="eg_qr_box" style="display:none">
+      <p class="note" id="eg_qr_leer" style="display:none">Kein QR-Code: Es ist kein Gerät vertraut, oder es steht nicht in der Fundliste („neu suchen“).</p>
+      <div id="eg_qr_inhalt">
+        <div class="qrgrid">
+          <figure><div id="eg_qr_ship"></div><figcaption>Kopplung (SHIP-Format wie auf dem Typschild)</figcaption></figure>
+          <figure><div id="eg_qr_id"></div><figcaption>SHIP-ID</figcaption></figure>
+          <figure><div id="eg_qr_ski"></div><figcaption>SKI</figcaption></figure>
+        </div>
+        <p class="note" id="eg_qr_txt" style="word-break:break-all;white-space:pre-line;text-align:left;max-width:none"></p>
+      </div>
+    </div></div>
 
 <section>
   <h3>Gefundene EEBUS-Geräte <span class="note">— Kennung immer über die SKI, nie über die Listennummer</span>
@@ -214,6 +248,7 @@ pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;p
   <p class="note">„Vertrauen“ speichert die SKI im Flash. Erst dann darf das Gerät Grenzen und Failsafe-Werte schreiben;
     fremde Schreibversuche werden abgewiesen. Nur ein Gerät (HEMS oder Energy Guard) kann gleichzeitig vertraut sein.</p></div>
 </section>
+</div>
 </div>
 
 <!-- ================= Übersicht ================= -->
@@ -631,7 +666,7 @@ function qrFuellen(pre, o){
   document.getElementById(pre + 'ship').innerHTML = qrSvg(txt, 200);
   document.getElementById(pre + 'id').innerHTML = qrSvg(o.id, 200);
   document.getElementById(pre + 'ski').innerHTML = qrSvg(o.ski.replace(/\s/g, ''), 200);
-  document.getElementById(pre + 'txt').textContent = txt;
+  document.getElementById(pre + 'txt').textContent = 'Kopplung: ' + txt + '\nSHIP-ID: ' + o.id + '\nSKI: ' + o.ski.replace(/\s/g, '');   // 31.10.: je QR-Code eine Zeile
 }
 function qrKnopf(pre, neu){
   const b = document.getElementById(pre + 'auf'), box = document.getElementById(pre + 'box');
@@ -649,12 +684,22 @@ function eigeneKennung(c){
 }
 function qrNeu(){ qrFuellen('qr_', CS ? eigeneKennung(CS) : null); }
 qrKnopf('qr_', qrNeu);
+// 31.10.: das vertraute Geraet, Angaben so, wie es sich im Netz ankuendigt (Fundliste)
+function egQrNeu(){
+  if ($('eg_qr_box').style.display === 'none') { return; }
+  const p = peerBySki((CS || {}).Vertraut || ''), da = !!(p && p.Id && p.Ski);
+  $('eg_qr_leer').style.display = da ? 'none' : '';
+  $('eg_qr_inhalt').style.display = da ? '' : 'none';
+  if (da) { qrFuellen('eg_qr_', { ski: p.Ski, id: p.Id, brand: p.Brand, type: p.Type, model: p.Model, serial: p.Serial, cat: p.Cat }); }
+}
+qrKnopf('eg_qr_', egQrNeu);
 
 function renderDev(){
   const c = CS || {};
   setId($('id_ship'), c.Id || '', false);
   setId($('id_ski'), c.Ski || '', true);
   qrNeu();
+  egQrNeu();
   const teile = (c.Id || '').split('-');
   $('k_brand').textContent = teile[0] || '—';
   $('k_mod').textContent = teile[1] || '—';
@@ -678,7 +723,7 @@ function renderDev(){
   $('eg_rej').textContent = c.Abgewiesen ? c.Abgewiesen + ' (zuletzt ' + (c.AbgewiesenVon || '?') + ')' : '0';
   const hms = PEERS.filter(istHm);
   if (!istBusy($('eg_ja'))) { $('eg_ja').disabled = !!tr || hms.length !== 1; }
-  if (!istBusy($('eg_nein'))) { $('eg_nein').disabled = !tr; }
+  if (!istBusy($('eg_nein'))) { $('eg_nein').disabled = !tr && !c.EnergyGuard; }   // 30.10.: auch ohne Vertrauen, solange eine Gegenstelle verbunden ist
 
   if (!PEERS.length) { $('ptab').innerHTML = '<tr><td colspan="6">keine Geräte gefunden — „neu suchen“</td></tr>'; return; }
   const fremd = PEERS.filter(p => !c.Ski || (p.Ski || '').toLowerCase() !== c.Ski.toLowerCase());
@@ -694,15 +739,40 @@ function renderDev(){
   }).join('');
   document.querySelectorAll('[data-trust]').forEach(b => b.onclick = () => trust(b.dataset.trust, b));
 }
-function trust(ski, knopf){
+// 31.10. (Andreas): Rueckfrage als Fenster der Seite. Abbrechen ist vorgewaehlt, Eingabetaste und Esc loesen also nichts aus.
+// Ohne ja-Text ist es eine reine Meldung mit „OK“.
+function frage(kopf, text, ja){
+  return new Promise(fertig => {
+    const d = document.createElement('dialog');
+    d.className = 'frage';
+    const k = document.createElement('div'); k.className = 'frage_kopf'; k.textContent = '⚠ SteuVE ' + location.hostname + ': ' + kopf;
+    const t = document.createElement('div'); t.className = 'frage_text'; t.textContent = text;
+    const z = document.createElement('div'); z.className = 'frage_knoepfe';
+    const nein = document.createElement('button'); nein.textContent = ja ? 'Abbrechen' : 'OK'; nein.autofocus = true;
+    nein.onclick = () => d.close('nein');
+    z.appendChild(nein);
+    if (ja) {
+      const jb = document.createElement('button'); jb.className = 'ja'; jb.textContent = ja;
+      jb.onclick = () => d.close('ja');
+      z.appendChild(jb);
+    }
+    d.append(k, t, z);
+    d.addEventListener('close', () => { const r = d.returnValue === 'ja'; d.remove(); fertig(r); });
+    document.body.appendChild(d);
+    d.showModal();
+  });
+}
+async function trust(ski, knopf){
   const neu = ski && ski !== '0';
   const t = neu ? 'SKI …' + ski.slice(-4) + ' vertrauen? Nur dieses Gerät darf dann Grenzen schreiben; ein bisher vertrautes verliert das Vertrauen und wird getrennt.'
-                : 'Vertrauen entziehen? Die Verbindung wird sofort getrennt, die SteuVE läuft autonom (ohne Begrenzung).';
-  if (!confirm(t)) { return; }
+                : 'Vertrauen entziehen? Die Verbindung wird sofort getrennt, die SteuVE läuft autonom (ohne Begrenzung) und meldet sich nicht von selbst wieder an.';
+  if (!(await frage(neu ? 'Vertrauen setzen' : 'Vertrauen entziehen', t, neu ? 'Vertrauen' : 'Entziehen'))) { return; }
   // Knopf in der Liste wird beim naechsten Zeichnen ersetzt -> Rueckmeldung zusaetzlich im passenden Karten-Knopf
   const kk = neu ? $('eg_ja') : $('eg_nein');
   [knopf, kk].forEach(b => b && knopfStart(b, neu ? 'vertraut …' : 'entzieht …'));
-  cmd('EEBusCsTrust ' + (neu ? ski : '0')).then(j => {
+  // 30.10. (Andreas): Entziehen heisst „bleib weg“ - auch die gemerkte Gegenstelle vergessen und alle Verbindungen trennen,
+  // sonst ruft die SteuVE selbst wieder an
+  cmd('EEBusCsTrust ' + (neu ? ski : '0')).then(j => neu ? j : cmd('EEBusAutoConn -1').then(() => cmd('EEBusDisconnect')).then(() => j)).then(j => {
     say(j);
     const ok = j && j.EEBusCsTrust && (neu ? (j.EEBusCsTrust.Vertraut || '').toLowerCase().endsWith(ski.toLowerCase().slice(-4)) : !j.EEBusCsTrust.Vertraut);
     [knopf, kk].forEach(b => b && knopfMeldung(b, ok ? (neu ? '✓ vertraut' : '✓ entzogen') : '✗ Fehler', ok ? OK : ROT));
@@ -795,7 +865,8 @@ function renderUeb(){
   $('vcards').innerHTML = v.map((x, i) => {
     const col = FARBE[i % FARBE.length][0], err = x.err >= 3;
     const z = err ? '<span class="tag">antwortet nicht</span>' : (x.stv ? '<span class="tag stv">von SteuVE aus</span>' : (x.an === 0 ? 'aus' : (x.an === 1 ? 'an' : '—')));
-    return `<div class="card"><h2><span class="sw" style="background:${col}"></span>${esc(x.nm)}${x.fake ? ' <span class="tag fake">Fake</span>' : ''}${x.abs ? '' : ' <span class="tag">nur messen</span>'}</h2>` +
+    return `<div class="card"><h2 style="margin-bottom:4px"><span class="sw" style="background:${col}"></span><span class="vname" title="${esc(x.nm)}">${esc(x.nm)}</span></h2>` +
+      `<div class="vtags">${x.fake ? '<span class="tag fake">Fake</span> ' : ''}${x.abs ? '' : '<span class="tag">nur messen</span>'}</div>` +
       `<div class="hero">${err ? '?' : de(x.w)}<small>W</small></div>` +
       `<div class="kv"><span>Zustand</span><span>${z}</span><span>Priorität</span><span>${esc(x.prio)}</span>` +
       `<span>Nennleistung</span><span>${W(x.nenn)}</span></div></div>`;
@@ -923,7 +994,7 @@ async function shSpeichern(){
   else if (!gesendet) { knopfMeldung(b, 'nichts geändert', '#898781'); }
   else { knopfMeldung(b, '✓ ' + gesendet + ' gespeichert', ''); }
   say(fehl.length ? {Fehler: fehl} : {STVSET: gesendet ? gesendet + ' Plätze gespeichert' : 'nichts geändert'});
-  if (fehl.length) { alert('Nicht alles gespeichert:\n' + fehl.join('\n')); }
+  if (fehl.length) { await frage('Speichern', 'Nicht alles gespeichert:\n' + fehl.join('\n')); }
   if (!fehl.length) { SHDIRTY = false; }
   ladeCfg(!fehl.length);   // bei Fehlern das Formular NICHT ueberschreiben — Eingaben bleiben stehen
 }
@@ -1114,8 +1185,12 @@ function poll(){
 }
 
 // ---- Reiter, Hell/Dunkel (Wahl im Browser gemerkt, wenn erlaubt)
-document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+document.querySelectorAll('.tabs.subt button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs.subt button').forEach(x => x.setAttribute('aria-selected', x === b));
+  document.querySelectorAll('.upane').forEach(p => p.classList.toggle('on', p.dataset.u === b.dataset.u));
+});
+document.querySelectorAll('.tabs:not(.subt) button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs:not(.subt) button').forEach(x => x.setAttribute('aria-selected', x === b));
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.dataset.p === b.dataset.t));
   if (b.dataset.t === 'prot') { ladeLog(); }
   if (b.dataset.t === 'shelly' && !SHDIRTY) { ladeCfg(true); }
