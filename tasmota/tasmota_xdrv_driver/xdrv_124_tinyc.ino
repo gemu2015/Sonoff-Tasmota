@@ -7516,7 +7516,22 @@ static void tc_ul_handle(WiFiClient &client) {
   extern void TinyCFsWriteResume(void);
   TinyCFsWritePause(fsize, fsp == ffsp);
 
-  File f = fsp->open(path, "w");
+  // Receive into "<path>.tmp" and swap it in only after the whole body arrived, so an aborted
+  // upload keeps the old file (Andreas: a failed upload left no file at all). The old file is
+  // still there while the new one is written, so it needs room for both; if it doesn't fit,
+  // fall back to writing in place.
+  char wpath[170];
+  snprintf_P(wpath, sizeof(wpath), PSTR("%s.tmp"), path);
+  bool use_tmp = true;
+  if (free_kb) {
+    uint32_t old_kb = 0;
+    File of = fsp->open(path, "r");
+    if (of) { old_kb = (uint32_t)(of.size() / 1024); of.close(); }
+    if ((fsize / 1024 + 16 + old_kb) > free_kb) { use_tmp = false; }
+  }
+  if (!use_tmp) { strlcpy(wpath, path, sizeof(wpath)); }
+
+  File f = fsp->open(wpath, "w");
   bool ok = false;
   const char *err = "open failed";
   uint32_t written = 0;
@@ -7551,7 +7566,12 @@ static void tc_ul_handle(WiFiClient &client) {
       if (ok && written != fsize) { ok = false; err = "short body"; }
     }
     f.close();
-    if (!ok) fsp->remove(path);   // don't leave a truncated file behind
+    if (!ok) { fsp->remove(wpath); }   // don't leave a truncated file behind
+    else if (use_tmp) {
+      // FAT cannot rename over an existing file, so remove the old one first
+      fsp->remove(path);
+      if (!fsp->rename(wpath, path)) { ok = false; err = "rename failed"; fsp->remove(wpath); }
+    }
   }
 
   TinyCFsWriteResume();
