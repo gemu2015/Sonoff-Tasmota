@@ -3565,10 +3565,10 @@ void EebusCsJson(char *b, size_t n) {
   long hb = eebus_cs_last_hb ? (long)((millis() - eebus_cs_last_hb) / 1000UL) : -1;
   snprintf(b, n,
     "{\"Zustand\":\"%s\",\"Begrenzt\":%s,\"Grenze\":%u,\"RestS\":%ld,\"EnergyGuard\":\"%s\","
-    "\"Failsafe\":%u,\"FailsafeDauerS\":%ld,\"Max\":%u,\"Leistung\":%d,\"Zaehler\":%u,\"HerzschlagS\":%ld,"
+    "\"Failsafe\":%u,\"FailsafeDauerS\":%ld,\"Max\":%u,\"Leistung\":%d,\"Bekannt\":%d,\"Zaehler\":%u,\"HerzschlagS\":%ld,"
     "\"Vertraut\":\"%s\",\"Abgewiesen\":%u,\"AbgewiesenVon\":\"%s\",\"Ski\":\"%s\",\"Id\":\"%s\",\"Typ\":\"%s\"}",   // SteuVE v006, Typ v007
     EebusCsStateName(eebus_cs_state), lim ? "true" : "false", w, rest, eebus_cs_lim_from,
-    eebus_cs_fs_w, eebus_cs_fs_dur_s, eebus_cs_max_w, (int)eebus_cs_pwr_w, eebus_cs_energy_wh, hb,
+    eebus_cs_fs_w, eebus_cs_fs_dur_s, eebus_cs_max_w, (int)eebus_cs_pwr_w, eebus_cs_pwr_have ? 1 : 0, eebus_cs_energy_wh, hb,
     eebus_cs_trust, eebus_cs_rej_cnt, eebus_cs_rej_from, Eebus.own_ski, eebus_adv_id, EebusCsTypName());
 }
 
@@ -3621,6 +3621,7 @@ void CmndEebusCsPower(void) {
     // v026: Verbrauch nicht bekannt (Verbraucher antworten nicht): valueState error statt erfundener 0 W
     if (eebus_cs_pwr_have) { eebus_cs_pwr_unk_push = true; }
     eebus_cs_pwr_have = false;
+    eebus_cs_pwr_w = 0;   // Anzeige: kein alter Wert; auf der Leitung steht valueState error
   } else if (XdrvMailbox.data_len > 0) {
     char *e = nullptr;
     long w = strtol(XdrvMailbox.data, &e, 10);
@@ -6797,6 +6798,79 @@ void EebusWebPage(void) {
   f.close();
 }
 
+// Identity backup / restore on the web port 80, behind the web password (HttpCheckPriviledgedAccess). The key
+// cannot be fetched over port 82/83 any more (refused there), this is the way for "Sichern" and for moving a
+// device. Same path and form in every EEBUS driver:
+//   GET  /eebus_identity                       -> {"ok":true,"cert":"<hex DER>","key":"<hex DER>"}
+//   POST /eebus_identity  cert=<hex>&key=<hex> -> {"ok":true,"restart":true}   (written to flash, takes effect after a restart)
+// An error is never a 200: 401 without access, 404 no identity yet, 400 bad data, 500 write failed.
+static bool EebusIdentityFromHex(const String &h, uint8_t *out, size_t max, size_t *len) {
+  size_t n = h.length();
+  if ((0 == n) || (n & 1) || ((n / 2) > max)) { return false; }
+  for (size_t i = 0; i < n / 2; i++) {
+    uint8_t v = 0;
+    for (uint32_t k = 0; k < 2; k++) {
+      char c = h[2 * i + k];
+      uint8_t d;
+      if ((c >= '0') && (c <= '9')) { d = c - '0'; }
+      else if ((c >= 'a') && (c <= 'f')) { d = c - 'a' + 10; }
+      else if ((c >= 'A') && (c <= 'F')) { d = c - 'A' + 10; }
+      else { return false; }
+      v = (v << 4) | d;
+    }
+    out[i] = v;
+  }
+  *len = n / 2;
+  return true;
+}
+
+void EebusIdentityPage(void) {
+  if (!HttpCheckPriviledgedAccess()) { return; }
+  Webserver->sendHeader(F("Cache-Control"), F("no-store"));
+#ifdef USE_UFILESYS
+  uint8_t *cert = (uint8_t *)malloc(EEBUS_CERT_DER_SIZE);
+  uint8_t *key = (uint8_t *)malloc(EEBUS_KEY_DER_SIZE);
+  if (!cert || !key || !ffsp) {
+    free(cert); free(key);
+    Webserver->send(500, F("application/json"), F("{\"ok\":false,\"error\":\"no memory or no flash filesystem\"}"));
+    return;
+  }
+  size_t cl = 0, kl = 0;
+  if (HTTP_POST == Webserver->method()) {
+    bool good = EebusIdentityFromHex(Webserver->arg(F("cert")), cert, EEBUS_CERT_DER_SIZE, &cl) &&
+                EebusIdentityFromHex(Webserver->arg(F("key")), key, EEBUS_KEY_DER_SIZE, &kl) &&
+                (0x30 == cert[0]) && (0x30 == key[0]);   // a DER structure starts with a SEQUENCE
+    if (!good) {
+      Webserver->send(400, F("application/json"), F("{\"ok\":false,\"error\":\"cert and key must be hex DER\"}"));
+    } else if (!TfsSaveFile(EEBUS_KEY_FILE, key, kl) || !TfsSaveFile(EEBUS_CERT_FILE, cert, cl)) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("EBG: Identitaet zurueckspielen: Schreiben fehlgeschlagen"));
+      Webserver->send(500, F("application/json"), F("{\"ok\":false,\"error\":\"write failed, identity may be incomplete\"}"));
+    } else {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Identitaet zurueckgespielt (%u + %u Byte), Neustart noetig"), (unsigned)cl, (unsigned)kl);
+      Webserver->send(200, F("application/json"), F("{\"ok\":true,\"restart\":true}"));
+    }
+  } else {
+    cl = EebusLoadDer(EEBUS_CERT_FILE, cert, EEBUS_CERT_DER_SIZE);
+    kl = EebusLoadDer(EEBUS_KEY_FILE, key, EEBUS_KEY_DER_SIZE);
+    if (!cl || !kl) {
+      Webserver->send(404, F("application/json"), F("{\"ok\":false,\"error\":\"no identity on this device\"}"));
+    } else {
+      String r;
+      r.reserve(2 * (cl + kl) + 48);
+      r = F("{\"ok\":true,\"cert\":\"");
+      for (size_t i = 0; i < cl; i++) { char b[3]; snprintf_P(b, sizeof(b), PSTR("%02x"), cert[i]); r += b; }
+      r += F("\",\"key\":\"");
+      for (size_t i = 0; i < kl; i++) { char b[3]; snprintf_P(b, sizeof(b), PSTR("%02x"), key[i]); r += b; }
+      r += F("\"}");
+      Webserver->send(200, F("application/json"), r);
+    }
+  }
+  free(cert); free(key);
+#else
+  Webserver->send(500, F("application/json"), F("{\"ok\":false,\"error\":\"no filesystem\"}"));
+#endif
+}
+
 void EebusWebAddMainButton(void) {
    // EIN Knopf zur eigenen Bedienseite, sonst nichts. Scannen, Verbinden und alle Anzeigen
    // liegen dort. Gelb mit schwarzer Schrift, damit er sich von Tasmotas eigenen Knoepfen abhebt.
@@ -8086,6 +8160,7 @@ bool Xdrv128(uint32_t function) {
       break;
     case FUNC_WEB_ADD_HANDLER:
       Webserver->on("/steuve", EebusWebPage);   // eigene Bedienseite
+      Webserver->on("/eebus_identity", EebusIdentityPage);
       break;
     case FUNC_WEB_GET_ARG:
       EebusWebGetArg();
