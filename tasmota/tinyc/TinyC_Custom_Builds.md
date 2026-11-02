@@ -263,6 +263,49 @@ build_flags             = ${env:tinyc_base.build_flags}
                           -DUSE_USB_CDC_CONSOLE
 ```
 
+#### ESP32-S3 / S2 as USB host (flash drive, audio stick, FTDI)
+
+The OTG socket of an S3 (or S2) can host a USB flash drive (file system `/usb`), a USB audio stick and an FTDI adapter.
+Details, commands and limits: [docs/USB_HOST.md](docs/USB_HOST.md). Build requirements:
+
+* A board whose **OTG socket supplies VBUS** (5 V) and takes a normal plug; an S3 that already uses the socket as the
+  console (`USE_USB_CDC_CONSOLE`, the `tinyc32s3-usb` variant above) cannot be a host at the same time.
+* Only ESP32-S2/S3 (the P4 is planned, all other chips have no host and compile the driver to nothing).
+
+One device at the socket (no hub) — an ordinary build with the switches added, **no SDK change**:
+
+```ini
+[env:tinyc32s3-usbhost]
+extends                 = env:tinyc32s3
+build_flags             = ${env:tinyc32s3.build_flags}
+                          -DUSE_USB_HOST
+                          -DUSE_USB_HOST_MSC
+                          -DUSE_USB_HOST_MSC_AUTOMOUNT
+                          -DUSE_USB_HOST_AUDIO
+```
+
+Several devices behind a hub — the same plus `-DUSE_USB_HOST_SERIAL` (FTDI; required when `USE_TINYC_USBSERIAL` is set) and the SDK's
+hub support, which is only available through `custom_sdkconfig`:
+
+```ini
+[env:tinyc32s3-usbhub]
+extends                 = env:tinyc32s3
+build_flags             = ${env:tinyc32s3.build_flags}
+                          -DUSE_USB_HOST
+                          -DUSE_USB_HOST_MSC
+                          -DUSE_USB_HOST_MSC_AUTOMOUNT
+                          -DUSE_USB_HOST_AUDIO
+                          -DUSE_USB_HOST_SERIAL
+custom_sdkconfig        = CONFIG_USB_HOST_HUBS_SUPPORTED=y
+```
+
+⚠️ `custom_sdkconfig` rebuilds the Arduino libraries once (**about 8 minutes**, and the next build of any other S3 environment
+rebuilds them again), **rewrites `sdkconfig.defaults` and deletes `CMakeLists.txt`**: put both back with
+`git checkout CMakeLists.txt sdkconfig.defaults` before you commit. Switches that are left out simply leave their part out
+(`USE_USB_HOST` alone gives the host and the device list). `USE_USB_HOST_AUTOSTART` starts the host at boot; otherwise
+`UsbHost 1`. Use the audio stick from TinyC with `#define CODEC_USB` in `examples/wav_player.tc`, the stick as file system
+with the path prefix `/usb/` and the example `examples/filemanager.tc`.
+
 #### ESP32-S3 Sunton (QIO/OPI, RGB Display)
 
 For Sunton boards with PSRAM in OPI mode and RGB displays:
