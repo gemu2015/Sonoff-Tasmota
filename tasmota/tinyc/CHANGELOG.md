@@ -70,6 +70,9 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
   `#define CODEC_USB`). The driver resamples to the stick's rate, `i2sWrite` blocks like the I2S DMA and `i2sStop` plays out the
   buffer. ⚠️ The OTG hardware has 8 host channels: with hub, FTDI, card reader, a mounted stick and the audio stick (nine) the
   audio claim fails with 0x106 — see `docs/USB_HOST.md`.
+- **The audio plugin (`I2SAUDIO`) can play on the USB audio stick**: `UsbHostRoute 1` redirects its I2S output (MP3, web radio,
+  TTS …) in `tmod_i2s` (`xdrv_123_plugins.ino`) while it plays, stereo and any rate; `UsbHostLevel` sets the volume. No plugin
+  rebuild needed. See `docs/USB_HOST.md`.
 - **TinyC path prefix `/usb/`** (`fileOpen("/usb/x.csv", 1)`), tested by a script writing, reading and deleting on the stick.
 - **`UfsMkdir <prefix><path>`** creates a folder and its missing parents (prefixes `/ffs/`, `/sdfs/`, `/usb/`); a TinyC script
   with a computed name can use it through `tasmCmd` (`fileMkdir` takes only literals).

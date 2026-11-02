@@ -82,6 +82,19 @@ und `i2sStop` lässt den Ring erst auslaufen. Der Host wird bei Bedarf gestartet
 `#define CODEC_USB` (`CODEC_NONE` auskommentieren): `WAVplay /ffs/x.wav`, `WAVtone 440`, jede WAV-Rate läuft in der richtigen
 Geschwindigkeit.
 
+**Aus dem Audio-Plugin** (`I2SAUDIO`: MP3, Webradio, Sprachausgabe, Zeitansage, `I2SPlay`): `UsbHostRoute 1` schickt die
+I2S-Ausgabe des Plugins **während es spielt** an den Stick; `UsbHostRoute 0` schickt sie wieder an die I2S-Pins. Das Plugin
+selbst bleibt unverändert: Alle seine I2S-Aufrufe gehen durch eine Firmware-Funktion (`tmod_i2s` in `xdrv_123_plugins.ino`),
+die die Samples (mono oder stereo, jede Rate) an denselben Strom wie oben übergibt. Der Stick wird bei „enable“ belegt und bei
+„disable“ zurückgegeben, ist also zwischen zwei Wiedergaben frei. Fehlt der Stick oder ist er belegt, spielt das Plugin wie
+bisher auf I2S. `UsbHostLevel 1..100` stellt die Lautstärke des Sticks für die Ströme ein (Standard 50; das Plugin hat seine
+eigene Lautstärke zusätzlich). `UsbHostRoute` ohne Argument zeigt Route, Pegel, ob ein Strom offen ist und die Zahl der
+Unterläufe. Die Mikrofonseite des Plugins bleibt am I2S.
+Einrichtung des Plugins auf einem Board ohne I2S-Verstärker: `chkpt a2` (128-kB-Plugin-Partition, **formatiert das
+Flash-Dateisystem**), `I2SAUDIO_32.bin` auf der Plugin-Seite (`/modu`) hochladen, eine `I2SAUDIO.cfg` mit Codec 0 und freien
+Pins auf den Flash legen (sonst meldet `iniz` „Codec error“), dann `iniz <Slot>` und „Autostart plugins at boot“ anhaken.
+Mit einer MP3 auf .190 geprüft.
+
 ⚠️ **Die OTG-Hardware hat nur 8 Host-Kanäle.** Jedes angesteckte Gerät belegt einen (seine Steuerleitung), der Hub einen für
 seinen Interrupt-Endpunkt, und jeder belegte Endpunkt einen: ein eingehängter Stick zwei, ein Audio-Strom einen. Hub + FTDI +
 Stick + Audio-Stick + Kartenleser sind neun, dann scheitert die Audio-Belegung bei eingehängtem Stick mit `0x106`

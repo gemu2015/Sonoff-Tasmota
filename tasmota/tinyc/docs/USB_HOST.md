@@ -81,6 +81,17 @@ rate of the stick, `i2sWrite` blocks while its 8192-sample ring is full (that pa
 play out first. The host is started if needed. `examples/wav_player.tc` does it with `#define CODEC_USB` (comment out
 `CODEC_NONE`): `WAVplay /ffs/x.wav`, `WAVtone 440`, any WAV rate plays at the right speed.
 
+**From the audio plugin** (`I2SAUDIO`: MP3, web radio, text to speech, say-time, `I2SPlay`): `UsbHostRoute 1` sends the plugin's
+I2S output to the stick **while it plays**; `UsbHostRoute 0` sends it back to the I2S pins. The plugin binary is unchanged: its
+I2S calls all go through one firmware function (`tmod_i2s` in `xdrv_123_plugins.ino`), which hands the samples (mono or stereo,
+any rate) to the same stream as above. The stick is claimed at "enable" and given back at "disable", so it is free between two
+plays. If the stick is not there or busy the plugin simply plays on I2S as before. `UsbHostLevel 1..100` sets the volume of the
+stick for the streams (default 50; the plugin has its own volume on top). `UsbHostRoute` without argument shows route, level,
+whether a stream is open and the underrun count. The plugin's microphone side stays on I2S.
+Setup of the plugin itself, for a board without an I2S amplifier: `chkpt a2` (128 kB plugin partition, **formats the flash file
+system**), upload `I2SAUDIO_32.bin` on the plugin page (`/modu`), put an `I2SAUDIO.cfg` on the flash with codec 0 and free pins
+(otherwise `iniz` says "Codec error"), then `iniz <slot>` and tick "Autostart plugins at boot". Tested with an MP3 on .190.
+
 ⚠️ **The OTG hardware has only 8 host channels.** Every attached device uses one (its control pipe), the hub's interrupt
 endpoint one, and every claimed endpoint one: a mounted stick takes two, an audio stream one. Hub + FTDI + stick + audio stick
 + card reader are nine, so the audio claim then fails with `0x106` (`ESP_ERR_NOT_SUPPORTED`) while the stick is mounted

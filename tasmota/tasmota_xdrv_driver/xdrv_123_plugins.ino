@@ -1786,11 +1786,67 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #include "driver/i2s_pdm.h"
 #endif // ESP32
 
+#ifdef USE_USB_HOST_AUDIO
+// xdrv_99_usb_host: with UsbHostRoute 1 the TX side of the plugin's I2S goes to a USB audio stick while it plays
+extern int UsbHostAudioOpen(int rate);
+extern int UsbHostAudioWriteCh(const int16_t *x, int frames, int ch);
+extern void UsbHostAudioSetRate(int rate);
+extern bool UsbHostAudioActive(void);
+extern bool UsbHostAudioRoute(void);
+extern void UsbHostAudioClose(void);
+static uint32_t tmod_usb_rate = 16000, tmod_usb_ch = 1;   // what the plugin asked for last (SetRate comes before Enable)
+static bool tmod_usb_on = false;                          // this playback runs on the stick
+
+// returns true when the call was handled (rv is the return value of tmod_i2s)
+static bool tmod_i2s_usb(uint32_t sel, uint32_t p1, uint32_t *rv) {   // p1 is the I2S_PARS pointer; the type itself is declared further down, so keep it out of the signature
+  I2S_PARS *i2cp = (I2S_PARS *) p1;
+  *rv = 0;
+  switch (sel) {
+    case 2:                                               // set rate
+      tmod_usb_rate = i2cp->dlen; tmod_usb_ch = (2 == i2cp->channels) ? 2 : 1;
+      if (tmod_usb_on) { UsbHostAudioSetRate(tmod_usb_rate); return true; }
+      return false;                                       // the real I2S channel follows as well
+    case 6:                                               // enable = a playback starts
+      if (UsbHostAudioRoute()) {
+        int r = UsbHostAudioOpen(tmod_usb_rate);
+        tmod_usb_on = (0 == r);
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S: USB audio %s (%d Hz, %d ch, code %d)"), tmod_usb_on ? "started" : "not available, using I2S", (int)tmod_usb_rate, (int)tmod_usb_ch, r);
+        return tmod_usb_on;
+      }
+      return false;
+    case 3:                                               // write samples: dlen is in bytes
+      if (!tmod_usb_on) { return false; }
+      { int frames = i2cp->dlen / (2 * tmod_usb_ch);
+        int n = UsbHostAudioWriteCh(i2cp->dptr, frames, (int)tmod_usb_ch);
+        i2cp->error = 0;
+        *rv = (n > 0) ? (uint32_t)n * 2 * tmod_usb_ch : 0; }
+      return true;
+    case 5:                                               // one sample
+      if (!tmod_usb_on) { return false; }
+      if (1 == tmod_usb_ch) { UsbHostAudioWriteCh(i2cp->dptr, 1, 1); }
+      return true;
+    case 7:                                               // disable = the playback ends: let the buffer play out, give the stick back
+    case 1:
+      if (!tmod_usb_on) { return false; }
+      UsbHostAudioClose(); tmod_usb_on = false;
+      return true;
+  }
+  return false;
+}
+#endif  // USE_USB_HOST_AUDIO
+
 uint32_t tmod_i2s(uint32_t sel, uint32_t p1) {
 I2S_PARS *i2cp = (I2S_PARS *) p1;
 
 uint8_t xmode = sel >> 8;
 sel &= 0xff;
+
+#ifdef USE_USB_HOST_AUDIO
+  if (!xmode && (sel > 0) && i2cp->txhandle) {
+    uint32_t rv;
+    if (tmod_i2s_usb(sel, p1, &rv)) { return rv; }
+  }
+#endif
 
 #ifdef ESP32
   if ((sel > 0) && !i2cp->txhandle) {
