@@ -6824,6 +6824,42 @@ static bool EebusIdentityFromHex(const String &h, uint8_t *out, size_t max, size
   return true;
 }
 
+// Before anything is written: the key must load, and the certificate must carry ITS public point. A key that
+// does not load would make EebusLoadCert fail at the next start, and EebusGenerateCert would then replace the
+// identity WITHOUT a warning (new SKI, every pairing gone). A foreign certificate gives a device whose SKI (from
+// the key) does not match what it sends. The point is the last 65 bytes of the SPKI, as in EebusSkiRawFromKey.
+static bool EebusIdentityCheck(const uint8_t *cert, size_t cl, const uint8_t *key, size_t kl) {
+  mbedtls_pk_context pk;
+  mbedtls_pk_init(&pk);
+#if (MBEDTLS_VERSION_NUMBER >= 0x03000000)
+  mbedtls_entropy_context entropy;
+  mbedtls_ctr_drbg_context ctr_drbg;
+  mbedtls_entropy_init(&entropy);
+  mbedtls_ctr_drbg_init(&ctr_drbg);
+  mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, nullptr, 0);
+  bool ok = (0 == mbedtls_pk_parse_key(&pk, key, kl, nullptr, 0, mbedtls_ctr_drbg_random, &ctr_drbg));
+#else
+  bool ok = (0 == mbedtls_pk_parse_key(&pk, key, kl, nullptr, 0));
+#endif
+  bool found = false;
+  if (ok) {
+    unsigned char der[160];
+    int len = mbedtls_pk_write_pubkey_der(&pk, der, sizeof(der));
+    if ((len >= 65) && (cl >= 65)) {
+      const unsigned char *point = der + sizeof(der) - 65;
+      for (size_t i = 0; !found && (i + 65 <= cl); i++) {
+        found = (0 == memcmp(cert + i, point, 65));
+      }
+    }
+  }
+  mbedtls_pk_free(&pk);
+#if (MBEDTLS_VERSION_NUMBER >= 0x03000000)
+  mbedtls_ctr_drbg_free(&ctr_drbg);
+  mbedtls_entropy_free(&entropy);
+#endif
+  return ok && found;
+}
+
 void EebusIdentityPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
   Webserver->sendHeader(F("Cache-Control"), F("no-store"));
@@ -6842,6 +6878,9 @@ void EebusIdentityPage(void) {
                 (0x30 == cert[0]) && (0x30 == key[0]);   // a DER structure starts with a SEQUENCE
     if (!good) {
       Webserver->send(400, F("application/json"), F("{\"ok\":false,\"error\":\"cert and key must be hex DER\"}"));
+    } else if (!EebusIdentityCheck(cert, cl, key, kl)) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Identitaet zurueckspielen abgelehnt: Schluessel nicht lesbar oder passt nicht zum Zertifikat"));
+      Webserver->send(400, F("application/json"), F("{\"ok\":false,\"error\":\"key unreadable or not the key of this certificate\"}"));
     } else if (!TfsSaveFile(EEBUS_KEY_FILE, key, kl) || !TfsSaveFile(EEBUS_CERT_FILE, cert, cl)) {
       AddLog(LOG_LEVEL_ERROR, PSTR("EBG: Identitaet zurueckspielen: Schreiben fehlgeschlagen"));
       Webserver->send(500, F("application/json"), F("{\"ok\":false,\"error\":\"write failed, identity may be incomplete\"}"));
