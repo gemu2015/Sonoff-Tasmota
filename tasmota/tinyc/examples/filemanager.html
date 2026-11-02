@@ -1,0 +1,240 @@
+<!-- TinyC File Manager page. Served by examples/filemanager.tc at /fm; store it on flash as /filemanager.html. -->
+<meta charset="utf-8"><title>TinyC File Manager</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{background:#252525;margin:8px}
+#fm{--bg:#252525;--pn:#2f2f2f;--ln:#4a4a4a;--tx:#eaeaea;--mu:#9a9a9a;--ac:#1fa3ec;--ok:#47c266;--bad:#d43535;color:var(--tx);font:14px verdana,sans-serif;text-align:left}
+#fm *{box-sizing:border-box}
+#fm .panes{display:flex;gap:10px;flex-wrap:wrap}
+#fm .pane{flex:1 1 340px;min-width:0;background:var(--pn);border:2px solid var(--ln);border-radius:6px;padding:6px;transition:border-color .15s}
+#fm .pane.over{border-color:var(--ac);background:#2a3640}
+#fm .bar{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:5px}
+#fm button{width:auto;line-height:1.6;font-size:13px;padding:2px 9px;border-radius:4px;border:0;background:var(--ac);color:#fff;cursor:pointer}
+#fm button.off{background:#555}
+#fm button.red{background:var(--bad)}
+#fm button:disabled{opacity:.4;cursor:default}
+#fm .path{flex:1 1 100%;color:var(--mu);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#fm .path a{color:var(--ac);cursor:pointer}
+#fm .list{height:340px;overflow:auto;background:var(--bg);border-radius:4px}
+#fm table{width:100%;border-collapse:collapse}
+#fm td{padding:3px 5px;border-bottom:1px solid #333;white-space:nowrap}
+#fm td.n{width:100%;max-width:1px;overflow:hidden;text-overflow:ellipsis}
+#fm td.s,#fm td.d{color:var(--mu);font-size:12px;text-align:right}
+#fm tr.sel{background:#1b4a66}
+#fm tr.drop{outline:2px solid var(--ok);outline-offset:-2px}
+#fm tr[draggable=true]{cursor:grab}
+#fm a{color:var(--tx);text-decoration:none;cursor:pointer}
+#fm .info{color:var(--mu);font-size:12px;margin-top:4px;min-height:1.2em}
+#fm .prog{margin-top:8px;background:var(--pn);border-radius:6px;padding:6px 8px;display:none}
+#fm .prog progress{width:100%;height:10px}
+#fm .hint{color:var(--mu);font-size:12px;margin-top:6px}
+@media(max-width:500px){#fm td.d{display:none}}
+</style>
+<div id="fm">
+  <div class="panes" id="panes"></div>
+  <div class="prog" id="prog"><div id="ptxt"></div><progress id="pbar" max="100" value="0"></progress></div>
+  <div class="hint">Ziehen: Zeile auf die andere Seite = kopieren (Umschalt = verschieben, auf einen Ordner = hinein). Dateien vom Rechner auf eine Seite ziehen = hochladen. Zeile auf den Schreibtisch ziehen (Chrome) = herunterladen.</div>
+</div>
+<script>
+(function(){
+var HOST=location.hostname, DIRNO={ffs:2,sdfs:1,usb:3}, NAMES={ffs:'Flash',sdfs:'SD',usb:'USB'};
+var avail={ffs:true,sdfs:false,usb:false}, panes=[], busy=Promise.resolve(), showHidden=false;
+function $(i){return document.getElementById(i)}
+function el(t,c,h){var e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return '&#'+c.charCodeAt(0)+';'})}
+function join(p,n){return p==='/'?'/'+n:p+'/'+n}
+function fsize(n){return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' kB':(n/1048576).toFixed(1)+' MB'}
+function full(fs,p){return '/'+fs+p}
+function op(c,a,extra){return fetch('/fm/op?c='+c+'&a='+encodeURIComponent(a)+(extra||'')).then(function(r){return r.json()})}
+function dlurl(fs,p){return location.origin+'/ufsd?dir='+DIRNO[fs]+'&download='+encodeURIComponent(p)}
+
+/* ---- progress / job queue ---- */
+function prog(t,v){$('prog').style.display=t?'block':'none';$('ptxt').textContent=t||'';if(v!=null)$('pbar').value=v}
+function job(fn){busy=busy.then(fn).catch(function(e){alert('Fehler: '+e)}).then(function(){prog('');panes.forEach(function(p){p.load()})});return busy}
+
+/* ---- listing (parses the stock /ufsd page, which already knows all file systems) ---- */
+function list(fs,path){
+  var u='/ufsd?dir='+DIRNO[fs]+(path==='/'?'':'&download='+encodeURIComponent(path));
+  return fetch(u).then(function(r){return r.text()}).then(function(t){
+    var d=new DOMParser().parseFromString(t,'text/html'), out=[], info='';
+    var fsx=d.querySelector('fieldset div');if(fsx){var m=fsx.textContent.match(/([\d.,]+)\s*MB.*?([\d.,]+)\s*MB/);if(m)info=m[2]+' MB frei von '+m[1]+' MB'}
+    d.querySelectorAll('pre').forEach(function(pre){
+      var a=pre.querySelector('a[file]');if(!a)return;
+      var name=a.getAttribute('file');if(name.indexOf('/')>=0)return;   /* the ".." row of a sub folder carries the folder path */
+      var rest=pre.textContent.slice(a.textContent.length);
+      var tm=rest.match(/(\d{4}-\d\d-\d\dT[\d:]+)/),m2=rest.replace(tm?tm[1]:'','').match(/\s(\d+)\s/);
+      out.push({name:name,dir:!tm,size:m2?parseInt(m2[1]):0,time:tm?tm[1].replace('T',' '):'',hid:pre.className==='hf'});
+    });
+    out.sort(function(a,b){return a.dir!==b.dir?(a.dir?-1:1):a.name.toLowerCase().localeCompare(b.name.toLowerCase())});
+    return {items:out,info:info,usb:/dir=3/.test(t)};
+  });
+}
+function listR(fs,path){return list(fs,path).then(function(r){return r.items})}
+
+/* ---- operations ---- */
+function copyFile(sfs,sp,dfs,dp,size,label){
+  var src=full(sfs,sp),dst=full(dfs,dp);
+  function step(o){
+    return op('cp',src,'&b='+encodeURIComponent(dst)+'&o='+o).then(function(r){
+      if(!r.ok)throw new Error(label+': '+(r.err||'copy'));
+      prog(label+'  '+fsize(r.o)+' / '+fsize(r.t),r.t?100*r.o/r.t:100);
+      return r.done?0:step(r.o);
+    });
+  }
+  return step(0);
+}
+function mkdirs(fs,p){return fetch('/cm?cmnd='+encodeURIComponent('UfsMkdir '+full(fs,p))).then(function(r){return r.json()}).then(function(r){return JSON.stringify(r).indexOf('Done')>0?{ok:1}:{ok:0}})}
+function rmPath(fs,p){return fetch('/ufsd?dir='+DIRNO[fs]+'&delete='+encodeURIComponent(p)+'&download=/')}
+function copyTree(sfs,sp,dfs,dp,it,move){
+  var s=join(sp,it.name),d=join(dp,it.name);
+  if(!it.dir)return copyFile(sfs,s,dfs,d,it.size,it.name).then(function(){return move?rmPath(sfs,s):0});
+  return mkdirs(dfs,d).then(function(){return listR(sfs,s)}).then(function(items){
+    return items.reduce(function(p,i){return p.then(function(){return copyTree(sfs,s,dfs,d,i,move)})},Promise.resolve());
+  }).then(function(){return move?rmPath(sfs,s):0});
+}
+function rmTree(fs,p,it){
+  var s=join(p,it.name);
+  if(!it.dir)return rmPath(fs,s);
+  return listR(fs,s).then(function(items){
+    return items.reduce(function(q,i){return q.then(function(){return rmTree(fs,s,i)})},Promise.resolve());
+  }).then(function(){return rmPath(fs,s)});
+}
+function putFile(fs,dir,file,rel){
+  /* no upload-progress listener on purpose: it turns the request into a CORS preflight, which port 83 does not answer */
+  prog('Hochladen '+rel+'  ('+fsize(file.size)+')',0);
+  return fetch('http://'+HOST+':83/ufs/'+fs+join(dir,rel)+'?fsz='+file.size,{method:'POST',headers:{'Content-Type':'text/plain'},body:file})
+    .then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(rel+': '+t)})},function(){throw new Error(rel+': Verbindung abgebrochen')});
+}
+/* dropped files / folders from the computer */
+function entries(dt){
+  var out=[],items=dt.items;
+  function walk(en,prefix){
+    return new Promise(function(res){
+      if(en.isFile){en.file(function(f){out.push({file:f,rel:prefix+en.name});res()},function(){res()})}
+      else{
+        out.push({dir:prefix+en.name});
+        var rd=en.createReader(),all=[];
+        (function more(){rd.readEntries(function(b){
+          if(!b.length){b.length;Promise.all(all.map(function(c){return walk(c,prefix+en.name+'/')})).then(res);return}
+          all=all.concat([].slice.call(b));more();
+        },function(){res()})})();
+      }
+    });
+  }
+  var tasks=[];
+  if(items&&items.length&&items[0].webkitGetAsEntry){
+    var ens=[];for(var i=0;i<items.length;i++){var e=items[i].webkitGetAsEntry();if(e)ens.push(e)}
+    if(ens.length)return Promise.all(ens.map(function(e){return walk(e,'')})).then(function(){return out});
+  }
+  [].forEach.call(dt.files,function(f){out.push({file:f,rel:f.name})});
+  return Promise.resolve(out);
+}
+function upload(fs,dir,list){
+  return job(function(){
+    return list.reduce(function(p,e){
+      return p.then(function(){return e.dir?mkdirs(fs,join(dir,e.dir)):putFile(fs,dir,e.file,e.rel)});
+    },Promise.resolve());
+  });
+}
+
+/* ---- pane ---- */
+function Pane(fs){
+  var P=this;P.fs=fs;P.path='/';P.items=[];P.sel={};
+  P.root=el('div','pane');
+  P.tabs=el('div','bar');P.root.appendChild(P.tabs);
+  var b2=el('div','bar');P.root.appendChild(b2);
+  P.up=el('button','',  '&#8679; hoch');P.up.onclick=function(){P.path=P.path.replace(/\/[^\/]*$/,'')||'/';P.sel={};P.load()};
+  var nf=el('button','','&#128193; Neu');nf.onclick=function(){var n=prompt('Name des neuen Ordners');if(n)job(function(){return mkdirs(P.fs,join(P.path,n))})};
+  var del=el('button','red','&#128293; L&ouml;schen');del.onclick=function(){
+    var s=P.selected();if(!s.length||!confirm(s.length+' Eintrag/Einträge löschen?'))return;
+    job(function(){return s.reduce(function(p,i){return p.then(function(){prog('Löschen '+i.name);return rmTree(P.fs,P.path,i)})},Promise.resolve())});P.sel={}};
+  var upb=el('button','','&#11014; Hochladen');var fi=el('input');fi.type='file';fi.multiple=true;fi.style.display='none';
+  upb.onclick=function(){fi.click()};
+  fi.onchange=function(){upload(P.fs,P.path,[].map.call(fi.files,function(f){return{file:f,rel:f.name}}));fi.value=''};
+  var rf=el('button','off','&#8635;');rf.onclick=function(){P.load()};
+  var hb=el('button','off','.*');hb.title='Versteckte Dateien';hb.onclick=function(){showHidden=!showHidden;panes.forEach(function(p){p.draw()})};
+  [P.up,nf,del,upb,rf,hb,fi].forEach(function(e){b2.appendChild(e)});
+  P.pathEl=el('div','path');b2.appendChild(P.pathEl);
+  P.listEl=el('div','list');P.root.appendChild(P.listEl);
+  P.infoEl=el('div','info');P.root.appendChild(P.infoEl);
+  /* drop on the pane = into the current folder */
+  P.root.ondragover=function(e){e.preventDefault();P.root.classList.add('over')};
+  P.root.ondragleave=function(e){if(!P.root.contains(e.relatedTarget))P.root.classList.remove('over')};
+  P.root.ondrop=function(e){e.preventDefault();P.root.classList.remove('over');P.dropped(e,P.path)};
+  P.tabsDraw();
+}
+Pane.prototype.selected=function(){var P=this;return P.items.filter(function(i){return P.sel[i.name]})};
+Pane.prototype.tabsDraw=function(){
+  var P=this;P.tabs.innerHTML='';
+  Object.keys(NAMES).forEach(function(k){
+    if(!avail[k])return;
+    var b=el('button',k===P.fs?'':'off',NAMES[k]);b.onclick=function(){P.fs=k;P.path='/';P.sel={};P.tabsDraw();P.load()};P.tabs.appendChild(b);
+  });
+};
+Pane.prototype.dropped=function(e,destDir){
+  var P=this,dt=e.dataTransfer,raw=dt.getData('application/x-fm');
+  if(raw){
+    var d=JSON.parse(raw);if(d.fs===P.fs&&d.path===destDir)return;
+    var move=e.shiftKey,names=d.items.map(function(i){return i.name}).join(', ');
+    var ex={};P.items.forEach(function(i){ex[i.name]=1});
+    if(destDir===P.path&&d.items.some(function(i){return ex[i.name]})&&!confirm('Vorhandene Dateien überschreiben?'))return;
+    job(function(){return d.items.reduce(function(p,i){return p.then(function(){return copyTree(d.fs,d.path,P.fs,destDir,i,move)})},Promise.resolve())});
+    return;
+  }
+  entries(dt).then(function(l){if(l.length)upload(P.fs,destDir,l)});
+};
+Pane.prototype.load=function(){
+  var P=this;
+  return list(P.fs,P.path).then(function(r){
+    P.items=r.items;P.info=r.info;
+    if(r.usb&&!avail.usb){avail.usb=true;panes.forEach(function(p){p.tabsDraw()})}
+    if(!r.usb&&avail.usb&&P.fs!=='usb'){avail.usb=false;panes.forEach(function(p){p.tabsDraw()})}
+    P.draw();
+  }).catch(function(){P.listEl.innerHTML='<div style="padding:10px;color:#ff5661">Keine Verbindung oder Dateisystem nicht vorhanden</div>'});
+};
+Pane.prototype.draw=function(){
+  var P=this,t=el('table'),shown=0;
+  var crumbs='<a data-p="/">'+NAMES[P.fs]+':</a>',acc='';
+  P.path.split('/').filter(Boolean).forEach(function(s){acc+='/'+s;crumbs+=' / <a data-p="'+esc(acc)+'">'+esc(s)+'</a>'});
+  P.pathEl.innerHTML=crumbs;
+  [].forEach.call(P.pathEl.querySelectorAll('a'),function(a){a.onclick=function(){P.path=a.getAttribute('data-p');P.sel={};P.load()}});
+  P.up.disabled=P.path==='/';
+  P.items.forEach(function(it){
+    if(it.hid&&!showHidden)return;shown++;
+    var tr=el('tr',P.sel[it.name]?'sel':''),ic=it.dir?'&#128193; ':'&#128196; ';
+    tr.draggable=true;
+    tr.innerHTML='<td class="n">'+ic+'<a>'+esc(it.name)+'</a></td><td class="s">'+(it.dir?'':fsize(it.size))+'</td><td class="d">'+esc(it.time)+'</td>';
+    var link=tr.querySelector('a');
+    link.onclick=function(e){
+      if(e.ctrlKey||e.metaKey||e.shiftKey){P.sel[it.name]=!P.sel[it.name];P.draw();return}
+      if(it.dir){P.path=join(P.path,it.name);P.sel={};P.load()}
+      else{location.href=dlurl(P.fs,join(P.path,it.name))}
+    };
+    tr.onclick=function(e){if(e.target===link)return;P.sel[it.name]=!P.sel[it.name];P.draw()};
+    tr.ondragstart=function(e){
+      if(!P.sel[it.name]){P.sel={};P.sel[it.name]=1}
+      var s=P.selected();
+      e.dataTransfer.setData('application/x-fm',JSON.stringify({fs:P.fs,path:P.path,items:s}));
+      e.dataTransfer.effectAllowed='copyMove';
+      if(s.length===1&&!s[0].dir)e.dataTransfer.setData('DownloadURL','application/octet-stream:'+s[0].name+':'+dlurl(P.fs,join(P.path,s[0].name)));
+    };
+    if(it.dir){
+      tr.ondragover=function(e){e.preventDefault();e.stopPropagation();tr.classList.add('drop')};
+      tr.ondragleave=function(){tr.classList.remove('drop')};
+      tr.ondrop=function(e){e.preventDefault();e.stopPropagation();tr.classList.remove('drop');P.root.classList.remove('over');P.dropped(e,join(P.path,it.name))};
+    }
+    t.appendChild(tr);
+  });
+  P.listEl.innerHTML='';
+  if(!shown)P.listEl.innerHTML='<div style="padding:10px;color:#9a9a9a">leer</div>';else P.listEl.appendChild(t);
+  var n=Object.keys(P.sel).filter(function(k){return P.sel[k]}).length;
+  P.infoEl.textContent=shown+' Einträge'+(n?', '+n+' markiert':'')+(P.info?'  •  '+P.info:'');
+};
+
+var box=$('panes');
+['ffs','ffs'].forEach(function(fs){var p=new Pane(fs);panes.push(p);box.appendChild(p.root)});
+Promise.all([list('ffs','/'),list('sdfs','/')]).then(function(a){
+  avail.sdfs=a[1].info&&a[1].info!==a[0].info;   // no SD card: dir=1 shows the flash again
+  panes.forEach(function(p){p.tabsDraw()});
+}).catch(function(){}).then(function(){panes[0].load().then(function(){panes[1].load()})});
+})();
+</script>

@@ -979,7 +979,7 @@ char* UfsFilename(char* fname, char* fname_in) {
 }
 
 const char kUFSCommands[] PROGMEM = "Ufs|"  // Prefix
-  "|Type|Size|Free|Delete|Rename|Run|List"
+  "|Type|Size|Free|Delete|Rename|Run|List|Mkdir"
 #ifdef UFILESYS_STATIC_SERVING
   "|Serve"
 #endif
@@ -989,7 +989,7 @@ const char kUFSCommands[] PROGMEM = "Ufs|"  // Prefix
   ;
 
 void (* const kUFSCommand[])(void) PROGMEM = {
-  &UFSInfo, &UFSType, &UFSSize, &UFSFree, &UFSDelete, &UFSRename, &UFSRun, &UFSList
+  &UFSInfo, &UFSType, &UFSSize, &UFSFree, &UFSDelete, &UFSRename, &UFSRun, &UFSList, &UFSMkdir
 #ifdef UFILESYS_STATIC_SERVING
   ,&UFSServe
 #endif
@@ -1066,6 +1066,40 @@ void UFSRename(void) {
         result = TfsRenameFile(fname_old, fname_new);
       } else {
         result = (ufs_type && ufsp->rename(fname_old, fname_new));
+      }
+    }
+    if (!result) {
+      ResponseCmndFailed();
+    } else {
+      ResponseCmndDone();
+    }
+  }
+}
+
+// UfsMkdir <path>   creates the folder and any missing parents. The path may start with /ffs/, /sdfs/ or
+// /usb/ (same prefixes as the TinyC file functions); without one the SD card (or flash) is used.
+void UFSMkdir(void) {
+  if (XdrvMailbox.data_len > 0) {
+    char path[UFS_FILENAME_SIZE];
+    UfsFilename(path, XdrvMailbox.data);
+    FS *fsp = ufsp;
+    char *p = path;
+    if (!strncmp_P(p, PSTR("/ffs/"), 5))       { fsp = ffsp;  p += 4; }
+    else if (!strncmp_P(p, PSTR("/sdfs/"), 6)) { fsp = ufsp;  p += 5; }
+#ifdef USE_USB_HOST_MSC
+    else if (!strncmp_P(p, PSTR("/usb/"), 5))  { fsp = usbfsp; p += 4; }
+#endif  // USE_USB_HOST_MSC
+    bool result = false;
+    if (fsp) {
+      result = true;
+      for (char *c = p + 1; ; c++) {              // every prefix of the path, ending with the whole of it
+        if ('/' == *c || 0 == *c) {
+          char keep = *c;
+          *c = 0;
+          if (!fsp->exists(p) && !fsp->mkdir(p)) { result = false; }
+          *c = keep;
+          if (!keep) { break; }
+        }
       }
     }
     if (!result) {

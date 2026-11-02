@@ -7507,7 +7507,12 @@ static void tc_ul_handle(WiFiClient &client) {
   // active UFS. A 0 reading means "unknown" -> don't block; also naturally
   // rejects a garbage Content-Length.
   extern uint32_t UfsInfo(uint32_t sel, uint32_t type);
+#ifdef USE_USB_HOST_MSC
+  extern FS *usbfsp;
+  uint32_t free_kb = UfsInfo(1, (fsp == ffsp) ? 1 : ((fsp == usbfsp) ? 2 : 0));
+#else
   uint32_t free_kb = UfsInfo(1, (fsp == ffsp) ? 1 : 0);
+#endif
   if (free_kb && (fsize / 1024 + 16) > free_kb) {
     char m[64]; snprintf_P(m, sizeof(m), PSTR("no space: need %u kB, free %u kB"),
                            (unsigned)(fsize / 1024), (unsigned)free_kb);

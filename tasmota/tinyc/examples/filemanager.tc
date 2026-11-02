@@ -1,0 +1,124 @@
+// @name: File Manager (drag & drop)
+// Two-pane file manager for the device: flash (/ffs/), SD card (/sdfs/) and USB stick (/usb/).
+// Drag a file from one pane to the other to copy it (Shift = move), drop files from your
+// computer onto a pane to upload them, drag rows out of the page to download them.
+//
+// Needs the page next to it: upload filemanager.html to the flash file system as
+// /filemanager.html (File Manager -> Flash), start this script, then open  http://<device>/fm
+//
+// The script is the back end for what the stock file manager cannot do: copy between two file
+// systems and measure a file. Listing, download and delete use the built-in /ufsd, upload uses
+// port 83 (/ufs/<prefix><path>), new folders use the console command UfsMkdir <prefix><path>.
+// ⚠️ webOn() only works in slot 0 (TinyC anti-pattern 14): start this script in slot 0.
+//
+//   /fm                          the page (served from /ffs/filemanager.html)
+//   /fm/op?c=cp&a=SRC&b=DST&o=N  copy one slice (64 kB) of SRC starting at byte N to DST.
+//                                -> {"n":bytes copied now,"o":next offset,"t":total,"done":0|1}
+//   /fm/op?c=size&a=PATH         -> {"size":N}  (-1 = not found)
+// Paths carry the prefix: /ffs/x, /sdfs/x, /usb/x. The copy is sliced so no single request blocks
+// the web server for long, and the browser can show progress.
+
+#define SLICE 65536
+
+byte cb[512];
+char pa[160];
+char pb[160];
+char po[16];
+char cmd[16];
+char buf[160];
+
+// fileSize() wants a literal, so measure through a handle: -1 when the file does not exist
+int size_of(char path[]) {
+    int fh;
+    int n;
+    fh = fileOpen(path, 0);
+    if (fh < 0) { return -1; }
+    fileSeek(fh, 0, 2);
+    n = fileTell(fh);
+    fileClose(fh);
+    return n;
+}
+
+int ok(int v) {
+    if (v) { webSend("{\"ok\":1}"); } else { webSend("{\"ok\":0}"); }
+    return 0;
+}
+
+int copy_slice() {
+    int src;
+    int dst;
+    int off;
+    int total;
+    int done;
+    int n;
+    int want;
+    int got;
+    off = 0;
+    if (webArg("o", po) > 0) { off = atoi(po); }
+    total = size_of(pa);
+    if (total < 0) { webSend("{\"ok\":0,\"err\":\"source\"}"); return 0; }
+    if (off > 0 && size_of(pb) != off) { webSend("{\"ok\":0,\"err\":\"offset\"}"); return 0; }
+    src = fileOpen(pa, 0);
+    if (src < 0) { webSend("{\"ok\":0,\"err\":\"open src\"}"); return 0; }
+    if (off > 0) {
+        dst = fileOpen(pb, 2);
+        fileSeek(src, off, 0);
+    } else {
+        dst = fileOpen(pb, 1);
+    }
+    if (dst < 0) { fileClose(src); webSend("{\"ok\":0,\"err\":\"open dst\"}"); return 0; }
+    n = 0;
+    while (n < SLICE && off + n < total) {
+        want = 512;
+        if (off + n + want > total) { want = total - off - n; }
+        got = fileReadBin(src, cb, want);
+        if (got <= 0) { break; }
+        if (fileWriteBin(dst, cb, got) != got) {
+            fileClose(src);
+            fileClose(dst);
+            webSend("{\"ok\":0,\"err\":\"write\"}");
+            return 0;
+        }
+        n = n + got;
+    }
+    fileClose(src);
+    fileClose(dst);
+    done = 0;
+    if (off + n >= total) { done = 1; }
+    sprintf(buf, "{\"ok\":1,\"n\":%d,\"o\":%d,\"t\":%d,\"done\":%d}", n, off + n, total, done);
+    webSend(buf);
+    return 0;
+}
+
+void WebOn() {
+    int h;
+    h = webHandler();
+    if (h == 1) {
+        webSendFile("/filemanager.html");
+        return;
+    }
+    if (h != 2) { return; }
+    if (webArg("c", cmd) <= 0) { ok(0); return; }
+    if (webArg("a", pa) <= 0) { ok(0); return; }
+    if (strcmp(cmd, "cp") == 0) {
+        if (webArg("b", pb) <= 0) { ok(0); return; }
+        copy_slice();
+        return;
+    }
+    if (strcmp(cmd, "size") == 0) {
+        sprintf(buf, "{\"size\":%d}", size_of(pa));
+        webSend(buf);
+        return;
+    }
+    ok(0);
+}
+
+int main() {
+    webOn(1, "/fm");
+    webOn(2, "/fm/op");
+    if (!fileExists("/ffs/filemanager.html")) {
+        addLog("FM: /filemanager.html missing on flash - upload it first");
+    }
+    addLog("FM: file manager at /fm");
+    return 0;
+}
