@@ -316,7 +316,7 @@ struct UsbHostS {
     say("usable as:%s", what[0] ? what : " nothing here");
 #if defined(USBH_MSC_FS) && defined(USE_USB_HOST_MSC_AUTOMOUNT)
     if (sl.msc_if >= 0 && sl.msc_in && sl.msc_out && !msc_mounted) {   // mounting waits for transfers that this task serves: do it elsewhere
-      xTaskCreatePinnedToCore(mount_task, "usbh_mnt", 6144, nullptr, 3, nullptr, 1);
+      xTaskCreatePinnedToCore(automount_task, "usbh_mnt", 6144, nullptr, 3, nullptr, 1);
     }
 #endif
   }
@@ -695,25 +695,34 @@ done:
     if (busy_msc) { say("mount: the stick test is running"); return false; }
     if (!select(2)) { say("mount: no mass storage device attached"); return false; }
     say("mount: using device %04X, interface %d", (unsigned)(uintptr_t)mdev & 0xFFFF, msc_if);
-    esp_err_t e = usb_host_interface_claim(client, mdev, msc_if, 0);
-    if (e != ESP_OK) { say("mount: claim failed %s", esp_err_to_name(e)); return false; }
-    say("mount: interface claimed");
-    // Bulk-only reset recovery: after a release and claim the host starts with data toggle 0 while the device may still expect the
-    // other one, and then drops the first packet. Reset (class request) and CLEAR_FEATURE(ENDPOINT_HALT) on both endpoints resync it.
-    { int r1 = ctrl(mdev, 0x21, 0xFF, 0, msc_if, nullptr, 0);
-      int r2 = ctrl(mdev, 0x02, 0x01, 0, msc_in, nullptr, 0);
-      int r3 = ctrl(mdev, 0x02, 0x01, 0, msc_out, nullptr, 0);
-      say("mount: reset recovery %d %d %d", r1, r2, r3); }
     uint8_t b[64]; uint8_t cb[16]; int got = 0, st = -1;
-    for (int i = 0; i < 8; i++) {                           // the first command after plug-in reports "medium changed": REQUEST SENSE clears it
-      memset(cb, 0, 16); st = bot(cb, 6, nullptr, 0, nullptr);
-      say("mount: TEST UNIT READY %d -> %d", i, st);
+    // A stick that was enumerated a moment ago (or while other devices of the hub were still announcing themselves) often
+    // answers the first commands with errors for good: let go of it, wait and start over, up to three times.
+    for (int attempt = 0; attempt < 3; attempt++) {
+      if (attempt) { say("mount: the stick does not answer, trying again (%d)", attempt + 1); }
+      esp_err_t e = usb_host_interface_claim(client, mdev, msc_if, 0);
+      if (e != ESP_OK) { say("mount: claim failed %s", esp_err_to_name(e)); return false; }
+      say("mount: interface claimed");
+      // Bulk-only reset recovery: after a release and claim the host starts with data toggle 0 while the device may still expect the
+      // other one, and then drops the first packet. Reset (class request) and CLEAR_FEATURE(ENDPOINT_HALT) on both endpoints resync it.
+      { int r1 = ctrl(mdev, 0x21, 0xFF, 0, msc_if, nullptr, 0);
+        int r2 = ctrl(mdev, 0x02, 0x01, 0, msc_in, nullptr, 0);
+        int r3 = ctrl(mdev, 0x02, 0x01, 0, msc_out, nullptr, 0);
+        say("mount: reset recovery %d %d %d", r1, r2, r3); }
+      for (int i = 0; i < 8; i++) {                         // the first command after plug-in reports "medium changed": REQUEST SENSE clears it
+        memset(cb, 0, 16); st = bot(cb, 6, nullptr, 0, nullptr);
+        say("mount: TEST UNIT READY %d -> %d", i, st);
+        if (0 == st) { break; }
+        memset(cb, 0, 16); cb[0] = 0x03; cb[4] = 18;
+        bot(cb, 6, b, 18, &got);
+        vTaskDelay(pdMS_TO_TICKS(300));
+      }
+      say("mount: unit ready check done (status %d)", st);
       if (0 == st) { break; }
-      memset(cb, 0, 16); cb[0] = 0x03; cb[4] = 18;
-      bot(cb, 6, b, 18, &got);
-      vTaskDelay(pdMS_TO_TICKS(300));
+      usb_host_interface_release(client, mdev, msc_if);
+      vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    say("mount: unit ready check done (status %d)", st);
+    if (st != 0) { return false; }
     memset(cb, 0, 16); cb[0] = 0x25;
     st = bot(cb, 10, b, 8, &got);
     uint32_t last = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3], bs = (b[4] << 24) | (b[5] << 16) | (b[6] << 8) | b[7];
@@ -752,6 +761,7 @@ done:
   }
 
   static void mount_task(void *arg) { msc_mount(); vTaskDelete(nullptr); }
+  static void automount_task(void *arg) { vTaskDelay(pdMS_TO_TICKS(2500)); msc_mount(); vTaskDelete(nullptr); }   // let the other devices of a hub finish announcing themselves first
 #endif  // USBH_MSC_FS
 
 #ifdef USE_USB_HOST_AUDIO
