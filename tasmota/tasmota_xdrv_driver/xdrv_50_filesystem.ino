@@ -95,6 +95,11 @@ FS *ufsp;
 FS *ffsp;
 // Local pointer for file managment
 FS *dfsp;
+#ifdef USE_USB_HOST_MSC
+// USB flash drive (FAT) mounted as /usb by xdrv_99_usb_host; nullptr while none is mounted
+FS *usbfsp = nullptr;
+#include "esp_vfs_fat.h"
+#endif  // USE_USB_HOST_MSC
 
 char ufs_path[UFS_FILENAME_SIZE];
 File ufs_upload_file;
@@ -297,6 +302,13 @@ void UfsCheckSDCardInit(void) {
 
 uint32_t UfsInfo(uint32_t sel, uint32_t type) {
   uint64_t result = 0;
+#ifdef USE_USB_HOST_MSC
+  if (2 == type) {                                          // 2 = USB flash drive
+    uint64_t total = 0, freeb = 0;
+    if (usbfsp && (ESP_OK == esp_vfs_fat_info("/usb", &total, &freeb))) { result = sel ? freeb : total; }
+    return result / 1024;
+  }
+#endif  // USE_USB_HOST_MSC
   FS *ifsp = ufsp;
   uint8_t itype = ufs_type;
   if (type) {
@@ -379,12 +391,17 @@ uint32_t UfsInfo(uint32_t sel, uint32_t type) {
   return result / 1024;
 }
 
+// which file system the file manager shows: 0 = the active one (SD), 1 = flash, 2 = USB flash drive
+uint32_t UfsDirInfoType(void) {
+  return (ufs_dir == 3) ? 2 : ((ufs_dir == 2) ? 1 : 0);
+}
+
 uint32_t UfsSize(void) {
-  return UfsInfo(0, ufs_dir == 2 ? 1:0);
+  return UfsInfo(0, UfsDirInfoType());
 }
 
 uint32_t UfsFree(void) {
-  return UfsInfo(1, ufs_dir == 2 ? 1:0);
+  return UfsInfo(1, UfsDirInfoType());
 }
 
 #if USE_LONG_FILE_NAMES>0
@@ -1487,8 +1504,16 @@ void UfsDirectory(void) {
     ufs_dir = atoi(stmp.c_str());
   }
 
+#ifdef USE_USB_HOST_MSC
+  if (ufs_dir == 3 && !usbfsp) { ufs_dir = 2; }              // the stick was pulled
+#endif  // USE_USB_HOST_MSC
+
   if (ufs_dir == 1) {
     dfsp = ufsp;
+#ifdef USE_USB_HOST_MSC
+  } else if (ufs_dir == 3) {
+    dfsp = usbfsp;
+#endif  // USE_USB_HOST_MSC
   } else {
     if (ffsp) {
       dfsp = ffsp;
@@ -1528,14 +1553,25 @@ void UfsDirectory(void) {
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_MANAGE_FILE_SYSTEM));
 
   char ts[FLOATSZ];
-  dtostrfd((float)UfsInfo(0, ufs_dir == 2 ? 1:0) / 1000, 3, ts);
+  dtostrfd((float)UfsInfo(0, UfsDirInfoType()) / 1000, 3, ts);
   char fs[FLOATSZ];
-  dtostrfd((float)UfsInfo(1, ufs_dir == 2 ? 1:0) / 1000, 3, fs);
+  dtostrfd((float)UfsInfo(1, UfsDirInfoType()) / 1000, 3, fs);
   WSContentSend_PD(UFS_FORM_FILE_UPGc, WebColor(COL_TEXT), ts, fs);
 
-  if (ufs_dir) {
+  if (ufs_dir && (ufs_dir != 3)) {
     WSContentSend_P(UFS_FORM_FILE_UPGc1, (ufs_dir == 1)?2:1, (ufs_dir == 1)?PSTR("SDCard"):PSTR("FlashFS"));
   }
+#ifdef USE_USB_HOST_MSC
+  if (usbfsp) {                                               // links between the file systems while a stick is mounted
+    if (ufs_dir == 3) {
+      WSContentSend_P(UFS_FORM_FILE_UPGc1, 2, PSTR("FlashFS"));
+      if (ufsp != ffsp) { WSContentSend_P(UFS_FORM_FILE_UPGc1, 1, PSTR("SDCard")); }
+      WSContentSend_P(PSTR(" &nbsp;&nbsp;[USB]"));
+    } else {
+      WSContentSend_P(UFS_FORM_FILE_UPGc1, 3, PSTR("USB"));
+    }
+  }
+#endif  // USE_USB_HOST_MSC
   WSContentSend_P(UFS_FORM_FILE_UPGc2);
 
 #ifdef USE_TINYC
