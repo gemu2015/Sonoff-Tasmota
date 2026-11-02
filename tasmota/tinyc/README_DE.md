@@ -204,7 +204,7 @@ REST-API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status` (mit `slot=` Pa
 
 ## Beispiele
 
-Siehe [`examples/`](examples/) fuer 60+ vollstaendige Programme. Highlights:
+Siehe [`examples/`](examples/) fuer 220+ vollstaendige Programme. **Die ganze Liste, nach Gruppen, mit je einem Satz Erklaerung: [docs/EXAMPLES.md](docs/EXAMPLES.md)** (englisch). Highlights:
 
 **I2C-Sensoren:**
 - **bme280** / **bmp280** / **bmx280** — Bosch Umweltsensoren (Temperatur, Feuchte, Druck)

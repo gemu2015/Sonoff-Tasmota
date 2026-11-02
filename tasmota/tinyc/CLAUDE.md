@@ -847,6 +847,8 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 
 ## 9. Example index (grouped)
 
+The complete list with a one-line explanation per program is generated into [`docs/EXAMPLES.md`](docs/EXAMPLES.md) (`node scripts/gen_examples_doc.mjs`, CI checks it is current). The grouped names below are the short version.
+
 **GPIO / basic** — `blink.tc`, `sensor_read.tc`, `fibonacci.tc`
 **Sensors (I²C)** — `bme280.tc`, `bmp280.tc`, `scd30.tc`, `sht31.tc`, `ccs811.tc`, `sgp30.tc`, `ltr308.tc`, `veml6075.tc`, `tcs34725.tc`, `vl53l0x.tc`, `ads1115.tc`, `max31855.tc`, `mlx90614.tc`, `sps30.tc`, `ld2410.tc`
 **Sensors (other)** — `onewire.tc` (DS18B20), `bresser_chart.tc` (weather)

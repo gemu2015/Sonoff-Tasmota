@@ -9,6 +9,7 @@ name: TinyC checks
 #     browser uses), unless it is listed in tasmota/tinyc/scripts/examples_expected_skips.txt
 #   * bytecode/*.tcb or index.json that do not match the examples (someone changed
 #     a .tc or the compiler and did not run compile_examples.mjs)
+#   * docs/EXAMPLES.md not matching the examples (gen_examples_doc.mjs --check)
 #   * the reference tables contradicting the #defines (check_docs.mjs)
 #   * a superinstruction that computes differently from the opcodes it replaces
 #   * a WebUI with controls but without a button (webui_knopf_pruefen.py)
@@ -63,6 +64,9 @@ jobs:
             echo "::error::compile_examples.mjs produced files that are not committed (new example without its .tcb?)."
             exit 1
           fi
+
+      - name: Example list (docs/EXAMPLES.md) is up to date
+        run: node tasmota/tinyc/scripts/gen_examples_doc.mjs --check
 
       - name: Reference tables against the #defines
         run: node tasmota/tinyc/scripts/check_docs.mjs

@@ -214,7 +214,7 @@ File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — suppo
 
 ## Examples
 
-See [`examples/`](examples/) for 60+ complete working programs. Highlights:
+See [`examples/`](examples/) for 220+ complete working programs. **The full list, grouped, with a one-line explanation of each: [docs/EXAMPLES.md](docs/EXAMPLES.md).** Highlights:
 
 > **Run one straight from the repo, without the IDE on the device:** every build
 > (unless it is built with `TINYC_NO_REPO_IDE`) serves `/tcrepo` — a ~6.5 KB page that lists the repo's
