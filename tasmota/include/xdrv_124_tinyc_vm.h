@@ -180,11 +180,21 @@ uint32_t WcGetPicstore(int32_t num, uint8_t **buff) {
 #ifdef USE_UFILESYS
 extern FS *ffsp;
 extern FS *ufsp;
+#ifdef USE_USB_HOST_MSC
+extern FS *usbfsp;   // USB flash drive mounted by xdrv_99_usb_host, nullptr while none is mounted
+#endif
 // Resolve filesystem from path prefix (like Scripter's script_file_path):
 //   /ffs/xxx  → flash (ffsp), strip prefix
 //   /sdfs/xxx → SD card (ufsp), strip prefix
+//   /usb/xxx  → USB flash drive (usbfsp), strip prefix (nullptr when no stick is mounted)
 //   default   → ufsp (SD preferred), ensure leading /
 static FS *tc_file_path(char *path) {
+#ifdef USE_USB_HOST_MSC
+  if (!strncmp_P(path, PSTR("/usb/"), 5)) {
+    memmove(path, path + 4, strlen(path) - 3);
+    return usbfsp;
+  }
+#endif
   if (!strncmp_P(path, PSTR("/ffs/"), 5)) {
     memmove(path, path + 4, strlen(path) - 3);
     return ffsp;
