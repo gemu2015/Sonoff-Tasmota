@@ -1,0 +1,82 @@
+# USB host on the ESP32-S3 / S2: flash drive, audio stick, FTDI
+
+Driver `xdrv_99_usb_host.ino`. The ESP32 is the **host**: a USB flash drive becomes the file system `/usb`,
+a USB audio stick plays WAV files, an FTDI adapter (VarioLab) becomes a serial port. One host, several devices
+at once behind a hub. Deutsch: [USB_HOST_DE.md](USB_HOST_DE.md).
+
+## Which chips
+
+Only chips with a USB-OTG peripheral have a host stack: **ESP32-S2 and S3** (released here) and **ESP32-P4**
+(has the stack, not ported yet). ESP32, C2/C3/C5/C6/C61/H2 have no host; on those the driver compiles to
+nothing (a `#warning`). The board must **supply VBUS** at the socket, and the plug must fit (the GOOUUU S3-CAM
+does not take a normal USB-A plug).
+
+## Build switches (`user_config_override.h` or `-D` in the environment)
+
+| Switch | Effect |
+|---|---|
+| `USE_USB_HOST` | host, hub, device table, commands (required) |
+| `USE_USB_HOST_MSC` | USB flash drive as FAT file system `/usb` |
+| `USE_USB_HOST_MSC_AUTOMOUNT` | mount a drive about 2.5 s after it appears (otherwise `UsbHostMount 1`) |
+| `USE_USB_HOST_AUDIO` | USB audio class 1.0 playback (16 bit PCM, 44.1/48 kHz) |
+| `USE_USB_HOST_SERIAL` | FTDI FT232 serial port (`usbInit()` … in TinyC use this driver) |
+| `USE_USB_HOST_AUTOSTART` | start the host at boot (otherwise `UsbHost 1`) |
+
+**Hubs** need `CONFIG_USB_HOST_HUBS_SUPPORTED=y` in the SDK. With PlatformIO that is
+`custom_sdkconfig = CONFIG_USB_HOST_HUBS_SUPPORTED=y` in the environment — it rebuilds the shared Arduino
+libraries once (about 8 minutes) and rewrites `sdkconfig.defaults` / deletes `CMakeLists.txt`: restore both with
+`git checkout` before committing. Without a hub option only **one** device works at the socket.
+
+## Commands
+
+| Command | |
+|---|---|
+| `UsbHost [0\|1]` | stop / start the host; without argument the state and the attached devices |
+| `UsbHostFifo rx,nptx,ptx` | FIFO lines of the host (default 80,40,80; **the sum must stay ≤ 200**, more and no device enumerates, silently) |
+| `UsbHostMsc` | list the devices; with a drive attached a read test |
+| `UsbHostMount [0\|1]` | unmount / mount the drive (mounting runs in its own task) |
+| `UsbHostTone`, `UsbHostPlay <path>`, `UsbHostStress <path>` | audio: 440 Hz test tone, play a 16 bit PCM WAV (any rate, resampled), loop test |
+| `UsbHostSerial <baud>`, `UsbHostSerialRead [n]`, `UsbHostSerialWrite <hex>`, `UsbHostBridge <port>` | FTDI port, TCP bridge |
+
+Log lines start with `USB:` (web console / `/cs`).
+
+## The drive as file system
+
+* FAT12/16/32 with 512-byte blocks. **No exFAT, no NTFS** (the log says so).
+* Mounted at `/usb`; `usbfsp` is the `FS` pointer (nullptr when nothing is mounted).
+* **Tasmota file manager**: `/ufsd?dir=3` (link "USB" next to Flash and SD).
+* **TinyC**: path prefix `/usb/` like `/ffs/` (flash) and `/sdfs/` (SD): `fileOpen("/usb/log.csv", 2)`.
+  Without a drive `fileOpen` fails with -1.
+* Port 83 upload: `POST /ufs/usb/<path>`; new command **`UfsMkdir <prefix><path>`** creates a folder and its parents
+  (prefix `/ffs/`, `/sdfs/`, `/usb/`).
+* Speed: raw reads about 1.1 MB/s; through the web file manager about 105 kB/s write, 167 kB/s read.
+
+Things the stick insists on (all handled in the driver; keep them when you touch it):
+
+* After release and claim the host starts with data toggle 0: send the **Bulk-Only reset recovery** (class request
+  `0x21/0xFF`, `CLEAR_FEATURE(HALT)` on both endpoints) before the first command, or the first command hangs and the
+  watchdog resets the device.
+* The first command after plug-in reports "medium changed": answer with REQUEST SENSE.
+* A drive that is attached while a hub is still enumerating the other devices may answer every command with an
+  error for good. The automount therefore waits 2.5 s, and the mount tries three times (release, wait 1 s, claim).
+* The transfer callbacks run in the USB client task: **never mount or wait for a transfer from that task**
+  (own task, only one mount at a time).
+
+## TinyC file manager (`examples/filemanager.tc` + `filemanager.html`)
+
+Two panes (Flash / SD / USB), drag a row to the other pane to copy (Shift = move), drop files from the computer to
+upload, folders recursive. Put `filemanager.html` on the flash as `/filemanager.html`, start the script **in slot 0**
+(`webOn` only dispatches to slot 0), open `http://<device>/fm`. The script copies in 64 kB slices
+(`/fm/op?c=cp`), everything else uses Tasmota's `/ufsd`, port 83 and `UfsMkdir`.
+
+## Audio
+
+Class 1.0 playback by isochronous OUT (6 transfers of 8 × 1 ms), sampling frequency set with `SET_CUR` on the
+endpoint, linear resampling, half level. WAV only (16 bit PCM); MP3 needs a decoder and is not built. Needs the
+FIFO split above (the default split does not take a 200-byte isochronous packet).
+
+## Not done / not tested
+
+* ESP32-P4 (probably High-Speed, which would make drives much faster; needs `peripheral_map` and its own FIFO values).
+* Pulling the drive while it is mounted (the unmount path exists, not exercised on hardware).
+* FTDI data from a running VarioLab through the hub, the TCP bridge, writing through the SD card reader.

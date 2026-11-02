@@ -2686,6 +2686,9 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 **Hinweise:**
 - Dateipfade können Zeichenketten-Literale oder char[]-Variablen sein (z.B. `"/data.txt"`)
 - **Dateisystem-Auswahl** (Scripter-kompatibel): Standard ist SD-Karte (`ufsp`). Praefix `/ffs/` fuer Flash, `/sdfs/` fuer SD-Karte explizit: `fileOpen("/ffs/config.txt", 0)` oeffnet von Flash, `fileOpen("/data.txt", 0)` oeffnet von SD-Karte
+- **USB-Stick**: mit dem USB-Host-Treiber (`USE_USB_HOST_MSC`, siehe `docs/USB_HOST_DE.md`) ist ein eingehängter FAT-Stick über das Präfix `/usb/` erreichbar: `fileOpen("/usb/log.csv", 2)`. Ohne eingehängten Stick liefert `fileOpen` -1. `rename` kann nicht zwischen `/ffs/`, `/sdfs/` und `/usb/` verschieben.
+- **Nur Literale**: `fileSize`, `fileMkdir`, `fileRmdir` und `fileRename` nehmen feste Zeichenketten, keine `char[]`-Puffer (Übersetzerfehler). Eine Datei mit errechnetem Namen misst man, indem man sie öffnet, `fileSeek(h, 0, 2)` und `fileTell(h)` aufruft; einen Ordner mit errechnetem Namen legt `tasmCmd("UfsMkdir /usb/ordner/unter")` an (samt Elternordnern, Präfixe wie oben).
+- `webSendFile("/seite.html")` nimmt einen Pfad **ohne** Präfix und sucht zuerst auf der SD-Karte, dann im Flash.
 - Maximal 4 gleichzeitig geoeffnete Dateien (ESP32), 8 im Browser
 - Puffer-Argumente (`buf`) muessen `char`-Arrays sein, keine Zeichenketten-Literale
 - `fileRead` gibt die tatsaechlich gelesene Byteanzahl zurueck (kann weniger als `max` sein)

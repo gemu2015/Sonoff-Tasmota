@@ -373,7 +373,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | I²C | `i2cRead8`, `i2cWrite8`, `i2cReadBuf`, `i2cWriteBuf`, `i2cScan` |
 | SPI | `spiInit`, `spiTransfer`, `spiSetCs` |
 | 1-Wire | `owReset`, `owRead`, `owWrite`, `owSearch` |
-| Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileRename`, `fileSize`, `fileReadBin`/`fileWriteBin` |
+| Files | `fileOpen`, `fileRead`, `fileWrite`, `fileClose`, `fileDelete`, `fileRename`, `fileSize`, `fileReadBin`/`fileWriteBin`. Prefixes `/ffs/` flash, `/sdfs/` SD, **`/usb/` USB stick** (needs the USB host driver, `docs/USB_HOST.md`). ⚠️ `fileSize`/`fileMkdir`/`fileRmdir`/`fileRename` take string LITERALS only (compile error for a `char[]`): measure with `fileSeek(h,0,2)`+`fileTell(h)`, make folders with `tasmCmd("UfsMkdir …")`. ⚠️ `webSendFile("/x.html")` wants NO prefix. |
 | HTTP | `httpGet`, `httpPost`, `httpHeader` |
 | FTP | One session per device: `ftpOpen(host, user, pw)` / `ftpClose()`; then `ftpPut(remote, local, mode)` (file), `ftpPutStr(remote, data, mode)` (char[]), `mode` 0 = replace, 1 = APPEND; `ftpGet(remote, local)`, `ftpGetStr(remote, buf)`, `ftpList(dir, buf)` (names, one per line, returns count), `ftpSize`, `ftpDelete`, `ftpMkdir`, `ftpRename(from, to)`. Returns bytes/0 or -1…-10 (-10 = no session). Blocking: call from `main()` or `TaskLoop()`, never from `EverySecond` (mutex held for the whole transfer) and not from a `spawnTask` worker when the data lives in a `char[]` (own VM, own heap). Fritzbox: FTP enabled under Heimnetz → Speicher, internal storage `/FRITZ/mediabox/…`, use the box's IP (name → IPv6 → PASV refused; EPSV fallback exists), the DLNA media server is read-only |
 | TCP | `tcpConnect`, `tcpRead`, `tcpWrite`, `tcpAvailable`, `tcpSelect` (slot 0..3); tuning: `tcpKeepalive`, `tcpNoDelay`, `tcpTransact`, `tcpDisconnectReason` |
@@ -855,7 +855,7 @@ inverter Modbus-TCP, 11.5 h with `byd_err = 0`) on 14.05./15.05.
 **Display** — `display_demo.tc`, `lcd_i2c.tc`, `lcd_chart.tc`, `chart.tc`, `chart_types.tc`, `epaper29.tc`, `sunton_display.tc`, `guiton_display.tc`, `analog_clock.tc`, `voltmeter.tc` (canvas), `text_on_image.tc`, `watch_demo.tc`
 **LEDs** — `ledbar.tc`
 **Touch / UI** — `touch_buttons.tc`, `tinyui_demo.tc`, `tinyui_dashboard.tc`, `multipage_demo.tc`
-**Web** — `web_buttons.tc`, `web_handler.tc`, `webcall_demo.tc`, `webui_demo.tc`
+**Web** — `web_buttons.tc`, `web_handler.tc`, `webcall_demo.tc`, `webui_demo.tc`, `filemanager.tc` + `filemanager.html` (two-pane file manager Flash/SD/USB, drag & drop, `/fm`; slot 0 only)
 **Network** — `udp.tc`, `live_chart.tc`, `ftp_log.tc` (readings → NAS), `nas_log_upload.tc` (FileLog files → NAS, library `common/nas_backup.tc`)
 **Audio** — `wav_player.tc` (I²S + WM8960)
 **Camera (ESP32)** — `camera.tc`, `webcam.tc`, `webcam_tinyc.tc`, `snap_with_timestamp.tc`

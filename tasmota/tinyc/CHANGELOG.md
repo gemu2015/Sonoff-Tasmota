@@ -57,6 +57,33 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## Unreleased
+
+- **USB host for the ESP32-S3/S2** (`xdrv_99_usb_host.ino`, [docs/USB_HOST.md](docs/USB_HOST.md)): a USB flash drive becomes the
+  FAT file system `/usb` (read, write, remount, reboot; tested on .186 and .190 with 3 MB files, checksums equal), a USB audio
+  stick plays WAV, an FTDI adapter is the serial port. Several devices behind one hub (needs `CONFIG_USB_HOST_HUBS_SUPPORTED`).
+  Switches `USE_USB_HOST`, `_MSC`, `_MSC_AUTOMOUNT`, `_AUDIO`, `_SERIAL`, `_AUTOSTART`; other chips are excluded at build time
+  (P4 planned). ⚠️ With `USE_TINYC_USBSERIAL` the driver needs `USE_USB_HOST_SERIAL` (the TinyC `usb*` calls now run on this
+  host; the old stand-alone FTDI code stays for builds without it). The automount waits 2.5 s and the mount tries three times:
+  a drive attached while a hub still enumerates its other devices otherwise stayed dead.
+- **TinyC path prefix `/usb/`** (`fileOpen("/usb/x.csv", 1)`), tested by a script writing, reading and deleting on the stick.
+- **`UfsMkdir <prefix><path>`** creates a folder and its missing parents (prefixes `/ffs/`, `/sdfs/`, `/usb/`); a TinyC script
+  with a computed name can use it through `tasmCmd` (`fileMkdir` takes only literals).
+- **`examples/filemanager.tc` + `filemanager.html`**: two-pane file manager (Flash / SD / USB) with drag & drop copy and move
+  between the file systems, upload from the computer, folders, delete. Needs slot 0 (`webOn`).
+- Port 83 upload: the free-space check follows the USB stick (it asked the SD card before).
+- ⚠️ **Key and settings files stay inside** (Andreas, 31.10.–02.11.2026): port 82 download, port 83 upload and `/tc_api`
+  readfile/writefile/deletefile refuse `eebus_key.der`, `tlskey`, `.settings*`, `.drvset*`, `.snsset*` and any name ending in
+  **`.secret`** (a convention for credentials a project keeps in its own files); writing is also refused for `eebus_cert.der`,
+  `eebus_peer.txt`, `eebus_cs_trust.txt`, `eebus_cs_typ.txt` and `eebus_cs.txt` (the SteuVE failsafe limit). Scripts are not
+  affected. The block protects against accident and foreign web pages, not against a targeted attacker on the network.
+  `/tc_api` on port 80 still answers without the web password (open question, agreed with Andreas to treat later).
+- **TinyC upload keeps the old file** when it is aborted (received into `<path>.tmp`, swapped in at the end); if the rename fails
+  the new file stays as `.tmp`. `/tc_upload` refuses protected names.
+- **EEBUS: `/eebus_identity`** (xdrv_126/128) backs up and restores certificate and key behind the web password; a restore is
+  refused (400) when the key does not load or is not the key of the certificate. SteuVE: `Bekannt` in `EEBusCs`,
+  `EEBusCsPower unbekannt`.
+
 ## 1.6.76 — 2026-10-30
 
 - **eBUS (SML): the slave's reply is checked before a telegram is decoded** (Andreas, 30.10.2026). Only

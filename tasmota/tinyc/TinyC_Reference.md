@@ -2754,6 +2754,9 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 **Notes:**
 - File paths can be string literals (e.g., `"/data.txt"`) or `char[]` variables
 - **Filesystem selection** (Scripter-compatible): default is SD card (`ufsp`). Use `/ffs/` prefix for flash, `/sdfs/` prefix for SD card explicitly: `fileOpen("/ffs/config.txt", 0)` opens from flash, `fileOpen("/data.txt", 0)` opens from SD card
+- **USB flash drive**: with the USB host driver (`USE_USB_HOST_MSC`, see `docs/USB_HOST.md`) a mounted FAT stick is reachable with the prefix `/usb/`: `fileOpen("/usb/log.csv", 2)`. Without a mounted stick `fileOpen` returns -1. `rename` cannot move between `/ffs/`, `/sdfs/` and `/usb/`.
+- **Literals only**: `fileSize`, `fileMkdir`, `fileRmdir` and `fileRename` accept string **literals**, not `char[]` buffers (compile error). To measure a file with a computed name open it, `fileSeek(h, 0, 2)` and `fileTell(h)`; to create a folder with a computed name send `tasmCmd("UfsMkdir /usb/dir/sub")` (creates the parents too, prefixes as above).
+- `webSendFile("/page.html")` takes a path **without** prefix and looks on the SD card first, then on the flash.
 - Maximum 4 files open simultaneously (ESP32), 8 in browser
 - Buffer arguments (`buf`) must be `char` arrays, not string literals
 - `fileRead` returns the number of bytes actually read (may be less than `max`)
