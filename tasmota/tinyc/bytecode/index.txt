@@ -62,6 +62,7 @@ esf37_speak.tcb
 fast_mux.tcb
 fibonacci.tcb
 file_io.tcb
+filemanager.tcb
 ftp_backup.tcb
 ftp_browse.tcb
 ftp_log.tcb
