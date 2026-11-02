@@ -177,6 +177,13 @@ uint32_t WcGetPicstore(int32_t num, uint8_t **buff) {
 #endif  // !USE_WEBCAM
 #endif
 
+#ifdef USE_USB_HOST_AUDIO
+// USB audio stick (xdrv_99_usb_host): i2sBegin with dout pin -2 sends the PCM there instead of to the I2S peripheral
+extern int UsbHostAudioOpen(int rate);
+extern int UsbHostAudioWrite(const int16_t *x, int n);
+extern void UsbHostAudioClose(void);
+static bool tc_i2s_usb = false;
+#endif
 #ifdef USE_UFILESYS
 extern FS *ffsp;
 extern FS *ufsp;
@@ -16084,6 +16091,22 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       int32_t bclk_pin    = TC_POP(vm);
       int32_t mclk_pin    = TC_POP(vm);
 
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_i2s_usb) { UsbHostAudioClose(); tc_i2s_usb = false; }
+      if (-2 == dout_pin) {                              // USB audio stick instead of the I2S peripheral
+        if (Tinyc->i2s_tx_handle) {
+          i2s_channel_disable(Tinyc->i2s_tx_handle);
+          i2s_del_channel(Tinyc->i2s_tx_handle);
+          Tinyc->i2s_tx_handle = nullptr;
+        }
+        int r = UsbHostAudioOpen(sample_rate);
+        tc_i2s_usb = (0 == r);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: USB audio %s (rate %d, code %d)"), tc_i2s_usb ? "started" : "failed", sample_rate, r);
+        TC_PUSH(vm, tc_i2s_usb ? 0 : -1);
+        break;
+      }
+#endif
+
       // Stop any previous I2S session
       if (Tinyc->i2s_tx_handle) {
         i2s_channel_disable(Tinyc->i2s_tx_handle);
@@ -16150,6 +16173,19 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       int32_t len     = TC_POP(vm);
       int32_t arr_ref = TC_POP(vm);
 
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_i2s_usb) {                                  // same contract as below: mono int array in, count out, blocks while the buffer is full
+        int32_t *ua = tc_resolve_ref(vm, arr_ref);
+        int32_t um = tc_ref_maxlen(vm, arr_ref);
+        if (!ua || len <= 0) { TC_PUSH(vm, 0); break; }
+        if (len > um) len = um;
+        if (len > 512) len = 512;
+        int16_t ub[512];
+        for (int32_t i = 0; i < len; i++) { int32_t v = ua[i]; ub[i] = (int16_t)((v > 32767) ? 32767 : ((v < -32768) ? -32768 : v)); }
+        TC_PUSH(vm, UsbHostAudioWrite(ub, len));
+        break;
+      }
+#endif
       if (!Tinyc->i2s_tx_handle || !Tinyc->i2s_pcm_buf) {
         TC_PUSH(vm, -1);
         break;
@@ -16186,6 +16222,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
 
     case SYS_I2S_STOP: {
       // i2sStop() -> void
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_i2s_usb) { UsbHostAudioClose(); tc_i2s_usb = false; break; }
+#endif
       if (Tinyc->i2s_tx_handle) {
         i2s_channel_disable(Tinyc->i2s_tx_handle);
         i2s_del_channel(Tinyc->i2s_tx_handle);

@@ -782,6 +782,14 @@ done:
   inline static volatile bool end_reached = false;
   inline static char wav_path[80] = "";
 
+  // PCM stream: TinyC's i2sBegin/i2sWrite end here when the script asks for USB audio (pin -2). One producer (the script task), one consumer (fill, in the client task).
+  #define USBH_RING 8192                                    // mono samples, power of two
+  inline static bool st_open = false, st_mode = false;
+  inline static int16_t *st_ring = nullptr;
+  inline static volatile uint32_t st_wr = 0, st_rd = 0, st_under = 0;
+  inline static double st_frac = 0;
+  inline static int st_rate = 16000;
+
   // reads a 16 bit PCM WAV completely into RAM (PSRAM if there is any)
   static bool load_wav(const char *path) {
     extern FS *ufsp; extern FS *ffsp;
@@ -837,6 +845,13 @@ done:
             *o++ = (int16_t)((a + (b - a) * fr) * 0.5);       // half level
           }
           sp += (double)pcm_rate / (double)as_rate;
+        } else if (st_mode) {                               // PCM from TinyC (i2sWrite): linear conversion from the script's rate
+          if ((uint32_t)(st_wr - st_rd) < 2) { st_under++; for (int c = 0; c < as_ch; c++) { *o++ = 0; } continue; }   // nothing there yet: silence, position stays
+          double a = st_ring[st_rd & (USBH_RING - 1)], b = st_ring[(st_rd + 1) & (USBH_RING - 1)];
+          int16_t v = (int16_t)((a + (b - a) * st_frac) * 0.5);   // half level, like the file player
+          for (int c = 0; c < as_ch; c++) { *o++ = v; }
+          st_frac += (double)st_rate / (double)as_rate;
+          while (st_frac >= 1.0) { st_frac -= 1.0; st_rd++; }
         } else {
           int16_t v = (int16_t)(6000.0f * sinf(phase)); phase += 2.0f * 3.14159265f * 440.0f / as_rate; if (phase > 6.2831853f) { phase -= 6.2831853f; }
           for (int c = 0; c < as_ch; c++) { *o++ = v; }
@@ -862,7 +877,7 @@ done:
     if (as_if < 0) { say("audio: no UAC1 16 bit playback format on this device"); return; }
     if (file_mode && !load_wav(wav_path)) { return; }
     esp_err_t e = usb_host_interface_claim(client, dev, as_if, as_alt);
-    if (e != ESP_OK) { say("audio: claim of interface %d alt %d failed %s", as_if, as_alt, esp_err_to_name(e)); return; }
+    if (e != ESP_OK) { say("audio: claim of interface %d alt %d failed %s (0x%x)", as_if, as_alt, esp_err_to_name(e), (unsigned)e); return; }
     if (file_mode) {                                        // tell the stick which rate it gets (class request SET_CUR, sampling frequency control)
       uint8_t fr[3] = { (uint8_t)(as_rate & 0xFF), (uint8_t)((as_rate >> 8) & 0xFF), (uint8_t)((as_rate >> 16) & 0xFF) };
       int cr = ctrl(dev, 0x22, 0x01, 0x0100, as_ep, fr, 3);
@@ -898,6 +913,77 @@ done:
 rel:
     usb_host_interface_release(client, dev, as_if);
     say("audio: test finished");
+  }
+
+  static void stream_close(void) {
+    if (!st_open) { return; }
+    // the script is ahead of the sound by up to the size of the ring: let it play out before the transfers stop (like the DMA of a real I2S stop)
+    for (int w = 0; w < 250 && (uint32_t)(st_wr - st_rd) >= 2 && playing; w++) { vTaskDelay(pdMS_TO_TICKS(10)); }
+    vTaskDelay(pdMS_TO_TICKS(USBH_NT * USBH_NP + 20));      // the packets already handed to the stick
+    playing = false;
+    for (int w = 0; w < 50 && in_flight > 0; w++) { vTaskDelay(pdMS_TO_TICKS(10)); }
+    if (0 == in_flight) { for (int i = 0; i < USBH_NT; i++) { if (tr[i]) { usb_host_transfer_free(tr[i]); tr[i] = nullptr; } } }
+    usb_host_interface_release(client, dev, as_if);
+    st_mode = false; st_open = false;
+    free(st_ring); st_ring = nullptr;
+    busy_aud = 0; test_busy = busy_msc || busy_aud;
+    say("audio stream: closed, %u underruns", (unsigned)st_under);
+  }
+
+  // rate = sample rate of the samples that will be written (the stick runs at its own rate, the driver converts). 0 = ok, -1 = host, -2 = no audio device, -3 = busy/other error
+  static int stream_open(int rate) {
+    if (st_open) { stream_close(); }
+    if (!start()) { return -1; }
+    if (playing || busy_aud) { return -3; }
+    for (int i = 0; i < 30 && !select(3); i++) { vTaskDelay(pdMS_TO_TICKS(100)); }   // the host may just have been started
+    if (!select(3) || as_if < 0) { say("audio stream: no UAC1 16 bit playback device attached"); return -2; }
+    if (!bsem) { bsem = xSemaphoreCreateBinary(); }
+    busy_aud = 1; test_busy = true;
+    esp_err_t e = usb_host_interface_claim(client, dev, as_if, as_alt);
+    if (e != ESP_OK) { say("audio stream: claim failed %s (0x%x)", esp_err_to_name(e), (unsigned)e); busy_aud = 0; test_busy = busy_msc; return -3; }
+    uint8_t fr[3] = { (uint8_t)(as_rate & 0xFF), (uint8_t)((as_rate >> 8) & 0xFF), (uint8_t)((as_rate >> 16) & 0xFF) };
+    ctrl(dev, 0x22, 0x01, 0x0100, as_ep, fr, 3);
+    int maxb = (as_rate / 1000 + 1) * as_ch * 2;
+    st_ring = (int16_t *)heap_caps_malloc(USBH_RING * sizeof(int16_t), MALLOC_CAP_8BIT);
+    int made = 0;
+    if (st_ring && maxb <= as_mps) {
+      for (int i = 0; i < USBH_NT; i++) {
+        if (usb_host_transfer_alloc(maxb * USBH_NP, USBH_NP, &tr[i]) != ESP_OK) { tr[i] = nullptr; break; }
+        made++;
+        tr[i]->device_handle = dev; tr[i]->bEndpointAddress = as_ep; tr[i]->callback = iso_done; tr[i]->context = nullptr; tr[i]->timeout_ms = 0;
+      }
+    }
+    if (made < USBH_NT) {
+      say("audio stream: no memory or packet too big for the endpoint");
+      for (int i = 0; i < made; i++) { usb_host_transfer_free(tr[i]); tr[i] = nullptr; }
+      free(st_ring); st_ring = nullptr;
+      usb_host_interface_release(client, dev, as_if);
+      busy_aud = 0; test_busy = busy_msc;
+      return -3;
+    }
+    st_rate = (rate < 4000) ? 4000 : ((rate > 96000) ? 96000 : rate);
+    st_wr = 0; st_rd = 0; st_frac = 0; st_under = 0;
+    file_mode = false; st_mode = true; st_open = true;
+    phase = 0; frac = 0; tone_err = 0; iso_xfer_err = 0; iso_pkt_err = 0; iso_done_n = 0; in_flight = 0; playing = true;
+    for (int i = 0; i < USBH_NT; i++) { fill(tr[i]); if (usb_host_transfer_submit(tr[i]) == ESP_OK) { in_flight++; } else { tone_err++; } }
+    say("audio stream: open, %d Hz in, stick %d Hz %d ch", st_rate, as_rate, as_ch);
+    return 0;
+  }
+
+  // blocks while the ring is full (that is what paces the script, like the I2S DMA); returns the samples taken, short after 1 s without room
+  static int stream_write(const int16_t *x, int n) {
+    if (!st_open || !st_ring) { return -1; }
+    int done = 0; uint32_t t0 = millis();
+    while (done < n) {
+      uint32_t used = st_wr - st_rd;
+      uint32_t room = (used >= USBH_RING - 2) ? 0 : (USBH_RING - 2 - used);
+      if (!room) { if (millis() - t0 > 1000 || !playing) { break; } vTaskDelay(1); continue; }
+      int chunk = (n - done < (int)room) ? (n - done) : (int)room;
+      for (int i = 0; i < chunk; i++) { st_ring[(st_wr + i) & (USBH_RING - 1)] = x[done + i]; }
+      __sync_synchronize();
+      st_wr += chunk; done += chunk; t0 = millis();
+    }
+    return done;
   }
 #endif  // USE_USB_HOST_AUDIO
 
@@ -1260,6 +1346,13 @@ void CmndUsbHostStress(void) {
 }
 #endif
 
+
+#ifdef USE_USB_HOST_AUDIO
+// Plain-type interface for TinyC i2sBegin/i2sWrite/i2sStop with dout pin -2 (xdrv_124_tinyc_vm.h calls these)
+int UsbHostAudioOpen(int rate) { return UsbHostS::stream_open(rate); }
+int UsbHostAudioWrite(const int16_t *x, int n) { return UsbHostS::stream_write(x, n); }
+void UsbHostAudioClose(void) { UsbHostS::stream_close(); }
+#endif
 
 #ifdef USE_USB_HOST_SERIAL
 // Plain-type interface for the TinyC functions usbInit/usbOpen/usbRead/usbWrite (xdrv_124_tinyc_usb.h calls these)

@@ -75,6 +75,19 @@ Klasse 1.0 per isochronem OUT (6 Übertragungen zu 8 × 1 ms), Abtastrate per `S
 Umrechnung, halber Pegel. Nur WAV (16 Bit PCM); MP3 braucht einen Decoder und ist nicht gebaut. Braucht die obige
 FIFO-Aufteilung (die Standardaufteilung nimmt kein 200-Byte-Isochronpaket).
 
+**Aus TinyC** ist der Stick der Ausgang von `i2sBegin` / `i2sWrite` / `i2sStop`: `i2sBegin(-1, -1, -1, -2, rate)` aufrufen
+(Datenpin **-2** = USB-Audio-Stick) und Mono-Samples mit 16 Bit schreiben wie für einen I2S-Verstärker. Der Treiber rechnet
+`rate` auf die Rate des Sticks um, `i2sWrite` blockiert, solange der Ring (8192 Samples) voll ist (das taktet das Skript),
+und `i2sStop` lässt den Ring erst auslaufen. Der Host wird bei Bedarf gestartet. `examples/wav_player.tc` macht es mit
+`#define CODEC_USB` (`CODEC_NONE` auskommentieren): `WAVplay /ffs/x.wav`, `WAVtone 440`, jede WAV-Rate läuft in der richtigen
+Geschwindigkeit.
+
+⚠️ **Die OTG-Hardware hat nur 8 Host-Kanäle.** Jedes angesteckte Gerät belegt einen (seine Steuerleitung), der Hub einen für
+seinen Interrupt-Endpunkt, und jeder belegte Endpunkt einen: ein eingehängter Stick zwei, ein Audio-Strom einen. Hub + FTDI +
+Stick + Audio-Stick + Kartenleser sind neun, dann scheitert die Audio-Belegung bei eingehängtem Stick mit `0x106`
+(`ESP_ERR_NOT_SUPPORTED`; nach `UsbHostMount 0` geht es). Ein nicht gebrauchtes Gerät (den Kartenleser) abziehen oder den Stick
+nur bei Bedarf einhängen.
+
 ## Nicht gebaut / nicht getestet
 
 * ESP32-P4 (wohl High-Speed, Sticks wären deutlich schneller; braucht `peripheral_map` und eigene FIFO-Werte).

@@ -4,6 +4,10 @@
 // Pick ONE codec below. The script drives the codec over I2C itself (no audio plugin).
 //   CODEC_NONE   — raw I2S amp (MAX98357A / PCM5102 / UDA1334), no I2C, no MCLK.
 //   CODEC_WM8960 — WM8960 codec (auto-detected on I2C), HW volume.
+//   CODEC_USB    — a USB audio stick on the OTG socket (ESP32-S2/S3, firmware built with USE_USB_HOST_AUDIO,
+//                  see docs/USB_HOST.md). No pins, no codec: i2sBegin with dout pin -2 goes to the stick,
+//                  the driver converts the sample rate (so any WAV rate plays at the right speed).
+//                  Start the host first (UsbHost 1) or let the first play start it; needs the stick attached.
 //   CODEC_P4     — Waveshare ESP32-P4 10.1": ES8311 DAC @0x18, MCLK=13 BCLK=12 WS=10
 //                  DOUT=9, speaker power-amp enable on GPIO53. 16 kHz.
 //
@@ -11,6 +15,7 @@
 
 #define CODEC_NONE
 //#define CODEC_WM8960
+//#define CODEC_USB     // comment CODEC_NONE out when you use this
 //#define CODEC_P4
 
 #define OUTPUT 0x03
@@ -123,6 +128,9 @@ int codecInit() {
 #ifdef CODEC_NONE
     return -1;
 #endif
+#ifdef CODEC_USB
+    return -1;
+#endif
 }
 void codecVolume(int v) {
 #ifdef CODEC_WM8960
@@ -194,7 +202,12 @@ void doPlayWav(char path[]) {
     int ratio = pin_rate / wav_rate;
     if (ratio < 1) { ratio = 1; }
     if (ratio > 4) { ratio = 4; }
-    if (i2sBegin(pin_mclk, pin_bclk, pin_lrclk, pin_dout, pin_rate) < 0) { addLog("WAV: i2sBegin failed"); fileClose(f); return; }
+    int open_rate = pin_rate;
+#ifdef CODEC_USB
+    ratio = 1;                                     // the USB driver converts the rate itself
+    open_rate = wav_rate;
+#endif
+    if (i2sBegin(pin_mclk, pin_bclk, pin_lrclk, pin_dout, open_rate) < 0) { addLog("WAV: i2sBegin failed"); fileClose(f); return; }
     codecVolume(dac_vol);
     codecPaOn();
     addLog("WAV: %dHz ratio %d %dch %d bytes", wav_rate, ratio, wav_channels, wav_data_size);
@@ -308,6 +321,9 @@ int main() {
     if (pin_rate == 0)  { pin_rate = 16000; }
 #endif
     if (dac_vol == 0) { dac_vol = 255; }
+#ifdef CODEC_USB
+    pin_dout = -2;        // -2 = USB audio stick
+#endif
 
     addCommand("WAV");
     if (codecInit() == 0) { codec_ok = 1; } else { addLog("I2S: no codec, direct DAC mode"); }

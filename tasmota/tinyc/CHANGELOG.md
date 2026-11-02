@@ -66,6 +66,10 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
   (P4 planned). ⚠️ With `USE_TINYC_USBSERIAL` the driver needs `USE_USB_HOST_SERIAL` (the TinyC `usb*` calls now run on this
   host; the old stand-alone FTDI code stays for builds without it). The automount waits 2.5 s and the mount tries three times:
   a drive attached while a hub still enumerates its other devices otherwise stayed dead.
+- **USB audio stick as the output of `i2sBegin`/`i2sWrite`/`i2sStop`**: data pin **-2** selects the stick (`wav_player.tc` with
+  `#define CODEC_USB`). The driver resamples to the stick's rate, `i2sWrite` blocks like the I2S DMA and `i2sStop` plays out the
+  buffer. ⚠️ The OTG hardware has 8 host channels: with hub, FTDI, card reader, a mounted stick and the audio stick (nine) the
+  audio claim fails with 0x106 — see `docs/USB_HOST.md`.
 - **TinyC path prefix `/usb/`** (`fileOpen("/usb/x.csv", 1)`), tested by a script writing, reading and deleting on the stick.
 - **`UfsMkdir <prefix><path>`** creates a folder and its missing parents (prefixes `/ffs/`, `/sdfs/`, `/usb/`); a TinyC script
   with a computed name can use it through `tasmCmd` (`fileMkdir` takes only literals).

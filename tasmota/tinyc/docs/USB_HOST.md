@@ -75,6 +75,17 @@ Class 1.0 playback by isochronous OUT (6 transfers of 8 × 1 ms), sampling frequ
 endpoint, linear resampling, half level. WAV only (16 bit PCM); MP3 needs a decoder and is not built. Needs the
 FIFO split above (the default split does not take a 200-byte isochronous packet).
 
+**From TinyC** the stick is the output of `i2sBegin` / `i2sWrite` / `i2sStop`: call `i2sBegin(-1, -1, -1, -2, rate)`
+(data pin **-2** = USB audio stick) and write mono 16 bit samples as for an I2S amplifier. The driver converts `rate` to the
+rate of the stick, `i2sWrite` blocks while its 8192-sample ring is full (that paces the script) and `i2sStop` lets the ring
+play out first. The host is started if needed. `examples/wav_player.tc` does it with `#define CODEC_USB` (comment out
+`CODEC_NONE`): `WAVplay /ffs/x.wav`, `WAVtone 440`, any WAV rate plays at the right speed.
+
+⚠️ **The OTG hardware has only 8 host channels.** Every attached device uses one (its control pipe), the hub's interrupt
+endpoint one, and every claimed endpoint one: a mounted stick takes two, an audio stream one. Hub + FTDI + stick + audio stick
++ card reader are nine, so the audio claim then fails with `0x106` (`ESP_ERR_NOT_SUPPORTED`) while the stick is mounted
+(it works after `UsbHostMount 0`). Unplug a device you do not need (the card reader) or mount the stick only when needed.
+
 ## Not done / not tested
 
 * ESP32-P4 (probably High-Speed, which would make drives much faster; needs `peripheral_map` and its own FIFO values).
