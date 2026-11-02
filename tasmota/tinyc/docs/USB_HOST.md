@@ -84,7 +84,7 @@ play out first. The host is started if needed. `examples/wav_player.tc` does it 
 ⚠️ **The OTG hardware has only 8 host channels.** Every attached device uses one (its control pipe), the hub's interrupt
 endpoint one, and every claimed endpoint one: a mounted stick takes two, an audio stream one. Hub + FTDI + stick + audio stick
 + card reader are nine, so the audio claim then fails with `0x106` (`ESP_ERR_NOT_SUPPORTED`) while the stick is mounted
-(it works after `UsbHostMount 0`). Unplug a device you do not need (the card reader) or mount the stick only when needed.
+(it works after `UsbHostMount 0`). `UsbHostMsc` also claims the stick for its read test, so do not call it as a status query before playing. Unplug a device you do not need (the card reader) or mount the stick only when needed.
 
 ## Not done / not tested
 
