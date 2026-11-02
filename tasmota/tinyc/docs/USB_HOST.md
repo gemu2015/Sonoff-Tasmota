@@ -38,6 +38,7 @@ libraries once (about 8 minutes) and rewrites `sdkconfig.defaults` / deletes `CM
 | `UsbHostFifo rx,nptx,ptx` | FIFO lines of the host (default 80,40,80; **the sum must stay ≤ 200**, more and no device enumerates, silently) |
 | `UsbHostMsc` | list the devices; with a drive attached a read test |
 | `UsbHostMount [0\|1]` | unmount / mount the drive (mounting runs in its own task) |
+| `UsbHostMic [rate]` | recording from the stick's microphone: open / `0` close / state and level |
 | `UsbHostTone`, `UsbHostPlay <path>`, `UsbHostStress <path>` | audio: 440 Hz test tone, play a 16 bit PCM WAV (any rate, resampled), loop test |
 | `UsbHostSerial <baud>`, `UsbHostSerialRead [n]`, `UsbHostSerialWrite <hex>`, `UsbHostBridge <port>` | FTDI port, TCP bridge |
 
@@ -94,6 +95,16 @@ whether a stream is open and the underrun count. The plugin's microphone side st
 Setup of the plugin itself, for a board without an I2S amplifier: `chkpt a2` (128 kB plugin partition, **formats the flash file
 system**), upload `I2SAUDIO_32.bin` on the plugin page (`/modu`), put an `I2SAUDIO.cfg` on the flash with codec 0 and free pins
 (otherwise `iniz` says "Codec error"), then `iniz <slot>` and tick "Autostart plugins at boot". Tested with an MP3 on .190.
+
+**Recording from the stick's microphone input** (isochronous IN, UAC1, 16 bit mono): `UsbHostMic <rate>` opens it (the ring fills, 0 closes),
+`UsbHostMic` alone shows `Rms`/`Peak` of the newest samples, the packet counters and `NonEmpty` (packets that carried data). From TinyC the
+existing microphone calls take the stick when the data pin is **-2**: `i2sMicBegin(-1, -1, -1, -2, 16000)`, then `i2sMicRead(buf, n)` and
+`i2sMicLevel()` as for an I2S microphone, `i2sMicStop()` at the end. The driver converts the stick's 48 kHz to the requested rate by averaging
+(no aliasing for 16 kHz). Playback and recording together fit in the 8 host channels only while no stick is mounted (see below).
+⚠️ Found on a C-Media 0D8C:000C: after a plain claim of the recording interface every packet is empty (zero length, no error) however mute,
+volume, selector and sampling frequency are set. Only an explicit `SET_INTERFACE` to alternate 0 and back to the streaming alternate starts
+the engine, and it then stays started until the stick loses power. The driver always does this; it also sets the sampling frequency and
+switches the microphone's mute off and its volume to the middle of the stick's range (feature unit of the recording path).
 
 ⚠️ **The OTG hardware has only 8 host channels.** Every attached device uses one (its control pipe), the hub's interrupt
 endpoint one, and every claimed endpoint one: a mounted stick takes two, an audio stream one. Hub + FTDI + stick + audio stick

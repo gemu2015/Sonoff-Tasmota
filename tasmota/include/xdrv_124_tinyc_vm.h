@@ -183,6 +183,10 @@ extern int UsbHostAudioOpen(int rate);
 extern int UsbHostAudioWrite(const int16_t *x, int n);
 extern void UsbHostAudioClose(void);
 static bool tc_i2s_usb = false;
+extern int UsbHostMicOpen(int rate);
+extern int UsbHostMicRead(int16_t *dst, int max, int timeout_ms);
+extern void UsbHostMicClose(void);
+static bool tc_mic_usb = false;                 // i2sMicBegin with din pin -2: the recording side of the USB audio stick
 #endif
 #ifdef USE_UFILESYS
 extern FS *ffsp;
@@ -16250,6 +16254,21 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       int32_t bclk_pin    = TC_POP(vm);
       int32_t mclk_pin    = TC_POP(vm);
 
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_mic_usb) { UsbHostMicClose(); tc_mic_usb = false; }
+      if (-2 == din_pin) {                               // the microphone of a USB audio stick
+        if (Tinyc->i2s_rx_handle) {
+          i2s_channel_disable(Tinyc->i2s_rx_handle);
+          i2s_del_channel(Tinyc->i2s_rx_handle);
+          Tinyc->i2s_rx_handle = nullptr;
+        }
+        int r = UsbHostMicOpen((sample_rate < 8000) ? 8000 : ((sample_rate > 48000) ? 48000 : sample_rate));
+        tc_mic_usb = (0 == r);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: USB mic %s (rate %d, code %d)"), tc_mic_usb ? "started" : "failed", sample_rate, r);
+        TC_PUSH(vm, tc_mic_usb ? 0 : -1);
+        break;
+      }
+#endif
       if (Tinyc->i2s_rx_handle) {
         i2s_channel_disable(Tinyc->i2s_rx_handle);
         i2s_del_channel(Tinyc->i2s_rx_handle);
@@ -16296,6 +16315,20 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       // i2sMicRead(arr, max) -> count. Read up to max int16 mono samples into int[].
       int32_t maxn    = TC_POP(vm);
       int32_t arr_ref = TC_POP(vm);
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_mic_usb) {
+        int32_t *ua = tc_resolve_ref(vm, arr_ref);
+        int32_t um  = tc_ref_maxlen(vm, arr_ref);
+        if (!ua || maxn <= 0) { TC_PUSH(vm, 0); break; }
+        if (maxn > um) maxn = um;
+        if (maxn > 256) maxn = 256;
+        int16_t ub[256];
+        int n = UsbHostMicRead(ub, maxn, 50);
+        for (int i = 0; i < n; i++) { ua[i] = ub[i]; }
+        TC_PUSH(vm, (n < 0) ? -1 : n);
+        break;
+      }
+#endif
       if (!Tinyc->i2s_rx_handle) { TC_PUSH(vm, -1); break; }
       int32_t *arr = tc_resolve_ref(vm, arr_ref);
       int32_t cap  = tc_ref_maxlen(vm, arr_ref);
@@ -16316,6 +16349,17 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
     case SYS_I2S_MIC_LEVEL: {
       // i2sMicLevel() -> RMS amplitude 0..32767 over one ~256-sample block.
       // 0 = no data this call, -1 = no mic open.
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_mic_usb) {
+        int16_t ub[256];
+        int n = UsbHostMicRead(ub, 256, 50);
+        if (n <= 0) { TC_PUSH(vm, (n < 0) ? -1 : 0); break; }
+        uint64_t sq = 0;
+        for (int i = 0; i < n; i++) { int32_t v = ub[i]; sq += (uint64_t)(v * v); }
+        TC_PUSH(vm, (int32_t)sqrtf((float)((double)sq / (double)n)));
+        break;
+      }
+#endif
       if (!Tinyc->i2s_rx_handle) { TC_PUSH(vm, -1); break; }
       int16_t tmp[256];
       size_t got = 0;
@@ -16332,6 +16376,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
 
     case SYS_I2S_MIC_STOP: {
       // i2sMicStop() -> void
+#ifdef USE_USB_HOST_AUDIO
+      if (tc_mic_usb) { UsbHostMicClose(); tc_mic_usb = false; break; }
+#endif
       if (Tinyc->i2s_rx_handle) {
         i2s_channel_disable(Tinyc->i2s_rx_handle);
         i2s_del_channel(Tinyc->i2s_rx_handle);

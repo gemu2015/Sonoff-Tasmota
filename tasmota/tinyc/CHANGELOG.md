@@ -66,6 +66,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
   (P4 planned). ⚠️ With `USE_TINYC_USBSERIAL` the driver needs `USE_USB_HOST_SERIAL` (the TinyC `usb*` calls now run on this
   host; the old stand-alone FTDI code stays for builds without it). The automount waits 2.5 s and the mount tries three times:
   a drive attached while a hub still enumerates its other devices otherwise stayed dead.
+- **USB audio stick: recording from its microphone input**: `i2sMicBegin(-1,-1,-1,-2,rate)` / `i2sMicRead` / `i2sMicLevel` / `i2sMicStop` (data pin -2 selects the stick), console `UsbHostMic`. Tested with the stick's line input fed from a Mac (silence level ~150, 1 kHz tone ~4600). ⚠️ The stick needs an explicit SET_INTERFACE 0 → streaming before it sends data; see `docs/USB_HOST.md`.
 - **The S3 test image `tinyc32s3` now includes the USB host** (`USE_USB_HOST*`, hub support via `CONFIG_USB_HOST_HUBS_SUPPORTED`): +44 kB flash (2.87 → 2.92 MB of the 3.9 MB app partition). The host only starts with `UsbHost 1`, nothing changes for users who do not plug anything in. ⚠️ The first build of an S3 env after another sdkconfig rebuilds the shared Arduino libs (about 8 minutes).
 - **USB audio stick as the output of `i2sBegin`/`i2sWrite`/`i2sStop`**: data pin **-2** selects the stick (`wav_player.tc` with
   `#define CODEC_USB`). The driver resamples to the stick's rate, `i2sWrite` blocks like the I2S DMA and `i2sStop` plays out the

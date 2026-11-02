@@ -108,6 +108,7 @@ struct UsbHostS {
 #endif
 #ifdef USE_USB_HOST_AUDIO
   inline static usb_device_handle_t dev = nullptr;    // the audio test works on this one (both tests may run at the same time)
+  inline static usb_device_handle_t cdev = nullptr;   // the stick whose recording side is open
 #endif
 
   // --- what the descriptors of the device being looked at say ---
@@ -116,6 +117,9 @@ struct UsbHostS {
 #endif
 #ifdef USE_USB_HOST_AUDIO
   inline static int as_if = -1, as_alt = 0, as_ep = 0, as_mps = 0, as_rate = 0, as_ch = 0, as_uac = 0;
+  inline static int rc_sel = -1;                             // selector unit in front of the USB streaming output terminal (it has to be told to pass input 1)
+  inline static int rc_fu = -1, rc_acif = 0;                  // feature unit (mute, volume) of the microphone path and the audio control interface it is addressed through
+  inline static int rc_if = -1, rc_alt = 0, rc_ep = 0, rc_mps = 0, rc_rate = 0, rc_ch = 0;   // the recording side (isochronous IN) of the same stick
 #endif
 #ifdef USE_USB_HOST_SERIAL
   inline static int ft_if = -1, ft_in = 0, ft_out = 0;
@@ -131,6 +135,7 @@ struct UsbHostS {
 #endif
 #ifdef USE_USB_HOST_AUDIO
     int as_if, as_alt, as_ep, as_mps, as_rate, as_ch;
+    int rc_if, rc_alt, rc_ep, rc_mps, rc_rate, rc_ch, rc_fu, rc_acif, rc_sel;
 #endif
 #ifdef USE_USB_HOST_SERIAL
     int ft_if, ft_in, ft_out;
@@ -186,8 +191,11 @@ struct UsbHostS {
     msc_if = -1;
 #endif
 #ifdef USE_USB_HOST_AUDIO
-    as_if = -1; as_uac = 0;
+    as_if = -1; as_uac = 0; rc_if = -1; rc_fu = -1; rc_sel = -1;
     int want_ep_for_as = 0;
+    int pf_if = -1, pf_alt = 0, pf_ch = 0, pf_rate = 0;
+    int it_id[4], it_ty[4], nit = 0, fu_id[4], fu_src[4], nfu = 0, ac_if = 0;
+    int sel_id[4], sel_src[4], nsel = 0, usb_out_src = -1;                      // selector units (first source) and the source of the USB streaming output terminal   // input terminals and feature units of the audio control interface       // the last format descriptor: the endpoint that follows says whether it is playback or recording
 #endif
 #ifdef USE_USB_HOST_SERIAL
     ft_if = -1; ft_in = 0; ft_out = 0;
@@ -215,20 +223,35 @@ struct UsbHostS {
 #endif
       } else if (0x05 == type && l >= 7) {                // endpoint
         int ad = p[2], at = p[3] & 3, mp = p[4] | (p[5] << 8);
-        say("    ep %02X type %d mps %d interval %d", ad, at, mp, p[6]);
+        say("    ep %02X type %d mps %d interval %d attr %02X", ad, at, mp, p[6], p[3]);
 #ifdef USE_USB_HOST_MSC
         if (msc_if == cur_if && 8 == cur_cls && 2 == at) {
           if (ad & 0x80) { msc_in = ad; msc_mps = mp; } else { msc_out = ad; }
         }
 #endif
 #ifdef USE_USB_HOST_AUDIO
-        if (want_ep_for_as && 1 == at && !(ad & 0x80) && as_ep == 0) { as_ep = ad; as_mps = mp & 0x7FF; }
+        if (want_ep_for_as && 1 == at && pf_if == cur_if) {
+          if (!(ad & 0x80) && as_if < 0) {
+            as_if = pf_if; as_alt = pf_alt; as_ch = pf_ch; as_rate = pf_rate; as_ep = ad; as_mps = mp & 0x7FF;
+          } else if ((ad & 0x80) && rc_if < 0) {
+            rc_if = pf_if; rc_alt = pf_alt; rc_ch = pf_ch; rc_rate = pf_rate; rc_ep = ad; rc_mps = mp & 0x7FF;
+          }
+          want_ep_for_as = 0;
+        }
 #endif
 #ifdef USE_USB_HOST_SERIAL
         if (ft_dev && cur_if == ft_if && 2 == at) { if (ad & 0x80) { ft_in = ad; } else { ft_out = ad; } }
 #endif
 #ifdef USE_USB_HOST_AUDIO
       } else if (0x24 == type) {                          // class specific
+        if (1 == cur_cls && 1 == cur_sub) {                // audio control: show the units (input/output terminals, feature units, selectors ...)
+          char hx[3 * 24 + 1] = ""; for (int k = 0; k < l && k < 24; k++) { snprintf(hx + 3 * k, 4, "%02X ", p[k]); }
+          say("    ac unit: %s", hx);
+        }
+        if (1 == cur_cls && 1 == cur_sub && l >= 8 && 2 == p[2] && nit < 4) { it_id[nit] = p[3]; it_ty[nit] = p[4] | (p[5] << 8); nit++; ac_if = cur_if; }     // input terminal
+        else if (1 == cur_cls && 1 == cur_sub && l >= 9 && 3 == p[2] && (p[4] | (p[5] << 8)) == 0x0101) { usb_out_src = p[7]; }   // output terminal: USB streaming
+        else if (1 == cur_cls && 1 == cur_sub && l >= 7 && 5 == p[2] && nsel < 4) { sel_id[nsel] = p[3]; sel_src[nsel] = p[5]; nsel++; ac_if = cur_if; }      // selector unit
+        else if (1 == cur_cls && 1 == cur_sub && l >= 7 && 6 == p[2] && nfu < 4) { fu_id[nfu] = p[3]; fu_src[nfu] = p[4]; nfu++; ac_if = cur_if; }               // feature unit
         if (1 == cur_cls && 1 == cur_sub && l >= 5 && 1 == p[2]) {   // audio control header
           as_uac = (p[4] >= 2) ? 2 : 1;
           say("  audio control: bcdADC %x.%02x", p[4], p[3]);
@@ -248,8 +271,8 @@ struct UsbHostS {
             }
           }
           say("    format: %d ch %d bit rates %s", ch, bits, fb);
-          if (16 == bits && as_if < 0 && (1 == ch || 2 == ch)) {
-            as_if = cur_if; as_alt = cur_alt; as_ch = ch; as_rate = rate; as_ep = 0; as_mps = 0;
+          if (16 == bits && (1 == ch || 2 == ch)) {
+            pf_if = cur_if; pf_alt = cur_alt; pf_ch = ch; pf_rate = rate;
             want_ep_for_as = 1;
           }
         }
@@ -258,7 +281,14 @@ struct UsbHostS {
       i += l;
     }
 #ifdef USE_USB_HOST_AUDIO
-    if (as_if >= 0 && as_ep == 0) { as_if = -1; }          // the format had no isochronous OUT endpoint: not a playback format
+#endif
+#ifdef USE_USB_HOST_AUDIO
+    int path_start = usb_out_src;                            // follow the recording path back: USB out <- selector <- feature unit <- microphone terminal
+    for (int q = 0; q < nsel; q++) { if (sel_id[q] == usb_out_src) { rc_sel = sel_id[q]; path_start = sel_src[q]; rc_acif = ac_if; } }
+    for (int f = 0; f < nfu && rc_fu < 0; f++) { if (fu_id[f] == path_start) { rc_fu = fu_id[f]; rc_acif = ac_if; } }
+    for (int f = 0; f < nfu && rc_fu < 0; f++) {              // no selector in between: the feature unit that sits on a microphone terminal
+      for (int t = 0; t < nit; t++) { if (it_id[t] == fu_src[f] && 0x02 == (it_ty[t] >> 8)) { rc_fu = fu_id[f]; rc_acif = ac_if; } }
+    }
 #endif
 #ifdef USE_USB_HOST_SERIAL
     if (!(ft_in && ft_out)) { ft_if = -1; }
@@ -285,7 +315,7 @@ struct UsbHostS {
     msc_if = -1;
 #endif
 #ifdef USE_USB_HOST_AUDIO
-    as_if = -1; as_uac = 0;
+    as_if = -1; as_uac = 0; rc_if = -1; rc_fu = -1; rc_sel = -1;
 #endif
 #ifdef USE_USB_HOST_SERIAL
     ft_if = -1;
@@ -306,7 +336,9 @@ struct UsbHostS {
 #endif
 #ifdef USE_USB_HOST_AUDIO
     sl.as_if = as_if; sl.as_alt = as_alt; sl.as_ep = as_ep; sl.as_mps = as_mps; sl.as_rate = as_rate; sl.as_ch = as_ch;
+    sl.rc_if = rc_if; sl.rc_alt = rc_alt; sl.rc_ep = rc_ep; sl.rc_mps = rc_mps; sl.rc_rate = rc_rate; sl.rc_ch = rc_ch; sl.rc_fu = rc_fu; sl.rc_acif = rc_acif; sl.rc_sel = rc_sel;
     if (as_if >= 0) { strlcat(what, " audio-playback(UAC1,16bit)", sizeof(what)); }
+    if (rc_if >= 0) { strlcat(what, " audio-capture(UAC1,16bit)", sizeof(what)); }
     if (2 == as_uac) { strlcat(what, " UAC2(not supported)", sizeof(what)); }
 #endif
 #ifdef USE_USB_HOST_SERIAL
@@ -340,6 +372,11 @@ struct UsbHostS {
       }
 #endif
 #ifdef USE_USB_HOST_AUDIO
+      if (6 == kind) {                                    // the recording side
+        if (sl.rc_if < 0) { continue; }
+        cdev = sl.h; rc_if = sl.rc_if; rc_alt = sl.rc_alt; rc_ep = sl.rc_ep; rc_mps = sl.rc_mps; rc_rate = sl.rc_rate; rc_ch = sl.rc_ch; rc_fu = sl.rc_fu; rc_acif = sl.rc_acif; rc_sel = sl.rc_sel;
+        return true;
+      }
       if (3 == kind || 4 == kind) {
         if (sl.as_if < 0) { continue; }
         dev = sl.h; as_if = sl.as_if; as_alt = sl.as_alt; as_ep = sl.as_ep; as_mps = sl.as_mps; as_rate = sl.as_rate; as_ch = sl.as_ch;
@@ -480,6 +517,25 @@ struct UsbHostS {
     if (usb_host_transfer_submit_control(client, t) == ESP_OK) {
       if (xSemaphoreTake(bsem, pdMS_TO_TICKS(2000)) == pdTRUE) { r = (USB_TRANSFER_STATUS_COMPLETED == t->status) ? 0 : (100 + (int)t->status); }
       else { r = -3; }
+    }
+    if (r != -3) { usb_host_transfer_free(t); }
+    return r;
+  }
+
+  // control request with data from the device (bmrt has bit 7 set): the answer lands in rd[0..len)
+  static int ctrl_rd(usb_device_handle_t h, uint8_t bmrt, uint8_t breq, uint16_t wval, uint16_t widx, uint8_t *rd, uint16_t len) {
+    usb_transfer_t *t = nullptr;
+    if (usb_host_transfer_alloc(USB_SETUP_PACKET_SIZE + len, 0, &t) != ESP_OK) { return -1; }
+    usb_setup_packet_t *sp_ = (usb_setup_packet_t *)t->data_buffer;
+    sp_->bmRequestType = bmrt; sp_->bRequest = breq; sp_->wValue = wval; sp_->wIndex = widx; sp_->wLength = len;
+    t->device_handle = h; t->bEndpointAddress = 0; t->num_bytes = USB_SETUP_PACKET_SIZE + len;
+    t->callback = xfer_done; t->context = nullptr; t->timeout_ms = 1000;
+    xSemaphoreTake(bsem, 0);
+    int r = -2;
+    if (usb_host_transfer_submit_control(client, t) == ESP_OK) {
+      if (xSemaphoreTake(bsem, pdMS_TO_TICKS(2000)) == pdTRUE) {
+        if (USB_TRANSFER_STATUS_COMPLETED == t->status) { memcpy(rd, t->data_buffer + USB_SETUP_PACKET_SIZE, len); r = 0; } else { r = 100 + (int)t->status; }
+      } else { r = -3; }
     }
     if (r != -3) { usb_host_transfer_free(t); }
     return r;
@@ -1003,6 +1059,143 @@ rel:
 
   // the writer's rate changed (another file, another stream): the ring keeps what it has, only the conversion step changes
   static void stream_set_rate(int rate) { st_rate = (rate < 4000) ? 4000 : ((rate > 96000) ? 96000 : rate); }
+
+  // ---------------- recording from the stick (isochronous IN) ----------------
+  // 8 packets of 1 ms per transfer, six transfers in flight; the samples go into a ring at the stick's rate and are brought to the
+  // reader's rate when they are read (average of the input samples that belong to one output sample, so no aliasing from 48 -> 16 kHz).
+  #define USBH_CRING 8192                                   // mono samples at the stick's rate, power of two
+  inline static usb_transfer_t *ctr[USBH_NT];
+  inline static bool cap_isopen = false;
+  inline static volatile bool cap_run = false;
+  inline static volatile int cap_inflight = 0;
+  inline static int16_t *cap_ring = nullptr;
+  inline static volatile uint32_t cap_wr = 0, cap_rd = 0, cap_over = 0, cap_pkts = 0, cap_bad = 0, cap_nz = 0, cap_tbad = 0;
+  inline static volatile int cap_tstat = 0, cap_lastact = 0;
+  inline static int cap_rate = 16000;                       // the rate the reader wants
+  inline static int32_t cap_sum = 0, cap_n = 0, cap_ph = 0; // decimator state
+
+  static void cap_done(usb_transfer_t *t) {
+    if (cap_run && USB_TRANSFER_STATUS_COMPLETED != t->status) { cap_tbad++; cap_tstat = (int)t->status; }
+    if (cap_run && USB_TRANSFER_STATUS_COMPLETED == t->status) {
+      int per = t->num_bytes / t->num_isoc_packets;          // the data of packet i starts at i * (bytes per packet)
+      for (int i = 0; i < t->num_isoc_packets; i++) {
+        const usb_isoc_packet_desc_t &d = t->isoc_packet_desc[i];
+        cap_pkts++;
+        if (USB_TRANSFER_STATUS_COMPLETED != d.status) { cap_bad++; continue; }
+        const int16_t *x = (const int16_t *)(t->data_buffer + i * per);
+        int frames = d.actual_num_bytes / (2 * rc_ch);
+        if (d.actual_num_bytes) { cap_nz++; cap_lastact = d.actual_num_bytes; }
+        for (int k = 0; k < frames; k++) {
+          int16_t v = (2 == rc_ch) ? (int16_t)(((int)x[2 * k] + (int)x[2 * k + 1]) / 2) : x[k];
+          if ((uint32_t)(cap_wr - cap_rd) >= USBH_CRING - 1) { cap_rd++; cap_over++; }   // the reader is too slow: drop the oldest
+          cap_ring[cap_wr & (USBH_CRING - 1)] = v;
+          cap_wr++;
+        }
+      }
+    }
+    if (cap_run) {
+      if (usb_host_transfer_submit(t) != ESP_OK) { cap_inflight--; }
+    } else { cap_inflight--; }
+  }
+
+  static void cap_close(void) {
+    if (!cap_isopen) { return; }
+    cap_run = false;
+    for (int w = 0; w < 50 && cap_inflight > 0; w++) { vTaskDelay(pdMS_TO_TICKS(10)); }
+    int pend = cap_inflight;
+    if (0 == cap_inflight) { for (int i = 0; i < USBH_NT; i++) { if (ctr[i]) { usb_host_transfer_free(ctr[i]); ctr[i] = nullptr; } } }
+    esp_err_t re = usb_host_interface_release(client, cdev, rc_if);
+    for (int w = 0; re != ESP_OK && w < 30; w++) {
+      vTaskDelay(pdMS_TO_TICKS(50));
+      if (0 == cap_inflight) { for (int i = 0; i < USBH_NT; i++) { if (ctr[i]) { usb_host_transfer_free(ctr[i]); ctr[i] = nullptr; } } }
+      re = usb_host_interface_release(client, cdev, rc_if);
+    }
+    if (re != ESP_OK) { say("audio capture: release failed %s (0x%x), %d transfers were pending", esp_err_to_name(re), (unsigned)re, pend); }
+    cap_isopen = false;
+    free(cap_ring); cap_ring = nullptr;
+    say("audio capture: closed, %u packets, %u bad, %u overruns", (unsigned)cap_pkts, (unsigned)cap_bad, (unsigned)cap_over);
+  }
+
+  // rate = what the reader wants (<= the stick's rate). 0 = ok, -1 = host, -2 = no recording device, -3 = busy/other error
+  static int cap_open(int rate) {
+    if (cap_isopen) { cap_close(); }
+    if (!start()) { return -1; }
+    for (int i = 0; i < 30 && !select(6); i++) { vTaskDelay(pdMS_TO_TICKS(100)); }
+    if (!select(6) || rc_if < 0) { say("audio capture: no UAC1 16 bit recording device attached"); return -2; }
+    if (!bsem) { bsem = xSemaphoreCreateBinary(); }
+    esp_err_t e = usb_host_interface_claim(client, cdev, rc_if, rc_alt);
+    if (e != ESP_OK) { say("audio capture: claim failed %s (0x%x)", esp_err_to_name(e), (unsigned)e); return -3; }
+    uint8_t fr[3] = { (uint8_t)(rc_rate & 0xFF), (uint8_t)((rc_rate >> 8) & 0xFF), (uint8_t)((rc_rate >> 16) & 0xFF) };
+    // The claim alone leaves this stick's recording engine silent (every packet empty, found on a C-Media 0D8C:000C with all other
+    // settings right): only an explicit SET_INTERFACE to alternate 0 and back to the streaming alternate starts it. It stays started
+    // until the stick loses power. Playback does not need this.
+    { int a = ctrl(cdev, 0x01, 0x0B, 0, rc_if, nullptr, 0), b = ctrl(cdev, 0x01, 0x0B, rc_alt, rc_if, nullptr, 0);
+      if (a || b) { say("audio capture: SET_INTERFACE %d alt 0: %d, alt %d: %d", rc_if, a, rc_alt, b); } }
+    int cr = ctrl(cdev, 0x22, 0x01, 0x0100, rc_ep, fr, 3);
+    if (rc_sel >= 0) {                                      // the selector in front of the USB output: pass input 1 (the microphone path)
+      uint8_t one = 1, gs = 0; uint16_t ws = (uint16_t)((rc_sel << 8) | rc_acif);
+      int ss = ctrl(cdev, 0x21, 0x01, 0x0100, ws, &one, 1), rs = ctrl_rd(cdev, 0xA1, 0x81, 0x0100, ws, &gs, 1);
+      say("audio capture: selector unit %d set to input 1: %d, read back %d (%d)", rc_sel, ss, (int)gs, rs);
+    }
+    if (rc_fu >= 0) {                                       // sticks often start with the microphone muted: mute off, volume to the middle of its range
+      uint8_t off = 0; uint16_t wi = (uint16_t)((rc_fu << 8) | rc_acif);
+      int m0 = ctrl(cdev, 0x21, 0x01, 0x0100, wi, &off, 1), m1 = ctrl(cdev, 0x21, 0x01, 0x0101, wi, &off, 1);
+      uint8_t lo[2] = {0, 0}, hi[2] = {0, 0}; int16_t vmin = 0, vmax = 0, vset = 0;
+      int g0 = ctrl_rd(cdev, 0xA1, 0x82, 0x0200, wi, lo, 2), g1 = ctrl_rd(cdev, 0xA1, 0x83, 0x0200, wi, hi, 2);
+      int sv = -9;
+      if (0 == g0 && 0 == g1) {
+        vmin = (int16_t)(lo[0] | (lo[1] << 8)); vmax = (int16_t)(hi[0] | (hi[1] << 8)); vset = (int16_t)(((int)vmin + (int)vmax) / 2);
+        uint8_t vb[2] = { (uint8_t)(vset & 0xFF), (uint8_t)((vset >> 8) & 0xFF) };
+        sv = ctrl(cdev, 0x21, 0x01, 0x0200, wi, vb, 2);
+        if (sv) { sv = ctrl(cdev, 0x21, 0x01, 0x0201, wi, vb, 2); }
+      }
+      uint8_t gm = 9, gv[2] = {0, 0}, gf[3] = {0, 0, 0};
+      int rm = ctrl_rd(cdev, 0xA1, 0x81, 0x0100, wi, &gm, 1), rv = ctrl_rd(cdev, 0xA1, 0x81, 0x0200, wi, gv, 2), rf = ctrl_rd(cdev, 0xA2, 0x81, 0x0100, rc_ep, gf, 3);
+      say("audio capture: feature unit %d: mute off %d/%d, volume %d..%d (1/256 dB) set to %d: %d; read back mute %d (%d) volume %d (%d) rate %d (%d)", rc_fu, m0, m1, vmin, vmax, vset, sv,
+          (int)gm, rm, (int)(int16_t)(gv[0] | (gv[1] << 8)), rv, gf[0] | (gf[1] << 8) | (gf[2] << 16), rf);
+    } else { say("audio capture: no feature unit for the microphone found, leaving mute and volume as the stick has them"); }
+    cap_ring = (int16_t *)heap_caps_malloc(USBH_CRING * sizeof(int16_t), MALLOC_CAP_8BIT);
+    int made = 0;
+    if (cap_ring) {
+      for (int i = 0; i < USBH_NT; i++) {
+        if (usb_host_transfer_alloc(rc_mps * USBH_NP, USBH_NP, &ctr[i]) != ESP_OK) { ctr[i] = nullptr; break; }
+        made++;
+        ctr[i]->device_handle = cdev; ctr[i]->bEndpointAddress = rc_ep; ctr[i]->callback = cap_done; ctr[i]->context = nullptr; ctr[i]->timeout_ms = 0;
+        ctr[i]->num_bytes = rc_mps * USBH_NP;
+        for (int p = 0; p < USBH_NP; p++) { ctr[i]->isoc_packet_desc[p].num_bytes = rc_mps; }
+      }
+    }
+    if (made < USBH_NT) {
+      say("audio capture: no memory for the transfers");
+      for (int i = 0; i < made; i++) { usb_host_transfer_free(ctr[i]); ctr[i] = nullptr; }
+      free(cap_ring); cap_ring = nullptr;
+      usb_host_interface_release(client, cdev, rc_if);
+      return -3;
+    }
+    cap_rate = (rate < 4000) ? 4000 : ((rate > rc_rate) ? rc_rate : rate);
+    cap_wr = 0; cap_rd = 0; cap_over = 0; cap_pkts = 0; cap_bad = 0; cap_nz = 0; cap_tbad = 0; cap_tstat = 0; cap_lastact = 0; cap_sum = 0; cap_n = 0; cap_ph = 0; cap_inflight = 0;
+    cap_run = true; cap_isopen = true;
+    for (int i = 0; i < USBH_NT; i++) { if (usb_host_transfer_submit(ctr[i]) == ESP_OK) { cap_inflight++; } }
+    say("audio capture: open, stick %d Hz %d ch (set rate %s), reader %d Hz, if %d alt %d ep %02X mps %d", rc_rate, rc_ch, cr ? "failed" : "ok", cap_rate, rc_if, rc_alt, rc_ep, rc_mps);
+    return 0;
+  }
+
+  // up to max mono samples at the reader's rate; waits at most timeout_ms for the first ones. Returns the count (0 = nothing yet), -1 = not open
+  static int cap_read(int16_t *dst, int max, int timeout_ms) {
+    if (!cap_isopen || !cap_ring) { return -1; }
+    int out = 0; uint32_t t0 = millis();
+    while (out < max) {
+      if ((uint32_t)(cap_wr - cap_rd) == 0) {
+        if (out > 0 || (int)(millis() - t0) >= timeout_ms || !cap_run) { break; }
+        vTaskDelay(1); continue;
+      }
+      int16_t v = cap_ring[cap_rd & (USBH_CRING - 1)];
+      cap_rd++;
+      cap_sum += v; cap_n++; cap_ph += cap_rate;
+      if (cap_ph >= rc_rate) { cap_ph -= rc_rate; dst[out++] = (int16_t)(cap_sum / cap_n); cap_sum = 0; cap_n = 0; }
+    }
+    return out;
+  }
 #endif  // USE_USB_HOST_AUDIO
 
 
@@ -1248,7 +1441,7 @@ const char kUsbHostCommands[] PROGMEM = "UsbHost|" "|Fifo"
   "|Mount"
 #endif
 #ifdef USE_USB_HOST_AUDIO
-  "|Tone|Play|Route|Level"
+  "|Tone|Play|Route|Level|Mic"
 #endif
 #if defined(USE_USB_HOST_MSC) && defined(USE_USB_HOST_AUDIO)
   "|Stress"
@@ -1267,7 +1460,7 @@ void (* const UsbHostCommand[])(void) PROGMEM = {
   &CmndUsbHostMount,
 #endif
 #ifdef USE_USB_HOST_AUDIO
-  &CmndUsbHostTone, &CmndUsbHostPlay, &CmndUsbHostRoute, &CmndUsbHostLevel,
+  &CmndUsbHostTone, &CmndUsbHostPlay, &CmndUsbHostRoute, &CmndUsbHostLevel, &CmndUsbHostMic,
 #endif
 #if defined(USE_USB_HOST_MSC) && defined(USE_USB_HOST_AUDIO)
   &CmndUsbHostStress,
@@ -1351,6 +1544,24 @@ void CmndUsbHostLevel(void) {
   UsbHostAudioStateResponse();
 }
 
+// UsbHostMic <rate> opens the stick's recording side (the ring fills, nobody reads it), 0 closes. Without argument: state and the
+// loudness of the newest 256 samples (peek, nothing is consumed): use it to see that the microphone delivers something.
+void CmndUsbHostMic(void) {
+  if (XdrvMailbox.data_len > 0) {
+    if (XdrvMailbox.payload > 0) { xTaskCreatePinnedToCore([](void *a) { UsbHostS::cap_open((int)(intptr_t)a); vTaskDelete(nullptr); }, "usbh_mic", 6144, (void *)(intptr_t)XdrvMailbox.payload, 3, nullptr, 1); delay(1500); }
+    else if (0 == XdrvMailbox.payload) { UsbHostS::cap_close(); }
+  }
+  int rms = 0, peak = 0;
+  if (UsbHostS::cap_isopen && UsbHostS::cap_ring) {
+    uint32_t w = UsbHostS::cap_wr; int n = 256; if ((uint32_t)(w - UsbHostS::cap_rd) < (uint32_t)n) { n = (int)(w - UsbHostS::cap_rd); }
+    double sq = 0;
+    for (int i = 1; i <= n; i++) { int v = UsbHostS::cap_ring[(w - i) & (USBH_CRING - 1)]; sq += (double)v * v; if (abs(v) > peak) { peak = abs(v); } }
+    if (n > 0) { rms = (int)sqrt(sq / n); }
+  }
+  Response_P(PSTR("{\"%s\":{\"Open\":%d,\"Rate\":%d,\"StickRate\":%d,\"Rms\":%d,\"Peak\":%d,\"Packets\":%u,\"Bad\":%u,\"Overruns\":%u,\"Samples\":%u,\"NonEmpty\":%u,\"TransferBad\":%u,\"LastStatus\":%d,\"LastSize\":%d}}"), XdrvMailbox.command,
+             UsbHostS::cap_isopen ? 1 : 0, UsbHostS::cap_rate, UsbHostS::rc_rate, rms, peak, (unsigned)UsbHostS::cap_pkts, (unsigned)UsbHostS::cap_bad, (unsigned)UsbHostS::cap_over, (unsigned)UsbHostS::cap_wr, (unsigned)UsbHostS::cap_nz, (unsigned)UsbHostS::cap_tbad, UsbHostS::cap_tstat, UsbHostS::cap_lastact);
+}
+
 void CmndUsbHostTone(void) {
   UsbHostS::run_test(3);
   UsbHostResponse();
@@ -1387,6 +1598,9 @@ int UsbHostAudioWrite(const int16_t *x, int n) { return UsbHostS::stream_write(x
 int UsbHostAudioWriteCh(const int16_t *x, int frames, int ch) { return UsbHostS::stream_write(x, frames, ch); }
 void UsbHostAudioSetRate(int rate) { UsbHostS::stream_set_rate(rate); }
 bool UsbHostAudioActive(void) { return UsbHostS::st_open; }
+int UsbHostMicOpen(int rate) { return UsbHostS::cap_open(rate); }
+int UsbHostMicRead(int16_t *dst, int max, int timeout_ms) { return UsbHostS::cap_read(dst, max, timeout_ms); }
+void UsbHostMicClose(void) { UsbHostS::cap_close(); }
 bool UsbHostAudioRoute(void) { return UsbHostS::st_route; }
 void UsbHostAudioClose(void) { UsbHostS::stream_close(); }
 #endif

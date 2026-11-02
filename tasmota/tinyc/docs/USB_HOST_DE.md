@@ -38,6 +38,7 @@ einmal neu (etwa 8 Minuten) und ändert `sdkconfig.defaults` / löscht `CMakeLis
 | `UsbHostFifo rx,nptx,ptx` | FIFO-Zeilen des Hosts (Standard 80,40,80; **die Summe muss ≤ 200 bleiben**, sonst meldet sich kein Gerät an, ohne Meldung) |
 | `UsbHostMsc` | Geräte auflisten; mit Stick ein Lesetest |
 | `UsbHostMount [0\|1]` | Stick aus-/einhängen (das Einhängen läuft in einem eigenen Task) |
+| `UsbHostMic [Rate]` | Aufnahme vom Mikrofoneingang des Sticks: öffnen / `0` schließen / Zustand und Pegel |
 | `UsbHostTone`, `UsbHostPlay <pfad>`, `UsbHostStress <pfad>` | Audio: 440-Hz-Testton, 16-Bit-PCM-WAV abspielen (jede Rate, wird umgerechnet), Dauertest |
 | `UsbHostSerial <baud>`, `UsbHostSerialRead [n]`, `UsbHostSerialWrite <hex>`, `UsbHostBridge <port>` | FTDI-Port, TCP-Brücke |
 
@@ -97,6 +98,17 @@ Einrichtung des Plugins auf einem Board ohne I2S-Verstärker: `chkpt a2` (128-kB
 Flash-Dateisystem**), `I2SAUDIO_32.bin` auf der Plugin-Seite (`/modu`) hochladen, eine `I2SAUDIO.cfg` mit Codec 0 und freien
 Pins auf den Flash legen (sonst meldet `iniz` „Codec error“), dann `iniz <Slot>` und „Autostart plugins at boot“ anhaken.
 Mit einer MP3 auf .190 geprüft.
+
+**Aufnahme vom Mikrofoneingang des Sticks** (isochron IN, UAC1, 16 Bit mono): `UsbHostMic <Rate>` öffnet ihn (der Ring füllt sich, 0 schließt),
+`UsbHostMic` allein zeigt `Rms`/`Peak` der neuesten Samples, die Paketzähler und `NonEmpty` (Pakete mit Daten). Aus TinyC nehmen die vorhandenen
+Mikrofonfunktionen den Stick, wenn der Datenpin **-2** ist: `i2sMicBegin(-1, -1, -1, -2, 16000)`, dann `i2sMicRead(buf, n)` und `i2sMicLevel()`
+wie bei einem I2S-Mikrofon, am Ende `i2sMicStop()`. Der Treiber rechnet die 48 kHz des Sticks durch Mitteln auf die gewünschte Rate um (kein
+Aliasing bei 16 kHz). Wiedergabe und Aufnahme zusammen passen nur in die 8 Host-Kanäle, solange kein Stick eingehängt ist (siehe unten).
+⚠️ An einem C-Media 0D8C:000C gefunden: Nach einem einfachen Claim der Aufnahme-Schnittstelle ist jedes Paket leer (Länge 0, kein Fehler),
+egal wie Stummschaltung, Lautstärke, Selector und Abtastrate gesetzt sind. Erst ein ausdrückliches `SET_INTERFACE` auf Alternative 0 und zurück
+auf die Streaming-Alternative startet die Aufnahme, und sie bleibt dann bis zum Stromverlust des Sticks gestartet. Der Treiber macht das
+immer; außerdem setzt er die Abtastrate und schaltet die Stummschaltung des Mikrofons aus und die Lautstärke auf die Mitte des Bereichs
+(Feature-Unit des Aufnahmepfads).
 
 ⚠️ **Die OTG-Hardware hat nur 8 Host-Kanäle.** Jedes angesteckte Gerät belegt einen (seine Steuerleitung), der Hub einen für
 seinen Interrupt-Endpunkt, und jeder belegte Endpunkt einen: ein eingehängter Stick zwei, ein Audio-Strom einen. Hub + FTDI +
