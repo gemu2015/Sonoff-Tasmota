@@ -11,6 +11,9 @@ Only chips with a USB-OTG peripheral have a host stack: **ESP32-S2 and S3** (rel
 nothing (a `#warning`). The board must **supply VBUS** at the socket, and the plug must fit (the GOOUUU S3-CAM
 does not take a normal USB-A plug).
 
+The TinyC test release image for the ESP32-S3 (`tinyc32s3`) is built with all of it, including hub support (+44 kB flash).
+For your own build:
+
 ## Build switches (`user_config_override.h` or `-D` in the environment)
 
 | Switch | Effect |

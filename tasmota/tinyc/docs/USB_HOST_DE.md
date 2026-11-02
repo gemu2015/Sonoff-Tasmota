@@ -11,6 +11,9 @@ Stapel, noch nicht portiert). ESP32, C2/C3/C5/C6/C61/H2 haben keinen Host; dort 
 (`#warning`). Das Board muss an der Buchse **VBUS liefern**, und der Stecker muss passen (das GOOUUU S3-CAM nimmt
 keinen normalen USB-A-Stecker).
 
+Das TinyC-Testrelease-Image für den ESP32-S3 (`tinyc32s3`) wird mit allem gebaut, auch mit Hub-Unterstützung (+44 kB Flash).
+Für den eigenen Bau:
+
 ## Schalter (`user_config_override.h` oder `-D` in der Umgebung)
 
 | Schalter | Wirkung |

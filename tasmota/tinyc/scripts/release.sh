@@ -57,7 +57,7 @@ STD_TARGETS=(
   #                # Matter+camera build overflows internal DRAM (dram0_0_seg by
   #                # ~2 KB as of 1.6.58); not shippable on the 4M WROVER until
   #                # something big moves out of DRAM. Re-enable when it links.
-  tinyc32s3        # ESP32-S3 16MB flash (Matter built in + camera + LVGL)
+  tinyc32s3        # ESP32-S3 16MB flash (Matter built in + camera + LVGL + USB host with hub support)
   tinyc32c3        # ESP32-C3           (Matter as plugin only)
   tinyc32c6        # ESP32-C6           (Matter as plugin only)
   tinyc32-p4-full  # ESP32-P4 16MB+PSRAM — FULL: DSI display + LVGL, MIPI camera, audio; Matter as plugin only
@@ -311,7 +311,7 @@ cat > "$COMBINED_NOTES" <<HEADER
 | File | Description |
 |------|-------------|
 | \`tinyc32-4M-plain.bin\` / \`.factory.bin\` | ESP32 4MB classic WROOM — plain (no Matter / no camera) |
-| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** built in + camera + **LVGL** GUI |
+| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** built in + camera + **LVGL** GUI + **USB host** on the OTG socket (flash drive as \`/usb\`, USB audio stick, FTDI, behind a hub; see \`USB_HOST.md\`) |
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — Matter as plugin |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — Matter as plugin |
 | \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, MIPI camera, audio; Matter as plugin |
