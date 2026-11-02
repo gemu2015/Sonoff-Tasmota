@@ -4435,12 +4435,16 @@ static void HandleTinyCUpload(void) {
   for (; b[i] && ('@' != b[i]) && (i < sizeof(n) - 1); i++) { n[i] = (char)tolower((unsigned char)b[i]); }
   n[i] = '\0';
   if (strstr_P(path, PSTR("/.."))) { return true; }
+  { size_t bl = strcspn(b, "@");                              // on the whole name: n[] is cut at 31 characters
+    if ((bl > 7) && !strncasecmp_P(b + bl - 7, PSTR(".secret"), 7)) { return true; } }   // convention: credentials a project keeps in its own files
   if (!strcmp_P(n, PSTR("eebus_key.der")) || !strcmp_P(n, PSTR("tlskey")) ||
       !strncmp_P(n, PSTR(".settings"), 9) || !strncmp_P(n, PSTR(".drvset"), 7) ||
       !strncmp_P(n, PSTR(".snsset"), 7)) { return true; }
   if (read) { return false; }
   return !strcmp_P(n, PSTR("eebus_cert.der")) || !strcmp_P(n, PSTR("eebus_peer.txt")) ||
-         !strcmp_P(n, PSTR("eebus_cs_trust.txt")) || !strcmp_P(n, PSTR("eebus_cs_typ.txt"));
+         !strcmp_P(n, PSTR("eebus_cs_trust.txt")) || !strcmp_P(n, PSTR("eebus_cs_typ.txt")) ||
+         !strcmp_P(n, PSTR("eebus_cs.txt")) ||   // SteuVE failsafe limit (W and seconds)
+         !strcmp_P(n, PSTR("eebus_hems_down.txt"));
 }
 
 static void HandleTinyCApi(void) {
