@@ -85,7 +85,7 @@ Geschwindigkeit.
 ⚠️ **Die OTG-Hardware hat nur 8 Host-Kanäle.** Jedes angesteckte Gerät belegt einen (seine Steuerleitung), der Hub einen für
 seinen Interrupt-Endpunkt, und jeder belegte Endpunkt einen: ein eingehängter Stick zwei, ein Audio-Strom einen. Hub + FTDI +
 Stick + Audio-Stick + Kartenleser sind neun, dann scheitert die Audio-Belegung bei eingehängtem Stick mit `0x106`
-(`ESP_ERR_NOT_SUPPORTED`; nach `UsbHostMount 0` geht es). Ein nicht gebrauchtes Gerät (den Kartenleser) abziehen oder den Stick
+(`ESP_ERR_NOT_SUPPORTED`; nach `UsbHostMount 0` geht es). `UsbHostMsc` belegt den Stick für seinen Lesetest ebenfalls, also nicht als Statusabfrage vor dem Abspielen aufrufen. Ein nicht gebrauchtes Gerät (den Kartenleser) abziehen oder den Stick
 nur bei Bedarf einhängen.
 
 ## Nicht gebaut / nicht getestet
