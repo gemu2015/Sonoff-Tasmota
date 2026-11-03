@@ -59,6 +59,9 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **Audio plugin records from the USB stick's microphone**: `UsbHostMicRoute 1` makes `I2Srec` and the mp3 stream (port 81) of the I2SAUDIO plugin read the stick
+  instead of the I2S microphone (`tmod_i2s` receive side, `xdrv_123_plugins.ino`; the plugin binary is unchanged). Needs a valid `DIN` pin in
+  `I2SAUDIO.cfg`; with a mounted stick the 8 host channels may be used up, then the plugin keeps the I2S microphone. See `docs/USB_HOST.md`.
 - ⚠️ **Programs over 64 KB load** (Andreas, 03.11.2026, patch 0008): `tc_vm_load` took the size as 16 bit, so a `.tcb` above 65535 B
   (allowed: 128 KB) wrapped around and was refused as "Invalid binary". The code section is now addressed from its own start, the
   persist names from the file start (`vm->bin`). Two limits remain and are reported: the **code section** must stay under 65535 B

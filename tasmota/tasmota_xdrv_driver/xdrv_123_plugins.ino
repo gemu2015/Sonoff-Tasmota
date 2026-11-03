@@ -1794,6 +1794,11 @@ extern void UsbHostAudioSetRate(int rate);
 extern bool UsbHostAudioActive(void);
 extern bool UsbHostAudioRoute(void);
 extern void UsbHostAudioClose(void);
+extern bool UsbHostMicRouteOn(void);
+extern int UsbHostMicOpenTask(int rate);
+extern int UsbHostMicPluginRead(int16_t *dst, int max, int timeout_ms);
+extern bool UsbHostMicIsOpen(void);
+extern void UsbHostMicClose(void);
 static uint32_t tmod_usb_rate = 16000, tmod_usb_ch = 1;   // what the plugin asked for last (SetRate comes before Enable)
 static bool tmod_usb_on = false;                          // this playback runs on the stick
 
@@ -1833,6 +1838,51 @@ static bool tmod_i2s_usb(uint32_t sel, uint32_t p1, uint32_t *rv) {   // p1 is t
   }
   return false;
 }
+
+// The RX side (xmode set): with UsbHostMicRoute 1 the plugin's recording reads the stick's microphone instead of the I2S one.
+static uint32_t tmod_umic_rate = 16000;
+static bool tmod_umic_on = false;
+static uint32_t tmod_umic_fail = 0;                       // millis() of the last failed open: the reads must not retry at every call
+static bool tmod_umic_open(void) {
+  int r = UsbHostMicOpenTask((int)tmod_umic_rate);
+  tmod_umic_on = (0 == r);
+  tmod_umic_fail = tmod_umic_on ? 0 : (millis() | 1);
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S: USB microphone %s (%d Hz, code %d)"), tmod_umic_on ? "started" : "not available, using I2S", (int)tmod_umic_rate, r);
+  return tmod_umic_on;
+}
+static bool tmod_i2s_umic(uint32_t sel, uint32_t p1, uint32_t *rv) {
+  I2S_PARS *i2cp = (I2S_PARS *) p1;
+  *rv = 0;
+  switch (sel) {
+    case 2:                                               // set rate: the plugin does this when a recording starts (it never calls enable)
+      tmod_umic_rate = i2cp->dlen;
+      if (tmod_umic_on) { UsbHostMicClose(); tmod_umic_on = false; }
+      if (UsbHostMicRouteOn()) { tmod_umic_open(); }
+      return tmod_umic_on;                                // on: the real I2S channel is left alone
+    case 6:                                               // enable
+      if (UsbHostMicRouteOn()) { return tmod_umic_open(); }
+      return false;
+    case 4:                                               // read: dlen is in bytes, mono samples are doubled for a stereo request
+      if (tmod_umic_on && !UsbHostMicIsOpen()) { tmod_umic_on = false; }   // given back after an idle second
+      if (!tmod_umic_on && UsbHostMicRouteOn() && (!tmod_umic_fail || (int32_t)(millis() - tmod_umic_fail) > 3000)) { tmod_umic_open(); }
+      if (!tmod_umic_on) { return false; }
+      { int ch = (2 == i2cp->channels) ? 2 : 1;
+        int frames = i2cp->dlen / (2 * ch);
+        int16_t *d = (int16_t *)i2cp->dptr;
+        int n = UsbHostMicPluginRead(d, frames, (int)i2cp->timeout * (int)portTICK_PERIOD_MS);   // the plugin's timeout counts FreeRTOS ticks (0 = just peek)
+        if (n < 0) { n = 0; }
+        if (2 == ch) { for (int i = n - 1; i >= 0; i--) { d[2 * i + 1] = d[i]; d[2 * i] = d[i]; } }
+        i2cp->error = 0;
+        *rv = (uint32_t)n * 2 * ch; }
+      return true;
+    case 7:                                               // disable = the recording ends
+    case 1:
+      if (!tmod_umic_on) { return false; }
+      UsbHostMicClose(); tmod_umic_on = false;
+      return true;
+  }
+  return false;
+}
 #endif  // USE_USB_HOST_AUDIO
 
 uint32_t tmod_i2s(uint32_t sel, uint32_t p1) {
@@ -1842,6 +1892,10 @@ uint8_t xmode = sel >> 8;
 sel &= 0xff;
 
 #ifdef USE_USB_HOST_AUDIO
+  if (xmode && (sel > 0) && i2cp->rxhandle) {
+    uint32_t rv;
+    if (tmod_i2s_umic(sel, p1, &rv)) { return rv; }
+  }
   if (!xmode && (sel > 0) && i2cp->txhandle) {
     uint32_t rv;
     if (tmod_i2s_usb(sel, p1, &rv)) { return rv; }

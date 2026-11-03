@@ -846,6 +846,7 @@ done:
   inline static double st_frac = 0;
   inline static int st_rate = 16000;
   inline static int st_level = 50;                          // percent; 50 = the half level of the tone and file player
+  inline static bool st_mroute = false;                     // the audio plugin's microphone input comes from the stick: UsbHostMicRoute 1
   inline static bool st_route = false;                      // the audio plugin (I2SAUDIO) sends its I2S output here: UsbHostRoute 1
 
   // reads a 16 bit PCM WAV completely into RAM (PSRAM if there is any)
@@ -1441,7 +1442,7 @@ const char kUsbHostCommands[] PROGMEM = "UsbHost|" "|Fifo"
   "|Mount"
 #endif
 #ifdef USE_USB_HOST_AUDIO
-  "|Tone|Play|Route|Level|Mic"
+  "|Tone|Play|Route|Level|Mic|MicRoute"
 #endif
 #if defined(USE_USB_HOST_MSC) && defined(USE_USB_HOST_AUDIO)
   "|Stress"
@@ -1460,7 +1461,7 @@ void (* const UsbHostCommand[])(void) PROGMEM = {
   &CmndUsbHostMount,
 #endif
 #ifdef USE_USB_HOST_AUDIO
-  &CmndUsbHostTone, &CmndUsbHostPlay, &CmndUsbHostRoute, &CmndUsbHostLevel, &CmndUsbHostMic,
+  &CmndUsbHostTone, &CmndUsbHostPlay, &CmndUsbHostRoute, &CmndUsbHostLevel, &CmndUsbHostMic, &CmndUsbHostMicRoute,
 #endif
 #if defined(USE_USB_HOST_MSC) && defined(USE_USB_HOST_AUDIO)
   &CmndUsbHostStress,
@@ -1539,6 +1540,13 @@ void CmndUsbHostRoute(void) {
   if (XdrvMailbox.data_len > 0) { UsbHostS::st_route = (XdrvMailbox.payload != 0); }
   UsbHostAudioStateResponse();
 }
+// UsbHostMicRoute 1: the audio plugin's recording (I2Srec, the mp3 stream on port 81) takes its samples from the stick's
+// microphone input instead of the I2S microphone, while it records; 0: back to I2S. The plugin still needs a DIN pin in
+// I2SAUDIO.cfg (any free one): without it the plugin does not read at all.
+void CmndUsbHostMicRoute(void) {
+  if (XdrvMailbox.data_len > 0) { UsbHostS::st_mroute = (XdrvMailbox.payload != 0); }
+  Response_P(PSTR("{\"%s\":{\"MicRoute\":%d,\"MicOpen\":%d}}"), XdrvMailbox.command, UsbHostS::st_mroute ? 1 : 0, UsbHostS::cap_isopen ? 1 : 0);
+}
 void CmndUsbHostLevel(void) {
   if (XdrvMailbox.payload >= 1 && XdrvMailbox.payload <= 100) { UsbHostS::st_level = XdrvMailbox.payload; }
   UsbHostAudioStateResponse();
@@ -1602,6 +1610,29 @@ int UsbHostMicOpen(int rate) { return UsbHostS::cap_open(rate); }
 int UsbHostMicRead(int16_t *dst, int max, int timeout_ms) { return UsbHostS::cap_read(dst, max, timeout_ms); }
 void UsbHostMicClose(void) { UsbHostS::cap_close(); }
 bool UsbHostAudioRoute(void) { return UsbHostS::st_route; }
+bool UsbHostMicRouteOn(void) { return UsbHostS::st_mroute; }
+bool UsbHostMicIsOpen(void) { return UsbHostS::cap_isopen; }
+// the plugin's reads: remember when the last one came, FUNC_EVERY_250_MSECOND gives the microphone back 2 s after the recording ended
+static uint32_t usbh_mic_last = 0;
+static bool usbh_mic_by_plugin = false;
+int UsbHostMicPluginRead(int16_t *dst, int max, int timeout_ms) {
+  usbh_mic_last = millis(); usbh_mic_by_plugin = true;
+  return UsbHostS::cap_read(dst, max, timeout_ms);
+}
+void UsbHostMicPluginIdle(void) {
+  if (usbh_mic_by_plugin && UsbHostS::cap_isopen && (int32_t)(millis() - usbh_mic_last) > 2000) { UsbHostS::cap_close(); usbh_mic_by_plugin = false; }
+}
+// cap_open() needs a larger stack than the task that calls the plugin hook has (UsbHostMic does the same): run it in its own
+// task and wait for it, at most 4 s. Returns what cap_open returns, -99 on a timeout.
+static volatile int usbh_mo_res = -99;
+static volatile int usbh_mo_rate = 16000;
+int UsbHostMicOpenTask(int rate) {
+  if (UsbHostS::cap_isopen) { return 0; }
+  usbh_mo_res = -99; usbh_mo_rate = rate;
+  xTaskCreatePinnedToCore([](void *a) { usbh_mo_res = UsbHostS::cap_open(usbh_mo_rate); vTaskDelete(nullptr); }, "usbh_mic", 6144, nullptr, 3, nullptr, 1);
+  for (int i = 0; i < 400 && -99 == usbh_mo_res; i++) { delay(10); }
+  return usbh_mo_res;
+}
 void UsbHostAudioClose(void) { UsbHostS::stream_close(); }
 #endif
 
@@ -1666,11 +1697,17 @@ void CmndUsbHostBridge(void) {
  * Interface
 \*********************************************************************************************/
 
+#ifdef USE_USB_HOST_AUDIO
+void UsbHostMicPluginIdle(void);
+#endif
 bool Xdrv99(uint32_t function) {
   bool result = false;
   switch (function) {
     case FUNC_EVERY_250_MSECOND:
       UsbHostS::drain();
+#ifdef USE_USB_HOST_AUDIO
+      UsbHostMicPluginIdle();
+#endif
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kUsbHostCommands, UsbHostCommand);

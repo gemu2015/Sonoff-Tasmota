@@ -38,6 +38,7 @@ libraries once (about 8 minutes) and rewrites `sdkconfig.defaults` / deletes `CM
 | `UsbHostFifo rx,nptx,ptx` | FIFO lines of the host (default 80,40,80; **the sum must stay ≤ 200**, more and no device enumerates, silently) |
 | `UsbHostMsc` | list the devices; with a drive attached a read test |
 | `UsbHostMount [0\|1]` | unmount / mount the drive (mounting runs in its own task) |
+| `UsbHostMicRoute [0\|1]` | the audio plugin records from the stick's microphone instead of the I2S one |
 | `UsbHostMic [rate]` | recording from the stick's microphone: open / `0` close / state and level |
 | `UsbHostTone`, `UsbHostPlay <path>`, `UsbHostStress <path>` | audio: 440 Hz test tone, play a 16 bit PCM WAV (any rate, resampled), loop test |
 | `UsbHostSerial <baud>`, `UsbHostSerialRead [n]`, `UsbHostSerialWrite <hex>`, `UsbHostBridge <port>` | FTDI port, TCP bridge |
@@ -102,6 +103,14 @@ whether a stream is open and the underrun count. The plugin's microphone side st
 Setup of the plugin itself, for a board without an I2S amplifier: `chkpt a2` (128 kB plugin partition, **formats the flash file
 system**), upload `I2SAUDIO_32.bin` on the plugin page (`/modu`), put an `I2SAUDIO.cfg` on the flash with codec 0 and free pins
 (otherwise `iniz` says "Codec error"), then `iniz <slot>` and tick "Autostart plugins at boot". Tested with an MP3 on .190.
+
+**Recording from the audio plugin with the stick's microphone** (`I2Srec <file>`, the MP3 stream on port 81): `UsbHostMicRoute 1` makes the
+plugin read the stick instead of the I2S microphone, `0` goes back. The plugin binary is unchanged. ⚠️ `I2SAUDIO.cfg` needs a valid `DIN`
+pin (any free GPIO, nothing has to be connected there): without one the plugin does not read at all. The stick opens when the recording starts
+and is given back 2 s after the last read. If it cannot be opened (a stick is mounted and the 8 host channels are used up: `claim failed
+0x106` in the log) the plugin keeps using the I2S microphone, and the open is tried again only every 3 s. Recording and `UsbHostRoute 1`
+playback together need the stick unmounted (`UsbHostMount 0`). A mono stick is recorded as two equal channels. Tested on .190 with a 1 kHz
+tone from a Mac (the MP3 shows a clean 1 kHz line, other bins at the noise floor).
 
 **Recording from the stick's microphone input** (isochronous IN, UAC1, 16 bit mono): `UsbHostMic <rate>` opens it (the ring fills, 0 closes),
 `UsbHostMic` alone shows `Rms`/`Peak` of the newest samples, the packet counters and `NonEmpty` (packets that carried data). From TinyC the

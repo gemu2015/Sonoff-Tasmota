@@ -38,6 +38,7 @@ einmal neu (etwa 8 Minuten) und ändert `sdkconfig.defaults` / löscht `CMakeLis
 | `UsbHostFifo rx,nptx,ptx` | FIFO-Zeilen des Hosts (Standard 80,40,80; **die Summe muss ≤ 200 bleiben**, sonst meldet sich kein Gerät an, ohne Meldung) |
 | `UsbHostMsc` | Geräte auflisten; mit Stick ein Lesetest |
 | `UsbHostMount [0\|1]` | Stick aus-/einhängen (das Einhängen läuft in einem eigenen Task) |
+| `UsbHostMicRoute [0\|1]` | das Audio-Plugin nimmt vom Mikrofon des Sticks statt vom I2S-Mikrofon auf |
 | `UsbHostMic [Rate]` | Aufnahme vom Mikrofoneingang des Sticks: öffnen / `0` schließen / Zustand und Pegel |
 | `UsbHostTone`, `UsbHostPlay <pfad>`, `UsbHostStress <pfad>` | Audio: 440-Hz-Testton, 16-Bit-PCM-WAV abspielen (jede Rate, wird umgerechnet), Dauertest |
 | `UsbHostSerial <baud>`, `UsbHostSerialRead [n]`, `UsbHostSerialWrite <hex>`, `UsbHostBridge <port>` | FTDI-Port, TCP-Brücke |
@@ -106,6 +107,14 @@ Einrichtung des Plugins auf einem Board ohne I2S-Verstärker: `chkpt a2` (128-kB
 Flash-Dateisystem**), `I2SAUDIO_32.bin` auf der Plugin-Seite (`/modu`) hochladen, eine `I2SAUDIO.cfg` mit Codec 0 und freien
 Pins auf den Flash legen (sonst meldet `iniz` „Codec error“), dann `iniz <Slot>` und „Autostart plugins at boot“ anhaken.
 Mit einer MP3 auf .190 geprüft.
+
+**Aufnahme des Audio-Plugins mit dem Mikrofon des Sticks** (`I2Srec <datei>`, der MP3-Strom auf Port 81): `UsbHostMicRoute 1` lässt das
+Plugin den Stick statt des I2S-Mikrofons lesen, `0` schaltet zurück. Das Plugin selbst bleibt unverändert. ⚠️ In `I2SAUDIO.cfg` muss ein
+gültiger `DIN`-Pin stehen (irgendein freier GPIO, es muss nichts angeschlossen sein): ohne ihn liest das Plugin gar nicht. Der Stick wird mit
+dem Start der Aufnahme geöffnet und 2 s nach dem letzten Lesen zurückgegeben. Lässt er sich nicht öffnen (ein Stick ist eingehängt und die 8
+Host-Kanäle sind verbraucht: `claim failed 0x106` im Log), bleibt das Plugin beim I2S-Mikrofon, ein neuer Versuch gibt es nur alle 3 s.
+Aufnahme und Wiedergabe mit `UsbHostRoute 1` zusammen brauchen den ausgehängten Stick (`UsbHostMount 0`). Ein Mono-Stick wird als zwei gleiche
+Kanäle aufgenommen. Auf .190 mit einem 1-kHz-Ton vom Mac geprüft (die MP3 zeigt eine saubere 1-kHz-Linie, alle anderen Bins auf Rauschniveau).
 
 **Aufnahme vom Mikrofoneingang des Sticks** (isochron IN, UAC1, 16 Bit mono): `UsbHostMic <Rate>` öffnet ihn (der Ring füllt sich, 0 schließt),
 `UsbHostMic` allein zeigt `Rms`/`Peak` der neuesten Samples, die Paketzähler und `NonEmpty` (Pakete mit Daten). Aus TinyC nehmen die vorhandenen
