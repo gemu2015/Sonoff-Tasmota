@@ -2,17 +2,18 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
-> **Aktuelle Firmware: v1.6.76** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
+> **Aktuelle Firmware: v1.6.77** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
 >
 > * [**Alle Releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — je Bau ein eigenes `v<version>`-Release. Wer das Repository beobachtet (*Custom → Releases*), wird ueber neue benachrichtigt.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — ein rollender Zeiger, der immer die neuesten Dateien traegt, fuer gleichbleibende Download-Adressen. Er wird absichtlich wiederverwendet und loest deshalb **keine** Release-Benachrichtigung aus.
 >
 > Jede Version steht in [**CHANGELOG.md**](CHANGELOG.md) (englisch), samt Tabelle der Syscall-ABI (welche Firmware eine `.tcb` braucht).
 
-## Was ist neu (v1.6.29 – v1.6.76)
+## Was ist neu (v1.6.29 – v1.6.77)
 
 Die Highlights; Einzelheiten je Version in [CHANGELOG.md](CHANGELOG.md).
 
+- **1.6.77:** USB-Host auf dem ESP32-S3 (USB-Stick als `/usb`, USB-Audio-Stick für Wiedergabe und Mikrofon, FTDI, Hub), TinyC-Dateimanager (Flash/SD/USB, Drag and Drop, Umbenennen, Bearbeiten, `.pvs` → CSV, läuft in jedem Slot mit Knopf auf der Hauptseite), `webOn()` wird vom registrierenden Slot beantwortet, `.secret`-Dateien bleiben im Gerät, EEBUS-Identität sichern — siehe [CHANGELOG.md](CHANGELOG.md).
 - **1.6.76:** `sensorGetNaN()` / `isNan()` (fehlender Sensorwert ist NaN statt 0), große Uploads halten die Slots nur noch beim Schreiben in den Flash an, eBUS-Slave-Antworten werden per CRC geprüft, `tcpSelect()` je Slot — siehe [CHANGELOG.md](CHANGELOG.md).
 - **Upstream-Merge: Tasmota 16.0.0.1 (1.6.75)** — der Fork ist mit arendst/development vom 25.10.2026 zusammengeführt (Arduino-Core 3.3.12, IDF 5.5.5, Plattform 2026.09.50) und teilt jetzt echte Git-Historie mit Upstream. Zum Bauen ist PlatformIO Core ≥ 6.2.0 nötig. Ebenfalls dabei: EEBUS Steuerbox v216 / SteuVE v025 (Betriebslogbuch auf der SD, SKI aus dem Zertifikat, mDNS mit IPv4), Einzelheiten im [CHANGELOG.md](CHANGELOG.md).
 - **Programmversionen mit Update-Knopf, EEBUS, sicherere Dateien (1.6.74)** — ein Programm kann `// @version: YYYYMMDD_HHMM` tragen; die Slot-Zeile zeigt sie und bietet ein 🔄-Update, wenn das Repository eine neuere hat, und die Repository-Liste zeigt `Name · Datum` (Idee und Format von ottelo). Eine neue Fassung eines Skripts unter neuem Dateinamen behält ihre gespeicherten Werte (gleicher `@name`). ⚠️ Ein OTA-Update löscht die Heap-Arrays der persist-Variablen nicht mehr (die Diagramme), Dateinamen bis 58 Zeichen sind auf dem ESP32 sicher (längere wurden gekürzt und konnten das Programm zerstören), das IDE-Update fällt auf den Flash zurück, wenn die SD-Karte das Schreiben abbricht, und `tasmDefer` meldet ein verworfenes Kommando. Die EEBUS-Steuerbox (`xdrv_126`) und die steuerbare Verbrauchseinrichtung SteuVE (`xdrv_128`) von Andreas sind dabei, mit fertigen Images für ESP32-S3 + Ethernet (W5500); SML bekam die Modbus-TCP-Transaktionsnummer (Andreas) und Domoticz-Werte nach Einheit (ottelo).

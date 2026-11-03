@@ -57,7 +57,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## Unreleased
+## 1.6.77 — 2026-11-03
 
 - **`webOn()` works in every slot**: the endpoint is answered by the slot that registered it, and the numbers of `webOn(n, url)`
   are per program (two slots may both use 1; seven endpoints in total, an eighth is dropped with a log line). Until now every
@@ -87,7 +87,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 - **`UfsMkdir <prefix><path>`** creates a folder and its missing parents (prefixes `/ffs/`, `/sdfs/`, `/usb/`); a TinyC script
   with a computed name can use it through `tasmCmd` (`fileMkdir` takes only literals).
 - **`examples/filemanager.tc` + `filemanager.html`**: two-pane file manager (Flash / SD / USB) with drag & drop copy and move
-  between the file systems, upload from the computer, folders, delete. Needs slot 0 (`webOn`).
+  between the file systems, upload from the computer, folders, delete (runs in any slot, see the first entries of this release).
 - Port 83 upload: the free-space check follows the USB stick (it asked the SD card before).
 - ⚠️ **Key and settings files stay inside** (Andreas, 31.10.–02.11.2026): port 82 download, port 83 upload and `/tc_api`
   readfile/writefile/deletefile refuse `eebus_key.der`, `tlskey`, `.settings*`, `.drvset*`, `.snsset*` and any name ending in
