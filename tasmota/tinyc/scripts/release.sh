@@ -282,6 +282,9 @@ run "cp '$TINYC_DIR/docs/EEBUS_ETHERNET.md' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/tasmota/tasmota_xdrv_driver/steuerbox.html' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/tasmota/tasmota_xdrv_driver/steuve.html' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/info/xdrv_128_eebus_steuve.md' '$STAGE_DIR/'"
+# File manager: the page goes to /filemanager.html on the file system, the program (any slot) is started with TinyCRun
+run "cp '$TINYC_DIR/examples/filemanager.html' '$STAGE_DIR/'"
+run "cp '$TINYC_DIR/bytecode/filemanager.tcb' '$STAGE_DIR/'"
 
 # ─────────── Build release notes ─────────────────────────────────────────────
 # Local only (files under $STAGE_DIR), so this also runs with --dry-run.
@@ -325,6 +328,7 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`MATTER_PLUGIN.md\` / \`_DE.md\` | How to install the Matter plugin, EN/DE |
 | \`PICOTTS_PLUGIN.md\` / \`_DE.md\` | How to install the speech plugin, EN/DE |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
+| \`filemanager.html\`, \`filemanager.tcb\` | File manager (Flash / SD / USB, rename, edit, \`.pvs\` → CSV): put both on the file system, \`TinyCRun 1 /filemanager.tcb\` (any slot), button "File Manager" on the main page. Needs this release's firmware |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
 **Matter** (Apple Home / Google / Alexa): built into the S3 build. The C3, C6
