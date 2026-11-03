@@ -5597,6 +5597,20 @@ export class CodeGenerator {
         binary.set(globalsTable, offset); offset += globalsTable.length;
         binary.set(this.code, offset);
 
+        // The device addresses the code section with a 16-bit pc: the whole file may be up to 128 KB (header, constants
+        // and tables sit in front), the code itself must stay below 64 KB. Say so here instead of "Invalid binary" later.
+        const _pre = header.length + constPool.length + heapDecl.length + funcTable.length + persistTable.length + globalsTable.length;
+        if (_pre > 65535) {
+            // Not a warning: the size fields in the header are 16 bits wide, so the file would be written with wrapped sizes
+            // and the device reads garbage ("Out of memory" with millions of heap slots).
+            throw new Error(`Header, constants and tables are ${_pre} bytes - over the 65535 byte limit (16-bit sizes in the .tcb header). Use fewer or shorter string constants, or split the program over two slots.`);
+        }
+        if (this.code.length > 65535) {
+            this.warnings.push(`Code section is ${this.code.length} bytes - over the 65535 byte limit; the device refuses this program. Split it over two slots (share*() or #include a second program).`);
+        } else if (this.code.length > 58000) {
+            this.warnings.push(`Code section is ${this.code.length} of 65535 bytes - close to the limit of what one slot can run.`);
+        }
+
         return {
             binary,
             sourceMap: this.sourceMap,

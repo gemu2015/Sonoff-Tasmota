@@ -1725,9 +1725,10 @@ static const char * const TC_CB_NAME[TC_CB_COUNT] = {
 
 typedef struct {
   // Program
-  const uint8_t *code;
+  const uint8_t *code;      // start of the CODE section (03.11.2026: no longer the file start, see tc_vm_load)
+  const uint8_t *bin;       // start of the whole .tcb (persist names are addressed from here)
   uint16_t code_size;
-  uint16_t code_offset;
+  uint16_t code_offset;     // 0 since 03.11.2026 (pc counts from the code start, jump targets already do)
   // Execution
   uint16_t pc;
   bool     running;
@@ -4983,7 +4984,7 @@ static TcVM *tc_alloc_worker_vm(TcSlot *s, int cb_idx) {
 
   TcVM *p = &s->vm;
   // --- ALIASED (shared / read-only) — never freed by tc_free_worker_vm ---
-  w->code = p->code; w->code_size = p->code_size; w->code_offset = p->code_offset;
+  w->code = p->code; w->bin = p->bin; w->code_size = p->code_size; w->code_offset = p->code_offset;
   w->constants = p->constants; w->const_count = p->const_count;
   w->const_capacity = p->const_capacity; w->const_data = p->const_data;
   w->const_data_size = p->const_data_size; w->const_data_used = p->const_data_used;
@@ -19315,11 +19316,11 @@ static int32_t *tc_persist_slot(TcVM *vm, uint16_t idx, uint16_t *nslots) {
 // Compare a persist entry's compiled name (at name_off in vm->code, stored [len u8][bytes])
 // against a candidate. Returns true only on an exact match. Unnamed entries never match.
 static bool tc_persist_name_eq(TcVM *vm, uint16_t name_off, const uint8_t *other, uint8_t other_len) {
-  if (name_off == 0xFFFF || !vm->code) return false;
-  uint8_t nlen = TC_READ_BYTE(&vm->code[name_off]);
+  if (name_off == 0xFFFF || !vm->bin) return false;
+  uint8_t nlen = TC_READ_BYTE(&vm->bin[name_off]);
   if (nlen != other_len) return false;
   for (uint8_t k = 0; k < nlen; k++) {
-    if ((uint8_t)TC_READ_BYTE(&vm->code[name_off + 1 + k]) != other[k]) return false;
+    if ((uint8_t)TC_READ_BYTE(&vm->bin[name_off + 1 + k]) != other[k]) return false;
   }
   return true;
 }
@@ -19346,7 +19347,7 @@ static void tc_persist_save(TcVM *vm) {
   uint16_t total = named ? 4 : 8;
   for (uint8_t i = 0; i < vm->persist_count; i++) {
     if (named) {
-      uint8_t nlen = (vm->persist[i].name_off != 0xFFFF) ? TC_READ_BYTE(&vm->code[vm->persist[i].name_off]) : 0;
+      uint8_t nlen = (vm->persist[i].name_off != 0xFFFF) ? TC_READ_BYTE(&vm->bin[vm->persist[i].name_off]) : 0;
       total += 1 + nlen + 2 + vm->persist[i].count * 4;
     } else {
       total += 4 + vm->persist[i].count * 4;
@@ -19374,9 +19375,9 @@ static void tc_persist_save(TcVM *vm) {
     uint16_t cnt = vm->persist[i].count;
     if (named) {
       uint16_t noff = vm->persist[i].name_off;
-      uint8_t nlen = (noff != 0xFFFF) ? TC_READ_BYTE(&vm->code[noff]) : 0;
+      uint8_t nlen = (noff != 0xFFFF) ? TC_READ_BYTE(&vm->bin[noff]) : 0;
       buf[pos++] = nlen;
-      for (uint8_t k = 0; k < nlen; k++) buf[pos++] = (uint8_t)TC_READ_BYTE(&vm->code[noff + 1 + k]);
+      for (uint8_t k = 0; k < nlen; k++) buf[pos++] = (uint8_t)TC_READ_BYTE(&vm->bin[noff + 1 + k]);
       buf[pos++] = cnt & 0xFF; buf[pos++] = (cnt >> 8) & 0xFF;
     } else {
       buf[pos++] = idx & 0xFF; buf[pos++] = (idx >> 8) & 0xFF;
@@ -19670,7 +19671,10 @@ static inline void tc_global_write_with_watch(TcVM *vm, uint16_t gidx,
  * VM: Load binary
 \*********************************************************************************************/
 
-static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
+// 03.11.2026 (Andreas): size is uint32_t. With uint16_t a .tcb above 65535 B (allowed: TC_MAX_PROGRAM 128 KB) wrapped
+// around (69963 -> 4427) and was refused as "Invalid binary". The header and tables still sit in the first 64 KB; the code
+// section is addressed from its own start (code_offset 0), so pc and all jump targets stay 16-bit (code itself <= 64 KB).
+static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint32_t size) {
   // All binary[] reads use TC_READ_BYTE() for flash-safe access
   #define B(i) TC_READ_BYTE(&binary[i])
 
@@ -19738,7 +19742,6 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t globals_table_size = (version >= 5 && size >= 20) ? ((B(18) << 8) | B(19)) : 0;
 
   if (size < header_size) return TC_ERR_BAD_BINARY;
-
   uint16_t const_end = header_size + const_pool_size;
 
   // Pre-scan constant pool to count entries and measure const_data bytes needed
@@ -20001,8 +20004,14 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
 
   #undef B
 
-  vm->code = binary;
-  vm->code_offset = globals_table_end;
+  if (size - globals_table_end > 0xFFFF) {                          // the code section itself must stay 16-bit addressable
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: code section %u B is over 65535 B (the whole file may be up to %d B) - split the program over two slots"),
+           (unsigned)(size - globals_table_end), (int)TC_MAX_PROGRAM);
+    return TC_ERR_BAD_BINARY;
+  }
+  vm->bin = binary;
+  vm->code = binary + globals_table_end;   // 03.11.2026: pc counts from the code start (jump targets are code-relative)
+  vm->code_offset = 0;
   vm->code_size = size - globals_table_end;
   vm->pc = vm->code_offset + entry_point;
   vm->sp = 0;

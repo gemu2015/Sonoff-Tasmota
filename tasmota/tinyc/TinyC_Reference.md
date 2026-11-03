@@ -6618,7 +6618,7 @@ Both display their sensor rows on the Tasmota main page simultaneously.
 | Call frames | 8 | 32 | 32 | Maximum recursion / call depth (`TC_MAX_FRAMES`) |
 | Locals per frame | 256 | 256 | 256 | Scalars + small arrays ≤16 inline (`TC_MAX_LOCALS`) |
 | Global variables | 64 | 512 | 8192 | Scalars + small arrays ≤16 inline (`TC_MAX_GLOBALS`; hard ceiling, no override) |
-| Code size | 4 KB | 128 KB | unlimited | `TC_MAX_PROGRAM`; ESP32 spills to PSRAM on DRAM OOM. The simulator enforces nothing — a program that fits there may still be refused by the device |
+| Code size | 4 KB | 128 KB | unlimited | `TC_MAX_PROGRAM` is the size of the whole file; the code section itself and header + constants + tables must each stay under 64 KB; ESP32 spills to PSRAM on DRAM OOM. The simulator enforces nothing — a program that fits there may still be refused by the device |
 | Heap memory | 8 KB | 64 KB | 64 KB | For arrays >16 elements (auto alloc); ceiling, not a reservation — grown on demand. ESP32 value is `TC_MAX_HEAP`, raisable in `user_config_override.h` |
 | Heap handles | 8 | 128 | 32 | Max simultaneous heap allocations (`TC_MAX_HEAP_HANDLES`) |
 | Constant pool | 64 | 1024 | unlimited | String & float constants (DRAM, spills to PSRAM on ESP32). `TC_MAX_CONSTANTS`, raisable in `user_config_override.h`; the loader reports `constant pool truncated` when a program brings more. The `.tcb` index is 16-bit, so the format itself stops at 65536 |

@@ -57,6 +57,15 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## Unreleased
+
+- ⚠️ **Programs over 64 KB load** (Andreas, 03.11.2026, patch 0008): `tc_vm_load` took the size as 16 bit, so a `.tcb` above 65535 B
+  (allowed: 128 KB) wrapped around and was refused as "Invalid binary". The code section is now addressed from its own start, the
+  persist names from the file start (`vm->bin`). Two limits remain and are reported: the **code section** must stay under 65535 B
+  (log line `code section … is over 65535 B`, IDE warning) and **header + constants + tables** must stay under 65535 B too (the
+  IDE refuses to build such a file; the 16-bit size fields would wrap). Tested on an S3: 75,917 B program (code 53,890 B), persist
+  names found, value kept over a restart.
+
 ## 1.6.77 — 2026-11-03
 
 - **`webOn()` works in every slot**: the endpoint is answered by the slot that registered it, and the numbers of `webOn(n, url)`
