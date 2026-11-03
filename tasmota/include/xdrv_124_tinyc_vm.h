@@ -16961,6 +16961,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
           TC_PUSH(vm, -1);
         } else {
           WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+          if (_oc->connected()) AddLog(LOG_LEVEL_INFO, PSTR("TCC: tcpConnect on client[%d] that is still connected -- the places are shared by ALL slots, two programs need different numbers"), vm->tcp_sel);
           // abort-close (SO_LINGER 0 -> RST) the previous socket so its lwIP PCB
           // frees IMMEDIATELY instead of lingering ~TIME_WAIT. A connect-heavy app
           // (the /24 fleet scanner = ~60 connects/sweep) otherwise slowly exhausts
@@ -17017,6 +17018,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
           TC_PUSH(vm, -1);
         } else {
           WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+          if (_oc->connected()) AddLog(LOG_LEVEL_INFO, PSTR("TCC: tcpConnect on client[%d] that is still connected -- the places are shared by ALL slots, two programs need different numbers"), vm->tcp_sel);
 #ifdef ESP32
           { int _lf = _oc->fd(); if (_lf >= 0) { struct linger _lg; _lg.l_onoff = 1; _lg.l_linger = 0; setsockopt(_lf, SOL_SOCKET, SO_LINGER, &_lg, sizeof(_lg)); } }  // abort-close prior PCB (see SYS_TCP_CONNECT)
 #endif

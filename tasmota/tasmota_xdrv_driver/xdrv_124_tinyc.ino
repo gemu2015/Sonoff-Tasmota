@@ -7896,6 +7896,16 @@ void CmndTinyCStack(void) {
   }
   Response_P(PSTR("{\"" D_PRFX_TINYC "Stack\":{\"VmTaskStack\":%d,\"Default\":%d"),
              (int)tc_vm_stack_bytes, (int)TC_VM_TASK_STACK);
+  // The FreeRTOS idle task of each core -- a stack canary on IDLE0/IDLE1 was seen on
+  // an S3 (2026-11-01); this shows how much of CONFIG_FREERTOS_IDLE_TASK_STACKSIZE is
+  // really left. Same unit (bytes) as StackFreeMin below.
+  for (int c = 0; c < portNUM_PROCESSORS; c++) {
+    TaskHandle_t ih = xTaskGetIdleTaskHandleForCore(c);
+    if (ih) {
+      ResponseAppend_P(PSTR(",\"IDLE%d\":{\"Size\":%d,\"StackFreeMin\":%u}"),
+                       c, (int)CONFIG_FREERTOS_IDLE_TASK_STACKSIZE, (uint32_t)uxTaskGetStackHighWaterMark(ih));
+    }
+  }
   // The VM tasks themselves -- exactly the number the size is chosen from.
   if (Tinyc) {
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
