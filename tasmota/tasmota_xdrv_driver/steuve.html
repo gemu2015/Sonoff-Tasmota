@@ -198,6 +198,19 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
       <button class="btn" id="id_sich" title="Zertifikat und Schlüssel aus dem Flash herunterladen">Sichern</button>
       <button class="big rot klein" id="id_neu">Neue Identität …</button>
       <button class="big gruen klein" id="id_ank" title="Eigene Kennung (SKI) im Netz neu bekanntgeben - z. B. wenn ein anderes Gerät noch eine alte SKI zeigt">Neu ankündigen</button>
+      <button class="btn" id="id_zur" title="Gesichertes Zertifikat und Schlüssel wieder auf das Gerät spielen (Geräteumzug, Wiederherstellung)">Zurückspielen …</button>
+    </div>
+    <!-- 02.11.2026: Zurueckspielen ebenfalls zweistufig; vorher wird die jetzige Identitaet automatisch gesichert. -->
+    <div class="card" id="id_zwarn" style="display:none;margin-top:8px;border-color:#e05a4a">
+      <b>Identität zurückspielen — danach startet das Gerät neu.</b><br>
+      <span class="note">Ersetzt Zertifikat und Schlüssel dieses Geräts durch die gewählten Dateien. Beide müssen zusammengehören,
+        sonst lehnt das Gerät ab und behält seine Identität. Vorher wird die jetzige Identität automatisch heruntergeladen
+        (der Browser hängt dann ggf. „(1)“ an den Dateinamen). Gegenstellen, die die zurückgespielte SKI kennen, verbinden
+        nach dem Neustart wieder.</span>
+      <div class="row"><label class="note">Zertifikat <input type="file" id="id_zcert" accept=".der"></label>
+        <label class="note">Schlüssel <input type="file" id="id_zkey" accept=".der"></label></div>
+      <div class="row"><button class="big rot klein" id="id_zja">Ja, zurückspielen und neu starten</button>
+        <button class="btn" id="id_znein">Abbrechen</button></div>
     </div>
     <!-- Zweistufig mit Absicht: eine neue Identitaet macht jede bestehende Kopplung ungueltig. -->
     <div class="card" id="id_warn" style="display:none;margin-top:8px;border-color:#e05a4a">
@@ -523,12 +536,61 @@ function fsSpeichernAls(pfad, flash, name){   // Datei ueber :82 holen und als D
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   });
 }
-$('id_sich').onclick = () => {
-  ['eebus_cert.der', 'eebus_key.der'].forEach((f, i) => setTimeout(() => {
-    fsSpeichernAls('/' + f, true, f).catch(e => say({Sichern: f + ' nicht lesbar (' + e + ')'}));   // liegen im FLASH
-  }, i * 400));   // versetzt, sonst unterschlaegt der Browser den zweiten Download
-  say({Sichern: 'Zertifikat und Schlüssel werden heruntergeladen — sicher ablegen (privater Schlüssel!)'});
-  knopfMeldung($('id_sich'), '✓ 2 Dateien geladen', OK);
+// 02.11.2026: Sichern und Zurueckspielen ueber /eebus_identity (Port 80, hinter dem Web-Passwort); der Schluessel ist
+// auf :82/:83 gesperrt. Erfolg erst nach geprueftem JSON melden: ohne Zugang kommt keine Antwort oder die Hauptseite.
+const hexZuBytes = h => new Uint8Array((h.match(/../g) || []).map(x => parseInt(x, 16)));
+const bytesZuHex = b => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join('');
+function bytesSpeichern(bytes, name){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'}));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function identSichern(){
+  const r = await fetch('/eebus_identity', {cache: 'no-store'});
+  let j = null; try { j = await r.json(); } catch (e) { j = null; }
+  if (!r.ok || !j || !j.ok || !j.cert || !j.key) { throw new Error((j && j.error) || ('HTTP ' + r.status)); }
+  bytesSpeichern(hexZuBytes(j.cert), 'eebus_cert.der');
+  await new Promise(res => setTimeout(res, 400));   // versetzt, sonst unterschlaegt der Browser den zweiten Download
+  bytesSpeichern(hexZuBytes(j.key), 'eebus_key.der');
+}
+$('id_sich').onclick = async () => {
+  knopfStart($('id_sich'), 'lädt …');
+  try {
+    await identSichern();
+    say({Sichern: 'Zertifikat und Schlüssel heruntergeladen — sicher ablegen (privater Schlüssel!)'});
+    knopfMeldung($('id_sich'), '✓ 2 Dateien geladen', OK);
+  } catch (e) {
+    say({Sichern: 'nicht geladen (' + e.message + ')'});
+    knopfMeldung($('id_sich'), '✗ Fehler', ROT);
+  }
+};
+$('id_zur').onclick = () => { $('id_zwarn').style.display = ''; };
+$('id_znein').onclick = () => { $('id_zwarn').style.display = 'none'; };
+$('id_zja').onclick = async () => {
+  const b = $('id_zja'), fc = $('id_zcert').files[0], fk = $('id_zkey').files[0];
+  if (!fc || !fk) { say({Zurückspielen: 'bitte Zertifikat UND Schlüssel wählen'}); return; }
+  knopfStart(b, 'sichert …');
+  try { await identSichern(); } catch (e) {
+    say({Zurückspielen: 'abgebrochen, die jetzige Identität ließ sich nicht sichern (' + e.message + ')'});
+    knopfMeldung(b, '✗ Fehler', ROT); return;
+  }
+  b.textContent = 'spielt zurück …';
+  let r = null, j = null;
+  try {
+    const body = 'cert=' + bytesZuHex(await fc.arrayBuffer()) + '&key=' + bytesZuHex(await fk.arrayBuffer());
+    r = await fetch('/eebus_identity', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body});
+    j = await r.json();
+  } catch (e) { j = null; }
+  if (!r || !r.ok || !j || !j.ok) {
+    const grund = (j && j.error) || (r ? 'HTTP ' + r.status : 'keine Antwort');
+    say({Zurückspielen: 'abgelehnt (' + grund + ')', Identität: (r && 500 === r.status) ?
+      'möglicherweise unvollständig — die eben heruntergeladene Sicherung zurückspielen' : 'unverändert'});
+    knopfMeldung(b, '✗ Fehler', ROT); return;
+  }
+  $('id_zwarn').style.display = 'none';
+  await cmd('Restart 1');
+  say({Zurückspielen: 'geschrieben, Gerät startet neu — Seite lädt in 40 s neu'});
+  knopfMeldung(b, '✓ Neustart', OK);
+  setTimeout(() => location.reload(), 40000);
 };
 $('id_neu').onclick = () => { $('id_warn').style.display = ''; $('id_nach').style.display = 'none'; };
 $('id_nein').onclick = () => { $('id_warn').style.display = 'none'; };

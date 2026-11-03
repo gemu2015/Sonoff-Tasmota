@@ -246,8 +246,19 @@
         <button class="sec" onclick="identSichern()">Sichern</button>
         <button class="bad" onclick="identNeu()">Neue Identität …</button>
         <button class="gruen" onclick="identAnkuendigen()" title="Eigene Kennung (SKI) im Netz neu bekanntgeben - z. B. wenn ein anderes Gerät noch eine alte SKI zeigt">Neu ankündigen</button>
+        <button class="sec" onclick="el('identzwarn').classList.remove('hide')" title="Gesichertes Zertifikat und Schlüssel wieder auf das Gerät spielen (Geräteumzug, Wiederherstellung)">Zurückspielen …</button>
       </span>
     </div>
+    <!-- 02.11.2026: Zurueckspielen zweistufig; vorher wird die jetzige Identitaet automatisch gesichert. -->
+    <p class="warn hide" id="identzwarn">
+      <b>Identität zurückspielen — danach startet das Gerät neu.</b><br>
+      Ersetzt Zertifikat und Schlüssel dieses Geräts durch die gewählten Dateien. Beide müssen zusammengehören, sonst lehnt
+      das Gerät ab und behält seine Identität. Vorher wird die jetzige Identität automatisch heruntergeladen (der Browser
+      hängt dann ggf. „(1)“ an den Dateinamen).<br>
+      Zertifikat <input type="file" id="identzcert" accept=".der"> Schlüssel <input type="file" id="identzkey" accept=".der"><br>
+      <button class="bad" style="margin-top:8px" onclick="identZurueckJetzt()">Ja, zurückspielen und neu starten</button>
+      <button class="sec" style="margin-top:8px" onclick="el('identzwarn').classList.add('hide')">Abbrechen</button>
+    </p>
     <!-- Zweistufig mit Absicht: eine neue Identitaet macht JEDE bestehende Kopplung ungueltig.
          Ein einzelner Fehlklick wuerde die ganze Anlage entkoppeln. -->
     <p class="warn hide" id="identwarn">
@@ -779,27 +790,58 @@
 
   // Sichern = Zertifikat UND Schluessel herunterladen. Beides wird gebraucht, um eine Identitaet
   // wiederherzustellen — der Schluessel allein oder das Zertifikat allein nuetzen nichts.
-  // WICHTIG "&dir=2": Zertifikat und Schluessel liegen im FLASH-Dateisystem. Ohne diese Angabe
-  // liest der Download vom AKTIVEN Dateisystem — steckt eine SD-Karte, kommt dort nichts an und
-  // man haelt eine leere Datei in der Hand, ohne es zu merken.
-  // 24.10. (Andreas): Dateizugriff NUR ueber Port 82 (lesen) / 83 (schreiben), nie /ufsd auf Port 80.
-  // Port 82 sendet CORS "*"; die Datei wird geholt und als Download angeboten (Flash = /ufs/ffs).
-  function identSichern(){
-    ['/eebus_cert.der', '/eebus_key.der'].forEach(function(f, i){
-      setTimeout(function(){
-        fetch('http://' + location.hostname + ':82/ufs/ffs' + f, {cache: 'no-store'})
-          .then(function(r){ return r.ok ? r.blob() : Promise.reject(r.status); })
-          .then(function(b){
-            var a = document.createElement('a');
-            a.href = URL.createObjectURL(b);
-            a.download = f.replace('/', '');
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
-          })
-          .catch(function(e){ say(f + ' nicht lesbar (' + e + ')'); });
-      }, i * 400);   // zwei Downloads kurz versetzt, sonst unterschlaegt der Browser den zweiten
+  // 02.11.2026: ueber /eebus_identity (Port 80, hinter dem Web-Passwort); der Schluessel ist auf :82/:83 gesperrt.
+  // Erfolg erst nach geprueftem JSON melden: ohne Zugang kommt keine Antwort oder die Hauptseite.
+  function hexZuBytes(h){ return new Uint8Array((h.match(/../g) || []).map(function(x){ return parseInt(x, 16); })); }
+  function bytesZuHex(buf){ return Array.from(new Uint8Array(buf), function(x){ return x.toString(16).padStart(2, '0'); }).join(''); }
+  function bytesSpeichern(bytes, name){
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'}));
+    a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+  }
+  function identHolenUndSpeichern(){
+    return fetch('/eebus_identity', {cache: 'no-store'}).then(function(r){
+      return r.json().catch(function(){ return null; }).then(function(j){
+        if(!r.ok || !j || !j.ok || !j.cert || !j.key){ throw new Error((j && j.error) || ('HTTP ' + r.status)); }
+        bytesSpeichern(hexZuBytes(j.cert), 'eebus_cert.der');
+        return new Promise(function(res){ setTimeout(res, 400); })   // versetzt, sonst unterschlaegt der Browser den zweiten
+          .then(function(){ bytesSpeichern(hexZuBytes(j.key), 'eebus_key.der'); });
+      });
     });
-    say('Zertifikat und Schlüssel werden heruntergeladen — bitte sicher ablegen.');
+  }
+  function identSichern(){
+    say('Zertifikat und Schlüssel werden geholt …');
+    identHolenUndSpeichern()
+      .then(function(){ say('Zertifikat und Schlüssel heruntergeladen — bitte sicher ablegen (privater Schlüssel!).'); })
+      .catch(function(e){ say('Sichern fehlgeschlagen (' + e.message + ').'); });
+  }
+  function identZurueckJetzt(){
+    var fc = el('identzcert').files[0], fk = el('identzkey').files[0];
+    if(!fc || !fk){ say('Bitte Zertifikat UND Schlüssel wählen.'); return; }
+    say('Jetzige Identität wird zuerst gesichert …');
+    var r = null;
+    identHolenUndSpeichern().catch(function(e){ throw new Error('jetzige Identität ließ sich nicht sichern: ' + e.message); })
+      .then(function(){ return Promise.all([fc.arrayBuffer(), fk.arrayBuffer()]); })
+      .then(function(b){
+        say('Identität wird zurückgespielt …');
+        return fetch('/eebus_identity', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: 'cert=' + bytesZuHex(b[0]) + '&key=' + bytesZuHex(b[1])});
+      })
+      .then(function(resp){ r = resp; return resp.json().catch(function(){ return null; }); })
+      .then(function(j){
+        if(!r.ok || !j || !j.ok){
+          throw new Error(((j && j.error) || ('HTTP ' + r.status)) + (500 === r.status ?
+            '; Identität möglicherweise unvollständig — die eben heruntergeladene Sicherung zurückspielen' : '; Identität unverändert'));
+        }
+        el('identzwarn').classList.add('hide');
+        return cmd('Restart 1').then(function(){
+          say('Zurückgespielt, Gerät startet neu — Seite lädt in 40 s neu.');
+          setTimeout(function(){ location.reload(); }, 40000);
+        });
+      })
+      .catch(function(e){ say('Zurückspielen abgebrochen (' + e.message + ').'); });
   }
 
   // Erster Klick zeigt nur die Warnung. Erzeugt wird erst beim zweiten, ausdruecklichen Klick.
@@ -926,7 +968,8 @@
       });
     });
   }
-  setInterval(function(){ if(!document.hidden) ladeVerb(); }, 10000);
+  // 02.11.2026: kein eigener Takt mehr - ladeVerb() laeuft zusammen mit refresh() (unten), sonst zeigte "Verbinden mit"
+  // bis zu 20 s noch "verbunden", waehrend die Tabelle schon "0 von 6 belegt" meldete.
 
   var autoScanDone = false;   // v191: hoechstens einmal je Seitenaufruf selbst suchen
   function fillDevices(list, keepSki, still){
@@ -1970,7 +2013,7 @@
   el('ownskibtn').textContent = skiHidden ? 'zeigen' : 'verbergen';
   ownIdentLaden();
   startAuswahl();
-  setInterval(function(){ if(!document.hidden) refresh(); }, 20000);
+  setInterval(function(){ if(!document.hidden){ refresh(); ladeVerb(); } }, 10000);   // 02.11.: beide Anzeigen im selben Takt
   // Messwerte (Netzanschlusspunkt) alle 5 s: EEBusData liest nur den Speicher der Steuerbox, kein Netzverkehr.
   setInterval(function(){ if(!document.hidden && mwLaden) loadData(); }, 5000);
 </script>

@@ -1,5 +1,5 @@
 // @name: SteuVE Verbraucher
-// @version: 20261021_1027
+// @version: 20261101_0900
 // ─────────────────────────────────────────────────────────────────────
 // steuve_verbraucher.tc — schaltet Verbraucher (Shelly oder Tasmota im WLAN/LAN) nach der §14a-Grenze, die der
 // Treiber xdrv_128 (steuerbare Verbrauchseinrichtung, Rolle 3) vom Energy Guard empfaengt.
@@ -109,6 +109,7 @@ char name[ANZ][16];  // Anzeigename (hoechstens 15 Byte — ein Umlaut zaehlt 2)
 char model[ANZ][24]; // erkanntes Modell (nur im Speicher; wird nach dem Start neu erfragt)
 
 int summe = 0;
+int unbek = 0;       // 1 = mindestens ein Verbraucher antwortet nicht (3 Fehlversuche in Folge): Summe unbekannt
 int begrenzt = 0;
 int grenze = 0;
 int letztesEin = 0;
@@ -498,12 +499,14 @@ void runde() {
     }
 
     // 1. lesen
+    unbek = 0;
     for (i = 0; i < NV; i++) {
         if (!belegt(i)) { p[i] = 0; an[i] = -1; fehler[i] = 0; continue; }
         int w = lies(i);
         if (w < 0) {
             if (fehler[i] < 99) { fehler[i] = fehler[i] + 1; }
             if (fehler[i] == 3) { sprintf(c, "Prio %d antwortet nicht", i + 1); addLog("STV %s", c); }
+            if (fehler[i] >= 3) { unbek = 1; }
             w = 0;
         } else {
             fehler[i] = 0;
@@ -513,7 +516,8 @@ void runde() {
     }
     summe = s;
     // 2. Summe an den Treiber
-    sprintf(c, "EEBusCsPower %d", summe);
+    if (unbek == 1) { strcpy(c, "EEBusCsPower unbekannt"); }   // Treiber ab SteuVE v026: valueState error
+    else { sprintf(c, "EEBusCsPower %d", summe); }
     tasmCmd(c, resp);
     // 3. Zustand vom Treiber (Sensordaten, SteuVE v008). Zustand: 0 Anlauf, 1 gesteuert, 2 Failsafe, 3 autonom
     int warBegrenzt = begrenzt;
@@ -603,8 +607,10 @@ void TaskLoop() {
 
 void WebCall() {
     char b[160];
-    if (begrenzt == 1) { sprintf(b, "{s}SteuVE{m}%s · Grenze %d W / Summe %d W{e}", zustand, grenze, summe); }
-    else { sprintf(b, "{s}SteuVE{m}%s · frei / Summe %d W{e}", zustand, summe); }
+    char sm[16];
+    if (unbek == 1) { strcpy(sm, "unbekannt"); } else { sprintf(sm, "%d W", summe); }
+    if (begrenzt == 1) { sprintf(b, "{s}SteuVE{m}%s · Grenze %d W / Summe %s{e}", zustand, grenze, sm); }
+    else { sprintf(b, "{s}SteuVE{m}%s · frei / Summe %s{e}", zustand, sm); }
     webSend(b);
     int i;
     for (i = 0; i < NV; i++) {
@@ -642,7 +648,7 @@ void Command(char cmd[]) {
     char z[100];
     int i;
     if (strFind(cmd, "STAT") == 0) {
-        sprintf(resp, "{\"STV\":{\"Zustand\":\"%s\",\"Begrenzt\":%d,\"Grenze\":%d,\"Summe\":%d}}", zustand, begrenzt, grenze, summe);
+        sprintf(resp, "{\"STV\":{\"Zustand\":\"%s\",\"Begrenzt\":%d,\"Grenze\":%d,\"Summe\":%d,\"Bekannt\":%d}}", zustand, begrenzt, grenze, summe, 1 - unbek);
         responseCmnd(resp);
     } else if (strFind(cmd, "LIST") == 0) {
         strcpy(resp, "{\"STVLIST\":[");
