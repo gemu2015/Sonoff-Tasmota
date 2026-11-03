@@ -6343,7 +6343,9 @@ static const char TC_BUSY_HTML[] PROGMEM =
 
 static void HandleTinyCWebOn(uint8_t handler_num) {
   if (!Tinyc) { Webserver->send(503, "text/plain", "TinyC not ready"); return; }
-  TcSlot *s = Tinyc->slots[0];
+  // The program that registered this URL answers it (webOn(n, url) from slot 2 used to call slot 0).
+  uint8_t hidx = handler_num - 1;
+  TcSlot *s = Tinyc->slots[Tinyc->web_handler_slot[hidx] < TC_MAX_VMS ? Tinyc->web_handler_slot[hidx] : 0];
   if (!s || !s->loaded || s->vm.error != TC_OK) {     // truly fatal
     Webserver->send(503, "text/plain", "TinyC not ready");
     return;
@@ -6362,7 +6364,7 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
     Webserver->send_P(503, PSTR("text/html"), TC_BUSY_HTML);
     return;
   }
-  Tinyc->current_web_handler = handler_num;
+  Tinyc->current_web_handler = Tinyc->web_handler_num[hidx];   // the program's own number
   Tinyc->web_content_begun   = 0;
   Tinyc->web_raw_active      = 0;
   // A webOn handler serves a whole page of its own, so WebChart() has to start
@@ -8967,7 +8969,7 @@ bool Xdrv124(uint32_t function) {
         for (int i = 0; i < Tinyc->web_handler_count && i < TC_MAX_WEB_HANDLERS; i++) {
           if (Tinyc->web_handler_url[i][0]) {
             Webserver->on(Tinyc->web_handler_url[i], TinyCWebOnHandlers[i]);
-            AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered (deferred)"), i + 1, Tinyc->web_handler_url[i]);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered (deferred)"), Tinyc->web_handler_num[i], Tinyc->web_handler_url[i]);
           }
         }
       }

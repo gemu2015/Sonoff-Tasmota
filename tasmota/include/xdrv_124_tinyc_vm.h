@@ -2047,7 +2047,11 @@ struct TINYC {
 #define TC_MAX_WEB_HANDLERS 7
   char     web_handler_url[TC_MAX_WEB_HANDLERS][32];
   uint8_t  web_handler_count;
-  uint8_t  current_web_handler;   // handler number during WebOn callback
+  // webOn(n, url) belongs to the slot that called it, and n is that program's OWN number: the table index is
+  // the internal handler, web_handler_num[] the n the script sees from webHandler(), web_handler_slot[] who is called.
+  uint8_t  web_handler_slot[TC_MAX_WEB_HANDLERS];
+  uint8_t  web_handler_num[TC_MAX_WEB_HANDLERS];
+  uint8_t  current_web_handler;   // handler number (the script's own n) during WebOn callback
   // Per-request state for HandleTinyCWebOn. web_content_begun: set the first
   // time webSend() runs inside a WebOn callback — triggers lazy WSContentBegin
   // (so raw-mode handlers that skip webSend() entirely get to write the full
@@ -13359,13 +13363,33 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       const char *url = tc_get_const_str(vm, ci);
 #ifdef USE_WEBSERVER
       if (url && Tinyc && hn >= 1 && hn <= TC_MAX_WEB_HANDLERS) {
-        strlcpy(Tinyc->web_handler_url[hn - 1], url, sizeof(Tinyc->web_handler_url[0]));
-        if (hn > Tinyc->web_handler_count) Tinyc->web_handler_count = hn;
-        if (Webserver) {
-          Webserver->on(Tinyc->web_handler_url[hn - 1], TinyCWebOnHandlers[hn - 1]);
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered"), hn, url);
+        // Which slot calls? Its program gets its own numbering, so two programs may both use webOn(1, ...).
+        uint8_t own_si = 0;
+        { TcSlot *own = tc_slot_of_vm(vm);
+          for (uint8_t si = 0; si < TC_MAX_VMS; si++) { if (Tinyc->slots[si] && own == Tinyc->slots[si]) { own_si = si; break; } } }
+        int e = -1;
+        for (int i = 0; i < TC_MAX_WEB_HANDLERS && e < 0; i++) {        // same program + number: re-registration
+          if (Tinyc->web_handler_url[i][0] && Tinyc->web_handler_slot[i] == own_si && Tinyc->web_handler_num[i] == hn) e = i;
+        }
+        for (int i = 0; i < TC_MAX_WEB_HANDLERS && e < 0; i++) {        // same URL: take it over
+          if (Tinyc->web_handler_url[i][0] && !strcmp(Tinyc->web_handler_url[i], url)) e = i;
+        }
+        for (int i = 0; i < TC_MAX_WEB_HANDLERS && e < 0; i++) {
+          if (!Tinyc->web_handler_url[i][0]) e = i;
+        }
+        if (e < 0) {
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") dropped -- all %d web handlers are taken"), hn, url, TC_MAX_WEB_HANDLERS);
         } else {
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") deferred"), hn, url);
+          strlcpy(Tinyc->web_handler_url[e], url, sizeof(Tinyc->web_handler_url[0]));
+          Tinyc->web_handler_slot[e] = own_si;
+          Tinyc->web_handler_num[e]  = (uint8_t)hn;
+          if (e + 1 > Tinyc->web_handler_count) Tinyc->web_handler_count = e + 1;
+          if (Webserver) {
+            Webserver->on(Tinyc->web_handler_url[e], TinyCWebOnHandlers[e]);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered, slot %d"), hn, url, own_si);
+          } else {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") deferred, slot %d"), hn, url, own_si);
+          }
         }
       }
 #endif

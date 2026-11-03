@@ -70,8 +70,16 @@ Was der Stick verlangt (alles im Treiber erledigt; beim Ändern beibehalten):
 
 Zwei Fenster (Flash / SD / USB), eine Zeile auf das andere Fenster ziehen kopiert (Umschalt = verschieben), Dateien vom
 Rechner hineinziehen lädt hoch, Ordner rekursiv. `filemanager.html` als `/filemanager.html` auf den Flash legen, das
-Skript **in Slot 0** starten (`webOn` geht nur in Slot 0), `http://<gerät>/fm` öffnen. Das Skript kopiert in
-64-kB-Scheiben (`/fm/op?c=cp`), alles andere läuft über Tasmotas `/ufsd`, Port 83 und `UfsMkdir`.
+Skript in **einem beliebigen Slot** starten (seit 03.11.2026 antwortet bei `webOn` der Slot, der es angelegt hat; bei
+1.6.76 und älter geht nur Slot 0) und auf der Hauptseite den Knopf **File Manager** drücken (oder `http://<gerät>/fm`
+öffnen). Das Skript kopiert in 64-kB-Scheiben (`/fm/op?c=cp`), alles andere läuft über Tasmotas `/ufsd`, Port 83,
+`UfsMkdir` und `UfsRename`.
+
+Knöpfe: **Umbenennen** (ein Eintrag, im selben Dateisystem, `UfsRename /<fs>/alt,/<fs>/neu`), **Bearbeiten** (eine
+Textdatei bis 100 kB im Editorfenster, Zeilenenden bleiben, gespeichert über Port 83), **.pvs → CSV** (lädt eine
+Persist-Datei als `name,index,int,float,char` herunter, eine Zeile je Wert; die Datei enthält nur 32-Bit-Wörter, deshalb
+stehen Ganzzahl- und Gleitkommadarstellung nebeneinander), **Löschen**. ⚠️ `TinyCRun /x.tcb` und `webSendFile` nehmen
+eine Datei zuerst von der SD-Karte, wenn eine steckt: eine alte Kopie dort verdeckt die neue im Flash.
 
 ## Audio
 

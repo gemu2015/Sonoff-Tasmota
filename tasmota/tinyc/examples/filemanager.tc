@@ -4,12 +4,15 @@
 // computer onto a pane to upload them, drag rows out of the page to download them.
 //
 // Needs the page next to it: upload filemanager.html to the flash file system as
-// /filemanager.html (File Manager -> Flash), start this script, then open  http://<device>/fm
+// /filemanager.html (File Manager -> Flash) and start this script. It adds a button "File Manager"
+// to the main page; the page itself is  http://<device>/fm
 //
 // The script is the back end for what the stock file manager cannot do: copy between two file
 // systems and measure a file. Listing, download and delete use the built-in /ufsd, upload uses
 // port 83 (/ufs/<prefix><path>), new folders use the console command UfsMkdir <prefix><path>.
-// ⚠️ webOn() only works in slot 0 (TinyC anti-pattern 14): start this script in slot 0.
+// Runs in ANY slot, so slot 0 stays free for programs that must sit there (SML scripts): from
+// 03.11.2026 on the firmware answers webOn() in the slot that registered it. On 1.6.76 and older
+// webOn() only works in slot 0 (the page then answers "TinyC not ready" or runs the wrong program).
 //
 //   /fm                          the page (served from /ffs/filemanager.html)
 //   /fm/op?c=cp&a=SRC&b=DST&o=N  copy one slice (64 kB) of SRC starting at byte N to DST.
@@ -113,7 +116,13 @@ void WebOn() {
     ok(0);
 }
 
+// The main-page button opens the page (webPageLabel buttons lead to WebUI()): hand over to /fm at once.
+void WebUI() {
+    webSend("<script>location.replace('/fm');</script>");
+}
+
 int main() {
+    webPageLabel(0, "File Manager");
     webOn(1, "/fm");
     webOn(2, "/fm/op");
     if (!fileExists("/ffs/filemanager.html")) {

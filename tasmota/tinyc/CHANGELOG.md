@@ -59,6 +59,14 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **`webOn()` works in every slot**: the endpoint is answered by the slot that registered it, and the numbers of `webOn(n, url)`
+  are per program (two slots may both use 1; seven endpoints in total, an eighth is dropped with a log line). Until now every
+  endpoint called slot 0. Needed so SML scripts that must sit in slot 0 do not clash with web programs.
+- **File manager** (`examples/filemanager.tc`): button "File Manager" on the main page, runs in any slot; new buttons **Rename**,
+  **Edit** (text files up to 100 kB), **.pvs → CSV**. Console `UfsRename` now understands the prefixes `/ffs/`, `/sdfs/`, `/usb/`.
+- `tcpConnect` on a client place that is still connected logs a warning (the places are shared by ALL slots, `tcpSelect` only
+  chooses per program); `TinyCStack` shows the stack left in the two FreeRTOS idle tasks.
+
 - **USB host for the ESP32-S3/S2** (`xdrv_99_usb_host.ino`, [docs/USB_HOST.md](docs/USB_HOST.md)): a USB flash drive becomes the
   FAT file system `/usb` (read, write, remount, reboot; tested on .186 and .190 with 3 MB files, checksums equal), a USB audio
   stick plays WAV, an FTDI adapter is the serial port. Several devices behind one hub (needs `CONFIG_USB_HOST_HUBS_SUPPORTED`).

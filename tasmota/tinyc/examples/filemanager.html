@@ -27,12 +27,17 @@ body{background:#252525;margin:8px}
 #fm .prog{margin-top:8px;background:var(--pn);border-radius:6px;padding:6px 8px;display:none}
 #fm .prog progress{width:100%;height:10px}
 #fm .hint{color:var(--mu);font-size:12px;margin-top:6px}
+#fm .ed{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:none;z-index:9;padding:10px}
+#fm .ed>div{background:var(--pn);border:2px solid var(--ln);border-radius:6px;height:100%;display:flex;flex-direction:column;padding:8px;gap:6px}
+#fm .ed textarea{flex:1;width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--ln);border-radius:4px;font:13px monospace;white-space:pre;resize:none}
 @media(max-width:500px){#fm td.d{display:none}}
 </style>
 <div id="fm">
   <div class="panes" id="panes"></div>
   <div class="prog" id="prog"><div id="ptxt"></div><progress id="pbar" max="100" value="0"></progress></div>
-  <div class="hint">Ziehen: Zeile auf die andere Seite = kopieren (Umschalt = verschieben, auf einen Ordner = hinein). Dateien vom Rechner auf eine Seite ziehen = hochladen. Zeile auf den Schreibtisch ziehen (Chrome) = herunterladen.</div>
+  <div class="ed" id="ed"><div><div id="edt"></div><textarea id="edx" spellcheck="false"></textarea>
+    <div><button id="eds">Speichern</button> <button class="off" id="edc">Abbrechen</button></div></div></div>
+  <div class="hint">Ziehen: Zeile auf die andere Seite = kopieren (Umschalt = verschieben, auf einen Ordner = hinein). Dateien vom Rechner auf eine Seite ziehen = hochladen. Zeile auf den Schreibtisch ziehen (Chrome) = herunterladen. Umbenennen, Bearbeiten (Textdateien bis 100 kB) und .pvs &rarr; CSV arbeiten mit der markierten Zeile; Strg/Umschalt+Klick markiert mehrere.</div>
 </div>
 <script>
 (function(){
@@ -136,6 +141,64 @@ function upload(fs,dir,list){
   });
 }
 
+/* ---- rename / edit / pvs export ---- */
+function cmnd(c){return fetch('/cm?cmnd='+encodeURIComponent(c)).then(function(r){return r.json()}).then(function(r){return JSON.stringify(r).indexOf('Done')>0})}
+function renameItem(P,it){
+  var n=prompt('Neuer Name für '+it.name,it.name);
+  if(!n||n===it.name)return;
+  if(/[\/,]/.test(n)){alert('Der Name darf kein / und kein Komma enthalten');return}
+  if(P.items.some(function(i){return i.name===n})){alert(n+' gibt es schon');return}
+  job(function(){return cmnd('UfsRename '+full(P.fs,join(P.path,it.name))+','+full(P.fs,join(P.path,n))).then(function(ok){if(!ok)throw new Error('Umbenennen fehlgeschlagen')})});
+}
+var edCur=null,edCRLF=false;
+function editItem(P,it){
+  if(it.dir)return;
+  if(it.size>102400){alert('Zu groß zum Bearbeiten (über 100 kB)');return}
+  var path=join(P.path,it.name);
+  fetch(dlurl(P.fs,path)).then(function(r){return r.arrayBuffer()}).then(function(b){
+    var u=new Uint8Array(b);
+    for(var i=0;i<u.length;i++)if(u[i]===0){alert('Das ist keine Textdatei');return}
+    var t=new TextDecoder('utf-8').decode(u);
+    edCRLF=t.indexOf('\r\n')>=0;
+    edCur={fs:P.fs,dir:P.path,name:it.name};
+    $('edt').textContent=NAMES[P.fs]+':'+path;$('edx').value=t;$('ed').style.display='block';$('edx').focus();
+  }).catch(function(e){alert('Fehler: '+e)});
+}
+$('edc').onclick=function(){$('ed').style.display='none';edCur=null};
+$('eds').onclick=function(){
+  if(!edCur)return;var c=edCur,t=$('edx').value;
+  if(edCRLF)t=t.replace(/\r?\n/g,'\r\n');
+  var blob=new Blob([t],{type:'text/plain'});$('ed').style.display='none';edCur=null;
+  job(function(){return putFile(c.fs,c.dir,blob,c.name)});
+};
+function pvsToCsv(buf){
+  var d=new DataView(buf),u=new Uint8Array(buf),pos,n,named,rows=['name,index,int,float,char'],k=0;
+  if(u.length<4||u[0]!==80||u[1]!==86)throw new Error('keine .pvs-Datei');
+  if(u[2]===51){named=true;n=u[3];pos=4}
+  else if(u[2]===72){named=false;n=u[7];pos=8}
+  else throw new Error('unbekanntes .pvs-Format');
+  for(var e=0;e<n;e++){
+    var nm,cnt;
+    if(named){var l=u[pos++];nm='';for(var i=0;i<l;i++)nm+=String.fromCharCode(u[pos++]);cnt=d.getUint16(pos,true);pos+=2}
+    else{nm='#'+d.getUint16(pos,true);pos+=2;cnt=d.getUint16(pos,true);pos+=2}
+    if(pos+4*cnt>u.length)throw new Error('Datei ist abgeschnitten');
+    for(var j=0;j<cnt;j++,pos+=4){
+      var iv=d.getInt32(pos,true),f=d.getFloat32(pos,true),fs='',ch='';
+      if(isFinite(f)&&(f===0||(Math.abs(f)>=1e-6&&Math.abs(f)<1e9)))fs=String(parseFloat(f.toPrecision(7)));
+      if(iv>=32&&iv<127)ch=String.fromCharCode(iv);
+      if(ch==='"'||ch===',')ch='"'+ch.replace(/"/g,'""')+'"';
+      rows.push(nm+','+j+','+iv+','+fs+','+ch);k++;
+    }
+  }
+  return rows.join('\r\n')+'\r\n';
+}
+function exportPvs(P,it){
+  fetch(dlurl(P.fs,join(P.path,it.name))).then(function(r){return r.arrayBuffer()}).then(function(b){
+    var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([pvsToCsv(b)],{type:'text/csv'}));
+    a.download=it.name.replace(/\.[^.]*$/,'')+'.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);
+  }).catch(function(e){alert('Fehler: '+(e instanceof RangeError?'Datei ist abgeschnitten':e.message))});
+}
+
 /* ---- pane ---- */
 function Pane(fs){
   var P=this;P.fs=fs;P.path='/';P.items=[];P.sel={};
@@ -147,12 +210,16 @@ function Pane(fs){
   var del=el('button','red','&#128293; L&ouml;schen');del.onclick=function(){
     var s=P.selected();if(!s.length||!confirm(s.length+' Eintrag/Einträge löschen?'))return;
     job(function(){return s.reduce(function(p,i){return p.then(function(){prog('Löschen '+i.name);return rmTree(P.fs,P.path,i)})},Promise.resolve())});P.sel={}};
+  var one=function(f,mustFile){return function(){var s=P.selected();if(s.length!==1||(mustFile&&s[0].dir)){alert('Bitte genau '+(mustFile?'eine Datei':'einen Eintrag')+' markieren');return}f(P,s[0])}};
+  var ren=el('button','','&#9998; Umbenennen');ren.onclick=one(renameItem,false);
+  var edb=el('button','','&#128221; Bearbeiten');edb.onclick=one(editItem,true);
+  var csv=el('button','','.pvs &rarr; CSV');csv.title='Persist-Datei (.pvs) als CSV herunterladen';csv.onclick=one(exportPvs,true);
   var upb=el('button','','&#11014; Hochladen');var fi=el('input');fi.type='file';fi.multiple=true;fi.style.display='none';
   upb.onclick=function(){fi.click()};
   fi.onchange=function(){upload(P.fs,P.path,[].map.call(fi.files,function(f){return{file:f,rel:f.name}}));fi.value=''};
   var rf=el('button','off','&#8635;');rf.onclick=function(){P.load()};
   var hb=el('button','off','.*');hb.title='Versteckte Dateien';hb.onclick=function(){showHidden=!showHidden;panes.forEach(function(p){p.draw()})};
-  [P.up,nf,del,upb,rf,hb,fi].forEach(function(e){b2.appendChild(e)});
+  [P.up,nf,ren,edb,csv,del,upb,rf,hb,fi].forEach(function(e){b2.appendChild(e)});
   P.pathEl=el('div','path');b2.appendChild(P.pathEl);
   P.listEl=el('div','list');P.root.appendChild(P.listEl);
   P.infoEl=el('div','info');P.root.appendChild(P.infoEl);

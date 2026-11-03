@@ -457,12 +457,15 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     periodic live work in `EverySecond()` / `TaskLoop()`. (A self-contained `while(1)`
     animation in `main()` with no globals is fine — `music_fft` does it — the trap is
     specifically blocking main *and* relying on `global` vars to update.)
-14. **Putting a `webOn` REST endpoint in any slot but slot 0** — `webOn()` registers the
-    URL slot-blind (`SYS_WEB_ON` writes the global `Tinyc->web_handler_url[]`), but the
-    dispatcher `HandleTinyCWebOn()` calls **`Tinyc->slots[0]`** unconditionally. An endpoint
-    registered from slot 1 is reachable but invokes slot 0's `WebOn()` — no error, no log.
-    Two programs that both need endpoints must be merged into one file via `#include`,
-    not split across slots. Symptom decoder: *"TinyC not ready"* = slot 0 empty/errored;
+14. **Putting a `webOn` REST endpoint in any slot but slot 0 — on firmware up to 1.6.76 only.**
+    `webOn()` registered the URL slot-blind and the dispatcher `HandleTinyCWebOn()` called
+    **`Tinyc->slots[0]`** unconditionally: an endpoint registered from slot 1 was reachable but
+    invoked slot 0's `WebOn()` — no error, no log. ⭐ Since 03.11.2026 the table entry remembers the
+    registering slot (`web_handler_slot[]`) and the program's own number (`web_handler_num[]`,
+    what `webHandler()` returns), so every slot may use `webOn(1, …)`; the table still holds 7
+    endpoints in total (an eighth is dropped with a log line). Tested on .190: `web_handler.tc` in
+    slot 0 and `filemanager.tc` in slot 1, both `webOn(1, …)`. On older firmware merge the two
+    programs via `#include`. Symptom decoder: *"TinyC not ready"* = slot 0 empty/errored;
     *"TinyC busy — reloading in 1 s ..."* = slot 0 loaded but its VM stayed non-halted for
     `TC_WEBON_HALTED_WAIT_MS` (1500 ms), i.e. a callback is hogging the VM.
 15. **Retrying `mdnsRegister()` until it returns 0** — it returns `-1` whenever

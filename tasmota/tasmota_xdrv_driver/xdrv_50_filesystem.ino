@@ -1062,7 +1062,17 @@ void UFSRename(void) {
       UfsFilename(fname_old, fname1);
       char fname_new[UFS_FILENAME_SIZE];
       UfsFilename(fname_new, fname2);
-      if (ffs_type && (ffs_type != ufs_type) && (2 == XdrvMailbox.index)) {
+      // Same prefixes as UfsMkdir (/ffs/, /sdfs/, /usb/): both names must carry the same one
+      FS *rfs = nullptr;
+      char *ro = fname_old, *rn = fname_new;
+      if (!strncmp_P(ro, PSTR("/ffs/"), 5) && !strncmp_P(rn, PSTR("/ffs/"), 5))        { rfs = ffsp;  ro += 4; rn += 4; }
+      else if (!strncmp_P(ro, PSTR("/sdfs/"), 6) && !strncmp_P(rn, PSTR("/sdfs/"), 6)) { rfs = ufsp;  ro += 5; rn += 5; }
+#ifdef USE_USB_HOST_MSC
+      else if (!strncmp_P(ro, PSTR("/usb/"), 5) && !strncmp_P(rn, PSTR("/usb/"), 5))   { rfs = usbfsp; ro += 4; rn += 4; }
+#endif  // USE_USB_HOST_MSC
+      if (rfs) {
+        result = rfs->rename(ro, rn);
+      } else if (ffs_type && (ffs_type != ufs_type) && (2 == XdrvMailbox.index)) {
         result = TfsRenameFile(fname_old, fname_new);
       } else {
         result = (ufs_type && ufsp->rename(fname_old, fname_new));

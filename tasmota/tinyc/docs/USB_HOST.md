@@ -69,9 +69,16 @@ Things the stick insists on (all handled in the driver; keep them when you touch
 ## TinyC file manager (`examples/filemanager.tc` + `filemanager.html`)
 
 Two panes (Flash / SD / USB), drag a row to the other pane to copy (Shift = move), drop files from the computer to
-upload, folders recursive. Put `filemanager.html` on the flash as `/filemanager.html`, start the script **in slot 0**
-(`webOn` only dispatches to slot 0), open `http://<device>/fm`. The script copies in 64 kB slices
-(`/fm/op?c=cp`), everything else uses Tasmota's `/ufsd`, port 83 and `UfsMkdir`.
+upload, folders recursive. Put `filemanager.html` on the flash as `/filemanager.html`, start the script **in any slot**
+(since 03.11.2026 `webOn` is answered by the slot that registered it; on 1.6.76 and older only slot 0 works) and press the
+**File Manager** button on the main page (or open `http://<device>/fm`). The script copies in 64 kB slices
+(`/fm/op?c=cp`), everything else uses Tasmota's `/ufsd`, port 83, `UfsMkdir` and `UfsRename`.
+
+Buttons: **Rename** (one entry, same file system, `UfsRename /<fs>/old,/<fs>/new`), **Edit** (one text file up to 100 kB in
+an editor window, line endings kept, saved through port 83), **.pvs → CSV** (downloads a persist file as
+`name,index,int,float,char`, one row per value; the file only holds 32-bit words, so integer and float views are shown
+side by side), **Delete**. ⚠️ `TinyCRun /x.tcb` and `webSendFile` take a file from the SD card first when one is present:
+an old copy there hides the new one on the flash.
 
 ## Audio
 
