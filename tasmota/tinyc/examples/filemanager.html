@@ -37,7 +37,7 @@ body{background:#252525;margin:8px}
   <div class="prog" id="prog"><div id="ptxt"></div><progress id="pbar" max="100" value="0"></progress></div>
   <div class="ed" id="ed"><div><div id="edt"></div><textarea id="edx" spellcheck="false"></textarea>
     <div><button id="eds">Speichern</button> <button class="off" id="edc">Abbrechen</button></div></div></div>
-  <div class="hint">Ziehen: Zeile auf die andere Seite = kopieren (Umschalt = verschieben, auf einen Ordner = hinein). Dateien vom Rechner auf eine Seite ziehen = hochladen. Zeile auf den Schreibtisch ziehen (Chrome) = herunterladen. Umbenennen, Bearbeiten (Textdateien bis 100 kB) und .pvs &rarr; CSV arbeiten mit der markierten Zeile; Strg/Umschalt+Klick markiert mehrere.</div>
+  <div class="hint">Klick = markieren (Strg/Umschalt+Klick mehrere), Doppelklick = Ordner öffnen bzw. Datei herunterladen. Ziehen: Zeile auf die andere Seite = kopieren (Umschalt = verschieben, auf einen Ordner = hinein). Dateien vom Rechner auf eine Seite ziehen = hochladen. Zeile auf den Schreibtisch ziehen (Chrome) = herunterladen. Umbenennen, Bearbeiten (Textdateien bis 100 kB) und .pvs &rarr; CSV arbeiten mit der markierten Zeile.</div>
 </div>
 <script>
 (function(){
@@ -214,12 +214,13 @@ function Pane(fs){
   var ren=el('button','','&#9998; Umbenennen');ren.onclick=one(renameItem,false);
   var edb=el('button','','&#128221; Bearbeiten');edb.onclick=one(editItem,true);
   var csv=el('button','','.pvs &rarr; CSV');csv.title='Persist-Datei (.pvs) als CSV herunterladen';csv.onclick=one(exportPvs,true);
+  var dlb=el('button','','&#11015; Laden');dlb.title='Markierte Datei herunterladen';dlb.onclick=one(function(P,it){location.href=dlurl(P.fs,join(P.path,it.name))},true);
   var upb=el('button','','&#11014; Hochladen');var fi=el('input');fi.type='file';fi.multiple=true;fi.style.display='none';
   upb.onclick=function(){fi.click()};
   fi.onchange=function(){upload(P.fs,P.path,[].map.call(fi.files,function(f){return{file:f,rel:f.name}}));fi.value=''};
   var rf=el('button','off','&#8635;');rf.onclick=function(){P.load()};
   var hb=el('button','off','.*');hb.title='Versteckte Dateien';hb.onclick=function(){showHidden=!showHidden;panes.forEach(function(p){p.draw()})};
-  [P.up,nf,ren,edb,csv,del,upb,rf,hb,fi].forEach(function(e){b2.appendChild(e)});
+  [P.up,nf,ren,edb,csv,dlb,del,upb,rf,hb,fi].forEach(function(e){b2.appendChild(e)});
   P.pathEl=el('div','path');b2.appendChild(P.pathEl);
   P.listEl=el('div','list');P.root.appendChild(P.listEl);
   P.infoEl=el('div','info');P.root.appendChild(P.infoEl);
@@ -259,7 +260,7 @@ Pane.prototype.load=function(){
   }).catch(function(){P.listEl.innerHTML='<div style="padding:10px;color:#ff5661">Keine Verbindung oder Dateisystem nicht vorhanden</div>'});
 };
 Pane.prototype.draw=function(){
-  var P=this,t=el('table'),shown=0;
+  var P=this,t=el('table'),shown=0;P.rows={};P.shown=0;
   var crumbs='<a data-p="/">'+NAMES[P.fs]+':</a>',acc='';
   P.path.split('/').filter(Boolean).forEach(function(s){acc+='/'+s;crumbs+=' / <a data-p="'+esc(acc)+'">'+esc(s)+'</a>'});
   P.pathEl.innerHTML=crumbs;
@@ -270,15 +271,20 @@ Pane.prototype.draw=function(){
     var tr=el('tr',P.sel[it.name]?'sel':''),ic=it.dir?'&#128193; ':'&#128196; ';
     tr.draggable=true;
     tr.innerHTML='<td class="n">'+ic+'<a>'+esc(it.name)+'</a></td><td class="s">'+(it.dir?'':fsize(it.size))+'</td><td class="d">'+esc(it.time)+'</td>';
-    var link=tr.querySelector('a');
-    link.onclick=function(e){
-      if(e.ctrlKey||e.metaKey||e.shiftKey){P.sel[it.name]=!P.sel[it.name];P.draw();return}
-      if(it.dir){P.path=join(P.path,it.name);P.sel={};P.load()}
-      else{location.href=dlurl(P.fs,join(P.path,it.name))}
+    P.rows[it.name]=tr;
+    /* click = mark (Ctrl/Shift/Cmd adds), double click = open the folder / download the file. The rows are
+       NOT redrawn on a click, so the second click of a double click still lands on the same row. */
+    tr.onclick=function(e){
+      if(e.ctrlKey||e.metaKey||e.shiftKey){P.sel[it.name]=!P.sel[it.name]}
+      else{P.sel={};P.sel[it.name]=1}
+      P.marks();
     };
-    tr.onclick=function(e){if(e.target===link)return;P.sel[it.name]=!P.sel[it.name];P.draw()};
+    tr.ondblclick=function(){
+      if(it.dir){P.path=join(P.path,it.name);P.sel={};P.load()}
+      else{P.sel={};P.sel[it.name]=1;P.marks();location.href=dlurl(P.fs,join(P.path,it.name))}
+    };
     tr.ondragstart=function(e){
-      if(!P.sel[it.name]){P.sel={};P.sel[it.name]=1}
+      if(!P.sel[it.name]){P.sel={};P.sel[it.name]=1;P.marks()}
       var s=P.selected();
       e.dataTransfer.setData('application/x-fm',JSON.stringify({fs:P.fs,path:P.path,items:s}));
       e.dataTransfer.effectAllowed='copyMove';
@@ -291,10 +297,16 @@ Pane.prototype.draw=function(){
     }
     t.appendChild(tr);
   });
+  P.shown=shown;
   P.listEl.innerHTML='';
   if(!shown)P.listEl.innerHTML='<div style="padding:10px;color:#9a9a9a">leer</div>';else P.listEl.appendChild(t);
+  P.marks();
+};
+Pane.prototype.marks=function(){
+  var P=this;
+  Object.keys(P.rows).forEach(function(k){P.rows[k].className=P.sel[k]?'sel':''});
   var n=Object.keys(P.sel).filter(function(k){return P.sel[k]}).length;
-  P.infoEl.textContent=shown+' Einträge'+(n?', '+n+' markiert':'')+(P.info?'  •  '+P.info:'');
+  P.infoEl.textContent=P.shown+' Einträge'+(n?', '+n+' markiert':'')+(P.info?'  •  '+P.info:'');
 };
 
 var box=$('panes');
