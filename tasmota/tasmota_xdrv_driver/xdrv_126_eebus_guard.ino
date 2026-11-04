@@ -1727,7 +1727,7 @@ void EebusPeerWerteNeu(uint32_t ci) {
 int EebusConnBySki(const char *ski) {
   if ((nullptr == ski) || ('\0' == ski[0])) { return -1; }
   for (int i = 0; i < EEBUS_MAX_CONN; i++) {
-    if (0 == strcmp(EConn[i].peer_ski, ski) &&
+    if (0 == strcasecmp(EConn[i].peer_ski, ski) &&   // 03.11.2026: SKI ohne Gross-/Kleinschreibung wie alle anderen Vergleiche (sonst Doppelplatz)
         (EConn[i].active || EConn[i].client || EConn[i].keepalive || (SME_OFF != EConn[i].sme))) {
       return i;
     }
