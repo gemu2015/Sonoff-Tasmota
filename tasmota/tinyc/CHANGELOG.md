@@ -59,6 +59,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **`/tc_api` asks for the web password**: when a web password is set, `/tc_api` (run/stop/status, readfile/writefile/deletefile) now requires it like `/tc_ui` and the file manager; the CORS preflight (OPTIONS) stays open. Without a password nothing changes.
 - **Audio plugin records from the USB stick's microphone**: `UsbHostMicRoute 1` makes `I2Srec` and the mp3 stream (port 81) of the I2SAUDIO plugin read the stick
   instead of the I2S microphone (`tmod_i2s` receive side, `xdrv_123_plugins.ino`; the plugin binary is unchanged). Needs a valid `DIN` pin in
   `I2SAUDIO.cfg`; with a mounted stick the 8 host channels may be used up, then the plugin keeps the I2S microphone. See `docs/USB_HOST.md`.

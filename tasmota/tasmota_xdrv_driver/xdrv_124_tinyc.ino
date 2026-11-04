@@ -4449,6 +4449,7 @@ static void HandleTinyCUpload(void) {
 
 static void HandleTinyCApi(void) {
   TCSendCORS("GET, POST, OPTIONS");
+  if (!HttpCheckPriviledgedAccess()) { return; }   // 04.11.2026: web password (if set) also protects /tc_api, like /tc_ui and the file manager
 
   if (!Tinyc) {
     WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"not initialized\"}"));
