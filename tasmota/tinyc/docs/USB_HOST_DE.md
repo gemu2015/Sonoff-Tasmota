@@ -37,7 +37,7 @@ einmal neu (etwa 8 Minuten) und ändert `sdkconfig.defaults` / löscht `CMakeLis
 | `UsbHost [0\|1]` | Host stoppen / starten; ohne Argument Zustand und angesteckte Geräte |
 | `UsbHostFifo rx,nptx,ptx` | FIFO-Zeilen des Hosts (Standard 80,40,80; **die Summe muss ≤ 200 bleiben**, sonst meldet sich kein Gerät an, ohne Meldung) |
 | `UsbHostMsc` | Geräte auflisten; mit Stick ein Lesetest |
-| `UsbHostMount [0\|1]` | Stick aus-/einhängen (das Einhängen läuft in einem eigenen Task) |
+| `UsbHostMount [0\|1]` | Laufwerke aus-/einhängen (das Einhängen läuft in einem eigenen Task); zwei Laufwerke gleichzeitig: das erste ist `/usb`, das zweite `/usb2`; die Antwort nennt beide mit `Dev` (VID:PID) |
 | `UsbHostMicRoute [0\|1]` | das Audio-Plugin nimmt vom Mikrofon des Sticks statt vom I2S-Mikrofon auf |
 | `UsbHostMic [Rate]` | Aufnahme vom Mikrofoneingang des Sticks: öffnen / `0` schließen / Zustand und Pegel |
 | `UsbHostTone`, `UsbHostPlay <pfad>`, `UsbHostStress <pfad>` | Audio: 440-Hz-Testton, 16-Bit-PCM-WAV abspielen (jede Rate, wird umgerechnet), Dauertest |
@@ -50,10 +50,11 @@ Logzeilen beginnen mit `USB:` (Web-Konsole / `/cs`).
 * FAT12/16/32 mit 512-Byte-Blöcken. **Kein exFAT, kein NTFS** (das Log sagt es).
 * Eingehängt unter `/usb`; `usbfsp` ist der `FS`-Zeiger (nullptr, solange nichts eingehängt ist).
 * **Tasmota-Dateimanager**: `/ufsd?dir=3` (Verweis „USB“ neben Flash und SD).
-* **TinyC**: Pfadpräfix `/usb/` wie `/ffs/` (Flash) und `/sdfs/` (SD): `fileOpen("/usb/log.csv", 2)`.
+* **TinyC**: Pfadpräfix `/usb/` wie `/ffs/` (Flash) und `/sdfs/` (SD): `fileOpen("/usb/log.csv", 2)`. Ein zweites Laufwerk (Stick und Kartenleser zugleich) ist `/usb2/`, im Dateimanager `/ufsd?dir=4`. Ein Laufwerk bekommt den ersten freien Einhängepunkt: `/usb` ist das, das zuerst eingehängt wurde, kein fester Stick; `Dev` in der Antwort von `UsbHostMount` zeigt es.
+* Zwei Laufwerke brauchen die SDK-Optionen `CONFIG_FATFS_VOLUME_COUNT=4` (SD, `/usb`, `/usb2`) und `CONFIG_VFS_MAX_COUNT=12` (für `tinyc32s3` in `platformio_override.ini` gesetzt; mit dem Standard 2 scheitert das zweite mit „no free drive number“). Der S3 hat nur 8 USB-Host-Kanäle: Hub, Stick und Kartenleser passen, ein Audio-Stick zusätzlich nicht (der Claim des Lesers scheitert dann).
   Ohne Stick liefert `fileOpen` -1.
 * Upload über Port 83: `POST /ufs/usb/<pfad>`; neuer Befehl **`UfsMkdir <präfix><pfad>`** legt einen Ordner samt
-  Elternordnern an (Präfix `/ffs/`, `/sdfs/`, `/usb/`).
+  Elternordnern an (Präfix `/ffs/`, `/sdfs/`, `/usb/`, `/usb2/`).
 * Geschwindigkeit: rohes Lesen etwa 1,1 MB/s; über den Web-Dateimanager etwa 105 kB/s schreiben, 167 kB/s lesen.
 
 Was der Stick verlangt (alles im Treiber erledigt; beim Ändern beibehalten):

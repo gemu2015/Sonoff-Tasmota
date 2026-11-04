@@ -7516,7 +7516,8 @@ static void tc_ul_handle(WiFiClient &client) {
   extern uint32_t UfsInfo(uint32_t sel, uint32_t type);
 #ifdef USE_USB_HOST_MSC
   extern FS *usbfsp;
-  uint32_t free_kb = UfsInfo(1, (fsp == ffsp) ? 1 : ((fsp == usbfsp) ? 2 : 0));
+  extern FS *usb2fsp;
+  uint32_t free_kb = UfsInfo(1, (fsp == ffsp) ? 1 : ((fsp == usbfsp) ? 2 : ((fsp == usb2fsp) ? 3 : 0)));
 #else
   uint32_t free_kb = UfsInfo(1, (fsp == ffsp) ? 1 : 0);
 #endif

@@ -193,17 +193,23 @@ extern FS *ffsp;
 extern FS *ufsp;
 #ifdef USE_USB_HOST_MSC
 extern FS *usbfsp;   // USB flash drive mounted by xdrv_99_usb_host, nullptr while none is mounted
+extern FS *usb2fsp;  // second USB drive (/usb2), nullptr while none is mounted
 #endif
 // Resolve filesystem from path prefix (like Scripter's script_file_path):
 //   /ffs/xxx  → flash (ffsp), strip prefix
 //   /sdfs/xxx → SD card (ufsp), strip prefix
 //   /usb/xxx  → USB flash drive (usbfsp), strip prefix (nullptr when no stick is mounted)
+//   /usb2/xxx → second USB drive (usb2fsp), strip prefix
 //   default   → ufsp (SD preferred), ensure leading /
 static FS *tc_file_path(char *path) {
 #ifdef USE_USB_HOST_MSC
   if (!strncmp_P(path, PSTR("/usb/"), 5)) {
     memmove(path, path + 4, strlen(path) - 3);
     return usbfsp;
+  }
+  if (!strncmp_P(path, PSTR("/usb2/"), 6)) {
+    memmove(path, path + 5, strlen(path) - 4);
+    return usb2fsp;
   }
 #endif
   if (!strncmp_P(path, PSTR("/ffs/"), 5)) {

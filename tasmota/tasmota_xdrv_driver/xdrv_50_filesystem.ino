@@ -98,6 +98,7 @@ FS *dfsp;
 #ifdef USE_USB_HOST_MSC
 // USB flash drive (FAT) mounted as /usb by xdrv_99_usb_host; nullptr while none is mounted
 FS *usbfsp = nullptr;
+FS *usb2fsp = nullptr;   // second USB drive (card reader next to a stick), mount point /usb2
 #include "esp_vfs_fat.h"
 #endif  // USE_USB_HOST_MSC
 
@@ -308,6 +309,11 @@ uint32_t UfsInfo(uint32_t sel, uint32_t type) {
     if (usbfsp && (ESP_OK == esp_vfs_fat_info("/usb", &total, &freeb))) { result = sel ? freeb : total; }
     return result / 1024;
   }
+  if (3 == type) {                                          // 3 = second USB drive (/usb2)
+    uint64_t total = 0, freeb = 0;
+    if (usb2fsp && (ESP_OK == esp_vfs_fat_info("/usb2", &total, &freeb))) { result = sel ? freeb : total; }
+    return result / 1024;
+  }
 #endif  // USE_USB_HOST_MSC
   FS *ifsp = ufsp;
   uint8_t itype = ufs_type;
@@ -393,7 +399,7 @@ uint32_t UfsInfo(uint32_t sel, uint32_t type) {
 
 // which file system the file manager shows: 0 = the active one (SD), 1 = flash, 2 = USB flash drive
 uint32_t UfsDirInfoType(void) {
-  return (ufs_dir == 3) ? 2 : ((ufs_dir == 2) ? 1 : 0);
+  return (ufs_dir == 4) ? 3 : ((ufs_dir == 3) ? 2 : ((ufs_dir == 2) ? 1 : 0));
 }
 
 uint32_t UfsSize(void) {
@@ -1069,6 +1075,7 @@ void UFSRename(void) {
       else if (!strncmp_P(ro, PSTR("/sdfs/"), 6) && !strncmp_P(rn, PSTR("/sdfs/"), 6)) { rfs = ufsp;  ro += 5; rn += 5; }
 #ifdef USE_USB_HOST_MSC
       else if (!strncmp_P(ro, PSTR("/usb/"), 5) && !strncmp_P(rn, PSTR("/usb/"), 5))   { rfs = usbfsp; ro += 4; rn += 4; }
+      else if (!strncmp_P(ro, PSTR("/usb2/"), 6) && !strncmp_P(rn, PSTR("/usb2/"), 6)) { rfs = usb2fsp; ro += 5; rn += 5; }
 #endif  // USE_USB_HOST_MSC
       if (rfs) {
         result = rfs->rename(ro, rn);
@@ -1098,6 +1105,7 @@ void UFSMkdir(void) {
     else if (!strncmp_P(p, PSTR("/sdfs/"), 6)) { fsp = ufsp;  p += 5; }
 #ifdef USE_USB_HOST_MSC
     else if (!strncmp_P(p, PSTR("/usb/"), 5))  { fsp = usbfsp; p += 4; }
+    else if (!strncmp_P(p, PSTR("/usb2/"), 6)) { fsp = usb2fsp; p += 5; }
 #endif  // USE_USB_HOST_MSC
     bool result = false;
     if (fsp) {
@@ -1550,6 +1558,7 @@ void UfsDirectory(void) {
 
 #ifdef USE_USB_HOST_MSC
   if (ufs_dir == 3 && !usbfsp) { ufs_dir = 2; }              // the stick was pulled
+  if (ufs_dir == 4 && !usb2fsp) { ufs_dir = 2; }
 #endif  // USE_USB_HOST_MSC
 
   if (ufs_dir == 1) {
@@ -1557,6 +1566,8 @@ void UfsDirectory(void) {
 #ifdef USE_USB_HOST_MSC
   } else if (ufs_dir == 3) {
     dfsp = usbfsp;
+  } else if (ufs_dir == 4) {
+    dfsp = usb2fsp;
 #endif  // USE_USB_HOST_MSC
   } else {
     if (ffsp) {
@@ -1602,17 +1613,23 @@ void UfsDirectory(void) {
   dtostrfd((float)UfsInfo(1, UfsDirInfoType()) / 1000, 3, fs);
   WSContentSend_PD(UFS_FORM_FILE_UPGc, WebColor(COL_TEXT), ts, fs);
 
-  if (ufs_dir && (ufs_dir != 3)) {
+  if (ufs_dir && (ufs_dir != 3) && (ufs_dir != 4)) {
     WSContentSend_P(UFS_FORM_FILE_UPGc1, (ufs_dir == 1)?2:1, (ufs_dir == 1)?PSTR("SDCard"):PSTR("FlashFS"));
   }
 #ifdef USE_USB_HOST_MSC
-  if (usbfsp) {                                               // links between the file systems while a stick is mounted
-    if (ufs_dir == 3) {
+  if (usbfsp || usb2fsp) {                                    // links between the file systems while a USB drive is mounted
+    if (ufs_dir >= 3) {
       WSContentSend_P(UFS_FORM_FILE_UPGc1, 2, PSTR("FlashFS"));
       if (ufsp != ffsp) { WSContentSend_P(UFS_FORM_FILE_UPGc1, 1, PSTR("SDCard")); }
-      WSContentSend_P(PSTR(" &nbsp;&nbsp;[USB]"));
+      if (usbfsp && usb2fsp) {
+        if (ufs_dir == 3) { WSContentSend_P(UFS_FORM_FILE_UPGc1, 4, PSTR("USB2")); WSContentSend_P(PSTR(" &nbsp;&nbsp;[USB]")); }
+        else              { WSContentSend_P(UFS_FORM_FILE_UPGc1, 3, PSTR("USB")); WSContentSend_P(PSTR(" &nbsp;&nbsp;[USB2]")); }
+      } else {
+        WSContentSend_P(PSTR(" &nbsp;&nbsp;[%s]"), (ufs_dir == 3) ? PSTR("USB") : PSTR("USB2"));
+      }
     } else {
-      WSContentSend_P(UFS_FORM_FILE_UPGc1, 3, PSTR("USB"));
+      if (usbfsp)  { WSContentSend_P(UFS_FORM_FILE_UPGc1, 3, PSTR("USB")); }
+      if (usb2fsp) { WSContentSend_P(UFS_FORM_FILE_UPGc1, 4, PSTR("USB2")); }
     }
   }
 #endif  // USE_USB_HOST_MSC

@@ -37,7 +37,7 @@ libraries once (about 8 minutes) and rewrites `sdkconfig.defaults` / deletes `CM
 | `UsbHost [0\|1]` | stop / start the host; without argument the state and the attached devices |
 | `UsbHostFifo rx,nptx,ptx` | FIFO lines of the host (default 80,40,80; **the sum must stay ≤ 200**, more and no device enumerates, silently) |
 | `UsbHostMsc` | list the devices; with a drive attached a read test |
-| `UsbHostMount [0\|1]` | unmount / mount the drive (mounting runs in its own task) |
+| `UsbHostMount [0\|1]` | unmount / mount the drives (mounting runs in its own task); two drives at once: the first is `/usb`, the second `/usb2`; the answer lists both with `Dev` (VID:PID) |
 | `UsbHostMicRoute [0\|1]` | the audio plugin records from the stick's microphone instead of the I2S one |
 | `UsbHostMic [rate]` | recording from the stick's microphone: open / `0` close / state and level |
 | `UsbHostTone`, `UsbHostPlay <path>`, `UsbHostStress <path>` | audio: 440 Hz test tone, play a 16 bit PCM WAV (any rate, resampled), loop test |
@@ -50,10 +50,11 @@ Log lines start with `USB:` (web console / `/cs`).
 * FAT12/16/32 with 512-byte blocks. **No exFAT, no NTFS** (the log says so).
 * Mounted at `/usb`; `usbfsp` is the `FS` pointer (nullptr when nothing is mounted).
 * **Tasmota file manager**: `/ufsd?dir=3` (link "USB" next to Flash and SD).
-* **TinyC**: path prefix `/usb/` like `/ffs/` (flash) and `/sdfs/` (SD): `fileOpen("/usb/log.csv", 2)`.
+* **TinyC**: path prefix `/usb/` like `/ffs/` (flash) and `/sdfs/` (SD): `fileOpen("/usb/log.csv", 2)`. A second drive (stick and card reader at the same time) is `/usb2/`, in the file manager `/ufsd?dir=4`. A drive gets the first free mount point, so `/usb` is the one that was mounted first, not a fixed device: check `Dev` in the `UsbHostMount` answer.
+* Two drives need the SDK options `CONFIG_FATFS_VOLUME_COUNT=4` (SD, `/usb`, `/usb2`) and `CONFIG_VFS_MAX_COUNT=12` (set for `tinyc32s3` in `platformio_override.ini`; with the default 2 drives the second one fails with "no free drive number"). The S3 has only 8 USB host channels: hub, stick and card reader fit, an audio stick on top does not (the claim of the reader then fails).
   Without a drive `fileOpen` fails with -1.
 * Port 83 upload: `POST /ufs/usb/<path>`; new command **`UfsMkdir <prefix><path>`** creates a folder and its parents
-  (prefix `/ffs/`, `/sdfs/`, `/usb/`).
+  (prefix `/ffs/`, `/sdfs/`, `/usb/`, `/usb2/`).
 * Speed: raw reads about 1.1 MB/s; through the web file manager about 105 kB/s write, 167 kB/s read.
 
 Things the stick insists on (all handled in the driver; keep them when you touch it):

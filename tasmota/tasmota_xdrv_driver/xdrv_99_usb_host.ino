@@ -71,6 +71,7 @@
 #include "esp_vfs_fat.h"
 #include "vfs_api.h"
 extern FS *usbfsp;                  // defined in xdrv_50 (compiled before this file); nullptr while no stick is mounted
+extern FS *usb2fsp;                 // the second drive (card reader next to a stick), mount point /usb2
 // file system object on the VFS mount point "/usb", same kind as FFat/SD
 class UsbHostFS : public fs::FS {
 public:
@@ -102,9 +103,8 @@ struct UsbHostS {
 #ifdef USE_USB_HOST_MSC
   inline static usb_device_handle_t mdev = nullptr;   // the mass storage test (and the mounted file system) works on this one
   inline static SemaphoreHandle_t msc_mtx = nullptr;  // one SCSI command (CBW, data, CSW) at a time
-  inline static volatile bool msc_ready = false;      // block device usable (diskio)
-  inline static bool msc_mounted = false;
-  inline static uint32_t msc_blocks = 0;
+  // what the bulk transfers need to know about a mass storage device (the test works on the one in mdev/msc_*, every mounted drive has its own)
+  struct MscCtx { usb_device_handle_t h; int in, out, mps; };
 #endif
 #ifdef USE_USB_HOST_AUDIO
   inline static usb_device_handle_t dev = nullptr;    // the audio test works on this one (both tests may run at the same time)
@@ -347,7 +347,7 @@ struct UsbHostS {
 #endif
     say("usable as:%s", what[0] ? what : " nothing here");
 #if defined(USBH_MSC_FS) && defined(USE_USB_HOST_MSC_AUTOMOUNT)
-    if (sl.msc_if >= 0 && sl.msc_in && sl.msc_out && !msc_mounted) {   // mounting waits for transfers that this task serves: do it elsewhere
+    if (sl.msc_if >= 0 && sl.msc_in && sl.msc_out && msc_free_vol() >= 0) {   // mounting waits for transfers that this task serves: do it elsewhere
       xTaskCreatePinnedToCore(automount_task, "usbh_mnt", 6144, nullptr, 3, nullptr, 1);
     }
 #endif
@@ -417,13 +417,15 @@ struct UsbHostS {
           if (dev == g) { dev = nullptr; }
 #endif
 #ifdef USE_USB_HOST_MSC
-          if (mdev == g) {
-            msc_ready = false;                              // pending file system calls fail at once
 #ifdef USBH_MSC_FS
-            msc_unmount();                                  // releases the interface, must happen before the device is closed
-#endif
-            mdev = nullptr;
+          for (int v = 0; v < 2; v++) {
+            if (vol[v].c.h == g) {
+              vol[v].ready = false;                         // pending file system calls fail at once
+              msc_unmount(vol[v]);                          // releases the interface, must happen before the device is closed
+            }
           }
+#endif
+          if (mdev == g) { mdev = nullptr; }
 #endif
 #ifdef USE_USB_HOST_SERIAL
           if (sdev == g) { ser_run = false; ser_open_f = false; sdev = nullptr; }   // transfers are freed by the next close/open
@@ -486,7 +488,7 @@ struct UsbHostS {
   static void stop(void) {
     if (!running) { return; }
 #ifdef USBH_MSC_FS
-    msc_unmount();
+    msc_unmount_all();
 #endif
 #ifdef USE_USB_HOST_SERIAL
     ser_close();
@@ -543,12 +545,12 @@ struct UsbHostS {
 #endif
 
 #ifdef USE_USB_HOST_MSC
-  static int bulk(int ep, uint8_t *buf, int len, int *actual, uint32_t tmo) {
+  static int bulk(const MscCtx &c, int ep, uint8_t *buf, int len, int *actual, uint32_t tmo) {
     usb_transfer_t *t = nullptr;
-    int alloc = (ep & 0x80) ? ((len + msc_mps - 1) / msc_mps) * msc_mps : len;
+    int alloc = (ep & 0x80) ? ((len + c.mps - 1) / c.mps) * c.mps : len;
     if (usb_host_transfer_alloc(alloc, 0, &t) != ESP_OK) { return -1; }
     if (!(ep & 0x80)) { memcpy(t->data_buffer, buf, len); }
-    t->device_handle = mdev; t->bEndpointAddress = ep; t->num_bytes = alloc;
+    t->device_handle = c.h; t->bEndpointAddress = ep; t->num_bytes = alloc;
     t->callback = xfer_done; t->context = nullptr; t->timeout_ms = tmo;
     xSemaphoreTake(bsem, 0);
     int r = -2;
@@ -566,41 +568,44 @@ struct UsbHostS {
   inline static uint32_t tag = 1;
   inline static int msc_reads = 128;                    // 16 KB reads in the speed test (more in the combined test)
   // returns CSW status (0 ok, 1 failed, 2 phase error), or <0 transport problem. out: the data goes TO the device (WRITE).
-  static int bot_raw(const uint8_t *cb, int cbl, uint8_t *data, int dlen, int *got, bool out) {
+  static int bot_raw(const MscCtx &c, const uint8_t *cb, int cbl, uint8_t *data, int dlen, int *got, bool out) {
     uint8_t cbw[31] = {0};
     uint32_t sig = 0x43425355, tg = tag++;
     memcpy(cbw, &sig, 4); memcpy(cbw + 4, &tg, 4); memcpy(cbw + 8, &dlen, 4);
     cbw[12] = (dlen && !out) ? 0x80 : 0; cbw[14] = cbl; memcpy(cbw + 15, cb, cbl);
-    int r = bulk(msc_out, cbw, 31, nullptr, 2000);
+    int r = bulk(c, c.out, cbw, 31, nullptr, 2000);
     if (r) { return -10 + r; }
     int ac = 0;
     if (dlen) {
-      int dep = out ? msc_out : msc_in;
-      r = bulk(dep, data, dlen, &ac, 5000);
+      int dep = out ? c.out : c.in;
+      r = bulk(c, dep, data, dlen, &ac, 5000);
       if (r) {                                             // stalled data phase: clear the halt, the CSW is still to come
-        usb_host_endpoint_halt(mdev, dep);
-        usb_host_endpoint_flush(mdev, dep);
-        usb_host_endpoint_clear(mdev, dep);
+        usb_host_endpoint_halt(c.h, dep);
+        usb_host_endpoint_flush(c.h, dep);
+        usb_host_endpoint_clear(c.h, dep);
         if (got) { *got = 0; }
         dlen = 0;
       } else if (got) { *got = ac; }
     }
     uint8_t csw[64] = {0};
-    r = bulk(msc_in, csw, 13, &ac, 2000);
+    r = bulk(c, c.in, csw, 13, &ac, 2000);
     if (r) { return -30 + r; }
     uint32_t cs; memcpy(&cs, csw, 4);
     if (cs != 0x53425355) { return -40; }
     return csw[12];
   }
-  static int bot(const uint8_t *cb, int cbl, uint8_t *data, int dlen, int *got, bool out = false) {
+  static int bot(const MscCtx &c, const uint8_t *cb, int cbl, uint8_t *data, int dlen, int *got, bool out = false) {
     if (msc_mtx && xSemaphoreTake(msc_mtx, pdMS_TO_TICKS(10000)) != pdTRUE) { return -50; }
-    int r = bot_raw(cb, cbl, data, dlen, got, out);
+    int r = bot_raw(c, cb, cbl, data, dlen, got, out);
     if (msc_mtx) { xSemaphoreGive(msc_mtx); }
     return r;
   }
 
   static void msc_test(void) {
-    if (msc_mounted) { say("msc: the stick is mounted as /usb, unmount first (UsbHostMount 0)"); return; }
+#ifdef USBH_MSC_FS
+    if (vol[0].mounted || vol[1].mounted) { say("msc: a drive is mounted as /usb or /usb2, unmount first (UsbHostMount 0)"); return; }
+#endif
+    MscCtx tc = { mdev, msc_in, msc_out, msc_mps };
     if (!(msc_if >= 0 && msc_in && msc_out)) { say("msc: no mass storage interface on this device"); return; }
     esp_err_t e = usb_host_interface_claim(client, mdev, msc_if, 0);
     if (e != ESP_OK) { say("msc: claim failed %s", esp_err_to_name(e)); return; }
@@ -608,31 +613,31 @@ struct UsbHostS {
     uint8_t cb[16];
     int got = 0, st;
     memset(cb, 0, 16); cb[0] = 0x12; cb[4] = 36;
-    st = bot(cb, 6, b, 36, &got);
+    st = bot(tc, cb, 6, b, 36, &got);
     if (st < 0) { say("msc: INQUIRY failed (%d)", st); goto done; }
     { char v[9], p[17]; memcpy(v, b + 8, 8); v[8] = 0; memcpy(p, b + 16, 16); p[16] = 0;
       for (int i = 0; i < 8; i++) { if (v[i] < 32 || v[i] > 126) v[i] = '?'; }
       for (int i = 0; i < 16; i++) { if (p[i] < 32 || p[i] > 126) p[i] = '?'; }
       say("msc: INQUIRY ok: %s %s", v, p); }
     for (int i = 0; i < 8; i++) {                           // wait until the unit is ready
-      memset(cb, 0, 16); st = bot(cb, 6, nullptr, 0, nullptr);
+      memset(cb, 0, 16); st = bot(tc, cb, 6, nullptr, 0, nullptr);
       if (0 == st) { break; }
       uint8_t sn[32] = {0}; int sg = 0;                     // REQUEST SENSE clears a pending unit attention
       memset(cb, 0, 16); cb[0] = 0x03; cb[4] = 18;
-      int ss = bot(cb, 6, sn, 18, &sg);
+      int ss = bot(tc, cb, 6, sn, 18, &sg);
       say("msc: not ready (%d), sense status %d key %X asc %02X/%02X (%d bytes)", st, ss, sn[2] & 15, sn[12], sn[13], sg);
       vTaskDelay(pdMS_TO_TICKS(300));
     }
     if (st != 0) { say("msc: TEST UNIT READY not ok (%d)", st); }
     { uint32_t last = 0, bs = 0;
       memset(cb, 0, 16); cb[0] = 0x25;
-      st = bot(cb, 10, b, 8, &got);
+      st = bot(tc, cb, 10, b, 8, &got);
       if (st != 0) { say("msc: READ CAPACITY failed (%d)", st); goto done; }
       last = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]; bs = (b[4] << 24) | (b[5] << 16) | (b[6] << 8) | b[7];
       say("msc: capacity %u blocks of %u bytes = %u MB", (unsigned)(last + 1), (unsigned)bs, (unsigned)(((uint64_t)(last + 1) * bs) >> 20));
       if (bs != 512) { say("msc: block size is not 512, stopping here"); goto done; }
       memset(cb, 0, 16); cb[0] = 0x28; cb[8] = 1;
-      st = bot(cb, 10, b, 512, &got);
+      st = bot(tc, cb, 10, b, 512, &got);
       if (st != 0 || got != 512) { say("msc: READ(10) sector 0 failed (%d, %d bytes)", st, got); goto done; }
       bool sig55 = (0x55 == b[510] && 0xAA == b[511]);
       say("msc: sector 0 read, boot signature %s", sig55 ? "55AA" : "MISSING");
@@ -649,7 +654,7 @@ struct UsbHostS {
         }
         if (fs_lba) {
           memset(cb, 0, 16); cb[0] = 0x28; cb[2] = fs_lba >> 24; cb[3] = fs_lba >> 16; cb[4] = fs_lba >> 8; cb[5] = fs_lba; cb[8] = 1;
-          st = bot(cb, 10, b, 512, &got);
+          st = bot(tc, cb, 10, b, 512, &got);
         }
         if (0 == st) {
           if (!memcmp(b + 82, "FAT32", 5)) { say("msc: file system FAT32"); }
@@ -665,7 +670,7 @@ struct UsbHostS {
           uint32_t t0 = millis(); int okn = 0;
           for (int i = 0; i < msc_reads; i++) {
             memset(cb, 0, 16); cb[0] = 0x28; uint32_t lba = (i % 1000) * 32; cb[2] = lba >> 24; cb[3] = lba >> 16; cb[4] = lba >> 8; cb[5] = lba; cb[8] = 32;
-            st = bot(cb, 10, big, 16384, &got);
+            st = bot(tc, cb, 10, big, 16384, &got);
             if (st != 0 || got != 16384) { say("msc: read %d failed (%d, %d bytes)", i, st, got); break; }
             okn++;
           }
@@ -683,17 +688,25 @@ done:
 #endif  // USE_USB_HOST_MSC
 
 #ifdef USBH_MSC_FS
-  // ---------------- FAT file system on the stick: block device for FatFS, mounted as /usb ----------------
-  inline static uint8_t msc_pdrv = 0xFF;
-  inline static char msc_drv[3] = "";
-  inline static UsbHostFS usbfs;
-  inline static ff_diskio_impl_t msc_impl;
+  // ---------------- FAT file systems on mass storage devices: block devices for FatFS, mounted as /usb and /usb2 ----------------
+  // Two drives can be mounted at the same time (a stick and a card reader behind one hub). Each device gets the first free
+  // mount point; the SCSI commands of both go through one mutex, so they share the transfer semaphore safely.
+  struct MscVol {
+    MscCtx c; int ifc; uint32_t blocks; volatile bool ready; bool mounted; uint8_t pdrv; char drv[3];
+    uint16_t vid, pid; ff_diskio_impl_t impl;
+  };
+  inline static MscVol vol[2] = { { {nullptr, 0, 0, 64}, -1, 0, false, false, 0xFF, "", 0, 0, {} }, { {nullptr, 0, 0, 64}, -1, 0, false, false, 0xFF, "", 0, 0, {} } };
+  inline static UsbHostFS usbfs, usbfs2;
+  static const char *vol_mp(int i) { return i ? "/usb2" : "/usb"; }
+  static MscVol *vol_of(uint8_t pdrv) { for (int i = 0; i < 2; i++) { if (vol[i].pdrv == pdrv) { return &vol[i]; } } return nullptr; }
+  static int msc_free_vol(void) { for (int i = 0; i < 2; i++) { if (!vol[i].mounted) { return i; } } return -1; }
 
-  static DSTATUS d_status(unsigned char pdrv) { return msc_ready ? 0 : STA_NOINIT; }
+  static DSTATUS d_status(unsigned char pdrv) { MscVol *v = vol_of(pdrv); return (v && v->ready) ? 0 : STA_NOINIT; }
   static DSTATUS d_init(unsigned char pdrv) { return d_status(pdrv); }
   // up to 32 sectors (16 KB) per SCSI command
-  static DRESULT d_rw(bool wr, unsigned char *buff, uint32_t sector, unsigned count) {
-    if (!msc_ready) { return RES_NOTRDY; }
+  static DRESULT d_rw(unsigned char pdrv, bool wr, unsigned char *buff, uint32_t sector, unsigned count) {
+    MscVol *v = vol_of(pdrv);
+    if (!v || !v->ready) { return RES_NOTRDY; }
     while (count) {
       unsigned n = (count > 32) ? 32 : count;
       uint8_t cb[16] = {0};
@@ -701,44 +714,51 @@ done:
       cb[2] = sector >> 24; cb[3] = sector >> 16; cb[4] = sector >> 8; cb[5] = sector;
       cb[7] = n >> 8; cb[8] = n;
       int got = 0;
-      int st = bot(cb, 10, buff, n * 512, &got, wr);
+      int st = bot(v->c, cb, 10, buff, n * 512, &got, wr);
       if (st != 0 || (!wr && got != (int)(n * 512))) { return RES_ERROR; }
       buff += n * 512; sector += n; count -= n;
     }
     return RES_OK;
   }
-  static DRESULT d_read(unsigned char pdrv, unsigned char *buff, uint32_t sector, unsigned count) { return d_rw(false, buff, sector, count); }
-  static DRESULT d_write(unsigned char pdrv, const unsigned char *buff, uint32_t sector, unsigned count) { return d_rw(true, (unsigned char *)buff, sector, count); }
+  static DRESULT d_read(unsigned char pdrv, unsigned char *buff, uint32_t sector, unsigned count) { return d_rw(pdrv, false, buff, sector, count); }
+  static DRESULT d_write(unsigned char pdrv, const unsigned char *buff, uint32_t sector, unsigned count) { return d_rw(pdrv, true, (unsigned char *)buff, sector, count); }
   static DRESULT d_ioctl(unsigned char pdrv, unsigned char cmd, void *buff) {
+    MscVol *v = vol_of(pdrv);
+    if (!v) { return RES_PARERR; }
     switch (cmd) {
       case CTRL_SYNC: return RES_OK;                        // every write command is completed before it returns
-      case GET_SECTOR_COUNT: *(DWORD *)buff = msc_blocks; return RES_OK;
+      case GET_SECTOR_COUNT: *(DWORD *)buff = v->blocks; return RES_OK;
       case GET_SECTOR_SIZE: *(WORD *)buff = 512; return RES_OK;
       case GET_BLOCK_SIZE: *(DWORD *)buff = 1; return RES_OK;
     }
     return RES_PARERR;
   }
 
-  static void msc_unmount(void) {
-    if (!msc_mounted) { return; }
-    usbfsp = nullptr;                                       // nobody gets new access
-    msc_mounted = false;
-    msc_ready = false;
-    say("unmount: f_mount(NULL)");
-    f_mount(nullptr, msc_drv, 0);
+  static void msc_unmount(MscVol &v) {
+    if (!v.mounted) { return; }
+    int i = (&v == &vol[1]) ? 1 : 0;
+    if (i) { usb2fsp = nullptr; } else { usbfsp = nullptr; }   // nobody gets new access
+    v.mounted = false;
+    v.ready = false;
+    say("unmount %s: f_mount(NULL)", vol_mp(i));
+    f_mount(nullptr, v.drv, 0);
     say("unmount: unregister VFS");
-    esp_vfs_fat_unregister_path("/usb");
+    esp_vfs_fat_unregister_path(vol_mp(i));
     say("unmount: unregister block device");
-    ff_diskio_unregister(msc_pdrv);
+    ff_diskio_unregister(v.pdrv);
+    v.pdrv = 0xFF;
     say("unmount: release interface");
-    if (mdev) { usb_host_interface_release(client, mdev, msc_if); }
-    say("mount: /usb unmounted");
+    if (v.c.h) { usb_host_interface_release(client, v.c.h, v.ifc); }
+    v.c.h = nullptr;
+    say("mount: %s unmounted", vol_mp(i));
   }
+  static void msc_unmount_all(void) { for (int i = 0; i < 2; i++) { msc_unmount(vol[i]); } }
 
-  // never from the client task: the transfers below are served by that task. Only one mount at a time (two sticks plugged in at once).
+  // never from the client task: the transfers below are served by that task. Only one mount at a time (several devices plugged in at once):
+  // a second caller waits for the first. true: one more device was mounted.
   inline static volatile bool msc_mounting = false;
   static bool msc_mount(void) {
-    if (msc_mounted) { return true; }
+    for (int w = 0; msc_mounting && w < 400; w++) { vTaskDelay(pdMS_TO_TICKS(50)); }
     if (msc_mounting) { return false; }
     msc_mounting = true;
     bool ok = msc_mount_do();
@@ -746,77 +766,90 @@ done:
     return ok;
   }
   static bool msc_mount_do(void) {
-    if (msc_mounted) { return true; }
     if (!running) { say("mount: the host is not running: UsbHost 1"); return false; }
     if (busy_msc) { say("mount: the stick test is running"); return false; }
-    if (!select(2)) { say("mount: no mass storage device attached"); return false; }
-    say("mount: using device %04X, interface %d", (unsigned)(uintptr_t)mdev & 0xFFFF, msc_if);
+    int vi = msc_free_vol();
+    if (vi < 0) { return false; }                           // both mount points are taken
+    MscVol &V = vol[vi];
+    int si = -1;                                            // the first mass storage device that is not mounted yet
+    for (int i = 0; i < nslots; i++) {
+      const Slot &sl = slots[i];
+      if (!(sl.msc_if >= 0 && sl.msc_in && sl.msc_out)) { continue; }
+      if (sl.h == vol[0].c.h || sl.h == vol[1].c.h) { continue; }
+      si = i; break;
+    }
+    if (si < 0) { say("mount: no mass storage device attached"); return false; }
+    { const Slot &sl = slots[si];
+      V.c.h = sl.h; V.c.in = sl.msc_in; V.c.out = sl.msc_out; V.c.mps = sl.msc_mps; V.ifc = sl.msc_if; V.vid = sl.vid; V.pid = sl.pid; }
+    const char *mp = vol_mp(vi);
+    say("mount: using device %04X:%04X, interface %d, as %s", V.vid, V.pid, V.ifc, mp);
     uint8_t b[64]; uint8_t cb[16]; int got = 0, st = -1;
     // A stick that was enumerated a moment ago (or while other devices of the hub were still announcing themselves) often
     // answers the first commands with errors for good: let go of it, wait and start over, up to three times.
     for (int attempt = 0; attempt < 3; attempt++) {
       if (attempt) { say("mount: the stick does not answer, trying again (%d)", attempt + 1); }
-      esp_err_t e = usb_host_interface_claim(client, mdev, msc_if, 0);
-      if (e != ESP_OK) { say("mount: claim failed %s", esp_err_to_name(e)); return false; }
+      esp_err_t e = usb_host_interface_claim(client, V.c.h, V.ifc, 0);
+      if (e != ESP_OK) { say("mount: claim failed %s", esp_err_to_name(e)); V.c.h = nullptr; return false; }
       say("mount: interface claimed");
       // Bulk-only reset recovery: after a release and claim the host starts with data toggle 0 while the device may still expect the
       // other one, and then drops the first packet. Reset (class request) and CLEAR_FEATURE(ENDPOINT_HALT) on both endpoints resync it.
-      { int r1 = ctrl(mdev, 0x21, 0xFF, 0, msc_if, nullptr, 0);
-        int r2 = ctrl(mdev, 0x02, 0x01, 0, msc_in, nullptr, 0);
-        int r3 = ctrl(mdev, 0x02, 0x01, 0, msc_out, nullptr, 0);
+      { int r1 = ctrl(V.c.h, 0x21, 0xFF, 0, V.ifc, nullptr, 0);
+        int r2 = ctrl(V.c.h, 0x02, 0x01, 0, V.c.in, nullptr, 0);
+        int r3 = ctrl(V.c.h, 0x02, 0x01, 0, V.c.out, nullptr, 0);
         say("mount: reset recovery %d %d %d", r1, r2, r3); }
       for (int i = 0; i < 8; i++) {                         // the first command after plug-in reports "medium changed": REQUEST SENSE clears it
-        memset(cb, 0, 16); st = bot(cb, 6, nullptr, 0, nullptr);
+        memset(cb, 0, 16); st = bot(V.c, cb, 6, nullptr, 0, nullptr);
         say("mount: TEST UNIT READY %d -> %d", i, st);
         if (0 == st) { break; }
         memset(cb, 0, 16); cb[0] = 0x03; cb[4] = 18;
-        bot(cb, 6, b, 18, &got);
+        bot(V.c, cb, 6, b, 18, &got);
         vTaskDelay(pdMS_TO_TICKS(300));
       }
       say("mount: unit ready check done (status %d)", st);
       if (0 == st) { break; }
-      usb_host_interface_release(client, mdev, msc_if);
+      usb_host_interface_release(client, V.c.h, V.ifc);
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
-    if (st != 0) { return false; }
+    if (st != 0) { V.c.h = nullptr; return false; }
     memset(cb, 0, 16); cb[0] = 0x25;
-    st = bot(cb, 10, b, 8, &got);
+    st = bot(V.c, cb, 10, b, 8, &got);
     uint32_t last = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3], bs = (b[4] << 24) | (b[5] << 16) | (b[6] << 8) | b[7];
     if (st != 0 || bs != 512) {
       say("mount: capacity not usable (status %d, block size %u): only 512 byte blocks are supported", st, (unsigned)bs);
-      usb_host_interface_release(client, mdev, msc_if);
+      usb_host_interface_release(client, V.c.h, V.ifc); V.c.h = nullptr;
       return false;
     }
-    msc_blocks = last + 1;
-    msc_ready = true;
-    say("mount: capacity %u blocks, registering the block device", (unsigned)msc_blocks);
+    V.blocks = last + 1;
+    say("mount: capacity %u blocks, registering the block device", (unsigned)V.blocks);
     uint8_t pdrv = 0xFF;
-    if (ff_diskio_get_drive(&pdrv) != ESP_OK) { say("mount: no free drive number"); msc_ready = false; usb_host_interface_release(client, mdev, msc_if); return false; }
-    msc_impl.init = d_init; msc_impl.status = d_status; msc_impl.read = d_read; msc_impl.write = d_write; msc_impl.ioctl = d_ioctl;
-    ff_diskio_register(pdrv, &msc_impl);
-    msc_drv[0] = '0' + pdrv; msc_drv[1] = ':'; msc_drv[2] = 0;
+    if (ff_diskio_get_drive(&pdrv) != ESP_OK) { say("mount: no free drive number"); usb_host_interface_release(client, V.c.h, V.ifc); V.c.h = nullptr; return false; }
+    V.impl.init = d_init; V.impl.status = d_status; V.impl.read = d_read; V.impl.write = d_write; V.impl.ioctl = d_ioctl;
+    V.pdrv = pdrv;
+    V.ready = true;
+    ff_diskio_register(pdrv, &V.impl);
+    V.drv[0] = '0' + pdrv; V.drv[1] = ':'; V.drv[2] = 0;
     FATFS *fat = nullptr;
-    say("mount: drive %s, registering the VFS", msc_drv);
-    if (esp_vfs_fat_register("/usb", msc_drv, 5, &fat) != ESP_OK) {
-      say("mount: VFS registration failed");
-      ff_diskio_unregister(pdrv); msc_ready = false; usb_host_interface_release(client, mdev, msc_if); return false;
+    say("mount: drive %s, registering the VFS", V.drv);
+    esp_err_t vr = esp_vfs_fat_register(mp, V.drv, 5, &fat);
+    if (vr != ESP_OK) {
+      say("mount: VFS registration failed (%s)", esp_err_to_name(vr));
+      ff_diskio_unregister(pdrv); V.ready = false; V.pdrv = 0xFF; usb_host_interface_release(client, V.c.h, V.ifc); V.c.h = nullptr; return false;
     }
     say("mount: f_mount");
-    FRESULT fr = f_mount(fat, msc_drv, 1);
+    FRESULT fr = f_mount(fat, V.drv, 1);
     if (fr != FR_OK) {
       say("mount: f_mount failed (%d): no FAT12/16/32 file system? exFAT and NTFS are not supported", (int)fr);
-      esp_vfs_fat_unregister_path("/usb"); ff_diskio_unregister(pdrv); msc_ready = false; usb_host_interface_release(client, mdev, msc_if);
+      esp_vfs_fat_unregister_path(mp); ff_diskio_unregister(pdrv); V.ready = false; V.pdrv = 0xFF; usb_host_interface_release(client, V.c.h, V.ifc); V.c.h = nullptr;
       return false;
     }
-    msc_pdrv = pdrv;
-    usbfs.mount_point("/usb");
-    msc_mounted = true;
-    usbfsp = &usbfs;
-    say("mount: /usb mounted, %u MB", (unsigned)(((uint64_t)msc_blocks * 512) >> 20));
+    UsbHostFS &F = vi ? usbfs2 : usbfs;
+    F.mount_point(mp);
+    V.mounted = true;
+    if (vi) { usb2fsp = &F; } else { usbfsp = &F; }
+    say("mount: %s mounted, %u MB", mp, (unsigned)(((uint64_t)V.blocks * 512) >> 20));
     return true;
   }
-
-  static void mount_task(void *arg) { msc_mount(); vTaskDelete(nullptr); }
+  static void mount_task(void *arg) { while (msc_mount()) {} vTaskDelete(nullptr); }   // all devices that are attached and not mounted yet
   static void automount_task(void *arg) { vTaskDelay(pdMS_TO_TICKS(2500)); msc_mount(); vTaskDelete(nullptr); }   // let the other devices of a hub finish announcing themselves first
 #endif  // USBH_MSC_FS
 
@@ -1516,16 +1549,25 @@ void CmndUsbHostMsc(void) {
 #endif
 
 #ifdef USBH_MSC_FS
-// UsbHostMount 1 mounts the first stick as /usb (FAT), 0 unmounts. Answer: {"UsbHostMount":{"Mounted":1,"TotalMB":983,"FreeMB":900}}
+// UsbHostMount 1 mounts the attached mass storage devices (stick, card reader): the first as /usb, the second as /usb2 (FAT), 0 unmounts both.
+// Answer: {"UsbHostMount":{"Mounted":1,"TotalMB":983,"FreeMB":900,"Dev":"08EC:0008","Usb2":{"Mounted":0,...}}}
 void CmndUsbHostMount(void) {
   if (XdrvMailbox.data_len > 0) {
     if (1 == XdrvMailbox.payload) { xTaskCreatePinnedToCore(UsbHostS::mount_task, "usbh_mnt", 6144, nullptr, 3, nullptr, 1); }   // takes a second: own task
-    else if (0 == XdrvMailbox.payload) { UsbHostS::msc_unmount(); }
+    else if (0 == XdrvMailbox.payload) { UsbHostS::msc_unmount_all(); }
   }
-  uint64_t total = 0, freeb = 0;
-  if (UsbHostS::msc_mounted) { esp_vfs_fat_info("/usb", &total, &freeb); }
-  Response_P(PSTR("{\"%s\":{\"Mounted\":%d,\"TotalMB\":%u,\"FreeMB\":%u}}"), XdrvMailbox.command,
-             UsbHostS::msc_mounted ? 1 : 0, (unsigned)(total >> 20), (unsigned)(freeb >> 20));
+  Response_P(PSTR("{\"%s\":{"), XdrvMailbox.command);
+  for (int i = 0; i < 2; i++) {
+    uint64_t total = 0, freeb = 0;
+    const UsbHostS::MscVol &v = UsbHostS::vol[i];
+    if (v.mounted) { esp_vfs_fat_info(UsbHostS::vol_mp(i), &total, &freeb); }
+    char dev[12] = "";
+    if (v.mounted) { snprintf_P(dev, sizeof(dev), PSTR("%04X:%04X"), v.vid, v.pid); }
+    if (i) { ResponseAppend_P(PSTR(",\"Usb2\":{")); }
+    ResponseAppend_P(PSTR("\"Mounted\":%d,\"TotalMB\":%u,\"FreeMB\":%u,\"Dev\":\"%s\"%s"),
+                     v.mounted ? 1 : 0, (unsigned)(total >> 20), (unsigned)(freeb >> 20), dev, i ? "}" : "");
+  }
+  ResponseAppend_P(PSTR("}}"));
 }
 #endif
 
