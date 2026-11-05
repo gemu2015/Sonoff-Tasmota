@@ -2241,13 +2241,32 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 			uint16_t len;
 			uint8_t *payload;
 			if (mp->hp->readHanPort(&payload, &len, mp->crypflags)) {
-				if (len > mp->sbsiz) {
-					len = mp->sbsiz;
-				}
-				memmove(mp->sbuff, payload, len);
-				mp->spos = len;   // expose the decrypted block to the script (sml(-1,2)/SML_Read); SML_Decode/OBIS ignore spos
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: decrypted block: %d bytes"), len);
-				SML_Decode(meters);
+				if (mp->type == 'o' && len > 0 && payload[0] == '/') {
+					// decrypted ASCII DSMR telegram (e.g. Sagemcom T210-D): the whole telegram sits in one buffer, but an 'o' descriptor
+					// is only compared with the start of it, so feed the decoder one line at a time (belveder79/austrian_dsmr_tasmota)
+					uint16_t lstart = 0;
+					for (uint16_t cnt = 0; cnt < len; cnt++) {
+						if (payload[cnt] == '\n' || cnt == len - 1) {
+							uint16_t llen = cnt - lstart + 1;
+							if (llen > mp->sbsiz - 1) {
+								llen = mp->sbsiz - 1;
+							}
+							memmove(mp->sbuff, payload + lstart, llen);
+							mp->sbuff[llen] = 0;
+							mp->spos = llen;   // the script sees the line that is being decoded
+							SML_Decode(meters);
+							lstart = cnt + 1;
+						}
+					}
+				} else {
+					if (len > mp->sbsiz) {
+						len = mp->sbsiz;
+					}
+					memmove(mp->sbuff, payload, len);
+					mp->spos = len;   // expose the decrypted block to the script (sml(-1,2)/SML_Read); SML_Decode/OBIS ignore spos
+					SML_Decode(meters);
+				}
 			}
 		}
 		return;

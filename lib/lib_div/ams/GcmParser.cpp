@@ -108,7 +108,8 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
       br_gcm_aad_inject(&gcm_ctx, additional_authenticated_data, aadlen);
     }
     br_gcm_flip(&gcm_ctx);
-  	br_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize);
+  	// exclude the trailing authentication tag, otherwise it is hashed as ciphertext and the tag check always fails (belveder79)
+  	br_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize - footersize);
     if (use_auth && authkeylen > 0 && br_gcm_check_tag_trunc(&gcm_ctx, authentication_tag, authkeylen) != 1) {
       return GCM_AUTH_FAILED;
     }
