@@ -281,6 +281,8 @@ typedef struct {
   // (may run in the VM task); matter_loop drains and sends EventReports to
   // subscribers in the main loop (no race on the working set / reply target).
   uint64_t event_number;     // monotonic EventNumber
+  uint32_t         ms_last;         // last millis() seen by uptime_ms64() (wrap detection)
+  uint32_t         ms_wrap;         // how often the 32-bit millis() wrapped (every 49.7 days)
 #define MTRC_EV_QUEUE 8
   struct { uint16_t ep; uint32_t cl; uint32_t ev; int32_t a; int32_t b; } ev_q[MTRC_EV_QUEUE];
   volatile uint8_t ev_head, ev_tail;
@@ -2961,12 +2963,23 @@ static void MODULE_PART send_subscription_report(uint32_t sub_id, uint16_t exch)
   }
 }
 
+// Milliseconds since boot as 64 bit. millis() is 32 bit and wraps after 49.7 days; the
+// EventDataIB SystemTimestamp is a uint64 (system-ms), so a wrap would let event times
+// jump back. matter_loop() calls this on every pass, so a wrap is seen at the latest
+// 49.7 days later (it runs many times a second). State lives in g (zeroed at init).
+static uint64_t MODULE_PART uptime_ms64(void) {
+  uint32_t ms = g.port.millis(g.port.ctx);
+  if (ms < g.ms_last) g.ms_wrap++;
+  g.ms_last = ms;
+  return ((uint64_t)g.ms_wrap << 32) | ms;
+}
+
 // Send one Matter Event as an EventReport (ReportData) to every subscribed
 // session — used by Generic Switch button events. Runs in the main loop.
 static void MODULE_PART matter_emit_event(uint16_t ep, uint32_t cl, uint32_t event_id,
                               int32_t a, int32_t b) {
   uint64_t evno = ++g.event_number;
-  uint32_t now  = g.port.millis(g.port.ctx);
+  uint64_t now  = uptime_ms64();
   for (int i = 0; i < MTRC_MAX_CASE_SESS; i++) {
     mtrc_case_sess *s = &g.case_sess[i];
     if (!s->in_use || !s->sub_active) continue;
@@ -3023,6 +3036,7 @@ matter_err_t MODULE_PART matter_queue_event(uint16_t ep, uint32_t cl, uint32_t e
 
 void MODULE_PART matter_loop(void) {
   if (!g_ptr || !g.inited || !g.started) return;   // off / not started -> no-op
+  (void)uptime_ms64();                              // keep the millis() wrap counter current
   // Fail-safe expiry (Core Spec §11.10): if a commissioning armed the fail-safe
   // but never sent CommissioningComplete, roll back its tentative fabric so the
   // abandoned attempt does not leak a persisted fabric.
