@@ -477,7 +477,7 @@ def _pio_path():
             return c
     raise FileNotFoundError('pio executable not found — is PlatformIO installed?')
 
-def run_build(env_name, on_line=print):
+def _run_pio_once(env_name, on_line):
     pio = _pio_path()
     cmd = [pio, 'run', '-e', env_name]
     on_line(f'>> {" ".join(cmd)}')
@@ -490,9 +490,27 @@ def run_build(env_name, on_line=print):
         bufsize=1,
     )
     assert proc.stdout is not None
+    reinstalled = False
     for line in proc.stdout:
-        on_line(line.rstrip('\n'))
-    return proc.wait()
+        line = line.rstrip('\n')
+        if '*** Reinstall Arduino framework ***' in line:
+            reinstalled = True
+        on_line(line)
+    return proc.wait(), reinstalled
+
+def run_build(env_name, on_line=print):
+    # 07.11.2026: the platform (builder/frameworks/arduino.py) deletes and reinstalls the Arduino
+    # framework when another env of the project has a custom sdkconfig (sdkconfig.<env> in the
+    # project root, e.g. after a tinyc32s3 build) and the current env has none. That happens
+    # AFTER the pre: script patch_linker_file.py, so the patched sections.ld is gone again and
+    # the plugin section is not an own output section ("dangerous relocation" x1200, or worse a
+    # silently wrong module). The reinstall also deletes those sdkconfig files, so one more
+    # run builds with the patch in place. Run again whenever a reinstall was reported.
+    rc, reinstalled = _run_pio_once(env_name, on_line)
+    if reinstalled:
+        on_line('>> framework was reinstalled during this run (linker patch lost): building again')
+        rc, _ = _run_pio_once(env_name, on_line)
+    return rc
 
 # --------------------------------------------------------------------
 # Locate the most recently modified plugin .bin produced by
