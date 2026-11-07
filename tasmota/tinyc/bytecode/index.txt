@@ -124,6 +124,7 @@ meter_pin_unlock.tcb
 mic_plugin_level.tcb
 mlx90614.tcb
 moritz_dash.tcb
+mqtt_push.tcb
 multipage_demo.tcb
 music_fft.tcb
 music_ui.tcb
@@ -166,6 +167,7 @@ sml_custom_line.tcb
 sml_ebus.tcb
 sml_eco_shelly.tcb
 sml_enable.tcb
+sml_pin_unlock.tcb
 sml_simple.tcb
 sml_water.tcb
 snap_with_timestamp.tcb
