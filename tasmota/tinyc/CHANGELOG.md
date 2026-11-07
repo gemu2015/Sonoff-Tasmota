@@ -59,6 +59,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **TLS buffers overridable** (Andreas, 06.11.2026, patch 0010): `TC_TLS_RX_BUF` (8192), `TC_TLS_TX_BUF` (1024) and `TC_TLS_IDLE_MS` (3000) of the raw TLS client (`tlsConnect`/`tlsRead`) are now `#ifndef`, so a device section of `user_config_override.h` can set them. A server that sends full 16 KB TLS records and ignores `max_fragment_length` (a smart meter gateway) needs `#define TC_TLS_RX_BUF 16709` (= `BR_SSL_BUFSIZE_INPUT`); costs about 8 KB more, only while a TLS connection is open. Defaults unchanged. Not built or tested on a device yet.
 - **Two USB drives at once** (stick and card reader behind the hub): `UsbHostMount 1` mounts every attached mass storage device, the first free mount point is `/usb`, then `/usb2` (TinyC prefix `/usb2/`, file manager `/ufsd?dir=4`, `UfsMkdir`/`UfsRename` accept it). The answer of `UsbHostMount` lists both with `Dev`. Needs `CONFIG_FATFS_VOLUME_COUNT=4` and `CONFIG_VFS_MAX_COUNT=12` (libs rebuild) and, on the S3, no audio stick next to both drives (8 host channels). Tested on .190.
 - **`/tc_api` asks for the web password**: when a web password is set, `/tc_api` (run/stop/status, readfile/writefile/deletefile) now requires it like `/tc_ui` and the file manager; the CORS preflight (OPTIONS) stays open. Without a password nothing changes.
 - **Audio plugin records from the USB stick's microphone**: `UsbHostMicRoute 1` makes `I2Srec` and the mp3 stream (port 81) of the I2SAUDIO plugin read the stick

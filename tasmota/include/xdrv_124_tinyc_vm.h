@@ -3368,9 +3368,17 @@ static inline void tc_udp_pause_sync(void) {
   Tinyc->udp.stop();
   Tinyc->udp_connected = false;
 }
+// Overridable in user_config_override.h (06.11.2026): a server that sends full 16 KB TLS
+// records and ignores max_fragment_length needs TC_TLS_RX_BUF 16709 (= BR_SSL_BUFSIZE_INPUT).
+#ifndef TC_TLS_RX_BUF
 #define TC_TLS_RX_BUF   8192      // BearSSL recv buffer (>= the server's TLS record)
+#endif
+#ifndef TC_TLS_TX_BUF
 #define TC_TLS_TX_BUF   1024
+#endif
+#ifndef TC_TLS_IDLE_MS
 #define TC_TLS_IDLE_MS  3000      // give up a read after this long with no byte
+#endif
 
 // base64url (RFC 4648, padding optional) → bytes. Normalizes -_ → +/ and re-pads,
 // then mbedtls_base64_decode. Used by rsaEncrypt() to decode the JWK pubkey (n,e).

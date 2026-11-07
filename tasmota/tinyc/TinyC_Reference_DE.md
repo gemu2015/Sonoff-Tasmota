@@ -3451,7 +3451,7 @@ Vorgefertigte Helfer `mbFC03/04/06/16` in `examples/common/modbus_lib.tc`.
 | `void tlsStop()` | Schliessen + TLS-Client freigeben |
 | `int base64Enc(char in[], int inlen, char out[])` | `inlen` Bytes aus `in[]` Base64-kodieren nach `out[]` (binaersicher — fuer Signieren / Basic-Auth); kodierte Laenge |
 
-Zertifikatspruefung ist aus (`setInsecure`, wie beim Scripter-httpsget). Empfangspuffer 8 KB (`TC_TLS_RX_BUF` erhoehen, falls ein Server groessere TLS-Records nutzt).
+Zertifikatspruefung ist aus (`setInsecure`, wie beim Scripter-httpsget). Empfangspuffer 8 KB; mit `#define TC_TLS_RX_BUF 16709` in der `user_config_override.h` erhoehen, falls ein Server groessere TLS-Records schickt (`TC_TLS_TX_BUF` und `TC_TLS_IDLE_MS` lassen sich genauso ueberschreiben).
 
 **Beispiel — GET https://example.com/ (auf Hardware bewiesen):**
 ```c

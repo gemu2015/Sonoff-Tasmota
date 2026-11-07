@@ -3521,7 +3521,7 @@ helpers built on `tcpTransact`.
 | `void tlsStop()` | Close + free the TLS client |
 | `int base64Enc(char in[], int inlen, char out[])` | Base64-encode `inlen` bytes of `in[]` into `out[]` (binary-safe — for request signing / Basic auth); returns encoded length |
 
-Cert validation is off (`setInsecure`, like the Scripter httpsget). Recv buffer is 8 KB (raise `TC_TLS_RX_BUF` if a server uses larger TLS records).
+Cert validation is off (`setInsecure`, like the Scripter httpsget). Recv buffer is 8 KB; raise it by `#define TC_TLS_RX_BUF 16709` in `user_config_override.h` if a server sends larger TLS records (`TC_TLS_TX_BUF` and `TC_TLS_IDLE_MS` can be overridden the same way).
 
 **Example — GET https://example.com/ (proven on hardware):**
 ```c
