@@ -72,9 +72,25 @@ die beiden I2C-Pins setzen, dann `wave_rover.tcb` laden (IDE oder `scripts/push_
 4. Die Hauptseite zeigt Akkuspannung (INA219) und die Zahl der Watchdog-Stopps. Unter 9,3 V werden die Motoren verweigert.
 5. Erst dann auf den Boden stellen.
 
+## Sensor-Treiber (TinyC-Bibliotheken)
+
+Drei Bibliotheken in `examples/common/`, jeweils per `#include` einzubinden, ohne `main()` und ohne Rueckrufe. Sie belegen ihre I2C-Adresse (`i2cSetActiveFound`), damit andere Treiber sie nicht anfassen.
+
+| Bibliothek | Chip | Aufrufe | Ergebnisse |
+|---|---|---|---|
+| `ina219.tc` | INA219 bei 0x42 | `ina_init(addr, bus)`, `ina_poll()`, `ina_release()` | `ina_mv` mV, `ina_ma` mA, `ina_mw` mW, `ina_shunt_uv`, `ina_ovf` |
+| `qmi8658.tc` | QMI8658C bei 0x6B / 0x6A | `qmi_init(bus, acc_range, gyr_range, odr)`, `qmi_poll()`, `qmi_cal_gyro(n)`, `qmi_yaw_reset()` | `qmi_ax..az` g, `qmi_gx..gz` dps, `qmi_temp` C, `qmi_yaw` Grad (integrierter Gyro) |
+| `ak09918.tc` | AK09918C bei 0x0C | `ak_init(bus, mode)`, `ak_poll()`, `ak_heading()`, `ak_cal_begin()` / `ak_cal_end()` | `ak_x/y/z` uT, `ak_heading()` Grad 0..360 |
+
+`examples/wave_rover_sensors.tc` zeigt alle auf der Tasmota-Hauptseite und in der Telemetrie (mit den Befehlen `RoverCalGyro`, `RoverYaw0`, `RoverCalMag 1|0`).
+`examples/wave_sensors_test.tc` prueft das Dekodieren aller drei **ohne Hardware** (47 Pruefungen: Byte-Reihenfolge, Vorzeichen, Skalierung, Ueberlauf-Bit, Kalibrierung, Richtung);
+es laeuft auf jedem TinyC-Geraet. Es kann nicht zeigen, dass der I2C-Zugriff selbst geht. Einheiten, Registeraufbau und Kalibrierung stehen im Kopf jeder Bibliothek.
+Nach den Datenblaettern und dem Waveshare-Quellcode geschrieben (GPL, nur als Registervorlage benutzt), **auf dem Rover noch nicht getestet**. Offen: welche Chip-Achse auf der Platine "vorwaerts" ist, und wie stark
+die Motoren den Kompass stoeren (er sitzt direkt daneben: bei ausgeschalteten Motoren kalibrieren und beim Fahren das Feld ansehen).
+
 ## Noch nicht gemacht
 
-- SD-Karten-Pins, OLED-Text, IMU-/Kompass-Treiber, die 12-V-Lichtausgaenge (IO4/IO5).
+- SD-Karten-Pins, OLED-Text, die 12-V-Lichtausgaenge (IO4/IO5).
 - Ein schnellerer PWM-Takt (die Waveshare-Firmware nimmt 100 kHz).
 - Die Waveshare-JSON-Befehle (`{"T":1,"L":0.2,"R":0.2}` usw.) sind **nicht** umgesetzt: Ein Raspberry Pi mit dem Waveshare-Programm `ugv_rpi` braeuchte sie ueber den UART
   (die Befehle sind einfach, sie lassen sich bei Bedarf in TinyC ergaenzen).

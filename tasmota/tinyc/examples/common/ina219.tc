@@ -1,0 +1,113 @@
+// ina219.tc - INA219 voltage / current / power monitor (I2C), pure TinyC.
+//
+// The WAVE ROVER / Waveshare "General Driver for Robots" has one at address 0x42 (shunt 0.01 ohm), which Tasmota's own
+// INA219 driver does not look at. Works with any INA219 / shunt: set ina_cal and ina_ua_lsb before ina_init().
+//
+// Use (bus 0 = Tasmota's first I2C bus; main() only, ina_init() claims the address):
+//   #include "ina219.tc"
+//   int main() { ina_init(0x42, 0); return 0; }
+//   void EverySecond() { ina_poll(); addLog("%d mV %d mA", ina_mv, ina_ma); }
+//
+// Results (integers): ina_mv = bus voltage in mV, ina_ma = current in mA (signed), ina_mw = power in mW,
+// ina_shunt_uv = voltage across the shunt in microvolt, ina_ovf = 1 when the INA219 reports a math overflow.
+// ina_ok = 1 after a successful read.
+//
+// Calibration: the current and power registers only work after the calibration register is written
+//   ina_cal = trunc(0.04096 / (current_LSB_in_A * shunt_in_ohm))
+// WAVE ROVER: 0.01 ohm shunt and 1 mA per bit  ->  0.04096 / (0.001 * 0.01) = 4096 (the default here, ina_ua_lsb = 1000).
+// The register covers +-32.7 A at 1 mA per bit. The power register LSB is 20 x the current LSB. The INA219 forgets the
+// calibration when it loses power; ina_poll() writes it again if the current register stays 0 while the shunt voltage does not.
+// The bus voltage register needs no calibration (13 bit, 4 mV per step), and works up to 26 V in the default range.
+//
+// Register layout (INA219 datasheet): 0x00 config, 0x01 shunt voltage (10 uV/LSB, signed), 0x02 bus voltage (bits 15..3,
+// 4 mV/LSB; bit 0 = overflow), 0x03 power, 0x04 current (signed), 0x05 calibration. All values are big endian.
+// NOT yet tested on the rover (written from the datasheet and the Waveshare source before it arrived).
+
+#define INA_REG_SHUNT  1
+#define INA_REG_BUS    2
+#define INA_REG_POWER  3
+#define INA_REG_CUR    4
+#define INA_REG_CAL    5
+
+int  ina_addr   = 0;       // 0 = not initialised
+int  ina_bus    = 0;
+int  ina_ok     = 0;
+int  ina_cal    = 4096;    // calibration register (see above)
+int  ina_ua_lsb = 1000;    // microampere per bit of the current register (must match ina_cal)
+int  ina_mv     = 0;
+int  ina_ma     = 0;
+int  ina_mw     = 0;
+int  ina_shunt_uv = 0;
+int  ina_ovf    = 0;
+char ina_buf[4];
+
+// two bytes (big endian) -> signed 16 bit
+int ina_s16(int hi, int lo) {
+    int v = ((hi & 255) << 8) | (lo & 255);
+    if (v & 0x8000) { v = v - 65536; }
+    return v;
+}
+
+// raw register values -> ina_mv, ina_ma, ina_mw, ina_shunt_uv, ina_ovf. bus_raw is the unsigned 16 bit register,
+// the others are signed (power is unsigned in the chip, but never above 32767 here)
+void ina_decode(int bus_raw, int shunt_raw, int cur_raw, int pow_raw) {
+    ina_mv = ((bus_raw & 0xFFFF) >> 3) * 4;
+    ina_ovf = bus_raw & 1;
+    ina_shunt_uv = shunt_raw * 10;
+    ina_ma = (cur_raw * ina_ua_lsb) / 1000;
+    ina_mw = (pow_raw * 20 * ina_ua_lsb) / 1000;
+}
+
+// read one 16 bit register into ina_buf; 1 = ok
+int ina_rd(int reg) {
+    if (ina_addr == 0) { return 0; }
+    return i2cRead(ina_addr, reg, ina_buf, 2, ina_bus);
+}
+
+void ina_write_cal() {
+    ina_buf[0] = (ina_cal >> 8) & 255;
+    ina_buf[1] = ina_cal & 255;
+    i2cWrite(ina_addr, INA_REG_CAL, ina_buf, 2, ina_bus);
+}
+
+// look for the chip at addr on the given bus and claim the address; 1 = found
+int ina_init(int addr, int bus) {
+    ina_ok = 0;
+    if (i2cSetDevice(addr, bus) == 0) { return 0; }
+    ina_addr = addr;
+    ina_bus = bus;
+    i2cSetActiveFound(addr, "INA219", bus);
+    ina_write_cal();
+    return 1;
+}
+
+// read everything; 1 = ok
+int ina_poll() {
+    int bus_raw = 0;
+    int shunt_raw = 0;
+    int cur_raw = 0;
+    int pow_raw = 0;
+    ina_ok = 0;
+    if (ina_rd(INA_REG_BUS) != 1) { return 0; }
+    bus_raw = ((ina_buf[0] & 255) << 8) | (ina_buf[1] & 255);
+    if (ina_rd(INA_REG_SHUNT) != 1) { return 0; }
+    shunt_raw = ina_s16(ina_buf[0], ina_buf[1]);
+    if (ina_rd(INA_REG_CUR) != 1) { return 0; }
+    cur_raw = ina_s16(ina_buf[0], ina_buf[1]);
+    if (ina_rd(INA_REG_POWER) != 1) { return 0; }
+    pow_raw = ina_s16(ina_buf[0], ina_buf[1]);
+    if (cur_raw == 0 && (shunt_raw > 3 || shunt_raw < -3)) {
+        ina_write_cal();                    // the chip lost its calibration (power dip): write it again
+    }
+    ina_decode(bus_raw, shunt_raw, cur_raw, pow_raw);
+    ina_ok = 1;
+    return 1;
+}
+
+// give the address back (call from OnExit / CleanUp)
+void ina_release() {
+    if (ina_addr != 0) {
+        I2cResetActive(ina_addr, ina_bus);
+        ina_addr = 0;
+    }
+}

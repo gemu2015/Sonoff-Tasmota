@@ -1,0 +1,98 @@
+// @name: WAVE ROVER sensors
+// Shows the three I2C sensors of the WAVE ROVER driver board on the Tasmota main page and in the MQTT telemetry:
+//   INA219 (battery voltage / current / power, 0x42), QMI8658C (accelerometer, gyroscope, temperature, 0x6B), AK09918C (compass, 0x0C).
+// Drivers: common/ina219.tc, common/qmi8658.tc, common/ak09918.tc. Setup: Tasmota I2C on GPIO 32 (SDA) / 33 (SCL), see docs/WAVE_ROVER.md.
+// Commands (console):  RoverCalGyro  - gyroscope bias, keep the rover STILL (takes 1 s);   RoverYaw0  - set the gyro yaw to 0;
+//                      RoverCalMag 1 / RoverCalMag 0 - start / end the compass calibration: turn the rover slowly through a full circle between them.
+// Runs next to wave_rover.tc in another slot (the drivers claim their I2C addresses; wave_rover.tc reads the INA219 without claiming it).
+// NOT yet tested on the rover (the drivers' decoding is covered by wave_sensors_test.tc, the I2C access itself is not).
+
+#include "ina219.tc"
+#include "qmi8658.tc"
+#include "ak09918.tc"
+
+#define I2C_BUS  0
+
+char ob[96];
+
+void Every50ms() {
+    qmi_poll();
+    ak_poll();
+}
+
+void EverySecond() {
+    ina_poll();
+}
+
+void WebCall() {
+    if (ina_ok == 1) {
+        sprintf(ob, "{s}Battery{m}%d.%02d V   %d mA   %d mW{e}", ina_mv / 1000, (ina_mv % 1000) / 10, ina_ma, ina_mw);
+        webSend(ob);
+    } else {
+        webSend("{s}Battery (INA219){m}no data{e}");
+    }
+    if (qmi_ok == 1) {
+        sprintf(ob, "{s}Acceleration{m}%.2f  %.2f  %.2f g{e}", qmi_ax, qmi_ay, qmi_az);
+        webSend(ob);
+        sprintf(ob, "{s}Gyroscope{m}%.1f  %.1f  %.1f dps   yaw %.1f{e}", qmi_gx, qmi_gy, qmi_gz, qmi_yaw);
+        webSend(ob);
+        sprintf(ob, "{s}IMU temperature{m}%.1f C{e}", qmi_temp);
+        webSend(ob);
+    } else {
+        webSend("{s}IMU (QMI8658C){m}no data{e}");
+    }
+    if (ak_addr != 0) {
+        sprintf(ob, "{s}Compass{m}%.1f  %.1f  %.1f uT   heading %.0f{e}", ak_x, ak_y, ak_z, ak_heading());
+        webSend(ob);
+    } else {
+        webSend("{s}Compass (AK09918C){m}no data{e}");
+    }
+}
+
+void JsonCall() {
+    if (ina_ok == 1) {
+        sprintf(ob, ",\"Rover\":{\"Vbat\":%d.%03d,\"Ibat\":%d", ina_mv / 1000, ina_mv % 1000, ina_ma);
+        responseAppend(ob);
+        if (qmi_ok == 1) {
+            sprintf(ob, ",\"Yaw\":%.1f,\"Gz\":%.2f,\"Temp\":%.1f", qmi_yaw, qmi_gz, qmi_temp);
+            responseAppend(ob);
+        }
+        responseAppend("}");
+    }
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "CALGYRO") == 0) {
+        qmi_cal_gyro(200);
+        responseCmnd("gyro bias set");
+    } else if (strcmp(cmd, "YAW0") == 0) {
+        qmi_yaw_reset();
+        responseCmnd("yaw 0");
+    } else if (strStartsWith(cmd, "CALMAG")) {
+        if (strFind(cmd, "1") > 0) {
+            ak_cal_begin();
+            responseCmnd("turn the rover slowly through a full circle, then RoverCalMag 0");
+        } else {
+            ak_cal_end();
+            responseCmnd("compass offsets set");
+        }
+    } else {
+        responseCmnd("unknown");
+    }
+}
+
+void OnExit() {
+    ina_release();
+    qmi_release();
+    ak_release();
+}
+
+int main() {
+    addCommand("Rover");
+    ina_init(0x42, I2C_BUS);
+    qmi_init(I2C_BUS, 2, 5, 3);        // +-8 g, +-512 dps, 1000 Hz
+    ak_init(I2C_BUS, 8);               // continuous 100 Hz
+    qmi_cal_gyro(200);                 // the rover must stand still at start
+    addLog("ROVER sensors: INA219 %d, QMI8658 %d, AK09918 %d", ina_addr, qmi_addr, ak_addr);
+    return 0;
+}

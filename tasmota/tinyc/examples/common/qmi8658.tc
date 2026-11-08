@@ -1,0 +1,160 @@
+// qmi8658.tc - QMI8658C 6-axis IMU (3-axis accelerometer + 3-axis gyroscope + temperature, I2C), pure TinyC.
+//
+// The WAVE ROVER / Waveshare "General Driver for Robots" has one at 0x6B (0x6A when SA0 is low). No Tasmota driver exists.
+//
+// Use (main() only: qmi_init() waits for the chip):
+//   #include "qmi8658.tc"
+//   int main() { qmi_init(0, 1, 5, 3); qmi_cal_gyro(200); return 0; }   // bus 0, +-4 g, +-512 dps, 1000 Hz; rover standing still
+//   void Every50ms() { qmi_poll(); }                                       // then qmi_ax .. qmi_gz, qmi_temp, qmi_yaw
+//
+// qmi_init(bus, acc_range, gyr_range, odr):
+//   acc_range 0..3 = +-2 / 4 / 8 / 16 g           gyr_range 0..7 = +-16 / 32 / 64 / 128 / 256 / 512 / 1024 / 2048 dps
+//   odr 0..8 = 8000 / 4000 / 2000 / 1000 / 500 / 250 / 125 / 62.5 / 31.25 Hz (accelerometer and gyroscope the same)
+// Results (float): qmi_ax, qmi_ay, qmi_az in g, qmi_gx, qmi_gy, qmi_gz in degrees per second (bias removed after qmi_cal_gyro),
+// qmi_temp in degrees C. qmi_yaw = integral of qmi_gz (degrees, drifts: it is a gyro, not a compass). qmi_ok = 1 after a read.
+// Axes are the chip's axes. How the chip is turned on the board decides which one is "forward" (check with the rover in hand).
+//
+// Register layout (QMI8658C datasheet / Waveshare source): WHO_AM_I 0x00 = 0x05, CTRL1 0x02 (0x40 = address auto increment, little
+// endian), CTRL2 0x03 accelerometer (range << 4 | odr), CTRL3 0x04 gyroscope (range << 4 | odr), CTRL5 0x06 low pass filters,
+// CTRL7 0x08 (bit 0 accelerometer on, bit 1 gyroscope on), temperature 0x33..0x34 (1/256 degree per bit), acceleration 0x35..0x3A,
+// angular rate 0x3B..0x40, soft reset: write 0xB0 to 0x60. All 16 bit values little endian, signed.
+// Scale: accelerometer 2^14 >> range LSB per g; gyroscope 2048 >> range LSB per dps.
+// NOT yet tested on the rover (written from the datasheet and the Waveshare source before it arrived).
+
+#define QMI_REG_WHOAMI 0x00
+#define QMI_REG_CTRL1  0x02
+#define QMI_REG_CTRL2  0x03
+#define QMI_REG_CTRL3  0x04
+#define QMI_REG_CTRL5  0x06
+#define QMI_REG_CTRL7  0x08
+#define QMI_REG_TEMP   0x33
+#define QMI_REG_RESET  0x60
+
+int   qmi_addr    = 0;     // 0 = not initialised
+int   qmi_bus     = 0;
+int   qmi_ok      = 0;
+int   qmi_acc_lsb = 4096;  // LSB per g
+int   qmi_gyr_lsb = 64;    // LSB per dps
+float qmi_ax = 0.0;
+float qmi_ay = 0.0;
+float qmi_az = 0.0;
+float qmi_gx = 0.0;
+float qmi_gy = 0.0;
+float qmi_gz = 0.0;
+float qmi_temp = 0.0;
+float qmi_gbx = 0.0;       // gyroscope bias (dps), set by qmi_cal_gyro()
+float qmi_gby = 0.0;
+float qmi_gbz = 0.0;
+float qmi_yaw = 0.0;       // integrated qmi_gz, degrees
+int   qmi_last_ms = 0;
+char  qmi_buf[16];
+
+// two bytes (little endian) -> signed 16 bit
+int qmi_s16(int lo, int hi) {
+    int v = ((hi & 255) << 8) | (lo & 255);
+    if (v & 0x8000) { v = v - 65536; }
+    return v;
+}
+
+// qmi_buf[0..13] (temperature 2, acceleration 6, angular rate 6) -> floats. dt_ms integrates the yaw (0 = do not)
+void qmi_decode(int dt_ms) {
+    qmi_temp = (float)qmi_s16(qmi_buf[0], qmi_buf[1]) / 256.0;
+    qmi_ax = (float)qmi_s16(qmi_buf[2], qmi_buf[3]) / (float)qmi_acc_lsb;
+    qmi_ay = (float)qmi_s16(qmi_buf[4], qmi_buf[5]) / (float)qmi_acc_lsb;
+    qmi_az = (float)qmi_s16(qmi_buf[6], qmi_buf[7]) / (float)qmi_acc_lsb;
+    qmi_gx = (float)qmi_s16(qmi_buf[8], qmi_buf[9]) / (float)qmi_gyr_lsb - qmi_gbx;
+    qmi_gy = (float)qmi_s16(qmi_buf[10], qmi_buf[11]) / (float)qmi_gyr_lsb - qmi_gby;
+    qmi_gz = (float)qmi_s16(qmi_buf[12], qmi_buf[13]) / (float)qmi_gyr_lsb - qmi_gbz;
+    if (dt_ms > 0 && dt_ms < 1000) {
+        qmi_yaw = qmi_yaw + qmi_gz * (float)dt_ms / 1000.0;
+    }
+}
+
+int qmi_rd8(int reg) {
+    return i2cRead8(qmi_addr, reg, qmi_bus);
+}
+
+// find the chip (0x6B, then 0x6A), reset and configure it; 1 = found. main() only (it waits).
+int qmi_init(int bus, int acc_range, int gyr_range, int odr) {
+    int addr = 0x6B;
+    qmi_ok = 0;
+    if (i2cSetDevice(addr, bus) == 0) {
+        addr = 0x6A;
+        if (i2cSetDevice(addr, bus) == 0) { return 0; }
+    }
+    qmi_addr = addr;
+    qmi_bus = bus;
+    if (qmi_rd8(QMI_REG_WHOAMI) != 0x05) {
+        qmi_addr = 0;                                    // not a QMI8658
+        return 0;
+    }
+    i2cSetActiveFound(addr, "QMI8658", bus);
+    acc_range = acc_range & 3;
+    gyr_range = gyr_range & 7;
+    odr = odr & 15;
+    qmi_acc_lsb = 16384 >> acc_range;
+    qmi_gyr_lsb = 2048 >> gyr_range;
+    i2cWrite8(addr, QMI_REG_RESET, 0xB0, bus);          // soft reset
+    delay(20);
+    i2cWrite8(addr, QMI_REG_CTRL1, 0x40, bus);          // address auto increment, little endian
+    i2cWrite8(addr, QMI_REG_CTRL2, (acc_range << 4) | odr, bus);
+    i2cWrite8(addr, QMI_REG_CTRL3, (gyr_range << 4) | odr, bus);
+    i2cWrite8(addr, QMI_REG_CTRL5, 0x00, bus);          // low pass filters off
+    i2cWrite8(addr, QMI_REG_CTRL7, 0x03, bus);          // accelerometer + gyroscope on
+    delay(10);
+    qmi_last_ms = millis();
+    return 1;
+}
+
+// read temperature, acceleration and angular rate in one go; 1 = ok
+int qmi_poll() {
+    int now = millis();
+    qmi_ok = 0;
+    if (qmi_addr == 0) { return 0; }
+    if (i2cRead(qmi_addr, QMI_REG_TEMP, qmi_buf, 14, qmi_bus) != 1) { return 0; }
+    qmi_decode(now - qmi_last_ms);
+    qmi_last_ms = now;
+    qmi_ok = 1;
+    return 1;
+}
+
+// average n samples of the gyroscope while the board stands STILL and keep it as the bias (main() or TaskLoop only: it waits)
+void qmi_cal_gyro(int n) {
+    float sx = 0.0;
+    float sy = 0.0;
+    float sz = 0.0;
+    int i = 0;
+    int got = 0;
+    if (qmi_addr == 0 || n < 1) { return; }
+    qmi_gbx = 0.0;
+    qmi_gby = 0.0;
+    qmi_gbz = 0.0;
+    while (i < n) {
+        if (i2cRead(qmi_addr, QMI_REG_TEMP, qmi_buf, 14, qmi_bus) == 1) {
+            qmi_decode(0);
+            sx = sx + qmi_gx;
+            sy = sy + qmi_gy;
+            sz = sz + qmi_gz;
+            got = got + 1;
+        }
+        delay(5);
+        i = i + 1;
+    }
+    if (got > 0) {
+        qmi_gbx = sx / (float)got;
+        qmi_gby = sy / (float)got;
+        qmi_gbz = sz / (float)got;
+    }
+    qmi_yaw = 0.0;
+}
+
+void qmi_yaw_reset() {
+    qmi_yaw = 0.0;
+}
+
+void qmi_release() {
+    if (qmi_addr != 0) {
+        I2cResetActive(qmi_addr, qmi_bus);
+        qmi_addr = 0;
+    }
+}

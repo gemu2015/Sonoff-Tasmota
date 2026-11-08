@@ -1,0 +1,164 @@
+// wave_sensors_test.tc - self test of the WAVE ROVER sensor drivers (common/ina219.tc, qmi8658.tc, ak09918.tc) WITHOUT hardware.
+//
+// The drivers split "read the chip" from "decode the bytes": this test fills the byte buffers by hand with values worked out from the
+// datasheets (12.0 V, 1.0 g, 10 dps, 150 uT ...) and checks what the decoders make of them: signs, byte order, scale factors, flags,
+// the calibration and the heading. It can NOT show that the I2C access itself works - that needs the rover.
+// Result in the log:   SENSTEST: 47 ok, 0 bad   (one "SENSTEST FAIL: ..." line per failing case before it)
+
+#include "ina219.tc"
+#include "qmi8658.tc"
+#include "ak09918.tc"
+
+int t_ok  = 0;
+int t_bad = 0;
+
+void t_int(char name[], int got, int want) {
+    if (got == want) {
+        t_ok = t_ok + 1;
+    } else {
+        t_bad = t_bad + 1;
+        addLog("SENSTEST FAIL: %s got %d want %d", name, got, want);
+    }
+}
+
+// float comparison with a tolerance of 0.01
+void t_flt(char name[], float got, float want) {
+    float d = got - want;
+    if (d < 0.0) { d = 0.0 - d; }
+    if (d < 0.01) {
+        t_ok = t_ok + 1;
+    } else {
+        t_bad = t_bad + 1;
+        addLog("SENSTEST FAIL: %s got %.3f want %.3f", name, got, want);
+    }
+}
+
+void q_set(int i, int lo, int hi) {
+    qmi_buf[i] = lo;
+    qmi_buf[i + 1] = hi;
+}
+
+void a_set(int i, int lo, int hi) {
+    ak_buf[i] = lo;
+    ak_buf[i + 1] = hi;
+}
+
+int main() {
+    // --- INA219
+    t_int("s16 positive", ina_s16(0x00, 0x64), 100);
+    t_int("s16 negative", ina_s16(0xFF, 0x38), -200);
+    ina_ua_lsb = 1000;
+    ina_decode(24002, 100, 1500, 900);            // bus register 3000 steps (bit 1 = conversion ready), shunt 100 x 10 uV
+    t_int("ina mV", ina_mv, 12000);
+    t_int("ina ovf off", ina_ovf, 0);
+    t_int("ina shunt uV", ina_shunt_uv, 1000);
+    t_int("ina mA", ina_ma, 1500);
+    t_int("ina mW", ina_mw, 18000);
+    ina_decode(24001, -100, -250, 0);             // overflow bit set, charging current
+    t_int("ina ovf on", ina_ovf, 1);
+    t_int("ina mA negative", ina_ma, -250);
+    ina_decode(0xFFF8, 0, 0, 0);                  // 13 bit maximum
+    t_int("ina mV max", ina_mv, 32764);
+    ina_ua_lsb = 500;
+    ina_decode(24002, 0, 2000, 900);              // 0.5 mA per bit
+    t_int("ina mA 0.5mA/bit", ina_ma, 1000);
+    t_int("ina mW 0.5mA/bit", ina_mw, 9000);
+    ina_ua_lsb = 1000;
+
+    // --- QMI8658C: +-8 g (4096 LSB/g), +-512 dps (64 LSB/dps)
+    qmi_acc_lsb = 4096;
+    qmi_gyr_lsb = 64;
+    qmi_gbx = 0.0;
+    qmi_gby = 0.0;
+    qmi_gbz = 0.0;
+    qmi_yaw = 0.0;
+    q_set(0, 0x00, 0x19);                         // temperature 25 x 256
+    q_set(2, 0x00, 0x10);                         // ax = 4096  -> 1.0 g
+    q_set(4, 0x00, 0xF8);                         // ay = -2048 -> -0.5 g
+    q_set(6, 0x00, 0x00);                         // az = 0
+    q_set(8, 0x80, 0x02);                         // gx = 640   -> 10 dps
+    q_set(10, 0xC0, 0xFF);                        // gy = -64   -> -1 dps
+    q_set(12, 0x80, 0x00);                        // gz = 128   -> 2 dps
+    qmi_decode(100);
+    t_flt("qmi temp", qmi_temp, 25.0);
+    t_flt("qmi ax", qmi_ax, 1.0);
+    t_flt("qmi ay", qmi_ay, -0.5);
+    t_flt("qmi az", qmi_az, 0.0);
+    t_flt("qmi gx", qmi_gx, 10.0);
+    t_flt("qmi gy", qmi_gy, -1.0);
+    t_flt("qmi gz", qmi_gz, 2.0);
+    t_flt("qmi yaw after 100 ms", qmi_yaw, 0.2);
+    qmi_gbz = 0.5;                                // bias removed
+    qmi_decode(0);
+    t_flt("qmi gz with bias", qmi_gz, 1.5);
+    qmi_acc_lsb = 16384 >> 3;                     // range 3 (+-16 g) as init computes it
+    qmi_gyr_lsb = 2048 >> 7;
+    t_int("qmi acc scale 16 g", qmi_acc_lsb, 2048);
+    t_int("qmi gyro scale 2048 dps", qmi_gyr_lsb, 16);
+    t_int("qmi s16 roundtrip", qmi_s16(0x00, 0x80), -32768);
+
+    // --- AK09918C
+    ak_ox = 0.0;
+    ak_oy = 0.0;
+    ak_oz = 0.0;
+    ak_buf[0] = 0x01;                             // ST1: data ready
+    a_set(1, 0xE8, 0x03);                         // x = 1000 -> 150 uT
+    a_set(3, 0x0C, 0xFE);                         // y = -500 -> -75 uT
+    a_set(5, 0x00, 0x00);
+    ak_buf[7] = 0;
+    ak_buf[8] = 0x00;                             // ST2: no overflow
+    t_int("ak new sample", ak_decode(), 1);
+    t_flt("ak x", ak_x, 150.0);
+    t_flt("ak y", ak_y, -75.0);
+    ak_buf[0] = 0x00;
+    t_int("ak not ready", ak_decode(), 0);
+    ak_buf[0] = 0x01;
+    ak_buf[8] = 0x08;                             // ST2: overflow
+    t_int("ak overflow", ak_decode(), -2);
+    t_flt("ak x kept on overflow", ak_x, 150.0);
+    ak_buf[8] = 0x00;
+    ak_ox = 50.0;
+    ak_decode();
+    t_flt("ak x with offset", ak_x, 100.0);
+    ak_ox = 0.0;
+    // heading
+    ak_x = 100.0; ak_y = 0.0;
+    t_flt("heading +X", ak_heading(), 0.0);
+    ak_x = 0.0; ak_y = 100.0;
+    t_flt("heading +Y", ak_heading(), 90.0);
+    ak_x = -100.0; ak_y = 0.0;
+    t_flt("heading -X", ak_heading(), 180.0);
+    ak_x = 0.0; ak_y = -100.0;
+    t_flt("heading -Y", ak_heading(), 270.0);
+    ak_x = 70.71; ak_y = 70.71;
+    t_flt("heading 45", ak_heading(), 45.0);
+    ak_x = -70.71; ak_y = 70.71;
+    t_flt("heading 135", ak_heading(), 135.0);
+    ak_x = -70.71; ak_y = -70.71;
+    t_flt("heading 225", ak_heading(), 225.0);
+    ak_x = 70.71; ak_y = -70.71;
+    t_flt("heading 315", ak_heading(), 315.0);
+    ak_x = 100.0; ak_y = 57.735;
+    t_flt("heading 30", ak_heading(), 30.0);
+    ak_x = 57.735; ak_y = 100.0;
+    t_flt("heading 60", ak_heading(), 60.0);
+    ak_heading_offset = 90.0;
+    ak_x = 100.0; ak_y = 0.0;
+    t_flt("heading with offset", ak_heading(), 90.0);
+    ak_heading_offset = 0.0;
+    ak_x = 0.1; ak_y = 0.1;
+    t_flt("heading no field", ak_heading(), -1.0);
+    // hard-iron calibration
+    ak_cal_begin();
+    ak_cal_feed(100.0, 50.0, 10.0);
+    ak_cal_feed(200.0, -50.0, 30.0);
+    ak_cal_feed(150.0, 0.0, 20.0);
+    ak_cal_end();
+    t_flt("ak cal ox", ak_ox, 150.0);
+    t_flt("ak cal oy", ak_oy, 0.0);
+    t_flt("ak cal oz", ak_oz, 20.0);
+    t_int("ak cal off", ak_cal, 0);
+
+    addLog("SENSTEST: %d ok, %d bad", t_ok, t_bad);
+    return 0;
+}

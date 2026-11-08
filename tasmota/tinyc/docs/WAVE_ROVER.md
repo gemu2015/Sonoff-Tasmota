@@ -72,9 +72,25 @@ set the two I2C pins, then load `wave_rover.tcb` (IDE or `scripts/push_tcb.sh ex
 4. The main page shows the battery voltage (INA219) and the number of watchdog stops. Below 9.3 V the motors are refused.
 5. Only then put it on the floor.
 
+## Sensor drivers (TinyC libraries)
+
+Three libraries in `examples/common/`, each `#include`-able, no `main()`, no callbacks. They claim their I2C address (`i2cSetActiveFound`) so other drivers stay away.
+
+| Library | Chip | Calls | Results |
+|---|---|---|---|
+| `ina219.tc` | INA219 at 0x42 | `ina_init(addr, bus)`, `ina_poll()`, `ina_release()` | `ina_mv` mV, `ina_ma` mA, `ina_mw` mW, `ina_shunt_uv`, `ina_ovf` |
+| `qmi8658.tc` | QMI8658C at 0x6B / 0x6A | `qmi_init(bus, acc_range, gyr_range, odr)`, `qmi_poll()`, `qmi_cal_gyro(n)`, `qmi_yaw_reset()` | `qmi_ax..az` g, `qmi_gx..gz` dps, `qmi_temp` C, `qmi_yaw` degrees (integrated gyro) |
+| `ak09918.tc` | AK09918C at 0x0C | `ak_init(bus, mode)`, `ak_poll()`, `ak_heading()`, `ak_cal_begin()` / `ak_cal_end()` | `ak_x/y/z` uT, `ak_heading()` degrees 0..360 |
+
+`examples/wave_rover_sensors.tc` shows all of them on the Tasmota main page and in the telemetry (with the commands `RoverCalGyro`, `RoverYaw0`, `RoverCalMag 1|0`).
+`examples/wave_sensors_test.tc` tests the decoding of all three **without hardware** (47 checks: byte order, signs, scale factors, overflow flag, calibration, heading);
+it runs on any TinyC device. It cannot show that the I2C access itself works. Details (units, register layout, calibration) are in the header of each library.
+Written from the datasheets and the Waveshare source (GPL, used as a register reference only), **not tested on the rover yet**. Open: which chip axis points "forward" on the board, and how
+strongly the motors disturb the compass (it sits next to them: calibrate with the motors off and check the field while driving).
+
 ## Not done yet
 
-- SD card pins, OLED text, IMU/compass drivers, the 12 V light outputs (IO4/IO5).
+- SD card pins, OLED text, the 12 V light outputs (IO4/IO5).
 - A faster PWM carrier (the Waveshare firmware uses 100 kHz).
 - The Waveshare JSON commands (`{"T":1,"L":0.2,"R":0.2}` etc.) are **not** implemented: a Raspberry Pi running Waveshare's `ugv_rpi` program would need them over the UART
   (the commands are simple, they can be added in TinyC when needed).

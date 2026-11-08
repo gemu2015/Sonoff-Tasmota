@@ -1,0 +1,185 @@
+// ak09918.tc - AK09918C 3-axis magnetometer / compass (I2C 0x0C, fixed address), pure TinyC.
+//
+// The WAVE ROVER / Waveshare "General Driver for Robots" has one next to the QMI8658C. No Tasmota driver exists.
+//
+// Use (main() only: ak_init() waits for the chip):
+//   #include "ak09918.tc"
+//   int main() { ak_init(0, 8); return 0; }          // bus 0, continuous 100 Hz   (mode 2 = 10 Hz, 4 = 20 Hz, 6 = 50 Hz, 8 = 100 Hz)
+//   void Every50ms() { if (ak_poll() == 1) { /* new sample: ak_x, ak_y, ak_z in microtesla, ak_heading() */ } }
+//
+// ak_poll() returns 1 = new sample read, 0 = no new sample yet (not an error), -1 = I2C error, -2 = sensor overflow (sample ignored).
+// Results (float): ak_x, ak_y, ak_z in microtesla (0.15 uT per bit) minus the offsets ak_ox, ak_oy, ak_oz; ak_rx, ak_ry, ak_rz raw counts.
+// ak_heading() = angle of the field in the X/Y plane in degrees 0..360 (0 = +X axis, counter-clockwise), -1 if the field there is ~0.
+// It has NO tilt compensation, and it is only meaningful after a hard-iron calibration: turn the rover slowly through at least one full
+// circle with ak_cal_begin() ... ak_cal_end(); that sets the offsets to the middle of the min/max of each axis.
+// The motors and the battery are right next to the sensor: expect a field that changes with motor current. Which board axis
+// is "forward" depends on how the chip sits on the board: check by hand, then add ak_heading_offset.
+//
+// Register layout (AK09918C datasheet / Waveshare source): WIA1 0x00 = 0x48, WIA2 0x01 = 0x0C, ST1 0x10 (bit 0 = data ready),
+// HXL..HZH 0x11..0x16 (little endian, signed), TMPS 0x17, ST2 0x18 (bit 3 = overflow; reading ST2 releases the data), CNTL2 0x31 =
+// mode, CNTL3 0x32 = soft reset (bit 0). 9 bytes from 0x10 read ST1 .. ST2 in one go.
+// NOT yet tested on the rover (written from the datasheet and the Waveshare source before it arrived).
+
+#define AK_ADDR      0x0C
+#define AK_REG_WIA1  0x00
+#define AK_REG_WIA2  0x01
+#define AK_REG_ST1   0x10
+#define AK_REG_CNTL2 0x31
+#define AK_REG_CNTL3 0x32
+
+int   ak_addr = 0;          // 0 = not initialised
+int   ak_bus  = 0;
+int   ak_ok   = 0;
+int   ak_ovf  = 0;
+int   ak_rx = 0;
+int   ak_ry = 0;
+int   ak_rz = 0;
+float ak_x = 0.0;
+float ak_y = 0.0;
+float ak_z = 0.0;
+float ak_ox = 0.0;          // hard-iron offsets in microtesla
+float ak_oy = 0.0;
+float ak_oz = 0.0;
+float ak_heading_offset = 0.0;
+int   ak_cal = 0;           // 1 while calibrating
+float ak_minx = 0.0;
+float ak_maxx = 0.0;
+float ak_miny = 0.0;
+float ak_maxy = 0.0;
+float ak_minz = 0.0;
+float ak_maxz = 0.0;
+char  ak_buf[10];
+
+// two bytes (little endian) -> signed 16 bit
+int ak_s16(int lo, int hi) {
+    int v = ((hi & 255) << 8) | (lo & 255);
+    if (v & 0x8000) { v = v - 65536; }
+    return v;
+}
+
+// ak_buf[0..8] = ST1, HXL..HZH, TMPS, ST2 -> 1 = new sample stored, 0 = no new sample, -2 = overflow
+int ak_decode() {
+    int st1 = ak_buf[0] & 255;
+    int st2 = ak_buf[8] & 255;
+    if ((st1 & 1) == 0) { return 0; }
+    if (st2 & 8) {
+        ak_ovf = 1;
+        return -2;
+    }
+    ak_ovf = 0;
+    ak_rx = ak_s16(ak_buf[1], ak_buf[2]);
+    ak_ry = ak_s16(ak_buf[3], ak_buf[4]);
+    ak_rz = ak_s16(ak_buf[5], ak_buf[6]);
+    ak_x = (float)ak_rx * 0.15 - ak_ox;
+    ak_y = (float)ak_ry * 0.15 - ak_oy;
+    ak_z = (float)ak_rz * 0.15 - ak_oz;
+    return 1;
+}
+
+// find the chip, reset it and start continuous measurement; 1 = found. main() only (it waits).
+int ak_init(int bus, int mode) {
+    ak_ok = 0;
+    if (i2cSetDevice(AK_ADDR, bus) == 0) { return 0; }
+    ak_addr = AK_ADDR;
+    ak_bus = bus;
+    if (i2cRead8(AK_ADDR, AK_REG_WIA1, bus) != 0x48 || i2cRead8(AK_ADDR, AK_REG_WIA2, bus) != 0x0C) {
+        ak_addr = 0;                                     // not an AK09918
+        return 0;
+    }
+    i2cSetActiveFound(AK_ADDR, "AK09918", bus);
+    i2cWrite8(AK_ADDR, AK_REG_CNTL3, 0x01, bus);        // soft reset
+    delay(5);
+    i2cWrite8(AK_ADDR, AK_REG_CNTL2, mode & 0x1F, bus);
+    delay(10);
+    return 1;
+}
+
+// one raw sample (microtesla, offsets NOT applied) into the calibration min/max
+void ak_cal_feed(float x, float y, float z) {
+    if (x < ak_minx) { ak_minx = x; }
+    if (x > ak_maxx) { ak_maxx = x; }
+    if (y < ak_miny) { ak_miny = y; }
+    if (y > ak_maxy) { ak_maxy = y; }
+    if (z < ak_minz) { ak_minz = z; }
+    if (z > ak_maxz) { ak_maxz = z; }
+}
+
+// 1 = new sample, 0 = none yet, -1 = I2C error, -2 = overflow
+int ak_poll() {
+    int r = 0;
+    ak_ok = 0;
+    if (ak_addr == 0) { return -1; }
+    if (i2cRead(ak_addr, AK_REG_ST1, ak_buf, 9, ak_bus) != 1) { return -1; }
+    r = ak_decode();
+    if (r == 1) {
+        ak_ok = 1;
+        if (ak_cal == 1) { ak_cal_feed((float)ak_rx * 0.15, (float)ak_ry * 0.15, (float)ak_rz * 0.15); }
+    }
+    return r;
+}
+
+// calibration: ak_cal_begin(); turn the rover slowly through a full circle while ak_poll() runs; ak_cal_end()
+void ak_cal_begin() {
+    ak_cal = 1;
+    ak_ox = 0.0;
+    ak_oy = 0.0;
+    ak_oz = 0.0;
+    ak_minx = 10000.0;
+    ak_maxx = -10000.0;
+    ak_miny = 10000.0;
+    ak_maxy = -10000.0;
+    ak_minz = 10000.0;
+    ak_maxz = -10000.0;
+}
+
+void ak_cal_end() {
+    ak_cal = 0;
+    if (ak_maxx > ak_minx && ak_maxy > ak_miny && ak_maxz > ak_minz) {
+        ak_ox = (ak_minx + ak_maxx) / 2.0;
+        ak_oy = (ak_miny + ak_maxy) / 2.0;
+        ak_oz = (ak_minz + ak_maxz) / 2.0;
+    }
+}
+
+// atan2 in degrees (-180..180) without a library call: polynomial for |y/x| <= 1 (error below 0.001 degree), then the quadrants.
+// (TinyC has acos but no atan; the IDE simulator has not even acos, so this is plain arithmetic that runs everywhere.)
+float ak_atan2deg(float y, float x) {
+    float ax = x;
+    float ay = y;
+    float z = 0.0;
+    float z2 = 0.0;
+    float a = 0.0;
+    int swap = 0;
+    if (ax < 0.0) { ax = 0.0 - ax; }
+    if (ay < 0.0) { ay = 0.0 - ay; }
+    if (ax == 0.0 && ay == 0.0) { return 0.0; }
+    if (ay > ax) {
+        z = ax / ay;
+        swap = 1;
+    } else {
+        z = ay / ax;
+    }
+    z2 = z * z;
+    a = z * (0.999866 + z2 * (-0.3302995 + z2 * (0.180141 + z2 * (-0.085133 + z2 * 0.0208351))));
+    if (swap == 1) { a = 1.5707963 - a; }
+    if (x < 0.0) { a = 3.1415927 - a; }
+    if (y < 0.0) { a = 0.0 - a; }
+    return a * 57.29578;
+}
+
+// angle of the field in the X/Y plane, 0..360 degrees (0 = +X axis, counter-clockwise), -1 = no usable field (below 0.5 uT)
+float ak_heading() {
+    float a = 0.0;
+    if (ak_x * ak_x + ak_y * ak_y < 0.25) { return -1.0; }
+    a = ak_atan2deg(ak_y, ak_x) + ak_heading_offset;
+    while (a >= 360.0) { a = a - 360.0; }
+    while (a < 0.0) { a = a + 360.0; }
+    return a;
+}
+
+void ak_release() {
+    if (ak_addr != 0) {
+        I2cResetActive(ak_addr, ak_bus);
+        ak_addr = 0;
+    }
+}
