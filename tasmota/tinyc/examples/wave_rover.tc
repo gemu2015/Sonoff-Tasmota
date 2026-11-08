@@ -1,0 +1,217 @@
+// @name: WAVE ROVER drive
+// WAVE ROVER (Waveshare, ESP32 "General Driver for Robots") driven by TinyC instead of the Waveshare firmware:
+// a touch joystick page with a dead-man watchdog, speed limit and battery guard. See docs/WAVE_ROVER.md for the
+// hardware, the Tasmota settings (I2C on GPIO 32/33, leave the motor pins UNASSIGNED) and how to flash / go back.
+//
+//   http://<ip>/rover        the joystick page (touch or mouse; arrow keys / WASD on a computer)
+//   http://<ip>/rover_cmd?d=<-100..100>&t=<-100..100>&m=<10..100>   one drive command, answers a small JSON
+//
+// Safety, in the order it matters:
+// - DEAD-MAN: every drive command must be renewed. The page sends one every 100 ms while a finger / key is down;
+//   when nothing arrives for WD_MS (300 ms) the motors stop (the Waveshare firmware waits 3 s).
+// - The page sends "stop" when the finger lifts, the tab is hidden or the window loses focus.
+// - Speed limit m (default 40 %), the page lets you raise it to 100 %.
+// - Battery guard: below VBAT_MIN_MV the motors are refused (3S Li-ion; INA219 on I2C 0x42; not checked if absent).
+// - A slot stop (CleanUp) and the start of the program switch all motor pins off.
+// Motor side A = LEFT, B = RIGHT (as in the Waveshare source, WAVE ROVER). If the rover drives mirrored or backwards,
+// change DIR_L / DIR_R below. The N20 motors do not turn below PWM 23 (Waveshare THRESHOLD_PWM): the first step is 23.
+// The PWM carrier here is the Arduino default (1 kHz); the Waveshare firmware uses 100 kHz. 1 kHz works but whines.
+//
+// NOT tested on the rover yet (written from the Waveshare source before the rover arrived).
+
+#define OUTPUT      3
+
+#define PIN_PWMA    25
+#define PIN_AIN1    21
+#define PIN_AIN2    17
+#define PIN_BIN1    22
+#define PIN_BIN2    23
+#define PIN_PWMB    26
+
+#define DIR_L       1        // -1 turns the left side around
+#define DIR_R       1
+#define PWM_MIN     23       // lowest PWM at which the N20 motors turn
+#define WD_MS       300      // dead-man time
+#define VMAX_START  40       // speed limit at start, percent
+#define INA_ADDR    0x42     // INA219 on the driver board
+#define I2C_BUS     0
+#define VBAT_MIN_MV 9300     // 3S Li-ion: stop driving below this (3.1 V per cell)
+
+int drive   = 0;             // -100..100, forward positive
+int turn    = 0;             // -100..100, right positive
+int vmax    = VMAX_START;    // speed limit in percent (10..100)
+int lastcmd = 0;             // millis() of the last drive command
+int motL    = 0;             // last PWM left, -255..255
+int motR    = 0;
+int stops   = 0;             // how often the watchdog stopped a moving rover
+int vbat_mv = 0;             // 0 = INA219 not read
+int low     = 0;             // 1 = battery guard active
+char vb[8];
+char cb[24];
+char ob[96];
+
+int rover_clamp(int v, int lo, int hi) {
+    if (v < lo) { return lo; }
+    if (v > hi) { return hi; }
+    return v;
+}
+
+// percent -100..100 (after the speed limit) -> PWM -255..255 with the dead zone of the motors
+int rover_pwm(int pct) {
+    int a = pct;
+    int p = 0;
+    if (a < 0) { a = 0 - a; }
+    if (a == 0) { return 0; }
+    p = PWM_MIN + ((255 - PWM_MIN) * a) / 100;
+    if (pct < 0) { p = 0 - p; }
+    return p;
+}
+
+void rover_side(int pwm, int pin_pwm, int pin_in1, int pin_in2) {
+    int a = pwm;
+    if (a < 0) { a = 0 - a; }
+    if (pwm == 0) {
+        digitalWrite(pin_in1, 0);
+        digitalWrite(pin_in2, 0);
+        analogWrite(pin_pwm, 0);
+    } else if (pwm > 0) {
+        digitalWrite(pin_in1, 1);          // forward = IN1 high, IN2 low (Waveshare WAVE ROVER)
+        digitalWrite(pin_in2, 0);
+        analogWrite(pin_pwm, a);
+    } else {
+        digitalWrite(pin_in1, 0);
+        digitalWrite(pin_in2, 1);
+        analogWrite(pin_pwm, a);
+    }
+}
+
+// mix drive/turn into two side values and put them on the pins
+void rover_apply() {
+    int l = drive + turn;
+    int r = drive - turn;
+    int pl = 0;
+    int pr = 0;
+    l = rover_clamp(l, -100, 100);
+    r = rover_clamp(r, -100, 100);
+    if (low == 1) {
+        l = 0;
+        r = 0;
+    }
+    pl = rover_pwm((l * vmax) / 100) * DIR_L;
+    pr = rover_pwm((r * vmax) / 100) * DIR_R;
+    if (pl != motL) {
+        rover_side(pl, PIN_PWMA, PIN_AIN1, PIN_AIN2);
+        motL = pl;
+    }
+    if (pr != motR) {
+        rover_side(pr, PIN_PWMB, PIN_BIN1, PIN_BIN2);
+        motR = pr;
+    }
+}
+
+void rover_off() {
+    drive = 0;
+    turn = 0;
+    motL = 1;                  // force the pins to be written
+    motR = 1;
+    rover_apply();
+}
+
+// battery voltage in mV from the INA219 bus voltage register (13 bit, 4 mV per step); 0 = not readable
+int rover_vbat() {
+    int raw = 0;
+    if (i2cRead(INA_ADDR, 2, vb, 2, I2C_BUS) != 1) { return 0; }
+    raw = ((vb[0] & 255) << 8) | (vb[1] & 255);
+    return (raw >> 3) * 4;
+}
+
+void EverySecond() {
+    vbat_mv = rover_vbat();
+    if (vbat_mv > 0 && vbat_mv < VBAT_MIN_MV) {
+        if (low == 0) { addLog("ROVER: battery low (%d mV), motors off", vbat_mv); }
+        low = 1;
+        rover_apply();
+    } else if (vbat_mv >= VBAT_MIN_MV + 300) {
+        low = 0;                                     // 0.3 V hysteresis
+    }
+}
+
+void Every50ms() {
+    if (millis() - lastcmd > WD_MS) {
+        if (motL != 0 || motR != 0) {
+            stops = stops + 1;
+        }
+        drive = 0;
+        turn = 0;
+        rover_apply();
+    }
+}
+
+void WebCall() {
+    webSend("{s}Rover battery{m}");
+    sprintf(ob, "%d.%02d V", vbat_mv / 1000, (vbat_mv % 1000) / 10);
+    webSend(ob);
+    if (low == 1) { webSend(" LOW"); }
+    webSend("{e}{s}Rover motors L / R{m}");
+    sprintf(ob, "%d / %d  (watchdog stops %d)", motL, motR, stops);
+    webSend(ob);
+    webSend("{e}{s}Rover page{m}<a href='/rover'>/rover</a>{e}");
+}
+
+void rover_page() {
+    webSend("<!DOCTYPE html><meta name=viewport content='width=device-width,initial-scale=1'><title>WAVE ROVER</title>");
+    webSend("<style>body{font-family:sans-serif;margin:12px;text-align:center}");
+    webSend("#pad{width:280px;height:280px;margin:10px auto;border:2px solid #888;border-radius:50%;touch-action:none;position:relative}");
+    webSend("#dot{width:40px;height:40px;border-radius:50%;background:#2a7;position:absolute;left:120px;top:120px}</style>");
+    webSend("<h3>WAVE ROVER</h3><div id=st>-</div><div id=pad><div id=dot></div></div>");
+    webSend("<p>Speed limit <input type=range id=mx min=10 max=100 value=40 oninput='mxv.textContent=this.value'> <span id=mxv>40</span> %</p>");
+    webSend("<button onclick='halt()'>STOP</button><p>Arrow keys / WASD also work. Motors stop 0.3 s after the last command.</p>");
+    webSend("<script>var d=0,t=0,act=0,tm=null,ks={},p=document.getElementById('pad'),dot=document.getElementById('dot');");
+    webSend("function send(){fetch('rover_cmd?d='+d+'&t='+t+'&m='+mx.value).then(function(r){return r.json()}).then(function(j){");
+    webSend("st.textContent=j.v+' V   L '+j.l+'   R '+j.r+'   stops '+j.wd+(j.lo?'   LOW BATTERY':'')}).catch(function(){st.textContent='no link'})}");
+    webSend("function go(){if(!tm){tm=setInterval(send,100)}send()}");
+    webSend("function halt(){d=0;t=0;dot.style.left='120px';dot.style.top='120px';send();clearInterval(tm);tm=null}");
+    webSend("function mv(e){var r=p.getBoundingClientRect(),x=(e.clientX-r.left-140)/140,y=(e.clientY-r.top-140)/140,n=Math.hypot(x,y);");
+    webSend("if(n>1){x/=n;y/=n}t=Math.round(x*100);d=Math.round(-y*100);dot.style.left=(120+x*120)+'px';dot.style.top=(120+y*120)+'px'}");
+    webSend("p.onpointerdown=function(e){p.setPointerCapture(e.pointerId);act=1;mv(e);go()};");
+    webSend("p.onpointermove=function(e){if(act)mv(e)};p.onpointerup=function(e){act=0;halt()};p.onpointercancel=p.onpointerup;");
+    webSend("function kk(){d=(ks.ArrowUp||ks.w?100:0)-(ks.ArrowDown||ks.s?100:0);t=(ks.ArrowRight||ks.d?60:0)-(ks.ArrowLeft||ks.a?60:0);if(d||t){go()}else{halt()}}");
+    webSend("document.onkeydown=function(e){if(!ks[e.key]){ks[e.key]=1;kk()}};document.onkeyup=function(e){ks[e.key]=0;kk()};");
+    webSend("window.onblur=function(){ks={};act=0;halt()};document.onvisibilitychange=function(){if(document.hidden){ks={};act=0;halt()}};");
+    webSend("</script>");
+}
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) {
+        rover_page();
+    }
+    if (h == 2) {
+        if (webArg("d", cb) > 0) { drive = rover_clamp(strToInt(cb), -100, 100); }
+        if (webArg("t", cb) > 0) { turn = rover_clamp(strToInt(cb), -100, 100); }
+        if (webArg("m", cb) > 0) { vmax = rover_clamp(strToInt(cb), 10, 100); }
+        lastcmd = millis();
+        rover_apply();
+        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low);
+        webSend(ob);
+    }
+}
+
+void CleanUp() {
+    rover_off();
+}
+
+int main() {
+    pinMode(PIN_PWMA, OUTPUT);
+    pinMode(PIN_AIN1, OUTPUT);
+    pinMode(PIN_AIN2, OUTPUT);
+    pinMode(PIN_PWMB, OUTPUT);
+    pinMode(PIN_BIN1, OUTPUT);
+    pinMode(PIN_BIN2, OUTPUT);
+    rover_off();
+    lastcmd = millis();
+    webOn(1, "/rover");
+    webOn(2, "/rover_cmd");
+    addLog("ROVER: ready, page /rover, watchdog %d ms, speed limit %d %%", WD_MS, VMAX_START);
+    return 0;
+}

@@ -208,6 +208,7 @@ wav_diag.tcb
 wav_player.tcb
 wav_ram.tcb
 wav_rd.tcb
+wave_rover.tcb
 wd_logger.tcb
 weather.tcb
 web_buttons.tcb
