@@ -2,7 +2,7 @@
 //
 // Writes small test files to /cfg_t.tmp, reads them with cfgGetT() and compares return code, value and error line with
 // what is expected. Needs a writable file system (SD card or flash). Result in the log:
-//   CFGTEST: 43 passed, 0 failed          (one "CFGTEST FAIL: ..." line per failing case before it)
+//   CFGTEST: 46 passed, 0 failed          (one "CFGTEST FAIL: ..." line per failing case before it)
 // Run it once after every change of common/cfg.tc. Cases cover: comments, blank lines, CRLF, quotes, "" inside quotes,
 // the [TYPE] label rules, IP4 and FTP-DIR, UTF-8, line too long (255 ok, 256 error), error line numbers, first key wins,
 // whole-file check (an error AFTER the wanted key still counts), missing file / key, buffer too small.
@@ -51,6 +51,32 @@ void t_long(char prefix[], int n) {
     strcpy(b, "\n");
     fileWrite(f, b, 1);
     fileClose(f);
+}
+
+// a file "DIR=/" + the two bytes b1, b2 + line break. Non-ASCII bytes must go in as NUMBERS: the compiler turns "\xC3" in a
+// string literal into the code point U+00C3, i.e. the two bytes C3 83, so a literal can never make broken UTF-8 (found on .190,
+// the simulator keeps the raw byte and hid it)
+void t_dirbytes(int b1, int b2) {
+    char b[16];
+    strcpy(b, "DIR=/");
+    b[5] = b1;
+    b[6] = b2;
+    b[7] = '\n';
+    b[8] = 0;
+    t_write(b);
+}
+
+// UTF-8 case: bytes b1 b2 as the directory, key DIR, type FTP-DIR; want_rc -10 = broken UTF-8
+void t_utf8(char name[], int b1, int b2, int want_rc) {
+    char w[8];
+    int rc = 0;
+    strcpy(w, "/");
+    w[1] = b1;
+    w[2] = b2;
+    w[3] = 0;
+    t_dirbytes(b1, b2);
+    rc = cfgGetT("/cfg_t.tmp", "DIR", "FTP-DIR", t_val, 64);
+    t_check(name, rc, want_rc, -1, w);
 }
 
 void t_check(char name[], int rc, int want_rc, int want_line, char want_val[]) {
@@ -124,8 +150,11 @@ int main() {
     t_case("dir ok",           "DIR=/FRITZ/mediabox\n", "DIR", "FTP-DIR", 64, 0, -1, "/FRITZ/mediabox");
     t_case("dir control char", "DIR=\"/a\tb\"\n", "DIR", "FTP-DIR", 64, -5, 1, "");
     t_case("dir empty",        "DIR=\n", "DIR", "FTP-DIR", 64, -5, 1, "");
-    t_case("dir UTF-8 ok",     "DIR=/Ordner/\xC3\x9Cbung\n", "DIR", "FTP-DIR", 64, 0, -1, "/Ordner/\xC3\x9Cbung");
-    t_case("UTF-8 broken",     "DIR=/\xC3\x28\n", "DIR", "FTP-DIR", 64, -10, 1, "");
+    t_utf8("UTF-8 ok (U-umlaut)", 195, 156, 0);                           // C3 9C
+    t_utf8("UTF-8 broken: C3 28",  195, 40, -10);                          // lead byte, then not a continuation byte
+    t_utf8("UTF-8 broken: C0 80",  192, 128, -10);                         // overlong form
+    t_utf8("UTF-8 broken: lone continuation", 128, 97, -10);               // 80 61
+    t_utf8("UTF-8 broken: cut off", 226, 130, -10);                        // E2 82 and then the line ends
     // --- limits, line numbers, whole-file check
     t_long("X=1\n", 253);                                                  // line 2 is 255 characters: allowed
     rc = cfgGetT("/cfg_t.tmp", "K", "", t_val, 320);
