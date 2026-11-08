@@ -47,6 +47,7 @@ h1{font-size:22px;margin:0;font-weight:650}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
 .btn{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+a.btn{text-decoration:none}   /* 06.11. (Andreas): wie HEMS */
 .btn.tas{background:#1fa3ec;color:#fff;border:0;text-decoration:none}
 .btn#theme{background:#FFEB9C;color:#9C5700;border:0}
 .pane{display:none} .pane.on{display:block}
@@ -89,6 +90,7 @@ th:first-child,td:first-child{text-align:left}
 th{color:var(--ink-2);font-weight:600}
 .tblwrap{overflow-x:auto}
 #ptab td:nth-child(3),#ptab td:nth-child(2){white-space:nowrap}
+#vtab td{white-space:nowrap}
 .row{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
 .row input:not([type=radio]):not([type=checkbox]){width:100px;background:var(--surface-2);color:var(--ink);border:1px solid var(--ring);border-radius:6px;padding:6px}
 .big{border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;color:#fff}
@@ -141,13 +143,16 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
 .frage_knoepfe button { border:1px solid var(--axis); border-radius:6px; padding:8px 14px; cursor:pointer; font-weight:600; background:var(--surface-2); color:var(--ink); }
 .frage_knoepfe button.ja { background:var(--crit); border-color:var(--crit); color:#fff; }
 </style>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- 06.11. (Andreas): Tab-Symbol wie HEMS -->
 </head>
 <body>
 <div class="wrap">
 <header>
-  <div>
-    <h1>SteuVE</h1>
-    <div class="sub" id="sub">—</div>
+  <div style="display:grid;grid-template-columns:auto auto;column-gap:14px;align-items:center;justify-items:start">   <!-- 06.11. (Andreas): Kopf wie HEMS - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben -->
+    <span style="justify-self:center;line-height:0"><svg width="36" height="36" role="img" aria-label="HEMS-Logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="#37c871" stroke-width="3"/><g transform="translate(32 32) scale(1.1)"><path d="M2-9L-5 1H0L-2 9L6-2H1Z" fill="#37c871"/></g><circle cx="32" cy="11" r="10.500" fill="#2a2600"/><circle cx="32" cy="11" r="3.7" fill="#f5c518"/><line x1="37.6" y1="11" x2="40.1" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="14.9" x2="37.7" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="16.6" x2="32" y2="19.1" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="14.9" x2="26.3" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="26.4" y1="11" x2="23.9" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="7.1" x2="26.3" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="5.4" x2="32" y2="2.9" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="7.1" x2="37.7" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><circle cx="13" cy="44" r="10.500" fill="#0a1a2a"/><g transform="translate(13 43.5) scale(0.56)"><path d="M-14 5V1L-10-6Q-9-8-6-8H6Q9-8 10-6L14 1V5Q14 6 13 6H-13Q-14 6-14 5Z" fill="#42a5f5"/><path d="M-8-5Q-7.500-6-6-6H-1V-1H-10ZM1-6H6Q7.500-6 8-5L10-1H1Z" fill="#fff" opacity=".85"/><circle cx="-8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/><circle cx="8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/></g><circle cx="51" cy="44" r="10.500" fill="#241a08"/><g transform="translate(51 44) scale(0.62)"><circle r="13" fill="none" stroke="#ff9800" stroke-width="2.600"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(0)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(120)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(240)"/><circle r="2" fill="#ff9800"/></g></svg></span>
+    <h1 title="steuerbare Verbrauchseinrichtung">SteuVE</h1>
+    <div class="sub" id="sub_ip" style="justify-self:center">—</div>
+    <div class="sub" id="sub" style="font-size:16px">—</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center"><a class="btn tas" href="/">&#8592; Tasmota</a><a class="btn" href="/tc" title="TinyC-Seite: Slots, Laden, IDE-Update">TinyC</a><a class="btn" href="/ide" target="_blank" title="TinyC-IDE auf Port 82" onclick="this.href='http://'+location.hostname+':82/ide'">TinyC-IDE</a><button class="btn" id="theme">Hell / Dunkel</button></div>
 </header>
@@ -278,12 +283,11 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
     <span style="color:#d05a5a">rot gestrichelt umrandet = von SteuVE abgeschaltet</span>
   </div>
 </div>
-<div class="grid" id="vcards"></div>
 <section>
   <h3>Verbraucher <span class="note">— Abschaltreihenfolge: höchste Priorität zuerst</span></h3>
   <div class="card tblwrap"><table>
-    <thead><tr><th>Verbraucher</th><th>Gerät</th><th>Adresse</th><th>Nennleistung</th><th>Priorität</th><th>jetzt</th><th>Zustand</th><th>erreichbar</th></tr></thead>
-    <tbody id="vtab"><tr><td colspan="8">—</td></tr></tbody>
+    <thead><tr><th>Verbraucher</th><th style="text-align:center">Messgerät (M)<br>Schalter (S)</th><th>Gerät</th><th>Adresse</th><th>Nennleistung</th><th>Priorität</th><th>jetzt</th><th>Zustand</th><th>erreichbar</th></tr></thead>
+    <tbody id="vtab"><tr><td colspan="9">—</td></tr></tbody>
   </table>
   <p class="note">Geschaltet werden nur Verbraucher, die gerade ziehen. Wieder eingeschaltet wird gestaffelt, einer je 60 s
     (schrittweise Rückkehr), und nur was die SteuVE selbst abgeschaltet hat — während einer Begrenzung frühestens nach 5 min
@@ -924,22 +928,25 @@ function renderUeb(){
   $('c_r').textContent = c.Begrenzt ? (c.RestS < 0 ? 'unbefristet' : dauer(c.RestS)) : '—';
   $('c_s').textContent = W(c.Leistung);
   $('c_n').textContent = c.Max ? W(c.Max) : 'unbekannt';
-  $('vcards').innerHTML = v.map((x, i) => {
-    const col = FARBE[i % FARBE.length][0], err = x.err >= 3;
-    const z = err ? '<span class="tag">antwortet nicht</span>' : (x.stv ? '<span class="tag stv">von SteuVE aus</span>' : (x.an === 0 ? 'aus' : (x.an === 1 ? 'an' : '—')));
-    return `<div class="card"><h2 style="margin-bottom:4px"><span class="sw" style="background:${col}"></span><span class="vname" title="${esc(x.nm)}">${esc(x.nm)}</span></h2>` +
-      `<div class="vtags">${x.fake ? '<span class="tag fake">Fake</span> ' : ''}${x.abs ? '' : '<span class="tag">nur messen</span>'}</div>` +
-      `<div class="hero">${err ? '?' : de(x.w)}<small>W</small></div>` +
-      `<div class="kv"><span>Zustand</span><span>${z}</span><span>Priorität</span><span>${esc(x.prio)}</span>` +
-      `<span>Nennleistung</span><span>${W(x.nenn)}</span></div></div>`;
-  }).join('');
-  $('vtab').innerHTML = v.length ? v.map(x => {
-    const err = x.err >= 3;
+  // 07.11.2026 (Andreas): Einzelkarten je Verbraucher entfernt (stand alles auch in der Tabelle); Farbe steht beim
+  // Namen. Spalte M/S = Geraeteart laut Erkennung im Slot (Messgeraet ohne Relais / Schalter), NICHT der Haken
+  // "abschaltbar" (den stellt Andreas im Reiter Verbraucher selbst ein).
+  $('vtab').innerHTML = v.length ? v.map((x, i) => {
+    const err = x.err >= 3, col = FARBE[i % FARBE.length][0];
     const ger = x.fake ? '<span class="tag fake">Fake</span> ' + esc(PROF[x.prof] || '?') : esc(x.model || (x.typ === 2 ? 'Gen1' : (x.typ === 1 ? 'Gen2+' : 'unbekannt')));
-    return `<tr><td>${esc(x.nm)}</td><td>${ger}</td><td>${esc(x.ip)}</td><td>${W(x.nenn)}</td><td>${esc(x.prio)}</td>` +
+    return `<tr><td><span class="sw" style="background:${col};display:inline-block;margin-right:6px"></span>${esc(x.nm)}</td><td style="text-align:center">${artMS(x.typ, x.fake)}</td><td>${ger}</td><td>${esc(x.ip)}</td><td>${W(x.nenn)}</td><td>${esc(x.prio)}</td>` +
            `<td>${err ? '?' : W(x.w)}</td><td>${x.stv ? '<span class="tag stv">von SteuVE aus</span>' : (x.an === 0 ? 'aus' : (x.an === 1 ? 'an' : '—'))}</td>` +
            `<td>${x.err ? (err ? 'nein' : 'Aussetzer ' + x.err) : 'ja'}</td></tr>`;
-  }).join('') : '<tr><td colspan="8">' + (VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'keine Verbraucher eingetragen — Reiter Verbraucher') + '</td></tr>';
+  }).join('') : '<tr><td colspan="9">' + (VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'keine Verbraucher eingetragen — Reiter Verbraucher') + '</td></tr>';
+}
+// Geraeteart aus dem Typ, den der Slot erkennt (cTyp, wie typNurMessen() im Slot): 3..6 Shelly PM1/EM1/EM/Gen1-EM,
+// 8/9 Tasmota ohne Relais = Messgeraet; 1/2/7 = Schalter; 0 = noch nicht erkannt. Fake = simulierter Schalter.
+function nurMessTyp(t){ return (t >= 3 && t <= 6) || t === 8 || t === 9; }
+function artMS(t, fake){
+  if (fake) { return 'S'; }
+  if (nurMessTyp(t)) { return '<span title="Messgerät ohne Relais – kann nicht schalten">M</span>'; }
+  if (t === 1 || t === 2 || t === 7) { return '<span title="Gerät mit Relais – kann schalten">S</span>'; }
+  return '<span title="Gerät noch nicht erkannt">?</span>';
 }
 
 // ---- Reiter Verbraucher: Formular aus STVCFG, Speichern per STVSET (je Platz, mit Wiederholung)
@@ -967,7 +974,9 @@ function renderShForm(){
       `<td><input type="text" class="nm" value="${esc(c[1])}" maxlength="15" placeholder="${m ? 'Name des Melders' : 'Name des Verbrauchers'}"></td>` +
       (m ? `<td><span class="ring" id="ringnow"></span><span id="ringtxt">—</span></td>`
          : `<td><input type="text" class="nw" value="${c[3] > 0 ? c[3] : ''}" placeholder="${NENN0}" inputmode="numeric"> W</td>` +
-           `<td class="c"><input type="checkbox" class="ab"${c[5] ? ' checked' : ''}></td>`) +
+           (nurMessTyp(c[7]) && !c[4]
+             ? `<td class="c"><input type="checkbox" class="ab" disabled title="Messgerät ohne Relais – kann nicht abschalten"><br><span class="note">Messgerät</span></td>`
+             : `<td class="c"><input type="checkbox" class="ab"${c[5] ? ' checked' : ''}></td>`)) +
       `<td class="st"><span class="md">${md}</span><span class="fr">nicht belegt</span>${m ? '' : profSel(c[6] || 4)}</td>` +
       `<td><button class="btn pr" data-pl="${c[0]}">prüfen</button></td></tr>`;
   };
@@ -1155,9 +1164,7 @@ $('hm_neu').onclick = () => { knopfStart($('hm_neu'), 'lädt …'); ladeHm().the
 // ---- Kopf, Statusleiste, Test-Reiter
 function renderKopf(){
   const c = CS || {}, v = verbraucher(), sl = slotBySki(c.Vertraut || '');
-  const jetzt = new Date();
-  $('sub').textContent = location.hostname + ' · ' + jetzt.toLocaleDateString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'}) +
-                         ' · ' + jetzt.toLocaleTimeString('de-DE') + ' · steuerbare Verbrauchseinrichtung';
+  kopfZeit();   // 06.11.: Kopfzeile jetzt jede Sekunde wie beim HEMS (kopfZeit)
   if (!CS) { $('chips').innerHTML = '<span class="chip"><span class="dot cr"></span><b>Gerät</b> antwortet nicht</span>'; return; }
   const chip = (cls, txt) => `<span class="chip"><span class="dot ${cls}"></span>${txt}</span>`;
   const zcls = c.Zustand === 'Failsafe' ? 'cr' : (c.Begrenzt ? 'wa' : (c.Zustand === 'gesteuert' ? 'ok' : ''));
@@ -1266,6 +1273,22 @@ $('theme').onclick = () => {
 document.querySelector('.tabs button').click();
 render();
 poll();
+// 06.11. (Andreas): Kopf wie HEMS - Adresse unter dem Logo, Datum · Uhrzeit · läuft seit x h, jede Sekunde.
+// Laufzeit aus Status 11 (alle 60 s), dazwischen zählt der Browser weiter.
+var UP_S = -1, UP_AT = 0;
+function kopfZeit(){
+  const jetzt = new Date();
+  $('sub_ip').textContent = location.hostname;
+  const lauf = UP_S >= 0 ? ' · läuft seit ' + Math.floor((UP_S + (Date.now() - UP_AT) / 1000) / 3600) + ' h' : '';
+  $('sub').textContent = jetzt.toLocaleDateString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'}) +
+                         ' · ' + jetzt.toLocaleTimeString('de-DE') + lauf;
+}
+function ladeLaufzeit(){
+  return Promise.resolve(cmd('Status 11')).then(st => { const u = st && st.StatusSTS && +st.StatusSTS.UptimeSec; if (u >= 0) { UP_S = u; UP_AT = Date.now(); } }).catch(() => {});
+}
+kopfZeit(); ladeLaufzeit();
+setInterval(() => { if (!document.hidden) { kopfZeit(); } }, 1000);
+setInterval(() => { if (!document.hidden) { ladeLaufzeit(); } }, 60000);
 setInterval(poll, 10000);
 document.addEventListener('visibilitychange', poll);
 </script>

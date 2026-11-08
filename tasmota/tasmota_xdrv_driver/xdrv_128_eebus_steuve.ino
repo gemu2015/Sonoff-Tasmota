@@ -6,6 +6,21 @@
   sie nach aussen (Tasmota-Ereignis/Befehl), damit z. B. ein Skript Verbraucher schaltet.
 
   Abgeleitet aus xdrv_126_eebus_guard.ino v184 (Steuerbox). Eigene Versionszaehlung ab SteuVE v001.
+  SteuVE v030 = Firmware-Stand v030 (06.11.2026; Kopf-Historie zaehlte v026 -> v030, Firmware v027-v29 gab es schon; Pruefung aller Treiber, Befundliste 2026-11-06--1245): gesammelte Korrekturen, eine Version.
+    Senden (wie Steuerbox v187/v204/v226/v228): Frame in EINEM Puffer und EINEM write(); nicht blockierend (tls_mini
+    setSendWaitMs 3 s, beim Abbau 100 ms); sendStuck im 100-ms-Takt -> sofort abbauen; ein halb gesendeter Frame baut ab
+    (EebusSendBroken, send_broken), auch ueber eingehende Verbindungen (ESrv.send_kaputt), dort hoechstens 8 s je Sendung.
+    Empfang: WS-Laenge ohne 32-Bit-Ueberlauf (len > max - total), Laenge ueber 1 MB = Strom kaputt; Abbruch mitten im Frame
+    baut ab statt aus dem Takt weiterzulesen; hoechstens 20 Nachrichten je Takt; Heap-Pruefung nicht mehr je Frame.
+    Norm LPC V1.0.0: negative Grenze -> NACK (Z. 313); Grenze in Anlauf/Failsafe/autonom als deaktiviert gemeldet und beim
+    Eintritt in Failsafe/autonom deaktiviert (Z. 426-439, [LPC-009/2]); Herzschlag-Frist in "gesteuert" ab dem letzten
+    Herzschlag ([LPC-911]/[LPC-912]); Write auf fremde limitId -> NACK (Z. 332-334); Failsafe-Write mit negativer Leistung
+    oder Mindestdauer unter 2 h -> NACK, alte Werte bleiben ([LPC-003/2], [LPC-022/3]); 0 W Failsafe gueltig (Z. 404-405);
+    heartbeatCounter nur bei notify ([LPC-032], Tab. 28). scale aus dem Frame begrenzt (Watchdog).
+    Befehle mit Zahlenpruefung (CsPower, CsMax, CsFs, CsSim, AutoConn, Role, Lpc, Lpp), PeerMode nur mit voller SKI,
+    ConnectIp ueberschreibt peers[0] nicht mehr und uebernimmt die SKI aus dem Zertifikat. SKI-Vergleiche ueberall ohne
+    Gross-/Kleinschreibung (14 Stellen, beantwortet die Frage vom 04.11. zu Z. 5721/5736). Logtexte (Herzschlag-Takt,
+    TLS-Suite) und veraltete Kopfkommentare berichtigt.
   SteuVE v017 (21.10.2026): eingehende Verbindung auch ueber die AccessMethods-Kennung der SKI zuordnen (wie Steuerbox v188).
   SteuVE v018 (21.10.2026): eine ueber die Kennung zugeordnete SKI zaehlt NICHT fuer das Vertrauen (EebusCsTrusted) -
     Hinweis gemu: die Kennung sendet das Gegenueber selbst; ohne SKI-Pruefung am Zertifikat sonst leichter zu faelschen.
@@ -83,19 +98,11 @@
 
   Offen: mehrere eingehende Verbindungen gleichzeitig (SHIP 12.2.2 Doppelverbindungs-Regel).
 
-  ACHTUNG - EINGEHENDE VERBINDUNGEN WERDEN NICHT GEGEN DIE PEER-SKI GEPRUEFT.
-  Ausgehend ist die Identitaet in Ordnung: beidseitiges TLS, unser Zertifikat geht bei jedem
-  Verbindungsaufbau hinaus, und die Gegenstelle vertraut uns anhand unserer SKI. Eingehend fehlt
-  uns die Gegenrichtung — die schlanke TLS-Bibliothek (tls_mini) fordert kein Client-Zertifikat an
-  und gibt das Peer-Zertifikat nicht heraus, also kann die SKI der Gegenstelle nicht gelesen werden.
-  Als Ersatz traegt ein eingehender Slot die PEER-IP als Pseudo-SKI (s. EebusInboundAccept).
-  Folgen, die man kennen muss:
-    - wer den SHIP-Port erreicht, wird angenommen; wir wissen nicht, WER dort spricht
-    - die Zuordnung je Geraet (EEBusPeerMode) greift bei eingehenden Verbindungen nicht,
-      weil sie ueber die echte SKI geht
-  Wer das schliessen will, muss in der TLS-Bibliothek ein Client-Zertifikat anfordern und das
-  Peer-Zertifikat herausreichen. Das ist bewusst NICHT Teil dieses Treibers: die Bibliothek wird
-  von HTTPS und MQTT mitbenutzt, ein Eingriff dort betrifft alle.
+  Identitaet eingehender Verbindungen (Stand SteuVE v030; der fruehere Abschnitt "EINGEHENDE VERBINDUNGEN WERDEN
+  NICHT GEGEN DIE PEER-SKI GEPRUEFT" war seit SteuVE v021 ueberholt): Der TLS-Server fordert das Client-Zertifikat an
+  (leerer Name, BR_OPT_TOLERATE_NO_CLIENT_AUTH), EebusSrvX509 liest den EC-Schluessel, SKI = SHA-1 ueber den Punkt
+  (SkiQuelle 1). Ohne Zertifikat bleibt nur der Rueckfall ueber Fundliste/Adresse (SkiQuelle 2); einem solchen Anrufer
+  vertraut die SteuVE im strengen Betrieb (EEBusCsStreng 1, Vorgabe) nicht.
 
   Portierungs-Quelle (nur gelesen, nie dort gebaut): Tinkerforge esp32-firmware modules/eebus
   (LGPL v2+, Copyright Tinkerforge GmbH) — SHIP-mDNS-Logik aus ship.cpp, Zertifikat nach
@@ -154,14 +161,8 @@
     EEBusProbe <ent> <v> <b> [1]  Feature-Sweep; mit 1 vorher Subscribe und Binding
     EEBusProvide <watt>           eigenes LoadControl mit diesem Wert bereitstellen (0 = aus)
     EEBusOpen 0|1                 Discovery-Eroeffnung: 0 reaktiv adressiert, 1 adresslos
-    EEBusTrust                    Platzhalter, noch ohne Funktion. Gedacht war eine Liste erlaubter
-                                  Gegenstellen fuer EINGEHENDE Verbindungen — das setzt voraus, die
-                                  SKI der Gegenstelle zu kennen. Die schlanke TLS-Bibliothek gibt
-                                  das Peer-Zertifikat nicht heraus (kein Client-Cert-Request), also
-                                  fuehrt ein eingehender Slot nur die Peer-IP als Pseudo-SKI. Ohne
-                                  echte SKI ist eine Trust-Liste nicht umsetzbar; der Schalter
-                                  bleibt deshalb wirkungslos, statt eine Pruefung vorzutaeuschen,
-                                  die nicht stattfindet. Naeheres im Kopfkommentar.
+    EEBusTrust                    Platzhalter ohne Funktion. Das Vertrauen der SteuVE regelt
+                                  EEBusCsTrust (eine SKI, aus dem Zertifikat der Gegenstelle).
 
   Wiederaufbau nach einem Neustart
   --------------------------------
@@ -306,7 +307,7 @@ void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusMess, &CmndEebusStruct, &CmndEebusRead, &CmndEebusAutoConn,
   &CmndEebusCsPower, &CmndEebusCsMax, &CmndEebusCsFs, &CmndEebusCsSim, &CmndEebusCsTrust, &CmndEebusCsStreng, &CmndEebusCsTyp, &CmndEebusCsMsg, &CmndEebusCs };   // SteuVE v004, CsTrust v006, CsTyp v007, CsMsg v009
 
-// Blind-Adressierung (Waermepumpen-Gateway liefert ihre Discovery nicht — VR940-Karte als Vorlage:
+// Blind-Adressierung (Waermepumpen-Gateway liefert ihre Discovery nicht — Gateway-Karte als Vorlage:
 // LoadControl/server auf entity 3 "HeatPumpAppliance"):
 //   EEBusTarget <ent> <feat>  LPC-Ziel manuell setzen (statt Ladestation-Default/Discovery)
 //   EEBusTarget -1            Override aus (wieder automatisch)
@@ -534,17 +535,20 @@ int8_t eebus_del_dur = -1;
 // darf eine Leistungsbegrenzung ohnehin nicht gelten (0..86400).
 long EebusIsoDurSecs(const char *s) {
   if ((nullptr == s) || ('P' != s[0])) { return -1; }
-  const char *p = strchr(s, 'T');
-  if (nullptr == p) { return -1; }
-  p++;
-  long total = 0, num = 0; bool any = false;
-  while (*p) {
-    if ((*p >= '0') && (*p <= '9')) { num = num * 10 + (*p - '0'); any = true; }
-    else if ('H' == *p) { total += num * 3600; num = 0; }
-    else if ('M' == *p) { total += num * 60;   num = 0; }
-    else if ('S' == *p) { total += num;        num = 0; }
-    else { return -1; }   // unbekanntes Zeichen -> lieber nichts behaupten
-    p++;
+  // Gegenpruefung 06.11.: auch Tage vor dem T ("P1D", "P1DT2H", ISO 8601), wie andere Energy Guards sie schreiben.
+  // Bisher ergab "P1D" -1 und "P1DT0H" 0 - eine gueltige Failsafe-Mindestdauer von 24 h wurde dann abgelehnt.
+  long total = 0, num = 0; bool any = false, zeit = false;
+  for (const char *p = s + 1; *p; p++) {
+    if ((*p >= '0') && (*p <= '9')) {
+      if (num > 10000000L) { return -1; }   // unsinnig gross -> kein Ueberlauf
+      num = num * 10 + (*p - '0'); any = true;
+    }
+    else if (!zeit && ('T' == *p)) { zeit = true; num = 0; }
+    else if (!zeit && ('D' == *p)) { total += num * 86400; num = 0; }
+    else if (zeit && ('H' == *p)) { total += num * 3600; num = 0; }
+    else if (zeit && ('M' == *p)) { total += num * 60;   num = 0; }
+    else if (zeit && ('S' == *p)) { total += num;        num = 0; }
+    else { return -1; }   // unbekanntes Zeichen (auch Jahr/Monat/Woche) -> lieber nichts behaupten
   }
   return any ? total : -1;
 }
@@ -570,7 +574,10 @@ long EebusCsRestS(void) {
 // gemeldet (so liest sie auch der Energy Guard zurueck: "PT4M58S").
 void EebusCsLimitBody(char *body, size_t n) {
   char tp[48] = "";
-  if (eebus_cs_lim_active) {
+   // SteuVE v030: aktiv nur im Zustand "gesteuert" (bzw. Simulation). In Anlauf, Failsafe und autonom SHALL die
+   // Grenze deaktiviert sein (LPC Z. 426-439, [LPC-009/2]) - bisher wurde die alte Grenze dort als aktiv gemeldet.
+  const bool akt = eebus_cs_lim_active && ((CS_CTRL == eebus_cs_state) || eebus_cs_sim);
+  if (akt) {
     long rest = EebusCsRestS();
     if (rest >= 0) {
       char iso[24]; EebusSecsToIso(rest, iso, sizeof(iso));
@@ -581,7 +588,7 @@ void EebusCsLimitBody(char *body, size_t n) {
     "{\"loadControlLimitListData\":[{\"loadControlLimitData\":["
     "[{\"limitId\":1},{\"isLimitChangeable\":true},{\"isLimitActive\":%s},%s"
     "{\"value\":[{\"number\":%u},{\"scale\":0}]}]"
-    "]}]}", eebus_cs_lim_active ? "true" : "false", tp, eebus_cs_lim_w);
+    "]}]}", akt ? "true" : "false", tp, eebus_cs_lim_w);
 }
 
 // SteuVE v003: measurementListData der Einrichtung (Read-Antwort und Notify). Solange noch kein Messwert
@@ -668,6 +675,11 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // neu aufgebaut. Ein Energiemanager meldet etwa jede Sekunde Messwerte und spaetestens alle 2 min einen
 // Herzschlag (PT2M) — 3 min Stille sind kein Zufall mehr.
 #define EEBUS_SILENT_S         180
+
+// SteuVE v030 (06.11.2026, wie Steuerbox v226/v228): ausgehende Verbindungen senden nicht mehr blockierend (tls_mini
+// setSendWaitMs). Nimmt der Socket so lange kein einziges Byte, gilt das Senden als gescheitert.
+#define EEBUS_SEND_WAIT_MS     3000
+#define EEBUS_STOP_WAIT_MS     100    // beim Abbau: close_notify/Rest nur noch kurz versuchen
 
 // v183 (08.10.): Wartezeit des Wiederaufbaus waechst mit jedem gescheiterten Versuch, statt starr alle
 // 8 s neu zu verbinden. Jeder Versuch baut TLS im Hauptablauf auf und blockiert ihn kurz; bei einer
@@ -868,7 +880,7 @@ uint8_t  eebus_ac_try     = 0;       // Zaehler der Verbindungsversuche
 // EEBusConnectIp identifiziert kein Geraet und taugt zum Wiederfinden nicht.
 void EebusPeerRemember(const char *ski) {
   if ((nullptr == ski) || (40 != strlen(ski))) { return; }
-  if (0 == strcmp(eebus_ac_ski, ski)) { return; }   // steht bereits so in der Datei
+  if (0 == strcasecmp(eebus_ac_ski, ski)) { return; }   // steht bereits so in der Datei
   strlcpy(eebus_ac_ski, ski, sizeof(eebus_ac_ski));
 #ifdef USE_UFILESYS
   if (TfsSaveFile(EEBUS_PEER_FILE, (const uint8_t*)ski, 40)) {
@@ -910,7 +922,7 @@ bool EebusPeerRecall(void) {
 int EebusModeFind(const char *ski) {
   if ((nullptr == ski) || ('\0' == ski[0])) { return -1; }
   for (uint32_t i = 0; i < Eebus.mode_count; i++) {
-    if (0 == strcmp(Eebus.mode_ski[i], ski)) { return (int)i; }
+    if (0 == strcasecmp(Eebus.mode_ski[i], ski)) { return (int)i; }
   }
   return -1;
 }
@@ -1270,7 +1282,7 @@ bool EebusMdnsAdvertise(void) {
   };
   size_t n_txt = sizeof(txt) / sizeof(txt[0]);
    // cat=1 nur in Rolle 1 (Steuerbox) + Rolle 3 (ControllableSystem-Anbieter); Rolle 2 = OHNE cat
-   // (EMS wie VR940-Bridge), Rolle 0 unveraendert ohne cat.
+   // (EMS wie eine Energiemanager-Bridge), Rolle 0 unveraendert ohne cat.
   if ((1 != eebus_role) && (3 != eebus_role)) { n_txt -= 1; }
   esp_err_t err = mdns_service_add(eebus_adv_id, "_ship", "_tcp", EEBUS_ADV_PORT,
                                    txt, n_txt);
@@ -1351,7 +1363,7 @@ void EebusPollScan(void) {
    // Liste stehen (SKI = Identitaet), sonst ist die Geraeteauswahl uneindeutig.
       bool dup = false;
       for (uint32_t d = 0; d < Eebus.peer_count; d++) {
-        if (0 == strcmp(Eebus.peers[d].ski, p->ski)) { dup = true; break; }
+        if (0 == strcasecmp(Eebus.peers[d].ski, p->ski)) { dup = true; break; }
       }
       if (dup) { continue; }
       Eebus.peer_count++;
@@ -1653,6 +1665,7 @@ typedef struct {
   long     lim_dur_s[2]  = { -1, -1 };   // Restlaufzeit in s bei Empfang; -1 = keine Dauer bekannt
   uint32_t lim_dur_at[2] = { 0, 0 };   // millis() des Empfangs
   bool     teardown = false;   // Client-Freigabe steht an (verzoegert, NIE aus dem Callback)
+  bool     send_broken = false;   // SteuVE v030 (wie Steuerbox v187): ein Frame ging nur teilweise raus -> nichts mehr senden
   uint32_t hb_counter = 1;   // DeviceDiagnosis-Heartbeat-Zaehler
   uint32_t hb_next = 0;   // millis()-Zeitpunkt des naechsten Heartbeat-Sendens
   bool     peer_subscribed = false; // hat der Peer unser NodeManagement abonniert?
@@ -1683,6 +1696,7 @@ typedef struct {
    // LPC-Steuerbox-Schreib-Sequenz an die LoadControl des Peers
   uint8_t  lpc_state = LPC_IDLE;
   uint32_t lpc_value = 0;   // Zielwert als BETRAG in W (bei Freigabe egal; Vorzeichen aus lpc_dir)
+  uint32_t lpc_val_dir[2] = { 0, 0 };   // 06.11.: letzter Wert je Richtung [0] Bezug §14a, [1] Einspeisung §9 (fuer Freigaben ohne Wert)
   bool     lpc_active_wish = false; // true = Limit setzen, false = freigeben (isLimitActive:false)
    // Richtung des laufenden Limit-Auftrags. 0 = consume (§14a EnWG, Bezugsbegrenzung),
    // 1 = produce (§9 EEG, Einspeisebegrenzung). Beide Grenzen liegen im SELBEN LoadControl-Feature des
@@ -1808,7 +1822,10 @@ size_t EebusLoadDer(const char *path, uint8_t *buf, size_t max) {
 
 void EebusShipFree(void) {
   EebusHeapCheck("shipfree_entry");   // Heap VOR jeglicher Freigabe kaputt?
-  if (ESp->client) { ESp->client->stop(); delete ESp->client; ESp->client = nullptr; }
+  if (ESp->client) {
+    ESp->client->setSendWaitMs(EEBUS_STOP_WAIT_MS);   // SteuVE v030: bei toter Gegenstelle beim Abbau nicht warten
+    ESp->client->stop(); delete ESp->client; ESp->client = nullptr;
+  }
   EebusHeapCheck("shipfree_client");   // nach delete des BearSSL-Clients
   if (ESp->cert_der) { free(ESp->cert_der); ESp->cert_der = nullptr; }
   EebusHeapCheck("shipfree_cert");   // nach free(cert_der) (= Crash-Zeile 607!)
@@ -1902,12 +1919,33 @@ int EebusStreamRead(uint8_t *buf, size_t n, uint32_t timeout_ms) {
   return (int)got;
 }
 
-// Einen WS-Client-Frame senden (FIN, maskiert — RFC 6455). Beliebige Laenge (16-/64-bit),
-// die Nutzlast wird in kleinen maskierten Bloecken gesendet -> kein grosser Puffer noetig.
+// SteuVE v030 (wie Steuerbox v187): Ein Frame ging nur teilweise raus. Der Strom ist damit kaputt - jedes weitere
+// Byte liest die Gegenstelle an der falschen Stelle. Nichts mehr senden, in der Datenphase sauber abbauen; der
+// Keep-Alive (ausgehend) bzw. die Gegenstelle (eingehend) baut neu auf. Im Handshake bleibt es bei EebusSmeFail.
+void EebusSendBroken(void) {
+  ESp->send_broken = true;
+  if (SME_DONE != ESp->sme) { return; }
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** Senden an %s abgebrochen - Verbindung wird abgebaut und neu aufgebaut ***"),
+         ESp->peer_ip);
+  EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
+  ESp->sme = SME_OFF;
+  ESp->state = SHIP_IDLE;
+  ESp->last_rx = 0;
+  if (!ESp->via_srv && ESp->keepalive && (ESp->peer_idx >= 0)) { ESp->reconnect_at = millis() + EebusKaWaitMs(); }
+  EebusTeardownLater();
+}
+
+// Einen WS-Client-Frame senden (FIN, maskiert - RFC 6455). Beliebige Laenge (16-/64-bit).
+// SteuVE v030 (wie Steuerbox v187): Kopf + maskierte Nutzlast in EINEM Puffer, EIN write() (der TLS-Client teilt
+// selbst in Records <= 1024 B); bisher je 64 B ein eigenes write() = eigener TLS-Record. Geht ein Frame nur teilweise
+// raus oder haengt der Sendeweg (sendStuck), wird abgebaut statt mit abgeschnittenem Frame weiterzulaufen.
 // opcode: 0x2=binary (SHIP/SPINE), 0xA=Pong.
 bool EebusWsSendOp(const uint8_t *payload, size_t len, uint8_t opcode) {
+  if (ESp->send_broken) { return false; }   // Strom kaputt, Abbau laeuft
   if (ESp->via_srv) {   // Slot einer EINGEHENDEN Verbindung -> Server-Sendepfad
-    return EebusSrvWsSendOp(payload, len, opcode);   // (unmaskiert, ueber die BearSSL-Server-Engine)
+    bool ok = EebusSrvWsSendOp(payload, len, opcode);   // (unmaskiert, ueber die BearSSL-Server-Engine)
+    if (!ok) { EebusSendBroken(); }   // SteuVE v030 (Befund 4.1)
+    return ok;
   }
   if (!ESp->client) { return false; }
   uint8_t hdr[14];
@@ -1922,24 +1960,51 @@ bool EebusWsSendOp(const uint8_t *payload, size_t len, uint8_t opcode) {
     hl = 4;
   } else {
     hdr[1] = 0x80 | 127;   // MASK-Bit + 64-bit Extended Length
-    for (int i = 0; i < 8; i++) { hdr[2 + i] = (uint8_t)(len >> (8 * (7 - i))); }
+    for (int i = 0; i < 8; i++) { hdr[2 + i] = (uint8_t)((uint64_t)len >> (8 * (7 - i))); }
     hl = 10;
   }
   uint8_t mask[4];
   for (int i = 0; i < 4; i++) { mask[i] = (uint8_t)random(256); }   // Maske: nicht sicherheitsrelevant
   memcpy(hdr + hl, mask, 4);
   hl += 4;
-  if (hl != ESp->client->write(hdr, hl)) { return false; }
-  if (len > 200) { EebusHeapCheckN("wsop_hdr", (uint32_t)len); }   // nur grosse Sendungen pruefen
+  size_t tot = hl + len;
+  uint8_t small[256];   // kleine Frames (Herzschlag, Control) auf dem Stack
+  uint8_t *fb = (tot <= sizeof(small)) ? small : (uint8_t*)special_malloc(tot);
+  if (nullptr != fb) {   // ganzer Frame in einem Stueck
+    memcpy(fb, hdr, hl);
+    for (size_t i = 0; i < len; i++) { fb[hl + i] = payload[i] ^ mask[i & 3]; }
+    size_t wt = ESp->client->write(fb, tot);
+    if (fb != small) { free(fb); }
+    if ((wt != tot) || ESp->client->sendStuck()) {   // sendStuck: write meldet evtl. alles, der Sendeweg haengt aber
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: WS-SENDEN UNVOLLSTAENDIG @ %s: %u von %u B (op %u) - Frame abgeschnitten"),
+             ESp->peer_ip, (uint32_t)wt, (uint32_t)tot, opcode);
+      EebusSendBroken();
+      return false;
+    }
+    return true;
+  }
+   // Rueckfall (kein Speicher fuer den grossen Puffer): stueckweise
+  size_t w = ESp->client->write(hdr, hl);
+  if (hl != w) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: WS-SENDEN UNVOLLSTAENDIG @ %s: Kopf %u von %u B (Frame %u B, op %u)"),
+           ESp->peer_ip, (uint32_t)w, (uint32_t)hl, (uint32_t)len, opcode);
+    EebusSendBroken();
+    return false;
+  }
   uint8_t chunk[64];   // Nutzlast blockweise maskieren + senden (klein = stack-schonend)
   for (size_t off = 0; off < len; ) {
     size_t n = (len - off > sizeof(chunk)) ? sizeof(chunk) : (len - off);
     for (size_t i = 0; i < n; i++) { chunk[i] = payload[off + i] ^ mask[(off + i) & 3]; }
-    if (n != ESp->client->write(chunk, n)) { return false; }
+    w = ESp->client->write(chunk, n);
+    if (n != w) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: WS-SENDEN UNVOLLSTAENDIG @ %s: bei Byte %u von %u nur %u von %u B (op %u) - Frame abgeschnitten"),
+             ESp->peer_ip, (uint32_t)off, (uint32_t)len, (uint32_t)w, (uint32_t)n, opcode);
+      EebusSendBroken();
+      return false;
+    }
     off += n;
-    if (len > 200) { EebusHeapCheckN("wsop_chunk", (uint32_t)off); }   // Byte-genaue Ortung
   }
-  if (len > 200) { EebusHeapCheckN("wsop_done", (uint32_t)len); }
+  if (ESp->client->sendStuck()) { EebusSendBroken(); return false; }
   return true;
 }
 
@@ -2004,7 +2069,11 @@ int EebusWsRecv(uint8_t *out, size_t max, uint32_t timeout_ms) {
       total = 0;
       in_msg = true;
     }
-    if (!drop && (total + len > max)) {   // Nachricht passt nicht in den Puffer
+    if (len > 0x100000UL) {   // SteuVE v030: ueber 1 MB ist kein SHIP-Frame -> Strom kaputt, nicht stundenlang abraeumen
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: WS-Laenge %u B unplausibel - Verbindung kaputt"), (uint32_t)len);
+      return -2;
+    }
+    if (!drop && ((total > max) || (len > max - total))) {   // SteuVE v030: ohne Ueberlauf (bisher total + len > max)
       drop = true;
       AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: WS-Nachricht > %u B, verworfen"), (uint32_t)max);
     }
@@ -2032,7 +2101,7 @@ void EebusStatSet(const char *ski, int state, const char *err) {
   if ((nullptr == ski) || ('\0' == ski[0])) { return; }
   int slot = -1;
   for (uint32_t i = 0; i < Eebus.stat_count; i++) {
-    if (0 == strcmp(Eebus.stat_ski[i], ski)) { slot = i; break; }
+    if (0 == strcasecmp(Eebus.stat_ski[i], ski)) { slot = i; break; }
   }
   if (slot < 0) {
     if (Eebus.stat_count >= EEBUS_MAX_PEERS) { return; }
@@ -2176,7 +2245,9 @@ bool EebusShipConnect(int idx) {
    // mit handshake_failure (err=296) ab.
   ESp->client = new BearSSL::WiFiClientSecure_light(2048, 2048);
   if (nullptr == ESp->client) { strlcpy(ESp->err, "client new", sizeof(ESp->err)); goto fail; }
+  ESp->client->setSendWaitMs(EEBUS_SEND_WAIT_MS);   // SteuVE v030: nicht blockierend senden (wie Steuerbox v226)
   ESp->active = true;
+  ESp->send_broken = false;   // SteuVE v030: neue Verbindung, sauberer Strom
    // allowed_usages=alle; cert_issuer_key_type=BR_KEYTYPE_EC: unser Cert ist selbstsigniert
    // mit EC-Key -> muss EC sein (0 fuehrte zu handshake_failure, Cert nicht korrekt praesentiert)
   ESp->client->setClientECCert(ESp->br_cert, &ESp->br_key, 0xFFFF, BR_KEYTYPE_EC);
@@ -2216,6 +2287,12 @@ bool EebusShipConnect(int idx) {
     }
     if (!zski[0]) {
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: Zertifikat ohne EC-Schluessel - SKI nur aus der Fundliste, nicht vertraut"), ESp->peer_ip);
+    } else if (0 == strcmp(ESp->peer_ski, "manual")) {
+       // SteuVE v030: EEBusConnectIp kennt keine SKI vorab - die aus dem Zertifikat ist dann die Identitaet
+       // (bisher scheiterte jeder EEBusConnectIp hier mit "SKI passt nicht zum Zertifikat").
+      strlcpy(ESp->peer_ski, zski, sizeof(ESp->peer_ski));
+      ESp->ski_quelle = 1;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: Verbindung per Adresse, SKI %s aus dem Zertifikat"), ESp->peer_ip, ESp->peer_ski);
     } else if (0 != strcasecmp(zski, ESp->peer_ski)) {
       AddLog(LOG_LEVEL_ERROR, PSTR("EBG: %s: Zertifikat hat SKI %s, erwartet %s - NICHT verbunden"),
              ESp->peer_ip, zski, ESp->peer_ski);
@@ -2463,16 +2540,12 @@ bool EebusShipSendJson(const char *json, int classifier) {
     buf = (uint8_t*)special_malloc(jl + 1);
     if (nullptr == buf) { return false; }
     heap = true;
-    EebusHeapCheckN("ship_malloc", (uint32_t)(jl + 1));   // nach PSRAM-Allok des grossen Puffers
   }
   buf[0] = (uint8_t)classifier;
   memcpy(buf + 1, json, jl);
-  if (heap) { EebusHeapCheckN("ship_memcpy", (uint32_t)jl); }   // nach memcpy in den Puffer
   EebusShipLog('T', classifier, json);
   bool ok = EebusWsSend(buf, jl + 1);
-  if (heap) { EebusHeapCheckN("ship_afterwssend", (uint32_t)jl); }
   if (heap) { free(buf); }
-  EebusHeapCheck("tx_send");   // Checkpunkt: nach jedem gesendeten SHIP-Frame (auch nach free)
   return ok;
 }
 
@@ -2638,7 +2711,6 @@ void EebusSpineSendAddr(const char *cmd_classifier, bool has_ref, uint32_t ref, 
   size_t need = strlen(cmd_json) + strlen(own) + (2 * strlen(ESp->peer_dev)) + 512;
   char *buf = (char*)special_malloc(need);
   if (nullptr == buf) { return; }
-  EebusHeapCheckN("spine_malloc", (uint32_t)need);   // nach PSRAM-Allok Datagramm-Puffer
 
    // addressDestination bekommt die Peer-Geraeteadresse nur, wenn wir sie schon kennen.
    // AUSNAHME DetailedDiscovery-READ — der MUSS OHNE Ziel-device gesendet werden (man
@@ -2680,7 +2752,6 @@ void EebusSpineSendAddr(const char *cmd_classifier, bool has_ref, uint32_t ref, 
     EEBUS_SPINE_VERSION, own, src_ent, src_feat, dest_dev, dst_ent_txt, dst_feat,
     ESp->spine_ctr++, ref_frag, cmd_classifier, ack, cmd_json);
 
-  EebusHeapCheckN("spine_format", (uint32_t)strlen(buf));   // nach snprintf ins Datagramm
   {   // SteuVE v009: fuer den Reiter Meldungen merken
     char mfn[40]; EebusMsgFn(cmd_json, mfn, sizeof(mfn));
     char mdet[56]; uint8_t mk = 0;
@@ -2688,9 +2759,7 @@ void EebusSpineSendAddr(const char *cmd_classifier, bool has_ref, uint32_t ref, 
     EebusMsgAdd(false, cmd_classifier, mfn, mdet, mk, cmd_json);
   }
   EebusShipSendJson(buf, 2);
-  EebusHeapCheck("spine_aftersend");   // nach dem Senden, vor free
   free(buf);
-  EebusHeapCheck("spine_freed");   // nach free des Datagramm-Puffers
 }
 
 // Kompatibilitaets-Wrapper: NodeManagement-Verkehr (entity[0]/feature 0 beidseitig)
@@ -2795,7 +2864,7 @@ void EebusSpineAnswerDiscovery(uint32_t ref, int as_notify) {
    // was strengere Gegenstellen (Waermepumpen-Gateway) als §14a-Controller erwarten. Rolle AUS =
    // ChargingStation/EVSE (steuerbares Geraet). Als "ChargingStation" behandelt uns die Ladestation
    // als Ladestation, NICHT als §14a-Steuergeraet.
-   // Rolle 2: CEM-Identitaet (EnergyManagementSystem/CEM) — wie die VR940-Bridge, der die
+   // Rolle 2: CEM-Identitaet (EnergyManagementSystem/CEM) — wie eine Energiemanager-Bridge, der die
    // Waermepumpen-Gateways ihre Discovery liefern. LPC-Spec 3.2: Energy Guard darf CEM ODER GridGuard sein.
    // Rolle 3: als steuerbares System auftreten (deviceType/entityType passend zum
    // ControllableSystem-Aktor), damit der Energiemanager unser LoadControl als lesenswert einordnet.
@@ -2910,7 +2979,7 @@ void EebusSpineAnswerUseCase(uint32_t ref) {
    // Rolle EIN: BEIDE Aktoren deklarieren. Nur ControllableSystem -> Peer engagiert sich, ignoriert
    // aber unser Binding . Nur EnergyGuard -> Peer engagiert sich GAR NICHT (Ladestation stumm).
    // Beide -> Peer liest uns weiter (wir lernen seine Adresse) UND akzeptiert uns als Controller.
-   // useCaseAvailable PFLICHT: Ladestation prueft es (spine_connection.cpp:231) als Teil von get_address_of_feature
+   // useCaseAvailable PFLICHT: Ladestation prueft es als Teil von get_address_of_feature
    // (DeviceDiagnosis role=CLIENT, LPC, actor=EnergyGuard) - ist es false, findet sie unser feat4-client NICHT
    // als HB-Peer -> kein initialize_heartbeat_on_feature -> kein Abo -> Failsafe 22000 statt unserem Wert.
    // "DATEN-FUTTER": zusaetzlich die PROVIDER-Seiten der Monitoring-Use-Cases deklarieren —
@@ -3151,9 +3220,10 @@ void EebusSpineSendHeartbeat(const char *cls, bool has_ref, uint32_t ref, int ds
   int hb_src_feat = (1 == eebus_role) ? 5 : 2;
   EebusSpineSendAddr(cls, has_ref, ref, hb, 1, hb_src_feat, dst_ent, dst_feat);   // von unserem DeviceDiagnosis-Server
   free(hb);
-   // heartbeatCounter bei jedem NOTIFY hochzaehlen, bei read-Reply NICHT. SteuVE-Modus
-   // unveraendert (zaehlt wie bisher bei jedem Senden hoch -> byte-identisch ).
-  if (!eebus_hems_mode || (0 == strcmp(cls, "notify"))) { ESp->hb_counter++; }
+   // heartbeatCounter bei jedem NOTIFY hochzaehlen, bei read-Reply NICHT. SteuVE v030: auch im SteuVE-Modus
+   // (bisher zaehlte er dort bei jedem Senden hoch). LPC Tab. 28 [LPC-032]: "If the device sends out a reply
+   // message the Element heartbeatCounter SHALL NOT be incremented".
+  if (0 == strcmp(cls, "notify")) { ESp->hb_counter++; }
 }
 
 // den aktuellen Server-Limit-Zustand als NOTIFY an den LoadControl-Abonnenten des
@@ -3222,7 +3292,9 @@ void EebusServeLimitBroadcast(void) {
 }
 
 // SteuVE v001: Wert aus "value":[{"number":N},{"scale":S}] holen (scale darf negativ sein). false = kein Wert.
-bool EebusCsScaledValue(const char *frag, uint32_t *out_w) {
+// SteuVE v030: Vorzeichen bleibt erhalten (bisher Betrag: -5000 W wurde 5000 W). scale wird auf -18..18 begrenzt
+// (bisher Schleife ohne Grenze -> scale 2000000000 aus dem Frame = Watchdog-Neustart).
+bool EebusCsScaledRaw(const char *frag, double *out_v) {
   if (nullptr == frag) { return false; }
   const char *n = strstr(frag, "\"number\":");
   if (nullptr == n) { return false; }
@@ -3230,19 +3302,38 @@ bool EebusCsScaledValue(const char *frag, uint32_t *out_w) {
   long sc = 0;
   const char *s = strstr(frag, "\"scale\":");
   if (s) { sc = strtol(s + 8, nullptr, 10); }
+  if (sc > 18) { sc = 18; }
+  if (sc < -18) { sc = -18; }
   double v = (double)num;
   while (sc > 0) { v *= 10.0; sc--; }
   while (sc < 0) { v /= 10.0; sc++; }
-  if (v < 0) { v = -v; }   // Betrag; die Richtung steckt in der limitId/Beschreibung
-  *out_w = (uint32_t)(v + 0.5);
+  *out_v = v;
   return true;
+}
+// Watt fuer eine Grenze; false = kein Wert ODER negativ (LPC Z. 313 "A limit lower than 0W SHALL be rejected",
+// Z. 404-405 "SHALL always be greater than or equal to zero"). Zu gross -> hoechster speicherbarer Wert (Z. 320-322 MAY).
+bool EebusCsScaledValue(const char *frag, uint32_t *out_w) {
+  double v = 0;
+  if (!EebusCsScaledRaw(frag, &v) || (v < 0)) { return false; }
+  *out_w = (v >= 4000000000.0) ? 4000000000UL : (uint32_t)(v + 0.5);
+  return true;
+}
+// SteuVE v030: steht im Fragment ein NEGATIVER Wert?
+bool EebusCsValueNegative(const char *frag) {
+  double v = 0;
+  return EebusCsScaledRaw(frag, &v) && (v < 0);
 }
 
 // SteuVE v001: ein Write auf unsere loadControlLimitListData (Rolle 3) uebernehmen. Felder, die der Write nicht
 // mitbringt, bleiben wie sie sind (ein Write darf partiell sein). Eine geloeschte oder fehlende
 // Geltungsdauer bei einer AKTIVEN Grenze heisst "unbefristet". Die Meldung nach aussen (Notify an
 // Abonnenten, Ereignis) folgt im naechsten Sekundentakt — nicht hier im Empfangspfad.
-void EebusCsApplyLimitWrite(const char *json) {
+bool EebusCsLimitWriteOk(const char *json) {
+  if (EebusCsValueNegative(strstr(json, "\"value\""))) {   // SteuVE v030: LPC Z. 313, NACK [LPC-003/1], Zustand bleibt [LPC-907]
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze von %s ABGELEHNT - negativer Wert (LPC: unter 0 W ablehnen)"), ESp->peer_ip);
+    EebusMsgSetLast("abgelehnt - Grenze unter 0 W", 2);
+    return false;
+  }
   bool had_active = eebus_cs_lim_active;
   if (strstr(json, "\"isLimitActive\":true")) {
     eebus_cs_lim_active = true;
@@ -3272,6 +3363,7 @@ void EebusCsApplyLimitWrite(const char *json) {
     snprintf(eebus_msg_lim, sizeof(eebus_msg_lim), "%s (%02d:%02d:%02d)", d, RtcTime.hour, RtcTime.minute, RtcTime.second);
   }
   EebusCsSetState(CS_CTRL);   // SteuVE v002: ein Write bringt die Einrichtung in "gesteuert"
+  return true;
 }
 
 // SteuVE v002: Zustandsnamen fuer Log, Status und Ereignis.
@@ -3287,6 +3379,9 @@ const char *EebusCsStateName(uint8_t s) {
 void EebusCsSetState(uint8_t s) {
   if (s == eebus_cs_state) { return; }
   AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Zustand %s -> %s"), EebusCsStateName(eebus_cs_state), EebusCsStateName(s));
+   // SteuVE v030: in Failsafe und autonom ist die Grenze deaktiviert (LPC Z. 435-439, [LPC-009/2]). Bisher blieb sie
+   // gesetzt und ging mit isLimitActive:true weiter hinaus; nach der Rueckkehr galt sie ungefragt wieder.
+  if (((CS_FAILSAFE == s) || (CS_AUTO == s)) && !eebus_cs_sim) { eebus_cs_lim_active = false; }
   eebus_cs_state = s;
   eebus_cs_state_at = millis();
   eebus_cs_changed = true;
@@ -3311,8 +3406,9 @@ void EebusCsLoadFs(void) {
   if (TfsLoadFile(EEBUS_CS_FILE, (uint8_t*)t, sizeof(t) - 1)) {
     char *e = nullptr;
     unsigned long w = strtoul(t, &e, 10);
-    long d = (e && *e) ? strtol(e, nullptr, 10) : 0;
-    if ((w > 0) && (d > 0)) { eebus_cs_fs_w = (uint32_t)w; eebus_cs_fs_dur_s = d; }
+    long d = (e && (e != t) && *e) ? strtol(e, nullptr, 10) : 0;
+    if (d > 86400) { d = 86400; }
+    if (d > 0) { eebus_cs_fs_w = (uint32_t)w; eebus_cs_fs_dur_s = d; }   // SteuVE v030: 0 W ist gueltig (LPC Z. 404-405)
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe %u W / %ld s aus dem Flash"), eebus_cs_fs_w, eebus_cs_fs_dur_s);
   }
 #endif
@@ -3373,8 +3469,14 @@ void EebusCsDropSki(const char *ski) {
 
 // SteuVE v002: Write auf unsere deviceConfigurationKeyValueListData (Rolle 3): keyId 1 = Failsafe-Leistung,
 // keyId 2 = Failsafe-Mindestdauer. Jeder Eintrag wird fuer sich ausgewertet (bis zum naechsten keyId).
-void EebusCsApplyConfigWrite(const char *json) {
+// SteuVE v030: Rueckgabe false = NACK, dann bleiben ALLE alten Werte ([LPC-003/2], LPC Z. 612-615). Abgelehnt wird
+// eine negative Leistung (Z. 404-405) und eine Mindestdauer unter 2 h ([LPC-022/3], Z. 342-346). 0 W ist gueltig
+// (">= 0") und wird jetzt uebernommen (bisher still verworfen, aber mit ACK quittiert). Ueber 24 h -> 24 h ([LPC-022/5]).
+bool EebusCsConfigWriteOk(const char *json) {
   bool neu = false;
+  bool have_w = false, have_d = false;
+  uint32_t new_w = eebus_cs_fs_w;
+  long new_d = eebus_cs_fs_dur_s;
   const char *p = strstr(json, "\"keyId\":");
   while (p) {
     const char *nx = strstr(p + 8, "\"keyId\":");
@@ -3384,18 +3486,31 @@ void EebusCsApplyConfigWrite(const char *json) {
     memcpy(seg, p, l); seg[l] = '\0';
     long key = strtol(p + 8, nullptr, 10);
     if (1 == key) {
+      const char *vf = strstr(seg, "\"value\"");
       uint32_t w = 0;
-      if (EebusCsScaledValue(strstr(seg, "\"value\""), &w) && (w > 0)) { eebus_cs_fs_w = w; neu = true; }
+      if (EebusCsValueNegative(vf)) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe-Leistung von %s ABGELEHNT - negativ"), ESp->peer_ip);
+        return false;
+      }
+      if (EebusCsScaledValue(vf, &w)) { new_w = w; have_w = true; }
     } else if (2 == key) {
       char d[24] = { 0 };
       if (EebusJsonStr(seg, "duration", d, sizeof(d))) {
-        long s = EebusIsoDurSecs(d);
-        if (s > 86400) { s = 86400; }   // SteuVE v005: hoechstens 24 h
-        if (s > 0) { eebus_cs_fs_dur_s = s; neu = true; }
+        long sd = EebusIsoDurSecs(d);
+        if (sd < 7200) {
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe-Mindestdauer %s von %s ABGELEHNT - %s"), d, ESp->peer_ip,
+                 (sd < 0) ? "nicht lesbar" : "unter 2 h");
+          return false;
+        }
+        if (sd > 86400) { sd = 86400; }   // SteuVE v005: hoechstens 24 h
+        new_d = sd; have_d = true;
       }
     }
     p = nx;
   }
+  if (have_w && (new_w != eebus_cs_fs_w)) { eebus_cs_fs_w = new_w; }
+  if (have_d && (new_d != eebus_cs_fs_dur_s)) { eebus_cs_fs_dur_s = new_d; }
+  neu = have_w || have_d;
   if (neu) {
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe vom Energy Guard %s: %u W / %ld s"),
            ESp->peer_ip, eebus_cs_fs_w, eebus_cs_fs_dur_s);
@@ -3406,6 +3521,7 @@ void EebusCsApplyConfigWrite(const char *json) {
              RtcTime.day_of_month, RtcTime.month, RtcTime.hour, RtcTime.minute, RtcTime.second);
     EebusCsSaveFs();
   }
+  return true;
 }
 
 // SteuVE v002: Herzschlag des Energy Guard abonnieren. Server-Feature aus seiner Discovery: zuerst auf der Entity,
@@ -3482,7 +3598,16 @@ void EebusCsTick(void) {
   uint32_t seit = millis() - eebus_cs_state_at;
    // Herzschlag "da": juenger als 120 s. Vor dem ersten Herzschlag zaehlt der Eintritt in den Zustand.
   uint32_t ref = eebus_cs_last_hb;
-  if (!ref || ((int32_t)(eebus_cs_state_at - ref) > 0)) { ref = eebus_cs_state_at; }
+   // SteuVE v030: in "gesteuert" zaehlt die Frist ab dem LETZTEN HERZSCHLAG ([LPC-911]/[LPC-912], LPC Z. 354-368
+   // "120 seconds since the last Heartbeat"). Bisher begann sie beim Wechsel nach "gesteuert" neu -> Failsafe erst
+   // nach bis zu ~230 s. Lag der letzte Herzschlag beim Eintritt schon 120 s oder laenger zurueck (oder kam noch
+   // keiner), gilt weiter der Eintritt in den Zustand - sonst fiele eine Grenze, die vor dem ersten Herzschlag der neuen
+   // Verbindung kam, im naechsten Takt in den Failsafe.
+  if (!ref) {
+    ref = eebus_cs_state_at;
+  } else if ((int32_t)(eebus_cs_state_at - ref) > 0) {
+    if ((CS_CTRL != eebus_cs_state) || ((eebus_cs_state_at - ref) >= EEBUS_CS_HB_TMO_MS)) { ref = eebus_cs_state_at; }
+  }
   bool hb_ok = (millis() - ref) < EEBUS_CS_HB_TMO_MS;
    // SteuVE v024: ein Herzschlag allein holt NICHT mehr aus Anlauf/autonom nach "gesteuert". Erst Herzschlag
    // UND eine folgende Grenze (Write, EebusCsWriteLim) - [LPC-902]/[LPC-904]/[LPC-905], [LPC-916].
@@ -3615,6 +3740,19 @@ void CmndEebusCs(void) {
 }
 
 // EEBusCsPower <W> [Wh] — aktuelle Leistung (und Zaehlerstand) der geschalteten Verbraucher; vom Skript.
+// SteuVE v030 (Befund Paket 5): steht am Anfang von s eine ganze Zahl (danach nur Ende oder Leerzeichen)?
+// Bisher machte atoi/strtoul aus "abc" stillschweigend 0 und aus "-5" eine riesige Zahl.
+bool EebusArgLong(const char *s, long *out) {
+  if (nullptr == s) { return false; }
+  while (' ' == *s) { s++; }
+  char *e = nullptr;
+  long v = strtol(s, &e, 10);
+  if ((nullptr == e) || (e == s)) { return false; }
+  if (*e && (' ' != *e)) { return false; }
+  *out = v;
+  return true;
+}
+
 void CmndEebusCsPower(void) {
   if ((XdrvMailbox.data_len > 0) &&
       (!strncasecmp_P(XdrvMailbox.data, PSTR("unbekannt"), 9) || !strncasecmp_P(XdrvMailbox.data, PSTR("unknown"), 7))) {
@@ -3623,35 +3761,52 @@ void CmndEebusCsPower(void) {
     eebus_cs_pwr_have = false;
     eebus_cs_pwr_w = 0;   // Anzeige: kein alter Wert; auf der Leitung steht valueState error
   } else if (XdrvMailbox.data_len > 0) {
+    long w = 0;
+    if (!EebusArgLong(XdrvMailbox.data, &w)) {   // SteuVE v030: "abc" meldete bisher 0 W als Messwert
+      ResponseCmndChar_P(PSTR("Nutzung: EEBusCsPower <W> [Wh] | unbekannt"));
+      return;
+    }
     char *e = nullptr;
-    long w = strtol(XdrvMailbox.data, &e, 10);
+    strtol(XdrvMailbox.data, &e, 10);
     eebus_cs_pwr_w = (int32_t)w;
     if (!eebus_cs_pwr_have) { eebus_cs_pwr_sent_at = 0; }   // v026: zurueck von unbekannt -> sofort "normal" melden
     eebus_cs_pwr_have = true;
     eebus_cs_pwr_unk_push = false;
-    if (e && *e) {
-      unsigned long wh = strtoul(e, nullptr, 10);
-      if (wh) { eebus_cs_energy_wh = (uint32_t)wh; }
-    }
+    long wh = 0;
+    if (e && *e && EebusArgLong(e, &wh) && (wh > 0)) { eebus_cs_energy_wh = (uint32_t)wh; }   // SteuVE v030: kein negativer Zaehler
   }
   Response_P(PSTR("{\"%s\":{\"Leistung\":%d,\"Zaehler\":%u}}"), XdrvMailbox.command, (int)eebus_cs_pwr_w, eebus_cs_energy_wh);
 }
 
 // EEBusCsMax <W> — Nennleistung (hoechste Bezugsleistung) der Einrichtung, z. B. Summe der Verbraucher.
 void CmndEebusCsMax(void) {
-  if (XdrvMailbox.data_len > 0) { eebus_cs_max_w = (uint32_t)strtoul(XdrvMailbox.data, nullptr, 10); }
+  if (XdrvMailbox.data_len > 0) {
+    long w = 0;
+    if (!EebusArgLong(XdrvMailbox.data, &w) || (w < 0) || (w > 10000000L)) {   // SteuVE v030: "-5" ergab 4294967291 W
+      ResponseCmndChar_P(PSTR("Nennleistung 0..10000000 W"));
+      return;
+    }
+    eebus_cs_max_w = (uint32_t)w;
+  }
   ResponseCmndNumber(eebus_cs_max_w);
 }
 
 // EEBusCsFs <W> <s> — eigene Failsafe-Vorgabe (gilt, bis der Energy Guard eigene Werte schreibt).
 void CmndEebusCsFs(void) {
   if (XdrvMailbox.data_len > 0) {
-    char *e = nullptr;
-    unsigned long w = strtoul(XdrvMailbox.data, &e, 10);
-    long s = (e && *e) ? strtol(e, nullptr, 10) : eebus_cs_fs_dur_s;
-    if (w > 0) { eebus_cs_fs_w = (uint32_t)w; }
+    long w = 0;
+    long s = eebus_cs_fs_dur_s;
+    const char *sp = strchr(XdrvMailbox.data, ' ');
+     // SteuVE v030: Zahlen pruefen (bisher "abc" -> nichts geaendert, aber gespeichert; "-5" -> riesige Leistung).
+     // 0 W ist gueltig (LPC Z. 404-405 ">= 0"); die Dauer bleibt fuer Tests ab 1 s erlaubt (Norm: 2..24 h, [LPC-022/1]).
+    if (!EebusArgLong(XdrvMailbox.data, &w) || (w < 0) || (w > 10000000L) ||
+        (sp && !EebusArgLong(sp, &s)) || (s < 1)) {
+      ResponseCmndChar_P(PSTR("Nutzung: EEBusCsFs <0..10000000 W> [<s>, 1..86400]"));
+      return;
+    }
     if (s > 86400) { s = 86400; }   // SteuVE v005
-    if (s > 0) { eebus_cs_fs_dur_s = s; }
+    eebus_cs_fs_w = (uint32_t)w;
+    eebus_cs_fs_dur_s = s;
     EebusCsSaveFs();
   }
   Response_P(PSTR("{\"%s\":{\"Failsafe\":%u,\"FailsafeDauerS\":%ld}}"), XdrvMailbox.command, eebus_cs_fs_w, eebus_cs_fs_dur_s);
@@ -3661,9 +3816,14 @@ void CmndEebusCsFs(void) {
 // NUR ZUM TESTEN eines Skripts ohne Energy Guard. Ein angeschlossener Energy Guard sieht den Wert beim Lesen.
 void CmndEebusCsSim(void) {
   if (XdrvMailbox.data_len > 0) {
-    char *e = nullptr;
-    unsigned long w = strtoul(XdrvMailbox.data, &e, 10);
-    long s = (e && *e) ? strtol(e, nullptr, 10) : -1;
+    long wl = 0;
+    long s = -1;
+    const char *sp = strchr(XdrvMailbox.data, ' ');
+    if (!EebusArgLong(XdrvMailbox.data, &wl) || (wl < 0) || (sp && !EebusArgLong(sp, &s))) {   // SteuVE v030
+      ResponseCmndChar_P(PSTR("Nutzung: EEBusCsSim <W> [s] | 0"));
+      return;
+    }
+    unsigned long w = (unsigned long)wl;
     eebus_cs_lim_active = (w > 0);
     if (w > 0) { eebus_cs_lim_w = (uint32_t)w; }
     if (s > 86400) { s = 86400; }   // SteuVE v005
@@ -4685,6 +4845,8 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
    // peer_dev (SPINE-Geraeteadresse) ist optional: fehlt sie, adressieren wir point-to-point
    // nur ueber entity/feature (der Peer ist auf der SHIP-Verbindung eindeutig).
   ESp->lpc_value = watt;
+  ESp->lpc_val_dir[dir ? 1 : 0] = watt;
+   // 06.11. (Andreas, Box .21 bewiesen 22:21:17): Wert JE RICHTUNG - "§14a aufheben" schickte den letzten §9-Wert (11480 W)
   ESp->lpc_active_wish = active;
   ESp->lpc_dur_s = (dur_s < 0) ? 0 : dur_s;   // Geltungsdauer dieses Auftrags
   ESp->lpc_write_tries = 0;   // err7-Retry-Zaehler fuer diesen neuen Write-Auftrag zuruecksetzen
@@ -4963,6 +5125,8 @@ void EebusHarvest(const char *json, int src_ent) {
             long num = 0, sca = 0;
             EebusJsonLong(vp, "number", &num);
             EebusJsonLong(vp, "scale",  &sca);
+            if (sca > 9) { sca = 9; }     // SteuVE v030: scale aus dem Frame begrenzen (bisher Schleife ohne Grenze)
+            if (sca < -9) { sca = -9; }
             while (sca > 0) { num *= 10; sca--; }
             while (sca < 0) { num /= 10; sca++; }
             wert_ok = (labs(num) == (long)ESp->lpc_value);
@@ -5055,6 +5219,7 @@ void EebusSpineHandle(const char *json) {
     }
   } else if (0 == strcmp(cls, "write")) {
     bool cs_abgewiesen = false;   // SteuVE v006
+    bool cs_nack = false;         // SteuVE v030: vertraut, aber Wert nicht anwendbar -> NACK [LPC-003/1], [LPC-003/2]
    // Ein Steuergeraet schreibt uns ein LPC-Limit -> DAS ist das §14a-Pruefergebnis: mitschneiden!
     if (strstr(json, "loadControlLimitListData")) {
       const char *v = strstr(json, "\"value\"");
@@ -5067,15 +5232,17 @@ void EebusSpineHandle(const char *json) {
         uint32_t lid = 1;   // SteuVE v021: unsere einzige Grenze ist limitId 1 (Bezug) - andere nicht als Bezug uebernehmen
         EebusJsonInt(strstr(json, "loadControlLimitListData"), "limitId", &lid);
         if (!EebusCsTrusted()) { cs_abgewiesen = true; }
-        else if (1 != lid) {
-          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s auf limitId %u ignoriert - wir haben nur limitId 1 (Bezug)"),
+        else if (1 != lid) {   // SteuVE v030: NACK statt ACK (LPC Z. 332-334 [LPC-003/1]: nicht anwendbar -> NACK)
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s auf limitId %u ABGELEHNT - wir haben nur limitId 1 (Bezug)"),
                  ESp->peer_ip, lid);
+          cs_nack = true;
         }
-        else { EebusCsApplyLimitWrite(json); }
+        else if (!EebusCsLimitWriteOk(json)) { cs_nack = true; }
       }
     }
     if ((3 == eebus_role) && strstr(json, "deviceConfigurationKeyValueListData")) {
-      if (EebusCsTrusted()) { EebusCsApplyConfigWrite(json); } else { cs_abgewiesen = true; }   // SteuVE v002/v006
+      if (EebusCsTrusted()) { if (!EebusCsConfigWriteOk(json)) { cs_nack = true; } }   // SteuVE v002/v027
+      else { cs_abgewiesen = true; }   // SteuVE v006
     }
     if (cs_abgewiesen) {   // SteuVE v006
       eebus_cs_rej_cnt++;
@@ -5086,7 +5253,7 @@ void EebusSpineHandle(const char *json) {
     }
    // Quittung an das ABSENDER-Feature des Peers (nicht pauschal an sein NodeManagement) — s.u.
    // SteuVE v006: abgewiesen -> errorNumber 7 (commandRejected)
-    if (ack) { EebusSpineSendAddr("result", true, their_ctr, cs_abgewiesen ? "{\"resultData\":[{\"errorNumber\":7}]}"
+    if (ack) { EebusSpineSendAddr("result", true, their_ctr, (cs_abgewiesen || cs_nack) ? "{\"resultData\":[{\"errorNumber\":7}]}"
                                                                    : "{\"resultData\":[{\"errorNumber\":0}]}", 0, 0, peer_ent, peer_feat); }
   } else if (0 == strcmp(cls, "call")) {
    // z.B. nodeManagementSubscriptionRequestCall: der Peer abonniert uns -> quittieren + merken
@@ -5100,10 +5267,9 @@ void EebusSpineHandle(const char *json) {
         EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->hb_cli_ent, &ESp->hb_cli_feat);
         ESp->hb_sub = true;
         ESp->hb_next = millis() + 2000;   // ersten Heartbeat zeitnah senden
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer %s abonniert unser DeviceDiagnosis -> Heartbeat alle 30 s (an ent %d feat %d)"),
-               ESp->peer_ip, ESp->hb_cli_ent, ESp->hb_cli_feat);
-        EebusServeStateNotify();   // operatingState:normalOperation sofort nachschieben (Energiemanager braucht ihn)
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: DeviceDiagnosis-State (normalOperation) an %s gesendet"), ESp->peer_ip);
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer %s abonniert unser DeviceDiagnosis -> Heartbeat alle %u s (an ent %d feat %d)"),
+               ESp->peer_ip, (uint32_t)(eebus_hems_mode ? (EEBUS_HEMS_HB_MS / 1000) : 20), ESp->hb_cli_ent, ESp->hb_cli_feat);   // SteuVE v030: Logtext = echter Takt (bisher fest "30 s")
+        EebusServeStateNotify();   // derzeit ohne Funktion (leer) - SteuVE v030: die Logzeile "State gesendet" ist entfallen
       }
    // Abo auf UNSER LoadControl (ent1/feat6)? -> HEMS liest hier unser §14a-Limit.
    // Absenderadresse merken; sofort den aktuellen Limit-Zustand als NOTIFY nachschieben.
@@ -5395,10 +5561,10 @@ void EebusSmeReachDone(const char *grund) {
    // (alten Partner trennen, neuen verbinden) wird weiter gemerkt.
   if (!ESp->via_srv && ((3 != eebus_role) || EebusCsTrusted())) {
     bool alter_partner_da = false;
-    if (eebus_ac_ski[0] && (0 != strcmp(eebus_ac_ski, ESp->peer_ski))) {
+    if (eebus_ac_ski[0] && (0 != strcasecmp(eebus_ac_ski, ESp->peer_ski))) {
       for (uint32_t k = 0; k < EEBUS_MAX_CONN; k++) {
         if ((&EConn[k] != ESp) && EConn[k].active && (SME_DONE == EConn[k].sme) &&
-            (0 == strcmp(EConn[k].peer_ski, eebus_ac_ski))) { alter_partner_da = true; break; }
+            (0 == strcasecmp(EConn[k].peer_ski, eebus_ac_ski))) { alter_partner_da = true; break; }
       }
     }
     if (alter_partner_da) {
@@ -5552,6 +5718,14 @@ void EebusSmePoll(void) {
   if ((SME_OFF == ESp->sme) || (SME_FAIL == ESp->sme)) { return; }
   if (!ESp->active || (nullptr == ESp->client)) { ESp->sme = SME_OFF; return; }
 
+  // SteuVE v030 (wie Steuerbox v228): Die TLS-Schicht hat ihre Sendewartezeit einmal verbraucht -> sofort abbauen.
+  if (ESp->client->sendStuck()) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Senden an %s seit %u ms ohne Fortschritt - Gegenstelle nimmt nichts an"),
+           ESp->peer_ip, (uint32_t)EEBUS_SEND_WAIT_MS);
+    if (SME_DONE == ESp->sme) { EebusSendBroken(); } else { ESp->send_broken = true; EebusSmeFail("senden haengt"); }
+    return;
+  }
+
   if (!ESp->client->connected() && (ESp->client->available() <= 0)) {
     if (SME_DONE == ESp->sme) {   // Peer hat aufgelegt
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP-Verbindung beendet (%s)"), ESp->peer_ip);
@@ -5572,30 +5746,48 @@ void EebusSmePoll(void) {
   uint8_t *rx = ESp->rxbuf;
   size_t rxmax = ESp->rxbuf_size ? ESp->rxbuf_size : 0;
   if ((nullptr == rx) || (0 == rxmax)) { return; }
-  while (ESp->client && (ESp->client->available() > 0)) {
+  int rx_runden = 0;   // SteuVE v030 (Befund 1.3): hoechstens 20 Nachrichten je Tick, der Rest im naechsten
+  while (ESp->client && (ESp->client->available() > 0) && (rx_runden++ < 20)) {
     int n = EebusWsRecv(rx, rxmax - 1, 1000);
     if (-2 == n) {   // WS-Close-Frame
       EebusSmeDispatch((const uint8_t*)"\x03{}", 3);   // wie connectionClose behandeln
       return;
     }
-    if (n < 0) { break; }   // Timeout/Fehler -> naechster Tick
-    if (0 == n) { EebusHeapCheck("rx_ctrl"); continue; }   // nach Ping/Pong/Skip (schrieb rxbuf?)
-    EebusHeapCheckN("rx_recv", (uint32_t)n);   // ROH nach WsRecv, VOR Verarbeitung
+    if (n < 0) {
+       // SteuVE v030 (Befund 4.9): available() > 0, also stand mindestens ein Byte an - ein -1 heisst, der Frame brach
+       // mittendrin ab, die gelesenen Bytes sind verloren und der Strom ist aus dem Takt. Abbauen statt weiterlesen.
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Empfang von %s mitten im WS-Frame abgebrochen - Verbindung wird neu aufgebaut"),
+             ESp->peer_ip);
+      if (SME_DONE == ESp->sme) {
+        EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
+        ESp->sme = SME_OFF;
+        ESp->state = SHIP_IDLE;
+        ESp->last_rx = 0;
+        if (ESp->keepalive && (ESp->peer_idx >= 0)) { ESp->reconnect_at = millis() + EebusKaWaitMs(); }
+        EebusTeardownLater();
+      } else {
+        EebusSmeFail("empfang unvollstaendig");
+      }
+      return;
+    }
+    if (0 == n) {   // nach Ping/Pong/Skip (schrieb rxbuf?)
+      if (ESp->send_broken || (SME_OFF == ESp->sme)) { return; }   // Gegenpruefung 06.11.: Pong scheiterte, Slot wird abgebaut
+      continue;
+    }
     rx[n] = '\0';
     ESp->last_rx = millis();
     EebusShipLog('R', rx[0], (const char*)rx + 1);
     EebusSmeDispatch(rx, n);
-    EebusHeapCheck("rx_dispatch");   // Checkpunkt: nach Verarbeitung jeder Empfangs-Nachricht
     if ((SME_OFF == ESp->sme) || (SME_FAIL == ESp->sme)) { return; }
   }
 
    // HENNE-EI-FALLBACK (Ladestation-Deadlockbewiesen): Der Peer kann seine eigene
    // Discovery nicht an uns richten, solange er nie einen Frame von uns empfing (Ladestation
-   // eebus_usecases.cpp get_spine_connection -> "no spine connection found" -> ihr Read
+   // meldet intern "keine SPINE-Verbindung" -> ihr Read
    // wird NIE gesendet). Unser Guard wartete umgekehrt auf SEINEN ersten Frame ->
    // beidseitige Funkstille -> "Peer Degradiert" nach 10 s. Loesung: 3 s nach Done ohne
    // Peer-Frame den Discovery-Read einmalig ADRESSLOS senden (Verhalten; die Ladestation
-   // toleriert das explizit RX-seitig, spine_connection.cpp:161-165 "assume message is
+   // toleriert das explizit RX-seitig, "assume message is
    // for us"; Energiemanager/Waermepumpen-Gateway ignorieren adresslose Reads nachweislich folgenlos). Sobald der
    // Peer antwortet, kennen wir peer_dev und der adressierte Pfad laeuft normal.
   if ((SME_DONE == ESp->sme) && !ESp->peer_disco_read && !ESp->peer_dev[0] &&
@@ -5718,7 +5910,7 @@ void EebusAutoConnectRun(void) {
    // Ist die Verbindung inzwischen anderweitig zustande gekommen (von Hand oder eingehend)?
    // Dann ist nichts mehr zu tun.
       for (uint32_t i = 0; i < EEBUS_MAX_CONN; i++) {
-        if (EConn[i].active && (0 == strcmp(EConn[i].peer_ski, eebus_ac_ski))) {
+        if (EConn[i].active && (0 == strcasecmp(EConn[i].peer_ski, eebus_ac_ski))) {
           eebus_ac_state = AC_DONE;
           return;
         }
@@ -5733,14 +5925,14 @@ void EebusAutoConnectRun(void) {
    // Waehrend des Scans eingehend verbunden (Energiemanager ruft nach seinem Neustart selbst an)?
    // Dann nicht zusaetzlich selbst anrufen (05.10. 20:51: zwei parallele Verbindungen).
       for (uint32_t i = 0; i < EEBUS_MAX_CONN; i++) {
-        if (EConn[i].active && (0 == strcmp(EConn[i].peer_ski, eebus_ac_ski))) {
+        if (EConn[i].active && (0 == strcasecmp(EConn[i].peer_ski, eebus_ac_ski))) {
           eebus_ac_state = AC_DONE;
           return;
         }
       }
       int idx = -1;
       for (uint32_t k = 0; k < Eebus.peer_count; k++) {
-        if (0 == strcmp(Eebus.peers[k].ski, eebus_ac_ski)) { idx = (int)k; break; }
+        if (0 == strcasecmp(Eebus.peers[k].ski, eebus_ac_ski)) { idx = (int)k; break; }
       }
       eebus_ac_try++;
       if (idx >= 0) {
@@ -5774,7 +5966,11 @@ void EebusAutoConnectRun(void) {
 // EEBusAutoConn -1         gemerkten Peer vergessen (kein Wiederaufbau mehr)
 void CmndEebusAutoConn(void) {
   if (XdrvMailbox.data_len > 0) {
-    long v = atol(XdrvMailbox.data);
+    long v = 0;
+    if (!EebusArgLong(XdrvMailbox.data, &v)) {   // SteuVE v030: "abc" schaltete bisher den Wiederaufbau ab (0)
+      ResponseCmndChar_P(PSTR("Wartezeit 0..3600 s, -1 = Peer vergessen"));
+      return;
+    }
     if (v < 0) {
       EebusPeerForget();
     } else if (v <= 3600) {
@@ -5837,7 +6033,7 @@ void EebusDisconnectNow(void) {
    // Firmware-Update, also dem Fall, fuer den der Wiederaufbau gedacht ist, blieb er damit stumm.
    // Eine Steuerbox muss sich auch nach einem Update selbst verbinden. Wer die Merkung wirklich
    // loswerden will, sagt es ausdruecklich: EEBusAutoConn -1 (zum blossen Stilllegen: 0).
-  if (!ESp->via_srv && (0 == strcmp(eebus_ac_ski, ESp->peer_ski))) { eebus_ac_state = AC_DONE; }
+  if (!ESp->via_srv && (0 == strcasecmp(eebus_ac_ski, ESp->peer_ski))) { eebus_ac_state = AC_DONE; }
   if (ESp->active && (ESp->client || ESp->via_srv) &&   // auch Server-Slots verabschieden sich
       (ESp->sme != SME_OFF) && (ESp->sme != SME_FAIL)) {
    // Sauberer SHIP-Abschied (13.4.7): connectionClose als End-Message (classifier 3)
@@ -5990,6 +6186,9 @@ void CmndEebusPeerMode(void) {
       else if ((0 == strcasecmp(modestr, "steuve")) || (0 == strcmp(modestr, "0"))) { mode = 0; }
       else if ((0 == strcasecmp(modestr, "del"))    || (0 == strcasecmp(modestr, "delete"))) { mode = -1; }
       else { ResponseCmndChar_P(PSTR("Modus: hems|steuve|del")); return; }
+      bool hex40 = (40 == strlen(args));   // SteuVE v030: nur eine volle SKI (40 Hex-Zeichen) anlegen
+      for (const char *c = args; hex40 && *c; c++) { if (!isxdigit((unsigned char)*c)) { hex40 = false; } }
+      if ((mode >= 0) && !hex40) { ResponseCmndChar_P(PSTR("SKI: 40 Hex-Zeichen")); return; }
       if (!EebusModeSet(args, mode)) {
         ResponseCmndChar_P(PSTR("Zuordnung nicht moeglich (unbekannte SKI oder Tabelle voll)"));
         return;
@@ -6010,9 +6209,14 @@ void CmndEebusPeerMode(void) {
 void CmndEebusRole(void) {
   if (XdrvMailbox.data_len > 0) {
    // 0=nur Lesen, 1=Steuerbox GridGuard-Identitaet, 2=Steuerbox CEM-Identitaet
-   // (EnergyManagementSystem/CEM wie die VR940-Bridge — Waermepumpen-Gateways liefern ihre
+   // (EnergyManagementSystem/CEM wie eine Energiemanager-Bridge — Waermepumpen-Gateways liefern ihre
    // Discovery nur ihrem "EEBUS Energiemanager"; die Ladestation ignoriert den Typ, beides ok).
-    uint8_t nr = ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= 3)) ? (uint8_t)XdrvMailbox.payload : 0;   // +Rolle 3
+    long rv = -1;   // SteuVE v030: "abc" oder 7 fiel bisher auf Rolle 0 (nur lesen) - die SteuVE hoerte auf zu steuern
+    if (!EebusArgLong(XdrvMailbox.data, &rv) || (rv < 0) || (rv > 3)) {
+      ResponseCmndChar_P(PSTR("Rolle 0..3"));
+      return;
+    }
+    uint8_t nr = (uint8_t)rv;   // +Rolle 3
     if (nr != eebus_role) {
       eebus_role = nr;
       Eebus.advertised = false;   // erzwingt Neu-Ankuendigung mit neuem Typ (naechster Tick)
@@ -6171,7 +6375,12 @@ void CmndEebusLimit(void) {
   char sel[48]; size_t sl = (size_t)(space - XdrvMailbox.data);
   if (sl >= sizeof(sel)) { sl = sizeof(sel) - 1; }
   memcpy(sel, XdrvMailbox.data, sl); sel[sl] = 0;
-  uint32_t watt = (uint32_t)atoi(space + 1);
+  long wl = 0;
+  if (!EebusArgLong(space + 1, &wl) || (wl < 0)) {   // SteuVE v030: "abc" -> 0 W, "-5" -> negative Grenze (LPC Z. 313)
+    ResponseCmndChar_P(PSTR("Watt: ganze Zahl >= 0"));
+    return;
+  }
+  uint32_t watt = (uint32_t)wl;
    // optionale Geltungsdauer in Sekunden als drittes Argument.
    // OHNE Angabe gilt jetzt auch im HEMS-Betrieb eine Dauer — die Vorgabe 900 s. Bis ging
    // dort ohne drittes Argument gar keine Dauer mit; genau dieser Fall erbt eine abgelaufene
@@ -6180,7 +6389,7 @@ void CmndEebusLimit(void) {
    // dieser Pfad ist an Ladestation/Waermepumpen-Gateway bewiesen und wird nicht angefasst.
   char *space2 = strchr(space + 1, ' ');
   long dauer = eebus_hems_mode ? EEBUS_LPC_DUR_DEFAULT_S : eebus_limit_dur_s;
-  if (nullptr != space2) { dauer = atol(space2 + 1); eebus_limit_dur_s = dauer; }
+  if ((nullptr != space2) && !EebusArgLong(space2 + 1, &dauer)) { dauer = -1; }   // SteuVE v030: unten abgewiesen
    // Wertebereich duration 0..86400. Lieber hier abweisen als einen
    // Frame senden, den die Gegenstelle stillschweigend verwirft. 0 bleibt ausdruecklich erlaubt und
    // heisst "unbefristet"; dann loescht der Frame-Bau die alte Endzeit mit (Automatik, s.o.).
@@ -6189,6 +6398,7 @@ void CmndEebusLimit(void) {
                XdrvMailbox.command, dauer, EEBUS_LPC_DUR_MAX_S);
     return;
   }
+  if (nullptr != space2) { eebus_limit_dur_s = dauer; }   // SteuVE v030: erst NACH der Pruefung merken
   if (eebus_role < 1) { ResponseCmndChar_P(PSTR("Rolle AUS - erst EEBusRole 1 oder 2 (Steuerbox)")); return; }
   if (!EebusSelectPeerArg(sel)) { return; }
   bool ok = EebusLpcStart(watt, true, 0, dauer);   // /consume (§14a), Dauer aus dem Befehl
@@ -6220,7 +6430,7 @@ void CmndEebusRelease(void) {
    // (isLimitActive:false, value:<letzter Wert>). Ohne Arg: den letzten lpc_value behalten (0 nach Boot).
    // Fuer den §5a-Zustands-Test (erst deaktivieren, dann aktivieren) Vergleichs-Steuerbox-identisch: EEBusRelease 0 8360.
   char *space = strchr(XdrvMailbox.data, ' ');
-  uint32_t watt = (nullptr != space) ? (uint32_t)atoi(space + 1) : ESp->lpc_value;
+  uint32_t watt = (nullptr != space) ? (uint32_t)atoi(space + 1) : ESp->lpc_val_dir[0];   // 06.11.: letzter §14a-Wert
    // EEBusRelease bleibt eindeutig die §14a-Freigabe (consume). Die Einspeise-Freigabe hat mit
    // EEBusLppFrei einen eigenen Befehl — sonst haenge das Ergebnis davon ab, welche Richtung zuletzt
    // geschrieben wurde, und der bewiesene §14a-Befehl waere nicht mehr vorhersagbar.
@@ -6245,14 +6455,15 @@ void CmndEebusLpp(void) {
   char sel[48]; size_t sl = (size_t)(space - XdrvMailbox.data);
   if (sl >= sizeof(sel)) { sl = sizeof(sel) - 1; }
   memcpy(sel, XdrvMailbox.data, sl); sel[sl] = 0;
-  long w = atol(space + 1);
+  long w = 0;
+  if (!EebusArgLong(space + 1, &w)) { ResponseCmndChar_P(PSTR("Watt: ganze Zahl")); return; }   // SteuVE v030
   if (w < 0) { w = -w; }   // Betrag; das Vorzeichen setzt der Frame-Bau
   char *space2 = strchr(space + 1, ' ');   // optionale Geltungsdauer in Sekunden
    // gleiche Regel wie bei §14a — ohne Angabe die Vorgabedauer, Bereich 0..86400 s.
    // Die Einspeisegrenze wird von derselben Zustandsmaschine geschrieben und erbt dieselbe
    // Gefahr: eine abgelaufene Geltungsdauer der Gegenstelle macht sie lautlos wirkungslos.
   long dauer = eebus_hems_mode ? EEBUS_LPC_DUR_DEFAULT_S : eebus_limit_dur_s;
-  if (nullptr != space2) { dauer = atol(space2 + 1); }
+  if ((nullptr != space2) && !EebusArgLong(space2 + 1, &dauer)) { dauer = -1; }   // SteuVE v030
   if (dauer < 0 || dauer > EEBUS_LPC_DUR_MAX_S) {
     Response_P(PSTR("{\"%s\":{\"Fehler\":\"Dauer %ld s unzulaessig - erlaubt 0..%ld s (0 = unbefristet)\"}}"),
                XdrvMailbox.command, dauer, EEBUS_LPC_DUR_MAX_S);
@@ -6366,6 +6577,20 @@ void CmndEebusRead(void) {
   }
 }
 
+// SteuVE v030 (Befund 2.3): an einen Puffer anhaengen, ohne dass der Schreibzeiger hinter das Ende laeuft. snprintf liefert
+// die GEWUENSCHTE Laenge; mit "ap += snprintf(b + ap, n - ap, ...)" wurde n - ap nach einem abgeschnittenen Text negativ
+// (size_t: riesig) und der naechste Aufruf schrieb hinter den Puffer. Rueckgabe = tatsaechlich angehaengte Zeichen.
+size_t EebusSnAp(char *b, size_t n, size_t ap, const char *fmt, ...) {
+  if ((nullptr == b) || (0 == n) || (ap >= n - 1)) { return 0; }
+  va_list va;
+  va_start(va, fmt);
+  int r = vsnprintf(b + ap, n - ap, fmt, va);
+  va_end(va);
+  if (r <= 0) { return 0; }
+  size_t room = n - 1 - ap;
+  return ((size_t)r > room) ? room : (size_t)r;
+}
+
 void CmndEebusMess(void) {
   if (XdrvMailbox.data_len == 0) { ResponseCmndChar_P(PSTR("Nutzung: EEBusMess <idx|ski|hm>")); return; }
   if (!EebusSelectPeerArg(XdrvMailbox.data)) { return; }
@@ -6374,26 +6599,26 @@ void CmndEebusMess(void) {
    // errorNumber 6 ablehnt, steht anschliessend in der Konsole — so finden wir heraus, WO die
    // Gegenstelle welche Groesse fuehrt, statt es zu erraten.
   int n = 0;
-  char adr[160] = { 0 }; size_t ap = 0;
+  char adr[160] = { 0 }; size_t ap = 0;   // SteuVE v030: EebusSnAp haelt ap im Puffer (Befund 2.3)
   for (int i = 0; i < ESp->m_n; i++) {
     EebusSpineSendAddr("read", false, 0, "{\"measurementDescriptionListData\":[]}",
                        EEBUS_LPC_CLIENT_ENT, ESp->m_cli[i], ESp->m_ent[i], ESp->m_feat[i]); n++;
     EebusSpineSendAddr("read", false, 0, "{\"measurementListData\":[]}",
                        EEBUS_LPC_CLIENT_ENT, ESp->m_cli[i], ESp->m_ent[i], ESp->m_feat[i]); n++;
-    ap += snprintf(adr + ap, sizeof(adr) - ap, "%sM%d/%d", ap ? " " : "", ESp->m_ent[i], ESp->m_feat[i]);
+    ap += EebusSnAp(adr, sizeof(adr), ap, "%sM%d/%d", ap ? " " : "", ESp->m_ent[i], ESp->m_feat[i]);
   }
    // nur dort fragen, wo die Selbstauskunft die Kenngroessen auch auffuehrt.
   int ec_gefragt = 0;
   for (int i = 0; i < ESp->ec_n; i++) {
     if (!ESp->ec_char[i]) {
-      ap += snprintf(adr + ap, sizeof(adr) - ap, "%s(E%d/%d ohne)", ap ? " " : "",
+      ap += EebusSnAp(adr, sizeof(adr), ap, "%s(E%d/%d ohne)", ap ? " " : "",
                      ESp->ec_ent[i], ESp->ec_feat[i]);
       continue;
     }
     EebusSpineSendAddr("read", false, 0, "{\"electricalConnectionCharacteristicListData\":[]}",
                        EEBUS_LPC_CLIENT_ENT, ESp->ec_cli[i], ESp->ec_ent[i], ESp->ec_feat[i]);
     n++; ec_gefragt++;
-    ap += snprintf(adr + ap, sizeof(adr) - ap, "%sE%d/%d", ap ? " " : "", ESp->ec_ent[i], ESp->ec_feat[i]);
+    ap += EebusSnAp(adr, sizeof(adr), ap, "%sE%d/%d", ap ? " " : "", ESp->ec_ent[i], ESp->ec_feat[i]);
   }
   Response_P(PSTR("{\"%s\":{\"Gesendet\":%d,\"AnzMess\":%d,\"AnzEc\":%d,\"EcMitKenngroessen\":%d,"
                   "\"Adressen\":\"%s\",\"Hinweis\":\"%s\"}}"),
@@ -6682,7 +6907,7 @@ void CmndEebusLppFrei(void) {
   if (sl >= sizeof(sel)) { sl = sizeof(sel) - 1; }
   memcpy(sel, XdrvMailbox.data, sl); sel[sl] = 0;
   if (!EebusSelectPeerArg(sel)) { return; }
-  long w = (nullptr != space) ? atol(space + 1) : (long)ESp->lpc_value;
+  long w = (nullptr != space) ? atol(space + 1) : (long)ESp->lpc_val_dir[1];   // 06.11.: letzter §9-Wert, nicht der letzte irgendeiner Richtung
   if (w < 0) { w = -w; }
   bool ok = EebusLpcStart((uint32_t)w, false, 1, 0);
   Response_P(PSTR("{\"%s\":{\"Started\":%s,\"Ip\":\"%s\",\"Watt\":%ld,\"Lpc\":\"%s\",\"Result\":\"%s\"}}"),
@@ -6745,21 +6970,36 @@ void CmndEebusOpen(void) {
 void CmndEebusConnectIp(void) {
   if (XdrvMailbox.data_len < 7) { ResponseCmndChar_P(PSTR("Nutzung: EEBusConnectIp ip:port")); return; }
   if (!Eebus.cert_ok && !EebusEnsureCert(false)) { ResponseCmndChar_P(PSTR("Kein Zertifikat")); return; }
-  int ci = EebusConnAlloc("manual");   // Debug-Verbindung in eigenen Slot
-  if (ci < 0) { ResponseCmndChar_P(PSTR("alle Slots belegt (EEBusDisconnect)")); return; }
-  ESp = &EConn[ci];
   char buf[40]; strlcpy(buf, XdrvMailbox.data, sizeof(buf));
   uint16_t port = 4712;
   char *colon = strchr(buf, ':');
-  if (colon) { *colon = '\0'; port = (uint16_t)atoi(colon + 1); }
-  EebusPeer *p = &Eebus.peers[0];
+  if (colon) {
+    *colon = '\0';
+    long pv = 0;
+    if (!EebusArgLong(colon + 1, &pv) || (pv < 1) || (pv > 65535)) { ResponseCmndChar_P(PSTR("Port 1..65535")); return; }
+    port = (uint16_t)pv;
+  }
+  IPAddress tst;
+  if (!tst.fromString(buf)) { ResponseCmndChar_P(PSTR("Nutzung: EEBusConnectIp <IPv4>[:port]")); return; }   // SteuVE v030
+   // SteuVE v030 (Befund Paket 5): bisher wurde peers[0] ueberschrieben - das war meist der Energy Guard aus dem
+   // Scan, sein Wiederaufbau zeigte danach auf die manuelle Adresse. Jetzt eigener Eintrag "manual" am Listenende.
+  int pi = -1;
+  for (uint32_t k = 0; k < Eebus.peer_count; k++) {
+    if (0 == strcmp(Eebus.peers[k].ski, "manual")) { pi = (int)k; break; }
+  }
+  if ((pi < 0) && (Eebus.peer_count < EEBUS_MAX_PEERS)) { pi = (int)Eebus.peer_count; }
+  if (pi < 0) { ResponseCmndChar_P(PSTR("Fundliste voll (EEBusScan)")); return; }
+  int ci = EebusConnAlloc("manual");   // Debug-Verbindung in eigenen Slot
+  if (ci < 0) { ResponseCmndChar_P(PSTR("alle Slots belegt (EEBusDisconnect)")); return; }
+  ESp = &EConn[ci];
+  if (pi == (int)Eebus.peer_count) { Eebus.peer_count++; }
+  EebusPeer *p = &Eebus.peers[pi];
   memset(p, 0, sizeof(EebusPeer));
   strlcpy(p->ip, buf, sizeof(p->ip));
   strlcpy(p->path, "/ship/", sizeof(p->path));
   strlcpy(p->ski, "manual", sizeof(p->ski));
   p->port = port;
-  if (Eebus.peer_count < 1) { Eebus.peer_count = 1; }
-  bool ok = EebusShipConnect(0);
+  bool ok = EebusShipConnect(pi);
   Response_P(PSTR("{\"%s\":{\"Ok\":%s,\"Ip\":\"%s\",\"Port\":%u,\"Error\":\"%s\"}}"),
              XdrvMailbox.command, ok ? "true":"false", p->ip, p->port, ESp->err);
 }
@@ -6785,7 +7025,12 @@ const char EEBUS_UI_FILE[] = "/steuve.html";
 void EebusWebPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
   File f;
-  if (ufsp) { f = ufsp->open(EEBUS_UI_FILE, "r"); }
+   // SteuVE v030 (06.11., Andreas, wie HEMS v033): zuerst die gepackte Fassung /steuve.html.gz. streamFile setzt bei
+   // Dateinamen auf ".gz" selbst "Content-Encoding: gzip". Kuerzere Uebertragung = Webserver schneller wieder frei.
+   // Ohne .gz wie bisher die ungepackte Seite. WICHTIG: bei jeder neuen Seite BEIDE Dateien hochladen.
+  if (ufsp) { f = ufsp->open("/steuve.html.gz", "r"); }
+  if (!f && ffsp) { f = ffsp->open("/steuve.html.gz", "r"); }
+  if (!f && ufsp) { f = ufsp->open(EEBUS_UI_FILE, "r"); }
   if (!f && ffsp) { f = ffsp->open(EEBUS_UI_FILE, "r"); }
   if (!f) {
     WSContentBegin(404, CT_PLAIN);
@@ -6957,7 +7202,7 @@ void EebusWebClickRun(void) {
     return;
   }
   for (uint32_t i = 0; i < Eebus.peer_count; i++) {   // Verbinden: Peer per SKI suchen
-    if (0 == strcmp(Eebus.peers[i].ski, eebus_web_ski)) {
+    if (0 == strcasecmp(Eebus.peers[i].ski, eebus_web_ski)) {
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: Web-Verbinden zu %s (%s)"), Eebus.peers[i].ip,
              (Eebus.peers[i].model[0]) ? Eebus.peers[i].model : "?");
       EebusConnectPeer(i);
@@ -6978,11 +7223,8 @@ void EebusWebClickRun(void) {
 // (TLS-1.2-ClientHello), sobald wir als Steuerbox (mDNS cat=1) lauschen. Hier
 // nehmen wir die Verbindung an und fuehren den BearSSL-SERVER-Handshake
 // (TLS 1.2, ECDHE_ECDSA_AES128_GCM = SHIP-Pflicht-Suite, unser SHIP-Cert/Key).
-// ZIEL DIESER ETAPPE: Handshake DURCH + erste entschluesselte Anwendungsbytes
-// (= HTTP/WebSocket-Upgrade-Request des Geraets) im Log. NOCH KEIN WS-Upgrade/
-// SHIP-Handshake (Etappe 2/3) und KEIN Client-Cert-Request (Peer-SKI-Pruefung
-// folgt spaeter — fuer den Handshake-Beweis unnoetig; BearSSL fordert ohne
-// X.509-Engine kein Client-Zertifikat an, die Geraete-Clients tolerieren das).
+// Urspruengliches Ziel dieser Etappe war nur der Handshake. Inzwischen (SteuVE v021) folgen WS-Upgrade, SHIP-Handshake
+// und SPINE, und der Server fordert das Client-Zertifikat an (EebusSrvX509, SKI aus dem Zertifikat).
 // br_ssl_server_zero/reset: lib/lib_ssl/bearssl-esp8266/src/ssl/ssl_server_min.c
 // (Upstream-BearSSL; war aus der Tasmota-Lib herausgekuerzt). Server-Handshake-
 // Maschine (ssl_hs_server.c) + EC-Policy (ssl_scert_single_ec.c) waren vorhanden.
@@ -7064,6 +7306,7 @@ static const br_x500_name eebus_srv_dn[1] = { { (unsigned char *)eebus_srv_dn_le
 typedef struct {
   bool     active = false;
   bool     hs_done = false;
+  bool     send_kaputt = false;   // SteuVE v030 (wie Steuerbox v204): ein WS-Frame ging nur teilweise raus -> beenden
   NetworkClient sock;   // eingehender TCP-Socket (aus accept())
   br_ssl_server_context *sc = nullptr;   // BearSSL-Server-Kontext (~4,5 KB, DRAM)
   unsigned char *ibuf = nullptr;   // TLS-Empfangs-Records (DRAM)
@@ -7120,6 +7363,7 @@ void EebusSrvFree(void) {
   ESrv.cert_len = 0;
   ESrv.active = false;
   ESrv.hs_done = false;
+  ESrv.send_kaputt = false;   // SteuVE v030
   ESrv.ws_state = 0;
   ESrv.cmi_done = false;
   ESrv.abuf_len = 0;
@@ -7267,6 +7511,8 @@ bool EebusSrvFlushSbuf(void) {
 // annehmen (EebusSrvDrainRx), Abbruch erst nach EEBUS_SRV_TX_STALL_MS OHNE Fortschritt (bisher 3 s ab Beginn —
 // und NetworkClient::write blockierte selbst bis ~10 s, bevor die 3 s ueberhaupt geprueft wurden).
 #define EEBUS_SRV_TX_STALL_MS  5000UL
+// SteuVE v030 (Befund 1.2): Obergrenze je Sendung, auch wenn troepfchenweise Fortschritt kommt (bisher unbegrenzt).
+#define EEBUS_SRV_TX_MAX_MS    8000UL
 
 // SteuVE v015: Socket-Senden ohne Warten. >0 = gesendet, 0 = Socket-Puffer gerade voll, -1 = Fehler.
 int EebusSrvSockWriteNb(const unsigned char *buf, size_t len) {
@@ -7279,13 +7525,15 @@ int EebusSrvSockWriteNb(const unsigned char *buf, size_t len) {
 }
 
 bool EebusSrvAppWrite(const uint8_t *data, size_t len) {
+  if (ESrv.send_kaputt || (nullptr == ESrv.sc)) { return false; }   // SteuVE v030: Strom schon kaputt
   br_ssl_engine_context *eng = &ESrv.sc->eng;
   size_t off = 0;
   uint32_t t_fort = millis();   // letzter Fortschritt beim Senden
+  uint32_t t_start = t_fort;    // SteuVE v030: Beginn dieser Sendung
   while (off < len) {
     EebusSrvDrainRx();   // SteuVE v015: zuerst annehmen, sonst blockieren sich beide Seiten
     unsigned state = br_ssl_engine_current_state(eng);
-    if (state & BR_SSL_CLOSED) { return false; }
+    if (state & BR_SSL_CLOSED) { ESrv.send_kaputt = true; return false; }
     if (state & BR_SSL_SENDAPP) {
       size_t alen;
       unsigned char *buf = br_ssl_engine_sendapp_buf(eng, &alen);
@@ -7304,13 +7552,15 @@ bool EebusSrvAppWrite(const uint8_t *data, size_t len) {
       if (wlen < 0) {
         AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Senden an %s: Socket-Fehler (%u von %u B)"),
                ESrv.peer_ip, (uint32_t)off, (uint32_t)len);
+        ESrv.send_kaputt = true;   // SteuVE v030
         return false;
       }
       if (wlen > 0) { br_ssl_engine_sendrec_ack(eng, wlen); t_fort = millis(); continue; }
     }
-    if (millis() - t_fort > EEBUS_SRV_TX_STALL_MS) {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Senden an %s abgebrochen, %u s ohne Fortschritt (%u von %u B)"),
-             ESrv.peer_ip, (uint32_t)(EEBUS_SRV_TX_STALL_MS / 1000), (uint32_t)off, (uint32_t)len);
+    if ((millis() - t_fort > EEBUS_SRV_TX_STALL_MS) || (millis() - t_start > EEBUS_SRV_TX_MAX_MS)) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Senden an %s abgebrochen nach %u ms (%u von %u B) - Verbindung wird beendet"),
+             ESrv.peer_ip, (uint32_t)(millis() - t_start), (uint32_t)off, (uint32_t)len);
+      ESrv.send_kaputt = true;   // SteuVE v030 (wie Steuerbox v204): halber Frame zerstoert den Strom
       return false;
     }
     delay(1);
@@ -7439,6 +7689,7 @@ void EebusSrvLinkConn(void) {
   cc->lpc_result[0] = '\0';
   cc->keepalive = false;   // Wiederverbinden ist Sache des Geraets
   cc->teardown = false;
+  cc->send_broken = false;   // SteuVE v030 (wie Steuerbox, Befund 4.3): uebernommener Slot sendet wieder
   cc->reconnect_at = 0;
   cc->peer_idx = -1;
   cc->last_rx = millis();
@@ -7721,6 +7972,7 @@ void EebusSrvAppData(void) {
 // Fortschritt, entschluesselte Anwendungsdaten loggen (Etappe 1: nur zeigen).
 void EebusSrvPoll(void) {
   if (!ESrv.active) { return; }
+  if (ESrv.send_kaputt) { EebusSrvFree(); return; }   // SteuVE v030: Datenstrom zerstoert (siehe EebusSrvAppWrite)
   br_ssl_engine_context *eng = &ESrv.sc->eng;
   if (!ESrv.sock.connected() && (0 == ESrv.sock.available())) {
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s hat getrennt (Handshake %s)"),
@@ -7760,12 +8012,13 @@ void EebusSrvPoll(void) {
     }
     if (!ESrv.hs_done && (state & (BR_SSL_SENDAPP | BR_SSL_RECVAPP))) {
       ESrv.hs_done = true;
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV TLS-SERVER-HANDSHAKE FERTIG mit %s (ECDHE_ECDSA_AES128_GCM) ***"),
-             ESrv.peer_ip);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV TLS-SERVER-HANDSHAKE FERTIG mit %s (Suite 0x%04X) ***"),
+             ESrv.peer_ip, (uint32_t)ESrv.sc->eng.session.cipher_suite);   // SteuVE v030: echte Suite statt fest "AES128_GCM"
     }
     if (EebusSrvFlushSbuf()) {   // SteuVE v015: beim Senden angenommene Daten zuerst (Reihenfolge!)
       EebusSrvAppData();
       if (!ESrv.active) { return; }
+      if (ESrv.send_kaputt) { EebusSrvFree(); return; }   // SteuVE v030
       ESrv.deadline = millis() + ((3 == ESrv.sme_state) ? EEBUS_SRV_DATA_TIMEOUT_MS : EEBUS_SRV_TIMEOUT_MS);
       continue;
     }
@@ -7782,6 +8035,7 @@ void EebusSrvPoll(void) {
       }
       EebusSrvAppData();   // HTTP-Upgrade / WS-Frames / CMI verarbeiten
       if (!ESrv.active) { return; }   // Parser hat die Verbindung beendet/freigegeben
+      if (ESrv.send_kaputt) { EebusSrvFree(); return; }   // SteuVE v030
       ESrv.deadline = millis() + ((3 == ESrv.sme_state) ? EEBUS_SRV_DATA_TIMEOUT_MS
                                                         : EEBUS_SRV_TIMEOUT_MS);
       if ((0 == take) && (ESrv.abuf_len >= EEBUS_SRV_ABUF - 1)) {
@@ -8139,10 +8393,10 @@ bool Xdrv128(uint32_t function) {
           ESp->reconnect_at = 0;
           int idx = ESp->peer_idx;
           if ((idx < 0) || (idx >= Eebus.peer_count) ||
-              (0 != strcmp(Eebus.peers[idx].ski, ESp->peer_ski))) {
+              (0 != strcasecmp(Eebus.peers[idx].ski, ESp->peer_ski))) {
             idx = -1;
             for (uint32_t k = 0; k < Eebus.peer_count; k++) {
-              if (0 == strcmp(Eebus.peers[k].ski, ESp->peer_ski)) { idx = (int)k; break; }
+              if (0 == strcasecmp(Eebus.peers[k].ski, ESp->peer_ski)) { idx = (int)k; break; }
             }
           }
    // Hat die Gegenstelle uns inzwischen selbst angerufen (anderer Slot, gleiche SKI, aktiv)? Dann NICHT
@@ -8150,7 +8404,7 @@ bool Xdrv128(uint32_t function) {
    // verhungert und die Gegenstelle legt auf (05.10. 21:18-21:20 belegt). Spaeter erneut nachsehen.
           bool schon_da = false;
           for (uint32_t k = 0; k < EEBUS_MAX_CONN; k++) {
-            if (((int)k != ci) && EConn[k].active && (0 == strcmp(EConn[k].peer_ski, ESp->peer_ski))) { schon_da = true; break; }
+            if (((int)k != ci) && EConn[k].active && (0 == strcasecmp(EConn[k].peer_ski, ESp->peer_ski))) { schon_da = true; break; }
           }
           if (schon_da) {
             ESp->reconnect_at = millis() + EEBUS_SPINE_KEEPALIVE_MS;
@@ -8185,6 +8439,11 @@ bool Xdrv128(uint32_t function) {
       }
       break;
     case FUNC_COMMAND:
+      // Gegenpruefung 06.11.: bei EEBus-Befehlen Leerzeichen am Ende abschneiden (Tasmota entfernt nur fuehrende). Die strenge
+      // Zahlenpruefung wies sonst z. B. "EEBusCsSim 500 " ab, weil hinter dem letzten Leerzeichen nichts mehr steht.
+      if (XdrvMailbox.topic && XdrvMailbox.data && (0 == strncasecmp_P(XdrvMailbox.topic, PSTR(D_PRFX_EEBUS), strlen_P(PSTR(D_PRFX_EEBUS))))) {
+        while ((XdrvMailbox.data_len > 0) && (' ' == XdrvMailbox.data[XdrvMailbox.data_len - 1])) { XdrvMailbox.data[--XdrvMailbox.data_len] = '\0'; }
+      }
       result = DecodeCommand(kEebusCommands, EebusCommand);
       break;
     case FUNC_JSON_APPEND:

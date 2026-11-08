@@ -108,6 +108,16 @@ class WiFiClientSecure_light : public WiFiClient {
     // Sets the requested buffer size for transmit and receive
     void setBufferSizes(int recv, int xmit);
 
+    // Optional non-blocking send (ESP32 only). 0 = unchanged behaviour (NetworkClient::write, which waits up to
+    // 10 x 1 s for a writable socket). >0 = TLS records go out with send(MSG_DONTWAIT); if the socket does not take
+    // a single byte for this many ms, the write gives up (-1). The wait restarts whenever bytes went out.
+    // The wait counts across calls (write, flush, available) and runs out only ONCE: after that every call
+    // returns -1 at once until the connection is freed. available() never waits for the socket.
+    void setSendWaitMs(uint32_t ms) { _sendWaitMs = ms; }
+    bool sendStuck() const { return _sendStuck; }
+    // Upper limit for one TLS engine run (handshake, flush, read), default 10000 ms. Set before connect().
+    void setLoopTimeout(uint32_t ms) { _loopTimeout = ms; }
+
     // Returns whether MFLN negotiation for the above buffer sizes succeeded (after connection)
     int getMFLNStatus() {
       return connected() && br_ssl_engine_get_mfln_negotiated(_eng);
@@ -153,6 +163,9 @@ class WiFiClientSecure_light : public WiFiClient {
 
   private:
     uint32_t _loopTimeout=10000;
+    uint32_t _sendWaitMs=0;      // 0 = blocking NetworkClient::write (default), see setSendWaitMs()
+    uint32_t _sendBlockedAt=0;   // setSendWaitMs: since when the socket takes nothing (0 = not blocked), across calls
+    bool _sendStuck=false;       // setSendWaitMs: wait ran out once -> every further call fails at once
     void _clear();
     bool _ctx_present;
     std::shared_ptr<br_ssl_client_context> _sc;

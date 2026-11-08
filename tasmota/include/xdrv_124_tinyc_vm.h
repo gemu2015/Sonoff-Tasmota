@@ -16544,6 +16544,8 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       }
       tc_tls->setTimeout(5000);
       tc_tls->setInsecure();                 // no cert pinning (like Scripter httpsget)
+      tc_tls->setRSAOnly(false);             // offer ECDSA too (tls_mini defaults to RSA only; HttpClientLight does the same).
+                                             // Without it a server with an ECDSA certificate (e.g. smart meter gateway) aborts at once.
       if (!tc_tls->connect(host, (uint16_t)port)) {
         delete tc_tls; tc_tls = nullptr;
         // Release the multicast pause here too: a script that gets -1 from

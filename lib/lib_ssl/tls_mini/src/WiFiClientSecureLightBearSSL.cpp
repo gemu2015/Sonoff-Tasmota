@@ -44,6 +44,7 @@
 #include "lwip/netif.h"
 #if defined(ESP32)
 #include <esp_heap_caps.h>   // heap_caps_malloc / MALLOC_CAP_SPIRAM — route TLS I/O buffers to PSRAM
+#include <lwip/sockets.h>    // lwip_send(..., MSG_DONTWAIT) for setSendWaitMs()
 #endif
 #ifdef ESP8266
   #include <include/ClientContext.h>
@@ -194,6 +195,8 @@ void WiFiClientSecure_light::_clear() {
   _iobuf_out = nullptr;
   setBufferSizes(1024, 1024); // reasonable minimum
   _handshake_done = false;
+  _sendBlockedAt = 0;
+  _sendStuck = false;
   _last_error = 0;
   _recvapp_buf = nullptr;
   _recvapp_len = 0;
@@ -423,6 +426,8 @@ void WiFiClientSecure_light::_freeSSL() {
   _recvapp_len = 0;
   // This connection is toast
   _handshake_done = false;
+  _sendBlockedAt = 0;
+  _sendStuck = false;
 }
 
 bool WiFiClientSecure_light::_clientConnected() {
@@ -479,6 +484,11 @@ size_t WiFiClientSecure_light::_write(const uint8_t *buf, size_t size, bool pmem
   } while (size);
 
   LOG_HEAP_SIZE("_write");
+#if defined(ESP32)
+  // setSendWaitMs only: the bytes are in the engine, but the socket took nothing for _sendWaitMs (peer gone).
+  // Report the write as failed so the caller does not count it as sent. Blocking mode (_sendWaitMs == 0) unchanged.
+  if (_sendWaitMs && _sendStuck) { return 0; }
+#endif
   return sent_bytes;
 }
 
@@ -660,6 +670,31 @@ int WiFiClientSecure_light::_run_until(unsigned target, bool blocking) {
       int wlen;
 
       buf = br_ssl_engine_sendrec_buf(_eng, &len);
+#if defined(ESP32)
+      if (_sendWaitMs) {   // non-blocking: only what the socket takes now, the engine keeps the rest
+        if (_sendStuck) { setLastError(ERR_TLS_TIMEOUT); return -1; }   // ran out before: no new wait
+        int sfd = fd();
+        if (sfd < 0) { return -1; }
+        wlen = lwip_send(sfd, buf, len, MSG_DONTWAIT);
+        if (wlen > 0) {
+          br_ssl_engine_sendrec_ack(_eng, wlen);
+          _sendBlockedAt = 0;   // bytes went out: the wait starts again from zero
+          no_work = 0;
+          continue;
+        }
+        if ((wlen < 0) && (EAGAIN != errno) && (EWOULDBLOCK != errno)) { return -1; }   // socket broken
+        uint32_t now = millis();
+        if (!_sendBlockedAt) { _sendBlockedAt = now ? now : 1; }   // first time full: start counting
+        if ((now - _sendBlockedAt) >= _sendWaitMs) {   // full and nothing moved for _sendWaitMs (peer gone)
+          _sendStuck = true;
+          setLastError(ERR_TLS_TIMEOUT);
+          return -1;
+        }
+        if (!blocking) { return -1; }   // available(): never wait for the socket, try again next call
+        delay(1);
+        continue;
+      }
+#endif
       wlen = WiFiClient::write(buf, len);
       if (wlen <= 0) {
         /*
