@@ -23,7 +23,7 @@ const check = process.argv.includes('--check');
 // [group title, one-line intro, regex over the file name without .tc]; the first matching rule wins
 const GROUPS = [
   ['Getting started and language features', 'Small programs that show one language or runtime feature at a time.',
-    /^(blink|fibonacci|file_io|strings|sort|sizeof_demo|editor|benchmark|callbacks|spawn_tasks|c_extensions_demo|structs_demo|share_.*|slot\d_test|byte_.*|int16_.*|persist_.*|watch_demo|worker_arrays_test|crypto_test|rsa_test|tls_test|blib_crc_demo|gpio_sweep|gpio_toggle_test|fast_mux|uart_tx_test|udp)$/],
+    /^(blink|fibonacci|file_io|cfg_test|strings|sort|sizeof_demo|editor|benchmark|callbacks|spawn_tasks|c_extensions_demo|structs_demo|share_.*|slot\d_test|byte_.*|int16_.*|persist_.*|watch_demo|worker_arrays_test|crypto_test|rsa_test|tls_test|blib_crc_demo|gpio_sweep|gpio_toggle_test|fast_mux|uart_tx_test|udp)$/],
   ['Web pages and buttons', 'Custom web UI, REST endpoints, widgets.',
     /^(web_.*|webcall_demo|webui_.*|multipage_demo|clock_header|filemanager)$/],
   ['Sensors and measuring', 'I2C, 1-Wire, SPI and analog sensors.',

@@ -1,0 +1,146 @@
+// cfg_test.tc - self test of common/cfg.tc (key=value files with checked types).
+//
+// Writes small test files to /cfg_t.tmp, reads them with cfgGetT() and compares return code, value and error line with
+// what is expected. Needs a writable file system (SD card or flash). Result in the log:
+//   CFGTEST: 43 passed, 0 failed          (one "CFGTEST FAIL: ..." line per failing case before it)
+// Run it once after every change of common/cfg.tc. Cases cover: comments, blank lines, CRLF, quotes, "" inside quotes,
+// the [TYPE] label rules, IP4 and FTP-DIR, UTF-8, line too long (255 ok, 256 error), error line numbers, first key wins,
+// whole-file check (an error AFTER the wanted key still counts), missing file / key, buffer too small.
+// Set CFGTEST_BREAK to 1 to prove that the test notices a wrong expectation (it must then report exactly one failure).
+
+#include "cfg.tc"
+
+#define CFGTEST_BREAK 0
+
+int t_pass = 0;
+int t_fail = 0;
+char t_val[320];
+
+void t_write(char content[]) {
+    char b[320];
+    int f = 0;
+    strcpy(b, content);
+    f = fileOpen("/cfg_t.tmp", 1);
+    fileWrite(f, b, strlen(b));
+    fileClose(f);
+}
+
+// a file of  <prefix>K=<n times 'a'>\n  - written in pieces of at most 100 characters: string functions
+// (and the simulator) stop at about 255 characters, so the long line cannot be built in one array
+void t_long(char prefix[], int n) {
+    char b[128];
+    int f = 0;
+    int i = 0;
+    int k = 0;
+    strcpy(b, prefix);
+    strcat(b, "K=");
+    f = fileOpen("/cfg_t.tmp", 1);
+    fileWrite(f, b, strlen(b));
+    while (n > 0) {
+        k = n;
+        if (k > 100) { k = 100; }
+        i = 0;
+        while (i < k) {
+            b[i] = 'a';
+            i = i + 1;
+        }
+        b[k] = 0;
+        fileWrite(f, b, k);
+        n = n - k;
+    }
+    strcpy(b, "\n");
+    fileWrite(f, b, 1);
+    fileClose(f);
+}
+
+void t_check(char name[], int rc, int want_rc, int want_line, char want_val[]) {
+    int ok = 1;
+    if (rc != want_rc) { ok = 0; }
+    if (want_line >= 0 && cfgErrLine() != want_line) { ok = 0; }
+    if (want_rc == 0) {
+        if (strcmp(t_val, want_val) != 0) { ok = 0; }
+    } else {
+        if (t_val[0] != 0) { ok = 0; }               // on every error the value must be empty
+    }
+    if (ok == 1) {
+        t_pass = t_pass + 1;
+    } else {
+        t_fail = t_fail + 1;
+        addLog("CFGTEST FAIL: %s rc=%d (want %d) line=%d (want %d) val=[%s] (want [%s])", name, rc, want_rc, cfgErrLine(), want_line, t_val, want_val);
+    }
+}
+
+// content -> file -> cfgGetT(key, type, vmax) -> compare. want_line -1 = do not care
+void t_case(char name[], char content[], char key[], char type[], int vmax, int want_rc, int want_line, char want_val[]) {
+    int rc = 0;
+    t_write(content);
+    rc = cfgGetT("/cfg_t.tmp", key, type, t_val, vmax);
+    t_check(name, rc, want_rc, want_line, want_val);
+}
+
+int main() {
+    int rc = 0;
+    // --- plain reading
+#if CFGTEST_BREAK
+    t_case("basic",            "HOST=192.168.1.1\nDIR=/\n", "HOST", "IP4", 64, 0, -1, "192.168.1.9");
+#else
+    t_case("basic",            "HOST=192.168.1.1\nDIR=/\n", "HOST", "IP4", 64, 0, -1, "192.168.1.1");
+#endif
+    t_case("key case",         "Host=1.2.3.4\n", "HOST", "IP4", 64, 0, -1, "1.2.3.4");
+    t_case("comments, blank, CRLF", "// c\r\n\r\n   \r\nHOST=1.2.3.4\r\nDIR=/\r\n", "DIR", "", 64, 0, -1, "/");
+    t_case("comment hides key", "// HOST=999\nHOST=1.2.3.4\n", "HOST", "IP4", 64, 0, -1, "1.2.3.4");
+    t_case("no line break at end", "A=1.2.3.4", "A", "IP4", 64, 0, -1, "1.2.3.4");
+    t_case("first key wins",   "A=1\nA=2\n", "A", "", 64, 0, -1, "1");
+    t_case("slashes are no comment inside", "URL=http://x\n", "URL", "", 64, 0, -1, "http://x");
+    t_case("trailing blank cut", "HOST=1.2.3.4 \n", "HOST", "IP4", 64, 0, -1, "1.2.3.4");
+    // --- quotes
+    t_case("quoted blank",     "NAME=\"a b\"\n", "NAME", "", 64, 0, -1, "a b");
+    t_case("doubled quote",    "NAME=\"a\"\"b\"\n", "NAME", "", 64, 0, -1, "a\"b");
+    t_case("open quote",       "X=1\nNAME=\"abc\n", "NAME", "", 64, -3, 2, "");
+    t_case("text after quote", "NAME=\"abc\" x\n", "NAME", "", 64, -3, 1, "");
+    t_case("quote inside bare value", "NAME=ab\"c\n", "NAME", "", 64, -3, 1, "");
+    t_case("blank in bare value", "NAME=a b\n", "NAME", "", 64, -7, 1, "");
+    // --- syntax
+    t_case("blank before key", " HOST=1.2.3.4\n", "HOST", "", 64, -7, 1, "");
+    t_case("no equals",        "HOST\n", "HOST", "", 64, -7, 1, "");
+    t_case("empty key",        "=x\n", "HOST", "", 64, -7, 1, "");
+    t_case("label not closed", "HOST[IP4=1\n", "HOST", "", 64, -7, 1, "");
+    t_case("empty label",      "HOST[]=1\n", "HOST", "", 64, -7, 1, "");
+    // --- label rules
+    t_case("label matches",    "HOST[IP4]=10.0.0.1\n", "HOST", "IP4", 64, 0, -1, "10.0.0.1");
+    t_case("label differs",    "HOST[FQDN]=10.0.0.1\n", "HOST", "IP4", 64, -6, 1, "");
+    t_case("label only, bad",  "HOST[IP4]=300.1.1.1\n", "HOST", "", 64, -5, 1, "");
+    t_case("label only, lower case", "HOST[ip4]=1.1.1.1\n", "HOST", "", 64, 0, -1, "1.1.1.1");
+    t_case("unknown type",     "A=1\n", "A", "NOPE", 64, -9, 1, "");
+    // --- IP4
+    t_case("ip3 octets",       "HOST=1.2.3\n", "HOST", "IP4", 64, -5, 1, "");
+    t_case("ip 256",           "HOST=256.1.1.1\n", "HOST", "IP4", 64, -5, 1, "");
+    t_case("ip leading zero",  "HOST=01.2.3.4\n", "HOST", "IP4", 64, -5, 1, "");
+    t_case("ip 5 octets",      "HOST=1.2.3.4.5\n", "HOST", "IP4", 64, -5, 1, "");
+    t_case("ip letters",       "HOST=a.b.c.d\n", "HOST", "IP4", 64, -5, 1, "");
+    t_case("ip empty octet",   "HOST=1..2.3\n", "HOST", "IP4", 64, -5, 1, "");
+    t_case("ip empty value",   "HOST=\n", "HOST", "IP4", 64, -5, 1, "");
+    // --- FTP-DIR and UTF-8
+    t_case("dir ok",           "DIR=/FRITZ/mediabox\n", "DIR", "FTP-DIR", 64, 0, -1, "/FRITZ/mediabox");
+    t_case("dir control char", "DIR=\"/a\tb\"\n", "DIR", "FTP-DIR", 64, -5, 1, "");
+    t_case("dir empty",        "DIR=\n", "DIR", "FTP-DIR", 64, -5, 1, "");
+    t_case("dir UTF-8 ok",     "DIR=/Ordner/\xC3\x9Cbung\n", "DIR", "FTP-DIR", 64, 0, -1, "/Ordner/\xC3\x9Cbung");
+    t_case("UTF-8 broken",     "DIR=/\xC3\x28\n", "DIR", "FTP-DIR", 64, -10, 1, "");
+    // --- limits, line numbers, whole-file check
+    t_long("X=1\n", 253);                                                  // line 2 is 255 characters: allowed
+    rc = cfgGetT("/cfg_t.tmp", "K", "", t_val, 320);
+    if (rc == 0 && strlen(t_val) == 253) { t_pass = t_pass + 1; } else { t_fail = t_fail + 1; addLog("CFGTEST FAIL: 255 chars rc=%d len=%d", rc, strlen(t_val)); }
+    t_long("X=1\n", 254);                                                  // line 2 is 256 characters: too long
+    rc = cfgGetT("/cfg_t.tmp", "X", "", t_val, 320);
+    t_check("256 chars", rc, -2, 2, "");
+    t_case("error line number", "A=1\nB=2\nC=3\nD=\"x\nE=5\n", "A", "", 64, -3, 4, "");
+    t_case("error after wanted key counts", "A=1\nB=\n C=3\n", "A", "", 64, -7, 3, "");
+    t_case("missing key",      "A=1\n", "B", "", 64, -4, 0, "");
+    t_case("buffer too small", "A=abcdef\n", "A", "", 4, -8, 1, "");
+    // --- no file
+    fileDelete("/cfg_t.tmp");
+    rc = cfgGetT("/cfg_t.tmp", "A", "", t_val, 64);
+    t_check("no file", rc, -1, 0, "");
+    addLog("CFGTEST: %d passed, %d failed", t_pass, t_fail);
+    return 0;
+}

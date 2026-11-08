@@ -3504,6 +3504,26 @@ void EverySecond() {
 See `examples/common/modbus_lib.tc` for the canonical `mbFC03/04/06/16`
 helpers built on `tcpTransact`.
 
+### Config Files: `common/cfg.tc`
+
+One parser for `key=value` settings files (`.cfg`, and `.secret` files for passwords, see *Protected Files*), written in plain TinyC (no firmware change; idea and requirements by mi-hol, discussion #139).
+
+```c
+#include "cfg.tc"
+char host[32];
+int r = cfgGetT("/ftp.cfg", "HOST", "IP4", host, 32);      // the PROGRAM names the type
+if (r != 0) { char m[64]; cfgErrText(r, m); addLog(m); }    // r < 0 = CFG_E_*, cfgErrLine() = line of the error
+```
+
+| Call | Meaning |
+|---|---|
+| `int cfgGet(path, key, val, vmax)` | value of `key`, no type check. `0` = ok, `< 0` = error |
+| `int cfgGetT(path, key, type, val, vmax)` | same, and the value must fit `type` (`"IP4"`, `"FTP-DIR"`) |
+| `int cfgErrLine()` | line number (1 = first) of the last error, `0` = none |
+| `cfgErrText(code, out[])` | error text for a code, with the line number |
+
+File format: `// comment` lines, `KEY=value`, optional `KEY[TYPE]=value`, a value with blanks in `"..."` (`""` inside is one quote). The key starts in column 0; keys ignore ASCII case; a line is at most 255 characters and must be valid UTF-8; the first of a repeated key counts. **The whole file is checked on every call**, so a broken line anywhere is an error. The type the program names is what counts; a `[TYPE]` label in the file that differs from it is `CFG_E_LABEL` (a file can tighten the check, never switch it off). Error codes: `-1` no file, `-2` line too long, `-3` quote error, `-4` key missing, `-5` value does not fit the type, `-6` label differs, `-7` syntax, `-8` buffer too small, `-9` unknown type, `-10` not UTF-8. Self test: `examples/cfg_test.tc` (43 cases).
+
 ### Raw TLS Client (HTTPS)
 
 **ESP32 only.** A raw TLS socket (lightweight BearSSL, one connection at a time) — you speak HTTPS yourself: write a request, read the status line / headers / body. Use this when `httpGet` is too high-level: OAuth redirect+cookie flows, custom request signing (e.g. an API "stamp"), or any protocol where you need the raw response. Everything stays in the `.tcb`, so a cloud API that changes is a `tc_upload` away, not a firmware reflash.

@@ -3434,6 +3434,26 @@ void EverySecond() {
 
 Vorgefertigte Helfer `mbFC03/04/06/16` in `examples/common/modbus_lib.tc`.
 
+### Konfigurationsdateien: `common/cfg.tc`
+
+Ein Leser fuer `Schluessel=Wert`-Dateien (`.cfg`, und `.secret`-Dateien fuer Passwoerter, siehe *Geschuetzte Dateien*), in reinem TinyC (keine Firmware-Aenderung; Idee und Anforderungen von mi-hol, Diskussion #139).
+
+```c
+#include "cfg.tc"
+char host[32];
+int r = cfgGetT("/ftp.cfg", "HOST", "IP4", host, 32);      // das PROGRAMM legt den Typ fest
+if (r != 0) { char m[64]; cfgErrText(r, m); addLog(m); }    // r < 0 = CFG_E_*, cfgErrLine() = Zeile des Fehlers
+```
+
+| Aufruf | Bedeutung |
+|---|---|
+| `int cfgGet(Pfad, Schluessel, wert, vmax)` | Wert zu `Schluessel`, ohne Typpruefung. `0` = ok, `< 0` = Fehler |
+| `int cfgGetT(Pfad, Schluessel, Typ, wert, vmax)` | dasselbe, der Wert muss zu `Typ` passen (`"IP4"`, `"FTP-DIR"`) |
+| `int cfgErrLine()` | Zeilennummer (1 = erste) des letzten Fehlers, `0` = keine |
+| `cfgErrText(code, out[])` | Fehlertext zu einem Code, mit Zeilennummer |
+
+Dateiformat: Zeilen mit `// Kommentar`, `SCHLUESSEL=Wert`, optional `SCHLUESSEL[TYP]=Wert`, ein Wert mit Leerzeichen in `"..."` (`""` darin ist ein Anfuehrungszeichen). Der Schluessel steht in Spalte 0; Schluessel ignorieren die Gross-/Kleinschreibung bei ASCII; eine Zeile hat hoechstens 255 Zeichen und muss gueltiges UTF-8 sein; von einem doppelten Schluessel zaehlt der erste. **Bei jedem Aufruf wird die ganze Datei geprueft**, eine kaputte Zeile irgendwo ist also ein Fehler. Es gilt der Typ, den das Programm nennt; ein abweichendes `[TYP]`-Etikett in der Datei ist `CFG_E_LABEL` (die Datei kann die Pruefung verschaerfen, nie abschalten). Fehlercodes: `-1` keine Datei, `-2` Zeile zu lang, `-3` Anfuehrungszeichen, `-4` Schluessel fehlt, `-5` Wert passt nicht zum Typ, `-6` Etikett weicht ab, `-7` Syntax, `-8` Puffer zu klein, `-9` unbekannter Typ, `-10` kein UTF-8. Selbsttest: `examples/cfg_test.tc` (43 Faelle).
+
 ### Raw-TLS-Client (HTTPS)
 
 **Nur ESP32.** Ein roher TLS-Socket (leichtgewichtiges BearSSL, eine Verbindung zur Zeit) — du sprichst HTTPS selbst: Anfrage schreiben, Statuszeile / Header / Body lesen. Dafuer gedacht, wenn `httpGet` zu hoch-level ist: OAuth-Redirect+Cookie-Abläufe, eigenes Signieren von Anfragen (z.B. ein API-"Stamp"), oder jedes Protokoll, bei dem du die rohe Antwort brauchst. Alles bleibt im `.tcb` — eine Cloud-API die sich aendert ist ein `tc_upload`, kein Firmware-Reflash.

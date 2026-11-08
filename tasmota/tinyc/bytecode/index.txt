@@ -28,6 +28,7 @@ cam_view_lvgl.tcb
 camera.tcb
 can_sniffer.tcb
 ccs811.tcb
+cfg_test.tcb
 chart.tcb
 chart_types.tcb
 clock_7seg.tcb
