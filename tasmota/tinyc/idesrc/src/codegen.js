@@ -3078,6 +3078,20 @@ export class CodeGenerator {
         return false;
     }
 
+    // 08.11.2026 (found by Andreas with scopy(t, START_TAG), #define START_TAG "2026-01-30"): a #define string is an Identifier
+    // node, only codegen sees through it. The user-function call paths asked for a StringLiteral node to build the const-pool
+    // reference of a char[] parameter, so a #define string went through compileExpr() as a plain int and arrived EMPTY.
+    // True for a string literal and for a #define that names one (a local of the same name shadows the define, as in C).
+    isStringLiteralArg(arg) {
+        if (arg.type === NodeType.StringLiteral) return true;
+        if (arg.type === NodeType.Identifier && this.defines.has(arg.name)) {
+            if (this.scope && this.scope.lookup(arg.name)) return false;
+            const d = this.defines.get(arg.name);
+            return !!d && d.type === NodeType.StringLiteral;
+        }
+        return false;
+    }
+
     // Emit a string argument as a pointer/ref on the stack
     // Handles: char[] identifiers, string literals (const pool ref), nested str concat,
     // and #define'd identifiers that resolve to string literals.
@@ -3753,7 +3767,7 @@ export class CodeGenerator {
                     this.isArrayVar(node.args[i].name)) {
                     this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                     this.emitArrayRefByName(node.args[i].name, node.line);
-                } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && istTextParam(param.type)) {
+                } else if (isArrayParam && this.isStringLiteralArg(node.args[i]) && istTextParam(param.type)) {
                     this.emitStringArg(node.args[i]);
                 } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
                     // `arr + off` array arg emitted as a proper offset ref
@@ -4267,7 +4281,7 @@ export class CodeGenerator {
                         this.isArrayVar(node.args[i].name)) {
                         this._packungPruefen(param, node.args[i].name, node.name, i, node.line);
                         this.emitArrayRefByName(node.args[i].name, node.line);
-                    } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && istTextParam(param.type)) {
+                    } else if (isArrayParam && this.isStringLiteralArg(node.args[i]) && istTextParam(param.type)) {
                         this.emitStringArg(node.args[i]);
                     } else if (isArrayParam && this.tryEmitArrayOffsetRef(node.args[i])) {
                         // `arr + off` array arg emitted as a proper offset ref
@@ -4366,7 +4380,7 @@ export class CodeGenerator {
                        (() => { const s = (this.scope && this.scope.lookup(node.args[i].name)) || this.globals.get(node.args[i].name); return s && s.cols && s.cols > 1; })()) {
                 // 2D char array row reference: arr[i] passed to char[] param
                 this.emitArrayRef(node.args[i]);
-            } else if (isArrayParam && node.args[i].type === NodeType.StringLiteral && istTextParam(param.type)) {
+            } else if (isArrayParam && this.isStringLiteralArg(node.args[i]) && istTextParam(param.type)) {
                 // char[] param receiving a string literal: emit const-pool ref encoding
                 // (tag=3, handle = 0x8000|constIdx). Without this, LOAD_CONST pushes a
                 // plain int that the callee resolves as a garbage local ref.

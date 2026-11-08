@@ -1,0 +1,37 @@
+// define_string_arg_test.tc - regression test: a #define string passed to a char[] parameter of a user function.
+// Bug found by Andreas (08.11.2026): scopy(t, START_TAG) with #define START_TAG "2026-01-30" delivered an EMPTY string
+// (a string literal worked, sprintf with the #define worked). Cause: the compiler looked for a string-literal node,
+// a #define is an identifier. Result in the log:  DEFTEST: 5 ok, 0 bad
+#define TXT   "2026-01-30"
+#define EMPTY ""
+
+int ok  = 0;
+int bad = 0;
+char dst[40];
+
+void copyit(char d[], char s[]) { strcpy(d, s); }
+
+int lenof(char s[]) { return strlen(s); }
+
+void check(char name[], int got, int want) {
+    if (got == want) {
+        ok = ok + 1;
+    } else {
+        bad = bad + 1;
+        addLog("DEFTEST FAIL: %s got %d want %d", name, got, want);
+    }
+}
+
+int main() {
+    char loc[40];
+    copyit(dst, TXT);
+    check("define through own function", strlen(dst), 10);
+    check("define content", strcmp(dst, "2026-01-30"), 0);
+    check("define as direct length arg", lenof(TXT), 10);
+    copyit(dst, "xyz");
+    check("literal still works", strcmp(dst, "xyz"), 0);
+    strcpy(loc, "local");
+    check("empty define", lenof(EMPTY), 0);
+    addLog("DEFTEST: %d ok, %d bad", ok, bad);
+    return 0;
+}

@@ -662,6 +662,15 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     `Status` answer is `{"Status":{"Power":…}}`: ask for the path with `#` (`"Status#Power"`, `"StatusSNS#ENERGY#Power"`).
     Found by Andreas in `steuve.tc` v008 (21.10.2026): the relay count stayed empty and the device was not recognised.
 
+29. **`strSub` (and every string function) ends at the first NUL byte of its SOURCE** — a `char[]` that holds several strings at a fixed
+    distance (`g[0..11]` = "first", `g[12..17]` = "Second") gives `strSub(dst, g, 12, 6)` → **empty**, because "first" ends the string at index 5.
+    Found by Andreas in the SMGW reader (07.11.2026: only the first of 96 values per day had a value). Copy such fields character by
+    character (`dst[k] = g[12 + k]`), or give every string its own array.
+30. **A `#define` string as an argument of YOUR OWN function arrived EMPTY — fixed 08.11.2026 in the compiler** (`scopy(t, START_TAG)` with
+    `#define START_TAG "2026-01-30"`; a literal worked, `sprintf("%s", START_TAG)` worked, `tlsConnect(GW_HOST, 443)` worked). The user-call paths wanted a
+    string-literal NODE, a `#define` is an identifier. **Needs the new IDE** (the compiler runs in `tinyc_ide.html.gz`; rebuilt at the next release): with an
+    older IDE pass a global `char[]` or the literal. `examples/define_string_arg_test.tc` checks it (5 cases). `loudness_gauge.tc` (`play_wav(INTRO_WAV)`) had the bug.
+
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
 `sml_chart.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`
@@ -728,8 +737,11 @@ Remove `persist` from a var and re-flash → old file is silently discarded
 void Command(char cmd[]) {
     // cmd is the suffix after your registered prefix, e.g. "MY" prefix +
     // user types "MYSET 42"  → cmd = "SET 42"
-    if (strncmp(cmd, "SET ", 4) == 0) {
-        int v = atoi(cmd + 4);
+    // (08.11.2026: strncmp / atoi(cmd + 4) do not exist in TinyC - "Undefined function"; use strStartsWith + strSub + strToInt)
+    char num[16];
+    if (strStartsWith(cmd, "SET ")) {
+        strSub(num, cmd, 4, 0);          // everything after "SET "
+        int v = strToInt(num);
         // …
         responseCmnd("ok");
     } else {

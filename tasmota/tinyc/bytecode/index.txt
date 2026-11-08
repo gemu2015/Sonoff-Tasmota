@@ -36,6 +36,7 @@ clock_header.tcb
 core2_energy.tcb
 crypto_test.tcb
 daikin_control.tcb
+define_string_arg_test.tcb
 device_scanner.tcb
 deye.tcb
 display_demo.tcb
