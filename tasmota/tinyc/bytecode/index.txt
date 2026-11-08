@@ -208,6 +208,8 @@ wav_diag.tcb
 wav_player.tcb
 wav_ram.tcb
 wav_rd.tcb
+wave_lidar.tcb
+wave_lidar_test.tcb
 wave_rover.tcb
 wave_rover_sensors.tcb
 wave_sensors_test.tcb

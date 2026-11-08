@@ -1,0 +1,250 @@
+// wave_lidar_test.tc - self test AND timing benchmark of common/ld19.tc (LD19 / STL-19P 360 degree lidar) WITHOUT a lidar.
+//
+// Builds synthetic LD19 packets (47 bytes, CRC computed with an independent bit-by-bit routine) and feeds them to the same parser
+// that reads the serial port (lid_feed). Checks: CRC table, packet sync, split packets, garbage, bad CRC, wrap of the angle, one-degree bins,
+// revolution counting, sector minimum with wrap-around, scan rotation. Then it TIMES the parser: 400 packets = 1.07 s of real lidar data
+// (375 packets per second), with and without the CRC check.
+// Result in the log:
+//   LIDTEST: 35 ok, 0 bad
+//   LIDTIME: 400 packets, CRC on  N ms = P % of the real-time data rate
+//   LIDTIME: 400 packets, CRC off N ms = P % of the real-time data rate
+// The timing depends on the chip and the firmware: the test boards are ESP32-S3, the WAVE ROVER board is a classic ESP32 (also 240 MHz).
+
+#include "ld19.tc"
+
+int t_ok  = 0;
+int t_bad = 0;
+
+void t_int(char name[], int got, int want) {
+    if (got == want) {
+        t_ok = t_ok + 1;
+    } else {
+        t_bad = t_bad + 1;
+        addLog("LIDTEST FAIL: %s got %d want %d", name, got, want);
+    }
+}
+
+// independent bit-by-bit CRC8 (polynomial 0x4D, MSB first, initial 0) over lid_in[off .. off+n-1]
+int t_crc8(int off, int n) {
+    int c = 0;
+    int i = 0;
+    int k = 0;
+    while (i < n) {
+        c = c ^ (lid_in[off + i] & 255);
+        k = 0;
+        while (k < 8) {
+            if (c & 0x80) { c = ((c << 1) ^ 0x4D) & 255; } else { c = (c << 1) & 255; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return c;
+}
+
+// one packet at lid_in[off]: start angle (0.01 deg), 12 points 0.8 deg apart, distance of a point = 500 + its degree (or dist0 if dist0 > 0), speed 3600 deg/s
+void t_pkt(int off, int start, int dist0) {
+    int i = 0;
+    int a = 0;
+    int d = 0;
+    int o = off + 6;
+    int end = (start + 880) % 36000;
+    lid_in[off] = 0x54;
+    lid_in[off + 1] = 0x2C;
+    lid_in[off + 2] = 3600 & 255;
+    lid_in[off + 3] = 3600 >> 8;
+    lid_in[off + 4] = start & 255;
+    lid_in[off + 5] = start >> 8;
+    while (i < 12) {
+        a = (start + 80 * i) % 36000;
+        d = 500 + a / 100;
+        if (dist0 > 0) { d = dist0; }
+        lid_in[o] = d & 255;
+        lid_in[o + 1] = d >> 8;
+        lid_in[o + 2] = 100 + i;
+        o = o + 3;
+        i = i + 1;
+    }
+    lid_in[off + 42] = end & 255;
+    lid_in[off + 43] = end >> 8;
+    lid_in[off + 44] = 0;
+    lid_in[off + 45] = 0;
+    lid_in[off + 46] = t_crc8(off, 46);
+}
+
+// packet number k of a sweep: start = k * 9.6 degrees, wrapped
+void t_sweep_pkt(int off, int k) {
+    t_pkt(off, (k * 960) % 36000, 0);
+}
+
+void t_reset() {
+    int i = 0;
+    while (i < 360) {
+        lid_dist[i] = 0;
+        lid_int[i] = 0;
+        i = i + 1;
+    }
+    lid_pos = 0;
+    lid_n_ok = 0;
+    lid_n_crc = 0;
+    lid_n_skip = 0;
+    lid_scans = 0;
+    lid_prev_start = 0;
+    lid_scan_t0 = 0;
+    lid_off = 0;
+    lid_crc_on = 1;
+}
+
+int t_wrong_bins() {
+    int i = 0;
+    int w = 0;
+    while (i < 360) {
+        if (lid_dist[i] != 500 + i) { w = w + 1; }
+        i = i + 1;
+    }
+    return w;
+}
+
+int main() {
+    int i = 0;
+    int k = 0;
+    int t0 = 0;
+    int t1 = 0;
+    int ms_on = 0;
+    int ms_off = 0;
+    lid_make_crc();
+    t_reset();
+
+    // CRC table
+    t_int("crc tab 0", lid_crctab[0], 0x00);
+    t_int("crc tab 1", lid_crctab[1], 0x4D);
+    t_int("crc tab 2", lid_crctab[2], 0x9A);
+    t_int("crc tab 3", lid_crctab[3], 0xD7);
+
+    // one full sweep: 38 packets of 9.6 degrees, fed in blocks of 7 packets (a packet is never cut here)
+    k = 0;
+    while (k < 38) {
+        t_sweep_pkt((k % 7) * 47, k);
+        if (k % 7 == 6 || k == 37) { lid_feed(((k % 7) + 1) * 47); }
+        k = k + 1;
+    }
+    t_int("sweep packets ok", lid_n_ok, 38);
+    t_int("sweep crc errors", lid_n_crc, 0);
+    t_int("sweep wrong bins", t_wrong_bins(), 0);
+    t_int("sweep speed", lid_speed, 3600);
+    t_int("sweep intensity", lid_int[0], 107);       // bin 0 is written last by point 7 of the last packet (100 + 7)
+    t_int("sweep scans before wrap", lid_scans, 0);
+    t_sweep_pkt(0, 38);                              // start 4.8 degrees: the angle fell back, a new revolution
+    lid_feed(47);
+    t_int("revolution counted", lid_scans, 1);
+
+    // a packet cut in two pieces, with a different start angle
+    t_reset();
+    t_pkt(0, 12000, 0);
+    lid_feed(30);
+    t_int("half packet: nothing yet", lid_n_ok, 0);
+    i = 0;
+    while (i < 17) {
+        lid_in[i] = lid_in[30 + i];
+        i = i + 1;
+    }
+    lid_feed(17);
+    t_int("split packet ok", lid_n_ok, 1);
+    t_int("split packet bin", lid_dist[120], 500 + 120);
+
+    // garbage in front of a packet, including a false header
+    t_reset();
+    i = 0;
+    while (i < 12) { lid_in[i] = 0x11 + i; i = i + 1; }
+    lid_in[12] = 0x54;                               // 0x54 0x00 is no packet start
+    lid_in[13] = 0x00;
+    t_pkt(14, 6000, 0);
+    lid_feed(14 + 47);
+    t_int("garbage then packet", lid_n_ok, 1);
+    t_int("garbage bytes skipped", lid_n_skip >= 13, 1);
+    t_int("garbage packet bin", lid_dist[60], 560);
+
+    // bad CRC: the packet must not be used
+    t_reset();
+    t_pkt(0, 6000, 7777);
+    lid_in[10] = lid_in[10] ^ 0x01;                  // one flipped bit after the CRC was computed
+    lid_feed(47);
+    t_int("bad crc counted", lid_n_crc, 1);
+    t_int("bad crc not used", lid_dist[60], 0);
+    t_int("bad crc ok count", lid_n_ok, 0);
+    lid_crc_on = 0;                                  // with the check off the same packet goes through
+    lid_feed(47);
+    t_int("crc off accepts", lid_n_ok, 1);
+    lid_crc_on = 1;
+
+    // distance 0 = no echo
+    t_reset();
+    lid_dist[61] = 1234;
+    t_pkt(0, 6000, 0);
+    lid_in[12] = 0;                                  // third point (61.60 deg, the only one in bin 61): distance 0
+    lid_in[13] = 0;
+    lid_in[46] = t_crc8(0, 46);
+    lid_feed(47);
+    t_int("no echo clears the bin", lid_dist[61], 0);
+    t_int("neighbour bin kept", lid_dist[62], 562);
+
+    // rotation of the scan
+    t_reset();
+    lid_off = 90;
+    t_pkt(0, 6000, 0);
+    lid_feed(47);
+    t_int("scan rotated by 90", lid_dist[150], 560);
+    t_int("scan rotated, old bin empty", lid_dist[60], 0);
+
+    // sector minimum with wrap-around
+    t_reset();
+    lid_dist[350] = 800;
+    lid_dist[5] = 600;
+    lid_dist[100] = 300;
+    t_int("min straight ahead (330..30)", lid_min(330, 30), 600);
+    t_int("min 0..20", lid_min(0, 20), 600);
+    t_int("min 90..110", lid_min(90, 110), 300);
+    t_int("min empty sector", lid_min(200, 210), 0);
+    t_int("min single degree", lid_min(5, 5), 600);
+    t_int("min negative angle", lid_min(-30, 30), 600);
+    t_int("nearest degree", lid_nearest(), 100);
+
+    // lidar alive
+    lid_last_ms = 0;
+    t_int("not alive before data", lid_ok(), 0);
+    lid_last_ms = millis();
+    t_int("alive", lid_ok(), 1);
+    lid_last_ms = millis() - 1000;
+    t_int("silent for a second", lid_ok(), 0);
+
+    addLog("LIDTEST: %d ok, %d bad", t_ok, t_bad);
+
+    // --- timing: 10 packets in the block, fed 40 times = 400 packets = 1.07 s of lidar data
+    t_reset();
+    k = 0;
+    while (k < 10) {
+        t_sweep_pkt(k * 47, k);
+        k = k + 1;
+    }
+    t0 = millis();
+    i = 0;
+    while (i < 40) {
+        lid_feed(470);
+        i = i + 1;
+    }
+    t1 = millis();
+    ms_on = t1 - t0;
+    t_int("timing packets", lid_n_ok, 400);
+    lid_crc_on = 0;
+    t0 = millis();
+    i = 0;
+    while (i < 40) {
+        lid_feed(470);
+        i = i + 1;
+    }
+    t1 = millis();
+    ms_off = t1 - t0;
+    lid_crc_on = 1;
+    addLog("LIDTIME: 400 packets, CRC on  %d ms = %d %% of the real-time data rate", ms_on, (ms_on * 100) / 1067);
+    addLog("LIDTIME: 400 packets, CRC off %d ms = %d %% of the real-time data rate", ms_off, (ms_off * 100) / 1067);
+    return 0;
+}

@@ -1,0 +1,239 @@
+// ld19.tc - LDROBOT LD19 / STL-19P / D500 360 degree 2D lidar (UART, 230400 baud), pure TinyC.
+//
+// The lidar streams 47 byte packets, about 375 per second (4500 points per second, 10 revolutions per second). No command is needed:
+// it starts to turn and to send when it has power. This driver sorts every point into a one-degree bin (the most recent distance for
+// each degree), so a program can ask "what is the nearest thing in front of me" without touching raw data.
+//
+// Use:
+//   #include "ld19.tc"
+//   int main() { lid_init(16); return 0; }                     // GPIO of the lidar's TX line (RX of the ESP32); TaskLoop below
+//   void TaskLoop() { lid_poll(); delay(20); }                 // at least every ~50 ms: the receive buffer holds 2048 bytes = 116 ms of data
+//   ... lid_min(330, 30)  = nearest distance in mm in the sector 330..360..30 degrees (0 = nothing valid there), lid_ok() = data is arriving
+//
+// Results: lid_dist[0..359] distance in mm per degree (0 = no echo / not seen yet), lid_int[0..359] intensity 0..255, lid_scans = full revolutions
+// seen, lid_scan_ms = duration of the last revolution (about 100 ms), lid_speed = rotation speed in degrees per second (from the packets),
+// lid_n_ok / lid_n_crc / lid_n_skip = good packets / packets with a wrong CRC / bytes skipped while looking for a packet start.
+// 0 degrees is the lidar's own forward direction; lid_off (degrees, default 0) turns it if the lidar is mounted rotated.
+//
+// Packet (LDROBOT LD19 data sheet): 0x54 header, 0x2C = 12 points, speed (u16, deg/s), start angle (u16, 0.01 deg), 12 x { distance (u16, mm),
+// intensity (u8) }, end angle (u16, 0.01 deg), timestamp (u16, ms), CRC8 (polynomial 0x4D, initial value 0, over the first 46 bytes). All 16 bit
+// values little endian. The angles of the 12 points are interpolated between start and end (the end may be smaller than the start: wrap at 360).
+// Wiring: LD19 pins are TX, PWM, GND, 5 V (290 mA). The PWM pin is only for speed control (20..50 kHz, 40 % duty = 10 Hz): see the data sheet for
+// what the lidar does without it. NOTE: on the WAVE ROVER board the lidar socket is wired to a CP2102 USB bridge, NOT to the ESP32: the TX line
+// has to go to a free GPIO of the ESP32 that reads it (an S3 board, for instance).
+//
+// TIMING (measured, see wave_lidar_test.tc and docs/WAVE_ROVER.md): the parser is one pass over the bytes with a table CRC.
+// NOT yet tested with a real lidar (none here yet): the packet format is from the data sheet, checked with synthetic packets.
+
+#define LID_PKT   47
+#define LID_PTS   12
+#define LID_BLOCK 512            // bytes read from the serial port per call
+
+int  lid_h       = -1;           // serial handle
+int  lid_off     = 0;            // rotate the whole scan (degrees)
+int  lid_crc_on  = 1;            // 0 = do not check the CRC (faster, less safe)
+int  lid_dist[360];
+int  lid_int[360];
+int  lid_crctab[256];
+byte lid_in[512];                // the block read from the serial port
+int  lid_pkt[48];                // the packet being assembled
+int  lid_pos     = 0;            // bytes of the packet collected so far
+int  lid_crc     = 0;            // running CRC of the bytes collected so far
+int  lid_scans   = 0;
+int  lid_scan_ms = 0;
+int  lid_scan_t0 = 0;
+int  lid_speed   = 0;
+int  lid_prev_start = 0;
+int  lid_last_ms = 0;            // millis() of the last poll that returned data
+int  lid_n_ok    = 0;
+int  lid_n_crc   = 0;
+int  lid_n_skip  = 0;
+
+// CRC8 table, polynomial 0x4D, MSB first, initial value 0
+void lid_make_crc() {
+    int i = 0;
+    int k = 0;
+    int c = 0;
+    while (i < 256) {
+        c = i;
+        k = 0;
+        while (k < 8) {
+            if (c & 0x80) {
+                c = ((c << 1) ^ 0x4D) & 255;
+            } else {
+                c = (c << 1) & 255;
+            }
+            k = k + 1;
+        }
+        lid_crctab[i] = c;
+        i = i + 1;
+    }
+}
+
+// CRC8 over the first n bytes of lid_pkt
+int lid_crc_of(int n) {
+    int c = 0;
+    int i = 0;
+    while (i < n) {
+        c = lid_crctab[(c ^ lid_pkt[i]) & 255];
+        i = i + 1;
+    }
+    return c;
+}
+
+// lid_pkt holds one complete, checked packet: sort its 12 points into the degree bins
+void lid_decode() {
+    int start = lid_pkt[4] | (lid_pkt[5] << 8);
+    int end = lid_pkt[42] | (lid_pkt[43] << 8);
+    int step = 0;
+    int a = 0;
+    int bin = 0;
+    int i = 0;
+    int o = 6;
+    lid_speed = lid_pkt[2] | (lid_pkt[3] << 8);
+    step = end - start;
+    if (step < 0) { step = step + 36000; }
+    step = step / (LID_PTS - 1);
+    while (i < LID_PTS) {
+        a = start + step * i;
+        if (a >= 36000) { a = a - 36000; }
+        bin = a / 100 + lid_off;
+        while (bin >= 360) { bin = bin - 360; }
+        while (bin < 0) { bin = bin + 360; }
+        lid_dist[bin] = lid_pkt[o] | (lid_pkt[o + 1] << 8);
+        lid_int[bin] = lid_pkt[o + 2];
+        o = o + 3;
+        i = i + 1;
+    }
+    if (start < lid_prev_start - 18000) {            // the angle fell back by more than half a turn: a new revolution
+        lid_scans = lid_scans + 1;
+        i = millis();
+        if (lid_scan_t0 != 0) { lid_scan_ms = i - lid_scan_t0; }
+        lid_scan_t0 = i;
+    }
+    lid_prev_start = start;
+}
+
+// n bytes are in lid_in: find packets, check them, decode them. A packet may be split between two calls.
+void lid_feed(int n) {
+    int i = 0;
+    int b = 0;
+    int pos = lid_pos;
+    int crc = lid_crc;
+    int chk = lid_crc_on;
+    while (i < n) {
+        b = lid_in[i] & 255;
+        i = i + 1;
+        if (pos == 0) {
+            if (b == 0x54) {
+                lid_pkt[0] = b;
+                crc = lid_crctab[b];
+                pos = 1;
+            } else {
+                lid_n_skip = lid_n_skip + 1;
+            }
+        } else if (pos == 1) {
+            if (b == 0x2C) {
+                lid_pkt[1] = b;
+                crc = lid_crctab[(crc ^ b) & 255];
+                pos = 2;
+            } else if (b == 0x54) {
+                crc = lid_crctab[b];                 // that was a start byte after all: begin again with it
+                lid_n_skip = lid_n_skip + 1;
+            } else {
+                pos = 0;
+                lid_n_skip = lid_n_skip + 2;
+            }
+        } else if (pos < 46) {
+            lid_pkt[pos] = b;
+            if (chk == 1) { crc = lid_crctab[(crc ^ b) & 255]; }
+            pos = pos + 1;
+        } else {                                      // the 47th byte is the CRC
+            lid_pkt[46] = b;
+            pos = 0;
+            if (chk == 0 || b == crc) {
+                lid_decode();
+                lid_n_ok = lid_n_ok + 1;
+            } else {
+                lid_n_crc = lid_n_crc + 1;
+            }
+        }
+    }
+    lid_pos = pos;
+    lid_crc = crc;
+}
+
+// open the serial port; returns the handle (or -1). main() only.
+int lid_init(int rx_pin) {
+    int i = 0;
+    lid_make_crc();
+    while (i < 360) {
+        lid_dist[i] = 0;
+        lid_int[i] = 0;
+        i = i + 1;
+    }
+    lid_pos = 0;
+    lid_h = serialBegin(rx_pin, -1, 230400, 3, 2048);
+    lid_scan_t0 = 0;
+    return lid_h;
+}
+
+// read what has arrived and decode it; returns the number of bytes. Call at least every ~50 ms (TaskLoop or Every50ms).
+int lid_poll() {
+    int n = 0;
+    int now = 0;
+    if (lid_h < 0) { return 0; }
+    n = serialReadArray(lid_h, lid_in, LID_BLOCK);
+    if (n > 0) {
+        lid_feed(n);
+        now = millis();
+        lid_last_ms = now;
+    }
+    return n;
+}
+
+// 1 = packets arrived within the last 500 ms
+int lid_ok() {
+    if (lid_last_ms == 0) { return 0; }
+    if (millis() - lid_last_ms > 500) { return 0; }
+    return 1;
+}
+
+// nearest valid distance (mm) in the sector from a0 to a1 degrees, inclusive; a0 > a1 wraps through 0 (330, 30 = 60 degrees straight ahead).
+// 0 = no valid point in the sector
+int lid_min(int a0, int a1) {
+    int a = a0;
+    int best = 0;
+    int d = 0;
+    int n = 0;
+    while (a < 0) { a = a + 360; }
+    while (a >= 360) { a = a - 360; }
+    while (a1 < 0) { a1 = a1 + 360; }
+    while (a1 >= 360) { a1 = a1 - 360; }
+    while (n < 360) {
+        d = lid_dist[a];
+        if (d > 0 && (best == 0 || d < best)) { best = d; }
+        if (a == a1) { break; }
+        a = a + 1;
+        if (a >= 360) { a = 0; }
+        n = n + 1;
+    }
+    return best;
+}
+
+// degree of the nearest valid point of the whole scan (-1 = none)
+int lid_nearest() {
+    int a = 0;
+    int best = 0;
+    int at = -1;
+    int d = 0;
+    while (a < 360) {
+        d = lid_dist[a];
+        if (d > 0 && (best == 0 || d < best)) {
+            best = d;
+            at = a;
+        }
+        a = a + 1;
+    }
+    return at;
+}

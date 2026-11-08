@@ -88,6 +88,29 @@ it runs on any TinyC device. It cannot show that the I2C access itself works. De
 Written from the datasheets and the Waveshare source (GPL, used as a register reference only), **not tested on the rover yet**. Open: which chip axis points "forward" on the board, and how
 strongly the motors disturb the compass (it sits next to them: calibrate with the motors off and check the field while driving).
 
+## Lidar driver and the timing question (`common/ld19.tc`)
+
+`examples/common/ld19.tc` reads an LDROBOT **LD19 / STL-19P / D500** 360 degree lidar (UART 230400 baud, 47-byte packets, about 375 packets = 4500 points per second,
+10 revolutions per second), checks the CRC8 and sorts every point into one-degree bins: `lid_min(330, 30)` is the nearest thing in front. Demo: `examples/wave_lidar.tc`.
+Self test with synthetic packets: `examples/wave_lidar_test.tc` (35 checks, nine deliberate mutations of the driver are caught). Written from the LD19 data sheet,
+**not tested with a real lidar** (none here yet).
+
+**Is it time critical in TinyC? Measured on an ESP32-S3 (.190), the parser fed with 400 packets = 1.07 s of real lidar data:**
+
+| | time | share of the real-time data rate |
+|---|---|---|
+| parsing with CRC check | 238 ms | **22 %** |
+| parsing without CRC check (`lid_crc_on = 0`) | 206 ms | 19 % |
+
+- **Not hard real time.** The serial hardware buffers the stream: the driver opens the port with a 2048-byte ring, which holds **116 ms** of lidar data. The program has to
+  poll about every 50 ms, a gap of 100 ms still loses nothing; a longer gap only loses a few packets, the parser finds the next packet start by itself (header + CRC).
+- **But it is a real load:** about a fifth of the VM's time (roughly 2000 VM instructions per packet, about 3 million per second on the S3). Do it in `TaskLoop()` (its own task),
+  not in a callback tick that shares the instruction budget with the rest. The classic ESP32 of the WAVE ROVER board should be in the same range (also 240 MHz), not measured.
+- The CRC is cheap (13 % of the parsing); the 12-point angle loop dominates. If the VM is needed for more, the load can be cut by skipping points or by running only part of the scan.
+- Mapping (SLAM) or planning is not for this VM: the ESP32 delivers the nearest distances per sector (obstacle stop, wall following), a computer (Mac Studio) would build maps from the raw scan.
+- **On the WAVE ROVER board the lidar socket goes to a CP2102 USB bridge, not to the ESP32.** To read the lidar with TinyC its TX line has to go to a free GPIO of an ESP32 (a
+  separate S3 board, for instance); the rover's driver board has no free UART.
+
 ## Not done yet
 
 - SD card pins, OLED text, the 12 V light outputs (IO4/IO5).

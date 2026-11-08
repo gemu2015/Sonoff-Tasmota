@@ -1,0 +1,39 @@
+// @name: LD19 lidar
+// Reads an LDROBOT LD19 / STL-19P 360 degree lidar on a serial pin and shows the nearest distance in four sectors on the Tasmota main page:
+// front (330..30), left (60..120), back (150..210), right (240..300), in mm. Driver: common/ld19.tc (see its header for the packet format).
+// Set LIDAR_RX to the GPIO that the lidar's TX line is wired to. NOT tested with a real lidar yet (the parser is tested with synthetic packets
+// in wave_lidar_test.tc, which also measures how much of the VM the parsing takes: about a fifth of an ESP32-S3).
+// The polling runs in TaskLoop (its own task): it reads what has arrived every 20 ms. A callback tick (Every50ms) would also do, but it competes
+// with Tasmota's main loop for time, and the receive buffer (2048 bytes = 116 ms of data) must not overflow.
+
+#include "ld19.tc"
+
+#define LIDAR_RX  16
+
+char ob[96];
+
+void TaskLoop() {
+    lid_poll();
+    delay(20);
+}
+
+void WebCall() {
+    if (lid_ok() == 1) {
+        sprintf(ob, "{s}Lidar front / left{m}%d / %d mm{e}", lid_min(330, 30), lid_min(60, 120));
+        webSend(ob);
+        sprintf(ob, "{s}Lidar back / right{m}%d / %d mm{e}", lid_min(150, 210), lid_min(240, 300));
+        webSend(ob);
+        sprintf(ob, "{s}Lidar scans / speed{m}%d  (%d ms per turn)  %d deg/s{e}", lid_scans, lid_scan_ms, lid_speed);
+        webSend(ob);
+        sprintf(ob, "{s}Lidar packets ok / crc / skipped{m}%d / %d / %d{e}", lid_n_ok, lid_n_crc, lid_n_skip);
+        webSend(ob);
+    } else {
+        webSend("{s}Lidar{m}no data{e}");
+    }
+}
+
+int main() {
+    int h = lid_init(LIDAR_RX);
+    addLog("LIDAR: serial handle %d on GPIO %d", h, LIDAR_RX);
+    return 0;
+}

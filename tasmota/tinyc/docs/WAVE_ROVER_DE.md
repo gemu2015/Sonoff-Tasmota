@@ -88,6 +88,29 @@ es laeuft auf jedem TinyC-Geraet. Es kann nicht zeigen, dass der I2C-Zugriff sel
 Nach den Datenblaettern und dem Waveshare-Quellcode geschrieben (GPL, nur als Registervorlage benutzt), **auf dem Rover noch nicht getestet**. Offen: welche Chip-Achse auf der Platine "vorwaerts" ist, und wie stark
 die Motoren den Kompass stoeren (er sitzt direkt daneben: bei ausgeschalteten Motoren kalibrieren und beim Fahren das Feld ansehen).
 
+## Lidar-Treiber und die Frage nach der Zeitkritik (`common/ld19.tc`)
+
+`examples/common/ld19.tc` liest ein **LD19 / STL-19P / D500** von LDROBOT (360 Grad, UART 230400 Baud, Pakete zu 47 Byte, etwa 375 Pakete = 4500 Punkte pro Sekunde,
+10 Umdrehungen pro Sekunde), prueft die CRC8 und sortiert jeden Punkt in ein Ein-Grad-Fach: `lid_min(330, 30)` ist das Naechste vor dem Fahrzeug. Demo: `examples/wave_lidar.tc`.
+Selbsttest mit synthetischen Paketen: `examples/wave_lidar_test.tc` (35 Pruefungen, neun absichtliche Aenderungen am Treiber werden erkannt). Nach dem Datenblatt des LD19 geschrieben,
+**mit einem echten Lidar nicht getestet** (noch keins da).
+
+**Ist das in TinyC zeitkritisch? Gemessen auf einem ESP32-S3 (.190), der Parser mit 400 Paketen = 1,07 s echter Lidar-Daten gefuettert:**
+
+| | Zeit | Anteil am Echtzeit-Datenstrom |
+|---|---|---|
+| Parsen mit CRC-Pruefung | 238 ms | **22 %** |
+| Parsen ohne CRC-Pruefung (`lid_crc_on = 0`) | 206 ms | 19 % |
+
+- **Nicht hart echtzeitkritisch.** Die serielle Hardware puffert den Strom: Der Treiber oeffnet den Port mit einem 2048-Byte-Ring, das sind **116 ms** Lidar-Daten. Das Programm
+  muss etwa alle 50 ms abholen, eine Luecke von 100 ms kostet noch nichts; eine laengere verliert nur einige Pakete, der Parser findet den naechsten Paketanfang selbst (Kopf + CRC).
+- **Aber es ist eine echte Last:** etwa ein Fuenftel der Zeit der VM (rund 2000 VM-Befehle je Paket, etwa 3 Millionen pro Sekunde auf dem S3). In `TaskLoop()` (eigene Aufgabe) machen,
+  nicht in einem Takt-Rueckruf, der sich das Befehlsbudget mit dem Rest teilt. Der klassische ESP32 der WAVE-ROVER-Platine duerfte in derselben Groessenordnung liegen (ebenfalls 240 MHz), nicht gemessen.
+- Die CRC ist billig (13 % des Parsens); die Winkelschleife ueber 12 Punkte ueberwiegt. Wird die VM fuer mehr gebraucht, laesst sich die Last durch Auslassen von Punkten oder nur einen Teil des Scans senken.
+- Kartierung (SLAM) oder Planung gehoert nicht in diese VM: Der ESP32 liefert die naechsten Abstaende je Sektor (Hindernisstopp, Wandfolgen), Karten wuerde ein Rechner (Mac Studio) aus dem Rohscan bauen.
+- **Auf der WAVE-ROVER-Platine geht die Lidar-Buchse an eine CP2102-USB-Bruecke, nicht an den ESP32.** Um das Lidar mit TinyC zu lesen, muss seine TX-Leitung an einen freien GPIO eines ESP32
+  (zum Beispiel ein eigenes S3-Board); die Treiberplatine des Rovers hat keinen freien UART.
+
 ## Noch nicht gemacht
 
 - SD-Karten-Pins, OLED-Text, die 12-V-Lichtausgaenge (IO4/IO5).
