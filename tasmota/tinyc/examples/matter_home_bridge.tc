@@ -8,6 +8,7 @@
 //     Licht     color light  -> HTTP to the lamp (.38): Power / Dimmer / HSBColor, answered + repeated (LAMP_UDP 1 adds
 //                                the old mh_pwr / mh_hue / mh_sat / mh_bri multicast)
 //     Ecklicht  switch        -> elamp
+//     Deckenlampe  on/off     -> HTTP to .156 (gm24g_lamp.tc, all zones; no feedback from the lamp)
 //   IN  (`global` auto-updated by other devices -> Matter sensor attribute)
 //     Buero    temp/hum/press -> btemp / bhumi / bpress
 //     Aussen   temperature    -> atmp
@@ -50,6 +51,12 @@ int lamp_pw = -1; int lamp_dim = -1; // last REAL state of the lamp, for the sta
 int lamp_fail = 0;                   // polls in a row that got no answer
 int q_pwr = -1; int q_dim = -1; int q_hue = -1; int q_sat = -1;   // commands from Home waiting for TaskLoop (-1 = none)
 int cmd_retry = 0;                   // the command from Home was sent a second time already
+// Ceiling lamp (Deckenlampe) on the TinyC device .156 (gm24g_lamp.tc: an nRF24 sends the lamp's own remote-control codes). The lamp
+// gives NO feedback: Matter shows what Home commanded last, a press on the real remote is not seen.
+int decke;                           // Matter endpoint id (added LAST, so the ids of the older accessories do not move)
+int q_decke = -1;                    // wish from Home waiting for TaskLoop: 1 = all on, 0 = all off, -1 = none
+int decke_fail = 0;                  // commands to .156 in a row that got no answer
+int decke_sent = -1;                 // what was sent last (1 / 0), for the status page
 #define LAMP_UDP 0                   // 1 = ALSO send the old multicast globals (mh_pwr/hue/sat/bri) for the lamp
 #define LAMP_POLL_S  4               // how often the real lamp state is read
 #define LAMP_GRACE_S 10              // after a command from Home: do not overwrite Matter with the lamp's old state
@@ -136,6 +143,10 @@ void MatterInvoke(int e, int cluster, int cmd) {
     }
     if (e == ecklicht) {
         if (cluster == CLUSTER_ONOFF) { elamp = matterGet(ecklicht, CLUSTER_ONOFF, 0); }
+        return;
+    }
+    if (e == decke) {
+        if (cluster == CLUSTER_ONOFF) { q_decke = matterGet(decke, CLUSTER_ONOFF, 0); }   // httpGet runs in TaskLoop, not here
         return;
     }
 }
@@ -234,6 +245,36 @@ void lamp_flush() {
     if (p == 0) { lamp_send("Power%20Off"); }
 }
 
+// One key to the ceiling lamp device .156 over HTTP: LAMPTX 5 = all on, LAMPTX 9 = all off (its answer starts with "sende ..."),
+// up to three tries. 1 = .156 answered. (The nRF24 then sends 90 radio frames; whether the lamp heard them is not reported back.)
+int decke_send(int on) {
+    char url[80]; char b[160]; int tries = 0;
+    if (on == 1) { strcpy(url, "http://192.168.188.156/cm?cmnd=LAMPTX%205"); }
+    else         { strcpy(url, "http://192.168.188.156/cm?cmnd=LAMPTX%209"); }
+    while (tries < 3) {
+        b[0] = 0;
+        if (httpGet(url, b) > 0 && strFind(b, "sende") >= 0) { return 1; }
+        tries = tries + 1;
+        delay(400);
+    }
+    return 0;
+}
+
+// What Home asked for (queued by MatterInvoke) goes out within 250 ms.
+void decke_flush() {
+    int w = q_decke;
+    if (w < 0) { return; }
+    q_decke = -1;
+    if (decke_send(w) == 1) {
+        decke_sent = w;
+        if (decke_fail >= 3) { addLog("matter_home_bridge: ceiling lamp .156 answers again"); }
+        decke_fail = 0;
+    } else {
+        decke_fail = decke_fail + 1;
+        addLog("matter_home_bridge: ceiling lamp .156 did not answer (%d in a row)", decke_fail);
+    }
+}
+
 void poll_lamp() {
     char buf[192]; char hv[16]; char tk[16];
     int pw = -1; int dim = -1; int hue = -1; int sat = -1; int p; int lv; int mv;
@@ -301,6 +342,7 @@ void TaskLoop() {
     int wp = 200;                                 // 250 ms ticks since the last probe (first one ~12 s after the start)
     while (1) {
         lamp_flush();                             // a command from Home goes out within 250 ms
+        decke_flush();                            // same for the ceiling lamp (.156)
         wp = wp + 1;
         if (wp >= 240) { wp = 0; wd_probe(); }    // once a minute: does anybody answer?
         tk = tk + 1;
@@ -370,6 +412,9 @@ void WebCall() {
     char mst[8];
     if (matterGet(licht, CLUSTER_ONOFF, 0) > 0) { strcpy(mst, "an"); } else { strcpy(mst, "aus"); }
     sprintf(b, "{s}Lampe .38 (real){m}%s, %d%% / Matter: %s{e}", lst, lamp_dim, mst); webSend(b);
+    char dst[16];
+    if (decke_sent == 1) { strcpy(dst, "ein"); } else { if (decke_sent == 0) { strcpy(dst, "aus"); } else { strcpy(dst, "-"); } }
+    sprintf(b, "{s}Deckenlampe .156{m}zuletzt gesendet: %s (Fehler %d){e}", dst, decke_fail); webSend(b);
     sprintf(b, "{s}Aussentemperatur{m}%.1f C{e}", atmp);   webSend(b);
     sprintf(b, "{s}Buero Temp{m}%.1f C{e}",  btemp);        webSend(b);
     sprintf(b, "{s}Buero Feuchte{m}%.0f %%{e}", bhumi);     webSend(b);
@@ -444,6 +489,11 @@ int main() {
     // POLL: two Daikin aircons as temperature sensors
     e_acwz = add_temp();     matterName(e_acwz, "Wohnzimmer Klima");
     e_acsz = add_temp();     matterName(e_acsz, "Schlafzimmer Klima");
+
+    // OUT: ceiling lamp (Deckenlampe) on/off -> .156 (all zones). ADDED LAST: Matter endpoint ids follow the matterAdd order,
+    // the ones above keep theirs, so Home keeps its rooms and scenes for them.
+    decke = matterAdd(MATTER_ONOFF_LIGHT);
+    matterName(decke, "Deckenlampe");
 
     matterStart();                                   // Matter on; Bind on /mt to pair
     return 0;
