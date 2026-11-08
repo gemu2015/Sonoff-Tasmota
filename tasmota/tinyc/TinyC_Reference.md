@@ -6662,6 +6662,17 @@ All file operations use the `/tc_api` endpoint with CORS support, so the IDE can
 | `/tc_api?cmd=writefile&path=/name` | POST | Writes POST body to file, returns `{"ok":true,"size":N}` |
 | `/tc_api?cmd=deletefile&path=/name` | GET | Deletes a file from the filesystem |
 
+### Protected Files (`.secret`)
+
+Credentials a project keeps in its own files (FTP login, passwords) should live in a file whose name **ends in `.secret`** (case does not matter), for example `/ftp.secret`.
+
+- The firmware does **not hand such a file out and does not let it be changed from outside**: download on port 82, upload on port 83 and `/tc_api` `readfile` / `writefile` / `deletefile` refuse it. Only the base name is checked (any folder, the SD or USB copy too, a trailing `@from_to` range is ignored).
+- **TinyC programs read and write it normally** (`fopen`, `fread`, ... and the file functions of `common/cfg.tc`).
+- Also refused on those ways: `eebus_key.der`, `tlskey`, `.settings*`, `.drvset*`, `.snsset*`; writing is also refused for `eebus_cert.der`, `eebus_peer.txt`, `eebus_cs_trust.txt`, `eebus_cs_typ.txt` and `eebus_cs.txt`.
+- It is a **convention, not automatic**: a password left in a normal file (for example `/ftp.cfg`) is not protected.
+- It protects against accidents and foreign web pages, **not against a targeted attacker on the network**. Set a web password (`WebPassword`): `/tc_api` then asks for it too.
+- **Not covered:** the Tasmota file manager page (user file system). It is protected by the web password only and does not block `.secret`.
+
 ### Time-Range Filtered File Access
 
 Append `@from_to` to the file path to extract only rows within a timestamp range from a CSV data file. This is useful for serving IoT time-series data to chart libraries.

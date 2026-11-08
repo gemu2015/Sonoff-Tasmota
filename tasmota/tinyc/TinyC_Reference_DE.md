@@ -6393,6 +6393,17 @@ Alle Dateioperationen verwenden den `/tc_api`-Endpunkt mit CORS-Unterstuetzung, 
 | `/tc_api?cmd=writefile&path=/name` | POST | Schreibt POST-Body in Datei, gibt `{"ok":true,"size":N}` zurueck |
 | `/tc_api?cmd=deletefile&path=/name` | GET | Loescht eine Datei vom Dateisystem |
 
+### Geschuetzte Dateien (`.secret`)
+
+Zugangsdaten, die ein Projekt in eigenen Dateien haelt (FTP-Login, Passwoerter), gehoeren in eine Datei, deren Name **auf `.secret` endet** (Gross-/Kleinschreibung egal), zum Beispiel `/ftp.secret`.
+
+- Die Firmware **gibt so eine Datei nicht heraus und laesst sie von aussen nicht aendern**: Download auf Port 82, Upload auf Port 83 und `/tc_api` `readfile` / `writefile` / `deletefile` lehnen sie ab. Geprueft wird nur der Dateiname ohne Pfad (jeder Ordner, auch die Kopie auf SD oder USB-Stick; ein angehaengter `@von_bis`-Bereich wird ignoriert).
+- **TinyC-Programme lesen und schreiben sie ganz normal** (`fopen`, `fread`, ... und die Dateifunktionen von `common/cfg.tc`).
+- Auf diesen Wegen ebenfalls gesperrt: `eebus_key.der`, `tlskey`, `.settings*`, `.drvset*`, `.snsset*`; Schreiben zusaetzlich fuer `eebus_cert.der`, `eebus_peer.txt`, `eebus_cs_trust.txt`, `eebus_cs_typ.txt` und `eebus_cs.txt`.
+- Es ist eine **Vereinbarung, nichts Automatisches**: Ein Passwort in einer normalen Datei (zum Beispiel `/ftp.cfg`) ist nicht geschuetzt.
+- Es schuetzt gegen Versehen und fremde Webseiten, **nicht gegen einen gezielten Angreifer im Netz**. Setzt ein Web-Passwort (`WebPassword`): `/tc_api` fragt es dann ebenfalls ab.
+- **Nicht abgedeckt:** die Seite des Tasmota-Dateimanagers (Benutzerdateisystem). Sie ist nur durch das Web-Passwort geschuetzt und sperrt `.secret` nicht.
+
 ### Zeitbereichs-gefilterter Dateizugriff
 
 Haengen Sie `@von_bis` an den Dateipfad an, um nur Zeilen innerhalb eines Zeitbereichs aus einer CSV-Datendatei zu extrahieren. Dies ist nuetzlich fuer die Bereitstellung von IoT-Zeitreihendaten an Chart-Bibliotheken.
