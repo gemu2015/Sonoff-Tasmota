@@ -1,0 +1,178 @@
+// @name: Lidar scope
+// Standalone demo: a 360 degree distance display ("radar screen") for an LDROBOT LD19 / STL-19P / D500 lidar, as a web page of the ESP32 itself.
+//
+//   http://<ip>/lidar          the display (also linked on the Tasmota main page)
+//   http://<ip>/lidar_data     the raw scan as JSON: {"ok":1,"sc":..,"ms":..,"sp":..,"p":..,"c":..,"k":..,"d":[360 distances in mm]}
+//
+// Wiring: LD19 TX -> LIDAR_RX (GPIO of the ESP32), GND -> GND, 5 V -> 5 V (290 mA, use a good supply). The PWM pin may stay open (the data sheet
+// says what the lidar does without it; if it turns too slowly, feed it 20..50 kHz with 40 % duty). No other pin is needed.
+// Driver: common/ld19.tc (47 byte packets, CRC8, one-degree bins).
+//
+// The page: 0 degrees (the lidar's forward direction, the side with the connector marking) is at the TOP, angles grow clockwise, as in the LD19 data
+// sheet. Points are coloured by distance (red = near, green = far). Controls: range (auto / 1 / 2 / 4 / 8 / 12 m), dots or filled outline, mirror (if
+// your picture is left/right reversed), rotate 0/90/180/270 (if the lidar is mounted turned), freeze. Touch or move the mouse over the picture to read
+// angle and distance. The page asks for a new scan every ~120 ms and stops while its browser tab is hidden.
+//
+// Without a lidar: set LIDAR_SIM to 1. A synthetic room (4 x 3 m with a pillar) turns slowly around the sensor, so the page can be tried first.
+//
+// NOT tested with a real lidar yet (none here when this was written); the parser is tested with synthetic packets (wave_lidar_test.tc).
+
+#include "ld19.tc"
+
+#define LIDAR_RX   16            // GPIO that the lidar's TX line is wired to
+#define LIDAR_SIM  0             // 1 = synthetic room instead of the serial port
+
+char ob[160];
+char cb[16];
+int  sim_t = 0;
+
+// synthetic scan: a 4000 x 3000 mm room, the sensor 1200 mm from the left wall, 1000 mm from the bottom wall, plus a round pillar of 300 mm
+// diameter at 1800 mm ahead; the whole picture turns by 3 degrees per call
+void sim_fill() {
+    int a = 0;
+    float rad = 0.0;
+    float dx = 0.0;
+    float dy = 0.0;
+    float t = 0.0;
+    float best = 0.0;
+    float b = 0.0;
+    float cc = 0.0;
+    float disc = 0.0;
+    float s = 0.0;
+    while (a < 360) {
+        rad = (a + sim_t) * 0.0174533;
+        dx = sin(rad);
+        dy = cos(rad);
+        best = 99999.0;
+        if (dx > 0.001) {
+            t = (2800.0) / dx;
+            if (t < best) { best = t; }
+        }
+        if (dx < -0.001) {
+            t = (1200.0) / (0.0 - dx);
+            if (t < best) { best = t; }
+        }
+        if (dy > 0.001) {
+            t = (2000.0) / dy;
+            if (t < best) { best = t; }
+        }
+        if (dy < -0.001) {
+            t = (1000.0) / (0.0 - dy);
+            if (t < best) { best = t; }
+        }
+        // pillar: centre (0, 1800), radius 150
+        b = 0.0 - 1800.0 * dy;
+        cc = 1800.0 * 1800.0 - 150.0 * 150.0;
+        disc = b * b - cc;
+        if (disc > 0.0) {
+            s = (0.0 - b) - sqrt(disc);
+            if (s > 0.0 && s < best) { best = s; }
+        }
+        lid_dist[a] = best;
+        a = a + 1;
+    }
+    sim_t = sim_t + 3;
+    lid_scans = lid_scans + 1;
+    lid_n_ok = lid_n_ok + 80;
+    lid_speed = 3600;
+    lid_scan_ms = 100;
+    lid_last_ms = millis();
+}
+
+void TaskLoop() {
+    if (LIDAR_SIM == 1) {
+        sim_fill();
+        delay(100);
+    } else {
+        lid_poll();
+        delay(20);
+    }
+}
+
+void WebCall() {
+    if (lid_ok() == 1) {
+        sprintf(ob, "{s}Lidar front / left{m}%d / %d mm{e}", lid_min(330, 30), lid_min(60, 120));
+        webSend(ob);
+        sprintf(ob, "{s}Lidar back / right{m}%d / %d mm{e}", lid_min(150, 210), lid_min(240, 300));
+        webSend(ob);
+    } else {
+        webSend("{s}Lidar{m}no data{e}");
+    }
+    webSend("{s}Lidar display{m}<a href='/lidar'>/lidar</a>{e}");
+}
+
+void lidar_page() {
+    webSend("<!DOCTYPE html><meta name=viewport content='width=device-width,initial-scale=1'><title>Lidar</title>");
+    webSend("<style>body{font-family:sans-serif;margin:8px;text-align:center;background:#111;color:#ddd}");
+    webSend("canvas{background:#000;border:1px solid #444;border-radius:50%;touch-action:none}");
+    webSend("select,button{font-size:14px;margin:2px}#st{font-size:13px;min-height:2.4em}</style>");
+    webSend("<div id=st>-</div><canvas id=c></canvas><div id=inf>&nbsp;</div><div>");
+    webSend("Range <select id=rg><option value=0>auto<option value=1000>1 m<option value=2000>2 m<option value=4000>4 m");
+    webSend("<option value=8000>8 m<option value=12000>12 m</select> ");
+    webSend("<select id=md><option value=0>dots<option value=1>filled</select> ");
+    webSend("Rotate <select id=ro><option value=0>0<option value=90>90<option value=180>180<option value=270>270</select> ");
+    webSend("<label><input type=checkbox id=mi>mirror</label> <button id=fz>freeze</button></div>");
+    webSend("<script>var c=document.getElementById('c'),x=c.getContext('2d'),D=[],R=4000,F=0,rot=0,W=300,S=0;");
+    webSend("function sz(){W=Math.max(200,Math.min(innerWidth-24,innerHeight-190,720));c.width=c.height=W;S=W/2*0.96}sz();");
+    webSend("function pt(a,d){var r=d/R*S,t=a*Math.PI/180,m=mi.checked?-1:1;return[W/2+m*r*Math.sin(t),W/2-r*Math.cos(t)]}");
+    webSend("function nice(){var m=0,i;for(i=0;i<360;i++){if(D[i]>m&&D[i]<=12000)m=D[i]}");
+    webSend("return m<=900?1000:m<=1900?2000:m<=3900?4000:m<=7900?8000:12000}");
+    webSend("function draw(){var h=W/2,i,p,f=1,n=0,na=-1;R=+rg.value||nice();x.clearRect(0,0,W,W);");
+    webSend("x.strokeStyle='#444';x.fillStyle='#888';x.font='11px sans-serif';var sp=R>6000?2000:R>2500?1000:R>1200?500:250;");
+    webSend("for(i=sp;i<=R;i+=sp){x.beginPath();x.arc(h,h,i/R*S,0,7);x.stroke();x.fillText(i/1000+' m',h+3,h-i/R*S+11)}");
+    webSend("for(i=0;i<360;i+=30){p=pt(i,R);x.beginPath();x.moveTo(h,h);x.lineTo(p[0],p[1]);x.stroke()}");
+    webSend("if(md.value==1){x.beginPath();for(i=0;i<360;i++){if(D[i]>0){p=pt(i,Math.min(D[i],R));if(f){x.moveTo(p[0],p[1]);f=0}else{x.lineTo(p[0],p[1])}}}");
+    webSend("x.closePath();x.fillStyle='rgba(40,170,120,.35)';x.fill();x.strokeStyle='#2a7';x.stroke()}");
+    webSend("for(i=0;i<360;i++){if(D[i]>0){if(n==0||D[i]<n){n=D[i];na=i}");
+    webSend("if(md.value==0&&D[i]<=R){p=pt(i,D[i]);x.fillStyle='hsl('+Math.round(D[i]/R*120)+',85%,50%)';x.fillRect(p[0]-1.5,p[1]-1.5,3,3)}}}");
+    webSend("x.fillStyle='#fff';x.beginPath();x.moveTo(h,h-9);x.lineTo(h-6,h+4);x.lineTo(h+6,h+4);x.fill();");
+    webSend("if(na>=0&&n<=R){p=pt(na,n);x.strokeStyle='#f44';x.lineWidth=2;x.beginPath();x.arc(p[0],p[1],7,0,7);x.stroke();x.lineWidth=1}");
+    webSend("inf.textContent=na>=0?'nearest '+n+' mm at '+na+' deg':'no echo'}");
+    webSend("c.onpointermove=function(e){var r=c.getBoundingClientRect(),dx=(e.clientX-r.left)*W/r.width-W/2,dy=W/2-(e.clientY-r.top)*W/r.height;");
+    webSend("if(mi.checked)dx=-dx;var a=(Math.round(Math.atan2(dx,dy)*180/Math.PI)+360)%360,d=Math.round(Math.hypot(dx,dy)/S*R);");
+    webSend("inf.textContent=a+' deg  '+d+' mm  (echo here: '+(D[a]||'none')+' mm)'};");
+    webSend("fz.onclick=function(){F=!F;fz.textContent=F?'resume':'freeze'};");
+    webSend("rg.onchange=md.onchange=mi.onchange=function(){if(D.length)draw()};window.onresize=function(){sz();if(D.length)draw()};");
+    webSend("function tick(){if(F||document.hidden){setTimeout(tick,300);return}");
+    webSend("fetch('lidar_data'+(ro.value!=rot?'?o='+ro.value:'')).then(function(r){return r.json()}).then(function(j){rot=ro.value;D=j.d;draw();");
+    webSend("st.textContent=j.ok?j.sc+' turns, '+j.ms+' ms per turn, '+Math.round(j.sp/360*60)+' rpm, packets ok '+j.p+' crc '+j.c+' skipped '+j.k:'NO DATA from the lidar';");
+    webSend("setTimeout(tick,120)}).catch(function(){st.textContent='no link';setTimeout(tick,1000)})}tick();");
+    webSend("</script>");
+}
+
+void lidar_data() {
+    int i = 0;
+    if (webArg("o", cb) > 0) {
+        i = strToInt(cb);
+        if (i >= 0 && i < 360) { lid_off = i; }
+    }
+    sprintf(ob, "{\"ok\":%d,\"sc\":%d,\"ms\":%d,\"sp\":%d,\"p\":%d,\"c\":%d,\"k\":%d,\"d\":[", lid_ok(), lid_scans, lid_scan_ms, lid_speed, lid_n_ok, lid_n_crc, lid_n_skip);
+    webSend(ob);
+    i = 0;
+    while (i < 359) {
+        sprintf(ob, "%d,", lid_dist[i]);
+        webSend(ob);
+        i = i + 1;
+    }
+    sprintf(ob, "%d]}", lid_dist[359]);
+    webSend(ob);
+}
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) { lidar_page(); }
+    if (h == 2) { lidar_data(); }
+}
+
+int main() {
+    int h = 0;
+    if (LIDAR_SIM == 1) {
+        addLog("LIDAR: simulation, page /lidar");
+    } else {
+        h = lid_init(LIDAR_RX);
+        addLog("LIDAR: serial handle %d on GPIO %d, page /lidar", h, LIDAR_RX);
+    }
+    webOn(1, "/lidar");
+    webOn(2, "/lidar_data");
+    return 0;
+}

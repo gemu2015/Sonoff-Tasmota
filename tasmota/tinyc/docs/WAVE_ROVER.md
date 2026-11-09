@@ -91,7 +91,7 @@ strongly the motors disturb the compass (it sits next to them: calibrate with th
 ## Lidar driver and the timing question (`common/ld19.tc`)
 
 `examples/common/ld19.tc` reads an LDROBOT **LD19 / STL-19P / D500** 360 degree lidar (UART 230400 baud, 47-byte packets, about 375 packets = 4500 points per second,
-10 revolutions per second), checks the CRC8 and sorts every point into one-degree bins: `lid_min(330, 30)` is the nearest thing in front. Demo: `examples/wave_lidar.tc`.
+10 revolutions per second), checks the CRC8 and sorts every point into one-degree bins: `lid_min(330, 30)` is the nearest thing in front. Demo: `examples/wave_lidar.tc`. A 360 degree radar display as a web page (`/lidar`, with a simulation switch for trying it without a sensor): `examples/lidar_scope.tc`.
 Self test with synthetic packets: `examples/wave_lidar_test.tc` (35 checks, nine deliberate mutations of the driver are caught). Written from the LD19 data sheet,
 **not tested with a real lidar** (none here yet).
 

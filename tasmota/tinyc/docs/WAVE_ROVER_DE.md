@@ -91,7 +91,7 @@ die Motoren den Kompass stoeren (er sitzt direkt daneben: bei ausgeschalteten Mo
 ## Lidar-Treiber und die Frage nach der Zeitkritik (`common/ld19.tc`)
 
 `examples/common/ld19.tc` liest ein **LD19 / STL-19P / D500** von LDROBOT (360 Grad, UART 230400 Baud, Pakete zu 47 Byte, etwa 375 Pakete = 4500 Punkte pro Sekunde,
-10 Umdrehungen pro Sekunde), prueft die CRC8 und sortiert jeden Punkt in ein Ein-Grad-Fach: `lid_min(330, 30)` ist das Naechste vor dem Fahrzeug. Demo: `examples/wave_lidar.tc`.
+10 Umdrehungen pro Sekunde), prueft die CRC8 und sortiert jeden Punkt in ein Ein-Grad-Fach: `lid_min(330, 30)` ist das Naechste vor dem Fahrzeug. Demo: `examples/wave_lidar.tc`. Eine 360-Grad-Radaranzeige als Webseite (`/lidar`, mit Simulationsschalter zum Ausprobieren ohne Sensor): `examples/lidar_scope.tc`.
 Selbsttest mit synthetischen Paketen: `examples/wave_lidar_test.tc` (35 Pruefungen, neun absichtliche Aenderungen am Treiber werden erkannt). Nach dem Datenblatt des LD19 geschrieben,
 **mit einem echten Lidar nicht getestet** (noch keins da).
 

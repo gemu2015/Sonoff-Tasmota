@@ -90,6 +90,7 @@ lcd_chart.tcb
 lcd_i2c.tcb
 ld2410.tcb
 ledbar.tcb
+lidar_scope.tcb
 live_chart.tcb
 loudness.tcb
 loudness_gauge.tcb
