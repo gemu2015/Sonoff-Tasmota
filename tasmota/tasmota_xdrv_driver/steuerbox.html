@@ -80,6 +80,7 @@
   h3{font-size:12px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
   .wrap{max-width:1180px;margin:0 auto;padding:14px}   /* 06.11. (Andreas): Breite wie HEMS */
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0 0 14px}
+  footer{margin:22px 0 8px;color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}   /* 08.11.2026: wie SMGW-Seite */
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
   .tab{flex:1 1 auto;padding:11px 8px;text-align:center;background:var(--panel2);border:1px solid var(--line);
        border-radius:8px;cursor:pointer;color:var(--muted);user-select:none;font-weight:600}
@@ -375,8 +376,8 @@
     <h2>Messwerte · Netzanschlusspunkt (MGCP)</h2>
     <div class="info" style="max-width:560px">
       <b>Leistung</b><span id="m_power">— W</span>
-      <b>Bezug (Zähler)</b><span id="m_cons">— kWh</span>
-      <b>Einspeisung (Zähler)</b><span id="m_feed">— kWh</span>
+      <b>Bezug (Zählerstand der Anlage)</b><span id="m_cons">— kWh</span>
+      <b>Einspeisung (Zählerstand der Anlage)</b><span id="m_feed">— kWh</span>
       <b>Ströme L1/L2/L3</b><span id="m_cur">— A</span>
       <b>Spannungen L1/L2/L3</b><span id="m_vol">— V</span>
       <b>Frequenz</b><span id="m_freq">— Hz</span>
@@ -386,7 +387,10 @@
          3 gelieferte, gemessen im Sommer) - der stimmte fuer HEMS (liefert I/U/f) und SteuVE (MPC) nicht. -->
     <p class="hint">Die Werte kommen live von der ausgewählten Anlage, aus dem, was sie selbst meldet. Liefert sie
        eine Größe nicht, steht in der Zeile „wird nicht geliefert“. Das ist dann eine Eigenschaft der Anlage, kein
-       Fehler dieses Werkzeugs.</p>
+       Fehler dieses Werkzeugs.
+       <!-- 08.11.2026 (Andreas): Bezug/Einspeisung sind NICHT der Zaehler des Netzbetreibers -->
+       Bezug und Einspeisung sind die Zählerstände, die die Anlage selbst führt (z. B. HEMS oder Wechselrichter),
+       <b>nicht</b> die des Zählers vom Netzbetreiber; sie weichen davon ab und sind nicht zur Abrechnung gedacht.</p>
   </div>
 
   <div data-r="mgcp" class="card">
@@ -614,6 +618,8 @@
     <h3>Antwort des Geräts</h3>
     <div id="log">bereit</div>
   </div>
+  <!-- 08.11.2026 (Andreas): Fusszeile wie SMGW-Seite, unten rechts -->
+  <footer><span class="design" style="margin-left:auto">Design by meierchen006</span></footer>
 </div>
 
 <script>

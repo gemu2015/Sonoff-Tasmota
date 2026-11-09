@@ -28,7 +28,7 @@
 <body>
 
 <h1>EEBUS-Steuerbox auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 07.11.2026 · Treiber <code>xdrv_126</code> v233 · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 08.11.2026 · Treiber <code>xdrv_126</code> v233 · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
 <div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die Steuerbox dient dazu, die EEBUS-Kommunikation mit einem HEMS (Energiemanagementsystem im Haus) oder mit steuerbaren Verbrauchseinrichtungen zu prüfen. Sie ersetzt weder die Steuerbox des Messstellenbetreibers noch ein geprüftes Gerät nach § 14a EnWG und ist nicht für den regulären Betrieb gedacht.</div>
 
@@ -137,9 +137,9 @@
 <p>Unten auf der Seite und in der Tabelle „Verbindungen“ steht die letzte Antwort der Gegenstelle, zum Beispiel „freigegeben“, „BESTAETIGT aktiv 6888 W“ oder „Failsafe-Werte geschrieben“. Eine Ablehnung steht ebenfalls dort.</p>
 
 <h2>7. Reiter „Messwerte MGCP“</h2>
-<figure><img src="bilder-Steuerbox/07-messwerte-mgcp.png"><figcaption>Bild 7 – Messwerte des Netzanschlusspunkts, Struktur der Gegenstelle und weitere Einheiten. Die Test-Anlage hier liefert am Netzanschlusspunkt nur Nullwerte.</figcaption></figure>
+<figure><img src="bilder-Steuerbox/07-messwerte-mgcp.png"><figcaption>Bild 7 – Messwerte des Netzanschlusspunkts, Struktur der Gegenstelle und weitere Einheiten. Gegenstelle ist hier ein HEMS; Bezug und Einspeisung sind seine eigenen Zählerstände.</figcaption></figure>
 <ul>
-  <li><b>Messwerte · Netzanschlusspunkt (MGCP)</b> – Live-Werte der ausgewählten Anlage: Leistung, Zählerstände Bezug und Einspeisung, Ströme, Spannungen, Frequenz, Begrenzungsfaktor. Was die Gegenstelle nicht liefert, steht als „wird nicht geliefert“ da – das ist eine Eigenschaft der Anlage, kein Fehler der Box.</li>
+  <li><b>Messwerte · Netzanschlusspunkt (MGCP)</b> – Live-Werte der ausgewählten Anlage: Leistung, Zählerstände Bezug und Einspeisung, Ströme, Spannungen, Frequenz, Begrenzungsfaktor. <b>Bezug und Einspeisung sind die Zählerstände, die die Anlage selbst führt</b> (z. B. HEMS oder Wechselrichter), nicht die des Zählers vom Netzbetreiber. Sie weichen davon ab und sind nicht zur Abrechnung gedacht. Was die Gegenstelle nicht liefert, steht als „wird nicht geliefert“ da – das ist eine Eigenschaft der Anlage, kein Fehler der Box.</li>
   <li><b>Struktur</b> – die Selbstauskunft der Gegenstelle: Actors, Use Cases, Entities, Features. Einen Eintrag wählen zeigt, wo die Gegenstelle ihn führt.</li>
   <li><b>Weitere Einheiten</b> – Werte von Einheiten neben dem Netzanschlusspunkt, etwa Speicher und Erzeugung. Sie erscheinen, sobald sie einmal gelesen wurden: unter Struktur → Features den Eintrag <code>Measurement/server</code> wählen und dort die Adresse anklicken.</li>
 </ul>
