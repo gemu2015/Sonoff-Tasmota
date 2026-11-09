@@ -28,7 +28,8 @@ Waveshare-Firmware. Programm: `examples/wave_rover.tc`. English: [WAVE_ROVER.md]
 | Bus-Servos RX / TX (Halbduplex ueber die Schaltung der Platine) | 18 / 19 |
 | IO4 / IO5 (12-V-Schaltausgaenge) | 4 / 5 |
 | Encoder (beim WAVE ROVER ungenutzt) | 35, 34, 27, 16 |
-| SD-Kartenschacht | **nicht gefunden**, siehe Waveshare-Schaltplan |
+| SD-Kartenschacht (SPI) CS / MOSI / SCK / MISO | 15 / 13 / 14 / 12 (aus dem Schaltplan; **IO12 ist ein Strapping-Pin**: zieht eine Karte MISO beim Reset hoch, kann der Start scheitern) |
+| Lidar-Datenleitung (LD19 TX) | Netz `CP_RX` an der Leiste **P3** (7 Pins, letzter Pin nach Schaltplanreihenfolge; mit dem Messgeraet pruefen): eine Drahtbruecke von dort zum freien Encoder-Pin IO16 oder IO27 (P3-Pins 4 / 2) gibt dem ESP32 die Lidar-Daten (der 1-k-Vorwiderstand zum CP2102 bleibt) |
 
 Vorwaerts = IN1 high, IN2 low (WAVE ROVER, `SET_MOTOR_DIR = false` im Waveshare-Quellcode). Die Waveshare-Firmware faehrt die PWM mit 100 kHz, 8 Bit.
 In TinyC nutzt `analogWrite()` die Arduino-Vorgabe (1 kHz): es geht, die Motoren pfeifen etwas.
