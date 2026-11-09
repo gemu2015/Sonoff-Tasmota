@@ -2217,7 +2217,13 @@ void CmndTinyCLogName(void) {
 // TinyCTlsCert 0                     off (tlsConnect without client certificate, as before)
 // TinyCTlsCert                       state only. The answer never contains key material.
 // 08.11.2026 (Andreas): HAN interface of smart meter gateways that authenticate by certificate.
+// 09.11.2026 (Andreas, patch 0013, remark by gemu): tls_mini shows the certificate only when built with
+// USE_MQTT_CLIENT_CERT. Without it nothing is loaded and the answer says so, instead of "loaded":1.
 void CmndTinyCTlsCert(void) {
+#ifndef USE_MQTT_CLIENT_CERT
+  tc_clcert_clear();
+  Response_P(PSTR("{\"%s\":{\"loaded\":0,\"error\":\"needs USE_MQTT_CLIENT_CERT\"}}"), XdrvMailbox.command);
+#else
   if (XdrvMailbox.data_len > 0) {
     char arg[260];
     strlcpy(arg, XdrvMailbox.data, sizeof(arg));
@@ -2247,6 +2253,7 @@ void CmndTinyCTlsCert(void) {
   } else {
     Response_P(PSTR("{\"%s\":{\"loaded\":0}}"), XdrvMailbox.command);
   }
+#endif  // USE_MQTT_CLIENT_CERT
 }
 #endif  // ESP32
 

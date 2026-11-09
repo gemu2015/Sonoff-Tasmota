@@ -1,6 +1,11 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_v014.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// slot0-smgw_v015.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// v015 (09.11.2026, Andreas): nur Diagnose, Ablauf unveraendert. Scheitert eine Anfrage (1. Anfrage, Anmeldung,
+//       Zaehlerseite, Tag), schreibt eine Logzeile "SMG: Diagnose ...", woran: Stufe 1 = Verbindungsaufbau
+//       (tlsConnect), 2 = Senden, 3 = keine Statuszeile, 4 = Antwort unvollstaendig (weniger als Content-Length);
+//       dazu ob die Verbindung neu oder weiterverwendet war, ob sie da noch stand und ob die vorige Antwort
+//       "Connection: close" hatte. Anlass: Anmeldefehler 08.11. 21:03 und 09.11. 10:18 (je kurz nach einer Sitzung).
 // v014 (08.11.2026, Andreas): SMGWFtp sync/restore in beliebiger Schreibweise (strToUpper; v013 erkannte nur
 //       SYNC/RESTORE gross, die Seite bis v043 schickte klein -> nur normale Sicherung, Restore lief nie).
 //       SMGWFtp, SMGWTakt, SMGWVersatz lesen ihr Argument in den eigenen Puffer cIn statt in X
@@ -168,6 +173,12 @@ int st = 0;            // HTTP-Status
 int clen = -1;         // Content-Length
 int connClose = 0;
 int verbunden = 0;
+int dStufe = 0;       // v015 Diagnose: 0 ok, 1 tlsConnect, 2 Senden, 3 keine Statuszeile, 4 Antwort unvollstaendig
+int dTlsRc = 0;       // v015: Rueckgabe des letzten tlsConnect
+int dNeu = 0;         // v015: 1 = Verbindung fuer diese Anfrage neu aufgebaut, 0 = weiterverwendet
+int dStand = 0;       // v015: tlsConnected() vor der Anfrage
+int dClose = 0;       // v015: vorige Antwort hatte Connection: close (oder war unvollstaendig)
+int dGel = 0;         // v015: gelesene Bytes des Rumpfs
 int gotTkn = 0;
 int wantOpt = 0;
 int gotMid = 0;
@@ -449,12 +460,23 @@ void leseLetzterTag() {
 // ── TLS-Verbindung + HTTP ───────────────────────────────────────────────────
 
 int verbinde() {
-    if (verbunden == 1 && connClose == 0 && tlsConnected() == 1) { return 1; }
+    dStufe = 0; dNeu = 0; dGel = 0; dClose = connClose; dStand = 0;   // v015
+    if (verbunden == 1) { dStand = tlsConnected(); }
+    if (verbunden == 1 && connClose == 0 && dStand == 1) { return 1; }
     if (verbunden == 1) { tlsStop(); verbunden = 0; }
     connClose = 0;
-    if (tlsConnect(gwHost, gwPort) != 0) { return 0; }   // v011
+    dNeu = 1;
+    dTlsRc = tlsConnect(gwHost, gwPort);   // v011
+    if (dTlsRc != 0) { dStufe = 1; return 0; }
     verbunden = 1;
     return 1;
+}
+
+// v015: Diagnosezeile nach einer gescheiterten Anfrage (nie Zugangsdaten, nur Zahlen)
+void logDiag(char wo[]) {
+    sprintf(X, "SMG: Diagnose %s: Stufe %d, tlsConnect %d, neu %d, stand %d, ", wo, dStufe, dTlsRc, dNeu, dStand);
+    sprintfAppend(X, "vorher close %d, Status %d, Laenge %d, gelesen %d", dClose, st, clen, dGel);
+    addLog(X);
 }
 
 void trenne() {
@@ -623,6 +645,7 @@ int leseRumpf() {
         if (rest < want) { want = rest; }
         int n = tlsRead(T, want);
         if (n <= 0) { break; }
+        dGel = dGel + n;              // v015
         rest = rest - n;
         if (rohH >= 0 && rohN < 150000) { fileWrite(rohH, T, n); rohN = rohN + n; }   // v008
         strcat(B, T);
@@ -661,10 +684,11 @@ int sendeGet(int mitAuth) {
         md_in[0] = 0; ha1[0] = 0;
     }
     strcat(req, "Connection: keep-alive\r\n\r\n");
-    if (tlsWrite(req) <= 0) { req[0] = 0; return 0; }
+    if (tlsWrite(req) <= 0) { req[0] = 0; dStufe = 2; return 0; }
     req[0] = 0;                   // Anfrage mit Digest nicht im Speicher stehen lassen
-    if (leseKopf() == 0) { return 0; }
-    return leseRumpf();
+    if (leseKopf() == 0) { dStufe = 3; return 0; }
+    if (leseRumpf() == 0) { dStufe = 4; return 0; }   // v015
+    return 1;
 }
 
 // POST post[] mit Cookie
@@ -676,10 +700,11 @@ int sendePost() {
     sprintfAppend(req, "Cookie: session=%s\r\n", cookie);
     sprintfAppend(req, "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n", strlen(post));
     strcat(req, "Connection: keep-alive\r\n\r\n");
-    if (tlsWrite(req) <= 0) { return 0; }
-    if (tlsWrite(post) <= 0) { return 0; }
-    if (leseKopf() == 0) { return 0; }
-    return leseRumpf();
+    if (tlsWrite(req) <= 0) { dStufe = 2; return 0; }
+    if (tlsWrite(post) <= 0) { dStufe = 2; return 0; }
+    if (leseKopf() == 0) { dStufe = 3; return 0; }
+    if (leseRumpf() == 0) { dStufe = 4; return 0; }   // v015
+    return 1;
 }
 
 // ── Sitzungsschritte ────────────────────────────────────────────────────────
@@ -687,7 +712,7 @@ int sendePost() {
 int anmelden() {
     cookie[0] = 0; tkn[0] = 0; nonce[0] = 0;
     flagsAus();
-    if (sendeGet(0) == 0) { setErr("keine Verbindung zum Gateway (1. Anfrage)"); return 0; }
+    if (sendeGet(0) == 0) { logDiag("1. Anfrage"); setErr("keine Verbindung zum Gateway (1. Anfrage)"); return 0; }
     if (fLock == 1) { setErr("Gateway meldet Sperre (zu viele Fehlversuche)"); return 0; }
     if (st == 200 && cookie[0] != 0 && gotTkn == 1) {   // v013: ohne Passwortabfrage angemeldet (Client-Zertifikat)
         addLog("SMG: angemeldet ohne Passwortabfrage (Zertifikat %d)", certSt);
@@ -695,7 +720,7 @@ int anmelden() {
     }
     if (st != 401 || nonce[0] == 0) { sprintf(X, "Anmeldung: unerwartete Antwort %d ohne Nonce", st); setErr(X); return 0; }
     flagsAus();
-    if (sendeGet(1) == 0) { setErr("keine Verbindung zum Gateway (Anmeldung)"); return 0; }
+    if (sendeGet(1) == 0) { logDiag("Anmeldung"); setErr("keine Verbindung zum Gateway (Anmeldung)"); return 0; }
     if (fLock == 1) { setErr("Gateway meldet Sperre (zu viele Fehlversuche)"); return 0; }
     if (st == 401) { setErr("Anmeldung abgelehnt - Zugangsdaten pruefen"); backoff = 43200; return 0; }
     if (st != 200 || cookie[0] == 0 || gotTkn == 0) { sprintf(X, "Anmeldung: Antwort %d, Cookie/Token fehlt", st); setErr(X); return 0; }
@@ -706,7 +731,7 @@ int holeZaehler() {
     flagsAus();
     wantOpt = 1; gotMid = 0; mid[0] = 0;
     sprintf(post, "tkn=%s&action=meterform", tkn);
-    if (sendePost() == 0) { setErr("Zaehlerseite: keine Antwort"); return 0; }
+    if (sendePost() == 0) { logDiag("Zaehlerseite"); setErr("Zaehlerseite: keine Antwort"); return 0; }
     if (fLock == 1 || fUnerl == 1) { setErr("Zaehlerseite: Zugriff verweigert"); return 0; }
     if (gotMid == 0 || gotTkn == 0) { setErr("Zaehlerseite: Zaehler-Kennung fehlt"); return 0; }
     return 1;
@@ -727,7 +752,7 @@ int holeTag(char tag[]) {
     wantRows = 1;
     sprintf(post, "tkn=%s&action=showMeterValues&mid=%s", tkn, mid);
     sprintfAppend(post, "&from=%s&to=%s", tagA, tagA);
-    if (sendePost() == 0) { sprintf(X, "Tag %s: keine/abgebrochene Antwort", tagA); setErr(X); return 0; }
+    if (sendePost() == 0) { logDiag("Tag"); sprintf(X, "Tag %s: keine/abgebrochene Antwort", tagA); setErr(X); return 0; }
     if (fLock == 1 || fUnerl == 1) { sprintf(X, "Tag %s: Zugriff verweigert", tagA); setErr(X); return 0; }
     if (fParam == 1) { sprintf(X, "Tag %s: Parameterfehler", tagA); setErr(X); return 0; }
     if (gotTkn == 0) { sprintf(X, "Tag %s: kein neuer Token", tagA); setErr(X); return 0; }
@@ -1348,7 +1373,7 @@ int main() {
     leseLetzterTag();
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser v014 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d, Gateway https://%s:%d%s", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60, gwHost, gwPort, gwPfad);
+    sprintf(X, "SMG: SMGW-Leser v015 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d, Gateway https://%s:%d%s", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60, gwHost, gwPort, gwPfad);
     addLog(X);
     schreibeStatus();
     return 0;

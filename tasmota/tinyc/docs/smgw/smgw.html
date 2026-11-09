@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart Meter Gateway</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- v010 07.11.2026 (Andreas): Logo im Browser-Tab wie HEMS, Steuerbox, SteuVE -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
 :root{
   color-scheme: dark;
@@ -46,6 +46,8 @@ h1{font-size:22px;margin:0;font-weight:650}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px;position:sticky;top:0;background:var(--page);z-index:5;padding-top:6px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
+/* v053 09.11.2026: "jetzt abrufen" zeigt Ergebnis und ob neue Werte kamen (Andreas) */
+/* v052 09.11.2026: Chart.js mit Pruefsumme (integrity sha512, crossorigin) wie node-forge (gemu); ohne Chart.js nur Diagramm weg, Tabellen bleiben */
 /* v051 08.11.2026: Hinweis Konsole: SYNC/RESTORE Schreibweise egal (slot0-smgw v014) */
 /* v050 08.11.2026: Excel-Kachel: Daten kommen vom Leser, nicht vom Gateway (Andreas) */
 /* v049 08.11.2026: Kachel "Excel / Power Query" unter Einstellungen, Abfrage mit der aktuellen Adresse des Lesers (Andreas) */
@@ -547,6 +549,7 @@ function balken(id, labels, bez, ein, xTitel, onClick){
   const old = ST.charts[id];
   if (old) old.destroy();
   const grid = css('--grid'), ink2 = css('--ink-2');
+  if (typeof Chart === 'undefined') { const c = $(id); if (c) c.title = 'Diagramm fehlt: Chart.js nicht geladen (kein Internet oder Prüfsumme falsch). Tabellen gelten weiter.'; return; }   // v052
   ST.charts[id] = new Chart($(id), {
     type:'bar',
     data:{ labels, datasets:[
@@ -1163,10 +1166,49 @@ $('eTaktSet').onclick = async () => {
   $('eAntwort').textContent = await smgwBefehl('SMGWTakt ' + $('eTakt').value);
   await ladeStatus(); zeigeKopf(); zeigeStatus(); zeigeEinst();
 };
+// v053 09.11.2026 (Andreas): nach "jetzt abrufen" bis zum Ende des Abrufs nachfragen und das Ergebnis zeigen,
+// auch ob neue Viertelstunden oder Tage dazugekommen sind (vorher blieb "Abruf vorgemerkt" stehen)
+const letzteVs = () => { const h = ST.heute || []; return h.length ? h[h.length - 1][0] : ''; };
 $('eAbruf').onclick = async () => {
-  $('eAntwort').textContent = 'sende …';
-  $('eAntwort').textContent = await smgwBefehl('SMGWAbruf');
-  setTimeout(async () => { await ladeStatus(); zeigeKopf(); zeigeStatus(); }, 3000);
+  const b = $('eAbruf'), a = $('eAntwort');
+  b.disabled = true;
+  try {
+    await ladeStatus(); await ladeHeute();
+    const s0 = ST.status || {}, ok0 = s0.ok || '', fz0 = s0.fehlerzeit || '', bis0 = s0.bis || '', vs0 = letzteVs();
+    a.textContent = 'sende …';
+    const r = await smgwBefehl('SMGWAbruf');
+    if (!/vorgemerkt/.test(r)) { a.textContent = r; return; }
+    const t0 = Date.now();
+    let s = null;
+    while (Date.now() - t0 < 120000) {
+      a.textContent = `Abruf läuft … ${Math.round((Date.now() - t0) / 1000)} s`;
+      await new Promise(w => setTimeout(w, 3000));
+      await ladeStatus(); s = ST.status;
+      if (s && !s.aktiv && ((s.ok || '') !== ok0 || (s.fehlerzeit || '') !== fz0)) break;
+      s = null;
+    }
+    if (!s) { a.textContent = 'nach 2 min noch nicht fertig – Status oben beachten'; zeigeKopf(); zeigeStatus(); return; }
+    const zeit = ((s.fehlerzeit || '') !== fz0 ? s.fehlerzeit : s.ok).slice(11, 19);
+    if ((s.fehlerzeit || '') !== fz0) {
+      a.textContent = `fertig ${zeit} – Fehler: ${s.fehler}`;
+    } else {
+      await ladeHeute();
+      const vs1 = letzteVs(), teile = [];
+      if ((s.bis || '') !== bis0) {
+        teile.push(`ganze Tage jetzt bis ${deDate(s.bis)}`);
+        await ladeTage(); ST.monate = {};
+      }
+      if (vs1 && vs1 !== vs0) teile.push(`neue Viertelstunden bis ${vs1.slice(11, 16)}`);
+      if (teile.length) {
+        a.textContent = `fertig ${zeit}, in Ordnung – ${teile.join(', ')}`;
+      } else {
+        const n = new Date(), q = Math.floor((n.getHours() * 60 + n.getMinutes()) / 15) * 15 + 15;
+        a.textContent = `fertig ${zeit}, in Ordnung – keine neuen Werte` + (vs1 ? ` (letzte Viertelstunde ${vs1.slice(11, 16)}, die nächste ist erst um ${pad(Math.floor(q / 60) % 24)}:${pad(q % 60)} fertig)` : '');
+      }
+      if (ST.tag) await zeigeTag(ST.tag);
+    }
+    zeigeKopf(); zeigeStatus();
+  } finally { b.disabled = false; }
 };
 function speichereCsv(name, zeilenListe){
   const blob = new Blob(['﻿' + zeilenListe.join('\r\n') + '\r\n'], {type: 'text/csv;charset=utf-8'});
@@ -1205,7 +1247,7 @@ async function cmJson(c){
   try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.json(); }
   catch(e){ return null; }
 }
-const SEITE_VERSION = 'v051';
+const SEITE_VERSION = 'v053';
 const gb = kb => (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB';
 const mb = kb => (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB';
 const gr = kb => kb >= 1048576 ? gb(kb) : (kb >= 1024 ? mb(kb) : kb.toLocaleString('de-DE') + ' KB');   // passende Einheit

@@ -31,7 +31,7 @@
 <body>
 
 <h1>SMGW-Leser auf Tasmota mit TinyC</h1>
-<div class="kopf">Bau- und Bedienungsanleitung · Stand 08.11.2026 · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v014 und <code>slot1-smgwweb</code> v008 · Seite <code>smgw.html</code> v051 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
+<div class="kopf">Bau- und Bedienungsanleitung · Stand 09.11.2026 · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v015 und <code>slot1-smgwweb</code> v008 · Seite <code>smgw.html</code> v053 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
 
 <div class="warn"><b>Nutzung für den eigenen Verbrauch und auf eigene Verantwortung.</b>
 <ul>
@@ -42,15 +42,12 @@
 </ul></div>
 <div class="warn"><b>Eigenbau, nicht zertifiziert.</b> Der SMGW-Leser liest nur die Werte, die das Smart-Meter-Gateway über seine Kundenschnittstelle (HAN) ausgibt. Er schreibt nichts in das Gateway und ändert nichts am Zähler. Die Zugangsdaten zur HAN-Schnittstelle gehören dem Anschlussnutzer und dürfen nicht weitergegeben werden.</div>
 
-<div class="neu"><b>Neu gegenüber Stand 07.11.2026 (v004 der Anleitung):</b>
+<div class="neu"><b>Neu gegenüber Stand 08.11.2026 (v005 der Anleitung):</b>
 <ul>
-  <li>Zugangsdaten der HAN-Schnittstelle werden <b>auf der Seite</b> eingegeben (keine Datei mehr von Hand anlegen), nie im Klartext angezeigt (Abschnitt 6).</li>
-  <li><b>Anmeldung per Client-Zertifikat</b> (.p12/.pfx des Messstellenbetreibers) möglich; braucht die Firmware ab 08.11.2026 mit <code>TinyCTlsCert</code> (Abschnitte 4.1, 6.2).</li>
-  <li><b>Gateway-Adresse</b> (IP, Port, Pfad) und die <b>LAN-Adresse des Lesers</b> auf der Seite einstellbar (Abschnitt 3).</li>
-  <li>Uhrzeit der nächtlichen <b>FTP-Sicherung</b> einstellbar (Vorgabe 02:00); Sync/Restore funktionieren jetzt auch über die Knöpfe der Seite (Abschnitt 9.2).</li>
-  <li>Kachel <b>Excel / Power Query</b>: fertige Abfrage mit der Adresse des Lesers zum Kopieren (Abschnitt 9.3).</li>
-  <li>Alle Beschreibungen auf der Seite einklappbar („Beschreibung ansehen“); Fehlertexte auf der Tasmota-Hauptseite brechen um.</li>
-  <li>Hostname ohne Chip-Nummer (z. B. <code>smgw</code>), Abschnitt 4.3.</li>
+  <li><b>„jetzt abrufen“ zeigt das Ergebnis:</b> erst „Abruf läuft …“, danach „fertig“ mit Uhrzeit und ob neue Viertelstunden oder Tage dazugekommen sind, oder den Fehler (Abschnitt 9.1).</li>
+  <li>Slot 0 v015: Scheitert eine Anfrage an das Gateway, steht im Log zusätzlich eine Zeile <code>SMG: Diagnose …</code>, woran es lag (Abschnitt 10).</li>
+  <li>Firmware ab 09.11.2026: <code>TinyCTlsCert</code> meldet bei einer Firmware ohne <code>USE_MQTT_CLIENT_CERT</code> einen Fehler statt „geladen“ (Abschnitte 4.1, 10).</li>
+  <li>Die Seite lädt die Diagramm-Bibliothek Chart.js mit Prüfsumme. Fehlt sie, fehlen nur die Diagramme, die Tabellen bleiben (Abschnitt 10).</li>
 </ul></div>
 
 <h2>1. Was der SMGW-Leser macht</h2>
@@ -102,7 +99,7 @@
     <ol>
       <li><code>TC_TLS_RX_BUF</code> überschreibbar (<code>#ifndef</code>) – in <code>universal</code> enthalten.</li>
       <li><code>tc_tls-&gt;setRSAOnly(false);</code> in <code>SYS_TLS_CONNECT</code> – in <code>universal</code> enthalten. Ohne sie bietet <code>tlsConnect</code> nur ECDHE-RSA an, das Gateway (nur ECDSA) bricht den Aufbau sofort ab.</li>
-      <li><b>Nur für die Anmeldung per Zertifikat:</b> Konsolenbefehl <code>TinyCTlsCert &lt;Zertifikatsdatei&gt; &lt;Schlüsseldatei&gt;</code> (<code>TinyCTlsCert 0</code> = aus) in <code>xdrv_124_tinyc.ino</code> / <code>xdrv_124_tinyc_vm.h</code>; <code>tlsConnect</code> zeigt das Zertifikat dann vor, wenn der Server danach fragt. Dazu in tls_mini (<code>WiFiClientSecureLightBearSSL.cpp</code>): Client-Schlüssel nur setzen, wenn wirklich ein Zertifikat gesetzt ist, und P-256 <i>und</i> P-384 erlauben. Wer nur Benutzer/Passwort nutzt, braucht diesen Teil nicht.</li>
+      <li><b>Nur für die Anmeldung per Zertifikat:</b> Konsolenbefehl <code>TinyCTlsCert &lt;Zertifikatsdatei&gt; &lt;Schlüsseldatei&gt;</code> (<code>TinyCTlsCert 0</code> = aus) in <code>xdrv_124_tinyc.ino</code> / <code>xdrv_124_tinyc_vm.h</code>; <code>tlsConnect</code> zeigt das Zertifikat dann vor, wenn der Server danach fragt. Dazu in tls_mini (<code>WiFiClientSecureLightBearSSL.cpp</code>): Client-Schlüssel nur setzen, wenn wirklich ein Zertifikat gesetzt ist, und P-256 <i>und</i> P-384 erlauben. Wer nur Benutzer/Passwort nutzt, braucht diesen Teil nicht. Wirkt nur in einer Firmware mit <code>USE_MQTT_CLIENT_CERT</code> (Abschnitt 4.3); ohne den Schalter antwortet der Befehl ab 09.11.2026 <code>{"loaded":0,"error":"needs USE_MQTT_CLIENT_CERT"}</code>.</li>
     </ol></li>
 </ul>
 
@@ -261,7 +258,7 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
   <tr><th>Feld</th><th>Bedeutung</th></tr>
   <tr><td>Takt heute</td><td>aus / 15 / 30 / 60 min / 2 h: holt zusätzlich die Viertelstunden des laufenden Tages nach der Uhr. Jeder Takt ist eine eigene Anmeldung am Gateway.</td></tr>
   <tr><td>Abstand nach Viertelstundenende</td><td>0–10 min (Konsole 0–14), Vorgabe 2: Zeit für das Gateway, die gerade beendete Viertelstunde abzulegen.</td></tr>
-  <tr><td>jetzt abrufen</td><td>holt sofort alle fehlenden Tage (und bei Takt den laufenden). Eine laufende Wartezeit nach einem Fehler bleibt bestehen, der Abruf ist dann vorgemerkt.</td></tr>
+  <tr><td>jetzt abrufen</td><td>holt sofort alle fehlenden Tage (und bei Takt den laufenden). Eine laufende Wartezeit nach einem Fehler bleibt bestehen, der Abruf ist dann vorgemerkt. Unter „Antwort des Geräts“ steht während des Abrufs „Abruf läuft …“, danach das Ergebnis, z. B. „fertig 10:35:35, in Ordnung – neue Viertelstunden bis 10:30“ oder „… keine neuen Werte“ (eine Viertelstunde ist erst nach ihrem Ende abrufbar), bei einem Fehler dessen Text.</td></tr>
 </table>
 
 <h3>9.2 Sicherung per FTP</h3>
@@ -334,12 +331,15 @@ in
 <h2>10. Häufige Fragen</h2>
 <h3>„Fehler: keine Verbindung zum Gateway“</h3>
 <p>LAN-Kabel, LAN-Adresse (<code>Status 5</code>) und die Gateway-Adresse (Einstellungen) prüfen. Der Leser muss im selben Netz wie die HAN-Buchse sein. Der nächste Versuch kommt automatisch nach der Wartezeit.</p>
+<p>Woran es genau lag, zeigt im Log die Zeile <code>SMG: Diagnose &lt;Schritt&gt;: Stufe …</code> (ab Slot 0 v015): Stufe 1 = Verbindungsaufbau gescheitert (<code>tlsConnect</code>), 2 = Senden gescheitert, 3 = keine Antwortzeile, 4 = Antwort unvollständig. Dazu <code>neu</code> (Verbindung neu aufgebaut oder weiterverwendet), <code>stand</code> (Verbindung bestand noch), <code>vorher close</code> (die vorige Antwort hatte „Connection: close“), Status, angekündigte Länge und gelesene Bytes. Die Zeile enthält keine Zugangsdaten.</p>
 <h3>„Anmeldung abgelehnt – Zugangsdaten prüfen“</h3>
 <p>Benutzername oder Passwort stimmen nicht. Auf der Seite neu eintragen; neue Daten heben die 12-h-Wartezeit auf. Nicht mehrfach hintereinander probieren, sonst sperrt das Gateway.</p>
 <h3>Die TLS-Verbindung bricht sofort ab</h3>
 <p>Die Firmware enthält <code>setRSAOnly(false)</code> nicht (Abschnitt 4.1). Das Gateway bietet nur ECDSA an.</p>
 <h3>Beim Zertifikat steht „⚠ Firmware lädt es nicht“</h3>
-<p>Die Firmware ist älter als 08.11.2026 oder ohne <code>USE_MQTT_CLIENT_CERT</code> gebaut (Abschnitt 4.3). Der Abruf läuft dann mit Benutzer/Passwort weiter.</p>
+<p>Die Firmware ist älter als 08.11.2026 oder ohne <code>USE_MQTT_CLIENT_CERT</code> gebaut (Abschnitt 4.3). Der Abruf läuft dann mit Benutzer/Passwort weiter. Ab Firmware 09.11.2026 antwortet <code>TinyCTlsCert</code> in diesem Fall selbst mit <code>"error":"needs USE_MQTT_CLIENT_CERT"</code>.</p>
+<h3>Die Diagramme fehlen, die Tabellen sind da</h3>
+<p>Die Seite lädt die Diagramm-Bibliothek Chart.js von cdnjs und prüft sie per Prüfsumme; der Browser braucht dafür Internet. Ohne Internet oder bei falscher Prüfsumme fehlen nur die Diagramme, alle Werte stehen weiter in den Tabellen.</p>
 <h3>Das ganze Gerät ist träge, Seiten laden Sekunden</h3>
 <p>Der C6 hat noch die Werksfirmware. <code>HostedOta</code> ausführen (Abschnitt 4.4).</p>
 <h3>FTP: „Zielordner fehlt oder kein Schreibrecht“</h3>
