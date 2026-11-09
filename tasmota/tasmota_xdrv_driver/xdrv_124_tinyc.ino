@@ -1195,6 +1195,9 @@ void CmndTinyCUnload(void);
 void CmndTinyCUdp(void);
 void CmndTinyCStrict(void);
 void CmndTinyCLogName(void);
+#ifdef ESP32
+void CmndTinyCTlsCert(void);
+#endif
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
 #ifdef TINYC_MTRC_CRYPTO_SELFTEST
@@ -1205,7 +1208,7 @@ void CmndMatterCryptoTest(void);
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Run|Stop|Reset|Exec|Info|Ide|Unload|Udp|Strict|LogName"
 #ifdef ESP32
-  "|Chkpt|Stack|HttpRx|Heap|Psram"
+  "|Chkpt|Stack|HttpRx|Heap|Psram|TlsCert"
 #endif
 #ifdef USE_MATTER_C
   "|MtrReset"
@@ -1223,7 +1226,7 @@ void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde, &CmndTinyCUnload, &CmndTinyCUdp,
   &CmndTinyCStrict, &CmndTinyCLogName
 #ifdef ESP32
-  , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx, &CmndTinyCHeap, &CmndTinyCPsram
+  , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx, &CmndTinyCHeap, &CmndTinyCPsram, &CmndTinyCTlsCert
 #endif
 #ifdef USE_MATTER_C
   , &CmndMatterReset
@@ -2207,6 +2210,45 @@ void CmndTinyCLogName(void) {
   }
   ResponseCmndNumber(tc_log_name ? 1 : 0);
 }
+
+#ifdef ESP32
+// TinyCTlsCert <certfile> <keyfile>  load a TLS client certificate that tlsConnect() then shows when the server
+//                                    asks for one (format: see tc_clcert_load in xdrv_124_tinyc_vm.h)
+// TinyCTlsCert 0                     off (tlsConnect without client certificate, as before)
+// TinyCTlsCert                       state only. The answer never contains key material.
+// 08.11.2026 (Andreas): HAN interface of smart meter gateways that authenticate by certificate.
+void CmndTinyCTlsCert(void) {
+  if (XdrvMailbox.data_len > 0) {
+    char arg[260];
+    strlcpy(arg, XdrvMailbox.data, sizeof(arg));
+    char *a = arg;
+    while (*a == ' ') a++;
+    if (!strcmp(a, "0")) {
+      tc_clcert_clear();
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: TLS client certificate off"));
+    } else {
+      char *b = strchr(a, ' ');
+      if (!b) { ResponseCmndChar_P(PSTR("usage: TinyCTlsCert <certfile> <keyfile> | 0")); return; }
+      *b++ = 0;
+      while (*b == ' ') b++;
+      const char *err = tc_clcert_load(a, b);
+      if (err) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: TLS client certificate not loaded: %s"), err);
+        Response_P(PSTR("{\"%s\":{\"loaded\":0,\"error\":\"%s\"}}"), XdrvMailbox.command, err);
+        return;
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: TLS client certificate loaded (%u bytes, %s)"), tc_clcert_len,
+             (tc_clcert_curve == BR_EC_secp384r1) ? "P-384" : "P-256");
+    }
+  }
+  if (tc_clcert_curve) {
+    Response_P(PSTR("{\"%s\":{\"loaded\":1,\"curve\":\"%s\",\"bytes\":%u}}"), XdrvMailbox.command,
+               (tc_clcert_curve == BR_EC_secp384r1) ? "P-384" : "P-256", tc_clcert_len);
+  } else {
+    Response_P(PSTR("{\"%s\":{\"loaded\":0}}"), XdrvMailbox.command);
+  }
+}
+#endif  // ESP32
 
 void CmndTinyCUdp(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }

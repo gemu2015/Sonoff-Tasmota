@@ -18,6 +18,12 @@
   You should have received a copy of the GNU Lesser General Public
   License along with this library; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+  Change 08.11.2026 (Andreas, SMGW reader) on top of the state sent to gemu on 07.11.2026 21:30 (md5 31eb173e):
+  _connectSSL, USE_MQTT_CLIENT_CERT block: br_ssl_client_set_single_ec() only if a client certificate was set
+  (_chain_P && _sk_ec_P), and br_ec_all_m15 instead of br_ec_p256_m15 (P-384 keys can sign; P-256 unchanged).
+  Clients that set a certificate (EEBUS Steuerbox/HEMS/SteuVE) behave as before. Check in the test net before
+  the next Box/HEMS build.
 */
 
 #include "tasmota_options.h"
@@ -1212,10 +1218,15 @@ bool WiFiClientSecure_light::_connectSSL(const char* hostName) {
   #if defined(USE_MQTT_CLIENT_CERT)
     // ============================================================
     // Set the EC Private Key, only USE_MQTT_CLIENT_CERT
-    // limited to P256 curve
-    br_ssl_client_set_single_ec(_sc.get(), _chain_P, 1,
-                                _sk_ec_P, _allowed_usages,
-                                _cert_issuer_key_type, &br_ec_p256_m15, br_ecdsa_sign_asn1_get_default());
+    // 08.11.2026 (Andreas): only when a certificate was actually set - before, a client without certificate
+    // registered an empty chain and a server that asks for a client certificate (e.g. a smart meter gateway,
+    // optional request) got a broken Certificate message. br_ec_all_m15 instead of br_ec_p256_m15 so a P-384
+    // key can sign too (P-256 behaves exactly as before).
+    if (_chain_P && _sk_ec_P) {
+      br_ssl_client_set_single_ec(_sc.get(), _chain_P, 1,
+                                  _sk_ec_P, _allowed_usages,
+                                  _cert_issuer_key_type, &br_ec_all_m15, br_ecdsa_sign_asn1_get_default());
+    }
   #endif // USE_MQTT_CLIENT_CERT
 
     // ============================================================

@@ -3242,6 +3242,101 @@ static volatile bool tc_udp_pause_req = false;
 #ifdef ESP32
 #include "WiFiClientSecureLightBearSSL.h"
 static BearSSL::WiFiClientSecure_light *tc_tls = nullptr;
+
+// Optional TLS client certificate for tlsConnect() (08.11.2026, Andreas): some servers (e.g. the HAN
+// interface of a smart meter gateway) authenticate the client by certificate instead of a password.
+// Loaded by the console command TinyCTlsCert <certfile> <keyfile> (TinyCTlsCert 0 = off) from two text files:
+//   certfile: the X.509 certificate (DER) as hex text (whitespace ignored)
+//   keyfile:  line 1 "P-256" or "P-384", line 2 the private EC scalar as hex (32 / 48 bytes),
+//             optional line 3 "RSA" if the certificate was signed by an RSA CA (default EC)
+// Only EC keys on P-256 / P-384 (what BearSSL can sign with here; no brainpool). The files are meant to be
+// *.secret, which the external file paths refuse; the firmware reads them directly. Key bytes never go to a log.
+#define TC_CLCERT_MAX 2048
+static uint8_t  tc_clcert_der[TC_CLCERT_MAX];
+static uint16_t tc_clcert_len = 0;
+static uint8_t  tc_clcert_key[48];
+static uint8_t  tc_clcert_klen = 0;
+static int      tc_clcert_curve = 0;          // BR_EC_secp256r1 / BR_EC_secp384r1, 0 = no client certificate
+static unsigned tc_clcert_issuer = BR_KEYTYPE_EC;
+static br_x509_certificate tc_clcert_chain[1];
+static br_ec_private_key   tc_clcert_sk;
+
+static void tc_clcert_clear(void) {
+  memset(tc_clcert_key, 0, sizeof(tc_clcert_key));
+  tc_clcert_klen = 0; tc_clcert_len = 0; tc_clcert_curve = 0; tc_clcert_issuer = BR_KEYTYPE_EC;
+}
+static int tc_hexval(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+// hex text -> bytes, whitespace skipped; returns byte count or -1 (bad char / odd count / too long)
+static int tc_hex_to_bin(const char *s, uint8_t *out, int maxOut) {
+  int n = 0, hi = -1;
+  for (; *s; s++) {
+    if (*s == ' ' || *s == '\r' || *s == '\n' || *s == '\t') continue;
+    int v = tc_hexval(*s);
+    if (v < 0) return -1;
+    if (hi < 0) { hi = v; } else { if (n >= maxOut) return -1; out[n++] = (uint8_t)((hi << 4) | v); hi = -1; }
+  }
+  return (hi < 0) ? n : -1;
+}
+// read a whole small text file (TinyC path rules: /sdfs/, /ffs/, default SD) into a fresh buffer
+static char *tc_clcert_readfile(const char *path, size_t maxlen) {
+#ifdef USE_UFILESYS
+  char fpath[128]; strlcpy(fpath, path, sizeof(fpath));
+  FS *fsp = tc_file_path(fpath);
+  if (!fsp) return nullptr;
+  File f = fsp->open(fpath, "r");
+  if (!f) return nullptr;
+  size_t sz = (size_t)f.size();
+  if (sz == 0 || sz > maxlen) { f.close(); return nullptr; }
+  char *buf = (char*)malloc(sz + 1);
+  if (!buf) { f.close(); return nullptr; }
+  size_t got = (size_t)f.read((uint8_t*)buf, sz);
+  buf[got] = 0;
+  f.close();
+  return buf;
+#else
+  (void)path; (void)maxlen; return nullptr;
+#endif
+}
+// load certificate + key; returns nullptr on success or a short error text (never key material)
+static const char *tc_clcert_load(const char *certfile, const char *keyfile) {
+  tc_clcert_clear();
+  char *c = tc_clcert_readfile(certfile, TC_CLCERT_MAX * 2 + 256);
+  if (!c) return "certificate file missing or too large";
+  int n = tc_hex_to_bin(c, tc_clcert_der, TC_CLCERT_MAX);
+  free(c);
+  if (n < 64 || tc_clcert_der[0] != 0x30) { tc_clcert_clear(); return "certificate is not DER hex"; }
+  tc_clcert_len = (uint16_t)n;
+  char *k = tc_clcert_readfile(keyfile, 512);
+  if (!k) { tc_clcert_clear(); return "key file missing"; }
+  char *l2 = strchr(k, '\n');
+  if (!l2) { memset(k, 0, strlen(k)); free(k); tc_clcert_clear(); return "key file needs 2 lines"; }
+  *l2++ = 0;
+  char *l3 = strchr(l2, '\n');
+  if (l3) { *l3++ = 0; }
+  int curve = 0, want = 0;
+  if (strstr_P(k, PSTR("P-256"))) { curve = BR_EC_secp256r1; want = 32; }
+  else if (strstr_P(k, PSTR("P-384"))) { curve = BR_EC_secp384r1; want = 48; }
+  int kn = curve ? tc_hex_to_bin(l2, tc_clcert_key, sizeof(tc_clcert_key)) : -1;
+  if (l3 && strstr_P(l3, PSTR("RSA"))) { tc_clcert_issuer = BR_KEYTYPE_RSA; }
+  memset(k, 0, strlen(k)); memset(l2, 0, strlen(l2));   // wipe the hex key text before freeing
+  free(k);
+  if (!curve) { tc_clcert_clear(); return "curve must be P-256 or P-384"; }
+  if (kn != want) { tc_clcert_clear(); return "key length does not match curve"; }
+  tc_clcert_klen = (uint8_t)kn;
+  tc_clcert_curve = curve;
+  tc_clcert_chain[0].data = tc_clcert_der;
+  tc_clcert_chain[0].data_len = tc_clcert_len;
+  tc_clcert_sk.curve = curve;
+  tc_clcert_sk.x = tc_clcert_key;
+  tc_clcert_sk.xlen = tc_clcert_klen;
+  return nullptr;
+}
+
 // RST-close the raw-TLS socket so its lwIP PCB frees NOW (no ~12 s TIME_WAIT). With only
 // CONFIG_LWIP_MAX_ACTIVE_TCP=16 PCBs, repeated TLS polls otherwise leak TIME_WAITs and can
 // exhaust the pool -> the whole net stack wedges (no ping/HTTP) until they age out. Mirrors
@@ -16546,6 +16641,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       tc_tls->setInsecure();                 // no cert pinning (like Scripter httpsget)
       tc_tls->setRSAOnly(false);             // offer ECDSA too (tls_mini defaults to RSA only; HttpClientLight does the same).
                                              // Without it a server with an ECDSA certificate (e.g. smart meter gateway) aborts at once.
+      if (tc_clcert_curve) {                 // optional client certificate (TinyCTlsCert), shown if the server asks
+        tc_tls->setClientECCert(tc_clcert_chain, &tc_clcert_sk, 0xFFFF, tc_clcert_issuer);
+      }
       if (!tc_tls->connect(host, (uint16_t)port)) {
         delete tc_tls; tc_tls = nullptr;
         // Release the multicast pause here too: a script that gets -1 from
