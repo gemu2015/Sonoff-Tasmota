@@ -59,6 +59,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **SMGW reader v016 / v009, guide v007** (Andreas, 09.11.2026): `slot0-smgw` v016 repeats a login once with a new connection when the gateway silently dropped a kept-alive connection (`anmeldenSicher()`; proven by the v015 diagnostic line), `slot1-smgwweb` v009 answers an empty HAN access completely (first setup on a new device was refused with "needs slot 1 v006"). Tested on a second board, Waveshare ESP32-S3-ETH (now the recommended one; the P4 stays a tested alternative). Guide v007 with the S3 chapter and a picture without a private address.
 - **Lidar scope** (`examples/lidar_scope.tc`): standalone demo, a 360 degree distance display for an LD19 lidar as a web page of the ESP32 (`/lidar`, data as JSON on `/lidar_data`): dots or filled outline, auto range, rotate/mirror, freeze, hover readout. `#define LIDAR_SIM 1` runs a synthetic room without a sensor (tried in the browser against an ESP32-S3; not yet with a real lidar).
 
 - **`TinyCTlsCert` without `USE_MQTT_CLIENT_CERT` says so** (Andreas, 09.11.2026, patch 0013, remark by gemu): in a build without the switch tls_mini never shows the certificate; the command used to load the files anyway and answer `"loaded":1`. Now it loads nothing and answers `{"loaded":0,"error":"needs USE_MQTT_CLIENT_CERT"}`. Builds with the switch (EEBUS) behave as before.

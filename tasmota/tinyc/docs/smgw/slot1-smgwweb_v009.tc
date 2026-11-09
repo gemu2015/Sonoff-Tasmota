@@ -1,6 +1,9 @@
 // @name: SMGW-Web
 // ============================================================================
-// slot1-smgwweb_v008.tc - Weboberflaeche des SMGW-Lesers
+// slot1-smgwweb_v009.tc - Weboberflaeche des SMGW-Lesers
+// v009 09.11.2026 (Andreas): Erstinbetriebnahme - bei noch leerem HAN-Zugang meldet /smgwzugang art=han jetzt
+//       auch "user":0,"pw":0,"id":0. Bis v008 fehlte "id", die Seite hielt Slot 1 deshalb fuer aelter als v006
+//       und lehnte die Identifikationsnummer ab ("braucht Slot 1 v006"); gefunden am neuen S3-Leser.
 // v008 08.11.2026 (Andreas): orange Zeilen "Fehler" und "FTP-Sicherung" auf der Hauptseite brechen um (eigene
 //       Tabellenzeile: Tasmotas {m} setzt width:20px;white-space:nowrap, der Text lief sonst in einer Zeile).
 // v007 08.11.2026: /smgwzugang art=cert - Client-Zertifikat (im Browser aus .p12 entpackt) als
@@ -186,7 +189,7 @@ void zugangHan() {
         addLog("SMG-Web: HAN-Zugang gespeichert (ohne Werte im Log)");
     }
     int da = hanAlt(1);
-    if (da <= 0) { zg_t[0] = 0; webSend("{\"ok\":1,\"art\":\"han\",\"da\":0}"); return; }
+    if (da <= 0) { zg_t[0] = 0; webSend("{\"ok\":1,\"art\":\"han\",\"da\":0,\"user\":0,\"pw\":0,\"id\":0}"); return; }   // v009
     int pw = 0;
     if (hanAlt(2) > 0) { pw = 1; }
     int gid = 0;
@@ -363,6 +366,6 @@ int main() {
     webOn(2, "/smgwj");
     webOn(3, "/smgwf");
     webOn(4, "/smgwzugang");   // v004
-    addLog("SMG-Web: v007 bereit (/smgw, /smgwj, /smgwf, /smgwzugang ftp+han+cert)");
+    addLog("SMG-Web: v009 bereit (/smgw, /smgwj, /smgwf, /smgwzugang ftp+han+cert)");
     return 0;
 }

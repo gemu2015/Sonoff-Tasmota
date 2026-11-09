@@ -1,6 +1,13 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_v015.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// slot0-smgw_v016.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// v016 (09.11.2026, Andreas): Anmeldung wiederholt sich einmal mit neuer Verbindung. Belegt durch die Diagnose
+//       von v015 (Erstabruf am S3, 09.11.): das Gateway laesst eine Keep-Alive-Verbindung gelegentlich still
+//       fallen (kein "Connection: close"), die naechste Anfrage bekommt keine Statuszeile (Stufe 3). Beim
+//       Tagesabruf gab es dafuer schon eine Wiederholung, bei der Anmeldung (Digest nach der 401) nicht -> Fehler
+//       08.11. 21:03 und 09.11. 10:18. Neu: anmeldenSicher() - scheitert Anmeldung oder Zaehlerseite auf einer
+//       weiterverwendeten Verbindung mit Stufe 2/3, einmal trennen, 3 s warten, komplett neu (frische Nonce,
+//       nie die alte Nonce erneut senden). Keine Wiederholung bei 401, Sperre, Stufe 1 oder 4.
 // v015 (09.11.2026, Andreas): nur Diagnose, Ablauf unveraendert. Scheitert eine Anfrage (1. Anfrage, Anmeldung,
 //       Zaehlerseite, Tag), schreibt eine Logzeile "SMG: Diagnose ...", woran: Stufe 1 = Verbindungsaufbau
 //       (tlsConnect), 2 = Senden, 3 = keine Statuszeile, 4 = Antwort unvollstaendig (weniger als Content-Length);
@@ -858,6 +865,22 @@ void speichereHeute() {
     schreibeZeilen(h);
     fileClose(h);
 }
+// v016: Anmeldung + Zaehlerseite; einmal neu, wenn die Anfrage auf einer weiterverwendeten Verbindung ohne
+// Antwort blieb (Stufe 2/3). Die Anfrage hat dann beim Gateway keine Antwort erzeugt -> kein Fehlversuch.
+int anmeldenSicher() {
+    int r = anmelden();
+    if (r == 1) { r = holeZaehler(); }
+    if (r == 0 && dNeu == 0 && (dStufe == 2 || dStufe == 3) && fLock == 0) {
+        addLog("SMG: Anmeldung erneut mit neuer Verbindung");
+        trenne();
+        delay(3000);
+        r = anmelden();
+        if (r == 1) { r = holeZaehler(); }
+        if (r == 1) { errText[0] = 0; errZeit[0] = 0; }
+    }
+    return r;
+}
+
 
 // ── eine komplette Sitzung ──────────────────────────────────────────────────
 // mitTagen = fehlende ganze Tage holen, mitHeute = heutigen Tag holen
@@ -893,7 +916,7 @@ int sitzung(int mitTagen, int mitHeute) {
             return 0;
         }
     }
-    if (anmelden() == 1 && holeZaehler() == 1) {
+    if (anmeldenSicher() == 1) {             // v016
         ok = 1;
         if (mitTagen == 1) {
             int k = 0;
@@ -918,7 +941,7 @@ int sitzung(int mitTagen, int mitHeute) {
                     addLog("SMG: Tag %s - Sitzung abgelaufen? neu anmelden (%d)", tagLauf, neuAn);
                     trenne();
                     delay(3000);
-                    if (anmelden() == 1 && holeZaehler() == 1) { r = holeTag(tagLauf); }
+                    if (anmeldenSicher() == 1) { r = holeTag(tagLauf); }   // v016
                     if (r == 1) { errText[0] = 0; errZeit[0] = 0; }
                 }
                 if (r == 0) { ok = 0; }
@@ -1373,7 +1396,7 @@ int main() {
     leseLetzterTag();
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser v015 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d, Gateway https://%s:%d%s", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60, gwHost, gwPort, gwPfad);
+    sprintf(X, "SMG: SMGW-Leser v016 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d, Gateway https://%s:%d%s", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60, gwHost, gwPort, gwPfad);
     addLog(X);
     schreibeStatus();
     return 0;

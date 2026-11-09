@@ -31,23 +31,23 @@
 <body>
 
 <h1>SMGW-Leser auf Tasmota mit TinyC</h1>
-<div class="kopf">Bau- und Bedienungsanleitung · Stand 09.11.2026 · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v015 und <code>slot1-smgwweb</code> v008 · Seite <code>smgw.html</code> v053 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
+<div class="kopf">Bau- und Bedienungsanleitung · Stand 09.11.2026 (v007) · Boards ESP32-S3-ETH oder ESP32-P4-WIFI6-POE-ETH · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v016 und <code>slot1-smgwweb</code> v009 · Seite <code>smgw.html</code> v053 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
 
 <div class="warn"><b>Nutzung für den eigenen Verbrauch und auf eigene Verantwortung.</b>
 <ul>
   <li>Die Firmware muss <b>selbst kompiliert</b> werden; es gibt keine fertige Firmware zum Herunterladen.</li>
-  <li>Der SMGW-Leser ist <b>nur mit der in dieser Anleitung genannten Hardware</b> (Waveshare ESP32-P4-WIFI6-POE-ETH, Abschnitt 2) und einem <b>PPC</b>-Gateway an der HAN-Schnittstelle getestet.</li>
+  <li>Der SMGW-Leser ist <b>nur mit der in dieser Anleitung genannten Hardware</b> (Waveshare ESP32-S3-ETH oder ESP32-P4-WIFI6-POE-ETH, Abschnitt 2) und einem <b>PPC</b>-Gateway an der HAN-Schnittstelle getestet.</li>
   <li>Ohne Gewähr: keine Haftung für Schäden, Datenverlust, falsche oder fehlende Werte oder eine Sperre des Gateways nach Fehlversuchen.</li>
   <li>Die Werte sind eine Kopie dessen, was das Gateway anzeigt. Für Abrechnungen gelten allein die Daten des Messstellenbetreibers bzw. Lieferanten.</li>
 </ul></div>
 <div class="warn"><b>Eigenbau, nicht zertifiziert.</b> Der SMGW-Leser liest nur die Werte, die das Smart-Meter-Gateway über seine Kundenschnittstelle (HAN) ausgibt. Er schreibt nichts in das Gateway und ändert nichts am Zähler. Die Zugangsdaten zur HAN-Schnittstelle gehören dem Anschlussnutzer und dürfen nicht weitergegeben werden.</div>
 
-<div class="neu"><b>Neu gegenüber Stand 08.11.2026 (v005 der Anleitung):</b>
+<div class="neu"><b>Neu gegenüber v006 der Anleitung (09.11.2026 vormittags):</b>
 <ul>
-  <li><b>„jetzt abrufen“ zeigt das Ergebnis:</b> erst „Abruf läuft …“, danach „fertig“ mit Uhrzeit und ob neue Viertelstunden oder Tage dazugekommen sind, oder den Fehler (Abschnitt 9.1).</li>
-  <li>Slot 0 v015: Scheitert eine Anfrage an das Gateway, steht im Log zusätzlich eine Zeile <code>SMG: Diagnose …</code>, woran es lag (Abschnitt 10).</li>
-  <li>Firmware ab 09.11.2026: <code>TinyCTlsCert</code> meldet bei einer Firmware ohne <code>USE_MQTT_CLIENT_CERT</code> einen Fehler statt „geladen“ (Abschnitte 4.1, 10).</li>
-  <li>Die Seite lädt die Diagramm-Bibliothek Chart.js mit Prüfsumme. Fehlt sie, fehlen nur die Diagramme, die Tabellen bleiben (Abschnitt 10).</li>
+  <li><b>Zweites Board getestet: Waveshare ESP32-S3-ETH</b> (W5500-LAN, WLAN im Chip, SD-Karte). Es reicht für den SMGW-Leser und ist seit 09.11. unser fester Leser (Abschnitte 2, 4.2, 4.3).</li>
+  <li><code>slot1-smgwweb</code> v009: Bei der <b>Erstinbetriebnahme</b> lehnte die Seite die Identifikationsnummer ab („braucht Slot 1 v006“), weil Slot 1 bei noch leerem Zugang kein Feld <code>id</code> meldete. Behoben.</li>
+  <li><code>slot0-smgw</code> v016: Lässt das Gateway eine Verbindung still fallen, wiederholt der Leser jetzt auch die <b>Anmeldung</b> einmal mit neuer Verbindung (vorher nur den Tagesabruf). Ursache belegt mit der Diagnosezeile aus v015 (Abschnitt 10).</li>
+  <li>Bild 1 ohne Adresse des Lesers.</li>
 </ul></div>
 
 <h2>1. Was der SMGW-Leser macht</h2>
@@ -62,12 +62,26 @@
   <li>sichert die Daten jede Nacht auf einen FTP-Server (z. B. USB-Stick an der FRITZ!Box) und holt sie bei Bedarf zurück,</li>
   <li>meldet sich mit Benutzer/Passwort (Digest) oder mit einem Client-Zertifikat an.</li>
 </ul>
-<figure><img src="bilder/01-seite-tag.png" alt="Seite smgw, Reiter Tag"><figcaption>Seite <code>/smgw</code>, Reiter „Tag“: Tageswerte und Leistung je Viertelstunde (Bezug rot nach oben, Einspeisung gelb nach unten). IP-Adresse und Zählerstände für das Bild ausgeblendet.</figcaption></figure>
+<figure><img src="bilder/01-seite-tag.png" alt="Seite smgw, Reiter Tag"><figcaption>Seite <code>/smgw</code>, Reiter „Tag“: Tageswerte und Leistung je Viertelstunde (Bezug rot nach oben, Einspeisung gelb nach unten). Adresse des Lesers und Zählerstände für das Bild ausgeblendet.</figcaption></figure>
 
 <h2>2. Hardware</h2>
+<p>Getestet sind zwei Boards von Waveshare. Beide haben LAN (zur HAN-Buchse), WLAN (ins Heimnetz) und einen Steckplatz für die SD-Karte. Der Leser braucht wenig: gemessen rund 0,3 MB PSRAM und gut 30 KB für das Skript; die Tagesseite des Gateways (rund 170 KB) wird in 1-KB-Stücken ausgewertet. <b>Empfehlung: das ESP32-S3-ETH</b>, der P4 ist für diese Aufgabe überdimensioniert.</p>
+<h3>2.1 Waveshare ESP32-S3-ETH (empfohlen)</h3>
 <table>
   <tr><th>Teil</th><th>Angabe</th></tr>
-  <tr><td><b>Board</b></td><td>Waveshare <b>ESP32-P4-WIFI6-POE-ETH</b> (SKU 32832)</td></tr>
+  <tr><td><b>Board</b></td><td>Waveshare <b>ESP32-S3-ETH</b> (SKU 28972); mit PoE-Modul als Satz <b>ESP32-S3-POE-ETH</b> (SKU 28771)<br>Kaufen: https://www.waveshare.com/esp32-s3-eth.htm<br>Wiki: https://www.waveshare.com/wiki/ESP32-S3-ETH</td></tr>
+  <tr><td>Prozessor</td><td>ESP32-S3R8 (Revision v0.2), 240 MHz</td></tr>
+  <tr><td>Speicher</td><td>8 MB PSRAM, 16 MB Flash (am Gerät gelesen mit <code>Status 4</code>)</td></tr>
+  <tr><td>WLAN</td><td>im ESP32-S3 eingebaut (2,4 GHz), kein Zusatzchip, kein Update nötig</td></tr>
+  <tr><td>Ethernet</td><td>W5500 über SPI (EthType 8): RST GPIO 9, INT GPIO 10, MOSI GPIO 11, MISO GPIO 12, SCLK GPIO 13, CS GPIO 14</td></tr>
+  <tr><td>SD-Karte</td><td>SPI: CS GPIO 4, MISO GPIO 5, MOSI GPIO 6, SCLK GPIO 7 (FAT32)</td></tr>
+  <tr><td>Strom</td><td>USB-C oder PoE (nur mit PoE-Modul). Am HAN-Anschluss: Strom über USB-C, normales Patchkabel direkt zum Gateway.</td></tr>
+  <tr><td>Gemessen 09.11.2026</td><td>Erstabruf 283 Tage in 39 min; danach frei: Arbeitsspeicher 218 KB, größter Block 164 KB, PSRAM 7,7 von 8 MB</td></tr>
+</table>
+<h3>2.2 Waveshare ESP32-P4-WIFI6-POE-ETH</h3>
+<table>
+  <tr><th>Teil</th><th>Angabe</th></tr>
+  <tr><td><b>Board</b></td><td>Waveshare <b>ESP32-P4-WIFI6-POE-ETH</b> (SKU 32832)<br>Kaufen: https://www.waveshare.com/esp32-p4-wifi6-poe-eth.htm?sku=32832<br>Wiki: https://www.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH</td></tr>
   <tr><td>Prozessor</td><td>ESP32-P4 (Revision v1.3), betrieben mit 360 MHz</td></tr>
   <tr><td>Speicher</td><td>32 MB PSRAM, 32 MB Flash (am Gerät gelesen mit <code>Status 4</code>)</td></tr>
   <tr><td>WLAN</td><td>ESP32-C6 als Funkchip (ESP-Hosted über SDIO, GPIO 14–19, Reset GPIO 54). <b>Firmware des C6 mindestens 2.12.6</b>, siehe Abschnitt 4.4</td></tr>
@@ -76,6 +90,7 @@
   <tr><td>Strom</td><td>USB-C oder PoE. Wichtig: Kommt der Strom nur über PoE, ist das Board ohne LAN-Kabel aus.</td></tr>
   <tr><td>Schaltplan</td><td>files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf</td></tr>
 </table>
+<div class="warn"><b>Kein PoE zwischen Leser und Gateway.</b> Die HAN-Buchse hat kein PoE. Die Boards nehmen PoE nur auf und geben keine Spannung auf das Kabel. Aber nie einen PoE-Injektor (vor allem keinen passiven) oder PoE-Switch zwischen Leser und Gateway setzen; wird ein Switch gebraucht, dann einen ohne PoE.</div>
 
 <h2>3. Netz</h2>
 <p>Der SMGW-Leser hängt an <b>zwei Netzen</b> gleichzeitig:</p>
@@ -104,6 +119,42 @@
 </ul>
 
 <h3>4.2 PlatformIO-Env (<code>platformio_override.ini</code>)</h3>
+<p><b>ESP32-S3-ETH:</b> W5500 braucht die SDK-Einstellungen in <code>custom_sdkconfig</code>.</p>
+<pre>[env:tasmota32s3-waveshare-ETH_SMGW_TinyC]
+extends          = env:tasmota32_base
+board_build.f_cpu = 240000000L
+board_build.mcu   = esp32s3
+board             = esp32s3_16M
+build_flags      = ${env:tasmota32_base.build_flags}
+                   -DUSE_ETHERNET
+                   -DTINYC_TESTING
+                   -DTINYC_NO_SCRIPTER
+                   -DUSE_BINPLUGINS
+lib_extra_dirs   = ${common.lib_extra_dirs}
+                   lib/libesp32
+                   lib/libesp32_div
+lib_ignore       = ${env:tasmota32_base.lib_ignore}
+                   TTGO TWatch Library
+                   Micro-RTSP
+                   epdiy
+                   esp32-camera
+                   lib/libesp32/CORE2_Library
+                   libesp32_lvgl
+custom_sdkconfig = CONFIG_ETH_ENABLED=y
+                   CONFIG_ETH_USE_SPI_ETHERNET=y
+                   CONFIG_ETH_SPI_ETHERNET_W5500=y
+                   CONFIG_LWIP_UDP_RECVMBOX_SIZE=64
+                   CONFIG_MBEDTLS_SHA512_C=y
+                   CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072
+custom_component_remove = espressif/esp32-camera
+                   espressif/esp_jpg
+                   espressif/fb_gfx
+                   espressif/esp-dsp
+                   espressif/esp_modem
+                   espressif/network_provisioning
+upload_port      = COMx      ; eigenen Anschluss eintragen
+upload_speed     = 460800</pre>
+<p><b>ESP32-P4-WIFI6-POE-ETH:</b></p>
 <pre>[env:tasmota32p4-waveshare-WIFI6_SMGW_TinyC]
 extends          = env:tasmota32_base
 board_build.f_cpu = 360000000L
@@ -121,10 +172,10 @@ lib_ignore       = ${env:tasmota32_base.lib_ignore}
                    esp32-camera
                    JPEG decode
 upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
-<p>Kein <code>custom_sdkconfig</code> und keine zusätzlichen Bibliotheksordner: Jede dieser Stellschrauben bricht beim P4 die ESP-Hosted-Kette für das WLAN. Das Env in <code>default_envs</code> eintragen.</p>
+<p>Kein <code>custom_sdkconfig</code> und keine zusätzlichen Bibliotheksordner: Jede dieser Stellschrauben bricht beim P4 die ESP-Hosted-Kette für das WLAN. Das passende Env in <code>default_envs</code> eintragen. Das Gerät wird nur über den Block in <code>user_config_override.h</code> gewählt, nicht über ein <code>-D</code> im Env.</p>
 
 <h3>4.3 Geräteblock (<code>user_config_override.h</code>)</h3>
-<p>Ein eigener Block, ausgewählt mit <code>#define esp32p4_waveshare_WIFI6_SMGW_TinyC</code>. Die wichtigen Zeilen:</p>
+<p>Ein eigener Block je Board, ausgewählt mit <code>#define esp32S3_waveshare_ETH_SMGW_TinyC</code> bzw. <code>#define esp32p4_waveshare_WIFI6_SMGW_TinyC</code>. Die wichtigen Zeilen (P4; Unterschiede beim S3 darunter):</p>
 <pre>#define DISABLE_REFERER_CHK          // "HTTP API aktivieren" ab Werk
 #define CFG_HOLDER 4641              // eigener Wert -> frische Grundeinstellungen
 #define USER_BACKLOG "EthIPAddress 192.168.1.21; EthGateway 0.0.0.0; EthSubnetmask 255.255.255.0; EthDNSServer1 0.0.0.0; EthDNSServer2 0.0.0.0; Restart 1"
@@ -149,20 +200,21 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 <ul>
   <li><b>LAN-Adresse:</b> <code>USER_BACKLOG</code> stellt sie beim ersten Start ein (nur bei frischen Einstellungen, also neuem <code>CFG_HOLDER</code>) und startet einmal neu. Später auf der Seite änderbar (Abschnitt 3).</li>
   <li><b>Hostname:</b> <code>"%s"</code> ergibt den Namen ohne Chip-Nummer; im Router dann z. B. <code>http://smgw.fritz.box/</code>. <b>Nie einen festen Text ohne <code>%</code></b> eintragen (Absturz beim Start bei gespeicherten Namen mit <code>%</code>). Wirkt nur bei frischen Einstellungen; sonst in der Konsole <code>Hostname smgw</code>.</li>
-  <li><b>Vorlage:</b> die vollständige Zeile aus dem WIFI6-Block übernehmen. Die C6-Pins (6, 14–19, 54) sowie 24/25 (USB) und 50 (ETH-Takt) bleiben dort gesperrt (0).</li>
+  <li><b>ESP32-S3-ETH anders:</b> <code>ETH_TYPE 8</code> (W5500), <code>ETH_ADDRESS 1</code>, <code>ETH_CLKMODE 0</code> und als Vorlage <code>{"NAME":"Waveshare ESP32-S3-ETH","GPIO":[0,0,0,0,6721,673,705,737,0,5536,5600,704,672,736,5568,0,…],"FLAG":0,"BASE":1}</code> (LAN- und SD-Pins aus Abschnitt 2.1). Alles andere wie oben. Hängen zwei Leser am selben HAN-Netz (z. B. zum Vergleich), braucht jeder eine eigene LAN-Adresse (bei uns S3 .1.22, P4 .1.21), und es darf immer nur einer abrufen.</li>
+  <li><b>Vorlage P4:</b> die vollständige Zeile aus dem WIFI6-Block übernehmen. Die C6-Pins (6, 14–19, 54) sowie 24/25 (USB) und 50 (ETH-Takt) bleiben dort gesperrt (0).</li>
   <li>WLAN-Name und WLAN-Passwort trägt man wie bei jedem Tasmota-Gerät ein (<code>STA_SSID1</code> / <code>STA_PASS1</code> oder später über die Weboberfläche). Sie gehören <b>nicht</b> in veröffentlichte Dateien.</li>
 </ul>
 
-<h3>4.4 Funkchip C6 aktualisieren</h3>
+<h3>4.4 Funkchip C6 aktualisieren (nur P4)</h3>
 <p>Neue Boards kommen mit C6-Firmware 0.0.6. Damit hängt jede Abfrage der WLAN-Betriebsart rund 5 s, das ganze Gerät wird träge. Einmalig in der Tasmota-Konsole:</p>
 <pre>HostedOta https://ota.tasmota.com/tasmota32/coprocessor/network_adapter_esp32c6.bin</pre>
 <p>Nach etwa einer Minute meldet das Gerät „Successful. Restarting“. Prüfen mit <code>Status 2</code>: <code>"HostedMCU":{"Hardware":"esp32c6","Version":"2.12.6"}</code>.</p>
 
 <h2 class="seite">5. Inbetriebnahme</h2>
 <ol>
-  <li>Firmware bauen und per USB flashen. Beim ersten Start setzt das Gerät die LAN-Adresse und startet neu. Spätere Versionen gehen per OTA.</li>
+  <li>Firmware für das passende Board bauen und per USB flashen (ein gebrauchtes Board vorher mit <code>esptool erase_flash</code> ganz löschen). Beim ersten Start setzt das Gerät die LAN-Adresse und startet neu. Spätere Versionen gehen per OTA.</li>
   <li>WLAN einrichten, Adresse im Router nachsehen und fest zuweisen.</li>
-  <li>C6 aktualisieren (Abschnitt 4.4).</li>
+  <li>Nur P4: C6 aktualisieren (Abschnitt 4.4).</li>
   <li>Einstellungen → Erweitert: <b>„HTTP API aktivieren“</b> muss an sein (ist es mit <code>DISABLE_REFERER_CHK</code> ab Werk). Ein <b>„Passwort für Weboberfläche“</b> setzen (Empfehlung, siehe Abschnitt 6.3).</li>
   <li>SD-Karte (FAT32) einlegen. Im Log muss beim Start <code>UFS: SDCard mounted</code> stehen.</li>
   <li>Seite <code>smgw.html</code> <b>und</b> <code>smgw.html.gz</code> auf die SD-Karte laden (Abschnitt 8).</li>
@@ -332,6 +384,9 @@ in
 <h3>„Fehler: keine Verbindung zum Gateway“</h3>
 <p>LAN-Kabel, LAN-Adresse (<code>Status 5</code>) und die Gateway-Adresse (Einstellungen) prüfen. Der Leser muss im selben Netz wie die HAN-Buchse sein. Der nächste Versuch kommt automatisch nach der Wartezeit.</p>
 <p>Woran es genau lag, zeigt im Log die Zeile <code>SMG: Diagnose &lt;Schritt&gt;: Stufe …</code> (ab Slot 0 v015): Stufe 1 = Verbindungsaufbau gescheitert (<code>tlsConnect</code>), 2 = Senden gescheitert, 3 = keine Antwortzeile, 4 = Antwort unvollständig. Dazu <code>neu</code> (Verbindung neu aufgebaut oder weiterverwendet), <code>stand</code> (Verbindung bestand noch), <code>vorher close</code> (die vorige Antwort hatte „Connection: close“), Status, angekündigte Länge und gelesene Bytes. Die Zeile enthält keine Zugangsdaten.</p>
+<p>Typischer Fall: <code>Stufe 3, neu 0, stand 1, vorher close 0</code> – das Gateway hat eine weiterverwendete Verbindung still geschlossen. Der Leser holt den Tag dann mit neuer Verbindung („Tag … erneut mit neuer Verbindung“), ab v016 auch die Anmeldung („Anmeldung erneut mit neuer Verbindung“). Beim Erstabruf am 09.11. kam das bei 283 Tagen viermal vor, alle Tage wurden geholt.</p>
+<h3>„Identifikationsnummer braucht Slot 1 v006“ bei der Ersteinrichtung</h3>
+<p>Fehler in <code>slot1-smgwweb</code> bis v008 bei noch leerem Zugang. <code>slot1-smgwweb</code> v009 laden. Umweg mit v008: erst Benutzer und Passwort speichern, Seite neu laden, dann die Identifikationsnummer.</p>
 <h3>„Anmeldung abgelehnt – Zugangsdaten prüfen“</h3>
 <p>Benutzername oder Passwort stimmen nicht. Auf der Seite neu eintragen; neue Daten heben die 12-h-Wartezeit auf. Nicht mehrfach hintereinander probieren, sonst sperrt das Gateway.</p>
 <h3>Die TLS-Verbindung bricht sofort ab</h3>
@@ -341,7 +396,7 @@ in
 <h3>Die Diagramme fehlen, die Tabellen sind da</h3>
 <p>Die Seite lädt die Diagramm-Bibliothek Chart.js von cdnjs und prüft sie per Prüfsumme; der Browser braucht dafür Internet. Ohne Internet oder bei falscher Prüfsumme fehlen nur die Diagramme, alle Werte stehen weiter in den Tabellen.</p>
 <h3>Das ganze Gerät ist träge, Seiten laden Sekunden</h3>
-<p>Der C6 hat noch die Werksfirmware. <code>HostedOta</code> ausführen (Abschnitt 4.4).</p>
+<p>Nur P4: Der C6 hat noch die Werksfirmware. <code>HostedOta</code> ausführen (Abschnitt 4.4).</p>
 <h3>FTP: „Zielordner fehlt oder kein Schreibrecht“</h3>
 <p>Der Ordner existiert für diesen Benutzer nicht. Bei einem Benutzer, dessen Freigabe nur auf einen Ordner zeigt, ist dieser Ordner schon „/“ – Zielordner dann leer lassen.</p>
 <h3>Excel findet nichts</h3>
