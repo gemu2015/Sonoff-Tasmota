@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Meter Gateway</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- v010 07.11.2026 (Andreas): Logo im Browser-Tab wie HEMS, Steuerbox, SteuVE -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --surface-2:#232321;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10);
+  --s-bez:#b3261e; --s-einb:#f5c518;
+  --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
+}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#f0efec;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
+  --s-bez:#9e1b14; --s-einb:#f2b705;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin-bottom:8px}   /* v004: Kopf wie HEMS */
+.btn{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+a.btn{text-decoration:none}
+.btn.tas{background:#1fa3ec;color:#fff;border:0}
+.btn#theme{background:#FFEB9C;color:#9C5700;border:0}
+.unterkopf{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;margin:0 0 12px}
+h1{font-size:22px;margin:0;font-weight:650}
+.sub{color:var(--ink-2);font-size:13px}
+/* v029 08.11.2026: Reiter Jahre zeigt hoechstens die letzten 10 Jahre (nichts wird geloescht) */
+/* v028 08.11.2026: Reiter Monat - Top 5 Tage ueber ALLE Monate des Kalenderjahres, darunter bester Tag des angezeigten Monats */
+/* v027 08.11.2026: darin Bezug 1.8.0 rot und Einspeisung 2.8.0 gelb wie im Diagramm (--s-bez / --s-einb) */
+/* v026 08.11.2026: Beschreibung unter den Reitern in Orange (wie im Logo) hervorgehoben (v025: Tasmota-Blau) */
+.sub.tasblau{color:var(--ink);font-weight:600}   /* v041: wieder weiss (Hell: schwarz) statt orange */
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--ring);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--ink-2)}
+.chip b{font-weight:600;color:var(--ink)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--good)} .dot.wa{background:var(--warn)} .dot.no{background:var(--crit)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px;position:sticky;top:0;background:var(--page);z-index:5;padding-top:6px}
+.tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
+/* v051 08.11.2026: Hinweis Konsole: SYNC/RESTORE Schreibweise egal (slot0-smgw v014) */
+/* v050 08.11.2026: Excel-Kachel: Daten kommen vom Leser, nicht vom Gateway (Andreas) */
+/* v049 08.11.2026: Kachel "Excel / Power Query" unter Einstellungen, Abfrage mit der aktuellen Adresse des Lesers (Andreas) */
+/* v048 08.11.2026: Empfehlung Webpasswort neben "Beschreibung ansehen" bei HAN und FTP (Andreas), in der Beschreibung wieder normal */
+/* v047 08.11.2026: Menuepfad laut de_DE.h: Einstellungen -> Erweitert, Feld "Passwort fuer Weboberflaeche" */
+/* v046 08.11.2026: Empfehlung Webpasswort als eigene Zeile, mittig, 2px groesser, fett (Andreas) */
+/* v045 08.11.2026: Fusszeile "Design by meierchen006" (Andreas) */
+/* v044 08.11.2026: Sync/Restore-Knoepfe senden SYNC/RESTORE gross (klein = Slot 0 machte nur normale Sicherung) */
+/* v043 08.11.2026: alle Beschreibungen gegen Slot 0 v013 / Slot 1 v007 geprueft und berichtigt; einklappbar (Beschreibung ansehen / einklappen) */
+/* v042 08.11.2026: Beschreibung Zertifikat ergaenzt (Passwort nirgends gespeichert, Felder geleert, Anzeige), Platzhalter im Passwortfeld */
+/* v041 08.11.2026: Ueberschrift 'Amtliche 15-Minuten-Zaehlerstaende' wieder in Textfarbe (weiss) statt orange */
+/* v040 08.11.2026: Client-Zertifikat (.p12/.pfx) in der goldenen Kachel: im Browser entpacken, als .secret speichern */
+/* v039 08.11.2026: Meldung links vom Speichern-Knopf (Knopf bleibt rechts), Passwortfeld HAN gleich breit */
+/* v038 08.11.2026: Identifikationsnummer in der goldenen Kachel, als .secret gespeichert, nie angezeigt (v037 verworfen) */
+/* v036 08.11.2026: gespeicherte Benutzer und Passwoerter als "********* (gespeichert)" */
+/* v035 08.11.2026: Benutzernamen (HAN und FTP) nie anzeigen - Feld leer, Platzhalter *****; leer speichern = bisheriger bleibt (Slot 1 ab v006) */
+/* v034 08.11.2026: Knopf Zugang speichern erst frei, wenn Slot 1 die Art han kennt (sonst ueberschriebe Slot 1 v004 den FTP-Zugang) */
+/* v033 08.11.2026: goldene Kachel fuer die Zugangsdaten */
+.card.gold{border:1px solid #d4af37;background:linear-gradient(rgba(212,175,55,0.10),rgba(212,175,55,0.04)),var(--surface)}
+.card.gold h2{color:#d4af37}
+/* v033 08.11.2026: Zugang der HAN-Schnittstelle (Benutzer/Passwort) im Kasten Gateway, als .secret auf der SD */
+/* v032 08.11.2026: Adressfeld des Gateways breiter (30em) */
+/* v031 08.11.2026: Einstellungen - Kasten "Gateway (HAN-Schnittstelle)": Adresse (IP, Port, Pfad) und LAN des Lesers */
+/* v030 08.11.2026: Einstellungen, Status, TAF rechtsbuendig in der Reiterzeile */
+.tabs button.rechts{margin-left:auto}
+.pane{display:none}
+.pane.on{display:block}
+.nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.nav button{background:var(--surface);color:var(--ink);border:1px solid var(--ring);border-radius:8px;padding:5px 12px;font:inherit;cursor:pointer}
+.nav button:disabled{opacity:.35;cursor:default}
+.nav .lbl{font-size:16px;font-weight:600;min-width:150px;text-align:center}
+.nav input{background:var(--surface-2);color:var(--ink);border:1px solid var(--ring);border-radius:6px;padding:4px 6px;font:inherit}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:900px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px){.g4{grid-template-columns:1fr}}
+/* v009 07.11.2026 (Andreas): oben Bezug · Einspeisung · Tage, darunter Ø Bezug · Ø Einspeisung je Tag */
+.g5{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media (max-width:480px){.g5{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* v024 08.11.2026: Knoepfe "akt. Monat" / "akt. Jahr" wie "Heute" */
+/* v023 08.11.2026: Bestwerte-Kacheln (Top 5) je Kalenderjahr unter Tag / Monat / Jahr, Knopf Heute */
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:700px){.g2{grid-template-columns:1fr}}
+.top{margin-top:12px}
+.top table{margin-top:4px}
+.top th:nth-child(2),.top td:nth-child(2){text-align:left}
+.top tr[data-go]{cursor:pointer}
+.top tr[data-go]:hover td{background:rgba(137,135,129,0.13)}
+.top .rek{font-size:11px;color:var(--muted);margin-top:6px}
+.card{background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:14px 16px;min-width:0}
+.card h2{font-size:13px;font-weight:600;color:var(--ink-2);margin:0 0 6px;display:flex;align-items:center;gap:8px}
+.sw{width:10px;height:10px;border-radius:3px;flex:none}
+.hero{font-size:28px;font-weight:650;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.hero small{font-size:14px;font-weight:500;color:var(--ink-2);margin-left:4px}
+.note{font-size:12px;color:var(--muted)}
+section{margin-top:16px}
+.chartbox{position:relative;height:320px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;font-variant-numeric:tabular-nums}
+th,td{padding:4px 6px;border-bottom:1px solid var(--grid);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--ink-2);font-weight:600}
+tr.sum td{font-weight:650;border-top:1px solid var(--axis);border-bottom:1px solid var(--axis);background:rgba(137,135,129,0.13)}
+td.leer{color:var(--muted)}
+.tblwrap{overflow-x:auto}
+details{margin-top:10px}
+summary{cursor:pointer;color:var(--ink-2);font-size:13px}
+/* v008 07.11.2026 (Andreas): Tabellen-Aufklapper als Knopf wie TinyC im Kopf */
+details>summary.btn{display:inline-block;list-style:none;user-select:none}
+details>summary.btn::-webkit-details-marker{display:none}
+details>summary.btn::before{content:'▸';margin-right:6px}
+details[open]>summary.btn::before{content:'▾'}
+details[open]>summary.btn{margin-bottom:6px}
+/* v043: Beschreibungen einklappbar */
+details.beschr:not([open]) .zu{display:none}
+details.beschr[open] .auf{display:none}
+details.beschr>.note{margin-top:4px!important}
+/* v048: Empfehlung Webpasswort neben dem Knopf (HAN, FTP), auch zugeklappt sichtbar, klickt nicht mit */
+details.beschr{position:relative}
+.empf{position:absolute;left:190px;right:0;top:0;line-height:28px;text-align:center;font-weight:700;font-size:calc(13px + 2px);color:var(--ink-2);pointer-events:none;white-space:normal}
+@media (max-width:760px){.empf{position:static;display:block;margin-top:6px;white-space:normal}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px}
+.kv span:nth-child(odd){color:var(--ink-2)}
+.kv span:nth-child(even){font-variant-numeric:tabular-nums}
+.vz{border-top:1px solid var(--grid);margin-top:10px;padding-top:8px;text-align:center;color:var(--muted);font-size:11px}
+/* v020 07.11.2026 (Andreas): FTP-Kasten optisch wie am HEMS (hems.html .kv.anl / .ftpin / .anbtn) */
+/* v022 07.11.2026 (Andreas): nach Neuladen im Reiter Einstellungen/Status/TAF dessen Inhalt laden (start) */
+/* v021 07.11.2026 (Andreas): FTP-Kasten bei HEMS, SMGW und Datensammler gleich; Zeile "Sicherung taeglich um" (SMGWFtpZeit, slot0 ab v010) */
+.kv.anl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:8px;padding:6px 10px;border-radius:8px;background:rgba(250,178,25,.10);border:1px solid rgba(250,178,25,.40);font-size:13px;align-items:center}
+.kv.anl>span:nth-child(even){text-align:right}
+.ftpin{width:16em;max-width:100%;box-sizing:border-box;padding:3px 6px;border:1px solid var(--grid);border-radius:4px;background:var(--surface);color:var(--ink);font:inherit}
+.btn.anbtn{margin-top:6px;background:rgba(250,178,25,.22);border-color:rgba(250,178,25,.65);color:var(--ink)}
+h2.ftph{color:#1fa3ec}
+.gross{flex:1;padding:12px;color:#fff;border:none;border-radius:4px;font-weight:bold;cursor:pointer;font-size:14px}
+footer{margin:22px 0 8px;color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+footer a{color:var(--ink-2)}
+.msg{background:var(--surface-2);border:1px dashed var(--muted);color:var(--ink-2);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>   <!-- v004 07.11.2026 (Andreas): Kopf wie HEMS, Steuerbox und SteuVE - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben -->
+  <div style="display:grid;grid-template-columns:auto auto;column-gap:14px;align-items:center;justify-items:start">
+    <span style="justify-self:center;line-height:0"><svg width="36" height="36" role="img" aria-label="HEMS-Logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="#37c871" stroke-width="3"/><g transform="translate(32 32) scale(1.1)"><path d="M2-9L-5 1H0L-2 9L6-2H1Z" fill="#37c871"/></g><circle cx="32" cy="11" r="10.500" fill="#2a2600"/><circle cx="32" cy="11" r="3.7" fill="#f5c518"/><line x1="37.6" y1="11" x2="40.1" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="14.9" x2="37.7" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="16.6" x2="32" y2="19.1" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="14.9" x2="26.3" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="26.4" y1="11" x2="23.9" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="7.1" x2="26.3" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="5.4" x2="32" y2="2.9" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="7.1" x2="37.7" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><circle cx="13" cy="44" r="10.500" fill="#0a1a2a"/><g transform="translate(13 43.5) scale(0.56)"><path d="M-14 5V1L-10-6Q-9-8-6-8H6Q9-8 10-6L14 1V5Q14 6 13 6H-13Q-14 6-14 5Z" fill="#42a5f5"/><path d="M-8-5Q-7.500-6-6-6H-1V-1H-10ZM1-6H6Q7.500-6 8-5L10-1H1Z" fill="#fff" opacity=".85"/><circle cx="-8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/><circle cx="8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/></g><circle cx="51" cy="44" r="10.500" fill="#241a08"/><g transform="translate(51 44) scale(0.62)"><circle r="13" fill="none" stroke="#ff9800" stroke-width="2.600"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(0)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(120)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(240)"/><circle r="2" fill="#ff9800"/></g></svg></span>
+    <h1>Smart Meter Gateway</h1>
+    <div class="sub" id="sub_ip" style="justify-self:center">—</div>
+    <div class="sub" id="sub" style="font-size:16px">—</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center"><a class="btn tas" href="/">&#8592; Tasmota</a><a class="btn" href="/tc" title="TinyC-Seite: Slots, Laden, IDE-Update">TinyC</a><a class="btn" href="/ide" target="_blank" title="TinyC-IDE auf Port 82" onclick="this.href='http://'+location.hostname+':82/ide'">TinyC-IDE</a><button class="btn" id="theme">Hell / Dunkel</button></div>
+</header>
+<div class="chips" id="chips"></div>
+<div class="msg" id="msg"></div>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-t="tag">Tag</button>
+  <button role="tab" data-t="monat">Monat</button>
+  <button role="tab" data-t="jahr">Jahr</button>
+  <button role="tab" data-t="jahre">Jahre</button>
+  <button role="tab" data-t="einst" class="rechts">Einstellungen</button>   <!-- v030: rechtsbuendig -->
+  <button role="tab" data-t="status">Status</button>
+  <button role="tab" data-t="taf">TAF</button>
+</nav>
+<!-- v006 07.11.2026 (Andreas): Beschreibung + Datenstand unter den Reitern, Statuszeile direkt unter dem Kopf wie HEMS -->
+<div class="unterkopf"><div class="sub tasblau">Amtliche 15-Minuten-Zählerstände · <span style="color:var(--s-bez)">Bezug 1.8.0</span> · <span style="color:var(--s-einb)">Einspeisung 2.8.0</span></div>   <!-- v027: Bezug rot, Einspeisung gelb wie im Diagramm --><div class="sub" id="hdrStand">–</div></div>
+
+<!-- ================= Tag ================= -->
+<div class="pane" data-p="tag">
+  <div class="nav">
+    <button id="dPrev" aria-label="Vortag">◀</button>
+    <span class="lbl" id="dLbl">–</span>
+    <button id="dNext" aria-label="Folgetag">▶</button>
+    <input type="date" id="dPick" aria-label="Tag wählen">
+    <button id="dHeute" title="zum heutigen Tag springen">Heute</button>
+  </div>
+  <div class="grid g4">
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug</h2><div class="hero" id="dBez">–</div><div class="note" id="dBezZ">&nbsp;</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Einspeisung</h2><div class="hero" id="dEin">–</div><div class="note" id="dEinZ">&nbsp;</div></div>
+    <div class="card"><h2>Höchste Bezugsleistung</h2><div class="hero" id="dPmax">–</div><div class="note" id="dPmaxZ">Mittel einer Viertelstunde</div></div>
+    <div class="card"><h2>Höchste Einspeiseleistung</h2><div class="hero" id="dEmax">–</div><div class="note" id="dEmaxZ">Mittel einer Viertelstunde</div></div>
+  </div>
+  <section class="card">
+    <h2>Leistung je Viertelstunde</h2>
+    <div class="chartbox"><canvas id="cTag"></canvas></div>
+    <div class="vz"><b>Vorzeichen:</b> + = Netz-Bezug &nbsp;|&nbsp; − = Einspeisung · Leistung = Zählerdifferenz der Viertelstunde × 4</div>
+    <details><summary class="btn">Tabelle der Viertelstunden</summary>
+      <div class="tblwrap"><table id="tTag"></table></div>
+    </details>
+  </section>
+  <div class="grid g2 top">   <!-- v023: Top 5 Leistung im Kalenderjahr des angezeigten Tages -->
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Höchste Bezugsleistung <span id="tkBJ"></span> (kW)</h2><table id="tkB"></table><div class="rek" id="tkInfo">&nbsp;</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Höchste Einspeiseleistung <span id="tkEJ"></span> (kW)</h2><table id="tkE"></table><div class="rek">Viertelstundenmittel · Klick öffnet den Tag</div></div>
+  </div>
+</div>
+
+<!-- ================= Monat ================= -->
+<div class="pane" data-p="monat">
+  <div class="nav">
+    <button id="mPrev" aria-label="Vormonat">◀</button>
+    <span class="lbl" id="mLbl">–</span>
+    <button id="mNext" aria-label="Folgemonat">▶</button>
+    <button id="mHeute" title="zum aktuellen Monat springen">akt. Monat</button>
+  </div>
+  <div class="grid g5">
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug</h2><div class="hero" id="mBez">–</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Einspeisung</h2><div class="hero" id="mEin">–</div></div>
+    <div class="card"><h2>Tage mit Daten</h2><div class="hero" id="mTage">–</div></div>
+    <div class="card"><h2>Ø Bezug je Tag</h2><div class="hero" id="mAvg">–</div></div>
+    <div class="card"><h2>Ø Einspeisung je Tag</h2><div class="hero" id="mAvgE">–</div></div>
+  </div>
+  <section class="card">
+    <h2>Energie je Tag</h2>
+    <div class="chartbox"><canvas id="cMonat"></canvas></div>
+    <div class="vz"><b>Vorzeichen:</b> + = Netz-Bezug &nbsp;|&nbsp; − = Einspeisung · Klick auf einen Tag öffnet ihn im Reiter „Tag"</div>
+    <details><summary class="btn">Tabelle der Tage</summary>
+      <div class="tblwrap"><table id="tMonat"></table></div>
+    </details>
+  </section>
+  <div class="grid g2 top">   <!-- v028: Top 5 Tage des Kalenderjahres (alle Monate) + bester Tag des angezeigten Monats -->
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Höchster Tagesbezug <span id="tmBJ"></span> (kWh)</h2><table id="tmB"></table><div class="rek" id="tmBR">&nbsp;</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Höchste Tageseinspeisung <span id="tmEJ"></span> (kWh)</h2><table id="tmE"></table><div class="rek" id="tmER">&nbsp;</div></div>
+  </div>
+</div>
+
+<!-- ================= Jahr ================= -->
+<div class="pane" data-p="jahr">
+  <div class="nav">
+    <button id="yPrev" aria-label="Vorjahr">◀</button>
+    <span class="lbl" id="yLbl">–</span>
+    <button id="yNext" aria-label="Folgejahr">▶</button>
+    <button id="yHeute" title="zum aktuellen Jahr springen">akt. Jahr</button>
+  </div>
+  <div class="grid g5">
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug</h2><div class="hero" id="yBez">–</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Einspeisung</h2><div class="hero" id="yEin">–</div></div>
+    <div class="card"><h2>Tage mit Daten</h2><div class="hero" id="yTage">–</div></div>
+    <div class="card"><h2>Ø Bezug je Tag</h2><div class="hero" id="yAvg">–</div></div>
+    <div class="card"><h2>Ø Einspeisung je Tag</h2><div class="hero" id="yAvgE">–</div></div>
+  </div>
+  <section class="card">
+    <h2>Energie je Monat</h2>
+    <div class="chartbox"><canvas id="cJahr"></canvas></div>
+    <div class="vz"><b>Vorzeichen:</b> + = Netz-Bezug &nbsp;|&nbsp; − = Einspeisung · Klick auf einen Monat öffnet ihn im Reiter „Monat"</div>
+    <details><summary class="btn">Tabelle der Monate</summary>
+      <div class="tblwrap"><table id="tJahr"></table></div>
+    </details>
+  </section>
+  <div class="grid g2 top">   <!-- v023: Top 5 Monate des angezeigten Jahres -->
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Höchster Monatsbezug <span id="tyBJ"></span> (kWh)</h2><table id="tyB"></table><div class="rek" id="tyInfo">&nbsp;</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Höchste Monatseinspeisung <span id="tyEJ"></span> (kWh)</h2><table id="tyE"></table><div class="rek">⚠ = Monat nicht vollständig · Klick öffnet den Monat</div></div>
+  </div>
+</div>
+
+<!-- ================= Jahre (v005 07.11.2026, Andreas) ================= -->
+<div class="pane" data-p="jahre">
+  <div class="grid g5">
+    <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug gesamt</h2><div class="hero" id="jsBez">–</div></div>
+    <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Einspeisung gesamt</h2><div class="hero" id="jsEin">–</div></div>
+    <div class="card"><h2>Tage mit Daten</h2><div class="hero" id="jsTage">–</div></div>
+    <div class="card"><h2>Ø Bezug je Tag</h2><div class="hero" id="jsAvg">–</div></div>
+    <div class="card"><h2>Ø Einspeisung je Tag</h2><div class="hero" id="jsAvgE">–</div></div>
+  </div>
+  <section class="card">
+    <h2>Energie je Jahr</h2>
+    <div class="chartbox"><canvas id="cJahre"></canvas></div>
+    <div class="vz"><b>Vorzeichen:</b> + = Netz-Bezug &nbsp;|&nbsp; − = Einspeisung · Klick auf ein Jahr öffnet es im Reiter „Jahr"</div>
+    <details><summary class="btn">Tabelle der Jahre</summary>
+      <div class="tblwrap"><table id="tJahre"></table></div>
+    </details>
+  </section>
+</div>
+
+<!-- ================= Status ================= -->
+<div class="pane" data-p="status">
+  <section class="card" style="margin-top:0">
+    <h2>Abruf</h2>
+    <div class="kv" id="kvStatus"></div>
+  </section>
+  <!-- v014/v015 07.11.2026 (Andreas): Gateway und Geraet (v015: Gateway zuerst) -->
+  <section class="card">
+    <h2>Gateway (SMGW)</h2>
+    <div class="kv">
+      <span>Gateway-Firmware</span><span id="gwFw"><span class="note">noch nicht gelesen – kommt beim ersten Abruf des Tages vom Gateway</span></span>
+      <span>Werte</span><span>je Viertelstunde signiert, Status „valid“, vorhanden seit <span id="gwSeit">–</span></span>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Gerät (SMGW-Leser)</h2>
+    <div class="kv" id="kvGeraet"><span>Stand</span><span>wird gelesen …</span></div>
+  </section>
+</div>
+
+<!-- v018 07.11.2026 (Andreas): ohne geraetebezogene Festwerte (Firmware, Verlauf, Profile, Betreiber) - alles nur noch live -->
+<!-- ================= TAF (v017 07.11.2026, Andreas: eigener Reiter statt im Status) ================= -->
+<div class="pane" data-p="taf">
+  <section class="card" style="margin-top:0">
+    <h2>Bei diesem Gateway freigeschaltet</h2>
+    <div class="kv">
+      <span>Freigeschaltete Tarifanwendungsfälle</span><span id="gwTaf"><span class="note">noch nicht gelesen – kommt beim ersten Abruf des Tages vom Gateway</span></span>
+      <span>Auswerteprofile</span><span id="gwProf">–</span>
+      <span>Zählwerke</span><span>Bezug 1-0:1.8.0 · Einspeisung 1-0:2.8.0 (kWh)</span>
+      <span>Nicht freigeschaltet</span><span id="gwNicht">–</span>
+      <span>Quelle</span><span id="gwQuelle">Gateway-Menü „Auswertungsprofil“, einmal am Tag gelesen (Skript slot0-smgw ab v008)</span>
+    </div>
+  </section>
+  <!-- v016 07.11.2026 (Andreas): Erklaerung aller TAF -->
+  <section class="card">
+    <h2>Tarifanwendungsfälle (TAF) erklärt</h2>
+    <div class="note" style="margin-bottom:8px">Ein TAF legt fest, welche Messwerte das Gateway bildet und an wen es sie sendet. Welche freigeschaltet sind, bestimmt der Messstellenbetreiber. Grün = bei diesem Gateway freigeschaltet. Kurzfassung nach inexogy (21.01.2022) und BSI TR-03109-1, nicht der Normtext. „PPC ab 1.x“ = ab dieser PPC-Gateway-Software möglich.</div>
+    <div class="kv" id="tafListe"></div>
+  </section>
+</div>
+
+<!-- ================= Einstellungen (v012 07.11.2026, Andreas) ================= -->
+<div class="pane" data-p="einst">
+  <section class="card" style="margin-top:0">
+    <h2>Abruf einstellen</h2>
+    <div class="kv" style="align-items:center">
+      <span>Takt heute (laufender Tag)</span>
+      <span><select id="eTakt" class="btn" style="padding:4px 6px">
+        <option value="0">aus</option><option value="15">alle 15 min</option><option value="30">alle 30 min</option>
+        <option value="60">alle 60 min</option><option value="120">alle 2 h</option></select>
+        <button class="btn" id="eTaktSet">speichern</button></span>
+      <span>Abstand nach Viertelstundenende</span>
+      <span><select id="eVers" class="btn" style="padding:4px 6px">
+        <option value="0">0 min</option><option value="1">1 min</option><option value="2">2 min</option>
+        <option value="3">3 min</option><option value="5">5 min</option><option value="10">10 min</option></select>
+        <button class="btn" id="eVersSet">speichern</button> <span class="note" id="eVersInfo"></span></span>
+      <span>Abruf</span>
+      <span><button class="btn" id="eAbruf">jetzt abrufen</button></span>
+      <span>Antwort des Geräts</span>
+      <span id="eAntwort" class="note">–</span>
+    </div>
+    <details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span></summary>
+    <div class="note" style="margin-top:10px;line-height:1.6">
+      <b>Takt heute:</b> holt zusätzlich die Viertelstunden des <b>laufenden</b> Tages (bis jetzt), und zwar nach der Uhr des Geräts: zum Abstand nach dem Viertelstundenende (Vorgabe 2 min), bei Takt 60 also um hh:02, bei Takt 30 um :02 und :32, bei Takt 15 um :02 / :17 / :32 / :47, bei 2 h um 00:02, 02:02, 04:02 … Der Abstand gibt dem Gateway Zeit, die gerade beendete Viertelstunde abzulegen. Aus: der laufende Tag erscheint erst morgen ab 00:20 mit dem ganzen Tag. Jeder Takt ist eine eigene Anmeldung am Gateway. Der Wert bleibt nach einem Neustart erhalten (<code>/smgw_cfg.txt</code>).<br>
+      <b>Jetzt abrufen:</b> holt sofort alle fehlenden ganzen Tage (und bei eingestelltem Takt den laufenden Tag). Läuft nach einem Fehler noch eine Wartezeit, bleibt sie bestehen; der Abruf ist dann vorgemerkt und läuft, sobald sie vorbei ist.
+    </div></details>
+  </section>
+  <!-- v031 08.11.2026: Gateway-Adresse und LAN des Lesers einstellbar (braucht slot0-smgw v011) -->
+  <section class="card">
+    <h2>Gateway (HAN-Schnittstelle)</h2>
+    <div class="kv anl">
+      <span>Adresse des Gateways</span><span><input type="text" id="gw_url" class="ftpin" style="width:30em" placeholder="https://192.168.1.200:443/cgi-bin/hanservice.cgi" autocomplete="off" spellcheck="false"></span>
+      <span>Leser im LAN: IP-Adresse</span><span><input type="text" id="gw_lip" class="ftpin" placeholder="192.168.1.21" autocomplete="off"></span>
+      <span>Leser im LAN: Netzmaske</span><span><input type="text" id="gw_mask" class="ftpin" placeholder="255.255.255.0" autocomplete="off"></span>
+      <span></span><span><span class="note" id="gw_msg"></span> <button class="btn anbtn" id="gwSet">Speichern</button></span>
+    </div>
+    <details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span></summary>
+    <div class="note" style="margin-top:10px;line-height:1.6">
+      <b>Adresse:</b> so, wie sie in den Unterlagen des Messstellenbetreibers für die HAN-Schnittstelle steht, mit Port und Pfad (Vorgabe PPC: <code>https://192.168.1.200:443/cgi-bin/hanservice.cgi</code>). Fehlen Port oder Pfad, gelten 443 und <code>/cgi-bin/hanservice.cgi</code>.<br>
+      <b>Leser im LAN:</b> eine freie Adresse im selben Netz wie das Gateway (ohne Router, das Kabel geht direkt zum Gateway). Ändert sich diese Adresse, startet der Leser einmal neu; über das WLAN bleibt er erreichbar.<br>
+      <b>Hinweis:</b> Der Abruf ist für die HAN-Weboberfläche des <b>PPC</b>-Gateways gebaut (Digest-Anmeldung, Formulare mit Token). Gateways anderer Hersteller haben eine andere Oberfläche; dort hilft eine andere Adresse allein nicht.
+    </div></details>
+  </section>
+  <!-- v033 08.11.2026: Zugangsdaten der HAN-Schnittstelle als eigene goldene Kachel -->
+  <section class="card gold">
+    <h2>🔒 Zugangsdaten der HAN-Schnittstelle</h2>
+    <div class="kv anl">
+      <span>Benutzer</span><span><input type="text" id="gw_user" class="ftpin" style="width:30em" autocomplete="off" spellcheck="false"></span>
+      <span>Passwort</span><span><input type="password" id="gw_pw" class="ftpin" style="width:30em" autocomplete="new-password"></span>
+      <span>Identifikationsnummer</span><span><input type="password" id="gw_id" class="ftpin" style="width:30em" autocomplete="off" spellcheck="false"></span>
+      <span></span><span><span class="note" id="gw_zmsg"></span> <button class="btn anbtn" id="gwZugSet">Zugang speichern</button></span>
+      <span>Zertifikat (statt Passwort)</span><span id="gw_cst" class="note">–</span>
+      <span>Zertifikatsdatei (.p12 / .pfx)</span><span><input type="file" id="gw_p12" accept=".p12,.pfx,application/x-pkcs12"></span>
+      <span>Passwort der Zertifikatsdatei</span><span><input type="password" id="gw_p12pw" class="ftpin" style="width:30em" autocomplete="off" placeholder="nur zum Öffnen – wird nicht gespeichert"></span>
+      <span></span><span><span class="note" id="gw_cmsg"></span> <button class="btn" id="gwCertDel">Zertifikat löschen</button> <button class="btn anbtn" id="gwCertSet">Zertifikat laden</button></span>
+    </div>
+    <details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span><span class="empf">Empfehlung: in Tasmota unter Einstellungen → Erweitert ein „Passwort für Weboberfläche“ setzen – Beschreibung lesen</span></summary>
+    <div class="note" style="margin-top:10px;line-height:1.6">
+      <b>Woher:</b> Benutzername und Passwort der HAN-Schnittstelle stehen in den Unterlagen des Messstellenbetreibers. Beim ersten Speichern sind Benutzer und Passwort nötig; danach gilt: Feld leer lassen = gespeicherter Benutzer bzw. gespeichertes Passwort bleibt. Der Leser übernimmt neue Daten spätestens nach einer Minute; eine laufende Wartezeit nach einem Fehler (auch die 12 h nach abgelehnter Anmeldung) wird dabei aufgehoben. Mehrmals falsche Daten hintereinander können das Gateway kurz sperren.<br>
+      <b>Identifikationsnummer:</b> steht auf dem Gateway (E + 3 Buchstaben + 10 Ziffern, ohne Leerzeichen, z. B. EABC0112345678). Der Abruf über die PPC-Weboberfläche braucht sie nicht; sie ist für den zweiten Weg (Maschinenschnittstelle wie bei TRuDI) vorbereitet. Leer lassen = gespeicherte bleibt, „-“ = löschen.<br>
+      <b>Zertifikat:</b> manche Messstellenbetreiber geben statt Benutzer/Passwort ein Zugangszertifikat aus – eine Datei <code>.p12</code> oder <code>.pfx</code>, dazu ein Passwort. Sie enthält den „Ausweis“ (Zertifikat) und den geheimen Schlüssel. Die Datei wird <b>im Browser</b> mit dem Passwort geöffnet (Bibliothek node-forge, geprüft per Prüfsumme); zum Leser gehen nur Zertifikat und Schlüssel, die Datei selbst und ihr Passwort nicht. <b>Das Passwort der Zertifikatsdatei wird nirgends gespeichert</b> – der Leser braucht es nie wieder, der Schlüssel liegt danach schon entpackt vor. Gespeichert als <code>/smgw_cert.secret</code> (Zertifikat) und <code>/smgw_key.secret</code> (geheimer Schlüssel, Kurve, Ablaufdatum). Danach werden Dateiauswahl und Passwortfeld geleert; angezeigt wird nur „********* (gespeichert) · Kurve · gültig bis …“, nie der Inhalt. Nur EC-Schlüssel auf P-256 oder P-384 (keine Brainpool-Kurven, kein RSA-Schlüssel). Braucht die Firmware ab 08.11.2026 (Befehl <code>TinyCTlsCert</code>). Ist ein Zertifikat gespeichert, zeigt der Leser es beim Verbindungsaufbau vor; fragt das Gateway trotzdem nach Benutzer/Passwort, werden die oben gespeicherten benutzt.<br>
+      <b>Wo sie liegen:</b> nur in der Datei <code>/smgw_zugang.secret</code> auf der SD-Karte des Lesers (Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Identifikationsnummer); ein Zertifikat in <code>/smgw_cert.secret</code> und <code>/smgw_key.secret</code> (gleicher Schutz).<br>
+      <b>Was die Endung .secret schützt:</b>
+      <ul style="margin:4px 0 4px 18px;padding:0">
+        <li>Die Firmware sperrt Dateien <code>*.secret</code> für alle TinyC-Dateiwege über das Netz: nicht herunterladen (Port 82), nicht hochladen oder überschreiben (Port 83), nicht lesen, schreiben oder löschen über die TinyC-Schnittstelle. Nur die Skripte auf dem Gerät lesen sie.</li>
+        <li>Diese Seite bekommt Benutzer, Passwort, Identifikationsnummer und Zertifikat nie zurück, sie zeigt nur „********* (gespeichert)“. Gesendet wird per POST (nicht in der Adresszeile, nicht im Browserverlauf), das Geräte-Log nennt keine Werte.</li>
+        <li>Die FTP-Sicherung nimmt keine <code>.secret</code>-Datei mit – Zugangsdaten und Zertifikat verlassen den Leser nicht.</li>
+      </ul>
+      <b>Was sie nicht schützt:</b> Die Dateien sind auf der SD-Karte nicht verschlüsselt – wer die Karte in der Hand hat, kann sie lesen. Der eigene Dateimanager von Tasmota (Werkzeuge → Dateisystem) kann sie herunterladen, wenn kein Passwort für die Weboberfläche gesetzt ist. Die Übertragung im Heimnetz läuft über HTTP ohne Verschlüsselung. <b>Empfehlung:</b> in Tasmota unter Einstellungen → Erweitert ein „Passwort für Weboberfläche“ setzen.
+    </div></details>
+  </section>
+  <!-- v019 07.11.2026 (Andreas): FTP-Server wie am HEMS (gleiche Felder, Knoepfe und Farben) -->
+  <section class="card">
+    <h2 class="ftph">FTP-Server <span class="note">— eigener USB-Stick an der FRITZ!Box für den SMGW-Leser</span></h2>
+    <div class="kv anl">
+      <span>Server (IP, optional :Port)</span><span><input type="text" id="ftp_host" class="ftpin" placeholder="IP-Adresse eintragen" autocomplete="off"></span>
+      <span>Benutzer</span><span><input type="text" id="ftp_user" class="ftpin" autocomplete="off"></span>
+      <span>Passwort</span><span><input type="password" id="ftp_pw" class="ftpin" autocomplete="new-password"></span>
+      <span>Zielordner</span><span><input type="text" id="ftp_dir" class="ftpin" placeholder="z. B. /SMGW" autocomplete="off"></span>
+      <span>Daten gesichert</span><span id="ftp_st">—</span>
+      <span>Sicherung täglich um</span><span><input type="time" id="ftp_um" class="ftpin" style="width:7em"> <span class="note" id="ftp_um_i"></span></span>
+      <span></span>
+      <span><span class="note" id="ftp_msg"></span> <button class="btn anbtn" id="ftp_set">Speichern</button> <button class="btn" id="ftp_go">Daten jetzt sichern</button></span>
+    </div>
+    <div style="display:flex;gap:10px;margin:10px 0">
+      <button class="gross" id="syncFtp1" style="background:#7e57c2">ESP &rarr; FTP Sync</button>
+      <button class="gross" id="syncFtp2" style="background:#26a69a">FTP &rarr; ESP Restore</button>
+    </div>
+<details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span><span class="empf">Empfehlung: in Tasmota unter Einstellungen → Erweitert ein „Passwort für Weboberfläche“ setzen – Beschreibung lesen</span></summary>
+    <p class="note" style="line-height:1.6"><b>Daten</b> (smgw_tage.txt, smgw_<i>JJJJ-MM</i>.txt): jeden Tag ab der Uhrzeit unter „Sicherung täglich um“ (Vorgabe 02:00; der Tagesabruf läuft um 00:20) und mit „Daten jetzt sichern“ — nur Dateien, die sich geändert haben, jeweils ganz; dazu die Einstellungen (smgw_cfg.txt).<br>
+      <b>ESP → FTP Sync</b>: alle Daten noch einmal, die Einstellungen und diese Seite (smgw.html + .gz) in den <i>Zielordner</i>.<br>
+      <b>FTP → ESP Restore</b>: holt Daten und Einstellungen vom Server zurück — nur Dateien, die hier fehlen oder kürzer sind als auf dem Server (z. B. nach einem SD-Kartentausch). Vorhandene längere Dateien bleiben unangetastet.<br>
+      FRITZ!Box: unter Heimnetz → Speicher (NAS) FTP einschalten, Benutzer mit Schreibrecht auf den NAS-Inhalt; die IP angeben, nicht fritz.box (über IPv6 verweigert die Box den passiven Modus). Der Zielordner muss auf dem Stick vorhanden sein (sonst Fehlermeldung statt Ablage an fremder Stelle). Passwortfeld leer lassen = gespeichertes Passwort bleibt. „Speichern“ übernimmt Zugang und Uhrzeit. Bitte jedem Gerät eine eigene Uhrzeit geben (z. B. HEMS 01:00, SMGW-Leser 02:00, Datensammler 04:20). Der Zugang liegt in /smgw_ftp.secret auf der SD-Karte und ist über das Netz nicht lesbar.</p></details>
+  </section>
+  <section class="card">   <!-- v049 (Andreas): Excel / Power Query -->
+    <h2>Excel / Power Query</h2>
+    <p class="note" style="margin:0 0 8px">Alle 15-Minuten-Zählerstände (alle Monate + laufender Tag) direkt in Excel. Die Adresse dieses Lesers ist schon eingesetzt: <code id="pqAdr">–</code></p>
+    <textarea id="pqText" readonly spellcheck="false" style="width:100%;box-sizing:border-box;height:330px;font:12px/1.4 ui-monospace,Consolas,monospace;background:var(--surface);color:var(--ink);border:1px solid var(--ring);border-radius:8px;padding:8px;white-space:pre;overflow:auto"></textarea>
+    <div style="margin:8px 0;display:flex;gap:10px;align-items:center"><button class="btn anbtn" id="pqCopy">Abfrage kopieren</button><span class="note" id="pqMsg"></span></div>
+<details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span></summary>
+    <p class="note" style="line-height:1.6">Excel: <b>Daten → Daten abrufen → Aus anderen Quellen → Leere Abfrage</b>, dann <b>Start → Erweiterter Editor</b>, alles darin durch die kopierte Abfrage ersetzen, <b>Fertig</b>. Beim ersten Mal fragt Excel nach dem Zugriff: <b>Anonym</b>; Datenschutzebenen: ignorieren. Dann <b>Schließen &amp; laden</b>.<br>
+      Aktualisieren: <b>Daten → Alle aktualisieren</b> – neue Tage und Monate kommen von selbst dazu, auch nach Tagen ohne Abholung (z. B. Urlaub).<br>
+      Spalten: Zeit (Datum und Uhrzeit), Bezug 1.8.0, Einspeisung 2.8.0 in kWh (Zählerstände, unverändert vom Gateway). Doppelte Viertelstunden (laufender Tag) werden entfernt.<br>
+      <b>Excel holt die Daten von diesem SMGW-Leser, nicht vom Gateway:</b> die Abfrage liest die Dateien auf seiner SD-Karte über Port 82 (nur lesen). Mit dem Gateway spricht nur der Leser selbst. Excel braucht deshalb keine Zugangsdaten, und Aktualisieren meldet sich nicht am Gateway an (keine Sperrgefahr) – Excel sieht den Stand, den der Leser schon abgeholt hat. Ändert sich die Adresse des Lesers, diese Seite unter der neuen Adresse öffnen und die Abfrage neu kopieren – oder in Excel nur die Zeile <code>Basis</code> ändern.</p></details>
+  </section>
+  <section class="card">
+    <h2>Hinweise</h2>
+<details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span></summary>
+    <div class="note" style="font-size:13px;line-height:1.6">
+      Werte = signierte Zählerstände des Gateways (eingerichtete Profile: Monatswerte und 15-Minuten-Werte).<br>
+      Ganze Tage werden einmal täglich nach 00:20 abgeholt; fehlen mehrere Tage, holt der Leser sie nach (zwischen zwei Abrufen 10 Minuten Pause). Der laufende Tag nur bei eingestelltem Takt (Einstellungen → Abruf einstellen).<br>
+      Nach einem Fehler wartet der Abruf 60 Minuten; bei jedem weiteren Fehler verdoppelt sich die Wartezeit bis höchstens 24 Stunden. Nach abgelehnter Anmeldung wartet er 12 Stunden (das Gateway sperrt sonst). Ein erfolgreicher Abruf setzt die Wartezeit zurück.<br>
+      Konsole: <code>SMGW</code> Status · <code>SMGWAbruf</code> jetzt abrufen · <code>SMGWTakt &lt;min&gt;</code> (0 = aus, sonst mind. 15) · <code>SMGWVersatz &lt;min&gt;</code> (0–14) · <code>SMGWHost</code> / <code>SMGWPort</code> / <code>SMGWPfad</code> Gateway-Adresse · <code>SMGWFtp</code> Daten jetzt sichern (<code>SMGWFtp SYNC</code> / <code>SMGWFtp RESTORE</code>, Schreibweise egal ab slot0-smgw v014) · <code>SMGWFtpZeit HH:MM</code> · <code>SMGWFrei</code> Wartezeit nach einem Fehler aufheben (nur bewusst benutzen: das Gateway sperrt bei zu vielen Fehlversuchen, deshalb nicht hier auf der Seite). Zugangsdaten gibt es absichtlich nicht als Konsolenbefehl.
+    </div></details>
+  </section>
+</div>
+
+<footer><span id="ftNote"></span>
+  <button class="btn" id="dlQ" title="alle Viertelstunden als CSV (UTF-8, Semikolon, Dezimalkomma) für Excel / Power Query">Viertelstunden als .csv</button>
+  <button class="btn" id="dlT" title="alle Tage als CSV (UTF-8, Semikolon, Dezimalkomma) für Excel / Power Query">Tage als .csv</button>
+  <span id="dlMsg"></span>
+  <span class="design" style="margin-left:auto">Design by meierchen006</span>   <!-- v045 (Andreas): immer unten rechts -->
+</footer>
+</div>
+
+<script>
+'use strict';
+// ---------- Daten ----------
+// /smgwj            Status (JSON)
+// /smgwf?n=tage     je Tag: Datum, Bezug 00:00, Bezug letzte Viertelstunde (23:45), Einsp. 00:00, Einsp. 23:45, Anzahl
+//                   Tagesende = 00:00 des Folgetages (dessen Anfang); das Gateway liefert je Tag nur 00:00-23:45
+// /smgwf?n=JJJJ-MM  je Viertelstunde: "JJJJ-MM-TT hh:mm", Bezug, Einspeisung
+// /smgwf?n=heute    wie Monatsdatei, nur der laufende Tag
+const ST = { status:null, tage:[], tageMap:{}, monate:{}, heute:null, tag:null, monat:null, jahr:null, charts:{} };
+const MON = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const MONK = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const num = (v, d) => (v == null || isNaN(v)) ? '–' : v.toLocaleString('de-DE', {minimumFractionDigits:d, maximumFractionDigits:d});
+const kwh = v => num(v, 2) + '<small>kWh</small>';
+const pad = n => String(n).padStart(2, '0');
+function addDays(iso, d){ const t = new Date(iso + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + d); return t.toISOString().slice(0, 10); }
+function deDate(iso){ const [y, m, d] = iso.split('-'); return `${+d}.${+m}.${y}`; }
+function wday(iso){ return ['So','Mo','Di','Mi','Do','Fr','Sa'][new Date(iso + 'T12:00:00Z').getUTCDay()]; }
+
+async function holeText(url){
+  const r = await fetch(url, {cache:'no-store'});
+  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  return r.text();
+}
+function zeilen(txt){ return txt.split('\n').map(z => z.trim()).filter(z => z.length > 0).map(z => z.split('\t')); }
+const fl = s => (s == null || s === '') ? null : parseFloat(s);
+
+async function ladeStatus(){
+  try { ST.status = JSON.parse(await holeText('/smgwj')); } catch(e){ ST.status = null; }
+}
+async function ladeTage(){
+  try {
+    ST.tage = zeilen(await holeText('/smgwf?n=tage')).filter(f => f.length >= 5).map(f => ({
+      d:f[0], b0:fl(f[1]), b1:fl(f[2]), e0:fl(f[3]), e1:fl(f[4]), n:parseInt(f[5] || '0', 10)
+    }));
+  } catch(e){ ST.tage = []; }
+  ST.tageMap = {};
+  ST.tage.forEach(t => { ST.tageMap[t.d] = t; });
+  // Ende = Anfang des Folgetages (00:00); ohne Folgetag bleibt 23:45 (letzte Viertelstunde fehlt dann)
+  ST.tage.forEach(t => {
+    const f = ST.tageMap[addDays(t.d, 1)];
+    if (f && f.b0 != null && f.e0 != null){ t.b1 = f.b0; t.e1 = f.e0; t.ganz = true; } else { t.ganz = false; }
+  });
+}
+async function ladeMonat(ym){
+  if (ST.monate[ym]) return ST.monate[ym];
+  let rows = [];
+  try { rows = zeilen(await holeText('/smgwf?n=' + ym)); } catch(e){ rows = []; }
+  ST.monate[ym] = rows;
+  return rows;
+}
+async function ladeHeute(){
+  try { ST.heute = zeilen(await holeText('/smgwf?n=heute')); } catch(e){ ST.heute = []; }
+}
+
+// ---------- Kopf + Chips ----------
+function zeigeKopf(){
+  const s = ST.status, ch = [];
+  const msg = $('msg');
+  if (!s){
+    msg.style.display = 'block';
+    msg.textContent = 'Keine Verbindung zum Gerät (/smgwj).';
+  } else if (!s.zugang){
+    msg.style.display = 'block';
+    msg.textContent = 'Zugangsdaten fehlen: Datei /smgw_zugang.secret auf der SD-Karte (Zeile 1 Benutzer, Zeile 2 Passwort).';
+  } else { msg.style.display = 'none'; }
+  if (s){
+    const fehler = s.fehler && s.fehler.length > 0;
+    ch.push(`<span class="chip"><span class="dot ${fehler ? 'wa' : (s.ok ? 'ok' : '')}"></span>${fehler ? 'Fehler: <b>' + esc(s.fehler) + '</b>' : 'Abruf <b>' + (s.ok ? 'in Ordnung' : 'noch keiner') + '</b>'}</span>`);
+    if (s.ok) ch.push(`<span class="chip">letzter Abruf <b>${esc(s.ok.replace('T', ' '))}</b></span>`);
+    ch.push(`<span class="chip">gespeichert bis <b>${s.bis ? deDate(s.bis) : '–'}</b></span>`);
+    ch.push(`<span class="chip" title="Ganze Tage holt der Leser automatisch täglich ab 00:20 (alle fehlenden bis gestern).">nächster Abruf <b>${esc(naechsterAbruf(s))}</b></span>`);
+    if (s.aktiv) ch.push(`<span class="chip"><span class="dot ok"></span><b>Abruf läuft …</b></span>`);
+    if (s.warte > 0) ch.push(`<span class="chip">nächster Versuch in <b>${Math.ceil(s.warte / 60)} min</b></span>`);
+    ch.push(`<span class="chip" title="${esc(TAKT_INFO)}" style="cursor:help">Takt heute <b>${s.takt > 0 ? 'alle ' + s.takt + ' min, +' + ((s.versatz == null) ? 2 : s.versatz) + ' min' : 'aus'}</b> ⓘ</span>`);
+  }
+  $('chips').innerHTML = ch.join('');
+  $('hdrStand').textContent = ST.tage.length ? `${ST.tage.length} Tage · ${deDate(ST.tage[0].d)} – ${deDate(ST.tage[ST.tage.length - 1].d)}` : 'noch keine Tage gespeichert';
+}
+// v011 07.11.2026 (Andreas): wann holt das Skript automatisch? (wie TaskLoop in slot0-smgw: ab 00:20 alle fehlenden
+// ganzen Tage bis gestern; nach einem Fehler erst nach der Wartezeit). Rueckgabe: kurzer Text fuer Statuszeile/Status.
+function naechsterAbruf(s){
+  if (!s || !s.zugang) return 'keiner (Zugangsdaten fehlen)';
+  if (s.aktiv) return 'läuft gerade';
+  if (s.warte > 0) return `in ${Math.ceil(s.warte / 60)} min (Wartezeit nach Fehler)`;
+  const heute = heuteIso(), gestern = addDays(heute, -1), jetzt = new Date();
+  const nach0020 = jetzt.getHours() * 60 + jetzt.getMinutes() >= 20;
+  if (s.takt > 0){            // v013: naechster Takt-Zeitpunkt nach der Uhr (wie TaskLoop in slot0-smgw v007)
+    const v = (s.versatz == null) ? 2 : +s.versatz, mi = jetzt.getHours() * 60 + jetzt.getMinutes();
+    const nx = mi < v ? v : v + (Math.floor((mi - v) / s.takt) + 1) * s.takt;
+    if (nx < 1440) return `heute ${pad(Math.floor(nx / 60))}:${pad(nx % 60)} (Takt)`;
+  }
+  if (s.bis && s.bis >= gestern) { const m = addDays(heute, 1); return `${wday(m)} ${deDate(m)} ab 00:20`; }
+  return nach0020 ? 'jetzt (fehlende Tage)' : `heute ab 00:20`;
+}
+const TAKT_INFO = 'Takt heute: holt zusätzlich die Viertelstunden des LAUFENDEN Tages nach der Uhr des Geräts (Takt 60: hh:02, Takt 15: :02/:17/:32/:47 bei 2 min Abstand; Reiter Einstellungen oder Konsole SMGWTakt / SMGWVersatz). '
+  + 'Aus: der laufende Tag erscheint erst am nächsten Morgen nach 00:20, zusammen mit dem ganzen Tag.';
+function esc(t){ return String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ---------- Diagramme ----------
+function balken(id, labels, bez, ein, xTitel, onClick){
+  const old = ST.charts[id];
+  if (old) old.destroy();
+  const grid = css('--grid'), ink2 = css('--ink-2');
+  ST.charts[id] = new Chart($(id), {
+    type:'bar',
+    data:{ labels, datasets:[
+      {label:'Bezug', data:bez, backgroundColor:css('--s-bez'), stack:'s'},
+      {label:'Einspeisung', data:ein.map(v => v == null ? null : -v), backgroundColor:css('--s-einb'), stack:'s'}
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{labels:{color:ink2}},
+        tooltip:{callbacks:{label:c => `${c.dataset.label}: ${num(Math.abs(c.parsed.y), 3)} ${xTitel}`}}
+      },
+      scales:{
+        x:{stacked:true, ticks:{color:ink2, autoSkip:true, maxRotation:0}, grid:{color:grid}},
+        y:{stacked:true, ticks:{color:ink2, callback:v => num(v, 1)}, grid:{color:grid}, title:{display:true, text:xTitel, color:ink2}}
+      },
+      onClick:(e, els) => { if (onClick && els.length) onClick(els[0].index); }
+    }
+  });
+}
+
+// ---------- Bestwerte je Kalenderjahr (v023 08.11.2026) ----------
+// Jahresangabe fuer die Kachelkoepfe: "2026" oder "2026 (ab 30.1.)", wenn die Daten erst spaeter im Jahr beginnen
+function jahrText(y){
+  const tj = ST.tage.filter(t => +t.d.slice(0, 4) === y);
+  if (!tj.length) return String(y);
+  return tj[0].d > `${y}-01-01` ? `${y} (ab ${+tj[0].d.slice(8, 10)}.${+tj[0].d.slice(5, 7)}.)` : String(y);
+}
+// Top-Liste als Tabelle; z = [{go, zellen:[...]}]; Klick auf eine Zeile ruft onGo(go)
+function topTabelle(id, kopf, z, onGo){
+  const el = $(id);
+  if (!z.length){ el.innerHTML = '<tr><td class="leer" style="text-align:left">keine Daten</td></tr>'; el.onclick = null; return; }
+  el.innerHTML = '<tr>' + kopf.map(k => `<th>${k}</th>`).join('') + '</tr>' +
+    z.map((r, i) => `<tr data-go="${esc(r.go)}"><td>${i + 1}</td>` + r.zellen.map(c => `<td>${c}</td>`).join('') + '</tr>').join('');
+  el.onclick = e => { const tr = e.target.closest('tr[data-go]'); if (tr) onGo(tr.getAttribute('data-go')); };
+}
+const kurzTag = iso => `${wday(iso)} ${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(2, 4)}`;
+// Zeitumstellung im Oktober (letzter Sonntag, 01:00-03:00): die doppelte Stunde ist in den Daten nur einmal
+// vorhanden, ein "15-Minuten-Schritt" dort kann mehr als eine Stunde umfassen -> fuer kW-Spitzen auslassen.
+function dstHerbst(d, hh){
+  if (d.slice(5, 7) !== '10' || hh < 1 || hh > 2) return false;
+  return +d.slice(8, 10) >= 25 && new Date(d + 'T12:00:00Z').getUTCDay() === 0;
+}
+// hoechste Viertelstunden-Leistung je Tag eines Kalenderjahres; Ergebnis je Jahr zwischengespeichert,
+// das laufende Jahr nach 10 min neu (der laufende Monat wird dann frisch gelesen)
+async function spitzenJahr(y){
+  const c = ST.spitzen && ST.spitzen[y];
+  const laufend = y === new Date().getFullYear();
+  if (c && (!laufend || Date.now() - c.zeit < 600000)) return c;
+  const monate = [...new Set(ST.tage.filter(t => +t.d.slice(0, 4) === y).map(t => t.d.slice(0, 7)))];
+  const lfd = heuteIso().slice(0, 7);
+  if (laufend && ST.monate[lfd]) delete ST.monate[lfd];
+  let rows = [];
+  for (const ym of monate) rows = rows.concat(await ladeMonat(ym));
+  rows = rows.filter(f => f.length >= 3 && f[1] !== '' && f[2] !== '').sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const ms = f => Date.UTC(+f[0].slice(0, 4), +f[0].slice(5, 7) - 1, +f[0].slice(8, 10), +f[0].slice(11, 13), +f[0].slice(14, 16));
+  const tag = {};
+  for (let i = 0; i + 1 < rows.length; i++){
+    const a = rows[i], b = rows[i + 1];
+    if (ms(b) - ms(a) !== 900000) continue;              // nur echte 15-Minuten-Schritte
+    const d = a[0].slice(0, 10);
+    if (dstHerbst(d, +a[0].slice(11, 13))) continue;
+    const kb = (parseFloat(b[1]) - parseFloat(a[1])) * 4, ke = (parseFloat(b[2]) - parseFloat(a[2])) * 4;
+    const t = tag[d] || (tag[d] = {b:-1, bu:'', e:-1, eu:''});
+    if (kb > t.b){ t.b = kb; t.bu = a[0].slice(11, 16); }
+    if (ke > t.e){ t.e = ke; t.eu = a[0].slice(11, 16); }
+  }
+  const liste = Object.keys(tag).map(d => ({d, ...tag[d]}));
+  const r = {zeit:Date.now(),
+    bez:liste.filter(x => x.b > 0).sort((p, q) => q.b - p.b).slice(0, 5),
+    ein:liste.filter(x => x.e > 0).sort((p, q) => q.e - p.e).slice(0, 5)};
+  ST.spitzen = ST.spitzen || {};
+  ST.spitzen[y] = r;
+  return r;
+}
+async function zeigeTagTop(iso){
+  const y = +iso.slice(0, 4);
+  $('tkBJ').textContent = $('tkEJ').textContent = jahrText(y);
+  if (!(ST.spitzen && ST.spitzen[y])) $('tkInfo').textContent = 'wird berechnet …';
+  const r = await spitzenJahr(y);
+  if (+ST.tag.slice(0, 4) !== y) return;                   // inzwischen anderes Jahr angezeigt
+  const geh = d => { zeigeTag(d); };
+  topTabelle('tkB', ['#', 'Tag', 'kW', 'um'], r.bez.map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.b, 2), x.bu]})), geh);
+  topTabelle('tkE', ['#', 'Tag', 'kW', 'um'], r.ein.map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.e, 2), x.eu]})), geh);
+  $('tkInfo').textContent = 'Viertelstundenmittel · Klick öffnet den Tag';
+}
+function zeigeMonatTop(ym){
+  const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+  const mk = t => ({d:t.d, b:t.b1 - t.b0, e:t.e1 - t.e0});
+  const ok = t => t.b0 != null && t.b1 != null && t.e0 != null && t.e1 != null;
+  const mt = ST.tage.filter(t => t.d.startsWith(ym) && ok(t)).map(mk);
+  const jt = ST.tage.filter(t => +t.d.slice(0, 4) === y && ok(t)).map(mk);
+  $('tmBJ').textContent = $('tmEJ').textContent = jahrText(y);          // v028: ganzes Kalenderjahr
+  const geh = d => { zeigeTab('tag'); zeigeTag(d); };
+  topTabelle('tmB', ['#', 'Tag', 'kWh'], [...jt].sort((p, q) => q.b - p.b).slice(0, 5).map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.b, 2)]})), geh);
+  topTabelle('tmE', ['#', 'Tag', 'kWh'], [...jt].sort((p, q) => q.e - p.e).slice(0, 5).map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.e, 2)]})), geh);
+  const mb = [...mt].sort((p, q) => q.b - p.b)[0], me = [...mt].sort((p, q) => q.e - p.e)[0];
+  $('tmBR').textContent = mb ? `Bester Tag ${MON[m - 1]} ${y}: ${kurzTag(mb.d)} ${num(mb.b, 2)} kWh · Klick öffnet den Tag` : `${MON[m - 1]} ${y}: keine Daten`;
+  $('tmER').textContent = me ? `Bester Tag ${MON[m - 1]} ${y}: ${kurzTag(me.d)} ${num(me.e, 2)} kWh · Klick öffnet den Tag` : `${MON[m - 1]} ${y}: keine Daten`;
+}
+function zeigeJahrTop(y, bez, ein, nt){
+  $('tyBJ').textContent = $('tyEJ').textContent = jahrText(y);
+  const ms = [];
+  for (let m = 0; m < 12; m++) if (nt[m]) ms.push({m, b:bez[m], e:ein[m], n:nt[m], voll:nt[m] >= new Date(Date.UTC(y, m + 1, 0)).getUTCDate()});
+  const geh = ym => { zeigeTab('monat'); zeigeMonat(ym); };
+  const z = (x, v) => ({go:`${y}-${pad(x.m + 1)}`, zellen:[`${MONK[x.m]} ${y}`, num(v, 1), x.n + (x.voll ? '' : ' ⚠')]});
+  topTabelle('tyB', ['#', 'Monat', 'kWh', 'Tage'], [...ms].sort((p, q) => q.b - p.b).slice(0, 5).map(x => z(x, x.b)), geh);
+  topTabelle('tyE', ['#', 'Monat', 'kWh', 'Tage'], [...ms].sort((p, q) => q.e - p.e).slice(0, 5).map(x => z(x, x.e)), geh);
+  $('tyInfo').textContent = 'Klick öffnet den Monat';
+}
+
+// ---------- Tag ----------
+async function tagDaten(iso){
+  // Zeilen des Tages: aus heute-Datei (laufender Tag) oder Monatsdatei
+  let rows = [];
+  if (ST.status && iso > (ST.status.bis || '')) {
+    if (ST.heute === null) await ladeHeute();
+    rows = (ST.heute || []).filter(f => f[0].startsWith(iso));
+  }
+  if (!rows.length) rows = (await ladeMonat(iso.slice(0, 7))).filter(f => f[0].startsWith(iso));
+  const q = new Array(97).fill(null).map(() => ({b:null, e:null}));
+  rows.forEach(f => {
+    const hh = +f[0].slice(11, 13), mm = +f[0].slice(14, 16);
+    const i = hh * 4 + Math.floor(mm / 15);
+    if (i >= 0 && i < 96) q[i] = {b:fl(f[1]), e:fl(f[2])};
+  });
+  // 00:00 des Folgetages = Ende des Tages (nur wenn der Folgetag gespeichert ist)
+  const t = ST.tageMap[iso];
+  if (t && t.ganz) q[96] = {b:t.b1, e:t.e1};
+  return {q, n:rows.length, t};
+}
+
+async function zeigeTag(iso){
+  ST.tag = iso;
+  $('dLbl').textContent = `${wday(iso)} ${deDate(iso)}`;
+  $('dPick').value = iso;
+  const {q, n, t} = await tagDaten(iso);
+  const labels = [], pb = [], pe = [];
+  let sb = 0, se = 0, mb = -1, mbI = -1, me = -1, meI = -1;
+  const tr = ['<tr><th>Uhrzeit</th><th>Zählerstand Bezug</th><th>Zählerstand Einsp.</th><th>Bezug kWh</th><th>Einsp. kWh</th><th>Bezug kW</th><th>Einsp. kW</th></tr>'];
+  for (let i = 0; i < 96; i++){
+    const zeit = `${pad(Math.floor(i / 4))}:${pad((i % 4) * 15)}`;
+    labels.push(zeit);
+    const a = q[i], b = q[i + 1];
+    let db = null, de = null;
+    if (a.b != null && b.b != null) db = b.b - a.b;
+    if (a.e != null && b.e != null) de = b.e - a.e;
+    pb.push(db == null ? null : db * 4);
+    pe.push(de == null ? null : de * 4);
+    if (db != null){ sb += db; if (db > mb){ mb = db; mbI = i; } }
+    if (de != null){ se += de; if (de > me){ me = de; meI = i; } }
+    if (a.b != null || a.e != null)
+      tr.push(`<tr><td>${zeit}</td><td>${num(a.b, 4)}</td><td>${num(a.e, 4)}</td><td>${num(db, 4)}</td><td>${num(de, 4)}</td><td>${num(db == null ? null : db * 4, 3)}</td><td>${num(de == null ? null : de * 4, 3)}</td></tr>`);
+  }
+  const hatWerte = n > 0;
+  // Tagessumme bevorzugt aus der Tagesliste (exakt 00:00 bis 00:00)
+  if (t && t.b0 != null && t.b1 != null){ sb = t.b1 - t.b0; se = t.e1 - t.e0; }
+  $('dBez').innerHTML = hatWerte ? kwh(sb) : '–';
+  $('dEin').innerHTML = hatWerte ? kwh(se) : '–';
+  $('dBezZ').textContent = hatWerte && q[0].b != null ? `Zählerstand 00:00: ${num(q[0].b, 4)} kWh` : (hatWerte ? '' : 'keine Werte für diesen Tag');
+  $('dEinZ').textContent = hatWerte && q[0].e != null ? `Zählerstand 00:00: ${num(q[0].e, 4)} kWh` : '';
+  $('dPmax').innerHTML = mbI >= 0 ? num(mb * 4, 2) + '<small>kW</small>' : '–';
+  $('dPmaxZ').textContent = mbI >= 0 ? `um ${labels[mbI]} (Viertelstundenmittel)` : 'Mittel einer Viertelstunde';
+  $('dEmax').innerHTML = meI >= 0 && me > 0 ? num(me * 4, 2) + '<small>kW</small>' : '–';
+  $('dEmaxZ').textContent = meI >= 0 && me > 0 ? `um ${labels[meI]} (Viertelstundenmittel)` : 'Mittel einer Viertelstunde';
+  balken('cTag', labels, pb, pe, 'kW', null);
+  $('tTag').innerHTML = tr.join('');
+  const erster = ST.tage.length ? ST.tage[0].d : (ST.status && ST.status.start) || iso;
+  $('dPrev').disabled = iso <= erster;
+  $('dNext').disabled = iso >= heuteIso();
+  $('dHeute').disabled = iso === heuteIso();
+  zeigeTagTop(iso);            // v023: Top 5 Leistung im Kalenderjahr (laedt die Monate des Jahres im Hintergrund)
+}
+function heuteIso(){ const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+
+// ---------- Monat ----------
+function zeigeMonat(ym){
+  ST.monat = ym;
+  const [y, m] = ym.split('-').map(Number);
+  $('mLbl').textContent = `${MON[m - 1]} ${y}`;
+  const tageImMonat = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const labels = [], bez = [], ein = [], isos = [];
+  let sb = 0, se = 0, nt = 0;
+  const tr = ['<tr><th>Tag</th><th>Bezug kWh</th><th>Einsp. kWh</th><th>Zählerstand Bezug 00:00</th><th>Zählerstand Einsp. 00:00</th><th>Viertelstunden</th></tr>'];
+  for (let d = 1; d <= tageImMonat; d++){
+    const iso = `${ym}-${pad(d)}`;
+    const t = ST.tageMap[iso];
+    labels.push(String(d)); isos.push(iso);
+    if (t && t.b0 != null && t.b1 != null){
+      const db = t.b1 - t.b0, de = t.e1 - t.e0;
+      bez.push(db); ein.push(de); sb += db; se += de; nt++;
+      tr.push(`<tr><td>${wday(iso)} ${d}.</td><td>${num(db, 3)}</td><td>${num(de, 3)}</td><td>${num(t.b0, 4)}</td><td>${num(t.e0, 4)}</td><td>${t.n}</td></tr>`);
+    } else {
+      bez.push(null); ein.push(null);
+      tr.push(`<tr><td>${wday(iso)} ${d}.</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td></tr>`);
+    }
+  }
+  tr.push(`<tr class="sum"><td>Summe</td><td>${num(sb, 3)}</td><td>${num(se, 3)}</td><td></td><td></td><td>${nt} Tage</td></tr>`);
+  $('mBez').innerHTML = nt ? kwh(sb) : '–';
+  $('mEin').innerHTML = nt ? kwh(se) : '–';
+  $('mAvg').innerHTML = nt ? kwh(sb / nt) : '–';
+  $('mAvgE').innerHTML = nt ? kwh(se / nt) : '–';
+  $('mTage').textContent = `${nt} / ${tageImMonat}`;
+  balken('cMonat', labels, bez, ein, 'kWh', i => { zeigeTab('tag'); zeigeTag(isos[i]); });
+  $('tMonat').innerHTML = tr.join('');
+  const erster = ST.tage.length ? ST.tage[0].d.slice(0, 7) : ym;
+  $('mPrev').disabled = ym <= erster;
+  $('mNext').disabled = ym >= heuteIso().slice(0, 7);
+  $('mHeute').disabled = ym === heuteIso().slice(0, 7);
+  zeigeMonatTop(ym);           // v023
+}
+function monatPlus(ym, d){ let [y, m] = ym.split('-').map(Number); m += d; while (m < 1){ m += 12; y--; } while (m > 12){ m -= 12; y++; } return `${y}-${pad(m)}`; }
+
+// ---------- Jahr ----------
+function zeigeJahr(y){
+  ST.jahr = y;
+  $('yLbl').textContent = String(y);
+  const bez = new Array(12).fill(null), ein = new Array(12).fill(null), nt = new Array(12).fill(0);
+  ST.tage.forEach(t => {
+    if (+t.d.slice(0, 4) !== y || t.b0 == null || t.b1 == null) return;
+    const m = +t.d.slice(5, 7) - 1;
+    bez[m] = (bez[m] || 0) + (t.b1 - t.b0);
+    ein[m] = (ein[m] || 0) + (t.e1 - t.e0);
+    nt[m]++;
+  });
+  let sb = 0, se = 0, sn = 0;
+  const tr = ['<tr><th>Monat</th><th>Bezug kWh</th><th>Einsp. kWh</th><th>Ø Bezug je Tag</th><th>Ø Einsp. je Tag</th><th>Tage mit Daten</th></tr>'];
+  for (let m = 0; m < 12; m++){
+    if (nt[m]){
+      sb += bez[m]; se += ein[m]; sn += nt[m];
+      tr.push(`<tr><td>${MON[m]}</td><td>${num(bez[m], 2)}</td><td>${num(ein[m], 2)}</td><td>${num(bez[m] / nt[m], 2)}</td><td>${num(ein[m] / nt[m], 2)}</td><td>${nt[m]}</td></tr>`);
+    } else {
+      tr.push(`<tr><td>${MON[m]}</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td><td class="leer">0</td></tr>`);
+    }
+  }
+  tr.push(`<tr class="sum"><td>Jahr ${y}</td><td>${num(sb, 2)}</td><td>${num(se, 2)}</td><td>${sn ? num(sb / sn, 2) : '–'}</td><td>${sn ? num(se / sn, 2) : '–'}</td><td>${sn}</td></tr>`);
+  $('yBez').innerHTML = sn ? kwh(sb) : '–';
+  $('yEin').innerHTML = sn ? kwh(se) : '–';
+  $('yAvg').innerHTML = sn ? kwh(sb / sn) : '–';
+  $('yAvgE').innerHTML = sn ? kwh(se / sn) : '–';
+  $('yTage').textContent = String(sn);
+  balken('cJahr', MONK, bez, ein, 'kWh', i => { zeigeTab('monat'); zeigeMonat(`${y}-${pad(i + 1)}`); });
+  $('tJahr').innerHTML = tr.join('');
+  const erster = ST.tage.length ? +ST.tage[0].d.slice(0, 4) : y;
+  $('yPrev').disabled = y <= erster;
+  $('yNext').disabled = y >= new Date().getFullYear();
+  $('yHeute').disabled = y === new Date().getFullYear();
+  zeigeJahrTop(y, bez, ein, nt);   // v023
+}
+
+// ---------- Jahre (v005) ----------
+function zeigeJahre(){
+  const jetzt = new Date().getFullYear();
+  // v029: hoechstens die letzten 10 Jahre anzeigen; aeltere Daten bleiben auf der SD (Reiter Jahr, Pfeil zurueck)
+  const MAX_JAHRE = 10;
+  const ersterDaten = ST.tage.length ? +ST.tage[0].d.slice(0, 4) : jetzt;
+  const erster = Math.max(ersterDaten, jetzt - MAX_JAHRE + 1);
+  const jahre = []; for (let y = erster; y <= jetzt; y++) jahre.push(y);
+  const bez = jahre.map(() => null), ein = jahre.map(() => null), nt = jahre.map(() => 0);
+  ST.tage.forEach(t => {
+    if (t.b0 == null || t.b1 == null) return;
+    const i = +t.d.slice(0, 4) - erster;
+    if (i < 0 || i >= jahre.length) return;
+    bez[i] = (bez[i] || 0) + (t.b1 - t.b0);
+    ein[i] = (ein[i] || 0) + (t.e1 - t.e0);
+    nt[i]++;
+  });
+  let sb = 0, se = 0, sn = 0;
+  const tr = ['<tr><th>Jahr</th><th>Bezug kWh</th><th>Einsp. kWh</th><th>Ø Bezug je Tag</th><th>Ø Einsp. je Tag</th><th>Tage mit Daten</th></tr>'];
+  jahre.forEach((y, i) => {
+    if (nt[i]){
+      sb += bez[i]; se += ein[i]; sn += nt[i];
+      tr.push(`<tr><td>${y}</td><td>${num(bez[i], 2)}</td><td>${num(ein[i], 2)}</td><td>${num(bez[i] / nt[i], 2)}</td><td>${num(ein[i] / nt[i], 2)}</td><td>${nt[i]}</td></tr>`);
+    } else {
+      tr.push(`<tr><td>${y}</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td><td class="leer">–</td><td class="leer">0</td></tr>`);
+    }
+  });
+  tr.push(`<tr class="sum"><td>Gesamt${erster > ersterDaten ? ` (${erster}–${jetzt}, ältere Jahre im Reiter Jahr)` : ""}</td><td>${num(sb, 2)}</td><td>${num(se, 2)}</td><td>${sn ? num(sb / sn, 2) : '–'}</td><td>${sn ? num(se / sn, 2) : '–'}</td><td>${sn}</td></tr>`);
+  $('jsBez').innerHTML = sn ? kwh(sb) : '–';
+  $('jsEin').innerHTML = sn ? kwh(se) : '–';
+  $('jsAvg').innerHTML = sn ? kwh(sb / sn) : '–';
+  $('jsAvgE').innerHTML = sn ? kwh(se / sn) : '–';
+  $('jsTage').textContent = String(sn);
+  balken('cJahre', jahre.map(String), bez, ein, 'kWh', i => { zeigeTab('jahr'); zeigeJahr(jahre[i]); });
+  $('tJahre').innerHTML = tr.join('');
+}
+
+// ---------- Status ----------
+function zeigeStatus(){
+  const s = ST.status;
+  if (!s){ $('kvStatus').innerHTML = '<span>Gerät</span><span>keine Antwort</span>'; return; }
+  const w = s.warte > 0 ? `${Math.ceil(s.warte / 60)} min` : 'keine';
+  const kv = [
+    ['Zugangsdaten', s.zugang ? 'vorhanden' : 'fehlen (/smgw_zugang.secret)'],
+    ['Gespeichert bis', s.bis ? deDate(s.bis) : '–'],
+    ['Erster Tag', s.start ? deDate(s.start) : '–'],
+    ['Letzter erfolgreicher Abruf', s.ok ? s.ok.replace('T', ' ') : '–'],
+    ['Letzter Fehler', s.fehler ? `${s.fehler} (${(s.fehlerzeit || '').replace('T', ' ')})` : 'keiner'],
+    ['Wartezeit bis nächster Versuch', w],
+    ['Nächster automatischer Abruf', naechsterAbruf(s)],
+    ['Automatik', 'täglich ab 00:20 alle fehlenden ganzen Tage bis gestern'],
+    ['Takt heute (laufender Tag)', s.takt > 0 ? `alle ${s.takt} min nach der Uhr, ${(s.versatz == null) ? 2 : s.versatz} min nach Viertelstundenende` : 'aus – der laufende Tag kommt erst morgen ab 00:20'],
+    ['Abruf läuft', s.aktiv ? 'ja' : 'nein'],
+    ['FTP-Sicherung', ftpWort(s)],
+    ['Tage gespeichert', String(ST.tage.length)],
+    ['Gerät läuft seit', `${Math.floor(s.up / 3600)} h ${Math.floor((s.up % 3600) / 60)} min`]
+  ];
+  $('kvStatus').innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('');
+}
+
+// ---------- Reiter ----------
+function zeigeTab(t){
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.t === t ? 'true' : 'false'));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.dataset.p === t));
+  try { localStorage.setItem('smgwTab', t); } catch(e){}
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  zeigeTab(b.dataset.t);
+  if (b.dataset.t === 'status') zeigeStatus();
+  if (b.dataset.t === 'jahre') zeigeJahre();
+  if (b.dataset.t === 'einst') zeigeEinst();
+}));
+$('dPrev').onclick = () => zeigeTag(addDays(ST.tag, -1));
+$('dNext').onclick = () => zeigeTag(addDays(ST.tag, 1));
+$('dPick').onchange = e => { if (e.target.value) zeigeTag(e.target.value); };
+$('dHeute').onclick = () => zeigeTag(heuteIso());   // v023
+$('mPrev').onclick = () => zeigeMonat(monatPlus(ST.monat, -1));
+$('mNext').onclick = () => zeigeMonat(monatPlus(ST.monat, 1));
+$('yPrev').onclick = () => zeigeJahr(ST.jahr - 1);
+$('yNext').onclick = () => zeigeJahr(ST.jahr + 1);
+$('mHeute').onclick = () => zeigeMonat(heuteIso().slice(0, 7));   // v024
+$('yHeute').onclick = () => zeigeJahr(new Date().getFullYear());   // v024
+
+// ---------- Start ----------
+async function start(){
+  await ladeStatus();
+  await ladeTage();
+  zeigeKopf();
+  const letzter = ST.tage.length ? ST.tage[ST.tage.length - 1].d : heuteIso();
+  let tab = 'tag';
+  try { tab = localStorage.getItem('smgwTab') || 'tag'; } catch(e){}
+  zeigeTab(tab);
+  // v022: Inhalt des wiederhergestellten Reiters laden (vorher nur beim Klick - nach Neuladen im Reiter Einstellungen blieben
+  // FTP-Zugang und Uhrzeit leer, im Reiter Status/TAF die Gateway-Angaben)
+  if (tab === 'einst') { zeigeEinst(); ftpLaden(); }
+  if (tab === 'status' || tab === 'taf') zeigeGateway();
+  await zeigeTag(letzter);
+  zeigeMonat(letzter.slice(0, 7));
+  zeigeJahr(+letzter.slice(0, 4));
+  zeigeJahre();
+  zeigeStatus();
+  $('ftNote').textContent = 'Daten: auf der SD-Karte des Tasmota-SMGW-Lesegeräts';
+}
+// Status jede Minute auffrischen (die Werte selbst ändern sich höchstens je Abruf)
+setInterval(async () => { await ladeStatus(); zeigeKopf(); zeigeStatus(); }, 60000);
+start();
+
+// v004 07.11.2026 (Andreas): Kopf wie HEMS - Adresse, Datum · Uhrzeit · läuft seit x h (jede Sekunde),
+// Laufzeit aus Status 11 alle 60 s, dazwischen zählt der Browser weiter. Hell/Dunkel wird im Browser gemerkt.
+var UP_S = -1, UP_AT = 0;
+function kopfZeit(){
+  const jetzt = new Date();
+  $('sub_ip').textContent = location.hostname;
+  const lauf = UP_S >= 0 ? ' · läuft seit ' + Math.floor((UP_S + (Date.now() - UP_AT) / 1000) / 3600) + ' h' : '';
+  $('sub').textContent = jetzt.toLocaleDateString('de-DE', {weekday:'short', day:'2-digit', month:'2-digit', year:'numeric'}) +
+                         ' · ' + jetzt.toLocaleTimeString('de-DE') + lauf;
+}
+function ladeLaufzeit(){
+  return fetch('/cm?cmnd=' + encodeURIComponent('Status 11'), {cache:'no-store'}).then(r => r.json())
+    .then(st => { const u = st && st.StatusSTS && +st.StatusSTS.UptimeSec; if (u >= 0) { UP_S = u; UP_AT = Date.now(); } }).catch(() => {});
+}
+try { const th = localStorage.getItem('smgw_theme'); if (th) { document.documentElement.dataset.theme = th; } } catch (x) {}
+$('theme').onclick = () => {
+  const r = document.documentElement; r.dataset.theme = r.dataset.theme === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('smgw_theme', r.dataset.theme); } catch (x) {}
+};
+kopfZeit(); ladeLaufzeit();
+setInterval(() => { if (!document.hidden) { kopfZeit(); } }, 1000);
+setInterval(() => { if (!document.hidden) { ladeLaufzeit(); } }, 60000);
+
+// v012 07.11.2026 (Andreas): Einstellungen (SMGWTakt, SMGWAbruf ueber die Tasmota-HTTP-API) und Daten als CSV
+// fuer Excel / Power Query: UTF-8 mit BOM, Semikolon, Dezimalkomma, Kopfzeile, Zeilenende CRLF.
+async function smgwBefehl(c){
+  try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.text(); }
+  catch(e){ return 'keine Antwort (' + e.message + ')'; }
+}
+// v031 08.11.2026: Gateway-Adresse (SMGWHost/Port/Pfad, slot0 v011) und LAN des Lesers (EthIPAddress/EthSubnetmask)
+const GW_STD = {host:'192.168.1.200', port:443, pfad:'/cgi-bin/hanservice.cgi'};
+const ipOk = t => /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(t) && t.split('.').every(z => +z <= 255);
+const ipZahl = t => t.split('.').reduce((a, z) => a * 256 + (+z), 0);
+function maskeOk(t){
+  if (!ipOk(t)) return false;
+  const m = ipZahl(t);
+  if (m === 0) return false;
+  const inv = (0xFFFFFFFF - m);
+  return ((inv + 1) & inv) === 0;          // nur durchgehende Einsen links
+}
+function gwUrlZerlegen(t){
+  const m = /^(?:https:\/\/)?(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?(\/[A-Za-z0-9\/._\-?=&]*)?$/.exec(t.trim());
+  if (!m || !ipOk(m[1])) return null;
+  const port = m[2] ? +m[2] : 443;
+  if (port < 1 || port > 65535) return null;
+  const pfad = m[3] || GW_STD.pfad;
+  if (pfad.length > 79) return null;
+  return {host:m[1], port, pfad};
+}
+function gwMeldung(t, farbe){ $('gw_msg').textContent = t; $('gw_msg').style.color = farbe || ''; }
+function gwZMeldung(t, farbe){ $('gw_zmsg').textContent = t; $('gw_zmsg').style.color = farbe || ''; }
+let HAN_OK = false;             // v034: erst true, wenn Slot 1 mit art han antwortet
+let HAN_USERFLAG = false, FTP_USERFLAG = false, HAN_IDFLAG = false;   // v035: Slot 1 ab v006 (Benutzer nur als 1/0)
+// v040: .p12/.pfx im Browser zerlegen (node-forge). Liefert NUR, was der Leser braucht:
+// Zertifikat (DER als Hex), EC-Schluessel (Hex), Kurve, Art des Ausstellers, Ablaufdatum.
+// node-forge kennt keine EC-Schluessel/-Zertifikate als Objekte -> ASN.1 von Hand lesen.
+function p12Zerlegen(binStr, pw){
+  const f = forge;
+  const OID = {
+    p256: '1.2.840.10045.3.1.7', p384: '1.3.132.0.34', ecPub: '1.2.840.10045.2.1',
+    bp: '1.3.36.3.3.2.8.1.1', ecdsa: '1.2.840.10045.4.3', rsa: '1.2.840.113549.1.1'
+  };
+  let p12;
+  try { p12 = f.pkcs12.pkcs12FromAsn1(f.asn1.fromDer(binStr), false, pw); }
+  catch(e){ throw 'Datei nicht lesbar oder Passwort falsch (' + (e.message || e) + ')'; }
+  const kb = (p12.getBags({bagType: f.pki.oids.pkcs8ShroudedKeyBag})[f.pki.oids.pkcs8ShroudedKeyBag] || [])
+     .concat(p12.getBags({bagType: f.pki.oids.keyBag})[f.pki.oids.keyBag] || []);
+  const cb = p12.getBags({bagType: f.pki.oids.certBag})[f.pki.oids.certBag] || [];
+  if (!kb.length) throw 'kein privater Schlüssel in der Datei';
+  if (!cb.length) throw 'kein Zertifikat in der Datei';
+  const kbag = kb[0];
+  // PrivateKeyInfo: SEQ{ INT version, SEQ{ OID ecPublicKey, OID curve }, OCTET STRING(ECPrivateKey) }
+  let pki = kbag.asn1;
+  if (kbag.key && !pki) throw 'RSA-Schlüssel – der Leser kann nur EC-Schlüssel (P-256/P-384)';
+  if (!pki || !pki.value || pki.value.length < 3) throw 'Schlüssel nicht lesbar';
+  const alg = pki.value[1].value;
+  const algOid = f.asn1.derToOid(alg[0].value);
+  if (algOid !== OID.ecPub) throw 'kein EC-Schlüssel (' + algOid + ') – der Leser kann nur EC P-256/P-384';
+  const kurvenOid = alg[1] ? f.asn1.derToOid(alg[1].value) : '';
+  let kurve = '', len = 0;
+  if (kurvenOid === OID.p256) { kurve = 'P-256'; len = 32; }
+  else if (kurvenOid === OID.p384) { kurve = 'P-384'; len = 48; }
+  else if (kurvenOid.startsWith(OID.bp)) throw 'Brainpool-Kurve – kann die TLS-Bibliothek des Lesers nicht (nur P-256/P-384)';
+  else throw 'unbekannte Kurve ' + kurvenOid;
+  const ecpk = f.asn1.fromDer(pki.value[2].value);        // ECPrivateKey: SEQ{ INT 1, OCTET STRING d, ... }
+  let d = ecpk.value[1].value;
+  if (d.length > len) throw 'Schlüssel zu lang';
+  while (d.length < len) d = '\x00' + d;
+  // Zertifikat: das mit gleicher localKeyId wie der Schlüssel, sonst das nicht selbst signierte
+  const lkid = (kbag.attributes && kbag.attributes.localKeyId && kbag.attributes.localKeyId[0]) || null;
+  let cbag = cb.find(c => lkid && c.attributes && c.attributes.localKeyId && c.attributes.localKeyId[0] === lkid);
+  const certAsn = c => c.asn1 || (c.cert ? f.pki.certificateToAsn1(c.cert) : null);
+  const tbsTeile = a => { const t = a.value[0].value; return t[0].tagClass === f.asn1.Class.CONTEXT_SPECIFIC ? t.slice(1) : t; };
+  if (!cbag) cbag = cb.find(c => { const a = certAsn(c); if (!a) return false; const t = tbsTeile(a); return f.asn1.toDer(t[2]).getBytes() !== f.asn1.toDer(t[4]).getBytes(); }) || cb[0];
+  const ca = certAsn(cbag);
+  if (!ca) throw 'Zertifikat nicht lesbar';
+  const certDer = f.asn1.toDer(ca).getBytes();
+  if (certDer.length > 2048) throw 'Zertifikat größer als 2048 Byte';
+  const t = tbsTeile(ca);                                   // serial, sigAlg, issuer, validity, subject, spki, ...
+  const bisRoh = t[3].value[1].value;                       // UTCTime YYMMDDhhmmssZ oder GeneralizedTime
+  const bis = bisRoh.length === 13 ? '20' + bisRoh.slice(0, 2) + '-' + bisRoh.slice(2, 4) + '-' + bisRoh.slice(4, 6)
+                                   : bisRoh.slice(0, 4) + '-' + bisRoh.slice(4, 6) + '-' + bisRoh.slice(6, 8);
+  const sigOid = f.asn1.derToOid(ca.value[1].value[0].value);
+  const aussteller = sigOid.startsWith(OID.rsa) ? 'RSA' : 'EC';
+  return { certHex: f.util.bytesToHex(certDer), keyHex: f.util.bytesToHex(d), kurve, aussteller, bis };
+}
+
+// v040: node-forge erst bei Bedarf laden, mit Pruefsumme (cdnjs, sha512)
+function ladeForge(){
+  if (window.forge) return Promise.resolve();
+  return new Promise((ok, err) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/forge/1.3.1/forge.min.js';
+    sc.integrity = 'sha512-95iy0RZIbw3H/FgfAj2wnCQJlzFQ+eaSfUeV/l8WVyGHKSRMzm3M/O+85j9ba/HFphkijrCTDjcuDX0BL2lthA==';
+    sc.crossOrigin = 'anonymous';
+    sc.onload = () => ok(); sc.onerror = () => err('Bibliothek node-forge nicht ladbar (Internet nötig)');
+    document.head.appendChild(sc);
+  });
+}
+let CERT_OK = false;            // v040: erst true, wenn Slot 1 mit art cert antwortet (sonst landet es im FTP-Zweig)
+function gwCMeldung(t, farbe){ $('gw_cmsg').textContent = t; $('gw_cmsg').style.color = farbe || ''; }
+function certStandZeigen(j){
+  const st = ST.status ? ST.status.cert : null;
+  let t = j.da ? `********* (gespeichert) · ${j.kurve || '?'} · gültig bis ${j.bis ? deDate(j.bis) : '?'}` : 'kein Zertifikat gespeichert';
+  if (j.da && j.bis && j.bis < heuteIso()) t += ' · ⚠ abgelaufen';
+  if (j.da && st === 2) t += ' · ⚠ Firmware lädt es nicht (Firmware ab 08.11.2026 nötig)';
+  if (j.da && st === 1) t += ' · wird benutzt';
+  $('gw_cst').textContent = t;
+  $('gwCertDel').disabled = !j.da;
+}
+function certLaden(){
+  CERT_OK = false; $('gwCertSet').disabled = true; $('gwCertDel').disabled = true;
+  zugang({ art: 'cert' }).then(j => {
+    if (j.art !== 'cert'){ gwCMeldung('Slot 1 ab v007 nötig (slot1-smgwweb_v007.tc laden)', 'var(--muted)'); $('gw_cst').textContent = '–'; return; }
+    CERT_OK = true; $('gwCertSet').disabled = false;
+    certStandZeigen(j);
+  }).catch(e => gwCMeldung('Stand nicht lesbar (' + e + ')', 'var(--s-bez)'));
+}
+$('gwCertSet').onclick = async () => {
+  if (!CERT_OK){ gwCMeldung('✗ Slot 1 ab v007 nötig', 'var(--s-bez)'); return; }
+  const f = $('gw_p12').files[0];
+  if (!f){ gwCMeldung('✗ Zertifikatsdatei wählen', 'var(--s-bez)'); return; }
+  if (f.size > 20000){ gwCMeldung('✗ Datei zu groß für ein Zugangszertifikat', 'var(--s-bez)'); return; }
+  gwCMeldung('öffne Datei …');
+  let r = null;
+  try {
+    await ladeForge();
+    const buf = new Uint8Array(await f.arrayBuffer());
+    let bin = ''; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    r = p12Zerlegen(bin, $('gw_p12pw').value);
+  } catch(e){ gwCMeldung('✗ ' + e, 'var(--s-bez)'); return; }
+  gwCMeldung('speichert …');
+  zugang({ art: 'cert', setz: '1', cert: r.certHex, key: r.keyHex, kurve: r.kurve, aus: r.aussteller, bis: r.bis }).then(j => {
+    r.keyHex = ''; r = null;
+    $('gw_p12').value = ''; $('gw_p12pw').value = '';
+    if (j.art !== 'cert' || !j.da){ throw 'Kontrolle'; }
+    certStandZeigen(j);
+    gwCMeldung('✓ gespeichert – der Leser benutzt es ab dem nächsten Abruf', 'var(--ok, #37c871)');
+  }).catch(e => { if (r) r.keyHex = ''; gwCMeldung('✗ nicht gespeichert (' + e + ')', 'var(--s-bez)'); });
+};
+$('gwCertDel').onclick = () => {
+  if (!CERT_OK) return;
+  if (!confirm('Gespeichertes Zertifikat und Schlüssel vom Leser löschen?')) return;
+  zugang({ art: 'cert', setz: '2' }).then(j => { certStandZeigen(j); gwCMeldung('✓ gelöscht', 'var(--ok, #37c871)'); })
+    .catch(e => gwCMeldung('✗ ' + e, 'var(--s-bez)'));
+};
+
+function hanLaden(){            // v033: Zugang der HAN-Schnittstelle (Slot 1 ab v005), nie mit Passwort
+  HAN_OK = false; $('gwZugSet').disabled = true;
+  zugang({ art: 'han' }).then(j => {
+    if (j.art !== 'han'){ gwZMeldung('Slot 1 ab v005 nötig (slot1-smgwweb_v005.tc laden)', 'var(--muted)'); return; }
+    HAN_OK = true; $('gwZugSet').disabled = false;
+    $('gw_user').value = ''; $('gw_user').placeholder = j.user ? '********* (gespeichert)' : '';   // v035: Benutzer nie anzeigen
+    HAN_USERFLAG = (typeof j.user === 'number');   // v035: Slot 1 ab v006 meldet nur 1/0
+    HAN_IDFLAG = ('id' in j);                     // v038: Slot 1 v006 kennt die Identifikationsnummer
+    $('gw_pw').value = ''; $('gw_pw').placeholder = j.pw ? '********* (gespeichert)' : '';
+    $('gw_id').value = ''; $('gw_id').placeholder = j.id ? '********* (gespeichert)' : 'z. B. EABC0112345678 (auf dem Gateway aufgedruckt)';   // v038
+    if (!j.da) gwZMeldung('noch kein Zugang gespeichert', 'var(--muted)');
+  }).catch(e => gwZMeldung('Zugang nicht lesbar (' + e + ')', 'var(--s-bez)'));
+}
+$('gwZugSet').onclick = () => {
+  if (!HAN_OK){ gwZMeldung('✗ Slot 1 ab v005 nötig – sonst würde der FTP-Zugang überschrieben', 'var(--s-bez)'); return; }
+  const user = $('gw_user').value.trim(), pw = $('gw_pw').value;
+  const gid = $('gw_id').value.replace(/\s+/g, '').toUpperCase();   // v038
+  if (gid && gid !== '-' && !/^E[A-Z]{3}\d{10}$/.test(gid)){ gwZMeldung('✗ Identifikationsnummer: E + 3 Buchstaben + 10 Ziffern', 'var(--s-bez)'); return; }
+  if (gid && typeof HAN_IDFLAG !== 'undefined' && !HAN_IDFLAG){ gwZMeldung('✗ Identifikationsnummer braucht Slot 1 v006', 'var(--s-bez)'); return; }
+  if (!user && !(HAN_USERFLAG && $('gw_user').placeholder)){ gwZMeldung('✗ Benutzer eintragen', 'var(--s-bez)'); return; }   // v035: leer = bisheriger (nur Slot 1 ab v006)
+  if (/[\r\n]/.test(user + pw)){ gwZMeldung('✗ Zeilenumbruch im Feld', 'var(--s-bez)'); return; }
+  if (user.length > 70 || pw.length > 95){ gwZMeldung('✗ zu lang (Benutzer max. 70, Passwort max. 95 Zeichen)', 'var(--s-bez)'); return; }
+  gwZMeldung('speichert …');
+  zugang({ art: 'han', setz: '1', user: user, pw: pw, id: gid }).then(j => {
+    if (j.art !== 'han'){ throw 'Slot 1 ab v005 nötig'; }
+    if (!j.user || !j.pw){ throw 'Kontrolle'; }
+    $('gw_user').value = ''; $('gw_user').placeholder = '********* (gespeichert)';   // v035
+    $('gw_id').value = ''; $('gw_id').placeholder = j.id ? '********* (gespeichert)' : 'z. B. EABC0112345678 (auf dem Gateway aufgedruckt)';   // v038
+    $('gw_pw').value = ''; $('gw_pw').placeholder = '********* (gespeichert)';
+    gwZMeldung('✓ gespeichert – der Leser nimmt ihn spätestens in 1 min', 'var(--ok, #37c871)');
+  }).catch(e => gwZMeldung('✗ nicht gespeichert (' + e + ')', 'var(--s-bez)'));
+};
+let gwLanAlt = {ip:'', mask:''};
+async function zeigeGw(){
+  const s = ST.status || {};
+  const host = s.host || GW_STD.host, port = s.port || GW_STD.port, pfad = s.pfad || GW_STD.pfad;
+  if (document.activeElement !== $('gw_url')) $('gw_url').value = `https://${host}:${port}${pfad}`;
+  if (s.host == null) gwMeldung('Gerät meldet noch keine Adresse – Skript slot0-smgw v011 laden (bis dahin gilt die Vorgabe).', 'var(--muted)');
+  const a = await cmJson('EthIPAddress'), b = await cmJson('EthSubnetmask');
+  gwLanAlt = {ip:(a && a.EthIPAddress) || '', mask:(b && b.EthSubnetmask) || ''};
+  if (document.activeElement !== $('gw_lip')) $('gw_lip').value = gwLanAlt.ip;
+  if (document.activeElement !== $('gw_mask')) $('gw_mask').value = gwLanAlt.mask;
+}
+$('gwSet').onclick = async () => {
+  const g = gwUrlZerlegen($('gw_url').value);
+  const lip = $('gw_lip').value.trim(), mask = $('gw_mask').value.trim();
+  if (!g){ gwMeldung('✗ Adresse ungültig – Form: https://IP:Port/Pfad (IP als Zahl, kein Name)', 'var(--s-bez)'); return; }
+  if (!ipOk(lip)){ gwMeldung('✗ IP-Adresse des Lesers ungültig', 'var(--s-bez)'); return; }
+  if (!maskeOk(mask)){ gwMeldung('✗ Netzmaske ungültig (z. B. 255.255.255.0)', 'var(--s-bez)'); return; }
+  const m = ipZahl(mask);
+  if ((ipZahl(lip) & m) >>> 0 !== (ipZahl(g.host) & m) >>> 0){ gwMeldung(`✗ Leser (${lip}) und Gateway (${g.host}) liegen bei Maske ${mask} nicht im selben Netz`, 'var(--s-bez)'); return; }
+  if (lip === g.host){ gwMeldung('✗ Leser und Gateway dürfen nicht dieselbe Adresse haben', 'var(--s-bez)'); return; }
+  if (ST.status && ST.status.aktiv){ gwMeldung('✗ Abruf läuft gerade – bitte gleich noch einmal', 'var(--s-bez)'); return; }
+  gwMeldung('sende …');
+  const r1 = await smgwBefehl('SMGWHost ' + g.host);
+  const r2 = await smgwBefehl('SMGWPort ' + g.port);
+  const r3 = await smgwBefehl('SMGWPfad ' + g.pfad);
+  const fehler = [r1, r2, r3].find(r => /ungueltig|laeuft|keine Antwort/i.test(r) || !/SMGW(Host|Port|Pfad)/.test(r));
+  if (fehler){ gwMeldung('✗ Gerät: ' + fehler, 'var(--s-bez)'); return; }
+  await ladeStatus(); zeigeKopf(); zeigeStatus();
+  if (lip !== gwLanAlt.ip || mask !== gwLanAlt.mask){
+    if (!confirm(`LAN des Lesers auf ${lip} / ${mask} umstellen? Der Leser startet dazu neu und ist über das WLAN nach etwa 30 s wieder da.`)){
+      gwMeldung('✓ Gateway-Adresse gespeichert, LAN unverändert', 'var(--ok, #37c871)'); return;
+    }
+    await smgwBefehl(`Backlog EthIPAddress ${lip}; EthSubnetmask ${mask}; EthGateway 0.0.0.0; Restart 1`);
+    gwMeldung('✓ gespeichert, Leser startet neu …', 'var(--ok, #37c871)');
+    return;
+  }
+  gwMeldung('✓ gespeichert', 'var(--ok, #37c871)');
+};
+
+function zeigeEinst(){
+  const s = ST.status; if (!s) return;
+  zeigeGw();                                  // v031
+  hanLaden();                                 // v033
+  certLaden();                                // v040
+  $('eTakt').value = String([0,15,30,60,120].includes(s.takt) ? s.takt : 0);
+  const v = (s.versatz == null) ? 2 : +s.versatz;
+  $('eVers').value = String([0,1,2,3,5,10].includes(v) ? v : 2);
+  $('eVersInfo').textContent = (s.versatz == null) ? '(Gerät meldet noch keinen Abstand – Skript v007 laden)' : '';
+}
+$('eVersSet').onclick = async () => {
+  $('eAntwort').textContent = 'sende …';
+  $('eAntwort').textContent = await smgwBefehl('SMGWVersatz ' + $('eVers').value);
+  await ladeStatus(); zeigeKopf(); zeigeStatus(); zeigeEinst();
+};
+$('eTaktSet').onclick = async () => {
+  $('eAntwort').textContent = 'sende …';
+  $('eAntwort').textContent = await smgwBefehl('SMGWTakt ' + $('eTakt').value);
+  await ladeStatus(); zeigeKopf(); zeigeStatus(); zeigeEinst();
+};
+$('eAbruf').onclick = async () => {
+  $('eAntwort').textContent = 'sende …';
+  $('eAntwort').textContent = await smgwBefehl('SMGWAbruf');
+  setTimeout(async () => { await ladeStatus(); zeigeKopf(); zeigeStatus(); }, 3000);
+};
+function speichereCsv(name, zeilenListe){
+  const blob = new Blob(['﻿' + zeilenListe.join('\r\n') + '\r\n'], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const dez = s => String(s == null ? '' : s).replace('.', ',');
+$('dlT').onclick = async () => {
+  $('dlMsg').textContent = 'lade Tage …';
+  let rows = [];
+  try { rows = zeilen(await holeText('/smgwf?n=tage')); } catch(e){ $('dlMsg').textContent = 'Fehler: ' + e.message; return; }
+  const out = ['Datum;Bezug 00:00 kWh;Bezug Ende kWh;Einspeisung 00:00 kWh;Einspeisung Ende kWh;Viertelstunden']
+    .concat(rows.map(f => [f[0], dez(f[1]), dez(f[2]), dez(f[3]), dez(f[4]), f[5] || ''].join(';')));
+  speichereCsv('smgw_tage_' + heuteIso() + '.csv', out);
+  $('dlMsg').textContent = rows.length + ' Tage gespeichert';
+};
+$('dlQ').onclick = async () => {
+  if (!ST.tage.length){ $('dlMsg').textContent = 'keine Daten'; return; }
+  let ym = ST.tage[0].d.slice(0, 7);
+  const bis = ST.tage[ST.tage.length - 1].d.slice(0, 7);
+  const out = ['Zeitpunkt;Bezug 1.8.0 kWh;Einspeisung 2.8.0 kWh'];
+  while (ym <= bis){            // nacheinander, damit das Geraet nicht mehrere Dateien gleichzeitig liefern muss
+    $('dlMsg').textContent = 'lade ' + ym + ' …';
+    let rows = [];
+    try { rows = zeilen(await holeText('/smgwf?n=' + ym)); } catch(e){ rows = []; }
+    rows.forEach(f => out.push([f[0], dez(f[1]), dez(f[2])].join(';')));
+    ym = monatPlus(ym, 1);
+  }
+  speichereCsv('smgw_viertelstunden_' + heuteIso() + '.csv', out);
+  $('dlMsg').textContent = (out.length - 1) + ' Viertelstunden gespeichert';
+};
+
+// v014 07.11.2026 (Andreas): Karte "Geraet" - Firmware, Skripte, Speicher, SD, Netz (ueber die Tasmota-HTTP-API,
+// nacheinander, nur wenn der Reiter Status offen ist). Bewusst NICHT: WLAN-Name, MAC, Hostname, Zaehlernummer.
+async function cmJson(c){
+  try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.json(); }
+  catch(e){ return null; }
+}
+const SEITE_VERSION = 'v051';
+const gb = kb => (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB';
+const mb = kb => (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB';
+const gr = kb => kb >= 1048576 ? gb(kb) : (kb >= 1024 ? mb(kb) : kb.toLocaleString('de-DE') + ' KB');   // passende Einheit
+async function zeigeGeraet(){
+  const s1 = await cmJson('Status 1'), s2 = await cmJson('Status 2'), s4 = await cmJson('Status 4');
+  const s5 = await cmJson('Status 5'), s11 = await cmJson('Status 11'), tc = await cmJson('TinyC');
+  const us = await cmJson('UfsSize'), uf = await cmJson('UfsFree');
+  const P = (s1 && s1.StatusPRM) || {}, F = (s2 && s2.StatusFWR) || {}, M = (s4 && s4.StatusMEM) || {};
+  const N = (s5 && s5.StatusNET) || {}, S = (s11 && s11.StatusSTS) || {}, W = S.Wifi || {};
+  const kv = [];
+  kv.push(['Tasmota-Firmware', F.Version ? `${F.Version} · Build ${String(F.BuildDateTime || '').replace('T', ' ')}` : '–']);
+  kv.push(['Core / ESP-IDF', F.Core ? `${F.Core} / ${F.SDK}` : '–']);
+  kv.push(['Prozessor', F.Hardware ? `${F.Hardware}, ${F.CpuFrequency} MHz` : '–']);
+  kv.push(['Funkchip (WLAN)', F.HostedMCU ? `${F.HostedMCU.Hardware} ${F.HostedMCU.Version}` : '–']);
+  const sl = (tc && tc.TinyC && tc.TinyC.Slots) || [];
+  sl.forEach(x => kv.push([`Skript Slot ${x.Slot}`, `${String(x.File || '').replace(/^\//, '').replace(/\.tcb$/, '')} · ${x.Running ? 'läuft' : (x.Loaded ? 'geladen' : 'leer')}${x.Error && x.Error !== 'OK' ? ' · Fehler ' + x.Error : ''}`]));
+  kv.push(['Seite', `smgw.html ${SEITE_VERSION}`]);
+  if (M.PsrMax) kv.push(['Speicher', `Arbeitsspeicher frei ${M.Heap} KB · PSRAM ${mb(M.PsrFree)} frei von ${mb(M.PsrMax)} · Flash ${mb(M.FlashSize)}`]);
+  const u1 = us && us.UfsSize, u2 = uf && uf.UfsFree;
+  if (u1 && u2) {
+    kv.push(['SD-Karte', `${gr(u1[0] - u2[0])} belegt, ${gr(u2[0])} frei von ${gr(u1[0])}`]);
+    if (u1.length > 1) kv.push(['Flash-Dateisystem', `${gr(u1[1] - u2[1])} belegt, ${gr(u2[1])} frei`]);
+  }
+  if (W.Signal !== undefined) kv.push(['WLAN', `Signal ${W.Signal} dBm (${W.RSSI} %) · ${W.Mode || ''} · Kanal ${W.Channel}`]);
+  const E = N.Ethernet || {};
+  kv.push(['LAN zum Gateway', E.IPAddress ? `${E.IPAddress} / ${E.Subnetmask}` : 'keine Verbindung']);
+  if (S.UptimeSec !== undefined) kv.push(['Laufzeit', `${Math.floor(S.UptimeSec / 86400)} d ${Math.floor((S.UptimeSec % 86400) / 3600)} h ${Math.floor((S.UptimeSec % 3600) / 60)} min`]);
+  if (P.RestartReason) kv.push(['Letzter Neustart', `${String(P.StartupUTC || '').replace('T', ' ')} UTC · ${typeof P.RestartReason === 'string' ? P.RestartReason : 'Absturz'} · ${P.BootCount} Starts gesamt`]);
+  $('kvGeraet').innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('');
+  if (ST.status && ST.status.start) $('gwSeit').textContent = deDate(ST.status.start);
+}
+setInterval(() => { const p = document.querySelector('.pane.on[data-p="status"]'); if (p && !document.hidden) zeigeGeraet(); }, 60000);
+// Reiter Status kann auch beim Start (gemerkter Reiter) aktiv werden -> zeigeTab erweitern statt nur den Klick abzufangen
+const zeigeTabAlt = zeigeTab;
+zeigeTab = function(tab){ zeigeTabAlt(tab); if (tab === 'status') zeigeGeraet(); };
+if (document.querySelector('.pane.on[data-p="status"]')) zeigeGeraet();
+
+// v016 07.11.2026 (Andreas): Gateway-Firmware und Auswerteprofile (TAF) live aus den Seiten, die slot0-smgw v008
+// einmal am Tag mitliest (/smgwf?n=gwfw / gwtaf). Kennungen (IDs, Zaehlernummer) werden NICHT angezeigt.
+const TAF_TEXT = [   // Quelle: inexogy-Artikel "Was sind die Tarifanwendungsfaelle ..." 21.01.2022 (Andreas' Ablage), BSI TR-03109-1
+  [1,  'Datensparsame Tarife', 'Je Abrechnungszeitraum (mindestens ein Monat) ein Zählerstand – keine Rückschlüsse auf das Nutzerverhalten.', 'PPC ab 1.0'],
+  [2,  'Zeitvariable Tarife', 'Preise wechseln nach festen Zeitabschnitten, ähnlich Hoch-/Niedertarif.', 'PPC ab 1.0'],
+  [3,  'Lastvariable Tarife', 'Tarifstufe wechselt beim Überschreiten einer Lastschwelle (Ist- oder Mittelwert), vor allem Gewerbe/Industrie.', ''],
+  [4,  'Verbrauchsvariable Tarife', 'Verbrauchsstufen mit festen Energiemengen, nach Überschreiten die nächste Stufe.', ''],
+  [5,  'Ereignisvariable Tarife', 'Tarifstufen abhängig von Ereignissen – im Gateway oder von einem berechtigten Akteur ausgelöst.', ''],
+  [6,  'Abruf von Messwerten im Bedarfsfall', 'Bei Umzug oder Lieferantenwechsel; das Gateway hält dafür die Tageswerte der letzten 6 Wochen.', 'PPC ab 1.0'],
+  [7,  'Zählerstandsgangmessung', 'Zählerstände alle 15 Minuten (Bezug und Einspeisung) erfassen und versenden – Grundlage dieser Seite.', 'PPC ab 1.0'],
+  [8,  'Erfassung der Extremwerte für Leistung', 'Minimal- und Maximalleistung im Abrechnungszeitraum, z. B. für Schwellwert-Tarife.', ''],
+  [9,  'Abruf der Ist-Einspeisung', 'Live-Daten von Erzeugungsanlagen zur Netzregelung, nicht zur Abrechnung.', 'PPC ab 1.1'],
+  [10, 'Abruf von Netzzustandsdaten', 'Live-Netzzustandsdaten zur Netzregelung, periodisch oder bei Schwellwertverletzung.', 'PPC ab 1.1'],
+  [11, 'Steuerung unterbrechbarer Verbraucher und Erzeuger', 'An-/Abschalten bei Ereignissen, Zeitpunkt und Zählerstand werden festgehalten.', ''],
+  [12, 'Prepaid-Tarif', 'Energiemenge im Voraus bezahlt; beim Erreichen der Schwelle Signal an Lieferant und Kunde.', ''],
+  [13, 'Letztverbraucher-Visualisierung über WAN', 'Messwerte über das Internet (Portal) statt über die HAN-Schnittstelle.', ''],
+  [14, 'Hochfrequente Messwertbereitstellung', 'Hoch aufgelöste Werte für Mehrwertdienste wie Energieportale/Apps.', 'PPC ab 1.1'],
+];
+let gwAktiv = [];   // v018: nur was das Gateway live meldet
+function zeigeTafListe(){
+  $('tafListe').innerHTML = TAF_TEXT.map(([n, k, l, v]) => {
+    const an = gwAktiv.includes(n);
+    return `<span style="${an ? 'color:var(--good);font-weight:600' : ''}">TAF ${n}${an ? ' ✓' : ''}</span><span><b>${esc(k)}</b> – ${esc(l)}${v ? ` <span class=\"note\">(${esc(v)})</span>` : ''}</span>`;
+  }).join('');
+}
+async function zeigeGateway(){
+  const s = ST.status || {};
+  if (s.gwboot || s.gwsvc) {
+    $('gwFw').innerHTML = `smgw-bootstream <b>${esc(s.gwboot || '–')}</b> · smgw-services <b>${esc(s.gwsvc || '–')}</b> <span class="note">(live gelesen am ${esc(s.gwfwtag ? deDate(s.gwfwtag) : '–')})</span>`;
+  }
+  let roh = '';
+  try { roh = await holeText('/smgwf?n=gwtaf'); } catch(e){ roh = ''; }
+  const prof = [...new Set((roh.match(/[A-Z0-9]*_?TAF\d{1,2}_[A-Z0-9_]+/g) || []))];
+  if (prof.length) {
+    const nr = [...new Set(prof.map(p => +p.match(/TAF(\d{1,2})/)[1]))].sort((a, b) => a - b);
+    gwAktiv = nr;
+    const kurz = n => { const x = TAF_TEXT.find(z => z[0] === n); return x ? ` (${x[1]})` : ''; };
+    $('gwTaf').innerHTML = nr.map(n => `<b>TAF ${n}</b>${esc(kurz(n))}`).join(' · ');
+    $('gwProf').textContent = prof.map(p => p.split('_').slice(0, 4).join('_')   /* v018: Betreiber-Teil weglassen */).join(' · ');
+    $('gwQuelle').textContent = 'live aus dem Gateway-Menü „Auswertungsprofil“' + (s.gwfwtag ? ', gelesen am ' + deDate(s.gwfwtag) : '');
+    const fehlt = [];   // v018: was ohne die passenden TAF nicht geliefert wird
+    if (!nr.includes(7)) fehlt.push('15-Minuten-Zählerstände (TAF 7)');
+    if (!nr.some(n => [9, 10, 14].includes(n))) fehlt.push('Leistung, Phasen- und hochfrequente Werte (TAF 9/10/14)');
+    if (!nr.includes(2)) fehlt.push('zeitvariable Tarifstufen (TAF 2)');
+    $('gwNicht').textContent = fehlt.length ? fehlt.join(' · ') : '–';
+  }
+  zeigeTafListe();
+}
+zeigeTafListe();
+document.querySelector('.tabs button[data-t="status"]').addEventListener('click', zeigeGateway);
+document.querySelector('.tabs button[data-t="taf"]').addEventListener('click', zeigeGateway);   // v017
+// v022: beim Start ruft start() zeigeGateway auf, sobald der gemerkte Reiter wieder offen ist
+
+// v019 07.11.2026 (Andreas): FTP-Server wie am HEMS. Zugang ueber /smgwzugang (Slot 1 ab v004, POST, Antwort nie mit
+// Passwort), Sicherung/Sync/Restore ueber SMGWFtp [sync|restore] (Slot 0 ab v009, laeuft in dessen TaskLoop).
+const ROT = 'var(--crit)', GRUEN = 'var(--good)';
+let FTPZIEL = '';
+let FTPUM = '';     // v021: Uhrzeit der Tagessicherung, wie das Geraet sie meldet
+// v021: Uhrzeit uebernehmen (nur wenn geaendert); Antwort muss die neue Uhrzeit enthalten
+function ftpZeitSpeichern(){
+  const um = $('ftp_um').value;
+  if (!um || um === FTPUM) return Promise.resolve('');
+  return smgwBefehl('SMGWFtpZeit ' + um).then(t => {
+    const m = /"SMGWFtpZeit":"(\d\d:\d\d)"/.exec(t);
+    if (!m || m[1] !== um) throw 'Uhrzeit nicht übernommen (ab slot0-smgw v010)';
+    FTPUM = um; if (ST.status) ST.status.ftpum = um;
+    return ', Sicherung täglich um ' + um;
+  });
+}
+function ftpWort(s){
+  if (s.ftp == null) return 'Skript ohne FTP (ab slot0-smgw v009)';
+  const z = s.ftpzeit ? String(s.ftpzeit).replace('T', ' ') + ' · ' : '';
+  if (s.ftp === 2) return z + 'Fehler: ' + (s.ftptext || '');
+  return z + (s.ftptext || 'noch nicht gelaufen');
+}
+function knopfMeldung(t, farbe){ $('ftp_msg').textContent = t; $('ftp_msg').style.color = farbe || ''; }
+function zugang(f){
+  return fetch('/smgwzugang', { method: 'POST', body: new URLSearchParams(f) }).then(r => { if (!r.ok) { throw 'HTTP ' + r.status; } return r.text(); })
+    .then(t => { let j = null; try { j = JSON.parse(t); } catch (e) { throw 'Slot 1 ab v004 nötig'; } if (!j.ok) { throw j.err || 'abgelehnt'; } return j; });
+}
+function zeigeFtp(){
+  const s = ST.status; if (s) { $('ftp_st').textContent = ftpWort(s); $('ftp_st').style.color = s.ftp === 2 ? ROT : ''; }
+  if (s && s.ftpum) {
+    if (document.activeElement !== $('ftp_um') && $('ftp_um').value === FTPUM) $('ftp_um').value = s.ftpum;
+    FTPUM = s.ftpum; $('ftp_um_i').textContent = '';
+  } else if (s) { $('ftp_um_i').textContent = '(Skript meldet keine Uhrzeit – slot0-smgw ab v010 laden)'; }
+}
+function ftpLaden(){
+  zugang({ art: 'ftp' }).then(j => {
+    $('ftp_host').value = j.ip || ''; $('ftp_user').value = ''; $('ftp_user').placeholder = j.user ? '********* (gespeichert)' : '';   // v035: Benutzer nie anzeigen
+    FTP_USERFLAG = (typeof j.user === 'number');
+    $('ftp_pw').value = ''; $('ftp_pw').placeholder = j.pw ? '********* (gespeichert)' : '';
+    $('ftp_dir').value = j.dir || '';
+    FTPZIEL = $('ftp_host').value + '|' + $('ftp_dir').value;
+  }).catch(e => knopfMeldung('Zugang nicht lesbar (' + e + ')', ROT));
+  zeigeFtp();
+}
+$('ftp_set').onclick = () => {
+  const user = $('ftp_user').value.trim();
+  let host = $('ftp_host').value.trim().replace(/^(?:ftp|https?):\/\//i, '').replace(/\/.*$/, '');
+  let dir = $('ftp_dir').value.trim();
+  const url = dir.match(/^(?:ftp|https?):\/\/([^\/]+)(.*)$/i);   // Adresse aus der FRITZ!Box-Oberflaeche eingefuegt
+  if (url) { if (!host) { host = url[1]; } dir = url[2]; }
+  dir = dir.replace(/^\/?nas#?\/files/i, '').replace(/\/+$/, '');
+  if (dir && dir.charAt(0) !== '/') { dir = '/' + dir; }
+  $('ftp_host').value = host; $('ftp_dir').value = dir;
+  const pw = $('ftp_pw').value;
+  if (!host) { knopfMeldung('✗ Server (IP) eintragen', ROT); return; }
+  if (!user && $('ftp_user').placeholder && !FTP_USERFLAG) { knopfMeldung('✗ Benutzer eintragen (leer lassen geht erst mit Slot 1 v006)', ROT); return; }   // v035
+  if (/[\r\n]/.test(host + user + pw + dir)) { knopfMeldung('✗ Zeilenumbruch im Feld', ROT); return; }
+  knopfMeldung('speichert …');
+  zugang({ art: 'ftp', setz: '1', ip: host, user: user, pw: pw, dir: dir }).then(j => {
+    if (j.ip !== host || j.dir !== dir) { throw 'Kontrolle'; }
+    $('ftp_pw').value = ''; $('ftp_pw').placeholder = j.pw ? '********* (gespeichert)' : '';
+    $('ftp_user').value = ''; $('ftp_user').placeholder = j.user ? '********* (gespeichert)' : '';   // v035
+    if (FTPZIEL !== host + '|' + dir) {          // neues Ziel: dort liegt noch nichts -> alles neu senden
+      FTPZIEL = host + '|' + dir;
+      return smgwBefehl('UfsDelete /smgw_ftp.pos').then(() => ', neues Ziel: alles wird neu gesichert');
+    }
+    return '';
+  }).then(z => ftpZeitSpeichern().then(u => knopfMeldung('✓ gespeichert' + z + u, GRUEN)))
+    .catch(e => knopfMeldung('✗ nicht gespeichert (' + e + ')', ROT));
+};
+function ftpLauf(befehl, text){
+  knopfMeldung(text);
+  smgwBefehl(befehl).then(t => {
+    if (!/SMGWFtp/.test(t)) { knopfMeldung('✗ Slot 0 (ab v009) antwortet nicht', ROT); return; }
+    const nach = () => ladeStatus().then(() => { zeigeKopf(); zeigeStatus(); zeigeFtp(); });
+    setTimeout(nach, 10000);
+    setTimeout(() => nach().then(() => knopfMeldung('✓ fertig, siehe Zeile darüber', GRUEN)), 30000);
+  });
+}
+$('ftp_go').onclick = () => ftpLauf('SMGWFtp', 'sichert …');
+$('syncFtp1').onclick = () => ftpLauf('SMGWFtp SYNC', 'sendet …');   // v044: Slot 0 erkennt nur Grossbuchstaben
+$('syncFtp2').onclick = () => {
+  if (!confirm('FTP → ESP Restore?\n\nDaten und Einstellungen, die hier fehlen oder kürzer sind als auf dem FTP-Server, werden vom Server geholt.\nLängere Dateien auf der SD-Karte bleiben unverändert.')) { return; }
+  ftpLauf('SMGWFtp RESTORE', 'holt …');   // v044
+};
+document.querySelector('.tabs button[data-t="einst"]').addEventListener('click', ftpLaden);
+// v022: beim Start ruft start() ftpLaden auf, sobald der gemerkte Reiter wieder offen ist
+
+// ---------- v049: Excel / Power Query (Adresse = wie diese Seite aufgerufen wurde) ----------
+function pqBauen(){
+  const host = location.hostname || 'IP-DES-LESERS';
+  const st = (ST.status && /^\d{4}-\d{2}/.test(ST.status.start||'')) ? ST.status.start : '2026-01-01';
+  const j = +st.slice(0,4), m = +st.slice(5,7);
+  const basis = 'http://' + host + ':82/ufs/';
+  const q = [
+'let',
+'    Basis  = "' + basis + '",',
+'    Start  = #date(' + j + ', ' + m + ', 1),',
+'    Heute  = Date.From(DateTime.LocalNow()),',
+'    Monate = List.Generate(() => Start, each _ <= Heute, each Date.AddMonths(_, 1)),',
+'    Namen  = List.Transform(Monate, each "smgw_" & Date.ToText(_, "yyyy-MM", "en-US") & ".txt")',
+'             & {"smgw_heute.txt"},',
+'    Hole   = (n as text) => try Csv.Document(Web.Contents(Basis & n),',
+'               [Delimiter = "#(tab)", Columns = 3, Encoding = 65001]) otherwise null,',
+'    Alle   = Table.Combine(List.RemoveNulls(List.Transform(Namen, Hole))),',
+'    Spalten = Table.RenameColumns(Alle, {{"Column1", "Zeit"}, {"Column2", "Bezug_1.8.0"}, {"Column3", "Einsp_2.8.0"}}),',
+'    Ohne_Doppelte = Table.Distinct(Spalten, {"Zeit"}),',
+'    Typen = Table.TransformColumnTypes(Ohne_Doppelte, {{"Zeit", type datetime},',
+'              {"Bezug_1.8.0", type number}, {"Einsp_2.8.0", type number}}, "en-US")',
+'in',
+'    Typen'].join('\r\n');
+  const ta = document.getElementById('pqText'); if (ta) ta.value = q;
+  const a = document.getElementById('pqAdr'); if (a) a.textContent = basis;
+}
+function pqKopieren(){
+  const ta = document.getElementById('pqText'), msg = document.getElementById('pqMsg');
+  pqBauen();
+  const fertig = ok => { msg.textContent = ok ? 'kopiert – in Excel einfügen' : 'bitte im Feld markieren und mit Strg+C kopieren'; };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(ta.value).then(() => fertig(true), () => fertig(false));
+  } else {           // http:// ohne TLS: kein Clipboard-API -> markieren + execCommand
+    ta.focus(); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+    fertig(ok);
+  }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  pqBauen();
+  const b = document.getElementById('pqCopy'); if (b) b.addEventListener('click', pqKopieren);
+  setTimeout(pqBauen, 3000);   // nach dem ersten Status: Startmonat aus "start"
+});
+</script>
+</body>
+</html>

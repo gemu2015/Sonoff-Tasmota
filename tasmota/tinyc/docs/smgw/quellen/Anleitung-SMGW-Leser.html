@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="erstellt mit Hilfe von Claude">
+<title>Anleitung SMGW-Leser auf Tasmota mit TinyC</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d1d1d; }
+  h1 { font-size: 20pt; margin: 0 0 4mm; color: #1d3f6e; }
+  h2 { font-size: 13.5pt; margin: 7mm 0 2mm; color: #1d3f6e; border-bottom: 1px solid #c9d3e0; padding-bottom: 1mm; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 4mm 0 1mm; page-break-after: avoid; }
+  p, li { margin: 1mm 0; }
+  .hinweis { background: #fff6dc; border-left: 4px solid #e0a800; padding: 2mm 3mm; margin: 3mm 0; }
+  .warn { background: #fde7e7; border-left: 4px solid #c43c3c; padding: 2mm 3mm; margin: 3mm 0; }
+  .info { background: #eaf2fb; border-left: 4px solid #3c7cc4; padding: 2mm 3mm; margin: 3mm 0; }
+  .neu { background: #eaf7ee; border-left: 4px solid #2e8b57; padding: 2mm 3mm; margin: 3mm 0; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0; font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #c9d3e0; padding: 1.2mm 2mm; line-height: 1.6; text-align: left; vertical-align: top; }
+  th { background: #eef2f7; }
+  code, pre { font-family: Consolas, monospace; font-size: 9.5pt; background: #f1f3f5; border-radius: 1mm; }
+  code { padding: 0 1mm; }
+  pre { padding: 2mm 3mm; white-space: pre-wrap; word-break: break-all; }
+  .kopf { font-size: 9pt; color: #777; margin-bottom: 6mm; }
+  .seite { page-break-before: always; }
+  figure { margin: 4mm 0; text-align: center; page-break-inside: avoid; }
+  figure img { max-width: 100%; border: 1px solid #c9d3e0; }
+  figcaption { font-size: 0.85em; color: #666; margin-top: 1mm; }
+</style>
+</head>
+<body>
+
+<h1>SMGW-Leser auf Tasmota mit TinyC</h1>
+<div class="kopf">Bau- und Bedienungsanleitung · Stand 08.11.2026 · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v014 und <code>slot1-smgwweb</code> v008 · Seite <code>smgw.html</code> v051 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
+
+<div class="warn"><b>Nutzung für den eigenen Verbrauch und auf eigene Verantwortung.</b>
+<ul>
+  <li>Die Firmware muss <b>selbst kompiliert</b> werden; es gibt keine fertige Firmware zum Herunterladen.</li>
+  <li>Der SMGW-Leser ist <b>nur mit der in dieser Anleitung genannten Hardware</b> (Waveshare ESP32-P4-WIFI6-POE-ETH, Abschnitt 2) und einem <b>PPC</b>-Gateway an der HAN-Schnittstelle getestet.</li>
+  <li>Ohne Gewähr: keine Haftung für Schäden, Datenverlust, falsche oder fehlende Werte oder eine Sperre des Gateways nach Fehlversuchen.</li>
+  <li>Die Werte sind eine Kopie dessen, was das Gateway anzeigt. Für Abrechnungen gelten allein die Daten des Messstellenbetreibers bzw. Lieferanten.</li>
+</ul></div>
+<div class="warn"><b>Eigenbau, nicht zertifiziert.</b> Der SMGW-Leser liest nur die Werte, die das Smart-Meter-Gateway über seine Kundenschnittstelle (HAN) ausgibt. Er schreibt nichts in das Gateway und ändert nichts am Zähler. Die Zugangsdaten zur HAN-Schnittstelle gehören dem Anschlussnutzer und dürfen nicht weitergegeben werden.</div>
+
+<div class="neu"><b>Neu gegenüber Stand 07.11.2026 (v004 der Anleitung):</b>
+<ul>
+  <li>Zugangsdaten der HAN-Schnittstelle werden <b>auf der Seite</b> eingegeben (keine Datei mehr von Hand anlegen), nie im Klartext angezeigt (Abschnitt 6).</li>
+  <li><b>Anmeldung per Client-Zertifikat</b> (.p12/.pfx des Messstellenbetreibers) möglich; braucht die Firmware ab 08.11.2026 mit <code>TinyCTlsCert</code> (Abschnitte 4.1, 6.2).</li>
+  <li><b>Gateway-Adresse</b> (IP, Port, Pfad) und die <b>LAN-Adresse des Lesers</b> auf der Seite einstellbar (Abschnitt 3).</li>
+  <li>Uhrzeit der nächtlichen <b>FTP-Sicherung</b> einstellbar (Vorgabe 02:00); Sync/Restore funktionieren jetzt auch über die Knöpfe der Seite (Abschnitt 9.2).</li>
+  <li>Kachel <b>Excel / Power Query</b>: fertige Abfrage mit der Adresse des Lesers zum Kopieren (Abschnitt 9.3).</li>
+  <li>Alle Beschreibungen auf der Seite einklappbar („Beschreibung ansehen“); Fehlertexte auf der Tasmota-Hauptseite brechen um.</li>
+  <li>Hostname ohne Chip-Nummer (z. B. <code>smgw</code>), Abschnitt 4.3.</li>
+</ul></div>
+
+<h2>1. Was der SMGW-Leser macht</h2>
+<p>Ein Smart-Meter-Gateway (SMGW) speichert die <b>amtlichen 15-Minuten-Zählerstände</b> des Zählers: Bezug (OBIS 1-0:1.8.0) und Einspeisung (1-0:2.8.0). Über die HAN-Schnittstelle kann der Anschlussnutzer sie im Browser abrufen. Der SMGW-Leser macht das automatisch:</p>
+<ul>
+  <li>holt einmal täglich ab 00:20 die fehlenden ganzen Tage (beim ersten Mal alle Tage ab dem ersten Tag, den das Gateway hat),</li>
+  <li>legt sie als Textdateien auf der SD-Karte ab, Werte unverändert wie vom Gateway (4 Nachkommastellen),</li>
+  <li>zeigt sie auf einer eigenen Seite als Tag, Monat, Jahr und Jahre mit Diagramm,</li>
+  <li>holt auf Wunsch zusätzlich den laufenden Tag in einem einstellbaren Takt, nach der Uhr des Geräts (z. B. Takt 60 → jeweils hh:02),</li>
+  <li>liest einmal am Tag die Firmware des Gateways und die freigeschalteten Tarifanwendungsfälle (TAF) mit,</li>
+  <li>gibt alle Daten als CSV und über eine fertige Power-Query-Abfrage für Excel aus,</li>
+  <li>sichert die Daten jede Nacht auf einen FTP-Server (z. B. USB-Stick an der FRITZ!Box) und holt sie bei Bedarf zurück,</li>
+  <li>meldet sich mit Benutzer/Passwort (Digest) oder mit einem Client-Zertifikat an.</li>
+</ul>
+<figure><img src="bilder/01-seite-tag.png" alt="Seite smgw, Reiter Tag"><figcaption>Seite <code>/smgw</code>, Reiter „Tag“: Tageswerte und Leistung je Viertelstunde (Bezug rot nach oben, Einspeisung gelb nach unten). IP-Adresse und Zählerstände für das Bild ausgeblendet.</figcaption></figure>
+
+<h2>2. Hardware</h2>
+<table>
+  <tr><th>Teil</th><th>Angabe</th></tr>
+  <tr><td><b>Board</b></td><td>Waveshare <b>ESP32-P4-WIFI6-POE-ETH</b> (SKU 32832)</td></tr>
+  <tr><td>Prozessor</td><td>ESP32-P4 (Revision v1.3), betrieben mit 360 MHz</td></tr>
+  <tr><td>Speicher</td><td>32 MB PSRAM, 32 MB Flash (am Gerät gelesen mit <code>Status 4</code>)</td></tr>
+  <tr><td>WLAN</td><td>ESP32-C6 als Funkchip (ESP-Hosted über SDIO, GPIO 14–19, Reset GPIO 54). <b>Firmware des C6 mindestens 2.12.6</b>, siehe Abschnitt 4.4</td></tr>
+  <tr><td>Ethernet</td><td>PHY IP101 (EthType 1), MDC GPIO 31, MDIO GPIO 52, Reset GPIO 51, Takt GPIO 50; Versorgung auch über PoE möglich</td></tr>
+  <tr><td>SD-Karte</td><td>SDIO 4-Bit: D0–D3 = GPIO 39–42, CLK = GPIO 43, CMD = GPIO 44 (FAT32)</td></tr>
+  <tr><td>Strom</td><td>USB-C oder PoE. Wichtig: Kommt der Strom nur über PoE, ist das Board ohne LAN-Kabel aus.</td></tr>
+  <tr><td>Schaltplan</td><td>files.waveshare.com/wiki/ESP32-P4-WIFI6-POE-ETH/ESP32-P4-WIFI6-POE-ETH-Schematic.pdf</td></tr>
+</table>
+
+<h2>3. Netz</h2>
+<p>Der SMGW-Leser hängt an <b>zwei Netzen</b> gleichzeitig:</p>
+<table>
+  <tr><th>Anschluss</th><th>Netz</th><th>Zweck</th></tr>
+  <tr><td><b>LAN</b></td><td>direkt (oder über einen eigenen Switch) an der <b>HAN-Buchse des Gateways</b>, feste Adresse im Netz der HAN-Schnittstelle, <b>ohne</b> Gateway und DNS</td><td>nur der Abruf beim SMGW</td></tr>
+  <tr><td><b>WLAN</b></td><td>Heimnetz (Adresse per DHCP, am besten im Router fest zuweisen)</td><td>Bedienung, Seite, Uhrzeit (NTP), FTP-Sicherung, Excel</td></tr>
+</table>
+<p>Vorgabe (PPC): HAN-Schnittstelle des Gateways <code>https://192.168.1.200:443/cgi-bin/hanservice.cgi</code>, SMGW-Leser im LAN fest <code>192.168.1.21 / 255.255.255.0</code>. Welche Adresse das eigene Gateway an der HAN-Buchse hat, steht in den Unterlagen des Messstellenbetreibers.</p>
+<p><b>Ändern ohne neue Firmware:</b> Reiter <b>Einstellungen → Gateway (HAN-Schnittstelle)</b>. „Adresse des Gateways“ als ganze Adresse mit Port und Pfad eintragen (fehlen sie, gelten 443 und <code>/cgi-bin/hanservice.cgi</code>); „Leser im LAN“ ist eine freie Adresse im selben Netz. Ändert sich die LAN-Adresse, startet der Leser einmal neu; über das WLAN bleibt er erreichbar. In der Konsole geht dasselbe mit <code>SMGWHost</code>, <code>SMGWPort</code>, <code>SMGWPfad</code> bzw. <code>EthIPAddress</code>.</p>
+<div class="info">Weil im LAN kein Gateway eingetragen ist, bleibt der Weg ins Internet und ins Heimnetz beim WLAN. So können sich die beiden Netze nicht in die Quere kommen. Der Abruf ist für die HAN-Weboberfläche des <b>PPC</b>-Gateways gebaut; Gateways anderer Hersteller haben eine andere Oberfläche, dort hilft eine andere Adresse allein nicht.</div>
+
+<h2 class="seite">4. Firmware bauen</h2>
+<h3>4.1 Grundlage</h3>
+<ul>
+  <li>Tasmota mit <b>TinyC</b> von gemu, Zweig <code>universal</code>, gebaut mit PlatformIO:<br>
+    <b>https://github.com/gemu2015/Sonoff-Tasmota/tree/universal</b><br>
+    TinyC-Beschreibung: <code>tasmota/tinyc/README_DE.md</code> und <code>TinyC_Reference_DE.md</code> im selben Repository; fertige Firmware und IDE unter <b>https://github.com/gemu2015/Sonoff-Tasmota/releases</b> (für den SMGW-Leser trotzdem selbst bauen, Abschnitt 4.2/4.3).</li>
+  <li>Der Abruf läuft als TinyC-Skript, nicht als eigener Treiber. Änderungen am Abruf brauchen deshalb kein neues Flashen, nur ein neues Skript.</li>
+  <li>Benötigte Stellen in TinyC und tls_mini:
+    <ol>
+      <li><code>TC_TLS_RX_BUF</code> überschreibbar (<code>#ifndef</code>) – in <code>universal</code> enthalten.</li>
+      <li><code>tc_tls-&gt;setRSAOnly(false);</code> in <code>SYS_TLS_CONNECT</code> – in <code>universal</code> enthalten. Ohne sie bietet <code>tlsConnect</code> nur ECDHE-RSA an, das Gateway (nur ECDSA) bricht den Aufbau sofort ab.</li>
+      <li><b>Nur für die Anmeldung per Zertifikat:</b> Konsolenbefehl <code>TinyCTlsCert &lt;Zertifikatsdatei&gt; &lt;Schlüsseldatei&gt;</code> (<code>TinyCTlsCert 0</code> = aus) in <code>xdrv_124_tinyc.ino</code> / <code>xdrv_124_tinyc_vm.h</code>; <code>tlsConnect</code> zeigt das Zertifikat dann vor, wenn der Server danach fragt. Dazu in tls_mini (<code>WiFiClientSecureLightBearSSL.cpp</code>): Client-Schlüssel nur setzen, wenn wirklich ein Zertifikat gesetzt ist, und P-256 <i>und</i> P-384 erlauben. Wer nur Benutzer/Passwort nutzt, braucht diesen Teil nicht.</li>
+    </ol></li>
+</ul>
+
+<h3>4.2 PlatformIO-Env (<code>platformio_override.ini</code>)</h3>
+<pre>[env:tasmota32p4-waveshare-WIFI6_SMGW_TinyC]
+extends          = env:tasmota32_base
+board_build.f_cpu = 360000000L
+board_build.mcu   = esp32p4
+board             = esp32p4
+build_flags      = ${env:tasmota32_base.build_flags}
+                   -DUSE_ETHERNET
+                   -DTINYC_TESTING
+                   -DTINYC_NO_SCRIPTER
+                   -DUSE_BINPLUGINS
+lib_ignore       = ${env:tasmota32_base.lib_ignore}
+                   Micro-RTSP
+                   Homekit
+                   esp-nimble-cpp
+                   esp32-camera
+                   JPEG decode
+upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
+<p>Kein <code>custom_sdkconfig</code> und keine zusätzlichen Bibliotheksordner: Jede dieser Stellschrauben bricht beim P4 die ESP-Hosted-Kette für das WLAN. Das Env in <code>default_envs</code> eintragen.</p>
+
+<h3>4.3 Geräteblock (<code>user_config_override.h</code>)</h3>
+<p>Ein eigener Block, ausgewählt mit <code>#define esp32p4_waveshare_WIFI6_SMGW_TinyC</code>. Die wichtigen Zeilen:</p>
+<pre>#define DISABLE_REFERER_CHK          // "HTTP API aktivieren" ab Werk
+#define CFG_HOLDER 4641              // eigener Wert -> frische Grundeinstellungen
+#define USER_BACKLOG "EthIPAddress 192.168.1.21; EthGateway 0.0.0.0; EthSubnetmask 255.255.255.0; EthDNSServer1 0.0.0.0; EthDNSServer2 0.0.0.0; Restart 1"
+#define DEVICE_NAME   "SMGW-Leser"
+#define FRIENDLY_NAME "SMGW"
+#undef  WIFI_DEFAULT_HOSTNAME
+#define WIFI_DEFAULT_HOSTNAME "%s"   // Hostname = MQTT-Topic, z. B. "smgw" (immer mit %s!)
+#define TC_VM_TASK_STACK 16384       // TLS-Aufbau im Skript braucht Stapel
+#define TC_TLS_RX_BUF 16709          // volle TLS-Paketgroesse (16384 + 325)
+#define USE_MQTT_CLIENT_CERT         // nur fuer TinyCTlsCert: sonst schickt tls_mini nie ein Client-Zertifikat
+#define TC_MAX_HEAP 32768
+#define TC_MAX_HEAP_HANDLES 256
+#define USE_WEBCLIENT_HTTPS
+#define USE_FTP
+#define USE_SDCARD
+#define USE_UFILESYS
+#define USE_ETHERNET
+#define ETH_TYPE 1                   // IP101
+#define ETH_ADDRESS 1
+#define ETH_CLKMODE 0
+#define USER_TEMPLATE "{\"NAME\":\"Waveshare ESP32-P4-WIFI6-POE-ETH\", ... }"</pre>
+<ul>
+  <li><b>LAN-Adresse:</b> <code>USER_BACKLOG</code> stellt sie beim ersten Start ein (nur bei frischen Einstellungen, also neuem <code>CFG_HOLDER</code>) und startet einmal neu. Später auf der Seite änderbar (Abschnitt 3).</li>
+  <li><b>Hostname:</b> <code>"%s"</code> ergibt den Namen ohne Chip-Nummer; im Router dann z. B. <code>http://smgw.fritz.box/</code>. <b>Nie einen festen Text ohne <code>%</code></b> eintragen (Absturz beim Start bei gespeicherten Namen mit <code>%</code>). Wirkt nur bei frischen Einstellungen; sonst in der Konsole <code>Hostname smgw</code>.</li>
+  <li><b>Vorlage:</b> die vollständige Zeile aus dem WIFI6-Block übernehmen. Die C6-Pins (6, 14–19, 54) sowie 24/25 (USB) und 50 (ETH-Takt) bleiben dort gesperrt (0).</li>
+  <li>WLAN-Name und WLAN-Passwort trägt man wie bei jedem Tasmota-Gerät ein (<code>STA_SSID1</code> / <code>STA_PASS1</code> oder später über die Weboberfläche). Sie gehören <b>nicht</b> in veröffentlichte Dateien.</li>
+</ul>
+
+<h3>4.4 Funkchip C6 aktualisieren</h3>
+<p>Neue Boards kommen mit C6-Firmware 0.0.6. Damit hängt jede Abfrage der WLAN-Betriebsart rund 5 s, das ganze Gerät wird träge. Einmalig in der Tasmota-Konsole:</p>
+<pre>HostedOta https://ota.tasmota.com/tasmota32/coprocessor/network_adapter_esp32c6.bin</pre>
+<p>Nach etwa einer Minute meldet das Gerät „Successful. Restarting“. Prüfen mit <code>Status 2</code>: <code>"HostedMCU":{"Hardware":"esp32c6","Version":"2.12.6"}</code>.</p>
+
+<h2 class="seite">5. Inbetriebnahme</h2>
+<ol>
+  <li>Firmware bauen und per USB flashen. Beim ersten Start setzt das Gerät die LAN-Adresse und startet neu. Spätere Versionen gehen per OTA.</li>
+  <li>WLAN einrichten, Adresse im Router nachsehen und fest zuweisen.</li>
+  <li>C6 aktualisieren (Abschnitt 4.4).</li>
+  <li>Einstellungen → Erweitert: <b>„HTTP API aktivieren“</b> muss an sein (ist es mit <code>DISABLE_REFERER_CHK</code> ab Werk). Ein <b>„Passwort für Weboberfläche“</b> setzen (Empfehlung, siehe Abschnitt 6.3).</li>
+  <li>SD-Karte (FAT32) einlegen. Im Log muss beim Start <code>UFS: SDCard mounted</code> stehen.</li>
+  <li>Seite <code>smgw.html</code> <b>und</b> <code>smgw.html.gz</code> auf die SD-Karte laden (Abschnitt 8).</li>
+  <li>Skripte laden (TinyC-IDE): <code>slot0-smgw</code> in <b>Slot 0</b>, <code>slot1-smgwweb</code> in <b>Slot 1</b>, beide mit Autostart.</li>
+  <li>Seite <code>http://&lt;Gerät&gt;/smgw</code> öffnen, Reiter <b>Einstellungen</b>: Gateway-Adresse prüfen, <b>Zugangsdaten</b> eintragen (Abschnitt 6), Takt wählen.</li>
+  <li>Erster Abruf: „jetzt abrufen“ oder in der Konsole <code>SMGWAbruf</code>. Im Log erscheinen <code>SMG:</code>-Zeilen. Bei einem Fehler <b>nicht</b> sofort wiederholen, sondern erst das Log lesen (Sperre, Abschnitt 7).</li>
+</ol>
+<figure><img src="bilder/05-tasmota-hauptseite.png" alt="Tasmota-Hauptseite" style="max-width:45%"><figcaption>Tasmota-Hauptseite: gelber Knopf „SMGW“ (Slot 1), darunter „Gespeichert bis“; ein Fehler erscheint als eigene orange Zeile.</figcaption></figure>
+
+<h2 class="seite">6. Zugang zum Gateway</h2>
+<div class="warn"><b>Die Zugangsdaten sind geheim.</b> Sie liegen nur in Dateien mit der Endung <code>.secret</code> auf der SD-Karte des Geräts. Sie gehören nicht in die Firmware, nicht in ein Skript, nicht ins Repo, nicht in Briefe, Foren oder Bildschirmfotos.</div>
+<h3>6.1 Benutzer und Passwort (Digest)</h3>
+<p>Reiter <b>Einstellungen</b>, goldene Kachel <b>🔒 Zugangsdaten der HAN-Schnittstelle</b>: Benutzer und Passwort aus den Unterlagen des Messstellenbetreibers eintragen, <b>Zugang speichern</b>.</p>
+<ul>
+  <li>Danach zeigt die Seite nur noch „********* (gespeichert)“, auch für den Benutzernamen. Feld leer lassen = gespeicherter Wert bleibt.</li>
+  <li>Der Leser übernimmt neue Daten spätestens nach einer Minute; eine laufende Wartezeit nach einem Fehler (auch die 12 h nach abgelehnter Anmeldung) wird dabei aufgehoben.</li>
+  <li><b>Identifikationsnummer</b> (auf dem Gateway, E + 3 Buchstaben + 10 Ziffern): für den Abruf über die PPC-Weboberfläche nicht nötig, vorbereitet für den Maschinenweg (wie TRuDI). Leer = bleibt, „-“ = löschen.</li>
+  <li>Gespeichert in <code>/smgw_zugang.secret</code>: Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Identifikationsnummer (optional). Wer will, kann die Datei auch am PC anlegen und per Kartenleser kopieren (reiner Text, je höchstens 95 Zeichen, Platzhalter-Beispiel: <code>BENUTZERNAME-HAN</code> / <code>PASSWORT-HAN</code>).</li>
+</ul>
+<h3>6.2 Client-Zertifikat (.p12 / .pfx)</h3>
+<p>Manche Messstellenbetreiber geben statt Benutzer/Passwort ein Zugangszertifikat aus: eine Datei <code>.p12</code> oder <code>.pfx</code> mit Passwort. In derselben Kachel: Datei auswählen, Passwort der Datei eintragen, <b>Zertifikat laden</b>.</p>
+<ul>
+  <li>Die Datei wird <b>im Browser</b> geöffnet (Bibliothek node-forge, von cdnjs geladen und per Prüfsumme geprüft – der PC braucht dafür kurz Internet). Zum Leser gehen nur Zertifikat und Schlüssel, nicht die Datei und nicht ihr Passwort. <b>Das Passwort der Zertifikatsdatei wird nirgends gespeichert.</b></li>
+  <li>Gespeichert als <code>/smgw_cert.secret</code> (Zertifikat, DER als Hex) und <code>/smgw_key.secret</code> (Kurve, Schlüssel, Ablaufdatum). Die Seite zeigt nur „gespeichert · Kurve · gültig bis …“.</li>
+  <li>Nur EC-Schlüssel auf <b>P-256 oder P-384</b> (keine Brainpool-Kurven, kein RSA-Schlüssel). Ein falsch eingegebenes Passwort wird abgelehnt („PKCS#12 MAC could not be verified“).</li>
+  <li>Bei jeder Sitzung lädt Slot 0 das Zertifikat mit <code>TinyCTlsCert</code> und zeigt es vor, wenn das Gateway danach fragt. Antwortet das Gateway gleich mit 200 (Cookie + Token), gilt das als angemeldet; fragt es trotzdem nach Digest, werden Benutzer/Passwort aus 6.1 benutzt.</li>
+  <li><b>Zertifikat löschen</b> entfernt beide Dateien; danach <code>TinyCTlsCert 0</code>.</li>
+</ul>
+<div class="info"><b>Getestet</b> gegen einen eigenen TLS-1.2-Testserver, der ein Client-Zertifikat verlangt: Handshake ECDHE-ECDSA mit P-256, der Server sah das Zertifikat; ohne Zertifikat lehnte er ab.</div>
+<div class="warn"><b>Hinweis: Die Anmeldung per Zertifikat ist an einem echten Gateway nicht getestet.</b> Uns liegt kein Zugangszertifikat eines Messstellenbetreibers vor – das eigene PPC-Gateway meldet mit Benutzer/Passwort an. Getestet ist nur der Weg im Leser (Zertifikat laden, beim TLS-Aufbau vorzeigen) gegen einen eigenen Testserver. Wer ein Gateway mit Zertifikats-Anmeldung hat: bitte zuerst das Log lesen und bei einem Fehler nicht mehrfach wiederholen (Sperre, Abschnitt 7). Rückmeldungen sind willkommen.</div>
+<h3>6.3 Was die Endung .secret schützt – und was nicht</h3>
+<ul>
+  <li>Die Firmware sperrt <code>*.secret</code> für alle TinyC-Dateiwege übers Netz: nicht herunterladen (Port 82), nicht hochladen/überschreiben (Port 83), nicht über die TinyC-Schnittstelle. Nur die Skripte auf dem Gerät lesen sie.</li>
+  <li>Die Seite bekommt Benutzer, Passwort, Identifikationsnummer und Zertifikat nie zurück. Gesendet wird per POST, das Log nennt keine Werte.</li>
+  <li>Die FTP-Sicherung nimmt keine <code>.secret</code>-Datei mit.</li>
+  <li><b>Nicht geschützt</b> ist das Gerät selbst: Ohne „Passwort für Weboberfläche“ kann jeder im Heimnetz die Seite öffnen und neue Zugangsdaten setzen (lesen kann er die alten nicht). Deshalb in Tasmota unter <b>Einstellungen → Erweitert</b> ein „Passwort für Weboberfläche“ setzen. Wer die SD-Karte in der Hand hat, kann die Dateien lesen.</li>
+</ul>
+
+<h2 class="seite">7. Wie der Abruf abläuft</h2>
+<table>
+  <tr><th>Schritt</th><th>Anfrage an das Gateway</th></tr>
+  <tr><td>0</td><td>TLS 1.2 (ECDHE-ECDSA, P-256, Port 443); ist ein Zertifikat geladen, wird es vorgezeigt, wenn das Gateway danach fragt</td></tr>
+  <tr><td>1</td><td><code>GET /cgi-bin/hanservice.cgi</code> → 401 mit Digest-Nonce (bei Zertifikats-Anmeldung gleich 200)</td></tr>
+  <tr><td>2</td><td>dasselbe mit <code>Authorization: Digest</code> (MD5) → 200, Cookie <code>session</code>, Token <code>tkn</code></td></tr>
+  <tr><td>3</td><td><code>POST tkn=…&amp;action=meterform</code> → Zählerkennung <code>mid</code></td></tr>
+  <tr><td>4</td><td>je Tag <code>POST tkn=…&amp;action=showMeterValues&amp;mid=…&amp;from=TAG&amp;to=TAG</code> (je Antwort ein neues Token)</td></tr>
+  <tr><td>5</td><td>einmal am Tag (erste erfolgreiche Sitzung): <code>action=swversions</code> (Software-Versionen) und <code>action=tariffform</code> (Auswertungsprofile = freigeschaltete TAF). Nur lesen; scheitert das, zählt der Abruf trotzdem als gelungen.</td></tr>
+  <tr><td>6</td><td><code>POST tkn=…&amp;action=logout</code></td></tr>
+</table>
+<ul>
+  <li><b>Wann:</b> fehlende ganze Tage ab 00:20; fehlen mehrere Sitzungen lang Tage, mit 10 Minuten Pause zwischen zwei Abrufen. Mit eingeschaltetem Takt zusätzlich der laufende Tag zu festen Uhrzeiten: Abstand nach dem Viertelstundenende + n × Takt ab Mitternacht (Vorgabe Abstand 2 min: Takt 60 → hh:02, Takt 30 → :02 und :32, Takt 15 → :02/:17/:32/:47, 2 h → 00:02, 02:02 …). Ein verpasster Zeitpunkt wird einmal nachgeholt, nie doppelt.</li>
+  <li>Alles läuft über <b>eine</b> TLS-Verbindung. Jede Anfrage geht genau einmal raus.</li>
+  <li>Eine Tagesantwort ist rund 170 KB groß. Sie wird in 1-KB-Stücken gelesen, die Werte bleiben Text (4 Nachkommastellen).</li>
+  <li>Das Gateway liefert je Tag die Viertelstunden 00:00 bis 23:45. Der Tagesverbrauch rechnet deshalb bis 00:00 des Folgetages.</li>
+  <li>Reißt eine Antwort ab, wird der Tag (auch der laufende) einmal mit neuer Verbindung wiederholt. „Unerlaubter Zugriff“ mitten im Abruf führt zu höchstens zwei neuen Anmeldungen.</li>
+</ul>
+<div class="warn"><b>Sperre:</b> Das Gateway sperrt nach zu vielen fehlgeschlagenen Anmeldungen (beobachtet: erst 50 s, dann 5 min). Deshalb meldet sich das Skript je Sitzung nur einmal an, wartet nach einem Fehler 60 Minuten (bei jedem weiteren Fehler doppelt so lange, höchstens 24 h) und nach einer abgelehnten Anmeldung 12 Stunden. Fehlversuche nicht von Hand erzwingen.</div>
+
+<h2>8. Dateien auf der SD-Karte</h2>
+<table>
+  <tr><th>Datei</th><th>Inhalt</th></tr>
+  <tr><td><code>/smgw_JJJJ-MM.txt</code></td><td>je Monat, eine Zeile je Viertelstunde:<br><code>JJJJ-MM-TT hh:mm&lt;TAB&gt;Bezug 1.8.0&lt;TAB&gt;Einspeisung 2.8.0</code> (kWh)</td></tr>
+  <tr><td><code>/smgw_tage.txt</code></td><td>je Tag: Datum, Bezug Anfang, Bezug Ende, Einspeisung Anfang, Einspeisung Ende, Anzahl Viertelstunden (Anfang = 00:00 des Tages, Ende = 00:00 des Folgetages)</td></tr>
+  <tr><td><code>/smgw_heute.txt</code></td><td>wie eine Monatsdatei, nur der laufende Tag (nur bei eingeschaltetem Takt)</td></tr>
+  <tr><td><code>/smgw_status.txt</code></td><td>Zustand als JSON (Zugang, gespeichert bis, letzter Abruf, Fehler, nächster Versuch, Takt, Abstand, Gateway-Adresse, Zertifikat 0/1/2, FTP-Stand, Gateway-Firmware) – nie Zugangsdaten</td></tr>
+  <tr><td><code>/smgw_cfg.txt</code></td><td>je eine Zeile (alle optional): <code>takt &lt;min&gt;</code>, <code>versatz &lt;min&gt;</code>, <code>ftpzeit HH:MM</code>, <code>host &lt;IP&gt;</code>, <code>port &lt;n&gt;</code>, <code>pfad &lt;/…&gt;</code></td></tr>
+  <tr><td><code>/smgw_gw_fw.html</code>, <code>/smgw_gw_taf.html</code></td><td>die Gateway-Seiten „Software-Versionen“ und „Auswertungsprofil“ im Rohzustand (einmal am Tag, je höchstens 150 KB). Enthalten Kennungen des Gateways – nicht weitergeben.</td></tr>
+  <tr><td><code>/smgw.html</code> + <code>/smgw.html.gz</code></td><td>die Seite; das Gerät liefert zuerst die <code>.gz</code> aus. Bei einer neuen Fassung <b>beide</b> ersetzen (z. B. <code>gzip -9 -k -n smgw.html</code>)</td></tr>
+  <tr><td><code>/smgw_zugang.secret</code></td><td>Zugang HAN (Abschnitt 6.1)</td></tr>
+  <tr><td><code>/smgw_cert.secret</code>, <code>/smgw_key.secret</code></td><td>Client-Zertifikat und Schlüssel (Abschnitt 6.2), nur wenn benutzt</td></tr>
+  <tr><td><code>/smgw_ftp.secret</code></td><td>FTP-Zugang, 4 Zeilen: Server · Benutzer · Passwort · Zielordner (Abschnitt 9.2; wird über die Seite gesetzt)</td></tr>
+  <tr><td><code>/smgw_ftp.pos</code></td><td>Stand der FTP-Sicherung (erster noch offener Monat und Dateigrößen); löschen = beim nächsten Mal alles neu senden</td></tr>
+</table>
+<p>Laden und Sichern der Dateien geht über die TinyC-Dateiports: lesen <code>http://&lt;Gerät&gt;:82/ufs/sdfs/&lt;Datei&gt;</code>, schreiben per HTTP-POST an <code>http://&lt;Gerät&gt;:83/ufs/sdfs/&lt;Datei&gt;</code>. Die <code>.secret</code>-Dateien sind dort gesperrt.</p>
+
+<h2 class="seite">9. Bedienung</h2>
+<ul>
+  <li><b>Tasmota-Hauptseite:</b> gelber Knopf <b>„SMGW“</b>, darunter „Gespeichert bis“ und eventuell orange Zeilen „Fehler“ und „FTP-Sicherung“ (brechen um).</li>
+  <li><b>Seite <code>/smgw</code>:</b> Kopf mit Adresse, Datum, Uhrzeit und Laufzeit, Knöpfe ← Tasmota, TinyC, TinyC-IDE, Hell/Dunkel. Darunter Abrufzustand, letzter Abruf, gespeichert bis, nächster Abruf, Takt. Reiter:
+    <ul>
+      <li><b>Tag</b> (Viertelstunden als Diagramm und Tabelle, Bestenlisten des Jahres), <b>Monat</b> (je Tag), <b>Jahr</b> (je Monat), <b>Jahre</b> (alle Jahre im Vergleich; ein Klick öffnet das Jahr) – jeweils mit Tabelle zum Aufklappen.</li>
+      <li><b>Einstellungen:</b> Abruf (Takt, Abstand, jetzt abrufen), Gateway-Adresse und LAN, Zugangsdaten und Zertifikat, FTP-Server, Excel / Power Query, Hinweise. Jede Kachel hat „Beschreibung ansehen“.</li>
+      <li><b>Status:</b> Karten <b>Abruf</b>, <b>Gateway</b> (Firmware, Werte vorhanden seit) und <b>Gerät</b> (Tasmota-Firmware, Prozessor, Funkchip, Skripte, Seite, Speicher, SD-Karte, Netz, Laufzeit, letzter Neustart).</li>
+      <li><b>TAF:</b> die beim Gateway freigeschalteten Tarifanwendungsfälle und Auswerteprofile (live), was dadurch nicht geliefert wird, und eine Erklärung aller 14 TAF.</li>
+    </ul>
+    Unten auf jeder Seite: <b>Viertelstunden als .csv</b> und <b>Tage als .csv</b> (UTF-8, Semikolon, Dezimalkomma). Vorzeichen: + Netzbezug, − Einspeisung. Leistung = Zählerdifferenz der Viertelstunde × 4.</li>
+  <li><b>Daten-Schnittstelle</b> (für eigene Auswertungen): <code>/smgwj</code> Status als JSON, <code>/smgwf?n=tage|heute|JJJJ-MM|gwfw|gwtaf</code> die Dateien (nur diese Namen); <code>/smgwzugang</code> (POST) Zugänge setzen, Antwort nie mit Benutzer, Passwort oder Schlüssel.</li>
+</ul>
+<figure><img src="bilder/02-reiter-einstellungen.png" alt="Reiter Einstellungen" style="max-width:80%"><figcaption>Reiter „Einstellungen“ (Zugangsdaten gespeichert, nur „*********“ sichtbar). Adressen aus dem eigenen Netz ersetzt.</figcaption></figure>
+
+<h3>9.1 Abruf einstellen</h3>
+<table>
+  <tr><th>Feld</th><th>Bedeutung</th></tr>
+  <tr><td>Takt heute</td><td>aus / 15 / 30 / 60 min / 2 h: holt zusätzlich die Viertelstunden des laufenden Tages nach der Uhr. Jeder Takt ist eine eigene Anmeldung am Gateway.</td></tr>
+  <tr><td>Abstand nach Viertelstundenende</td><td>0–10 min (Konsole 0–14), Vorgabe 2: Zeit für das Gateway, die gerade beendete Viertelstunde abzulegen.</td></tr>
+  <tr><td>jetzt abrufen</td><td>holt sofort alle fehlenden Tage (und bei Takt den laufenden). Eine laufende Wartezeit nach einem Fehler bleibt bestehen, der Abruf ist dann vorgemerkt.</td></tr>
+</table>
+
+<h3>9.2 Sicherung per FTP</h3>
+<table>
+  <tr><th>Feld / Knopf</th><th>Bedeutung</th></tr>
+  <tr><td>Server</td><td>IP-Adresse des FTP-Servers, optional mit <code>:Port</code>. Bei der FRITZ!Box die IP angeben, nicht <code>fritz.box</code> (über IPv6 verweigert die Box den passiven Modus).</td></tr>
+  <tr><td>Benutzer, Passwort</td><td>FTP-Benutzer mit Schreibrecht. Leer lassen = gespeicherter Wert bleibt. Die Seite bekommt beide nie zurück.</td></tr>
+  <tr><td>Zielordner</td><td>Ordner aus Sicht dieses Benutzers, z. B. <code>/STICK/SMGW</code>; leer = oberste Ebene. Er muss vorhanden sein – das Skript legt ihn nicht an, sondern meldet einen Fehler.</td></tr>
+  <tr><td>Sicherung täglich um</td><td>Vorgabe 02:00 (Tagesabruf 00:20). Jedem Gerät am selben FTP-Server eine eigene Uhrzeit geben (z. B. HEMS 01:00, SMGW-Leser 02:00).</td></tr>
+  <tr><td>Speichern</td><td>schreibt <code>/smgw_ftp.secret</code> und die Uhrzeit. Neues Ziel → beim nächsten Lauf geht alles neu hoch.</td></tr>
+  <tr><td>Daten jetzt sichern</td><td><code>smgw_tage.txt</code> und die Monatsdateien, nur geänderte, jeweils ganz; dazu <code>smgw_cfg.txt</code></td></tr>
+  <tr><td>ESP → FTP Sync</td><td>alle Daten noch einmal, die Einstellungen und die Seite (<code>smgw.html</code> + <code>.gz</code>)</td></tr>
+  <tr><td>FTP → ESP Restore</td><td>holt Daten und Einstellungen zurück, aber nur Dateien, die auf der SD fehlen oder kürzer sind als auf dem Server (z. B. nach einem Kartentausch).</td></tr>
+</table>
+<p>Am besten in der FRITZ!Box einen eigenen Benutzer nur mit NAS-Recht anlegen. Auf dem Server liegen danach normale Textdateien. Fehler (Server nicht erreichbar, Anmeldung abgelehnt, Zielordner fehlt) stehen im Kasten, im Reiter Status und auf der Tasmota-Hauptseite; neuer Versuch nach 1 Stunde.</p>
+
+<h3>9.3 Excel / Power Query</h3>
+<p>Die Kachel <b>Excel / Power Query</b> (Reiter Einstellungen) enthält eine fertige Abfrage über alle Monatsdateien und den laufenden Tag. Die Adresse setzt die Seite selbst ein – so, wie sie im Browser aufgerufen wurde (IP oder Name). <b>Abfrage kopieren</b>, dann in Excel:</p>
+<ol>
+  <li>Daten → Daten abrufen → Aus anderen Quellen → <b>Leere Abfrage</b></li>
+  <li>Start → <b>Erweiterter Editor</b>, alles darin durch die Abfrage ersetzen, Fertig</li>
+  <li>Zugriff: <b>Anonym</b>; Datenschutzebenen ignorieren; <b>Schließen &amp; laden</b></li>
+  <li>Aktualisieren: Daten → <b>Alle aktualisieren</b> – neue Tage und Monate kommen von selbst dazu.</li>
+</ol>
+<div class="info"><b>Excel holt die Daten vom SMGW-Leser, nicht vom Gateway.</b> Die Abfrage liest die Textdateien auf der SD-Karte des Lesers (<code>smgw_JJJJ-MM.txt</code>, <code>smgw_heute.txt</code>) über dessen Port 82, nur lesend, im Heimnetz (WLAN). Mit dem Smart-Meter-Gateway spricht nur der Leser selbst, über sein LAN-Kabel an der HAN-Buchse. Deshalb:
+<ul>
+  <li>Excel braucht <b>keine Zugangsdaten</b> des Gateways und kein Zertifikat (Zugriff „Anonym“); sie stehen auch nicht in der Abfrage.</li>
+  <li>Ein Aktualisieren in Excel löst <b>keine Anmeldung am Gateway</b> aus und kann es nicht sperren – man kann so oft aktualisieren, wie man will.</li>
+  <li>Excel sieht genau den Stand, den der Leser schon abgeholt hat: ganze Tage nach 00:20, den laufenden Tag nur bei eingestelltem Takt (bis zum letzten Takt-Abruf).</li>
+  <li>Der PC muss den Leser erreichen (gleiches Heimnetz), nicht das Gateway.</li>
+</ul></div>
+<p>Die Abfrage, wie sie die Kachel ausgibt (<code>IP-DES-LESERS</code> setzt die Seite selbst ein; <code>Start</code> = Monat des ersten gespeicherten Tages):</p>
+<pre>let
+    Basis  = "http://IP-DES-LESERS:82/ufs/",
+    Start  = #date(2026, 1, 1),
+    Heute  = Date.From(DateTime.LocalNow()),
+    Monate = List.Generate(() =&gt; Start, each _ &lt;= Heute, each Date.AddMonths(_, 1)),
+    Namen  = List.Transform(Monate, each "smgw_" &amp; Date.ToText(_, "yyyy-MM", "en-US") &amp; ".txt")
+             &amp; {"smgw_heute.txt"},
+    Hole   = (n as text) =&gt; try Csv.Document(Web.Contents(Basis &amp; n),
+               [Delimiter = "#(tab)", Columns = 3, Encoding = 65001]) otherwise null,
+    Alle   = Table.Combine(List.RemoveNulls(List.Transform(Namen, Hole))),
+    Spalten = Table.RenameColumns(Alle, {{"Column1", "Zeit"}, {"Column2", "Bezug_1.8.0"}, {"Column3", "Einsp_2.8.0"}}),
+    Ohne_Doppelte = Table.Distinct(Spalten, {"Zeit"}),
+    Typen = Table.TransformColumnTypes(Ohne_Doppelte, {{"Zeit", type datetime},
+              {"Bezug_1.8.0", type number}, {"Einsp_2.8.0", type number}}, "en-US")
+in
+    Typen</pre>
+<p>Was sie tut: für jeden Monat vom Start bis heute die Monatsdatei holen (fehlende Monate werden übersprungen), dazu die Datei des laufenden Tages; alles zu einer Tabelle zusammenfügen, doppelte Viertelstunden entfernen, Zeit als Datum/Uhrzeit und die Zählerstände als Zahl (Punkt als Dezimalzeichen in der Datei, deshalb „en-US“). Excel zeigt sie dann im deutschen Format.</p>
+<p>Spalten: Zeit, Bezug_1.8.0, Einsp_2.8.0 (kWh, Zählerstände; Verbrauch einer Viertelstunde = Differenz zweier Zeilen). Ändert sich die Adresse des Lesers, die Seite unter der neuen Adresse öffnen und neu kopieren – oder nur die Zeile <code>Basis</code> ändern.</p>
+
+<figure><img src="bilder/03-reiter-status.png" alt="Reiter Status" style="max-width:85%"><figcaption>Reiter „Status“: Abruf, Gateway-Firmware, Gerät. IP-Adresse ausgeblendet.</figcaption></figure>
+<figure><img src="bilder/04-reiter-taf.png" alt="Reiter TAF" style="max-width:85%"><figcaption>Reiter „TAF“: hier freigeschaltet TAF 1 und TAF 7 (15-Minuten-Zählerstände), darunter alle 14 TAF erklärt.</figcaption></figure>
+
+<h3>9.4 Konsole</h3>
+<table>
+  <tr><th>Befehl</th><th>Bedeutung</th></tr>
+  <tr><td><code>SMGW</code></td><td>Zustand (Zugang, gespeichert bis, letzter Abruf, Fehler)</td></tr>
+  <tr><td><code>SMGWAbruf</code></td><td>Abruf jetzt vormerken (eine laufende Wartezeit nach einem Fehler bleibt bestehen)</td></tr>
+  <tr><td><code>SMGWTakt &lt;min&gt;</code></td><td>laufenden Tag alle &lt;min&gt; Minuten nach der Uhr holen (mindestens 15, 0 = aus)</td></tr>
+  <tr><td><code>SMGWVersatz &lt;min&gt;</code></td><td>Abstand nach dem Viertelstundenende (0–14, Vorgabe 2)</td></tr>
+  <tr><td><code>SMGWHost &lt;IP&gt;</code> · <code>SMGWPort &lt;n&gt;</code> · <code>SMGWPfad &lt;/…&gt;</code></td><td>Adresse der HAN-Schnittstelle (Vorgabe 192.168.1.200 · 443 · /cgi-bin/hanservice.cgi)</td></tr>
+  <tr><td><code>SMGWFtp</code> · <code>SMGWFtp SYNC</code> · <code>SMGWFtp RESTORE</code></td><td>FTP: Daten jetzt sichern · alles senden · zurückholen. Schreibweise egal (<code>sync</code> = <code>SYNC</code>).</td></tr>
+  <tr><td><code>SMGWFtpZeit HH:MM</code></td><td>Uhrzeit der täglichen Sicherung</td></tr>
+  <tr><td><code>SMGWFrei</code></td><td>Wartezeit nach einem Fehler aufheben (nur bewusst benutzen, Sperre!)</td></tr>
+  <tr><td><code>TinyCTlsCert</code></td><td>Zustand des Client-Zertifikats (<code>loaded</code>, Kurve); setzt Slot 0 selbst</td></tr>
+</table>
+<p>Zugangsdaten gibt es absichtlich nicht als Konsolenbefehl.</p>
+
+<h2>10. Häufige Fragen</h2>
+<h3>„Fehler: keine Verbindung zum Gateway“</h3>
+<p>LAN-Kabel, LAN-Adresse (<code>Status 5</code>) und die Gateway-Adresse (Einstellungen) prüfen. Der Leser muss im selben Netz wie die HAN-Buchse sein. Der nächste Versuch kommt automatisch nach der Wartezeit.</p>
+<h3>„Anmeldung abgelehnt – Zugangsdaten prüfen“</h3>
+<p>Benutzername oder Passwort stimmen nicht. Auf der Seite neu eintragen; neue Daten heben die 12-h-Wartezeit auf. Nicht mehrfach hintereinander probieren, sonst sperrt das Gateway.</p>
+<h3>Die TLS-Verbindung bricht sofort ab</h3>
+<p>Die Firmware enthält <code>setRSAOnly(false)</code> nicht (Abschnitt 4.1). Das Gateway bietet nur ECDSA an.</p>
+<h3>Beim Zertifikat steht „⚠ Firmware lädt es nicht“</h3>
+<p>Die Firmware ist älter als 08.11.2026 oder ohne <code>USE_MQTT_CLIENT_CERT</code> gebaut (Abschnitt 4.3). Der Abruf läuft dann mit Benutzer/Passwort weiter.</p>
+<h3>Das ganze Gerät ist träge, Seiten laden Sekunden</h3>
+<p>Der C6 hat noch die Werksfirmware. <code>HostedOta</code> ausführen (Abschnitt 4.4).</p>
+<h3>FTP: „Zielordner fehlt oder kein Schreibrecht“</h3>
+<p>Der Ordner existiert für diesen Benutzer nicht. Bei einem Benutzer, dessen Freigabe nur auf einen Ordner zeigt, ist dieser Ordner schon „/“ – Zielordner dann leer lassen.</p>
+<h3>Excel findet nichts</h3>
+<p>Die Adresse in der Zeile <code>Basis</code> stimmt nicht mehr (neue IP des <b>Lesers</b> – die Adresse des Gateways spielt für Excel keine Rolle). Seite unter der aktuellen Adresse öffnen und die Abfrage neu kopieren.</p>
+<h3>An einzelnen Tagen fehlen Viertelstunden</h3>
+<p>Das Gateway hat sie selbst nicht. Am Tag der Zeitumstellung im Herbst werden die doppelten Viertelstunden überschrieben; die Tagessumme stimmt, nur das Diagramm zeigt 96 statt 100 Werte.</p>
+
+</body>
+</html>

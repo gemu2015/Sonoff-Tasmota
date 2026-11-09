@@ -1,0 +1,368 @@
+// @name: SMGW-Web
+// ============================================================================
+// slot1-smgwweb_v008.tc - Weboberflaeche des SMGW-Lesers
+// v008 08.11.2026 (Andreas): orange Zeilen "Fehler" und "FTP-Sicherung" auf der Hauptseite brechen um (eigene
+//       Tabellenzeile: Tasmotas {m} setzt width:20px;white-space:nowrap, der Text lief sonst in einer Zeile).
+// v007 08.11.2026: /smgwzugang art=cert - Client-Zertifikat (im Browser aus .p12 entpackt) als
+//       /smgw_cert.secret (DER als Hex) und /smgw_key.secret ("P-256|P-384", Schluessel-Hex, "EC|RSA bis=JJJJ-MM-TT");
+//       del=1 loescht beide. Antwort nur da 0/1, Kurve, Ablaufdatum - nie Schluessel oder Zertifikat.
+// v006 08.11.2026: Benutzernamen (HAN und FTP) gehen nie mehr an die Seite, nur "user":1/0 wie beim Passwort;
+//       Benutzer leer beim Speichern = bisheriger bleibt (wie beim Passwort). HAN-Zugang mit 3. Zeile
+//       Identifikationsnummer ("id", E + 3 Buchstaben + 10 Ziffern; leer = bisherige bleibt; "-" = loeschen),
+//       Antwort nur "id":1/0.
+// v005 08.11.2026: /smgwzugang mit art=han - Zugang der HAN-Schnittstelle als /smgw_zugang.secret (2 Zeilen:
+//       Benutzer, Passwort; Passwort leer = bisheriges bleibt). Antwort NIE mit Passwort, nur pw 1/0.
+// v004 07.11.2026 (Andreas): Status-Puffer 500 -> 900 (slot0-smgw v009 schreibt den FTP-Stand mit), FTP-Fehler auf der
+//       Hauptseite; /smgwzugang (POST, wie /hems_zugang am HEMS): ohne setz=1 nur Stand, mit setz=1 ip, user, pw
+//       (leer = bisheriges Passwort bleibt), dir -> /smgw_ftp.secret (4 Zeilen). Antwort NIE mit Passwort, nur pw 1/0.
+// v003 07.11.2026 (Andreas): /smgwf?n=gwfw|gwtaf liefert die von slot0-smgw v008 gespeicherten Gateway-Seiten
+//       (Software-Versionen, Auswertungsprofile = TAF) an smgw.html.
+// v002 07.11.2026 (Andreas): Knopf auf der Hauptseite in HEMS-Gelb (#ffc107 / schwarz) wie HEMS, Steuerbox, SteuVE.
+// v001 07.11.2026 (Andreas). Geraet: SMGW-Leser (esp32p4_waveshare_WIFI6_SMGW_TinyC)
+//
+// Warum ein eigener Slot: Slot 0 (slot0-smgw) haelt waehrend eines Abrufs die
+// TLS-Sitzung und ist dann fuer Webseiten belegt ("TinyC busy", Knopf fehlt).
+// Dieser Slot macht keine Netzwerkabrufe und ist deshalb immer erreichbar.
+//
+// Liest den Status aus /smgw_status.txt (schreibt Slot 0 bei jeder Aenderung):
+//   {"zugang":1,"bis":"..","ok":"..","start":"..","fehler":"..","fehlerzeit":"..",
+//    "naechster":<tasm_uptime>,"takt":0,"aktiv":0}
+//
+// Web:  Knopf "SMGW" auf der Hauptseite + Status
+//       /smgw   Dashboard (/smgw.html bzw. .gz auf der SD)
+//       /smgwj  Status-JSON (+ "warte" in s, "up")
+//       /smgwf?n=tage|heute|gwfw|gwtaf|JJJJ-MM   Datendateien (nur diese Namen)
+// ============================================================================
+
+char S[900];           // Inhalt von /smgw_status.txt
+char W[1100];          // Ausgabepuffer
+char V[120];           // ausgelesener Wert
+
+// Status-Datei lesen; 0 = fehlt
+int leseStatus() {
+    S[0] = 0;
+    int h = fileOpen("/smgw_status.txt", 0);
+    if (h < 0) { return 0; }
+    int n = fileRead(h, S, 890);
+    fileClose(h);
+    if (n <= 0) { S[0] = 0; return 0; }
+    S[n] = 0;
+    return 1;
+}
+
+// Textwert hinter key (z. B. "\"bis\":\"", Laenge klen) nach V; key-Laenge mitgeben (TinyC strlen-Falle)
+void textWert(char key[], int klen) {
+    V[0] = 0;
+    int p = strFind(S, key);
+    if (p < 0) { return; }
+    p = p + klen;
+    int i = 0;
+    while (i < 118 && S[p + i] != 0 && S[p + i] != '"') { V[i] = S[p + i]; i++; }
+    V[i] = 0;
+}
+
+// Zahl hinter key (z. B. "\"aktiv\":", Laenge klen)
+int zahlWert(char key[], int klen) {
+    int p = strFind(S, key);
+    if (p < 0) { return 0; }
+    p = p + klen;
+    int i = 0;
+    while (i < 14 && S[p + i] != 0 && S[p + i] != ',' && S[p + i] != '}') { V[i] = S[p + i]; i++; }
+    V[i] = 0;
+    return atoi(V);
+}
+
+void WebCall() {
+    webSend("<tr><td colspan=2 style='text-align:center;padding:12px 0 6px'>");
+    webSend("<a href='/smgw'><button style='background:#ffc107;color:#000;width:100%");
+    webSend(";font-size:1.2rem;line-height:2.4rem;border:0;border-radius:0.3rem");
+    webSend(";cursor:pointer'>SMGW</button></a></td></tr>");
+    if (leseStatus() == 0) {
+        webSend("{s}Abruf{m}<span style='color:#e0a030'>noch kein Status (Slot 0 laeuft?)</span>{e}");
+        return;
+    }
+    if (zahlWert("\"zugang\":", 9) == 0) {
+        webSend("{s}Gateway{m}<span style='color:#e0a030'>/smgw_zugang.secret fehlt</span>{e}");
+        return;
+    }
+    textWert("\"bis\":\"", 7);
+    sprintf(W, "{s}Gespeichert bis{m}%s{e}", V);
+    webSend(W);
+    if (zahlWert("\"aktiv\":", 8) == 1) { webSend("{s}Abruf{m}laeuft ...{e}"); }
+    textWert("\"fehler\":\"", 10);
+    if (V[0] != 0) {
+        webSend("<tr><th>Fehler</th><td style='width:60%;white-space:normal;text-align:right;color:#e0a030'>");   // v008
+        webSend(V);
+        webSend("</td></tr>");
+    }
+    if (zahlWert("\"ftp\":", 6) == 2) {                // v004
+        textWert("\"ftptext\":\"", 11);
+        webSend("<tr><th>FTP-Sicherung</th><td style='width:60%;white-space:normal;text-align:right;color:#e0a030'>");   // v008
+        webSend(V);
+        webSend("</td></tr>");
+    }
+}
+
+// v004: /smgwzugang - FTP-Zugang als /smgw_ftp.secret (Puffer global: TinyC-Falle lokales char[])
+char zg_s[4];
+char zg_a1[96];      // Server
+char zg_a2[72];      // Benutzer
+char zg_a3[100];     // Passwort
+char zg_a4[96];      // Ordner
+char zg_f[420];      // Dateiinhalt
+char zg_o[300];      // Antwort
+char zg_t[128];
+char zg_art[8];      // v005: "ftp" (Vorgabe) oder "han"
+char zc_c[4200];     // v007: Zertifikat als Hex (max. 2048 Byte DER)
+char zc_k[100];      // v007: Schluessel als Hex (32/48 Byte)
+char zc_v[16];       // v007: Kurve
+char zc_i[8];        // v007: Aussteller EC/RSA
+char zc_b[16];       // v007: gueltig bis
+// Zeilenumbrueche (ausser im Passwort auch " und \) aus zg_t entfernen
+void zgSauberT(int pw) {
+    int i = 0; int j = 0;
+    while (zg_t[i] != 0) { int c = zg_t[i]; if (c != 10 && c != 13 && (pw == 1 || (c != 34 && c != 92))) { zg_t[j] = c; j = j + 1; } i = i + 1; }
+    zg_t[j] = 0;
+}
+// Zeile n der bisherigen Datei nach zg_t, Rueckgabe Laenge (-1 = Datei fehlt)
+int zgAlt(int n) {
+    zg_t[0] = 0;
+    int h = fileOpen("/smgw_ftp.secret", 0);
+    if (h < 0) { return -1; }
+    int k = fileRead(h, zg_f, 400);
+    fileClose(h);
+    if (k <= 0) { return -1; }
+    zg_f[k] = 0;
+    return strToken(zg_t, zg_f, '\n', n);
+}
+// v005: Zeile n von /smgw_zugang.secret nach zg_t (ohne CR), Rueckgabe Laenge (-1 = Datei fehlt)
+int hanAlt(int n) {
+    zg_t[0] = 0;
+    int h = fileOpen("/smgw_zugang.secret", 0);
+    if (h < 0) { return -1; }
+    int k = fileRead(h, zg_f, 400);
+    fileClose(h);
+    if (k <= 0) { return -1; }
+    zg_f[k] = 0;
+    int l = strToken(zg_t, zg_f, '\n', n);
+    zg_f[0] = 0;
+    strTrim(zg_t);
+    return strlen(zg_t);
+}
+// v006: Identifikationsnummer in zg_a4 pruefen (Kleinbuchstaben werden gross, Leerzeichen entfernt)
+int idPruef() {
+    int i = 0; int j = 0;
+    while (zg_a4[i] != 0) { int c = zg_a4[i]; if (c >= 'a' && c <= 'z') { c = c - 32; } if (c != ' ') { zg_a4[j] = c; j++; } i++; }
+    zg_a4[j] = 0;
+    if (j != 14 || zg_a4[0] != 'E') { return 0; }
+    for (i = 1; i < 4; i++) { if (zg_a4[i] < 'A' || zg_a4[i] > 'Z') { return 0; } }
+    for (i = 4; i < 14; i++) { if (zg_a4[i] < '0' || zg_a4[i] > '9') { return 0; } }
+    return 1;
+}
+// v005: Zugang der HAN-Schnittstelle des Gateways lesen / setzen
+void zugangHan() {
+    zg_s[0] = 0; zg_a2[0] = 0; zg_a3[0] = 0; zg_a4[0] = 0;
+    webArg("setz", zg_s);
+    if (zg_s[0] == '1') {
+        webArg("user", zg_a2); webArg("pw", zg_a3); webArg("id", zg_a4);
+        strcpy(zg_t, zg_a4); zgSauberT(0); strcpy(zg_a4, zg_t); strTrim(zg_a4);   // v006: Identifikationsnummer
+        if (zg_a4[0] == 0 && hanAlt(3) > 0) { strcpy(zg_a4, zg_t); }   // leer = bisherige bleibt
+        if (strcmp(zg_a4, "-") == 0) { zg_a4[0] = 0; }                // "-" = loeschen
+        if (zg_a4[0] != 0 && idPruef() == 0) { zg_a3[0] = 0; webSend("{\"ok\":0,\"err\":\"Identifikationsnummer: E + 3 Buchstaben + 10 Ziffern\"}"); return; }
+        strcpy(zg_t, zg_a2); zgSauberT(0); strcpy(zg_a2, zg_t);
+        strcpy(zg_t, zg_a3); zgSauberT(1); strcpy(zg_a3, zg_t);
+        strTrim(zg_a2); strTrim(zg_a3);
+        zg_t[0] = 0;
+        if (zg_a3[0] == 0 && hanAlt(2) > 0) { strcpy(zg_a3, zg_t); }   // leer = bisheriges Passwort bleibt
+        if (zg_a2[0] == 0 && hanAlt(1) > 0) { strcpy(zg_a2, zg_t); }   // v006: leer = bisheriger Benutzer bleibt
+        zg_t[0] = 0;
+        if (zg_a2[0] == 0 || zg_a3[0] == 0) { zg_a3[0] = 0; webSend("{\"ok\":0,\"err\":\"Benutzer und Passwort noetig\"}"); return; }
+        int w = fileOpen("/smgw_zugang.secret", 1);
+        if (w < 0) { zg_a3[0] = 0; webSend("{\"ok\":0,\"err\":\"Datei nicht schreibbar\"}"); return; }
+        sprintf(zg_f, "%s\n%s\n%s\n", zg_a2, zg_a3, zg_a4);   // v006: 3. Zeile Identifikationsnummer
+        fileWrite(w, zg_f, strlen(zg_f));
+        fileClose(w);
+        zg_a3[0] = 0; zg_a4[0] = 0; zg_f[0] = 0;
+        addLog("SMG-Web: HAN-Zugang gespeichert (ohne Werte im Log)");
+    }
+    int da = hanAlt(1);
+    if (da <= 0) { zg_t[0] = 0; webSend("{\"ok\":1,\"art\":\"han\",\"da\":0}"); return; }
+    int pw = 0;
+    if (hanAlt(2) > 0) { pw = 1; }
+    int gid = 0;
+    if (hanAlt(3) > 0) { gid = 1; }
+    zg_t[0] = 0; zg_a2[0] = 0;
+    sprintf(zg_o, "{\"ok\":1,\"art\":\"han\",\"da\":1,\"user\":1,\"pw\":%d,\"id\":%d}", pw, gid);   // v006: nie Werte an die Seite
+    webSend(zg_o);
+}
+// v007: nur Hex-Ziffern? Rueckgabe Laenge oder -1
+int zcHex(int w) {
+    int i = 0;
+    while (1) {
+        int c = 0;
+        if (w == 1) { c = zc_c[i]; } else { c = zc_k[i]; }
+        if (c == 0) { break; }
+        int ok = 0;
+        if (c >= '0' && c <= '9') { ok = 1; }
+        if (c >= 'a' && c <= 'f') { ok = 1; }
+        if (c >= 'A' && c <= 'F') { ok = 1; }
+        if (ok == 0) { return -1; }
+        i++;
+    }
+    return i;
+}
+// v007: Client-Zertifikat speichern / loeschen / Stand melden
+void zugangCert() {
+    zg_s[0] = 0;
+    webArg("setz", zg_s);
+    if (zg_s[0] == '2') {                        // loeschen
+        fileDelete("/smgw_cert.secret");
+        fileDelete("/smgw_key.secret");
+        addLog("SMG-Web: Client-Zertifikat geloescht");
+    }
+    if (zg_s[0] == '1') {
+        zc_c[0] = 0; zc_k[0] = 0; zc_v[0] = 0; zc_i[0] = 0; zc_b[0] = 0;
+        webArg("cert", zc_c); webArg("key", zc_k); webArg("kurve", zc_v); webArg("aus", zc_i); webArg("bis", zc_b);
+        int lc = zcHex(1); int lk = zcHex(2);
+        int want = 0;
+        if (strcmp(zc_v, "P-256") == 0) { want = 64; }
+        if (strcmp(zc_v, "P-384") == 0) { want = 96; }
+        if (want == 0 || lk != want || lc < 128 || lc > 4096 || (lc % 2) != 0) {
+            zc_k[0] = 0; zc_c[0] = 0;
+            webSend("{\"ok\":0,\"err\":\"Zertifikat/Schluessel ungueltig (nur EC P-256/P-384)\"}");
+            return;
+        }
+        if (strcmp(zc_i, "RSA") != 0) { strcpy(zc_i, "EC"); }
+        int w = fileOpen("/smgw_cert.secret", 1);
+        if (w < 0) { zc_k[0] = 0; webSend("{\"ok\":0,\"err\":\"Datei nicht schreibbar\"}"); return; }
+        fileWrite(w, zc_c, lc);
+        fileClose(w);
+        w = fileOpen("/smgw_key.secret", 1);
+        if (w < 0) { zc_k[0] = 0; webSend("{\"ok\":0,\"err\":\"Datei nicht schreibbar\"}"); return; }
+        sprintf(zg_f, "%s\n%s\n%s bis=%s\n", zc_v, zc_k, zc_i, zc_b);
+        fileWrite(w, zg_f, strlen(zg_f));
+        fileClose(w);
+        zc_k[0] = 0; zc_c[0] = 0; zg_f[0] = 0;
+        addLog("SMG-Web: Client-Zertifikat gespeichert (ohne Werte im Log)");
+    }
+    // Stand: Kurve und Ablaufdatum aus Zeile 1 und 3 der Schluesseldatei
+    if (fileExists("/smgw_cert.secret") == 0 || fileExists("/smgw_key.secret") == 0) {
+        webSend("{\"ok\":1,\"art\":\"cert\",\"da\":0}");
+        return;
+    }
+    int h = fileOpen("/smgw_key.secret", 0);
+    int k = 0;
+    if (h >= 0) { k = fileRead(h, zg_f, 400); fileClose(h); }
+    if (k <= 0) { webSend("{\"ok\":1,\"art\":\"cert\",\"da\":0}"); return; }
+    zg_f[k] = 0;
+    strToken(zc_v, zg_f, '\n', 1); strTrim(zc_v);
+    strToken(zg_t, zg_f, '\n', 3); strTrim(zg_t);
+    zg_f[0] = 0;
+    zc_b[0] = 0;
+    int p = strFind(zg_t, "bis=");
+    if (p >= 0) { strSub(zc_b, zg_t, p + 4, 10); }
+    zg_t[0] = 0;
+    sprintf(zg_o, "{\"ok\":1,\"art\":\"cert\",\"da\":1,\"kurve\":\"%s\",\"bis\":\"%s\"}", zc_v, zc_b);
+    webSend(zg_o);
+}
+void zugang() {
+    zg_art[0] = 0;
+    webArg("art", zg_art);
+    if (strcmp(zg_art, "han") == 0) { zugangHan(); return; }   // v005
+    if (strcmp(zg_art, "cert") == 0) { zugangCert(); return; }   // v007
+    zg_s[0] = 0; zg_a1[0] = 0; zg_a2[0] = 0; zg_a3[0] = 0; zg_a4[0] = 0;
+    webArg("setz", zg_s);
+    if (zg_s[0] == '1') {
+        webArg("ip", zg_a1); webArg("user", zg_a2); webArg("pw", zg_a3); webArg("dir", zg_a4);
+        strcpy(zg_t, zg_a1); zgSauberT(0); strcpy(zg_a1, zg_t);
+        strcpy(zg_t, zg_a2); zgSauberT(0); strcpy(zg_a2, zg_t);
+        strcpy(zg_t, zg_a4); zgSauberT(0); strcpy(zg_a4, zg_t);
+        strcpy(zg_t, zg_a3); zgSauberT(1); strcpy(zg_a3, zg_t);
+        zg_t[0] = 0;
+        if (zg_a3[0] == 0 && zgAlt(3) > 0) { strcpy(zg_a3, zg_t); }   // leer = bisheriges Passwort bleibt
+        if (zg_a2[0] == 0 && zgAlt(2) > 0) { strcpy(zg_a2, zg_t); }   // v006: leer = bisheriger Benutzer bleibt
+        int w = fileOpen("/smgw_ftp.secret", 1);
+        if (w < 0) { webSend("{\"ok\":0,\"err\":\"Datei nicht schreibbar\"}"); return; }
+        sprintf(zg_f, "%s\n%s\n%s\n%s\n", zg_a1, zg_a2, zg_a3, zg_a4);
+        fileWrite(w, zg_f, strlen(zg_f));
+        fileClose(w);
+        zg_a3[0] = 0; zg_f[0] = 0; zg_t[0] = 0;
+        addLog("SMG-Web: FTP-Zugang gespeichert (ohne Werte im Log)");
+    }
+    int da = zgAlt(1);
+    if (da < 0) { webSend("{\"ok\":1,\"art\":\"ftp\",\"da\":0}"); return; }
+    strcpy(zg_a1, zg_t);
+    int us = 0;
+    if (zgAlt(2) > 0) { us = 1; }               // v006: nur ob ein Benutzer da ist
+    zg_a2[0] = 0;
+    int pw = 0;
+    if (zgAlt(3) > 0) { pw = 1; }
+    zgAlt(4); strcpy(zg_a4, zg_t);
+    zg_f[0] = 0;
+    strcpy(zg_t, zg_a1); zgSauberT(0); strcpy(zg_a1, zg_t);
+    strcpy(zg_t, zg_a4); zgSauberT(0); strcpy(zg_a4, zg_t);
+    zg_t[0] = 0;
+    sprintf(zg_o, "{\"ok\":1,\"art\":\"ftp\",\"da\":1,\"ip\":\"%s\",\"user\":%d,\"pw\":%d,\"dir\":\"%s\"}", zg_a1, us, pw, zg_a4);   // v006
+    webSend(zg_o);
+}
+
+// Datei aus der SD an den Browser durchreichen
+void sendeDatei(char fn[]) {
+    int h = fileOpen(fn, 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, W, 1000);
+    while (n > 0) {
+        W[n] = 0;
+        webSend(W);
+        n = fileRead(h, W, 1000);
+    }
+    fileClose(h);
+}
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) { webSendFile("/smgw.html"); return; }
+    if (h == 2) {
+        if (leseStatus() == 0) {
+            sprintf(W, "{\"zugang\":0,\"bis\":\"\",\"ok\":\"\",\"start\":\"\",\"fehler\":\"noch kein Status von Slot 0\",\"fehlerzeit\":\"\",\"warte\":0,\"takt\":0,\"aktiv\":0,\"up\":%d}", tasm_uptime);
+            webSend(W);
+            return;
+        }
+        int warte = zahlWert("\"naechster\":", 12) - tasm_uptime;
+        if (warte < 0) { warte = 0; }
+        int n = strlen(S);
+        while (n > 0 && S[n - 1] != '}') { n--; }      // abschliessendes } (und Zeilenende) abschneiden
+        if (n > 0) { S[n - 1] = 0; }
+        webSend(S);
+        sprintf(W, ",\"warte\":%d,\"up\":%d}", warte, tasm_uptime);
+        webSend(W);
+        return;
+    }
+    if (h == 4) { zugang(); return; }     // v004
+    if (h == 3) {
+        char na[16];
+        char fn[24];
+        int n = webArg("n", na);
+        if (strcmp(na, "tage") == 0) { sendeDatei("/smgw_tage.txt"); return; }
+        if (strcmp(na, "heute") == 0) { sendeDatei("/smgw_heute.txt"); return; }
+        if (strcmp(na, "gwfw") == 0) { sendeDatei("/smgw_gw_fw.html"); return; }     // v003
+        if (strcmp(na, "gwtaf") == 0) { sendeDatei("/smgw_gw_taf.html"); return; }   // v003
+        // nur JJJJ-MM zulassen
+        if (n != 7 || na[4] != '-') { return; }
+        for (int i = 0; i < 7; i++) {
+            if (i != 4 && (na[i] < '0' || na[i] > '9')) { return; }
+        }
+        sprintf(fn, "/smgw_%s.txt", na);
+        sendeDatei(fn);
+        return;
+    }
+}
+
+int main() {
+    webOn(1, "/smgw");
+    webOn(2, "/smgwj");
+    webOn(3, "/smgwf");
+    webOn(4, "/smgwzugang");   // v004
+    addLog("SMG-Web: v007 bereit (/smgw, /smgwj, /smgwf, /smgwzugang ftp+han+cert)");
+    return 0;
+}
