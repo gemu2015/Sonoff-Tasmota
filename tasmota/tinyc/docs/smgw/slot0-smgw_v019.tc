@@ -1,6 +1,16 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_v016.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// slot0-smgw_v019.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// v019 (09.11.2026, Andreas): leseCfg() kopiert fuer takt/versatz/ftpzeit nur noch 10 Zeichen statt des ganzen
+//       Dateirests; atoi() bekam sonst 83 Zeichen und meldete beim Start "syscall 77 cut a string at 31 of 83"
+//       (harmlos, Werte stimmten). Sonst wie v018.
+// v018 (09.11.2026, Andreas): Startzeile im Log in zwei Zeilen geteilt (war 155 Zeichen, die Firmware kuerzt
+//       Logzeilen auf 127 -> Gateway-Pfad fehlte, seit v014). Sonst wie v017.
+// v017 (09.11.2026, Andreas, Hinweis gemu 15:00): Die Wiederholung aus v016 nur noch, wenn mit den aktuellen
+//       Zugangsdaten seit dem Start schon einmal eine Anmeldung gelungen ist (Merker anmeldungOk). Grund: bei der
+//       Digest-Anfrage ist dNeu immer 0 (sie laeuft auf der Verbindung der 1. Anfrage). Ein Gateway, das ein
+//       falsches Passwort mit Verbindungsabbruch statt 401 beantwortet, haette sonst 2 Fehlversuche pro Takt
+//       bekommen (Sperrgefahr). Merker wird geloescht, sobald sich Benutzer oder Passwort aendern. Sonst wie v016.
 // v016 (09.11.2026, Andreas): Anmeldung wiederholt sich einmal mit neuer Verbindung. Belegt durch die Diagnose
 //       von v015 (Erstabruf am S3, 09.11.): das Gateway laesst eine Keep-Alive-Verbindung gelegentlich still
 //       fallen (kein "Connection: close"), die naechste Anfrage bekommt keine Statuszeile (Stufe 3). Beim
@@ -173,6 +183,7 @@ int  backoff = 3600;
 int  nextHeute = 0;
 int  force = 0;
 int  zugangOk = 0;
+int  anmeldungOk = 0;  // v017: 1 = mit den aktuellen Zugangsdaten seit dem Start schon angemeldet
 int  tageHeute = 0;    // in der letzten Sitzung gespeicherte Tage
 
 // ── HTTP-Zustand ────────────────────────────────────────────────────────────
@@ -409,13 +420,13 @@ void leseCfg() {
     if (p >= 0) { cfgWert(p + 5); int pt = atoi(cfgV); if (pt >= 1 && pt <= 65535) { gwPort = pt; } }
     p = strFind(X, "takt ");
     if (p >= 0) {
-        strSub(line, X, p + 5, 0);
+        strSub(line, X, p + 5, 10);                // v019: nur die Zahl, nicht den Dateirest
         strTrim(line);
         takt = atoi(line);
     }
     p = strFind(X, "versatz ");                  // v007
     if (p >= 0) {
-        strSub(line, X, p + 8, 0);
+        strSub(line, X, p + 8, 10);                // v019
         strTrim(line);
         versatz = atoi(line);
     }
@@ -424,7 +435,7 @@ void leseCfg() {
     if (versatz > 14) { versatz = 14; }
     p = strFind(X, "ftpzeit ");                  // v010
     if (p >= 0) {
-        strSub(line, X, p + 8, 0);
+        strSub(line, X, p + 8, 10);                // v019
         int z = zeitWert(line);
         if (z >= 0) { ftpUm = z; }
     }
@@ -870,7 +881,7 @@ void speichereHeute() {
 int anmeldenSicher() {
     int r = anmelden();
     if (r == 1) { r = holeZaehler(); }
-    if (r == 0 && dNeu == 0 && (dStufe == 2 || dStufe == 3) && fLock == 0) {
+    if (r == 0 && anmeldungOk == 1 && dNeu == 0 && (dStufe == 2 || dStufe == 3) && fLock == 0) {   // v017: anmeldungOk
         addLog("SMG: Anmeldung erneut mit neuer Verbindung");
         trenne();
         delay(3000);
@@ -878,6 +889,7 @@ int anmeldenSicher() {
         if (r == 1) { r = holeZaehler(); }
         if (r == 1) { errText[0] = 0; errZeit[0] = 0; }
     }
+    if (r == 1) { anmeldungOk = 1; }   // v017
     return r;
 }
 
@@ -1217,6 +1229,7 @@ void TaskLoop() {
         zugNext = tasm_uptime + 60;
         scopy(zAltU, user); scopy(zAltP, pass); scopy(gwIdAlt, gwId);
         int z = leseZugang();
+        if (strcmp(zAltU, user) != 0 || strcmp(zAltP, pass) != 0) { anmeldungOk = 0; }   // v017: neue Zugangsdaten -> keine Wiederholung bis zur 1. gelungenen Anmeldung
         if (strcmp(gwIdAlt, gwId) != 0) { schreibeStatus(); }   // v013: neue Identifikationsnummer sofort im Status
         if (z == 1 && (strcmp(zAltU, user) != 0 || strcmp(zAltP, pass) != 0) && zAltU[0] != 0) {
             nextTry = 0; backoff = 3600; errText[0] = 0; errZeit[0] = 0;
@@ -1396,7 +1409,9 @@ int main() {
     leseLetzterTag();
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser v016 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d, Gateway https://%s:%d%s", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60, gwHost, gwPort, gwPfad);
+    sprintf(X, "SMG: SMGW-Leser v019 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
+    addLog(X);
+    sprintf(X, "SMG: Gateway https://%s:%d%s", gwHost, gwPort, gwPfad);   // v018: eigene Zeile (Logzeilen max. 127 Zeichen)
     addLog(X);
     schreibeStatus();
     return 0;

@@ -59,6 +59,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **SMGW reader slot0 v017-v019, guide v008** (Andreas, 09.11.2026): v017 repeats the login only after a login has already worked with the current credentials (`anmeldungOk`; a wrong password never costs a second try, remark by gemu), v018/v019 shorten log lines that were cut at 127 characters (start line split in two, `atoi` fed 10 characters instead of the rest of the file). Guide v008 with table of contents and chapters on putting the page and the scripts on the device.
 - **SMGW reader v016 / v009, guide v007** (Andreas, 09.11.2026): `slot0-smgw` v016 repeats a login once with a new connection when the gateway silently dropped a kept-alive connection (`anmeldenSicher()`; proven by the v015 diagnostic line), `slot1-smgwweb` v009 answers an empty HAN access completely (first setup on a new device was refused with "needs slot 1 v006"). Tested on a second board, Waveshare ESP32-S3-ETH (now the recommended one; the P4 stays a tested alternative). Guide v007 with the S3 chapter and a picture without a private address.
 - **Lidar scope** (`examples/lidar_scope.tc`): standalone demo, a 360 degree distance display for an LD19 lidar as a web page of the ESP32 (`/lidar`, data as JSON on `/lidar_data`): dots or filled outline, auto range, rotate/mirror, freeze, hover readout. `#define LIDAR_SIM 1` runs a synthetic room without a sensor (tried in the browser against an ESP32-S3; not yet with a real lidar).
 

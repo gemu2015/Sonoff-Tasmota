@@ -4,7 +4,7 @@ By Andreas (forum name meierchen006), taken over into the repository on 08.11.20
 readings (consumption 1.8.0, feed-in 2.8.0) from a PPC smart meter gateway over its HAN interface, keeps them as text on the SD card, shows day / month / year
 and offers CSV and an Excel query. Optional daily FTP backup.
 
-- `slot0-smgw_v016.tc`: the reader (TLS, digest login, evaluation in 1 KB pieces, files, clock-driven schedule, FTP backup, console `SMGW...`).
+- `slot0-smgw_v019.tc`: the reader (TLS, digest login, evaluation in 1 KB pieces, files, clock-driven schedule, FTP backup, console `SMGW...`).
 - `slot1-smgwweb_v009.tc`: button on the main page, `/smgw`, `/smgwj`, `/smgwf`, `/smgwzugang`. Own slot because slot 0 is busy during a fetch.
 - `smgw.html` (+ `.gz`): the page (belongs on the SD card).
 - `ANLEITUNG-SMGW-Leser.pdf` (+ `quellen/` with the HTML source and pictures): hardware, network, build variant, commissioning, credentials file format, files, operation, FTP backup.
