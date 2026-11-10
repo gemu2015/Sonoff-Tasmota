@@ -173,23 +173,30 @@ int lid_init(int rx_pin) {
         i = i + 1;
     }
     lid_pos = 0;
-    lid_h = serialBegin(rx_pin, -1, 230400, 3, 2048);
+    lid_h = serialBegin(rx_pin, -1, 230400, 3, 4096);
     lid_scan_t0 = 0;
     return lid_h;
 }
 
-// read what has arrived and decode it; returns the number of bytes. Call at least every ~50 ms (TaskLoop or Every50ms).
+// read what has arrived and decode it; returns the number of bytes. Call every ~20 ms or faster (TaskLoop or Every50ms).
+// A lidar of 5000 points/s sends about 20 kB/s: one call reads up to 4 blocks in a row so a slow turn of the loop does not make the
+// receive buffer (4096 bytes = 200 ms) overflow. (Measured 10.11.2026 on an ESP32-S3: with ONE block of 512 bytes per 20 ms about 20 %
+// of the packets were lost and 7 % failed the CRC.)
 int lid_poll() {
     int n = 0;
-    int now = 0;
+    int total = 0;
+    int rounds = 0;
     if (lid_h < 0) { return 0; }
-    n = serialReadArray(lid_h, lid_in, LID_BLOCK);
-    if (n > 0) {
+    while (rounds < 4) {
+        n = serialReadArray(lid_h, lid_in, LID_BLOCK);
+        if (n <= 0) { break; }
         lid_feed(n);
-        now = millis();
-        lid_last_ms = now;
+        total = total + n;
+        rounds = rounds + 1;
+        if (n < LID_BLOCK) { break; }
     }
-    return n;
+    if (total > 0) { lid_last_ms = millis(); }
+    return total;
 }
 
 // 1 = packets arrived within the last 500 ms

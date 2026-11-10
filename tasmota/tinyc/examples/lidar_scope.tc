@@ -85,7 +85,7 @@ void TaskLoop() {
         delay(100);
     } else {
         lid_poll();
-        delay(20);
+        delay(8);
     }
 }
 

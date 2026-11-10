@@ -14,7 +14,7 @@ char ob[96];
 
 void TaskLoop() {
     lid_poll();
-    delay(20);
+    delay(8);
 }
 
 void WebCall() {
