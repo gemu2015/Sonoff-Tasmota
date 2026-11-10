@@ -5,7 +5,7 @@
 //
 //   http://<ip>/rover        joystick page (touch or mouse; arrow keys / WASD)
 //   http://<ip>/rover_cmd?d=<-100..100>&t=<-100..100>&m=<10..100>   one drive command, answers a small JSON
-//   console:  RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
+//   console:  RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
 //
 // SAFETY, in the order it matters:
 //  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = front left, front right, rear left, rear right, looking
@@ -16,6 +16,11 @@
 //  2. DEAD-MAN: a drive command must be renewed within WD_MS (300 ms), else the motors stop. The page sends one every 100 ms.
 //  3. Battery guard: below VBAT_MIN_MV the motors are refused (3S Li-ion, INA219 at 0x42).
 //  4. A slot stop (CleanUp) and the start of the program switch all motor pins off.
+//  5. PARK MODE (RoverPark 1, or /rover_cmd?p=1): for a rover that stands still, on its charger or not. The motors are refused, the
+//     floor sensors, IMU, compass and the display are no longer served (the chips keep running, only the I2C traffic and the display
+//     stop), the loop sleeps, only the battery is read (every 5 s). A drive command wakes the rover (or RoverPark 0, /rover_cmd?p=0):
+//     the floor sensors then have to answer again before any movement is allowed. PARK_AUTO_S > 0 parks it after that many seconds
+//     without a command. The big consumers are not in this program: switch the lidar off on its own 5 V switch and let the S3 sleep.
 // Motor side A = LEFT, B = RIGHT. Forward = IN1 high, IN2 low. Below PWM 23 the N20 motors do not turn.
 //
 // DISPLAY: the first 4 lines (21 characters, font 6x8, 128x32 pixel block) are what the Waveshare firmware shows on its OLED
@@ -54,6 +59,7 @@
 #define CLIFF_MIN   25           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>
 #define CLIFF_MAX   110
 #define CLIFF_STALE_MS 600       // a sensor that did not answer for this long is a fault
+#define PARK_AUTO_S 0            // > 0: park after this many seconds without a drive command (0 = never)
 
 int drive   = 0;
 int turn    = 0;
@@ -64,7 +70,8 @@ int motR    = 0;
 int stops   = 0;
 int vbat_mv = 0;
 int low     = 0;
-int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both
+int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both, 6 parked
+int park    = 0;                 // 1 = parked (see header)
 int cl_on   = 1;
 int cl_min  = CLIFF_MIN;
 int cl_max  = CLIFF_MAX;
@@ -140,6 +147,7 @@ void rover_apply() {
             t = 0; why = 4;
         }
     }
+    if (park == 1) { d = 0; t = 0; why = 6; }
     l = rover_clamp(d + t, -100, 100);
     r = rover_clamp(d - t, -100, 100);
     pl = rover_pwm((l * vmax) / 100) * DIR_L;
@@ -214,16 +222,17 @@ void tof_step() {
 }
 
 void TaskLoop() {
-    int ch = 0;
-    tof_step();
-    if (cliff_eval() == 1) {
-        if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3]); }
-        rover_apply();
+    if (park == 0) {
+        tof_step();
+        if (cliff_eval() == 1) {
+            if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3]); }
+            rover_apply();
+        }
+        qmi_poll();
+        ak_poll();
     }
-    qmi_poll();
-    ak_poll();
     if (millis() >= ina_next) {
-        ina_next = millis() + 1000;
+        if (park == 1) { ina_next = millis() + 5000; } else { ina_next = millis() + 1000; }
         if (ROVER_SIM == 1) {
             vbat_mv = sim_vbat;
         } else {
@@ -239,7 +248,7 @@ void TaskLoop() {
             if (low == 1) { low = 0; rover_apply(); }
         }
     }
-    delay(5);
+    if (park == 1) { delay(250); } else { delay(5); }
 }
 
 // ---- display: the 4 OLED lines of the Waveshare firmware, then the extra panel -----------------------------------------
@@ -256,6 +265,7 @@ void dsp_state(char t[]) {
     else if (why == 3) { strcpy(t, "CLIFF AHEAD"); }
     else if (why == 4) { strcpy(t, "CLIFF BEHIND"); }
     else if (why == 5) { strcpy(t, "CLIFF F+R"); }
+    else if (why == 6) { strcpy(t, "PARKED"); }
     else if (motL == 0 && motR == 0) { strcpy(t, "STOP"); }
     else { sprintf(t, "L%d R%d", motL, motR); }
 }
@@ -312,6 +322,26 @@ void display_first() {
     display_update();
 }
 
+void park_set(int on) {
+    int i = 0;
+    if (on == park) { return; }
+    if (on == 1) {
+        rover_off();
+        park = 1;
+        rover_apply();
+        dspOnOff(0);
+        addLog("ROVER: parked (motors refused, sensors and display idle)");
+    } else {
+        park = 0;
+        while (i < 4) { vl_age[i] = 0; i = i + 1; }   // every floor sensor has to answer again before the rover may move
+        cl_fault = 1;
+        dspOnOff(1);
+        display_first();
+        rover_apply();
+        addLog("ROVER: awake, floor sensors are tested again");
+    }
+}
+
 void Every50ms() {
     if (millis() - lastcmd > WD_MS) {
         if (motL != 0 || motR != 0) {
@@ -321,10 +351,11 @@ void Every50ms() {
         turn = 0;
         rover_apply();
     }
+    if (PARK_AUTO_S > 0 && park == 0 && millis() - lastcmd > PARK_AUTO_S * 1000) { park_set(1); }
     dsp_n = dsp_n + 1;
     if (dsp_n >= 10) {
         dsp_n = 0;
-        display_update();
+        if (park == 0) { display_update(); }
     }
 }
 
@@ -358,7 +389,7 @@ void WebCall() {
 }
 
 void JsonCall() {
-    sprintf(ob, ",\"Rover\":{\"Vbat\":%d.%03d,\"Cliff\":%d,\"Why\":%d", vbat_mv / 1000, vbat_mv % 1000, cliff_mask(), why);
+    sprintf(ob, ",\"Rover\":{\"Vbat\":%d.%03d,\"Cliff\":%d,\"Why\":%d,\"Park\":%d", vbat_mv / 1000, vbat_mv % 1000, cliff_mask(), why, park);
     responseAppend(ob);
     if (qmi_ok == 1) {
         sprintf(ob, ",\"Yaw\":%.1f", qmi_yaw);
@@ -399,6 +430,8 @@ void WebOn() {
         if (webArg("d", cb) > 0) { drive = rover_clamp(strToInt(cb), -100, 100); }
         if (webArg("t", cb) > 0) { turn = rover_clamp(strToInt(cb), -100, 100); }
         if (webArg("m", cb) > 0) { vmax = rover_clamp(strToInt(cb), 10, 100); }
+        if (webArg("p", cb) > 0) { park_set(strToInt(cb)); }
+        if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
         lastcmd = millis();
         rover_apply();
         sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask());
@@ -440,6 +473,11 @@ void Command(char cmd[]) {
             cl_max = strToInt(b);
             responseCmnd("window set");
         }
+    } else if (strStartsWith(cmd, "PARK")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) { park_set(strToInt(a)); }
+        sprintf(ob, "park %d", park);
+        responseCmnd(ob);
     } else if (strStartsWith(cmd, "TOF")) {
         strToken(a, cmd, ' ', 2);
         strToken(b, cmd, ' ', 3);
@@ -456,6 +494,7 @@ void Command(char cmd[]) {
 }
 
 void CleanUp() {
+    if (park == 1) { dspOnOff(1); }
     rover_off();
     ina_release();
     qmi_release();
