@@ -1,6 +1,10 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_v019.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// slot0-smgw_v020.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// v020 (10.11.2026, Andreas, Hinweis gemu 10.11. 09:00): anmeldungOk wird zusaetzlich geloescht, wenn sich
+//       Gateway-Adresse, Port oder Pfad (SMGWHost/Port/Pfad), das Client-Zertifikat (md5 von /smgw_cert.secret
+//       plus Groesse von /smgw_key.secret, geprueft bei jeder Sitzung) oder die Identifikationsnummer aendern.
+//       Die ID wird heute nicht ans Gateway gesendet, Ruecksetzer nur vorsorglich (M2M). Sonst wie v019.
 // v019 (09.11.2026, Andreas): leseCfg() kopiert fuer takt/versatz/ftpzeit nur noch 10 Zeichen statt des ganzen
 //       Dateirests; atoi() bekam sonst 83 Zeichen und meldete beim Start "syscall 77 cut a string at 31 of 83"
 //       (harmlos, Werte stimmten). Sonst wie v018.
@@ -232,6 +236,8 @@ char gwHost[20];      // v011: aktuelle Gateway-Adresse
 char gwPfad[80];      // v011: aktueller Pfad
 int  gwPort = 443;    // v011: aktueller Port
 int  certSt = 0;      // v013: 0 = kein Zertifikat, 1 = geladen, 2 = Dateien da, aber nicht geladen
+char certFp[40];      // v020: md5 von /smgw_cert.secret beim letzten Laden (leer = keins)
+int  certKs = -1;     // v020: Groesse von /smgw_key.secret beim letzten Laden
 char certAnt[200];    // v013: Antwort von TinyCTlsCert (enthaelt nie Schluesselbytes)
 char gwIdAlt[16];     // v013: ID vor dem Neulesen
 char gwId[16];        // v012: Identifikationsnummer aus /smgw_zugang.secret Zeile 3 (leer = keine)
@@ -897,7 +903,29 @@ int anmeldenSicher() {
 // ── eine komplette Sitzung ──────────────────────────────────────────────────
 // mitTagen = fehlende ganze Tage holen, mitHeute = heutigen Tag holen
 // v013: Client-Zertifikat fuer diese Sitzung laden (oder abschalten)
+// v020: Zertifikat geaendert? -> anmeldungOk loeschen (B2 ist vor dem Abruf frei)
+void certPruefen() {
+    md_hex[0] = 0;
+    int ks = -1;
+    if (fileExists("/smgw_cert.secret") == 1 && fileExists("/smgw_key.secret") == 1) {
+        int h = fileOpen("/smgw_cert.secret", 0);
+        if (h >= 0) {
+            int n = fileRead(h, B2, 3000);
+            fileClose(h);
+            if (n > 0) { md5(B2, n, md_bin); bin2hex(md_bin, 16, md_hex); }
+            B2[0] = 0;
+        }
+        ks = fileSize("/smgw_key.secret");
+    }
+    if (strcmp(md_hex, certFp) != 0 || ks != certKs) {
+        anmeldungOk = 0;
+        scopy(certFp, md_hex);
+        certKs = ks;
+    }
+}
+
 void certLaden() {
+    certPruefen();                               // v020
     certAnt[0] = 0;
     if (fileExists("/smgw_cert.secret") == 1 && fileExists("/smgw_key.secret") == 1) {
         tasmCmd("TinyCTlsCert /smgw_cert.secret /smgw_key.secret", certAnt);
@@ -1229,7 +1257,7 @@ void TaskLoop() {
         zugNext = tasm_uptime + 60;
         scopy(zAltU, user); scopy(zAltP, pass); scopy(gwIdAlt, gwId);
         int z = leseZugang();
-        if (strcmp(zAltU, user) != 0 || strcmp(zAltP, pass) != 0) { anmeldungOk = 0; }   // v017: neue Zugangsdaten -> keine Wiederholung bis zur 1. gelungenen Anmeldung
+        if (strcmp(zAltU, user) != 0 || strcmp(zAltP, pass) != 0 || strcmp(gwIdAlt, gwId) != 0) { anmeldungOk = 0; }   // v017/v020: neue Zugangsdaten oder ID -> keine Wiederholung bis zur 1. gelungenen Anmeldung
         if (strcmp(gwIdAlt, gwId) != 0) { schreibeStatus(); }   // v013: neue Identifikationsnummer sofort im Status
         if (z == 1 && (strcmp(zAltU, user) != 0 || strcmp(zAltP, pass) != 0) && zAltU[0] != 0) {
             nextTry = 0; backoff = 3600; errText[0] = 0; errZeit[0] = 0;
@@ -1307,6 +1335,7 @@ void Command(char cmd[]) {
             if (ipOk(1) == 0) { responseCmnd("{\"SMGWHost\":\"ungueltig - erwartet a.b.c.d\"}"); return; }
             if (busy == 1) { responseCmnd("{\"SMGWHost\":\"Abruf laeuft - spaeter erneut\"}"); return; }
             scopy(gwHost, cIn);
+            anmeldungOk = 0;                 // v020: anderes Gateway -> erst wieder anmelden
             schreibeCfg();
             schreibeStatus();
             addLog("SMG: Gateway-Adresse jetzt %s", gwHost);
@@ -1322,6 +1351,7 @@ void Command(char cmd[]) {
             if (pt < 1 || pt > 65535) { responseCmnd("{\"SMGWPort\":\"ungueltig - 1..65535\"}"); return; }
             if (busy == 1) { responseCmnd("{\"SMGWPort\":\"Abruf laeuft - spaeter erneut\"}"); return; }
             gwPort = pt;
+            anmeldungOk = 0;                 // v020: anderes Gateway -> erst wieder anmelden
             schreibeCfg();
             schreibeStatus();
             addLog("SMG: Gateway-Port jetzt %d", gwPort);
@@ -1336,6 +1366,7 @@ void Command(char cmd[]) {
             if (pfadOk(1) == 0) { responseCmnd("{\"SMGWPfad\":\"ungueltig - beginnt mit /, nur a-z A-Z 0-9 / . _ - ? = &\"}"); return; }
             if (busy == 1) { responseCmnd("{\"SMGWPfad\":\"Abruf laeuft - spaeter erneut\"}"); return; }
             scopy(gwPfad, cIn);
+            anmeldungOk = 0;                 // v020: anderes Gateway -> erst wieder anmelden
             schreibeCfg();
             schreibeStatus();
             addLog("SMG: Gateway-Pfad jetzt %s", gwPfad);
@@ -1409,7 +1440,7 @@ int main() {
     leseLetzterTag();
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser v019 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
+    sprintf(X, "SMG: SMGW-Leser v020 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
     addLog(X);
     sprintf(X, "SMG: Gateway https://%s:%d%s", gwHost, gwPort, gwPfad);   // v018: eigene Zeile (Logzeilen max. 127 Zeichen)
     addLog(X);

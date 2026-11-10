@@ -41,7 +41,7 @@
 <div class="zurueck"><a href="#inhalt">&#8593; Inhalt</a></div>
 
 <h1>SMGW-Leser auf Tasmota mit TinyC</h1>
-<div class="kopf">Bau- und Bedienungsanleitung · Stand 09.11.2026 (v008) · Boards ESP32-S3-ETH oder ESP32-P4-WIFI6-POE-ETH · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v019 und <code>slot1-smgwweb</code> v009 · Seite <code>smgw.html</code> v053 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
+<div class="kopf">Bau- und Bedienungsanleitung · Stand 10.11.2026 (v009) · Boards ESP32-S3-ETH oder ESP32-P4-WIFI6-POE-ETH · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v020 und <code>slot1-smgwweb</code> v009 · Seite <code>smgw.html</code> v053 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
 
 <div class="warn"><b>Nutzung für den eigenen Verbrauch und auf eigene Verantwortung.</b>
 <ul>
@@ -59,6 +59,7 @@
   <li><code>slot0-smgw</code> v016: Lässt das Gateway eine Verbindung still fallen, wiederholt der Leser jetzt auch die <b>Anmeldung</b> einmal mit neuer Verbindung (vorher nur den Tagesabruf). Ursache belegt mit der Diagnosezeile aus v015 (Abschnitt 10).</li>
   <li><code>slot0-smgw</code> v017: Diese Wiederholung gibt es nur, wenn mit den aktuellen Zugangsdaten seit dem Start schon einmal eine Anmeldung gelungen ist. Ein falsches Passwort kostet so nie einen zweiten Versuch, auch bei einem Gateway, das darauf mit Verbindungsabbruch statt 401 antwortet (Hinweis Gerhard).</li>
   <li><code>slot0-smgw</code> v018/v019: Startmeldung im Log in zwei Zeilen (vorher bei 127 Zeichen abgeschnitten), keine Kürzungsmeldung mehr beim Einlesen der Einstellungen.</li>
+  <li><code>slot0-smgw</code> v020: Die Wiederholung der Anmeldung setzt sich auch zurück, wenn Gateway-Adresse, Port, Pfad, Client-Zertifikat oder Identifikationsnummer geändert werden (Hinweis Gerhard).</li>
   <li>Bild 1 ohne Adresse des Lesers.</li>
   <li>Seite 2: Inhaltsverzeichnis mit Links zu allen Abschnitten (v008).</li>
   <li>Neu 5.1 und 5.2: wie Seite, IDE und Skripte aufs Gerät kommen (v008).</li>
@@ -292,10 +293,10 @@ curl --data-binary @smgw.html.gz http://&lt;Gerät&gt;:83/ufs/sdfs/smgw.html.gz<
 <h3 id="k35">5.2 Skripte in die Slots laden</h3>
 <ol>
   <li>TinyC-Konsole <code>http://&lt;Gerät&gt;/tc</code> öffnen und <b>Open IDE</b> klicken (oder auf der Seite <code>/smgw</code> der Knopf „TinyC-IDE“).</li>
-  <li>In der IDE die Datei <code>slot0-smgw_v019.tc</code> öffnen. In der Geräteleiste <b>Slot 0</b> wählen und hochladen (die IDE übersetzt das Skript und lädt den Bytecode in den Slot).</li>
+  <li>In der IDE die Datei <code>slot0-smgw_v020.tc</code> öffnen. In der Geräteleiste <b>Slot 0</b> wählen und hochladen (die IDE übersetzt das Skript und lädt den Bytecode in den Slot).</li>
   <li>Genauso <code>slot1-smgwweb_v009.tc</code> in <b>Slot 1</b>.</li>
   <li>In der TinyC-Konsole <code>/tc</code> für beide Slots <b>Autostart</b> einschalten, damit sie nach einem Neustart von selbst laufen.</li>
-  <li>Prüfen im Log: <code>SMG: SMGW-Leser v019 startet …</code>, <code>SMG: Gateway https://…</code> und <code>SMG-Web: v009 bereit …</code>. In der Konsole zeigt <code>TinyC</code> beide Dateien; Slot 1 steht dabei auf <code>Running 0</code>, das ist richtig (er wartet nur auf Seitenaufrufe).</li>
+  <li>Prüfen im Log: <code>SMG: SMGW-Leser v020 startet …</code>, <code>SMG: Gateway https://…</code> und <code>SMG-Web: v009 bereit …</code>. In der Konsole zeigt <code>TinyC</code> beide Dateien; Slot 1 steht dabei auf <code>Running 0</code>, das ist richtig (er wartet nur auf Seitenaufrufe).</li>
 </ol>
 <p>Ein neues Skript ersetzt das alte im Slot; die Einstellungen (Takt, Abstand, FTP-Uhrzeit) stehen in <code>/smgw_cfg.txt</code> und bleiben erhalten, ebenso Zugangsdaten und Messwerte.</p>
 
@@ -460,7 +461,7 @@ in
 <h3 id="k24">„Fehler: keine Verbindung zum Gateway“</h3>
 <p>LAN-Kabel, LAN-Adresse (<code>Status 5</code>) und die Gateway-Adresse (Einstellungen) prüfen. Der Leser muss im selben Netz wie die HAN-Buchse sein. Der nächste Versuch kommt automatisch nach der Wartezeit.</p>
 <p>Woran es genau lag, zeigt im Log die Zeile <code>SMG: Diagnose &lt;Schritt&gt;: Stufe …</code> (ab Slot 0 v015): Stufe 1 = Verbindungsaufbau gescheitert (<code>tlsConnect</code>), 2 = Senden gescheitert, 3 = keine Antwortzeile, 4 = Antwort unvollständig. Dazu <code>neu</code> (Verbindung neu aufgebaut oder weiterverwendet), <code>stand</code> (Verbindung bestand noch), <code>vorher close</code> (die vorige Antwort hatte „Connection: close“), Status, angekündigte Länge und gelesene Bytes. Die Zeile enthält keine Zugangsdaten.</p>
-<p>Typischer Fall: <code>Stufe 3, neu 0, stand 1, vorher close 0</code> – das Gateway hat eine weiterverwendete Verbindung still geschlossen. Der Leser holt den Tag dann mit neuer Verbindung („Tag … erneut mit neuer Verbindung“), ab v016 auch die Anmeldung („Anmeldung erneut mit neuer Verbindung“; ab v017 nur, wenn seit dem Start schon eine Anmeldung gelungen ist). Beim Erstabruf am 09.11. kam das bei 283 Tagen viermal vor, alle Tage wurden geholt.</p>
+<p>Typischer Fall: <code>Stufe 3, neu 0, stand 1, vorher close 0</code> – das Gateway hat eine weiterverwendete Verbindung still geschlossen. Der Leser holt den Tag dann mit neuer Verbindung („Tag … erneut mit neuer Verbindung“), ab v016 auch die Anmeldung („Anmeldung erneut mit neuer Verbindung“; ab v017 nur, wenn seit dem Start schon eine Anmeldung gelungen ist; ab v020 gilt das nach jeder Änderung von Zugangsdaten, Gateway-Adresse oder Zertifikat wieder neu). Beim Erstabruf am 09.11. kam das bei 283 Tagen viermal vor, alle Tage wurden geholt.</p>
 <h3 id="k25">„Identifikationsnummer braucht Slot 1 v006“ bei der Ersteinrichtung</h3>
 <p>Fehler in <code>slot1-smgwweb</code> bis v008 bei noch leerem Zugang. <code>slot1-smgwweb</code> v009 laden. Umweg mit v008: erst Benutzer und Passwort speichern, Seite neu laden, dann die Identifikationsnummer.</p>
 <h3 id="k26">„Anmeldung abgelehnt – Zugangsdaten prüfen“</h3>
