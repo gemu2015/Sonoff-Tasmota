@@ -23,7 +23,7 @@
 // has to go to a free GPIO of the ESP32 that reads it (an S3 board, for instance).
 //
 // TIMING (measured, see wave_lidar_test.tc and docs/WAVE_ROVER.md): the parser is one pass over the bytes with a table CRC.
-// NOT yet tested with a real lidar (none here yet): the packet format is from the data sheet, checked with synthetic packets.
+// Real data: the packet format and the CRC were checked against a real lidar on 10.11.2026 (STL-19P on a Mac through a CP2102 adapter: 3 s = 1262 packets, 0 CRC errors, 9.92 revolutions/s, all 360 bins filled); that lidar sends about 416 packets per second (5000 points/s), the LD19 data sheet says 4500. The parser itself has not run on an ESP32 with a real lidar yet (synthetic packets: wave_lidar_test.tc).
 
 #define LID_PKT   47
 #define LID_PTS   12

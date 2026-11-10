@@ -15,7 +15,7 @@
 //
 // Without a lidar: set LIDAR_SIM to 1. A synthetic room (4 x 3 m with a pillar) turns slowly around the sensor, so the page can be tried first.
 //
-// NOT tested with a real lidar yet (none here when this was written); the parser is tested with synthetic packets (wave_lidar_test.tc).
+// The packet format and CRC were checked on real data from a lidar (see common/ld19.tc); this page and the parser have not run with a real lidar on an ESP32 yet.
 
 #include "ld19.tc"
 

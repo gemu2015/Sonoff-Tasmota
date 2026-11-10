@@ -94,7 +94,7 @@ die Motoren den Kompass stoeren (er sitzt direkt daneben: bei ausgeschalteten Mo
 `examples/common/ld19.tc` liest ein **LD19 / STL-19P / D500** von LDROBOT (360 Grad, UART 230400 Baud, Pakete zu 47 Byte, etwa 375 Pakete = 4500 Punkte pro Sekunde,
 10 Umdrehungen pro Sekunde), prueft die CRC8 und sortiert jeden Punkt in ein Ein-Grad-Fach: `lid_min(330, 30)` ist das Naechste vor dem Fahrzeug. Demo: `examples/wave_lidar.tc`. Eine 360-Grad-Radaranzeige als Webseite (`/lidar`, mit Simulationsschalter zum Ausprobieren ohne Sensor): `examples/lidar_scope.tc`.
 Selbsttest mit synthetischen Paketen: `examples/wave_lidar_test.tc` (35 Pruefungen, neun absichtliche Aenderungen am Treiber werden erkannt). Nach dem Datenblatt des LD19 geschrieben,
-**mit einem echten Lidar nicht getestet** (noch keins da).
+Am 10.11.2026 mit echten Daten geprueft (STL-19P an einem Mac: 1262 Pakete, 0 CRC-Fehler, 9,92 Umdrehungen pro Sekunde, rund 416 Pakete = 5000 Punkte pro Sekunde); **noch nicht auf einem ESP32 mit echtem Lidar gelaufen**.
 
 **Ist das in TinyC zeitkritisch? Gemessen auf einem ESP32-S3 (.190), der Parser mit 400 Paketen = 1,07 s echter Lidar-Daten gefuettert:**
 
